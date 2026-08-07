@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "FreightAudit"
+description = "Plataforma de análise, auditoria e simulação de remuneração de fretes. Permite versionar snapshots do modelo Freightec, comparar alterações entre versões, calcular impacto financeiro e simular remuneração com dados históricos de viagens."
+version = "1.0.0"
+id = "artifacts/freightaudit"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 25609
+
+[services.development]
+run = "pnpm --filter @workspace/freightaudit run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/freightaudit", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/freightaudit/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "25609"
+BASE_PATH = "/"

@@ -3,20 +3,36 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: FreightAudit API — análise, auditoria e simulação de remuneração de fretes
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: dashboard
+    description: Dashboard e resumo executivo
+  - name: snapshots
+    description: Snapshots do modelo de remuneração
+  - name: parameters
+    description: Parâmetros de remuneração
+  - name: diffs
+    description: Comparação entre snapshots
+  - name: imports
+    description: Importações de dados
+  - name: shipments
+    description: Viagens/operações realizadas
+  - name: alerts
+    description: Alertas do sistema
+  - name: simulations
+    description: Simulações de impacto financeiro
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,13 +40,1061 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # ─── DASHBOARD ───────────────────────────────────────────────────────────────
+
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Resumo executivo do dashboard
+      responses:
+        "200":
+          description: Resumo executivo
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/recent-changes:
+    get:
+      operationId: getDashboardRecentChanges
+      tags: [dashboard]
+      summary: Alterações recentes detectadas
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: number
+            default: 10
+      responses:
+        "200":
+          description: Lista de alterações recentes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DiffItem"
+
+  # ─── SNAPSHOTS ───────────────────────────────────────────────────────────────
+
+  /snapshots:
+    get:
+      operationId: listSnapshots
+      tags: [snapshots]
+      summary: Listar todos os snapshots
+      responses:
+        "200":
+          description: Lista de snapshots
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Snapshot"
+    post:
+      operationId: createSnapshot
+      tags: [snapshots]
+      summary: Criar snapshot manualmente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SnapshotInput"
+      responses:
+        "201":
+          description: Snapshot criado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Snapshot"
+
+  /snapshots/current:
+    get:
+      operationId: getCurrentSnapshot
+      tags: [snapshots]
+      summary: Obter snapshot atual (is_current = true)
+      responses:
+        "200":
+          description: Snapshot atual
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Snapshot"
+        "404":
+          description: Nenhum snapshot atual configurado
+
+  /snapshots/{id}:
+    get:
+      operationId: getSnapshot
+      tags: [snapshots]
+      summary: Obter snapshot por ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Snapshot encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Snapshot"
+        "404":
+          description: Snapshot não encontrado
+    patch:
+      operationId: updateSnapshot
+      tags: [snapshots]
+      summary: Atualizar snapshot (label, status, is_current)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SnapshotUpdate"
+      responses:
+        "200":
+          description: Snapshot atualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Snapshot"
+        "404":
+          description: Snapshot não encontrado
+
+  /snapshots/{id}/parameters:
+    get:
+      operationId: getSnapshotParameters
+      tags: [snapshots]
+      summary: Listar parâmetros de um snapshot
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: category
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Lista de parâmetros do snapshot
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Parameter"
+
+  # ─── PARAMETERS ──────────────────────────────────────────────────────────────
+
+  /parameters:
+    get:
+      operationId: listParameters
+      tags: [parameters]
+      summary: Listar parâmetros com filtros
+      parameters:
+        - name: snapshotId
+          in: query
+          schema:
+            type: string
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: parameterKey
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Lista de parâmetros
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Parameter"
+    post:
+      operationId: createParameter
+      tags: [parameters]
+      summary: Criar parâmetro manualmente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ParameterInput"
+      responses:
+        "201":
+          description: Parâmetro criado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Parameter"
+
+  # ─── DIFFS ───────────────────────────────────────────────────────────────────
+
+  /diffs:
+    get:
+      operationId: listDiffs
+      tags: [diffs]
+      summary: Listar comparações entre snapshots
+      responses:
+        "200":
+          description: Lista de diffs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SnapshotDiff"
+    post:
+      operationId: createDiff
+      tags: [diffs]
+      summary: Gerar comparação entre dois snapshots
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DiffInput"
+      responses:
+        "201":
+          description: Diff gerado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SnapshotDiff"
+        "400":
+          description: Parâmetros inválidos
+
+  /diffs/{id}:
+    get:
+      operationId: getDiff
+      tags: [diffs]
+      summary: Obter diff por ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Diff encontrado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SnapshotDiff"
+        "404":
+          description: Diff não encontrado
+
+  /diffs/{id}/items:
+    get:
+      operationId: getDiffItems
+      tags: [diffs]
+      summary: Listar itens de alteração de um diff
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: changeType
+          in: query
+          schema:
+            type: string
+        - name: changeNature
+          in: query
+          schema:
+            type: string
+        - name: severity
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Itens do diff
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/DiffItem"
+
+  # ─── IMPORTS ─────────────────────────────────────────────────────────────────
+
+  /imports:
+    get:
+      operationId: listImports
+      tags: [imports]
+      summary: Listar importações
+      responses:
+        "200":
+          description: Lista de importações
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ImportJob"
+    post:
+      operationId: createImport
+      tags: [imports]
+      summary: Criar nova importação
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ImportJobInput"
+      responses:
+        "201":
+          description: Importação criada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportJob"
+
+  /imports/{id}:
+    get:
+      operationId: getImport
+      tags: [imports]
+      summary: Obter importação por ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Importação encontrada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ImportJob"
+        "404":
+          description: Importação não encontrada
+
+  # ─── SHIPMENTS ───────────────────────────────────────────────────────────────
+
+  /shipments:
+    get:
+      operationId: listShipments
+      tags: [shipments]
+      summary: Listar viagens/operações
+      parameters:
+        - name: operationCode
+          in: query
+          schema:
+            type: string
+        - name: vehicleType
+          in: query
+          schema:
+            type: string
+        - name: dateFrom
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: dateUntil
+          in: query
+          schema:
+            type: string
+            format: date
+        - name: limit
+          in: query
+          schema:
+            type: number
+            default: 50
+      responses:
+        "200":
+          description: Lista de viagens
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Shipment"
+    post:
+      operationId: createShipment
+      tags: [shipments]
+      summary: Criar viagem manualmente
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ShipmentInput"
+      responses:
+        "201":
+          description: Viagem criada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Shipment"
+
+  /shipments/stats:
+    get:
+      operationId: getShipmentStats
+      tags: [shipments]
+      summary: Estatísticas agregadas de viagens
+      responses:
+        "200":
+          description: Estatísticas de viagens
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShipmentStats"
+
+  # ─── ALERTS ──────────────────────────────────────────────────────────────────
+
+  /alerts:
+    get:
+      operationId: listAlerts
+      tags: [alerts]
+      summary: Listar alertas do sistema
+      parameters:
+        - name: isRead
+          in: query
+          schema:
+            type: boolean
+        - name: severity
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Lista de alertas
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Alert"
+
+  /alerts/{id}:
+    patch:
+      operationId: updateAlert
+      tags: [alerts]
+      summary: Marcar alerta como lido ou dispensado
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AlertUpdate"
+      responses:
+        "200":
+          description: Alerta atualizado
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Alert"
+        "404":
+          description: Alerta não encontrado
+
+  # ─── SIMULATIONS ─────────────────────────────────────────────────────────────
+
+  /simulations:
+    get:
+      operationId: listSimulations
+      tags: [simulations]
+      summary: Listar simulações
+      responses:
+        "200":
+          description: Lista de simulações
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SimulationRun"
+    post:
+      operationId: createSimulation
+      tags: [simulations]
+      summary: Criar e executar simulação
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SimulationInput"
+      responses:
+        "201":
+          description: Simulação criada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimulationRun"
+
+  /simulations/{id}:
+    get:
+      operationId: getSimulation
+      tags: [simulations]
+      summary: Obter simulação por ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Simulação encontrada
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SimulationRun"
+        "404":
+          description: Simulação não encontrada
+
 components:
   schemas:
     HealthStatus:
       type: object
+      required: [status]
       properties:
         status:
           type: string
-      required:
-        - status
 
+    # ─── DASHBOARD ──────────────────────────────────────────────────────────────
+
+    DashboardSummary:
+      type: object
+      required:
+        - snapshotCount
+        - currentSnapshot
+        - lastImportAt
+        - recentChangesCount
+        - estimatedMonthlyImpact
+        - unreadAlertsCount
+        - shipmentCount
+      properties:
+        snapshotCount:
+          type: number
+        currentSnapshot:
+          $ref: "#/components/schemas/Snapshot"
+        lastImportAt:
+          type: ["string", "null"]
+        recentChangesCount:
+          type: number
+        estimatedMonthlyImpact:
+          type: ["number", "null"]
+          description: Impacto mensal estimado em reais (negativo = perda)
+        unreadAlertsCount:
+          type: number
+        shipmentCount:
+          type: number
+
+    # ─── SNAPSHOT ───────────────────────────────────────────────────────────────
+
+    Snapshot:
+      type: object
+      required: [id, label, snapshotDate, status, isCurrent, parameterCount, createdAt]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        snapshotDate:
+          type: string
+          format: date
+        importJobId:
+          type: ["string", "null"]
+        status:
+          type: string
+          enum: [DRAFT, ACTIVE, ARCHIVED]
+        isCurrent:
+          type: boolean
+        parameterCount:
+          type: number
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    SnapshotInput:
+      type: object
+      required: [label, snapshotDate]
+      properties:
+        label:
+          type: string
+          minLength: 1
+        snapshotDate:
+          type: string
+          format: date
+        notes:
+          type: string
+
+    SnapshotUpdate:
+      type: object
+      properties:
+        label:
+          type: string
+          minLength: 1
+        status:
+          type: string
+          enum: [DRAFT, ACTIVE, ARCHIVED]
+        isCurrent:
+          type: boolean
+        notes:
+          type: string
+
+    # ─── PARAMETER ──────────────────────────────────────────────────────────────
+
+    Parameter:
+      type: object
+      required:
+        - id
+        - snapshotId
+        - parameterKey
+        - parameterName
+        - category
+        - dataType
+        - effectiveFrom
+        - version
+        - isSuperseded
+        - createdAt
+      properties:
+        id:
+          type: string
+        snapshotId:
+          type: string
+        parameterKey:
+          type: string
+        parameterName:
+          type: string
+        category:
+          type: string
+        dataType:
+          type: string
+        unit:
+          type: ["string", "null"]
+        scopeLabel:
+          type: ["string", "null"]
+        valueNumeric:
+          type: ["number", "null"]
+        valueText:
+          type: ["string", "null"]
+        effectiveFrom:
+          type: string
+          format: date
+        effectiveUntil:
+          type: ["string", "null"]
+        version:
+          type: number
+        isSuperseded:
+          type: boolean
+        source:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    ParameterInput:
+      type: object
+      required: [snapshotId, parameterKey, parameterName, category, dataType, effectiveFrom]
+      properties:
+        snapshotId:
+          type: string
+        parameterKey:
+          type: string
+        parameterName:
+          type: string
+        category:
+          type: string
+        dataType:
+          type: string
+        unit:
+          type: string
+        valueNumeric:
+          type: number
+        valueText:
+          type: string
+        effectiveFrom:
+          type: string
+          format: date
+        effectiveUntil:
+          type: string
+        source:
+          type: string
+        notes:
+          type: string
+
+    # ─── DIFF ───────────────────────────────────────────────────────────────────
+
+    SnapshotDiff:
+      type: object
+      required:
+        - id
+        - snapshotAId
+        - snapshotBId
+        - snapshotALabel
+        - snapshotBLabel
+        - status
+        - totalAdded
+        - totalRemoved
+        - totalChanged
+        - totalUnchanged
+        - generatedAt
+      properties:
+        id:
+          type: string
+        snapshotAId:
+          type: string
+        snapshotBId:
+          type: string
+        snapshotALabel:
+          type: string
+        snapshotBLabel:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, DONE, FAILED]
+        totalAdded:
+          type: number
+        totalRemoved:
+          type: number
+        totalChanged:
+          type: number
+        totalUnchanged:
+          type: number
+        estimatedMonthlyImpact:
+          type: ["number", "null"]
+        notes:
+          type: ["string", "null"]
+        generatedAt:
+          type: string
+          format: date-time
+
+    DiffInput:
+      type: object
+      required: [snapshotAId, snapshotBId]
+      properties:
+        snapshotAId:
+          type: string
+        snapshotBId:
+          type: string
+        notes:
+          type: string
+
+    DiffItem:
+      type: object
+      required:
+        - id
+        - diffId
+        - entityType
+        - entityKey
+        - entityName
+        - changeType
+      properties:
+        id:
+          type: string
+        diffId:
+          type: string
+        entityType:
+          type: string
+          enum: [PARAMETER, TARIFF_TABLE, RULE]
+        entityKey:
+          type: string
+        entityName:
+          type: string
+        changeType:
+          type: string
+          enum: [ADDED, REMOVED, CHANGED, UNCHANGED]
+        changeNature:
+          type: ["string", "null"]
+        severity:
+          type: ["string", "null"]
+          enum: [LOW, MEDIUM, HIGH, CRITICAL, UNKNOWN, null]
+        valueBefore:
+          type: ["number", "null"]
+        valueAfter:
+          type: ["number", "null"]
+        valueBeforeText:
+          type: ["string", "null"]
+        valueAfterText:
+          type: ["string", "null"]
+        deltaAbsolute:
+          type: ["number", "null"]
+        deltaPercent:
+          type: ["number", "null"]
+        estimatedMonthlyImpact:
+          type: ["number", "null"]
+        unit:
+          type: ["string", "null"]
+        snapshotALabel:
+          type: ["string", "null"]
+        snapshotBLabel:
+          type: ["string", "null"]
+
+    # ─── IMPORT JOB ─────────────────────────────────────────────────────────────
+
+    ImportJob:
+      type: object
+      required: [id, sourceType, status, importedAt]
+      properties:
+        id:
+          type: string
+        sourceType:
+          type: string
+        filename:
+          type: ["string", "null"]
+        checksum:
+          type: ["string", "null"]
+        importedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [PENDING, PROCESSING, DONE, FAILED, SKIPPED]
+        snapshotId:
+          type: ["string", "null"]
+        rowCount:
+          type: ["number", "null"]
+        validCount:
+          type: ["number", "null"]
+        warningCount:
+          type: ["number", "null"]
+        errorCount:
+          type: ["number", "null"]
+        notes:
+          type: ["string", "null"]
+
+    ImportJobInput:
+      type: object
+      required: [sourceType]
+      properties:
+        sourceType:
+          type: string
+        filename:
+          type: string
+        notes:
+          type: string
+
+    # ─── SHIPMENT ───────────────────────────────────────────────────────────────
+
+    Shipment:
+      type: object
+      required: [id, shipmentDate, createdAt]
+      properties:
+        id:
+          type: string
+        externalId:
+          type: ["string", "null"]
+        shipmentDate:
+          type: string
+          format: date
+        operationCode:
+          type: ["string", "null"]
+        originCode:
+          type: ["string", "null"]
+        destinationCode:
+          type: ["string", "null"]
+        routeCode:
+          type: ["string", "null"]
+        vehicleType:
+          type: ["string", "null"]
+        vehicleId:
+          type: ["string", "null"]
+        distanceKm:
+          type: ["number", "null"]
+        weightKg:
+          type: ["number", "null"]
+        deliveriesCount:
+          type: ["number", "null"]
+        waitingTimeHours:
+          type: ["number", "null"]
+        actualAmountPaid:
+          type: ["number", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    ShipmentInput:
+      type: object
+      required: [shipmentDate]
+      properties:
+        externalId:
+          type: string
+        shipmentDate:
+          type: string
+          format: date
+        operationCode:
+          type: string
+        originCode:
+          type: string
+        destinationCode:
+          type: string
+        routeCode:
+          type: string
+        vehicleType:
+          type: string
+        vehicleId:
+          type: string
+        distanceKm:
+          type: number
+        weightKg:
+          type: number
+        deliveriesCount:
+          type: number
+        waitingTimeHours:
+          type: number
+        actualAmountPaid:
+          type: number
+
+    ShipmentStats:
+      type: object
+      required: [totalShipments, totalAmountPaid, avgDistanceKm, byVehicleType, byOperation]
+      properties:
+        totalShipments:
+          type: number
+        totalAmountPaid:
+          type: ["number", "null"]
+        avgDistanceKm:
+          type: ["number", "null"]
+        byVehicleType:
+          type: array
+          items:
+            type: object
+            required: [vehicleType, count, totalAmount]
+            properties:
+              vehicleType:
+                type: string
+              count:
+                type: number
+              totalAmount:
+                type: ["number", "null"]
+        byOperation:
+          type: array
+          items:
+            type: object
+            required: [operationCode, count, totalAmount]
+            properties:
+              operationCode:
+                type: string
+              count:
+                type: number
+              totalAmount:
+                type: ["number", "null"]
+
+    # ─── ALERT ──────────────────────────────────────────────────────────────────
+
+    Alert:
+      type: object
+      required: [id, alertType, severity, title, isRead, isDismissed, createdAt]
+      properties:
+        id:
+          type: string
+        alertType:
+          type: string
+        severity:
+          type: string
+          enum: [LOW, MEDIUM, HIGH, CRITICAL]
+        title:
+          type: string
+        body:
+          type: ["string", "null"]
+        estimatedImpact:
+          type: ["number", "null"]
+        isRead:
+          type: boolean
+        isDismissed:
+          type: boolean
+        createdAt:
+          type: string
+          format: date-time
+
+    AlertUpdate:
+      type: object
+      properties:
+        isRead:
+          type: boolean
+        isDismissed:
+          type: boolean
+
+    # ─── SIMULATION ─────────────────────────────────────────────────────────────
+
+    SimulationRun:
+      type: object
+      required: [id, label, snapshotAId, dateFrom, dateUntil, status, createdAt]
+      properties:
+        id:
+          type: string
+        label:
+          type: string
+        snapshotAId:
+          type: string
+        snapshotALabel:
+          type: ["string", "null"]
+        snapshotBId:
+          type: ["string", "null"]
+        snapshotBLabel:
+          type: ["string", "null"]
+        dateFrom:
+          type: string
+          format: date
+        dateUntil:
+          type: string
+          format: date
+        status:
+          type: string
+          enum: [PENDING, RUNNING, DONE, FAILED]
+        totalShipments:
+          type: ["number", "null"]
+        totalAmountA:
+          type: ["number", "null"]
+        totalAmountB:
+          type: ["number", "null"]
+        totalDelta:
+          type: ["number", "null"]
+        deltaPercent:
+          type: ["number", "null"]
+        annualizedDelta:
+          type: ["number", "null"]
+        createdAt:
+          type: string
+          format: date-time
+        completedAt:
+          type: ["string", "null"]
+
+    SimulationInput:
+      type: object
+      required: [label, snapshotAId, dateFrom, dateUntil]
+      properties:
+        label:
+          type: string
+          minLength: 1
+        snapshotAId:
+          type: string
+        snapshotBId:
+          type: string
+        dateFrom:
+          type: string
+          format: date
+        dateUntil:
+          type: string
+          format: date
