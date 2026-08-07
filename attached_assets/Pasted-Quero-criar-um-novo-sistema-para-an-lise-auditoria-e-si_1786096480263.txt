@@ -1,0 +1,918 @@
+Quero criar um novo sistema para **análise, auditoria e simulação de remuneração de fretes**.
+
+O contexto é o seguinte:
+
+Sou transportador/prestador de serviço da Ambev. A Ambev utiliza um sistema chamado **Freightec**, no qual existem regras, fórmulas, parâmetros, faixas, tabelas e centenas de variáveis utilizadas para calcular quanto será pago pelos fretes e operações realizadas.
+
+O problema principal é que esse modelo é extremamente complexo e os parâmetros podem ser alterados ao longo do tempo. Muitas vezes uma variável, regra, faixa ou valor muda sem que eu perceba imediatamente. Uma pequena alteração pode gerar impacto relevante no meu faturamento e margem.
+
+Quero construir uma plataforma independente que funcione como uma espécie de:
+
+**“Git + auditoria + simulador financeiro da remuneração de fretes.”**
+
+IMPORTANTE: neste primeiro momento, NÃO quero tentar reproduzir todo o Freightec nem construir centenas de regras sem antes entender o modelo real. Quero primeiro criar uma **fundação arquitetural robusta**, preparada para importar informações, versionar regras, identificar alterações e calcular seus impactos.
+
+## OBJETIVO CENTRAL
+
+O sistema deverá ser capaz de responder rapidamente:
+
+1. O que mudou na remuneração?
+2. Quando mudou?
+3. Qual era o valor/regra anterior?
+4. Qual é o valor/regra atual?
+5. Quem ou qual arquivo originou a alteração, quando essa informação estiver disponível?
+6. Quais operações, rotas, veículos ou tipos de serviço são afetados?
+7. Quanto eu faturaria usando a regra anterior?
+8. Quanto eu faturaria usando a regra nova?
+9. Qual é o impacto financeiro estimado:
+
+   * por viagem;
+   * por rota;
+   * por operação;
+   * por unidade;
+   * por tipo de veículo;
+   * por período;
+   * mensal;
+   * anualizado?
+10. Quais mudanças merecem atenção imediata?
+
+---
+
+# PRINCÍPIO MAIS IMPORTANTE DA ARQUITETURA
+
+**Nunca sobrescrever uma regra ou parâmetro anterior.**
+
+Toda alteração deve gerar uma nova versão.
+
+Preciso conseguir reconstruir historicamente exatamente quais regras e parâmetros estavam vigentes em determinada data.
+
+Exemplo:
+
+Pedágio adicional:
+
+Versão 1:
+R$ 120
+Vigência: 01/01/2026 até 31/03/2026
+
+Versão 2:
+R$ 105
+Vigência: a partir de 01/04/2026
+
+O sistema precisa preservar as duas versões.
+
+Quero trabalhar com o conceito de:
+
+**effective_from**
+**effective_until**
+**version**
+**created_at**
+**source**
+**import_id**
+
+Uma regra nova não apaga a anterior.
+
+---
+
+# CONCEITO CENTRAL: SNAPSHOTS
+
+Quero que cada importação ou captura do modelo de remuneração gere um **snapshot imutável**.
+
+Exemplo:
+
+Snapshot 001 — Modelo recebido em 01/07
+Snapshot 002 — Modelo recebido em 15/07
+Snapshot 003 — Modelo recebido em 01/08
+
+O sistema deverá comparar automaticamente:
+
+Snapshot 001 × Snapshot 002
+
+e produzir algo parecido com:
+
+ALTERAÇÕES DETECTADAS
+
+Parâmetro alterado:
+Diária de veículo
+R$ 850 → R$ 810
+-4,71%
+
+Faixa alterada:
+KM excedente
+R$ 2,80/km → R$ 2,65/km
+-5,36%
+
+Regra adicionada:
+Adicional de espera acima de 4 horas
+
+Regra removida:
+Adicional operação noturna
+
+Quero que essa lógica de comparação seja uma capacidade central do sistema.
+
+---
+
+# NÃO MODELAR TUDO COMO COLUNAS
+
+Como existem centenas de variáveis e o modelo poderá mudar, não quero criar uma coluna no banco para cada variável.
+
+Crie uma arquitetura extensível.
+
+Por exemplo, uma entidade conceitual semelhante a:
+
+compensation_parameters
+
+com campos como:
+
+id
+parameter_key
+parameter_name
+category
+description
+data_type
+unit
+scope_type
+scope_id
+value
+effective_from
+effective_until
+version
+source_snapshot_id
+metadata
+created_at
+
+Mas não aceite essa estrutura cegamente.
+
+Primeiro proponha o melhor modelo considerando:
+
+* PostgreSQL;
+* versionamento;
+* histórico;
+* comparação entre snapshots;
+* parâmetros numéricos;
+* percentuais;
+* faixas;
+* tabelas;
+* fórmulas;
+* condições;
+* regras compostas;
+* escopos diferentes;
+* facilidade futura de simulação.
+
+Use JSONB somente onde fizer sentido. Não quero transformar todo o banco em JSON sem estrutura.
+
+---
+
+# HIERARQUIA DE REMUNERAÇÃO
+
+A arquitetura precisa suportar regras que podem variar por diversos escopos.
+
+Exemplos:
+
+Cliente
+Contrato
+Operação
+Centro de distribuição
+Origem
+Destino
+Rota
+UF
+Cidade
+Tipo de operação
+Tipo de veículo
+Perfil do veículo
+Produto
+Faixa de distância
+Faixa de peso
+Faixa de volume
+Dia da semana
+Horário
+Safra/período
+Tipo de entrega
+Quantidade de entregas
+Quantidade de quilômetros
+Tempo de espera
+Quantidade de ajudantes
+
+E outros escopos futuros.
+
+Não quero engessar o sistema assumindo que todas as regras serão por rota.
+
+---
+
+# MOTOR DE REGRAS
+
+Prepare a arquitetura para futuramente termos regras do tipo:
+
+SE
+tipo_veiculo = "Carreta"
+E
+distancia > 300 km
+
+ENTÃO
+remuneração = valor_base + km_excedente × tarifa_km
+
+Outro exemplo:
+
+SE
+tempo_espera > 4 horas
+
+ENTÃO
+adicionar R$ X por hora adicional
+
+Outro:
+
+SE
+rota = A → B
+E veículo = truck
+
+ENTÃO
+valor fixo = R$ X
+
+Não precisamos construir um motor de regras sofisticado completo nesta primeira entrega.
+
+Mas a modelagem precisa permitir chegar nele sem reconstruir o banco depois.
+
+Separe conceitualmente:
+
+**parâmetro**
+de
+**regra**
+de
+**fórmula**
+de
+**faixa**
+de
+**tabela tarifária**.
+
+---
+
+# DADOS OPERACIONAIS
+
+Além das regras de remuneração, teremos dados das viagens/operações realmente realizadas.
+
+Exemplo conceitual:
+
+shipments / trips
+
+id
+external_id
+date
+origin
+destination
+route
+vehicle_type
+vehicle
+driver
+distance_km
+weight
+volume
+deliveries_count
+waiting_time
+operation
+distribution_center
+actual_amount_paid
+metadata
+
+Esses dados servirão para reconstruir e simular remuneração.
+
+Também quero preservar o dado original importado.
+
+---
+
+# ENGINE DE SIMULAÇÃO
+
+Essa será uma das capacidades mais importantes do produto.
+
+Quero futuramente selecionar:
+
+Modelo anterior:
+Snapshot 034
+
+Modelo novo:
+Snapshot 035
+
+Período analisado:
+01/07/2026 a 31/07/2026
+
+E o sistema recalcular as MESMAS viagens usando os dois modelos.
+
+Resultado:
+
+Modelo anterior:
+R$ 4.830.000
+
+Modelo novo:
+R$ 4.611.000
+
+Impacto:
+-R$ 219.000/mês
+-4,53%
+
+Anualizado:
+-R$ 2.628.000
+
+Além disso, quero decomposição do impacto.
+
+Exemplo:
+
+Mudança | Impacto mensal
+
+Tarifa KM: -R$ 96.000
+Diária veículo: -R$ 71.000
+Adicional espera: +R$ 22.000
+Alteração rota X: -R$ 53.000
+Outros: -R$ 21.000
+
+TOTAL: -R$ 219.000
+
+Isso é extremamente importante:
+
+Não quero apenas saber que o resultado mudou.
+
+Quero descobrir **QUAL alteração provocou QUAL parcela do impacto financeiro**.
+
+Pense desde já em como criar uma arquitetura que futuramente permita análise de contribuição/decomposição do impacto.
+
+---
+
+# IMPACTO POR SEGMENTO
+
+Toda análise deverá permitir drill-down.
+
+Exemplo:
+
+Impacto total:
+-R$ 219 mil
+
+Por operação:
+
+Recife: -R$ 110 mil
+Jaboatão: -R$ 61 mil
+Caruaru: -R$ 48 mil
+
+Por veículo:
+
+Carreta: -R$ 121 mil
+Truck: -R$ 73 mil
+Toco: -R$ 25 mil
+
+Por rota:
+
+Rota A: -R$ 52 mil
+Rota B: -R$ 39 mil
+Rota C: +R$ 8 mil
+
+Quero uma arquitetura analítica que facilite essas decomposições.
+
+---
+
+# VARIAÇÃO REAL × SIMULADA
+
+Quero futuramente três números para cada viagem:
+
+**Valor esperado segundo nosso modelo**
+**Valor efetivamente pago**
+**Diferença**
+
+Exemplo:
+
+Esperado:
+R$ 1.842
+
+Pago:
+R$ 1.713
+
+Diferença:
+-R$ 129
+
+Isso permitirá detectar:
+
+* possíveis divergências;
+* regras que não modelamos;
+* erros de pagamento;
+* mudanças ainda não identificadas;
+* exceções operacionais.
+
+Crie o banco preparado para armazenar esses resultados sem destruir o dado original.
+
+---
+
+# IMPORTAÇÕES
+
+Não sabemos ainda como obteremos os dados do Freightec.
+
+Pode ser:
+
+CSV
+Excel
+PDF
+Exportação do sistema
+API
+Arquivo enviado pelo cliente
+Digitação manual
+Captura de tela
+Relatório estruturado
+Banco de dados
+Outro formato
+
+Por isso crie desde o início uma camada de importação.
+
+Algo semelhante a:
+
+imports
+
+id
+source_type
+filename
+checksum
+imported_at
+status
+snapshot_id
+row_count
+metadata
+
+Quero preservar o arquivo/origem e sua rastreabilidade.
+
+O mesmo arquivo não deve ser processado duas vezes inadvertidamente.
+
+Considere checksum/hash para idempotência.
+
+---
+
+# STAGING
+
+Não importe dados externos diretamente para as tabelas finais.
+
+Quero uma arquitetura:
+
+ARQUIVO / FONTE
+↓
+RAW
+↓
+STAGING
+↓
+NORMALIZAÇÃO
+↓
+VALIDAÇÃO
+↓
+MODELO CANÔNICO
+↓
+SNAPSHOT
+
+Assim conseguimos investigar problemas de importação posteriormente.
+
+---
+
+# QUALIDADE DOS DADOS
+
+Uma importação poderá gerar:
+
+válidos
+inválidos
+avisos
+duplicidades
+valores desconhecidos
+parâmetros novos
+
+Quero relatório de importação.
+
+Exemplo:
+
+12.482 registros importados
+12.430 válidos
+31 avisos
+21 erros
+
+E possibilidade de inspecionar os erros.
+
+Nunca descarte silenciosamente informações.
+
+---
+
+# AUDITORIA
+
+Toda informação crítica precisa ser auditável.
+
+Quero saber:
+
+quem importou;
+quando importou;
+qual era o arquivo;
+qual era o checksum;
+qual snapshot nasceu daquele arquivo;
+qual parâmetro foi criado;
+qual parâmetro mudou;
+qual versão anterior;
+qual versão nova.
+
+Nenhuma alteração financeira relevante pode desaparecer do histórico.
+
+---
+
+# CLASSIFICAÇÃO DAS ALTERAÇÕES
+
+Quando dois snapshots forem comparados, classifique mudanças como:
+
+ADDED
+REMOVED
+CHANGED
+UNCHANGED
+
+Quando possível, classifique também a natureza:
+
+PRICE_CHANGE
+FORMULA_CHANGE
+RANGE_CHANGE
+CONDITION_CHANGE
+SCOPE_CHANGE
+NEW_RULE
+REMOVED_RULE
+UNKNOWN
+
+Prepare o sistema para futuramente atribuir severidade:
+
+LOW
+MEDIUM
+HIGH
+CRITICAL
+
+A severidade não deve ser determinada somente pelo percentual da mudança.
+
+Uma alteração de 1% que afeta R$ 5 milhões pode ser mais importante que uma alteração de 20% que afeta R$ 2 mil.
+
+Portanto quero futuramente:
+
+**severidade baseada em impacto financeiro estimado.**
+
+---
+
+# DASHBOARD INICIAL
+
+Crie uma primeira interface simples, elegante e executiva.
+
+Página inicial:
+
+## REMUNERAÇÃO
+
+Cards:
+
+Modelo atual
+Última atualização
+Alterações desde o modelo anterior
+Impacto mensal estimado
+
+Depois:
+
+### Alterações recentes
+
+Exemplo:
+
+DIÁRIA DE VEÍCULO
+R$ 850 → R$ 810
+Impacto estimado: -R$ 71 mil/mês
+
+KM EXCEDENTE
+R$ 2,80 → R$ 2,65
+Impacto estimado: -R$ 96 mil/mês
+
+ADICIONAL DE ESPERA
+Nova regra
+Impacto estimado: +R$ 22 mil/mês
+
+Cada alteração deve ser clicável.
+
+---
+
+# TELA DE ALTERAÇÕES
+
+Criar tela:
+
+**Alterações**
+
+Filtros:
+
+Período
+Snapshot
+Categoria
+Operação
+Tipo de alteração
+Severidade
+
+Tabela:
+
+Alteração
+Valor anterior
+Valor novo
+Variação %
+Vigência
+Impacto estimado
+Status
+
+Ao clicar:
+
+mostrar detalhes completos.
+
+---
+
+# TELA DE COMPARAÇÃO
+
+Criar estrutura para:
+
+**Comparar modelos**
+
+Modelo A:
+[selecionar snapshot]
+
+Modelo B:
+[selecionar snapshot]
+
+Resultado:
+
+parâmetros adicionados
+parâmetros removidos
+parâmetros alterados
+parâmetros iguais
+
+Impacto estimado.
+
+---
+
+# TELA DE SIMULAÇÃO
+
+Preparar a rota e a arquitetura da tela, mesmo que a primeira versão ainda use mocks/dados simples.
+
+Filtros:
+
+Modelo atual
+Modelo alternativo
+Período
+Operação
+Rota
+Veículo
+
+Resultado:
+
+Receita modelo atual
+Receita modelo alternativo
+Variação absoluta
+Variação percentual
+
+E principais causas da diferença.
+
+---
+
+# ALERTAS
+
+Prepare a arquitetura para futuramente criar alertas.
+
+Exemplos:
+
+“Tarifa KM sofreu redução de 5,3%.”
+
+“Nova tabela de remuneração detectada.”
+
+“Alterações detectadas com impacto estimado de -R$ 184 mil/mês.”
+
+“Pagamento de 47 viagens diverge do valor esperado em mais de 5%.”
+
+Não é necessário implementar WhatsApp/e-mail agora, mas a arquitetura deve permitir isso.
+
+---
+
+# CONCEITOS QUE NÃO DEVEM SER CONFUNDIDOS
+
+Quero separação clara entre:
+
+Dado operacional realizado
+Regra de remuneração
+Versão da regra
+Snapshot do modelo
+Valor calculado
+Valor efetivamente pago
+Simulação
+Diferença
+Impacto financeiro
+Alteração detectada
+
+Não junte tudo numa tabela genérica.
+
+---
+
+# ARQUITETURA
+
+Use:
+
+Frontend:
+React + TypeScript
+
+Backend:
+Node.js + TypeScript
+
+Banco:
+PostgreSQL
+
+ORM:
+pode utilizar Drizzle ORM caso seja adequado ao ambiente Replit.
+
+Crie organização modular.
+
+Exemplo conceitual:
+
+/modules
+/imports
+/compensation
+/rules
+/snapshots
+/changes
+/operations
+/simulation
+/reconciliation
+/analytics
+
+Não precisa seguir exatamente esses nomes se encontrar arquitetura melhor.
+
+---
+
+# REQUISITOS NÃO FUNCIONAIS
+
+Quero:
+
+TypeScript estrito;
+migrations;
+constraints;
+foreign keys;
+índices;
+transações;
+idempotência;
+validação de entrada;
+logs estruturados;
+tratamento explícito de erros;
+testes;
+arquitetura fácil de evoluir.
+
+Valores monetários:
+
+NUNCA utilizar float para dinheiro.
+
+Usar numeric/decimal ou inteiro em centavos, dependendo da decisão arquitetural.
+
+Datas de vigência também precisam ser tratadas corretamente.
+
+---
+
+# TESTES IMPORTANTES
+
+Desde a fundação, escreva testes para:
+
+1. importar um snapshot;
+2. importar novamente o mesmo arquivo sem duplicar;
+3. comparar dois snapshots;
+4. detectar parâmetro novo;
+5. detectar parâmetro removido;
+6. detectar alteração de valor;
+7. preservar versão histórica;
+8. consultar regra vigente em determinada data;
+9. não permitir sobrescrever histórico;
+10. garantir cálculo monetário sem erro de ponto flutuante.
+
+---
+
+# DADOS DEMONSTRATIVOS
+
+Como ainda não temos os dados reais do Freightec, crie uma pequena massa fictícia claramente identificada como DEMO.
+
+Exemplo:
+
+Operação Recife
+Operação Jaboatão
+
+Veículos:
+Truck
+Carreta
+
+Parâmetros:
+
+Diária de veículo
+Tarifa KM
+KM excedente
+Adicional de espera
+Adicional de entrega
+
+Crie dois snapshots fictícios, com algumas alterações entre eles, para demonstrar a experiência inteira.
+
+Exemplo:
+
+SNAPSHOT A
+
+Diária: R$ 850
+KM: R$ 2,80
+Espera: R$ 45/h
+
+SNAPSHOT B
+
+Diária: R$ 810
+KM: R$ 2,65
+Espera: R$ 55/h
+
+O sistema deverá conseguir mostrar automaticamente as diferenças.
+
+---
+
+# NÃO FAÇA AINDA
+
+Não tente:
+
+* reproduzir todo o Freightec;
+* inventar regras reais da Ambev;
+* assumir como funciona o cálculo da Ambev;
+* criar centenas de campos fictícios;
+* criar uma IA antes de existir um modelo de dados consistente;
+* escrever scraping do Freightec sem sabermos se haverá acesso permitido;
+* misturar regra, parâmetro e viagem na mesma entidade;
+* apagar versões anteriores quando ocorrer uma alteração.
+
+Se alguma regra real não for conhecida, trate-a explicitamente como desconhecida.
+
+---
+
+# PRIMEIRA ENTREGA
+
+Antes de começar a construir dezenas de telas, quero que você faça nesta ordem:
+
+### ETAPA 1 — Análise e arquitetura
+
+Explique:
+
+1. modelo de domínio;
+2. entidades principais;
+3. relacionamento entre elas;
+4. estratégia de versionamento;
+5. estratégia de snapshots;
+6. como detectar alterações;
+7. como futuramente calcular impacto financeiro;
+8. como tratar regras/fórmulas complexas;
+9. como importar dados heterogêneos;
+10. principais riscos arquiteturais.
+
+### ETAPA 2 — Schema
+
+Proponha o schema PostgreSQL/Drizzle.
+
+Quero revisar antes de aceitar uma modelagem ruim.
+
+### ETAPA 3 — Fundação
+
+Depois implemente:
+
+* banco;
+* migrations;
+* backend;
+* importação DEMO;
+* snapshots;
+* diff de snapshots;
+* API;
+* testes.
+
+### ETAPA 4 — Interface
+
+Construa:
+
+* Dashboard;
+* Snapshots;
+* Alterações;
+* Comparação;
+* estrutura inicial da Simulação.
+
+---
+
+# VISÃO DE LONGO PRAZO
+
+Quero que esse sistema evolua para se tornar meu **radar econômico do contrato de transporte**.
+
+Eu deveria conseguir abrir o sistema e descobrir imediatamente:
+
+**“A remuneração mudou?”**
+
+**“Onde mudou?”**
+
+**“Quanto isso vai me custar?”**
+
+**“Qual operação vai sofrer mais?”**
+
+**“Qual regra provocou o impacto?”**
+
+**“O que eu deveria questionar ou negociar com o cliente?”**
+
+No futuro, quero inclusive poder simular cenários de negociação:
+
+“Se a tarifa KM voltar para R$ X, qual será o impacto?”
+
+“Se a diária subir 3%, quanto representa?”
+
+“Qual parâmetro preciso renegociar para recuperar R$ 200 mil/mês?”
+
+Portanto construa a fundação pensando em **auditoria, versionamento, comparação, simulação e inteligência financeira**, e não simplesmente em cadastrar tabelas de frete.
+
+Comece pela arquitetura.
+
+Não implemente uma solução inteira baseada em suposições antes de me mostrar o modelo de domínio e os principais trade-offs.
