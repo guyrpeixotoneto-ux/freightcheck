@@ -11,6 +11,7 @@ import Alteracoes from '@/pages/alteracoes';
 import Comparar from '@/pages/comparar';
 import Simulacao from '@/pages/simulacao';
 import Importacoes from '@/pages/importacoes';
+import ApresentacaoVideo from '@/components/video/ApresentacaoVideo';
 
 const queryClient = new QueryClient();
 
@@ -18,6 +19,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
+      <Route path="/apresentacao" component={ApresentacaoVideo} />
       <Route path="/snapshots" component={SnapshotsList} />
       <Route path="/snapshots/:id" component={SnapshotDetail} />
       <Route path="/alteracoes" component={Alteracoes} />
