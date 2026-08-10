@@ -23,7 +23,7 @@ import {
 } from "@/components/changes/change-table";
 
 /**
- * Comparar — quaisquer duas vigências, escolhidas por você.
+ * Comparar Vigências — duas quaisquer, escolhidas por você.
  *
  * A mesma tabela de Alterações, com o par definido à mão em vez de "a última
  * contra a anterior".
@@ -116,7 +116,7 @@ export default function Comparar() {
       <header className="border-b bg-card px-8 py-6">
         <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
           <GitCompareArrows className="w-6 h-6 text-primary" />
-          Comparar Modelos
+          Comparar Vigências
         </h1>
         <p className="text-muted-foreground mt-1">
           Duas vigências quaisquer, comparadas pela identidade do ativo e do
@@ -125,14 +125,14 @@ export default function Comparar() {
 
         <div className="flex flex-wrap items-end gap-3 mt-6">
           <SnapshotPicker
-            label="Modelo anterior"
+            label="Vigência anterior"
             value={aId}
             onChange={setAId}
             snapshots={snapshots}
           />
           <ArrowRight className="w-5 h-5 text-muted-foreground mb-2.5" />
           <SnapshotPicker
-            label="Modelo novo"
+            label="Vigência nova"
             value={bId}
             onChange={setBId}
             snapshots={snapshots}

@@ -82,14 +82,16 @@ export function ImpactCell({ row }: { row: ChangeRow }) {
     return (
       <span
         className={cn(
-          "font-mono tabular-nums font-medium",
+          // whitespace-nowrap: a minus sign wrapping onto its own line turns
+          // "-R$ 7.700,16" into something that reads as a positive figure.
+          "font-mono tabular-nums font-medium whitespace-nowrap",
           row.impactAmount < 0 ? "text-red-700" : "text-emerald-700",
         )}
         title={row.impactReason ?? undefined}
       >
         {brl(row.impactAmount)}
         {row.impactPeriodicity && (
-          <span className="text-muted-foreground font-normal">
+          <span className="text-muted-foreground font-normal whitespace-nowrap">
             {" "}
             /{row.impactPeriodicity.toLowerCase()}
           </span>
@@ -224,7 +226,7 @@ export function ChangeTable({ rows, total }: { rows: ChangeRow[]; total: number 
                     </>
                   )}
                 </td>
-                <td className="px-4 py-2 text-right">
+                <td className="px-4 py-2 text-right whitespace-nowrap">
                   <ImpactCell row={row} />
                 </td>
                 <td className="px-4 py-2">
