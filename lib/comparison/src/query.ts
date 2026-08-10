@@ -59,6 +59,10 @@ export interface ChangeRow {
   costClass: string | null;
   taxonomyName: string | null;
   semanticsStatus: string | null;
+  semanticsVersionA: number | null;
+  semanticsVersionB: number | null;
+  /** Desde quando a versão nova vale. Só preenchido quando houve versão. */
+  semanticsEffectiveFrom: string | null;
 }
 
 function buildWhere(changeSetId: string | string[], f: ChangeFilters): SQL {
@@ -140,6 +144,16 @@ export async function listChanges(
       costClass: changeTable.costClass,
       taxonomyName: changeTable.taxonomyName,
       semanticsStatus: changeTable.semanticsStatus,
+      semanticsVersionA: changeTable.semanticsVersionA,
+      semanticsVersionB: changeTable.semanticsVersionB,
+      // "Desde quando" vem da própria versão, não de uma cópia: se a data for
+      // corrigida, a tela passa a mostrar a corrigida.
+      semanticsEffectiveFrom: sql<string | null>`(
+        SELECT v.effective_from::text FROM attribute_semantics v
+         WHERE v.attribute_id = ${changeTable.attributeId}
+           AND v.version = ${changeTable.semanticsVersionB}
+         LIMIT 1
+      )`,
     })
     .from(changeTable)
     .where(where)

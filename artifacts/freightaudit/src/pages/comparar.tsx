@@ -108,8 +108,10 @@ export default function Comparar() {
     enabled: set !== null,
   });
 
-  const label = (id: string) =>
-    snapshots.find((s) => s.id === id)?.sourceLabel ?? "—";
+  const label = (id: string) => {
+    const s = snapshots.find((x) => x.id === id);
+    return s ? `${s.entityTypeSet} · ${s.sourceLabel}` : "—";
+  };
 
   return (
     <Layout>
@@ -242,7 +244,11 @@ function SnapshotPicker({
         <SelectContent>
           {snapshots.map((s) => (
             <SelectItem key={s.id} value={s.id}>
-              {s.sourceLabel} · {s.effectiveDate} · {s.entityCount} ativos
+              {/* A série entra no rótulo porque carreta e cavalo usam o mesmo
+                  nome de vigência: sem isso não há como escolher, e dá para
+                  pedir uma comparação entre séries que o motor vai recusar. */}
+              {s.entityTypeSet.replace("+", "·")} · {s.sourceLabel} ·{" "}
+              {s.entityCount} ativos
             </SelectItem>
           ))}
         </SelectContent>

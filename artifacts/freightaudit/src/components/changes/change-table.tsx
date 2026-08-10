@@ -37,6 +37,9 @@ export interface ChangeRow {
   costClass: string | null;
   taxonomyName: string | null;
   semanticsStatus: string | null;
+  semanticsVersionA: number | null;
+  semanticsVersionB: number | null;
+  semanticsEffectiveFrom: string | null;
 }
 
 export interface Breakdown {
@@ -128,6 +131,10 @@ function NatureBadge({ row }: { row: ChangeRow }) {
     ENTITY_REMOVED: { label: "ativo saiu", className: "bg-red-100 text-red-900 border-red-300" },
     ATTRIBUTE_ADDED: { label: "coluna nova", className: "bg-emerald-100 text-emerald-900 border-emerald-300" },
     ATTRIBUTE_REMOVED: { label: "coluna removida", className: "bg-red-100 text-red-900 border-red-300" },
+    SEMANTICS_CHANGED: {
+      label: "significado mudou",
+      className: "bg-violet-100 text-violet-900 border-violet-300",
+    },
   };
   const byType = map[row.changeType];
   if (byType) {
@@ -144,12 +151,30 @@ function NatureBadge({ row }: { row: ChangeRow }) {
     DISAPPEARED: "deixou de existir",
     NULL_REASON: "motivo da ausência",
     TYPE_CHANGE: "mudou de tipo",
+    SEMANTICS_DRIFT: "significado mudou",
+    UNIT: "unidade",
+    PERIODICITY: "periodicidade",
+    AGGREGATION: "agregação",
+    IS_MONETARY: "natureza",
+    CALCULATION_BASIS: "base de cálculo",
   };
   return (
     <Badge variant="outline" className="text-muted-foreground font-normal">
       {natures[row.nature ?? ""] ?? row.nature ?? "—"}
     </Badge>
   );
+}
+
+const NATURE_LABELS: Record<string, string> = {
+  UNIT: "unidade",
+  PERIODICITY: "periodicidade",
+  AGGREGATION: "agregação",
+  IS_MONETARY: "natureza monetária",
+  CALCULATION_BASIS: "base de cálculo",
+};
+
+function natureLabel(nature: string | null) {
+  return NATURE_LABELS[nature ?? ""] ?? nature ?? "";
 }
 
 export function ChangeTable({ rows, total }: { rows: ChangeRow[]; total: number }) {
@@ -186,6 +211,10 @@ export function ChangeTable({ rows, total }: { rows: ChangeRow[]; total: number 
                 className={cn(
                   "border-b hover:bg-muted/40 cursor-pointer",
                   row.comparability === "INCONCLUSIVE" && "bg-amber-50/50",
+                  // Mudança de significado não é uma linha entre outras: ela é
+                  // a razão de várias outras estarem bloqueadas.
+                  row.category === "SEMANTICS_CHANGE" &&
+                    "bg-violet-50 border-l-4 border-l-violet-500",
                 )}
                 onClick={() => setExpanded(expanded === row.id ? null : row.id)}
               >
@@ -201,6 +230,17 @@ export function ChangeTable({ rows, total }: { rows: ChangeRow[]; total: number 
                     {row.attributeCode ?? "—"}
                   </div>
                   <div className="font-medium">{row.attributeName ?? "—"}</div>
+                  {row.category === "SEMANTICS_CHANGE" && (
+                    <div className="text-xs text-violet-800 mt-0.5">
+                      {natureLabel(row.nature)}
+                      {row.semanticsEffectiveFrom && (
+                        <> · desde {row.semanticsEffectiveFrom}</>
+                      )}
+                      {row.semanticsVersionA !== null && (
+                        <> · v{row.semanticsVersionA} → v{row.semanticsVersionB}</>
+                      )}
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-2 text-right font-mono tabular-nums">
                   {row.valueBefore ?? <span className="text-muted-foreground italic">—</span>}
@@ -276,6 +316,34 @@ function ChangeDetail({ row }: { row: ChangeRow }) {
 
   return (
     <div className="space-y-3 text-sm">
+      {row.category === "SEMANTICS_CHANGE" && (
+        <div className="rounded-md border-l-4 border-violet-500 bg-violet-50 px-3 py-2 text-violet-900">
+          <strong className="text-xs uppercase tracking-wide block mb-1">
+            A Freightec mudou o significado desta coluna
+          </strong>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
+            <div className="rounded border bg-white/70 px-3 py-2">
+              <div className="text-xs uppercase tracking-wide opacity-70">
+                antes {row.semanticsVersionA && `(versão ${row.semanticsVersionA})`}
+              </div>
+              <div className="font-mono">{row.valueBefore ?? "—"}</div>
+            </div>
+            <div className="rounded border bg-white/70 px-3 py-2">
+              <div className="text-xs uppercase tracking-wide opacity-70">
+                agora {row.semanticsVersionB && `(versão ${row.semanticsVersionB})`}
+                {row.semanticsEffectiveFrom && `, desde ${row.semanticsEffectiveFrom}`}
+              </div>
+              <div className="font-mono">{row.valueAfter ?? "—"}</div>
+            </div>
+          </div>
+          <p className="mt-2">
+            Enquanto essa diferença existir entre as duas vigências, os valores
+            deste atributo <strong>não são comparáveis</strong>: a diferença
+            numérica mediria a troca de regra, não o custo.
+          </p>
+        </div>
+      )}
+
       {row.inconclusiveReason && (
         <div className="rounded-md border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-amber-900">
           <strong className="text-xs uppercase tracking-wide block mb-0.5">
@@ -406,6 +474,7 @@ export function FilterBar({
             ["ENTITY_REMOVED", "ativo saiu"],
             ["ATTRIBUTE_ADDED", "coluna nova"],
             ["ATTRIBUTE_REMOVED", "coluna removida"],
+            ["SEMANTICS_CHANGED", "significado mudou"],
           ].map(([value, label]) => (
             <Chip
               key={value}

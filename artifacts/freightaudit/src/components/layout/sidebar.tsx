@@ -6,6 +6,7 @@ import {
   Database,
   FileDown,
   FileSearch,
+  GitBranch,
   GitCompareArrows,
   LayoutDashboard,
   Lock,
@@ -65,7 +66,10 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     title: "O que significa",
-    items: [{ href: "/curadoria", label: "Curadoria", icon: FileSearch }],
+    items: [
+      { href: "/curadoria", label: "Curadoria", icon: FileSearch },
+      { href: "/versoes", label: "Versões", icon: GitBranch },
+    ],
   },
   {
     title: "Quanto custa",
