@@ -163,7 +163,23 @@ if (!url) {
     if (code === null) {
       erro(`${caminho}: não respondeu (${corpo}).`);
     } else if (code === 502 || code === 503 || code === 504) {
-      erro(`${caminho}: ${code} — o roteador não achou ninguém na porta de destino.`);
+      // Um 503 com `error` em JSON é o explicador do próprio projeto, ocupando
+      // a porta para dizer por que a API não está nela. A razão dele vale mais
+      // do que qualquer frase que este script inventasse.
+      let razao = null;
+      try {
+        razao = JSON.parse(corpo).error;
+      } catch {
+        // Corpo vazio ou HTML: veio de uma camada antes da nossa.
+      }
+      if (razao) {
+        erro(`${caminho}: ${code} — a API não está servindo, e diz por quê:`);
+        nota(razao);
+      } else {
+        erro(
+          `${caminho}: ${code} — o roteador não achou ninguém na porta de destino.`,
+        );
+      }
     } else if (code >= 400) {
       erro(`${caminho}: ${code} — ${corpo.slice(0, 120)}`);
     } else if (caminho === "/api/imports" && corpo.trim().startsWith("<")) {
