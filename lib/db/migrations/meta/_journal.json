@@ -1,0 +1,20 @@
+{
+  "version": "7",
+  "dialect": "postgresql",
+  "entries": [
+    {
+      "idx": 0,
+      "version": "7",
+      "when": 1786368655946,
+      "tag": "0000_freightcheck_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1786368656946,
+      "tag": "0001_immutability_guards",
+      "breakpoints": true
+    }
+  ]
+}
