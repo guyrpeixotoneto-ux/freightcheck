@@ -133,6 +133,47 @@ export async function resolveSemanticsAt(
   return map;
 }
 
+export interface VersionedAttributeRow extends Record<string, unknown> {
+  code: string;
+  sourceName: string;
+  entityType: string;
+  versions: number;
+  currentStatus: string;
+  currentPeriodicity: string | null;
+  currentUnit: string | null;
+  isMonetary: boolean | null;
+  calculationBasis: string | null;
+  /** True when the source has changed this column's meaning at least once. */
+  hasSourceChange: boolean;
+}
+
+/** Attributes with their version count — the list the versions screen opens on. */
+export async function listVersionedAttributes(
+  db: Database,
+): Promise<VersionedAttributeRow[]> {
+  const { rows } = await db.execute<VersionedAttributeRow>(sql`
+    SELECT a.code,
+           a.source_name              AS "sourceName",
+           a.entity_type              AS "entityType",
+           count(v.id)::int           AS versions,
+           a.semantics_status::text   AS "currentStatus",
+           a.periodicity::text        AS "currentPeriodicity",
+           a.unit::text               AS "currentUnit",
+           a.is_monetary              AS "isMonetary",
+           max(v.calculation_basis) FILTER (WHERE v.effective_until IS NULL)
+                                      AS "calculationBasis",
+           bool_or(v.change_origin = 'SOURCE_SEMANTICS_CHANGE') AS "hasSourceChange"
+      FROM attribute a
+      LEFT JOIN attribute_semantics v ON v.attribute_id = a.id
+     GROUP BY a.id, a.code, a.source_name, a.entity_type,
+              a.semantics_status, a.periodicity, a.unit, a.is_monetary
+     ORDER BY bool_or(v.change_origin = 'SOURCE_SEMANTICS_CHANGE') DESC,
+              count(v.id) DESC,
+              a.code
+  `);
+  return rows;
+}
+
 /** Every version of one attribute, oldest first. */
 export async function getSemanticsHistory(
   db: Database,

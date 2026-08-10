@@ -4,6 +4,7 @@ import fleetAnalysisRouter from "./fleet-analysis";
 import curationRouter from "./curation";
 import changesRouter from "./changes";
 import overviewRouter from "./overview";
+import versionsRouter from "./versions";
 
 /**
  * F0/F1 surface.
@@ -26,5 +27,6 @@ router.use(fleetAnalysisRouter);
 router.use(curationRouter);
 router.use(changesRouter);
 router.use(overviewRouter);
+router.use(versionsRouter);
 
 export default router;
