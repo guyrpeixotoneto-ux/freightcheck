@@ -1,44 +1,90 @@
-# [Project name]
+# FreightCheck
 
-_Replace the heading above with the project's name, and this line with one sentence describing what this app does for users._
+Audita os modelos de remuneração que a Ambev entrega pelo Freightec, mostrando o
+que mudou entre vigências e quanto isso custa — sem nunca exibir um número que
+não consiga sustentar até a célula da planilha de origem.
 
 ## Run & Operate
 
-- `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
-- `pnpm run typecheck` — full typecheck across all packages
-- `pnpm run build` — typecheck + build all packages
-- `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
-- `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string
+- **Botão Run do Replit** — sobe a interface e o api-server juntos, com `PORT` e
+  `DATABASE_URL` injetados. É o caminho normal.
+- `pnpm --filter @workspace/api-server run dev` — build + start do api-server.
+  Exige `PORT` no ambiente (o workflow do Replit usa 5000).
+- `pnpm run typecheck` — typecheck de todos os pacotes
+- `pnpm run build` — typecheck + build de todos os pacotes
+- `pnpm --filter @workspace/db run push` — aplica o schema (dev)
+- `pnpm --filter @workspace/db exec drizzle-kit migrate` — aplica as migrations
+- `pnpm dev:seed` — ferramenta de desenvolvimento; **não** é o caminho do produto
+- Env obrigatórias: `DATABASE_URL`; `PORT` para o api-server
+
+Importar planilha é feito **pela interface**, em Importações. Nenhum passo do
+produto depende de terminal.
 
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
-- API: Express 5
-- DB: PostgreSQL + Drizzle ORM
-- Validation: Zod (`zod/v4`), `drizzle-zod`
-- API codegen: Orval (from OpenAPI spec)
-- Build: esbuild (CJS bundle)
+- API: Express 5 + pino, empacotado com esbuild
+- DB: PostgreSQL 16 + Drizzle ORM
+- UI: React + wouter + TanStack Query + shadcn/ui + Tailwind
+- Testes: Vitest; verificação de navegador com Playwright
 
 ## Where things live
 
-_Populate as you build — short repo map plus pointers to the source-of-truth file for DB schema, API contracts, theme files, etc._
+- `lib/db` — schema e migrations (fonte da verdade do modelo)
+- `lib/ingest` — recebimento do arquivo, RAW, staging, promoção
+- `lib/curation` — semântica dos atributos, taxonomia, confirmações humanas
+- `lib/comparison` — motor de alterações, visão consolidada
+- `artifacts/api-server` — HTTP
+- `artifacts/freightaudit` — interface
+- `docs/ARQUITETURA.md` — as decisões estruturais em prosa
 
 ## Architecture decisions
 
-_Populate as you build — non-obvious choices a reader couldn't infer from the code (3-5 bullets)._
+- Camadas separadas: RAW é imutável (garantido por trigger), STAGING é
+  descartável, CANONICAL é o grão `(snapshot, entidade, atributo) → valor`, e
+  COMPARISON é derivado — pode ser recalculado a qualquer momento.
+- Identidade da entidade é um UUID interno; a placa é um identificador com
+  histórico, não a chave. Comparação nunca é por posição de linha.
+- Semântica é versionada (`attribute_semantics`) com vigência por data.
+  `attribute` guarda a versão corrente como projeção.
+- Mudança na fonte cria versão nova; correção da nossa interpretação reescreve a
+  versão existente. São ações distintas e nunca compartilham botão.
+- Impacto financeiro é acumulado **por periodicidade**. Nunca existe um total
+  único somando R$/mês com R$/ano.
+- Carreta e Cavalo são séries independentes. O consolidado é projeção da API e
+  da interface, não uma entidade de snapshot.
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Importar os exports do Freightec, conferir antes de promover, e então responder:
+o que mudou, entre quais vigências, em qual célula da planilha, quanto vale, e
+quando a comparação não é confiável — dizendo por quê em vez de inventar um
+número.
 
 ## User preferences
 
-_Populate as you build — explicit user instructions worth remembering across sessions._
+- Nada de mudança silenciosa por efeito colateral de heurística: toda
+  reclassificação precisa ser listada com antes, depois e motivo.
+- Não presumir semântica sem evidência suficiente. `UNKNOWN` é uma resposta
+  aceitável; certeza fabricada não é.
+- O caminho oficial é a interface. `bootstrap` e `dev:seed` são ferramentas de
+  desenvolvimento e não devem ser apresentados como o fluxo do produto.
 
 ## Gotchas
 
-_Populate as you build — sharp edges, "always run X before Y" rules._
+- **502 na importação quase sempre é processo velho, não código.** A interface
+  (Vite) e o api-server são processos separados; o frontend pode estar atual
+  enquanto o servidor ainda serve um `dist/index.mjs` antigo. Rebuildar não
+  basta — o processo precisa reiniciar. Use o botão Run/Restart do Replit.
+- **Não mate o servidor com `pkill` e tente subir na mão.** Quem injeta `PORT` é
+  o workflow do Replit; sem ele o api-server recusa a subir. Se precisar mesmo,
+  `PORT=5000 pnpm --filter @workspace/api-server run start`.
+- `curl -s localhost:5000/api/healthz` confirma se o servidor está de pé antes
+  de investigar qualquer erro de upload.
+- Sempre `pnpm install` depois de um `git pull`: dependências entre pacotes do
+  workspace mudam sem que o `package.json` da raiz mude.
+- O limite do `express.json` fica em `app.ts`, não na rota de upload — o parser
+  global roda antes e rejeitaria o corpo com 413 antes da rota ver.
 
 ## Pointers
 
