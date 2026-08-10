@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import express, { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
+import { eq, sql } from "drizzle-orm";
+import { importRunTable, stagedFactTable } from "@workspace/db";
 import {
   captureRaw,
   getImportRunSheets,
@@ -63,15 +65,18 @@ router.get("/imports/:id", async (req, res): Promise<void> => {
 });
 
 /**
- * Upload and preview, in one call — but never promote.
+ * Upload, then process in the background.
  *
- * The file is read, captured into RAW, staged and previewed; nothing reaches
- * the canonical layer until someone looks at the preview and says so. That gate
- * exists in the pipeline and the screen honours it rather than working around
- * it.
+ * Capturing 43k cells, staging and previewing takes about seven seconds for
+ * one of these workbooks. Holding an HTTP connection open that long is asking
+ * a proxy to cut it: the first version did exactly that and the browser got an
+ * empty body, which surfaced as "Unexpected end of JSON input" — a message
+ * that says nothing about what actually happened.
  *
- * The body is the raw bytes (application/octet-stream) with the name in a
- * header, which avoids a multipart dependency for a form with one field.
+ * So the request returns as soon as the bytes are safely in RAW, and the rest
+ * runs detached. The client polls the run's status, which the pipeline already
+ * maintained. Nothing reaches the canonical layer either way: promotion stays
+ * a separate, deliberate call.
  */
 router.post(
   "/imports",
@@ -87,7 +92,7 @@ router.post(
         return;
       }
       if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
-        res.status(400).json({ error: "Arquivo vazio." });
+        res.status(400).json({ error: "Arquivo vazio ou não recebido." });
         return;
       }
 
@@ -104,25 +109,72 @@ router.post(
       if (received.isDuplicate) {
         res.status(409).json({
           error:
-            `Este arquivo já foi importado — o conteúdo tem o mesmo SHA-256 de um envio anterior. ` +
-            `Reenviar o mesmo conteúdo não gera vigência nova.`,
+            `Este arquivo já foi importado — o conteúdo tem o mesmo SHA-256 de um envio ` +
+            `anterior. Reenviar o mesmo conteúdo não gera vigência nova.`,
           duplicate: true,
         });
         return;
       }
 
-      await captureRaw(db, received.importRunId);
-      const staged = await stage(db, received.importRunId);
-      const report = await preview(db, received.importRunId);
+      // Answer now; keep working after.
+      res.json({ importRunId: received.importRunId, filename, status: "RECEIVED" });
 
-      res.json({ importRunId: received.importRunId, filename, staged, report });
+      void (async () => {
+        try {
+          await captureRaw(db, received.importRunId);
+          await stage(db, received.importRunId);
+          await preview(db, received.importRunId);
+        } catch (err) {
+          const message = err instanceof Error ? err.message : "Erro desconhecido";
+          req.log.error({ err }, "Background import failed");
+          await db
+            .update(importRunTable)
+            .set({ status: "FAILED", failureReason: message })
+            .where(eq(importRunTable.id, received.importRunId));
+        }
+      })();
     } catch (err) {
       const message = err instanceof Error ? err.message : "Erro desconhecido";
-      req.log.error({ err }, "Error importing upload");
-      res.status(422).json({ error: message });
+      req.log.error({ err }, "Error receiving upload");
+      if (!res.headersSent) res.status(422).json({ error: message });
     }
   },
 );
+
+/** Where a run is, and its preview once there is one. */
+router.get("/imports/:id/status", async (req, res): Promise<void> => {
+  try {
+    const [run] = await db
+      .select()
+      .from(importRunTable)
+      .where(eq(importRunTable.id, req.params.id));
+    if (!run) {
+      res.status(404).json({ error: "Importação não encontrada." });
+      return;
+    }
+
+    const snapshots =
+      run.status === "PREVIEWED" || run.status === "PROMOTED"
+        ? await getImportRunSnapshotLabels(db, run.id)
+        : [];
+
+    res.json({
+      importRunId: run.id,
+      status: run.status,
+      failureReason: run.failureReason,
+      sheets: run.rawSheetCount,
+      rawCells: run.rawCellCount,
+      facts: run.stagedFactCount,
+      snapshots: run.snapshotCount,
+      errors: run.errorCount,
+      warnings: run.warningCount,
+      labels: snapshots,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Error reading import status");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 /**
  * Promote a previewed run, then bring curation up to date with it.
@@ -149,5 +201,18 @@ router.post("/imports/:id/promote", async (req, res): Promise<void> => {
     res.status(422).json({ error: message });
   }
 });
+
+/** Vigência labels a run has staged, for the preview card. */
+async function getImportRunSnapshotLabels(
+  database: typeof db,
+  importRunId: string,
+): Promise<string[]> {
+  const rows = await database
+    .selectDistinct({ label: stagedFactTable.snapshotLabel })
+    .from(stagedFactTable)
+    .where(eq(stagedFactTable.importRunId, importRunId))
+    .orderBy(stagedFactTable.snapshotLabel);
+  return rows.map((r) => r.label);
+}
 
 export default router;

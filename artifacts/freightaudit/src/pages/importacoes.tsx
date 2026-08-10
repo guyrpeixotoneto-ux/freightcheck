@@ -57,18 +57,49 @@ interface RunDetail {
 
 const n = (v: number) => v.toLocaleString("pt-BR");
 
-interface PreviewState {
+interface RunStatus {
   importRunId: string;
-  filename: string;
-  report: {
-    totals: { errors: number; warnings: number; facts?: number };
-    snapshots?: { sourceLabel: string; entityCount: number }[];
-  };
+  status: string;
+  failureReason: string | null;
+  sheets: number;
+  rawCells: number;
+  facts: number;
+  snapshots: number;
+  errors: number;
+  warnings: number;
+  labels: string[];
+}
+
+/**
+ * Read a response without assuming it is JSON.
+ *
+ * A proxy that times out, or any layer between the browser and the API,
+ * answers with an empty body or an HTML error page. Calling `.json()` on that
+ * throws "Unexpected end of JSON input", which tells the person nothing about
+ * what went wrong. Reading the text first turns that into a message that at
+ * least names the status.
+ */
+async function readJson(response: Response): Promise<Record<string, unknown>> {
+  const text = await response.text();
+  if (!text.trim()) {
+    throw new Error(
+      response.ok
+        ? `O servidor respondeu ${response.status} sem conteúdo. A conexão pode ter sido interrompida a caminho.`
+        : `O servidor respondeu ${response.status} sem detalhar o motivo.`,
+    );
+  }
+  try {
+    return JSON.parse(text) as Record<string, unknown>;
+  } catch {
+    throw new Error(
+      `Resposta inesperada do servidor (${response.status}): ${text.slice(0, 160)}`,
+    );
+  }
 }
 
 export default function Importacoes() {
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [pending, setPending] = useState<PreviewState[]>([]);
+  const [pendingIds, setPendingIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
@@ -81,7 +112,7 @@ export default function Importacoes() {
 
   const upload = useMutation({
     mutationFn: async (files: File[]) => {
-      const results: PreviewState[] = [];
+      const ids: string[] = [];
       for (const file of files) {
         const response = await fetch(getApiUrl("/imports"), {
           method: "POST",
@@ -91,15 +122,15 @@ export default function Importacoes() {
           },
           body: await file.arrayBuffer(),
         });
-        const body = await response.json();
+        const body = await readJson(response);
         if (!response.ok) throw new Error(`${file.name}: ${body.error}`);
-        results.push(body as PreviewState);
+        ids.push(body.importRunId as string);
       }
-      return results;
+      return ids;
     },
-    onSuccess: (results) => {
+    onSuccess: (ids) => {
       setError(null);
-      setPending((current) => [...current, ...results]);
+      setPendingIds((current) => [...current, ...ids]);
     },
     onError: (err: Error) => setError(err.message),
   });
@@ -111,13 +142,13 @@ export default function Importacoes() {
         headers: { "Content-Type": "application/json" },
         body: "{}",
       });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error);
+      const body = await readJson(response);
+      if (!response.ok) throw new Error(body.error as string);
       return body;
     },
     onSuccess: (_result, importRunId) => {
       setError(null);
-      setPending((current) => current.filter((p) => p.importRunId !== importRunId));
+      setPendingIds((current) => current.filter((id) => id !== importRunId));
       queryClient.invalidateQueries();
     },
     onError: (err: Error) => setError(err.message),
@@ -172,64 +203,16 @@ export default function Importacoes() {
               </p>
             )}
 
-            {pending.map((p) => (
-              <div
-                key={p.importRunId}
-                className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 space-y-3"
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="font-medium text-sm">{p.filename}</p>
-                    <p className="text-xs text-amber-900 mt-0.5">
-                      Conferido, ainda não importado.{" "}
-                      {p.report.totals.errors > 0 ? (
-                        <strong>
-                          {p.report.totals.errors} erros — corrija a origem antes de
-                          aprovar.
-                        </strong>
-                      ) : (
-                        <>
-                          {p.report.totals.warnings} avisos, nenhum erro.
-                          {p.report.snapshots &&
-                            ` ${p.report.snapshots.length} vigências prontas.`}
-                        </>
-                      )}
-                    </p>
-                  </div>
-                  <div className="flex gap-2 shrink-0">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() =>
-                        setPending((c) =>
-                          c.filter((x) => x.importRunId !== p.importRunId),
-                        )
-                      }
-                    >
-                      descartar
-                    </Button>
-                    <Button
-                      size="sm"
-                      disabled={promote.isPending || p.report.totals.errors > 0}
-                      onClick={() => promote.mutate(p.importRunId)}
-                    >
-                      {promote.isPending ? "Importando…" : "Aprovar e importar"}
-                    </Button>
-                  </div>
-                </div>
-                {p.report.snapshots && p.report.snapshots.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {p.report.snapshots.map((s) => (
-                      <span
-                        key={s.sourceLabel}
-                        className="font-mono text-xs px-2 py-0.5 rounded bg-white/70 text-amber-900"
-                      >
-                        {s.sourceLabel} · {s.entityCount}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
+            {pendingIds.map((id) => (
+              <PendingRun
+                key={id}
+                importRunId={id}
+                onDiscard={() =>
+                  setPendingIds((c) => c.filter((x) => x !== id))
+                }
+                onPromote={() => promote.mutate(id)}
+                promoting={promote.isPending}
+              />
             ))}
           </CardContent>
         </Card>
@@ -330,6 +313,110 @@ export default function Importacoes() {
         ))}
       </div>
     </Layout>
+  );
+}
+
+/**
+ * One upload in flight: polls until the pipeline finishes reading it.
+ *
+ * The card shows what the run has produced so far, then the preview summary
+ * and the approval button. Approving stays disabled while there are errors,
+ * because an error is fixed at the source, not approved.
+ */
+function PendingRun({
+  importRunId,
+  onDiscard,
+  onPromote,
+  promoting,
+}: {
+  importRunId: string;
+  onDiscard: () => void;
+  onPromote: () => void;
+  promoting: boolean;
+}) {
+  const { data } = useQuery({
+    queryKey: ["imports", importRunId, "status"],
+    queryFn: async () => {
+      const response = await fetch(getApiUrl(`/imports/${importRunId}/status`));
+      return (await readJson(response)) as unknown as RunStatus;
+    },
+    // Stops polling once the pipeline has finished or given up.
+    refetchInterval: (query) => {
+      const s = (query.state.data as RunStatus | undefined)?.status;
+      return s === "PREVIEWED" || s === "FAILED" || s === "PROMOTED" ? false : 1200;
+    },
+  });
+
+  const ready = data?.status === "PREVIEWED";
+  const failed = data?.status === "FAILED";
+
+  return (
+    <div
+      className={cn(
+        "rounded-md border px-4 py-3 space-y-3",
+        failed ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50",
+      )}
+    >
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="font-medium text-sm">
+            {ready
+              ? "Conferido, ainda não importado."
+              : failed
+                ? "Falhou ao ler o arquivo."
+                : "Lendo o arquivo…"}
+          </p>
+          <p className="text-xs mt-0.5 text-amber-900">
+            {failed ? (
+              <span className="text-red-900">{data?.failureReason}</span>
+            ) : ready ? (
+              data!.errors > 0 ? (
+                <strong>
+                  {data!.errors} erros — corrija a origem antes de aprovar.
+                </strong>
+              ) : (
+                <>
+                  {/* labels.length, não snapshots: o contador do run só é
+                      preenchido na promoção, e antes dela seria sempre zero. */}
+                  {n(data!.facts)} fatos · {data!.labels.length} vigências ·{" "}
+                  {n(data!.warnings)} avisos, nenhum erro.
+                </>
+              )
+            ) : (
+              <>
+                {data ? `${data.status.toLowerCase()}…` : "recebido…"} nada entra sem
+                sua aprovação.
+              </>
+            )}
+          </p>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button variant="ghost" size="sm" onClick={onDiscard}>
+            descartar
+          </Button>
+          <Button
+            size="sm"
+            disabled={!ready || promoting || (data?.errors ?? 0) > 0}
+            onClick={onPromote}
+          >
+            {promoting ? "Importando…" : "Aprovar e importar"}
+          </Button>
+        </div>
+      </div>
+
+      {ready && data!.labels.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {data!.labels.map((label) => (
+            <span
+              key={label}
+              className="font-mono text-xs px-2 py-0.5 rounded bg-white/70 text-amber-900"
+            >
+              {label}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
