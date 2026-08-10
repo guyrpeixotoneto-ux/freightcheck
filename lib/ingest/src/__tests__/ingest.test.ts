@@ -15,7 +15,7 @@ import {
   validationIssueTable,
 } from "@workspace/db";
 import { captureRaw, preview, promote, receiveFile, stage } from "../pipeline";
-import { createTestDatabase, realExportPath, type TestDb } from "./helpers/db";
+import { createTestDatabase, realExportPath, type TestDb } from "../testing";
 
 /**
  * The acceptance suite, run against the real Freightec export.

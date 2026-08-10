@@ -176,6 +176,9 @@ importers:
       '@workspace/api-zod':
         specifier: workspace:*
         version: link:../../lib/api-zod
+      '@workspace/curation':
+        specifier: workspace:*
+        version: link:../../lib/curation
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
@@ -618,6 +621,28 @@ importers:
       zod:
         specifier: 'catalog:'
         version: 3.25.76
+
+  lib/curation:
+    dependencies:
+      '@workspace/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: 'catalog:'
+        version: 0.45.2(@types/pg@8.20.0)(pg@8.22.0)
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.9.5
+      '@workspace/ingest':
+        specifier: workspace:*
+        version: link:../ingest
+      tsx:
+        specifier: 'catalog:'
+        version: 4.23.1
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@25.9.5)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.1)(yaml@2.9.0)
 
   lib/db:
     dependencies:

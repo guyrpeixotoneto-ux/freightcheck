@@ -72,6 +72,19 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    // On Replit the platform router mounts the API at /api. Outside it — local
+    // dev, CI, a screenshot run — set API_PROXY_TARGET to point /api at a
+    // locally running api-server. Unset, this changes nothing.
+    proxy: process.env.API_PROXY_TARGET
+      ? {
+          // No path rewrite: the server itself mounts its router at /api,
+          // matching how the Replit router forwards the full path.
+          '/api': {
+            target: process.env.API_PROXY_TARGET,
+            changeOrigin: true,
+          },
+        }
+      : undefined,
   },
   preview: {
     port,

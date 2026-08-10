@@ -15,6 +15,13 @@
       "when": 1786368656946,
       "tag": "0001_immutability_guards",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1786370862231,
+      "tag": "0002_curation_layer",
+      "breakpoints": true
     }
   ]
 }

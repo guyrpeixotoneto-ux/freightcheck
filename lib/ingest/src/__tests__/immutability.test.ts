@@ -8,7 +8,7 @@ import {
   sourceFileTable,
 } from "@workspace/db";
 import { captureRaw, preview, promote, receiveFile, stage } from "../pipeline";
-import { createTestDatabase, realExportPath, type TestDb } from "./helpers/db";
+import { createTestDatabase, realExportPath, type TestDb } from "../testing";
 
 /**
  * These invariants are enforced by database triggers, so the tests deliberately

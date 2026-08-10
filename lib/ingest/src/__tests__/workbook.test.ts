@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deriveEntityType, foldText, readWorkbook, slugifyColumn } from "../workbook";
-import { realExportPath } from "./helpers/db";
+import { realExportPath } from "../testing";
 
 describe("slugifyColumn", () => {
   it("recovers word boundaries from camelCase", () => {

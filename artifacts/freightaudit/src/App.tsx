@@ -13,6 +13,7 @@ import Simulacao from '@/pages/simulacao';
 import Importacoes from '@/pages/importacoes';
 import ApresentacaoVideo from '@/components/video/ApresentacaoVideo';
 import AnaliseEquipamentos from '@/pages/analise-equipamentos';
+import Curadoria from '@/pages/curadoria';
 
 const queryClient = new QueryClient();
 
@@ -28,6 +29,7 @@ function Router() {
       <Route path="/simulacao" component={Simulacao} />
       <Route path="/importacoes" component={Importacoes} />
       <Route path="/analise-equipamentos" component={AnaliseEquipamentos} />
+      <Route path="/curadoria" component={Curadoria} />
       <Route component={NotFound} />
     </Switch>
   );

@@ -13,6 +13,7 @@ import {
   uniqueIndex,
   check,
 } from "drizzle-orm/pg-core";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { semanticsStatus, snapshotStatus } from "./enums";
 import { importRunTable, rawCellTable, sourceFileTable } from "./raw";
@@ -178,6 +179,46 @@ export const snapshotScopeTable = pgTable(
 );
 
 /**
+ * The remuneration hierarchy, built by curation rather than by import.
+ *
+ * Nothing in the Freightec export says "custo fixo"; the classification is
+ * ours. Depth is free — `parent_id` is self-referential and `path` carries the
+ * materialised ancestry so a subtree query is a single prefix match.
+ *
+ * History lives in `curation_event`: reclassifying an attribute records the
+ * before and after there, so the past is recoverable without duplicating nodes.
+ */
+export const taxonomyNodeTable = pgTable(
+  "taxonomy_node",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    parentId: uuid("parent_id").references((): AnyPgColumn => taxonomyNodeTable.id),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    /** ROOT | CLASS | GROUP | SUBGROUP | ... — text, so depth stays open. */
+    kind: text("kind").notNull(),
+    /**
+     * FIXO | VARIAVEL | null. Inherited from the nearest ancestor that sets
+     * it, so only the class level needs to declare it.
+     */
+    costClass: text("cost_class"),
+    /** Materialised ancestry, e.g. "remuneracao/custo_fixo/frota_cavalo". */
+    path: text("path").notNull(),
+    depth: integer("depth").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("taxonomy_node_path_uq").on(t.path),
+    uniqueIndex("taxonomy_node_code_uq").on(t.code),
+    index("taxonomy_node_parent_idx").on(t.parentId),
+  ],
+);
+
+/**
  * The stable identity of a variable, plus everything we know — and admit we
  * do not know — about what it means.
  */
@@ -205,6 +246,21 @@ export const attributeTable = pgTable(
       .notNull()
       .default("UNKNOWN"),
     isMonetary: boolean("is_monetary"),
+
+    /** Position in the remuneration hierarchy. Set by curation, never by import. */
+    taxonomyNodeId: uuid("taxonomy_node_id").references(
+      () => taxonomyNodeTable.id,
+    ),
+    /**
+     * Why the current semantics were proposed. Written whenever the engine
+     * moves an attribute to PRESUMED, so a curator sees the reasoning rather
+     * than a bare guess.
+     */
+    semanticsRationale: text("semantics_rationale"),
+    /** Only a human writes these two, and only for CONFIRMED. */
+    confirmedBy: text("confirmed_by"),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+
     firstSeenImportRunId: uuid("first_seen_import_run_id").references(
       () => importRunTable.id,
     ),

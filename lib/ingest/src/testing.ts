@@ -59,7 +59,7 @@ export async function createTestDatabase(name: string): Promise<TestDb> {
 export function realExportPath(): string {
   const assets = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
-    "../../../../../attached_assets",
+    "../../../attached_assets",
   );
   const found = readdirSync(assets).find((f) => f.endsWith(".xlsx"));
   if (!found) {
