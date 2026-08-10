@@ -140,7 +140,13 @@ export default function Importacoes() {
       setError(null);
       setPendingIds((current) => [...current, ...ids]);
     },
-    onError: (err: Error) => setError(err.message),
+    onError: (err: Error) => {
+      setError(err.message);
+      // Uma duplicata recusada também vira um import_run. A tentativa é um
+      // evento que vale registrar, então a lista é recarregada para mostrá-la
+      // sem depender de o operador dar reload.
+      queryClient.invalidateQueries({ queryKey: ["imports"] });
+    },
   });
 
   const promote = useMutation({

@@ -175,7 +175,10 @@ export async function receiveFile(
       triggeredBy: options.receivedBy ?? null,
       failureReason:
         isDuplicate && !options.allowReprocess
-          ? `File already received (sha256=${contentSha256}); processing skipped to preserve idempotency.`
+          ? // Este texto vai direto para a tela de Importações, então é escrito
+            // para quem opera, não para quem depura. O sha abreviado é o mesmo
+            // que o card exibe, para o operador conseguir casar os dois.
+            `Este arquivo já havia sido recebido (sha256 ${contentSha256.slice(0, 16)}…). Nada foi reprocessado: o conteúdo é idêntico, byte a byte, ao de uma importação anterior.`
           : null,
       finishedAt:
         isDuplicate && !options.allowReprocess ? new Date() : null,

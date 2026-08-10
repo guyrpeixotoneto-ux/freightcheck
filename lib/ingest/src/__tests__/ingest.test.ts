@@ -395,7 +395,7 @@ describe("idempotency", () => {
       .from(importRunTable)
       .where(eq(importRunTable.id, second.importRunId));
     expect(run.status).toBe("SKIPPED_DUPLICATE");
-    expect(run.failureReason).toContain("already received");
+    expect(run.failureReason).toContain("já havia sido recebido");
 
     // Only one source_file row exists for those bytes.
     const files = await ctx.db

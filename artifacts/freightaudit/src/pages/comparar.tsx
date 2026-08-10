@@ -64,11 +64,26 @@ export default function Comparar() {
       (await (await fetch(getApiUrl("/snapshots"))).json()) as Snapshot[],
   });
 
-  // Default to the two most recent, which is the comparison people want most.
+  /**
+   * A vigência mais recente contra a anterior **da mesma série**.
+   *
+   * Pegar simplesmente as duas últimas da lista emparelhava Cavalo com Carreta
+   * assim que as duas séries passaram a existir: elas compartilham as mesmas
+   * datas, então as duas últimas linhas são o mesmo mês em séries diferentes. O
+   * motor recusava o par, corretamente, e a tela abria com um erro que não era
+   * culpa de quem estava olhando.
+   */
   useEffect(() => {
     if (snapshots.length >= 2 && !aId && !bId) {
-      setAId(snapshots[snapshots.length - 2].id);
-      setBId(snapshots[snapshots.length - 1].id);
+      const latest = snapshots[snapshots.length - 1];
+      const previous = [...snapshots]
+        .reverse()
+        .find(
+          (s) => s.entityTypeSet === latest.entityTypeSet && s.id !== latest.id,
+        );
+      if (!previous) return;
+      setAId(previous.id);
+      setBId(latest.id);
     }
   }, [snapshots, aId, bId]);
 
@@ -108,6 +123,16 @@ export default function Comparar() {
     enabled: set !== null,
   });
 
+  /**
+   * Carreta e Cavalo são séries independentes, com frotas e colunas próprias.
+   * Comparar uma com a outra não produz uma alteração — produz a diferença
+   * entre dois cadastros distintos. O motor recusa esse par; a tela avisa
+   * antes, para o operador não descobrir isso por um erro.
+   */
+  const seriesA = snapshots.find((s) => s.id === aId)?.entityTypeSet;
+  const seriesB = snapshots.find((s) => s.id === bId)?.entityTypeSet;
+  const seriesMismatch = Boolean(seriesA && seriesB && seriesA !== seriesB);
+
   const label = (id: string) => {
     const s = snapshots.find((x) => x.id === id);
     return s ? `${s.entityTypeSet} · ${s.sourceLabel}` : "—";
@@ -141,11 +166,21 @@ export default function Comparar() {
           />
           <Button
             onClick={() => compare.mutate()}
-            disabled={!aId || !bId || aId === bId || compare.isPending}
+            disabled={
+              !aId || !bId || aId === bId || seriesMismatch || compare.isPending
+            }
           >
             {compare.isPending ? "Comparando…" : "Comparar"}
           </Button>
         </div>
+
+        {seriesMismatch && (
+          <p className="mt-3 text-sm text-amber-900 bg-amber-50 border border-amber-300 rounded-md px-3 py-2 max-w-3xl">
+            <strong>{seriesA}</strong> e <strong>{seriesB}</strong> são séries
+            independentes — frotas e colunas diferentes. A diferença entre elas
+            não é uma alteração da fonte. Escolha duas vigências da mesma série.
+          </p>
+        )}
       </header>
 
       <div className="p-8 space-y-6">

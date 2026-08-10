@@ -6,16 +6,24 @@ não consiga sustentar até a célula da planilha de origem.
 
 ## Run & Operate
 
-- **Botão Run do Replit** — sobe a interface e o api-server juntos, com `PORT` e
-  `DATABASE_URL` injetados. É o caminho normal.
-- `pnpm --filter @workspace/api-server run dev` — build + start do api-server.
-  Exige `PORT` no ambiente (o workflow do Replit usa 5000).
+**Botão Run do Replit.** É o caminho inteiro. O workflow `Project` sobe dois
+processos em paralelo, definidos em `.replit` e implementados em
+`scripts/dev.mjs`:
+
+| processo | porta | o que faz |
+| --- | --- | --- |
+| `Frontend` | 5000 (pública) | Vite, encaminhando `/api` para a 5001 |
+| `API Server` | 5001 | aplica migrations, reconstrói o bundle, sobe, e reconstrói a cada alteração no código |
+
+Nada disso exige terminal: `PORT`, `BASE_PATH` e `API_PROXY_TARGET` são
+definidos pelo próprio script. Um workspace novo funciona só apertando Run.
+
+- `pnpm dev` — o mesmo, pelo terminal (útil fora do Replit e em CI)
 - `pnpm run typecheck` — typecheck de todos os pacotes
 - `pnpm run build` — typecheck + build de todos os pacotes
-- `pnpm --filter @workspace/db run push` — aplica o schema (dev)
-- `pnpm --filter @workspace/db exec drizzle-kit migrate` — aplica as migrations
+- `pnpm --filter @workspace/db run migrate` — aplica as migrations à mão
 - `pnpm dev:seed` — ferramenta de desenvolvimento; **não** é o caminho do produto
-- Env obrigatórias: `DATABASE_URL`; `PORT` para o api-server
+- Única env obrigatória: `DATABASE_URL`
 
 Importar planilha é feito **pela interface**, em Importações. Nenhum passo do
 produto depende de terminal.
@@ -72,17 +80,23 @@ número.
 
 ## Gotchas
 
-- **502 na importação quase sempre é processo velho, não código.** A interface
-  (Vite) e o api-server são processos separados; o frontend pode estar atual
-  enquanto o servidor ainda serve um `dist/index.mjs` antigo. Rebuildar não
-  basta — o processo precisa reiniciar. Use o botão Run/Restart do Replit.
-- **Não mate o servidor com `pkill` e tente subir na mão.** Quem injeta `PORT` é
-  o workflow do Replit; sem ele o api-server recusa a subir. Se precisar mesmo,
-  `PORT=5000 pnpm --filter @workspace/api-server run start`.
-- `curl -s localhost:5000/api/healthz` confirma se o servidor está de pé antes
-  de investigar qualquer erro de upload.
+- **Nunca subir o api-server com `node dist/index.mjs` direto.** Isso serve o
+  bundle que estiver em disco, que pode ser de antes da sua alteração — um
+  frontend novo conversando com um servidor velho dá 502 sem explicação, e foi
+  o que custou uma tarde inteira. `scripts/dev.mjs` sempre reconstrói primeiro.
+- `curl -s localhost:5000/api/healthz` confirma se a interface está
+  encaminhando `/api` para um servidor vivo.
 - Sempre `pnpm install` depois de um `git pull`: dependências entre pacotes do
-  workspace mudam sem que o `package.json` da raiz mude.
+  workspace mudam sem que o `package.json` da raiz mude. O hook em
+  `scripts/post-merge.sh` faz isso e aplica as migrations.
+- `TEST_ADMIN_DATABASE_URL` precisa ter query string (`…/postgres?sslmode=disable`).
+  `lib/ingest/src/testing.ts` deriva o banco de cada teste substituindo
+  `"/postgres?"`; sem o `?` todos os testes caem no mesmo banco e falham com
+  `SKIPPED_DUPLICATE`.
+- `pnpm run typecheck` falha em 9 pontos herdados do scaffold
+  (`src/components/ui/*` do shadcn e `src/pages/snapshots/[id].tsx`). São
+  anteriores a qualquer código deste projeto e não afetam o Run, que não passa
+  por `tsc`.
 - O limite do `express.json` fica em `app.ts`, não na rota de upload — o parser
   global roda antes e rejeitaria o corpo com 413 antes da rota ver.
 
