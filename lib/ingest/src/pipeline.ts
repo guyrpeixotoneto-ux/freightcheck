@@ -24,6 +24,7 @@ import {
 } from "@workspace/db";
 import {
   columnLetter,
+  deriveEntityType,
   foldText,
   readCell,
   readWorkbook,
@@ -700,9 +701,16 @@ function decodeRawValue(sourceType: string, rawValue: string | null): unknown {
   }
 }
 
+/**
+ * One derivation, not two.
+ *
+ * This used to be a second copy of the rule in `workbook.ts`, and the copies
+ * drifted the moment the sheet naming changed: fixing one left staging still
+ * producing MODELOCARRETA. A rule that decides an asset's identity gets to
+ * live in exactly one place.
+ */
 function deriveEntityTypeFromSheet(sheetName: string): string {
-  const folded = foldText(sheetName).replace(/[^a-z0-9]/g, "");
-  return (folded.endsWith("s") ? folded.slice(0, -1) : folded).toUpperCase();
+  return deriveEntityType(sheetName).entityType;
 }
 
 // ---------------------------------------------------------------------------

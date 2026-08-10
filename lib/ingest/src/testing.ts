@@ -52,18 +52,45 @@ export async function createTestDatabase(name: string): Promise<TestDb> {
 }
 
 /**
- * The real Freightec export, resolved from the repo rather than hardcoded.
- * The filename carries accented characters in a decomposed form, so it is
- * matched by extension instead of by literal name.
+ * Fixtures resolved from the repo rather than hardcoded.
+ *
+ * These used to be "the first .xlsx in the folder", which held while there was
+ * exactly one. The moment the Ambev's per-equipment files landed beside it,
+ * every test silently changed which workbook it was asserting against. Each
+ * fixture now names what it wants; filenames are matched on a distinctive
+ * fragment because the accented ones arrive in a decomposed form.
  */
-export function realExportPath(): string {
-  const assets = path.resolve(
+function assetsDir(): string {
+  return path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "../../../attached_assets",
   );
-  const found = readdirSync(assets).find((f) => f.endsWith(".xlsx"));
+}
+
+function findAsset(fragment: string): string {
+  const assets = assetsDir();
+  const needle = fragment.toLowerCase();
+  const found = readdirSync(assets).find(
+    (f) => f.toLowerCase().includes(needle) && f.endsWith(".xlsx"),
+  );
   if (!found) {
-    throw new Error(`No .xlsx export found in ${assets}`);
+    throw new Error(`Nenhum .xlsx com "${fragment}" em ${assets}`);
   }
   return path.join(assets, found);
+}
+
+/** The combined export: one workbook, sheets `carretas` and `cavalos`. */
+export function realExportPath(): string {
+  return findAsset("Remunera");
+}
+
+/**
+ * The per-equipment delivery: the same content split into one file each, with
+ * sheets named `Modelo_Carreta` and `Modelo_Cavalo`.
+ */
+export function modelExportPaths(): { carreta: string; cavalo: string } {
+  return {
+    carreta: findAsset("Modelo_Carreta"),
+    cavalo: findAsset("Modelo_Cavalo"),
+  };
 }

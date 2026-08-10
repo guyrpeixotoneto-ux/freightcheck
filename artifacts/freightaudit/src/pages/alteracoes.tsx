@@ -43,18 +43,23 @@ interface LatestResponse {
     impactNotCalculable: number;
   };
   breakdown: Breakdown;
+  series: { entityTypeSet: string; vigencias: number; latestLabel: string }[];
+  selectedSeries: string;
   total: number;
   rows: ChangeRow[];
 }
 
 export default function Alteracoes() {
   const [filters, setFilters] = useState<Filters>(emptyFilters);
+  const [series, setSeries] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ["changes", "latest", filters],
+    queryKey: ["changes", "latest", filters, series],
     queryFn: async () => {
       const response = await fetch(
-        getApiUrl(`/changes/latest?${toQuery(filters)}`),
+        getApiUrl(
+          `/changes/latest?${toQuery(filters)}${series ? `&entityTypeSet=${series}` : ""}`,
+        ),
       );
       if (!response.ok) throw new Error((await response.json()).error ?? "Falha");
       return (await response.json()) as LatestResponse;
@@ -69,11 +74,36 @@ export default function Alteracoes() {
           Alterações
         </h1>
         {data && (
-          <p className="text-muted-foreground mt-1 flex items-center gap-2 text-sm">
-            <span className="font-mono">{data.set.snapshotALabel}</span>
-            <ArrowRight className="w-4 h-4" />
-            <span className="font-mono">{data.set.snapshotBLabel}</span>
-          </p>
+          <div className="flex flex-wrap items-center gap-3 mt-1">
+            <p className="text-muted-foreground flex items-center gap-2 text-sm">
+              <span className="font-mono">{data.set.snapshotALabel}</span>
+              <ArrowRight className="w-4 h-4" />
+              <span className="font-mono">{data.set.snapshotBLabel}</span>
+            </p>
+
+            {/* Só aparece quando há mais de uma série. Uma vigência de carreta
+                e uma de cavalo não se comparam entre si, então mostrar as duas
+                juntas seria dizer que a lista cobre a frota inteira. */}
+            {data.series.length > 1 && (
+              <div className="flex items-center gap-1.5">
+                {data.series.map((s) => (
+                  <button
+                    key={s.entityTypeSet}
+                    onClick={() => setSeries(s.entityTypeSet)}
+                    className={cn(
+                      "text-xs px-2.5 py-1 rounded-full border transition-colors",
+                      data.selectedSeries === s.entityTypeSet
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "bg-background hover:bg-muted border-input text-muted-foreground",
+                    )}
+                  >
+                    {s.entityTypeSet.replace("+", " · ").toLowerCase()}
+                    <span className="ml-1 opacity-60">{s.vigencias}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         )}
 
         {data && (

@@ -18,13 +18,32 @@ const fmtImpact = (buckets: Record<string, number>) => {
 };
 
 try {
-  const snapshots = await listComparableSnapshots(db);
-  console.log(`\n${snapshots.length} snapshots vivos. Comparando pares consecutivos.\n`);
+  const all = await listComparableSnapshots(db);
+
+  // Vigências only compare within their own series: same source, same scope and
+  // same equipment coverage. When the Ambev ships carretas and cavalos as two
+  // files, there are two series, and pairing them by date alone would ask the
+  // engine to compare a trailer against a truck.
+  const series = new Map<string, typeof all>();
+  for (const snapshot of all) {
+    const key = `${snapshot.scopeHash}|${snapshot.entityTypeSet}`;
+    if (!series.has(key)) series.set(key, []);
+    series.get(key)!.push(snapshot);
+  }
+
+  console.log(
+    `\n${all.length} vigências vivas em ${series.size} série(s). Comparando pares consecutivos dentro de cada uma.\n`,
+  );
 
   let totalSource = 0;
-  for (let i = 1; i < snapshots.length; i++) {
-    const a = snapshots[i - 1];
-    const b = snapshots[i];
+  const snapshots = all;
+  for (const [key, group] of series) {
+    if (series.size > 1) {
+      console.log(`  ── ${key.split("|")[1]} ──`);
+    }
+  for (let i = 1; i < group.length; i++) {
+    const a = group[i - 1];
+    const b = group[i];
     const set = await computeChangeSet(db, a.id, b.id, {
       computedBy: "cli:compare-all",
       force: true,
@@ -39,11 +58,13 @@ try {
         `impacto ${fmtImpact(set.calculatedImpactByPeriodicity)}`,
     );
   }
+  }
   console.log(`\n  TOTAL de mudanças de valor: ${n(totalSource)}`);
 
-  // Detail on the last transition.
-  const a = snapshots[snapshots.length - 2];
-  const b = snapshots[snapshots.length - 1];
+  // Detail on the last transition of the last series.
+  const last = [...series.values()].pop()!;
+  const a = last[last.length - 2];
+  const b = last[last.length - 1];
   const set = await computeChangeSet(db, a.id, b.id);
   console.log(`\n── ${a.sourceLabel} → ${b.sourceLabel}: 10 maiores ──`);
   const { rows, total } = await listChanges(db, set.id, { limit: 10 });

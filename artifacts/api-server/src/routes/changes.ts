@@ -72,10 +72,41 @@ router.get("/changes/latest", async (req, res): Promise<void> => {
   try {
     const snapshots = await listComparableSnapshots(db);
     if (snapshots.length === 0) {
-      res.status(404).json({ error: "Nenhum snapshot importado ainda." });
+      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
       return;
     }
-    const latest = snapshots[snapshots.length - 1];
+
+    /**
+     * Vigências only compare inside their own series. When the Ambev ships
+     * carretas and cavalos as separate files there are two series, and simply
+     * taking "the newest snapshot" would answer for one equipment type while
+     * silently dropping the other.
+     */
+    const seriesKey = (s: (typeof snapshots)[number]) =>
+      `${s.scopeHash}|${s.entityTypeSet}`;
+    const series = [...new Set(snapshots.map(seriesKey))]
+      .map((key) => {
+        const members = snapshots.filter((s) => seriesKey(s) === key);
+        return {
+          key,
+          entityTypeSet: members[0].entityTypeSet,
+          latest: members[members.length - 1],
+          count: members.length,
+        };
+      })
+      // Deterministic: newest first, then by name so ties never reorder.
+      .sort(
+        (a, b) =>
+          b.latest.effectiveDate.localeCompare(a.latest.effectiveDate) ||
+          a.entityTypeSet.localeCompare(b.entityTypeSet),
+      );
+
+    const requested = req.query.entityTypeSet;
+    const chosen =
+      (typeof requested === "string" &&
+        series.find((s) => s.entityTypeSet === requested)) ||
+      series[0];
+    const latest = chosen.latest;
     const previousId = await findPreviousSnapshot(db, latest.id);
     if (!previousId) {
       res.status(409).json({
@@ -92,7 +123,19 @@ router.get("/changes/latest", async (req, res): Promise<void> => {
       listChanges(db, set.id, filters),
       getChangeSetBreakdown(db, set.id),
     ]);
-    res.json({ set, breakdown, ...changes });
+    res.json({
+      set,
+      breakdown,
+      // So the screen can offer the other series instead of pretending this is
+      // the whole fleet.
+      series: series.map((s) => ({
+        entityTypeSet: s.entityTypeSet,
+        vigencias: s.count,
+        latestLabel: s.latest.sourceLabel,
+      })),
+      selectedSeries: chosen.entityTypeSet,
+      ...changes,
+    });
   } catch (err) {
     req.log.error({ err }, "Error computing latest changes");
     res.status(500).json({ error: "Internal server error" });

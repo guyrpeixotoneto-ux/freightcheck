@@ -39,11 +39,44 @@ describe("slugifyColumn", () => {
   });
 });
 
+describe("deriveEntityType — nomes de aba de qualquer empacotamento", () => {
+  it("lê o nome da aba como frase, não como o tipo em si", () => {
+    // Como a Ambev entregava: um arquivo, abas no plural.
+    expect(deriveEntityType("carretas").entityType).toBe("CARRETA");
+    expect(deriveEntityType("cavalos").entityType).toBe("CAVALO");
+    // Como passou a entregar: um arquivo por equipamento.
+    expect(deriveEntityType("Modelo_Carreta").entityType).toBe("CARRETA");
+    expect(deriveEntityType("Modelo_Cavalo").entityType).toBe("CAVALO");
+    // A primeira versão devolvia MODELOCARRETA aqui, criando uma segunda
+    // identidade paralela para ativos que já existiam no sistema.
+    expect(deriveEntityType("Modelo_Carreta").entityType).not.toBe("MODELOCARRETA");
+  });
+
+  it("descarta a palavra do documento e diz que descartou", () => {
+    const { entityType, reason } = deriveEntityType("Base_Dados_Reboque");
+    expect(entityType).toBe("REBOQUE");
+    expect(reason).toMatch(/descartado o que descreve o documento/);
+    expect(reason).toContain("base");
+  });
+
+  it("mantém o vocabulário de equipamento aberto", () => {
+    // Nenhum tipo é enumerado no código: um equipamento novo entra sozinho.
+    expect(deriveEntityType("Modelo Bitrem").entityType).toBe("BITREM");
+    expect(deriveEntityType("Análise Carreta").entityType).toBe("CARRETA");
+  });
+
+  it("não inventa um tipo quando só há palavra de documento", () => {
+    // "Modelos" sozinho não nomeia equipamento nenhum; melhor devolver o nome
+    // inteiro do que um tipo vazio.
+    expect(deriveEntityType("Modelos").entityType).toBe("MODELO");
+  });
+});
+
 describe("deriveEntityType", () => {
   it("singularises and uppercases the sheet name, and says why", () => {
     expect(deriveEntityType("cavalos").entityType).toBe("CAVALO");
     expect(deriveEntityType("carretas").entityType).toBe("CARRETA");
-    expect(deriveEntityType("cavalos").reason).toContain("sheet name");
+    expect(deriveEntityType("cavalos").reason).toContain('nome da aba "cavalos"');
   });
 });
 

@@ -65,19 +65,67 @@ export function slugifyColumn(header: string): string {
 }
 
 /**
- * Entity type from a source sheet name: uppercase, drop a trailing plural.
- * Simple and reversible, and the reason is recorded on the sheet.
+ * Words a sheet name carries to describe the *document*, not the equipment.
+ *
+ * Deliberately not a list of equipment types: the type stays open, so a third
+ * kind of asset needs no change here. What is enumerated is only the packaging
+ * vocabulary — "Modelo_Carreta" and "carretas" name the same thing, and the
+ * first word is about the file, not the asset.
+ */
+const DOCUMENT_WORDS = new Set([
+  "modelo",
+  "modelos",
+  "base",
+  "dado",
+  "dados",
+  "analise",
+  "relatorio",
+  "planilha",
+  "tabela",
+  "lista",
+  "aba",
+  "sheet",
+  "export",
+]);
+
+/**
+ * Entity type from a source sheet name.
+ *
+ * The first version took the sheet name to *be* the type, which held while the
+ * Ambev shipped one workbook with sheets called `carretas` and `cavalos`. When
+ * the same data arrived split into `Modelo_Carreta` and `Modelo_Cavalo`, it
+ * derived `MODELOCARRETA` — a second, parallel identity for assets already in
+ * the system, with 65 duplicate attributes hanging off it. The data was right
+ * and the identity was wrong, which is the worse of the two failures.
+ *
+ * So the name is now read as a phrase: split it, drop the words that describe
+ * the document, and singularise what is left. The equipment vocabulary itself
+ * stays open.
  */
 export function deriveEntityType(sheetName: string): {
   entityType: string;
   reason: string;
 } {
-  const folded = foldText(sheetName).replace(/[^a-z0-9]/g, "");
-  const singular = folded.endsWith("s") ? folded.slice(0, -1) : folded;
-  return {
-    entityType: singular.toUpperCase(),
-    reason: `Derived from sheet name "${sheetName}" by folding accents, uppercasing and dropping the trailing plural.`,
-  };
+  const tokens = foldText(sheetName)
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean);
+
+  const meaningful = tokens.filter((token) => !DOCUMENT_WORDS.has(token));
+  // If every token described the document, the name has nothing else to give;
+  // keep it whole rather than invent a type.
+  const kept = meaningful.length > 0 ? meaningful : tokens;
+  const joined = kept.join("");
+  const singular = joined.endsWith("s") ? joined.slice(0, -1) : joined;
+
+  const dropped = tokens.filter((token) => !kept.includes(token));
+  const reason =
+    `Derivado do nome da aba "${sheetName}": acentos removidos, ` +
+    (dropped.length > 0
+      ? `descartado o que descreve o documento (${dropped.join(", ")}), `
+      : "") +
+    `plural removido e maiúsculas aplicadas.`;
+
+  return { entityType: singular.toUpperCase(), reason };
 }
 
 function cellRef(row: number, col: number): string {

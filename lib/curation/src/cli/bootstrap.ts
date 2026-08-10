@@ -20,14 +20,31 @@ import { seedTaxonomy } from "../taxonomy";
 import { getCurationSummary, runProposalPass } from "../engine";
 import { applyConfirmations } from "../confirmations";
 
-function exportPath(): string {
+/**
+ * Which workbooks to load.
+ *
+ * The Ambev now ships one file per equipment type (`Modelo_Carreta`,
+ * `Modelo_Cavalo`); the older combined export is kept as a fixture. Prefer the
+ * per-equipment pair when it is there, because that is what arrives today.
+ *
+ * Passing paths as arguments overrides the choice entirely.
+ */
+function exportPaths(): string[] {
+  const explicit = process.argv.slice(2).filter((a) => a.endsWith(".xlsx"));
+  if (explicit.length > 0) return explicit;
+
   const assets = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "../../../../attached_assets",
   );
-  const found = readdirSync(assets).find((f) => f.endsWith(".xlsx"));
-  if (!found) throw new Error(`Nenhum .xlsx encontrado em ${assets}`);
-  return path.join(assets, found);
+  const files = readdirSync(assets).filter((f) => f.endsWith(".xlsx"));
+
+  const models = files.filter((f) => /^Modelo_/i.test(f)).sort();
+  if (models.length > 0) return models.map((f) => path.join(assets, f));
+
+  const combined = files.find((f) => /Remunera/i.test(f)) ?? files[0];
+  if (!combined) throw new Error(`Nenhum .xlsx encontrado em ${assets}`);
+  return [path.join(assets, combined)];
 }
 
 const url = process.env.DATABASE_URL;
@@ -41,21 +58,23 @@ await runMigrations(url);
 
 const { db, pool } = createDb(url);
 try {
-  console.log("[2/4] Importando o export do Freightec…");
-  const received = await receiveFile(db, {
-    filePath: exportPath(),
-    receivedBy: "bootstrap",
-  });
+  const paths = exportPaths();
+  console.log(`[2/4] Importando ${paths.length} arquivo(s) do Freightec…`);
+  for (const filePath of paths) {
+    const name = filePath.split("/").pop();
+    const received = await receiveFile(db, { filePath, receivedBy: "bootstrap" });
 
-  if (received.isDuplicate) {
-    console.log("      arquivo já importado — pulando (idempotência).");
-  } else {
+    if (received.isDuplicate) {
+      console.log(`      ${name}: já importado — pulando (idempotência).`);
+      continue;
+    }
     await captureRaw(db, received.importRunId);
     const staged = await stage(db, received.importRunId);
     const report = await preview(db, received.importRunId);
     const promoted = await promote(db, received.importRunId);
     console.log(
-      `      ${promoted.snapshots.length} snapshots · ${promoted.factsInserted.toLocaleString("pt-BR")} fatos · ` +
+      `      ${name}: ${promoted.snapshots.length} vigências · ` +
+        `${promoted.factsInserted.toLocaleString("pt-BR")} fatos · ` +
         `${promoted.entitiesCreated} ativos · ${staged.errors} erros · ${report.totals.warnings} avisos`,
     );
   }
