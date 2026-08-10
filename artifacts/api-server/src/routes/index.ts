@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import healthRouter from "./health";
 import fleetAnalysisRouter from "./fleet-analysis";
 import curationRouter from "./curation";
+import changesRouter from "./changes";
 
 /**
  * F0/F1 surface.
@@ -11,7 +12,7 @@ import curationRouter from "./curation";
  * that schema — see docs/ARQUITETURA.md §1. They are rebuilt on the canonical
  * model in F5, once the comparison engine and the impact policy exist.
  *
- * `curation` is the F2 surface.
+ * `curation` is the F2 surface; `changes` is F3 — Alterações and Comparar.
  *
  * `fleet-analysis` is kept as-is for now: it reads the workbook directly and
  * does not depend on the database, so the existing Fleet Analysis screen keeps
@@ -22,5 +23,6 @@ const router: IRouter = Router();
 router.use(healthRouter);
 router.use(fleetAnalysisRouter);
 router.use(curationRouter);
+router.use(changesRouter);
 
 export default router;

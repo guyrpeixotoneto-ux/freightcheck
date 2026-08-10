@@ -3,3 +3,4 @@ export * from "./raw";
 export * from "./canonical";
 export * from "./staging";
 export * from "./curation";
+export * from "./comparison";

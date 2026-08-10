@@ -1,0 +1,296 @@
+import { and, eq, sql, type SQL } from "drizzle-orm";
+import type { Database } from "@workspace/db";
+import { changeSetTable, changeTable, snapshotTable } from "@workspace/db";
+
+/**
+ * Reading a change set.
+ *
+ * Ordering is by materiality; filtering is by the curator's own vocabulary.
+ * The two are deliberately separate concerns — materiality decides *what comes
+ * first*, never *what is shown*. A one-real change and a seven-hundred-thousand
+ * one are both in the list.
+ */
+
+export interface ChangeFilters {
+  /** FIXO | VARIAVEL | SEM_CLASSE */
+  costClass?: string;
+  /** VALUE_CHANGED | ENTITY_ADDED | ENTITY_REMOVED | ATTRIBUTE_ADDED | ATTRIBUTE_REMOVED */
+  changeType?: string;
+  /** SOURCE_CHANGE | FLEET_CHANGE | LAYOUT_CHANGE */
+  category?: string;
+  /** CONFIRMED | PRESUMED | UNKNOWN */
+  semanticsStatus?: string;
+  /** COMPARABLE | INCONCLUSIVE */
+  comparability?: string;
+  /** CALCULATED | ESTIMATED | NOT_CALCULABLE */
+  impactConfidence?: string;
+  attributeCode?: string;
+  entityLabel?: string;
+  /** Absolute impact floor, for narrowing a long list — never a default. */
+  minAbsImpact?: number;
+  search?: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface ChangeRow {
+  id: number;
+  category: string;
+  changeType: string;
+  nature: string | null;
+  attributeCode: string | null;
+  attributeName: string | null;
+  entityLabel: string | null;
+  entityType: string | null;
+  valueBefore: string | null;
+  valueAfter: string | null;
+  isNullBefore: boolean | null;
+  isNullAfter: boolean | null;
+  nullReasonBefore: string | null;
+  nullReasonAfter: string | null;
+  deltaAbsolute: number | null;
+  deltaPercent: number | null;
+  comparability: string;
+  inconclusiveReason: string | null;
+  impactConfidence: string;
+  impactAmount: number | null;
+  impactPeriodicity: string | null;
+  impactReason: string | null;
+  costClass: string | null;
+  taxonomyName: string | null;
+  semanticsStatus: string | null;
+}
+
+function buildWhere(changeSetId: string, f: ChangeFilters): SQL {
+  const parts: SQL[] = [eq(changeTable.changeSetId, changeSetId)];
+
+  if (f.costClass === "SEM_CLASSE") {
+    parts.push(sql`${changeTable.costClass} IS NULL`);
+  } else if (f.costClass) {
+    parts.push(eq(changeTable.costClass, f.costClass));
+  }
+  if (f.changeType) parts.push(eq(changeTable.changeType, f.changeType));
+  if (f.category) parts.push(eq(changeTable.category, f.category));
+  if (f.semanticsStatus) parts.push(eq(changeTable.semanticsStatus, f.semanticsStatus));
+  if (f.comparability) parts.push(eq(changeTable.comparability, f.comparability));
+  if (f.impactConfidence)
+    parts.push(eq(changeTable.impactConfidence, f.impactConfidence));
+  if (f.attributeCode) parts.push(eq(changeTable.attributeCode, f.attributeCode));
+  if (f.entityLabel) parts.push(eq(changeTable.entityLabel, f.entityLabel));
+  if (f.minAbsImpact !== undefined) {
+    parts.push(sql`abs(${changeTable.impactAmount}) >= ${f.minAbsImpact}`);
+  }
+  if (f.search) {
+    const like = `%${f.search}%`;
+    parts.push(
+      sql`(${changeTable.attributeCode} ILIKE ${like}
+        OR ${changeTable.attributeName} ILIKE ${like}
+        OR ${changeTable.entityLabel} ILIKE ${like})`,
+    );
+  }
+  return and(...parts)!;
+}
+
+export async function listChanges(
+  db: Database,
+  changeSetId: string,
+  filters: ChangeFilters = {},
+): Promise<{ total: number; rows: ChangeRow[] }> {
+  const where = buildWhere(changeSetId, filters);
+
+  const [count] = await db
+    .select({ total: sql<number>`count(*)`.mapWith(Number) })
+    .from(changeTable)
+    .where(where);
+
+  const rows = await db
+    .select({
+      id: changeTable.id,
+      category: changeTable.category,
+      changeType: changeTable.changeType,
+      nature: changeTable.nature,
+      attributeCode: changeTable.attributeCode,
+      attributeName: changeTable.attributeName,
+      entityLabel: changeTable.entityLabel,
+      entityType: changeTable.entityType,
+      valueBefore: changeTable.valueBefore,
+      valueAfter: changeTable.valueAfter,
+      isNullBefore: changeTable.isNullBefore,
+      isNullAfter: changeTable.isNullAfter,
+      nullReasonBefore: changeTable.nullReasonBefore,
+      nullReasonAfter: changeTable.nullReasonAfter,
+      deltaAbsolute: changeTable.deltaAbsolute,
+      deltaPercent: changeTable.deltaPercent,
+      comparability: changeTable.comparability,
+      inconclusiveReason: changeTable.inconclusiveReason,
+      impactConfidence: changeTable.impactConfidence,
+      impactAmount: changeTable.impactAmount,
+      impactPeriodicity: changeTable.impactPeriodicity,
+      impactReason: changeTable.impactReason,
+      costClass: changeTable.costClass,
+      taxonomyName: changeTable.taxonomyName,
+      semanticsStatus: changeTable.semanticsStatus,
+    })
+    .from(changeTable)
+    .where(where)
+    // Materiality first: changes whose worth we actually know, by size. Then
+    // everything else by the size of its variation, so a large movement we
+    // cannot yet price still rises above a trivial one.
+    .orderBy(
+      sql`abs(${changeTable.impactAmount}) DESC NULLS LAST`,
+      sql`abs(${changeTable.deltaAbsolute}) DESC NULLS LAST`,
+      sql`abs(${changeTable.deltaPercent}) DESC NULLS LAST`,
+      changeTable.attributeCode,
+      changeTable.entityLabel,
+    )
+    .limit(filters.limit ?? 200)
+    .offset(filters.offset ?? 0);
+
+  return {
+    total: count.total,
+    rows: rows.map((r) => ({
+      ...r,
+      deltaAbsolute: r.deltaAbsolute === null ? null : Number(r.deltaAbsolute),
+      deltaPercent: r.deltaPercent === null ? null : Number(r.deltaPercent),
+      impactAmount: r.impactAmount === null ? null : Number(r.impactAmount),
+    })),
+  };
+}
+
+/** Full provenance for one change: both sides, down to the cell. */
+export async function getChangeProvenance(db: Database, changeId: number) {
+  const { rows } = await db.execute<Record<string, unknown>>(sql`
+    SELECT c.id,
+           c.attribute_code,
+           c.entity_label,
+           c.value_before,
+           c.value_after,
+           sa.source_label AS snapshot_before,
+           sb.source_label AS snapshot_after,
+           sha.sheet_name  AS sheet_before,
+           rra.row_index   AS row_before,
+           rca.column_letter AS column_before,
+           rca.column_header AS header_before,
+           rca.raw_value   AS raw_before,
+           rca.source_type AS type_before,
+           shb.sheet_name  AS sheet_after,
+           rrb.row_index   AS row_after,
+           rcb.column_letter AS column_after,
+           rcb.column_header AS header_after,
+           rcb.raw_value   AS raw_after,
+           rcb.source_type AS type_after
+      FROM "change" c
+      JOIN change_set cs ON cs.id = c.change_set_id
+      JOIN snapshot sa ON sa.id = cs.snapshot_a_id
+      JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+      LEFT JOIN fact fa ON fa.id = c.fact_a_id
+      LEFT JOIN raw_cell rca ON rca.id = fa.raw_cell_id
+      LEFT JOIN raw_row rra ON rra.id = rca.raw_row_id
+      LEFT JOIN raw_sheet sha ON sha.id = rra.raw_sheet_id
+      LEFT JOIN fact fb ON fb.id = c.fact_b_id
+      LEFT JOIN raw_cell rcb ON rcb.id = fb.raw_cell_id
+      LEFT JOIN raw_row rrb ON rrb.id = rcb.raw_row_id
+      LEFT JOIN raw_sheet shb ON shb.id = rrb.raw_sheet_id
+     WHERE c.id = ${changeId}
+  `);
+  return rows[0] ?? null;
+}
+
+/** Breakdown for the header of the Alterações screen. */
+export async function getChangeSetBreakdown(db: Database, changeSetId: string) {
+  const byCostClass = await db
+    .select({
+      costClass: changeTable.costClass,
+      count: sql<number>`count(*)`.mapWith(Number),
+      impact: sql<string | null>`sum(${changeTable.impactAmount})`,
+    })
+    .from(changeTable)
+    .where(eq(changeTable.changeSetId, changeSetId))
+    .groupBy(changeTable.costClass)
+    .orderBy(changeTable.costClass);
+
+  const byType = await db
+    .select({
+      changeType: changeTable.changeType,
+      count: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(changeTable)
+    .where(eq(changeTable.changeSetId, changeSetId))
+    .groupBy(changeTable.changeType)
+    .orderBy(changeTable.changeType);
+
+  const bySemantics = await db
+    .select({
+      semanticsStatus: changeTable.semanticsStatus,
+      count: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(changeTable)
+    .where(eq(changeTable.changeSetId, changeSetId))
+    .groupBy(changeTable.semanticsStatus)
+    .orderBy(changeTable.semanticsStatus);
+
+  return {
+    byCostClass: byCostClass.map((r) => ({
+      costClass: r.costClass ?? "SEM_CLASSE",
+      count: r.count,
+      impact: r.impact === null ? null : Number(r.impact),
+    })),
+    byType,
+    bySemantics: bySemantics.map((r) => ({
+      semanticsStatus: r.semanticsStatus ?? "(sem atributo)",
+      count: r.count,
+    })),
+  };
+}
+
+/** Every comparison on record, newest first. */
+export async function listChangeSets(db: Database) {
+  const sa = sql`sa`;
+  const { rows } = await db.execute<Record<string, unknown>>(sql`
+    SELECT cs.*,
+           sa.source_label   AS snapshot_a_label,
+           sa.effective_date AS snapshot_a_date,
+           sb.source_label   AS snapshot_b_label,
+           sb.effective_date AS snapshot_b_date
+      FROM change_set cs
+      JOIN snapshot sa ON sa.id = cs.snapshot_a_id
+      JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+     ORDER BY sb.effective_date DESC
+  `);
+  return rows;
+}
+
+/** Live snapshots, oldest first — the pickers on Comparar read this. */
+export async function listComparableSnapshots(db: Database) {
+  return db
+    .select({
+      id: snapshotTable.id,
+      sourceLabel: snapshotTable.sourceLabel,
+      effectiveDate: snapshotTable.effectiveDate,
+      entityTypeSet: snapshotTable.entityTypeSet,
+      scopeHash: snapshotTable.scopeHash,
+      revision: snapshotTable.revision,
+      entityCount: snapshotTable.entityCount,
+      factCount: snapshotTable.factCount,
+    })
+    .from(snapshotTable)
+    .where(sql`${snapshotTable.status} <> 'SUPERSEDED'`)
+    .orderBy(snapshotTable.effectiveDate);
+}
+
+export async function getChangeSetForPair(
+  db: Database,
+  snapshotAId: string,
+  snapshotBId: string,
+) {
+  const [set] = await db
+    .select()
+    .from(changeSetTable)
+    .where(
+      and(
+        eq(changeSetTable.snapshotAId, snapshotAId),
+        eq(changeSetTable.snapshotBId, snapshotBId),
+      ),
+    );
+  return set ?? null;
+}

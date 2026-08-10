@@ -13,6 +13,9 @@
       "path": "./lib/curation"
     },
     {
+      "path": "./lib/comparison"
+    },
+    {
       "path": "./lib/api-client-react"
     },
     {

@@ -1,224 +1,269 @@
-import { useState } from "react";
-import { useListSnapshots, useCreateDiff, useGetDiffItems } from "@workspace/api-client-react";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { ArrowRight, GitCompareArrows } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
-import { PageLoading, ErrorState } from "@/components/ui/loading";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { formatBRL, cn } from "@/lib/utils";
-import { GitCompareArrows, ArrowRight, Loader2 } from "lucide-react";
-import type { SnapshotDiff } from "@workspace/api-client-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { getApiUrl } from "@/lib/api";
+import {
+  ChangeTable,
+  FilterBar,
+  emptyFilters,
+  toQuery,
+  type Breakdown,
+  type ChangeRow,
+  type Filters,
+} from "@/components/changes/change-table";
+
+/**
+ * Comparar — quaisquer duas vigências, escolhidas por você.
+ *
+ * A mesma tabela de Alterações, com o par definido à mão em vez de "a última
+ * contra a anterior".
+ */
+
+interface Snapshot {
+  id: string;
+  sourceLabel: string;
+  effectiveDate: string;
+  entityTypeSet: string;
+  entityCount: number;
+  factCount: number;
+}
+
+interface ChangeSet {
+  id: string;
+  valueChanges: number;
+  entitiesAdded: number;
+  entitiesRemoved: number;
+  attributesAdded: number;
+  attributesRemoved: number;
+  unchanged: number;
+  inconclusive: number;
+  calculatedImpact: number | null;
+  impactNotCalculable: number;
+}
 
 export default function Comparar() {
-  const { data: snapshots, isLoading: loadingSnapshots } = useListSnapshots();
-  const createDiffMutation = useCreateDiff();
-  
-  const [snapshotAId, setSnapshotAId] = useState<string>("");
-  const [snapshotBId, setSnapshotBId] = useState<string>("");
-  const [activeDiff, setActiveDiff] = useState<SnapshotDiff | null>(null);
+  const [aId, setAId] = useState("");
+  const [bId, setBId] = useState("");
+  const [filters, setFilters] = useState<Filters>(emptyFilters);
+  const [set, setSet] = useState<ChangeSet | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
-  const { data: items, isLoading: loadingItems } = useGetDiffItems(
-    activeDiff?.id || "", 
-    {}, 
-    { query: { enabled: !!activeDiff?.id } }
-  );
+  const { data: snapshots = [] } = useQuery({
+    queryKey: ["snapshots"],
+    queryFn: async () =>
+      (await (await fetch(getApiUrl("/snapshots"))).json()) as Snapshot[],
+  });
 
-  const handleCompare = async () => {
-    if (!snapshotAId || !snapshotBId) return;
-    try {
-      const result = await createDiffMutation.mutateAsync({
-        data: { snapshotAId, snapshotBId }
-      });
-      setActiveDiff(result);
-    } catch (err) {
-      alert("Erro ao comparar snapshots");
+  // Default to the two most recent, which is the comparison people want most.
+  useEffect(() => {
+    if (snapshots.length >= 2 && !aId && !bId) {
+      setAId(snapshots[snapshots.length - 2].id);
+      setBId(snapshots[snapshots.length - 1].id);
     }
-  };
+  }, [snapshots, aId, bId]);
 
-  if (loadingSnapshots) return <Layout><PageLoading /></Layout>;
+  const compare = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(getApiUrl("/change-sets"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ snapshotAId: aId, snapshotBId: bId }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Falha ao comparar");
+      return body as ChangeSet;
+    },
+    onSuccess: (result) => {
+      setError(null);
+      setSet(result);
+    },
+    onError: (err: Error) => {
+      setSet(null);
+      setError(err.message);
+    },
+  });
+
+  const { data: changes } = useQuery({
+    queryKey: ["change-set", set?.id, filters],
+    queryFn: async () => {
+      const response = await fetch(
+        getApiUrl(`/change-sets/${set!.id}/changes?${toQuery(filters)}`),
+      );
+      return (await response.json()) as {
+        breakdown: Breakdown;
+        total: number;
+        rows: ChangeRow[];
+      };
+    },
+    enabled: set !== null,
+  });
+
+  const label = (id: string) =>
+    snapshots.find((s) => s.id === id)?.sourceLabel ?? "—";
 
   return (
     <Layout>
-      <div className="flex-1 overflow-auto bg-background/50">
-        <div className="p-6 md:p-8 max-w-[1600px] mx-auto space-y-8">
-          
-          <div>
-            <h1 className="text-3xl font-bold tracking-tight text-foreground flex items-center gap-2">
-              <GitCompareArrows className="w-8 h-8 text-primary" />
-              Comparar Modelos
-            </h1>
-            <p className="text-muted-foreground mt-1">
-              Gere um relatório de divergências entre duas versões do modelo de remuneração.
-            </p>
-          </div>
+      <header className="border-b bg-card px-8 py-6">
+        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+          <GitCompareArrows className="w-6 h-6 text-primary" />
+          Comparar Modelos
+        </h1>
+        <p className="text-muted-foreground mt-1">
+          Duas vigências quaisquer, comparadas pela identidade do ativo e do
+          atributo — nunca pela posição da linha na planilha.
+        </p>
 
-          <Card className="p-6">
-            <div className="flex flex-col md:flex-row items-end gap-4">
-              <div className="flex-1 space-y-2 w-full">
-                <label className="text-sm font-medium">Modelo Base (A)</label>
-                <select 
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
-                  value={snapshotAId}
-                  onChange={e => {
-                    setSnapshotAId(e.target.value);
-                    setActiveDiff(null);
-                  }}
-                >
-                  <option value="" disabled>Selecione o modelo base...</option>
-                  {snapshots?.map(s => (
-                    <option key={s.id} value={s.id}>{s.label} ({s.status})</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div className="hidden md:flex h-10 items-center justify-center px-4 text-muted-foreground">
-                <ArrowRight className="w-5 h-5" />
-              </div>
-              
-              <div className="flex-1 space-y-2 w-full">
-                <label className="text-sm font-medium">Modelo Comparado (B)</label>
-                <select 
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 py-1 text-sm shadow-sm"
-                  value={snapshotBId}
-                  onChange={e => {
-                    setSnapshotBId(e.target.value);
-                    setActiveDiff(null);
-                  }}
-                >
-                  <option value="" disabled>Selecione o modelo para comparar...</option>
-                  {snapshots?.map(s => (
-                    <option key={s.id} value={s.id}>{s.label} ({s.status})</option>
-                  ))}
-                </select>
-              </div>
-              
-              <div className="w-full md:w-auto">
-                <Button 
-                  size="lg" 
-                  className="w-full md:w-auto" 
-                  onClick={handleCompare}
-                  disabled={!snapshotAId || !snapshotBId || snapshotAId === snapshotBId || createDiffMutation.isPending}
-                >
-                  {createDiffMutation.isPending ? <><Loader2 className="w-4 h-4 mr-2 animate-spin"/> Analisando...</> : "Gerar Comparação"}
-                </Button>
-              </div>
-            </div>
-          </Card>
-
-          {activeDiff && (
-            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Card>
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Alterados</p>
-                      <p className="text-2xl font-bold text-amber-600">{activeDiff.totalChanged}</p>
-                    </div>
-                    <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center font-bold text-amber-700">Δ</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Adicionados</p>
-                      <p className="text-2xl font-bold text-emerald-600">{activeDiff.totalAdded}</p>
-                    </div>
-                    <div className="w-10 h-10 rounded-full bg-emerald-100 flex items-center justify-center font-bold text-emerald-700">+</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Removidos</p>
-                      <p className="text-2xl font-bold text-destructive">{activeDiff.totalRemoved}</p>
-                    </div>
-                    <div className="w-10 h-10 rounded-full bg-destructive/10 flex items-center justify-center font-bold text-destructive">-</div>
-                  </CardContent>
-                </Card>
-                <Card>
-                  <CardContent className="p-4 flex items-center justify-between">
-                    <div>
-                      <p className="text-sm font-medium text-muted-foreground">Impacto Mensal</p>
-                      <p className={cn("text-xl font-bold font-mono tracking-tighter", activeDiff.estimatedMonthlyImpact && activeDiff.estimatedMonthlyImpact < 0 ? "text-destructive" : "text-emerald-600")}>
-                        {activeDiff.estimatedMonthlyImpact ? formatBRL(activeDiff.estimatedMonthlyImpact) : "R$ 0,00"}
-                      </p>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-
-              <Card className="flex flex-col overflow-hidden">
-                <div className="p-4 border-b bg-muted/10">
-                  <h3 className="font-semibold text-lg">Detalhamento das Divergências</h3>
-                </div>
-                
-                <div className="overflow-auto min-h-[400px]">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-[80px]">Tipo</TableHead>
-                        <TableHead>Parâmetro</TableHead>
-                        <TableHead>Valor A (Base)</TableHead>
-                        <TableHead>Valor B (Novo)</TableHead>
-                        <TableHead className="text-right">Variação %</TableHead>
-                        <TableHead className="text-right">Impacto/Mês</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {loadingItems ? (
-                        <TableRow><TableCell colSpan={6} className="h-32 text-center"><PageLoading /></TableCell></TableRow>
-                      ) : items?.length === 0 ? (
-                        <TableRow><TableCell colSpan={6} className="h-32 text-center text-muted-foreground">Os modelos são idênticos. Nenhuma alteração encontrada.</TableCell></TableRow>
-                      ) : (
-                        items?.map((item) => (
-                          <TableRow key={item.id} className="group hover:bg-muted/30">
-                            <TableCell>
-                              <div className={cn(
-                                "inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-xs",
-                                item.changeType === 'ADDED' ? "bg-emerald-100 text-emerald-700" :
-                                item.changeType === 'REMOVED' ? "bg-destructive/10 text-destructive" :
-                                item.changeType === 'CHANGED' ? "bg-amber-100 text-amber-700" :
-                                "bg-muted text-muted-foreground"
-                              )}>
-                                {item.changeType === 'ADDED' ? '+' : item.changeType === 'REMOVED' ? '-' : item.changeType === 'CHANGED' ? 'Δ' : '='}
-                              </div>
-                            </TableCell>
-                            <TableCell>
-                              <div className="font-medium">{item.entityName}</div>
-                              <div className="text-xs text-muted-foreground font-mono mt-0.5">{item.entityKey}</div>
-                            </TableCell>
-                            <TableCell className="font-mono text-sm text-muted-foreground line-through opacity-70">
-                              {item.valueBeforeText || item.valueBefore || '-'}
-                            </TableCell>
-                            <TableCell className="font-mono text-sm font-semibold">
-                              {item.valueAfterText || item.valueAfter || '-'}
-                            </TableCell>
-                            <TableCell className="text-right">
-                              {item.deltaPercent != null ? (
-                                <Badge variant={item.deltaPercent > 0 ? "destructive" : "success"} className="font-mono ml-auto">
-                                  {item.deltaPercent > 0 ? '+' : ''}{item.deltaPercent.toFixed(2)}%
-                                </Badge>
-                              ) : '-'}
-                            </TableCell>
-                            <TableCell className="text-right font-mono font-semibold">
-                              {item.estimatedMonthlyImpact != null ? (
-                                <span className={item.estimatedMonthlyImpact > 0 ? "text-emerald-600" : item.estimatedMonthlyImpact < 0 ? "text-destructive" : ""}>
-                                  {item.estimatedMonthlyImpact > 0 ? '+' : ''}{formatBRL(item.estimatedMonthlyImpact)}
-                                </span>
-                              ) : '-'}
-                            </TableCell>
-                          </TableRow>
-                        ))
-                      )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </Card>
-            </div>
-          )}
+        <div className="flex flex-wrap items-end gap-3 mt-6">
+          <SnapshotPicker
+            label="Modelo anterior"
+            value={aId}
+            onChange={setAId}
+            snapshots={snapshots}
+          />
+          <ArrowRight className="w-5 h-5 text-muted-foreground mb-2.5" />
+          <SnapshotPicker
+            label="Modelo novo"
+            value={bId}
+            onChange={setBId}
+            snapshots={snapshots}
+          />
+          <Button
+            onClick={() => compare.mutate()}
+            disabled={!aId || !bId || aId === bId || compare.isPending}
+          >
+            {compare.isPending ? "Comparando…" : "Comparar"}
+          </Button>
         </div>
+      </header>
+
+      <div className="p-8 space-y-6">
+        {error && (
+          <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
+            {error}
+          </div>
+        )}
+
+        {set && (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+              <Tile label="Valores alterados" value={set.valueChanges} />
+              <Tile label="Sem alteração" value={set.unchanged} />
+              <Tile label="Ativos entraram" value={`+${set.entitiesAdded}`} />
+              <Tile label="Ativos saíram" value={`−${set.entitiesRemoved}`} />
+              <Tile
+                label="Colunas +/−"
+                value={`+${set.attributesAdded} / −${set.attributesRemoved}`}
+              />
+              <Tile
+                label="Impacto apurado"
+                value={
+                  set.calculatedImpact === null
+                    ? "não calculável"
+                    : set.calculatedImpact.toLocaleString("pt-BR", {
+                        style: "currency",
+                        currency: "BRL",
+                        maximumFractionDigits: 0,
+                      })
+                }
+                hint={`${set.impactNotCalculable} fora da soma`}
+              />
+            </div>
+
+            <FilterBar
+              filters={filters}
+              onChange={setFilters}
+              breakdown={changes?.breakdown}
+            />
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">
+                  {label(aId)} → {label(bId)}
+                  {changes && (
+                    <span className="text-muted-foreground font-normal">
+                      {" "}
+                      · {changes.total} alterações
+                    </span>
+                  )}
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="p-0">
+                {changes && (
+                  <ChangeTable rows={changes.rows} total={changes.total} />
+                )}
+              </CardContent>
+            </Card>
+          </>
+        )}
+
+        {!set && !error && (
+          <Card>
+            <CardContent className="p-12 text-center text-muted-foreground">
+              Escolha duas vigências e clique em Comparar.
+            </CardContent>
+          </Card>
+        )}
       </div>
     </Layout>
+  );
+}
+
+function SnapshotPicker({
+  label,
+  value,
+  onChange,
+  snapshots,
+}: {
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  snapshots: Snapshot[];
+}) {
+  return (
+    <div className="space-y-1.5">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="w-64">
+          <SelectValue placeholder="Selecionar vigência…" />
+        </SelectTrigger>
+        <SelectContent>
+          {snapshots.map((s) => (
+            <SelectItem key={s.id} value={s.id}>
+              {s.sourceLabel} · {s.effectiveDate} · {s.entityCount} ativos
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+function Tile({
+  label,
+  value,
+  hint,
+}: {
+  label: string;
+  value: string | number;
+  hint?: string;
+}) {
+  return (
+    <div className="rounded-lg border bg-card px-4 py-3">
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <div className="text-xl font-bold tabular-nums mt-1">{value}</div>
+      {hint && <div className="text-xs text-muted-foreground mt-0.5">{hint}</div>}
+    </div>
   );
 }
