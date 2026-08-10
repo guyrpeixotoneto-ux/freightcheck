@@ -1,4 +1,4 @@
-import { and, eq, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { changeSetTable, changeTable, snapshotTable } from "@workspace/db";
 
@@ -61,8 +61,15 @@ export interface ChangeRow {
   semanticsStatus: string | null;
 }
 
-function buildWhere(changeSetId: string, f: ChangeFilters): SQL {
-  const parts: SQL[] = [eq(changeTable.changeSetId, changeSetId)];
+function buildWhere(changeSetId: string | string[], f: ChangeFilters): SQL {
+  // An array is how the consolidated view reads several series at once. It is
+  // still a plain listing of changes — no aggregation happens here.
+  const ids = Array.isArray(changeSetId) ? changeSetId : [changeSetId];
+  const parts: SQL[] = [
+    ids.length === 1
+      ? eq(changeTable.changeSetId, ids[0])
+      : inArray(changeTable.changeSetId, ids),
+  ];
 
   if (f.costClass === "SEM_CLASSE") {
     parts.push(sql`${changeTable.costClass} IS NULL`);
@@ -93,9 +100,12 @@ function buildWhere(changeSetId: string, f: ChangeFilters): SQL {
 
 export async function listChanges(
   db: Database,
-  changeSetId: string,
+  changeSetId: string | string[],
   filters: ChangeFilters = {},
 ): Promise<{ total: number; rows: ChangeRow[] }> {
+  if (Array.isArray(changeSetId) && changeSetId.length === 0) {
+    return { total: 0, rows: [] };
+  }
   const where = buildWhere(changeSetId, filters);
 
   const [count] = await db
@@ -197,7 +207,15 @@ export async function getChangeProvenance(db: Database, changeId: number) {
 }
 
 /** Breakdown for the header of the Alterações screen. */
-export async function getChangeSetBreakdown(db: Database, changeSetId: string) {
+export async function getChangeSetBreakdown(
+  db: Database,
+  changeSetId: string | string[],
+) {
+  const ids = Array.isArray(changeSetId) ? changeSetId : [changeSetId];
+  if (ids.length === 0) {
+    return { byCostClass: [], byType: [], bySemantics: [] };
+  }
+  const scope = inArray(changeTable.changeSetId, ids);
   const byCostClass = await db
     .select({
       costClass: changeTable.costClass,
@@ -205,7 +223,7 @@ export async function getChangeSetBreakdown(db: Database, changeSetId: string) {
       impact: sql<string | null>`sum(${changeTable.impactAmount})`,
     })
     .from(changeTable)
-    .where(eq(changeTable.changeSetId, changeSetId))
+    .where(scope)
     .groupBy(changeTable.costClass)
     .orderBy(changeTable.costClass);
 
@@ -215,7 +233,7 @@ export async function getChangeSetBreakdown(db: Database, changeSetId: string) {
       count: sql<number>`count(*)`.mapWith(Number),
     })
     .from(changeTable)
-    .where(eq(changeTable.changeSetId, changeSetId))
+    .where(scope)
     .groupBy(changeTable.changeType)
     .orderBy(changeTable.changeType);
 
@@ -225,7 +243,7 @@ export async function getChangeSetBreakdown(db: Database, changeSetId: string) {
       count: sql<number>`count(*)`.mapWith(Number),
     })
     .from(changeTable)
-    .where(eq(changeTable.changeSetId, changeSetId))
+    .where(scope)
     .groupBy(changeTable.semanticsStatus)
     .orderBy(changeTable.semanticsStatus);
 

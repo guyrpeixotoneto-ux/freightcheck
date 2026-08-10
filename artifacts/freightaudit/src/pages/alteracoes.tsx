@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Activity, ArrowRight, HelpCircle, Lock, X } from "lucide-react";
+import { Activity, AlertTriangle, ArrowRight, Lock } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,34 @@ import {
  * lista; nunca a filtra por conta própria.
  */
 
+interface ConsolidatedResponse {
+  view: {
+    period: string;
+    present: {
+      entityTypeSet: string;
+      sourceLabel: string;
+      previousLabel: string | null;
+      reason: string | null;
+    }[];
+    missing: string[];
+    complete: boolean;
+    totals: {
+      valueChanges: number;
+      entitiesAdded: number;
+      entitiesRemoved: number;
+      attributesAdded: number;
+      attributesRemoved: number;
+      inconclusive: number;
+      impactNotCalculable: number;
+    };
+    impactByPeriodicity: Record<string, number>;
+  };
+  breakdown: Breakdown;
+  periods: { effective_date: string; series: string[] }[];
+  total: number;
+  rows: ChangeRow[];
+}
+
 interface LatestResponse {
   set: {
     id: string;
@@ -51,20 +79,64 @@ interface LatestResponse {
 
 export default function Alteracoes() {
   const [filters, setFilters] = useState<Filters>(emptyFilters);
+  /** null = visão consolidada da frota; caso contrário, uma série. */
   const [series, setSeries] = useState<string | null>(null);
 
-  const { data, isLoading, error } = useQuery({
+  const consolidated = useQuery({
+    queryKey: ["changes", "consolidated", filters],
+    queryFn: async () => {
+      const response = await fetch(
+        getApiUrl(`/changes/consolidated?${toQuery(filters)}`),
+      );
+      if (!response.ok) throw new Error((await response.json()).error ?? "Falha");
+      return (await response.json()) as ConsolidatedResponse;
+    },
+    enabled: series === null,
+  });
+
+  const single = useQuery({
     queryKey: ["changes", "latest", filters, series],
     queryFn: async () => {
       const response = await fetch(
-        getApiUrl(
-          `/changes/latest?${toQuery(filters)}${series ? `&entityTypeSet=${series}` : ""}`,
-        ),
+        getApiUrl(`/changes/latest?${toQuery(filters)}&entityTypeSet=${series}`),
       );
       if (!response.ok) throw new Error((await response.json()).error ?? "Falha");
       return (await response.json()) as LatestResponse;
     },
+    enabled: series !== null,
   });
+
+  const isLoading = series === null ? consolidated.isLoading : single.isLoading;
+  const error = series === null ? consolidated.error : single.error;
+  const cv = consolidated.data?.view;
+  const data = single.data;
+
+  // Séries conhecidas, para os botões. Vêm do consolidado, que enxerga todas.
+  const known = [
+    ...(cv?.present.map((p) => p.entityTypeSet) ?? []),
+    ...(cv?.missing ?? []),
+    ...(data?.series.map((s) => s.entityTypeSet) ?? []),
+  ].filter((v, i, a) => a.indexOf(v) === i).sort();
+
+  const rows = series === null ? consolidated.data?.rows : data?.rows;
+  const total = series === null ? consolidated.data?.total : data?.total;
+  const breakdown = series === null ? consolidated.data?.breakdown : data?.breakdown;
+  const totals =
+    series === null
+      ? cv?.totals
+      : data && {
+          valueChanges: data.set.valueChanges,
+          entitiesAdded: data.set.entitiesAdded,
+          entitiesRemoved: data.set.entitiesRemoved,
+          attributesAdded: data.set.attributesAdded,
+          attributesRemoved: data.set.attributesRemoved,
+          inconclusive: data.set.inconclusive,
+          impactNotCalculable: data.set.impactNotCalculable,
+        };
+  const impact =
+    series === null
+      ? (cv?.impactByPeriodicity ?? {})
+      : (data?.set.calculatedImpactByPeriodicity ?? {});
 
   return (
     <Layout>
@@ -73,70 +145,110 @@ export default function Alteracoes() {
           <Activity className="w-6 h-6 text-primary" />
           Alterações
         </h1>
-        {data && (
-          <div className="flex flex-wrap items-center gap-3 mt-1">
-            <p className="text-muted-foreground flex items-center gap-2 text-sm">
-              <span className="font-mono">{data.set.snapshotALabel}</span>
-              <ArrowRight className="w-4 h-4" />
-              <span className="font-mono">{data.set.snapshotBLabel}</span>
-            </p>
-
-            {/* Só aparece quando há mais de uma série. Uma vigência de carreta
-                e uma de cavalo não se comparam entre si, então mostrar as duas
-                juntas seria dizer que a lista cobre a frota inteira. */}
-            {data.series.length > 1 && (
-              <div className="flex items-center gap-1.5">
-                {data.series.map((s) => (
-                  <button
-                    key={s.entityTypeSet}
-                    onClick={() => setSeries(s.entityTypeSet)}
-                    className={cn(
-                      "text-xs px-2.5 py-1 rounded-full border transition-colors",
-                      data.selectedSeries === s.entityTypeSet
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "bg-background hover:bg-muted border-input text-muted-foreground",
-                    )}
-                  >
-                    {s.entityTypeSet.replace("+", " · ").toLowerCase()}
-                    <span className="ml-1 opacity-60">{s.vigencias}</span>
-                  </button>
-                ))}
-              </div>
+        <div className="flex flex-wrap items-center gap-3 mt-1">
+          <p className="text-muted-foreground flex items-center gap-2 text-sm">
+            {series === null ? (
+              cv && <span className="font-mono">período {cv.period}</span>
+            ) : (
+              data && (
+                <>
+                  <span className="font-mono">{data.set.snapshotALabel}</span>
+                  <ArrowRight className="w-4 h-4" />
+                  <span className="font-mono">{data.set.snapshotBLabel}</span>
+                </>
+              )
             )}
-          </div>
-        )}
+          </p>
 
-        {data && (
+          {/* Consolidado é agrupamento de tela e API: soma as séries que
+              entregaram no período. Nenhuma vigência é fundida no banco. */}
+          {known.length > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setSeries(null)}
+                className={cn(
+                  "text-xs px-2.5 py-1 rounded-full border transition-colors",
+                  series === null
+                    ? "bg-primary text-primary-foreground border-primary"
+                    : "bg-background hover:bg-muted border-input text-muted-foreground",
+                )}
+              >
+                frota
+              </button>
+              {known.map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setSeries(s)}
+                  className={cn(
+                    "text-xs px-2.5 py-1 rounded-full border transition-colors",
+                    series === s
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background hover:bg-muted border-input text-muted-foreground",
+                  )}
+                >
+                  {s.replace("+", " · ").toLowerCase()}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {totals && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6">
-            <Tile label="Valores alterados" value={data.set.valueChanges} />
+            <Tile label="Valores alterados" value={totals.valueChanges} />
             <Tile
               label="Ativos entraram / saíram"
-              value={`+${data.set.entitiesAdded} / −${data.set.entitiesRemoved}`}
+              value={`+${totals.entitiesAdded} / −${totals.entitiesRemoved}`}
             />
             <Tile
               label="Colunas novas / removidas"
-              value={`+${data.set.attributesAdded} / −${data.set.attributesRemoved}`}
+              value={`+${totals.attributesAdded} / −${totals.attributesRemoved}`}
             />
-            <ImpactTile
-              buckets={data.set.calculatedImpactByPeriodicity}
-              outside={data.set.impactNotCalculable}
-            />
+            <ImpactTile buckets={impact} outside={totals.impactNotCalculable} />
             <Tile
               label="Inconclusivas"
-              value={data.set.inconclusive}
+              value={totals.inconclusive}
               hint="listadas, não escondidas"
-              tone={data.set.inconclusive > 0 ? "warn" : "muted"}
+              tone={totals.inconclusive > 0 ? "warn" : "muted"}
             />
           </div>
         )}
       </header>
 
       <div className="p-8 space-y-6">
-        {data && data.set.impactNotCalculable > 0 && (
+        {series === null && cv && !cv.complete && (
+          <div className="flex gap-3 rounded-md border border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+            <p>
+              <strong>Visão consolidada parcial.</strong> Para o período{" "}
+              <span className="font-mono">{cv.period}</span> chegou apenas{" "}
+              {cv.present.map((p) => p.entityTypeSet.toLowerCase()).join(", ")}.
+              Falta <strong>{cv.missing.join(", ").toLowerCase()}</strong> — os
+              números abaixo cobrem só o que foi entregue, e a série ausente não
+              está contada como zero.
+            </p>
+          </div>
+        )}
+
+        {series === null && cv && cv.present.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Consolidado de{" "}
+            {cv.present
+              .map((p) =>
+                p.previousLabel
+                  ? `${p.entityTypeSet.toLowerCase()} (${p.previousLabel} → ${p.sourceLabel})`
+                  : `${p.entityTypeSet.toLowerCase()} (${p.reason})`,
+              )
+              .join(" · ")}
+            . Cada série é comparada com a anterior dela mesma; nada é fundido.
+          </p>
+        )}
+
+        {totals && totals.impactNotCalculable > 0 && (
           <div className="flex gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <Lock className="w-4 h-4 mt-0.5 shrink-0" />
             <p>
-              <strong>{data.set.impactNotCalculable}</strong> alterações estão
+              <strong>{totals.impactNotCalculable}</strong> alterações estão
               fora da soma de impacto porque a semântica do atributo ainda não
               foi confirmada, ou porque ele não é um montante somável. Elas
               continuam na lista — o que falta é o preço, não o fato.
@@ -147,7 +259,7 @@ export default function Alteracoes() {
         <FilterBar
           filters={filters}
           onChange={setFilters}
-          breakdown={data?.breakdown}
+          breakdown={breakdown}
         />
 
         {error && (
@@ -161,7 +273,7 @@ export default function Alteracoes() {
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">
-              {data ? `${data.total} alterações` : "Alterações"}
+              {total !== undefined ? `${total} alterações` : "Alterações"}
             </CardTitle>
             <p className="text-xs text-muted-foreground">
               Ordenadas por materialidade: primeiro o que tem impacto apurado,
@@ -172,7 +284,9 @@ export default function Alteracoes() {
             {isLoading && (
               <p className="p-6 text-sm text-muted-foreground">Comparando…</p>
             )}
-            {data && <ChangeTable rows={data.rows} total={data.total} />}
+            {rows && total !== undefined && (
+              <ChangeTable rows={rows} total={total} />
+            )}
           </CardContent>
         </Card>
       </div>

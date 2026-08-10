@@ -9,6 +9,8 @@ import {
   listChangeSets,
   listChanges,
   listComparableSnapshots,
+  getConsolidated,
+  listPeriods,
   type ChangeFilters,
 } from "@workspace/comparison";
 
@@ -138,6 +140,34 @@ router.get("/changes/latest", async (req, res): Promise<void> => {
     });
   } catch (err) {
     req.log.error({ err }, "Error computing latest changes");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * Consolidated: the fleet for one period, summing the series that delivered.
+ *
+ * A projection over the independent series — no snapshot is merged, nothing
+ * waits for anything. When a series is missing the analysis still runs on what
+ * arrived, and the response names what is absent so the caller can say so.
+ */
+router.get("/changes/consolidated", async (req, res): Promise<void> => {
+  try {
+    const period = typeof req.query.period === "string" ? req.query.period : undefined;
+    const view = await getConsolidated(db, period);
+    if (!view) {
+      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+      return;
+    }
+
+    const filters = parseFilters(req.query as Record<string, unknown>);
+    const [changes, breakdown] = await Promise.all([
+      listChanges(db, view.changeSetIds, filters),
+      getChangeSetBreakdown(db, view.changeSetIds),
+    ]);
+    res.json({ view, breakdown, periods: await listPeriods(db), ...changes });
+  } catch (err) {
+    req.log.error({ err }, "Error building consolidated view");
     res.status(500).json({ error: "Internal server error" });
   }
 });

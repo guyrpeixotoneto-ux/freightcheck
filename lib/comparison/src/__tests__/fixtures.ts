@@ -50,15 +50,25 @@ export interface FixtureResult {
   snapshotIds: Record<string, string>;
 }
 
+export interface FixtureOptions {
+  /** Equipment type, which is also the snapshot's entity_type_set. */
+  entityType?: string;
+  /** Shared so two series land in the same scope and can be consolidated. */
+  scopeHash?: string;
+}
+
 let sequence = 0;
 
 export async function buildFixture(
   db: Database,
   attributes: AttributeSpec[],
   snapshots: SnapshotSpec[],
+  options: FixtureOptions = {},
 ): Promise<FixtureResult> {
   sequence++;
   const suffix = `fx${sequence}`;
+  const entityType = options.entityType ?? "CARRETA";
+  const scopeHash = options.scopeHash ?? `scope-${suffix}`;
 
   const [file] = await db
     .insert(sourceFileTable)
@@ -144,7 +154,7 @@ export async function buildFixture(
     }
     const [entity] = await db
       .insert(entityTable)
-      .values({ entityType: "CARRETA", firstSeenImportRunId: run.id })
+      .values({ entityType, firstSeenImportRunId: run.id })
       .returning();
     await db.insert(entityIdentifierTable).values({
       entityId: entity.id,
@@ -182,8 +192,8 @@ export async function buildFixture(
         importRunId: run.id,
         sourceLabel: spec.label,
         effectiveDate: spec.effectiveDate,
-        scopeHash: `scope-${suffix}`,
-        entityTypeSet: "CARRETA",
+        scopeHash,
+        entityTypeSet: entityType,
         status: "DRAFT",
       })
       .returning();
