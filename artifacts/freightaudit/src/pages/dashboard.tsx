@@ -1,219 +1,256 @@
-import { useGetDashboardSummary, useGetDashboardRecentChanges, useListAlerts } from "@workspace/api-client-react";
-import { Layout } from "@/components/layout/layout";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { formatBRL, formatDate, cn } from "@/lib/utils";
-import { PageLoading, ErrorState } from "@/components/ui/loading";
-import { ArrowUpRight, ArrowDownRight, AlertTriangle, AlertCircle, TrendingUp, Info, Activity } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
+import {
+  Activity,
+  ArrowRight,
+  FileSearch,
+  LayoutDashboard,
+  Lock,
+} from "lucide-react";
+import { Layout } from "@/components/layout/layout";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getApiUrl } from "@/lib/api";
+import { cn } from "@/lib/utils";
+
+/**
+ * Painel de Impacto — o estado do sistema, sem projeção.
+ *
+ * Tudo aqui é medido, nada é previsto. Os impactos aparecem separados por
+ * periodicidade e nunca somados entre si: R$/mês e R$/ano são grandezas
+ * diferentes, e juntá-las é o erro que este produto existe para pegar.
+ * Converter as duas para uma base comum é trabalho de F4.
+ */
+
+interface Overview {
+  totals: Record<string, string>;
+  latest: {
+    id: string;
+    snapshot_a_label: string;
+    snapshot_b_label: string;
+    value_changes: number;
+    entities_added: number;
+    entities_removed: number;
+    inconclusive: number;
+    impact_not_calculable: number;
+    calculated_impact_by_periodicity: Record<string, number>;
+  } | null;
+  impactByPeriodicity: {
+    periodicity: string;
+    changes: number;
+    total: number | null;
+  }[];
+}
+
+const num = (v: string | number | undefined) =>
+  v === undefined ? "—" : Number(v).toLocaleString("pt-BR");
+
+const brl = (v: number) =>
+  v.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  });
 
 export default function Dashboard() {
-  const { data: summary, isLoading: loadingSummary, error: errorSummary } = useGetDashboardSummary();
-  const { data: recentChanges, isLoading: loadingChanges } = useGetDashboardRecentChanges({ limit: 5 });
-  const { data: alerts, isLoading: loadingAlerts } = useListAlerts({ isRead: false });
+  const { data, isLoading } = useQuery({
+    queryKey: ["overview"],
+    queryFn: async () =>
+      (await (await fetch(getApiUrl("/overview")))?.json()) as Overview,
+  });
 
-  if (loadingSummary) return <Layout><PageLoading /></Layout>;
-  if (errorSummary || !summary) return <Layout><ErrorState error={errorSummary} /></Layout>;
-
-  const hasImpact = summary.estimatedMonthlyImpact !== null;
-  const isNegative = hasImpact && summary.estimatedMonthlyImpact! < 0;
+  const t = data?.totals ?? {};
+  const pending = Number(t.monetarios_pendentes ?? 0);
+  const changes = Number(t.alteracoes ?? 0);
+  const priced = Number(t.com_impacto ?? 0);
+  const coverage = changes > 0 ? Math.round((priced / changes) * 100) : 0;
 
   return (
     <Layout>
-      <div className="flex-1 overflow-auto bg-background/50">
-        <div className="p-6 md:p-8 max-w-[1600px] mx-auto space-y-8">
-          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-            <div>
-              <h1 className="text-3xl font-bold tracking-tight text-foreground">Dashboard</h1>
-              <p className="text-muted-foreground mt-1">Visão executiva do modelo de remuneração de fretes</p>
-            </div>
-            <div className="flex items-center gap-2 text-sm text-muted-foreground bg-white px-3 py-1.5 rounded-md border shadow-sm">
-              <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-              Modelo Ativo: <span className="font-semibold text-foreground">{summary.currentSnapshot.label}</span>
-            </div>
-          </div>
+      <header className="border-b bg-card px-8 py-6">
+        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+          <LayoutDashboard className="w-6 h-6 text-primary" />
+          Painel de Impacto
+        </h1>
+        <p className="text-muted-foreground mt-1 max-w-3xl">
+          O que o sistema sabe hoje. Tudo aqui é medido — nada é projetado, e
+          nenhum valor de periodicidades diferentes é somado.
+        </p>
+      </header>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex justify-between items-start">
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium text-muted-foreground">Impacto Mensal Estimado</p>
-                    <div className="flex items-baseline gap-2">
-                      <h2 className={cn("text-2xl font-bold font-mono tracking-tight", isNegative ? "text-destructive" : "text-emerald-600")}>
-                        {hasImpact ? formatBRL(summary.estimatedMonthlyImpact) : "N/D"}
-                      </h2>
-                    </div>
-                  </div>
-                  <div className={cn("p-2 rounded-md", isNegative ? "bg-destructive/10 text-destructive" : "bg-emerald-100 text-emerald-700")}>
-                    {isNegative ? <ArrowDownRight className="w-5 h-5" /> : <ArrowUpRight className="w-5 h-5" />}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+      <div className="p-8 space-y-6">
+        {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
 
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex justify-between items-start">
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium text-muted-foreground">Alterações Não Revisadas</p>
-                    <h2 className="text-2xl font-bold font-mono tracking-tight">{summary.recentChangesCount}</h2>
-                  </div>
-                  <div className="p-2 rounded-md bg-amber-100 text-amber-700">
-                    <Activity className="w-5 h-5" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex justify-between items-start">
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium text-muted-foreground">Alertas Ativos</p>
-                    <h2 className="text-2xl font-bold font-mono tracking-tight">{summary.unreadAlertsCount}</h2>
-                  </div>
-                  <div className={cn("p-2 rounded-md", summary.unreadAlertsCount > 0 ? "bg-destructive/10 text-destructive" : "bg-muted text-muted-foreground")}>
-                    <AlertTriangle className="w-5 h-5" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex justify-between items-start">
-                  <div className="space-y-2">
-                    <p className="text-sm font-medium text-muted-foreground">Última Importação</p>
-                    <h2 className="text-lg font-bold font-mono tracking-tight mt-1">
-                      {summary.lastImportAt ? formatDate(summary.lastImportAt) : "Nunca"}
-                    </h2>
-                  </div>
-                  <div className="p-2 rounded-md bg-primary/10 text-primary">
-                    <TrendingUp className="w-5 h-5" />
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-            <div className="lg:col-span-2 space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold tracking-tight">Últimas Alterações Detectadas</h3>
-                <Link href="/alteracoes" className="text-sm font-medium text-primary hover:underline">
-                  Ver todas
-                </Link>
-              </div>
-              
-              <Card>
-                <div className="divide-y">
-                  {loadingChanges ? (
-                    <div className="p-8 flex justify-center"><PageLoading /></div>
-                  ) : recentChanges?.length === 0 ? (
-                    <div className="p-8 text-center text-muted-foreground">Nenhuma alteração recente encontrada.</div>
-                  ) : (
-                    recentChanges?.map((change) => (
-                      <div key={change.id} className="p-4 hover:bg-muted/30 transition-colors flex items-center justify-between">
-                        <div className="flex items-center gap-4">
-                          <div className={cn(
-                            "w-10 h-10 rounded-full flex items-center justify-center font-bold text-xs shrink-0",
-                            change.changeType === 'ADDED' ? "bg-emerald-100 text-emerald-700" :
-                            change.changeType === 'REMOVED' ? "bg-destructive/10 text-destructive" :
-                            "bg-amber-100 text-amber-700"
-                          )}>
-                            {change.changeType === 'ADDED' ? '+' : change.changeType === 'REMOVED' ? '-' : 'Δ'}
-                          </div>
-                          <div>
-                            <p className="font-medium text-sm">{change.entityName}</p>
-                            <p className="text-xs text-muted-foreground truncate max-w-sm">
-                              {change.entityType} • {change.snapshotBLabel}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="font-mono text-sm font-semibold">
-                            {change.changeType === 'CHANGED' ? (
-                              <span className="flex items-center gap-1">
-                                <span className="line-through text-muted-foreground opacity-70">{change.valueBeforeText || change.valueBefore}</span>
-                                <span className="text-muted-foreground">→</span>
-                                <span>{change.valueAfterText || change.valueAfter}</span>
-                              </span>
-                            ) : change.changeType === 'ADDED' ? (
-                              change.valueAfterText || change.valueAfter
-                            ) : (
-                              change.valueBeforeText || change.valueBefore
-                            )}
-                          </p>
-                          {change.estimatedMonthlyImpact && (
-                            <p className={cn(
-                              "text-xs font-medium font-mono mt-0.5",
-                              change.estimatedMonthlyImpact > 0 ? "text-emerald-600" : "text-destructive"
-                            )}>
-                              {change.estimatedMonthlyImpact > 0 ? '+' : ''}{formatBRL(change.estimatedMonthlyImpact)}/mês
-                            </p>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </div>
-              </Card>
+        {data && (
+          <>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <Tile
+                label="Vigências"
+                value={num(t.vigencias)}
+                hint={`${t.primeira_vigencia ?? "—"} → ${t.ultima_vigencia ?? "—"}`}
+              />
+              <Tile label="Ativos" value={num(t.ativos)} hint="cavalos e carretas" />
+              <Tile label="Fatos" value={num(t.fatos)} hint="valores rastreáveis" />
+              <Tile
+                label="Alterações"
+                value={num(t.alteracoes)}
+                hint={`${num(t.comparacoes)} comparações`}
+              />
             </div>
 
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="text-lg font-semibold tracking-tight">Alertas</h3>
-              </div>
-              
-              <div className="space-y-3">
-                {loadingAlerts ? (
-                  <PageLoading />
-                ) : alerts?.length === 0 ? (
-                  <Card>
-                    <CardContent className="p-8 text-center text-muted-foreground flex flex-col items-center justify-center">
-                      <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center mb-3">
-                        <Info className="w-6 h-6 text-muted-foreground/50" />
-                      </div>
-                      Nenhum alerta pendente.
-                    </CardContent>
-                  </Card>
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">Impacto apurado até aqui</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  Somado dentro de cada periodicidade, nunca entre elas.
+                </p>
+              </CardHeader>
+              <CardContent>
+                {data.impactByPeriodicity.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Nada calculável ainda — nenhuma semântica monetária confirmada.
+                  </p>
                 ) : (
-                  alerts?.slice(0, 5).map(alert => (
-                    <Card key={alert.id} className={cn(
-                      "border-l-4",
-                      alert.severity === 'CRITICAL' ? "border-l-destructive" :
-                      alert.severity === 'HIGH' ? "border-l-destructive/80" :
-                      alert.severity === 'MEDIUM' ? "border-l-amber-500" :
-                      "border-l-primary"
-                    )}>
-                      <CardContent className="p-4 flex gap-3">
-                        <AlertCircle className={cn(
-                          "w-5 h-5 shrink-0",
-                          alert.severity === 'CRITICAL' || alert.severity === 'HIGH' ? "text-destructive" :
-                          alert.severity === 'MEDIUM' ? "text-amber-500" : "text-primary"
-                        )} />
-                        <div>
-                          <h4 className="text-sm font-semibold">{alert.title}</h4>
-                          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">{alert.body}</p>
-                          <div className="mt-2 flex items-center gap-2">
-                            <span className="text-[10px] uppercase font-bold text-muted-foreground">{formatDate(alert.createdAt)}</span>
-                            {alert.estimatedImpact && (
-                              <Badge variant={alert.estimatedImpact > 0 ? "success" : "destructive"} className="text-[10px] px-1.5 py-0 h-4">
-                                {formatBRL(alert.estimatedImpact)}
-                              </Badge>
-                            )}
-                          </div>
+                  <div className="flex flex-wrap gap-8">
+                    {data.impactByPeriodicity.map((row) => (
+                      <div key={row.periodicity}>
+                        <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                          por {row.periodicity.toLowerCase()}
                         </div>
-                      </CardContent>
-                    </Card>
-                  ))
+                        <div
+                          className={cn(
+                            "text-2xl font-bold tabular-nums",
+                            (row.total ?? 0) < 0 ? "text-red-700" : "text-emerald-700",
+                          )}
+                        >
+                          {row.total === null ? "—" : brl(row.total)}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {row.changes} alterações
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                 )}
-              </div>
+              </CardContent>
+            </Card>
+
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base">
+                  Quanto da remuneração já dá para precificar
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                <div className="h-2 rounded-full bg-muted overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all"
+                    style={{ width: `${coverage}%` }}
+                  />
+                </div>
+                <p className="text-sm">
+                  <strong className="tabular-nums">{num(priced)}</strong> de{" "}
+                  <strong className="tabular-nums">{num(changes)}</strong> alterações
+                  têm impacto apurado ({coverage}%). As outras aparecem na lista, com
+                  o motivo — o que falta é o preço, não o fato.
+                </p>
+                {pending > 0 && (
+                  <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    <Lock className="w-4 h-4 mt-0.5 shrink-0" />
+                    <p>
+                      <strong>{pending}</strong> atributos monetários ainda sem
+                      semântica confirmada. Cada um deles é um impacto que o
+                      sistema se recusa a estimar.{" "}
+                      <Link href="/curadoria" className="underline font-medium">
+                        Ir para a Curadoria
+                      </Link>
+                    </p>
+                  </div>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  {num(t.atributos_confirmados)} de {num(t.atributos)} atributos com
+                  semântica confirmada · {num(t.inconclusivas)} comparações
+                  inconclusivas
+                </p>
+              </CardContent>
+            </Card>
+
+            {data.latest && (
+              <Card>
+                <CardHeader className="pb-3">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <Activity className="w-4 h-4 text-primary" />
+                    Última comparação
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <p className="font-mono text-sm flex items-center gap-2">
+                    {data.latest.snapshot_a_label}
+                    <ArrowRight className="w-4 h-4 text-muted-foreground" />
+                    {data.latest.snapshot_b_label}
+                  </p>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                    <Metric label="Valores alterados" value={num(data.latest.value_changes)} />
+                    <Metric
+                      label="Ativos"
+                      value={`+${data.latest.entities_added} / −${data.latest.entities_removed}`}
+                    />
+                    <Metric label="Inconclusivas" value={num(data.latest.inconclusive)} />
+                    <Metric
+                      label="Sem preço"
+                      value={num(data.latest.impact_not_calculable)}
+                    />
+                  </div>
+                  <Link
+                    href="/alteracoes"
+                    className="text-sm text-primary hover:underline inline-flex items-center gap-1"
+                  >
+                    Ver as alterações
+                    <ArrowRight className="w-3 h-3" />
+                  </Link>
+                </CardContent>
+              </Card>
+            )}
+
+            <div className="flex gap-4 text-sm">
+              <Link
+                href="/curadoria"
+                className="inline-flex items-center gap-2 text-primary hover:underline"
+              >
+                <FileSearch className="w-4 h-4" />
+                Curadoria
+              </Link>
+              <Link
+                href="/comparar"
+                className="inline-flex items-center gap-2 text-primary hover:underline"
+              >
+                <Activity className="w-4 h-4" />
+                Comparar vigências
+              </Link>
             </div>
-          </div>
-        </div>
+          </>
+        )}
       </div>
     </Layout>
+  );
+}
+
+function Tile({ label, value, hint }: { label: string; value: string; hint?: string }) {
+  return (
+    <div className="rounded-lg border bg-card px-4 py-3">
+      <div className="text-xs font-medium text-muted-foreground">{label}</div>
+      <div className="text-2xl font-bold tabular-nums mt-1">{value}</div>
+      {hint && <div className="text-xs text-muted-foreground mt-0.5">{hint}</div>}
+    </div>
+  );
+}
+
+function Metric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <div className="text-xs uppercase tracking-wide text-muted-foreground">
+        {label}
+      </div>
+      <div className="font-medium tabular-nums">{value}</div>
+    </div>
   );
 }

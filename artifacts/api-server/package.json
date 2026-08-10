@@ -20,7 +20,8 @@
     "pino-http": "^10.5.0",
     "xlsx": "^0.18.5",
     "@workspace/curation": "workspace:*",
-    "@workspace/comparison": "workspace:*"
+    "@workspace/comparison": "workspace:*",
+    "@workspace/ingest": "workspace:*"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",

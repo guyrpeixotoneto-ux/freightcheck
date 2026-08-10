@@ -14,6 +14,7 @@ import Importacoes from '@/pages/importacoes';
 import ApresentacaoVideo from '@/components/video/ApresentacaoVideo';
 import AnaliseEquipamentos from '@/pages/analise-equipamentos';
 import Curadoria from '@/pages/curadoria';
+import Vigencias from '@/pages/vigencias';
 
 const queryClient = new QueryClient();
 
@@ -30,6 +31,7 @@ function Router() {
       <Route path="/importacoes" component={Importacoes} />
       <Route path="/analise-equipamentos" component={AnaliseEquipamentos} />
       <Route path="/curadoria" component={Curadoria} />
+      <Route path="/vigencias" component={Vigencias} />
       <Route component={NotFound} />
     </Switch>
   );

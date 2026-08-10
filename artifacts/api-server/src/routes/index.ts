@@ -3,6 +3,7 @@ import healthRouter from "./health";
 import fleetAnalysisRouter from "./fleet-analysis";
 import curationRouter from "./curation";
 import changesRouter from "./changes";
+import overviewRouter from "./overview";
 
 /**
  * F0/F1 surface.
@@ -24,5 +25,6 @@ router.use(healthRouter);
 router.use(fleetAnalysisRouter);
 router.use(curationRouter);
 router.use(changesRouter);
+router.use(overviewRouter);
 
 export default router;

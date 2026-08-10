@@ -270,12 +270,82 @@ export async function listComparableSnapshots(db: Database) {
       entityTypeSet: snapshotTable.entityTypeSet,
       scopeHash: snapshotTable.scopeHash,
       revision: snapshotTable.revision,
+      status: snapshotTable.status,
       entityCount: snapshotTable.entityCount,
       factCount: snapshotTable.factCount,
     })
     .from(snapshotTable)
     .where(sql`${snapshotTable.status} <> 'SUPERSEDED'`)
     .orderBy(snapshotTable.effectiveDate);
+}
+
+/**
+ * The panel's numbers, and only the ones that are real.
+ *
+ * No forecast, no annualisation, no aggregate that mixes periodicities: the
+ * page shows what the system currently knows, and says plainly how much of the
+ * remuneration it still cannot price.
+ */
+export async function getOverview(db: Database) {
+  const { rows } = await db.execute<Record<string, unknown>>(sql`
+    SELECT
+      (SELECT count(*) FROM snapshot WHERE status <> 'SUPERSEDED')          AS vigencias,
+      (SELECT min(effective_date) FROM snapshot)                            AS primeira_vigencia,
+      (SELECT max(effective_date) FROM snapshot)                            AS ultima_vigencia,
+      (SELECT count(*) FROM entity)                                         AS ativos,
+      (SELECT count(*) FROM fact)                                           AS fatos,
+      (SELECT count(*) FROM attribute)                                      AS atributos,
+      (SELECT count(*) FROM attribute WHERE semantics_status = 'CONFIRMED') AS atributos_confirmados,
+      (SELECT count(*) FROM attribute
+        WHERE is_monetary IS TRUE AND semantics_status <> 'CONFIRMED')      AS monetarios_pendentes,
+      (SELECT count(*) FROM change_set)                                     AS comparacoes,
+      (SELECT count(*) FROM "change" WHERE change_type = 'VALUE_CHANGED')   AS alteracoes,
+      (SELECT count(*) FROM "change" WHERE impact_confidence = 'CALCULATED') AS com_impacto,
+      (SELECT count(*) FROM "change" WHERE comparability = 'INCONCLUSIVE')  AS inconclusivas
+  `);
+  const totals = rows[0] ?? {};
+
+  // The most recent comparison, which is what the panel leads with.
+  const { rows: latest } = await db.execute<Record<string, unknown>>(sql`
+    SELECT cs.id,
+           sa.source_label AS snapshot_a_label,
+           sb.source_label AS snapshot_b_label,
+           sb.effective_date AS effective_date,
+           cs.value_changes,
+           cs.entities_added,
+           cs.entities_removed,
+           cs.inconclusive,
+           cs.impact_not_calculable,
+           cs.calculated_impact_by_periodicity
+      FROM change_set cs
+      JOIN snapshot sa ON sa.id = cs.snapshot_a_id
+      JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+     ORDER BY sb.effective_date DESC
+     LIMIT 1
+  `);
+
+  // Impact per periodicity across every comparison on record. Kept apart,
+  // never totalled — see change_set.calculated_impact_by_periodicity.
+  const impactByPeriodicity = await db
+    .select({
+      periodicity: changeTable.impactPeriodicity,
+      changes: sql<number>`count(*)`.mapWith(Number),
+      total: sql<string>`sum(${changeTable.impactAmount})`,
+    })
+    .from(changeTable)
+    .where(eq(changeTable.impactConfidence, "CALCULATED"))
+    .groupBy(changeTable.impactPeriodicity)
+    .orderBy(changeTable.impactPeriodicity);
+
+  return {
+    totals,
+    latest: latest[0] ?? null,
+    impactByPeriodicity: impactByPeriodicity.map((r) => ({
+      periodicity: r.periodicity ?? "SEM_PERIODICIDADE",
+      changes: r.changes,
+      total: r.total === null ? null : Number(r.total),
+    })),
+  };
 }
 
 export async function getChangeSetForPair(

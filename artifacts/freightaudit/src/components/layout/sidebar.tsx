@@ -70,19 +70,16 @@ const NAV_GROUPS: NavGroup[] = [
   {
     title: "Quanto custa",
     items: [
-      {
-        href: "/",
-        label: "Painel de Impacto",
-        icon: LayoutDashboard,
-        pending:
-          "Depende do motor financeiro (F4) e da comparação já entregue. " +
-          "Hoje o impacto apurado vive na tela de Alterações.",
-      },
+      { href: "/", label: "Painel de Impacto", icon: LayoutDashboard },
       {
         href: "/simulacao",
         label: "Simulação",
         icon: Calculator,
-        pending: "Depende do motor financeiro, que é F4.",
+        pending:
+          "Precisa do motor financeiro (F4): simular exige converter " +
+          "periodicidades para uma base comum, e essa regra ainda não existe. " +
+          "Enquanto não existir, qualquer simulação seria chute com aparência " +
+          "de conta.",
       },
     ],
   },
@@ -90,22 +87,8 @@ const NAV_GROUPS: NavGroup[] = [
     title: "De onde veio",
     items: [
       { href: "/analise-equipamentos", label: "Análise de Frota", icon: Truck },
-      {
-        href: "/snapshots",
-        label: "Vigências",
-        icon: Database,
-        pending:
-          "Será reconstruída sobre o modelo canônico em F5. As vigências já " +
-          "existem no banco — falta a tela.",
-      },
-      {
-        href: "/importacoes",
-        label: "Importações",
-        icon: FileDown,
-        pending:
-          "Será reconstruída sobre o modelo canônico em F5. O pipeline de " +
-          "ingestão já roda por linha de comando.",
-      },
+      { href: "/vigencias", label: "Vigências", icon: Database },
+      { href: "/importacoes", label: "Importações", icon: FileDown },
     ],
   },
 ];
