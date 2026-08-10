@@ -82,6 +82,19 @@ interface RunStatus {
 async function readJson(response: Response): Promise<Record<string, unknown>> {
   const text = await response.text();
   if (!text.trim()) {
+    // Um 5xx de corpo vazio nunca é nosso: toda resposta desta API é JSON,
+    // mesmo quando é erro. Corpo vazio quer dizer que a requisição parou numa
+    // camada antes — o roteador sem ninguém na porta (502), ou o proxy do Vite
+    // sem servidor atrás (500). Dizer "o servidor respondeu" a respeito de um
+    // servidor que não chegou a ser consultado mandou esta tela ser reescrita
+    // duas vezes atrás de um defeito que estava no ambiente.
+    if (response.status >= 500) {
+      throw new Error(
+        `A API não respondeu (${response.status}). A interface está no ar, mas o ` +
+          `servidor por trás de /api não está, e nada foi enviado. Confira o ` +
+          `processo "API Server" e depois /api/healthz.`,
+      );
+    }
     throw new Error(
       response.ok
         ? `O servidor respondeu ${response.status} sem conteúdo. A conexão pode ter sido interrompida a caminho.`
@@ -104,10 +117,21 @@ export default function Importacoes() {
   const fileInput = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
-  const { data: runs = [], isLoading } = useQuery({
+  const {
+    data: runs = [],
+    isLoading,
+    error: listError,
+  } = useQuery({
     queryKey: ["imports"],
-    queryFn: async () =>
-      (await (await fetch(getApiUrl("/imports"))).json()) as ImportRun[],
+    queryFn: async () => {
+      const response = await fetch(getApiUrl("/imports"));
+      // `.json()` direto transformava a API fora do ar em lista vazia, e a tela
+      // dizia "nenhuma importação ainda" — a mesma frase de um banco limpo. A
+      // ausência de resposta passava por ausência de dados.
+      const body = await readJson(response);
+      if (!response.ok) throw new Error(body.error as string);
+      return body as unknown as ImportRun[];
+    },
   });
 
   const upload = useMutation({
@@ -232,7 +256,16 @@ export default function Importacoes() {
         </Card>
 
         {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
-        {!isLoading && runs.length === 0 && (
+        {!isLoading && listError && (
+          <Card>
+            <CardContent className="p-6 text-sm text-red-900 bg-red-50 rounded-md">
+              Não foi possível ler o histórico de importações:{" "}
+              {(listError as Error).message} Esta lista pode não estar vazia — o
+              que falhou foi perguntar.
+            </CardContent>
+          </Card>
+        )}
+        {!isLoading && !listError && runs.length === 0 && (
           <Card>
             <CardContent className="p-8 text-center text-muted-foreground text-sm">
               Nenhuma importação ainda. Use{" "}

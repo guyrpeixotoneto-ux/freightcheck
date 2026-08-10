@@ -8,14 +8,16 @@ deploymentTarget = "autoscale"
 args = ["pnpm", "store", "prune"]
 env = { "CI" = "true" }
 
-# A interface é a porta pública. O api-server fica atrás dela: o Vite encaminha
-# `/api` para a 5001, como configurado em scripts/dev.mjs.
+# As portas são as dos artifacts, e é o roteador quem decide o que vai para
+# cada uma: `/` para a interface, `/api` para o api-server. Declará-las em
+# 5000/5001, como estava aqui, subia a stack num endereço para onde o roteador
+# não encaminha nada — o app abria e toda chamada de API voltava 502.
 [[ports]]
-localPort = 5000
+localPort = 25609
 externalPort = 80
 
 [[ports]]
-localPort = 5001
+localPort = 8080
 externalPort = 3001
 
 # O Run sobe os dois processos. Antes disto o `runButton` apontava para um
@@ -45,7 +47,7 @@ name = "API Server"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "node scripts/dev.mjs api"
-waitForPort = 5001
+waitForPort = 8080
 
 [[workflows.workflow]]
 name = "Frontend"
@@ -53,7 +55,7 @@ name = "Frontend"
 [[workflows.workflow.tasks]]
 task = "shell.exec"
 args = "node scripts/dev.mjs web"
-waitForPort = 5000
+waitForPort = 25609
 
 [agent]
 stack = "PNPM_WORKSPACE"
