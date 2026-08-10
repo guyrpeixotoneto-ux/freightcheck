@@ -8,54 +8,19 @@ deploymentTarget = "autoscale"
 args = ["pnpm", "store", "prune"]
 env = { "CI" = "true" }
 
-# As portas são as dos artifacts, e é o roteador quem decide o que vai para
-# cada uma: `/` para a interface, `/api` para o api-server. Declará-las em
-# 5000/5001, como estava aqui, subia a stack num endereço para onde o roteador
-# não encaminha nada — o app abria e toda chamada de API voltava 502.
-[[ports]]
-localPort = 25609
-externalPort = 80
-
-[[ports]]
-localPort = 8080
-externalPort = 3001
-
-# O Run sobe os dois processos. Antes disto o `runButton` apontava para um
-# workflow "Project" que não existia em lugar nenhum do repositório, então um
-# workspace novo não subia nada e o que subia dependia de estado fora do git.
-[workflows]
-runButton = "Project"
-
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "API Server"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Frontend"
-
-[[workflows.workflow]]
-name = "API Server"
-
-# Aplica migrations, reconstrói o bundle e sobe. Reconstrói de novo quando o
-# código muda, para não voltar a existir um dist antigo servindo um frontend
-# novo.
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "node scripts/dev.mjs api"
-waitForPort = 8080
-
-[[workflows.workflow]]
-name = "Frontend"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "node scripts/dev.mjs web"
-waitForPort = 25609
+# Não há workflow nem `[[ports]]` aqui, e é deliberado.
+#
+# Quem sobe este projeto são os services declarados nos
+# `.replit-artifact/artifact.toml`, um por artifact — é para as portas deles que
+# o roteador encaminha, e é o que o Run inicia. Um workflow paralelo subindo os
+# mesmos processos por fora seria uma segunda stack, com duas portas próprias,
+# dois builds do mesmo `dist` e duas migrations. Foi o que existiu aqui por um
+# commit, e o efeito foi esconder um defeito em vez de mostrá-lo: pela porta da
+# stack paralela tudo respondia, e pela URL do app toda chamada de API voltava
+# 502. Uma forma só de subir, e ela é a que o usuário usa.
+#
+# `scripts/dev.mjs` continua sendo a implementação: é o que cada artifact roda
+# em desenvolvimento, e `pnpm dev` é o mesmo script para fora do Replit e CI.
 
 [agent]
 stack = "PNPM_WORKSPACE"
