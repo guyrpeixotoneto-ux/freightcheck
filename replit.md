@@ -6,17 +6,39 @@ não consiga sustentar até a célula da planilha de origem.
 
 ## Run & Operate
 
-**Botão Run do Replit.** É o caminho inteiro. O workflow `Project` sobe dois
-processos em paralelo, definidos em `.replit` e implementados em
-`scripts/dev.mjs`:
+**Botão Run do Replit.** É o caminho inteiro, e é o único. O que sobe são os
+dois services declarados nos `.replit-artifact/artifact.toml`, um por artifact,
+os dois implementados por `scripts/dev.mjs`:
 
-| processo | porta | o que faz |
+| service | porta | o que faz |
 | --- | --- | --- |
-| `Frontend` | 5000 (pública) | Vite, encaminhando `/api` para a 5001 |
-| `API Server` | 5001 | aplica migrations, reconstrói o bundle, sobe, e reconstrói a cada alteração no código |
+| `web` (freightaudit) | 25609 | Vite, encaminhando `/api` para a 8080 |
+| `API Server` | 8080 | aplica migrations, reconstrói o bundle, sobe, e reconstrói a cada alteração no código |
 
-Nada disso exige terminal: `PORT`, `BASE_PATH` e `API_PROXY_TARGET` são
-definidos pelo próprio script. Um workspace novo funciona só apertando Run.
+Nada disso exige terminal: `PORT` e `BASE_PATH` vêm do `[services.env]` de cada
+artifact e o `API_PROXY_TARGET` do próprio script. Um workspace novo funciona
+só apertando Run.
+
+**Uma forma só de subir.** O `.replit` não declara workflow nem `[[ports]]` de
+propósito: um workflow subindo os mesmos dois processos por fora seria uma
+segunda stack, em portas próprias, e foi assim que um 502 sobreviveu a duas
+correções — pela porta da stack paralela tudo respondia, e pela URL do app
+nenhuma chamada de API chegava. Se você precisar rodar fora do Replit ou em CI,
+`pnpm dev` é o mesmo script e as mesmas portas; dentro do Replit ele colide com
+os services, o que é o comportamento desejado — a colisão aparece na hora.
+
+**As portas não são escolha nossa.** Quem serve o app é o roteador do Replit,
+que encaminha por caminho — `/` para a interface, `/api` para o api-server — e
+o destino de cada um é o `localPort` declarado no `.replit-artifact/artifact.toml`
+do artifact. O roteador não verifica se tem alguém escutando: se não tiver,
+devolve 502 sem corpo, e só as chamadas de API falham enquanto a tela abre
+normalmente. Porta é contrato, e muda em dois lugares ao mesmo tempo:
+`artifact.toml` (`localPort` e `[services.env] PORT`) e `scripts/dev.mjs`. O
+script recusa subir se o `PORT` que o ambiente injeta não bater com o que usa.
+
+`node scripts/doctor.mjs [url-do-app]` responde, em uma tela, quem está em cada
+porta, se há mais de um processo disputando alguma, e o que a URL do app devolve
+em `/api` — que é o aceite desta configuração.
 
 - `pnpm dev` — o mesmo, pelo terminal (útil fora do Replit e em CI)
 - `pnpm run typecheck` — typecheck de todos os pacotes
@@ -80,12 +102,23 @@ número.
 
 ## Gotchas
 
+- **502 em toda chamada de API, com a tela abrindo normalmente, é sempre a
+  mesma coisa: não há ninguém na porta para onde o roteador encaminha `/api`.**
+  O 502 vem do roteador, não do servidor — nada da sua requisição chegou a
+  código nosso. Não adianta mexer em como o navegador envia (já se tentou
+  binário, JSON, upload em segundo plano): confira antes se a 8080 está viva.
+  Foi assim que o api-server passou de scaffold: o `artifact.toml` dele nunca
+  teve `[services.env] PORT`, `src/index.ts` exige `PORT` e morria na primeira
+  linha, e a 8080 nunca teve ninguém.
 - **Nunca subir o api-server com `node dist/index.mjs` direto.** Isso serve o
   bundle que estiver em disco, que pode ser de antes da sua alteração — um
-  frontend novo conversando com um servidor velho dá 502 sem explicação, e foi
-  o que custou uma tarde inteira. `scripts/dev.mjs` sempre reconstrói primeiro.
-- `curl -s localhost:5000/api/healthz` confirma se a interface está
-  encaminhando `/api` para um servidor vivo.
+  frontend novo conversando com um servidor velho responde 404 numa rota que
+  você acabou de escrever. `scripts/dev.mjs` sempre reconstrói primeiro, e é
+  ele que os artifacts rodam em desenvolvimento.
+- `curl -s localhost:8080/api/healthz` responde pelo api-server;
+  `curl -s localhost:25609/api/healthz` confirma o caminho inteiro pela
+  interface. Um proxy do Vite sem servidor atrás responde **500**, não 502 — a
+  diferença entre os dois números diz em qual camada procurar.
 - Sempre `pnpm install` depois de um `git pull`: dependências entre pacotes do
   workspace mudam sem que o `package.json` da raiz mude. O hook em
   `scripts/post-merge.sh` faz isso e aplica as migrations.

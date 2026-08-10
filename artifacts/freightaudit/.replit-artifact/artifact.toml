@@ -11,8 +11,12 @@ name = "web"
 paths = [ "/" ]
 localPort = 25609
 
+# O mesmo comando do Run e do terminal, para os três caminhos subirem a
+# interface do mesmo jeito. Além do Vite, ele aponta o `/api` para o api-server
+# — supérfluo quando se abre pelo roteador, que encaminha `/api` antes de o
+# Vite ver, e necessário quando se abre a porta desta interface direto.
 [services.development]
-run = "pnpm --filter @workspace/freightaudit run dev"
+run = "node scripts/dev.mjs web"
 
 [services.production]
 build = [ "pnpm", "--filter", "@workspace/freightaudit", "run", "build" ]

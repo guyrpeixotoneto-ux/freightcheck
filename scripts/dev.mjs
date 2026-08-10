@@ -27,12 +27,22 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 /**
- * A interface é a porta pública; o api-server só precisa ser alcançável pelo
- * proxy do Vite. Sobrescreva com WEB_PORT/API_PORT se as portas estiverem
- * ocupadas — o `.replit` declara as mesmas em `[[ports]]`.
+ * As portas não são escolha deste arquivo: são o endereço para onde o roteador
+ * do Replit encaminha cada caminho, declarado em `localPort` nos
+ * `.replit-artifact/artifact.toml`. `/api` vai para a 8080 e `/` para a 25609,
+ * e o roteador não pergunta a ninguém se tem alguém lá.
+ *
+ * Subir nas portas 5000/5001, como este arquivo fazia, deixava a stack inteira
+ * de pé num endereço que o roteador não usa: quem abrisse a porta da interface
+ * direto via tudo funcionando, e quem abrisse o app pelo roteador recebia 502
+ * em toda chamada de API. Os dois estados coexistiam sem se contradizer.
+ *
+ * Mudar uma porta aqui exige mudar o `localPort` e o `PORT` do artifact
+ * correspondente — e o `[[ports]]` do `.replit`. WEB_PORT/API_PORT
+ * sobrescrevem, para rodar fora do Replit sem tocar em configuração.
  */
-const WEB_PORT = process.env["WEB_PORT"] ?? "5000";
-const API_PORT = process.env["API_PORT"] ?? "5001";
+const WEB_PORT = process.env["WEB_PORT"] ?? "25609";
+const API_PORT = process.env["API_PORT"] ?? "8080";
 
 const children = new Set();
 
@@ -201,16 +211,37 @@ function startWeb() {
 
 const role = process.argv[2] ?? "all";
 
+/**
+ * O roteador encaminha para o `localPort` do artifact e o artifact injeta a
+ * mesma porta em `PORT`. Se esse número e o que este script usa divergirem, o
+ * processo sobe num endereço para onde nada é encaminhado — que é precisamente
+ * o estado que produzia 502 sem nada aparecer quebrado. Divergiu, para tudo.
+ */
+function assertPortMatchesArtifact(expected) {
+  const injected = process.env["PORT"];
+  if (!injected || injected === expected) return;
+  console.error(
+    `[${role}] o ambiente pede PORT=${injected} e este script usa ${expected}. ` +
+      `Alinhe o localPort/PORT do .replit-artifact/artifact.toml com scripts/dev.mjs ` +
+      `antes de subir: nesta divergência o processo sobe e o roteador devolve 502.`,
+  );
+  process.exit(1);
+}
+
 if (role === "api") {
+  assertPortMatchesArtifact(API_PORT);
   await startApi();
 } else if (role === "web") {
+  assertPortMatchesArtifact(WEB_PORT);
   startWeb();
 } else if (role === "all") {
   // Meia stack de pé é pior do que nenhuma: a interface abre, o `/api` não
   // responde, e o erro que aparece na tela não tem relação com a causa. Se um
   // dos dois cair, os dois caem.
   for (const papel of ["api", "web"]) {
-    const child = spawnChild("node", ["scripts/dev.mjs", papel]);
+    // Sem `PORT`: aqui são dois processos com duas portas, e um PORT herdado
+    // valeria para os dois. Cada papel resolve a sua logo abaixo.
+    const child = spawnChild("node", ["scripts/dev.mjs", papel], { PORT: "" });
     child.on("exit", (code) => {
       if (code !== 0) {
         console.error(`[${papel}] encerrou com código ${code}; derrubando o resto.`);

@@ -9,8 +9,21 @@ localPort = 8080
 name = "API Server"
 paths = ["/api"]
 
+# É este bloco que diz ao serviço em qual porta subir, e ele faltava aqui — os
+# outros dois artifacts sempre tiveram o seu. `src/index.ts` exige PORT e sem
+# ele o processo morre na primeira linha, então nunca houve nada escutando na
+# 8080. O roteador continuava encaminhando `/api` para lá e devolvendo 502 sem
+# corpo: a tela abria, e só as chamadas de API falhavam. A PORT que existia
+# estava em `[services.production.run.env]`, que não vale em desenvolvimento.
+# Este número e o `localPort` acima são o mesmo endereço e mudam juntos.
+[services.env]
+PORT = "8080"
+
+# Migrations antes de subir e rebuild a cada alteração — o mesmo que o Run e o
+# terminal fazem. Rodar `pnpm run dev` do pacote aqui serviria o `dist` que
+# estivesse em disco, que é a outra origem conhecida de 502 neste projeto.
 [services.development]
-run = "pnpm --filter @workspace/api-server run dev"
+run = "node scripts/dev.mjs api"
 
 [services.production]
 
