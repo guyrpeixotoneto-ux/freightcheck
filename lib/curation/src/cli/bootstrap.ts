@@ -19,6 +19,7 @@ import { captureRaw, preview, promote, receiveFile, stage } from "@workspace/ing
 import { seedTaxonomy } from "../taxonomy";
 import { getCurationSummary, runProposalPass } from "../engine";
 import { applyConfirmations } from "../confirmations";
+import { backfillSemantics } from "../versioning";
 
 /**
  * Which workbooks to load.
@@ -96,6 +97,11 @@ try {
       (confirmations.missing.length > 0
         ? ` · AUSENTES: ${confirmations.missing.join(", ")}`
         : ""),
+  );
+
+  const versions = await backfillSemantics(db);
+  console.log(
+    `      versões de semântica: ${versions.created} criadas · ${versions.existing} já existiam (a partir de ${versions.from})`,
   );
 
   const summary = await getCurationSummary(db);

@@ -36,6 +36,13 @@
       "when": 1786374874914,
       "tag": "0004_impact_by_periodicity",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1786387178989,
+      "tag": "0005_versioned_semantics",
+      "breakpoints": true
     }
   ]
 }

@@ -7,6 +7,7 @@ import {
 } from "@workspace/db";
 import {
   loadAttributeClassifications,
+  loadAttributeClassificationsAt,
   type AttributeClassification,
 } from "./classification";
 import { assessImpact } from "./impact";
@@ -43,6 +44,7 @@ export interface ChangeSetSummary {
   attributesRemoved: number;
   unchanged: number;
   inconclusive: number;
+  semanticsChanges: number;
   /**
    * Calculated impact per periodicity, e.g. `{MENSAL: -87808.57, ANUAL: -735312.15}`.
    * Never a single total: a monthly figure and an annual one do not add up.
@@ -153,7 +155,12 @@ export async function computeChangeSet(
     return toSummary(existing[0], a.sourceLabel, b.sourceLabel);
   }
 
-  const classifications = await loadAttributeClassifications(db);
+  // Each side is read with the semantics that were in force on its own
+  // vigência. Comparing Dez/2025 against Jan/2026 must use what those columns
+  // meant then, not what they mean today.
+  const semanticsA = await loadAttributeClassificationsAt(db, a.effectiveDate);
+  const semanticsB = await loadAttributeClassificationsAt(db, b.effectiveDate);
+  const classifications = semanticsB;
 
   return db.transaction(async (tx) => {
     if (existing.length > 0) {
@@ -233,7 +240,22 @@ export async function computeChangeSet(
         continue;
       }
 
-      const verdict = classifyChange(before, after, classification);
+      const wasSemantics = semanticsA.get(row.attribute_id);
+      const isSemantics = semanticsB.get(row.attribute_id);
+      const drift = detectSemanticsDrift(wasSemantics, isSemantics);
+
+      // A drift that changes what the number *is* makes the two sides
+      // incomparable, whatever the values say. Without this, a column that
+      // turns annual reads as an 1.100% rise across the whole fleet.
+      const verdict = drift
+        ? {
+            nature: "SEMANTICS_DRIFT",
+            delta: null,
+            deltaPercent: null,
+            comparability: "INCONCLUSIVE" as const,
+            inconclusiveReason: drift,
+          }
+        : classifyChange(before, after, classification);
       if (verdict.comparability === "INCONCLUSIVE") inconclusive++;
 
       const impact = assessImpact({
@@ -277,6 +299,8 @@ export async function computeChangeSet(
         impactPeriodicity: impact.periodicity,
         impactReason: impact.reason,
         ...classificationColumns(classification),
+        semanticsVersionA: wasSemantics?.semanticsVersion ?? null,
+        semanticsVersionB: isSemantics?.semanticsVersion ?? null,
         entityLabel: row.entity_label,
       });
     }
@@ -329,7 +353,81 @@ export async function computeChangeSet(
     }
 
     // ---------------------------------------------------------------------
-    // Axis 3 — layout: a column that appeared or vanished
+    // Axis 3b — the source changed what a column means
+    //
+    // One row per attribute, not one per asset. Only versions born of a
+    // SOURCE_SEMANTICS_CHANGE surface here: a curation correction is us fixing
+    // our own understanding, and reporting it as an Ambev change would
+    // announce a contract change that never happened.
+    // ---------------------------------------------------------------------
+    const { rows: semanticsChanges } = await tx.execute<{
+      attribute_id: string;
+      version_before: number;
+      version_after: number;
+      field: string;
+      value_before: string | null;
+      value_after: string | null;
+      reason: string | null;
+    }>(sql`
+      WITH was AS (
+        SELECT * FROM attribute_semantics
+         WHERE effective_from <= ${a.effectiveDate}::date
+           AND (effective_until IS NULL OR ${a.effectiveDate}::date < effective_until)
+      ),
+      is_now AS (
+        SELECT * FROM attribute_semantics
+         WHERE effective_from <= ${b.effectiveDate}::date
+           AND (effective_until IS NULL OR ${b.effectiveDate}::date < effective_until)
+      )
+      SELECT was.attribute_id,
+             was.version    AS version_before,
+             is_now.version AS version_after,
+             field.name     AS field,
+             field.before   AS value_before,
+             field.after    AS value_after,
+             is_now.supersede_reason AS reason
+        FROM was
+        JOIN is_now ON is_now.attribute_id = was.attribute_id
+        CROSS JOIN LATERAL (
+          VALUES
+            ('unit', was.unit, is_now.unit),
+            ('periodicity', was.periodicity, is_now.periodicity),
+            ('aggregation', was.aggregation, is_now.aggregation),
+            ('is_monetary', was.is_monetary::text, is_now.is_monetary::text),
+            ('calculation_basis', was.calculation_basis, is_now.calculation_basis)
+        ) AS field(name, before, after)
+       WHERE was.version <> is_now.version
+         AND is_now.change_origin = 'SOURCE_SEMANTICS_CHANGE'
+         AND field.before IS DISTINCT FROM field.after
+    `);
+
+    let semanticsChanged = 0;
+    for (const row of semanticsChanges) {
+      const classification = classifications.get(row.attribute_id);
+      semanticsChanged++;
+      impactNotCalculable++;
+      rows.push({
+        changeSetId: set.id,
+        category: "SEMANTICS_CHANGE",
+        changeType: "SEMANTICS_CHANGED",
+        nature: row.field.toUpperCase(),
+        attributeId: row.attribute_id,
+        valueBefore: row.value_before,
+        valueAfter: row.value_after,
+        semanticsVersionA: row.version_before,
+        semanticsVersionB: row.version_after,
+        comparability: "COMPARABLE",
+        impactConfidence: "NOT_CALCULABLE",
+        impactReason:
+          "Mudança de significado, não de valor. O que ela custa depende de reinterpretar " +
+          "a série inteira, e isso não se resolve como diferença entre dois números.",
+        inconclusiveReason: row.reason,
+        ...(classification ? classificationColumns(classification) : {}),
+      });
+    }
+
+    // ---------------------------------------------------------------------
+    // Axis 4 — layout: a column that appeared or vanished
     // ---------------------------------------------------------------------
     const { rows: layout } = await tx.execute<{
       attribute_id: string;
@@ -384,6 +482,7 @@ export async function computeChangeSet(
         attributesRemoved,
         unchanged,
         inconclusive,
+        semanticsChanges: semanticsChanged,
         calculatedImpactByPeriodicity: roundBuckets(calculatedImpact),
         impactNotCalculable,
       })
@@ -401,6 +500,55 @@ function roundBuckets(buckets: Record<string, number>): Record<string, number> {
     out[key] = Number(value.toFixed(6));
   }
   return out;
+}
+
+/**
+ * Whether the meaning of a column moved between the two vigências, in a way
+ * that makes the values incomparable.
+ *
+ * Unit, periodicity, monetary nature and calculation basis all change what the
+ * number *is*. Aggregation and taxonomy change what we do with it afterwards,
+ * so a difference there leaves the values comparable — the impact policy deals
+ * with the rest.
+ *
+ * Returns the sentence to show, or null when nothing relevant moved.
+ */
+export function detectSemanticsDrift(
+  before: AttributeClassification | undefined,
+  after: AttributeClassification | undefined,
+): string | null {
+  if (!before || !after) return null;
+  if (before.semanticsVersion == null || after.semanticsVersion == null) return null;
+  if (before.semanticsVersion === after.semanticsVersion) return null;
+
+  const say = (v: unknown) => (v === null || v === undefined ? "indefinido" : String(v));
+
+  if (before.unit !== after.unit) {
+    return (
+      `A unidade mudou de ${say(before.unit)} para ${say(after.unit)} entre as duas vigências. ` +
+      `A diferença numérica não representa variação real.`
+    );
+  }
+  if (before.periodicity !== after.periodicity) {
+    return (
+      `A periodicidade mudou de ${say(before.periodicity)} para ${say(after.periodicity)} entre as ` +
+      `duas vigências. Comparar os valores diretamente diria que o custo mudou quando mudou a base.`
+    );
+  }
+  if (before.isMonetary !== after.isMonetary) {
+    return (
+      `A natureza mudou: ${before.isMonetary ? "era" : "não era"} montante financeiro e agora ` +
+      `${after.isMonetary ? "é" : "não é"}. Não há variação a calcular entre naturezas diferentes.`
+    );
+  }
+  if ((before.calculationBasis ?? null) !== (after.calculationBasis ?? null)) {
+    return (
+      `A base de cálculo mudou de "${say(before.calculationBasis)}" para ` +
+      `"${say(after.calculationBasis)}". O valor continua na mesma unidade e periodicidade, mas ` +
+      `é produzido por outra regra — a diferença mede a troca de fórmula, não o custo.`
+    );
+  }
+  return null;
 }
 
 function classificationColumns(c: AttributeClassification) {
@@ -609,6 +757,7 @@ function toSummary(
     attributesRemoved: set.attributesRemoved,
     unchanged: set.unchanged,
     inconclusive: set.inconclusive,
+    semanticsChanges: set.semanticsChanges,
     calculatedImpactByPeriodicity: set.calculatedImpactByPeriodicity ?? {},
     impactNotCalculable: set.impactNotCalculable,
   };

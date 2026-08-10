@@ -17,6 +17,9 @@ import type { Database } from "@workspace/db";
  */
 
 export interface AttributeClassification {
+  /** Which semantics version this describes. Null before any versioning. */
+  semanticsVersion?: number | null;
+  calculationBasis?: string | null;
   attributeId: string;
   attributeCode: string;
   attributeName: string;
@@ -31,6 +34,82 @@ export interface AttributeClassification {
   costClass: string | null;
   taxonomyPath: string | null;
   taxonomyName: string | null;
+}
+
+/**
+ * Classifications as they stood on a given date, resolved from
+ * `attribute_semantics`.
+ *
+ * The date is the vigência's, not today's: comparing Dez/2025 against Jan/2026
+ * must use what those columns meant then, even if the meaning has since
+ * changed. Falls back to the attribute's current projection for anything with
+ * no version covering that date, so a database that never ran the backfill
+ * behaves exactly as before.
+ */
+export async function loadAttributeClassificationsAt(
+  db: Database,
+  date: string,
+): Promise<Map<string, AttributeClassification>> {
+  const current = await loadAttributeClassifications(db);
+
+  const { rows } = await db.execute<{
+    attribute_id: string;
+    version: number;
+    unit: string | null;
+    periodicity: string | null;
+    aggregation: string | null;
+    is_monetary: boolean | null;
+    calculation_basis: string | null;
+    semantics_status: string;
+    cost_class: string | null;
+    path: string | null;
+    name: string | null;
+  }>(sql`
+    SELECT v.attribute_id,
+           v.version,
+           v.unit,
+           v.periodicity,
+           v.aggregation,
+           v.is_monetary,
+           v.calculation_basis,
+           v.semantics_status,
+           inherited.cost_class,
+           node.path,
+           node.name
+      FROM attribute_semantics v
+      LEFT JOIN taxonomy_node node ON node.id = v.taxonomy_node_id
+      LEFT JOIN LATERAL (
+        SELECT ancestor.cost_class
+          FROM taxonomy_node ancestor
+         WHERE node.path IS NOT NULL
+           AND ancestor.cost_class IS NOT NULL
+           AND (node.path = ancestor.path OR node.path LIKE ancestor.path || '/%')
+         ORDER BY length(ancestor.path) DESC
+         LIMIT 1
+      ) AS inherited ON true
+     WHERE v.effective_from <= ${date}::date
+       AND (v.effective_until IS NULL OR ${date}::date < v.effective_until)
+  `);
+
+  const resolved = new Map(current);
+  for (const row of rows) {
+    const base = current.get(row.attribute_id);
+    if (!base) continue;
+    resolved.set(row.attribute_id, {
+      ...base,
+      semanticsVersion: row.version,
+      unit: row.unit,
+      periodicity: row.periodicity,
+      aggregation: row.aggregation,
+      isMonetary: row.is_monetary,
+      calculationBasis: row.calculation_basis,
+      semanticsStatus: row.semantics_status,
+      costClass: row.cost_class,
+      taxonomyPath: row.path,
+      taxonomyName: row.name,
+    });
+  }
+  return resolved;
 }
 
 export async function loadAttributeClassifications(

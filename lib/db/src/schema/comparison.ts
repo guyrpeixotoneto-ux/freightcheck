@@ -47,6 +47,8 @@ export const changeSetTable = pgTable(
     unchanged: integer("unchanged").notNull().default(0),
     /** Changes we could not compare with confidence. Never hidden. */
     inconclusive: integer("inconclusive").notNull().default(0),
+    /** Columns whose meaning the source changed between the two vigências. */
+    semanticsChanges: integer("semantics_changes").notNull().default(0),
 
     /**
      * Calculated impact, **broken down by periodicity** — e.g.
@@ -144,6 +146,16 @@ export const changeTable = pgTable(
     taxonomyPath: text("taxonomy_path"),
     taxonomyName: text("taxonomy_name"),
     semanticsStatus: text("semantics_status"),
+
+    /**
+     * Which semantics version applied on each side.
+     *
+     * Null while an attribute has only ever had one. When they differ, the
+     * comparison had to decide whether the two values were even comparable —
+     * see `comparability`.
+     */
+    semanticsVersionA: integer("semantics_version_a"),
+    semanticsVersionB: integer("semantics_version_b"),
 
     /** Denormalised for the listing and for filtering. */
     attributeCode: text("attribute_code"),
