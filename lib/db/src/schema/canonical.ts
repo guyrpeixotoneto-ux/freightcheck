@@ -1,0 +1,406 @@
+import {
+  pgTable,
+  text,
+  uuid,
+  integer,
+  bigint,
+  bigserial,
+  boolean,
+  numeric,
+  timestamp,
+  date,
+  index,
+  uniqueIndex,
+  check,
+} from "drizzle-orm/pg-core";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { semanticsStatus, snapshotStatus } from "./enums";
+import { importRunTable, rawCellTable, sourceFileTable } from "./raw";
+
+/**
+ * CANONICAL layer — the source of truth. Comparable, versioned, traceable.
+ */
+
+/**
+ * The remunerated asset.
+ *
+ * Identity is the internal UUID and nothing else. Plate and chassis are
+ * *identifiers* (see `entity_identifier`) that participate in matching and
+ * may change over the asset's life; they never define permanent identity.
+ */
+export const entityTable = pgTable(
+  "entity",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /**
+     * Free text, not an enum: the Freightec may start exporting a third kind
+     * of equipment without a migration.
+     */
+    entityType: text("entity_type").notNull(),
+    firstSeenImportRunId: uuid("first_seen_import_run_id").references(
+      () => importRunTable.id,
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("entity_type_idx").on(t.entityType)],
+);
+
+/**
+ * Identifiers an entity carries over time, with validity history.
+ *
+ * A Mercosul re-plating closes the old PLACA row and opens a new one; the
+ * `entity.id` — and therefore every historical fact — is untouched.
+ */
+export const entityIdentifierTable = pgTable(
+  "entity_identifier",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entityId: uuid("entity_id")
+      .notNull()
+      .references(() => entityTable.id),
+    /** PLACA | CHASSI | ... — text so new identifier kinds need no migration. */
+    identifierType: text("identifier_type").notNull(),
+    identifierValue: text("identifier_value").notNull(),
+    effectiveFrom: date("effective_from", { mode: "string" }).notNull(),
+    effectiveUntil: date("effective_until", { mode: "string" }),
+    isCurrent: boolean("is_current").notNull().default(true),
+    sourceImportRunId: uuid("source_import_run_id").references(
+      () => importRunTable.id,
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    /** The same identifier value cannot be open for two entities at once. */
+    uniqueIndex("entity_identifier_current_uq")
+      .on(t.identifierType, t.identifierValue)
+      .where(sql`${t.isCurrent}`),
+    index("entity_identifier_lookup_idx").on(
+      t.identifierType,
+      t.identifierValue,
+    ),
+    index("entity_identifier_entity_idx").on(t.entityId),
+  ],
+);
+
+/**
+ * Organisational scope (unit, operator, region, ...).
+ *
+ * Today the file carries exactly one of each; the model is multi-valued from
+ * the start so the first multi-unit export needs no migration.
+ */
+export const scopeTable = pgTable(
+  "scope",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    scopeType: text("scope_type").notNull(),
+    code: text("code").notNull(),
+    name: text("name"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [uniqueIndex("scope_type_code_uq").on(t.scopeType, t.code)],
+);
+
+/**
+ * A vigência found inside a file. One file yields many snapshots.
+ *
+ * Business key (second line of idempotency defence, independent of SHA-256):
+ *   source_system + source_label + scope_hash + entity_type_set
+ * Re-delivering the same vigência with corrections is an explicit revision,
+ * never an in-place edit.
+ */
+export const snapshotTable = pgTable(
+  "snapshot",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceFileId: uuid("source_file_id")
+      .notNull()
+      .references(() => sourceFileTable.id),
+    importRunId: uuid("import_run_id")
+      .notNull()
+      .references(() => importRunTable.id),
+    sourceSystem: text("source_system").notNull().default("FREIGHTEC"),
+    /** Literal label from the file, e.g. "EMPURRADA_1_8_2026". Never parsed away. */
+    sourceLabel: text("source_label").notNull(),
+    /** Derived from the label by an explicit, tested rule. Kept separate. */
+    effectiveDate: date("effective_date", { mode: "string" }).notNull(),
+    /** Deterministic hash of the snapshot's scope set. */
+    scopeHash: text("scope_hash").notNull(),
+    /** Sorted, '+'-joined set of entity types covered, e.g. "CARRETA+CAVALO". */
+    entityTypeSet: text("entity_type_set").notNull(),
+    revision: integer("revision").notNull().default(1),
+    supersedesSnapshotId: uuid("supersedes_snapshot_id"),
+    status: snapshotStatus("status").notNull().default("DRAFT"),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    entityCount: integer("entity_count").notNull().default(0),
+    factCount: integer("fact_count").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    /** Full business key including revision. */
+    uniqueIndex("snapshot_business_key_uq").on(
+      t.sourceSystem,
+      t.sourceLabel,
+      t.scopeHash,
+      t.entityTypeSet,
+      t.revision,
+    ),
+    /** At most one live snapshot per business key; superseded ones step aside. */
+    uniqueIndex("snapshot_business_key_live_uq")
+      .on(t.sourceSystem, t.sourceLabel, t.scopeHash, t.entityTypeSet)
+      .where(sql`${t.status} <> 'SUPERSEDED'`),
+    index("snapshot_effective_date_idx").on(t.effectiveDate),
+    index("snapshot_import_run_idx").on(t.importRunId),
+  ],
+);
+
+export const snapshotScopeTable = pgTable(
+  "snapshot_scope",
+  {
+    snapshotId: uuid("snapshot_id")
+      .notNull()
+      .references(() => snapshotTable.id),
+    scopeId: uuid("scope_id")
+      .notNull()
+      .references(() => scopeTable.id),
+  },
+  (t) => [
+    uniqueIndex("snapshot_scope_uq").on(t.snapshotId, t.scopeId),
+    index("snapshot_scope_snapshot_idx").on(t.snapshotId),
+  ],
+);
+
+/**
+ * The remuneration hierarchy, built by curation rather than by import.
+ *
+ * Nothing in the Freightec export says "custo fixo"; the classification is
+ * ours. Depth is free — `parent_id` is self-referential and `path` carries the
+ * materialised ancestry so a subtree query is a single prefix match.
+ *
+ * History lives in `curation_event`: reclassifying an attribute records the
+ * before and after there, so the past is recoverable without duplicating nodes.
+ */
+export const taxonomyNodeTable = pgTable(
+  "taxonomy_node",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    parentId: uuid("parent_id").references((): AnyPgColumn => taxonomyNodeTable.id),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    /** ROOT | CLASS | GROUP | SUBGROUP | ... — text, so depth stays open. */
+    kind: text("kind").notNull(),
+    /**
+     * FIXO | VARIAVEL | null. Inherited from the nearest ancestor that sets
+     * it, so only the class level needs to declare it.
+     */
+    costClass: text("cost_class"),
+    /** Materialised ancestry, e.g. "remuneracao/custo_fixo/frota_cavalo". */
+    path: text("path").notNull(),
+    depth: integer("depth").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("taxonomy_node_path_uq").on(t.path),
+    uniqueIndex("taxonomy_node_code_uq").on(t.code),
+    index("taxonomy_node_parent_idx").on(t.parentId),
+  ],
+);
+
+/**
+ * The stable identity of a variable, plus everything we know — and admit we
+ * do not know — about what it means.
+ */
+export const attributeTable = pgTable(
+  "attribute",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Internal slug, e.g. "cavalo.ipva_licenciamento". */
+    code: text("code").notNull(),
+    /** The literal column name from the file. Never rewritten. */
+    sourceName: text("source_name").notNull(),
+    displayName: text("display_name"),
+    entityType: text("entity_type").notNull(),
+    /** NUMERIC | TEXT | BOOLEAN | DATE — text, so new kinds need no migration. */
+    dataType: text("data_type").notNull(),
+    unit: text("unit"),
+    periodicity: text("periodicity"),
+    aggregation: text("aggregation"),
+    /**
+     * The gate. Import can only ever produce UNKNOWN or PRESUMED; promotion to
+     * CONFIRMED is a human curation act (F2). Nothing below CONFIRMED may enter
+     * a financial aggregation.
+     */
+    semanticsStatus: semanticsStatus("semantics_status")
+      .notNull()
+      .default("UNKNOWN"),
+    isMonetary: boolean("is_monetary"),
+
+    /** Position in the remuneration hierarchy. Set by curation, never by import. */
+    taxonomyNodeId: uuid("taxonomy_node_id").references(
+      () => taxonomyNodeTable.id,
+    ),
+    /**
+     * Why the current semantics were proposed. Written whenever the engine
+     * moves an attribute to PRESUMED, so a curator sees the reasoning rather
+     * than a bare guess.
+     */
+    semanticsRationale: text("semantics_rationale"),
+    /** Only a human writes these two, and only for CONFIRMED. */
+    confirmedBy: text("confirmed_by"),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+
+    firstSeenImportRunId: uuid("first_seen_import_run_id").references(
+      () => importRunTable.id,
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("attribute_code_uq").on(t.code),
+    index("attribute_entity_type_idx").on(t.entityType),
+  ],
+);
+
+/**
+ * Normalisation without losing the origin. A column name is bound to an
+ * attribute here; an unconfirmed binding never feeds a calculation.
+ */
+export const attributeAliasTable = pgTable(
+  "attribute_alias",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    attributeId: uuid("attribute_id")
+      .notNull()
+      .references(() => attributeTable.id),
+    sourceName: text("source_name").notNull(),
+    sourceSheet: text("source_sheet").notNull(),
+    matchConfidence: numeric("match_confidence", { precision: 5, scale: 4 }),
+    firstSeenImportRunId: uuid("first_seen_import_run_id").references(
+      () => importRunTable.id,
+    ),
+    confirmedBy: text("confirmed_by"),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("attribute_alias_source_uq").on(t.sourceName, t.sourceSheet),
+    index("attribute_alias_attribute_idx").on(t.attributeId),
+  ],
+);
+
+/**
+ * Which attributes the layout actually carried in a given snapshot.
+ *
+ * This is what makes ATTRIBUTE_REMOVED ("the column stopped existing")
+ * distinguishable from VALUE_MISSING ("the column is there, this asset has no
+ * value") when the comparison engine arrives in F3.
+ */
+export const snapshotAttributeTable = pgTable(
+  "snapshot_attribute",
+  {
+    snapshotId: uuid("snapshot_id")
+      .notNull()
+      .references(() => snapshotTable.id),
+    attributeId: uuid("attribute_id")
+      .notNull()
+      .references(() => attributeTable.id),
+    sourceSheet: text("source_sheet").notNull(),
+    columnIndex: integer("column_index").notNull(),
+    presentInLayout: boolean("present_in_layout").notNull().default(true),
+    valueCount: integer("value_count").notNull().default(0),
+    nullCount: integer("null_count").notNull().default(0),
+  },
+  (t) => [
+    uniqueIndex("snapshot_attribute_uq").on(t.snapshotId, t.attributeId),
+    index("snapshot_attribute_snapshot_idx").on(t.snapshotId),
+  ],
+);
+
+/**
+ * The grain of the system: (snapshot, entity, attribute) -> value.
+ *
+ * Not partitioned. The indexes below are the ones a partitioned table would
+ * need anyway, and `snapshot_id` leads every one of them, so range-partitioning
+ * on it later is a mechanical change. We partition when measurements say so.
+ */
+export const factTable = pgTable(
+  "fact",
+  {
+    id: bigserial("id", { mode: "number" }).primaryKey(),
+    snapshotId: uuid("snapshot_id")
+      .notNull()
+      .references(() => snapshotTable.id),
+    entityId: uuid("entity_id")
+      .notNull()
+      .references(() => entityTable.id),
+    attributeId: uuid("attribute_id")
+      .notNull()
+      .references(() => attributeTable.id),
+
+    /** NUMERIC, never float. Money and quantities alike. */
+    valueNumeric: numeric("value_numeric", { precision: 18, scale: 6 }),
+    valueText: text("value_text"),
+    valueBoolean: boolean("value_boolean"),
+    valueDate: date("value_date", { mode: "string" }),
+
+    /** Normalised representation, so diffing is a hash comparison. */
+    valueHash: text("value_hash").notNull(),
+
+    /**
+     * Absence is not zero. `is_null = false` with `value_numeric = 0` is a
+     * true economic zero; `is_null = true` carries a reason below.
+     */
+    isNull: boolean("is_null").notNull().default(false),
+    /**
+     * EMPTY | SENTINEL | NOT_APPLICABLE | INVALID | VALUE_MISSING | ...
+     * Free text on purpose — new states will surface as we learn the source.
+     */
+    nullReason: text("null_reason"),
+
+    /** Traceability is mandatory: every fact points at its originating cell. */
+    rawCellId: bigint("raw_cell_id", { mode: "number" })
+      .notNull()
+      .references(() => rawCellTable.id),
+  },
+  (t) => [
+    uniqueIndex("fact_grain_uq").on(t.snapshotId, t.entityId, t.attributeId),
+    /** Attribute-major: "this variable across the fleet, in this vigência". */
+    index("fact_snapshot_attribute_idx").on(
+      t.snapshotId,
+      t.attributeId,
+      t.entityId,
+    ),
+    /** Entity-major: "everything about this asset, in this vigência". */
+    index("fact_snapshot_entity_idx").on(t.snapshotId, t.entityId),
+    /** History of one variable for one asset, across vigências. */
+    index("fact_entity_attribute_idx").on(t.entityId, t.attributeId),
+    index("fact_raw_cell_idx").on(t.rawCellId),
+    check(
+      "fact_exactly_one_value",
+      sql`(
+        (CASE WHEN ${t.valueNumeric} IS NOT NULL THEN 1 ELSE 0 END
+       + CASE WHEN ${t.valueText}    IS NOT NULL THEN 1 ELSE 0 END
+       + CASE WHEN ${t.valueBoolean} IS NOT NULL THEN 1 ELSE 0 END
+       + CASE WHEN ${t.valueDate}    IS NOT NULL THEN 1 ELSE 0 END)
+        = CASE WHEN ${t.isNull} THEN 0 ELSE 1 END
+      )`,
+    ),
+    check(
+      "fact_null_reason_requires_null",
+      sql`(${t.isNull} = true AND ${t.nullReason} IS NOT NULL)
+          OR (${t.isNull} = false AND ${t.nullReason} IS NULL)`,
+    ),
+  ],
+);

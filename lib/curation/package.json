@@ -1,0 +1,23 @@
+{
+  "name": "@workspace/curation",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@workspace/db": "workspace:*",
+    "drizzle-orm": "catalog:"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "@workspace/ingest": "workspace:*",
+    "tsx": "catalog:",
+    "vitest": "^3.2.4"
+  }
+}

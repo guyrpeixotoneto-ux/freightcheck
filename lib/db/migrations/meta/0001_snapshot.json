@@ -1,0 +1,2523 @@
+{
+  "id": "afde408d-e336-4b35-a012-b5ca84c587f7",
+  "prevId": "d5d4a784-0cf9-4a44-a55b-da0313137d1f",
+  "version": "7",
+  "dialect": "postgresql",
+  "tables": {
+    "public.import_run": {
+      "name": "import_run",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "source_file_id": {
+          "name": "source_file_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "import_run_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'PENDING'"
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "finished_at": {
+          "name": "finished_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "triggered_by": {
+          "name": "triggered_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw_sheet_count": {
+          "name": "raw_sheet_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "raw_row_count": {
+          "name": "raw_row_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "raw_cell_count": {
+          "name": "raw_cell_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "staged_fact_count": {
+          "name": "staged_fact_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "error_count": {
+          "name": "error_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "warning_count": {
+          "name": "warning_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "snapshot_count": {
+          "name": "snapshot_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "failure_reason": {
+          "name": "failure_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "import_run_source_file_idx": {
+          "name": "import_run_source_file_idx",
+          "columns": [
+            {
+              "expression": "source_file_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "import_run_source_file_id_source_file_id_fk": {
+          "name": "import_run_source_file_id_source_file_id_fk",
+          "tableFrom": "import_run",
+          "tableTo": "source_file",
+          "columnsFrom": [
+            "source_file_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.raw_cell": {
+      "name": "raw_cell",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "raw_row_id": {
+          "name": "raw_row_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "column_index": {
+          "name": "column_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "column_letter": {
+          "name": "column_letter",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "column_header": {
+          "name": "column_header",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw_value": {
+          "name": "raw_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "source_type": {
+          "name": "source_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "formatted_text": {
+          "name": "formatted_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "raw_cell_row_column_uq": {
+          "name": "raw_cell_row_column_uq",
+          "columns": [
+            {
+              "expression": "raw_row_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "column_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "raw_cell_row_idx": {
+          "name": "raw_cell_row_idx",
+          "columns": [
+            {
+              "expression": "raw_row_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "raw_cell_raw_row_id_raw_row_id_fk": {
+          "name": "raw_cell_raw_row_id_raw_row_id_fk",
+          "tableFrom": "raw_cell",
+          "tableTo": "raw_row",
+          "columnsFrom": [
+            "raw_row_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.raw_row": {
+      "name": "raw_row",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "raw_sheet_id": {
+          "name": "raw_sheet_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "row_index": {
+          "name": "row_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_header": {
+          "name": "is_header",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        }
+      },
+      "indexes": {
+        "raw_row_sheet_index_uq": {
+          "name": "raw_row_sheet_index_uq",
+          "columns": [
+            {
+              "expression": "raw_sheet_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "row_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "raw_row_raw_sheet_id_raw_sheet_id_fk": {
+          "name": "raw_row_raw_sheet_id_raw_sheet_id_fk",
+          "tableFrom": "raw_row",
+          "tableTo": "raw_sheet",
+          "columnsFrom": [
+            "raw_sheet_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.raw_sheet": {
+      "name": "raw_sheet",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "import_run_id": {
+          "name": "import_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sheet_name": {
+          "name": "sheet_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sheet_index": {
+          "name": "sheet_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "row_count": {
+          "name": "row_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "column_count": {
+          "name": "column_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "sheet_role",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "role_reason": {
+          "name": "role_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "header_row_index": {
+          "name": "header_row_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "raw_sheet_run_index_uq": {
+          "name": "raw_sheet_run_index_uq",
+          "columns": [
+            {
+              "expression": "import_run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "sheet_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "raw_sheet_run_idx": {
+          "name": "raw_sheet_run_idx",
+          "columns": [
+            {
+              "expression": "import_run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "raw_sheet_import_run_id_import_run_id_fk": {
+          "name": "raw_sheet_import_run_id_import_run_id_fk",
+          "tableFrom": "raw_sheet",
+          "tableTo": "import_run",
+          "columnsFrom": [
+            "import_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.source_file": {
+      "name": "source_file",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "filename": {
+          "name": "filename",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "content_sha256": {
+          "name": "content_sha256",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "byte_size": {
+          "name": "byte_size",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "mime_type": {
+          "name": "mime_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "storage_path": {
+          "name": "storage_path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_system": {
+          "name": "source_system",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'FREIGHTEC'"
+        },
+        "received_at": {
+          "name": "received_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "received_by": {
+          "name": "received_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "source_file_sha256_uq": {
+          "name": "source_file_sha256_uq",
+          "columns": [
+            {
+              "expression": "content_sha256",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.attribute_alias": {
+      "name": "attribute_alias",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "attribute_id": {
+          "name": "attribute_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_name": {
+          "name": "source_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_sheet": {
+          "name": "source_sheet",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "match_confidence": {
+          "name": "match_confidence",
+          "type": "numeric(5, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "first_seen_import_run_id": {
+          "name": "first_seen_import_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirmed_by": {
+          "name": "confirmed_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirmed_at": {
+          "name": "confirmed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "attribute_alias_source_uq": {
+          "name": "attribute_alias_source_uq",
+          "columns": [
+            {
+              "expression": "source_name",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_sheet",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "attribute_alias_attribute_idx": {
+          "name": "attribute_alias_attribute_idx",
+          "columns": [
+            {
+              "expression": "attribute_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "attribute_alias_attribute_id_attribute_id_fk": {
+          "name": "attribute_alias_attribute_id_attribute_id_fk",
+          "tableFrom": "attribute_alias",
+          "tableTo": "attribute",
+          "columnsFrom": [
+            "attribute_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "attribute_alias_first_seen_import_run_id_import_run_id_fk": {
+          "name": "attribute_alias_first_seen_import_run_id_import_run_id_fk",
+          "tableFrom": "attribute_alias",
+          "tableTo": "import_run",
+          "columnsFrom": [
+            "first_seen_import_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.attribute": {
+      "name": "attribute",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "code": {
+          "name": "code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_name": {
+          "name": "source_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "display_name": {
+          "name": "display_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "data_type": {
+          "name": "data_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "unit": {
+          "name": "unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "periodicity": {
+          "name": "periodicity",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "aggregation": {
+          "name": "aggregation",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "semantics_status": {
+          "name": "semantics_status",
+          "type": "semantics_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'UNKNOWN'"
+        },
+        "is_monetary": {
+          "name": "is_monetary",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "first_seen_import_run_id": {
+          "name": "first_seen_import_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "attribute_code_uq": {
+          "name": "attribute_code_uq",
+          "columns": [
+            {
+              "expression": "code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "attribute_entity_type_idx": {
+          "name": "attribute_entity_type_idx",
+          "columns": [
+            {
+              "expression": "entity_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "attribute_first_seen_import_run_id_import_run_id_fk": {
+          "name": "attribute_first_seen_import_run_id_import_run_id_fk",
+          "tableFrom": "attribute",
+          "tableTo": "import_run",
+          "columnsFrom": [
+            "first_seen_import_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.entity_identifier": {
+      "name": "entity_identifier",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "identifier_type": {
+          "name": "identifier_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "identifier_value": {
+          "name": "identifier_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "effective_from": {
+          "name": "effective_from",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "effective_until": {
+          "name": "effective_until",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "is_current": {
+          "name": "is_current",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "source_import_run_id": {
+          "name": "source_import_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "entity_identifier_current_uq": {
+          "name": "entity_identifier_current_uq",
+          "columns": [
+            {
+              "expression": "identifier_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "identifier_value",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"entity_identifier\".\"is_current\"",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "entity_identifier_lookup_idx": {
+          "name": "entity_identifier_lookup_idx",
+          "columns": [
+            {
+              "expression": "identifier_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "identifier_value",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "entity_identifier_entity_idx": {
+          "name": "entity_identifier_entity_idx",
+          "columns": [
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "entity_identifier_entity_id_entity_id_fk": {
+          "name": "entity_identifier_entity_id_entity_id_fk",
+          "tableFrom": "entity_identifier",
+          "tableTo": "entity",
+          "columnsFrom": [
+            "entity_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "entity_identifier_source_import_run_id_import_run_id_fk": {
+          "name": "entity_identifier_source_import_run_id_import_run_id_fk",
+          "tableFrom": "entity_identifier",
+          "tableTo": "import_run",
+          "columnsFrom": [
+            "source_import_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.entity": {
+      "name": "entity",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "first_seen_import_run_id": {
+          "name": "first_seen_import_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "entity_type_idx": {
+          "name": "entity_type_idx",
+          "columns": [
+            {
+              "expression": "entity_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "entity_first_seen_import_run_id_import_run_id_fk": {
+          "name": "entity_first_seen_import_run_id_import_run_id_fk",
+          "tableFrom": "entity",
+          "tableTo": "import_run",
+          "columnsFrom": [
+            "first_seen_import_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.fact": {
+      "name": "fact",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "snapshot_id": {
+          "name": "snapshot_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attribute_id": {
+          "name": "attribute_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value_numeric": {
+          "name": "value_numeric",
+          "type": "numeric(18, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "value_text": {
+          "name": "value_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "value_boolean": {
+          "name": "value_boolean",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "value_date": {
+          "name": "value_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "value_hash": {
+          "name": "value_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_null": {
+          "name": "is_null",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "null_reason": {
+          "name": "null_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw_cell_id": {
+          "name": "raw_cell_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "fact_grain_uq": {
+          "name": "fact_grain_uq",
+          "columns": [
+            {
+              "expression": "snapshot_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "attribute_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "fact_snapshot_attribute_idx": {
+          "name": "fact_snapshot_attribute_idx",
+          "columns": [
+            {
+              "expression": "snapshot_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "attribute_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "fact_snapshot_entity_idx": {
+          "name": "fact_snapshot_entity_idx",
+          "columns": [
+            {
+              "expression": "snapshot_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "fact_entity_attribute_idx": {
+          "name": "fact_entity_attribute_idx",
+          "columns": [
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "attribute_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "fact_raw_cell_idx": {
+          "name": "fact_raw_cell_idx",
+          "columns": [
+            {
+              "expression": "raw_cell_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "fact_snapshot_id_snapshot_id_fk": {
+          "name": "fact_snapshot_id_snapshot_id_fk",
+          "tableFrom": "fact",
+          "tableTo": "snapshot",
+          "columnsFrom": [
+            "snapshot_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "fact_entity_id_entity_id_fk": {
+          "name": "fact_entity_id_entity_id_fk",
+          "tableFrom": "fact",
+          "tableTo": "entity",
+          "columnsFrom": [
+            "entity_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "fact_attribute_id_attribute_id_fk": {
+          "name": "fact_attribute_id_attribute_id_fk",
+          "tableFrom": "fact",
+          "tableTo": "attribute",
+          "columnsFrom": [
+            "attribute_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "fact_raw_cell_id_raw_cell_id_fk": {
+          "name": "fact_raw_cell_id_raw_cell_id_fk",
+          "tableFrom": "fact",
+          "tableTo": "raw_cell",
+          "columnsFrom": [
+            "raw_cell_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {
+        "fact_exactly_one_value": {
+          "name": "fact_exactly_one_value",
+          "value": "(\n        (CASE WHEN \"fact\".\"value_numeric\" IS NOT NULL THEN 1 ELSE 0 END\n       + CASE WHEN \"fact\".\"value_text\"    IS NOT NULL THEN 1 ELSE 0 END\n       + CASE WHEN \"fact\".\"value_boolean\" IS NOT NULL THEN 1 ELSE 0 END\n       + CASE WHEN \"fact\".\"value_date\"    IS NOT NULL THEN 1 ELSE 0 END)\n        = CASE WHEN \"fact\".\"is_null\" THEN 0 ELSE 1 END\n      )"
+        },
+        "fact_null_reason_requires_null": {
+          "name": "fact_null_reason_requires_null",
+          "value": "(\"fact\".\"is_null\" = true AND \"fact\".\"null_reason\" IS NOT NULL)\n          OR (\"fact\".\"is_null\" = false AND \"fact\".\"null_reason\" IS NULL)"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.scope": {
+      "name": "scope",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "scope_type": {
+          "name": "scope_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code": {
+          "name": "code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "scope_type_code_uq": {
+          "name": "scope_type_code_uq",
+          "columns": [
+            {
+              "expression": "scope_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.snapshot_attribute": {
+      "name": "snapshot_attribute",
+      "schema": "",
+      "columns": {
+        "snapshot_id": {
+          "name": "snapshot_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attribute_id": {
+          "name": "attribute_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_sheet": {
+          "name": "source_sheet",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "column_index": {
+          "name": "column_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "present_in_layout": {
+          "name": "present_in_layout",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": true
+        },
+        "value_count": {
+          "name": "value_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "null_count": {
+          "name": "null_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "snapshot_attribute_uq": {
+          "name": "snapshot_attribute_uq",
+          "columns": [
+            {
+              "expression": "snapshot_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "attribute_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "snapshot_attribute_snapshot_idx": {
+          "name": "snapshot_attribute_snapshot_idx",
+          "columns": [
+            {
+              "expression": "snapshot_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "snapshot_attribute_snapshot_id_snapshot_id_fk": {
+          "name": "snapshot_attribute_snapshot_id_snapshot_id_fk",
+          "tableFrom": "snapshot_attribute",
+          "tableTo": "snapshot",
+          "columnsFrom": [
+            "snapshot_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "snapshot_attribute_attribute_id_attribute_id_fk": {
+          "name": "snapshot_attribute_attribute_id_attribute_id_fk",
+          "tableFrom": "snapshot_attribute",
+          "tableTo": "attribute",
+          "columnsFrom": [
+            "attribute_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.snapshot_scope": {
+      "name": "snapshot_scope",
+      "schema": "",
+      "columns": {
+        "snapshot_id": {
+          "name": "snapshot_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_id": {
+          "name": "scope_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "snapshot_scope_uq": {
+          "name": "snapshot_scope_uq",
+          "columns": [
+            {
+              "expression": "snapshot_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "scope_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "snapshot_scope_snapshot_idx": {
+          "name": "snapshot_scope_snapshot_idx",
+          "columns": [
+            {
+              "expression": "snapshot_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "snapshot_scope_snapshot_id_snapshot_id_fk": {
+          "name": "snapshot_scope_snapshot_id_snapshot_id_fk",
+          "tableFrom": "snapshot_scope",
+          "tableTo": "snapshot",
+          "columnsFrom": [
+            "snapshot_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "snapshot_scope_scope_id_scope_id_fk": {
+          "name": "snapshot_scope_scope_id_scope_id_fk",
+          "tableFrom": "snapshot_scope",
+          "tableTo": "scope",
+          "columnsFrom": [
+            "scope_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.snapshot": {
+      "name": "snapshot",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "source_file_id": {
+          "name": "source_file_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "import_run_id": {
+          "name": "import_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "source_system": {
+          "name": "source_system",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'FREIGHTEC'"
+        },
+        "source_label": {
+          "name": "source_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "effective_date": {
+          "name": "effective_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "scope_hash": {
+          "name": "scope_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_type_set": {
+          "name": "entity_type_set",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revision": {
+          "name": "revision",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "supersedes_snapshot_id": {
+          "name": "supersedes_snapshot_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "snapshot_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'DRAFT'"
+        },
+        "closed_at": {
+          "name": "closed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "entity_count": {
+          "name": "entity_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "fact_count": {
+          "name": "fact_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "snapshot_business_key_uq": {
+          "name": "snapshot_business_key_uq",
+          "columns": [
+            {
+              "expression": "source_system",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_label",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "scope_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_type_set",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "revision",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "snapshot_business_key_live_uq": {
+          "name": "snapshot_business_key_live_uq",
+          "columns": [
+            {
+              "expression": "source_system",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "source_label",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "scope_hash",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_type_set",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"snapshot\".\"status\" <> 'SUPERSEDED'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "snapshot_effective_date_idx": {
+          "name": "snapshot_effective_date_idx",
+          "columns": [
+            {
+              "expression": "effective_date",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "snapshot_import_run_idx": {
+          "name": "snapshot_import_run_idx",
+          "columns": [
+            {
+              "expression": "import_run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "snapshot_source_file_id_source_file_id_fk": {
+          "name": "snapshot_source_file_id_source_file_id_fk",
+          "tableFrom": "snapshot",
+          "tableTo": "source_file",
+          "columnsFrom": [
+            "source_file_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "snapshot_import_run_id_import_run_id_fk": {
+          "name": "snapshot_import_run_id_import_run_id_fk",
+          "tableFrom": "snapshot",
+          "tableTo": "import_run",
+          "columnsFrom": [
+            "import_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.column_mapping": {
+      "name": "column_mapping",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "import_run_id": {
+          "name": "import_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "raw_sheet_id": {
+          "name": "raw_sheet_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "column_index": {
+          "name": "column_index",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "column_header": {
+          "name": "column_header",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "target_attribute_id": {
+          "name": "target_attribute_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "mapping_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resolved_data_type": {
+          "name": "resolved_data_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confidence": {
+          "name": "confidence",
+          "type": "numeric(5, 4)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolved_by": {
+          "name": "resolved_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resolved_at": {
+          "name": "resolved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "column_mapping_sheet_column_uq": {
+          "name": "column_mapping_sheet_column_uq",
+          "columns": [
+            {
+              "expression": "raw_sheet_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "column_index",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "column_mapping_run_idx": {
+          "name": "column_mapping_run_idx",
+          "columns": [
+            {
+              "expression": "import_run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "column_mapping_import_run_id_import_run_id_fk": {
+          "name": "column_mapping_import_run_id_import_run_id_fk",
+          "tableFrom": "column_mapping",
+          "tableTo": "import_run",
+          "columnsFrom": [
+            "import_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "column_mapping_raw_sheet_id_raw_sheet_id_fk": {
+          "name": "column_mapping_raw_sheet_id_raw_sheet_id_fk",
+          "tableFrom": "column_mapping",
+          "tableTo": "raw_sheet",
+          "columnsFrom": [
+            "raw_sheet_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "column_mapping_target_attribute_id_attribute_id_fk": {
+          "name": "column_mapping_target_attribute_id_attribute_id_fk",
+          "tableFrom": "column_mapping",
+          "tableTo": "attribute",
+          "columnsFrom": [
+            "target_attribute_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.sentinel_rule": {
+      "name": "sentinel_rule",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "attribute_code": {
+          "name": "attribute_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw_value": {
+          "name": "raw_value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "null_reason": {
+          "name": "null_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "note": {
+          "name": "note",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "confirmed_by": {
+          "name": "confirmed_by",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "confirmed_at": {
+          "name": "confirmed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "sentinel_rule_scope_uq": {
+          "name": "sentinel_rule_scope_uq",
+          "columns": [
+            {
+              "expression": "attribute_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "raw_value",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "sentinel_rule_value_idx": {
+          "name": "sentinel_rule_value_idx",
+          "columns": [
+            {
+              "expression": "raw_value",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.staged_fact": {
+      "name": "staged_fact",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "import_run_id": {
+          "name": "import_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "raw_cell_id": {
+          "name": "raw_cell_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "snapshot_label": {
+          "name": "snapshot_label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_key": {
+          "name": "entity_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attribute_code": {
+          "name": "attribute_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "value_numeric": {
+          "name": "value_numeric",
+          "type": "numeric(18, 6)",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "value_text": {
+          "name": "value_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "value_boolean": {
+          "name": "value_boolean",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "value_date": {
+          "name": "value_date",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "value_hash": {
+          "name": "value_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "is_null": {
+          "name": "is_null",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "null_reason": {
+          "name": "null_reason",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "staged_fact_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'VALID'"
+        }
+      },
+      "indexes": {
+        "staged_fact_grain_uq": {
+          "name": "staged_fact_grain_uq",
+          "columns": [
+            {
+              "expression": "import_run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "snapshot_label",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_key",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "attribute_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "staged_fact_run_idx": {
+          "name": "staged_fact_run_idx",
+          "columns": [
+            {
+              "expression": "import_run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "staged_fact_run_label_idx": {
+          "name": "staged_fact_run_label_idx",
+          "columns": [
+            {
+              "expression": "import_run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "snapshot_label",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "staged_fact_import_run_id_import_run_id_fk": {
+          "name": "staged_fact_import_run_id_import_run_id_fk",
+          "tableFrom": "staged_fact",
+          "tableTo": "import_run",
+          "columnsFrom": [
+            "import_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "staged_fact_raw_cell_id_raw_cell_id_fk": {
+          "name": "staged_fact_raw_cell_id_raw_cell_id_fk",
+          "tableFrom": "staged_fact",
+          "tableTo": "raw_cell",
+          "columnsFrom": [
+            "raw_cell_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.validation_issue": {
+      "name": "validation_issue",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "bigserial",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "import_run_id": {
+          "name": "import_run_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "raw_sheet_id": {
+          "name": "raw_sheet_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw_row_id": {
+          "name": "raw_row_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "raw_cell_id": {
+          "name": "raw_cell_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "severity": {
+          "name": "severity",
+          "type": "issue_severity",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code": {
+          "name": "code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "message": {
+          "name": "message",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "detail": {
+          "name": "detail",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "validation_issue_run_idx": {
+          "name": "validation_issue_run_idx",
+          "columns": [
+            {
+              "expression": "import_run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "validation_issue_run_code_idx": {
+          "name": "validation_issue_run_code_idx",
+          "columns": [
+            {
+              "expression": "import_run_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "validation_issue_import_run_id_import_run_id_fk": {
+          "name": "validation_issue_import_run_id_import_run_id_fk",
+          "tableFrom": "validation_issue",
+          "tableTo": "import_run",
+          "columnsFrom": [
+            "import_run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "validation_issue_raw_sheet_id_raw_sheet_id_fk": {
+          "name": "validation_issue_raw_sheet_id_raw_sheet_id_fk",
+          "tableFrom": "validation_issue",
+          "tableTo": "raw_sheet",
+          "columnsFrom": [
+            "raw_sheet_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "validation_issue_raw_row_id_raw_row_id_fk": {
+          "name": "validation_issue_raw_row_id_raw_row_id_fk",
+          "tableFrom": "validation_issue",
+          "tableTo": "raw_row",
+          "columnsFrom": [
+            "raw_row_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "validation_issue_raw_cell_id_raw_cell_id_fk": {
+          "name": "validation_issue_raw_cell_id_raw_cell_id_fk",
+          "tableFrom": "validation_issue",
+          "tableTo": "raw_cell",
+          "columnsFrom": [
+            "raw_cell_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    }
+  },
+  "enums": {
+    "public.import_run_status": {
+      "name": "import_run_status",
+      "schema": "public",
+      "values": [
+        "PENDING",
+        "READING",
+        "STAGED",
+        "PREVIEWED",
+        "PROMOTING",
+        "PROMOTED",
+        "FAILED",
+        "ABORTED",
+        "SKIPPED_DUPLICATE"
+      ]
+    },
+    "public.issue_severity": {
+      "name": "issue_severity",
+      "schema": "public",
+      "values": [
+        "ERROR",
+        "WARNING",
+        "INFO"
+      ]
+    },
+    "public.mapping_status": {
+      "name": "mapping_status",
+      "schema": "public",
+      "values": [
+        "MAPPED",
+        "NEW",
+        "AMBIGUOUS",
+        "IGNORED"
+      ]
+    },
+    "public.semantics_status": {
+      "name": "semantics_status",
+      "schema": "public",
+      "values": [
+        "CONFIRMED",
+        "PRESUMED",
+        "UNKNOWN"
+      ]
+    },
+    "public.sheet_role": {
+      "name": "sheet_role",
+      "schema": "public",
+      "values": [
+        "SOURCE",
+        "PIVOT",
+        "UNKNOWN"
+      ]
+    },
+    "public.snapshot_status": {
+      "name": "snapshot_status",
+      "schema": "public",
+      "values": [
+        "DRAFT",
+        "CLOSED",
+        "SUPERSEDED"
+      ]
+    },
+    "public.staged_fact_status": {
+      "name": "staged_fact_status",
+      "schema": "public",
+      "values": [
+        "VALID",
+        "WARNING",
+        "REJECTED"
+      ]
+    }
+  },
+  "schemas": {},
+  "sequences": {},
+  "roles": {},
+  "policies": {},
+  "views": {},
+  "_meta": {
+    "columns": {},
+    "schemas": {},
+    "tables": {}
+  }
+}

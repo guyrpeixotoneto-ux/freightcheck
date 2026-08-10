@@ -7,6 +7,12 @@
       "path": "./lib/db"
     },
     {
+      "path": "./lib/ingest"
+    },
+    {
+      "path": "./lib/curation"
+    },
+    {
       "path": "./lib/api-client-react"
     },
     {

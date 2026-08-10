@@ -7,6 +7,7 @@ import {
   FileDown,
   Activity,
   Truck,
+  FileSearch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -18,6 +19,7 @@ const NAV_ITEMS = [
   { href: "/simulacao", label: "Simulação", icon: Calculator },
   { href: "/importacoes", label: "Importações", icon: FileDown },
   { href: "/analise-equipamentos", label: "Análise de Frota", icon: Truck },
+  { href: "/curadoria", label: "Curadoria", icon: FileSearch },
 ];
 
 export function Sidebar() {

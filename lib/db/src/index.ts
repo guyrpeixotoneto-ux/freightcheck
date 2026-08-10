@@ -1,16 +1,56 @@
 import { drizzle } from "drizzle-orm/node-postgres";
+import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "./schema";
 
 const { Pool } = pg;
 
-if (!process.env.DATABASE_URL) {
-  throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?",
-  );
+export type Database = NodePgDatabase<typeof schema>;
+
+/**
+ * Build an isolated connection. Tests use this to talk to a scratch database
+ * without touching the process-wide `db` below.
+ */
+export function createDb(connectionString: string): {
+  db: Database;
+  pool: pg.Pool;
+} {
+  const pool = new Pool({ connectionString });
+  return { db: drizzle(pool, { schema }), pool };
 }
 
-export const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-export const db = drizzle(pool, { schema });
+let _pool: pg.Pool | undefined;
+let _db: Database | undefined;
+
+function connect() {
+  if (!process.env.DATABASE_URL) {
+    throw new Error(
+      "DATABASE_URL must be set. Did you forget to provision a database?",
+    );
+  }
+  if (!_pool || !_db) {
+    const created = createDb(process.env.DATABASE_URL);
+    _pool = created.pool;
+    _db = created.db;
+  }
+  return { db: _db, pool: _pool };
+}
+
+/**
+ * Lazy proxies: importing this module no longer requires DATABASE_URL to be
+ * set, only *using* the connection does. Keeps schema-only importers (and the
+ * migration tooling) from needing a live database.
+ */
+export const db: Database = new Proxy({} as Database, {
+  get(_t, prop) {
+    return Reflect.get(connect().db as object, prop);
+  },
+});
+
+export const pool: pg.Pool = new Proxy({} as pg.Pool, {
+  get(_t, prop) {
+    return Reflect.get(connect().pool as object, prop);
+  },
+});
 
 export * from "./schema";
