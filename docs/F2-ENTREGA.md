@@ -162,13 +162,14 @@ este atributo é adivinhação.
 
 ---
 
-## 8. Testes — 29 em F2 (92 no total)
+## 8. Testes — 37 em F2 (100 no total)
 
 `pnpm --filter @workspace/curation run test`
 
 | Arquivo | Testes | Cobre |
 |---|--:|---|
 | `semantics.test.ts` | 13 | Periodicidade nunca inferida, razões não agregáveis, ano ≠ quantidade, coluna MIXED, detecção de conflito, checagem de magnitude, mapeamento da taxonomia |
+| `confirmations.test.ts` | 8 | Registro atribuído a pessoa com base declarada, alíquota nunca monetária, aplicação idempotente, fatos intactos, atributo ausente reportado |
 | `curation.test.ts` | 16 | Passe não confirma nada, é idempotente, grava rationale; conflito real bloqueia os dois lados; banco recusa CONFIRMED sem responsável e monetário incompleto (SQL cru); confirmação registra quem e por quê; **fatos intactos** (md5 antes/depois); ordenação da fila |
 
 ---
@@ -186,12 +187,60 @@ este atributo é adivinhação.
 
 ---
 
-## 10. Decisões pendentes
+## 10. Confirmações registradas
 
-1. **Periodicidade dos ~26 monetários.** O motor não vai propor, por desenho.
-   Precisa de você — ou do dicionário de campos do Freightec. É o que separa
-   F2 de "concluído".
-2. **`icms` e `pis_cofins` são alíquotas?** A magnitude diz que sim (12 e 9,3).
-   Se confirmar, elas viram `PERCENT` e saem de qualquer soma.
-3. **Bloquear promoção com ERROR** (herdado de F1): os 18 conflitos de chassi
+Decisões suas viram artefato versionado em
+`lib/curation/src/confirmations.ts` — diffável, atribuída e replicável em
+qualquer banco novo. Aplicar o registro passa pelas mesmas guardas da tela;
+adicionar uma linha lá **é** o ato humano, revisável num pull request.
+
+| Atributo | Semântica | Base |
+|---|---|---|
+| `carreta.custo_fixo` | BRL · MENSAL · SUM · monetário | Confirmado por você em 10/08/2026 |
+| `carreta.icms` | PERCENT · sem periodicidade · NONE · não monetário | Alíquota, não valor — o montante é `valorIcms` |
+| `carreta.pis_cofins` | PERCENT · sem periodicidade · NONE · não monetário | Alíquota, não valor — o montante é `valorPisCofins` |
+
+Estado após aplicar: **3 CONFIRMED · 109 PRESUMED · 26 UNKNOWN.**
+
+`icms` e `pis_cofins` saíram de "montante presumido" para alíquota, então nunca
+mais entram numa soma. Alíquota não tem periodicidade: não é um valor que se
+acumula no tempo.
+
+### Dois achados que apareceram ao registrar isso
+
+**1. `valorIcms` é zero em 100% das linhas.** Todas as 657 carretas e 558
+cavalos, nas 9 vigências. Existe alíquota de ICMS (7% ou 12%), mas o montante
+correspondente nunca é preenchido no export. Ou o ICMS não é repassado na
+remuneração, ou a coluna simplesmente não é alimentada — vale perguntar à
+Ambev, porque a diferença entre as duas hipóteses é dinheiro.
+
+**2. A alíquota de ICMS de uma carreta subiu de 7% para 12% em Fev/2026.**
+
+| Vigência | alíq. 0 | alíq. 7 | alíq. 12 |
+|---|--:|--:|--:|
+| Dez/2025 | 24 | 24 | 0 |
+| Jan/2026 | 24 | 24 | 0 |
+| **Fev/2026** | 24 | 24 | **1** |
+| … | | | 1 |
+| Ago/2026 | 21 | 24 | 1 |
+
+Uma placa, uma vigência, +5 pontos de alíquota. É exatamente o tipo de mudança
+silenciosa que o F3 vai passar a apontar sozinho. Note também que `carreta`
+carrega **duas** colunas de alíquota ICMS com valores diferentes: `icms`
+(0 / 7 / 12) e `percentualIcms` (constante 18). Não sei o que distingue as duas
+— fica na fila de curadoria.
+
+---
+
+## 11. Decisões pendentes
+
+1. **Periodicidade dos 25 monetários restantes.** O motor não vai propor, por
+   desenho. Precisa de você — ou do dicionário de campos do Freightec. É o que
+   separa F2 de "concluído".
+2. **O par `ipvaLicenciamento` / `ipvaLicenciamentoMensal`.** Bloqueado pelo
+   conflito; nenhum dos dois entra em cálculo até você dizer o que cada um é.
+3. **`valorIcms` sempre zero** — ICMS não repassado, ou coluna não alimentada?
+4. **`icms` (0/7/12) × `percentualIcms` (18)** — duas alíquotas ICMS em
+   carretas, com valores diferentes. O que distingue as duas?
+5. **Bloquear promoção com ERROR** (herdado de F1): os 18 conflitos de chassi
    surgem durante a promoção e hoje não a impedem.

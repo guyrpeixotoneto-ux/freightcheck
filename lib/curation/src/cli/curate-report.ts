@@ -6,6 +6,7 @@
 import { createDb } from "@workspace/db";
 import { seedTaxonomy } from "../taxonomy";
 import { getCurationQueue, getCurationSummary, runProposalPass } from "../engine";
+import { applyConfirmations } from "../confirmations";
 
 const { db, pool } = createDb(process.env.DATABASE_URL!);
 const n = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
@@ -24,6 +25,14 @@ try {
     console.log(`\nCONFLITOS DE PERIODICIDADE: ${pass.conflicts.length}`);
     for (const c of pass.conflicts) console.log(`  ! ${c.message}\n`);
     console.log(`  bloqueados: ${pass.blockedByConflict.join(", ")}`);
+  }
+
+  const confirmations = await applyConfirmations(db);
+  console.log(`\nCONFIRMAÇÕES REGISTRADAS (docs/curadoria — decisões humanas)`);
+  console.log(`  aplicadas .......... ${confirmations.applied.join(", ") || "—"}`);
+  console.log(`  já em dia .......... ${confirmations.unchanged.join(", ") || "—"}`);
+  if (confirmations.missing.length > 0) {
+    console.log(`  ATRIBUTO AUSENTE ... ${confirmations.missing.join(", ")}`);
   }
 
   const summary = await getCurationSummary(db);
