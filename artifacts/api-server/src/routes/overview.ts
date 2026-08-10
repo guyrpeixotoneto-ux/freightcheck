@@ -67,38 +67,52 @@ router.get("/imports/:id", async (req, res): Promise<void> => {
 /**
  * Upload, then process in the background.
  *
- * Capturing 43k cells, staging and previewing takes about seven seconds for
- * one of these workbooks. Holding an HTTP connection open that long is asking
- * a proxy to cut it: the first version did exactly that and the browser got an
- * empty body, which surfaced as "Unexpected end of JSON input" — a message
- * that says nothing about what actually happened.
+ * Two things this route learned the hard way.
  *
- * So the request returns as soon as the bytes are safely in RAW, and the rest
- * runs detached. The client polls the run's status, which the pipeline already
- * maintained. Nothing reaches the canonical layer either way: promotion stays
- * a separate, deliberate call.
+ * The first: capturing 43k cells, staging and previewing takes about seven
+ * seconds, and holding an HTTP connection open that long is asking a proxy to
+ * cut it. So the request returns as soon as the bytes are safely in RAW and the
+ * rest runs detached; the client polls the run's status.
+ *
+ * The second: the bytes arrive as base64 inside a JSON body. The first version
+ * sent them as `application/octet-stream` to avoid a multipart dependency, and
+ * the platform's proxy answered 502 without ever reaching this code. A JSON
+ * POST is the most boring request on the web and no proxy refuses it; the 33%
+ * base64 overhead on a 200 KB workbook is not worth a transport nobody
+ * supports.
+ *
+ * Nothing reaches the canonical layer either way: promotion is a separate,
+ * deliberate call.
  */
 router.post(
   "/imports",
-  express.raw({ type: "application/octet-stream", limit: "80mb" }),
   async (req, res): Promise<void> => {
     try {
-      const raw = req.get("x-filename");
-      const filename = raw ? decodeURIComponent(raw) : "upload.xlsx";
-      if (!filename.toLowerCase().endsWith(".xlsx")) {
+      const { filename, contentBase64 } = (req.body ?? {}) as {
+        filename?: string;
+        contentBase64?: string;
+      };
+
+      if (!filename || !filename.toLowerCase().endsWith(".xlsx")) {
         res.status(415).json({
-          error: `"${filename}" não é .xlsx. O Freightec entrega planilhas Excel.`,
+          error: `"${filename ?? "arquivo"}" não é .xlsx. O Freightec entrega planilhas Excel.`,
         });
         return;
       }
-      if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      if (!contentBase64) {
         res.status(400).json({ error: "Arquivo vazio ou não recebido." });
+        return;
+      }
+
+      const bytes = Buffer.from(contentBase64, "base64");
+      if (bytes.length === 0) {
+        res.status(400).json({ error: "Arquivo vazio depois de decodificado." });
         return;
       }
 
       const scratch = mkdtempSync(path.join(tmpdir(), "freightcheck-"));
       const filePath = path.join(scratch, `${randomUUID()}.xlsx`);
-      writeFileSync(filePath, req.body);
+      writeFileSync(filePath, bytes);
 
       const received = await receiveFile(db, {
         filePath,
@@ -119,18 +133,24 @@ router.post(
       // Answer now; keep working after.
       res.json({ importRunId: received.importRunId, filename, status: "RECEIVED" });
 
+      const runId = received.importRunId;
       void (async () => {
         try {
-          await captureRaw(db, received.importRunId);
-          await stage(db, received.importRunId);
-          await preview(db, received.importRunId);
+          await captureRaw(db, runId);
+          await stage(db, runId);
+          await preview(db, runId);
         } catch (err) {
           const message = err instanceof Error ? err.message : "Erro desconhecido";
-          req.log.error({ err }, "Background import failed");
-          await db
-            .update(importRunTable)
-            .set({ status: "FAILED", failureReason: message })
-            .where(eq(importRunTable.id, received.importRunId));
+          try {
+            await db
+              .update(importRunTable)
+              .set({ status: "FAILED", failureReason: message })
+              .where(eq(importRunTable.id, runId));
+          } catch {
+            // Recording the failure failed too. Swallowing is deliberate: an
+            // unhandled rejection here would take the whole server down, and a
+            // lost error message is a smaller problem than a dead process.
+          }
         }
       })();
     } catch (err) {

@@ -114,13 +114,21 @@ export default function Importacoes() {
     mutationFn: async (files: File[]) => {
       const ids: string[] = [];
       for (const file of files) {
+        // base64 dentro de JSON: é a requisição mais banal da web, e nenhum
+        // proxy recusa. O envio binário cru dava 502 sem chegar ao servidor.
+        const bytes = new Uint8Array(await file.arrayBuffer());
+        let binary = "";
+        const CHUNK = 32768;
+        for (let i = 0; i < bytes.length; i += CHUNK) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+        }
         const response = await fetch(getApiUrl("/imports"), {
           method: "POST",
-          headers: {
-            "Content-Type": "application/octet-stream",
-            "x-filename": encodeURIComponent(file.name),
-          },
-          body: await file.arrayBuffer(),
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename: file.name,
+            contentBase64: btoa(binary),
+          }),
         });
         const body = await readJson(response);
         if (!response.ok) throw new Error(`${file.name}: ${body.error}`);
