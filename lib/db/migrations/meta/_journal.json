@@ -29,6 +29,13 @@
       "when": 1786374873914,
       "tag": "0003_comparison_layer",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1786374874914,
+      "tag": "0004_impact_by_periodicity",
+      "breakpoints": true
     }
   ]
 }

@@ -47,7 +47,7 @@ interface ChangeSet {
   attributesRemoved: number;
   unchanged: number;
   inconclusive: number;
-  calculatedImpact: number | null;
+  calculatedImpactByPeriodicity: Record<string, number>;
   impactNotCalculable: number;
 }
 
@@ -167,15 +167,16 @@ export default function Comparar() {
               <Tile
                 label="Impacto apurado"
                 value={
-                  set.calculatedImpact === null
+                  Object.keys(set.calculatedImpactByPeriodicity).length === 0
                     ? "não calculável"
-                    : set.calculatedImpact.toLocaleString("pt-BR", {
-                        style: "currency",
-                        currency: "BRL",
-                        maximumFractionDigits: 0,
-                      })
+                    : Object.entries(set.calculatedImpactByPeriodicity)
+                        .map(
+                          ([p, v]) =>
+                            `${v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })}/${p.toLowerCase()}`,
+                        )
+                        .join("  ")
                 }
-                hint={`${set.impactNotCalculable} fora da soma`}
+                hint={`${set.impactNotCalculable} fora destes valores`}
               />
             </div>
 

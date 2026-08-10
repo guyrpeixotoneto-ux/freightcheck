@@ -43,7 +43,11 @@ export interface ChangeSetSummary {
   attributesRemoved: number;
   unchanged: number;
   inconclusive: number;
-  calculatedImpact: number | null;
+  /**
+   * Calculated impact per periodicity, e.g. `{MENSAL: -87808.57, ANUAL: -735312.15}`.
+   * Never a single total: a monthly figure and an annual one do not add up.
+   */
+  calculatedImpactByPeriodicity: Record<string, number>;
   impactNotCalculable: number;
 }
 
@@ -170,8 +174,9 @@ export async function computeChangeSet(
     const rows: (typeof changeTable.$inferInsert)[] = [];
     let unchanged = 0;
     let inconclusive = 0;
-    let calculatedImpact = 0;
-    let hasCalculated = false;
+    // Keyed by periodicity, because summing across periodicities is the very
+    // error the product exists to catch.
+    const calculatedImpact: Record<string, number> = {};
     let impactNotCalculable = 0;
 
     // ---------------------------------------------------------------------
@@ -238,8 +243,10 @@ export async function computeChangeSet(
         comparable: verdict.comparability === "COMPARABLE",
       });
       if (impact.confidence === "CALCULATED" && impact.amount !== null) {
-        calculatedImpact += impact.amount;
-        hasCalculated = true;
+        // An impact without a declared periodicity cannot be pooled with
+        // anything; it gets its own bucket rather than a silent home.
+        const bucket = impact.periodicity ?? "SEM_PERIODICIDADE";
+        calculatedImpact[bucket] = (calculatedImpact[bucket] ?? 0) + impact.amount;
       } else {
         impactNotCalculable++;
       }
@@ -377,7 +384,7 @@ export async function computeChangeSet(
         attributesRemoved,
         unchanged,
         inconclusive,
-        calculatedImpact: hasCalculated ? String(calculatedImpact) : null,
+        calculatedImpactByPeriodicity: roundBuckets(calculatedImpact),
         impactNotCalculable,
       })
       .where(eq(changeSetTable.id, set.id))
@@ -385,6 +392,15 @@ export async function computeChangeSet(
 
     return toSummary(updated, a.sourceLabel, b.sourceLabel);
   });
+}
+
+/** Six decimals, matching the NUMERIC(18,6) the values came from. */
+function roundBuckets(buckets: Record<string, number>): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(buckets)) {
+    out[key] = Number(value.toFixed(6));
+  }
+  return out;
 }
 
 function classificationColumns(c: AttributeClassification) {
@@ -593,8 +609,7 @@ function toSummary(
     attributesRemoved: set.attributesRemoved,
     unchanged: set.unchanged,
     inconclusive: set.inconclusive,
-    calculatedImpact:
-      set.calculatedImpact === null ? null : Number(set.calculatedImpact),
+    calculatedImpactByPeriodicity: set.calculatedImpactByPeriodicity ?? {},
     impactNotCalculable: set.impactNotCalculable,
   };
 }

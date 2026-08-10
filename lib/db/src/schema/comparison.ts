@@ -7,6 +7,7 @@ import {
   bigserial,
   boolean,
   numeric,
+  jsonb,
   timestamp,
   index,
   uniqueIndex,
@@ -48,10 +49,22 @@ export const changeSetTable = pgTable(
     inconclusive: integer("inconclusive").notNull().default(0),
 
     /**
-     * Sum of the impacts we could actually calculate. Null while nothing is
-     * calculable — which is the honest state until semantics are confirmed.
+     * Calculated impact, **broken down by periodicity** — e.g.
+     * `{"MENSAL": -87808.57, "ANUAL": -735312.15}`.
+     *
+     * Deliberately not a single number. A monthly figure and an annual one do
+     * not add up, and a scalar total would silently claim they do: this table
+     * once reported "R$ -757.009,57" for a set that was really R$ -735 mil per
+     * year plus R$ -88 mil per month. Annualising the two into a comparable
+     * figure is F4's job, and it needs its own confirmed rules.
+     *
+     * Empty object while nothing is calculable, which is the honest state
+     * until semantics are confirmed.
      */
-    calculatedImpact: numeric("calculated_impact", { precision: 18, scale: 6 }),
+    calculatedImpactByPeriodicity: jsonb("calculated_impact_by_periodicity")
+      .$type<Record<string, number>>()
+      .notNull()
+      .default({}),
     /** How many changes carry no calculable impact, and therefore sit outside the sum. */
     impactNotCalculable: integer("impact_not_calculable").notNull().default(0),
 

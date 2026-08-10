@@ -70,6 +70,108 @@ export const CONFIRMED_SEMANTICS: ConfirmedSemantics[] = [
       "Confirmado pelo transportador em 10/08/2026: a coluna pisCofins é alíquota, não valor. " +
       "O montante correspondente é valorPisCofins. Consistente com a faixa observada (0 a 9,3).",
   },
+
+  // ---------------------------------------------------------------------------
+  // Bloco de alta confiança, aprovado em 10/08/2026 a partir de
+  // docs/AUDITORIA-PERIODICIDADE.md. Cada entrada cita a conta que a sustenta —
+  // nenhuma delas veio de interpretar nome de coluna.
+  // ---------------------------------------------------------------------------
+
+  // Cadeia A — custoFixo (já confirmado MENSAL) = finame + lucroFixomodeloNovoCiclo,
+  // em 611 de 657 linhas. Uma soma não muda de periodicidade no meio.
+  ...([
+    ["carreta.finame", "cf_financiamento"],
+    ["carreta.lucro_fixomodelo_novo_ciclo", "cf_remuneracao_capital"],
+  ] as const).map(([code, taxonomyCode]) => ({
+    code,
+    unit: "BRL" as const,
+    periodicity: "MENSAL" as const,
+    aggregation: "SUM" as const,
+    isMonetary: true,
+    taxonomyCode,
+    confirmedBy: "guyrpeixoto.neto@gmail.com",
+    basis:
+      "Aprovado em 10/08/2026 com base aritmética: custoFixo = finame + lucroFixomodeloNovoCiclo " +
+      "em 611 de 657 linhas (93%), em todas as 9 vigências. Como custoFixo é confirmado MENSAL, " +
+      "as duas parcelas são mensais — uma soma não muda de periodicidade no meio.",
+  })),
+
+  // Cadeia B — a amortização é o valor financiado dividido pelo prazo em MESES:
+  // razão 1,108 (carretas, desvio 0,018) e 1,081 (cavalos, desvio 0,040).
+  // Lida como anual, a conta erraria por um fator de treze.
+  ...([
+    ["carreta.finame_implemento", "cf_financiamento"],
+    ["carreta.juros_finame_implemento", "cf_financiamento"],
+    ["carreta.amortizacao_implemento", "cf_depreciacao"],
+    ["cavalo.finame_cavalo", "cf_financiamento"],
+    ["cavalo.juros_finame_cavalo", "cf_financiamento"],
+    ["cavalo.amortizacao_cavalo", "cf_depreciacao"],
+    ["cavalo.lucro_fixomodelo_novo_ciclo_cavalo", "cf_remuneracao_capital"],
+  ] as const).map(([code, taxonomyCode]) => ({
+    code,
+    unit: "BRL" as const,
+    periodicity: "MENSAL" as const,
+    aggregation: "SUM" as const,
+    isMonetary: true,
+    taxonomyCode,
+    confirmedBy: "guyrpeixoto.neto@gmail.com",
+    basis:
+      "Aprovado em 10/08/2026 com base aritmética: amortizacao ÷ (valorNF × (1 − entrada%) ÷ periodoFiname) " +
+      "= 1,108 nas carretas (desvio 0,018) e 1,081 nos cavalos (desvio 0,040) — ou seja, o prazo do FINAME " +
+      "está em meses. Lido como anual, erraria por um fator de 13. E finameImplemento = amortizacao + juros " +
+      "em 37 de 38 implementos com ambas as parcelas não nulas.",
+  })),
+
+  // Cadeia D — 1,000% do valor da NF, desvio zero, de Jan a Jun/2026.
+  // Um por cento ao ano é alíquota plausível; ao mês daria 12% a.a.
+  {
+    code: "cavalo.ipva_licenciamento",
+    unit: "BRL",
+    periodicity: "ANUAL",
+    aggregation: "SUM",
+    isMonetary: true,
+    taxonomyCode: "cf_seguros_tributos",
+    confirmedBy: "guyrpeixoto.neto@gmail.com",
+    basis:
+      "Aprovado em 10/08/2026: de Jan a Jun/2026 o valor é exatamente 1,000% de valorNfCompra para " +
+      "as 62 placas, com desvio 0,0000. Um por cento do valor do veículo ao ano é alíquota plausível; " +
+      "ao mês daria 12% a.a., o que não existe. Atenção: a base de cálculo mudou duas vezes na série " +
+      "(2,52% médio → 1,000% fixo → 0,651% médio) — ver docs/ACHADO-IPVA.md.",
+  },
+
+  // Cadeia C — cinco colunas nunca variam nas 9 vigências, e valorPisCofins é
+  // exatamente 9,250% da NF com desvio zero. São valores de aquisição.
+  ...([
+    ["carreta.valor_nf_compra", "cf_outros"],
+    ["cavalo.valor_nf_compra", "cf_outros"],
+  ] as const).map(([code, taxonomyCode]) => ({
+    code,
+    unit: "BRL" as const,
+    periodicity: "PONTUAL" as const,
+    aggregation: "SUM" as const,
+    isMonetary: true,
+    taxonomyCode,
+    confirmedBy: "guyrpeixoto.neto@gmail.com",
+    basis:
+      "Aprovado em 10/08/2026: o valor nunca varia ao longo das 9 vigências para nenhum ativo " +
+      "(100% com um único valor distinto). É o valor da nota de compra — grandeza de aquisição, " +
+      "não fluxo periódico.",
+  })),
+  ...([
+    ["carreta.valor_pis_cofins", "cf_seguros_tributos"],
+    ["cavalo.valor_pis_cofins", "cf_seguros_tributos"],
+  ] as const).map(([code, taxonomyCode]) => ({
+    code,
+    unit: "BRL" as const,
+    periodicity: "PONTUAL" as const,
+    aggregation: "SUM" as const,
+    isMonetary: true,
+    taxonomyCode,
+    confirmedBy: "guyrpeixoto.neto@gmail.com",
+    basis:
+      "Aprovado em 10/08/2026: é exatamente 9,250% de valorNfCompra, com desvio 0,0000 nos 132 ativos, " +
+      "e nunca varia ao longo da série. Tributo incidente sobre a nota de compra — valor de aquisição.",
+  })),
 ];
 
 export interface ApplyConfirmationsResult {

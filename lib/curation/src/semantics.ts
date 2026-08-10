@@ -222,19 +222,25 @@ function guessAggregation(unit: Unit | null, dataType: string): {
   }
 }
 
-/** Name-based placement in the tree. A proposal, like everything else here. */
+/**
+ * Name-based placement in the tree. A proposal, like everything else here.
+ *
+ * **Cost patterns are tested before descriptive ones, and the order matters.**
+ * The reverse order shipped first and misfiled five attributes that carry real
+ * money: `finameImplemento` matched "implemento" and landed under technical
+ * specification; `lucroFixomodeloNovoCiclo` matched "modelo" and landed under
+ * asset identification. The filter on the Alterações screen was answering
+ * "custo fixo ou variável?" wrongly for R$ 6.094,94 per trailer of financing.
+ *
+ * A descriptive word appearing inside a cost column's name is common; the
+ * reverse — a cost word inside a genuinely descriptive column — is not. So
+ * money wins the tie.
+ */
 export function guessTaxonomyCode(code: string, entityType: string): string {
   const n = code.split(".").slice(1).join(".");
 
-  if (has(n, "unidade", "operador", "organizacao", "regiao", "prazo_pagamento"))
-    return "cad_escopo";
-  if (has(n, "chassi", "placa", "modelo", "montadora", "empresa_locadora") || n === "id" || n === "ano")
-    return "cad_identificacao";
-  if (has(n, "data", "vigencia", "carencia", "periodo", "mes_de_entrada", "ciclo", "contrato", "bid"))
-    return has(n, "manutencao") ? "cv_manutencao" : "cad_contrato";
-  if (has(n, "eixo", "cambio", "padrao", "capacidade", "medida", "double_deck", "revestimento", "tacografo", "rastreador", "faixa", "carroceria", "implemento", "frota_emprestada", "ativo", "odometro"))
-    return "cad_especificacao";
-
+  if (n === "custo_fixo")
+    return entityType === "CAVALO" ? "cf_frota_cavalo" : "cf_frota_carreta";
   if (has(n, "amortizacao")) return "cf_depreciacao";
   if (has(n, "finame", "juros", "spread", "tjlp", "taxa", "financiamento", "percentual_entrada"))
     return "cf_financiamento";
@@ -245,9 +251,16 @@ export function guessTaxonomyCode(code: string, entityType: string): string {
   if (has(n, "manutencao", "free_maintenance")) return "cv_manutencao";
   if (has(n, "pneu")) return "cv_pneus";
   if (has(n, "custo_variavel", "reais_km")) return "cv_outros";
-  if (n === "custo_fixo")
-    return entityType === "CAVALO" ? "cf_frota_cavalo" : "cf_frota_carreta";
   if (has(n, "custo_aluguel", "valor_nf_compra")) return "cf_outros";
+
+  if (has(n, "unidade", "operador", "organizacao", "regiao", "prazo_pagamento"))
+    return "cad_escopo";
+  if (has(n, "chassi", "placa", "modelo", "montadora", "empresa_locadora") || n === "id" || n === "ano")
+    return "cad_identificacao";
+  if (has(n, "data", "vigencia", "carencia", "periodo", "mes_de_entrada", "ciclo", "contrato", "bid"))
+    return "cad_contrato";
+  if (has(n, "eixo", "cambio", "padrao", "capacidade", "medida", "double_deck", "revestimento", "tacografo", "rastreador", "faixa", "carroceria", "implemento", "frota_emprestada", "ativo", "odometro"))
+    return "cad_especificacao";
 
   return "nao_classificado";
 }

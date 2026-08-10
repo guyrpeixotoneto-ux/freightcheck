@@ -39,7 +39,7 @@ interface LatestResponse {
     attributesRemoved: number;
     unchanged: number;
     inconclusive: number;
-    calculatedImpact: number | null;
+    calculatedImpactByPeriodicity: Record<string, number>;
     impactNotCalculable: number;
   };
   breakdown: Breakdown;
@@ -87,25 +87,9 @@ export default function Alteracoes() {
               label="Colunas novas / removidas"
               value={`+${data.set.attributesAdded} / −${data.set.attributesRemoved}`}
             />
-            <Tile
-              label="Impacto apurado"
-              value={
-                data.set.calculatedImpact === null
-                  ? "não calculável"
-                  : data.set.calculatedImpact.toLocaleString("pt-BR", {
-                      style: "currency",
-                      currency: "BRL",
-                      maximumFractionDigits: 0,
-                    })
-              }
-              hint={`${data.set.impactNotCalculable} alterações fora desta soma`}
-              tone={
-                data.set.calculatedImpact === null
-                  ? "muted"
-                  : data.set.calculatedImpact < 0
-                    ? "bad"
-                    : "good"
-              }
+            <ImpactTile
+              buckets={data.set.calculatedImpactByPeriodicity}
+              outside={data.set.impactNotCalculable}
             />
             <Tile
               label="Inconclusivas"
@@ -163,6 +147,62 @@ export default function Alteracoes() {
         </Card>
       </div>
     </Layout>
+  );
+}
+
+/**
+ * Impacto apurado, uma linha por periodicidade.
+ *
+ * Nunca um número só: R$/mês e R$/ano são grandezas diferentes, e somá-las
+ * seria exatamente o erro que este produto existe para pegar. Anualizar as
+ * duas numa figura comparável é trabalho de F4, com regras próprias.
+ */
+function ImpactTile({
+  buckets,
+  outside,
+}: {
+  buckets: Record<string, number>;
+  outside: number;
+}) {
+  const entries = Object.entries(buckets);
+  const brl = (v: number) =>
+    v.toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+      maximumFractionDigits: 0,
+    });
+  return (
+    <div className="rounded-lg border bg-card px-4 py-3">
+      <div className="text-xs font-medium text-muted-foreground">
+        Impacto apurado
+      </div>
+      {entries.length === 0 ? (
+        <div className="text-xl font-bold tabular-nums mt-1 text-muted-foreground">
+          não calculável
+        </div>
+      ) : (
+        <div className="mt-1 space-y-0.5">
+          {entries.map(([periodicity, amount]) => (
+            <div key={periodicity} className="flex items-baseline gap-1.5">
+              <span
+                className={cn(
+                  "text-lg font-bold tabular-nums",
+                  amount < 0 ? "text-red-700" : "text-emerald-700",
+                )}
+              >
+                {brl(amount)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                /{periodicity.toLowerCase()}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="text-xs text-muted-foreground mt-0.5">
+        {outside} alterações fora destes valores
+      </div>
+    </div>
   );
 }
 

@@ -10,6 +10,13 @@ import { getChangeSetBreakdown, listChanges, listComparableSnapshots } from "../
 const { db, pool } = createDb(process.env.DATABASE_URL!);
 const n = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
 
+/** Never joined into one number: mensal and anual are different quantities. */
+const fmtImpact = (buckets: Record<string, number>) => {
+  const parts = Object.entries(buckets);
+  if (parts.length === 0) return "não calculável";
+  return parts.map(([p, v]) => `R$ ${n(v)}/${p.toLowerCase()}`).join(" + ");
+};
+
 try {
   const snapshots = await listComparableSnapshots(db);
   console.log(`\n${snapshots.length} snapshots vivos. Comparando pares consecutivos.\n`);
@@ -29,7 +36,7 @@ try {
         `+${set.entitiesAdded}/-${set.entitiesRemoved} ativos · ` +
         `+${set.attributesAdded}/-${set.attributesRemoved} colunas · ` +
         `${set.inconclusive} inconclusivas · ` +
-        `impacto ${set.calculatedImpact === null ? "não calculável" : "R$ " + n(set.calculatedImpact)}`,
+        `impacto ${fmtImpact(set.calculatedImpactByPeriodicity)}`,
     );
   }
   console.log(`\n  TOTAL de mudanças de valor: ${n(totalSource)}`);

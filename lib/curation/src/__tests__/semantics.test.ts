@@ -214,6 +214,49 @@ describe("periodicity conflict detection", () => {
   });
 });
 
+/**
+ * The classification is locked here, attribute by attribute.
+ *
+ * The first version of `guessTaxonomyCode` tested descriptive words before
+ * cost words, so `finameImplemento` matched "implemento" and landed under
+ * technical specification. These cases exist so no future reordering moves an
+ * attribute silently — every entry below is a decision, not an accident.
+ */
+describe("classificação — travada atributo a atributo", () => {
+  it("põe o dinheiro antes do descritivo quando o nome contém os dois", () => {
+    // Os 5 identificados na auditoria.
+    expect(guessTaxonomyCode("carreta.finame_implemento", "CARRETA")).toBe("cf_financiamento");
+    expect(guessTaxonomyCode("carreta.juros_finame_implemento", "CARRETA")).toBe("cf_financiamento");
+    expect(guessTaxonomyCode("carreta.amortizacao_implemento", "CARRETA")).toBe("cf_depreciacao");
+    expect(guessTaxonomyCode("carreta.lucro_fixomodelo_novo_ciclo", "CARRETA")).toBe("cf_remuneracao_capital");
+    expect(guessTaxonomyCode("cavalo.lucro_fixomodelo_novo_ciclo_cavalo", "CAVALO")).toBe("cf_remuneracao_capital");
+  });
+
+  it("move os 6 que a reordenação corrigiu junto — e só esses", () => {
+    // Mesma família dos anteriores; "modelo" vencia "lucro_fixo".
+    expect(guessTaxonomyCode("carreta.lucro_fixomodelo_novo_ciclo_carreta", "CARRETA")).toBe("cf_remuneracao_capital");
+    // "periodo" vencia "finame". É o prazo do financiamento.
+    expect(guessTaxonomyCode("carreta.periodo_finame", "CARRETA")).toBe("cf_financiamento");
+    expect(guessTaxonomyCode("cavalo.periodo_finame", "CAVALO")).toBe("cf_financiamento");
+    // "medida" vencia "pneu".
+    expect(guessTaxonomyCode("carreta.pneu_medida_empurrada", "CARRETA")).toBe("cv_pneus");
+    expect(guessTaxonomyCode("cavalo.pneu_medida_empurrada", "CAVALO")).toBe("cv_pneus");
+    // "capacidade" vencia "combustivel".
+    expect(guessTaxonomyCode("cavalo.combustivel_capacidade", "CAVALO")).toBe("cv_combustivel");
+  });
+
+  it("não arrasta o cadastral junto: o que não tem palavra de custo fica onde estava", () => {
+    expect(guessTaxonomyCode("cavalo.chassi", "CAVALO")).toBe("cad_identificacao");
+    expect(guessTaxonomyCode("cavalo.data_fim_contrato", "CAVALO")).toBe("cad_contrato");
+    expect(guessTaxonomyCode("carreta.revestimento", "CARRETA")).toBe("cad_especificacao");
+    expect(guessTaxonomyCode("carreta.frota_emprestada", "CARRETA")).toBe("cad_especificacao");
+    expect(guessTaxonomyCode("cavalo.odometro_entrada", "CAVALO")).toBe("cad_especificacao");
+    expect(guessTaxonomyCode("cavalo.unidade_cnpj", "CAVALO")).toBe("cad_escopo");
+    expect(guessTaxonomyCode("cavalo.empresa_locadora", "CAVALO")).toBe("cad_identificacao");
+    expect(guessTaxonomyCode("carreta.ano", "CARRETA")).toBe("cad_identificacao");
+  });
+});
+
 describe("taxonomy placement", () => {
   it("separates cost from cadastral data", () => {
     expect(guessTaxonomyCode("cavalo.amortizacao_cavalo", "CAVALO")).toBe("cf_depreciacao");

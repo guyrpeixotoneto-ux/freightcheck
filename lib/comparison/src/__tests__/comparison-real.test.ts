@@ -3,7 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import { changeTable, snapshotTable } from "@workspace/db";
 import { captureRaw, preview, promote, receiveFile, stage } from "@workspace/ingest";
 import { createTestDatabase, realExportPath, type TestDb } from "@workspace/ingest/testing";
-import { runProposalPass, seedTaxonomy } from "@workspace/curation";
+import { applyConfirmations, runProposalPass, seedTaxonomy } from "@workspace/curation";
 import { computeChangeSet, findPreviousSnapshot } from "../engine";
 import { getChangeProvenance, listChanges, listComparableSnapshots } from "../query";
 
@@ -108,6 +108,57 @@ describe("o achado do IPVA aparece no topo do que é comparável", () => {
     expect(provenance.row_before).not.toBe(provenance.row_after);
     expect(Number(provenance.raw_before)).toBeCloseTo(4096.31, 2);
     expect(Number(provenance.raw_after)).toBeCloseTo(2513.19, 2);
+  });
+});
+
+describe("as 298 alterações destravadas pela curadoria", () => {
+  it("mantém 345 alterações com impacto calculável na série inteira", async () => {
+    await applyConfirmations(ctx.db);
+    for (let i = 1; i < snapshots.length; i++) {
+      await computeChangeSet(ctx.db, snapshots[i - 1].id, snapshots[i].id, { force: true });
+    }
+
+    const [calculated] = await ctx.db
+      .select({ n: sql<number>`count(*)`.mapWith(Number) })
+      .from(changeTable)
+      .where(eq(changeTable.impactConfidence, "CALCULATED"));
+    // 47 before the audit, 345 after confirming the high-confidence block.
+    expect(calculated.n).toBe(345);
+
+    // And the change count itself is untouched: curation prices changes, it
+    // never creates or destroys them.
+    const [values] = await ctx.db
+      .select({ n: sql<number>`count(*)`.mapWith(Number) })
+      .from(changeTable)
+      .where(eq(changeTable.changeType, "VALUE_CHANGED"));
+    expect(values.n).toBe(3202);
+  }, 300_000);
+
+  it("não deixa nenhum impacto calculado sem periodicidade declarada", async () => {
+    const [orphans] = await ctx.db
+      .select({ n: sql<number>`count(*)`.mapWith(Number) })
+      .from(changeTable)
+      .where(
+        sql`${changeTable.impactConfidence} = 'CALCULATED'
+            AND ${changeTable.impactPeriodicity} IS NULL`,
+      );
+    expect(orphans.n).toBe(0);
+  });
+});
+
+describe("impacto nunca mistura periodicidades", () => {
+  it("separa o mensal do anual na série real", async () => {
+    const a = snapshots.find((s) => s.sourceLabel === "EMPURRADA_2_12_2025")!;
+    const b = snapshots.find((s) => s.sourceLabel === "EMPURRADA_2_1_2026")!;
+    const set = await computeChangeSet(ctx.db, a.id, b.id, { force: true });
+
+    // This transition carries both: the IPVA drop (annual) and the FINAME
+    // family (monthly). A scalar would have reported one misleading total.
+    const buckets = set.calculatedImpactByPeriodicity;
+    expect(Object.keys(buckets).sort()).toEqual(["ANUAL", "MENSAL"]);
+    expect(buckets.ANUAL).toBeLessThan(-500_000);
+    expect(buckets.MENSAL).toBeLessThan(0);
+    expect(buckets.MENSAL).toBeGreaterThan(-200_000);
   });
 });
 

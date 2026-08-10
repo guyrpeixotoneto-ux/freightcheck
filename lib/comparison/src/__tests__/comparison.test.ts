@@ -95,7 +95,7 @@ describe("snapshots idênticos", () => {
     expect(rows).toHaveLength(0);
     // Re-importing the same content must never invent news.
     expect(set.unchanged).toBe(4);
-    expect(set.calculatedImpact).toBeNull();
+    expect(set.calculatedImpactByPeriodicity).toEqual({});
   });
 });
 
@@ -165,7 +165,7 @@ describe("materialidade e impacto", () => {
     // ...but the variation itself is still reported.
     expect(rate.deltaAbsolute).toBeCloseTo(0.5, 6);
 
-    expect(set.calculatedImpact).toBe(400);
+    expect(set.calculatedImpactByPeriodicity).toEqual({ MENSAL: 400 });
     expect(set.impactNotCalculable).toBe(1);
   });
 
@@ -183,6 +183,96 @@ describe("materialidade e impacto", () => {
     // A ratio still gets its variation — km/l falling is real news.
     expect(consumo.deltaAbsolute).toBeCloseTo(-0.14, 6);
     expect(consumo.deltaPercent).toBeCloseTo(-5.957, 2);
+  });
+
+  it("nunca soma periodicidades diferentes num único número", async () => {
+    // The defect this locks: with only MENSAL confirmed the total was safe,
+    // and the moment an ANUAL attribute was confirmed the scalar quietly
+    // started adding R$/mês to R$/ano. Buckets make that impossible.
+    const { set } = await compare(
+      [
+        ...ATTRIBUTES,
+        {
+          code: "carreta.ipva_anual",
+          dataType: "NUMERIC",
+          semanticsStatus: "CONFIRMED",
+          unit: "BRL",
+          periodicity: "ANUAL",
+          aggregation: "SUM",
+          isMonetary: true,
+          taxonomyCode: "cf_frota_carreta",
+        },
+      ],
+      { AAA1A11: { "carreta.custo_fixo": 1000, "carreta.ipva_anual": 6000 } },
+      { AAA1A11: { "carreta.custo_fixo": 1100, "carreta.ipva_anual": 4800 } },
+    );
+
+    expect(set.calculatedImpactByPeriodicity).toEqual({
+      MENSAL: 100,
+      ANUAL: -1200,
+    });
+    // The two must never collapse into the -1100 a scalar would have produced.
+    const buckets = Object.values(set.calculatedImpactByPeriodicity);
+    expect(buckets).toHaveLength(2);
+    expect(buckets.reduce((a, b) => a + b, 0)).not.toBe(
+      set.calculatedImpactByPeriodicity.MENSAL,
+    );
+  });
+
+  it("não converte periodicidade implicitamente", async () => {
+    // An annual attribute's impact is its raw delta, expressed as annual.
+    // Nothing divides by 12, nothing multiplies by 12. Any conversion to a
+    // common base is F4's job and has to be explicit and deterministic.
+    const { set, rows } = await compare(
+      [
+        ...ATTRIBUTES,
+        {
+          code: "carreta.ipva_anual",
+          dataType: "NUMERIC",
+          semanticsStatus: "CONFIRMED",
+          unit: "BRL",
+          periodicity: "ANUAL",
+          aggregation: "SUM",
+          isMonetary: true,
+          taxonomyCode: "cf_frota_carreta",
+        },
+      ],
+      { AAA1A11: { "carreta.ipva_anual": 12000 } },
+      { AAA1A11: { "carreta.ipva_anual": 6000 } },
+    );
+
+    const change = rows[0];
+    expect(change.deltaAbsolute).toBe(-6000);
+    // The raw difference, untouched — not -500 (a twelfth) nor -72000 (×12).
+    expect(change.impactAmount).toBe(-6000);
+    expect(change.impactPeriodicity).toBe("ANUAL");
+    expect(set.calculatedImpactByPeriodicity).toEqual({ ANUAL: -6000 });
+  });
+
+  it("dá bucket próprio a um impacto sem periodicidade declarada", async () => {
+    // Never pooled into MENSAL or ANUAL by default: an undeclared periodicity
+    // is unknown, not monthly.
+    const { set } = await compare(
+      [
+        ...ATTRIBUTES,
+        {
+          code: "carreta.valor_aquisicao",
+          dataType: "NUMERIC",
+          semanticsStatus: "CONFIRMED",
+          unit: "BRL",
+          periodicity: "PONTUAL",
+          aggregation: "SUM",
+          isMonetary: true,
+          taxonomyCode: "cf_frota_carreta",
+        },
+      ],
+      { AAA1A11: { "carreta.custo_fixo": 100, "carreta.valor_aquisicao": 200000 } },
+      { AAA1A11: { "carreta.custo_fixo": 150, "carreta.valor_aquisicao": 210000 } },
+    );
+    expect(set.calculatedImpactByPeriodicity).toEqual({
+      MENSAL: 50,
+      PONTUAL: 10000,
+    });
   });
 
   it("ordena por materialidade sem esconder o que é pequeno", async () => {
