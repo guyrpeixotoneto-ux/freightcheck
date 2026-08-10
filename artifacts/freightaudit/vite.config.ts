@@ -5,29 +5,43 @@ import { defineConfig } from 'vite';
 
 import runtimeErrorOverlay from '@replit/vite-plugin-runtime-error-modal';
 
-const rawPort = process.env.PORT;
+/**
+ * `PORT` é exigido para servir, não para construir.
+ *
+ * Este arquivo exigia a porta ao ser carregado, e `vite build` carrega o mesmo
+ * arquivo: sem `PORT` no ambiente, o build de produção morria antes de gerar um
+ * único asset — e um build que falha no deploy deixa publicada a versão
+ * anterior, que é indistinguível, do navegador, de um deploy que deu certo. Um
+ * bundle estático não tem porta; exigir uma para produzi-lo é pedir uma coisa
+ * que não existe naquele momento.
+ */
+function servePort(): number {
+  const rawPort = process.env.PORT;
 
-if (!rawPort) {
-  throw new Error(
-    'PORT environment variable is required but was not provided.',
-  );
+  if (!rawPort) {
+    throw new Error(
+      'PORT environment variable is required but was not provided.',
+    );
+  }
+
+  const port = Number(rawPort);
+
+  if (Number.isNaN(port) || port <= 0) {
+    throw new Error(`Invalid PORT value: "${rawPort}"`);
+  }
+
+  return port;
 }
 
-const port = Number(rawPort);
+/**
+ * `BASE_PATH` muda o conteúdo gerado — é o prefixo dos assets no `index.html` —
+ * então ele vale no build. O padrão é o mesmo `/` que o artifact declara, para
+ * que a ausência da variável não derrube o build nem mude o resultado.
+ */
+const basePath = process.env.BASE_PATH ?? '/';
 
-if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
-}
-
-const basePath = process.env.BASE_PATH;
-
-if (!basePath) {
-  throw new Error(
-    'BASE_PATH environment variable is required but was not provided.',
-  );
-}
-
-export default defineConfig({
+// `async` porque os plugins do Replit são carregados sob demanda logo abaixo.
+export default defineConfig(async ({ command }) => ({
   base: basePath,
   plugins: [
     react(),
@@ -65,7 +79,7 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
-    port,
+    port: command === 'serve' ? servePort() : undefined,
     strictPort: true,
     host: '0.0.0.0',
     allowedHosts: true,
@@ -87,8 +101,8 @@ export default defineConfig({
       : undefined,
   },
   preview: {
-    port,
+    port: command === 'serve' ? servePort() : undefined,
     host: '0.0.0.0',
     allowedHosts: true,
   },
-});
+}));
