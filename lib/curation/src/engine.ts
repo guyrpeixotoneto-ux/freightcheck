@@ -15,6 +15,7 @@ import {
   proposeSemantics,
   type Aggregation,
   type AttributeEvidence,
+  type PairRatioStats,
   type PeriodicityConflict,
   type Periodicity,
   type Unit,
@@ -95,6 +96,70 @@ export async function gatherEvidence(db: Database): Promise<AttributeEvidence[]>
   }));
 }
 
+/**
+ * Per-asset ratio between each `X_mensal` column and its `X` counterpart, in
+ * the latest snapshot.
+ *
+ * This is what tells homonymy from a real periodicity contradiction. Comparing
+ * the fleet totals cannot: two unrelated columns can add up to any ratio at
+ * all, while the same quantity measured twice tracks asset by asset.
+ */
+export async function gatherPairRatios(
+  db: Database,
+): Promise<Map<string, PairRatioStats>> {
+  const snapshotId = await latestSnapshotId(db);
+  if (!snapshotId) return new Map();
+
+  const { rows } = await db.execute<{
+    monthly_code: string;
+    sample_size: string;
+    mean_ratio: string;
+    stddev_ratio: string | null;
+    min_ratio: string;
+    max_ratio: string;
+  }>(sql`
+    WITH paired AS (
+      SELECT monthly.code AS monthly_code,
+             f_month.value_numeric / f_base.value_numeric AS ratio
+        FROM attribute monthly
+        JOIN attribute base
+          ON base.code = left(monthly.code, length(monthly.code) - length('_mensal'))
+        JOIN fact f_month
+          ON f_month.attribute_id = monthly.id
+         AND f_month.snapshot_id = ${snapshotId}
+         AND NOT f_month.is_null
+        JOIN fact f_base
+          ON f_base.attribute_id = base.id
+         AND f_base.snapshot_id = ${snapshotId}
+         AND f_base.entity_id = f_month.entity_id
+         AND NOT f_base.is_null
+       WHERE monthly.code LIKE '%\\_mensal'
+         AND f_base.value_numeric <> 0
+         AND f_month.value_numeric IS NOT NULL
+    )
+    SELECT monthly_code,
+           count(*)        AS sample_size,
+           avg(ratio)      AS mean_ratio,
+           stddev(ratio)   AS stddev_ratio,
+           min(ratio)      AS min_ratio,
+           max(ratio)      AS max_ratio
+      FROM paired
+     GROUP BY monthly_code
+  `);
+
+  const stats = new Map<string, PairRatioStats>();
+  for (const row of rows) {
+    stats.set(row.monthly_code, {
+      sampleSize: Number(row.sample_size),
+      meanRatio: Number(row.mean_ratio),
+      stddevRatio: Number(row.stddev_ratio ?? 0),
+      minRatio: Number(row.min_ratio),
+      maxRatio: Number(row.max_ratio),
+    });
+  }
+  return stats;
+}
+
 export interface ProposeResult {
   examined: number;
   proposed: number;
@@ -116,9 +181,13 @@ export async function runProposalPass(
   actor: string,
 ): Promise<ProposeResult> {
   const evidence = await gatherEvidence(db);
-  const conflicts = detectPeriodicityConflicts(evidence);
+  const ratios = await gatherPairRatios(db);
+  const conflicts = detectPeriodicityConflicts(evidence, ratios);
+  // Only a genuine contradiction withholds a proposal. Two different
+  // quantities that merely share a name prefix are reported and then curated
+  // normally — blocking them would punish the curator for the source's naming.
   const blocked = new Set<string>();
-  for (const conflict of conflicts) {
+  for (const conflict of conflicts.filter((c) => c.blocks)) {
     blocked.add(conflict.annualCode);
     blocked.add(conflict.monthlyCode);
   }
@@ -141,15 +210,20 @@ export async function runProposalPass(
 
     const proposal = proposeSemantics(item);
     const conflict = conflicts.find(
-      (c) => c.annualCode === item.code || c.monthlyCode === item.code,
+      (c) => c.blocks && (c.annualCode === item.code || c.monthlyCode === item.code),
     );
 
     const node = nodeByCode.get(proposal.taxonomyCode) ?? nodeByCode.get("nao_classificado");
 
     const nextStatus = conflict ? "UNKNOWN" : proposal.status;
+    const note = conflicts.find(
+      (c) => !c.blocks && (c.annualCode === item.code || c.monthlyCode === item.code),
+    );
     const rationale = conflict
       ? `CONFLITO DE PERIODICIDADE. ${conflict.message} Proposta suspensa: ${proposal.rationale}`
-      : proposal.rationale;
+      : note
+        ? `ATENÇÃO — NOMES HOMÔNIMOS. ${note.message} ${proposal.rationale}`
+        : proposal.rationale;
 
     const changes: { field: string; before: string | null; after: string | null }[] = [];
     const record = (field: string, before: unknown, after: unknown) => {

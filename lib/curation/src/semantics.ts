@@ -287,13 +287,89 @@ export function proposeSemantics(evidence: AttributeEvidence): SemanticsProposal
   };
 }
 
+/**
+ * Per-entity relationship between two columns whose names suggest they are the
+ * same quantity at different periodicities.
+ *
+ * Aggregate sums cannot tell "same quantity, mislabelled periodicity" from
+ * "two different quantities sharing a name prefix". The per-asset ratio can:
+ * one base measured twice yields a tight ratio, two different bases do not.
+ */
+export interface PairRatioStats {
+  /** Assets carrying a usable value on both sides. */
+  sampleSize: number;
+  meanRatio: number;
+  stddevRatio: number;
+  minRatio: number;
+  maxRatio: number;
+}
+
+export type NamePairVerdict =
+  /** Tight ratio and consistent with a monthly/annual split. Nothing to flag. */
+  | "CONSISTENT"
+  /** Tight ratio, but the value contradicts what the names claim. */
+  | "PERIODICITY_CONTRADICTION"
+  /** Ratio all over the place: these are different quantities. */
+  | "DISTINCT_BASES"
+  /** Not enough paired observations to say anything. */
+  | "INSUFFICIENT_DATA";
+
 export interface PeriodicityConflict {
+  verdict: NamePairVerdict;
   annualCode: string;
   monthlyCode: string;
   annualSum: number;
   monthlySum: number;
   ratio: number;
+  stats?: PairRatioStats;
   message: string;
+  /**
+   * Whether both attributes should be held out of confirmation.
+   *
+   * Only a genuine contradiction blocks. Two different quantities that merely
+   * share a prefix are a naming problem, not a contradiction — blocking them
+   * would punish the curator for the source's vocabulary.
+   */
+  blocks: boolean;
+}
+
+/**
+ * Dispersion above this means the two columns do not track one another, so
+ * they cannot be the same quantity measured at two periodicities.
+ */
+const MAX_COEFFICIENT_OF_VARIATION = 0.15;
+/** A monthly figure is a twelfth of its annual counterpart, within tolerance. */
+const MONTHLY_RATIO = 1 / 12;
+const MONTHLY_RATIO_TOLERANCE = 0.3;
+
+/**
+ * Decide what a `X` / `X_mensal` pair actually is, from the per-asset ratio.
+ *
+ * This replaces an earlier assumption that such a pair is necessarily the same
+ * quantity. On the real export it is not: `ipvaLicenciamento` is a flat fee of
+ * about R$150 regardless of vehicle value, while `ipvaLicenciamentoMensal`
+ * varies from R$435 to R$733 with no consistent relationship to it.
+ */
+export function classifyNamePair(stats: PairRatioStats | undefined): {
+  verdict: NamePairVerdict;
+  blocks: boolean;
+} {
+  if (!stats || stats.sampleSize < 5) {
+    return { verdict: "INSUFFICIENT_DATA", blocks: false };
+  }
+  const cv =
+    stats.meanRatio === 0
+      ? Number.POSITIVE_INFINITY
+      : Math.abs(stats.stddevRatio / stats.meanRatio);
+
+  if (cv > MAX_COEFFICIENT_OF_VARIATION) {
+    return { verdict: "DISTINCT_BASES", blocks: false };
+  }
+  const consistentWithMonthly =
+    Math.abs(stats.meanRatio - MONTHLY_RATIO) <= MONTHLY_RATIO_TOLERANCE * MONTHLY_RATIO;
+  return consistentWithMonthly
+    ? { verdict: "CONSISTENT", blocks: false }
+    : { verdict: "PERIODICITY_CONTRADICTION", blocks: true };
 }
 
 /**
@@ -307,6 +383,7 @@ export interface PeriodicityConflict {
  */
 export function detectPeriodicityConflicts(
   evidence: AttributeEvidence[],
+  ratioStatsByPair: Map<string, PairRatioStats> = new Map(),
 ): PeriodicityConflict[] {
   const byCode = new Map(evidence.map((e) => [e.code, e]));
   const conflicts: PeriodicityConflict[] = [];
@@ -320,21 +397,46 @@ export function detectPeriodicityConflicts(
     if (base.latestSum === 0) continue;
 
     const ratio = candidate.latestSum / base.latestSum;
-    // Anything from a twelfth to about a third is consistent with a monthly
-    // figure. Above that the naming cannot be taken at face value.
-    if (ratio <= 0.35) continue;
+    const stats = ratioStatsByPair.get(candidate.code);
+    const { verdict, blocks } = classifyNamePair(stats);
+
+    if (verdict === "CONSISTENT") continue;
+
+    const dispersion =
+      stats && stats.meanRatio !== 0
+        ? Math.abs(stats.stddevRatio / stats.meanRatio)
+        : null;
+
+    let message: string;
+    if (verdict === "DISTINCT_BASES") {
+      message =
+        `"${candidate.sourceName}" e "${base.sourceName}" compartilham o prefixo do nome, mas ` +
+        `não medem a mesma coisa: entre os ${stats!.sampleSize} ativos a razão entre elas varia de ` +
+        `${stats!.minRatio.toFixed(2)}× a ${stats!.maxRatio.toFixed(2)}× (dispersão de ` +
+        `${(dispersion! * 100).toFixed(0)}%). Duas medidas da mesma grandeza teriam razão constante. ` +
+        `Não é contradição de periodicidade — é homonímia. Cada uma precisa ser curada por si.`;
+    } else if (verdict === "PERIODICITY_CONTRADICTION") {
+      message =
+        `"${candidate.sourceName}" e "${base.sourceName}" acompanham uma à outra de forma consistente ` +
+        `(razão ${stats!.meanRatio.toFixed(2)}× entre os ${stats!.sampleSize} ativos), mas a razão não é ` +
+        `1/12. São a mesma grandeza e a nomenclatura mensal/anual está errada; ambas ficam bloqueadas ` +
+        `para cálculo financeiro até você confirmar o que cada uma significa.`;
+    } else {
+      message =
+        `Não há pares suficientes de "${candidate.sourceName}" e "${base.sourceName}" para decidir se ` +
+        `medem a mesma grandeza. Nenhuma conclusão tirada.`;
+    }
 
     conflicts.push({
+      verdict,
       annualCode: baseCode,
       monthlyCode: candidate.code,
       annualSum: base.latestSum,
       monthlySum: candidate.latestSum,
       ratio,
-      message:
-        `"${candidate.sourceName}" soma ${candidate.latestSum.toFixed(2)} enquanto ` +
-        `"${base.sourceName}" soma ${base.latestSum.toFixed(2)} — razão de ${ratio.toFixed(2)}×. ` +
-        `Um valor mensal deveria ser cerca de 1/12 do anual. A nomenclatura não descreve o conteúdo; ` +
-        `ambos ficam bloqueados para cálculo financeiro até você confirmar o que cada um significa.`,
+      stats,
+      message,
+      blocks,
     });
   }
 

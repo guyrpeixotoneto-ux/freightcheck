@@ -74,18 +74,20 @@ classificação e materialidade **da evidência**, gravando a justificativa.
 **1. Periodicidade nunca é proposta.** É o único campo que o motor se recusa a
 preencher, porque é justamente onde os nomes deste export mentem.
 
-**2. Conflito de periodicidade bloqueia os dois lados.** Quando existem `X` e
-`X_mensal` e o "mensal" não é aproximadamente 1/12 do outro, ambos voltam para
-`UNKNOWN` com a explicação. Nos dados reais:
+**2. Conflito de periodicidade é diagnosticado pela razão por ativo, não pelo
+total da frota.** Quando existem `X` e `X_mensal`, o motor calcula a razão
+entre as duas **em cada ativo** e olha a dispersão:
 
-```
-"ipvaLicenciamentoMensal" soma 23.343,88 enquanto "ipvaLicenciamento"
-soma 10.875,69 — razão de 2,15×. Um valor mensal deveria ser cerca de
-1/12 do anual. A nomenclatura não descreve o conteúdo.
-```
+| Dispersão da razão | Veredito | Bloqueia? |
+|---|---|---|
+| baixa e ≈ 1/12 | `CONSISTENT` | não — está tudo certo |
+| baixa e ≠ 1/12 | `PERIODICITY_CONTRADICTION` | **sim** — mesma grandeza, rótulo errado |
+| alta | `DISTINCT_BASES` | não — homonímia, cada uma se cura sozinha |
+| menos de 5 pares | `INSUFFICIENT_DATA` | não — nada a concluir |
 
-`cavalo.ipva_licenciamento` **não** é bloqueado — não tem par conflitante. O
-bloqueio é dirigido pela evidência, não pelo nome.
+Comparar totais da frota não distingue esses casos: duas colunas sem relação
+nenhuma somam para qualquer razão. A mesma grandeza medida duas vezes, não —
+ela acompanha ativo a ativo.
 
 **3. Magnitude tem que concordar com o nome.** Um atributo com cara de dinheiro
 cujo maior valor é pequeno demais para um ativo desta frota não recebe

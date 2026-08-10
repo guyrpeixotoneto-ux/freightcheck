@@ -3,7 +3,14 @@ import { and, eq, sql } from "drizzle-orm";
 import { attributeTable, curationEventTable, factTable } from "@workspace/db";
 import { captureRaw, preview, promote, receiveFile, stage } from "@workspace/ingest";
 import { createTestDatabase, realExportPath, type TestDb } from "@workspace/ingest/testing";
-import { getCurationQueue, confirmAttribute, runProposalPass } from "../engine";
+import {
+  confirmAttribute,
+  gatherEvidence,
+  gatherPairRatios,
+  getCurationQueue,
+  runProposalPass,
+} from "../engine";
+import { detectPeriodicityConflicts } from "../semantics";
 import { seedTaxonomy } from "../taxonomy";
 
 /**
@@ -85,8 +92,31 @@ describe("the proposal pass proposes and nothing more", () => {
   });
 });
 
-describe("the periodicity conflict is caught on the real data", () => {
-  it("blocks both sides of the ipvaLicenciamento pair", async () => {
+describe("the ipvaLicenciamento pair, on the real data", () => {
+  it("is diagnosed as homonymy rather than a periodicity contradiction", async () => {
+    const ratios = await gatherPairRatios(ctx.db);
+    const stats = ratios.get("carreta.ipva_licenciamento_mensal");
+    expect(stats).toBeDefined();
+    expect(stats!.sampleSize).toBeGreaterThan(50);
+
+    // The two columns do not track each other asset by asset, which is what
+    // rules out "same quantity, mislabelled periodicity".
+    const dispersion = Math.abs(stats!.stddevRatio / stats!.meanRatio);
+    expect(dispersion).toBeGreaterThan(0.15);
+
+    const conflicts = detectPeriodicityConflicts(
+      await gatherEvidence(ctx.db),
+      ratios,
+    );
+    const pair = conflicts.find(
+      (c) => c.monthlyCode === "carreta.ipva_licenciamento_mensal",
+    );
+    expect(pair).toBeDefined();
+    expect(pair!.verdict).toBe("DISTINCT_BASES");
+    expect(pair!.blocks).toBe(false);
+  });
+
+  it("no longer withholds a proposal from either side", async () => {
     const rows = await ctx.db
       .select()
       .from(attributeTable)
@@ -95,20 +125,22 @@ describe("the periodicity conflict is caught on the real data", () => {
       );
     expect(rows).toHaveLength(2);
     for (const attribute of rows) {
-      expect(attribute.semanticsStatus).toBe("UNKNOWN");
-      expect(attribute.unit).toBeNull();
-      expect(attribute.aggregation).toBeNull();
-      expect(attribute.semanticsRationale).toMatch(/CONFLITO DE PERIODICIDADE/);
+      expect(attribute.semanticsStatus).toBe("PRESUMED");
+      // ...but the curator is warned that the shared prefix is misleading.
+      expect(attribute.semanticsRationale).toMatch(/HOMÔNIMOS/);
+      // Periodicity is still nobody's guess but a person's.
+      expect(attribute.periodicity).toBeNull();
     }
   });
 
-  it("leaves the cavalos counterpart alone — it has no conflicting twin", async () => {
+  it("leaves the cavalos counterpart alone — it has no pair at all", async () => {
     const [cavalo] = await ctx.db
       .select()
       .from(attributeTable)
       .where(eq(attributeTable.code, "cavalo.ipva_licenciamento"));
     expect(cavalo.semanticsStatus).toBe("PRESUMED");
     expect(cavalo.unit).toBe("BRL");
+    expect(cavalo.semanticsRationale).not.toMatch(/HOMÔNIMOS|CONFLITO/);
   });
 });
 

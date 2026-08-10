@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  classifyNamePair,
   detectPeriodicityConflicts,
   guessTaxonomyCode,
   proposeSemantics,
@@ -114,33 +115,95 @@ describe("aggregation follows the unit, not the data type", () => {
   });
 });
 
-describe("periodicity conflict detection", () => {
-  it("catches the ipvaLicenciamento pair from the real export", () => {
-    const conflicts = detectPeriodicityConflicts([
-      evidence({
-        code: "carreta.ipva_licenciamento",
-        sourceName: "ipvaLicenciamento",
-        latestSum: 10875.69,
-      }),
-      evidence({
-        code: "carreta.ipva_licenciamento_mensal",
-        sourceName: "ipvaLicenciamentoMensal",
-        latestSum: 23343.88,
-      }),
-    ]);
-    expect(conflicts).toHaveLength(1);
-    expect(conflicts[0].annualCode).toBe("carreta.ipva_licenciamento");
-    expect(conflicts[0].monthlyCode).toBe("carreta.ipva_licenciamento_mensal");
-    expect(conflicts[0].ratio).toBeCloseTo(2.15, 2);
-    expect(conflicts[0].message).toMatch(/1\/12/);
+describe("classifyNamePair", () => {
+  it("calls homonymy when the per-asset ratio scatters", () => {
+    // The real carreta pair: ratio from -3.01x to 5.23x across 71 assets.
+    // Two measures of one quantity would track each other; these do not.
+    const { verdict, blocks } = classifyNamePair({
+      sampleSize: 71,
+      meanRatio: 2.1,
+      stddevRatio: 1.31,
+      minRatio: -3.01,
+      maxRatio: 5.23,
+    });
+    expect(verdict).toBe("DISTINCT_BASES");
+    // Homonymy is a naming problem, not a contradiction — it must not block.
+    expect(blocks).toBe(false);
   });
 
-  it("stays quiet when the monthly figure is plausibly a twelfth", () => {
-    const conflicts = detectPeriodicityConflicts([
-      evidence({ code: "x.custo", sourceName: "custo", latestSum: 12000 }),
-      evidence({ code: "x.custo_mensal", sourceName: "custoMensal", latestSum: 1000 }),
-    ]);
-    expect(conflicts).toHaveLength(0);
+  it("calls a real contradiction when the ratio is tight but wrong", () => {
+    const { verdict, blocks } = classifyNamePair({
+      sampleSize: 60,
+      meanRatio: 2.0,
+      stddevRatio: 0.05,
+      minRatio: 1.9,
+      maxRatio: 2.1,
+    });
+    expect(verdict).toBe("PERIODICITY_CONTRADICTION");
+    expect(blocks).toBe(true);
+  });
+
+  it("stays quiet when the ratio really is a twelfth", () => {
+    const { verdict, blocks } = classifyNamePair({
+      sampleSize: 60,
+      meanRatio: 1 / 12,
+      stddevRatio: 0.002,
+      minRatio: 0.08,
+      maxRatio: 0.086,
+    });
+    expect(verdict).toBe("CONSISTENT");
+    expect(blocks).toBe(false);
+  });
+
+  it("refuses to conclude anything from too few pairs", () => {
+    const { verdict, blocks } = classifyNamePair({
+      sampleSize: 3,
+      meanRatio: 9,
+      stddevRatio: 0.1,
+      minRatio: 8.9,
+      maxRatio: 9.1,
+    });
+    expect(verdict).toBe("INSUFFICIENT_DATA");
+    expect(blocks).toBe(false);
+  });
+});
+
+describe("periodicity conflict detection", () => {
+  const pair = [
+    evidence({
+      code: "carreta.ipva_licenciamento",
+      sourceName: "ipvaLicenciamento",
+      latestSum: 10875.69,
+    }),
+    evidence({
+      code: "carreta.ipva_licenciamento_mensal",
+      sourceName: "ipvaLicenciamentoMensal",
+      latestSum: 23343.88,
+    }),
+  ];
+
+  it("reports the real pair as homonymy, not as a contradiction", () => {
+    const conflicts = detectPeriodicityConflicts(
+      pair,
+      new Map([
+        [
+          "carreta.ipva_licenciamento_mensal",
+          { sampleSize: 71, meanRatio: 2.1, stddevRatio: 1.31, minRatio: -3.01, maxRatio: 5.23 },
+        ],
+      ]),
+    );
+    expect(conflicts).toHaveLength(1);
+    expect(conflicts[0].verdict).toBe("DISTINCT_BASES");
+    expect(conflicts[0].blocks).toBe(false);
+    expect(conflicts[0].message).toMatch(/homonímia/i);
+    expect(conflicts[0].message).toMatch(/71 ativos/);
+  });
+
+  it("does not conclude from fleet totals alone", () => {
+    // Same totals, no per-asset evidence: the honest answer is "cannot say".
+    const conflicts = detectPeriodicityConflicts(pair);
+    expect(conflicts[0].verdict).toBe("INSUFFICIENT_DATA");
+    expect(conflicts[0].blocks).toBe(false);
   });
 
   it("ignores a monthly column with no annual counterpart", () => {
