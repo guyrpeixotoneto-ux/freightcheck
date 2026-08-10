@@ -32,7 +32,7 @@ export function Scene4_Outro() {
           transition={{ duration: 0.8, type: 'spring', bounce: 0.5 }}
           className="mb-12 font-black tracking-tighter text-8xl lg:text-[8vw] text-transparent bg-clip-text bg-gradient-to-br from-white to-indigo-200"
         >
-          FreightAudit
+          FreightCheck
         </motion.div>
 
         <motion.div

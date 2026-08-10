@@ -64,7 +64,7 @@ export function Scene0_Intro() {
             visible: { transition: { staggerChildren: 0.05 } }
           }}
         >
-          {'FreightAudit'.split('').map((char, i) => (
+          {'FreightCheck'.split('').map((char, i) => (
             <motion.span
               key={i}
               variants={{
