@@ -229,11 +229,9 @@ export default function Importacoes() {
         {!isLoading && runs.length === 0 && (
           <Card>
             <CardContent className="p-8 text-center text-muted-foreground text-sm">
-              Nenhuma importação ainda. Rode{" "}
-              <code className="font-mono bg-muted px-1.5 py-0.5 rounded">
-                pnpm run bootstrap
-              </code>{" "}
-              para carregar o export do Freightec.
+              Nenhuma importação ainda. Use{" "}
+              <strong className="text-foreground">Escolher planilhas</strong> acima
+              para enviar o export do Freightec.
             </CardContent>
           </Card>
         )}

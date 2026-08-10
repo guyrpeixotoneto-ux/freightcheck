@@ -1,10 +1,16 @@
 /**
- * From an empty database to a working FreightCheck, in one command.
+ * Development seeding. **Not the product's import path.**
  *
- *   DATABASE_URL=... pnpm run bootstrap
+ *   DATABASE_URL=... pnpm run dev:seed
  *
- * Runs migrations, imports the Freightec export that lives in the repo, seeds
- * the taxonomy, runs the proposal pass and replays the confirmed semantics.
+ * Fills an empty database from the workbooks committed under
+ * `attached_assets`, so a developer or a test can get to a working state in
+ * one command. Nobody using FreightCheck should ever run this: the Ambev's
+ * files arrive through the Importações screen, and that is the only path the
+ * product documents.
+ *
+ * This script was briefly the documented route, which was a mistake — it reads
+ * fixtures from the repository, and no real delivery will ever live there.
  *
  * Safe to re-run: the import is refused as a duplicate on the second pass, the
  * taxonomy seed and the confirmations registry are idempotent, and the
@@ -63,7 +69,7 @@ try {
   console.log(`[2/4] Importando ${paths.length} arquivo(s) do Freightec…`);
   for (const filePath of paths) {
     const name = filePath.split("/").pop();
-    const received = await receiveFile(db, { filePath, receivedBy: "bootstrap" });
+    const received = await receiveFile(db, { filePath, receivedBy: "dev:seed" });
 
     if (received.isDuplicate) {
       console.log(`      ${name}: já importado — pulando (idempotência).`);
@@ -81,7 +87,7 @@ try {
   }
 
   console.log("[3/4] Semeando a taxonomia e propondo semânticas…");
-  const seeded = await seedTaxonomy(db, "bootstrap");
+  const seeded = await seedTaxonomy(db, "dev:seed");
   const pass = await runProposalPass(db, "engine:proposal-pass");
   console.log(
     `      ${seeded.created} nós criados · ${pass.proposed} propostos · ${pass.leftUnknown} sem proposta`,

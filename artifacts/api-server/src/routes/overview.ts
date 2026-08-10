@@ -22,7 +22,7 @@ import {
   runProposalPass,
   seedTaxonomy,
 } from "@workspace/curation";
-import { getOverview } from "@workspace/comparison";
+import { computeMissingChangeSets, getOverview } from "@workspace/comparison";
 
 /**
  * Read-only views over what the system already holds: the panel, the import
@@ -213,6 +213,11 @@ router.post("/imports/:id/promote", async (req, res): Promise<void> => {
     const proposal = await runProposalPass(db, "engine:proposal-pass");
     const confirmations = await applyConfirmations(db);
     const versions = await backfillSemantics(db);
+    // Comparing every consecutive pair takes a while, so it runs detached and
+    // the screens pick it up as it lands. Without this nobody would ever
+    // compute the older transitions, and the Painel would report the impact of
+    // whichever one a person happened to open.
+    void computeMissingChangeSets(db).catch(() => {});
 
     res.json({ ...result, proposal, confirmations, versions });
   } catch (err) {

@@ -7,7 +7,7 @@
     "build": "pnpm run typecheck && pnpm -r --if-present run build",
     "typecheck:libs": "tsc --build",
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
-    "bootstrap": "pnpm --filter @workspace/curation exec tsx src/cli/bootstrap.ts"
+    "dev:seed": "pnpm --filter @workspace/curation exec tsx src/cli/dev-seed.ts"
   },
   "private": true,
   "dependencies": {

@@ -92,6 +92,63 @@ export async function knownSeries(db: Database): Promise<string[]> {
   return rows.map((r) => r.entity_type_set);
 }
 
+export interface BackfillComparisonsResult {
+  computed: number;
+  existing: number;
+  series: number;
+}
+
+/**
+ * Compare every consecutive pair, in every series, that has not been compared.
+ *
+ * Change sets used to be computed only when a screen asked for one, which meant
+ * the Painel showed the impact of whichever transition someone happened to open
+ * — and nothing was ever going to compute the rest. After an import, the
+ * product's whole promise is "here is what changed", so the comparisons are
+ * made then, not on demand.
+ *
+ * Idempotent: a pair already compared is left alone, so this can run after
+ * every promotion without recomputing the series each time.
+ */
+export async function computeMissingChangeSets(
+  db: Database,
+  computedBy = "api:after-import",
+): Promise<BackfillComparisonsResult> {
+  const all = await db
+    .select({
+      id: snapshotTable.id,
+      scopeHash: snapshotTable.scopeHash,
+      entityTypeSet: snapshotTable.entityTypeSet,
+      effectiveDate: snapshotTable.effectiveDate,
+    })
+    .from(snapshotTable)
+    .where(sql`${snapshotTable.status} <> 'SUPERSEDED'`)
+    .orderBy(snapshotTable.effectiveDate);
+
+  const series = new Map<string, typeof all>();
+  for (const snapshot of all) {
+    const key = `${snapshot.scopeHash}|${snapshot.entityTypeSet}`;
+    if (!series.has(key)) series.set(key, []);
+    series.get(key)!.push(snapshot);
+  }
+
+  let computed = 0;
+  let existing = 0;
+  for (const group of series.values()) {
+    for (let i = 1; i < group.length; i++) {
+      const a = group[i - 1];
+      const b = group[i];
+      if (await getChangeSetForPair(db, a.id, b.id)) {
+        existing++;
+        continue;
+      }
+      await computeChangeSet(db, a.id, b.id, { computedBy });
+      computed++;
+    }
+  }
+  return { computed, existing, series: series.size };
+}
+
 export async function getConsolidated(
   db: Database,
   period?: string,
