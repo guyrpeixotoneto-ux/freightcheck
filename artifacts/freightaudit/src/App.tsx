@@ -12,6 +12,7 @@ import Comparar from '@/pages/comparar';
 import Simulacao from '@/pages/simulacao';
 import Importacoes from '@/pages/importacoes';
 import ApresentacaoVideo from '@/components/video/ApresentacaoVideo';
+import AnaliseEquipamentos from '@/pages/analise-equipamentos';
 
 const queryClient = new QueryClient();
 
@@ -26,6 +27,7 @@ function Router() {
       <Route path="/comparar" component={Comparar} />
       <Route path="/simulacao" component={Simulacao} />
       <Route path="/importacoes" component={Importacoes} />
+      <Route path="/analise-equipamentos" component={AnaliseEquipamentos} />
       <Route component={NotFound} />
     </Switch>
   );

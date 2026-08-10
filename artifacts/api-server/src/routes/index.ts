@@ -8,6 +8,7 @@ import importsRouter from "./imports";
 import shipmentsRouter from "./shipments";
 import alertsRouter from "./alerts";
 import simulationsRouter from "./simulations";
+import fleetAnalysisRouter from "./fleet-analysis";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(importsRouter);
 router.use(shipmentsRouter);
 router.use(alertsRouter);
 router.use(simulationsRouter);
+router.use(fleetAnalysisRouter);
 
 export default router;
