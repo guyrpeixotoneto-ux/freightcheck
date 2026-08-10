@@ -23,6 +23,7 @@ import { spawn } from "node:child_process";
 import { existsSync, readdirSync, watch } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { createApiSupervisor } from "./lib/api-supervisor.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -66,6 +67,40 @@ function runToCompletion(command, args, env = {}) {
   });
 }
 
+/**
+ * O mesmo, guardando a saída além de imprimi-la.
+ *
+ * Quando migrations ou build falham, o motivo é a única coisa que importa — e
+ * ele precisa sair do console e chegar à tela de quem está operando. Por isso
+ * a saída é capturada e devolvida, não só ecoada.
+ */
+function runCaptured(command, args, env = {}) {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      cwd: root,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env, ...env },
+    });
+    children.add(child);
+    let output = "";
+    for (const stream of [child.stdout, child.stderr]) {
+      stream.setEncoding("utf8");
+      stream.on("data", (chunk) => {
+        output += chunk;
+        process.stdout.write(chunk);
+      });
+    }
+    child.on("exit", (code) => {
+      children.delete(child);
+      resolve({ ok: code === 0, output });
+    });
+    child.on("error", (err) => {
+      children.delete(child);
+      resolve({ ok: false, output: `${output}\n${err.message}` });
+    });
+  });
+}
+
 function shutdown(code = 0) {
   for (const child of children) child.kill("SIGTERM");
   process.exit(code);
@@ -100,92 +135,37 @@ function watchedSourceDirs() {
 }
 
 async function startApi() {
-  // As migrations vêm antes do servidor: subir contra um schema desatualizado
-  // é pior do que não subir, porque o erro aparece longe da causa.
-  if (process.env["DATABASE_URL"]) {
-    const code = await runToCompletion("pnpm", [
-      "--filter",
-      "@workspace/db",
-      "run",
-      "migrate",
-    ]);
-    if (code !== 0) {
-      console.error("[api] as migrations falharam; o servidor não vai subir.");
-      shutdown(code);
-      return;
-    }
-  } else {
+  const supervisor = createApiSupervisor({
+    port: API_PORT,
+    // Sem `DATABASE_URL` não há o que aplicar, e isso não é motivo para não
+    // subir: a API responde, e as rotas que precisam de banco dizem o que
+    // falta. Não subir aqui seria devolver 502 a quem só queria abrir a tela.
+    runMigrations: process.env["DATABASE_URL"]
+      ? () => runCaptured("pnpm", ["--filter", "@workspace/db", "run", "migrate"])
+      : null,
+    runBuild: () =>
+      runCaptured("pnpm", ["--filter", "@workspace/api-server", "run", "build"]),
+    spawnServer: () =>
+      spawnChild(
+        "node",
+        ["--enable-source-maps", "artifacts/api-server/dist/index.mjs"],
+        { PORT: API_PORT, NODE_ENV: "development" },
+      ),
+  });
+
+  if (!process.env["DATABASE_URL"]) {
     console.warn(
       "[api] DATABASE_URL não está definido — subindo sem aplicar migrations.",
     );
   }
 
-  let server = null;
-  let building = false;
-  let queued = false;
-  let replacing = false;
-
-  function restartServer() {
-    if (server) {
-      replacing = true;
-      server.kill("SIGTERM");
-      server = null;
-    }
-    const child = spawnChild(
-      "node",
-      ["--enable-source-maps", "artifacts/api-server/dist/index.mjs"],
-      { PORT: API_PORT, NODE_ENV: "development" },
-    );
-    child.on("exit", (code) => {
-      // Um servidor que morreu sozinho é a origem do 502 mais confuso que este
-      // projeto já produziu: a interface continua no ar e parece atual. Se
-      // acontecer, que apareça dito com todas as letras.
-      if (child === server && !replacing && code !== 0) {
-        console.error(
-          `[api] o servidor encerrou sozinho (código ${code}). ` +
-            `A interface vai responder 502 até ele voltar.`,
-        );
-      }
-      replacing = false;
-    });
-    server = child;
-  }
-
-  async function rebuild() {
-    if (building) {
-      queued = true;
-      return;
-    }
-    building = true;
-    const code = await runToCompletion("pnpm", [
-      "--filter",
-      "@workspace/api-server",
-      "run",
-      "build",
-    ]);
-    building = false;
-
-    if (code === 0) {
-      restartServer();
-    } else {
-      // Um build quebrado não deve derrubar o que está de pé: o servidor
-      // anterior continua servindo até o código voltar a compilar.
-      console.error("[api] build falhou; mantendo o processo anterior.");
-    }
-
-    if (queued) {
-      queued = false;
-      void rebuild();
-    }
-  }
-
-  await rebuild();
+  await supervisor.start();
 
   let debounce = null;
   for (const dir of watchedSourceDirs()) {
     watch(dir, { recursive: true }, () => {
       clearTimeout(debounce);
-      debounce = setTimeout(() => void rebuild(), 250);
+      debounce = setTimeout(() => void supervisor.rebuild(), 250);
     });
   }
   console.log(`[api] escutando em http://localhost:${API_PORT}/api/healthz`);

@@ -110,6 +110,13 @@ número.
   Foi assim que o api-server passou de scaffold: o `artifact.toml` dele nunca
   teve `[services.env] PORT`, `src/index.ts` exige `PORT` e morria na primeira
   linha, e a 8080 nunca teve ninguém.
+- **Se a API não puder subir, quem ocupa a porta é um explicador.** Migrations
+  que falham, build que quebra sem processo anterior, servidor que morre
+  sozinho: em todos, `scripts/dev.mjs` deixa na porta um servidor que responde
+  503 com o motivo em JSON, e a interface mostra esse motivo. Porta vazia é o
+  estado a ser evitado — 502 sem corpo não diz nem de que camada veio. Os
+  testes em `scripts/__tests__` existem para que os três caminhos não voltem a
+  terminar em silêncio.
 - **Nunca subir o api-server com `node dist/index.mjs` direto.** Isso serve o
   bundle que estiver em disco, que pode ser de antes da sua alteração — um
   frontend novo conversando com um servidor velho responde 404 numa rota que
