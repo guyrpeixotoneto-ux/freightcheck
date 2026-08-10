@@ -164,8 +164,15 @@ export default function Curadoria() {
     );
   }, [queue, filter]);
 
-  const pending = summary?.byStatus.find((s) => s.status !== "CONFIRMED");
-  const confirmed = summary?.byStatus.find((s) => s.status === "CONFIRMED");
+  // Aggregate across every non-confirmed status rather than picking one row:
+  // the summary is grouped, not ordered, so "the first pending row" is
+  // whichever the database happened to return — and PRESUMED and UNKNOWN both
+  // count as pending.
+  const notConfirmed = summary?.byStatus.filter((s) => s.status !== "CONFIRMED") ?? [];
+  const pendingCount = notConfirmed.reduce((sum, s) => sum + s.count, 0);
+  const pendingMonetary = notConfirmed.reduce((sum, s) => sum + s.monetary, 0);
+  const confirmedCount =
+    summary?.byStatus.find((s) => s.status === "CONFIRMED")?.count ?? 0;
 
   return (
     <Layout>
@@ -183,19 +190,19 @@ export default function Curadoria() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
           <SummaryTile
             label="Confirmados"
-            value={confirmed?.count ?? 0}
+            value={confirmedCount}
             tone="good"
             icon={<CheckCircle2 className="w-4 h-4" />}
           />
           <SummaryTile
             label="Aguardando confirmação"
-            value={summary?.byStatus.reduce((sum, s) => sum + (s.status === "CONFIRMED" ? 0 : s.count), 0) ?? 0}
+            value={pendingCount}
             tone="warn"
             icon={<CircleHelp className="w-4 h-4" />}
           />
           <SummaryTile
-            label="Monetários presumidos"
-            value={pending?.monetary ?? 0}
+            label="Monetários sem confirmar"
+            value={pendingMonetary}
             tone="warn"
             icon={<Lock className="w-4 h-4" />}
           />

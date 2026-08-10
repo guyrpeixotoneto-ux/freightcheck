@@ -612,7 +612,11 @@ export async function getCurationSummary(db: Database) {
       monetary: sql<number>`count(*) FILTER (WHERE ${attributeTable.isMonetary})`.mapWith(Number),
     })
     .from(attributeTable)
-    .groupBy(attributeTable.semanticsStatus);
+    .groupBy(attributeTable.semanticsStatus)
+    // Deterministic order: a grouped result has none by default, and a caller
+    // that reads "the first row" would otherwise get a different answer per
+    // request.
+    .orderBy(attributeTable.semanticsStatus);
 
   const [unclassified] = await db
     .select({ count: sql<number>`count(*)`.mapWith(Number) })
