@@ -16,6 +16,9 @@
       "path": "./lib/comparison"
     },
     {
+      "path": "./lib/simulation"
+    },
+    {
       "path": "./lib/api-client-react"
     },
     {
