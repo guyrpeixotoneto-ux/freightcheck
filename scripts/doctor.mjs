@@ -187,8 +187,38 @@ if (!url) {
       erro(`${caminho}: ${code}, mas veio HTML — /api não está chegando ao api-server.`);
     } else {
       ok(`${caminho}: ${code}`);
+      // O healthz diz o que o processo enxerga do banco. É a única forma de
+      // responder, de fora, se a DATABASE_URL chegou àquele processo — e a
+      // pergunta é diferente de "o banco existe", que se responde no painel.
+      if (caminho === "/api/healthz") relatarBanco(corpo);
     }
   }
+}
+
+function relatarBanco(corpo) {
+  let banco;
+  try {
+    banco = JSON.parse(corpo).database;
+  } catch {
+    return;
+  }
+  if (!banco) {
+    nota(
+      "este api-server é anterior ao diagnóstico de banco no healthz; " +
+        "republique a main para saber o que ele enxerga do banco.",
+    );
+    return;
+  }
+  if (!banco.configured) {
+    erro(`banco: a DATABASE_URL não chegou a este processo.`);
+  } else if (!banco.reachable) {
+    erro(`banco: variável recebida, conexão falhou${banco.code ? ` (${banco.code})` : ""}.`);
+  } else if (!banco.migrated) {
+    erro("banco: conectado, mas sem schema — faltam migrations.");
+  } else {
+    ok("banco: conectado, com o schema aplicado.");
+  }
+  nota(banco.detail);
 }
 
 console.log(
