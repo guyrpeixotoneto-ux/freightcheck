@@ -115,4 +115,23 @@ router.get("/healthz", async (_req, res) => {
   res.json({ ...base, database });
 });
 
+const startedAt = new Date().toISOString();
+
+/**
+ * De qual código este servidor foi feito, e desde quando está no ar.
+ *
+ * A pergunta "o que está no ar é o meu último commit?" não tinha resposta
+ * verificável, e por três vezes um bundle antigo passou por um bug de código.
+ * O carimbo entra no bundle em tempo de build (ver build.mjs) — fora do
+ * contrato gerado por OpenAPI de propósito: é diagnóstico de operação, não
+ * superfície de produto.
+ */
+router.get("/build", (_req, res) => {
+  res.json({
+    revision: process.env["BUILD_REVISION"] ?? "desconhecida",
+    builtAt: process.env["BUILD_TIME"] ?? "desconhecido",
+    startedAt,
+  });
+});
+
 export default router;

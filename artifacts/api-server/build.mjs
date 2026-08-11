@@ -1,20 +1,50 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { execSync } from "node:child_process";
 import { build as esbuild } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
-import { rm } from "node:fs/promises";
+import { cp, rm } from "node:fs/promises";
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
 
 const artifactDir = path.dirname(fileURLToPath(import.meta.url));
 
+/**
+ * De qual código este bundle foi feito.
+ *
+ * Três rodadas deste projeto se perderam sem conseguir responder "o servidor
+ * que está no ar é o do meu último commit?". A resposta passa a viajar dentro
+ * do próprio binário, e a rota /api/build a devolve.
+ */
+function buildStamp() {
+  let revision = "desconhecida";
+  try {
+    revision = execSync("git rev-parse --short HEAD", {
+      cwd: artifactDir,
+      stdio: ["ignore", "pipe", "ignore"],
+    })
+      .toString()
+      .trim();
+  } catch {
+    // Um deploy pode construir fora de um clone git. O carimbo de tempo
+    // sozinho já distingue um bundle novo de um de três dias atrás.
+  }
+  return { revision, builtAt: new Date().toISOString() };
+}
+
 async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
 
+  const stamp = buildStamp();
+
   await esbuild({
+    define: {
+      "process.env.BUILD_REVISION": JSON.stringify(stamp.revision),
+      "process.env.BUILD_TIME": JSON.stringify(stamp.builtAt),
+    },
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],
     platform: "node",
     bundle: true,
@@ -118,6 +148,20 @@ globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
   });
+
+  /**
+   * As migrations vão junto com o bundle.
+   *
+   * `lib/db/src/migrate.ts` resolve a pasta a partir do próprio arquivo, o que
+   * funciona no repositório e deixa de funcionar depois do bundle — o
+   * `import.meta.url` passa a ser o dist. Copiando aqui, o servidor encontra as
+   * migrations em qualquer ambiente, inclusive num deploy que só recebe o dist.
+   */
+  await cp(
+    path.resolve(artifactDir, "../../lib/db/migrations"),
+    path.resolve(distDir, "migrations"),
+    { recursive: true },
+  );
 }
 
 buildAll().catch((err) => {
