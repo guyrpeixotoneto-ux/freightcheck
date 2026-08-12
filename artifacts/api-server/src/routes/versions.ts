@@ -46,6 +46,8 @@ router.post("/curation/versions/:code/source-change", async (req, res): Promise<
     const version = await recordSourceSemanticsChange(db, {
       code: req.params.code,
       ...req.body,
+      // Depois do corpo, de propósito: quem assina é a sessão, não o payload.
+      actor: req.user!.email,
     });
     res.json(version);
   } catch (err) {
@@ -61,6 +63,7 @@ router.post("/curation/versions/:code/correction", async (req, res): Promise<voi
     const version = await correctSemantics(db, {
       code: req.params.code,
       ...req.body,
+      actor: req.user!.email,
     });
     res.json(version);
   } catch (err) {

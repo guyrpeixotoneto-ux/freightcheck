@@ -32,7 +32,14 @@ const router: IRouter = Router();
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** Quem enviou, quando o cliente não diz. É o que o histórico exibe. */
+/**
+ * Quem enviou é quem está logado — toda rota daqui exige sessão.
+ *
+ * O nome vinha do corpo do pedido, o que fazia o histórico registrar o que o
+ * cliente dissesse. Este padrão sobrou para o caso de a sessão não estar lá, o
+ * que hoje o middleware impede; um `upload` no histórico é sinal de que alguém
+ * abriu uma exceção no portão.
+ */
 const DEFAULT_ACTOR = "upload";
 
 export type DecodedUpload = { filename: string; bytes: Buffer };
@@ -197,10 +204,7 @@ router.post("/imports", async (req, res): Promise<void> => {
     const received = await receiveFile(db, {
       filePath,
       filename,
-      receivedBy:
-        typeof req.body?.receivedBy === "string" && req.body.receivedBy.trim()
-          ? req.body.receivedBy.trim()
-          : DEFAULT_ACTOR,
+      receivedBy: req.user?.email ?? DEFAULT_ACTOR,
     });
 
     if (received.isDuplicate) {
@@ -294,10 +298,7 @@ router.post("/imports/:id/promote", async (req, res): Promise<void> => {
       // o padrão recusa, e só quem pede NEW_REVISION escreve a revisão N+1.
       onExistingSnapshot:
         req.body?.onExistingSnapshot === "NEW_REVISION" ? "NEW_REVISION" : "FAIL",
-      promotedBy:
-        typeof req.body?.promotedBy === "string" && req.body.promotedBy.trim()
-          ? req.body.promotedBy.trim()
-          : DEFAULT_ACTOR,
+      promotedBy: req.user?.email ?? DEFAULT_ACTOR,
     });
     res.json(result);
   } catch (err) {

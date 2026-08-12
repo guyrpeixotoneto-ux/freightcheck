@@ -1,0 +1,60 @@
+import type { RequestHandler } from "express";
+import { db } from "@workspace/db";
+import { isPublicPath } from "../lib/auth";
+import { resolveSession, SESSION_COOKIE, type SessionUser } from "../lib/session";
+
+declare global {
+  namespace Express {
+    interface Request {
+      /** Quem está autenticado nesta requisição. Ausente = ninguém. */
+      user?: SessionUser;
+    }
+  }
+}
+
+/**
+ * O portão, e ele fecha por padrão.
+ *
+ * Montado uma vez em `/api`, antes de qualquer rota: toda rota nasce protegida,
+ * e abrir uma exige entrar na lista de `isPublicPath` — um lugar só, que se lê
+ * inteiro. O inverso (cada rota se proteger) depende de ninguém esquecer, e é
+ * assim que endpoint fica aberto sem que ninguém perceba.
+ *
+ * A sessão é resolvida também nos caminhos públicos, porque `/auth/session` é
+ * público e precisa justamente dizer quem é.
+ */
+export const requireSession: RequestHandler = async (req, res, next) => {
+  const token: unknown = req.cookies?.[SESSION_COOKIE];
+  const isPublic = isPublicPath(req.path);
+
+  if (typeof token === "string" && token !== "") {
+    try {
+      const user = await resolveSession(db, token);
+      if (user) req.user = user;
+    } catch (err) {
+      // O banco fora não é "não autenticado": responder 401 mandaria para a
+      // tela de login quem já está logado, e a mensagem de lá — "confira suas
+      // credenciais" — apontaria para o lugar errado.
+      req.log.error({ err }, "Falha ao verificar a sessão");
+      if (!isPublic) {
+        res.status(503).json({
+          error:
+            "Não foi possível verificar a sessão: o banco não respondeu. " +
+            "Isso não é problema das suas credenciais.",
+          code: "SESSION_CHECK_FAILED",
+        });
+        return;
+      }
+    }
+  }
+
+  if (isPublic || req.user) {
+    next();
+    return;
+  }
+
+  res.status(401).json({
+    error: "Faça login para usar o FreightCheck.",
+    code: "UNAUTHENTICATED",
+  });
+};

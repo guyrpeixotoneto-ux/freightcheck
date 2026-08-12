@@ -23,6 +23,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { getApiUrl } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 /**
@@ -349,8 +350,9 @@ function AttributePanel({
     taxonomy.find((n) => n.path === detail.taxonomyPath)?.code ?? "",
   );
   const [isMonetary, setIsMonetary] = useState(detail.isMonetary === true);
-  const [actor, setActor] = useState("");
   const [reason, setReason] = useState("");
+  /** Quem assina esta confirmação. Vem da sessão; a tela só o exibe. */
+  const signedInAs = useAuth().user?.email ?? "quem está logado";
   const [error, setError] = useState<string | null>(null);
 
   const confirm = useMutation({
@@ -366,7 +368,8 @@ function AttributePanel({
             aggregation: aggregation || null,
             isMonetary,
             taxonomyCode: taxonomyCode || undefined,
-            actor,
+            // `actor` não vai daqui: quem assina é a sessão, e o servidor o lê
+            // de lá. Um nome digitado na tela nunca provou nada.
             reason,
           }),
         },
@@ -546,23 +549,17 @@ function AttributePanel({
             É um montante financeiro (entra em somas)
           </label>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="Responsável">
-              <Input
-                value={actor}
-                onChange={(e) => setActor(e.target.value)}
-                placeholder="seu.nome@empresa"
-              />
-            </Field>
-            <Field label="Justificativa">
-              <Textarea
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="Com base em quê você está confirmando isso?"
-                rows={2}
-              />
-            </Field>
-          </div>
+          <Field
+            label="Justificativa"
+            hint={`Vai para o histórico assinada por ${signedInAs}.`}
+          >
+            <Textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Com base em quê você está confirmando isso?"
+              rows={2}
+            />
+          </Field>
 
           {blocked && (
             <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
@@ -578,7 +575,7 @@ function AttributePanel({
 
           <Button
             onClick={() => confirm.mutate()}
-            disabled={confirm.isPending || !actor.trim() || !reason.trim() || blocked}
+            disabled={confirm.isPending || !reason.trim() || blocked}
           >
             {confirm.isPending ? "Confirmando…" : "Confirmar semântica"}
           </Button>

@@ -43,6 +43,13 @@
       "when": 1786387178989,
       "tag": "0005_versioned_semantics",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1786526722763,
+      "tag": "0006_auth",
+      "breakpoints": true
     }
   ]
 }
