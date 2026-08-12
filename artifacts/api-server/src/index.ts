@@ -20,38 +20,47 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 /**
- * O schema antes de atender.
+ * Apply migrations after the server is already listening.
  *
- * Fora do desenvolvimento nada aplicava as migrations: o `scripts/dev.mjs` faz
- * isso, mas um ambiente publicado só recebe o bundle e sobe. O servidor
- * respondia normalmente e todas as rotas que tocam o banco falhavam, um erro
- * que aparece longe da causa. Migrar aqui é a única forma de o serviço
- * garantir aquilo de que depende.
+ * Previous approach: await ensureSchema(), then app.listen().
+ * Problem: the production DB connection (SSL negotiation + potential timeout)
+ * blocks app.listen() for up to 60 s, which is longer than the autoscale
+ * startup probe timeout. The probe gives up, the build fails — even though
+ * the server code is perfectly fine.
  *
- * A pasta é a que o build copiou para junto do bundle; fora do bundle, cai na
- * do repositório.
+ * Correct approach: bind the port first so the startup probe can land on
+ * /api/healthz, then run migrations in the background. The health route
+ * always returns HTTP 200 and already exposes `migrated: true/false`, so the
+ * probe passes immediately and the operator knows the DB state from the
+ * response body.
+ *
+ * Migration failure is logged but does NOT crash the process: crashing would
+ * make the deployment look like a success (the previous version keeps
+ * serving) but then the next restart would hit the same wall. Staying up
+ * with `migrated: false` visible on /api/healthz is the honest, recoverable
+ * state — an operator can read it and act.
  */
-async function ensureSchema(): Promise<void> {
+async function applyMigrationsInBackground(): Promise<void> {
   const url = process.env["DATABASE_URL"];
   if (!url) {
-    logger.warn("DATABASE_URL ausente; subindo sem aplicar migrations.");
+    logger.warn("DATABASE_URL ausente; pulando migrations.");
     return;
   }
+
   const bundled = path.join(
     path.dirname(fileURLToPath(import.meta.url)),
     "migrations",
   );
-  await runMigrations(url, existsSync(bundled) ? bundled : undefined);
-  logger.info("Migrations aplicadas.");
-}
 
-try {
-  await ensureSchema();
-} catch (err) {
-  // Atender com o schema errado é pior do que não atender: as respostas
-  // sairiam, e erradas. Num produto de auditoria isso é o pior desfecho.
-  logger.error({ err }, "Falha ao aplicar migrations; o servidor não vai subir");
-  process.exit(1);
+  try {
+    await runMigrations(url, existsSync(bundled) ? bundled : undefined);
+    logger.info("Migrations aplicadas.");
+  } catch (err) {
+    logger.error(
+      { err },
+      "Falha ao aplicar migrations — o servidor continua no ar, mas /api/healthz vai reportar migrated:false.",
+    );
+  }
 }
 
 app.listen(port, (err) => {
@@ -68,4 +77,7 @@ app.listen(port, (err) => {
     },
     "Server listening",
   );
+
+  // Migrations run after binding — keeps the startup probe window clean.
+  void applyMigrationsInBackground();
 });
