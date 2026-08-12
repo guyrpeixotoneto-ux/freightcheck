@@ -25,8 +25,11 @@ import { getApiUrl } from "@/lib/api";
  *    schema, so clicking them landed on an error state. Advertising a
  *    capability the product does not have is the same failure as showing a
  *    number it cannot back up — and this product exists to not do that.
- *    They stay visible, because the roadmap is worth seeing, but they are
- *    inert and say so.
+ *    They stay visible, because the roadmap is worth seeing, but they carry a
+ *    lock and lead to a page that explains the gap instead of to a broken
+ *    screen. The item was inert until Simulação had somewhere honest to land;
+ *    an entry that cannot be clicked also cannot say *why*, and the tooltip
+ *    holds one sentence when the answer is several.
  *
  * 2. **Order follows the work, not the org chart.** "O que mudou" is the
  *    reason the product exists, so it comes first; the meaning of a variable
@@ -37,7 +40,7 @@ interface NavItem {
   href: string;
   label: string;
   icon: typeof Activity;
-  /** Why it is not available yet. Present = the item is inert. */
+  /** Why it is not available yet. Present = locked, and `href` explains it. */
   pending?: string;
 }
 
@@ -145,24 +148,29 @@ export function Sidebar() {
             </div>
 
             {group.items.map((item) => {
+              const isActive =
+                location === item.href ||
+                (item.href !== "/" && location.startsWith(item.href));
+
               if (item.pending) {
                 return (
-                  <div
-                    key={item.label}
+                  <Link
+                    key={item.href}
+                    href={item.href}
                     title={item.pending}
-                    aria-disabled="true"
-                    className="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-sidebar-foreground/30 cursor-not-allowed select-none"
+                    className={cn(
+                      "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200",
+                      isActive
+                        ? "bg-sidebar-accent text-sidebar-foreground/60"
+                        : "text-sidebar-foreground/40 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground/60",
+                    )}
                   >
                     <item.icon className="w-4 h-4 shrink-0" />
                     <span className="flex-1">{item.label}</span>
                     <Lock className="w-3 h-3 shrink-0" />
-                  </div>
+                  </Link>
                 );
               }
-
-              const isActive =
-                location === item.href ||
-                (item.href !== "/" && location.startsWith(item.href));
 
               return (
                 <Link
