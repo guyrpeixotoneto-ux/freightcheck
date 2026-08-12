@@ -50,6 +50,13 @@
       "when": 1786526722763,
       "tag": "0006_auth",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1786531190104,
+      "tag": "0007_user_admin_trail",
+      "breakpoints": true
     }
   ]
 }

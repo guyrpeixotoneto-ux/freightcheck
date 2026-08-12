@@ -50,6 +50,17 @@ export const appUserTable = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /**
+     * Quem deu o acesso, e quem tirou — o e-mail de quem estava logado, no mesmo
+     * formato do `actor` do resto do produto.
+     *
+     * Dar acesso a um sistema de auditoria é um ato administrativo, e um ato
+     * administrativo sem autor é exatamente o que este produto recusa em todas
+     * as outras telas. Nulo em `created_by` significa uma conta anterior a esta
+     * coluna ou criada pelo terminal (`create-user`), e não "não se sabe".
+     */
+    createdBy: text("created_by"),
+    disabledBy: text("disabled_by"),
   },
   (t) => [uniqueIndex("app_user_email_key").on(t.email)],
 );

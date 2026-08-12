@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import authRouter from "./auth";
 import healthRouter from "./health";
+import usersRouter from "./users";
 import fleetAnalysisRouter from "./fleet-analysis";
 import curationRouter from "./curation";
 import changesRouter from "./changes";
@@ -26,11 +27,13 @@ import versionsRouter from "./versions";
  * working while the canonical layer is being built.
  *
  * `auth` is the only surface below that answers without sessão — ver
- * `middlewares/require-session.ts`, montado antes deste router.
+ * `middlewares/require-session.ts`, montado antes deste router. `users` é a
+ * tela de Configurações: quem tem acesso, e quem deu.
  */
 const router: IRouter = Router();
 
 router.use(authRouter);
+router.use(usersRouter);
 router.use(healthRouter);
 router.use(fleetAnalysisRouter);
 router.use(curationRouter);

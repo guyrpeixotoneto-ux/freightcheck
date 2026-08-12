@@ -13,7 +13,9 @@ import {
   newSessionToken,
   normalizeEmail,
   verifyPassword,
+  whyCannotDisable,
 } from "../auth";
+import { isUniqueViolation } from "../session";
 
 describe("hash de senha", () => {
   it("confere a senha certa e recusa a errada", async () => {
@@ -100,5 +102,64 @@ describe("quem responde sem sessão", () => {
     ]) {
       expect(isPublicPath(rota)).toBe(false);
     }
+  });
+
+  it("criar conta não é público — nem por /users, nem pelo antigo /auth/setup", () => {
+    // O "primeiro acesso" existiu e foi removido: contas nascem em
+    // Configurações, por quem já entrou. Se este caminho voltar a responder
+    // sem sessão, qualquer pessoa com a URL se cadastra.
+    expect(isPublicPath("/auth/setup")).toBe(false);
+    expect(isPublicPath("/users")).toBe(false);
+    expect(isPublicPath("/auth/password")).toBe(false);
+  });
+});
+
+describe("e-mail repetido", () => {
+  /**
+   * O código do Postgres chega embrulhado: o Drizzle envolve o erro do driver
+   * e põe o original em `cause`. Procurá-lo só no topo fazia a rota responder
+   * 500 "não foi possível criar a conta" no caso mais comum que ela tem, em
+   * vez de "já existe uma conta com esse e-mail".
+   */
+  it("é reconhecido mesmo embrulhado pelo Drizzle", () => {
+    const doDriver = Object.assign(new Error("duplicate key"), {
+      code: "23505",
+    });
+    const doDrizzle = Object.assign(new Error("Failed query"), {
+      cause: doDriver,
+    });
+
+    expect(isUniqueViolation(doDrizzle)).toBe(true);
+    expect(isUniqueViolation(doDriver)).toBe(true);
+  });
+
+  it("não confunde outro erro de banco com e-mail repetido", () => {
+    expect(isUniqueViolation(new Error("qualquer coisa"))).toBe(false);
+    expect(
+      isUniqueViolation(Object.assign(new Error("x"), { code: "23503" })),
+    ).toBe(false);
+    expect(isUniqueViolation(null)).toBe(false);
+  });
+});
+
+describe("desativar conta", () => {
+  const outra = { targetId: "b", actorId: "a", activeUsers: 3 };
+
+  it("deixa desativar outra pessoa quando há mais contas ativas", () => {
+    expect(whyCannotDisable(outra)).toBeNull();
+  });
+
+  it("recusa desativar a si mesmo", () => {
+    expect(whyCannotDisable({ ...outra, targetId: "a" })).toMatch(
+      /própria conta/i,
+    );
+  });
+
+  it("recusa esvaziar o sistema, mesmo sendo outra pessoa", () => {
+    // O desfecho que as duas recusas existem para impedir é o mesmo: um
+    // sistema em que já não há como entrar, e cujo conserto é terminal.
+    expect(whyCannotDisable({ ...outra, activeUsers: 1 })).toMatch(
+      /última conta ativa/i,
+    );
   });
 });

@@ -13,13 +13,14 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
 
 /**
- * A porta.
+ * A porta, e ela só sabe abrir para quem já tem conta.
  *
- * Ela tem dois estados, e quem decide qual é o servidor: quando o ambiente
- * ainda não tem nenhuma conta, esta tela é o cadastro da primeira; a partir daí
- * é o login e só. Não há link para "criar conta" no modo de login — quem entra
- * neste produto passa a assinar confirmações de curadoria e promoções de
- * vigência, e isso não é auto-atendimento.
+ * Não há cadastro aqui, nem link para um. Quem entra neste produto passa a
+ * assinar confirmações de curadoria e promoções de vigência: dar acesso é um
+ * ato de quem já tem acesso, feito em Configurações, e nunca auto-atendimento.
+ * Houve por um tempo um "primeiro acesso" nesta tela — ele saiu, e o preço
+ * declarado é que um ambiente novo depende do `create-user` no terminal para a
+ * primeira conta.
  *
  * O que ela mostra quando falha importa tanto quanto o resto: credencial errada
  * e servidor fora são coisas diferentes e recebem frases diferentes. Uma tela
@@ -27,9 +28,8 @@ import { useAuth } from "@/lib/auth";
  * procurar no lugar errado.
  */
 export default function Login() {
-  const { needsSetup, login, setup, isSubmitting, unreachable } = useAuth();
+  const { login, isSubmitting, unreachable } = useAuth();
 
-  const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -39,11 +39,7 @@ export default function Login() {
     event.preventDefault();
     setError(null);
     try {
-      if (needsSetup) {
-        await setup({ name, email, password });
-      } else {
-        await login({ email, password });
-      }
+      await login({ email, password });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Não foi possível entrar.");
     }
@@ -92,13 +88,9 @@ export default function Login() {
             FREIGHTCHECK
           </div>
 
-          <h2 className="text-2xl font-bold tracking-tight">
-            {needsSetup ? "Primeiro acesso" : "Entrar"}
-          </h2>
+          <h2 className="text-2xl font-bold tracking-tight">Entrar</h2>
           <p className="text-muted-foreground text-sm mt-1.5 mb-8">
-            {needsSetup
-              ? "Ainda não existe conta neste ambiente. A que você criar agora será a primeira, e depois disso esta tela vira o login."
-              : "Use a conta que já existe neste ambiente."}
+            Use a conta que já existe neste ambiente.
           </p>
 
           {unreachable ? (
@@ -115,20 +107,6 @@ export default function Login() {
           ) : null}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {needsSetup ? (
-              <div className="space-y-2">
-                <Label htmlFor="name">Nome</Label>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  autoComplete="name"
-                  placeholder="Como você assina uma confirmação"
-                  required
-                />
-              </div>
-            ) : null}
-
             <div className="space-y-2">
               <Label htmlFor="email">E-mail</Label>
               <Input
@@ -137,7 +115,7 @@ export default function Login() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 autoComplete="username"
-                autoFocus={!needsSetup}
+                autoFocus
                 placeholder="voce@empresa.com"
                 required
               />
@@ -151,9 +129,7 @@ export default function Login() {
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  autoComplete={
-                    needsSetup ? "new-password" : "current-password"
-                  }
+                  autoComplete="current-password"
                   className="pr-10"
                   required
                 />
@@ -170,12 +146,6 @@ export default function Login() {
                   )}
                 </button>
               </div>
-              {needsSetup ? (
-                <p className="text-xs text-muted-foreground">
-                  Pelo menos 10 caracteres. Não há recuperação de senha nesta
-                  versão — guarde-a.
-                </p>
-              ) : null}
             </div>
 
             {error ? (
@@ -194,16 +164,15 @@ export default function Login() {
               ) : (
                 <Lock className="w-4 h-4" />
               )}
-              {needsSetup ? "Criar conta e entrar" : "Entrar"}
+              Entrar
             </Button>
           </form>
 
-          {!needsSetup ? (
-            <p className="text-xs text-muted-foreground mt-6 leading-relaxed">
-              Sem conta? Contas são criadas por quem administra este ambiente —
-              este produto não tem auto-cadastro depois da primeira.
-            </p>
-          ) : null}
+          <p className="text-xs text-muted-foreground mt-6 leading-relaxed">
+            Sem conta, ou esqueceu a senha? Quem já tem acesso resolve as duas
+            coisas em Configurações — este produto não tem auto-cadastro nem
+            recuperação por e-mail.
+          </p>
         </div>
       </main>
     </div>
