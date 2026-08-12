@@ -935,12 +935,35 @@ Fazer em três etapas, aprovando o resultado de cada uma antes da seguinte:
 
 | Etapa | Entrega | Custo | Risco |
 |---|---|---|---|
-| **E0 — correções que independem da nova UX** | chavear período por `(scope_hash, effective_date)`; ampliar o parser de vigência com teste de regressão | pequeno | **reduz** R1 e R2 |
+| **E0 — correções que independem da nova UX** ✅ **feita** | chavear a leitura por `(scope_hash, canal, effective_date)`; ampliar o parser de vigência com teste de regressão | pequeno | **reduz** R1 e R2 |
 | **E1 — a camada de navegação** | mapa de famílias em código; `GET /context`, `GET /changes/families`, `GET /changes/summary`; barra de contexto; tela de famílias; tela de parâmetros. Cartão de grupo e tabela reaproveitados como estão | médio | baixo — nada abaixo da apresentação muda |
 | **E2 — o que a familiaridade destrava** | fila de curadoria ordenada por alterações destravadas; estado de decisão por grupo com chave semântica; favoritos | médio | baixo |
 
 **Nenhuma migration, nenhuma reimportação, nenhuma alteração em regra de
 comparação, nenhum `UPDATE` em dado histórico em E0 e E1.**
+
+### E0 — o que ficou pronto
+
+| Mudança | Onde |
+|---|---|
+| Parser de vigência aceita qualquer canal e devolve o canal lido | `lib/ingest/src/vigencia.ts` |
+| Derivação do canal em SQL, espelhando o parser, com teste que obriga os dois a concordar | `lib/comparison/src/series.ts` |
+| Contexto = `(unidade, canal)`: listar, resolver, filtrar | `lib/comparison/src/series.ts` |
+| Período, séries conhecidas, consolidado e backfill chaveados por contexto | `lib/comparison/src/consolidated.ts` |
+| Visão agrupada, veículos do grupo, série do atributo e acumulado, idem | `lib/comparison/src/grouped.ts` |
+| Vigência anterior e recusa de comparar canais diferentes | `lib/comparison/src/engine.ts` |
+| `GET /contexts`; `scopeHash`/`canal` opcionais nas rotas de leitura; contexto inexistente vira 404 escrito | `artifacts/api-server/src/routes/changes.ts` |
+| A tela diz de quem é a vigência, e avisa quando há contexto que não está somado ali | `artifacts/freightaudit/src/pages/inicio.tsx` |
+
+**A prova de que nada mudou para o dado real:** as suítes `comparison-real` e
+`grouped-real`, que reproduzem as contagens e os impactos das 9 vigências
+importadas, continuam passando sem uma única asserção alterada.
+
+**Por que o canal não virou coluna:** `snapshot` é congelado por trigger quando
+fecha, então uma coluna nova não poderia ser preenchida nas vigências já
+importadas — e com um canal só no banco não há o que ela distinguisse. A
+derivação vive em dois lugares (TypeScript na ingestão, SQL na leitura) e um
+teste roda os dois sobre os mesmos rótulos para que não divirjam.
 
 O objetivo, em uma frase: que quem abre o FreightCheck reconheça a unidade, o
 canal, a vigência e as famílias que já conhece do Freightech — e, no mesmo

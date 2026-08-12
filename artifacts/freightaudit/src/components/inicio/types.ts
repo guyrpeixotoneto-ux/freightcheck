@@ -88,7 +88,20 @@ export interface ImpactSummary {
   calculatedChanges: number;
 }
 
+export interface SeriesContext {
+  scopeHash: string;
+  channel: string | null;
+  label: string;
+  scopes: { scopeType: string; code: string; name: string | null }[];
+  latestPeriod: string;
+  periods: number;
+}
+
 export interface GroupedView {
+  /** De quem é esta vigência: unidade e canal. */
+  context: SeriesContext;
+  /** Os outros contextos no banco. Vazio enquanto houver uma unidade só. */
+  otherContexts: SeriesContext[];
   period: string;
   periodLabel: string;
   periods: { date: string; label: string; series: string[] }[];

@@ -139,6 +139,20 @@ e-mail, e exclusão de conta.
   único somando R$/mês com R$/ano.
 - Carreta e Cavalo são séries independentes. O consolidado é projeção da API e
   da interface, não uma entidade de snapshot.
+- **Toda leitura acontece dentro de um contexto: `(unidade, canal)`.** Uma
+  vigência não é uma data, é uma data *de alguém*. Chavear por data só — que era
+  o que `listPeriods` e a visão agrupada faziam — somaria duas unidades que
+  entregam no mesmo dia num total que nenhuma das duas reconhece. O contexto é
+  resolvido em `lib/comparison/src/series.ts`, e a resposta **sempre diz qual
+  contexto ela está descrevendo** e quais outros existem: escolher por padrão
+  não pode ser escolher em silêncio.
+- **O canal é o prefixo do rótulo da vigência** (`EMPURRADA_1_8_2026`,
+  `ROTA_1_8_2026`), derivado e não persistido: `snapshot` é congelado por
+  trigger quando fecha, então uma coluna nova não seria preenchível nas
+  vigências já importadas. A derivação existe em TypeScript
+  (`lib/ingest/src/vigencia.ts`) e em SQL (`series.ts`), e um teste roda as duas
+  sobre os mesmos rótulos para que não divirjam. Vigências de canais diferentes
+  não se comparam, e a recusa é escrita.
 
 ## Product
 

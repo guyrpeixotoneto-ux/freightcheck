@@ -6,6 +6,7 @@
 import { createDb } from "@workspace/db";
 import { computeChangeSet } from "../engine";
 import { getChangeSetBreakdown, listChanges, listComparableSnapshots } from "../query";
+import { seriesKey } from "../series";
 
 const { db, pool } = createDb(process.env.DATABASE_URL!);
 const n = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
@@ -20,13 +21,17 @@ const fmtImpact = (buckets: Record<string, number>) => {
 try {
   const all = await listComparableSnapshots(db);
 
-  // Vigências only compare within their own series: same source, same scope and
-  // same equipment coverage. When the Ambev ships carretas and cavalos as two
-  // files, there are two series, and pairing them by date alone would ask the
-  // engine to compare a trailer against a truck.
+  // Vigências only compare within their own series: same source, same scope,
+  // same channel and same equipment coverage. When the Ambev ships carretas and
+  // cavalos as two files, there are two series, and pairing them by date alone
+  // would ask the engine to compare a trailer against a truck.
   const series = new Map<string, typeof all>();
   for (const snapshot of all) {
-    const key = `${snapshot.scopeHash}|${snapshot.entityTypeSet}`;
+    const key = seriesKey(
+      snapshot.scopeHash,
+      snapshot.sourceLabel,
+      snapshot.entityTypeSet,
+    );
     if (!series.has(key)) series.set(key, []);
     series.get(key)!.push(snapshot);
   }
@@ -39,7 +44,7 @@ try {
   const snapshots = all;
   for (const [key, group] of series) {
     if (series.size > 1) {
-      console.log(`  ── ${key.split("|")[1]} ──`);
+      console.log(`  ── ${key.split("|").slice(1).filter(Boolean).join(" · ")} ──`);
     }
   for (let i = 1; i < group.length; i++) {
     const a = group[i - 1];

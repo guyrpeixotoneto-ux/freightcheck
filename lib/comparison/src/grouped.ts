@@ -17,6 +17,13 @@ import {
   semanticsLabel,
 } from "./labels";
 import { listPeriods } from "./consolidated";
+import {
+  contextFilter,
+  listContexts,
+  resolveContext,
+  type ContextInfo,
+  type SeriesContext,
+} from "./series";
 
 /**
  * A visão agrupada — o que a tela principal lê.
@@ -157,6 +164,15 @@ export interface GroupedSeries {
 }
 
 export interface GroupedView {
+  /**
+   * A unidade e o canal desta leitura.
+   *
+   * Vem na resposta porque o padrão — o contexto mais recente — é uma escolha,
+   * e escolha que a tela não mostra é escolha em silêncio.
+   */
+  context: ContextInfo;
+  /** Os outros contextos que existem no banco, para o seletor. */
+  otherContexts: ContextInfo[];
   period: string;
   periodLabel: string;
   periods: { date: string; label: string; series: string[] }[];
@@ -617,14 +633,23 @@ export function periodLabel(date: string): string {
 export async function getGroupedView(
   db: Database,
   period?: string,
+  requestedContext?: Partial<SeriesContext>,
 ): Promise<GroupedView | null> {
-  const periods = await listPeriods(db);
+  const contexts = await listContexts(db);
+  const context = await resolveContext(db, requestedContext, contexts);
+  if (!context) return null;
+
+  const periods = await listPeriods(db, context);
   if (periods.length === 0) return null;
 
   const target = period
     ? periods.find((p) => p.effective_date === period)
     : periods[0];
   if (!target) return null;
+
+  const otherContexts = contexts.filter(
+    (c) => !(c.scopeHash === context.scopeHash && c.channel === context.channel),
+  );
 
   // As comparações que terminam nesta vigência, uma por série.
   const { rows: sets } = await db.execute<{
@@ -649,6 +674,9 @@ export async function getGroupedView(
       JOIN snapshot sa ON sa.id = cs.snapshot_a_id
      WHERE sb.effective_date = ${target.effective_date}::date
        AND sb.status <> 'SUPERSEDED'
+       -- Sem este filtro, duas unidades que entregam na mesma data caem no
+       -- mesmo cartão e no mesmo total, sem que nada na tela diga que caíram.
+       AND ${contextFilter("sb", context)}
      -- Determinístico: a mesma vigência tem uma comparação por série, e a
      -- ordem não pode depender do que o Postgres devolver primeiro. Foi
      -- assim que o Painel passou a mostrar a série de menor impacto e a
@@ -663,10 +691,12 @@ export async function getGroupedView(
     source_label: string;
     fleet: number;
   }>(sql`
-    SELECT entity_type_set, source_label, entity_count AS fleet
-      FROM snapshot
-     WHERE effective_date = ${target.effective_date}::date AND status <> 'SUPERSEDED'
-     ORDER BY entity_type_set
+    SELECT s.entity_type_set, s.source_label, s.entity_count AS fleet
+      FROM snapshot s
+     WHERE s.effective_date = ${target.effective_date}::date
+       AND s.status <> 'SUPERSEDED'
+       AND ${contextFilter("s", context)}
+     ORDER BY s.entity_type_set
   `);
 
   const withSet = new Set(sets.map((s) => s.entity_type_set));
@@ -725,6 +755,8 @@ export async function getGroupedView(
   ).size;
 
   return {
+    context,
+    otherContexts,
     period: target.effective_date,
     periodLabel: periodLabel(target.effective_date),
     periods: periods.map((p) => ({
@@ -745,7 +777,7 @@ export async function getGroupedView(
       inconclusive: sets.reduce((s, r) => s + r.inconclusive, 0),
     },
     impact: summariseImpact(rows),
-    accumulated: await getAccumulatedImpact(db),
+    accumulated: await getAccumulatedImpact(db, context),
     groups,
   };
 }
@@ -769,13 +801,34 @@ function compareGroups(a: ChangeGroup, b: ChangeGroup): number {
  */
 export async function getAccumulatedImpact(
   db: Database,
+  requestedContext?: Partial<SeriesContext>,
 ): Promise<ImpactSummary & { comparisons: number; from: string | null; to: string | null }> {
+  const context = await resolveContext(db, requestedContext);
+  if (!context) {
+    return {
+      byPeriodicity: {},
+      excludedByPeriodicity: {},
+      excludedChanges: 0,
+      notCalculable: 0,
+      calculatedChanges: 0,
+      comparisons: 0,
+      from: null,
+      to: null,
+    };
+  }
+
+  // O acumulado é o desta unidade e deste canal. Somar o histórico de todas as
+  // unidades sob o título de uma delas seria a mesma confusão entre vigência e
+  // histórico que este campo existe para desfazer, um nível acima.
   const { rows: sets } = await db.execute<{ id: string }>(sql`
     SELECT cs.id FROM change_set cs
+      JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+     WHERE ${contextFilter("sb", context)}
   `);
   const { rows: span } = await db.execute<{ from: string | null; to: string | null }>(sql`
     SELECT min(sb.effective_date)::text AS from, max(sb.effective_date)::text AS to
       FROM change_set cs JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+     WHERE ${contextFilter("sb", context)}
   `);
   const rows = await loadChanges(db, sets.map((s) => s.id));
   return {
@@ -814,6 +867,9 @@ export interface GroupSelector {
   changeType?: string;
   comparability?: string;
   impactConfidence?: string;
+  /** O contexto do cartão que abriu esta lista. Sem ele, o mais recente. */
+  scopeHash?: string;
+  channel?: string | null;
 }
 
 /** Os veículos de um grupo, com o valor de cada um e o motivo de exclusão quando houver. */
@@ -821,10 +877,18 @@ export async function getGroupVehicles(
   db: Database,
   selector: GroupSelector,
 ): Promise<GroupVehicle[]> {
+  const context = await resolveContext(db, {
+    scopeHash: selector.scopeHash,
+    ...(selector.channel !== undefined ? { channel: selector.channel } : {}),
+  });
+  if (!context) return [];
+
   const { rows: sets } = await db.execute<{ id: string }>(sql`
     SELECT cs.id FROM change_set cs
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
-     WHERE sb.effective_date = ${selector.period}::date AND sb.status <> 'SUPERSEDED'
+     WHERE sb.effective_date = ${selector.period}::date
+       AND sb.status <> 'SUPERSEDED'
+       AND ${contextFilter("sb", context)}
   `);
   const ids = sets.map((s) => s.id);
   const all = await loadChanges(db, ids);
@@ -922,7 +986,14 @@ export interface AttributeSeries {
 export async function getAttributeSeries(
   db: Database,
   attributeCode: string,
+  requestedContext?: Partial<SeriesContext>,
 ): Promise<AttributeSeries | null> {
+  // A série é de uma unidade e de um canal. Sem o filtro, duas unidades com a
+  // mesma vigência produziriam um ponto só, com a soma das duas frotas — e a
+  // média por veículo, que é justamente a defesa contra ler entrada de ativo
+  // como aumento de preço, passaria a descrever um universo que não existe.
+  const context = await resolveContext(db, requestedContext);
+  if (!context) return null;
   const { rows: meta } = await db.execute<{
     code: string;
     source_name: string;
@@ -960,7 +1031,9 @@ export async function getAttributeSeries(
       FROM fact f
       JOIN snapshot s ON s.id = f.snapshot_id
       JOIN attribute a ON a.id = f.attribute_id
-     WHERE a.code = ${attributeCode} AND s.status <> 'SUPERSEDED'
+     WHERE a.code = ${attributeCode}
+       AND s.status <> 'SUPERSEDED'
+       AND ${contextFilter("s", context)}
      GROUP BY 1, 2
      ORDER BY 1
   `);
