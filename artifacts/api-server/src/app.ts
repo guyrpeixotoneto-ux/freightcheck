@@ -1,10 +1,21 @@
 import express, { type Express } from "express";
+import cookieParser from "cookie-parser";
 import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
+import { requireSession } from "./middlewares/require-session";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
+
+/**
+ * O protocolo original vem do roteador, não do socket.
+ *
+ * Quem termina o TLS no Replit é o roteador; para este processo toda conexão
+ * chega em http. Sem isto, `req.protocol` diria "http" atrás de uma URL https e
+ * o cookie de sessão sairia sem `Secure` — ver `routes/auth.ts`.
+ */
+app.set("trust proxy", true);
 
 app.use(
   pinoHttp({
@@ -38,7 +49,13 @@ app.use(cors());
  */
 app.use(express.json({ limit: "64mb" }));
 app.use(express.urlencoded({ extended: true }));
+app.use(cookieParser());
 
+/**
+ * Antes das rotas, e uma vez só: a autenticação é do servidor inteiro, não de
+ * cada rota. O que responde sem sessão está listado em `lib/auth.ts`.
+ */
+app.use("/api", requireSession);
 app.use("/api", router);
 
 export default app;

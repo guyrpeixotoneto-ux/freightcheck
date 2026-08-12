@@ -8,10 +8,12 @@ import {
   GitBranch,
   GitCompareArrows,
   Home,
+  LogOut,
   Truck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getApiUrl } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 
 /**
  * O menu, na ordem do trabalho.
@@ -169,19 +171,52 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="p-4 border-t border-sidebar-border">
-        <div className="flex items-center gap-3 px-3 py-2">
-          <div className="w-8 h-8 rounded-full bg-sidebar-accent flex items-center justify-center text-xs font-bold">
-            AD
-          </div>
-          <div className="flex flex-col min-w-0">
-            <span className="text-sm font-medium truncate">Admin User</span>
-            <span className="text-xs text-sidebar-foreground/50 truncate">
-              admin@freightaudit.com
-            </span>
-          </div>
-        </div>
-      </div>
+      <SignedInAs />
     </aside>
   );
+}
+
+/**
+ * Quem está logado — e é o mesmo nome que vai para o `actor` de cada
+ * confirmação. Antes daqui havia um "Admin User" fixo no código, que dizia
+ * exatamente nada sobre quem estava usando o sistema.
+ */
+function SignedInAs() {
+  const { user, logout, isSubmitting } = useAuth();
+
+  if (!user) return null;
+
+  return (
+    <div className="p-4 border-t border-sidebar-border">
+      <div className="flex items-center gap-3 px-3 py-2">
+        <div className="w-8 h-8 rounded-full bg-sidebar-accent flex items-center justify-center text-xs font-bold shrink-0">
+          {initials(user.name)}
+        </div>
+        <div className="flex flex-col min-w-0 flex-1">
+          <span className="text-sm font-medium truncate">{user.name}</span>
+          <span className="text-xs text-sidebar-foreground/50 truncate">
+            {user.email}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => void logout()}
+          disabled={isSubmitting}
+          title="Sair"
+          aria-label="Sair"
+          className="text-sidebar-foreground/50 hover:text-sidebar-foreground p-1.5 rounded-md hover:bg-sidebar-accent/50 transition-colors disabled:opacity-50"
+        >
+          <LogOut className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Duas letras, e nunca uma string vazia — o nome é obrigatório no cadastro. */
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] ?? "?";
+  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
+  return (first + last).toUpperCase();
 }

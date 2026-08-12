@@ -58,6 +58,39 @@ em `/api` — que é o aceite desta configuração.
 Importar planilha é feito **pela interface**, em Importações. Nenhum passo do
 produto depende de terminal.
 
+## Acesso
+
+**Nada do produto aparece sem login.** Toda rota da API exige sessão, com quatro
+exceções que existem por motivo declarado — `/api/healthz` e `/api/build`
+(o health check do deployment não pode depender de credencial) e as próprias
+rotas de `/api/auth`. A lista está em `isPublicPath`, num lugar só: rota nova
+nasce protegida sem ninguém precisar lembrar de protegê-la.
+
+**A primeira conta se cria na própria tela.** Enquanto o banco não tem nenhum
+usuário, a tela de login vira "Primeiro acesso" e `POST /auth/setup` aceita
+criar a conta inicial; assim que existe uma conta, esse endpoint passa a
+recusar. É o que mantém a promessa de um workspace novo funcionar só apertando
+Run — sem senha padrão no código, e sem env obrigatória além da `DATABASE_URL`.
+A contrapartida é honesta e vale saber: entre o primeiro deploy e o primeiro
+cadastro, quem chegar na URL cria a conta inicial.
+
+**Da segunda em diante, pelo terminal de quem administra** — o produto não tem
+auto-cadastro nem tela de equipe:
+
+```
+echo "a-senha" | pnpm --filter @workspace/api-server run create-user "Nome" email@empresa.com
+```
+
+**O que a sessão mudou no produto:** `actor` deixou de ser campo digitado. Quem
+confirma uma semântica, quem envia uma planilha e quem promove uma vigência é
+lido da sessão, e o servidor ignora o que o corpo do pedido disser. Antes disso
+o histórico sustentava "alguém digitou este nome"; agora sustenta quem fez.
+
+Não existe nesta versão: papéis ou permissões por tela (quem entra vê tudo),
+recuperação de senha, e desativação de conta pela interface — a coluna
+`app_user.disabled_at` existe e é respeitada no login, mas só se preenche por
+SQL.
+
 ## Stack
 
 - pnpm workspaces, Node.js 24, TypeScript 5.9
@@ -72,8 +105,11 @@ produto depende de terminal.
 - `lib/ingest` — recebimento do arquivo, RAW, staging, promoção
 - `lib/curation` — semântica dos atributos, taxonomia, confirmações humanas
 - `lib/comparison` — motor de alterações, visão consolidada
-- `artifacts/api-server` — HTTP
-- `artifacts/freightaudit` — interface
+- `artifacts/api-server` — HTTP; autenticação em `src/lib/auth.ts` (as
+  primitivas, sem banco), `src/lib/session.ts` (sessões e contas) e
+  `src/middlewares/require-session.ts` (o portão)
+- `artifacts/freightaudit` — interface; a sessão vive em `src/lib/auth.tsx` e o
+  portão em `App.tsx`
 - `docs/ARQUITETURA.md` — as decisões estruturais em prosa
 
 ## Architecture decisions
@@ -141,10 +177,20 @@ número.
   `lib/ingest/src/testing.ts` deriva o banco de cada teste substituindo
   `"/postgres?"`; sem o `?` todos os testes caem no mesmo banco e falham com
   `SKIPPED_DUPLICATE`.
-- `pnpm run typecheck` falha em 9 pontos herdados do scaffold
+- `pnpm run typecheck` falha em 6 pontos herdados do scaffold
   (`src/components/ui/*` do shadcn e `src/pages/snapshots/[id].tsx`). São
   anteriores a qualquer código deste projeto e não afetam o Run, que não passa
-  por `tsc`.
+  por `tsc`. Eram 9: três apontavam para o `cn` de `src/lib/utils.ts`, que
+  descartava o objeto `{ classe: condição }` que todo componente do shadcn passa
+  — o efeito visível era **todo botão do produto sem cor, sem altura e sem
+  padding**, em todas as telas. `cn` agora é `twMerge(clsx(...))`, que é o
+  contrato que esses componentes já assumiam.
+- **401 em toda chamada de API é sessão, não infraestrutura.** A interface leva
+  para a tela de login por conta própria; se isso acontecer no meio de um
+  trabalho, a sessão expirou (sete dias, absolutos) ou alguém saiu em outra aba.
+  É diferente do 502 e do 503: o 503 de `SESSION_CHECK_FAILED` quer dizer que o
+  banco não respondeu para *verificar* a sessão, e aí o problema não é a senha
+  de ninguém.
 - O limite do `express.json` fica em `app.ts`, não na rota de upload — o parser
   global roda antes e rejeitaria o corpo com 413 antes da rota ver.
 

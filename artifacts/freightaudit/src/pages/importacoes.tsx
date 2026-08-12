@@ -1,18 +1,29 @@
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  CalendarClock,
   CheckCircle2,
   ChevronDown,
   ChevronRight,
+  Database,
   FileDown,
+  FileSpreadsheet,
+  Layers,
+  ShieldCheck,
+  Table2,
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Layout } from "@/components/layout/layout";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getApiUrl } from "@/lib/api";
+import {
+  Dialog,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { fetchJson, getApiUrl, readJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
@@ -57,9 +68,16 @@ interface RunDetail {
 
 const n = (v: number) => v.toLocaleString("pt-BR");
 
+const dateTime = (iso: string) => new Date(iso).toLocaleString("pt-BR");
+
+/** "1 aba", "2 abas" — o número é lido junto com a palavra, e concordam. */
+const plural = (count: number, one: string, many: string) =>
+  `${n(count)} ${count === 1 ? one : many}`;
+
 interface RunStatus {
   importRunId: string;
   status: string;
+  filename: string;
   failureReason: string | null;
   sheets: number;
   rawCells: number;
@@ -79,39 +97,9 @@ interface RunStatus {
  * what went wrong. Reading the text first turns that into a message that at
  * least names the status.
  */
-async function readJson(response: Response): Promise<Record<string, unknown>> {
-  const text = await response.text();
-  if (!text.trim()) {
-    // Um 5xx de corpo vazio nunca é nosso: toda resposta desta API é JSON,
-    // mesmo quando é erro. Corpo vazio quer dizer que a requisição parou numa
-    // camada antes — o roteador sem ninguém na porta (502), ou o proxy do Vite
-    // sem servidor atrás (500). Dizer "o servidor respondeu" a respeito de um
-    // servidor que não chegou a ser consultado mandou esta tela ser reescrita
-    // duas vezes atrás de um defeito que estava no ambiente.
-    if (response.status >= 500) {
-      throw new Error(
-        `A API não respondeu (${response.status}). A interface está no ar, mas o ` +
-          `servidor por trás de /api não está, e nada foi enviado. Confira o ` +
-          `processo "API Server" e depois /api/healthz.`,
-      );
-    }
-    throw new Error(
-      response.ok
-        ? `O servidor respondeu ${response.status} sem conteúdo. A conexão pode ter sido interrompida a caminho.`
-        : `O servidor respondeu ${response.status} sem detalhar o motivo.`,
-    );
-  }
-  try {
-    return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    throw new Error(
-      `Resposta inesperada do servidor (${response.status}): ${text.slice(0, 160)}`,
-    );
-  }
-}
-
 export default function Importacoes() {
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [detailOf, setDetailOf] = useState<ImportRun | null>(null);
   const [pendingIds, setPendingIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -123,15 +111,11 @@ export default function Importacoes() {
     error: listError,
   } = useQuery({
     queryKey: ["imports"],
-    queryFn: async () => {
-      const response = await fetch(getApiUrl("/imports"));
-      // `.json()` direto transformava a API fora do ar em lista vazia, e a tela
-      // dizia "nenhuma importação ainda" — a mesma frase de um banco limpo. A
-      // ausência de resposta passava por ausência de dados.
-      const body = await readJson(response);
-      if (!response.ok) throw new Error(body.error as string);
-      return body as unknown as ImportRun[];
-    },
+    // `.json()` direto transformava a API fora do ar em lista vazia, e a tela
+    // dizia "nenhuma importação ainda" — a mesma frase de um banco limpo. A
+    // ausência de resposta passava por ausência de dados. `fetchJson` é essa
+    // checagem, agora feita por toda a interface.
+    queryFn: () => fetchJson<ImportRun[]>("/imports"),
   });
 
   const upload = useMutation({
@@ -195,169 +179,393 @@ export default function Importacoes() {
   return (
     <Layout>
       <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <FileDown className="w-6 h-6 text-primary" />
-          Importações
-        </h1>
-        <p className="text-muted-foreground mt-1 max-w-3xl">
-          Cada arquivo recebido, o que saiu dele e o que o pipeline apontou. O
-          mesmo conteúdo reentregue é reconhecido pelo SHA-256 e recusado como
-          duplicata.
-        </p>
+        <div className="flex items-start gap-3">
+          <div className="w-11 h-11 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+            <FileDown className="w-6 h-6 text-primary" />
+          </div>
+          <div className="min-w-0">
+            <h1 className="text-3xl font-bold tracking-tight">Importações</h1>
+            <p className="text-muted-foreground mt-1 max-w-3xl leading-relaxed">
+              Cada arquivo recebido, o que saiu dele e o que o pipeline apontou.
+              <br className="hidden sm:inline" /> O mesmo conteúdo reentregue é
+              reconhecido pelo SHA-256 e recusado como duplicata.
+            </p>
+          </div>
+        </div>
       </header>
 
-      <div className="p-8 space-y-4">
-        <Card>
-          <CardContent className="p-6 space-y-4">
-            <input
-              ref={fileInput}
-              type="file"
-              accept=".xlsx"
-              multiple
-              className="hidden"
-              onChange={(e) => {
-                const files = Array.from(e.target.files ?? []);
-                if (files.length > 0) upload.mutate(files);
-                e.target.value = "";
-              }}
-            />
-            <div className="flex items-center gap-4">
-              <Button
-                onClick={() => fileInput.current?.click()}
-                disabled={upload.isPending}
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                {upload.isPending ? "Lendo…" : "Escolher planilhas"}
-              </Button>
-              <p className="text-sm text-muted-foreground">
-                Pode enviar os dois de uma vez. O arquivo é lido e conferido, mas
-                <strong> nada entra</strong> antes de você ver o resumo e aprovar.
-              </p>
-            </div>
+      <div className="p-8 space-y-5">
+        <input
+          ref={fileInput}
+          type="file"
+          accept=".xlsx"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            const files = Array.from(e.target.files ?? []);
+            if (files.length > 0) upload.mutate(files);
+            e.target.value = "";
+          }}
+        />
+        <Dropzone
+          busy={upload.isPending}
+          onFiles={(files) => upload.mutate(files)}
+          onPick={() => fileInput.current?.click()}
+        />
 
-            {error && (
-              <p className="text-sm text-red-900 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-                {error}
-              </p>
-            )}
-
-            {pendingIds.map((id) => (
-              <PendingRun
-                key={id}
-                importRunId={id}
-                onDiscard={() =>
-                  setPendingIds((c) => c.filter((x) => x !== id))
-                }
-                onPromote={() => promote.mutate(id)}
-                promoting={promote.isPending}
-              />
-            ))}
-          </CardContent>
-        </Card>
-
-        {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
-        {!isLoading && listError && (
-          <Card>
-            <CardContent className="p-6 text-sm text-red-900 bg-red-50 rounded-md">
-              Não foi possível ler o histórico de importações:{" "}
-              {(listError as Error).message} Esta lista pode não estar vazia — o
-              que falhou foi perguntar.
-            </CardContent>
-          </Card>
+        {error && (
+          <p className="text-sm text-red-900 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+            {error}
+          </p>
         )}
-        {!isLoading && !listError && runs.length === 0 && (
-          <Card>
-            <CardContent className="p-8 text-center text-muted-foreground text-sm">
-              Nenhuma importação ainda. Use{" "}
-              <strong className="text-foreground">Escolher planilhas</strong> acima
-              para enviar o export do Freightec.
-            </CardContent>
-          </Card>
+
+        {pendingIds.map((id) => (
+          <PendingRun
+            key={id}
+            importRunId={id}
+            onDiscard={() => setPendingIds((c) => c.filter((x) => x !== id))}
+            onPromote={() => promote.mutate(id)}
+            promoting={promote.isPending}
+          />
+        ))}
+
+        {isLoading && (
+          <p className="text-sm text-muted-foreground">Carregando…</p>
+        )}
+        {!isLoading && listError && (
+          <div className="rounded-2xl border border-red-200 bg-red-50 px-6 py-5 text-sm text-red-900">
+            Não foi possível ler o histórico de importações:{" "}
+            {(listError as Error).message} Esta lista pode não estar vazia — o
+            que falhou foi perguntar.
+          </div>
+        )}
+        {/* "Nenhuma importação ainda" ao lado de um arquivo sendo lido é falso
+            de um jeito que confunde: o que falta é aprovar, não enviar. */}
+        {!isLoading && !listError && runs.length === 0 && pendingIds.length === 0 && (
+          <div className="rounded-2xl border bg-card px-8 py-10 text-center text-sm text-muted-foreground shadow-sm">
+            Nenhuma importação ainda. Use{" "}
+            <strong className="text-foreground">Escolher planilhas</strong> acima
+            para enviar o export do Freightec.
+          </div>
         )}
 
         {runs.map((run) => (
-          <Card key={run.importRunId}>
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between gap-4">
-                <div className="min-w-0">
-                  <CardTitle className="text-base truncate">{run.filename}</CardTitle>
-                  <p className="font-mono text-xs text-muted-foreground mt-1">
-                    sha256 {run.contentSha256.slice(0, 16)}… ·{" "}
-                    {(run.byteSize / 1024).toFixed(0)} KB ·{" "}
-                    {new Date(run.receivedAt).toLocaleString("pt-BR")}
-                    {run.triggeredBy && <> · por {run.triggeredBy}</>}
-                  </p>
-                </div>
-                <Badge
-                  className={cn(
-                    run.status === "PROMOTED"
-                      ? "bg-emerald-100 text-emerald-800 border-emerald-300 hover:bg-emerald-100"
-                      : run.status === "FAILED"
-                        ? "bg-red-100 text-red-900 border-red-300 hover:bg-red-100"
-                        : "bg-amber-100 text-amber-900 border-amber-300 hover:bg-amber-100",
-                  )}
-                >
-                  {run.status.toLowerCase()}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              {run.failureReason && (
-                <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-                  {run.failureReason}
-                </p>
-              )}
-
-              <div className="grid grid-cols-3 md:grid-cols-6 gap-4 text-sm">
-                <Metric label="Abas" value={n(run.sheets)} />
-                <Metric label="Células RAW" value={n(run.rawCells)} />
-                <Metric label="Fatos" value={n(run.stagedFacts)} />
-                <Metric label="Vigências" value={n(run.snapshots)} />
-                <Metric
-                  label="Erros"
-                  value={n(run.errors)}
-                  tone={run.errors > 0 ? "bad" : "good"}
-                />
-                <Metric
-                  label="Avisos"
-                  value={n(run.warnings)}
-                  tone={run.warnings > 0 ? "warn" : "good"}
-                />
-              </div>
-
-              {run.labels.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {run.labels.map((label) => (
-                    <span
-                      key={label}
-                      className="font-mono text-xs px-2 py-0.5 rounded bg-muted text-muted-foreground"
-                    >
-                      {label}
-                    </span>
-                  ))}
-                </div>
-              )}
-
-              <button
-                onClick={() =>
-                  setExpanded(expanded === run.importRunId ? null : run.importRunId)
-                }
-                className="text-xs text-primary hover:underline inline-flex items-center gap-1"
-              >
-                {expanded === run.importRunId ? (
-                  <ChevronDown className="w-3 h-3" />
-                ) : (
-                  <ChevronRight className="w-3 h-3" />
-                )}
-                abas do arquivo e por que cada uma foi tratada assim
-              </button>
-
-              {expanded === run.importRunId && <SheetList runId={run.importRunId} />}
-            </CardContent>
-          </Card>
+          <RunCard
+            key={run.importRunId}
+            run={run}
+            expanded={expanded === run.importRunId}
+            onToggle={() =>
+              setExpanded(expanded === run.importRunId ? null : run.importRunId)
+            }
+            onDetails={() => setDetailOf(run)}
+          />
         ))}
+
+        <div className="rounded-2xl border bg-card px-6 py-5 shadow-sm flex items-start gap-3">
+          <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+            <ShieldCheck className="w-5 h-5 text-primary" />
+          </div>
+          <div>
+            <p className="font-semibold text-sm">Segurança e deduplicação</p>
+            <p className="text-sm text-muted-foreground mt-0.5">
+              Usamos SHA-256 para reconhecer arquivos já processados e evitar
+              duplicidade.
+            </p>
+          </div>
+        </div>
       </div>
+
+      <RunDetailDialog run={detailOf} onClose={() => setDetailOf(null)} />
     </Layout>
+  );
+}
+
+/**
+ * The upload target: one dashed area that both clicks and receives a drop.
+ *
+ * The whole rectangle is the control, not a button inside it — the dashed edge
+ * is a promise that dropping there works, and a decorative one would be a lie.
+ */
+function Dropzone({
+  busy,
+  onFiles,
+  onPick,
+}: {
+  busy: boolean;
+  onFiles: (files: File[]) => void;
+  onPick: () => void;
+}) {
+  const [over, setOver] = useState(false);
+
+  return (
+    <button
+      type="button"
+      disabled={busy}
+      onClick={onPick}
+      onDragOver={(e) => {
+        e.preventDefault();
+        setOver(true);
+      }}
+      onDragLeave={() => setOver(false)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setOver(false);
+        const files = Array.from(e.dataTransfer.files).filter((f) =>
+          f.name.toLowerCase().endsWith(".xlsx"),
+        );
+        if (files.length > 0) onFiles(files);
+      }}
+      className={cn(
+        "w-full text-left rounded-2xl border-2 border-dashed px-6 py-5",
+        "flex items-center gap-4 transition-colors",
+        "disabled:cursor-progress",
+        over
+          ? "border-primary bg-primary/5"
+          : "border-border hover:border-primary/50 hover:bg-primary/[0.03]",
+      )}
+    >
+      <div className="w-12 h-12 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
+        <Upload className="w-5 h-5 text-primary" />
+      </div>
+      <div className="min-w-0">
+        <p className="font-semibold">
+          {busy ? "Lendo…" : "Escolher planilhas"}
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Pode enviar os dois de uma vez. O arquivo é lido e conferido, mas
+          <strong className="text-foreground"> nada entra</strong> antes de você
+          ver o resumo e aprovar.
+        </p>
+      </div>
+    </button>
+  );
+}
+
+function RunCard({
+  run,
+  expanded,
+  onToggle,
+  onDetails,
+}: {
+  run: ImportRun;
+  expanded: boolean;
+  onToggle: () => void;
+  onDetails: () => void;
+}) {
+  return (
+    <div className="rounded-2xl border bg-card px-6 py-5 shadow-sm space-y-5">
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex items-start gap-3 min-w-0">
+          <div className="w-11 h-11 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0">
+            <FileSpreadsheet className="w-6 h-6 text-emerald-600" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-lg font-bold truncate">{run.filename}</h2>
+            <p className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="font-mono text-[11px] px-1.5 py-0.5 rounded-md bg-primary/10 text-primary">
+                sha256
+              </span>
+              <span className="font-mono">
+                {run.contentSha256.slice(0, 16)}…
+              </span>
+              <span aria-hidden>·</span>
+              <span>{(run.byteSize / 1024).toFixed(0)} KB</span>
+              <span aria-hidden>·</span>
+              <span>{dateTime(run.receivedAt)}</span>
+              {run.triggeredBy && (
+                <>
+                  <span aria-hidden>·</span>
+                  <span>por {run.triggeredBy}</span>
+                </>
+              )}
+            </p>
+          </div>
+        </div>
+        <StatusPill status={run.status} />
+      </div>
+
+      {run.failureReason && (
+        <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+          {run.failureReason}
+        </p>
+      )}
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
+        <Metric icon={Table2} accent="indigo" label="Abas" value={n(run.sheets)} />
+        <Metric
+          icon={Database}
+          accent="emerald"
+          label="Células RAW"
+          value={n(run.rawCells)}
+        />
+        <Metric
+          icon={Layers}
+          accent="blue"
+          label="Fatos"
+          value={n(run.stagedFacts)}
+        />
+        <Metric
+          icon={CalendarClock}
+          accent="violet"
+          label="Vigências"
+          value={n(run.snapshots)}
+        />
+        <Metric
+          icon={ShieldCheck}
+          accent="red"
+          label="Erros"
+          value={n(run.errors)}
+          tone={run.errors > 0 ? "bad" : "muted"}
+        />
+        <Metric
+          icon={AlertTriangle}
+          accent="amber"
+          label="Avisos"
+          value={n(run.warnings)}
+          tone={run.warnings > 0 ? "warn" : "muted"}
+        />
+      </div>
+
+      {run.labels.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Vigências ({run.labels.length})
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {run.labels.map((label) => (
+              <span
+                key={label}
+                className="font-mono text-[11px] px-2.5 py-1 rounded-lg border bg-muted/50 text-muted-foreground"
+              >
+                {label}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center justify-between gap-4 pt-1">
+        <button
+          onClick={onToggle}
+          className="text-sm text-primary hover:underline inline-flex items-center gap-1.5 font-medium"
+        >
+          {expanded ? (
+            <ChevronDown className="w-4 h-4" />
+          ) : (
+            <ChevronRight className="w-4 h-4" />
+          )}
+          Ver abas do arquivo e como cada uma foi tratada
+        </button>
+        <Button variant="outline" size="sm" onClick={onDetails}>
+          Ver detalhes
+          <ChevronRight className="w-3.5 h-3.5 ml-1" />
+        </Button>
+      </div>
+
+      {expanded && <SheetList runId={run.importRunId} />}
+    </div>
+  );
+}
+
+function StatusPill({ status }: { status: string }) {
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded-full border px-3 py-1 text-xs font-medium",
+        status === "PROMOTED"
+          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+          : status === "FAILED"
+            ? "bg-red-50 text-red-800 border-red-200"
+            : "bg-amber-50 text-amber-800 border-amber-200",
+      )}
+    >
+      {status.toLowerCase()}
+    </span>
+  );
+}
+
+/**
+ * The whole record of one run, for when the summary is not enough.
+ *
+ * The SHA-256 appears here in full: truncated it identifies a file for a person
+ * reading the list, but only the complete digest lets someone conferir contra o
+ * arquivo que tem em mãos.
+ */
+function RunDetailDialog({
+  run,
+  onClose,
+}: {
+  run: ImportRun | null;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={run !== null} onOpenChange={(open) => !open && onClose()}>
+      {run && (
+        <>
+          <DialogHeader>
+            <DialogTitle>{run.filename}</DialogTitle>
+            <DialogDescription>
+              O registro completo desta execução, como o pipeline a gravou.
+            </DialogDescription>
+          </DialogHeader>
+
+          <dl className="space-y-3 text-sm">
+            <Field label="SHA-256">
+              <span className="font-mono text-xs break-all">
+                {run.contentSha256}
+              </span>
+            </Field>
+            <Field label="Situação">{run.status.toLowerCase()}</Field>
+            <Field label="Tamanho">{n(run.byteSize)} bytes</Field>
+            <Field label="Recebido">{dateTime(run.receivedAt)}</Field>
+            <Field label="Início">{dateTime(run.startedAt)}</Field>
+            <Field label="Fim">
+              {run.finishedAt ? dateTime(run.finishedAt) : "—"}
+            </Field>
+            <Field label="Enviado por">{run.triggeredBy ?? "—"}</Field>
+            <Field label="Produziu">
+              {plural(run.sheets, "aba", "abas")} ·{" "}
+              {plural(run.rawRows, "linha", "linhas")} ·{" "}
+              {plural(run.rawCells, "célula", "células")} ·{" "}
+              {plural(run.stagedFacts, "fato", "fatos")} ·{" "}
+              {plural(run.snapshots, "vigência", "vigências")}
+            </Field>
+            <Field label="Apontamentos">
+              {plural(run.errors, "erro", "erros")} ·{" "}
+              {plural(run.warnings, "aviso", "avisos")}
+            </Field>
+            {run.failureReason && (
+              <Field label="Motivo da falha">
+                <span className="text-red-800">{run.failureReason}</span>
+              </Field>
+            )}
+          </dl>
+
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={onClose}>
+              Fechar
+            </Button>
+          </DialogFooter>
+        </>
+      )}
+    </Dialog>
+  );
+}
+
+function Field({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <div className="grid grid-cols-[8rem_1fr] gap-3">
+      <dt className="text-xs uppercase tracking-wider text-muted-foreground pt-0.5">
+        {label}
+      </dt>
+      <dd className="min-w-0">{children}</dd>
+    </div>
   );
 }
 
@@ -381,10 +589,7 @@ function PendingRun({
 }) {
   const { data } = useQuery({
     queryKey: ["imports", importRunId, "status"],
-    queryFn: async () => {
-      const response = await fetch(getApiUrl(`/imports/${importRunId}/status`));
-      return (await readJson(response)) as unknown as RunStatus;
-    },
+    queryFn: () => fetchJson<RunStatus>(`/imports/${importRunId}/status`),
     // Stops polling once the pipeline has finished or given up.
     refetchInterval: (query) => {
       const s = (query.state.data as RunStatus | undefined)?.status;
@@ -398,42 +603,63 @@ function PendingRun({
   return (
     <div
       className={cn(
-        "rounded-md border px-4 py-3 space-y-3",
-        failed ? "border-red-300 bg-red-50" : "border-amber-300 bg-amber-50",
+        "rounded-2xl border px-6 py-5 space-y-4",
+        failed ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50",
       )}
     >
       <div className="flex items-start justify-between gap-4">
-        <div>
-          <p className="font-medium text-sm">
-            {ready
-              ? "Conferido, ainda não importado."
-              : failed
-                ? "Falhou ao ler o arquivo."
-                : "Lendo o arquivo…"}
-          </p>
-          <p className="text-xs mt-0.5 text-amber-900">
+        <div className="flex items-start gap-3 min-w-0">
+          <div
+            className={cn(
+              "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
+              failed ? "bg-red-100" : "bg-amber-100",
+            )}
+          >
             {failed ? (
-              <span className="text-red-900">{data?.failureReason}</span>
+              <AlertTriangle className="w-5 h-5 text-red-700" />
             ) : ready ? (
-              data!.errors > 0 ? (
-                <strong>
-                  {data!.errors} erros — corrija a origem antes de aprovar.
-                </strong>
+              <CheckCircle2 className="w-5 h-5 text-amber-700" />
+            ) : (
+              <Upload className="w-5 h-5 text-amber-700" />
+            )}
+          </div>
+          <div className="min-w-0">
+            {/* O nome vem antes do estado: enviando dois arquivos de uma vez,
+                dois cartões dizendo "Conferido" não dizem qual é qual. */}
+            {data?.filename && (
+              <p className="font-bold text-sm truncate">{data.filename}</p>
+            )}
+            <p className="font-semibold text-sm">
+              {ready
+                ? "Conferido, ainda não importado."
+                : failed
+                  ? "Falhou ao ler o arquivo."
+                  : "Lendo o arquivo…"}
+            </p>
+            <p className="text-xs mt-0.5 text-amber-900">
+              {failed ? (
+                <span className="text-red-900">{data?.failureReason}</span>
+              ) : ready ? (
+                data!.errors > 0 ? (
+                  <strong>
+                    {data!.errors} erros — corrija a origem antes de aprovar.
+                  </strong>
+                ) : (
+                  <>
+                    {/* labels.length, não snapshots: o contador do run só é
+                        preenchido na promoção, e antes dela seria sempre zero. */}
+                    {n(data!.facts)} fatos · {data!.labels.length} vigências ·{" "}
+                    {n(data!.warnings)} avisos, nenhum erro.
+                  </>
+                )
               ) : (
                 <>
-                  {/* labels.length, não snapshots: o contador do run só é
-                      preenchido na promoção, e antes dela seria sempre zero. */}
-                  {n(data!.facts)} fatos · {data!.labels.length} vigências ·{" "}
-                  {n(data!.warnings)} avisos, nenhum erro.
+                  {data ? `${data.status.toLowerCase()}…` : "recebido…"} nada entra
+                  sem sua aprovação.
                 </>
-              )
-            ) : (
-              <>
-                {data ? `${data.status.toLowerCase()}…` : "recebido…"} nada entra sem
-                sua aprovação.
-              </>
-            )}
-          </p>
+              )}
+            </p>
+          </div>
         </div>
         <div className="flex gap-2 shrink-0">
           <Button variant="ghost" size="sm" onClick={onDiscard}>
@@ -450,11 +676,11 @@ function PendingRun({
       </div>
 
       {ready && data!.labels.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
+        <div className="flex flex-wrap gap-2">
           {data!.labels.map((label) => (
             <span
               key={label}
-              className="font-mono text-xs px-2 py-0.5 rounded bg-white/70 text-amber-900"
+              className="font-mono text-[11px] px-2.5 py-1 rounded-lg bg-white/70 border border-amber-200 text-amber-900"
             >
               {label}
             </span>
@@ -466,18 +692,35 @@ function PendingRun({
 }
 
 function SheetList({ runId }: { runId: string }) {
-  const { data } = useQuery({
+  const { data, error } = useQuery({
     queryKey: ["imports", runId],
-    queryFn: async () =>
-      (await (await fetch(getApiUrl(`/imports/${runId}`))).json()) as RunDetail,
+    queryFn: () => fetchJson<RunDetail>(`/imports/${runId}`),
   });
+
+  if (error) {
+    return (
+      <p className="text-xs text-red-700">
+        As abas deste arquivo não puderam ser lidas: {error.message}
+      </p>
+    );
+  }
 
   if (!data) return <p className="text-xs text-muted-foreground">Carregando…</p>;
 
+  // Um run recusado como duplicata — ou que falhou antes da leitura — não tem
+  // abas. Uma moldura vazia deixaria isso parecendo carregamento travado.
+  if (data.sheets.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Nenhuma aba foi lida: este arquivo não chegou a ser aberto.
+      </p>
+    );
+  }
+
   return (
-    <div className="rounded-md border divide-y">
+    <div className="rounded-xl border divide-y overflow-hidden">
       {data.sheets.map((sheet) => (
-        <div key={sheet.sheetName} className="px-3 py-2 text-sm">
+        <div key={sheet.sheetName} className="px-4 py-3 text-sm bg-muted/30">
           <div className="flex items-center gap-2">
             {sheet.role === "SOURCE" ? (
               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
@@ -490,7 +733,7 @@ function SheetList({ runId }: { runId: string }) {
             </span>
           </div>
           {sheet.roleReason && (
-            <p className="text-xs text-muted-foreground mt-0.5 ml-5.5 pl-0.5">
+            <p className="text-xs text-muted-foreground mt-1 ml-5.5 pl-0.5">
               {sheet.roleReason}
             </p>
           )}
@@ -500,28 +743,58 @@ function SheetList({ runId }: { runId: string }) {
   );
 }
 
+const ACCENTS = {
+  indigo: "bg-indigo-50 text-indigo-600",
+  emerald: "bg-emerald-50 text-emerald-600",
+  blue: "bg-blue-50 text-blue-600",
+  violet: "bg-violet-50 text-violet-600",
+  red: "bg-red-50 text-red-500",
+  amber: "bg-amber-50 text-amber-600",
+} as const;
+
+/**
+ * One produced quantity, as a tile.
+ *
+ * The icon is decoration; the number is the claim. Erros e Avisos só ganham cor
+ * quando são maiores que zero — um zero pintado de vermelho vira alarme onde não
+ * há nada a fazer.
+ */
 function Metric({
+  icon: Icon,
+  accent,
   label,
   value,
   tone = "muted",
 }: {
+  icon: typeof Table2;
+  accent: keyof typeof ACCENTS;
   label: string;
   value: string;
-  tone?: "good" | "bad" | "warn" | "muted";
+  tone?: "bad" | "warn" | "muted";
 }) {
   return (
-    <div>
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">
-        {label}
-      </div>
+    <div className="rounded-xl border bg-muted/30 px-3 py-3 flex items-center gap-3">
       <div
         className={cn(
-          "font-medium tabular-nums",
-          tone === "bad" && "text-red-700",
-          tone === "warn" && "text-amber-700",
+          "w-9 h-9 rounded-lg flex items-center justify-center shrink-0",
+          ACCENTS[accent],
         )}
       >
-        {value}
+        <Icon className="w-4.5 h-4.5" />
+      </div>
+      <div className="min-w-0">
+        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground truncate">
+          {label}
+        </div>
+        <div
+          className={cn(
+            "text-lg font-bold tabular-nums leading-tight",
+            tone === "bad" && "text-red-600",
+            tone === "warn" && "text-orange-500",
+          )}
+        >
+          {value}
+        </div>
       </div>
     </div>
   );

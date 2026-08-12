@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, GitBranch, PenLine, Radio } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,7 +16,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getApiUrl } from "@/lib/api";
+import { fetchJson, getApiUrl } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 /**
@@ -71,10 +73,9 @@ export default function Versoes() {
   const [selected, setSelected] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
 
-  const { data: attributes = [] } = useQuery({
+  const { data: attributes = [], error } = useQuery({
     queryKey: ["versions"],
-    queryFn: async () =>
-      (await (await fetch(getApiUrl("/curation/versions"))).json()) as VersionedAttribute[],
+    queryFn: () => fetchJson<VersionedAttribute[]>("/curation/versions"),
   });
 
   const visible = attributes.filter((a) => {
@@ -108,6 +109,15 @@ export default function Versoes() {
           </p>
         )}
       </header>
+
+      {error && (
+        <div className="px-8 pt-6">
+          <ApiErrorNotice
+            error={error}
+            what="Os atributos versionados não puderam ser carregados."
+          />
+        </div>
+      )}
 
       <div className="flex-1 grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-6 p-8 items-start">
         <Card className="overflow-hidden">
@@ -176,8 +186,7 @@ function AttributeVersions({ code }: { code: string }) {
 
   const { data: history = [] } = useQuery({
     queryKey: ["versions", code],
-    queryFn: async () =>
-      (await (await fetch(getApiUrl(`/curation/versions/${code}`))).json()) as SemanticsVersion[],
+    queryFn: () => fetchJson<SemanticsVersion[]>(`/curation/versions/${code}`),
   });
 
   const current = history.find((v) => v.effectiveUntil === null);
@@ -329,17 +338,17 @@ function useSemanticsFields(current: SemanticsVersion) {
   const [periodicity, setPeriodicity] = useState(current.periodicity ?? "");
   const [aggregation, setAggregation] = useState(current.aggregation ?? "");
   const [basis, setBasis] = useState(current.calculationBasis ?? "");
-  const [actor, setActor] = useState("");
   const [reason, setReason] = useState("");
   return {
     unit, setUnit, periodicity, setPeriodicity, aggregation, setAggregation,
-    basis, setBasis, actor, setActor, reason, setReason,
+    basis, setBasis, reason, setReason,
     payload: {
       unit: unit || null,
       periodicity: periodicity || null,
       aggregation: aggregation || null,
       calculationBasis: basis || null,
-      actor,
+      // `actor` fica de fora: o servidor grava quem está logado, e um nome
+      // digitado aqui só teria como efeito discordar do histórico.
       reason,
     },
   };
@@ -386,25 +395,26 @@ function SemanticsFields({ f }: { f: ReturnType<typeof useSemanticsFields> }) {
   );
 }
 
+/**
+ * A justificativa, e quem assina — que não é mais um campo: é a sessão. O nome
+ * aparece porque quem escreve a justificativa tem o direito de ver com que
+ * assinatura ela vai para o histórico.
+ */
 function Attribution({ f }: { f: ReturnType<typeof useSemanticsFields> }) {
+  const { user } = useAuth();
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <Field label="Responsável">
-        <Input
-          value={f.actor}
-          onChange={(e) => f.setActor(e.target.value)}
-          placeholder="seu.nome@empresa"
-        />
-      </Field>
-      <Field label="Justificativa">
-        <Textarea
-          value={f.reason}
-          onChange={(e) => f.setReason(e.target.value)}
-          rows={2}
-          placeholder="Com base em quê?"
-        />
-      </Field>
-    </div>
+    <Field
+      label="Justificativa"
+      hint={`Registrada em nome de ${user?.email ?? "quem está logado"}.`}
+    >
+      <Textarea
+        value={f.reason}
+        onChange={(e) => f.setReason(e.target.value)}
+        rows={2}
+        placeholder="Com base em quê?"
+      />
+    </Field>
   );
 }
 
@@ -471,7 +481,7 @@ function SourceChangeForm({ code, current, onCancel, onDone }: FormProps) {
           <Button
             onClick={() => submit.mutate()}
             disabled={
-              submit.isPending || !effectiveFrom || !f.actor.trim() || !f.reason.trim()
+              submit.isPending || !effectiveFrom || !f.reason.trim()
             }
           >
             {submit.isPending ? "Registrando…" : `Criar versão ${current.version + 1}`}
@@ -541,7 +551,7 @@ function CorrectionForm({ code, current, onCancel, onDone }: FormProps) {
         <div className="flex gap-2">
           <Button
             onClick={() => submit.mutate()}
-            disabled={submit.isPending || !f.actor.trim() || !f.reason.trim()}
+            disabled={submit.isPending || !f.reason.trim()}
           >
             {submit.isPending ? "Corrigindo…" : `Corrigir versão ${current.version}`}
           </Button>

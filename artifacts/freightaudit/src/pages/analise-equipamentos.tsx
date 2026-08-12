@@ -38,7 +38,7 @@ import {
   Activity,
   Wrench,
 } from "lucide-react";
-import { getApiUrl } from "@/lib/api";
+import { fetchJson } from "@/lib/api";
 
 // ─── types ───────────────────────────────────────────────────────────────────
 
@@ -158,9 +158,9 @@ function CarretasTable({
   const { data = [], isLoading } = useQuery<Record<string, unknown>[]>({
     queryKey: ["fleet/carretas", vigencia],
     queryFn: () =>
-      fetch(
-        getApiUrl(`/fleet-analysis/carretas?vigencia=${encodeURIComponent(vigencia)}`)
-      ).then((r) => r.json()),
+      fetchJson<Record<string, unknown>[]>(
+        `/fleet-analysis/carretas?vigencia=${encodeURIComponent(vigencia)}`
+      ),
     enabled: !!vigencia,
   });
 
@@ -278,9 +278,9 @@ function CavalosTable({ vigencia }: { vigencia: string }) {
   const { data = [], isLoading } = useQuery<Record<string, unknown>[]>({
     queryKey: ["fleet/cavalos", vigencia],
     queryFn: () =>
-      fetch(
-        getApiUrl(`/fleet-analysis/cavalos?vigencia=${encodeURIComponent(vigencia)}`)
-      ).then((r) => r.json()),
+      fetchJson<Record<string, unknown>[]>(
+        `/fleet-analysis/cavalos?vigencia=${encodeURIComponent(vigencia)}`
+      ),
     enabled: !!vigencia,
   });
 
@@ -407,7 +407,7 @@ function CavalosTable({ vigencia }: { vigencia: string }) {
 export default function AnaliseEquipamentos() {
   const { data, isLoading, error } = useQuery<SummaryData>({
     queryKey: ["fleet/summary"],
-    queryFn: () => fetch(getApiUrl("/fleet-analysis/summary")).then((r) => r.json()),
+    queryFn: () => fetchJson<SummaryData>("/fleet-analysis/summary"),
   });
 
   const vigencias = data?.vigencias ?? [];

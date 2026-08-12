@@ -9,6 +9,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,7 +23,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getApiUrl } from "@/lib/api";
+import { fetchJson, getApiUrl } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 /**
@@ -92,12 +94,6 @@ interface TaxonomyNode {
   path: string;
 }
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(getApiUrl(path));
-  if (!response.ok) throw new Error(await response.text());
-  return response.json();
-}
-
 const brl = (value: number) =>
   value.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 
@@ -137,7 +133,7 @@ export default function Curadoria() {
     queryFn: () => fetchJson<{ byStatus: { status: string; count: number; monetary: number }[]; unclassified: number }>("/curation/summary"),
   });
 
-  const { data: queue = [], isLoading } = useQuery({
+  const { data: queue = [], isLoading, error } = useQuery({
     queryKey: ["curation", "queue", showConfirmed],
     queryFn: () =>
       fetchJson<QueueItem[]>(`/curation/queue?includeConfirmed=${showConfirmed}`),
@@ -214,6 +210,15 @@ export default function Curadoria() {
           />
         </div>
       </header>
+
+      {error && (
+        <div className="px-8 pt-6">
+          <ApiErrorNotice
+            error={error}
+            what="A fila de curadoria não pôde ser carregada."
+          />
+        </div>
+      )}
 
       <div className="flex-1 grid grid-cols-1 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)] gap-6 p-8 items-start">
         <Card className="overflow-hidden">
@@ -349,8 +354,9 @@ function AttributePanel({
     taxonomy.find((n) => n.path === detail.taxonomyPath)?.code ?? "",
   );
   const [isMonetary, setIsMonetary] = useState(detail.isMonetary === true);
-  const [actor, setActor] = useState("");
   const [reason, setReason] = useState("");
+  /** Quem assina esta confirmação. Vem da sessão; a tela só o exibe. */
+  const signedInAs = useAuth().user?.email ?? "quem está logado";
   const [error, setError] = useState<string | null>(null);
 
   const confirm = useMutation({
@@ -366,7 +372,8 @@ function AttributePanel({
             aggregation: aggregation || null,
             isMonetary,
             taxonomyCode: taxonomyCode || undefined,
-            actor,
+            // `actor` não vai daqui: quem assina é a sessão, e o servidor o lê
+            // de lá. Um nome digitado na tela nunca provou nada.
             reason,
           }),
         },
@@ -546,23 +553,17 @@ function AttributePanel({
             É um montante financeiro (entra em somas)
           </label>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="Responsável">
-              <Input
-                value={actor}
-                onChange={(e) => setActor(e.target.value)}
-                placeholder="seu.nome@empresa"
-              />
-            </Field>
-            <Field label="Justificativa">
-              <Textarea
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                placeholder="Com base em quê você está confirmando isso?"
-                rows={2}
-              />
-            </Field>
-          </div>
+          <Field
+            label="Justificativa"
+            hint={`Vai para o histórico assinada por ${signedInAs}.`}
+          >
+            <Textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Com base em quê você está confirmando isso?"
+              rows={2}
+            />
+          </Field>
 
           {blocked && (
             <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
@@ -578,7 +579,7 @@ function AttributePanel({
 
           <Button
             onClick={() => confirm.mutate()}
-            disabled={confirm.isPending || !actor.trim() || !reason.trim() || blocked}
+            disabled={confirm.isPending || !reason.trim() || blocked}
           >
             {confirm.isPending ? "Confirmando…" : "Confirmar semântica"}
           </Button>

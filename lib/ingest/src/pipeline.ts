@@ -1239,6 +1239,29 @@ export async function promote(
 }
 
 // ---------------------------------------------------------------------------
+// failure
+// ---------------------------------------------------------------------------
+
+/**
+ * Close a run that could not be read.
+ *
+ * A run left in READING or STAGED after the process gave up is worse than a
+ * failed one: the screen keeps polling it forever, and the person waits for
+ * something that is not coming. The reason travels to the card, so it is
+ * stored as it will be read.
+ */
+export async function markRunFailed(
+  db: Database,
+  importRunId: string,
+  reason: string,
+): Promise<void> {
+  await db
+    .update(importRunTable)
+    .set({ status: "FAILED", failureReason: reason, finishedAt: new Date() })
+    .where(eq(importRunTable.id, importRunId));
+}
+
+// ---------------------------------------------------------------------------
 // helpers
 // ---------------------------------------------------------------------------
 

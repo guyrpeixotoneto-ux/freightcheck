@@ -54,12 +54,21 @@ router.get("/curation/attributes/:code", async (req, res): Promise<void> => {
 
 router.post("/curation/attributes/:code/confirm", async (req, res): Promise<void> => {
   try {
-    const { unit, periodicity, aggregation, isMonetary, taxonomyCode, displayName, actor, reason } =
+    const { unit, periodicity, aggregation, isMonetary, taxonomyCode, displayName, reason } =
       req.body ?? {};
 
-    if (!actor || !reason) {
+    /**
+     * O responsável é quem está logado, e não o que o corpo do pedido diz.
+     *
+     * Antes disto o `actor` era um campo de texto na tela: sustentava "alguém
+     * digitou este nome", nunca "esta pessoa confirmou". Como toda rota exige
+     * sessão, aqui ele sempre existe.
+     */
+    const actor = req.user!.email;
+
+    if (!reason) {
       res.status(400).json({
-        error: "Confirmar exige um responsável (actor) e uma justificativa (reason).",
+        error: "Confirmar exige uma justificativa (reason).",
       });
       return;
     }
@@ -98,7 +107,7 @@ router.get("/curation/taxonomy", async (req, res): Promise<void> => {
 
 router.post("/curation/proposal-pass", async (req, res): Promise<void> => {
   try {
-    const actor = req.body?.actor ?? "api:proposal-pass";
+    const actor = req.user?.email ?? "api:proposal-pass";
     await seedTaxonomy(db, actor);
     res.json(await runProposalPass(db, actor));
   } catch (err) {

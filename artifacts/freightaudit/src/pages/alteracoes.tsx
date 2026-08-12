@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { getApiUrl } from "@/lib/api";
+import { fetchJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   ChangeTable,
@@ -84,25 +84,19 @@ export default function Alteracoes() {
 
   const consolidated = useQuery({
     queryKey: ["changes", "consolidated", filters],
-    queryFn: async () => {
-      const response = await fetch(
-        getApiUrl(`/changes/consolidated?${toQuery(filters)}`),
-      );
-      if (!response.ok) throw new Error((await response.json()).error ?? "Falha");
-      return (await response.json()) as ConsolidatedResponse;
-    },
+    queryFn: () =>
+      fetchJson<ConsolidatedResponse>(
+        `/changes/consolidated?${toQuery(filters)}`,
+      ),
     enabled: series === null,
   });
 
   const single = useQuery({
     queryKey: ["changes", "latest", filters, series],
-    queryFn: async () => {
-      const response = await fetch(
-        getApiUrl(`/changes/latest?${toQuery(filters)}&entityTypeSet=${series}`),
-      );
-      if (!response.ok) throw new Error((await response.json()).error ?? "Falha");
-      return (await response.json()) as LatestResponse;
-    },
+    queryFn: () =>
+      fetchJson<LatestResponse>(
+        `/changes/latest?${toQuery(filters)}&entityTypeSet=${series}`,
+      ),
     enabled: series !== null,
   });
 
