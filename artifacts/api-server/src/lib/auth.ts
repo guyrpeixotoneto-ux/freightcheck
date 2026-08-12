@@ -165,13 +165,48 @@ const PUBLIC_PATHS = new Set([
   // sessão aqui faria o serviço nunca ficar de pé.
   "/healthz",
   "/build",
-  // A tela de login precisa poder perguntar "existe sessão?" e "já existe
-  // alguém cadastrado?" antes de haver qualquer sessão.
+  // A tela de login precisa poder perguntar "existe sessão?" antes de haver
+  // qualquer sessão.
   "/auth/session",
   "/auth/login",
   "/auth/logout",
-  "/auth/setup",
 ]);
+
+/**
+ * As duas recusas ao desativar uma conta, escritas onde dá para testá-las sem
+ * banco. Ambas existem para impedir o mesmo desfecho: um sistema em que já não
+ * é possível entrar.
+ *
+ * @param activeUsers  contas ativas hoje, incluindo o alvo.
+ */
+export function whyCannotDisable(input: {
+  targetId: string;
+  actorId: string;
+  activeUsers: number;
+}): string | null {
+  if (input.targetId === input.actorId) {
+    return (
+      "Não dá para desativar a própria conta — quem faria isso perderia o " +
+      "acesso no meio do ato. Peça a outra pessoa com acesso."
+    );
+  }
+  if (input.activeUsers <= 1) {
+    return (
+      "Esta é a última conta ativa. Desativá-la deixaria o sistema sem " +
+      "ninguém que consiga entrar."
+    );
+  }
+  return null;
+}
+
+/**
+ * Uma ressalva sobre a regra acima, para quem for mexer nisto: a contagem é
+ * lida logo antes do UPDATE, e não sob trava. Duas pessoas desativando uma à
+ * outra no mesmo instante passariam as duas pelo teste e o sistema ficaria sem
+ * conta ativa. Não há fence contra isso, e a razão é proporcional: são duas
+ * pessoas num time pequeno clicando no mesmo segundo, e a saída existe e é
+ * barata — `create-user` no terminal devolve o acesso.
+ */
 
 export function isPublicPath(path: string): boolean {
   // Express entrega o path já sem query string; a barra final é a única

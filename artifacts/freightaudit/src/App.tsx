@@ -20,6 +20,7 @@ import AnaliseEquipamentos from '@/pages/analise-equipamentos';
 import Curadoria from '@/pages/curadoria';
 import Vigencias from '@/pages/vigencias';
 import Versoes from '@/pages/versoes';
+import Configuracoes from '@/pages/configuracoes';
 
 const queryClient = new QueryClient();
 
@@ -38,6 +39,7 @@ function Router() {
       <Route path="/curadoria" component={Curadoria} />
       <Route path="/vigencias" component={Vigencias} />
       <Route path="/versoes" component={Versoes} />
+      <Route path="/configuracoes" component={Configuracoes} />
       <Route component={NotFound} />
     </Switch>
   );

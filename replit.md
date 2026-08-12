@@ -60,36 +60,48 @@ produto depende de terminal.
 
 ## Acesso
 
-**Nada do produto aparece sem login.** Toda rota da API exige sessão, com quatro
+**Nada do produto aparece sem login.** Toda rota da API exige sessão, com cinco
 exceções que existem por motivo declarado — `/api/healthz` e `/api/build`
-(o health check do deployment não pode depender de credencial) e as próprias
-rotas de `/api/auth`. A lista está em `isPublicPath`, num lugar só: rota nova
-nasce protegida sem ninguém precisar lembrar de protegê-la.
+(o health check do deployment não pode depender de credencial) e
+`/api/auth/session`, `/login` e `/logout`. A lista está em `isPublicPath`, num
+lugar só: rota nova nasce protegida sem ninguém precisar lembrar de protegê-la.
 
-**A primeira conta se cria na própria tela.** Enquanto o banco não tem nenhum
-usuário, a tela de login vira "Primeiro acesso" e `POST /auth/setup` aceita
-criar a conta inicial; assim que existe uma conta, esse endpoint passa a
-recusar. É o que mantém a promessa de um workspace novo funcionar só apertando
-Run — sem senha padrão no código, e sem env obrigatória além da `DATABASE_URL`.
-A contrapartida é honesta e vale saber: entre o primeiro deploy e o primeiro
-cadastro, quem chegar na URL cria a conta inicial.
+**Contas nascem em Configurações, por quem já tem acesso.** A tela de login
+só entra — não cadastra, e não tem link para cadastro. Em Configurações, quem
+está logado cria conta para outra pessoa, desativa e reativa acesso, e redefine
+a senha de quem esqueceu. É o que existe no lugar de recuperação por e-mail:
+este produto não manda e-mail, e fingir que manda seria pior.
 
-**Da segunda em diante, pelo terminal de quem administra** — o produto não tem
-auto-cadastro nem tela de equipe:
+**A primeira conta de um ambiente novo é do terminal.** Com o banco vazio não há
+quem crie a primeira pela tela — o "primeiro acesso" que existia foi removido de
+propósito, porque deixava a porta aberta entre o deploy e o primeiro cadastro:
 
 ```
 echo "a-senha" | pnpm --filter @workspace/api-server run create-user "Nome" email@empresa.com
 ```
+
+**Não há papéis.** Quem entra pode tudo, inclusive dar e tirar acesso, e a tela
+diz isso em vez de sugerir uma hierarquia que o servidor não tem. O que fica
+registrado é *quem fez*: `app_user.created_by` e `disabled_by` guardam o e-mail
+de quem deu e de quem tirou o acesso.
+
+**Ninguém é apagado, só desativado.** O `actor` das confirmações já feitas
+aponta para essas linhas; apagar uma transformaria um histórico auditável num
+e-mail órfão. Desativar tira o acesso, derruba as sessões abertas na hora, e
+preserva o histórico. Duas recusas protegem o desfecho pior: não dá para
+desativar a própria conta, nem a última que ainda está ativa.
+
+**Trocar de senha derruba as outras sessões.** A própria troca exige a senha
+atual e mantém viva só a aba onde foi feita; a redefinição por outra pessoa
+derruba todas.
 
 **O que a sessão mudou no produto:** `actor` deixou de ser campo digitado. Quem
 confirma uma semântica, quem envia uma planilha e quem promove uma vigência é
 lido da sessão, e o servidor ignora o que o corpo do pedido disser. Antes disso
 o histórico sustentava "alguém digitou este nome"; agora sustenta quem fez.
 
-Não existe nesta versão: papéis ou permissões por tela (quem entra vê tudo),
-recuperação de senha, e desativação de conta pela interface — a coluna
-`app_user.disabled_at` existe e é respeitada no login, mas só se preenche por
-SQL.
+Não existe nesta versão: papéis ou permissões por tela, recuperação de senha por
+e-mail, e exclusão de conta.
 
 ## Stack
 
@@ -108,8 +120,8 @@ SQL.
 - `artifacts/api-server` — HTTP; autenticação em `src/lib/auth.ts` (as
   primitivas, sem banco), `src/lib/session.ts` (sessões e contas) e
   `src/middlewares/require-session.ts` (o portão)
-- `artifacts/freightaudit` — interface; a sessão vive em `src/lib/auth.tsx` e o
-  portão em `App.tsx`
+- `artifacts/freightaudit` — interface; a sessão vive em `src/lib/auth.tsx`, o
+  portão em `App.tsx`, e as contas em `src/pages/configuracoes.tsx`
 - `docs/ARQUITETURA.md` — as decisões estruturais em prosa
 
 ## Architecture decisions

@@ -11,6 +11,7 @@ import {
   LayoutDashboard,
   Lock,
   LogOut,
+  Settings,
   Truck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -193,6 +194,27 @@ export function Sidebar() {
           </div>
         ))}
       </nav>
+
+      {/*
+        Configurações fica fora dos grupos de propósito: cada grupo acima é uma
+        pergunta que o produto responde sobre a remuneração, e "quem tem acesso"
+        não é uma delas. Enfiá-la em "De onde veio" faria a lista mentir sobre a
+        própria organização.
+      */}
+      <div className="px-4 pb-2">
+        <Link
+          href="/configuracoes"
+          className={cn(
+            "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200",
+            location.startsWith("/configuracoes")
+              ? "bg-sidebar-accent text-sidebar-accent-foreground"
+              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
+          )}
+        >
+          <Settings className="w-4 h-4 shrink-0" />
+          <span className="flex-1">Configurações</span>
+        </Link>
+      </div>
 
       <SignedInAs />
     </aside>

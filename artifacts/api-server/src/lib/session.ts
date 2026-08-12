@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, lt, sql } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, ne, sql } from "drizzle-orm";
 import {
   appUserTable,
   userSessionTable,
@@ -45,6 +45,32 @@ export const SESSION_MAX_AGE_MS = SESSION_TTL_MS;
 /** Código do Postgres para violação de unicidade — aqui, e-mail repetido. */
 const UNIQUE_VIOLATION = "23505";
 
+/**
+ * O código do Postgres não vem no topo do erro.
+ *
+ * O Drizzle embrulha o erro do driver num `DrizzleQueryError` e pendura o
+ * original em `cause`. Procurar `code` só no primeiro nível — que é o que este
+ * arquivo fazia — significa nunca reconhecer o e-mail repetido: a rota
+ * respondia 500 "não foi possível criar a conta" para o caso mais comum e mais
+ * fácil de explicar que ela tem.
+ */
+export function isUniqueViolation(err: unknown): boolean {
+  // O limite existe para o caso de uma corrente de `cause` circular; nenhuma
+  // biblioteca aqui produz uma, e um `while (true)` seria confiar nisso.
+  let current: unknown = err;
+  for (let depth = 0; current != null && depth < 5; depth += 1) {
+    if (
+      typeof current === "object" &&
+      "code" in current &&
+      (current as { code: unknown }).code === UNIQUE_VIOLATION
+    ) {
+      return true;
+    }
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 export class EmailAlreadyUsedError extends Error {
   constructor() {
     super("Já existe uma conta com esse e-mail.");
@@ -59,9 +85,24 @@ export async function countUsers(db: Database): Promise<number> {
   return row?.total ?? 0;
 }
 
+/** Contas que ainda entram. É o número que impede desativar a última delas. */
+export async function countActiveUsers(db: Database): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(appUserTable)
+    .where(isNull(appUserTable.disabledAt));
+  return row?.total ?? 0;
+}
+
 export async function createUser(
   db: Database,
-  input: { name: string; email: string; password: string },
+  input: {
+    name: string;
+    email: string;
+    password: string;
+    /** Quem está criando. Ausente = terminal (`create-user`). */
+    createdBy?: string;
+  },
 ): Promise<SessionUser> {
   const passwordHash = await hashPassword(input.password);
   try {
@@ -71,6 +112,7 @@ export async function createUser(
         name: input.name.trim(),
         email: normalizeEmail(input.email),
         passwordHash,
+        ...(input.createdBy ? { createdBy: input.createdBy } : {}),
       })
       .returning({
         id: appUserTable.id,
@@ -79,14 +121,7 @@ export async function createUser(
       });
     return user!;
   } catch (err) {
-    if (
-      typeof err === "object" &&
-      err !== null &&
-      "code" in err &&
-      (err as { code: unknown }).code === UNIQUE_VIOLATION
-    ) {
-      throw new EmailAlreadyUsedError();
-    }
+    if (isUniqueViolation(err)) throw new EmailAlreadyUsedError();
     throw err;
   }
 }
@@ -190,6 +225,154 @@ export async function endSession(db: Database, token: string): Promise<void> {
   await db
     .delete(userSessionTable)
     .where(eq(userSessionTable.tokenHash, hashSessionToken(token)));
+}
+
+/**
+ * Derruba tudo o que essa pessoa tem aberto — opcionalmente menos a sessão de
+ * quem está fazendo a operação.
+ *
+ * Senha trocada e conta desativada só valem alguma coisa se as sessões já
+ * abertas morrerem junto. Sem isto, "desativei o acesso dele" seria falso
+ * enquanto a aba dele continuasse aberta, por até sete dias.
+ */
+export async function endAllSessionsForUser(
+  db: Database,
+  userId: string,
+  keepToken?: string,
+): Promise<void> {
+  const conditions = [eq(userSessionTable.userId, userId)];
+  if (keepToken) {
+    conditions.push(ne(userSessionTable.tokenHash, hashSessionToken(keepToken)));
+  }
+  await db.delete(userSessionTable).where(and(...conditions));
+}
+
+/** O que a tela de Configurações mostra. Nunca inclui o hash da senha. */
+export interface ManagedUser extends SessionUser {
+  disabledAt: string | null;
+  lastLoginAt: string | null;
+  createdAt: string;
+  createdBy: string | null;
+  disabledBy: string | null;
+  /** Quantas sessões vivas essa pessoa tem agora. */
+  openSessions: number;
+}
+
+/**
+ * As sessões abertas são contadas por junção, e não por subconsulta escrita à
+ * mão.
+ *
+ * A subconsulta que estava aqui saía do Drizzle sem qualificar as colunas —
+ * `where "user_id" = "id"` — e dentro do subselect `"id"` é o da própria
+ * `user_session`, não o da `app_user` de fora. A condição nunca era verdadeira,
+ * e a tela dizia "sem sessão aberta" para todo mundo, inclusive para quem
+ * estava olhando a tela. Um número errado com aparência de certo é o defeito
+ * que este produto existe para não cometer.
+ */
+export async function listUsers(db: Database): Promise<ManagedUser[]> {
+  const rows = await db
+    .select({
+      id: appUserTable.id,
+      name: appUserTable.name,
+      email: appUserTable.email,
+      disabledAt: appUserTable.disabledAt,
+      lastLoginAt: appUserTable.lastLoginAt,
+      createdAt: appUserTable.createdAt,
+      createdBy: appUserTable.createdBy,
+      disabledBy: appUserTable.disabledBy,
+      openSessions: sql<number>`count(${userSessionTable.id})::int`,
+    })
+    .from(appUserTable)
+    .leftJoin(
+      userSessionTable,
+      and(
+        eq(userSessionTable.userId, appUserTable.id),
+        gt(userSessionTable.expiresAt, new Date()),
+      ),
+    )
+    .groupBy(appUserTable.id)
+    .orderBy(appUserTable.name);
+
+  return rows.map((row) => ({
+    ...row,
+    disabledAt: row.disabledAt?.toISOString() ?? null,
+    lastLoginAt: row.lastLoginAt?.toISOString() ?? null,
+    createdAt: row.createdAt.toISOString(),
+  }));
+}
+
+export async function findUserById(
+  db: Database,
+  id: string,
+): Promise<(SessionUser & { disabledAt: Date | null }) | null> {
+  const [user] = await db
+    .select({
+      id: appUserTable.id,
+      name: appUserTable.name,
+      email: appUserTable.email,
+      disabledAt: appUserTable.disabledAt,
+    })
+    .from(appUserTable)
+    .where(eq(appUserTable.id, id))
+    .limit(1);
+  return user ?? null;
+}
+
+/**
+ * Desativar tira o acesso e mantém a pessoa: o `actor` das confirmações que ela
+ * já fez continua apontando para um nome que existe. Reativar é o mesmo ato ao
+ * contrário, e por isso os dois vivem aqui e não em duas funções que divergem.
+ */
+export async function setUserDisabled(
+  db: Database,
+  userId: string,
+  disabled: boolean,
+  by: string,
+): Promise<void> {
+  await db
+    .update(appUserTable)
+    .set(
+      disabled
+        ? { disabledAt: new Date(), disabledBy: by }
+        : { disabledAt: null, disabledBy: null },
+    )
+    .where(eq(appUserTable.id, userId));
+
+  if (disabled) await endAllSessionsForUser(db, userId);
+}
+
+/**
+ * Troca a senha e derruba as sessões dessa pessoa.
+ *
+ * `keepToken` existe para quem está trocando a própria senha: continuar logado
+ * na aba em que se acabou de digitar a senha nova é o esperado; continuar
+ * logado nas outras não é.
+ */
+export async function setUserPassword(
+  db: Database,
+  userId: string,
+  password: string,
+  keepToken?: string,
+): Promise<void> {
+  await db
+    .update(appUserTable)
+    .set({ passwordHash: await hashPassword(password) })
+    .where(eq(appUserTable.id, userId));
+
+  await endAllSessionsForUser(db, userId, keepToken);
+}
+
+/** O hash de quem está logado, para conferir a senha atual antes de trocá-la. */
+export async function findPasswordHash(
+  db: Database,
+  userId: string,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ passwordHash: appUserTable.passwordHash })
+    .from(appUserTable)
+    .where(eq(appUserTable.id, userId))
+    .limit(1);
+  return row?.passwordHash ?? null;
 }
 
 /** Linhas expiradas não autenticam mais ninguém; ficam só ocupando espaço. */

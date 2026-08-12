@@ -1,6 +1,6 @@
 import { createContext, useContext, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { getApiUrl } from "@/lib/api";
+import { fetchJson } from "@/lib/api";
 
 /**
  * A sessão, do lado da interface.
@@ -10,6 +10,10 @@ import { getApiUrl } from "@/lib/api";
  * — `GET /auth/session` — e mostrar a tela correspondente à resposta. É por
  * isso que não existe nada de sessão em `localStorage` aqui: um estado guardado
  * no navegador seria uma segunda fonte da verdade, e a errada.
+ *
+ * Entrar é a única coisa que se faz sem sessão. Criar conta não está aqui e não
+ * está em tela nenhuma que se alcance deslogado — nasce em Configurações, por
+ * quem já entrou.
  */
 
 export interface SessionUser {
@@ -20,64 +24,17 @@ export interface SessionUser {
 
 interface SessionState {
   user: SessionUser | null;
-  /** Nenhuma conta existe neste ambiente: a tela oferece o primeiro acesso. */
-  needsSetup: boolean;
 }
 
 export const SESSION_QUERY_KEY = ["auth", "session"] as const;
 
-async function readServerError(response: Response, fallback: string) {
-  try {
-    const body = (await response.json()) as { error?: string };
-    return body.error ?? fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-async function fetchSession(): Promise<SessionState> {
-  const response = await fetch(getApiUrl("/auth/session"));
-  if (!response.ok) {
-    throw new Error(
-      await readServerError(
-        response,
-        "O servidor não respondeu quem está logado.",
-      ),
-    );
-  }
-  return (await response.json()) as SessionState;
-}
-
-async function postAuth(
-  path: string,
-  body: unknown,
-): Promise<{ user: SessionUser }> {
-  const response = await fetch(getApiUrl(path), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    throw new Error(
-      await readServerError(response, "Não foi possível concluir o pedido."),
-    );
-  }
-  return (await response.json()) as { user: SessionUser };
-}
-
 interface AuthContextValue {
   user: SessionUser | null;
-  needsSetup: boolean;
   /** A primeira resposta ainda não chegou: não se sabe se há sessão. */
   isLoading: boolean;
   /** A pergunta não chegou ao servidor. Diferente de "não está logado". */
   unreachable: Error | null;
   login: (input: { email: string; password: string }) => Promise<void>;
-  setup: (input: {
-    name: string;
-    email: string;
-    password: string;
-  }) => Promise<void>;
   logout: () => Promise<void>;
   isSubmitting: boolean;
 }
@@ -89,11 +46,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const session = useQuery({
     queryKey: SESSION_QUERY_KEY,
-    queryFn: fetchSession,
+    queryFn: () => fetchJson<SessionState>("/auth/session"),
     /**
      * Reperguntar não é paranoia: a sessão pode morrer no servidor — expirou,
-     * alguém saiu em outra aba, a conta foi desativada — e sem isto a tela
-     * continuaria mostrando um sistema que já não responde mais nada.
+     * alguém saiu em outra aba, a conta foi desativada, a senha foi trocada — e
+     * sem isto a tela continuaria mostrando um sistema que já não responde
+     * mais nada.
      */
     refetchOnWindowFocus: true,
     refetchInterval: 2 * 60 * 1000,
@@ -115,41 +73,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useMutation({
     mutationFn: (input: { email: string; password: string }) =>
-      postAuth("/auth/login", input),
-    onSuccess: ({ user }) => replaceSession({ user, needsSetup: false }),
-  });
-
-  const setup = useMutation({
-    mutationFn: (input: { name: string; email: string; password: string }) =>
-      postAuth("/auth/setup", input),
-    onSuccess: ({ user }) => replaceSession({ user, needsSetup: false }),
+      fetchJson<SessionState>("/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(input),
+      }),
+    onSuccess: ({ user }) => replaceSession({ user }),
   });
 
   const logout = useMutation({
-    mutationFn: async () => {
-      await fetch(getApiUrl("/auth/logout"), { method: "POST" });
-    },
+    mutationFn: () =>
+      fetchJson<SessionState>("/auth/logout", { method: "POST" }),
     // Mesmo se o pedido falhar, a tela volta para o login: o servidor apaga a
     // sessão ou ela expira sozinha, e ficar preso numa tela que não responde
     // seria pior.
-    onSettled: () => replaceSession({ user: null, needsSetup: false }),
+    onSettled: () => replaceSession({ user: null }),
   });
 
   const value: AuthContextValue = {
     user: session.data?.user ?? null,
-    needsSetup: session.data?.needsSetup ?? false,
     isLoading: session.isPending,
     unreachable: session.isError ? (session.error as Error) : null,
     login: async (input) => {
       await login.mutateAsync(input);
     },
-    setup: async (input) => {
-      await setup.mutateAsync(input);
-    },
     logout: async () => {
       await logout.mutateAsync();
     },
-    isSubmitting: login.isPending || setup.isPending || logout.isPending,
+    isSubmitting: login.isPending || logout.isPending,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

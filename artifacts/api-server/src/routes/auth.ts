@@ -1,37 +1,34 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import {
-  describeEmailProblem,
-  describeNameProblem,
   describePasswordProblem,
   verifyPassword,
   normalizeEmail,
 } from "../lib/auth";
 import {
-  EmailAlreadyUsedError,
   SESSION_COOKIE,
-  countUsers,
-  createUser,
   endSession,
+  findPasswordHash,
   findUserForLogin,
   purgeExpiredSessions,
   resolveSession,
+  setUserPassword,
   startSession,
 } from "../lib/session";
 
 /**
- * Entrar, sair, e o primeiro acesso.
+ * Entrar, sair, e trocar a própria senha.
  *
- * O primeiro acesso é a parte que costuma virar gambiarra, e aqui ele tem uma
- * regra só: `POST /auth/setup` funciona enquanto a tabela de usuários estiver
- * vazia, e para de funcionar no instante em que existe uma conta. Isso evita as
- * duas alternativas piores — uma senha padrão no código, que ninguém troca, e
- * uma variável de ambiente obrigatória, que quebraria a promessa de um
- * workspace novo funcionar só apertando Run.
+ * Não existe aqui nenhuma forma de criar conta. Existiu — um "primeiro acesso"
+ * que funcionava enquanto o banco estivesse sem usuários — e saiu por decisão
+ * de produto: quem entra passa a assinar confirmações de curadoria e promoções
+ * de vigência, e isso não é auto-atendimento. Contas nascem em Configurações,
+ * por quem já tem acesso, ou no terminal com `create-user` quando o ambiente é
+ * novo e ainda não há ninguém para fazer a primeira.
  *
- * A janela é real e vale a pena ser dita em voz alta: entre o primeiro deploy e
- * o primeiro cadastro, quem chegar na URL cria a conta inicial. Em compensação,
- * ela fecha sozinha e não deixa credencial conhecida para trás.
+ * A consequência de ter tirado, dita em voz alta: um ambiente com o banco vazio
+ * não tem como criar a primeira conta pela tela. É o `create-user` que responde
+ * por esse caso, e é por isso que ele não é opcional.
  */
 const router: IRouter = Router();
 
@@ -118,12 +115,11 @@ function clearSessionCookie(req: Request, res: Response): void {
 }
 
 /**
- * O estado da porta, respondido sem sessão.
+ * Quem está logado, respondido sem exigir sessão.
  *
- * É o primeiro pedido que a interface faz, e ele responde as duas perguntas de
- * que a tela precisa: quem está logado (se alguém), e se este ambiente ainda
- * não tem nenhuma conta — caso em que a tela mostra o primeiro acesso em vez do
- * login. Nunca responde 401: "não tem ninguém logado" é a resposta, não um erro.
+ * É o primeiro pedido que a interface faz. Nunca responde 401: "não tem ninguém
+ * logado" é a resposta, não um erro — e é o que faz a tela de login aparecer em
+ * vez de um estado de falha.
  */
 router.get("/auth/session", async (req, res): Promise<void> => {
   try {
@@ -133,12 +129,7 @@ router.get("/auth/session", async (req, res): Promise<void> => {
         ? await resolveSession(db, token)
         : null;
 
-    if (user) {
-      res.json({ user, needsSetup: false });
-      return;
-    }
-
-    res.json({ user: null, needsSetup: (await countUsers(db)) === 0 });
+    res.json({ user });
   } catch (err) {
     req.log.error({ err }, "Error resolving session");
     res.status(503).json({
@@ -196,10 +187,7 @@ router.post("/auth/login", async (req, res): Promise<void> => {
       req.log.warn({ err }, "Falha ao limpar sessões expiradas");
     });
 
-    res.json({
-      user: { id: user.id, name: user.name, email: user.email },
-      needsSetup: false,
-    });
+    res.json({ user: { id: user.id, name: user.name, email: user.email } });
   } catch (err) {
     req.log.error({ err }, "Error during login");
     res.status(500).json({ error: "Não foi possível concluir o login." });
@@ -215,54 +203,62 @@ router.post("/auth/logout", async (req, res): Promise<void> => {
     req.log.error({ err }, "Error ending session");
   }
   clearSessionCookie(req, res);
-  res.status(204).end();
+  // Corpo JSON, e não 204: toda resposta desta API é JSON — é a premissa de
+  // `readJson` na interface, que trata corpo vazio como sinal de que a
+  // requisição parou numa camada antes de chegar aqui.
+  res.json({ user: null });
 });
 
 /**
- * Primeiro acesso: cria a conta inicial, e só enquanto não existir nenhuma.
+ * Trocar a própria senha.
  *
- * Quem cria já entra — a alternativa seria mandar a pessoa digitar de novo, na
- * tela ao lado, a senha que ela acabou de escolher.
+ * Exige a senha atual mesmo com a sessão já aberta: uma aba esquecida aberta
+ * não pode virar a troca da credencial da pessoa. As outras sessões dela caem
+ * junto — trocar a senha é o que se faz quando se desconfia de que alguém a
+ * tem — e a desta aba continua, porque foi aqui que ela acabou de digitar a
+ * nova.
  */
-router.post("/auth/setup", async (req, res): Promise<void> => {
-  const { name, email, password } = req.body ?? {};
+router.post("/auth/password", async (req, res): Promise<void> => {
+  const { currentPassword, newPassword } = req.body ?? {};
+  const me = req.user!;
 
-  const problem =
-    describeNameProblem(name) ??
-    describeEmailProblem(email) ??
-    describePasswordProblem(password);
+  if (typeof currentPassword !== "string") {
+    res.status(400).json({ error: "Informe a senha atual." });
+    return;
+  }
+
+  const problem = describePasswordProblem(newPassword);
   if (problem) {
     res.status(400).json({ error: problem });
     return;
   }
 
+  if (currentPassword === newPassword) {
+    res.status(400).json({ error: "A senha nova é igual à atual." });
+    return;
+  }
+
   try {
-    if ((await countUsers(db)) > 0) {
-      res.status(409).json({
-        error:
-          "Este ambiente já tem conta cadastrada. O primeiro acesso só existe " +
-          "enquanto não há nenhuma.",
-      });
+    const hash = await findPasswordHash(db, me.id);
+    if (!hash || !(await verifyPassword(currentPassword, hash))) {
+      req.log.warn({ email: me.email }, "Troca de senha recusada");
+      res.status(401).json({ error: "A senha atual não confere." });
       return;
     }
 
-    const user = await createUser(db, {
-      name: name as string,
-      email: email as string,
-      password: password as string,
-    });
-    const { token, expiresAt } = await startSession(db, user.id);
-    setSessionCookie(req, res, token, expiresAt);
+    const token: unknown = req.cookies?.[SESSION_COOKIE];
+    await setUserPassword(
+      db,
+      me.id,
+      newPassword as string,
+      typeof token === "string" ? token : undefined,
+    );
 
-    req.log.info({ email: user.email }, "Primeira conta criada");
-    res.status(201).json({ user, needsSetup: false });
+    req.log.info({ email: me.email }, "Senha trocada pela própria pessoa");
+    res.json({ user: me });
   } catch (err) {
-    if (err instanceof EmailAlreadyUsedError) {
-      res.status(409).json({ error: err.message });
-      return;
-    }
-    req.log.error({ err }, "Error creating first user");
-    res.status(500).json({ error: "Não foi possível criar a conta." });
+    req.log.error({ err }, "Error changing own password");
+    res.status(500).json({ error: "Não foi possível trocar a senha." });
   }
 });
 
