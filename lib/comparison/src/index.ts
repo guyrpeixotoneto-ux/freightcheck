@@ -3,3 +3,7 @@ export * from "./impact";
 export * from "./engine";
 export * from "./query";
 export * from "./consolidated";
+export * from "./composition";
+export * from "./anomalies";
+export * from "./labels";
+export * from "./grouped";

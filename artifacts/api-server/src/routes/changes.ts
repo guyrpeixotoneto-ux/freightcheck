@@ -3,9 +3,12 @@ import { db } from "@workspace/db";
 import {
   computeChangeSet,
   findPreviousSnapshot,
+  getAttributeSeries,
   getChangeProvenance,
   getChangeSetBreakdown,
   getChangeSetForPair,
+  getGroupedView,
+  getGroupVehicles,
   listChangeSets,
   listChanges,
   listComparableSnapshots,
@@ -168,6 +171,73 @@ router.get("/changes/consolidated", async (req, res): Promise<void> => {
     res.json({ view, breakdown, periods: await listPeriods(db), ...changes });
   } catch (err) {
     req.log.error({ err }, "Error building consolidated view");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * Início — a vigência escolhida, agrupada por atributo e equipamento.
+ *
+ * A rota que a tela principal lê. Devolve tudo o que os Níveis 1 e 2 precisam
+ * numa resposta só: os grupos, o impacto **desta** vigência, o acumulado
+ * histórico num campo separado (nunca somados nem confundidos), as séries
+ * presentes e as ausentes, e as vigências disponíveis para o seletor.
+ *
+ * Não calcula comparação nenhuma: lê as que a importação já produziu. Abrir uma
+ * tela não pode disparar trabalho pesado nem fazer o número depender de quem
+ * abriu primeiro.
+ */
+router.get("/changes/grouped", async (req, res): Promise<void> => {
+  try {
+    const period = typeof req.query.period === "string" ? req.query.period : undefined;
+    const view = await getGroupedView(db, period);
+    if (!view) {
+      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+      return;
+    }
+    res.json(view);
+  } catch (err) {
+    req.log.error({ err }, "Error building grouped view");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/** Nível 2 — os veículos por trás de um cartão, um por linha. */
+router.get("/changes/grouped/vehicles", async (req, res): Promise<void> => {
+  try {
+    const { period, attributeCode, entityType, changeType, comparability, impactConfidence } =
+      req.query as Record<string, string | undefined>;
+    if (!period || !attributeCode || !entityType) {
+      res.status(400).json({ error: "Informe period, attributeCode e entityType." });
+      return;
+    }
+    res.json(
+      await getGroupVehicles(db, {
+        period,
+        attributeCode,
+        entityType,
+        changeType,
+        comparability,
+        impactConfidence,
+      }),
+    );
+  } catch (err) {
+    req.log.error({ err }, "Error listing group vehicles");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/** Nível 2 — a série do atributo nas vigências, com numerador e denominador. */
+router.get("/attributes/:code/series", async (req, res): Promise<void> => {
+  try {
+    const series = await getAttributeSeries(db, req.params.code);
+    if (!series) {
+      res.status(404).json({ error: "Atributo não encontrado." });
+      return;
+    }
+    res.json(series);
+  } catch (err) {
+    req.log.error({ err }, "Error loading attribute series");
     res.status(500).json({ error: "Internal server error" });
   }
 });

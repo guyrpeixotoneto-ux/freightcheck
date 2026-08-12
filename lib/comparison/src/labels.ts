@@ -1,0 +1,164 @@
+/**
+ * O vocabulário que a tela usa.
+ *
+ * O produto guarda `cavalo.ipva_licenciamento` e `ipvaLicenciamento`, e as duas
+ * formas têm razão de existir: a primeira é a identidade interna, a segunda é o
+ * literal da planilha, preservado para rastreabilidade. Nenhuma das duas é o
+ * que alguém quer ler ao decidir se precisa ligar para o cliente.
+ *
+ * Este mapa é o terceiro nome — o de leitura. Ele **não** substitui os outros
+ * dois: o código continua visível no detalhe do cartão, e o nome literal da
+ * coluna continua na proveniência, ao lado da célula. Trocar o rótulo nunca
+ * pode custar a capacidade de achar o dado na planilha do cliente.
+ *
+ * Fica em código, e não em `attribute.display_name`, porque preencher aquela
+ * coluna seria alterar dado — e porque um rótulo revisto num pull request é
+ * mais fácil de auditar do que um `UPDATE`.
+ */
+
+/** Nome de leitura por código de atributo. Ausência aqui não é erro (ver `attributeLabel`). */
+const ATTRIBUTE_LABELS: Record<string, string> = {
+  // ---- Carreta ----------------------------------------------------------
+  "carreta.custo_fixo": "Custo fixo",
+  "carreta.finame": "FINAME",
+  "carreta.finame_implemento": "FINAME do implemento",
+  "carreta.amortizacao_implemento": "Amortização do implemento",
+  "carreta.juros_finame_implemento": "Juros do FINAME do implemento",
+  "carreta.lucro_fixomodelo_novo_ciclo": "Lucro fixo do novo ciclo",
+  "carreta.lucro_fixomodelo_novo_ciclo_carreta": "Lucro fixo do novo ciclo (carreta)",
+  "carreta.lucro_variavel_previsto": "Lucro variável previsto",
+  "carreta.lucro_variavel_previsto_carreta": "Lucro variável previsto (carreta)",
+  "carreta.ipva_licenciamento": "IPVA / Licenciamento",
+  "carreta.ipva_licenciamento_mensal": "IPVA / Licenciamento (coluna “mensal”)",
+  "carreta.seguro": "Seguro",
+  "carreta.custo_aluguel": "Custo de aluguel",
+  "carreta.valor_nf_compra": "Valor da nota de compra",
+  "carreta.valor_pis_cofins": "PIS/COFINS sobre a compra",
+  "carreta.valor_icms": "ICMS (valor)",
+  "carreta.valor_pneus": "Pneus (valor)",
+  "carreta.icms": "ICMS (alíquota)",
+  "carreta.pis_cofins": "PIS/COFINS (alíquota)",
+  "carreta.taxa_finame": "Taxa do FINAME",
+  "carreta.tjlp": "TJLP",
+  "carreta.ciclo": "Ciclo",
+  "carreta.frota_emprestada": "Frota emprestada",
+  "carreta.tacografo": "Tacógrafo",
+  "carreta.status_financiamento_t1_shared": "Situação do financiamento",
+  "carreta.data_fim_contrato": "Fim do contrato",
+
+  // ---- Cavalo -----------------------------------------------------------
+  "cavalo.finame_cavalo": "Custo fixo do cavalo (coluna “FINAME”)",
+  "cavalo.amortizacao_cavalo": "Amortização do cavalo",
+  "cavalo.juros_finame_cavalo": "Juros do FINAME do cavalo",
+  "cavalo.lucro_fixomodelo_novo_ciclo_cavalo": "Lucro fixo do novo ciclo",
+  "cavalo.lucro_variavel_previsto_cavalo": "Lucro variável previsto",
+  "cavalo.ipva_licenciamento": "IPVA / Licenciamento",
+  "cavalo.valor_nf_compra": "Valor da nota de compra",
+  "cavalo.valor_pis_cofins": "PIS/COFINS sobre a compra",
+  "cavalo.valor_icms": "ICMS (valor)",
+  "cavalo.valor_pneu": "Pneu (valor)",
+  "cavalo.custo_aluguel": "Custo de aluguel",
+  "cavalo.custo_variavel_simulado": "Custo variável simulado",
+  "cavalo.manutencao_bid": "Manutenção (BID)",
+  "cavalo.manutencao_reais_km": "Manutenção por quilômetro",
+  "cavalo.manutencao_vida_meses": "Vida da manutenção",
+  "cavalo.manutencao_compra_fora_do_bid_autorizada": "Compra fora do BID autorizada",
+  "cavalo.combustivel_consumo_neg": "Consumo de combustível negociado",
+  "cavalo.combustivel_consumo_benchmark": "Consumo de combustível (referência)",
+  "cavalo.combustivel_vida_cavalo": "Vida do combustível",
+  "cavalo.combustivel_percentual_perda_vida": "Perda de vida do combustível",
+  "cavalo.odometro_entrada": "Odômetro de entrada",
+  "cavalo.percentual_reajuste_aplicado": "Reajuste aplicado",
+  "cavalo.data_fim_contrato": "Fim do contrato",
+  "cavalo.placa_carreta": "Carreta vinculada",
+  "cavalo.ativo": "Situação do ativo",
+  "cavalo.ciclo": "Ciclo",
+  "cavalo.taxa_finame": "Taxa do FINAME",
+  "cavalo.tjlp": "TJLP",
+  "cavalo.status_financiamento_t1_shared": "Situação do financiamento",
+};
+
+/**
+ * `ipvaLicenciamentoMensal` → `Ipva licenciamento mensal`.
+ *
+ * O que sobra quando não há rótulo escrito. Devolve algo legível sem fingir que
+ * entendeu o campo — a alternativa seria mostrar o slug, que é pior, ou omitir
+ * o atributo, que é inaceitável.
+ */
+function humanise(sourceName: string): string {
+  const spaced = sourceName
+    .replace(/([a-z\d])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .trim()
+    .toLowerCase();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+export function attributeLabel(
+  attributeCode: string | null,
+  sourceName?: string | null,
+): string {
+  if (attributeCode === null) return sourceName ? humanise(sourceName) : "(sem atributo)";
+  const known = ATTRIBUTE_LABELS[attributeCode];
+  if (known) return known;
+  if (sourceName) return humanise(sourceName);
+  // Último recurso: o trecho depois do prefixo do equipamento.
+  return humanise(attributeCode.split(".").slice(1).join(".") || attributeCode);
+}
+
+/** `CAVALO` → `Cavalo`; `CARRETA+CAVALO` → `Cavalos e carretas`. */
+export function equipmentLabel(entityType: string | null): string {
+  if (!entityType) return "Sem equipamento";
+  const map: Record<string, string> = { CAVALO: "Cavalo", CARRETA: "Carreta" };
+  const parts = entityType.split("+").map((p) => map[p] ?? p.toLowerCase());
+  if (parts.length === 1) return parts[0];
+  return parts.join(" e ");
+}
+
+/** Plural para as contagens de frota: "62 cavalos", "71 carretas". */
+export function equipmentPlural(entityType: string | null, count: number): string {
+  const map: Record<string, [string, string]> = {
+    CAVALO: ["cavalo", "cavalos"],
+    CARRETA: ["carreta", "carretas"],
+  };
+  const pair = map[entityType ?? ""] ?? ["ativo", "ativos"];
+  return `${count} ${count === 1 ? pair[0] : pair[1]}`;
+}
+
+/** Como a periodicidade aparece ao lado de um valor: "/mês", "/ano". */
+export function periodicitySuffix(periodicity: string | null): string {
+  const map: Record<string, string> = {
+    MENSAL: "/mês",
+    ANUAL: "/ano",
+    PONTUAL: " (valor único)",
+  };
+  return map[periodicity ?? ""] ?? "";
+}
+
+/** O estado da semântica, dito em português e sem o jargão do schema. */
+export function semanticsLabel(status: string | null): string {
+  const map: Record<string, string> = {
+    CONFIRMED: "significado confirmado",
+    PRESUMED: "significado ainda presumido",
+    UNKNOWN: "significado desconhecido",
+  };
+  return map[status ?? ""] ?? "significado não registrado";
+}
+
+/** A natureza da mudança, em português, para o cartão e para a lista. */
+export function natureLabel(nature: string | null): string {
+  const map: Record<string, string> = {
+    NUMERIC: "valor",
+    TEXT: "texto",
+    BOOLEAN: "sim/não",
+    DATE: "data",
+    ZEROING: "zerou",
+    FROM_ZERO: "saiu de zero",
+    APPEARED: "passou a existir",
+    DISAPPEARED: "deixou de existir",
+    NULL_REASON: "motivo da ausência",
+    TYPE_CHANGE: "mudou de tipo",
+    SEMANTICS_DRIFT: "significado mudou",
+  };
+  return map[nature ?? ""] ?? (nature ?? "—").toLowerCase();
+}
