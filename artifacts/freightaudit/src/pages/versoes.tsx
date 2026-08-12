@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { AlertTriangle, GitBranch, PenLine, Radio } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getApiUrl } from "@/lib/api";
+import { fetchJson, getApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
@@ -71,10 +72,9 @@ export default function Versoes() {
   const [selected, setSelected] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
 
-  const { data: attributes = [] } = useQuery({
+  const { data: attributes = [], error } = useQuery({
     queryKey: ["versions"],
-    queryFn: async () =>
-      (await (await fetch(getApiUrl("/curation/versions"))).json()) as VersionedAttribute[],
+    queryFn: () => fetchJson<VersionedAttribute[]>("/curation/versions"),
   });
 
   const visible = attributes.filter((a) => {
@@ -108,6 +108,15 @@ export default function Versoes() {
           </p>
         )}
       </header>
+
+      {error && (
+        <div className="px-8 pt-6">
+          <ApiErrorNotice
+            error={error}
+            what="Os atributos versionados não puderam ser carregados."
+          />
+        </div>
+      )}
 
       <div className="flex-1 grid grid-cols-1 xl:grid-cols-[minmax(0,380px)_minmax(0,1fr)] gap-6 p-8 items-start">
         <Card className="overflow-hidden">
@@ -176,8 +185,7 @@ function AttributeVersions({ code }: { code: string }) {
 
   const { data: history = [] } = useQuery({
     queryKey: ["versions", code],
-    queryFn: async () =>
-      (await (await fetch(getApiUrl(`/curation/versions/${code}`))).json()) as SemanticsVersion[],
+    queryFn: () => fetchJson<SemanticsVersion[]>(`/curation/versions/${code}`),
   });
 
   const current = history.find((v) => v.effectiveUntil === null);

@@ -8,8 +8,9 @@ import {
   Lock,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { ApiErrorNotice } from "@/components/api-error";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getApiUrl } from "@/lib/api";
+import { fetchJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
@@ -52,10 +53,9 @@ const brl = (v: number) =>
   });
 
 export default function Dashboard() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ["overview"],
-    queryFn: async () =>
-      (await (await fetch(getApiUrl("/overview")))?.json()) as Overview,
+    queryFn: () => fetchJson<Overview>("/overview"),
   });
 
   const t = data?.totals ?? {};
@@ -79,6 +79,10 @@ export default function Dashboard() {
 
       <div className="p-8 space-y-6">
         {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+
+        {error && (
+          <ApiErrorNotice error={error} what="O painel não pôde ser carregado." />
+        )}
 
         {data && (
           <>

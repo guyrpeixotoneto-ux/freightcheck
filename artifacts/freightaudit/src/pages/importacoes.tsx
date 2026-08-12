@@ -23,7 +23,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { getApiUrl } from "@/lib/api";
+import { fetchJson, getApiUrl, readJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
@@ -97,37 +97,6 @@ interface RunStatus {
  * what went wrong. Reading the text first turns that into a message that at
  * least names the status.
  */
-async function readJson(response: Response): Promise<Record<string, unknown>> {
-  const text = await response.text();
-  if (!text.trim()) {
-    // Um 5xx de corpo vazio nunca é nosso: toda resposta desta API é JSON,
-    // mesmo quando é erro. Corpo vazio quer dizer que a requisição parou numa
-    // camada antes — o roteador sem ninguém na porta (502), ou o proxy do Vite
-    // sem servidor atrás (500). Dizer "o servidor respondeu" a respeito de um
-    // servidor que não chegou a ser consultado mandou esta tela ser reescrita
-    // duas vezes atrás de um defeito que estava no ambiente.
-    if (response.status >= 500) {
-      throw new Error(
-        `A API não respondeu (${response.status}). A interface está no ar, mas o ` +
-          `servidor por trás de /api não está, e nada foi enviado. Confira o ` +
-          `processo "API Server" e depois /api/healthz.`,
-      );
-    }
-    throw new Error(
-      response.ok
-        ? `O servidor respondeu ${response.status} sem conteúdo. A conexão pode ter sido interrompida a caminho.`
-        : `O servidor respondeu ${response.status} sem detalhar o motivo.`,
-    );
-  }
-  try {
-    return JSON.parse(text) as Record<string, unknown>;
-  } catch {
-    throw new Error(
-      `Resposta inesperada do servidor (${response.status}): ${text.slice(0, 160)}`,
-    );
-  }
-}
-
 export default function Importacoes() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [detailOf, setDetailOf] = useState<ImportRun | null>(null);
@@ -142,15 +111,11 @@ export default function Importacoes() {
     error: listError,
   } = useQuery({
     queryKey: ["imports"],
-    queryFn: async () => {
-      const response = await fetch(getApiUrl("/imports"));
-      // `.json()` direto transformava a API fora do ar em lista vazia, e a tela
-      // dizia "nenhuma importação ainda" — a mesma frase de um banco limpo. A
-      // ausência de resposta passava por ausência de dados.
-      const body = await readJson(response);
-      if (!response.ok) throw new Error(body.error as string);
-      return body as unknown as ImportRun[];
-    },
+    // `.json()` direto transformava a API fora do ar em lista vazia, e a tela
+    // dizia "nenhuma importação ainda" — a mesma frase de um banco limpo. A
+    // ausência de resposta passava por ausência de dados. `fetchJson` é essa
+    // checagem, agora feita por toda a interface.
+    queryFn: () => fetchJson<ImportRun[]>("/imports"),
   });
 
   const upload = useMutation({
@@ -624,10 +589,7 @@ function PendingRun({
 }) {
   const { data } = useQuery({
     queryKey: ["imports", importRunId, "status"],
-    queryFn: async () => {
-      const response = await fetch(getApiUrl(`/imports/${importRunId}/status`));
-      return (await readJson(response)) as unknown as RunStatus;
-    },
+    queryFn: () => fetchJson<RunStatus>(`/imports/${importRunId}/status`),
     // Stops polling once the pipeline has finished or given up.
     refetchInterval: (query) => {
       const s = (query.state.data as RunStatus | undefined)?.status;
@@ -730,11 +692,18 @@ function PendingRun({
 }
 
 function SheetList({ runId }: { runId: string }) {
-  const { data } = useQuery({
+  const { data, error } = useQuery({
     queryKey: ["imports", runId],
-    queryFn: async () =>
-      (await (await fetch(getApiUrl(`/imports/${runId}`))).json()) as RunDetail,
+    queryFn: () => fetchJson<RunDetail>(`/imports/${runId}`),
   });
+
+  if (error) {
+    return (
+      <p className="text-xs text-red-700">
+        As abas deste arquivo não puderam ser lidas: {error.message}
+      </p>
+    );
+  }
 
   if (!data) return <p className="text-xs text-muted-foreground">Carregando…</p>;
 

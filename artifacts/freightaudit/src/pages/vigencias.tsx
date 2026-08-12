@@ -2,9 +2,10 @@ import { useQuery } from "@tanstack/react-query";
 import { Database, ArrowRight } from "lucide-react";
 import { Link } from "wouter";
 import { Layout } from "@/components/layout/layout";
+import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { getApiUrl } from "@/lib/api";
+import { fetchJson } from "@/lib/api";
 
 /**
  * Vigências — as versões de remuneração recebidas, em ordem.
@@ -25,10 +26,9 @@ interface Snapshot {
 }
 
 export default function Vigencias() {
-  const { data: snapshots = [], isLoading } = useQuery({
+  const { data: snapshots = [], isLoading, error } = useQuery({
     queryKey: ["snapshots"],
-    queryFn: async () =>
-      (await (await fetch(getApiUrl("/snapshots"))).json()) as Snapshot[],
+    queryFn: () => fetchJson<Snapshot[]>("/snapshots"),
   });
 
   const totalFacts = snapshots.reduce((sum, s) => sum + s.factCount, 0);
@@ -47,7 +47,14 @@ export default function Vigencias() {
         </p>
       </header>
 
-      <div className="p-8">
+      <div className="p-8 space-y-6">
+        {error && (
+          <ApiErrorNotice
+            error={error}
+            what="A lista de vigências não pôde ser carregada."
+          />
+        )}
+
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-base">
