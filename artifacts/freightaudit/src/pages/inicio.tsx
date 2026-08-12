@@ -62,6 +62,9 @@ export default function Inicio() {
               {data ? `Vigência de ${data.periodLabel}` : "Início"}
             </h1>
             {data && (
+              <p className="text-sm mt-1 font-medium">{data.context.label}</p>
+            )}
+            {data && (
               <p className="text-muted-foreground text-sm mt-1">
                 {data.series.map((s, i) => (
                   <span key={s.entityTypeSet}>
@@ -109,6 +112,24 @@ export default function Inicio() {
         {data && (
           <>
             <Verdict view={data} highlighted={highlighted.length} />
+
+            {/*
+              Escolher a unidade mais recente por padrão é uma escolha, e uma
+              escolha que a tela não mostra é uma omissão. Enquanto houver uma
+              unidade só, este aviso não aparece — não há nada a escolher.
+            */}
+            {data.otherContexts.length > 0 && (
+              <div className="flex gap-3 rounded-md border bg-muted/40 px-4 py-3 text-sm text-muted-foreground">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                <p>
+                  Os números abaixo são de <strong>{data.context.label}</strong>. Há mais{" "}
+                  {data.otherContexts.length}{" "}
+                  {data.otherContexts.length === 1 ? "contexto" : "contextos"} no banco (
+                  {data.otherContexts.map((c) => c.label).join(", ")}), e{" "}
+                  <strong>nenhum deles está somado aqui</strong>.
+                </p>
+              </div>
+            )}
 
             {!data.complete && (
               <div className="flex gap-3 rounded-md border border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-900">

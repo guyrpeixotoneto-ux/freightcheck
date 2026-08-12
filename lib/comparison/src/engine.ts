@@ -11,6 +11,7 @@ import {
   type AttributeClassification,
 } from "./classification";
 import { assessImpact } from "./impact";
+import { channelOf, channelSql } from "./series";
 
 /**
  * The comparison engine.
@@ -55,10 +56,16 @@ export interface ChangeSetSummary {
 
 /**
  * The snapshot a given one should be compared against: the most recent live
- * snapshot, of the same source, scope and entity coverage, that precedes it.
+ * snapshot, of the same source, scope, **channel** and entity coverage, that
+ * precedes it.
  *
  * Superseded revisions are excluded on purpose — comparing against a snapshot
  * that has itself been replaced would report differences that no longer stand.
+ *
+ * The channel joined the key when the label parser stopped being hard-coded to
+ * `EMPURRADA`. Without it, the first vigência of a second channel would pick
+ * the other channel's previous vigência as its baseline — same unit, same
+ * coverage, a different remuneration — and every asset would look changed.
  */
 export async function findPreviousSnapshot(
   db: Database,
@@ -78,6 +85,7 @@ export async function findPreviousSnapshot(
         eq(snapshotTable.sourceSystem, target.sourceSystem),
         eq(snapshotTable.scopeHash, target.scopeHash),
         eq(snapshotTable.entityTypeSet, target.entityTypeSet),
+        sql`${channelSql("snapshot.source_label")} IS NOT DISTINCT FROM ${channelOf(target.sourceLabel)}::text`,
         sql`${snapshotTable.status} <> 'SUPERSEDED'`,
         sql`${snapshotTable.effectiveDate} < ${target.effectiveDate}`,
       ),
@@ -139,6 +147,18 @@ export async function computeChangeSet(
   if (a.entityTypeSet !== b.entityTypeSet) {
     throw new Error(
       `Coberturas diferentes: "${a.sourceLabel}" cobre ${a.entityTypeSet} e "${b.sourceLabel}" cobre ${b.entityTypeSet}.`,
+    );
+  }
+  // O canal é parte do rótulo da vigência, não do escopo: duas vigências da
+  // mesma unidade podem vir de canais diferentes e descrever remunerações que
+  // não se sucedem. Comparar as duas produziria uma diferença sem significado.
+  const channelA = channelOf(a.sourceLabel);
+  const channelB = channelOf(b.sourceLabel);
+  if (channelA !== channelB) {
+    throw new Error(
+      `Canais diferentes: "${a.sourceLabel}" é do canal ${channelA ?? "não identificado"} e ` +
+        `"${b.sourceLabel}" é do canal ${channelB ?? "não identificado"}. ` +
+        `Uma vigência só se compara com outra do mesmo canal.`,
     );
   }
 

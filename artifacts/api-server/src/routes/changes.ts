@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Response } from "express";
 import { db } from "@workspace/db";
 import {
   computeChangeSet,
@@ -7,14 +7,19 @@ import {
   getChangeProvenance,
   getChangeSetBreakdown,
   getChangeSetForPair,
+  getFamiliesView,
   getGroupedView,
   getGroupVehicles,
+  FREIGHTECH_SEM_DADO,
   listChangeSets,
   listChanges,
   listComparableSnapshots,
   getConsolidated,
+  listContexts,
   listPeriods,
+  ContextNotFoundError,
   type ChangeFilters,
+  type SeriesContext,
 } from "@workspace/comparison";
 
 /**
@@ -50,6 +55,46 @@ function parseFilters(query: Record<string, unknown>): ChangeFilters {
     offset: num("offset"),
   };
 }
+
+/**
+ * O contexto pedido na query, quando pedido.
+ *
+ * `scopeHash` sozinho basta; `canal` é aceito junto para quando a mesma unidade
+ * entregar em mais de um canal. Nada pedido significa "o mais recente", e a
+ * resposta diz qual foi — ver `GroupedView.context`.
+ */
+function parseContext(query: Record<string, unknown>): Partial<SeriesContext> | undefined {
+  const scopeHash = typeof query.scopeHash === "string" && query.scopeHash !== ""
+    ? query.scopeHash
+    : undefined;
+  const hasCanal = typeof query.canal === "string";
+  if (scopeHash === undefined && !hasCanal) return undefined;
+  return {
+    ...(scopeHash !== undefined ? { scopeHash } : {}),
+    // `?canal=` vazio quer dizer "as vigências sem canal legível no rótulo",
+    // que é uma partição real e não a ausência de filtro.
+    ...(hasCanal ? { channel: (query.canal as string) === "" ? null : (query.canal as string) } : {}),
+  };
+}
+
+/** Recusa escrita vira 404 com a frase; o resto continua sendo 500. */
+function sendContextError(res: Response, err: unknown): boolean {
+  if (err instanceof ContextNotFoundError) {
+    res.status(404).json({ error: err.message });
+    return true;
+  }
+  return false;
+}
+
+/** As unidades e canais que já entregaram vigência — o seletor de contexto. */
+router.get("/contexts", async (req, res): Promise<void> => {
+  try {
+    res.json(await listContexts(db));
+  } catch (err) {
+    req.log.error({ err }, "Error listing contexts");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
 
 router.get("/snapshots", async (req, res): Promise<void> => {
   try {
@@ -157,7 +202,8 @@ router.get("/changes/latest", async (req, res): Promise<void> => {
 router.get("/changes/consolidated", async (req, res): Promise<void> => {
   try {
     const period = typeof req.query.period === "string" ? req.query.period : undefined;
-    const view = await getConsolidated(db, period);
+    const context = parseContext(req.query as Record<string, unknown>);
+    const view = await getConsolidated(db, period, context);
     if (!view) {
       res.status(404).json({ error: "Nenhuma vigência importada ainda." });
       return;
@@ -168,8 +214,17 @@ router.get("/changes/consolidated", async (req, res): Promise<void> => {
       listChanges(db, view.changeSetIds, filters),
       getChangeSetBreakdown(db, view.changeSetIds),
     ]);
-    res.json({ view, breakdown, periods: await listPeriods(db), ...changes });
+    res.json({
+      view,
+      breakdown,
+      // Os períodos são os do mesmo contexto da view — listar os de outra
+      // unidade num seletor que muda esta tela seria oferecer uma escolha que
+      // troca de assunto sem avisar.
+      periods: await listPeriods(db, view.context),
+      ...changes,
+    });
   } catch (err) {
+    if (sendContextError(res, err)) return;
     req.log.error({ err }, "Error building consolidated view");
     res.status(500).json({ error: "Internal server error" });
   }
@@ -190,14 +245,41 @@ router.get("/changes/consolidated", async (req, res): Promise<void> => {
 router.get("/changes/grouped", async (req, res): Promise<void> => {
   try {
     const period = typeof req.query.period === "string" ? req.query.period : undefined;
-    const view = await getGroupedView(db, period);
+    const context = parseContext(req.query as Record<string, unknown>);
+    const view = await getGroupedView(db, period, context);
     if (!view) {
       res.status(404).json({ error: "Nenhuma vigência importada ainda." });
       return;
     }
     res.json(view);
   } catch (err) {
+    if (sendContextError(res, err)) return;
     req.log.error({ err }, "Error building grouped view");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * A vigência arrumada por família e parâmetro — a leitura familiar ao Freightech.
+ *
+ * Devolve tudo o que `/changes/grouped` devolve, mais o resumo executivo e a
+ * árvore de famílias. É uma projeção sobre os mesmos grupos: nada é
+ * reclassificado, nada é recalculado, e a soma das famílias fecha com o total
+ * da vigência dentro de cada periodicidade.
+ */
+router.get("/changes/families", async (req, res): Promise<void> => {
+  try {
+    const period = typeof req.query.period === "string" ? req.query.period : undefined;
+    const context = parseContext(req.query as Record<string, unknown>);
+    const view = await getFamiliesView(db, period, context);
+    if (!view) {
+      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+      return;
+    }
+    res.json({ ...view, freightechSemDado: FREIGHTECH_SEM_DADO });
+  } catch (err) {
+    if (sendContextError(res, err)) return;
+    req.log.error({ err }, "Error building families view");
     res.status(500).json({ error: "Internal server error" });
   }
 });
@@ -211,6 +293,7 @@ router.get("/changes/grouped/vehicles", async (req, res): Promise<void> => {
       res.status(400).json({ error: "Informe period, attributeCode e entityType." });
       return;
     }
+    const context = parseContext(req.query as Record<string, unknown>);
     res.json(
       await getGroupVehicles(db, {
         period,
@@ -219,9 +302,12 @@ router.get("/changes/grouped/vehicles", async (req, res): Promise<void> => {
         changeType,
         comparability,
         impactConfidence,
+        scopeHash: context?.scopeHash,
+        ...(context && "channel" in context ? { channel: context.channel } : {}),
       }),
     );
   } catch (err) {
+    if (sendContextError(res, err)) return;
     req.log.error({ err }, "Error listing group vehicles");
     res.status(500).json({ error: "Internal server error" });
   }
@@ -230,13 +316,15 @@ router.get("/changes/grouped/vehicles", async (req, res): Promise<void> => {
 /** Nível 2 — a série do atributo nas vigências, com numerador e denominador. */
 router.get("/attributes/:code/series", async (req, res): Promise<void> => {
   try {
-    const series = await getAttributeSeries(db, req.params.code);
+    const context = parseContext(req.query as Record<string, unknown>);
+    const series = await getAttributeSeries(db, req.params.code, context);
     if (!series) {
       res.status(404).json({ error: "Atributo não encontrado." });
       return;
     }
     res.json(series);
   } catch (err) {
+    if (sendContextError(res, err)) return;
     req.log.error({ err }, "Error loading attribute series");
     res.status(500).json({ error: "Internal server error" });
   }

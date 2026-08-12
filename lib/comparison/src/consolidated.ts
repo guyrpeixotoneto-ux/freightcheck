@@ -3,6 +3,13 @@ import type { Database } from "@workspace/db";
 import { snapshotTable } from "@workspace/db";
 import { computeChangeSet, findPreviousSnapshot } from "./engine";
 import { getChangeSetForPair } from "./query";
+import {
+  contextFilter,
+  resolveContext,
+  seriesKey,
+  type ContextInfo,
+  type SeriesContext,
+} from "./series";
 
 /**
  * The consolidated view — a projection, not an entity.
@@ -34,6 +41,13 @@ export interface SeriesAtPeriod {
 }
 
 export interface ConsolidatedView {
+  /**
+   * A unidade e o canal a que tudo abaixo se refere.
+   *
+   * Existe para que escolher por padrão não seja escolher em silêncio: a
+   * resposta diz de quem é o período que ela está descrevendo.
+   */
+  context: ContextInfo;
   period: string;
   /** Series that delivered a vigência for this period. */
   present: SeriesAtPeriod[];
@@ -59,35 +73,56 @@ export interface ConsolidatedView {
   changeSetIds: string[];
 }
 
-/** Every period on record, with which series delivered for it. */
-export async function listPeriods(db: Database) {
+/**
+ * Every period on record, with which series delivered for it.
+ *
+ * **Sempre dentro de um contexto.** Uma vigência de agosto da unidade A e uma
+ * vigência de agosto da unidade B são dois períodos, não um: agrupar só por
+ * data somaria as duas frotas num total que nenhuma das duas reconheceria.
+ * Sem contexto, responde pelo mais recente — e quem chama tem a obrigação de
+ * dizer qual escolheu (ver `resolveContext`).
+ */
+export async function listPeriods(db: Database, context?: SeriesContext) {
+  const resolved = context ?? (await resolveContext(db));
+  if (!resolved) return [];
+
   const { rows } = await db.execute<{
     effective_date: string;
     series: string[];
   }>(sql`
-    SELECT effective_date::text AS effective_date,
-           array_agg(DISTINCT entity_type_set ORDER BY entity_type_set) AS series
-      FROM snapshot
-     WHERE status <> 'SUPERSEDED'
-     GROUP BY effective_date
-     ORDER BY effective_date DESC
+    SELECT s.effective_date::text AS effective_date,
+           array_agg(DISTINCT s.entity_type_set ORDER BY s.entity_type_set) AS series
+      FROM snapshot s
+     WHERE s.status <> 'SUPERSEDED'
+       AND ${contextFilter("s", resolved)}
+     GROUP BY s.effective_date
+     ORDER BY s.effective_date DESC
   `);
   return rows;
 }
 
 /**
- * Series the system knows about.
+ * Series the system knows about, in one context.
  *
  * Derived from what has actually been delivered, never declared. A series is
  * "expected" for a period only because it existed before — which is evidence,
- * not an assumption about what the Ambev owes.
+ * not an assumption about what the Ambev owes. And "before" is before *in this
+ * unit and this channel*: a série que a unidade A entrega não é dívida da
+ * unidade B.
  */
-export async function knownSeries(db: Database): Promise<string[]> {
+export async function knownSeries(
+  db: Database,
+  context?: SeriesContext,
+): Promise<string[]> {
+  const resolved = context ?? (await resolveContext(db));
+  if (!resolved) return [];
+
   const { rows } = await db.execute<{ entity_type_set: string }>(sql`
-    SELECT DISTINCT entity_type_set
-      FROM snapshot
-     WHERE status <> 'SUPERSEDED'
-     ORDER BY entity_type_set
+    SELECT DISTINCT s.entity_type_set
+      FROM snapshot s
+     WHERE s.status <> 'SUPERSEDED'
+       AND ${contextFilter("s", resolved)}
+     ORDER BY s.entity_type_set
   `);
   return rows.map((r) => r.entity_type_set);
 }
@@ -118,6 +153,7 @@ export async function computeMissingChangeSets(
     .select({
       id: snapshotTable.id,
       scopeHash: snapshotTable.scopeHash,
+      sourceLabel: snapshotTable.sourceLabel,
       entityTypeSet: snapshotTable.entityTypeSet,
       effectiveDate: snapshotTable.effectiveDate,
     })
@@ -125,9 +161,16 @@ export async function computeMissingChangeSets(
     .where(sql`${snapshotTable.status} <> 'SUPERSEDED'`)
     .orderBy(snapshotTable.effectiveDate);
 
+  // A chave inclui o canal: sem ele, a vigência de agosto do canal ROTA seria
+  // comparada contra a de julho do canal EMPURRADA — mesma unidade, mesma
+  // cobertura, remunerações diferentes.
   const series = new Map<string, typeof all>();
   for (const snapshot of all) {
-    const key = `${snapshot.scopeHash}|${snapshot.entityTypeSet}`;
+    const key = seriesKey(
+      snapshot.scopeHash,
+      snapshot.sourceLabel,
+      snapshot.entityTypeSet,
+    );
     if (!series.has(key)) series.set(key, []);
     series.get(key)!.push(snapshot);
   }
@@ -152,8 +195,12 @@ export async function computeMissingChangeSets(
 export async function getConsolidated(
   db: Database,
   period?: string,
+  requestedContext?: Partial<SeriesContext>,
 ): Promise<ConsolidatedView | null> {
-  const periods = await listPeriods(db);
+  const context = await resolveContext(db, requestedContext);
+  if (!context) return null;
+
+  const periods = await listPeriods(db, context);
   if (periods.length === 0) return null;
 
   const target = period
@@ -161,19 +208,21 @@ export async function getConsolidated(
     : periods[0];
   if (!target) return null;
 
-  const all = await knownSeries(db);
-  const snapshots = await db
-    .select({
-      id: snapshotTable.id,
-      entityTypeSet: snapshotTable.entityTypeSet,
-      sourceLabel: snapshotTable.sourceLabel,
-    })
-    .from(snapshotTable)
-    .where(
-      sql`${snapshotTable.effectiveDate}::text = ${target.effective_date}
-          AND ${snapshotTable.status} <> 'SUPERSEDED'`,
-    )
-    .orderBy(snapshotTable.entityTypeSet);
+  const all = await knownSeries(db, context);
+  const { rows: snapshots } = await db.execute<{
+    id: string;
+    entityTypeSet: string;
+    sourceLabel: string;
+  }>(sql`
+    SELECT s.id::text AS id,
+           s.entity_type_set AS "entityTypeSet",
+           s.source_label    AS "sourceLabel"
+      FROM snapshot s
+     WHERE s.effective_date::text = ${target.effective_date}
+       AND s.status <> 'SUPERSEDED'
+       AND ${contextFilter("s", context)}
+     ORDER BY s.entity_type_set
+  `);
 
   const present: SeriesAtPeriod[] = [];
   const totals = {
@@ -250,6 +299,7 @@ export async function getConsolidated(
   const missing = all.filter((s) => !presentTypes.has(s));
 
   return {
+    context,
     period: target.effective_date,
     present,
     missing,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseVigenciaLabel } from "../vigencia";
+import { channelOf, parseVigenciaLabel } from "../vigencia";
 
 describe("parseVigenciaLabel", () => {
   it("preserves the source label verbatim", () => {
@@ -39,12 +39,17 @@ describe("parseVigenciaLabel", () => {
     ]);
     // Chronological, which is what promotion relies on for identifier history.
     expect([...dates].sort()).toEqual(dates);
+    // And every one of them is the same channel — the series the product has.
+    expect(labels.map(channelOf)).toEqual(labels.map(() => "EMPURRADA"));
   });
 
   it("returns null instead of guessing when the shape is unknown", () => {
-    for (const bad of ["EMPURRADA", "PUXADA_1_8_2026", "1_8_2026", ""]) {
+    // "EMPURRADA" has no date; "1_8_2026" has no channel — a label that is all
+    // numbers must not be read as a channel called "1"; "" has neither.
+    for (const bad of ["EMPURRADA", "1_8_2026", "", "EMPURRADA_1_8_26", "EMPURRADA 1 8 2026"]) {
       const result = parseVigenciaLabel(bad);
       expect(result.effectiveDate).toBeNull();
+      expect(result.channel).toBeNull();
       expect(result.failureCode).toBe("UNRECOGNISED_FORMAT");
     }
   });
@@ -58,5 +63,48 @@ describe("parseVigenciaLabel", () => {
     expect(parseVigenciaLabel("EMPURRADA_1_13_2026").failureCode).toBe(
       "IMPOSSIBLE_DATE",
     );
+  });
+});
+
+/**
+ * O canal deixou de ser palavra fixa.
+ *
+ * O padrão era `^EMPURRADA_…$`: um export do canal ROTA — o que as telas do
+ * cliente mostram — seria recusado inteiro, com `UNRECOGNISED_FORMAT`, não
+ * porque a forma fosse desconhecida, mas porque a primeira palavra era. A
+ * ampliação é estritamente aditiva, e é isso que os testes acima e abaixo
+ * provam: nenhum rótulo antes aceito mudou de data, e nenhum rótulo antes
+ * recusado por *forma* passou a ser aceito.
+ */
+describe("outros canais", () => {
+  it("aceita ROTA com a mesma data que EMPURRADA no mesmo dia", () => {
+    const rota = parseVigenciaLabel("ROTA_1_8_2026");
+    const empurrada = parseVigenciaLabel("EMPURRADA_1_8_2026");
+    expect(rota.effectiveDate).toBe("2026-08-01");
+    expect(rota.effectiveDate).toBe(empurrada.effectiveDate);
+    // A data é a mesma; o canal é o que as distingue.
+    expect(rota.channel).toBe("ROTA");
+    expect(empurrada.channel).toBe("EMPURRADA");
+  });
+
+  it("lê o canal como tudo que vem antes dos três grupos numéricos", () => {
+    // Um canal com underscore no nome continua sendo um canal só: quem ancora
+    // a divisão são os três grupos do fim, não o primeiro underscore.
+    expect(channelOf("ROTA_SECA_1_8_2026")).toBe("ROTA_SECA");
+    expect(channelOf("EMPURRADA_2_12_2025")).toBe("EMPURRADA");
+  });
+
+  it("devolve canal nulo, e não um canal inventado, para rótulo fora do padrão", () => {
+    // Rótulos de fixture e de arquivos com nome à mão caem todos na mesma
+    // partição nula — e ficam comparáveis entre si, que é o desejado.
+    for (const label of ["CAR_JAN", "vigencia-1", "EMPURRADA"]) {
+      expect(channelOf(label)).toBeNull();
+    }
+  });
+
+  it("não confunde canal com data quando o rótulo tem números demais", () => {
+    // Os três grupos do fim ganham; o resto é canal, mesmo com dígitos.
+    expect(channelOf("R2_1_8_2026")).toBe("R2");
+    expect(parseVigenciaLabel("R2_1_8_2026").effectiveDate).toBe("2026-08-01");
   });
 });
