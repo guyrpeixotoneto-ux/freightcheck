@@ -77,6 +77,7 @@ const plural = (count: number, one: string, many: string) =>
 interface RunStatus {
   importRunId: string;
   status: string;
+  filename: string;
   failureReason: string | null;
   sheets: number;
   rawCells: number;
@@ -273,7 +274,9 @@ export default function Importacoes() {
             que falhou foi perguntar.
           </div>
         )}
-        {!isLoading && !listError && runs.length === 0 && (
+        {/* "Nenhuma importação ainda" ao lado de um arquivo sendo lido é falso
+            de um jeito que confunde: o que falta é aprovar, não enviar. */}
+        {!isLoading && !listError && runs.length === 0 && pendingIds.length === 0 && (
           <div className="rounded-2xl border bg-card px-8 py-10 text-center text-sm text-muted-foreground shadow-sm">
             Nenhuma importação ainda. Use{" "}
             <strong className="text-foreground">Escolher planilhas</strong> acima
@@ -659,6 +662,11 @@ function PendingRun({
             )}
           </div>
           <div className="min-w-0">
+            {/* O nome vem antes do estado: enviando dois arquivos de uma vez,
+                dois cartões dizendo "Conferido" não dizem qual é qual. */}
+            {data?.filename && (
+              <p className="font-bold text-sm truncate">{data.filename}</p>
+            )}
             <p className="font-semibold text-sm">
               {ready
                 ? "Conferido, ainda não importado."
@@ -729,6 +737,16 @@ function SheetList({ runId }: { runId: string }) {
   });
 
   if (!data) return <p className="text-xs text-muted-foreground">Carregando…</p>;
+
+  // Um run recusado como duplicata — ou que falhou antes da leitura — não tem
+  // abas. Uma moldura vazia deixaria isso parecendo carregamento travado.
+  if (data.sheets.length === 0) {
+    return (
+      <p className="text-xs text-muted-foreground">
+        Nenhuma aba foi lida: este arquivo não chegou a ser aberto.
+      </p>
+    );
+  }
 
   return (
     <div className="rounded-xl border divide-y overflow-hidden">
