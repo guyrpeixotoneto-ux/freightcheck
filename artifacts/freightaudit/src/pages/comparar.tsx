@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ArrowRight, GitCompareArrows } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { ApiErrorNotice } from "@/components/api-error";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
@@ -11,7 +12,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getApiUrl } from "@/lib/api";
+import { fetchJson, getApiUrl } from "@/lib/api";
 import {
   ChangeTable,
   FilterBar,
@@ -58,10 +59,9 @@ export default function Comparar() {
   const [set, setSet] = useState<ChangeSet | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const { data: snapshots = [] } = useQuery({
+  const { data: snapshots = [], error: snapshotsError } = useQuery({
     queryKey: ["snapshots"],
-    queryFn: async () =>
-      (await (await fetch(getApiUrl("/snapshots"))).json()) as Snapshot[],
+    queryFn: () => fetchJson<Snapshot[]>("/snapshots"),
   });
 
   /**
@@ -110,16 +110,12 @@ export default function Comparar() {
 
   const { data: changes } = useQuery({
     queryKey: ["change-set", set?.id, filters],
-    queryFn: async () => {
-      const response = await fetch(
-        getApiUrl(`/change-sets/${set!.id}/changes?${toQuery(filters)}`),
-      );
-      return (await response.json()) as {
+    queryFn: () =>
+      fetchJson<{
         breakdown: Breakdown;
         total: number;
         rows: ChangeRow[];
-      };
-    },
+      }>(`/change-sets/${set!.id}/changes?${toQuery(filters)}`),
     enabled: set !== null,
   });
 
@@ -184,6 +180,13 @@ export default function Comparar() {
       </header>
 
       <div className="p-8 space-y-6">
+        {snapshotsError && (
+          <ApiErrorNotice
+            error={snapshotsError}
+            what="As vigências disponíveis não puderam ser carregadas."
+          />
+        )}
+
         {error && (
           <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
             {error}

@@ -9,6 +9,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,7 +23,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getApiUrl } from "@/lib/api";
+import { fetchJson, getApiUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
@@ -93,12 +94,6 @@ interface TaxonomyNode {
   path: string;
 }
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(getApiUrl(path));
-  if (!response.ok) throw new Error(await response.text());
-  return response.json();
-}
-
 const brl = (value: number) =>
   value.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 
@@ -138,7 +133,7 @@ export default function Curadoria() {
     queryFn: () => fetchJson<{ byStatus: { status: string; count: number; monetary: number }[]; unclassified: number }>("/curation/summary"),
   });
 
-  const { data: queue = [], isLoading } = useQuery({
+  const { data: queue = [], isLoading, error } = useQuery({
     queryKey: ["curation", "queue", showConfirmed],
     queryFn: () =>
       fetchJson<QueueItem[]>(`/curation/queue?includeConfirmed=${showConfirmed}`),
@@ -215,6 +210,15 @@ export default function Curadoria() {
           />
         </div>
       </header>
+
+      {error && (
+        <div className="px-8 pt-6">
+          <ApiErrorNotice
+            error={error}
+            what="A fila de curadoria não pôde ser carregada."
+          />
+        </div>
+      )}
 
       <div className="flex-1 grid grid-cols-1 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)] gap-6 p-8 items-start">
         <Card className="overflow-hidden">
