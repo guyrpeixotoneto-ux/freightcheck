@@ -31,38 +31,6 @@ env = { "CI" = "true" }
 # cada artifact roda, e o que `pnpm dev` roda fora do Replit e em CI.
 
 [workflows]
-runButton = "Project"
-
-[[workflows.workflow]]
-name = "Project"
-mode = "parallel"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "API Server"
-
-[[workflows.workflow.tasks]]
-task = "workflow.run"
-args = "Frontend"
-
-# Aplica migrations, reconstrói o bundle e sobe. `waitForPort` é o que faz o Run
-# só se dar por pronto quando existe alguém escutando — a ausência disso é
-# indistinguível, da tela, de um defeito no produto.
-[[workflows.workflow]]
-name = "API Server"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "node scripts/dev.mjs api"
-waitForPort = 8080
-
-[[workflows.workflow]]
-name = "Frontend"
-
-[[workflows.workflow.tasks]]
-task = "shell.exec"
-args = "node scripts/dev.mjs web"
-waitForPort = 25609
 
 [agent]
 stack = "PNPM_WORKSPACE"
