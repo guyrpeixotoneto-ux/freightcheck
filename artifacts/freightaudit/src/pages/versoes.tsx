@@ -17,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { fetchJson, getApiUrl } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
 /**
@@ -337,17 +338,17 @@ function useSemanticsFields(current: SemanticsVersion) {
   const [periodicity, setPeriodicity] = useState(current.periodicity ?? "");
   const [aggregation, setAggregation] = useState(current.aggregation ?? "");
   const [basis, setBasis] = useState(current.calculationBasis ?? "");
-  const [actor, setActor] = useState("");
   const [reason, setReason] = useState("");
   return {
     unit, setUnit, periodicity, setPeriodicity, aggregation, setAggregation,
-    basis, setBasis, actor, setActor, reason, setReason,
+    basis, setBasis, reason, setReason,
     payload: {
       unit: unit || null,
       periodicity: periodicity || null,
       aggregation: aggregation || null,
       calculationBasis: basis || null,
-      actor,
+      // `actor` fica de fora: o servidor grava quem está logado, e um nome
+      // digitado aqui só teria como efeito discordar do histórico.
       reason,
     },
   };
@@ -394,25 +395,26 @@ function SemanticsFields({ f }: { f: ReturnType<typeof useSemanticsFields> }) {
   );
 }
 
+/**
+ * A justificativa, e quem assina — que não é mais um campo: é a sessão. O nome
+ * aparece porque quem escreve a justificativa tem o direito de ver com que
+ * assinatura ela vai para o histórico.
+ */
 function Attribution({ f }: { f: ReturnType<typeof useSemanticsFields> }) {
+  const { user } = useAuth();
+
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <Field label="Responsável">
-        <Input
-          value={f.actor}
-          onChange={(e) => f.setActor(e.target.value)}
-          placeholder="seu.nome@empresa"
-        />
-      </Field>
-      <Field label="Justificativa">
-        <Textarea
-          value={f.reason}
-          onChange={(e) => f.setReason(e.target.value)}
-          rows={2}
-          placeholder="Com base em quê?"
-        />
-      </Field>
-    </div>
+    <Field
+      label="Justificativa"
+      hint={`Registrada em nome de ${user?.email ?? "quem está logado"}.`}
+    >
+      <Textarea
+        value={f.reason}
+        onChange={(e) => f.setReason(e.target.value)}
+        rows={2}
+        placeholder="Com base em quê?"
+      />
+    </Field>
   );
 }
 
@@ -479,7 +481,7 @@ function SourceChangeForm({ code, current, onCancel, onDone }: FormProps) {
           <Button
             onClick={() => submit.mutate()}
             disabled={
-              submit.isPending || !effectiveFrom || !f.actor.trim() || !f.reason.trim()
+              submit.isPending || !effectiveFrom || !f.reason.trim()
             }
           >
             {submit.isPending ? "Registrando…" : `Criar versão ${current.version + 1}`}
@@ -549,7 +551,7 @@ function CorrectionForm({ code, current, onCancel, onDone }: FormProps) {
         <div className="flex gap-2">
           <Button
             onClick={() => submit.mutate()}
-            disabled={submit.isPending || !f.actor.trim() || !f.reason.trim()}
+            disabled={submit.isPending || !f.reason.trim()}
           >
             {submit.isPending ? "Corrigindo…" : `Corrigir versão ${current.version}`}
           </Button>
