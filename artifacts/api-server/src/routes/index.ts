@@ -1,4 +1,5 @@
 import { Router, type IRouter } from "express";
+import authRouter from "./auth";
 import healthRouter from "./health";
 import fleetAnalysisRouter from "./fleet-analysis";
 import curationRouter from "./curation";
@@ -23,9 +24,13 @@ import versionsRouter from "./versions";
  * `fleet-analysis` is kept as-is for now: it reads the workbook directly and
  * does not depend on the database, so the existing Fleet Analysis screen keeps
  * working while the canonical layer is being built.
+ *
+ * `auth` is the only surface below that answers without sessão — ver
+ * `middlewares/require-session.ts`, montado antes deste router.
  */
 const router: IRouter = Router();
 
+router.use(authRouter);
 router.use(healthRouter);
 router.use(fleetAnalysisRouter);
 router.use(curationRouter);
