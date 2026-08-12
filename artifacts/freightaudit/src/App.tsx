@@ -10,6 +10,7 @@ import Login from '@/pages/login';
 
 import Inicio from '@/pages/inicio';
 import Alteracoes from '@/pages/alteracoes';
+import Parametros from '@/pages/parametros';
 import Comparar from '@/pages/comparar';
 import Importacoes from '@/pages/importacoes';
 import ApresentacaoVideo from '@/components/video/ApresentacaoVideo';
@@ -41,6 +42,7 @@ function Router() {
     <Switch>
       <Route path="/" component={Inicio} />
       <Route path="/apresentacao" component={ApresentacaoVideo} />
+      <Route path="/parametros" component={Parametros} />
       <Route path="/alteracoes" component={Alteracoes} />
       <Route path="/comparar" component={Comparar} />
       <Route path="/importacoes" component={Importacoes} />

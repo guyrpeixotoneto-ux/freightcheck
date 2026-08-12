@@ -7,8 +7,10 @@ import {
   getChangeProvenance,
   getChangeSetBreakdown,
   getChangeSetForPair,
+  getFamiliesView,
   getGroupedView,
   getGroupVehicles,
+  FREIGHTECH_SEM_DADO,
   listChangeSets,
   listChanges,
   listComparableSnapshots,
@@ -253,6 +255,31 @@ router.get("/changes/grouped", async (req, res): Promise<void> => {
   } catch (err) {
     if (sendContextError(res, err)) return;
     req.log.error({ err }, "Error building grouped view");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * A vigência arrumada por família e parâmetro — a leitura familiar ao Freightech.
+ *
+ * Devolve tudo o que `/changes/grouped` devolve, mais o resumo executivo e a
+ * árvore de famílias. É uma projeção sobre os mesmos grupos: nada é
+ * reclassificado, nada é recalculado, e a soma das famílias fecha com o total
+ * da vigência dentro de cada periodicidade.
+ */
+router.get("/changes/families", async (req, res): Promise<void> => {
+  try {
+    const period = typeof req.query.period === "string" ? req.query.period : undefined;
+    const context = parseContext(req.query as Record<string, unknown>);
+    const view = await getFamiliesView(db, period, context);
+    if (!view) {
+      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+      return;
+    }
+    res.json({ ...view, freightechSemDado: FREIGHTECH_SEM_DADO });
+  } catch (err) {
+    if (sendContextError(res, err)) return;
+    req.log.error({ err }, "Error building families view");
     res.status(500).json({ error: "Internal server error" });
   }
 });

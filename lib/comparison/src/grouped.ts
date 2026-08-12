@@ -247,7 +247,7 @@ const num = (v: string | null): number | null => (v === null ? null : Number(v))
  * calculado sobre as primeiras 300 linhas contaria veículos errado. O maior
  * período desta base tem 593 linhas; o maior conjunto inteiro, 3.224.
  */
-async function loadChanges(
+export async function loadChanges(
   db: Database,
   changeSetIds: string[],
 ): Promise<RawChange[]> {
@@ -282,10 +282,25 @@ async function loadChanges(
  * parcela dele também mudou. Ver `composition.ts` para por que essa é a
  * granularidade certa.
  */
-export function summariseImpact(rows: RawChange[]): ImpactSummary {
-  const changedByEntity = indexChangedAttributesByEntity(
-    rows.map((r) => ({ entityId: r.entity_id, attributeCode: r.attribute_code })),
-  );
+export function summariseImpact(
+  rows: RawChange[],
+  /**
+   * Índice de composição já pronto, quando `rows` é uma **fatia** do conjunto.
+   *
+   * Obrigatório ao somar por família: `carreta.custo_fixo` está em Aquisição e
+   * financiamento, e a sua parcela `lucro_fixomodelo_novo_ciclo` está em
+   * Modelos de remuneração. Um índice construído só com as linhas da primeira
+   * não veria a segunda mudar, o titular voltaria para dentro da soma, e o
+   * total inflaria — o mesmo defeito de 71% que este produto já corrigiu uma
+   * vez, reintroduzido pela porta do agrupamento.
+   */
+  precomputedIndex?: Map<string, Set<string>>,
+): ImpactSummary {
+  const changedByEntity =
+    precomputedIndex ??
+    indexChangedAttributesByEntity(
+      rows.map((r) => ({ entityId: r.entity_id, attributeCode: r.attribute_code })),
+    );
 
   const byPeriodicity: Record<string, number> = {};
   const excludedByPeriodicity: Record<string, number> = {};

@@ -123,6 +123,7 @@ e-mail, e exclusão de conta.
 - `artifacts/freightaudit` — interface; a sessão vive em `src/lib/auth.tsx`, o
   portão em `App.tsx`, e as contas em `src/pages/configuracoes.tsx`
 - `docs/ARQUITETURA.md` — as decisões estruturais em prosa
+- `docs/PROPOSTA-NAVEGACAO-FREIGHTECH.md` — o mapeamento Freightech → FreightCheck
 
 ## Architecture decisions
 
@@ -146,6 +147,19 @@ e-mail, e exclusão de conta.
   resolvido em `lib/comparison/src/series.ts`, e a resposta **sempre diz qual
   contexto ela está descrevendo** e quais outros existem: escolher por padrão
   não pode ser escolher em silêncio.
+- **Família operacional e classe de custo são eixos diferentes, e os dois
+  valem.** A taxonomia (`taxonomy_node`) responde "custo fixo ou variável?" e
+  alimenta o impacto; as famílias do Freightech (Frota, Dimensões, Parâmetros
+  Gerais) respondem "de que assunto isto trata?" e servem para reconhecer.
+  O segundo eixo vive em `lib/comparison/src/families.ts` — em código, pelo
+  mesmo motivo que `labels.ts` — e **não** toca em `attribute.taxonomy_node_id`:
+  reclassificar mudaria a classe de custo das comparações futuras e as faria
+  divergir do `taxonomy_path` já gravado nas antigas.
+- **A soma das famílias fecha com o total da vigência**, dentro de cada
+  periodicidade. O índice de composição é montado sobre a vigência inteira e
+  passado para cada fatia — um titular e a sua parcela podem estar em famílias
+  diferentes (`custo_fixo` e `lucro_fixomodelo_novo_ciclo` estão), e uma fatia
+  que montasse o próprio índice traria a dupla contagem de volta.
 - **O canal é o prefixo do rótulo da vigência** (`EMPURRADA_1_8_2026`,
   `ROTA_1_8_2026`), derivado e não persistido: `snapshot` é congelado por
   trigger quando fecha, então uma coluna nova não seria preenchível nas

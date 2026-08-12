@@ -134,6 +134,72 @@ export interface GroupedView {
   groups: ChangeGroup[];
 }
 
+/**
+ * `GET /changes/families` — a vigência arrumada como o Freightech arruma.
+ *
+ * Estende `GroupedView`: os mesmos grupos, as mesmas regras de soma, mais o
+ * resumo executivo e a árvore de famílias.
+ */
+export interface ParameterView {
+  key: string;
+  name: string;
+  family: string;
+  /** Aviso quando a gaveta depende de resposta do cliente. */
+  pending: string | null;
+  changes: number;
+  vehicles: number;
+  impact: ImpactSummary;
+  groups: ChangeGroup[];
+}
+
+export interface FamilyView {
+  code: string;
+  name: string;
+  origin: "FREIGHTECH" | "FREIGHTCHECK";
+  note: string;
+  parametersWithData: number;
+  parametersChanged: number;
+  changes: number;
+  vehicles: number;
+  impact: ImpactSummary;
+  critical: number;
+  locked: number;
+  parameters: ParameterView[];
+}
+
+export interface ExecutiveSummary {
+  impact: ImpactSummary;
+  lossesByPeriodicity: Record<string, number>;
+  gainsByPeriodicity: Record<string, number>;
+  changes: number;
+  groups: number;
+  critical: number;
+  locked: number;
+  notCalculable: number;
+  vehiclesTouched: number;
+  topParameters: {
+    key: string;
+    name: string;
+    family: string;
+    familyName: string;
+    changes: number;
+    byPeriodicity: Record<string, number>;
+  }[];
+  topVehicles: {
+    plate: string;
+    entityType: string | null;
+    changes: number;
+    byPeriodicity: Record<string, number>;
+  }[];
+}
+
+export interface FamiliesView extends GroupedView {
+  summary: ExecutiveSummary;
+  families: FamilyView[];
+  /** O que o Freightech publica e este export não traz. Nota de rodapé. */
+  freightechSemDado: { family: string; parameters: string[] }[];
+}
+
 export interface GroupVehicle {
   changeId: number;
   plate: string | null;

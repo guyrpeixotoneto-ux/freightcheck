@@ -936,7 +936,7 @@ Fazer em três etapas, aprovando o resultado de cada uma antes da seguinte:
 | Etapa | Entrega | Custo | Risco |
 |---|---|---|---|
 | **E0 — correções que independem da nova UX** ✅ **feita** | chavear a leitura por `(scope_hash, canal, effective_date)`; ampliar o parser de vigência com teste de regressão | pequeno | **reduz** R1 e R2 |
-| **E1 — a camada de navegação** | mapa de famílias em código; `GET /context`, `GET /changes/families`, `GET /changes/summary`; barra de contexto; tela de famílias; tela de parâmetros. Cartão de grupo e tabela reaproveitados como estão | médio | baixo — nada abaixo da apresentação muda |
+| **E1 — a camada de navegação** ✅ **feita** | mapa de famílias em código; `GET /contexts` e `GET /changes/families`; barra de contexto; tela de Parâmetros com resumo executivo, famílias e parâmetros. Cartão de grupo reaproveitado como está | médio | baixo — nada abaixo da apresentação muda |
 | **E2 — o que a familiaridade destrava** | fila de curadoria ordenada por alterações destravadas; estado de decisão por grupo com chave semântica; favoritos | médio | baixo |
 
 **Nenhuma migration, nenhuma reimportação, nenhuma alteração em regra de
@@ -958,6 +958,45 @@ comparação, nenhum `UPDATE` em dado histórico em E0 e E1.**
 **A prova de que nada mudou para o dado real:** as suítes `comparison-real` e
 `grouped-real`, que reproduzem as contagens e os impactos das 9 vigências
 importadas, continuam passando sem uma única asserção alterada.
+
+### E1 — o que ficou pronto
+
+| Mudança | Onde |
+|---|---|
+| Mapa de famílias e parâmetros, com origem declarada (Freightech × FreightCheck) e avisos de pendência | `lib/comparison/src/families.ts` |
+| Agregação por família e parâmetro, resumo executivo, perdas/ganhos, top parâmetros e top veículos | `lib/comparison/src/families-view.ts` |
+| `summariseImpact` aceita o índice de composição do conjunto inteiro | `lib/comparison/src/grouped.ts` |
+| `GET /changes/families` | `artifacts/api-server/src/routes/changes.ts` |
+| Barra de contexto: unidade · canal · vigência · comparar com, sem botão Filtrar, estado na URL | `artifacts/freightaudit/src/components/contexto/context-bar.tsx` |
+| Tela **Parâmetros** | `artifacts/freightaudit/src/pages/parametros.tsx` |
+
+**Quatro decisões que valem registro:**
+
+1. **A soma das famílias fecha com o total da vigência**, dentro de cada
+   periodicidade, e há teste sobre o dado real que prova isso. Sem ele, o
+   agrupamento passaria confiança falsa.
+2. **A dupla contagem sobreviveria ao agrupamento se ninguém cuidasse.**
+   `carreta.custo_fixo` (Aquisição e financiamento) tem por parcela
+   `lucro_fixomodelo_novo_ciclo` (Modelos de remuneração) — famílias
+   *diferentes*. Uma fatia que montasse o próprio índice de composição não veria
+   a parcela mudar e devolveria o titular para a soma. O índice é montado uma
+   vez, sobre a vigência inteira, e passado para cada fatia.
+3. **"Já contado nas parcelas" é um terceiro estado, e não "não calculável".**
+   Em agosto/2026 o custo fixo mudou R$ 16.594,54/mês e ficou fora do líquido
+   por isso. Chamar aquilo de não calculável seria falso; repetir o valor
+   inflaria o total em 71%.
+4. **"Comparar com" é um campo fixo, não um seletor.** Cada série compara contra
+   a sua própria vigência anterior, e essas comparações são calculadas na
+   importação. Oferecer um par arbitrário aqui faria abrir uma tela disparar
+   cálculo pesado e o número passaria a depender de quem abriu primeiro — para
+   escolher o par à mão existe Comparar Vigências, onde o cálculo é pedido de
+   propósito.
+
+**Onde a implementação se afasta do mockup do §10:** as famílias e os parâmetros
+ficam numa página só, abrindo no lugar, em vez de cartão → página da família →
+página do parâmetro. São dois cliques a menos para o mesmo destino, e o §"não
+copiar a necessidade de muitos cliques" pesou mais do que o desenho em três
+telas.
 
 **Por que o canal não virou coluna:** `snapshot` é congelado por trigger quando
 fecha, então uma coluna nova não poderia ser preenchida nas vigências já

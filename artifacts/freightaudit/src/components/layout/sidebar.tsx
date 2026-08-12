@@ -8,6 +8,7 @@ import {
   GitBranch,
   GitCompareArrows,
   Home,
+  LayoutGrid,
   LogOut,
   Settings,
   Truck,
@@ -54,7 +55,15 @@ interface NavGroup {
 const NAV_GROUPS: NavGroup[] = [
   {
     title: "Decidir",
-    items: [{ href: "/", label: "Início", icon: Home }],
+    items: [
+      { href: "/", label: "Início", icon: Home },
+      {
+        href: "/parametros",
+        label: "Parâmetros",
+        icon: LayoutGrid,
+        note: "por família, como no Freightech",
+      },
+    ],
   },
   {
     title: "Aprofundar",
