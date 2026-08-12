@@ -5,7 +5,9 @@ import {
   rawSheetTable,
   snapshotTable,
   sourceFileTable,
+  stagedFactTable,
 } from "@workspace/db";
+import { parseVigenciaLabel } from "./vigencia";
 
 /**
  * Import history, read-only.
@@ -43,8 +45,15 @@ export interface ImportRunSummary {
   labels: string[];
 }
 
-export async function listImportRuns(db: Database): Promise<ImportRunSummary[]> {
-  const runs = await db
+/**
+ * The one shape of "a run, as a person reads it".
+ *
+ * List and detail answer the same question about a different number of runs,
+ * so they select the same columns. Two copies of this projection would drift,
+ * and the drift would show up as a card whose numbers change when you open it.
+ */
+function selectRunSummary(db: Database) {
+  return db
     .select({
       importRunId: importRunTable.id,
       status: importRunTable.status,
@@ -75,10 +84,97 @@ export async function listImportRuns(db: Database): Promise<ImportRunSummary[]> 
         )`,
     })
     .from(importRunTable)
-    .innerJoin(sourceFileTable, eq(sourceFileTable.id, importRunTable.sourceFileId))
-    .orderBy(desc(importRunTable.startedAt));
+    .innerJoin(sourceFileTable, eq(sourceFileTable.id, importRunTable.sourceFileId));
+}
 
-  return runs;
+export async function listImportRuns(db: Database): Promise<ImportRunSummary[]> {
+  return selectRunSummary(db).orderBy(desc(importRunTable.startedAt));
+}
+
+/** One run, or null when no run carries that id. */
+export async function getImportRun(
+  db: Database,
+  importRunId: string,
+): Promise<ImportRunSummary | null> {
+  const [run] = await selectRunSummary(db).where(
+    eq(importRunTable.id, importRunId),
+  );
+  return run ?? null;
+}
+
+/**
+ * What a run has produced so far — the answer to a poll while it is running.
+ *
+ * `labels` comes from the staged facts, not from `snapshot`: before promotion
+ * no snapshot exists, and a screen that read the snapshot count would show
+ * zero vigências for a file that in fact carries nine. After promotion the
+ * staged rows are still there, so the same query keeps telling the truth.
+ */
+export interface ImportRunStatus {
+  importRunId: string;
+  status: string;
+  /** Qual arquivo é este: dois envios de uma vez são dois cartões iguais sem ele. */
+  filename: string;
+  failureReason: string | null;
+  sheets: number;
+  rawCells: number;
+  facts: number;
+  snapshots: number;
+  errors: number;
+  warnings: number;
+  labels: string[];
+}
+
+export async function getImportRunStatus(
+  db: Database,
+  importRunId: string,
+): Promise<ImportRunStatus | null> {
+  const [run] = await db
+    .select({
+      id: importRunTable.id,
+      status: importRunTable.status,
+      failureReason: importRunTable.failureReason,
+      rawSheetCount: importRunTable.rawSheetCount,
+      rawCellCount: importRunTable.rawCellCount,
+      stagedFactCount: importRunTable.stagedFactCount,
+      snapshotCount: importRunTable.snapshotCount,
+      errorCount: importRunTable.errorCount,
+      warningCount: importRunTable.warningCount,
+      filename: sourceFileTable.filename,
+    })
+    .from(importRunTable)
+    .innerJoin(sourceFileTable, eq(sourceFileTable.id, importRunTable.sourceFileId))
+    .where(eq(importRunTable.id, importRunId));
+  if (!run) return null;
+
+  const staged = await db
+    .selectDistinct({ label: stagedFactTable.snapshotLabel })
+    .from(stagedFactTable)
+    .where(eq(stagedFactTable.importRunId, importRunId));
+
+  const labels = staged
+    .map((row) => row.label)
+    // Ordenar por data, e não pelo texto: EMPURRADA_2_12_2025 vem antes de
+    // EMPURRADA_2_1_2026 no calendário e depois dele no alfabeto.
+    .sort((a, b) =>
+      (parseVigenciaLabel(a).effectiveDate ?? a).localeCompare(
+        parseVigenciaLabel(b).effectiveDate ?? b,
+      ),
+    );
+
+  return {
+    importRunId: run.id,
+    status: run.status,
+    filename: run.filename,
+    failureReason: run.failureReason,
+    sheets: run.rawSheetCount,
+    rawCells: run.rawCellCount,
+    facts: run.stagedFactCount,
+    snapshots: run.snapshotCount,
+    errors: run.errorCount,
+    warnings: run.warningCount,
+    labels,
+  };
 }
 
 /** Sheets of one run, with the reason each was or was not treated as a source. */
