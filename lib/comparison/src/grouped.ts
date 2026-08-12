@@ -1,0 +1,1009 @@
+import { sql } from "drizzle-orm";
+import type { Database } from "@workspace/db";
+import {
+  detectFormatAnomaly,
+  type Anomaly,
+  type AnomalySide,
+} from "./anomalies";
+import {
+  compositionOf,
+  indexChangedAttributesByEntity,
+  isCoveredByParts,
+} from "./composition";
+import {
+  attributeLabel,
+  equipmentLabel,
+  natureLabel,
+  semanticsLabel,
+} from "./labels";
+import { listPeriods } from "./consolidated";
+
+/**
+ * A visão agrupada — o que a tela principal lê.
+ *
+ * A lista de alterações responde "o que mudou" em 267 linhas. A pergunta que a
+ * pessoa tem é outra, e cabe em 20 respostas: *o cliente mexeu no quê, em
+ * quantos veículos, e quanto isso me custa*. Este módulo faz essa redução.
+ *
+ * Agrupar é onde uma ferramenta de auditoria mais facilmente passa a mentir, e
+ * por isso as regras abaixo são explícitas e nenhuma delas é negociável:
+ *
+ * 1. **Nunca agrupar linhas comparáveis com incomparáveis.** A chave do grupo
+ *    inclui `comparability`. Um atributo com os dois casos vira dois cartões.
+ * 2. **Nunca agrupar linhas com impacto apurado e sem.** A chave inclui
+ *    `impact_confidence`, pelo mesmo motivo.
+ * 3. **Nunca somar entre periodicidades.** Herdado do motor e mantido.
+ * 4. **Só somar quando a semântica autoriza.** `aggregation = SUM` produz
+ *    total; qualquer outra coisa produz média e faixa, ditas como tais. Somar
+ *    meses de vida de manutenção daria "3.075,69 meses", que não é nada.
+ * 5. **Média sempre com numerador, denominador e nº de veículos à vista.** Uma
+ *    soma que cresce porque entraram dois cavalos não é aumento de preço, e a
+ *    única defesa contra essa leitura é mostrar a divisão.
+ * 6. **Sempre dizer quantos padrões distintos existem dentro do grupo.** Um
+ *    cartão que diz "R$ 4.096,31 → R$ 2.505,97" quando há 13 pares diferentes
+ *    está escondendo dispersão.
+ * 7. **Nada sai da lista.** O agrupamento é uma leitura; toda linha continua
+ *    acessível, rastreável e contada em algum lugar visível.
+ */
+
+// ---------------------------------------------------------------------------
+// Tipos
+// ---------------------------------------------------------------------------
+
+export type Badge =
+  | "DINHEIRO"
+  | "RUPTURA"
+  | "COBERTURA"
+  | "MOVIMENTO"
+  | "TRAVADO"
+  | "SEM_SINAL";
+
+export type Coverage = "TOTAL" | "MAIORIA" | "PARCIAL";
+
+export interface GroupImpact {
+  /** CALCULATED | ESTIMATED | NOT_CALCULABLE — o do próprio grupo. */
+  confidence: string;
+  /** Soma dos impactos que **entram** no total da vigência. */
+  amount: number | null;
+  periodicity: string | null;
+  reason: string | null;
+  /** Veículos cujo impacto entrou na soma. */
+  countedVehicles: number;
+  /** Veículos cujo impacto ficou fora por já estar nas parcelas. */
+  excludedVehicles: number;
+  excludedAmount: number | null;
+  /** Por que a exclusão aconteceu, com a evidência da composição. */
+  excludedReason: string | null;
+}
+
+export interface GroupAggregate {
+  /** true quando `aggregation = SUM`. Só então existe `totalBefore/After`. */
+  summable: boolean;
+  aggregation: string | null;
+  totalBefore: number | null;
+  totalAfter: number | null;
+  /** Linhas que entraram na soma (as duas pontas numéricas presentes). */
+  rowsInTotal: number;
+  /** Numerador, denominador e nº de veículos, explícitos. */
+  perVehicle: {
+    numeratorBefore: number | null;
+    numeratorAfter: number | null;
+    denominator: number;
+    averageBefore: number | null;
+    averageAfter: number | null;
+  } | null;
+  deltaPercent: number | null;
+  /** Para o que não é somável: a faixa de variação observada. */
+  minPercent: number | null;
+  maxPercent: number | null;
+}
+
+export interface ChangeGroup {
+  key: string;
+  attributeCode: string | null;
+  title: string;
+  entityType: string | null;
+  equipment: string;
+  changeType: string;
+  category: string;
+  comparability: string;
+  /** Quantos ativos distintos deste equipamento têm esta alteração. */
+  vehicles: number;
+  /** Quantos ativos a série tinha na vigência nova. */
+  fleet: number;
+  coverage: Coverage;
+  coverageLabel: string;
+  /** Pares "antes → depois" distintos dentro do grupo. */
+  patterns: number;
+  /** O par mais frequente, quando há mais de um. */
+  dominantPattern: { before: string | null; after: string | null; vehicles: number } | null;
+  aggregate: GroupAggregate;
+  impact: GroupImpact;
+  natures: string[];
+  semanticsStatus: string | null;
+  semanticsLabel: string;
+  /** BRL | PERCENT | KM_L | MESES | … — a tela formata por isto, nunca por palpite. */
+  unit: string | null;
+  isMonetary: boolean | null;
+  costClass: string | null;
+  taxonomyName: string | null;
+  inconclusiveReason: string | null;
+  anomalies: (Anomaly & { vehicles: number })[];
+  /** Quando o atributo é o total de uma composição declarada. */
+  composition: { total: string; parts: string[]; evidence: string } | null;
+  badge: Badge;
+  badgeLabel: string;
+}
+
+export interface ImpactSummary {
+  /** Somado dentro de cada periodicidade, já sem dupla contagem. */
+  byPeriodicity: Record<string, number>;
+  /** O que foi deixado de fora por já estar contado nas parcelas. */
+  excludedByPeriodicity: Record<string, number>;
+  excludedChanges: number;
+  /** Alterações sem preço, que continuam listadas. */
+  notCalculable: number;
+  calculatedChanges: number;
+}
+
+export interface GroupedSeries {
+  entityTypeSet: string;
+  equipment: string;
+  snapshotLabel: string;
+  previousLabel: string | null;
+  fleet: number;
+  changeSetId: string | null;
+  reason: string | null;
+}
+
+export interface GroupedView {
+  period: string;
+  periodLabel: string;
+  periods: { date: string; label: string; series: string[] }[];
+  series: GroupedSeries[];
+  missingSeries: string[];
+  complete: boolean;
+  totals: {
+    changes: number;
+    groups: number;
+    vehiclesTouched: number;
+    entitiesAdded: number;
+    entitiesRemoved: number;
+    unchanged: number;
+    inconclusive: number;
+  };
+  /** O impacto **desta vigência**. */
+  impact: ImpactSummary;
+  /**
+   * O acumulado de todas as comparações já feitas. Fica num campo próprio, com
+   * nome próprio, porque confundir os dois é o erro que o Painel cometia: ele
+   * exibia "−R$ 735.312/anual" — a soma de dezesseis transições — ao lado do
+   * título de uma vigência só.
+   */
+  accumulated: ImpactSummary & {
+    comparisons: number;
+    from: string | null;
+    to: string | null;
+  };
+  groups: ChangeGroup[];
+}
+
+// ---------------------------------------------------------------------------
+// Leitura
+// ---------------------------------------------------------------------------
+
+interface RawChange extends Record<string, unknown> {
+  id: number;
+  change_set_id: string;
+  category: string;
+  change_type: string;
+  nature: string | null;
+  entity_id: string | null;
+  entity_label: string | null;
+  entity_type: string | null;
+  attribute_code: string | null;
+  attribute_source_name: string | null;
+  value_before: string | null;
+  value_after: string | null;
+  numeric_before: string | null;
+  numeric_after: string | null;
+  delta_percent: string | null;
+  comparability: string;
+  inconclusive_reason: string | null;
+  impact_confidence: string;
+  impact_amount: string | null;
+  impact_periodicity: string | null;
+  impact_reason: string | null;
+  cost_class: string | null;
+  taxonomy_name: string | null;
+  semantics_status: string | null;
+  aggregation: string | null;
+  is_monetary: boolean | null;
+  unit: string | null;
+}
+
+const num = (v: string | null): number | null => (v === null ? null : Number(v));
+
+/**
+ * Todas as linhas de um conjunto de comparações, sem limite.
+ *
+ * Sem paginação de propósito: agrupar exige ver o conjunto inteiro, e um grupo
+ * calculado sobre as primeiras 300 linhas contaria veículos errado. O maior
+ * período desta base tem 593 linhas; o maior conjunto inteiro, 3.224.
+ */
+async function loadChanges(
+  db: Database,
+  changeSetIds: string[],
+): Promise<RawChange[]> {
+  if (changeSetIds.length === 0) return [];
+  const { rows } = await db.execute<RawChange>(sql`
+    SELECT c.id, c.change_set_id, c.category, c.change_type, c.nature,
+           c.entity_id::text AS entity_id, c.entity_label, c.entity_type,
+           c.attribute_code, a.source_name AS attribute_source_name,
+           c.value_before, c.value_after,
+           c.numeric_before::text AS numeric_before,
+           c.numeric_after::text  AS numeric_after,
+           c.delta_percent::text  AS delta_percent,
+           c.comparability, c.inconclusive_reason,
+           c.impact_confidence, c.impact_amount::text AS impact_amount,
+           c.impact_periodicity, c.impact_reason,
+           c.cost_class, c.taxonomy_name, c.semantics_status,
+           a.aggregation, a.is_monetary, a.unit
+      FROM "change" c
+      LEFT JOIN attribute a ON a.code = c.attribute_code
+     WHERE c.change_set_id IN (${sql.join(
+       changeSetIds.map((id) => sql`${id}::uuid`),
+       sql`, `,
+     )})
+  `);
+  return rows;
+}
+
+/**
+ * O impacto de um conjunto de linhas, com a dupla contagem retirada.
+ *
+ * A exclusão é por ativo: um total só sai da soma no ativo em que alguma
+ * parcela dele também mudou. Ver `composition.ts` para por que essa é a
+ * granularidade certa.
+ */
+export function summariseImpact(rows: RawChange[]): ImpactSummary {
+  const changedByEntity = indexChangedAttributesByEntity(
+    rows.map((r) => ({ entityId: r.entity_id, attributeCode: r.attribute_code })),
+  );
+
+  const byPeriodicity: Record<string, number> = {};
+  const excludedByPeriodicity: Record<string, number> = {};
+  let excludedChanges = 0;
+  let notCalculable = 0;
+  let calculatedChanges = 0;
+
+  for (const row of rows) {
+    if (row.impact_confidence !== "CALCULATED" || row.impact_amount === null) {
+      notCalculable++;
+      continue;
+    }
+    calculatedChanges++;
+    const bucket = row.impact_periodicity ?? "SEM_PERIODICIDADE";
+    const amount = Number(row.impact_amount);
+    if (isCoveredByParts(row.attribute_code, row.entity_id, changedByEntity)) {
+      excludedByPeriodicity[bucket] = (excludedByPeriodicity[bucket] ?? 0) + amount;
+      excludedChanges++;
+      continue;
+    }
+    byPeriodicity[bucket] = (byPeriodicity[bucket] ?? 0) + amount;
+  }
+
+  return {
+    byPeriodicity: round(byPeriodicity),
+    excludedByPeriodicity: round(excludedByPeriodicity),
+    excludedChanges,
+    notCalculable,
+    calculatedChanges,
+  };
+}
+
+function round(buckets: Record<string, number>): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries(buckets).map(([k, v]) => [k, Number(v.toFixed(2))]),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Agrupamento
+// ---------------------------------------------------------------------------
+
+/**
+ * Chave do grupo.
+ *
+ * `comparability` e `impact_confidence` entram porque misturar comparável com
+ * incomparável, ou com preço com sem preço, produziria um cartão cujo número
+ * não descreve as linhas que ele diz representar.
+ */
+function groupKey(row: RawChange): string {
+  return [
+    row.attribute_code ?? "(sem atributo)",
+    row.entity_type ?? "(sem equipamento)",
+    row.change_type,
+    row.comparability,
+    row.impact_confidence,
+  ].join("|");
+}
+
+function buildGroup(
+  rows: RawChange[],
+  fleetByChangeSet: Map<string, number>,
+  changedByEntity: Map<string, Set<string>>,
+): ChangeGroup {
+  const first = rows[0];
+  const entities = new Set(rows.map((r) => r.entity_id ?? String(r.id)));
+  const vehicles = entities.size;
+
+  // A frota da série a que este grupo pertence. Quando o grupo abrange mais de
+  // uma comparação (não acontece hoje, mas nada impede), toma-se a maior.
+  const fleet = Math.max(
+    ...rows.map((r) => fleetByChangeSet.get(r.change_set_id) ?? 0),
+    vehicles,
+  );
+
+  // ---- padrões distintos -------------------------------------------------
+  const patternCounts = new Map<string, { before: string | null; after: string | null; vehicles: number }>();
+  for (const row of rows) {
+    const key = `${row.value_before ?? "∅"}→${row.value_after ?? "∅"}`;
+    const entry = patternCounts.get(key);
+    if (entry) entry.vehicles++;
+    else patternCounts.set(key, { before: row.value_before, after: row.value_after, vehicles: 1 });
+  }
+  const patterns = patternCounts.size;
+  const dominant =
+    patterns > 1
+      ? [...patternCounts.values()].sort((a, b) => b.vehicles - a.vehicles)[0]
+      : null;
+
+  // ---- agregado ----------------------------------------------------------
+  const summable = first.aggregation === "SUM";
+  let totalBefore: number | null = null;
+  let totalAfter: number | null = null;
+  let rowsInTotal = 0;
+  if (summable) {
+    for (const row of rows) {
+      const b = num(row.numeric_before);
+      const a = num(row.numeric_after);
+      if (b === null || a === null) continue;
+      totalBefore = (totalBefore ?? 0) + b;
+      totalAfter = (totalAfter ?? 0) + a;
+      rowsInTotal++;
+    }
+  }
+  const percents = rows
+    .map((r) => num(r.delta_percent))
+    .filter((v): v is number => v !== null);
+
+  const aggregate: GroupAggregate = {
+    summable,
+    aggregation: first.aggregation,
+    totalBefore: totalBefore === null ? null : Number(totalBefore.toFixed(2)),
+    totalAfter: totalAfter === null ? null : Number(totalAfter.toFixed(2)),
+    rowsInTotal,
+    perVehicle:
+      summable && rowsInTotal > 0 && totalBefore !== null && totalAfter !== null
+        ? {
+            numeratorBefore: Number(totalBefore.toFixed(2)),
+            numeratorAfter: Number(totalAfter.toFixed(2)),
+            denominator: rowsInTotal,
+            averageBefore: Number((totalBefore / rowsInTotal).toFixed(2)),
+            averageAfter: Number((totalAfter / rowsInTotal).toFixed(2)),
+          }
+        : null,
+    deltaPercent:
+      summable && totalBefore !== null && totalAfter !== null && totalBefore !== 0
+        ? Number((((totalAfter - totalBefore) / Math.abs(totalBefore)) * 100).toFixed(1))
+        : null,
+    minPercent: percents.length ? Number(Math.min(...percents).toFixed(1)) : null,
+    maxPercent: percents.length ? Number(Math.max(...percents).toFixed(1)) : null,
+  };
+
+  // ---- impacto, com a dupla contagem separada ----------------------------
+  let counted = 0;
+  let excluded = 0;
+  let amount: number | null = null;
+  let excludedAmount: number | null = null;
+  for (const row of rows) {
+    if (row.impact_confidence !== "CALCULATED" || row.impact_amount === null) continue;
+    const value = Number(row.impact_amount);
+    if (isCoveredByParts(row.attribute_code, row.entity_id, changedByEntity)) {
+      excludedAmount = (excludedAmount ?? 0) + value;
+      excluded++;
+    } else {
+      amount = (amount ?? 0) + value;
+      counted++;
+    }
+  }
+  const composition = compositionOf(first.attribute_code);
+  const impact: GroupImpact = {
+    confidence: first.impact_confidence,
+    amount: amount === null ? null : Number(amount.toFixed(2)),
+    periodicity: first.impact_periodicity,
+    reason: first.impact_reason,
+    countedVehicles: counted,
+    excludedVehicles: excluded,
+    excludedAmount: excludedAmount === null ? null : Number(excludedAmount.toFixed(2)),
+    excludedReason:
+      excluded > 0 && composition
+        ? `Este atributo é o total de ${composition.parts.length} parcelas, e em ` +
+          `${excluded} ${excluded === 1 ? "veículo" : "veículos"} a parcela também mudou. ` +
+          `A variação já está contada nelas — somar o total de novo contaria o mesmo ` +
+          `dinheiro duas vezes. A alteração continua na lista e continua rastreável.`
+        : null,
+  };
+
+  // ---- anomalias de formato ----------------------------------------------
+  const anomalyIndex = new Map<string, Anomaly & { vehicles: number }>();
+  for (const row of rows) {
+    const before: AnomalySide = {
+      numeric: num(row.numeric_before),
+      text: row.value_before,
+      date: null,
+      display: row.value_before,
+    };
+    const after: AnomalySide = {
+      numeric: num(row.numeric_after),
+      text: row.value_after,
+      date: null,
+      display: row.value_after,
+    };
+    const anomaly = detectFormatAnomaly(before, after);
+    if (!anomaly) continue;
+    // A diferença entra na chave: "instantes diferentes" agrupa casos de
+    // magnitudes distintas, e um milissegundo de perda de precisão não é a
+    // mesma notícia que um dia de diferença.
+    const key = `${anomaly.kind}|${anomaly.sameInstant}|${anomaly.differenceMs}`;
+    const found = anomalyIndex.get(key);
+    if (found) found.vehicles++;
+    else anomalyIndex.set(key, { ...anomaly, vehicles: 1 });
+  }
+  const anomalies = [...anomalyIndex.values()];
+
+  // ---- cobertura ---------------------------------------------------------
+  const share = fleet > 0 ? vehicles / fleet : 0;
+  const coverage: Coverage = share >= 1 ? "TOTAL" : share >= 0.5 ? "MAIORIA" : "PARCIAL";
+
+  const natures = [...new Set(rows.map((r) => r.nature).filter((n): n is string => n !== null))];
+
+  const badge = pickBadge({ impact, coverage, aggregate, anomalies, natures, first });
+
+  return {
+    key: groupKey(first),
+    attributeCode: first.attribute_code,
+    title: attributeLabel(first.attribute_code, first.attribute_source_name),
+    entityType: first.entity_type,
+    equipment: equipmentLabel(first.entity_type),
+    changeType: first.change_type,
+    category: first.category,
+    comparability: first.comparability,
+    vehicles,
+    fleet,
+    coverage,
+    coverageLabel: coverageLabel(coverage, vehicles, fleet, first.entity_type),
+    patterns,
+    dominantPattern: dominant,
+    aggregate,
+    impact,
+    natures: natures.map(natureLabel),
+    semanticsStatus: first.semantics_status,
+    semanticsLabel: semanticsLabel(first.semantics_status),
+    unit: first.unit,
+    isMonetary: first.is_monetary,
+    costClass: first.cost_class,
+    taxonomyName: first.taxonomy_name,
+    inconclusiveReason: rows.find((r) => r.inconclusive_reason)?.inconclusive_reason ?? null,
+    anomalies,
+    composition: composition
+      ? { total: composition.total, parts: composition.parts, evidence: composition.evidence }
+      : null,
+    badge,
+    badgeLabel: BADGE_LABELS[badge],
+  };
+}
+
+function coverageLabel(
+  coverage: Coverage,
+  vehicles: number,
+  fleet: number,
+  entityType: string | null,
+): string {
+  const noun = entityType === "CAVALO" ? "cavalos" : entityType === "CARRETA" ? "carretas" : "ativos";
+  if (coverage === "TOTAL") return `Toda a frota · ${vehicles} de ${fleet} ${noun}`;
+  if (coverage === "MAIORIA") return `Maioria da frota · ${vehicles} de ${fleet} ${noun}`;
+  return `${vehicles} de ${fleet} ${noun}`;
+}
+
+const BADGE_LABELS: Record<Badge, string> = {
+  DINHEIRO: "Dinheiro",
+  RUPTURA: "Ruptura",
+  COBERTURA: "Abrangência",
+  MOVIMENTO: "Movimento grande",
+  TRAVADO: "Preço travado",
+  SEM_SINAL: "Sem sinal relevante",
+};
+
+/** Naturezas que caracterizam ruptura: o valor não apenas variou, ele trocou de estado. */
+const RUPTURE_NATURES = new Set([
+  "ZEROING",
+  "FROM_ZERO",
+  "TYPE_CHANGE",
+  "APPEARED",
+  "DISAPPEARED",
+  "NULL_REASON",
+  "SEMANTICS_DRIFT",
+]);
+
+/**
+ * O selo do grupo. Primeira regra que casar, e só uma.
+ *
+ * A ordem é a da proposta, com uma troca deliberada: **ruptura vem antes de
+ * abrangência**. Um valor que trocou de tipo em toda a frota é mais acionável
+ * como "a fonte mudou a forma do dado" do que como "mexeu em todo mundo" — foi
+ * exatamente o caso de `dataFimContrato` em Ago/2026, e classificá-lo por
+ * abrangência esconderia a única coisa que importa nele.
+ *
+ * Nenhum selo é limiar financeiro: uma alteração pequena pode ser
+ * contratualmente relevante, e o produto não decide isso pelo usuário.
+ */
+function pickBadge(input: {
+  impact: GroupImpact;
+  coverage: Coverage;
+  aggregate: GroupAggregate;
+  anomalies: unknown[];
+  natures: string[];
+  first: RawChange;
+}): Badge {
+  const { impact, coverage, aggregate, anomalies, natures, first } = input;
+
+  if (impact.amount !== null && impact.amount !== 0) return "DINHEIRO";
+  // Um total cuja variação inteira já está nas parcelas continua sendo um
+  // cartão de dinheiro — o que ele tem a dizer é justamente que não deve ser
+  // somado de novo. Classificá-lo por outro selo esconderia essa explicação.
+  if (impact.excludedVehicles > 0) return "DINHEIRO";
+  if (anomalies.length > 0) return "RUPTURA";
+  if (natures.some((n) => RUPTURE_NATURES.has(n))) return "RUPTURA";
+  if (first.comparability === "INCONCLUSIVE") return "RUPTURA";
+  if (coverage === "TOTAL" || coverage === "MAIORIA") return "COBERTURA";
+
+  const movement =
+    aggregate.deltaPercent !== null
+      ? Math.abs(aggregate.deltaPercent)
+      : Math.max(Math.abs(aggregate.minPercent ?? 0), Math.abs(aggregate.maxPercent ?? 0));
+  if (movement >= 20) return "MOVIMENTO";
+
+  if (first.is_monetary === true && first.aggregation === "SUM" && first.semantics_status !== "CONFIRMED") {
+    return "TRAVADO";
+  }
+  return "SEM_SINAL";
+}
+
+const BADGE_ORDER: Badge[] = [
+  "DINHEIRO",
+  "RUPTURA",
+  "COBERTURA",
+  "MOVIMENTO",
+  "TRAVADO",
+  "SEM_SINAL",
+];
+
+// ---------------------------------------------------------------------------
+// Entrada pública
+// ---------------------------------------------------------------------------
+
+const MONTHS = [
+  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+];
+
+/** `2026-08-01` → `agosto/2026`. Sem `Date`, para não depender de fuso. */
+export function periodLabel(date: string): string {
+  const [year, month] = date.split("-");
+  const index = Number(month) - 1;
+  return index >= 0 && index < 12 ? `${MONTHS[index]}/${year}` : date;
+}
+
+/**
+ * A visão da vigência escolhida, agrupada.
+ *
+ * Diferente de `getConsolidated`, esta função **não** calcula comparação: ela
+ * lê as que existem. Comparar é ato de importação (`computeMissingChangeSets`);
+ * abrir uma tela não deve disparar trabalho pesado nem, pior, produzir números
+ * diferentes conforme quem abriu primeiro.
+ */
+export async function getGroupedView(
+  db: Database,
+  period?: string,
+): Promise<GroupedView | null> {
+  const periods = await listPeriods(db);
+  if (periods.length === 0) return null;
+
+  const target = period
+    ? periods.find((p) => p.effective_date === period)
+    : periods[0];
+  if (!target) return null;
+
+  // As comparações que terminam nesta vigência, uma por série.
+  const { rows: sets } = await db.execute<{
+    change_set_id: string;
+    entity_type_set: string;
+    snapshot_label: string;
+    previous_label: string | null;
+    fleet: number;
+    entities_added: number;
+    entities_removed: number;
+    unchanged: number;
+    inconclusive: number;
+  }>(sql`
+    SELECT cs.id AS change_set_id,
+           sb.entity_type_set,
+           sb.source_label AS snapshot_label,
+           sa.source_label AS previous_label,
+           sb.entity_count  AS fleet,
+           cs.entities_added, cs.entities_removed, cs.unchanged, cs.inconclusive
+      FROM change_set cs
+      JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+      JOIN snapshot sa ON sa.id = cs.snapshot_a_id
+     WHERE sb.effective_date = ${target.effective_date}::date
+       AND sb.status <> 'SUPERSEDED'
+     -- Determinístico: a mesma vigência tem uma comparação por série, e a
+     -- ordem não pode depender do que o Postgres devolver primeiro. Foi
+     -- assim que o Painel passou a mostrar a série de menor impacto e a
+     -- omitir a maior, sem dizer que omitia.
+     ORDER BY sb.entity_type_set
+  `);
+
+  // Séries que existiram nesta vigência mas ainda não têm comparação (a
+  // primeira de uma série não tem anterior). Nomeadas, nunca supostas zero.
+  const { rows: snapshotsHere } = await db.execute<{
+    entity_type_set: string;
+    source_label: string;
+    fleet: number;
+  }>(sql`
+    SELECT entity_type_set, source_label, entity_count AS fleet
+      FROM snapshot
+     WHERE effective_date = ${target.effective_date}::date AND status <> 'SUPERSEDED'
+     ORDER BY entity_type_set
+  `);
+
+  const withSet = new Set(sets.map((s) => s.entity_type_set));
+  const series: GroupedSeries[] = [
+    ...sets.map((s) => ({
+      entityTypeSet: s.entity_type_set,
+      equipment: equipmentLabel(s.entity_type_set),
+      snapshotLabel: s.snapshot_label,
+      previousLabel: s.previous_label,
+      fleet: s.fleet,
+      changeSetId: s.change_set_id,
+      reason: null,
+    })),
+    ...snapshotsHere
+      .filter((s) => !withSet.has(s.entity_type_set))
+      .map((s) => ({
+        entityTypeSet: s.entity_type_set,
+        equipment: equipmentLabel(s.entity_type_set),
+        snapshotLabel: s.source_label,
+        previousLabel: null,
+        fleet: s.fleet,
+        changeSetId: null,
+        reason:
+          "Primeira vigência desta série, ou comparação ainda não calculada. " +
+          "Não há anterior com que comparar, e a ausência não está contada como zero.",
+      })),
+  ];
+
+  const allSeries = (target.series ?? []) as string[];
+  const missingSeries = allSeries.filter(
+    (s) => !series.some((p) => p.entityTypeSet === s),
+  );
+
+  const changeSetIds = sets.map((s) => s.change_set_id);
+  const fleetByChangeSet = new Map(sets.map((s) => [s.change_set_id, s.fleet]));
+  const rows = await loadChanges(db, changeSetIds);
+
+  const changedByEntity = indexChangedAttributesByEntity(
+    rows.map((r) => ({ entityId: r.entity_id, attributeCode: r.attribute_code })),
+  );
+
+  const buckets = new Map<string, RawChange[]>();
+  for (const row of rows) {
+    const key = groupKey(row);
+    const bucket = buckets.get(key);
+    if (bucket) bucket.push(row);
+    else buckets.set(key, [row]);
+  }
+
+  const groups = [...buckets.values()]
+    .map((bucket) => buildGroup(bucket, fleetByChangeSet, changedByEntity))
+    .sort(compareGroups);
+
+  const vehiclesTouched = new Set(
+    rows.map((r) => r.entity_id).filter((v): v is string => v !== null),
+  ).size;
+
+  return {
+    period: target.effective_date,
+    periodLabel: periodLabel(target.effective_date),
+    periods: periods.map((p) => ({
+      date: p.effective_date,
+      label: periodLabel(p.effective_date),
+      series: p.series ?? [],
+    })),
+    series,
+    missingSeries,
+    complete: missingSeries.length === 0,
+    totals: {
+      changes: rows.length,
+      groups: groups.length,
+      vehiclesTouched,
+      entitiesAdded: sets.reduce((s, r) => s + r.entities_added, 0),
+      entitiesRemoved: sets.reduce((s, r) => s + r.entities_removed, 0),
+      unchanged: sets.reduce((s, r) => s + r.unchanged, 0),
+      inconclusive: sets.reduce((s, r) => s + r.inconclusive, 0),
+    },
+    impact: summariseImpact(rows),
+    accumulated: await getAccumulatedImpact(db),
+    groups,
+  };
+}
+
+function compareGroups(a: ChangeGroup, b: ChangeGroup): number {
+  const rank = BADGE_ORDER.indexOf(a.badge) - BADGE_ORDER.indexOf(b.badge);
+  if (rank !== 0) return rank;
+  const impact = Math.abs(b.impact.amount ?? 0) - Math.abs(a.impact.amount ?? 0);
+  if (impact !== 0) return impact;
+  if (b.vehicles !== a.vehicles) return b.vehicles - a.vehicles;
+  const movement =
+    Math.abs(b.aggregate.deltaPercent ?? 0) - Math.abs(a.aggregate.deltaPercent ?? 0);
+  if (movement !== 0) return movement;
+  return (a.attributeCode ?? "").localeCompare(b.attributeCode ?? "");
+}
+
+/**
+ * O acumulado de todas as comparações já feitas — com a mesma regra de dupla
+ * contagem aplicada, para que o número histórico e o da vigência sejam
+ * comparáveis entre si.
+ */
+export async function getAccumulatedImpact(
+  db: Database,
+): Promise<ImpactSummary & { comparisons: number; from: string | null; to: string | null }> {
+  const { rows: sets } = await db.execute<{ id: string }>(sql`
+    SELECT cs.id FROM change_set cs
+  `);
+  const { rows: span } = await db.execute<{ from: string | null; to: string | null }>(sql`
+    SELECT min(sb.effective_date)::text AS from, max(sb.effective_date)::text AS to
+      FROM change_set cs JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+  `);
+  const rows = await loadChanges(db, sets.map((s) => s.id));
+  return {
+    ...summariseImpact(rows),
+    comparisons: sets.length,
+    from: span[0]?.from ?? null,
+    to: span[0]?.to ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Nível 2 — o que está dentro de um grupo
+// ---------------------------------------------------------------------------
+
+export interface GroupVehicle {
+  changeId: number;
+  plate: string | null;
+  valueBefore: string | null;
+  valueAfter: string | null;
+  numericBefore: number | null;
+  numericAfter: number | null;
+  deltaPercent: number | null;
+  impactAmount: number | null;
+  impactPeriodicity: string | null;
+  impactConfidence: string;
+  /** Se este ativo está fora da soma por já estar contado nas parcelas. */
+  excludedFromTotal: boolean;
+  inconclusiveReason: string | null;
+  anomaly: Anomaly | null;
+}
+
+export interface GroupSelector {
+  period: string;
+  attributeCode: string;
+  entityType: string;
+  changeType?: string;
+  comparability?: string;
+  impactConfidence?: string;
+}
+
+/** Os veículos de um grupo, com o valor de cada um e o motivo de exclusão quando houver. */
+export async function getGroupVehicles(
+  db: Database,
+  selector: GroupSelector,
+): Promise<GroupVehicle[]> {
+  const { rows: sets } = await db.execute<{ id: string }>(sql`
+    SELECT cs.id FROM change_set cs
+      JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+     WHERE sb.effective_date = ${selector.period}::date AND sb.status <> 'SUPERSEDED'
+  `);
+  const ids = sets.map((s) => s.id);
+  const all = await loadChanges(db, ids);
+  const changedByEntity = indexChangedAttributesByEntity(
+    all.map((r) => ({ entityId: r.entity_id, attributeCode: r.attribute_code })),
+  );
+
+  const rows = all.filter(
+    (r) =>
+      r.attribute_code === selector.attributeCode &&
+      (r.entity_type ?? "") === selector.entityType &&
+      (!selector.changeType || r.change_type === selector.changeType) &&
+      (!selector.comparability || r.comparability === selector.comparability) &&
+      (!selector.impactConfidence || r.impact_confidence === selector.impactConfidence),
+  );
+
+  return rows
+    .map((r) => ({
+      changeId: r.id,
+      plate: r.entity_label,
+      valueBefore: r.value_before,
+      valueAfter: r.value_after,
+      numericBefore: num(r.numeric_before),
+      numericAfter: num(r.numeric_after),
+      deltaPercent: num(r.delta_percent),
+      impactAmount: num(r.impact_amount),
+      impactPeriodicity: r.impact_periodicity,
+      impactConfidence: r.impact_confidence,
+      excludedFromTotal: isCoveredByParts(r.attribute_code, r.entity_id, changedByEntity),
+      inconclusiveReason: r.inconclusive_reason,
+      anomaly: detectFormatAnomaly(
+        { numeric: num(r.numeric_before), text: r.value_before, date: null, display: r.value_before },
+        { numeric: num(r.numeric_after), text: r.value_after, date: null, display: r.value_after },
+      ),
+    }))
+    .sort((a, b) => {
+      const impact = Math.abs(b.impactAmount ?? 0) - Math.abs(a.impactAmount ?? 0);
+      if (impact !== 0) return impact;
+      return (a.plate ?? "").localeCompare(b.plate ?? "");
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Nível 2 — a série histórica de um atributo
+// ---------------------------------------------------------------------------
+
+export interface AttributeSeriesPoint {
+  effectiveDate: string;
+  periodLabel: string;
+  sourceLabel: string;
+  /**
+   * Quantos ativos tinham **algum** valor nesta vigência, de qualquer tipo.
+   *
+   * Contava só os numéricos, e para uma coluna de data isso devolvia zero em
+   * oito das nove vigências — a série dizia que ninguém tinha data de fim de
+   * contrato até agosto, quando todos tinham. Contar por tipo era a pergunta
+   * errada: o denominador é "quem tem valor", não "quem tem número".
+   */
+  vehicles: number;
+  /** Destes, quantos são numéricos — o denominador real de soma e média. */
+  numericVehicles: number;
+  /** Numerador. Só existe quando a semântica autoriza somar. */
+  total: number | null;
+  /** total ÷ veículos. Só existe quando somar ou tirar média é legítimo. */
+  average: number | null;
+  min: number | null;
+  max: number | null;
+}
+
+export interface AttributeSeries {
+  attributeCode: string;
+  title: string;
+  aggregation: string | null;
+  summable: boolean;
+  /** Se a média por veículo é uma leitura legítima para este atributo. */
+  averageable: boolean;
+  unit: string | null;
+  periodicity: string | null;
+  semanticsStatus: string;
+  /** Por que a série mostra o que mostra — e o que ela deliberadamente não mostra. */
+  note: string;
+  points: AttributeSeriesPoint[];
+}
+
+/**
+ * A linha do tempo de um atributo nas vigências.
+ *
+ * O cuidado que define esta função: **a soma da frota não é o preço.** O IPVA
+ * dos cavalos sobe de R$ 399.406 para R$ 413.826 entre jan e fev/2026 e nada
+ * encareceu — entraram dois cavalos. Por isso a série devolve sempre o
+ * numerador, o denominador e a média, e a tela é obrigada a mostrar os três.
+ *
+ * Para atributos não somáveis não existe total, e dizer isso é a resposta certa.
+ */
+export async function getAttributeSeries(
+  db: Database,
+  attributeCode: string,
+): Promise<AttributeSeries | null> {
+  const { rows: meta } = await db.execute<{
+    code: string;
+    source_name: string;
+    aggregation: string | null;
+    unit: string | null;
+    periodicity: string | null;
+    semantics_status: string;
+  }>(sql`
+    SELECT code, source_name, aggregation, unit, periodicity,
+           semantics_status::text AS semantics_status
+      FROM attribute WHERE code = ${attributeCode}
+  `);
+  if (meta.length === 0) return null;
+  const attribute = meta[0];
+
+  const summable = attribute.aggregation === "SUM";
+  const averageable = summable || attribute.aggregation === "AVG" || attribute.aggregation === "WEIGHTED_AVG";
+
+  const { rows: points } = await db.execute<{
+    effective_date: string;
+    source_label: string;
+    vehicles: number;
+    numeric_vehicles: number;
+    total: string | null;
+    min: string | null;
+    max: string | null;
+  }>(sql`
+    SELECT s.effective_date::text AS effective_date,
+           s.source_label,
+           count(*) FILTER (WHERE NOT f.is_null)::int AS vehicles,
+           count(*) FILTER (WHERE NOT f.is_null AND f.value_numeric IS NOT NULL)::int AS numeric_vehicles,
+           sum(f.value_numeric)::text AS total,
+           min(f.value_numeric)::text AS min,
+           max(f.value_numeric)::text AS max
+      FROM fact f
+      JOIN snapshot s ON s.id = f.snapshot_id
+      JOIN attribute a ON a.id = f.attribute_id
+     WHERE a.code = ${attributeCode} AND s.status <> 'SUPERSEDED'
+     GROUP BY 1, 2
+     ORDER BY 1
+  `);
+
+  return {
+    attributeCode,
+    title: attributeLabel(attribute.code, attribute.source_name),
+    aggregation: attribute.aggregation,
+    summable,
+    averageable,
+    unit: attribute.unit,
+    periodicity: attribute.periodicity,
+    semanticsStatus: attribute.semantics_status,
+    note: summable
+      ? "A soma da frota muda quando entram ou saem veículos. Compare a média por " +
+        "veículo antes de concluir que o preço mudou."
+      : averageable
+        ? `Este atributo não é somável (agregação ${attribute.aggregation}); a série mostra ` +
+          `a média por veículo e a faixa, nunca um total.`
+        : "Este atributo não admite soma nem média — a série mostra apenas a faixa " +
+          "de valores e quantos ativos tinham valor em cada vigência.",
+    points: points.map((p) => {
+      const vehicles = Number(p.vehicles);
+      const numericVehicles = Number(p.numeric_vehicles);
+      const total = p.total === null ? null : Number(Number(p.total).toFixed(2));
+      return {
+        effectiveDate: p.effective_date,
+        periodLabel: periodLabel(p.effective_date),
+        sourceLabel: p.source_label,
+        vehicles,
+        numericVehicles,
+        total: summable ? total : null,
+        // O denominador da média é o número de ativos com valor **numérico**,
+        // que é o mesmo conjunto que formou o numerador. Dividir a soma dos
+        // numéricos pelo total de ativos daria uma média de um universo que
+        // não produziu aquele total.
+        average:
+          averageable && total !== null && numericVehicles > 0
+            ? Number((total / numericVehicles).toFixed(2))
+            : null,
+        min: p.min === null ? null : Number(Number(p.min).toFixed(2)),
+        max: p.max === null ? null : Number(Number(p.max).toFixed(2)),
+      };
+    }),
+  };
+}

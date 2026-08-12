@@ -337,12 +337,26 @@ export async function getOverview(db: Database) {
   `);
   const totals = rows[0] ?? {};
 
-  // The most recent comparison, which is what the panel leads with.
+  /**
+   * The comparisons that land on the most recent vigência — **all of them**.
+   *
+   * This used to be `ORDER BY sb.effective_date DESC LIMIT 1`. Carretas and
+   * cavalos are separate series that share the same vigência dates, so the two
+   * rows tie on the sort key and the winner was whatever Postgres happened to
+   * return. On the real export that meant the panel reported the CAVALO series
+   * (244 changes, +R$ 6.747,20/mês) and silently dropped the CARRETA one
+   * (23 changes, +R$ 33.189,08/mês) — it showed the smaller number and said
+   * nothing about the larger.
+   *
+   * Now the date is picked first and every series on it is returned, ordered by
+   * `entity_type_set` so the result never reorders between calls.
+   */
   const { rows: latest } = await db.execute<Record<string, unknown>>(sql`
     SELECT cs.id,
            sa.source_label AS snapshot_a_label,
            sb.source_label AS snapshot_b_label,
            sb.effective_date AS effective_date,
+           sb.entity_type_set,
            cs.value_changes,
            cs.entities_added,
            cs.entities_removed,
@@ -352,8 +366,11 @@ export async function getOverview(db: Database) {
       FROM change_set cs
       JOIN snapshot sa ON sa.id = cs.snapshot_a_id
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
-     ORDER BY sb.effective_date DESC
-     LIMIT 1
+     WHERE sb.effective_date = (
+       SELECT max(s.effective_date)
+         FROM change_set c JOIN snapshot s ON s.id = c.snapshot_b_id
+     )
+     ORDER BY sb.entity_type_set
   `);
 
   // Impact per periodicity across every comparison on record. Kept apart,
@@ -371,7 +388,21 @@ export async function getOverview(db: Database) {
 
   return {
     totals,
+    /** Kept for callers that still read one series; it is now the first by name. */
     latest: latest[0] ?? null,
+    /** Every series on the most recent vigência. None is hidden by a tie-break. */
+    latestSeries: latest,
+    /**
+     * Accumulated across every comparison on record — **not** the latest
+     * vigência. The name says so because the screen that read this field
+     * printed sixteen transitions' worth of impact under a single vigência's
+     * heading.
+     */
+    accumulatedImpactByPeriodicity: impactByPeriodicity.map((r) => ({
+      periodicity: r.periodicity ?? "SEM_PERIODICIDADE",
+      changes: r.changes,
+      total: r.total === null ? null : Number(r.total),
+    })),
     impactByPeriodicity: impactByPeriodicity.map((r) => ({
       periodicity: r.periodicity ?? "SEM_PERIODICIDADE",
       changes: r.changes,

@@ -2,43 +2,45 @@ import { Link, useLocation } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
-  Calculator,
   Database,
   FileDown,
   FileSearch,
   GitBranch,
   GitCompareArrows,
-  LayoutDashboard,
-  Lock,
+  Home,
   Truck,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { getApiUrl } from "@/lib/api";
 
 /**
- * The menu, ordered by what the product is for.
+ * O menu, na ordem do trabalho.
  *
- * Two rules here, and the first one matters more than it looks:
+ * Três regras, e a primeira vale mais do que parece:
  *
- * 1. **A menu item that does not work is not presented as if it did.** Five of
- *    the eight original entries pointed at endpoints removed with the old
- *    schema, so clicking them landed on an error state. Advertising a
- *    capability the product does not have is the same failure as showing a
- *    number it cannot back up — and this product exists to not do that.
- *    They stay visible, because the roadmap is worth seeing, but they are
- *    inert and say so.
+ * 1. **Um item que não funciona não é apresentado como se funcionasse.** A
+ *    Simulação ficava aqui, travada, apontando para rotas removidas junto com o
+ *    schema antigo. Um item inerte ainda ocupa atenção e ainda promete algo que
+ *    o produto não entrega; saiu, e o desenho dela continua em
+ *    `docs/PROPOSTA-SIMULACAO.md` até existir código atrás do clique.
  *
- * 2. **Order follows the work, not the org chart.** "O que mudou" is the
- *    reason the product exists, so it comes first; the meaning of a variable
- *    is what makes the change measurable, so it comes second.
+ * 2. **Uma tela é a tela.** "Início" é onde se decide, e por isso é a primeira
+ *    e a única do primeiro grupo. Alterações e Comparar continuam existindo —
+ *    são a lista linha a linha e o par escolhido à mão — mas passaram a ser o
+ *    aprofundamento, não o ponto de partida.
+ *
+ * 3. **Ferramenta de decisão e ferramenta de operação não têm o mesmo peso.**
+ *    Importações é operação. Análise de Frota lê a planilha do disco, fora do
+ *    modelo canônico e sem rastreabilidade até a célula: continua acessível,
+ *    sob o rótulo que ela merece.
  */
 
 interface NavItem {
   href: string;
   label: string;
   icon: typeof Activity;
-  /** Why it is not available yet. Present = the item is inert. */
-  pending?: string;
+  /** Frase curta sob o item, quando ele precisa de contexto. */
+  note?: string;
 }
 
 interface NavGroup {
@@ -46,53 +48,36 @@ interface NavGroup {
   items: NavItem[];
 }
 
-/**
- * Each group is a question the product answers, in the order someone actually
- * asks them: what moved, what it means, what it costs, where it came from.
- *
- * The labels use the domain's words rather than the schema's. Internally these
- * are `snapshot` rows; to anyone reading the export they are *vigências*, and
- * every screen and document already says so. "Comparar Modelos" is gone for a
- * different reason — in a fleet product "modelo" reads as vehicle model, when
- * what is being compared is two remuneration vigências.
- */
 const NAV_GROUPS: NavGroup[] = [
   {
-    title: "O que mudou",
+    title: "Decidir",
+    items: [{ href: "/", label: "Início", icon: Home }],
+  },
+  {
+    title: "Aprofundar",
     items: [
       { href: "/alteracoes", label: "Alterações", icon: Activity },
       { href: "/comparar", label: "Comparar Vigências", icon: GitCompareArrows },
+      { href: "/vigencias", label: "Vigências", icon: Database },
     ],
   },
   {
-    title: "O que significa",
+    title: "Destravar",
     items: [
       { href: "/curadoria", label: "Curadoria", icon: FileSearch },
       { href: "/versoes", label: "Versões", icon: GitBranch },
     ],
   },
   {
-    title: "Quanto custa",
+    title: "Operação",
     items: [
-      { href: "/", label: "Painel de Impacto", icon: LayoutDashboard },
-      {
-        href: "/simulacao",
-        label: "Simulação",
-        icon: Calculator,
-        pending:
-          "Precisa do motor financeiro (F4): simular exige converter " +
-          "periodicidades para uma base comum, e essa regra ainda não existe. " +
-          "Enquanto não existir, qualquer simulação seria chute com aparência " +
-          "de conta.",
-      },
-    ],
-  },
-  {
-    title: "De onde veio",
-    items: [
-      { href: "/analise-equipamentos", label: "Análise de Frota", icon: Truck },
-      { href: "/vigencias", label: "Vigências", icon: Database },
       { href: "/importacoes", label: "Importações", icon: FileDown },
+      {
+        href: "/analise-equipamentos",
+        label: "Análise de Frota",
+        icon: Truck,
+        note: "legado — lê a planilha, não o modelo",
+      },
     ],
   },
 ];
@@ -145,21 +130,6 @@ export function Sidebar() {
             </div>
 
             {group.items.map((item) => {
-              if (item.pending) {
-                return (
-                  <div
-                    key={item.label}
-                    title={item.pending}
-                    aria-disabled="true"
-                    className="flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium text-sidebar-foreground/30 cursor-not-allowed select-none"
-                  >
-                    <item.icon className="w-4 h-4 shrink-0" />
-                    <span className="flex-1">{item.label}</span>
-                    <Lock className="w-3 h-3 shrink-0" />
-                  </div>
-                );
-              }
-
               const isActive =
                 location === item.href ||
                 (item.href !== "/" && location.startsWith(item.href));
@@ -176,7 +146,14 @@ export function Sidebar() {
                   )}
                 >
                   <item.icon className="w-4 h-4 shrink-0" />
-                  <span className="flex-1">{item.label}</span>
+                  <span className="flex-1">
+                    {item.label}
+                    {item.note && (
+                      <span className="block text-[10px] font-normal opacity-60 leading-tight">
+                        {item.note}
+                      </span>
+                    )}
+                  </span>
                   {item.href === "/curadoria" && backlog ? (
                     <span
                       title={`${backlog} atributos monetários ainda sem semântica confirmada — cada um deles é um impacto financeiro que o produto não pode calcular.`}
