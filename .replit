@@ -8,19 +8,61 @@ deploymentTarget = "autoscale"
 args = ["pnpm", "store", "prune"]
 env = { "CI" = "true" }
 
-# Não há workflow nem `[[ports]]` aqui, e é deliberado.
+# O Run precisa de um workflow. Não tinha nenhum, e por isso não subia nada.
 #
-# Quem sobe este projeto são os services declarados nos
-# `.replit-artifact/artifact.toml`, um por artifact — é para as portas deles que
-# o roteador encaminha, e é o que o Run inicia. Um workflow paralelo subindo os
-# mesmos processos por fora seria uma segunda stack, com duas portas próprias,
-# dois builds do mesmo `dist` e duas migrations. Foi o que existiu aqui por um
-# commit, e o efeito foi esconder um defeito em vez de mostrá-lo: pela porta da
-# stack paralela tudo respondia, e pela URL do app toda chamada de API voltava
-# 502. Uma forma só de subir, e ela é a que o usuário usa.
+# Os `.replit-artifact/artifact.toml` continuam sendo a fonte da verdade das
+# portas e do deployment: é o `localPort` deles que o roteador usa, e é o
+# `[services.production]` deles que a publicação executa. O que faltava era o
+# gatilho: sem `[workflows]` e sem `runButton`, apertar Run não tinha o que
+# iniciar. Observado no ambiente real — portas declaradas certas, `doctor`
+# confirmando 8080 e 25609, e ninguém escutando em nenhuma das duas depois do
+# Run; os mesmos comandos à mão sobem as duas.
 #
-# `scripts/dev.mjs` continua sendo a implementação: é o que cada artifact roda
-# em desenvolvimento, e `pnpm dev` é o mesmo script para fora do Replit e CI.
+# Isto não é uma stack paralela, e a diferença é a porta. O que existiu aqui
+# antes subia os mesmos processos em 5000/5001 — endereços para onde o roteador
+# não encaminha — e o efeito foi esconder um defeito: pela porta da stack
+# paralela tudo respondia, e pela URL do app toda chamada de API voltava 502.
+# As tasks abaixo rodam os mesmos comandos que os artifacts declaram em
+# `[services.development]`, nas mesmas portas. Se algum dia o Replit passar a
+# iniciar os services sozinho, os dois disputam a mesma porta e a colisão
+# aparece na hora, em vez de virar uma segunda verdade silenciosa.
+#
+# `scripts/dev.mjs` é a implementação única: é o que estas tasks rodam, o que
+# cada artifact roda, e o que `pnpm dev` roda fora do Replit e em CI.
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "API Server"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Frontend"
+
+# Aplica migrations, reconstrói o bundle e sobe. `waitForPort` é o que faz o Run
+# só se dar por pronto quando existe alguém escutando — a ausência disso é
+# indistinguível, da tela, de um defeito no produto.
+[[workflows.workflow]]
+name = "API Server"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/dev.mjs api"
+waitForPort = 8080
+
+[[workflows.workflow]]
+name = "Frontend"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/dev.mjs web"
+waitForPort = 25609
 
 [agent]
 stack = "PNPM_WORKSPACE"

@@ -6,9 +6,10 @@ não consiga sustentar até a célula da planilha de origem.
 
 ## Run & Operate
 
-**Botão Run do Replit.** É o caminho inteiro, e é o único. O que sobe são os
-dois services declarados nos `.replit-artifact/artifact.toml`, um por artifact,
-os dois implementados por `scripts/dev.mjs`:
+**Botão Run do Replit.** É o caminho inteiro, e é o único. O workflow `Project`
+do `.replit` sobe os dois processos em paralelo, com os mesmos comandos que os
+`.replit-artifact/artifact.toml` declaram em `[services.development]` e nas
+mesmas portas, os dois implementados por `scripts/dev.mjs`:
 
 | service | porta | o que faz |
 | --- | --- | --- |
@@ -19,13 +20,20 @@ Nada disso exige terminal: `PORT` e `BASE_PATH` vêm do `[services.env]` de cada
 artifact e o `API_PROXY_TARGET` do próprio script. Um workspace novo funciona
 só apertando Run.
 
-**Uma forma só de subir.** O `.replit` não declara workflow nem `[[ports]]` de
-propósito: um workflow subindo os mesmos dois processos por fora seria uma
-segunda stack, em portas próprias, e foi assim que um 502 sobreviveu a duas
-correções — pela porta da stack paralela tudo respondia, e pela URL do app
-nenhuma chamada de API chegava. Se você precisar rodar fora do Replit ou em CI,
-`pnpm dev` é o mesmo script e as mesmas portas; dentro do Replit ele colide com
-os services, o que é o comportamento desejado — a colisão aparece na hora.
+**Uma forma só de subir, e o que a distingue é a porta.** O workflow roda os
+mesmos comandos dos artifacts, em 8080 e 25609 — os endereços para onde o
+roteador encaminha. O que já quebrou aqui foi um workflow em 5000/5001: uma
+segunda stack, em portas para onde nada é encaminhado, e o efeito foi um 502
+sobreviver a duas correções, porque pela porta paralela tudo respondia e pela
+URL do app nenhuma chamada de API chegava. Fora do Replit e em CI, `pnpm dev` é
+o mesmo script e as mesmas portas; dentro do Replit ele colide com o Run, o que
+é o comportamento desejado — a colisão aparece na hora.
+
+O `.replit` **precisa** do bloco `[workflows]`: os `artifact.toml` descrevem
+como cada service sobe e para onde o roteador manda, mas não disparam nada
+sozinhos. Sem `runButton` e sem workflow, apertar Run não inicia processo
+nenhum, e a tela fica em "Your app is not running" — foi exatamente o estado em
+que este projeto ficou por um dia.
 
 **As portas não são escolha nossa.** Quem serve o app é o roteador do Replit,
 que encaminha por caminho — `/` para a interface, `/api` para o api-server — e
