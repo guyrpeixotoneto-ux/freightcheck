@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { BookOpen, ChevronLeft, ChevronRight, Info, Search } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
+import { ApiErrorNotice } from "@/components/api-error";
 import { BlocoCard } from "@/components/book/bloco-card";
+import { BlocoPainel } from "@/components/book/bloco-painel";
+import type { BookEntryCurrent } from "@/components/book/types";
+import { fetchJson } from "@/lib/api";
 import { useFavoritos } from "@/lib/favoritos";
 import { cn } from "@/lib/utils";
 import {
@@ -10,31 +15,29 @@ import {
   categoriasDoBook,
   chaveDoBloco,
   normalizar,
+  type BlocoBook,
 } from "@/lib/book-operador";
 
 /**
- * Book do Operador — o índice das regras de remuneração, em vocabulário do
- * Freightech.
+ * Book do Operador — as regras de remuneração, em vocabulário do Freightech.
  *
  * **Por que esta tela existe.** O export que alimenta o FreightCheck é o
  * cadastro remunerado da frota, não o regulamento: 99 colunas por placa, e
  * nenhuma linha dizendo o que qualquer uma delas significa. O Book do Operador
  * é o outro lado — a base de blocos em que o Freightech publica *como* cada
  * pagamento é composto. Sem ela, "o IPVA caiu 77%" é um fato sem regra ao lado;
- * com ela, dá para perguntar contra o que conferir.
+ * com ela, dá para dizer contra o que conferir.
  *
- * **O que ela entrega hoje, dito sem rodeio.** O índice: os blocos que existem,
- * com categoria, título e descrição, buscáveis e filtráveis como lá. O
- * documento de cada bloco **não** está importado, e a tela escreve isso em vez
- * de deixar a grade sugerir o contrário. É a mesma regra que vale no resto do
- * produto — não exibir o que não se consegue sustentar — aplicada a texto em
- * vez de a número.
+ * **O índice vem de lá; o conteúdo entra aqui.** Os blocos são transcrição da
+ * tela do Freightech e vivem em `lib/book-operador.ts`. A regra de cada um é
+ * registrada neste produto, por quem opera, escrevendo o texto ou anexando o
+ * documento — e o cartão diz, antes do clique, qual dos dois ele tem.
  *
  * **A paginação é a de lá, e não é enfeite.** Seis por página, a contagem
- * "Mostrando X - Y de Z" no rodapé, o seletor de tamanho à direita. Quem
- * navega a base do Freightech encontra um bloco lembrando em que página ele
- * estava; uma lista contínua e rolável seria mais confortável e destruiria
- * essa memória.
+ * "Mostrando X - Y de Z" no rodapé, o seletor de tamanho à direita. Quem navega
+ * a base do Freightech encontra um bloco lembrando em que página ele estava;
+ * uma lista contínua e rolável seria mais confortável e destruiria essa
+ * memória.
  */
 
 const TAMANHOS_DE_PAGINA = [6, 12, 24, 48];
@@ -45,17 +48,33 @@ export default function BookOperador() {
   const [busca, setBusca] = useState("");
   const [categoria, setCategoria] = useState<string | null>(null);
   const [soFavoritos, setSoFavoritos] = useState(false);
+  const [soSemRegra, setSoSemRegra] = useState(false);
   const [porPagina, setPorPagina] = useState(TAMANHOS_DE_PAGINA[0]);
   const [pagina, setPagina] = useState(1);
+  const [aberto, setAberto] = useState<BlocoBook | null>(null);
 
   const { favoritos, alternar } = useFavoritos(CHAVE_FAVORITOS);
   const categorias = useMemo(categoriasDoBook, []);
 
+  const entradas = useQuery({
+    queryKey: ["book-entries"],
+    queryFn: () => fetchJson<BookEntryCurrent[]>("/book/entries"),
+  });
+
+  /** A entrada vigente de cada bloco, indexada pela chave. */
+  const porBloco = useMemo(() => {
+    const mapa = new Map<string, BookEntryCurrent>();
+    for (const entrada of entradas.data ?? []) mapa.set(entrada.blockKey, entrada);
+    return mapa;
+  }, [entradas.data]);
+
   const filtrados = useMemo(() => {
     const termo = normalizar(busca.trim());
     return BLOCOS_BOOK.filter((bloco) => {
+      const chave = chaveDoBloco(bloco);
       if (categoria && bloco.categoria !== categoria) return false;
-      if (soFavoritos && !favoritos.includes(chaveDoBloco(bloco))) return false;
+      if (soFavoritos && !favoritos.includes(chave)) return false;
+      if (soSemRegra && porBloco.has(chave)) return false;
       if (!termo) return true;
       /*
        * A busca varre título, descrição e categoria juntos. Quem procura
@@ -67,7 +86,7 @@ export default function BookOperador() {
         `${bloco.titulo} ${bloco.descricao} ${bloco.categoria}`,
       ).includes(termo);
     });
-  }, [busca, categoria, soFavoritos, favoritos]);
+  }, [busca, categoria, soFavoritos, soSemRegra, favoritos, porBloco]);
 
   /*
    * Filtrar encurta a lista, e a página em que se estava pode deixar de
@@ -76,7 +95,7 @@ export default function BookOperador() {
    */
   useEffect(() => {
     setPagina(1);
-  }, [busca, categoria, soFavoritos, porPagina]);
+  }, [busca, categoria, soFavoritos, soSemRegra, porPagina]);
 
   const totalPaginas = Math.max(1, Math.ceil(filtrados.length / porPagina));
   const paginaAtual = Math.min(pagina, totalPaginas);
@@ -84,6 +103,9 @@ export default function BookOperador() {
   const visiveis = filtrados.slice(inicio, inicio + porPagina);
 
   const naoTranscritos = TOTAL_DECLARADO_FREIGHTECH - BLOCOS_BOOK.length;
+  const comRegra = BLOCOS_BOOK.filter((b) =>
+    porBloco.has(chaveDoBloco(b)),
+  ).length;
 
   return (
     <Layout>
@@ -101,20 +123,37 @@ export default function BookOperador() {
       </header>
 
       <div className="p-8 space-y-6">
+        {entradas.error && (
+          <ApiErrorNotice
+            error={entradas.error}
+            what="As regras já registradas não puderam ser carregadas. Os blocos abaixo continuam sendo os do Freightech; o que não dá para saber agora é qual deles já tem regra."
+          />
+        )}
+
         <div className="rounded-md border-l-4 border-sky-500 bg-sky-50 px-4 py-3 text-sky-900">
           <div className="font-semibold text-xs uppercase tracking-wide mb-1 flex items-center gap-1.5">
-            <Info className="w-3.5 h-3.5" />O que está aqui e o que ainda não
-            está
+            <Info className="w-3.5 h-3.5" />
+            Como este book se preenche
           </div>
           <p className="text-sm">
-            Esta tela é o <strong>índice</strong> dos blocos, transcrito da base
-            do Freightech: categoria, título e descrição. O{" "}
-            <strong>documento de cada bloco não foi importado</strong> — por
-            isso nenhum cartão abre. Enquanto ele não chegar, o FreightCheck
-            sabe que a regra existe e como ela se chama, mas não sabe o que ela
-            diz, e não vai fingir que sabe.
+            O índice vem do Freightech; a regra de cada bloco é registrada aqui,
+            de dois jeitos: <strong>escrevendo o texto</strong>, quando ela cabe
+            escrita, ou <strong>anexando o documento</strong> — contrato, manual,
+            planilha — quando ele existe. Abra um cartão para ler, escrever ou
+            anexar. Substituir nunca apaga: cada envio vira uma revisão nova, e
+            a anterior continua no histórico do bloco.
           </p>
           <p className="text-sm mt-1.5">
+            {entradas.isLoading ? (
+              "Conferindo quais blocos já têm regra…"
+            ) : (
+              <>
+                <strong>
+                  {comRegra} de {BLOCOS_BOOK.length}
+                </strong>{" "}
+                blocos com regra registrada.
+              </>
+            )}{" "}
             {BLOCOS_BOOK.length} blocos transcritos de{" "}
             {TOTAL_DECLARADO_FREIGHTECH} que a base de lá declara
             {naoTranscritos > 0 && (
@@ -122,9 +161,9 @@ export default function BookOperador() {
                 {" "}
                 — {naoTranscritos}{" "}
                 {naoTranscritos === 1
-                  ? "não foi capturado"
-                  : "não foram capturados"}{" "}
-                e {naoTranscritos === 1 ? "falta" : "faltam"} aqui.
+                  ? "não foi capturado e falta"
+                  : "não foram capturados e faltam"}{" "}
+                aqui.
               </>
             )}
           </p>
@@ -150,19 +189,24 @@ export default function BookOperador() {
             </div>
           </div>
 
-          <button
-            type="button"
+          <Alternador
+            ativo={soFavoritos}
             onClick={() => setSoFavoritos((atual) => !atual)}
-            aria-pressed={soFavoritos}
-            className={cn(
-              "h-11 px-4 rounded-sm border text-sm font-medium transition-colors",
-              soFavoritos
-                ? "bg-brand-dark text-brand-foreground border-brand-dark"
-                : "bg-card hover:bg-muted",
-            )}
           >
             Só favoritos ({favoritos.length})
-          </button>
+          </Alternador>
+
+          {/*
+            "Sem regra" é o filtro de quem está preenchendo o book, e é o
+            trabalho que sobra: com 63 blocos, achar os que faltam rolando a
+            grade inteira é o tipo de tarefa que ninguém termina.
+          */}
+          <Alternador
+            ativo={soSemRegra}
+            onClick={() => setSoSemRegra((atual) => !atual)}
+          >
+            Sem regra ({BLOCOS_BOOK.length - comRegra})
+          </Alternador>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -185,7 +229,9 @@ export default function BookOperador() {
 
         {visiveis.length === 0 ? (
           <p className="text-muted-foreground py-8">
-            Nenhum bloco com esse nome
+            Nenhum bloco
+            {busca.trim() !== "" && " com esse nome"}
+            {soSemRegra && " sem regra"}
             {soFavoritos && " entre os favoritos"}
             {categoria && ` em “${categoria}”`}.
           </p>
@@ -197,7 +243,9 @@ export default function BookOperador() {
                 <BlocoCard
                   key={chave}
                   bloco={bloco}
+                  vigente={porBloco.get(chave)}
                   favorito={favoritos.includes(chave)}
+                  onAbrir={() => setAberto(bloco)}
                   onAlternarFavorito={() => alternar(chave)}
                 />
               );
@@ -216,7 +264,41 @@ export default function BookOperador() {
           onPorPagina={setPorPagina}
         />
       </div>
+
+      {aberto && (
+        <BlocoPainel
+          bloco={aberto}
+          vigente={porBloco.get(chaveDoBloco(aberto))}
+          onFechar={() => setAberto(null)}
+        />
+      )}
     </Layout>
+  );
+}
+
+function Alternador({
+  ativo,
+  onClick,
+  children,
+}: {
+  ativo: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={ativo}
+      className={cn(
+        "h-11 px-4 rounded-sm border text-sm font-medium transition-colors",
+        ativo
+          ? "bg-brand-dark text-brand-foreground border-brand-dark"
+          : "bg-card hover:bg-muted",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

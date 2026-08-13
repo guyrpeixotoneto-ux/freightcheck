@@ -1,43 +1,50 @@
-import { Star } from "lucide-react";
+import { FileText, Paperclip, Star } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { BlocoBook } from "@/lib/book-operador";
+import type { BookEntryCurrent } from "./types";
 
 /**
  * O cartão de um bloco do Book do Operador.
  *
  * A forma é a do Freightech: régua laranja em cima, categoria em laranja,
  * título em negrito, descrição em cinza, e a estrela no canto. Quem já usa a
- * base de lá reconhece a grade antes de ler qualquer palavra, e é isso que o
- * cartão precisa entregar.
+ * base de lá reconhece a grade antes de ler qualquer palavra.
  *
- * **Duas decisões que não são cosméticas.**
+ * **O cartão abre, e o rodapé diz o que vai encontrar.** Enquanto o Book era só
+ * índice, abrir levaria a uma tela vazia — e quem clicasse concluiria que o
+ * assunto não está coberto, quando o que faltava era o conteúdo. Agora o
+ * conteúdo entra por aqui, então o cartão declara antes do clique se este bloco
+ * tem regra escrita, documento anexado ou nada ainda. Um cartão sem regra abre
+ * do mesmo jeito: é justamente ali que se registra a primeira.
  *
- * 1. **O cartão não abre.** Em toda esta interface, cartão que abre promete
- *    conteúdo — e o conteúdo destes blocos é o documento do Freightech, que
- *    ainda não foi importado. Uma tela de detalhe vazia seria pior do que não
- *    ter tela: quem clicasse concluiria que o assunto não está coberto, quando
- *    o que falta é o arquivo. Enquanto não houver documento, o cartão é o
- *    índice, e diz o que é. Quando houver, ele abre.
- * 2. **A categoria usa `--brand-dark`, não `--brand`.** No Freightech ela é o
- *    laranja claro da marca, que sobre branco dá 2,3:1 — reprova em AA com
- *    folga, e é texto de 12px. A régua de cima fica no laranja original, porque
- *    é enfeite e não tem o que ler; o rótulo escurece. É a mesma troca que o
- *    `index.css` já documenta para o cartão sob o cursor.
+ * **A categoria usa `--brand-dark`, não `--brand`.** No Freightech ela é o
+ * laranja claro da marca, que sobre branco dá 2,3:1 — reprova em AA com folga,
+ * e é texto de 12px. A régua de cima fica no laranja original, porque é enfeite
+ * e não tem o que ler. É a mesma troca que o `index.css` já documenta para o
+ * cartão sob o cursor.
  */
 export function BlocoCard({
   bloco,
+  vigente,
   favorito,
+  onAbrir,
   onAlternarFavorito,
 }: {
   bloco: BlocoBook;
+  vigente: BookEntryCurrent | undefined;
   favorito: boolean;
+  onAbrir: () => void;
   onAlternarFavorito: () => void;
 }) {
   return (
     <article className="relative rounded-md bg-card border border-t-0 shadow-sm flex flex-col">
       <div className="h-1 bg-brand rounded-t-md" aria-hidden="true" />
 
-      <div className="p-6 pr-12 flex flex-col gap-3 flex-1">
+      <button
+        type="button"
+        onClick={onAbrir}
+        className="text-left p-6 pr-12 flex flex-col gap-3 flex-1 rounded-b-md hover:bg-muted/40 transition-colors"
+      >
         <span className="text-sm text-brand-dark">{bloco.categoria}</span>
 
         <h3 className="text-lg font-bold leading-snug text-foreground">
@@ -54,12 +61,16 @@ export function BlocoCard({
             rodapé da página, porque quem lê esta descrição precisa saber que ela
             acaba antes do fim — a nota lá embaixo chegaria tarde.
           */
-          <p className="text-xs text-amber-800 mt-auto pt-2">
+          <p className="text-xs text-amber-800">
             Descrição cortada na captura da tela do Freightech; o texto de lá
             continua.
           </p>
         )}
-      </div>
+
+        <div className="mt-auto pt-3">
+          <EstadoDaRegra vigente={vigente} />
+        </div>
+      </button>
 
       <button
         type="button"
@@ -81,5 +92,43 @@ export function BlocoCard({
         />
       </button>
     </article>
+  );
+}
+
+/**
+ * A linha que diz o que este bloco tem — e "nada" é uma resposta, escrita.
+ *
+ * O estado vazio não é cinza-neutro por acaso: um bloco sem regra não é um
+ * defeito nem um alerta, é trabalho que ainda não foi feito, e pintá-lo de
+ * vermelho faria 63 cartões gritarem no primeiro dia de uso.
+ */
+function EstadoDaRegra({ vigente }: { vigente: BookEntryCurrent | undefined }) {
+  if (!vigente) {
+    return (
+      <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground border rounded-full px-2.5 py-1">
+        Sem regra registrada
+      </span>
+    );
+  }
+
+  const rotulo =
+    vigente.kind === "DOCUMENTO"
+      ? (vigente.filename ?? "documento")
+      : "Regra escrita";
+
+  return (
+    <span className="inline-flex items-center gap-1.5 text-xs text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1 max-w-full">
+      {vigente.kind === "DOCUMENTO" ? (
+        <Paperclip className="w-3.5 h-3.5 shrink-0" />
+      ) : (
+        <FileText className="w-3.5 h-3.5 shrink-0" />
+      )}
+      <span className="truncate">{rotulo}</span>
+      {vigente.revisions > 1 && (
+        <span className="shrink-0 text-emerald-800">
+          · {vigente.revisions} revisões
+        </span>
+      )}
+    </span>
   );
 }
