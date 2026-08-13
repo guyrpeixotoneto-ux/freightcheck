@@ -89,11 +89,24 @@ export default function Parametros() {
 
   const secoes = useMemo(() => montarSecoes(data ?? null), [data]);
 
+  /**
+   * Aplicar o filtro **não** fecha o cartão aberto.
+   *
+   * Trocar de unidade ou de vigência é justamente o que se quer fazer *dentro*
+   * de um cartão: "e em Manaus, como ficou o Índice de Reajuste?". Voltar para
+   * a grade a cada FILTRAR obriga a reencontrar o cartão na lista para fazer a
+   * pergunta seguinte, e a pergunta seguinte é quase sempre a mesma sobre outro
+   * recorte.
+   *
+   * O que o cartão não sobrevive é a mudança que o faz deixar de existir — e aí
+   * a tela diz isso em vez de despejar na grade sem explicação. Ver `CartaoAusente`.
+   */
   const aplicar = (selecao: { scopeHash: string; canal: string | null; period: string }) => {
     const next = new URLSearchParams();
     next.set("scopeHash", selecao.scopeHash);
     if (selecao.canal) next.set("canal", selecao.canal);
     if (selecao.period) next.set("period", selecao.period);
+    if (cartaoAberto) next.set("cartao", cartaoAberto);
     navigate(`/parametros?${next}`);
   };
 
@@ -161,11 +174,72 @@ export default function Parametros() {
             contexto={query}
             onVoltar={() => abrirCartao(null)}
           />
+        ) : cartaoAberto && !isLoading ? (
+          <CartaoAusente
+            chave={cartaoAberto}
+            view={data ?? null}
+            onVoltar={() => abrirCartao(null)}
+          />
         ) : (
           <Grade view={data ?? null} secoes={secoes} busca={busca} onAbrir={abrirCartao} />
         )}
       </div>
     </Layout>
+  );
+}
+
+/**
+ * O cartão que existia e não existe neste recorte.
+ *
+ * Nasceu de deixar o FILTRAR preservar o cartão aberto. A maioria sobrevive à
+ * troca — todo cartão do catálogo Freightech aparece sempre, tenha dado ou não.
+ * Os nossos, não: uma gaveta como *Cadastro Índice de Reajuste* só existe na
+ * vigência em que aquele parâmetro se mexeu, e trocar de unidade ou de mês pode
+ * fazê-la sumir.
+ *
+ * Sem esta tela o sumiço era silencioso: o filtro aplicava, o cartão evaporava
+ * e a grade aparecia no lugar, com `?cartao=` ainda pendurado na URL. Quem
+ * clicou entende que errou o clique, e não que **naquele recorte não houve
+ * alteração nenhuma naquele parâmetro** — que é a informação de auditoria.
+ */
+function CartaoAusente({
+  chave,
+  view,
+  onVoltar,
+}: {
+  chave: string;
+  view: FamiliesView | null;
+  onVoltar: () => void;
+}) {
+  const unidade = view?.context.scopes
+    .filter((e) => e.scopeType === "UNIDADE" || e.scopeType === "OPERADOR")
+    .map((e) => e.name ?? e.code)
+    .join("-");
+
+  return (
+    <div className="mt-6">
+      <button
+        type="button"
+        onClick={onVoltar}
+        className="bg-brand text-brand-foreground text-[0.8125rem] font-bold uppercase tracking-wide px-6 py-3 rounded-sm hover:brightness-95 transition-[filter]"
+      >
+        Voltar aos cartões
+      </button>
+
+      <div className="mt-6 bg-card border border-l-[6px] border-l-brand px-6 py-5 max-w-3xl space-y-2 text-sm">
+        <p className="font-medium">
+          Este cartão não existe em {unidade || "esta unidade"}
+          {view?.periodLabel ? ` · ${view.periodLabel}` : ""}.
+        </p>
+        <p className="text-muted-foreground">
+          O filtro foi aplicado e o cartão veio junto — mas as gavetas nossas só
+          aparecem na vigência em que o parâmetro se mexeu, e neste recorte ele não se
+          mexeu. Isso é resposta, não erro: naquele mês, naquela unidade, a Ambev não
+          alterou nada ali.
+        </p>
+        <p className="text-xs text-muted-foreground font-mono pt-1">{chave}</p>
+      </div>
+    </div>
   );
 }
 

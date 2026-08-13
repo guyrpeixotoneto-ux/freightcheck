@@ -375,7 +375,19 @@ export async function getRangeAnalysis(
     intervalo mais curto que ainda mostra movimento, e é o que a tela abre.
   */
   const alvoFim = to && datas.includes(to) ? to : datas[0];
-  const alvoInicio = from && datas.includes(from) ? from : (datas[1] ?? datas[0]);
+  /*
+    Sem `from` escolhido, a ponta inicial é a vigência **imediatamente anterior
+    à final** — e não a segunda mais recente do histórico.
+
+    A diferença aparece quando a ponta final não é a mais recente: com `to` em
+    junho, "a segunda do histórico" é julho, que vem *depois*. O intervalo
+    acabava invertido, o código dava a volta com um swap, e a tela mostrava
+    junho → julho para quem tinha pedido junho. O padrão certo é o mais curto
+    que ainda mostra movimento a partir da ponta escolhida.
+  */
+  const anteriorAoFim = datas.find((d) => d < alvoFim);
+  const alvoInicio =
+    from && datas.includes(from) ? from : (anteriorAoFim ?? alvoFim);
   const [inicio, fim] =
     alvoInicio <= alvoFim ? [alvoInicio, alvoFim] : [alvoFim, alvoInicio];
 

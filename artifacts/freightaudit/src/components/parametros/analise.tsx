@@ -77,14 +77,26 @@ export function AnaliseCartao({
   periodo: string | null;
 }) {
   const [de, setDe] = useState<string | null>(null);
-  const [ate, setAte] = useState<string | null>(periodo);
+  const [ate, setAte] = useState<string | null>(null);
   const [leitura, setLeitura] = useState<"movimentos" | "ponta">("movimentos");
   const [aberto, setAberto] = useState<string | null>(null);
+
+  /*
+    A ponta final segue a vigência de cima **até** alguém escolher outra.
+
+    O FILTRAR preserva o cartão aberto, então a vigência do topo pode mudar com
+    esta aba montada. Guardar `periodo` no estado inicial congelaria a escolha
+    do primeiro render: quem trocasse de agosto para julho lá em cima
+    continuaria vendo agosto aqui, e os dois seletores diriam coisas
+    diferentes sobre a mesma tela. Guardar só a escolha explícita resolve os
+    dois casos — sem escolha, acompanha; com escolha, fica.
+  */
+  const ateEfetivo = ate ?? periodo;
 
   const base = new URLSearchParams(contexto);
   base.delete("period");
   if (de) base.set("from", de);
-  if (ate) base.set("to", ate);
+  if (ateEfetivo) base.set("to", ateEfetivo);
 
   /*
     O recorte do cartão vai nas duas consultas, e não num filtro da tela.

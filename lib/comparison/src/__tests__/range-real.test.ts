@@ -87,6 +87,23 @@ describe("as pontas do intervalo", () => {
     expect(trocado.totals).toEqual(certo.totals);
   });
 
+  it("com a ponta final no meio do histórico, a inicial é a vigência anterior a ela", async () => {
+    const periodos = await listPeriods(ctx.db);
+    // Uma vigência do meio: nem a mais recente, nem a mais antiga.
+    const meio = periodos[Math.floor(periodos.length / 2)].effective_date;
+    const anterior = periodos[Math.floor(periodos.length / 2) + 1].effective_date;
+
+    for (const analise of [
+      (await getRangeAnalysis(ctx.db, undefined, meio))!,
+      (await getEndToEndAnalysis(ctx.db, undefined, meio))!,
+    ]) {
+      expect(analise.to).toBe(meio);
+      // E não a segunda mais recente do histórico, que viria *depois* de `meio`.
+      expect(analise.from).toBe(anterior);
+      expect(analise.from < analise.to).toBe(true);
+    }
+  });
+
   it("uma ponta que não existe no histórico cai no padrão, e não derruba a tela", async () => {
     const padrao = (await getRangeAnalysis(ctx.db))!;
     const inventada = (await getRangeAnalysis(ctx.db, "1999-01-01", "1999-02-01"))!;
