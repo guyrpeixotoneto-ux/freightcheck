@@ -185,7 +185,7 @@ export default function SnapshotDetail() {
                       <TableRow key={param.id} className={param.isSuperseded ? "opacity-50 bg-muted/50" : ""}>
                         <TableCell className="font-mono text-xs">{param.parameterKey}</TableCell>
                         <TableCell className="font-medium">{param.parameterName}</TableCell>
-                        <TableCell><Badge variant="outline" className="text-[10px]">{param.category}</Badge></TableCell>
+                        <TableCell><Badge variant="outline" className="text-[0.625rem]">{param.category}</Badge></TableCell>
                         <TableCell className="text-right font-mono font-semibold">
                           {param.dataType === 'NUMBER' ? param.valueNumeric?.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : param.valueText}
                         </TableCell>

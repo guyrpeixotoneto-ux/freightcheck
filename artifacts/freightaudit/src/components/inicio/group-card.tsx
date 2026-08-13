@@ -51,7 +51,7 @@ export function GroupCard({ group, period }: { group: ChangeGroup; period: strin
           <div className="flex flex-wrap items-center gap-2">
             <span
               className={cn(
-                "text-[11px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border",
+                "text-[0.6875rem] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full border",
                 BADGE_STYLE[group.badge],
               )}
             >
@@ -487,7 +487,7 @@ function VehicleTable({ rows, group }: { rows: GroupVehicle[]; group: ChangeGrou
               {row.anomaly && (
                 <tr className="bg-amber-50/60">
                   <td />
-                  <td colSpan={5} className="px-3 pb-1.5 text-[11px] text-amber-900">
+                  <td colSpan={5} className="px-3 pb-1.5 text-[0.6875rem] text-amber-900">
                     {row.anomaly.interpretation}
                     {/* A qualificação vem do mesmo critério do cartão: uma
                         diferença abaixo de um segundo é a precisão que o serial
@@ -553,7 +553,7 @@ function Provenance({ changeId }: { changeId: number }) {
     raw: unknown,
     type: unknown,
   ) => (
-    <div className="rounded border bg-card px-3 py-2 font-mono text-[11px]">
+    <div className="rounded border bg-card px-3 py-2 font-mono text-[0.6875rem]">
       <div className="font-sans uppercase tracking-wide text-muted-foreground mb-1">
         {String(title)}
       </div>

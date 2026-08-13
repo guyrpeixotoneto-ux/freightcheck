@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
-import { AlertTriangle, ChevronLeft, Info, Lock, Search, Star } from "lucide-react";
+import { AlertTriangle, ChevronLeft, Info, Search, Star } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { GroupCard } from "@/components/inicio/group-card";
 import {
@@ -15,9 +15,10 @@ import { getApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useFavoritos } from "@/lib/favoritos";
 import { formatBrlShort, impactEntries, periodicitySuffix } from "@/lib/format";
+import { CATALOGO_FREIGHTECH, chaveDoCartao } from "@/lib/freightech-catalogo";
 import type {
+  ChangeGroup,
   FamiliesView,
-  FamilyView,
   ImpactSummary,
   ParameterView,
 } from "@/components/inicio/types";
@@ -30,17 +31,22 @@ import type {
  * acende quando há o que aplicar, as seções em caixa alta com a régua laranja,
  * a grade de cartões com a barra na lateral e a estrela de favorito.
  *
- * O que muda é o que está escrito dentro do cartão. No Freightech ele traz o
- * nome do parâmetro e nada mais — para descobrir se algo mudou é preciso abrir,
- * exportar e comparar à mão. Aqui cada cartão já diz **quantas alterações, em
- * quantos veículos e quanto isso vale**; e quando não dá para valorar, diz o
- * motivo em vez de mostrar um traço.
+ * **A grade é o catálogo inteiro do Freightech**, e não só o que este export
+ * alimenta. Um cartão que existe lá e não existe aqui era, até agora, uma nota
+ * de rodapé; a nota era verdadeira mas respondia à pergunta errada — quem
+ * procura uma gaveta pelo nome e não a encontra conclui que o produto não cobre
+ * o assunto. Agora o cartão está lá, e quem diz que não tem dado é ele.
  *
- * Três recusas que a fidelidade visual não afrouxa:
+ * O que muda em relação ao Freightech é o miolo do cartão. Lá ele traz o nome e
+ * nada mais; para saber se algo mudou é preciso abrir, exportar e comparar à
+ * mão. Aqui ele já diz **quantas alterações, em quantos veículos e quanto
+ * vale** — e quando não dá para valorar, diz o motivo.
+ *
+ * As recusas continuam de pé, deslocadas mas não afrouxadas:
  *
  * 1. **Nunca somar periodicidades.** R$/mês e R$/ano em linhas próprias, sempre.
- * 2. **Nunca um cartão vazio.** O que o Freightech publica e este export não
- *    traz vira nota de rodapé, não cartão que promete assunto sem dado.
+ * 2. **Nenhum cartão finge cobertura.** O que não tem dado aparece cinza,
+ *    escrito, e não abre um detalhe que não teria o que mostrar.
  * 3. **Nunca "impacto a verificar".** Sem preço é sem preço, com o motivo junto.
  */
 export default function Parametros() {
@@ -54,7 +60,7 @@ export default function Parametros() {
     if (value !== null) query.set(key, value);
   }
 
-  const parametroAberto = params.get("parametro");
+  const cartaoAberto = params.get("cartao");
 
   /**
    * A busca por nome de parâmetro fica aqui, e não dentro da grade, porque o
@@ -67,10 +73,13 @@ export default function Parametros() {
     queryFn: async () => {
       const suffix = query.toString() ? `?${query}` : "";
       const response = await fetch(getApiUrl(`/changes/families${suffix}`));
+      if (response.status === 404) return null;
       if (!response.ok) throw new Error((await response.json()).error ?? "Falha ao carregar");
       return (await response.json()) as FamiliesView;
     },
   });
+
+  const secoes = useMemo(() => montarSecoes(data ?? null), [data]);
 
   const aplicar = (selecao: { scopeHash: string; canal: string | null; period: string }) => {
     const next = new URLSearchParams();
@@ -80,25 +89,25 @@ export default function Parametros() {
     navigate(`/parametros?${next}`);
   };
 
-  const abrirParametro = (chave: string | null) => {
+  const abrirCartao = (chave: string | null) => {
     const next = new URLSearchParams(search);
-    if (chave) next.set("parametro", chave);
-    else next.delete("parametro");
+    if (chave) next.set("cartao", chave);
+    else next.delete("cartao");
     navigate(`/parametros?${next}`);
   };
 
-  const parametro = useMemo(() => {
-    if (!data || !parametroAberto) return null;
-    for (const familia of data.families) {
-      const encontrado = familia.parameters.find((p) => p.key === parametroAberto);
-      if (encontrado) return { familia, parametro: encontrado };
+  const cartao = useMemo(() => {
+    if (!cartaoAberto) return null;
+    for (const secao of secoes) {
+      const encontrado = secao.cartoes.find((c) => c.chave === cartaoAberto);
+      if (encontrado) return encontrado;
     }
     return null;
-  }, [data, parametroAberto]);
+  }, [secoes, cartaoAberto]);
 
   return (
     <Layout>
-      <div className="px-10 py-8 max-w-[1600px]">
+      <div className="px-10 py-6 max-w-[1600px]">
         <h1 className="text-3xl font-bold uppercase tracking-tight">Escolha de segmento</h1>
 
         {data && (
@@ -107,33 +116,269 @@ export default function Parametros() {
             onFiltrar={aplicar}
             busca={busca}
             onBuscar={setBusca}
-            buscaAtiva={!parametro}
+            buscaAtiva={!cartao}
           />
         )}
 
         {isLoading && <p className="mt-8 text-sm text-muted-foreground">Carregando…</p>}
         {error && (
-          <div className="mt-8 bg-card border border-l-[6px] border-l-brand-red px-6 py-4 text-sm">
+          <div className="mt-6 bg-card border border-l-[6px] border-l-brand-red px-6 py-4 text-sm">
             {(error as Error).message}
           </div>
         )}
 
-        {data && parametro && (
-          <DetalheParametro
-            familia={parametro.familia}
-            parametro={parametro.parametro}
-            period={data.period}
-            onVoltar={() => abrirParametro(null)}
-          />
+        {/*
+          Sem vigência importada a grade continua na tela. O catálogo é o mapa
+          das gavetas do Freightech, não uma projeção dos nossos fatos: ele vale
+          antes de existir o primeiro import, e é justamente aí que ele mais
+          serve — mostra o que o produto vai cobrir quando o arquivo chegar.
+        */}
+        {!isLoading && !error && !data && (
+          <div className="mt-6 bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm flex gap-3">
+            <Info className="w-4 h-4 mt-0.5 shrink-0 text-brand" />
+            <p>
+              <strong>Nenhuma vigência importada ainda.</strong> Os cartões abaixo são as
+              gavetas que o Freightech publica — todos aparecem, nenhum tem dado. Assim que
+              a primeira planilha for importada, os que este export alimenta passam a
+              mostrar o que mudou e quanto vale.
+            </p>
+          </div>
         )}
 
-        {data && !parametro && (
-          <Grade view={data} busca={busca} onAbrir={(chave) => abrirParametro(chave)} />
+        {cartao ? (
+          <DetalheCartao
+            cartao={cartao}
+            period={data?.period ?? ""}
+            onVoltar={() => abrirCartao(null)}
+          />
+        ) : (
+          <Grade view={data ?? null} secoes={secoes} busca={busca} onAbrir={abrirCartao} />
         )}
       </div>
     </Layout>
   );
 }
+
+/* ------------------------------------------------------------------ */
+/* O catálogo, preenchido com o que temos                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Um cartão pronto para desenhar: o rótulo do Freightech, mais o que os nossos
+ * parâmetros disserem sobre ele — quando disserem alguma coisa.
+ */
+interface CartaoRender {
+  chave: string;
+  nome: string;
+  secao: string;
+  /** De onde vem a gaveta: do Freightech ou nossa. */
+  origem: "FREIGHTECH" | "FREIGHTCHECK";
+  /** Os nossos parâmetros por trás deste cartão. Vazio = sem dado no export. */
+  parametros: ParameterView[];
+  changes: number;
+  /** Só quando um único parâmetro alimenta o cartão — ver `agregar`. */
+  vehicles: number | null;
+  impact: ImpactSummary;
+  pending: string | null;
+  groups: ChangeGroup[];
+}
+
+interface SecaoRender {
+  titulo: string;
+  origem: "FREIGHTECH" | "FREIGHTCHECK";
+  nota: string | null;
+  cartoes: CartaoRender[];
+}
+
+const IMPACTO_VAZIO: ImpactSummary = {
+  byPeriodicity: {},
+  excludedByPeriodicity: {},
+  excludedChanges: 0,
+  notCalculable: 0,
+  calculatedChanges: 0,
+};
+
+/**
+ * Casa o catálogo do Freightech com os parâmetros desta vigência.
+ *
+ * Duas passagens, e a ordem entre elas importa:
+ *
+ * 1. **O mapeamento escrito à mão** de `freightech-catalogo.ts`, que resolve os
+ *    casos em que os dois sistemas dão nomes diferentes à mesma gaveta —
+ *    "Cavalo" lá é "Caminhão" aqui.
+ * 2. **Nome idêntico**, para o que sobrou. Isso não é chute: "Fator consumo"
+ *    aqui e "Fator consumo" lá são a mesma coisa, e exigir uma linha de mapa
+ *    para cada coincidência só produziria a duplicata que este passo evita — o
+ *    parâmetro aparecia cinza no cartão do Freightech *e* de novo, com dado,
+ *    numa seção nossa de mesmo nome.
+ *
+ * Um parâmetro só entra num cartão. Há rótulo repetido entre seções ("Modelo"
+ * está em Frota e em Dimensões); sem essa trava o mesmo dinheiro apareceria em
+ * duas gavetas, que é precisamente o defeito que este produto existe para pegar.
+ */
+function montarSecoes(view: FamiliesView | null): SecaoRender[] {
+  const porNome = new Map<string, ParameterView>();
+  for (const familia of view?.families ?? []) {
+    for (const parametro of familia.parameters) porNome.set(parametro.name, parametro);
+  }
+
+  /** Índice por nome normalizado, para a segunda passagem. */
+  const porNomeNormalizado = new Map<string, ParameterView>();
+  for (const [nome, parametro] of porNome) {
+    porNomeNormalizado.set(normalizar(nome), parametro);
+  }
+
+  const usados = new Set<string>();
+
+  // Passagem 1 — o mapa escrito à mão.
+  const ligados = new Map<string, ParameterView[]>();
+  for (const secao of CATALOGO_FREIGHTECH) {
+    for (const cartao of secao.cartoes) {
+      const chave = chaveDoCartao(secao.titulo, cartao.nome);
+      const parametros = (cartao.parametros ?? [])
+        .map((nome) => porNome.get(nome))
+        .filter((p): p is ParameterView => p !== undefined);
+      for (const p of parametros) usados.add(p.name);
+      if (parametros.length > 0) ligados.set(chave, parametros);
+    }
+  }
+
+  // Passagem 2 — nome idêntico, para os cartões que continuaram vazios.
+  for (const secao of CATALOGO_FREIGHTECH) {
+    for (const cartao of secao.cartoes) {
+      const chave = chaveDoCartao(secao.titulo, cartao.nome);
+      if (ligados.has(chave)) continue;
+      const encontrado = porNomeNormalizado.get(normalizar(cartao.nome));
+      if (encontrado && !usados.has(encontrado.name)) {
+        usados.add(encontrado.name);
+        ligados.set(chave, [encontrado]);
+      }
+    }
+  }
+
+  const doFreightech: SecaoRender[] = CATALOGO_FREIGHTECH.map((secao) => ({
+    titulo: secao.titulo,
+    origem: "FREIGHTECH" as const,
+    nota: null,
+    cartoes: secao.cartoes.map((cartao) => {
+      const chave = chaveDoCartao(secao.titulo, cartao.nome);
+      const parametros = ligados.get(chave) ?? [];
+      return {
+        chave,
+        nome: cartao.nome,
+        secao: secao.titulo,
+        origem: "FREIGHTECH" as const,
+        parametros,
+        ...agregar(parametros),
+      };
+    }),
+  }));
+
+  /*
+    O que é nosso e não tem gaveta lá.
+
+    Aquisição e financiamento, tributos, seguros: é onde está a maior parte do
+    dinheiro deste export, e não há cartão equivalente nas telas do Freightech
+    que conhecemos. Encaixar isso à força numa gaveta de lá penduraria dinheiro
+    no lugar errado; então vira seção própria, marcada como nossa.
+  */
+  const titulosDoFreightech = new Set(
+    CATALOGO_FREIGHTECH.map((s) => normalizar(s.titulo)),
+  );
+
+  const nossas: SecaoRender[] = (view?.families ?? [])
+    .map((familia) => ({
+      familia,
+      parametros: familia.parameters.filter((p) => !usados.has(p.name)),
+    }))
+    .filter(({ parametros }) => parametros.length > 0)
+    .map(({ familia, parametros }) => ({
+      /*
+        Uma seção nossa pode ter o nome de uma seção de lá — "Parâmetros
+        gerais" existe nos dois — e dois títulos iguais na mesma página fazem o
+        leitor achar que rolou para o lugar errado. O sufixo diz qual é qual.
+      */
+      titulo: titulosDoFreightech.has(normalizar(familia.name))
+        ? `${familia.name} — só no FreightCheck`
+        : familia.name,
+      origem: "FREIGHTCHECK" as const,
+      nota: familia.note,
+      cartoes: parametros.map((parametro) => ({
+        chave: chaveDoCartao(familia.code, parametro.name),
+        nome: parametro.name,
+        secao: familia.name,
+        origem: "FREIGHTCHECK" as const,
+        parametros: [parametro],
+        ...agregar([parametro]),
+      })),
+    }));
+
+  return [...doFreightech, ...nossas];
+}
+
+/**
+ * Junta o que vários parâmetros dizem sobre um mesmo cartão.
+ *
+ * Duas somas e uma recusa:
+ *
+ * - **alterações** somam, porque são contagens de eventos distintos;
+ * - **impacto** soma *dentro de cada periodicidade*, nunca entre elas;
+ * - **veículos não somam.** O mesmo cavalo aparece em dois parâmetros e seria
+ *   contado duas vezes. Quando há mais de um parâmetro no cartão o número sai
+ *   da tela em vez de sair errado — a contagem distinta é do servidor, e
+ *   inventá-la aqui seria produzir um número sem lastro.
+ */
+function agregar(parametros: ParameterView[]): {
+  changes: number;
+  vehicles: number | null;
+  impact: ImpactSummary;
+  pending: string | null;
+  groups: ChangeGroup[];
+} {
+  if (parametros.length === 0) {
+    return {
+      changes: 0,
+      vehicles: null,
+      impact: IMPACTO_VAZIO,
+      pending: null,
+      groups: [],
+    };
+  }
+
+  const impact: ImpactSummary = {
+    byPeriodicity: {},
+    excludedByPeriodicity: {},
+    excludedChanges: 0,
+    notCalculable: 0,
+    calculatedChanges: 0,
+  };
+
+  for (const p of parametros) {
+    for (const [periodicidade, valor] of Object.entries(p.impact.byPeriodicity)) {
+      impact.byPeriodicity[periodicidade] =
+        (impact.byPeriodicity[periodicidade] ?? 0) + valor;
+    }
+    for (const [periodicidade, valor] of Object.entries(p.impact.excludedByPeriodicity)) {
+      impact.excludedByPeriodicity[periodicidade] =
+        (impact.excludedByPeriodicity[periodicidade] ?? 0) + valor;
+    }
+    impact.excludedChanges += p.impact.excludedChanges;
+    impact.notCalculable += p.impact.notCalculable;
+    impact.calculatedChanges += p.impact.calculatedChanges;
+  }
+
+  return {
+    changes: parametros.reduce((soma, p) => soma + p.changes, 0),
+    vehicles: parametros.length === 1 ? parametros[0].vehicles : null,
+    impact,
+    pending: parametros.map((p) => p.pending).find((aviso) => aviso) ?? null,
+    groups: parametros.flatMap((p) => p.groups),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* A barra de filtro                                                   */
+/* ------------------------------------------------------------------ */
 
 /**
  * Os quatro campos e o botão, na ordem e no formato do Freightech.
@@ -157,7 +402,7 @@ function BarraFiltro({
   onFiltrar: (selecao: { scopeHash: string; canal: string | null; period: string }) => void;
   busca: string;
   onBuscar: (valor: string) => void;
-  /** Com um parâmetro aberto não há grade para filtrar; o campo desabilita. */
+  /** Com um cartão aberto não há grade para filtrar; o campo desabilita. */
   buscaAtiva: boolean;
 }) {
   const contextos = [view.context, ...view.otherContexts];
@@ -181,11 +426,8 @@ function BarraFiltro({
     period !== view.period;
 
   return (
-    <div className="mt-6 flex flex-wrap items-end gap-4">
-      <Campo
-        rotulo="Canal/Segmento"
-        nota={canais.length > 1 ? null : "único canal importado"}
-      >
+    <div className="mt-5 flex flex-wrap items-end gap-4">
+      <Campo rotulo="Canal/Segmento" nota={canais.length > 1 ? null : "único canal importado"}>
         {canais.length > 1 ? (
           <Select value={canal ?? ""} onValueChange={(valor) => setCanal(valor || null)}>
             <SelectTrigger className="w-56 h-12 rounded-sm bg-card">
@@ -219,10 +461,7 @@ function BarraFiltro({
         </Select>
       </Campo>
 
-      <Campo
-        rotulo="Unidade"
-        nota={unidades.length > 1 ? null : "única unidade importada"}
-      >
+      <Campo rotulo="Unidade" nota={unidades.length > 1 ? null : "única unidade importada"}>
         {unidades.length > 1 ? (
           <Select
             value={scopeHash}
@@ -252,7 +491,7 @@ function BarraFiltro({
         disabled={!sujo}
         onClick={() => onFiltrar({ scopeHash, canal, period })}
         className={cn(
-          "h-12 px-8 rounded-sm text-[13px] font-bold uppercase tracking-wide transition-colors",
+          "h-12 px-8 rounded-sm text-[0.8125rem] font-bold uppercase tracking-wide transition-colors",
           sujo
             ? "bg-brand text-brand-foreground hover:brightness-95"
             : "bg-brand/40 text-white cursor-not-allowed",
@@ -290,7 +529,7 @@ function Campo({
     <div>
       <div className="text-sm text-muted-foreground mb-1.5">{rotulo}</div>
       {children}
-      {nota && <div className="text-[11px] text-muted-foreground mt-1">{nota}</div>}
+      {nota && <div className="text-[0.6875rem] text-muted-foreground mt-1">{nota}</div>}
     </div>
   );
 }
@@ -313,110 +552,146 @@ function nomeDaUnidade(context: FamiliesView["context"]): string {
   return unidade?.name ?? unidade?.code ?? context.scopeHash;
 }
 
+/* ------------------------------------------------------------------ */
+/* A grade                                                             */
+/* ------------------------------------------------------------------ */
+
 /**
- * A grade: um bloco por família, cartões de quatro em quatro.
+ * A grade: um bloco por seção, cartões de quatro em quatro.
  *
  * Os favoritos sobem para um bloco próprio no topo, como no Freightech — quem
- * marcou cinco parâmetros não quer rolar a página inteira todo dia para achá-los.
+ * marcou cinco cartões não quer rolar a página inteira todo dia para achá-los.
  */
 function Grade({
   view,
+  secoes,
   busca,
   onAbrir,
 }: {
-  view: FamiliesView;
+  view: FamiliesView | null;
+  secoes: SecaoRender[];
   busca: string;
   onAbrir: (chave: string) => void;
 }) {
   const { favoritos, alternar } = useFavoritos();
 
   const termo = normalizar(busca.trim());
-  const familias = view.families
-    .map((familia) => ({
-      ...familia,
-      parameters: termo
-        ? familia.parameters.filter((p) => normalizar(p.name).includes(termo))
-        : familia.parameters,
+  const filtradas = secoes
+    .map((secao) => ({
+      ...secao,
+      cartoes: termo
+        ? secao.cartoes.filter((c) => normalizar(c.nome).includes(termo))
+        : secao.cartoes,
     }))
-    .filter((familia) => familia.parameters.length > 0);
+    .filter((secao) => secao.cartoes.length > 0);
 
-  const marcados = view.families
-    .flatMap((f) => f.parameters.map((p) => ({ familia: f, parametro: p })))
-    .filter((item) => favoritos.includes(item.parametro.key))
-    .filter((item) => !termo || normalizar(item.parametro.name).includes(termo));
+  const marcados = secoes
+    .flatMap((s) => s.cartoes)
+    .filter((c) => favoritos.includes(c.chave))
+    .filter((c) => !termo || normalizar(c.nome).includes(termo));
+
+  /*
+    A cobertura conta só as gavetas do Freightech. As nossas entram no total e
+    a frase viraria uma meia-verdade — "cartões no catálogo do Freightech" com
+    os nossos somados dentro é exatamente o tipo de número que esta tela existe
+    para não produzir.
+  */
+  const doFreightech = secoes
+    .filter((s) => s.origem === "FREIGHTECH")
+    .flatMap((s) => s.cartoes);
+  const total = doFreightech.length;
+  const comDado = doFreightech.filter((c) => c.parametros.length > 0).length;
+  const soNossos = secoes
+    .filter((s) => s.origem === "FREIGHTCHECK")
+    .reduce((soma, s) => soma + s.cartoes.length, 0);
 
   return (
     <>
-      <div className="mt-8">
-        <Resumo view={view} />
-      </div>
+      {view && (
+        <div className="mt-6">
+          <Resumo view={view} />
+        </div>
+      )}
 
-      {!view.complete && (
-        <div className="mt-6 bg-card border border-l-[6px] border-l-brand flex gap-3 px-6 py-4 text-sm">
+      {view && !view.complete && (
+        <div className="mt-5 bg-card border border-l-[6px] border-l-brand flex gap-3 px-6 py-4 text-sm">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-brand" />
           <p>
             <strong>Visão parcial.</strong> Nesta vigência chegou apenas{" "}
             {view.series.map((s) => s.equipment.toLowerCase()).join(", ")}. Falta{" "}
-            <strong>{view.missingSeries.join(", ").toLowerCase()}</strong> — a série
-            ausente não está contada como zero.
+            <strong>{view.missingSeries.join(", ").toLowerCase()}</strong> — a série ausente
+            não está contada como zero.
           </p>
         </div>
       )}
 
+      {/*
+        A cobertura, dita de frente. São 60 e poucas gavetas e este export
+        alimenta uma minoria delas; deixar isso implícito faria a grade parecer
+        um produto pela metade em vez de um mapa honesto do que falta chegar.
+      */}
+      <p className="mt-5 text-sm text-muted-foreground">
+        {total} cartões no catálogo do Freightech · <strong>{comDado}</strong> com dado
+        neste export · {total - comDado} ainda sem
+        {soNossos > 0 && (
+          <>
+            {" · "}
+            <strong>{soNossos}</strong> {soNossos === 1 ? "cartão" : "cartões"} que só o
+            FreightCheck tem
+          </>
+        )}
+      </p>
+
       {marcados.length > 0 && (
         <Secao titulo="Favoritos">
-          {marcados.map(({ familia, parametro }) => (
-            <CartaoParametro
-              key={`fav-${parametro.key}`}
-              parametro={parametro}
-              familia={familia}
+          {marcados.map((cartao) => (
+            <Cartao
+              key={`fav-${cartao.chave}`}
+              cartao={cartao}
               favorito
-              onFavoritar={() => alternar(parametro.key)}
-              onAbrir={() => onAbrir(parametro.key)}
+              onFavoritar={() => alternar(cartao.chave)}
+              onAbrir={() => onAbrir(cartao.chave)}
             />
           ))}
         </Secao>
       )}
 
-      {familias.length === 0 && (
+      {filtradas.length === 0 && (
         <p className="mt-10 text-sm text-muted-foreground">
-          Nenhum parâmetro com esse nome nesta vigência.
+          Nenhum cartão com esse nome.
         </p>
       )}
 
-      {familias.map((familia) => (
+      {filtradas.map((secao) => (
         <Secao
-          key={familia.code}
-          titulo={familia.name}
-          origem={familia.origin}
-          nota={familia.note}
-          resumo={
-            familia.changes === 0
-              ? "Sem alterações nesta vigência."
-              : `${familia.parametersChanged} de ${familia.parametersWithData} ${
-                  familia.parametersWithData === 1 ? "parâmetro" : "parâmetros"
-                } · ${familia.changes} ${
-                  familia.changes === 1 ? "alteração" : "alterações"
-                } · ${familia.vehicles} ${familia.vehicles === 1 ? "veículo" : "veículos"}`
-          }
-          travados={familia.locked}
+          key={`${secao.origem}-${secao.titulo}`}
+          titulo={secao.titulo}
+          origem={secao.origem}
+          nota={secao.nota}
+          resumo={resumoDaSecao(secao)}
         >
-          {familia.parameters.map((parametro) => (
-            <CartaoParametro
-              key={parametro.key}
-              parametro={parametro}
-              familia={familia}
-              favorito={favoritos.includes(parametro.key)}
-              onFavoritar={() => alternar(parametro.key)}
-              onAbrir={() => onAbrir(parametro.key)}
+          {secao.cartoes.map((cartao) => (
+            <Cartao
+              key={cartao.chave}
+              cartao={cartao}
+              favorito={favoritos.includes(cartao.chave)}
+              onFavoritar={() => alternar(cartao.chave)}
+              onAbrir={() => onAbrir(cartao.chave)}
             />
           ))}
         </Secao>
       ))}
-
-      <Rodape view={view} />
     </>
   );
+}
+
+function resumoDaSecao(secao: SecaoRender): string {
+  const comDado = secao.cartoes.filter((c) => c.parametros.length > 0).length;
+  const mexidos = secao.cartoes.filter((c) => c.changes > 0).length;
+  if (comDado === 0) return `${secao.cartoes.length} cartões · nenhum com dado neste export`;
+  return `${comDado} de ${secao.cartoes.length} com dado · ${mexidos} ${
+    mexidos === 1 ? "mexido nesta vigência" : "mexidos nesta vigência"
+  }`;
 }
 
 /** O título de seção do Freightech: caixa alta, negrito, régua laranja embaixo. */
@@ -425,36 +700,28 @@ function Secao({
   origem,
   nota,
   resumo,
-  travados,
   children,
 }: {
   titulo: string;
   origem?: "FREIGHTECH" | "FREIGHTCHECK";
-  nota?: string;
+  nota?: string | null;
   resumo?: string;
-  travados?: number;
   children: React.ReactNode;
 }) {
   return (
-    <section className="mt-10">
+    <section className="mt-8">
       <div className="flex flex-wrap items-baseline gap-3">
         <h2 className="text-lg font-bold uppercase tracking-wide">{titulo}</h2>
         {origem && (
-          <span className="text-[10px] uppercase tracking-wider text-muted-foreground border rounded-full px-2 py-0.5">
+          <span className="text-[0.625rem] uppercase tracking-wider text-muted-foreground border rounded-full px-2 py-0.5">
             {origem === "FREIGHTECH" ? "Freightech" : "FreightCheck"}
           </span>
         )}
         {resumo && <span className="text-xs text-muted-foreground">{resumo}</span>}
-        {travados ? (
-          <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-            <Lock className="w-3 h-3" />
-            {travados} com preço travado
-          </span>
-        ) : null}
       </div>
       <div className="border-b-2 border-brand mt-2" />
       {nota && <p className="text-xs text-muted-foreground mt-3">{nota}</p>}
-      <div className="grid gap-6 mt-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+      <div className="grid gap-5 mt-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
         {children}
       </div>
     </section>
@@ -464,67 +731,104 @@ function Secao({
 /**
  * O cartão do Freightech: barra laranja na lateral esquerda, nome em caixa
  * alta, estrela no rodapé. O miolo entre os dois é o que este produto acrescenta.
+ *
+ * Sem dado o cartão continua existindo — cinza, dizendo o porquê, e sem abrir.
+ * Favoritar continua valendo: marcar a gaveta que interessa é útil justamente
+ * enquanto se espera o dado dela chegar.
  */
-function CartaoParametro({
-  parametro,
-  familia,
+function Cartao({
+  cartao,
   favorito,
   onFavoritar,
   onAbrir,
 }: {
-  parametro: ParameterView;
-  familia: FamilyView;
+  cartao: CartaoRender;
   favorito: boolean;
   onFavoritar: () => void;
   onAbrir: () => void;
 }) {
-  const mudou = parametro.changes > 0;
+  const temDado = cartao.parametros.length > 0;
+  const mudou = cartao.changes > 0;
 
-  return (
-    <div className="bg-card border border-l-[5px] border-l-brand shadow-sm hover:shadow-md transition-shadow flex flex-col">
-      <button
-        type="button"
-        onClick={onAbrir}
-        className="text-left px-5 pt-5 pb-3 flex-1 flex flex-col gap-2"
+  const miolo = (
+    <>
+      <span
+        className={cn(
+          "text-[0.9375rem] font-semibold uppercase tracking-wide leading-snug",
+          temDado ? "" : "text-muted-foreground",
+        )}
       >
-        <span className="text-[15px] font-semibold uppercase tracking-wide leading-snug">
-          {parametro.name}
-        </span>
-        <span className="text-xs text-muted-foreground">{familia.name}</span>
+        {cartao.nome}
+      </span>
+      <span className="text-xs text-muted-foreground">{cartao.secao}</span>
 
-        <span className="text-sm mt-1">
-          {mudou ? (
-            <ImpactoResumido impact={parametro.impact} className="block" />
-          ) : (
-            <span className="text-xs text-muted-foreground">
-              Sem alterações nesta vigência
-            </span>
+      <span className="text-sm mt-1">
+        {!temDado ? (
+          <span className="text-xs text-muted-foreground">Sem dado neste export</span>
+        ) : mudou ? (
+          <ImpactoResumido impact={cartao.impact} className="block" />
+        ) : (
+          <span className="text-xs text-muted-foreground">Sem alterações nesta vigência</span>
+        )}
+      </span>
+
+      {mudou && (
+        <span className="text-xs text-muted-foreground">
+          {cartao.changes} {cartao.changes === 1 ? "alteração" : "alterações"}
+          {cartao.vehicles !== null && (
+            <>
+              {" · "}
+              {cartao.vehicles} {cartao.vehicles === 1 ? "veículo" : "veículos"}
+            </>
           )}
         </span>
+      )}
 
-        {mudou && (
-          <span className="text-xs text-muted-foreground">
-            {parametro.changes} {parametro.changes === 1 ? "alteração" : "alterações"} ·{" "}
-            {parametro.vehicles} {parametro.vehicles === 1 ? "veículo" : "veículos"}
-          </span>
-        )}
+      {cartao.pending && (
+        <span className="text-xs text-brand-red flex gap-1.5 mt-1">
+          <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" />
+          {cartao.pending}
+        </span>
+      )}
+    </>
+  );
 
-        {parametro.pending && (
-          <span className="text-xs text-brand-red flex gap-1.5 mt-1">
-            <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" />
-            {parametro.pending}
-          </span>
-        )}
-      </button>
+  return (
+    <div
+      className={cn(
+        "border border-l-[5px] flex flex-col transition-shadow",
+        temDado
+          ? "bg-card border-l-brand shadow-sm hover:shadow-md"
+          : "bg-card/60 border-l-brand/40",
+      )}
+    >
+      {temDado ? (
+        <button
+          type="button"
+          onClick={onAbrir}
+          className="text-left px-5 pt-5 pb-3 flex-1 flex flex-col gap-2"
+        >
+          {miolo}
+        </button>
+      ) : (
+        <div className="px-5 pt-5 pb-3 flex-1 flex flex-col gap-2">{miolo}</div>
+      )}
 
       <div className="px-4 pb-3">
         <button
           type="button"
           onClick={onFavoritar}
           aria-pressed={favorito}
-          aria-label={favorito ? "Remover dos favoritos" : "Marcar como favorito"}
+          aria-label={
+            favorito
+              ? `Remover ${cartao.nome} dos favoritos`
+              : `Marcar ${cartao.nome} como favorito`
+          }
           title={favorito ? "Remover dos favoritos" : "Marcar como favorito"}
-          className="p-1 -ml-1 text-brand hover:scale-110 transition-transform"
+          className={cn(
+            "p-1 -ml-1 hover:scale-110 transition-transform",
+            temDado ? "text-brand" : "text-brand/50",
+          )}
         >
           <Star className="w-7 h-7" strokeWidth={1.5} fill={favorito ? "currentColor" : "none"} />
         </button>
@@ -533,61 +837,73 @@ function CartaoParametro({
   );
 }
 
+/* ------------------------------------------------------------------ */
+/* O cartão aberto                                                     */
+/* ------------------------------------------------------------------ */
+
 /**
- * O parâmetro aberto — a página que o Freightech abre depois do FILTRAR, com o
+ * O cartão aberto — a página que o Freightech abre depois do FILTRAR, com o
  * que ele mostra lá dentro (o valor) e o que ele não mostra (o que mudou nele).
  */
-function DetalheParametro({
-  familia,
-  parametro,
+function DetalheCartao({
+  cartao,
   period,
   onVoltar,
 }: {
-  familia: FamilyView;
-  parametro: ParameterView;
+  cartao: CartaoRender;
   period: string;
   onVoltar: () => void;
 }) {
   return (
-    <div className="mt-8">
+    <div className="mt-6">
       <button
         type="button"
         onClick={onVoltar}
-        className="inline-flex items-center gap-1.5 text-[13px] font-bold uppercase tracking-wide text-brand hover:underline"
+        className="inline-flex items-center gap-1.5 text-[0.8125rem] font-bold uppercase tracking-wide text-brand hover:underline"
       >
         <ChevronLeft className="w-4 h-4" />
         Todos os parâmetros
       </button>
 
-      <div className="mt-4 bg-card border border-l-[5px] border-l-brand px-7 py-6">
+      <div className="mt-4 bg-card border border-l-[5px] border-l-brand px-7 py-5">
         <div className="text-xs uppercase tracking-wider text-muted-foreground">
-          {familia.name}
+          {cartao.secao}
         </div>
-        <h2 className="text-2xl font-bold uppercase tracking-tight mt-1">
-          {parametro.name}
-        </h2>
+        <h2 className="text-2xl font-bold uppercase tracking-tight mt-1">{cartao.nome}</h2>
         <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-3 text-sm">
-          <ImpactoResumido impact={parametro.impact} />
+          <ImpactoResumido impact={cartao.impact} />
           <span className="text-muted-foreground">
-            {parametro.changes} {parametro.changes === 1 ? "alteração" : "alterações"} ·{" "}
-            {parametro.vehicles} {parametro.vehicles === 1 ? "veículo" : "veículos"}
+            {cartao.changes} {cartao.changes === 1 ? "alteração" : "alterações"}
+            {cartao.vehicles !== null && (
+              <>
+                {" · "}
+                {cartao.vehicles} {cartao.vehicles === 1 ? "veículo" : "veículos"}
+              </>
+            )}
           </span>
+          {cartao.parametros.length > 1 && (
+            <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+              <Info className="w-3.5 h-3.5" />
+              reúne {cartao.parametros.map((p) => p.name).join(", ")} — a contagem de
+              veículos sai da tela porque o mesmo ativo aparece em mais de um
+            </span>
+          )}
         </div>
-        {parametro.pending && (
+        {cartao.pending && (
           <p className="text-sm text-brand-red flex gap-2 mt-3">
             <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-            {parametro.pending}
+            {cartao.pending}
           </p>
         )}
       </div>
 
-      <div className="mt-6 space-y-3">
-        {parametro.groups.length === 0 ? (
+      <div className="mt-5 space-y-3">
+        {cartao.groups.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            Nenhuma alteração neste parâmetro nesta vigência.
+            Nenhuma alteração neste cartão nesta vigência.
           </p>
         ) : (
-          parametro.groups.map((group) => (
+          cartao.groups.map((group) => (
             <GroupCard key={group.key} group={group} period={period} />
           ))
         )}
@@ -596,7 +912,11 @@ function DetalheParametro({
   );
 }
 
-/** O resumo executivo, compactado para caber ao lado da busca. */
+/* ------------------------------------------------------------------ */
+/* Resumo e impacto                                                    */
+/* ------------------------------------------------------------------ */
+
+/** O resumo executivo, compactado para caber acima da grade. */
 function Resumo({ view }: { view: FamiliesView }) {
   const { summary } = view;
   const liquido = impactEntries(summary.impact.byPeriodicity);
@@ -611,9 +931,7 @@ function Resumo({ view }: { view: FamiliesView }) {
             O cliente mexeu em <strong>{summary.groups}</strong>{" "}
             {summary.groups === 1 ? "ponto" : "pontos"} da sua remuneração, em{" "}
             <strong>{view.families.filter((f) => f.changes > 0).length}</strong>{" "}
-            {view.families.filter((f) => f.changes > 0).length === 1
-              ? "família"
-              : "famílias"}
+            {view.families.filter((f) => f.changes > 0).length === 1 ? "família" : "famílias"}
             .
           </>
         )}
@@ -726,37 +1044,6 @@ function ImpactoResumido({
     return <span className="text-xs text-muted-foreground">Impacto não calculável</span>;
   }
   return <span className="text-xs text-muted-foreground">Sem impacto apurado</span>;
-}
-
-/**
- * O que o Freightech publica e este export não traz. Fica no rodapé, escrito,
- * em vez de virar 25 cartões vazios.
- */
-function Rodape({ view }: { view: FamiliesView }) {
-  if (view.freightechSemDado.length === 0) return null;
-  return (
-    <footer className="mt-12 border-t pt-6 text-sm text-muted-foreground space-y-2">
-      <p className="max-w-4xl">
-        O Freightech também publica{" "}
-        <strong>{view.freightechSemDado.map((f) => f.family).join(", ")}</strong>. Esses
-        parâmetros não vêm no export de equipamento que o FreightCheck recebe hoje, e por
-        isso não aparecem acima — um cartão vazio prometeria um assunto que este produto
-        ainda não pode auditar.
-      </p>
-      <details>
-        <summary className="cursor-pointer text-xs hover:text-foreground">
-          ver a lista completa
-        </summary>
-        <ul className="mt-2 space-y-1 text-xs">
-          {view.freightechSemDado.map((f) => (
-            <li key={f.family}>
-              <strong>{f.family}:</strong> {f.parameters.join(" · ")}
-            </li>
-          ))}
-        </ul>
-      </details>
-    </footer>
-  );
 }
 
 function normalizar(texto: string): string {

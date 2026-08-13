@@ -46,11 +46,11 @@ export default function Inicio() {
 
   return (
     <Layout>
-      <div className="px-10 py-8 max-w-[1400px]">
-        <h1 className="text-4xl font-bold tracking-tight">Olá, {primeiroNome}!</h1>
-        <div className="border-t mt-6 mb-8" />
+      <div className="px-10 py-6 max-w-[1400px]">
+        <h1 className="text-3xl font-bold tracking-tight">Olá, {primeiroNome}!</h1>
+        <div className="border-t mt-4 mb-6" />
 
-        <div className="grid gap-6 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-5 sm:grid-cols-2 xl:grid-cols-3">
           <CartaoEntrada
             href="/parametros"
             icone={Building2}
@@ -111,9 +111,9 @@ export default function Inicio() {
           />
         </div>
 
-        <aside className="mt-8 bg-card border border-l-[6px] border-l-brand-red shadow-sm">
-          <div className="flex flex-wrap items-center gap-6 px-8 py-6">
-            <AlertCircle className="w-11 h-11 text-brand-red shrink-0" strokeWidth={2} />
+        <aside className="mt-6 bg-card border border-l-[6px] border-l-brand-red shadow-sm">
+          <div className="flex flex-wrap items-center gap-6 px-7 py-5">
+            <AlertCircle className="w-10 h-10 text-brand-red shrink-0" strokeWidth={2} />
             <div className="min-w-0 flex-1">
               <h2 className="text-lg font-bold">Um número aqui nunca é estimativa.</h2>
               <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
@@ -126,13 +126,13 @@ export default function Inicio() {
             <div className="flex items-center gap-4 shrink-0">
               <Link
                 href="/curadoria"
-                className="text-[13px] font-bold uppercase tracking-wide text-brand hover:underline"
+                className="text-[0.8125rem] font-bold uppercase tracking-wide text-brand hover:underline"
               >
                 Ver curadoria
               </Link>
               <Link
                 href="/versoes"
-                className="text-[13px] font-bold uppercase tracking-wide text-brand border border-brand px-5 py-3 hover:bg-accent transition-colors"
+                className="text-[0.8125rem] font-bold uppercase tracking-wide text-brand border border-brand px-5 py-3 hover:bg-accent transition-colors"
               >
                 Reportar divergência
               </Link>
@@ -165,15 +165,15 @@ function CartaoEntrada({
   return (
     <Link
       href={href}
-      className="group bg-card border border-t-[3px] border-t-brand shadow-sm hover:shadow-md transition-shadow flex flex-col p-6 min-h-44"
+      className="group bg-card border border-t-[3px] border-t-brand shadow-sm hover:shadow-md transition-shadow flex flex-col p-5 min-h-40"
     >
-      <Icone className="w-8 h-8 text-brand shrink-0" strokeWidth={2} />
-      <h2 className="text-xl font-bold mt-4 group-hover:text-brand transition-colors">
+      <Icone className="w-7 h-7 text-brand shrink-0" strokeWidth={2} />
+      <h2 className="text-xl font-bold mt-3 group-hover:text-brand transition-colors">
         {titulo}
       </h2>
       <p className="text-sm text-muted-foreground mt-2 leading-snug flex-1">{descricao}</p>
       {estado && (
-        <p className="text-[13px] font-semibold mt-3 pt-3 border-t truncate">{estado}</p>
+        <p className="text-[0.8125rem] font-semibold mt-3 pt-3 border-t truncate">{estado}</p>
       )}
     </Link>
   );

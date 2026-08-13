@@ -132,15 +132,15 @@ export default function Simulacao() {
                       <div className="flex justify-between items-start mb-1">
                         <h4 className="font-semibold text-sm">{sim.label}</h4>
                         {sim.status === 'DONE' ? (
-                          <Badge variant="success" className="text-[10px]">Concluída</Badge>
+                          <Badge variant="success" className="text-[0.625rem]">Concluída</Badge>
                         ) : sim.status === 'FAILED' ? (
-                          <Badge variant="destructive" className="text-[10px]">Falhou</Badge>
+                          <Badge variant="destructive" className="text-[0.625rem]">Falhou</Badge>
                         ) : (
-                          <Badge variant="secondary" className="text-[10px]"><Clock className="w-3 h-3 mr-1"/>{sim.status}</Badge>
+                          <Badge variant="secondary" className="text-[0.625rem]"><Clock className="w-3 h-3 mr-1"/>{sim.status}</Badge>
                         )}
                       </div>
                       <p className="text-xs text-muted-foreground line-clamp-1">{sim.snapshotALabel} vs {sim.snapshotBLabel || 'Realizado'}</p>
-                      <p className="text-[10px] text-muted-foreground mt-2">{formatDateTime(sim.createdAt)}</p>
+                      <p className="text-[0.625rem] text-muted-foreground mt-2">{formatDateTime(sim.createdAt)}</p>
                     </div>
                   ))}
                 </div>

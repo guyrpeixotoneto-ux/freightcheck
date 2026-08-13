@@ -125,11 +125,23 @@ export function Sidebar({ open }: { open: boolean }) {
   if (!open) return null;
 
   return (
-    <aside className="w-72 bg-sidebar text-sidebar-foreground border-r border-sidebar-border shrink-0 flex flex-col self-stretch">
+    /*
+     * A lateral rola dentro de si, e nunca empurra a página.
+     *
+     * Antes ela era `self-stretch` num flex que crescia: com onze itens, o menu
+     * ficava mais alto que a tela e alongava o documento inteiro. O efeito era
+     * o pior possível de diagnosticar — a página inicial cabia (584px de
+     * conteúdo), mas a barra de rolagem aparecia mesmo assim, e a impressão era
+     * de que a interface estava grande demais quando o problema era outro.
+     *
+     * Agora ela é da altura da tela menos a faixa vermelha, gruda ali, e o que
+     * não couber rola aqui dentro — como no Freightech.
+     */
+    <aside className="w-72 bg-sidebar text-sidebar-foreground border-r border-sidebar-border shrink-0 flex flex-col sticky top-16 h-[calc(100dvh-4rem)]">
       <div className="p-4">
         <Link
           href="/parametros"
-          className="block w-full bg-brand text-brand-foreground text-center text-[13px] font-bold uppercase tracking-wide py-3.5 rounded-sm hover:brightness-95 transition-[filter]"
+          className="block w-full bg-brand text-brand-foreground text-center text-[0.8125rem] font-bold uppercase tracking-wide py-3 rounded-sm hover:brightness-95 transition-[filter]"
         >
           Seleção de unidades
         </Link>
@@ -138,7 +150,7 @@ export function Sidebar({ open }: { open: boolean }) {
       <div className="px-4 pb-4">
         <label
           htmlFor="busca-funcionalidades"
-          className="block text-[15px] font-bold text-foreground mb-2"
+          className="block text-[0.9375rem] font-bold text-foreground mb-2"
         >
           Funcionalidades
         </label>
@@ -170,7 +182,7 @@ export function Sidebar({ open }: { open: boolean }) {
               key={item.href}
               href={item.href}
               className={cn(
-                "flex items-center gap-4 px-6 py-3.5 text-[13px] font-semibold uppercase tracking-wide transition-colors",
+                "flex items-center gap-4 px-6 py-3 text-[0.8125rem] font-semibold uppercase tracking-wide transition-colors",
                 ativo
                   ? "bg-sidebar-accent text-brand"
                   : "text-sidebar-foreground hover:bg-sidebar-accent",
@@ -188,7 +200,7 @@ export function Sidebar({ open }: { open: boolean }) {
       <div className="border-t border-sidebar-border">
         <Link
           href="/configuracoes"
-          className="flex items-center gap-4 px-6 py-3.5 text-[13px] font-semibold uppercase tracking-wide text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+          className="flex items-center gap-4 px-6 py-3 text-[0.8125rem] font-semibold uppercase tracking-wide text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
         >
           <Settings className="w-5 h-5 shrink-0 text-muted-foreground" />
           Configurações
@@ -197,12 +209,12 @@ export function Sidebar({ open }: { open: boolean }) {
           href="https://github.com/guyrpeixotoneto-ux/freightcheck"
           target="_blank"
           rel="noreferrer"
-          className="flex items-center gap-4 px-6 py-3.5 text-[13px] font-semibold uppercase tracking-wide text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+          className="flex items-center gap-4 px-6 py-3 text-[0.8125rem] font-semibold uppercase tracking-wide text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
         >
           <HelpCircle className="w-5 h-5 shrink-0 text-muted-foreground" />
           Ajuda
         </a>
-        <div className="px-6 py-3 flex items-center gap-2 text-[11px] text-muted-foreground">
+        <div className="px-6 py-3 flex items-center gap-2 text-[0.6875rem] text-muted-foreground">
           <ArrowDownToLine className="w-3.5 h-3.5" />
           FreightCheck — espelho do Freightech
         </div>

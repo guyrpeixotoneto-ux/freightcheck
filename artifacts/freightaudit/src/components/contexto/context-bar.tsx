@@ -190,7 +190,7 @@ function Field({
       <div className="text-xs uppercase tracking-wide text-muted-foreground">{label}</div>
       {children}
       {detail && (
-        <div className="text-[11px] font-mono text-muted-foreground truncate max-w-56">
+        <div className="text-[0.6875rem] font-mono text-muted-foreground truncate max-w-56">
           {detail}
         </div>
       )}
@@ -205,7 +205,7 @@ function Fixed({ value, note }: { value: string; note: React.ReactNode }) {
       <div className="h-9 px-3 flex items-center rounded-md border bg-muted/40 text-sm truncate">
         {value}
       </div>
-      <div className="text-[11px] text-muted-foreground mt-1">{note}</div>
+      <div className="text-[0.6875rem] text-muted-foreground mt-1">{note}</div>
     </div>
   );
 }

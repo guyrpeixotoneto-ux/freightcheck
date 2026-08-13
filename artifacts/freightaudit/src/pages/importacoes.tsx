@@ -362,7 +362,7 @@ function RunCard({
           <div className="min-w-0">
             <h2 className="text-lg font-bold truncate">{run.filename}</h2>
             <p className="text-xs text-muted-foreground mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="font-mono text-[11px] px-1.5 py-0.5 rounded-md bg-primary/10 text-primary">
+              <span className="font-mono text-[0.6875rem] px-1.5 py-0.5 rounded-md bg-primary/10 text-primary">
                 sha256
               </span>
               <span className="font-mono">
@@ -428,14 +428,14 @@ function RunCard({
 
       {run.labels.length > 0 && (
         <div className="space-y-2">
-          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <p className="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">
             Vigências ({run.labels.length})
           </p>
           <div className="flex flex-wrap gap-2">
             {run.labels.map((label) => (
               <span
                 key={label}
-                className="font-mono text-[11px] px-2.5 py-1 rounded-lg border bg-muted/50 text-muted-foreground"
+                className="font-mono text-[0.6875rem] px-2.5 py-1 rounded-lg border bg-muted/50 text-muted-foreground"
               >
                 {label}
               </span>
@@ -680,7 +680,7 @@ function PendingRun({
           {data!.labels.map((label) => (
             <span
               key={label}
-              className="font-mono text-[11px] px-2.5 py-1 rounded-lg bg-white/70 border border-amber-200 text-amber-900"
+              className="font-mono text-[0.6875rem] px-2.5 py-1 rounded-lg bg-white/70 border border-amber-200 text-amber-900"
             >
               {label}
             </span>
@@ -783,7 +783,7 @@ function Metric({
         <Icon className="w-4.5 h-4.5" />
       </div>
       <div className="min-w-0">
-        <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground truncate">
+        <div className="text-[0.625rem] font-semibold uppercase tracking-wider text-muted-foreground truncate">
           {label}
         </div>
         <div

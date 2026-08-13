@@ -209,6 +209,28 @@
   * {
     @apply border-border;
   }
+
+  /*
+   * A escala da interface inteira, numa alavanca só.
+   *
+   * Tudo neste projeto é dimensionado em `rem` — as fontes, os espaçamentos, as
+   * alturas de campo, a largura da lateral — então mexer aqui é exatamente o
+   * que o navegador faz ao dar zoom, e nada sai de proporção.
+   *
+   * Por que 15px e não os 16px do navegador: a 16px a página inicial media
+   * 943px de altura e não cabia inteira em nenhum notebook — 1366×768, 1440×900
+   * e 1536×864 rolavam todas. Uma tela de entrada que exige rolagem para ser
+   * lida por inteiro esconde metade das portas do produto.
+   *
+   * O piso é a legibilidade: 15px é o corpo mínimo que este texto suporta sem
+   * pedir esforço. O que faltou para caber saiu do espaçamento vertical da
+   * própria página, não da fonte — apertar a letra para ganhar pixel é resolver
+   * o problema errado.
+   */
+  html {
+    font-size: 15px;
+  }
+
   body {
     @apply font-sans antialiased bg-background text-foreground;
   }

@@ -76,7 +76,7 @@ export function Topbar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
 
       {user && (
         <DropdownMenu>
-          <DropdownMenuTrigger className="flex items-center gap-1.5 text-[13px] font-semibold uppercase tracking-wide px-2 py-2 rounded hover:bg-white/10 transition-colors max-w-[22rem]">
+          <DropdownMenuTrigger className="flex items-center gap-1.5 text-[0.8125rem] font-semibold uppercase tracking-wide px-2 py-2 rounded hover:bg-white/10 transition-colors max-w-[22rem]">
             <span className="truncate">{user.email}</span>
             <ChevronDown className="w-4 h-4 shrink-0" />
           </DropdownMenuTrigger>
@@ -147,7 +147,7 @@ function Indicador({
     >
       {children}
       {mostra && (
-        <span className="min-w-7 h-7 px-1.5 rounded-full bg-brand text-brand-foreground text-[13px] font-bold flex items-center justify-center tabular-nums">
+        <span className="min-w-7 h-7 px-1.5 rounded-full bg-brand text-brand-foreground text-[0.8125rem] font-bold flex items-center justify-center tabular-nums">
           {contagem}
         </span>
       )}
