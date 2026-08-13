@@ -1095,3 +1095,129 @@ export async function getAttributeSeries(
     }),
   };
 }
+
+/**
+ * Os valores distintos de um atributo numa vigência, e quantos ativos em cada.
+ *
+ * **Por que isto existe.** Boa parte das telas do Freightech não é uma lista de
+ * mudanças: é um *cadastro* — PADRÃO mostra 6X4, 6X2, 4X2, 6X6, 8X2; TIPO
+ * CARROCERIA mostra os tipos; REGIÃO mostra as regiões. Uma linha por valor
+ * registrado, e nada mais.
+ *
+ * O FreightCheck não recebe esses cadastros; recebe o export de equipamento,
+ * onde o mesmo dado aparece de outra forma: uma coluna por ativo. O domínio é a
+ * ponte entre as duas formas — **os valores que de fato existem na frota**, que
+ * é o que aquelas telas listam, reconstruído do dado que temos.
+ *
+ * E é mais do que o Freightech mostra, por um detalhe que muda a leitura: junto
+ * de cada valor vai **quantos ativos estão nele**. A tela de lá diz que 8X2
+ * está cadastrado; esta diz que 8X2 está cadastrado e que nenhum caminhão o
+ * usa — que é a diferença entre uma opção viva e uma que sobrou.
+ *
+ * **Ausência não é um valor.** Ativo sem valor nesta coluna entra numa linha
+ * própria, com o motivo que o `fact` registrou, e nunca é misturado com quem
+ * tem valor vazio de verdade. Somar os dois faria "sem informação" parecer uma
+ * categoria do cadastro.
+ */
+export interface AttributeDomain {
+  attributeCode: string;
+  title: string;
+  /** A vigência lida: o domínio é de uma data, não do histórico inteiro. */
+  effectiveDate: string;
+  periodLabel: string;
+  sourceLabels: string[];
+  /** Ativos com valor nesta coluna nesta vigência. */
+  entities: number;
+  values: {
+    value: string | null;
+    /** Quantos ativos estão neste valor. */
+    entities: number;
+    /** Fatia da frota, em pontos percentuais, já arredondada. */
+    share: number;
+    /** Quando é ausência: o motivo que a importação registrou. */
+    nullReason: string | null;
+  }[];
+}
+
+export async function getAttributeDomain(
+  db: Database,
+  attributeCode: string,
+  requestedContext?: Partial<SeriesContext>,
+  period?: string,
+): Promise<AttributeDomain | null> {
+  const context = await resolveContext(db, requestedContext);
+  if (!context) return null;
+
+  const { rows: meta } = await db.execute<{ code: string; source_name: string }>(sql`
+    SELECT code, source_name FROM attribute WHERE code = ${attributeCode}
+  `);
+  if (meta.length === 0) return null;
+
+  /*
+   * Uma data, e todos os snapshots dela.
+   *
+   * Cavalo e carreta são snapshots separados na mesma vigência; ler só um
+   * devolveria o domínio de metade da frota sem dizer que é metade. E quando a
+   * data pedida não existe naquele contexto, a resposta é vazia em vez de cair
+   * na vigência mais próxima — silenciosamente responder por outra data é o
+   * tipo de gentileza que faz alguém decidir sobre o mês errado.
+   */
+  const { rows: datas } = await db.execute<{ effective_date: string }>(sql`
+    SELECT max(s.effective_date)::text AS effective_date
+      FROM snapshot s
+     WHERE s.status <> 'SUPERSEDED'
+       AND ${contextFilter("s", context)}
+       AND (${period ?? null}::date IS NULL OR s.effective_date = ${period ?? null}::date)
+  `);
+  const effectiveDate = datas[0]?.effective_date ?? null;
+  if (!effectiveDate) return null;
+
+  const { rows } = await db.execute<{
+    valor: string | null;
+    is_null: boolean;
+    null_reason: string | null;
+    entities: number;
+    source_labels: string[];
+  }>(sql`
+    SELECT CASE WHEN f.is_null THEN NULL
+                ELSE coalesce(
+                  f.value_text,
+                  f.value_numeric::text,
+                  f.value_boolean::text,
+                  f.value_date::text
+                )
+           END                                   AS valor,
+           f.is_null,
+           f.null_reason,
+           count(DISTINCT f.entity_id)::int      AS entities,
+           array_agg(DISTINCT s.source_label)    AS source_labels
+      FROM fact f
+      JOIN attribute a ON a.id = f.attribute_id
+      JOIN snapshot s  ON s.id = f.snapshot_id
+     WHERE a.code = ${attributeCode}
+       AND s.status <> 'SUPERSEDED'
+       AND s.effective_date = ${effectiveDate}::date
+       AND ${contextFilter("s", context)}
+     GROUP BY 1, 2, 3
+     ORDER BY 4 DESC, 1
+  `);
+
+  const entities = rows.reduce((soma, r) => soma + Number(r.entities), 0);
+  const rotulos = new Set<string>();
+  for (const r of rows) for (const rotulo of r.source_labels ?? []) rotulos.add(rotulo);
+
+  return {
+    attributeCode,
+    title: attributeLabel(meta[0].code, meta[0].source_name),
+    effectiveDate,
+    periodLabel: periodLabel(effectiveDate),
+    sourceLabels: [...rotulos].sort(),
+    entities,
+    values: rows.map((r) => ({
+      value: r.is_null ? null : r.valor,
+      entities: Number(r.entities),
+      share: entities === 0 ? 0 : Math.round((Number(r.entities) / entities) * 1000) / 10,
+      nullReason: r.is_null ? (r.null_reason ?? "sem motivo registrado") : null,
+    })),
+  };
+}

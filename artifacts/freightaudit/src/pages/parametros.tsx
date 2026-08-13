@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
-import { AlertTriangle, ChevronLeft, Info, Search, Star } from "lucide-react";
+import { AlertTriangle, Info, Search, Star } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { GroupCard } from "@/components/inicio/group-card";
+import { TabelaFreightech, type ColunaTabela } from "@/components/parametros/tabela";
+import { TabelaDominio } from "@/components/parametros/dominio";
 import {
   Select,
   SelectContent,
@@ -153,6 +155,7 @@ export default function Parametros() {
           <DetalheCartao
             cartao={cartao}
             period={data?.period ?? ""}
+            contexto={query}
             onVoltar={() => abrirCartao(null)}
           />
         ) : (
@@ -179,6 +182,10 @@ interface CartaoRender {
   origem: "FREIGHTECH" | "FREIGHTCHECK";
   /** Os nossos parâmetros por trás deste cartão. Vazio = sem dado no export. */
   parametros: ParameterView[];
+  /** Colunas do export que são este cartão — o caminho do cadastro. */
+  atributos: string[];
+  /** As colunas que o Freightech mostra nesta tela, quando já conferidas. */
+  colunas: string[] | null;
   changes: number;
   /** Só quando um único parâmetro alimenta o cartão — ver `agregar`. */
   vehicles: number | null;
@@ -236,6 +243,8 @@ function montarSecoes(view: FamiliesView | null): SecaoRender[] {
         secao: secao.titulo,
         origem: "FREIGHTECH" as const,
         parametros,
+        atributos: cartao.atributos ?? [],
+        colunas: cartao.colunas ?? null,
         ...agregar(parametros),
       };
     }),
@@ -276,6 +285,8 @@ function montarSecoes(view: FamiliesView | null): SecaoRender[] {
         secao: familia.name,
         origem: "FREIGHTCHECK" as const,
         parametros: [parametro],
+        atributos: [],
+        colunas: null,
         ...agregar([parametro]),
       })),
     }));
@@ -747,7 +758,13 @@ function Cartao({
   onFavoritar: () => void;
   onAbrir: () => void;
 }) {
-  const temDado = cartao.parametros.length > 0;
+  /*
+    Um cartão-cadastro tem dado sem ter alteração: PADRÃO é uma coluna que chega
+    em toda planilha, e dizer "sem dado neste export" a respeito dela seria
+    falso. Ele não mostra impacto — não é dinheiro, é domínio — mas abre.
+  */
+  const cadastro = cartao.parametros.length === 0 && cartao.atributos.length > 0;
+  const temDado = cartao.parametros.length > 0 || cadastro;
   const mudou = cartao.changes > 0;
 
   const miolo = (
@@ -769,6 +786,10 @@ function Cartao({
         {!temDado ? (
           <span className="text-xs text-muted-foreground group-hover:text-white">
             Sem dado neste export
+          </span>
+        ) : cadastro ? (
+          <span className="text-xs text-muted-foreground group-hover:text-white">
+            Cadastro — os valores usados pela frota
           </span>
         ) : mudou ? (
           <ImpactoResumido impact={cartao.impact} className="block" />
@@ -850,95 +871,291 @@ function Cartao({
 /* ------------------------------------------------------------------ */
 
 /**
- * O cartão aberto — a página que o Freightech abre depois do FILTRAR, com o
- * que ele mostra lá dentro (o valor) e o que ele não mostra (o que mudou nele).
+ * O cartão aberto — a tela que o Freightech abre ao clicar no cartão.
+ *
+ * A forma é a de lá: o botão VOLTAR laranja no canto, o título em caixa alta, e
+ * a tabela com o cabeçalho bege e as colunas ordenáveis. Quem abre reconhece o
+ * lugar antes de ler.
+ *
+ * **O que muda é o conteúdo da tabela, e a diferença é a razão do produto.** No
+ * Freightech cada linha é um registro do cadastro, e o que ele mostra é o estado
+ * de hoje. Aqui cada linha é um ponto que o cliente mexeu, com o valor de antes,
+ * o de depois e quanto isso custa — a tabela responde "o que mudou", que é a
+ * pergunta que lá exige exportar duas vezes e comparar à mão.
+ *
+ * **O que não existe aqui: ADICIONAR.** O Freightech é onde o cadastro é feito;
+ * este produto lê planilhas exportadas de lá e nunca escreve na fonte. Um botão
+ * de adicionar seria uma promessa que a arquitetura inteira desmente, e a regra
+ * da casa vale acima da fidelidade visual: não se desenha um controle que não
+ * faz o que aparenta.
  */
 function DetalheCartao({
   cartao,
   period,
+  contexto,
   onVoltar,
 }: {
   cartao: CartaoRender;
   period: string;
+  /** Unidade, canal e vigência, para o cadastro ser lido do mesmo recorte. */
+  contexto: URLSearchParams;
   onVoltar: () => void;
 }) {
+  const [grupoAberto, setGrupoAberto] = useState<string | null>(null);
+  const cadastro = cartao.parametros.length === 0 && cartao.atributos.length > 0;
+
   return (
     <div className="mt-6">
       <button
         type="button"
         onClick={onVoltar}
-        className="inline-flex items-center gap-1.5 text-[0.8125rem] font-bold uppercase tracking-wide text-brand hover:underline"
+        className="bg-brand text-brand-foreground text-[0.8125rem] font-bold uppercase tracking-wide px-6 py-3 rounded-sm hover:brightness-95 transition-[filter]"
       >
-        <ChevronLeft className="w-4 h-4" />
-        Todos os parâmetros
+        Voltar
       </button>
 
-      <div className="mt-4 bg-card border border-l-[5px] border-l-brand px-7 py-5">
-        <div className="text-xs uppercase tracking-wider text-muted-foreground">
-          {cartao.secao}
+      <div className="mt-6 flex flex-wrap items-baseline justify-between gap-x-8 gap-y-2">
+        <div>
+          <div className="text-xs uppercase tracking-wider text-muted-foreground">
+            {cartao.secao}
+          </div>
+          <h2 className="text-2xl font-bold uppercase tracking-tight mt-1">{cartao.nome}</h2>
         </div>
-        <h2 className="text-2xl font-bold uppercase tracking-tight mt-1">{cartao.nome}</h2>
 
-        {/*
-          O cartão sem dado abre e explica por quê. É o preço de ele acender sob
-          o cursor como todos os outros: quem clicou tem de encontrar uma
-          resposta, e "esta gaveta existe no Freightech, o export que chega aqui
-          não a alimenta" é uma resposta — melhor do que uma tela em branco e
-          muito melhor do que um cartão que ignora o clique.
-        */}
-        {cartao.parametros.length === 0 && (
-          <p className="text-sm text-muted-foreground mt-3 max-w-3xl">
-            Esta gaveta existe no Freightech e o export de equipamento que o FreightCheck
-            recebe hoje não a alimenta — não há nenhuma coluna da planilha que caia aqui.
-            Por isso o cartão não tem número: não é que o valor seja zero, é que ele não
-            chega. Quando a fonte passar a mandá-lo, ele aparece aqui sem mais nenhuma
-            mudança de código.
-          </p>
+        {cartao.parametros.length > 0 && (
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
+            <ImpactoResumido impact={cartao.impact} />
+            <span className="text-muted-foreground">
+              {cartao.changes} {cartao.changes === 1 ? "alteração" : "alterações"}
+              {cartao.vehicles !== null && (
+                <>
+                  {" · "}
+                  {cartao.vehicles} {cartao.vehicles === 1 ? "veículo" : "veículos"}
+                </>
+              )}
+            </span>
+          </div>
         )}
+      </div>
 
-        <div
+      {cartao.pending && (
+        <p className="text-sm text-brand-red flex gap-2 mt-3">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+          {cartao.pending}
+        </p>
+      )}
+
+      {cartao.parametros.length > 1 && (
+        <p className="text-xs text-muted-foreground inline-flex items-center gap-1.5 mt-3">
+          <Info className="w-3.5 h-3.5 shrink-0" />
+          Reúne {cartao.parametros.map((p) => p.name).join(", ")} — a contagem de veículos
+          sai da tela porque o mesmo ativo aparece em mais de um.
+        </p>
+      )}
+
+      {/*
+        Duas telas diferentes atrás do mesmo cartão, porque o Freightech também
+        tem duas: a de cadastro, que lista valores, e a de movimento, que lista
+        registros. Misturá-las numa tabela só faria as duas ficarem erradas.
+      */}
+      <div className="mt-5 space-y-5">
+        {cadastro ? (
+          cartao.atributos.map((codigo) => (
+            <TabelaDominio
+              key={codigo}
+              attributeCode={codigo}
+              rotuloDaColuna={cartao.colunas?.[0] ?? "Valor"}
+              contexto={contexto}
+            />
+          ))
+        ) : (
+          <TabelaFreightech
+            colunas={COLUNAS_ALTERACOES}
+            linhas={cartao.groups}
+            chave={(grupo) => grupo.key}
+            aoClicar={(grupo) =>
+              setGrupoAberto((atual) => (atual === grupo.key ? null : grupo.key))
+            }
+            vazio={<TabelaVazia cartao={cartao} colunas={cartao.colunas} />}
+          />
+        )}
+      </div>
+
+      {/*
+        A linha aberta. Fica fora da tabela de propósito: o cartão de detalhe
+        traz gráfico, proveniência e a lista de veículos, e nada disso cabe
+        dentro de uma célula sem virar uma tabela dentro de outra.
+      */}
+      {grupoAberto && (
+        <div className="mt-5">
+          {cartao.groups
+            .filter((grupo) => grupo.key === grupoAberto)
+            .map((grupo) => (
+              <GroupCard key={grupo.key} group={grupo} period={period} />
+            ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * As colunas da tabela de alterações — o que muda num ponto da remuneração.
+ *
+ * `valor` é o que ordena e o que o filtro procura, e é sempre o dado cru: o
+ * impacto ordena pelo número, não pelo texto formatado, senão "-R$ 9.000"
+ * viria depois de "-R$ 12.480" por comparação de caractere.
+ */
+const COLUNAS_ALTERACOES: ColunaTabela<ChangeGroup>[] = [
+  {
+    titulo: "Parâmetro",
+    alinhar: "left",
+    valor: (g) => g.title,
+    celula: (g) => (
+      <div className="min-w-0">
+        <div className="font-medium">{g.title}</div>
+        {g.attributeCode && (
+          <div className="text-xs text-muted-foreground font-mono">{g.attributeCode}</div>
+        )}
+      </div>
+    ),
+  },
+  {
+    titulo: "Equipamento",
+    valor: (g) => g.equipment,
+    celula: (g) => g.equipment,
+  },
+  {
+    titulo: "Veículos",
+    alinhar: "right",
+    valor: (g) => g.vehicles,
+    celula: (g) => (
+      <div>
+        <div>{g.vehicles}</div>
+        <div className="text-xs text-muted-foreground">{g.coverageLabel}</div>
+      </div>
+    ),
+  },
+  {
+    titulo: "Antes",
+    valor: (g) => g.dominantPattern?.before ?? null,
+    celula: (g) => (
+      <span className="font-mono text-xs">{g.dominantPattern?.before ?? "—"}</span>
+    ),
+  },
+  {
+    titulo: "Depois",
+    valor: (g) => g.dominantPattern?.after ?? null,
+    celula: (g) => (
+      <span className="font-mono text-xs">{g.dominantPattern?.after ?? "—"}</span>
+    ),
+  },
+  {
+    titulo: "Variação",
+    alinhar: "right",
+    valor: (g) => g.aggregate.deltaPercent,
+    celula: (g) =>
+      g.aggregate.deltaPercent === null ? (
+        <span className="text-muted-foreground">—</span>
+      ) : (
+        <span
           className={cn(
-            "flex flex-wrap items-center gap-x-6 gap-y-2 mt-3 text-sm",
-            cartao.parametros.length === 0 && "hidden",
+            "font-semibold tabular-nums",
+            g.aggregate.deltaPercent < 0 ? "text-brand-red" : "text-success",
           )}
         >
-          <ImpactoResumido impact={cartao.impact} />
-          <span className="text-muted-foreground">
-            {cartao.changes} {cartao.changes === 1 ? "alteração" : "alterações"}
-            {cartao.vehicles !== null && (
-              <>
-                {" · "}
-                {cartao.vehicles} {cartao.vehicles === 1 ? "veículo" : "veículos"}
-              </>
-            )}
-          </span>
-          {cartao.parametros.length > 1 && (
-            <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-              <Info className="w-3.5 h-3.5" />
-              reúne {cartao.parametros.map((p) => p.name).join(", ")} — a contagem de
-              veículos sai da tela porque o mesmo ativo aparece em mais de um
-            </span>
+          {g.aggregate.deltaPercent > 0 ? "+" : ""}
+          {g.aggregate.deltaPercent.toLocaleString("pt-BR", {
+            maximumFractionDigits: 1,
+          })}
+          %
+        </span>
+      ),
+  },
+  {
+    titulo: "Impacto",
+    alinhar: "right",
+    valor: (g) => g.impact.amount,
+    celula: (g) =>
+      g.impact.amount === null ? (
+        <span className="text-xs text-muted-foreground">
+          {g.impact.reason ?? "não calculável"}
+        </span>
+      ) : (
+        <span
+          className={cn(
+            "font-bold tabular-nums",
+            g.impact.amount < 0 ? "text-brand-red" : "text-success",
           )}
-        </div>
-        {cartao.pending && (
-          <p className="text-sm text-brand-red flex gap-2 mt-3">
-            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-            {cartao.pending}
-          </p>
-        )}
-      </div>
+        >
+          {formatBrlShort(g.impact.amount)}
+          <span className="text-xs font-normal text-muted-foreground">
+            {periodicitySuffix(g.impact.periodicity ?? "")}
+          </span>
+        </span>
+      ),
+  },
+  {
+    titulo: "Ações",
+    valor: undefined,
+    celula: () => (
+      <span className="text-[0.8125rem] font-bold uppercase tracking-wide text-brand">
+        Ver
+      </span>
+    ),
+  },
+];
 
-      <div className="mt-5 space-y-3">
-        {cartao.parametros.length === 0 ? null : cartao.groups.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Nenhuma alteração neste cartão nesta vigência.
+/**
+ * O corpo da tabela quando não há linha — e os dois motivos são diferentes.
+ *
+ * Sem dado no export, o mais útil que esta tela pode fazer é dizer **quais
+ * colunas o Freightech mostra aqui**. "Falta dado neste cartão" manda pedir
+ * alguma coisa; a lista de colunas diz o que pedir.
+ */
+function TabelaVazia({
+  cartao,
+  colunas,
+}: {
+  cartao: CartaoRender;
+  colunas: string[] | null;
+}) {
+  if (cartao.parametros.length > 0) {
+    return (
+      <span className="text-sm text-muted-foreground">
+        Nenhuma alteração neste cartão nesta vigência — o dado veio e não mudou.
+      </span>
+    );
+  }
+
+  return (
+    <div className="text-left max-w-3xl mx-auto space-y-3">
+      <p className="text-sm">
+        <strong>Esta gaveta existe no Freightech e este export não a alimenta.</strong>{" "}
+        Nenhuma coluna da planilha que o FreightCheck recebe cai aqui. O cartão não tem
+        número não porque o valor seja zero, mas porque ele não chega.
+      </p>
+
+      {colunas ? (
+        <div className="text-sm text-muted-foreground">
+          <p>
+            No Freightech esta tela traz{" "}
+            {colunas.map((coluna, i) => (
+              <span key={coluna}>
+                {i > 0 && (i === colunas.length - 1 ? " e " : ", ")}
+                <span className="font-mono text-foreground">{coluna}</span>
+              </span>
+            ))}
+            . É esta a lista a pedir para o cartão passar a funcionar aqui.
           </p>
-        ) : (
-          cartao.groups.map((group) => (
-            <GroupCard key={group.key} group={group} period={period} />
-          ))
-        )}
-      </div>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">
+          As colunas que o Freightech mostra nesta tela ainda não foram conferidas, então
+          não estão escritas aqui — inventar um cabeçalho plausível seria pior do que
+          admitir a falta.
+        </p>
+      )}
     </div>
   );
 }

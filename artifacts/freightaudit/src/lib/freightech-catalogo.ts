@@ -45,6 +45,37 @@ export interface CartaoCatalogo {
    * caro que esta tela pode cometer, e invisível para quem lê.
    */
   parametros?: string[];
+  /**
+   * As colunas da tabela que o Freightech mostra ao abrir este cartão, nos
+   * nomes de lá — inclusive os grudados, como `MESINDICEREAJUSTE`.
+   *
+   * Servem para duas coisas. A primeira é o reconhecimento: a tela abre com o
+   * mesmo cabeçalho que a pessoa já conhece, mesmo antes de ter uma linha. A
+   * segunda é mais útil e menos óbvia — **elas dizem o que este export não
+   * traz**. Quando o Freightech publica `INDICEMENSAL` e `NEGOCIADO` e a nossa
+   * planilha não tem nada equivalente, a coluna vazia é a evidência de qual
+   * arquivo pedir, e é mais precisa do que "falta dado neste cartão".
+   *
+   * Preenchido conforme cada tela é conferida contra o Freightech. Cartão sem
+   * `colunas` ainda não teve a sua olhada — e a tela diz isso, em vez de
+   * inventar um cabeçalho plausível.
+   */
+  colunas?: string[];
+  /**
+   * As colunas do export que **são** este cartão, pelo código do atributo.
+   *
+   * Existe porque `parametros` não alcança todos os casos. O nosso dicionário
+   * agrupa colunas em parâmetros — `cavalo.padrao` mora dentro de "Caminhão",
+   * junto de chassi, modelo e ano — e há cartão do Freightech que é exatamente
+   * *uma* dessas colunas, não o grupo inteiro. PADRÃO é isso: a lista dos
+   * padrões de eixo, que no export é uma coluna por ativo.
+   *
+   * Quando preenchido, a tela do cartão mostra o **domínio** daquela coluna —
+   * os valores distintos e quantos ativos em cada — que é a forma que a tela
+   * de lá tem. Sem isto, o cartão diria "sem dado neste export" a respeito de
+   * uma coluna que chega em toda planilha, o que é simplesmente falso.
+   */
+  atributos?: string[];
 }
 
 export interface SecaoCatalogo {
@@ -66,11 +97,37 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
     */
     titulo: "Geral",
     cartoes: [
-      { nome: "Cadastro índice de reajuste" },
+      {
+        /*
+          O cadastro do índice: uma linha por (índice, ano, mês) com o valor do
+          mês e o negociado. É registro de referência, não medida de veículo —
+          e é por isso que o export de equipamento não o traz. O que chega aqui
+          é o *resultado* dele aplicado a cada ativo, que mora no cartão
+          "Índice de reajuste", logo abaixo neste mesmo GERAL.
+        */
+        nome: "Cadastro índice de reajuste",
+        colunas: [
+          "Indicedereajuste",
+          "Ano",
+          "Mesindicereajuste",
+          "Indicemensal",
+          "Negociado",
+        ],
+      },
       { nome: "Conjunto" },
       { nome: "Manutenção" },
       { nome: "Manutenção implemento" },
-      { nome: "Padrão" },
+      {
+        /*
+          O cadastro dos padrões de eixo — 6X4, 6X2, 4X2, 6X6, 8X2. No
+          Freightech é uma tabela de uma coluna; no nosso export é
+          `cavalo.padrao`, uma coluna por ativo. A mesma informação nas duas
+          formas, e a nossa ainda diz quantos caminhões estão em cada padrão.
+        */
+        nome: "Padrão",
+        colunas: ["Descricao"],
+        atributos: ["cavalo.padrao"],
+      },
       { nome: "QLP benchmark" },
       { nome: "QLP benchmark quantidade" },
       { nome: "QLP benchmark valor" },

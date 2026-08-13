@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import {
   computeChangeSet,
   findPreviousSnapshot,
+  getAttributeDomain,
   getAttributeSeries,
   getChangeProvenance,
   getChangeSetBreakdown,
@@ -326,6 +327,32 @@ router.get("/attributes/:code/series", async (req, res): Promise<void> => {
   } catch (err) {
     if (sendContextError(res, err)) return;
     req.log.error({ err }, "Error loading attribute series");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * Os valores distintos de um atributo numa vigência — o cadastro do Freightech,
+ * reconstruído do export de equipamento.
+ *
+ * Boa parte das telas de cartão de lá é uma lista de valores registrados
+ * (PADRÃO: 6X4, 6X2, 4X2…), e não uma lista de mudanças. Este endpoint é o que
+ * permite mostrar aquela tela com dado nosso — mais quantos ativos usam cada
+ * valor, que é o que separa uma opção viva de uma que sobrou no cadastro.
+ */
+router.get("/attributes/:code/domain", async (req, res): Promise<void> => {
+  try {
+    const context = parseContext(req.query as Record<string, unknown>);
+    const period = typeof req.query.period === "string" ? req.query.period : undefined;
+    const domain = await getAttributeDomain(db, req.params.code, context, period);
+    if (!domain) {
+      res.status(404).json({ error: "Atributo não encontrado nesta vigência." });
+      return;
+    }
+    res.json(domain);
+  } catch (err) {
+    if (sendContextError(res, err)) return;
+    req.log.error({ err }, "Error loading attribute domain");
     res.status(500).json({ error: "Internal server error" });
   }
 });
