@@ -173,7 +173,19 @@ export function AnaliseCartao({
         carregandoPonta={ponta.isLoading}
       />
 
-      {parametros.length === 0 ? (
+      {mov.from === mov.to ? (
+        /*
+          As duas pontas iguais não são um intervalo. Antes isto tinha resposta
+          — a vigência sozinha — porque a ponta inicial entrava na soma; agora
+          que ela é só o ponto de partida, "de agosto até agosto" é um trecho
+          de comprimento zero. Dizer isso é melhor do que devolver tudo zerado
+          e deixar quem lê concluir que não houve alteração nenhuma.
+        */
+        <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm">
+          As duas pontas são a mesma vigência. Não há intervalo entre{" "}
+          {mov.fromLabel} e ela mesma — escolha uma vigência inicial anterior.
+        </div>
+      ) : parametros.length === 0 ? (
         <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm">
           Este cartão não tem parâmetro nenhum alimentado pelo export, e por isso não
           há alteração para analisar. A aba Freightech continua mostrando o que a
@@ -332,11 +344,11 @@ function ExplicacaoDaLeitura({
       {leitura === "movimentos" ? (
         <span>
           <strong className="text-foreground">O que a Ambev foi mexendo no caminho.</strong>{" "}
-          Cada vigência já é uma comparação com a anterior; o intervalo soma{" "}
+          Cada vigência já é uma comparação com a anterior; o intervalo soma as{" "}
           {mov.totals.comparisons}{" "}
-          {mov.totals.comparisons === 1 ? "comparação" : "comparações"} entre{" "}
-          {mov.fromLabel} e {mov.toLabel}. Um valor que subiu e voltou conta duas
-          vezes aqui — e some na outra leitura.
+          {mov.totals.comparisons === 1 ? "comparação" : "comparações"} que saem de{" "}
+          {mov.fromLabel} e chegam em {mov.toLabel}. Um valor que subiu e voltou
+          conta duas vezes aqui — e some na outra leitura.
         </span>
       ) : (
         <span>

@@ -263,9 +263,10 @@ export async function getFamiliesView(
  *
  * **O que este intervalo é, e o que ele não é.** Uma vigência aqui já é uma
  * comparação: agosto/2026 é "agosto contra julho". Escolher *de abril até
- * agosto* soma os movimentos de abril, maio, junho, julho e agosto — cinco
- * comparações — e **não** é a mesma coisa que abrir a planilha de abril ao lado
- * da de agosto e olhar as duas pontas.
+ * agosto* soma os movimentos de maio, junho, julho e agosto — quatro
+ * comparações, as que **saem** de abril e chegam em agosto — e **não** é a
+ * mesma coisa que abrir a planilha de abril ao lado da de agosto e olhar as
+ * duas pontas.
  *
  * A diferença importa e é visível: um valor que foi de 10 para 20 e voltou para
  * 10 dá zero na leitura das duas pontas e dá duas alterações aqui. As duas
@@ -326,7 +327,11 @@ export interface RangeEntry {
 
 export interface RangeAnalysis {
   context: ContextInfo;
-  /** As pontas escolhidas, ambas **incluídas** na leitura. */
+  /**
+   * As pontas escolhidas. `from` é o **ponto de partida** e não entra na soma:
+   * o intervalo são as transições que vão dele até `to`. Julho → agosto é uma
+   * comparação, e não duas.
+   */
   from: string;
   fromLabel: string;
   to: string;
@@ -403,7 +408,7 @@ export async function getRangeAnalysis(
            sb.entity_count AS fleet
       FROM change_set cs
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
-     WHERE sb.effective_date >= ${inicio}::date
+     WHERE sb.effective_date > ${inicio}::date
        AND sb.effective_date <= ${fim}::date
        AND sb.status <> 'SUPERSEDED'
        AND ${contextFilter("sb", context)}
@@ -439,7 +444,22 @@ export async function getRangeAnalysis(
   const fleetByChangeSet = new Map(sets.map((s) => [s.change_set_id, s.fleet]));
 
   // ---- movimento por vigência ---------------------------------------------
-  const noIntervalo = datas.filter((d) => d >= inicio && d <= fim).sort().reverse();
+  /*
+    O intervalo são as transições que **vão** de `inicio` até `fim` — a ponta
+    inicial é o ponto de partida, não um período cujo movimento se soma.
+
+    Era o contrário, e a tela mostrou o preço: escolher "de julho até agosto"
+    somava também a transição que produziu julho (junho→julho), e ainda
+    acusava julho de "vigência que ficou de fora" quando ela era justamente a
+    referência escolhida. O texto dizia "1 comparação" e o alerta dizia que
+    faltava uma — as duas frases descreviam semânticas diferentes na mesma
+    tela.
+
+    Agora a seta do seletor quer dizer o que parece: julho → agosto é uma
+    comparação. E as duas leituras passam a cobrir o mesmo trecho, que é o que
+    permite subtrair uma da outra para dizer o que foi revertido.
+  */
+  const noIntervalo = datas.filter((d) => d > inicio && d <= fim).sort().reverse();
   const rowsPorPeriodo = new Map<string, typeof rows>();
   for (const row of rows) {
     const periodo = periodoDoSet.get(row.change_set_id);

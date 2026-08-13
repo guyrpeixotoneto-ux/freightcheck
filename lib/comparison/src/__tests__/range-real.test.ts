@@ -55,21 +55,36 @@ afterAll(async () => {
 });
 
 describe("as pontas do intervalo", () => {
-  it("sem escolha, abre na vigência mais recente e na anterior — as duas dentro", async () => {
+  it("sem escolha, abre na vigência mais recente contra a anterior — uma comparação", async () => {
     const periodos = await listPeriods(ctx.db);
     const analise = (await getRangeAnalysis(ctx.db))!;
 
     expect(analise.to).toBe(periodos[0].effective_date);
     expect(analise.from).toBe(periodos[1]?.effective_date ?? periodos[0].effective_date);
 
-    // "As duas entram" não é figura de linguagem: as duas datas aparecem entre
-    // as vigências lidas (com comparação) ou entre as que ficaram de fora.
-    const lidas = new Set([
+    /*
+      A ponta inicial é o ponto de partida, e não um período cujo movimento
+      entra na soma: "de julho até agosto" é **uma** comparação. Era o
+      contrário, e a tela mostrava o preço — o texto dizia "1 comparação" e o
+      alerta acusava julho de ter ficado de fora, sobre a vigência que a pessoa
+      tinha acabado de escolher como referência.
+    */
+    const lidas = [
       ...analise.movements.map((m) => m.period),
       ...analise.gaps.map((g) => g.period),
-    ]);
-    expect(lidas.has(analise.from)).toBe(true);
-    expect(lidas.has(analise.to)).toBe(true);
+    ];
+    expect(lidas).toEqual([analise.to]);
+  });
+
+  it("as duas pontas iguais não são um intervalo", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const alvo = periodos[0].effective_date;
+    const analise = (await getRangeAnalysis(ctx.db, alvo, alvo))!;
+
+    expect(analise.movements).toEqual([]);
+    expect(analise.gaps).toEqual([]);
+    expect(analise.entries).toEqual([]);
+    expect(analise.totals.changes).toBe(0);
   });
 
   it("pontas trocadas dão a mesma leitura — de agosto até abril é abril até agosto", async () => {
@@ -113,12 +128,13 @@ describe("as pontas do intervalo", () => {
 });
 
 describe("as duas abas do cartão não se contradizem", () => {
-  it("um intervalo de uma vigência só dá o que aquela vigência dá", async () => {
+  it("o intervalo de um passo dá exatamente o que a vigência de chegada dá", async () => {
     const periodos = await listPeriods(ctx.db);
     const alvo = periodos[0].effective_date;
+    const anterior = periodos[1].effective_date;
 
     const vigencia = (await getFamiliesView(ctx.db, alvo))!;
-    const intervalo = (await getRangeAnalysis(ctx.db, alvo, alvo))!;
+    const intervalo = (await getRangeAnalysis(ctx.db, anterior, alvo))!;
 
     expect(intervalo.totals.changes).toBe(vigencia.totals.changes);
     expect(intervalo.totals.vehiclesTouched).toBe(vigencia.totals.vehiclesTouched);
@@ -126,12 +142,13 @@ describe("as duas abas do cartão não se contradizem", () => {
     expect(intervalo.impact.notCalculable).toBe(vigencia.impact.notCalculable);
   });
 
-  it("o ranking do intervalo de uma vigência tem os mesmos grupos da vigência", async () => {
+  it("o ranking do intervalo de um passo tem os mesmos grupos da vigência", async () => {
     const periodos = await listPeriods(ctx.db);
     const alvo = periodos[0].effective_date;
+    const anterior = periodos[1].effective_date;
 
     const vigencia = (await getFamiliesView(ctx.db, alvo))!;
-    const intervalo = (await getRangeAnalysis(ctx.db, alvo, alvo))!;
+    const intervalo = (await getRangeAnalysis(ctx.db, anterior, alvo))!;
 
     expect(intervalo.entries).toHaveLength(vigencia.groups.length);
     const impactosDaVigencia = vigencia.groups
@@ -185,9 +202,10 @@ describe("nada some no caminho", () => {
       periodos[0].effective_date,
     ))!;
 
+    // A ponta inicial fica de fora: é o ponto de partida, não um movimento.
     const noIntervalo = periodos
       .map((p) => p.effective_date)
-      .filter((d) => d >= analise.from && d <= analise.to)
+      .filter((d) => d > analise.from && d <= analise.to)
       .sort();
     const cobertas = [
       ...analise.movements.map((m) => m.period),
@@ -373,6 +391,36 @@ describe("ponta a ponta", () => {
     expect(trocado.from).toBe(certo.from);
     expect(trocado.totals).toEqual(certo.totals);
     expect(trocado.impact).toEqual(certo.impact);
+  });
+});
+
+describe("as duas leituras cobrem o mesmo trecho", () => {
+  it("num intervalo de um passo não existe reversão — não há caminho para ir e voltar", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const alvo = periodos[0].effective_date;
+    const anterior = periodos[1].effective_date;
+
+    const pontas = (await getEndToEndAnalysis(ctx.db, anterior, alvo))!;
+    /*
+      A prova de que os dois trechos são o mesmo. Se a leitura de movimentos
+      cobrisse uma transição a mais que a de pontas — como cobria, quando a
+      ponta inicial entrava na soma —, o que mexeu naquela transição extra
+      apareceria aqui como "mexeu e voltou" sem ter voltado coisa nenhuma.
+    */
+    expect(pontas.reverted).toEqual([]);
+  });
+
+  it("num passo, o que mexeu é exatamente o que está diferente nas pontas", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const alvo = periodos[0].effective_date;
+    const anterior = periodos[1].effective_date;
+
+    const movimentos = (await getRangeAnalysis(ctx.db, anterior, alvo))!;
+    const pontas = (await getEndToEndAnalysis(ctx.db, anterior, alvo))!;
+
+    const codigos = (lista: { attributeCode: string | null }[]) =>
+      [...new Set(lista.map((e) => e.attributeCode).filter(Boolean))].sort();
+    expect(codigos(pontas.entries)).toEqual(codigos(movimentos.entries));
   });
 });
 
