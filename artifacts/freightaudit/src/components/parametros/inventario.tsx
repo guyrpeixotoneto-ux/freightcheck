@@ -23,9 +23,30 @@ import { TabelaFreightech, type ColunaTabela } from "@/components/parametros/tab
  *    tela; o trilho lateral guarda quais ficam à mostra, por cartão.
  */
 
+interface OndeEstaASerie {
+  aliasTypes: { entityType: string; attributes: number }[];
+  otherDeliveries: {
+    entityType: string;
+    contextLabel: string;
+    effectiveDate: string;
+    periodLabel: string;
+    sourceLabel: string;
+    sameContext: boolean;
+  }[];
+  receivedNotPromoted: {
+    filename: string;
+    sheetName: string;
+    sheetRole: string;
+    roleReason: string;
+    importStatus: string;
+    receivedAt: string;
+  }[];
+}
+
 interface TabelaEntidades {
   seriesDelivered: boolean;
   attributesKnown: number;
+  elsewhere: OndeEstaASerie;
   entityType: string;
   effectiveDate: string;
   periodLabel: string;
@@ -40,6 +61,48 @@ interface TabelaEntidades {
 }
 
 type LinhaInventario = TabelaEntidades["rows"][number];
+
+/**
+ * Onde a série está, nomeada por vigência e contexto.
+ *
+ * Existe porque "não está aqui" é meia resposta. Quem importou a planilha
+ * precisa saber para onde ela foi — e a diferença entre "outra vigência, mesmo
+ * contexto" e "outra unidade" muda o que a pessoa faz em seguida, então as
+ * entregas do contexto atual vêm primeiro e ditas como tal.
+ */
+function ListaDeEntregas({
+  entregas,
+}: {
+  entregas: TabelaEntidades["elsewhere"]["otherDeliveries"];
+}) {
+  if (entregas.length === 0) return null;
+
+  const ordenadas = [...entregas].sort(
+    (a, b) => Number(b.sameContext) - Number(a.sameContext),
+  );
+  // Muitas vigências da mesma série viram uma lista sem foco; as primeiras já
+  // dizem para onde ir, e o restante é contado em vez de despejado.
+  const visiveis = ordenadas.slice(0, 6);
+
+  return (
+    <div className="text-xs text-muted-foreground space-y-1 pt-1">
+      <p className="font-medium text-foreground">Onde esta série aparece:</p>
+      <ul className="space-y-0.5">
+        {visiveis.map((entrega) => (
+          <li key={`${entrega.sourceLabel}-${entrega.entityType}-${entrega.contextLabel}`}>
+            <span className="font-mono">{entrega.entityType}</span> · {entrega.periodLabel}{" "}
+            · {entrega.contextLabel} ·{" "}
+            <span className="font-mono">{entrega.sourceLabel}</span>
+            {entrega.sameContext && " — mesmo contexto, outra vigência"}
+          </li>
+        ))}
+      </ul>
+      {ordenadas.length > visiveis.length && (
+        <p>e mais {ordenadas.length - visiveis.length} entrega(s).</p>
+      )}
+    </div>
+  );
+}
 
 export function TabelaInventario({
   entidade,
@@ -95,10 +158,102 @@ export function TabelaInventario({
     a causa real é outra: o arquivo daquele equipamento nunca foi importado
     neste contexto. Aí não há coluna alguma dele no dicionário, todas as 38
     caem em `missingColumns`, e a frase culpa o cartão por uma planilha que
-    falta. As duas causas mandam fazer coisas opostas — uma manda importar, a
-    outra manda conferir o cartão — e por isso viraram duas frases.
+    falta.
+
+    Depois "falta importar" também virou a resposta errada — dita para quem
+    tinha acabado de importar `Modelo_Carreta.xlsx`. Uma tabela vazia tem
+    quatro causas, e cada uma manda fazer uma coisa diferente:
+
+    1. O arquivo entrou com **outra identidade** (MODELOCARRETA, do tempo em
+       que o nome da aba era o tipo) → reimportar.
+    2. O arquivo está em **outro contexto ou vigência** → trocar o filtro.
+    3. O arquivo **chegou e parou** antes de virar vigência → ler o motivo.
+    4. O arquivo **nunca chegou** → importar.
+
+    A ordem abaixo é a das causas mais específicas primeiro; "importe" é a
+    última coisa que a tela diz, e só quando procurou nas outras três.
   */
   if (data.rows.length === 0 && data.attributesKnown === 0) {
+    const outraIdentidade = data.elsewhere.aliasTypes[0];
+
+    /*
+      "Nunca foi importado" é a conclusão certa só quando o banco não sabe de
+      nada parecido. Quem acabou de subir `Modelo_Carreta.xlsx` e lê essa frase
+      conclui, com razão, que a tela está mentindo: o arquivo chegou — o que
+      não chegou foi a identidade que este cartão procura. Antes da correção de
+      `deriveEntityType`, a aba `Modelo_Carreta` virava o tipo MODELOCARRETA, e
+      corrigir a regra não reescreve o que já entrou no banco.
+    */
+    if (outraIdentidade) {
+      return (
+        <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm space-y-2">
+          <p className="font-medium">
+            O arquivo de <span className="font-mono">{data.entityType}</span> chegou, mas
+            entrou com outra identidade:{" "}
+            <span className="font-mono">{outraIdentidade.entityType}</span>.
+          </p>
+          <p className="text-muted-foreground">
+            O dicionário tem {outraIdentidade.attributes} colunas sob{" "}
+            <span className="font-mono">{outraIdentidade.entityType}</span> e nenhuma sob{" "}
+            <span className="font-mono">{data.entityType}</span> — é o nome da aba lido
+            como sendo o próprio tipo, de uma importação anterior à correção dessa regra.
+            Os dados estão certos e a identidade está errada, e por isso este cartão não
+            os encontra. Reimportar a mesma planilha refaz a identidade como{" "}
+            <span className="font-mono">{data.entityType.toLowerCase()}.*</span>; corrigir
+            a regra sozinha não reescreve o que já entrou.
+          </p>
+          <ListaDeEntregas entregas={data.elsewhere.otherDeliveries} />
+        </div>
+      );
+    }
+
+    if (data.elsewhere.otherDeliveries.length > 0) {
+      return (
+        <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm space-y-2">
+          <p className="font-medium">
+            <span className="font-mono">{data.entityType}</span> foi importado, mas não
+            neste contexto.
+          </p>
+          <p className="text-muted-foreground">
+            O filtro atual — {data.periodLabel}, com o contexto escolhido acima — não
+            alcança nenhuma dessas entregas. Trocar a vigência ou a unidade traz a tabela
+            de volta; não falta importar nada.
+          </p>
+          <ListaDeEntregas entregas={data.elsewhere.otherDeliveries} />
+        </div>
+      );
+    }
+
+    /*
+      O arquivo chegou e parou no caminho. Acontece sem ninguém errar nada: a
+      aba não traz `vigência` ou `placa` e o classificador a recusa, ou a
+      importação para antes de promover. Mandar "importe a planilha" para quem
+      já importou é a mesma frase inútil de antes, agora com o motivo à mão.
+    */
+    const parado = data.elsewhere.receivedNotPromoted[0];
+    if (parado) {
+      return (
+        <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm space-y-2">
+          <p className="font-medium">
+            O arquivo <span className="font-mono">{parado.filename}</span> chegou, mas não
+            virou vigência.
+          </p>
+          <p className="text-muted-foreground">
+            A aba <span className="font-mono">{parado.sheetName}</span> foi classificada
+            como <span className="font-mono">{parado.sheetRole}</span> e a importação está{" "}
+            <span className="font-mono">{parado.importStatus}</span>, então nenhuma coluna
+            de <span className="font-mono">{data.entityType}</span> entrou no dicionário. O
+            motivo registrado: <em>{parado.roleReason}</em>
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Nada foi descartado — o arquivo está inteiro no RAW. Corrigir a planilha e
+            reimportar é o caminho; a tela de Importações mostra o resto dos avisos deste
+            arquivo.
+          </p>
+        </div>
+      );
+    }
+
     return (
       <div className="bg-card border border-l-[6px] border-l-brand-red px-6 py-4 text-sm space-y-2">
         <p className="font-medium">
@@ -107,10 +262,11 @@ export function TabelaInventario({
         </p>
         <p className="text-muted-foreground">
           Não é que este cartão peça colunas erradas: o dicionário não conhece{" "}
-          <strong className="text-foreground">nenhuma</strong> coluna deste equipamento,
-          porque a planilha dele nunca chegou. As {atributos.length} colunas do cartão
-          existem no Freightech e continuarão sem dado até a importação — o que falta é o
-          arquivo, e não o cartão.
+          <strong className="text-foreground">nenhuma</strong> coluna deste equipamento —
+          nem sob outro nome, nem em outra vigência ou unidade, e nenhum arquivo com uma
+          aba deste equipamento chegou a ser recebido. As {atributos.length} colunas do
+          cartão existem no Freightech e continuarão sem dado até a importação — o que
+          falta é o arquivo, e não o cartão.
         </p>
       </div>
     );
@@ -128,6 +284,7 @@ export function TabelaInventario({
           conhecidas — mas o arquivo desta vigência não veio. A ausência não está contada
           como zero; escolha outra vigência ou importe a que falta.
         </p>
+        <ListaDeEntregas entregas={data.elsewhere.otherDeliveries} />
       </div>
     );
   }
