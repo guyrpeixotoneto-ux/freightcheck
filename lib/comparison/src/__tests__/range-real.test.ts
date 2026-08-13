@@ -394,6 +394,80 @@ describe("ponta a ponta", () => {
   });
 });
 
+describe("a visão geral e o cartão não podem se contradizer", () => {
+  it("a soma dos parâmetros fecha com o total do intervalo, balde a balde", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const analise = (await getRangeAnalysis(
+      ctx.db,
+      periodos[periodos.length - 1].effective_date,
+      periodos[0].effective_date,
+    ))!;
+
+    const soma: Record<string, number> = {};
+    for (const parametro of analise.byParameter) {
+      for (const [balde, valor] of Object.entries(parametro.impact.byPeriodicity)) {
+        soma[balde] = (soma[balde] ?? 0) + valor;
+      }
+    }
+    const baldes = new Set([
+      ...Object.keys(soma),
+      ...Object.keys(analise.impact.byPeriodicity),
+    ]);
+    expect(baldes.size).toBeGreaterThan(0);
+    for (const balde of baldes) {
+      expect(soma[balde] ?? 0).toBeCloseTo(analise.impact.byPeriodicity[balde] ?? 0, 2);
+    }
+
+    const somaDeAlteracoes = analise.byParameter.reduce((t, p) => t + p.changes, 0);
+    expect(somaDeAlteracoes).toBe(analise.totals.changes);
+  });
+
+  it("o consolidado de um parâmetro é o que o cartão dele mostra sozinho", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const inicio = periodos[periodos.length - 1].effective_date;
+    const fim = periodos[0].effective_date;
+    const geral = (await getRangeAnalysis(ctx.db, inicio, fim))!;
+
+    /*
+      O salto VISÃO GERAL → CARTÃO. Se a linha do parâmetro na visão geral e a
+      tela do cartão dele discordassem, uma das duas estaria errada e não
+      haveria como saber qual — e é justamente esse caminho que o produto pede
+      para a pessoa percorrer.
+    */
+    for (const parametro of geral.byParameter.slice(0, 5)) {
+      const cartao = (await getRangeAnalysis(ctx.db, inicio, fim, undefined, [
+        parametro.parameterKey,
+      ]))!;
+      expect(cartao.totals.changes).toBe(parametro.changes);
+      expect(cartao.totals.vehiclesTouched).toBe(parametro.vehicles);
+      expect(cartao.impact.byPeriodicity).toEqual(parametro.impact.byPeriodicity);
+      expect(cartao.impact.notCalculable).toBe(parametro.notCalculable);
+    }
+  });
+
+  it("ponta a ponta também fecha, e diz o que permanece alterado", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const pontas = (await getEndToEndAnalysis(
+      ctx.db,
+      periodos[periodos.length - 1].effective_date,
+      periodos[0].effective_date,
+    ))!;
+
+    const soma: Record<string, number> = {};
+    for (const parametro of pontas.byParameter) {
+      for (const [balde, valor] of Object.entries(parametro.impact.byPeriodicity)) {
+        soma[balde] = (soma[balde] ?? 0) + valor;
+      }
+    }
+    for (const balde of Object.keys(pontas.impact.byPeriodicity)) {
+      expect(soma[balde] ?? 0).toBeCloseTo(pontas.impact.byPeriodicity[balde], 2);
+    }
+    expect(pontas.byParameter.reduce((t, p) => t + p.changes, 0)).toBe(
+      pontas.totals.changes,
+    );
+  });
+});
+
 describe("as duas leituras cobrem o mesmo trecho", () => {
   it("num intervalo de um passo não existe reversão — não há caminho para ir e voltar", async () => {
     const periodos = await listPeriods(ctx.db);

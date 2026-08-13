@@ -4,7 +4,8 @@ import { loadAttributeClassificationsAt } from "./classification";
 import { indexChangedAttributesByEntity, isCoveredByParts } from "./composition";
 import { diffSnapshots, type ComputedChange } from "./engine";
 import { attributeLabel, equipmentLabel } from "./labels";
-import { placementOf, type FamilyCode } from "./families";
+import { FAMILIES, placementOf, type FamilyCode } from "./families";
+import type { ParameterRollup } from "./families-view";
 import {
   buildGroup,
   compareGroups,
@@ -130,6 +131,15 @@ export interface EndToEndAnalysis {
   lossesByPeriodicity: Record<string, number>;
   gainsByPeriodicity: Record<string, number>;
   totals: { changes: number; vehiclesTouched: number };
+  /**
+   * O que **permanece alterado**, somado por parâmetro.
+   *
+   * O irmão do `byParameter` dos movimentos, e a outra metade da pergunta
+   * executiva: lá é "no que a Ambev mexeu no caminho", aqui é "o que continua
+   * diferente hoje". Mesma função de soma, mesmo índice de composição — as
+   * partes fecham com o todo dentro de cada periodicidade.
+   */
+  byParameter: ParameterRollup[];
   entries: EndToEndEntry[];
 }
 
@@ -428,6 +438,44 @@ export async function getEndToEndAnalysis(
     })
     .sort((a, b) => b.entities - a.entities);
 
+  const linhasPorParametro = new Map<string, LinhaCrua[]>();
+  for (const linha of doCartao) {
+    const chave = placementOf(linha.attribute_code).parameterKey;
+    const lista = linhasPorParametro.get(chave) ?? [];
+    lista.push(linha);
+    linhasPorParametro.set(chave, lista);
+  }
+
+  const byParameter: ParameterRollup[] = [...linhasPorParametro.entries()]
+    .map(([chave, linhas]) => {
+      const impact = summariseImpact(linhas as never, changedByEntity);
+      const family = placementOf(linhas[0]?.attribute_code ?? null).family;
+      return {
+        parameterKey: chave,
+        parameterName: chave.split("|").slice(1).join("|"),
+        family,
+        familyName: FAMILIES[family]?.name ?? family,
+        changes: linhas.length,
+        vehicles: new Set(
+          linhas.map((l) => l.entity_id).filter((v): v is string => v !== null),
+        ).size,
+        impact,
+        // Nesta leitura não há vigências intermediárias: é um salto só.
+        periods: 1,
+        notCalculable: impact.notCalculable,
+      };
+    })
+    .sort((a, b) => {
+      const peso = (r: ParameterRollup) => {
+        const valores = Object.values(r.impact.byPeriodicity).map(Math.abs);
+        return valores.length === 0 ? 0 : Math.max(...valores);
+      };
+      const diferenca = peso(b) - peso(a);
+      if (diferenca !== 0) return diferenca;
+      if (b.changes !== a.changes) return b.changes - a.changes;
+      return a.parameterName.localeCompare(b.parameterName, "pt-BR");
+    });
+
   const losses: Record<string, number> = {};
   const gains: Record<string, number> = {};
   for (const linha of doCartao) {
@@ -471,6 +519,7 @@ export async function getEndToEndAnalysis(
         doCartao.map((l) => l.entity_id).filter((v): v is string => v !== null),
       ).size,
     },
+    byParameter,
     entries,
   };
 }

@@ -347,7 +347,34 @@ export interface RangeAnalysis {
   lossesByPeriodicity: Record<string, number>;
   gainsByPeriodicity: Record<string, number>;
   totals: { changes: number; vehiclesTouched: number; comparisons: number };
+  /**
+   * O intervalo somado por parâmetro — o degrau entre a visão geral e o cartão.
+   *
+   * Vem do servidor, e não de uma soma na tela, por dois motivos. O primeiro é
+   * o de sempre: `vehicles` aqui são ativos **distintos**, e somar os grupos
+   * daria mais caminhões do que a frota tem. O segundo é a dupla contagem — o
+   * impacto de cada parâmetro sai do mesmo `summariseImpact` com o mesmo índice
+   * de composição do total, o que garante que as partes fechem com o todo
+   * dentro de cada periodicidade. Uma tela que soma sozinha pode não fechar, e
+   * ninguém descobre olhando.
+   */
+  byParameter: ParameterRollup[];
   entries: RangeEntry[];
+}
+
+export interface ParameterRollup {
+  parameterKey: string;
+  parameterName: string;
+  family: FamilyCode;
+  familyName: string;
+  changes: number;
+  /** Ativos distintos tocados por este parâmetro no intervalo. */
+  vehicles: number;
+  impact: ImpactSummary;
+  /** Vigências do intervalo em que este parâmetro se mexeu. */
+  periods: number;
+  /** Alterações dele sem impacto apurado. Nunca zero disfarçado. */
+  notCalculable: number;
 }
 
 export async function getRangeAnalysis(
@@ -539,6 +566,56 @@ export async function getRangeAnalysis(
         : b.period.localeCompare(a.period),
     );
 
+  /*
+    ---- o intervalo somado por parâmetro ------------------------------------
+
+    É o degrau entre a visão geral e o cartão: dali se vê *qual gaveta* pesou,
+    e daqui se salta para ela. Cada fatia recebe o **mesmo** índice de
+    composição do total — é o que faz as partes fecharem com o todo dentro de
+    cada periodicidade, e é a única forma de a visão geral e o cartão não se
+    contradizerem.
+  */
+  const linhasPorParametro = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const chave = placementOf(row.attribute_code).parameterKey;
+    const lista = linhasPorParametro.get(chave) ?? [];
+    lista.push(row);
+    linhasPorParametro.set(chave, lista);
+  }
+
+  const byParameter: ParameterRollup[] = [...linhasPorParametro.entries()]
+    .map(([chave, linhas]) => {
+      const impact = summariseImpact(linhas, changedByEntity);
+      const family = placementOf(linhas[0]?.attribute_code ?? null).family;
+      return {
+        parameterKey: chave,
+        parameterName: chave.split("|").slice(1).join("|"),
+        family,
+        familyName: FAMILIES[family]?.name ?? family,
+        changes: linhas.length,
+        vehicles: new Set(
+          linhas.map((l) => l.entity_id).filter((v): v is string => v !== null),
+        ).size,
+        impact,
+        periods: new Set(
+          linhas.map((l) => periodoDoSet.get(l.change_set_id)).filter(Boolean),
+        ).size,
+        notCalculable: impact.notCalculable,
+      };
+    })
+    // O maior impacto absoluto **dentro de uma periodicidade**, nunca a soma
+    // entre elas: R$/mês e R$/ano não formam uma fila.
+    .sort((a, b) => {
+      const peso = (r: ParameterRollup) => {
+        const valores = Object.values(r.impact.byPeriodicity).map(Math.abs);
+        return valores.length === 0 ? 0 : Math.max(...valores);
+      };
+      const diferenca = peso(b) - peso(a);
+      if (diferenca !== 0) return diferenca;
+      if (b.changes !== a.changes) return b.changes - a.changes;
+      return a.parameterName.localeCompare(b.parameterName, "pt-BR");
+    });
+
   // ---- perdas e ganhos, separados e por periodicidade ----------------------
   const losses: Record<string, number> = {};
   const gains: Record<string, number> = {};
@@ -574,6 +651,7 @@ export async function getRangeAnalysis(
       ).size,
       comparisons: sets.length,
     },
+    byParameter,
     entries,
   };
 }
