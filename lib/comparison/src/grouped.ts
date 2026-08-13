@@ -350,7 +350,7 @@ function round(buckets: Record<string, number>): Record<string, number> {
  * incomparável, ou com preço com sem preço, produziria um cartão cujo número
  * não descreve as linhas que ele diz representar.
  */
-function groupKey(row: RawChange): string {
+export function groupKey(row: RawChange): string {
   return [
     row.attribute_code ?? "(sem atributo)",
     row.entity_type ?? "(sem equipamento)",
@@ -360,7 +360,7 @@ function groupKey(row: RawChange): string {
   ].join("|");
 }
 
-function buildGroup(
+export function buildGroup(
   rows: RawChange[],
   fleetByChangeSet: Map<string, number>,
   changedByEntity: Map<string, Set<string>>,
@@ -797,7 +797,7 @@ export async function getGroupedView(
   };
 }
 
-function compareGroups(a: ChangeGroup, b: ChangeGroup): number {
+export function compareGroups(a: ChangeGroup, b: ChangeGroup): number {
   const rank = BADGE_ORDER.indexOf(a.badge) - BADGE_ORDER.indexOf(b.badge);
   if (rank !== 0) return rank;
   const impact = Math.abs(b.impact.amount ?? 0) - Math.abs(a.impact.amount ?? 0);

@@ -174,8 +174,10 @@ export function TabelaInventario({
             ? "coluna deste cartão não existe no dicionário do export e ficou de fora"
             : "colunas deste cartão não existem no dicionário do export e ficaram de fora"}
           :{" "}
-          <span className="font-mono">{data.missingColumns.join(", ")}</span>. Elas
-          aparecem no Freightech e não chegam aqui.
+          <span className="font-mono">{data.missingColumns.join(", ")}</span>.{" "}
+          {data.missingColumns.length === 1
+            ? "Ela aparece no Freightech e não chega aqui."
+            : "Elas aparecem no Freightech e não chegam aqui."}
         </p>
       )}
 

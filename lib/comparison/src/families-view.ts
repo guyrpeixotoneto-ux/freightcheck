@@ -8,14 +8,26 @@ import {
   type FamilyCode,
 } from "./families";
 import {
+  buildGroup,
+  compareGroups,
   getGroupedView,
+  groupKey,
   loadChanges,
+  periodLabel,
   summariseImpact,
+  type Badge,
   type ChangeGroup,
   type GroupedView,
   type ImpactSummary,
 } from "./grouped";
-import type { SeriesContext } from "./series";
+import { listPeriods } from "./consolidated";
+import {
+  contextFilter,
+  listContexts,
+  resolveContext,
+  type ContextInfo,
+  type SeriesContext,
+} from "./series";
 
 /**
  * A vigência lida como o usuário do Freightech pensa: por família e parâmetro.
@@ -240,6 +252,270 @@ export async function getFamiliesView(
   }
 
   return { ...view, summary: buildSummary(view, families, rows, changedByEntity), families };
+}
+
+// ---------------------------------------------------------------------------
+// O intervalo — várias vigências lidas juntas
+// ---------------------------------------------------------------------------
+
+/**
+ * O que aconteceu entre duas vigências escolhidas.
+ *
+ * **O que este intervalo é, e o que ele não é.** Uma vigência aqui já é uma
+ * comparação: agosto/2026 é "agosto contra julho". Escolher *de abril até
+ * agosto* soma os movimentos de abril, maio, junho, julho e agosto — cinco
+ * comparações — e **não** é a mesma coisa que abrir a planilha de abril ao lado
+ * da de agosto e olhar as duas pontas.
+ *
+ * A diferença importa e é visível: um valor que foi de 10 para 20 e voltou para
+ * 10 dá zero na leitura das duas pontas e dá duas alterações aqui. As duas
+ * respostas estão certas para perguntas diferentes — "como está hoje contra
+ * como estava" e "o que o cliente mexeu no caminho" — e este produto responde a
+ * segunda, porque é a que a auditoria precisa e a que ninguém consegue fazer à
+ * mão. A tela diz isso; o número sozinho enganaria.
+ *
+ * Comparar continua sendo ato de importação: aqui só se **lê** o que já foi
+ * comparado. Nenhuma comparação nova é calculada ao abrir a tela.
+ */
+export interface RangeMovement {
+  period: string;
+  label: string;
+  /** Comparações que terminam nesta vigência — uma por série. */
+  comparisons: number;
+  changes: number;
+  vehicles: number;
+  impact: ImpactSummary;
+}
+
+/**
+ * Uma linha do ranking: um grupo de alteração **dentro de uma vigência**.
+ *
+ * A vigência entra na chave de propósito. Juntar num só item o que mudou em
+ * abril com o que mudou em agosto produziria um "antes → depois" que nunca
+ * existiu em lugar nenhum, e esconderia justamente o que se quer ver: quando o
+ * cliente mexeu.
+ */
+export interface RangeEntry {
+  key: string;
+  period: string;
+  periodLabel: string;
+  parameterKey: string;
+  parameterName: string;
+  family: FamilyCode;
+  attributeCode: string | null;
+  title: string;
+  equipment: string;
+  vehicles: number;
+  unit: string | null;
+  /** O impacto do grupo. Sempre acompanhado da periodicidade. */
+  amount: number | null;
+  periodicity: string | null;
+  confidence: string;
+  /** Por que não há valor, quando não há. */
+  reason: string | null;
+  badge: Badge;
+  badgeLabel: string;
+}
+
+export interface RangeAnalysis {
+  context: ContextInfo;
+  /** As pontas escolhidas, ambas **incluídas** na leitura. */
+  from: string;
+  fromLabel: string;
+  to: string;
+  toLabel: string;
+  /** Tudo o que existe no histórico deste contexto, para o seletor. */
+  periods: { date: string; label: string }[];
+  movements: RangeMovement[];
+  /** Vigências dentro do intervalo sem comparação nenhuma. Nomeadas, nunca zero. */
+  gaps: { period: string; label: string; reason: string }[];
+  /** O impacto do intervalo inteiro, já sem dupla contagem, por periodicidade. */
+  impact: ImpactSummary;
+  /** Só o que reduz a remuneração. Nunca somado ao ganho, nem entre periodicidades. */
+  lossesByPeriodicity: Record<string, number>;
+  gainsByPeriodicity: Record<string, number>;
+  totals: { changes: number; vehiclesTouched: number; comparisons: number };
+  entries: RangeEntry[];
+}
+
+export async function getRangeAnalysis(
+  db: Database,
+  from?: string,
+  to?: string,
+  requestedContext?: Partial<SeriesContext>,
+): Promise<RangeAnalysis | null> {
+  const contexts = await listContexts(db);
+  const context = await resolveContext(db, requestedContext, contexts);
+  if (!context) return null;
+
+  const periods = await listPeriods(db, context); // mais recente primeiro
+  if (periods.length === 0) return null;
+  const datas = periods.map((p) => p.effective_date);
+
+  /*
+    Uma ponta que não existe no histórico deste contexto não vira erro nem some
+    calada: cai no padrão — a vigência mais recente, e a anterior a ela. É o
+    intervalo mais curto que ainda mostra movimento, e é o que a tela abre.
+  */
+  const alvoFim = to && datas.includes(to) ? to : datas[0];
+  const alvoInicio = from && datas.includes(from) ? from : (datas[1] ?? datas[0]);
+  const [inicio, fim] =
+    alvoInicio <= alvoFim ? [alvoInicio, alvoFim] : [alvoFim, alvoInicio];
+
+  const { rows: sets } = await db.execute<{
+    change_set_id: string;
+    period: string;
+    entity_type_set: string;
+    fleet: number;
+  }>(sql`
+    SELECT cs.id AS change_set_id,
+           sb.effective_date::text AS period,
+           sb.entity_type_set,
+           sb.entity_count AS fleet
+      FROM change_set cs
+      JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+     WHERE sb.effective_date >= ${inicio}::date
+       AND sb.effective_date <= ${fim}::date
+       AND sb.status <> 'SUPERSEDED'
+       AND ${contextFilter("sb", context)}
+     ORDER BY sb.effective_date DESC, sb.entity_type_set
+  `);
+
+  const rows = await loadChanges(db, sets.map((s) => s.change_set_id));
+
+  /*
+    O índice de composição é montado sobre o intervalo **inteiro**, e não por
+    vigência. É a mesma regra do acumulado: um total cuja parcela mudou em
+    qualquer ponto do intervalo não volta para dentro da soma só porque mudou
+    num mês diferente. Montá-lo por vigência reintroduziria a dupla contagem
+    pela porta do intervalo.
+  */
+  const changedByEntity = indexChangedAttributesByEntity(
+    rows.map((r) => ({ entityId: r.entity_id, attributeCode: r.attribute_code })),
+  );
+
+  const periodoDoSet = new Map(sets.map((s) => [s.change_set_id, s.period]));
+  const fleetByChangeSet = new Map(sets.map((s) => [s.change_set_id, s.fleet]));
+
+  // ---- movimento por vigência ---------------------------------------------
+  const noIntervalo = datas.filter((d) => d >= inicio && d <= fim).sort().reverse();
+  const rowsPorPeriodo = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const periodo = periodoDoSet.get(row.change_set_id);
+    if (!periodo) continue;
+    const lista = rowsPorPeriodo.get(periodo) ?? [];
+    lista.push(row);
+    rowsPorPeriodo.set(periodo, lista);
+  }
+
+  const movements: RangeMovement[] = noIntervalo
+    .filter((periodo) => sets.some((s) => s.period === periodo))
+    .map((periodo) => {
+      const linhas = rowsPorPeriodo.get(periodo) ?? [];
+      return {
+        period: periodo,
+        label: periodLabel(periodo),
+        comparisons: sets.filter((s) => s.period === periodo).length,
+        changes: linhas.length,
+        vehicles: new Set(
+          linhas.map((r) => r.entity_id).filter((v): v is string => v !== null),
+        ).size,
+        impact: summariseImpact(linhas, changedByEntity),
+      };
+    });
+
+  const gaps = noIntervalo
+    .filter((periodo) => !sets.some((s) => s.period === periodo))
+    .map((periodo) => ({
+      period: periodo,
+      label: periodLabel(periodo),
+      reason:
+        "Vigência importada sem comparação: é a primeira da série, ou a " +
+        "comparação ainda não foi calculada. O que houve aqui não está " +
+        "somado — e não está contado como zero.",
+    }));
+
+  // ---- ranking, um item por grupo dentro de cada vigência ------------------
+  const baldes = new Map<string, typeof rows>();
+  for (const row of rows) {
+    const periodo = periodoDoSet.get(row.change_set_id) ?? "";
+    const chave = `${periodo}|${groupKey(row)}`;
+    const balde = baldes.get(chave);
+    if (balde) balde.push(row);
+    else baldes.set(chave, [row]);
+  }
+
+  const entries: RangeEntry[] = [...baldes.entries()]
+    .map(([chave, linhas]) => {
+      const grupo = buildGroup(linhas, fleetByChangeSet, changedByEntity);
+      const periodo = chave.split("|")[0];
+      const placement = placementOf(grupo.attributeCode);
+      return {
+        key: chave,
+        period: periodo,
+        periodLabel: periodLabel(periodo),
+        parameterKey: placement.parameterKey,
+        parameterName: placement.parameterKey.split("|").slice(1).join("|"),
+        family: placement.family,
+        attributeCode: grupo.attributeCode,
+        title: grupo.title,
+        equipment: grupo.equipment,
+        vehicles: grupo.vehicles,
+        unit: grupo.unit,
+        amount: grupo.impact.amount,
+        periodicity: grupo.impact.periodicity,
+        confidence: grupo.impact.confidence,
+        reason: grupo.impact.reason,
+        badge: grupo.badge,
+        badgeLabel: grupo.badgeLabel,
+        grupo,
+      };
+    })
+    // Mais recente primeiro; dentro da vigência, o critério de sempre.
+    .sort((a, b) =>
+      a.period === b.period
+        ? compareGroups(a.grupo, b.grupo)
+        : b.period.localeCompare(a.period),
+    )
+    .map(({ grupo: _grupo, ...entrada }) => entrada);
+
+  // ---- perdas e ganhos, separados e por periodicidade ----------------------
+  const losses: Record<string, number> = {};
+  const gains: Record<string, number> = {};
+  for (const row of rows) {
+    if (row.impact_confidence !== "CALCULATED" || row.impact_amount === null) continue;
+    if (isCoveredByParts(row.attribute_code, row.entity_id, changedByEntity)) continue;
+    const balde = row.impact_periodicity ?? "SEM_PERIODICIDADE";
+    const valor = Number(row.impact_amount);
+    if (valor < 0) losses[balde] = (losses[balde] ?? 0) + valor;
+    else if (valor > 0) gains[balde] = (gains[balde] ?? 0) + valor;
+  }
+
+  return {
+    context,
+    from: inicio,
+    fromLabel: periodLabel(inicio),
+    to: fim,
+    toLabel: periodLabel(fim),
+    periods: datas.map((d) => ({ date: d, label: periodLabel(d) })),
+    movements,
+    gaps,
+    impact: summariseImpact(rows, changedByEntity),
+    lossesByPeriodicity: Object.fromEntries(
+      Object.entries(losses).map(([k, v]) => [k, round(v)]),
+    ),
+    gainsByPeriodicity: Object.fromEntries(
+      Object.entries(gains).map(([k, v]) => [k, round(v)]),
+    ),
+    totals: {
+      changes: rows.length,
+      vehiclesTouched: new Set(
+        rows.map((r) => r.entity_id).filter((v): v is string => v !== null),
+      ).size,
+      comparisons: sets.length,
+    },
+    entries,
+  };
 }
 
 /** Maior impacto absoluto primeiro; sem impacto, mais alterações primeiro. */
