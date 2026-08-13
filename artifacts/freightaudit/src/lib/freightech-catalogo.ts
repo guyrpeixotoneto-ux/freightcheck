@@ -419,7 +419,49 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
           "consumo e sem o preço, o custo do combustível não fecha, e é o arquivo desta " +
           "tela que falta pedir.",
       },
-      { nome: "Consumo", parametros: ["Consumo benchmark"] },
+      {
+        /*
+          A matriz do consumo de referência: uma linha por capacidade de
+          implemento — Pallets: 20, 22, 24, 26, 28, 40, 42 — e uma coluna por
+          montadora, com o km/l esperado em cada cruzamento. A coluna CONSUMO,
+          entre a capacidade e as montadoras, é o valor base da linha; as
+          montadoras repetem esse número e divergem onde a montadora tem
+          benchmark próprio (em Pallets: 28, CONSUMO 2,394 e VOLKS 2,110).
+          Montadora sem frota na unidade vem zerada — FORD, nas capturas.
+
+          Conferida em três capturas com rolagem horizontal, costuradas pelo
+          VOLVO, que aparece em duas delas: CAPACIDADEEMPURRADA, CONSUMO,
+          MERCEDES, SCANIA, VOLKS, VOLVO, IVECO, FORD. A captura termina numa
+          borda de coluna logo depois de FORD — se há mais montadora à direita,
+          não foi vista, e nenhuma foi inventada para fechar a lista.
+
+          **A tabela em si não chega no export.** O que chega é o resultado dela
+          já resolvido, `cavalo.combustivel_consumo_benchmark`, um número por
+          cavalo. Os dois eixos também chegam, cada um do seu lado: a montadora
+          está no cavalo e a capacidade em pallets está na carreta. O que falta
+          é justamente o cruzamento — sem ele dá para ver o benchmark que cada
+          caminhão recebeu, e não a regra que atribuiu aquele número.
+        */
+        nome: "Consumo",
+        parametros: ["Consumo benchmark"],
+        colunas: [
+          "Capacidadeempurrada",
+          "Consumo",
+          "Mercedes",
+          "Scania",
+          "Volks",
+          "Volvo",
+          "Iveco",
+          "Ford",
+        ],
+        nota:
+          "No Freightech esta tela é a matriz do consumo de referência — capacidade do " +
+          "implemento nas linhas, montadora nas colunas, o km/l esperado em cada " +
+          "cruzamento. O export não traz a matriz: traz o benchmark já resolvido em cada " +
+          "cavalo, e por isso a tabela abaixo mostra o que mudou nesse número, ativo por " +
+          "ativo. Os dois eixos chegam separados — montadora no cavalo, capacidade em " +
+          "pallets na carreta — mas o cruzamento que atribui o valor é o que falta pedir.",
+      },
       { nome: "Contrato manutenção", parametros: ["Contrato de manutenção"] },
       { nome: "Custo fixo total", parametros: ["Custo fixo (total)"] },
       { nome: "Lucro FINAME" },
