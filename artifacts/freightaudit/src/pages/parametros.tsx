@@ -970,6 +970,7 @@ function DetalheCartao({
           ))
         ) : (
           <TabelaFreightech
+            id={`cartao:${cartao.chave}`}
             colunas={COLUNAS_ALTERACOES}
             linhas={cartao.groups}
             chave={(grupo) => grupo.key}

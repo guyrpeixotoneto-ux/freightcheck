@@ -128,7 +128,39 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
         colunas: ["Descricao"],
         atributos: ["cavalo.padrao"],
       },
-      { nome: "QLP benchmark" },
+      {
+        /*
+          O benchmark de quadro: uma linha por cargo, com o valor em dois
+          patamares (VALOR0 e VALOR15). É cadastro de pessoal, e o export que
+          chega aqui é de equipamento — cavalo e carreta, uma linha por ativo.
+          Nenhuma coluna dele cai neste cartão, e a família Equipe inteira está
+          na mesma situação.
+
+          Na captura conferida, todas as linhas vinham com valor 0 nas duas
+          colunas. Isso é observação da tela de lá, não dado nosso, e por isso
+          não vira número em lugar nenhum deste produto.
+        */
+        nome: "QLP benchmark",
+        /*
+          Conferido em três capturas com rolagem horizontal. Ficaram adjacentes
+          e portanto sem coluna entre elas: 0→15, 30→50, 50→60→70→80. A faixa
+          entre VALOR15 e VALOR30 caiu na emenda de duas capturas e não foi
+          vista; se houver um VALOR20 ou VALOR25 ali, ele falta nesta lista.
+          Fica dito em vez de completado por simetria — a sequência já é
+          irregular (não há VALOR40), então "parece que falta um" não é
+          argumento.
+        */
+        colunas: [
+          "Cargoqlpempurrada",
+          "Valor0",
+          "Valor15",
+          "Valor30",
+          "Valor50",
+          "Valor60",
+          "Valor70",
+          "Valor80",
+        ],
+      },
       { nome: "QLP benchmark quantidade" },
       { nome: "QLP benchmark valor" },
       { nome: "Tipo conjunto" },

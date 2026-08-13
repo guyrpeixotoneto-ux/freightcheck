@@ -146,6 +146,7 @@ export function TabelaDominio({
       </p>
 
       <TabelaFreightech
+        id={`dominio:${attributeCode}`}
         colunas={colunas}
         linhas={data.values}
         chave={(linha) => linha.value ?? "__sem_valor__"}
