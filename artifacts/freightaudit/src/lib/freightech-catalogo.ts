@@ -285,7 +285,98 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
           "carreta.finame", "carreta.lucro_fixomodelo_novo_ciclo",
         ],
       },
-      { nome: "Cavalo", parametros: ["Caminhão"] },
+      {
+        /*
+          O inventário do cavalo mecânico — a tela mais larga do Freightech, e
+          a que o nosso export cobre melhor: 75 atributos `cavalo.*` chegam.
+
+          Costurada de capturas com rolagem horizontal, pelas emendas, como a
+          CARRETA. Onde duas capturas não se sobrepunham, a ordem *entre* os
+          blocos é a que a rolagem sugeriu e pode estar trocada; dentro de cada
+          bloco a sequência foi vista. Coluna trocada de lugar atrapalha menos
+          do que coluna inventada, e nenhuma foi inventada.
+
+          Sete rótulos apareceram cortados na tela e foram completados pelo
+          nosso próprio dicionário, não por chute: `MANUTENCAOCOMPRAFORADO…` é
+          `cavalo.manutencao_compra_fora_do_bid_autorizada`,
+          `COMBUSTIVELPERCENTUALPER…` é `cavalo.combustivel_percentual_perda_vida`,
+          e assim por diante. Duas fontes independentes descrevendo o mesmo
+          export é o que autoriza completar um rótulo sem ter visto a tela
+          inteira.
+
+          Uma coluna ficou de fora de propósito: numa das capturas ela aparecia
+          como `N…` e mais nada. Não dá para completar um nome a partir de uma
+          letra, e um nome errado no cabeçalho é pior do que uma coluna a menos.
+
+          O Freightech tem AÇÕES preso na direita (editar, excluir) e os botões
+          TELEMETRIA / TROCAR CARRETA / ADICIONAR no topo. Nenhum deles entra
+          aqui: o FreightCheck lê a planilha exportada e não escreve no
+          Freightech, e um botão que parece agir e não age é pior do que a
+          ausência dele. A coluna presa virou a placa, à esquerda — o que
+          realmente resolve o problema de rolar setenta colunas.
+        */
+        nome: "Cavalo",
+        parametros: ["Caminhão"],
+        entidade: "CAVALO",
+        nota:
+          "Statusfinanciamento, Padraoshared e Consumoremunerado aparecem no Freightech e não têm coluna correspondente no export — por isso não estão na tabela.",
+        colunas: [
+          "Placa", "Placacarreta", "Ativo",
+          "Freemaintenance", "Data", "Montadora",
+          "Odometroentrada", "Faixakm", "Reaiskm",
+          "Padrao", "Modeloempurrada", "Cambio", "Tipocombustivelempurrada",
+          "Eixoempurrada", "Pneumedidaempurrada",
+          "Mesdeentrada", "Ciclo", "Statusfinanciamento",
+          "Statusfinanciamentot1shared", "Ipvalicenciamento", "Percentualentrada",
+          "Periodofiname", "Carencia", "Tjlp", "Spreadbndes", "Spreadbanco",
+          "Taxafiname",
+          "Custoaluguel", "Frotaemprestada", "Empresalocadora",
+          "Percentualicms", "Valornfcompra", "Ano",
+          "Valorpneu", "Valorpiscofins", "Valoricms", "Amortizacaocavalo",
+          "Jurosfinamecavalo", "Finamecavalo", "Lucrofixomodelonovociclocavalo",
+          "Lucrovariavelprevistocavalo", "Regiaoempurrada",
+          "Padraoshared", "Valorreajustado", "Percentualreajusteaplicado",
+          "Anobid", "Chassi", "Custovariavelsimulado",
+          "Manutencaoano", "Manutencaovidameses", "Manutencaofreemaintenance",
+          "Consumoremunerado", "Manutencaocompraforadobidautorizada",
+          "Manutencaoganhadorbid",
+          "Combustivelconsumobenchmark", "Combustivelconsumoneg",
+          "Combustivelconsumoneginteiro", "Combustivelcapacidade",
+          "Combustivelvidacavalo", "Combustivelpercentualperdavida",
+          "Manutencaobid", "Manutencaocontrato", "Manutencaoreaiskm",
+          "Manutencaoreaiskminteiro", "Datafimcontrato",
+        ],
+        atributos: [
+          "cavalo.placa", "cavalo.placa_carreta", "cavalo.ativo",
+          "cavalo.free_maintenance", "cavalo.data", "cavalo.montadora",
+          "cavalo.odometro_entrada", "cavalo.faixa_km", "cavalo.reaiskm",
+          "cavalo.padrao", "cavalo.modelo_empurrada", "cavalo.cambio",
+          "cavalo.tipo_combustivel_empurrada", "cavalo.eixo_empurrada",
+          "cavalo.pneu_medida_empurrada",
+          "cavalo.mes_de_entrada", "cavalo.ciclo",
+          "cavalo.status_financiamento_t1_shared", "cavalo.ipva_licenciamento",
+          "cavalo.percentual_entrada",
+          "cavalo.periodo_finame", "cavalo.carencia", "cavalo.tjlp",
+          "cavalo.spread_bndes", "cavalo.spread_banco", "cavalo.taxa_finame",
+          "cavalo.custo_aluguel", "cavalo.frota_emprestada", "cavalo.empresa_locadora",
+          "cavalo.percentual_icms", "cavalo.valor_nf_compra", "cavalo.ano",
+          "cavalo.valor_pneu", "cavalo.valor_pis_cofins", "cavalo.valor_icms",
+          "cavalo.amortizacao_cavalo", "cavalo.juros_finame_cavalo",
+          "cavalo.finame_cavalo", "cavalo.lucro_fixomodelo_novo_ciclo_cavalo",
+          "cavalo.lucro_variavel_previsto_cavalo", "cavalo.regiao_empurrada",
+          "cavalo.valor_reajustado", "cavalo.percentual_reajuste_aplicado",
+          "cavalo.ano_bid", "cavalo.chassi", "cavalo.custo_variavel_simulado",
+          "cavalo.manutencao_ano", "cavalo.manutencao_vida_meses",
+          "cavalo.manutencao_free_maintenance",
+          "cavalo.manutencao_compra_fora_do_bid_autorizada", "cavalo.ganhador_bid",
+          "cavalo.combustivel_consumo_benchmark", "cavalo.combustivel_consumo_neg",
+          "cavalo.combustivel_consumo_neg_inteiro", "cavalo.combustivel_capacidade",
+          "cavalo.combustivel_vida_cavalo", "cavalo.combustivel_percentual_perda_vida",
+          "cavalo.manutencao_bid", "cavalo.manutencao_contrato",
+          "cavalo.manutencao_reais_km", "cavalo.manutencao_reais_km_inteiro",
+          "cavalo.data_fim_contrato",
+        ],
+      },
       { nome: "Combustível", parametros: ["Combustível"] },
       { nome: "Consumo", parametros: ["Consumo benchmark"] },
       { nome: "Contrato manutenção", parametros: ["Contrato de manutenção"] },

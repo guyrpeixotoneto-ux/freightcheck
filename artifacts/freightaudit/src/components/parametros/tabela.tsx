@@ -30,7 +30,21 @@ export interface ColunaTabela<L> {
   alinhar?: "left" | "center" | "right";
   /** Largura sugerida, quando a coluna precisa de mais ou de menos. */
   largura?: string;
+  /**
+   * Coluna presa à esquerda: fica parada enquanto o resto rola na horizontal.
+   *
+   * No Freightech quem fica preso é o AÇÕES, na ponta direita — a coluna dos
+   * ícones de editar e excluir. Aqui não existe AÇÕES: o produto lê planilha
+   * exportada e não escreve no Freightech, e prender uma coluna vazia seria
+   * gastar a única coluna sempre visível com nada. Prendemos a identidade, à
+   * esquerda: numa tabela de setenta e cinco colunas, quem rola até
+   * TAXAFINAME precisa continuar sabendo de qual placa é a linha.
+   */
+  fixa?: boolean;
 }
+
+/** A cor do cabeçalho, opaca — célula presa não pode deixar ver o que passa por baixo. */
+const FUNDO_CABECALHO = "color-mix(in srgb, hsl(var(--brand)) 25%, hsl(var(--card)))";
 
 /**
  * O que a pessoa arrumou nesta tabela e não quer arrumar de novo amanhã.
@@ -159,8 +173,10 @@ export function TabelaFreightech<L>({
                   className={cn(
                     "px-4 py-3 font-bold uppercase tracking-wide text-[0.8125rem] text-foreground",
                     "border-r last:border-r-0 border-white/60 align-middle",
+                    coluna.fixa && "sticky left-0 z-20 shadow-[1px_0_0_0_hsl(var(--border))]",
                     coluna.largura,
                   )}
+                  style={coluna.fixa ? { backgroundColor: FUNDO_CABECALHO } : undefined}
                 >
                   <div className="flex items-center justify-center gap-2">
                     <button
@@ -174,7 +190,11 @@ export function TabelaFreightech<L>({
                         )
                       }
                       className={cn(
-                        "flex items-center gap-2 min-w-0",
+                        // O `uppercase` do <th> não desce até aqui: o reset de
+                        // formulário zera `text-transform` no <button>, e o
+                        // rótulo saía em caixa mista onde o Freightech usa
+                        // caixa alta. É o cabeçalho inteiro que a mão reconhece.
+                        "flex items-center gap-2 min-w-0 uppercase",
                         ordenavel ? "cursor-pointer" : "cursor-default",
                       )}
                       title={ordenavel ? `Ordenar por ${coluna.titulo}` : undefined}
@@ -250,6 +270,8 @@ export function TabelaFreightech<L>({
                     key={coluna.titulo}
                     className={cn(
                       "px-4 py-3 align-top",
+                      coluna.fixa &&
+                        "sticky left-0 z-10 bg-card shadow-[1px_0_0_0_hsl(var(--border))]",
                       coluna.alinhar === "left" && "text-left",
                       coluna.alinhar === "right" && "text-right tabular-nums",
                       (coluna.alinhar ?? "center") === "center" && "text-center",

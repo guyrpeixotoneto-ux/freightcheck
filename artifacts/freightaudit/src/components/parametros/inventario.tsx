@@ -85,12 +85,15 @@ export function TabelaInventario({
   }
 
   /*
-    A coluna de identidade só entra quando o cartão não pediu a placa.
-    CARRETA pede `carreta.placa` como primeira coluna, e acrescentar um "Ativo"
+    A coluna de identidade só entra quando a placa **não voltou** — e a
+    diferença entre "não voltou" e "não foi pedida" é o que importa aqui.
+    CARRETA e CAVALO pedem a placa como primeira coluna, e repetir um "Ativo"
     idêntico ao lado seria a mesma informação duas vezes na tela mais larga do
-    produto — onde espaço horizontal é o recurso escasso.
+    produto. Mas se o dicionário não conhecer aquela coluna, ela não volta — e
+    olhar só para o que foi pedido deixaria a tabela sem nenhuma identidade,
+    setenta e cinco colunas de números sem dizer de qual caminhão são.
   */
-  const jaTemIdentidade = atributos.some((codigo) => codigo.endsWith(".placa"));
+  const jaTemIdentidade = data.columns.some((coluna) => coluna.code.endsWith(".placa"));
 
   const colunas: ColunaTabela<LinhaInventario>[] = [
     ...(jaTemIdentidade
@@ -99,6 +102,7 @@ export function TabelaInventario({
           {
             titulo: "Ativo",
             alinhar: "left" as const,
+            fixa: true,
             valor: (linha: LinhaInventario) => linha.label ?? "",
             celula: (linha: LinhaInventario) =>
               linha.label ? (
@@ -112,6 +116,7 @@ export function TabelaInventario({
       (coluna): ColunaTabela<LinhaInventario> => ({
         titulo: coluna.title,
         alinhar: "center",
+        fixa: coluna.code.endsWith(".placa"),
         valor: (linha) => {
           const celula = linha.values[coluna.code];
           if (!celula || celula.value === null) return null;
