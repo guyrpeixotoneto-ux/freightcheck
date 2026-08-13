@@ -76,11 +76,21 @@ export interface BlocoBook {
 export const TOTAL_DECLARADO_FREIGHTECH = 66;
 
 /**
- * Os blocos, na ordem em que a base do Freightech os lista.
+ * Os blocos, na ordem em que a base do Freightech os listava na captura.
  *
- * A ordem não é alfabética nem por categoria, e foi preservada mesmo assim:
- * quem já usa a base de lá navega por posição, e reordenar aqui trocaria um
- * mapa fiel por um mapa arrumado.
+ * A ordem não é alfabética nem por categoria, e foi preservada mesmo assim —
+ * mas **não confie nela como endereço**. Duas capturas do mesmo dia mostraram a
+ * lista deslocada em três posições: PGR, STRESS TEST EMPILHADEIRAS e PLANO DE
+ * SAÚDE apareceram em 58-60 numa e em 61-63 na outra. Seja porque blocos
+ * entraram no meio, seja porque a ordenação de lá não é determinística, o
+ * efeito é o mesmo: "o bloco tal está na página 10" é verdade sobre um
+ * instante, não sobre a base.
+ *
+ * Isto fica escrito porque a suposição contrária custou caro uma vez — a
+ * captura da página 11 foi pedida para completar o índice e voltou repetindo
+ * três blocos que já estavam aqui, enquanto os três que faltam tinham ido
+ * parar na página anterior. A busca desta tela existe justamente para não
+ * depender de posição; quem procura um bloco digita o nome.
  */
 export const BLOCOS_BOOK: BlocoBook[] = [
   // ---- página 1 ----
