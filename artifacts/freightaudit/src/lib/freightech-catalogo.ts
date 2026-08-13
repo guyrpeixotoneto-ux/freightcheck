@@ -76,6 +76,16 @@ export interface CartaoCatalogo {
    * uma coluna que chega em toda planilha, o que é simplesmente falso.
    */
   atributos?: string[];
+  /**
+   * Uma frase sobre a distância entre a tela de lá e o que temos aqui.
+   *
+   * Só existe quando as duas divergem de um jeito que enganaria em silêncio.
+   * ÍNDICE DE REAJUSTE é o caso exemplar: lá é a lista dos índices (IGPM,
+   * IPCA); aqui é o percentual e o valor que aquele índice produziu em cada
+   * ativo. As duas coisas se chamam igual, respondem perguntas diferentes, e
+   * quem abrir esperando uma e receber a outra não tem como perceber sozinho.
+   */
+  nota?: string;
 }
 
 export interface SecaoCatalogo {
@@ -161,10 +171,43 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
           "Valor80",
         ],
       },
-      { nome: "QLP benchmark quantidade" },
+      {
+        /*
+          O irmão do QLP benchmark: as mesmas linhas de cargo, as mesmas faixas,
+          e no lugar do valor a **quantidade** de pessoas em cada faixa. Os dois
+          cartões são a mesma tabela lida por duas colunas diferentes.
+
+          A faixa entre 15 e 30 não apareceu nas capturas deste cartão, e foi
+          herdada da confirmação feita para o QLP BENCHMARK — que tem as mesmas
+          sete faixas, na mesma ordem irregular. É inferência, não observação, e
+          fica escrito como tal: se este cartão divergir do irmão, é aqui que a
+          diferença vai estar.
+        */
+        nome: "QLP benchmark quantidade",
+        colunas: [
+          "Cargoqlpempurrada",
+          "Quantidade0",
+          "Quantidade15",
+          "Quantidade30",
+          "Quantidade50",
+          "Quantidade60",
+          "Quantidade70",
+          "Quantidade80",
+        ],
+      },
       { nome: "QLP benchmark valor" },
       { nome: "Tipo conjunto" },
-      { nome: "Índice de reajuste", parametros: ["Índice de reajuste"] },
+      {
+        nome: "Índice de reajuste",
+        parametros: ["Índice de reajuste"],
+        colunas: ["Descricao"],
+        nota:
+          "No Freightech esta tela lista os índices cadastrados — IGPM, IPCA. O export " +
+          "de equipamento não traz esse cadastro: traz o resultado dele, o percentual " +
+          "de reajuste aplicado e o valor reajustado, ativo por ativo. É por isso que a " +
+          "tabela abaixo mostra alterações de valor e não uma lista de siglas — e é o " +
+          "que o Freightech não mostra em lugar nenhum.",
+      },
     ],
   },
   {

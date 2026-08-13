@@ -154,6 +154,7 @@ export default function Parametros() {
         {cartao ? (
           <DetalheCartao
             cartao={cartao}
+            view={data ?? null}
             period={data?.period ?? ""}
             contexto={query}
             onVoltar={() => abrirCartao(null)}
@@ -186,6 +187,8 @@ interface CartaoRender {
   atributos: string[];
   /** As colunas que o Freightech mostra nesta tela, quando já conferidas. */
   colunas: string[] | null;
+  /** A frase sobre a distância entre a tela de lá e o que temos aqui. */
+  nota: string | null;
   changes: number;
   /** Só quando um único parâmetro alimenta o cartão — ver `agregar`. */
   vehicles: number | null;
@@ -245,6 +248,7 @@ function montarSecoes(view: FamiliesView | null): SecaoRender[] {
         parametros,
         atributos: cartao.atributos ?? [],
         colunas: cartao.colunas ?? null,
+        nota: cartao.nota ?? null,
         ...agregar(parametros),
       };
     }),
@@ -287,6 +291,7 @@ function montarSecoes(view: FamiliesView | null): SecaoRender[] {
         parametros: [parametro],
         atributos: [],
         colunas: null,
+        nota: null,
         ...agregar([parametro]),
       })),
     }));
@@ -871,6 +876,48 @@ function Cartao({
 /* ------------------------------------------------------------------ */
 
 /**
+ * O rastro de contexto, acima do VOLTAR — canal, unidade e vigência.
+ *
+ * Dentro de um cartão a barra de filtro fica para trás, e sem isto não há na
+ * tela nada que diga **de qual seleção** aquela tabela é. Num produto onde a
+ * mesma gaveta tem números diferentes por unidade e por vigência, uma tabela
+ * sem procedência à vista é um convite a decidir sobre o recorte errado.
+ *
+ * A vigência aparece pelo rótulo do arquivo de origem (`EMPURRADA_1_8_2026`),
+ * e não por "agosto/2026": é o nome que a pessoa procura no Freightech e no
+ * e-mail em que o arquivo chegou. Quando a vigência traz mais de uma série —
+ * cavalo e carreta são snapshots distintos — os dois rótulos aparecem, porque
+ * mostrar um só faria a tela responder por um arquivo que não leu inteiro.
+ */
+function Rastro({ view }: { view: FamiliesView | null }) {
+  if (!view) return null;
+
+  const unidade = view.context.scopes
+    .filter((e) => e.scopeType === "UNIDADE" || e.scopeType === "OPERADOR")
+    .map((e) => e.name ?? e.code)
+    .join("-");
+
+  const partes = [
+    view.context.channel ?? "sem canal no rótulo",
+    unidade || view.context.scopeHash,
+    ...view.series.map((s) => s.snapshotLabel),
+  ];
+
+  return (
+    <nav
+      aria-label="Contexto desta tela"
+      className="flex flex-wrap items-center gap-x-6 gap-y-1 mb-4 text-xs text-muted-foreground"
+    >
+      {partes.map((parte, i) => (
+        <span key={`${parte}-${i}`} className="font-mono">
+          {parte}
+        </span>
+      ))}
+    </nav>
+  );
+}
+
+/**
  * O cartão aberto — a tela que o Freightech abre ao clicar no cartão.
  *
  * A forma é a de lá: o botão VOLTAR laranja no canto, o título em caixa alta, e
@@ -891,11 +938,14 @@ function Cartao({
  */
 function DetalheCartao({
   cartao,
+  view,
   period,
   contexto,
   onVoltar,
 }: {
   cartao: CartaoRender;
+  /** A vigência lida — de onde sai o rastro de contexto. Nula sem import. */
+  view: FamiliesView | null;
   period: string;
   /** Unidade, canal e vigência, para o cadastro ser lido do mesmo recorte. */
   contexto: URLSearchParams;
@@ -906,6 +956,8 @@ function DetalheCartao({
 
   return (
     <div className="mt-6">
+      <Rastro view={view} />
+
       <button
         type="button"
         onClick={onVoltar}
@@ -937,6 +989,8 @@ function DetalheCartao({
           </div>
         )}
       </div>
+
+      <Contraste cartao={cartao} />
 
       {cartao.pending && (
         <p className="text-sm text-brand-red flex gap-2 mt-3">
@@ -977,7 +1031,7 @@ function DetalheCartao({
             aoClicar={(grupo) =>
               setGrupoAberto((atual) => (atual === grupo.key ? null : grupo.key))
             }
-            vazio={<TabelaVazia cartao={cartao} colunas={cartao.colunas} />}
+            vazio={<TabelaVazia cartao={cartao} />}
           />
         )}
       </div>
@@ -1114,13 +1168,7 @@ const COLUNAS_ALTERACOES: ColunaTabela<ChangeGroup>[] = [
  * colunas o Freightech mostra aqui**. "Falta dado neste cartão" manda pedir
  * alguma coisa; a lista de colunas diz o que pedir.
  */
-function TabelaVazia({
-  cartao,
-  colunas,
-}: {
-  cartao: CartaoRender;
-  colunas: string[] | null;
-}) {
+function TabelaVazia({ cartao }: { cartao: CartaoRender }) {
   if (cartao.parametros.length > 0) {
     return (
       <span className="text-sm text-muted-foreground">
@@ -1130,33 +1178,47 @@ function TabelaVazia({
   }
 
   return (
-    <div className="text-left max-w-3xl mx-auto space-y-3">
-      <p className="text-sm">
-        <strong>Esta gaveta existe no Freightech e este export não a alimenta.</strong>{" "}
-        Nenhuma coluna da planilha que o FreightCheck recebe cai aqui. O cartão não tem
-        número não porque o valor seja zero, mas porque ele não chega.
-      </p>
+    <p className="text-sm text-left max-w-3xl mx-auto">
+      <strong>Esta gaveta existe no Freightech e este export não a alimenta.</strong>{" "}
+      Nenhuma coluna da planilha que o FreightCheck recebe cai aqui. O cartão não tem
+      número não porque o valor seja zero, mas porque ele não chega — e as colunas
+      listadas acima são o que pedir para ele passar a funcionar.
+    </p>
+  );
+}
 
-      {colunas ? (
-        <div className="text-sm text-muted-foreground">
-          <p>
-            No Freightech esta tela traz{" "}
-            {colunas.map((coluna, i) => (
-              <span key={coluna}>
-                {i > 0 && (i === colunas.length - 1 ? " e " : ", ")}
-                <span className="font-mono text-foreground">{coluna}</span>
-              </span>
-            ))}
-            . É esta a lista a pedir para o cartão passar a funcionar aqui.
-          </p>
-        </div>
-      ) : (
-        <p className="text-sm text-muted-foreground">
-          As colunas que o Freightech mostra nesta tela ainda não foram conferidas, então
-          não estão escritas aqui — inventar um cabeçalho plausível seria pior do que
-          admitir a falta.
-        </p>
-      )}
+/**
+ * O que a tela de lá mostra, dito aqui — e onde as duas se afastam.
+ *
+ * Fica sob o título e vale **inclusive quando temos dado**, que é o caso em que
+ * o silêncio custa mais caro. ÍNDICE DE REAJUSTE abre com uma tabela cheia de
+ * alterações de valor; quem esperava a lista IGPM/IPCA vê números plausíveis no
+ * lugar da resposta que procurava, e não tem como perceber a troca. Esta linha
+ * é o que torna a diferença visível antes da primeira leitura errada.
+ */
+function Contraste({ cartao }: { cartao: CartaoRender }) {
+  if (!cartao.colunas) {
+    return (
+      <p className="text-xs text-muted-foreground mt-3 max-w-4xl">
+        As colunas que o Freightech mostra nesta tela ainda não foram conferidas —
+        inventar um cabeçalho plausível seria pior do que admitir a falta.
+      </p>
+    );
+  }
+
+  return (
+    <div className="text-xs text-muted-foreground mt-3 max-w-4xl space-y-1">
+      <p>
+        No Freightech esta tela traz{" "}
+        {cartao.colunas.map((coluna, i) => (
+          <span key={coluna}>
+            {i > 0 && (i === cartao.colunas!.length - 1 ? " e " : ", ")}
+            <span className="font-mono text-foreground">{coluna}</span>
+          </span>
+        ))}
+        .
+      </p>
+      {cartao.nota && <p>{cartao.nota}</p>}
     </div>
   );
 }
