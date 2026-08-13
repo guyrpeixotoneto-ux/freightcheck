@@ -24,6 +24,8 @@ import { TabelaFreightech, type ColunaTabela } from "@/components/parametros/tab
  */
 
 interface TabelaEntidades {
+  seriesDelivered: boolean;
+  attributesKnown: number;
   entityType: string;
   effectiveDate: string;
   periodLabel: string;
@@ -80,6 +82,52 @@ export function TabelaInventario({
     return (
       <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm">
         Nenhuma vigência deste contexto tem estes ativos.
+      </div>
+    );
+  }
+
+  /*
+    Quando não voltou nada, dizer **por quê** — e a causa não é a que a tela
+    supunha.
+
+    A mensagem antiga era sempre a mesma: "estas 38 colunas não existem no
+    dicionário do export". Ela é verdadeira e responde à pergunta errada quando
+    a causa real é outra: o arquivo daquele equipamento nunca foi importado
+    neste contexto. Aí não há coluna alguma dele no dicionário, todas as 38
+    caem em `missingColumns`, e a frase culpa o cartão por uma planilha que
+    falta. As duas causas mandam fazer coisas opostas — uma manda importar, a
+    outra manda conferir o cartão — e por isso viraram duas frases.
+  */
+  if (data.rows.length === 0 && data.attributesKnown === 0) {
+    return (
+      <div className="bg-card border border-l-[6px] border-l-brand-red px-6 py-4 text-sm space-y-2">
+        <p className="font-medium">
+          Nenhum arquivo de <span className="font-mono">{data.entityType}</span> foi
+          importado neste contexto.
+        </p>
+        <p className="text-muted-foreground">
+          Não é que este cartão peça colunas erradas: o dicionário não conhece{" "}
+          <strong className="text-foreground">nenhuma</strong> coluna deste equipamento,
+          porque a planilha dele nunca chegou. As {atributos.length} colunas do cartão
+          existem no Freightech e continuarão sem dado até a importação — o que falta é o
+          arquivo, e não o cartão.
+        </p>
+      </div>
+    );
+  }
+
+  if (data.rows.length === 0 && !data.seriesDelivered) {
+    return (
+      <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm space-y-2">
+        <p className="font-medium">
+          {data.periodLabel} não trouxe a série{" "}
+          <span className="font-mono">{data.entityType}</span>.
+        </p>
+        <p className="text-muted-foreground">
+          O equipamento existe no dicionário — {data.attributesKnown} colunas dele são
+          conhecidas — mas o arquivo desta vigência não veio. A ausência não está contada
+          como zero; escolha outra vigência ou importe a que falta.
+        </p>
       </div>
     );
   }

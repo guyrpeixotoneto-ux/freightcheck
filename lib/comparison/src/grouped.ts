@@ -1244,6 +1244,19 @@ export async function getAttributeDomain(
  * graça.
  */
 export interface EntityTable {
+  /**
+   * Se esta vigência trouxe a série deste equipamento.
+   *
+   * Existe porque a resposta "0 ativos, 38 colunas desconhecidas" tem duas
+   * causas com conserto oposto: ou o cartão pede colunas que o dicionário não
+   * tem, ou **o arquivo daquele equipamento nunca foi importado**. A segunda
+   * manda importar uma planilha; a primeira manda conferir o cartão. Sem este
+   * campo a tela só sabe dizer a primeira, e culpa o cartão por um arquivo que
+   * falta.
+   */
+  seriesDelivered: boolean;
+  /** Quantas colunas deste equipamento o dicionário conhece, ao todo. */
+  attributesKnown: number;
   entityType: string;
   effectiveDate: string;
   periodLabel: string;
@@ -1332,6 +1345,25 @@ export async function getEntityTable(
   `);
   const placaDe = new Map(placas.map((p) => [p.entity_id, p.valor]));
 
+  /*
+    O diagnóstico, e não só o resultado.
+
+    Uma tabela vazia com todas as colunas desconhecidas tem duas causas
+    diferentes, e a tela não consegue distingui-las olhando só para o que
+    voltou. Estas duas perguntas separam: **esta vigência entregou o arquivo
+    deste equipamento?** e **o dicionário conhece alguma coluna dele?**
+  */
+  const { rows: entregues } = await db.execute<{ entity_type_set: string }>(sql`
+    SELECT s.entity_type_set
+      FROM snapshot s
+     WHERE s.effective_date = ${effectiveDate}::date
+       AND s.status <> 'SUPERSEDED'
+       AND ${contextFilter("s", context)}
+  `);
+  const { rows: conhecidasDoTipo } = await db.execute<{ n: number }>(sql`
+    SELECT count(*)::int AS n FROM attribute WHERE entity_type = ${entityType}
+  `);
+
   const porEntidade = new Map<string, EntityTable["rows"][number]>();
   const rotulos = new Set<string>();
   for (const fato of fatos) {
@@ -1352,6 +1384,8 @@ export async function getEntityTable(
   }
 
   return {
+    seriesDelivered: entregues.some((s) => s.entity_type_set === entityType),
+    attributesKnown: conhecidasDoTipo[0]?.n ?? 0,
     entityType,
     effectiveDate,
     periodLabel: periodLabel(effectiveDate),
