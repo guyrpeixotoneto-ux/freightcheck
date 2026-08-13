@@ -426,7 +426,20 @@ function BarraFiltro({
     period !== view.period;
 
   return (
-    <div className="mt-5 flex flex-wrap items-end gap-4">
+    /*
+      Alinhamento pelo topo, não pelo rodapé.
+
+      Com `items-end` os blocos encostavam a base uns nos outros — e como só
+      alguns campos têm nota embaixo ("único canal importado", "3 no
+      histórico"), os que tinham nota subiam e os que não tinham desciam. O
+      resultado era uma fileira em degraus, com o FILTRAR e o Parametro fora da
+      linha dos outros três.
+
+      Agora cada campo é uma coluna de três faixas de altura fixa — rótulo,
+      controle, nota — e a nota vazia continua ocupando o seu lugar. Alinhando
+      pelo topo, os rótulos ficam numa linha e os controles noutra, sempre.
+    */
+    <div className="mt-5 flex flex-wrap items-start gap-4">
       <Campo rotulo="Canal/Segmento" nota={canais.length > 1 ? null : "único canal importado"}>
         {canais.length > 1 ? (
           <Select value={canal ?? ""} onValueChange={(valor) => setCanal(valor || null)}>
@@ -486,19 +499,23 @@ function BarraFiltro({
         )}
       </Campo>
 
-      <button
-        type="button"
-        disabled={!sujo}
-        onClick={() => onFiltrar({ scopeHash, canal, period })}
-        className={cn(
-          "h-12 px-8 rounded-sm text-[0.8125rem] font-bold uppercase tracking-wide transition-colors",
-          sujo
-            ? "bg-brand text-brand-foreground hover:brightness-95"
-            : "bg-brand/40 text-white cursor-not-allowed",
-        )}
-      >
-        Filtrar
-      </button>
+      {/* O botão entra na mesma coluna de três faixas, com o rótulo vazio: é o
+          que o põe na linha dos controles em vez de na do rodapé. */}
+      <Campo rotulo="" nota={null}>
+        <button
+          type="button"
+          disabled={!sujo}
+          onClick={() => onFiltrar({ scopeHash, canal, period })}
+          className={cn(
+            "h-12 px-8 rounded-sm text-[0.8125rem] font-bold uppercase tracking-wide transition-colors",
+            sujo
+              ? "bg-brand text-brand-foreground hover:brightness-95"
+              : "bg-brand/40 text-white cursor-not-allowed",
+          )}
+        >
+          Filtrar
+        </button>
+      </Campo>
 
       <Campo rotulo="Parametro" nota={null}>
         <div className="relative">
@@ -516,20 +533,28 @@ function BarraFiltro({
   );
 }
 
+/**
+ * Uma coluna da barra de filtro: rótulo, controle, nota.
+ *
+ * As três faixas têm altura fixa e a nota vazia continua ocupando a sua. É o
+ * que mantém os cinco controles na mesma linha independentemente de qual deles
+ * tem explicação embaixo — sem isso a fileira sai em degraus.
+ */
 function Campo({
   rotulo,
   nota,
   children,
 }: {
+  /** Vazio no botão: ele não tem rótulo, mas precisa da mesma faixa. */
   rotulo: string;
   nota: string | null;
   children: React.ReactNode;
 }) {
   return (
-    <div>
-      <div className="text-sm text-muted-foreground mb-1.5">{rotulo}</div>
+    <div className="flex flex-col">
+      <div className="text-sm text-muted-foreground h-5 mb-1.5">{rotulo}</div>
       {children}
-      {nota && <div className="text-[0.6875rem] text-muted-foreground mt-1">{nota}</div>}
+      <div className="text-[0.6875rem] text-muted-foreground h-4 mt-1">{nota}</div>
     </div>
   );
 }

@@ -23,10 +23,14 @@
  * em que a resposta da API é 404 e não haveria nada para projetar. Um catálogo
  * que some quando o banco está vazio não é catálogo.
  *
- * **Fonte.** Transcrito das telas de Escolha de Segmento do Freightech
- * (unidades CAMAÇARI e equivalentes, canal EMPURRADA). Onde duas capturas
- * divergiam, os cartões das duas entraram: o conjunto varia por unidade, e
- * faltar um cartão é pior do que sobrar.
+ * **Fonte.** Transcrito das telas de Escolha de Segmento do Freightech —
+ * CAMAÇARI-OPERALOG, canal EMPURRADA, vigência EMPURRADA_1_8_2026. Onde uma
+ * captura anterior de outra unidade divergia, **vale esta**: o conjunto de
+ * cartões varia por unidade, e misturar duas produz uma tela que não
+ * corresponde a nenhuma das duas.
+ *
+ * Um parâmetro nosso cujo cartão saiu do catálogo não some — cai na seção do
+ * FreightCheck, com o nome que damos a ele.
  */
 
 export interface CartaoCatalogo {
@@ -50,6 +54,30 @@ export interface SecaoCatalogo {
 }
 
 export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
+  {
+    /*
+      GERAL é a primeira seção da tela do Freightech, e a ordem não é detalhe:
+      quem rola procurando "Índice de reajuste" espera encontrá-lo antes de
+      FROTA, porque é onde ele sempre esteve.
+
+      "Manutenção implemento" existe aqui e em FROTA. São gavetas diferentes no
+      Freightech, e continuam duas aqui — a chave do cartão leva a seção junto
+      justamente por isso.
+    */
+    titulo: "Geral",
+    cartoes: [
+      { nome: "Cadastro índice de reajuste" },
+      { nome: "Conjunto" },
+      { nome: "Manutenção" },
+      { nome: "Manutenção implemento" },
+      { nome: "Padrão" },
+      { nome: "QLP benchmark" },
+      { nome: "QLP benchmark quantidade" },
+      { nome: "QLP benchmark valor" },
+      { nome: "Tipo conjunto" },
+      { nome: "Índice de reajuste", parametros: ["Índice de reajuste"] },
+    ],
+  },
   {
     titulo: "Frota",
     cartoes: [
@@ -101,8 +129,6 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
       { nome: "Capacidade" },
       { nome: "Eixo" },
       { nome: "Empresa locadora", parametros: ["Empresa locadora"] },
-      { nome: "Fator consumo" },
-      { nome: "Fator desgaste piso", parametros: ["Fator Desgaste Piso"] },
       { nome: "Lucro" },
       { nome: "Parâmetros fiscal" },
       { nome: "Parâmetros operação", parametros: ["Parâmetros de operação"] },
@@ -129,23 +155,16 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
       { nome: "Custo equipe" },
       { nome: "Custo fixo empurrada" },
       { nome: "Faturamento" },
-      { nome: "Recarga", parametros: ["Recarga"] },
       { nome: "Resumo fixo CPRB" },
       { nome: "Resumo fixo empurrada" },
-      { nome: "Resumo - SRTRANS" },
-      { nome: "Resumo rota", parametros: ["Resumo Rota"] },
     ],
   },
   {
     titulo: "Uniformes e EPIs",
     cartoes: [
-      { nome: "Cadastros EPI" },
       { nome: "Uniformes e EPI benchmark" },
-      { nome: "Uniformes e EPI homologados" },
       { nome: "Uniformes e EPIs" },
       { nome: "Uniformes e EPIs geral" },
-      { nome: "Uniformes EPIs (remuneração)" },
-      { nome: "Valor uniformes e EPIs sem ICMS" },
     ],
   },
   {
