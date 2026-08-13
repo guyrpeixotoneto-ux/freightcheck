@@ -315,6 +315,13 @@ export interface RangeEntry {
   reason: string | null;
   badge: Badge;
   badgeLabel: string;
+  /**
+   * O grupo inteiro, para a tela abrir o cartão de detalhe de sempre — com os
+   * veículos, a série do atributo e a célula da planilha que originou o
+   * número. Sem ele, a análise seria um beco: números sem caminho até a
+   * evidência.
+   */
+  group: ChangeGroup;
 }
 
 export interface RangeAnalysis {
@@ -343,6 +350,16 @@ export async function getRangeAnalysis(
   from?: string,
   to?: string,
   requestedContext?: Partial<SeriesContext>,
+  /**
+   * Recorte do cartão: só estes parâmetros.
+   *
+   * Filtrar aqui e não na tela não é economia de tráfego — é a única forma de
+   * `vehiclesTouched` significar o que o rótulo promete. A tela sabe quantos
+   * veículos cada grupo tocou, mas não *quais*; somar os grupos dá 182 numa
+   * frota de 144, porque o mesmo caminhão conta em cada parâmetro que mudou.
+   * O conjunto de ativos distintos só existe aqui.
+   */
+  parameterKeys?: string[],
 ): Promise<RangeAnalysis | null> {
   const contexts = await listContexts(db);
   const context = await resolveContext(db, requestedContext, contexts);
@@ -381,18 +398,30 @@ export async function getRangeAnalysis(
      ORDER BY sb.effective_date DESC, sb.entity_type_set
   `);
 
-  const rows = await loadChanges(db, sets.map((s) => s.change_set_id));
+  const todasAsLinhas = await loadChanges(db, sets.map((s) => s.change_set_id));
 
   /*
-    O índice de composição é montado sobre o intervalo **inteiro**, e não por
-    vigência. É a mesma regra do acumulado: um total cuja parcela mudou em
+    O índice de composição é montado sobre **todas** as linhas do intervalo, e
+    não sobre o recorte do cartão: `carreta.custo_fixo` mora num cartão e a sua
+    parcela `lucro_fixomodelo_novo_ciclo` mora noutro. Um índice só do recorte
+    não veria a parcela mudar, o titular voltaria para dentro da soma, e o
+    cartão mostraria o mesmo dinheiro duas vezes.
+
+    Ele também é do intervalo **inteiro**, e não por vigência. É a mesma regra do acumulado: um total cuja parcela mudou em
     qualquer ponto do intervalo não volta para dentro da soma só porque mudou
     num mês diferente. Montá-lo por vigência reintroduziria a dupla contagem
     pela porta do intervalo.
   */
   const changedByEntity = indexChangedAttributesByEntity(
-    rows.map((r) => ({ entityId: r.entity_id, attributeCode: r.attribute_code })),
+    todasAsLinhas.map((r) => ({ entityId: r.entity_id, attributeCode: r.attribute_code })),
   );
+
+  const rows =
+    parameterKeys && parameterKeys.length > 0
+      ? todasAsLinhas.filter((r) =>
+          parameterKeys.includes(placementOf(r.attribute_code).parameterKey),
+        )
+      : todasAsLinhas;
 
   const periodoDoSet = new Map(sets.map((s) => [s.change_set_id, s.period]));
   const fleetByChangeSet = new Map(sets.map((s) => [s.change_set_id, s.fleet]));
@@ -468,16 +497,15 @@ export async function getRangeAnalysis(
         reason: grupo.impact.reason,
         badge: grupo.badge,
         badgeLabel: grupo.badgeLabel,
-        grupo,
+        group: grupo,
       };
     })
     // Mais recente primeiro; dentro da vigência, o critério de sempre.
     .sort((a, b) =>
       a.period === b.period
-        ? compareGroups(a.grupo, b.grupo)
+        ? compareGroups(a.group, b.group)
         : b.period.localeCompare(a.period),
-    )
-    .map(({ grupo: _grupo, ...entrada }) => entrada);
+    );
 
   // ---- perdas e ganhos, separados e por periodicidade ----------------------
   const losses: Record<string, number> = {};

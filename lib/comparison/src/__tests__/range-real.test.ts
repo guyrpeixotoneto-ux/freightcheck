@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { sql } from "drizzle-orm";
 import { createTestDatabase, modelExportPaths, type TestDb } from "@workspace/ingest/testing";
 import { captureRaw, preview, promote, receiveFile, stage } from "@workspace/ingest";
 import {
@@ -9,6 +10,7 @@ import {
 } from "@workspace/curation";
 import { computeMissingChangeSets, listPeriods } from "../consolidated";
 import { getFamiliesView, getRangeAnalysis } from "../families-view";
+import { getEndToEndAnalysis } from "../end-to-end";
 
 /**
  * O intervalo — a aba Análise do cartão, sobre o export real.
@@ -206,5 +208,209 @@ describe("nada some no caminho", () => {
 
     const soma = analise.movements.reduce((total, m) => total + m.changes, 0);
     expect(soma).toBe(analise.totals.changes);
+  });
+});
+
+describe("o recorte do cartão", () => {
+  it("as partes fecham com o todo: somar os recortes dá o total do intervalo", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const inteiro = (await getRangeAnalysis(
+      ctx.db,
+      periodos[periodos.length - 1].effective_date,
+      periodos[0].effective_date,
+    ))!;
+
+    const chaves = [...new Set(inteiro.entries.map((e) => e.parameterKey))];
+    let somaDasPartes = 0;
+    for (const chave of chaves) {
+      const parte = (await getRangeAnalysis(
+        ctx.db,
+        inteiro.from,
+        inteiro.to,
+        undefined,
+        [chave],
+      ))!;
+      // Todo grupo do recorte é daquele parâmetro, e de nenhum outro.
+      for (const entrada of parte.entries) expect(entrada.parameterKey).toBe(chave);
+      somaDasPartes += parte.totals.changes;
+    }
+    expect(somaDasPartes).toBe(inteiro.totals.changes);
+  });
+
+  it("veículos afetados é gente distinta, e não a soma dos grupos", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const parte = (await getRangeAnalysis(
+      ctx.db,
+      periodos[periodos.length - 1].effective_date,
+      periodos[0].effective_date,
+      undefined,
+      ["AQUISICAO_FINANCIAMENTO|Financiamento"],
+    ))!;
+
+    const somaDosGrupos = parte.entries.reduce((s, e) => s + e.vehicles, 0);
+    // O mesmo caminhão conta em cada parâmetro que mudou; o distinto é menor.
+    expect(parte.totals.vehiclesTouched).toBeLessThan(somaDosGrupos);
+    expect(parte.totals.vehiclesTouched).toBeGreaterThan(0);
+  });
+
+  it("recortar não ressuscita a dupla contagem pai/parcela", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const inicio = periodos[periodos.length - 1].effective_date;
+    const fim = periodos[0].effective_date;
+
+    /*
+      `carreta.custo_fixo` é o titular de uma composição cujas parcelas moram
+      noutro cartão. Se o índice de composição fosse montado só sobre o
+      recorte, o titular voltaria para dentro da soma e o cartão mostraria o
+      mesmo dinheiro duas vezes. O impacto do recorte tem de ser exatamente o
+      que o intervalo inteiro atribui àquele parâmetro.
+    */
+    const chave = "AQUISICAO_FINANCIAMENTO|Custo fixo (total)";
+    const parte = (await getRangeAnalysis(ctx.db, inicio, fim, undefined, [chave]))!;
+    const inteiro = (await getRangeAnalysis(ctx.db, inicio, fim))!;
+
+    const doParametro = inteiro.entries.filter((e) => e.parameterKey === chave);
+    const somaInteiro = doParametro.reduce((s, e) => s + (e.amount ?? 0), 0);
+    const somaParte = parte.entries.reduce((s, e) => s + (e.amount ?? 0), 0);
+    expect(somaParte).toBeCloseTo(somaInteiro, 2);
+  });
+});
+
+describe("ponta a ponta", () => {
+  it("uma vigência contra ela mesma não tem diferença nenhuma", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const alvo = periodos[0].effective_date;
+    const analise = (await getEndToEndAnalysis(ctx.db, alvo, alvo))!;
+    expect(analise.totals.changes).toBe(0);
+    expect(analise.entries).toEqual([]);
+    expect(analise.fleet).toEqual({ added: 0, removed: 0 });
+  });
+
+  it("não é a soma dos movimentos — e a diferença é o que a tela existe para mostrar", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const inicio = periodos[periodos.length - 1].effective_date;
+    const fim = periodos[0].effective_date;
+
+    const movimentos = (await getRangeAnalysis(ctx.db, inicio, fim))!;
+    const pontas = (await getEndToEndAnalysis(ctx.db, inicio, fim))!;
+
+    // Ida e volta conta duas vezes num lado e some no outro.
+    expect(pontas.totals.changes).toBeLessThan(movimentos.totals.changes);
+    expect(pontas.entries.length).toBeGreaterThan(0);
+  });
+
+  it("entrada e saída de frota ficam fora do dinheiro", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const pontas = (await getEndToEndAnalysis(
+      ctx.db,
+      periodos[periodos.length - 1].effective_date,
+      periodos[0].effective_date,
+    ))!;
+
+    expect(pontas.fleet.added + pontas.fleet.removed).toBeGreaterThan(0);
+
+    /*
+      A prova de que o dinheiro é ativo a ativo: nenhum ativo que só existe numa
+      das pontas produziu linha de valor. Se produzisse, um caminhão novo com
+      FINAME entraria na conta como se a Ambev tivesse aumentado o preço.
+    */
+    const { rows: soNumaPonta } = await ctx.db.execute<{ n: number }>(sql`
+      WITH a AS (SELECT DISTINCT f.entity_id FROM fact f JOIN snapshot s ON s.id = f.snapshot_id
+                  WHERE s.effective_date = ${pontas.from}::date AND s.status <> 'SUPERSEDED'),
+           b AS (SELECT DISTINCT f.entity_id FROM fact f JOIN snapshot s ON s.id = f.snapshot_id
+                  WHERE s.effective_date = ${pontas.to}::date AND s.status <> 'SUPERSEDED')
+      SELECT count(*)::int AS n
+        FROM a FULL OUTER JOIN b ON b.entity_id = a.entity_id
+       WHERE a.entity_id IS NULL OR b.entity_id IS NULL
+    `);
+    expect(soNumaPonta[0].n).toBe(pontas.fleet.added + pontas.fleet.removed);
+  });
+
+  it("perdas + ganhos reconstroem o líquido, balde a balde", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const pontas = (await getEndToEndAnalysis(
+      ctx.db,
+      periodos[periodos.length - 1].effective_date,
+      periodos[0].effective_date,
+    ))!;
+
+    const baldes = new Set([
+      ...Object.keys(pontas.lossesByPeriodicity),
+      ...Object.keys(pontas.gainsByPeriodicity),
+      ...Object.keys(pontas.impact.byPeriodicity),
+    ]);
+    expect(baldes.size).toBeGreaterThan(0);
+    for (const balde of baldes) {
+      const perda = pontas.lossesByPeriodicity[balde] ?? 0;
+      const ganho = pontas.gainsByPeriodicity[balde] ?? 0;
+      expect(perda + ganho).toBeCloseTo(pontas.impact.byPeriodicity[balde] ?? 0, 2);
+    }
+  });
+
+  it("pontas trocadas dão a mesma leitura", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const antiga = periodos[periodos.length - 1].effective_date;
+    const recente = periodos[0].effective_date;
+    const certo = (await getEndToEndAnalysis(ctx.db, antiga, recente))!;
+    const trocado = (await getEndToEndAnalysis(ctx.db, recente, antiga))!;
+    expect(trocado.from).toBe(certo.from);
+    expect(trocado.totals).toEqual(certo.totals);
+    expect(trocado.impact).toEqual(certo.impact);
+  });
+});
+
+describe("o que foi revertido", () => {
+  it("é a subtração das duas leituras, e não um palpite", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const pontas = (await getEndToEndAnalysis(
+      ctx.db,
+      periodos[periodos.length - 1].effective_date,
+      periodos[0].effective_date,
+    ))!;
+
+    expect(pontas.reverted.length).toBeGreaterThan(0);
+    for (const item of pontas.reverted) {
+      expect(item.entities).toBeGreaterThan(0);
+      expect(item.periods).toBeGreaterThan(0);
+    }
+
+    /*
+      A prova: para cada atributo revertido, os ativos que voltaram **não**
+      estão entre os que hoje estão diferentes. Se estivessem, o mesmo ativo
+      apareceria como "voltou ao ponto de partida" e como "mudou" ao mesmo
+      tempo, e uma das duas frases seria mentira.
+    */
+    for (const item of pontas.reverted) {
+      const aindaDiferentes = pontas.entries
+        .filter((e) => e.attributeCode === item.attributeCode)
+        .reduce((s, e) => s + e.vehicles, 0);
+      const { rows } = await ctx.db.execute<{ n: number }>(sql`
+        SELECT count(DISTINCT c.entity_id)::int AS n
+          FROM "change" c
+          JOIN change_set cs ON cs.id = c.change_set_id
+          JOIN snapshot sb   ON sb.id = cs.snapshot_b_id
+         WHERE sb.effective_date > ${pontas.from}::date
+           AND sb.effective_date <= ${pontas.to}::date
+           AND sb.status <> 'SUPERSEDED'
+           AND c.change_type = 'VALUE_CHANGED'
+           AND c.attribute_code = ${item.attributeCode}
+      `);
+      // Quem mexeu = quem voltou + quem continua diferente.
+      expect(rows[0].n).toBe(item.entities + aindaDiferentes);
+    }
+  });
+
+  it("o recorte do cartão vale também para o revertido", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const chave = "FROTA|Manutenção cavalo";
+    const pontas = (await getEndToEndAnalysis(
+      ctx.db,
+      periodos[periodos.length - 1].effective_date,
+      periodos[0].effective_date,
+      undefined,
+      [chave],
+    ))!;
+    for (const item of pontas.reverted) expect(item.parameterKey).toBe(chave);
+    for (const entrada of pontas.entries) expect(entrada.parameterKey).toBe(chave);
   });
 });

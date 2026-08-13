@@ -198,179 +198,23 @@ export async function computeChangeSet(
       })
       .returning();
 
-    const rows: (typeof changeTable.$inferInsert)[] = [];
-    let unchanged = 0;
-    let inconclusive = 0;
-    // Keyed by periodicity, because summing across periodicities is the very
-    // error the product exists to catch.
-    const calculatedImpact: Record<string, number> = {};
-    let impactNotCalculable = 0;
-
-    // ---------------------------------------------------------------------
-    // Axis 1 — values, on assets present in both snapshots
-    // ---------------------------------------------------------------------
-    const { rows: paired } = await tx.execute<PairedFact>(sql`
-      WITH fa AS (
-        SELECT f.*, i.identifier_value AS entity_label
-          FROM fact f
-          LEFT JOIN entity_identifier i
-            ON i.entity_id = f.entity_id
-           AND i.identifier_type = 'PLACA'
-           AND i.is_current
-         WHERE f.snapshot_id = ${snapshotAId}
-      ),
-      fb AS (
-        SELECT f.*, i.identifier_value AS entity_label
-          FROM fact f
-          LEFT JOIN entity_identifier i
-            ON i.entity_id = f.entity_id
-           AND i.identifier_type = 'PLACA'
-           AND i.is_current
-         WHERE f.snapshot_id = ${snapshotBId}
-      )
-      SELECT COALESCE(fa.entity_id, fb.entity_id)       AS entity_id,
-             COALESCE(fa.attribute_id, fb.attribute_id) AS attribute_id,
-             COALESCE(fa.entity_label, fb.entity_label) AS entity_label,
-             fa.id AS fact_a_id, fb.id AS fact_b_id,
-             fa.value_numeric AS a_numeric, fa.value_text AS a_text,
-             fa.value_boolean AS a_boolean, fa.value_date::text AS a_date,
-             fa.is_null AS a_is_null, fa.null_reason AS a_null_reason,
-             fb.value_numeric AS b_numeric, fb.value_text AS b_text,
-             fb.value_boolean AS b_boolean, fb.value_date::text AS b_date,
-             fb.is_null AS b_is_null, fb.null_reason AS b_null_reason
-        FROM fa
-        FULL OUTER JOIN fb
-          ON fb.entity_id = fa.entity_id
-         AND fb.attribute_id = fa.attribute_id
-    `);
-
-    for (const row of paired) {
-      const classification = classifications.get(row.attribute_id);
-      if (!classification) continue;
-
-      // An asset present on only one side is a fleet movement, reported once
-      // on its own axis below — not as ~70 value changes.
-      if (row.fact_a_id === null || row.fact_b_id === null) continue;
-
-      const before = describeSide(row, "a");
-      const after = describeSide(row, "b");
-
-      if (before.hash === after.hash) {
-        unchanged++;
-        continue;
-      }
-
-      const wasSemantics = semanticsA.get(row.attribute_id);
-      const isSemantics = semanticsB.get(row.attribute_id);
-      const drift = detectSemanticsDrift(wasSemantics, isSemantics);
-
-      // A drift that changes what the number *is* makes the two sides
-      // incomparable, whatever the values say. Without this, a column that
-      // turns annual reads as an 1.100% rise across the whole fleet.
-      const verdict = drift
-        ? {
-            nature: "SEMANTICS_DRIFT",
-            delta: null,
-            deltaPercent: null,
-            comparability: "INCONCLUSIVE" as const,
-            inconclusiveReason: drift,
-          }
-        : classifyChange(before, after, classification);
-      if (verdict.comparability === "INCONCLUSIVE") inconclusive++;
-
-      const impact = assessImpact({
-        classification,
-        numericBefore: before.numeric,
-        numericAfter: after.numeric,
-        comparable: verdict.comparability === "COMPARABLE",
-      });
-      if (impact.confidence === "CALCULATED" && impact.amount !== null) {
-        // An impact without a declared periodicity cannot be pooled with
-        // anything; it gets its own bucket rather than a silent home.
-        const bucket = impact.periodicity ?? "SEM_PERIODICIDADE";
-        calculatedImpact[bucket] = (calculatedImpact[bucket] ?? 0) + impact.amount;
-      } else {
-        impactNotCalculable++;
-      }
-
-      rows.push({
-        changeSetId: set.id,
-        category: "SOURCE_CHANGE",
-        changeType: "VALUE_CHANGED",
-        nature: verdict.nature,
-        entityId: row.entity_id,
-        attributeId: row.attribute_id,
-        factAId: row.fact_a_id,
-        factBId: row.fact_b_id,
-        valueBefore: before.display,
-        valueAfter: after.display,
-        numericBefore: before.numeric === null ? null : String(before.numeric),
-        numericAfter: after.numeric === null ? null : String(after.numeric),
-        isNullBefore: before.isNull,
-        isNullAfter: after.isNull,
-        nullReasonBefore: before.nullReason,
-        nullReasonAfter: after.nullReason,
-        deltaAbsolute: verdict.delta === null ? null : String(verdict.delta),
-        deltaPercent: verdict.deltaPercent === null ? null : String(verdict.deltaPercent),
-        comparability: verdict.comparability,
-        inconclusiveReason: verdict.inconclusiveReason,
-        impactConfidence: impact.confidence,
-        impactAmount: impact.amount === null ? null : String(impact.amount),
-        impactPeriodicity: impact.periodicity,
-        impactReason: impact.reason,
-        ...classificationColumns(classification),
-        semanticsVersionA: wasSemantics?.semanticsVersion ?? null,
-        semanticsVersionB: isSemantics?.semanticsVersion ?? null,
-        entityLabel: row.entity_label,
-      });
-    }
-
-    // ---------------------------------------------------------------------
-    // Axis 2 — fleet movement
-    // ---------------------------------------------------------------------
-    const { rows: fleet } = await tx.execute<{
-      entity_id: string;
-      entity_label: string | null;
-      entity_type: string;
-      direction: string;
-    }>(sql`
-      WITH ea AS (SELECT DISTINCT entity_id FROM fact WHERE snapshot_id = ${snapshotAId}),
-           eb AS (SELECT DISTINCT entity_id FROM fact WHERE snapshot_id = ${snapshotBId})
-      SELECT COALESCE(ea.entity_id, eb.entity_id) AS entity_id,
-             i.identifier_value AS entity_label,
-             e.entity_type,
-             CASE WHEN ea.entity_id IS NULL THEN 'ADDED' ELSE 'REMOVED' END AS direction
-        FROM ea
-        FULL OUTER JOIN eb ON eb.entity_id = ea.entity_id
-        JOIN entity e ON e.id = COALESCE(ea.entity_id, eb.entity_id)
-        LEFT JOIN entity_identifier i
-          ON i.entity_id = e.id AND i.identifier_type = 'PLACA' AND i.is_current
-       WHERE ea.entity_id IS NULL OR eb.entity_id IS NULL
-    `);
-
-    let entitiesAdded = 0;
-    let entitiesRemoved = 0;
-    for (const row of fleet) {
-      if (row.direction === "ADDED") entitiesAdded++;
-      else entitiesRemoved++;
-      impactNotCalculable++;
-      rows.push({
-        changeSetId: set.id,
-        category: "FLEET_CHANGE",
-        changeType: row.direction === "ADDED" ? "ENTITY_ADDED" : "ENTITY_REMOVED",
-        nature: row.direction === "ADDED" ? "APPEARED" : "DISAPPEARED",
-        entityId: row.entity_id,
-        valueBefore: row.direction === "ADDED" ? null : "presente",
-        valueAfter: row.direction === "ADDED" ? "presente" : null,
-        comparability: "COMPARABLE",
-        impactConfidence: "NOT_CALCULABLE",
-        impactReason:
-          "Entrada e saída de ativo mudam a base da frota. O valor disso depende de " +
-          "quais atributos são somáveis, o que ainda depende de curadoria.",
-        entityLabel: row.entity_label,
-        entityType: row.entity_type,
-      });
-    }
+    /*
+      Os eixos 1 e 2 são calculados fora daqui, por `diffSnapshots`, e só então
+      gravados. A extração não mudou uma vírgula do cálculo — mudou quem pode
+      chamá-lo: a leitura ponta a ponta compara duas vigências que **não** se
+      sucedem e precisa exatamente desta conta, sem gravar nada. Gravar um
+      `change_set` de abril contra agosto seria pior do que duplicar código: a
+      tela de agosto o apanharia pelo `snapshot_b` e somaria oito meses de
+      movimento ao total de um mês.
+    */
+    const diff = await diffSnapshots(tx, a, b, semanticsA, semanticsB);
+    const rows: (typeof changeTable.$inferInsert)[] = diff.changes.map((linha) => ({
+      ...linha,
+      changeSetId: set.id,
+    }));
+    const { unchanged, inconclusive, entitiesAdded, entitiesRemoved } = diff;
+    const calculatedImpact = { ...diff.calculatedImpactByPeriodicity };
+    let impactNotCalculable = diff.impactNotCalculable;
 
     // ---------------------------------------------------------------------
     // Axis 3b — the source changed what a column means
@@ -511,6 +355,228 @@ export async function computeChangeSet(
 
     return toSummary(updated, a.sourceLabel, b.sourceLabel);
   });
+}
+
+/**
+ * Os dois eixos que comparam duas vigências: valores e movimento de frota.
+ *
+ * Isto era o miolo de `computeChangeSet` e continua sendo — a extração não
+ * mexeu no cálculo, só o desamarrou da gravação. Existem dois leitores agora:
+ *
+ * - `computeChangeSet`, que grava o resultado como `change_set` da vigência —
+ *   comparar continua sendo ato de importação;
+ * - a leitura **ponta a ponta**, que compara duas vigências que não se sucedem
+ *   (abril contra agosto) e **não grava nada**. Gravar aquele par seria pior do
+ *   que duplicar esta função: a tela de agosto o apanharia pelo `snapshot_b` e
+ *   somaria oito meses de movimento ao total de um mês.
+ *
+ * Uma função, dois usos, uma verdade só. Reescrever a comparação para a
+ * segunda tela é como se produzem dois números que discordam sem que ninguém
+ * saiba qual está certo.
+ */
+export type ComputedChange = Omit<typeof changeTable.$inferInsert, "changeSetId">;
+
+export interface SnapshotDiff {
+  changes: ComputedChange[];
+  unchanged: number;
+  inconclusive: number;
+  entitiesAdded: number;
+  entitiesRemoved: number;
+  /** Por periodicidade, sempre: um número mensal e um anual não se somam. */
+  calculatedImpactByPeriodicity: Record<string, number>;
+  impactNotCalculable: number;
+}
+
+export async function diffSnapshots(
+  /** `db` ou a transação de `computeChangeSet` — as duas sabem executar SQL. */
+  executor: Pick<Database, "execute">,
+  a: { id: string; effectiveDate: string },
+  b: { id: string; effectiveDate: string },
+  /** A semântica vigente em cada ponta, lida na data de cada uma. */
+  semanticsA: Map<string, AttributeClassification>,
+  semanticsB: Map<string, AttributeClassification>,
+): Promise<SnapshotDiff> {
+  const rows: ComputedChange[] = [];
+  let unchanged = 0;
+  let inconclusive = 0;
+  // Keyed by periodicity, because summing across periodicities is the very
+  // error the product exists to catch.
+  const calculatedImpact: Record<string, number> = {};
+  let impactNotCalculable = 0;
+
+  // ---------------------------------------------------------------------
+  // Axis 1 — values, on assets present in both snapshots
+  // ---------------------------------------------------------------------
+  const { rows: paired } = await executor.execute<PairedFact>(sql`
+    WITH fa AS (
+      SELECT f.*, i.identifier_value AS entity_label
+        FROM fact f
+        LEFT JOIN entity_identifier i
+          ON i.entity_id = f.entity_id
+         AND i.identifier_type = 'PLACA'
+         AND i.is_current
+       WHERE f.snapshot_id = ${a.id}
+    ),
+    fb AS (
+      SELECT f.*, i.identifier_value AS entity_label
+        FROM fact f
+        LEFT JOIN entity_identifier i
+          ON i.entity_id = f.entity_id
+         AND i.identifier_type = 'PLACA'
+         AND i.is_current
+       WHERE f.snapshot_id = ${b.id}
+    )
+    SELECT COALESCE(fa.entity_id, fb.entity_id)       AS entity_id,
+           COALESCE(fa.attribute_id, fb.attribute_id) AS attribute_id,
+           COALESCE(fa.entity_label, fb.entity_label) AS entity_label,
+           fa.id AS fact_a_id, fb.id AS fact_b_id,
+           fa.value_numeric AS a_numeric, fa.value_text AS a_text,
+           fa.value_boolean AS a_boolean, fa.value_date::text AS a_date,
+           fa.is_null AS a_is_null, fa.null_reason AS a_null_reason,
+           fb.value_numeric AS b_numeric, fb.value_text AS b_text,
+           fb.value_boolean AS b_boolean, fb.value_date::text AS b_date,
+           fb.is_null AS b_is_null, fb.null_reason AS b_null_reason
+      FROM fa
+      FULL OUTER JOIN fb
+        ON fb.entity_id = fa.entity_id
+       AND fb.attribute_id = fa.attribute_id
+  `);
+
+  for (const row of paired) {
+    const classification = semanticsB.get(row.attribute_id);
+    if (!classification) continue;
+
+    // An asset present on only one side is a fleet movement, reported once
+    // on its own axis below — not as ~70 value changes.
+    if (row.fact_a_id === null || row.fact_b_id === null) continue;
+
+    const before = describeSide(row, "a");
+    const after = describeSide(row, "b");
+
+    if (before.hash === after.hash) {
+      unchanged++;
+      continue;
+    }
+
+    const wasSemantics = semanticsA.get(row.attribute_id);
+    const isSemantics = semanticsB.get(row.attribute_id);
+    const drift = detectSemanticsDrift(wasSemantics, isSemantics);
+
+    // A drift that changes what the number *is* makes the two sides
+    // incomparable, whatever the values say. Without this, a column that
+    // turns annual reads as an 1.100% rise across the whole fleet.
+    const verdict = drift
+      ? {
+          nature: "SEMANTICS_DRIFT",
+          delta: null,
+          deltaPercent: null,
+          comparability: "INCONCLUSIVE" as const,
+          inconclusiveReason: drift,
+        }
+      : classifyChange(before, after, classification);
+    if (verdict.comparability === "INCONCLUSIVE") inconclusive++;
+
+    const impact = assessImpact({
+      classification,
+      numericBefore: before.numeric,
+      numericAfter: after.numeric,
+      comparable: verdict.comparability === "COMPARABLE",
+    });
+    if (impact.confidence === "CALCULATED" && impact.amount !== null) {
+      // An impact without a declared periodicity cannot be pooled with
+      // anything; it gets its own bucket rather than a silent home.
+      const bucket = impact.periodicity ?? "SEM_PERIODICIDADE";
+      calculatedImpact[bucket] = (calculatedImpact[bucket] ?? 0) + impact.amount;
+    } else {
+      impactNotCalculable++;
+    }
+
+    rows.push({
+      category: "SOURCE_CHANGE",
+      changeType: "VALUE_CHANGED",
+      nature: verdict.nature,
+      entityId: row.entity_id,
+      attributeId: row.attribute_id,
+      factAId: row.fact_a_id,
+      factBId: row.fact_b_id,
+      valueBefore: before.display,
+      valueAfter: after.display,
+      numericBefore: before.numeric === null ? null : String(before.numeric),
+      numericAfter: after.numeric === null ? null : String(after.numeric),
+      isNullBefore: before.isNull,
+      isNullAfter: after.isNull,
+      nullReasonBefore: before.nullReason,
+      nullReasonAfter: after.nullReason,
+      deltaAbsolute: verdict.delta === null ? null : String(verdict.delta),
+      deltaPercent: verdict.deltaPercent === null ? null : String(verdict.deltaPercent),
+      comparability: verdict.comparability,
+      inconclusiveReason: verdict.inconclusiveReason,
+      impactConfidence: impact.confidence,
+      impactAmount: impact.amount === null ? null : String(impact.amount),
+      impactPeriodicity: impact.periodicity,
+      impactReason: impact.reason,
+      ...classificationColumns(classification),
+      semanticsVersionA: wasSemantics?.semanticsVersion ?? null,
+      semanticsVersionB: isSemantics?.semanticsVersion ?? null,
+      entityLabel: row.entity_label,
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Axis 2 — fleet movement
+  // ---------------------------------------------------------------------
+  const { rows: fleet } = await executor.execute<{
+    entity_id: string;
+    entity_label: string | null;
+    entity_type: string;
+    direction: string;
+  }>(sql`
+    WITH ea AS (SELECT DISTINCT entity_id FROM fact WHERE snapshot_id = ${a.id}),
+         eb AS (SELECT DISTINCT entity_id FROM fact WHERE snapshot_id = ${b.id})
+    SELECT COALESCE(ea.entity_id, eb.entity_id) AS entity_id,
+           i.identifier_value AS entity_label,
+           e.entity_type,
+           CASE WHEN ea.entity_id IS NULL THEN 'ADDED' ELSE 'REMOVED' END AS direction
+      FROM ea
+      FULL OUTER JOIN eb ON eb.entity_id = ea.entity_id
+      JOIN entity e ON e.id = COALESCE(ea.entity_id, eb.entity_id)
+      LEFT JOIN entity_identifier i
+        ON i.entity_id = e.id AND i.identifier_type = 'PLACA' AND i.is_current
+     WHERE ea.entity_id IS NULL OR eb.entity_id IS NULL
+  `);
+
+  let entitiesAdded = 0;
+  let entitiesRemoved = 0;
+  for (const row of fleet) {
+    if (row.direction === "ADDED") entitiesAdded++;
+    else entitiesRemoved++;
+    impactNotCalculable++;
+    rows.push({
+      category: "FLEET_CHANGE",
+      changeType: row.direction === "ADDED" ? "ENTITY_ADDED" : "ENTITY_REMOVED",
+      nature: row.direction === "ADDED" ? "APPEARED" : "DISAPPEARED",
+      entityId: row.entity_id,
+      valueBefore: row.direction === "ADDED" ? null : "presente",
+      valueAfter: row.direction === "ADDED" ? "presente" : null,
+      comparability: "COMPARABLE",
+      impactConfidence: "NOT_CALCULABLE",
+      impactReason:
+        "Entrada e saída de ativo mudam a base da frota. O valor disso depende de " +
+        "quais atributos são somáveis, o que ainda depende de curadoria.",
+      entityLabel: row.entity_label,
+      entityType: row.entity_type,
+    });
+  }
+
+  return {
+    changes: rows,
+    unchanged,
+    inconclusive,
+    entitiesAdded,
+    entitiesRemoved,
+    calculatedImpactByPeriodicity: roundBuckets(calculatedImpact),
+    impactNotCalculable,
+  };
 }
 
 /** Six decimals, matching the NUMERIC(18,6) the values came from. */
