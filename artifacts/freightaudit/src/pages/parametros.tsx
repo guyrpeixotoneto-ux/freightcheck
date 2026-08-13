@@ -757,9 +757,15 @@ function Secao({
  * O cartão do Freightech: barra laranja na lateral esquerda, nome em caixa
  * alta, estrela no rodapé. O miolo entre os dois é o que este produto acrescenta.
  *
- * Sem dado o cartão continua existindo — cinza, dizendo o porquê, e sem abrir.
- * Favoritar continua valendo: marcar a gaveta que interessa é útil justamente
- * enquanto se espera o dado dela chegar.
+ * **O passar do mouse preenche o cartão de laranja**, como lá. É o realce que
+ * diz "isto abre", e é por isso que **todo cartão abre agora**, inclusive o que
+ * não tem dado: um cartão que acende sob o cursor e não responde ao clique
+ * promete uma coisa e entrega outra. O que muda é o que se encontra do outro
+ * lado — no sem dado, a explicação de por que ele está vazio.
+ *
+ * O texto inteiro vira branco no realce, valores monetários incluídos. O
+ * vermelho de perda sobre laranja não se lê, e um número ilegível é pior do que
+ * um número sem cor: a cor volta assim que o cursor sai.
  */
 function Cartao({
   cartao,
@@ -821,23 +827,23 @@ function Cartao({
   return (
     <div
       className={cn(
-        "border border-l-[5px] flex flex-col transition-shadow",
-        temDado
-          ? "bg-card border-l-brand shadow-sm hover:shadow-md"
-          : "bg-card/60 border-l-brand/40",
+        /*
+          `group` para que a estrela e cada linha do miolo saibam que o cartão
+          está sob o cursor; `[&_*]:` para pintar de branco tudo o que está
+          dentro, sem ter de repetir a variante em cada span.
+        */
+        "group border border-l-[5px] flex flex-col shadow-sm transition-colors",
+        "hover:bg-brand hover:border-brand hover:shadow-md hover:[&_*]:text-white",
+        temDado ? "bg-card border-l-brand" : "bg-card/60 border-l-brand/40",
       )}
     >
-      {temDado ? (
-        <button
-          type="button"
-          onClick={onAbrir}
-          className="text-left px-5 pt-5 pb-3 flex-1 flex flex-col gap-2"
-        >
-          {miolo}
-        </button>
-      ) : (
-        <div className="px-5 pt-5 pb-3 flex-1 flex flex-col gap-2">{miolo}</div>
-      )}
+      <button
+        type="button"
+        onClick={onAbrir}
+        className="text-left px-5 pt-5 pb-3 flex-1 flex flex-col gap-2 cursor-pointer"
+      >
+        {miolo}
+      </button>
 
       <div className="px-4 pb-3">
         <button
@@ -853,6 +859,7 @@ function Cartao({
           className={cn(
             "p-1 -ml-1 hover:scale-110 transition-transform",
             temDado ? "text-brand" : "text-brand/50",
+            "group-hover:text-white",
           )}
         >
           <Star className="w-7 h-7" strokeWidth={1.5} fill={favorito ? "currentColor" : "none"} />
@@ -895,7 +902,30 @@ function DetalheCartao({
           {cartao.secao}
         </div>
         <h2 className="text-2xl font-bold uppercase tracking-tight mt-1">{cartao.nome}</h2>
-        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-3 text-sm">
+
+        {/*
+          O cartão sem dado abre e explica por quê. É o preço de ele acender sob
+          o cursor como todos os outros: quem clicou tem de encontrar uma
+          resposta, e "esta gaveta existe no Freightech, o export que chega aqui
+          não a alimenta" é uma resposta — melhor do que uma tela em branco e
+          muito melhor do que um cartão que ignora o clique.
+        */}
+        {cartao.parametros.length === 0 && (
+          <p className="text-sm text-muted-foreground mt-3 max-w-3xl">
+            Esta gaveta existe no Freightech e o export de equipamento que o FreightCheck
+            recebe hoje não a alimenta — não há nenhuma coluna da planilha que caia aqui.
+            Por isso o cartão não tem número: não é que o valor seja zero, é que ele não
+            chega. Quando a fonte passar a mandá-lo, ele aparece aqui sem mais nenhuma
+            mudança de código.
+          </p>
+        )}
+
+        <div
+          className={cn(
+            "flex flex-wrap items-center gap-x-6 gap-y-2 mt-3 text-sm",
+            cartao.parametros.length === 0 && "hidden",
+          )}
+        >
           <ImpactoResumido impact={cartao.impact} />
           <span className="text-muted-foreground">
             {cartao.changes} {cartao.changes === 1 ? "alteração" : "alterações"}
@@ -923,7 +953,7 @@ function DetalheCartao({
       </div>
 
       <div className="mt-5 space-y-3">
-        {cartao.groups.length === 0 ? (
+        {cartao.parametros.length === 0 ? null : cartao.groups.length === 0 ? (
           <p className="text-sm text-muted-foreground">
             Nenhuma alteração neste cartão nesta vigência.
           </p>
