@@ -377,7 +377,48 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
           "cavalo.data_fim_contrato",
         ],
       },
-      { nome: "Combustível", parametros: ["Combustível"] },
+      {
+        /*
+          A tabela de preço do combustível: uma linha por combustível e
+          iniciativa — DIESEL e ARLA na compra tradicional, DIESEL S10 no cartão
+          de abastecimento, GASOLINA/ETANOL — com o preço da ANP, o preço da
+          operadora e o preço já líquido do crédito de imposto.
+
+          Conferida em três capturas com rolagem horizontal: DESCRICAO,
+          INICIATIVA e CREDITOIMPOSTO à esquerda, PRECOANP, PRECOOPERADORA e
+          PRECOCREDITOIMPOSTOS à direita, e a emenda entre as duas metades vista
+          pelo CREDITOIMPOSTO, que aparece nas duas. CREDITOIMPOSTO é caixa de
+          marcação, não número — nas quatro linhas vistas, nenhuma marcada.
+          AÇÕES fica preso na ponta direita e não entra aqui, pela razão de
+          sempre: o FreightCheck lê o export e não escreve no Freightech.
+
+          **Nenhuma das seis colunas chega no export de equipamento.** Isto é
+          cadastro de insumo, não medida de veículo, e a planilha que recebemos
+          é de cavalo e carreta. O que cai neste cartão é o outro fator do mesmo
+          custo — consumo negociado, capacidade do tanque, vida do cavalo e
+          percentual de perda, ativo por ativo. Custo de combustível é preço
+          vezes consumo, e temos o consumo sem o preço.
+        */
+        nome: "Combustível",
+        parametros: ["Combustível"],
+        colunas: [
+          "Descricao",
+          "Iniciativa",
+          "Creditoimposto",
+          "Precoanp",
+          "Precooperadora",
+          "Precocreditoimpostos",
+        ],
+        nota:
+          "No Freightech esta tela é a tabela de preço do combustível — uma linha por " +
+          "combustível e iniciativa (DIESEL e ARLA na tradicional, DIESEL S10 no cartão " +
+          "de abastecimento), com o preço da ANP, o da operadora e o já líquido de " +
+          "crédito de imposto. Nenhuma dessas colunas vem no export de equipamento: o " +
+          "que a tabela abaixo mostra é o outro lado do mesmo custo — o que mudou no " +
+          "consumo negociado, na capacidade e na vida do cavalo, ativo por ativo. Com o " +
+          "consumo e sem o preço, o custo do combustível não fecha, e é o arquivo desta " +
+          "tela que falta pedir.",
+      },
       { nome: "Consumo", parametros: ["Consumo benchmark"] },
       { nome: "Contrato manutenção", parametros: ["Contrato de manutenção"] },
       { nome: "Custo fixo total", parametros: ["Custo fixo (total)"] },
