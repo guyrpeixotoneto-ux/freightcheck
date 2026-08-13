@@ -142,13 +142,13 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
         */
         nome: "QLP benchmark",
         /*
-          Conferido em três capturas com rolagem horizontal. Ficaram adjacentes
-          e portanto sem coluna entre elas: 0→15, 30→50, 50→60→70→80. A faixa
-          entre VALOR15 e VALOR30 caiu na emenda de duas capturas e não foi
-          vista; se houver um VALOR20 ou VALOR25 ali, ele falta nesta lista.
-          Fica dito em vez de completado por simetria — a sequência já é
-          irregular (não há VALOR40), então "parece que falta um" não é
-          argumento.
+          Conferido em três capturas com rolagem horizontal, e a emenda entre
+          VALOR15 e VALOR30 — a única faixa que as capturas não mostravam —
+          confirmada depois: não há coluna ali. A lista está completa.
+
+          A sequência é irregular de propósito: não existe VALOR20, VALOR25 nem
+          VALOR40. Vale registrar, porque a próxima pessoa a olhar vai achar que
+          falta um e ficar tentada a completar.
         */
         colunas: [
           "Cargoqlpempurrada",
