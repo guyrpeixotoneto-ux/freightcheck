@@ -65,3 +65,15 @@ export const stagedFactStatus = pgEnum("staged_fact_status", [
   "WARNING",
   "REJECTED",
 ]);
+
+/**
+ * Os dois jeitos de uma regra do Book do Operador entrar no sistema.
+ *
+ * `DOCUMENTO` é o arquivo anexado — contrato, manual, planilha de apoio.
+ * `TEXTO` é a regra escrita direto na tela, que é o que serve quando ela cabe
+ * em três parágrafos e não existe arquivo para anexar. É enum e não booleano
+ * porque um terceiro tipo é plausível (um link para o Freightech, por
+ * exemplo), e `is_document = false` já teria deixado de significar "é texto"
+ * naquele dia.
+ */
+export const bookEntryKind = pgEnum("book_entry_kind", ["DOCUMENTO", "TEXTO"]);

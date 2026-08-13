@@ -3,6 +3,7 @@ import { Link, useLocation } from "wouter";
 import {
   Activity,
   ArrowDownToLine,
+  BookOpen,
   CloudDownload,
   CalendarRange,
   Database,
@@ -63,7 +64,27 @@ const NAV_ITEMS: NavItem[] = [
     href: "/parametros",
     label: "Parâmetros",
     icon: LayoutGrid,
-    sinonimos: ["segmento", "escolha de segmento", "book operador", "família"],
+    /*
+      "book operador" saiu daqui. Era um apelido emprestado enquanto o Book não
+      existia como tela; agora que existe, deixá-lo apontando para Parâmetros
+      mandaria quem digita o nome exato para o lugar errado — e é justamente
+      quem sabe o nome que menos merece isso.
+    */
+    sinonimos: ["segmento", "escolha de segmento", "família"],
+  },
+  {
+    href: "/book-operador",
+    label: "Book do Operador",
+    icon: BookOpen,
+    sinonimos: [
+      "book",
+      "regras",
+      "remuneração",
+      "modelo de precificação",
+      "planilha aberta",
+      "contrato",
+      "manual",
+    ],
   },
   {
     href: "/alteracoes",
