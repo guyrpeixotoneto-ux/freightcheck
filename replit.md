@@ -122,6 +122,11 @@ e-mail, e exclusão de conta.
   `src/middlewares/require-session.ts` (o portão)
 - `artifacts/freightaudit` — interface; a sessão vive em `src/lib/auth.tsx`, o
   portão em `App.tsx`, e as contas em `src/pages/configuracoes.tsx`
+- `artifacts/freightaudit/src/lib/book-operador.ts` — o índice do Book do
+  Operador: os blocos em que o Freightech publica as *regras* de remuneração,
+  transcritos da tela de lá. É o contraponto do export, que traz o cadastro
+  remunerado da frota e nenhuma regra. Só o índice existe; o documento de cada
+  bloco ainda não foi importado, e a tela declara isso.
 - `docs/ARQUITETURA.md` — as decisões estruturais em prosa
 - `docs/PROPOSTA-NAVEGACAO-FREIGHTECH.md` — o mapeamento Freightech → FreightCheck
 
