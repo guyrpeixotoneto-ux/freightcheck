@@ -211,3 +211,68 @@ export const PARAMETROS_NO_CATALOGO = new Set(
     secao.cartoes.flatMap((cartao) => cartao.parametros ?? []),
   ),
 );
+
+/**
+ * Quais dos nossos parâmetros alimentam cada cartão do catálogo.
+ *
+ * Mora aqui, e não na tela, porque **duas telas fazem esta mesma pergunta**:
+ * Parâmetros, para saber o que mostrar dentro do cartão, e Dados, para dizer o
+ * que tem e o que falta. Se cada uma casasse as listas por conta própria, um
+ * dia elas discordariam — e a tela que existe para responder "isto tem dado?"
+ * responderia diferente da tela que mostra o dado. Uma função só, uma resposta
+ * só.
+ *
+ * Duas passagens, e a ordem entre elas importa:
+ *
+ * 1. **O mapeamento escrito à mão**, que resolve os casos em que os dois
+ *    sistemas dão nomes diferentes à mesma gaveta — "Cavalo" lá é "Caminhão"
+ *    aqui.
+ * 2. **Nome idêntico**, para o que sobrou. Não é chute: "Fator consumo" aqui e
+ *    "Fator consumo" lá são a mesma coisa.
+ *
+ * Um parâmetro só entra num cartão. Há rótulo repetido entre seções ("Modelo"
+ * está em Frota e em Dimensões, "Manutenção implemento" em Geral e em Frota);
+ * sem essa trava o mesmo dinheiro apareceria em duas gavetas.
+ */
+export function ligarParametros(nomes: readonly string[]): {
+  /** chave do cartão → nomes dos parâmetros que caem nele. */
+  porCartao: Map<string, string[]>;
+  /** Os que acharam cartão. O complemento é o que só o FreightCheck tem. */
+  usados: Set<string>;
+} {
+  const disponiveis = new Set(nomes);
+  const porNormalizado = new Map<string, string>();
+  for (const nome of nomes) porNormalizado.set(normalizar(nome), nome);
+
+  const porCartao = new Map<string, string[]>();
+  const usados = new Set<string>();
+
+  for (const secao of CATALOGO_FREIGHTECH) {
+    for (const cartao of secao.cartoes) {
+      const ligados = (cartao.parametros ?? []).filter((n) => disponiveis.has(n));
+      for (const n of ligados) usados.add(n);
+      if (ligados.length > 0) porCartao.set(chaveDoCartao(secao.titulo, cartao.nome), ligados);
+    }
+  }
+
+  for (const secao of CATALOGO_FREIGHTECH) {
+    for (const cartao of secao.cartoes) {
+      const chave = chaveDoCartao(secao.titulo, cartao.nome);
+      if (porCartao.has(chave)) continue;
+      const achado = porNormalizado.get(normalizar(cartao.nome));
+      if (achado && !usados.has(achado)) {
+        usados.add(achado);
+        porCartao.set(chave, [achado]);
+      }
+    }
+  }
+
+  return { porCartao, usados };
+}
+
+function normalizar(texto: string): string {
+  return texto
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+}

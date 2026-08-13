@@ -4,6 +4,7 @@ import {
   Activity,
   ArrowDownToLine,
   CloudDownload,
+  CalendarRange,
   Database,
   FileSearch,
   Gauge,
@@ -47,6 +48,12 @@ interface NavItem {
 const NAV_ITEMS: NavItem[] = [
   { href: "/", label: "Pagina inicial", icon: Gauge, sinonimos: ["home", "início"] },
   {
+    href: "/dados",
+    label: "Dados",
+    icon: Database,
+    sinonimos: ["cobertura", "o que tem", "o que falta", "planilhas", "importado", "inventário"],
+  },
+  {
     href: "/vigencia",
     label: "Acompanhamento de vigência",
     icon: Activity,
@@ -73,7 +80,7 @@ const NAV_ITEMS: NavItem[] = [
   {
     href: "/vigencias",
     label: "Vigências",
-    icon: Database,
+    icon: CalendarRange,
     sinonimos: ["histórico", "datas", "dimensionamento"],
   },
   {

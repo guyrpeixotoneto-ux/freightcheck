@@ -15,7 +15,11 @@ import { getApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useFavoritos } from "@/lib/favoritos";
 import { formatBrlShort, impactEntries, periodicitySuffix } from "@/lib/format";
-import { CATALOGO_FREIGHTECH, chaveDoCartao } from "@/lib/freightech-catalogo";
+import {
+  CATALOGO_FREIGHTECH,
+  chaveDoCartao,
+  ligarParametros,
+} from "@/lib/freightech-catalogo";
 import type {
   ChangeGroup,
   FamiliesView,
@@ -201,20 +205,9 @@ const IMPACTO_VAZIO: ImpactSummary = {
 /**
  * Casa o catálogo do Freightech com os parâmetros desta vigência.
  *
- * Duas passagens, e a ordem entre elas importa:
- *
- * 1. **O mapeamento escrito à mão** de `freightech-catalogo.ts`, que resolve os
- *    casos em que os dois sistemas dão nomes diferentes à mesma gaveta —
- *    "Cavalo" lá é "Caminhão" aqui.
- * 2. **Nome idêntico**, para o que sobrou. Isso não é chute: "Fator consumo"
- *    aqui e "Fator consumo" lá são a mesma coisa, e exigir uma linha de mapa
- *    para cada coincidência só produziria a duplicata que este passo evita — o
- *    parâmetro aparecia cinza no cartão do Freightech *e* de novo, com dado,
- *    numa seção nossa de mesmo nome.
- *
- * Um parâmetro só entra num cartão. Há rótulo repetido entre seções ("Modelo"
- * está em Frota e em Dimensões); sem essa trava o mesmo dinheiro apareceria em
- * duas gavetas, que é precisamente o defeito que este produto existe para pegar.
+ * O casamento em si é de `ligarParametros`, no catálogo — a tela de Dados faz a
+ * mesma pergunta e tem de obter a mesma resposta. Aqui só se traduz o resultado
+ * (nomes) para os objetos que a grade desenha.
  */
 function montarSecoes(view: FamiliesView | null): SecaoRender[] {
   const porNome = new Map<string, ParameterView>();
@@ -222,39 +215,13 @@ function montarSecoes(view: FamiliesView | null): SecaoRender[] {
     for (const parametro of familia.parameters) porNome.set(parametro.name, parametro);
   }
 
-  /** Índice por nome normalizado, para a segunda passagem. */
-  const porNomeNormalizado = new Map<string, ParameterView>();
-  for (const [nome, parametro] of porNome) {
-    porNomeNormalizado.set(normalizar(nome), parametro);
-  }
-
-  const usados = new Set<string>();
-
-  // Passagem 1 — o mapa escrito à mão.
-  const ligados = new Map<string, ParameterView[]>();
-  for (const secao of CATALOGO_FREIGHTECH) {
-    for (const cartao of secao.cartoes) {
-      const chave = chaveDoCartao(secao.titulo, cartao.nome);
-      const parametros = (cartao.parametros ?? [])
-        .map((nome) => porNome.get(nome))
-        .filter((p): p is ParameterView => p !== undefined);
-      for (const p of parametros) usados.add(p.name);
-      if (parametros.length > 0) ligados.set(chave, parametros);
-    }
-  }
-
-  // Passagem 2 — nome idêntico, para os cartões que continuaram vazios.
-  for (const secao of CATALOGO_FREIGHTECH) {
-    for (const cartao of secao.cartoes) {
-      const chave = chaveDoCartao(secao.titulo, cartao.nome);
-      if (ligados.has(chave)) continue;
-      const encontrado = porNomeNormalizado.get(normalizar(cartao.nome));
-      if (encontrado && !usados.has(encontrado.name)) {
-        usados.add(encontrado.name);
-        ligados.set(chave, [encontrado]);
-      }
-    }
-  }
+  const { porCartao, usados } = ligarParametros([...porNome.keys()]);
+  const ligados = new Map<string, ParameterView[]>(
+    [...porCartao].map(([chave, nomes]) => [
+      chave,
+      nomes.map((n) => porNome.get(n)).filter((p): p is ParameterView => p !== undefined),
+    ]),
+  );
 
   const doFreightech: SecaoRender[] = CATALOGO_FREIGHTECH.map((secao) => ({
     titulo: secao.titulo,
