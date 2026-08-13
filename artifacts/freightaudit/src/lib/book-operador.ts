@@ -18,28 +18,34 @@
  * Simulado` em R$/km que ninguém pode somar. Nenhuma dessas perguntas se
  * responde com mais planilha. Elas se respondem com o Book.
  *
- * **O que existe aqui e o que ainda não existe.** Este arquivo é o índice: a
- * categoria, o título e a descrição de cada bloco, transcritos da tela do
- * Freightech. O **conteúdo** de cada bloco — o documento em si, que é o que
- * permitiria ao FreightCheck sustentar uma regra de remuneração — não foi
- * importado, e a tela diz isso em vez de simular que foi. O índice sozinho já
- * vale: ele nomeia, em vocabulário do Freightech, o assunto de cada regra, e é
- * por esse nome que alguém vai pedir o documento que falta.
+ * **Este arquivo é só o índice.** Categoria, título e descrição de cada bloco,
+ * transcritos da tela do Freightech. O **conteúdo** — a regra em si — não mora
+ * aqui: é registrado no produto, em `book_entry`, escrito como texto ou anexado
+ * como documento. Um bloco sem regra registrada continua aparecendo, dizendo
+ * que está vazio; o índice sozinho já vale, porque nomeia o assunto de cada
+ * regra no vocabulário de quem vai procurá-la.
  *
- * **Por que os dados moram na interface, e não no banco.** Mesma razão do
+ * **Por que o índice mora na interface, e não no banco.** Mesma razão do
  * `freightech-catalogo.ts` ao lado: este é o mapa do sistema de origem, não uma
  * projeção dos nossos fatos. Ele precisa existir com o banco vazio, que é
- * justamente quando a pessoa está tentando descobrir o que pedir. Quando os
- * documentos forem importados de verdade, eles ganham tabela, migration e rota
- * — o índice continua aqui, porque continua sendo transcrição de tela.
+ * justamente quando a pessoa está tentando descobrir o que pedir. O conteúdo,
+ * esse sim, tem tabela, migration e rota.
  *
  * **Fonte.** Base de blocos do Freightech, capturada em 13/08/2026, ordenada
- * como lá (6 por página, 11 páginas). A tela informa **66 resultados**; 63
- * estão transcritos abaixo. Os 3 que faltam são o rabo da página 11, que a
- * captura não alcançou — e é por isso que `TOTAL_DECLARADO_FREIGHTECH` existe
- * como constante separada da contagem do array. A tela mostra as duas e a
- * diferença, porque "63 blocos" sem essa ressalva seria a mesma mentira por
- * omissão que este produto passa o tempo todo evitando.
+ * como lá (6 por página, 11 páginas). São **66 registros e 63 títulos
+ * distintos**: PGR, STRESS TEST EMPILHADEIRAS e PLANO DE SAÚDE aparecem duas
+ * vezes na base, em 58-60 e de novo em 61-63.
+ *
+ * **A repetição foi mantida, e isso não é descuido.** O primeiro impulso — e o
+ * errado — é deduplicar: a lista fica mais limpa e passa a descrever uma base
+ * que não existe. São dois registros lá, cada um capaz de receber o seu
+ * documento, e fundi-los faria o segundo herdar o conteúdo do primeiro sem
+ * ninguém perceber. Quem quiser conferir contra a tela de origem precisa
+ * encontrar aqui o mesmo número de cartões que conta lá.
+ *
+ * `TOTAL_DECLARADO_FREIGHTECH` continua como constante separada da contagem do
+ * array. Hoje as duas batem; ela existe para o dia em que pararem de bater, que
+ * é quando o índice precisa dizer isso em voz alta em vez de calar.
  */
 
 export interface BlocoBook {
@@ -64,33 +70,50 @@ export interface BlocoBook {
    * não gasta: a tela marca o corte e quem tiver a tela de lá aberta completa.
    */
   truncada?: true;
+  /**
+   * A posição desta aparição quando o mesmo bloco existe mais de uma vez na
+   * base — `2` na segunda, ausente na primeira.
+   *
+   * É o que faz `chaveDoBloco` devolver chaves diferentes para cartões
+   * idênticos. Sem isto, os dois PLANO DE SAÚDE dividiriam o mesmo endereço no
+   * banco: enviar o documento num deles o faria aparecer no outro, e a tela
+   * mostraria como conteúdo de um bloco o que foi anexado a outro — exatamente
+   * o tipo de número sem lastro que este produto existe para não exibir.
+   *
+   * A primeira aparição fica **sem** o campo, de propósito: a chave dela
+   * continua sendo `"Categoria::Título"`, e os documentos já enviados antes de
+   * este campo existir continuam achando o bloco a que pertencem.
+   */
+  ocorrencia?: number;
 }
 
 /**
  * O que a paginação do Freightech declara no rodapé: "de 66 resultados".
  *
- * Fica separado do `.length` de propósito. São dois números diferentes — o que
- * eles publicam e o que nós transcrevemos — e igualá-los no código apagaria a
- * única evidência de que falta coisa.
+ * Fica separado do `.length` de propósito, mesmo agora que os dois batem. São
+ * duas afirmações diferentes — o que eles publicam e o que nós transcrevemos —
+ * e escrever `BLOCOS_BOOK.length` no lugar desta constante faria a tela
+ * concordar consigo mesma para sempre, inclusive no dia em que a base de lá
+ * ganhar um bloco. A divergência entre as duas é o alarme; um alarme que se
+ * ajusta sozinho ao que está sendo medido não toca nunca.
  */
 export const TOTAL_DECLARADO_FREIGHTECH = 66;
 
 /**
- * Os blocos, na ordem em que a base do Freightech os listava na captura.
+ * Os blocos, na ordem em que a base do Freightech os lista.
  *
- * A ordem não é alfabética nem por categoria, e foi preservada mesmo assim —
- * mas **não confie nela como endereço**. Duas capturas do mesmo dia mostraram a
- * lista deslocada em três posições: PGR, STRESS TEST EMPILHADEIRAS e PLANO DE
- * SAÚDE apareceram em 58-60 numa e em 61-63 na outra. Seja porque blocos
- * entraram no meio, seja porque a ordenação de lá não é determinística, o
- * efeito é o mesmo: "o bloco tal está na página 10" é verdade sobre um
- * instante, não sobre a base.
+ * A ordem não é alfabética nem por categoria, e foi preservada mesmo assim:
+ * quem já usa a base de lá navega por posição, e reordenar aqui trocaria um
+ * mapa fiel por um mapa arrumado.
  *
- * Isto fica escrito porque a suposição contrária custou caro uma vez — a
- * captura da página 11 foi pedida para completar o índice e voltou repetindo
- * três blocos que já estavam aqui, enquanto os três que faltam tinham ido
- * parar na página anterior. A busca desta tela existe justamente para não
- * depender de posição; quem procura um bloco digita o nome.
+ * **Uma leitura errada que vale registrar.** Ver PGR, STRESS TEST
+ * EMPILHADEIRAS e PLANO DE SAÚDE nas posições 58-60 e de novo em 61-63 parece
+ * paginação instável — a mesma linha exibida duas vezes na virada da página. A
+ * conclusão foi tirada aqui uma vez e estava errada: a ordem é estável, e a
+ * base é que tem esses três registros em duplicidade. As duas hipóteses geram a
+ * mesma tela e conclusões opostas — uma diz que faltam 3 blocos, a outra que
+ * não falta nenhum —, e só quem tem a tela de origem aberta consegue
+ * distinguir. Quando a contagem não bater de novo, pergunte antes de deduzir.
  */
 export const BLOCOS_BOOK: BlocoBook[] = [
   // ---- página 1 ----
@@ -479,7 +502,32 @@ export const BLOCOS_BOOK: BlocoBook[] = [
       "Detalhamento da composição do modelo de remuneração do Plano de Saúde em todos os canais de transporte",
   },
 
-  // ---- página 11 (parcial: 3 dos 6) ----
+  // ---- página 11 ----
+  /*
+    As três repetições da base. Mesma categoria, mesmo título e mesma descrição
+    dos registros de 58-60 logo acima; o que muda é `ocorrencia`, e é só isso que
+    separa o documento de um do documento do outro.
+  */
+  {
+    categoria: "Geral",
+    titulo: "PGR - Plano de Gerenciamento de Risco (TRANSPORTADORAS)",
+    descricao: "Esse bloco objetiva compartilhar o PGR AMBEV",
+    ocorrencia: 2,
+  },
+  {
+    categoria: "Equipamentos",
+    titulo: "STRESS TEST EMPILHADEIRAS",
+    descricao:
+      "Aba com detalhamento do processo de Stress Test de Empilhadeiras do T1 e T2",
+    ocorrencia: 2,
+  },
+  {
+    categoria: "Gente",
+    titulo: "PLANO DE SAÚDE",
+    descricao:
+      "Detalhamento da composição do modelo de remuneração do Plano de Saúde em todos os canais de transporte",
+    ocorrencia: 2,
+  },
   {
     categoria: "Menu",
     titulo: "Outros Custos (Empurrada)",
@@ -513,9 +561,20 @@ export function categoriasDoBook(): string[] {
   return vistas;
 }
 
-/** A chave estável de um bloco — para favoritar sem depender da posição. */
+/**
+ * A chave estável de um bloco — o endereço dele nos favoritos e no banco.
+ *
+ * `"Categoria::Título"`, com `#2` no fim quando a base repete o bloco. O
+ * sufixo só aparece a partir da segunda aparição, e não é economia de
+ * caracteres: as chaves gravadas antes de a repetição ser descoberta são as
+ * sem sufixo, e mudá-las agora desligaria cada documento já enviado do cartão
+ * a que ele pertence.
+ */
 export function chaveDoBloco(bloco: BlocoBook): string {
-  return `${bloco.categoria}::${bloco.titulo}`;
+  const base = `${bloco.categoria}::${bloco.titulo}`;
+  return bloco.ocorrencia && bloco.ocorrencia > 1
+    ? `${base}#${bloco.ocorrencia}`
+    : base;
 }
 
 /** Busca sem acento e sem caixa, igual à da lateral. */

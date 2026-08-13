@@ -103,6 +103,9 @@ export default function BookOperador() {
   const visiveis = filtrados.slice(inicio, inicio + porPagina);
 
   const naoTranscritos = TOTAL_DECLARADO_FREIGHTECH - BLOCOS_BOOK.length;
+  const repetidos = BLOCOS_BOOK.filter(
+    (b) => b.ocorrencia && b.ocorrencia > 1,
+  ).length;
   const comRegra = BLOCOS_BOOK.filter((b) =>
     porBloco.has(chaveDoBloco(b)),
   ).length;
@@ -154,12 +157,26 @@ export default function BookOperador() {
                 blocos com regra registrada.
               </>
             )}{" "}
-            {BLOCOS_BOOK.length} blocos transcritos de{" "}
-            {TOTAL_DECLARADO_FREIGHTECH} que a base de lá declara
-            {naoTranscritos > 0 && (
+            {/*
+              A ressalva só aparece quando há o que ressalvar. Enquanto os dois
+              números batem, repetir "66 de 66 que a base declara" seria ruído
+              numa frase que existe para chamar atenção — e ruído constante é
+              como um alarme para de ser lido.
+            */}
+            {naoTranscritos === 0 ? (
               <>
-                {" "}
-                — {naoTranscritos}{" "}
+                O índice tem os {TOTAL_DECLARADO_FREIGHTECH} registros da base do
+                Freightech, entre eles {repetidos}{" "}
+                {repetidos === 1
+                  ? "bloco que ela lista duas vezes"
+                  : "blocos que ela lista duas vezes"}
+                .
+              </>
+            ) : (
+              <>
+                {BLOCOS_BOOK.length} blocos transcritos de{" "}
+                {TOTAL_DECLARADO_FREIGHTECH} que a base de lá declara —{" "}
+                {naoTranscritos}{" "}
                 {naoTranscritos === 1
                   ? "não foi capturado e falta"
                   : "não foram capturados e faltam"}{" "}

@@ -113,6 +113,13 @@ export function BlocoPainel({
             <h2 className="text-xl font-bold leading-snug mt-0.5">
               {bloco.titulo}
             </h2>
+            {bloco.ocorrencia && bloco.ocorrencia > 1 && (
+              <p className="text-xs text-muted-foreground mt-1">
+                {bloco.ocorrencia}ª aparição deste bloco na base do Freightech.
+                A regra registrada aqui é só desta aparição — a outra tem a
+                dela.
+              </p>
+            )}
             <p className="text-sm text-muted-foreground mt-2">
               {bloco.descricao}
             </p>

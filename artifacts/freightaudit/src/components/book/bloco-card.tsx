@@ -51,6 +51,19 @@ export function BlocoCard({
           {bloco.titulo}
         </h3>
 
+        {bloco.ocorrencia && bloco.ocorrencia > 1 && (
+          /*
+            Sem esta linha, a base repetida produz dois cartões visualmente
+            idênticos e ninguém consegue dizer em qual anexou o quê. Marcar a
+            segunda aparição é o mínimo — e dizer que a repetição é *de lá*
+            evita a conclusão natural e errada de que a duplicata é nossa.
+          */
+          <p className="text-xs text-muted-foreground">
+            {bloco.ocorrencia}ª aparição deste bloco na base do Freightech — a
+            base o lista duas vezes, e cada uma guarda a sua regra.
+          </p>
+        )}
+
         <p className="text-sm text-muted-foreground leading-relaxed">
           {bloco.descricao}
         </p>
