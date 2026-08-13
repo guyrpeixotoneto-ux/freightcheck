@@ -50,6 +50,9 @@
 
   --color-brand: hsl(var(--brand));
   --color-brand-foreground: hsl(var(--brand-foreground));
+  --color-brand-dark: hsl(var(--brand-dark));
+  --color-loss-on-dark: hsl(var(--loss-on-dark));
+  --color-gain-on-dark: hsl(var(--gain-on-dark));
   --color-brand-red: hsl(var(--brand-red));
   --color-brand-red-foreground: hsl(var(--brand-red-foreground));
 
@@ -131,6 +134,26 @@
   --brand-foreground: 0 0% 100%;
   --brand-red: 358 79% 39%;
   --brand-red-foreground: 0 0% 100%;
+
+  /*
+   * O laranja do realce, escurecido — e o vermelho e o verde que sobrevivem a
+   * ele.
+   *
+   * O cartão sob o cursor se preenche, e o preenchimento não pode custar a
+   * leitura do número. Sobre o laranja claro da marca, o vermelho de perda
+   * (hsl 358 79% 39%) some: escuro sobre claro, os dois com a mesma
+   * luminosidade. A saída não é apagar a cor do valor — perda e ganho se
+   * distinguem por ela — é escurecer o fundo e clarear os dois.
+   *
+   * `--brand-dark` é o laranja mais claro que ainda deixa os três textos em
+   * AA (4,5:1) — varri a escala para achá-lo, porque cada ponto de luz a mais
+   * no fundo é um ponto a menos de contraste no número. Medido: perda 4,62:1,
+   * ganho 5,16:1, branco 6,12:1. Mexer numa das três sem refazer a conta
+   * devolve o defeito que elas existem para resolver.
+   */
+  --brand-dark: 33 88% 30%;
+  --loss-on-dark: 0 100% 92%;
+  --gain-on-dark: 140 70% 88%;
 
   /* A lateral do Freightech é branca, não escura. */
   --sidebar: 0 0% 100%;

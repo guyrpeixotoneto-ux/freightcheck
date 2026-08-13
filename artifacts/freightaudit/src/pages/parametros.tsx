@@ -757,15 +757,17 @@ function Secao({
  * O cartão do Freightech: barra laranja na lateral esquerda, nome em caixa
  * alta, estrela no rodapé. O miolo entre os dois é o que este produto acrescenta.
  *
- * **O passar do mouse preenche o cartão de laranja**, como lá. É o realce que
- * diz "isto abre", e é por isso que **todo cartão abre agora**, inclusive o que
- * não tem dado: um cartão que acende sob o cursor e não responde ao clique
- * promete uma coisa e entrega outra. O que muda é o que se encontra do outro
- * lado — no sem dado, a explicação de por que ele está vazio.
+ * **O passar do mouse preenche o cartão**, como lá. É o realce que diz "isto
+ * abre", e é por isso que **todo cartão abre agora**, inclusive o que não tem
+ * dado: um cartão que acende sob o cursor e não responde ao clique promete uma
+ * coisa e entrega outra. O que muda é o que se encontra do outro lado — no sem
+ * dado, a explicação de por que ele está vazio.
  *
- * O texto inteiro vira branco no realce, valores monetários incluídos. O
- * vermelho de perda sobre laranja não se lê, e um número ilegível é pior do que
- * um número sem cor: a cor volta assim que o cursor sai.
+ * O preenchimento usa o laranja **escurecido**, e não o da marca. Sobre o
+ * laranja claro o vermelho de perda ficava em 3,4:1 — ilegível — e a primeira
+ * saída, pintar tudo de branco, custava a distinção entre perda e ganho
+ * justamente no gesto de olhar o número. Com o fundo escuro os dois tons claros
+ * cabem: 4,6:1 a perda, 5,8:1 o ganho, 8,2:1 o texto branco.
  */
 function Cartao({
   cartao,
@@ -786,25 +788,32 @@ function Cartao({
       <span
         className={cn(
           "text-[0.9375rem] font-semibold uppercase tracking-wide leading-snug",
+          "group-hover:text-white",
           temDado ? "" : "text-muted-foreground",
         )}
       >
         {cartao.nome}
       </span>
-      <span className="text-xs text-muted-foreground">{cartao.secao}</span>
+      <span className="text-xs text-muted-foreground group-hover:text-white">
+        {cartao.secao}
+      </span>
 
       <span className="text-sm mt-1">
         {!temDado ? (
-          <span className="text-xs text-muted-foreground">Sem dado neste export</span>
+          <span className="text-xs text-muted-foreground group-hover:text-white">
+            Sem dado neste export
+          </span>
         ) : mudou ? (
           <ImpactoResumido impact={cartao.impact} className="block" />
         ) : (
-          <span className="text-xs text-muted-foreground">Sem alterações nesta vigência</span>
+          <span className="text-xs text-muted-foreground group-hover:text-white">
+            Sem alterações nesta vigência
+          </span>
         )}
       </span>
 
       {mudou && (
-        <span className="text-xs text-muted-foreground">
+        <span className="text-xs text-muted-foreground group-hover:text-white">
           {cartao.changes} {cartao.changes === 1 ? "alteração" : "alterações"}
           {cartao.vehicles !== null && (
             <>
@@ -816,7 +825,7 @@ function Cartao({
       )}
 
       {cartao.pending && (
-        <span className="text-xs text-brand-red flex gap-1.5 mt-1">
+        <span className="text-xs text-brand-red group-hover:text-loss-on-dark flex gap-1.5 mt-1">
           <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" />
           {cartao.pending}
         </span>
@@ -833,7 +842,7 @@ function Cartao({
           dentro, sem ter de repetir a variante em cada span.
         */
         "group border border-l-[5px] flex flex-col shadow-sm transition-colors",
-        "hover:bg-brand hover:border-brand hover:shadow-md hover:[&_*]:text-white",
+        "hover:bg-brand-dark hover:border-brand-dark hover:shadow-md",
         temDado ? "bg-card border-l-brand" : "bg-card/60 border-l-brand/40",
       )}
     >
@@ -1058,6 +1067,11 @@ function Resumo({ view }: { view: FamiliesView }) {
  * - **já contado nas parcelas** → o valor existe e é calculável, mas somá-lo de
  *   novo inflaria o total;
  * - **não calculável** → aí sim, e o cartão de dentro traz o motivo por escrito.
+ *
+ * As variantes `group-hover:` são para quando isto aparece dentro de um cartão
+ * realçado: o fundo escurece e perda e ganho trocam para os tons claros, que é
+ * o que preserva a distinção entre os dois. Fora de um `group` elas nunca
+ * disparam, então o mesmo componente serve à tela de detalhe sem ajuste.
  */
 function ImpactoResumido({
   impact,
@@ -1075,7 +1089,9 @@ function ImpactoResumido({
             key={e.periodicity}
             className={cn(
               "font-bold tabular-nums",
-              e.amount < 0 ? "text-brand-red" : "text-success",
+              e.amount < 0
+                ? "text-brand-red group-hover:text-loss-on-dark"
+                : "text-success group-hover:text-gain-on-dark",
               className,
             )}
           >
@@ -1089,16 +1105,24 @@ function ImpactoResumido({
   const excluded = impactEntries(impact.excludedByPeriodicity);
   if (excluded.length > 0) {
     return (
-      <span className="text-xs text-muted-foreground">
+      <span className="text-xs text-muted-foreground group-hover:text-white">
         {excluded.map((e) => e.label).join(" · ")} — já contado nas parcelas
       </span>
     );
   }
 
   if (impact.notCalculable > 0) {
-    return <span className="text-xs text-muted-foreground">Impacto não calculável</span>;
+    return (
+      <span className="text-xs text-muted-foreground group-hover:text-white">
+        Impacto não calculável
+      </span>
+    );
   }
-  return <span className="text-xs text-muted-foreground">Sem impacto apurado</span>;
+  return (
+    <span className="text-xs text-muted-foreground group-hover:text-white">
+      Sem impacto apurado
+    </span>
+  );
 }
 
 function normalizar(texto: string): string {
