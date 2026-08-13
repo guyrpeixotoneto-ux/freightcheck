@@ -9,6 +9,7 @@ import { AuthProvider, useAuth } from '@/lib/auth';
 import Login from '@/pages/login';
 
 import Inicio from '@/pages/inicio';
+import Vigencia from '@/pages/vigencia';
 import Alteracoes from '@/pages/alteracoes';
 import Parametros from '@/pages/parametros';
 import Comparar from '@/pages/comparar';
@@ -41,6 +42,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Inicio} />
+      <Route path="/vigencia" component={Vigencia} />
       <Route path="/apresentacao" component={ApresentacaoVideo} />
       <Route path="/parametros" component={Parametros} />
       <Route path="/alteracoes" component={Alteracoes} />

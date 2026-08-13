@@ -1,253 +1,220 @@
+import { useMemo, useState } from "react";
 import { Link, useLocation } from "wouter";
-import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
+  ArrowDownToLine,
+  CloudDownload,
   Database,
-  FileDown,
   FileSearch,
+  Gauge,
   GitBranch,
   GitCompareArrows,
-  Home,
+  HelpCircle,
   LayoutGrid,
-  LogOut,
+  Search,
   Settings,
   Truck,
+  Users,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { getApiUrl } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
 
 /**
- * O menu, na ordem do trabalho.
+ * A lateral do Freightech.
  *
- * Três regras, e a primeira vale mais do que parece:
+ * Branca, o botão laranja de seleção de unidades no topo, a busca de
+ * funcionalidades logo abaixo, e a lista em caixa alta com o ícone à esquerda.
+ * Quem usa o Freightech encontra cada item onde a mão já vai.
  *
- * 1. **Um item que não funciona não é apresentado como se funcionasse.** A
- *    Simulação ficava aqui, travada, apontando para rotas removidas junto com o
- *    schema antigo. Um item inerte ainda ocupa atenção e ainda promete algo que
- *    o produto não entrega; saiu, e o desenho dela continua em
- *    `docs/PROPOSTA-SIMULACAO.md` até existir código atrás do clique.
+ * Duas decisões que não são cosméticas:
  *
- * 2. **Uma tela é a tela.** "Início" é onde se decide, e por isso é a primeira
- *    e a única do primeiro grupo. Alterações e Comparar continuam existindo —
- *    são a lista linha a linha e o par escolhido à mão — mas passaram a ser o
- *    aprofundamento, não o ponto de partida.
- *
- * 3. **Ferramenta de decisão e ferramenta de operação não têm o mesmo peso.**
- *    Importações é operação. Análise de Frota lê a planilha do disco, fora do
- *    modelo canônico e sem rastreabilidade até a célula: continua acessível,
- *    sob o rótulo que ela merece.
+ * 1. **A busca filtra de verdade.** No Freightech a lista é longa e a busca é o
+ *    caminho mais curto. Aqui ela filtra por rótulo e por sinônimo — quem digita
+ *    "chamado" acha Curadoria, quem digita "exportação" acha Importações — porque
+ *    o vocabulário aprendido lá não bate item a item com o daqui.
+ * 2. **Um item que não funciona não entra na lista.** É a mesma regra de antes
+ *    do espelho, e ela vale acima da fidelidade visual: parecer o Freightech não
+ *    autoriza prometer uma tela que não existe.
  */
 
 interface NavItem {
   href: string;
   label: string;
   icon: typeof Activity;
-  /** Frase curta sob o item, quando ele precisa de contexto. */
-  note?: string;
+  /** O que o usuário talvez digite na busca procurando por este item. */
+  sinonimos?: string[];
 }
 
-interface NavGroup {
-  title: string;
-  items: NavItem[];
-}
-
-const NAV_GROUPS: NavGroup[] = [
+const NAV_ITEMS: NavItem[] = [
+  { href: "/", label: "Pagina inicial", icon: Gauge, sinonimos: ["home", "início"] },
   {
-    title: "Decidir",
-    items: [
-      { href: "/", label: "Início", icon: Home },
-      {
-        href: "/parametros",
-        label: "Parâmetros",
-        icon: LayoutGrid,
-        note: "por família, como no Freightech",
-      },
-    ],
+    href: "/vigencia",
+    label: "Acompanhamento de vigência",
+    icon: Activity,
+    sinonimos: ["dashboard", "resumo", "impacto", "acompanhamento exportações"],
   },
   {
-    title: "Aprofundar",
-    items: [
-      { href: "/alteracoes", label: "Alterações", icon: Activity },
-      { href: "/comparar", label: "Comparar Vigências", icon: GitCompareArrows },
-      { href: "/vigencias", label: "Vigências", icon: Database },
-    ],
+    href: "/parametros",
+    label: "Parâmetros",
+    icon: LayoutGrid,
+    sinonimos: ["segmento", "escolha de segmento", "book operador", "família"],
   },
   {
-    title: "Destravar",
-    items: [
-      { href: "/curadoria", label: "Curadoria", icon: FileSearch },
-      { href: "/versoes", label: "Versões", icon: GitBranch },
-    ],
+    href: "/alteracoes",
+    label: "Alterações",
+    icon: Activity,
+    sinonimos: ["mudanças", "chamados", "linha a linha"],
   },
   {
-    title: "Operação",
-    items: [
-      { href: "/importacoes", label: "Importações", icon: FileDown },
-      {
-        href: "/analise-equipamentos",
-        label: "Análise de Frota",
-        icon: Truck,
-        note: "legado — lê a planilha, não o modelo",
-      },
-    ],
+    href: "/comparar",
+    label: "Comparar vigências",
+    icon: GitCompareArrows,
+    sinonimos: ["diff", "retroativo", "dissídio"],
+  },
+  {
+    href: "/vigencias",
+    label: "Vigências",
+    icon: Database,
+    sinonimos: ["histórico", "datas", "dimensionamento"],
+  },
+  {
+    href: "/curadoria",
+    label: "Curadoria",
+    icon: FileSearch,
+    sinonimos: ["semântica", "atributos", "limpa pautas"],
+  },
+  {
+    href: "/versoes",
+    label: "Versões",
+    icon: GitBranch,
+    sinonimos: ["correção", "fonte", "outros custos"],
+  },
+  {
+    href: "/importacoes",
+    label: "Importações",
+    icon: CloudDownload,
+    sinonimos: ["exportação", "arquivo", "planilha", "upload"],
+  },
+  {
+    href: "/analise-equipamentos",
+    label: "Análise de frota",
+    icon: Truck,
+    sinonimos: ["equipamentos", "cavalo", "carreta", "legado"],
+  },
+  {
+    href: "/configuracoes",
+    label: "Usuário",
+    icon: Users,
+    sinonimos: ["configurações", "acesso", "senha", "conta"],
   },
 ];
 
-/**
- * Attributes that still block a financial number.
- *
- * The single most useful thing this menu can tell you: how much of the
- * product's value is still locked behind curation. It is the bottleneck, and
- * hiding it would not make it smaller.
- */
-function useCurationBacklog() {
-  return useQuery({
-    queryKey: ["curation", "summary", "sidebar"],
-    queryFn: async () => {
-      const response = await fetch(getApiUrl("/curation/summary"));
-      if (!response.ok) return null;
-      const data = (await response.json()) as {
-        byStatus: { status: string; count: number; monetary: number }[];
-      };
-      return data.byStatus
-        .filter((s) => s.status !== "CONFIRMED")
-        .reduce((sum, s) => sum + s.monetary, 0);
-    },
-    staleTime: 60_000,
-    retry: false,
-  });
-}
-
-export function Sidebar() {
+export function Sidebar({ open }: { open: boolean }) {
   const [location] = useLocation();
-  const { data: backlog } = useCurationBacklog();
+  const [busca, setBusca] = useState("");
+
+  const itens = useMemo(() => {
+    const termo = normalizar(busca.trim());
+    if (!termo) return NAV_ITEMS;
+    return NAV_ITEMS.filter((item) =>
+      [item.label, ...(item.sinonimos ?? [])].some((texto) =>
+        normalizar(texto).includes(termo),
+      ),
+    );
+  }, [busca]);
+
+  if (!open) return null;
 
   return (
-    <aside className="w-64 bg-sidebar text-sidebar-foreground min-h-[100dvh] flex flex-col border-r border-sidebar-border shrink-0 sticky top-0">
-      <div className="h-16 flex items-center px-6 border-b border-sidebar-border">
-        <div className="font-bold text-xl tracking-tight flex items-center gap-2">
-          <div className="w-8 h-8 rounded bg-primary text-primary-foreground flex items-center justify-center">
-            <span className="font-sans font-bold">F</span>
-          </div>
-          FREIGHTCHECK
-        </div>
-      </div>
-
-      <nav className="px-4 py-5 flex-1 flex flex-col gap-5 overflow-y-auto">
-        {NAV_GROUPS.map((group) => (
-          <div key={group.title} className="flex flex-col gap-1">
-            <div className="text-[11px] font-semibold text-sidebar-foreground/40 tracking-wider mb-1 px-2 uppercase">
-              {group.title}
-            </div>
-
-            {group.items.map((item) => {
-              const isActive =
-                location === item.href ||
-                (item.href !== "/" && location.startsWith(item.href));
-
-              return (
-                <Link
-                  key={item.href}
-                  href={item.href}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200",
-                    isActive
-                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                      : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
-                  )}
-                >
-                  <item.icon className="w-4 h-4 shrink-0" />
-                  <span className="flex-1">
-                    {item.label}
-                    {item.note && (
-                      <span className="block text-[10px] font-normal opacity-60 leading-tight">
-                        {item.note}
-                      </span>
-                    )}
-                  </span>
-                  {item.href === "/curadoria" && backlog ? (
-                    <span
-                      title={`${backlog} atributos monetários ainda sem semântica confirmada — cada um deles é um impacto financeiro que o produto não pode calcular.`}
-                      className="text-[11px] tabular-nums px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300"
-                    >
-                      {backlog}
-                    </span>
-                  ) : null}
-                </Link>
-              );
-            })}
-          </div>
-        ))}
-      </nav>
-
-      {/*
-        Configurações fica fora dos grupos de propósito: cada grupo acima é uma
-        pergunta que o produto responde sobre a remuneração, e "quem tem acesso"
-        não é uma delas. Enfiá-la em "De onde veio" faria a lista mentir sobre a
-        própria organização.
-      */}
-      <div className="px-4 pb-2">
+    <aside className="w-72 bg-sidebar text-sidebar-foreground border-r border-sidebar-border shrink-0 flex flex-col self-stretch">
+      <div className="p-4">
         <Link
-          href="/configuracoes"
-          className={cn(
-            "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors duration-200",
-            location.startsWith("/configuracoes")
-              ? "bg-sidebar-accent text-sidebar-accent-foreground"
-              : "text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
-          )}
+          href="/parametros"
+          className="block w-full bg-brand text-brand-foreground text-center text-[13px] font-bold uppercase tracking-wide py-3.5 rounded-sm hover:brightness-95 transition-[filter]"
         >
-          <Settings className="w-4 h-4 shrink-0" />
-          <span className="flex-1">Configurações</span>
+          Seleção de unidades
         </Link>
       </div>
 
-      <SignedInAs />
+      <div className="px-4 pb-4">
+        <label
+          htmlFor="busca-funcionalidades"
+          className="block text-[15px] font-bold text-foreground mb-2"
+        >
+          Funcionalidades
+        </label>
+        <div className="relative">
+          <input
+            id="busca-funcionalidades"
+            value={busca}
+            onChange={(event) => setBusca(event.target.value)}
+            className="w-full border border-input rounded-sm h-11 pl-3 pr-10 text-sm outline-none focus:border-brand"
+          />
+          <Search className="w-5 h-5 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+        </div>
+      </div>
+
+      <nav className="flex-1 overflow-y-auto pb-6">
+        {itens.length === 0 && (
+          <p className="px-6 text-xs text-muted-foreground">
+            Nenhuma funcionalidade com esse nome.
+          </p>
+        )}
+
+        {itens.map((item) => {
+          const ativo =
+            location === item.href ||
+            (item.href !== "/" && location.startsWith(item.href));
+
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className={cn(
+                "flex items-center gap-4 px-6 py-3.5 text-[13px] font-semibold uppercase tracking-wide transition-colors",
+                ativo
+                  ? "bg-sidebar-accent text-brand"
+                  : "text-sidebar-foreground hover:bg-sidebar-accent",
+              )}
+            >
+              <item.icon
+                className={cn("w-5 h-5 shrink-0", ativo ? "text-brand" : "text-muted-foreground")}
+              />
+              <span className="min-w-0">{item.label}</span>
+            </Link>
+          );
+        })}
+      </nav>
+
+      <div className="border-t border-sidebar-border">
+        <Link
+          href="/configuracoes"
+          className="flex items-center gap-4 px-6 py-3.5 text-[13px] font-semibold uppercase tracking-wide text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+        >
+          <Settings className="w-5 h-5 shrink-0 text-muted-foreground" />
+          Configurações
+        </Link>
+        <a
+          href="https://github.com/guyrpeixotoneto-ux/freightcheck"
+          target="_blank"
+          rel="noreferrer"
+          className="flex items-center gap-4 px-6 py-3.5 text-[13px] font-semibold uppercase tracking-wide text-sidebar-foreground hover:bg-sidebar-accent transition-colors"
+        >
+          <HelpCircle className="w-5 h-5 shrink-0 text-muted-foreground" />
+          Ajuda
+        </a>
+        <div className="px-6 py-3 flex items-center gap-2 text-[11px] text-muted-foreground">
+          <ArrowDownToLine className="w-3.5 h-3.5" />
+          FreightCheck — espelho do Freightech
+        </div>
+      </div>
     </aside>
   );
 }
 
-/**
- * Quem está logado — e é o mesmo nome que vai para o `actor` de cada
- * confirmação. Antes daqui havia um "Admin User" fixo no código, que dizia
- * exatamente nada sobre quem estava usando o sistema.
- */
-function SignedInAs() {
-  const { user, logout, isSubmitting } = useAuth();
-
-  if (!user) return null;
-
-  return (
-    <div className="p-4 border-t border-sidebar-border">
-      <div className="flex items-center gap-3 px-3 py-2">
-        <div className="w-8 h-8 rounded-full bg-sidebar-accent flex items-center justify-center text-xs font-bold shrink-0">
-          {initials(user.name)}
-        </div>
-        <div className="flex flex-col min-w-0 flex-1">
-          <span className="text-sm font-medium truncate">{user.name}</span>
-          <span className="text-xs text-sidebar-foreground/50 truncate">
-            {user.email}
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={() => void logout()}
-          disabled={isSubmitting}
-          title="Sair"
-          aria-label="Sair"
-          className="text-sidebar-foreground/50 hover:text-sidebar-foreground p-1.5 rounded-md hover:bg-sidebar-accent/50 transition-colors disabled:opacity-50"
-        >
-          <LogOut className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-/** Duas letras, e nunca uma string vazia — o nome é obrigatório no cadastro. */
-function initials(name: string): string {
-  const parts = name.trim().split(/\s+/);
-  const first = parts[0]?.[0] ?? "?";
-  const last = parts.length > 1 ? parts[parts.length - 1][0] : "";
-  return (first + last).toUpperCase();
+/** Busca sem acento e sem caixa: ninguém digita "vigência" com o acento certo. */
+function normalizar(texto: string): string {
+  return texto
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 }

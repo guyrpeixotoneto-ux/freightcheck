@@ -47,12 +47,15 @@ export default function Login() {
 
   return (
     <div className="min-h-[100dvh] grid lg:grid-cols-[1.1fr_1fr] bg-background">
-      <aside className="hidden lg:flex flex-col justify-between bg-sidebar text-sidebar-foreground p-12">
+      <aside className="hidden lg:flex flex-col justify-between bg-brand-red text-brand-red-foreground p-12">
         <div className="font-bold text-xl tracking-tight flex items-center gap-2">
-          <div className="w-8 h-8 rounded bg-primary text-primary-foreground flex items-center justify-center">
-            <span className="font-sans font-bold">F</span>
+          <div className="w-9 h-9 rounded-sm bg-white text-brand-red flex items-center justify-center font-extrabold text-xl italic">
+            F
           </div>
-          FREIGHTCHECK
+          <span className="text-2xl leading-none">
+            <span className="font-extrabold italic">Freight</span>
+            <span className="font-light">check</span>
+          </span>
         </div>
 
         <div className="max-w-md space-y-6">
@@ -60,12 +63,12 @@ export default function Login() {
             O que mudou na remuneração, entre quais vigências, e quanto isso
             custa.
           </h1>
-          <p className="text-sidebar-foreground/70 leading-relaxed">
-            Auditoria dos modelos que a Ambev entrega pelo Freightec — sem nunca
+          <p className="text-white/80 leading-relaxed">
+            Auditoria dos modelos que a Ambev entrega pelo Freightech — sem nunca
             exibir um número que não se consiga sustentar até a célula da
             planilha de origem.
           </p>
-          <div className="flex items-start gap-3 text-sm text-sidebar-foreground/60 border-t border-sidebar-border pt-6">
+          <div className="flex items-start gap-3 text-sm text-white/70 border-t border-white/25 pt-6">
             <ShieldCheck className="w-4 h-4 mt-0.5 shrink-0" />
             <p>
               Cada confirmação de semântica e cada promoção de vigência fica
@@ -74,7 +77,7 @@ export default function Login() {
           </div>
         </div>
 
-        <p className="text-xs text-sidebar-foreground/40">
+        <p className="text-xs text-white/50">
           Uso interno. Os dados aqui dentro são contratuais.
         </p>
       </aside>
@@ -82,10 +85,13 @@ export default function Login() {
       <main className="flex items-center justify-center p-6 sm:p-12">
         <div className="w-full max-w-sm">
           <div className="lg:hidden font-bold text-xl tracking-tight flex items-center gap-2 mb-10">
-            <div className="w-8 h-8 rounded bg-primary text-primary-foreground flex items-center justify-center">
-              <span className="font-sans font-bold">F</span>
+            <div className="w-9 h-9 rounded-sm bg-brand-red text-white flex items-center justify-center font-extrabold text-xl italic">
+              F
             </div>
-            FREIGHTCHECK
+            <span className="text-2xl leading-none">
+              <span className="font-extrabold italic">Freight</span>
+              <span className="font-light">check</span>
+            </span>
           </div>
 
           <h2 className="text-2xl font-bold tracking-tight">Entrar</h2>

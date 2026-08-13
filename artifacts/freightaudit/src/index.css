@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap');
 
 @import 'tailwindcss';
 @import 'tw-animate-css';
@@ -48,6 +48,11 @@
   --color-chart-4: hsl(var(--chart-4));
   --color-chart-5: hsl(var(--chart-5));
 
+  --color-brand: hsl(var(--brand));
+  --color-brand-foreground: hsl(var(--brand-foreground));
+  --color-brand-red: hsl(var(--brand-red));
+  --color-brand-red-foreground: hsl(var(--brand-red-foreground));
+
   --color-sidebar: hsl(var(--sidebar));
   --color-sidebar-foreground: hsl(var(--sidebar-foreground));
   --color-sidebar-border: hsl(var(--sidebar-border));
@@ -66,63 +71,89 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/*
+ * A paleta do Freightech.
+ *
+ * O usuário deste produto passa o dia no Freightech. Abrir o FreightCheck e
+ * encontrar outra cor, outra tipografia e outro formato de cartão custa uma
+ * releitura inteira da tela antes de ler o dado. Então a casca é a mesma:
+ * a faixa vermelha em cima, o laranja como única cor de ação, o cinza claro
+ * como fundo de página, o cartão branco com a barra laranja na borda.
+ *
+ * Duas cores e um cinza — nada mais. O verde e o vermelho de valor continuam
+ * existindo (ganho e perda), porque são leitura de dado, não de marca.
+ */
 :root {
-  --background: 210 40% 98%;
-  --foreground: 222 47% 11%;
-  --border: 214 32% 91%;
-  --input: 214 32% 91%;
-  --ring: 243 75% 59%;
+  --background: 0 0% 95%;
+  --foreground: 0 0% 20%;
+  --border: 0 0% 88%;
+  --input: 0 0% 80%;
+  --ring: 37 91% 55%;
 
   --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
-  --card-border: 214 32% 91%;
+  --card-foreground: 0 0% 20%;
+  --card-border: 0 0% 88%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 222 47% 11%;
-  --popover-border: 214 32% 91%;
+  --popover-foreground: 0 0% 20%;
+  --popover-border: 0 0% 88%;
 
-  --primary: 243 75% 59%;
-  --primary-foreground: 210 40% 98%;
+  /* Laranja: a cor de ação. Botão, estrela, borda de cartão, régua de seção. */
+  --primary: 37 91% 55%;
+  --primary-foreground: 0 0% 100%;
 
-  --secondary: 210 40% 96.1%;
-  --secondary-foreground: 222.2 47.4% 11.2%;
+  --secondary: 0 0% 96%;
+  --secondary-foreground: 0 0% 20%;
 
-  --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
+  --muted: 0 0% 96%;
+  --muted-foreground: 0 0% 45%;
 
-  --accent: 210 40% 96.1%;
-  --accent-foreground: 222.2 47.4% 11.2%;
+  --accent: 37 91% 95%;
+  --accent-foreground: 0 0% 20%;
 
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 210 40% 98%;
+  --destructive: 358 79% 39%;
+  --destructive-foreground: 0 0% 100%;
 
-  --success: 142 71% 45%;
-  --success-foreground: 210 40% 98%;
+  --success: 142 60% 33%;
+  --success-foreground: 0 0% 100%;
 
-  --warning: 38 92% 50%;
-  --warning-foreground: 48 96% 89%;
+  --warning: 37 91% 55%;
+  --warning-foreground: 0 0% 20%;
 
-  --chart-1: 243 75% 59%;
-  --chart-2: 215 16% 47%;
-  --chart-3: 142 71% 45%;
-  --chart-4: 38 92% 50%;
-  --chart-5: 0 84% 60%;
+  --chart-1: 37 91% 55%;
+  --chart-2: 358 79% 39%;
+  --chart-3: 0 0% 45%;
+  --chart-4: 142 60% 33%;
+  --chart-5: 210 60% 40%;
 
-  --sidebar: 222 47% 11%;
-  --sidebar-foreground: 210 40% 98%;
-  --sidebar-border: 217 33% 17%;
-  --sidebar-primary: 243 75% 59%;
-  --sidebar-primary-foreground: 210 40% 98%;
-  --sidebar-accent: 217 33% 17%;
-  --sidebar-accent-foreground: 210 40% 98%;
-  --sidebar-ring: 243 75% 59%;
+  /* A marca: laranja de ação, vermelho de barra superior. */
+  --brand: 37 91% 55%;
+  --brand-foreground: 0 0% 100%;
+  --brand-red: 358 79% 39%;
+  --brand-red-foreground: 0 0% 100%;
 
-  --app-font-sans: 'Plus Jakarta Sans', sans-serif;
+  /* A lateral do Freightech é branca, não escura. */
+  --sidebar: 0 0% 100%;
+  --sidebar-foreground: 0 0% 30%;
+  --sidebar-border: 0 0% 88%;
+  --sidebar-primary: 37 91% 55%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 0 0% 95%;
+  --sidebar-accent-foreground: 0 0% 15%;
+  --sidebar-ring: 37 91% 55%;
+
+  --app-font-sans: 'Montserrat', sans-serif;
   --app-font-mono: 'JetBrains Mono', monospace;
-  --radius: 0.5rem;
+  /* Cartão do Freightech é quase reto. */
+  --radius: 0.25rem;
 }
 
 .dark {
+  --brand: 37 91% 55%;
+  --brand-foreground: 0 0% 100%;
+  --brand-red: 358 79% 39%;
+  --brand-red-foreground: 0 0% 100%;
+
   --background: 222 47% 11%;
   --foreground: 210 40% 98%;
   --border: 217 33% 17%;

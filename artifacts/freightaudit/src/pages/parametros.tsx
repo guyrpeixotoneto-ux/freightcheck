@@ -1,12 +1,19 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
-import { AlertTriangle, ChevronDown, ChevronRight, Info, Lock } from "lucide-react";
+import { AlertTriangle, ChevronLeft, Info, Lock, Search, Star } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
-import { ContextBar, type ContextSelection } from "@/components/contexto/context-bar";
 import { GroupCard } from "@/components/inicio/group-card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { getApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useFavoritos } from "@/lib/favoritos";
 import { formatBrlShort, impactEntries, periodicitySuffix } from "@/lib/format";
 import type {
   FamiliesView,
@@ -16,29 +23,26 @@ import type {
 } from "@/components/inicio/types";
 
 /**
- * Parâmetros — a vigência lida como no Freightech.
+ * Escolha de segmento — a tela do Freightech, com o dado que ele não mostra.
  *
- * A tela existe para uma frase: *"eu sei onde estou e reconheço essas
- * informações"*. As famílias e os nomes vêm do vocabulário que o usuário já
- * aprendeu — Frota, Combustível, Pneu, Manutenção Cavalo — e o que cada um
- * carrega é o que o Freightech nunca mostra: **o que mudou, quanto vale, e o
- * que ainda não dá para afirmar.**
+ * Tudo o que a mão já sabe fazer continua igual: os quatro campos na ordem
+ * **Canal/Segmento → Vigência → Unidade → Parâmetro**, o botão FILTRAR que só
+ * acende quando há o que aplicar, as seções em caixa alta com a régua laranja,
+ * a grade de cartões com a barra na lateral e a estrela de favorito.
  *
- * Três recusas herdadas, e nenhuma delas afrouxa aqui:
+ * O que muda é o que está escrito dentro do cartão. No Freightech ele traz o
+ * nome do parâmetro e nada mais — para descobrir se algo mudou é preciso abrir,
+ * exportar e comparar à mão. Aqui cada cartão já diz **quantas alterações, em
+ * quantos veículos e quanto isso vale**; e quando não dá para valorar, diz o
+ * motivo em vez de mostrar um traço.
  *
- * 1. **Nunca um número só somando periodicidades.** R$/mês e R$/ano aparecem em
- *    linhas próprias, sempre.
- * 2. **Nunca uma família vazia.** O que o Freightech publica e este export não
- *    traz está no rodapé, escrito — não como cartão que promete um assunto que
- *    o produto não cobre.
- * 3. **Nunca "impacto a verificar".** Quando não dá para calcular, o motivo é
- *    dito com as palavras que o motor já usa.
+ * Três recusas que a fidelidade visual não afrouxa:
  *
- * E uma diferença deliberada em relação ao Freightech: **não há botão Filtrar**,
- * e o parâmetro abre no lugar em vez de virar outra página. Familiaridade é de
- * vocabulário e de hierarquia; o número de cliques não precisa ser herdado.
+ * 1. **Nunca somar periodicidades.** R$/mês e R$/ano em linhas próprias, sempre.
+ * 2. **Nunca um cartão vazio.** O que o Freightech publica e este export não
+ *    traz vira nota de rodapé, não cartão que promete assunto sem dado.
+ * 3. **Nunca "impacto a verificar".** Sem preço é sem preço, com o motivo junto.
  */
-
 export default function Parametros() {
   const search = useSearch();
   const [, navigate] = useLocation();
@@ -50,6 +54,14 @@ export default function Parametros() {
     if (value !== null) query.set(key, value);
   }
 
+  const parametroAberto = params.get("parametro");
+
+  /**
+   * A busca por nome de parâmetro fica aqui, e não dentro da grade, porque o
+   * campo dela mora na barra de filtro — que é irmã da grade, não filha.
+   */
+  const [busca, setBusca] = useState("");
+
   const { data, isLoading, error } = useQuery({
     queryKey: ["families", query.toString()],
     queryFn: async () => {
@@ -60,58 +72,63 @@ export default function Parametros() {
     },
   });
 
-  /** A seleção vive na URL: o endereço volta ao mesmo lugar e pode ser enviado. */
-  const applySelection = (selection: ContextSelection) => {
-    const next = new URLSearchParams(search);
-    if (selection.scopeHash !== undefined) next.set("scopeHash", selection.scopeHash);
-    if (selection.canal !== undefined) {
-      if (selection.canal === null) next.delete("canal");
-      else next.set("canal", selection.canal);
-    }
-    // Trocar de unidade ou de canal invalida a vigência escolhida: a data da
-    // outra unidade pode nem existir aqui, e insistir nela devolveria vazio.
-    if (selection.period !== undefined) next.set("period", selection.period);
-    else if (selection.scopeHash !== undefined || selection.canal !== undefined)
-      next.delete("period");
+  const aplicar = (selecao: { scopeHash: string; canal: string | null; period: string }) => {
+    const next = new URLSearchParams();
+    next.set("scopeHash", selecao.scopeHash);
+    if (selecao.canal) next.set("canal", selecao.canal);
+    if (selecao.period) next.set("period", selecao.period);
     navigate(`/parametros?${next}`);
   };
 
+  const abrirParametro = (chave: string | null) => {
+    const next = new URLSearchParams(search);
+    if (chave) next.set("parametro", chave);
+    else next.delete("parametro");
+    navigate(`/parametros?${next}`);
+  };
+
+  const parametro = useMemo(() => {
+    if (!data || !parametroAberto) return null;
+    for (const familia of data.families) {
+      const encontrado = familia.parameters.find((p) => p.key === parametroAberto);
+      if (encontrado) return { familia, parametro: encontrado };
+    }
+    return null;
+  }, [data, parametroAberto]);
+
   return (
     <Layout>
-      {data && <ContextBar view={data} onChange={applySelection} />}
+      <div className="px-10 py-8 max-w-[1600px]">
+        <h1 className="text-3xl font-bold uppercase tracking-tight">Escolha de segmento</h1>
 
-      <div className="p-8 space-y-8 max-w-6xl">
-        {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+        {data && (
+          <BarraFiltro
+            view={data}
+            onFiltrar={aplicar}
+            busca={busca}
+            onBuscar={setBusca}
+            buscaAtiva={!parametro}
+          />
+        )}
+
+        {isLoading && <p className="mt-8 text-sm text-muted-foreground">Carregando…</p>}
         {error && (
-          <div className="rounded-md border border-red-300 bg-red-50 px-4 py-3 text-sm text-red-900">
+          <div className="mt-8 bg-card border border-l-[6px] border-l-brand-red px-6 py-4 text-sm">
             {(error as Error).message}
           </div>
         )}
 
-        {data && (
-          <>
-            <Resumo view={data} />
+        {data && parametro && (
+          <DetalheParametro
+            familia={parametro.familia}
+            parametro={parametro.parametro}
+            period={data.period}
+            onVoltar={() => abrirParametro(null)}
+          />
+        )}
 
-            {!data.complete && (
-              <div className="flex gap-3 rounded-md border border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                <p>
-                  <strong>Visão parcial.</strong> Nesta vigência chegou apenas{" "}
-                  {data.series.map((s) => s.equipment.toLowerCase()).join(", ")}. Falta{" "}
-                  <strong>{data.missingSeries.join(", ").toLowerCase()}</strong> — a série
-                  ausente não está contada como zero.
-                </p>
-              </div>
-            )}
-
-            <section className="space-y-4">
-              {data.families.map((family) => (
-                <Familia key={family.code} family={family} period={data.period} />
-              ))}
-            </section>
-
-            <Rodape view={data} />
-          </>
+        {data && !parametro && (
+          <Grade view={data} busca={busca} onAbrir={(chave) => abrirParametro(chave)} />
         )}
       </div>
     </Layout>
@@ -119,19 +136,473 @@ export default function Parametros() {
 }
 
 /**
- * O resumo executivo.
+ * Os quatro campos e o botão, na ordem e no formato do Freightech.
  *
- * Perdas e ganhos separados **dentro de cada periodicidade**, porque somar um
- * ganho mensal a uma perda anual produziria um líquido que não descreve nem uma
- * coisa nem outra.
+ * O botão FILTRAR fica apagado enquanto a seleção na tela for igual à aplicada
+ * — é o mesmo comportamento de lá, e ele é honesto: clicar não faria nada. O
+ * campo Parâmetro, que lá só habilita depois de filtrar, aqui filtra a grade em
+ * tempo real, porque a grade já está na tela e não custa uma viagem ao servidor.
+ *
+ * Campo com uma opção só aparece preenchido e desabilitado, com a razão escrita
+ * embaixo: um seletor de um item é promessa de variedade que o dado não tem.
  */
+function BarraFiltro({
+  view,
+  onFiltrar,
+  busca,
+  onBuscar,
+  buscaAtiva,
+}: {
+  view: FamiliesView;
+  onFiltrar: (selecao: { scopeHash: string; canal: string | null; period: string }) => void;
+  busca: string;
+  onBuscar: (valor: string) => void;
+  /** Com um parâmetro aberto não há grade para filtrar; o campo desabilita. */
+  buscaAtiva: boolean;
+}) {
+  const contextos = [view.context, ...view.otherContexts];
+  const unidades = [...new Map(contextos.map((c) => [c.scopeHash, c])).values()];
+
+  const [scopeHash, setScopeHash] = useState(view.context.scopeHash);
+  const [canal, setCanal] = useState<string | null>(view.context.channel);
+  const [period, setPeriod] = useState(view.period);
+
+  // A resposta manda: trocar de unidade pela URL tem de refletir nos campos.
+  useEffect(() => {
+    setScopeHash(view.context.scopeHash);
+    setCanal(view.context.channel);
+    setPeriod(view.period);
+  }, [view.context.scopeHash, view.context.channel, view.period]);
+
+  const canais = contextos.filter((c) => c.scopeHash === scopeHash);
+  const sujo =
+    scopeHash !== view.context.scopeHash ||
+    canal !== view.context.channel ||
+    period !== view.period;
+
+  return (
+    <div className="mt-6 flex flex-wrap items-end gap-4">
+      <Campo
+        rotulo="Canal/Segmento"
+        nota={canais.length > 1 ? null : "único canal importado"}
+      >
+        {canais.length > 1 ? (
+          <Select value={canal ?? ""} onValueChange={(valor) => setCanal(valor || null)}>
+            <SelectTrigger className="w-56 h-12 rounded-sm bg-card">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {canais.map((c) => (
+                <SelectItem key={c.channel ?? "sem-canal"} value={c.channel ?? ""}>
+                  {c.channel ?? "sem canal no rótulo"}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <CampoFixo valor={canal ?? "sem canal no rótulo"} largura="w-56" />
+        )}
+      </Campo>
+
+      <Campo rotulo="Vigência" nota={`${view.periods.length} no histórico`}>
+        <Select value={period} onValueChange={setPeriod}>
+          <SelectTrigger className="w-56 h-12 rounded-sm bg-card">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {view.periods.map((p) => (
+              <SelectItem key={p.date} value={p.date}>
+                {p.label}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </Campo>
+
+      <Campo
+        rotulo="Unidade"
+        nota={unidades.length > 1 ? null : "única unidade importada"}
+      >
+        {unidades.length > 1 ? (
+          <Select
+            value={scopeHash}
+            onValueChange={(valor) => {
+              setScopeHash(valor);
+              setCanal(contextos.find((c) => c.scopeHash === valor)?.channel ?? null);
+            }}
+          >
+            <SelectTrigger className="w-56 h-12 rounded-sm bg-card">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {unidades.map((c) => (
+                <SelectItem key={c.scopeHash} value={c.scopeHash}>
+                  {nomeDaUnidade(c)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        ) : (
+          <CampoFixo valor={nomeDaUnidade(view.context)} largura="w-56" />
+        )}
+      </Campo>
+
+      <button
+        type="button"
+        disabled={!sujo}
+        onClick={() => onFiltrar({ scopeHash, canal, period })}
+        className={cn(
+          "h-12 px-8 rounded-sm text-[13px] font-bold uppercase tracking-wide transition-colors",
+          sujo
+            ? "bg-brand text-brand-foreground hover:brightness-95"
+            : "bg-brand/40 text-white cursor-not-allowed",
+        )}
+      >
+        Filtrar
+      </button>
+
+      <Campo rotulo="Parametro" nota={null}>
+        <div className="relative">
+          <input
+            value={busca}
+            disabled={!buscaAtiva}
+            onChange={(event) => onBuscar(event.target.value)}
+            aria-label="Buscar parâmetro pelo nome"
+            className="w-60 h-12 rounded-sm border border-input bg-card pl-3 pr-10 text-sm outline-none focus:border-brand disabled:bg-muted/60"
+          />
+          <Search className="w-5 h-5 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+        </div>
+      </Campo>
+    </div>
+  );
+}
+
+function Campo({
+  rotulo,
+  nota,
+  children,
+}: {
+  rotulo: string;
+  nota: string | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <div className="text-sm text-muted-foreground mb-1.5">{rotulo}</div>
+      {children}
+      {nota && <div className="text-[11px] text-muted-foreground mt-1">{nota}</div>}
+    </div>
+  );
+}
+
+function CampoFixo({ valor, largura }: { valor: string; largura: string }) {
+  return (
+    <div
+      className={cn(
+        "h-12 rounded-sm border border-input bg-muted/60 px-3 flex items-center text-sm truncate",
+        largura,
+      )}
+    >
+      {valor}
+    </div>
+  );
+}
+
+function nomeDaUnidade(context: FamiliesView["context"]): string {
+  const unidade = context.scopes.find((s) => s.scopeType === "UNIDADE");
+  return unidade?.name ?? unidade?.code ?? context.scopeHash;
+}
+
+/**
+ * A grade: um bloco por família, cartões de quatro em quatro.
+ *
+ * Os favoritos sobem para um bloco próprio no topo, como no Freightech — quem
+ * marcou cinco parâmetros não quer rolar a página inteira todo dia para achá-los.
+ */
+function Grade({
+  view,
+  busca,
+  onAbrir,
+}: {
+  view: FamiliesView;
+  busca: string;
+  onAbrir: (chave: string) => void;
+}) {
+  const { favoritos, alternar } = useFavoritos();
+
+  const termo = normalizar(busca.trim());
+  const familias = view.families
+    .map((familia) => ({
+      ...familia,
+      parameters: termo
+        ? familia.parameters.filter((p) => normalizar(p.name).includes(termo))
+        : familia.parameters,
+    }))
+    .filter((familia) => familia.parameters.length > 0);
+
+  const marcados = view.families
+    .flatMap((f) => f.parameters.map((p) => ({ familia: f, parametro: p })))
+    .filter((item) => favoritos.includes(item.parametro.key))
+    .filter((item) => !termo || normalizar(item.parametro.name).includes(termo));
+
+  return (
+    <>
+      <div className="mt-8">
+        <Resumo view={view} />
+      </div>
+
+      {!view.complete && (
+        <div className="mt-6 bg-card border border-l-[6px] border-l-brand flex gap-3 px-6 py-4 text-sm">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-brand" />
+          <p>
+            <strong>Visão parcial.</strong> Nesta vigência chegou apenas{" "}
+            {view.series.map((s) => s.equipment.toLowerCase()).join(", ")}. Falta{" "}
+            <strong>{view.missingSeries.join(", ").toLowerCase()}</strong> — a série
+            ausente não está contada como zero.
+          </p>
+        </div>
+      )}
+
+      {marcados.length > 0 && (
+        <Secao titulo="Favoritos">
+          {marcados.map(({ familia, parametro }) => (
+            <CartaoParametro
+              key={`fav-${parametro.key}`}
+              parametro={parametro}
+              familia={familia}
+              favorito
+              onFavoritar={() => alternar(parametro.key)}
+              onAbrir={() => onAbrir(parametro.key)}
+            />
+          ))}
+        </Secao>
+      )}
+
+      {familias.length === 0 && (
+        <p className="mt-10 text-sm text-muted-foreground">
+          Nenhum parâmetro com esse nome nesta vigência.
+        </p>
+      )}
+
+      {familias.map((familia) => (
+        <Secao
+          key={familia.code}
+          titulo={familia.name}
+          origem={familia.origin}
+          nota={familia.note}
+          resumo={
+            familia.changes === 0
+              ? "Sem alterações nesta vigência."
+              : `${familia.parametersChanged} de ${familia.parametersWithData} ${
+                  familia.parametersWithData === 1 ? "parâmetro" : "parâmetros"
+                } · ${familia.changes} ${
+                  familia.changes === 1 ? "alteração" : "alterações"
+                } · ${familia.vehicles} ${familia.vehicles === 1 ? "veículo" : "veículos"}`
+          }
+          travados={familia.locked}
+        >
+          {familia.parameters.map((parametro) => (
+            <CartaoParametro
+              key={parametro.key}
+              parametro={parametro}
+              familia={familia}
+              favorito={favoritos.includes(parametro.key)}
+              onFavoritar={() => alternar(parametro.key)}
+              onAbrir={() => onAbrir(parametro.key)}
+            />
+          ))}
+        </Secao>
+      ))}
+
+      <Rodape view={view} />
+    </>
+  );
+}
+
+/** O título de seção do Freightech: caixa alta, negrito, régua laranja embaixo. */
+function Secao({
+  titulo,
+  origem,
+  nota,
+  resumo,
+  travados,
+  children,
+}: {
+  titulo: string;
+  origem?: "FREIGHTECH" | "FREIGHTCHECK";
+  nota?: string;
+  resumo?: string;
+  travados?: number;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="mt-10">
+      <div className="flex flex-wrap items-baseline gap-3">
+        <h2 className="text-lg font-bold uppercase tracking-wide">{titulo}</h2>
+        {origem && (
+          <span className="text-[10px] uppercase tracking-wider text-muted-foreground border rounded-full px-2 py-0.5">
+            {origem === "FREIGHTECH" ? "Freightech" : "FreightCheck"}
+          </span>
+        )}
+        {resumo && <span className="text-xs text-muted-foreground">{resumo}</span>}
+        {travados ? (
+          <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
+            <Lock className="w-3 h-3" />
+            {travados} com preço travado
+          </span>
+        ) : null}
+      </div>
+      <div className="border-b-2 border-brand mt-2" />
+      {nota && <p className="text-xs text-muted-foreground mt-3">{nota}</p>}
+      <div className="grid gap-6 mt-5 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+        {children}
+      </div>
+    </section>
+  );
+}
+
+/**
+ * O cartão do Freightech: barra laranja na lateral esquerda, nome em caixa
+ * alta, estrela no rodapé. O miolo entre os dois é o que este produto acrescenta.
+ */
+function CartaoParametro({
+  parametro,
+  familia,
+  favorito,
+  onFavoritar,
+  onAbrir,
+}: {
+  parametro: ParameterView;
+  familia: FamilyView;
+  favorito: boolean;
+  onFavoritar: () => void;
+  onAbrir: () => void;
+}) {
+  const mudou = parametro.changes > 0;
+
+  return (
+    <div className="bg-card border border-l-[5px] border-l-brand shadow-sm hover:shadow-md transition-shadow flex flex-col">
+      <button
+        type="button"
+        onClick={onAbrir}
+        className="text-left px-5 pt-5 pb-3 flex-1 flex flex-col gap-2"
+      >
+        <span className="text-[15px] font-semibold uppercase tracking-wide leading-snug">
+          {parametro.name}
+        </span>
+        <span className="text-xs text-muted-foreground">{familia.name}</span>
+
+        <span className="text-sm mt-1">
+          {mudou ? (
+            <ImpactoResumido impact={parametro.impact} className="block" />
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              Sem alterações nesta vigência
+            </span>
+          )}
+        </span>
+
+        {mudou && (
+          <span className="text-xs text-muted-foreground">
+            {parametro.changes} {parametro.changes === 1 ? "alteração" : "alterações"} ·{" "}
+            {parametro.vehicles} {parametro.vehicles === 1 ? "veículo" : "veículos"}
+          </span>
+        )}
+
+        {parametro.pending && (
+          <span className="text-xs text-brand-red flex gap-1.5 mt-1">
+            <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" />
+            {parametro.pending}
+          </span>
+        )}
+      </button>
+
+      <div className="px-4 pb-3">
+        <button
+          type="button"
+          onClick={onFavoritar}
+          aria-pressed={favorito}
+          aria-label={favorito ? "Remover dos favoritos" : "Marcar como favorito"}
+          title={favorito ? "Remover dos favoritos" : "Marcar como favorito"}
+          className="p-1 -ml-1 text-brand hover:scale-110 transition-transform"
+        >
+          <Star className="w-7 h-7" strokeWidth={1.5} fill={favorito ? "currentColor" : "none"} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * O parâmetro aberto — a página que o Freightech abre depois do FILTRAR, com o
+ * que ele mostra lá dentro (o valor) e o que ele não mostra (o que mudou nele).
+ */
+function DetalheParametro({
+  familia,
+  parametro,
+  period,
+  onVoltar,
+}: {
+  familia: FamilyView;
+  parametro: ParameterView;
+  period: string;
+  onVoltar: () => void;
+}) {
+  return (
+    <div className="mt-8">
+      <button
+        type="button"
+        onClick={onVoltar}
+        className="inline-flex items-center gap-1.5 text-[13px] font-bold uppercase tracking-wide text-brand hover:underline"
+      >
+        <ChevronLeft className="w-4 h-4" />
+        Todos os parâmetros
+      </button>
+
+      <div className="mt-4 bg-card border border-l-[5px] border-l-brand px-7 py-6">
+        <div className="text-xs uppercase tracking-wider text-muted-foreground">
+          {familia.name}
+        </div>
+        <h2 className="text-2xl font-bold uppercase tracking-tight mt-1">
+          {parametro.name}
+        </h2>
+        <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-3 text-sm">
+          <ImpactoResumido impact={parametro.impact} />
+          <span className="text-muted-foreground">
+            {parametro.changes} {parametro.changes === 1 ? "alteração" : "alterações"} ·{" "}
+            {parametro.vehicles} {parametro.vehicles === 1 ? "veículo" : "veículos"}
+          </span>
+        </div>
+        {parametro.pending && (
+          <p className="text-sm text-brand-red flex gap-2 mt-3">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+            {parametro.pending}
+          </p>
+        )}
+      </div>
+
+      <div className="mt-6 space-y-3">
+        {parametro.groups.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            Nenhuma alteração neste parâmetro nesta vigência.
+          </p>
+        ) : (
+          parametro.groups.map((group) => (
+            <GroupCard key={group.key} group={group} period={period} />
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** O resumo executivo, compactado para caber ao lado da busca. */
 function Resumo({ view }: { view: FamiliesView }) {
   const { summary } = view;
   const liquido = impactEntries(summary.impact.byPeriodicity);
-  const excluido = impactEntries(summary.impact.excludedByPeriodicity);
 
   return (
-    <section className="rounded-lg border bg-card px-6 py-5 space-y-5">
+    <div className="min-w-0">
       <p className="text-lg">
         {summary.changes === 0 ? (
           <>O cliente não mexeu em nada nesta vigência.</>
@@ -140,40 +611,37 @@ function Resumo({ view }: { view: FamiliesView }) {
             O cliente mexeu em <strong>{summary.groups}</strong>{" "}
             {summary.groups === 1 ? "ponto" : "pontos"} da sua remuneração, em{" "}
             <strong>{view.families.filter((f) => f.changes > 0).length}</strong>{" "}
-            {view.families.filter((f) => f.changes > 0).length === 1 ? "família" : "famílias"}.
+            {view.families.filter((f) => f.changes > 0).length === 1
+              ? "família"
+              : "famílias"}
+            .
           </>
         )}
       </p>
 
       {liquido.length > 0 && (
-        <div className="grid gap-4 sm:grid-cols-3">
-          <Bloco titulo="Impacto líquido">
-            {liquido.map((e) => (
-              <Valor key={e.periodicity} amount={e.amount} periodicity={e.periodicity} />
-            ))}
-          </Bloco>
-          <Bloco titulo="Perdas">
-            {Object.entries(summary.lossesByPeriodicity).length === 0 ? (
-              <span className="text-sm text-muted-foreground">nenhuma apurada</span>
-            ) : (
-              Object.entries(summary.lossesByPeriodicity).map(([p, amount]) => (
-                <Valor key={p} amount={amount} periodicity={p} />
-              ))
-            )}
-          </Bloco>
-          <Bloco titulo="Ganhos">
-            {Object.entries(summary.gainsByPeriodicity).length === 0 ? (
-              <span className="text-sm text-muted-foreground">nenhum apurado</span>
-            ) : (
-              Object.entries(summary.gainsByPeriodicity).map(([p, amount]) => (
-                <Valor key={p} amount={amount} periodicity={p} />
-              ))
-            )}
-          </Bloco>
+        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 mt-2">
+          <span className="text-xs uppercase tracking-wide text-muted-foreground">
+            Impacto líquido
+          </span>
+          {liquido.map((e) => (
+            <span
+              key={e.periodicity}
+              className={cn(
+                "text-2xl font-bold tabular-nums",
+                e.amount < 0 ? "text-brand-red" : "text-success",
+              )}
+            >
+              {formatBrlShort(e.amount)}
+              <span className="text-sm font-normal text-muted-foreground">
+                {periodicitySuffix(e.periodicity)}
+              </span>
+            </span>
+          ))}
         </div>
       )}
 
-      <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
+      <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground mt-2">
         <span>
           <strong className="text-foreground">{summary.changes}</strong> alterações
         </span>
@@ -192,53 +660,30 @@ function Resumo({ view }: { view: FamiliesView }) {
         </span>
       </div>
 
-      {excluido.length > 0 && (
-        <p className="text-xs text-muted-foreground flex gap-2">
+      {impactEntries(summary.impact.excludedByPeriodicity).length > 0 && (
+        <p className="text-xs text-muted-foreground flex gap-2 mt-2 max-w-2xl">
           <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
           <span>
-            {excluido.map((e) => e.label).join(" · ")} ficaram fora do líquido por já
-            estarem contados nas parcelas — {summary.impact.excludedChanges}{" "}
+            {impactEntries(summary.impact.excludedByPeriodicity)
+              .map((e) => e.label)
+              .join(" · ")}{" "}
+            ficaram fora do líquido por já estarem contados nas parcelas —{" "}
+            {summary.impact.excludedChanges}{" "}
             {summary.impact.excludedChanges === 1 ? "alteração" : "alterações"}.
           </span>
         </p>
       )}
-
-      {(summary.topParameters.length > 0 || summary.topVehicles.length > 0) && (
-        <div className="grid gap-6 sm:grid-cols-2 pt-1">
-          <Ranking
-            titulo="Parâmetros mais impactados"
-            itens={summary.topParameters.map((p) => ({
-              nome: `${p.familyName} › ${p.name}`,
-              detalhe: `${p.changes} ${p.changes === 1 ? "alteração" : "alterações"}`,
-              byPeriodicity: p.byPeriodicity,
-            }))}
-          />
-          <Ranking
-            titulo="Veículos mais impactados"
-            itens={summary.topVehicles.map((v) => ({
-              nome: v.plate,
-              detalhe: `${v.changes} ${v.changes === 1 ? "alteração" : "alterações"}`,
-              byPeriodicity: v.byPeriodicity,
-            }))}
-          />
-        </div>
-      )}
-    </section>
+    </div>
   );
 }
 
 /**
- * O impacto de uma família ou de um parâmetro, dito pelo motivo certo.
- *
- * Três estados diferentes que um "sem número" pode ter, e confundi-los seria
- * mentir com a melhor das intenções:
+ * O impacto dito pelo motivo certo. Três estados diferentes de "sem número", e
+ * confundi-los seria mentir com a melhor das intenções:
  *
  * - **tem impacto** → os valores, um por periodicidade;
- * - **já contado nas parcelas** → `carreta.custo_fixo` mudou R$ 16.594,54/mês em
- *   agosto/2026 e ficou **fora** da soma porque `finame` e `lucroFixo` também
- *   mudaram nos mesmos ativos. O valor existe e é calculável; escrever
- *   "impacto não calculável" aqui seria falso, e escrever o valor de novo
- *   inflaria o total em 71%, que é o defeito que originou essa exclusão;
+ * - **já contado nas parcelas** → o valor existe e é calculável, mas somá-lo de
+ *   novo inflaria o total;
  * - **não calculável** → aí sim, e o cartão de dentro traz o motivo por escrito.
  */
 function ImpactoResumido({
@@ -256,8 +701,8 @@ function ImpactoResumido({
           <span
             key={e.periodicity}
             className={cn(
-              "font-semibold tabular-nums",
-              e.amount < 0 ? "text-red-700" : "text-emerald-700",
+              "font-bold tabular-nums",
+              e.amount < 0 ? "text-brand-red" : "text-success",
               className,
             )}
           >
@@ -283,201 +728,15 @@ function ImpactoResumido({
   return <span className="text-xs text-muted-foreground">Sem impacto apurado</span>;
 }
 
-function Bloco({ titulo, children }: { titulo: string; children: React.ReactNode }) {
-  return (
-    <div className="space-y-1">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">{titulo}</div>
-      <div className="space-y-0.5">{children}</div>
-    </div>
-  );
-}
-
-function Valor({ amount, periodicity }: { amount: number; periodicity: string }) {
-  return (
-    <div
-      className={cn(
-        "text-xl font-semibold tabular-nums",
-        amount < 0 ? "text-red-700" : amount > 0 ? "text-emerald-700" : "",
-      )}
-    >
-      {formatBrlShort(amount)}
-      <span className="text-sm font-normal text-muted-foreground">
-        {periodicitySuffix(periodicity)}
-      </span>
-    </div>
-  );
-}
-
 /**
- * Um ranking por periodicidade.
- *
- * A ordem usa o maior valor absoluto **numa só** periodicidade — somar mês com
- * ano para ordenar daria uma posição que nenhuma das duas grandezas justifica.
- */
-function Ranking({
-  titulo,
-  itens,
-}: {
-  titulo: string;
-  itens: { nome: string; detalhe: string; byPeriodicity: Record<string, number> }[];
-}) {
-  if (itens.length === 0) return null;
-  return (
-    <div className="space-y-2">
-      <div className="text-xs uppercase tracking-wide text-muted-foreground">{titulo}</div>
-      <ul className="space-y-1.5">
-        {itens.map((item) => (
-          <li key={item.nome} className="flex items-baseline justify-between gap-3 text-sm">
-            <span className="min-w-0">
-              <span className="truncate">{item.nome}</span>
-              <span className="text-xs text-muted-foreground ml-2">{item.detalhe}</span>
-            </span>
-            <span className="tabular-nums shrink-0 text-right">
-              {impactEntries(item.byPeriodicity).map((e) => (
-                <span
-                  key={e.periodicity}
-                  className={cn("block", e.amount < 0 ? "text-red-700" : "text-emerald-700")}
-                >
-                  {e.label}
-                </span>
-              ))}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
-}
-
-function Familia({ family, period }: { family: FamilyView; period: string }) {
-  const [open, setOpen] = useState(family.changes > 0);
-
-  return (
-    <div className="rounded-lg border bg-card">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full text-left px-5 py-4 flex gap-4 items-start hover:bg-muted/40 rounded-lg"
-      >
-        <span className="mt-1 text-muted-foreground shrink-0">
-          {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-        </span>
-
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-2">
-            <h2 className="font-semibold uppercase tracking-wide text-sm">{family.name}</h2>
-            {/*
-              De onde o nome veio. É o ponto da tela inteira: o que é vocabulário
-              do Freightech aparece como tal, e o que é nosso não se disfarça.
-            */}
-            <span className="text-[10px] uppercase tracking-wider text-muted-foreground border rounded-full px-1.5 py-0.5">
-              {family.origin === "FREIGHTECH" ? "Freightech" : "FreightCheck"}
-            </span>
-          </div>
-
-          <p className="text-sm text-muted-foreground mt-1">
-            {family.changes === 0 ? (
-              "Sem alterações nesta vigência."
-            ) : (
-              <>
-                {family.parametersChanged} de {family.parametersWithData}{" "}
-                {family.parametersWithData === 1 ? "parâmetro" : "parâmetros"} ·{" "}
-                {family.changes} {family.changes === 1 ? "alteração" : "alterações"} ·{" "}
-                {family.vehicles} {family.vehicles === 1 ? "veículo" : "veículos"}
-              </>
-            )}
-          </p>
-
-          {family.changes > 0 && (
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-sm">
-              <ImpactoResumido impact={family.impact} />
-              {family.locked > 0 && (
-                <span className="text-xs text-muted-foreground inline-flex items-center gap-1">
-                  <Lock className="w-3 h-3" />
-                  {family.locked} com preço travado
-                </span>
-              )}
-              {family.impact.notCalculable > 0 && (
-                <span className="text-xs text-muted-foreground">
-                  {family.impact.notCalculable} sem preço
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-      </button>
-
-      {open && (
-        <div className="px-5 pb-5 space-y-3 border-t pt-4">
-          <p className="text-xs text-muted-foreground">{family.note}</p>
-          {family.parameters.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              Nenhum parâmetro desta família mudou nesta vigência.
-            </p>
-          ) : (
-            family.parameters.map((parameter) => (
-              <Parametro key={parameter.key} parameter={parameter} period={period} />
-            ))
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function Parametro({ parameter, period }: { parameter: ParameterView; period: string }) {
-  const [open, setOpen] = useState(false);
-
-  return (
-    <div className="rounded-md border bg-background">
-      <button
-        onClick={() => setOpen(!open)}
-        className="w-full text-left px-4 py-3 flex gap-3 items-start hover:bg-muted/40 rounded-md"
-      >
-        <span className="mt-0.5 text-muted-foreground shrink-0">
-          {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
-        </span>
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-baseline gap-2">
-            <span className="font-medium">{parameter.name}</span>
-            <span className="text-xs text-muted-foreground">
-              {parameter.changes} {parameter.changes === 1 ? "alteração" : "alterações"} ·{" "}
-              {parameter.vehicles} {parameter.vehicles === 1 ? "veículo" : "veículos"}
-            </span>
-          </div>
-          {parameter.pending && (
-            <p className="text-xs text-amber-800 mt-1 flex gap-1.5">
-              <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0" />
-              {parameter.pending}
-            </p>
-          )}
-        </div>
-        <span className="shrink-0 text-right text-sm max-w-56">
-          <ImpactoResumido impact={parameter.impact} className="block" />
-        </span>
-      </button>
-
-      {open && (
-        <div className="px-4 pb-4 space-y-3">
-          {parameter.groups.map((group) => (
-            <GroupCard key={group.key} group={group} period={period} />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * O que o Freightech publica e este export não traz.
- *
- * Fica no rodapé, escrito, em vez de virar 25 cartões vazios. Responde "onde
- * está o resto?" sem simular uma cobertura que o produto não tem.
+ * O que o Freightech publica e este export não traz. Fica no rodapé, escrito,
+ * em vez de virar 25 cartões vazios.
  */
 function Rodape({ view }: { view: FamiliesView }) {
   if (view.freightechSemDado.length === 0) return null;
   return (
-    <footer className="border-t pt-5 text-sm text-muted-foreground space-y-2">
-      <p>
+    <footer className="mt-12 border-t pt-6 text-sm text-muted-foreground space-y-2">
+      <p className="max-w-4xl">
         O Freightech também publica{" "}
         <strong>{view.freightechSemDado.map((f) => f.family).join(", ")}</strong>. Esses
         parâmetros não vêm no export de equipamento que o FreightCheck recebe hoje, e por
@@ -498,4 +757,11 @@ function Rodape({ view }: { view: FamiliesView }) {
       </details>
     </footer>
   );
+}
+
+function normalizar(texto: string): string {
+  return texto
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 }
