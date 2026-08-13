@@ -86,6 +86,16 @@ export interface CartaoCatalogo {
    * quem abrir esperando uma e receber a outra não tem como perceber sozinho.
    */
   nota?: string;
+  /**
+   * O tipo de ativo quando o cartão é um **inventário** — uma linha por
+   * veículo, e não uma lista de mudanças nem de valores distintos.
+   *
+   * CARRETA e CAVALO são assim: a placa à esquerda e dezenas de colunas ao
+   * lado. Com `entidade` preenchida, `atributos` deixa de ser "a coluna que é
+   * este cartão" e passa a ser **a lista de colunas da tabela**, na ordem em
+   * que o Freightech as mostra.
+   */
+  entidade?: string;
 }
 
 export interface SecaoCatalogo {
@@ -213,7 +223,63 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
   {
     titulo: "Frota",
     cartoes: [
-      { nome: "Carreta", parametros: ["Carreta"] },
+      {
+        /*
+          O inventário do implemento: uma linha por placa, cinquenta colunas ao
+          lado. É a tela mais larga do Freightech que conferimos, e a primeira
+          em que o nosso export bate quase coluna a coluna — `carreta.placa`,
+          `carreta.chassi`, `carreta.ciclo`, `carreta.tjlp`, todas já chegam.
+
+          As colunas foram lidas de 17 capturas com rolagem horizontal e
+          costuradas pelas emendas: cada captura que terminava cortada começava
+          a seguinte. Onde duas capturas não se sobrepunham, a ordem entre os
+          blocos é a que a rolagem sugeriu e pode estar trocada — os nomes estão
+          todos certos, a sequência entre blocos é que não foi vista inteira.
+          Uma coluna trocada de lugar atrapalha menos do que uma coluna
+          inventada, e por isso nenhuma foi.
+
+          `Statusfinanciamentot1sha…` aparece truncado na captura e está
+          registrado como veio; o nome inteiro ainda não foi visto.
+        */
+        nome: "Carreta",
+        parametros: ["Carreta"],
+        entidade: "CARRETA",
+        colunas: [
+          "Placa", "Data", "Implemento",
+          "Modelo", "Tipocarroceriaempurrada", "Capacidadeempurrada",
+          "Capacidadepalletsrealempurrada", "Eixoempurrada", "Pneumedidaempurrada",
+          "Mesdeentrada", "Ciclo", "Statusfinanciamento", "Statusfinanciamentot1sha…",
+          "Ipvalicenciamento", "Percentualentrada",
+          "Periodofiname", "Carencia", "Tjlp", "Spreadbndes", "Spreadbanco",
+          "Taxafiname", "Doubledeck", "Custoaluguel", "Chassi", "Empresalocadora",
+          "Frotaemprestada", "Valorpneus",
+          "Percentualicms", "Valornfcompra", "Ano",
+          "Custofixo", "Lucrovariavelprevisto", "Piscofins", "Icms", "Datafimcontrato",
+          "Valorpiscofins", "Valoricms", "Amortizacaoimplemento",
+          "Jurosfinameimplemento", "Finameimplemento", "Lucrofixomodelonovociclocarreta",
+          "Lucrovariavelprevistocarreta", "Seguro", "Rastreador",
+          "Faixareflexiva", "Tacografo", "Revestimento", "Ipvalicenciamentomensal",
+          "Finame", "Lucrofixomodelonovociclo",
+        ],
+        atributos: [
+          "carreta.placa", "carreta.data", "carreta.implemento",
+          "carreta.modelo", "carreta.tipo_carroceria_empurrada", "carreta.capacidade_empurrada",
+          "carreta.capacidade_pallets_real_empurrada", "carreta.eixo_empurrada",
+          "carreta.mes_de_entrada", "carreta.ciclo",
+          "carreta.ipva_licenciamento", "carreta.percentual_entrada",
+          "carreta.periodo_finame", "carreta.carencia", "carreta.tjlp",
+          "carreta.double_deck", "carreta.custo_aluguel", "carreta.chassi",
+          "carreta.empresa_locadora", "carreta.frota_emprestada",
+          "carreta.percentual_icms", "carreta.ano",
+          "carreta.custo_fixo", "carreta.lucro_variavel_previsto",
+          "carreta.pis_cofins", "carreta.icms", "carreta.data_fim_contrato",
+          "carreta.amortizacao_implemento", "carreta.juros_finame_implemento",
+          "carreta.finame_implemento", "carreta.lucro_fixomodelo_novo_ciclo_carreta",
+          "carreta.lucro_variavel_previsto_carreta",
+          "carreta.faixa_reflexiva", "carreta.ipva_licenciamento_mensal",
+          "carreta.finame", "carreta.lucro_fixomodelo_novo_ciclo",
+        ],
+      },
       { nome: "Cavalo", parametros: ["Caminhão"] },
       { nome: "Combustível", parametros: ["Combustível"] },
       { nome: "Consumo", parametros: ["Consumo benchmark"] },

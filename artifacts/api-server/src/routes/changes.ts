@@ -4,6 +4,7 @@ import {
   computeChangeSet,
   findPreviousSnapshot,
   getAttributeDomain,
+  getEntityTable,
   getAttributeSeries,
   getChangeProvenance,
   getChangeSetBreakdown,
@@ -353,6 +354,39 @@ router.get("/attributes/:code/domain", async (req, res): Promise<void> => {
   } catch (err) {
     if (sendContextError(res, err)) return;
     req.log.error({ err }, "Error loading attribute domain");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * A tabela de ativos de um cartão — uma linha por veículo, uma coluna por
+ * atributo pedido.
+ *
+ * É a terceira forma de tela do Freightech, e a que CARRETA e CAVALO usam: o
+ * inventário, com a placa à esquerda e as dezenas de colunas ao lado. As
+ * colunas vêm na requisição porque a lista é do cartão, não do modelo — e as
+ * que o dicionário não conhecer voltam em `missingColumns` em vez de sumirem.
+ */
+router.get("/entities/table", async (req, res): Promise<void> => {
+  try {
+    const entityType = typeof req.query.entityType === "string" ? req.query.entityType : "";
+    const bruto = typeof req.query.attributes === "string" ? req.query.attributes : "";
+    const attributes = bruto.split(",").map((c) => c.trim()).filter(Boolean);
+    if (!entityType || attributes.length === 0) {
+      res.status(400).json({ error: "Informe entityType e attributes." });
+      return;
+    }
+    const context = parseContext(req.query as Record<string, unknown>);
+    const period = typeof req.query.period === "string" ? req.query.period : undefined;
+    const table = await getEntityTable(db, entityType, attributes, context, period);
+    if (!table) {
+      res.status(404).json({ error: "Nenhuma vigência para este contexto." });
+      return;
+    }
+    res.json(table);
+  } catch (err) {
+    if (sendContextError(res, err)) return;
+    req.log.error({ err }, "Error loading entity table");
     res.status(500).json({ error: "Internal server error" });
   }
 });

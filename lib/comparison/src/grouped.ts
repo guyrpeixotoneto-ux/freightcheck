@@ -1221,3 +1221,147 @@ export async function getAttributeDomain(
     })),
   };
 }
+
+/**
+ * A tabela de ativos: uma linha por veículo, uma coluna por atributo.
+ *
+ * **A terceira forma de tela do Freightech**, e a que mais custa a montar do
+ * nosso lado. As outras duas já existiam aqui: *movimento* (o que mudou num
+ * ponto) e *domínio* (os valores distintos de uma coluna). Esta é o inventário
+ * — CARRETA abre com uma linha por placa e cinquenta colunas ao lado, da placa
+ * ao ICMS, e é assim que o operador confere um ativo específico.
+ *
+ * O nosso modelo guarda isso deitado: um fato por (snapshot, entidade,
+ * atributo). Levantar de volta é um pivô, e ele é feito aqui em vez de no SQL
+ * de propósito — `crosstab` exigiria a lista de colunas fixa na consulta, e a
+ * lista muda por cartão. Com 62 ativos e 50 colunas são 3.100 fatos, que é
+ * pouco; se um dia forem 300 mil, o lugar de resolver é o índice
+ * `fact_snapshot_attribute_idx`, que já existe e já é o caminho usado.
+ *
+ * **Ausência tem lugar próprio.** Uma célula sem valor devolve `null` com o
+ * motivo que a importação registrou, e nunca zero: numa tabela de custo, "não
+ * informado" e "zero" são a diferença entre um ativo sem contrato e um ativo de
+ * graça.
+ */
+export interface EntityTable {
+  entityType: string;
+  effectiveDate: string;
+  periodLabel: string;
+  sourceLabels: string[];
+  /** Só as colunas pedidas que existem no dicionário, na ordem pedida. */
+  columns: { code: string; title: string }[];
+  /** As colunas pedidas que o dicionário não conhece — ditas, não engolidas. */
+  missingColumns: string[];
+  rows: {
+    entityId: string;
+    /** A placa, quando o ativo tem uma. */
+    label: string | null;
+    values: Record<string, { value: string | null; nullReason: string | null }>;
+  }[];
+}
+
+export async function getEntityTable(
+  db: Database,
+  entityType: string,
+  attributeCodes: string[],
+  requestedContext?: Partial<SeriesContext>,
+  period?: string,
+): Promise<EntityTable | null> {
+  const context = await resolveContext(db, requestedContext);
+  if (!context || attributeCodes.length === 0) return null;
+
+  const { rows: datas } = await db.execute<{ effective_date: string }>(sql`
+    SELECT max(s.effective_date)::text AS effective_date
+      FROM snapshot s
+     WHERE s.status <> 'SUPERSEDED'
+       AND ${contextFilter("s", context)}
+       AND (${period ?? null}::date IS NULL OR s.effective_date = ${period ?? null}::date)
+  `);
+  const effectiveDate = datas[0]?.effective_date ?? null;
+  if (!effectiveDate) return null;
+
+  const lista = sql.join(
+    attributeCodes.map((code) => sql`${code}`),
+    sql`, `,
+  );
+
+  const { rows: meta } = await db.execute<{ code: string; source_name: string }>(sql`
+    SELECT code, source_name FROM attribute WHERE code IN (${lista})
+  `);
+  const conhecidos = new Map(meta.map((m) => [m.code, m.source_name]));
+
+  const { rows: fatos } = await db.execute<{
+    entity_id: string;
+    code: string;
+    valor: string | null;
+    is_null: boolean;
+    null_reason: string | null;
+    source_label: string;
+  }>(sql`
+    SELECT f.entity_id::text AS entity_id,
+           a.code,
+           CASE WHEN f.is_null THEN NULL
+                ELSE coalesce(
+                  f.value_text,
+                  f.value_numeric::text,
+                  f.value_boolean::text,
+                  f.value_date::text
+                )
+           END AS valor,
+           f.is_null,
+           f.null_reason,
+           s.source_label
+      FROM fact f
+      JOIN attribute a ON a.id = f.attribute_id
+      JOIN snapshot s  ON s.id = f.snapshot_id
+      JOIN entity e    ON e.id = f.entity_id
+     WHERE a.code IN (${lista})
+       AND e.entity_type = ${entityType}
+       AND s.effective_date = ${effectiveDate}::date
+       AND s.status <> 'SUPERSEDED'
+       AND ${contextFilter("s", context)}
+  `);
+
+  const { rows: placas } = await db.execute<{ entity_id: string; valor: string }>(sql`
+    SELECT ei.entity_id::text AS entity_id, ei.identifier_value AS valor
+      FROM entity_identifier ei
+      JOIN entity e ON e.id = ei.entity_id
+     WHERE ei.identifier_type = 'PLACA'
+       AND ei.is_current
+       AND e.entity_type = ${entityType}
+  `);
+  const placaDe = new Map(placas.map((p) => [p.entity_id, p.valor]));
+
+  const porEntidade = new Map<string, EntityTable["rows"][number]>();
+  const rotulos = new Set<string>();
+  for (const fato of fatos) {
+    rotulos.add(fato.source_label);
+    let linha = porEntidade.get(fato.entity_id);
+    if (!linha) {
+      linha = {
+        entityId: fato.entity_id,
+        label: placaDe.get(fato.entity_id) ?? null,
+        values: {},
+      };
+      porEntidade.set(fato.entity_id, linha);
+    }
+    linha.values[fato.code] = {
+      value: fato.is_null ? null : fato.valor,
+      nullReason: fato.is_null ? (fato.null_reason ?? "sem motivo registrado") : null,
+    };
+  }
+
+  return {
+    entityType,
+    effectiveDate,
+    periodLabel: periodLabel(effectiveDate),
+    sourceLabels: [...rotulos].sort(),
+    columns: attributeCodes
+      .filter((code) => conhecidos.has(code))
+      .map((code) => ({ code, title: attributeLabel(code, conhecidos.get(code) ?? code) })),
+    missingColumns: attributeCodes.filter((code) => !conhecidos.has(code)),
+    rows: [...porEntidade.values()].sort((a, b) =>
+      (a.label ?? "").localeCompare(b.label ?? "", "pt-BR", { numeric: true }),
+    ),
+  };
+}

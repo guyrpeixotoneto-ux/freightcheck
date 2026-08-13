@@ -6,6 +6,7 @@ import { Layout } from "@/components/layout/layout";
 import { GroupCard } from "@/components/inicio/group-card";
 import { TabelaFreightech, type ColunaTabela } from "@/components/parametros/tabela";
 import { TabelaDominio } from "@/components/parametros/dominio";
+import { TabelaInventario } from "@/components/parametros/inventario";
 import {
   Select,
   SelectContent,
@@ -189,6 +190,8 @@ interface CartaoRender {
   colunas: string[] | null;
   /** A frase sobre a distância entre a tela de lá e o que temos aqui. */
   nota: string | null;
+  /** Quando é inventário: o tipo de ativo que cada linha representa. */
+  entidade: string | null;
   changes: number;
   /** Só quando um único parâmetro alimenta o cartão — ver `agregar`. */
   vehicles: number | null;
@@ -249,6 +252,7 @@ function montarSecoes(view: FamiliesView | null): SecaoRender[] {
         atributos: cartao.atributos ?? [],
         colunas: cartao.colunas ?? null,
         nota: cartao.nota ?? null,
+        entidade: cartao.entidade ?? null,
         ...agregar(parametros),
       };
     }),
@@ -292,6 +296,7 @@ function montarSecoes(view: FamiliesView | null): SecaoRender[] {
         atributos: [],
         colunas: null,
         nota: null,
+        entidade: null,
         ...agregar([parametro]),
       })),
     }));
@@ -769,7 +774,7 @@ function Cartao({
     falso. Ele não mostra impacto — não é dinheiro, é domínio — mas abre.
   */
   const cadastro = cartao.parametros.length === 0 && cartao.atributos.length > 0;
-  const temDado = cartao.parametros.length > 0 || cadastro;
+  const temDado = cartao.parametros.length > 0 || cadastro || cartao.entidade !== null;
   const mudou = cartao.changes > 0;
 
   const miolo = (
@@ -952,7 +957,9 @@ function DetalheCartao({
   onVoltar: () => void;
 }) {
   const [grupoAberto, setGrupoAberto] = useState<string | null>(null);
-  const cadastro = cartao.parametros.length === 0 && cartao.atributos.length > 0;
+  const inventario = cartao.entidade !== null && cartao.atributos.length > 0;
+  const cadastro =
+    !inventario && cartao.parametros.length === 0 && cartao.atributos.length > 0;
 
   return (
     <div className="mt-6">
@@ -1013,7 +1020,14 @@ function DetalheCartao({
         registros. Misturá-las numa tabela só faria as duas ficarem erradas.
       */}
       <div className="mt-5 space-y-5">
-        {cadastro ? (
+        {inventario ? (
+          <TabelaInventario
+            entidade={cartao.entidade!}
+            atributos={cartao.atributos}
+            contexto={contexto}
+            idDaTabela={`inventario:${cartao.chave}`}
+          />
+        ) : cadastro ? (
           cartao.atributos.map((codigo) => (
             <TabelaDominio
               key={codigo}
@@ -1204,6 +1218,18 @@ function Contraste({ cartao }: { cartao: CartaoRender }) {
         inventar um cabeçalho plausível seria pior do que admitir a falta.
       </p>
     );
+  }
+
+  /*
+    Num inventário as colunas do Freightech são o próprio cabeçalho da tabela,
+    logo abaixo. Repetir cinquenta nomes aqui em cima empurraria a tabela para
+    fora da tela e faria o leitor pular o parágrafo — o contraste só informa
+    quando é curto o bastante para ser lido.
+  */
+  if (cartao.entidade) {
+    return cartao.nota ? (
+      <p className="text-xs text-muted-foreground mt-3 max-w-4xl">{cartao.nota}</p>
+    ) : null;
   }
 
   return (
