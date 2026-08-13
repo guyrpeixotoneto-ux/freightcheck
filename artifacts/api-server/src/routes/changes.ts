@@ -12,6 +12,8 @@ import {
   getFamiliesView,
   getGroupedView,
   getGroupVehicles,
+  getRangeAnalysis,
+  getEndToEndAnalysis,
   FREIGHTECH_SEM_DADO,
   listChangeSets,
   listChanges,
@@ -282,6 +284,64 @@ router.get("/changes/families", async (req, res): Promise<void> => {
   } catch (err) {
     if (sendContextError(res, err)) return;
     req.log.error({ err }, "Error building families view");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * O intervalo — o que o cliente mexeu entre duas vigências escolhidas.
+ *
+ * As duas pontas entram na leitura. `from` e `to` fora do histórico caem no
+ * padrão (a vigência mais recente e a anterior) em vez de virar erro: a aba de
+ * análise abre antes de a pessoa escolher qualquer coisa.
+ */
+router.get("/changes/range", async (req, res): Promise<void> => {
+  try {
+    const from = typeof req.query.from === "string" ? req.query.from : undefined;
+    const to = typeof req.query.to === "string" ? req.query.to : undefined;
+    const bruto = typeof req.query.parameters === "string" ? req.query.parameters : "";
+    const parameters = bruto.split(",").map((p) => p.trim()).filter(Boolean);
+    const context = parseContext(req.query as Record<string, unknown>);
+    const analysis = await getRangeAnalysis(db, from, to, context, parameters);
+    if (!analysis) {
+      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+      return;
+    }
+    res.json(analysis);
+  } catch (err) {
+    if (sendContextError(res, err)) return;
+    req.log.error({ err }, "Error building range analysis");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * Ponta a ponta — o estado de uma vigência contra o de outra.
+ *
+ * Não é a soma dos movimentos e não pode ser derivada dela: um valor que subiu
+ * e voltou some aqui e continua contado lá. A comparação é ativo a ativo, sobre
+ * quem está nas duas pontas, e entrada e saída de frota vêm num eixo próprio.
+ *
+ * `parameters` recorta a leitura ao universo de um cartão. Sem ele, o intervalo
+ * inteiro — e aí a resposta pode ser grande, porque os ativos de cada grupo vêm
+ * junto (não existe `change_set` gravado para consultar depois).
+ */
+router.get("/changes/end-to-end", async (req, res): Promise<void> => {
+  try {
+    const from = typeof req.query.from === "string" ? req.query.from : undefined;
+    const to = typeof req.query.to === "string" ? req.query.to : undefined;
+    const bruto = typeof req.query.parameters === "string" ? req.query.parameters : "";
+    const parameters = bruto.split(",").map((p) => p.trim()).filter(Boolean);
+    const context = parseContext(req.query as Record<string, unknown>);
+    const analysis = await getEndToEndAnalysis(db, from, to, context, parameters);
+    if (!analysis) {
+      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+      return;
+    }
+    res.json(analysis);
+  } catch (err) {
+    if (sendContextError(res, err)) return;
+    req.log.error({ err }, "Error building end-to-end analysis");
     res.status(500).json({ error: "Internal server error" });
   }
 });

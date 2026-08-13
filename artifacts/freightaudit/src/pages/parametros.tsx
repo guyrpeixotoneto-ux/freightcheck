@@ -7,6 +7,7 @@ import { GroupCard } from "@/components/inicio/group-card";
 import { TabelaFreightech, type ColunaTabela } from "@/components/parametros/tabela";
 import { TabelaDominio } from "@/components/parametros/dominio";
 import { TabelaInventario } from "@/components/parametros/inventario";
+import { AnaliseCartao } from "@/components/parametros/analise";
 import {
   Select,
   SelectContent,
@@ -957,6 +958,7 @@ function DetalheCartao({
   onVoltar: () => void;
 }) {
   const [grupoAberto, setGrupoAberto] = useState<string | null>(null);
+  const [aba, setAba] = useState<"freightech" | "analise">("freightech");
   const inventario = cartao.entidade !== null && cartao.atributos.length > 0;
   const cadastro =
     !inventario && cartao.parametros.length === 0 && cartao.atributos.length > 0;
@@ -981,7 +983,13 @@ function DetalheCartao({
           <h2 className="text-2xl font-bold uppercase tracking-tight mt-1">{cartao.nome}</h2>
         </div>
 
-        {cartao.parametros.length > 0 && (
+        {/*
+          O resumo é **da vigência aberta**, e some quando a aba de análise
+          entra: lá o recorte é um intervalo escolhido, e dois números de
+          "alterações" na mesma tela, medindo períodos diferentes, é como se
+          inventa uma contradição que não existe no dado.
+        */}
+        {aba === "freightech" && cartao.parametros.length > 0 && (
           <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-sm">
             <ImpactoResumido impact={cartao.impact} />
             <span className="text-muted-foreground">
@@ -996,8 +1004,6 @@ function DetalheCartao({
           </div>
         )}
       </div>
-
-      <Contraste cartao={cartao} />
 
       {cartao.pending && (
         <p className="text-sm text-brand-red flex gap-2 mt-3">
@@ -1015,56 +1021,126 @@ function DetalheCartao({
       )}
 
       {/*
-        Duas telas diferentes atrás do mesmo cartão, porque o Freightech também
-        tem duas: a de cadastro, que lista valores, e a de movimento, que lista
-        registros. Misturá-las numa tabela só faria as duas ficarem erradas.
+        As duas metades do cartão.
+
+        A primeira é o espelho: a tela do Freightech, com a mesma tabela e a
+        mesma ordem de colunas — o que a mão já sabe operar, respondendo "como
+        está hoje". A segunda é a nossa, e é a que lá não existe: o que o
+        cliente mexeu entre duas vigências, quanto custou e quanto rendeu.
+
+        São abas, e não uma tela só, porque as duas respondem a perguntas
+        diferentes sobre recortes diferentes — a primeira sobre uma vigência, a
+        segunda sobre um intervalo. Empilhá-las na mesma rolagem convidaria a
+        ler um número da segunda como se fosse da primeira.
       */}
-      <div className="mt-5 space-y-5">
-        {inventario ? (
-          <TabelaInventario
-            entidade={cartao.entidade!}
-            atributos={cartao.atributos}
-            contexto={contexto}
-            idDaTabela={`inventario:${cartao.chave}`}
-          />
-        ) : cadastro ? (
-          cartao.atributos.map((codigo) => (
-            <TabelaDominio
-              key={codigo}
-              attributeCode={codigo}
-              rotuloDaColuna={cartao.colunas?.[0] ?? "Valor"}
-              contexto={contexto}
-            />
-          ))
-        ) : (
-          <TabelaFreightech
-            id={`cartao:${cartao.chave}`}
-            colunas={COLUNAS_ALTERACOES}
-            linhas={cartao.groups}
-            chave={(grupo) => grupo.key}
-            aoClicar={(grupo) =>
-              setGrupoAberto((atual) => (atual === grupo.key ? null : grupo.key))
-            }
-            vazio={<TabelaVazia cartao={cartao} />}
-          />
-        )}
+      <div className="mt-6 flex items-end gap-6 border-b">
+        <Aba
+          rotulo="Freightech"
+          ativa={aba === "freightech"}
+          onClick={() => setAba("freightech")}
+        />
+        <Aba
+          rotulo="Análise"
+          ativa={aba === "analise"}
+          onClick={() => setAba("analise")}
+        />
       </div>
 
-      {/*
-        A linha aberta. Fica fora da tabela de propósito: o cartão de detalhe
-        traz gráfico, proveniência e a lista de veículos, e nada disso cabe
-        dentro de uma célula sem virar uma tabela dentro de outra.
-      */}
-      {grupoAberto && (
-        <div className="mt-5">
-          {cartao.groups
-            .filter((grupo) => grupo.key === grupoAberto)
-            .map((grupo) => (
-              <GroupCard key={grupo.key} group={grupo} period={period} />
-            ))}
+      {aba === "freightech" ? (
+        <>
+          <Contraste cartao={cartao} />
+
+          {/*
+            Três telas diferentes atrás do mesmo cartão, porque o Freightech
+            também tem três: o inventário, o cadastro que lista valores, e a de
+            movimento que lista registros. Misturá-las numa tabela só faria as
+            três ficarem erradas.
+          */}
+          <div className="mt-5 space-y-5">
+            {inventario ? (
+              <TabelaInventario
+                entidade={cartao.entidade!}
+                atributos={cartao.atributos}
+                contexto={contexto}
+                idDaTabela={`inventario:${cartao.chave}`}
+              />
+            ) : cadastro ? (
+              cartao.atributos.map((codigo) => (
+                <TabelaDominio
+                  key={codigo}
+                  attributeCode={codigo}
+                  rotuloDaColuna={cartao.colunas?.[0] ?? "Valor"}
+                  contexto={contexto}
+                />
+              ))
+            ) : (
+              <TabelaFreightech
+                id={`cartao:${cartao.chave}`}
+                colunas={COLUNAS_ALTERACOES}
+                linhas={cartao.groups}
+                chave={(grupo) => grupo.key}
+                aoClicar={(grupo) =>
+                  setGrupoAberto((atual) => (atual === grupo.key ? null : grupo.key))
+                }
+                vazio={<TabelaVazia cartao={cartao} />}
+              />
+            )}
+          </div>
+
+          {/*
+            A linha aberta. Fica fora da tabela de propósito: o cartão de
+            detalhe traz gráfico, proveniência e a lista de veículos, e nada
+            disso cabe dentro de uma célula sem virar uma tabela dentro de
+            outra.
+          */}
+          {grupoAberto && (
+            <div className="mt-5">
+              {cartao.groups
+                .filter((grupo) => grupo.key === grupoAberto)
+                .map((grupo) => (
+                  <GroupCard key={grupo.key} group={grupo} period={period} />
+                ))}
+            </div>
+          )}
+        </>
+      ) : (
+        <div className="mt-6">
+          <AnaliseCartao
+            nomeDoCartao={cartao.nome}
+            parametros={cartao.parametros}
+            contexto={contexto}
+            periodo={period || null}
+          />
         </div>
       )}
     </div>
+  );
+}
+
+/** Uma aba do cartão: caixa alta, régua laranja embaixo quando ativa. */
+function Aba({
+  rotulo,
+  ativa,
+  onClick,
+}: {
+  rotulo: string;
+  ativa: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={ativa}
+      className={cn(
+        "pb-2 -mb-px border-b-[3px] text-[0.8125rem] font-bold uppercase tracking-wide transition-colors",
+        ativa
+          ? "border-brand text-foreground"
+          : "border-transparent text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {rotulo}
+    </button>
   );
 }
 
