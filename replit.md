@@ -122,6 +122,14 @@ e-mail, e exclusão de conta.
   `src/middlewares/require-session.ts` (o portão)
 - `artifacts/freightaudit` — interface; a sessão vive em `src/lib/auth.tsx`, o
   portão em `App.tsx`, e as contas em `src/pages/configuracoes.tsx`
+- **Book do Operador** — o contraponto do export, que traz o cadastro
+  remunerado da frota e nenhuma regra. O índice dos blocos é transcrição da tela
+  do Freightech e mora em `artifacts/freightaudit/src/lib/book-operador.ts`; a
+  regra de cada bloco é registrada aqui, em `book_entry`
+  (`lib/db/src/schema/book.ts`, rotas em `artifacts/api-server/src/routes/book.ts`),
+  de dois tipos — `TEXTO` escrito na tela ou `DOCUMENTO` anexado. Substituir
+  cria a revisão seguinte; **não existe DELETE**, e os bytes ficam no Postgres
+  porque aqui a entrada *é* o conteúdo e o disco da plataforma é efêmero.
 - `docs/ARQUITETURA.md` — as decisões estruturais em prosa
 - `docs/PROPOSTA-NAVEGACAO-FREIGHTECH.md` — o mapeamento Freightech → FreightCheck
 

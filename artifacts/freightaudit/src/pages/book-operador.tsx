@@ -1,0 +1,497 @@
+import { useEffect, useMemo, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { BookOpen, ChevronLeft, ChevronRight, Info, Search } from "lucide-react";
+import { Layout } from "@/components/layout/layout";
+import { ApiErrorNotice } from "@/components/api-error";
+import { BlocoCard } from "@/components/book/bloco-card";
+import { BlocoPainel } from "@/components/book/bloco-painel";
+import type { BookEntryCurrent } from "@/components/book/types";
+import { fetchJson } from "@/lib/api";
+import { useFavoritos } from "@/lib/favoritos";
+import { cn } from "@/lib/utils";
+import {
+  BLOCOS_BOOK,
+  TOTAL_DECLARADO_FREIGHTECH,
+  categoriasDoBook,
+  chaveDoBloco,
+  normalizar,
+  type BlocoBook,
+} from "@/lib/book-operador";
+
+/**
+ * Book do Operador — as regras de remuneração, em vocabulário do Freightech.
+ *
+ * **Por que esta tela existe.** O export que alimenta o FreightCheck é o
+ * cadastro remunerado da frota, não o regulamento: 99 colunas por placa, e
+ * nenhuma linha dizendo o que qualquer uma delas significa. O Book do Operador
+ * é o outro lado — a base de blocos em que o Freightech publica *como* cada
+ * pagamento é composto. Sem ela, "o IPVA caiu 77%" é um fato sem regra ao lado;
+ * com ela, dá para dizer contra o que conferir.
+ *
+ * **O índice vem de lá; o conteúdo entra aqui.** Os blocos são transcrição da
+ * tela do Freightech e vivem em `lib/book-operador.ts`. A regra de cada um é
+ * registrada neste produto, por quem opera, escrevendo o texto ou anexando o
+ * documento — e o cartão diz, antes do clique, qual dos dois ele tem.
+ *
+ * **A paginação é a de lá, e não é enfeite.** Seis por página, a contagem
+ * "Mostrando X - Y de Z" no rodapé, o seletor de tamanho à direita. Quem navega
+ * a base do Freightech encontra um bloco lembrando em que página ele estava;
+ * uma lista contínua e rolável seria mais confortável e destruiria essa
+ * memória.
+ */
+
+const TAMANHOS_DE_PAGINA = [6, 12, 24, 48];
+
+const CHAVE_FAVORITOS = "freightcheck:book-operador-favoritos";
+
+export default function BookOperador() {
+  const [busca, setBusca] = useState("");
+  const [categoria, setCategoria] = useState<string | null>(null);
+  const [soFavoritos, setSoFavoritos] = useState(false);
+  const [soSemRegra, setSoSemRegra] = useState(false);
+  const [porPagina, setPorPagina] = useState(TAMANHOS_DE_PAGINA[0]);
+  const [pagina, setPagina] = useState(1);
+  const [aberto, setAberto] = useState<BlocoBook | null>(null);
+
+  const { favoritos, alternar } = useFavoritos(CHAVE_FAVORITOS);
+  const categorias = useMemo(categoriasDoBook, []);
+
+  const entradas = useQuery({
+    queryKey: ["book-entries"],
+    queryFn: () => fetchJson<BookEntryCurrent[]>("/book/entries"),
+  });
+
+  /** A entrada vigente de cada bloco, indexada pela chave. */
+  const porBloco = useMemo(() => {
+    const mapa = new Map<string, BookEntryCurrent>();
+    for (const entrada of entradas.data ?? []) mapa.set(entrada.blockKey, entrada);
+    return mapa;
+  }, [entradas.data]);
+
+  const filtrados = useMemo(() => {
+    const termo = normalizar(busca.trim());
+    return BLOCOS_BOOK.filter((bloco) => {
+      const chave = chaveDoBloco(bloco);
+      if (categoria && bloco.categoria !== categoria) return false;
+      if (soFavoritos && !favoritos.includes(chave)) return false;
+      if (soSemRegra && porBloco.has(chave)) return false;
+      if (!termo) return true;
+      /*
+       * A busca varre título, descrição e categoria juntos. Quem procura
+       * "pedágio" não sabe se o Freightech guardou aquilo no título ou na
+       * descrição, e restringir ao título faria a tela responder "nada
+       * encontrado" sobre um bloco que está bem ali.
+       */
+      return normalizar(
+        `${bloco.titulo} ${bloco.descricao} ${bloco.categoria}`,
+      ).includes(termo);
+    });
+  }, [busca, categoria, soFavoritos, soSemRegra, favoritos, porBloco]);
+
+  /*
+   * Filtrar encurta a lista, e a página em que se estava pode deixar de
+   * existir — o efeito seria uma grade vazia com a paginação dizendo que há
+   * resultados. Voltar para a primeira é o comportamento que não mente.
+   */
+  useEffect(() => {
+    setPagina(1);
+  }, [busca, categoria, soFavoritos, soSemRegra, porPagina]);
+
+  const totalPaginas = Math.max(1, Math.ceil(filtrados.length / porPagina));
+  const paginaAtual = Math.min(pagina, totalPaginas);
+  const inicio = (paginaAtual - 1) * porPagina;
+  const visiveis = filtrados.slice(inicio, inicio + porPagina);
+
+  const naoTranscritos = TOTAL_DECLARADO_FREIGHTECH - BLOCOS_BOOK.length;
+  const repetidos = BLOCOS_BOOK.filter(
+    (b) => b.ocorrencia && b.ocorrencia > 1,
+  ).length;
+  const comRegra = BLOCOS_BOOK.filter((b) =>
+    porBloco.has(chaveDoBloco(b)),
+  ).length;
+
+  return (
+    <Layout>
+      <header className="border-b bg-card px-8 py-6">
+        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+          <BookOpen className="w-6 h-6 text-brand-dark" />
+          Book do Operador
+        </h1>
+        <p className="text-muted-foreground mt-1 max-w-3xl">
+          Os blocos em que o Freightech publica as regras de remuneração da
+          Ambev — o que compõe cada pagamento, o que a transportadora precisa
+          entregar, e sob qual acordo. É o lado que a planilha de vigência não
+          traz: ela exporta o cadastro remunerado da frota, não o regulamento.
+        </p>
+      </header>
+
+      <div className="p-8 space-y-6">
+        {entradas.error && (
+          <ApiErrorNotice
+            error={entradas.error}
+            what="As regras já registradas não puderam ser carregadas. Os blocos abaixo continuam sendo os do Freightech; o que não dá para saber agora é qual deles já tem regra."
+          />
+        )}
+
+        <div className="rounded-md border-l-4 border-sky-500 bg-sky-50 px-4 py-3 text-sky-900">
+          <div className="font-semibold text-xs uppercase tracking-wide mb-1 flex items-center gap-1.5">
+            <Info className="w-3.5 h-3.5" />
+            Como este book se preenche
+          </div>
+          <p className="text-sm">
+            O índice vem do Freightech; a regra de cada bloco é registrada aqui,
+            de dois jeitos: <strong>escrevendo o texto</strong>, quando ela cabe
+            escrita, ou <strong>anexando o documento</strong> — contrato, manual,
+            planilha — quando ele existe. Abra um cartão para ler, escrever ou
+            anexar. Substituir nunca apaga: cada envio vira uma revisão nova, e
+            a anterior continua no histórico do bloco.
+          </p>
+          <p className="text-sm mt-1.5">
+            {entradas.isLoading ? (
+              "Conferindo quais blocos já têm regra…"
+            ) : (
+              <>
+                <strong>
+                  {comRegra} de {BLOCOS_BOOK.length}
+                </strong>{" "}
+                blocos com regra registrada.
+              </>
+            )}{" "}
+            {/*
+              A ressalva só aparece quando há o que ressalvar. Enquanto os dois
+              números batem, repetir "66 de 66 que a base declara" seria ruído
+              numa frase que existe para chamar atenção — e ruído constante é
+              como um alarme para de ser lido.
+            */}
+            {naoTranscritos === 0 ? (
+              <>
+                O índice tem os {TOTAL_DECLARADO_FREIGHTECH} registros da base do
+                Freightech, entre eles {repetidos}{" "}
+                {repetidos === 1
+                  ? "bloco que ela lista duas vezes"
+                  : "blocos que ela lista duas vezes"}
+                .
+              </>
+            ) : (
+              <>
+                {BLOCOS_BOOK.length} blocos transcritos de{" "}
+                {TOTAL_DECLARADO_FREIGHTECH} que a base de lá declara —{" "}
+                {naoTranscritos}{" "}
+                {naoTranscritos === 1
+                  ? "não foi capturado e falta"
+                  : "não foram capturados e faltam"}{" "}
+                aqui.
+              </>
+            )}
+          </p>
+        </div>
+
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="min-w-64 flex-1 max-w-md">
+            <label
+              htmlFor="busca-book"
+              className="block text-sm font-medium mb-1.5"
+            >
+              Buscar bloco
+            </label>
+            <div className="relative">
+              <input
+                id="busca-book"
+                value={busca}
+                onChange={(evento) => setBusca(evento.target.value)}
+                placeholder="pneu, lucro, encargos, pedágio…"
+                className="w-full border border-input rounded-sm h-11 pl-3 pr-10 text-sm outline-none focus:border-brand bg-card"
+              />
+              <Search className="w-5 h-5 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            </div>
+          </div>
+
+          <Alternador
+            ativo={soFavoritos}
+            onClick={() => setSoFavoritos((atual) => !atual)}
+          >
+            Só favoritos ({favoritos.length})
+          </Alternador>
+
+          {/*
+            "Sem regra" é o filtro de quem está preenchendo o book, e é o
+            trabalho que sobra: com 63 blocos, achar os que faltam rolando a
+            grade inteira é o tipo de tarefa que ninguém termina.
+          */}
+          <Alternador
+            ativo={soSemRegra}
+            onClick={() => setSoSemRegra((atual) => !atual)}
+          >
+            Sem regra ({BLOCOS_BOOK.length - comRegra})
+          </Alternador>
+        </div>
+
+        <div className="flex flex-wrap gap-2">
+          <FiltroCategoria
+            rotulo={`Todas (${BLOCOS_BOOK.length})`}
+            ativo={categoria === null}
+            onClick={() => setCategoria(null)}
+          />
+          {categorias.map((nome) => (
+            <FiltroCategoria
+              key={nome}
+              rotulo={`${nome} (${
+                BLOCOS_BOOK.filter((b) => b.categoria === nome).length
+              })`}
+              ativo={categoria === nome}
+              onClick={() => setCategoria(categoria === nome ? null : nome)}
+            />
+          ))}
+        </div>
+
+        {visiveis.length === 0 ? (
+          <p className="text-muted-foreground py-8">
+            Nenhum bloco
+            {busca.trim() !== "" && " com esse nome"}
+            {soSemRegra && " sem regra"}
+            {soFavoritos && " entre os favoritos"}
+            {categoria && ` em “${categoria}”`}.
+          </p>
+        ) : (
+          <div className="grid gap-6 md:grid-cols-2">
+            {visiveis.map((bloco) => {
+              const chave = chaveDoBloco(bloco);
+              return (
+                <BlocoCard
+                  key={chave}
+                  bloco={bloco}
+                  vigente={porBloco.get(chave)}
+                  favorito={favoritos.includes(chave)}
+                  onAbrir={() => setAberto(bloco)}
+                  onAlternarFavorito={() => alternar(chave)}
+                />
+              );
+            })}
+          </div>
+        )}
+
+        <Paginacao
+          primeiro={filtrados.length === 0 ? 0 : inicio + 1}
+          ultimo={inicio + visiveis.length}
+          total={filtrados.length}
+          pagina={paginaAtual}
+          totalPaginas={totalPaginas}
+          porPagina={porPagina}
+          onPagina={setPagina}
+          onPorPagina={setPorPagina}
+        />
+      </div>
+
+      {aberto && (
+        <BlocoPainel
+          bloco={aberto}
+          vigente={porBloco.get(chaveDoBloco(aberto))}
+          onFechar={() => setAberto(null)}
+        />
+      )}
+    </Layout>
+  );
+}
+
+function Alternador({
+  ativo,
+  onClick,
+  children,
+}: {
+  ativo: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={ativo}
+      className={cn(
+        "h-11 px-4 rounded-sm border text-sm font-medium transition-colors",
+        ativo
+          ? "bg-brand-dark text-brand-foreground border-brand-dark"
+          : "bg-card hover:bg-muted",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function FiltroCategoria({
+  rotulo,
+  ativo,
+  onClick,
+}: {
+  rotulo: string;
+  ativo: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={ativo}
+      className={cn(
+        "px-3 py-1.5 rounded-full border text-xs font-semibold transition-colors",
+        ativo
+          ? "bg-brand-dark text-brand-foreground border-brand-dark"
+          : "bg-card hover:bg-muted text-muted-foreground",
+      )}
+    >
+      {rotulo}
+    </button>
+  );
+}
+
+/**
+ * O rodapé de paginação do Freightech: a contagem à esquerda, as páginas no
+ * meio, o tamanho à direita.
+ */
+function Paginacao({
+  primeiro,
+  ultimo,
+  total,
+  pagina,
+  totalPaginas,
+  porPagina,
+  onPagina,
+  onPorPagina,
+}: {
+  primeiro: number;
+  ultimo: number;
+  total: number;
+  pagina: number;
+  totalPaginas: number;
+  porPagina: number;
+  onPagina: (pagina: number) => void;
+  onPorPagina: (porPagina: number) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-4 border-t pt-4">
+      <p className="text-sm text-muted-foreground">
+        {total === 0
+          ? "Nenhum resultado"
+          : `Mostrando ${primeiro} - ${ultimo} de ${total} resultados`}
+      </p>
+
+      <nav className="flex items-center gap-1" aria-label="Paginação">
+        <BotaoPagina
+          onClick={() => onPagina(pagina - 1)}
+          desabilitado={pagina <= 1}
+          rotuloAcessivel="Página anterior"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </BotaoPagina>
+
+        {numerosDePagina(pagina, totalPaginas).map((numero, indice) =>
+          numero === null ? (
+            <span
+              key={`reticencia-${indice}`}
+              className="px-2 text-muted-foreground"
+            >
+              …
+            </span>
+          ) : (
+            <BotaoPagina
+              key={numero}
+              onClick={() => onPagina(numero)}
+              ativo={numero === pagina}
+              rotuloAcessivel={`Página ${numero}`}
+            >
+              {numero}
+            </BotaoPagina>
+          ),
+        )}
+
+        <BotaoPagina
+          onClick={() => onPagina(pagina + 1)}
+          desabilitado={pagina >= totalPaginas}
+          rotuloAcessivel="Próxima página"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </BotaoPagina>
+      </nav>
+
+      <label className="text-sm text-muted-foreground flex items-center gap-2">
+        Por página
+        <select
+          value={porPagina}
+          onChange={(evento) => onPorPagina(Number(evento.target.value))}
+          className="border border-input rounded-sm h-9 px-2 bg-card text-foreground outline-none focus:border-brand"
+        >
+          {TAMANHOS_DE_PAGINA.map((tamanho) => (
+            <option key={tamanho} value={tamanho}>
+              {tamanho}
+            </option>
+          ))}
+        </select>
+      </label>
+    </div>
+  );
+}
+
+function BotaoPagina({
+  children,
+  onClick,
+  ativo,
+  desabilitado,
+  rotuloAcessivel,
+}: {
+  children: React.ReactNode;
+  onClick: () => void;
+  ativo?: boolean;
+  desabilitado?: boolean;
+  rotuloAcessivel: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={desabilitado}
+      aria-label={rotuloAcessivel}
+      aria-current={ativo ? "page" : undefined}
+      className={cn(
+        "min-w-9 h-9 px-2 rounded-sm text-sm font-medium inline-flex items-center justify-center transition-colors",
+        ativo
+          ? "bg-brand text-brand-foreground"
+          : "text-muted-foreground hover:bg-muted",
+        desabilitado && "opacity-40 pointer-events-none",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * As páginas visíveis no rodapé — `1 … 7 8 9 [10] 11`.
+ *
+ * `null` é a reticência. A primeira e a última estão sempre presentes, e ao
+ * redor da atual ficam duas de cada lado: é a forma do Freightech, e ela
+ * mantém o rodapé do mesmo tamanho com 11 páginas ou com 40.
+ */
+export function numerosDePagina(
+  atual: number,
+  total: number,
+): (number | null)[] {
+  if (total <= 7) {
+    return Array.from({ length: total }, (_, indice) => indice + 1);
+  }
+
+  const paginas = new Set<number>([1, total]);
+  for (let numero = atual - 2; numero <= atual + 2; numero++) {
+    if (numero >= 1 && numero <= total) paginas.add(numero);
+  }
+
+  const ordenadas = [...paginas].sort((a, b) => a - b);
+  const resultado: (number | null)[] = [];
+  let anterior: number | null = null;
+  for (const numero of ordenadas) {
+    if (anterior !== null && numero - anterior > 1) resultado.push(null);
+    resultado.push(numero);
+    anterior = numero;
+  }
+  return resultado;
+}

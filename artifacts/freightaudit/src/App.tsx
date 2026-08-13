@@ -18,6 +18,7 @@ import Importacoes from '@/pages/importacoes';
 import ApresentacaoVideo from '@/components/video/ApresentacaoVideo';
 import AnaliseEquipamentos from '@/pages/analise-equipamentos';
 import Curadoria from '@/pages/curadoria';
+import BookOperador from '@/pages/book-operador';
 import Vigencias from '@/pages/vigencias';
 import Versoes from '@/pages/versoes';
 import Configuracoes from '@/pages/configuracoes';
@@ -47,6 +48,7 @@ function Router() {
       <Route path="/dados" component={Dados} />
       <Route path="/apresentacao" component={ApresentacaoVideo} />
       <Route path="/parametros" component={Parametros} />
+      <Route path="/book-operador" component={BookOperador} />
       <Route path="/alteracoes" component={Alteracoes} />
       <Route path="/comparar" component={Comparar} />
       <Route path="/importacoes" component={Importacoes} />

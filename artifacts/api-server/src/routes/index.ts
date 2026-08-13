@@ -8,6 +8,7 @@ import changesRouter from "./changes";
 import importsRouter from "./imports";
 import overviewRouter from "./overview";
 import versionsRouter from "./versions";
+import bookRouter from "./book";
 
 /**
  * F0/F1 surface.
@@ -29,6 +30,11 @@ import versionsRouter from "./versions";
  * `auth` is the only surface below that answers without sessão — ver
  * `middlewares/require-session.ts`, montado antes deste router. `users` é a
  * tela de Configurações: quem tem acesso, e quem deu.
+ *
+ * `book` é o Book do Operador: um documento por bloco, versionado, sem DELETE.
+ * É a única superfície que guarda arquivo dentro do banco, e o motivo está em
+ * `lib/db/src/schema/book.ts` — aqui o documento é o conteúdo, não há cópia
+ * derivada dele, e o disco desta plataforma não sobrevive a um deploy.
  */
 const router: IRouter = Router();
 
@@ -41,5 +47,6 @@ router.use(changesRouter);
 router.use(importsRouter);
 router.use(overviewRouter);
 router.use(versionsRouter);
+router.use(bookRouter);
 
 export default router;

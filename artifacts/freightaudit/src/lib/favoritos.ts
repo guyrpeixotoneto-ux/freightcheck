@@ -9,18 +9,33 @@ const CHAVE = "freightcheck:parametros-favoritos";
  * cinco. Aqui vale o mesmo, e por isso a lista fica no navegador: é preferência
  * de quem está na máquina, não dado do sistema — não merece uma tabela, uma
  * migration nem uma rota, e falhar em gravá-la não pode derrubar a tela.
+ *
+ * **A chave é parâmetro porque há mais de uma grade.** Parâmetros e Book do
+ * Operador têm cartões com nomes parecidos e conjuntos diferentes; favoritar
+ * "OUTROS CUSTOS" numa tela não pode acender uma estrela na outra. Cada grade
+ * traz a sua chave, e o padrão continua sendo o da tela que existia primeiro —
+ * assim ninguém perde os favoritos que já tinha.
  */
-export function useFavoritos() {
-  const [favoritos, setFavoritos] = useState<string[]>(ler);
+export function useFavoritos(chave: string = CHAVE) {
+  const [favoritos, setFavoritos] = useState<string[]>(() => ler(chave));
+
+  /*
+   * Trocar de chave recarrega a lista. Sem isto, navegar de uma grade para a
+   * outra escreveria os favoritos da primeira sobre os da segunda no efeito
+   * abaixo — o estado sobrevive à troca, o `localStorage` não deveria.
+   */
+  useEffect(() => {
+    setFavoritos(ler(chave));
+  }, [chave]);
 
   useEffect(() => {
     try {
-      window.localStorage.setItem(CHAVE, JSON.stringify(favoritos));
+      window.localStorage.setItem(chave, JSON.stringify(favoritos));
     } catch {
       // Navegador com armazenamento bloqueado: a estrela deixa de sobreviver ao
       // reload, e nada além disso acontece.
     }
-  }, [favoritos]);
+  }, [chave, favoritos]);
 
   const alternar = useCallback((chave: string) => {
     setFavoritos((atual) =>
@@ -31,9 +46,9 @@ export function useFavoritos() {
   return { favoritos, alternar };
 }
 
-function ler(): string[] {
+function ler(chave: string): string[] {
   try {
-    const bruto = window.localStorage.getItem(CHAVE);
+    const bruto = window.localStorage.getItem(chave);
     if (!bruto) return [];
     const valor: unknown = JSON.parse(bruto);
     return Array.isArray(valor) ? valor.filter((v): v is string => typeof v === "string") : [];

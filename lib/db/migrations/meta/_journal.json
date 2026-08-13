@@ -57,6 +57,13 @@
       "when": 1786531190104,
       "tag": "0007_user_admin_trail",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1786643365336,
+      "tag": "0008_book_entries",
+      "breakpoints": true
     }
   ]
 }

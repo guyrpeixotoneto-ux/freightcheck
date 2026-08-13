@@ -6,3 +6,4 @@ export * from "./curation";
 export * from "./comparison";
 export * from "./semantics";
 export * from "./auth";
+export * from "./book";
