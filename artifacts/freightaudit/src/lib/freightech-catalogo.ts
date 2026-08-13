@@ -238,8 +238,12 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
           Uma coluna trocada de lugar atrapalha menos do que uma coluna
           inventada, e por isso nenhuma foi.
 
-          `Statusfinanciamentot1sha…` aparece truncado na captura e está
-          registrado como veio; o nome inteiro ainda não foi visto.
+          `Statusfinanciamentot1shared` aparecia truncado na captura como
+          `Statusfinanciamentot1sha…`. O nome inteiro não veio de um print: veio
+          do nosso próprio dicionário, que tem `carreta.status_financiamento_t1_shared`
+          — a mesma coluna, no nosso jeito de escrever. Duas fontes
+          independentes descrevendo o mesmo export é o que autoriza completar o
+          rótulo sem ter visto a tela inteira.
         */
         nome: "Carreta",
         parametros: ["Carreta"],
@@ -248,7 +252,7 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
           "Placa", "Data", "Implemento",
           "Modelo", "Tipocarroceriaempurrada", "Capacidadeempurrada",
           "Capacidadepalletsrealempurrada", "Eixoempurrada", "Pneumedidaempurrada",
-          "Mesdeentrada", "Ciclo", "Statusfinanciamento", "Statusfinanciamentot1sha…",
+          "Mesdeentrada", "Ciclo", "Statusfinanciamento", "Statusfinanciamentot1shared",
           "Ipvalicenciamento", "Percentualentrada",
           "Periodofiname", "Carencia", "Tjlp", "Spreadbndes", "Spreadbanco",
           "Taxafiname", "Doubledeck", "Custoaluguel", "Chassi", "Empresalocadora",
@@ -266,6 +270,7 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
           "carreta.modelo", "carreta.tipo_carroceria_empurrada", "carreta.capacidade_empurrada",
           "carreta.capacidade_pallets_real_empurrada", "carreta.eixo_empurrada",
           "carreta.mes_de_entrada", "carreta.ciclo",
+          "carreta.status_financiamento", "carreta.status_financiamento_t1_shared",
           "carreta.ipva_licenciamento", "carreta.percentual_entrada",
           "carreta.periodo_finame", "carreta.carencia", "carreta.tjlp",
           "carreta.double_deck", "carreta.custo_aluguel", "carreta.chassi",
