@@ -1,9 +1,7 @@
-import path from "node:path";
-import { existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { runMigrations } from "@workspace/db/migrate";
 import app from "./app";
 import { logger } from "./lib/logger";
+import { lembrarRelatorio, migrationsFolder } from "./lib/migrations";
 
 const rawPort = process.env["PORT"];
 
@@ -37,8 +35,13 @@ if (Number.isNaN(port) || port <= 0) {
  * Migration failure is logged but does NOT crash the process: crashing would
  * make the deployment look like a success (the previous version keeps
  * serving) but then the next restart would hit the same wall. Staying up
- * with `migrated: false` visible on /api/healthz is the honest, recoverable
+ * with the pendência visível em /api/healthz is the honest, recoverable
  * state — an operator can read it and act.
+ *
+ * **O relatório é guardado, não só logado.** Log de deployment é o lugar onde
+ * uma falha de migration ia morrer: quem abre a tela e recebe 500 não tem como
+ * lê-lo. Guardado aqui, ele sai por `/api/healthz`, que é onde a interface já
+ * vai perguntar o motivo quando uma chamada falha.
  */
 async function applyMigrationsInBackground(): Promise<void> {
   const url = process.env["DATABASE_URL"];
@@ -47,18 +50,34 @@ async function applyMigrationsInBackground(): Promise<void> {
     return;
   }
 
-  const bundled = path.join(
-    path.dirname(fileURLToPath(import.meta.url)),
-    "migrations",
-  );
-
   try {
-    await runMigrations(url, existsSync(bundled) ? bundled : undefined);
-    logger.info("Migrations aplicadas.");
+    const report = await runMigrations(url, migrationsFolder());
+    lembrarRelatorio(report);
+
+    if (report.failure) {
+      logger.error(
+        {
+          tag: report.failure.tag,
+          code: report.failure.code,
+          err: report.failure.message,
+          applied: report.applied,
+          pending: report.pending,
+        },
+        "Uma migration falhou — as anteriores ficaram aplicadas, as seguintes não foram tentadas. /api/healthz mostra quais faltam.",
+      );
+      return;
+    }
+
+    logger.info(
+      { applied: report.applied, total: report.alreadyApplied.length + report.applied.length },
+      report.applied.length > 0
+        ? "Migrations aplicadas."
+        : "Nenhuma migration pendente.",
+    );
   } catch (err) {
     logger.error(
       { err },
-      "Falha ao aplicar migrations — o servidor continua no ar, mas /api/healthz vai reportar migrated:false.",
+      "Não foi possível sequer tentar as migrations — o servidor continua no ar, mas /api/healthz vai reportar o schema desatualizado.",
     );
   }
 }

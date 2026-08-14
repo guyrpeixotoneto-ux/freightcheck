@@ -53,4 +53,29 @@ export const pool: pg.Pool = new Proxy({} as pg.Pool, {
   },
 });
 
+/**
+ * O SQLSTATE de um erro do Postgres — procurado também dentro do que o
+ * embrulhou.
+ *
+ * O drizzle não deixa o erro do `pg` subir cru: ele o envolve num
+ * `DrizzleQueryError` com a consulta e os parâmetros, e põe o original em
+ * `cause`. Quem só olhasse a superfície nunca acharia código nenhum — foi por
+ * isso que o `23505` que uma rota tratava para transformar uma corrida de
+ * gravação num 409 com instrução voltou a responder "Internal server error"
+ * quando o drizzle passou a embrulhar.
+ *
+ * A cadeia é percorrida com um limite: `cause` é campo livre, e um ciclo nele
+ * não pode virar laço infinito dentro de um `catch`.
+ */
+export function codigoDoPostgres(err: unknown): string | undefined {
+  let atual: unknown = err;
+  for (let nivel = 0; nivel < 5; nivel++) {
+    if (typeof atual !== "object" || atual === null) return undefined;
+    const code = (atual as { code?: unknown }).code;
+    if (typeof code === "string") return code;
+    atual = (atual as { cause?: unknown }).cause;
+  }
+  return undefined;
+}
+
 export * from "./schema";
