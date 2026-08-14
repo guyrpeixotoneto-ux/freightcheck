@@ -84,7 +84,19 @@ export function avancarEstado(
   const intervalo = leitura.entidades.intervalo ?? base.intervalo;
 
   return {
-    intencao: plano.intencao === "DESCONHECIDA" ? base.intencao : plano.intencao,
+    /*
+      Cumprimentar no meio da conversa não muda de assunto.
+
+      Sem a ressalva, um "obrigado" no meio de uma investigação sobre o IPVA
+      deixaria SAUDACAO no estado, e o "e julho?" seguinte herdaria uma intenção
+      que não consulta nada — o fio da conversa se perderia por uma gentileza.
+      Vale a mesma regra de DESCONHECIDA: o que não traz assunto não apaga o
+      que estava em pé.
+    */
+    intencao:
+      plano.intencao === "DESCONHECIDA" || plano.intencao === "SAUDACAO"
+        ? base.intencao
+        : plano.intencao,
     termoDoParametro: leitura.entidades.termoDoParametro ?? base.termoDoParametro,
     parametro: plano.alvo?.parametro ?? (leitura.entidades.termoDoParametro ? null : base.parametro),
     periodo,

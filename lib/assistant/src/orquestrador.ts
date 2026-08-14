@@ -584,12 +584,21 @@ export async function orquestrar(
       }
       break;
 
+    case "SAUDACAO":
     case "DESCONHECIDA":
       break;
   }
 
   // ---- 6. corpus conceitual -----------------------------------------------
-  marcar("buscarConceito", "Consultando o conhecimento do produto");
+  /*
+    Uma saudação não consulta o conhecimento — e não anuncia que consultou.
+
+    A etapa é o que a tela mostra enquanto a orquestração roda, e ela é
+    verdadeira por construção: cada linha corresponde a algo que aconteceu.
+    Anunciar "Consultando o conhecimento do produto" para um "bom dia"
+    reintroduziria o progresso inventado que este módulo existe para não ter.
+  */
+  if (intencao !== "SAUDACAO") marcar("buscarConceito", "Consultando o conhecimento do produto");
   /*
     Quem pergunta do Book quer o Book.
 
@@ -599,12 +608,15 @@ export async function orquestrar(
     que o Freightech publica; o Book registra o que foi contratado. São
     perguntas diferentes, e a segunda não se responde com a primeira.
   */
-  const trechos = buscarTrechos(pergunta, {
-    limite: intencao === "CONCEITUAL" || intencao === "DISPONIBILIDADE" ? 4 : 2,
-    ...(intencao === "BOOK" ? { corpora: ["BOOK_INDICE", "ARTIGO"] as const } : {}),
-    atributos: alvo?.atributos.map((a) => a.codigo) ?? [],
-    parametros: alvo ? [alvo.parametro] : [],
-  });
+  const trechos =
+    intencao === "SAUDACAO"
+      ? []
+      : buscarTrechos(pergunta, {
+          limite: intencao === "CONCEITUAL" || intencao === "DISPONIBILIDADE" ? 4 : 2,
+          ...(intencao === "BOOK" ? { corpora: ["BOOK_INDICE", "ARTIGO"] as const } : {}),
+          atributos: alvo?.atributos.map((a) => a.codigo) ?? [],
+          parametros: alvo ? [alvo.parametro] : [],
+        });
 
   // ---- 7. lacunas ----------------------------------------------------------
   /*
@@ -664,7 +676,22 @@ export async function orquestrar(
     });
   }
 
-  if (evidencias.length === 0 && trechos.length === 0 && !desambiguacao) {
+  /*
+    Não achar nada só é lacuna quando havia o que achar.
+
+    "Não encontrei nada sobre isto" é uma afirmação sobre uma busca que falhou.
+    Um "bom dia" não fez busca nenhuma: dizer a alguém que cumprimentou que
+    nada foi encontrado sobre o cumprimento dele é responder a uma pergunta que
+    não foi feita — e era a primeira coisa que este produto dizia a quem abria
+    a tela. A saudação sai daqui sem lacuna, e quem redige a trata como o que
+    ela é: conversa.
+  */
+  if (
+    intencao !== "SAUDACAO" &&
+    evidencias.length === 0 &&
+    trechos.length === 0 &&
+    !desambiguacao
+  ) {
     lacunas.push({
       tipo: "NAO_ENCONTREI",
       explicacao:
