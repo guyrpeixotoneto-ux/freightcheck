@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { createDb, type Database } from "@workspace/db";
 import { getFamiliesView, listPeriods, resolveContext } from "@workspace/comparison";
-import { orquestrar } from "../orquestrador";
+import { citacoesSemFonte, numerosSemLastro, orquestrar } from "../orquestrador";
 import { responder } from "../resposta";
 import { avancarEstado, ESTADO_VAZIO, type EstadoDaConversa } from "../conversa";
 import { resolverParametro } from "../parametros";
@@ -134,6 +134,74 @@ rodar("bateria do assistente", () => {
         const resposta = await responder(db, pergunta, { semIa: true });
         expect(resposta.tecnico.numerosRecusados, pergunta).toEqual([]);
       }
+    });
+  });
+
+  // ── citações ───────────────────────────────────────────────────────────────
+
+  describe("toda citação aponta para uma fonte que existe", () => {
+    it("a numeração do texto casa com a lista de fontes", async () => {
+      for (const pergunta of [
+        "Como funciona preço de combustível?",
+        "O que mudou em agosto?",
+        "Onde perdemos mais dinheiro?",
+        "Qual a regra do bloco PNEU?",
+      ]) {
+        const resposta = await responder(db, pergunta, { semIa: true });
+        const citadas = [...resposta.texto.matchAll(/\[(\d{1,2})\]/g)].map((m) => Number(m[1]));
+        for (const n of citadas) {
+          expect(
+            resposta.fontes.some((f) => f.id === String(n)),
+            `"${pergunta}" citou [${n}] com ${resposta.fontes.length} fontes`,
+          ).toBe(true);
+        }
+      }
+    });
+
+    it("uma citação além das fontes é recusada como número inventado", async () => {
+      const dossie = await orquestrar(db, "O que mudou em agosto?");
+      const quantas = dossie.trechos.length + dossie.evidencias.length;
+
+      expect(citacoesSemFonte(`Mudou bastante [${quantas}].`, dossie)).toEqual([]);
+      expect(citacoesSemFonte(`Mudou bastante [${quantas + 1}].`, dossie)).toEqual([
+        `[${quantas + 1}]`,
+      ]);
+    });
+
+    it("o marcador de citação não conta como número sem lastro", async () => {
+      /*
+        `[10]` é "a décima fonte", não a quantia dez. Sem esta separação, a
+        própria instrução de citar derrubaria toda resposta que chegasse à
+        décima fonte — e são as respostas mais ricas que chegam lá.
+      */
+      const dossie = await orquestrar(db, "O que mudou em agosto?");
+      expect(numerosSemLastro("Houve alteração no período [10].", dossie)).toEqual([]);
+      expect(numerosSemLastro("Houve 9999 alterações no período.", dossie)).toContain("9999");
+    });
+  });
+
+  // ── etapas ─────────────────────────────────────────────────────────────────
+
+  describe("as etapas relatadas são as que rodaram", () => {
+    it("cada etapa chega pelo callback, na ordem, e nenhuma a mais", async () => {
+      const recebidas: string[] = [];
+      const dossie = await orquestrar(db, "O que mudou em agosto?", {
+        aoAvancar: (e) => recebidas.push(e.rotulo),
+      });
+      expect(recebidas).toEqual(dossie.etapas.map((e) => e.rotulo));
+      expect(recebidas.length).toBeGreaterThan(0);
+    });
+
+    it("pergunta conceitual não anuncia cálculo de impacto", async () => {
+      /*
+        A tela animava uma lista fixa por tempo, e dizia "calculando impacto"
+        para uma pergunta que nunca calcula impacto. Agora só sai o que rodou.
+      */
+      const recebidas: string[] = [];
+      await orquestrar(db, "Como funciona preço de combustível?", {
+        aoAvancar: (e) => recebidas.push(e.rotulo),
+      });
+      expect(recebidas.join(" | ")).not.toMatch(/impacto|alteraç|vigência/i);
     });
   });
 

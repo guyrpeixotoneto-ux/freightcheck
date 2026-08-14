@@ -84,10 +84,23 @@ sabidamente falta).
   exigir colunas.
 - Não repita o dossiê inteiro nem enumere os fatos um a um — a tela mostra as
   fontes ao lado. Escreva o que eles significam para a pergunta feita.
+
 - Não invente nomes de tela, botão ou campo. Use os que o dossiê nomeia.
 - Não escreva cabeçalho markdown (\`#\`). Negrito e listas simples estão bem.
 - Não mencione ferramentas, consultas, intenção nem orquestração: quem lê quer
   a resposta, não a implementação.
+
+## Citações
+
+Cada item do dossiê vem numerado — \`[1]\`, \`[2]\`. Ponha o número **no fim da
+frase** que se apoia naquele item, antes do ponto: "o consumo negociado caiu em
+onze veículos [2]". É assim que quem lê audita o que você escreveu.
+
+- Toda frase com número, regra, fórmula ou conceito específico do FreightCheck
+  leva citação. Frase de ligação, não.
+- Use só os números que existem no dossiê. Citar \`[4]\` quando há três itens é
+  o mesmo que inventar a fonte, e a resposta inteira é descartada por isso.
+- Um número por frase costuma bastar. Não empilhe \`[1][2][3]\`.
 
 Conhecimento seu sobre logística, contabilidade ou outros produtos não entra na
 resposta. Se contradisser o dossiê, o dossiê vence.`;
@@ -120,6 +133,13 @@ export interface DossieParaRedacao {
  */
 function emTexto(d: DossieParaRedacao): string {
   const partes: string[] = [];
+  /*
+    A numeração é a mesma de `montarFontes`: trechos primeiro, evidências
+    depois, na ordem em que estão. As duas listas precisam contar juntas — se
+    divergirem, o `[2]` que o modelo escreve aponta para a fonte errada na tela,
+    e uma citação que aponta para outro lugar é pior que citação nenhuma.
+  */
+  let n = 1;
 
   if (d.desambiguacao) {
     partes.push(
@@ -132,7 +152,10 @@ function emTexto(d: DossieParaRedacao): string {
     partes.push(
       "## CONCEITO\n\n" +
         d.trechos
-          .map((t) => `### ${t.trecho.titulo}\n(fonte: ${t.trecho.fonte})\n\n${t.trecho.texto}`)
+          .map(
+            (t) =>
+              `### [${n++}] ${t.trecho.titulo}\n(fonte: ${t.trecho.fonte})\n\n${t.trecho.texto}`,
+          )
           .join("\n\n"),
     );
   }
@@ -150,7 +173,7 @@ function emTexto(d: DossieParaRedacao): string {
             const fatos = e.fatos
               .map((f) => `- ${f.rotulo}: ${f.valor}${f.detalhe ? ` — ${f.detalhe}` : ""}`)
               .join("\n");
-            return `### ${e.titulo}\n${recorte}(origem: ${e.origem})\n${fatos}${
+            return `### [${n++}] ${e.titulo}\n${recorte}(origem: ${e.origem})\n${fatos}${
               e.nota ? `\nRessalva: ${e.nota}` : ""
             }`;
           })

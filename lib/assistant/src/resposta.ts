@@ -25,6 +25,7 @@ import type { Evidencia, Fato } from "./ferramentas";
 import { disponivel, modeloConfigurado, redigir } from "./llm";
 import type { Intencao } from "./interpretacao";
 import {
+  citacoesSemFonte,
   numerosSemLastro,
   orquestrar,
   recorteDoDossie,
@@ -108,16 +109,25 @@ function montarFontes(dossie: Dossie): Fonte[] {
 
 // ── Redação em código ───────────────────────────────────────────────────────
 
-/** A frase de abertura: responde a pergunta antes de qualquer evidência. */
-function abertura(dossie: Dossie): string | null {
+/**
+ * A frase de abertura: responde a pergunta antes de qualquer evidência.
+ *
+ * Devolve junto o número da fonte que a sustenta. Sem isso a abertura citava
+ * `[1]` fixo — o primeiro trecho conceitual — enquanto a frase vinha de uma
+ * consulta ao banco. Uma citação que aponta para a fonte errada é pior que
+ * citação nenhuma: ela convida a conferir e entrega outra coisa.
+ */
+function abertura(dossie: Dossie): { texto: string; fonte: number | null } | null {
   const { plano, trechos, evidencias } = dossie;
 
   if (dossie.desambiguacao) {
     const { termo, opcoes } = dossie.desambiguacao;
-    return (
-      `"${termo}" pode ser mais de uma coisa aqui: ${opcoes.join(", ")}. ` +
-      `Qual delas você quer?`
-    );
+    return {
+      texto:
+        `"${termo}" pode ser mais de uma coisa aqui: ${opcoes.join(", ")}. ` +
+        `Qual delas você quer?`,
+      fonte: null,
+    };
   }
 
   const conceitual =
@@ -135,13 +145,15 @@ function abertura(dossie: Dossie): string | null {
   if (conceitual && (!pedeQuantidade || evidencias.length === 0)) {
     const principal = trechos[0];
     if (!principal) return null;
-    return principal.trecho.texto;
+    return { texto: principal.trecho.texto, fonte: 1 };
   }
 
   const escolha = fatoQueResponde(dossie);
-  if (!escolha) return trechos[0]?.trecho.texto ?? null;
+  if (!escolha) {
+    return trechos[0] ? { texto: trechos[0].trecho.texto, fonte: 1 } : null;
+  }
 
-  const { evidencia, fato } = escolha;
+  const { evidencia, fato, indice } = escolha;
 
   /*
     O recorte entra na frase, e entra uma vez só.
@@ -157,7 +169,11 @@ function abertura(dossie: Dossie): string | null {
   const sufixo = doRecorte && !rotuloEhPeriodo ? ` em ${doRecorte}` : "";
   const rotulo = rotuloEhPeriodo ? `Em ${fato.rotulo}` : fato.rotulo;
 
-  return `${rotulo}${sufixo}: ${fato.valor}${fato.detalhe ? ` — ${fato.detalhe}` : ""}.`;
+  return {
+    texto: `${rotulo}${sufixo}: ${fato.valor}${fato.detalhe ? ` — ${fato.detalhe}` : ""}.`,
+    // Trechos primeiro, evidências depois — a numeração de `montarFontes`.
+    fonte: dossie.trechos.length + indice + 1,
+  };
 }
 
 /**
@@ -175,16 +191,23 @@ function abertura(dossie: Dossie): string | null {
  * Grandeza desempata — uma consulta que devolveu só zeros perde para uma que
  * trouxe número — e só desempata: quando tudo deu zero, zero é a resposta.
  */
-function fatoQueResponde(dossie: Dossie): { evidencia: Evidencia; fato: Fato } | null {
+interface Escolha {
+  evidencia: Evidencia;
+  fato: Fato;
+  /** A posição da evidência na lista — vira o número da citação. */
+  indice: number;
+}
+
+function fatoQueResponde(dossie: Dossie): Escolha | null {
   const palavras = new Set(termos(dossie.pergunta));
   const casa = (texto: string | undefined): number => {
     if (!texto) return 0;
     return termos(texto).filter((p) => palavras.has(p)).length;
   };
 
-  let melhor: { evidencia: Evidencia; fato: Fato; pontos: number } | null = null;
+  let melhor: (Escolha & { pontos: number }) | null = null;
 
-  for (const evidencia of dossie.evidencias) {
+  dossie.evidencias.forEach((evidencia, indice) => {
     const temGrandeza = evidencia.numeros.some((n) => n !== 0);
     const doTitulo = casa(evidencia.titulo);
 
@@ -196,15 +219,18 @@ function fatoQueResponde(dossie: Dossie): { evidencia: Evidencia; fato: Fato } |
         (temGrandeza ? 1 : 0) +
         (evidencia.destaque === fato.rotulo ? 0.5 : 0);
 
-      if (!melhor || pontos > melhor.pontos) melhor = { evidencia, fato, pontos };
+      if (!melhor || pontos > melhor.pontos) melhor = { evidencia, fato, indice, pontos };
     }
-  }
+  });
 
-  if (melhor) return { evidencia: melhor.evidencia, fato: melhor.fato };
+  if (melhor) {
+    const { evidencia, fato, indice } = melhor as Escolha & { pontos: number };
+    return { evidencia, fato, indice };
+  }
 
   // Nenhum fato com número: abre com o primeiro que houver.
   const primeira = dossie.evidencias[0];
-  return primeira?.fatos[0] ? { evidencia: primeira, fato: primeira.fatos[0] } : null;
+  return primeira?.fatos[0] ? { evidencia: primeira, fato: primeira.fatos[0], indice: 0 } : null;
 }
 
 /**
@@ -217,23 +243,66 @@ function fatoQueResponde(dossie: Dossie): { evidencia: Evidencia; fato: Fato } |
  */
 function redacaoDeterministica(dossie: Dossie): string {
   const partes: string[] = [];
+  // A numeração das citações é a de `montarFontes`: trechos, depois evidências.
+  const primeiraEvidencia = dossie.trechos.length + 1;
 
   const inicio = abertura(dossie);
-  if (inicio) partes.push(inicio);
+  if (inicio) {
+    partes.push(inicio.fonte ? `${inicio.texto} [${inicio.fonte}]` : inicio.texto);
+  }
 
   for (const lacuna of dossie.lacunas) partes.push(lacuna.explicacao);
 
   if (!dossie.desambiguacao) {
-    for (const e of dossie.evidencias) {
-      const linhas = e.fatos
-        .map((f) => `- **${f.rotulo}:** ${f.valor}${f.detalhe ? ` — ${f.detalhe}` : ""}`)
-        .join("\n");
-      partes.push(`**${e.titulo}**\n\n${linhas}${e.nota ? `\n\n${e.nota}` : ""}`);
-    }
+    /*
+      Os fatos entram em frase, não em lista de rótulos.
+
+      A versão anterior despejava `- **Alterações:** 267` para cada fato de cada
+      evidência — o "relatório técnico produzido pelo backend" que esta reescrita
+      existe para não ser. Uma lista de rótulo e valor é o formato de um cartão
+      de tela, não o de alguém explicando o que aconteceu.
+
+      A lista sobrevive num caso: quando os fatos **são** uma enumeração — as
+      vigências que existem, os veículos mais afetados. Aí cada linha é um item
+      comparável, e a coluna ajuda a ler.
+    */
+    dossie.evidencias.forEach((e, i) => {
+      const n = primeiraEvidencia + i;
+      const uteis = e.fatos.filter((f) => f.valor && f.valor !== "—");
+      if (uteis.length === 0) return;
+
+      /*
+        A evidência que já abriu a resposta não se repete inteira.
+
+        Ela entra só se tiver mais a dizer do que a frase de abertura levou —
+        senão a resposta começava com "Alterações em agosto/2026: 267" e logo
+        abaixo repetia "alterações, 267" com outras palavras.
+      */
+      const jaAberta = inicio?.fonte === n;
+      const restantes = jaAberta
+        ? uteis.filter((f) => !inicio!.texto.includes(f.valor))
+        : uteis;
+      if (restantes.length === 0) return;
+
+      if (restantes.length > 3) {
+        // Muitos fatos são uma enumeração — vigências, veículos, colunas. Aí a
+        // lista ajuda a ler, porque cada linha é um item comparável.
+        const linhas = restantes
+          .map((f) => `- **${f.rotulo}:** ${f.valor}${f.detalhe ? ` — ${f.detalhe}` : ""}`)
+          .join("\n");
+        partes.push(`${e.titulo} [${n}]:\n\n${linhas}`);
+      } else {
+        const frase = restantes
+          .map((f) => `${f.rotulo.toLowerCase()}: ${f.valor}${f.detalhe ? ` (${f.detalhe})` : ""}`)
+          .join("; ");
+        partes.push(`${frase} [${n}].`);
+      }
+      if (e.nota) partes.push(e.nota);
+    });
 
     // O conceito de apoio, quando já houve dado — um trecho só, e depois.
     if (dossie.evidencias.length > 0 && dossie.trechos.length > 0) {
-      partes.push(dossie.trechos[0].trecho.texto);
+      partes.push(`${dossie.trechos[0].trecho.texto} [1]`);
     }
   }
 
@@ -305,6 +374,8 @@ export interface PerguntaOptions {
   estado?: EstadoDaConversa | null;
   /** Desliga o modelo mesmo com chave — usado pelas evals e pelo painel. */
   semIa?: boolean;
+  /** Repassado à orquestração: cada etapa, no instante em que começa. */
+  aoAvancar?: (etapa: Etapa) => void;
 }
 
 /**
@@ -322,6 +393,7 @@ export async function responder(
   const dossie = await orquestrar(db, pergunta.trim(), {
     ...(opcoes.recorte ? { recorte: opcoes.recorte } : {}),
     estado: opcoes.estado ?? null,
+    ...(opcoes.aoAvancar ? { aoAvancar: opcoes.aoAvancar } : {}),
   });
 
   const determinista = redacaoDeterministica(dossie);
@@ -332,19 +404,22 @@ export async function responder(
   if (!opcoes.semIa && disponivel()) {
     const doModelo = await redigir({ pergunta, dossie });
     if (doModelo) {
+      /*
+        Duas travas, e as duas descartam a resposta inteira em vez de remendá-la.
+
+        Um número que nenhuma consulta devolveu provavelmente tem o raciocínio
+        construído em cima dele, e trocar o número deixaria a conclusão de pé.
+        Uma citação que aponta para fonte inexistente é o mesmo defeito noutra
+        moeda: a frase se apresenta como conferível e manda quem lê para um
+        lugar que não existe.
+      */
       const semLastro = numerosSemLastro(doModelo, dossie);
-      if (semLastro.length === 0) {
+      const semFonte = citacoesSemFonte(doModelo, dossie);
+      if (semLastro.length === 0 && semFonte.length === 0) {
         texto = doModelo;
         redacao = "IA";
       } else {
-        /*
-          O modelo citou número que nenhuma consulta devolveu.
-
-          A resposta dele é descartada inteira, e não corrigida: um texto com um
-          número inventado provavelmente tem o raciocínio construído em cima
-          dele, e remendar o número deixaria a conclusão de pé.
-        */
-        numerosRecusados = semLastro;
+        numerosRecusados = [...semLastro, ...semFonte];
       }
     }
   }

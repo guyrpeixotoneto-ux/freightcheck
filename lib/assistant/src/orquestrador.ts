@@ -203,6 +203,19 @@ export interface OpcoesDeOrquestracao {
   recorte?: { scopeHash?: string; channel?: string | null; period?: string };
   /** O estado da conversa, para herdar em perguntas de continuação. */
   estado?: EstadoDaConversa | null;
+  /**
+   * Chamado a cada etapa, no instante em que ela começa.
+   *
+   * Existe para a tela poder dizer o que está acontecendo **enquanto**
+   * acontece. Sem isto, a única honestidade possível era um "consultando…"
+   * genérico: as etapas só chegavam junto com a resposta, quando já não
+   * serviam para nada. A alternativa que a tela usava antes — animar uma lista
+   * fixa por tempo — anunciava "calculando impacto" numa pergunta conceitual
+   * que nunca calcula impacto, e num produto que existe para não exibir o que
+   * não pode sustentar, inventar o próprio progresso é a última coisa que se
+   * deveria fazer.
+   */
+  aoAvancar?: (etapa: Etapa) => void;
 }
 
 /**
@@ -218,7 +231,11 @@ export async function orquestrar(
   opcoes: OpcoesDeOrquestracao = {},
 ): Promise<Dossie> {
   const etapas: Etapa[] = [];
-  const marcar = (nome: string, rotulo: string) => etapas.push({ nome, rotulo });
+  const marcar = (nome: string, rotulo: string) => {
+    const etapa = { nome, rotulo };
+    etapas.push(etapa);
+    opcoes.aoAvancar?.(etapa);
+  };
 
   // ---- 1. entendimento -----------------------------------------------------
   marcar("interpretar", "Analisando sua pergunta");
@@ -624,6 +641,15 @@ function numerosDoTexto(texto: string): string[] {
  * exigiria reimplementar a formatação pt-BR só para desfazê-la.
  */
 export function numerosSemLastro(texto: string, dossie: Dossie): string[] {
+  /*
+    O marcador de citação não é uma afirmação numérica.
+
+    `[10]` é "a décima fonte", não a quantia dez. Sem tirá-lo daqui, a própria
+    instrução de citar produziria respostas descartadas por número sem lastro a
+    partir da décima fonte — um defeito que só apareceria em respostas ricas,
+    que são exatamente as que mais interessam.
+  */
+  const semCitacoes = texto.replace(/\[\d{1,2}\]/g, " ");
   const permitidos = new Set<string>();
 
   const registrar = (valor: string | number | undefined | null) => {
@@ -664,12 +690,34 @@ export function numerosSemLastro(texto: string, dossie: Dossie): string[] {
   }
   for (const l of dossie.lacunas) registrar(l.explicacao);
 
-  return numerosDoTexto(texto).filter((token) => {
+  return numerosDoTexto(semCitacoes).filter((token) => {
     if (permitidos.has(token) || permitidos.has(token.replace(/\./g, ""))) return false;
     // Um algarismo isolado é numeração de lista ou ordinal, não afirmação.
     if (token.length === 1) return false;
     return true;
   });
+}
+
+/**
+ * Citações que apontam para fonte que não existe.
+ *
+ * A numeração vem de `montarFontes`: trechos primeiro, evidências depois. Uma
+ * resposta que escreve `[4]` com três fontes no dossiê está oferecendo à pessoa
+ * um lugar para conferir que não existe — e conferir é a única coisa que a
+ * citação promete. Vale a mesma regra dos números: a resposta é descartada
+ * inteira, porque o texto foi construído em cima daquela suposta fonte.
+ */
+export function citacoesSemFonte(texto: string, dossie: Dossie): string[] {
+  const quantas = dossie.trechos.length + dossie.evidencias.length;
+  const citadas: string[] = texto.match(/\[\d{1,2}\]/g) ?? [];
+  return [
+    ...new Set(
+      citadas.filter((c) => {
+        const n = Number(c.slice(1, -1));
+        return n < 1 || n > quantas;
+      }),
+    ),
+  ];
 }
 
 /** O contexto que esta resposta descreve — para a tela dizê-lo. */

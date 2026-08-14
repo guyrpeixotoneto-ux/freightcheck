@@ -1,3 +1,5 @@
+import { createContext, useContext } from "react";
+
 /**
  * O pouco de markdown que as respostas usam — e só ele.
  *
@@ -13,17 +15,31 @@
 
 interface Props {
   texto: string;
+  /** Chamado quando alguém clica numa citação `[n]`. */
+  aoCitar?: (n: number) => void;
 }
 
-export function Markdown({ texto }: Props) {
+/**
+ * De onde saiu cada frase — sem tirar a frase do caminho.
+ *
+ * O contexto leva o `aoCitar` até o `Inline`, no fundo da árvore, porque a
+ * citação aparece dentro de parágrafo, de item de lista e de célula de tabela.
+ * Passá-lo por prop em cada um desses saltos encheria três componentes de um
+ * argumento que nenhum deles usa.
+ */
+const Citar = createContext<((n: number) => void) | undefined>(undefined);
+
+export function Markdown({ texto, aoCitar }: Props) {
   const blocos = texto.split(/\n{2,}/);
 
   return (
-    <div className="space-y-3 text-[0.9375rem] leading-relaxed">
-      {blocos.map((bloco, i) => (
-        <Bloco key={i} texto={bloco} />
-      ))}
-    </div>
+    <Citar.Provider value={aoCitar}>
+      <div className="space-y-3 text-[0.9375rem] leading-relaxed">
+        {blocos.map((bloco, i) => (
+          <Bloco key={i} texto={bloco} />
+        ))}
+      </div>
+    </Citar.Provider>
   );
 }
 
@@ -121,9 +137,10 @@ function Bloco({ texto }: { texto: string }) {
   );
 }
 
-/** Negrito, itálico e código, nesta ordem de precedência. */
+/** Negrito, itálico, código e citação, nesta ordem de precedência. */
 function Inline({ texto }: { texto: string }) {
-  const partes = texto.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*)/g);
+  const aoCitar = useContext(Citar);
+  const partes = texto.split(/(\*\*[^*]+\*\*|`[^`]+`|\*[^*]+\*|\[\d{1,2}\])/g);
   return (
     <>
       {partes.map((parte, i) => {
@@ -137,11 +154,38 @@ function Inline({ texto }: { texto: string }) {
             </code>
           );
         }
+        if (/^\[\d{1,2}\]$/.test(parte)) {
+          const n = Number(parte.slice(1, -1));
+          return <Citacao key={i} n={n} aoCitar={aoCitar} />;
+        }
         if (parte.startsWith("*") && parte.endsWith("*") && parte.length > 2) {
           return <em key={i}>{parte.slice(1, -1)}</em>;
         }
         return <span key={i}>{parte}</span>;
       })}
     </>
+  );
+}
+
+/**
+ * O número que leva à fonte.
+ *
+ * Discreto de propósito: sobrescrito, do tamanho de um índice, sem cor de link.
+ * A promessa dele é poder conferir, não chamar atenção — uma citação que
+ * disputa a leitura com a frase que ela sustenta atrapalha as duas.
+ */
+function Citacao({ n, aoCitar }: { n: number; aoCitar?: (n: number) => void }) {
+  if (!aoCitar) {
+    return <sup className="text-[0.7em] text-muted-foreground ml-0.5">{n}</sup>;
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => aoCitar(n)}
+      aria-label={`Ver a fonte ${n}`}
+      className="align-super text-[0.7em] text-muted-foreground ml-0.5 px-1 rounded-sm hover:bg-muted hover:text-foreground transition-colors"
+    >
+      {n}
+    </button>
   );
 }
