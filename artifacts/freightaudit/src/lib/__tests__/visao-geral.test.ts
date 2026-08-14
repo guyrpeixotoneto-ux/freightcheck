@@ -88,6 +88,7 @@ function grupo(overrides: Partial<ChangeGroup> = {}): ChangeGroup {
     taxonomyName: null,
     inconclusiveReason: null,
     anomalies: [],
+    formatOnly: false,
     composition: null,
     badge: "SEM_SINAL",
     badgeLabel: "Sem sinal relevante",

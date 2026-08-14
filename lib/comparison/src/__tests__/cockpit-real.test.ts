@@ -99,18 +99,40 @@ describe("os números do painel são os mesmos da vigência", () => {
 });
 
 describe("a fila de investigação sobre o dado real", () => {
-  it("agosto/2026 abre com o fim do contrato — ruptura de formato na frota inteira", async () => {
+  it("agosto/2026 não abre mais com o fim do contrato — aquilo era formato", async () => {
+    /*
+      Este teste já afirmou o contrário: a fila de agosto abria com
+      `cavalo.data_fim_contrato`, crítico, 100% da frota. E era mentira contada
+      com números corretos — as 62 linhas são a mesma data escrita como serial
+      do Excel, e nenhuma delas é mudança de contrato. O que abre agosto agora é
+      uma alteração de verdade; o formato continua na fila, no fim, dizendo o
+      que é.
+    */
     const view = (await getGroupedView(ctx.db, AGOSTO))!;
     const primeiro = view.cockpit.priorities[0];
-    const grupo = view.groups.find((g) => g.key === primeiro.key)!;
-    expect(grupo.attributeCode).toBe("cavalo.data_fim_contrato");
-    expect(primeiro.severity).toBe("CRITICO");
-    expect(primeiro.hasAnomaly).toBe(true);
-    expect(primeiro.sharePercent).toBe(100);
-    expect(primeiro.diagnosis).toContain("indício");
-    // O valor cru não sobe para a camada executiva.
-    expect(primeiro.diagnosis).not.toContain("46935");
-    expect(primeiro.patternsSummary).toContain("54");
+    const grupoDoTopo = view.groups.find((g) => g.key === primeiro.key)!;
+    expect(grupoDoTopo.attributeCode).not.toBe("cavalo.data_fim_contrato");
+    expect(grupoDoTopo.formatOnly).toBe(false);
+
+    const contrato = view.groups.find(
+      (g) => g.attributeCode === "cavalo.data_fim_contrato",
+    )!;
+    const item = view.cockpit.priorities.find((p) => p.key === contrato.key)!;
+    expect(contrato.badge).toBe("FORMATO");
+    expect(item.severity).toBe("BAIXO");
+    expect(item.hasAnomaly).toBe(true);
+    expect(item.sharePercent).toBe(100);
+    expect(item.diagnosis).toContain("Mudou o formato do arquivo, não o contrato");
+    // O valor cru continua sem subir para a camada executiva.
+    expect(item.diagnosis).not.toContain("46935");
+    expect(item.patternsSummary).toContain("54");
+
+    // E a vigência deixou de ser anunciada por ele: as 62 linhas continuam
+    // contadas, ditas como o que são.
+    expect(view.totals.formatOnlyChanges).toBe(62);
+    expect(view.cockpit.narrative.sentences.join(" ")).toContain(
+      "não são alteração contratual",
+    );
   });
 
   it("julho/2026 põe o zeramento da frota inteira à frente do IPVA de R$ 144 mil/ano", async () => {

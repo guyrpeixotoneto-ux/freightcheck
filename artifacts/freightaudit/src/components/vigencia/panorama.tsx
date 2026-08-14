@@ -163,6 +163,7 @@ const COR_SELO: Record<string, string> = {
   COBERTURA: "bg-sky-600",
   MOVIMENTO: "bg-violet-500",
   TRAVADO: "bg-zinc-500",
+  FORMATO: "bg-slate-400",
   SEM_SINAL: "bg-zinc-300",
 };
 

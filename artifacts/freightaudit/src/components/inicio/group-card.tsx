@@ -29,6 +29,10 @@ const BADGE_STYLE: Record<string, string> = {
   COBERTURA: "bg-sky-100 text-sky-900 border-sky-300",
   MOVIMENTO: "bg-violet-100 text-violet-900 border-violet-300",
   TRAVADO: "bg-zinc-100 text-zinc-700 border-zinc-300",
+  // Azul de nota, não âmbar de alerta: o que este selo diz é que **não** houve
+  // mudança contratual. Vesti-lo de aviso repõe pela cor o susto que a
+  // classificação acabou de tirar.
+  FORMATO: "bg-slate-100 text-slate-700 border-slate-300",
   SEM_SINAL: "bg-zinc-50 text-zinc-500 border-zinc-200",
 };
 
@@ -109,9 +113,20 @@ export function GroupCard({ group, period }: { group: ChangeGroup; period: strin
             </div>
           )}
           {group.anomalies.length > 0 && (
-            <div className="text-xs text-amber-800 mt-1 inline-flex items-center gap-1">
-              <TriangleAlert className="w-3 h-3" />
-              possível anomalia de formato
+            <div
+              className={cn(
+                "text-xs mt-1 inline-flex items-center gap-1",
+                group.formatOnly ? "text-slate-600" : "text-amber-800",
+              )}
+            >
+              {group.formatOnly ? (
+                <Info className="w-3 h-3" />
+              ) : (
+                <TriangleAlert className="w-3 h-3" />
+              )}
+              {group.formatOnly
+                ? "troca de formato, sem mudança de valor"
+                : "possível anomalia de formato"}
             </div>
           )}
         </div>
@@ -210,12 +225,21 @@ function GroupDetail({ group, period }: { group: ChangeGroup; period: string }) 
       {group.anomalies.map((anomaly) => (
         <div
           key={`${anomaly.kind}-${anomaly.sameInstant}`}
-          className="rounded-md border-l-4 border-amber-500 bg-amber-50 px-4 py-3 text-amber-900"
+          className={cn(
+            "rounded-md border-l-4 px-4 py-3",
+            anomaly.formatOnly
+              ? "border-slate-400 bg-slate-50 text-slate-800"
+              : "border-amber-500 bg-amber-50 text-amber-900",
+          )}
         >
           <div className="font-semibold text-xs uppercase tracking-wide mb-1 flex items-center gap-1.5">
-            <TriangleAlert className="w-3.5 h-3.5" />
-            Possível anomalia de formato · {anomaly.vehicles}{" "}
-            {anomaly.vehicles === 1 ? "veículo" : "veículos"}
+            {anomaly.formatOnly ? (
+              <Info className="w-3.5 h-3.5" />
+            ) : (
+              <TriangleAlert className="w-3.5 h-3.5" />
+            )}
+            {anomaly.formatOnly ? "Troca de formato" : "Possível anomalia de formato"} ·{" "}
+            {anomaly.vehicles} {anomaly.vehicles === 1 ? "veículo" : "veículos"}
           </div>
           <p>{anomaly.explanation}</p>
           <p className="mt-1 text-xs">

@@ -537,6 +537,13 @@ export function ultimasAlteracoes(view: GroupedView, limite = 4): LinhaDeAlterac
 }
 
 function tipoDaLinha(grupo: ChangeGroup): TipoDeLinha {
+  /*
+    Troca de formato pura não é queda, alta nem "mudança sem preço" — é neutra,
+    e precisa vir antes das outras regras: como o motor não apura valor para uma
+    coluna de data, ela cairia em "sem-preco" e o painel anunciaria uma mudança
+    que não existe.
+  */
+  if (grupo.formatOnly) return "neutro";
   if (grupo.impact.confidence === "CALCULATED" && grupo.impact.amount !== null) {
     return grupo.impact.amount < 0 ? "queda" : "alta";
   }
@@ -547,6 +554,7 @@ function tipoDaLinha(grupo: ChangeGroup): TipoDeLinha {
 
 function tituloDaLinha(grupo: ChangeGroup): string {
   const onde = `${grupo.title} — ${grupo.equipment}`;
+  if (grupo.formatOnly) return `Formato do arquivo mudou — ${onde}`;
   if (grupo.impact.confidence === "CALCULATED" && grupo.impact.amount !== null) {
     return `Valor ${grupo.impact.amount < 0 ? "reduzido" : "aumentado"} em ${onde}`;
   }
@@ -555,6 +563,9 @@ function tituloDaLinha(grupo: ChangeGroup): string {
 }
 
 function detalheDaLinha(grupo: ChangeGroup): string {
+  if (grupo.formatOnly) {
+    return "a coluna mudou de forma; o valor dos dois lados é o mesmo";
+  }
   if (grupo.impact.confidence === "CALCULATED" && grupo.impact.amount !== null) {
     return escreverImpacto({
       periodicity: grupo.impact.periodicity,

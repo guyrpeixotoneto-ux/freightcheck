@@ -13,12 +13,23 @@ export type Badge =
   | "COBERTURA"
   | "MOVIMENTO"
   | "TRAVADO"
+  | "FORMATO"
   | "SEM_SINAL";
 
 export interface Anomaly {
   kind: string;
   sameInstant: boolean;
   differenceMs: number;
+  /**
+   * Se esta linha é só troca de formato — mesmo instante, ou diferença menor
+   * que a precisão que o serial do Excel não carrega.
+   *
+   * Vem pronto do servidor de propósito. A tela já derivou isto sozinha uma
+   * vez, com um `differenceMs < 1000` escrito à mão ao lado de um limiar que
+   * mora em `anomalies.ts`; bastava um dos dois mudar para a linha contradizer
+   * o cartão logo acima dela.
+   */
+  formatOnly: boolean;
   interpretation: string;
   explanation: string;
   vehicles: number;
@@ -79,6 +90,8 @@ export interface ChangeGroup {
   taxonomyName: string | null;
   inconclusiveReason: string | null;
   anomalies: Anomaly[];
+  /** Se todas as linhas do grupo são troca de formato e nada mais. */
+  formatOnly: boolean;
   composition: { total: string; parts: string[]; evidence: string } | null;
   badge: Badge;
   badgeLabel: string;
@@ -122,6 +135,8 @@ export interface GroupedView {
   complete: boolean;
   totals: {
     changes: number;
+    /** Quantas das `changes` são só troca de formato. Parcela, não subtração. */
+    formatOnlyChanges: number;
     groups: number;
     vehiclesTouched: number;
     entitiesAdded: number;
@@ -205,7 +220,12 @@ export interface CockpitView {
     fleet: number;
     impact: ImpactSummary;
     hasImpact: boolean;
-    anomalies: { groups: number; changes: number };
+    anomalies: {
+      groups: number;
+      changes: number;
+      formatOnlyGroups: number;
+      formatOnlyChanges: number;
+    };
   };
   /** Se esta vigência tem anterior com que comparar. */
   baseline: { hasBaseline: boolean; seriesWithoutBaseline: string[] };
