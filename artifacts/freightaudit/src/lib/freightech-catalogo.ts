@@ -636,7 +636,41 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
           "coluna nenhuma —, e sem ela dá para ver o custo fixo de cada carreta, que é " +
           "o que a tabela abaixo mostra, e não a média por tipo de conjunto.",
       },
-      { nome: "Lucro FINAME" },
+      {
+        /*
+          A tabela da entrada por prazo: quatro linhas, PRAZOFINAME em meses e
+          ENTRADA em percentual — 36 → 28, 48 → 25, 60 → 20, 72 → 20. Quanto
+          mais longo o financiamento, menor a entrada exigida, até estabilizar.
+
+          **A frota inteira do export mora numa dessas linhas.** `periodoFiname`
+          é 60 nos 558 cavalos e em 648 das 657 carretas, e `percentualEntrada`
+          é 20 nos mesmos ativos — que é exatamente o par da terceira linha
+          desta tela. As nove carretas restantes têm 0 nas duas, coerentes entre
+          si: sem financiamento, sem entrada. O export não traz a tabela, mas o
+          que ele traz cai dentro dela sem sobra.
+
+          **A lista de colunas está incompleta, e dá para provar pelo título.**
+          A captura começa na borda esquerda da tabela — PRAZOFINAME é mesmo a
+          primeira coluna — e termina numa borda de coluna logo depois do
+          ENTRADA. Nenhuma das duas colunas visíveis é um lucro, e o cartão se
+          chama LUCRO FINAME: existe pelo menos mais uma coluna à direita, e é
+          justamente a que dá nome à tela. Ficam as duas que foram vistas, com o
+          aviso junto — as telas anteriores ensinaram que a ponta que falta é
+          onde mora o sentido da tabela.
+        */
+        nome: "Lucro FINAME",
+        colunas: ["Prazofiname", "Entrada"],
+        nota:
+          "Atenção: esta lista está incompleta. A rolagem não foi até o fim e o cartão " +
+          "se chama LUCRO FINAME, mas nenhuma das duas colunas vistas é um lucro — há " +
+          "pelo menos mais uma à direita, ainda não capturada. O que se sabe da tela: é " +
+          "a tabela da entrada por prazo de financiamento (36 meses → 28%, 48 → 25%, 60 " +
+          "→ 20%, 72 → 20%). O export não traz essa tabela, mas traz o par já aplicado " +
+          "em cada ativo, e ele cai dentro dela: periodoFiname 60 e percentualEntrada 20 " +
+          "em toda a frota, que é a terceira linha desta tela. Esses dois valores chegam " +
+          "pelas colunas de financiamento do cavalo e da carreta, e é lá que as " +
+          "alterações deles aparecem — não neste cartão.",
+      },
       { nome: "Manutenção BID", parametros: ["Manutenção BID"] },
       { nome: "Manutenção implemento", parametros: ["Manutenção carroceria"] },
       { nome: "Modelo" },
