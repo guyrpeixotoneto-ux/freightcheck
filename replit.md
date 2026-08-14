@@ -451,6 +451,16 @@ número.
   mesmo conhecimento e das mesmas consultas; o que muda é quem redige, e a tela
   diz qual dos dois foi. Um relato de "o assistente não usa IA" quase sempre é a
   chave ausente, não um defeito — confira `GET /api/assistant/capabilities`.
+- **E quando `capabilities` diz `ia: true` e a resposta saiu em código, a
+  pergunta é outra: o que aconteceu com a chamada?** São três desfechos
+  diferentes com a mesma aparência na tela — o modelo escreveu e a trava de
+  lastro descartou (número sem evidência ou citação sem fonte), o modelo recusou,
+  ou a chamada falhou. `GET /api/assistant/usage` devolve o resumo das últimas
+  chamadas (quantas, quanto custaram, quantas descartadas, quantas com erro) e o
+  painel técnico de cada resposta diz qual dos cinco desfechos foi o dela.
+  Descarte subindo é sinal de dossiê chegando pobre ao modelo, não de modelo
+  pior. O anel vive em memória e zera no restart, de propósito: ele responde
+  "como está agora".
 - O limite do `express.json` fica em `app.ts`, não na rota de upload — o parser
   global roda antes e rejeitaria o corpo com 413 antes da rota ver.
 

@@ -13,9 +13,11 @@ import {
 } from "../lib/conversas";
 import {
   desserializarEstado,
+  eventosRecentes,
   iaDisponivel,
   modeloConfigurado,
   responder,
+  resumoDaIa,
   serializarEstado,
   sugestoes,
   TRECHOS,
@@ -51,6 +53,31 @@ router.get("/assistant/capabilities", (_req, res) => {
 
 router.get("/assistant/suggestions", (_req, res) => {
   res.json({ sugestoes: sugestoes() });
+});
+
+/**
+ * O que as últimas chamadas ao modelo custaram — e o que aconteceu com elas.
+ *
+ * `capabilities` responde se há chave; esta rota responde o que aconteceu
+ * **depois** dela. A diferença é a pergunta que ficou sem resposta por um dia:
+ * uma tela em `redação: DETERMINISTICA` com `ia: true` pode ser resposta
+ * descartada pela trava de lastro, recusa do classificador ou erro de chamada,
+ * e as três exigem ações opostas. O anel já media as três dentro do processo, e
+ * nada as expunha.
+ *
+ * `limite` corta a lista de eventos; o resumo é sempre sobre o anel inteiro.
+ * O anel vive em memória e some no restart, o que é o comportamento desejado:
+ * ele responde "como está agora", não "como estava em março".
+ */
+router.get("/assistant/usage", (req, res) => {
+  const pedido = Number(req.query.limite);
+  const limite = Number.isFinite(pedido) ? Math.min(Math.max(pedido, 1), 200) : 50;
+  res.json({
+    ia: iaDisponivel(),
+    modelo: modeloConfigurado(),
+    resumo: resumoDaIa(),
+    eventos: eventosRecentes(limite),
+  });
 });
 
 // ── Conversas ───────────────────────────────────────────────────────────────

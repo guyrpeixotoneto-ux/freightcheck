@@ -37,6 +37,13 @@ export interface Resposta {
     herdado: string[];
     ferramentas: string[];
     numerosRecusados: string[];
+    /** O que aconteceu com a chamada ao modelo — `null` quando não houve uma. */
+    ia: {
+      desfecho: "IA" | "DESCARTADA" | "RECUSA" | "ERRO" | "SEM_CHAVE";
+      modelo: string;
+      latenciaMs: number;
+      erro: string | null;
+    } | null;
   };
   conversationId: string;
   conversationTitle: string;
