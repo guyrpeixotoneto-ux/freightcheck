@@ -66,9 +66,15 @@ function diagnose(database: DatabaseHealth | undefined): string | null {
  * como "Failed to fetch" (ou "Load failed", no Safari), palavras que não dizem
  * a quem lê sequer de que lado o defeito está.
  *
- * É também o único caso em que a pergunta ao `/healthz` não tem como ajudar:
- * ela cai pela mesma razão, e o link que este aviso oferece no fim leva ao
- * mesmo nada. Daí o diagnóstico vir escrito aqui, sem consultar ninguém.
+ * É o único caso em que a resposta do `/healthz` não basta para o diagnóstico —
+ * mas ele continua sendo o que separa as duas causas. Com o processo fora do
+ * ar, o `/healthz` cai pela mesma razão e o link no fim deste aviso leva ao
+ * mesmo nada; com o processo de pé, ele responde, e então o que morreu foi
+ * **esta** requisição — o servidor reiniciou no meio dela, ou a conexão foi
+ * cortada antes de qualquer resposta. Culpar o processo inteiro nos dois casos
+ * mandava procurar um servidor derrubado que estava de pé o tempo todo: a tela
+ * em que isso apareceu só é alcançável depois de a sessão ter sido confirmada
+ * pela mesma API. Daí o texto nomear as duas e dizer como distingui-las.
  *
  * Nenhum erro nosso é `TypeError`: `ApiError` e o que `readJson` levanta são
  * `Error`, então a checagem não captura falha de servidor por engano.
@@ -94,10 +100,11 @@ export function ApiErrorNotice({
   });
 
   const cause = isFalhaDeRede(error)
-    ? "A interface está no ar, mas nada atendeu em /api: a requisição não " +
-      "completou, então esta tela não chegou a falar com o servidor. Confira " +
-      'o processo "API Server" — enquanto ele não subir, /api/healthz também ' +
-      "não responde."
+    ? "A requisição não completou: esta tela não chegou a receber resposta " +
+      "nenhuma do servidor, nem de erro. Abra /api/healthz para saber qual dos " +
+      'dois casos é. Sem resposta, o processo "API Server" não está de pé. Com ' +
+      "resposta, ele está — e o que caiu foi só esta chamada, no meio do " +
+      "caminho; o registro do processo diz o que aconteceu na hora."
     : diagnose(health?.database);
   const message = error instanceof Error ? error.message : String(error);
 
