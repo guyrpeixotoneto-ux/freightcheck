@@ -24,6 +24,7 @@
     "xlsx": "^0.18.5",
     "@workspace/curation": "workspace:*",
     "@workspace/comparison": "workspace:*",
+    "@workspace/composition": "workspace:*",
     "@workspace/ingest": "workspace:*",
     "@workspace/assistant": "workspace:*"
   },

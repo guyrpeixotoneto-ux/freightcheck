@@ -1,0 +1,288 @@
+/**
+ * O contrato das rotas `/composition`, do lado da tela.
+ *
+ * Espelha `@workspace/composition` sem importá-lo: o pacote é de servidor e
+ * carrega o driver do Postgres junto. Um `import type` atravessaria o
+ * `tsconfig` mas não o bundler, e o custo de manter estes tipos à mão é menor
+ * que o de arrastar o banco para dentro do navegador.
+ */
+
+export type Farol = "NORMAL" | "ATENCAO" | "CRITICO" | "INCOMPLETO";
+export type Gaveta = "MENSAL" | "ANUAL" | "AQUISICAO";
+
+export type MotivoDeExclusao =
+  | "SEMANTICA_NAO_CONFIRMADA"
+  | "NAO_MONETARIO"
+  | "NAO_SOMAVEL"
+  | "SEM_PERIODICIDADE"
+  | "PERIODICIDADE_NAO_MENSAL"
+  | "PARCELA_DE_TOTAL"
+  | "ESCOPO_DE_CONJUNTO"
+  | "BASE_AUSENTE"
+  | "VALOR_AUSENTE"
+  | "VALOR_NAO_NUMERICO";
+
+export interface Status {
+  farol: Farol;
+  motivos: string[];
+  alertas: number;
+}
+
+export interface Variacao {
+  absoluta: number;
+  percentual: number | null;
+}
+
+export interface LinhaDaFrota {
+  entityId: string;
+  placa: string | null;
+  chassi: string | null;
+  entityType: string;
+  rotuloDoTipo: string;
+  unidade: string | null;
+  operacao: string | null;
+  effectiveDate: string;
+  periodLabel: string;
+  presente: boolean;
+  mensal: number | null;
+  componentes: number;
+  semRegraFinanceira: number;
+  variacao: Variacao | null;
+  status: Status;
+}
+
+export interface VisaoDeFrota {
+  entityType: string;
+  rotuloDoTipo: string;
+  context: {
+    scopeHash: string;
+    channel: string | null;
+    label: string;
+    unidade: string | null;
+  };
+  effectiveDate: string;
+  periodLabel: string;
+  anterior: { effectiveDate: string; periodLabel: string } | null;
+  vigencias: { effectiveDate: string; periodLabel: string }[];
+  serieEntregue: boolean;
+  resumo: {
+    equipamentos: number;
+    comValorApurado: number;
+    mensalTotal: number;
+    variacaoTotal: number | null;
+    comAumento: number;
+    comReducao: number;
+    semVariacao: number;
+    incompletos: number;
+    componentesSemRegra: number;
+    porFarol: Record<Farol, number>;
+  };
+  linhas: LinhaDaFrota[];
+  totalSemFiltro: number;
+}
+
+export interface Parcela {
+  code: string;
+  titulo: string;
+  valor: number | null;
+  ausencia: string | null;
+}
+
+export interface Origem {
+  sourceLabel: string;
+  sheetName: string | null;
+  rowIndex: number | null;
+  columnLetter: string | null;
+  columnHeader: string | null;
+  rawValue: string | null;
+}
+
+export interface LinhaCalculavel {
+  code: string;
+  titulo: string;
+  sourceName: string;
+  gaveta: Gaveta;
+  valor: number;
+  unit: string | null;
+  periodicity: string | null;
+  aggregation: string | null;
+  semanticsStatus: string;
+  semanticsVersion: number | null;
+  calculationBasis: string | null;
+  costClass: string | null;
+  taxonomyName: string | null;
+  taxonomyPath: string | null;
+  familia: string;
+  parametro: string;
+  explicacao: {
+    regra: string;
+    formula: string | null;
+    parcelas: Parcela[];
+    divergencia: number | null;
+  };
+  origem: Origem | null;
+}
+
+export interface ComponenteNaoApurado {
+  code: string;
+  titulo: string;
+  sourceName: string;
+  valorExibido: string | null;
+  valorNumerico: number | null;
+  dataType: string;
+  unit: string | null;
+  periodicity: string | null;
+  semanticsStatus: string;
+  taxonomyName: string | null;
+  familia: string;
+  parametro: string;
+  motivo: MotivoDeExclusao;
+  motivoRotulo: string;
+  explicacao: string;
+  baseQueFalta: string | null;
+  contidoEm: string | null;
+  monetarioPotencial: boolean;
+}
+
+export interface Composicao {
+  entityId: string;
+  entityType: string;
+  rotuloDoTipo: string;
+  placa: string | null;
+  chassi: string | null;
+  unidade: string | null;
+  operacao: string | null;
+  contextLabel: string;
+  scopeHash: string;
+  channel: string | null;
+  effectiveDate: string;
+  periodLabel: string;
+  sourceLabels: string[];
+  presente: boolean;
+  totais: { gaveta: Gaveta; valor: number; componentes: number }[];
+  linhas: LinhaCalculavel[];
+  naoApurados: ComponenteNaoApurado[];
+  integridade: {
+    code: string;
+    titulo: string;
+    tipo: "TOTAL_NAO_FECHA" | "SEMANTICA_MUDOU";
+    mensagem: string;
+  }[];
+  anterior: {
+    effectiveDate: string;
+    periodLabel: string;
+    presente: boolean;
+    mensal: number | null;
+  } | null;
+  variacaoMensal: Variacao | null;
+  completude: { calculaveis: number; semRegraFinanceira: number; parcial: boolean };
+  status: Status;
+  vinculo: {
+    placaCarreta: string;
+    carretaEntityId: string | null;
+    totalDoConjunto: number | null;
+  } | null;
+}
+
+export interface Historico {
+  entityId: string;
+  entityType: string;
+  placa: string | null;
+  pontos: {
+    effectiveDate: string;
+    periodLabel: string;
+    presente: boolean;
+    mensal: number | null;
+    componentes: number;
+    semRegraFinanceira: number;
+    variacao: Variacao | null;
+    componentesAlterados: number;
+  }[];
+  componentes: {
+    code: string;
+    titulo: string;
+    unit: string | null;
+    periodicity: string | null;
+    financeiro: boolean;
+    pontos: {
+      effectiveDate: string;
+      periodLabel: string;
+      valor: number | null;
+      exibicao: string | null;
+    }[];
+  }[];
+}
+
+export interface Alteracao {
+  id: number;
+  changeType: string;
+  nature: string | null;
+  attributeCode: string | null;
+  attributeName: string | null;
+  entityLabel: string | null;
+  valueBefore: string | null;
+  valueAfter: string | null;
+  isNullBefore: boolean | null;
+  isNullAfter: boolean | null;
+  deltaAbsolute: number | null;
+  deltaPercent: number | null;
+  comparability: string;
+  inconclusiveReason: string | null;
+  impactConfidence: string;
+  impactAmount: number | null;
+  impactPeriodicity: string | null;
+  impactReason: string | null;
+  semanticsStatus: string | null;
+  taxonomyName: string | null;
+  entraNoTotal: boolean;
+  motivo: MotivoDeExclusao | null;
+  motivoRotulo: string | null;
+  explicacao: string | null;
+  familia: string;
+  parametro: string;
+}
+
+export interface Alteracoes {
+  entityId: string;
+  placa: string | null;
+  de: { effectiveDate: string; periodLabel: string; sourceLabel: string } | null;
+  para: { effectiveDate: string; periodLabel: string; sourceLabel: string };
+  changeSetId: string | null;
+  alteracoes: Alteracao[];
+  variacaoMensal: Variacao | null;
+  explicado: number | null;
+  naoAtribuido: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// Vocabulário de tela
+// ---------------------------------------------------------------------------
+
+export const ROTULO_DA_GAVETA: Record<Gaveta, string> = {
+  MENSAL: "Remuneração mensal",
+  ANUAL: "Componentes anuais",
+  AQUISICAO: "Valores de aquisição",
+};
+
+export const NOTA_DA_GAVETA: Record<Gaveta, string> = {
+  MENSAL: "O que o equipamento recebe por mês nesta vigência.",
+  ANUAL:
+    "Confirmados como anuais. Não são divididos por doze — converter exigiria " +
+    "uma regra de rateio que ninguém confirmou.",
+  AQUISICAO:
+    "O valor da nota e os tributos sobre ela. Dizem quanto o ativo custou, " +
+    "não quanto ele recebe.",
+};
+
+export const SUFIXO_DA_GAVETA: Record<Gaveta, string> = {
+  MENSAL: "/mês",
+  ANUAL: "/ano",
+  AQUISICAO: "",
+};
+
+export const ROTULO_DO_FAROL: Record<Farol, string> = {
+  NORMAL: "Normal",
+  ATENCAO: "Atenção",
+  CRITICO: "Crítico",
+  INCOMPLETO: "Incompleto",
+};

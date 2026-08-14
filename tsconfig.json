@@ -16,6 +16,9 @@
       "path": "./lib/comparison"
     },
     {
+      "path": "./lib/composition"
+    },
+    {
       "path": "./lib/balance"
     },
     {
