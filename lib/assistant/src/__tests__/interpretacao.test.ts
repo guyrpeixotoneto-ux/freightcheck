@@ -70,6 +70,17 @@ const casos: { pergunta: string; intencao: Intencao }[] = [
   { pergunta: "O que o Book diz sobre IPVA?", intencao: "BOOK" },
   { pergunta: "o book fala alguma coisa sobre combustível?", intencao: "BOOK" },
   { pergunta: "qual a regra do pneu", intencao: "BOOK" },
+  /*
+    Pedir o documento é pedir o Book.
+
+    As três primeiras vinham da tela: a pessoa perguntou pelo bloco, ouviu que
+    a regra estava num arquivo anexado, e insistiu com todas as letras. As três
+    caíam em DESCONHECIDA e recebiam de volta o índice — o mesmo parágrafo, sem
+    o arquivo que elas nomeiam.
+  */
+  { pergunta: "você não consegue ler o que tem no documento QLP ADM?", intencao: "BOOK" },
+  { pergunta: "me diz o que está no documento de pneu", intencao: "BOOK" },
+  { pergunta: "abre o anexo de QLP ADM", intencao: "BOOK" },
 
   // ---- procedência --------------------------------------------------------------
   { pergunta: "de onde veio esse número?", intencao: "PROCEDENCIA" },
@@ -130,6 +141,21 @@ describe("entidades", () => {
     expect(interpretar("quanto mudou o IPVA desde dezembro?").entidades.termoDoParametro).toBe("ipva");
     expect(interpretar("onde perdemos mais dinheiro?").entidades.termoDoParametro).toBeNull();
     expect(interpretar("quais veículos foram mais impactados?").entidades.termoDoParametro).toBeNull();
+  });
+
+  /*
+    O nome do bloco é o que sobra depois de tirar o pedido.
+
+    `regraDoBook` casa o título contra este resíduo e `buscarNoTextoDoBook` o
+    procura dentro do texto das regras — as duas ficam sem chance quando o
+    resíduo carrega "consegue ler documento" na frente do nome.
+  */
+  it("descarta o vocabulário de quem pede um documento", () => {
+    expect(
+      interpretar("você não consegue ler o que tem no documento QLP ADM?").entidades
+        .termoDoParametro,
+    ).toBe("qlp adm");
+    expect(interpretar("abre o anexo de pneu").entidades.termoDoParametro).toBe("pneu");
   });
 
   it("lê o equipamento", () => {

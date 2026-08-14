@@ -8,3 +8,4 @@ export * from "./pipeline";
 export * from "./history";
 export * from "./deletion";
 export * from "./storage";
+export * from "./chamados";

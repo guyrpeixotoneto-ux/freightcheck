@@ -1,7 +1,8 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight, ChevronRight, Info } from "lucide-react";
-import { getApiUrl } from "@/lib/api";
+import { ApiErrorNotice } from "@/components/api-error";
+import { fetchJsonOrNull } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   formatBrl,
@@ -168,7 +169,7 @@ export function AnaliseCartao({
 
   const movimentos = useQuery({
     queryKey: ["intervalo", recorte.toString()],
-    queryFn: async () => buscar<Movimentos>(`/changes/range?${recorte}`),
+    queryFn: () => fetchJsonOrNull<Movimentos>(`/changes/range?${recorte}`),
   });
 
   /*
@@ -182,7 +183,7 @@ export function AnaliseCartao({
   */
   const ponta = useQuery({
     queryKey: ["ponta-a-ponta", recorte.toString()],
-    queryFn: async () => buscar<PontaAPonta>(`/changes/end-to-end?${recorte}`),
+    queryFn: () => fetchJsonOrNull<PontaAPonta>(`/changes/end-to-end?${recorte}`),
     enabled: consolidado || parametros.length > 0,
   });
 
@@ -191,9 +192,10 @@ export function AnaliseCartao({
   }
   if (movimentos.error) {
     return (
-      <div className="bg-card border border-l-[6px] border-l-brand-red px-6 py-4 text-sm">
-        {(movimentos.error as Error).message}
-      </div>
+      <ApiErrorNotice
+        error={movimentos.error}
+        what="O intervalo deste cartão não pôde ser lido."
+      />
     );
   }
   const mov = movimentos.data;
@@ -271,13 +273,6 @@ export function AnaliseCartao({
       )}
     </div>
   );
-}
-
-async function buscar<T>(caminho: string): Promise<T | null> {
-  const resposta = await fetch(getApiUrl(caminho));
-  if (resposta.status === 404) return null;
-  if (!resposta.ok) throw new Error((await resposta.json()).error ?? "Falha ao carregar");
-  return (await resposta.json()) as T;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1886,11 +1881,7 @@ function LeituraPonta({
 }) {
   if (carregando) return <p className="text-sm text-muted-foreground">Comparando as duas pontas…</p>;
   if (erro) {
-    return (
-      <div className="bg-card border border-l-[6px] border-l-brand-red px-6 py-4 text-sm">
-        {erro.message}
-      </div>
-    );
+    return <ApiErrorNotice error={erro} what="A leitura ponta a ponta não pôde ser carregada." />;
   }
   if (!p2p) {
     return (

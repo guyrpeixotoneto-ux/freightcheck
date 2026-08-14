@@ -13,12 +13,23 @@ export type Badge =
   | "COBERTURA"
   | "MOVIMENTO"
   | "TRAVADO"
+  | "FORMATO"
   | "SEM_SINAL";
 
 export interface Anomaly {
   kind: string;
   sameInstant: boolean;
   differenceMs: number;
+  /**
+   * Se esta linha é só troca de formato — mesmo instante, ou diferença menor
+   * que a precisão que o serial do Excel não carrega.
+   *
+   * Vem pronto do servidor de propósito. A tela já derivou isto sozinha uma
+   * vez, com um `differenceMs < 1000` escrito à mão ao lado de um limiar que
+   * mora em `anomalies.ts`; bastava um dos dois mudar para a linha contradizer
+   * o cartão logo acima dela.
+   */
+  formatOnly: boolean;
   interpretation: string;
   explanation: string;
   vehicles: number;
@@ -33,6 +44,8 @@ export interface ChangeGroup {
   changeType: string;
   category: string;
   comparability: string;
+  /** Linhas de alteração no grupo. Não confundir com `vehicles`. */
+  changes: number;
   vehicles: number;
   fleet: number;
   coverage: "TOTAL" | "MAIORIA" | "PARCIAL";
@@ -67,6 +80,8 @@ export interface ChangeGroup {
     excludedReason: string | null;
   };
   natures: string[];
+  /** As naturezas como o motor as registrou — `ZEROING`, `TYPE_CHANGE`… */
+  natureCodes: string[];
   semanticsStatus: string | null;
   semanticsLabel: string;
   unit: string | null;
@@ -75,6 +90,8 @@ export interface ChangeGroup {
   taxonomyName: string | null;
   inconclusiveReason: string | null;
   anomalies: Anomaly[];
+  /** Se todas as linhas do grupo são troca de formato e nada mais. */
+  formatOnly: boolean;
   composition: { total: string; parts: string[]; evidence: string } | null;
   badge: Badge;
   badgeLabel: string;
@@ -118,6 +135,8 @@ export interface GroupedView {
   complete: boolean;
   totals: {
     changes: number;
+    /** Quantas das `changes` são só troca de formato. Parcela, não subtração. */
+    formatOnlyChanges: number;
     groups: number;
     vehiclesTouched: number;
     entitiesAdded: number;
@@ -132,6 +151,99 @@ export interface GroupedView {
     to: string | null;
   };
   groups: ChangeGroup[];
+  /** A leitura executiva sobre estes mesmos grupos — espelha `lib/comparison/src/cockpit.ts`. */
+  cockpit: CockpitView;
+}
+
+// ---------------------------------------------------------------------------
+// Cockpit — espelho de `lib/comparison/src/cockpit.ts`
+// ---------------------------------------------------------------------------
+
+export type Severity = "CRITICO" | "ALTO" | "MEDIO" | "BAIXO";
+
+export interface PriorityReason {
+  label: string;
+  points: number;
+}
+
+export interface PriorityItem {
+  rank: number;
+  /** A chave do grupo correspondente em `GroupedView.groups`. */
+  key: string;
+  severity: Severity;
+  score: number;
+  reasons: PriorityReason[];
+  diagnosis: string;
+  patternsSummary: string | null;
+  sharePercent: number | null;
+  shareLabel: string;
+  hasImpact: boolean;
+  hasAnomaly: boolean;
+}
+
+export interface SeverityBucket {
+  severity: Severity;
+  label: string;
+  groups: number;
+  changes: number;
+}
+
+export interface BadgeBucket {
+  badge: Badge;
+  label: string;
+  groups: number;
+  changes: number;
+}
+
+export interface EquipmentBucket {
+  entityType: string | null;
+  equipment: string;
+  groups: number;
+  changes: number;
+  fleet: number | null;
+}
+
+export interface PricingSummary {
+  calculatedChanges: number;
+  excludedChanges: number;
+  notCalculableChanges: number;
+  lockedGroups: number;
+  reasons: { reason: string; groups: number; changes: number }[];
+}
+
+export interface CockpitView {
+  kpis: {
+    changes: number;
+    parameters: number;
+    attention: number;
+    vehicles: number;
+    fleet: number;
+    impact: ImpactSummary;
+    hasImpact: boolean;
+    anomalies: {
+      groups: number;
+      changes: number;
+      formatOnlyGroups: number;
+      formatOnlyChanges: number;
+    };
+  };
+  /** Se esta vigência tem anterior com que comparar. */
+  baseline: { hasBaseline: boolean; seriesWithoutBaseline: string[] };
+  narrative: { headline: string; sentences: string[] };
+  panorama: {
+    bySeverity: SeverityBucket[];
+    byBadge: BadgeBucket[];
+    byEquipment: EquipmentBucket[];
+    pricing: PricingSummary;
+  };
+  priorities: PriorityItem[];
+  history: {
+    comparisons: number;
+    from: string | null;
+    to: string | null;
+    byPeriodicity: Record<string, number>;
+    sufficient: boolean;
+  };
 }
 
 /**

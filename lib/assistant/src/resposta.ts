@@ -38,10 +38,11 @@ import {
   type PedidoDeRedacao,
   type TurnoAnterior,
 } from "./llm";
-import { registrar } from "./observabilidade";
+import { registrar, type EventoDeIa } from "./observabilidade";
 import type { Intencao } from "./interpretacao";
 import {
   citacoesSemFonte,
+  itensCitaveis,
   numerosSemLastro,
   orquestrar,
   recorteDoDossie,
@@ -86,155 +87,107 @@ export interface Resposta {
     herdado: string[];
     ferramentas: string[];
     numerosRecusados: string[];
+    /**
+     * O que aconteceu com a chamada ao modelo — `null` quando não houve uma.
+     *
+     * Sem isto, `redacao: "DETERMINISTICA"` é ambíguo de um jeito caro: não se
+     * distingue "não há chave configurada" de "o modelo respondeu e a trava
+     * descartou" nem de "a chamada deu erro". As três exigem ações opostas — a
+     * primeira é configuração, a segunda é dossiê pobre, a terceira é a API
+     * fora — e a tela dizia a mesma palavra para todas.
+     */
+    ia: {
+      desfecho: EventoDeIa["desfecho"];
+      modelo: string;
+      latenciaMs: number;
+      erro: string | null;
+    } | null;
   };
-}
-
-// ── Fontes ──────────────────────────────────────────────────────────────────
-
-function montarFontes(dossie: Dossie): Fonte[] {
-  const fontes: Fonte[] = [];
-  let n = 1;
-
-  for (const t of dossie.trechos) {
-    fontes.push({
-      id: String(n++),
-      tipo: t.trecho.corpus === "BOOK_INDICE" ? "BOOK" : t.trecho.corpus === "CATALOGO" ? "CATALOGO" : "ARTIGO",
-      titulo: t.trecho.titulo,
-      origem: t.trecho.fonte,
-      detalhe: t.trecho.secao,
-      ...(t.trecho.tela ? { tela: t.trecho.tela } : {}),
-    });
-  }
-
-  for (const e of dossie.evidencias) {
-    const recorte = e.recorte
-      ? [e.recorte.contexto, e.recorte.vigencia ?? e.recorte.intervalo].filter(Boolean).join(" · ")
-      : undefined;
-    fontes.push({
-      id: String(n++),
-      tipo: e.ferramenta.toLowerCase().includes("book") ? "BOOK" : "DADO",
-      titulo: e.titulo,
-      origem: e.origem,
-      ...(recorte ? { detalhe: recorte } : {}),
-      ...(e.tela ? { tela: e.tela } : {}),
-    });
-  }
-
-  /*
-    Os anexos entram por último — e a ordem aqui é contrato, não estilo.
-
-    `emTexto` numera o dossiê na mesma sequência e `citacoesDeAnexo` calcula a
-    faixa isenta a partir dela. Trocar a ordem de um dos três sem os outros dois
-    faz a resposta citar um documento e a trava conferir uma evidência, o que
-    não daria erro em lugar nenhum — só uma isenção aplicada à frase errada.
-
-    E a entrada aqui é o que fecha a promessa da leitura nativa: o modelo leu o
-    arquivo, a resposta cita o número, e quem lê abre o mesmo arquivo pela tela
-    do Book. Um anexo sem fonte seria um documento lido em silêncio.
-  */
-  for (const a of dossie.anexos) {
-    fontes.push({
-      id: String(n++),
-      tipo: "BOOK",
-      titulo: a.titulo,
-      origem: a.origem,
-      detalhe: `${a.filename} · lido pelo modelo`,
-      ...(a.tela ? { tela: a.tela } : {}),
-    });
-  }
-
-  return fontes;
 }
 
 // ── Redação em código ───────────────────────────────────────────────────────
 
 /**
- * A frase de abertura: responde a pergunta antes de qualquer evidência.
+ * O que a resposta pode citar, com o número de cada coisa.
  *
- * Devolve junto o número da fonte que a sustenta. Sem isso a abertura citava
- * `[1]` fixo — o primeiro trecho conceitual — enquanto a frase vinha de uma
- * consulta ao banco. Uma citação que aponta para a fonte errada é pior que
- * citação nenhuma: ela convida a conferir e entrega outra coisa.
+ * A numeração é a de `itensCitaveis` — a mesma que o modelo recebe e a mesma
+ * que a validação confere. Nenhum arquivo conta por si.
  */
-function abertura(dossie: Dossie): { texto: string; fonte: number | null } | null {
-  const { plano, trechos, evidencias } = dossie;
+function montarFontes(dossie: Dossie): Fonte[] {
+  return itensCitaveis(dossie).map((item): Fonte => {
+    const id = String(item.id);
 
-  if (dossie.desambiguacao) {
-    const { termo, opcoes } = dossie.desambiguacao;
+    if (item.tipo === "CONCEITO") {
+      const t = item.trecho.trecho;
+      return {
+        id,
+        tipo: t.corpus === "BOOK_INDICE" ? "BOOK" : t.corpus === "CATALOGO" ? "CATALOGO" : "ARTIGO",
+        titulo: t.titulo,
+        origem: t.fonte,
+        detalhe: t.secao,
+        ...(t.tela ? { tela: t.tela } : {}),
+      };
+    }
+
+    if (item.tipo === "BOOK") {
+      const d = item.documento.trecho;
+      /*
+        A fonte de um trecho do Book aponta para onde ele está **dentro** do
+        documento. "Book do Operador · QLP ADM" manda quem quer conferir abrir
+        um arquivo e procurar; com a seção, ele abre na regra.
+      */
+      return {
+        id,
+        tipo: "BOOK",
+        titulo: d.bloco,
+        origem: d.arquivo
+          ? `${d.arquivo} · ${d.categoria} › ${d.bloco}`
+          : `regra escrita · ${d.categoria} › ${d.bloco}`,
+        ...(d.secao ? { detalhe: d.secao } : {}),
+        tela: { label: "Book do Operador", href: "/book-operador" },
+      };
+    }
+
+    if (item.tipo === "DADO") {
+      const e = item.evidencia;
+      const recorte = e.recorte
+        ? [e.recorte.contexto, e.recorte.vigencia ?? e.recorte.intervalo].filter(Boolean).join(" · ")
+        : undefined;
+      return {
+        id,
+        tipo: e.ferramenta.toLowerCase().includes("book") ? "BOOK" : "DADO",
+        titulo: e.titulo,
+        origem: e.origem,
+        ...(recorte ? { detalhe: recorte } : {}),
+        ...(e.tela ? { tela: e.tela } : {}),
+      };
+    }
+
+    const a = item.anexo;
     return {
-      texto:
-        `"${termo}" pode ser mais de uma coisa aqui: ${opcoes.join(", ")}. ` +
-        `Qual delas você quer?`,
-      fonte: null,
+      id,
+      tipo: "BOOK",
+      titulo: a.titulo,
+      origem: a.origem,
+      detalhe: `${a.filename} · lido pelo modelo`,
+      ...(a.tela ? { tela: a.tela } : {}),
     };
-  }
-
-  const conceitual =
-    plano.intencao === "CONCEITUAL" ||
-    plano.intencao === "BOOK" ||
-    plano.intencao === "DISPONIBILIDADE";
-
-  /*
-    Numa pergunta conceitual o conceito abre — a não ser que a pergunta peça
-    uma contagem. "O que é o Book do Operador?" quer a definição; "o Book cobre
-    quantos blocos?" quer o número, e abrir com a definição faz quem perguntou
-    procurar a resposta no meio do parágrafo.
-  */
-  const pedeQuantidade = /\bquant(o|os|a|as)\b/i.test(dossie.pergunta);
-  if (conceitual && (!pedeQuantidade || evidencias.length === 0)) {
-    const principal = trechos[0];
-    if (!principal) return null;
-    return { texto: principal.trecho.texto, fonte: 1 };
-  }
-
-  const escolha = fatoQueResponde(dossie);
-  if (!escolha) {
-    return trechos[0] ? { texto: trechos[0].trecho.texto, fonte: 1 } : null;
-  }
-
-  const { evidencia, fato, indice } = escolha;
-
-  /*
-    O recorte entra na frase, e entra uma vez só.
-
-    Quando o fato escolhido é um ponto da série, o rótulo dele **já é** a
-    vigência: acrescentar o recorte produzia "agosto/2026 em dezembro/2025 →
-    agosto/2026: total 10.875,69", que diz a mesma coisa duas vezes e a segunda
-    contradiz a primeira.
-  */
-  const doRecorte =
-    evidencia.recorte?.vigencia ?? evidencia.recorte?.intervalo ?? evidencia.recorte?.contexto;
-  const rotuloEhPeriodo = /\/(19|20)\d{2}\b/.test(fato.rotulo);
-  const sufixo = doRecorte && !rotuloEhPeriodo ? ` em ${doRecorte}` : "";
-  const rotulo = rotuloEhPeriodo ? `Em ${fato.rotulo}` : fato.rotulo;
-
-  return {
-    texto: `${rotulo}${sufixo}: ${fato.valor}${fato.detalhe ? ` — ${fato.detalhe}` : ""}.`,
-    // Trechos primeiro, evidências depois — a numeração de `montarFontes`.
-    fonte: dossie.trechos.length + indice + 1,
-  };
+  });
 }
 
 /**
  * De tudo o que foi consultado, o fato que responde **esta** pergunta.
  *
- * A versão anterior pegava o primeiro fato numérico da primeira evidência, e a
- * ordem das evidências é a ordem em que a orquestração consultou — não a ordem
- * em que as respostas importam. Isso produzia respostas verdadeiras e fora do
- * assunto: "quantos veículos temos?" abria com o número de vigências, e "qual o
- * valor do IPVA?" abria com "0 alterações nesta vigência", que é sobre
- * movimento e não sobre valor.
- *
- * A escolha aqui é por sobreposição com a pergunta, e é isso que a torna
- * estável: nada nesta função sabe o nome de uma ferramenta ou de um parâmetro.
- * Grandeza desempata — uma consulta que devolveu só zeros perde para uma que
- * trouxe número — e só desempata: quando tudo deu zero, zero é a resposta.
+ * A escolha é por sobreposição com a pergunta, e é isso que a torna estável:
+ * nada nesta função sabe o nome de uma ferramenta ou de um parâmetro. Grandeza
+ * desempata — uma consulta que devolveu só zeros perde para uma que trouxe
+ * número — e só desempata: quando tudo deu zero, zero é a resposta.
  */
 interface Escolha {
   evidencia: Evidencia;
   fato: Fato;
-  /** A posição da evidência na lista — vira o número da citação. */
-  indice: number;
+  /** O número da citação desta evidência. */
+  fonte: number;
 }
 
 function fatoQueResponde(dossie: Dossie): Escolha | null {
@@ -244,13 +197,19 @@ function fatoQueResponde(dossie: Dossie): Escolha | null {
     return termos(texto).filter((p) => palavras.has(p)).length;
   };
 
+  const doDado = itensCitaveis(dossie).filter(
+    (i): i is Extract<typeof i, { tipo: "DADO" }> => i.tipo === "DADO",
+  );
+
   let melhor: (Escolha & { pontos: number }) | null = null;
 
-  dossie.evidencias.forEach((evidencia, indice) => {
+  for (const { evidencia, id } of doDado) {
     const temGrandeza = evidencia.numeros.some((n) => n !== 0);
     const doTitulo = casa(evidencia.titulo);
 
     for (const fato of evidencia.fatos) {
+      // Mecânica não responde pergunta nenhuma — nem quando tem número.
+      if (fato.interno) continue;
       if (!/\d/.test(fato.valor)) continue;
 
       const pontos =
@@ -258,37 +217,43 @@ function fatoQueResponde(dossie: Dossie): Escolha | null {
         (temGrandeza ? 1 : 0) +
         (evidencia.destaque === fato.rotulo ? 0.5 : 0);
 
-      if (!melhor || pontos > melhor.pontos) melhor = { evidencia, fato, indice, pontos };
+      if (!melhor || pontos > melhor.pontos) melhor = { evidencia, fato, fonte: id, pontos };
     }
-  });
-
-  if (melhor) {
-    const { evidencia, fato, indice } = melhor as Escolha & { pontos: number };
-    return { evidencia, fato, indice };
   }
 
-  // Nenhum fato com número: abre com o primeiro que houver.
-  const primeira = dossie.evidencias[0];
-  return primeira?.fatos[0] ? { evidencia: primeira, fato: primeira.fatos[0], indice: 0 } : null;
+  if (melhor) {
+    const { evidencia, fato, fonte } = melhor as Escolha & { pontos: number };
+    return { evidencia, fato, fonte };
+  }
+
+  const primeira = doDado[0];
+  const visivel = primeira?.evidencia.fatos.find((f) => !f.interno);
+  return visivel ? { evidencia: primeira.evidencia, fato: visivel, fonte: primeira.id } : null;
 }
+
+/** O trecho do Book que abre a resposta, com o teto de tamanho da abertura. */
+const TETO_DA_ABERTURA = 1600;
 
 /**
  * A resposta montada em código.
  *
- * Não é um degrau abaixo do modelo: é o mesmo material, com a mesma ordem, sem
- * a reescrita na forma da pergunta. Ela existe porque o produto responde sem
- * chave — e porque é para ela que a validação cai quando o modelo cita um
- * número que ninguém consultou.
+ * **Ela não é mais um relatório do dossiê.** A versão anterior percorria as
+ * evidências e imprimia rótulo e valor de cada fato — "Revisão vigente: 1 — 1
+ * revisão guardada", "tipo: documento anexado" —, e terminava repetindo o
+ * parágrafo com que tinha aberto. Quem perguntava a regra de um bloco recebia a
+ * ficha administrativa dele.
+ *
+ * **Ordem única: responde, ressalva, complementa.** Quando há conteúdo do Book,
+ * ele abre — é a resposta, transcrita do documento e com a citação ao lado.
+ * Quando a pergunta é de número, abre o número. O conceito entra depois, e só
+ * quando acrescenta. Nada de mecânica, em lugar nenhum.
+ *
+ * Ela continua existindo para quando não há modelo, e continua sendo o destino
+ * de uma resposta descartada pela trava — mas deixou de ser o teto de qualidade
+ * do produto, que é o papel que ela vinha ocupando sem que ninguém tivesse
+ * decidido isso.
  */
-function redacaoDeterministica(dossie: Dossie): string {
-  /*
-    Um cumprimento se responde cumprimentando.
-
-    Não há dossiê a percorrer aqui — a orquestração não consultou nada, e é
-    justamente esse o ponto. O que sai é quem o assistente é e o que dá para
-    perguntar a ele; os exemplos ficam com as sugestões clicáveis, que é onde a
-    tela já os oferece, em vez de repetidos no meio do texto.
-  */
+export function redacaoDeterministica(dossie: Dossie): string {
   if (dossie.plano.intencao === "SAUDACAO") {
     return (
       "Olá. Sou o assistente do FreightCheck: respondo sobre os parâmetros do modelo de " +
@@ -298,75 +263,106 @@ function redacaoDeterministica(dossie: Dossie): string {
     );
   }
 
-  const partes: string[] = [];
-  // A numeração das citações é a de `montarFontes`: trechos, depois evidências.
-  const primeiraEvidencia = dossie.trechos.length + 1;
+  if (dossie.desambiguacao) {
+    const { termo, opcoes } = dossie.desambiguacao;
+    return `"${termo}" pode ser mais de uma coisa aqui: ${opcoes.join(", ")}. Qual delas você quer?`;
+  }
 
-  const inicio = abertura(dossie);
-  if (inicio) {
-    partes.push(inicio.fonte ? `${inicio.texto} [${inicio.fonte}]` : inicio.texto);
+  const partes: string[] = [];
+  const itens = itensCitaveis(dossie);
+  const doBook = itens.filter((i): i is Extract<typeof i, { tipo: "BOOK" }> => i.tipo === "BOOK");
+  const conceito = itens.find(
+    (i): i is Extract<typeof i, { tipo: "CONCEITO" }> => i.tipo === "CONCEITO",
+  );
+
+  /*
+    O Book abre quando ele tem o que responder.
+
+    O que sai é o texto do documento como ele está escrito — tabela inclusive —,
+    e não uma paráfrase: sem modelo, parafrasear seria inventar. O teto existe
+    porque a abertura é uma resposta, não o documento inteiro; o resto continua
+    no Book, a um clique pela fonte.
+  */
+  if (doBook.length > 0) {
+    let acumulado = 0;
+    for (const item of doBook) {
+      const texto = item.documento.trecho.texto;
+      if (acumulado > 0 && acumulado + texto.length > TETO_DA_ABERTURA) break;
+      partes.push(`${texto} [${item.id}]`);
+      acumulado += texto.length;
+      if (acumulado >= TETO_DA_ABERTURA) break;
+    }
+  } else {
+    const escolha = fatoQueResponde(dossie);
+    if (escolha) {
+      const { evidencia, fato, fonte } = escolha;
+      /*
+        O recorte entra na frase, e entra uma vez só: quando o rótulo do fato
+        já é a vigência, repeti-lo produzia "agosto/2026 em agosto/2026".
+      */
+      const doRecorte =
+        evidencia.recorte?.vigencia ?? evidencia.recorte?.intervalo ?? evidencia.recorte?.contexto;
+      const rotuloEhPeriodo = /\/(19|20)\d{2}\b/.test(fato.rotulo);
+      const sufixo = doRecorte && !rotuloEhPeriodo ? ` em ${doRecorte}` : "";
+      const rotulo = rotuloEhPeriodo ? `Em ${fato.rotulo}` : fato.rotulo;
+      partes.push(
+        `${rotulo}${sufixo}: ${fato.valor}${fato.detalhe ? ` — ${fato.detalhe}` : ""} [${fonte}].`,
+      );
+    } else if (conceito) {
+      partes.push(`${conceito.trecho.trecho.texto} [${conceito.id}]`);
+    }
   }
 
   for (const lacuna of dossie.lacunas) partes.push(lacuna.explicacao);
 
-  if (!dossie.desambiguacao) {
-    /*
-      Os fatos entram em frase, não em lista de rótulos.
+  /*
+    O resto do dado entra depois da abertura — em frase, nunca em ficha.
 
-      A versão anterior despejava `- **Alterações:** 267` para cada fato de cada
-      evidência — o "relatório técnico produzido pelo backend" que esta reescrita
-      existe para não ser. Uma lista de rótulo e valor é o formato de um cartão
-      de tela, não o de alguém explicando o que aconteceu.
+    A lista sobrevive num caso: quando os fatos **são** uma enumeração (as
+    vigências que existem, os veículos mais afetados). Aí cada linha é um item
+    comparável, e a coluna ajuda a ler.
+  */
+  for (const item of itens) {
+    if (item.tipo !== "DADO") continue;
+    const e = item.evidencia;
+    const uteis = e.fatos.filter((f) => !f.interno && f.valor && f.valor !== "—");
+    if (uteis.length === 0) continue;
 
-      A lista sobrevive num caso: quando os fatos **são** uma enumeração — as
-      vigências que existem, os veículos mais afetados. Aí cada linha é um item
-      comparável, e a coluna ajuda a ler.
-    */
-    dossie.evidencias.forEach((e, i) => {
-      const n = primeiraEvidencia + i;
-      const uteis = e.fatos.filter((f) => f.valor && f.valor !== "—");
-      if (uteis.length === 0) return;
+    const jaDito = partes.join(" ");
+    const restantes = uteis.filter((f) => !jaDito.includes(f.valor));
+    if (restantes.length === 0) continue;
 
-      /*
-        A evidência que já abriu a resposta não se repete inteira.
-
-        Ela entra só se tiver mais a dizer do que a frase de abertura levou —
-        senão a resposta começava com "Alterações em agosto/2026: 267" e logo
-        abaixo repetia "alterações, 267" com outras palavras.
-      */
-      const jaAberta = inicio?.fonte === n;
-      const restantes = jaAberta
-        ? uteis.filter((f) => !inicio!.texto.includes(f.valor))
-        : uteis;
-      if (restantes.length === 0) return;
-
-      if (restantes.length > 3) {
-        // Muitos fatos são uma enumeração — vigências, veículos, colunas. Aí a
-        // lista ajuda a ler, porque cada linha é um item comparável.
-        const linhas = restantes
-          .map((f) => `- **${f.rotulo}:** ${f.valor}${f.detalhe ? ` — ${f.detalhe}` : ""}`)
-          .join("\n");
-        partes.push(`${e.titulo} [${n}]:\n\n${linhas}`);
-      } else {
-        const frase = restantes
-          .map((f) => `${f.rotulo.toLowerCase()}: ${f.valor}${f.detalhe ? ` (${f.detalhe})` : ""}`)
-          .join("; ");
-        partes.push(`${frase} [${n}].`);
-      }
-      if (e.nota) partes.push(e.nota);
-    });
-
-    // O conceito de apoio, quando já houve dado — um trecho só, e depois.
-    if (dossie.evidencias.length > 0 && dossie.trechos.length > 0) {
-      partes.push(`${dossie.trechos[0].trecho.texto} [1]`);
+    if (restantes.length > 3) {
+      const linhas = restantes
+        .map((f) => `- **${f.rotulo}:** ${f.valor}${f.detalhe ? ` — ${f.detalhe}` : ""}`)
+        .join("\n");
+      partes.push(`${e.titulo} [${item.id}]:\n\n${linhas}`);
+    } else {
+      const frase = restantes
+        .map((f) => `${f.rotulo.toLowerCase()}: ${f.valor}${f.detalhe ? ` (${f.detalhe})` : ""}`)
+        .join("; ");
+      partes.push(`${frase} [${item.id}].`);
     }
+    if (e.nota) partes.push(e.nota);
+  }
+
+  /*
+    O conceito fecha, e só quando não abriu.
+
+    Ele situa o que foi dito — "o Book é o contraponto do export" — e por isso
+    vem depois do que responde. Repeti-lo quando ele já foi a abertura era o
+    defeito mais visível da versão anterior: a mesma frase duas vezes, com a
+    mesma citação.
+  */
+  if (conceito && partes.length > 0 && !partes[0].startsWith(conceito.trecho.trecho.texto)) {
+    partes.push(`${conceito.trecho.trecho.texto} [${conceito.id}]`);
   }
 
   if (partes.length === 0) {
     const exemplos = SUGESTOES.slice(0, 4).map((s) => `- ${s.pergunta}`).join("\n");
     return (
       "Não encontrei nada que este produto sustente sobre isso — nem no conhecimento " +
-      "registrado, nem no banco deste recorte.\n\n" +
+      "registrado, nem no Book do Operador, nem no banco deste recorte.\n\n" +
       `Perguntas que ele responde:\n${exemplos}`
     );
   }
@@ -439,27 +435,50 @@ export function portaoDeLastro(dossie: Dossie, aoTexto: (pedaco: string) => void
 
 // ── Sugestões contextuais ───────────────────────────────────────────────────
 
-/** As próximas perguntas que fazem sentido depois desta. */
+/**
+ * As próximas perguntas que fazem sentido **depois desta**.
+ *
+ * A regra é a mesma da resposta: específica ou nenhuma. "Posso ajudar em mais
+ * alguma coisa?" e "quer saber mais?" não são sugestões — são preenchimento. O
+ * que vale é o próximo passo que a conversa acabou de tornar possível: quem
+ * ouviu a regra de um bloco pode querer o número daquele assunto; quem ouviu o
+ * número pode querer a regra.
+ */
 function sugerir(dossie: Dossie): string[] {
   const { plano } = dossie;
   const gaveta = plano.alvo?.parametro;
+  const bloco = dossie.documentos[0]?.trecho.bloco;
   const saida: string[] = [];
 
-  switch (plano.intencao) {
-    /*
-      Depois de um "bom dia", as sugestões são o próprio convite: elas dizem, em
-      forma clicável, o que este assistente sabe responder. É por isso que a
-      apresentação não repete exemplos no texto.
-    */
-    case "SAUDACAO":
-      return SUGESTOES.slice(0, 3).map((s) => s.pergunta);
+  /*
+    Depois de um "bom dia", as sugestões são o próprio convite: elas dizem, em
+    forma clicável, o que este assistente sabe responder.
+  */
+  if (plano.intencao === "SAUDACAO") return SUGESTOES.slice(0, 3).map((s) => s.pergunta);
 
+  /*
+    A ponte entre as duas fontes é a sugestão mais útil que existe aqui, e ela
+    vale nos dois sentidos: quem acabou de ler a regra pergunta quanto aquilo
+    mexeu; quem acabou de ver o número pergunta o que a regra diz.
+  */
+  if (bloco) {
+    const outrasSecoes = [
+      ...new Set(
+        dossie.documentos
+          .map((d) => d.trecho.secao?.split(" › ").pop())
+          .filter((s): s is string => Boolean(s) && s !== bloco),
+      ),
+    ];
+    for (const secao of outrasSecoes.slice(0, 2)) {
+      saida.push(`O que o Book diz sobre ${secao.toLowerCase()} em ${bloco}?`);
+    }
+    saida.push(`Algum parâmetro relacionado a ${bloco} mudou na última vigência?`);
+  }
+
+  switch (plano.intencao) {
     case "CONCEITUAL":
     case "DISPONIBILIDADE":
-      if (gaveta) {
-        saida.push(`Quanto ${gaveta} mudou na última vigência?`);
-        saida.push(`O que o Book do Operador diz sobre ${gaveta}?`);
-      }
+      if (gaveta) saida.push(`Quanto ${gaveta} mudou na última vigência?`);
       break;
     case "MOVIMENTO":
       saida.push("Onde perdemos mais dinheiro?");
@@ -467,7 +486,7 @@ function sugerir(dossie: Dossie): string[] {
       break;
     case "EVOLUCAO":
     case "COMPARACAO":
-      if (gaveta) saida.push(`O que o Book diz sobre ${gaveta}?`);
+      if (gaveta && !bloco) saida.push(`O que o Book do Operador diz sobre ${gaveta}?`);
       saida.push("Quais veículos foram mais impactados?");
       break;
     case "RANKING_PERDA":
@@ -481,7 +500,7 @@ function sugerir(dossie: Dossie): string[] {
       saida.push("Por quê?");
       break;
     case "BOOK":
-      if (gaveta) saida.push(`Quanto ${gaveta} mudou na última vigência?`);
+      if (gaveta && !bloco) saida.push(`Quanto ${gaveta} mudou na última vigência?`);
       break;
     default:
       break;
@@ -545,6 +564,7 @@ export async function responder(
   let texto = determinista;
   let redacao: Resposta["redacao"] = "DETERMINISTICA";
   let numerosRecusados: string[] = [];
+  let ia: Resposta["tecnico"]["ia"] = null;
 
   if (!opcoes.semIa && disponivel()) {
     const pedido: PedidoDeRedacao = {
@@ -586,7 +606,20 @@ export async function responder(
       }
     }
 
-    registrar({ ...medicao, intencao: dossie.plano.intencao, desfecho });
+    const evento = registrar({ ...medicao, intencao: dossie.plano.intencao, desfecho });
+    /*
+      O mesmo evento que vai para o anel volta com a resposta.
+
+      O anel responde "como está agora" e some no restart; esta cópia responde
+      "o que aconteceu **nesta** pergunta", que é a que alguém faz olhando para
+      um texto que não parece ter saído de um modelo.
+    */
+    ia = {
+      desfecho: evento.desfecho,
+      modelo: evento.modelo,
+      latenciaMs: evento.latenciaMs,
+      erro: evento.erro,
+    };
   }
 
   const estado = avancarEstado(opcoes.estado ?? ESTADO_VAZIO, dossie);
@@ -610,6 +643,7 @@ export async function responder(
       herdado: dossie.plano.herdado,
       ferramentas: dossie.evidencias.map((e: Evidencia) => e.ferramenta),
       numerosRecusados,
+      ia,
     },
   };
 }

@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { getApiUrl } from "@/lib/api";
+import { ApiErrorNotice } from "@/components/api-error";
+import { fetchJsonOrNull } from "@/lib/api";
 import { TabelaFreightech, type ColunaTabela } from "@/components/parametros/tabela";
 
 /**
@@ -121,24 +122,13 @@ export function TabelaInventario({
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["inventario", entidade, query.toString()],
-    queryFn: async () => {
-      const resposta = await fetch(getApiUrl(`/entities/table?${query}`));
-      if (resposta.status === 404) return null;
-      if (!resposta.ok) {
-        throw new Error((await resposta.json()).error ?? "Falha ao carregar");
-      }
-      return (await resposta.json()) as TabelaEntidades;
-    },
+    queryFn: () => fetchJsonOrNull<TabelaEntidades>(`/entities/table?${query}`),
   });
 
   if (isLoading) return <p className="text-sm text-muted-foreground">Carregando…</p>;
 
   if (error) {
-    return (
-      <div className="bg-card border border-l-[6px] border-l-brand-red px-6 py-4 text-sm">
-        {(error as Error).message}
-      </div>
-    );
+    return <ApiErrorNotice error={error} what="O inventário não pôde ser carregado." />;
   }
 
   if (!data) {

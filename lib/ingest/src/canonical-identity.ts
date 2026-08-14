@@ -13,7 +13,7 @@
  * baixa são forma. A identidade é (sistema, família, canal, data, escopo).
  *
  * Tudo o que este módulo calcula tem um espelho em SQL — ver
- * `0012_canonical_identity.sql`. O espelho é que dá a garantia: o índice único
+ * `0015_canonical_identity.sql`. O espelho é que dá a garantia: o índice único
  * do Postgres é construído sobre uma coluna gerada pelo próprio banco, de modo
  * que um erro futuro neste TypeScript não consegue abrir a porta. O teste
  * `canonical-identity-sql.test.ts` prende os dois lados ao mesmo resultado.
@@ -31,7 +31,7 @@ import { createHash } from "node:crypto";
  * ninguém veja — e o hash mudaria em silêncio, que é o pior defeito possível
  * num campo de identidade.
  *
- * Os mesmos bytes estão em `0012_canonical_identity.sql`, via `chr(31)` e
+ * Os mesmos bytes estão em `0015_canonical_identity.sql`, via `chr(31)` e
  * companhia, e um teste prende os dois lados ao mesmo resultado.
  */
 /** US — entre os componentes de uma chave. */

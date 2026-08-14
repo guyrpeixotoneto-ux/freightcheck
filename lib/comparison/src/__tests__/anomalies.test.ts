@@ -27,6 +27,7 @@ describe("anomalia de formato — data virando serial do Excel", () => {
     expect(anomaly).not.toBeNull();
     expect(anomaly!.kind).toBe("DATA_COMO_SERIAL_EXCEL");
     expect(anomaly!.sameInstant).toBe(true);
+    expect(anomaly!.formatOnly).toBe(true);
     expect(anomaly!.interpretation).toContain("2028-07-01T12:00:00Z");
     expect(anomaly!.explanation).toContain("não mudança de contrato");
   });
@@ -41,6 +42,9 @@ describe("anomalia de formato — data virando serial do Excel", () => {
       side({ numeric: 46936, text: "46936", display: "46936" }),
     );
     expect(anomaly!.sameInstant).toBe(false);
+    // Instantes diferentes e ainda assim troca de formato: é o par que decide a
+    // classificação do grupo inteiro em `grouped.ts`.
+    expect(anomaly!.formatOnly).toBe(true);
     expect(anomaly!.differenceMs).toBe(1);
     expect(anomaly!.explanation).toContain("1 milissegundo");
     expect(anomaly!.explanation).toContain("precisão que o formato perdeu");
@@ -53,6 +57,7 @@ describe("anomalia de formato — data virando serial do Excel", () => {
       side({ numeric: 47300, text: "47300", display: "47300" }),
     );
     expect(anomaly!.sameInstant).toBe(false);
+    expect(anomaly!.formatOnly).toBe(false);
     expect(anomaly!.differenceMs).toBeGreaterThan(1000);
     expect(anomaly!.explanation).toContain("mudança de data");
     expect(anomaly!.explanation).toMatch(/diferença de \d+ dias/);
@@ -73,6 +78,26 @@ describe("anomalia de formato — data virando serial do Excel", () => {
       side({ numeric: 46935, text: "46935", display: "46935" }),
     );
     expect(anomaly?.sameInstant).toBe(true);
+  });
+
+  it("o limiar de precisão é um só, e vale para os dois lados dele", () => {
+    // Um segundo cravado já é diferença de verdade: o serial do Excel carrega
+    // segundos inteiros, então o que ele não representa é a fração. O teste
+    // fixa a borda para que mexer em PRECISION_TOLERANCE_MS seja uma decisão
+    // visível, e não um efeito colateral.
+    const dentro = detectFormatAnomaly(
+      side({ text: "2028-07-01T12:00:00.999Z", display: "2028-07-01T12:00:00.999Z" }),
+      side({ numeric: 46935.5, text: "46935.5", display: "46935.5" }),
+    );
+    expect(dentro!.differenceMs).toBe(999);
+    expect(dentro!.formatOnly).toBe(true);
+
+    const fora = detectFormatAnomaly(
+      side({ text: "2028-07-01T12:00:01.000Z", display: "2028-07-01T12:00:01.000Z" }),
+      side({ numeric: 46935.5, text: "46935.5", display: "46935.5" }),
+    );
+    expect(fora!.differenceMs).toBe(1000);
+    expect(fora!.formatOnly).toBe(false);
   });
 
   it("não acusa quando os dois lados são números", () => {

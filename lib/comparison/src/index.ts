@@ -8,6 +8,8 @@ export * from "./composition";
 export * from "./anomalies";
 export * from "./labels";
 export * from "./grouped";
+export * from "./cockpit";
 export * from "./families";
 export * from "./families-view";
 export * from "./end-to-end";
+export * from "./chamados";

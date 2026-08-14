@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import {
   acharConversa,
   arquivarConversa,
+  CONVERSA_SEM_ASSUNTO,
   criarConversa,
   gravarTurno,
   guardarEstado,
@@ -13,9 +14,11 @@ import {
 } from "../lib/conversas";
 import {
   desserializarEstado,
+  eventosRecentes,
   iaDisponivel,
   modeloConfigurado,
   responder,
+  resumoDaIa,
   serializarEstado,
   sugestoes,
   TRECHOS,
@@ -51,6 +54,31 @@ router.get("/assistant/capabilities", (_req, res) => {
 
 router.get("/assistant/suggestions", (_req, res) => {
   res.json({ sugestoes: sugestoes() });
+});
+
+/**
+ * O que as últimas chamadas ao modelo custaram — e o que aconteceu com elas.
+ *
+ * `capabilities` responde se há chave; esta rota responde o que aconteceu
+ * **depois** dela. A diferença é a pergunta que ficou sem resposta por um dia:
+ * uma tela em `redação: DETERMINISTICA` com `ia: true` pode ser resposta
+ * descartada pela trava de lastro, recusa do classificador ou erro de chamada,
+ * e as três exigem ações opostas. O anel já media as três dentro do processo, e
+ * nada as expunha.
+ *
+ * `limite` corta a lista de eventos; o resumo é sempre sobre o anel inteiro.
+ * O anel vive em memória e some no restart, o que é o comportamento desejado:
+ * ele responde "como está agora", não "como estava em março".
+ */
+router.get("/assistant/usage", (req, res) => {
+  const pedido = Number(req.query.limite);
+  const limite = Number.isFinite(pedido) ? Math.min(Math.max(pedido, 1), 200) : 50;
+  res.json({
+    ia: iaDisponivel(),
+    modelo: modeloConfigurado(),
+    resumo: resumoDaIa(),
+    eventos: eventosRecentes(limite),
+  });
 });
 
 // ── Conversas ───────────────────────────────────────────────────────────────
@@ -215,10 +243,34 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
 
     // ---- persistência ------------------------------------------------------
     const estadoNovo = serializarEstado(resposta.estado) as object;
+
+    /*
+      O título é o assunto, e ele pode chegar depois.
+
+      Quem abre a tela costuma cumprimentar antes de perguntar, e o título
+      nascia dessa primeira linha: a barra lateral acumulava conversas chamadas
+      "ola". Agora a conversa nasce sem nome quando não há assunto, e a primeira
+      pergunta de verdade a batiza — com o bloco do Book ou a gaveta de que ela
+      falou, que é como quem procura depois vai lembrar dela.
+    */
+    const titulo = tituloDe(pergunta, {
+      bloco: resposta.estado.blocoDoBook,
+      parametro: resposta.estado.parametro,
+    });
+
     if (!conversa) {
-      conversa = await criarConversa(db, req.user!.id, tituloDe(pergunta), estadoNovo);
+      conversa = await criarConversa(
+        db,
+        req.user!.id,
+        titulo ?? CONVERSA_SEM_ASSUNTO,
+        estadoNovo,
+      );
     } else {
       await guardarEstado(db, conversa.id, estadoNovo);
+      if (titulo && conversa.title === CONVERSA_SEM_ASSUNTO) {
+        const renomeada = await renomearConversa(db, req.user!.id, conversa.id, titulo);
+        if (renomeada) conversa = renomeada;
+      }
     }
 
     await gravarTurno(db, conversa.id, pergunta, {

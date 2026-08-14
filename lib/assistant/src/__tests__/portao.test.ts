@@ -30,6 +30,7 @@ function dossieCom(opcoes: { numeros?: number[]; fatos?: string[]; fontes?: numb
     leitura: {} as Dossie["leitura"],
     plano: {} as Dossie["plano"],
     trechos: [],
+  documentos: [],
     evidencias: evidencias as unknown as Dossie["evidencias"],
     anexos: [],
     lacunas: [],
@@ -142,9 +143,8 @@ function dossieComAnexo(fatos: string[]): Dossie {
       {
         titulo: "Book · PNEU · contrato.pdf",
         filename: "contrato.pdf",
-        mimeType: "application/pdf",
-        dados: "",
         origem: "book_entry",
+        conteudo: { forma: "NATIVO", mimeType: "application/pdf", dados: "" },
       },
     ] as unknown as Dossie["anexos"],
   };

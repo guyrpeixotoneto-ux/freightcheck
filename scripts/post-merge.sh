@@ -3,7 +3,7 @@ set -e
 
 # Dependências entre pacotes do workspace mudam sem que o package.json da raiz
 # mude, então o install roda sempre.
-pnpm install --frozen-lockfile
+pnpm install --force
 
 # `drizzle-kit push` não é usado neste projeto: ele difere contra o estado vivo
 # do banco, o que deixaria a deriva de um ambiente virar schema sem migration.

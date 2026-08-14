@@ -15,7 +15,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { getApiUrl } from "@/lib/api";
+import { ApiErrorNotice } from "@/components/api-error";
+import { fetchJsonOrNull } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useFavoritos } from "@/lib/favoritos";
 import { formatBrlShort, impactEntries, periodicitySuffix } from "@/lib/format";
@@ -102,12 +103,9 @@ export default function Parametros() {
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["families", query.toString()],
-    queryFn: async () => {
+    queryFn: () => {
       const suffix = query.toString() ? `?${query}` : "";
-      const response = await fetch(getApiUrl(`/changes/families${suffix}`));
-      if (response.status === 404) return null;
-      if (!response.ok) throw new Error((await response.json()).error ?? "Falha ao carregar");
-      return (await response.json()) as FamiliesView;
+      return fetchJsonOrNull<FamiliesView>(`/changes/families${suffix}`);
     },
   });
 
@@ -213,9 +211,24 @@ export default function Parametros() {
         )}
 
         {isLoading && <p className="mt-8 text-sm text-muted-foreground">Carregando…</p>}
+        {/*
+          A falha vem com diagnóstico, e não com a frase do navegador.
+
+          Esta caixa mostrava `error.message` cru, e a mensagem que mais aparece
+          quando algo dá errado aqui é "Failed to fetch" — três palavras em
+          inglês que não dizem nem de que lado o defeito está. Quem lê conclui
+          que a tela quebrou, e a grade logo abaixo, que continua desenhada
+          porque o catálogo não depende de import, reforça a leitura errada: o
+          que faltou foi resposta de `/api`, e nada aqui dizia isso.
+          `ApiErrorNotice` é o que o resto do produto usa: separa "nada atendeu"
+          de "o banco respondeu 500" e escreve o passo seguinte.
+        */}
         {error && (
-          <div className="mt-6 bg-card border border-l-[6px] border-l-brand-red px-6 py-4 text-sm">
-            {(error as Error).message}
+          <div className="mt-6">
+            <ApiErrorNotice
+              error={error}
+              what="Os parâmetros desta vigência não puderam ser carregados."
+            />
           </div>
         )}
 

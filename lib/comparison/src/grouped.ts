@@ -16,6 +16,7 @@ import {
   natureLabel,
   semanticsLabel,
 } from "./labels";
+import { buildCockpit, type CockpitView } from "./cockpit";
 import { listPeriods } from "./consolidated";
 import {
   channelSql,
@@ -64,6 +65,7 @@ export type Badge =
   | "COBERTURA"
   | "MOVIMENTO"
   | "TRAVADO"
+  | "FORMATO"
   | "SEM_SINAL";
 
 export type Coverage = "TOTAL" | "MAIORIA" | "PARCIAL";
@@ -115,6 +117,17 @@ export interface ChangeGroup {
   changeType: string;
   category: string;
   comparability: string;
+  /**
+   * Linhas de alteração dentro do grupo.
+   *
+   * Não é o mesmo que `vehicles` e não pode ser lido como tal: `vehicles` conta
+   * ativos distintos, `changes` conta linhas. Hoje elas coincidem — há uma
+   * linha por (ativo, atributo) —, e coincidir não é ser a mesma coisa: a soma
+   * de `changes` de todos os grupos fecha com `totals.changes`, e a de
+   * `vehicles` não fecha com `totals.vehiclesTouched`, porque o mesmo caminhão
+   * aparece em vários pontos.
+   */
+  changes: number;
   /** Quantos ativos distintos deste equipamento têm esta alteração. */
   vehicles: number;
   /** Quantos ativos a série tinha na vigência nova. */
@@ -127,7 +140,16 @@ export interface ChangeGroup {
   dominantPattern: { before: string | null; after: string | null; vehicles: number } | null;
   aggregate: GroupAggregate;
   impact: GroupImpact;
+  /** As naturezas em português, para a tela. */
   natures: string[];
+  /**
+   * As mesmas naturezas como o motor as registrou (`ZEROING`, `TYPE_CHANGE`…).
+   *
+   * Vão junto dos rótulos porque quem classifica criticidade precisa do código:
+   * decidir por texto traduzido é atar a regra de negócio à revisão de um
+   * rótulo — trocar "zerou" por "foi zerado" mudaria a fila de investigação.
+   */
+  natureCodes: string[];
   semanticsStatus: string | null;
   semanticsLabel: string;
   /** BRL | PERCENT | KM_L | MESES | … — a tela formata por isto, nunca por palpite. */
@@ -137,6 +159,24 @@ export interface ChangeGroup {
   taxonomyName: string | null;
   inconclusiveReason: string | null;
   anomalies: (Anomaly & { vehicles: number })[];
+  /**
+   * Se **todas** as linhas deste grupo são troca de formato e nada mais.
+   *
+   * Não é o mesmo que "tem anomalia", e a distinção é a razão do campo existir.
+   * Um grupo pode ter 54 linhas em que o serial é o mesmo instante, 8 em que
+   * ele perdeu um milissegundo de precisão — e ainda assim uma única linha em
+   * que a data por trás do número é **outra**. Essa linha é mudança de contrato
+   * de verdade, e um grupo que a contenha continua sendo tratado como
+   * alteração: `formatOnly` só é verdadeiro quando não sobra nenhuma.
+   *
+   * Quando é verdadeiro, o grupo deixa de ser lido como alteração contratual —
+   * ganha selo próprio, sai da faixa crítica e é dito com o que ele é: a fonte
+   * mudou a forma de exportar a coluna. Nada sai da lista, nada deixa de ser
+   * contado: `changes` continua contando as linhas, elas continuam abríveis e
+   * rastreáveis até a célula, e `totals.formatOnlyChanges` diz quantas das
+   * alterações da vigência são disto.
+   */
+  formatOnly: boolean;
   /** Quando o atributo é o total de uma composição declarada. */
   composition: { total: string; parts: string[]; evidence: string } | null;
   badge: Badge;
@@ -182,6 +222,16 @@ export interface GroupedView {
   complete: boolean;
   totals: {
     changes: number;
+    /**
+     * Quantas das `changes` são só troca de formato — ver `ChangeGroup.formatOnly`.
+     *
+     * Fica como **parcela** de `changes`, e não subtraído dele, porque a soma
+     * dos `changes` dos grupos tem de continuar fechando com este número. Uma
+     * tela que quiser dizer "244 alterações, 62 delas de formato" tem os dois
+     * lados aqui; uma que subtraísse em silêncio faria a lista não bater com o
+     * cabeçalho, que é o defeito que este campo existe para evitar.
+     */
+    formatOnlyChanges: number;
     groups: number;
     vehiclesTouched: number;
     entitiesAdded: number;
@@ -203,6 +253,15 @@ export interface GroupedView {
     to: string | null;
   };
   groups: ChangeGroup[];
+  /**
+   * A leitura executiva sobre estes mesmos grupos — ver `cockpit.ts`.
+   *
+   * Vem na mesma resposta de propósito. É projeção pura sobre o que já está
+   * aqui: calcular no cliente exigiria repetir no TypeScript da tela regras de
+   * negócio que moram neste pacote e que só aqui são testadas, e pedir numa
+   * segunda chamada faria a tela render duas leituras que podem divergir.
+   */
+  cockpit: CockpitView;
 }
 
 // ---------------------------------------------------------------------------
@@ -496,6 +555,13 @@ export function buildGroup(
     else anomalyIndex.set(key, { ...anomaly, vehicles: 1 });
   }
   const anomalies = [...anomalyIndex.values()];
+  // Só é troca de formato pura quando **nenhuma** linha do grupo escapou: uma
+  // única data que mudou de verdade no meio das 62 faz do grupo uma alteração,
+  // e é ela que o auditor precisa ver.
+  const formatOnlyRows = anomalies
+    .filter((a) => a.formatOnly)
+    .reduce((total, a) => total + a.vehicles, 0);
+  const formatOnly = anomalies.length > 0 && formatOnlyRows === rows.length;
 
   // ---- cobertura ---------------------------------------------------------
   const share = fleet > 0 ? vehicles / fleet : 0;
@@ -503,7 +569,7 @@ export function buildGroup(
 
   const natures = [...new Set(rows.map((r) => r.nature).filter((n): n is string => n !== null))];
 
-  const badge = pickBadge({ impact, coverage, aggregate, anomalies, natures, first });
+  const badge = pickBadge({ impact, coverage, aggregate, anomalies, formatOnly, natures, first });
 
   return {
     key: groupKey(first),
@@ -514,6 +580,7 @@ export function buildGroup(
     changeType: first.change_type,
     category: first.category,
     comparability: first.comparability,
+    changes: rows.length,
     vehicles,
     fleet,
     coverage,
@@ -523,6 +590,7 @@ export function buildGroup(
     aggregate,
     impact,
     natures: natures.map(natureLabel),
+    natureCodes: natures,
     semanticsStatus: first.semantics_status,
     semanticsLabel: semanticsLabel(first.semantics_status),
     unit: first.unit,
@@ -531,6 +599,7 @@ export function buildGroup(
     taxonomyName: first.taxonomy_name,
     inconclusiveReason: rows.find((r) => r.inconclusive_reason)?.inconclusive_reason ?? null,
     anomalies,
+    formatOnly,
     composition: composition
       ? { total: composition.total, parts: composition.parts, evidence: composition.evidence }
       : null,
@@ -557,6 +626,7 @@ const BADGE_LABELS: Record<Badge, string> = {
   COBERTURA: "Abrangência",
   MOVIMENTO: "Movimento grande",
   TRAVADO: "Preço travado",
+  FORMATO: "Formato da fonte",
   SEM_SINAL: "Sem sinal relevante",
 };
 
@@ -580,6 +650,12 @@ const RUPTURE_NATURES = new Set([
  * exatamente o caso de `dataFimContrato` em Ago/2026, e classificá-lo por
  * abrangência esconderia a única coisa que importa nele.
  *
+ * E antes de ruptura vem `FORMATO`, que é a correção da leitura acima. Ruptura
+ * responde *o valor trocou de estado*; quando o valor dos dois lados é o mesmo
+ * instante escrito de outro jeito, nada trocou de estado — o que trocou foi o
+ * arquivo. Chamar isso de ruptura punha a troca de formato de agosto no topo da
+ * fila de risco, acima de dinheiro apurado de verdade.
+ *
  * Nenhum selo é limiar financeiro: uma alteração pequena pode ser
  * contratualmente relevante, e o produto não decide isso pelo usuário.
  */
@@ -588,16 +664,20 @@ function pickBadge(input: {
   coverage: Coverage;
   aggregate: GroupAggregate;
   anomalies: unknown[];
+  formatOnly: boolean;
   natures: string[];
   first: RawChange;
 }): Badge {
-  const { impact, coverage, aggregate, anomalies, natures, first } = input;
+  const { impact, coverage, aggregate, anomalies, formatOnly, natures, first } = input;
 
   if (impact.amount !== null && impact.amount !== 0) return "DINHEIRO";
   // Um total cuja variação inteira já está nas parcelas continua sendo um
   // cartão de dinheiro — o que ele tem a dizer é justamente que não deve ser
   // somado de novo. Classificá-lo por outro selo esconderia essa explicação.
   if (impact.excludedVehicles > 0) return "DINHEIRO";
+  // Dinheiro apurado ganha de formato de propósito: se houver valor calculado
+  // no grupo, há o que conferir em reais, e o formato vira contexto disso.
+  if (formatOnly) return "FORMATO";
   if (anomalies.length > 0) return "RUPTURA";
   if (natures.some((n) => RUPTURE_NATURES.has(n))) return "RUPTURA";
   if (first.comparability === "INCONCLUSIVE") return "RUPTURA";
@@ -615,6 +695,14 @@ function pickBadge(input: {
   return "SEM_SINAL";
 }
 
+/**
+ * A ordem da lista.
+ *
+ * `FORMATO` fica no fim, e não fora: um ponto que só mudou de formato não
+ * disputa atenção com dinheiro nem com ruptura, mas continua sendo uma notícia
+ * — se ninguém a vir, na vigência seguinte a coluna volta ao normal (ou muda de
+ * verdade) e não haverá registro de que a exportação oscilou.
+ */
 const BADGE_ORDER: Badge[] = [
   "DINHEIRO",
   "RUPTURA",
@@ -622,6 +710,7 @@ const BADGE_ORDER: Badge[] = [
   "MOVIMENTO",
   "TRAVADO",
   "SEM_SINAL",
+  "FORMATO",
 ];
 
 // ---------------------------------------------------------------------------
@@ -819,7 +908,7 @@ export async function getGroupedView(
     rows.map((r) => r.entity_id).filter((v): v is string => v !== null),
   ).size;
 
-  return {
+  const base = {
     context,
     otherContexts,
     period: target.effective_date,
@@ -834,6 +923,9 @@ export async function getGroupedView(
     complete: missingSeries.length === 0,
     totals: {
       changes: rows.length,
+      formatOnlyChanges: groups
+        .filter((g) => g.formatOnly)
+        .reduce((total, g) => total + g.changes, 0),
       groups: groups.length,
       vehiclesTouched,
       entitiesAdded: sets.reduce((s, r) => s + r.entities_added, 0),
@@ -845,6 +937,8 @@ export async function getGroupedView(
     accumulated: await getAccumulatedImpact(db, context),
     groups,
   };
+
+  return { ...base, cockpit: buildCockpit(base) };
 }
 
 export function compareGroups(a: ChangeGroup, b: ChangeGroup): number {

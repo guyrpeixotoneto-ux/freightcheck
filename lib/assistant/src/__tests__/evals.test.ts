@@ -1,7 +1,13 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { sql } from "drizzle-orm";
 import { createDb, type Database } from "@workspace/db";
 import { getFamiliesView, listPeriods, resolveContext } from "@workspace/comparison";
-import { citacoesSemFonte, numerosSemLastro, orquestrar } from "../orquestrador";
+import {
+  citacoesSemFonte,
+  itensCitaveis,
+  numerosSemLastro,
+  orquestrar,
+} from "../orquestrador";
 import { responder } from "../resposta";
 import { avancarEstado, ESTADO_VAZIO, type EstadoDaConversa } from "../conversa";
 import { resolverParametro } from "../parametros";
@@ -160,7 +166,9 @@ rodar("bateria do assistente", () => {
 
     it("uma citação além das fontes é recusada como número inventado", async () => {
       const dossie = await orquestrar(db, "O que mudou em agosto?");
-      const quantas = dossie.trechos.length + dossie.evidencias.length;
+      // A contagem vem de `itensCitaveis`, que é a única que numera — antes
+      // este teste refazia a soma à mão e passaria a divergir dela em silêncio.
+      const quantas = itensCitaveis(dossie).length;
 
       expect(citacoesSemFonte(`Mudou bastante [${quantas}].`, dossie)).toEqual([]);
       expect(citacoesSemFonte(`Mudou bastante [${quantas + 1}].`, dossie)).toEqual([
@@ -202,6 +210,125 @@ rodar("bateria do assistente", () => {
         aoAvancar: (e) => recebidas.push(e.rotulo),
       });
       expect(recebidas.join(" | ")).not.toMatch(/impacto|alteraç|vigência/i);
+    });
+  });
+
+  // ── o documento do Book ────────────────────────────────────────────────────
+
+  /**
+   * Estes três casos são a conversa que chegou da tela.
+   *
+   * Alguém perguntou a regra de um bloco cujo conteúdo é um arquivo anexado e
+   * ouviu, do assistente, que ele não transcreve documento que não leu — com o
+   * documento já dentro do dossiê. Depois perguntou por um bloco sem casar
+   * padrão nenhum ("QLP ADM como está de Camaçari?"), e o Book nem foi
+   * consultado. E as duas respostas terminavam repetindo o parágrafo com que
+   * tinham começado.
+   */
+  describe("o bloco que tem arquivo entrega o arquivo", () => {
+    /** O bloco com documento anexado que este banco tiver — se tiver algum. */
+    async function blocoComDocumento(): Promise<string | null> {
+      const { rows } = await db.execute<{ titulo: string }>(sql`
+        SELECT block_title AS titulo
+          FROM book_entry
+         WHERE kind = 'DOCUMENTO'
+         ORDER BY revision DESC
+         LIMIT 1
+      `);
+      return rows[0]?.titulo ?? null;
+    }
+
+    it("o conteúdo do documento entra no dossiê, com bloco e seção", async () => {
+      const titulo = await blocoComDocumento();
+      if (!titulo) return; // Banco sem documento anexado não tem o que provar.
+
+      const dossie = await orquestrar(db, `qual a regra de ${titulo}?`);
+
+      /*
+        Formato legado (.doc, .xls antigos) e arquivo acima do teto continuam
+        sem leitura — e aí a ressalva do registro tem de dizer isso. Nos demais,
+        o texto do documento é o que responde.
+      */
+      const registro = dossie.evidencias.find((e) => e.ferramenta === "regraDoBook");
+      if (dossie.documentos.length === 0) {
+        expect(registro?.nota ?? "").toMatch(/não pôde ser lido/i);
+        return;
+      }
+
+      const primeiro = dossie.documentos[0].trecho;
+      expect(primeiro.texto.length, "o trecho traz conteúdo, não metadado").toBeGreaterThan(20);
+      expect(primeiro.bloco).toBeTruthy();
+      expect(registro?.nota ?? "", "documento lido não carrega ressalva").toBe("");
+    });
+
+    /*
+      O conteúdo do Book é conferível como qualquer outra evidência: os números
+      escritos no documento passam a ter lastro porque o texto deles está no
+      dossiê. Era a diferença entre uma resposta rica ser publicada e ser
+      descartada.
+    */
+    it("os números do documento têm lastro", async () => {
+      const titulo = await blocoComDocumento();
+      if (!titulo) return;
+
+      const dossie = await orquestrar(db, `qual a regra de ${titulo}?`);
+      const numeros = (dossie.documentos[0]?.trecho.texto ?? "").match(/\d[\d.,]*/g) ?? [];
+      const comDoisDigitos = numeros.find((n) => n.replace(/\D/g, "").length > 1);
+      if (!comDoisDigitos) return;
+
+      expect(numerosSemLastro(`O documento diz ${comDoisDigitos} [1].`, dossie)).toEqual([]);
+    });
+
+    it("nomear o bloco basta, mesmo quando a pergunta não parece do Book", async () => {
+      const titulo = await blocoComDocumento();
+      if (!titulo) return;
+
+      // Sem "book", sem "regra", sem verbo de valor: a forma que caía em
+      // DESCONHECIDA e era respondida só pelo índice.
+      const dossie = await orquestrar(db, `${titulo} como está de Camaçari?`);
+      expect(dossie.plano.intencao).toBe("DESCONHECIDA");
+      expect(
+        dossie.documentos.length + dossie.evidencias.length,
+        "o Book é consultado por qualquer pergunta que nomeie assunto",
+      ).toBeGreaterThan(0);
+    });
+
+    /*
+      Multi-fonte: a mesma pergunta que pede a regra e o movimento tem de sair
+      com as duas coisas. Antes não havia caminho que trouxesse as duas — a
+      intenção escolhia uma e a outra não era nem consultada.
+    */
+    it("uma pergunta pode combinar Book e dado na mesma resposta", async () => {
+      const dossie = await orquestrar(db, "o que o Book diz sobre pneu e quanto ele mudou?");
+      expect(dossie.documentos.length + dossie.trechos.length).toBeGreaterThan(0);
+    });
+
+    it("a resposta não mostra a mecânica do Book a quem perguntou", async () => {
+      const titulo = await blocoComDocumento();
+      if (!titulo) return;
+
+      const resposta = await responder(db, `o que é ${titulo}?`, { semIa: true });
+      for (const proibido of ["Revisão vigente", "revisão guardada", "documento anexado"]) {
+        expect(resposta.texto, `"${proibido}" não pertence a uma resposta`).not.toContain(proibido);
+      }
+    });
+
+    it("a redação em código não repete o parágrafo com que abriu", async () => {
+      for (const pergunta of [
+        "O que é o Book do Operador?",
+        "Qual a regra do bloco PNEU?",
+        "Como funciona IPVA?",
+      ]) {
+        const resposta = await responder(db, pergunta, { semIa: true });
+        const paragrafos = resposta.texto
+          .split(/\n{2,}/)
+          .map((p) => p.replace(/\s*\[\d{1,2}\]\s*$/, "").trim())
+          // Linha curta pode repetir sem ser repetição: um rótulo, um "—".
+          .filter((p) => p.length > 40);
+        expect(new Set(paragrafos).size, `"${pergunta}" repetiu um parágrafo`).toBe(
+          paragrafos.length,
+        );
+      }
     });
   });
 

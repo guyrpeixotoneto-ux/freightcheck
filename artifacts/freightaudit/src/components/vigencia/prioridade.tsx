@@ -1,0 +1,652 @@
+import { useEffect, useRef, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
+import {
+  ChevronDown,
+  ChevronRight,
+  GitCompareArrows,
+  Info,
+  ListFilter,
+  Lock,
+  TriangleAlert,
+  Truck,
+} from "lucide-react";
+import { getApiUrl } from "@/lib/api";
+import { cn } from "@/lib/utils";
+import { formatBrl, formatValue, periodicitySuffix } from "@/lib/format";
+import {
+  HistoricoAtributo,
+  TabelaVeiculos,
+} from "@/components/changes/detalhe-alteracao";
+import type {
+  AttributeSeries,
+  ChangeGroup,
+  GroupVehicle,
+  Severity,
+} from "@/components/inicio/types";
+import type { ItemCockpit } from "@/lib/cockpit";
+
+/**
+ * Um item da fila de investigação.
+ *
+ * Três camadas, e a disciplina desta tela é não misturá-las:
+ *
+ * 1. **A linha** responde *o que é, em quanto da frota, e quanto custa* — em
+ *    linguagem de auditor. Nada de `2028-07-01T12:00:00Z → 46935.5` aqui.
+ * 2. **A investigação** abre a profundidade técnica: os dois lados como vieram,
+ *    o diagnóstico, os padrões, os veículos, a série e a origem.
+ * 3. **A conta da prioridade** fica visível no fim da investigação. Um ranking
+ *    cujo critério não pode ser lido é indistinguível de um palpite; aqui a
+ *    soma que produziu a posição está escrita, parcela por parcela.
+ */
+
+const CORES: Record<
+  Severity,
+  { barra: string; chip: string; texto: string }
+> = {
+  CRITICO: {
+    barra: "bg-red-700",
+    chip: "bg-red-50 text-red-800 border-red-300",
+    texto: "text-red-800",
+  },
+  ALTO: {
+    barra: "bg-amber-500",
+    chip: "bg-amber-50 text-amber-900 border-amber-300",
+    texto: "text-amber-800",
+  },
+  MEDIO: {
+    barra: "bg-sky-600",
+    chip: "bg-sky-50 text-sky-900 border-sky-300",
+    texto: "text-sky-800",
+  },
+  BAIXO: {
+    barra: "bg-zinc-300",
+    chip: "bg-zinc-50 text-zinc-600 border-zinc-300",
+    texto: "text-zinc-600",
+  },
+};
+
+const ROTULO_SEVERIDADE: Record<Severity, string> = {
+  CRITICO: "Crítico",
+  ALTO: "Alto",
+  MEDIO: "Médio",
+  BAIXO: "Baixo",
+};
+
+export function Prioridade({
+  entry,
+  period,
+  contexto,
+}: {
+  entry: ItemCockpit;
+  period: string;
+  /** `scopeHash` e `canal` da leitura, para os links e para o nível 2. */
+  contexto: URLSearchParams;
+}) {
+  const { item, group } = entry;
+  const [aberto, setAberto] = useState(false);
+  /*
+    Um contador, e não um booleano: pedir "ver os veículos" duas vezes seguidas
+    precisa rolar duas vezes, e um booleano que já está `true` não dispara o
+    efeito da segunda vez — o botão pareceria quebrado.
+  */
+  const [pedidosDeVeiculos, setPedidosDeVeiculos] = useState(0);
+  const cores = CORES[item.severity];
+  const dinheiro = group.impact.amount !== null && group.impact.amount !== 0;
+
+  return (
+    <div className={cn("border-b last:border-b-0", aberto && "bg-muted/20")}>
+      <div className="flex">
+        <div className={cn("w-[3px] shrink-0", cores.barra)} aria-hidden />
+        <div className="flex-1 min-w-0 px-4 py-3.5">
+          {/*
+            A coluna do impacto desce para baixo do texto quando a largura não
+            comporta as duas — o número não pode ser espremido a ponto de
+            "R$ 28.511/mês" quebrar no meio, e a fila continua legível em
+            notebook e tablet.
+          */}
+          <div className="flex flex-wrap md:flex-nowrap gap-x-4 gap-y-2 items-start">
+            <span className="text-lg font-bold tabular-nums text-muted-foreground w-8 shrink-0 pt-0.5">
+              {String(item.rank).padStart(2, "0")}
+            </span>
+
+            <div className="min-w-0 flex-1 basis-80">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                <span
+                  className={cn(
+                    "text-[0.625rem] font-bold uppercase tracking-[0.08em] px-1.5 py-0.5 border rounded-sm",
+                    cores.chip,
+                  )}
+                >
+                  {ROTULO_SEVERIDADE[item.severity]}
+                </span>
+                <h3 className="font-bold text-[0.9375rem] truncate">{group.title}</h3>
+                <span className="text-sm text-muted-foreground">— {group.equipment}</span>
+                <span className="text-[0.6875rem] text-muted-foreground border px-1.5 py-0.5 rounded-sm">
+                  {group.badgeLabel}
+                </span>
+                {item.hasAnomaly && (
+                  <span
+                    className={cn(
+                      "text-[0.6875rem] inline-flex items-center gap-1",
+                      group.formatOnly ? "text-slate-600" : "text-amber-800",
+                    )}
+                  >
+                    {group.formatOnly ? (
+                      <Info className="w-3 h-3" />
+                    ) : (
+                      <TriangleAlert className="w-3 h-3" />
+                    )}
+                    {group.formatOnly
+                      ? "troca de formato, sem mudança de valor"
+                      : "possível anomalia de formato"}
+                  </span>
+                )}
+              </div>
+
+              <div className="text-[0.8125rem] text-muted-foreground mt-1">
+                {item.shareLabel}
+                {item.sharePercent !== null && (
+                  <>
+                    {" · "}
+                    <span className="font-semibold text-foreground tabular-nums">
+                      {item.sharePercent.toLocaleString("pt-BR")}%
+                    </span>{" "}
+                    da frota
+                  </>
+                )}
+              </div>
+
+              <p className="text-sm mt-1.5 leading-snug">{item.diagnosis}</p>
+              {item.patternsSummary && (
+                <p className="text-xs text-muted-foreground mt-1">{item.patternsSummary}</p>
+              )}
+
+              <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
+                <Acao
+                  aoClicar={() => setAberto(!aberto)}
+                  principal
+                >
+                  {aberto ? (
+                    <ChevronDown className="w-3.5 h-3.5" />
+                  ) : (
+                    <ChevronRight className="w-3.5 h-3.5" />
+                  )}
+                  Investigar
+                </Acao>
+                <Acao
+                  aoClicar={() => {
+                    setAberto(true);
+                    setPedidosDeVeiculos((n) => n + 1);
+                  }}
+                >
+                  <Truck className="w-3.5 h-3.5" />
+                  Ver {group.vehicles} {group.vehicles === 1 ? "veículo" : "veículos"}
+                </Acao>
+                <LinkAcao href="/comparar">
+                  <GitCompareArrows className="w-3.5 h-3.5" />
+                  Comparar vigências
+                </LinkAcao>
+                {group.attributeCode && (
+                  <LinkAcao
+                    href={`/alteracoes?search=${encodeURIComponent(group.attributeCode)}`}
+                  >
+                    <ListFilter className="w-3.5 h-3.5" />
+                    Ver linha a linha
+                  </LinkAcao>
+                )}
+              </div>
+            </div>
+
+            <div className="shrink-0 w-full pl-12 md:pl-0 md:w-44 md:text-right">
+              {dinheiro ? (
+                <>
+                  <div
+                    className={cn(
+                      "text-lg font-bold tabular-nums whitespace-nowrap",
+                      group.impact.amount! < 0 ? "text-red-700" : "text-emerald-700",
+                    )}
+                  >
+                    {formatBrl(group.impact.amount!)}
+                    <span className="text-xs font-normal text-muted-foreground">
+                      {periodicitySuffix(group.impact.periodicity)}
+                    </span>
+                  </div>
+                  <div className="text-[0.6875rem] text-muted-foreground mt-0.5">
+                    apurado em {group.impact.countedVehicles}{" "}
+                    {group.impact.countedVehicles === 1 ? "veículo" : "veículos"}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="text-[0.8125rem] font-semibold text-muted-foreground">
+                    Impacto ainda não calculável
+                  </div>
+                  <div className="text-[0.6875rem] text-muted-foreground mt-0.5 leading-snug">
+                    {group.impact.reason
+                      ? "Este parâmetro não tem regra de precificação suficiente."
+                      : "Sem valor apurado nesta vigência."}
+                  </div>
+                </>
+              )}
+              {group.impact.excludedVehicles > 0 && (
+                <div className="text-[0.6875rem] text-violet-800 mt-1">
+                  {group.impact.excludedVehicles} de {group.vehicles} fora do total
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {aberto && (
+        <Investigacao
+          entry={entry}
+          period={period}
+          contexto={contexto}
+          pedidosDeVeiculos={pedidosDeVeiculos}
+        />
+      )}
+    </div>
+  );
+}
+
+function Acao({
+  children,
+  aoClicar,
+  principal,
+}: {
+  children: React.ReactNode;
+  aoClicar: () => void;
+  principal?: boolean;
+}) {
+  return (
+    <button
+      onClick={aoClicar}
+      className={cn(
+        "inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 border rounded-sm transition-colors",
+        principal
+          ? "border-brand text-brand hover:bg-accent"
+          : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function LinkAcao({ href, children }: { href: string; children: React.ReactNode }) {
+  return (
+    <Link
+      href={href}
+      className="inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 border border-border rounded-sm text-muted-foreground hover:text-foreground hover:border-foreground/40 transition-colors"
+    >
+      {children}
+    </Link>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Nível 2 — a investigação
+// ---------------------------------------------------------------------------
+
+function Investigacao({
+  entry,
+  period,
+  contexto,
+  pedidosDeVeiculos,
+}: {
+  entry: ItemCockpit;
+  period: string;
+  contexto: URLSearchParams;
+  pedidosDeVeiculos: number;
+}) {
+  const { item, group } = entry;
+  const veiculosRef = useRef<HTMLDivElement>(null);
+
+  const vehicles = useQuery({
+    queryKey: ["group-vehicles", period, group.key, contexto.toString()],
+    queryFn: async () => {
+      const params = new URLSearchParams(contexto);
+      params.set("period", period);
+      params.set("attributeCode", group.attributeCode ?? "");
+      params.set("entityType", group.entityType ?? "");
+      params.set("changeType", group.changeType);
+      params.set("comparability", group.comparability);
+      params.set("impactConfidence", group.impact.confidence);
+      const response = await fetch(getApiUrl(`/changes/grouped/vehicles?${params}`));
+      if (!response.ok) return [];
+      return (await response.json()) as GroupVehicle[];
+    },
+  });
+
+  const series = useQuery({
+    queryKey: ["attribute-series", group.attributeCode, contexto.toString()],
+    queryFn: async () => {
+      const suffix = contexto.toString() ? `?${contexto}` : "";
+      const response = await fetch(
+        getApiUrl(
+          `/attributes/${encodeURIComponent(group.attributeCode ?? "")}/series${suffix}`,
+        ),
+      );
+      if (!response.ok) return null;
+      return (await response.json()) as AttributeSeries;
+    },
+    enabled: group.attributeCode !== null,
+  });
+
+  useEffect(() => {
+    if (pedidosDeVeiculos > 0) {
+      veiculosRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [pedidosDeVeiculos]);
+
+  return (
+    <div className="border-t bg-card px-6 py-5 space-y-5 text-sm">
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+        <Secao titulo="O que mudou">
+          <OQueMudou group={group} />
+        </Secao>
+
+        <Secao titulo="Diagnóstico FreightCheck">
+          <p className="leading-snug">{item.diagnosis}</p>
+          {group.anomalies.map((anomaly) => (
+            <div
+              key={`${anomaly.kind}-${anomaly.sameInstant}-${anomaly.differenceMs}`}
+              className={cn(
+                "mt-2 border-l-4 px-3 py-2",
+                anomaly.formatOnly
+                  ? "border-slate-400 bg-slate-50 text-slate-800"
+                  : "border-amber-500 bg-amber-50 text-amber-900",
+              )}
+            >
+              <div className="font-semibold text-[0.6875rem] uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                {anomaly.formatOnly ? (
+                  <Info className="w-3.5 h-3.5" />
+                ) : (
+                  <TriangleAlert className="w-3.5 h-3.5" />
+                )}
+                {anomaly.formatOnly ? "Troca de formato" : "Possível anomalia de formato"} ·{" "}
+                {anomaly.vehicles} {anomaly.vehicles === 1 ? "veículo" : "veículos"}
+              </div>
+              <p className="text-xs leading-snug">{anomaly.explanation}</p>
+              <p className="mt-1 text-[0.6875rem]">
+                Nada foi convertido nem corrigido. O valor original de cada lado continua
+                guardado como veio da planilha — abra um veículo abaixo para conferir a célula.
+              </p>
+            </div>
+          ))}
+          {group.inconclusiveReason && (
+            <div className="mt-2 border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-amber-900">
+              <div className="font-semibold text-[0.6875rem] uppercase tracking-wide mb-1">
+                Comparação inconclusiva
+              </div>
+              <p className="text-xs leading-snug">{group.inconclusiveReason}</p>
+            </div>
+          )}
+          {group.impact.excludedReason && (
+            <div className="mt-2 border-l-4 border-violet-500 bg-violet-50 px-3 py-2 text-violet-900">
+              <div className="font-semibold text-[0.6875rem] uppercase tracking-wide mb-1 flex items-center gap-1.5">
+                <Info className="w-3.5 h-3.5" />
+                Fora do total desta vigência
+              </div>
+              <p className="text-xs leading-snug">{group.impact.excludedReason}</p>
+              {group.composition && (
+                <p className="mt-1.5 text-[0.6875rem]">
+                  <span className="font-medium">Composição declarada:</span>{" "}
+                  <span className="font-mono">{group.composition.total}</span> ={" "}
+                  <span className="font-mono">{group.composition.parts.join(" + ")}</span>.{" "}
+                  {group.composition.evidence}
+                </p>
+              )}
+              {group.impact.excludedAmount !== null && (
+                <p className="mt-1.5 text-[0.6875rem] tabular-nums">
+                  Valor deixado de fora: {formatBrl(group.impact.excludedAmount)}
+                  {periodicitySuffix(group.impact.periodicity)}
+                  {group.impact.countedVehicles > 0 && (
+                    <> · {group.impact.countedVehicles} veículo(s) continuam no total.</>
+                  )}
+                </p>
+              )}
+            </div>
+          )}
+          {group.impact.amount === null && group.impact.reason && (
+            <div className="mt-2 border bg-muted/40 px-3 py-2">
+              <span className="inline-flex items-center gap-1.5 font-medium text-foreground text-xs">
+                <Lock className="w-3.5 h-3.5" />
+                Por que não há valor apurado
+              </span>
+              <p className="mt-1 text-xs text-muted-foreground leading-snug">
+                {group.impact.reason}
+              </p>
+            </div>
+          )}
+        </Secao>
+      </div>
+
+      <div className="grid gap-5 md:grid-cols-2">
+        <Secao titulo="Abrangência">
+          <p>
+            <span className="text-xl font-bold tabular-nums">{group.vehicles}</span>{" "}
+            <span className="text-muted-foreground">
+              de {group.fleet} {group.equipment.toLowerCase()}
+              {group.fleet === 1 ? "" : "s"} da frota comparada
+            </span>
+          </p>
+          {item.sharePercent !== null && (
+            <div className="mt-1.5">
+              <div className="h-1.5 bg-muted overflow-hidden">
+                <div
+                  className={cn("h-full", CORES[item.severity].barra)}
+                  style={{ width: `${item.sharePercent}%` }}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {item.sharePercent.toLocaleString("pt-BR")}% da frota · {group.changes}{" "}
+                {group.changes === 1 ? "alteração" : "alterações"} neste ponto
+              </p>
+            </div>
+          )}
+        </Secao>
+
+        <Secao titulo="Padrões encontrados">
+          {group.patterns <= 1 ? (
+            <p className="text-muted-foreground">
+              Um único comportamento em todos os veículos deste ponto.
+            </p>
+          ) : (
+            <>
+              <p>{item.patternsSummary}</p>
+              {group.dominantPattern && (
+                <p className="mt-1.5 font-mono text-xs bg-muted/50 border px-2 py-1.5 inline-block">
+                  {group.dominantPattern.before ?? "—"} → {group.dominantPattern.after ?? "—"}
+                  <span className="font-sans text-muted-foreground">
+                    {" "}
+                    · {group.dominantPattern.vehicles} veículos
+                  </span>
+                </p>
+              )}
+              <p className="text-xs text-muted-foreground mt-1.5">
+                Os demais padrões aparecem veículo a veículo na tabela abaixo.
+              </p>
+            </>
+          )}
+        </Secao>
+      </div>
+
+      {series.data && series.data.points.length > 0 && (
+        <Secao titulo="Como esta linha se comportou nas vigências">
+          <HistoricoAtributo series={series.data} semTitulo />
+        </Secao>
+      )}
+
+      <div ref={veiculosRef}>
+        {/*
+          O título muda de palavra quando o grupo é troca de formato pura.
+          "Veículos afetados" descreve dano, e é a mesma expressão que encima o
+          IPVA que custou R$ 145 mil; usá-la aqui fazia o cabeçalho contradizer
+          as 62 notas logo abaixo, que dizem que nada mudou.
+        */}
+        <Secao
+          titulo={
+            group.formatOnly
+              ? `Veículos com a coluna reformatada (${group.vehicles} de ${group.fleet})`
+              : `Veículos afetados (${group.vehicles} de ${group.fleet})`
+          }
+        >
+          {vehicles.isLoading && <p className="text-muted-foreground">Carregando…</p>}
+          {vehicles.data && <TabelaVeiculos rows={vehicles.data} group={group} />}
+        </Secao>
+      </div>
+
+      <div className="grid gap-5 md:grid-cols-2 border-t pt-4">
+        <Secao titulo="Contexto e origem">
+          <ul className="text-xs text-muted-foreground space-y-0.5">
+            <li>
+              <span className="text-foreground font-medium">Classificação:</span>{" "}
+              {group.costClass === "FIXO"
+                ? "custo fixo"
+                : group.costClass === "VARIAVEL"
+                  ? "custo variável"
+                  : "sem classificação"}
+              {group.taxonomyName && <> · {group.taxonomyName}</>}
+            </li>
+            <li>
+              <span className="text-foreground font-medium">Semântica:</span>{" "}
+              {group.semanticsLabel}
+            </li>
+            <li>
+              <span className="text-foreground font-medium">Natureza:</span>{" "}
+              {group.natures.length > 0 ? group.natures.join(", ") : "—"}
+            </li>
+            {group.attributeCode && (
+              <li>
+                <span className="text-foreground font-medium">Coluna de origem:</span>{" "}
+                <span className="font-mono">{group.attributeCode}</span>
+              </li>
+            )}
+            <li>
+              <span className="text-foreground font-medium">Unidade do valor:</span>{" "}
+              {group.unit ?? "não declarada"}
+            </li>
+          </ul>
+        </Secao>
+
+        <Secao titulo="Por que este ponto está nesta posição">
+          <ul className="text-xs space-y-0.5">
+            {item.reasons.map((reason) => (
+              <li key={reason.label} className="flex justify-between gap-3">
+                <span className="text-muted-foreground">{reason.label}</span>
+                <span className="tabular-nums font-medium shrink-0">+{reason.points}</span>
+              </li>
+            ))}
+            <li className="flex justify-between gap-3 border-t pt-1 mt-1 font-semibold">
+              <span>
+                Total · {ROTULO_SEVERIDADE[item.severity].toLowerCase()} (posição {item.rank})
+              </span>
+              <span className="tabular-nums">{item.score}</span>
+            </li>
+          </ul>
+          <p className="text-[0.6875rem] text-muted-foreground mt-1.5 leading-snug">
+            A fila é ordenada por esta soma. Nenhum critério é oculto: crítico a partir de 70,
+            alto a partir de 45, médio a partir de 25.
+          </p>
+        </Secao>
+      </div>
+    </div>
+  );
+}
+
+function Secao({ titulo, children }: { titulo: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <h4 className="text-[0.6875rem] font-bold uppercase tracking-[0.08em] text-muted-foreground mb-2">
+        {titulo}
+      </h4>
+      {children}
+    </div>
+  );
+}
+
+/**
+ * Os dois lados, como a fonte os entregou.
+ *
+ * É aqui — e só aqui — que o valor cru aparece. Na linha ele seria ruído; nesta
+ * seção ele é a prova, e some dela seria pedir para confiar sem conferir.
+ */
+function OQueMudou({ group }: { group: ChangeGroup }) {
+  const a = group.aggregate;
+
+  if (a.summable && a.totalBefore !== null && a.totalAfter !== null) {
+    return (
+      <div className="grid grid-cols-2 gap-3">
+        <Lado titulo="Total antes" valor={formatValue(a.totalBefore, group.unit)} />
+        <Lado titulo="Total agora" valor={formatValue(a.totalAfter, group.unit)} forte />
+        {a.perVehicle && (
+          <p className="col-span-2 text-xs text-muted-foreground">
+            Média por veículo: {formatValue(a.perVehicle.averageBefore, group.unit)} →{" "}
+            {formatValue(a.perVehicle.averageAfter, group.unit)} ({a.perVehicle.denominator}{" "}
+            veículos no cálculo). Uma soma maior com mais veículos não é preço maior.
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  if (group.dominantPattern) {
+    return (
+      <div className="grid grid-cols-2 gap-3">
+        <Lado titulo="Anterior" valor={group.dominantPattern.before ?? "—"} />
+        <Lado titulo="Atual" valor={group.dominantPattern.after ?? "—"} forte />
+        <p className="col-span-2 text-xs text-muted-foreground">
+          Valores como vieram da planilha, sem conversão, no padrão mais frequente do grupo (
+          {group.dominantPattern.vehicles} de {group.vehicles} veículos).
+        </p>
+      </div>
+    );
+  }
+
+  if (a.minPercent !== null && a.maxPercent !== null) {
+    return (
+      <p>
+        Variação de{" "}
+        <span className="font-mono font-medium">
+          {a.minPercent.toLocaleString("pt-BR")}%
+        </span>{" "}
+        a{" "}
+        <span className="font-mono font-medium">
+          {a.maxPercent.toLocaleString("pt-BR")}%
+        </span>{" "}
+        por veículo.{" "}
+        <span className="text-muted-foreground">
+          Não somável ({a.aggregation ?? "agregação não definida"}) — a tabela abaixo mostra
+          veículo a veículo.
+        </span>
+      </p>
+    );
+  }
+
+  return (
+    <p className="text-muted-foreground italic">
+      Sem variação numérica a exibir; a mudança está nos valores veículo a veículo.
+    </p>
+  );
+}
+
+function Lado({ titulo, valor, forte }: { titulo: string; valor: string; forte?: boolean }) {
+  return (
+    <div className="border bg-muted/30 px-3 py-2">
+      <div className="text-[0.625rem] uppercase tracking-wide text-muted-foreground">
+        {titulo}
+      </div>
+      <div
+        className={cn(
+          "font-mono text-sm mt-0.5 break-all",
+          forte ? "font-bold" : "text-muted-foreground",
+        )}
+      >
+        {valor}
+      </div>
+    </div>
+  );
+}

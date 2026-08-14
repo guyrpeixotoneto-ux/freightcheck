@@ -183,7 +183,7 @@ export const snapshotTable = pgTable(
      *
      * É uma coluna gerada: a aplicação não a escreve e não consegue escrevê-la.
      * É o que transforma "o TypeScript calcula certo" em "é impossível calcular
-     * errado" — ver `0012_canonical_identity.sql`.
+     * errado" — ver `0015_canonical_identity.sql`.
      */
     canonicalSnapshotKey: text("canonical_snapshot_key").generatedAlwaysAs(
       sql`freightcheck_snapshot_key("source_system", "dataset_family", "canal", "effective_date", "canonical_scope")`,
@@ -227,7 +227,7 @@ export const snapshotTable = pgTable(
  * Por que duas vigências ativas viraram uma.
  *
  * Responde "onde foram parar os dados da vigência X" quando uma fusão — a da
- * migration `0013` ou a que o `promote` faz ao receber um arquivo parcial —
+ * migration `0016` ou a que o `promote` faz ao receber um arquivo parcial —
  * tirou de cena a vigência que alguém procura.
  */
 export const snapshotMergeTable = pgTable("snapshot_merge", {
