@@ -23,6 +23,7 @@ import {
   CATALOGO_FREIGHTECH,
   chaveDoCartao,
   ligarParametros,
+  type CartaoCatalogo,
 } from "@/lib/freightech-catalogo";
 import type {
   ChangeGroup,
@@ -461,6 +462,8 @@ interface CartaoRender {
   atributos: string[];
   /** As colunas que o Freightech mostra nesta tela, quando já conferidas. */
   colunas: string[] | null;
+  /** Quando o cartão abre ficha e não tabela: as seções e os campos de lá. */
+  formulario: CartaoCatalogo["formulario"] | null;
   /** A frase sobre a distância entre a tela de lá e o que temos aqui. */
   nota: string | null;
   /** Quando é inventário: o tipo de ativo que cada linha representa. */
@@ -524,6 +527,7 @@ function montarSecoes(view: FamiliesView | null): SecaoRender[] {
         parametros,
         atributos: cartao.atributos ?? [],
         colunas: cartao.colunas ?? null,
+        formulario: cartao.formulario ?? null,
         nota: cartao.nota ?? null,
         entidade: cartao.entidade ?? null,
         ...agregar(parametros),
@@ -568,6 +572,7 @@ function montarSecoes(view: FamiliesView | null): SecaoRender[] {
         parametros: [parametro],
         atributos: [],
         colunas: null,
+        formulario: null,
         nota: null,
         entidade: null,
         ...agregar([parametro]),
@@ -1595,8 +1600,14 @@ function TabelaVazia({ cartao }: { cartao: CartaoRender }) {
     <p className="text-sm text-left max-w-3xl mx-auto">
       <strong>Esta gaveta existe no Freightech e este export não a alimenta.</strong>{" "}
       Nenhuma coluna da planilha que o FreightCheck recebe cai aqui. O cartão não tem
-      número não porque o valor seja zero, mas porque ele não chega — e as colunas
-      listadas acima são o que pedir para ele passar a funcionar.
+      número não porque o valor seja zero, mas porque ele não chega — e{" "}
+      {/*
+        Cartão que abre ficha não tem coluna, e mandar pedir "as colunas listadas
+        acima" a respeito de uma lista de campos seria repetir, no rodapé, o erro
+        que o Contraste evita no topo.
+      */}
+      {cartao.formulario ? "os campos listados acima são" : "as colunas listadas acima são"}{" "}
+      o que pedir para ele passar a funcionar.
     </p>
   );
 }
@@ -1611,6 +1622,15 @@ function TabelaVazia({ cartao }: { cartao: CartaoRender }) {
  * é o que torna a diferença visível antes da primeira leitura errada.
  */
 function Contraste({ cartao }: { cartao: CartaoRender }) {
+  /*
+    Cartão que abre ficha, e não tabela. Vem antes da checagem de `colunas`
+    porque a frase de lá — "as colunas ainda não foram conferidas" — seria falsa
+    aqui: a tela foi conferida, e o que ela tem não são colunas.
+  */
+  if (cartao.formulario) {
+    return <Ficha secoes={cartao.formulario} nota={cartao.nota} />;
+  }
+
   if (!cartao.colunas) {
     return (
       <p className="text-xs text-muted-foreground mt-3 max-w-4xl">
@@ -1645,6 +1665,66 @@ function Contraste({ cartao }: { cartao: CartaoRender }) {
         .
       </p>
       {cartao.nota && <p>{cartao.nota}</p>}
+    </div>
+  );
+}
+
+/**
+ * A ficha do Freightech, descrita — os campos que ele mostra quando o cartão
+ * abre um formulário em vez de uma lista.
+ *
+ * **Descreve, não imita.** Desenhar os campos de verdade, com caixinha e valor,
+ * produziria um formulário que não salva nada — o FreightCheck lê o export e
+ * não escreve no Freightech, e um campo que parece editável e não é seria a
+ * mesma promessa falsa que o botão ADICIONAR seria. Então isto é texto: os
+ * rótulos, agrupados pela seção de lá, com os calculados marcados.
+ *
+ * O marcador de calculado é o que justifica a lista existir. Numa ficha de três
+ * campos em que só um se digita, quem não vê a distinção conta três parâmetros
+ * onde o cliente mexe em um.
+ */
+function Ficha({
+  secoes,
+  nota,
+}: {
+  secoes: NonNullable<CartaoRender["formulario"]>;
+  nota: string | null;
+}) {
+  const calculados = secoes.flatMap((s) => s.campos).filter((c) => c.calculado).length;
+
+  return (
+    <div className="text-xs text-muted-foreground mt-3 max-w-4xl space-y-3">
+      <p>
+        No Freightech este cartão abre uma <strong className="text-foreground">ficha</strong>,
+        não uma tabela.
+        {calculados > 0 && (
+          <>
+            {" "}
+            Os campos marcados saem de fórmula — lá eles aparecem cinza, com a
+            calculadora ao lado, e não se digitam.
+          </>
+        )}
+      </p>
+
+      {secoes.map((secao) => (
+        <div key={secao.secao}>
+          <div className="uppercase tracking-wider text-[0.6875rem] text-foreground/70">
+            {secao.secao}
+          </div>
+          <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+            {secao.campos.map((campo) => (
+              <li key={campo.nome} className="font-mono text-foreground">
+                {campo.nome}
+                {campo.calculado && (
+                  <span className="font-sans text-muted-foreground"> · calculado</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+
+      {nota && <p>{nota}</p>}
     </div>
   );
 }

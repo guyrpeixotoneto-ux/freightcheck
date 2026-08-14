@@ -62,6 +62,51 @@ export interface CartaoCatalogo {
    */
   colunas?: string[];
   /**
+   * Quando o cartão abre um **formulário**, e não uma tabela.
+   *
+   * Nem toda gaveta do Freightech é uma lista. MANUTENÇÃO IMPLEMENTO abre uma
+   * ficha de parâmetros: seções com título, campos com rótulo, e o valor num
+   * campo de digitar. Enfiar esses rótulos em `colunas` seria chamá-los de
+   * coluna e fazer a tela dizer "esta tela traz as colunas X, Y e Z" a respeito
+   * de algo que não tem coluna nenhuma — a mesma categoria de erro que este
+   * arquivo evita quando se recusa a inventar um cabeçalho.
+   *
+   * A distinção que mais importa aqui é **digitado versus calculado**. No
+   * Freightech o campo calculado vem cinza, com um ícone de calculadora e outro
+   * de fórmula ao lado; o digitado vem branco e editável. Numa ficha de três
+   * campos em que só um se digita, confundir os dois é achar que o cliente
+   * mexeu em três coisas quando ele mexeu numa.
+   */
+  formulario?: {
+    /** O título da seção, como o Freightech escreve. */
+    secao: string;
+    campos: {
+      /**
+       * O rótulo do campo. Aqui o Freightech usa o camelCase interno
+       * (`implemento28Menor150Km`), e não a caixa alta grudada dos cabeçalhos
+       * de tabela — fica como está, porque é o que aparece na tela.
+       */
+      nome: string;
+      /** Campo cinza, com calculadora ao lado: sai de fórmula, não se digita. */
+      calculado?: boolean;
+    }[];
+  }[];
+  /*
+    Uma coisa que só as fichas revelaram, e que vale para todas elas.
+
+    Os cabeçalhos de tabela do Freightech são rótulos de exibição — caixa alta,
+    grudados, `CAPACIDADEEMPURRADA`. Os rótulos de ficha, não: são o nome
+    interno do campo, em camelCase, e **o export usa esses mesmos nomes como
+    cabeçalho de coluna**. `manutencaoReaisKm` está na ficha PARÂMETROS
+    MANUTENÇÃO e na planilha de cavalos, letra por letra.
+
+    A consequência prática é que rótulo de ficha se procura no export por busca
+    exata, enquanto cabeçalho de tabela exige tradução. A consequência honesta é
+    que a coincidência é rara: dos 20 campos das três fichas conferidas, só esse
+    um aparece no export. Os outros 19 são parâmetros de unidade que a planilha
+    de equipamento não publica.
+  */
+  /**
    * As colunas do export que **são** este cartão, pelo código do atributo.
    *
    * Existe porque `parametros` não alcança todos os casos. O nosso dicionário
@@ -694,11 +739,18 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
           uma vez.** Ela traz `Palletizacao: 6X2` — o mesmo 6X2 do cartão
           PADRÃO, que no export é `Descricao: 6X2` (522 cavalos) e
           `Descricao: 6X4` (36). Tentador concluir que são a mesma coluna. Não
-          são: no Freightech o prefixo do valor **é** o nome da dimensão, e é
-          por isso que a montadora chega como `Descrição: VOLVO`, a capacidade
-          como `Pallets: 28` e a iniciativa como `Iniciativa: Tradicional`.
-          Prefixos diferentes, dimensões diferentes — duas gavetas que
+          são: o valor vem prefixado pelo campo de onde saiu, e prefixos
+          diferentes significam campos diferentes — duas gavetas que
           compartilham o vocabulário de eixos e não a identidade.
+
+          O que o prefixo **não** é: o nome da dimensão. Uma versão anterior
+          desta entrada dizia isso, e o cadastro MODELO desmentiu — lá a coluna
+          se chama DESCRICAO, e no export a montadora chega como
+          `Descrição: VOLVO` enquanto o padrão chega como `Descricao: 6X2`. O
+          mesmo prefixo em duas dimensões distintas: ele nomeia o campo dentro
+          do cadastro, e vários cadastros chamam o seu campo de Descricao. A
+          regra que sobrevive é a fraca e suficiente — prefixos diferentes,
+          colunas diferentes. A forte era falsa.
 
           Uma observação que serve ao cartão CONTRATO MANUTENÇÃO, não a este:
           lá as faixas continuavam em ATE1200001, ATE1200002 e ATE1200003, um km
@@ -741,13 +793,220 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
           "— com o mesmo texto, prefixo incluído — e o ganhador do BID, mas não a " +
           "matriz: chega o R$/km já resolvido em cada cavalo, e é sobre ele que a tabela " +
           "abaixo mostra o que mudou. Não confunda TIPOPALLETIZACAOEMPURRADA com o " +
-          "cartão PADRÃO: as duas dizem 6X2, mas o prefixo do valor é o nome da dimensão " +
-          "no Freightech, e aqui ele é Palletizacao, não Descricao.",
+          "cartão PADRÃO: as duas dizem 6X2, mas o valor vem prefixado pelo campo de " +
+          "onde saiu, e aqui o prefixo é Palletizacao, não Descricao.",
       },
-      { nome: "Manutenção implemento", parametros: ["Manutenção carroceria"] },
-      { nome: "Modelo" },
-      { nome: "Parâmetros consumo" },
-      { nome: "Parâmetros manutenção", parametros: ["Manutenção cavalo"] },
+      {
+        /*
+          **Este cartão não abre tabela: abre ficha.** Foi o primeiro assim a ser
+          conferido, e por ele a estrutura ganhou o campo `formulario` —
+          PARÂMETROS CONSUMO, conferido logo em seguida, mostrou que não é caso
+          isolado. Uma aba "Geral", duas seções com régua laranja (Menor 150 Km
+          e Maior 150 Km) e
+          três campos em cada, mais Anexos ("Nenhum anexo é necessário") e uma
+          Descrição em texto livre.
+
+          Em cada seção só o primeiro campo é branco e editável. Os outros dois
+          vêm cinza, com uma calculadora e um `</>` ao lado: são calculados, e o
+          ícone de fórmula é o Freightech oferecendo mostrar a conta. Numa ficha
+          de três campos em que um se digita e dois derivam, tratar os três como
+          iguais é contar três alterações onde houve uma.
+
+          Nas capturas as duas seções trazem os mesmos números — 0,11 digitado,
+          0,10 e 0,20 calculados —, o que só se sabe porque as duas apareceram
+          juntas. Isso é observação da tela de lá e não vira número aqui.
+
+          Os rótulos vêm no camelCase interno, e não na caixa alta grudada dos
+          cabeçalhos de tabela. Dois estavam cortados na captura:
+          `implemento40CCreditoImpostosMenor1…` e `…Maior15…`. O fim foi
+          completado pelo padrão da própria ficha — os outros quatro campos
+          terminam em `Menor150Km` ou `Maior150Km`, e as seções se chamam
+          "Menor 150 Km" e "Maior 150 Km". É o mesmo critério que completou
+          `Statusfinanciamentot1shared` na CARRETA, e vale registrar que o
+          começo desses dois rótulos foi visto e o fim foi deduzido.
+
+          O 28 e o 40 dos nomes ecoam capacidades de implemento: `Pallets: 28` e
+          `Pallets: 40` aparecem em CONSUMO e em `carreta.capacidade_empurrada`.
+          É eco, não mapeamento — nenhuma dessas duas coisas foi declarada como
+          a mesma no catálogo.
+
+          Qual dos dois cartões com este nome é este: o de FROTA. O título da
+          tela diz só MANUTENÇÃO IMPLEMENTO e não desempata — o que desempata é
+          a sequência em que as telas foram conferidas, que segue a ordem da
+          seção FROTA e chegou aqui depois de MANUTENÇÃO BID. O cartão de GERAL
+          continua sem olhada.
+        */
+        nome: "Manutenção implemento",
+        parametros: ["Manutenção carroceria"],
+        formulario: [
+          {
+            secao: "Menor 150 Km",
+            campos: [
+              { nome: "implemento28Menor150Km" },
+              { nome: "creditoImpostosMenor150Km", calculado: true },
+              { nome: "implemento40CCreditoImpostosMenor150Km", calculado: true },
+            ],
+          },
+          {
+            secao: "Maior 150 Km",
+            campos: [
+              { nome: "implemento28Maior150Km" },
+              { nome: "creditoImpostosMaior150Km", calculado: true },
+              { nome: "implemento40CCreditoImpostosMaior150Km", calculado: true },
+            ],
+          },
+        ],
+        nota:
+          "No Freightech este cartão não abre uma tabela: abre uma ficha de parâmetros, " +
+          "com duas seções — abaixo e acima de 150 km — e três campos em cada. Só o " +
+          "primeiro de cada seção é digitado; os outros dois vêm cinza, calculados por " +
+          "fórmula. O export não traz nenhum desses campos. O que cai neste cartão são " +
+          "as colunas de carroceria da carreta — revestimento, faixa reflexiva, " +
+          "tacógrafo e rastreador —, que é outra pergunta sobre o mesmo assunto: a ficha " +
+          "define o R$/km da manutenção do implemento, e o export diz o que cada carreta " +
+          "custa nos itens dela.",
+      },
+      {
+        /*
+          O cadastro dos modelos de cavalo: uma coluna só, DESCRICAO, e AÇÕES
+          preso na direita. Os valores vêm como o Freightech os escreve, com o
+          traço no meio e o espaçamento irregular — `AXOR 2544`, `R400 - R380`,
+          `TGX 28440 - CONSTELLATION 25 370`, `FH 420 -FH 400`,
+          `STRALIS - 600/570`, `CONSTELLATION - 25 370`, `FH 420 6x2 SLP SC`,
+          `P360 A 6x2`.
+
+          **A lista repete.** Os cinco primeiros valores voltam na mesma ordem
+          logo abaixo, e só então aparecem os que não tinham aparecido. Está
+          registrado porque é a mesma coisa que já se sabia da base do
+          Freightech — a ordem não é estável e há bloco repetido — e porque quem
+          contar linhas aqui vai contar duplicata.
+
+          **Este cadastro resolve uma dúvida do cartão CONTRATO MANUTENÇÃO.** Lá
+          a coluna MODELO trazia `FH 420 -FH 400` e ficou anotada como parente
+          duvidoso de `cavalo.modelo_empurrada`, que traz `Modelo: FH460 6x2T`.
+          `FH 420 -FH 400` está nesta lista, letra por letra: a coluna de lá
+          aponta para este cadastro, e não para a nossa. A dúvida estava certa —
+          são dimensões diferentes, e continuam sem mapeamento entre si.
+
+          Qual dos dois cartões chamados "Modelo" é este: o de FROTA, pela mesma
+          razão do MANUTENÇÃO IMPLEMENTO acima — a sequência das telas conferidas
+          segue a ordem da seção. O de DIMENSÕES continua sem olhada.
+        */
+        nome: "Modelo",
+        colunas: ["Descricao"],
+        nota:
+          "No Freightech esta tela é o cadastro dos modelos de cavalo — uma coluna só, " +
+          "com nomes como FH 420 -FH 400 e TGX 28440 - CONSTELLATION 25 370, e a lista " +
+          "repete os primeiros valores mais abaixo. O export não traz esse cadastro. " +
+          "Traz cavalo.modelo_empurrada, que é outra dimensão, com outro vocabulário " +
+          "(Modelo: FH460 6x2T) — as duas falam de modelo e não são a mesma lista.",
+      },
+      {
+        /*
+          A segunda ficha do catálogo, e mais simples que a do implemento: aba
+          "Geral", duas seções, onze campos, **todos brancos e digitados**.
+          Nenhum campo cinza, nenhuma calculadora — aqui não há nada derivado, e
+          é por isso que `calculado` não aparece em campo nenhum desta entrada.
+
+          Todos os valores são percentuais, com o `%` na direita do campo, e o
+          sinal importa: em Km Rodado eles são negativos e sobem até zero
+          (-7,00 até 49 km, -5,00 em 50, -3,00 em 100, -2,00 em 250, 0,00 em
+          500); em Ano Veículo eles começam positivos e viram negativos (3,00 no
+          1, 2,00 no 2, -1,00 no 3, -1,50 no 4, -2,00 no 5). São ajustes, não
+          medidas — o percentual que sobe ou desce do consumo conforme a
+          distância rodada e a idade do veículo.
+
+          `anoVeiculoPercentualAte1` fica por último no desenho, depois do 5,
+          com 0,00 — a leitura pela ordem da tela põe "até 1 ano" no fim de uma
+          sequência que vai de 1 a 5. Está transcrito na ordem em que aparece,
+          que é a que a pessoa vê; se a ordem lógica é outra, isso é assunto do
+          Freightech e não do catálogo.
+
+          Qual dos cartões é este: o de FROTA, e aqui não há homônimo para
+          desempatar — "Parâmetros consumo" só existe nessa seção.
+        */
+        nome: "Parâmetros consumo",
+        formulario: [
+          {
+            secao: "Km Rodado",
+            campos: [
+              { nome: "kmRodadoPercentualAte49Km" },
+              { nome: "kmRodadoPercentual50Km" },
+              { nome: "kmRodadoPercentual100Km" },
+              { nome: "kmRodadoPercentual250Km" },
+              { nome: "kmRodadoPercentual500Km" },
+            ],
+          },
+          {
+            secao: "Ano Veículo",
+            campos: [
+              { nome: "anoVeiculoPercentual1" },
+              { nome: "anoVeiculoPercentual2" },
+              { nome: "anoVeiculoPercentual3" },
+              { nome: "anoVeiculoPercentual4" },
+              { nome: "anoVeiculoPercentual5" },
+              { nome: "anoVeiculoPercentualAte1" },
+            ],
+          },
+        ],
+        nota:
+          "No Freightech este cartão abre uma ficha, não uma tabela: onze percentuais " +
+          "digitados, em duas seções — o ajuste do consumo por distância rodada e o " +
+          "ajuste por idade do veículo. São as regras de ajuste, e o export não as traz. " +
+          "O que ele traz é o resultado nos dois extremos: o consumo de referência e o " +
+          "consumo negociado de cada cavalo, que moram nos cartões CONSUMO e " +
+          "COMBUSTÍVEL. A diferença entre esses dois números é onde estes percentuais " +
+          "agem — mas qual deles agiu em qual veículo, o arquivo não diz.",
+      },
+      {
+        /*
+          A terceira ficha, e a menor: três campos em duas seções — Manutenção,
+          com `manutencaoReaisKm` (0,31) e `manutencaoExtra` (0,00), e
+          Combustível, com `consumo` (1,942). Mais Anexos e Descrição, como nas
+          outras duas.
+
+          **Aqui o calculado vem primeiro.** No MANUTENÇÃO IMPLEMENTO o campo
+          digitado abria cada seção e os derivados vinham depois; nesta ficha é
+          o contrário — `manutencaoReaisKm` é cinza, com calculadora, e o
+          `manutencaoExtra` ao lado é que se digita. O `consumo` também é
+          calculado. Ou seja: a posição não diz nada sobre a natureza do campo,
+          e quem for conferir a próxima ficha tem de olhar a cor, não a ordem.
+
+          **É a ficha que provou a regra dos rótulos.** `manutencaoReaisKm` não
+          é só parecido com uma coluna do export: é a mesma cadeia, letra por
+          letra, do cabeçalho da planilha de cavalos. Foi essa coincidência que
+          autorizou escrever, lá em cima, que rótulo de ficha é nome interno de
+          campo — e que por isso se procura no export por busca exata. Dos 20
+          campos das três fichas, só este aparece; os outros 19 são parâmetros de
+          unidade que o export de equipamento não publica.
+
+          Uma seção chamada Combustível dentro de PARÂMETROS MANUTENÇÃO não é
+          engano de leitura: é assim mesmo. O Freightech agrupa nesta ficha os
+          dois parâmetros de custo variável da unidade, e o consumo é um deles.
+        */
+        nome: "Parâmetros manutenção",
+        parametros: ["Manutenção cavalo"],
+        formulario: [
+          {
+            secao: "Manutenção",
+            campos: [
+              { nome: "manutencaoReaisKm", calculado: true },
+              { nome: "manutencaoExtra" },
+            ],
+          },
+          {
+            secao: "Combustível",
+            campos: [{ nome: "consumo", calculado: true }],
+          },
+        ],
+        nota:
+          "No Freightech este cartão abre uma ficha, não uma tabela: o R$/km de " +
+          "manutenção e o consumo, ambos calculados por fórmula, mais um extra de " +
+          "manutenção que se digita. O campo manutencaoReaisKm chega no export com esse " +
+          "nome exato, uma linha por cavalo — o que a ficha mostra como um número da " +
+          "unidade, a planilha mostra ativo por ativo, e é isso que a tabela abaixo " +
+          "acompanha. O manutencaoExtra e o consumo desta ficha não vêm no arquivo.",
+      },
       { nome: "Prazo FINAME" },
       { nome: "Prazo FINAME manutenção" },
       { nome: "Tipo carroceria" },
