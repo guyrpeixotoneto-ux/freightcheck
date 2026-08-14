@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import { Bell, ChevronDown, CloudDownload, Menu, SlidersHorizontal } from "lucide-react";
 import {
@@ -9,8 +8,8 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { getApiUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { useCuradoriaPendente, useImportacoesEmAndamento } from "./contadores";
 
 /**
  * A faixa vermelha do Freightech.
@@ -33,8 +32,8 @@ import { useAuth } from "@/lib/auth";
  */
 export function Topbar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   const { user, logout, isSubmitting } = useAuth();
-  const importsRunning = useImportsRunning();
-  const backlog = useCurationBacklog();
+  const importsRunning = useImportacoesEmAndamento();
+  const backlog = useCuradoriaPendente();
 
   return (
     <header className="h-16 bg-brand-red text-brand-red-foreground flex items-center gap-4 px-4 shrink-0 sticky top-0 z-40">
@@ -153,40 +152,4 @@ function Indicador({
       )}
     </Link>
   );
-}
-
-/** Importações que ainda não terminaram. Zero é um estado legítimo e aparece. */
-function useImportsRunning(): number {
-  const { data } = useQuery({
-    queryKey: ["imports", "topbar"],
-    queryFn: async () => {
-      const response = await fetch(getApiUrl("/imports"));
-      if (!response.ok) return [] as { status: string }[];
-      const body = (await response.json()) as { status: string }[] | { imports?: unknown };
-      return Array.isArray(body) ? body : [];
-    },
-    staleTime: 30_000,
-    retry: false,
-  });
-  return (data ?? []).filter((i) => i.status !== "PROMOTED" && i.status !== "FAILED").length;
-}
-
-/** O gargalo do produto, dito em número no lugar mais visível da tela. */
-function useCurationBacklog(): number {
-  const { data } = useQuery({
-    queryKey: ["curation", "summary", "topbar"],
-    queryFn: async () => {
-      const response = await fetch(getApiUrl("/curation/summary"));
-      if (!response.ok) return 0;
-      const data = (await response.json()) as {
-        byStatus: { status: string; count: number; monetary: number }[];
-      };
-      return data.byStatus
-        .filter((s) => s.status !== "CONFIRMED")
-        .reduce((sum, s) => sum + s.monetary, 0);
-    },
-    staleTime: 60_000,
-    retry: false,
-  });
-  return data ?? 0;
 }

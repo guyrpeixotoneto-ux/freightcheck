@@ -23,6 +23,7 @@ import BookOperador from '@/pages/book-operador';
 import Assistente from '@/pages/assistente';
 import Vigencias from '@/pages/vigencias';
 import Versoes from '@/pages/versoes';
+import Unidades from '@/pages/unidades';
 import Configuracoes from '@/pages/configuracoes';
 
 /**
@@ -83,6 +84,7 @@ function Router() {
       <Route path="/curadoria" component={Curadoria} />
       <Route path="/vigencias" component={Vigencias} />
       <Route path="/versoes" component={Versoes} />
+      <Route path="/unidades" component={Unidades} />
       <Route path="/configuracoes" component={Configuracoes} />
       <Route component={NotFound} />
     </Switch>
