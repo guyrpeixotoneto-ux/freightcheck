@@ -13,6 +13,9 @@
     { "path": "../db" },
     { "path": "../knowledge" },
     { "path": "../curation" },
-    { "path": "../comparison" }
+    { "path": "../comparison" },
+    { "path": "../ingest" },
+    { "path": "../balance" },
+    { "path": "../composition" }
   ]
 }

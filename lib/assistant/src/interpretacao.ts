@@ -55,6 +55,18 @@ export type Intencao =
   | "PANORAMA"
   /** "que vigências existem", "quais unidades" */
   | "CATALOGO_DE_CONTEXTO"
+  /** "o que falta na curadoria", "quantos atributos sem semântica" */
+  | "CURADORIA"
+  /** "quais importações", "quando o arquivo entrou" */
+  | "IMPORTACOES"
+  /** "balanço de massa", "por que não promoveu" */
+  | "BALANCO"
+  /** "onde aparece esta placa na planilha", "em que célula está X" */
+  | "CELULAS"
+  /** "composição da frota", "ficha do cavalo" */
+  | "COMPOSICAO"
+  /** "ola", "bom dia", "tudo bem?", "obrigado" — conversa, não consulta */
+  | "SAUDACAO"
   | "DESCONHECIDA";
 
 /** As intenções que se respondem sem tocar o banco. */
@@ -65,6 +77,9 @@ export const INTENCOES_CONCEITUAIS: ReadonlySet<Intencao> = new Set<Intencao>([
 
 /** As intenções que exigem um recorte `(unidade, canal)` para significar algo. */
 export const INTENCOES_COM_RECORTE: ReadonlySet<Intencao> = new Set<Intencao>([
+  // Composição descreve a frota de um recorte: sem unidade e canal, somar o
+  // mensal de todas as operações produziria um total que ninguém opera.
+  "COMPOSICAO",
   "VALOR",
   "EVOLUCAO",
   "COMPARACAO",
@@ -118,6 +133,9 @@ export const INTENCOES_QUE_HERDAM_ASSUNTO: ReadonlySet<Intencao> = new Set<Inten
 ]);
 
 export const INTENCOES_COM_PARAMETRO: ReadonlySet<Intencao> = new Set<Intencao>([
+  // Curadoria aceita um parâmetro para responder "por que ESTE está sem
+  // semântica"; sem ele, responde o estado do conjunto.
+  "CURADORIA",
   "CONCEITUAL",
   "DISPONIBILIDADE",
   "VALOR",
@@ -322,6 +340,45 @@ export function ehContinuacao(pergunta: string): boolean {
   return false;
 }
 
+// ── Saudação ────────────────────────────────────────────────────────────────
+
+/**
+ * As formas de dizer olá, obrigado e tchau.
+ *
+ * A lista é curta de propósito: ela não precisa cobrir o português social
+ * inteiro, só o que se digita antes de começar a trabalhar. Uma saudação não
+ * reconhecida cai em DESCONHECIDA, que é o comportamento de hoje — o custo de
+ * errar por omissão é uma resposta sem graça, e o de errar por excesso é uma
+ * pergunta de verdade tratada como conversa fiada.
+ */
+const SAUDACOES =
+  /\b(ola|oi+|opa|e ai|salve|bom dia|boa tarde|boa noite|bom fim de semana|tudo (bem|certo|bom|tranquilo)|como vai|como (voce |vc )?esta|beleza|blz|hey|hi|hello|obrigad[oa]|agradec\w*|valeu|vlw|tchau|falou|ate (logo|mais|breve)|bom trabalho)\b/g;
+
+/**
+ * Palavras que acompanham a saudação sem lhe acrescentar pedido.
+ *
+ * "Bom dia, assistente" e "oi, tudo bem por aí?" continuam sendo só um bom dia.
+ */
+const RUIDO_SOCIAL = /\b(por favor|obrigado|voce|vc|ai|por ai|entao|assistente|bot|ia|amigo|pessoal|gente|time|entao|ne|hein|so isso|nada)\b/g;
+
+/**
+ * A frase inteira é conversa, e não pergunta.
+ *
+ * Repare que a checagem é sobre **o que sobra**, não sobre o que casa. Um
+ * "bom dia" no começo de uma pergunta de verdade — "bom dia, qual o valor do
+ * IPVA?" — deixa "qual o valor do ipva" para trás, e aí não é saudação: é uma
+ * pergunta educada, e responder a ela com uma apresentação seria ignorar o que
+ * foi perguntado. Só quando não sobra nada além de pontuação é que a frase não
+ * pede consulta nenhuma.
+ */
+export function ehSaudacao(pergunta: string): boolean {
+  const frase = normalizar(pergunta).trim();
+  if (!frase) return false;
+  if (!frase.match(SAUDACOES)) return false;
+  const resto = frase.replace(SAUDACOES, " ").replace(RUIDO_SOCIAL, " ");
+  return /^[\s,.!?;:'"()\-—…]*$/.test(resto);
+}
+
 // ── Classificação ───────────────────────────────────────────────────────────
 
 interface Padrao {
@@ -351,6 +408,35 @@ const PADROES: Padrao[] = [
     intencao: "SEM_PRECO",
     quando: /\b(nao (tem|temos|foi|conseguimos|da para) (preco|precificar|calcular|valorar))\b|\bsem (preco|valoracao|semantica)\b|\bsemantica (nao|ainda nao) confirmada\b|\bnao (apuravel|calculavel|precificad\w*)/,
     porque: "pede o que não pôde ser precificado",
+  },
+
+  /*
+    ---- governança do dado ---------------------------------------------------
+
+    Estas quatro respondem "de onde este número veio e o que ficou de fora",
+    não "quanto ele é". Vêm cedo porque nomeiam a coisa explicitamente
+    (curadoria, importação, balanço, célula) e a palavra não aparece por acaso
+    numa pergunta de remuneração.
+
+    A que exige mais cuidado é CELULAS: "procure" e "onde aparece" são verbos
+    que quem opera usa também para pedir um parâmetro. Por isso o padrão exige
+    a palavra que diz **onde** procurar — planilha, célula, arquivo, aba —, e
+    sem ela a pergunta segue o caminho de sempre.
+  */
+  {
+    intencao: "BALANCO",
+    quando: /\bbalanco( de massa)?\b|\bcelulas (lidas|importadas|viraram)\b|\bnao promoveu\b|\bpor que .{0,20}(nao )?promov\w*/,
+    porque: "pergunta o que entrou e o que virou fato",
+  },
+  {
+    intencao: "IMPORTACOES",
+    quando: /\bimportac(ao|oes)\b|\bqual (foi )?(o|a) (ultimo|ultima) (import|arquivo|planilha)\w*\b|\bquando (o |a )?(arquivo|planilha|export)\b|\barquivos? (importad|enviad)\w*\b/,
+    porque: "pergunta o histórico de importação",
+  },
+  {
+    intencao: "CELULAS",
+    quando: /\b(procur\w+|busc\w+|onde (esta|aparece)|em que|qual)\b.{0,40}\b(celula|celulas|planilha|planilhas|aba|abas|arquivo importado)\b/,
+    porque: "pede uma busca nas células importadas",
   },
 
   // ---- panorama -------------------------------------------------------------
@@ -414,6 +500,34 @@ const PADROES: Padrao[] = [
     porque: "pede definição ou funcionamento",
   },
 
+  /*
+    Curadoria vem **depois** de CONCEITUAL, pela mesma razão de composição.
+
+    "Para que serve a curadoria?" é uma pergunta sobre o conceito, e o corpus a
+    responde — foi a suíte de interpretação que pegou isto: com o padrão antes,
+    toda pergunta sobre o que a curadoria é abria uma consulta de estado. O que
+    separa as duas é o verbo conceitual, e CONCEITUAL já o reconhece.
+  */
+  {
+    intencao: "CURADORIA",
+    quando: /\bcuradoria\b|\bfalta(m)? confirmar\b|\b(quantos|quais) atributos?\b.*\bsem(antica)?\b|\bnao (foram )?classificad\w*\b/,
+    porque: "pergunta o estado da curadoria",
+  },
+
+  /*
+    Composição vem **depois** de CONCEITUAL de propósito.
+
+    "O que é composição?" é uma pergunta sobre o conceito, e o corpus responde.
+    "Composição da frota" é a tela. O que separa as duas é o verbo conceitual,
+    e CONCEITUAL já o reconhece — inverter a ordem faria toda pergunta sobre o
+    conceito abrir uma consulta de frota.
+  */
+  {
+    intencao: "COMPOSICAO",
+    quando: /\bcomposicao\b|\bcomo se comp(oe|õe)\b|\bficha (do|da) (cavalo|carreta|equipamento|veiculo)\b|\bvisao (de|da) frota\b/,
+    porque: "pede a composição da remuneração",
+  },
+
   // ---- catálogo de contexto -------------------------------------------------
   {
     intencao: "CATALOGO_DE_CONTEXTO",
@@ -463,6 +577,34 @@ const PADROES: Padrao[] = [
  */
 export function interpretar(pergunta: string): Leitura {
   const frase = normalizar(pergunta).trim();
+
+  /*
+    A saudação sai antes de qualquer padrão, e sem entidade nenhuma.
+
+    Ela não é uma consulta que falhou — é uma frase que não pediu consulta. Sem
+    esta saída, "ola" percorria os padrões, não casava nenhum, virava
+    DESCONHECIDA e chegava ao fim da orquestração sem evidência e sem trecho,
+    onde a única conclusão possível era a lacuna "não encontrei nada sobre isto"
+    — verdadeira, e a pior primeira impressão que este produto podia dar a quem
+    abriu a tela para dizer bom dia.
+
+    Também não é continuação: quem cumprimenta no meio de uma conversa não está
+    voltando ao assunto anterior, e herdar parâmetro ou período aqui só sujaria
+    o painel técnico com uma herança que ninguém usa.
+  */
+  if (ehSaudacao(pergunta)) {
+    return {
+      intencao: "SAUDACAO",
+      continuacao: false,
+      porque: "é conversa, não consulta",
+      entidades: {
+        termoDoParametro: null,
+        periodo: null,
+        intervalo: null,
+        equipamento: null,
+      },
+    };
+  }
 
   let intencao: Intencao = "DESCONHECIDA";
   let porque = "nenhum padrão casou";

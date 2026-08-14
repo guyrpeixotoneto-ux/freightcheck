@@ -31,6 +31,7 @@ function dossieCom(opcoes: { numeros?: number[]; fatos?: string[]; fontes?: numb
     plano: {} as Dossie["plano"],
     trechos: [],
     evidencias: evidencias as unknown as Dossie["evidencias"],
+    anexos: [],
     lacunas: [],
     etapas: [],
     desambiguacao: null,
@@ -120,5 +121,65 @@ describe("portão de lastro", () => {
     portao.receber("Um item da lista\nOutro item");
 
     expect(saida.join("")).toBe("Um item da lista\n");
+  });
+});
+
+/**
+ * A isenção do anexo — e o seu limite.
+ *
+ * Quando um documento vai junto para o modelo, os números que saem dele não têm
+ * como ser conferidos contra uma lista: o conteúdo do PDF só é conhecido por
+ * quem o leu. A regra que substitui a lista é a citação — e o que estes testes
+ * fixam é que ela **não** vira licença geral. A frase que aponta para o
+ * documento passa; a frase ao lado, que não aponta para nada, continua sendo
+ * descartada como sempre foi.
+ */
+function dossieComAnexo(fatos: string[]): Dossie {
+  const base = dossieCom({ fatos });
+  return {
+    ...base,
+    anexos: [
+      {
+        titulo: "Book · PNEU · contrato.pdf",
+        filename: "contrato.pdf",
+        origem: "book_entry",
+        conteudo: { forma: "NATIVO", mimeType: "application/pdf", dados: "" },
+      },
+    ] as unknown as Dossie["anexos"],
+  };
+}
+
+describe("números que vêm de um anexo", () => {
+  // Uma evidência + um anexo: a evidência é [1], o anexo é [2].
+  it("aceita número sem lastro na frase que cita o anexo", () => {
+    const saida: string[] = [];
+    const portao = portaoDeLastro(dossieComAnexo(["267"]), (p) => saida.push(p));
+
+    transmitir(portao, "O contrato fixa o reajuste em 7,5% ao ano [2]. Fim.", 6);
+
+    expect(saida.join(""), "o que o modelo leu no PDF sai, com a fonte ao lado").toContain("7,5%");
+  });
+
+  it("continua recusando número sem lastro na frase que não cita o anexo", () => {
+    const saida: string[] = [];
+    const portao = portaoDeLastro(dossieComAnexo(["267"]), (p) => saida.push(p));
+
+    transmitir(portao, "Houve 267 alterações [1]. O total foi 99.999,00. E o resto.", 5);
+
+    const texto = saida.join("");
+    expect(texto, "a frase com evidência passa").toContain("267 alterações");
+    expect(texto, "sem citação, o número segue sem lastro").not.toContain("99.999,00");
+  });
+
+  it("conta o anexo como fonte válida para citar", () => {
+    const saida: string[] = [];
+    const portao = portaoDeLastro(dossieComAnexo(["267"]), (p) => saida.push(p));
+
+    // Com uma evidência e um anexo há duas fontes: [2] existe, [3] não.
+    transmitir(portao, "Está no contrato [2]. Veja também [3]. Fim.", 4);
+
+    const texto = saida.join("");
+    expect(texto).toContain("[2]");
+    expect(texto, "citação além do anexo continua sem fonte").not.toContain("[3]");
   });
 });

@@ -1,32 +1,153 @@
-import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "wouter";
-import { Activity, AlertTriangle, ArrowRight, Lock } from "lucide-react";
+import {
+  Activity,
+  AlertTriangle,
+  ArrowRight,
+  Columns3,
+  FileSpreadsheet,
+  Headset,
+  Lock,
+  Upload,
+} from "lucide-react";
 import { Layout } from "@/components/layout/layout";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { fetchJson } from "@/lib/api";
+import { fetchJson, getApiUrl, readJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   ChangeTable,
   FilterBar,
-  ImpactCell,
   type ChangeRow,
   type Breakdown,
   type Filters,
   emptyFilters,
   toQuery,
 } from "@/components/changes/change-table";
+import {
+  TicketFilterBar,
+  TicketTable,
+  emptyTicketFilters,
+  toTicketQuery,
+  type TicketFilters as TicketFilterState,
+  type TicketRow,
+  type TicketTotals,
+} from "@/components/changes/ticket-table";
 
 /**
- * Alterações — o que mudou desde a vigência anterior.
+ * Alterações — o que mudou, pelos dois caminhos por onde a mudança chega.
  *
- * A tela responde, em ordem: o que mudou, de quanto para quanto, quanto isso
- * vale, em que parte da remuneração, e de onde veio. Materialidade ordena a
- * lista; nunca a filtra por conta própria.
+ * **Planilha** é a comparação entre vigências: o que a Ambev mexeu no cadastro
+ * entre um export e o seguinte, apurado célula a célula. **Chamados** é o
+ * outro lado da mesma história — o que nós pedimos pelo Freightech e o que
+ * voltou aplicado.
+ *
+ * As duas abas nunca somam nada uma com a outra, e isso é a decisão de projeto
+ * central desta tela. O impacto da planilha é uma diferença apurada entre dois
+ * estados fechados; o do chamado é a distância entre um pedido e uma resposta,
+ * ambos declarados pela própria fonte. Adicioná-los daria um número que não se
+ * sustenta em lugar nenhum — e contaria em dobro toda mudança que foi pedida
+ * por chamado e depois apareceu na planilha. Duas contas, duas réguas, lado a
+ * lado.
  */
+
+type Aba = "planilha" | "chamados";
+
+export default function Alteracoes() {
+  const [aba, setAba] = useState<Aba>("planilha");
+
+  // Só a contagem, para a aba dizer o tamanho do assunto antes de ser aberta.
+  // `limit=1` porque a lista em si é da aba; o que interessa aqui é o total.
+  const resumoChamados = useQuery({
+    queryKey: ["tickets", "resumo"],
+    queryFn: () =>
+      fetchJson<{ totals: TicketTotals | null }>("/tickets?limit=1"),
+  });
+
+  return (
+    <Layout>
+      <div className="border-b bg-card px-8 pt-6">
+        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+          <Activity className="w-6 h-6 text-primary" />
+          Alterações
+        </h1>
+        <p className="text-muted-foreground text-sm mt-1 max-w-3xl">
+          A remuneração muda por dois caminhos, e cada um se confere de um
+          jeito. Os números de uma aba nunca somam com os da outra.
+        </p>
+
+        <nav className="flex items-center gap-1 mt-4" role="tablist">
+          <AbaBotao
+            active={aba === "planilha"}
+            onClick={() => setAba("planilha")}
+            icon={<FileSpreadsheet className="w-4 h-4" />}
+            label="Planilha"
+            hint="o que a Ambev mexeu entre duas vigências"
+          />
+          <AbaBotao
+            active={aba === "chamados"}
+            onClick={() => setAba("chamados")}
+            icon={<Headset className="w-4 h-4" />}
+            label="Chamados"
+            hint="o que pedimos e o que voltou aplicado"
+            count={resumoChamados.data?.totals?.total}
+          />
+        </nav>
+      </div>
+
+      {aba === "planilha" ? <AbaPlanilha /> : <AbaChamados />}
+    </Layout>
+  );
+}
+
+function AbaBotao({
+  active,
+  onClick,
+  icon,
+  label,
+  hint,
+  count,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  hint: string;
+  count?: number;
+}) {
+  return (
+    <button
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      title={hint}
+      className={cn(
+        "flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors",
+        active
+          ? "border-primary text-foreground"
+          : "border-transparent text-muted-foreground hover:text-foreground hover:border-input",
+      )}
+    >
+      {icon}
+      {label}
+      {count !== undefined && (
+        <span
+          className={cn(
+            "text-xs tabular-nums rounded-full px-1.5 py-0.5",
+            active ? "bg-primary/10 text-primary" : "bg-muted",
+          )}
+        >
+          {count}
+        </span>
+      )}
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Aba Planilha
+// ---------------------------------------------------------------------------
 
 interface ConsolidatedResponse {
   view: {
@@ -78,7 +199,12 @@ interface LatestResponse {
   rows: ChangeRow[];
 }
 
-export default function Alteracoes() {
+/**
+ * A tela responde, em ordem: o que mudou, de quanto para quanto, quanto isso
+ * vale, em que parte da remuneração, e de onde veio. Materialidade ordena a
+ * lista; nunca a filtra por conta própria.
+ */
+function AbaPlanilha() {
   /*
     `?search=` chega preenchido quando alguém vem do Acompanhamento pedindo a
     lista de um parâmetro específico. É estado inicial, não filtro fixo: a
@@ -145,13 +271,9 @@ export default function Alteracoes() {
       : (data?.set.calculatedImpactByPeriodicity ?? {});
 
   return (
-    <Layout>
+    <>
       <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Activity className="w-6 h-6 text-primary" />
-          Alterações
-        </h1>
-        <div className="flex flex-wrap items-center gap-3 mt-1">
+        <div className="flex flex-wrap items-center gap-3">
           <p className="text-muted-foreground flex items-center gap-2 text-sm">
             {series === null ? (
               cv && <span className="font-mono">período {cv.period}</span>
@@ -296,7 +418,447 @@ export default function Alteracoes() {
           </CardContent>
         </Card>
       </div>
-    </Layout>
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Aba Chamados
+// ---------------------------------------------------------------------------
+
+interface TicketImportSummary {
+  id: string;
+  filename: string;
+  status: string;
+  receivedAt: string;
+  receivedBy: string | null;
+  rowCount: number;
+  ticketCount: number;
+  ignoredRowCount: number;
+  unmappedColumns: string[];
+  columnMapping: Record<string, { header: string; match: string; reason: string }>;
+  failureReason: string | null;
+}
+
+interface TicketsResponse {
+  import: TicketImportSummary | null;
+  imports: TicketImportSummary[];
+  totals: TicketTotals | null;
+  byParameter: {
+    parameterLabel: string | null;
+    attributeCode: string | null;
+    count: number;
+    impactSum: number | null;
+  }[];
+  total: number;
+  rows: TicketRow[];
+}
+
+/** Os nomes dos campos, para a tela explicar o mapeamento sem jargão. */
+const NOMES_DE_CAMPO: Record<string, string> = {
+  externalId: "número do chamado",
+  openedAt: "abertura",
+  closedAt: "fechamento",
+  statusRaw: "status",
+  parameterLabel: "parâmetro",
+  entityLabel: "placa",
+  entityType: "tipo de equipamento",
+  requestedValueRaw: "valor pedido",
+  appliedValueRaw: "valor aplicado",
+  requestedBy: "solicitante",
+  subject: "assunto",
+};
+
+/**
+ * Chamados — o que pedimos e o que voltou.
+ *
+ * A pergunta desta aba não é "de quanto para quanto", que é a da planilha. É
+ * "pedimos X, voltou Y, e demorou quanto". Por isso as colunas são outras, o
+ * impacto tem outra régua (aplicado menos pedido, e só depois de atendido), e
+ * o tempo de atendimento — que do outro lado não existe — é primeira classe.
+ */
+function AbaChamados() {
+  const [filters, setFilters] = useState<TicketFilterState>(emptyTicketFilters);
+  const [envio, setEnvio] = useState<string | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const queryClient = useQueryClient();
+
+  const query = useQuery({
+    queryKey: ["tickets", filters, envio],
+    queryFn: () =>
+      fetchJson<TicketsResponse>(
+        `/tickets?${toTicketQuery(filters, envio ? { ticketImportId: envio } : {})}`,
+      ),
+    /**
+     * A leitura roda fora da requisição que recebeu o arquivo, então quem
+     * acabou de enviar veria a tela parada em "está sendo lido" até apertar
+     * F5. Enquanto houver envio em leitura a tela pergunta de novo sozinha; no
+     * resto do tempo não pergunta nada.
+     */
+    refetchInterval: (query) => {
+      const lendo = query.state.data?.imports.some(
+        (i) => i.status === "PENDING" || i.status === "READING",
+      );
+      return lendo ? 1500 : false;
+    },
+  });
+
+  const upload = useMutation({
+    mutationFn: async (file: File) => {
+      // base64 dentro de JSON, igual à importação de vigência: é a requisição
+      // mais banal da web, e nenhum proxy a recusa.
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      let binary = "";
+      const CHUNK = 32768;
+      for (let i = 0; i < bytes.length; i += CHUNK) {
+        binary += String.fromCharCode(...bytes.subarray(i, i + CHUNK));
+      }
+      const response = await fetch(getApiUrl("/ticket-imports"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          filename: file.name,
+          contentBase64: btoa(binary),
+        }),
+      });
+      const body = await readJson(response);
+      if (!response.ok) throw new Error(`${file.name}: ${body.error}`);
+      return body.ticketImportId as string;
+    },
+    onSuccess: () => {
+      setErro(null);
+      // A leitura roda fora da requisição, então o resultado ainda não está
+      // pronto quando isto volta. Recarregar já mostra o envio em leitura, e o
+      // `refetchInterval` abaixo cuida do resto.
+      queryClient.invalidateQueries({ queryKey: ["tickets"] });
+    },
+    onError: (err: Error) => setErro(err.message),
+  });
+
+  const data = query.data;
+  const run = data?.import ?? null;
+  const totals = data?.totals ?? null;
+
+  const escolherArquivo = () => fileInput.current?.click();
+
+  return (
+    <>
+      <input
+        ref={fileInput}
+        type="file"
+        accept=".xlsx,.csv"
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          if (file) upload.mutate(file);
+          e.target.value = "";
+        }}
+      />
+
+      <header className="border-b bg-card px-8 py-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            {run ? (
+              <>
+                <span className="font-mono">{run.filename}</span> · lido em{" "}
+                {new Date(run.receivedAt).toLocaleDateString("pt-BR")}
+                {run.receivedBy && <> · enviado por {run.receivedBy}</>}
+              </>
+            ) : (
+              "Nenhum export de chamados importado ainda."
+            )}
+          </p>
+
+          <div className="flex items-center gap-2">
+            {data && data.imports.length > 1 && (
+              <select
+                value={envio ?? run?.id ?? ""}
+                onChange={(e) => setEnvio(e.target.value || null)}
+                className="text-xs h-8 rounded-md border border-input bg-background px-2"
+              >
+                {data.imports
+                  .filter((i) => i.status === "READ")
+                  .map((i) => (
+                    <option key={i.id} value={i.id}>
+                      {i.filename} · {new Date(i.receivedAt).toLocaleDateString("pt-BR")}
+                    </option>
+                  ))}
+              </select>
+            )}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={escolherArquivo}
+              disabled={upload.isPending}
+            >
+              <Upload className="w-4 h-4 mr-1.5" />
+              {upload.isPending ? "Enviando…" : "Importar chamados"}
+            </Button>
+          </div>
+        </div>
+
+        {totals && (
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6">
+            <Tile label="Chamados" value={totals.total} />
+            <Tile
+              label="Ainda em aberto"
+              value={totals.stillOpen}
+              tone={totals.stillOpen > 0 ? "warn" : "muted"}
+            />
+            <Tile
+              label="Atendidos com divergência"
+              value={totals.divergent}
+              hint="aplicado diferente do pedido"
+              tone={totals.divergent > 0 ? "bad" : "muted"}
+            />
+            <TicketImpactTile totals={totals} />
+            <Tile
+              label="Tempo médio de atendimento"
+              value={
+                totals.averageDaysToClose === null
+                  ? "—"
+                  : `${totals.averageDaysToClose} d`
+              }
+              hint={
+                totals.averageDaysToClose === null
+                  ? "sem chamado fechado com as duas datas"
+                  : "só os que já fecharam"
+              }
+            />
+          </div>
+        )}
+      </header>
+
+      <div className="p-8 space-y-6">
+        {erro && (
+          <p className="text-sm text-red-900 bg-red-50 border border-red-200 rounded-md px-4 py-3">
+            {erro}
+          </p>
+        )}
+
+        {query.error && (
+          <Card>
+            <CardContent className="p-6 text-sm text-red-800">
+              {(query.error as Error).message}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Envios que falharam ou estão em leitura: quem mandou o arquivo
+            precisa ver o que aconteceu com ele sem trocar de tela. */}
+        {data?.imports
+          .filter((i) => i.status === "FAILED" || i.status === "READING" || i.status === "PENDING")
+          .slice(0, 3)
+          .map((i) => (
+            <div
+              key={i.id}
+              className={cn(
+                "flex gap-3 rounded-md border px-4 py-3 text-sm",
+                i.status === "FAILED"
+                  ? "border-red-300 bg-red-50 text-red-900"
+                  : "border-sky-300 bg-sky-50 text-sky-900",
+              )}
+            >
+              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+              <p>
+                <strong className="font-mono">{i.filename}</strong>{" "}
+                {i.status === "FAILED" ? (
+                  <>não pôde ser lido. {i.failureReason}</>
+                ) : (
+                  <>está sendo lido agora.</>
+                )}
+              </p>
+            </div>
+          ))}
+
+        {!run && !query.isLoading && (
+          <Card>
+            <CardContent className="p-10 text-center space-y-3">
+              <Headset className="w-8 h-8 text-muted-foreground mx-auto" />
+              <p className="text-sm text-muted-foreground max-w-lg mx-auto">
+                Esta aba mostra o que foi pedido pelo Freightech e o que voltou
+                aplicado. Ela vive de um export da fila de chamados —{" "}
+                <strong>.xlsx</strong> ou <strong>.csv</strong> — e o único
+                requisito é ter uma coluna que identifique o chamado
+                (&quot;Chamado&quot;, &quot;Nº do chamado&quot;,
+                &quot;Protocolo&quot;). As demais colunas são reconhecidas pelo
+                nome, e o que não for reconhecido aparece listado em vez de
+                sumir.
+              </p>
+              <Button onClick={escolherArquivo} disabled={upload.isPending}>
+                <Upload className="w-4 h-4 mr-1.5" />
+                {upload.isPending ? "Enviando…" : "Importar export de chamados"}
+              </Button>
+            </CardContent>
+          </Card>
+        )}
+
+        {run && run.ignoredRowCount > 0 && (
+          <div className="flex gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+            <p>
+              O arquivo trazia <strong>{run.rowCount}</strong> linhas de dados;{" "}
+              <strong>{run.ticketCount}</strong> viraram chamado e{" "}
+              <strong>{run.ignoredRowCount}</strong> ficaram de fora por não
+              terem número de chamado. A conta fecha, e nada foi descartado em
+              silêncio.
+            </p>
+          </div>
+        )}
+
+        {run && run.unmappedColumns.length > 0 && (
+          <div className="flex gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <Columns3 className="w-4 h-4 mt-0.5 shrink-0" />
+            <p>
+              <strong>{run.unmappedColumns.length}</strong> colunas do arquivo
+              não têm campo correspondente aqui:{" "}
+              <span className="font-mono text-xs">
+                {run.unmappedColumns.join(", ")}
+              </span>
+              . Elas continuam inteiras na linha de origem — abra qualquer
+              chamado para vê-las.
+            </p>
+          </div>
+        )}
+
+        {run && Object.keys(run.columnMapping).length > 0 && (
+          <details className="rounded-md border bg-card px-4 py-3 text-sm">
+            <summary className="cursor-pointer text-muted-foreground">
+              De que coluna do arquivo saiu cada campo
+            </summary>
+            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5">
+              {Object.entries(run.columnMapping).map(([campo, ligacao]) => (
+                <div key={campo} className="flex items-baseline gap-2 min-w-0">
+                  <span className="text-muted-foreground shrink-0">
+                    {NOMES_DE_CAMPO[campo] ?? campo}:
+                  </span>
+                  <span className="font-mono text-xs truncate">
+                    {ligacao.header}
+                  </span>
+                  {ligacao.match === "aproximado" && (
+                    <span
+                      className="text-xs text-amber-700 shrink-0"
+                      title={ligacao.reason}
+                    >
+                      por aproximação
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </details>
+        )}
+
+        {run && <TicketFilterBar filters={filters} onChange={setFilters} totals={totals ?? undefined} />}
+
+        {data && data.byParameter.length > 0 && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">Parâmetros mais pedidos</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Onde os chamados se concentram. Um parâmetro que aparece aqui{" "}
+                <em>e</em> na aba Planilha é a mesma história contada dos dois
+                lados.
+              </p>
+            </CardHeader>
+            <CardContent className="flex flex-wrap gap-2">
+              {data.byParameter.map((p) => (
+                <div
+                  key={`${p.parameterLabel}-${p.attributeCode}`}
+                  className="rounded-md border bg-background px-3 py-1.5 text-xs"
+                >
+                  <span className="font-medium">{p.parameterLabel}</span>
+                  <span className="ml-1.5 tabular-nums text-muted-foreground">
+                    {p.count}
+                  </span>
+                  {p.impactSum !== null && p.impactSum !== 0 && (
+                    <span
+                      className={cn(
+                        "ml-1.5 tabular-nums font-mono",
+                        p.impactSum < 0 ? "text-red-700" : "text-emerald-700",
+                      )}
+                    >
+                      {p.impactSum > 0 ? "+" : ""}
+                      {p.impactSum.toLocaleString("pt-BR", {
+                        style: "currency",
+                        currency: "BRL",
+                        maximumFractionDigits: 0,
+                      })}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {run && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base">
+                {data ? `${data.total} chamados` : "Chamados"}
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Ordenados por materialidade: primeiro os que têm impacto
+                apurado, depois pelo tamanho da divergência. Nada é omitido por
+                ser pequeno.
+              </p>
+            </CardHeader>
+            <CardContent className="p-0">
+              {query.isLoading && (
+                <p className="p-6 text-sm text-muted-foreground">Lendo…</p>
+              )}
+              {data && <TicketTable rows={data.rows} total={data.total} />}
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </>
+  );
+}
+
+/**
+ * Impacto dos chamados — uma soma só, e por que ela é diferente da outra.
+ *
+ * Aqui não há periodicidade a separar: `aplicado − pedido` é uma diferença
+ * entre duas quantias declaradas na mesma unidade pelo próprio arquivo. É
+ * exatamente por isso que este número **não** entra no cartão da aba Planilha:
+ * lá a régua é outra, e as duas somas medem coisas diferentes.
+ */
+function TicketImpactTile({ totals }: { totals: TicketTotals }) {
+  return (
+    <div className="rounded-lg border bg-card px-4 py-3">
+      <div className="text-xs font-medium text-muted-foreground">
+        Impacto apurado
+      </div>
+      {totals.calculated === 0 ? (
+        <div className="text-xl font-bold tabular-nums mt-1 text-muted-foreground">
+          não calculável
+        </div>
+      ) : (
+        <div
+          className={cn(
+            "text-xl font-bold tabular-nums mt-1",
+            totals.impactSum < 0
+              ? "text-red-700"
+              : totals.impactSum > 0
+                ? "text-emerald-700"
+                : "",
+          )}
+        >
+          {totals.impactSum > 0 ? "+" : ""}
+          {totals.impactSum.toLocaleString("pt-BR", {
+            style: "currency",
+            currency: "BRL",
+            maximumFractionDigits: 0,
+          })}
+        </div>
+      )}
+      <div className="text-xs text-muted-foreground mt-0.5">
+        {totals.notCalculable} chamados fora deste valor
+      </div>
+    </div>
   );
 }
 
