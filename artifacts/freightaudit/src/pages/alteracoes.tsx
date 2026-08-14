@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import { Activity, AlertTriangle, ArrowRight, Lock } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { Badge } from "@/components/ui/badge";
@@ -78,7 +79,18 @@ interface LatestResponse {
 }
 
 export default function Alteracoes() {
-  const [filters, setFilters] = useState<Filters>(emptyFilters);
+  /*
+    `?search=` chega preenchido quando alguém vem do Acompanhamento pedindo a
+    lista de um parâmetro específico. É estado inicial, não filtro fixo: a
+    barra de filtros continua mandando daí em diante, e limpar o campo devolve
+    a lista inteira. O termo cobre código, nome do atributo e placa — ver
+    `buildWhere` em `lib/comparison/src/query.ts`.
+  */
+  const buscaInicial = new URLSearchParams(useSearch()).get("search") ?? "";
+  const [filters, setFilters] = useState<Filters>({
+    ...emptyFilters,
+    search: buscaInicial,
+  });
   /** null = visão consolidada da frota; caso contrário, uma série. */
   const [series, setSeries] = useState<string | null>(null);
 

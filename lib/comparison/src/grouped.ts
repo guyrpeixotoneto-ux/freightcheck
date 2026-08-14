@@ -16,6 +16,7 @@ import {
   natureLabel,
   semanticsLabel,
 } from "./labels";
+import { buildCockpit, type CockpitView } from "./cockpit";
 import { listPeriods } from "./consolidated";
 import {
   channelSql,
@@ -115,6 +116,17 @@ export interface ChangeGroup {
   changeType: string;
   category: string;
   comparability: string;
+  /**
+   * Linhas de alteração dentro do grupo.
+   *
+   * Não é o mesmo que `vehicles` e não pode ser lido como tal: `vehicles` conta
+   * ativos distintos, `changes` conta linhas. Hoje elas coincidem — há uma
+   * linha por (ativo, atributo) —, e coincidir não é ser a mesma coisa: a soma
+   * de `changes` de todos os grupos fecha com `totals.changes`, e a de
+   * `vehicles` não fecha com `totals.vehiclesTouched`, porque o mesmo caminhão
+   * aparece em vários pontos.
+   */
+  changes: number;
   /** Quantos ativos distintos deste equipamento têm esta alteração. */
   vehicles: number;
   /** Quantos ativos a série tinha na vigência nova. */
@@ -127,7 +139,16 @@ export interface ChangeGroup {
   dominantPattern: { before: string | null; after: string | null; vehicles: number } | null;
   aggregate: GroupAggregate;
   impact: GroupImpact;
+  /** As naturezas em português, para a tela. */
   natures: string[];
+  /**
+   * As mesmas naturezas como o motor as registrou (`ZEROING`, `TYPE_CHANGE`…).
+   *
+   * Vão junto dos rótulos porque quem classifica criticidade precisa do código:
+   * decidir por texto traduzido é atar a regra de negócio à revisão de um
+   * rótulo — trocar "zerou" por "foi zerado" mudaria a fila de investigação.
+   */
+  natureCodes: string[];
   semanticsStatus: string | null;
   semanticsLabel: string;
   /** BRL | PERCENT | KM_L | MESES | … — a tela formata por isto, nunca por palpite. */
@@ -203,6 +224,15 @@ export interface GroupedView {
     to: string | null;
   };
   groups: ChangeGroup[];
+  /**
+   * A leitura executiva sobre estes mesmos grupos — ver `cockpit.ts`.
+   *
+   * Vem na mesma resposta de propósito. É projeção pura sobre o que já está
+   * aqui: calcular no cliente exigiria repetir no TypeScript da tela regras de
+   * negócio que moram neste pacote e que só aqui são testadas, e pedir numa
+   * segunda chamada faria a tela render duas leituras que podem divergir.
+   */
+  cockpit: CockpitView;
 }
 
 // ---------------------------------------------------------------------------
@@ -512,6 +542,7 @@ export function buildGroup(
     changeType: first.change_type,
     category: first.category,
     comparability: first.comparability,
+    changes: rows.length,
     vehicles,
     fleet,
     coverage,
@@ -521,6 +552,7 @@ export function buildGroup(
     aggregate,
     impact,
     natures: natures.map(natureLabel),
+    natureCodes: natures,
     semanticsStatus: first.semantics_status,
     semanticsLabel: semanticsLabel(first.semantics_status),
     unit: first.unit,
@@ -770,7 +802,7 @@ export async function getGroupedView(
     rows.map((r) => r.entity_id).filter((v): v is string => v !== null),
   ).size;
 
-  return {
+  const base = {
     context,
     otherContexts,
     period: target.effective_date,
@@ -796,6 +828,8 @@ export async function getGroupedView(
     accumulated: await getAccumulatedImpact(db, context),
     groups,
   };
+
+  return { ...base, cockpit: buildCockpit(base) };
 }
 
 export function compareGroups(a: ChangeGroup, b: ChangeGroup): number {
