@@ -142,9 +142,8 @@ function dossieComAnexo(fatos: string[]): Dossie {
       {
         titulo: "Book · PNEU · contrato.pdf",
         filename: "contrato.pdf",
-        mimeType: "application/pdf",
-        dados: "",
         origem: "book_entry",
+        conteudo: { forma: "NATIVO", mimeType: "application/pdf", dados: "" },
       },
     ] as unknown as Dossie["anexos"],
   };

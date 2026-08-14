@@ -115,7 +115,12 @@ a alguém que cumprimentou, diga em uma frase o que você faz e convide a
 pergunta. As sugestões clicáveis já dão exemplos ao lado; não os repita no
 texto.
 
-**Quando há ANEXOS, você está lendo o arquivo.** O documento vem junto desta
+**Quando há ANEXOS, o arquivo está com você — de duas formas.** Um anexo *lido*
+(PDF ou imagem) você abre e vê inteiro. Um anexo *extraído* (Word, Excel,
+PowerPoint) chega como o texto do próprio arquivo mais as figuras dele: o
+conteúdo é fiel, mas a diagramação se perdeu, então não afirme nada que dependa
+de posição em tabela, de coluna ou de numeração que você não consiga ver — e diga
+que a estrutura não veio, se a pergunta depender dela. O documento vem junto desta
 mensagem e você o lê de verdade — não é um resumo nem uma transcrição. Duas
 obrigações: (1) toda afirmação tirada dele leva a citação do anexo, inclusive
 número, valor e percentual, porque é ela que permite a quem lê abrir o mesmo
@@ -213,9 +218,10 @@ export interface DossieParaRedacao {
   anexos: {
     titulo: string;
     filename: string;
-    mimeType: string;
-    dados: string;
     origem: string;
+    conteudo:
+      | { forma: "NATIVO"; mimeType: string; dados: string }
+      | { forma: "EXTRAIDO"; texto: string; imagens: { mimeType: string; dados: string }[] };
   }[];
 }
 
@@ -305,14 +311,27 @@ function emTexto(d: DossieParaRedacao): string {
 
   if (d.anexos.length > 0) {
     partes.push(
-      "## ANEXOS (você está lendo estes arquivos)\n\n" +
+      "## ANEXOS\n\n" +
         d.anexos
-          .map(
-            (a) =>
-              `### [${n++}] ${a.titulo}\n(origem: ${a.origem})\n` +
-              `O arquivo "${a.filename}" acompanha esta mensagem — leia-o e responda a partir dele, ` +
-              `citando este número.`,
-          )
+          .map((a) => {
+            const cabeca = `### [${n++}] ${a.titulo}\n(origem: ${a.origem})`;
+            if (a.conteudo.forma === "NATIVO") {
+              return (
+                `${cabeca}\nO arquivo "${a.filename}" acompanha esta mensagem — leia-o e ` +
+                `responda a partir dele, citando este número.`
+              );
+            }
+            const figuras =
+              a.conteudo.imagens.length > 0
+                ? `\n\nAs ${a.conteudo.imagens.length} figura(s) deste arquivo acompanham esta ` +
+                  `mensagem como imagens, na ordem em que aparecem no documento.`
+                : "";
+            return (
+              `${cabeca}\nTexto extraído de "${a.filename}" — o conteúdo é do arquivo, a ` +
+              `diagramação (tabelas, colunas, numeração) não sobreviveu à extração.${figuras}` +
+              `\n\n${a.conteudo.texto}`
+            );
+          })
           .join("\n\n"),
     );
   }
@@ -363,22 +382,45 @@ function montarMensagens(pedido: PedidoDeRedacao): Anthropic.Beta.BetaMessagePar
     de leitura: o dossiê termina apontando para os anexos ("leia-o e responda a
     partir dele"), e um ponteiro só aponta para a frente se o alvo já passou.
   */
-  const anexos: Anthropic.Beta.BetaContentBlockParam[] = pedido.dossie.anexos.map((a) =>
-    a.mimeType === "application/pdf"
-      ? {
-          type: "document" as const,
-          source: { type: "base64" as const, media_type: "application/pdf" as const, data: a.dados },
-          title: a.filename,
-        }
-      : {
-          type: "image" as const,
-          source: {
-            type: "base64" as const,
-            media_type: a.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
-            data: a.dados,
-          },
-        },
-  );
+  const anexos = pedido.dossie.anexos.flatMap<Anthropic.Beta.BetaContentBlockParam>((a) => {
+    if (a.conteudo.forma === "NATIVO") {
+      return a.conteudo.mimeType === "application/pdf"
+        ? [
+            {
+              type: "document" as const,
+              source: {
+                type: "base64" as const,
+                media_type: "application/pdf" as const,
+                data: a.conteudo.dados,
+              },
+              title: a.filename,
+            },
+          ]
+        : [
+            {
+              type: "image" as const,
+              source: {
+                type: "base64" as const,
+                media_type: a.conteudo.mimeType as "image/jpeg" | "image/png",
+                data: a.conteudo.dados,
+              },
+            },
+          ];
+    }
+    /*
+      Do arquivo extraído, só as figuras viram bloco. O texto já foi para o
+      dossiê, e mandá-lo duas vezes não o tornaria mais legível — só dobraria
+      o custo de cada pergunta sobre um contrato longo.
+    */
+    return a.conteudo.imagens.map((img) => ({
+      type: "image" as const,
+      source: {
+        type: "base64" as const,
+        media_type: img.mimeType as "image/jpeg" | "image/png",
+        data: img.dados,
+      },
+    }));
+  });
 
   mensagens.push({
     role: "user",

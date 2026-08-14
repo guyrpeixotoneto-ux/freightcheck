@@ -47,6 +47,7 @@ import {
   trecho,
 } from "./formato";
 import type { Alvo } from "./parametros";
+import { extrairAnexo } from "./anexos";
 
 // ── O formato de toda evidência ─────────────────────────────────────────────
 
@@ -1046,22 +1047,25 @@ export async function buscarNoTextoDoBook(
 export interface Anexo {
   titulo: string;
   filename: string;
-  /** `application/pdf`, `image/png`… — decide o tipo do bloco na chamada. */
-  mimeType: string;
-  /** Os bytes em base64, como a API os quer. */
-  dados: string;
   origem: string;
   tela?: { label: string; href: string };
+  /**
+   * Como o conteúdo chega ao modelo — e a diferença importa na resposta.
+   *
+   * `NATIVO` é o arquivo em si: o modelo abre o PDF ou a imagem e vê o que
+   * qualquer pessoa veria. `EXTRAIDO` é o que se conseguiu tirar de um formato
+   * que ele não abre: o texto veio do XML do próprio arquivo e as figuras
+   * saíram intactas, mas a diagramação ficou para trás. A instrução do modelo
+   * trata os dois casos de forma diferente porque eles sustentam afirmações
+   * diferentes.
+   */
+  conteudo:
+    | { forma: "NATIVO"; mimeType: string; dados: string }
+    | { forma: "EXTRAIDO"; texto: string; imagens: { mimeType: string; dados: string }[] };
 }
 
-/** O que o modelo consegue ler direto, sem intermediário. */
-const MIMES_LEGIVEIS = new Set([
-  "application/pdf",
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-]);
+/** O que o modelo abre sozinho, sem intermediário nenhum. */
+const MIMES_NATIVOS = new Set(["application/pdf", "image/jpeg", "image/png"]);
 
 /**
  * O teto de um anexo.
@@ -1107,15 +1111,35 @@ export async function anexoDoBook(db: Database, termo: string): Promise<Anexo | 
     .limit(1);
 
   if (!achado?.content) return null;
-  if (!MIMES_LEGIVEIS.has(achado.mimeType)) return null;
   if (Number(achado.byteSize) > TETO_DO_ANEXO) return null;
 
-  return {
+  const bytes = Buffer.from(achado.content);
+  const comum = {
     titulo: `Book · ${achado.blockTitle} · ${achado.filename ?? "documento"}`,
     filename: achado.filename ?? "documento",
-    mimeType: achado.mimeType,
-    dados: Buffer.from(achado.content).toString("base64"),
     origem: `book_entry · bloco "${achado.blockKey}" · revisão ${achado.revision}`,
     tela: { label: "Book do Operador", href: "/book-operador" },
+  };
+
+  if (MIMES_NATIVOS.has(achado.mimeType)) {
+    return {
+      ...comum,
+      conteudo: { forma: "NATIVO", mimeType: achado.mimeType, dados: bytes.toString("base64") },
+    };
+  }
+
+  /*
+    Office e texto puro: o que dá para tirar sem traduzir o que o arquivo mostra.
+
+    `.doc`, `.xls` e `.ppt` antigos não caem aqui — são OLE2, um formato binário
+    que exigiria outro leitor inteiro. `extrairAnexo` devolve null para eles e a
+    resposta volta a dizer que não leu o documento, que continua sendo verdade.
+  */
+  const extraido = extrairAnexo(achado.mimeType, bytes);
+  if (!extraido) return null;
+
+  return {
+    ...comum,
+    conteudo: { forma: "EXTRAIDO", texto: extraido.texto, imagens: extraido.imagens },
   };
 }
