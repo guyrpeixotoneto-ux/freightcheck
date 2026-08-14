@@ -461,26 +461,29 @@ export async function orquestrar(
 
     case "BOOK":
       if (termoDoParametro) {
-        await juntar("Consultando o Book do Operador", regraDoBook(db, termoDoParametro));
-        await juntar("Procurando nas regras escritas", buscarNoTextoDoBook(db, termoDoParametro));
-      }
-      if (evidencias.length === 0) {
-        marcar("consultar", "Consultando o Book do Operador");
-        evidencias.push(await coberturaDoBook(db));
-      }
-      /*
-        Quando o bloco tem arquivo, o arquivo vai junto.
+        /*
+          O arquivo é aberto **antes** de a regra ser montada.
 
-        Até aqui o assistente sabia que o PDF existia e dizia, com todas as
-        letras, que não o tinha lido. Agora ele lê — e a diferença entre as duas
-        situações continua visível, porque o anexo entra numerado nas fontes.
-      */
-      if (termoDoParametro) {
+          Quando o bloco tem documento, o arquivo vai junto — o assistente lê o
+          que ele tem em mãos. E a evidência precisa saber disso: a ressalva de
+          `regraDoBook` afirma se o documento foi lido ou não, e montá-la antes
+          de tentar abrir o arquivo era o que fazia a resposta anunciar que não
+          transcreve o que não leu com o documento aberto ao lado.
+        */
         const anexo = await anexoDoBook(db, termoDoParametro).catch(() => null);
         if (anexo) {
           marcar("anexar", "Abrindo o documento do Book");
           anexos.push(anexo);
         }
+        await juntar(
+          "Consultando o Book do Operador",
+          regraDoBook(db, termoDoParametro, { documentoLido: Boolean(anexo) }),
+        );
+        await juntar("Procurando nas regras escritas", buscarNoTextoDoBook(db, termoDoParametro));
+      }
+      if (evidencias.length === 0) {
+        marcar("consultar", "Consultando o Book do Operador");
+        evidencias.push(await coberturaDoBook(db));
       }
       break;
 
@@ -671,6 +674,40 @@ export async function orquestrar(
     case "SAUDACAO":
     case "DESCONHECIDA":
       break;
+  }
+
+  /*
+    ---- 5b. o Book como último recurso, e não como intenção ------------------
+
+    A classificação decide onde procurar, e ela é boa nisso — menos quando a
+    pergunta não parece nada. "QLP ADM como está de Camaçari?" não casa padrão
+    nenhum: não tem verbo de valor, não tem mês, não diz "book". Ela caía em
+    DESCONHECIDA, não consultava coisa alguma, e era respondida pelo índice —
+    "o Freightech publica esta gaveta e este export não a alimenta" —, com o
+    documento daquele mesmo bloco parado no banco, a uma consulta de distância.
+    Repetir a pergunta dizendo "você não consegue ler o documento?" devolvia o
+    mesmo parágrafo, que é a versão mais irritante de um assistente burro.
+
+    A regra é estreita de propósito: só quando **nada** foi consultado, e só
+    quando a pergunta nomeia um bloco que tem regra registrada. Não é um plano
+    alternativo que compete com a intenção; é o que fazer quando não houve
+    plano nenhum. Uma pergunta que já teve resposta de dado continua sem o Book
+    atrás, porque ali o Book seria ruído.
+  */
+  if (evidencias.length === 0 && intencao !== "BOOK" && intencao !== "SAUDACAO" && termoDoParametro) {
+    const anexo = await anexoDoBook(db, termoDoParametro).catch(() => null);
+    const regra = await regraDoBook(db, termoDoParametro, {
+      documentoLido: Boolean(anexo),
+    }).catch(() => null);
+
+    if (regra) {
+      marcar("consultar", "Consultando o Book do Operador");
+      evidencias.push(regra);
+      if (anexo) {
+        marcar("anexar", "Abrindo o documento do Book");
+        anexos.push(anexo);
+      }
+    }
   }
 
   // ---- 6. corpus conceitual -----------------------------------------------

@@ -276,6 +276,18 @@ const PALAVRAS_DE_OPERACAO = new Set([
     "isso está previsto no Book?", que virava uma busca por um parâmetro
     chamado "previsto".
   */
+  /*
+    Como se pede um documento, e nunca como se chama um.
+
+    "Você não consegue ler o que tem no documento QLP ADM?" deixava para o
+    resolvedor a frase inteira — "consegue ler documento qlp adm" —, e com ela
+    a busca textual do Book (que procura o termo dentro do texto das regras)
+    não achava nada e o casamento por título dependia de sorte. O nome do bloco
+    é o que sobra depois de tirar o pedido: `qlp adm`.
+  */
+  "documento", "documentos", "anexo", "anexos", "anexado", "anexada",
+  "arquivo", "arquivos", "conteudo", "ler", "leia", "leu", "abrir", "abre",
+  "abra", "consegue", "conseguiu", "transcreve", "transcrever", "pdf",
   "fonte", "fontes", "origem", "procedencia", "previsto", "prevista",
   "previstos", "previstas", "citado", "citada", "acima", "disse", "falou",
   // "Me mostre a fonte" oferecia "mostre" ao resolvedor — e um termo residual
@@ -453,11 +465,24 @@ const PADROES: Padrao[] = [
     porque: "pergunta se o dado existe no produto",
   },
 
-  // ---- Book -----------------------------------------------------------------
+  /*
+    ---- Book -----------------------------------------------------------------
+
+    "Documento" e "anexo" entram aqui porque no vocabulário deste produto eles
+    só existem no Book: é lá que a regra é anexada como arquivo. Quem escreve
+    "você não consegue ler o que tem no documento QLP ADM?" está pedindo o Book
+    com todas as letras, e essa frase não casava padrão nenhum — caía em
+    DESCONHECIDA e recebia de volta o índice, sem o arquivo que ela nomeia.
+
+    O arquivo **importado** continua sendo outra coisa: IMPORTACOES e CELULAS
+    vêm antes e ficam com "arquivo importado", "planilha" e "célula", que é o
+    vocabulário do export e não o do contrato.
+  */
   {
     intencao: "BOOK",
-    quando: /\bbook\b|\bregra (do|de|da)\b|\bcontrato\b|\bmanual\b/,
-    porque: "cita o Book do Operador ou a regra",
+    quando:
+      /\bbook\b|\bregra (do|de|da)\b|\bcontrato\b|\bmanual\b|\b(documento|documentos|anexo|anexos|anexad\w*)\b/,
+    porque: "cita o Book do Operador, a regra ou o documento anexado",
   },
 
   // ---- comparação: dois meses, ou verbo comparar ----------------------------

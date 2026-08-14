@@ -48,6 +48,7 @@ import {
 } from "./formato";
 import type { Alvo } from "./parametros";
 import { extrairAnexo } from "./anexos";
+import { normalizar } from "./normalizar";
 
 // ── O formato de toda evidência ─────────────────────────────────────────────
 
@@ -803,6 +804,42 @@ interface EntradaDoBook extends Record<string, unknown> {
   createdAt: Date;
 }
 
+/**
+ * O bloco que este termo nomeia — **uma** regra, e não duas.
+ *
+ * Quem lê a regra e quem abre o arquivo do bloco precisam concordar sobre qual
+ * bloco a pergunta nomeou, e essa concordância não pode depender de duas
+ * implementações parecidas. Era exatamente o que havia aqui: `regraDoBook`
+ * casava o título nos dois sentidos ("QLP ADM" está contido em "qlp adm de
+ * camaçari") e `anexoDoBook` exigia que a chave do banco contivesse a frase
+ * inteira. O efeito não era erro em lugar nenhum — era a resposta dizer que o
+ * bloco tem documento anexado e o documento não ir junto, que é a forma mais
+ * silenciosa de o assistente parecer incapaz de ler o que ele tem em mãos.
+ *
+ * **O título mais longo vence.** "DESCONTO QLP ADM" e "QLP ADM" casam os dois
+ * quando a pergunta escreve o primeiro; devolver o mais curto responderia sobre
+ * o bloco vizinho, com o nome certo no título e a regra errada no corpo.
+ */
+export function blocoQueOTermoNomeia<
+  T extends { blockTitle: string; blockCategory: string },
+>(entradas: T[], termo: string): T | null {
+  const alvo = normalizar(termo).trim();
+  if (!alvo) return null;
+
+  const candidatos = entradas.filter((e) => {
+    const titulo = normalizar(e.blockTitle);
+    return (
+      titulo.includes(alvo) ||
+      alvo.includes(titulo) ||
+      normalizar(`${e.blockCategory} ${e.blockTitle}`).includes(alvo)
+    );
+  });
+
+  return (
+    candidatos.sort((a, b) => b.blockTitle.length - a.blockTitle.length)[0] ?? null
+  );
+}
+
 async function entradasVigentes(db: Database): Promise<EntradaDoBook[]> {
   const { rows } = await db.execute<EntradaDoBook>(sql`
     SELECT DISTINCT ON (block_key)
@@ -816,6 +853,19 @@ async function entradasVigentes(db: Database): Promise<EntradaDoBook[]> {
   return rows;
 }
 
+/** O que o chamador já sabe sobre o arquivo do bloco quando pede a regra. */
+export interface ComoOArquivoChegou {
+  /**
+   * O documento do bloco acompanha esta pergunta.
+   *
+   * Muda a ressalva, e a ressalva é uma afirmação sobre o que o assistente fez
+   * — não uma fórmula de cortesia. Dizer "não transcrevo documento que não li"
+   * com o documento aberto ao lado é declarar uma incapacidade que não existe,
+   * e foi o que esta resposta fazia toda vez que o anexo entrava.
+   */
+  documentoLido?: boolean;
+}
+
 /**
  * A regra registrada de um bloco.
  *
@@ -826,15 +876,10 @@ async function entradasVigentes(db: Database): Promise<EntradaDoBook[]> {
 export async function regraDoBook(
   db: Database,
   termo: string,
+  arquivo: ComoOArquivoChegou = {},
 ): Promise<Evidencia | null> {
   const entradas = await entradasVigentes(db);
-  const alvo = termo.toLowerCase();
-  const achado = entradas.find(
-    (e) =>
-      e.blockTitle.toLowerCase().includes(alvo) ||
-      alvo.includes(e.blockTitle.toLowerCase()) ||
-      `${e.blockCategory} ${e.blockTitle}`.toLowerCase().includes(alvo),
-  );
+  const achado = blocoQueOTermoNomeia(entradas, termo);
   if (!achado) return null;
 
   const [{ total }] = await db
@@ -871,9 +916,15 @@ export async function regraDoBook(
     origem: `book_entry · bloco "${achado.blockKey}" · revisão ${achado.revision}`,
     tela: { label: "Book do Operador", href: "/book-operador" },
     nota:
-      achado.kind === "DOCUMENTO"
-        ? "A regra está no arquivo anexado. Este assistente não transcreve documento que não leu."
-        : undefined,
+      achado.kind !== "DOCUMENTO"
+        ? undefined
+        : arquivo.documentoLido
+          ? "A regra está no arquivo anexado, e o arquivo acompanha esta pergunta: " +
+            "o que a resposta disser do conteúdo dele sai do próprio documento, que " +
+            "está numerado nas fontes e abre na tela do Book."
+          : "A regra está no arquivo anexado, e este assistente não conseguiu abri-lo " +
+            "— formato legado ou arquivo grande demais. O documento continua baixável " +
+            "na tela do Book.",
   };
 }
 
@@ -1087,8 +1138,18 @@ const TETO_DO_ANEXO = 8 * 1024 * 1024;
  * pela nota que já existe lá.
  */
 export async function anexoDoBook(db: Database, termo: string): Promise<Anexo | null> {
-  const alvo = termo.trim().toLowerCase();
-  if (!alvo) return null;
+  if (!termo.trim()) return null;
+
+  /*
+    O bloco é resolvido pela mesma regra que resolve a regra escrita.
+
+    A versão anterior procurava a frase da pergunta dentro da chave do banco, e
+    isso só funcionava quando a pessoa escrevia exatamente o título e nada mais:
+    "qlp adm de camaçari" não está contido em "Gente::QLP ADM", e o documento do
+    bloco ficava para trás enquanto a mesma pergunta recuperava a regra dele.
+  */
+  const bloco = blocoQueOTermoNomeia(await entradasVigentes(db), termo);
+  if (!bloco) return null;
 
   const [achado] = await db
     .select({
@@ -1104,7 +1165,7 @@ export async function anexoDoBook(db: Database, termo: string): Promise<Anexo | 
     .where(
       and(
         eq(bookEntryTable.kind, "DOCUMENTO"),
-        sql`lower(${bookEntryTable.blockKey}) LIKE ${`%${alvo}%`}`,
+        eq(bookEntryTable.blockKey, bloco.blockKey),
       ),
     )
     .orderBy(desc(bookEntryTable.revision))

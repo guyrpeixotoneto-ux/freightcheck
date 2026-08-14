@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { sql } from "drizzle-orm";
 import { createDb, type Database } from "@workspace/db";
 import { getFamiliesView, listPeriods, resolveContext } from "@workspace/comparison";
 import { citacoesSemFonte, numerosSemLastro, orquestrar } from "../orquestrador";
@@ -202,6 +203,83 @@ rodar("bateria do assistente", () => {
         aoAvancar: (e) => recebidas.push(e.rotulo),
       });
       expect(recebidas.join(" | ")).not.toMatch(/impacto|alteraç|vigência/i);
+    });
+  });
+
+  // ── o documento do Book ────────────────────────────────────────────────────
+
+  /**
+   * Estes três casos são a conversa que chegou da tela.
+   *
+   * Alguém perguntou a regra de um bloco cujo conteúdo é um arquivo anexado e
+   * ouviu, do assistente, que ele não transcreve documento que não leu — com o
+   * documento já dentro do dossiê. Depois perguntou por um bloco sem casar
+   * padrão nenhum ("QLP ADM como está de Camaçari?"), e o Book nem foi
+   * consultado. E as duas respostas terminavam repetindo o parágrafo com que
+   * tinham começado.
+   */
+  describe("o bloco que tem arquivo entrega o arquivo", () => {
+    /** O bloco com documento anexado que este banco tiver — se tiver algum. */
+    async function blocoComDocumento(): Promise<string | null> {
+      const { rows } = await db.execute<{ titulo: string }>(sql`
+        SELECT block_title AS titulo
+          FROM book_entry
+         WHERE kind = 'DOCUMENTO'
+         ORDER BY revision DESC
+         LIMIT 1
+      `);
+      return rows[0]?.titulo ?? null;
+    }
+
+    it("o arquivo do bloco acompanha a pergunta, e a ressalva diz que ele foi lido", async () => {
+      const titulo = await blocoComDocumento();
+      if (!titulo) return; // Banco sem documento anexado não tem o que provar.
+
+      const dossie = await orquestrar(db, `qual a regra de ${titulo}?`);
+      const regra = dossie.evidencias.find((e) => e.ferramenta === "regraDoBook");
+      expect(regra, `o Book precisa responder por "${titulo}"`).toBeTruthy();
+
+      /*
+        Formato legado (.doc, .xls antigos) e arquivo grande demais continuam
+        sem leitura — e aí a ressalva tem de dizer isso, não o contrário.
+      */
+      const leu = dossie.anexos.length > 0;
+      expect(regra!.nota ?? "", "a ressalva descreve o que aconteceu com o arquivo").toMatch(
+        leu ? /acompanha esta pergunta/i : /não conseguiu abri-lo/i,
+      );
+      expect(regra!.nota ?? "").not.toMatch(/não transcreve documento que não leu/i);
+    });
+
+    it("nomear o bloco basta, mesmo quando a pergunta não parece do Book", async () => {
+      const titulo = await blocoComDocumento();
+      if (!titulo) return;
+
+      // Sem "book", sem "regra", sem verbo de valor: a forma que caía em
+      // DESCONHECIDA e era respondida só pelo índice.
+      const dossie = await orquestrar(db, `${titulo} como está de Camaçari?`);
+      expect(dossie.plano.intencao).toBe("DESCONHECIDA");
+      expect(
+        dossie.evidencias.map((e) => e.ferramenta),
+        "o Book é o último recurso, e ele existe",
+      ).toContain("regraDoBook");
+    });
+
+    it("a redação em código não repete o parágrafo com que abriu", async () => {
+      for (const pergunta of [
+        "O que é o Book do Operador?",
+        "Qual a regra do bloco PNEU?",
+        "Como funciona IPVA?",
+      ]) {
+        const resposta = await responder(db, pergunta, { semIa: true });
+        const paragrafos = resposta.texto
+          .split(/\n{2,}/)
+          .map((p) => p.replace(/\s*\[\d{1,2}\]\s*$/, "").trim())
+          // Linha curta pode repetir sem ser repetição: um rótulo, um "—".
+          .filter((p) => p.length > 40);
+        expect(new Set(paragrafos).size, `"${pergunta}" repetiu um parágrafo`).toBe(
+          paragrafos.length,
+        );
+      }
     });
   });
 
