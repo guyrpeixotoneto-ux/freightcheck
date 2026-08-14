@@ -78,6 +78,11 @@ export interface CartaoCatalogo {
    * mexeu em três coisas quando ele mexeu numa.
    */
   formulario?: {
+    /**
+     * A aba onde esta seção mora, quando a ficha tem mais de uma. Ausente
+     * significa a única aba do cartão — ver `abas`.
+     */
+    aba?: string;
     /** O título da seção, como o Freightech escreve. */
     secao: string;
     campos: {
@@ -91,20 +96,45 @@ export interface CartaoCatalogo {
       calculado?: boolean;
     }[];
   }[];
+  /**
+   * As abas da ficha, na ordem em que o Freightech as mostra.
+   *
+   * Existe para separar duas coisas que sem ela ficariam indistinguíveis: a aba
+   * que **não tem** seção registrada porque ninguém a abriu, e a aba que não
+   * existe. PRAZO FINAME tem cinco abas e só a Geral foi conferida; listá-las
+   * aqui faz a tela dizer isso, em vez de apresentar um quinto da ficha como se
+   * fosse a ficha inteira.
+   *
+   * Ficha de uma aba só dispensa este campo — as três primeiras conferidas
+   * tinham apenas a Geral, e nelas `formulario` sem `aba` já diz tudo.
+   */
+  abas?: string[];
   /*
     Uma coisa que só as fichas revelaram, e que vale para todas elas.
 
     Os cabeçalhos de tabela do Freightech são rótulos de exibição — caixa alta,
     grudados, `CAPACIDADEEMPURRADA`. Os rótulos de ficha, não: são o nome
-    interno do campo, em camelCase, e **o export usa esses mesmos nomes como
-    cabeçalho de coluna**. `manutencaoReaisKm` está na ficha PARÂMETROS
-    MANUTENÇÃO e na planilha de cavalos, letra por letra.
+    interno do campo, em camelCase, o mesmo estilo em que **parte** dos
+    cabeçalhos do export vem escrita. `manutencaoReaisKm` está na ficha
+    PARÂMETROS MANUTENÇÃO e na planilha de cavalos, letra por letra.
 
-    A consequência prática é que rótulo de ficha se procura no export por busca
-    exata, enquanto cabeçalho de tabela exige tradução. A consequência honesta é
-    que a coincidência é rara: dos 20 campos das três fichas conferidas, só esse
-    um aparece no export. Os outros 19 são parâmetros de unidade que a planilha
-    de equipamento não publica.
+    **Parte, e não tudo — a ressalva custou uma correção.** Dos 102 cabeçalhos
+    do export, 77 são camelCase e 25 são rótulo de exibição, com espaço,
+    acento e parêntese: `Ganhador BID`, `Custo Variável Simulado`,
+    `Taxa Finame (%)`. E é justamente aí que a busca exata falha: a ficha PRAZO
+    FINAME tem `taxaFiname`, que não existe no export — o que existe é
+    `Taxa Finame (%)`, o mesmo conceito com outra grafia. Achar que o campo não
+    chega, nesse caso, seria errado.
+
+    Então a regra útil tem duas metades. Rótulo de ficha se procura primeiro por
+    busca exata, que é barata e acerta na parte camelCase do export; quando não
+    achar, se procura pelo conceito, porque pode estar do outro lado com o nome
+    de exibição. Cabeçalho de tabela exige a tradução desde o começo.
+
+    A taxa de coincidência é baixa e vale dizê-la: dos 25 campos das quatro
+    fichas conferidas, um bate por busca exata e um segundo bate por conceito.
+    Os outros 23 são parâmetros de unidade que a planilha de equipamento não
+    publica de forma alguma.
   */
   /**
    * As colunas do export que **são** este cartão, pelo código do atributo.
@@ -1007,7 +1037,65 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
           "unidade, a planilha mostra ativo por ativo, e é isso que a tabela abaixo " +
           "acompanha. O manutencaoExtra e o consumo desta ficha não vêm no arquivo.",
       },
-      { nome: "Prazo FINAME" },
+      {
+        /*
+          A quarta ficha, e a primeira com **mais de uma aba**: Geral, Previsão
+          KM Rodado, Meses / Anos, Renovação Prazo Finame e Finame. As três
+          fichas anteriores tinham só a Geral, e por isso a estrutura tratava
+          aba como se não existisse; esta obrigou a criar `abas`.
+
+          **Só a Geral foi conferida.** As outras quatro estão listadas em
+          `abas` e não têm seção registrada — é assim que se distingue "a aba
+          existe e ninguém abriu" de "a aba não existe". Sem isso, um quinto da
+          ficha passaria por ficha inteira, que é a versão de formulário do erro
+          que a rolagem horizontal já pregou nas tabelas.
+
+          Na aba Geral, uma seção também chamada Geral, com cinco campos. Dois
+          se digitam — `valorCavaloCarreta` (487.099,10) e `taxaFiname` (8,15%,
+          com o ícone de porcentagem) — e três são calculados: `km30000`
+          (12.481,05), `mesesPlanilha` (84,00) e `mesesPlanilhaQuitado` (24,00).
+          Aqui os digitados vêm primeiro; em PARÂMETROS MANUTENÇÃO vinham
+          depois. A ordem continua não dizendo nada sobre a natureza do campo.
+
+          **`taxaFiname` é o contraexemplo que corrigiu a regra dos rótulos.**
+          Ele não existe no export por busca exata — o que existe é
+          `Taxa Finame (%)`, com espaço e parêntese. É o mesmo conceito escrito
+          do jeito de exibição, e a planilha mistura os dois estilos: 77 dos 102
+          cabeçalhos são camelCase e 25 não são. Concluir "não chega" a partir da
+          busca exata teria sido um erro, e é por isso que a regra, lá em cima,
+          agora tem duas metades.
+
+          Os outros quatro campos desta aba não chegam de jeito nenhum.
+        */
+        nome: "Prazo FINAME",
+        abas: [
+          "Geral",
+          "Previsão KM Rodado",
+          "Meses / Anos",
+          "Renovação Prazo Finame",
+          "Finame",
+        ],
+        formulario: [
+          {
+            aba: "Geral",
+            secao: "Geral",
+            campos: [
+              { nome: "valorCavaloCarreta" },
+              { nome: "taxaFiname" },
+              { nome: "km30000", calculado: true },
+              { nome: "mesesPlanilha", calculado: true },
+              { nome: "mesesPlanilhaQuitado", calculado: true },
+            ],
+          },
+        ],
+        nota:
+          "No Freightech este cartão abre uma ficha de cinco abas, e só a Geral foi " +
+          "conferida — as outras quatro estão nomeadas acima e ainda não foram abertas. " +
+          "Na Geral: o valor do conjunto e a taxa Finame, digitados, e três campos " +
+          "calculados. A taxa chega no export, com outro nome — lá a coluna é " +
+          "Taxa Finame (%) —, e é ela que aparece nas alterações do cavalo e da carreta. " +
+          "O valor do conjunto e os três calculados não vêm no arquivo.",
+      },
       { nome: "Prazo FINAME manutenção" },
       { nome: "Tipo carroceria" },
       { nome: "Trecho" },

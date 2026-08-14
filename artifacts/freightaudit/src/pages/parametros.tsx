@@ -464,6 +464,8 @@ interface CartaoRender {
   colunas: string[] | null;
   /** Quando o cartão abre ficha e não tabela: as seções e os campos de lá. */
   formulario: CartaoCatalogo["formulario"] | null;
+  /** As abas da ficha, quando há mais de uma — inclusive as não conferidas. */
+  abas: string[] | null;
   /** A frase sobre a distância entre a tela de lá e o que temos aqui. */
   nota: string | null;
   /** Quando é inventário: o tipo de ativo que cada linha representa. */
@@ -528,6 +530,7 @@ function montarSecoes(view: FamiliesView | null): SecaoRender[] {
         atributos: cartao.atributos ?? [],
         colunas: cartao.colunas ?? null,
         formulario: cartao.formulario ?? null,
+        abas: cartao.abas ?? null,
         nota: cartao.nota ?? null,
         entidade: cartao.entidade ?? null,
         ...agregar(parametros),
@@ -573,6 +576,7 @@ function montarSecoes(view: FamiliesView | null): SecaoRender[] {
         atributos: [],
         colunas: null,
         formulario: null,
+        abas: null,
         nota: null,
         entidade: null,
         ...agregar([parametro]),
@@ -1628,7 +1632,7 @@ function Contraste({ cartao }: { cartao: CartaoRender }) {
     aqui: a tela foi conferida, e o que ela tem não são colunas.
   */
   if (cartao.formulario) {
-    return <Ficha secoes={cartao.formulario} nota={cartao.nota} />;
+    return <Ficha secoes={cartao.formulario} abas={cartao.abas} nota={cartao.nota} />;
   }
 
   if (!cartao.colunas) {
@@ -1685,12 +1689,25 @@ function Contraste({ cartao }: { cartao: CartaoRender }) {
  */
 function Ficha({
   secoes,
+  abas,
   nota,
 }: {
   secoes: NonNullable<CartaoRender["formulario"]>;
+  /** Todas as abas do cartão, quando há mais de uma. */
+  abas: string[] | null;
   nota: string | null;
 }) {
   const calculados = secoes.flatMap((s) => s.campos).filter((c) => c.calculado).length;
+
+  /*
+    A aba que ninguém abriu tem de aparecer, e aparecer marcada.
+
+    Mostrar só o que foi conferido faria uma ficha de cinco abas passar por
+    ficha de uma — a versão de formulário do que a rolagem horizontal já pregou
+    nas tabelas, onde a ponta que faltava era onde morava o sentido.
+  */
+  const conferidas = new Set(secoes.map((s) => s.aba).filter(Boolean));
+  const naoAbertas = (abas ?? []).filter((aba) => !conferidas.has(aba));
 
   return (
     <div className="text-xs text-muted-foreground mt-3 max-w-4xl space-y-3">
@@ -1706,9 +1723,29 @@ function Ficha({
         )}
       </p>
 
+      {naoAbertas.length > 0 && (
+        <p className="flex gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0 text-brand" />
+          <span>
+            A ficha tem {abas!.length} abas e {naoAbertas.length === 1 ? "uma" : `${naoAbertas.length}`}{" "}
+            ainda não {naoAbertas.length === 1 ? "foi conferida" : "foram conferidas"}:{" "}
+            {naoAbertas.map((aba, i) => (
+              <span key={aba}>
+                {i > 0 && (i === naoAbertas.length - 1 ? " e " : ", ")}
+                <span className="font-mono text-foreground">{aba}</span>
+              </span>
+            ))}
+            . O que está abaixo é só a parte vista.
+          </span>
+        </p>
+      )}
+
       {secoes.map((secao) => (
-        <div key={secao.secao}>
+        <div key={`${secao.aba ?? ""}-${secao.secao}`}>
           <div className="uppercase tracking-wider text-[0.6875rem] text-foreground/70">
+            {/* A aba só entra no rótulo quando há mais de uma; repetir
+                "Geral · Geral" numa ficha de aba única seria ruído. */}
+            {secao.aba && abas && abas.length > 1 && `${secao.aba} · `}
             {secao.secao}
           </div>
           <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
