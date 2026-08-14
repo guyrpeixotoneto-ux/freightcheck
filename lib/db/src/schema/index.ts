@@ -3,6 +3,7 @@ export * from "./raw";
 export * from "./canonical";
 export * from "./staging";
 export * from "./curation";
+export * from "./deletion";
 export * from "./comparison";
 export * from "./semantics";
 export * from "./auth";

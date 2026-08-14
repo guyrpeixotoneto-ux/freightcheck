@@ -71,6 +71,13 @@
       "when": 1786665947379,
       "tag": "0009_entity_type_correction",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1786705428417,
+      "tag": "0010_import_deletion",
+      "breakpoints": true
     }
   ]
 }

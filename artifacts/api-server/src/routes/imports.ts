@@ -1,17 +1,21 @@
 import { createHash } from "node:crypto";
-import { mkdirSync, writeFileSync } from "node:fs";
-import os from "node:os";
+import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import {
   captureRaw,
+  deleteImportRun,
+  ensureImportStorageDir,
   getImportRun,
   getImportRunSheets,
   getImportRunSnapshots,
   getImportRunStatus,
+  ImportDeletionRefused,
+  listImportDeletions,
   listImportRuns,
   markRunFailed,
+  planImportDeletion,
   preview,
   promote,
   stage,
@@ -131,22 +135,6 @@ export function whyCannotPromote(status: string): string | null {
 }
 
 /**
- * Onde os arquivos recebidos ficam.
- *
- * `receiveFile` grava o caminho no banco e a captura RAW o relê, então o
- * arquivo precisa sobreviver entre os dois — mas só entre os dois: depois da
- * captura, a evidência está em raw_cell, célula por célula. O diretório é
- * configurável para quem quiser retê-los por mais tempo.
- */
-function storageDir(): string {
-  const dir =
-    process.env.IMPORT_STORAGE_DIR ??
-    path.join(os.tmpdir(), "freightcheck-imports");
-  mkdirSync(dir, { recursive: true });
-  return dir;
-}
-
-/**
  * Ler o arquivo até o preview, fora do ciclo da requisição.
  *
  * São dezenas de milhares de células: manter a conexão aberta até o fim daria
@@ -198,7 +186,10 @@ router.post("/imports", async (req, res): Promise<void> => {
     // apontam para o mesmo arquivo, e nomes vindos do cliente nunca viram
     // caminho.
     const contentSha256 = createHash("sha256").update(bytes).digest("hex");
-    const filePath = path.join(storageDir(), `${contentSha256}.xlsx`);
+    const filePath = path.join(
+      ensureImportStorageDir(),
+      `${contentSha256}.xlsx`,
+    );
     writeFileSync(filePath, bytes);
 
     const received = await receiveFile(db, {
@@ -318,6 +309,81 @@ router.post("/imports/:id/promote", async (req, res): Promise<void> => {
     const message = err instanceof Error ? err.message : "Erro desconhecido";
     req.log.warn({ err }, "Promotion refused");
     res.status(422).json({ error: message });
+  }
+});
+
+/**
+ * O que a exclusão tiraria, antes de tirar.
+ *
+ * A pergunta "tem certeza?" não é responsável por si só: quem está na tela não
+ * tem como saber que aquele arquivo sustenta nove vigências e quarenta mil
+ * fatos. Esta rota é o que transforma a confirmação numa decisão — e é a mesma
+ * conta que a exclusão vai fazer, escrita uma vez só em `planImportDeletion`.
+ */
+router.get("/imports/:id/deletion", async (req, res): Promise<void> => {
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de importação inválido." });
+    return;
+  }
+  try {
+    const plan = await planImportDeletion(db, req.params.id);
+    if (!plan) {
+      res.status(404).json({ error: "Importação não encontrada" });
+      return;
+    }
+    res.json(plan);
+  } catch (err) {
+    req.log.error({ err }, "Error planning import deletion");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * Excluir uma importação.
+ *
+ * Quem exclui é quem está logado, e o nome vai para `import_deletion` junto com
+ * o que saiu — o registro sobrevive ao dado, que é a única forma de "isto foi
+ * apagado" continuar sendo uma afirmação verificável depois.
+ *
+ * As recusas — um run ainda sendo lido, uma vigência corrigida por importação
+ * posterior — voltam como 409 com a frase inteira. Não são erros do servidor:
+ * são a ordem em que as coisas podem ser desfeitas.
+ */
+router.delete("/imports/:id", async (req, res): Promise<void> => {
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de importação inválido." });
+    return;
+  }
+  try {
+    const motivo =
+      typeof req.body?.reason === "string" && req.body.reason.trim() !== ""
+        ? req.body.reason.trim()
+        : null;
+
+    const result = await deleteImportRun(db, req.params.id, {
+      deletedBy: req.user?.email ?? DEFAULT_ACTOR,
+      reason: motivo,
+    });
+    res.json(result);
+  } catch (err) {
+    if (err instanceof ImportDeletionRefused) {
+      const notFound = err.message.includes("não encontrada");
+      req.log.warn({ err, importRunId: req.params.id }, "Deletion refused");
+      res.status(notFound ? 404 : 409).json({ error: err.message });
+      return;
+    }
+    req.log.error({ err }, "Error deleting import run");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/** O histórico das exclusões — o que já não está mais aqui, e por ordem de quem. */
+router.get("/import-deletions", async (req, res): Promise<void> => {
+  try {
+    res.json(await listImportDeletions(db));
+  } catch (err) {
+    req.log.error({ err }, "Error listing import deletions");
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 

@@ -5,3 +5,5 @@ export * from "./workbook";
 export * from "./identity";
 export * from "./pipeline";
 export * from "./history";
+export * from "./deletion";
+export * from "./storage";

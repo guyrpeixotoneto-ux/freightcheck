@@ -96,6 +96,9 @@ export const attributeSemanticsTable = pgTable(
       .on(t.attributeId)
       .where(sql`${t.effectiveUntil} IS NULL`),
     index("attribute_semantics_attribute_idx").on(t.attributeId),
+    /* A vigência que serviu de evidência pode ser excluída; o ponteiro é
+       procurado por ela. */
+    index("attribute_semantics_evidence_idx").on(t.evidenceSnapshotId),
     index("attribute_semantics_window_idx").on(t.effectiveFrom, t.effectiveUntil),
   ],
 );

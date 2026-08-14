@@ -12,6 +12,7 @@ import {
   Layers,
   ShieldCheck,
   Table2,
+  Trash2,
   Upload,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -68,6 +69,41 @@ interface RunDetail {
   }[];
 }
 
+/**
+ * O que sairia do sistema se esta importação fosse excluída.
+ *
+ * Vem do servidor, e não de uma conta feita aqui: os mesmos números que a
+ * exclusão vai executar. Uma tela que estimasse a consequência por conta
+ * própria estaria adivinhando exatamente na hora em que não pode.
+ */
+interface DeletionPlan {
+  importRunId: string;
+  filename: string;
+  contentSha256: string;
+  status: string;
+  labels: string[];
+  /** Revisões anteriores que voltam a valer quando esta sair. */
+  restoredLabels: string[];
+  /** Por que não dá para excluir agora — null quando dá. */
+  refusal: string | null;
+  removes: {
+    snapshots: number;
+    facts: number;
+    changeSets: number;
+    changes: number;
+    entities: number;
+    attributes: number;
+    attributeSemantics: number;
+    rawCells: number;
+    rawRows: number;
+    rawSheets: number;
+    stagedFacts: number;
+    validationIssues: number;
+    columnMappings: number;
+    sourceFile: number;
+  };
+}
+
 const n = (v: number) => v.toLocaleString("pt-BR");
 
 const dateTime = (iso: string) => new Date(iso).toLocaleString("pt-BR");
@@ -104,8 +140,10 @@ interface RunStatus {
 export default function Importacoes() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [detailOf, setDetailOf] = useState<ImportRun | null>(null);
+  const [deleteOf, setDeleteOf] = useState<ImportRun | null>(null);
   const [pendingIds, setPendingIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const [removed, setRemoved] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
@@ -208,6 +246,52 @@ export default function Importacoes() {
     onError: (err: Error) => setError(err.message),
   });
 
+  /**
+   * Excluir apaga de verdade — e mexe em tudo o que lia aquela importação.
+   *
+   * Por isso o `invalidateQueries()` sem chave: as vigências somem de Dados, as
+   * comparações de Alterações, os equipamentos do Início. Invalidar só a lista
+   * de importações deixaria o resto da interface mostrando números que já não
+   * existem, e essa é a tela onde isso menos pode acontecer.
+   */
+  const remove = useMutation({
+    mutationFn: async ({
+      importRunId,
+      reason,
+    }: {
+      importRunId: string;
+      reason: string;
+    }) => {
+      const response = await fetch(getApiUrl(`/imports/${importRunId}`), {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      const body = await readJson(response);
+      if (!response.ok) throw new Error(body.error as string);
+      return body as unknown as DeletionPlan;
+    },
+    onSuccess: (result) => {
+      setError(null);
+      setDeleteOf(null);
+      setPendingIds((current) =>
+        current.filter((id) => id !== result.importRunId),
+      );
+      setRemoved(
+        `"${result.filename}" foi excluída: ${n(result.removes.facts)} fatos e ` +
+          `${plural(result.removes.snapshots, "vigência", "vigências")} saíram do sistema.` +
+          (result.removes.sourceFile > 0
+            ? " Este arquivo pode ser enviado de novo."
+            : ""),
+      );
+      queryClient.invalidateQueries();
+    },
+    onError: (err: Error) => {
+      setRemoved(null);
+      setError(err.message);
+    },
+  });
+
   return (
     <Layout>
       <header className="border-b bg-card px-8 py-6">
@@ -248,6 +332,12 @@ export default function Importacoes() {
         {error && (
           <p className="text-sm text-red-900 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
             {error}
+          </p>
+        )}
+
+        {removed && (
+          <p className="text-sm text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+            {removed}
           </p>
         )}
 
@@ -292,6 +382,10 @@ export default function Importacoes() {
               setExpanded(expanded === run.importRunId ? null : run.importRunId)
             }
             onDetails={() => setDetailOf(run)}
+            onDelete={() => {
+              setRemoved(null);
+              setDeleteOf(run);
+            }}
           />
         ))}
 
@@ -310,6 +404,18 @@ export default function Importacoes() {
       </div>
 
       <RunDetailDialog run={detailOf} onClose={() => setDetailOf(null)} />
+      <DeleteDialog
+        /* Uma caixa por importação: o motivo digitado para uma não pode
+           aparecer preenchido na próxima. */
+        key={deleteOf?.importRunId ?? "nenhuma"}
+        run={deleteOf}
+        onClose={() => setDeleteOf(null)}
+        onConfirm={(reason) =>
+          deleteOf &&
+          remove.mutate({ importRunId: deleteOf.importRunId, reason })
+        }
+        deleting={remove.isPending}
+      />
     </Layout>
   );
 }
@@ -380,11 +486,13 @@ function RunCard({
   expanded,
   onToggle,
   onDetails,
+  onDelete,
 }: {
   run: ImportRun;
   expanded: boolean;
   onToggle: () => void;
   onDetails: () => void;
+  onDelete: () => void;
 }) {
   return (
     <div className="rounded-2xl border bg-card px-6 py-5 shadow-sm space-y-5">
@@ -490,10 +598,28 @@ function RunCard({
           )}
           Ver abas do arquivo e como cada uma foi tratada
         </button>
-        <Button variant="outline" size="sm" onClick={onDetails}>
-          Ver detalhes
-          <ChevronRight className="w-3.5 h-3.5 ml-1" />
-        </Button>
+        <div className="flex items-center gap-2 shrink-0">
+          {/*
+            Excluir fica ao lado de "Ver detalhes", e não escondido atrás de um
+            menu: é uma ação legítima — a planilha errada, o mês repetido — e
+            esconder o desfazer é o que faz alguém conviver com o erro. O que a
+            protege não é a dificuldade de achar o botão, e sim a tela seguinte,
+            que diz quantos fatos e quais vigências saem antes de perguntar.
+          */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onDelete}
+            className="text-red-700 hover:text-red-800 hover:bg-red-50"
+          >
+            <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+            Excluir
+          </Button>
+          <Button variant="outline" size="sm" onClick={onDetails}>
+            Ver detalhes
+            <ChevronRight className="w-3.5 h-3.5 ml-1" />
+          </Button>
+        </div>
       </div>
 
       {expanded && <SheetList runId={run.importRunId} />}
@@ -578,6 +704,185 @@ function RunDetailDialog({
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={onClose}>
               Fechar
+            </Button>
+          </DialogFooter>
+        </>
+      )}
+    </Dialog>
+  );
+}
+
+/**
+ * A confirmação de uma exclusão, escrita com o que ela de fato apaga.
+ *
+ * "Tem certeza?" é uma pergunta que ninguém consegue responder: quem está aqui
+ * não sabe de cabeça que aquele arquivo sustenta nove vigências e quarenta mil
+ * fatos, nem que apagá-lo derruba as comparações que os usam. O servidor conta
+ * isso antes — é a mesma conta que a exclusão vai executar —, e é essa lista
+ * que vai para a tela. Só depois vem o botão vermelho.
+ *
+ * A caixa também é onde as recusas aparecem: uma vigência corrigida por uma
+ * importação posterior não pode sair antes dela, e o motivo chega inteiro,
+ * nomeando o arquivo mais novo em vez de dizer que não foi possível.
+ */
+function DeleteDialog({
+  run,
+  onClose,
+  onConfirm,
+  deleting,
+}: {
+  run: ImportRun | null;
+  onClose: () => void;
+  onConfirm: (reason: string) => void;
+  deleting: boolean;
+}) {
+  const [reason, setReason] = useState("");
+
+  const { data: plan, error } = useQuery({
+    queryKey: ["imports", run?.importRunId, "deletion"],
+    queryFn: () => fetchJson<DeletionPlan>(`/imports/${run!.importRunId}/deletion`),
+    enabled: run !== null,
+    // O que sai depende do resto do banco — outra importação promovida no
+    // meio-tempo muda a conta. Sem cache: esta prévia é lida uma vez e agida
+    // em seguida.
+    staleTime: 0,
+    gcTime: 0,
+  });
+
+  const linhas: [string, number][] = plan
+    ? [
+        ["Fatos", plan.removes.facts],
+        ["Vigências", plan.removes.snapshots],
+        ["Comparações já calculadas", plan.removes.changeSets],
+        ["Alterações dentro delas", plan.removes.changes],
+        ["Equipamentos que ficam sem nenhum dado", plan.removes.entities],
+        ["Colunas que ficam sem nenhum dado", plan.removes.attributes],
+        ["Células RAW (a evidência do arquivo)", plan.removes.rawCells],
+        ["Fatos em staging", plan.removes.stagedFacts],
+        ["Apontamentos do pipeline", plan.removes.validationIssues],
+      ].filter((linha): linha is [string, number] => (linha[1] as number) > 0)
+    : [];
+
+  return (
+    <Dialog open={run !== null} onOpenChange={(open) => !open && onClose()}>
+      {run && (
+        <>
+          <DialogHeader>
+            <DialogTitle>Excluir "{run.filename}"?</DialogTitle>
+            <DialogDescription>
+              Isto apaga a importação e tudo o que só ela sustenta. Não há
+              desfazer: fica o registro de que foi excluída — quem, quando e o
+              que saiu —, não os dados.
+            </DialogDescription>
+          </DialogHeader>
+
+          {error && (
+            <p className="text-sm text-red-900 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              Não foi possível calcular o que sairia: {(error as Error).message}
+            </p>
+          )}
+
+          {!plan && !error && (
+            <p className="text-sm text-muted-foreground">
+              Calculando o que sairia…
+            </p>
+          )}
+
+          {plan?.refusal && (
+            <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+              {plan.refusal}
+            </p>
+          )}
+
+          {plan && !plan.refusal && (
+            <div className="space-y-4">
+              {linhas.length > 0 ? (
+                <dl className="rounded-xl border divide-y overflow-hidden text-sm">
+                  {linhas.map(([label, value]) => (
+                    <div
+                      key={label}
+                      className="flex items-center justify-between gap-4 px-4 py-2 bg-muted/30"
+                    >
+                      <dt className="text-muted-foreground">{label}</dt>
+                      <dd className="font-semibold tabular-nums">{n(value)}</dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Esta importação não chegou a produzir nada — nenhum fato,
+                  nenhuma vigência. Sai só o registro dela.
+                </p>
+              )}
+
+              {plan.labels.length > 0 && (
+                <div className="space-y-2">
+                  <p className="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">
+                    Vigências que somem
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {plan.labels.map((label) => (
+                      <span
+                        key={label}
+                        className="font-mono text-[0.6875rem] px-2.5 py-1 rounded-lg border border-red-200 bg-red-50 text-red-900"
+                      >
+                        {label}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Excluir uma correção devolve ao ar o que ela tinha
+                  substituído. É consequência, e não efeito colateral: quem
+                  apaga a revisão 2 precisa saber que a 1 volta a valer. */}
+              {plan.restoredLabels.length > 0 && (
+                <p className="text-sm text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                  A revisão anterior de{" "}
+                  <span className="font-mono">
+                    {plan.restoredLabels.join(", ")}
+                  </span>{" "}
+                  volta a valer no lugar desta.
+                </p>
+              )}
+
+              {plan.removes.sourceFile > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  O arquivo sai do registro de recebidos, então o mesmo conteúdo
+                  poderá ser enviado de novo — hoje ele é recusado como
+                  duplicata pelo SHA-256.
+                </p>
+              )}
+
+              <label className="block space-y-1.5">
+                <span className="text-xs uppercase tracking-wider text-muted-foreground">
+                  Motivo (opcional)
+                </span>
+                <input
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="ex.: planilha de teste enviada por engano"
+                  className="w-full rounded-lg border px-3 py-2 text-sm bg-background"
+                />
+                <span className="text-xs text-muted-foreground">
+                  Vai para o registro da exclusão, ao lado do seu nome.
+                </span>
+              </label>
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={onClose}>
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              disabled={!plan || plan.refusal !== null || deleting}
+              onClick={() => onConfirm(reason)}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+              {deleting ? "Excluindo…" : "Excluir importação"}
             </Button>
           </DialogFooter>
         </>
@@ -710,8 +1015,13 @@ function PendingRun({
           </div>
         </div>
         <div className="flex gap-2 shrink-0">
+          {/* "descartar" prometia o que este botão nunca fez: ele só tira o
+              cartão da frente, e a importação continua na lista abaixo,
+              esperando decisão. Agora que existe excluir de verdade — no
+              cartão de baixo, com a conta do que sai —, as duas palavras não
+              podiam continuar sendo a mesma. */}
           <Button variant="ghost" size="sm" onClick={onDiscard}>
-            descartar
+            ocultar
           </Button>
           <Button
             size="sm"
