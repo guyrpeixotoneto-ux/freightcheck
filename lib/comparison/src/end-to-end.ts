@@ -4,7 +4,7 @@ import { loadAttributeClassificationsAt } from "./classification";
 import { indexChangedAttributesByEntity, isCoveredByParts } from "./composition";
 import { diffSnapshots, type ComputedChange } from "./engine";
 import { attributeLabel, equipmentLabel } from "./labels";
-import { FAMILIES, placementOf, type FamilyCode } from "./families";
+import { FAMILIES, placementOf, scopeFilter, type FamilyCode } from "./families";
 import type { ParameterRollup } from "./families-view";
 import {
   buildGroup,
@@ -183,6 +183,12 @@ export async function getEndToEndAnalysis(
   requestedContext?: Partial<SeriesContext>,
   /** Recorte do cartão: só estes parâmetros. Vazio = tudo. */
   parameterKeys?: string[],
+  /**
+   * Recorte do cartão pela **coluna**, quando o cartão é uma tabela — CAVALO e
+   * CARRETA são inventários, e o escopo deles é a lista de colunas da tela de
+   * lá. Soma-se ao recorte por parâmetro; nunca o substitui.
+   */
+  attributeCodes?: string[],
 ): Promise<EndToEndAnalysis | null> {
   const contexts = await listContexts(db);
   const context = await resolveContext(db, requestedContext, contexts);
@@ -317,10 +323,8 @@ export async function getEndToEndAnalysis(
       };
     });
 
-  const doCartao =
-    parameterKeys && parameterKeys.length > 0
-      ? linhas.filter((l) => parameterKeys.includes(placementOf(l.attribute_code).parameterKey))
-      : linhas;
+  const noEscopo = scopeFilter(parameterKeys, attributeCodes);
+  const doCartao = noEscopo ? linhas.filter((l) => noEscopo(l.attribute_code)) : linhas;
 
   /*
     O índice de composição é montado sobre **todas** as linhas, e não sobre o
@@ -415,8 +419,7 @@ export async function getEndToEndAnalysis(
     { entities: number; periods: number }
   >();
   for (const linha of mexeram) {
-    const chave = placementOf(linha.attribute_code).parameterKey;
-    if (parameterKeys && parameterKeys.length > 0 && !parameterKeys.includes(chave)) continue;
+    if (noEscopo && !noEscopo(linha.attribute_code)) continue;
     if (diferentesAgora.has(`${linha.entity_id}|${linha.attribute_code}`)) continue;
     const atual = revertidoPorAtributo.get(linha.attribute_code) ?? { entities: 0, periods: 0 };
     atual.entities += 1;

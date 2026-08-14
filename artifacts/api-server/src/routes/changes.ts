@@ -21,6 +21,7 @@ import {
   getConsolidated,
   listContexts,
   listPeriods,
+  parameterKeysOfNames,
   ContextNotFoundError,
   type ChangeFilters,
   type SeriesContext,
@@ -289,6 +290,40 @@ router.get("/changes/families", async (req, res): Promise<void> => {
 });
 
 /**
+ * O recorte de um cartão, nas três formas em que a tela pode pedi-lo.
+ *
+ * - `parameters` — chaves `FAMÍLIA|Parâmetro`, que é o que o Assistente tem à
+ *   mão porque vieram de uma leitura anterior;
+ * - `parameterNames` — os nomes do catálogo do Freightech ("Caminhão"), sem a
+ *   família, que é a única forma que o catálogo conhece. Traduzir aqui é o que
+ *   permite o escopo de um cartão sair do **catálogo** e não do que a vigência
+ *   aberta trouxe: um cartão que não se mexeu neste mês continua tendo escopo
+ *   no intervalo inteiro;
+ * - `attributes` — as colunas, para os cartões que são tabela (CAVALO, CARRETA)
+ *   e cujo escopo é a lista de colunas da tela de lá, não uma gaveta nossa.
+ *
+ * As três se somam. Nenhuma delas → sem recorte, o universo inteiro.
+ */
+function parseScope(query: Record<string, unknown>): {
+  parameterKeys: string[];
+  attributeCodes: string[];
+} {
+  const lista = (valor: unknown) =>
+    (typeof valor === "string" ? valor : "")
+      .split(",")
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+  const nomes = lista(query.parameterNames);
+  return {
+    parameterKeys: [
+      ...new Set([...lista(query.parameters), ...parameterKeysOfNames(nomes)]),
+    ],
+    attributeCodes: [...new Set(lista(query.attributes))],
+  };
+}
+
+/**
  * O intervalo — o que o cliente mexeu entre duas vigências escolhidas.
  *
  * As duas pontas entram na leitura. `from` e `to` fora do histórico caem no
@@ -299,10 +334,18 @@ router.get("/changes/range", async (req, res): Promise<void> => {
   try {
     const from = typeof req.query.from === "string" ? req.query.from : undefined;
     const to = typeof req.query.to === "string" ? req.query.to : undefined;
-    const bruto = typeof req.query.parameters === "string" ? req.query.parameters : "";
-    const parameters = bruto.split(",").map((p) => p.trim()).filter(Boolean);
+    const { parameterKeys, attributeCodes } = parseScope(
+      req.query as Record<string, unknown>,
+    );
     const context = parseContext(req.query as Record<string, unknown>);
-    const analysis = await getRangeAnalysis(db, from, to, context, parameters);
+    const analysis = await getRangeAnalysis(
+      db,
+      from,
+      to,
+      context,
+      parameterKeys,
+      attributeCodes,
+    );
     if (!analysis) {
       res.status(404).json({ error: "Nenhuma vigência importada ainda." });
       return;
@@ -322,18 +365,27 @@ router.get("/changes/range", async (req, res): Promise<void> => {
  * e voltou some aqui e continua contado lá. A comparação é ativo a ativo, sobre
  * quem está nas duas pontas, e entrada e saída de frota vêm num eixo próprio.
  *
- * `parameters` recorta a leitura ao universo de um cartão. Sem ele, o intervalo
- * inteiro — e aí a resposta pode ser grande, porque os ativos de cada grupo vêm
- * junto (não existe `change_set` gravado para consultar depois).
+ * O recorte (ver `parseScope`) restringe a leitura ao universo de um cartão. Sem
+ * ele, o intervalo inteiro — e aí a resposta pode ser grande, porque os ativos
+ * de cada grupo vêm junto (não existe `change_set` gravado para consultar
+ * depois).
  */
 router.get("/changes/end-to-end", async (req, res): Promise<void> => {
   try {
     const from = typeof req.query.from === "string" ? req.query.from : undefined;
     const to = typeof req.query.to === "string" ? req.query.to : undefined;
-    const bruto = typeof req.query.parameters === "string" ? req.query.parameters : "";
-    const parameters = bruto.split(",").map((p) => p.trim()).filter(Boolean);
+    const { parameterKeys, attributeCodes } = parseScope(
+      req.query as Record<string, unknown>,
+    );
     const context = parseContext(req.query as Record<string, unknown>);
-    const analysis = await getEndToEndAnalysis(db, from, to, context, parameters);
+    const analysis = await getEndToEndAnalysis(
+      db,
+      from,
+      to,
+      context,
+      parameterKeys,
+      attributeCodes,
+    );
     if (!analysis) {
       res.status(404).json({ error: "Nenhuma vigência importada ainda." });
       return;

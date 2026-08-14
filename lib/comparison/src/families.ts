@@ -416,3 +416,67 @@ export function placementOf(attributeCode: string | null): FamilyPlacement {
 export function mappedAttributeCodes(): string[] {
   return Object.keys(MAP);
 }
+
+/**
+ * Nomes de parâmetro → as chaves `FAMÍLIA|Parâmetro` que eles designam.
+ *
+ * Existe porque o catálogo do Freightech descreve cada cartão pelo **nome** do
+ * parâmetro — "Caminhão", "Pneu" — e não pela chave, que carrega a família e
+ * é invenção nossa. Sem esta tradução, o recorte de um cartão só podia ser
+ * montado a partir do que a vigência aberta trouxe, e um cartão que não se
+ * mexeu *naquele mês* ficava sem escopo nenhum: a análise de um intervalo
+ * inteiro respondia "este cartão não tem parâmetro alimentado pelo export"
+ * sobre uma gaveta que o export alimenta desde sempre.
+ *
+ * Um nome que o mapa não conhece **não some**: vira `SEM_FAMILIA|<nome>`, que
+ * é exatamente a chave que `placementOf` dá a um atributo desconhecido — é
+ * assim que os cartões que só existem aqui continuam recortando.
+ */
+export function parameterKeysOfNames(names: readonly string[]): string[] {
+  /*
+    Acento e caixa não separam gaveta nenhuma. O catálogo foi transcrito das
+    telas do Freightech e o dicionário saiu dos cabeçalhos da planilha; as duas
+    fontes escrevem "Caminhão" do mesmo jeito hoje, e no dia em que uma delas
+    escrever "CAMINHAO" o recorte não pode virar silêncio — silêncio aqui é um
+    cartão dizendo que o export não o alimenta.
+  */
+  const normalizar = (texto: string) =>
+    texto.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
+  const porNome = new Map<string, Set<string>>();
+  for (const [family, parameter] of Object.values(MAP)) {
+    const chave = normalizar(parameter);
+    const set = porNome.get(chave) ?? new Set<string>();
+    set.add(`${family}|${parameter}`);
+    porNome.set(chave, set);
+  }
+
+  return [...new Set(names)].flatMap((nome) => [
+    ...(porNome.get(normalizar(nome)) ?? new Set([`SEM_FAMILIA|${nome}`])),
+  ]);
+}
+
+/**
+ * O recorte de um cartão, nas duas formas em que um cartão se descreve.
+ *
+ * **Parâmetro** é a gaveta inteira: "Combustível" são as seis colunas de
+ * combustível, e o cartão é a gaveta. **Atributo** é a coluna: CAVALO e CARRETA
+ * são tabelas de inventário, e o cartão é a *lista de colunas* que a tela de lá
+ * mostra — setenta delas, espalhadas por dezenas de parâmetros nossos. Recortar
+ * só pela gaveta ali entregaria a fatia de uma tabela cujo cartão é a tabela.
+ *
+ * As duas listas se somam, nunca se cruzam: uma linha entra se cai no parâmetro
+ * **ou** se é uma das colunas. Nenhuma das duas → sem recorte, o universo
+ * inteiro, que é o que a visão geral pede.
+ */
+export function scopeFilter(
+  parameterKeys?: readonly string[],
+  attributeCodes?: readonly string[],
+): ((attributeCode: string | null) => boolean) | null {
+  const chaves = new Set(parameterKeys ?? []);
+  const codigos = new Set(attributeCodes ?? []);
+  if (chaves.size === 0 && codigos.size === 0) return null;
+  return (attributeCode) =>
+    (attributeCode !== null && codigos.has(attributeCode)) ||
+    chaves.has(placementOf(attributeCode).parameterKey);
+}

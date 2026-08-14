@@ -693,6 +693,9 @@ importers:
       '@workspace/curation':
         specifier: workspace:*
         version: link:../curation
+      '@workspace/knowledge':
+        specifier: workspace:*
+        version: link:../knowledge
       tsx:
         specifier: 'catalog:'
         version: 4.23.1

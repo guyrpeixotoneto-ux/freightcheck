@@ -57,6 +57,18 @@ import type { ChangeGroup } from "@/components/inicio/types";
  * cartão vazio é informação de auditoria; um cartão preenchido com dado alheio
  * é um erro que ninguém pega olhando.
  *
+ * **E o escopo sai do catálogo, não do mês.** Ele saía da vigência aberta na
+ * outra aba — a lista dos parâmetros que *se mexeram naquele mês* — e o preço
+ * disso era uma frase falsa: um cartão parado em agosto publicava "este cartão
+ * não tem parâmetro nenhum alimentado pelo export" e se recusava a analisar o
+ * intervalo inteiro, que é justamente o que esta aba existe para ler. No CAVALO
+ * havia um segundo erro embaixo do primeiro: o cartão de lá é uma **tabela** de
+ * setenta colunas, espalhadas por dezenas de gavetas nossas, e recortar por
+ * gaveta entregaria a fatia "chassi, ano, montadora, câmbio" de um assunto que
+ * inclui amortização, FINAME, manutenção e combustível. Agora o cartão manda ao
+ * servidor o que ele é — os nomes de parâmetro do catálogo e, quando é
+ * inventário, a lista de colunas —, e o servidor traduz.
+ *
  * **Duas leituras, e nenhuma deriva da outra.** MOVIMENTOS soma as transições
  * do caminho; PONTA A PONTA compara o estado das duas vigências. Um valor que
  * foi de 10 a 20 e voltou a 10 aparece na primeira como duas alterações e na
@@ -93,7 +105,7 @@ import type { ChangeGroup } from "@/components/inicio/types";
 
 export function AnaliseCartao({
   nomeDoCartao,
-  parametros,
+  escopo,
   contexto,
   periodo,
   de,
@@ -107,8 +119,21 @@ export function AnaliseCartao({
   temCartao,
 }: {
   nomeDoCartao: string;
-  /** Os nossos parâmetros por trás deste cartão. Vazio = sem dado no export. */
-  parametros: { key: string; name: string }[];
+  /**
+   * O que este cartão é, em duas listas — e nenhuma delas sai do mês aberto.
+   *
+   * `parametros` são os nomes do catálogo do Freightech ("Caminhão"); o
+   * servidor os traduz para as nossas chaves. `atributos` são as colunas, e
+   * existem porque CAVALO e CARRETA **são tabelas**: o cartão de lá é a lista
+   * de colunas da tela, não uma gaveta nossa, e recortar por gaveta ali
+   * entregava um pedaço do cartão como se fosse o cartão.
+   *
+   * As duas vazias = o export não alimenta este cartão de forma nenhuma, e aí a
+   * tela diz isso. Antes esta lista vinha da vigência aberta, e "não se mexeu
+   * em agosto" era publicado como "o export não alimenta este cartão" — sobre
+   * uma tabela de setenta colunas que chega em toda planilha.
+   */
+  escopo: { parametros: string[]; atributos: string[] };
   /** Unidade e canal. A vigência não entra: quem escolhe o intervalo é esta aba. */
   contexto: URLSearchParams;
   /** A vigência aberta na outra aba — a ponta final do intervalo. */
@@ -161,9 +186,15 @@ export function AnaliseCartao({
     caminhão conta em cada parâmetro que mudou. O conjunto de ativos distintos
     só existe no servidor.
   */
+  const temEscopo = escopo.parametros.length > 0 || escopo.atributos.length > 0;
   const recorte = new URLSearchParams(base);
-  if (!consolidado && parametros.length > 0) {
-    recorte.set("parameters", parametros.map((p) => p.key).join(","));
+  if (!consolidado && temEscopo) {
+    if (escopo.parametros.length > 0) {
+      recorte.set("parameterNames", escopo.parametros.join(","));
+    }
+    if (escopo.atributos.length > 0) {
+      recorte.set("attributes", escopo.atributos.join(","));
+    }
   }
 
   const movimentos = useQuery({
@@ -183,7 +214,7 @@ export function AnaliseCartao({
   const ponta = useQuery({
     queryKey: ["ponta-a-ponta", recorte.toString()],
     queryFn: async () => buscar<PontaAPonta>(`/changes/end-to-end?${recorte}`),
-    enabled: consolidado || parametros.length > 0,
+    enabled: consolidado || temEscopo,
   });
 
   if (movimentos.isLoading) {
@@ -228,6 +259,14 @@ export function AnaliseCartao({
         carregandoPonta={ponta.isLoading}
       />
 
+      {!consolidado && escopo.atributos.length > 0 && (
+        <EscopoDeColunas
+          nome={nomeDoCartao}
+          colunas={escopo.atributos.length}
+          leitura={leitura}
+        />
+      )}
+
       {mov.from === mov.to ? (
         /*
           As duas pontas iguais não são um intervalo. Antes isto tinha resposta
@@ -240,7 +279,7 @@ export function AnaliseCartao({
           As duas pontas são a mesma vigência. Não há intervalo entre{" "}
           {mov.fromLabel} e ela mesma — escolha uma vigência inicial anterior.
         </div>
-      ) : !consolidado && parametros.length === 0 ? (
+      ) : !consolidado && !temEscopo ? (
         <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm">
           Este cartão não tem parâmetro nenhum alimentado pelo export, e por isso não
           há alteração para analisar. A aba Freightech continua mostrando o que a
@@ -421,7 +460,56 @@ function ExplicacaoDaLeitura({
   );
 }
 
-function Lacunas({ gaps }: { gaps: { label: string; reason: string }[] }) {
+/**
+ * O escopo do cartão, quando o cartão é uma tabela e não uma gaveta.
+ *
+ * CAVALO e CARRETA no Freightech são inventários: a placa à esquerda e dezenas
+ * de colunas ao lado. O escopo desta aba ali é **a lista de colunas da tela de
+ * lá** — a mesma que a aba Freightech desenha — e não o punhado de colunas que
+ * o nosso dicionário chama de "Caminhão". Dizer isso na tela é obrigatório por
+ * uma razão de auditoria: essas colunas também aparecem nos cartões das gavetas
+ * (a amortização está aqui e em Depreciação), então o mesmo dinheiro é contado
+ * nos dois — corretamente, porque são duas telas de lá — e somar cartão com
+ * cartão contaria duas vezes.
+ */
+function EscopoDeColunas({
+  nome,
+  colunas,
+  leitura,
+}: {
+  nome: string;
+  colunas: number;
+  leitura: "movimentos" | "ponta";
+}) {
+  return (
+    <p className="text-xs text-muted-foreground flex gap-2 max-w-3xl -mt-6">
+      <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+      <span>
+        <strong className="text-foreground">O escopo é a tabela {nome}.</strong>{" "}
+        {leitura === "movimentos" ? "Somam-se" : "Comparam-se"} as {colunas} colunas
+        que a aba Freightech mostra, e nada além delas. Algumas também são o assunto
+        de outros cartões — a amortização está aqui e em Depreciação —, então contam
+        nos dois: este total não deve ser somado ao de outro cartão.
+      </span>
+    </p>
+  );
+}
+
+/**
+ * As vigências do intervalo sem comparação calculada.
+ *
+ * Quando **nenhuma** tem, esta leitura não tem o que somar — e a outra tem: a
+ * ponta a ponta não lê `change_set`, compara os dois retratos na hora. Mandar
+ * para lá é a diferença entre uma tela que parece dizer "não mudou nada" e uma
+ * que diz onde a resposta está.
+ */
+function Lacunas({
+  gaps,
+  semNenhumaComparacao,
+}: {
+  gaps: { label: string; reason: string }[];
+  semNenhumaComparacao: boolean;
+}) {
   return (
     <div className="bg-card border border-l-[6px] border-l-brand-red px-6 py-4 text-sm">
       <p className="font-medium flex items-center gap-2">
@@ -434,6 +522,16 @@ function Lacunas({ gaps }: { gaps: { label: string; reason: string }[] }) {
       <p className="text-muted-foreground mt-1">
         {gaps.map((g) => g.label).join(", ")} — {gaps[0].reason}
       </p>
+      {semNenhumaComparacao && (
+        <p className="text-muted-foreground mt-2">
+          Nenhuma vigência do intervalo tem comparação calculada, então esta leitura
+          não tem movimento nenhum para somar — os zeros abaixo são a ausência da
+          comparação, e não a ausência de alteração.{" "}
+          <strong className="text-foreground">Ponta a ponta</strong> continua
+          respondendo: ela compara os dois retratos na hora, sem depender de
+          comparação gravada.
+        </p>
+      )}
     </div>
   );
 }
@@ -495,7 +593,9 @@ function LeituraMovimentos({
         aviso ali diria que o dado de partida está faltando quando ele é
         justamente o que sustenta a comparação.
       */}
-      {mov.gaps.length > 0 && <Lacunas gaps={mov.gaps} />}
+      {mov.gaps.length > 0 && (
+        <Lacunas gaps={mov.gaps} semNenhumaComparacao={mov.totals.comparisons === 0} />
+      )}
 
       <Resumo
         titulo={`${mov.fromLabel} → ${mov.toLabel}`}

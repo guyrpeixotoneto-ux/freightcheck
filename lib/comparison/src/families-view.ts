@@ -5,6 +5,7 @@ import {
   FAMILIES,
   FAMILY_ORDER,
   placementOf,
+  scopeFilter,
   type FamilyCode,
 } from "./families";
 import {
@@ -392,6 +393,16 @@ export async function getRangeAnalysis(
    * O conjunto de ativos distintos só existe aqui.
    */
   parameterKeys?: string[],
+  /**
+   * Recorte do cartão pela **coluna**, quando o cartão é uma tabela.
+   *
+   * CAVALO e CARRETA no Freightech são inventários: uma linha por ativo e
+   * dezenas de colunas, que no nosso dicionário caem em dezenas de parâmetros
+   * diferentes. Recortar por parâmetro ali entregaria uma fatia de um cartão
+   * cujo escopo é a tabela inteira. Soma-se ao recorte por parâmetro; nunca o
+   * substitui.
+   */
+  attributeCodes?: string[],
 ): Promise<RangeAnalysis | null> {
   const contexts = await listContexts(db);
   const context = await resolveContext(db, requestedContext, contexts);
@@ -460,12 +471,10 @@ export async function getRangeAnalysis(
     todasAsLinhas.map((r) => ({ entityId: r.entity_id, attributeCode: r.attribute_code })),
   );
 
-  const rows =
-    parameterKeys && parameterKeys.length > 0
-      ? todasAsLinhas.filter((r) =>
-          parameterKeys.includes(placementOf(r.attribute_code).parameterKey),
-        )
-      : todasAsLinhas;
+  const noEscopo = scopeFilter(parameterKeys, attributeCodes);
+  const rows = noEscopo
+    ? todasAsLinhas.filter((r) => noEscopo(r.attribute_code))
+    : todasAsLinhas;
 
   const periodoDoSet = new Map(sets.map((s) => [s.change_set_id, s.period]));
   const fleetByChangeSet = new Map(sets.map((s) => [s.change_set_id, s.fleet]));

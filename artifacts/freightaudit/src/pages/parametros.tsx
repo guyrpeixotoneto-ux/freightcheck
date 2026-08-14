@@ -425,7 +425,7 @@ function VisaoGeral({
         <AnaliseCartao
           consolidado
           nomeDoCartao="Remuneração total"
-          parametros={[]}
+          escopo={{ parametros: [], atributos: [] }}
           contexto={contexto}
           periodo={period || null}
           de={de}
@@ -456,8 +456,23 @@ interface CartaoRender {
   secao: string;
   /** De onde vem a gaveta: do Freightech ou nossa. */
   origem: "FREIGHTECH" | "FREIGHTCHECK";
-  /** Os nossos parâmetros por trás deste cartão. Vazio = sem dado no export. */
+  /**
+   * Os nossos parâmetros por trás deste cartão **nesta vigência**.
+   *
+   * Vazio quer dizer "não se mexeu neste mês", e não "o export não alimenta
+   * este cartão": a lista sai do que a vigência aberta trouxe. Quem responde a
+   * segunda pergunta é `escopo`, que vem do catálogo e não do mês.
+   */
   parametros: ParameterView[];
+  /**
+   * O que este cartão **é**, independente de mês — o recorte que a aba Análise
+   * manda para o servidor.
+   *
+   * Sai do catálogo, e por isso continua de pé numa vigência em que o cartão
+   * não se mexeu: a Análise lê um intervalo, e um intervalo não tem por que
+   * ficar mudo porque o último mês ficou parado.
+   */
+  escopo: { parametros: string[]; atributos: string[] };
   /** Colunas do export que são este cartão — o caminho do cadastro. */
   atributos: string[];
   /** As colunas que o Freightech mostra nesta tela, quando já conferidas. */
@@ -527,6 +542,10 @@ function montarSecoes(view: FamiliesView | null): SecaoRender[] {
         secao: secao.titulo,
         origem: "FREIGHTECH" as const,
         parametros,
+        escopo: {
+          parametros: cartao.parametros ?? [],
+          atributos: cartao.atributos ?? [],
+        },
         atributos: cartao.atributos ?? [],
         colunas: cartao.colunas ?? null,
         formulario: cartao.formulario ?? null,
@@ -573,6 +592,7 @@ function montarSecoes(view: FamiliesView | null): SecaoRender[] {
         secao: familia.name,
         origem: "FREIGHTCHECK" as const,
         parametros: [parametro],
+        escopo: { parametros: [parametro.name], atributos: [] },
         atributos: [],
         colunas: null,
         formulario: null,
@@ -1434,7 +1454,7 @@ function DetalheCartao({
         <div className="mt-6">
           <AnaliseCartao
             nomeDoCartao={cartao.nome}
-            parametros={cartao.parametros}
+            escopo={cartao.escopo}
             contexto={contexto}
             periodo={period || null}
             de={de}

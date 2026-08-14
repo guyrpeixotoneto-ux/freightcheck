@@ -311,6 +311,94 @@ describe("o recorte do cartão", () => {
   });
 });
 
+/**
+ * O cartão que é uma tabela.
+ *
+ * CAVALO e CARRETA no Freightech são inventários: uma linha por ativo e dezenas
+ * de colunas ao lado. O escopo deles é a **lista de colunas** da tela de lá, e
+ * essas colunas caem em dezenas de parâmetros nossos — recortar por parâmetro
+ * entregava a fatia "Caminhão" (chassi, ano, montadora, câmbio) de um cartão
+ * cujo assunto inclui amortização, FINAME, manutenção e combustível. Era por
+ * isso que a aba Análise do CAVALO dizia "este cartão não tem parâmetro nenhum
+ * alimentado pelo export" sobre uma tabela de setenta colunas.
+ */
+describe("o recorte por coluna", () => {
+  const COLUNAS_DO_CARTAO_CAVALO = [
+    "cavalo.amortizacao_cavalo",
+    "cavalo.finame_cavalo",
+    "cavalo.manutencao_reais_km",
+    "cavalo.combustivel_consumo_neg",
+    "cavalo.chassi",
+  ];
+
+  it("traz as colunas pedidas, e nenhuma outra", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const parte = (await getRangeAnalysis(
+      ctx.db,
+      periodos[periodos.length - 1].effective_date,
+      periodos[0].effective_date,
+      undefined,
+      [],
+      COLUNAS_DO_CARTAO_CAVALO,
+    ))!;
+
+    expect(parte.entries.length).toBeGreaterThan(0);
+    for (const entrada of parte.entries) {
+      expect(COLUNAS_DO_CARTAO_CAVALO).toContain(entrada.attributeCode);
+    }
+
+    /*
+      A prova de que a coluna alcança o que o parâmetro não alcançava: as cinco
+      colunas moram em parâmetros diferentes, e o recorte devolve todos eles.
+      Recortando por "FROTA|Caminhão" só uma delas apareceria.
+    */
+    const parametros = new Set(parte.entries.map((e) => e.parameterKey));
+    expect(parametros.size).toBeGreaterThan(1);
+  });
+
+  it("coluna e parâmetro se somam, e o recorte nunca escapa do cartão", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const inicio = periodos[periodos.length - 1].effective_date;
+    const fim = periodos[0].effective_date;
+    const chave = "GERAL|Índice de reajuste";
+
+    const juntos = (await getRangeAnalysis(ctx.db, inicio, fim, undefined, [chave], [
+      "cavalo.amortizacao_cavalo",
+    ]))!;
+    const soParametro = (await getRangeAnalysis(ctx.db, inicio, fim, undefined, [chave]))!;
+    const soColuna = (await getRangeAnalysis(ctx.db, inicio, fim, undefined, [], [
+      "cavalo.amortizacao_cavalo",
+    ]))!;
+
+    expect(juntos.totals.changes).toBe(
+      soParametro.totals.changes + soColuna.totals.changes,
+    );
+    for (const entrada of juntos.entries) {
+      const daColuna = entrada.attributeCode === "cavalo.amortizacao_cavalo";
+      expect(daColuna || entrada.parameterKey === chave).toBe(true);
+    }
+  });
+
+  it("ponta a ponta lê o mesmo recorte de colunas", async () => {
+    const periodos = await listPeriods(ctx.db);
+    const pontas = (await getEndToEndAnalysis(
+      ctx.db,
+      periodos[periodos.length - 1].effective_date,
+      periodos[0].effective_date,
+      undefined,
+      [],
+      COLUNAS_DO_CARTAO_CAVALO,
+    ))!;
+
+    for (const entrada of pontas.entries) {
+      expect(COLUNAS_DO_CARTAO_CAVALO).toContain(entrada.attributeCode);
+    }
+    for (const revertido of pontas.reverted) {
+      expect(COLUNAS_DO_CARTAO_CAVALO).toContain(revertido.attributeCode);
+    }
+  });
+});
+
 describe("ponta a ponta", () => {
   it("uma vigência contra ela mesma não tem diferença nenhuma", async () => {
     const periodos = await listPeriods(ctx.db);
