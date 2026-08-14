@@ -13,6 +13,7 @@ import {
   MAX_TEXT_CHARS,
   contentDisposition,
   decodeBookEntry,
+  faltaOSchemaDoBook,
   formatarBytes,
   nomeDeTexto,
 } from "../book";
@@ -302,6 +303,44 @@ describe("decodeBookEntry — o que vale para os dois tipos", () => {
     */
     expect(comoTexto.value.contentSha256).toBe(comoArquivo.value.contentSha256);
     expect(comoTexto.value.kind).not.toBe(comoArquivo.value.kind);
+  });
+});
+
+/**
+ * O erro que não é sobre o arquivo.
+ *
+ * Um .docx perfeito voltou com "Internal server error" porque a tabela do Book
+ * não existia naquele banco — a migration que a cria não tinha rodado. A frase
+ * mandava procurar defeito no envio; a causa estava a um `pnpm migrate` de
+ * distância. Reconhecer o SQLSTATE é o que permite responder isso.
+ */
+describe("faltaOSchemaDoBook", () => {
+  it("reconhece tabela e tipo inexistentes, que é o mesmo diagnóstico", () => {
+    // 42P01: relação inexistente (a tabela book_entry).
+    expect(faltaOSchemaDoBook(Object.assign(new Error(), { code: "42P01" }))).toBe(true);
+    // 42704: objeto inexistente (o enum book_entry_kind).
+    expect(faltaOSchemaDoBook(Object.assign(new Error(), { code: "42704" }))).toBe(true);
+  });
+
+  it("acha o código dentro do erro que o drizzle embrulha", () => {
+    // É assim que ele chega de verdade: `DrizzleQueryError` por fora, com a
+    // consulta e os parâmetros, e o erro do `pg` — o que tem o SQLSTATE — em
+    // `cause`. Olhar só a superfície faria toda falha de banco virar 500.
+    const embrulhado = Object.assign(new Error("Failed query: select …"), {
+      cause: Object.assign(new Error('relation "book_entry" does not exist'), {
+        code: "42P01",
+      }),
+    });
+
+    expect(faltaOSchemaDoBook(embrulhado)).toBe(true);
+  });
+
+  it("não confunde com o que é mesmo erro de gravação", () => {
+    // 23505 é a corrida de duas revisões — tem resposta própria, e um 503 de
+    // "faltam migrations" ali mandaria recarregar a página sem motivo.
+    expect(faltaOSchemaDoBook(Object.assign(new Error(), { code: "23505" }))).toBe(false);
+    expect(faltaOSchemaDoBook(new Error("qualquer outra coisa"))).toBe(false);
+    expect(faltaOSchemaDoBook(undefined)).toBe(false);
   });
 });
 

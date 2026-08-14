@@ -1,7 +1,9 @@
 import { Router, type IRouter } from "express";
 import { sql } from "drizzle-orm";
 import { db } from "@workspace/db";
+import { appliedMigrations } from "@workspace/db/migrate";
 import { HealthCheckResponse } from "@workspace/api-zod";
+import { expectedMigrations, relatorioDaPartida } from "../lib/migrations";
 
 /**
  * Saúde do processo, e — o que faltava — do que ele enxerga do banco.
@@ -17,12 +19,39 @@ import { HealthCheckResponse } from "@workspace/api-zod";
  */
 const router: IRouter = Router();
 
+/**
+ * Quais migrations este banco tem, e quais este build esperava encontrar.
+ *
+ * `migrated` sozinho respondia por uma tabela só, criada na primeira migration
+ * de todas — e por isso dizia "sim" num banco a que faltavam as cinco últimas.
+ * Uma tela que dependesse de uma delas recebia 500, e o diagnóstico apontava
+ * para a tela. Aqui a pergunta é a certa: **quais faltam.**
+ *
+ * O nome da migration atravessa (ele está no repositório, não revela nada) e o
+ * SQLSTATE da falha também. A mensagem do driver, não: ela carrega host,
+ * usuário e às vezes a linha que falhou, e este endpoint é público. A mensagem
+ * inteira vai para o log do processo, onde já estava.
+ */
+export interface MigrationHealth {
+  /** Quantas migrations este build carrega. */
+  expected: number;
+  /** Quantas o banco tem registradas. */
+  applied: number;
+  /** As que faltam, pelo nome, na ordem em que precisam entrar. */
+  pending: string[];
+  /** Onde a última tentativa deste processo parou, se parou. */
+  failure?: { tag: string; code?: string };
+}
+
 export interface DatabaseHealth {
   /** A variável chegou ao processo. Nunca dizemos o que tem dentro dela. */
   configured: boolean;
   reachable: boolean;
-  /** O schema existe: migrations aplicadas neste banco. */
+  /** O schema existe: a primeira migration rodou neste banco. */
   migrated: boolean;
+  /** Todas as migrations deste build estão aplicadas — o estado que importa. */
+  upToDate?: boolean;
+  migrations?: MigrationHealth;
   /** Código da falha, quando há. Código, nunca a mensagem — ver abaixo. */
   code?: string;
   detail: string;
@@ -53,11 +82,38 @@ function explain(code: string | undefined): string {
 }
 
 /**
+ * A pendência dita de um jeito que diz o que fazer.
+ *
+ * Nomear as migrations que faltam é o ponto: "faltam 2" manda procurar; "faltam
+ * 0008_book_entries e 0009_…" já diz qual tela vai responder erro e o que
+ * precisa rodar para ela voltar.
+ */
+function descreverPendencia(migrations: MigrationHealth): string {
+  const uma = migrations.pending.length === 1;
+  const quantas = uma
+    ? "1 migration não foi aplicada"
+    : `${migrations.pending.length} migrations não foram aplicadas`;
+
+  const parou = migrations.failure
+    ? ` A tentativa parou em ${migrations.failure.tag}` +
+      (migrations.failure.code
+        ? ` (SQLSTATE ${migrations.failure.code}).`
+        : ".") +
+      " O log do servidor tem a mensagem inteira."
+    : "";
+
+  return (
+    `Conectado, mas ${quantas} neste banco: ${migrations.pending.join(", ")}. ` +
+    `As telas que dependem ${uma ? "dela respondem erro até que ela rode" : "delas respondem erro até que rodem"}.${parou}`
+  );
+}
+
+/**
  * @param probe  pergunta ao banco se o schema está lá; separado da rota para
  *               os testes poderem exercitar cada desfecho sem um banco real.
  */
 export async function describeDatabase(
-  probe: () => Promise<{ migrated: boolean }>,
+  probe: () => Promise<{ migrated: boolean; migrations?: MigrationHealth }>,
   databaseUrl: string | undefined = process.env["DATABASE_URL"],
 ): Promise<DatabaseHealth> {
   if (!databaseUrl) {
@@ -72,14 +128,20 @@ export async function describeDatabase(
   }
 
   try {
-    const { migrated } = await probe();
+    const { migrated, migrations } = await probe();
+    const pendentes = migrations?.pending ?? [];
+    const upToDate = migrated && pendentes.length === 0;
     return {
       configured: true,
       reachable: true,
       migrated,
-      detail: migrated
-        ? "Conectado, com o schema aplicado."
-        : "Conectado, mas o schema não existe neste banco — faltam migrations.",
+      upToDate,
+      ...(migrations ? { migrations } : {}),
+      detail: !migrated
+        ? "Conectado, mas o schema não existe neste banco — faltam migrations."
+        : upToDate
+          ? "Conectado, com o schema aplicado."
+          : descreverPendencia(migrations!),
     };
   } catch (err) {
     const code =
@@ -110,10 +172,49 @@ router.get("/healthz", async (_req, res) => {
     const result = await db.execute<{ migrated: boolean }>(
       sql`select to_regclass('public.import_run') is not null as migrated`,
     );
-    return { migrated: Boolean(result.rows[0]?.migrated) };
+    const migrated = Boolean(result.rows[0]?.migrated);
+    return { migrated, migrations: await pesquisarMigrations(migrated) };
   });
   res.json({ ...base, database });
 });
+
+/**
+ * O que o banco tem, comparado ao que este build carrega.
+ *
+ * A lista de aplicadas vem do banco a cada chamada, e não do que este processo
+ * fez na partida: quem migrou pode ter sido outra instância, ou uma pessoa pela
+ * linha de comando, e a resposta precisa valer para agora. O relatório da
+ * partida entra só para dizer *onde parou* — informação que o banco não guarda.
+ */
+async function pesquisarMigrations(
+  migrated: boolean,
+): Promise<MigrationHealth> {
+  const esperadas = expectedMigrations();
+  const relatorio = relatorioDaPartida();
+
+  // Num banco vazio a tabela de registro também não existe, e perguntar por ela
+  // devolveria um erro que `describeDatabase` leria como "o banco caiu".
+  const aplicadas = migrated
+    ? new Set<number>(await appliedMigrations(db))
+    : new Set<number>();
+  const pending = esperadas
+    .filter((migration) => !aplicadas.has(migration.when))
+    .map((migration) => migration.tag);
+
+  return {
+    expected: esperadas.length,
+    applied: esperadas.length - pending.length,
+    pending,
+    ...(relatorio?.failure
+      ? {
+          failure: {
+            tag: relatorio.failure.tag,
+            ...(relatorio.failure.code ? { code: relatorio.failure.code } : {}),
+          },
+        }
+      : {}),
+  };
+}
 
 const startedAt = new Date().toISOString();
 

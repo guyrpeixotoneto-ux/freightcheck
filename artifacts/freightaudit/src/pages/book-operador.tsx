@@ -109,6 +109,14 @@ export default function BookOperador() {
   const comRegra = BLOCOS_BOOK.filter((b) =>
     porBloco.has(chaveDoBloco(b)),
   ).length;
+  /*
+    Quantos têm o documento, e não só a regra. É o número que o cartão passou a
+    destacar — sem ele aqui em cima, a grade mostraria seis cartões verdes por
+    página sem que ninguém soubesse quantos são no total.
+  */
+  const comDocumento = BLOCOS_BOOK.filter(
+    (b) => porBloco.get(chaveDoBloco(b))?.kind === "DOCUMENTO",
+  ).length;
 
   return (
     <Layout>
@@ -154,7 +162,14 @@ export default function BookOperador() {
                 <strong>
                   {comRegra} de {BLOCOS_BOOK.length}
                 </strong>{" "}
-                blocos com regra registrada.
+                blocos com regra registrada
+                {comDocumento > 0 && (
+                  <>
+                    , {comDocumento} com documento anexado — régua verde e clipe
+                    no cartão
+                  </>
+                )}
+                .
               </>
             )}{" "}
             {/*

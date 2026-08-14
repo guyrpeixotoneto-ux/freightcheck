@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Response } from "express";
 import { desc, eq, sql } from "drizzle-orm";
-import { db, bookEntryTable } from "@workspace/db";
+import { db, bookEntryTable, codigoDoPostgres } from "@workspace/db";
 
 /**
  * Book do Operador — a regra de cada bloco, escrita ou anexada.
@@ -402,7 +402,7 @@ router.get("/book/entries", async (req, res): Promise<void> => {
     res.json(linhas);
   } catch (err) {
     req.log.error({ err }, "Error listing book entries");
-    res.status(500).json({ error: "Internal server error" });
+    responderFalha(res, err);
   }
 });
 
@@ -432,7 +432,7 @@ router.get("/book/entries/history", async (req, res): Promise<void> => {
     res.json(linhas);
   } catch (err) {
     req.log.error({ err }, "Error listing book entry history");
-    res.status(500).json({ error: "Internal server error" });
+    responderFalha(res, err);
   }
 });
 
@@ -530,7 +530,7 @@ router.post("/book/entries", async (req, res): Promise<void> => {
       return;
     }
     req.log.error({ err }, "Error storing book entry");
-    res.status(500).json({ error: "Internal server error" });
+    responderFalha(res, err);
   }
 });
 
@@ -597,16 +597,50 @@ router.get("/book/entries/:id/content", async (req, res): Promise<void> => {
     res.send(bytes);
   } catch (err) {
     req.log.error({ err }, "Error reading book entry content");
-    res.status(500).json({ error: "Internal server error" });
+    responderFalha(res, err);
   }
 });
 
 function isUniqueViolation(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    (err as { code?: unknown }).code === "23505"
-  );
+  return codigoDoPostgres(err) === "23505";
+}
+
+/**
+ * O erro que diz "a tabela deste recurso não existe neste banco".
+ *
+ * `42P01` é relação inexistente e `42704` é objeto inexistente — o segundo pega
+ * o `book_entry_kind`, que é um tipo e não uma tabela. Os dois significam a
+ * mesma coisa aqui: a migration `0008_book_entries` não rodou neste banco.
+ */
+export function faltaOSchemaDoBook(err: unknown): boolean {
+  const code = codigoDoPostgres(err);
+  return code === "42P01" || code === "42704";
+}
+
+/**
+ * A resposta de um erro inesperado — separando o que é defeito do que é banco
+ * desatualizado.
+ *
+ * "Internal server error" foi o que esta rota respondeu a um envio de documento
+ * num banco onde a tabela do Book não existia. A frase manda procurar no lugar
+ * errado: ela sugere um defeito no envio, quando o arquivo estava perfeito e o
+ * que faltava era uma migration. Agora a diferença aparece no status (503, e
+ * não 500 — é indisponibilidade temporária, não erro do pedido) e na frase, que
+ * diz o que rodar e para onde olhar.
+ */
+function responderFalha(res: Response, err: unknown): void {
+  if (faltaOSchemaDoBook(err)) {
+    res.status(503).json({
+      error:
+        "O Book do Operador não tem onde guardar neste banco: a tabela que a " +
+        "migration 0008_book_entries cria não existe aqui. Não é o seu arquivo " +
+        "— nada chegou a ser gravado, e nada se perdeu. /api/healthz diz quais " +
+        "migrations faltam.",
+      code: "SCHEMA_AUSENTE",
+    });
+    return;
+  }
+  res.status(500).json({ error: "Internal server error" });
 }
 
 export default router;
