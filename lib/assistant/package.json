@@ -13,11 +13,15 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "catalog:",
+    "@workspace/balance": "workspace:*",
     "@workspace/comparison": "workspace:*",
+    "@workspace/composition": "workspace:*",
     "@workspace/curation": "workspace:*",
     "@workspace/db": "workspace:*",
+    "@workspace/ingest": "workspace:*",
+    "@workspace/knowledge": "workspace:*",
     "drizzle-orm": "catalog:",
-    "@workspace/knowledge": "workspace:*"
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "catalog:",

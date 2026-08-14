@@ -33,6 +33,8 @@ export interface ChangeGroup {
   changeType: string;
   category: string;
   comparability: string;
+  /** Linhas de alteração no grupo. Não confundir com `vehicles`. */
+  changes: number;
   vehicles: number;
   fleet: number;
   coverage: "TOTAL" | "MAIORIA" | "PARCIAL";
@@ -67,6 +69,8 @@ export interface ChangeGroup {
     excludedReason: string | null;
   };
   natures: string[];
+  /** As naturezas como o motor as registrou — `ZEROING`, `TYPE_CHANGE`… */
+  natureCodes: string[];
   semanticsStatus: string | null;
   semanticsLabel: string;
   unit: string | null;
@@ -132,6 +136,94 @@ export interface GroupedView {
     to: string | null;
   };
   groups: ChangeGroup[];
+  /** A leitura executiva sobre estes mesmos grupos — espelha `lib/comparison/src/cockpit.ts`. */
+  cockpit: CockpitView;
+}
+
+// ---------------------------------------------------------------------------
+// Cockpit — espelho de `lib/comparison/src/cockpit.ts`
+// ---------------------------------------------------------------------------
+
+export type Severity = "CRITICO" | "ALTO" | "MEDIO" | "BAIXO";
+
+export interface PriorityReason {
+  label: string;
+  points: number;
+}
+
+export interface PriorityItem {
+  rank: number;
+  /** A chave do grupo correspondente em `GroupedView.groups`. */
+  key: string;
+  severity: Severity;
+  score: number;
+  reasons: PriorityReason[];
+  diagnosis: string;
+  patternsSummary: string | null;
+  sharePercent: number | null;
+  shareLabel: string;
+  hasImpact: boolean;
+  hasAnomaly: boolean;
+}
+
+export interface SeverityBucket {
+  severity: Severity;
+  label: string;
+  groups: number;
+  changes: number;
+}
+
+export interface BadgeBucket {
+  badge: Badge;
+  label: string;
+  groups: number;
+  changes: number;
+}
+
+export interface EquipmentBucket {
+  entityType: string | null;
+  equipment: string;
+  groups: number;
+  changes: number;
+  fleet: number | null;
+}
+
+export interface PricingSummary {
+  calculatedChanges: number;
+  excludedChanges: number;
+  notCalculableChanges: number;
+  lockedGroups: number;
+  reasons: { reason: string; groups: number; changes: number }[];
+}
+
+export interface CockpitView {
+  kpis: {
+    changes: number;
+    parameters: number;
+    attention: number;
+    vehicles: number;
+    fleet: number;
+    impact: ImpactSummary;
+    hasImpact: boolean;
+    anomalies: { groups: number; changes: number };
+  };
+  /** Se esta vigência tem anterior com que comparar. */
+  baseline: { hasBaseline: boolean; seriesWithoutBaseline: string[] };
+  narrative: { headline: string; sentences: string[] };
+  panorama: {
+    bySeverity: SeverityBucket[];
+    byBadge: BadgeBucket[];
+    byEquipment: EquipmentBucket[];
+    pricing: PricingSummary;
+  };
+  priorities: PriorityItem[];
+  history: {
+    comparisons: number;
+    from: string | null;
+    to: string | null;
+    byPeriodicity: Record<string, number>;
+    sufficient: boolean;
+  };
 }
 
 /**

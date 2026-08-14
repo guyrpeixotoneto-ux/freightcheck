@@ -97,3 +97,30 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
   // API vêm; várias rotas devolvem lista, e a conversão passa por `unknown`.
   return body as unknown as T;
 }
+
+/**
+ * GET numa rota que responde 404 quando ainda não existe o que mostrar.
+ *
+ * Várias telas leem rotas em que "nenhuma vigência importada ainda" chega como
+ * 404 com `{"error": …}` — vazio de conteúdo, não falha. Elas escreviam a mesma
+ * sequência à mão (`fetch`, `status === 404`, `.json()`), e a mão trazia junto
+ * o defeito que `readJson` existe para evitar: quando a resposta não é nossa —
+ * 502 sem corpo do roteador com ninguém atrás de `/api` — `.json()` estoura com
+ * "Unexpected end of JSON input", e a tela acusa um formato inválido de um
+ * servidor que não chegou a responder.
+ *
+ * O vazio continua vazio (`null`), e só ele: um 404 sem o nosso corpo JSON não
+ * é "ainda não importaram", é o roteador não achando a rota — esse sobe como
+ * falha, com `readJson` dizendo de que lado o defeito está.
+ */
+export async function fetchJsonOrNull<T>(
+  path: string,
+  init?: RequestInit,
+): Promise<T | null> {
+  try {
+    return await fetchJson<T>(path, init);
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 404) return null;
+    throw err;
+  }
+}

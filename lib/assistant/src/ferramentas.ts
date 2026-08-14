@@ -36,6 +36,7 @@ import {
   type ContextInfo,
   type SeriesContext,
 } from "@workspace/comparison";
+import { getVisaoDeFrota } from "@workspace/composition";
 import {
   INTEIRO,
   cobertura,
@@ -46,6 +47,8 @@ import {
   trecho,
 } from "./formato";
 import type { Alvo } from "./parametros";
+import { extrairAnexo } from "./anexos";
+import { normalizar } from "./normalizar";
 
 // ── O formato de toda evidência ─────────────────────────────────────────────
 
@@ -801,6 +804,42 @@ interface EntradaDoBook extends Record<string, unknown> {
   createdAt: Date;
 }
 
+/**
+ * O bloco que este termo nomeia — **uma** regra, e não duas.
+ *
+ * Quem lê a regra e quem abre o arquivo do bloco precisam concordar sobre qual
+ * bloco a pergunta nomeou, e essa concordância não pode depender de duas
+ * implementações parecidas. Era exatamente o que havia aqui: `regraDoBook`
+ * casava o título nos dois sentidos ("QLP ADM" está contido em "qlp adm de
+ * camaçari") e `anexoDoBook` exigia que a chave do banco contivesse a frase
+ * inteira. O efeito não era erro em lugar nenhum — era a resposta dizer que o
+ * bloco tem documento anexado e o documento não ir junto, que é a forma mais
+ * silenciosa de o assistente parecer incapaz de ler o que ele tem em mãos.
+ *
+ * **O título mais longo vence.** "DESCONTO QLP ADM" e "QLP ADM" casam os dois
+ * quando a pergunta escreve o primeiro; devolver o mais curto responderia sobre
+ * o bloco vizinho, com o nome certo no título e a regra errada no corpo.
+ */
+export function blocoQueOTermoNomeia<
+  T extends { blockTitle: string; blockCategory: string },
+>(entradas: T[], termo: string): T | null {
+  const alvo = normalizar(termo).trim();
+  if (!alvo) return null;
+
+  const candidatos = entradas.filter((e) => {
+    const titulo = normalizar(e.blockTitle);
+    return (
+      titulo.includes(alvo) ||
+      alvo.includes(titulo) ||
+      normalizar(`${e.blockCategory} ${e.blockTitle}`).includes(alvo)
+    );
+  });
+
+  return (
+    candidatos.sort((a, b) => b.blockTitle.length - a.blockTitle.length)[0] ?? null
+  );
+}
+
 async function entradasVigentes(db: Database): Promise<EntradaDoBook[]> {
   const { rows } = await db.execute<EntradaDoBook>(sql`
     SELECT DISTINCT ON (block_key)
@@ -814,6 +853,19 @@ async function entradasVigentes(db: Database): Promise<EntradaDoBook[]> {
   return rows;
 }
 
+/** O que o chamador já sabe sobre o arquivo do bloco quando pede a regra. */
+export interface ComoOArquivoChegou {
+  /**
+   * O documento do bloco acompanha esta pergunta.
+   *
+   * Muda a ressalva, e a ressalva é uma afirmação sobre o que o assistente fez
+   * — não uma fórmula de cortesia. Dizer "não transcrevo documento que não li"
+   * com o documento aberto ao lado é declarar uma incapacidade que não existe,
+   * e foi o que esta resposta fazia toda vez que o anexo entrava.
+   */
+  documentoLido?: boolean;
+}
+
 /**
  * A regra registrada de um bloco.
  *
@@ -824,15 +876,10 @@ async function entradasVigentes(db: Database): Promise<EntradaDoBook[]> {
 export async function regraDoBook(
   db: Database,
   termo: string,
+  arquivo: ComoOArquivoChegou = {},
 ): Promise<Evidencia | null> {
   const entradas = await entradasVigentes(db);
-  const alvo = termo.toLowerCase();
-  const achado = entradas.find(
-    (e) =>
-      e.blockTitle.toLowerCase().includes(alvo) ||
-      alvo.includes(e.blockTitle.toLowerCase()) ||
-      `${e.blockCategory} ${e.blockTitle}`.toLowerCase().includes(alvo),
-  );
+  const achado = blocoQueOTermoNomeia(entradas, termo);
   if (!achado) return null;
 
   const [{ total }] = await db
@@ -869,8 +916,90 @@ export async function regraDoBook(
     origem: `book_entry · bloco "${achado.blockKey}" · revisão ${achado.revision}`,
     tela: { label: "Book do Operador", href: "/book-operador" },
     nota:
-      achado.kind === "DOCUMENTO"
-        ? "A regra está no arquivo anexado. Este assistente não transcreve documento que não leu."
+      achado.kind !== "DOCUMENTO"
+        ? undefined
+        : arquivo.documentoLido
+          ? "A regra está no arquivo anexado, e o arquivo acompanha esta pergunta: " +
+            "o que a resposta disser do conteúdo dele sai do próprio documento, que " +
+            "está numerado nas fontes e abre na tela do Book."
+          : "A regra está no arquivo anexado, e este assistente não conseguiu abri-lo " +
+            "— formato legado ou arquivo grande demais. O documento continua baixável " +
+            "na tela do Book.",
+  };
+}
+
+/**
+ * Como a remuneração da frota se compõe nesta vigência.
+ *
+ * A tela de Composição responde o que nenhuma outra respondia: não *quanto
+ * mudou*, mas **de que o total é feito** — quantos equipamentos entraram no
+ * mensal, quantos ficaram incompletos, e quantos componentes monetários ainda
+ * não têm regra financeira. Esse último número é o que separa "o total é este"
+ * de "o total é este até onde dá para afirmar", e por isso ele sai como
+ * ressalva, não como rodapé.
+ *
+ * Chama `getVisaoDeFrota`, o mesmo serviço da tela. Se o assistente e a tela
+ * divergirem num número, é bug de um serviço só — não de dois caminhos que
+ * calculam a mesma coisa de jeitos diferentes.
+ */
+export async function composicaoDaFrota(
+  db: Database,
+  ctx: ContextoResolvido,
+  equipamento: "CAVALO" | "CARRETA",
+  periodo?: string,
+): Promise<Evidencia | null> {
+  const visao = await getVisaoDeFrota(db, equipamento, {
+    context: ctx.contexto,
+    ...(periodo ? { period: periodo } : {}),
+  });
+  if (!visao) return null;
+
+  const r = visao.resumo;
+  const fatos: Fato[] = [
+    {
+      rotulo: "Equipamentos na frota",
+      valor: INTEIRO.format(r.equipamentos),
+      detalhe: `${INTEIRO.format(r.comValorApurado)} com valor apurado`,
+    },
+    { rotulo: "Total mensal", valor: dinheiro(r.mensalTotal, "MENSAL"), detalhe: "somado na frota" },
+    {
+      rotulo: "Movimento",
+      valor: `${INTEIRO.format(r.comAumento)} subiram · ${INTEIRO.format(r.comReducao)} caíram`,
+      detalhe: `${INTEIRO.format(r.semVariacao)} sem variação`,
+    },
+  ];
+
+  if (r.incompletos > 0) {
+    fatos.push({
+      rotulo: "Incompletos",
+      valor: INTEIRO.format(r.incompletos),
+      detalhe: "sem as duas pontas para comparar",
+    });
+  }
+
+  return {
+    ferramenta: "composicaoDaFrota",
+    titulo: `Composição · ${visao.rotuloDoTipo} · ${visao.periodLabel}`,
+    fatos,
+    numeros: [
+      r.equipamentos,
+      r.comValorApurado,
+      r.mensalTotal,
+      r.comAumento,
+      r.comReducao,
+      r.semVariacao,
+      r.incompletos,
+      r.componentesSemRegra,
+      visao.totalSemFiltro,
+    ],
+    origem: `getVisaoDeFrota(${equipamento}) · ${visao.effectiveDate}`,
+    recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
+    tela: { label: "Composição", href: "/composicao" },
+    destaque: "Total mensal",
+    nota: !visao.serieEntregue
+      ? "Esta vigência não entregou a série deste equipamento — o que aparece vem da vigência anterior."
+      : r.componentesSemRegra > 0
+        ? `${INTEIRO.format(r.componentesSemRegra)} componente(s) monetário(s) sem regra financeira ficaram fora do total.`
         : undefined,
   };
 }
@@ -946,5 +1075,132 @@ export async function buscarNoTextoDoBook(
     nota:
       "A busca alcança apenas regras escritas no sistema. Documento anexado não é " +
       "procurável por texto — se a regra estiver num PDF, ela não aparece aqui.",
+  };
+}
+
+// ── Anexos do Book ──────────────────────────────────────────────────────────
+
+/**
+ * Um arquivo do Book, pronto para ir ao modelo como arquivo.
+ *
+ * Não há texto extraído aqui de propósito. A alternativa era rodar um OCR na
+ * importação e guardar o resultado numa coluna — e aí o assistente citaria um
+ * texto derivado como se fosse o documento, com a fidelidade de um parser e a
+ * aparência de uma fonte. Num produto que existe para não exibir o que não pode
+ * sustentar, a camada intermediária é justamente o que não se quer.
+ *
+ * O modelo lê PDF e imagem nativamente. Mandar os bytes é mais fiel e tem um
+ * preço explícito: o que o modelo afirmar a partir do arquivo não é conferível
+ * contra uma lista de números, como o resto do dossiê. É por isso que o anexo
+ * entra numerado nas fontes — quem ler a resposta abre o mesmo arquivo que o
+ * modelo leu e confere lá, que é a promessa que este produto faz.
+ */
+export interface Anexo {
+  titulo: string;
+  filename: string;
+  origem: string;
+  tela?: { label: string; href: string };
+  /**
+   * Como o conteúdo chega ao modelo — e a diferença importa na resposta.
+   *
+   * `NATIVO` é o arquivo em si: o modelo abre o PDF ou a imagem e vê o que
+   * qualquer pessoa veria. `EXTRAIDO` é o que se conseguiu tirar de um formato
+   * que ele não abre: o texto veio do XML do próprio arquivo e as figuras
+   * saíram intactas, mas a diagramação ficou para trás. A instrução do modelo
+   * trata os dois casos de forma diferente porque eles sustentam afirmações
+   * diferentes.
+   */
+  conteudo:
+    | { forma: "NATIVO"; mimeType: string; dados: string }
+    | { forma: "EXTRAIDO"; texto: string; imagens: { mimeType: string; dados: string }[] };
+}
+
+/** O que o modelo abre sozinho, sem intermediário nenhum. */
+const MIMES_NATIVOS = new Set(["application/pdf", "image/jpeg", "image/png"]);
+
+/**
+ * O teto de um anexo.
+ *
+ * A API aceita 32 MB por requisição; 8 MB por arquivo deixa folga para o
+ * dossiê, a conversa e um segundo anexo sem chegar perto do limite. Um arquivo
+ * maior não é truncado — truncar um PDF pela metade produz um documento que
+ * *parece* completo e responde errado sobre o que estava no fim.
+ */
+const TETO_DO_ANEXO = 8 * 1024 * 1024;
+
+/**
+ * O arquivo vigente do bloco que a pergunta nomeia — quando dá para lê-lo.
+ *
+ * Devolve `null` em silêncio nos casos em que não dá (bloco sem documento,
+ * formato que o modelo não lê, arquivo grande demais). O silêncio aqui é
+ * correto porque `regraDoBook` já responde na mesma pergunta e já diz o que o
+ * anexo é; o que se perde é a leitura do conteúdo, e isso a resposta declara
+ * pela nota que já existe lá.
+ */
+export async function anexoDoBook(db: Database, termo: string): Promise<Anexo | null> {
+  if (!termo.trim()) return null;
+
+  /*
+    O bloco é resolvido pela mesma regra que resolve a regra escrita.
+
+    A versão anterior procurava a frase da pergunta dentro da chave do banco, e
+    isso só funcionava quando a pessoa escrevia exatamente o título e nada mais:
+    "qlp adm de camaçari" não está contido em "Gente::QLP ADM", e o documento do
+    bloco ficava para trás enquanto a mesma pergunta recuperava a regra dele.
+  */
+  const bloco = blocoQueOTermoNomeia(await entradasVigentes(db), termo);
+  if (!bloco) return null;
+
+  const [achado] = await db
+    .select({
+      blockKey: bookEntryTable.blockKey,
+      blockTitle: bookEntryTable.blockTitle,
+      filename: bookEntryTable.filename,
+      mimeType: bookEntryTable.mimeType,
+      byteSize: bookEntryTable.byteSize,
+      revision: bookEntryTable.revision,
+      content: bookEntryTable.content,
+    })
+    .from(bookEntryTable)
+    .where(
+      and(
+        eq(bookEntryTable.kind, "DOCUMENTO"),
+        eq(bookEntryTable.blockKey, bloco.blockKey),
+      ),
+    )
+    .orderBy(desc(bookEntryTable.revision))
+    .limit(1);
+
+  if (!achado?.content) return null;
+  if (Number(achado.byteSize) > TETO_DO_ANEXO) return null;
+
+  const bytes = Buffer.from(achado.content);
+  const comum = {
+    titulo: `Book · ${achado.blockTitle} · ${achado.filename ?? "documento"}`,
+    filename: achado.filename ?? "documento",
+    origem: `book_entry · bloco "${achado.blockKey}" · revisão ${achado.revision}`,
+    tela: { label: "Book do Operador", href: "/book-operador" },
+  };
+
+  if (MIMES_NATIVOS.has(achado.mimeType)) {
+    return {
+      ...comum,
+      conteudo: { forma: "NATIVO", mimeType: achado.mimeType, dados: bytes.toString("base64") },
+    };
+  }
+
+  /*
+    Office e texto puro: o que dá para tirar sem traduzir o que o arquivo mostra.
+
+    `.doc`, `.xls` e `.ppt` antigos não caem aqui — são OLE2, um formato binário
+    que exigiria outro leitor inteiro. `extrairAnexo` devolve null para eles e a
+    resposta volta a dizer que não leu o documento, que continua sendo verdade.
+  */
+  const extraido = extrairAnexo(achado.mimeType, bytes);
+  if (!extraido) return null;
+
+  return {
+    ...comum,
+    conteudo: { forma: "EXTRAIDO", texto: extraido.texto, imagens: extraido.imagens },
   };
 }

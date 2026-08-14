@@ -601,6 +601,23 @@ function Historico({
  * botão porque é diagnóstico, e diagnóstico exibido o tempo todo vira ruído
  * para quem só queria a resposta.
  */
+/**
+ * O desfecho da chamada, em português — e o que ele manda fazer.
+ *
+ * São as cinco saídas de `llm.ts`, e cada frase diz o que aconteceu com o
+ * texto, não como o código chama o caso.
+ */
+const MOTIVO_DA_REDACAO: Record<
+  NonNullable<Resposta["tecnico"]["ia"]>["desfecho"],
+  string
+> = {
+  IA: "escreveu esta resposta",
+  DESCARTADA: "escreveu, e a trava de lastro descartou o texto",
+  RECUSA: "recusou a pergunta",
+  ERRO: "não respondeu — a chamada falhou",
+  SEM_CHAVE: "não foi chamado — não há chave configurada",
+};
+
 function PainelTecnico({ resposta }: { resposta: Resposta }) {
   const t = resposta.tecnico;
   return (
@@ -621,9 +638,26 @@ function PainelTecnico({ resposta }: { resposta: Resposta }) {
         <span className="text-muted-foreground">redação:</span> {resposta.redacao}
         {resposta.modelo ? ` · ${resposta.modelo}` : ""}
       </p>
+      {/*
+        Por que a redação foi essa.
+
+        "DETERMINISTICA" sozinho dizia a mesma palavra para três situações
+        opostas: não há chave, o modelo respondeu e a trava descartou, a
+        chamada falhou. A primeira se resolve na configuração, a segunda no
+        dossiê, a terceira esperando a API voltar — e quem olhava a tela não
+        tinha como saber em qual delas estava.
+      */}
+      {t.ia && (
+        <p className={t.ia.desfecho === "IA" ? undefined : "text-destructive"}>
+          <span className="text-muted-foreground">modelo:</span>{" "}
+          {MOTIVO_DA_REDACAO[t.ia.desfecho]} · {t.ia.modelo} ·{" "}
+          {(t.ia.latenciaMs / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} s
+          {t.ia.erro ? ` · ${t.ia.erro}` : ""}
+        </p>
+      )}
       {t.numerosRecusados.length > 0 && (
         <p className="text-destructive">
-          números sem lastro recusados: {t.numerosRecusados.join(", ")}
+          o que a trava recusou: {t.numerosRecusados.join(", ")}
         </p>
       )}
     </div>

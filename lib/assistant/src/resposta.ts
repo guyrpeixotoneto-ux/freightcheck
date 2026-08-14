@@ -38,7 +38,7 @@ import {
   type PedidoDeRedacao,
   type TurnoAnterior,
 } from "./llm";
-import { registrar } from "./observabilidade";
+import { registrar, type EventoDeIa } from "./observabilidade";
 import type { Intencao } from "./interpretacao";
 import {
   citacoesSemFonte,
@@ -50,6 +50,7 @@ import {
   type Lacuna,
 } from "./orquestrador";
 import { SUGESTOES } from "./conhecimento";
+import { trechoComLinhas } from "./formato";
 import { termos } from "./normalizar";
 
 export interface Fonte {
@@ -86,6 +87,21 @@ export interface Resposta {
     herdado: string[];
     ferramentas: string[];
     numerosRecusados: string[];
+    /**
+     * O que aconteceu com a chamada ao modelo — `null` quando não houve uma.
+     *
+     * Sem isto, `redacao: "DETERMINISTICA"` é ambíguo de um jeito caro: não se
+     * distingue "não há chave configurada" de "o modelo respondeu e a trava
+     * descartou" nem de "a chamada deu erro". As três exigem ações opostas — a
+     * primeira é configuração, a segunda é dossiê pobre, a terceira é a API
+     * fora — e a tela dizia a mesma palavra para todas.
+     */
+    ia: {
+      desfecho: EventoDeIa["desfecho"];
+      modelo: string;
+      latenciaMs: number;
+      erro: string | null;
+    } | null;
   };
 }
 
@@ -117,6 +133,32 @@ function montarFontes(dossie: Dossie): Fonte[] {
       origem: e.origem,
       ...(recorte ? { detalhe: recorte } : {}),
       ...(e.tela ? { tela: e.tela } : {}),
+    });
+  }
+
+  /*
+    Os anexos entram por último — e a ordem aqui é contrato, não estilo.
+
+    `emTexto` numera o dossiê na mesma sequência e `citacoesDeAnexo` calcula a
+    faixa isenta a partir dela. Trocar a ordem de um dos três sem os outros dois
+    faz a resposta citar um documento e a trava conferir uma evidência, o que
+    não daria erro em lugar nenhum — só uma isenção aplicada à frase errada.
+
+    E a entrada aqui é o que fecha a promessa da leitura nativa: o modelo leu o
+    arquivo, a resposta cita o número, e quem lê abre o mesmo arquivo pela tela
+    do Book. Um anexo sem fonte seria um documento lido em silêncio.
+  */
+  for (const a of dossie.anexos) {
+    fontes.push({
+      id: String(n++),
+      tipo: "BOOK",
+      titulo: a.titulo,
+      origem: a.origem,
+      detalhe:
+        a.conteudo.forma === "NATIVO"
+          ? `${a.filename} · lido pelo modelo`
+          : `${a.filename} · texto e figuras extraídos do arquivo`,
+      ...(a.tela ? { tela: a.tela } : {}),
     });
   }
 
@@ -258,6 +300,23 @@ function fatoQueResponde(dossie: Dossie): Escolha | null {
  * número que ninguém consultou.
  */
 function redacaoDeterministica(dossie: Dossie): string {
+  /*
+    Um cumprimento se responde cumprimentando.
+
+    Não há dossiê a percorrer aqui — a orquestração não consultou nada, e é
+    justamente esse o ponto. O que sai é quem o assistente é e o que dá para
+    perguntar a ele; os exemplos ficam com as sugestões clicáveis, que é onde a
+    tela já os oferece, em vez de repetidos no meio do texto.
+  */
+  if (dossie.plano.intencao === "SAUDACAO") {
+    return (
+      "Olá. Sou o assistente do FreightCheck: respondo sobre os parâmetros do modelo de " +
+      "remuneração, o que mudou entre as vigências, quanto isso pesou em dinheiro e o que " +
+      "o Book do Operador registra — sempre a partir do que foi importado, com a fonte ao " +
+      "lado para você conferir.\n\nSobre o que você quer saber?"
+    );
+  }
+
   const partes: string[] = [];
   // A numeração das citações é a de `montarFontes`: trechos, depois evidências.
   const primeiraEvidencia = dossie.trechos.length + 1;
@@ -316,8 +375,51 @@ function redacaoDeterministica(dossie: Dossie): string {
       if (e.nota) partes.push(e.nota);
     });
 
-    // O conceito de apoio, quando já houve dado — um trecho só, e depois.
-    if (dossie.evidencias.length > 0 && dossie.trechos.length > 0) {
+    /*
+      O documento do bloco, como ele está escrito.
+
+      Sem modelo, o anexo não tinha para onde ir: ele existia no dossiê, entrava
+      numerado nas fontes, e o texto dizia que a regra estava num arquivo — sem
+      nunca mostrar uma linha dele. Quem perguntava "qual a regra do pneu?" era
+      informado de que a regra existe.
+
+      O que sai daqui é transcrição, não interpretação: o texto veio do XML do
+      próprio arquivo, sai entre aspas e com a citação do anexo ao lado, e quem
+      quiser conferir abre o mesmo documento na tela do Book. O arquivo que só o
+      modelo abre — PDF, imagem — continua sem transcrição, e a resposta diz por
+      quê em vez de calar.
+    */
+    const primeiroAnexo = dossie.trechos.length + dossie.evidencias.length + 1;
+    dossie.anexos.forEach((anexo, i) => {
+      const n = primeiroAnexo + i;
+      if (anexo.conteudo.forma === "EXTRAIDO" && anexo.conteudo.texto) {
+        partes.push(
+          `De "${anexo.filename}", como está escrito no documento [${n}] — a ` +
+            `diagramação (tabelas, colunas, numeração) não sobreviveu à extração:\n\n` +
+            trechoComLinhas(anexo.conteudo.texto)
+              .split("\n")
+              .map((linha) => `> ${linha}`)
+              .join("\n"),
+        );
+      } else {
+        partes.push(
+          `A regra está em "${anexo.filename}" [${n}], que só o modelo de linguagem ` +
+            `abre — e esta resposta foi montada em código. O arquivo está na tela do ` +
+            `Book do Operador, inteiro.`,
+        );
+      }
+    });
+
+    /*
+      O conceito de apoio, quando já houve dado — um trecho só, e depois.
+
+      A não ser que ele já **seja** a abertura. Numa pergunta conceitual ou de
+      Book a resposta abre pelo trecho, e este bloco a repetia inteira no fim:
+      a mesma frase duas vezes na mesma resposta, com a mesma citação — que era
+      o defeito mais visível de todos, porque não precisa entender de
+      remuneração para reparar nele.
+    */
+    if (dossie.evidencias.length > 0 && dossie.trechos.length > 0 && inicio?.fonte !== 1) {
       partes.push(`${dossie.trechos[0].trecho.texto} [1]`);
     }
   }
@@ -406,6 +508,14 @@ function sugerir(dossie: Dossie): string[] {
   const saida: string[] = [];
 
   switch (plano.intencao) {
+    /*
+      Depois de um "bom dia", as sugestões são o próprio convite: elas dizem, em
+      forma clicável, o que este assistente sabe responder. É por isso que a
+      apresentação não repete exemplos no texto.
+    */
+    case "SAUDACAO":
+      return SUGESTOES.slice(0, 3).map((s) => s.pergunta);
+
     case "CONCEITUAL":
     case "DISPONIBILIDADE":
       if (gaveta) {
@@ -497,6 +607,7 @@ export async function responder(
   let texto = determinista;
   let redacao: Resposta["redacao"] = "DETERMINISTICA";
   let numerosRecusados: string[] = [];
+  let ia: Resposta["tecnico"]["ia"] = null;
 
   if (!opcoes.semIa && disponivel()) {
     const pedido: PedidoDeRedacao = {
@@ -538,7 +649,20 @@ export async function responder(
       }
     }
 
-    registrar({ ...medicao, intencao: dossie.plano.intencao, desfecho });
+    const evento = registrar({ ...medicao, intencao: dossie.plano.intencao, desfecho });
+    /*
+      O mesmo evento que vai para o anel volta com a resposta.
+
+      O anel responde "como está agora" e some no restart; esta cópia responde
+      "o que aconteceu **nesta** pergunta", que é a que alguém faz olhando para
+      um texto que não parece ter saído de um modelo.
+    */
+    ia = {
+      desfecho: evento.desfecho,
+      modelo: evento.modelo,
+      latenciaMs: evento.latenciaMs,
+      erro: evento.erro,
+    };
   }
 
   const estado = avancarEstado(opcoes.estado ?? ESTADO_VAZIO, dossie);
@@ -562,6 +686,7 @@ export async function responder(
       herdado: dossie.plano.herdado,
       ferramentas: dossie.evidencias.map((e: Evidencia) => e.ferramenta),
       numerosRecusados,
+      ia,
     },
   };
 }
