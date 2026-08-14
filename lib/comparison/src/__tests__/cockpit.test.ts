@@ -68,6 +68,7 @@ function group(overrides: Partial<ChangeGroup> = {}): ChangeGroup {
     taxonomyName: null,
     inconclusiveReason: null,
     anomalies: [],
+    formatOnly: false,
     composition: null,
     badge: "SEM_SINAL",
     badgeLabel: "Sem sinal relevante",
@@ -90,13 +91,15 @@ const fimDoContrato = group({
   dominantPattern: { before: "2028-07-01T12:00:00Z", after: "46935.5", vehicles: 54 },
   natures: ["mudou de tipo"],
   natureCodes: ["TYPE_CHANGE"],
-  badge: "RUPTURA",
-  badgeLabel: "Ruptura",
+  badge: "FORMATO",
+  badgeLabel: "Formato da fonte",
+  formatOnly: true,
   anomalies: [
     {
       kind: "DATA_COMO_SERIAL_EXCEL",
       sameInstant: true,
       differenceMs: 0,
+      formatOnly: true,
       interpretation: "46935.5 lido como serial do Excel é 2028-07-01T12:00:00Z",
       explanation: "…",
       vehicles: 54,
@@ -105,7 +108,35 @@ const fimDoContrato = group({
       kind: "DATA_COMO_SERIAL_EXCEL",
       sameInstant: false,
       differenceMs: 1,
+      formatOnly: true,
       interpretation: "46936 lido como serial do Excel é 2028-07-02T00:00:00Z",
+      explanation: "…",
+      vehicles: 8,
+    },
+  ],
+});
+
+/**
+ * O mesmo atributo, mas com uma data que mudou de verdade no meio.
+ *
+ * Existe para provar que a saída nova não engole mudança contratual: basta uma
+ * linha em que o serial aponta para outro instante para o grupo voltar a ser
+ * tratado como alteração, com selo de ruptura e criticidade cheia.
+ */
+const fimDoContratoMisto = group({
+  ...fimDoContrato,
+  key: "cavalo.data_fim_contrato|CAVALO|VALUE_CHANGED|INCONCLUSIVE|MISTO",
+  badge: "RUPTURA",
+  badgeLabel: "Ruptura",
+  formatOnly: false,
+  anomalies: [
+    fimDoContrato.anomalies[0],
+    {
+      kind: "DATA_COMO_SERIAL_EXCEL",
+      sameInstant: false,
+      differenceMs: 86_400_000,
+      formatOnly: false,
+      interpretation: "47300 lido como serial do Excel é 2029-07-01T00:00:00Z",
       explanation: "…",
       vehicles: 8,
     },
@@ -222,6 +253,9 @@ function view(groups: ChangeGroup[], overrides: Partial<CockpitInput> = {}): Coc
     periodLabel: "agosto/2026",
     totals: {
       changes,
+      formatOnlyChanges: groups
+        .filter((g) => g.formatOnly)
+        .reduce((total, g) => total + g.changes, 0),
       groups: groups.length,
       vehiclesTouched: 62,
       entitiesAdded: 0,
@@ -273,9 +307,26 @@ describe("score — determinístico, aditivo e explicável", () => {
     expect(scoreGroup(fimDoContrato).score).toBe(scoreGroup({ ...fimDoContrato }).score);
   });
 
-  it("ruptura de tipo em toda a frota, com anomalia, é crítica", () => {
-    // 35 (ruptura) + 10 (mudou de tipo) + 10 (anomalia) + 30 (toda a frota).
+  it("troca de formato pura não é risco contratual, e não pontua como se fosse", () => {
+    /*
+      Este é o caso que originou a classificação. Somando a tabela — 35
+      (ruptura) + 10 (mudou de tipo) + 10 (anomalia) + 30 (toda a frota) — ele
+      valia 85 pontos e abria a fila de agosto/2026, acima do IPVA que custou
+      R$ 145 mil. Nenhuma dessas parcelas descrevia o que houve: o valor dos
+      dois lados é o mesmo instante, escrito de outro jeito.
+    */
     const { score, reasons } = scoreGroup(fimDoContrato);
+    expect(score).toBe(5);
+    expect(severityOf(score)).toBe("BAIXO");
+    expect(reasons).toHaveLength(1);
+    expect(reasons[0].label).toBe("troca de formato na fonte, sem mudança de valor");
+  });
+
+  it("formato com mudança de data junto continua sendo ruptura crítica", () => {
+    // A saída de cima não pode virar porta: basta uma linha em que a data por
+    // trás do serial é outra para o grupo voltar à conta cheia — 35 (ruptura) +
+    // 10 (mudou de tipo) + 10 (anomalia) + 30 (toda a frota).
+    const { score, reasons } = scoreGroup(fimDoContratoMisto);
     expect(score).toBe(85);
     expect(severityOf(score)).toBe("CRITICO");
     expect(reasons.map((r) => r.label)).toContain("indício de troca de formato");
@@ -330,10 +381,12 @@ describe("score — determinístico, aditivo e explicável", () => {
 describe("ordenação — a fila de investigação", () => {
   it("ordena por criticidade e devolve rank 1-based", () => {
     const cockpit = buildCockpit(view([semSinal, zerado, ipva, fimDoContrato]));
+    // O formato desceu para o penúltimo lugar — atrás do dinheiro e do
+    // zeramento, e à frente apenas do que não tem sinal nenhum.
     expect(cockpit.priorities.map((p) => p.key)).toEqual([
-      fimDoContrato.key,
       ipva.key,
       zerado.key,
+      fimDoContrato.key,
       semSinal.key,
     ]);
     expect(cockpit.priorities.map((p) => p.rank)).toEqual([1, 2, 3, 4]);
@@ -383,13 +436,32 @@ describe("KPIs — alteração, ponto e veículo são coisas diferentes", () => 
     const criticos = cockpit.panorama.bySeverity.find((b) => b.severity === "CRITICO")!;
     const altos = cockpit.panorama.bySeverity.find((b) => b.severity === "ALTO")!;
     expect(cockpit.kpis.attention).toBe(criticos.groups + altos.groups);
-    expect(criticos.groups).toBe(2);
+    // Um crítico (o IPVA) e um alto (o zeramento). O formato não está em
+    // nenhum dos dois: ele é baixo, e continua na lista.
+    expect(criticos.groups).toBe(1);
     expect(altos.groups).toBe(1);
   });
 
   it("anomalias vêm do detector, e contam pontos e linhas", () => {
     expect(cockpit.kpis.anomalies.groups).toBe(1);
     expect(cockpit.kpis.anomalies.changes).toBe(62);
+  });
+
+  it("as de formato puro são uma parcela das anomalias, com nome próprio", () => {
+    // Os dois números respondem perguntas diferentes: onde a fonte mexeu no
+    // formato, e onde isso não é alteração nenhuma.
+    expect(cockpit.kpis.anomalies.formatOnlyGroups).toBe(1);
+    expect(cockpit.kpis.anomalies.formatOnlyChanges).toBe(62);
+
+    const misto = buildCockpit(view([fimDoContratoMisto]));
+    expect(misto.kpis.anomalies.groups).toBe(1);
+    expect(misto.kpis.anomalies.formatOnlyGroups).toBe(0);
+  });
+
+  it("nada sai do total: as 62 de formato continuam contadas como linhas", () => {
+    expect(cockpit.kpis.changes).toBe(62 + 62 + 10 + 3);
+    const porGrupo = cockpit.panorama.byBadge.reduce((total, b) => total + b.changes, 0);
+    expect(porGrupo).toBe(cockpit.kpis.changes);
   });
 
   it("sem impacto apurado, hasImpact é falso e o número não vira zero", () => {
@@ -486,14 +558,30 @@ describe("panorama — a composição do risco", () => {
 });
 
 describe("diagnóstico — a primeira camada em português", () => {
-  it("anomalia de formato é dita como indício, nunca como certeza", () => {
+  it("troca de formato pura é afirmada, porque não é indício", () => {
+    /*
+      A regra da casa é não afirmar o que é só indício. Aqui não é: o número,
+      lido como serial do Excel, cai no mesmo instante da data do outro lado ao
+      milissegundo, em 62 linhas. Hesitar tem custo — manda alguém conferir 62
+      contratos que não mudaram.
+    */
     const texto = diagnose(fimDoContrato);
+    expect(texto).toContain("Mudou o formato do arquivo, não o contrato");
+    expect(texto).not.toContain("indício");
+    expect(texto).not.toMatch(/\b46935\.5\b/);
+    // Os 8 que perderam precisão continuam ditos, com o motivo.
+    expect(texto).toContain("8");
+    expect(texto).toContain("menos de um segundo");
+  });
+
+  it("formato com data diferente junto volta a ser dito como indício", () => {
+    const texto = diagnose(fimDoContratoMisto);
     expect(texto).toContain("indício");
     expect(texto).toContain("compatível com o formato serial");
-    expect(texto).not.toMatch(/\b46935\.5\b/);
-    // Os 54 do mesmo instante e os 8 diferentes continuam separados.
+    // A parte que precisa ser conferida é dita com o tamanho dela.
     expect(texto).toContain("54");
     expect(texto).toContain("8");
+    expect(texto).toContain("precisa ser conferida");
   });
 
   it("zeramento é dito como zeramento", () => {
@@ -518,11 +606,20 @@ describe("diagnóstico — a primeira camada em português", () => {
 describe("narrativa — composição determinística, nunca modelo", () => {
   it("com risco e sem preço, o risco é o protagonista e a ausência é contexto", () => {
     const cockpit = buildCockpit(view([fimDoContrato, zerado]));
-    expect(cockpit.narrative.headline).toBe("Agosto/2026 exige atenção.");
+    /*
+      A manchete é "tem pontos para revisar", e não "exige atenção", porque o
+      único crítico que este par tinha era a troca de formato. Sobra o
+      zeramento, que é alto. A vigência deixou de ser anunciada como crítica por
+      causa de um arquivo que mudou de formato — que é exatamente a correção.
+    */
+    expect(cockpit.narrative.headline).toBe("Agosto/2026 tem pontos para revisar.");
     const texto = cockpit.narrative.sentences.join(" ");
     expect(texto).toContain("72 alterações");
     expect(texto).toContain("2 pontos");
     expect(texto).toContain("62 veículos");
+    // A ressalva de formato vem colada no total, antes de qualquer outra coisa.
+    expect(cockpit.narrative.sentences[1]).toContain("62");
+    expect(cockpit.narrative.sentences[1]).toContain("não são alteração contratual");
     expect(texto).toContain("Nenhuma destas alterações teve impacto financeiro calculado");
     expect(texto).toContain("regra de precificação suficiente");
     expect(texto).not.toContain("nenhum valor apurável");
@@ -551,6 +648,7 @@ describe("narrativa — composição determinística, nunca modelo", () => {
       view([], {
         totals: {
           changes: 0,
+          formatOnlyChanges: 0,
           groups: 0,
           vehiclesTouched: 0,
           entitiesAdded: 0,
@@ -583,6 +681,7 @@ describe("narrativa — composição determinística, nunca modelo", () => {
       view([], {
         totals: {
           changes: 0,
+          formatOnlyChanges: 0,
           groups: 0,
           vehiclesTouched: 0,
           entitiesAdded: 0,

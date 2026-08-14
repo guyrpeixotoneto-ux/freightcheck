@@ -22,6 +22,14 @@ import {
  * `raw_cell`, a alteração continua na lista, e a anomalia é dita em português
  * ao lado dela — inclusive quando a data por trás do serial é **outra**, que é
  * o caso em que existe mudança real embrulhada numa troca de formato.
+ *
+ * Nomear, porém, não bastou. Nomeada e mantida entre as alterações comuns, a
+ * troca de formato ainda era **classificada** como uma: selo de ruptura, 85
+ * pontos de criticidade, primeiro lugar da fila de investigação de agosto. A
+ * tela dizia "62 veículos afetados, crítico" no cabeçalho e "nada mudou"
+ * embaixo de cada uma das 62 linhas. `formatOnly` é o campo que desfaz essa
+ * contradição na origem — ver `grouped.ts` (selo `FORMATO`) e `cockpit.ts`
+ * (score), que é onde ele produz efeito.
  */
 
 export type AnomalyKind = "DATA_COMO_SERIAL_EXCEL" | "SERIAL_EXCEL_COMO_DATA";
@@ -44,6 +52,17 @@ export interface Anomaly {
    * tamanho faria uma perda de precisão passar por alteração de contrato.
    */
   differenceMs: number;
+  /**
+   * Se esta linha é **só** troca de formato: o mesmo instante dos dois lados,
+   * ou uma diferença menor que a precisão que o serial do Excel não carrega.
+   *
+   * É o campo que decide classificação, e por isso ele nasce aqui e viaja na
+   * resposta em vez de ser recalculado por quem consome. O critério já existia
+   * três vezes — nesta função, no diagnóstico do cockpit e na tabela de
+   * veículos, com um `1000` escrito à mão. Três cópias de um limiar são três
+   * chances de a tela dizer "troca de formato" enquanto o score diz "ruptura".
+   */
+  formatOnly: boolean;
   /** O que o número representa quando lido como serial do Excel. */
   interpretation: string;
   /** Frase para a tela. Explica, não rotula. */
@@ -51,7 +70,7 @@ export interface Anomaly {
 }
 
 /** Abaixo disto, a diferença é perda de precisão do formato, não data nova. */
-const PRECISION_TOLERANCE_MS = 1000;
+export const PRECISION_TOLERANCE_MS = 1000;
 
 function describeDifference(ms: number): string {
   if (ms < 1000) return `${ms} ${ms === 1 ? "milissegundo" : "milissegundos"}`;
@@ -131,6 +150,7 @@ function describe(kind: AnomalyKind, instant: Date, serial: number): Anomaly | n
 
   const differenceMs = Math.abs(asDate.getTime() - instant.getTime());
   const sameInstant = differenceMs === 0;
+  const formatOnly = differenceMs < PRECISION_TOLERANCE_MS;
   const interpretation = `${serial} lido como serial do Excel é ${toIsoDateTime(asDate)}`;
 
   const direction =
@@ -141,7 +161,7 @@ function describe(kind: AnomalyKind, instant: Date, serial: number): Anomaly | n
   const tail = sameInstant
     ? `${interpretation} — exatamente o mesmo instante do outro lado. É troca de formato ` +
       `na exportação, não mudança de contrato.`
-    : differenceMs < PRECISION_TOLERANCE_MS
+    : formatOnly
       ? `${interpretation}, contra ${toIsoDateTime(instant)} do outro lado — uma diferença de ` +
         `${describeDifference(differenceMs)}. Um serial do Excel não representa fração de ` +
         `segundo, então a diferença é a precisão que o formato perdeu, e não uma data nova. ` +
@@ -154,6 +174,7 @@ function describe(kind: AnomalyKind, instant: Date, serial: number): Anomaly | n
     kind,
     sameInstant,
     differenceMs,
+    formatOnly,
     interpretation,
     explanation:
       `${direction}. ${tail} O valor original de cada lado continua guardado como veio.`,

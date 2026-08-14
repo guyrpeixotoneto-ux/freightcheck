@@ -46,6 +46,21 @@ export function TabelaVeiculos({
 
   return (
     <div className="rounded-md border overflow-hidden">
+      {/*
+        Uma frase para a tabela inteira, e não só a nota por linha: quem chega
+        aqui vê primeiro as colunas "Antes / Agora / Variação", que são a
+        gramática de uma mudança. Sem esta linha, a leitura de mudança se forma
+        antes de a explicação embaixo de cada placa ser lida.
+      */}
+      {group.formatOnly && (
+        <p className="border-b bg-slate-50 px-3 py-2 text-[0.6875rem] text-slate-700 leading-snug">
+          Nenhuma linha desta tabela é mudança de valor: em cada uma, o número da
+          coluna <span className="font-medium">Agora</span> é o mesmo instante da data
+          da coluna <span className="font-medium">Antes</span>, escrito no formato serial
+          do Excel. Os dois lados continuam como vieram da planilha — abra{" "}
+          <span className="font-medium">célula</span> em qualquer linha para conferir.
+        </p>
+      )}
       {rows.length > VEHICLE_PREVIEW && (
         <div className="border-b bg-muted/40 px-3 py-2">
           <input
@@ -123,18 +138,25 @@ export function TabelaVeiculos({
                   </td>
                 </tr>
                 {row.anomaly && (
-                  <tr className="bg-amber-50/60">
+                  <tr className={row.anomaly.formatOnly ? "bg-slate-50" : "bg-amber-50/60"}>
                     <td />
-                    <td colSpan={5} className="px-3 pb-1.5 text-[0.6875rem] text-amber-900">
+                    <td
+                      colSpan={5}
+                      className={cn(
+                        "px-3 pb-1.5 text-[0.6875rem]",
+                        row.anomaly.formatOnly ? "text-slate-700" : "text-amber-900",
+                      )}
+                    >
                       {row.anomaly.interpretation}
-                      {/* A qualificação vem do mesmo critério do cartão: uma
-                          diferença abaixo de um segundo é a precisão que o serial
-                          do Excel não carrega, não uma data nova. Duplicar a frase
-                          aqui com outro critério faria a linha contradizer o
-                          aviso logo acima dela. */}
+                      {/* A qualificação é a do servidor — `formatOnly` chega
+                          pronto em cada linha. Antes ela era refeita aqui com um
+                          `differenceMs < 1000` escrito à mão, e um limiar
+                          duplicado é um limiar que um dia diverge: bastava mudar
+                          o de `anomalies.ts` para esta linha passar a
+                          contradizer o cartão logo acima dela. */}
                       {row.anomaly.sameInstant
                         ? " — mesmo instante do outro lado; troca de formato."
-                        : row.anomaly.differenceMs < 1000
+                        : row.anomaly.formatOnly
                           ? ` — diferença de ${row.anomaly.differenceMs} ms; precisão perdida no formato.`
                           : " — instante diferente do outro lado; há mudança de data junto."}
                     </td>

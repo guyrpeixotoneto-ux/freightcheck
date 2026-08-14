@@ -30,10 +30,21 @@ export function ResumoExecutivo({ cockpit }: { cockpit: CockpitView }) {
   return (
     <section className="bg-card border shadow-sm">
       <div className="grid grid-cols-2 lg:grid-cols-5 divide-x divide-y lg:divide-y-0">
+        {/*
+          O total continua sendo o total — subtrair as de formato aqui faria o
+          número do topo não fechar com a lista abaixo. O que muda é a nota, que
+          diz quantas dessas linhas não são mudança de valor.
+        */}
         <Numero
           rotulo="Alterações"
           valor={kpis.changes.toLocaleString("pt-BR")}
-          nota="linhas encontradas nesta vigência"
+          nota={
+            kpis.anomalies.formatOnlyChanges > 0
+              ? `linhas nesta vigência · ${kpis.anomalies.formatOnlyChanges.toLocaleString(
+                  "pt-BR",
+                )} são só troca de formato`
+              : "linhas encontradas nesta vigência"
+          }
         />
         <Numero
           rotulo="Pontos em atenção"
@@ -89,17 +100,28 @@ export function ResumoExecutivo({ cockpit }: { cockpit: CockpitView }) {
             </>
           )}
         </div>
+        {/*
+          O alerta só acende quando formato e valor mudaram na mesma célula. Um
+          ponto de formato puro é notícia de importação, não de risco: pintá-lo
+          de vermelho aqui devolveria ao painel o susto que a classificação
+          acabou de tirar da fila.
+        */}
         <Numero
           rotulo="Anomalias"
           valor={kpis.anomalies.groups.toLocaleString("pt-BR")}
           nota={
             kpis.anomalies.groups === 0
               ? "nenhum indício de troca de formato"
-              : `pontos com indício de formato · ${kpis.anomalies.changes.toLocaleString(
-                  "pt-BR",
-                )} linhas`
+              : kpis.anomalies.formatOnlyGroups === kpis.anomalies.groups
+                ? `${
+                    kpis.anomalies.groups === 1 ? "ponto trocou" : "pontos trocaram"
+                  } só de formato · ${kpis.anomalies.changes.toLocaleString("pt-BR")} linhas, ` +
+                  `sem mudança de valor`
+                : `pontos com indício de formato · ${
+                    kpis.anomalies.groups - kpis.anomalies.formatOnlyGroups
+                  } com mudança de valor junto`
           }
-          alerta={kpis.anomalies.groups > 0}
+          alerta={kpis.anomalies.groups > kpis.anomalies.formatOnlyGroups}
         />
       </div>
 
