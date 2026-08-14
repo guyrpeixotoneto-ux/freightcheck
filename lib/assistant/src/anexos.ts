@@ -28,6 +28,7 @@
  */
 
 import { inflateRawSync } from "node:zlib";
+import * as XLSX from "xlsx";
 
 // ── ZIP ─────────────────────────────────────────────────────────────────────
 
@@ -169,6 +170,19 @@ export function extrairAnexo(mimeType: string, buffer: Buffer): ConteudoExtraido
     return texto(buffer.toString("utf8"));
   }
 
+  /*
+    Planilha vem antes do zip, porque nem toda planilha é zip.
+
+    `.xlsx` é OOXML (zip); `.xls` é BIFF dentro de OLE2, um formato binário sem
+    nada em comum com o outro. O mesmo leitor abre os dois — é o que o pipeline
+    de importação já usa para ler estes arquivos —, e roteá-los juntos aqui
+    evita a única alternativa: um parser meu para o moderno e uma dependência
+    para o antigo, duas leituras da mesma família discordando em silêncio.
+  */
+  if (mimeType.includes("spreadsheetml") || mimeType === "application/vnd.ms-excel") {
+    return texto(planilhaEmTexto(buffer));
+  }
+
   let arquivos: Map<string, Buffer>;
   try {
     arquivos = lerZip(buffer);
@@ -213,52 +227,39 @@ export function extrairAnexo(mimeType: string, buffer: Buffer): ConteudoExtraido
     return conteudo.texto || conteudo.imagens.length > 0 ? conteudo : null;
   }
 
-  if (mimeType.includes("spreadsheetml")) {
-    return texto(planilhaEmTexto(arquivos));
-  }
-
   return null;
 }
 
 /**
- * A planilha como texto, célula a célula.
+ * A planilha como texto, folha por folha.
  *
- * Não usa biblioteca de planilha de propósito: o que se quer aqui não é o
- * modelo de dados de um `.xlsx` — fórmulas, formatos, referências — e sim o que
- * está escrito nas células, para o modelo poder citar. Ler `sharedStrings.xml`
- * mais os valores das folhas entrega isso com uma fração da superfície.
+ * Usa o mesmo leitor que o pipeline de importação usa sobre estes arquivos, com
+ * as mesmas opções — e é essa a razão de ele estar aqui e não um parser próprio.
+ * Um `.xlsx` de verdade traz data serializada, string em linha, valor em cache
+ * de fórmula e célula mesclada; uma leitura artesanal do XML acerta o arquivo
+ * de teste e erra o arquivo do cliente, que é a pior combinação possível.
  *
- * O que fica de fora está declarado: fórmula não é avaliada, e o que sai é o
- * valor que o Excel gravou junto dela.
+ * `cellDates` e `cellText` fazem sair o que o Excel **mostra**, não o número
+ * cru por trás: uma data tem de chegar ao modelo como data, senão ele lê 45231
+ * e cita um número que ninguém reconhece na tela.
+ *
+ * O que fica de fora está declarado: fórmula não é avaliada aqui — o que sai é
+ * o valor que o Excel gravou junto dela.
  */
-function planilhaEmTexto(arquivos: Map<string, Buffer>): string {
-  const compartilhadas: string[] = [];
-  const bruto = arquivos.get("xl/sharedStrings.xml");
-  if (bruto) {
-    for (const m of bruto.toString("utf8").matchAll(/<si>([\s\S]*?)<\/si>/g)) {
-      compartilhadas.push(textoDoXml(m[1].replace(/<t(?:\s[^>]*)?>/g, "<w:t>").replace(/<\/t>/g, "</w:t>")));
-    }
+function planilhaEmTexto(buffer: Buffer): string {
+  let livro: XLSX.WorkBook;
+  try {
+    livro = XLSX.read(buffer, { type: "buffer", cellDates: true, cellText: true });
+  } catch {
+    return "";
   }
 
-  const folhas = [...arquivos.keys()]
-    .filter((n) => /^xl\/worksheets\/sheet\d+\.xml$/.test(n))
-    .sort((a, b) => Number(a.match(/\d+/)![0]) - Number(b.match(/\d+/)![0]));
-
-  const linhas: string[] = [];
-  for (const [i, folha] of folhas.entries()) {
-    const xml = arquivos.get(folha)!.toString("utf8");
-    const desta: string[] = [];
-    for (const linha of xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
-      const celulas: string[] = [];
-      for (const c of linha[1].matchAll(/<c[^>]*?(?:\st="(\w+)")?[^>]*>([\s\S]*?)<\/c>/g)) {
-        const valor = c[2].match(/<v>([\s\S]*?)<\/v>/)?.[1] ?? "";
-        if (!valor) continue;
-        celulas.push(c[1] === "s" ? (compartilhadas[Number(valor)] ?? "") : valor);
-      }
-      if (celulas.length > 0) desta.push(celulas.join(" | "));
-    }
-    if (desta.length > 0) linhas.push(`[planilha ${i + 1}]\n${desta.join("\n")}`);
+  const partes: string[] = [];
+  for (const nome of livro.SheetNames) {
+    const folha = livro.Sheets[nome];
+    if (!folha) continue;
+    const csv = XLSX.utils.sheet_to_csv(folha, { blankrows: false }).trim();
+    if (csv) partes.push(`[${nome}]\n${csv}`);
   }
-
-  return linhas.join("\n\n");
+  return partes.join("\n\n");
 }

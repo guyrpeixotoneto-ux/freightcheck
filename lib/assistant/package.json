@@ -20,7 +20,8 @@
     "@workspace/db": "workspace:*",
     "@workspace/ingest": "workspace:*",
     "@workspace/knowledge": "workspace:*",
-    "drizzle-orm": "catalog:"
+    "drizzle-orm": "catalog:",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "catalog:",
