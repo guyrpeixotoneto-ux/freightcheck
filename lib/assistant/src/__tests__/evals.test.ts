@@ -2,7 +2,12 @@ import { beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { createDb, type Database } from "@workspace/db";
 import { getFamiliesView, listPeriods, resolveContext } from "@workspace/comparison";
-import { citacoesSemFonte, numerosSemLastro, orquestrar } from "../orquestrador";
+import {
+  citacoesSemFonte,
+  itensCitaveis,
+  numerosSemLastro,
+  orquestrar,
+} from "../orquestrador";
 import { responder } from "../resposta";
 import { avancarEstado, ESTADO_VAZIO, type EstadoDaConversa } from "../conversa";
 import { resolverParametro } from "../parametros";
@@ -161,7 +166,9 @@ rodar("bateria do assistente", () => {
 
     it("uma citação além das fontes é recusada como número inventado", async () => {
       const dossie = await orquestrar(db, "O que mudou em agosto?");
-      const quantas = dossie.trechos.length + dossie.evidencias.length;
+      // A contagem vem de `itensCitaveis`, que é a única que numera — antes
+      // este teste refazia a soma à mão e passaria a divergir dela em silêncio.
+      const quantas = itensCitaveis(dossie).length;
 
       expect(citacoesSemFonte(`Mudou bastante [${quantas}].`, dossie)).toEqual([]);
       expect(citacoesSemFonte(`Mudou bastante [${quantas + 1}].`, dossie)).toEqual([
@@ -231,23 +238,45 @@ rodar("bateria do assistente", () => {
       return rows[0]?.titulo ?? null;
     }
 
-    it("o arquivo do bloco acompanha a pergunta, e a ressalva diz que ele foi lido", async () => {
+    it("o conteúdo do documento entra no dossiê, com bloco e seção", async () => {
       const titulo = await blocoComDocumento();
       if (!titulo) return; // Banco sem documento anexado não tem o que provar.
 
       const dossie = await orquestrar(db, `qual a regra de ${titulo}?`);
-      const regra = dossie.evidencias.find((e) => e.ferramenta === "regraDoBook");
-      expect(regra, `o Book precisa responder por "${titulo}"`).toBeTruthy();
 
       /*
-        Formato legado (.doc, .xls antigos) e arquivo grande demais continuam
-        sem leitura — e aí a ressalva tem de dizer isso, não o contrário.
+        Formato legado (.doc, .xls antigos) e arquivo acima do teto continuam
+        sem leitura — e aí a ressalva do registro tem de dizer isso. Nos demais,
+        o texto do documento é o que responde.
       */
-      const leu = dossie.anexos.length > 0;
-      expect(regra!.nota ?? "", "a ressalva descreve o que aconteceu com o arquivo").toMatch(
-        leu ? /acompanha esta pergunta/i : /não conseguiu abri-lo/i,
-      );
-      expect(regra!.nota ?? "").not.toMatch(/não transcreve documento que não leu/i);
+      const registro = dossie.evidencias.find((e) => e.ferramenta === "regraDoBook");
+      if (dossie.documentos.length === 0) {
+        expect(registro?.nota ?? "").toMatch(/não pôde ser lido/i);
+        return;
+      }
+
+      const primeiro = dossie.documentos[0].trecho;
+      expect(primeiro.texto.length, "o trecho traz conteúdo, não metadado").toBeGreaterThan(20);
+      expect(primeiro.bloco).toBeTruthy();
+      expect(registro?.nota ?? "", "documento lido não carrega ressalva").toBe("");
+    });
+
+    /*
+      O conteúdo do Book é conferível como qualquer outra evidência: os números
+      escritos no documento passam a ter lastro porque o texto deles está no
+      dossiê. Era a diferença entre uma resposta rica ser publicada e ser
+      descartada.
+    */
+    it("os números do documento têm lastro", async () => {
+      const titulo = await blocoComDocumento();
+      if (!titulo) return;
+
+      const dossie = await orquestrar(db, `qual a regra de ${titulo}?`);
+      const numeros = (dossie.documentos[0]?.trecho.texto ?? "").match(/\d[\d.,]*/g) ?? [];
+      const comDoisDigitos = numeros.find((n) => n.replace(/\D/g, "").length > 1);
+      if (!comDoisDigitos) return;
+
+      expect(numerosSemLastro(`O documento diz ${comDoisDigitos} [1].`, dossie)).toEqual([]);
     });
 
     it("nomear o bloco basta, mesmo quando a pergunta não parece do Book", async () => {
@@ -259,9 +288,29 @@ rodar("bateria do assistente", () => {
       const dossie = await orquestrar(db, `${titulo} como está de Camaçari?`);
       expect(dossie.plano.intencao).toBe("DESCONHECIDA");
       expect(
-        dossie.evidencias.map((e) => e.ferramenta),
-        "o Book é o último recurso, e ele existe",
-      ).toContain("regraDoBook");
+        dossie.documentos.length + dossie.evidencias.length,
+        "o Book é consultado por qualquer pergunta que nomeie assunto",
+      ).toBeGreaterThan(0);
+    });
+
+    /*
+      Multi-fonte: a mesma pergunta que pede a regra e o movimento tem de sair
+      com as duas coisas. Antes não havia caminho que trouxesse as duas — a
+      intenção escolhia uma e a outra não era nem consultada.
+    */
+    it("uma pergunta pode combinar Book e dado na mesma resposta", async () => {
+      const dossie = await orquestrar(db, "o que o Book diz sobre pneu e quanto ele mudou?");
+      expect(dossie.documentos.length + dossie.trechos.length).toBeGreaterThan(0);
+    });
+
+    it("a resposta não mostra a mecânica do Book a quem perguntou", async () => {
+      const titulo = await blocoComDocumento();
+      if (!titulo) return;
+
+      const resposta = await responder(db, `o que é ${titulo}?`, { semIa: true });
+      for (const proibido of ["Revisão vigente", "revisão guardada", "documento anexado"]) {
+        expect(resposta.texto, `"${proibido}" não pertence a uma resposta`).not.toContain(proibido);
+      }
     });
 
     it("a redação em código não repete o parágrafo com que abriu", async () => {

@@ -173,11 +173,42 @@ mais recente, respondesse ela ou não à pergunta.
 **O modelo não escolhe entre trinta ferramentas.** Ele recebe o resultado das
 que a intenção pediu. Perguntar "o que é IPVA?" não dispara consulta de impacto.
 
-**Três corpora, e eles não se confundem.** O conceitual (`corpus.ts`: catálogo
+**Quatro corpora, e eles não se confundem.** O conceitual (`corpus.ts`: catálogo
 do Freightech, índice do Book, artigos do produto) responde *o que é*; o
 dicionário de parâmetros (`parametros.ts`) traduz o vocabulário de quem opera
 para as colunas que existem; o analítico (`ferramentas.ts`) consulta o banco no
-recorte. Uma resposta pode usar os três, e diz de qual veio cada parte.
+recorte; e o **conteúdo do Book** (`indice-book.ts`) responde *qual é a regra*.
+Uma resposta pode usar os quatro, e diz de qual veio cada parte.
+
+**O Book é lido, indexado e procurável — não é um anexo por bloco.**
+`documento.ts` abre `.docx`, `.xlsx` e `.pptx` preservando o que a extração
+anterior destruía: títulos, listas e **tabelas**, que é onde as regras da
+operação moram (a ressalva "a diagramação não sobreviveu" descrevia esse
+defeito, e ela sumiu porque a causa sumiu). `indice-book.ts` quebra cada entrada
+em trechos que guardam bloco, seção, arquivo e revisão — sem partir uma tabela
+nem separar uma regra do título que a nomeia —, e busca em duas etapas: trinta
+candidatos por cobertura de vocabulário, reordenados por frase exata, casamento
+de título, seção, sigla e densidade, com teto de três trechos por bloco para um
+documento não ocupar a resposta inteira. O índice é léxico de propósito: o
+vocabulário aqui é feito de siglas e nomes próprios (QLP ADM, CIVF, PGR), que é
+onde a busca vetorial erra e a lexical acerta, e o critério de seleção precisa
+ser explicável a quem discordar da resposta. O que a busca semântica resolveria
+— sinônimo — é resolvido por duas pontes: a expansão a partir dos títulos do
+próprio índice, e o **fio da conversa** (quem perguntou "qual a frequência?"
+depois de falar do QLP ADM recebe o bloco do QLP ADM, ainda que o documento
+escreva "Periodicidade").
+
+**A busca do Book roda para qualquer pergunta que nomeie assunto**, em paralelo
+com o dado. É o que permite uma resposta cruzar as duas coisas — o que mudou,
+quanto pesou, e o que a regra escrita diz sobre aquilo — em vez de a intenção
+escolher uma fonte e a outra nem ser consultada.
+
+**Mecânica não é resposta.** Revisão vigente, quantidade de revisões, tipo da
+entrada e chave do bloco existem no dossiê, aparecem no painel técnico e
+sustentam a fonte — e são marcados `interno`, o que os mantém fora da prosa e
+fora do material que vai ao modelo. Uma resposta começava com "Revisão vigente:
+1 — 1 revisão guardada"; nenhuma instrução de estilo segura de forma confiável
+um dado que está no contexto, então ele não é mandado.
 
 **Da palavra à gaveta, numa escada que se lê.** Código exato → alias da origem →
 rótulo da tela → nome da gaveta → busca textual → pergunta de volta. Não há
@@ -206,6 +237,18 @@ esqueça o dono não compila. `archived_at` recebe a data e a conversa some da
 lista; nenhuma linha é apagada, nem a conversa nem as mensagens. A coluna é
 `owner_id` e não `user_id` porque o compartilhamento entre pessoas não existe
 hoje e não foi fechado fora.
+
+**O motor descobre o que é verdade; o modelo decide como explicar.** A redação
+determinística existe para quando não há chave e para quando a trava descarta o
+texto do modelo — mas ela deixou de ser o teto de qualidade do produto. Ela abre
+pelo conteúdo (o trecho do Book que responde, transcrito com a citação ao lado),
+nunca pela ficha do bloco, e não repete o parágrafo com que abriu.
+
+**A numeração das citações mora numa função só** (`itensCitaveis`). Ela estava
+reimplementada em três arquivos — quem lista as fontes, quem escreve o dossiê
+para o modelo e quem confere as citações —, cada um com um comentário avisando
+que mexer num sem mexer nos outros faria a resposta citar um documento e a trava
+conferir outra coisa, "sem dar erro em lugar nenhum".
 
 **A continuação herda, e a herança aparece.** "E julho?" mantém o assunto e
 troca o período; "Por quê?" refaz a consulta em vez de reexibir número guardado;

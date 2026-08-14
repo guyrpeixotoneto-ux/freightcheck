@@ -22,11 +22,15 @@
 import type { Database } from "@workspace/db";
 import { buscarTrechos, type TrechoRelevante } from "./corpus";
 import {
+  buscarNoBook,
+  documentoDoBloco,
+  type TrechoDoBookRanqueado,
+} from "./indice-book";
+import {
   compararIntervalo,
   anexoDoBook,
   coberturaDoBook,
   composicaoDaFrota,
-  buscarNoTextoDoBook,
   listarVigencias,
   movimentoDoParametro,
   panoramaDoContexto,
@@ -110,6 +114,19 @@ export interface Dossie {
   leitura: Leitura;
   plano: Plano;
   trechos: TrechoRelevante[];
+  /**
+   * O conteúdo do Book que responde esta pergunta.
+   *
+   * Ficam separados dos `trechos` porque são coisas diferentes: `trechos` é o
+   * conhecimento **sobre** o produto — o índice dos blocos, o catálogo do
+   * Freightech, os artigos aprovados neste repositório —, e `documentos` é o
+   * que está escrito **dentro** do Book, transcrito do arquivo que a operação
+   * anexou. Um diz "existe um bloco chamado QLP ADM e ele trata de estrutura
+   * administrativa"; o outro diz o que a regra determina. A resposta que
+   * confunde os dois descreve o índice quando lhe perguntaram a regra — que era
+   * exatamente o que acontecia.
+   */
+  documentos: TrechoDoBookRanqueado[];
   evidencias: Evidencia[];
   /**
    * Os arquivos que vão junto para o modelo ler.
@@ -423,6 +440,7 @@ export async function orquestrar(
 
   // ---- 5. execução ---------------------------------------------------------
   const evidencias: Evidencia[] = [];
+  const documentos: TrechoDoBookRanqueado[] = [];
   const anexos: Anexo[] = [];
   const lacunas: Lacuna[] = [];
   const juntar = async (
@@ -460,28 +478,13 @@ export async function orquestrar(
       break;
 
     case "BOOK":
-      if (termoDoParametro) {
-        /*
-          O arquivo é aberto **antes** de a regra ser montada.
-
-          Quando o bloco tem documento, o arquivo vai junto — o assistente lê o
-          que ele tem em mãos. E a evidência precisa saber disso: a ressalva de
-          `regraDoBook` afirma se o documento foi lido ou não, e montá-la antes
-          de tentar abrir o arquivo era o que fazia a resposta anunciar que não
-          transcreve o que não leu com o documento aberto ao lado.
-        */
-        const anexo = await anexoDoBook(db, termoDoParametro).catch(() => null);
-        if (anexo) {
-          marcar("anexar", "Abrindo o documento do Book");
-          anexos.push(anexo);
-        }
-        await juntar(
-          "Consultando o Book do Operador",
-          regraDoBook(db, termoDoParametro, { documentoLido: Boolean(anexo) }),
-        );
-        await juntar("Procurando nas regras escritas", buscarNoTextoDoBook(db, termoDoParametro));
-      }
-      if (evidencias.length === 0) {
+      /*
+        O conteúdo do Book vem da busca, que roda para toda pergunta logo
+        abaixo. O que sobra para cá é o caso em que a pergunta é sobre o Book
+        como um todo — "quantos blocos já têm regra?" —, que é dado e não
+        conteúdo.
+      */
+      if (!termoDoParametro) {
         marcar("consultar", "Consultando o Book do Operador");
         evidencias.push(await coberturaDoBook(db));
       }
@@ -677,33 +680,93 @@ export async function orquestrar(
   }
 
   /*
-    ---- 5b. o Book como último recurso, e não como intenção ------------------
+    ---- 5b. o Book, para qualquer pergunta -----------------------------------
 
-    A classificação decide onde procurar, e ela é boa nisso — menos quando a
-    pergunta não parece nada. "QLP ADM como está de Camaçari?" não casa padrão
-    nenhum: não tem verbo de valor, não tem mês, não diz "book". Ela caía em
-    DESCONHECIDA, não consultava coisa alguma, e era respondida pelo índice —
-    "o Freightech publica esta gaveta e este export não a alimenta" —, com o
-    documento daquele mesmo bloco parado no banco, a uma consulta de distância.
-    Repetir a pergunta dizendo "você não consegue ler o documento?" devolvia o
-    mesmo parágrafo, que é a versão mais irritante de um assistente burro.
+    Esta é a etapa que faltava, e ela não é um caso especial de intenção: é uma
+    fonte a mais, consultada em paralelo com o dado. A classificação decide o
+    que **calcular**; ela não decide o que a operação escreveu sobre o assunto,
+    e as duas coisas quase sempre valem juntas. "O que mudou no IPVA?" ganha a
+    regra do Book ao lado do número; "o que é QLP ADM?" é respondida só pelo
+    Book; "explique QLP ADM e veja o que mudou" precisa das duas, e antes não
+    havia caminho nenhum que trouxesse as duas.
 
-    A regra é estreita de propósito: só quando **nada** foi consultado, e só
-    quando a pergunta nomeia um bloco que tem regra registrada. Não é um plano
-    alternativo que compete com a intenção; é o que fazer quando não houve
-    plano nenhum. Uma pergunta que já teve resposta de dado continua sem o Book
-    atrás, porque ali o Book seria ruído.
+    Quem não tem assunto não procura: uma saudação e um "compare julho com
+    agosto" sem parâmetro nomeado não têm o que buscar no Book, e uma busca sem
+    termo devolveria os trechos mais genéricos do corpus inteiro.
   */
-  if (evidencias.length === 0 && intencao !== "BOOK" && intencao !== "SAUDACAO" && termoDoParametro) {
-    const anexo = await anexoDoBook(db, termoDoParametro).catch(() => null);
-    const regra = await regraDoBook(db, termoDoParametro, {
-      documentoLido: Boolean(anexo),
-    }).catch(() => null);
+  const perguntaDeConteudo =
+    intencao === "BOOK" || intencao === "CONCEITUAL" || intencao === "DISPONIBILIDADE";
 
-    if (regra) {
-      marcar("consultar", "Consultando o Book do Operador");
-      evidencias.push(regra);
-      if (anexo) {
+  if (intencao !== "SAUDACAO" && (termoDoParametro || perguntaDeConteudo)) {
+    marcar("book", "Procurando no Book do Operador");
+
+    const achados = await buscarNoBook(db, pergunta, {
+      limite: perguntaDeConteudo ? 6 : 3,
+      blocoPreferido: estado?.blocoDoBook ?? null,
+      termosExtras: [
+        ...(termoDoParametro ? [termoDoParametro] : []),
+        ...(alvo ? [alvo.parametro] : []),
+      ],
+    }).catch(() => []);
+
+    documentos.push(...achados);
+
+    /*
+      A par do conteúdo, o registro: qual bloco, que revisão, que tipo de
+      entrada. Isso não entra na prosa — os fatos são marcados como internos —,
+      mas é o que sustenta a fonte na tela e o que responde "isto está mesmo
+      registrado no Book?".
+    */
+    if (termoDoParametro) {
+      await juntar(
+        "Consultando o registro do Book",
+        regraDoBook(db, termoDoParametro, { documentoLido: achados.length > 0 }),
+      );
+    }
+
+    /*
+      Quando a pergunta é sobre o bloco, o documento inteiro responde melhor
+      que três trechos dele.
+
+      "Me explique o QLP ADM" pede o que o documento diz, na ordem em que ele
+      diz — objetivo, frequência, critérios. Trechos ranqueados são a ferramenta
+      certa para achar; para explicar, eles entregam três pedaços e deixam quem
+      lê montando o resto. O teto de tamanho decide: manual de duzentas páginas
+      continua vindo por trecho.
+    */
+    const principal = achados[0]?.trecho;
+    const nomeouOBloco =
+      principal &&
+      perguntaDeConteudo &&
+      termos(pergunta).some((p) => normalizar(principal.bloco).includes(p));
+
+    if (principal && nomeouOBloco) {
+      const inteiro = await documentoDoBloco(db, principal.blockKey).catch(() => null);
+      if (inteiro) {
+        const outros = documentos.filter((d) => d.trecho.blockKey !== principal.blockKey);
+        documentos.length = 0;
+        documentos.push(
+          ...inteiro.map((trecho) => ({
+            trecho,
+            pontos: achados[0].pontos,
+            porque: ["documento inteiro — a pergunta é sobre este bloco"],
+          })),
+          ...outros,
+        );
+      }
+    }
+
+    /*
+      O arquivo em si só acompanha a pergunta quando o texto dele não pôde ser
+      lido — PDF e imagem, que só o modelo abre.
+
+      Para Word, Excel e PowerPoint o índice já traz o conteúdo estruturado, e
+      mandar o arquivo junto seria a mesma informação duas vezes: uma
+      conferível contra o texto do dossiê e outra não.
+    */
+    if (termoDoParametro && documentos.length === 0) {
+      const anexo = await anexoDoBook(db, termoDoParametro).catch(() => null);
+      if (anexo?.conteudo.forma === "NATIVO") {
         marcar("anexar", "Abrindo o documento do Book");
         anexos.push(anexo);
       }
@@ -780,8 +843,10 @@ export async function orquestrar(
         noCatalogo || noBook
           ? `${noCatalogo ? "O Freightech publica este assunto" : "O Book do Operador trata deste assunto"}, ` +
             `mas nenhuma coluna deste export alimenta "${termoDoParametro}" — então não há número a somar aqui.`
-          : `Nenhum parâmetro do FreightCheck corresponde a "${termoDoParametro}". ` +
-            `Pode ser que o Freightech o publique noutra tela cujo arquivo ainda não importamos.`,
+          : `Nenhuma coluna deste export corresponde a "${termoDoParametro}"` +
+            (documentos.length > 0
+              ? ", e o que sai abaixo vem do que o Book do Operador registra sobre o assunto — regra, não número apurado."
+              : ". Pode ser que o Freightech o publique noutra tela cujo arquivo ainda não importamos."),
     });
   }
 
@@ -810,13 +875,26 @@ export async function orquestrar(
   if (
     intencao !== "SAUDACAO" &&
     evidencias.length === 0 &&
+    documentos.length === 0 &&
     trechos.length === 0 &&
     !desambiguacao
   ) {
+    /*
+      "Não encontrei" tem de dizer **onde** se procurou.
+
+      A frase genérica encerrava a conversa sem dar a quem perguntou nenhuma
+      pista do que fazer em seguida — e as três fontes têm formas diferentes de
+      estar vazias: o Book pode não ter o bloco registrado, o export pode não
+      trazer a coluna, o recorte pode não ter vigência importada. Dizer os três
+      lugares transforma a recusa numa informação.
+    */
     lacunas.push({
       tipo: "NAO_ENCONTREI",
       explicacao:
-        "Não encontrei nada sobre isto no conhecimento do produto nem no banco deste recorte.",
+        "Procurei nos três lugares que este produto tem — o Book do Operador, o catálogo " +
+        "de parâmetros do Freightech e os dados importados deste recorte — e não encontrei " +
+        "nada que sustente uma resposta. Se o assunto tiver documento no Freightech que " +
+        "ainda não foi anexado ao Book, é por aí que ele entra.",
     });
   }
 
@@ -825,12 +903,45 @@ export async function orquestrar(
     leitura: { ...leitura, intencao },
     plano,
     trechos,
+    documentos,
     evidencias,
     anexos,
     lacunas,
     etapas,
     desambiguacao,
   };
+}
+
+// ── A numeração das citações ────────────────────────────────────────────────
+
+/**
+ * Tudo o que a resposta pode citar, numerado — **uma vez, num lugar só.**
+ *
+ * A numeração era contrato e estava reimplementada em três arquivos: quem
+ * montava a lista de fontes, quem escrevia o dossiê para o modelo e quem
+ * conferia as citações contavam cada um por si, com um comentário em cada
+ * ponto avisando que mexer num sem mexer nos outros faria a resposta citar um
+ * documento e a trava conferir uma evidência — "o que não daria erro em lugar
+ * nenhum". Um contrato que depende de três cópias concordarem não é contrato;
+ * é uma coincidência mantida à mão. Agora é esta função, e os três a chamam.
+ *
+ * A ordem é a da leitura: o conceito situa, o Book manda no conteúdo, o dado
+ * mede, o arquivo é o que só o modelo abre.
+ */
+export type ItemCitavel =
+  | { id: number; tipo: "CONCEITO"; trecho: TrechoRelevante }
+  | { id: number; tipo: "BOOK"; documento: TrechoDoBookRanqueado }
+  | { id: number; tipo: "DADO"; evidencia: Evidencia }
+  | { id: number; tipo: "ARQUIVO"; anexo: Anexo };
+
+export function itensCitaveis(dossie: Dossie): ItemCitavel[] {
+  const itens: ItemCitavel[] = [];
+  let n = 1;
+  for (const trecho of dossie.trechos) itens.push({ id: n++, tipo: "CONCEITO", trecho });
+  for (const documento of dossie.documentos) itens.push({ id: n++, tipo: "BOOK", documento });
+  for (const evidencia of dossie.evidencias) itens.push({ id: n++, tipo: "DADO", evidencia });
+  for (const anexo of dossie.anexos) itens.push({ id: n++, tipo: "ARQUIVO", anexo });
+  return itens;
 }
 
 // ── Validação ───────────────────────────────────────────────────────────────
@@ -863,8 +974,11 @@ function numerosDoTexto(texto: string): string[] {
  * A numeração é a de `montarFontes`: trechos, evidências e anexos por último.
  */
 function citacoesDeAnexo(dossie: Dossie): Set<number> {
-  const primeira = dossie.trechos.length + dossie.evidencias.length + 1;
-  return new Set(dossie.anexos.map((_, i) => primeira + i));
+  return new Set(
+    itensCitaveis(dossie)
+      .filter((i) => i.tipo === "ARQUIVO")
+      .map((i) => i.id),
+  );
 }
 
 /** Quebra o texto em frases, nas mesmas fronteiras que o portão usa. */
@@ -952,6 +1066,22 @@ export function numerosSemLastro(texto: string, dossie: Dossie): string[] {
     registrar(t.trecho.texto);
     registrar(t.trecho.titulo);
   }
+  /*
+    Os números do Book têm lastro: eles estão escritos no documento.
+
+    Este é o efeito mais importante de o conteúdo do Book entrar no dossiê como
+    texto. Antes, um documento chegava como anexo — um arquivo que a trava não
+    tinha como conferir —, e a licença precisava ser dada por frase, a quem
+    citasse o anexo. Uma resposta que transcrevesse a tabela de critérios em
+    lista, com a citação só na última linha, era descartada inteira. Agora o
+    texto que o modelo leu está no dossiê, e conferir "bimestral" ou "R$ 1.234"
+    contra ele é a mesma operação de sempre: procurar o token na evidência.
+  */
+  for (const d of dossie.documentos) {
+    registrar(d.trecho.texto);
+    registrar(d.trecho.bloco);
+    registrar(d.trecho.secao ?? "");
+  }
   for (const l of dossie.lacunas) registrar(l.explicacao);
 
   return numerosDoTexto(semCitacoes).filter((token) => {
@@ -972,7 +1102,7 @@ export function numerosSemLastro(texto: string, dossie: Dossie): string[] {
  * inteira, porque o texto foi construído em cima daquela suposta fonte.
  */
 export function citacoesSemFonte(texto: string, dossie: Dossie): string[] {
-  const quantas = dossie.trechos.length + dossie.evidencias.length + dossie.anexos.length;
+  const quantas = itensCitaveis(dossie).length;
   const citadas: string[] = texto.match(/\[\d{1,2}\]/g) ?? [];
   return [
     ...new Set(

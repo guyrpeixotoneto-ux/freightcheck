@@ -1,6 +1,15 @@
 /**
  * O que dá para tirar de um arquivo sem traduzir o que ele mostra.
  *
+ * **A estrutura é lida em `documento.ts`; aqui fica o acesso ao arquivo.** Este
+ * módulo abre o zip, escolhe a parte certa de cada formato e devolve o que o
+ * resto do assistente consome — o documento em blocos, o markdown dele e as
+ * figuras. A separação existe porque as duas coisas quebram por motivos
+ * diferentes: um zip mal lido é deslocamento de bytes, uma tabela perdida é
+ * interpretação de OOXML, e juntá-las num arquivo só fez a segunda ser
+ * negligenciada por anos — era o `<w:tbl>` inteiro caindo no mesmo
+ * `replace(/<[^>]+>/g, "")` que tirava as tags de formatação.
+ *
  * O modelo lê PDF e imagem nativamente, e é assim que esses dois chegam a ele —
  * sem intermediário. Word, Excel e PowerPoint ele não abre, e aí a escolha é
  * entre não ler nada e ler o que o próprio arquivo declara. Este módulo faz a
@@ -28,7 +37,16 @@
  */
 
 import { inflateRawSync } from "node:zlib";
-import * as XLSX from "xlsx";
+import {
+  blocosDaPlanilha,
+  blocosDoSlide,
+  blocosDoTexto,
+  blocosDoWord,
+  renderizarBlocos,
+  textoDoXml as textoDeXmlDoOffice,
+  type BlocoDeDocumento,
+  type DocumentoEstruturado,
+} from "./documento";
 
 // ── ZIP ─────────────────────────────────────────────────────────────────────
 
@@ -102,25 +120,11 @@ export function lerZip(buffer: Buffer): Map<string, Buffer> {
 /**
  * O texto de um XML do Office, na ordem em que ele aparece.
  *
- * `<w:t>` no Word, `<a:t>` no PowerPoint — os dois guardam o texto visível em
- * elementos de nome curto, e é isso que se colhe. Quebra de parágrafo vira
- * quebra de linha para o texto não sair como um bloco só, que é o que faria uma
- * lista de cláusulas parecer um parágrafo corrido.
+ * Continua exportado daqui porque é assim que ele é conhecido — a
+ * implementação mora em `documento.ts`, ao lado de quem a usa para ler célula
+ * de tabela e parágrafo de slide.
  */
-export function textoDoXml(xml: string): string {
-  return xml
-    .replace(/<\/w:p>|<\/a:p>|<w:br\s*\/>/g, "\n")
-    .replace(/<[wa]:t(?:\s[^>]*)?>([\s\S]*?)<\/[wa]:t>/g, (_, t: string) => t)
-    .replace(/<[^>]+>/g, "")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;|&apos;/g, "'")
-    .replace(/[ \t]+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
+export const textoDoXml = textoDeXmlDoOffice;
 
 // ── Extração ────────────────────────────────────────────────────────────────
 
@@ -154,20 +158,44 @@ function imagensDe(arquivos: Map<string, Buffer>, pasta: string): ImagemExtraida
 const TETO_DE_IMAGENS = 6;
 
 /**
- * O conteúdo de um arquivo que o modelo não abre sozinho.
+ * O documento estruturado de um arquivo que o modelo não abre sozinho.
  *
  * Devolve `null` quando não há caminho — formato legado, arquivo ilegível, ou
  * um documento do qual não se conseguiu tirar nem texto nem figura. `null` aqui
  * não é falha silenciosa: quem chama volta a dizer que não leu o documento, que
  * é a verdade.
  */
-export function extrairAnexo(mimeType: string, buffer: Buffer): ConteudoExtraido | null {
-  const texto = (t: string): ConteudoExtraido | null =>
-    t.trim() ? { texto: t.trim(), imagens: [] } : null;
+export function extrairDocumento(
+  mimeType: string,
+  buffer: Buffer,
+): (DocumentoEstruturado & { imagens: ImagemExtraida[] }) | null {
+  const pronto = (
+    blocos: BlocoDeDocumento[],
+    imagens: ImagemExtraida[] = [],
+    cortes: string[] = [],
+  ) => (blocos.length > 0 || imagens.length > 0 ? { blocos, imagens, cortes } : null);
 
   // Texto puro não precisa de extração — é o próprio conteúdo.
-  if (mimeType === "text/plain" || mimeType === "text/markdown" || mimeType === "text/csv") {
-    return texto(buffer.toString("utf8"));
+  if (mimeType === "text/plain" || mimeType === "text/markdown") {
+    return pronto(blocosDoTexto(buffer.toString("utf8")));
+  }
+
+  /*
+    CSV é tabela, e chegava como prosa.
+
+    Ele caía no caminho do texto puro, onde cada linha virava um parágrafo: o
+    cabeçalho perdia a relação com as linhas e "Placa,IPVA" passava a ser uma
+    frase. O mesmo leitor da planilha o abre, e o resultado é a tabela que o
+    arquivo sempre foi. O título da folha não entra — num CSV ele é inventado
+    pelo leitor ("Sheet1") e não diz nada a ninguém.
+  */
+  if (mimeType === "text/csv") {
+    const { blocos, cortes } = blocosDaPlanilha(buffer);
+    return pronto(
+      blocos.filter((b) => b.tipo === "TABELA"),
+      [],
+      cortes,
+    );
   }
 
   /*
@@ -180,7 +208,8 @@ export function extrairAnexo(mimeType: string, buffer: Buffer): ConteudoExtraido
     para o antigo, duas leituras da mesma família discordando em silêncio.
   */
   if (mimeType.includes("spreadsheetml") || mimeType === "application/vnd.ms-excel") {
-    return texto(planilhaEmTexto(buffer));
+    const { blocos, cortes } = blocosDaPlanilha(buffer);
+    return pronto(blocos, [], cortes);
   }
 
   let arquivos: Map<string, Buffer>;
@@ -193,11 +222,10 @@ export function extrairAnexo(mimeType: string, buffer: Buffer): ConteudoExtraido
 
   if (mimeType.includes("wordprocessingml")) {
     const corpo = arquivos.get("word/document.xml");
-    const conteudo: ConteudoExtraido = {
-      texto: corpo ? textoDoXml(corpo.toString("utf8")) : "",
-      imagens: imagensDe(arquivos, "word/media/").slice(0, TETO_DE_IMAGENS),
-    };
-    return conteudo.texto || conteudo.imagens.length > 0 ? conteudo : null;
+    return pronto(
+      corpo ? blocosDoWord(corpo.toString("utf8")) : [],
+      imagensDe(arquivos, "word/media/").slice(0, TETO_DE_IMAGENS),
+    );
   }
 
   if (mimeType.includes("presentationml")) {
@@ -206,60 +234,35 @@ export function extrairAnexo(mimeType: string, buffer: Buffer): ConteudoExtraido
 
       `slide10.xml` vem antes de `slide2.xml` em ordem alfabética, e uma
       apresentação fora de ordem descreve um raciocínio que ninguém apresentou.
-      O número do slide entra no texto porque é assim que se cita um: "no slide
-      4" só quer dizer algo se o slide 4 estiver marcado.
+      O número do slide entra como título porque é assim que se cita um: "no
+      slide 4" só quer dizer algo se o slide 4 estiver marcado.
     */
     const slides = [...arquivos.keys()]
       .filter((n) => /^ppt\/slides\/slide\d+\.xml$/.test(n))
       .sort((a, b) => Number(a.match(/\d+/)![0]) - Number(b.match(/\d+/)![0]));
 
-    const partes = slides
-      .map((nome, i) => {
-        const t = textoDoXml(arquivos.get(nome)!.toString("utf8"));
-        return t ? `[slide ${i + 1}]\n${t}` : "";
-      })
-      .filter(Boolean);
-
-    const conteudo: ConteudoExtraido = {
-      texto: partes.join("\n\n"),
-      imagens: imagensDe(arquivos, "ppt/media/").slice(0, TETO_DE_IMAGENS),
-    };
-    return conteudo.texto || conteudo.imagens.length > 0 ? conteudo : null;
+    return pronto(
+      slides.flatMap((nome, i) => blocosDoSlide(arquivos.get(nome)!.toString("utf8"), i + 1)),
+      imagensDe(arquivos, "ppt/media/").slice(0, TETO_DE_IMAGENS),
+    );
   }
 
   return null;
 }
 
 /**
- * A planilha como texto, folha por folha.
+ * O mesmo conteúdo, já em markdown — a forma em que ele viaja.
  *
- * Usa o mesmo leitor que o pipeline de importação usa sobre estes arquivos, com
- * as mesmas opções — e é essa a razão de ele estar aqui e não um parser próprio.
- * Um `.xlsx` de verdade traz data serializada, string em linha, valor em cache
- * de fórmula e célula mesclada; uma leitura artesanal do XML acerta o arquivo
- * de teste e erra o arquivo do cliente, que é a pior combinação possível.
- *
- * `cellDates` e `cellText` fazem sair o que o Excel **mostra**, não o número
- * cru por trás: uma data tem de chegar ao modelo como data, senão ele lê 45231
- * e cita um número que ninguém reconhece na tela.
- *
- * O que fica de fora está declarado: fórmula não é avaliada aqui — o que sai é
- * o valor que o Excel gravou junto dela.
+ * Continua existindo com este nome porque é o contrato de quem manda um anexo
+ * ao modelo. O que mudou é o texto que sai: antes era o resultado de arrancar
+ * as tags de um XML, agora é a renderização dos blocos, com as tabelas
+ * inteiras.
  */
-function planilhaEmTexto(buffer: Buffer): string {
-  let livro: XLSX.WorkBook;
-  try {
-    livro = XLSX.read(buffer, { type: "buffer", cellDates: true, cellText: true });
-  } catch {
-    return "";
-  }
-
-  const partes: string[] = [];
-  for (const nome of livro.SheetNames) {
-    const folha = livro.Sheets[nome];
-    if (!folha) continue;
-    const csv = XLSX.utils.sheet_to_csv(folha, { blankrows: false }).trim();
-    if (csv) partes.push(`[${nome}]\n${csv}`);
-  }
-  return partes.join("\n\n");
+export function extrairAnexo(mimeType: string, buffer: Buffer): ConteudoExtraido | null {
+  const documento = extrairDocumento(mimeType, buffer);
+  if (!documento) return null;
+  const texto = renderizarBlocos(documento.blocos);
+  return texto || documento.imagens.length > 0
+    ? { texto, imagens: documento.imagens }
+    : null;
 }

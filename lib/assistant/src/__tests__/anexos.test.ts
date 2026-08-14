@@ -82,7 +82,8 @@ describe("Word", () => {
 describe("PowerPoint", () => {
   it("põe os slides na ordem da apresentação, não na alfabética", () => {
     const r = extrairAnexo(MIME_PPTX, PPTX)!;
-    const ordem = [...r.texto.matchAll(/\[slide (\d+)\]\n(.+)/g)].map((m) => m[2]);
+    // Cada slide entra como um título — "## Slide 4" —, que é como se cita um.
+    const ordem = [...r.texto.matchAll(/## Slide (\d+)\n\n(.+)/g)].map((m) => m[2]);
     expect(ordem).toEqual(["Primeiro slide", "Segundo slide", "Decimo slide"]);
   });
 
@@ -92,11 +93,19 @@ describe("PowerPoint", () => {
 });
 
 describe("Excel", () => {
-  it("lê o .xlsx moderno, com o nome da folha e os valores", () => {
+  /*
+    A folha sai como tabela, não como CSV.
+
+    A versão anterior entregava `Placa,IPVA` seguido de `ABC1D23,1234.5`, e num
+    arquivo com oito colunas ninguém — nem o modelo — sabia qual valor era de
+    qual coluna. O cabeçalho e o separador de markdown restabelecem a relação
+    que a planilha sempre teve.
+  */
+  it("lê o .xlsx moderno, com o nome da folha e a tabela inteira", () => {
     const r = extrairAnexo(MIME_XLSX, XLSX_FILE)!;
-    expect(r.texto).toContain("[Frota]");
-    expect(r.texto).toContain("Placa,IPVA");
-    expect(r.texto).toContain("ABC1D23,1234.5");
+    expect(r.texto).toContain("### Frota");
+    expect(r.texto).toContain("| Placa | IPVA |");
+    expect(r.texto).toContain("| ABC1D23 | 1234.5 |");
   });
 
   /*
@@ -110,8 +119,8 @@ describe("Excel", () => {
     expect(lerZip(XLS_FILE).size, "não é zip — o leitor de zip não acha nada").toBe(0);
 
     const r = extrairAnexo(MIME_XLS, XLS_FILE)!;
-    expect(r.texto).toContain("Placa,IPVA");
-    expect(r.texto).toContain("ABC1D23,1234.5");
+    expect(r.texto).toContain("| Placa | IPVA |");
+    expect(r.texto).toContain("| ABC1D23 | 1234.5 |");
   });
 });
 
@@ -122,9 +131,11 @@ describe("texto puro", () => {
     expect(r.imagens).toEqual([]);
   });
 
-  it("vale para csv e markdown", () => {
-    expect(extrairAnexo("text/csv", Buffer.from("a,b\n1,2"))!.texto).toBe("a,b\n1,2");
-    expect(extrairAnexo("text/markdown", Buffer.from("# t"))!.texto).toBe("# t");
+  it("markdown entra como é; csv vira a tabela que ele é", () => {
+    expect(extrairAnexo("text/markdown", Buffer.from("# t"))!.texto).toBe("## t");
+    expect(extrairAnexo("text/csv", Buffer.from("a,b\n1,2"))!.texto).toBe(
+      "| a | b |\n| --- | --- |\n| 1 | 2 |",
+    );
   });
 });
 

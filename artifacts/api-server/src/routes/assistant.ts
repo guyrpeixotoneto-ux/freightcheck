@@ -3,6 +3,7 @@ import { db } from "@workspace/db";
 import {
   acharConversa,
   arquivarConversa,
+  CONVERSA_SEM_ASSUNTO,
   criarConversa,
   gravarTurno,
   guardarEstado,
@@ -242,10 +243,34 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
 
     // ---- persistência ------------------------------------------------------
     const estadoNovo = serializarEstado(resposta.estado) as object;
+
+    /*
+      O título é o assunto, e ele pode chegar depois.
+
+      Quem abre a tela costuma cumprimentar antes de perguntar, e o título
+      nascia dessa primeira linha: a barra lateral acumulava conversas chamadas
+      "ola". Agora a conversa nasce sem nome quando não há assunto, e a primeira
+      pergunta de verdade a batiza — com o bloco do Book ou a gaveta de que ela
+      falou, que é como quem procura depois vai lembrar dela.
+    */
+    const titulo = tituloDe(pergunta, {
+      bloco: resposta.estado.blocoDoBook,
+      parametro: resposta.estado.parametro,
+    });
+
     if (!conversa) {
-      conversa = await criarConversa(db, req.user!.id, tituloDe(pergunta), estadoNovo);
+      conversa = await criarConversa(
+        db,
+        req.user!.id,
+        titulo ?? CONVERSA_SEM_ASSUNTO,
+        estadoNovo,
+      );
     } else {
       await guardarEstado(db, conversa.id, estadoNovo);
+      if (titulo && conversa.title === CONVERSA_SEM_ASSUNTO) {
+        const renomeada = await renomearConversa(db, req.user!.id, conversa.id, titulo);
+        if (renomeada) conversa = renomeada;
+      }
     }
 
     await gravarTurno(db, conversa.id, pergunta, {

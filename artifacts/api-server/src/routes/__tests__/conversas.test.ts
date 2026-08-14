@@ -101,14 +101,32 @@ describe("excluir é arquivar", () => {
   });
 });
 
-describe("o título nasce da pergunta", () => {
+describe("o título nasce do assunto", () => {
   it("tira a pontuação final e não corta palavra ao meio", () => {
     expect(tituloDe("Quanto mudou o IPVA?")).toBe("Quanto mudou o IPVA");
     const longo = tituloDe(
       "Quais parâmetros do FreightCheck não têm preço suficiente para calcular impacto nesta vigência?",
-    );
+    )!;
     expect(longo.length).toBeLessThanOrEqual(61);
     expect(longo.endsWith("…")).toBe(true);
     expect(longo).not.toMatch(/\s…$/);
+  });
+
+  /*
+    A barra lateral tinha meia dúzia de conversas chamadas "ola" — o título
+    nascia da primeira linha digitada, e a primeira linha costuma ser um
+    cumprimento. Sem assunto não há título: quem batiza é a pergunta seguinte.
+  */
+  it("um cumprimento não vira nome de conversa", () => {
+    expect(tituloDe("ola")).toBeNull();
+    expect(tituloDe("bom dia!")).toBeNull();
+    expect(tituloDe("oi, tudo bem?")).toBeNull();
+  });
+
+  it("o assunto resolvido vence a frase digitada", () => {
+    expect(tituloDe("me explica isso aí", { bloco: "QLP ADM" })).toBe("QLP ADM");
+    expect(tituloDe("quanto mudou?", { parametro: "IPVA e licenciamento" })).toBe(
+      "IPVA e licenciamento",
+    );
   });
 });
