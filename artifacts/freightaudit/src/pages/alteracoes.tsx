@@ -11,10 +11,11 @@ import {
   Lock,
   Upload,
 } from "lucide-react";
+import { ApiErrorNotice } from "@/components/api-error";
 import { Layout } from "@/components/layout/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { fetchJson, getApiUrl, readJson } from "@/lib/api";
+import { ApiError, fetchJson, getApiUrl, readJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   ChangeTable,
@@ -391,11 +392,10 @@ function AbaPlanilha() {
         />
 
         {error && (
-          <Card>
-            <CardContent className="p-6 text-sm text-red-800">
-              {(error as Error).message}
-            </CardContent>
-          </Card>
+          <ApiErrorNotice
+            error={error}
+            what="As alterações da planilha não puderam ser carregadas."
+          />
         )}
 
         <Card>
@@ -486,7 +486,10 @@ const NOMES_DE_CAMPO: Record<string, string> = {
 function AbaChamados() {
   const [filters, setFilters] = useState<TicketFilterState>(emptyTicketFilters);
   const [envio, setEnvio] = useState<string | null>(null);
-  const [erro, setErro] = useState<string | null>(null);
+  // O erro inteiro, e não a frase dele: `ApiErrorNotice` precisa do status e do
+  // `code` para separar "o arquivo não serve" de "o banco deste ambiente ainda
+  // não tem as tabelas".
+  const [erroUpload, setErroUpload] = useState<unknown>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
@@ -529,17 +532,27 @@ function AbaChamados() {
         }),
       });
       const body = await readJson(response);
-      if (!response.ok) throw new Error(`${file.name}: ${body.error}`);
+      if (!response.ok) {
+        // `ApiError` e não `Error`: o status e o `code` são o que permite à
+        // tela dizer "faltam migrations" em vez de repetir a frase do servidor.
+        throw new ApiError(
+          typeof body.error === "string"
+            ? `${file.name}: ${body.error}`
+            : `${file.name}: o servidor respondeu ${response.status}.`,
+          response.status,
+          typeof body.code === "string" ? body.code : undefined,
+        );
+      }
       return body.ticketImportId as string;
     },
     onSuccess: () => {
-      setErro(null);
+      setErroUpload(null);
       // A leitura roda fora da requisição, então o resultado ainda não está
       // pronto quando isto volta. Recarregar já mostra o envio em leitura, e o
       // `refetchInterval` abaixo cuida do resto.
       queryClient.invalidateQueries({ queryKey: ["tickets"] });
     },
-    onError: (err: Error) => setErro(err.message),
+    onError: (err: unknown) => setErroUpload(err),
   });
 
   const data = query.data;
@@ -650,18 +663,24 @@ function AbaChamados() {
       </header>
 
       <div className="p-8 space-y-6">
-        {erro && (
-          <p className="text-sm text-red-900 bg-red-50 border border-red-200 rounded-md px-4 py-3">
-            {erro}
-          </p>
+        {/*
+          O upload falha por dois motivos muito diferentes — o arquivo não
+          serve, ou o banco deste ambiente não tem onde guardar — e a frase do
+          servidor sozinha não os distingue. `ApiErrorNotice` pergunta ao
+          /healthz e escreve a diferença.
+        */}
+        {erroUpload != null && (
+          <ApiErrorNotice
+            error={erroUpload}
+            what="O export de chamados não pôde ser enviado."
+          />
         )}
 
         {query.error && (
-          <Card>
-            <CardContent className="p-6 text-sm text-red-800">
-              {(query.error as Error).message}
-            </CardContent>
-          </Card>
+          <ApiErrorNotice
+            error={query.error}
+            what="Os chamados não puderam ser carregados."
+          />
         )}
 
         {/* Envios que falharam ou estão em leitura: quem mandou o arquivo
