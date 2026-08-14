@@ -15,6 +15,7 @@ import {
   LayoutGrid,
   Search,
   Settings,
+  Sparkles,
   Truck,
   Users,
 } from "lucide-react";
@@ -84,6 +85,21 @@ const NAV_ITEMS: NavItem[] = [
       "planilha aberta",
       "contrato",
       "manual",
+    ],
+  },
+  {
+    href: "/assistente",
+    label: "Assistente de IA",
+    icon: Sparkles,
+    sinonimos: [
+      "ia",
+      "inteligencia artificial",
+      "assistente",
+      "perguntar",
+      "duvida",
+      "ajuda",
+      "chat",
+      "o que significa",
     ],
   },
   {

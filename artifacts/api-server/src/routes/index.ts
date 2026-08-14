@@ -9,6 +9,7 @@ import importsRouter from "./imports";
 import overviewRouter from "./overview";
 import versionsRouter from "./versions";
 import bookRouter from "./book";
+import assistantRouter from "./assistant";
 
 /**
  * F0/F1 surface.
@@ -35,6 +36,11 @@ import bookRouter from "./book";
  * É a única superfície que guarda arquivo dentro do banco, e o motivo está em
  * `lib/db/src/schema/book.ts` — aqui o documento é o conteúdo, não há cópia
  * derivada dele, e o disco desta plataforma não sobrevive a um deploy.
+ *
+ * `assistant` é o Assistente de IA. É a única superfície que **não** tem dado
+ * próprio: ela responde a partir do conhecimento registrado em código e de
+ * consultas às mesmas funções que as telas usam. Um número que aparece lá
+ * apareceu antes numa tela, e a resposta diz em qual.
  */
 const router: IRouter = Router();
 
@@ -48,5 +54,6 @@ router.use(importsRouter);
 router.use(overviewRouter);
 router.use(versionsRouter);
 router.use(bookRouter);
+router.use(assistantRouter);
 
 export default router;
