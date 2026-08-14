@@ -5,7 +5,9 @@ import { describe, expect, it } from "vitest";
 import {
   computeParameterMovement,
   detectLayout,
+  extractPlaca,
   normalizeStatus,
+  pareceMesmoNumeroOutraFormatacao,
   parseTicketDate,
   parseTicketNumber,
   planParameterColumns,
@@ -263,6 +265,127 @@ describe("normalizeStatus", () => {
   });
 });
 
+/**
+ * O export real do Freightech, coluna por coluna.
+ *
+ * Estes nomes não são inventados: são os 26 cabeçalhos de
+ * `Chamados_<unidade>.xlsx`, aba `<mês>_EXPORTACAO_HISTORICO`. Ficam aqui
+ * porque foi a distância entre eles e os nomes que este leitor supunha que
+ * fez a primeira importação de verdade ser recusada inteira.
+ */
+const CABECALHO_REAL = [
+  "B.O",
+  "Segmento",
+  "Unidade",
+  "Operador",
+  "Data Solicitação",
+  "SLA",
+  "Item",
+  "Operação",
+  "Status",
+  "Campo Alteração",
+  "Valor Antigo",
+  "Valor Solicitado",
+  "Solicitante",
+  "Aprovador",
+  "Data Alteração",
+  "Justificativa Abertura",
+  "Observação Aprovação/Reprovação",
+  "Categoria",
+  "Vig. Abertura",
+  "Previsão Análise",
+  "Vig. Aplicação",
+  "Vig. Sugestão",
+  "Alt. Ambev",
+  "Evidência Reprovada",
+  "ID alteração lote",
+  "Data Aprovação",
+];
+
+describe("o export real do Freightech", () => {
+  it("é lido como formato estreito", () => {
+    expect(detectLayout(CABECALHO_REAL)).toBe("NARROW");
+  });
+
+  it("liga todos os campos que importam, e por igualdade", () => {
+    // Nenhum destes pode depender de aproximação: se um deles passar a casar
+    // por conter uma palavra, o próximo export com uma coluna parecida rouba
+    // a ligação sem que nada estoure.
+    const plan = planTicketColumns(CABECALHO_REAL);
+    const esperado: Record<string, string> = {
+      externalId: "B.O",
+      openedAt: "Data Solicitação",
+      closedAt: "Data Aprovação",
+      statusRaw: "Status",
+      changeKind: "Operação",
+      vigenciaLabel: "Vig. Abertura",
+      parameterLabel: "Campo Alteração",
+      entityDescription: "Item",
+      valueBeforeRaw: "Valor Antigo",
+      requestedValueRaw: "Valor Solicitado",
+      requestedBy: "Solicitante",
+      subject: "Justificativa Abertura",
+    };
+    for (const [campo, header] of Object.entries(esperado)) {
+      const ligacao = plan.bindings[campo as keyof typeof plan.bindings];
+      expect(ligacao?.header, `campo ${campo}`).toBe(header);
+      expect(ligacao?.match, `campo ${campo}`).toBe("exato");
+    }
+  });
+
+  it("reconhece B.O como o número do chamado", () => {
+    // A coluna que faltava. Sem ela o arquivo inteiro era recusado com "não
+    // achei a coluna do número do chamado" — foi a primeira importação real.
+    for (const escrita of ["B.O", "B. O.", "BO"]) {
+      const plan = planTicketColumns([escrita, "Campo Alteração"]);
+      expect(plan.bindings.externalId?.header).toBe(escrita);
+    }
+  });
+});
+
+describe("extractPlaca", () => {
+  it("acha a placa dentro da descrição composta do item", () => {
+    expect(extractPlaca("Placa: QYW2D78 | Placa Carreta: QYW4C69")).toBe("QYW2D78");
+  });
+
+  it("fica com a primeira placa — a do ativo, não a do implemento", () => {
+    // Casar com a segunda atribuiria a alteração ao reboque em vez do cavalo.
+    expect(extractPlaca("Placa: ABC1D23 | Placa Carreta: XYZ9W88")).toBe("ABC1D23");
+  });
+
+  it("não inventa placa onde o item descreve outra coisa", () => {
+    expect(
+      extractPlaca("Cargo: Manobrista | Classificação: CARREGAMENTO | Quantidade: 10.0"),
+    ).toBeNull();
+    expect(extractPlaca(null)).toBeNull();
+  });
+});
+
+describe("pareceMesmoNumeroOutraFormatacao", () => {
+  it("pega a quantia escrita de dois jeitos", () => {
+    /*
+      Os casos são do arquivo real: `Valor Antigo` chega como 255873333 e
+      `Valor Solicitado` como "255.87" — o mesmo 255,873333 com o separador
+      decimal perdido de um dos lados. Subtraídos, davam −255 milhões, e a
+      soma da tela ia a −2,7 bilhões.
+    */
+    expect(pareceMesmoNumeroOutraFormatacao(255873333, 255.87)).toBe(true);
+    expect(pareceMesmoNumeroOutraFormatacao(383841386, 383.84)).toBe(true);
+    expect(pareceMesmoNumeroOutraFormatacao(171251578, 171.25)).toBe(true);
+    expect(pareceMesmoNumeroOutraFormatacao(9946842, 99.47)).toBe(true);
+  });
+
+  it("não confunde uma variação grande de verdade com artefato", () => {
+    // Estes são do mesmo arquivo, e são alterações reais: têm de passar.
+    expect(pareceMesmoNumeroOutraFormatacao(779.06, 654.8)).toBe(false);
+    expect(pareceMesmoNumeroOutraFormatacao(10, 17)).toBe(false);
+    expect(pareceMesmoNumeroOutraFormatacao(3.0, 3.09)).toBe(false);
+    // Mil vezes maior, mas não os mesmos algarismos: variação real.
+    expect(pareceMesmoNumeroOutraFormatacao(1000, 1.5)).toBe(false);
+    expect(pareceMesmoNumeroOutraFormatacao(0, 500)).toBe(false);
+  });
+});
+
 describe("detectLayout", () => {
   it("é estreito quando existe uma coluna Parâmetro", () => {
     expect(detectLayout(["Nº do chamado", "Parâmetro", "Valor pedido"])).toBe(
@@ -420,17 +543,61 @@ describe("computeParameterMovement", () => {
     expect(m.impactReason).toMatch(/vigência em vigor não tem este parâmetro/);
   });
 
-  it("cita o texto quando o valor existia mas não era número", () => {
+  it("descreve a alteração de texto em vez de reclamar que não é número", () => {
+    // `ativo` vai de "ATIVO" para "PARADO" e `dataFimContrato` de uma data
+    // para outra. São alterações de verdade; dizer só "não é um número"
+    // descreveria a nossa limitação em vez do que o chamado fez.
     const m = computeParameterMovement(
-      1000,
+      null,
       null,
       "ATENDIDO",
-      "1000",
-      "sob análise",
-      "VIGENCIA",
+      "ATIVO",
+      "PARADO",
+      "ARQUIVO",
+      "SET",
     );
     expect(m.impactConfidence).toBe("NOT_CALCULABLE");
-    expect(m.impactReason).toContain("sob análise");
+    expect(m.impactReason).toContain('mudou de "ATIVO" para "PARADO"');
+    expect(m.impactReason).toMatch(/alteração de texto/);
+  });
+
+  it("recusa a apuração quando os dois lados são a mesma quantia mal formatada", () => {
+    // Sem isto, os 17 casos assim do arquivo real somavam −2,7 bilhões no
+    // cartão de impacto. Os dois valores continuam à vista; o que não existe
+    // é o número inventado entre eles.
+    const m = computeParameterMovement(
+      255873333,
+      255.87,
+      "ATENDIDO",
+      "255873333",
+      "255.87",
+      "ARQUIVO",
+      "SET",
+    );
+    expect(m.impactConfidence).toBe("NOT_CALCULABLE");
+    expect(m.deltaAbsolute).toBeNull();
+    expect(m.impactReason).toMatch(/separador decimal/);
+  });
+
+  it("explica a alteração que não é sobre valor nenhum", () => {
+    // 85% de um export real. Sem motivo escrito, a tabela inteira pareceria
+    // uma tela que perdeu os números.
+    const m = computeParameterMovement(
+      null,
+      null,
+      "ATENDIDO",
+      null,
+      null,
+      "AUSENTE",
+      "FORM_THIS",
+    );
+    expect(m.impactConfidence).toBe("NOT_CALCULABLE");
+    expect(m.impactReason).toMatch(/trocou a fórmula/);
+
+    const add = computeParameterMovement(
+      null, null, "ATENDIDO", null, null, "AUSENTE", "ADD",
+    );
+    expect(add.impactReason).toMatch(/incluiu este item/);
   });
 
   it("apura zero como zero — atendido pelo valor que já valia é um fato", () => {

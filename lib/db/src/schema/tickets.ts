@@ -130,6 +130,24 @@ export const ticketTable = pgTable(
     /** A placa, quando o chamado é de um ativo específico. */
     entityLabel: text("entity_label"),
     entityType: text("entity_type"),
+    /**
+     * O ativo como o arquivo o descreve, inteiro.
+     *
+     * A coluna `Item` do export traz `Placa: QYW2D78 | Placa Carreta: QYW4C69`
+     * numas linhas e `Cargo: Manobrista | Classificação: …` noutras. A placa é
+     * extraída para `entityLabel`, que é o que casa com o canônico; o texto
+     * inteiro fica aqui, porque nas linhas de cargo ele é a única identificação
+     * que existe.
+     */
+    entityDescription: text("entity_description"),
+    /**
+     * A vigência que o próprio chamado nomeia (`Vig. Abertura`).
+     *
+     * Casa com `snapshot.source_label`, e é melhor do que qualquer heurística
+     * nossa para achar o valor anterior de um parâmetro: em vez de "a vigência
+     * mais recente", a que o chamado diz que é.
+     */
+    vigenciaLabel: text("vigencia_label"),
     requestedBy: text("requested_by"),
     /** Texto livre do chamado — assunto, descrição, o que a fonte trouxer. */
     subject: text("subject"),
@@ -147,6 +165,7 @@ export const ticketTable = pgTable(
     index("ticket_import_idx").on(t.ticketImportId),
     index("ticket_external_id_idx").on(t.externalId),
     index("ticket_status_bucket_idx").on(t.statusBucket),
+    index("ticket_vigencia_idx").on(t.vigenciaLabel),
   ],
 );
 
@@ -218,6 +237,21 @@ export const ticketChangeTable = pgTable(
       .default("NOT_CALCULABLE"),
     /** Por que não deu para apurar. Escrito para quem opera, nunca vazio à toa. */
     impactReason: text("impact_reason"),
+    /**
+     * O que o chamado fez com o parâmetro: SET | ADD | FORM_THIS | …
+     *
+     * É a coluna `Operação` do export, e ela explica a maior parte da tabela:
+     * num export real, 96% das alterações não têm valor nenhum porque não são
+     * `SET` — são troca de fórmula ou inclusão de item, que mudam a
+     * remuneração sem que exista "de 10 para 12" para mostrar. Sem este campo,
+     * essas linhas apareceriam com as colunas de valor vazias e sem explicação,
+     * e quem lê concluiria que o dado se perdeu.
+     *
+     * Texto, e não enum: é vocabulário do Freightech, que inventa operação nova
+     * sem avisar — e uma migration não pode ser pré-requisito para receber um
+     * arquivo.
+     */
+    changeKind: text("change_kind"),
     /** Coluna física do arquivo, 0-based — a origem desta linha. */
     sourceColumnIndex: integer("source_column_index").notNull(),
   },
@@ -227,5 +261,6 @@ export const ticketChangeTable = pgTable(
     index("ticket_change_ticket_idx").on(t.ticketId),
     index("ticket_change_attribute_idx").on(t.attributeCode),
     index("ticket_change_parameter_idx").on(t.parameterLabel),
+    index("ticket_change_kind_idx").on(t.changeKind),
   ],
 );

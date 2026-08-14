@@ -605,9 +605,18 @@ function AbaChamados() {
               tone={totals.stillOpen > 0 ? "warn" : "muted"}
             />
             <Tile
-              label="Alterações que variaram"
+              label="Alterações com valor"
               value={totals.divergent}
-              hint="agora diferente de antes"
+              hint={(() => {
+                // Sem esta frase, um export em que 85% das linhas são troca de
+                // fórmula parece uma tela que perdeu os números.
+                const formula = totals.byChangeKind.find(
+                  (k) => k.changeKind === "FORM_THIS",
+                )?.count;
+                return formula
+                  ? `${formula} são troca de fórmula, sem valor`
+                  : "agora diferente de antes";
+              })()}
               tone={totals.divergent > 0 ? "bad" : "muted"}
             />
             <TicketImpactTile totals={totals} />

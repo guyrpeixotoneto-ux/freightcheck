@@ -47,9 +47,13 @@ export type TicketField =
   | "openedAt"
   | "closedAt"
   | "statusRaw"
+  | "changeKind"
+  | "vigenciaLabel"
   | "parameterLabel"
+  | "entityDescription"
   | "entityLabel"
   | "entityType"
+  | "valueBeforeRaw"
   | "requestedValueRaw"
   | "appliedValueRaw"
   | "requestedBy"
@@ -65,6 +69,11 @@ export type TicketField =
  */
 const ALIASES: Record<TicketField, string[]> = {
   externalId: [
+    // `B.O` é como o export do Freightech chama o número do chamado — depois
+    // do dobramento, que come o ponto, ele chega aqui como "bo". Era a única
+    // coluna obrigatória que faltava, e sem ela o arquivo inteiro era recusado.
+    "bo",
+    "b o",
     "chamado",
     "numero do chamado",
     "n do chamado",
@@ -79,6 +88,9 @@ const ALIASES: Record<TicketField, string[]> = {
     "incident",
   ],
   openedAt: [
+    "data solicitacao",
+    "data da solicitacao",
+    "data de solicitacao",
     "abertura",
     "data de abertura",
     "data abertura",
@@ -91,6 +103,9 @@ const ALIASES: Record<TicketField, string[]> = {
     "created on",
   ],
   closedAt: [
+    "data aprovacao",
+    "data da aprovacao",
+    "data de aprovacao",
     "fechamento",
     "data de fechamento",
     "data fechamento",
@@ -104,7 +119,21 @@ const ALIASES: Record<TicketField, string[]> = {
     "resolved",
   ],
   statusRaw: ["status", "situacao", "estado do chamado", "state", "andamento"],
+  changeKind: ["operacao", "tipo de operacao", "acao", "operation"],
+  vigenciaLabel: [
+    "vig abertura",
+    "vigencia abertura",
+    "vigencia de abertura",
+    "vig aplicacao",
+    // "vigencia" sozinho fica de fora: é palavra comum demais e, por
+    // aproximação, uma coluna chamada "Valor aplicado na vigência" era
+    // reclamada por este campo em vez de pelo valor aplicado. Perder um
+    // cabeçalho genérico custa menos que roubar um específico.
+  ],
   parameterLabel: [
+    "campo alteracao",
+    "campo alterado",
+    "campo de alteracao",
     "parametro",
     "atributo",
     "campo",
@@ -113,6 +142,7 @@ const ALIASES: Record<TicketField, string[]> = {
     "item alterado",
     "parametro alterado",
   ],
+  entityDescription: ["item", "objeto", "descricao do item"],
   entityLabel: ["placa", "equipamento", "ativo", "veiculo", "frota"],
   entityType: [
     "tipo de equipamento",
@@ -121,14 +151,25 @@ const ALIASES: Record<TicketField, string[]> = {
     "tipo do ativo",
     "tipo de veiculo",
   ],
+  valueBeforeRaw: [
+    "valor antigo",
+    "valor anterior",
+    "valor atual",
+    "valor vigente",
+    "valor original",
+    "valor de origem",
+    "old value",
+  ],
   requestedValueRaw: [
-    "valor pedido",
     "valor solicitado",
+    "valor pedido",
     "valor requisitado",
     "valor pleiteado",
     "valor proposto",
+    "valor novo",
     "solicitado",
     "pedido",
+    "new value",
   ],
   appliedValueRaw: [
     "valor aplicado",
@@ -150,13 +191,14 @@ const ALIASES: Record<TicketField, string[]> = {
     "requester",
   ],
   subject: [
+    "justificativa abertura",
+    "justificativa",
     "assunto",
     "descricao",
     "titulo",
     "resumo",
     "observacao",
     "observacoes",
-    "justificativa",
     "short description",
     "description",
   ],
@@ -305,6 +347,7 @@ export function planTicketColumns(
  */
 const NARROW_FIELDS: TicketField[] = [
   "parameterLabel",
+  "valueBeforeRaw",
   "requestedValueRaw",
   "appliedValueRaw",
 ];
@@ -661,6 +704,48 @@ export function normalizeStatus(raw: unknown): StatusBucket {
 /** De onde saiu o valor anterior de um parâmetro. */
 export type BeforeSource = "ARQUIVO" | "VIGENCIA" | "AUSENTE";
 
+/**
+ * Os dois lados são a mesma quantia, escrita de dois jeitos?
+ *
+ * O caso que isto pega é concreto: `Valor Antigo` chega como 255873333 e
+ * `Valor Solicitado` como "255.87" — o mesmo 255,873333 com o separador
+ * decimal perdido de um dos lados. Acontece em quase todo export que passou
+ * por uma planilha com a localidade errada.
+ *
+ * A régua é estreita de propósito: o maior tem de virar o menor ao ser
+ * dividido por uma potência de dez, **arredondado ao centavo**. Uma variação
+ * real de 1.000 para 1,50 não passa por aqui (1000/10³ = 1, e não 1,50); só
+ * passa o que é literalmente o mesmo algarismo com a vírgula em outro lugar.
+ */
+export function pareceMesmoNumeroOutraFormatacao(a: number, b: number): boolean {
+  const maior = Math.max(Math.abs(a), Math.abs(b));
+  const menor = Math.min(Math.abs(a), Math.abs(b));
+  if (menor === 0 || maior / menor < 1000) return false;
+
+  const centavos = (v: number) => Math.round(v * 100);
+  for (let k = 3; k <= 9; k++) {
+    if (centavos(maior / 10 ** k) === centavos(menor)) return true;
+  }
+  return false;
+}
+
+/**
+ * Por que uma alteração não tem valor, dita na língua de quem opera.
+ *
+ * As operações do Freightech não são todas sobre um número. `FORM_THIS` troca
+ * a fórmula do parâmetro; `ADD` inclui um item na composição. As duas mudam a
+ * remuneração de verdade — e nenhuma delas tem "de 10 para 12" para mostrar.
+ * Num export real elas são 96% das linhas, então esta explicação é a que mais
+ * aparece na tela: escrevê-la mal é deixar quase toda a tabela parecendo
+ * defeito nosso.
+ */
+const EXPLICACAO_SEM_VALOR: Record<string, string> = {
+  FORM_THIS:
+    "o chamado trocou a fórmula deste parâmetro, não um valor — não existe um “de … para …” a mostrar, e o efeito aparece no cálculo da vigência",
+  ADD: "o chamado incluiu este item na composição; inclusão não tem valor anterior com que se comparar",
+  REMOVE: "o chamado removeu este item da composição; remoção não tem valor novo com que se comparar",
+};
+
 /** A variação de um parâmetro, e o quanto dela pode ser afirmado. */
 export interface ParameterMovement {
   /** `agora − antes`. Existe mesmo com o chamado ainda aberto. */
@@ -692,32 +777,73 @@ export function computeParameterMovement(
   beforeRaw: string | null,
   afterRaw: string | null,
   beforeSource: BeforeSource,
+  /** A operação declarada pelo chamado — SET, ADD, FORM_THIS, … */
+  changeKind: string | null = null,
 ): ParameterMovement {
-  if (before === null) {
+  const semVariacao = (impactReason: string): ParameterMovement => ({
+    deltaAbsolute: null,
+    deltaPercent: null,
+    impactAmount: null,
+    impactConfidence: "NOT_CALCULABLE",
+    impactReason,
+  });
+
+  // O caso mais comum de um export real, e o que mais precisa de explicação:
+  // a alteração existe, mas não é sobre um escalar. Dizer só "não calculável"
+  // aqui deixaria 96% da tela sem motivo, e um motivo ausente é lido como
+  // defeito nosso.
+  if (beforeRaw === null && afterRaw === null) {
     return {
       deltaAbsolute: null,
       deltaPercent: null,
       impactAmount: null,
       impactConfidence: "NOT_CALCULABLE",
-      impactReason:
-        beforeSource === "AUSENTE"
-          ? "não há valor anterior: o chamado não trouxe um, e a vigência em vigor não tem este parâmetro para este ativo"
-          : beforeRaw && beforeRaw.trim() !== ""
-            ? `o valor anterior ("${beforeRaw}") não é um número`
-            : "o valor anterior deste parâmetro não é um número",
+      impactReason: EXPLICACAO_SEM_VALOR[changeKind ?? ""] ??
+        (changeKind
+          ? `o chamado registra uma operação "${changeKind}" neste parâmetro, e o arquivo não traz valores para ela`
+          : "o arquivo não traz valores para esta alteração"),
     };
   }
-  if (after === null) {
-    return {
-      deltaAbsolute: null,
-      deltaPercent: null,
-      impactAmount: null,
-      impactConfidence: "NOT_CALCULABLE",
-      impactReason:
-        afterRaw && afterRaw.trim() !== ""
-          ? `o valor do chamado ("${afterRaw}") não é um número`
-          : "o chamado não trouxe valor para este parâmetro",
-    };
+
+  if (afterRaw === null) {
+    return semVariacao(
+      "o chamado não trouxe valor novo para este parâmetro",
+    );
+  }
+  if (beforeRaw === null) {
+    return semVariacao(
+      "não há valor anterior: o chamado não trouxe um, e a vigência em vigor não tem este parâmetro para este ativo",
+    );
+  }
+
+  // Os dois lados existem, mas nem todo parâmetro é número. `ativo` vai de
+  // "ATIVO" para "PARADO", `dataFimContrato` de uma data para outra: são
+  // alterações de verdade, e dizer delas apenas "não é um número" descreveria
+  // a nossa limitação em vez do que o chamado fez.
+  if (before === null || after === null) {
+    return semVariacao(
+      `mudou de "${beforeRaw}" para "${afterRaw}" — é uma alteração de texto, sem variação numérica a apurar`,
+    );
+  }
+
+  /*
+    A mesma quantia escrita de dois jeitos.
+
+    Num export real, `Valor Antigo` chega como 255873333 e `Valor Solicitado`
+    como "255.87" — o mesmo 255,873333 com o separador decimal perdido de um
+    dos lados. Subtrair os dois dá −255.873.077, e somados os casos assim o
+    total da tela ia a −2,7 bilhões: um número que a célula de origem sustenta
+    literalmente e que a realidade não sustenta de jeito nenhum.
+
+    Recusar a apuração é o que este produto faz quando a comparação mediria
+    outra coisa que não o custo — a mesma decisão da aba Planilha diante de uma
+    mudança de significado. Os dois valores continuam à vista; o que não existe
+    é o número inventado entre eles.
+  */
+  if (pareceMesmoNumeroOutraFormatacao(before, after)) {
+    return semVariacao(
+      `"${beforeRaw}" e "${afterRaw}" são os mesmos algarismos com o separador decimal em posições diferentes — provável perda de formatação na origem. A subtração mediria a formatação, não o custo.`,
+    );
   }
 
   const deltaAbsolute = after - before;
@@ -956,11 +1082,37 @@ export interface ReadTicketsResult {
   columnMapping: Partial<Record<TicketField, ColumnBinding>>;
 }
 
-/** Texto útil, ou nada — nunca a string vazia disfarçada de valor. */
+/**
+ * O que o export escreve no lugar de "não tem valor".
+ *
+ * O Freightech preenche a célula com `-` em vez de deixá-la vazia. Ler isso
+ * como texto faria a tela mostrar "de - para -" como se fosse uma alteração de
+ * um traço para outro, e o filtro de "sem valor" nunca encontraria nada.
+ * Ausência tem de chegar aqui como ausência.
+ */
+const SENTINELAS = new Set(["-", "--", "---", "n/a", "na", "nao informado", "sem valor"]);
+
+/** Texto útil, ou nada — nunca a string vazia nem o traço disfarçados de valor. */
 function textOf(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   const s = value instanceof Date ? value.toISOString() : String(value).trim();
-  return s === "" ? null : s;
+  if (s === "") return null;
+  return SENTINELAS.has(foldText(s)) ? null : s;
+}
+
+/**
+ * A placa escondida no texto que descreve o item.
+ *
+ * A coluna `Item` do export vem composta: `Placa: QYW2D78 | Placa Carreta:
+ * QYW4C69` num chamado de veículo, `Cargo: Manobrista | Classificação: …` num
+ * de mão de obra. A primeira placa é a do ativo principal — a segunda é o
+ * implemento acoplado, e casá-la com o canônico atribuiria a alteração ao
+ * reboque em vez do cavalo.
+ */
+export function extractPlaca(descricao: string | null): string | null {
+  if (!descricao) return null;
+  const m = descricao.match(/\bplaca\s*:\s*([A-Za-z0-9-]{5,10})/i);
+  return m ? m[1].toUpperCase() : null;
 }
 
 /**
@@ -1047,8 +1199,12 @@ export async function readTicketImport(
 
     const statusRaw = textOf(at(row.cells, "statusRaw"));
     const bucket = normalizeStatus(statusRaw);
-    const entityLabel = textOf(at(row.cells, "entityLabel"));
+    const entityDescription = textOf(at(row.cells, "entityDescription"));
+    // A placa pode vir numa coluna própria ou embutida na descrição do item.
+    const entityLabel =
+      textOf(at(row.cells, "entityLabel")) ?? extractPlaca(entityDescription);
     const entityType = textOf(at(row.cells, "entityType"));
+    const changeKind = textOf(at(row.cells, "changeKind"));
 
     const payload: Record<string, unknown> = {};
     sheet.headers.forEach((header, index) => {
@@ -1063,7 +1219,10 @@ export async function readTicketImport(
         ? narrowChanges(row.cells, plan, dicionario, entityLabel, entityType)
         : wideChanges(row.cells, parameterColumns, dicionario, entityLabel, entityType);
 
-    pendentes.set(row.rowIndex, changes.map((c) => ({ ...c, bucket })));
+    pendentes.set(
+      row.rowIndex,
+      changes.map((c) => ({ ...c, bucket, changeKind })),
+    );
 
     tickets.push({
       ticketImportId,
@@ -1074,6 +1233,8 @@ export async function readTicketImport(
       statusBucket: bucket,
       entityLabel,
       entityType,
+      entityDescription,
+      vigenciaLabel: textOf(at(row.cells, "vigenciaLabel")),
       requestedBy: textOf(at(row.cells, "requestedBy")),
       subject: textOf(at(row.cells, "subject")),
       changedParameterCount: changes.length,
@@ -1094,6 +1255,9 @@ export async function readTicketImport(
   }
 
   // ---- Passo 2: o "antes" que o arquivo não trouxe --------------------------
+  const vigenciaPorLinha = new Map(
+    tickets.map((t) => [t.sourceRowIndex, t.vigenciaLabel ?? null]),
+  );
   const semAntes = [...pendentes.values()]
     .flat()
     .filter((c) => c.beforeSource === "AUSENTE" && c.entityLabel && c.attributeCode);
@@ -1101,6 +1265,7 @@ export async function readTicketImport(
     db,
     [...new Set(semAntes.map((c) => c.entityLabel!))],
     [...new Set(semAntes.map((c) => c.attributeCode!))],
+    [...new Set([...vigenciaPorLinha.values()].filter((v): v is string => Boolean(v)))],
   );
 
   // ---- Passo 3: as alterações ----------------------------------------------
@@ -1115,7 +1280,14 @@ export async function readTicketImport(
       let beforeReference: string | null = null;
 
       if (beforeSource === "AUSENTE" && c.entityLabel && c.attributeCode) {
-        const vigente = vigentes.get(`${c.entityLabel} ${c.attributeCode}`);
+        // A vigência que o próprio chamado nomeia vence a mais recente: ele
+        // sabe contra que estado foi aberto, e nós só saberíamos chutar.
+        const nomeada = vigenciaPorLinha.get(rowIndex);
+        const chave = `${c.entityLabel}|${c.attributeCode}`;
+        const vigente =
+          (nomeada
+            ? vigentes.porVigencia.get(`${nomeada}|${chave}`)
+            : undefined) ?? vigentes.maisRecente.get(chave);
         if (vigente) {
           beforeRaw = vigente.value;
           beforeSource = "VIGENCIA";
@@ -1132,6 +1304,7 @@ export async function readTicketImport(
         beforeRaw,
         c.valueAfterRaw,
         beforeSource,
+        c.changeKind,
       );
 
       changeRows.push({
@@ -1155,6 +1328,7 @@ export async function readTicketImport(
           movement.impactAmount === null ? null : String(movement.impactAmount),
         impactConfidence: movement.impactConfidence,
         impactReason: movement.impactReason,
+        changeKind: c.changeKind,
         sourceColumnIndex: c.sourceColumnIndex,
       });
     }
@@ -1209,9 +1383,10 @@ interface PendingChange {
   beforeSource: BeforeSource;
   sourceColumnIndex: number;
   bucket: StatusBucket;
+  changeKind: string | null;
 }
 
-type PendingDraft = Omit<PendingChange, "bucket">;
+type PendingDraft = Omit<PendingChange, "bucket" | "changeKind">;
 
 /**
  * Formato largo: uma alteração por célula de parâmetro **preenchida**.
@@ -1253,7 +1428,19 @@ function wideChanges(
   return out;
 }
 
-/** Formato estreito: o nome do parâmetro está numa célula, e há uma só. */
+/**
+ * Formato estreito: o nome do parâmetro está numa célula, e há um por linha.
+ *
+ * **A alteração existe mesmo sem valor**, e este é o ponto que o formato real
+ * ensinou. Num export de verdade, 96% das linhas trazem `-` nos dois campos de
+ * valor: elas são `FORM_THIS` (troca de fórmula) ou `ADD` (inclusão de item),
+ * que alteram a remuneração sem que exista "de 10 para 12" para mostrar. Exigir
+ * um valor para emitir a alteração descartaria 96% do arquivo — e a tela diria,
+ * sem dizer, que aquelas mudanças não aconteceram.
+ *
+ * O que se faz então é o contrário de esconder: a linha entra, as colunas de
+ * valor ficam honestamente vazias, e `changeKind` explica por quê.
+ */
 function narrowChanges(
   cells: unknown[],
   plan: ColumnPlan,
@@ -1268,16 +1455,20 @@ function narrowChanges(
   const parameterLabel = textOf(at("parameterLabel"));
   if (!parameterLabel) return [];
 
-  const pedido = textOf(at("requestedValueRaw"));
+  const antigo = textOf(at("valueBeforeRaw"));
+  const solicitado = textOf(at("requestedValueRaw"));
   const aplicado = textOf(at("appliedValueRaw"));
-  // Sem valor aplicado, o pedido é o que o chamado tem a dizer — e aí o
-  // "antes" vem da vigência, como no formato largo.
-  const [before, after, source]: [string | null, string | null, BeforeSource] =
-    aplicado !== null && pedido !== null
-      ? [pedido, aplicado, "ARQUIVO"]
-      : [null, (aplicado ?? pedido), "AUSENTE"];
 
-  if (after === null) return [];
+  // O "depois" é o que de fato foi aplicado, quando o arquivo distingue as
+  // duas coisas; senão, é o que se pediu. O "antes" é a coluna de valor
+  // antigo — e, quando ela não existe, o par pedido/aplicado ainda serve.
+  const after = aplicado ?? solicitado;
+  const [before, source]: [string | null, BeforeSource] =
+    antigo !== null
+      ? [antigo, "ARQUIVO"]
+      : aplicado !== null && solicitado !== null
+        ? [solicitado, "ARQUIVO"]
+        : [null, "AUSENTE"];
 
   return [
     {
@@ -1306,29 +1497,63 @@ function narrowChanges(
  * separados, cada uma tem a sua mais recente, e tomar "a mais recente de
  * todas" leria a frota inteira pela data de uma delas.
  */
+interface ValorVigente {
+  value: string | null;
+  label: string;
+}
+
+interface ValoresVigentes {
+  /** `vigência|placa|código` — o valor naquela vigência nomeada. */
+  porVigencia: Map<string, ValorVigente>;
+  /** `placa|código` — o valor na vigência mais recente da série. */
+  maisRecente: Map<string, ValorVigente>;
+}
+
 async function valoresVigentes(
   db: Database,
   placas: string[],
   codes: string[],
-): Promise<Map<string, { value: string | null; label: string }>> {
-  const index = new Map<string, { value: string | null; label: string }>();
-  if (placas.length === 0 || codes.length === 0) return index;
+  /** As vigências que os próprios chamados nomearam (`Vig. Abertura`). */
+  vigenciasNomeadas: string[] = [],
+): Promise<ValoresVigentes> {
+  const vazio: ValoresVigentes = {
+    porVigencia: new Map(),
+    maisRecente: new Map(),
+  };
+  if (placas.length === 0 || codes.length === 0) return vazio;
 
   const listaPlacas = sql.join(placas.map((p) => sql`${p}`), sql`, `);
   const listaCodes = sql.join(codes.map((c) => sql`${c}`), sql`, `);
+  // Sem nenhuma vigência nomeada, a lista precisa de um elemento impossível:
+  // `IN ()` é erro de sintaxe no Postgres, e não "não casa com nada".
+  const listaVigencias = sql.join(
+    (vigenciasNomeadas.length > 0 ? vigenciasNomeadas : [""]).map(
+      (v) => sql`${v}`,
+    ),
+    sql`, `,
+  );
 
   const { rows } = await db.execute<{
     placa: string;
     code: string;
     valor: string | null;
     label: string;
+    recente: boolean;
   }>(sql`
-    WITH vigentes AS (
-      SELECT DISTINCT ON (s.scope_hash, s.entity_type_set)
-             s.id, s.source_label
+    WITH recentes AS (
+      SELECT DISTINCT ON (s.scope_hash, s.entity_type_set) s.id
         FROM snapshot s
        WHERE s.status <> 'SUPERSEDED'
        ORDER BY s.scope_hash, s.entity_type_set, s.effective_date DESC
+    ),
+    alvo AS (
+      SELECT s.id,
+             s.source_label,
+             (r.id IS NOT NULL) AS recente
+        FROM snapshot s
+        LEFT JOIN recentes r ON r.id = s.id
+       WHERE s.status <> 'SUPERSEDED'
+         AND (r.id IS NOT NULL OR s.source_label IN (${listaVigencias}))
     )
     SELECT ei.identifier_value AS placa,
            a.code              AS code,
@@ -1340,9 +1565,10 @@ async function valoresVigentes(
                   f.value_date::text
                 )
            END                 AS valor,
-           v.source_label      AS label
+           t.source_label      AS label,
+           t.recente           AS recente
       FROM fact f
-      JOIN vigentes v          ON v.id = f.snapshot_id
+      JOIN alvo t              ON t.id = f.snapshot_id
       JOIN attribute a         ON a.id = f.attribute_id
       JOIN entity_identifier ei ON ei.entity_id = f.entity_id
                               AND ei.is_current
@@ -1351,10 +1577,14 @@ async function valoresVigentes(
        AND a.code IN (${listaCodes})
   `);
 
+  const porVigencia = new Map<string, ValorVigente>();
+  const maisRecente = new Map<string, ValorVigente>();
   for (const r of rows) {
-    index.set(`${r.placa} ${r.code}`, { value: r.valor, label: r.label });
+    const valor = { value: r.valor, label: r.label };
+    porVigencia.set(`${r.label}|${r.placa}|${r.code}`, valor);
+    if (r.recente) maisRecente.set(`${r.placa}|${r.code}`, valor);
   }
-  return index;
+  return { porVigencia, maisRecente };
 }
 
 /** Marca o envio como falho, com o motivo à vista de quem opera. */

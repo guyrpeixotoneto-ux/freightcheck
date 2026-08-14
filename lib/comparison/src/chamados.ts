@@ -30,8 +30,14 @@ export interface TicketChangeRow {
   statusBucket: string;
   requestedBy: string | null;
   subject: string | null;
+  /** A vigência que o chamado nomeia (`Vig. Abertura`). */
+  vigenciaLabel: string | null;
+  /** O ativo como o arquivo o descreve, inteiro. */
+  entityDescription: string | null;
 
   parameterLabel: string;
+  /** SET | ADD | FORM_THIS | … — o que o chamado fez com o parâmetro. */
+  changeKind: string | null;
   attributeCode: string | null;
   entityLabel: string | null;
   entityType: string | null;
@@ -61,6 +67,7 @@ export interface TicketFilters {
   attributeCode?: string;
   parameterLabel?: string;
   beforeSource?: string;
+  changeKind?: string;
   /** Texto livre: número, parâmetro, placa, solicitante ou assunto. */
   search?: string;
   /** Só o que de fato variou — agora diferente de antes. */
@@ -94,6 +101,8 @@ export interface TicketTotals {
   byStatus: { statusBucket: string; count: number }[];
   /** De onde veio o valor anterior de cada alteração. */
   byBeforeSource: { beforeSource: string; count: number }[];
+  /** O que o chamado fez: SET, ADD, FORM_THIS. Explica a maior parte da tela. */
+  byChangeKind: { changeKind: string | null; count: number }[];
   calculated: number;
   notCalculable: number;
   impactSum: number;
@@ -186,6 +195,9 @@ function buildWhere(ticketImportId: string, filters: TicketFilters): SQL | undef
   if (filters.beforeSource) {
     parts.push(eq(ticketChangeTable.beforeSource, filters.beforeSource));
   }
+  if (filters.changeKind) {
+    parts.push(eq(ticketChangeTable.changeKind, filters.changeKind));
+  }
   if (filters.onlyDivergent) {
     parts.push(DIVERGENT);
   }
@@ -273,8 +285,11 @@ export async function listTicketChanges(
       statusBucket: t.statusBucket,
       requestedBy: t.requestedBy,
       subject: t.subject,
+      vigenciaLabel: t.vigenciaLabel,
+      entityDescription: t.entityDescription,
 
       parameterLabel: c.parameterLabel,
+      changeKind: c.changeKind,
       attributeCode: c.attributeCode,
       entityLabel: c.entityLabel,
       entityType: c.entityType,
@@ -312,6 +327,8 @@ export async function getTicket(
       statusBucket: string;
       entityLabel: string | null;
       entityType: string | null;
+      entityDescription: string | null;
+      vigenciaLabel: string | null;
       requestedBy: string | null;
       subject: string | null;
       changedParameterCount: number;
@@ -321,6 +338,7 @@ export async function getTicket(
       payload: Record<string, unknown>;
       changes: {
         parameterLabel: string;
+        changeKind: string | null;
         attributeCode: string | null;
         valueBeforeRaw: string | null;
         valueAfterRaw: string | null;
@@ -352,6 +370,8 @@ export async function getTicket(
     statusBucket: t.statusBucket,
     entityLabel: t.entityLabel,
     entityType: t.entityType,
+    entityDescription: t.entityDescription,
+    vigenciaLabel: t.vigenciaLabel,
     requestedBy: t.requestedBy,
     subject: t.subject,
     changedParameterCount: t.changedParameterCount,
@@ -361,6 +381,7 @@ export async function getTicket(
     payload: (t.payload as Record<string, unknown>) ?? {},
     changes: changes.map((c) => ({
       parameterLabel: c.parameterLabel,
+      changeKind: c.changeKind,
       attributeCode: c.attributeCode,
       valueBeforeRaw: c.valueBeforeRaw,
       valueAfterRaw: c.valueAfterRaw,
@@ -429,11 +450,22 @@ export async function getTicketTotals(
     .groupBy(ticketChangeTable.beforeSource)
     .orderBy(desc(sql`count(*)`));
 
+  const byChangeKind = await db
+    .select({
+      changeKind: ticketChangeTable.changeKind,
+      count: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(ticketChangeTable)
+    .where(escopoChanges)
+    .groupBy(ticketChangeTable.changeKind)
+    .orderBy(desc(sql`count(*)`));
+
   return {
     changes: agg?.changes ?? 0,
     tickets: chamados?.tickets ?? 0,
     byStatus,
     byBeforeSource,
+    byChangeKind,
     calculated: agg?.calculated ?? 0,
     notCalculable: agg?.notCalculable ?? 0,
     impactSum:

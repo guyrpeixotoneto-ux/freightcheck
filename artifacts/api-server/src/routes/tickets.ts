@@ -119,6 +119,7 @@ function parseTicketFilters(query: Record<string, unknown>): TicketFilters {
     attributeCode: str("attributeCode"),
     parameterLabel: str("parameterLabel"),
     beforeSource: str("beforeSource"),
+    changeKind: str("changeKind"),
     search: str("search"),
     onlyDivergent: str("onlyDivergent") === "true",
     minAbsImpact: num("minAbsImpact"),

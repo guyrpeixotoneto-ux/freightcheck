@@ -32,8 +32,11 @@ export interface TicketChangeRow {
   statusBucket: string;
   requestedBy: string | null;
   subject: string | null;
+  vigenciaLabel: string | null;
+  entityDescription: string | null;
 
   parameterLabel: string;
+  changeKind: string | null;
   attributeCode: string | null;
   entityLabel: string | null;
   entityType: string | null;
@@ -60,6 +63,7 @@ export interface TicketTotals {
   tickets: number;
   byStatus: { statusBucket: string; count: number }[];
   byBeforeSource: { beforeSource: string; count: number }[];
+  byChangeKind: { changeKind: string | null; count: number }[];
   calculated: number;
   notCalculable: number;
   impactSum: number;
@@ -72,6 +76,7 @@ export interface TicketFilters {
   statusBucket: string;
   impactConfidence: string;
   beforeSource: string;
+  changeKind: string;
   parameterLabel: string;
   search: string;
   minAbsImpact: string;
@@ -82,6 +87,7 @@ export const emptyTicketFilters: TicketFilters = {
   statusBucket: "",
   impactConfidence: "",
   beforeSource: "",
+  changeKind: "",
   parameterLabel: "",
   search: "",
   minAbsImpact: "",
@@ -97,6 +103,7 @@ export function toTicketQuery(
   if (filters.impactConfidence)
     params.set("impactConfidence", filters.impactConfidence);
   if (filters.beforeSource) params.set("beforeSource", filters.beforeSource);
+  if (filters.changeKind) params.set("changeKind", filters.changeKind);
   if (filters.parameterLabel) params.set("parameterLabel", filters.parameterLabel);
   if (filters.search) params.set("search", filters.search);
   if (filters.minAbsImpact) params.set("minAbsImpact", filters.minAbsImpact);
@@ -146,6 +153,50 @@ export const BEFORE_SOURCE_LABELS: Record<string, string> = {
   VIGENCIA: "lido da vigência em vigor",
   AUSENTE: "sem valor anterior",
 };
+
+/**
+ * O que o chamado fez com o parâmetro, em português.
+ *
+ * Isto não é enfeite: num export real, `FORM_THIS` é 85% das linhas. Sem esta
+ * etiqueta a tabela mostra centenas de alterações com as colunas de valor
+ * vazias e nada explicando por quê — e quem lê conclui, com razão, que o
+ * sistema perdeu o dado. A etiqueta é o que transforma "vazio" em "não é sobre
+ * um valor".
+ */
+export const CHANGE_KIND_LABELS: Record<string, string> = {
+  SET: "valor",
+  FORM_THIS: "fórmula",
+  ADD: "inclusão",
+  REMOVE: "remoção",
+};
+
+const CHANGE_KIND_STYLES: Record<string, string> = {
+  SET: "bg-blue-100 text-blue-900 border-blue-300",
+  FORM_THIS: "bg-violet-100 text-violet-900 border-violet-300",
+  ADD: "bg-emerald-100 text-emerald-900 border-emerald-300",
+  REMOVE: "bg-red-100 text-red-900 border-red-300",
+};
+
+export function changeKindLabel(kind: string | null): string {
+  if (!kind) return "—";
+  return CHANGE_KIND_LABELS[kind] ?? kind.toLowerCase();
+}
+
+function ChangeKindBadge({ kind }: { kind: string | null }) {
+  if (!kind) return null;
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "font-normal text-[11px] px-1.5 py-0",
+        CHANGE_KIND_STYLES[kind] ?? "text-muted-foreground",
+      )}
+      title={`operação declarada pelo chamado: ${kind}`}
+    >
+      {changeKindLabel(kind)}
+    </Badge>
+  );
+}
 
 /**
  * O status como a fonte escreveu, na caixa em que a tela o agrupa.
@@ -306,7 +357,10 @@ export function TicketChangeTable({
                   </div>
                 </td>
                 <td className="px-4 py-2">
-                  <div className="font-medium">{row.parameterLabel}</div>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-medium">{row.parameterLabel}</span>
+                    <ChangeKindBadge kind={row.changeKind} />
+                  </div>
                   <div className="font-mono text-xs text-muted-foreground">
                     {row.attributeCode ?? (
                       <span
@@ -597,6 +651,7 @@ export function TicketFilterBar({
     Boolean(filters.statusBucket) ||
     Boolean(filters.impactConfidence) ||
     Boolean(filters.beforeSource) ||
+    Boolean(filters.changeKind) ||
     Boolean(filters.parameterLabel) ||
     Boolean(filters.search) ||
     Boolean(filters.minAbsImpact) ||
@@ -628,6 +683,25 @@ export function TicketFilterBar({
             </Chip>
           ))}
         </FilterGroup>
+
+        {/* A operação é o filtro mais útil deste lado: separa as alterações
+            que têm número das que mudaram fórmula ou incluíram item. */}
+        {totals && totals.byChangeKind.length > 1 && (
+          <FilterGroup label="Operação">
+            {totals.byChangeKind
+              .filter((k) => k.changeKind)
+              .map((k) => (
+                <Chip
+                  key={k.changeKind}
+                  active={filters.changeKind === k.changeKind}
+                  onClick={() => set("changeKind", k.changeKind ?? "")}
+                >
+                  {changeKindLabel(k.changeKind)}
+                  <Count n={k.count} />
+                </Chip>
+              ))}
+          </FilterGroup>
+        )}
 
         <FilterGroup label="Valor anterior">
           {["ARQUIVO", "VIGENCIA", "AUSENTE"].map((source) => (
