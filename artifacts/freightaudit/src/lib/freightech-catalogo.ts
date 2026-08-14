@@ -671,7 +671,79 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
           "pelas colunas de financiamento do cavalo e da carreta, e é lá que as " +
           "alterações deles aparecem — não neste cartão.",
       },
-      { nome: "Manutenção BID", parametros: ["Manutenção BID"] },
+      {
+        /*
+          A matriz do BID de manutenção: a linha é a combinação de tipo de
+          palletização, montadora e ano, e as colunas são as faixas de odômetro
+          — ATE120000 até ATE1200000, de 120.000 em 120.000 — mais uma LINEAR no
+          fim, com o R$/km de cada cruzamento.
+
+          O ANO é de dois tipos e isso muda a linha: nas capturas as cinco
+          primeiras trazem `MÉDIA` e vêm zeradas em todas as faixas; as
+          seguintes trazem o ano (2011.0, 2012.0, 2013.0) e aí, sim, têm valor.
+          GANHADORBID acompanha: vazio nas linhas de MÉDIA e `true` nas de ano.
+          No export ele chega como `Ganhador BID`, 1 em 531 cavalos e 0 em 27 —
+          o mesmo campo, escrito como número.
+
+          MONTADORA bate ao pé da letra pela terceira vez neste catálogo: a tela
+          traz `Descrição: MERCEDES`, `Descrição: SCANIA`, `Descrição: VOLKS`,
+          `Descrição: VOLVO` e `Descrição: IVECO`, e `cavalo.montadora` traz
+          exatamente essas cadeias, prefixo incluído.
+
+          **TIPOPALLETIZACAOEMPURRADA é uma armadilha, e vale a pena explicá-la
+          uma vez.** Ela traz `Palletizacao: 6X2` — o mesmo 6X2 do cartão
+          PADRÃO, que no export é `Descricao: 6X2` (522 cavalos) e
+          `Descricao: 6X4` (36). Tentador concluir que são a mesma coluna. Não
+          são: no Freightech o prefixo do valor **é** o nome da dimensão, e é
+          por isso que a montadora chega como `Descrição: VOLVO`, a capacidade
+          como `Pallets: 28` e a iniciativa como `Iniciativa: Tradicional`.
+          Prefixos diferentes, dimensões diferentes — duas gavetas que
+          compartilham o vocabulário de eixos e não a identidade.
+
+          Uma observação que serve ao cartão CONTRATO MANUTENÇÃO, não a este:
+          lá as faixas continuavam em ATE1200001, ATE1200002 e ATE1200003, um km
+          entre elas, e ficou registrado como estranheza sem explicação. Aqui a
+          mesma sequência de faixas termina em ATE1200000 e é seguida de LINEAR,
+          uma coluna com nome próprio. É evidência de que aquelas três não são
+          faixas de verdade — não é prova, e a pendência de lá continua aberta.
+
+          Conferida em cinco capturas. A única emenda que não fecha é entre ANO
+          e GANHADORBID, sem coluna repetida entre as duas; as demais fecham
+          pela progressão de 120.000 em 120.000 e pelo `ATE1` cortado que emenda
+          com ATE1080000. AÇÕES aparece preso na ponta direita, com o ícone de
+          editar, e não entra aqui — o FreightCheck lê o export e não escreve no
+          Freightech.
+        */
+        nome: "Manutenção BID",
+        parametros: ["Manutenção BID"],
+        colunas: [
+          "Tipopalletizacaoempurrada",
+          "Montadora",
+          "Ano",
+          "Ganhadorbid",
+          "Ate120000",
+          "Ate240000",
+          "Ate360000",
+          "Ate480000",
+          "Ate600000",
+          "Ate720000",
+          "Ate840000",
+          "Ate960000",
+          "Ate1080000",
+          "Ate1200000",
+          "Linear",
+        ],
+        nota:
+          "No Freightech esta tela é a matriz do BID: a linha combina tipo de " +
+          "palletização, montadora e ano, e as colunas são as faixas de odômetro mais " +
+          "uma LINEAR, com o R$/km de cada cruzamento. Linhas de ANO igual a MÉDIA vêm " +
+          "zeradas; as de ano têm valor e GANHADORBID true. Do export chegam a montadora " +
+          "— com o mesmo texto, prefixo incluído — e o ganhador do BID, mas não a " +
+          "matriz: chega o R$/km já resolvido em cada cavalo, e é sobre ele que a tabela " +
+          "abaixo mostra o que mudou. Não confunda TIPOPALLETIZACAOEMPURRADA com o " +
+          "cartão PADRÃO: as duas dizem 6X2, mas o prefixo do valor é o nome da dimensão " +
+          "no Freightech, e aqui ele é Palletizacao, não Descricao.",
+      },
       { nome: "Manutenção implemento", parametros: ["Manutenção carroceria"] },
       { nome: "Modelo" },
       { nome: "Parâmetros consumo" },
