@@ -41,8 +41,31 @@ export interface ChangeGroupLite {
   entityType: string | null;
   changeType: string;
   comparability: string;
-  aggregate: { summable: boolean; deltaPercent: number | null };
+  /** Ativos do grupo e o tamanho da série de onde ele veio. */
+  vehicles: number;
+  fleet: number;
+  coverage: string;
+  coverageLabel: string;
+  /** Quantos pares antes→depois distintos existem dentro do grupo. */
+  patterns: number;
+  dominantPattern: {
+    before: string | null;
+    after: string | null;
+    vehicles: number;
+  } | null;
+  aggregate: {
+    summable: boolean;
+    aggregation: string | null;
+    totalBefore: number | null;
+    totalAfter: number | null;
+    rowsInTotal: number;
+    deltaPercent: number | null;
+    minPercent: number | null;
+    maxPercent: number | null;
+  };
   impact: { confidence: string };
+  semanticsStatus: string | null;
+  semanticsLabel: string;
   [outros: string]: unknown;
 }
 
@@ -379,6 +402,339 @@ export function fatosDoIntervalo(
     if (escolhidos.length === 4) break;
   }
   return escolhidos;
+}
+
+/* ------------------------------------------------------------------ */
+/* O placar gerencial                                                  */
+/* ------------------------------------------------------------------ */
+
+export type Entrada = RangeEntry | EndToEndEntry;
+
+/** Tem preço apurado e o preço não é zero. A convenção da tela inteira. */
+export function precificada(entrada: Entrada): boolean {
+  return (
+    entrada.confidence === "CALCULATED" &&
+    entrada.amount !== null &&
+    entrada.amount !== 0
+  );
+}
+
+/** Não tem preço — que é diferente de ter preço zero, e sempre foi. */
+export function semPreco(entrada: Entrada): boolean {
+  return entrada.confidence !== "CALCULATED" || entrada.amount === null;
+}
+
+/**
+ * Os números que a tela mostra antes de qualquer detalhe.
+ *
+ * Existe porque o resumo era tudo-ou-nada: com uma alteração precificada
+ * apareciam quatro blocos; com nenhuma, uma frase. Num cartão como CAVALO, em
+ * que **nada** é precificável enquanto a curadoria não confirmar a semântica,
+ * o gestor ficava sem número nenhum — quando os números que não dependem de
+ * dinheiro (quantos ativos, que fatia da frota, em quantas vigências, quanto do
+ * que mudou este export consegue precificar) continuam todos de pé e são
+ * exatamente o que dimensiona o trabalho.
+ *
+ * O que este placar **não** faz é o de sempre: não soma periodicidades, e não
+ * cruza prejuízo com ganho. `movimentado` é a soma dos módulos e está nomeada
+ * como bruta na tela — é "quanto passou pela mesa", nunca "quanto sobrou".
+ */
+export interface Placar {
+  alteracoes: number;
+  precificadas: number;
+  semPreco: number;
+  /** Fatia do que mudou que este export consegue precificar. 0..1. */
+  cobertura: number | null;
+  perdas: Record<string, number>;
+  ganhos: Record<string, number>;
+  /** |perdas| + |ganhos| por periodicidade. Bruto, e nunca um líquido. */
+  movimentado: Record<string, number>;
+  veiculos: number;
+  /** Ativos da série inteira, para dar denominador aos afetados. */
+  frota: number | null;
+  colunas: number;
+  parametros: number;
+  /** Só nos movimentos: a ponta a ponta é um salto só. */
+  vigenciasComAlteracao: number | null;
+  vigenciasNoIntervalo: number | null;
+}
+
+export function placarDosMovimentos(movimentos: Movimentos): Placar {
+  return {
+    ...placar(movimentos.entries, {
+      veiculos: movimentos.totals.vehiclesTouched,
+      parametros: movimentos.byParameter.length,
+      perdas: movimentos.lossesByPeriodicity,
+      ganhos: movimentos.gainsByPeriodicity,
+    }),
+    vigenciasComAlteracao: new Set(movimentos.entries.map((e) => e.period)).size,
+    vigenciasNoIntervalo: movimentos.movements.length,
+  };
+}
+
+export function placarDaPonta(ponta: PontaAPonta): Placar {
+  return {
+    ...placar(ponta.entries, {
+      veiculos: ponta.totals.vehiclesTouched,
+      parametros: ponta.byParameter.length,
+      perdas: ponta.lossesByPeriodicity,
+      ganhos: ponta.gainsByPeriodicity,
+      // Aqui a frota é declarada pelas séries comparadas, e não inferida dos
+      // grupos: a ponta a ponta já sabe quantos ativos tem cada uma.
+      frota: ponta.series.reduce((soma, s) => soma + s.fleetTo, 0) || null,
+    }),
+    vigenciasComAlteracao: null,
+    vigenciasNoIntervalo: null,
+  };
+}
+
+function placar(
+  entradas: Entrada[],
+  dados: {
+    veiculos: number;
+    parametros: number;
+    perdas: Record<string, number>;
+    ganhos: Record<string, number>;
+    frota?: number | null;
+  },
+): Placar {
+  const comPreco = entradas.filter(precificada);
+  const sem = entradas.filter(semPreco);
+
+  const movimentado: Record<string, number> = {};
+  for (const entrada of comPreco) {
+    const balde = entrada.periodicity ?? "SEM_PERIODICIDADE";
+    movimentado[balde] = (movimentado[balde] ?? 0) + Math.abs(entrada.amount ?? 0);
+  }
+
+  return {
+    alteracoes: entradas.length,
+    precificadas: comPreco.length,
+    semPreco: sem.length,
+    cobertura: entradas.length === 0 ? null : comPreco.length / entradas.length,
+    perdas: dados.perdas,
+    ganhos: dados.ganhos,
+    movimentado,
+    veiculos: dados.veiculos,
+    frota: dados.frota ?? frotaDe(entradas),
+    colunas: new Set(entradas.map((e) => e.attributeCode ?? e.title)).size,
+    parametros: dados.parametros,
+    vigenciasComAlteracao: null,
+    vigenciasNoIntervalo: null,
+  };
+}
+
+/**
+ * A frota por trás das alterações.
+ *
+ * Uma por série, e só então somadas. Cada grupo carrega a frota da série de
+ * onde veio, e a mesma série aparece em dezenas de grupos: somar grupo a grupo
+ * daria uma frota de milhares numa de 144 — o mesmo erro que a tela já corrige
+ * na contagem de veículos.
+ */
+function frotaDe(entradas: Entrada[]): number | null {
+  const porSerie = new Map<string, number>();
+  for (const entrada of entradas) {
+    const serie = entrada.entityType ?? entrada.equipment;
+    porSerie.set(serie, Math.max(porSerie.get(serie) ?? 0, entrada.group.fleet ?? 0));
+  }
+  const total = [...porSerie.values()].reduce((soma, v) => soma + v, 0);
+  return total === 0 ? null : total;
+}
+
+/* ------------------------------------------------------------------ */
+/* Movimento × posição — as duas leituras lado a lado                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * O comparativo que só existe com as duas contas na mão.
+ *
+ * A aba já tinha as duas leituras, e trocar entre elas por uma pílula obrigava
+ * quem lê a guardar quatro números de cabeça para responder a pergunta
+ * executiva: *do que a Ambev mexeu no caminho, quanto continua valendo hoje?*
+ *
+ * Prejuízo e ganho continuam em linhas separadas — a diferença entre as duas
+ * leituras é calculada **dentro de cada lado**, e nunca cruzando um com o
+ * outro. E a diferença é nomeada pelo que ela é: o que não sobreviveu ao
+ * caminho, seja porque voltou atrás, seja porque outro movimento no sentido
+ * oposto o compensou. Quem voltou atrás está listado, um a um, em `reverted` —
+ * lá é subtração de conjuntos, e aí sim é afirmação.
+ */
+export interface LinhaComparativa {
+  periodicidade: string;
+  movimento: number;
+  posicao: number;
+  /** movimento − posição, dentro do mesmo lado. */
+  diferenca: number;
+}
+
+export interface Comparativo {
+  perdas: LinhaComparativa[];
+  ganhos: LinhaComparativa[];
+  alteracoesMovimento: number;
+  alteracoesPosicao: number;
+  vigencias: number;
+  atributosRevertidos: number;
+  ativosRevertidos: number;
+}
+
+export function comparativoDeLeituras(
+  movimentos: Movimentos,
+  ponta: PontaAPonta | null,
+): Comparativo | null {
+  if (!ponta) return null;
+
+  const lado = (
+    doCaminho: Record<string, number>,
+    daPosicao: Record<string, number>,
+  ): LinhaComparativa[] =>
+    [...new Set([...Object.keys(doCaminho), ...Object.keys(daPosicao)])]
+      .map((periodicidade) => {
+        const movimento = doCaminho[periodicidade] ?? 0;
+        const posicao = daPosicao[periodicidade] ?? 0;
+        return {
+          periodicidade,
+          movimento,
+          posicao,
+          diferenca: movimento - posicao,
+        };
+      })
+      .sort(
+        (a, b) =>
+          ORDEM_PERIODICIDADE(a.periodicidade) - ORDEM_PERIODICIDADE(b.periodicidade),
+      );
+
+  return {
+    perdas: lado(movimentos.lossesByPeriodicity, ponta.lossesByPeriodicity),
+    ganhos: lado(movimentos.gainsByPeriodicity, ponta.gainsByPeriodicity),
+    alteracoesMovimento: movimentos.entries.length,
+    alteracoesPosicao: ponta.entries.length,
+    vigencias: movimentos.movements.length,
+    atributosRevertidos: ponta.reverted.length,
+    ativosRevertidos: ponta.reverted.reduce((soma, r) => soma + r.entities, 0),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* O que mudou, em número — sem passar por dinheiro                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A variação nominal de quem ainda não tem preço.
+ *
+ * O bloco que faltava na tela. Uma alteração sem impacto calculável não é uma
+ * alteração sem informação: o total do grupo foi de 500 para 600, ou o par
+ * antes→depois mais comum foi "ATIVO → INATIVO" em dez veículos. Isso é
+ * gerencial, é auditável, e sai do mesmo grupo que a tela já recebe — sem
+ * inventar dinheiro em nenhum ponto.
+ *
+ * Duas formas, porque a semântica manda: **somável** ganha total antes, total
+ * depois e variação; **não somável** ganha o par de valores dominante e a
+ * contagem de padrões, porque somar km/l de 62 cavalos produz um número que
+ * existe e não significa nada.
+ */
+export interface VariacaoNominal {
+  chave: string;
+  attributeCode: string | null;
+  titulo: string;
+  equipamento: string;
+  periodo: string | null;
+  veiculos: number;
+  frota: number;
+  unidade: string | null;
+  somavel: boolean;
+  totalAntes: number | null;
+  totalDepois: number | null;
+  deltaPercent: number | null;
+  padrao: { antes: string | null; depois: string | null; veiculos: number } | null;
+  padroes: number;
+  motivo: string | null;
+}
+
+export function variacoesNominais(entradas: Entrada[]): VariacaoNominal[] {
+  return entradas
+    .map((entrada): VariacaoNominal => {
+      const agregado = entrada.group.aggregate;
+      return {
+        chave: entrada.key,
+        attributeCode: entrada.attributeCode,
+        titulo: entrada.title,
+        equipamento: entrada.equipment,
+        periodo: "periodLabel" in entrada ? entrada.periodLabel : null,
+        veiculos: entrada.vehicles,
+        frota: entrada.group.fleet ?? 0,
+        unidade: entrada.unit,
+        somavel: agregado.summable && agregado.totalBefore !== null,
+        totalAntes: agregado.totalBefore,
+        totalDepois: agregado.totalAfter,
+        deltaPercent: agregado.deltaPercent,
+        padrao: entrada.group.dominantPattern
+          ? {
+              antes: entrada.group.dominantPattern.before,
+              depois: entrada.group.dominantPattern.after,
+              veiculos: entrada.group.dominantPattern.vehicles,
+            }
+          : null,
+        padroes: entrada.group.patterns ?? 0,
+        motivo: entrada.reason,
+      };
+    })
+    /*
+      A ordem é a da materialidade que ainda existe sem dinheiro: primeiro o
+      que variou mais em percentual, depois o que pegou mais veículos. Sem isto
+      a lista sairia na ordem do agrupamento, que não é ordem nenhuma.
+    */
+    .sort((a, b) => {
+      const peso = (v: VariacaoNominal) => Math.abs(v.deltaPercent ?? 0);
+      const diferenca = peso(b) - peso(a);
+      if (diferenca !== 0) return diferenca;
+      return b.veiculos - a.veiculos;
+    });
+}
+
+/* ------------------------------------------------------------------ */
+/* O que trava a apuração                                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Por que o dinheiro não fecha, agrupado pelo motivo, com o tamanho de cada um.
+ *
+ * É a fila de trabalho da curadoria, lida da própria tela de análise: "89% do
+ * que mudou não tem preço" é diagnóstico; "e o motivo de 71 delas é semântica
+ * não confirmada, em 12 colunas" é a próxima ação.
+ *
+ * **Não soma veículos entre grupos.** O mesmo caminhão aparece em cada coluna
+ * que se mexeu, e somá-los deu "2.974 veículos" numa frota de 144 uma vez.
+ * O que dimensiona aqui é quantas colunas estão paradas, e qual é o maior
+ * grupo parado por aquele motivo.
+ */
+export interface Bloqueio {
+  motivo: string;
+  alteracoes: number;
+  colunas: number;
+  maiorGrupo: { titulo: string; veiculos: number };
+}
+
+export function bloqueiosDaApuracao(entradas: Entrada[]): Bloqueio[] {
+  const porMotivo = new Map<string, Entrada[]>();
+  for (const entrada of entradas) {
+    const motivo = entrada.reason ?? "Sem motivo registrado.";
+    const lista = porMotivo.get(motivo) ?? [];
+    lista.push(entrada);
+    porMotivo.set(motivo, lista);
+  }
+
+  return [...porMotivo.entries()]
+    .map(([motivo, linhas]) => {
+      const maior = linhas.reduce((a, b) => (b.vehicles > a.vehicles ? b : a));
+      return {
+        motivo,
+        alteracoes: linhas.length,
+        colunas: new Set(linhas.map((l) => l.attributeCode ?? l.title)).size,
+        maiorGrupo: { titulo: maior.title, veiculos: maior.vehicles },
+      };
+    })
+    .sort((a, b) => b.alteracoes - a.alteracoes);
 }
 
 function agrupar(entradas: RangeEntry[]): Map<string, RangeEntry[]> {
