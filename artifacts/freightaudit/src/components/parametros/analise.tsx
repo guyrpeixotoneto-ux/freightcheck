@@ -10,6 +10,7 @@ import {
   type EndToEndEntry,
   type Fato,
   type Movimentos,
+  type ParameterRollup,
   type PontaAPonta,
   type RangeEntry,
 } from "@/lib/analise";
@@ -67,6 +68,15 @@ export function AnaliseCartao({
   parametros,
   contexto,
   periodo,
+  de,
+  ate,
+  leitura,
+  onDe,
+  onAte,
+  onLeitura,
+  consolidado = false,
+  onAbrirCartao,
+  temCartao,
 }: {
   nomeDoCartao: string;
   /** Os nossos parâmetros por trás deste cartão. Vazio = sem dado no export. */
@@ -75,10 +85,27 @@ export function AnaliseCartao({
   contexto: URLSearchParams;
   /** A vigência aberta na outra aba — a ponta final do intervalo. */
   periodo: string | null;
+  /** O intervalo e a leitura moram na URL: ver `Parametros`. */
+  de: string | null;
+  ate: string | null;
+  leitura: "movimentos" | "ponta";
+  onDe: (valor: string) => void;
+  onAte: (valor: string) => void;
+  onLeitura: (valor: "movimentos" | "ponta") => void;
+  /**
+   * A visão geral: sem recorte, a remuneração inteira.
+   *
+   * É a mesma tela, e de propósito. Um consolidado escrito à parte teria de
+   * refazer as somas, as regras de atenção e as recusas — e no dia em que uma
+   * delas mudasse, mudaria num lugar só. Aqui a diferença cabe num parâmetro
+   * de consulta: com recorte é o cartão, sem recorte é o todo.
+   */
+  consolidado?: boolean;
+  /** Só na visão geral: o salto para o cartão de um parâmetro. */
+  onAbrirCartao?: (parameterKey: string) => void;
+  /** Só na visão geral: se aquele parâmetro tem cartão nesta vigência. */
+  temCartao?: (parameterKey: string) => boolean;
 }) {
-  const [de, setDe] = useState<string | null>(null);
-  const [ate, setAte] = useState<string | null>(null);
-  const [leitura, setLeitura] = useState<"movimentos" | "ponta">("movimentos");
   const [aberto, setAberto] = useState<string | null>(null);
 
   /*
@@ -107,7 +134,7 @@ export function AnaliseCartao({
     só existe no servidor.
   */
   const recorte = new URLSearchParams(base);
-  if (parametros.length > 0) {
+  if (!consolidado && parametros.length > 0) {
     recorte.set("parameters", parametros.map((p) => p.key).join(","));
   }
 
@@ -128,7 +155,7 @@ export function AnaliseCartao({
   const ponta = useQuery({
     queryKey: ["ponta-a-ponta", recorte.toString()],
     queryFn: async () => buscar<PontaAPonta>(`/changes/end-to-end?${recorte}`),
-    enabled: parametros.length > 0,
+    enabled: consolidado || parametros.length > 0,
   });
 
   if (movimentos.isLoading) {
@@ -160,10 +187,10 @@ export function AnaliseCartao({
           periodos={mov.periods}
           de={mov.from}
           ate={mov.to}
-          onDe={setDe}
-          onAte={setAte}
+          onDe={onDe}
+          onAte={onAte}
         />
-        <Leitura leitura={leitura} onLeitura={setLeitura} />
+        <Leitura leitura={leitura} onLeitura={onLeitura} />
       </div>
 
       <ExplicacaoDaLeitura
@@ -185,7 +212,7 @@ export function AnaliseCartao({
           As duas pontas são a mesma vigência. Não há intervalo entre{" "}
           {mov.fromLabel} e ela mesma — escolha uma vigência inicial anterior.
         </div>
-      ) : parametros.length === 0 ? (
+      ) : !consolidado && parametros.length === 0 ? (
         <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm">
           Este cartão não tem parâmetro nenhum alimentado pelo export, e por isso não
           há alteração para analisar. A aba Freightech continua mostrando o que a
@@ -199,6 +226,8 @@ export function AnaliseCartao({
           nome={nomeDoCartao}
           aberto={aberto}
           onAbrir={setAberto}
+          onAbrirCartao={consolidado ? onAbrirCartao : undefined}
+          temCartao={temCartao}
         />
       ) : (
         <LeituraPonta
@@ -208,6 +237,8 @@ export function AnaliseCartao({
           nome={nomeDoCartao}
           aberto={aberto}
           onAbrir={setAberto}
+          onAbrirCartao={consolidado ? onAbrirCartao : undefined}
+          temCartao={temCartao}
         />
       )}
     </div>
@@ -390,6 +421,8 @@ function LeituraMovimentos({
   nome,
   aberto,
   onAbrir,
+  onAbrirCartao,
+  temCartao,
 }: {
   mov: Movimentos;
   p2p: PontaAPonta | null;
@@ -397,6 +430,8 @@ function LeituraMovimentos({
   nome: string;
   aberto: string | null;
   onAbrir: (chave: string | null) => void;
+  onAbrirCartao?: (parameterKey: string) => void;
+  temCartao?: (parameterKey: string) => boolean;
 }) {
   const comPreco = doCartao.filter(
     (e) => e.confidence === "CALCULATED" && e.amount !== null && e.amount !== 0,
@@ -413,7 +448,16 @@ function LeituraMovimentos({
     [mov, p2p],
   );
 
-  const parametrosAlterados = new Set(doCartao.map((e) => e.attributeCode ?? e.title)).size;
+  /*
+    Dois números diferentes com o mesmo nome antigo.
+
+    "Parâmetros alterados" contava `attributeCode` distinto — o que dentro de
+    um cartão são as **colunas** daquele parâmetro, e não parâmetros. Na
+    Depreciação dava "2 parâmetros alterados" para um parâmetro só. Na visão
+    geral, onde a pergunta é mesmo quantas gavetas se mexeram, o número certo é
+    o do consolidado por parâmetro.
+  */
+  const colunasAlteradas = new Set(doCartao.map((e) => e.attributeCode ?? e.title)).size;
 
   return (
     <div className="space-y-8">
@@ -430,7 +474,8 @@ function LeituraMovimentos({
         titulo={`${mov.fromLabel} → ${mov.toLabel}`}
         perdas={somar(comPreco, (v) => v < 0)}
         ganhos={somar(comPreco, (v) => v > 0)}
-        parametros={parametrosAlterados}
+        parametros={mov.byParameter.length}
+        colunas={colunasAlteradas}
         veiculos={mov.totals.vehiclesTouched}
         alteracoes={doCartao.length}
         comImpacto={comPreco.length}
@@ -443,8 +488,22 @@ function LeituraMovimentos({
 
       <QuandoAconteceu movimentos={mov.movements} doCartao={doCartao} />
 
+      {onAbrirCartao && (
+        <PorParametro
+          linhas={mov.byParameter}
+          onAbrir={onAbrirCartao}
+          temCartao={temCartao}
+          titulo="Onde estão os maiores impactos"
+          complemento="por parâmetro · clique para abrir o cartão"
+        />
+      )}
+
       {comPreco.length > 0 && (
-        <Rankings entradas={comPreco} aoAbrir={onAbrir} />
+        <Rankings
+          entradas={comPreco}
+          aoAbrir={onAbrir}
+          titulo={onAbrirCartao ? "Os maiores movimentos, um a um" : undefined}
+        />
       )}
 
       {semPreco.length > 0 && (
@@ -499,6 +558,7 @@ function Resumo({
   perdas,
   ganhos,
   parametros,
+  colunas,
   veiculos,
   alteracoes,
   comImpacto,
@@ -509,7 +569,9 @@ function Resumo({
   titulo: string;
   perdas: Record<string, number>;
   ganhos: Record<string, number>;
+  /** Gavetas que se mexeram. Numa só gaveta o número interessante é o de colunas. */
   parametros: number;
+  colunas: number;
   veiculos: number;
   alteracoes: number;
   comImpacto: number;
@@ -550,9 +612,19 @@ function Resumo({
           <Bloco titulo="Ganhos identificados" tom="ganho">
             <Valores buckets={ganhos} tom="ganho" />
           </Bloco>
-          <Bloco titulo="Parâmetros alterados">
-            <div className="text-2xl font-bold">{parametros}</div>
-            <p className="text-xs text-muted-foreground mt-1">em {nome}</p>
+          {/*
+            Num cartão, "parâmetros alterados" seria sempre 1 — o próprio
+            cartão. O que muda ali é quais **colunas** dele se mexeram, e é
+            esse o número que ajuda. Na visão geral vale o contrário: a
+            pergunta é quantas gavetas a Ambev tocou.
+          */}
+          <Bloco titulo={parametros > 1 ? "Parâmetros alterados" : "Colunas alteradas"}>
+            <div className="text-2xl font-bold">
+              {parametros > 1 ? parametros : colunas}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              {parametros > 1 ? `em ${nome}` : `do parâmetro ${nome}`}
+            </p>
           </Bloco>
           <Bloco titulo="Veículos afetados">
             <div className="text-2xl font-bold">{veiculos}</div>
@@ -913,6 +985,152 @@ function ContagemPorVigencia({
   );
 }
 
+/**
+ * O intervalo somado por parâmetro — o degrau entre a visão geral e o cartão.
+ *
+ * É a resposta executiva "onde pesou": uma linha por gaveta, com o impacto
+ * dentro de cada periodicidade, os ativos distintos, em quantas vigências
+ * mexeu, e quantas alterações dela ainda não têm preço. Clicar abre o cartão
+ * daquele parâmetro **no mesmo intervalo** — e a soma dos números aqui é a
+ * mesma que o cartão mostra sozinho, porque as duas saem do mesmo cálculo, com
+ * o mesmo índice de composição. Há teste para isso; sem ele, a visão geral e o
+ * cartão poderiam discordar e ninguém saberia qual acreditar.
+ *
+ * A barra é do maior valor absoluto **dentro de uma periodicidade**, e a
+ * escala é por periodicidade. Uma barra de R$/ano ao lado de uma de R$/mês, no
+ * mesmo eixo, faria a segunda parecer irrelevante quando ela pode ser doze
+ * vezes maior no ano.
+ */
+function PorParametro({
+  linhas,
+  onAbrir,
+  temCartao,
+  titulo,
+  complemento,
+}: {
+  linhas: ParameterRollup[];
+  onAbrir: (parameterKey: string) => void;
+  /**
+   * Nem todo parâmetro tem cartão na vigência selecionada: as gavetas nossas
+   * só existem no mês em que o parâmetro se mexeu, e este consolidado cobre um
+   * intervalo inteiro. Quem não tem cartão aparece sem link e diz por quê —
+   * um clique que cai numa tela de "não existe" seria pior do que não haver
+   * clique.
+   */
+  temCartao?: (parameterKey: string) => boolean;
+  titulo: string;
+  complemento: string;
+}) {
+  const [tudo, setTudo] = useState(false);
+  const TOPO = 8;
+
+  const comImpacto = linhas.filter(
+    (l) => Object.keys(l.impact.byPeriodicity).length > 0,
+  );
+  const semImpacto = linhas.filter(
+    (l) => Object.keys(l.impact.byPeriodicity).length === 0,
+  );
+  const visiveis = tudo ? linhas : [...comImpacto, ...semImpacto].slice(0, TOPO);
+
+  const teto = (periodicidade: string) =>
+    Math.max(
+      ...comImpacto.map((l) => Math.abs(l.impact.byPeriodicity[periodicidade] ?? 0)),
+      1,
+    );
+
+  return (
+    <section className="space-y-3">
+      <Cabecalho titulo={titulo} complemento={complemento} />
+      <div className="bg-card border divide-y">
+        {visiveis.map((linha) => {
+          const baldes = porPeriodicidade(linha.impact.byPeriodicity);
+          const abre = temCartao ? temCartao(linha.parameterKey) : true;
+          const Elemento = abre ? "button" : "div";
+          return (
+            <Elemento
+              key={linha.parameterKey}
+              {...(abre
+                ? { type: "button" as const, onClick: () => onAbrir(linha.parameterKey) }
+                : {})}
+              className={cn(
+                "w-full text-left px-5 py-3 flex items-start justify-between gap-6",
+                abre && "hover:bg-accent transition-colors",
+              )}
+            >
+              <div className="min-w-0 flex-1">
+                <div className="font-medium truncate">{linha.parameterName}</div>
+                <div className="text-xs text-muted-foreground">
+                  {linha.familyName} · {linha.vehicles}{" "}
+                  {linha.vehicles === 1 ? "veículo" : "veículos"} · {linha.changes}{" "}
+                  {linha.changes === 1 ? "alteração" : "alterações"}
+                  {linha.periods > 1 && ` em ${linha.periods} vigências`}
+                  {linha.notCalculable > 0 && (
+                    <span className="text-brand-red">
+                      {" "}
+                      · {linha.notCalculable} sem valoração
+                    </span>
+                  )}
+                </div>
+                {!abre && (
+                  <div className="text-xs text-muted-foreground italic mt-0.5">
+                    sem cartão nesta vigência — mexeu no intervalo, não no mês
+                    selecionado lá em cima
+                  </div>
+                )}
+              </div>
+
+              <div className="shrink-0 w-[22rem] space-y-1">
+                {baldes.length === 0 ? (
+                  <div className="text-xs text-muted-foreground italic text-right">
+                    sem impacto apurado
+                  </div>
+                ) : (
+                  baldes.map(({ periodicity, amount }) => (
+                    <div key={periodicity} className="flex items-center gap-3">
+                      <span className="flex-1 h-2 bg-muted overflow-hidden" role="presentation">
+                        <span
+                          className={cn(
+                            "block h-full",
+                            amount < 0 ? "bg-brand-red" : "bg-success",
+                          )}
+                          style={{
+                            width: `${(Math.abs(amount) / teto(periodicity)) * 100}%`,
+                          }}
+                        />
+                      </span>
+                      <span
+                        className={cn(
+                          "tabular-nums text-sm font-medium w-36 text-right",
+                          amount < 0 ? "text-brand-red" : "text-success",
+                        )}
+                      >
+                        {formatBrlShort(amount)}
+                        <span className="text-xs font-normal">
+                          {periodicitySuffix(periodicity)}
+                        </span>
+                      </span>
+                    </div>
+                  ))
+                )}
+              </div>
+            </Elemento>
+          );
+        })}
+      </div>
+
+      {linhas.length > TOPO && (
+        <button
+          type="button"
+          onClick={() => setTudo((v) => !v)}
+          className="w-full bg-card border px-5 py-3 text-[0.8125rem] font-bold uppercase tracking-wide text-brand hover:bg-accent transition-colors"
+        >
+          {tudo ? `Mostrar só os ${TOPO} maiores` : `Ver todos os ${linhas.length} parâmetros`}
+        </button>
+      )}
+    </section>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* Rankings                                                            */
 /* ------------------------------------------------------------------ */
@@ -920,9 +1138,12 @@ function ContagemPorVigencia({
 function Rankings({
   entradas,
   aoAbrir,
+  titulo = "Onde estão os maiores impactos",
 }: {
   entradas: (RangeEntry | EndToEndEntry)[];
   aoAbrir: (chave: string) => void;
+  /** Na visão geral o título muda: lá "os maiores" já foi respondido acima. */
+  titulo?: string;
 }) {
   const periodicidades = [
     ...new Set(entradas.map((e) => e.periodicity ?? "SEM_PERIODICIDADE")),
@@ -930,7 +1151,7 @@ function Rankings({
 
   return (
     <section className="space-y-3">
-      <Cabecalho titulo="Onde estão os maiores impactos" />
+      <Cabecalho titulo={titulo} />
       {periodicidades.map((periodicidade) => {
         const doBalde = entradas.filter(
           (e) => (e.periodicity ?? "SEM_PERIODICIDADE") === periodicidade,
@@ -1073,7 +1294,13 @@ function PrecisamDeAnalise({
   aoAbrir: (chave: string) => void;
 }) {
   const [aberto, setAberto] = useState(false);
-  const veiculos = entradas.reduce((s, e) => s + e.vehicles, 0);
+  /*
+    Somar os veículos dos grupos dava "2.974 veículos" numa frota de 144 — o
+    mesmo caminhão contado uma vez por coluna que se mexeu. O número honesto
+    aqui é quantas gavetas estão à espera de curadoria: é ele que dimensiona o
+    trabalho.
+  */
+  const parametros = new Set(entradas.map((e) => e.parameterKey)).size;
 
   type Linha = (RangeEntry | EndToEndEntry) & { periodLabel?: string };
   const colunas: ColunaTabela<Linha>[] = [
@@ -1140,8 +1367,9 @@ function PrecisamDeAnalise({
           />
         </div>
         <p className="text-sm text-muted-foreground mt-1">
-          Impacto financeiro ainda não calculável · {veiculos} veículos somados por
-          grupo. Não é zero: é o que este export ainda não permite precificar.
+          Impacto financeiro ainda não calculável, em {parametros}{" "}
+          {parametros === 1 ? "parâmetro" : "parâmetros"}. Não é zero: é o que este
+          export ainda não permite precificar.
         </p>
       </button>
 
@@ -1170,6 +1398,8 @@ function LeituraPonta({
   nome,
   aberto,
   onAbrir,
+  onAbrirCartao,
+  temCartao,
 }: {
   p2p: PontaAPonta | null;
   carregando: boolean;
@@ -1177,6 +1407,8 @@ function LeituraPonta({
   nome: string;
   aberto: string | null;
   onAbrir: (chave: string | null) => void;
+  onAbrirCartao?: (parameterKey: string) => void;
+  temCartao?: (parameterKey: string) => boolean;
 }) {
   if (carregando) return <p className="text-sm text-muted-foreground">Comparando as duas pontas…</p>;
   if (erro) {
@@ -1205,7 +1437,8 @@ function LeituraPonta({
         titulo={`${p2p.fromLabel} → ${p2p.toLabel}`}
         perdas={somar(p2p.entries, (v) => v < 0)}
         ganhos={somar(p2p.entries, (v) => v > 0)}
-        parametros={new Set(p2p.entries.map((e) => e.attributeCode ?? e.title)).size}
+        parametros={p2p.byParameter.length}
+        colunas={new Set(p2p.entries.map((e) => e.attributeCode ?? e.title)).size}
         veiculos={p2p.totals.vehiclesTouched}
         alteracoes={p2p.entries.length}
         comImpacto={comPreco.length}
@@ -1218,7 +1451,23 @@ function LeituraPonta({
 
       {p2p.reverted.length > 0 && <Revertidos p2p={p2p} />}
 
-      {comPreco.length > 0 && <Rankings entradas={comPreco} aoAbrir={onAbrir} />}
+      {onAbrirCartao && (
+        <PorParametro
+          linhas={p2p.byParameter}
+          onAbrir={onAbrirCartao}
+          temCartao={temCartao}
+          titulo="O que permanece alterado"
+          complemento={`por parâmetro · diferente hoje do que era em ${p2p.fromLabel}`}
+        />
+      )}
+
+      {comPreco.length > 0 && (
+        <Rankings
+          entradas={comPreco}
+          aoAbrir={onAbrir}
+          titulo={onAbrirCartao ? "As maiores diferenças, uma a uma" : undefined}
+        />
+      )}
 
       {semPreco.length > 0 && <PrecisamDeAnalise entradas={semPreco} aoAbrir={onAbrir} />}
 

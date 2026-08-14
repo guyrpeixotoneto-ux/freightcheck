@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearch, useLocation } from "wouter";
-import { AlertTriangle, Info, Search, Star } from "lucide-react";
+import { AlertTriangle, ChevronRight, Info, Search, Star } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { GroupCard } from "@/components/inicio/group-card";
 import { TabelaFreightech, type ColunaTabela } from "@/components/parametros/tabela";
@@ -23,6 +23,7 @@ import {
   CATALOGO_FREIGHTECH,
   chaveDoCartao,
   ligarParametros,
+  type CartaoCatalogo,
 } from "@/lib/freightech-catalogo";
 import type {
   ChangeGroup,
@@ -70,6 +71,29 @@ export default function Parametros() {
 
   const cartaoAberto = params.get("cartao");
 
+  /*
+    A aba e o intervalo da análise moram na URL, e não no estado do componente.
+
+    Duas razões, e a segunda é a que obrigou. A primeira: um link para "o
+    Financiamento, de dezembro a agosto, na leitura ponta a ponta" passa a
+    existir e a poder ser mandado para alguém. A segunda: a **visão geral**
+    manda para o cartão do parâmetro, e tem de mandar o recorte junto — chegar
+    no cartão com outro intervalo faria o número do salto não bater com o
+    número de onde se saltou.
+  */
+  const aba = params.get("aba") === "analise" ? "analise" : "freightech";
+  const de = params.get("de");
+  const ate = params.get("ate");
+
+  const irPara = (mudancas: Record<string, string | null>) => {
+    const next = new URLSearchParams(search);
+    for (const [chave, valor] of Object.entries(mudancas)) {
+      if (valor === null) next.delete(chave);
+      else next.set(chave, valor);
+    }
+    navigate(`/parametros?${next}`);
+  };
+
   /**
    * A busca por nome de parâmetro fica aqui, e não dentro da grade, porque o
    * campo dela mora na barra de filtro — que é irmã da grade, não filha.
@@ -106,15 +130,62 @@ export default function Parametros() {
     next.set("scopeHash", selecao.scopeHash);
     if (selecao.canal) next.set("canal", selecao.canal);
     if (selecao.period) next.set("period", selecao.period);
-    if (cartaoAberto) next.set("cartao", cartaoAberto);
+    if (cartaoAberto) {
+      next.set("cartao", cartaoAberto);
+      // A aba e o intervalo vão junto: trocar de unidade não é motivo para
+      // voltar da análise para o espelho, nem para reabrir outro recorte.
+      if (aba === "analise") next.set("aba", aba);
+      if (de) next.set("de", de);
+      if (ate) next.set("ate", ate);
+    }
     navigate(`/parametros?${next}`);
   };
 
   const abrirCartao = (chave: string | null) => {
     const next = new URLSearchParams(search);
     if (chave) next.set("cartao", chave);
-    else next.delete("cartao");
+    else {
+      next.delete("cartao");
+      next.delete("aba");
+      next.delete("de");
+      next.delete("ate");
+    }
     navigate(`/parametros?${next}`);
+  };
+
+  /**
+   * Qual cartão abre cada parâmetro.
+   *
+   * O consolidado fala em parâmetros (`TRIBUTOS_SEGUROS|IPVA e licenciamento`);
+   * a grade fala em cartões. Este mapa é a ponte, e é montado a partir das
+   * mesmas seções que a grade desenha — não de uma segunda regra de ligação,
+   * que poderia divergir e mandar para o cartão errado.
+   *
+   * Nem todo parâmetro tem cartão nesta vigência: as gavetas nossas só existem
+   * no mês em que o parâmetro se mexeu, e o consolidado cobre um intervalo
+   * inteiro. Quem não estiver aqui não vira link — ver `PorParametro`.
+   */
+  const cartaoDoParametro = useMemo(() => {
+    const mapa = new Map<string, string>();
+    for (const secao of secoes) {
+      for (const cartao of secao.cartoes) {
+        for (const parametro of cartao.parametros) mapa.set(parametro.key, cartao.chave);
+      }
+    }
+    return mapa;
+  }, [secoes]);
+
+  /**
+   * O salto da visão geral para o cartão de um parâmetro.
+   *
+   * Leva o intervalo e a leitura junto, porque o número que a pessoa clicou
+   * era daquele recorte. Abrir o cartão no recorte padrão mostraria outro
+   * número no lugar do que ela veio conferir — e ela não teria como saber que
+   * mudou.
+   */
+  const saltarParaCartao = (parameterKey: string) => {
+    const chave = cartaoDoParametro.get(parameterKey);
+    if (chave) irPara({ cartao: chave, aba: "analise" });
   };
 
   const cartao = useMemo(() => {
@@ -166,12 +237,33 @@ export default function Parametros() {
           </div>
         )}
 
-        {cartao ? (
+        {cartaoAberto === CHAVE_VISAO_GERAL ? (
+          <VisaoGeral
+            view={data ?? null}
+            contexto={query}
+            period={data?.period ?? ""}
+            de={de}
+            ate={ate}
+            leitura={params.get("leitura") === "ponta" ? "ponta" : "movimentos"}
+            onIntervalo={(campo, valor) => irPara({ [campo]: valor })}
+            onLeitura={(v) => irPara({ leitura: v })}
+            onAbrirCartao={saltarParaCartao}
+            temCartao={(chave) => cartaoDoParametro.has(chave)}
+            onVoltar={() => abrirCartao(null)}
+          />
+        ) : cartao ? (
           <DetalheCartao
             cartao={cartao}
             view={data ?? null}
             period={data?.period ?? ""}
             contexto={query}
+            aba={aba}
+            de={de}
+            ate={ate}
+            leitura={params.get("leitura") === "ponta" ? "ponta" : "movimentos"}
+            onAba={(v) => irPara({ aba: v === "analise" ? "analise" : null })}
+            onIntervalo={(campo, valor) => irPara({ [campo]: valor })}
+            onLeitura={(v) => irPara({ leitura: v })}
             onVoltar={() => abrirCartao(null)}
           />
         ) : cartaoAberto && !isLoading ? (
@@ -181,7 +273,12 @@ export default function Parametros() {
             onVoltar={() => abrirCartao(null)}
           />
         ) : (
-          <Grade view={data ?? null} secoes={secoes} busca={busca} onAbrir={abrirCartao} />
+          <Grade
+            view={data ?? null}
+            secoes={secoes}
+            busca={busca}
+            onAbrir={abrirCartao}
+          />
         )}
       </div>
     </Layout>
@@ -243,6 +340,108 @@ function CartaoAusente({
   );
 }
 
+/**
+ * A chave do cartão da visão geral.
+ *
+ * Não sai do catálogo do Freightech nem de uma família nossa: é uma tela que
+ * não existe lá e não é gaveta de nada. Fica fora da contagem de cobertura da
+ * grade de propósito — somá-la aos "cartões do catálogo do Freightech" faria a
+ * frase mentir por um.
+ */
+const CHAVE_VISAO_GERAL = "visao-geral.remuneracao-total";
+
+/**
+ * Visão geral — a remuneração inteira, num intervalo.
+ *
+ * A hierarquia do produto é VISÃO GERAL → CARTÃO → VEÍCULO → EVIDÊNCIA, e este
+ * é o primeiro degrau: quanto perdemos, quanto ganhamos, onde pesou, quando
+ * aconteceu, o que foi revertido, o que permanece alterado e quanto ainda está
+ * sem preço — tudo somado, sem recorte.
+ *
+ * **É a mesma tela do cartão, sem o filtro.** Não há uma segunda implementação
+ * do consolidado, e isso não é economia: um consolidado próprio teria de
+ * refazer as somas, as regras de atenção e as recusas, e no dia em que uma
+ * delas mudasse mudaria num lugar só. Aqui a diferença cabe num parâmetro de
+ * consulta, e há teste provando que a linha de um parâmetro na visão geral é
+ * exatamente o que o cartão dele mostra sozinho.
+ *
+ * **Não tem aba Freightech**, e a razão é o produto inteiro: lá esta pergunta
+ * não existe. Uma aba vazia com "não há equivalente" seria um clique que só
+ * serve para decepcionar.
+ */
+function VisaoGeral({
+  view,
+  contexto,
+  period,
+  de,
+  ate,
+  leitura,
+  onIntervalo,
+  onLeitura,
+  onAbrirCartao,
+  temCartao,
+  onVoltar,
+}: {
+  view: FamiliesView | null;
+  contexto: URLSearchParams;
+  period: string;
+  de: string | null;
+  ate: string | null;
+  leitura: "movimentos" | "ponta";
+  onIntervalo: (campo: "de" | "ate", valor: string) => void;
+  onLeitura: (valor: "movimentos" | "ponta") => void;
+  onAbrirCartao: (parameterKey: string) => void;
+  /** Se aquele parâmetro tem cartão nesta vigência. Sem cartão, sem link. */
+  temCartao: (parameterKey: string) => boolean;
+  onVoltar: () => void;
+}) {
+  return (
+    <div className="mt-6">
+      <Rastro view={view} />
+
+      <button
+        type="button"
+        onClick={onVoltar}
+        className="bg-brand text-brand-foreground text-[0.8125rem] font-bold uppercase tracking-wide px-6 py-3 rounded-sm hover:brightness-95 transition-[filter]"
+      >
+        Voltar
+      </button>
+
+      <div className="mt-6">
+        <div className="text-xs uppercase tracking-wider text-muted-foreground">
+          Visão geral
+        </div>
+        <h2 className="text-2xl font-bold uppercase tracking-tight mt-1">
+          Remuneração total
+        </h2>
+        <p className="text-sm text-muted-foreground mt-2 max-w-3xl">
+          Todos os parâmetros deste recorte, somados. É a única tela do produto que
+          não tem equivalente no Freightech — lá esta pergunta exige exportar todas
+          as planilhas do período e comparar à mão.
+        </p>
+      </div>
+
+      <div className="mt-6">
+        <AnaliseCartao
+          consolidado
+          nomeDoCartao="Remuneração total"
+          parametros={[]}
+          contexto={contexto}
+          periodo={period || null}
+          de={de}
+          ate={ate}
+          leitura={leitura}
+          onDe={(v) => onIntervalo("de", v)}
+          onAte={(v) => onIntervalo("ate", v)}
+          onLeitura={onLeitura}
+          onAbrirCartao={onAbrirCartao}
+          temCartao={temCartao}
+        />
+      </div>
+    </div>
+  );
+}
+
 /* ------------------------------------------------------------------ */
 /* O catálogo, preenchido com o que temos                              */
 /* ------------------------------------------------------------------ */
@@ -263,6 +462,10 @@ interface CartaoRender {
   atributos: string[];
   /** As colunas que o Freightech mostra nesta tela, quando já conferidas. */
   colunas: string[] | null;
+  /** Quando o cartão abre ficha e não tabela: as seções e os campos de lá. */
+  formulario: CartaoCatalogo["formulario"] | null;
+  /** As abas da ficha, quando há mais de uma — inclusive as não conferidas. */
+  abas: string[] | null;
   /** A frase sobre a distância entre a tela de lá e o que temos aqui. */
   nota: string | null;
   /** Quando é inventário: o tipo de ativo que cada linha representa. */
@@ -326,6 +529,8 @@ function montarSecoes(view: FamiliesView | null): SecaoRender[] {
         parametros,
         atributos: cartao.atributos ?? [],
         colunas: cartao.colunas ?? null,
+        formulario: cartao.formulario ?? null,
+        abas: cartao.abas ?? null,
         nota: cartao.nota ?? null,
         entidade: cartao.entidade ?? null,
         ...agregar(parametros),
@@ -370,6 +575,8 @@ function montarSecoes(view: FamiliesView | null): SecaoRender[] {
         parametros: [parametro],
         atributos: [],
         colunas: null,
+        formulario: null,
+        abas: null,
         nota: null,
         entidade: null,
         ...agregar([parametro]),
@@ -701,6 +908,38 @@ function Grade({
         </div>
       )}
 
+      {/*
+        A porta da visão geral.
+
+        Faixa, e não mais um cartão na grade: ela não é gaveta de assunto
+        nenhum, e um cartão do mesmo tamanho dos outros a faria disputar
+        atenção com CAVALO e CARRETA em vez de anteceder os dois. É o primeiro
+        degrau da hierarquia — VISÃO GERAL → CARTÃO → VEÍCULO → EVIDÊNCIA — e
+        fica onde a leitura começa.
+      */}
+      <button
+        type="button"
+        onClick={() => onAbrir(CHAVE_VISAO_GERAL)}
+        className="mt-5 w-full bg-card border border-l-[5px] border-l-brand px-6 py-5 text-left hover:bg-accent transition-colors flex items-center justify-between gap-6"
+      >
+        <div>
+          <div className="text-xs uppercase tracking-wider text-muted-foreground">
+            Visão geral
+          </div>
+          <div className="text-xl font-bold uppercase tracking-tight mt-0.5">
+            Remuneração total
+          </div>
+          <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
+            Todos os parâmetros somados num intervalo: quanto perdemos, quanto
+            ganhamos, onde pesou, quando aconteceu, o que foi revertido e quanto
+            ainda está sem preço.
+          </p>
+        </div>
+        <span className="text-[0.8125rem] font-bold uppercase tracking-wide text-brand shrink-0 inline-flex items-center gap-1">
+          Abrir <ChevronRight className="w-4 h-4" />
+        </span>
+      </button>
+
       {view && !view.complete && (
         <div className="mt-5 bg-card border border-l-[6px] border-l-brand flex gap-3 px-6 py-4 text-sm">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-brand" />
@@ -1021,6 +1260,13 @@ function DetalheCartao({
   view,
   period,
   contexto,
+  aba,
+  de,
+  ate,
+  leitura,
+  onAba,
+  onIntervalo,
+  onLeitura,
   onVoltar,
 }: {
   cartao: CartaoRender;
@@ -1029,10 +1275,17 @@ function DetalheCartao({
   period: string;
   /** Unidade, canal e vigência, para o cadastro ser lido do mesmo recorte. */
   contexto: URLSearchParams;
+  /** Aba, intervalo e leitura vêm da URL — ver `Parametros`. */
+  aba: "freightech" | "analise";
+  de: string | null;
+  ate: string | null;
+  leitura: "movimentos" | "ponta";
+  onAba: (valor: "freightech" | "analise") => void;
+  onIntervalo: (campo: "de" | "ate", valor: string) => void;
+  onLeitura: (valor: "movimentos" | "ponta") => void;
   onVoltar: () => void;
 }) {
   const [grupoAberto, setGrupoAberto] = useState<string | null>(null);
-  const [aba, setAba] = useState<"freightech" | "analise">("freightech");
   const inventario = cartao.entidade !== null && cartao.atributos.length > 0;
   const cadastro =
     !inventario && cartao.parametros.length === 0 && cartao.atributos.length > 0;
@@ -1111,12 +1364,12 @@ function DetalheCartao({
         <Aba
           rotulo="Freightech"
           ativa={aba === "freightech"}
-          onClick={() => setAba("freightech")}
+          onClick={() => onAba("freightech")}
         />
         <Aba
           rotulo="Análise"
           ativa={aba === "analise"}
-          onClick={() => setAba("analise")}
+          onClick={() => onAba("analise")}
         />
       </div>
 
@@ -1184,6 +1437,12 @@ function DetalheCartao({
             parametros={cartao.parametros}
             contexto={contexto}
             periodo={period || null}
+            de={de}
+            ate={ate}
+            leitura={leitura}
+            onDe={(v) => onIntervalo("de", v)}
+            onAte={(v) => onIntervalo("ate", v)}
+            onLeitura={onLeitura}
           />
         </div>
       )}
@@ -1345,8 +1604,14 @@ function TabelaVazia({ cartao }: { cartao: CartaoRender }) {
     <p className="text-sm text-left max-w-3xl mx-auto">
       <strong>Esta gaveta existe no Freightech e este export não a alimenta.</strong>{" "}
       Nenhuma coluna da planilha que o FreightCheck recebe cai aqui. O cartão não tem
-      número não porque o valor seja zero, mas porque ele não chega — e as colunas
-      listadas acima são o que pedir para ele passar a funcionar.
+      número não porque o valor seja zero, mas porque ele não chega — e{" "}
+      {/*
+        Cartão que abre ficha não tem coluna, e mandar pedir "as colunas listadas
+        acima" a respeito de uma lista de campos seria repetir, no rodapé, o erro
+        que o Contraste evita no topo.
+      */}
+      {cartao.formulario ? "os campos listados acima são" : "as colunas listadas acima são"}{" "}
+      o que pedir para ele passar a funcionar.
     </p>
   );
 }
@@ -1361,6 +1626,15 @@ function TabelaVazia({ cartao }: { cartao: CartaoRender }) {
  * é o que torna a diferença visível antes da primeira leitura errada.
  */
 function Contraste({ cartao }: { cartao: CartaoRender }) {
+  /*
+    Cartão que abre ficha, e não tabela. Vem antes da checagem de `colunas`
+    porque a frase de lá — "as colunas ainda não foram conferidas" — seria falsa
+    aqui: a tela foi conferida, e o que ela tem não são colunas.
+  */
+  if (cartao.formulario) {
+    return <Ficha secoes={cartao.formulario} abas={cartao.abas} nota={cartao.nota} />;
+  }
+
   if (!cartao.colunas) {
     return (
       <p className="text-xs text-muted-foreground mt-3 max-w-4xl">
@@ -1395,6 +1669,99 @@ function Contraste({ cartao }: { cartao: CartaoRender }) {
         .
       </p>
       {cartao.nota && <p>{cartao.nota}</p>}
+    </div>
+  );
+}
+
+/**
+ * A ficha do Freightech, descrita — os campos que ele mostra quando o cartão
+ * abre um formulário em vez de uma lista.
+ *
+ * **Descreve, não imita.** Desenhar os campos de verdade, com caixinha e valor,
+ * produziria um formulário que não salva nada — o FreightCheck lê o export e
+ * não escreve no Freightech, e um campo que parece editável e não é seria a
+ * mesma promessa falsa que o botão ADICIONAR seria. Então isto é texto: os
+ * rótulos, agrupados pela seção de lá, com os calculados marcados.
+ *
+ * O marcador de calculado é o que justifica a lista existir. Numa ficha de três
+ * campos em que só um se digita, quem não vê a distinção conta três parâmetros
+ * onde o cliente mexe em um.
+ */
+function Ficha({
+  secoes,
+  abas,
+  nota,
+}: {
+  secoes: NonNullable<CartaoRender["formulario"]>;
+  /** Todas as abas do cartão, quando há mais de uma. */
+  abas: string[] | null;
+  nota: string | null;
+}) {
+  const calculados = secoes.flatMap((s) => s.campos).filter((c) => c.calculado).length;
+
+  /*
+    A aba que ninguém abriu tem de aparecer, e aparecer marcada.
+
+    Mostrar só o que foi conferido faria uma ficha de cinco abas passar por
+    ficha de uma — a versão de formulário do que a rolagem horizontal já pregou
+    nas tabelas, onde a ponta que faltava era onde morava o sentido.
+  */
+  const conferidas = new Set(secoes.map((s) => s.aba).filter(Boolean));
+  const naoAbertas = (abas ?? []).filter((aba) => !conferidas.has(aba));
+
+  return (
+    <div className="text-xs text-muted-foreground mt-3 max-w-4xl space-y-3">
+      <p>
+        No Freightech este cartão abre uma <strong className="text-foreground">ficha</strong>,
+        não uma tabela.
+        {calculados > 0 && (
+          <>
+            {" "}
+            Os campos marcados saem de fórmula — lá eles aparecem cinza, com a
+            calculadora ao lado, e não se digitam.
+          </>
+        )}
+      </p>
+
+      {naoAbertas.length > 0 && (
+        <p className="flex gap-2">
+          <AlertTriangle className="w-3.5 h-3.5 mt-px shrink-0 text-brand" />
+          <span>
+            A ficha tem {abas!.length} abas e {naoAbertas.length === 1 ? "uma" : `${naoAbertas.length}`}{" "}
+            ainda não {naoAbertas.length === 1 ? "foi conferida" : "foram conferidas"}:{" "}
+            {naoAbertas.map((aba, i) => (
+              <span key={aba}>
+                {i > 0 && (i === naoAbertas.length - 1 ? " e " : ", ")}
+                <span className="font-mono text-foreground">{aba}</span>
+              </span>
+            ))}
+            . O que está abaixo é só a parte vista.
+          </span>
+        </p>
+      )}
+
+      {secoes.map((secao) => (
+        <div key={`${secao.aba ?? ""}-${secao.secao}`}>
+          <div className="uppercase tracking-wider text-[0.6875rem] text-foreground/70">
+            {/* A aba só entra no rótulo quando há mais de uma; repetir
+                "Geral · Geral" numa ficha de aba única seria ruído. */}
+            {secao.aba && abas && abas.length > 1 && `${secao.aba} · `}
+            {secao.secao}
+          </div>
+          <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1">
+            {secao.campos.map((campo) => (
+              <li key={campo.nome} className="font-mono text-foreground">
+                {campo.nome}
+                {campo.calculado && (
+                  <span className="font-sans text-muted-foreground"> · calculado</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ))}
+
+      {nota && <p>{nota}</p>}
     </div>
   );
 }

@@ -55,6 +55,19 @@ export interface RangeMovement {
   impact: { byPeriodicity: Record<string, number>; notCalculable: number };
 }
 
+/** Um parâmetro somado no intervalo — o degrau entre a visão geral e o cartão. */
+export interface ParameterRollup {
+  parameterKey: string;
+  parameterName: string;
+  family: string;
+  familyName: string;
+  changes: number;
+  vehicles: number;
+  impact: { byPeriodicity: Record<string, number>; notCalculable: number };
+  periods: number;
+  notCalculable: number;
+}
+
 export interface Movimentos {
   from: string;
   fromLabel: string;
@@ -67,6 +80,7 @@ export interface Movimentos {
   lossesByPeriodicity: Record<string, number>;
   gainsByPeriodicity: Record<string, number>;
   totals: { changes: number; vehiclesTouched: number; comparisons: number };
+  byParameter: ParameterRollup[];
   entries: RangeEntry[];
 }
 
@@ -126,6 +140,7 @@ export interface PontaAPonta {
   lossesByPeriodicity: Record<string, number>;
   gainsByPeriodicity: Record<string, number>;
   totals: { changes: number; vehiclesTouched: number };
+  byParameter: ParameterRollup[];
   entries: EndToEndEntry[];
 }
 
