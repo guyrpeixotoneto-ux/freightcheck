@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
-import { Router, type IRouter } from "express";
-import { db } from "@workspace/db";
+import { Router, type IRouter, type Response } from "express";
+import { codigoDoPostgres, db } from "@workspace/db";
 import {
   ensureImportStorageDir,
   markTicketImportFailed,
@@ -37,6 +37,48 @@ const router: IRouter = Router();
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const DEFAULT_ACTOR = "upload";
+
+/**
+ * O banco deste ambiente ainda não tem onde guardar chamados?
+ *
+ * `42P01` é tabela que não existe, `42703` coluna que não existe, `42704` tipo
+ * que não existe. Os três dizem a mesma coisa: falta migration, e não é
+ * defeito do pedido.
+ *
+ * `42703` é o que mais aparece aqui, e é o mais traiçoeiro: a `0012` cria as
+ * tabelas de chamados, e as `0013`/`0014` acrescentam colunas a elas. Num banco
+ * parado na `0012` a tabela existe — então nada indica "falta migration" — e
+ * toda consulta morre por causa de uma coluna.
+ */
+export function faltaOSchemaDeChamados(err: unknown): boolean {
+  const code = codigoDoPostgres(err);
+  return code === "42P01" || code === "42703" || code === "42704";
+}
+
+/**
+ * A falha, separando o que é defeito do que é banco desatualizado.
+ *
+ * "Internal server error" foi o que estas rotas responderam a um export perfeito
+ * num banco onde faltavam as migrations de chamados — nas duas pontas, a do
+ * upload e a da listagem. A frase manda procurar no arquivo, que estava certo.
+ * O status também muda: 503 é indisponibilidade temporária deste ambiente, e
+ * não erro do pedido.
+ */
+function responderFalha(res: Response, err: unknown): void {
+  if (faltaOSchemaDeChamados(err)) {
+    res.status(503).json({
+      error:
+        "Este banco ainda não tem onde guardar chamados: faltam as migrations " +
+        "0013_chamados_por_parametro e 0014_chamados_formato_real. Não é o seu " +
+        "arquivo — nada chegou a ser gravado, e nada se perdeu. Suba o servidor " +
+        "de novo (ele aplica as migrations na partida) ou rode " +
+        "`pnpm --filter @workspace/db run migrate`. /api/healthz diz quais faltam.",
+      code: "SCHEMA_AUSENTE",
+    });
+    return;
+  }
+  res.status(500).json({ error: "Internal server error" });
+}
 
 export type DecodedTicketUpload = {
   filename: string;
@@ -158,7 +200,7 @@ router.get("/ticket-imports", async (req, res): Promise<void> => {
     res.json(await listTicketImports(db));
   } catch (err) {
     req.log.error({ err }, "Error listing ticket imports");
-    res.status(500).json({ error: "Internal server error" });
+    responderFalha(res, err);
   }
 });
 
@@ -204,7 +246,7 @@ router.post("/ticket-imports", async (req, res): Promise<void> => {
     void readInBackground(received.ticketImportId, req.log);
   } catch (err) {
     req.log.error({ err }, "Error receiving ticket import");
-    res.status(500).json({ error: "Internal server error" });
+    responderFalha(res, err);
   }
 });
 
@@ -222,7 +264,7 @@ router.get("/ticket-imports/:id", async (req, res): Promise<void> => {
     res.json(run);
   } catch (err) {
     req.log.error({ err }, "Error loading ticket import");
-    res.status(500).json({ error: "Internal server error" });
+    responderFalha(res, err);
   }
 });
 
@@ -271,7 +313,7 @@ router.get("/tickets", async (req, res): Promise<void> => {
     res.json({ import: run, imports, totals, byParameter, ...changes });
   } catch (err) {
     req.log.error({ err }, "Error listing tickets");
-    res.status(500).json({ error: "Internal server error" });
+    responderFalha(res, err);
   }
 });
 
@@ -299,7 +341,7 @@ router.get("/tickets/:id", async (req, res): Promise<void> => {
     res.json(ticket);
   } catch (err) {
     req.log.error({ err }, "Error loading ticket");
-    res.status(500).json({ error: "Internal server error" });
+    responderFalha(res, err);
   }
 });
 
