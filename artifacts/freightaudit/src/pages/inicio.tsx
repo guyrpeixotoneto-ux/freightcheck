@@ -1,18 +1,23 @@
+import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
   Activity,
   AlertCircle,
+  AlertTriangle,
   Building2,
   CloudDownload,
   FileSearch,
   GitCompareArrows,
   LayoutGrid,
+  Scale,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { getApiUrl } from "@/lib/api";
+import { cn } from "@/lib/utils";
 import { useAuth } from "@/lib/auth";
 import type { GroupedView } from "@/components/inicio/types";
+import type { BalancoResumo } from "@/components/balanco/tipos";
 
 /**
  * A página inicial, no desenho do Freightech.
@@ -41,6 +46,28 @@ export default function Inicio() {
     retry: false,
     staleTime: 60_000,
   });
+
+  /*
+    O balanço vem numa consulta própria, e não junto do resto.
+
+    É a única linha desta tela que pode dizer "há um defeito", e por isso ela
+    não pode depender de a visão agrupada ter respondido: um erro na comparação
+    apagaria justamente o aviso de que uma célula sumiu. `retry: false` e o
+    `null` no erro mantêm a regra da página — sem resposta, a linha some, e
+    nunca aparece um número de enfeite no lugar dela.
+  */
+  const { data: balancos } = useQuery({
+    queryKey: ["balance", "inicio"],
+    queryFn: async () => {
+      const response = await fetch(getApiUrl("/balance"));
+      if (!response.ok) return null;
+      return (await response.json()) as BalancoResumo[];
+    },
+    retry: false,
+    staleTime: 60_000,
+  });
+
+  const massa = useMemo(() => resumirMassa(balancos), [balancos]);
 
   const primeiroNome = (user?.name ?? "").trim().split(/\s+/)[0] || "bem-vindo";
 
@@ -109,6 +136,14 @@ export default function Inicio() {
             descricao="Envie a planilha do Freightech e acompanhe o processamento"
             estado={null}
           />
+          <CartaoEntrada
+            href="/balanco-massa"
+            icone={Scale}
+            titulo="Balanço de massa"
+            descricao="Se toda célula que o arquivo trouxe chegou a algum lugar — e o que não chegou"
+            estado={massa?.texto ?? null}
+            alerta={massa?.alerta ?? false}
+          />
         </div>
 
         <aside className="mt-6 bg-card border border-l-[6px] border-l-brand-red shadow-sm">
@@ -148,6 +183,12 @@ export default function Inicio() {
  * O cartão de entrada do Freightech: régua laranja no topo, ícone, título forte,
  * descrição cinza. O `estado` é a linha que o Freightech não tem — some quando
  * não há nada verdadeiro para escrever nela.
+ *
+ * `alerta` existe por causa de um cartão só, e por um motivo que vale para
+ * qualquer outro que venha a precisar: "173.919 células conferidas" e "12
+ * células sem destino" não podem sair com a mesma tipografia. A primeira é
+ * rotina e some na moldura, como deve; a segunda é o defeito mais grave que
+ * este produto sabe encontrar, e sair discreta seria o mesmo que não sair.
  */
 function CartaoEntrada({
   href,
@@ -155,12 +196,14 @@ function CartaoEntrada({
   titulo,
   descricao,
   estado,
+  alerta = false,
 }: {
   href: string;
   icone: typeof Activity;
   titulo: string;
   descricao: string;
   estado: string | null;
+  alerta?: boolean;
 }) {
   return (
     <Link
@@ -173,8 +216,68 @@ function CartaoEntrada({
       </h2>
       <p className="text-sm text-muted-foreground mt-2 leading-snug flex-1">{descricao}</p>
       {estado && (
-        <p className="text-[0.8125rem] font-semibold mt-3 pt-3 border-t truncate">{estado}</p>
+        <p
+          className={cn(
+            "text-[0.8125rem] font-semibold mt-3 pt-3 border-t truncate",
+            alerta && "text-red-700 flex items-center gap-1.5",
+          )}
+        >
+          {alerta && <AlertTriangle className="w-4 h-4 shrink-0" />}
+          {estado}
+        </p>
       )}
     </Link>
   );
+}
+
+/**
+ * O balanço de todas as importações, em uma linha de cartão.
+ *
+ * Três desfechos, e eles não se confundem — é a mesma distinção que a tela do
+ * Balanço faz, encurtada até caber aqui:
+ *
+ * - **Sobrou célula sem destino**, ou a captura não confere: defeito, e o
+ *   cartão diz isso em vermelho.
+ * - **Fecha com recusas**: a conta está fechada e mesmo assim o arquivo trouxe
+ *   coisa que o sistema não aproveitou. Dizer só "conferidas" aqui seria
+ *   verdade contando pela metade.
+ * - **Fecha limpo**: o número de células, que é o que dá tamanho à conferência.
+ *
+ * Sem importação nenhuma devolve `null`, e a linha some: um "0 células" num
+ * banco vazio parece resultado de uma conferência que não aconteceu.
+ */
+function resumirMassa(
+  balancos: BalancoResumo[] | null | undefined,
+): { texto: string; alerta: boolean } | null {
+  if (!balancos || balancos.length === 0) return null;
+
+  const celulas = balancos.reduce((total, b) => total + b.entrada, 0);
+  const residuo = balancos.reduce((total, b) => total + b.residuo, 0);
+  const perdas = balancos.reduce((total, b) => total + b.porNatureza.PERDA, 0);
+  const naoFecham = balancos.filter((b) => !b.fecha).length;
+
+  if (residuo > 0) {
+    return {
+      texto: `${n(residuo)} ${residuo === 1 ? "célula sem destino" : "células sem destino"}`,
+      alerta: true,
+    };
+  }
+  if (naoFecham > 0) {
+    // Resíduo zero e ainda assim não fecha: o que está em RAW hoje não é o que
+    // a importação registrou ter capturado. Ver `capturaConfere`.
+    return {
+      texto: `${n(naoFecham)} ${naoFecham === 1 ? "importação não fecha" : "importações não fecham"}`,
+      alerta: true,
+    };
+  }
+
+  const conferidas = `${n(celulas)} células conferidas`;
+  return {
+    texto: perdas > 0 ? `${conferidas} · ${n(perdas)} recusadas` : conferidas,
+    alerta: false,
+  };
+}
+
+function n(valor: number): string {
+  return valor.toLocaleString("pt-BR");
 }
