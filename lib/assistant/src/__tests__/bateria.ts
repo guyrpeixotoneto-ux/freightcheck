@@ -228,8 +228,10 @@ export const CASOS: Caso[] = [
   {
     pergunta: "Qual a regra do bloco PNEU?",
     intencao: "BOOK",
-    ferramentas: ["regraDoBook", "buscarNoTextoDoBook"],
-    esperado: "A regra registrada para PNEU, na revisão vigente.",
+    ferramentas: ["regraDoBook"],
+    esperado:
+      "O que o documento de PNEU diz — o conteúdo vem do índice do Book, e a " +
+      "evidência de registro sustenta a fonte.",
   },
   {
     pergunta: "O Book cobre quantos blocos?",

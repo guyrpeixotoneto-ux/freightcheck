@@ -47,6 +47,31 @@ function Bloco({ texto }: { texto: string }) {
   const linhas = texto.split("\n").filter((l) => l.trim().length > 0);
   if (linhas.length === 0) return null;
 
+  /*
+    ---- título ---------------------------------------------------------------
+
+    O conteúdo do Book chega com a hierarquia do documento — "Frequência",
+    "Critérios" — e uma resposta longa às vezes precisa de um mapa. Sem esta
+    ramificação a tela imprimia os sustenidos literalmente, que é a marca de um
+    renderizador que não conhece o texto que recebe.
+
+    Dois níveis apenas, e nenhum deles compete com o título da página: o que
+    chega aqui é seção de resposta, não capítulo.
+  */
+  const titulo = /^(#{1,6})\s+(.*)$/.exec(linhas[0]);
+  if (titulo && linhas.length === 1) {
+    const nivel = titulo[1].length;
+    return nivel <= 2 ? (
+      <h3 className="text-[1.0625rem] font-semibold leading-snug pt-1">
+        <Inline texto={titulo[2]} />
+      </h3>
+    ) : (
+      <h4 className="text-[0.9375rem] font-semibold leading-snug">
+        <Inline texto={titulo[2]} />
+      </h4>
+    );
+  }
+
   // ---- tabela ---------------------------------------------------------------
   const ehTabela =
     linhas.length >= 2 &&

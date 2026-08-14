@@ -44,7 +44,6 @@ import {
   impactoEmTexto,
   numerosDoImpacto,
   rotuloDoPeriodo,
-  trecho,
 } from "./formato";
 import type { Alvo } from "./parametros";
 import { extrairAnexo } from "./anexos";
@@ -56,6 +55,18 @@ export interface Fato {
   rotulo: string;
   valor: string;
   detalhe?: string;
+  /**
+   * Mecânica do produto, e não resposta a ninguém.
+   *
+   * Revisão vigente, quantidade de revisões guardadas, tipo da entrada, chave
+   * do bloco: são coisas que o assistente precisa saber e que quem perguntou
+   * "o que é QLP ADM?" não pediu. Elas saíam na primeira linha da resposta —
+   * "Revisão vigente: 1 — 1 revisão guardada" — porque a redação percorria os
+   * fatos sem distinguir o que responde do que administra. Marcado assim, o
+   * fato continua no dossiê, aparece no painel técnico, sustenta a fonte, e
+   * nunca vira frase.
+   */
+  interno?: boolean;
 }
 
 export interface Recorte {
@@ -888,7 +899,7 @@ export async function regraDoBook(
     .where(eq(bookEntryTable.blockKey, achado.blockKey));
 
   const fatos: Fato[] = [
-    { rotulo: "Bloco", valor: achado.blockTitle, detalhe: achado.blockCategory },
+    { rotulo: "Bloco", valor: achado.blockTitle, detalhe: achado.blockCategory, interno: true },
     {
       rotulo: "Revisão vigente",
       valor: String(achado.revision),
@@ -896,17 +907,15 @@ export async function regraDoBook(
         total === 1
           ? "1 revisão guardada — o Book não apaga nenhuma"
           : `${INTEIRO.format(total)} revisões guardadas — nenhuma foi apagada`,
+      interno: true,
     },
     {
       rotulo: "Tipo",
       valor: achado.kind === "TEXTO" ? "regra escrita no sistema" : "documento anexado",
       detalhe: achado.filename ?? undefined,
+      interno: true,
     },
   ];
-
-  if (achado.kind === "TEXTO" && achado.bodyText) {
-    fatos.push({ rotulo: "A regra, como foi escrita", valor: trecho(achado.bodyText) });
-  }
 
   return {
     ferramenta: "regraDoBook",
@@ -915,16 +924,18 @@ export async function regraDoBook(
     numeros: [achado.revision, total],
     origem: `book_entry · bloco "${achado.blockKey}" · revisão ${achado.revision}`,
     tela: { label: "Book do Operador", href: "/book-operador" },
+    /*
+      A ressalva sobrevive num caso só: o arquivo existe e não foi possível
+      lê-lo. Antes ela saía sempre — inclusive com o documento aberto ao lado —,
+      e depois de o índice passar a ler Word, Excel e PowerPoint ela virou o que
+      deveria ter sido desde o começo: o aviso de um caso raro (formato legado,
+      arquivo acima do teto), e não a descrição do funcionamento normal.
+    */
     nota:
-      achado.kind !== "DOCUMENTO"
-        ? undefined
-        : arquivo.documentoLido
-          ? "A regra está no arquivo anexado, e o arquivo acompanha esta pergunta: " +
-            "o que a resposta disser do conteúdo dele sai do próprio documento, que " +
-            "está numerado nas fontes e abre na tela do Book."
-          : "A regra está no arquivo anexado, e este assistente não conseguiu abri-lo " +
-            "— formato legado ou arquivo grande demais. O documento continua baixável " +
-            "na tela do Book.",
+      achado.kind === "DOCUMENTO" && !arquivo.documentoLido
+        ? "O conteúdo deste documento não pôde ser lido — formato legado ou arquivo " +
+          "grande demais. Ele continua baixável na tela do Book."
+        : undefined,
   };
 }
 
@@ -1036,45 +1047,6 @@ export async function coberturaDoBook(db: Database): Promise<Evidencia> {
     nota:
       "O total de blocos que o Freightech publica não é contado aqui: o índice é " +
       "transcrição da tela de origem e o assistente conhece apenas o que foi registrado.",
-  };
-}
-
-/** Busca no texto das regras escritas. Documentos anexados não são alcançados. */
-export async function buscarNoTextoDoBook(
-  db: Database,
-  termo: string,
-): Promise<Evidencia | null> {
-  if (termo.trim().length < 3) return null;
-
-  const rows = await db
-    .select({
-      blockTitle: bookEntryTable.blockTitle,
-      blockCategory: bookEntryTable.blockCategory,
-      revision: bookEntryTable.revision,
-      bodyText: bookEntryTable.bodyText,
-    })
-    .from(bookEntryTable)
-    .where(
-      and(eq(bookEntryTable.kind, "TEXTO"), sql`${bookEntryTable.bodyText} ILIKE ${`%${termo.trim()}%`}`),
-    )
-    .orderBy(desc(bookEntryTable.createdAt))
-    .limit(4);
-
-  if (rows.length === 0) return null;
-
-  return {
-    ferramenta: "buscarNoTextoDoBook",
-    titulo: `Regras escritas que mencionam "${termo}"`,
-    fatos: rows.map((r) => ({
-      rotulo: `${r.blockCategory} · ${r.blockTitle} (rev. ${r.revision})`,
-      valor: trecho(r.bodyText ?? "", 400),
-    })),
-    numeros: [],
-    origem: "book_entry · busca textual em entradas do tipo TEXTO",
-    tela: { label: "Book do Operador", href: "/book-operador" },
-    nota:
-      "A busca alcança apenas regras escritas no sistema. Documento anexado não é " +
-      "procurável por texto — se a regra estiver num PDF, ela não aparece aqui.",
   };
 }
 

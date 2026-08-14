@@ -23,6 +23,7 @@
  */
 
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { ehSaudacao } from "@workspace/assistant";
 import {
   assistantConversationTable,
   assistantMessageTable,
@@ -40,10 +41,34 @@ function daPessoa(ownerId: string, conversationId?: string) {
     : base;
 }
 
-/** O título nasce da primeira pergunta, cortado onde a frase permite. */
-export function tituloDe(pergunta: string): string {
+/** O nome que se dá a uma conversa que ainda não disse do que trata. */
+export const CONVERSA_SEM_ASSUNTO = "Nova conversa";
+
+/**
+ * O título de uma conversa — **o assunto dela, não a primeira coisa digitada.**
+ *
+ * A barra lateral tinha meia dúzia de conversas chamadas "ola", porque o título
+ * nascia da primeira pergunta e a primeira pergunta costuma ser um cumprimento.
+ * O nome de uma conversa é a única coisa que quem procura por ela vê, e "ola"
+ * não distingue nada de nada.
+ *
+ * A ordem é do mais específico para o menos: o bloco do Book de que se falou, a
+ * gaveta que se investigou, e só então a frase digitada. Quando nada disso
+ * existe — um "bom dia" solto —, devolve `null`, e quem chama guarda um nome
+ * provisório que a próxima pergunta substitui.
+ */
+export function tituloDe(
+  pergunta: string,
+  assunto: { bloco?: string | null; parametro?: string | null } = {},
+): string | null {
+  if (assunto.bloco) return assunto.bloco.slice(0, 200);
+  if (assunto.parametro) return assunto.parametro.slice(0, 200);
+  if (ehSaudacao(pergunta)) return null;
+
   const limpo = pergunta.replace(/\s+/g, " ").trim().replace(/[?!.]+$/, "");
+  if (limpo.length < 6) return null;
   if (limpo.length <= 60) return limpo;
+
   const corte = limpo.slice(0, 60);
   const espaco = corte.lastIndexOf(" ");
   return `${corte.slice(0, espaco > 0 ? espaco : 60)}…`;

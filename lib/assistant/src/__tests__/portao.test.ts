@@ -30,6 +30,7 @@ function dossieCom(opcoes: { numeros?: number[]; fatos?: string[]; fontes?: numb
     leitura: {} as Dossie["leitura"],
     plano: {} as Dossie["plano"],
     trechos: [],
+  documentos: [],
     evidencias: evidencias as unknown as Dossie["evidencias"],
     anexos: [],
     lacunas: [],

@@ -123,6 +123,20 @@ export const INTENCOES_COM_RECORTE: ReadonlySet<Intencao> = new Set<Intencao>([
  * panorama, catálogo e disponibilidade descrevem o recorte, não uma gaveta.
  */
 export const INTENCOES_QUE_HERDAM_ASSUNTO: ReadonlySet<Intencao> = new Set<Intencao>([
+  /*
+    Conceito e pergunta sem forma também herdam.
+
+    "Como funciona?" e "e a frequência?" logo depois de uma explicação sobre o
+    QLP ADM são sobre o QLP ADM — não sobre o conceito de funcionar. Ficaram de
+    fora por engano: a lista nasceu das intenções de dado, e as de conteúdo
+    (que são as que mais aparecem numa conversa sobre o Book) não estavam nela.
+    Isto só é consultado quando a frase **não** nomeia assunto nenhum, então o
+    risco de herdar o que não devia é o de uma frase vazia, que não tem outro
+    assunto a que pertencer.
+  */
+  "CONCEITUAL",
+  "DISPONIBILIDADE",
+  "DESCONHECIDA",
   "VALOR",
   "EVOLUCAO",
   "COMPARACAO",

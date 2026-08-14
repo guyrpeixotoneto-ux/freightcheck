@@ -27,6 +27,16 @@ export interface EstadoDaConversa {
   parametro: string | null;
   periodo: PeriodoPedido | null;
   intervalo: { de: PeriodoPedido; ate: PeriodoPedido | null } | null;
+  /**
+   * O bloco do Book de que a conversa estava falando.
+   *
+   * É o que faz "qual a frequência?" continuar dentro do QLP ADM. Sem ele, a
+   * pergunta de continuidade — que por definição não repete o assunto — casa
+   * "mensal" em qualquer bloco que fale de periodicidade, e a resposta é
+   * verdadeira sobre outro documento. `termoDoParametro` não resolve isto: ele
+   * guarda o que a pessoa **escreveu**, e o bloco é o que a busca **encontrou**.
+   */
+  blocoDoBook: string | null;
   /** O recorte em que a conversa está. */
   scopeHash: string | null;
   canal: string | null;
@@ -44,6 +54,7 @@ export const ESTADO_VAZIO: EstadoDaConversa = {
   intencao: null,
   termoDoParametro: null,
   parametro: null,
+  blocoDoBook: null,
   periodo: null,
   intervalo: null,
   scopeHash: null,
@@ -99,6 +110,12 @@ export function avancarEstado(
         : plano.intencao,
     termoDoParametro: leitura.entidades.termoDoParametro ?? base.termoDoParametro,
     parametro: plano.alvo?.parametro ?? (leitura.entidades.termoDoParametro ? null : base.parametro),
+    /*
+      O bloco do fio é o do documento que mais pesou nesta resposta — e ele só
+      é trocado quando esta resposta teve documento. Uma pergunta de dado no
+      meio de uma conversa sobre o QLP ADM não apaga o assunto do Book.
+    */
+    blocoDoBook: dossie.documentos[0]?.trecho.bloco ?? base.blocoDoBook,
     periodo,
     intervalo,
     scopeHash: plano.contexto?.contexto.scopeHash ?? base.scopeHash,
@@ -132,6 +149,7 @@ export function desserializarEstado(bruto: unknown): EstadoDaConversa {
     intencao: (o.intencao as Intencao) ?? null,
     termoDoParametro: (o.termoDoParametro as string) ?? null,
     parametro: (o.parametro as string) ?? null,
+    blocoDoBook: (o.blocoDoBook as string) ?? null,
     periodo: (o.periodo as PeriodoPedido) ?? null,
     intervalo: (o.intervalo as EstadoDaConversa["intervalo"]) ?? null,
     scopeHash: (o.scopeHash as string) ?? null,

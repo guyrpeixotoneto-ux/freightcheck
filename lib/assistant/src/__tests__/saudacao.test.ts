@@ -144,6 +144,7 @@ describe("a saudação não carrega entidade nem herança", () => {
       leitura: interpretar("obrigado"),
       plano: { intencao: "SAUDACAO", alvo: null, contexto: null },
       evidencias: [],
+      documentos: [],
     } as unknown as Dossie;
 
     const depois = avancarEstado(anterior, dossie);
