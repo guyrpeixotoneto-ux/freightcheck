@@ -138,7 +138,10 @@ function montarFontes(dossie: Dossie): Fonte[] {
       tipo: "BOOK",
       titulo: a.titulo,
       origem: a.origem,
-      detalhe: `${a.filename} · lido pelo modelo`,
+      detalhe:
+        a.conteudo.forma === "NATIVO"
+          ? `${a.filename} · lido pelo modelo`
+          : `${a.filename} · texto e figuras extraídos do arquivo`,
       ...(a.tela ? { tela: a.tela } : {}),
     });
   }
