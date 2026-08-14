@@ -542,7 +542,100 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
           "contrato na tela de lá, e o dataFimContrato do export é o fim do contrato de " +
           "cada veículo — não são a mesma data.",
       },
-      { nome: "Custo fixo total", parametros: ["Custo fixo (total)"] },
+      {
+        /*
+          **Uma linha por tipo de conjunto, e os valores são médias.** Quatro
+          linhas — CONJUNTO, ESTACIONARIA, CONJUNTO_28 e CONJUNTO_42 — e a
+          coluna que fecha a conta se chama CUSTOFIXOMEDIO, que é o que diz em
+          voz alta o que a tela faz: agrega. Não é inventário nem cadastro; é
+          consolidação. Foi a captura da ponta esquerda que revelou isso — sem
+          ela a tela parecia uma lista de valores sem dono.
+
+          A ordem lida: TIPOCONJUNTOEMPURRADA, SEGURO, RASTREADOR,
+          FAIXAREFLEXIVA, TACOGRAFO, REVESTIMENTO, IPVALICENCIAMENTOMENSAL, e
+          então o bloco do cavalo (AMORTIZACAOCAVALO, JUROSFINAMECAVALO,
+          FINAMECAVALO), o do implemento (AMORTIZACAOIMPLEMENTO,
+          JUROSFINAMEIMPLEMENTO, FINAMEIMPLEMENTO), os totais (FINAME,
+          LUCROFIXOMODELONOVO2CICLO, CUSTOFIXOMEDIO) e o lucro variável previsto
+          em três colunas — cavalo, carreta e total.
+
+          **Quatro colunas batem com o export por valor, não só por nome.** Na
+          tela FAIXAREFLEXIVA é 15,943 nas quatro linhas, REVESTIMENTO é 277,939
+          nas quatro, RASTREADOR é 0 nas quatro, e TACOGRAFO é 21,031 em três e
+          0 numa. No export, `carreta.faixa_reflexiva` é 15,94 nas 657 carretas,
+          `carreta.revestimento` é 277,94 em todas, `carreta.rastreador` é 0 em
+          todas, e `carreta.tacografo` é 21,03 em 558 e 0 em 99. É a
+          correspondência mais forte que já achamos: nas outras telas os nomes
+          coincidiam, aqui coincidem os números.
+
+          **O que falta para reconstruir esta tela é a chave de agrupamento.**
+          `carreta.custo_fixo` chega, e as parcelas também; `tipoConjuntoEmpurrada`
+          não vem em lugar nenhum do export. Sem ela dá para ter o custo fixo de
+          cada carreta e não a média por tipo de conjunto, que é o que a tela
+          responde. Vale registrar um eco, e só como eco: CONJUNTO_28 e
+          CONJUNTO_42 lembram os `Pallets: 28` e `Pallets: 42` de
+          `carreta.capacidade_empurrada`. CONJUNTO e ESTACIONARIA não têm
+          parente à vista, e por isso a semelhança não vira mapeamento.
+
+          **Nenhuma emenda fecha por coluna repetida** — as sete capturas se
+          encostam sem sobreposição. Quem sustenta a ordem é a aritmética da
+          própria tela: FINAME é a soma de FINAMECAVALO e FINAMEIMPLEMENTO nas
+          quatro linhas, e CUSTOFIXOMEDIO é a soma de FINAME com
+          LUCROFIXOMODELONOVO2CICLO nas quatro. Isso confirma que os blocos são
+          o que parecem; **não** prova que não haja coluna escondida numa
+          emenda, e a diferença entre as duas coisas é a razão deste parágrafo
+          existir.
+
+          Duas colunas ficaram de fora da lista de propósito. Entre FINAMECAVALO
+          e AMORTIZACAOIMPLEMENTO, e de novo depois de FINAMEIMPLEMENTO, aparece
+          `LUCROFIXOMODELONOVO2CICL…`, cortado nas duas vezes e com valores
+          diferentes — são duas colunas distintas, e o pedaço visível não basta
+          para nomear nenhuma. Somadas, dão o LUCROFIXOMODELONOVO2CICLO em três
+          das quatro linhas (a que foge é ESTACIONARIA, que não tem cavalo), o
+          que sugere que sejam a metade do cavalo e a do implemento. Sugerir não
+          é ver: uma captura que mostre esses dois rótulos inteiros fecha o
+          assunto. Nome errado no cabeçalho é pior do que coluna a menos.
+
+          LUCROVARIAVELPREVISTOCAVALO e LUCROVARIAVELPREVISTOCARRETA também
+          vieram cortados, mas esses entram: o nosso dicionário tem
+          `cavalo.lucro_variavel_previsto_cavalo` e
+          `carreta.lucro_variavel_previsto_carreta`, e duas fontes independentes
+          descrevendo a mesma coisa é o que autoriza completar um rótulo — o
+          mesmo critério que completou `Statusfinanciamentot1shared` na CARRETA.
+        */
+        nome: "Custo fixo total",
+        parametros: ["Custo fixo (total)"],
+        colunas: [
+          "Tipoconjuntoempurrada",
+          "Seguro",
+          "Rastreador",
+          "Faixareflexiva",
+          "Tacografo",
+          "Revestimento",
+          "Ipvalicenciamentomensal",
+          "Amortizacaocavalo",
+          "Jurosfinamecavalo",
+          "Finamecavalo",
+          "Amortizacaoimplemento",
+          "Jurosfinameimplemento",
+          "Finameimplemento",
+          "Finame",
+          "Lucrofixomodelonovo2ciclo",
+          "Custofixomedio",
+          "Lucrovariavelprevistocavalo",
+          "Lucrovariavelprevistocarreta",
+          "Lucrovariavelprevisto",
+        ],
+        nota:
+          "No Freightech esta tela é uma consolidação: uma linha por tipo de conjunto " +
+          "(CONJUNTO, ESTACIONARIA, CONJUNTO_28, CONJUNTO_42) com a média das parcelas " +
+          "do custo fixo — o nome CUSTOFIXOMEDIO diz isso. Boa parte das colunas chega " +
+          "no export, e chega batendo por valor: faixa reflexiva, revestimento, " +
+          "rastreador e tacógrafo têm na planilha os mesmos números que a tela mostra. " +
+          "O que não chega é a chave que agrupa — tipoConjuntoEmpurrada não vem em " +
+          "coluna nenhuma —, e sem ela dá para ver o custo fixo de cada carreta, que é " +
+          "o que a tabela abaixo mostra, e não a média por tipo de conjunto.",
+      },
       { nome: "Lucro FINAME" },
       { nome: "Manutenção BID", parametros: ["Manutenção BID"] },
       { nome: "Manutenção implemento", parametros: ["Manutenção carroceria"] },
