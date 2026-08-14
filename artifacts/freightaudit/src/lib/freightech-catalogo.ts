@@ -462,7 +462,86 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
           "ativo. Os dois eixos chegam separados — montadora no cavalo, capacidade em " +
           "pallets na carreta — mas o cruzamento que atribui o valor é o que falta pedir.",
       },
-      { nome: "Contrato manutenção", parametros: ["Contrato de manutenção"] },
+      {
+        /*
+          **Uma linha por cavalo**, e não por contrato: PLACA à esquerda,
+          MONTADORA e MODELO ao lado, DATACONTRATO, e depois uma coluna por
+          faixa de odômetro — ATE120000, ATE240000, e assim de 120.000 em
+          120.000 até ATE1200000 — com o R$/km daquele veículo em cada faixa.
+
+          A identidade da linha só apareceu numa captura tirada depois das
+          outras cinco. Sem ela a tela parecia uma tabela de preço com
+          DATACONTRATO na ponta esquerda, e a leitura errada era plausível: as
+          datas se repetem linha a linha, e uma coluna de data na primeira
+          posição parece chave. É por isso que a placa está registrada aqui em
+          primeiro lugar — quem ler esta entrada depois precisa saber, antes de
+          qualquer coisa, que cada linha é um caminhão.
+
+          **Duas colunas casam com o export ao pé da letra.** `cavalo.faixa_km`
+          traz `ATE_120000`, `ATE_240000`, `ATE_360000` e `ATE_480000` — as
+          mesmas faixas das colunas de lá, com um sublinhado a mais — e
+          `cavalo.montadora` traz `Descrição: VOLVO`, `Descrição: VOLKS` e
+          `Descrição: MERCEDES`, exatamente como a coluna MONTADORA escreve. São
+          as ligações mais diretas que já encontramos entre uma tela do
+          Freightech e colunas da planilha.
+
+          MODELO é o único parente duvidoso da trinca: na tela vem `FH 420 -FH
+          400`, sem prefixo e com cara de faixa de modelos; no export
+          `cavalo.modelo_empurrada` vem `Modelo: FH460 6x2T`, um modelo só e com
+          prefixo. Parecem dimensões diferentes, e por isso não estão declaradas
+          como a mesma coisa em lugar nenhum.
+
+          **A emenda entre MODELO e DATACONTRATO não fecha.** A captura da
+          esquerda termina no MODELO e a seguinte começa no DATACONTRATO, sem
+          coluna repetida entre as duas e sem progressão que sirva de prova —
+          pode haver coluna ali que ninguém viu. As emendas da direita fecham
+          por coluna repetida: ATE1080000 em duas capturas, ATE1200001 nas duas
+          últimas. E entre ATE240000 e ATE360000, quem fecha é a progressão de
+          120.000 em 120.000, que não deixa espaço para uma faixa não vista.
+
+          Depois de ATE1200000 a sequência quebra: vêm ATE1200001, ATE1200002 e
+          ATE1200003, um km entre elas. Está transcrito como apareceu — o que
+          essas três faixas significam não dá para deduzir da tela, e inventar
+          uma explicação seria pior do que registrar a estranheza. A captura
+          termina numa borda de coluna logo depois de ATE1200003; se há mais à
+          direita, não foi vista.
+
+          Em todas as células de faixa das capturas o valor era 0. Isso é
+          observação da tela de lá, não dado nosso, e por isso não vira número
+          em lugar nenhum deste produto.
+        */
+        nome: "Contrato manutenção",
+        parametros: ["Contrato de manutenção"],
+        colunas: [
+          "Placa",
+          "Montadora",
+          "Modelo",
+          "Datacontrato",
+          "Ate120000",
+          "Ate240000",
+          "Ate360000",
+          "Ate480000",
+          "Ate600000",
+          "Ate720000",
+          "Ate840000",
+          "Ate960000",
+          "Ate1080000",
+          "Ate1200000",
+          "Ate1200001",
+          "Ate1200002",
+          "Ate1200003",
+        ],
+        nota:
+          "No Freightech esta tela é o contrato de manutenção veículo a veículo: uma " +
+          "linha por placa, e o R$/km daquele caminhão em cada faixa de odômetro " +
+          "(ATE120000, ATE240000, e assim por diante). Do export chegam a placa, a " +
+          "montadora e a faixa em que o veículo está — cavalo.faixa_km usa as mesmas " +
+          "faixas, com um sublinhado a mais — mas não a linha inteira de faixas: chega " +
+          "o R$/km já resolvido em cada cavalo, e é sobre ele que a tabela abaixo " +
+          "mostra o que mudou. Cuidado com um falso parente: DATACONTRATO é a data do " +
+          "contrato na tela de lá, e o dataFimContrato do export é o fim do contrato de " +
+          "cada veículo — não são a mesma data.",
+      },
       { nome: "Custo fixo total", parametros: ["Custo fixo (total)"] },
       { nome: "Lucro FINAME" },
       { nome: "Manutenção BID", parametros: ["Manutenção BID"] },
