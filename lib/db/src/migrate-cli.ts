@@ -16,8 +16,35 @@ if (!url) {
 }
 
 runMigrations(url)
-  .then(() => {
-    console.log("Migrations applied.");
+  .then((report) => {
+    /*
+      O que entrou sai nomeado, e não como "Migrations applied.". Agora que cada
+      migration é uma transação sua, "deu certo" e "deu certo até a 0007" são
+      desfechos diferentes, e quem roda isto precisa distinguir os dois sem ir
+      ao banco conferir.
+    */
+    if (report.applied.length > 0) {
+      console.log(`Migrations aplicadas: ${report.applied.join(", ")}.`);
+    } else if (!report.failure) {
+      console.log(
+        `Nada a aplicar: as ${report.alreadyApplied.length} migrations já estavam no banco.`,
+      );
+    }
+
+    if (report.failure) {
+      console.error(
+        `\nParou em ${report.failure.tag}` +
+          (report.failure.code ? ` (SQLSTATE ${report.failure.code})` : "") +
+          `: ${report.failure.message}`,
+      );
+      if (report.pending.length > 1) {
+        console.error(
+          `Não foram tentadas: ${report.pending.slice(1).join(", ")}.`,
+        );
+      }
+      process.exit(1);
+    }
+
     process.exit(0);
   })
   .catch((err) => {

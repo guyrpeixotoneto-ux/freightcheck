@@ -22,6 +22,14 @@ import type { BookEntryCurrent } from "./types";
  * e é texto de 12px. A régua de cima fica no laranja original, porque é enfeite
  * e não tem o que ler. É a mesma troca que o `index.css` já documenta para o
  * cartão sob o cursor.
+ *
+ * **O cartão com documento anexado se distingue de longe.** O rodapé já dizia
+ * qual bloco tem o quê, mas dizia em 12px, no fim do cartão — e a pergunta que
+ * se faz varrendo a grade ("quais já têm o documento?") virava leitura de seis
+ * rodapés por página. Um bloco com documento troca a régua de cima pelo verde e
+ * ganha o clipe no canto: a resposta chega antes de qualquer palavra ser lida.
+ * A régua laranja continua sendo a de todos os outros — a marca do Freightech
+ * segue no lugar, e o verde só significa uma coisa nesta tela.
  */
 export function BlocoCard({
   bloco,
@@ -36,14 +44,51 @@ export function BlocoCard({
   onAbrir: () => void;
   onAlternarFavorito: () => void;
 }) {
+  const comDocumento = vigente?.kind === "DOCUMENTO";
+
   return (
-    <article className="relative rounded-md bg-card border border-t-0 shadow-sm flex flex-col">
-      <div className="h-1 bg-brand rounded-t-md" aria-hidden="true" />
+    <article
+      className={cn(
+        "relative rounded-md bg-card border border-t-0 shadow-sm flex flex-col",
+        comDocumento && "border-emerald-200",
+      )}
+    >
+      <div
+        className={cn(
+          "h-1 rounded-t-md",
+          comDocumento ? "bg-emerald-600" : "bg-brand",
+        )}
+        aria-hidden="true"
+      />
+
+      {comDocumento && (
+        /*
+          O clipe fica ao lado da estrela, e não sobre a régua: no canto de cima
+          já mora o controle de favorito, e dois enfeites disputando o mesmo
+          ponto fariam um deles parecer clicável sem ser. O `title` traz o nome
+          do arquivo porque é a primeira coisa que se quer saber depois de ver
+          que há um.
+        */
+        <span
+          className="absolute top-4 right-12 inline-flex items-center justify-center w-7 h-7 rounded-full bg-emerald-600 text-white"
+          title={`Documento anexado: ${vigente?.filename ?? "documento"}`}
+        >
+          <Paperclip className="w-4 h-4" aria-hidden="true" />
+          <span className="sr-only">
+            Este bloco tem documento anexado
+            {vigente?.filename ? `: ${vigente.filename}` : ""}.
+          </span>
+        </span>
+      )}
 
       <button
         type="button"
         onClick={onAbrir}
-        className="text-left p-6 pr-12 flex flex-col gap-3 flex-1 rounded-b-md hover:bg-muted/40 transition-colors"
+        className={cn(
+          "text-left p-6 flex flex-col gap-3 flex-1 rounded-b-md hover:bg-muted/40 transition-colors",
+          // O texto para antes do canto ocupado: com o clipe, são dois.
+          comDocumento ? "pr-20" : "pr-12",
+        )}
       >
         <span className="text-sm text-brand-dark">{bloco.categoria}</span>
 
@@ -124,14 +169,21 @@ function EstadoDaRegra({ vigente }: { vigente: BookEntryCurrent | undefined }) {
     );
   }
 
-  const rotulo =
-    vigente.kind === "DOCUMENTO"
-      ? (vigente.filename ?? "documento")
-      : "Regra escrita";
+  const documento = vigente.kind === "DOCUMENTO";
+  const rotulo = documento ? (vigente.filename ?? "documento") : "Regra escrita";
 
   return (
-    <span className="inline-flex items-center gap-1.5 text-xs text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-full px-2.5 py-1 max-w-full">
-      {vigente.kind === "DOCUMENTO" ? (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 text-xs text-emerald-900 border rounded-full px-2.5 py-1 max-w-full",
+        // O documento anexado é o estado mais forte dos três, e a pílula
+        // acompanha o resto do cartão em vez de contradizê-lo.
+        documento
+          ? "bg-emerald-100 border-emerald-300 font-medium"
+          : "bg-emerald-50 border-emerald-200",
+      )}
+    >
+      {documento ? (
         <Paperclip className="w-3.5 h-3.5 shrink-0" />
       ) : (
         <FileText className="w-3.5 h-3.5 shrink-0" />

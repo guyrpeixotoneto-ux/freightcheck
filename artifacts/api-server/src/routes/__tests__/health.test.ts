@@ -71,6 +71,66 @@ describe("describeDatabase", () => {
     expect(saude.code).toBeUndefined();
   });
 
+  /**
+   * O estado que faltava, e que custou uma tarde: schema aplicado *quase*
+   * inteiro. `migrated` olhava uma tabela da primeira migration e dizia "sim"
+   * num banco a que faltavam as duas últimas — então a tela do Book do
+   * Operador recebia 500 e o diagnóstico apontava para a tela.
+   */
+  it("com migrations faltando, nomeia quais e não se declara em dia", async () => {
+    const saude = await describeDatabase(
+      async () => ({
+        migrated: true,
+        migrations: {
+          expected: 10,
+          applied: 8,
+          pending: ["0008_book_entries", "0009_entity_type_correction"],
+        },
+      }),
+      URL,
+    );
+
+    expect(saude.migrated).toBe(true);
+    expect(saude.upToDate).toBe(false);
+    expect(saude.detail).toMatch(/0008_book_entries/);
+    expect(saude.detail).toMatch(/0009_entity_type_correction/);
+    expect(saude.migrations?.pending).toHaveLength(2);
+  });
+
+  it("diz onde a tentativa parou, com o SQLSTATE que o banco devolveu", async () => {
+    const saude = await describeDatabase(
+      async () => ({
+        migrated: true,
+        migrations: {
+          expected: 10,
+          applied: 9,
+          pending: ["0009_entity_type_correction"],
+          failure: { tag: "0009_entity_type_correction", code: "42501" },
+        },
+      }),
+      URL,
+    );
+
+    expect(saude.detail).toMatch(/parou em 0009_entity_type_correction/);
+    expect(saude.detail).toMatch(/42501/);
+    // A mensagem do driver nunca atravessa: ela carrega host e usuário, e este
+    // endpoint é público. Só o código e o nome da migration.
+    expect(JSON.stringify(saude)).not.toMatch(/permission denied/i);
+  });
+
+  it("nada pendente é o que faz o banco estar em dia", async () => {
+    const saude = await describeDatabase(
+      async () => ({
+        migrated: true,
+        migrations: { expected: 10, applied: 10, pending: [] },
+      }),
+      URL,
+    );
+
+    expect(saude.upToDate).toBe(true);
+    expect(saude.detail).toMatch(/schema aplicado/);
+  });
+
   it("nunca deixa a URL, o host ou o usuário vazarem na resposta", async () => {
     const url = "postgres://usuario:senha@db.interno.exemplo:5432/producao";
     const saude = await describeDatabase(

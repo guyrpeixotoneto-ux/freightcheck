@@ -10,7 +10,8 @@ import {
   PenLine,
   X,
 } from "lucide-react";
-import { fetchJson, getApiUrl } from "@/lib/api";
+import { ApiError, fetchJson, getApiUrl } from "@/lib/api";
+import { ApiErrorNotice } from "@/components/api-error";
 import { cn } from "@/lib/utils";
 import type { BlocoBook } from "@/lib/book-operador";
 import { chaveDoBloco } from "@/lib/book-operador";
@@ -141,7 +142,11 @@ export function BlocoPainel({
         </header>
 
         <div className="px-6 py-5 space-y-6">
-          <RegraVigente entrada={revisoes[0]} carregando={historico.isLoading} />
+          <RegraVigente
+            entrada={revisoes[0]}
+            carregando={historico.isLoading}
+            erro={historico.error}
+          />
 
           <section>
             <h3 className="text-sm font-semibold mb-3">
@@ -210,11 +215,28 @@ export function BlocoPainel({
               </div>
             )}
 
-            {salvar.error && (
-              <p className="mt-3 text-sm text-red-700">
-                {salvar.error.message}
-              </p>
-            )}
+            {/*
+              Um 4xx é sobre o que foi enviado — o formato, o tamanho, o texto
+              vazio — e cabe numa linha vermelha ao lado do botão. Um 5xx não é
+              sobre o envio: o arquivo estava bom e o servidor é que não pôde
+              gravá-lo. Tratar os dois igual foi o que fez "Internal server
+              error" aparecer embaixo de um .docx perfeito, sem dizer que o que
+              faltava era uma migration neste banco. `ApiErrorNotice` pergunta
+              isso ao /healthz e escreve a resposta.
+            */}
+            {salvar.error &&
+              (salvar.error instanceof ApiError && salvar.error.status >= 500 ? (
+                <div className="mt-3">
+                  <ApiErrorNotice
+                    error={salvar.error}
+                    what="O documento não foi gravado — e o motivo não é o arquivo."
+                  />
+                </div>
+              ) : (
+                <p className="mt-3 text-sm text-red-700">
+                  {salvar.error.message}
+                </p>
+              ))}
             {salvar.data && isUnchanged(salvar.data) && (
               <p className="mt-3 text-sm text-amber-800">
                 {salvar.data.message}
@@ -260,9 +282,11 @@ export function BlocoPainel({
 function RegraVigente({
   entrada,
   carregando,
+  erro,
 }: {
   entrada: BookEntryRevision | undefined;
   carregando: boolean;
+  erro: unknown;
 }) {
   if (carregando) {
     return (
@@ -270,6 +294,22 @@ function RegraVigente({
         <Loader2 className="w-4 h-4 animate-spin" />
         Carregando o que este bloco tem…
       </p>
+    );
+  }
+
+  /*
+    Uma consulta que falhou não é um bloco vazio.
+    Sem este ramo, o histórico que não carregou virava "Sem regra registrada" —
+    a tela afirmando que não existe regra sobre um bloco a respeito do qual ela
+    não conseguiu perguntar. Quem lesse isso poderia substituir uma regra que
+    estava lá, sem nunca ter visto a anterior.
+  */
+  if (erro) {
+    return (
+      <ApiErrorNotice
+        error={erro}
+        what="Não deu para saber o que este bloco já tem — o histórico não carregou."
+      />
     );
   }
 

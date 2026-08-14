@@ -20,6 +20,13 @@ interface DatabaseHealth {
   configured: boolean;
   reachable: boolean;
   migrated: boolean;
+  upToDate?: boolean;
+  migrations?: {
+    expected: number;
+    applied: number;
+    pending: string[];
+    failure?: { tag: string; code?: string };
+  };
   code?: string;
   detail: string;
 }
@@ -40,6 +47,14 @@ function diagnose(database: DatabaseHealth | undefined): string | null {
       "migrations. Nenhuma tabela consultada por esta tela foi criada ainda."
     );
   }
+  /*
+    O caso do meio, que faltava: o banco existe e está quase todo lá, e o que
+    falta é a migration da tela que acabou de falhar. Enquanto este ramo não
+    existia, "conectado e migrado" mandava procurar o defeito na tela — e o
+    defeito era uma tabela que nunca chegou a ser criada.
+  */
+  const pendentes = database.migrations?.pending ?? [];
+  if (pendentes.length > 0) return database.detail;
   return null;
 }
 

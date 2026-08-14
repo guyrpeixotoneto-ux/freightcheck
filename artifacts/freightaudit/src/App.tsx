@@ -6,6 +6,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, Router as WouterRouter } from 'wouter';
 import { AuthProvider, useAuth } from '@/lib/auth';
+import { ApiError } from '@/lib/api';
 import Login from '@/pages/login';
 
 import Inicio from '@/pages/inicio';
@@ -39,7 +40,31 @@ import Configuracoes from '@/pages/configuracoes';
  * algum lugar. Quando `lib/simulation` ganhar as rotas que lhe faltam, a
  * Simulação volta ao roteador — funcionando.
  */
-const queryClient = new QueryClient();
+/**
+ * Insistir só onde insistir adianta.
+ *
+ * O padrão do React Query são três tentativas com espera crescente — desenhado
+ * para rede instável, e errado para as falhas desta API, que são quase todas
+ * definitivas: um 400 sobre o arquivo enviado e um 503 de "falta a migration"
+ * respondem igual na quarta tentativa e na primeira. O preço eram sete segundos
+ * de "Carregando…" antes de a tela dizer o que houve — tempo em que quem está
+ * olhando conclui que travou.
+ *
+ * Fica a insistência para o que ela resolve: 5xx sem código nosso, que é onde
+ * mora a queda momentânea de conexão.
+ */
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      retry: (falhas, erro) => {
+        if (erro instanceof ApiError && (erro.status < 500 || erro.code)) {
+          return false;
+        }
+        return falhas < 2;
+      },
+    },
+  },
+});
 
 function Router() {
   return (

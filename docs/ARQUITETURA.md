@@ -141,6 +141,16 @@ Snapshot fechado é imutável. Correção gera novo snapshot referenciando o ant
 Postgres + Drizzle, migrations versionadas (não `push`). Monetário em
 `NUMERIC(18,6)` — `float`/`double precision` proibidos.
 
+**Uma transação por migration, e não uma por deploy.** O migrator do drizzle
+abre uma transação só e roda todas as pendentes dentro dela: a última decide o
+destino de todas, e uma que falhe leva junto as anteriores, que estavam
+corretas. Foi assim que a tabela do Book do Operador (`0008`) deixou de existir
+num banco onde tudo o que veio antes existia — o servidor subia, as telas
+antigas funcionavam, e só as rotas do Book respondiam 500. `lib/db/src/migrate.ts`
+aplica uma por vez, para no primeiro erro e devolve o relatório; `/api/healthz`
+publica quais faltam e em qual a tentativa parou (nome e SQLSTATE, nunca a
+mensagem do driver, que carrega host e usuário).
+
 ### Tabela central
 
 ```

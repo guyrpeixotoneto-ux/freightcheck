@@ -54,6 +54,28 @@ export async function readJson(response: Response): Promise<Record<string, unkno
 }
 
 /**
+ * A falha de uma chamada, com o que o servidor disse junto.
+ *
+ * A mensagem sozinha não distinguia "o arquivo que você mandou não serve" de "o
+ * banco deste ambiente não tem a tabela" — as duas chegavam como texto vermelho
+ * de uma linha. O status separa as duas, e é o que permite a uma tela mostrar a
+ * explicação inteira (com o que `/api/healthz` enxerga) só quando a causa está
+ * do lado de lá.
+ */
+export class ApiError extends Error {
+  readonly status: number;
+  /** O `code` que a API manda em alguns erros — `SCHEMA_AUSENTE`, … */
+  readonly code?: string;
+
+  constructor(message: string, status: number, code?: string) {
+    super(message);
+    this.name = "ApiError";
+    this.status = status;
+    if (code !== undefined) this.code = code;
+  }
+}
+
+/**
  * GET numa rota da API, com a falha como falha.
  *
  * É o que todo `useQuery` desta interface deve chamar. Um status fora do 2xx
@@ -65,8 +87,10 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
   const body = await readJson(response);
   if (!response.ok) {
     const message = typeof body.error === "string" ? body.error : undefined;
-    throw new Error(
+    throw new ApiError(
       message ?? `O servidor respondeu ${response.status} em ${path}.`,
+      response.status,
+      typeof body.code === "string" ? body.code : undefined,
     );
   }
   // `readJson` descreve o corpo como objeto porque é assim que os erros desta
