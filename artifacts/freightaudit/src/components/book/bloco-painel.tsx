@@ -92,6 +92,25 @@ export function BlocoPainel({
   const revisoes = historico.data ?? [];
   const anteriores = revisoes.slice(1);
 
+  /*
+    Trocar de aba apaga o resultado do envio anterior.
+
+    Sem isto, o "Gravado como revisão 3" de um texto continuava embaixo do
+    formulário de documento depois da troca — o mesmo verde que confirma um
+    envio afirmando algo sobre um envio que ainda não houve. Vale igual para a
+    linha vermelha: o erro do que se tentou salvar de um jeito não é notícia
+    sobre o outro.
+  */
+  function trocarAba(proxima: "TEXTO" | "DOCUMENTO") {
+    if (proxima === aba) return;
+    salvar.reset();
+    setAba(proxima);
+  }
+
+  /** Um 4xx é o único que acusa quem enviou; ver o comentário no lugar do uso. */
+  const culpaDoEnvio =
+    salvar.error instanceof ApiError && salvar.error.status < 500;
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-8"
@@ -165,7 +184,7 @@ export function BlocoPainel({
                 id="book-aba-texto"
                 controla="book-painel-texto"
                 ativa={aba === "TEXTO"}
-                onClick={() => setAba("TEXTO")}
+                onClick={() => trocarAba("TEXTO")}
                 icone={<PenLine className="w-4 h-4" />}
               >
                 Escrever texto
@@ -174,7 +193,7 @@ export function BlocoPainel({
                 id="book-aba-documento"
                 controla="book-painel-documento"
                 ativa={aba === "DOCUMENTO"}
-                onClick={() => setAba("DOCUMENTO")}
+                onClick={() => trocarAba("DOCUMENTO")}
                 icone={<Paperclip className="w-4 h-4" />}
               >
                 Anexar documento
@@ -216,26 +235,40 @@ export function BlocoPainel({
             )}
 
             {/*
-              Um 4xx é sobre o que foi enviado — o formato, o tamanho, o texto
-              vazio — e cabe numa linha vermelha ao lado do botão. Um 5xx não é
-              sobre o envio: o arquivo estava bom e o servidor é que não pôde
-              gravá-lo. Tratar os dois igual foi o que fez "Internal server
-              error" aparecer embaixo de um .docx perfeito, sem dizer que o que
-              faltava era uma migration neste banco. `ApiErrorNotice` pergunta
-              isso ao /healthz e escreve a resposta.
+              A pergunta é "a culpa é do que foi enviado?", e não "é um 5xx?".
+
+              Só o 4xx acusa quem enviou — o formato, o tamanho, o texto vazio —
+              e cabe numa linha vermelha ao lado do botão. Todo o resto isenta o
+              envio: o arquivo estava bom, e quem não pôde gravá-lo foi o
+              servidor (5xx) ou a rede, que nem chegou a entregá-lo. Tratar
+              esses casos como 4xx foi o que fez "Internal server error"
+              aparecer embaixo de um .docx perfeito, sem dizer que o que faltava
+              era uma migration neste banco.
+
+              Perguntar pelo 5xx deixava de fora justamente o caso mais forte da
+              regra: a falha de rede, que o `fetch` levanta como `TypeError` e o
+              navegador escreve como "Failed to fetch". Ela não é `ApiError`,
+              então caía no ramo do 4xx — três palavras em vermelho embaixo de
+              um documento que nem saiu do computador de quem o escolheu, com a
+              aparência exata de um arquivo recusado. Num 5xx o servidor ao
+              menos recebeu o arquivo; aqui não houve servidor nenhum.
             */}
             {salvar.error &&
-              (salvar.error instanceof ApiError && salvar.error.status >= 500 ? (
-                <div className="mt-3">
-                  <ApiErrorNotice
-                    error={salvar.error}
-                    what="O documento não foi gravado — e o motivo não é o arquivo."
-                  />
-                </div>
-              ) : (
+              (culpaDoEnvio ? (
                 <p className="mt-3 text-sm text-red-700">
                   {salvar.error.message}
                 </p>
+              ) : (
+                <div className="mt-3">
+                  <ApiErrorNotice
+                    error={salvar.error}
+                    what={
+                      aba === "DOCUMENTO"
+                        ? "O documento não foi gravado — e o motivo não é o arquivo."
+                        : "O texto não foi gravado — e o motivo não é o que você escreveu."
+                    }
+                  />
+                </div>
               ))}
             {salvar.data && isUnchanged(salvar.data) && (
               <p className="mt-3 text-sm text-amber-800">

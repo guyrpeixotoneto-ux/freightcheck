@@ -326,6 +326,9 @@ export const snapshotAttributeTable = pgTable(
   (t) => [
     uniqueIndex("snapshot_attribute_uq").on(t.snapshotId, t.attributeId),
     index("snapshot_attribute_snapshot_idx").on(t.snapshotId),
+    /* Apagar uma coluna do dicionário confere esta ligação; sem índice, cada
+       linha apagada varre a tabela inteira (ver `fact_attribute_idx`). */
+    index("snapshot_attribute_attribute_idx").on(t.attributeId),
   ],
 );
 
@@ -388,6 +391,16 @@ export const factTable = pgTable(
     /** History of one variable for one asset, across vigências. */
     index("fact_entity_attribute_idx").on(t.entityId, t.attributeId),
     index("fact_raw_cell_idx").on(t.rawCellId),
+    /*
+      Chave estrangeira sem índice é varredura por linha apagada.
+
+      Excluir uma importação apaga dezenas de milhares de fatos, e cada um deles
+      obriga o Postgres a conferir quem aponta para ele. Sem estes índices a
+      conferência é uma varredura sequencial por linha — a exclusão de um
+      arquivo real levava 28 segundos, e 2 com eles. O índice existe pelo
+      caminho de escrita, não pelo de leitura.
+    */
+    index("fact_attribute_idx").on(t.attributeId),
     check(
       "fact_exactly_one_value",
       sql`(

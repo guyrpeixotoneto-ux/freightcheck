@@ -165,6 +165,10 @@ export const changeTable = pgTable(
   },
   (t) => [
     index("change_set_idx").on(t.changeSetId),
+    /* Os dois lados por fato: é o que uma exclusão de importação confere para
+       cada fato que apaga. Sem eles, varredura por linha. */
+    index("change_fact_a_idx").on(t.factAId),
+    index("change_fact_b_idx").on(t.factBId),
     /** The default listing: by materiality, within a set. */
     index("change_materiality_idx").on(t.changeSetId, t.impactAmount),
     index("change_attribute_idx").on(t.changeSetId, t.attributeId),

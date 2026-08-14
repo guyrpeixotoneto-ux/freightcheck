@@ -60,7 +60,10 @@ em `/api` — que é o aceite desta configuração.
   `ASSISTENTE_MODELO` e `ASSISTENTE_ESFORCO` ajustam modelo e esforço.
 
 Importar planilha é feito **pela interface**, em Importações. Nenhum passo do
-produto depende de terminal.
+produto depende de terminal. **Excluir também**: cada importação da lista tem um
+botão Excluir que apaga o que ela produziu — fatos, vigências, comparações e a
+evidência RAW —, mostrando antes a conta do que sai e liberando o arquivo para
+ser reenviado. O registro da exclusão fica (`import_deletion`); os dados não.
 
 ## Acesso
 
@@ -251,6 +254,17 @@ cópia do índice que sairia de sincronia no primeiro rename.
 - Camadas separadas: RAW é imutável (garantido por trigger), STAGING é
   descartável, CANONICAL é o grão `(snapshot, entidade, atributo) → valor`, e
   COMPARISON é derivado — pode ser recalculado a qualquer momento.
+- **A imutabilidade tem uma porta, e ela abre por dentro.** Excluir uma
+  importação é a única operação que apaga RAW e vigência fechada, e as triggers
+  da `0001` só a aceitam quando a transação declara
+  `freightcheck.purge_import_run` (local à transação, morre no COMMIT — ver
+  `0010_import_deletion.sql`). UPDATE em RAW e edição de snapshot fechado
+  continuam proibidos em qualquer circunstância: o que passou a existir foi
+  desfazer uma importação inteira, não corrigir um número no lugar. Sai o que só
+  aquela importação sustentava; o que outra vigência também sustenta fica. Uma
+  correção não pode ser apagada antes do que ela corrigiu — a mais recente sai
+  primeiro, e apagá-la devolve a revisão anterior a CLOSED. O rastro fica em
+  `import_deletion`, que é append-only sem exceção.
 - Identidade da entidade é um UUID interno; a placa é um identificador com
   histórico, não a chave. Comparação nunca é por posição de linha.
 - Semântica é versionada (`attribute_semantics`) com vigência por data.

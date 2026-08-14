@@ -55,6 +55,7 @@ export const columnMappingTable = pgTable(
       t.columnIndex,
     ),
     index("column_mapping_run_idx").on(t.importRunId),
+    index("column_mapping_attribute_idx").on(t.targetAttributeId),
   ],
 );
 
@@ -98,6 +99,8 @@ export const stagedFactTable = pgTable(
       t.attributeCode,
     ),
     index("staged_fact_run_idx").on(t.importRunId),
+    /* Conferida a cada célula RAW apagada — ver o comentário em `fact`. */
+    index("staged_fact_raw_cell_idx").on(t.rawCellId),
     index("staged_fact_run_label_idx").on(t.importRunId, t.snapshotLabel),
   ],
 );
@@ -131,6 +134,10 @@ export const validationIssueTable = pgTable(
   },
   (t) => [
     index("validation_issue_run_idx").on(t.importRunId),
+    /* As três ligações com RAW, pelo mesmo motivo. */
+    index("validation_issue_sheet_idx").on(t.rawSheetId),
+    index("validation_issue_row_idx").on(t.rawRowId),
+    index("validation_issue_cell_idx").on(t.rawCellId),
     index("validation_issue_run_code_idx").on(t.importRunId, t.code),
   ],
 );
