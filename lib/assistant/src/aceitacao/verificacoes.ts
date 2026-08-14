@@ -24,6 +24,31 @@ export interface Falha {
 }
 
 /**
+ * Vocabulário de sistema numa resposta que ninguém pediu técnica.
+ *
+ * `Precoanp` e `cavalo.combustivel_consumo_neg` são nomes de campo. Eles são a
+ * resposta certa para "qual coluna alimenta isso?" e são ruído em "como
+ * funciona o preço do combustível?" — e apareciam na segunda porque estavam no
+ * material. A conferência é sobre a forma do token, não sobre uma lista de
+ * nomes: qualquer coisa em `snake_case`, `ponto.separado` ou CamelCase colado
+ * é nome de máquina.
+ */
+const NOME_DE_CAMPO =
+  /\b[a-z]+[._][a-z_.]{3,}\b|\b[a-z]+[A-Z][a-zA-Z]{3,}\b|\bPreco[a-z]{3,}\b/;
+
+/** Termos de estrutura interna que a resposta traduz em vez de citar. */
+const JARGAO_INTERNO = [
+  "gaveta",
+  "export de equipamento",
+  "coluna do export",
+  "colunas do export",
+  "scope_hash",
+  "entity_type",
+  "effective_date",
+  "atributo monetário",
+];
+
+/**
  * O vocabulário que denuncia a máquina.
  *
  * "Revisão vigente: 1 — 1 revisão guardada" foi a primeira linha de uma
@@ -77,7 +102,12 @@ function numerosDoTexto(texto: string): string[] {
  * conferir. Uma resposta que fala do Book sem ter uma fonte do Book está
  * afirmando de memória.
  */
-export function verificar(resposta: Resposta, espera: Espera = {}): Falha[] {
+export function verificar(
+  resposta: Resposta,
+  espera: Espera = {},
+  /** Quando a pergunta é técnica, nome de campo é resposta e não ruído. */
+  tecnica = false,
+): Falha[] {
   const falhas: Falha[] = [];
   const texto = resposta.texto ?? "";
   const minusculo = texto.toLowerCase();
@@ -85,6 +115,63 @@ export function verificar(resposta: Resposta, espera: Espera = {}): Falha[] {
   for (const termo of MECANICA) {
     if (minusculo.includes(termo)) {
       falhas.push({ regra: "sem-mecanica", detalhe: `a resposta contém "${termo}"` });
+    }
+  }
+
+  /*
+    Jargão e nome de campo só passam quando a pergunta os pediu.
+  */
+  if (!tecnica) {
+    const campo = NOME_DE_CAMPO.exec(texto.replace(/`[^`]*`/g, " "));
+    if (campo) {
+      falhas.push({
+        regra: "sem-nome-de-campo",
+        detalhe: `nome de campo do sistema no texto: "${campo[0]}"`,
+      });
+    }
+    for (const termo of JARGAO_INTERNO) {
+      if (minusculo.includes(termo)) {
+        falhas.push({ regra: "traduz-jargao", detalhe: `usa "${termo}" em vez de linguagem de operação` });
+      }
+    }
+  }
+
+  /*
+    Repetição: a mesma frase dita duas vezes.
+
+    Duas fontes que dizem o mesmo aumentam a confiança, não o tamanho da
+    resposta. A conferência é por frase normalizada — reescrever a mesma ideia
+    com outras palavras é legítimo e não é detectável aqui; repetir a frase é
+    detectável e é sempre defeito.
+  */
+  const frases = texto
+    .split(/(?<=[.!?])\s+|\n+/)
+    .map((f) => f.replace(/\[\d{1,2}\]/g, "").replace(/\s+/g, " ").trim().toLowerCase())
+    .filter((f) => f.length > 40);
+  const vistas = new Set<string>();
+  for (const frase of frases) {
+    if (vistas.has(frase)) {
+      falhas.push({ regra: "sem-repeticao", detalhe: `frase repetida: "${frase.slice(0, 60)}…"` });
+      break;
+    }
+    vistas.add(frase);
+  }
+
+  /*
+    A lacuna não pode sequestrar a resposta.
+
+    O comportamento que se quer é responder o que dá e depois dizer o que
+    falta. O que acontecia era o contrário: a limitação era a única frase
+    categórica do material, e virava o assunto. Um terço do texto é o limite
+    razoável para a ressalva de uma pergunta que tem resposta parcial.
+  */
+  if (resposta.lacunas.length > 0 && texto.length > 0) {
+    const tamanhoDasLacunas = resposta.lacunas.reduce((n, l) => n + l.explicacao.length, 0);
+    if (tamanhoDasLacunas / texto.length > 0.34 && texto.length < 900) {
+      falhas.push({
+        regra: "lacuna-nao-domina",
+        detalhe: `a ressalva ocupa ${Math.round((tamanhoDasLacunas / texto.length) * 100)}% da resposta`,
+      });
     }
   }
 

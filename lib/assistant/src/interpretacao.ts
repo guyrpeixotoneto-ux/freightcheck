@@ -733,6 +733,22 @@ export function interpretar(pergunta: string): Leitura {
   };
 }
 
+/**
+ * A pergunta é sobre a estrutura do sistema, e não sobre o negócio?
+ *
+ * Existe para decidir uma coisa só: se o vocabulário de sistema — nome de
+ * coluna, código de atributo, nome do parâmetro interno — entra no material que
+ * o modelo recebe. Quem pergunta "como funciona o preço do combustível?" não
+ * quer saber que a coluna se chama `Precoanp`, e o modelo repetia esse nome
+ * porque ele estava no dossiê. Quem pergunta "qual coluna do export alimenta
+ * isso?" quer exatamente o nome, e escondê-lo seria responder pela metade.
+ */
+export function perguntaTecnica(pergunta: string): boolean {
+  return /\b(coluna|colunas|campo|campos|atributo|atributos|codigo|codigos|export|planilha|aba|celula|celulas|schema|tabela do banco|nome tecnico)\b/.test(
+    normalizar(pergunta),
+  );
+}
+
 /** "agosto" + 2026 → "2026-08-01"; sem ano, o chamador resolve contra o banco. */
 export function mesParaNumero(mes: string): number | null {
   return MESES[normalizar(mes)] ?? null;
