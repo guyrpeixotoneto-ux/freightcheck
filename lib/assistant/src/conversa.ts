@@ -1,0 +1,117 @@
+/**
+ * O que a próxima pergunta herda da anterior.
+ *
+ * **Estado estruturado, não histórico reenviado.** "E julho?" não precisa das
+ * mensagens anteriores — precisa saber que o assunto era IPVA, que a intenção
+ * era evolução, e em que unidade e canal aquilo foi lido. Guardar isso em
+ * campos nomeados tem três vantagens sobre reenviar a conversa inteira ao
+ * modelo: funciona sem modelo, é testável sem rede, e não cresce sem limite.
+ *
+ * **O que não fica aqui.** Nenhum número. O estado carrega *sobre o que* se
+ * falava, nunca *o que se respondeu* — com uma exceção nomeada, as evidências
+ * da última resposta, que existem para que "por quê?" possa apontar a origem do
+ * que acabou de ser dito. Guardar o número respondido e reusá-lo na próxima
+ * pergunta seria servir dado velho com cara de consulta nova.
+ */
+
+import type { Intencao, PeriodoPedido } from "./interpretacao";
+import type { Evidencia } from "./ferramentas";
+import type { Dossie } from "./orquestrador";
+
+export interface EstadoDaConversa {
+  /** O que se estava perguntando. */
+  intencao: Intencao | null;
+  /** O termo que nomeava a gaveta, como a pessoa o escreveu. */
+  termoDoParametro: string | null;
+  /** A gaveta resolvida — para a tela poder mostrá-la. */
+  parametro: string | null;
+  periodo: PeriodoPedido | null;
+  intervalo: { de: PeriodoPedido; ate: PeriodoPedido | null } | null;
+  /** O recorte em que a conversa está. */
+  scopeHash: string | null;
+  canal: string | null;
+  contexto: string | null;
+  /**
+   * As evidências da última resposta.
+   *
+   * Só isto, e só para "por quê?" / "de onde veio esse número?". Não são
+   * reusadas para responder outra coisa: uma pergunta nova refaz as consultas.
+   */
+  evidenciasAnteriores: Evidencia[];
+}
+
+export const ESTADO_VAZIO: EstadoDaConversa = {
+  intencao: null,
+  termoDoParametro: null,
+  parametro: null,
+  periodo: null,
+  intervalo: null,
+  scopeHash: null,
+  canal: null,
+  contexto: null,
+  evidenciasAnteriores: [],
+};
+
+/**
+ * O estado depois desta resposta.
+ *
+ * A regra é herdar o que a pergunta não contradisse: se ela nomeou um
+ * parâmetro, o assunto passa a ser esse; se não nomeou nenhum, o assunto
+ * continua o de antes. É o que faz "E julho?" manter o IPVA e "E o pneu?"
+ * trocá-lo — sem nenhum caso especial para essas duas frases.
+ */
+export function avancarEstado(
+  anterior: EstadoDaConversa | null,
+  dossie: Dossie,
+): EstadoDaConversa {
+  const base = anterior ?? ESTADO_VAZIO;
+  const { plano, leitura } = dossie;
+
+  const periodo = leitura.entidades.periodo ?? (leitura.continuacao ? base.periodo : null);
+  const intervalo = leitura.entidades.intervalo ?? (leitura.continuacao ? base.intervalo : null);
+
+  return {
+    intencao: plano.intencao === "DESCONHECIDA" ? base.intencao : plano.intencao,
+    termoDoParametro: leitura.entidades.termoDoParametro ?? base.termoDoParametro,
+    parametro: plano.alvo?.parametro ?? (leitura.entidades.termoDoParametro ? null : base.parametro),
+    periodo,
+    intervalo,
+    scopeHash: plano.contexto?.contexto.scopeHash ?? base.scopeHash,
+    canal: plano.contexto?.contexto.channel ?? base.canal,
+    contexto: plano.contexto?.info.label ?? base.contexto,
+    /*
+      As evidências guardadas são as desta resposta, e só quando houve alguma.
+      Uma pergunta conceitual não apaga a origem da anterior — é justamente
+      depois dela que alguém pergunta "e de onde veio aquele número?".
+    */
+    evidenciasAnteriores:
+      dossie.evidencias.length > 0 ? dossie.evidencias : base.evidenciasAnteriores,
+  };
+}
+
+/** O estado em JSON, para a coluna da conversa. */
+export function serializarEstado(estado: EstadoDaConversa): unknown {
+  return {
+    ...estado,
+    // As evidências não são persistidas: elas descrevem uma consulta feita num
+    // instante, e reidratá-las num outro dia faria "de onde veio esse número?"
+    // apontar para um recorte que pode não ser mais o que o banco tem.
+    evidenciasAnteriores: [],
+  };
+}
+
+export function desserializarEstado(bruto: unknown): EstadoDaConversa {
+  if (!bruto || typeof bruto !== "object") return ESTADO_VAZIO;
+  const o = bruto as Record<string, unknown>;
+  return {
+    intencao: (o.intencao as Intencao) ?? null,
+    termoDoParametro: (o.termoDoParametro as string) ?? null,
+    parametro: (o.parametro as string) ?? null,
+    periodo: (o.periodo as PeriodoPedido) ?? null,
+    intervalo: (o.intervalo as EstadoDaConversa["intervalo"]) ?? null,
+    scopeHash: (o.scopeHash as string) ?? null,
+    canal: (o.canal as string) ?? null,
+    contexto: (o.contexto as string) ?? null,
+    evidenciasAnteriores: [],
+  };
+}

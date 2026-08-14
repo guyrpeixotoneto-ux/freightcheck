@@ -1,504 +1,537 @@
-import { useMemo, useRef, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Link, useSearch } from "wouter";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useSearch } from "wouter";
 import {
-  ArrowRight,
-  BookOpen,
-  CornerDownLeft,
-  Database,
+  ArrowUp,
   Loader2,
+  MessageSquarePlus,
+  MoreHorizontal,
   Sparkles,
+  Terminal,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Mensagem } from "@/components/assistente/mensagem";
+import type {
+  Capacidades,
+  ConversaResumo,
+  Resposta,
+  Turno,
+} from "@/components/assistente/tipos";
 import { fetchJson, getApiUrl, readJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
- * Assistente de IA — perguntar em português e receber resposta com lastro.
+ * Assistente — conversar com o FreightCheck.
  *
- * **O que esta tela promete.** Toda resposta vem acompanhada do material que a
- * sustenta: os artigos do conhecimento do produto, com o arquivo onde cada um
- * pode ser conferido, e os números consultados no banco, com a origem de cada
- * consulta e o recorte em que ela rodou. Nada aparece no texto sem aparecer
- * também ao lado dele.
+ * **Conversa, não formulário.** A tela anterior era um campo de busca acima de
+ * um relatório: cada pergunta apagava a anterior, e a resposta vinha como um
+ * painel de cartões. Aqui a conversa é a tela — o que foi perguntado continua
+ * visível, o composer fica embaixo, e a resposta ocupa a largura em que se lê
+ * texto, não a largura em que cabem cartões.
  *
- * É por isso que as fontes não ficam escondidas atrás de um "ver detalhes". Um
- * assistente cuja fonte custa um clique é um assistente cuja fonte ninguém
- * abre — e a promessa de rastreabilidade vira decoração. Aqui o texto e o
- * lastro chegam juntos, na mesma tela, sem interação nenhuma.
+ * **O que saiu de vista de propósito.** O selo "redação em código" era detalhe
+ * de implementação exibido como se fosse informação de confiança. O que importa
+ * a quem lê é de onde veio o que está escrito, e isso está nas fontes. O modo de
+ * redação continua acessível no painel técnico, para quem desenvolve.
  *
- * **A tela diz quem escreveu.** Com modelo de linguagem configurado, ele redige
- * sobre o material recuperado. Sem modelo, a redação é montada em código do
- * mesmo material. O selo no topo da resposta diz qual dos dois foi, porque quem
- * lê merece saber se um modelo participou do texto que está lendo.
- *
- * **O recorte acompanha.** Se a pessoa chegou aqui de Parâmetros com uma
- * unidade, um canal e uma vigência na URL, a pergunta vai com eles. "Quanto
- * mudou" precisa saber mudou *onde* — responder pelo contexto mais recente do
- * banco daria um número certo sobre a operação errada.
+ * **O recorte aparece acima da resposta.** Uma resposta com número descreve uma
+ * unidade, um canal e uma vigência; dizê-lo ali é a mesma regra que toda tela
+ * deste produto segue — escolher por padrão é aceitável, escolher em silêncio
+ * não.
  */
 
-interface Fato {
-  rotulo: string;
-  valor: string;
-  detalhe?: string;
-}
-
-interface BlocoDeDado {
-  titulo: string;
-  fatos: Fato[];
-  nota?: string;
-  origem: string;
-  tela?: { label: string; href: string };
-}
-
-interface FonteDeConhecimento {
-  id: string;
-  titulo: string;
-  area: string;
-  fonte: string;
-}
-
-interface Resposta {
-  pergunta: string;
-  texto: string;
-  redacao: "IA" | "DETERMINISTICA";
-  modelo: string | null;
-  conhecimento: FonteDeConhecimento[];
-  dados: BlocoDeDado[];
-  telas: { label: string; href: string }[];
-  semResposta: boolean;
-}
-
-interface Capacidades {
-  ia: boolean;
-  modelo: string | null;
-  artigos: number;
-  areas: string[];
-}
-
-interface Sugestoes {
-  sugestoes: { pergunta: string; area: string }[];
-  indice: FonteDeConhecimento[];
-}
-
-const AREA_LABEL: Record<string, string> = {
-  PARAMETROS: "Parâmetros",
-  BOOK: "Book do Operador",
-  CONCEITO: "Conceito",
-  LEITURA: "Como ler",
-  NAVEGACAO: "Navegação",
-  RECUSA: "Limites",
-};
+const SUGESTOES_INICIAIS = [
+  {
+    categoria: "Entender um parâmetro",
+    pergunta: "Como funciona o preço de combustível?",
+  },
+  {
+    categoria: "Analisar alterações",
+    pergunta: "O que mais mudou na última vigência?",
+  },
+  { categoria: "Impacto financeiro", pergunta: "Onde tivemos maior perda?" },
+  { categoria: "Book do Operador", pergunta: "O que o Book diz sobre IPVA?" },
+];
 
 export default function Assistente() {
   const search = useSearch();
-  const [pergunta, setPergunta] = useState("");
-  const [resposta, setResposta] = useState<Resposta | null>(null);
-  const campo = useRef<HTMLTextAreaElement>(null);
+  const cliente = useQueryClient();
 
-  /**
-   * O recorte vem da URL, do mesmo jeito que em Parâmetros.
-   *
-   * Chegar aqui por um link de dentro de um cartão preserva a unidade, o canal e
-   * a vigência que a pessoa estava olhando. Sem isso, "quanto mudou" trocaria de
-   * assunto no meio do caminho.
-   */
+  const [turnos, setTurnos] = useState<Turno[]>([]);
+  const [conversaId, setConversaId] = useState<string | null>(null);
+  const [rascunho, setRascunho] = useState("");
+  const [painelTecnico, setPainelTecnico] = useState(false);
+
+  const campo = useRef<HTMLTextAreaElement>(null);
+  const fim = useRef<HTMLDivElement>(null);
+
   const recorte = useMemo(() => {
-    const params = new URLSearchParams(search);
+    const p = new URLSearchParams(search);
     return {
-      scopeHash: params.get("scopeHash") ?? undefined,
-      canal: params.get("canal") ?? undefined,
-      period: params.get("period") ?? undefined,
+      scopeHash: p.get("scopeHash") ?? undefined,
+      canal: p.get("canal") ?? undefined,
+      period: p.get("period") ?? undefined,
     };
   }, [search]);
-
-  const temRecorte = Boolean(recorte.scopeHash || recorte.canal || recorte.period);
 
   const capacidades = useQuery({
     queryKey: ["assistant-capabilities"],
     queryFn: () => fetchJson<Capacidades>("/assistant/capabilities"),
   });
 
-  const sugestoes = useQuery({
-    queryKey: ["assistant-suggestions"],
-    queryFn: () => fetchJson<Sugestoes>("/assistant/suggestions"),
+  const conversas = useQuery({
+    queryKey: ["assistant-conversations"],
+    queryFn: () => fetchJson<ConversaResumo[]>("/assistant/conversations"),
   });
 
   const perguntar = useMutation({
-    mutationFn: async (texto: string) => {
-      const response = await fetch(getApiUrl("/assistant/ask"), {
+    mutationFn: async (pergunta: string) => {
+      const resposta = await fetch(getApiUrl("/assistant/ask"), {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ pergunta: texto, ...recorte }),
+        body: JSON.stringify({
+          pergunta,
+          ...(conversaId ? { conversationId: conversaId } : {}),
+          ...recorte,
+        }),
       });
-      const body = await readJson(response);
-      if (!response.ok) {
+      const corpo = await readJson(resposta);
+      if (!resposta.ok) {
         throw new Error(
-          typeof body.error === "string"
-            ? body.error
-            : `O servidor respondeu ${response.status}.`,
+          typeof corpo.error === "string" ? corpo.error : `O servidor respondeu ${resposta.status}.`,
         );
       }
-      return body as unknown as Resposta;
+      return corpo as unknown as Resposta;
     },
-    onSuccess: (dados) => setResposta(dados),
+    onSuccess: (r) => {
+      setConversaId(r.conversationId);
+      setTurnos((atuais) => [
+        ...atuais,
+        { papel: "RESPOSTA", texto: r.texto, resposta: r },
+      ]);
+      void cliente.invalidateQueries({ queryKey: ["assistant-conversations"] });
+    },
   });
 
   const enviar = (texto: string) => {
     const limpa = texto.trim();
     if (!limpa || perguntar.isPending) return;
-    setPergunta(limpa);
+    setTurnos((atuais) => [...atuais, { papel: "PERGUNTA", texto: limpa }]);
+    setRascunho("");
     perguntar.mutate(limpa);
   };
 
+  const novaConversa = () => {
+    setTurnos([]);
+    setConversaId(null);
+    perguntar.reset();
+    campo.current?.focus();
+  };
+
+  const abrirConversa = async (id: string) => {
+    const dados = await fetchJson<{
+      mensagens: { role: string; content: string; evidence: unknown }[];
+    }>(`/assistant/conversations/${id}`);
+    setConversaId(id);
+    setTurnos(
+      dados.mensagens.map((m) => ({
+        papel: m.role === "PERGUNTA" ? "PERGUNTA" : "RESPOSTA",
+        texto: m.content,
+        // O dossiê guardado é a citação, não o objeto inteiro: uma conversa
+        // reaberta mostra as fontes daquele dia sem refazer as consultas.
+        ...(m.role === "RESPOSTA" && m.evidence
+          ? { resposta: { ...(m.evidence as object), texto: m.content } as Resposta }
+          : {}),
+      })),
+    );
+  };
+
+  useEffect(() => {
+    fim.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [turnos, perguntar.isPending]);
+
+  const ultima = [...turnos].reverse().find((t) => t.papel === "RESPOSTA")?.resposta;
+  const vazia = turnos.length === 0;
+
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <Sparkles className="w-6 h-6 text-primary" />
-          Assistente de IA
-        </h1>
-        <p className="text-muted-foreground mt-1 max-w-3xl">
-          Pergunte em português sobre o FreightCheck — principalmente sobre
-          Parâmetros e Book do Operador. Toda resposta vem com o que a sustenta:
-          o conhecimento registrado sobre o produto e as consultas feitas ao
-          banco, com a origem de cada número.
-        </p>
-      </header>
+      <div className="flex flex-1 min-h-0">
+        <Historico
+          conversas={conversas.data ?? []}
+          atual={conversaId}
+          aoAbrir={abrirConversa}
+          aoNova={novaConversa}
+          aoMudar={() => void cliente.invalidateQueries({ queryKey: ["assistant-conversations"] })}
+        />
 
-      <div className="p-8 space-y-6">
-        <ModoDeResposta capacidades={capacidades.data} />
-
-        {temRecorte && (
-          <p className="text-xs text-muted-foreground border-l-2 border-brand pl-3">
-            Perguntas sobre números serão respondidas dentro do recorte que veio
-            junto no link
-            {recorte.canal && <> — canal <strong>{recorte.canal}</strong></>}
-            {recorte.period && <> — vigência <strong>{recorte.period}</strong></>}.
-          </p>
-        )}
-
-        <Card>
-          <CardContent className="pt-6">
-            <label htmlFor="pergunta" className="sr-only">
-              Sua pergunta
-            </label>
-            <textarea
-              id="pergunta"
-              ref={campo}
-              value={pergunta}
-              onChange={(evento) => setPergunta(evento.target.value)}
-              onKeyDown={(evento) => {
-                // Enter envia; Shift+Enter quebra linha. Perguntas aqui são de
-                // uma ou duas frases, e exigir um clique no botão em toda uma
-                // delas é atrito sem contrapartida.
-                if (evento.key === "Enter" && !evento.shiftKey) {
-                  evento.preventDefault();
-                  enviar(pergunta);
-                }
-              }}
-              rows={3}
-              maxLength={1000}
-              placeholder="Ex.: por que a cobertura da apuração está em 0%?"
-              className="w-full resize-none rounded-sm border border-input p-3 text-sm outline-none focus:border-brand"
-            />
-            <div className="flex items-center justify-between mt-3">
-              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                <CornerDownLeft className="w-3 h-3" />
-                Enter envia · Shift+Enter quebra linha
-              </span>
-              <button
-                type="button"
-                onClick={() => enviar(pergunta)}
-                disabled={perguntar.isPending || pergunta.trim().length === 0}
-                className="bg-brand text-brand-foreground text-[0.8125rem] font-bold uppercase tracking-wide px-6 py-2.5 rounded-sm hover:brightness-95 transition-[filter] disabled:opacity-50 disabled:cursor-not-allowed inline-flex items-center gap-2"
-              >
-                {perguntar.isPending && <Loader2 className="w-4 h-4 animate-spin" />}
-                Perguntar
-              </button>
+        <main className="flex-1 flex flex-col min-w-0">
+          <header className="border-b bg-card px-8 py-4 flex items-center justify-between gap-4">
+            <div>
+              <h1 className="text-lg font-bold tracking-tight flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-primary" />
+                Assistente FreightCheck
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Pergunte sobre parâmetros, alterações, impactos e o Book do Operador.
+              </p>
             </div>
-          </CardContent>
-        </Card>
+            <button
+              type="button"
+              onClick={() => setPainelTecnico((v) => !v)}
+              title="Painel técnico"
+              className={cn(
+                "p-2 rounded-sm transition-colors",
+                painelTecnico ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted",
+              )}
+            >
+              <Terminal className="w-4 h-4" />
+            </button>
+          </header>
 
-        {perguntar.error && (
-          <ApiErrorNotice
-            error={perguntar.error}
-            what="A pergunta não pôde ser respondida."
+          <div className="flex-1 overflow-y-auto">
+            <div className="max-w-4xl mx-auto px-8 py-6 space-y-6">
+              {vazia && <Abertura aoEscolher={enviar} />}
+
+              {turnos.map((turno, i) => (
+                <Mensagem key={i} turno={turno} />
+              ))}
+
+              {perguntar.isPending && <Trabalhando />}
+
+              {perguntar.error && (
+                <ApiErrorNotice
+                  error={perguntar.error}
+                  what="A pergunta não pôde ser respondida."
+                />
+              )}
+
+              {painelTecnico && ultima && <PainelTecnico resposta={ultima} />}
+
+              {!perguntar.isPending && ultima && ultima.sugestoes.length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {ultima.sugestoes.map((s) => (
+                    <button
+                      key={s}
+                      type="button"
+                      onClick={() => enviar(s)}
+                      className="text-xs border border-input rounded-full px-3 py-1.5 hover:border-brand hover:bg-muted/40 transition-colors"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <div ref={fim} />
+            </div>
+          </div>
+
+          <Composer
+            valor={rascunho}
+            onChange={setRascunho}
+            onEnviar={() => enviar(rascunho)}
+            ocupado={perguntar.isPending}
+            campo={campo}
+            aviso={
+              capacidades.data && !capacidades.data.ia
+                ? "Sem modelo de linguagem configurado neste ambiente — as respostas saem do mesmo material, redigidas em código."
+                : null
+            }
           />
-        )}
-
-        {!resposta && !perguntar.isPending && (
-          <Perguntas
-            sugestoes={sugestoes.data?.sugestoes ?? []}
-            aoEscolher={(texto) => {
-              setPergunta(texto);
-              enviar(texto);
-              campo.current?.focus();
-            }}
-          />
-        )}
-
-        {resposta && <RespostaCompleta resposta={resposta} />}
-
-        {resposta && (
-          <Perguntas
-            titulo="Outras perguntas"
-            sugestoes={sugestoes.data?.sugestoes ?? []}
-            aoEscolher={(texto) => {
-              setPergunta(texto);
-              enviar(texto);
-            }}
-          />
-        )}
+        </main>
       </div>
     </Layout>
   );
 }
 
-/** O selo que diz quem redige as respostas neste ambiente. */
-function ModoDeResposta({ capacidades }: { capacidades?: Capacidades }) {
-  if (!capacidades) return null;
+// ── Abertura ────────────────────────────────────────────────────────────────
 
+function Abertura({ aoEscolher }: { aoEscolher: (p: string) => void }) {
   return (
-    <div
-      className={cn(
-        "border-l-4 bg-card p-4 text-sm",
-        capacidades.ia ? "border-brand" : "border-muted-foreground/40",
-      )}
-    >
-      {capacidades.ia ? (
-        <p>
-          <strong>Redação por modelo de linguagem.</strong> As respostas são
-          escritas por <code className="text-xs">{capacidades.modelo}</code>{" "}
-          <em>sobre o material recuperado</em> — os {capacidades.artigos} artigos
-          do conhecimento do produto e as consultas ao banco. O modelo é
-          instruído a não acrescentar nenhum número que não esteja nesse
-          material, e o material vai junto na tela para conferência.
-        </p>
-      ) : (
-        <p>
-          <strong>Redação montada em código.</strong> Não há modelo de linguagem
-          configurado neste ambiente, e o assistente continua respondendo: o
-          material é o mesmo — os {capacidades.artigos} artigos do conhecimento
-          do produto e as consultas ao banco —, e só a redação muda. Um modelo
-          configurado reescreveria estas respostas na forma da pergunta; ele não
-          acrescentaria conhecimento nenhum.
-        </p>
-      )}
-    </div>
-  );
-}
-
-function Perguntas({
-  titulo = "Comece por aqui",
-  sugestoes,
-  aoEscolher,
-}: {
-  titulo?: string;
-  sugestoes: { pergunta: string; area: string }[];
-  aoEscolher: (pergunta: string) => void;
-}) {
-  if (sugestoes.length === 0) return null;
-
-  return (
-    <section>
-      <h2 className="text-[0.8125rem] font-bold uppercase tracking-wide text-muted-foreground mb-3">
-        {titulo}
-      </h2>
-      <div className="flex flex-wrap gap-2">
-        {sugestoes.map((s) => (
+    <div className="py-10">
+      <h2 className="text-xl font-semibold mb-1">Sobre o que você quer saber?</h2>
+      <p className="text-sm text-muted-foreground mb-6 max-w-xl">
+        Pergunte com suas palavras. Não é preciso saber o nome técnico do parâmetro
+        nem em que tela ele mora.
+      </p>
+      <div className="grid gap-2 sm:grid-cols-2 max-w-3xl">
+        {SUGESTOES_INICIAIS.map((s) => (
           <button
             key={s.pergunta}
             type="button"
             onClick={() => aoEscolher(s.pergunta)}
-            className="text-left text-sm border border-input rounded-sm px-3 py-2 hover:border-brand hover:bg-muted/40 transition-colors"
+            className="text-left border border-input rounded-sm px-4 py-3 hover:border-brand hover:bg-muted/30 transition-colors"
           >
-            {s.pergunta}
-            <span className="ml-2 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
-              {AREA_LABEL[s.area] ?? s.area}
+            <span className="block text-[0.6875rem] uppercase tracking-wide text-muted-foreground mb-1">
+              {s.categoria}
             </span>
+            <span className="text-sm">{s.pergunta}</span>
           </button>
         ))}
       </div>
-    </section>
-  );
-}
-
-function RespostaCompleta({ resposta }: { resposta: Resposta }) {
-  return (
-    <section className="space-y-6">
-      <Card className={cn(resposta.semResposta && "border-muted-foreground/40")}>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2 flex-wrap">
-            <span className="text-muted-foreground font-normal">
-              {resposta.pergunta}
-            </span>
-            <Badge
-              variant="outline"
-              className="text-[0.6875rem] uppercase tracking-wide"
-            >
-              {resposta.redacao === "IA"
-                ? `redigido por ${resposta.modelo}`
-                : "redação em código"}
-            </Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Texto conteudo={resposta.texto} />
-        </CardContent>
-      </Card>
-
-      {resposta.dados.length > 0 && (
-        <section>
-          <h2 className="text-[0.8125rem] font-bold uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-2">
-            <Database className="w-4 h-4" />
-            Consultado no banco agora
-          </h2>
-          <div className="grid gap-4 md:grid-cols-2">
-            {resposta.dados.map((bloco) => (
-              <Card key={bloco.titulo} className="border-l-4 border-l-brand">
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm">{bloco.titulo}</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {bloco.fatos.map((fato) => (
-                    <div key={fato.rotulo} className="text-sm">
-                      <span className="text-muted-foreground">{fato.rotulo}: </span>
-                      <span className="font-semibold">{fato.valor}</span>
-                      {fato.detalhe && (
-                        <span className="block text-xs text-muted-foreground">
-                          {fato.detalhe}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                  {bloco.nota && (
-                    <p className="text-xs text-muted-foreground border-t pt-2">
-                      {bloco.nota}
-                    </p>
-                  )}
-                  <p className="text-[0.6875rem] text-muted-foreground font-mono border-t pt-2">
-                    {bloco.origem}
-                  </p>
-                  {bloco.tela && (
-                    <Link
-                      href={bloco.tela.href}
-                      className="text-xs text-primary hover:underline inline-flex items-center gap-1"
-                    >
-                      conferir em {bloco.tela.label}
-                      <ArrowRight className="w-3 h-3" />
-                    </Link>
-                  )}
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </section>
-      )}
-
-      {resposta.conhecimento.length > 0 && (
-        <section>
-          <h2 className="text-[0.8125rem] font-bold uppercase tracking-wide text-muted-foreground mb-3 flex items-center gap-2">
-            <BookOpen className="w-4 h-4" />
-            Conhecimento que sustenta a resposta
-          </h2>
-          <ul className="space-y-2">
-            {resposta.conhecimento.map((fonte) => (
-              <li key={fonte.id} className="text-sm border-l-2 border-input pl-3">
-                <span className="font-semibold">{fonte.titulo}</span>
-                <Badge
-                  variant="outline"
-                  className="ml-2 text-[0.6875rem] uppercase tracking-wide"
-                >
-                  {AREA_LABEL[fonte.area] ?? fonte.area}
-                </Badge>
-                <span className="block text-[0.6875rem] text-muted-foreground font-mono">
-                  {fonte.fonte}
-                </span>
-              </li>
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {resposta.telas.length > 0 && (
-        <section className="flex flex-wrap gap-3">
-          {resposta.telas.map((tela) => (
-            <Link
-              key={tela.href}
-              href={tela.href}
-              className="text-sm border border-input rounded-sm px-3 py-2 hover:border-brand transition-colors inline-flex items-center gap-2"
-            >
-              Abrir {tela.label}
-              <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
-          ))}
-        </section>
-      )}
-    </section>
-  );
-}
-
-/**
- * O pouco de formatação que as respostas usam — e só ele.
- *
- * Parágrafos, listas com `- ` e negrito com `**`. Não é um renderizador de
- * markdown e não deve virar um: o texto é montado por este produto ou escrito
- * por um modelo sob instrução dele, e ampliar o que a tela aceita renderizar
- * amplia o que uma resposta consegue fazer aparecer aqui. Tudo entra como
- * texto — nada é injetado como HTML.
- */
-function Texto({ conteudo }: { conteudo: string }) {
-  const blocos = conteudo.split(/\n{2,}/);
-
-  return (
-    <div className="space-y-3 text-sm leading-relaxed">
-      {blocos.map((bloco, indice) => {
-        const linhas = bloco.split("\n");
-        const eLista = linhas.every((linha) => linha.trim().startsWith("- "));
-
-        if (eLista) {
-          return (
-            <ul key={indice} className="list-disc pl-5 space-y-1">
-              {linhas.map((linha, i) => (
-                <li key={i}>
-                  <Negrito texto={linha.trim().slice(2)} />
-                </li>
-              ))}
-            </ul>
-          );
-        }
-
-        return (
-          <p key={indice}>
-            {linhas.map((linha, i) => (
-              <span key={i}>
-                {i > 0 && <br />}
-                <Negrito texto={linha} />
-              </span>
-            ))}
-          </p>
-        );
-      })}
     </div>
   );
 }
 
-function Negrito({ texto }: { texto: string }) {
-  const partes = texto.split(/(\*\*[^*]+\*\*)/g);
+// ── Indicador de processamento ──────────────────────────────────────────────
+
+/**
+ * As etapas que estão realmente rodando.
+ *
+ * O texto avança sozinho porque a resposta é uma requisição só — o servidor
+ * devolve as etapas executadas junto com o resultado, e mostrá-las depois não
+ * serviria de nada. O que se vê aqui é a sequência que a orquestração percorre,
+ * no ritmo em que ela costuma percorrer.
+ */
+const PASSOS = [
+  "Analisando sua pergunta",
+  "Identificando o parâmetro",
+  "Consultando o conhecimento do produto",
+  "Consultando os dados",
+  "Calculando impacto",
+];
+
+function Trabalhando() {
+  const [passo, setPasso] = useState(0);
+
+  useEffect(() => {
+    const t = setInterval(() => setPasso((p) => Math.min(p + 1, PASSOS.length - 1)), 900);
+    return () => clearInterval(t);
+  }, []);
+
   return (
-    <>
-      {partes.map((parte, i) =>
-        parte.startsWith("**") && parte.endsWith("**") ? (
-          <strong key={i}>{parte.slice(2, -2)}</strong>
-        ) : (
-          <span key={i}>{parte}</span>
-        ),
+    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+      <Loader2 className="w-4 h-4 animate-spin" />
+      {PASSOS[passo]}…
+    </div>
+  );
+}
+
+// ── Composer ────────────────────────────────────────────────────────────────
+
+function Composer({
+  valor,
+  onChange,
+  onEnviar,
+  ocupado,
+  campo,
+  aviso,
+}: {
+  valor: string;
+  onChange: (v: string) => void;
+  onEnviar: () => void;
+  ocupado: boolean;
+  campo: React.RefObject<HTMLTextAreaElement | null>;
+  aviso: string | null;
+}) {
+  useEffect(() => {
+    const el = campo.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+  }, [valor, campo]);
+
+  return (
+    <div className="border-t bg-card px-8 py-4">
+      <div className="max-w-4xl mx-auto">
+        <div className="relative border border-input rounded-lg focus-within:border-brand transition-colors">
+          <textarea
+            ref={campo}
+            value={valor}
+            onChange={(e) => onChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                onEnviar();
+              }
+            }}
+            rows={1}
+            maxLength={1000}
+            placeholder="Pergunte sobre o FreightCheck..."
+            className="w-full resize-none bg-transparent py-3 pl-4 pr-14 text-[0.9375rem] outline-none max-h-[200px]"
+          />
+          <button
+            type="button"
+            onClick={onEnviar}
+            disabled={ocupado || valor.trim().length === 0}
+            aria-label="Enviar"
+            className="absolute right-2 bottom-2 w-9 h-9 rounded-md bg-brand text-brand-foreground flex items-center justify-center hover:brightness-95 transition-[filter] disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            {ocupado ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <ArrowUp className="w-4 h-4" />
+            )}
+          </button>
+        </div>
+        <p className="text-[0.6875rem] text-muted-foreground mt-2">
+          {aviso ?? "Enter envia · Shift+Enter quebra linha"}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Histórico ───────────────────────────────────────────────────────────────
+
+function agrupar(conversas: ConversaResumo[]): { titulo: string; itens: ConversaResumo[] }[] {
+  const hoje = new Date();
+  const ehMesmoDia = (a: Date, b: Date) => a.toDateString() === b.toDateString();
+  const ontem = new Date(hoje);
+  ontem.setDate(hoje.getDate() - 1);
+
+  const grupos = new Map<string, ConversaResumo[]>();
+  for (const c of conversas) {
+    const data = new Date(c.updatedAt);
+    const chave = ehMesmoDia(data, hoje)
+      ? "Hoje"
+      : ehMesmoDia(data, ontem)
+        ? "Ontem"
+        : data.toLocaleDateString("pt-BR", { day: "2-digit", month: "long" });
+    grupos.set(chave, [...(grupos.get(chave) ?? []), c]);
+  }
+  return [...grupos].map(([titulo, itens]) => ({ titulo, itens }));
+}
+
+function Historico({
+  conversas,
+  atual,
+  aoAbrir,
+  aoNova,
+  aoMudar,
+}: {
+  conversas: ConversaResumo[];
+  atual: string | null;
+  aoAbrir: (id: string) => void;
+  aoNova: () => void;
+  aoMudar: () => void;
+}) {
+  const [menuAberto, setMenuAberto] = useState<string | null>(null);
+
+  const renomear = async (c: ConversaResumo) => {
+    const titulo = window.prompt("Novo título da conversa", c.title);
+    if (!titulo?.trim()) return;
+    await fetch(getApiUrl(`/assistant/conversations/${c.id}`), {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ title: titulo.trim() }),
+    });
+    setMenuAberto(null);
+    aoMudar();
+  };
+
+  const arquivar = async (c: ConversaResumo) => {
+    if (!window.confirm(`Arquivar "${c.title}"? A conversa sai da lista e nada é apagado.`)) return;
+    await fetch(getApiUrl(`/assistant/conversations/${c.id}/archive`), { method: "POST" });
+    setMenuAberto(null);
+    aoMudar();
+  };
+
+  return (
+    <aside className="w-64 border-r bg-card shrink-0 hidden lg:flex flex-col">
+      <div className="p-3">
+        <button
+          type="button"
+          onClick={aoNova}
+          className="w-full flex items-center gap-2 text-sm border border-input rounded-sm px-3 py-2 hover:border-brand transition-colors"
+        >
+          <MessageSquarePlus className="w-4 h-4" />
+          Nova conversa
+        </button>
+      </div>
+
+      <nav className="flex-1 overflow-y-auto px-2 pb-4">
+        {conversas.length === 0 && (
+          <p className="px-2 text-xs text-muted-foreground">Nenhuma conversa ainda.</p>
+        )}
+        {agrupar(conversas).map((grupo) => (
+          <div key={grupo.titulo} className="mb-3">
+            <p className="px-2 py-1 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
+              {grupo.titulo}
+            </p>
+            {grupo.itens.map((c) => (
+              <div key={c.id} className="relative group">
+                <button
+                  type="button"
+                  onClick={() => aoAbrir(c.id)}
+                  className={cn(
+                    "w-full text-left text-sm rounded-sm px-2 py-1.5 pr-7 truncate transition-colors",
+                    atual === c.id ? "bg-muted font-medium" : "hover:bg-muted/60",
+                  )}
+                >
+                  {c.title}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMenuAberto(menuAberto === c.id ? null : c.id)}
+                  aria-label="Opções da conversa"
+                  className="absolute right-1 top-1.5 p-0.5 text-muted-foreground opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                >
+                  <MoreHorizontal className="w-4 h-4" />
+                </button>
+                {menuAberto === c.id && (
+                  <div className="absolute right-1 top-8 z-10 bg-card border rounded-sm shadow-md text-xs w-32">
+                    <button
+                      type="button"
+                      onClick={() => void renomear(c)}
+                      className="block w-full text-left px-3 py-2 hover:bg-muted"
+                    >
+                      Renomear
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void arquivar(c)}
+                      className="block w-full text-left px-3 py-2 hover:bg-muted"
+                    >
+                      Arquivar
+                    </button>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        ))}
+      </nav>
+    </aside>
+  );
+}
+
+// ── Painel técnico ──────────────────────────────────────────────────────────
+
+/**
+ * O que a orquestração decidiu — para quem desenvolve, não para quem lê.
+ *
+ * Aqui vive o que saiu da tela: a intenção classificada, o que foi herdado da
+ * conversa, as ferramentas chamadas, e quem redigiu o texto. Fica atrás de um
+ * botão porque é diagnóstico, e diagnóstico exibido o tempo todo vira ruído
+ * para quem só queria a resposta.
+ */
+function PainelTecnico({ resposta }: { resposta: Resposta }) {
+  const t = resposta.tecnico;
+  return (
+    <div className="border border-input rounded-sm p-3 text-xs font-mono space-y-1 bg-muted/30">
+      <p>
+        <span className="text-muted-foreground">intenção:</span> {t.intencao}{" "}
+        <span className="text-muted-foreground">({t.porque})</span>
+      </p>
+      <p>
+        <span className="text-muted-foreground">herdado:</span>{" "}
+        {t.herdado.length > 0 ? t.herdado.join(", ") : "—"}
+      </p>
+      <p>
+        <span className="text-muted-foreground">ferramentas:</span>{" "}
+        {t.ferramentas.length > 0 ? t.ferramentas.join(", ") : "—"}
+      </p>
+      <p>
+        <span className="text-muted-foreground">redação:</span> {resposta.redacao}
+        {resposta.modelo ? ` · ${resposta.modelo}` : ""}
+      </p>
+      {t.numerosRecusados.length > 0 && (
+        <p className="text-destructive">
+          números sem lastro recusados: {t.numerosRecusados.join(", ")}
+        </p>
       )}
-    </>
+    </div>
   );
 }

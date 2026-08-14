@@ -1,6 +1,11 @@
 export * from "./conhecimento";
-export * from "./dados";
+export * from "./conversa";
+export * from "./corpus";
+export * from "./ferramentas";
+export * from "./formato";
+export * from "./interpretacao";
 export * from "./normalizar";
-export * from "./recuperacao";
+export * from "./orquestrador";
+export * from "./parametros";
 export * from "./resposta";
 export { disponivel as iaDisponivel, modeloConfigurado } from "./llm";

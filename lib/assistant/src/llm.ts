@@ -50,50 +50,122 @@ const ESFORCO = (process.env.ASSISTENTE_ESFORCO?.trim() ||
  */
 const MAX_TOKENS = 16000;
 
-const INSTRUCAO = `Você é o Assistente de IA do FreightCheck, um produto que audita os modelos de
+const INSTRUCAO = `Você é o Assistente do FreightCheck, um produto que audita os modelos de
 remuneração que a Ambev entrega pelas planilhas do Freightec. Quem fala com você
 opera esse produto: analistas de logística e de custos, em português do Brasil.
 
 ## A regra que vale acima de todas
 
-Responda **exclusivamente** a partir do DOSSIÊ que acompanha a pergunta. O
-dossiê tem duas partes: CONHECIMENTO (texto aprovado sobre como o produto
-funciona) e DADOS (números consultados agora no banco, dentro do recorte de quem
-perguntou).
+Responda **exclusivamente** a partir do DOSSIÊ. Ele traz o que a orquestração
+recuperou para esta pergunta: CONCEITO (trechos aprovados do catálogo do
+Freightech, do índice do Book e dos artigos do produto), EVIDÊNCIA (resultados
+de consultas feitas agora, no recorte de quem perguntou) e LACUNAS (o que
+sabidamente falta).
 
 - **Nunca escreva um número que não esteja no dossiê.** Não estime, não some
-  valores de periodicidades diferentes, não converta mensal em anual, não
-  complete uma série, não calcule médias que o dossiê não trouxe.
-- **Nunca descreva um comportamento do produto que o dossiê não afirme.** Se
-  perguntarem sobre uma tela ou regra que o dossiê não cobre, diga que não sabe
-  e aponte onde a pessoa pode olhar.
-- Se o dossiê responder só parte da pergunta, responda essa parte e diga
-  explicitamente qual parte ficou de fora e por quê.
-- Se o dossiê estiver vazio ou não tiver relação com a pergunta, diga isso em
-  uma ou duas frases e sugira o que perguntar em vez disso. Não improvise.
-
-Conhecimento geral seu sobre logística, contabilidade ou sobre outros produtos
-não entra na resposta. Se ele contradisser o dossiê, o dossiê vence.
+  periodicidades diferentes, não converta mensal em anual, não calcule médias,
+  não complete séries. Se um número seria útil e não está lá, diga que não foi
+  apurado.
+- Ao citar um valor, cite-o **como está escrito**, com a ressalva que o
+  acompanha. Valor em dinheiro nunca aparece sem a periodicidade. "0% de
+  cobertura" nunca vira "sem impacto".
+- **As LACUNAS são obrigatórias.** Se o dossiê traz uma, ela entra na resposta.
+  São as quatro formas de não saber, e elas não se confundem:
+  não encontrei · não existe no produto · o Freightech tem o conceito e este
+  export não traz a coluna · há dado e não dá para precificar.
 
 ## Como escrever
 
-- Português do Brasil, direto, sem saudação e sem preâmbulo. Comece pela
-  resposta.
-- Curto: dois a cinco parágrafos curtos, ou uma lista quando a pergunta pedir
-  uma. Prosa, não relatório.
-- Ao citar um número do dossiê, cite-o exatamente como está lá, **com a
-  ressalva que o acompanha**. Um valor com periodicidade nunca aparece sem ela.
-  "0% de cobertura" nunca vira "sem impacto".
-- Não repita o dossiê inteiro nem liste os fatos um a um: a tela já mostra os
-  fatos ao lado da sua resposta. Escreva o que eles significam para a pergunta
-  feita.
-- Não invente nomes de telas, botões ou campos. Use os que o dossiê nomeia.
-- Não escreva markdown de cabeçalho (\`#\`). Negrito e listas simples estão bem.`;
+- Comece **respondendo a pergunta**. Nada de preâmbulo, nada de saudação, nada
+  de repetir a pergunta.
+- Adapte o tamanho: pergunta simples, resposta curta; pergunta analítica,
+  resposta mais funda; pergunta executiva, o que decide primeiro.
+- Prosa. Listas só quando forem mesmo uma lista; tabela só quando a comparação
+  exigir colunas.
+- Não repita o dossiê inteiro nem enumere os fatos um a um — a tela mostra as
+  fontes ao lado. Escreva o que eles significam para a pergunta feita.
+- Não invente nomes de tela, botão ou campo. Use os que o dossiê nomeia.
+- Não escreva cabeçalho markdown (\`#\`). Negrito e listas simples estão bem.
+- Não mencione ferramentas, consultas, intenção nem orquestração: quem lê quer
+  a resposta, não a implementação.
+
+Conhecimento seu sobre logística, contabilidade ou outros produtos não entra na
+resposta. Se contradisser o dossiê, o dossiê vence.`;
 
 export interface PedidoDeRedacao {
   pergunta: string;
-  /** O dossiê já montado: conhecimento e dados, em texto. */
-  dossie: string;
+  dossie: DossieParaRedacao;
+}
+
+/** O que o modelo precisa ver — nada além. */
+export interface DossieParaRedacao {
+  trechos: { trecho: { titulo: string; fonte: string; texto: string } }[];
+  evidencias: {
+    titulo: string;
+    origem: string;
+    fatos: { rotulo: string; valor: string; detalhe?: string }[];
+    nota?: string;
+    recorte?: { contexto: string; vigencia?: string; intervalo?: string };
+  }[];
+  lacunas: { tipo: string; explicacao: string }[];
+  desambiguacao: { termo: string; opcoes: string[] } | null;
+}
+
+/**
+ * O dossiê em texto, na ordem em que o modelo deve lê-lo.
+ *
+ * Conceito primeiro, evidência depois, lacuna por último — a mesma ordem que a
+ * resposta deve ter. Um dossiê montado na ordem inversa produz resposta que
+ * abre pelo número, que é o defeito que esta versão existe para corrigir.
+ */
+function emTexto(d: DossieParaRedacao): string {
+  const partes: string[] = [];
+
+  if (d.desambiguacao) {
+    partes.push(
+      `## AMBIGUIDADE\n\n"${d.desambiguacao.termo}" casa mais de uma gaveta: ` +
+        `${d.desambiguacao.opcoes.join(", ")}. Peça para a pessoa escolher, sem responder ainda.`,
+    );
+  }
+
+  if (d.trechos.length > 0) {
+    partes.push(
+      "## CONCEITO\n\n" +
+        d.trechos
+          .map((t) => `### ${t.trecho.titulo}\n(fonte: ${t.trecho.fonte})\n\n${t.trecho.texto}`)
+          .join("\n\n"),
+    );
+  }
+
+  if (d.evidencias.length > 0) {
+    partes.push(
+      "## EVIDÊNCIA (consultada agora)\n\n" +
+        d.evidencias
+          .map((e) => {
+            const recorte = e.recorte
+              ? `recorte: ${[e.recorte.contexto, e.recorte.vigencia ?? e.recorte.intervalo]
+                  .filter(Boolean)
+                  .join(" · ")}\n`
+              : "";
+            const fatos = e.fatos
+              .map((f) => `- ${f.rotulo}: ${f.valor}${f.detalhe ? ` — ${f.detalhe}` : ""}`)
+              .join("\n");
+            return `### ${e.titulo}\n${recorte}(origem: ${e.origem})\n${fatos}${
+              e.nota ? `\nRessalva: ${e.nota}` : ""
+            }`;
+          })
+          .join("\n\n"),
+    );
+  }
+
+  if (d.lacunas.length > 0) {
+    partes.push(
+      "## LACUNAS (dizer na resposta)\n\n" +
+        d.lacunas.map((l) => `- [${l.tipo}] ${l.explicacao}`).join("\n"),
+    );
+  }
+
+  return partes.join("\n\n") || "(vazio)";
 }
 
 /** Há modelo configurado? A tela usa isto para dizer em que modo está. */
@@ -154,7 +226,7 @@ export async function redigir(pedido: PedidoDeRedacao): Promise<string | null> {
       messages: [
         {
           role: "user",
-          content: `# DOSSIÊ\n\n${pedido.dossie}\n\n# PERGUNTA\n\n${pedido.pergunta}`,
+          content: `# DOSSIÊ\n\n${emTexto(pedido.dossie)}\n\n# PERGUNTA\n\n${pedido.pergunta}`,
         },
       ],
     });

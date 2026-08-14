@@ -1,0 +1,950 @@
+/**
+ * CORPUS B e C — as ferramentas, e a regra que as governa.
+ *
+ * **O modelo interpreta; o banco calcula.** Nenhuma função deste arquivo
+ * implementa regra de negócio: todas envolvem serviços que já existiam e que as
+ * telas já usam. É o que garante que o assistente e a tela de Parâmetros nunca
+ * discordem — os dois chamam `getFamiliesView`, e um número diferente entre
+ * eles seria um defeito no motor, não uma divergência de leitura.
+ *
+ * **Todo resultado carrega o recorte que o produziu.** `Evidencia.recorte` diz
+ * unidade, canal e vigência de cada número. Isto não é enfeite de auditoria: é
+ * o mecanismo de isolamento. Uma evidência sem recorte não pode ser usada para
+ * responder uma pergunta com recorte, e a validação recusa a mistura.
+ *
+ * **O panorama é o caso que exigiu correção.** A versão anterior chamava
+ * `getOverview`, que soma o banco inteiro — todas as unidades, todos os canais.
+ * Num produto de uma unidade só isso passa despercebido; na segunda unidade
+ * importada, a resposta a "quantas vigências temos?" passaria a incluir
+ * vigências de uma operação que quem perguntou não opera. Aqui ele é filtrado
+ * pelo contexto como todo o resto.
+ */
+
+import { and, desc, eq, sql } from "drizzle-orm";
+import { bookEntryTable, type Database } from "@workspace/db";
+import {
+  contextFilter,
+  getAttributeSeries,
+  getChangeProvenance,
+  getEndToEndAnalysis,
+  getFamiliesView,
+  getGroupVehicles,
+  getRangeAnalysis,
+  listContexts,
+  listPeriods,
+  resolveContext,
+  type ContextInfo,
+  type SeriesContext,
+} from "@workspace/comparison";
+import {
+  INTEIRO,
+  cobertura,
+  dinheiro,
+  impactoEmTexto,
+  numerosDoImpacto,
+  rotuloDoPeriodo,
+  trecho,
+} from "./formato";
+import type { Alvo } from "./parametros";
+
+// ── O formato de toda evidência ─────────────────────────────────────────────
+
+export interface Fato {
+  rotulo: string;
+  valor: string;
+  detalhe?: string;
+}
+
+export interface Recorte {
+  unidade: string;
+  canal: string | null;
+  /** O rótulo humano do contexto: "CAMAÇARI · EMPURRADA". */
+  contexto: string;
+  vigencia?: string;
+  intervalo?: string;
+}
+
+export interface Evidencia {
+  /** Qual ferramenta produziu — vai para o painel de fontes. */
+  ferramenta: string;
+  titulo: string;
+  fatos: Fato[];
+  /**
+   * Os números crus que este resultado autoriza a citar.
+   *
+   * A validação em `orquestrador.ts` confere contra esta lista. Um número no
+   * texto que não esteja aqui não veio de consulta nenhuma.
+   */
+  numeros: number[];
+  origem: string;
+  recorte?: Recorte;
+  tela?: { label: string; href: string };
+  nota?: string;
+  /**
+   * O rótulo do fato que responde — quando não é o primeiro com número.
+   *
+   * A ferramenta sabe o que ela foi buscar; quem redige, não. Numa série o
+   * primeiro número é "pontos na série: 9", e a resposta a "qual o valor do
+   * IPVA?" é o último ponto, não a contagem deles. Sem este campo a redação
+   * determinística abria com a metainformação e enterrava o valor no meio da
+   * lista.
+   */
+  destaque?: string;
+}
+
+export interface ContextoResolvido {
+  contexto: SeriesContext;
+  info: ContextInfo;
+  outros: ContextInfo[];
+}
+
+function recorteDe(info: ContextInfo, extra: Partial<Recorte> = {}): Recorte {
+  const unidade =
+    info.scopes.find((s) => s.scopeType === "UNIT" || s.scopeType === "UNIDADE")?.name ??
+    info.scopes[0]?.name ??
+    info.scopeHash.slice(0, 8);
+  return { unidade, canal: info.channel, contexto: info.label, ...extra };
+}
+
+// ── Contexto ────────────────────────────────────────────────────────────────
+
+/**
+ * Qual unidade e canal esta conversa está descrevendo.
+ *
+ * Devolve os outros contextos junto, sempre. É o que permite à resposta dizer
+ * "estou olhando CAMAÇARI · EMPURRADA, e existem outras duas" em vez de
+ * escolher em silêncio — a regra que o produto já aplica em toda tela e que o
+ * assistente precisava herdar.
+ */
+export async function resolverContexto(
+  db: Database,
+  pedido: Partial<SeriesContext> = {},
+): Promise<ContextoResolvido | null> {
+  const contextos = await listContexts(db);
+  const contexto = await resolveContext(db, pedido, contextos);
+  if (!contexto) return null;
+  const info = contextos.find(
+    (c) => c.scopeHash === contexto.scopeHash && c.channel === contexto.channel,
+  );
+  if (!info) return null;
+  return {
+    contexto,
+    info,
+    outros: contextos.filter((c) => c !== info),
+  };
+}
+
+/** As vigências que existem — deste contexto, nunca de todos. */
+export async function listarVigencias(
+  db: Database,
+  ctx: ContextoResolvido,
+): Promise<Evidencia> {
+  const periodos = await listPeriods(db, ctx.contexto);
+  return {
+    ferramenta: "listarVigencias",
+    titulo: `Vigências de ${ctx.info.label}`,
+    fatos: [
+      {
+        rotulo: "Vigências neste contexto",
+        valor: INTEIRO.format(periodos.length),
+        detalhe: periodos.map((p) => rotuloDoPeriodo(p.effective_date)).join(", "),
+      },
+      ...(ctx.outros.length > 0
+        ? [
+            {
+              rotulo: "Outros contextos no banco",
+              valor: ctx.outros.map((c) => c.label).join(", "),
+              detalhe: "não entram em nenhum número desta resposta",
+            },
+          ]
+        : []),
+    ],
+    numeros: [periodos.length],
+    origem: `listPeriods no contexto ${ctx.info.label}`,
+    recorte: recorteDe(ctx.info),
+    tela: { label: "Vigências", href: "/vigencias" },
+  };
+}
+
+// ── Panorama, agora com recorte ─────────────────────────────────────────────
+
+interface LinhaPanorama extends Record<string, unknown> {
+  vigencias: number;
+  primeira: string | null;
+  ultima: string | null;
+  ativos: number;
+  atributos: number;
+  alteracoes: number;
+  com_impacto: number;
+  inconclusivas: number;
+}
+
+/**
+ * O que existe **neste recorte** — não no banco inteiro.
+ *
+ * Cada subconsulta filtra por `(unidade, canal)`. A versão anterior usava
+ * `getOverview`, que não filtra nada: era o único ponto do assistente capaz de
+ * devolver, a uma pergunta sobre CAMAÇARI, um total que incluía MANAUS.
+ */
+export async function panoramaDoContexto(
+  db: Database,
+  ctx: ContextoResolvido,
+): Promise<Evidencia> {
+  const filtro = contextFilter("s", ctx.contexto);
+
+  const { rows } = await db.execute<LinhaPanorama>(sql`
+    WITH vig AS (
+      SELECT s.id, s.effective_date
+        FROM snapshot s
+       WHERE s.status <> 'SUPERSEDED' AND ${filtro}
+    ),
+    cs AS (
+      SELECT c.id
+        FROM change_set c
+        JOIN vig ON vig.id = c.snapshot_b_id
+    )
+    SELECT
+      (SELECT count(*) FROM vig)                                    AS vigencias,
+      (SELECT min(effective_date)::text FROM vig)                   AS primeira,
+      (SELECT max(effective_date)::text FROM vig)                   AS ultima,
+      (SELECT count(DISTINCT f.entity_id) FROM fact f
+        JOIN vig ON vig.id = f.snapshot_id)                         AS ativos,
+      (SELECT count(DISTINCT sa.attribute_id) FROM snapshot_attribute sa
+        JOIN vig ON vig.id = sa.snapshot_id)                        AS atributos,
+      (SELECT count(*) FROM "change" ch JOIN cs ON cs.id = ch.change_set_id
+        WHERE ch.change_type = 'VALUE_CHANGED')                     AS alteracoes,
+      (SELECT count(*) FROM "change" ch JOIN cs ON cs.id = ch.change_set_id
+        WHERE ch.impact_confidence = 'CALCULATED')                  AS com_impacto,
+      (SELECT count(*) FROM "change" ch JOIN cs ON cs.id = ch.change_set_id
+        WHERE ch.comparability = 'INCONCLUSIVE')                    AS inconclusivas
+  `);
+
+  const t = rows[0];
+  const numero = (v: unknown) => Number(v ?? 0);
+
+  return {
+    ferramenta: "panoramaDoContexto",
+    titulo: `O que ${ctx.info.label} tem importado`,
+    fatos: [
+      {
+        rotulo: "Vigências",
+        valor: INTEIRO.format(numero(t?.vigencias)),
+        detalhe:
+          t?.primeira && t?.ultima
+            ? `de ${rotuloDoPeriodo(t.primeira)} a ${rotuloDoPeriodo(t.ultima)}`
+            : undefined,
+      },
+      { rotulo: "Ativos", valor: INTEIRO.format(numero(t?.ativos)), detalhe: "veículos distintos neste recorte" },
+      {
+        rotulo: "Colunas que este recorte traz",
+        valor: INTEIRO.format(numero(t?.atributos)),
+      },
+      {
+        rotulo: "Alterações registradas",
+        valor: INTEIRO.format(numero(t?.alteracoes)),
+        detalhe: cobertura(numero(t?.com_impacto), numero(t?.alteracoes)),
+      },
+      {
+        rotulo: "Alterações inconclusivas",
+        valor: INTEIRO.format(numero(t?.inconclusivas)),
+        detalhe: "comparações que o produto se recusa a concluir",
+      },
+    ],
+    numeros: [
+      numero(t?.vigencias),
+      numero(t?.ativos),
+      numero(t?.atributos),
+      numero(t?.alteracoes),
+      numero(t?.com_impacto),
+      numero(t?.inconclusivas),
+    ],
+    origem: `agregação sobre snapshot/fact/change filtrada por ${ctx.info.label}`,
+    recorte: recorteDe(ctx.info),
+    tela: { label: "Dados", href: "/dados" },
+    nota:
+      ctx.outros.length > 0
+        ? `Só ${ctx.info.label}. Os outros contextos (${ctx.outros
+            .map((c) => c.label)
+            .join(", ")}) não entram nestes números.`
+        : undefined,
+  };
+}
+
+// ── Movimento de uma vigência ───────────────────────────────────────────────
+
+export async function resumoDaVigencia(
+  db: Database,
+  ctx: ContextoResolvido,
+  periodo?: string,
+): Promise<Evidencia | null> {
+  const visao = await getFamiliesView(db, periodo, ctx.contexto);
+  if (!visao) return null;
+  const r = visao.summary;
+  const impacto = impactoEmTexto(r.impact);
+
+  return {
+    ferramenta: "resumoDaVigencia",
+    titulo: `O que mudou em ${visao.periodLabel}`,
+    fatos: [
+      {
+        rotulo: "Alterações",
+        valor: INTEIRO.format(r.changes),
+        detalhe: cobertura(r.impact.calculatedChanges, r.changes),
+      },
+      {
+        rotulo: "Veículos afetados",
+        valor: INTEIRO.format(r.vehiclesTouched),
+        detalhe: "ativos distintos — o mesmo caminhão não conta duas vezes",
+      },
+      {
+        rotulo: "Impacto apurado",
+        valor: impacto ?? "não apurável com este export",
+        detalhe: impacto
+          ? "por periodicidade, nunca somado entre elas"
+          : `${INTEIRO.format(r.notCalculable)} alterações sem preço`,
+      },
+      ...(r.topParameters.length > 0
+        ? [
+            {
+              rotulo: "Parâmetros que mais mexeram",
+              valor: r.topParameters
+                .slice(0, 3)
+                .map((p) => `${p.name} (${INTEIRO.format(p.changes)})`)
+                .join(", "),
+            },
+          ]
+        : []),
+    ],
+    numeros: [
+      r.changes,
+      r.vehiclesTouched,
+      r.impact.calculatedChanges,
+      r.notCalculable,
+      ...numerosDoImpacto(r.impact),
+      ...r.topParameters.slice(0, 3).map((p) => p.changes),
+    ],
+    origem: `getFamiliesView · ${visao.periodLabel} · ${ctx.info.label}`,
+    recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
+    tela: { label: "Parâmetros", href: "/parametros" },
+  };
+}
+
+/** O que mudou numa gaveta específica, nesta vigência. */
+export async function movimentoDoParametro(
+  db: Database,
+  ctx: ContextoResolvido,
+  alvo: Alvo,
+  periodo?: string,
+): Promise<Evidencia | null> {
+  const visao = await getFamiliesView(db, periodo, ctx.contexto);
+  if (!visao) return null;
+
+  for (const familia of visao.families) {
+    for (const p of familia.parameters) {
+      if (p.name !== alvo.parametro) continue;
+      const impacto = impactoEmTexto(p.impact);
+      return {
+        ferramenta: "movimentoDoParametro",
+        titulo: `${p.name} em ${visao.periodLabel}`,
+        fatos: [
+          { rotulo: "Família", valor: familia.name },
+          {
+            rotulo: "Alterações",
+            valor: INTEIRO.format(p.changes),
+            detalhe: cobertura(p.impact.calculatedChanges, p.changes),
+          },
+          { rotulo: "Veículos afetados", valor: INTEIRO.format(p.vehicles) },
+          {
+            rotulo: "Impacto apurado",
+            valor: impacto ?? "não apurável com este export",
+            detalhe: impacto ? undefined : `${INTEIRO.format(p.impact.notCalculable)} sem preço`,
+          },
+          ...(p.groups.length > 0
+            ? [{ rotulo: "O que mudou dentro dela", valor: p.groups.slice(0, 5).map((g) => g.title).join(", ") }]
+            : []),
+        ],
+        numeros: [p.changes, p.vehicles, p.impact.calculatedChanges, ...numerosDoImpacto(p.impact)],
+        origem: `getFamiliesView → ${familia.code} / ${p.key} · ${visao.periodLabel}`,
+        recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
+        tela: { label: "Parâmetros", href: "/parametros" },
+      };
+    }
+  }
+
+  /*
+    A gaveta existe e não se mexeu.
+
+    `getFamiliesView` só devolve o que mudou, então uma gaveta parada some da
+    visão — e a versão anterior devolvia `null`, que a orquestração lia como
+    "não consultei nada". Numa conversa isso aparecia assim: alguém perguntava
+    "quanto mudou o IPVA em agosto?", ouvia a série, perguntava "por quê?" e
+    recebia silêncio. Zero alteração é uma resposta, e é diferente de não ter
+    procurado.
+  */
+  return {
+    ferramenta: "movimentoDoParametro",
+    titulo: `${alvo.parametro} em ${visao.periodLabel}`,
+    fatos: [
+      {
+        rotulo: "Alterações",
+        valor: INTEIRO.format(0),
+        detalhe: "esta gaveta não registrou alteração nesta vigência",
+      },
+    ],
+    numeros: [0],
+    origem: `getFamiliesView → ${alvo.parametro} · ${visao.periodLabel}`,
+    recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
+    tela: { label: "Parâmetros", href: "/parametros" },
+    nota:
+      "Uma gaveta sem alteração não aparece na tela de Parâmetros da vigência. " +
+      "Isso é ausência de movimento, não ausência de dado.",
+  };
+}
+
+// ── Série e intervalo ───────────────────────────────────────────────────────
+
+/**
+ * A evolução de uma coluna ao longo das vigências.
+ *
+ * A série devolve numerador, denominador e média em cada ponto, e esta
+ * evidência os mostra os três — porque a soma da frota não é o preço: o total
+ * de IPVA sobe quando entram dois cavalos, sem nada ter encarecido.
+ */
+export async function serieDoParametro(
+  db: Database,
+  ctx: ContextoResolvido,
+  codigo: string,
+): Promise<Evidencia | null> {
+  const serie = await getAttributeSeries(db, codigo, ctx.contexto);
+  if (!serie || serie.points.length === 0) return null;
+
+  const pontos = serie.points;
+  const primeiro = pontos[0];
+  const ultimo = pontos[pontos.length - 1];
+
+  const fatos: Fato[] = [
+    { rotulo: "Coluna", valor: serie.title, detalhe: codigo },
+    {
+      rotulo: "Semântica",
+      valor: serie.semanticsStatus,
+      detalhe: serie.summable
+        ? "somável — o total da frota é uma leitura legítima"
+        : "não somável — só a média e os extremos fazem sentido",
+    },
+    {
+      rotulo: "Pontos na série",
+      valor: INTEIRO.format(pontos.length),
+      detalhe: `de ${primeiro.periodLabel} a ${ultimo.periodLabel}`,
+    },
+  ];
+
+  const numeros: number[] = [pontos.length];
+
+  for (const ponto of pontos) {
+    const partes: string[] = [];
+    if (ponto.total !== null) {
+      partes.push(`total ${ponto.total.toLocaleString("pt-BR")}`);
+      numeros.push(ponto.total);
+    }
+    if (ponto.average !== null) {
+      partes.push(`média ${ponto.average.toLocaleString("pt-BR")}`);
+      numeros.push(ponto.average);
+    }
+    partes.push(`${INTEIRO.format(ponto.numericVehicles)} veículos com número`);
+    numeros.push(ponto.numericVehicles);
+    fatos.push({ rotulo: ponto.periodLabel, valor: partes.join(" · ") });
+  }
+
+  return {
+    ferramenta: "serieDoParametro",
+    titulo: `Evolução de ${serie.title}`,
+    fatos,
+    numeros,
+    origem: `getAttributeSeries(${codigo}) · ${ctx.info.label}`,
+    recorte: recorteDe(ctx.info, {
+      intervalo: `${primeiro.periodLabel} → ${ultimo.periodLabel}`,
+    }),
+    tela: { label: "Parâmetros", href: "/parametros" },
+    nota: serie.note,
+    // O valor de hoje é o último ponto. "Pontos na série: 9" é como a série é
+    // feita, não o que ela diz.
+    destaque: ultimo.periodLabel,
+  };
+}
+
+/**
+ * O intervalo, nas duas leituras que o produto mantém.
+ *
+ * Movimentos do período soma as comparações do caminho; ponta a ponta compara
+ * só as extremidades. Os dois números divergem de propósito quando um valor
+ * subiu e voltou, e devolver só um deles seria decidir a pergunta por quem
+ * perguntou.
+ */
+export async function compararIntervalo(
+  db: Database,
+  ctx: ContextoResolvido,
+  de?: string,
+  ate?: string,
+  gavetas?: string[],
+): Promise<Evidencia | null> {
+  const [movimento, pontaAPonta] = await Promise.all([
+    getRangeAnalysis(db, de, ate, ctx.contexto, gavetas),
+    getEndToEndAnalysis(db, de, ate, ctx.contexto, gavetas),
+  ]);
+  if (!movimento) return null;
+
+  const impactoMovimento = impactoEmTexto(movimento.impact);
+  const fatos: Fato[] = [
+    {
+      rotulo: "Intervalo",
+      valor: `${movimento.fromLabel} → ${movimento.toLabel}`,
+      detalhe: `${INTEIRO.format(movimento.totals.comparisons)} comparação(ões) somada(s)`,
+    },
+    {
+      rotulo: "Movimentos do período",
+      valor: impactoMovimento ?? "não apurável",
+      detalhe: `${INTEIRO.format(movimento.totals.changes)} alterações · um valor que subiu e voltou conta duas vezes`,
+    },
+  ];
+
+  const numeros = [
+    movimento.totals.changes,
+    movimento.totals.comparisons,
+    ...numerosDoImpacto(movimento.impact),
+  ];
+
+  if (pontaAPonta) {
+    const impactoPonta = impactoEmTexto(pontaAPonta.impact);
+    fatos.push({
+      rotulo: "Ponta a ponta",
+      valor: impactoPonta ?? "não apurável",
+      detalhe: `${INTEIRO.format(pontaAPonta.totals.changes)} alterações que permanecem · o que subiu e voltou some aqui`,
+    });
+    numeros.push(pontaAPonta.totals.changes, ...numerosDoImpacto(pontaAPonta.impact));
+  }
+
+  return {
+    ferramenta: "compararIntervalo",
+    titulo: `${movimento.fromLabel} → ${movimento.toLabel}`,
+    fatos,
+    numeros,
+    origem: `getRangeAnalysis + getEndToEndAnalysis · ${ctx.info.label}`,
+    recorte: recorteDe(ctx.info, {
+      intervalo: `${movimento.fromLabel} → ${movimento.toLabel}`,
+    }),
+    tela: { label: "Parâmetros", href: "/parametros" },
+    nota:
+      "As duas leituras respondem perguntas diferentes e divergem de propósito: " +
+      "a primeira mede a agitação do caminho, a segunda o saldo entre as pontas.",
+  };
+}
+
+// ── Rankings ────────────────────────────────────────────────────────────────
+
+/**
+ * Onde o dinheiro foi — para baixo ou para cima.
+ *
+ * Os dois lados vêm do mesmo `ExecutiveSummary` que a tela de Parâmetros usa,
+ * e continuam separados por periodicidade. Somar perda mensal com perda anual
+ * para produzir "o total que perdemos" daria um número que nenhuma das duas
+ * grandezas justifica.
+ */
+export async function rankingDeImpacto(
+  db: Database,
+  ctx: ContextoResolvido,
+  lado: "PERDA" | "GANHO",
+  periodo?: string,
+): Promise<Evidencia | null> {
+  const visao = await getFamiliesView(db, periodo, ctx.contexto);
+  if (!visao) return null;
+  const r = visao.summary;
+
+  const porPeriodicidade = lado === "PERDA" ? r.lossesByPeriodicity : r.gainsByPeriodicity;
+  const entradas = Object.entries(porPeriodicidade).filter(([, v]) => v !== 0);
+
+  const relevantes = r.topParameters
+    .map((p) => {
+      const soma = Object.entries(p.byPeriodicity).filter(([, v]) =>
+        lado === "PERDA" ? v < 0 : v > 0,
+      );
+      return { p, soma };
+    })
+    .filter((x) => x.soma.length > 0)
+    .slice(0, 5);
+
+  const fatos: Fato[] = [
+    {
+      rotulo: lado === "PERDA" ? "Total que reduziu a remuneração" : "Total que aumentou a remuneração",
+      valor:
+        entradas.length > 0
+          ? entradas.map(([per, v]) => dinheiro(v, per)).join(" · ")
+          : lado === "PERDA"
+            ? "nenhuma perda apurada nesta vigência"
+            : "nenhum ganho apurado nesta vigência",
+      detalhe: "por periodicidade, nunca somado entre elas",
+    },
+  ];
+
+  for (const { p, soma } of relevantes) {
+    fatos.push({
+      rotulo: p.name,
+      valor: soma.map(([per, v]) => dinheiro(v, per)).join(" · "),
+      detalhe: `${p.familyName} · ${INTEIRO.format(p.changes)} alterações`,
+    });
+  }
+
+  if (relevantes.length === 0) {
+    fatos.push({
+      rotulo: "Parâmetros",
+      valor: "nenhum com impacto apurado deste lado",
+      detalhe: `${INTEIRO.format(r.notCalculable)} alterações da vigência estão sem preço`,
+    });
+  }
+
+  return {
+    ferramenta: "rankingDeImpacto",
+    titulo:
+      lado === "PERDA"
+        ? `Onde a remuneração caiu em ${visao.periodLabel}`
+        : `Onde a remuneração subiu em ${visao.periodLabel}`,
+    fatos,
+    numeros: [
+      ...entradas.map(([, v]) => v),
+      ...relevantes.flatMap(({ p, soma }) => [p.changes, ...soma.map(([, v]) => v)]),
+    ],
+    origem: `getFamiliesView → summary.${lado === "PERDA" ? "lossesByPeriodicity" : "gainsByPeriodicity"} · ${visao.periodLabel}`,
+    recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
+    tela: { label: "Parâmetros", href: "/parametros" },
+  };
+}
+
+/** Os veículos que mais mudaram nesta vigência. */
+export async function veiculosAfetados(
+  db: Database,
+  ctx: ContextoResolvido,
+  periodo?: string,
+  limite = 8,
+): Promise<Evidencia | null> {
+  const visao = await getFamiliesView(db, periodo, ctx.contexto);
+  if (!visao) return null;
+  const top = visao.summary.topVehicles.slice(0, limite);
+
+  if (top.length === 0) {
+    return {
+      ferramenta: "veiculosAfetados",
+      titulo: `Veículos afetados em ${visao.periodLabel}`,
+      fatos: [
+        {
+          rotulo: "Ranking por impacto",
+          valor: "nenhum veículo com impacto apurado",
+          detalhe: `${INTEIRO.format(visao.summary.vehiclesTouched)} veículos tiveram alteração, nenhuma com preço`,
+        },
+      ],
+      numeros: [visao.summary.vehiclesTouched],
+      origem: `getFamiliesView → summary.topVehicles · ${visao.periodLabel}`,
+      recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
+      tela: { label: "Análise de frota", href: "/analise-equipamentos" },
+    };
+  }
+
+  return {
+    ferramenta: "veiculosAfetados",
+    titulo: `Veículos mais impactados em ${visao.periodLabel}`,
+    fatos: top.map((v) => ({
+      rotulo: v.plate ?? "(sem placa)",
+      valor: Object.entries(v.byPeriodicity)
+        .map(([per, valor]) => dinheiro(valor, per))
+        .join(" · "),
+      detalhe: `${INTEIRO.format(v.changes)} alterações${v.entityType ? ` · ${v.entityType.toLowerCase()}` : ""}`,
+    })),
+    numeros: [
+      visao.summary.vehiclesTouched,
+      ...top.flatMap((v) => [v.changes, ...Object.values(v.byPeriodicity)]),
+    ],
+    origem: `getFamiliesView → summary.topVehicles · ${visao.periodLabel}`,
+    recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
+    tela: { label: "Análise de frota", href: "/analise-equipamentos" },
+    nota: "Ordenado pelo maior valor absoluto dentro de uma periodicidade, nunca pela soma entre elas.",
+  };
+}
+
+/** O que mudou e não pôde ser precificado — e por quê. */
+export async function semParaPrecificar(
+  db: Database,
+  ctx: ContextoResolvido,
+  periodo?: string,
+): Promise<Evidencia | null> {
+  const visao = await getFamiliesView(db, periodo, ctx.contexto);
+  if (!visao) return null;
+  const r = visao.summary;
+
+  const travados = visao.families
+    .flatMap((f) => f.parameters.map((p) => ({ familia: f.name, p })))
+    .filter((x) => x.p.impact.notCalculable > 0)
+    .sort((a, b) => b.p.impact.notCalculable - a.p.impact.notCalculable)
+    .slice(0, 8);
+
+  return {
+    ferramenta: "semParaPrecificar",
+    titulo: `O que ficou sem preço em ${visao.periodLabel}`,
+    fatos: [
+      {
+        rotulo: "Alterações sem impacto calculável",
+        valor: INTEIRO.format(r.notCalculable),
+        detalhe: cobertura(r.impact.calculatedChanges, r.changes),
+      },
+      {
+        rotulo: "Grupos travados por semântica",
+        valor: INTEIRO.format(r.locked),
+        detalhe: "monetários e somáveis, à espera de confirmação na Curadoria",
+      },
+      ...travados.map((x) => ({
+        rotulo: x.p.name,
+        valor: `${INTEIRO.format(x.p.impact.notCalculable)} sem preço`,
+        detalhe: x.familia,
+      })),
+    ],
+    numeros: [
+      r.notCalculable,
+      r.locked,
+      r.impact.calculatedChanges,
+      r.changes,
+      ...travados.map((x) => x.p.impact.notCalculable),
+    ],
+    origem: `getFamiliesView · ${visao.periodLabel} · ${ctx.info.label}`,
+    recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
+    tela: { label: "Curadoria", href: "/curadoria" },
+    nota:
+      "Sem preço não é sem impacto: é o valor que este export não sustenta. " +
+      "A confirmação da semântica em Curadoria é o que destrava cada um deles.",
+  };
+}
+
+/** De onde veio um número: a célula da planilha que o originou. */
+export async function procedenciaDaAlteracao(
+  db: Database,
+  ctx: ContextoResolvido,
+  changeId: number,
+): Promise<Evidencia | null> {
+  const proveniencia = await getChangeProvenance(db, changeId);
+  if (!proveniencia) return null;
+  const p = proveniencia as Record<string, unknown>;
+  const texto = (chave: string) => (p[chave] == null ? "—" : String(p[chave]));
+
+  return {
+    ferramenta: "procedenciaDaAlteracao",
+    titulo: "De onde veio este número",
+    fatos: [
+      { rotulo: "Atributo", valor: texto("attribute_code") },
+      { rotulo: "Valor anterior", valor: texto("value_before") },
+      { rotulo: "Valor novo", valor: texto("value_after") },
+      { rotulo: "Planilha", valor: texto("source_sheet"), detalhe: texto("source_cell") },
+    ],
+    numeros: [],
+    origem: `getChangeProvenance(${changeId})`,
+    recorte: recorteDe(ctx.info),
+    tela: { label: "Alterações", href: "/alteracoes" },
+  };
+}
+
+/** Os veículos de um grupo, com valor anterior e novo de cada um. */
+export async function veiculosDoGrupo(
+  db: Database,
+  ctx: ContextoResolvido,
+  periodo: string,
+  codigo: string,
+  equipamento: string,
+): Promise<Evidencia | null> {
+  const veiculos = await getGroupVehicles(db, {
+    period: periodo,
+    attributeCode: codigo,
+    entityType: equipamento,
+    scopeHash: ctx.contexto.scopeHash,
+    channel: ctx.contexto.channel,
+  });
+  if (veiculos.length === 0) return null;
+
+  return {
+    ferramenta: "veiculosDoGrupo",
+    titulo: `Veículos com alteração em ${codigo}`,
+    fatos: veiculos.slice(0, 10).map((v) => ({
+      rotulo: v.plate ?? "(sem placa)",
+      valor: `${v.valueBefore ?? "—"} → ${v.valueAfter ?? "—"}`,
+      detalhe:
+        v.impactAmount !== null && v.impactPeriodicity
+          ? dinheiro(v.impactAmount, v.impactPeriodicity)
+          : "sem preço",
+    })),
+    numeros: veiculos.flatMap((v) =>
+      [v.numericBefore, v.numericAfter, v.impactAmount].filter(
+        (n): n is number => n !== null,
+      ),
+    ),
+    origem: `getGroupVehicles(${codigo}, ${equipamento}) · ${rotuloDoPeriodo(periodo)}`,
+    recorte: recorteDe(ctx.info, { vigencia: rotuloDoPeriodo(periodo) }),
+    tela: { label: "Alterações", href: "/alteracoes" },
+  };
+}
+
+// ── Book do Operador ────────────────────────────────────────────────────────
+
+interface EntradaDoBook extends Record<string, unknown> {
+  blockKey: string;
+  blockCategory: string;
+  blockTitle: string;
+  kind: string;
+  revision: number;
+  filename: string | null;
+  bodyText: string | null;
+  note: string | null;
+  createdBy: string;
+  createdAt: Date;
+}
+
+async function entradasVigentes(db: Database): Promise<EntradaDoBook[]> {
+  const { rows } = await db.execute<EntradaDoBook>(sql`
+    SELECT DISTINCT ON (block_key)
+           block_key AS "blockKey", block_category AS "blockCategory",
+           block_title AS "blockTitle", kind::text AS kind, revision,
+           filename, body_text AS "bodyText", note,
+           created_by AS "createdBy", created_at AS "createdAt"
+      FROM book_entry
+     ORDER BY block_key, revision DESC
+  `);
+  return rows;
+}
+
+/**
+ * A regra registrada de um bloco.
+ *
+ * O Book não tem recorte por unidade: uma regra de remuneração vale para o
+ * contrato, não para uma operação. Por isso esta evidência sai sem `recorte` —
+ * e a validação sabe que a ausência aqui é deliberada, não esquecimento.
+ */
+export async function regraDoBook(
+  db: Database,
+  termo: string,
+): Promise<Evidencia | null> {
+  const entradas = await entradasVigentes(db);
+  const alvo = termo.toLowerCase();
+  const achado = entradas.find(
+    (e) =>
+      e.blockTitle.toLowerCase().includes(alvo) ||
+      alvo.includes(e.blockTitle.toLowerCase()) ||
+      `${e.blockCategory} ${e.blockTitle}`.toLowerCase().includes(alvo),
+  );
+  if (!achado) return null;
+
+  const [{ total }] = await db
+    .select({ total: sql<number>`count(*)`.mapWith(Number) })
+    .from(bookEntryTable)
+    .where(eq(bookEntryTable.blockKey, achado.blockKey));
+
+  const fatos: Fato[] = [
+    { rotulo: "Bloco", valor: achado.blockTitle, detalhe: achado.blockCategory },
+    {
+      rotulo: "Revisão vigente",
+      valor: String(achado.revision),
+      detalhe:
+        total === 1
+          ? "1 revisão guardada — o Book não apaga nenhuma"
+          : `${INTEIRO.format(total)} revisões guardadas — nenhuma foi apagada`,
+    },
+    {
+      rotulo: "Tipo",
+      valor: achado.kind === "TEXTO" ? "regra escrita no sistema" : "documento anexado",
+      detalhe: achado.filename ?? undefined,
+    },
+  ];
+
+  if (achado.kind === "TEXTO" && achado.bodyText) {
+    fatos.push({ rotulo: "A regra, como foi escrita", valor: trecho(achado.bodyText) });
+  }
+
+  return {
+    ferramenta: "regraDoBook",
+    titulo: `Book · ${achado.blockTitle}`,
+    fatos,
+    numeros: [achado.revision, total],
+    origem: `book_entry · bloco "${achado.blockKey}" · revisão ${achado.revision}`,
+    tela: { label: "Book do Operador", href: "/book-operador" },
+    nota:
+      achado.kind === "DOCUMENTO"
+        ? "A regra está no arquivo anexado. Este assistente não transcreve documento que não leu."
+        : undefined,
+  };
+}
+
+/** Quais blocos já têm regra registrada. */
+export async function coberturaDoBook(db: Database): Promise<Evidencia> {
+  const entradas = await entradasVigentes(db);
+  const porTipo = entradas.reduce<Record<string, number>>((acc, e) => {
+    acc[e.kind] = (acc[e.kind] ?? 0) + 1;
+    return acc;
+  }, {});
+
+  return {
+    ferramenta: "coberturaDoBook",
+    titulo: "Book do Operador — o que já tem regra",
+    fatos: [
+      {
+        rotulo: "Blocos com regra registrada",
+        valor: INTEIRO.format(entradas.length),
+        detalhe: `${INTEIRO.format(porTipo.TEXTO ?? 0)} como texto · ${INTEIRO.format(porTipo.DOCUMENTO ?? 0)} como documento`,
+      },
+      ...(entradas.length > 0
+        ? [
+            {
+              rotulo: "Blocos",
+              valor: entradas.map((e) => `${e.blockTitle} (rev. ${e.revision})`).join(", "),
+            },
+          ]
+        : []),
+    ],
+    numeros: [entradas.length, porTipo.TEXTO ?? 0, porTipo.DOCUMENTO ?? 0],
+    origem: "book_entry · entrada vigente por bloco",
+    tela: { label: "Book do Operador", href: "/book-operador" },
+    nota:
+      "O total de blocos que o Freightech publica não é contado aqui: o índice é " +
+      "transcrição da tela de origem e o assistente conhece apenas o que foi registrado.",
+  };
+}
+
+/** Busca no texto das regras escritas. Documentos anexados não são alcançados. */
+export async function buscarNoTextoDoBook(
+  db: Database,
+  termo: string,
+): Promise<Evidencia | null> {
+  if (termo.trim().length < 3) return null;
+
+  const rows = await db
+    .select({
+      blockTitle: bookEntryTable.blockTitle,
+      blockCategory: bookEntryTable.blockCategory,
+      revision: bookEntryTable.revision,
+      bodyText: bookEntryTable.bodyText,
+    })
+    .from(bookEntryTable)
+    .where(
+      and(eq(bookEntryTable.kind, "TEXTO"), sql`${bookEntryTable.bodyText} ILIKE ${`%${termo.trim()}%`}`),
+    )
+    .orderBy(desc(bookEntryTable.createdAt))
+    .limit(4);
+
+  if (rows.length === 0) return null;
+
+  return {
+    ferramenta: "buscarNoTextoDoBook",
+    titulo: `Regras escritas que mencionam "${termo}"`,
+    fatos: rows.map((r) => ({
+      rotulo: `${r.blockCategory} · ${r.blockTitle} (rev. ${r.revision})`,
+      valor: trecho(r.bodyText ?? "", 400),
+    })),
+    numeros: [],
+    origem: "book_entry · busca textual em entradas do tipo TEXTO",
+    tela: { label: "Book do Operador", href: "/book-operador" },
+    nota:
+      "A busca alcança apenas regras escritas no sistema. Documento anexado não é " +
+      "procurável por texto — se a regra estiver num PDF, ela não aparece aqui.",
+  };
+}
