@@ -694,11 +694,48 @@ export const ARTIGOS: Artigo[] = [
       "**Curadoria** — a semântica dos atributos e as confirmações.\n" +
       "**Versões** — mudança na fonte e correção da interpretação.\n" +
       "**Importações** — subir a planilha e promover.\n" +
+      "**Balanço de massa** — se toda célula do arquivo chegou a algum lugar.\n" +
       "**Análise de frota** — cavalos e carretas.\n" +
       "**Usuário / Configurações** — contas e acesso.\n\n" +
       "Um item que não funciona não entra no menu: parecer o Freightech não autoriza " +
       "prometer uma tela que não existe.",
     fonte: "artifacts/freightaudit/src/components/layout/sidebar.tsx",
+  },
+
+  {
+    id: "balanco-de-massa",
+    area: "CONCEITO",
+    titulo: "O que o Balanço de Massa confere",
+    perguntas: [
+      "o que é o balanço de massa",
+      "como sei que nenhum dado se perdeu na importação",
+      "a planilha inteira entrou no sistema",
+      "o que o sistema descartou do arquivo",
+    ],
+    termos: [
+      "balanco", "balanco de massa", "conservacao", "sumiu", "perdeu", "perda",
+      "descarte", "residuo", "celula", "celulas", "conferencia", "fechamento",
+      "conciliacao", "o que nao entrou",
+    ],
+    corpo:
+      "Todas as outras telas respondem *de onde veio este número*. O Balanço de Massa " +
+      "responde à pergunta inversa: **toda célula que o arquivo trouxe chegou a algum " +
+      "lugar?** As duas importam, e só a segunda pega o defeito que não se vê — dado " +
+      "que some não aparece em tela nenhuma, porque o que falta não é exibido.\n\n" +
+      "A conta tem três etapas. Da planilha ao preparo, célula a célula: cada uma sai " +
+      "por um destino declarado — virou fato, virou cabeçalho, virou vigência ou placa, " +
+      "foi descartada por regra escrita, ou foi recusada com motivo. Do preparo à " +
+      "vigência, fato a fato. E o portão da semântica, que separa o fato que já pode " +
+      "entrar numa soma do que ainda espera confirmação da Curadoria.\n\n" +
+      "Três palavras que a tela não deixa se confundirem. **Descarte** é saída sem " +
+      "perda de informação: uma linha em branco, uma aba de pivô que só refaz conta " +
+      "sobre dados que já entraram. **Perda declarada** é o arquivo trazer e o sistema " +
+      "recusar, com motivo e com o endereço da célula — uma linha sem placa, uma coluna " +
+      "sem cabeçalho, duas colunas que colidem no mesmo código. **Resíduo** é célula " +
+      "que sumiu sem destino, e é a única das três que significa defeito: o balanço " +
+      "fecha quando ele é zero, e uma importação pode fechar tendo perdas.",
+    fonte: "lib/balance/src/destinos.ts",
+    tela: { label: "Balanço de massa", href: "/balanco-massa" },
   },
 
   // ══════════════════════════════════════════════════════════════════════════
