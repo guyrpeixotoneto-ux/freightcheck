@@ -13,6 +13,14 @@
  * sai a redação em código. Não é desconfiança do modelo: é que numa aplicação
  * de auditoria a diferença entre um número consultado e um número plausível não
  * pode depender de ninguém reler.
+ *
+ * **E a trava não afrouxou para o texto poder sair enquanto é escrito.** A
+ * conferência passou a rodar **por frase**, antes de cada pedaço chegar à tela:
+ * uma frase só é liberada depois de os seus números e as suas citações
+ * passarem. Como a conferência é por token contra um conjunto fechado, o
+ * veredito por frase é o mesmo da resposta inteira — o que muda é o momento em
+ * que ele acontece, não o rigor. Na primeira frase que reprova, o fluxo para; o
+ * evento final da rota carrega o texto que vale, e é ele que a tela mostra.
  */
 
 import type { Database } from "@workspace/db";
@@ -22,7 +30,15 @@ import {
   type EstadoDaConversa,
 } from "./conversa";
 import type { Evidencia, Fato } from "./ferramentas";
-import { disponivel, modeloConfigurado, redigir } from "./llm";
+import {
+  disponivel,
+  modeloConfigurado,
+  redigir,
+  redigirEmFluxo,
+  type PedidoDeRedacao,
+  type TurnoAnterior,
+} from "./llm";
+import { registrar } from "./observabilidade";
 import type { Intencao } from "./interpretacao";
 import {
   citacoesSemFonte,
@@ -318,6 +334,69 @@ function redacaoDeterministica(dossie: Dossie): string {
   return partes.join("\n\n");
 }
 
+// ── O portão do texto em fluxo ──────────────────────────────────────────────
+
+/**
+ * A última posição em que dá para cortar sem partir uma frase.
+ *
+ * Quebra de linha sempre corta. Ponto, interrogação e exclamação só cortam
+ * quando vem espaço depois — é o que separa o fim de "…caiu em onze veículos."
+ * do ponto de milhar em "28.511,24", que não pode virar fronteira sob pena de o
+ * número chegar pela metade à conferência e reprovar por não existir no dossiê.
+ */
+function ultimaFronteira(texto: string): number {
+  let corte = -1;
+  for (let i = 0; i < texto.length; i++) {
+    const c = texto[i];
+    if (c === "\n") {
+      corte = i + 1;
+    } else if ((c === "." || c === "!" || c === "?") && /\s/.test(texto[i + 1] ?? "")) {
+      corte = i + 1;
+    }
+  }
+  return corte;
+}
+
+/**
+ * Deixa passar o que já foi conferido, e fecha na primeira frase que reprova.
+ *
+ * A alternativa era transmitir cru e corrigir depois — mostrar um número que
+ * ninguém consultou e retirá-lo em seguida. Num produto cuja regra é não exibir
+ * o que não se pode sustentar, o instante em que o número aparece na tela já é
+ * o dano; retirá-lo depois não desfaz a leitura.
+ */
+export function portaoDeLastro(dossie: Dossie, aoTexto: (pedaco: string) => void) {
+  let bruto = "";
+  let liberado = 0;
+  let fechado = false;
+
+  return {
+    receber(pedaco: string): void {
+      bruto += pedaco;
+      if (fechado) return;
+
+      const pendente = bruto.slice(liberado);
+      const corte = ultimaFronteira(pendente);
+      if (corte <= 0) return;
+
+      const candidato = pendente.slice(0, corte);
+      if (
+        numerosSemLastro(candidato, dossie).length > 0 ||
+        citacoesSemFonte(candidato, dossie).length > 0
+      ) {
+        // A resposta inteira vai ser descartada pela conferência final — o
+        // veredito por frase e o da resposta inteira são o mesmo. Parar aqui só
+        // evita continuar mostrando um texto que já não vale.
+        fechado = true;
+        return;
+      }
+
+      aoTexto(candidato);
+      liberado += corte;
+    },
+  };
+}
+
 // ── Sugestões contextuais ───────────────────────────────────────────────────
 
 /** As próximas perguntas que fazem sentido depois desta. */
@@ -376,6 +455,24 @@ export interface PerguntaOptions {
   semIa?: boolean;
   /** Repassado à orquestração: cada etapa, no instante em que começa. */
   aoAvancar?: (etapa: Etapa) => void;
+  /**
+   * Os turnos anteriores desta conversa, do mais antigo ao mais recente.
+   *
+   * O estado estruturado (`estado`) resolve o que a próxima pergunta herda em
+   * parâmetro, período e recorte; ele não resolve o que se pede em linguagem.
+   * "Explica melhor" e "e por que isso importa?" só têm âncora se o modelo vir
+   * o que foi dito — e é para isso que isto existe.
+   */
+  historico?: TurnoAnterior[];
+  /**
+   * Chamado com cada pedaço de texto **já conferido**, enquanto o modelo
+   * escreve. Quando presente, a redação passa a ser em fluxo.
+   *
+   * O que chega aqui já passou pela trava de lastro; o que não passou não chega
+   * — e nesse caso o texto final desta função é a redação em código, que o
+   * chamador deve usar no lugar do que transmitiu.
+   */
+  aoTexto?: (pedaco: string) => void;
 }
 
 /**
@@ -402,7 +499,24 @@ export async function responder(
   let numerosRecusados: string[] = [];
 
   if (!opcoes.semIa && disponivel()) {
-    const doModelo = await redigir({ pergunta, dossie });
+    const pedido: PedidoDeRedacao = {
+      pergunta,
+      dossie,
+      ...(opcoes.historico?.length ? { historico: opcoes.historico } : {}),
+    };
+
+    /*
+      Com `aoTexto`, o texto sai enquanto é escrito — passando pelo portão, que
+      confere frase a frase. Sem ele, é a chamada única de sempre, e as evals
+      (que não transmitem nada) seguem exercitando exatamente o caminho antigo.
+    */
+    const portao = opcoes.aoTexto ? portaoDeLastro(dossie, opcoes.aoTexto) : null;
+    const { texto: doModelo, medicao } = portao
+      ? await redigirEmFluxo(pedido, (pedaco) => portao.receber(pedaco))
+      : await redigir(pedido);
+
+    let desfecho = medicao.desfecho;
+
     if (doModelo) {
       /*
         Duas travas, e as duas descartam a resposta inteira em vez de remendá-la.
@@ -420,8 +534,11 @@ export async function responder(
         redacao = "IA";
       } else {
         numerosRecusados = [...semLastro, ...semFonte];
+        desfecho = "DESCARTADA";
       }
     }
+
+    registrar({ ...medicao, intencao: dossie.plano.intencao, desfecho });
   }
 
   const estado = avancarEstado(opcoes.estado ?? ESTADO_VAZIO, dossie);

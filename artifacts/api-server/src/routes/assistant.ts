@@ -20,6 +20,7 @@ import {
   sugestoes,
   TRECHOS,
   type EstadoDaConversa,
+  type TurnoAnterior,
 } from "@workspace/assistant";
 
 /**
@@ -129,9 +130,10 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
       return;
     }
 
-    // ---- a conversa, e o estado que ela carrega ----------------------------
+    // ---- a conversa, o estado e os turnos que ela carrega -------------------
     let conversa = null;
     let estado: EstadoDaConversa | null = null;
+    let historico: TurnoAnterior[] = [];
 
     if (typeof conversationId === "string" && conversationId) {
       const achada = await acharConversa(db, req.user!.id, conversationId);
@@ -141,6 +143,21 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
       }
       conversa = achada;
       estado = desserializarEstado(achada.state);
+      /*
+        Os turnos anteriores vão ao modelo junto com a pergunta.
+
+        O estado (`state`) diz sobre o que se falava — parâmetro, período,
+        recorte — e é o que faz "e julho?" funcionar sem modelo nenhum. O que
+        ele não carrega é o que foi *dito*, e sem isso "explica melhor" chegava
+        ao modelo como uma primeira pergunta sobre nada. O banco já guarda os
+        turnos para a tela reabrir a conversa; aqui eles passam a servir também
+        de contexto. Quantos entram é decisão da camada de linguagem, que é
+        quem paga por eles.
+      */
+      historico = (await mensagensDaConversa(db, achada.id)).map((m) => ({
+        papel: m.role === "PERGUNTA" ? ("PERGUNTA" as const) : ("RESPOSTA" as const),
+        texto: m.content,
+      }));
     }
 
     /*
@@ -151,6 +168,14 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
       pergunta conceitual que nunca calcula impacto — progresso inventado, numa
       aplicação cuja regra é não exibir o que não se pode sustentar. Aqui cada
       linha que aparece é uma etapa que a orquestração executou de fato.
+
+      O texto sai pelo mesmo canal, em `texto`, à medida que é escrito — e só
+      depois de a trava de lastro conferir a frase. Por isso a tela pode
+      renderizar o que chega sem ressalva: o que passou por aqui já é
+      conferível. O evento `resposta` continua carregando o texto que vale, e é
+      ele que a tela adota no fim — se a conferência final descartar a redação
+      do modelo, o que a pessoa leu é substituído pela redação em código, que
+      responde a mesma pergunta com o mesmo material.
 
       O corpo final é o mesmo JSON da resposta comum, no último evento: quem
       não pede `text/event-stream` continua recebendo um POST e um objeto.
@@ -179,7 +204,13 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
       },
       estado,
       semIa: semIa === true,
-      ...(emEventos ? { aoAvancar: (etapa) => emitir("etapa", etapa) } : {}),
+      ...(historico.length > 0 ? { historico } : {}),
+      ...(emEventos
+        ? {
+            aoAvancar: (etapa) => emitir("etapa", etapa),
+            aoTexto: (pedaco) => emitir("texto", { pedaco }),
+          }
+        : {}),
     });
 
     // ---- persistência ------------------------------------------------------

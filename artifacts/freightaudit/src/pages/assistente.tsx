@@ -65,6 +65,16 @@ export default function Assistente() {
   const [painelTecnico, setPainelTecnico] = useState(false);
   /** As etapas que já rodaram nesta pergunta — vindas do servidor, não do relógio. */
   const [etapas, setEtapas] = useState<Etapa[]>([]);
+  /**
+   * O texto que está chegando enquanto o modelo escreve.
+   *
+   * Só entra aqui o que o servidor já conferiu contra as evidências — a trava
+   * de lastro roda por frase, antes do envio, de modo que nada sem lastro chega
+   * a ser exibido. Quando a resposta fecha, este texto dá lugar ao da resposta
+   * final: se a conferência da resposta inteira descartar a redação do modelo,
+   * o que estava sendo lido é substituído pela redação em código.
+   */
+  const [emCurso, setEmCurso] = useState("");
 
   const campo = useRef<HTMLTextAreaElement>(null);
   const fim = useRef<HTMLDivElement>(null);
@@ -91,6 +101,7 @@ export default function Assistente() {
   const perguntar = useMutation({
     mutationFn: async (pergunta: string) => {
       setEtapas([]);
+      setEmCurso("");
       const resposta = await fetch(getApiUrl("/assistant/ask"), {
         method: "POST",
         headers: { "content-type": "application/json", accept: "text/event-stream" },
@@ -115,16 +126,27 @@ export default function Assistente() {
       if (!resposta.headers.get("content-type")?.includes("text/event-stream")) {
         return (await readJson(resposta)) as unknown as Resposta;
       }
-      return lerEventos(resposta, (etapa) => setEtapas((as) => [...as, etapa]));
+      return lerEventos(
+        resposta,
+        (etapa) => setEtapas((as) => [...as, etapa]),
+        (pedaco) => setEmCurso((texto) => texto + pedaco),
+      );
     },
     onSuccess: (r) => {
       setConversaId(r.conversationId);
       setEtapas([]);
+      setEmCurso("");
       setTurnos((atuais) => [
         ...atuais,
         { papel: "RESPOSTA", texto: r.texto, resposta: r },
       ]);
       void cliente.invalidateQueries({ queryKey: ["assistant-conversations"] });
+    },
+    onError: () => {
+      // O texto parcial não sobrevive à falha: ele era a resposta que não veio,
+      // e deixá-lo na tela ao lado do aviso de erro sugeriria o contrário.
+      setEmCurso("");
+      setEtapas([]);
     },
   });
 
@@ -163,7 +185,7 @@ export default function Assistente() {
 
   useEffect(() => {
     fim.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [turnos, perguntar.isPending]);
+  }, [turnos, perguntar.isPending, emCurso]);
 
   const ultima = [...turnos].reverse().find((t) => t.papel === "RESPOSTA")?.resposta;
   const vazia = turnos.length === 0;
@@ -211,7 +233,18 @@ export default function Assistente() {
                 <Mensagem key={i} turno={turno} />
               ))}
 
-              {perguntar.isPending && <Trabalhando etapas={etapas} />}
+              {/*
+                Enquanto não há texto, o que se mostra são as etapas; quando o
+                primeiro pedaço chega, elas saem de cena e a resposta começa a
+                aparecer. As duas coisas juntas seriam ruído: ninguém lê "o que
+                está sendo consultado" enquanto lê a resposta da consulta.
+              */}
+              {perguntar.isPending &&
+                (emCurso ? (
+                  <Mensagem turno={{ papel: "RESPOSTA", texto: emCurso }} />
+                ) : (
+                  <Trabalhando etapas={etapas} />
+                ))}
 
               {perguntar.error && (
                 <ApiErrorNotice
@@ -291,15 +324,21 @@ function Abertura({ aoEscolher }: { aoEscolher: (p: string) => void }) {
 // ── Indicador de processamento ──────────────────────────────────────────────
 
 /**
- * Lê o stream de etapas e devolve a resposta do último evento.
+ * Lê o stream e devolve a resposta do último evento.
  *
- * O servidor emite `etapa` a cada passo da orquestração e `resposta` no fim.
- * Um `erro` no meio vira exceção aqui, porque num stream o cabeçalho já saiu
- * como 200 e não há status para trocar.
+ * O servidor emite `etapa` a cada passo da orquestração, `texto` a cada pedaço
+ * de resposta já conferido, e `resposta` no fim. Um `erro` no meio vira exceção
+ * aqui, porque num stream o cabeçalho já saiu como 200 e não há status para
+ * trocar.
+ *
+ * O texto do evento final é a versão que vale — não a soma dos pedaços. Quando
+ * a conferência da resposta inteira descarta a redação do modelo, os dois
+ * diferem, e é o final que a tela adota.
  */
 async function lerEventos(
   resposta: Response,
   aoAvancar: (etapa: Etapa) => void,
+  aoTexto: (pedaco: string) => void,
 ): Promise<Resposta> {
   const leitor = resposta.body?.getReader();
   if (!leitor) throw new Error("O servidor não devolveu corpo.");
@@ -323,6 +362,7 @@ async function lerEventos(
       if (!nome || !dados) continue;
       const carga = JSON.parse(dados);
       if (nome === "etapa") aoAvancar(carga as Etapa);
+      else if (nome === "texto") aoTexto(String(carga.pedaco ?? ""));
       else if (nome === "resposta") final = carga as Resposta;
       else if (nome === "erro") throw new Error(String(carga.error ?? "Falha no servidor."));
     }
