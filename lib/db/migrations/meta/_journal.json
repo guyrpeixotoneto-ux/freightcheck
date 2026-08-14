@@ -92,6 +92,20 @@
       "when": 1786795200000,
       "tag": "0012_chamados",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1786838400000,
+      "tag": "0013_chamados_por_parametro",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786845600000,
+      "tag": "0014_chamados_formato_real",
+      "breakpoints": true
     }
   ]
 }
