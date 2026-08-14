@@ -94,3 +94,35 @@ export function modelExportPaths(): { carreta: string; cavalo: string } {
     cavalo: findAsset("Modelo_Cavalo"),
   };
 }
+
+/**
+ * Importar um fixture do começo ao fim, declarando o equipamento novo.
+ *
+ * As quatro etapas eram copiadas em cada `beforeAll`, e a cópia passou a ter
+ * consequência quando a promoção começou a exigir que equipamento novo fosse
+ * **declarado** por quem promove: o segundo arquivo de uma fixture — o cavalo,
+ * depois da carreta — é recusado sem essa declaração, como deve ser.
+ *
+ * Aqui a declaração vem do que a própria pré-visualização apontou como
+ * pendente. Isso é legítimo numa fixture, e é o que um operador faz quando os
+ * dois equipamentos são reais; o portão em si não fica sem prova — ele é
+ * testado de frente em `identidade-por-conteudo.test.ts`, com a recusa e com o
+ * que o banco tem depois dela.
+ */
+export async function importFixture(
+  db: Database,
+  filePath: string,
+): Promise<{ importRunId: string; pendingIdentities: string[] }> {
+  const { captureRaw, preview, promote, receiveFile, stage } = await import("./pipeline");
+  const received = await receiveFile(db, { filePath });
+  await captureRaw(db, received.importRunId);
+  await stage(db, received.importRunId);
+  const report = await preview(db, received.importRunId);
+  await promote(db, received.importRunId, {
+    confirmNewEntityTypes: report.pendingIdentities,
+  });
+  return {
+    importRunId: received.importRunId,
+    pendingIdentities: report.pendingIdentities,
+  };
+}

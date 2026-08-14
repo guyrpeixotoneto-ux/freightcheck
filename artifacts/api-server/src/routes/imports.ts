@@ -293,12 +293,22 @@ router.post("/imports/:id/promote", async (req, res): Promise<void> => {
       return;
     }
 
+    // Equipamento novo é declaração de quem promove, nunca efeito colateral de
+    // um nome de aba: a lista chega do corpo do pedido, o pipeline recusa o
+    // que não estiver nela, e o que sobra é a frase que a tela mostra.
+    const confirmNewEntityTypes = Array.isArray(req.body?.confirmNewEntityTypes)
+      ? (req.body.confirmNewEntityTypes as unknown[])
+          .filter((t): t is string => typeof t === "string" && t.trim() !== "")
+          .map((t) => t.trim().toUpperCase())
+      : undefined;
+
     const result = await promote(db, req.params.id, {
       // Reimportar a mesma vigência é uma correção, e correção se declara:
       // o padrão recusa, e só quem pede NEW_REVISION escreve a revisão N+1.
       onExistingSnapshot:
         req.body?.onExistingSnapshot === "NEW_REVISION" ? "NEW_REVISION" : "FAIL",
       promotedBy: req.user?.email ?? DEFAULT_ACTOR,
+      confirmNewEntityTypes,
     });
     res.json(result);
   } catch (err) {

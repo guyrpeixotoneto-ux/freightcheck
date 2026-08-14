@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
-import { createTestDatabase, modelExportPaths, type TestDb } from "@workspace/ingest/testing";
-import { captureRaw, preview, promote, receiveFile, stage } from "@workspace/ingest";
+import {
+  createTestDatabase,
+  importFixture,
+  modelExportPaths,
+  type TestDb,
+} from "@workspace/ingest/testing";
 import {
   applyConfirmations,
   backfillSemantics,
@@ -34,11 +38,7 @@ beforeAll(async () => {
   ctx = await createTestDatabase("families_real");
   const { carreta, cavalo } = modelExportPaths();
   for (const filePath of [carreta, cavalo]) {
-    const received = await receiveFile(ctx.db, { filePath });
-    await captureRaw(ctx.db, received.importRunId);
-    await stage(ctx.db, received.importRunId);
-    await preview(ctx.db, received.importRunId);
-    await promote(ctx.db, received.importRunId);
+    await importFixture(ctx.db, filePath);
   }
   await seedTaxonomy(ctx.db, "test");
   await runProposalPass(ctx.db, "test");

@@ -7,6 +7,7 @@ import {
   sourceFileTable,
   stagedFactTable,
 } from "@workspace/db";
+import { identidadesPendentes } from "./pipeline";
 import { parseVigenciaLabel } from "./vigencia";
 
 /**
@@ -123,6 +124,14 @@ export interface ImportRunStatus {
   errors: number;
   warnings: number;
   labels: string[];
+  /**
+   * Equipamentos que esta importação criaria e o dicionário não conhece.
+   *
+   * Vazio no caso comum. Preenchido, a promoção recusa até serem declarados —
+   * a tela precisa saber disso enquanto ainda dá para decidir, e não descobrir
+   * pela recusa depois do clique.
+   */
+  pendingIdentities: string[];
 }
 
 export async function getImportRunStatus(
@@ -174,6 +183,7 @@ export async function getImportRunStatus(
     errors: run.errorCount,
     warnings: run.warningCount,
     labels,
+    pendingIdentities: await identidadesPendentes(db, importRunId),
   };
 }
 

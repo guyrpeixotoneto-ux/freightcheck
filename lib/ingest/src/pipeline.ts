@@ -32,6 +32,12 @@ import {
   slugifyColumn,
   type SheetPlan,
 } from "./workbook";
+import {
+  classifyEntityType,
+  novasIdentidades,
+  type IdentityDecision,
+  type KnownEntityType,
+} from "./identity";
 import { parseVigenciaLabel } from "./vigencia";
 import { typeCell, type SentinelRule, type SourceCell } from "./values";
 
@@ -327,6 +333,39 @@ export interface StageResult {
   warnings: number;
   rowsRejected: number;
   snapshotLabels: string[];
+  /** Como a identidade de cada aba foi decidida, e com que evidência. */
+  identities: SheetIdentity[];
+}
+
+export interface SheetIdentity {
+  sheetName: string;
+  decision: IdentityDecision;
+}
+
+/**
+ * O dicionário como o classificador precisa dele: um tipo, as colunas dele.
+ *
+ * `carreta.chassi` vira `CARRETA` + `chassi`. Só o sufixo entra na comparação,
+ * porque é ele que descreve o equipamento; o prefixo *é* a identidade e usá-lo
+ * na conta seria pressupor a resposta.
+ */
+export async function tiposConhecidos(db: Database): Promise<KnownEntityType[]> {
+  const linhas = await db
+    .select({ entityType: attributeTable.entityType, code: attributeTable.code })
+    .from(attributeTable);
+
+  const porTipo = new Map<string, Set<string>>();
+  for (const linha of linhas) {
+    const ponto = linha.code.indexOf(".");
+    const slug = ponto >= 0 ? linha.code.slice(ponto + 1) : linha.code;
+    const bucket = porTipo.get(linha.entityType) ?? new Set<string>();
+    bucket.add(slug);
+    porTipo.set(linha.entityType, bucket);
+  }
+
+  return [...porTipo.entries()]
+    .map(([entityType, columns]) => ({ entityType, columns }))
+    .sort((a, b) => a.entityType.localeCompare(b.entityType));
 }
 
 interface PendingIssue {
@@ -378,13 +417,22 @@ export async function stage(
     knownAliases.map((a) => [aliasKey(a.sourceName, a.sourceSheet), a]),
   );
 
+  /*
+    O dicionário que já existe, para a identidade sair do conteúdo da aba.
+
+    Lido uma vez para a importação inteira: são dezenas de linhas, e a decisão
+    de cada aba precisa da mesma foto — duas abas do mesmo arquivo não podem
+    ser classificadas contra dicionários diferentes.
+  */
+  const conhecidos = await tiposConhecidos(db);
+
   const issues: PendingIssue[] = [];
   const stagedRows: Record<string, unknown>[] = [];
   const labels = new Set<string>();
+  const identidades: SheetIdentity[] = [];
   let rowsRejected = 0;
 
   for (const sheet of sheets) {
-    const entityType = deriveEntityTypeFromSheet(sheet.sheetName);
     const rows = await db
       .select()
       .from(rawRowTable)
@@ -415,6 +463,43 @@ export async function stage(
     const headerRow = rows.find((r) => r.isHeader);
     if (!headerRow) continue;
     const headerCells = cellsByRow.get(headerRow.id) ?? new Map();
+
+    /*
+      Que equipamento é esta aba — decidido pelas colunas dela.
+
+      A decisão desceu para depois da leitura do cabeçalho de propósito: antes
+      ela era a primeira linha do laço, tomada com o nome da aba na mão e mais
+      nada, e é exatamente essa ordem que fazia `Modelo_Carreta` virar um
+      equipamento novo. O nome continua servindo, mas de desempate — e quando
+      nem ele tem respaldo no dicionário, a decisão fica pendente em vez de
+      criar identidade em silêncio. Ver `identity.ts`.
+    */
+    const slugsDaAba = [...headerCells.values()]
+      .map((cell) => (cell.rawValue ?? "").trim())
+      .filter((header) => header !== "")
+      .map((header) => slugifyColumn(header));
+
+    const decisao = classifyEntityType(sheet.sheetName, slugsDaAba, conhecidos);
+    const entityType = decisao.entityType;
+    identidades.push({ sheetName: sheet.sheetName, decision: decisao });
+
+    issues.push({
+      importRunId,
+      rawSheetId: sheet.id,
+      severity: decisao.isNew ? "WARNING" : "INFO",
+      code: decisao.isNew
+        ? "NEW_EQUIPMENT_IDENTITY"
+        : decisao.source === "DICIONARIO"
+          ? "IDENTITY_FROM_COLUMNS"
+          : "IDENTITY_FROM_SHEET_NAME",
+      message: `Aba "${sheet.sheetName}" tratada como ${entityType}. ${decisao.reason}`,
+      detail: {
+        entityType,
+        source: decisao.source,
+        isNew: decisao.isNew,
+        scores: decisao.scores.slice(0, 4),
+      },
+    });
 
     // --- column mapping -----------------------------------------------------
     const columns: {
@@ -681,6 +766,7 @@ export async function stage(
     warnings,
     rowsRejected,
     snapshotLabels: [...labels].sort(),
+    identities: identidades,
   };
 }
 
@@ -753,6 +839,14 @@ export interface PreviewReport {
   /** True economic zeros, kept separate from every kind of absence. */
   zeroCount: number;
   blockingErrors: number;
+  /**
+   * Equipamentos que esta importação criaria e o dicionário não conhece.
+   *
+   * Vazio no caso comum. Preenchido, a promoção recusa até que estes nomes
+   * sejam declarados — é a única coisa nesta tela que exige uma decisão, e não
+   * apenas uma leitura.
+   */
+  pendingIdentities: string[];
 }
 
 /**
@@ -901,6 +995,7 @@ export async function preview(
       .sort((a, b) => b.count - a.count),
     zeroCount: zeroRow?.count ?? 0,
     blockingErrors,
+    pendingIdentities: await identidadesPendentes(db, importRunId),
   };
 }
 
@@ -915,6 +1010,21 @@ export interface PromoteOptions {
    */
   onExistingSnapshot?: "FAIL" | "NEW_REVISION";
   promotedBy?: string;
+  /**
+   * Os equipamentos novos que quem promove **declara** estar criando.
+   *
+   * Uma identidade nova é o começo de uma frota paralela: foi assim que 80
+   * carretas passaram a existir duas vezes, com dados certos e identidade
+   * errada, sem que nada falhasse. Criar equipamento continua permitido — a
+   * Ambev pode passar a entregar bitrem amanhã —, mas deixa de ser efeito
+   * colateral de um nome de aba e passa a ser declaração de quem promove.
+   *
+   * A exigência só vale quando o dicionário já conhece algum equipamento: num
+   * banco virgem não existe identidade paralela possível, e travar a primeira
+   * importação de todas seria travar o produto na partida. Aí a decisão vai
+   * como aviso para a pré-visualização, que é lida antes de promover.
+   */
+  confirmNewEntityTypes?: string[];
 }
 
 export interface PromoteResult {
@@ -933,6 +1043,52 @@ export interface PromoteResult {
 }
 
 /**
+ * Os equipamentos que esta importação criaria e o dicionário não conhece.
+ *
+ * Lido da staging, e não das abas: duas abas podem concordar em criar o mesmo
+ * equipamento novo, e o que importa é o conjunto que vai ser escrito.
+ */
+export async function identidadesPendentes(
+  db: Database,
+  importRunId: string,
+): Promise<string[]> {
+  const { rows } = await db.execute<{ entity_type: string }>(sql`
+    SELECT DISTINCT entity_type FROM staged_fact WHERE import_run_id = ${importRunId}::uuid
+  `);
+  const conhecidos = await tiposConhecidos(db);
+  // Banco virgem: não há identidade paralela possível, e a primeira
+  // importação de todas não pode depender de uma declaração que ninguém
+  // teria como fazer. O aviso da staging continua na pré-visualização.
+  if (conhecidos.length === 0) return [];
+  return novasIdentidades(
+    rows.map((r) => r.entity_type),
+    conhecidos.map((c) => c.entityType),
+  );
+}
+
+/** A recusa, escrita para quem opera — e com a saída no próprio texto. */
+async function recusarIdentidadeNaoDeclarada(
+  db: Database,
+  importRunId: string,
+  confirmados: string[] | undefined,
+): Promise<void> {
+  const pendentes = await identidadesPendentes(db, importRunId);
+  const declarados = new Set(confirmados ?? []);
+  const faltando = pendentes.filter((t) => !declarados.has(t));
+  if (faltando.length === 0) return;
+
+  throw new Error(
+    `Esta importação criaria ${faltando.length === 1 ? "um equipamento que o dicionário não conhece" : "equipamentos que o dicionário não conhece"}: ` +
+      `${faltando.join(", ")}. Um equipamento novo é o começo de uma frota paralela — ` +
+      `foi assim que a mesma carreta passou a existir duas vezes — então ele precisa ser ` +
+      `declarado por quem promove, e não sair de um nome de aba. ` +
+      `Se for equipamento novo mesmo, confirme ${faltando.join(", ")} na pré-visualização. ` +
+      `Se for um equipamento que já existe com a aba nomeada de outro jeito, o lugar de ` +
+      `olhar é a lista de colunas: ela não bateu com nenhum tipo conhecido.`,
+  );
+}
+
+/**
  * Promote a previewed run into the canonical layer, in one transaction.
  *
  * Everything or nothing: a failure anywhere leaves the canonical layer exactly
@@ -947,6 +1103,7 @@ export async function promote(
 ): Promise<PromoteResult> {
   const run = await requireRun(db, importRunId, ["PREVIEWED"]);
   const mode = options.onExistingSnapshot ?? "FAIL";
+  await recusarIdentidadeNaoDeclarada(db, importRunId, options.confirmNewEntityTypes);
 
   return db.transaction(async (tx) => {
     await tx
