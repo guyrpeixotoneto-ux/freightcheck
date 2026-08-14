@@ -26,7 +26,8 @@
     "@workspace/comparison": "workspace:*",
     "@workspace/composition": "workspace:*",
     "@workspace/ingest": "workspace:*",
-    "@workspace/assistant": "workspace:*"
+    "@workspace/assistant": "workspace:*",
+    "@workspace/knowledge": "workspace:*"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",

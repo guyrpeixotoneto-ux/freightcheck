@@ -200,6 +200,9 @@ importers:
       '@workspace/ingest':
         specifier: workspace:*
         version: link:../../lib/ingest
+      '@workspace/knowledge':
+        specifier: workspace:*
+        version: link:../../lib/knowledge
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7

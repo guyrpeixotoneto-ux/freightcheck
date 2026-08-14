@@ -1,0 +1,1 @@
+- [Workspace package esbuild resolution](workspace-package-build-pattern.md) — every @workspace/* used by api-server must be a direct dep there, not just transitive; esbuild can't find transitive workspace symlinks.
