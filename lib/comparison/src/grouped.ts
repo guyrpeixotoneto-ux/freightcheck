@@ -18,6 +18,7 @@ import {
 } from "./labels";
 import { listPeriods } from "./consolidated";
 import {
+  channelSql,
   contextFilter,
   listContexts,
   resolveContext,
@@ -1257,6 +1258,32 @@ export interface EntityTable {
   seriesDelivered: boolean;
   /** Quantas colunas deste equipamento o dicionário conhece, ao todo. */
   attributesKnown: number;
+  /**
+   * Quando não há nada aqui: **onde a série está**, se estiver em algum lugar.
+   *
+   * "Nenhum arquivo de CARRETA foi importado" é uma frase que o operador que
+   * acabou de importar `Modelo_Carreta.xlsx` lê como mentira — e ele tem razão:
+   * o arquivo chegou, o que não chegou foi a *identidade* que a tela procura.
+   * Três coisas mandam o dado para longe do cartão sem que a importação falhe:
+   *
+   * - **Outro nome no dicionário.** Antes da correção de `deriveEntityType`, a
+   *   aba `Modelo_Carreta` virava o tipo `MODELOCARRETA`, com 65 colunas
+   *   paralelas às de carreta. Importações antigas continuam com essa
+   *   identidade no banco — corrigir a regra não reescreve o que já entrou, e
+   *   reimportar tampouco: o ativo é reconhecido pela placa, então a
+   *   reimportação reaproveita a mesma linha de `entity` com o tipo antigo e
+   *   só duplica dicionário e vigências. Quem conserta é
+   *   `freightcheck_correct_entity_type` (migration 0009).
+   * - **Outro contexto ou outra vigência.** O arquivo entrou, mas em outra
+   *   unidade, outro canal ou outro mês, e a tela está filtrando por este.
+   * - **A importação parou antes de promover.** A aba está no RAW, recusada
+   *   pelo classificador ou aguardando a promoção, e nada dela é canônico.
+   *
+   * As três mandam fazer coisas diferentes — reimportar, trocar o filtro, ler
+   * o motivo da recusa — e nenhuma delas é "importe o arquivo que falta".
+   * Preenchido só quando a tabela volta vazia; caro demais para o caso feliz.
+   */
+  elsewhere: EntityElsewhere;
   entityType: string;
   effectiveDate: string;
   periodLabel: string;
@@ -1271,6 +1298,184 @@ export interface EntityTable {
     label: string | null;
     values: Record<string, { value: string | null; nullReason: string | null }>;
   }[];
+}
+
+/** Onde a série está, quando não está no contexto pedido. */
+export interface EntityElsewhere {
+  /**
+   * Tipos do dicionário que parecem ser o mesmo equipamento com outro nome —
+   * `MODELOCARRETA` para quem pediu `CARRETA`. Vizinhança por conter/estar
+   * contido, e não por lista de sinônimos: a regra que produziu esses nomes
+   * era "o nome da aba é o tipo", então o desvio sempre carrega o nome dentro.
+   */
+  aliasTypes: { entityType: string; attributes: number }[];
+  /**
+   * Entregas desta série (ou de uma identidade vizinha) fora do que a tela
+   * está olhando: outra vigência, outra unidade, outro canal.
+   */
+  otherDeliveries: {
+    entityType: string;
+    /** "CAMAÇARI · EMPURRADA" — o mesmo rótulo do seletor de contexto. */
+    contextLabel: string;
+    effectiveDate: string;
+    periodLabel: string;
+    sourceLabel: string;
+    /** Mesma unidade e canal, outra vigência: trocar o mês basta. */
+    sameContext: boolean;
+  }[];
+  /**
+   * Arquivos deste equipamento que **chegaram e não viraram vigência**.
+   *
+   * O terceiro jeito de o dado sumir sem ninguém errar nada: a aba entra no
+   * RAW, o classificador a recusa — falta a coluna `vigencia` ou `placa`, e a
+   * recusa fica escrita em `role_reason` — ou a importação para antes de
+   * promover. Nada foi perdido e nada foi promovido; a tela precisa mostrar o
+   * motivo em vez de mandar importar de novo o mesmo arquivo.
+   */
+  receivedNotPromoted: {
+    filename: string;
+    sheetName: string;
+    /** SOURCE | PIVOT | UNKNOWN — o veredito do classificador. */
+    sheetRole: string;
+    roleReason: string;
+    /** PENDING | STAGED | PROMOTED | FAILED… — onde a importação parou. */
+    importStatus: string;
+    receivedAt: string;
+  }[];
+}
+
+const SEM_DIAGNOSTICO: EntityElsewhere = {
+  aliasTypes: [],
+  otherDeliveries: [],
+  receivedNotPromoted: [],
+};
+
+/**
+ * A pergunta "então onde foi parar?", respondida com o banco e não com um
+ * palpite. Só roda quando a tabela volta vazia — nenhum custo no caso feliz.
+ */
+async function findElsewhere(
+  db: Database,
+  entityType: string,
+  context: ContextInfo,
+  effectiveDate: string,
+): Promise<EntityElsewhere> {
+  const { rows: vizinhos } = await db.execute<{ entity_type: string; n: number }>(sql`
+    SELECT entity_type, count(*)::int AS n
+      FROM attribute
+     WHERE entity_type <> ${entityType}
+       AND (position(${entityType} IN entity_type) > 0
+            OR position(entity_type IN ${entityType}) > 0)
+     GROUP BY entity_type
+     ORDER BY count(*) DESC, entity_type
+  `);
+
+  const procurados = [entityType, ...vizinhos.map((v) => v.entity_type)];
+  const lista = sql.join(
+    procurados.map((t) => sql`${t}`),
+    sql`, `,
+  );
+
+  /*
+    `entity_type_set` é o conjunto de equipamentos da vigência, ordenado e
+    unido por `+`: um arquivo só de carreta dá `CARRETA`, o export combinado dá
+    `CARRETA+CAVALO`. Comparar a coluna inteira com o tipo daria "não entregou"
+    para toda vigência que trouxe os dois equipamentos juntos, que é o formato
+    em que a Ambev mandou primeiro. Aqui e no `seriesDelivered`, a pergunta é de
+    pertinência ao conjunto, nunca de igualdade com ele.
+  */
+  const { rows: entregas } = await db.execute<{
+    entity_type: string;
+    scope_hash: string;
+    channel: string | null;
+    effective_date: string;
+    source_label: string;
+  }>(sql`
+    SELECT t              AS entity_type,
+           s.scope_hash,
+           ${channelSql("s.source_label")} AS channel,
+           s.effective_date::text AS effective_date,
+           s.source_label
+      FROM snapshot s
+      CROSS JOIN LATERAL unnest(string_to_array(s.entity_type_set, '+')) AS t
+     WHERE s.status <> 'SUPERSEDED'
+       AND t IN (${lista})
+     ORDER BY s.effective_date DESC, s.source_label, t
+  `);
+
+  /*
+    O arquivo que chegou e não virou vigência.
+
+    O nome da aba é comparado sem separadores — `Modelo_Carreta` vira
+    `modelocarreta`, que contém `carreta` — porque é assim que a entrega por
+    equipamento nomeia as abas. Sem `unaccent` no banco isto não resolve
+    acentos, e os nomes de equipamento não têm nenhum; um dia que tiverem, a
+    consulta erra para menos (deixa de achar), nunca para mais.
+  */
+  const { rows: recebidos } = await db.execute<{
+    filename: string;
+    sheet_name: string;
+    role: string;
+    role_reason: string;
+    status: string;
+    received_at: string;
+  }>(sql`
+    SELECT sf.filename,
+           rs.sheet_name,
+           rs.role,
+           rs.role_reason,
+           ir.status,
+           sf.received_at::text AS received_at
+      FROM raw_sheet rs
+      JOIN import_run ir  ON ir.id = rs.import_run_id
+      JOIN source_file sf ON sf.id = ir.source_file_id
+     WHERE position(lower(${entityType}) IN regexp_replace(lower(rs.sheet_name), '[^a-z0-9]', '', 'g')) > 0
+       AND NOT EXISTS (
+             SELECT 1
+               FROM snapshot s
+              WHERE s.import_run_id = ir.id
+                AND s.status <> 'SUPERSEDED'
+                AND ${entityType} = ANY(string_to_array(s.entity_type_set, '+'))
+           )
+     ORDER BY ir.started_at DESC, rs.sheet_index
+     LIMIT 10
+  `);
+
+  const contextos = await listContexts(db);
+  const rotuloDe = (scopeHash: string, channel: string | null) =>
+    contextos.find((c) => c.scopeHash === scopeHash && c.channel === channel)?.label ??
+    scopeHash;
+
+  return {
+    aliasTypes: vizinhos.map((v) => ({ entityType: v.entity_type, attributes: v.n })),
+    otherDeliveries: entregas
+      // O que a tela já está olhando não é "outro lugar".
+      .filter(
+        (e) =>
+          !(
+            e.entity_type === entityType &&
+            e.scope_hash === context.scopeHash &&
+            e.channel === context.channel &&
+            e.effective_date === effectiveDate
+          ),
+      )
+      .map((e) => ({
+        entityType: e.entity_type,
+        contextLabel: rotuloDe(e.scope_hash, e.channel),
+        effectiveDate: e.effective_date,
+        periodLabel: periodLabel(e.effective_date),
+        sourceLabel: e.source_label,
+        sameContext: e.scope_hash === context.scopeHash && e.channel === context.channel,
+      })),
+    receivedNotPromoted: recebidos.map((r) => ({
+      filename: r.filename,
+      sheetName: r.sheet_name,
+      sheetRole: r.role,
+      roleReason: r.role_reason,
+      importStatus: r.status,
+      receivedAt: r.received_at,
+    })),
+  };
 }
 
 export async function getEntityTable(
@@ -1383,9 +1588,19 @@ export async function getEntityTable(
     };
   }
 
+  const rows = [...porEntidade.values()].sort((a, b) =>
+    (a.label ?? "").localeCompare(b.label ?? "", "pt-BR", { numeric: true }),
+  );
+
   return {
-    seriesDelivered: entregues.some((s) => s.entity_type_set === entityType),
+    seriesDelivered: entregues.some((s) =>
+      s.entity_type_set.split("+").includes(entityType),
+    ),
     attributesKnown: conhecidasDoTipo[0]?.n ?? 0,
+    elsewhere:
+      rows.length === 0
+        ? await findElsewhere(db, entityType, context, effectiveDate)
+        : SEM_DIAGNOSTICO,
     entityType,
     effectiveDate,
     periodLabel: periodLabel(effectiveDate),
@@ -1394,8 +1609,6 @@ export async function getEntityTable(
       .filter((code) => conhecidos.has(code))
       .map((code) => ({ code, title: attributeLabel(code, conhecidos.get(code) ?? code) })),
     missingColumns: attributeCodes.filter((code) => !conhecidos.has(code)),
-    rows: [...porEntidade.values()].sort((a, b) =>
-      (a.label ?? "").localeCompare(b.label ?? "", "pt-BR", { numeric: true }),
-    ),
+    rows,
   };
 }

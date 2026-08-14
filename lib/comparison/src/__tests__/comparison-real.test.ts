@@ -6,6 +6,7 @@ import { createTestDatabase, realExportPath, type TestDb } from "@workspace/inge
 import { applyConfirmations, runProposalPass, seedTaxonomy } from "@workspace/curation";
 import { computeChangeSet, findPreviousSnapshot } from "../engine";
 import { getChangeProvenance, listChanges, listComparableSnapshots } from "../query";
+import { getEntityTable } from "../grouped";
 
 /**
  * The engine against the real Freightec export.
@@ -196,6 +197,26 @@ describe("nada é escondido", () => {
     expect(fixo.total + variavel.total + semClasse.total).toBe(todas.total);
     expect(fixo.total).toBeGreaterThan(0);
     expect(variavel.total).toBeGreaterThan(0);
+  });
+});
+
+describe("a série entregue junto com outra continua sendo uma série entregue", () => {
+  it("CARRETA é reconhecida dentro do conjunto CARRETA+CAVALO", async () => {
+    /*
+      Este workbook traz os dois equipamentos, então a vigência guarda
+      `entity_type_set = 'CARRETA+CAVALO'`. Comparar esse conjunto com o tipo
+      pedido por igualdade respondia "esta vigência não trouxe CARRETA" para o
+      formato em que o export chegou primeiro — e a tela usa essa resposta para
+      mandar importar um arquivo que já está no banco. A pergunta é de
+      pertinência ao conjunto, e não de igualdade com ele.
+    */
+    const tabela = (await getEntityTable(ctx.db, "CARRETA", [
+      "carreta.placa",
+      "carreta.chassi",
+    ]))!;
+
+    expect(tabela.seriesDelivered).toBe(true);
+    expect(tabela.rows.length).toBeGreaterThan(0);
   });
 });
 

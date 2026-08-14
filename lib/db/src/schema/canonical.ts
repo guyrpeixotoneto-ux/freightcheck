@@ -3,6 +3,7 @@ import {
   text,
   uuid,
   integer,
+  jsonb,
   bigint,
   bigserial,
   boolean,
@@ -404,3 +405,37 @@ export const factTable = pgTable(
     ),
   ],
 );
+
+/**
+ * O registro de uma correção de identidade de equipamento.
+ *
+ * Renomear um `entity_type` é a operação mais séria que este banco aceita fora
+ * da importação: ela mexe em identidade de ativo, no código de cada coluna do
+ * dicionário e na cobertura declarada de vigências já fechadas. Uma operação
+ * assim não pode acontecer sem deixar rastro — quem, quando, de quê para quê,
+ * quanta coisa moveu e, principalmente, **o que ela se recusou a mover**.
+ *
+ * O que a correção não move fica em `skipped`: uma coluna cujo código novo já
+ * existe não pode ser renomeada para cima da outra, porque os fatos das duas
+ * são imutáveis e não há como fundi-las sem reescrever o passado. A correção
+ * então deixa as duas onde estão e diz quais são, em vez de escolher uma.
+ */
+export const entityTypeCorrectionTable = pgTable("entity_type_correction", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  fromEntityType: text("from_entity_type").notNull(),
+  toEntityType: text("to_entity_type").notNull(),
+  attributesRenamed: integer("attributes_renamed").notNull().default(0),
+  attributesSkipped: integer("attributes_skipped").notNull().default(0),
+  entitiesRenamed: integer("entities_renamed").notNull().default(0),
+  snapshotsRenamed: integer("snapshots_renamed").notNull().default(0),
+  snapshotsSkipped: integer("snapshots_skipped").notNull().default(0),
+  changesRelabelled: integer("changes_relabelled").notNull().default(0),
+  stagedFactsRenamed: integer("staged_facts_renamed").notNull().default(0),
+  /** Uma entrada por coisa que a correção se recusou a mover, com o motivo. */
+  skipped: jsonb("skipped").notNull().default([]),
+  /** Nunca nulo: uma correção sem autor não é auditável. */
+  appliedBy: text("applied_by").notNull(),
+  appliedAt: timestamp("applied_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});

@@ -53,6 +53,8 @@ interface ImportRun {
   errors: number;
   warnings: number;
   labels: string[];
+  /** Equipamentos que esta importação criaria e o dicionário não conhece. */
+  pendingIdentities: string[];
 }
 
 interface RunDetail {
@@ -86,6 +88,8 @@ interface RunStatus {
   errors: number;
   warnings: number;
   labels: string[];
+  /** Equipamentos que esta importação criaria e o dicionário não conhece. */
+  pendingIdentities: string[];
 }
 
 /**
@@ -158,17 +162,23 @@ export default function Importacoes() {
   });
 
   const promote = useMutation({
-    mutationFn: async (importRunId: string) => {
+    mutationFn: async ({
+      importRunId,
+      confirmNewEntityTypes,
+    }: {
+      importRunId: string;
+      confirmNewEntityTypes: string[];
+    }) => {
       const response = await fetch(getApiUrl(`/imports/${importRunId}/promote`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: "{}",
+        body: JSON.stringify({ confirmNewEntityTypes }),
       });
       const body = await readJson(response);
       if (!response.ok) throw new Error(body.error as string);
       return body;
     },
-    onSuccess: (_result, importRunId) => {
+    onSuccess: (_result, { importRunId }) => {
       setError(null);
       setPendingIds((current) => current.filter((id) => id !== importRunId));
       queryClient.invalidateQueries();
@@ -224,7 +234,9 @@ export default function Importacoes() {
             key={id}
             importRunId={id}
             onDiscard={() => setPendingIds((c) => c.filter((x) => x !== id))}
-            onPromote={() => promote.mutate(id)}
+            onPromote={(confirmNewEntityTypes) =>
+              promote.mutate({ importRunId: id, confirmNewEntityTypes })
+            }
             promoting={promote.isPending}
           />
         ))}
@@ -584,7 +596,7 @@ function PendingRun({
 }: {
   importRunId: string;
   onDiscard: () => void;
-  onPromote: () => void;
+  onPromote: (confirmNewEntityTypes: string[]) => void;
   promoting: boolean;
 }) {
   const { data } = useQuery({
@@ -598,6 +610,20 @@ function PendingRun({
   });
 
   const ready = data?.status === "PREVIEWED";
+
+  /*
+    A única coisa nesta tela que exige decisão, e não leitura.
+
+    Um equipamento que o dicionário não conhece é o começo de uma frota
+    paralela — foi assim que a mesma carreta passou a existir duas vezes, com
+    dados certos e identidade errada, sem que nada falhasse. Criar equipamento
+    continua permitido; o que deixa de existir é criá-lo sem que ninguém tenha
+    dito que era isso. Enquanto a caixa não for marcada, aprovar fica travado,
+    e a API recusaria de todo jeito: o pipeline exige a mesma declaração.
+  */
+  const identidadesNovas = data?.pendingIdentities ?? [];
+  const [identidadeDeclarada, setIdentidadeDeclarada] = useState(false);
+  const travadoPorIdentidade = identidadesNovas.length > 0 && !identidadeDeclarada;
   const failed = data?.status === "FAILED";
 
   return (
@@ -667,13 +693,40 @@ function PendingRun({
           </Button>
           <Button
             size="sm"
-            disabled={!ready || promoting || (data?.errors ?? 0) > 0}
-            onClick={onPromote}
+            disabled={
+              !ready || promoting || (data?.errors ?? 0) > 0 || travadoPorIdentidade
+            }
+            onClick={() => onPromote(identidadesNovas)}
           >
             {promoting ? "Importando…" : "Aprovar e importar"}
           </Button>
         </div>
       </div>
+
+      {ready && identidadesNovas.length > 0 && (
+        <label className="flex gap-3 items-start bg-white/70 border border-amber-300 rounded-lg px-4 py-3 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={identidadeDeclarada}
+            onChange={(e) => setIdentidadeDeclarada(e.target.checked)}
+          />
+          <span>
+            <strong>
+              Esta importação criaria{" "}
+              {identidadesNovas.length === 1
+                ? "um equipamento novo"
+                : "equipamentos novos"}
+              : <span className="font-mono">{identidadesNovas.join(", ")}</span>.
+            </strong>{" "}
+            As colunas desta planilha não bateram com nenhum equipamento que já
+            existe, então a identidade veio do nome da aba. Se for equipamento novo
+            mesmo, confirme. Se for um que já existe com a aba nomeada de outro
+            jeito, cancele e confira as colunas — aprovar aqui cria uma frota
+            paralela, com os dados certos e a identidade errada.
+          </span>
+        </label>
+      )}
 
       {ready && data!.labels.length > 0 && (
         <div className="flex flex-wrap gap-2">
