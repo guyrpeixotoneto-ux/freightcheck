@@ -19,6 +19,7 @@ import ApresentacaoVideo from '@/components/video/ApresentacaoVideo';
 import AnaliseEquipamentos from '@/pages/analise-equipamentos';
 import Curadoria from '@/pages/curadoria';
 import BookOperador from '@/pages/book-operador';
+import Assistente from '@/pages/assistente';
 import Vigencias from '@/pages/vigencias';
 import Versoes from '@/pages/versoes';
 import Configuracoes from '@/pages/configuracoes';
@@ -49,6 +50,7 @@ function Router() {
       <Route path="/apresentacao" component={ApresentacaoVideo} />
       <Route path="/parametros" component={Parametros} />
       <Route path="/book-operador" component={BookOperador} />
+      <Route path="/assistente" component={Assistente} />
       <Route path="/alteracoes" component={Alteracoes} />
       <Route path="/comparar" component={Comparar} />
       <Route path="/importacoes" component={Importacoes} />

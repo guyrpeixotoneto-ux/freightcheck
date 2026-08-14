@@ -23,7 +23,8 @@
     "xlsx": "^0.18.5",
     "@workspace/curation": "workspace:*",
     "@workspace/comparison": "workspace:*",
-    "@workspace/ingest": "workspace:*"
+    "@workspace/ingest": "workspace:*",
+    "@workspace/assistant": "workspace:*"
   },
   "devDependencies": {
     "@types/cookie-parser": "^1.4.10",

@@ -16,6 +16,9 @@
       "path": "./lib/comparison"
     },
     {
+      "path": "./lib/assistant"
+    },
+    {
       "path": "./lib/simulation"
     },
     {

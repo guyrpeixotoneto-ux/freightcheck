@@ -54,6 +54,10 @@ em `/api` — que é o aceite desta configuração.
 - `pnpm --filter @workspace/db run migrate` — aplica as migrations à mão
 - `pnpm dev:seed` — ferramenta de desenvolvimento; **não** é o caminho do produto
 - Única env obrigatória: `DATABASE_URL`
+- Opcional: `ANTHROPIC_API_KEY` liga a redação por modelo no Assistente de IA.
+  Sem ela o assistente **continua respondendo**, com a redação montada em código
+  sobre o mesmo material; a tela diz em qual dos dois modos está.
+  `ASSISTENTE_MODELO` e `ASSISTENTE_ESFORCO` ajustam modelo e esforço.
 
 Importar planilha é feito **pela interface**, em Importações. Nenhum passo do
 produto depende de terminal.
@@ -130,8 +134,46 @@ e-mail, e exclusão de conta.
   de dois tipos — `TEXTO` escrito na tela ou `DOCUMENTO` anexado. Substituir
   cria a revisão seguinte; **não existe DELETE**, e os bytes ficam no Postgres
   porque aqui a entrada *é* o conteúdo e o disco da plataforma é efêmero.
+- **Assistente de IA** — `lib/assistant`, rotas em
+  `artifacts/api-server/src/routes/assistant.ts`, tela em
+  `artifacts/freightaudit/src/pages/assistente.tsx`. É a única superfície sem
+  dado próprio: responde a partir do conhecimento do produto escrito em código
+  (`src/conhecimento.ts`) e de consultas às **mesmas funções que as telas usam**
+  (`src/dados.ts`), e devolve as duas coisas junto com o texto. Ver a seção
+  *Assistente de IA* abaixo.
 - `docs/ARQUITETURA.md` — as decisões estruturais em prosa
 - `docs/PROPOSTA-NAVEGACAO-FREIGHTECH.md` — o mapeamento Freightech → FreightCheck
+
+## Assistente de IA
+
+**Recuperar primeiro, escrever depois.** O material é fechado antes de existir
+uma frase — os artigos aprovados neste repositório e as consultas que o banco
+respondeu, no recorte de quem perguntou — e só então alguém redige sobre ele: o
+modelo, quando há chave configurada; o código, quando não há. Os dois escrevem
+do mesmo dossiê, e o dossiê vai junto para a tela. A inversão dessa ordem —
+gerar a frase e depois procurar com que sustentá-la — é o defeito clássico do
+gênero e produz exatamente o que este produto existe para não exibir.
+
+**O conhecimento mora em código, não num índice vetorial.** Mesma razão de
+`labels.ts` e `families.ts`: é decisão de produto, precisa existir com o banco
+vazio, passa por revisão quando muda, e é conferível linha a linha por quem
+discordar de uma resposta. Nenhum artigo contém número — números vêm de
+`dados.ts`, do banco, e envelheceriam ali dentro sendo ditos com a mesma
+segurança.
+
+**Toda resposta diz quem a escreveu.** `redacao` é `IA` ou `DETERMINISTICA`, e a
+tela mostra isso ao lado do texto. Quando a API de linguagem falha ou recusa, a
+resposta sai pela redação em código e o selo muda — o produto não fica sem
+responder uma pergunta que sabe responder.
+
+**Não achar é um desfecho.** Abaixo do limiar de relevância a resposta é dizer
+que não sabe, com o que perguntar em vez disso. Um assistente que sempre
+responde soa igual quando sabe e quando não sabe.
+
+**O denominador do Book não é contado no servidor.** O índice dos blocos é
+transcrição da tela do Freightech e vive na interface; o assistente conhece o
+que foi registrado em `book_entry` e diz isso, em vez de manter uma segunda
+cópia do índice que sairia de sincronia no primeiro rename.
 
 ## Architecture decisions
 
@@ -239,6 +281,10 @@ número.
   É diferente do 502 e do 503: o 503 de `SESSION_CHECK_FAILED` quer dizer que o
   banco não respondeu para *verificar* a sessão, e aí o problema não é a senha
   de ninguém.
+- **O assistente sem `ANTHROPIC_API_KEY` não está quebrado.** Ele responde do
+  mesmo conhecimento e das mesmas consultas; o que muda é quem redige, e a tela
+  diz qual dos dois foi. Um relato de "o assistente não usa IA" quase sempre é a
+  chave ausente, não um defeito — confira `GET /api/assistant/capabilities`.
 - O limite do `express.json` fica em `app.ts`, não na rota de upload — o parser
   global roda antes e rejeitaria o corpo com 413 antes da rota ver.
 
