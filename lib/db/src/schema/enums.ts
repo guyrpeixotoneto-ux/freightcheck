@@ -77,3 +77,20 @@ export const stagedFactStatus = pgEnum("staged_fact_status", [
  * naquele dia.
  */
 export const bookEntryKind = pgEnum("book_entry_kind", ["DOCUMENTO", "TEXTO"]);
+
+/**
+ * O ciclo de um envio de export de chamados.
+ *
+ * É curto de propósito, e não uma cópia de `import_run_status`. Chamados não
+ * viram fato canônico nem vigência: não há staging para conferir nem promoção
+ * para aprovar, então os estados intermediários daquele pipeline aqui seriam
+ * degraus que ninguém sobe. `READ` é o estado final feliz — o arquivo foi lido
+ * e os chamados estão no banco.
+ */
+export const ticketImportStatus = pgEnum("ticket_import_status", [
+  "PENDING",
+  "READING",
+  "READ",
+  "FAILED",
+  "SKIPPED_DUPLICATE",
+]);
