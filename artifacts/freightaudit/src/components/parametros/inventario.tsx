@@ -231,30 +231,73 @@ export function TabelaInventario({
     }
 
     /*
-      O arquivo chegou e parou no caminho. Acontece sem ninguém errar nada: a
-      aba não traz `vigência` ou `placa` e o classificador a recusa, ou a
-      importação para antes de promover. Mandar "importe a planilha" para quem
-      já importou é a mesma frase inútil de antes, agora com o motivo à mão.
+      O arquivo chegou e parou no caminho — e "parou" são dois estados que
+      pedem coisas opostas.
+
+      A primeira versão desta mensagem tinha uma frase só, mandando corrigir a
+      planilha e reimportar. Ela está certa quando o classificador **recusou** a
+      aba, e está errada — contradizendo a linha de cima — quando a aba foi
+      aceita como `SOURCE` e a importação está parada em `PREVIEWED`: aí a
+      planilha não tem defeito nenhum, a leitura terminou, e o que falta é
+      alguém aprovar. Mandar corrigir uma planilha boa é pior do que não dizer
+      nada: manda mexer no que está certo e esconde o passo que falta.
+
+      `roleReason` também deixa de aparecer quando a aba foi aceita. Ele é a
+      justificativa do classificador, não um defeito, e apresentá-lo como "o
+      motivo registrado" logo depois de um pedido de correção fazia a aceitação
+      parecer recusa.
     */
     const parado = data.elsewhere.receivedNotPromoted[0];
     if (parado) {
+      const abaAceita = parado.sheetRole === "SOURCE";
+      const falhou = parado.importStatus === "FAILED";
+      const esperandoAprovacao = abaAceita && !falhou;
+
       return (
         <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm space-y-2">
           <p className="font-medium">
-            O arquivo <span className="font-mono">{parado.filename}</span> chegou, mas não
-            virou vigência.
+            {esperandoAprovacao ? (
+              <>
+                O arquivo <span className="font-mono">{parado.filename}</span> chegou e está
+                esperando aprovação.
+              </>
+            ) : (
+              <>
+                O arquivo <span className="font-mono">{parado.filename}</span> chegou, mas
+                não virou vigência.
+              </>
+            )}
           </p>
-          <p className="text-muted-foreground">
-            A aba <span className="font-mono">{parado.sheetName}</span> foi classificada
-            como <span className="font-mono">{parado.sheetRole}</span> e a importação está{" "}
-            <span className="font-mono">{parado.importStatus}</span>, então nenhuma coluna
-            de <span className="font-mono">{data.entityType}</span> entrou no dicionário. O
-            motivo registrado: <em>{parado.roleReason}</em>
-          </p>
+
+          {esperandoAprovacao ? (
+            <p className="text-muted-foreground">
+              A aba <span className="font-mono">{parado.sheetName}</span> foi aceita como
+              fonte de fatos e a importação está em{" "}
+              <span className="font-mono">{parado.importStatus}</span> — a leitura terminou,
+              e o passo que falta é humano. As colunas de{" "}
+              <span className="font-mono">{data.entityType}</span> entram no dicionário na
+              aprovação, não na leitura:{" "}
+              <strong className="text-foreground">nada na planilha precisa ser mexido</strong>.
+              Abra Importações e aprove.
+            </p>
+          ) : (
+            <p className="text-muted-foreground">
+              A aba <span className="font-mono">{parado.sheetName}</span> foi classificada
+              como <span className="font-mono">{parado.sheetRole}</span>
+              {falhou ? " e a importação falhou" : ""}, então nenhuma coluna de{" "}
+              <span className="font-mono">{data.entityType}</span> entrou no dicionário.{" "}
+              {falhou
+                ? "A tela de Importações mostra o motivo da falha."
+                : "O motivo registrado pelo classificador:"}{" "}
+              {!falhou && <em>{parado.roleReason}</em>}
+            </p>
+          )}
+
           <p className="text-xs text-muted-foreground">
-            Nada foi descartado — o arquivo está inteiro no RAW. Corrigir a planilha e
-            reimportar é o caminho; a tela de Importações mostra o resto dos avisos deste
-            arquivo.
+            Nada foi descartado — o arquivo está inteiro no RAW.{" "}
+            {esperandoAprovacao
+              ? "A tela de Importações mostra os avisos deste arquivo antes de você aprovar."
+              : "Corrigir a planilha e reimportar é o caminho; a tela de Importações mostra o resto dos avisos deste arquivo."}
           </p>
         </div>
       );

@@ -122,6 +122,28 @@ export default function Importacoes() {
     queryFn: () => fetchJson<ImportRun[]>("/imports"),
   });
 
+  /**
+   * Uma importação esperando decisão continua esperando depois do F5.
+   *
+   * `pendingIds` só conhecia os envios feitos **nesta** aba: quem enviava a
+   * planilha, recarregava a página e voltava depois não tinha mais botão de
+   * aprovar em lugar nenhum. O arquivo ficava parado em PREVIEWED para sempre,
+   * a API sabendo dele e a tela sem oferecer o passo que falta — e o cartão do
+   * equipamento dizia "esperando aprovação" apontando para uma tela onde não
+   * havia o que apertar.
+   *
+   * O estado de quem espera decisão é do servidor, então é dele que a lista
+   * sai. Os ids da sessão continuam entrando porque um envio recém-feito ainda
+   * não apareceu na listagem.
+   */
+  const ESPERANDO = new Set(["PENDING", "READING", "STAGED", "PREVIEWED", "PROMOTING"]);
+  const esperandoDecisao = [
+    ...new Set([
+      ...pendingIds,
+      ...runs.filter((r) => ESPERANDO.has(r.status)).map((r) => r.importRunId),
+    ]),
+  ];
+
   const upload = useMutation({
     mutationFn: async (files: File[]) => {
       const ids: string[] = [];
@@ -229,7 +251,7 @@ export default function Importacoes() {
           </p>
         )}
 
-        {pendingIds.map((id) => (
+        {esperandoDecisao.map((id) => (
           <PendingRun
             key={id}
             importRunId={id}
@@ -253,7 +275,7 @@ export default function Importacoes() {
         )}
         {/* "Nenhuma importação ainda" ao lado de um arquivo sendo lido é falso
             de um jeito que confunde: o que falta é aprovar, não enviar. */}
-        {!isLoading && !listError && runs.length === 0 && pendingIds.length === 0 && (
+        {!isLoading && !listError && runs.length === 0 && esperandoDecisao.length === 0 && (
           <div className="rounded-2xl border bg-card px-8 py-10 text-center text-sm text-muted-foreground shadow-sm">
             Nenhuma importação ainda. Use{" "}
             <strong className="text-foreground">Escolher planilhas</strong> acima
