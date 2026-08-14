@@ -1,3 +1,4 @@
+import { useCallback, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import {
@@ -67,6 +68,11 @@ import {
  * 3. **Os números vêm junto com os itens.** Alterações, Importações e Curadoria
  *    mostram quanto há para fazer antes de a pessoa clicar. Bolinha com zero não
  *    aparece: contagem que não conta nada ensina o olho a ignorar o lugar.
+ * 4. **As seções recolhem.** Quem passa o dia em Auditoria fecha as outras
+ *    quatro e fica com quatro itens na tela. A escolha vale para o navegador,
+ *    não para a página — ver `useSecoesRecolhidas` —, e recolher esconde a lista,
+ *    nunca a informação: a seção fechada que contém a tela aberta leva a barra
+ *    vermelha, e a que esconde fila de trabalho traz a soma no cabeçalho.
  *
  * A regra antiga continua acima de tudo: **item que não funciona não entra na
  * lista.** Nenhum item daqui aponta para uma tela que não existe.
@@ -169,6 +175,7 @@ export function Sidebar({ open }: { open: boolean }) {
   const alteracoes = useAlteracoesDaVigencia();
   const importacoes = useImportacoesEmAndamento();
   const curadoria = useCuradoriaPendente();
+  const { recolhido, alternar } = useSecoesRecolhidas();
 
   const contadores = { alteracoes, importacoes, curadoria };
 
@@ -189,37 +196,152 @@ export function Sidebar({ open }: { open: boolean }) {
         <SeletorDeUnidade />
 
         <nav className="pb-2">
-          {NAV_GROUPS.map((grupo, indice) => (
-            <div
-              key={grupo.titulo}
-              className={cn("py-2.5", indice > 0 && "border-t border-sidebar-border")}
-            >
-              <div
-                className={cn(
-                  "flex items-center gap-2 px-4 pb-2 text-[0.6875rem] font-bold uppercase tracking-[0.08em]",
-                  grupo.cor,
-                )}
-              >
-                <grupo.icon className="w-4 h-4 shrink-0" strokeWidth={2.25} />
-                {grupo.titulo}
-              </div>
+          {NAV_GROUPS.map((grupo, indice) => {
+            const aberto = !recolhido(grupo.titulo);
+            const contemAtivo = grupo.itens.some((item) => estaAtivo(location, item.href));
+            const escondido = aberto
+              ? 0
+              : grupo.itens.reduce(
+                  (soma, item) => soma + (item.contador ? contadores[item.contador] : 0),
+                  0,
+                );
 
-              {grupo.itens.map((item) => (
-                <ItemDoMenu
-                  key={item.href}
-                  item={item}
-                  ativo={estaAtivo(location, item.href)}
-                  contagem={item.contador ? contadores[item.contador] : 0}
-                />
-              ))}
-            </div>
-          ))}
+            return (
+              <div
+                key={grupo.titulo}
+                className={cn("py-2.5", indice > 0 && "border-t border-sidebar-border")}
+              >
+                <button
+                  type="button"
+                  onClick={() => alternar(grupo.titulo)}
+                  aria-expanded={aberto}
+                  aria-controls={idDaSecao(grupo.titulo)}
+                  className={cn(
+                    /*
+                      A borda esquerda do cabeçalho existe nos dois estados, pela
+                      mesma razão que a dos itens: nascer só quando a seção se
+                      fecha empurraria o título três pixels a cada clique.
+                    */
+                    "w-full flex items-center gap-2 border-l-[3px] pl-[calc(1rem-3px)] pr-3 pb-2 text-left text-[0.6875rem] font-bold uppercase tracking-[0.08em] hover:opacity-80 transition-opacity",
+                    grupo.cor,
+                    /*
+                      Seção fechada com a tela aberta dentro dela leva a barra
+                      vermelha: fechar uma seção é escolher não ver a lista, e
+                      nunca deixar de saber onde se está.
+                    */
+                    !aberto && contemAtivo ? "border-brand-red" : "border-transparent",
+                  )}
+                >
+                  <grupo.icon className="w-4 h-4 shrink-0" strokeWidth={2.25} />
+                  <span className="flex-1 min-w-0 truncate">{grupo.titulo}</span>
+                  {/*
+                    O que a seção fechada esconde de trabalho vem para o
+                    cabeçalho. Recolher é escolher não ver a lista; não é
+                    autorização para o produto parar de dizer que há fila.
+                  */}
+                  {escondido > 0 && (
+                    <span className="min-w-5 h-5 px-1.5 rounded-full bg-current text-[0.625rem] font-bold flex items-center justify-center tabular-nums">
+                      <span className="text-sidebar">{escondido > 99 ? "99+" : escondido}</span>
+                    </span>
+                  )}
+                  <ChevronDown
+                    className={cn(
+                      "w-3.5 h-3.5 shrink-0 transition-transform",
+                      !aberto && "-rotate-90",
+                    )}
+                  />
+                </button>
+
+                {aberto && (
+                  <div id={idDaSecao(grupo.titulo)}>
+                    {grupo.itens.map((item) => (
+                      <ItemDoMenu
+                        key={item.href}
+                        item={item}
+                        ativo={estaAtivo(location, item.href)}
+                        contagem={item.contador ? contadores[item.contador] : 0}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
       </div>
 
       <ChamadaDoAssistente />
     </aside>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Seções recolhidas
+// ---------------------------------------------------------------------------
+
+const CHAVE_RECOLHIDAS = "freightcheck:menu-secoes-recolhidas";
+
+/**
+ * Quais seções o usuário fechou.
+ *
+ * **Isto precisa sobreviver ao navegador, não só ao componente.** Cada página
+ * deste produto monta a sua própria `Layout`, então a lateral é desmontada e
+ * remontada a cada navegação: guardado em `useState` puro, o menu voltaria
+ * inteiro aberto no primeiro clique em qualquer item — o usuário fecharia
+ * Auditoria e a veria reaparecer ao abrir Curadoria.
+ *
+ * Fica no `localStorage` pela mesma razão da estrela dos cartões: é preferência
+ * de quem está na máquina, não dado do sistema. Não merece tabela, migration
+ * nem rota, e falhar em gravá-la não pode derrubar a tela — daí os `try`.
+ *
+ * A chave é o título da seção. Renomear uma seção reabre-a para quem a tinha
+ * fechado, e é o comportamento certo: a seção com aquele nome é outra.
+ */
+function useSecoesRecolhidas() {
+  const [recolhidas, setRecolhidas] = useState<string[]>(() => lerRecolhidas());
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CHAVE_RECOLHIDAS, JSON.stringify(recolhidas));
+    } catch {
+      // Navegador com armazenamento bloqueado: as seções deixam de sobreviver
+      // ao reload, e nada além disso acontece.
+    }
+  }, [recolhidas]);
+
+  const alternar = useCallback((titulo: string) => {
+    setRecolhidas((atual) =>
+      atual.includes(titulo) ? atual.filter((t) => t !== titulo) : [...atual, titulo],
+    );
+  }, []);
+
+  const recolhido = useCallback((titulo: string) => recolhidas.includes(titulo), [recolhidas]);
+
+  return { recolhido, alternar };
+}
+
+function lerRecolhidas(): string[] {
+  try {
+    const bruto = window.localStorage.getItem(CHAVE_RECOLHIDAS);
+    if (!bruto) return [];
+    const valor: unknown = JSON.parse(bruto);
+    return Array.isArray(valor) ? valor.filter((v): v is string => typeof v === "string") : [];
+  } catch {
+    return [];
+  }
+}
+
+/** O `id` que o cabeçalho aponta em `aria-controls`. */
+function idDaSecao(titulo: string): string {
+  return `secao-${normalizar(titulo).replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+}
+
+/** Sem acento e sem caixa: o `id` não pode depender de como o título é escrito. */
+function normalizar(texto: string): string {
+  return texto
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 }
 
 /**
