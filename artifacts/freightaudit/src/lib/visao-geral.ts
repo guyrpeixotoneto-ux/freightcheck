@@ -5,6 +5,7 @@ import type {
   FamiliesView,
   GroupedView,
 } from "@/components/inicio/types";
+import { juntarPrioridades } from "@/lib/cockpit";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
 
 /**
@@ -126,9 +127,15 @@ export function escreverPercentual(percentual: number, casas = 0): string {
   })}%`;
 }
 
-/** A frota que a vigência entregou: a soma dos ativos de cada série. */
+/**
+ * A frota que a vigência entregou.
+ *
+ * Sai do cockpit, e não de uma soma das séries feita aqui: o Acompanhamento lê
+ * esse mesmo campo, e duas telas do mesmo produto dizendo frotas diferentes
+ * para a mesma vigência é o defeito que custa a confiança nas duas.
+ */
 export function frotaTotal(view: GroupedView): number {
-  return view.series.reduce((soma, s) => soma + s.fleet, 0);
+  return view.cockpit.kpis.fleet;
 }
 
 // ---------------------------------------------------------------------------
@@ -461,25 +468,22 @@ export function pontosDeAtencao(
 /**
  * O equipamento com mais mudanças na vigência.
  *
- * A contagem sai dos grupos, somando os ativos de cada um: um grupo é um
- * atributo num tipo de equipamento, e cada ativo dentro dele é uma alteração.
- * A alternativa seria pedir a contagem por série ao servidor, que hoje não a
- * publica separada — e inventar aqui uma divisão que a resposta não traz seria
- * pior do que somar o que ela traz.
+ * A contagem vem pronta do cockpit — `panorama.byEquipment` —, e não de uma
+ * soma dos grupos feita aqui. A diferença não é de esforço: somar `vehicles`
+ * conta ativos, e o que a frase promete são **mudanças**, que é outro número
+ * sempre que um ativo muda em dois parâmetros. O painel do Acompanhamento lê
+ * exatamente este campo, e as duas telas precisam dizer o mesmo.
  */
 export function equipamentoMaisTocado(
   view: GroupedView,
 ): { nome: string; mudancas: number } | null {
-  const porEquipamento = new Map<string, number>();
-  for (const grupo of view.groups) {
-    porEquipamento.set(grupo.equipment, (porEquipamento.get(grupo.equipment) ?? 0) + grupo.vehicles);
-  }
-  if (porEquipamento.size === 0) return null;
+  const baldes = view.cockpit.panorama.byEquipment.filter((b) => b.changes > 0);
+  if (baldes.length === 0) return null;
 
-  const [nome, mudancas] = [...porEquipamento.entries()].sort(
-    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "pt-BR"),
+  const maior = [...baldes].sort(
+    (a, b) => b.changes - a.changes || a.equipment.localeCompare(b.equipment, "pt-BR"),
   )[0];
-  return { nome, mudancas };
+  return { nome: maior.equipment, mudancas: maior.changes };
 }
 
 // ---------------------------------------------------------------------------
@@ -499,18 +503,31 @@ export interface LinhaDeAlteracao {
 /**
  * As alterações da vigência, as mais relevantes primeiro.
  *
- * Vem dos grupos e não de uma lista de linhas soltas, e é uma escolha de
- * verdade e não de espaço: as alterações desta vigência foram todas apuradas na
- * mesma comparação, no mesmo instante. Uma lista com quatro relógios diferentes
- * ao lado — "hoje, 10:32", "hoje, 09:58" — inventaria uma cronologia que o dado
- * não tem. O que existe de verdadeiro para pôr à direita é o tamanho do fato:
- * em quantos ativos ele aconteceu.
+ * A ordem é **a fila de prioridade do cockpit**, a mesma que o Acompanhamento
+ * abre: a criticidade e o lugar de cada item são calculados em
+ * `lib/comparison/src/cockpit.ts` e testados lá contra o export real. Reordenar
+ * aqui por conta própria faria o primeiro item desta tela discordar do primeiro
+ * item da tela seguinte, e não há resposta boa para quem perguntasse qual das
+ * duas está certa.
  *
- * A ordem é a que o servidor já entrega, que é a mesma do Acompanhamento —
- * dinheiro primeiro, ruído por último.
+ * Sem coluna de relógio, e é decisão de verdade e não de espaço: as alterações
+ * desta vigência foram todas apuradas na mesma comparação, no mesmo instante.
+ * Uma lista com quatro horários diferentes ao lado — "hoje, 10:32", "hoje,
+ * 09:58" — inventaria uma cronologia que o dado não tem. O que existe de
+ * verdadeiro para pôr à direita é o tamanho do fato: em quantos ativos ele
+ * aconteceu.
  */
 export function ultimasAlteracoes(view: GroupedView, limite = 4): LinhaDeAlteracao[] {
-  return view.groups.slice(0, limite).map((grupo) => ({
+  const fila = juntarPrioridades(view);
+  /*
+    A fila vazia com grupos na mão não deveria acontecer — as duas listas nascem
+    da mesma resposta. Se acontecer, o painel mostra os grupos na ordem que
+    vieram em vez de ficar vazio: perder a ordem é menos grave do que sumir com
+    as alterações da vigência.
+  */
+  const grupos = fila.length > 0 ? fila.map((entrada) => entrada.group) : view.groups;
+
+  return grupos.slice(0, limite).map((grupo) => ({
     chave: grupo.key,
     tipo: tipoDaLinha(grupo),
     titulo: tituloDaLinha(grupo),

@@ -440,9 +440,16 @@ function Indicadores({
               )}
               {impactos[0].amount < 0 ? "desfavorável" : "favorável"}
             </p>
+            {/*
+              Quem diz que não há com que comparar é o cockpit, e não a ausência
+              da resposta anterior: `hasBaseline` é a verdade por série, e a
+              consulta pode ter faltado por outro motivo. Anunciar "primeira
+              vigência" por causa de uma chamada que falhou seria transformar um
+              tropeço de rede em fato sobre o histórico do cliente.
+            */}
             <Nota
               texto={
-                anterior
+                view.cockpit.baseline.hasBaseline
                   ? "vs vigência anterior"
                   : "primeira vigência da série — não há anterior com que comparar"
               }
