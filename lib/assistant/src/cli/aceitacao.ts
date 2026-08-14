@@ -206,27 +206,38 @@ async function rodarConversas(db: Database, marcadores: Marcadores) {
   const resultados: Resultado[] = [];
 
   for (const sequencia of SEQUENCIAS) {
+    /*
+      Ou a conversa inteira, ou nenhum turno dela.
+
+      Pular só o passo cujo marcador não resolveu deixaria "Qual a frequência?"
+      rodar sem a pergunta que estabeleceu o assunto — e o que se mediria ali
+      não é a continuidade, é uma pergunta órfã. Reprovar por isso seria culpar
+      o assistente pela lacuna do banco.
+    */
+    const semMarcador = [
+      ...new Set(sequencia.passos.flatMap((p) => aplicar(p.pergunta, marcadores).faltando)),
+    ];
+    if (semMarcador.length > 0) {
+      resultados.push({
+        id: sequencia.id,
+        categoria: "CONVERSA",
+        pergunta: `(conversa: ${sequencia.descricao})`,
+        esperado: sequencia.passos.map((p) => p.esperado).join(" → "),
+        resposta: null,
+        pulado: `este banco não tem ${semMarcador.join(", ")} — a conversa inteira foi pulada`,
+        falhas: [],
+        msDecorridos: 0,
+      });
+      continue;
+    }
+
     let estado: EstadoDaConversa | null = null;
     const historico: TurnoAnterior[] = [];
     process.stdout.write(`  ${sequencia.id}\n`);
 
     for (const [i, passo] of sequencia.passos.entries()) {
-      const { texto: pergunta, faltando } = aplicar(passo.pergunta, marcadores);
+      const { texto: pergunta } = aplicar(passo.pergunta, marcadores);
       const id = `${sequencia.id}#${i + 1}`;
-
-      if (faltando.length > 0) {
-        resultados.push({
-          id,
-          categoria: "CONVERSA",
-          pergunta: passo.pergunta,
-          esperado: passo.esperado,
-          resposta: null,
-          pulado: `este banco não tem ${faltando.join(", ")}`,
-          falhas: [],
-          msDecorridos: 0,
-        });
-        continue;
-      }
 
       const inicio = Date.now();
       const resposta = await responder(db, pergunta, { estado, historico: [...historico] });
@@ -285,6 +296,14 @@ function relatorio(ambiente: Ambiente, marcadores: Marcadores, resultados: Resul
   p(`- banco: \`${ambiente.urlDoBanco.replace(/:[^:@/]+@/, ":***@")}\``);
   p(`- contexto padrão: ${ambiente.contexto ?? "—"} · ${ambiente.vigencias} vigência(s)`);
   p(`- Book: ${ambiente.blocosComRegra} bloco(s) com regra, ${ambiente.blocosComDocumento} com documento`);
+  if (ambiente.blocosComRegra === 0) {
+    p();
+    p(
+      "> **Cobertura parcial.** Este banco não tem nenhuma regra registrada no Book. As " +
+        "categorias de Book, documento e multi-fonte foram puladas e **este relatório não é " +
+        "baseline delas** — o que ele mede é a metade de dado do assistente.",
+    );
+  }
   p(`- IA: ${ambiente.ia ? `ligada · ${ambiente.modelo}` : "**desligada** — sem chave"}`);
   p(`- respostas escritas pelo modelo: ${porIa.length} de ${rodados.length}`);
   p();
@@ -418,12 +437,26 @@ async function principal() {
     console.error("O banco não tem vigência promovida — a bateria mediria o vazio. Nada executado.");
     process.exit(1);
   }
+  /*
+    Book vazio não é motivo para não medir nada — é motivo para dizer o que não
+    foi medido.
+
+    A versão anterior parava aqui, e a parada custava caro: um banco com
+    vigências promovidas e chave configurada consegue medir dois terços da
+    bateria (parâmetros, operação, comparação, impacto, executivas, anomalias,
+    ambiguidade, ausência de resposta e indução de número) contra dado real e
+    com o modelo real. O que não dá para medir sem documento anexado são as
+    categorias de Book e as multi-fonte — e essas se pulam sozinhas, porque os
+    marcadores `{BLOCO_DOC}` e `{BLOCO}` não resolvem. Cada uma aparece como
+    **pulada** no relatório, com o motivo; nenhuma vira aprovação silenciosa.
+  */
   if (ambiente.blocosComRegra === 0) {
-    console.error(
-      "O Book não tem nenhuma regra registrada: as categorias de Book e multi-fonte não têm o " +
-        "que medir. Anexe os documentos pela tela do Book do Operador antes de rodar.",
+    console.warn(
+      "\n⚠  O Book não tem nenhuma regra registrada neste banco.\n" +
+        "   As categorias de Book, documento e multi-fonte vão aparecer como PULADAS —\n" +
+        "   este relatório não serve como baseline delas. Se o Book do app que você usa\n" +
+        "   tem documentos, provavelmente é outro banco: confira a DATABASE_URL.\n",
     );
-    process.exit(1);
   }
 
   console.log(`\nContexto: ${ambiente.contexto} · ${ambiente.vigencias} vigências`);

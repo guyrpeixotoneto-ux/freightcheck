@@ -18,9 +18,9 @@ Nada abaixo recalcula comparação, impacto ou classificação. Tudo vem de
 | --- | --- |
 | alterações, pontos alterados, veículos tocados | `totals` |
 | impacto por periodicidade, excluído por dupla contagem, sem preço | `impact` |
-| selo (`DINHEIRO`, `RUPTURA`, `COBERTURA`, `MOVIMENTO`, `TRAVADO`, `SEM_SINAL`) | `pickBadge` |
+| selo (`DINHEIRO`, `RUPTURA`, `COBERTURA`, `MOVIMENTO`, `TRAVADO`, `FORMATO`, `SEM_SINAL`) | `pickBadge` |
 | abrangência (`TOTAL`, `MAIORIA`, `PARCIAL`) e frota | `buildGroup` |
-| anomalia de formato e sua explicação | `anomalies.ts` |
+| anomalia de formato, sua explicação e se ela é **só** formato | `anomalies.ts` |
 | padrões "antes → depois" e o dominante | `buildGroup` |
 | motivo de não haver preço | `impact.reason` |
 | acumulado histórico, num campo próprio | `accumulated` |
@@ -58,6 +58,13 @@ em `reasons`, e a tela mostra a soma inteira dentro do item.
 | variação ≥ 100% / ≥ 50% / ≥ 20% | 20 / 12 / 6 |
 | preço travado (monetário sem semântica confirmada) | 5 |
 
+Uma exceção **substitui** a tabela: um ponto de troca de formato pura
+(`ChangeGroup.formatOnly` — todas as linhas são a mesma data escrita de outro
+jeito) vale 5 pontos fixos, com esse motivo escrito. Nenhum critério da tabela
+descreve o que houve ali, porque não houve mudança de valor: somá-los dava 85
+pontos ao `data_fim_contrato` de ago/2026 e o punha em primeiro lugar, acima do
+IPVA que custou R$ 144 mil.
+
 **Cortes:** ≥ 70 crítico · ≥ 45 alto · ≥ 25 médio · abaixo, baixo.
 
 **Desempate**, nesta ordem: veículos, valor absoluto do impacto, chave do grupo.
@@ -66,8 +73,8 @@ mesma fila — há teste para isso também.
 
 Exemplos sobre o export real:
 
-- `cavalo.data_fim_contrato` (ago/2026): 35 + 10 + 30 = **75, crítico** — ruptura,
-  anomalia de formato e frota inteira.
+- `cavalo.data_fim_contrato` (ago/2026): **5, baixo** — troca de formato pura nos
+  62 cavalos. Já valeu 85 e abria a fila; ver a exceção acima.
 - `cavalo.combustivel_consumo_neg` (jul/2026): 35 + 10 + 30 + 6 = **81, crítico**.
 - `cavalo.ipva_licenciamento` (jul/2026): 35 + 30 + 6 = **71, crítico** —
   −R$ 144.874,50/ano nos 62 cavalos.
@@ -92,8 +99,15 @@ continua na fila, e "baixo" nunca é sinônimo de escondido.
    "nada mudou" de "não há vigência anterior com que comparar".
 6. **O valor cru não sobe para a camada executiva.** `2028-07-01T12:00:00Z →
    46935.5` continua inteiro — em "O que mudou", dentro da investigação.
-7. **Indício é dito como indício.** O diagnóstico de formato usa "compatível
-   com", "indício", e nunca afirma troca de formato como fato.
+7. **Indício é dito como indício — e conclusão, como conclusão.** Onde formato e
+   valor mudaram na mesma célula, o diagnóstico usa "compatível com", "indício",
+   e não afirma. Onde o número é o mesmo instante da data do outro lado ao
+   milissegundo, ele afirma: hesitar ali manda alguém conferir 62 contratos que
+   não mudaram.
+8. **Troca de formato não é alteração contratual, e não some por isso.** O ponto
+   sai da faixa crítica, ganha selo próprio e vai para o fim da fila; as linhas
+   continuam contadas em `totals.changes`, ditas à parte em
+   `totals.formatOnlyChanges`, e rastreáveis até a célula.
 
 ## Onde estão os testes
 

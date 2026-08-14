@@ -638,7 +638,14 @@ export const ARTIGOS: Artigo[] = [
       "valor: é a mesma informação escrita de outro jeito.\n\n" +
       "O produto detecta esse par e marca a alteração como anomalia de formato, em vez " +
       "de reportar que um contrato passou a valer até o ano 45000. A detecção é " +
-      "conservadora e só atua na faixa de números que corresponde a datas plausíveis.",
+      "conservadora e só atua na faixa de números que corresponde a datas plausíveis.\n\n" +
+      "Quando **todas** as linhas do ponto são disso — o número, lido como serial, é o " +
+      "mesmo instante da data anterior —, o ponto deixa de ser tratado como alteração " +
+      "contratual: ganha o selo \"Formato da fonte\", criticidade baixa e o fim da fila. " +
+      "Nada some: as linhas continuam contadas no total da vigência, ditas à parte como " +
+      "troca de formato, e abríveis até a célula de origem. Se sobrar uma linha em que a " +
+      "data por trás do número é outra, o ponto volta a ser alteração — aí há formato e " +
+      "mudança de valor na mesma célula, e é essa parte que alguém precisa conferir.",
     fonte: "lib/comparison/src/anomalies.ts",
     tela: { label: "Alterações", href: "/alteracoes" },
   },

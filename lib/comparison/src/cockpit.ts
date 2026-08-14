@@ -58,6 +58,11 @@ import type { Badge, ChangeGroup, GroupedSeries, GroupedView, ImpactSummary } fr
  * | variação ≥ 100% / ≥ 50% / ≥ 20% | 20 / 12 / 6 | magnitude do movimento |
  * | preço travado (monetário sem semântica confirmada) | 5 | há dinheiro atrás, e ele não pôde ser apurado |
  *
+ * Uma exceção, e ela **substitui** a tabela em vez de somar-se a ela: um grupo
+ * de troca de formato pura (`ChangeGroup.formatOnly`) vale 5 pontos fixos. Ver
+ * `scoreGroup` para o porquê — em resumo, nenhum critério acima descreve algo
+ * que aconteceu com o valor, porque o valor não mudou.
+ *
  * Os cortes: **≥ 70 crítico, ≥ 45 alto, ≥ 25 médio, abaixo disso baixo.** Eles
  * são convenção, e é por isso que o score e os motivos viajam junto na
  * resposta: quem discordar do corte consegue ver exatamente o que o produziu.
@@ -147,6 +152,14 @@ export function shareOf(group: ChangeGroup): number | null {
 }
 
 /**
+ * Quanto vale uma troca de formato pura.
+ *
+ * Baixo por definição — mas não zero: zero produziria um item sem nenhum motivo
+ * escrito, e um score sem motivo é o palpite que este módulo recusa.
+ */
+export const FORMAT_ONLY_SCORE = 5;
+
+/**
  * O score de um grupo e a conta que o produziu.
  *
  * Determinístico: mesma entrada, mesmo número, mesma lista de motivos. Nenhum
@@ -156,6 +169,31 @@ export function scoreGroup(group: ChangeGroup): {
   score: number;
   reasons: PriorityReason[];
 } {
+  /*
+    A troca de formato pura sai antes da tabela porque nenhuma parcela dela
+    descreve o que aconteceu aqui. "Ruptura no valor" mede o valor trocando de
+    estado, e o valor é o mesmo instante dos dois lados; "atinge toda a frota"
+    mede o alcance de uma mudança que não houve; "indício de troca de formato"
+    somava mais 10 por confirmar justamente que não era mudança contratual.
+    Somadas, davam 85 pontos ao `data_fim_contrato` de agosto/2026 — primeiro
+    lugar da fila, acima do IPVA que custou R$ 145 mil de verdade.
+
+    Continua na fila, com motivo escrito e posição no fim. Ser irrelevante para
+    o risco não é ser inexistente: quem cuida da importação precisa saber que a
+    fonte mudou o jeito de exportar a coluna.
+  */
+  if (group.formatOnly) {
+    return {
+      score: FORMAT_ONLY_SCORE,
+      reasons: [
+        {
+          label: "troca de formato na fonte, sem mudança de valor",
+          points: FORMAT_ONLY_SCORE,
+        },
+      ],
+    };
+  }
+
   const reasons: PriorityReason[] = [];
   const add = (label: string, points: number) => {
     if (points > 0) reasons.push({ label, points });
@@ -237,19 +275,56 @@ export function diagnose(group: ChangeGroup): string {
   const noun = vehicleNoun(group.entityType, group.vehicles);
   const veiculos = `${pt(group.vehicles)} ${noun}`;
 
+  /*
+    Quando o grupo é troca de formato pura, a frase afirma — e isso não
+    contradiz a regra de "nada aqui afirma o que é apenas indício" logo acima,
+    porque aqui não é indício. Cada linha foi conferida: o número, lido como
+    serial do Excel, cai no mesmo instante da data do outro lado, ao
+    milissegundo. Coincidência dessa ordem não acontece por acaso em 62 linhas.
+    Hesitar aqui teria o custo oposto ao que a hesitação protege: manda alguém
+    conferir 62 contratos que não mudaram.
+  */
+  if (group.formatOnly) {
+    const precision = group.anomalies
+      .filter((a) => !a.sameInstant)
+      .reduce((total, a) => total + a.vehicles, 0);
+    const direcao = group.anomalies.every((a) => a.kind === "SERIAL_EXCEL_COMO_DATA")
+      ? "deixou de vir como número e passou a vir como data"
+      : "deixou de vir como data e passou a vir como número";
+    const ressalva =
+      precision > 0
+        ? ` Em ${pt(precision)}, os dois lados diferem por menos de um segundo — é a fração ` +
+          `de segundo que um serial do Excel não representa, e não uma data nova.`
+        : "";
+    return (
+      `A coluna ${direcao} em ${veiculos}, e os dois lados são o mesmo ` +
+      `instante.${ressalva} Mudou o formato do arquivo, não o contrato: não há aqui ` +
+      `alteração contratual a cobrar do cliente.`
+    );
+  }
+
+  /*
+    Grupo misto: parte é formato, parte é data que mudou de verdade. Aqui a
+    hesitação é a leitura correta, porque a frase precisa cobrir as duas coisas
+    ao mesmo tempo — e a parte que sobra é justamente a que alguém tem de abrir.
+  */
   if (group.anomalies.length > 0) {
-    const same = group.anomalies.find((a) => a.sameInstant);
-    const drift = group.anomalies.filter((a) => !a.sameInstant);
-    const driftVehicles = drift.reduce((total, a) => total + a.vehicles, 0);
+    const formatVehicles = group.anomalies
+      .filter((a) => a.formatOnly)
+      .reduce((total, a) => total + a.vehicles, 0);
+    const driftVehicles = group.anomalies
+      .filter((a) => !a.formatOnly)
+      .reduce((total, a) => total + a.vehicles, 0);
     const base =
       `O valor deixou de vir como data e passou a vir como número em ${veiculos}. ` +
       `O número é compatível com o formato serial que o Excel usa para datas, ` +
       `o que é indício de mudança de formato no arquivo e não necessariamente ` +
       `de alteração contratual.`;
-    if (same && driftVehicles > 0) {
+    if (formatVehicles > 0 && driftVehicles > 0) {
       return (
-        `${base} Em ${pt(same.vehicles)}, os dois lados são o mesmo instante; ` +
-        `em ${pt(driftVehicles)} há diferença, e ela precisa ser conferida.`
+        `${base} Em ${pt(formatVehicles)}, o número é o mesmo instante da data anterior; ` +
+        `em ${pt(driftVehicles)} a data por trás dele é outra, e é essa parte que ` +
+        `precisa ser conferida.`
       );
     }
     return base;
@@ -376,7 +451,22 @@ export interface CockpitKpis {
   impact: ImpactSummary;
   /** Se alguma periodicidade tem valor apurado nesta vigência. */
   hasImpact: boolean;
-  anomalies: { groups: number; changes: number };
+  /**
+   * Os pontos com indício de troca de formato, e dentro deles os que são **só**
+   * isso.
+   *
+   * Os dois números viajam juntos porque respondem perguntas diferentes:
+   * `groups` é "onde a fonte mexeu no formato" — trabalho de quem cuida da
+   * importação —, e `formatOnlyGroups` é "onde isso não é alteração nenhuma".
+   * A diferença entre eles é o que tem formato **e** mudança de valor na mesma
+   * célula, que é o caso que ninguém pode arquivar sem abrir.
+   */
+  anomalies: {
+    groups: number;
+    changes: number;
+    formatOnlyGroups: number;
+    formatOnlyChanges: number;
+  };
 }
 
 export interface CockpitNarrative {
@@ -548,6 +638,23 @@ export function narrate(input: {
     }.`,
   );
 
+  /*
+    A ressalva vem colada no total, e não no fim: quem lê "244 alterações"
+    precisa saber na frase seguinte que 62 delas são o mesmo valor escrito de
+    outro jeito. Dito só lá embaixo, o número grande já teria virado a notícia.
+  */
+  if (kpis.anomalies.formatOnlyChanges > 0) {
+    const c = kpis.anomalies.formatOnlyChanges;
+    const g = kpis.anomalies.formatOnlyGroups;
+    sentences.push(
+      `Destas, ${pt(c)} ${c === 1 ? "está" : "estão"} em ${pt(g)} ${
+        g === 1 ? "ponto que apenas trocou" : "pontos que apenas trocaram"
+      } de formato no arquivo — o valor dos dois lados é o mesmo, e ${
+        c === 1 ? "ela não é alteração contratual" : "elas não são alteração contratual"
+      }.`,
+    );
+  }
+
   if (kpis.attention > 0) {
     const partes: string[] = [];
     if (critical > 0) partes.push(`${pt(critical)} ${critical === 1 ? "crítico" : "críticos"}`);
@@ -593,12 +700,16 @@ export function narrate(input: {
     );
   }
 
-  if (kpis.anomalies.groups > 0) {
+  // Só os pontos em que formato e valor mudaram juntos. Os de formato puro já
+  // foram ditos junto do total, e repeti-los aqui com "pode não ser mudança"
+  // devolveria a dúvida que a frase de cima acabou de resolver.
+  const mistos = kpis.anomalies.groups - kpis.anomalies.formatOnlyGroups;
+  if (mistos > 0) {
     sentences.push(
-      `${pt(kpis.anomalies.groups)} ${
-        kpis.anomalies.groups === 1 ? "ponto apresenta" : "pontos apresentam"
-      } indício de troca de formato no arquivo, o que pode não ser mudança ` +
-        `contratual — confira o diagnóstico antes de acionar o cliente.`,
+      `${pt(mistos)} ${
+        mistos === 1 ? "ponto apresenta" : "pontos apresentam"
+      } troca de formato e mudança de valor na mesma célula — confira o ` +
+        `diagnóstico antes de acionar o cliente.`,
     );
   }
 
@@ -703,6 +814,7 @@ export function buildCockpit(view: CockpitInput): CockpitView {
   const pricing = buildPricing(view.groups, view.impact);
 
   const anomalyGroups = view.groups.filter((g) => g.anomalies.length > 0);
+  const formatOnlyGroups = anomalyGroups.filter((g) => g.formatOnly);
   const kpis: CockpitKpis = {
     changes: view.totals.changes,
     parameters: view.totals.groups,
@@ -719,6 +831,8 @@ export function buildCockpit(view: CockpitInput): CockpitView {
         (total, g) => total + g.anomalies.reduce((sum, a) => sum + a.vehicles, 0),
         0,
       ),
+      formatOnlyGroups: formatOnlyGroups.length,
+      formatOnlyChanges: formatOnlyGroups.reduce((total, g) => total + g.changes, 0),
     },
   };
 

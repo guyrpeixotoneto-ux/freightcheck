@@ -126,9 +126,20 @@ export function Prioridade({
                   {group.badgeLabel}
                 </span>
                 {item.hasAnomaly && (
-                  <span className="text-[0.6875rem] text-amber-800 inline-flex items-center gap-1">
-                    <TriangleAlert className="w-3 h-3" />
-                    possível anomalia de formato
+                  <span
+                    className={cn(
+                      "text-[0.6875rem] inline-flex items-center gap-1",
+                      group.formatOnly ? "text-slate-600" : "text-amber-800",
+                    )}
+                  >
+                    {group.formatOnly ? (
+                      <Info className="w-3 h-3" />
+                    ) : (
+                      <TriangleAlert className="w-3 h-3" />
+                    )}
+                    {group.formatOnly
+                      ? "troca de formato, sem mudança de valor"
+                      : "possível anomalia de formato"}
                   </span>
                 )}
               </div>
@@ -342,12 +353,21 @@ function Investigacao({
           {group.anomalies.map((anomaly) => (
             <div
               key={`${anomaly.kind}-${anomaly.sameInstant}-${anomaly.differenceMs}`}
-              className="mt-2 border-l-4 border-amber-500 bg-amber-50 px-3 py-2 text-amber-900"
+              className={cn(
+                "mt-2 border-l-4 px-3 py-2",
+                anomaly.formatOnly
+                  ? "border-slate-400 bg-slate-50 text-slate-800"
+                  : "border-amber-500 bg-amber-50 text-amber-900",
+              )}
             >
               <div className="font-semibold text-[0.6875rem] uppercase tracking-wide mb-1 flex items-center gap-1.5">
-                <TriangleAlert className="w-3.5 h-3.5" />
-                Possível anomalia de formato · {anomaly.vehicles}{" "}
-                {anomaly.vehicles === 1 ? "veículo" : "veículos"}
+                {anomaly.formatOnly ? (
+                  <Info className="w-3.5 h-3.5" />
+                ) : (
+                  <TriangleAlert className="w-3.5 h-3.5" />
+                )}
+                {anomaly.formatOnly ? "Troca de formato" : "Possível anomalia de formato"} ·{" "}
+                {anomaly.vehicles} {anomaly.vehicles === 1 ? "veículo" : "veículos"}
               </div>
               <p className="text-xs leading-snug">{anomaly.explanation}</p>
               <p className="mt-1 text-[0.6875rem]">
@@ -461,8 +481,18 @@ function Investigacao({
       )}
 
       <div ref={veiculosRef}>
+        {/*
+          O título muda de palavra quando o grupo é troca de formato pura.
+          "Veículos afetados" descreve dano, e é a mesma expressão que encima o
+          IPVA que custou R$ 145 mil; usá-la aqui fazia o cabeçalho contradizer
+          as 62 notas logo abaixo, que dizem que nada mudou.
+        */}
         <Secao
-          titulo={`Veículos afetados (${group.vehicles} de ${group.fleet})`}
+          titulo={
+            group.formatOnly
+              ? `Veículos com a coluna reformatada (${group.vehicles} de ${group.fleet})`
+              : `Veículos afetados (${group.vehicles} de ${group.fleet})`
+          }
         >
           {vehicles.isLoading && <p className="text-muted-foreground">Carregando…</p>}
           {vehicles.data && <TabelaVeiculos rows={vehicles.data} group={group} />}

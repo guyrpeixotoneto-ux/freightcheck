@@ -207,7 +207,16 @@ describe("anomalia de formato — o serial do Excel", () => {
     );
     expect(contrato).toBeDefined();
     expect(contrato!.vehicles).toBe(62);
-    expect(contrato!.badge).toBe("RUPTURA");
+    /*
+      As 62 são troca de formato e nada mais — 54 no mesmo instante, 8 com um
+      milissegundo de precisão perdida —, e é por isso que o grupo inteiro sai
+      da leitura de risco. Enquanto era `RUPTURA`, ele valia 85 pontos e abria
+      a fila de agosto/2026: a tela dizia "62 veículos afetados, crítico" no
+      cabeçalho e "nada mudou" embaixo de cada uma das 62 linhas.
+    */
+    expect(contrato!.badge).toBe("FORMATO");
+    expect(contrato!.formatOnly).toBe(true);
+    expect(contrato!.anomalies.every((a) => a.formatOnly)).toBe(true);
 
     const same = contrato!.anomalies.find((a) => a.sameInstant);
     const different = contrato!.anomalies.find((a) => !a.sameInstant);
@@ -220,6 +229,38 @@ describe("anomalia de formato — o serial do Excel", () => {
     // isso — chamar de mudança de data alarmaria oito contratos sem motivo.
     expect(different?.differenceMs).toBe(1);
     expect(different?.explanation).toContain("precisão que o formato perdeu");
+  });
+
+  it("sai da fila de risco, sem sair da lista nem do total", async () => {
+    const view = await getGroupedView(ctx.db, AGOSTO);
+    const contrato = view!.groups.find(
+      (g) => g.attributeCode === "cavalo.data_fim_contrato",
+    )!;
+
+    // Continua contado: as 62 linhas estão no total da vigência, e a parcela
+    // que é formato está dita com nome próprio ao lado dele.
+    expect(view!.totals.formatOnlyChanges).toBe(62);
+    expect(view!.totals.changes).toBeGreaterThan(view!.totals.formatOnlyChanges);
+    const somaDosGrupos = view!.groups.reduce((total, g) => total + g.changes, 0);
+    expect(somaDosGrupos).toBe(view!.totals.changes);
+
+    // Continua na fila, no fim dela, com o motivo escrito.
+    const item = view!.cockpit.priorities.find((p) => p.key === contrato.key)!;
+    expect(item.severity).toBe("BAIXO");
+    expect(item.score).toBe(5);
+    expect(item.diagnosis).toContain("não o contrato");
+    // Já foi o primeiro da fila. Agora não há nada acima dele que não seja
+    // mais grave que ele.
+    expect(view!.cockpit.priorities[0].key).not.toBe(contrato.key);
+    expect(
+      view!.cockpit.priorities
+        .slice(0, item.rank - 1)
+        .every((p) => p.score >= item.score),
+    ).toBe(true);
+
+    // E deixou de inflar a contagem de pontos em atenção da vigência.
+    expect(view!.cockpit.kpis.anomalies.formatOnlyGroups).toBe(1);
+    expect(view!.cockpit.kpis.anomalies.formatOnlyChanges).toBe(62);
   });
 
   it("o valor original de cada lado continua rastreável até a célula", async () => {
