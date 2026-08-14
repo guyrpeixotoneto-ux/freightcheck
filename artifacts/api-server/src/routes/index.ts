@@ -12,6 +12,7 @@ import bookRouter from "./book";
 import assistantRouter from "./assistant";
 import balanceRouter from "./balance";
 import compositionRouter from "./composition";
+import ticketsRouter from "./tickets";
 
 /**
  * F0/F1 surface.
@@ -56,6 +57,11 @@ import compositionRouter from "./composition";
  * próprio: ela responde a partir do conhecimento registrado em código e de
  * consultas às mesmas funções que as telas usam. Um número que aparece lá
  * apareceu antes numa tela, e a resposta diz em qual.
+ *
+ * `tickets` é a aba Chamados de Alterações — o outro caminho pelo qual a
+ * remuneração muda. Fica separada de `changes` de propósito: um chamado não é
+ * uma diferença apurada entre duas vigências, e o impacto de um nunca é somado
+ * ao do outro. Duas contas, duas réguas, lado a lado e nunca adicionadas.
  */
 const router: IRouter = Router();
 
@@ -72,5 +78,6 @@ router.use(bookRouter);
 router.use(assistantRouter);
 router.use(balanceRouter);
 router.use(compositionRouter);
+router.use(ticketsRouter);
 
 export default router;
