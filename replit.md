@@ -124,6 +124,8 @@ e-mail, e exclusão de conta.
 - `lib/ingest` — recebimento do arquivo, RAW, staging, promoção
 - `lib/curation` — semântica dos atributos, taxonomia, confirmações humanas
 - `lib/comparison` — motor de alterações, visão consolidada
+- `lib/balance` — o balanço de massa da importação: os destinos declarados de
+  cada célula (`destinos.ts`) e a conta que os confere (`balanco.ts`)
 - `artifacts/api-server` — HTTP; autenticação em `src/lib/auth.ts` (as
   primitivas, sem banco), `src/lib/session.ts` (sessões e contas) e
   `src/middlewares/require-session.ts` (o portão)
@@ -144,6 +146,10 @@ e-mail, e exclusão de conta.
   dado próprio: responde a partir do conhecimento do produto escrito em código e
   de consultas às **mesmas funções que as telas usam**, e devolve as duas coisas
   junto com o texto. Ver a seção *Assistente de IA* abaixo.
+- **Balanço de Massa** — `lib/balance`, rota em
+  `artifacts/api-server/src/routes/balance.ts`, tela em
+  `artifacts/freightaudit/src/pages/balanco-massa.tsx`. É a única superfície que
+  pergunta pelo que **não** está na tela. Ver a seção *Balanço de Massa* abaixo.
 - **Conhecimento do Freightech** — `lib/knowledge`: o catálogo das telas de
   origem e o índice do Book, que eram da interface e agora são compartilhados,
   porque o assistente e as telas precisam da mesma verdade sobre o que o
@@ -262,6 +268,51 @@ responde soa igual quando sabe e quando não sabe.
 transcrição da tela do Freightech e vive na interface; o assistente conhece o
 que foi registrado em `book_entry` e diz isso, em vez de manter uma segunda
 cópia do índice que sairia de sincronia no primeiro rename.
+
+## Balanço de Massa
+
+**A pergunta inversa da rastreabilidade.** Todas as outras telas respondem *de
+onde veio este número*, e a resposta vai até a célula da planilha. Esta responde
+*toda célula da planilha chegou a algum lugar?* — e é a única que pega o defeito
+que não se vê. Número inventado aparece: está na tela, errado, e alguém confere.
+Dado que sumiu não aparece em lugar nenhum. Uma coluna que a Freightec renomeou
+e o leitor deixou de reconhecer não produz erro nenhum: produz um total menor,
+com todas as parcelas exibidas conferindo perfeitamente entre si. **Ninguém
+audita o que não é exibido**, e era esse o buraco.
+
+**Três etapas, e cada uma fecha por conta própria.** Do arquivo ao preparo,
+célula a célula; do preparo à vigência, fato a fato; e o portão da semântica, que
+diz quanto do que entrou já pode ser somado. A terceira costuma ser a que
+surpreende: a massa chega inteira ao canônico e ainda assim quase nada dela entra
+numa conta, porque só o atributo com semântica confirmada é somável.
+
+**Descarte, perda e resíduo não se confundem.** `DESCARTE` é saída sem perder
+informação — linha em branco, aba de pivô que refaz conta sobre dados que já
+entraram por outra aba. `PERDA` é o arquivo trazer e o sistema recusar, com
+motivo e com o endereço da célula. `RESIDUO` é célula que sumiu sem destino, e é
+a única das três que significa defeito. Somar as duas primeiras num "não
+aproveitado" esconderia exatamente o número que alguém precisa ver — por isso
+**uma importação fecha tendo perdas**, e o alarme fica reservado para o resíduo.
+
+**Os destinos moram em código** (`lib/balance/src/destinos.ts`), pelo mesmo
+motivo de `labels.ts` e `families.ts`. Uma célula que não se encaixa em nenhum
+deles cai em `SEM_DESTINO` em vez de sumir da conta, e a consulta e a lista são
+obrigadas a concordar: um ramo novo na classificação sem entrada na lista faz a
+leitura falhar, em vez de exibir um total menor sem sinal nenhum.
+
+**Nada aqui recalcula o pipeline.** A classificação é feita sobre o que ficou
+gravado — abas, linhas, células, mapeamentos de coluna, recusas e fatos. Uma
+segunda implementação das regras de leitura concordaria com a primeira inclusive
+quando as duas estivessem erradas, que é o único caso em que este módulo teria
+serventia.
+
+**O export real do cliente não exercita as saídas de perda**, porque ele é
+limpo: toda célula dele vira fato, cabeçalho ou grão. Então elas têm bateria
+própria, sobre uma planilha construída com os defeitos dentro
+(`src/__tests__/perdas.test.ts`) — linha sem placa, rótulo de vigência ilegível,
+coluna sem cabeçalho, duas colunas colidindo no mesmo código e uma aba de pivô —,
+com a contagem exigida célula a célula. Uma saída que só contasse pela primeira
+vez em produção seria um número que ninguém teria como conferir.
 
 ## Architecture decisions
 

@@ -18,6 +18,7 @@ import {
   House,
   Layers,
   MapPin,
+  Scale,
   ScanSearch,
   SlidersVertical,
   Sparkles,
@@ -136,6 +137,12 @@ const NAV_GROUPS: NavGroup[] = [
     cor: "text-nav-dados",
     itens: [
       { href: "/importacoes", label: "Importações", icon: CloudDownload, contador: "importacoes" },
+      /*
+        O Balanço de Massa vem logo depois de Importações porque é a conferência
+        dela: a pergunta que ele faz — toda célula que o arquivo trouxe chegou a
+        algum lugar? — só existe a respeito do arquivo que acabou de entrar.
+      */
+      { href: "/balanco-massa", label: "Balanço de massa", icon: Scale },
       { href: "/curadoria", label: "Curadoria", icon: FileSearch, contador: "curadoria" },
       /*
         Cobertura de dados não estava no desenho do menu, e entrou aqui porque a

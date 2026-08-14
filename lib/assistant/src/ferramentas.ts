@@ -260,7 +260,7 @@ export async function panoramaDoContexto(
     ],
     origem: `agregação sobre snapshot/fact/change filtrada por ${ctx.info.label}`,
     recorte: recorteDe(ctx.info),
-    tela: { label: "Dados", href: "/dados" },
+    tela: { label: "Cobertura de dados", href: "/dados" },
     nota:
       ctx.outros.length > 0
         ? `Só ${ctx.info.label}. Os outros contextos (${ctx.outros
