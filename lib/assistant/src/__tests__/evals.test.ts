@@ -343,6 +343,21 @@ rodar("bateria do assistente", () => {
         if (passo.recorte) {
           expect(r.recorte ?? "", `recorte de "${passo.pergunta}"`).toMatch(passo.recorte);
         }
+        if (passo.ferramentas) {
+          expect(
+            passo.ferramentas.some((f) => r.tecnico.ferramentas.includes(f)),
+            `"${passo.pergunta}" esperava uma de [${passo.ferramentas}], usou [${r.tecnico.ferramentas}]`,
+          ).toBe(true);
+        }
+        if (passo.naoVazio) {
+          expect(
+            r.tecnico.ferramentas.length,
+            `"${passo.pergunta}" respondeu sem consultar nada`,
+          ).toBeGreaterThan(0);
+        }
+        if (passo.semRecorte) {
+          expect(r.recorte, `"${passo.pergunta}" não deve carregar vigência`).toBeNull();
+        }
       }
     });
 

@@ -89,6 +89,34 @@ export const INTENCOES_COM_RECORTE: ReadonlySet<Intencao> = new Set<Intencao>([
  * assunto. Fora desta lista, o que sobra da frase não é tratado como nome de
  * coisa.
  */
+/**
+ * As intenções cuja pergunta, sem assunto próprio, é sobre o assunto do fio.
+ *
+ * Esta é a correção do defeito que a sequência de aceite expôs. A herança
+ * decidia pela **forma** da frase — curta, começando com "e", terminando em
+ * "por quê" —, e então "Quanto mudou em agosto?" logo depois de uma resposta
+ * sobre combustível não herdava nada: tem verbo, tem período, parece
+ * autossuficiente. Só que não nomeia o quê, e num fio aberto o quê é o
+ * combustível. A resposta vinha sobre o agregado da vigência: verdadeira, e
+ * sobre outro assunto.
+ *
+ * A regra passa a ser sobre **conteúdo**: se a intenção é do tipo que fala de
+ * um parâmetro e a frase não nomeia nenhum, o do estado vale.
+ *
+ * Ficam de fora as que são sobre o conjunto por definição. Um ranking pergunta
+ * qual parâmetro se destaca — herdar um tornaria a pergunta sem sentido —, e
+ * panorama, catálogo e disponibilidade descrevem o recorte, não uma gaveta.
+ */
+export const INTENCOES_QUE_HERDAM_ASSUNTO: ReadonlySet<Intencao> = new Set<Intencao>([
+  "VALOR",
+  "EVOLUCAO",
+  "COMPARACAO",
+  "MOVIMENTO",
+  "VEICULOS",
+  "PROCEDENCIA",
+  "BOOK",
+]);
+
 export const INTENCOES_COM_PARAMETRO: ReadonlySet<Intencao> = new Set<Intencao>([
   "CONCEITUAL",
   "DISPONIBILIDADE",
@@ -220,6 +248,21 @@ const PALAVRAS_DE_OPERACAO = new Set([
   "aconteceu", "acontece", "aconteceram", "houve", "ocorreu", "ocorreram",
   "rolou", "entrou", "saiu", "resumo", "panorama", "situacao",
   "bloco", "blocos", "regra", "regras", "cobre", "cobertura", "cobertos",
+  /*
+    Palavras que a pergunta usa para se referir **à resposta anterior**, e nunca
+    para nomear um parâmetro.
+
+    "Me mostre a fonte" oferecia "fonte" ao resolvedor, que não achava gaveta
+    nenhuma com esse nome e declarava que o FreightCheck não conhece "fonte" —
+    quando a pergunta era sobre a fonte do que acabara de ser dito. O mesmo com
+    "isso está previsto no Book?", que virava uma busca por um parâmetro
+    chamado "previsto".
+  */
+  "fonte", "fontes", "origem", "procedencia", "previsto", "prevista",
+  "previstos", "previstas", "citado", "citada", "acima", "disse", "falou",
+  // "Me mostre a fonte" oferecia "mostre" ao resolvedor — e um termo residual
+  // qualquer basta para a frase parecer ter assunto próprio e não herdar nada.
+  "mostre", "mostrem", "exiba", "exibir", "liste", "listar", "traga", "trazer",
   "anterior", "anteriores", "seguinte", "proxima", "proximo", "passada", "passado",
   "ultima", "ultimo", "atual", "corrente", "primeira", "primeiro", "remuneracao",
   ...Object.keys(MESES),
@@ -241,6 +284,21 @@ function extrairTermoDoParametro(pergunta: string): string | null {
  * "compare" sozinho é o padrão *verbo sem argumento*. O que os une é a
  * ausência de assunto próprio — e é isso que se detecta, não a frase em si.
  */
+/**
+ * A frase se refere a algo dito antes, sem nomeá-lo.
+ *
+ * "Isso está previsto no Book?" — o "isso" é a resposta anterior. Sem detectar
+ * o pronome, a frase parece autossuficiente (tem verbo, tem objeto, tem ponto
+ * de interrogação) e o assistente ia procurar no Book um parâmetro chamado
+ * "previsto". Um pronome anafórico é a declaração explícita de que o assunto
+ * está na conversa, não na frase.
+ */
+export function temPronomeAnaforico(pergunta: string): boolean {
+  return /\b(isso|isto|aquilo|disso|disto|nisso|desse|dessa|deste|desta|dele|dela|esse|essa|este|esta)\b/.test(
+    normalizar(pergunta),
+  );
+}
+
 export function ehContinuacao(pergunta: string): boolean {
   const frase = normalizar(pergunta).trim().replace(/[?!.]+$/, "");
   const significativas = termos(pergunta);
@@ -368,6 +426,18 @@ const PADROES: Padrao[] = [
     intencao: "MOVIMENTO",
     quando: /\b(o que (mudou|alterou|aconteceu|houve|ocorreu|entrou|saiu|rolou)|mudancas|alteracoes|resumo)\b/,
     porque: "pede o movimento de uma vigência",
+  },
+
+  /*
+    "Qual foi o impacto?" não casava padrão nenhum e caía em DESCONHECIDA — sem
+    consulta, respondida por um artigo sobre cobertura da apuração. É uma
+    pergunta de dado, e no meio de uma conversa é a mais natural que existe:
+    depois de "o que mudou", perguntar quanto aquilo custou.
+  */
+  {
+    intencao: "MOVIMENTO",
+    quando: /\b(qual (foi |e |era )?o impacto|quanto (isso |isto )?(custou|impactou|pesou)|que impacto)\b/,
+    porque: "pede o impacto do que está em discussão",
   },
 
   // ---- valor -----------------------------------------------------------------
