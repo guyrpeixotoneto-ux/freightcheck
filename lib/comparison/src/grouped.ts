@@ -1269,7 +1269,11 @@ export interface EntityTable {
    * - **Outro nome no dicionário.** Antes da correção de `deriveEntityType`, a
    *   aba `Modelo_Carreta` virava o tipo `MODELOCARRETA`, com 65 colunas
    *   paralelas às de carreta. Importações antigas continuam com essa
-   *   identidade no banco — corrigir a regra não reescreve o que já entrou.
+   *   identidade no banco — corrigir a regra não reescreve o que já entrou, e
+   *   reimportar tampouco: o ativo é reconhecido pela placa, então a
+   *   reimportação reaproveita a mesma linha de `entity` com o tipo antigo e
+   *   só duplica dicionário e vigências. Quem conserta é
+   *   `freightcheck_correct_entity_type` (migration 0009).
    * - **Outro contexto ou outra vigência.** O arquivo entrou, mas em outra
    *   unidade, outro canal ou outro mês, e a tela está filtrando por este.
    * - **A importação parou antes de promover.** A aba está no RAW, recusada

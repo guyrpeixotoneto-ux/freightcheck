@@ -198,9 +198,15 @@ export function TabelaInventario({
             <span className="font-mono">{data.entityType}</span> — é o nome da aba lido
             como sendo o próprio tipo, de uma importação anterior à correção dessa regra.
             Os dados estão certos e a identidade está errada, e por isso este cartão não
-            os encontra. Reimportar a mesma planilha refaz a identidade como{" "}
-            <span className="font-mono">{data.entityType.toLowerCase()}.*</span>; corrigir
-            a regra sozinha não reescreve o que já entrou.
+            os encontra.
+          </p>
+          <p className="text-muted-foreground">
+            <strong className="text-foreground">Reimportar a planilha não resolve</strong>{" "}
+            — o ativo é reconhecido pela placa, então a reimportação reaproveita a mesma
+            linha dele com o tipo antigo ainda gravado, e ainda deixa duas cópias de cada
+            coluna e duas vigências vivas para o mesmo arquivo. O conserto é a correção de
+            identidade, que a atualização do sistema aplica sobre o que já está no banco,
+            sem tocar em nenhum fato.
           </p>
           <ListaDeEntregas entregas={data.elsewhere.otherDeliveries} />
         </div>
