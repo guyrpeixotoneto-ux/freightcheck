@@ -8,11 +8,5 @@
     "rootDir": "src",
     "types": ["node"]
   },
-  "include": ["src"],
-  "references": [
-    { "path": "../db" },
-    { "path": "../knowledge" },
-    { "path": "../curation" },
-    { "path": "../comparison" }
-  ]
+  "include": ["src"]
 }

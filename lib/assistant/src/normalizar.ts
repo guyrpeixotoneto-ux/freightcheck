@@ -53,6 +53,17 @@ const PALAVRAS_VAZIAS = new Set([
   "ate", "ate", "nao", "sim", "voce", "eu", "ele", "ela", "sei", "diz", "dizer",
   "explica", "explicar", "mostra", "mostrar", "quer", "temos", "tenho",
   "disso", "disto", "nisso", "aquilo", "algum", "alguma", "cada", "ainda",
+  /*
+    Os verbos com que se pergunta, e nunca se nomeia.
+
+    "Como funciona IPVA?" era respondida pelo bloco "Transferências", cujo texto
+    de origem começa com "Como funciona transferir frotas entre unidades" — o
+    casamento inteiro estava em "funciona", e nada nele era sobre IPVA. Nenhuma
+    coluna, gaveta ou bloco deste produto se chama assim; mantê-las na busca só
+    aproximava perguntas que se parecem na forma e diferem no assunto.
+  */
+  "funciona", "funcionam", "funcionar", "significa", "significam", "serve",
+  "servem", "calcula", "calculam", "acontece", "aconteceu", "existe", "existem",
 ]);
 
 /**

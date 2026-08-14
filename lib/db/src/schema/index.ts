@@ -8,3 +8,4 @@ export * from "./comparison";
 export * from "./semantics";
 export * from "./auth";
 export * from "./book";
+export * from "./assistant";

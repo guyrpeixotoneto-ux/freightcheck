@@ -1,412 +1,380 @@
 /**
- * Onde a pergunta vira resposta — e onde ela deixa de virar.
+ * Do dossiê ao texto — e a trava que impede o texto de ir além do dossiê.
  *
- * A ordem aqui é a tese do módulo inteiro: **recuperar primeiro, escrever
- * depois.** O material é fechado antes de existir uma frase — os artigos que
- * este repositório aprovou e as consultas que este banco respondeu —, e só
- * então alguém redige sobre ele: o modelo, quando há um configurado; o código,
- * quando não há. Os dois escrevem do mesmo dossiê, e o dossiê vai junto para a
- * tela.
+ * **A resposta começa respondendo.** A versão anterior abria com o cartão de
+ * dados e empurrava o conceito para o fim; quem perguntava "como funciona o
+ * combustível?" lia primeiro "Alterações: 267". Aqui a primeira frase responde a
+ * pergunta feita, e a evidência vem depois — que é a ordem em que se lê, não a
+ * ordem em que o servidor consultou.
  *
- * A inversão dessa ordem é o defeito clássico do gênero: gerar a frase e depois
- * procurar com que sustentá-la. Ela produz respostas que soam bem e não se
- * conferem, que é o oposto do que este produto se propõe a fazer.
- *
- * **Não achar é um desfecho.** Quando nem o conhecimento nem o banco têm o que
- * responder, sai uma resposta que diz isso, com o que perguntar em vez disso. O
- * assistente que sempre responde é o assistente em que não dá para confiar,
- * porque a confiança dele soa igual quando ele sabe e quando ele não sabe.
+ * **Nenhum número sem lastro, mecanicamente.** Depois de o modelo escrever,
+ * `numerosSemLastro` confere cada token numérico do texto contra o que as
+ * evidências autorizam. Se sobrar algum, a resposta do modelo é descartada e
+ * sai a redação em código. Não é desconfiança do modelo: é que numa aplicação
+ * de auditoria a diferença entre um número consultado e um número plausível não
+ * pode depender de ninguém reler.
  */
 
 import type { Database } from "@workspace/db";
-import { ARTIGOS, SUGESTOES, type Artigo } from "./conhecimento";
 import {
-  blocoDoBook,
-  buscarNoTextoDoBook,
-  coberturaDoBook,
-  panorama,
-  parametro,
-  resumoDaVigencia,
-  type BlocoDeDado,
-  type Recorte,
-} from "./dados";
+  ESTADO_VAZIO,
+  avancarEstado,
+  type EstadoDaConversa,
+} from "./conversa";
+import type { Evidencia, Fato } from "./ferramentas";
 import { disponivel, modeloConfigurado, redigir } from "./llm";
-import { alvoProvavel, normalizar } from "./normalizar";
-import { buscar, LIMIAR_DE_APOIO, type ArtigoRelevante } from "./recuperacao";
+import type { Intencao } from "./interpretacao";
+import {
+  numerosSemLastro,
+  orquestrar,
+  recorteDoDossie,
+  type Dossie,
+  type Etapa,
+  type Lacuna,
+} from "./orquestrador";
+import { SUGESTOES } from "./conhecimento";
+import { termos } from "./normalizar";
 
-export interface FonteDeConhecimento {
+export interface Fonte {
+  /** "1", "2" — o número da citação. */
   id: string;
+  tipo: "CATALOGO" | "BOOK" | "ARTIGO" | "DADO";
   titulo: string;
-  area: Artigo["area"];
-  /** O arquivo, tela ou documento onde este artigo pode ser conferido. */
-  fonte: string;
+  /** A localização exata: seção › cartão, ou a consulta e o recorte. */
+  origem: string;
+  detalhe?: string;
+  tela?: { label: string; href: string };
 }
 
 export interface Resposta {
   pergunta: string;
-  /** O texto que a pessoa lê. */
   texto: string;
-  /** Quem escreveu o texto — o modelo, ou o código. A tela mostra isto. */
+  /** Quem redigiu. Vai para o painel técnico, não para a leitura. */
   redacao: "IA" | "DETERMINISTICA";
-  /** Qual modelo, quando foi um. */
   modelo: string | null;
-  /** Os artigos que sustentam o texto. */
-  conhecimento: FonteDeConhecimento[];
-  /** Os números consultados, com origem — o lastro da resposta. */
-  dados: BlocoDeDado[];
-  /** Onde conferir no produto. */
-  telas: { label: string; href: string }[];
-  /** `true` quando nada foi encontrado e o texto diz isso. */
-  semResposta: boolean;
-}
-
-// ── O que a pergunta está pedindo ───────────────────────────────────────────
-
-interface Intencao {
-  /** A pergunta pede algo que mora no banco — um número ou uma regra escrita. */
-  querDado: boolean;
-  book: boolean;
-  parametros: boolean;
-  panorama: boolean;
-}
-
-/**
- * Termos que só aparecem quando alguém quer um número.
- *
- * A distinção importa por dois motivos. O primeiro é honestidade: "o que é
- * cobertura da apuração" se responde com o artigo, e ir ao banco buscar a
- * cobertura de uma vigência qualquer para enfeitar a resposta anexaria um
- * número que ninguém pediu — e números anexados sem pedido são lidos como
- * resposta. O segundo é custo: cada consulta destas atravessa o motor de
- * comparação, e não vale a pena para quem perguntou o que uma palavra
- * significa.
- */
-const PEDE_NUMERO = [
-  "quanto", "quantos", "quantas", "qual o impacto", "quanto mudou", "qual foi",
-  "mudou", "mudaram", "subiu", "caiu", "aumentou", "diminuiu", "variou",
-  "ultima vigencia", "nesta vigencia", "no periodo", "resumo", "total",
-  "quais blocos", "ja tem", "tem regra", "esta registrado", "quantos blocos",
-  "o que temos", "o que ja foi", "importado", "importadas", "situacao", "status",
-];
-
-/**
- * Termos de quem quer o **conteúdo** registrado, não um número.
- *
- * Esta lista nasceu de um defeito: "qual a regra do bloco PNEU?" não continha
- * nenhum termo de `PEDE_NUMERO`, então o assistente nunca consultava o banco e
- * respondia com o artigo genérico sobre o que é o Book — enquanto a regra
- * pedida estava gravada em `book_entry`, a uma consulta de distância. Uma regra
- * escrita mora no banco tanto quanto um valor mora; o portão que decide ir até
- * lá não podia reconhecer só um dos dois.
- */
-const PEDE_CONTEUDO = [
-  "regra", "regras", "como funciona", "como e composto", "como e calculado",
-  "composicao", "o que diz", "esta escrito", "documento", "anexo", "conteudo",
-  "onde esta", "qual bloco", "qual o bloco",
-];
-
-const TERMOS_BOOK = [
-  "book", "bloco", "blocos", "regra", "regras", "documento", "anexo", "revisao",
-  "contrato", "manual", "operador",
-];
-
-const TERMOS_PARAMETRO = [
-  "parametro", "parametros", "vigencia", "vigencias", "impacto", "alteracao",
-  "alteracoes", "cobertura", "familia", "familias", "cartao", "segmento",
-  "veiculo", "veiculos", "frota", "apuracao", "periodicidade",
-];
-
-const TERMOS_PANORAMA = [
-  "importado", "importadas", "importacoes", "o que temos", "banco", "base",
-  "panorama", "situacao", "cobertura geral", "quantas vigencias", "quantos ativos",
-];
-
-function contem(frase: string, termos: string[]): boolean {
-  return termos.some((termo) => frase.includes(normalizar(termo)));
-}
-
-function lerIntencao(pergunta: string, relevantes: ArtigoRelevante[]): Intencao {
-  const frase = normalizar(pergunta);
-  const areas = new Set(relevantes.map((r) => r.artigo.area));
-
-  const querDado = contem(frase, PEDE_NUMERO) || contem(frase, PEDE_CONTEUDO);
-
-  return {
-    querDado,
-    book: contem(frase, TERMOS_BOOK) || areas.has("BOOK"),
-    parametros: contem(frase, TERMOS_PARAMETRO) || areas.has("PARAMETROS"),
-    panorama: contem(frase, TERMOS_PANORAMA),
+  intencao: Intencao;
+  /** "CAMAÇARI · EMPURRADA · agosto/2026" — o que esta resposta descreve. */
+  recorte: string | null;
+  fontes: Fonte[];
+  etapas: Etapa[];
+  lacunas: Lacuna[];
+  /** Próximas perguntas, derivadas desta. */
+  sugestoes: string[];
+  desambiguacao: { termo: string; opcoes: string[] } | null;
+  /** O estado a persistir para a próxima pergunta. */
+  estado: EstadoDaConversa;
+  tecnico: {
+    intencao: Intencao;
+    porque: string;
+    herdado: string[];
+    ferramentas: string[];
+    numerosRecusados: string[];
   };
 }
 
-// ── Recuperação dos dados ───────────────────────────────────────────────────
+// ── Fontes ──────────────────────────────────────────────────────────────────
+
+function montarFontes(dossie: Dossie): Fonte[] {
+  const fontes: Fonte[] = [];
+  let n = 1;
+
+  for (const t of dossie.trechos) {
+    fontes.push({
+      id: String(n++),
+      tipo: t.trecho.corpus === "BOOK_INDICE" ? "BOOK" : t.trecho.corpus === "CATALOGO" ? "CATALOGO" : "ARTIGO",
+      titulo: t.trecho.titulo,
+      origem: t.trecho.fonte,
+      detalhe: t.trecho.secao,
+      ...(t.trecho.tela ? { tela: t.trecho.tela } : {}),
+    });
+  }
+
+  for (const e of dossie.evidencias) {
+    const recorte = e.recorte
+      ? [e.recorte.contexto, e.recorte.vigencia ?? e.recorte.intervalo].filter(Boolean).join(" · ")
+      : undefined;
+    fontes.push({
+      id: String(n++),
+      tipo: e.ferramenta.toLowerCase().includes("book") ? "BOOK" : "DADO",
+      titulo: e.titulo,
+      origem: e.origem,
+      ...(recorte ? { detalhe: recorte } : {}),
+      ...(e.tela ? { tela: e.tela } : {}),
+    });
+  }
+
+  return fontes;
+}
+
+// ── Redação em código ───────────────────────────────────────────────────────
+
+/** A frase de abertura: responde a pergunta antes de qualquer evidência. */
+function abertura(dossie: Dossie): string | null {
+  const { plano, trechos, evidencias } = dossie;
+
+  if (dossie.desambiguacao) {
+    const { termo, opcoes } = dossie.desambiguacao;
+    return (
+      `"${termo}" pode ser mais de uma coisa aqui: ${opcoes.join(", ")}. ` +
+      `Qual delas você quer?`
+    );
+  }
+
+  const conceitual =
+    plano.intencao === "CONCEITUAL" ||
+    plano.intencao === "BOOK" ||
+    plano.intencao === "DISPONIBILIDADE";
+
+  /*
+    Numa pergunta conceitual o conceito abre — a não ser que a pergunta peça
+    uma contagem. "O que é o Book do Operador?" quer a definição; "o Book cobre
+    quantos blocos?" quer o número, e abrir com a definição faz quem perguntou
+    procurar a resposta no meio do parágrafo.
+  */
+  const pedeQuantidade = /\bquant(o|os|a|as)\b/i.test(dossie.pergunta);
+  if (conceitual && (!pedeQuantidade || evidencias.length === 0)) {
+    const principal = trechos[0];
+    if (!principal) return null;
+    return principal.trecho.texto;
+  }
+
+  const escolha = fatoQueResponde(dossie);
+  if (!escolha) return trechos[0]?.trecho.texto ?? null;
+
+  const { evidencia, fato } = escolha;
+
+  /*
+    O recorte entra na frase, e entra uma vez só.
+
+    Quando o fato escolhido é um ponto da série, o rótulo dele **já é** a
+    vigência: acrescentar o recorte produzia "agosto/2026 em dezembro/2025 →
+    agosto/2026: total 10.875,69", que diz a mesma coisa duas vezes e a segunda
+    contradiz a primeira.
+  */
+  const doRecorte =
+    evidencia.recorte?.vigencia ?? evidencia.recorte?.intervalo ?? evidencia.recorte?.contexto;
+  const rotuloEhPeriodo = /\/(19|20)\d{2}\b/.test(fato.rotulo);
+  const sufixo = doRecorte && !rotuloEhPeriodo ? ` em ${doRecorte}` : "";
+  const rotulo = rotuloEhPeriodo ? `Em ${fato.rotulo}` : fato.rotulo;
+
+  return `${rotulo}${sufixo}: ${fato.valor}${fato.detalhe ? ` — ${fato.detalhe}` : ""}.`;
+}
 
 /**
- * As consultas que esta pergunta justifica, todas em paralelo.
+ * De tudo o que foi consultado, o fato que responde **esta** pergunta.
  *
- * Cada uma pode devolver `null` — o parâmetro não existe, o bloco não foi
- * achado, o banco está vazio — e `null` é filtrado sem virar erro. Um dossiê
- * menor é uma resposta mais curta e ainda verdadeira; um erro aqui seria uma
- * tela em branco por causa de uma consulta acessória.
+ * A versão anterior pegava o primeiro fato numérico da primeira evidência, e a
+ * ordem das evidências é a ordem em que a orquestração consultou — não a ordem
+ * em que as respostas importam. Isso produzia respostas verdadeiras e fora do
+ * assunto: "quantos veículos temos?" abria com o número de vigências, e "qual o
+ * valor do IPVA?" abria com "0 alterações nesta vigência", que é sobre
+ * movimento e não sobre valor.
+ *
+ * A escolha aqui é por sobreposição com a pergunta, e é isso que a torna
+ * estável: nada nesta função sabe o nome de uma ferramenta ou de um parâmetro.
+ * Grandeza desempata — uma consulta que devolveu só zeros perde para uma que
+ * trouxe número — e só desempata: quando tudo deu zero, zero é a resposta.
  */
-async function reunirDados(
-  db: Database,
-  pergunta: string,
-  intencao: Intencao,
-  recorte: Recorte,
-): Promise<BlocoDeDado[]> {
-  if (!intencao.querDado) return [];
+function fatoQueResponde(dossie: Dossie): { evidencia: Evidencia; fato: Fato } | null {
+  const palavras = new Set(termos(dossie.pergunta));
+  const casa = (texto: string | undefined): number => {
+    if (!texto) return 0;
+    return termos(texto).filter((p) => palavras.has(p)).length;
+  };
 
-  const alvo = alvoProvavel(pergunta);
-  const pedidos: Promise<BlocoDeDado | null>[] = [];
+  let melhor: { evidencia: Evidencia; fato: Fato; pontos: number } | null = null;
 
-  if (intencao.book) {
-    pedidos.push(coberturaDoBook(db));
-    if (alvo) {
-      pedidos.push(blocoDoBook(db, alvo));
-      pedidos.push(buscarNoTextoDoBook(db, alvo));
+  for (const evidencia of dossie.evidencias) {
+    const temGrandeza = evidencia.numeros.some((n) => n !== 0);
+    const doTitulo = casa(evidencia.titulo);
+
+    for (const fato of evidencia.fatos) {
+      if (!/\d/.test(fato.valor)) continue;
+
+      const pontos =
+        (doTitulo + casa(fato.rotulo) + casa(fato.detalhe)) * 2 +
+        (temGrandeza ? 1 : 0) +
+        (evidencia.destaque === fato.rotulo ? 0.5 : 0);
+
+      if (!melhor || pontos > melhor.pontos) melhor = { evidencia, fato, pontos };
     }
   }
 
-  /*
-    Pergunta por número que não é sobre o Book é pergunta sobre a vigência —
-    ainda que não diga a palavra "parâmetro".
+  if (melhor) return { evidencia: melhor.evidencia, fato: melhor.fato };
 
-    Este gate já exigiu um termo da lista `TERMOS_PARAMETRO` na frase, e o
-    efeito foi perder a pergunta mais natural que existe neste produto:
-    "quanto mudou no financiamento?" não contém "parâmetro", não contém
-    "vigência" e não contém "impacto" — contém o nome da gaveta, que é como
-    quem opera fala. A resposta caía no panorama do banco inteiro, um número
-    verdadeiro sobre uma pergunta que ninguém fez.
-
-    Consultar a mais é barato aqui: `parametro` devolve `null` quando nada
-    casa, e um bloco a menos no dossiê não custa nada. Deixar de consultar é
-    que sai caro.
-  */
-  if (intencao.parametros || (!intencao.book && !intencao.panorama)) {
-    pedidos.push(resumoDaVigencia(db, recorte));
-    if (alvo) pedidos.push(parametro(db, alvo, recorte));
-  }
-
-  if (intencao.panorama || pedidos.length === 0) {
-    pedidos.push(panorama(db));
-  }
-
-  const resultados = await Promise.all(
-    pedidos.map((p) =>
-      p.catch(() => {
-        // Uma consulta que falha não derruba as outras. O bloco simplesmente
-        // não entra no dossiê, e a resposta é montada com o que respondeu.
-        return null;
-      }),
-    ),
-  );
-
-  const blocos = resultados.filter((bloco): bloco is BlocoDeDado => bloco !== null);
-  if (blocos.length > 0) return blocos;
-
-  /*
-    Pediram um número e nenhuma consulta respondeu.
-
-    Sem isto, quem perguntasse "quanto mudou na última vigência?" com o banco
-    vazio recebia dois artigos explicando o que é uma vigência e nenhuma
-    menção ao fato de que não há vigência nenhuma importada — a resposta
-    conversava sobre o conceito e deixava a pergunta de pé. O panorama sempre
-    responde, e com o banco vazio ele responde "0 vigências importadas", que é
-    a resposta que a pessoa foi buscar.
-  */
-  const geral = await panorama(db).catch(() => null);
-  return geral ? [geral] : [];
+  // Nenhum fato com número: abre com o primeiro que houver.
+  const primeira = dossie.evidencias[0];
+  return primeira?.fatos[0] ? { evidencia: primeira, fato: primeira.fatos[0] } : null;
 }
-
-// ── O dossiê ────────────────────────────────────────────────────────────────
-
-/** O material fechado, em texto — o mesmo que a tela mostra ao lado. */
-function montarDossie(relevantes: ArtigoRelevante[], dados: BlocoDeDado[]): string {
-  const partes: string[] = [];
-
-  if (relevantes.length > 0) {
-    partes.push(
-      "## CONHECIMENTO\n\n" +
-        relevantes
-          .map(
-            ({ artigo }) =>
-              `### ${artigo.titulo}\n(fonte: ${artigo.fonte})\n\n${artigo.corpo}`,
-          )
-          .join("\n\n"),
-    );
-  }
-
-  if (dados.length > 0) {
-    partes.push(
-      "## DADOS CONSULTADOS AGORA\n\n" +
-        dados
-          .map((bloco) => {
-            const fatos = bloco.fatos
-              .map(
-                (f) =>
-                  `- ${f.rotulo}: ${f.valor}` + (f.detalhe ? ` — ${f.detalhe}` : ""),
-              )
-              .join("\n");
-            const nota = bloco.nota ? `\nRessalva: ${bloco.nota}` : "";
-            return `### ${bloco.titulo}\n(origem: ${bloco.origem})\n${fatos}${nota}`;
-          })
-          .join("\n\n"),
-    );
-  }
-
-  return partes.join("\n\n") || "(vazio)";
-}
-
-// ── A redação sem modelo ────────────────────────────────────────────────────
 
 /**
- * A resposta montada em código, do mesmo dossiê.
+ * A resposta montada em código.
  *
- * Não é um degrau abaixo: é o artigo aprovado, escrito por quem o aprovou, com
- * os números consultados logo abaixo. O que ela não faz é reescrever o texto na
- * forma da pergunta — quem perguntou "por que a cobertura está em 0%" recebe o
- * artigo inteiro sobre cobertura, não o parágrafo específico. É a diferença que
- * um modelo configurado resolve, e é só ela.
+ * Não é um degrau abaixo do modelo: é o mesmo material, com a mesma ordem, sem
+ * a reescrita na forma da pergunta. Ela existe porque o produto responde sem
+ * chave — e porque é para ela que a validação cai quando o modelo cita um
+ * número que ninguém consultou.
  */
-function redacaoDeterministica(
-  relevantes: ArtigoRelevante[],
-  dados: BlocoDeDado[],
-): string {
+function redacaoDeterministica(dossie: Dossie): string {
   const partes: string[] = [];
 
-  /*
-    Quando há dado, o dado vem primeiro.
+  const inicio = abertura(dossie);
+  if (inicio) partes.push(inicio);
 
-    Quem pergunta "quanto mudou" quer o número, e ler dois parágrafos de
-    conceito antes de chegar nele é a mesma inversão que a tela de Parâmetros
-    evita ao colocar o tamanho do movimento acima da explicação. O artigo vira
-    o pano de fundo que ele é.
-  */
-  for (const bloco of dados) {
-    const linhas = bloco.fatos
-      .map((f) => `- **${f.rotulo}:** ${f.valor}${f.detalhe ? ` — ${f.detalhe}` : ""}`)
-      .join("\n");
-    partes.push(
-      `**${bloco.titulo}**\n\n${linhas}` + (bloco.nota ? `\n\n${bloco.nota}` : ""),
-    );
+  for (const lacuna of dossie.lacunas) partes.push(lacuna.explicacao);
+
+  if (!dossie.desambiguacao) {
+    for (const e of dossie.evidencias) {
+      const linhas = e.fatos
+        .map((f) => `- **${f.rotulo}:** ${f.valor}${f.detalhe ? ` — ${f.detalhe}` : ""}`)
+        .join("\n");
+      partes.push(`**${e.titulo}**\n\n${linhas}${e.nota ? `\n\n${e.nota}` : ""}`);
+    }
+
+    // O conceito de apoio, quando já houve dado — um trecho só, e depois.
+    if (dossie.evidencias.length > 0 && dossie.trechos.length > 0) {
+      partes.push(dossie.trechos[0].trecho.texto);
+    }
   }
 
-  const quantosArtigos = dados.length > 0 ? 1 : 2;
-  for (const { artigo } of relevantes.slice(0, quantosArtigos)) {
-    partes.push(`**${artigo.titulo}**\n\n${artigo.corpo}`);
+  if (partes.length === 0) {
+    const exemplos = SUGESTOES.slice(0, 4).map((s) => `- ${s.pergunta}`).join("\n");
+    return (
+      "Não encontrei nada que este produto sustente sobre isso — nem no conhecimento " +
+      "registrado, nem no banco deste recorte.\n\n" +
+      `Perguntas que ele responde:\n${exemplos}`
+    );
   }
 
   return partes.join("\n\n");
 }
 
-/** O texto de quando não há resposta. Diz o que fazer em vez de pedir desculpa. */
-function textoSemResposta(): string {
-  const exemplos = SUGESTOES.slice(0, 4)
-    .map((s) => `- ${s.pergunta}`)
-    .join("\n");
-  return (
-    "Não encontrei nada no que este produto sabe sustentar sobre isso — nem no " +
-    "conhecimento registrado sobre o FreightCheck, nem no banco.\n\n" +
-    "Este assistente responde sobre o produto e sobre o que está importado nele: " +
-    "Parâmetros, Book do Operador, vigências, curadoria, importações e as regras de " +
-    "leitura que valem para os números. Ele não responde sobre assuntos fora daqui, e " +
-    "prefere dizer isso a improvisar uma resposta que ninguém conseguiria conferir.\n\n" +
-    `Perguntas que ele responde:\n${exemplos}`
-  );
+// ── Sugestões contextuais ───────────────────────────────────────────────────
+
+/** As próximas perguntas que fazem sentido depois desta. */
+function sugerir(dossie: Dossie): string[] {
+  const { plano } = dossie;
+  const gaveta = plano.alvo?.parametro;
+  const saida: string[] = [];
+
+  switch (plano.intencao) {
+    case "CONCEITUAL":
+    case "DISPONIBILIDADE":
+      if (gaveta) {
+        saida.push(`Quanto ${gaveta} mudou na última vigência?`);
+        saida.push(`O que o Book do Operador diz sobre ${gaveta}?`);
+      }
+      break;
+    case "MOVIMENTO":
+      saida.push("Onde perdemos mais dinheiro?");
+      saida.push("Quais veículos foram mais impactados?");
+      break;
+    case "EVOLUCAO":
+    case "COMPARACAO":
+      if (gaveta) saida.push(`O que o Book diz sobre ${gaveta}?`);
+      saida.push("Quais veículos foram mais impactados?");
+      break;
+    case "RANKING_PERDA":
+      saida.push("Onde ganhamos mais dinheiro?");
+      saida.push("Quais parâmetros ficaram sem preço?");
+      break;
+    case "RANKING_GANHO":
+      saida.push("Onde perdemos mais dinheiro?");
+      break;
+    case "VEICULOS":
+      saida.push("Por quê?");
+      break;
+    case "BOOK":
+      if (gaveta) saida.push(`Quanto ${gaveta} mudou na última vigência?`);
+      break;
+    default:
+      break;
+  }
+
+  if (plano.contexto && plano.periodo && saida.length < 3) {
+    saida.push("Compare com a vigência anterior.");
+  }
+
+  return [...new Set(saida)].slice(0, 3);
 }
 
-// ── A entrada pública ───────────────────────────────────────────────────────
+// ── Entrada pública ─────────────────────────────────────────────────────────
 
 export interface PerguntaOptions {
-  recorte?: Recorte;
-  /** Desliga o modelo mesmo quando há chave — usado nos testes e na tela. */
+  recorte?: { scopeHash?: string; channel?: string | null; period?: string };
+  estado?: EstadoDaConversa | null;
+  /** Desliga o modelo mesmo com chave — usado pelas evals e pelo painel. */
   semIa?: boolean;
 }
 
 /**
  * Responde uma pergunta sobre o FreightCheck.
  *
- * O contrato: o `texto` nunca afirma nada que não esteja em `conhecimento` ou
- * em `dados`, e os dois vão na resposta justamente para que isso seja
- * verificável por quem ler. `redacao` diz quem escreveu.
+ * O contrato: o texto nunca afirma número que não esteja nas evidências, e as
+ * evidências vão na resposta para que isso seja verificável por quem lê — não
+ * por quem escreveu.
  */
 export async function responder(
   db: Database,
   pergunta: string,
   opcoes: PerguntaOptions = {},
 ): Promise<Resposta> {
-  const limpa = pergunta.trim();
-  const achados = buscar(limpa);
-  const intencao = lerIntencao(limpa, achados);
-  const dados = await reunirDados(db, limpa, intencao, opcoes.recorte ?? {});
+  const dossie = await orquestrar(db, pergunta.trim(), {
+    ...(opcoes.recorte ? { recorte: opcoes.recorte } : {}),
+    estado: opcoes.estado ?? null,
+  });
 
-  /*
-    Com dado na mesa, o artigo fraco sai — do texto e do dossiê.
+  const determinista = redacaoDeterministica(dossie);
+  let texto = determinista;
+  let redacao: Resposta["redacao"] = "DETERMINISTICA";
+  let numerosRecusados: string[] = [];
 
-    Sai dos dois pelo mesmo motivo: se ele não é bom o bastante para ser
-    impresso, também não é bom o bastante para o modelo se apoiar nele. Filtrar
-    só a impressão deixaria o modelo escrevendo sobre um material que a tela não
-    mostra, e o dossiê ao lado deixaria de explicar a resposta.
-  */
-  const relevantes =
-    dados.length > 0 ? achados.filter((a) => a.pontos >= LIMIAR_DE_APOIO) : achados;
+  if (!opcoes.semIa && disponivel()) {
+    const doModelo = await redigir({ pergunta, dossie });
+    if (doModelo) {
+      const semLastro = numerosSemLastro(doModelo, dossie);
+      if (semLastro.length === 0) {
+        texto = doModelo;
+        redacao = "IA";
+      } else {
+        /*
+          O modelo citou número que nenhuma consulta devolveu.
 
-  const conhecimento: FonteDeConhecimento[] = relevantes.map(({ artigo }) => ({
-    id: artigo.id,
-    titulo: artigo.titulo,
-    area: artigo.area,
-    fonte: artigo.fonte,
-  }));
-
-  const telas = new Map<string, { label: string; href: string }>();
-  for (const { artigo } of relevantes) {
-    if (artigo.tela) telas.set(artigo.tela.href, artigo.tela);
-  }
-  for (const bloco of dados) {
-    if (bloco.tela) telas.set(bloco.tela.href, bloco.tela);
-  }
-
-  if (achados.length === 0 && dados.length === 0) {
-    return {
-      pergunta: limpa,
-      texto: textoSemResposta(),
-      redacao: "DETERMINISTICA",
-      modelo: null,
-      conhecimento: [],
-      dados: [],
-      telas: [],
-      semResposta: true,
-    };
+          A resposta dele é descartada inteira, e não corrigida: um texto com um
+          número inventado provavelmente tem o raciocínio construído em cima
+          dele, e remendar o número deixaria a conclusão de pé.
+        */
+        numerosRecusados = semLastro;
+      }
+    }
   }
 
-  const dossie = montarDossie(relevantes, dados);
-  const usarIa = !opcoes.semIa && disponivel();
-  const doModelo = usarIa ? await redigir({ pergunta: limpa, dossie }) : null;
+  const estado = avancarEstado(opcoes.estado ?? ESTADO_VAZIO, dossie);
 
   return {
-    pergunta: limpa,
-    texto: doModelo ?? redacaoDeterministica(relevantes, dados),
-    redacao: doModelo ? "IA" : "DETERMINISTICA",
-    modelo: doModelo ? modeloConfigurado() : null,
-    conhecimento,
-    dados,
-    telas: [...telas.values()],
-    semResposta: false,
+    pergunta: dossie.pergunta,
+    texto,
+    redacao,
+    modelo: redacao === "IA" ? modeloConfigurado() : null,
+    intencao: dossie.plano.intencao,
+    recorte: recorteDoDossie(dossie),
+    fontes: montarFontes(dossie),
+    etapas: dossie.etapas,
+    lacunas: dossie.lacunas,
+    sugestoes: sugerir(dossie),
+    desambiguacao: dossie.desambiguacao,
+    estado,
+    tecnico: {
+      intencao: dossie.plano.intencao,
+      porque: dossie.plano.porque,
+      herdado: dossie.plano.herdado,
+      ferramentas: dossie.evidencias.map((e: Evidencia) => e.ferramenta),
+      numerosRecusados,
+    },
   };
 }
 
-/** O que a tela oferece antes de alguém digitar. */
+/** As perguntas oferecidas quando não há conversa. */
 export function sugestoes(): typeof SUGESTOES {
   return SUGESTOES;
-}
-
-/** O índice do que o assistente sabe, para a tela poder mostrá-lo. */
-export function indiceDeConhecimento(): FonteDeConhecimento[] {
-  return ARTIGOS.map((artigo) => ({
-    id: artigo.id,
-    titulo: artigo.titulo,
-    area: artigo.area,
-    fonte: artigo.fonte,
-  }));
 }

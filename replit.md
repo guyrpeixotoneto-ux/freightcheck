@@ -138,16 +138,81 @@ e-mail, e exclusão de conta.
   cria a revisão seguinte; **não existe DELETE**, e os bytes ficam no Postgres
   porque aqui a entrada *é* o conteúdo e o disco da plataforma é efêmero.
 - **Assistente de IA** — `lib/assistant`, rotas em
-  `artifacts/api-server/src/routes/assistant.ts`, tela em
+  `artifacts/api-server/src/routes/assistant.ts` (persistência isolada em
+  `src/lib/conversas.ts`), tela em
   `artifacts/freightaudit/src/pages/assistente.tsx`. É a única superfície sem
-  dado próprio: responde a partir do conhecimento do produto escrito em código
-  (`src/conhecimento.ts`) e de consultas às **mesmas funções que as telas usam**
-  (`src/dados.ts`), e devolve as duas coisas junto com o texto. Ver a seção
-  *Assistente de IA* abaixo.
+  dado próprio: responde a partir do conhecimento do produto escrito em código e
+  de consultas às **mesmas funções que as telas usam**, e devolve as duas coisas
+  junto com o texto. Ver a seção *Assistente de IA* abaixo.
+- **Conhecimento do Freightech** — `lib/knowledge`: o catálogo das telas de
+  origem e o índice do Book, que eram da interface e agora são compartilhados,
+  porque o assistente e as telas precisam da mesma verdade sobre o que o
+  Freightech publica.
 - `docs/ARQUITETURA.md` — as decisões estruturais em prosa
 - `docs/PROPOSTA-NAVEGACAO-FREIGHTECH.md` — o mapeamento Freightech → FreightCheck
 
 ## Assistente de IA
+
+**Cinco etapas, e nenhuma delas é feita por modelo até a última.** Interpretar a
+pergunta (`interpretacao.ts` — quinze intenções, padrões ordenados do mais
+específico ao mais geral), resolver o que ela nomeia (`parametros.ts`), montar o
+plano, executar as ferramentas que a intenção pediu (`ferramentas.ts`) e validar
+(`orquestrador.ts`). Só então alguém redige. A escolha da fonte é a decisão mais
+consequente do assistente — errar aqui produz uma resposta correta sobre o
+assunto errado —, e uma decisão dessas precisa ser reproduzível, testável sem
+rede e explicável a quem discordar. É o que a versão anterior não tinha: ela
+perguntava *"que palavras a frase contém?"* e caía sempre no resumo da vigência
+mais recente, respondesse ela ou não à pergunta.
+
+**O modelo não escolhe entre trinta ferramentas.** Ele recebe o resultado das
+que a intenção pediu. Perguntar "o que é IPVA?" não dispara consulta de impacto.
+
+**Três corpora, e eles não se confundem.** O conceitual (`corpus.ts`: catálogo
+do Freightech, índice do Book, artigos do produto) responde *o que é*; o
+dicionário de parâmetros (`parametros.ts`) traduz o vocabulário de quem opera
+para as colunas que existem; o analítico (`ferramentas.ts`) consulta o banco no
+recorte. Uma resposta pode usar os três, e diz de qual veio cada parte.
+
+**Da palavra à gaveta, numa escada que se lê.** Código exato → alias da origem →
+rótulo da tela → nome da gaveta → busca textual → pergunta de volta. Não há
+embedding, e é decisão medida: a bateria da Fase 7 confronta a escada com as
+perguntas reais, e o passo seguinte só se justifica quando ela não bastar. O que
+se resolve é a **gaveta**, não a coluna — "combustível" não é ambíguo entre sete
+colunas, é uma gaveta com sete colunas. Ambiguidade de verdade é o termo casar
+gavetas diferentes, e aí o assistente pergunta.
+
+**Quatro formas de não saber, e elas não se confundem.** `NAO_ENCONTREI` não é
+`NAO_EXISTE_NO_PRODUTO`, que não é `CONCEITO_SEM_DADO` (o Freightech publica o
+conceito e o export não traz a coluna), que não é `DADO_SEM_PRECO` (há dado e a
+semântica não confirmada impede somar). A `Lacuna` carrega qual das quatro é, e
+a resposta é obrigada a dizê-la.
+
+**A pergunta nomeou algo que não existe aqui? Então nenhum número.** Sem alvo
+resolvido, os caminhos que consultam o agregado do recorte ficam desligados.
+"Quanto mudou o pedágio?" respondia com o movimento de *tudo* — R$ 28 mil que
+não têm nada a ver com pedágio, apresentados como se fossem a resposta. Um
+número certo sobre o assunto errado é pior que nenhum número, porque parece uma
+resposta.
+
+**Conversa é privada de quem a criou, e excluir é arquivar.** `owner_id` filtra
+toda leitura e toda escrita, num lugar só (`lib/conversas.ts`): uma rota que
+esqueça o dono não compila. `archived_at` recebe a data e a conversa some da
+lista; nenhuma linha é apagada, nem a conversa nem as mensagens. A coluna é
+`owner_id` e não `user_id` porque o compartilhamento entre pessoas não existe
+hoje e não foi fechado fora.
+
+**A continuação herda, e a herança aparece.** "E julho?" mantém o assunto e
+troca o período; "Por quê?" refaz a consulta em vez de reexibir número guardado;
+"E o pneu?" troca o assunto e mantém a pergunta. O que foi herdado vai no painel
+técnico — herdar em silêncio é como a versão anterior respondia sobre outro
+período sem que nada na tela denunciasse.
+
+**A bateria roda contra o banco real.** `lib/assistant/src/__tests__/bateria.ts`
+é a lista de perguntas, consumida por dois: a suíte, que a roda como asserção, e
+`tabela.mts`, que a roda como relatório. Cada caso quantitativo executa
+**também** o serviço que a tela usa e compara os números. Sem `DATABASE_URL` a
+bateria não roda — inventar um banco vazio para ela passar seria o mesmo que
+apagá-la.
 
 **Recuperar primeiro, escrever depois.** O material é fechado antes de existir
 uma frase — os artigos aprovados neste repositório e as consultas que o banco
@@ -160,9 +225,15 @@ gênero e produz exatamente o que este produto existe para não exibir.
 **O conhecimento mora em código, não num índice vetorial.** Mesma razão de
 `labels.ts` e `families.ts`: é decisão de produto, precisa existir com o banco
 vazio, passa por revisão quando muda, e é conferível linha a linha por quem
-discordar de uma resposta. Nenhum artigo contém número — números vêm de
-`dados.ts`, do banco, e envelheceriam ali dentro sendo ditos com a mesma
-segurança.
+discordar de uma resposta. Nenhum artigo contém número — números vêm do banco, e
+envelheceriam ali dentro sendo ditos com a mesma segurança.
+
+**Nenhum número sem lastro, mecanicamente.** Depois de o modelo escrever,
+`numerosSemLastro` confere cada token numérico do texto contra o que as
+evidências autorizam citar. Sobrando algum, a resposta do modelo é **descartada
+inteira** e sai a redação em código. Não é desconfiança do modelo: numa
+aplicação de auditoria a diferença entre um número consultado e um número
+plausível não pode depender de ninguém reler.
 
 **Toda resposta diz quem a escreveu.** `redacao` é `IA` ou `DETERMINISTICA`, e a
 tela mostra isso ao lado do texto. Quando a API de linguagem falha ou recusa, a

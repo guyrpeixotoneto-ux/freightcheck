@@ -1,0 +1,353 @@
+import { beforeAll, describe, expect, it } from "vitest";
+import { createDb, type Database } from "@workspace/db";
+import { getFamiliesView, listPeriods, resolveContext } from "@workspace/comparison";
+import { orquestrar } from "../orquestrador";
+import { responder } from "../resposta";
+import { avancarEstado, ESTADO_VAZIO, type EstadoDaConversa } from "../conversa";
+import { resolverParametro } from "../parametros";
+import { CASOS, CONVERSAS } from "./bateria";
+
+/**
+ * A bateria — perguntas reais contra o banco real.
+ *
+ * **Por que ela não usa mock.** Um assistente que responde certo sobre dados
+ * inventados não prova nada: o defeito que importa é o número que diverge da
+ * tela, e ele só aparece quando os dois olham a mesma linha. Cada caso
+ * quantitativo aqui executa **também** o serviço que a tela usa, e compara.
+ *
+ * **O que cada caso afirma.** Intenção esperada (onde o assistente foi
+ * procurar), ferramenta esperada (o que ele consultou), e — quando há número —
+ * o valor que o motor devolve. Um caso que passa sem essas três coisas estaria
+ * medindo a fluência do texto, que é o que menos importa aqui.
+ *
+ * Sem `ASSISTANT_EVAL_DATABASE_URL` a suíte não roda: ela precisa de um banco
+ * com o export real promovido, e inventar um banco vazio para ela passar seria
+ * o mesmo que apagá-la.
+ */
+
+const URL_DO_BANCO = process.env.ASSISTANT_EVAL_DATABASE_URL ?? process.env.DATABASE_URL;
+const rodar = URL_DO_BANCO ? describe : describe.skip;
+
+
+rodar("bateria do assistente", () => {
+  let db: Database;
+
+  beforeAll(async () => {
+    ({ db } = createDb(URL_DO_BANCO!));
+    const contexto = await resolveContext(db);
+    expect(contexto, "a bateria precisa de um banco com vigência promovida").toBeTruthy();
+  });
+
+  describe("intenção e ferramenta", () => {
+    it.each(CASOS)("$pergunta", async (caso) => {
+      const dossie = await orquestrar(db, caso.pergunta);
+
+      expect(dossie.plano.intencao, `intenção de "${caso.pergunta}"`).toBe(caso.intencao);
+
+      if (caso.ferramentas) {
+        const usadas = dossie.evidencias.map((e) => e.ferramenta);
+        expect(
+          caso.ferramentas.some((f) => usadas.includes(f)),
+          `esperava uma de [${caso.ferramentas}], usou [${usadas}]`,
+        ).toBe(true);
+      }
+
+      if (caso.lacuna) {
+        expect(
+          dossie.lacunas.map((l) => l.tipo),
+          `lacuna de "${caso.pergunta}"`,
+        ).toContain(caso.lacuna);
+      }
+
+      if (caso.semLacuna) {
+        expect(
+          dossie.lacunas.map((l) => l.explicacao),
+          `"${caso.pergunta}" foi respondida e não deve declarar lacuna`,
+        ).toEqual([]);
+      }
+
+      if (caso.desambigua) {
+        expect(dossie.desambiguacao, `"${caso.pergunta}" precisa perguntar de volta`).toBeTruthy();
+        expect(dossie.desambiguacao!.opcoes.length).toBeGreaterThan(1);
+      }
+
+      /*
+        Pergunta conceitual não pode arrastar vigência.
+
+        É o defeito que originou esta reescrita: "como funciona o combustível?"
+        respondia com o resumo de agosto. Nenhuma evidência com recorte de
+        vigência pode entrar numa resposta conceitual.
+      */
+      if (caso.semRecorte) {
+        const comVigencia = dossie.evidencias.filter((e) => e.recorte?.vigencia);
+        expect(
+          comVigencia.map((e) => e.titulo),
+          "resposta conceitual não carrega vigência",
+        ).toEqual([]);
+      }
+
+      const resposta = await responder(db, caso.pergunta, { semIa: true });
+      for (const texto of caso.contem ?? []) {
+        expect(resposta.texto.toLowerCase()).toContain(texto.toLowerCase());
+      }
+      for (const texto of caso.naoContem ?? []) {
+        expect(resposta.texto).not.toContain(texto);
+      }
+    });
+  });
+
+  // ── confronto de números ───────────────────────────────────────────────────
+
+  describe("os números batem com o motor", () => {
+    it("o resumo da vigência cita o que getFamiliesView devolve", async () => {
+      const contexto = await resolveContext(db);
+      const visao = await getFamiliesView(db, undefined, contexto!);
+      expect(visao).toBeTruthy();
+
+      const resposta = await responder(db, "O que mudou na última vigência?", { semIa: true });
+
+      const alteracoes = visao!.summary.changes.toLocaleString("pt-BR");
+      const veiculos = visao!.summary.vehiclesTouched.toLocaleString("pt-BR");
+      expect(resposta.texto, "alterações").toContain(alteracoes);
+      expect(resposta.texto, "veículos").toContain(veiculos);
+    });
+
+    it("o parâmetro cita o que a tela de Parâmetros mostra", async () => {
+      const contexto = await resolveContext(db);
+      const visao = await getFamiliesView(db, undefined, contexto!);
+      const gaveta = visao!.families
+        .flatMap((f) => f.parameters)
+        .find((p) => p.changes > 0);
+      expect(gaveta, "o banco precisa ter alguma gaveta que mudou").toBeTruthy();
+
+      const resposta = await responder(db, `quanto mudou ${gaveta!.name}?`, { semIa: true });
+      expect(resposta.texto).toContain(gaveta!.changes.toLocaleString("pt-BR"));
+    });
+
+    it("nenhum número da resposta fica sem lastro", async () => {
+      for (const pergunta of [
+        "O que mudou em agosto?",
+        "Onde perdemos mais dinheiro?",
+        "Quais veículos foram mais impactados?",
+        "O que temos importado?",
+      ]) {
+        const resposta = await responder(db, pergunta, { semIa: true });
+        expect(resposta.tecnico.numerosRecusados, pergunta).toEqual([]);
+      }
+    });
+  });
+
+  // ── isolamento de contexto ─────────────────────────────────────────────────
+
+  describe("isolamento por unidade e canal", () => {
+    it("toda evidência com número declara o recorte que a produziu", async () => {
+      for (const pergunta of [
+        "O que mudou em agosto?",
+        "Onde perdemos mais dinheiro?",
+        "O que temos importado?",
+        "Quais vigências existem?",
+        "Quais veículos foram mais impactados?",
+      ]) {
+        const dossie = await orquestrar(db, pergunta);
+        for (const e of dossie.evidencias) {
+          // O Book não tem recorte: uma regra vale para o contrato, não para
+          // uma operação. Fora dele, evidência sem recorte é vazamento.
+          if (e.ferramenta.toLowerCase().includes("book")) continue;
+          expect(e.recorte, `${pergunta} → ${e.ferramenta}`).toBeTruthy();
+        }
+      }
+    });
+
+    it("uma resposta nunca mistura dois contextos", async () => {
+      for (const pergunta of ["O que mudou em agosto?", "O que temos importado?"]) {
+        const dossie = await orquestrar(db, pergunta);
+        const contextos = new Set(
+          dossie.evidencias.map((e) => e.recorte?.contexto).filter(Boolean),
+        );
+        expect(contextos.size, `${pergunta} citou ${[...contextos]}`).toBeLessThanOrEqual(1);
+      }
+    });
+
+    it("o panorama respeita o recorte, e não soma o banco inteiro", async () => {
+      const contexto = await resolveContext(db);
+      const periodos = await listPeriods(db, contexto!);
+
+      const dossie = await orquestrar(db, "o que temos importado?");
+      const panorama = dossie.evidencias.find((e) => e.ferramenta === "panoramaDoContexto");
+      expect(panorama, "o panorama precisa ter rodado").toBeTruthy();
+
+      const vigencias = panorama!.fatos.find((f) => f.rotulo === "Vigências");
+      expect(vigencias?.valor).toBe(periodos.length.toLocaleString("pt-BR"));
+    });
+  });
+
+  // ── conversa ───────────────────────────────────────────────────────────────
+
+  describe("continuidade da conversa", () => {
+    it('"E julho?" mantém o assunto e troca o período', async () => {
+      const primeira = await responder(db, "Quanto mudou o IPVA desde dezembro?", {
+        semIa: true,
+      });
+      expect(primeira.intencao).toBe("EVOLUCAO");
+
+      const segunda = await responder(db, "E julho?", {
+        semIa: true,
+        estado: primeira.estado,
+      });
+
+      expect(segunda.tecnico.herdado).toContain("parâmetro");
+      expect(segunda.recorte, "a resposta descreve julho").toMatch(/julho/i);
+      expect(segunda.intencao, "a intenção passa a ser sobre aquele mês").toBe("VALOR");
+    });
+
+    it('"Por quê?" herda o assunto e desce até a origem', async () => {
+      const primeira = await responder(db, "Quanto mudou o IPVA em agosto?", { semIa: true });
+      const segunda = await responder(db, "Por quê?", {
+        semIa: true,
+        estado: primeira.estado,
+      });
+
+      expect(segunda.intencao).toBe("PROCEDENCIA");
+      expect(segunda.tecnico.herdado.length).toBeGreaterThan(0);
+      expect(segunda.tecnico.ferramentas.length, "precisa consultar de novo").toBeGreaterThan(0);
+    });
+
+    it("uma pergunta nova troca o assunto em vez de herdar", async () => {
+      const primeira = await responder(db, "Quanto mudou o IPVA em agosto?", { semIa: true });
+      const segunda = await responder(db, "E o pneu?", {
+        semIa: true,
+        estado: primeira.estado,
+      });
+      expect(segunda.estado.termoDoParametro).toContain("pneu");
+    });
+
+    it('"E na vigência anterior?" troca só o recorte', async () => {
+      const primeira = await responder(db, "O que mudou na última vigência?", { semIa: true });
+      const segunda = await responder(db, "E na vigência anterior?", {
+        semIa: true,
+        estado: primeira.estado,
+      });
+
+      expect(segunda.tecnico.herdado.length, "precisa herdar o assunto").toBeGreaterThan(0);
+      expect(segunda.recorte, "a resposta descreve outra vigência").not.toBe(primeira.recorte);
+      expect(segunda.tecnico.ferramentas.length).toBeGreaterThan(0);
+    });
+
+    it('"Compare as duas." completa a outra ponta pelo estado', async () => {
+      const primeira = await responder(db, "O que mudou em julho?", { semIa: true });
+      const segunda = await responder(db, "Compare as duas.", {
+        semIa: true,
+        estado: primeira.estado,
+      });
+
+      expect(segunda.intencao).toBe("COMPARACAO");
+      expect(segunda.tecnico.ferramentas).toContain("compararIntervalo");
+    });
+
+    it("uma continuação nunca sai do recorte da conversa", async () => {
+      const primeira = await responder(db, "Quanto mudou o IPVA desde dezembro?", {
+        semIa: true,
+      });
+      const contexto = primeira.estado.contexto;
+      expect(contexto).toBeTruthy();
+
+      let estado = primeira.estado;
+      for (const seguinte of ["E julho?", "Por quê?", "E o pneu?"]) {
+        const r = await responder(db, seguinte, { semIa: true, estado });
+        estado = r.estado;
+        expect(estado.contexto, `"${seguinte}" mudou de unidade/canal`).toBe(contexto);
+      }
+    });
+
+    it.each(CONVERSAS)("$nome", async (conversa) => {
+      let estado: EstadoDaConversa | undefined;
+      for (const passo of conversa.passos) {
+        const r = await responder(db, passo.pergunta, {
+          semIa: true,
+          ...(estado ? { estado } : {}),
+        });
+        estado = r.estado;
+
+        expect(r.intencao, `"${passo.pergunta}"`).toBe(passo.intencao);
+        if (passo.herda) {
+          expect(r.tecnico.herdado.length, `"${passo.pergunta}" precisa herdar`).toBeGreaterThan(0);
+        }
+        if (passo.recorte) {
+          expect(r.recorte ?? "", `recorte de "${passo.pergunta}"`).toMatch(passo.recorte);
+        }
+      }
+    });
+
+    it("o estado sobrevive a ida e volta em JSON", async () => {
+      const primeira = await responder(db, "Quanto mudou o IPVA desde dezembro?", {
+        semIa: true,
+      });
+      const estado = primeira.estado;
+      expect(estado.termoDoParametro).toBe("ipva");
+      expect(estado.contexto).toBeTruthy();
+    });
+  });
+
+  // ── ordem das fontes ───────────────────────────────────────────────────────
+
+  describe("a fonte certa vem primeiro", () => {
+    /*
+      Recuperar a fonte certa em terceiro lugar é quase o mesmo que não
+      recuperá-la: a primeira é a que abre a resposta. Cada par aqui é um erro
+      de ordenação que existiu e foi corrigido — não uma preferência estética.
+    */
+    const PARES: [string, RegExp][] = [
+      // Casava "funciona" no bloco "Transferências", cujo texto de origem
+      // começa com "Como funciona transferir frotas entre unidades".
+      ["Como funciona IPVA?", /IPVA/i],
+      // O empurrão por ligação premiava o inventário de 60 colunas da Carreta
+      // tanto quanto o cartão que trata do assunto.
+      ["Como funciona preço de combustível?", /^Combustível$/],
+      // O título curto com uma palavra comum vencia o artigo que se chama
+      // exatamente como a pergunta.
+      ["por que o impacto é acumulado por periodicidade?", /total único de impacto/i],
+      ["O que significa semântica UNKNOWN?", /Curadoria/i],
+    ];
+
+    it.each(PARES)("%s", async (pergunta, esperado) => {
+      const dossie = await orquestrar(db, pergunta);
+      expect(dossie.trechos[0]?.trecho.titulo ?? "", pergunta).toMatch(esperado);
+    });
+  });
+
+  // ── resolução de parâmetro ─────────────────────────────────────────────────
+
+  describe("resolução por vocabulário", () => {
+    it("o termo de quem opera chega na gaveta certa", async () => {
+      const casos: [string, string][] = [
+        ["combustível", "Combustível"],
+        ["IPVA", "IPVA e licenciamento"],
+        ["ipvaLicenciamento", "IPVA e licenciamento"],
+        ["pneu", "Pneu"],
+        ["financiamento", "Financiamento"],
+      ];
+      for (const [termo, gaveta] of casos) {
+        const r = await resolverParametro(db, termo);
+        expect(r.escolhido?.parametro, `"${termo}"`).toBe(gaveta);
+        expect(r.escolhido?.evidencia, `evidência de "${termo}"`).toBeTruthy();
+      }
+    });
+
+    it("termo desconhecido não vira palpite", async () => {
+      const r = await resolverParametro(db, "xpto quimera");
+      expect(r.escolhido).toBeNull();
+    });
+  });
+
+  // ── estado ─────────────────────────────────────────────────────────────────
+
+  describe("avanço do estado", () => {
+    it("guarda o que a próxima pergunta precisa herdar", async () => {
+      const dossie = await orquestrar(db, "Quanto mudou o IPVA em agosto?");
+      const estado: EstadoDaConversa = avancarEstado(ESTADO_VAZIO, dossie);
+      expect(estado.intencao).toBeTruthy();
+      expect(estado.termoDoParametro).toBe("ipva");
+      expect(estado.scopeHash).toBeTruthy();
+    });
+  });
+});

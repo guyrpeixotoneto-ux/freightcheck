@@ -16,6 +16,9 @@
       "path": "./lib/comparison"
     },
     {
+      "path": "./lib/knowledge"
+    },
+    {
       "path": "./lib/assistant"
     },
     {
