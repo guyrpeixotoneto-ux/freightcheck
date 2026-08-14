@@ -28,7 +28,13 @@ import { useAuth } from "@/lib/auth";
  * O que fica aqui é o que não tem lugar melhor: a marca, o botão que recolhe a
  * lateral e quem está logado.
  */
-export function Topbar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
+export function Topbar({
+  menuAberto,
+  onToggleSidebar,
+}: {
+  menuAberto: boolean;
+  onToggleSidebar: () => void;
+}) {
   const { user, logout, isSubmitting } = useAuth();
 
   return (
@@ -36,7 +42,13 @@ export function Topbar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
       <button
         type="button"
         onClick={onToggleSidebar}
-        aria-label="Abrir ou fechar o menu"
+        /*
+          O rótulo diz o que o clique faz, e não o que o botão é. "Abrir ou
+          fechar o menu" obriga quem ouve a descobrir em qual dos dois estados
+          está antes de decidir se quer clicar.
+        */
+        aria-label={menuAberto ? "Recolher o menu" : "Expandir o menu"}
+        aria-expanded={menuAberto}
         className="p-2 -ml-1 rounded hover:bg-white/10 transition-colors"
       >
         <Menu className="w-6 h-6" />

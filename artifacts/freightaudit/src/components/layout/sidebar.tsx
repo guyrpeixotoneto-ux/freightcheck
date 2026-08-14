@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import {
@@ -36,6 +35,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -43,6 +43,7 @@ import {
   useCuradoriaPendente,
   useImportacoesEmAndamento,
 } from "./contadores";
+import { useSecoesRecolhidas } from "./preferencias";
 
 /**
  * A lateral do produto.
@@ -179,7 +180,7 @@ export function Sidebar({ open }: { open: boolean }) {
 
   const contadores = { alteracoes, importacoes, curadoria };
 
-  if (!open) return null;
+  if (!open) return <FaixaDeIcones location={location} contadores={contadores} />;
 
   return (
     /*
@@ -276,59 +277,164 @@ export function Sidebar({ open }: { open: boolean }) {
 }
 
 // ---------------------------------------------------------------------------
-// Seções recolhidas
+// A faixa de ícones
 // ---------------------------------------------------------------------------
 
-const CHAVE_RECOLHIDAS = "freightcheck:menu-secoes-recolhidas";
+type Contadores = Record<NonNullable<NavItem["contador"]>, number>;
 
 /**
- * Quais seções o usuário fechou.
+ * A lateral recolhida pelo hambúrguer.
  *
- * **Isto precisa sobreviver ao navegador, não só ao componente.** Cada página
- * deste produto monta a sua própria `Layout`, então a lateral é desmontada e
- * remontada a cada navegação: guardado em `useState` puro, o menu voltaria
- * inteiro aberto no primeiro clique em qualquer item — o usuário fecharia
- * Auditoria e a veria reaparecer ao abrir Curadoria.
+ * **Ela encolhe; não desaparece.** Antes o hambúrguer removia a lateral inteira,
+ * e o preço era alto para quem só queria ler uma tabela larga: com a lateral
+ * fora, ir para a próxima tela custava trazê-la de volta, clicar e recolher de
+ * novo. A faixa devolve 225px ao conteúdo e mantém as quinze telas a um clique.
  *
- * Fica no `localStorage` pela mesma razão da estrela dos cartões: é preferência
- * de quem está na máquina, não dado do sistema. Não merece tabela, migration
- * nem rota, e falhar em gravá-la não pode derrubar a tela — daí os `try`.
+ * O que sobrevive ao encolhimento, e por quê:
  *
- * A chave é o título da seção. Renomear uma seção reabre-a para quem a tinha
- * fechado, e é o comportamento certo: a seção com aquele nome é outra.
+ * - **A unidade aberta**, porque todo número da tela depende dela — some o nome,
+ *   fica o alfinete, e o nome inteiro volta no rótulo ao passar o mouse.
+ * - **Os contadores**, em bolinha sobre o ícone. Trabalho pendente não é
+ *   detalhe de decoração para se perder na primeira economia de espaço.
+ * - **Os grupos**, como linhas separadoras. A ordem dos ícones é a mesma da
+ *   lista, então a mão que aprendeu o lugar de cada um continua acertando.
+ *
+ * Cada ícone tem `aria-label` além do rótulo visual: um link cujo conteúdo é só
+ * um desenho não tem nome para quem usa leitor de tela.
  */
-function useSecoesRecolhidas() {
-  const [recolhidas, setRecolhidas] = useState<string[]>(() => lerRecolhidas());
+function FaixaDeIcones({
+  location,
+  contadores,
+}: {
+  location: string;
+  contadores: Contadores;
+}) {
+  return (
+    <aside className="w-16 bg-sidebar text-sidebar-foreground border-r border-sidebar-border shrink-0 flex flex-col sticky top-16 h-[calc(100dvh-4rem)]">
+      <div className="overflow-y-auto flex-1 py-2">
+        <UnidadeNaFaixa />
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(CHAVE_RECOLHIDAS, JSON.stringify(recolhidas));
-    } catch {
-      // Navegador com armazenamento bloqueado: as seções deixam de sobreviver
-      // ao reload, e nada além disso acontece.
-    }
-  }, [recolhidas]);
+        {NAV_GROUPS.map((grupo, indice) => (
+          <div
+            key={grupo.titulo}
+            className={cn("py-1.5", indice > 0 && "border-t border-sidebar-border")}
+          >
+            {grupo.itens.map((item) => (
+              <IconeDaFaixa
+                key={item.href}
+                item={item}
+                ativo={estaAtivo(location, item.href)}
+                contagem={item.contador ? contadores[item.contador] : 0}
+              />
+            ))}
+          </div>
+        ))}
+      </div>
 
-  const alternar = useCallback((titulo: string) => {
-    setRecolhidas((atual) =>
-      atual.includes(titulo) ? atual.filter((t) => t !== titulo) : [...atual, titulo],
-    );
-  }, []);
-
-  const recolhido = useCallback((titulo: string) => recolhidas.includes(titulo), [recolhidas]);
-
-  return { recolhido, alternar };
+      <div className="p-2 border-t border-sidebar-border">
+        <Rotulo texto="Pergunte ao FreightCheck">
+          <Link
+            href="/assistente"
+            aria-label="Pergunte ao FreightCheck"
+            className="w-11 h-11 mx-auto rounded-lg border border-nav-inteligencia/30 bg-nav-inteligencia/[0.06] flex items-center justify-center hover:bg-nav-inteligencia/[0.12] transition-colors"
+          >
+            <Sparkles className="w-[1.125rem] h-[1.125rem] text-nav-inteligencia" />
+          </Link>
+        </Rotulo>
+      </div>
+    </aside>
+  );
 }
 
-function lerRecolhidas(): string[] {
-  try {
-    const bruto = window.localStorage.getItem(CHAVE_RECOLHIDAS);
-    if (!bruto) return [];
-    const valor: unknown = JSON.parse(bruto);
-    return Array.isArray(valor) ? valor.filter((v): v is string => typeof v === "string") : [];
-  } catch {
-    return [];
-  }
+function IconeDaFaixa({
+  item,
+  ativo,
+  contagem,
+}: {
+  item: NavItem;
+  ativo: boolean;
+  contagem: number;
+}) {
+  return (
+    <Rotulo texto={contagem > 0 ? `${item.label} · ${contagem}` : item.label}>
+      <Link
+        href={item.href}
+        aria-label={contagem > 0 ? `${item.label}: ${contagem}` : item.label}
+        aria-current={ativo ? "page" : undefined}
+        className={cn(
+          "relative flex items-center justify-center h-11 border-l-[3px] transition-colors",
+          ativo
+            ? "border-brand-red bg-brand-red/[0.07] text-brand-red"
+            : "border-transparent text-muted-foreground hover:bg-sidebar-accent",
+        )}
+      >
+        <item.icon className="w-[1.125rem] h-[1.125rem]" />
+        {contagem > 0 && (
+          <span
+            className={cn(
+              "absolute top-1.5 right-2 min-w-4 h-4 px-1 rounded-full text-[0.5625rem] font-bold flex items-center justify-center tabular-nums",
+              item.contador === "alteracoes"
+                ? "bg-brand-red text-brand-red-foreground"
+                : "bg-brand text-brand-foreground",
+            )}
+          >
+            {contagem > 99 ? "99+" : contagem}
+          </span>
+        )}
+      </Link>
+    </Rotulo>
+  );
+}
+
+/** A unidade aberta, reduzida ao alfinete — o nome inteiro fica no rótulo. */
+function UnidadeNaFaixa() {
+  const { data } = useQuery({
+    queryKey: ["contexts"],
+    queryFn: async () => {
+      const response = await fetch(getApiUrl("/contexts"));
+      if (!response.ok) return [] as Contexto[];
+      const body: unknown = await response.json();
+      return Array.isArray(body) ? (body as Contexto[]) : [];
+    },
+    staleTime: 60_000,
+    retry: false,
+  });
+
+  const atual = (data ?? [])[0];
+
+  return (
+    <div className="px-2 pb-2 mb-1 border-b border-sidebar-border">
+      <Rotulo
+        texto={
+          atual === undefined
+            ? "Nenhuma vigência importada"
+            : `${unidadeDe(atual)} · ${detalheDe(atual)}`
+        }
+      >
+        <div className="w-11 h-11 mx-auto rounded-lg border border-sidebar-border flex items-center justify-center">
+          <MapPin className="w-4 h-4 text-brand-red" />
+        </div>
+      </Rotulo>
+    </div>
+  );
+}
+
+/**
+ * O nome que o ícone perdeu, de volta ao passar o mouse ou ao chegar pelo Tab.
+ *
+ * O fundo é o cinza do texto, e não o laranja do componente: na faixa o rótulo é
+ * a única forma de ler o nome do item, e branco sobre o laranja da marca fica em
+ * 2,2:1 — abaixo de qualquer limite de legibilidade.
+ */
+function Rotulo({ texto, children }: { texto: string; children: React.ReactNode }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>{children}</TooltipTrigger>
+      <TooltipContent side="right" className="bg-foreground text-background">
+        {texto}
+      </TooltipContent>
+    </Tooltip>
+  );
 }
 
 /** O `id` que o cabeçalho aponta em `aria-controls`. */
