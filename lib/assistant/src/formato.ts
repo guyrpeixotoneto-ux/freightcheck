@@ -69,6 +69,27 @@ export function trecho(texto: string, limite = 600): string {
   return `${corte.slice(0, espaco > 0 ? espaco : limite)}…`;
 }
 
+/**
+ * O mesmo corte, com as quebras de linha do original preservadas.
+ *
+ * `trecho` colapsa todo espaço em branco, e é o que se quer para um parágrafo
+ * de artigo. Não é o que se quer para um documento: uma regra costuma ser uma
+ * lista de cláusulas, e achatá-la numa linha só entrega ao leitor um bloco
+ * corrido em que nada se distingue — a mesma perda que a extração já cobra da
+ * diagramação, cobrada duas vezes.
+ */
+export function trechoComLinhas(texto: string, limite = 1200): string {
+  const limpo = texto
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (limpo.length <= limite) return limpo;
+
+  const corte = limpo.slice(0, limite);
+  const fronteira = Math.max(corte.lastIndexOf(" "), corte.lastIndexOf("\n"));
+  return `${corte.slice(0, fronteira > 0 ? fronteira : limite)}…`;
+}
+
 /** "2026-08-01" → "agosto/2026" */
 export function rotuloDoPeriodo(data: string): string {
   const [ano, mes] = data.split("-");

@@ -50,6 +50,7 @@ import {
   type Lacuna,
 } from "./orquestrador";
 import { SUGESTOES } from "./conhecimento";
+import { trechoComLinhas } from "./formato";
 import { termos } from "./normalizar";
 
 export interface Fonte {
@@ -359,8 +360,51 @@ function redacaoDeterministica(dossie: Dossie): string {
       if (e.nota) partes.push(e.nota);
     });
 
-    // O conceito de apoio, quando já houve dado — um trecho só, e depois.
-    if (dossie.evidencias.length > 0 && dossie.trechos.length > 0) {
+    /*
+      O documento do bloco, como ele está escrito.
+
+      Sem modelo, o anexo não tinha para onde ir: ele existia no dossiê, entrava
+      numerado nas fontes, e o texto dizia que a regra estava num arquivo — sem
+      nunca mostrar uma linha dele. Quem perguntava "qual a regra do pneu?" era
+      informado de que a regra existe.
+
+      O que sai daqui é transcrição, não interpretação: o texto veio do XML do
+      próprio arquivo, sai entre aspas e com a citação do anexo ao lado, e quem
+      quiser conferir abre o mesmo documento na tela do Book. O arquivo que só o
+      modelo abre — PDF, imagem — continua sem transcrição, e a resposta diz por
+      quê em vez de calar.
+    */
+    const primeiroAnexo = dossie.trechos.length + dossie.evidencias.length + 1;
+    dossie.anexos.forEach((anexo, i) => {
+      const n = primeiroAnexo + i;
+      if (anexo.conteudo.forma === "EXTRAIDO" && anexo.conteudo.texto) {
+        partes.push(
+          `De "${anexo.filename}", como está escrito no documento [${n}] — a ` +
+            `diagramação (tabelas, colunas, numeração) não sobreviveu à extração:\n\n` +
+            trechoComLinhas(anexo.conteudo.texto)
+              .split("\n")
+              .map((linha) => `> ${linha}`)
+              .join("\n"),
+        );
+      } else {
+        partes.push(
+          `A regra está em "${anexo.filename}" [${n}], que só o modelo de linguagem ` +
+            `abre — e esta resposta foi montada em código. O arquivo está na tela do ` +
+            `Book do Operador, inteiro.`,
+        );
+      }
+    });
+
+    /*
+      O conceito de apoio, quando já houve dado — um trecho só, e depois.
+
+      A não ser que ele já **seja** a abertura. Numa pergunta conceitual ou de
+      Book a resposta abre pelo trecho, e este bloco a repetia inteira no fim:
+      a mesma frase duas vezes na mesma resposta, com a mesma citação — que era
+      o defeito mais visível de todos, porque não precisa entender de
+      remuneração para reparar nele.
+    */
+    if (dossie.evidencias.length > 0 && dossie.trechos.length > 0 && inicio?.fonte !== 1) {
       partes.push(`${dossie.trechos[0].trecho.texto} [1]`);
     }
   }
