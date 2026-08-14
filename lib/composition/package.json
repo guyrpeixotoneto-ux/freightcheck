@@ -1,24 +1,24 @@
 {
-  "name": "@workspace/comparison",
+  "name": "@workspace/composition",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./src/index.ts",
-    "./testing": "./src/testing.ts"
+    ".": "./src/index.ts"
   },
   "scripts": {
     "test": "vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@workspace/comparison": "workspace:*",
     "@workspace/db": "workspace:*",
-    "@workspace/ingest": "workspace:*",
     "drizzle-orm": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",
     "@workspace/curation": "workspace:*",
+    "@workspace/ingest": "workspace:*",
     "tsx": "catalog:",
     "vitest": "^3.2.4"
   }

@@ -17,6 +17,8 @@ import Parametros from '@/pages/parametros';
 import Comparar from '@/pages/comparar';
 import Importacoes from '@/pages/importacoes';
 import BalancoMassa from '@/pages/balanco-massa';
+import Composicao from '@/pages/composicao';
+import ComposicaoEquipamento from '@/pages/composicao-equipamento';
 import ApresentacaoVideo from '@/components/video/ApresentacaoVideo';
 import AnaliseEquipamentos from '@/pages/analise-equipamentos';
 import Curadoria from '@/pages/curadoria';
@@ -81,6 +83,8 @@ function Router() {
       <Route path="/alteracoes" component={Alteracoes} />
       <Route path="/comparar" component={Comparar} />
       <Route path="/importacoes" component={Importacoes} />
+      <Route path="/composicao" component={Composicao} />
+      <Route path="/composicao/:entityId" component={ComposicaoEquipamento} />
       <Route path="/balanco-massa" component={BalancoMassa} />
       <Route path="/analise-equipamentos" component={AnaliseEquipamentos} />
       <Route path="/curadoria" component={Curadoria} />

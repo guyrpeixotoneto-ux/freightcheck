@@ -4,6 +4,7 @@ import {
   ArrowRightLeft,
   Building2,
   Bot,
+  Calculator,
   CalendarDays,
   ChartNoAxesCombined,
   ChevronDown,
@@ -116,6 +117,14 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/", label: "Visão geral", icon: House },
       { href: "/vigencia", label: "Acompanhamento", icon: TrendingUp },
       { href: "/analise-equipamentos", label: "Análise de frota", icon: Truck },
+      /*
+        Composição vem logo depois da Análise de frota porque é o drill-down
+        dela: a análise diz como a frota se comporta, e a composição responde,
+        para um equipamento, por que ele recebe o que recebe. Fica na visão
+        executiva e não na auditoria por ser a porta de entrada — quem abre
+        procura um valor, e só depois procura a inconsistência dele.
+      */
+      { href: "/composicao", label: "Composição", icon: Calculator, novidade: true },
     ],
   },
   {

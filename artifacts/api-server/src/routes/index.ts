@@ -11,6 +11,7 @@ import versionsRouter from "./versions";
 import bookRouter from "./book";
 import assistantRouter from "./assistant";
 import balanceRouter from "./balance";
+import compositionRouter from "./composition";
 
 /**
  * F0/F1 surface.
@@ -44,6 +45,13 @@ import balanceRouter from "./balance";
  * única superfície que responde "sumiu alguma coisa?" em vez de "de onde veio
  * este número?".
  *
+ * `composition` é a Composição: a memória de cálculo da remuneração por
+ * equipamento. Não tem tabela própria nem dado próprio — lê o canônico pelas
+ * mesmas funções de classificação e comparação que as outras telas usam, e
+ * acrescenta a única coisa que faltava: a decisão, atributo a atributo, de
+ * **o que compõe o que aquele ativo recebe** e o que fica de fora, com o
+ * motivo escrito.
+ *
  * `assistant` é o Assistente de IA. É a única superfície que **não** tem dado
  * próprio: ela responde a partir do conhecimento registrado em código e de
  * consultas às mesmas funções que as telas usam. Um número que aparece lá
@@ -63,5 +71,6 @@ router.use(versionsRouter);
 router.use(bookRouter);
 router.use(assistantRouter);
 router.use(balanceRouter);
+router.use(compositionRouter);
 
 export default router;
