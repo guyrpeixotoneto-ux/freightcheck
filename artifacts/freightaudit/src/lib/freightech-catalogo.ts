@@ -91,6 +91,21 @@ export interface CartaoCatalogo {
       calculado?: boolean;
     }[];
   }[];
+  /*
+    Uma coisa que só as fichas revelaram, e que vale para todas elas.
+
+    Os cabeçalhos de tabela do Freightech são rótulos de exibição — caixa alta,
+    grudados, `CAPACIDADEEMPURRADA`. Os rótulos de ficha, não: são o nome
+    interno do campo, em camelCase, e **o export usa esses mesmos nomes como
+    cabeçalho de coluna**. `manutencaoReaisKm` está na ficha PARÂMETROS
+    MANUTENÇÃO e na planilha de cavalos, letra por letra.
+
+    A consequência prática é que rótulo de ficha se procura no export por busca
+    exata, enquanto cabeçalho de tabela exige tradução. A consequência honesta é
+    que a coincidência é rara: dos 20 campos das três fichas conferidas, só esse
+    um aparece no export. Os outros 19 são parâmetros de unidade que a planilha
+    de equipamento não publica.
+  */
   /**
    * As colunas do export que **são** este cartão, pelo código do atributo.
    *
@@ -943,7 +958,55 @@ export const CATALOGO_FREIGHTECH: SecaoCatalogo[] = [
           "COMBUSTÍVEL. A diferença entre esses dois números é onde estes percentuais " +
           "agem — mas qual deles agiu em qual veículo, o arquivo não diz.",
       },
-      { nome: "Parâmetros manutenção", parametros: ["Manutenção cavalo"] },
+      {
+        /*
+          A terceira ficha, e a menor: três campos em duas seções — Manutenção,
+          com `manutencaoReaisKm` (0,31) e `manutencaoExtra` (0,00), e
+          Combustível, com `consumo` (1,942). Mais Anexos e Descrição, como nas
+          outras duas.
+
+          **Aqui o calculado vem primeiro.** No MANUTENÇÃO IMPLEMENTO o campo
+          digitado abria cada seção e os derivados vinham depois; nesta ficha é
+          o contrário — `manutencaoReaisKm` é cinza, com calculadora, e o
+          `manutencaoExtra` ao lado é que se digita. O `consumo` também é
+          calculado. Ou seja: a posição não diz nada sobre a natureza do campo,
+          e quem for conferir a próxima ficha tem de olhar a cor, não a ordem.
+
+          **É a ficha que provou a regra dos rótulos.** `manutencaoReaisKm` não
+          é só parecido com uma coluna do export: é a mesma cadeia, letra por
+          letra, do cabeçalho da planilha de cavalos. Foi essa coincidência que
+          autorizou escrever, lá em cima, que rótulo de ficha é nome interno de
+          campo — e que por isso se procura no export por busca exata. Dos 20
+          campos das três fichas, só este aparece; os outros 19 são parâmetros de
+          unidade que o export de equipamento não publica.
+
+          Uma seção chamada Combustível dentro de PARÂMETROS MANUTENÇÃO não é
+          engano de leitura: é assim mesmo. O Freightech agrupa nesta ficha os
+          dois parâmetros de custo variável da unidade, e o consumo é um deles.
+        */
+        nome: "Parâmetros manutenção",
+        parametros: ["Manutenção cavalo"],
+        formulario: [
+          {
+            secao: "Manutenção",
+            campos: [
+              { nome: "manutencaoReaisKm", calculado: true },
+              { nome: "manutencaoExtra" },
+            ],
+          },
+          {
+            secao: "Combustível",
+            campos: [{ nome: "consumo", calculado: true }],
+          },
+        ],
+        nota:
+          "No Freightech este cartão abre uma ficha, não uma tabela: o R$/km de " +
+          "manutenção e o consumo, ambos calculados por fórmula, mais um extra de " +
+          "manutenção que se digita. O campo manutencaoReaisKm chega no export com esse " +
+          "nome exato, uma linha por cavalo — o que a ficha mostra como um número da " +
+          "unidade, a planilha mostra ativo por ativo, e é isso que a tabela abaixo " +
+          "acompanha. O manutencaoExtra e o consumo desta ficha não vêm no arquivo.",
+      },
       { nome: "Prazo FINAME" },
       { nome: "Prazo FINAME manutenção" },
       { nome: "Tipo carroceria" },
