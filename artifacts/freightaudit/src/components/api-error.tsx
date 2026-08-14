@@ -58,6 +58,25 @@ function diagnose(database: DatabaseHealth | undefined): string | null {
   return null;
 }
 
+/**
+ * A falha que acontece antes de existir resposta.
+ *
+ * `fetch` rejeita com `TypeError` quando a requisição não completa — conexão
+ * recusada, DNS, o proxy do Vite sem servidor atrás. O navegador escreve isso
+ * como "Failed to fetch" (ou "Load failed", no Safari), palavras que não dizem
+ * a quem lê sequer de que lado o defeito está.
+ *
+ * É também o único caso em que a pergunta ao `/healthz` não tem como ajudar:
+ * ela cai pela mesma razão, e o link que este aviso oferece no fim leva ao
+ * mesmo nada. Daí o diagnóstico vir escrito aqui, sem consultar ninguém.
+ *
+ * Nenhum erro nosso é `TypeError`: `ApiError` e o que `readJson` levanta são
+ * `Error`, então a checagem não captura falha de servidor por engano.
+ */
+function isFalhaDeRede(error: unknown): boolean {
+  return error instanceof TypeError;
+}
+
 export function ApiErrorNotice({
   error,
   what,
@@ -74,7 +93,12 @@ export function ApiErrorNotice({
     staleTime: 30_000,
   });
 
-  const cause = diagnose(health?.database);
+  const cause = isFalhaDeRede(error)
+    ? "A interface está no ar, mas nada atendeu em /api: a requisição não " +
+      "completou, então esta tela não chegou a falar com o servidor. Confira " +
+      'o processo "API Server" — enquanto ele não subir, /api/healthz também ' +
+      "não responde."
+    : diagnose(health?.database);
   const message = error instanceof Error ? error.message : String(error);
 
   return (
