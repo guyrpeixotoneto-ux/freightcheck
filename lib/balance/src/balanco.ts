@@ -433,6 +433,8 @@ type LinhaSnapshot = {
   status: string;
   fact_count: number;
   promovidos: number;
+  /** Fatos que vieram da revisão anterior, e não deste arquivo. */
+  herdados: number;
   com_lastro: number;
 }
 
@@ -529,7 +531,21 @@ export async function balancoDaImportacao(
           s.revision,
           s.status::text AS status,
           s.fact_count,
-          (SELECT count(*)::int FROM fact f WHERE f.snapshot_id = s.id) AS promovidos,
+          -- Os fatos herdados de uma revisão anterior ficam de fora das duas
+          -- contagens. Eles são do snapshot, mas a célula que os originou está
+          -- em outra importação — somá-los aqui faria esta importação parecer
+          -- ter produzido massa que ela não produziu, e "uma célula, um fato"
+          -- deixaria de fechar sem que nada estivesse errado.
+          (
+            SELECT count(*)::int FROM fact f
+             WHERE f.snapshot_id = s.id
+               AND f.inherited_from_snapshot_id IS NULL
+          ) AS promovidos,
+          (
+            SELECT count(*)::int FROM fact f
+             WHERE f.snapshot_id = s.id
+               AND f.inherited_from_snapshot_id IS NOT NULL
+          ) AS herdados,
           (
             SELECT count(*)::int
             FROM fact f
@@ -537,6 +553,7 @@ export async function balancoDaImportacao(
             JOIN raw_row r   ON r.id = c.raw_row_id
             JOIN raw_sheet a ON a.id = r.raw_sheet_id
             WHERE f.snapshot_id = s.id
+              AND f.inherited_from_snapshot_id IS NULL
               AND a.import_run_id = ${importRunId}::uuid
           ) AS com_lastro
         FROM snapshot s
@@ -550,9 +567,10 @@ export async function balancoDaImportacao(
           (count(*) FILTER (WHERE f.is_null))::int     AS ausencias
         FROM fact f
         JOIN attribute at ON at.id = f.attribute_id
-        WHERE f.snapshot_id IN (
-          SELECT id FROM snapshot WHERE import_run_id = ${importRunId}::uuid
-        )
+        WHERE f.inherited_from_snapshot_id IS NULL
+          AND f.snapshot_id IN (
+            SELECT id FROM snapshot WHERE import_run_id = ${importRunId}::uuid
+          )
         GROUP BY at.semantics_status
       `),
     ]);
@@ -604,12 +622,14 @@ export async function balancoDaImportacao(
       revision: s.revision,
       status: s.status,
       preparados: prep,
-      declarados: s.fact_count,
+      // `fact_count` descreve o snapshot inteiro; aqui a conta é sobre o que
+      // esta importação declarou ter produzido.
+      declarados: s.fact_count - s.herdados,
       promovidos: s.promovidos,
       comLastroNoArquivo: s.com_lastro,
       fecha:
         prep === s.promovidos &&
-        s.promovidos === s.fact_count &&
+        s.promovidos === s.fact_count - s.herdados &&
         s.com_lastro === s.promovidos,
     };
   });

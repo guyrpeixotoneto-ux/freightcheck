@@ -5,6 +5,7 @@ import {
   entityIdentifierTable,
   entityTable,
   factTable,
+  importDecisionTable,
   importRunTable,
   rawCellTable,
   rawRowTable,
@@ -412,9 +413,16 @@ describe("idempotency", () => {
     expect(await countAll()).toEqual(before);
   });
 
-  it("blocks a second promotion of the same vigência on the business key", async () => {
-    // A differently-named copy defeats the SHA-256 check; the business key is
-    // what stops the duplicate from reaching the canonical layer.
+  it("reconhece uma cópia de bytes diferentes como duplicata de dados, sem abrir revisão", async () => {
+    // Uma cópia com outro nome derrota o SHA-256. Quem a barra é a identidade
+    // canônica — e, como o **conteúdo normalizado** é o mesmo, a resposta certa
+    // não é erro: é `SKIPPED_DUPLICATE_DATA`. Abrir uma revisão idêntica à
+    // ativa poluiria a auditoria com uma correção que não corrige nada.
+    //
+    // Esta asserção mudou junto com o modelo de identidade. Antes o pipeline
+    // recusava com "Snapshot already exists for business key", porque a única
+    // pergunta que ele sabia fazer era "esta chave já existe?". Agora ele
+    // também pergunta "e o dado é o mesmo?", e responde de acordo.
     const copy = await copyExportWithDifferentBytes();
     const received = await receiveFile(ctx.db, { filePath: copy });
     expect(received.isDuplicate).toBe(false);
@@ -423,13 +431,32 @@ describe("idempotency", () => {
     await stage(ctx.db, received.importRunId);
     await preview(ctx.db, received.importRunId);
 
-    await expect(promote(ctx.db, received.importRunId)).rejects.toThrow(
-      /Snapshot already exists for business key/,
-    );
+    const resultado = await promote(ctx.db, received.importRunId);
+    expect(resultado.snapshots).toHaveLength(0);
+    expect(resultado.factsInserted).toBe(0);
 
-    // The failed promotion left nothing behind.
+    const [run] = await ctx.db
+      .select()
+      .from(importRunTable)
+      .where(eq(importRunTable.id, received.importRunId));
+    expect(run.status).toBe("SKIPPED_DUPLICATE_DATA");
+
+    // Nada foi criado, nada foi superseded: a camada canônica ficou intacta.
     const snapshots = await ctx.db.select().from(snapshotTable);
     expect(snapshots).toHaveLength(BASELINE.snapshots);
+    expect(snapshots.every((s) => s.status !== "SUPERSEDED")).toBe(true);
+
+    // E a recusa ficou explicada, sem depender de log.
+    const [decisao] = await ctx.db
+      .select()
+      .from(importDecisionTable)
+      .where(
+        and(
+          eq(importDecisionTable.importRunId, received.importRunId),
+          eq(importDecisionTable.decisao, "DUPLICATA_DE_DADOS"),
+        ),
+      );
+    expect(decisao.motivo).toMatch(/dados normalizados/i);
   });
 });
 

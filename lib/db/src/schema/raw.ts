@@ -7,6 +7,8 @@ import {
   bigserial,
   boolean,
   timestamp,
+  date,
+  jsonb,
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
@@ -149,5 +151,60 @@ export const rawCellTable = pgTable(
   (t) => [
     uniqueIndex("raw_cell_row_column_uq").on(t.rawRowId, t.columnIndex),
     index("raw_cell_row_idx").on(t.rawRowId),
+  ],
+);
+
+/**
+ * Por que o pipeline decidiu o que decidiu, uma linha por decisão.
+ *
+ * Existe para que "por que esse arquivo não entrou?" tenha resposta sem ler
+ * log. A recusa por duplicata é o caso que mais precisa disso: ela é
+ * silenciosa por natureza — nada muda no banco canônico —, e sem registro o
+ * operador só vê que o número dele não apareceu.
+ *
+ * Guarda o que sustentou a decisão: o arquivo e seu SHA-256, o hash canônico do
+ * conteúdo, a identidade calculada, a vigência, o escopo, a família, e qual
+ * revisão foi encontrada ou criada. `ON DELETE CASCADE` acompanha a exclusão do
+ * run: a auditoria de uma importação apagada vive em `import_deletion`, que é
+ * permanente, e não aqui.
+ */
+export const importDecisionTable = pgTable(
+  "import_decision",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    importRunId: uuid("import_run_id")
+      .notNull()
+      .references(() => importRunTable.id, { onDelete: "cascade" }),
+    /**
+     * RECEBIDO | DUPLICATA_DE_ARQUIVO | DUPLICATA_DE_DADOS |
+     * VIGENCIA_ATIVA_EXISTENTE | ESCOPO_OBRIGATORIO_AUSENTE |
+     * ENTIDADE_CONFLITANTE | PROMOVIDO | REVISAO_CRIADA
+     *
+     * Texto e não enum: uma decisão nova não deve exigir migration.
+     */
+    decisao: text("decisao").notNull(),
+    /** A frase que vai para a tela, escrita para quem opera. */
+    motivo: text("motivo").notNull(),
+    filename: text("filename"),
+    contentSha256: text("content_sha256"),
+    canonicalPayloadHash: text("canonical_payload_hash"),
+    canonicalSnapshotKey: text("canonical_snapshot_key"),
+    sourceLabel: text("source_label"),
+    effectiveDate: date("effective_date", { mode: "string" }),
+    canal: text("canal"),
+    datasetFamily: text("dataset_family"),
+    canonicalScope: jsonb("canonical_scope"),
+    snapshotId: uuid("snapshot_id"),
+    revisionEncontrada: integer("revision_encontrada"),
+    revisionCriada: integer("revision_criada"),
+    detalhe: jsonb("detalhe"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("import_decision_run_idx").on(t.importRunId),
+    index("import_decision_key_idx").on(t.canonicalSnapshotKey),
+    index("import_decision_sha_idx").on(t.contentSha256),
   ],
 );

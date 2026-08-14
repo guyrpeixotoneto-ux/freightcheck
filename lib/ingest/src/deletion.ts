@@ -543,6 +543,41 @@ export async function deleteImportRun(
       sql`DELETE FROM import_run WHERE id = ${importRunId}::uuid`,
     );
 
+    // As tentativas recusadas por duplicata saem junto.
+    //
+    // Elas não carregam dado nenhum: são o registro de que alguém reenviou o
+    // mesmo arquivo e o sistema disse não. Mas apontam para o mesmo
+    // `source_file`, e essa referência sozinha segurava o arquivo no banco. O
+    // efeito era o operador ficar preso: enviava o arquivo, reenviava por
+    // engano (409), excluía o original — e continuava impedido de importar,
+    // porque o registro da recusa mantinha o conteúdo "já recebido". Sair da
+    // situação exigia adivinhar que era preciso excluir também a recusa.
+    //
+    // A auditoria não se perde: cada uma vira uma linha em `import_deletion`,
+    // que é append-only e permanente.
+    const recusadas = await tx.execute<{ id: string; filename: string; status: string; received_at: string }>(sql`
+      SELECT ir.id, sf.filename, ir.status::text AS status, ir.started_at AS received_at
+        FROM import_run ir
+        JOIN source_file sf ON sf.id = ir.source_file_id
+       WHERE ir.source_file_id = ${run.source_file_id}::uuid
+         AND ir.status IN ('SKIPPED_DUPLICATE', 'SKIPPED_DUPLICATE_DATA')
+         AND NOT EXISTS (SELECT 1 FROM snapshot s WHERE s.import_run_id = ir.id)`);
+
+    for (const recusada of recusadas.rows) {
+      await tx.execute(sql`
+        INSERT INTO import_deletion
+          (import_run_id, filename, content_sha256, run_status, received_at,
+           labels, restored_labels, removed, deleted_by, reason)
+        VALUES (
+          ${recusada.id}::uuid, ${recusada.filename}, ${run.content_sha256},
+          ${recusada.status}, ${recusada.received_at},
+          '[]'::jsonb, '[]'::jsonb, '{}'::jsonb,
+          ${options.deletedBy},
+          ${`Tentativa recusada como duplicata do mesmo arquivo; saiu junto com a importação ${importRunId}.`}
+        )`);
+      await tx.execute(sql`DELETE FROM import_run WHERE id = ${recusada.id}::uuid`);
+    }
+
     // O arquivo recebido só sai quando nenhuma outra tentativa o usa — e é a
     // saída dele que libera o mesmo conteúdo para ser reenviado.
     const { rowCount } = await tx.execute(sql`

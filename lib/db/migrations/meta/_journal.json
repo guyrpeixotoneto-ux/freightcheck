@@ -85,6 +85,27 @@
       "when": 1786709950225,
       "tag": "0011_assistant_conversations",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1786710010225,
+      "tag": "0012_canonical_identity",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1786710070225,
+      "tag": "0013_canonical_identity_enforcement",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1786710130225,
+      "tag": "0014_fato_herdado",
+      "breakpoints": true
     }
   ]
 }

@@ -19,7 +19,23 @@ export const importRunStatus = pgEnum("import_run_status", [
   "PROMOTED",
   "FAILED",
   "ABORTED",
+  /**
+   * O arquivo já havia sido recebido, byte a byte. Primeira camada, decidida
+   * antes de qualquer leitura, pelo SHA-256 do conteúdo.
+   */
   "SKIPPED_DUPLICATE",
+  /**
+   * O arquivo é outro, mas os dados normalizados desta vigência são idênticos
+   * aos que já estão ativos. Nenhuma revisão foi aberta — abrir uma revisão que
+   * não muda nada é ruído de auditoria, não registro.
+   */
+  "SKIPPED_DUPLICATE_DATA",
+  /**
+   * O arquivo foi lido, mas não pode ser promovido: falta um componente
+   * obrigatório da identidade (escopo), ou a mesma entidade aparece duas vezes
+   * com informações conflitantes. Não é falha técnica — é o dado que não fecha.
+   */
+  "VALIDATION_ERROR",
 ]);
 
 /**

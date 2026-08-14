@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
@@ -68,6 +69,17 @@ export interface FixtureOptions {
   entityType?: string;
   /** Shared so two series land in the same scope and can be consolidated. */
   scopeHash?: string;
+  /**
+   * O canal da identidade canônica.
+   *
+   * O fixture monta snapshots direto, sem passar pelo `promote`, e o banco agora
+   * só admite **uma** vigência ativa por identidade canônica. Duas chamadas que
+   * compartilham `scopeHash` para serem consolidadas (carreta e cavalo na mesma
+   * data) colidiriam nessa identidade. Cada chamada recebe um canal próprio, o
+   * que as mantém distintas sem mexer no `scope_hash` — que é por onde a
+   * consolidação junta as séries.
+   */
+  canal?: string;
 }
 
 let sequence = 0;
@@ -82,6 +94,21 @@ export async function buildFixture(
   const suffix = `fx${sequence}`;
   const entityType = options.entityType ?? "CARRETA";
   const scopeHash = options.scopeHash ?? `scope-${suffix}`;
+  const canal = (options.canal ?? suffix).toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+  // O escopo canônico tem de sair já normalizado, senão o CHECK do banco recusa
+  // a linha. Um CNPJ de 14 dígitos derivado do `scopeHash` faz duas chamadas que
+  // compartilham escopo compartilharem também a identidade de escopo.
+  const canonicalScope = [
+    {
+      scopeType: "UNIDADE",
+      code: createHash("sha256")
+        .update(scopeHash)
+        .digest("hex")
+        .replace(/\D/g, "")
+        .padEnd(14, "0")
+        .slice(0, 14),
+    },
+  ];
 
   const [file] = await db
     .insert(sourceFileTable)
@@ -207,6 +234,9 @@ export async function buildFixture(
         effectiveDate: spec.effectiveDate,
         scopeHash,
         entityTypeSet: entityType,
+        datasetFamily: "REMUNERACAO_EQUIPAMENTO",
+        canal,
+        canonicalScope,
         status: "DRAFT",
       })
       .returning();

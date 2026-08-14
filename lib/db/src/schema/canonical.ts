@@ -64,7 +64,10 @@ export const entityIdentifierTable = pgTable(
       .references(() => entityTable.id),
     /** PLACA | CHASSI | ... — text so new identifier kinds need no migration. */
     identifierType: text("identifier_type").notNull(),
+    /** Normalizado: sem pontuação, em caixa alta. É o que identifica. */
     identifierValue: text("identifier_value").notNull(),
+    /** O identificador como veio escrito. Evidência, não identidade. */
+    identifierValueRaw: text("identifier_value_raw"),
     effectiveFrom: date("effective_from", { mode: "string" }).notNull(),
     effectiveUntil: date("effective_until", { mode: "string" }),
     isCurrent: boolean("is_current").notNull().default(true),
@@ -111,10 +114,17 @@ export const scopeTable = pgTable(
 /**
  * A vigência found inside a file. One file yields many snapshots.
  *
- * Business key (second line of idempotency defence, independent of SHA-256):
- *   source_system + source_label + scope_hash + entity_type_set
- * Re-delivering the same vigência with corrections is an explicit revision,
- * never an in-place edit.
+ * Identidade canônica (segunda linha de defesa, independente do SHA-256):
+ *   source_system + dataset_family + canal + effective_date + canonical_scope
+ *
+ * Nenhum componente dela depende da *forma* como o dado chegou. A chave antiga
+ * — rótulo literal, hash de escopo cru e o conjunto de tipos que por acaso veio
+ * no arquivo — dependia das três, e por isso o mesmo negócio entregue com o
+ * rótulo escrito de outro jeito, com o CNPJ mascarado ou com uma aba a menos
+ * abria uma **segunda vigência ativa** em vez de uma revisão.
+ *
+ * Reentregar a mesma vigência com correções é sempre uma revisão explícita,
+ * nunca uma edição no lugar.
  */
 export const snapshotTable = pgTable(
   "snapshot",
@@ -131,10 +141,53 @@ export const snapshotTable = pgTable(
     sourceLabel: text("source_label").notNull(),
     /** Derived from the label by an explicit, tested rule. Kept separate. */
     effectiveDate: date("effective_date", { mode: "string" }).notNull(),
-    /** Deterministic hash of the snapshot's scope set. */
+    /**
+     * Hash do conjunto de escopos como ele veio, sem normalizar.
+     *
+     * Não faz mais parte da identidade — um CNPJ mascarado num arquivo e sem
+     * máscara no outro mudava este hash e abria uma segunda vigência ativa.
+     * Continua gravado porque é o que os snapshots antigos usavam e porque diz
+     * o que o arquivo trazia; quem identifica agora é `canonicalScope`.
+     */
     scopeHash: text("scope_hash").notNull(),
-    /** Sorted, '+'-joined set of entity types covered, e.g. "CARRETA+CAVALO". */
+    /**
+     * Conjunto de tipos cobertos, ordenado e unido por '+', p.ex.
+     * "CARRETA+CAVALO".
+     *
+     * Descritivo, não identificador. Ele varia com as abas que o arquivo trouxe
+     * — e era exatamente por isso que uma correção só de cavalos virava uma
+     * segunda vigência ativa em vez de uma revisão. Quem identifica é
+     * `datasetFamily`.
+     */
     entityTypeSet: text("entity_type_set").notNull(),
+    /**
+     * A família do dataset: o contrato da importação.
+     *
+     * CAVALO e CARRETA são componentes da mesma família, de modo que um arquivo
+     * parcial entra como revisão da vigência que já existe — nunca como uma
+     * segunda vigência ativa.
+     */
+    datasetFamily: text("dataset_family").notNull(),
+    /** EMPURRADA, ROTA, … — derivado do rótulo, normalizado. Identifica. */
+    canal: text("canal").notNull(),
+    /** O escopo normalizado, ordenado e sem repetição. Identifica. */
+    canonicalScope: jsonb("canonical_scope").notNull(),
+    /**
+     * Hash do conteúdo já normalizado, para reconhecer "o arquivo é outro, mas
+     * o dado é o mesmo". Nulo nas vigências anteriores a esta coluna: quando
+     * falta, a comparação é feita contra os fatos do próprio snapshot.
+     */
+    canonicalPayloadHash: text("canonical_payload_hash"),
+    /**
+     * A identidade canônica, **calculada pelo banco**.
+     *
+     * É uma coluna gerada: a aplicação não a escreve e não consegue escrevê-la.
+     * É o que transforma "o TypeScript calcula certo" em "é impossível calcular
+     * errado" — ver `0012_canonical_identity.sql`.
+     */
+    canonicalSnapshotKey: text("canonical_snapshot_key").generatedAlwaysAs(
+      sql`freightcheck_snapshot_key("source_system", "dataset_family", "canal", "effective_date", "canonical_scope")`,
+    ),
     revision: integer("revision").notNull().default(1),
     supersedesSnapshotId: uuid("supersedes_snapshot_id"),
     status: snapshotStatus("status").notNull().default("DRAFT"),
@@ -146,22 +199,54 @@ export const snapshotTable = pgTable(
       .defaultNow(),
   },
   (t) => [
-    /** Full business key including revision. */
-    uniqueIndex("snapshot_business_key_uq").on(
-      t.sourceSystem,
-      t.sourceLabel,
-      t.scopeHash,
-      t.entityTypeSet,
+    /**
+     * No máximo uma vigência ativa por identidade canônica.
+     *
+     * Esta linha é a garantia do produto. Ela não depende de nenhum caminho da
+     * aplicação estar correto: mesmo que o `promote` passe a errar, o banco
+     * recusa a segunda vigência ativa.
+     */
+    uniqueIndex("snapshot_canonical_live_uq")
+      .on(t.canonicalSnapshotKey)
+      .where(sql`${t.status} <> 'SUPERSEDED'`),
+    /**
+     * A numeração de revisão não admite empate, o que impede duas promoções
+     * concorrentes de gravarem a mesma revisão da mesma identidade.
+     */
+    uniqueIndex("snapshot_canonical_revision_uq").on(
+      t.canonicalSnapshotKey,
       t.revision,
     ),
-    /** At most one live snapshot per business key; superseded ones step aside. */
-    uniqueIndex("snapshot_business_key_live_uq")
-      .on(t.sourceSystem, t.sourceLabel, t.scopeHash, t.entityTypeSet)
-      .where(sql`${t.status} <> 'SUPERSEDED'`),
+    index("snapshot_canonical_key_idx").on(t.canonicalSnapshotKey),
     index("snapshot_effective_date_idx").on(t.effectiveDate),
     index("snapshot_import_run_idx").on(t.importRunId),
   ],
 );
+
+/**
+ * Por que duas vigências ativas viraram uma.
+ *
+ * Responde "onde foram parar os dados da vigência X" quando uma fusão — a da
+ * migration `0013` ou a que o `promote` faz ao receber um arquivo parcial —
+ * tirou de cena a vigência que alguém procura.
+ */
+export const snapshotMergeTable = pgTable("snapshot_merge", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  /** Cascata: esta linha descreve aquela revisão e não sobrevive a ela. */
+  snapshotId: uuid("snapshot_id")
+    .notNull()
+    .references(() => snapshotTable.id, { onDelete: "cascade" }),
+  /** As vigências que entraram nela, na ordem de precedência aplicada. */
+  mergedFrom: uuid("merged_from").array().notNull(),
+  revisoesOriginais: integer("revisoes_originais").array().notNull(),
+  /** O de-para completo da renumeração: `{snapshot_id: {de, para}}`. */
+  renumeracao: jsonb("renumeracao").notNull().default({}),
+  canonicalSnapshotKey: text("canonical_snapshot_key").notNull(),
+  motivo: text("motivo").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
 
 export const snapshotScopeTable = pgTable(
   "snapshot_scope",
@@ -374,6 +459,15 @@ export const factTable = pgTable(
     nullReason: text("null_reason"),
 
     /** Traceability is mandatory: every fact points at its originating cell. */
+    /**
+     * A revisão de onde este fato foi herdado.
+     *
+     * Preenchido quando uma revisão parcial carrega junto os componentes que o
+     * arquivo não tocou — as carretas de uma vigência corrigida só nos cavalos.
+     * O fato é do snapshot, mas não nasceu deste arquivo, e o balanço de massa
+     * precisa dessa diferença para fechar.
+     */
+    inheritedFromSnapshotId: uuid("inherited_from_snapshot_id"),
     rawCellId: bigint("raw_cell_id", { mode: "number" })
       .notNull()
       .references(() => rawCellTable.id),

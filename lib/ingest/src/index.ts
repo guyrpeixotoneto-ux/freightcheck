@@ -1,5 +1,6 @@
 export * from "./excel-dates";
 export * from "./vigencia";
+export * from "./canonical-identity";
 export * from "./values";
 export * from "./workbook";
 export * from "./identity";

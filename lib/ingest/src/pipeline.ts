@@ -9,6 +9,7 @@ import {
   entityIdentifierTable,
   entityTable,
   factTable,
+  importDecisionTable,
   importRunTable,
   rawCellTable,
   rawRowTable,
@@ -16,6 +17,7 @@ import {
   scopeTable,
   sentinelRuleTable,
   snapshotAttributeTable,
+  snapshotMergeTable,
   snapshotScopeTable,
   snapshotTable,
   sourceFileTable,
@@ -39,6 +41,17 @@ import {
   type KnownEntityType,
 } from "./identity";
 import { parseVigenciaLabel } from "./vigencia";
+import {
+  canonicalPayloadHash,
+  canonicalScopeOf,
+  canonicalSnapshotKey,
+  datasetFamilyOfSet,
+  missingRequiredScopeTypes,
+  normalizeChannel,
+  normalizeIdentifier,
+  type CanonicalFact,
+  type ScopeEntry,
+} from "./canonical-identity";
 import { typeCell, type SentinelRule, type SourceCell } from "./values";
 
 /**
@@ -70,6 +83,17 @@ const SCOPE_COLUMNS: Record<string, { scopeType: string; nameColumn?: string }> 
  * quietly change every average computed downstream.
  */
 const SUSPECTED_SENTINELS = ["-1"];
+
+/**
+ * Os problemas que impedem promover, por código.
+ *
+ * A lista é curta de propósito. Um ERRO de leitura — linha sem placa, rótulo de
+ * vigência ilegível — recusa aquela linha e deixa o resto entrar, que é o
+ * comportamento que o produto sempre teve e que mantém um arquivo de 40 mil
+ * células útil quando três linhas estão sujas. O que entra aqui é só o que não
+ * tem resposta certa possível.
+ */
+const BLOQUEIAM_PROMOCAO = new Set(["ENTIDADE_DUPLICADA_CONFLITANTE"]);
 
 /** Postgres caps a statement at 65535 bound parameters. */
 const INSERT_CHUNK = 1_000;
@@ -145,30 +169,51 @@ export async function receiveFile(
   const contentSha256 = createHash("sha256").update(bytes).digest("hex");
   const filename = options.filename ?? options.filePath.split("/").pop()!;
 
-  const [existing] = await db
-    .select()
-    .from(sourceFileTable)
-    .where(eq(sourceFileTable.contentSha256, contentSha256));
+  // Tentar gravar primeiro, e deduzir a duplicata de *não ter gravado*.
+  //
+  // Antes eram um SELECT e um INSERT separados, sem transação. Dois envios
+  // simultâneos do mesmo arquivo liam "não existe" os dois, os dois inseriam, e
+  // o perdedor recebia 23505 do índice único — que ninguém tratava, e virava
+  // 500. O banco nunca duplicou a linha; o que estava errado era a resposta.
+  //
+  // `ON CONFLICT DO NOTHING` faz o próprio banco decidir quem ganha, num
+  // comando só: quem gravou recebe a linha de volta, quem não gravou recebe
+  // nada e relê. Não há janela entre verificar e gravar, porque não há
+  // verificação.
+  const [created] = await db
+    .insert(sourceFileTable)
+    .values({
+      filename,
+      contentSha256,
+      byteSize: statSync(options.filePath).size,
+      mimeType:
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      storagePath: options.filePath,
+      receivedBy: options.receivedBy ?? null,
+    })
+    .onConflictDoNothing({ target: sourceFileTable.contentSha256 })
+    .returning();
 
-  const isDuplicate = Boolean(existing);
   let sourceFileId: string;
+  let isDuplicate: boolean;
 
-  if (existing) {
-    sourceFileId = existing.id;
-  } else {
-    const [created] = await db
-      .insert(sourceFileTable)
-      .values({
-        filename,
-        contentSha256,
-        byteSize: statSync(options.filePath).size,
-        mimeType:
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        storagePath: options.filePath,
-        receivedBy: options.receivedBy ?? null,
-      })
-      .returning();
+  if (created) {
     sourceFileId = created.id;
+    isDuplicate = false;
+  } else {
+    const [existing] = await db
+      .select()
+      .from(sourceFileTable)
+      .where(eq(sourceFileTable.contentSha256, contentSha256));
+    if (!existing) {
+      // Não gravou e não encontra: o conflito foi com outra coisa que não o
+      // sha, e engolir isso como "duplicata" esconderia um defeito real.
+      throw new Error(
+        `Não foi possível registrar o arquivo ${filename} (sha256 ${contentSha256.slice(0, 16)}…): a gravação foi recusada e nenhum registro anterior com esse conteúdo existe.`,
+      );
+    }
+    sourceFileId = existing.id;
+    isDuplicate = true;
   }
 
   // The attempt is recorded either way: a refused duplicate is an event worth
@@ -190,6 +235,17 @@ export async function receiveFile(
         isDuplicate && !options.allowReprocess ? new Date() : null,
     })
     .returning();
+
+  await db.insert(importDecisionTable).values({
+    importRunId: run.id,
+    decisao: isDuplicate && !options.allowReprocess ? "DUPLICATA_DE_ARQUIVO" : "RECEBIDO",
+    motivo:
+      isDuplicate && !options.allowReprocess
+        ? `Arquivo idêntico, byte a byte, a um já recebido (sha256 ${contentSha256.slice(0, 16)}…). Nada foi reprocessado.`
+        : `Arquivo recebido e registrado (sha256 ${contentSha256.slice(0, 16)}…).`,
+    filename,
+    contentSha256,
+  });
 
   return { sourceFileId, importRunId: run.id, isDuplicate, contentSha256 };
 }
@@ -607,7 +663,10 @@ export async function stage(
       );
       if (!hasAnyValue) continue;
 
-      if (rawLabel === "" || rawPlaca === "") {
+      // Uma placa que só tem pontuação (`---`) não identifica veículo nenhum:
+      // ela normaliza para vazio, e vazio não é chave. Recusar aqui é o mesmo
+      // tratamento que a placa em branco já recebia.
+      if (rawLabel === "" || rawPlaca === "" || normalizeIdentifier(rawPlaca) === "") {
         rowsRejected++;
         issues.push({
           importRunId,
@@ -616,6 +675,7 @@ export async function stage(
           severity: "ERROR",
           code: "ROW_MISSING_GRAIN_KEY",
           message: `Row ${row.rowIndex} of "${sheet.sheetName}" is missing ${rawLabel === "" ? "Vigencia" : "Placa"}; rejected.`,
+          detail: { vigencia: rawLabel, placa: rawPlaca },
         });
         continue;
       }
@@ -687,7 +747,8 @@ export async function stage(
           importRunId,
           rawCellId: cell.id,
           snapshotLabel: vigencia.label,
-          entityKey: rawPlaca,
+          entityKey: normalizeIdentifier(rawPlaca),
+          entityKeyRaw: rawPlaca,
           entityType,
           attributeCode: column.attributeCode,
           valueNumeric: typed.valueNumeric,
@@ -731,7 +792,93 @@ export async function stage(
     });
   }
 
-  await insertChunked(db, stagedFactTable, stagedRows as never[]);
+  // ---------------------------------------------------------------------
+  // A mesma entidade duas vezes dentro da mesma importação
+  // ---------------------------------------------------------------------
+  // Depois de normalizar a placa, `ABC-1D23` e `ABC1D23` são a mesma linha
+  // lógica — e a planilha pode trazer as duas. O índice único da staging as
+  // recusaria com um 23505 cru, que chegava à tela como erro técnico.
+  //
+  // Aqui a decisão é explícita e não é "a primeira" nem "a última": se as duas
+  // ocorrências **concordam** depois de normalizadas, elas são consolidadas
+  // numa só e isso vira registro de auditoria; se **discordam**, é conflito de
+  // dado, e o import não pode escolher em silêncio qual valor vale.
+  const porGrao = new Map<string, Record<string, unknown>[]>();
+  for (const row of stagedRows) {
+    const grao = [
+      row.snapshotLabel,
+      row.entityType,
+      row.entityKey,
+      row.attributeCode,
+    ].join("\u001f");
+    const bucket = porGrao.get(grao);
+    if (bucket) bucket.push(row);
+    else porGrao.set(grao, [row]);
+  }
+
+  const consolidados: Record<string, unknown>[] = [];
+  const conflitos = new Map<string, Set<string>>();
+  let consolidacoes = 0;
+  for (const [grao, ocorrencias] of porGrao) {
+    if (ocorrencias.length === 1) {
+      consolidados.push(ocorrencias[0]);
+      continue;
+    }
+    const valores = new Set(
+      ocorrencias.map((o) =>
+        canonicalPayloadHash([
+          {
+            entityType: o.entityType as string,
+            entityKey: o.entityKey as string,
+            attributeCode: o.attributeCode as string,
+            valueNumeric: o.valueNumeric as string | null,
+            valueText: o.valueText as string | null,
+            valueBoolean: o.valueBoolean as boolean | null,
+            valueDate: o.valueDate as string | null,
+            isNull: o.isNull as boolean | null,
+          },
+        ]),
+      ),
+    );
+    consolidados.push(ocorrencias[0]);
+    if (valores.size === 1) {
+      consolidacoes++;
+      continue;
+    }
+    const [label, entityType, entityKey] = grao.split("\u001f");
+    const chave = [label, entityType, entityKey].join("\u001f");
+    let atributos = conflitos.get(chave);
+    if (!atributos) {
+      atributos = new Set();
+      conflitos.set(chave, atributos);
+    }
+    atributos.add(ocorrencias[0].attributeCode as string);
+  }
+
+  if (consolidacoes > 0) {
+    issues.push({
+      importRunId,
+      severity: "INFO",
+      code: "ENTIDADE_DUPLICADA_CONSOLIDADA",
+      message: `${consolidacoes} valores apareceram mais de uma vez para a mesma entidade e atributo, com o mesmo conteúdo depois de normalizado; foram consolidados numa ocorrência.`,
+      detail: { ocorrencias: consolidacoes },
+    });
+  }
+
+  for (const [chave, atributos] of conflitos) {
+    const [label, entityType, entityKey] = chave.split("\u001f");
+    issues.push({
+      importRunId,
+      severity: "ERROR",
+      code: "ENTIDADE_DUPLICADA_CONFLITANTE",
+      message:
+        `A ${entityType.toLowerCase()} de placa ${entityKey} aparece mais de uma vez na vigência ${label} com valores diferentes em ${[...atributos].sort().join(", ")}. ` +
+        `Duas linhas para o mesmo veículo, discordando, não têm resposta certa: corrija a origem e envie de novo.`,
+      detail: { vigencia: label, entityType, placa: entityKey, atributos: [...atributos].sort() },
+    });
+  }
+
+  await insertChunked(db, stagedFactTable, consolidados as never[]);
   await insertChunked(
     db,
     validationIssueTable,
@@ -754,14 +901,14 @@ export async function stage(
     .update(importRunTable)
     .set({
       status: "STAGED",
-      stagedFactCount: stagedRows.length,
+      stagedFactCount: consolidados.length,
       errorCount: errors,
       warningCount: warnings,
     })
     .where(eq(importRunTable.id, importRunId));
 
   return {
-    stagedFacts: stagedRows.length,
+    stagedFacts: consolidados.length,
     errors,
     warnings,
     rowsRejected,
@@ -954,10 +1101,29 @@ export async function preview(
     .filter((i) => i.severity === "ERROR")
     .reduce((sum, i) => sum + i.count, 0);
 
+  // Nem todo ERRO impede promover: linha sem placa é linha recusada, e o resto
+  // do arquivo continua válido — foi sempre assim. O que impede é o dado que
+  // não fecha, e hoje isso é uma coisa só: a mesma entidade aparecendo duas
+  // vezes na mesma vigência com valores que discordam. Escolher um dos dois em
+  // silêncio seria inventar o número.
+  const impeditivos = issueRows
+    .filter((i) => i.severity === "ERROR" && BLOQUEIAM_PROMOCAO.has(i.code))
+    .reduce((sum, i) => sum + i.count, 0);
+
   if (run.status === "STAGED") {
     await db
       .update(importRunTable)
-      .set({ status: "PREVIEWED" })
+      .set(
+        impeditivos > 0
+          ? {
+              status: "VALIDATION_ERROR",
+              finishedAt: new Date(),
+              failureReason:
+                `${impeditivos} ${impeditivos === 1 ? "conflito impede" : "conflitos impedem"} esta importação: a mesma entidade aparece mais de uma vez na mesma vigência com valores diferentes. ` +
+                `Corrija a origem e envie o arquivo de novo.`,
+            }
+          : { status: "PREVIEWED" },
+      )
       .where(eq(importRunTable.id, importRunId));
   }
 
@@ -1089,310 +1255,665 @@ async function recusarIdentidadeNaoDeclarada(
 }
 
 /**
- * Promote a previewed run into the canonical layer, in one transaction.
+ * A recusa de uma promoção, dita de um jeito que a tela consegue repetir.
  *
- * Everything or nothing: a failure anywhere leaves the canonical layer exactly
- * as it was. Facts are written while the snapshot is still DRAFT and the
- * snapshot is closed last — after which the database itself refuses further
- * writes to it.
+ * O pipeline recusava com `new Error(...)`, e a API traduzia pelo texto. Com
+ * uma decisão nomeada, a tela sabe *qual* recusa foi sem ler a frase, e a
+ * mesma decisão vai para `import_decision` — que é onde alguém procura, meses
+ * depois, por que aquele arquivo não entrou.
+ */
+export class PromocaoRecusada extends Error {
+  constructor(
+    message: string,
+    readonly decisao: string,
+    /**
+     * O estado em que o run fica.
+     *
+     * VALIDATION_ERROR quando o dado não fecha e reenviar é o caminho.
+     * PREVIEWED quando a recusa é uma pergunta a quem opera — "já existe uma
+     * versão ativa; quer registrar uma correção?" —, porque aí o run tem de
+     * continuar aprovável.
+     */
+    readonly runStatus: "VALIDATION_ERROR" | "PREVIEWED",
+    readonly detalhe: Record<string, unknown> = {},
+  ) {
+    super(message);
+    this.name = "PromocaoRecusada";
+  }
+}
+
+/** Um fato canônico de um snapshot já gravado, na forma que o hash consome. */
+async function fatosCanonicosDoSnapshot(
+  tx: Database,
+  snapshotId: string,
+): Promise<(CanonicalFact & { entityId: string })[]> {
+  const rows = await tx
+    .select({
+      entityId: factTable.entityId,
+      entityType: entityTable.entityType,
+      entityKey: entityIdentifierTable.identifierValue,
+      attributeCode: attributeTable.code,
+      valueNumeric: factTable.valueNumeric,
+      valueText: factTable.valueText,
+      valueBoolean: factTable.valueBoolean,
+      valueDate: factTable.valueDate,
+      isNull: factTable.isNull,
+    })
+    .from(factTable)
+    .innerJoin(entityTable, eq(entityTable.id, factTable.entityId))
+    .innerJoin(attributeTable, eq(attributeTable.id, factTable.attributeId))
+    .leftJoin(
+      entityIdentifierTable,
+      and(
+        eq(entityIdentifierTable.entityId, factTable.entityId),
+        eq(entityIdentifierTable.identifierType, "PLACA"),
+        eq(entityIdentifierTable.isCurrent, true),
+      ),
+    )
+    .where(eq(factTable.snapshotId, snapshotId));
+
+  return rows.map((r) => ({
+    entityId: r.entityId,
+    entityType: r.entityType,
+    entityKey: r.entityKey ?? "",
+    attributeCode: r.attributeCode,
+    valueNumeric: r.valueNumeric,
+    valueText: r.valueText,
+    valueBoolean: r.valueBoolean,
+    valueDate: r.valueDate,
+    isNull: r.isNull,
+  }));
+}
+
+/** Uma linha de auditoria da decisão tomada. */
+async function registrarDecisao(
+  db: Database,
+  valores: typeof importDecisionTable.$inferInsert,
+): Promise<void> {
+  await db.insert(importDecisionTable).values(valores);
+}
+
+/**
+ * Reler e travar o run dentro da transação.
+ *
+ * O `requireRun` antigo lia o estado **fora** da transação e o usava como
+ * verdade lá dentro. Entre a leitura e o `UPDATE ... PROMOTING` havia uma
+ * janela em que uma segunda promoção do mesmo run lia PREVIEWED também — e com
+ * `NEW_REVISION` as duas gravavam, produzindo uma correção fantasma com os
+ * mesmos fatos. `FOR UPDATE` fecha a janela: a segunda espera a primeira
+ * terminar e então lê o estado que a primeira deixou.
+ */
+async function lockRun(
+  tx: Database,
+  importRunId: string,
+  allowed: string[],
+): Promise<typeof importRunTable.$inferSelect> {
+  const { rows } = (await tx.execute(
+    sql`SELECT * FROM ${importRunTable} WHERE ${importRunTable.id} = ${importRunId} FOR UPDATE`,
+  )) as unknown as { rows: Record<string, unknown>[] };
+  const row = rows[0];
+  if (!row) throw new Error(`Import run ${importRunId} not found.`);
+  const status = String(row.status);
+  if (!allowed.includes(status)) {
+    throw new Error(
+      `Import run ${importRunId} is ${status}; this step requires ${allowed.join(" or ")}.`,
+    );
+  }
+  return {
+    ...(row as unknown as typeof importRunTable.$inferSelect),
+    sourceFileId: String(row.source_file_id),
+    status: status as typeof importRunTable.$inferSelect["status"],
+  };
+}
+
+/**
+ * Promover um run já conferido para a camada canônica, numa transação só.
+ *
+ * Tudo o que decide acontece aqui dentro, nesta ordem: travar o run, reler o
+ * estado dele, resolver a identidade canônica de cada vigência, travar essa
+ * identidade, olhar o que já está ativo, decidir, gravar. Nada é lido fora e
+ * usado como verdade lá dentro.
+ *
+ * O que cada decisão significa:
+ *
+ *  - **Não existe vigência ativa** → revisão 1, com os fatos do arquivo.
+ *  - **Existe e o dado normalizado é o mesmo** → `SKIPPED_DUPLICATE_DATA`.
+ *    Nenhuma revisão é aberta: uma revisão que não muda nada é ruído de
+ *    auditoria. É o que reconhece o mesmo XLSX reexportado com outros bytes.
+ *  - **Existe e o arquivo traz componentes que ela não tem** (o cavalo depois
+ *    da carreta) → revisão nova que **funde** os dois. É o fluxo normal de duas
+ *    entregas, e é o que impede que a segunda entrega abra uma segunda vigência
+ *    ativa.
+ *  - **Existe e o arquivo reescreve componentes que ela já tem** → é correção,
+ *    e correção é declarada: sem `NEW_REVISION` a promoção é recusada com
+ *    `VIGENCIA_ATIVA_EXISTENTE` e o run continua aprovável.
+ *
+ * Em todos os casos, ao final existe **uma** vigência ativa para a identidade —
+ * e o índice único do banco garante isso mesmo que este código erre.
  */
 export async function promote(
   db: Database,
   importRunId: string,
   options: PromoteOptions = {},
 ): Promise<PromoteResult> {
-  const run = await requireRun(db, importRunId, ["PREVIEWED"]);
   const mode = options.onExistingSnapshot ?? "FAIL";
-  await recusarIdentidadeNaoDeclarada(db, importRunId, options.confirmNewEntityTypes);
+  try {
+    return await db.transaction(async (txRaw) => {
+      const tx = txRaw as unknown as Database;
 
-  return db.transaction(async (tx) => {
-    await tx
-      .update(importRunTable)
-      .set({ status: "PROMOTING" })
-      .where(eq(importRunTable.id, importRunId));
+      // 1. travar e reler o run — dentro da transação, nunca fora
+      const run = await lockRun(tx, importRunId, ["PREVIEWED"]);
+      await recusarIdentidadeNaoDeclarada(tx, importRunId, options.confirmNewEntityTypes);
 
-    const staged = await tx
-      .select()
-      .from(stagedFactTable)
-      .where(eq(stagedFactTable.importRunId, importRunId));
+      await tx
+        .update(importRunTable)
+        .set({ status: "PROMOTING" })
+        .where(eq(importRunTable.id, importRunId));
 
-    // Group by vigência label — one snapshot per label, spanning every entity
-    // type present in that vigência.
-    const byLabel = new Map<string, typeof staged>();
-    for (const fact of staged) {
-      const bucket = byLabel.get(fact.snapshotLabel);
-      if (bucket) bucket.push(fact);
-      else byLabel.set(fact.snapshotLabel, [fact]);
-    }
-
-    const labels = [...byLabel.keys()].sort((a, b) => {
-      const da = parseVigenciaLabel(a).effectiveDate ?? "";
-      const db_ = parseVigenciaLabel(b).effectiveDate ?? "";
-      return da.localeCompare(db_);
-    });
-
-    // Resolved once, from the whole run — see resolveDataTypes.
-    const dataTypeByCode = resolveDataTypes(staged);
-
-    const attributeCache = new Map<string, string>();
-    const entityCache = new Map<string, string>();
-    const scopeCache = new Map<string, string>();
-    let attributesCreated = 0;
-    let entitiesCreated = 0;
-    let factsInserted = 0;
-    const result: PromoteResult["snapshots"] = [];
-
-    for (const label of labels) {
-      const facts = byLabel.get(label)!;
-      const effectiveDate = parseVigenciaLabel(label).effectiveDate!;
-      const entityTypes = [...new Set(facts.map((f) => f.entityType))].sort();
-      const entityTypeSet = entityTypes.join("+");
-
-      // --- scope ----------------------------------------------------------
-      const scopeIds = await resolveScopes(tx, facts, scopeCache);
-      const scopeHash = hashScopeSet(scopeIds.descriptors);
-
-      // --- business key ----------------------------------------------------
-      const [live] = await tx
+      const [file] = await tx
         .select()
-        .from(snapshotTable)
-        .where(
-          and(
-            eq(snapshotTable.sourceSystem, "FREIGHTEC"),
-            eq(snapshotTable.sourceLabel, label),
-            eq(snapshotTable.scopeHash, scopeHash),
-            eq(snapshotTable.entityTypeSet, entityTypeSet),
-            sql`${snapshotTable.status} <> 'SUPERSEDED'`,
-          ),
+        .from(sourceFileTable)
+        .where(eq(sourceFileTable.id, run.sourceFileId));
+
+      const staged = await tx
+        .select()
+        .from(stagedFactTable)
+        .where(eq(stagedFactTable.importRunId, importRunId));
+
+      const byLabel = new Map<string, typeof staged>();
+      for (const fact of staged) {
+        const bucket = byLabel.get(fact.snapshotLabel);
+        if (bucket) bucket.push(fact);
+        else byLabel.set(fact.snapshotLabel, [fact]);
+      }
+
+      const labels = [...byLabel.keys()].sort((a, b) => {
+        const da = parseVigenciaLabel(a).effectiveDate ?? "";
+        const db_ = parseVigenciaLabel(b).effectiveDate ?? "";
+        return da.localeCompare(db_);
+      });
+
+      const dataTypeByCode = resolveDataTypes(staged);
+
+      const attributeCache = new Map<string, string>();
+      const entityCache = new Map<string, string>();
+      const scopeCache = new Map<string, string>();
+      let attributesCreated = 0;
+      let entitiesCreated = 0;
+      let factsInserted = 0;
+      const result: PromoteResult["snapshots"] = [];
+      const duplicadasPorDados: string[] = [];
+
+      for (const label of labels) {
+        const facts = byLabel.get(label)!;
+        const vigencia = parseVigenciaLabel(label);
+        const effectiveDate = vigencia.effectiveDate!;
+        const entityTypes = [...new Set(facts.map((f) => f.entityType))].sort();
+        const datasetFamily = datasetFamilyOfSet(entityTypes);
+        // O conjunto de tipos da vigência gravada. Começa sendo o que o arquivo
+        // trouxe e cresce com o que for herdado da revisão anterior — uma
+        // revisão que carrega as carretas junto precisa *dizer* que cobre
+        // carretas, ou as telas que listam as séries a partir daqui perdem uma
+        // delas enquanto os fatos dela estão presentes.
+        let tiposDaVigencia = entityTypes;
+        const canal = normalizeChannel(vigencia.channel ?? label);
+
+        // --- escopo -------------------------------------------------------
+        const scopeIds = await resolveScopes(tx, facts, scopeCache);
+        const scopeHash = hashScopeSet(scopeIds.descriptors);
+        const canonicalScope = canonicalScopeOf(scopeIds.entries);
+
+        const faltando = missingRequiredScopeTypes(canonicalScope);
+        if (faltando.length > 0) {
+          throw new PromocaoRecusada(
+            `A vigência ${label} não declara ${faltando.join(", ")}, que é o que identifica de quem é a remuneração. ` +
+              `Sem esse componente, duas unidades diferentes teriam a mesma identidade. Corrija a origem e envie o arquivo de novo.`,
+            "ESCOPO_OBRIGATORIO_AUSENTE",
+            "VALIDATION_ERROR",
+            { label, faltando, escopoEncontrado: canonicalScope },
+          );
+        }
+
+        const canonicalKey = canonicalSnapshotKey({
+          sourceSystem: "FREIGHTEC",
+          datasetFamily,
+          channel: canal,
+          effectiveDate,
+          scope: canonicalScope,
+        });
+
+        // 2. travar a identidade de negócio.
+        //
+        // Advisory lock de transação, e não um mutex em memória: há mais de uma
+        // instância do servidor, e um mutex por processo não vê a outra. Duas
+        // promoções da mesma vigência serializam aqui; a segunda só olha o que
+        // está ativo depois que a primeira comitou.
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtextextended(${canonicalKey}, 0))`,
         );
 
-      let revision = 1;
-      let supersedes: string | null = null;
-      if (live) {
-        if (mode === "FAIL") {
-          throw new Error(
-            `Snapshot already exists for business key ` +
-              `(FREIGHTEC, ${label}, scope ${scopeHash.slice(0, 8)}, ${entityTypeSet}) ` +
-              `as revision ${live.revision}. Re-import the same vigência with ` +
-              `onExistingSnapshot: "NEW_REVISION" to record a correction.`,
-          );
-        }
-        revision = live.revision + 1;
-        supersedes = live.id;
-        // CLOSED -> SUPERSEDED is the only mutation a closed snapshot accepts.
-        await tx
-          .update(snapshotTable)
-          .set({ status: "SUPERSEDED" })
-          .where(eq(snapshotTable.id, live.id));
-      }
-
-      const [snapshot] = await tx
-        .insert(snapshotTable)
-        .values({
-          sourceFileId: run.sourceFileId,
-          importRunId,
-          sourceSystem: "FREIGHTEC",
-          sourceLabel: label,
-          effectiveDate,
-          scopeHash,
-          entityTypeSet,
-          revision,
-          supersedesSnapshotId: supersedes,
-          status: "DRAFT",
-        })
-        .returning();
-
-      if (scopeIds.ids.length > 0) {
-        await tx
-          .insert(snapshotScopeTable)
-          .values(scopeIds.ids.map((scopeId) => ({ snapshotId: snapshot.id, scopeId })));
-      }
-
-      // --- attributes -------------------------------------------------------
-      for (const code of new Set(facts.map((f) => f.attributeCode))) {
-        if (attributeCache.has(code)) continue;
-        const sample = facts.find((f) => f.attributeCode === code)!;
-        const existing = await tx
+        // 3. o que já está ativo para esta identidade
+        const [live] = await tx
           .select()
-          .from(attributeTable)
-          .where(eq(attributeTable.code, code));
-        if (existing.length > 0) {
-          attributeCache.set(code, existing[0].id);
-          continue;
-        }
-        const sourceName = await sourceNameFor(tx, sample.rawCellId);
-        const [created] = await tx
-          .insert(attributeTable)
-          .values({
-            code,
-            sourceName,
-            displayName: sourceName,
-            entityType: sample.entityType,
-            dataType: dataTypeByCode.get(code) ?? "UNKNOWN",
-            // Semantics start UNKNOWN by construction. Nothing here may enter
-            // a financial aggregation until a human confirms it in F2.
-            semanticsStatus: "UNKNOWN",
-            firstSeenImportRunId: importRunId,
-          })
-          .returning();
-        attributeCache.set(code, created.id);
-        attributesCreated++;
-
-        const sheetName = await sheetNameFor(tx, sample.rawCellId);
-        await tx
-          .insert(attributeAliasTable)
-          .values({
-            attributeId: created.id,
-            sourceName,
-            sourceSheet: sheetName,
-            matchConfidence: "1.0000",
-            firstSeenImportRunId: importRunId,
-          })
-          .onConflictDoNothing();
-      }
-
-      // --- entities ---------------------------------------------------------
-      const entityKeys = new Map<string, { entityType: string; entityKey: string }>();
-      for (const fact of facts) {
-        entityKeys.set(`${fact.entityType}:${fact.entityKey}`, {
-          entityType: fact.entityType,
-          entityKey: fact.entityKey,
-        });
-      }
-
-      for (const [cacheKey, info] of entityKeys) {
-        if (entityCache.has(cacheKey)) continue;
-        const [existing] = await tx
-          .select({ entityId: entityIdentifierTable.entityId })
-          .from(entityIdentifierTable)
+          .from(snapshotTable)
           .where(
             and(
-              eq(entityIdentifierTable.identifierType, "PLACA"),
-              eq(entityIdentifierTable.identifierValue, info.entityKey),
-              eq(entityIdentifierTable.isCurrent, true),
+              eq(snapshotTable.canonicalSnapshotKey, canonicalKey),
+              sql`${snapshotTable.status} <> 'SUPERSEDED'`,
             ),
           );
-        if (existing) {
-          entityCache.set(cacheKey, existing.entityId);
-          continue;
+
+        const incomingFacts: CanonicalFact[] = facts.map((f) => ({
+          entityType: f.entityType,
+          entityKey: f.entityKey,
+          attributeCode: f.attributeCode,
+          valueNumeric: f.valueNumeric,
+          valueText: f.valueText,
+          valueBoolean: f.valueBoolean,
+          valueDate: f.valueDate,
+          isNull: f.isNull,
+        }));
+
+        let revision = 1;
+        let supersedes: string | null = null;
+        let herdarDe: string | null = null;
+
+        if (live) {
+          const liveFacts = await fatosCanonicosDoSnapshot(tx, live.id);
+          const tiposVivos = new Set(liveFacts.map((f) => f.entityType));
+          const tiposEntrando = new Set(entityTypes);
+          const preservados = liveFacts.filter((f) => !tiposEntrando.has(f.entityType));
+
+          // O conteúdo que existiria depois de gravar: o que chega, mais o que
+          // a vigência ativa já tinha e este arquivo não toca.
+          const payloadResultante = canonicalPayloadHash([...incomingFacts, ...preservados]);
+          const payloadVivo = canonicalPayloadHash(liveFacts);
+
+          if (payloadResultante === payloadVivo) {
+            duplicadasPorDados.push(label);
+            await registrarDecisao(tx, {
+              importRunId,
+              decisao: "DUPLICATA_DE_DADOS",
+              motivo:
+                `O arquivo é diferente, mas os dados normalizados da vigência ${label} são iguais aos que já estão ativos ` +
+                `(revisão ${live.revision}). Nenhuma revisão foi aberta e nada foi duplicado.`,
+              filename: file?.filename ?? null,
+              contentSha256: file?.contentSha256 ?? null,
+              canonicalPayloadHash: payloadResultante,
+              canonicalSnapshotKey: canonicalKey,
+              sourceLabel: label,
+              effectiveDate,
+              canal,
+              datasetFamily,
+              canonicalScope,
+              snapshotId: live.id,
+              revisionEncontrada: live.revision,
+            });
+            continue;
+          }
+
+          const sobrepostos = [...tiposEntrando].filter((t) => tiposVivos.has(t));
+          if (sobrepostos.length > 0 && mode !== "NEW_REVISION") {
+            throw new PromocaoRecusada(
+              `Já existe uma versão ativa da vigência ${label} para este escopo (revisão ${live.revision}), ` +
+                `e este arquivo reescreve ${sobrepostos.join(", ")}. Para substituir os dados, registre uma correção.`,
+              "VIGENCIA_ATIVA_EXISTENTE",
+              "PREVIEWED",
+              {
+                label,
+                revisionAtiva: live.revision,
+                snapshotAtivo: live.id,
+                tiposSobrepostos: sobrepostos,
+              },
+            );
+          }
+
+          revision = live.revision + 1;
+          supersedes = live.id;
+          herdarDe = live.id;
+          tiposDaVigencia = [
+            ...new Set([...entityTypes, ...preservados.map((f) => f.entityType)]),
+          ].sort();
+
+          // A anterior sai de cena **antes** de a nova entrar.
+          //
+          // O índice único que garante "uma ativa por identidade" é parcial —
+          // `WHERE status <> 'SUPERSEDED'` — e DRAFT não é SUPERSEDED. Inserir
+          // a revisão nova enquanto a anterior ainda está ativa esbarra no
+          // próprio índice que protege a invariante. Aqui não há janela: as
+          // duas escritas estão na mesma transação, e a identidade está travada
+          // pelo advisory lock desde antes da leitura.
+          await tx
+            .update(snapshotTable)
+            .set({ status: "SUPERSEDED" })
+            .where(eq(snapshotTable.id, live.id));
         }
-        const [entity] = await tx
-          .insert(entityTable)
+
+        const [snapshot] = await tx
+          .insert(snapshotTable)
           .values({
-            entityType: info.entityType,
-            firstSeenImportRunId: importRunId,
+            sourceFileId: run.sourceFileId,
+            importRunId,
+            sourceSystem: "FREIGHTEC",
+            sourceLabel: label,
+            effectiveDate,
+            scopeHash,
+            entityTypeSet: tiposDaVigencia.join("+"),
+            datasetFamily,
+            canal,
+            canonicalScope,
+            revision,
+            supersedesSnapshotId: supersedes,
+            status: "DRAFT",
           })
           .returning();
-        await tx.insert(entityIdentifierTable).values({
-          entityId: entity.id,
-          identifierType: "PLACA",
-          identifierValue: info.entityKey,
-          effectiveFrom: effectiveDate,
-          isCurrent: true,
-          sourceImportRunId: importRunId,
-        });
-        entityCache.set(cacheKey, entity.id);
-        entitiesCreated++;
-      }
 
-      // Chassis: a second identifier for the same permanent entity id.
-      await recordChassisIdentifiers(
-        tx,
-        facts,
-        entityCache,
-        effectiveDate,
-        importRunId,
-      );
-
-      // --- facts ------------------------------------------------------------
-      const factRows = facts.map((f) => ({
-        snapshotId: snapshot.id,
-        entityId: entityCache.get(`${f.entityType}:${f.entityKey}`)!,
-        attributeId: attributeCache.get(f.attributeCode)!,
-        valueNumeric: f.valueNumeric,
-        valueText: f.valueText,
-        valueBoolean: f.valueBoolean,
-        valueDate: f.valueDate,
-        valueHash: f.valueHash,
-        isNull: f.isNull,
-        nullReason: f.nullReason,
-        rawCellId: f.rawCellId,
-      }));
-      await insertChunked(tx as unknown as Database, factTable, factRows as never[]);
-      factsInserted += factRows.length;
-
-      // --- layout record ----------------------------------------------------
-      const perAttribute = new Map<
-        string,
-        { valueCount: number; nullCount: number; rawCellId: number }
-      >();
-      for (const f of facts) {
-        let entry = perAttribute.get(f.attributeCode);
-        if (!entry) {
-          entry = { valueCount: 0, nullCount: 0, rawCellId: f.rawCellId };
-          perAttribute.set(f.attributeCode, entry);
+        if (scopeIds.ids.length > 0) {
+          await tx
+            .insert(snapshotScopeTable)
+            .values(scopeIds.ids.map((scopeId) => ({ snapshotId: snapshot.id, scopeId })));
         }
-        if (f.isNull) entry.nullCount++;
-        else entry.valueCount++;
-      }
-      const layoutRows = [];
-      for (const [code, stats] of perAttribute) {
-        const location = await cellLocation(tx, stats.rawCellId);
-        layoutRows.push({
+
+        // --- atributos ----------------------------------------------------
+        for (const code of new Set(facts.map((f) => f.attributeCode))) {
+          if (attributeCache.has(code)) continue;
+          const sample = facts.find((f) => f.attributeCode === code)!;
+          const existing = await tx
+            .select()
+            .from(attributeTable)
+            .where(eq(attributeTable.code, code));
+          if (existing.length > 0) {
+            attributeCache.set(code, existing[0].id);
+            continue;
+          }
+          const sourceName = await sourceNameFor(tx, sample.rawCellId);
+          const [created] = await tx
+            .insert(attributeTable)
+            .values({
+              code,
+              sourceName,
+              displayName: sourceName,
+              entityType: sample.entityType,
+              dataType: dataTypeByCode.get(code) ?? "UNKNOWN",
+              semanticsStatus: "UNKNOWN",
+              firstSeenImportRunId: importRunId,
+            })
+            .returning();
+          attributeCache.set(code, created.id);
+          attributesCreated++;
+
+          const sheetName = await sheetNameFor(tx, sample.rawCellId);
+          await tx
+            .insert(attributeAliasTable)
+            .values({
+              attributeId: created.id,
+              sourceName,
+              sourceSheet: sheetName,
+              matchConfidence: "1.0000",
+              firstSeenImportRunId: importRunId,
+            })
+            .onConflictDoNothing();
+        }
+
+        // --- entidades ------------------------------------------------------
+        const entityKeys = new Map<string, { entityType: string; entityKey: string }>();
+        for (const fact of facts) {
+          entityKeys.set(`${fact.entityType}:${fact.entityKey}`, {
+            entityType: fact.entityType,
+            entityKey: fact.entityKey,
+          });
+        }
+
+        for (const [cacheKey, info] of entityKeys) {
+          if (entityCache.has(cacheKey)) continue;
+          const [existing] = await tx
+            .select({ entityId: entityIdentifierTable.entityId })
+            .from(entityIdentifierTable)
+            .where(
+              and(
+                eq(entityIdentifierTable.identifierType, "PLACA"),
+                eq(entityIdentifierTable.identifierValue, info.entityKey),
+                eq(entityIdentifierTable.isCurrent, true),
+              ),
+            );
+          if (existing) {
+            entityCache.set(cacheKey, existing.entityId);
+            continue;
+          }
+          const [entity] = await tx
+            .insert(entityTable)
+            .values({
+              entityType: info.entityType,
+              firstSeenImportRunId: importRunId,
+            })
+            .returning();
+          await tx.insert(entityIdentifierTable).values({
+            entityId: entity.id,
+            identifierType: "PLACA",
+            identifierValue: info.entityKey,
+            identifierValueRaw:
+              facts.find(
+                (f) => f.entityType === info.entityType && f.entityKey === info.entityKey,
+              )?.entityKeyRaw ?? info.entityKey,
+            effectiveFrom: effectiveDate,
+            isCurrent: true,
+            sourceImportRunId: importRunId,
+          });
+          entityCache.set(cacheKey, entity.id);
+          entitiesCreated++;
+        }
+
+        await recordChassisIdentifiers(tx, facts, entityCache, effectiveDate, importRunId);
+
+        // --- fatos ------------------------------------------------------------
+        const factRows = facts.map((f) => ({
           snapshotId: snapshot.id,
-          attributeId: attributeCache.get(code)!,
-          sourceSheet: location.sheetName,
-          columnIndex: location.columnIndex,
-          presentInLayout: true,
-          valueCount: stats.valueCount,
-          nullCount: stats.nullCount,
+          entityId: entityCache.get(`${f.entityType}:${f.entityKey}`)!,
+          attributeId: attributeCache.get(f.attributeCode)!,
+          valueNumeric: f.valueNumeric,
+          valueText: f.valueText,
+          valueBoolean: f.valueBoolean,
+          valueDate: f.valueDate,
+          valueHash: f.valueHash,
+          isNull: f.isNull,
+          nullReason: f.nullReason,
+          rawCellId: f.rawCellId,
+        }));
+        await insertChunked(tx, factTable, factRows as never[]);
+        factsInserted += factRows.length;
+
+        // Os componentes que a revisão anterior tinha e este arquivo não toca
+        // vêm junto. Sem isto, uma correção só de cavalos apagaria as carretas
+        // da vigência — que é o preço que se pagaria por ter uma identidade só.
+        let herdados = 0;
+        if (herdarDe) {
+          const tiposEntrando = entityTypes;
+          const { rowCount } = (await tx.execute(sql`
+            INSERT INTO ${factTable} (
+              snapshot_id, entity_id, attribute_id, value_numeric, value_text,
+              value_boolean, value_date, value_hash, is_null, null_reason, raw_cell_id,
+              inherited_from_snapshot_id
+            )
+            SELECT ${snapshot.id}::uuid, f.entity_id, f.attribute_id, f.value_numeric, f.value_text,
+                   f.value_boolean, f.value_date, f.value_hash, f.is_null, f.null_reason, f.raw_cell_id,
+                   ${herdarDe}::uuid
+              FROM ${factTable} f
+              JOIN ${entityTable} e ON e.id = f.entity_id
+             WHERE f.snapshot_id = ${herdarDe}::uuid
+               AND e.entity_type <> ALL(${sql.raw(`ARRAY[${tiposEntrando.map((t) => `'${t.replace(/'/g, "''")}'`).join(",") || "NULL"}]::text[]`)})
+          `)) as unknown as { rowCount: number };
+          herdados = rowCount ?? 0;
+          factsInserted += herdados;
+        }
+
+        // --- layout -----------------------------------------------------------
+        const perAttribute = new Map<
+          string,
+          { valueCount: number; nullCount: number; rawCellId: number }
+        >();
+        for (const f of facts) {
+          let entry = perAttribute.get(f.attributeCode);
+          if (!entry) {
+            entry = { valueCount: 0, nullCount: 0, rawCellId: f.rawCellId };
+            perAttribute.set(f.attributeCode, entry);
+          }
+          if (f.isNull) entry.nullCount++;
+          else entry.valueCount++;
+        }
+        const layoutRows = [];
+        for (const [code, stats] of perAttribute) {
+          const location = await cellLocation(tx, stats.rawCellId);
+          layoutRows.push({
+            snapshotId: snapshot.id,
+            attributeId: attributeCache.get(code)!,
+            sourceSheet: location.sheetName,
+            columnIndex: location.columnIndex,
+            presentInLayout: true,
+            valueCount: stats.valueCount,
+            nullCount: stats.nullCount,
+          });
+        }
+        await insertChunked(tx, snapshotAttributeTable, layoutRows as never[]);
+
+        // O layout dos componentes herdados vem **depois** do layout do arquivo:
+        // o `NOT IN` só consegue excluir o que já está gravado, e invertendo a
+        // ordem as duas inserções disputam o mesmo (snapshot, atributo).
+        if (herdarDe) {
+          await tx.execute(sql`
+            INSERT INTO ${snapshotAttributeTable} (
+              snapshot_id, attribute_id, source_sheet, column_index,
+              present_in_layout, value_count, null_count
+            )
+            SELECT ${snapshot.id}::uuid, sa.attribute_id, sa.source_sheet, sa.column_index,
+                   sa.present_in_layout, sa.value_count, sa.null_count
+              FROM ${snapshotAttributeTable} sa
+             WHERE sa.snapshot_id = ${herdarDe}::uuid
+               AND sa.attribute_id NOT IN (
+                 SELECT attribute_id FROM ${snapshotAttributeTable} WHERE snapshot_id = ${snapshot.id}::uuid
+               )
+          `);
+        }
+
+        // --- fechar -----------------------------------------------------------
+        const [contagem] = await tx
+          .select({
+            entidades: sql<number>`count(distinct ${factTable.entityId})`.mapWith(Number),
+            fatos: sql<number>`count(*)`.mapWith(Number),
+          })
+          .from(factTable)
+          .where(eq(factTable.snapshotId, snapshot.id));
+
+        const payloadFinal = canonicalPayloadHash(
+          await fatosCanonicosDoSnapshot(tx, snapshot.id),
+        );
+
+        await tx
+          .update(snapshotTable)
+          .set({
+            status: "CLOSED",
+            closedAt: new Date(),
+            entityCount: contagem.entidades,
+            factCount: contagem.fatos,
+            canonicalPayloadHash: payloadFinal,
+          })
+          .where(eq(snapshotTable.id, snapshot.id));
+
+        if (supersedes) {
+          await tx.insert(snapshotMergeTable).values({
+            snapshotId: snapshot.id,
+            mergedFrom: [supersedes],
+            revisoesOriginais: [revision - 1],
+            canonicalSnapshotKey: canonicalKey,
+            motivo:
+              herdados > 0
+                ? `Revisão ${revision} da vigência ${label}: o arquivo trouxe ${entityTypes.join("+")} e ${herdados} fatos dos componentes não tocados foram herdados da revisão ${revision - 1}.`
+                : `Revisão ${revision} da vigência ${label}, substituindo a revisão ${revision - 1}.`,
+          });
+        }
+
+        await registrarDecisao(tx, {
+          importRunId,
+          decisao: supersedes ? "REVISAO_CRIADA" : "PROMOVIDO",
+          motivo: supersedes
+            ? `Vigência ${label} gravada como revisão ${revision}; a revisão ${revision - 1} passou a SUPERSEDED.`
+            : `Vigência ${label} gravada como revisão 1.`,
+          filename: file?.filename ?? null,
+          contentSha256: file?.contentSha256 ?? null,
+          canonicalPayloadHash: payloadFinal,
+          canonicalSnapshotKey: canonicalKey,
+          sourceLabel: label,
+          effectiveDate,
+          canal,
+          datasetFamily,
+          canonicalScope,
+          snapshotId: snapshot.id,
+          revisionEncontrada: supersedes ? revision - 1 : null,
+          revisionCriada: revision,
+          detalhe: {
+            entityTypeSet: tiposDaVigencia.join("+"),
+            tiposDoArquivo: entityTypes,
+            fatosHerdados: herdados,
+          },
+        });
+
+        result.push({
+          id: snapshot.id,
+          label,
+          effectiveDate,
+          revision,
+          entityCount: contagem.entidades,
+          factCount: contagem.fatos,
         });
       }
-      await insertChunked(
-        tx as unknown as Database,
-        snapshotAttributeTable,
-        layoutRows as never[],
-      );
 
-      // --- close ------------------------------------------------------------
-      const entityCount = entityKeys.size;
+      // Um run em que **toda** vigência já existia idêntica não é uma promoção
+      // vazia: é uma duplicata de dados, e o estado diz isso.
+      const nadaEntrou = result.length === 0 && duplicadasPorDados.length > 0;
       await tx
-        .update(snapshotTable)
+        .update(importRunTable)
         .set({
-          status: "CLOSED",
-          closedAt: new Date(),
-          entityCount,
-          factCount: factRows.length,
+          status: nadaEntrou ? "SKIPPED_DUPLICATE_DATA" : "PROMOTED",
+          finishedAt: new Date(),
+          snapshotCount: result.length,
+          failureReason: nadaEntrou
+            ? `O arquivo é diferente, mas os dados normalizados já estavam registrados (${duplicadasPorDados.join(", ")}). Nada foi duplicado.`
+            : null,
         })
-        .where(eq(snapshotTable.id, snapshot.id));
+        .where(eq(importRunTable.id, importRunId));
 
-      result.push({
-        id: snapshot.id,
-        label,
-        effectiveDate,
-        revision,
-        entityCount,
-        factCount: factRows.length,
+      return {
+        snapshotIds: result.map((s) => s.id),
+        snapshots: result,
+        entitiesCreated,
+        attributesCreated,
+        factsInserted,
+      };
+    });
+  } catch (err) {
+    // A transação voltou atrás — inclusive o estado do run. A decisão que
+    // explica a recusa é gravada aqui fora, senão a recusa some junto e o
+    // operador fica com uma tela que não diz nada.
+    if (err instanceof PromocaoRecusada) {
+      await db
+        .update(importRunTable)
+        .set({
+          status: err.runStatus,
+          failureReason: err.message,
+          finishedAt: err.runStatus === "VALIDATION_ERROR" ? new Date() : null,
+        })
+        .where(eq(importRunTable.id, importRunId));
+      await registrarDecisao(db, {
+        importRunId,
+        decisao: err.decisao,
+        motivo: err.message,
+        sourceLabel: (err.detalhe.label as string) ?? null,
+        snapshotId: (err.detalhe.snapshotAtivo as string) ?? null,
+        revisionEncontrada: (err.detalhe.revisionAtiva as number) ?? null,
+        detalhe: err.detalhe,
       });
     }
-
-    await tx
-      .update(importRunTable)
-      .set({
-        status: "PROMOTED",
-        finishedAt: new Date(),
-        snapshotCount: result.length,
-      })
-      .where(eq(importRunTable.id, importRunId));
-
-    return {
-      snapshotIds: result.map((s) => s.id),
-      snapshots: result,
-      entitiesCreated,
-      attributesCreated,
-      factsInserted,
-    };
-  });
+    throw err;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1521,7 +2042,7 @@ async function resolveScopes(
   tx: Database,
   facts: (typeof stagedFactTable.$inferSelect)[],
   cache: Map<string, string>,
-): Promise<{ ids: string[]; descriptors: string[] }> {
+): Promise<{ ids: string[]; descriptors: string[]; entries: ScopeEntry[] }> {
   const wanted = new Map<string, { scopeType: string; code: string; name: string | null }>();
 
   for (const [foldedHeader, config] of Object.entries(SCOPE_COLUMNS)) {
@@ -1551,8 +2072,14 @@ async function resolveScopes(
 
   const ids: string[] = [];
   const descriptors: string[] = [];
+  // As entradas saem daqui **antes** de virar hash: a identidade canônica
+  // normaliza cada código (CNPJ sem máscara, com o zero da frente de volta), e
+  // `descriptors` guarda o código como veio, que é o que `scope_hash` sempre
+  // usou e o que os snapshots antigos têm gravado.
+  const entries: ScopeEntry[] = [];
   for (const [key, info] of [...wanted.entries()].sort(([a], [b]) => a.localeCompare(b))) {
     descriptors.push(key);
+    entries.push({ scopeType: info.scopeType, code: info.code });
     const cached = cache.get(key);
     if (cached) {
       ids.push(cached);
@@ -1577,7 +2104,7 @@ async function resolveScopes(
     ids.push(created.id);
   }
 
-  return { ids, descriptors };
+  return { ids, descriptors, entries };
 }
 
 /**

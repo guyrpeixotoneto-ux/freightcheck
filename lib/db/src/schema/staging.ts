@@ -76,7 +76,15 @@ export const stagedFactTable = pgTable(
 
     /** Business keys as they appear in the file. */
     snapshotLabel: text("snapshot_label").notNull(),
-    entityKey: text("entity_key").notNull(),
+    /**
+   * A placa **normalizada** — sem hífen, sem espaço, em caixa alta.
+   *
+   * `ABC-1D23`, `abc1d23` e ` ABC 1D23 ` são o mesmo veículo e não podem virar
+   * duas entidades. O valor como veio escrito fica em `entityKeyRaw`.
+   */
+  entityKey: text("entity_key").notNull(),
+  /** A placa exatamente como estava na célula. Evidência, não identidade. */
+  entityKeyRaw: text("entity_key_raw"),
     entityType: text("entity_type").notNull(),
     attributeCode: text("attribute_code").notNull(),
 
