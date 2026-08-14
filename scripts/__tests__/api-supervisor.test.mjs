@@ -76,6 +76,31 @@ describe("a porta da API nunca fica vazia", () => {
     expect(corpo.error).toMatch(/esbuild/);
   });
 
+  it("install falhando para antes do build, e diz que foi o install", async () => {
+    const port = porta();
+    let construiu = false;
+    await criar({
+      port,
+      runInstall: falha("ERR_PNPM_OUTDATED_LOCKFILE"),
+      runMigrations: null,
+      runBuild: async () => {
+        construiu = true;
+        return { ok: true, output: "" };
+      },
+      spawnServer: servidorFalso,
+    }).start();
+
+    const { status, corpo } = await pedir(port);
+
+    expect(status).toBe(503);
+    expect(corpo.error).toMatch(/install/i);
+    expect(corpo.error).toMatch(/ERR_PNPM_OUTDATED_LOCKFILE/);
+    // Construir com `node_modules` pela metade produziria um
+    // `Could not resolve "@workspace/..."` que culpa o `import` em vez do
+    // install — a mensagem errada custou uma rodada inteira deste projeto.
+    expect(construiu).toBe(false);
+  });
+
   it("servidor que morre sozinho é substituído pelo explicador", async () => {
     const port = porta();
     let servidor;

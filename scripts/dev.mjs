@@ -137,6 +137,28 @@ function watchedSourceDirs() {
 async function startApi() {
   const supervisor = createApiSupervisor({
     port: API_PORT,
+    /**
+     * Instalar antes de construir, sempre.
+     *
+     * Um merge que só adiciona uma dependência entre pacotes do workspace não
+     * muda nada visível no repositório, mas muda o que precisa existir dentro
+     * de `node_modules`: o esbuild resolve `@workspace/*` pelos symlinks que o
+     * install cria, e sem eles o build para com
+     * `Could not resolve "@workspace/..."` — uma mensagem que aponta para o
+     * `import` e não para a causa. Foi assim que o Assistente de IA chegou
+     * quebrado num workspace onde o código estava inteiro e correto.
+     *
+     * O `[postMerge]` do `.replit` já roda o install, mas ele depende de um
+     * merge ter acontecido naquele workspace, e de caber na janela dele. O Run
+     * não pode depender disso: quem aperta Run está pedindo um ambiente de pé.
+     * Quando não há nada a fazer, o install custa ~2s e não diz nada.
+     *
+     * `--frozen-lockfile` porque este script também roda em CI, e um bootstrap
+     * de desenvolvimento não é lugar para reescrever o lockfile em silêncio. Se
+     * o lockfile estiver mesmo desatualizado, o install falha dizendo isso, e o
+     * explicador leva a frase até a tela.
+     */
+    runInstall: () => runCaptured("pnpm", ["install", "--frozen-lockfile"]),
     // Sem `DATABASE_URL` não há o que aplicar, e isso não é motivo para não
     // subir: a API responde, e as rotas que precisam de banco dizem o que
     // falta. Não subir aqui seria devolver 502 a quem só queria abrir a tela.

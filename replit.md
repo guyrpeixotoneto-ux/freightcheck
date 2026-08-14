@@ -260,9 +260,15 @@ número.
   `curl -s localhost:25609/api/healthz` confirma o caminho inteiro pela
   interface. Um proxy do Vite sem servidor atrás responde **500**, não 502 — a
   diferença entre os dois números diz em qual camada procurar.
-- Sempre `pnpm install` depois de um `git pull`: dependências entre pacotes do
-  workspace mudam sem que o `package.json` da raiz mude. O hook em
-  `scripts/post-merge.sh` faz isso e aplica as migrations.
+- Dependências entre pacotes do workspace mudam sem que o `package.json` da raiz
+  mude, e o que falta depois de um `git pull` não é código: são os symlinks de
+  `@workspace/*` dentro de `node_modules`, que só o install cria. Sem eles o
+  build para com `Could not resolve "@workspace/..."`, apontando para o `import`
+  em vez da causa — foi assim que o Assistente de IA chegou quebrado num
+  workspace onde o código estava inteiro. **O Run não depende mais de ninguém
+  lembrar disso**: `scripts/dev.mjs` roda `pnpm install --frozen-lockfile` antes
+  de construir, e se ele falhar quem ocupa a porta diz que foi o install. O hook
+  em `scripts/post-merge.sh` continua fazendo o mesmo e aplicando as migrations.
 - `TEST_ADMIN_DATABASE_URL` precisa ter query string (`…/postgres?sslmode=disable`).
   `lib/ingest/src/testing.ts` deriva o banco de cada teste substituindo
   `"/postgres?"`; sem o `?` todos os testes caem no mesmo banco e falham com

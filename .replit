@@ -36,8 +36,17 @@ env = { "CI" = "true" }
 stack = "PNPM_WORKSPACE"
 expertMode = true
 
+# O post-merge instala e aplica migrations. 20s não davam conta: um merge que
+# traz um pacote novo (o `@anthropic-ai/sdk` do Assistente, por exemplo) faz o
+# install baixar antes de linkar, e o corte no meio deixa `node_modules` sem os
+# symlinks de `@workspace/*` — estado em que o build para com
+# `Could not resolve "@workspace/..."` e o código parece o culpado.
+#
+# O teto acima do necessário não custa nada quando não há o que instalar: o
+# script termina em segundos e o timeout nem chega perto. Mesmo assim o Run não
+# depende mais disto — `scripts/dev.mjs` instala antes de construir.
 [postMerge]
 path = "scripts/post-merge.sh"
-timeoutMs = 20000
+timeoutMs = 300000
 
 [nix]

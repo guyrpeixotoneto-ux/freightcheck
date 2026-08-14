@@ -65,6 +65,9 @@ export function startExplainer(port, reason) {
 /**
  * @param {object} deps
  * @param {number|string} deps.port          porta que o roteador encaminha
+ * @param {null|(() => Promise<{ok: boolean, output: string}>)} [deps.runInstall]
+ *   Instala as dependências do workspace antes de qualquer outra coisa.
+ *   `null` para pular — os testes não precisam de node_modules.
  * @param {null|(() => Promise<{ok: boolean, output: string}>)} deps.runMigrations
  *   `null` quando não há `DATABASE_URL` — sem banco configurado não há o que
  *   aplicar, e isso não é motivo para não subir.
@@ -74,6 +77,7 @@ export function startExplainer(port, reason) {
  */
 export function createApiSupervisor({
   port,
+  runInstall = null,
   runMigrations,
   runBuild,
   spawnServer,
@@ -173,6 +177,22 @@ export function createApiSupervisor({
 
   return {
     async start() {
+      if (runInstall) {
+        const { ok, output } = await runInstall();
+        if (!ok) {
+          // Sem node_modules em dia não há migration nem build: as duas coisas
+          // rodam por `pnpm --filter`, e o esbuild resolve os pacotes do
+          // workspace pelos symlinks que só o install cria. Parar aqui, com o
+          // motivo, evita que a falha reapareça duas etapas adiante como
+          // "Could not resolve @workspace/...", que não se parece com a causa.
+          await explain(
+            `a API não subiu: o \`pnpm install\` falhou, e sem as dependências ` +
+              `instaladas o build não resolve os pacotes do workspace. ` +
+              `${tail(output)}`,
+          );
+          return this;
+        }
+      }
       if (runMigrations) {
         const { ok, output } = await runMigrations();
         if (!ok) {
