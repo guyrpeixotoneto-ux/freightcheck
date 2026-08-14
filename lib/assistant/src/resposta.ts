@@ -38,7 +38,7 @@ import {
   type PedidoDeRedacao,
   type TurnoAnterior,
 } from "./llm";
-import { registrar } from "./observabilidade";
+import { registrar, type EventoDeIa } from "./observabilidade";
 import type { Intencao } from "./interpretacao";
 import {
   citacoesSemFonte,
@@ -87,6 +87,21 @@ export interface Resposta {
     herdado: string[];
     ferramentas: string[];
     numerosRecusados: string[];
+    /**
+     * O que aconteceu com a chamada ao modelo — `null` quando não houve uma.
+     *
+     * Sem isto, `redacao: "DETERMINISTICA"` é ambíguo de um jeito caro: não se
+     * distingue "não há chave configurada" de "o modelo respondeu e a trava
+     * descartou" nem de "a chamada deu erro". As três exigem ações opostas — a
+     * primeira é configuração, a segunda é dossiê pobre, a terceira é a API
+     * fora — e a tela dizia a mesma palavra para todas.
+     */
+    ia: {
+      desfecho: EventoDeIa["desfecho"];
+      modelo: string;
+      latenciaMs: number;
+      erro: string | null;
+    } | null;
   };
 }
 
@@ -592,6 +607,7 @@ export async function responder(
   let texto = determinista;
   let redacao: Resposta["redacao"] = "DETERMINISTICA";
   let numerosRecusados: string[] = [];
+  let ia: Resposta["tecnico"]["ia"] = null;
 
   if (!opcoes.semIa && disponivel()) {
     const pedido: PedidoDeRedacao = {
@@ -633,7 +649,20 @@ export async function responder(
       }
     }
 
-    registrar({ ...medicao, intencao: dossie.plano.intencao, desfecho });
+    const evento = registrar({ ...medicao, intencao: dossie.plano.intencao, desfecho });
+    /*
+      O mesmo evento que vai para o anel volta com a resposta.
+
+      O anel responde "como está agora" e some no restart; esta cópia responde
+      "o que aconteceu **nesta** pergunta", que é a que alguém faz olhando para
+      um texto que não parece ter saído de um modelo.
+    */
+    ia = {
+      desfecho: evento.desfecho,
+      modelo: evento.modelo,
+      latenciaMs: evento.latenciaMs,
+      erro: evento.erro,
+    };
   }
 
   const estado = avancarEstado(opcoes.estado ?? ESTADO_VAZIO, dossie);
@@ -657,6 +686,7 @@ export async function responder(
       herdado: dossie.plano.herdado,
       ferramentas: dossie.evidencias.map((e: Evidencia) => e.ferramenta),
       numerosRecusados,
+      ia,
     },
   };
 }
