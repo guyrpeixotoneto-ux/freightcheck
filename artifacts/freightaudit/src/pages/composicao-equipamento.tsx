@@ -8,6 +8,7 @@ import {
   ChevronRight,
   FileSearch,
   Link2,
+  Search,
   ShieldQuestion,
 } from "lucide-react";
 import {
@@ -21,6 +22,7 @@ import {
 } from "recharts";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
+import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
@@ -42,6 +44,7 @@ import {
   type Gaveta,
   type Historico,
   type LinhaCalculavel,
+  type MotivoDeExclusao,
 } from "@/components/composicao/tipos";
 
 /**
@@ -312,14 +315,19 @@ function AbaComposicao({ composicao }: { composicao: Composicao }) {
         const linhas = composicao.linhas.filter((l) => l.gaveta === gaveta);
         if (linhas.length === 0) return null;
         return (
-          <BlocoDaGaveta key={gaveta} gaveta={gaveta} linhas={linhas} total={total?.valor ?? 0} />
+          <BlocoDaGaveta
+            key={gaveta}
+            gaveta={gaveta}
+            linhas={linhas}
+            total={total?.valor ?? 0}
+          />
         );
       })}
 
       {composicao.linhas.length === 0 && (
         <p className="text-sm text-muted-foreground bg-card border rounded-md px-6 py-8 text-center">
-          Nenhum componente deste equipamento pôde ser apurado com segurança nesta vigência.
-          Os parâmetros continuam abaixo, com o motivo de cada um.
+          Nenhum componente deste equipamento pôde ser apurado com segurança nesta vigência. Os
+          parâmetros continuam abaixo, com o motivo de cada um.
         </p>
       )}
 
@@ -438,7 +446,10 @@ function ComoChegamos({ linha }: { linha: LinhaCalculavel }) {
       </h3>
 
       <dl className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-        {item("Parâmetro de origem", <span className="font-mono text-xs">{linha.sourceName}</span>)}
+        {item(
+          "Parâmetro de origem",
+          <span className="font-mono text-xs">{linha.sourceName}</span>,
+        )}
         {item("Valor original", formatValue(linha.valor, linha.unit))}
         {item("Unidade", linha.unit ?? "—")}
         {item("Periodicidade", linha.periodicity ?? "—")}
@@ -512,8 +523,7 @@ function ComoChegamos({ linha }: { linha: LinhaCalculavel }) {
 
         {linha.origem && (
           <div className="mt-3 pt-3 border-t text-xs text-muted-foreground">
-            <strong className="text-foreground">Origem:</strong>{" "}
-            {linha.origem.sourceLabel}
+            <strong className="text-foreground">Origem:</strong> {linha.origem.sourceLabel}
             {linha.origem.sheetName && ` · aba ${linha.origem.sheetName}`}
             {linha.origem.rowIndex !== null && ` · linha ${linha.origem.rowIndex}`}
             {linha.origem.columnLetter && ` · coluna ${linha.origem.columnLetter}`}
@@ -547,8 +557,8 @@ function SemImpactoApurado({ componentes }: { componentes: ComponenteNaoApurado[
           Componentes sem impacto financeiro apurado
         </h2>
         <p className="text-xs text-muted-foreground mt-0.5 max-w-2xl">
-          Existem no dado, parecem dinheiro, e ficaram fora do total. Cada um diz por quê —
-          e é o que a curadoria tem a resolver para o número acima crescer.
+          Existem no dado, parecem dinheiro, e ficaram fora do total. Cada um diz por quê — e é
+          o que a curadoria tem a resolver para o número acima crescer.
         </p>
       </header>
 
@@ -612,12 +622,45 @@ interface ItemDeParametro {
   titulo: string;
   sourceName: string;
   valor: string;
+  /** Número apurado da fonte — decide se a célula alinha como dinheiro ou como texto. */
+  numerico: boolean;
   unit: string | null;
   periodicity: string | null;
-  categoria: string;
+  taxonomia: string;
+  familia: string;
   semantica: string;
   financeiro: boolean;
-  motivo: string | null;
+  motivo: MotivoDeExclusao | null;
+  motivoRotulo: string | null;
+  explicacao: string | null;
+}
+
+type Agrupamento = "taxonomia" | "familia" | "nenhum";
+
+/** "todos" | "financeiros" | "fora" | "motivo:NAO_MONETARIO" — uma dimensão só. */
+type Recorte = string;
+
+const SEM_CATEGORIA = "Sem categoria";
+
+function rotuloDaSemantica(status: string): string {
+  if (status === "CONFIRMED") return "confirmada";
+  if (status === "PRESUMED") return "presumida";
+  return "desconhecida";
+}
+
+/** Busca que ignora acento e caixa — "combustivel" acha "Combustível". */
+function normalizar(texto: string): string {
+  return texto
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
+function noRecorte(item: ItemDeParametro, recorte: Recorte): boolean {
+  if (recorte === "todos") return true;
+  if (recorte === "financeiros") return item.financeiro;
+  if (recorte === "fora") return !item.financeiro;
+  return !item.financeiro && `motivo:${item.motivo}` === recorte;
 }
 
 /**
@@ -627,24 +670,45 @@ interface ItemDeParametro {
  * **componente da remuneração** — e a separação é a coluna "Financeiro", não uma
  * omissão: nada é escondido, e o que não participa da remuneração diz que não
  * participa.
+ *
+ * O problema de layout desta aba não é falta de informação, é excesso de
+ * repetição: setenta e cinco linhas em que "—", "desconhecida" e "Semântica não
+ * confirmada" se repetem coluna abaixo. O desenho aqui parte disso:
+ *
+ * - **coluna que não varia não é coluna.** Unidade já viaja dentro do valor
+ *   (`formatValue`), e periodicidade e semântica só ganham coluna quando há mais
+ *   de um valor distinto para ler. Quando não há, a informação é dita uma vez,
+ *   em texto, acima da tabela;
+ * - **o resumo é o filtro.** Contar 8 financeiros num cartão e obrigar quem lê a
+ *   procurar os 8 na lista é dar o número e esconder as linhas. Os números do
+ *   topo são botões, e cada um é o recorte que ele conta;
+ * - **os 8 que entram no total** ficam marcados na linha, porque são a razão de
+ *   a tela existir e são 11% dela.
  */
 function AbaParametros({ composicao }: { composicao: Composicao }) {
-  const [agrupar, setAgrupar] = useState<"taxonomia" | "familia">("taxonomia");
+  const [agrupar, setAgrupar] = useState<Agrupamento>("taxonomia");
+  const [recorte, setRecorte] = useState<Recorte>("todos");
+  const [busca, setBusca] = useState("");
+  const [recolhidos, setRecolhidos] = useState<Set<string>>(new Set());
 
   const itens: ItemDeParametro[] = useMemo(() => {
-    const deLinhas = composicao.linhas.map((l) => ({
+    const deLinhas: ItemDeParametro[] = composicao.linhas.map((l) => ({
       code: l.code,
       titulo: l.titulo,
       sourceName: l.sourceName,
       valor: formatValue(l.valor, l.unit),
+      numerico: true,
       unit: l.unit,
       periodicity: l.periodicity,
-      categoria: agrupar === "taxonomia" ? (l.taxonomyName ?? "Sem categoria") : l.familia,
+      taxonomia: l.taxonomyName ?? SEM_CATEGORIA,
+      familia: l.familia,
       semantica: l.semanticsStatus,
       financeiro: true,
       motivo: null,
+      motivoRotulo: null,
+      explicacao: l.explicacao.regra,
     }));
-    const deNaoApurados = composicao.naoApurados.map((n) => ({
+    const deNaoApurados: ItemDeParametro[] = composicao.naoApurados.map((n) => ({
       code: n.code,
       titulo: n.titulo,
       sourceName: n.sourceName,
@@ -652,114 +716,447 @@ function AbaParametros({ composicao }: { composicao: Composicao }) {
         n.valorNumerico !== null
           ? formatValue(n.valorNumerico, n.unit)
           : (n.valorExibido ?? "—"),
+      numerico: n.valorNumerico !== null,
       unit: n.unit,
       periodicity: n.periodicity,
-      categoria: agrupar === "taxonomia" ? (n.taxonomyName ?? "Sem categoria") : n.familia,
+      taxonomia: n.taxonomyName ?? SEM_CATEGORIA,
+      familia: n.familia,
       semantica: n.semanticsStatus,
       financeiro: false,
-      motivo: n.motivoRotulo,
+      motivo: n.motivo,
+      motivoRotulo: n.motivoRotulo,
+      explicacao: n.explicacao,
     }));
     return [...deLinhas, ...deNaoApurados].sort((a, b) =>
       a.titulo.localeCompare(b.titulo, "pt-BR"),
     );
-  }, [composicao, agrupar]);
+  }, [composicao]);
 
-  const grupos = useMemo(() => {
-    const mapa = new Map<string, ItemDeParametro[]>();
+  /** Os motivos de exclusão, com quanto cada um pesa. Particionam os não financeiros. */
+  const motivos = useMemo(() => {
+    const mapa = new Map<string, { chave: string; rotulo: string; quantos: number }>();
     for (const item of itens) {
-      const lista = mapa.get(item.categoria) ?? [];
-      lista.push(item);
-      mapa.set(item.categoria, lista);
+      if (item.financeiro || item.motivo === null) continue;
+      const atual = mapa.get(item.motivo) ?? {
+        chave: `motivo:${item.motivo}`,
+        rotulo: item.motivoRotulo ?? item.motivo,
+        quantos: 0,
+      };
+      atual.quantos += 1;
+      mapa.set(item.motivo, atual);
     }
-    return [...mapa.entries()].sort((a, b) => a[0].localeCompare(b[0], "pt-BR"));
+    return [...mapa.values()].sort((a, b) => b.quantos - a.quantos);
   }, [itens]);
 
+  const financeiros = itens.filter((i) => i.financeiro).length;
+
+  /*
+    Colunas decididas sobre o conjunto inteiro, e não sobre o que o filtro
+    deixou passar: uma coluna que aparece e some conforme se digita na busca
+    faz a tabela pular embaixo do cursor.
+  */
+  const variaPeriodicidade = new Set(itens.map((i) => i.periodicity ?? "")).size > 1;
+  const semanticas = new Set(itens.map((i) => i.semantica));
+  const variaSemantica = semanticas.size > 1;
+
+  const visiveis = useMemo(() => {
+    const termo = normalizar(busca.trim());
+    return itens.filter((item) => {
+      if (!noRecorte(item, recorte)) return false;
+      if (termo === "") return true;
+      return normalizar(
+        `${item.titulo} ${item.sourceName} ${item.valor} ${item.taxonomia} ${item.familia}`,
+      ).includes(termo);
+    });
+  }, [itens, recorte, busca]);
+
+  const grupos = useMemo(() => {
+    if (agrupar === "nenhum") {
+      return [{ chave: "__tudo", rotulo: null as string | null, lista: visiveis }];
+    }
+    const mapa = new Map<string, ItemDeParametro[]>();
+    for (const item of visiveis) {
+      const chave = agrupar === "taxonomia" ? item.taxonomia : item.familia;
+      const lista = mapa.get(chave) ?? [];
+      lista.push(item);
+      mapa.set(chave, lista);
+    }
+    return [...mapa.entries()]
+      .sort(([a], [b]) => {
+        // A gaveta do "não classificado" desce: ela não ensina nada sobre o
+        // que está dentro dela, e no topo empurra as categorias reais para baixo.
+        if (a === SEM_CATEGORIA) return 1;
+        if (b === SEM_CATEGORIA) return -1;
+        return a.localeCompare(b, "pt-BR");
+      })
+      .map(([chave, lista]) => ({ chave, rotulo: chave, lista }));
+  }, [visiveis, agrupar]);
+
+  const alternarGrupo = (chave: string) =>
+    setRecolhidos((atual) => {
+      const proximo = new Set(atual);
+      if (proximo.has(chave)) proximo.delete(chave);
+      else proximo.add(chave);
+      return proximo;
+    });
+
   return (
-    <div className="space-y-5 max-w-6xl">
-      <div className="flex items-center justify-between gap-4">
-        <p className="text-sm text-muted-foreground max-w-2xl">
-          Os {itens.length} parâmetros deste equipamento em {composicao.periodLabel}. A coluna
-          <strong className="text-foreground"> Financeiro</strong> diz quais participam da
-          remuneração — a maioria não participa, e é isso que a tela mostra.
-        </p>
-        <Select value={agrupar} onValueChange={(v) => setAgrupar(v as "taxonomia" | "familia")}>
-          <SelectTrigger className="w-56 shrink-0">
+    <div className="space-y-4 max-w-6xl">
+      <p className="text-sm text-muted-foreground max-w-3xl">
+        Todos os parâmetros deste equipamento em{" "}
+        <strong className="text-foreground">{composicao.periodLabel}</strong>, financeiros ou
+        não. A coluna <strong className="text-foreground">Financeiro</strong> diz quais
+        participam da remuneração — a maioria não participa, e é isso que a tela mostra.
+      </p>
+
+      {/*
+        O resumo e o filtro são a mesma coisa. Cada número é o recorte que ele
+        conta, e a lista abaixo responde no clique — em vez de informar "8
+        financeiros" e deixar quem lê caçar os oito entre setenta e cinco linhas.
+      */}
+      <div className="bg-card border rounded-md">
+        <div className="flex flex-wrap items-stretch divide-x">
+          <BotaoDeRecorte
+            ativo={recorte === "todos"}
+            onClick={() => setRecorte("todos")}
+            quantos={itens.length}
+            rotulo="Parâmetros"
+            nota="tudo que a vigência entregou"
+          />
+          <BotaoDeRecorte
+            ativo={recorte === "financeiros"}
+            onClick={() => setRecorte("financeiros")}
+            quantos={financeiros}
+            rotulo="Entram no total"
+            nota="viram remuneração apurada"
+            destaque
+          />
+          <BotaoDeRecorte
+            ativo={recorte === "fora"}
+            onClick={() => setRecorte("fora")}
+            quantos={itens.length - financeiros}
+            rotulo="Fora do total"
+            nota="cada um com o motivo ao lado"
+          />
+        </div>
+
+        {motivos.length > 0 && (
+          <div className="border-t px-4 py-3 flex flex-wrap items-center gap-2">
+            <span className="text-[0.6875rem] uppercase tracking-wider text-muted-foreground mr-1">
+              Por que ficaram fora
+            </span>
+            {motivos.map((motivo) => (
+              <button
+                key={motivo.chave}
+                type="button"
+                aria-pressed={recorte === motivo.chave}
+                onClick={() => setRecorte(recorte === motivo.chave ? "fora" : motivo.chave)}
+                className={cn(
+                  "px-2.5 py-1 text-xs rounded-md border transition-colors",
+                  recorte === motivo.chave
+                    ? "border-brand-red bg-brand-red/[0.07] text-brand-red font-medium"
+                    : "border-border text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {motivo.rotulo}
+                <span className="ml-1.5 tabular-nums font-semibold">{motivo.quantos}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="relative">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            placeholder="Nome, código de origem ou valor"
+            className="pl-9 w-72"
+          />
+        </div>
+
+        <Select value={agrupar} onValueChange={(v) => setAgrupar(v as Agrupamento)}>
+          <SelectTrigger className="w-60 shrink-0">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="taxonomia">Agrupar pela taxonomia</SelectItem>
             <SelectItem value="familia">Agrupar por família Freightech</SelectItem>
+            <SelectItem value="nenhum">Sem agrupamento</SelectItem>
           </SelectContent>
         </Select>
+
+        <span className="text-xs text-muted-foreground tabular-nums ml-auto">
+          {visiveis.length === itens.length
+            ? `${itens.length} parâmetros`
+            : `${visiveis.length} de ${itens.length} parâmetros`}
+        </span>
       </div>
 
-      {grupos.map(([categoria, lista]) => (
-        <section key={categoria}>
-          <h2 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2">
-            {categoria}
-            <span className="ml-2 font-normal normal-case tracking-normal">
-              {lista.length} {lista.length === 1 ? "parâmetro" : "parâmetros"}
-            </span>
-          </h2>
-          <div className="bg-card border rounded-md overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b bg-muted/40 text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
-                  <th className="text-left px-4 py-2 font-semibold">Parâmetro</th>
-                  <th className="text-right px-4 py-2 font-semibold">Valor</th>
-                  <th className="text-left px-4 py-2 font-semibold">Unidade</th>
-                  <th className="text-left px-4 py-2 font-semibold">Periodicidade</th>
-                  <th className="text-left px-4 py-2 font-semibold">Semântica</th>
-                  <th className="text-left px-4 py-2 font-semibold">Financeiro</th>
+      {/*
+        O que não varia sai da tabela e é dito uma vez. Setenta e cinco células
+        escritas "desconhecida" não informam setenta e cinco vezes: informam uma
+        vez e ocupam uma coluna.
+      */}
+      {(!variaSemantica || !variaPeriodicidade) && itens.length > 0 && (
+        <p className="text-xs text-muted-foreground">
+          {!variaSemantica && (
+            <>
+              Semântica{" "}
+              <strong className="text-foreground">
+                {rotuloDaSemantica([...semanticas][0] ?? "")}
+              </strong>{" "}
+              em todos eles.{" "}
+            </>
+          )}
+          {!variaPeriodicidade && "Nenhum declara periodicidade nesta vigência."}
+        </p>
+      )}
+
+      {visiveis.length === 0 ? (
+        <div className="bg-card border rounded-md px-6 py-10 text-center">
+          <p className="text-sm text-muted-foreground">
+            Nenhum parâmetro com o recorte e a busca atuais.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              setRecorte("todos");
+              setBusca("");
+            }}
+            className="mt-2 text-sm text-brand-red hover:underline"
+          >
+            Ver os {itens.length} parâmetros
+          </button>
+        </div>
+      ) : (
+        <TabelaDeParametros
+          grupos={grupos}
+          recolhidos={recolhidos}
+          onAlternarGrupo={alternarGrupo}
+          comPeriodicidade={variaPeriodicidade}
+          comSemantica={variaSemantica}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Um número do resumo que também é o filtro daquele número. */
+function BotaoDeRecorte({
+  ativo,
+  onClick,
+  quantos,
+  rotulo,
+  nota,
+  destaque,
+}: {
+  ativo: boolean;
+  onClick: () => void;
+  quantos: number;
+  rotulo: string;
+  nota: string;
+  destaque?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={ativo}
+      className={cn(
+        "flex-1 min-w-[12rem] px-5 py-4 text-left transition-colors",
+        ativo ? "bg-brand-red/[0.06]" : "hover:bg-muted/40",
+      )}
+    >
+      <div
+        className={cn(
+          "text-[0.6875rem] uppercase tracking-wider",
+          ativo ? "text-brand-red font-semibold" : "text-muted-foreground",
+        )}
+      >
+        {rotulo}
+      </div>
+      <div
+        className={cn(
+          "text-2xl font-bold tabular-nums tracking-tight mt-0.5",
+          destaque && "text-brand-red",
+        )}
+      >
+        {quantos}
+      </div>
+      <div className="text-xs text-muted-foreground mt-0.5">{nota}</div>
+    </button>
+  );
+}
+
+interface GrupoDeParametros {
+  chave: string;
+  /** `null` quando não há agrupamento — a tabela sai sem faixas. */
+  rotulo: string | null;
+  lista: ItemDeParametro[];
+}
+
+/**
+ * Uma tabela só, com faixas de categoria dentro — e não uma tabela por categoria.
+ *
+ * Doze tabelas independentes repetiam o cabeçalho doze vezes e, pior, cada uma
+ * media a largura das colunas pelo próprio conteúdo: "Valor" caía num x
+ * diferente a cada bloco, e comparar duas categorias virava ler duas tabelas.
+ * Uma tabela só resolve os dois: um cabeçalho, e a coluna no mesmo lugar do
+ * começo ao fim.
+ */
+function TabelaDeParametros({
+  grupos,
+  recolhidos,
+  onAlternarGrupo,
+  comPeriodicidade,
+  comSemantica,
+}: {
+  grupos: GrupoDeParametros[];
+  recolhidos: Set<string>;
+  onAlternarGrupo: (chave: string) => void;
+  comPeriodicidade: boolean;
+  comSemantica: boolean;
+}) {
+  const colunas = 3 + (comPeriodicidade ? 1 : 0) + (comSemantica ? 1 : 0);
+
+  return (
+    <div className="bg-card border rounded-md overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b bg-muted/40 text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
+            {/*
+              A largura é declarada, e não deixada ao conteúdo: sem isto o nome do
+              parâmetro estica até o fim e abre um vão de meia tela entre ele e o
+              próprio valor — o olho perde a linha no meio do caminho.
+            */}
+            <th className="text-left px-4 py-2 font-semibold border-l-[3px] border-l-transparent w-[38%]">
+              Parâmetro
+            </th>
+            <th className="text-right px-4 py-2 font-semibold w-40">Valor</th>
+            {comPeriodicidade && (
+              <th className="text-left px-4 py-2 font-semibold w-36">Periodicidade</th>
+            )}
+            {comSemantica && (
+              <th className="text-left px-4 py-2 font-semibold w-32">Semântica</th>
+            )}
+            <th className="text-left px-4 py-2 font-semibold">Financeiro</th>
+          </tr>
+        </thead>
+        {grupos.map((grupo) => {
+          const recolhido = recolhidos.has(grupo.chave);
+          const noTotal = grupo.lista.filter((i) => i.financeiro).length;
+          return (
+            <tbody key={grupo.chave} className="border-b last:border-0">
+              {grupo.rotulo !== null && (
+                <tr className="border-b bg-muted/25">
+                  <td colSpan={colunas} className="p-0 border-l-[3px] border-l-transparent">
+                    <button
+                      type="button"
+                      onClick={() => onAlternarGrupo(grupo.chave)}
+                      aria-expanded={!recolhido}
+                      className="w-full flex items-center gap-2 px-4 py-2 text-left group hover:bg-muted/40 transition-colors"
+                    >
+                      {recolhido ? (
+                        <ChevronRight className="w-3.5 h-3.5 text-muted-foreground" />
+                      ) : (
+                        <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+                      )}
+                      <h2 className="text-[0.6875rem] font-bold uppercase tracking-wider group-hover:text-brand-red transition-colors">
+                        {grupo.rotulo}
+                      </h2>
+                      <span className="text-xs text-muted-foreground tabular-nums">
+                        {grupo.lista.length}{" "}
+                        {grupo.lista.length === 1 ? "parâmetro" : "parâmetros"}
+                        {noTotal > 0 && ` · ${noTotal} no total`}
+                      </span>
+                    </button>
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {lista.map((item) => (
-                  <tr key={item.code} className="border-b last:border-0">
-                    <td className="px-4 py-2">
-                      <div>{item.titulo}</div>
+              )}
+
+              {!recolhido &&
+                grupo.lista.map((item) => (
+                  <tr
+                    key={item.code}
+                    className={cn(
+                      "border-b last:border-0 hover:bg-muted/30 transition-colors",
+                      item.financeiro && "bg-brand-red/[0.035]",
+                    )}
+                  >
+                    {/* A régua vermelha na borda: os que viram dinheiro, achados sem ler. */}
+                    <td
+                      className={cn(
+                        "px-4 py-2 border-l-[3px]",
+                        item.financeiro ? "border-l-brand-red" : "border-l-transparent",
+                      )}
+                    >
+                      <div className={cn(item.financeiro && "font-medium")}>{item.titulo}</div>
                       <div className="text-[0.6875rem] text-muted-foreground font-mono">
                         {item.sourceName}
                       </div>
                     </td>
-                    <td className="px-4 py-2 text-right tabular-nums whitespace-nowrap">
+                    {/*
+                Número alinha à direita e conta como grandeza; texto — "AUTOMATICO",
+                um chassi, "Sim" — sai em mono discreto, porque alinhar string à
+                direita num bloco de números faz o olho tentar somá-la.
+              */}
+                    <td
+                      className={cn(
+                        "px-4 py-2 whitespace-nowrap",
+                        item.numerico
+                          ? "text-right tabular-nums font-medium"
+                          : "text-right font-mono text-xs text-muted-foreground",
+                      )}
+                    >
                       {item.valor}
+                      {!item.numerico && item.unit && (
+                        <span className="ml-1 text-muted-foreground">
+                          {item.unit.toLowerCase()}
+                        </span>
+                      )}
                     </td>
-                    <td className="px-4 py-2 text-muted-foreground text-xs">
-                      {item.unit ?? "—"}
-                    </td>
-                    <td className="px-4 py-2 text-muted-foreground text-xs">
-                      {item.periodicity ?? "—"}
-                    </td>
-                    <td className="px-4 py-2 text-xs">
-                      <span
-                        className={cn(
-                          item.semantica === "CONFIRMED"
-                            ? "text-foreground"
-                            : "text-muted-foreground",
-                        )}
-                      >
-                        {item.semantica === "CONFIRMED"
-                          ? "confirmada"
-                          : item.semantica === "PRESUMED"
-                            ? "presumida"
-                            : "desconhecida"}
-                      </span>
-                    </td>
+                    {comPeriodicidade && (
+                      <td className="px-4 py-2 text-muted-foreground text-xs">
+                        {item.periodicity ?? "—"}
+                      </td>
+                    )}
+                    {comSemantica && (
+                      <td className="px-4 py-2 text-xs">
+                        <span
+                          className={cn(
+                            item.semantica === "CONFIRMED"
+                              ? "text-foreground"
+                              : "text-muted-foreground",
+                          )}
+                        >
+                          {rotuloDaSemantica(item.semantica)}
+                        </span>
+                      </td>
+                    )}
                     <td className="px-4 py-2 text-xs">
                       {item.financeiro ? (
-                        <span className="font-medium">entra no total</span>
+                        <span className="inline-flex items-center gap-1.5 font-medium text-brand-red">
+                          <span className="w-1.5 h-1.5 rounded-full bg-brand-red" />
+                          entra no total
+                        </span>
                       ) : (
-                        <span className="text-muted-foreground">{item.motivo}</span>
+                        <span
+                          className="text-muted-foreground cursor-help"
+                          title={item.explicacao ?? undefined}
+                        >
+                          {item.motivoRotulo}
+                        </span>
                       )}
                     </td>
                   </tr>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      ))}
+            </tbody>
+          );
+        })}
+      </table>
     </div>
   );
 }
@@ -809,7 +1206,11 @@ function AbaHistorico({
         <div className="bg-card border rounded-md p-4">
           <ResponsiveContainer width="100%" height={260}>
             <LineChart data={dados} margin={{ top: 8, right: 16, bottom: 0, left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="hsl(var(--border))"
+                vertical={false}
+              />
               <XAxis
                 dataKey="periodo"
                 tick={{ fontSize: 11 }}
@@ -822,9 +1223,7 @@ function AbaHistorico({
                 width={90}
               />
               <Tooltip
-                formatter={(v) =>
-                  typeof v === "number" ? formatBrl(v) : "não apurado"
-                }
+                formatter={(v) => (typeof v === "number" ? formatBrl(v) : "não apurado")}
                 contentStyle={{ fontSize: 12 }}
               />
               <Line
@@ -856,7 +1255,10 @@ function AbaHistorico({
       <section>
         <div className="flex items-center justify-between gap-4 mb-2">
           <h2 className="text-sm font-bold uppercase tracking-wider">Vigência a vigência</h2>
-          <Select value={componente || "NENHUM"} onValueChange={(v) => setComponente(v === "NENHUM" ? "" : v)}>
+          <Select
+            value={componente || "NENHUM"}
+            onValueChange={(v) => setComponente(v === "NENHUM" ? "" : v)}
+          >
             <SelectTrigger className="w-80">
               <SelectValue placeholder="Sobrepor um componente" />
             </SelectTrigger>
@@ -959,8 +1361,8 @@ function AbaAlteracoes({
     return (
       <p className="text-sm text-muted-foreground bg-card border rounded-md px-6 py-8 text-center max-w-3xl">
         <FileSearch className="w-5 h-5 mx-auto mb-2 opacity-50" />
-        {alteracoes.para.periodLabel} é a primeira vigência desta série. Não há anterior com que
-        comparar.
+        {alteracoes.para.periodLabel} é a primeira vigência desta série. Não há anterior com
+        que comparar.
       </p>
     );
   }
