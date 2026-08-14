@@ -9,7 +9,41 @@
  * ninguém.
  */
 import { describe, expect, it } from "vitest";
-import { decodeTicketUpload } from "../tickets";
+import { decodeTicketUpload, faltaOSchemaDeChamados } from "../tickets";
+
+/**
+ * Banco desatualizado não é defeito do pedido.
+ *
+ * Este caso existe porque a tela mostrou "Internal server error" para um export
+ * perfeito, nas duas pontas — no upload e na listagem —, num ambiente onde as
+ * migrations de chamados não tinham rodado. A frase mandava procurar no arquivo,
+ * que estava certo.
+ */
+describe("faltaOSchemaDeChamados", () => {
+  it("reconhece coluna que não existe — o caso mais traiçoeiro", () => {
+    // A 0012 cria as tabelas e as 0013/0014 acrescentam colunas: num banco
+    // parado na 0012 a tabela existe, então nada indica "falta migration", e
+    // toda consulta morre por causa de uma coluna.
+    expect(faltaOSchemaDeChamados({ code: "42703" })).toBe(true);
+  });
+
+  it("reconhece tabela e tipo que não existem", () => {
+    expect(faltaOSchemaDeChamados({ code: "42P01" })).toBe(true);
+    expect(faltaOSchemaDeChamados({ code: "42704" })).toBe(true);
+  });
+
+  it("enxerga o código através do erro que o embrulha", () => {
+    // O drizzle embrulha o erro do driver; sem descer pelo `cause` o código
+    // some e a falha volta a ser um 500 mudo.
+    expect(faltaOSchemaDeChamados({ cause: { code: "42703" } })).toBe(true);
+  });
+
+  it("não confunde defeito de verdade com migration faltando", () => {
+    expect(faltaOSchemaDeChamados({ code: "23505" })).toBe(false);
+    expect(faltaOSchemaDeChamados(new Error("boom"))).toBe(false);
+    expect(faltaOSchemaDeChamados(null)).toBe(false);
+  });
+});
 
 /** Um zip mínimo: a assinatura que todo .xlsx carrega nos dois primeiros bytes. */
 const zipBytes = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]);
