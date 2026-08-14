@@ -273,14 +273,24 @@ número.
   `lib/ingest/src/testing.ts` deriva o banco de cada teste substituindo
   `"/postgres?"`; sem o `?` todos os testes caem no mesmo banco e falham com
   `SKIPPED_DUPLICATE`.
-- `pnpm run typecheck` falha em 6 pontos herdados do scaffold
-  (`src/components/ui/*` do shadcn e `src/pages/snapshots/[id].tsx`). São
-  anteriores a qualquer código deste projeto e não afetam o Run, que não passa
-  por `tsc`. Eram 9: três apontavam para o `cn` de `src/lib/utils.ts`, que
-  descartava o objeto `{ classe: condição }` que todo componente do shadcn passa
-  — o efeito visível era **todo botão do produto sem cor, sem altura e sem
-  padding**, em todas as telas. `cn` agora é `twMerge(clsx(...))`, que é o
-  contrato que esses componentes já assumiam.
+- `pnpm run typecheck` passa limpo, e passa a valer como porta: erro que aparecer
+  ali é de agora, não herança. Eram 9 pontos vindos do scaffold, zerados em três
+  etapas. Três apontavam para o `cn` de `src/lib/utils.ts`, que descartava o
+  objeto `{ classe: condição }` que todo componente do shadcn passa — o efeito
+  visível era **todo botão do produto sem cor, sem altura e sem padding**, em
+  todas as telas; `cn` agora é `twMerge(clsx(...))`, que é o contrato que esses
+  componentes já assumiam. Quatro estavam em `alert-dialog`, `calendar`,
+  `command` e `pagination`, que o scaffold trouxe importando um `buttonVariants`
+  e um `DialogContent` que o `button.tsx` e o `dialog.tsx` deste projeto — dois
+  componentes escritos à mão, sem `cva` e sem Radix — nunca exportaram. Nenhuma
+  tela os importava: foram removidos, porque componente que não compila e ninguém
+  usa só ensina a ignorar o typecheck. Os dois últimos estavam em
+  `src/pages/snapshots/[id].tsx` (ver o comentário lá, sobre o `queryKey`).
+- **`pnpm run build` precisa de `PORT` e `BASE_PATH`.** Não é o typecheck: o
+  `vite.config.ts` do `mockup-sandbox` exige as duas e para o build da raiz sem
+  elas. No Replit cada artifact injeta as suas pelo `[services.env]`; pelo
+  terminal, `PORT=8081 BASE_PATH=/__mockup pnpm run build`. Os dois artifacts do
+  produto (`api-server` e `freightaudit`) constroem sem nada disso.
 - **401 em toda chamada de API é sessão, não infraestrutura.** A interface leva
   para a tela de login por conta própria; se isso acontecer no meio de um
   trabalho, a sessão expirou (sete dias, absolutos) ou alguém saiu em outra aba.

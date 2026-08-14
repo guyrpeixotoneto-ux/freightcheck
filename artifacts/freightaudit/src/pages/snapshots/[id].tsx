@@ -25,8 +25,18 @@ export default function SnapshotDetail() {
   const { id } = useParams<{ id: string }>();
   const queryClient = useQueryClient();
   
-  const { data: snapshot, isLoading: loadingSnapshot, error: errorSnapshot } = useGetSnapshot(id!, { query: { enabled: !!id } });
-  const { data: parameters, isLoading: loadingParams } = useGetSnapshotParameters(id!, undefined, { query: { enabled: !!id } });
+  // O `queryKey` vai explícito porque o tipo gerado o exige: o `options.query`
+  // do orval é um `UseQueryOptions` inteiro, e no react-query v5 `queryKey` é
+  // obrigatório nesse tipo. Em tempo de execução o gerado cai no mesmo default
+  // (`queryOptions?.queryKey ?? getGetSnapshotQueryKey(id)`), então passar as
+  // chaves aqui não muda comportamento nenhum — e são as mesmas funções que as
+  // invalidações abaixo já usam, o que mantém as duas pontas ligadas.
+  const { data: snapshot, isLoading: loadingSnapshot, error: errorSnapshot } = useGetSnapshot(id!, {
+    query: { queryKey: getGetSnapshotQueryKey(id!), enabled: !!id },
+  });
+  const { data: parameters, isLoading: loadingParams } = useGetSnapshotParameters(id!, undefined, {
+    query: { queryKey: getGetSnapshotParametersQueryKey(id!), enabled: !!id },
+  });
   
   const updateMutation = useUpdateSnapshot();
   const createParamMutation = useCreateParameter();
