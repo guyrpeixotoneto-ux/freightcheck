@@ -10,6 +10,7 @@ import overviewRouter from "./overview";
 import versionsRouter from "./versions";
 import bookRouter from "./book";
 import assistantRouter from "./assistant";
+import balanceRouter from "./balance";
 
 /**
  * F0/F1 surface.
@@ -37,6 +38,12 @@ import assistantRouter from "./assistant";
  * `lib/db/src/schema/book.ts` — aqui o documento é o conteúdo, não há cópia
  * derivada dele, e o disco desta plataforma não sobrevive a um deploy.
  *
+ * `balance` é o Balanço de Massa: a conta de conservação da importação —
+ * quantas células o arquivo trouxe, por quais destinos declarados elas saíram,
+ * e o que sobrou sem destino. É a pergunta inversa da rastreabilidade, e a
+ * única superfície que responde "sumiu alguma coisa?" em vez de "de onde veio
+ * este número?".
+ *
  * `assistant` é o Assistente de IA. É a única superfície que **não** tem dado
  * próprio: ela responde a partir do conhecimento registrado em código e de
  * consultas às mesmas funções que as telas usam. Um número que aparece lá
@@ -55,5 +62,6 @@ router.use(overviewRouter);
 router.use(versionsRouter);
 router.use(bookRouter);
 router.use(assistantRouter);
+router.use(balanceRouter);
 
 export default router;
