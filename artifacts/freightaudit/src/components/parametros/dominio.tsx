@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { getApiUrl } from "@/lib/api";
+import { ApiErrorNotice } from "@/components/api-error";
+import { fetchJsonOrNull } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { TabelaFreightech, type ColunaTabela } from "@/components/parametros/tabela";
 
@@ -52,27 +53,18 @@ export function TabelaDominio({
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["dominio", attributeCode, query.toString()],
-    queryFn: async () => {
+    queryFn: () => {
       const sufixo = query.toString() ? `?${query}` : "";
-      const resposta = await fetch(
-        getApiUrl(`/attributes/${encodeURIComponent(attributeCode)}/domain${sufixo}`),
+      return fetchJsonOrNull<DominioAtributo>(
+        `/attributes/${encodeURIComponent(attributeCode)}/domain${sufixo}`,
       );
-      if (resposta.status === 404) return null;
-      if (!resposta.ok) {
-        throw new Error((await resposta.json()).error ?? "Falha ao carregar");
-      }
-      return (await resposta.json()) as DominioAtributo;
     },
   });
 
   if (isLoading) return <p className="text-sm text-muted-foreground">Carregando…</p>;
 
   if (error) {
-    return (
-      <div className="bg-card border border-l-[6px] border-l-brand-red px-6 py-4 text-sm">
-        {(error as Error).message}
-      </div>
-    );
+    return <ApiErrorNotice error={error} what="Os valores deste cadastro não puderam ser lidos." />;
   }
 
   if (!data) {
