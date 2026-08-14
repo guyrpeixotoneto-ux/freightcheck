@@ -16,7 +16,7 @@ import {
   getTicketsByParameter,
   latestTicketImport,
   listTicketImports,
-  listTickets,
+  listTicketChanges,
   type TicketFilters,
 } from "@workspace/comparison";
 
@@ -117,6 +117,8 @@ function parseTicketFilters(query: Record<string, unknown>): TicketFilters {
     statusBucket: str("statusBucket"),
     impactConfidence: str("impactConfidence"),
     attributeCode: str("attributeCode"),
+    parameterLabel: str("parameterLabel"),
+    beforeSource: str("beforeSource"),
     search: str("search"),
     onlyDivergent: str("onlyDivergent") === "true",
     minAbsImpact: num("minAbsImpact"),
@@ -258,14 +260,14 @@ router.get("/tickets", async (req, res): Promise<void> => {
     }
 
     const filters = parseTicketFilters(req.query as Record<string, unknown>);
-    const [tickets, totals, byParameter, imports] = await Promise.all([
-      listTickets(db, run.id, filters),
+    const [changes, totals, byParameter, imports] = await Promise.all([
+      listTicketChanges(db, run.id, filters),
       getTicketTotals(db, run.id),
       getTicketsByParameter(db, run.id),
       listTicketImports(db),
     ]);
 
-    res.json({ import: run, imports, totals, byParameter, ...tickets });
+    res.json({ import: run, imports, totals, byParameter, ...changes });
   } catch (err) {
     req.log.error({ err }, "Error listing tickets");
     res.status(500).json({ error: "Internal server error" });
@@ -273,13 +275,14 @@ router.get("/tickets", async (req, res): Promise<void> => {
 });
 
 /**
- * Um chamado, com a linha do arquivo como ela veio.
+ * Um chamado inteiro: tudo o que ele mexeu, e a linha do arquivo como veio.
  *
- * É o equivalente de `/changes/:id/provenance` deste lado: o mapeamento de
- * colunas de um export de chamados é um palpite justificado, e quem lê tem de
- * poder conferi-lo sem pedir o arquivo de volta a ninguém. Fica numa rota
- * própria porque a linha inteira é grande e quase ninguém a abre — mandá-la
- * junto com a lista faria toda abertura de tela pagar por isso.
+ * É o equivalente de `/changes/:id/provenance` deste lado. A lista mostra uma
+ * linha por parâmetro, e quem abre uma delas costuma querer a pergunta
+ * inversa — *o que mais este chamado alterou?* —, que só esta rota responde.
+ *
+ * Fica numa rota própria porque a linha original é grande e quase ninguém a
+ * abre: mandá-la junto com a lista faria toda abertura de tela pagar por isso.
  */
 router.get("/tickets/:id", async (req, res): Promise<void> => {
   if (!UUID.test(req.params.id)) {

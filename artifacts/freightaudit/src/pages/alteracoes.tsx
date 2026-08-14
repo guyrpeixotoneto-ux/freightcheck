@@ -25,12 +25,12 @@ import {
   toQuery,
 } from "@/components/changes/change-table";
 import {
+  TicketChangeTable,
   TicketFilterBar,
-  TicketTable,
   emptyTicketFilters,
   toTicketQuery,
+  type TicketChangeRow,
   type TicketFilters as TicketFilterState,
-  type TicketRow,
   type TicketTotals,
 } from "@/components/changes/ticket-table";
 
@@ -90,7 +90,7 @@ export default function Alteracoes() {
             icon={<Headset className="w-4 h-4" />}
             label="Chamados"
             hint="o que pedimos e o que voltou aplicado"
-            count={resumoChamados.data?.totals?.total}
+            count={resumoChamados.data?.totals?.changes}
           />
         </nav>
       </div>
@@ -424,6 +424,7 @@ interface TicketImportSummary {
   ticketCount: number;
   ignoredRowCount: number;
   unmappedColumns: string[];
+  parameterColumns: string[];
   columnMapping: Record<string, { header: string; match: string; reason: string }>;
   failureReason: string | null;
 }
@@ -433,13 +434,13 @@ interface TicketsResponse {
   imports: TicketImportSummary[];
   totals: TicketTotals | null;
   byParameter: {
-    parameterLabel: string | null;
+    parameterLabel: string;
     attributeCode: string | null;
     count: number;
     impactSum: number | null;
   }[];
   total: number;
-  rows: TicketRow[];
+  rows: TicketChangeRow[];
 }
 
 /** Os nomes dos campos, para a tela explicar o mapeamento sem jargão. */
@@ -458,12 +459,17 @@ const NOMES_DE_CAMPO: Record<string, string> = {
 };
 
 /**
- * Chamados — o que pedimos e o que voltou.
+ * Chamados — os parâmetros que os chamados mexeram.
  *
- * A pergunta desta aba não é "de quanto para quanto", que é a da planilha. É
- * "pedimos X, voltou Y, e demorou quanto". Por isso as colunas são outras, o
- * impacto tem outra régua (aplicado menos pedido, e só depois de atendido), e
- * o tempo de atendimento — que do outro lado não existe — é primeira classe.
+ * O grão é o mesmo da aba Planilha: um parâmetro que mudou. Um chamado que
+ * mexe em oito parâmetros produz oito linhas — o export vem no formato largo,
+ * com dezenas de colunas de parâmetro por linha, e cada célula preenchida é
+ * uma alteração.
+ *
+ * A régua é que é outra. Lá o "antes" é a vigência anterior, apurada célula a
+ * célula; aqui ele é declarado pelo chamado ou lido da vigência em vigor, e a
+ * tela marca qual dos dois. E o impacto só é afirmado depois de o chamado ser
+ * atendido — antes disso existe variação, não dinheiro que mudou de mãos.
  */
 function AbaChamados() {
   const [filters, setFilters] = useState<TicketFilterState>(emptyTicketFilters);
@@ -588,16 +594,20 @@ function AbaChamados() {
 
         {totals && (
           <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6">
-            <Tile label="Chamados" value={totals.total} />
             <Tile
-              label="Ainda em aberto"
+              label="Parâmetros alterados"
+              value={totals.changes}
+              hint={`em ${totals.tickets} chamado${totals.tickets === 1 ? "" : "s"}`}
+            />
+            <Tile
+              label="Chamados em aberto"
               value={totals.stillOpen}
               tone={totals.stillOpen > 0 ? "warn" : "muted"}
             />
             <Tile
-              label="Atendidos com divergência"
+              label="Alterações que variaram"
               value={totals.divergent}
-              hint="aplicado diferente do pedido"
+              hint="agora diferente de antes"
               tone={totals.divergent > 0 ? "bad" : "muted"}
             />
             <TicketImpactTile totals={totals} />
@@ -695,6 +705,37 @@ function AbaChamados() {
           </div>
         )}
 
+        {/* A conta que protege o modo de falha desta leitura: um mapeamento
+            errado não estoura, só produz menos alterações — e "menos" é
+            indistinguível de "o chamado mexeu em pouca coisa" a olho nu. */}
+        {run && run.parameterColumns.length > 0 && totals && (
+          <details className="rounded-md border bg-card px-4 py-3 text-sm">
+            <summary className="cursor-pointer text-muted-foreground">
+              <span className="text-foreground font-medium">
+                {run.parameterColumns.length} colunas de parâmetro
+              </span>{" "}
+              reconhecidas no arquivo, com {totals.changes} células preenchidas
+              em {totals.tickets} chamados
+            </summary>
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {run.parameterColumns.map((coluna) => (
+                <span
+                  key={coluna}
+                  className="rounded border bg-background px-2 py-0.5 font-mono text-xs text-muted-foreground"
+                >
+                  {coluna}
+                </span>
+              ))}
+            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              Uma célula vazia quer dizer que aquele chamado não mexeu naquele
+              parâmetro — é o normal, e por isso nenhuma alteração é criada para
+              ela. As colunas com <span className="font-mono">↔</span> são pares
+              antes/depois que o próprio arquivo trouxe.
+            </p>
+          </details>
+        )}
+
         {run && run.unmappedColumns.length > 0 && (
           <div className="flex gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
             <Columns3 className="w-4 h-4 mt-0.5 shrink-0" />
@@ -752,19 +793,37 @@ function AbaChamados() {
             </CardHeader>
             <CardContent className="flex flex-wrap gap-2">
               {data.byParameter.map((p) => (
-                <div
+                <button
                   key={`${p.parameterLabel}-${p.attributeCode}`}
-                  className="rounded-md border bg-background px-3 py-1.5 text-xs"
+                  onClick={() =>
+                    setFilters({
+                      ...filters,
+                      parameterLabel:
+                        filters.parameterLabel === p.parameterLabel
+                          ? ""
+                          : p.parameterLabel,
+                    })
+                  }
+                  className={cn(
+                    "rounded-md border px-3 py-1.5 text-xs transition-colors",
+                    filters.parameterLabel === p.parameterLabel
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "bg-background hover:bg-muted",
+                  )}
                 >
                   <span className="font-medium">{p.parameterLabel}</span>
-                  <span className="ml-1.5 tabular-nums text-muted-foreground">
+                  <span className="ml-1.5 tabular-nums opacity-70">
                     {p.count}
                   </span>
                   {p.impactSum !== null && p.impactSum !== 0 && (
                     <span
                       className={cn(
                         "ml-1.5 tabular-nums font-mono",
-                        p.impactSum < 0 ? "text-red-700" : "text-emerald-700",
+                        filters.parameterLabel === p.parameterLabel
+                          ? ""
+                          : p.impactSum < 0
+                            ? "text-red-700"
+                            : "text-emerald-700",
                       )}
                     >
                       {p.impactSum > 0 ? "+" : ""}
@@ -775,7 +834,7 @@ function AbaChamados() {
                       })}
                     </span>
                   )}
-                </div>
+                </button>
               ))}
             </CardContent>
           </Card>
@@ -785,19 +844,22 @@ function AbaChamados() {
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="text-base">
-                {data ? `${data.total} chamados` : "Chamados"}
+                {data ? `${data.total} alterações de chamado` : "Alterações de chamado"}
               </CardTitle>
               <p className="text-xs text-muted-foreground">
-                Ordenados por materialidade: primeiro os que têm impacto
-                apurado, depois pelo tamanho da divergência. Nada é omitido por
-                ser pequeno.
+                Uma linha por parâmetro que um chamado mexeu — um chamado que
+                altera oito parâmetros aparece em oito linhas. Ordenadas por
+                materialidade: primeiro o que tem impacto apurado, depois pelo
+                tamanho da variação. Nada é omitido por ser pequeno.
               </p>
             </CardHeader>
             <CardContent className="p-0">
               {query.isLoading && (
                 <p className="p-6 text-sm text-muted-foreground">Lendo…</p>
               )}
-              {data && <TicketTable rows={data.rows} total={data.total} />}
+              {data && (
+                <TicketChangeTable rows={data.rows} total={data.total} />
+              )}
             </CardContent>
           </Card>
         )}
@@ -844,7 +906,7 @@ function TicketImpactTile({ totals }: { totals: TicketTotals }) {
         </div>
       )}
       <div className="text-xs text-muted-foreground mt-0.5">
-        {totals.notCalculable} chamados fora deste valor
+        {totals.notCalculable} alterações fora deste valor
       </div>
     </div>
   );

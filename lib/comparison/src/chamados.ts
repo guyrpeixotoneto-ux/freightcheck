@@ -1,40 +1,57 @@
 import { and, asc, desc, eq, gte, ilike, isNotNull, or, sql, type SQL } from "drizzle-orm";
-import { type Database, ticketImportTable, ticketTable } from "@workspace/db";
+import {
+  type Database,
+  ticketChangeTable,
+  ticketImportTable,
+  ticketTable,
+} from "@workspace/db";
 
 /**
  * Chamados, do lado da leitura.
  *
  * Mora ao lado da comparação de vigências porque as duas respondem à mesma
- * tela — Alterações — e nenhuma das duas escreve nada. O que não acontece aqui
- * é fusão: um chamado nunca vira `change`, e o impacto apurado dos chamados
- * nunca é somado ao da planilha. São duas contas, com réguas diferentes, e a
+ * tela — Alterações — e nenhuma das duas escreve nada. O grão também é o
+ * mesmo: **um parâmetro que mudou**. O que muda é a régua com que se mede.
+ *
+ * O que não acontece aqui é fusão: um chamado nunca vira `change`, e o impacto
+ * apurado dos chamados nunca é somado ao da planilha. São duas contas, e a
  * tela mostra as duas lado a lado sem nunca as adicionar.
  */
 
-export interface TicketRow {
+/** Uma alteração de parâmetro trazida por um chamado. */
+export interface TicketChangeRow {
   id: string;
+  ticketId: string;
+  /** O número do chamado que trouxe esta alteração. */
   externalId: string;
   openedAt: string | null;
   closedAt: string | null;
   statusRaw: string | null;
   statusBucket: string;
-  parameterLabel: string | null;
+  requestedBy: string | null;
+  subject: string | null;
+
+  parameterLabel: string;
   attributeCode: string | null;
   entityLabel: string | null;
   entityType: string | null;
-  requestedValueRaw: string | null;
-  requestedValueNumeric: number | null;
-  appliedValueRaw: string | null;
-  appliedValueNumeric: number | null;
+
+  valueBeforeRaw: string | null;
+  valueBeforeNumeric: number | null;
+  valueAfterRaw: string | null;
+  valueAfterNumeric: number | null;
+  /** ARQUIVO | VIGENCIA | AUSENTE — a força de prova do valor anterior. */
+  beforeSource: string;
+  beforeReference: string | null;
+
+  deltaAbsolute: number | null;
+  deltaPercent: number | null;
   impactAmount: number | null;
   impactConfidence: string;
   impactReason: string | null;
-  requestedBy: string | null;
-  subject: string | null;
-  sourceRowIndex: number;
+
   /** Dias entre abertura e fechamento; com o chamado aberto, até hoje. */
   ageInDays: number | null;
-  /** True enquanto não houver fechamento — o "há quanto tempo espera". */
   stillOpen: boolean;
 }
 
@@ -42,9 +59,11 @@ export interface TicketFilters {
   statusBucket?: string;
   impactConfidence?: string;
   attributeCode?: string;
+  parameterLabel?: string;
+  beforeSource?: string;
   /** Texto livre: número, parâmetro, placa, solicitante ou assunto. */
   search?: string;
-  /** Só o que divergiu — aplicado diferente do pedido. */
+  /** Só o que de fato variou — agora diferente de antes. */
   onlyDivergent?: boolean;
   minAbsImpact?: number;
   limit?: number;
@@ -61,21 +80,25 @@ export interface TicketImportSummary {
   ticketCount: number;
   ignoredRowCount: number;
   unmappedColumns: string[];
+  /** As colunas lidas como parâmetro de remuneração, nomeadas. */
+  parameterColumns: string[];
   columnMapping: Record<string, { header: string; match: string; reason: string }>;
   failureReason: string | null;
 }
 
 export interface TicketTotals {
-  /** Chamados no envio lido, depois dos filtros da tela terem sido ignorados. */
-  total: number;
+  /** Alterações de parâmetro no envio — o número que a lista conta. */
+  changes: number;
+  /** Chamados no envio. Um chamado costuma trazer várias alterações. */
+  tickets: number;
   byStatus: { statusBucket: string; count: number }[];
-  /** Quantos têm impacto apurado, e quanto eles somam. */
+  /** De onde veio o valor anterior de cada alteração. */
+  byBeforeSource: { beforeSource: string; count: number }[];
   calculated: number;
   notCalculable: number;
   impactSum: number;
-  /** Atendidos em que o aplicado veio diferente do pedido. */
+  /** Alterações em que o valor de fato mudou. */
   divergent: number;
-  /** Dias médios entre abertura e fechamento, só dos que fecharam. */
   averageDaysToClose: number | null;
   stillOpen: number;
 }
@@ -126,6 +149,7 @@ function toSummary(row: typeof ticketImportTable.$inferSelect): TicketImportSumm
     ticketCount: row.ticketCount,
     ignoredRowCount: row.ignoredRowCount,
     unmappedColumns: (row.unmappedColumns as string[]) ?? [],
+    parameterColumns: (row.parameterColumns as string[]) ?? [],
     columnMapping:
       (row.columnMapping as TicketImportSummary["columnMapping"]) ?? {},
     failureReason: row.failureReason,
@@ -133,40 +157,51 @@ function toSummary(row: typeof ticketImportTable.$inferSelect): TicketImportSumm
 }
 
 /**
- * A diferença entre pedido e aplicado, em SQL.
+ * "Variou" em SQL.
  *
- * Existe como expressão e não como coluna porque "divergiu" é uma pergunta da
- * tela e não um fato do chamado: um dia se vai querer uma tolerância (centavos
- * de arredondamento não são divergência), e uma coluna gravada teria congelado
- * a régua do dia da importação em cima de dados já lidos.
+ * Existe como expressão e não como coluna porque é uma pergunta da tela e não
+ * um fato da alteração: um dia se vai querer uma tolerância — centavos de
+ * arredondamento não são divergência —, e uma coluna gravada teria congelado a
+ * régua do dia da importação em cima de dados já lidos.
  */
-const DIVERGENT = sql`${ticketTable.impactConfidence} = 'CALCULATED' AND ${ticketTable.impactAmount} <> 0`;
+const DIVERGENT = sql`${ticketChangeTable.deltaAbsolute} IS NOT NULL AND ${ticketChangeTable.deltaAbsolute} <> 0`;
 
 function buildWhere(ticketImportId: string, filters: TicketFilters): SQL | undefined {
-  const parts: (SQL | undefined)[] = [eq(ticketTable.ticketImportId, ticketImportId)];
+  const parts: (SQL | undefined)[] = [
+    eq(ticketChangeTable.ticketImportId, ticketImportId),
+  ];
 
   if (filters.statusBucket) {
     parts.push(eq(ticketTable.statusBucket, filters.statusBucket));
   }
   if (filters.impactConfidence) {
-    parts.push(eq(ticketTable.impactConfidence, filters.impactConfidence));
+    parts.push(eq(ticketChangeTable.impactConfidence, filters.impactConfidence));
   }
   if (filters.attributeCode) {
-    parts.push(eq(ticketTable.attributeCode, filters.attributeCode));
+    parts.push(eq(ticketChangeTable.attributeCode, filters.attributeCode));
+  }
+  if (filters.parameterLabel) {
+    parts.push(eq(ticketChangeTable.parameterLabel, filters.parameterLabel));
+  }
+  if (filters.beforeSource) {
+    parts.push(eq(ticketChangeTable.beforeSource, filters.beforeSource));
   }
   if (filters.onlyDivergent) {
     parts.push(DIVERGENT);
   }
   if (filters.minAbsImpact !== undefined && Number.isFinite(filters.minAbsImpact)) {
-    parts.push(gte(sql`abs(${ticketTable.impactAmount})`, String(filters.minAbsImpact)));
+    parts.push(
+      gte(sql`abs(${ticketChangeTable.deltaAbsolute})`, String(filters.minAbsImpact)),
+    );
   }
   if (filters.search) {
     const needle = `%${filters.search}%`;
     parts.push(
       or(
         ilike(ticketTable.externalId, needle),
-        ilike(ticketTable.parameterLabel, needle),
-        ilike(ticketTable.entityLabel, needle),
+        ilike(ticketChangeTable.parameterLabel, needle),
+        ilike(ticketChangeTable.attributeCode, needle),
+        ilike(ticketChangeTable.entityLabel, needle),
         ilike(ticketTable.requestedBy, needle),
         ilike(ticketTable.subject, needle),
         ilike(ticketTable.statusRaw, needle),
@@ -182,120 +217,160 @@ const num = (value: string | null): number | null =>
 
 const MS_PER_DAY = 86_400_000;
 
+const idade = (openedAt: Date | null, closedAt: Date | null) => {
+  const opened = openedAt?.getTime() ?? null;
+  if (opened === null) return null;
+  return Math.floor(((closedAt?.getTime() ?? Date.now()) - opened) / MS_PER_DAY);
+};
+
 /**
- * Os chamados de um envio, ordenados por materialidade.
+ * As alterações de um envio, ordenadas por materialidade.
  *
  * A mesma ordem da aba Planilha, pelo mesmo motivo: primeiro o que tem impacto
- * apurado, depois pelo tamanho da divergência, e o resto por data de abertura.
- * Nada é omitido por ser pequeno — o filtro de materialidade mínima é uma
- * escolha de quem lê, e nunca um padrão nosso.
+ * apurado, depois pelo tamanho da variação. Nada é omitido por ser pequeno — o
+ * filtro de materialidade mínima é uma escolha de quem lê, e nunca um padrão
+ * nosso.
  */
-export async function listTickets(
+export async function listTicketChanges(
   db: Database,
   ticketImportId: string,
   filters: TicketFilters = {},
-): Promise<{ total: number; rows: TicketRow[] }> {
+): Promise<{ total: number; rows: TicketChangeRow[] }> {
   const where = buildWhere(ticketImportId, filters);
 
   const [count] = await db
     .select({ total: sql<number>`count(*)`.mapWith(Number) })
-    .from(ticketTable)
+    .from(ticketChangeTable)
+    .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
     .where(where);
 
   const rows = await db
-    .select()
-    .from(ticketTable)
+    .select({ c: ticketChangeTable, t: ticketTable })
+    .from(ticketChangeTable)
+    .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
     .where(where)
-    // A ordenação é escrita em SQL cru, e não com `desc(...)`: envolver uma
-    // expressão que já traz `nulls last` produz `... nulls last desc`, que o
-    // Postgres recusa como erro de sintaxe. O `desc` tem de vir antes.
+    // SQL cru: envolver uma expressão que já traz `nulls last` produziria
+    // `... nulls last desc`, que o Postgres recusa. O `desc` vem antes.
     .orderBy(
-      sql`(${ticketTable.impactConfidence} = 'CALCULATED') desc`,
-      sql`abs(coalesce(${ticketTable.impactAmount}, 0)) desc`,
+      sql`(${ticketChangeTable.impactConfidence} = 'CALCULATED') desc`,
+      sql`abs(coalesce(${ticketChangeTable.deltaAbsolute}, 0)) desc`,
       sql`${ticketTable.openedAt} desc nulls last`,
       asc(ticketTable.sourceRowIndex),
+      asc(ticketChangeTable.sourceColumnIndex),
     )
     .limit(Math.min(filters.limit ?? 300, 1000))
     .offset(filters.offset ?? 0);
 
-  const now = Date.now();
   return {
     total: count?.total ?? 0,
-    rows: rows.map((r) => {
-      const opened = r.openedAt?.getTime() ?? null;
-      const closed = r.closedAt?.getTime() ?? null;
-      return {
-        id: r.id,
-        externalId: r.externalId,
-        openedAt: r.openedAt?.toISOString() ?? null,
-        closedAt: r.closedAt?.toISOString() ?? null,
-        statusRaw: r.statusRaw,
-        statusBucket: r.statusBucket,
-        parameterLabel: r.parameterLabel,
-        attributeCode: r.attributeCode,
-        entityLabel: r.entityLabel,
-        entityType: r.entityType,
-        requestedValueRaw: r.requestedValueRaw,
-        requestedValueNumeric: num(r.requestedValueNumeric),
-        appliedValueRaw: r.appliedValueRaw,
-        appliedValueNumeric: num(r.appliedValueNumeric),
-        impactAmount: num(r.impactAmount),
-        impactConfidence: r.impactConfidence,
-        impactReason: r.impactReason,
-        requestedBy: r.requestedBy,
-        subject: r.subject,
-        sourceRowIndex: r.sourceRowIndex,
-        ageInDays:
-          opened === null ? null : Math.floor(((closed ?? now) - opened) / MS_PER_DAY),
-        stillOpen: closed === null,
-      };
-    }),
+    rows: rows.map(({ c, t }) => ({
+      id: c.id,
+      ticketId: c.ticketId,
+      externalId: t.externalId,
+      openedAt: t.openedAt?.toISOString() ?? null,
+      closedAt: t.closedAt?.toISOString() ?? null,
+      statusRaw: t.statusRaw,
+      statusBucket: t.statusBucket,
+      requestedBy: t.requestedBy,
+      subject: t.subject,
+
+      parameterLabel: c.parameterLabel,
+      attributeCode: c.attributeCode,
+      entityLabel: c.entityLabel,
+      entityType: c.entityType,
+
+      valueBeforeRaw: c.valueBeforeRaw,
+      valueBeforeNumeric: num(c.valueBeforeNumeric),
+      valueAfterRaw: c.valueAfterRaw,
+      valueAfterNumeric: num(c.valueAfterNumeric),
+      beforeSource: c.beforeSource,
+      beforeReference: c.beforeReference,
+
+      deltaAbsolute: num(c.deltaAbsolute),
+      deltaPercent: num(c.deltaPercent),
+      impactAmount: num(c.impactAmount),
+      impactConfidence: c.impactConfidence,
+      impactReason: c.impactReason,
+
+      ageInDays: idade(t.openedAt, t.closedAt),
+      stillOpen: t.closedAt === null,
+    })),
   };
 }
 
-/**
- * Um chamado, com a linha do arquivo junto.
- *
- * `payload` só sai por aqui, e nunca pela listagem: é a linha inteira do
- * arquivo, e trezentas delas viajando em toda abertura de tela pagariam por
- * uma leitura que quase ninguém faz.
- */
+/** Um chamado inteiro: o cabeçalho, tudo o que ele mexeu, e a linha de origem. */
 export async function getTicket(
   db: Database,
   id: string,
-): Promise<(TicketRow & { payload: Record<string, unknown> }) | null> {
-  const [r] = await db.select().from(ticketTable).where(eq(ticketTable.id, id));
-  if (!r) return null;
+): Promise<
+  | {
+      id: string;
+      externalId: string;
+      openedAt: string | null;
+      closedAt: string | null;
+      statusRaw: string | null;
+      statusBucket: string;
+      entityLabel: string | null;
+      entityType: string | null;
+      requestedBy: string | null;
+      subject: string | null;
+      changedParameterCount: number;
+      sourceRowIndex: number;
+      ageInDays: number | null;
+      stillOpen: boolean;
+      payload: Record<string, unknown>;
+      changes: {
+        parameterLabel: string;
+        attributeCode: string | null;
+        valueBeforeRaw: string | null;
+        valueAfterRaw: string | null;
+        beforeSource: string;
+        beforeReference: string | null;
+        deltaAbsolute: number | null;
+        impactAmount: number | null;
+        impactConfidence: string;
+        impactReason: string | null;
+      }[];
+    }
+  | null
+> {
+  const [t] = await db.select().from(ticketTable).where(eq(ticketTable.id, id));
+  if (!t) return null;
 
-  const opened = r.openedAt?.getTime() ?? null;
-  const closed = r.closedAt?.getTime() ?? null;
+  const changes = await db
+    .select()
+    .from(ticketChangeTable)
+    .where(eq(ticketChangeTable.ticketId, id))
+    .orderBy(asc(ticketChangeTable.sourceColumnIndex));
+
   return {
-    id: r.id,
-    externalId: r.externalId,
-    openedAt: r.openedAt?.toISOString() ?? null,
-    closedAt: r.closedAt?.toISOString() ?? null,
-    statusRaw: r.statusRaw,
-    statusBucket: r.statusBucket,
-    parameterLabel: r.parameterLabel,
-    attributeCode: r.attributeCode,
-    entityLabel: r.entityLabel,
-    entityType: r.entityType,
-    requestedValueRaw: r.requestedValueRaw,
-    requestedValueNumeric: num(r.requestedValueNumeric),
-    appliedValueRaw: r.appliedValueRaw,
-    appliedValueNumeric: num(r.appliedValueNumeric),
-    impactAmount: num(r.impactAmount),
-    impactConfidence: r.impactConfidence,
-    impactReason: r.impactReason,
-    requestedBy: r.requestedBy,
-    subject: r.subject,
-    sourceRowIndex: r.sourceRowIndex,
-    ageInDays:
-      opened === null
-        ? null
-        : Math.floor(((closed ?? Date.now()) - opened) / MS_PER_DAY),
-    stillOpen: closed === null,
-    payload: (r.payload as Record<string, unknown>) ?? {},
+    id: t.id,
+    externalId: t.externalId,
+    openedAt: t.openedAt?.toISOString() ?? null,
+    closedAt: t.closedAt?.toISOString() ?? null,
+    statusRaw: t.statusRaw,
+    statusBucket: t.statusBucket,
+    entityLabel: t.entityLabel,
+    entityType: t.entityType,
+    requestedBy: t.requestedBy,
+    subject: t.subject,
+    changedParameterCount: t.changedParameterCount,
+    sourceRowIndex: t.sourceRowIndex,
+    ageInDays: idade(t.openedAt, t.closedAt),
+    stillOpen: t.closedAt === null,
+    payload: (t.payload as Record<string, unknown>) ?? {},
+    changes: changes.map((c) => ({
+      parameterLabel: c.parameterLabel,
+      attributeCode: c.attributeCode,
+      valueBeforeRaw: c.valueBeforeRaw,
+      valueAfterRaw: c.valueAfterRaw,
+      beforeSource: c.beforeSource,
+      beforeReference: c.beforeReference,
+      deltaAbsolute: num(c.deltaAbsolute),
+      impactAmount: num(c.impactAmount),
+      impactConfidence: c.impactConfidence,
+      impactReason: c.impactReason,
+    })),
   };
 }
 
@@ -303,28 +378,36 @@ export async function getTicket(
  * Os totais do envio inteiro — sem filtro nenhum.
  *
  * De propósito: os cartões do topo dizem o tamanho do assunto, e um cartão que
- * encolhe quando se clica num chip deixa de responder "quantos chamados
- * existem" para responder "quantos sobraram", que é a pergunta que a contagem
+ * encolhe ao se clicar num chip deixa de responder "quantas alterações
+ * existem" para responder "quantas sobraram", que é a pergunta que a contagem
  * da tabela já responde logo abaixo.
  */
 export async function getTicketTotals(
   db: Database,
   ticketImportId: string,
 ): Promise<TicketTotals> {
-  const scope = eq(ticketTable.ticketImportId, ticketImportId);
+  const escopoChanges = eq(ticketChangeTable.ticketImportId, ticketImportId);
+  const escopoTickets = eq(ticketTable.ticketImportId, ticketImportId);
 
   const [agg] = await db
     .select({
-      total: sql<number>`count(*)`.mapWith(Number),
-      calculated: sql<number>`count(*) filter (where ${ticketTable.impactConfidence} = 'CALCULATED')`.mapWith(Number),
-      notCalculable: sql<number>`count(*) filter (where ${ticketTable.impactConfidence} <> 'CALCULATED')`.mapWith(Number),
-      impactSum: sql<string | null>`sum(${ticketTable.impactAmount}) filter (where ${ticketTable.impactConfidence} = 'CALCULATED')`,
+      changes: sql<number>`count(*)`.mapWith(Number),
+      calculated: sql<number>`count(*) filter (where ${ticketChangeTable.impactConfidence} = 'CALCULATED')`.mapWith(Number),
+      notCalculable: sql<number>`count(*) filter (where ${ticketChangeTable.impactConfidence} <> 'CALCULATED')`.mapWith(Number),
+      impactSum: sql<string | null>`sum(${ticketChangeTable.impactAmount}) filter (where ${ticketChangeTable.impactConfidence} = 'CALCULATED')`,
       divergent: sql<number>`count(*) filter (where ${DIVERGENT})`.mapWith(Number),
+    })
+    .from(ticketChangeTable)
+    .where(escopoChanges);
+
+  const [chamados] = await db
+    .select({
+      tickets: sql<number>`count(*)`.mapWith(Number),
       stillOpen: sql<number>`count(*) filter (where ${ticketTable.closedAt} is null)`.mapWith(Number),
       avgDays: sql<string | null>`avg(extract(epoch from (${ticketTable.closedAt} - ${ticketTable.openedAt})) / 86400) filter (where ${ticketTable.closedAt} is not null and ${ticketTable.openedAt} is not null)`,
     })
     .from(ticketTable)
-    .where(scope);
+    .where(escopoTickets);
 
   const byStatus = await db
     .select({
@@ -332,27 +415,42 @@ export async function getTicketTotals(
       count: sql<number>`count(*)`.mapWith(Number),
     })
     .from(ticketTable)
-    .where(scope)
+    .where(escopoTickets)
     .groupBy(ticketTable.statusBucket)
     .orderBy(desc(sql`count(*)`));
 
+  const byBeforeSource = await db
+    .select({
+      beforeSource: ticketChangeTable.beforeSource,
+      count: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(ticketChangeTable)
+    .where(escopoChanges)
+    .groupBy(ticketChangeTable.beforeSource)
+    .orderBy(desc(sql`count(*)`));
+
   return {
-    total: agg?.total ?? 0,
+    changes: agg?.changes ?? 0,
+    tickets: chamados?.tickets ?? 0,
     byStatus,
+    byBeforeSource,
     calculated: agg?.calculated ?? 0,
     notCalculable: agg?.notCalculable ?? 0,
-    impactSum: agg?.impactSum === null || agg?.impactSum === undefined ? 0 : Number(agg.impactSum),
+    impactSum:
+      agg?.impactSum === null || agg?.impactSum === undefined
+        ? 0
+        : Number(agg.impactSum),
     divergent: agg?.divergent ?? 0,
     averageDaysToClose:
-      agg?.avgDays === null || agg?.avgDays === undefined
+      chamados?.avgDays === null || chamados?.avgDays === undefined
         ? null
-        : Math.round(Number(agg.avgDays) * 10) / 10,
-    stillOpen: agg?.stillOpen ?? 0,
+        : Math.round(Number(chamados.avgDays) * 10) / 10,
+    stillOpen: chamados?.stillOpen ?? 0,
   };
 }
 
 /**
- * Os parâmetros mais citados pelos chamados deste envio.
+ * Os parâmetros que os chamados mais mexeram.
  *
  * É o que liga as duas abas: um parâmetro que aparece em vinte chamados **e**
  * numa alteração de planilha é a mesma história contada dos dois lados. O
@@ -362,10 +460,10 @@ export async function getTicketTotals(
 export async function getTicketsByParameter(
   db: Database,
   ticketImportId: string,
-  limit = 12,
+  limit = 15,
 ): Promise<
   {
-    parameterLabel: string | null;
+    parameterLabel: string;
     attributeCode: string | null;
     count: number;
     impactSum: number | null;
@@ -373,16 +471,19 @@ export async function getTicketsByParameter(
 > {
   const rows = await db
     .select({
-      parameterLabel: ticketTable.parameterLabel,
-      attributeCode: ticketTable.attributeCode,
+      parameterLabel: ticketChangeTable.parameterLabel,
+      attributeCode: ticketChangeTable.attributeCode,
       count: sql<number>`count(*)`.mapWith(Number),
-      impactSum: sql<string | null>`sum(${ticketTable.impactAmount}) filter (where ${ticketTable.impactConfidence} = 'CALCULATED')`,
+      impactSum: sql<string | null>`sum(${ticketChangeTable.impactAmount}) filter (where ${ticketChangeTable.impactConfidence} = 'CALCULATED')`,
     })
-    .from(ticketTable)
+    .from(ticketChangeTable)
     .where(
-      and(eq(ticketTable.ticketImportId, ticketImportId), isNotNull(ticketTable.parameterLabel)),
+      and(
+        eq(ticketChangeTable.ticketImportId, ticketImportId),
+        isNotNull(ticketChangeTable.parameterLabel),
+      ),
     )
-    .groupBy(ticketTable.parameterLabel, ticketTable.attributeCode)
+    .groupBy(ticketChangeTable.parameterLabel, ticketChangeTable.attributeCode)
     .orderBy(desc(sql`count(*)`))
     .limit(limit);
 

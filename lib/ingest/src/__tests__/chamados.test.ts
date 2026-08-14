@@ -3,12 +3,15 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  computeTicketImpact,
+  computeParameterMovement,
+  detectLayout,
   normalizeStatus,
   parseTicketDate,
   parseTicketNumber,
+  planParameterColumns,
   planTicketColumns,
   readTicketWorkbook,
+  splitParameterRole,
 } from "../chamados";
 
 /** Um CSV em disco, para exercitar o leitor sem depender de um .xlsx binário. */
@@ -260,46 +263,192 @@ describe("normalizeStatus", () => {
   });
 });
 
-describe("computeTicketImpact", () => {
-  it("apura aplicado menos pedido quando o chamado já foi atendido", () => {
-    const impacto = computeTicketImpact(1000, 800, "ATENDIDO", "1000", "800");
-    expect(impacto.confidence).toBe("CALCULATED");
-    expect(impacto.amount).toBe(-200);
+describe("detectLayout", () => {
+  it("é estreito quando existe uma coluna Parâmetro", () => {
+    expect(detectLayout(["Nº do chamado", "Parâmetro", "Valor pedido"])).toBe(
+      "NARROW",
+    );
+    expect(detectLayout(["Chamado", "Atributo", "Valor aplicado"])).toBe("NARROW");
   });
 
-  it("segura o número enquanto o chamado não fechou", () => {
-    // Um valor aplicado provisório é um número que muda sozinho na tela, o que
-    // é pior do que não ter número.
-    const impacto = computeTicketImpact(1000, 800, "EM_ANDAMENTO", "1000", "800");
-    expect(impacto.confidence).toBe("NOT_CALCULABLE");
-    expect(impacto.amount).toBeNull();
-    expect(impacto.reason).toMatch(/ainda não foi atendido/);
+  it("é largo quando os parâmetros estão nos cabeçalhos", () => {
+    expect(detectLayout(["Nº do chamado", "Pedágio", "pneuMensal"])).toBe("WIDE");
   });
 
-  it("diz qual dos dois valores faltou, e não só que faltou", () => {
+  it("não vira estreito por causa de um parâmetro que contém uma palavra conhecida", () => {
+    /*
+      O defeito real que este caso trava. Num export largo de verdade existe a
+      coluna "Custo Variável Simulado", que *contém* "variável" — um dos nomes
+      conhecidos da coluna `Parâmetro`. Por aproximação ela era tomada por
+      aquele campo, o arquivo inteiro passava a ser lido como estreito, e o
+      resultado não era um erro: era zero alteração, em silêncio, num arquivo
+      cheio delas.
+    */
     expect(
-      computeTicketImpact(null, 800, "ATENDIDO", null, "800").reason,
-    ).toMatch(/não trouxe valor pedido/);
-    expect(
-      computeTicketImpact(1000, null, "ATENDIDO", "1000", null).reason,
-    ).toMatch(/não trouxe valor aplicado/);
+      detectLayout(["Nº do chamado", "Custo Variável Simulado", "Spread BNDES"]),
+    ).toBe("WIDE");
+    expect(detectLayout(["Chamado", "Campo de atuação", "Item de frota"])).toBe(
+      "WIDE",
+    );
+  });
+});
+
+describe("planTicketColumns com régua de cobertura", () => {
+  const largo = { minCoverage: 0.5 };
+
+  it("não deixa um alias curto reclamar um cabeçalho comprido", () => {
+    const plan = planTicketColumns(
+      ["Nº do chamado", "Custo Variável Simulado"],
+      largo,
+    );
+    expect(plan.bindings.parameterLabel).toBeUndefined();
+    expect(plan.unmapped).toContain("Custo Variável Simulado");
+  });
+
+  it("continua aceitando a aproximação que cobre metade do cabeçalho", () => {
+    const plan = planTicketColumns(
+      ["Nº do chamado", "Data de abertura do chamado"],
+      largo,
+    );
+    expect(plan.bindings.openedAt?.header).toBe("Data de abertura do chamado");
+  });
+
+  it("sem régua, a aproximação frouxa continua valendo — é o formato estreito", () => {
+    const plan = planTicketColumns([
+      "Nº do chamado",
+      "Valor pedido pelo transportador",
+    ]);
+    expect(plan.bindings.requestedValueRaw?.header).toBe(
+      "Valor pedido pelo transportador",
+    );
+  });
+});
+
+describe("splitParameterRole", () => {
+  it("separa o marcador de lado do nome do parâmetro", () => {
+    expect(splitParameterRole("Pedágio (antes)")).toEqual({
+      base: "pedagio",
+      role: "antes",
+    });
+    expect(splitParameterRole("Pedágio - Novo")).toEqual({
+      base: "pedagio",
+      role: "depois",
+    });
+    expect(splitParameterRole("Valor anterior Pneu")).toEqual({
+      base: "valor pneu",
+      role: "antes",
+    });
+  });
+
+  it("só casa palavra inteira", () => {
+    // "novo" dentro de "Renovação" não é marcador de lado nenhum.
+    expect(splitParameterRole("Renovação de frota").role).toBeNull();
+  });
+
+  it("não trata um cabeçalho sem parâmetro como lado de coisa alguma", () => {
+    expect(splitParameterRole("Anterior").role).toBeNull();
+  });
+
+  it("deixa de fora os marcadores ambíguos", () => {
+    // "de" e "para" seriam os mais naturais em português, e é por isso que
+    // estão fora: "Valor de pedágio" viraria o lado anterior de um parâmetro
+    // chamado "Valor pedágio", e o engano pareceria um par bem formado.
+    expect(splitParameterRole("Valor de pedágio").role).toBeNull();
+    expect(splitParameterRole("Ajuste para pedágio").role).toBeNull();
+  });
+});
+
+describe("planParameterColumns", () => {
+  const semCampos = {};
+
+  it("trata toda coluna não reconhecida como parâmetro no formato largo", () => {
+    const headers = ["Pedágio", "Pneu", "Finame"];
+    const colunas = planParameterColumns(headers, semCampos);
+    expect(colunas.map((c) => c.label)).toEqual(["Pedágio", "Pneu", "Finame"]);
+    expect(colunas.every((c) => c.beforeIndex === null)).toBe(true);
+  });
+
+  it("junta as duas pontas de um mesmo parâmetro num par só", () => {
+    const headers = ["Pedágio (antes)", "Pedágio (novo)", "Pneu"];
+    const colunas = planParameterColumns(headers, semCampos);
+    expect(colunas).toHaveLength(2);
+    const par = colunas.find((c) => c.label === "pedagio");
+    expect(par?.beforeIndex).toBe(0);
+    expect(par?.afterIndex).toBe(1);
+    expect(par?.beforeHeader).toBe("Pedágio (antes)");
+  });
+
+  it("não desmonta um cabeçalho quando a outra ponta não existe", () => {
+    // Sem o par não há como saber se "novo" era marcador de lado ou parte do
+    // nome — e apagar a palavra por conta própria renomearia um parâmetro do
+    // cliente.
+    const colunas = planParameterColumns(["Pedágio (novo)", "Pneu"], semCampos);
+    expect(colunas.map((c) => c.label)).toEqual(["Pedágio (novo)", "Pneu"]);
+    expect(colunas[0].beforeIndex).toBeNull();
+  });
+
+  it("não toma as colunas do chamado por parâmetro", () => {
+    const headers = ["Nº do chamado", "Status", "Pedágio"];
+    const plan = planTicketColumns(headers);
+    const colunas = planParameterColumns(headers, plan.bindings);
+    expect(colunas.map((c) => c.label)).toEqual(["Pedágio"]);
+  });
+});
+
+describe("computeParameterMovement", () => {
+  it("apura variação e impacto quando o chamado já foi atendido", () => {
+    const m = computeParameterMovement(1000, 800, "ATENDIDO", "1000", "800", "ARQUIVO");
+    expect(m.deltaAbsolute).toBe(-200);
+    expect(m.deltaPercent).toBe(-20);
+    expect(m.impactConfidence).toBe("CALCULATED");
+    expect(m.impactAmount).toBe(-200);
+  });
+
+  it("mostra a variação mas segura o impacto enquanto o chamado corre", () => {
+    // A distinção que faz esta tela servir para chamado aberto: a variação é
+    // aritmética e vale já; o impacto é afirmação sobre dinheiro que mudou de
+    // mãos, e essa ainda não pode ser feita.
+    const m = computeParameterMovement(1000, 800, "EM_ANDAMENTO", "1000", "800", "ARQUIVO");
+    expect(m.deltaAbsolute).toBe(-200);
+    expect(m.impactAmount).toBeNull();
+    expect(m.impactConfidence).toBe("NOT_CALCULABLE");
+    expect(m.impactReason).toMatch(/ainda não foi atendido/);
+  });
+
+  it("explica a ausência de antes pela procedência que faltou", () => {
+    const m = computeParameterMovement(null, 800, "ATENDIDO", null, "800", "AUSENTE");
+    expect(m.impactReason).toMatch(/vigência em vigor não tem este parâmetro/);
   });
 
   it("cita o texto quando o valor existia mas não era número", () => {
-    const impacto = computeTicketImpact(
+    const m = computeParameterMovement(
       1000,
       null,
       "ATENDIDO",
       "1000",
       "sob análise",
+      "VIGENCIA",
     );
-    expect(impacto.confidence).toBe("NOT_CALCULABLE");
-    expect(impacto.reason).toContain("sob análise");
+    expect(m.impactConfidence).toBe("NOT_CALCULABLE");
+    expect(m.impactReason).toContain("sob análise");
   });
 
-  it("apura zero como zero — atendido pelo que se pediu é um fato", () => {
-    const impacto = computeTicketImpact(500, 500, "ATENDIDO", "500", "500");
-    expect(impacto.confidence).toBe("CALCULATED");
-    expect(impacto.amount).toBe(0);
+  it("apura zero como zero — atendido pelo valor que já valia é um fato", () => {
+    const m = computeParameterMovement(500, 500, "ATENDIDO", "500", "500", "VIGENCIA");
+    expect(m.impactConfidence).toBe("CALCULATED");
+    expect(m.impactAmount).toBe(0);
+  });
+
+  it("não divide por zero para inventar um percentual", () => {
+    // Sair de zero é informação real, e quem a dá são os próprios valores —
+    // não um ∞ na coluna de variação.
+    const m = computeParameterMovement(0, 300, "ATENDIDO", "0", "300", "VIGENCIA");
+    expect(m.deltaAbsolute).toBe(300);
+    expect(m.deltaPercent).toBeNull();
+  });
+
+  it("diz que a diferença é contra a vigência quando o antes veio de lá", () => {
+    const m = computeParameterMovement(900, 1000, "ATENDIDO", "900", "1000", "VIGENCIA");
+    expect(m.impactReason).toMatch(/vigência em vigor/);
   });
 });

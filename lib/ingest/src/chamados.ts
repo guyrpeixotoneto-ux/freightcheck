@@ -5,6 +5,7 @@ import { eq, and, sql } from "drizzle-orm";
 import {
   type Database,
   attributeTable,
+  ticketChangeTable,
   ticketImportTable,
   ticketTable,
 } from "@workspace/db";
@@ -24,6 +25,16 @@ import { foldText, slugifyColumn } from "./workbook";
  * reconhece, **escrever por que** se reconheceu, listar o que sobrou sem
  * destino, e guardar a linha inteira do arquivo em `payload` — de modo que um
  * mapeamento errado seja corrigível depois sem o arquivo original na mão.
+ *
+ * **Dois formatos, e o largo é o normal.** O export costuma vir como a planilha
+ * de vigência: uma linha por chamado, e dezenas de colunas de parâmetro de
+ * remuneração ao lado, preenchidas só onde aquele chamado mexeu. Cada célula
+ * preenchida vira uma linha de `ticket_change` — é assim que um chamado que
+ * altera oito parâmetros produz oito alterações em vez de sete perdidas.
+ *
+ * O formato estreito — colunas `Parâmetro`, `Valor pedido`, `Valor aplicado` —
+ * continua sendo lido, e produz uma alteração por linha. Qual dos dois está na
+ * frente se decide por uma pergunta só: existe uma coluna `Parâmetro`?
  */
 
 // ---------------------------------------------------------------------------
@@ -198,7 +209,28 @@ export interface ColumnPlan {
  * `aplicado` ao mesmo tempo por aproximação, e o segundo campo ficaria vazio
  * apontando para a coluna do primeiro.
  */
-export function planTicketColumns(headers: (string | null)[]): ColumnPlan {
+export interface PlanOptions {
+  /** Que campos disputar. O padrão é todos. */
+  fields?: TicketField[];
+  /**
+   * Quanto do cabeçalho o alias precisa cobrir para valer como aproximação.
+   *
+   * Existe por causa do formato largo, onde toda coluna não reclamada por um
+   * campo é um parâmetro de remuneração de verdade. Sem esta régua, um
+   * parâmetro chamado "Custo Variável Simulado" era tomado pelo campo
+   * `parameterLabel` — porque contém "variável" —, e o arquivo inteiro passava
+   * a ser lido como se fosse do formato estreito. O efeito não era um erro: era
+   * zero alteração, em silêncio, num arquivo cheio delas.
+   */
+  minCoverage?: number;
+}
+
+export function planTicketColumns(
+  headers: (string | null)[],
+  options: PlanOptions = {},
+): ColumnPlan {
+  const fields = options.fields ?? FIELDS;
+  const minCoverage = options.minCoverage ?? 0;
   const bindings: Partial<Record<TicketField, ColumnBinding>> = {};
   const taken = new Set<number>();
 
@@ -212,7 +244,7 @@ export function planTicketColumns(headers: (string | null)[]): ColumnPlan {
       Boolean(c.header && c.folded),
     );
 
-  for (const field of FIELDS) {
+  for (const field of fields) {
     const hit = candidates.find(
       (c) => !taken.has(c.index) && ALIASES[field].includes(c.folded),
     );
@@ -226,7 +258,7 @@ export function planTicketColumns(headers: (string | null)[]): ColumnPlan {
     taken.add(hit.index);
   }
 
-  for (const field of FIELDS) {
+  for (const field of fields) {
     if (bindings[field]) continue;
     let found: { c: (typeof candidates)[number]; alias: string } | undefined;
     for (const c of candidates) {
@@ -235,7 +267,9 @@ export function planTicketColumns(headers: (string | null)[]): ColumnPlan {
       // para o cabeçalho casar com o nome mais específico que o descreve.
       const alias = [...ALIASES[field]]
         .sort((a, b) => b.length - a.length)
-        .find((a) => c.folded.includes(a));
+        .find(
+          (a) => c.folded.includes(a) && a.length >= c.folded.length * minCoverage,
+        );
       if (alias) {
         found = { c, alias };
         break;
@@ -255,6 +289,205 @@ export function planTicketColumns(headers: (string | null)[]): ColumnPlan {
     bindings,
     unmapped: candidates.filter((c) => !taken.has(c.index)).map((c) => c.header),
   };
+}
+
+// ---------------------------------------------------------------------------
+// As colunas de parâmetro
+// ---------------------------------------------------------------------------
+
+/**
+ * Os três campos que só existem no formato estreito.
+ *
+ * A presença de `parameterLabel` é o que decide o formato: com ela, cada linha
+ * do arquivo descreve um parâmetro e o nome dele está numa célula. Sem ela, o
+ * nome do parâmetro está no **cabeçalho**, e são as dezenas de colunas
+ * restantes que carregam os valores.
+ */
+const NARROW_FIELDS: TicketField[] = [
+  "parameterLabel",
+  "requestedValueRaw",
+  "appliedValueRaw",
+];
+
+/** Os campos que descrevem o chamado, e valem nos dois formatos. */
+const TICKET_FIELDS: TicketField[] = FIELDS.filter(
+  (f) => !NARROW_FIELDS.includes(f),
+);
+
+/**
+ * Em que formato este arquivo está.
+ *
+ * A decisão exige **igualdade**, nunca aproximação, e a razão é um defeito
+ * real: num export largo de verdade existe uma coluna chamada "Custo Variável
+ * Simulado", que *contém* "variável" — um dos nomes conhecidos da coluna
+ * `Parâmetro`. Por aproximação ela era tomada por aquele campo, o arquivo
+ * inteiro passava a ser lido como estreito, e o resultado não era um erro: era
+ * zero alteração, em silêncio, num arquivo cheio delas.
+ *
+ * Igualdade é a régua certa aqui porque, no formato estreito, essa coluna se
+ * chama "Parâmetro" ou "Atributo" e ponto. Quem escreve o nome do parâmetro
+ * numa célula não inventa nome para a coluna que o contém.
+ */
+export function detectLayout(headers: (string | null)[]): "WIDE" | "NARROW" {
+  const nomes = ALIASES.parameterLabel;
+  return headers.some((h) => h && nomes.includes(foldHeader(h)))
+    ? "NARROW"
+    : "WIDE";
+}
+
+/**
+ * Quanto um alias precisa cobrir do cabeçalho para valer, no formato largo.
+ *
+ * Metade. "Data de abertura do chamado" continua casando com "data de
+ * abertura" (16 de 27 caracteres); "Custo Variável Simulado" deixa de casar
+ * com "variavel" (8 de 23). No formato estreito não há régua: lá as colunas
+ * restantes não são parâmetros, e um casamento frouxo não rouba nada de
+ * ninguém.
+ */
+const WIDE_MIN_COVERAGE = 0.5;
+
+/**
+ * As palavras com que um cabeçalho declara ser o lado "antes" ou o lado
+ * "depois" de um mesmo parâmetro.
+ *
+ * Só marcadores inequívocos entram. "de" e "para" seriam os mais naturais em
+ * português e estão fora justamente por isso: "Valor **de** pedágio" viraria o
+ * lado anterior de um parâmetro chamado "Valor pedágio", e o erro passaria
+ * despercebido porque o resultado *parece* um par bem formado.
+ */
+const ROLE_WORDS = {
+  antes: ["antes", "anterior", "atual", "vigente", "antigo", "antiga", "old", "before"],
+  depois: [
+    "depois",
+    "novo",
+    "nova",
+    "solicitado",
+    "solicitada",
+    "pedido",
+    "pedida",
+    "aplicado",
+    "aplicada",
+    "atendido",
+    "atendida",
+    "proposto",
+    "proposta",
+    "new",
+    "after",
+  ],
+} as const;
+
+export type ParameterRole = "antes" | "depois";
+
+/** O cabeçalho sem o marcador de lado, e o lado que ele declarava. */
+export function splitParameterRole(header: string): {
+  base: string;
+  role: ParameterRole | null;
+} {
+  const folded = foldHeader(header);
+  for (const role of ["depois", "antes"] as const) {
+    for (const word of ROLE_WORDS[role]) {
+      // Palavra inteira: "novo" casa em "Pedágio (novo)" e não em "Renovação".
+      const re = new RegExp(`(^|[^a-z0-9])${word}($|[^a-z0-9])`);
+      if (!re.test(folded)) continue;
+      const base = folded
+        .replace(re, " ")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim();
+      // Um cabeçalho que *só* tem o marcador ("Anterior") não nomeia
+      // parâmetro nenhum; nesse caso ele não é lado de coisa alguma.
+      return base === "" ? { base: folded, role: null } : { base, role };
+    }
+  }
+  return { base: folded, role: null };
+}
+
+/** Uma coluna de parâmetro do arquivo, já sabendo se faz par com outra. */
+export interface ParameterColumn {
+  /** O nome que a tela mostra — sem o marcador de lado quando há par. */
+  label: string;
+  /** A coluna com o valor novo. Sempre existe. */
+  afterIndex: number;
+  /** A coluna com o valor anterior, quando o arquivo trouxe as duas. */
+  beforeIndex: number | null;
+  /** Os cabeçalhos originais, para a tela poder mostrar de onde saiu. */
+  afterHeader: string;
+  beforeHeader: string | null;
+}
+
+/**
+ * As colunas de parâmetro de um arquivo largo, com os pares já juntados.
+ *
+ * Tudo o que não é campo do chamado é parâmetro: no formato largo não existe
+ * "coluna não reconhecida", porque o nome do parâmetro é livre por natureza —
+ * é o cadastro do Freightech, e ele ganha coluna nova sem avisar ninguém.
+ *
+ * Duas colunas viram um par só quando **as duas pontas existem**. Um "Pedágio
+ * (novo)" sozinho continua sendo uma coluna comum, com o cabeçalho inteiro
+ * como nome: sem a outra ponta não há como saber se "novo" era um marcador de
+ * lado ou parte do nome do parâmetro, e apagar a palavra por conta própria
+ * renomearia um parâmetro do cliente.
+ */
+export function planParameterColumns(
+  headers: (string | null)[],
+  bindings: Partial<Record<TicketField, ColumnBinding>>,
+): ParameterColumn[] {
+  const taken = new Set(Object.values(bindings).map((b) => b.index));
+  const livres = headers
+    .map((header, index) => ({ header, index }))
+    .filter((c): c is { header: string; index: number } =>
+      Boolean(c.header) && !taken.has(c.index),
+    );
+
+  /** base → { antes?, depois? } */
+  const porBase = new Map<
+    string,
+    Partial<Record<ParameterRole, { header: string; index: number }>>
+  >();
+  for (const c of livres) {
+    const { base, role } = splitParameterRole(c.header);
+    if (!role) continue;
+    const slot = porBase.get(base) ?? {};
+    // O primeiro de cada lado fica; um terceiro cabeçalho que casasse com o
+    // mesmo lado não tem como ser desempatado, e sobrescrever seria escolher
+    // ao acaso.
+    if (!slot[role]) slot[role] = { header: c.header, index: c.index };
+    porBase.set(base, slot);
+  }
+
+  const pares = new Map<number, ParameterColumn>();
+  for (const [base, slot] of porBase) {
+    if (!slot.antes || !slot.depois) continue;
+    const coluna: ParameterColumn = {
+      label: base,
+      afterIndex: slot.depois.index,
+      beforeIndex: slot.antes.index,
+      afterHeader: slot.depois.header,
+      beforeHeader: slot.antes.header,
+    };
+    pares.set(slot.depois.index, coluna);
+    pares.set(slot.antes.index, coluna);
+  }
+
+  const resultado: ParameterColumn[] = [];
+  const jaEmitidos = new Set<ParameterColumn>();
+  for (const c of livres) {
+    const par = pares.get(c.index);
+    if (par) {
+      if (!jaEmitidos.has(par)) {
+        jaEmitidos.add(par);
+        resultado.push(par);
+      }
+      continue;
+    }
+    resultado.push({
+      label: c.header,
+      afterIndex: c.index,
+      beforeIndex: null,
+      afterHeader: c.header,
+      beforeHeader: null,
+    });
+  }
+  return resultado;
 }
 
 // ---------------------------------------------------------------------------
@@ -425,61 +658,94 @@ export function normalizeStatus(raw: unknown): StatusBucket {
   return "DESCONHECIDO";
 }
 
-/** Impacto de um chamado: o que voltou menos o que se pediu. */
-export interface TicketImpact {
-  amount: number | null;
-  confidence: "CALCULATED" | "NOT_CALCULABLE";
-  reason: string;
+/** De onde saiu o valor anterior de um parâmetro. */
+export type BeforeSource = "ARQUIVO" | "VIGENCIA" | "AUSENTE";
+
+/** A variação de um parâmetro, e o quanto dela pode ser afirmado. */
+export interface ParameterMovement {
+  /** `agora − antes`. Existe mesmo com o chamado ainda aberto. */
+  deltaAbsolute: number | null;
+  deltaPercent: number | null;
+  /** A variação já aplicada. Só existe com o chamado atendido. */
+  impactAmount: number | null;
+  impactConfidence: "CALCULATED" | "NOT_CALCULABLE";
+  impactReason: string;
 }
 
 /**
  * A mesma porta que a aba Planilha usa, com a régua deste lado.
  *
- * O impacto de um chamado é `aplicado − pedido`: negativo quer dizer que voltou
- * menos do que se pediu. Ele só é apurado quando o chamado **já foi atendido**
- * — enquanto está em andamento o valor aplicado ainda pode mudar, e um número
- * que muda sozinho na tela é pior do que nenhum. O motivo da recusa é sempre
- * escrito, porque "não calculável" sem explicação é o mesmo que esconder.
+ * **Variação e impacto não são a mesma coisa**, e separá-los é o que permite
+ * mostrar alguma coisa sobre um chamado que ainda corre. A variação é
+ * aritmética: `agora − antes`, e vale desde que os dois lados sejam números.
+ * O impacto é uma afirmação sobre dinheiro que já mudou de mãos, e por isso só
+ * existe com o chamado **atendido** — enquanto ele corre, o valor ainda pode
+ * mudar, e um número que se altera sozinho na tela é pior do que nenhum.
+ *
+ * O motivo da recusa é sempre escrito: "não calculável" sem explicação é o
+ * mesmo que esconder.
  */
-export function computeTicketImpact(
-  requested: number | null,
-  applied: number | null,
+export function computeParameterMovement(
+  before: number | null,
+  after: number | null,
   bucket: StatusBucket,
-  requestedRaw: string | null,
-  appliedRaw: string | null,
-): TicketImpact {
-  if (requested === null) {
+  beforeRaw: string | null,
+  afterRaw: string | null,
+  beforeSource: BeforeSource,
+): ParameterMovement {
+  if (before === null) {
     return {
-      amount: null,
-      confidence: "NOT_CALCULABLE",
-      reason:
-        requestedRaw && requestedRaw.trim() !== ""
-          ? `o valor pedido ("${requestedRaw}") não é um número`
-          : "o arquivo não trouxe valor pedido para este chamado",
+      deltaAbsolute: null,
+      deltaPercent: null,
+      impactAmount: null,
+      impactConfidence: "NOT_CALCULABLE",
+      impactReason:
+        beforeSource === "AUSENTE"
+          ? "não há valor anterior: o chamado não trouxe um, e a vigência em vigor não tem este parâmetro para este ativo"
+          : beforeRaw && beforeRaw.trim() !== ""
+            ? `o valor anterior ("${beforeRaw}") não é um número`
+            : "o valor anterior deste parâmetro não é um número",
     };
   }
-  if (applied === null) {
+  if (after === null) {
     return {
-      amount: null,
-      confidence: "NOT_CALCULABLE",
-      reason:
-        appliedRaw && appliedRaw.trim() !== ""
-          ? `o valor aplicado ("${appliedRaw}") não é um número`
-          : "o arquivo não trouxe valor aplicado para este chamado",
+      deltaAbsolute: null,
+      deltaPercent: null,
+      impactAmount: null,
+      impactConfidence: "NOT_CALCULABLE",
+      impactReason:
+        afterRaw && afterRaw.trim() !== ""
+          ? `o valor do chamado ("${afterRaw}") não é um número`
+          : "o chamado não trouxe valor para este parâmetro",
     };
   }
+
+  const deltaAbsolute = after - before;
+  // Percentual sobre zero não existe. Sair de zero é uma informação real, e
+  // ela é dita pelos próprios valores — não por um ∞ na coluna de variação.
+  const deltaPercent =
+    before === 0 ? null : (deltaAbsolute / Math.abs(before)) * 100;
+
   if (bucket !== "ATENDIDO") {
     return {
-      amount: null,
-      confidence: "NOT_CALCULABLE",
-      reason:
-        "o chamado ainda não foi atendido; enquanto isso o valor aplicado pode mudar",
+      deltaAbsolute,
+      deltaPercent,
+      impactAmount: null,
+      impactConfidence: "NOT_CALCULABLE",
+      impactReason:
+        "o chamado ainda não foi atendido; a variação está apurada, mas o valor ainda pode mudar até o fechamento",
     };
   }
+
   return {
-    amount: applied - requested,
-    confidence: "CALCULATED",
-    reason: "aplicado menos pedido, com o chamado já atendido",
+    deltaAbsolute,
+    deltaPercent,
+    impactAmount: deltaAbsolute,
+    impactConfidence: "CALCULATED",
+    impactReason:
+      beforeSource === "ARQUIVO"
+        ? "o próprio chamado declarou os dois valores, e ele já foi atendido"
+        : "diferença para a vigência em vigor, com o chamado já atendido",
   };
 }
 
@@ -681,18 +947,37 @@ export interface ReadTicketsResult {
   rowCount: number;
   ticketCount: number;
   ignoredRowCount: number;
+  /** Quantas linhas de `ticket_change` a leitura produziu. */
+  changeCount: number;
+  /** WIDE quando os parâmetros estão nos cabeçalhos; NARROW quando em células. */
+  layout: "WIDE" | "NARROW";
   unmappedColumns: string[];
+  parameterColumns: string[];
   columnMapping: Partial<Record<TicketField, ColumnBinding>>;
 }
 
+/** Texto útil, ou nada — nunca a string vazia disfarçada de valor. */
+function textOf(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const s = value instanceof Date ? value.toISOString() : String(value).trim();
+  return s === "" ? null : s;
+}
+
 /**
- * Ler o arquivo recebido e gravar um chamado por linha.
+ * Ler o arquivo recebido: um chamado por linha, uma alteração por parâmetro.
  *
- * É o passo inteiro: não há staging nem promoção, porque não há decisão humana
- * no meio — nada aqui entra na camada canônica nem soma com a comparação de
- * vigências. O que existe é a conta de conservação: `row_count` linhas
- * entraram, `ticket_count` viraram chamado, `ignored_row_count` não tinham
- * número e ficaram de fora. As três aparecem na tela; a soma tem de fechar.
+ * É o passo inteiro — não há staging nem promoção, porque não há decisão humana
+ * no meio: nada aqui entra na camada canônica nem soma com a comparação de
+ * vigências.
+ *
+ * O que existe é a conta de conservação, e ela é a única defesa contra o modo
+ * de falha desta leitura. Um arquivo largo tem dezenas de colunas de parâmetro
+ * em que a maioria das células está vazia; um erro de mapeamento não estoura,
+ * ele simplesmente produz menos alterações — e menos é indistinguível de "o
+ * chamado mexeu em pouca coisa" a olho nu. Por isso `row_count`,
+ * `ticket_count`, `ignored_row_count` e `change_count` são todos gravados e
+ * mostrados: a soma tem de fechar, e o número de parâmetros lidos aparece ao
+ * lado do número de colunas de parâmetro encontradas.
  */
 export async function readTicketImport(
   db: Database,
@@ -715,29 +1000,44 @@ export async function readTicketImport(
     .where(eq(ticketImportTable.id, ticketImportId));
 
   const sheet = readTicketWorkbook(run.storagePath);
-  const plan = planTicketColumns(sheet.headers);
+
+  // O formato se decide antes de qualquer ligação de coluna: o nome do
+  // parâmetro está numa célula (estreito) ou no cabeçalho (largo)? Só depois
+  // disso se sabe com que rigor as colunas podem ser disputadas — no formato
+  // largo, tudo o que um campo não reclamar é parâmetro de remuneração, e um
+  // casamento frouxo rouba dado de verdade.
+  const layout = detectLayout(sheet.headers);
+  const plan =
+    layout === "WIDE"
+      ? planTicketColumns(sheet.headers, {
+          fields: TICKET_FIELDS,
+          minCoverage: WIDE_MIN_COVERAGE,
+        })
+      : planTicketColumns(sheet.headers);
+
   if (!plan.bindings.externalId) {
     throw new Error(
       "Achei o cabeçalho mas não a coluna do número do chamado. Sem ela não há como identificar cada linha.",
     );
   }
 
-  const codes = await resolveAttributeCodes(db);
+  const parameterColumns =
+    layout === "WIDE" ? planParameterColumns(sheet.headers, plan.bindings) : [];
+
+  const dicionario = await resolveAttributeCodes(db);
   const at = (cells: unknown[], field: TicketField): unknown => {
     const binding = plan.bindings[field];
     return binding ? (cells[binding.index] ?? null) : null;
   };
-  const text = (value: unknown): string | null => {
-    if (value === null || value === undefined) return null;
-    const s = value instanceof Date ? value.toISOString() : String(value).trim();
-    return s === "" ? null : s;
-  };
 
-  const values: (typeof ticketTable.$inferInsert)[] = [];
+  // ---- Passo 1: os chamados -------------------------------------------------
+  const tickets: (typeof ticketTable.$inferInsert)[] = [];
+  /** O que cada linha vai virar de alteração, antes de saber o id do chamado. */
+  const pendentes = new Map<number, PendingChange[]>();
   let ignored = 0;
 
   for (const row of sheet.rows) {
-    const externalId = text(at(row.cells, "externalId"));
+    const externalId = textOf(at(row.cells, "externalId"));
     if (!externalId) {
       // Linha sem número de chamado não é chamado. Fica contada, e a linha
       // continua no arquivo — nunca some sem aparecer numa conta.
@@ -745,20 +1045,10 @@ export async function readTicketImport(
       continue;
     }
 
-    const requestedRaw = text(at(row.cells, "requestedValueRaw"));
-    const appliedRaw = text(at(row.cells, "appliedValueRaw"));
-    const requested = parseTicketNumber(at(row.cells, "requestedValueRaw"));
-    const applied = parseTicketNumber(at(row.cells, "appliedValueRaw"));
-    const statusRaw = text(at(row.cells, "statusRaw"));
+    const statusRaw = textOf(at(row.cells, "statusRaw"));
     const bucket = normalizeStatus(statusRaw);
-    const impact = computeTicketImpact(
-      requested,
-      applied,
-      bucket,
-      requestedRaw,
-      appliedRaw,
-    );
-    const parameterLabel = text(at(row.cells, "parameterLabel"));
+    const entityLabel = textOf(at(row.cells, "entityLabel"));
+    const entityType = textOf(at(row.cells, "entityType"));
 
     const payload: Record<string, unknown> = {};
     sheet.headers.forEach((header, index) => {
@@ -768,38 +1058,118 @@ export async function readTicketImport(
         cell instanceof Date ? cell.toISOString() : (cell ?? null);
     });
 
-    values.push({
+    const changes =
+      layout === "NARROW"
+        ? narrowChanges(row.cells, plan, dicionario, entityLabel, entityType)
+        : wideChanges(row.cells, parameterColumns, dicionario, entityLabel, entityType);
+
+    pendentes.set(row.rowIndex, changes.map((c) => ({ ...c, bucket })));
+
+    tickets.push({
       ticketImportId,
       externalId,
       openedAt: parseTicketDate(at(row.cells, "openedAt")),
       closedAt: parseTicketDate(at(row.cells, "closedAt")),
       statusRaw,
       statusBucket: bucket,
-      parameterLabel,
-      attributeCode: parameterLabel ? matchAttributeCode(codes, parameterLabel) : null,
-      entityLabel: text(at(row.cells, "entityLabel")),
-      entityType: text(at(row.cells, "entityType")),
-      requestedValueRaw: requestedRaw,
-      requestedValueNumeric: requested === null ? null : String(requested),
-      appliedValueRaw: appliedRaw,
-      appliedValueNumeric: applied === null ? null : String(applied),
-      impactAmount: impact.amount === null ? null : String(impact.amount),
-      impactConfidence: impact.confidence,
-      impactReason: impact.reason,
-      requestedBy: text(at(row.cells, "requestedBy")),
-      subject: text(at(row.cells, "subject")),
+      entityLabel,
+      entityType,
+      requestedBy: textOf(at(row.cells, "requestedBy")),
+      subject: textOf(at(row.cells, "subject")),
+      changedParameterCount: changes.length,
       sourceRowIndex: row.rowIndex,
       payload,
     });
   }
 
   const CHUNK = 500;
-  for (let i = 0; i < values.length; i += CHUNK) {
-    await db
+  const idPorLinha = new Map<number, string>();
+  for (let i = 0; i < tickets.length; i += CHUNK) {
+    const gravados = await db
       .insert(ticketTable)
-      .values(values.slice(i, i + CHUNK))
+      .values(tickets.slice(i, i + CHUNK))
+      .onConflictDoNothing()
+      .returning({ id: ticketTable.id, sourceRowIndex: ticketTable.sourceRowIndex });
+    for (const g of gravados) idPorLinha.set(g.sourceRowIndex, g.id);
+  }
+
+  // ---- Passo 2: o "antes" que o arquivo não trouxe --------------------------
+  const semAntes = [...pendentes.values()]
+    .flat()
+    .filter((c) => c.beforeSource === "AUSENTE" && c.entityLabel && c.attributeCode);
+  const vigentes = await valoresVigentes(
+    db,
+    [...new Set(semAntes.map((c) => c.entityLabel!))],
+    [...new Set(semAntes.map((c) => c.attributeCode!))],
+  );
+
+  // ---- Passo 3: as alterações ----------------------------------------------
+  const changeRows: (typeof ticketChangeTable.$inferInsert)[] = [];
+  for (const [rowIndex, changes] of pendentes) {
+    const ticketId = idPorLinha.get(rowIndex);
+    if (!ticketId) continue; // linha já gravada num envio anterior
+
+    for (const c of changes) {
+      let beforeRaw = c.valueBeforeRaw;
+      let beforeSource = c.beforeSource;
+      let beforeReference: string | null = null;
+
+      if (beforeSource === "AUSENTE" && c.entityLabel && c.attributeCode) {
+        const vigente = vigentes.get(`${c.entityLabel} ${c.attributeCode}`);
+        if (vigente) {
+          beforeRaw = vigente.value;
+          beforeSource = "VIGENCIA";
+          beforeReference = vigente.label;
+        }
+      }
+
+      const before = parseTicketNumber(beforeRaw);
+      const after = parseTicketNumber(c.valueAfterRaw);
+      const movement = computeParameterMovement(
+        before,
+        after,
+        c.bucket,
+        beforeRaw,
+        c.valueAfterRaw,
+        beforeSource,
+      );
+
+      changeRows.push({
+        ticketId,
+        ticketImportId,
+        parameterLabel: c.parameterLabel,
+        attributeCode: c.attributeCode,
+        entityLabel: c.entityLabel,
+        entityType: c.entityType,
+        valueBeforeRaw: beforeRaw,
+        valueBeforeNumeric: before === null ? null : String(before),
+        valueAfterRaw: c.valueAfterRaw,
+        valueAfterNumeric: after === null ? null : String(after),
+        beforeSource,
+        beforeReference,
+        deltaAbsolute:
+          movement.deltaAbsolute === null ? null : String(movement.deltaAbsolute),
+        deltaPercent:
+          movement.deltaPercent === null ? null : String(movement.deltaPercent),
+        impactAmount:
+          movement.impactAmount === null ? null : String(movement.impactAmount),
+        impactConfidence: movement.impactConfidence,
+        impactReason: movement.impactReason,
+        sourceColumnIndex: c.sourceColumnIndex,
+      });
+    }
+  }
+
+  for (let i = 0; i < changeRows.length; i += CHUNK) {
+    await db
+      .insert(ticketChangeTable)
+      .values(changeRows.slice(i, i + CHUNK))
       .onConflictDoNothing();
   }
+
+  const parameterHeaders = parameterColumns.map((p) =>
+    p.beforeHeader ? `${p.afterHeader} ↔ ${p.beforeHeader}` : p.afterHeader,
+  );
 
   await db
     .update(ticketImportTable)
@@ -807,21 +1177,184 @@ export async function readTicketImport(
       status: "READ",
       finishedAt: new Date(),
       rowCount: sheet.rows.length,
-      ticketCount: values.length,
+      ticketCount: tickets.length,
       ignoredRowCount: ignored,
       columnMapping: plan.bindings,
-      unmappedColumns: plan.unmapped,
+      unmappedColumns: layout === "NARROW" ? plan.unmapped : [],
+      parameterColumns: parameterHeaders,
     })
     .where(eq(ticketImportTable.id, ticketImportId));
 
   return {
     ticketImportId,
     rowCount: sheet.rows.length,
-    ticketCount: values.length,
+    ticketCount: tickets.length,
     ignoredRowCount: ignored,
-    unmappedColumns: plan.unmapped,
+    changeCount: changeRows.length,
+    layout,
+    unmappedColumns: layout === "NARROW" ? plan.unmapped : [],
+    parameterColumns: parameterHeaders,
     columnMapping: plan.bindings,
   };
+}
+
+/** Uma alteração já extraída da linha, ainda sem o id do chamado. */
+interface PendingChange {
+  parameterLabel: string;
+  attributeCode: string | null;
+  entityLabel: string | null;
+  entityType: string | null;
+  valueBeforeRaw: string | null;
+  valueAfterRaw: string | null;
+  beforeSource: BeforeSource;
+  sourceColumnIndex: number;
+  bucket: StatusBucket;
+}
+
+type PendingDraft = Omit<PendingChange, "bucket">;
+
+/**
+ * Formato largo: uma alteração por célula de parâmetro **preenchida**.
+ *
+ * A célula vazia é o normal, e é ela que carrega o significado: num export de
+ * chamados o parâmetro que não veio é o parâmetro que aquele chamado não
+ * mexeu. Emitir uma alteração para ela encheria a tela de linhas sem fato e
+ * faria o total de alterações virar o número de chamados vezes o número de
+ * colunas — que não é uma medida de nada.
+ */
+function wideChanges(
+  cells: unknown[],
+  columns: ParameterColumn[],
+  dicionario: Map<string, string>,
+  entityLabel: string | null,
+  entityType: string | null,
+): PendingDraft[] {
+  const out: PendingDraft[] = [];
+  for (const col of columns) {
+    const after = textOf(cells[col.afterIndex]);
+    if (after === null) continue;
+
+    const before =
+      col.beforeIndex === null ? null : textOf(cells[col.beforeIndex]);
+
+    out.push({
+      parameterLabel: col.label,
+      attributeCode: matchAttributeCode(dicionario, col.label),
+      entityLabel,
+      entityType,
+      valueBeforeRaw: before,
+      valueAfterRaw: after,
+      // Só é "do arquivo" quando o arquivo de fato trouxe a outra ponta. Um
+      // par declarado com a célula anterior vazia continua sem antes.
+      beforeSource: before === null ? "AUSENTE" : "ARQUIVO",
+      sourceColumnIndex: col.afterIndex,
+    });
+  }
+  return out;
+}
+
+/** Formato estreito: o nome do parâmetro está numa célula, e há uma só. */
+function narrowChanges(
+  cells: unknown[],
+  plan: ColumnPlan,
+  dicionario: Map<string, string>,
+  entityLabel: string | null,
+  entityType: string | null,
+): PendingDraft[] {
+  const at = (field: TicketField) => {
+    const binding = plan.bindings[field];
+    return binding ? (cells[binding.index] ?? null) : null;
+  };
+  const parameterLabel = textOf(at("parameterLabel"));
+  if (!parameterLabel) return [];
+
+  const pedido = textOf(at("requestedValueRaw"));
+  const aplicado = textOf(at("appliedValueRaw"));
+  // Sem valor aplicado, o pedido é o que o chamado tem a dizer — e aí o
+  // "antes" vem da vigência, como no formato largo.
+  const [before, after, source]: [string | null, string | null, BeforeSource] =
+    aplicado !== null && pedido !== null
+      ? [pedido, aplicado, "ARQUIVO"]
+      : [null, (aplicado ?? pedido), "AUSENTE"];
+
+  if (after === null) return [];
+
+  return [
+    {
+      parameterLabel,
+      attributeCode: matchAttributeCode(dicionario, parameterLabel),
+      entityLabel,
+      entityType,
+      valueBeforeRaw: before,
+      valueAfterRaw: after,
+      beforeSource: source,
+      sourceColumnIndex: plan.bindings.parameterLabel?.index ?? 0,
+    },
+  ];
+}
+
+/**
+ * O valor em vigor de cada (placa, parâmetro), na vigência mais recente.
+ *
+ * É o que dá um "antes" ao chamado que só trouxe o valor novo — o caso comum.
+ * A procedência é gravada em `before_source = 'VIGENCIA'` e o rótulo da
+ * vigência em `before_reference`, porque este valor **não** tem a mesma força
+ * de um declarado pelo próprio chamado: ele é o nosso melhor conhecimento do
+ * estado anterior, e a tela precisa poder dizer isso.
+ *
+ * Uma vigência por série: quando carreta e cavalo chegam em arquivos
+ * separados, cada uma tem a sua mais recente, e tomar "a mais recente de
+ * todas" leria a frota inteira pela data de uma delas.
+ */
+async function valoresVigentes(
+  db: Database,
+  placas: string[],
+  codes: string[],
+): Promise<Map<string, { value: string | null; label: string }>> {
+  const index = new Map<string, { value: string | null; label: string }>();
+  if (placas.length === 0 || codes.length === 0) return index;
+
+  const listaPlacas = sql.join(placas.map((p) => sql`${p}`), sql`, `);
+  const listaCodes = sql.join(codes.map((c) => sql`${c}`), sql`, `);
+
+  const { rows } = await db.execute<{
+    placa: string;
+    code: string;
+    valor: string | null;
+    label: string;
+  }>(sql`
+    WITH vigentes AS (
+      SELECT DISTINCT ON (s.scope_hash, s.entity_type_set)
+             s.id, s.source_label
+        FROM snapshot s
+       WHERE s.status <> 'SUPERSEDED'
+       ORDER BY s.scope_hash, s.entity_type_set, s.effective_date DESC
+    )
+    SELECT ei.identifier_value AS placa,
+           a.code              AS code,
+           CASE WHEN f.is_null THEN NULL
+                ELSE coalesce(
+                  f.value_text,
+                  f.value_numeric::text,
+                  f.value_boolean::text,
+                  f.value_date::text
+                )
+           END                 AS valor,
+           v.source_label      AS label
+      FROM fact f
+      JOIN vigentes v          ON v.id = f.snapshot_id
+      JOIN attribute a         ON a.id = f.attribute_id
+      JOIN entity_identifier ei ON ei.entity_id = f.entity_id
+                              AND ei.is_current
+                              AND ei.identifier_type = 'PLACA'
+     WHERE ei.identifier_value IN (${listaPlacas})
+       AND a.code IN (${listaCodes})
+  `);
+
+  for (const r of rows) {
+    index.set(`${r.placa} ${r.code}`, { value: r.valor, label: r.label });
+  }
+  return index;
 }
 
 /** Marca o envio como falho, com o motivo à vista de quem opera. */
