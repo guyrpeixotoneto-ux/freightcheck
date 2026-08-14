@@ -15,6 +15,7 @@ import { Mensagem } from "@/components/assistente/mensagem";
 import type {
   Capacidades,
   ConversaResumo,
+  Etapa,
   Resposta,
   Turno,
 } from "@/components/assistente/tipos";
@@ -62,6 +63,8 @@ export default function Assistente() {
   const [conversaId, setConversaId] = useState<string | null>(null);
   const [rascunho, setRascunho] = useState("");
   const [painelTecnico, setPainelTecnico] = useState(false);
+  /** As etapas que já rodaram nesta pergunta — vindas do servidor, não do relógio. */
+  const [etapas, setEtapas] = useState<Etapa[]>([]);
 
   const campo = useRef<HTMLTextAreaElement>(null);
   const fim = useRef<HTMLDivElement>(null);
@@ -87,25 +90,36 @@ export default function Assistente() {
 
   const perguntar = useMutation({
     mutationFn: async (pergunta: string) => {
+      setEtapas([]);
       const resposta = await fetch(getApiUrl("/assistant/ask"), {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", accept: "text/event-stream" },
         body: JSON.stringify({
           pergunta,
           ...(conversaId ? { conversationId: conversaId } : {}),
           ...recorte,
         }),
       });
-      const corpo = await readJson(resposta);
+
       if (!resposta.ok) {
+        const corpo = await readJson(resposta);
         throw new Error(
           typeof corpo.error === "string" ? corpo.error : `O servidor respondeu ${resposta.status}.`,
         );
       }
-      return corpo as unknown as Resposta;
+
+      /*
+        Sem `text/event-stream` o servidor devolve o JSON de sempre — um proxy
+        que não repasse o cabeçalho não quebra a tela, só a deixa sem passos.
+      */
+      if (!resposta.headers.get("content-type")?.includes("text/event-stream")) {
+        return (await readJson(resposta)) as unknown as Resposta;
+      }
+      return lerEventos(resposta, (etapa) => setEtapas((as) => [...as, etapa]));
     },
     onSuccess: (r) => {
       setConversaId(r.conversationId);
+      setEtapas([]);
       setTurnos((atuais) => [
         ...atuais,
         { papel: "RESPOSTA", texto: r.texto, resposta: r },
@@ -197,7 +211,7 @@ export default function Assistente() {
                 <Mensagem key={i} turno={turno} />
               ))}
 
-              {perguntar.isPending && <Trabalhando />}
+              {perguntar.isPending && <Trabalhando etapas={etapas} />}
 
               {perguntar.error && (
                 <ApiErrorNotice
@@ -277,33 +291,73 @@ function Abertura({ aoEscolher }: { aoEscolher: (p: string) => void }) {
 // ── Indicador de processamento ──────────────────────────────────────────────
 
 /**
- * As etapas que estão realmente rodando.
+ * Lê o stream de etapas e devolve a resposta do último evento.
  *
- * O texto avança sozinho porque a resposta é uma requisição só — o servidor
- * devolve as etapas executadas junto com o resultado, e mostrá-las depois não
- * serviria de nada. O que se vê aqui é a sequência que a orquestração percorre,
- * no ritmo em que ela costuma percorrer.
+ * O servidor emite `etapa` a cada passo da orquestração e `resposta` no fim.
+ * Um `erro` no meio vira exceção aqui, porque num stream o cabeçalho já saiu
+ * como 200 e não há status para trocar.
  */
-const PASSOS = [
-  "Analisando sua pergunta",
-  "Identificando o parâmetro",
-  "Consultando o conhecimento do produto",
-  "Consultando os dados",
-  "Calculando impacto",
-];
+async function lerEventos(
+  resposta: Response,
+  aoAvancar: (etapa: Etapa) => void,
+): Promise<Resposta> {
+  const leitor = resposta.body?.getReader();
+  if (!leitor) throw new Error("O servidor não devolveu corpo.");
 
-function Trabalhando() {
-  const [passo, setPasso] = useState(0);
+  const decodificador = new TextDecoder();
+  let sobra = "";
+  let final: Resposta | null = null;
 
-  useEffect(() => {
-    const t = setInterval(() => setPasso((p) => Math.min(p + 1, PASSOS.length - 1)), 900);
-    return () => clearInterval(t);
-  }, []);
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    sobra += decodificador.decode(value, { stream: true });
+
+    // Um evento SSE termina em linha em branco; o resto fica para a próxima volta.
+    const blocos = sobra.split("\n\n");
+    sobra = blocos.pop() ?? "";
+
+    for (const bloco of blocos) {
+      const nome = /^event: (.+)$/m.exec(bloco)?.[1];
+      const dados = /^data: (.+)$/m.exec(bloco)?.[1];
+      if (!nome || !dados) continue;
+      const carga = JSON.parse(dados);
+      if (nome === "etapa") aoAvancar(carga as Etapa);
+      else if (nome === "resposta") final = carga as Resposta;
+      else if (nome === "erro") throw new Error(String(carga.error ?? "Falha no servidor."));
+    }
+  }
+
+  if (!final) throw new Error("O servidor fechou a conexão sem responder.");
+  return final;
+}
+
+/**
+ * O que está acontecendo — e só o que está mesmo acontecendo.
+ *
+ * A versão anterior animava uma lista fixa por tempo: anunciava "calculando
+ * impacto" numa pergunta conceitual que nunca calcula impacto. Cada linha aqui
+ * chegou do servidor no instante em que a etapa começou. Enquanto o primeiro
+ * evento não chega, o texto é neutro — não há o que afirmar ainda.
+ *
+ * Só a etapa corrente fica em destaque; as anteriores encolhem para o lado,
+ * porque o que importa é onde está, não a lista do que já passou.
+ */
+function Trabalhando({ etapas }: { etapas: Etapa[] }) {
+  const corrente = etapas[etapas.length - 1];
+  const anteriores = etapas.slice(0, -1);
 
   return (
-    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-      <Loader2 className="w-4 h-4 animate-spin" />
-      {PASSOS[passo]}…
+    <div className="space-y-1">
+      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+        <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+        {corrente ? `${corrente.rotulo}…` : "Trabalhando…"}
+      </div>
+      {anteriores.length > 0 && (
+        <p className="pl-6 text-xs text-muted-foreground/70">
+          {anteriores.map((e) => e.rotulo).join(" · ")}
+        </p>
+      )}
     </div>
   );
 }

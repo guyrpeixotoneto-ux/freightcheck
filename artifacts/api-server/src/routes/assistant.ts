@@ -143,6 +143,34 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
       estado = desserializarEstado(achada.state);
     }
 
+    /*
+      Quando a tela pede eventos, as etapas saem no instante em que acontecem.
+
+      A alternativa era o que a tela fazia antes: animar uma lista fixa por
+      tempo enquanto a requisição corria. Ela anunciava "calculando impacto" em
+      pergunta conceitual que nunca calcula impacto — progresso inventado, numa
+      aplicação cuja regra é não exibir o que não se pode sustentar. Aqui cada
+      linha que aparece é uma etapa que a orquestração executou de fato.
+
+      O corpo final é o mesmo JSON da resposta comum, no último evento: quem
+      não pede `text/event-stream` continua recebendo um POST e um objeto.
+    */
+    const emEventos = req.get("accept")?.includes("text/event-stream") ?? false;
+    if (emEventos) {
+      res.writeHead(200, {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive",
+        // Sem isto um proxy que faça buffer entrega tudo junto no fim, e o
+        // streaming vira um POST lento com passos que ninguém viu.
+        "x-accel-buffering": "no",
+      });
+    }
+    const emitir = (evento: string, dados: unknown) => {
+      if (!emEventos) return;
+      res.write(`event: ${evento}\ndata: ${JSON.stringify(dados)}\n\n`);
+    };
+
     const resposta = await responder(db, pergunta, {
       recorte: {
         ...(typeof scopeHash === "string" ? { scopeHash } : {}),
@@ -151,6 +179,7 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
       },
       estado,
       semIa: semIa === true,
+      ...(emEventos ? { aoAvancar: (etapa) => emitir("etapa", etapa) } : {}),
     });
 
     // ---- persistência ------------------------------------------------------
@@ -172,9 +201,29 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
       },
     });
 
-    res.json({ ...resposta, conversationId: conversa.id, conversationTitle: conversa.title });
+    const corpo = {
+      ...resposta,
+      conversationId: conversa.id,
+      conversationTitle: conversa.title,
+    };
+
+    if (emEventos) {
+      emitir("resposta", corpo);
+      res.end();
+      return;
+    }
+    res.json(corpo);
   } catch (err) {
     req.log.error({ err }, "Error answering assistant question");
+    /*
+      Num stream o cabeçalho já foi enviado e não há status para trocar: o erro
+      vira o último evento, e a tela o mostra como mostraria qualquer falha.
+    */
+    if (res.headersSent) {
+      res.write(`event: erro\ndata: ${JSON.stringify({ error: "Internal server error" })}\n\n`);
+      res.end();
+      return;
+    }
     res.status(500).json({ error: "Internal server error" });
   }
 });

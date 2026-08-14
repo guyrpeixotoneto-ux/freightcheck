@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
 import { ArrowRight, BookOpen, ChevronDown, Database, FileText, Info } from "lucide-react";
 import { Markdown } from "./markdown";
@@ -40,6 +40,15 @@ function RespostaDoAssistente({
   resposta?: Resposta;
   texto: string;
 }) {
+  /*
+    Clicar numa citação abre as fontes já com aquela em destaque.
+
+    O estado vive aqui, e não dentro de `Fontes`, porque quem dispara está no
+    texto e quem responde está na lista — as duas metades da promessa de
+    rastreabilidade, e elas precisam de um pai em comum para se falarem.
+  */
+  const [citada, setCitada] = useState<string | null>(null);
+
   return (
     <div className="max-w-[46rem] space-y-3">
       {resposta?.recorte && (
@@ -48,11 +57,17 @@ function RespostaDoAssistente({
         </p>
       )}
 
-      <Markdown texto={texto} />
+      <Markdown texto={texto} aoCitar={(n) => setCitada(String(n))} />
 
       <Lacunas lacunas={resposta?.lacunas ?? []} texto={texto} />
 
-      {resposta && resposta.fontes.length > 0 && <Fontes fontes={resposta.fontes} />}
+      {resposta && resposta.fontes.length > 0 && (
+        <Fontes
+          fontes={resposta.fontes}
+          citada={citada}
+          aoFechar={() => setCitada(null)}
+        />
+      )}
     </div>
   );
 }
@@ -108,14 +123,36 @@ const NOME: Record<Fonte["tipo"], string> = {
   DADO: "Banco FreightCheck",
 };
 
-function Fontes({ fontes }: { fontes: Fonte[] }) {
+function Fontes({
+  fontes,
+  citada,
+  aoFechar,
+}: {
+  fontes: Fonte[];
+  citada: string | null;
+  aoFechar: () => void;
+}) {
   const [aberto, setAberto] = useState(false);
+  const alvo = useRef<HTMLLIElement>(null);
+
+  // Uma citação clicada abre a lista e traz a fonte para a tela. Sem o scroll,
+  // numa resposta com seis fontes o destaque acontecia fora do campo de visão.
+  useEffect(() => {
+    if (!citada) return;
+    setAberto(true);
+    alvo.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [citada]);
+
+  const alternar = () => {
+    setAberto((v) => !v);
+    aoFechar();
+  };
 
   return (
     <div className="pt-1">
       <button
         type="button"
-        onClick={() => setAberto((v) => !v)}
+        onClick={alternar}
         className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
       >
         <ChevronDown className={cn("w-3.5 h-3.5 transition-transform", aberto && "rotate-180")} />
@@ -126,9 +163,20 @@ function Fontes({ fontes }: { fontes: Fonte[] }) {
         <ul className="mt-2 space-y-2 border-l-2 border-input pl-3">
           {fontes.map((f) => {
             const Icone = ICONE[f.tipo];
+            const emFoco = citada === f.id;
             return (
-              <li key={f.id} className="text-xs">
+              <li
+                key={f.id}
+                ref={emFoco ? alvo : undefined}
+                className={cn(
+                  "text-xs -ml-3 pl-3 border-l-2 transition-colors",
+                  emFoco ? "border-brand bg-muted/40" : "border-transparent",
+                )}
+              >
                 <div className="flex items-start gap-2">
+                  <span className="shrink-0 w-4 text-right tabular-nums text-muted-foreground">
+                    {f.id}
+                  </span>
                   <Icone className="w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground" />
                   <div className="min-w-0">
                     <span className="font-semibold">{f.titulo}</span>

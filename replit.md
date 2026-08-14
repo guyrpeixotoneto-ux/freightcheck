@@ -207,6 +207,20 @@ troca o período; "Por quê?" refaz a consulta em vez de reexibir número guarda
 técnico — herdar em silêncio é como a versão anterior respondia sobre outro
 período sem que nada na tela denunciasse.
 
+**As etapas que a tela mostra são as que rodaram.** `POST /api/assistant/ask`
+responde em `text/event-stream` quando a tela pede: cada etapa sai no instante
+em que começa, e o último evento é o mesmo JSON de sempre. A versão anterior
+animava uma lista fixa por tempo — anunciava "calculando impacto" em pergunta
+conceitual que nunca calcula impacto. Num produto cuja regra é não exibir o que
+não se pode sustentar, inventar o próprio progresso é a última coisa a fazer.
+
+**Cada frase diz de onde veio.** As fontes são numeradas na ordem em que entram
+no dossiê — trechos primeiro, evidências depois — e o texto marca `[n]` no fim
+da frase que se apoia nelas; clicar abre a lista naquela fonte. A numeração é
+validada como número: `citacoesSemFonte` derruba a resposta inteira quando ela
+cita `[4]` com três fontes, porque uma citação que manda conferir num lugar que
+não existe é pior que citação nenhuma.
+
 **A bateria roda contra o banco real.** `lib/assistant/src/__tests__/bateria.ts`
 é a lista de perguntas, consumida por dois: a suíte, que a roda como asserção, e
 `tabela.mts`, que a roda como relatório. Cada caso quantitativo executa
