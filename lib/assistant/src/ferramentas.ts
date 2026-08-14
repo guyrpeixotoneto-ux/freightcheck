@@ -36,6 +36,7 @@ import {
   type ContextInfo,
   type SeriesContext,
 } from "@workspace/comparison";
+import { getVisaoDeFrota } from "@workspace/composition";
 import {
   INTEIRO,
   cobertura,
@@ -871,6 +872,82 @@ export async function regraDoBook(
     nota:
       achado.kind === "DOCUMENTO"
         ? "A regra está no arquivo anexado. Este assistente não transcreve documento que não leu."
+        : undefined,
+  };
+}
+
+/**
+ * Como a remuneração da frota se compõe nesta vigência.
+ *
+ * A tela de Composição responde o que nenhuma outra respondia: não *quanto
+ * mudou*, mas **de que o total é feito** — quantos equipamentos entraram no
+ * mensal, quantos ficaram incompletos, e quantos componentes monetários ainda
+ * não têm regra financeira. Esse último número é o que separa "o total é este"
+ * de "o total é este até onde dá para afirmar", e por isso ele sai como
+ * ressalva, não como rodapé.
+ *
+ * Chama `getVisaoDeFrota`, o mesmo serviço da tela. Se o assistente e a tela
+ * divergirem num número, é bug de um serviço só — não de dois caminhos que
+ * calculam a mesma coisa de jeitos diferentes.
+ */
+export async function composicaoDaFrota(
+  db: Database,
+  ctx: ContextoResolvido,
+  equipamento: "CAVALO" | "CARRETA",
+  periodo?: string,
+): Promise<Evidencia | null> {
+  const visao = await getVisaoDeFrota(db, equipamento, {
+    context: ctx.contexto,
+    ...(periodo ? { period: periodo } : {}),
+  });
+  if (!visao) return null;
+
+  const r = visao.resumo;
+  const fatos: Fato[] = [
+    {
+      rotulo: "Equipamentos na frota",
+      valor: INTEIRO.format(r.equipamentos),
+      detalhe: `${INTEIRO.format(r.comValorApurado)} com valor apurado`,
+    },
+    { rotulo: "Total mensal", valor: dinheiro(r.mensalTotal, "MENSAL"), detalhe: "somado na frota" },
+    {
+      rotulo: "Movimento",
+      valor: `${INTEIRO.format(r.comAumento)} subiram · ${INTEIRO.format(r.comReducao)} caíram`,
+      detalhe: `${INTEIRO.format(r.semVariacao)} sem variação`,
+    },
+  ];
+
+  if (r.incompletos > 0) {
+    fatos.push({
+      rotulo: "Incompletos",
+      valor: INTEIRO.format(r.incompletos),
+      detalhe: "sem as duas pontas para comparar",
+    });
+  }
+
+  return {
+    ferramenta: "composicaoDaFrota",
+    titulo: `Composição · ${visao.rotuloDoTipo} · ${visao.periodLabel}`,
+    fatos,
+    numeros: [
+      r.equipamentos,
+      r.comValorApurado,
+      r.mensalTotal,
+      r.comAumento,
+      r.comReducao,
+      r.semVariacao,
+      r.incompletos,
+      r.componentesSemRegra,
+      visao.totalSemFiltro,
+    ],
+    origem: `getVisaoDeFrota(${equipamento}) · ${visao.effectiveDate}`,
+    recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
+    tela: { label: "Composição", href: "/composicao" },
+    destaque: "Total mensal",
+    nota: !visao.serieEntregue
+      ? "Esta vigência não entregou a série deste equipamento — o que aparece vem da vigência anterior."
+      : r.componentesSemRegra > 0
+        ? `${INTEIRO.format(r.componentesSemRegra)} componente(s) monetário(s) sem regra financeira ficaram fora do total.`
         : undefined,
   };
 }

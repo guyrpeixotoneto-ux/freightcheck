@@ -24,6 +24,7 @@ import { buscarTrechos, type TrechoRelevante } from "./corpus";
 import {
   compararIntervalo,
   coberturaDoBook,
+  composicaoDaFrota,
   buscarNoTextoDoBook,
   listarVigencias,
   movimentoDoParametro,
@@ -39,6 +40,13 @@ import {
   type ContextoResolvido,
   type Evidencia,
 } from "./ferramentas";
+import {
+  balancoDasImportacoes,
+  buscarNasCelulas,
+  estadoDaCuradoria,
+  historicoDaSemantica,
+  importacoesRecentes,
+} from "./governanca";
 import {
   INTENCOES_COM_PARAMETRO,
   INTENCOES_COM_RECORTE,
@@ -581,6 +589,56 @@ export async function orquestrar(
         }
       } else if (contexto && !alvoPerdido) {
         await juntar("Recuperando a origem", resumoDaVigencia(db, contexto, periodoEfetivo));
+      }
+      break;
+
+    /*
+      ---- governança do dado -------------------------------------------------
+
+      Nenhuma das três precisa de recorte, e isso é uma afirmação sobre o
+      domínio, não uma economia: curadoria, importação e balanço descrevem o
+      **pipeline**, que é um só para todas as unidades. Filtrá-los por
+      (unidade, canal) responderia uma pergunta que ninguém faz e esconderia
+      metade do que se quis saber.
+    */
+    case "CURADORIA":
+      await juntar("Consultando a curadoria", estadoDaCuradoria(db));
+      if (alvo?.atributos[0]) {
+        await juntar(
+          "Recuperando o histórico da semântica",
+          historicoDaSemantica(db, alvo.atributos[0].codigo),
+        );
+      }
+      break;
+
+    case "IMPORTACOES":
+      await juntar("Consultando as importações", importacoesRecentes(db));
+      break;
+
+    case "BALANCO":
+      await juntar("Consultando o balanço de massa", balancoDasImportacoes(db));
+      break;
+
+    case "CELULAS":
+      /*
+        A busca usa o termo que sobrou da frase, e não a frase inteira.
+
+        "Onde aparece a placa ABC1D23 na planilha?" tem seis palavras de
+        operação e uma de conteúdo; procurar a frase toda em `raw_cell` não
+        acharia nada, e procurar cada palavra acharia tudo. `termoDoParametro`
+        já é exatamente o resíduo depois da poda.
+      */
+      if (termoDoParametro) {
+        await juntar("Procurando nas células importadas", buscarNasCelulas(db, termoDoParametro));
+      }
+      break;
+
+    case "COMPOSICAO":
+      if (contexto) {
+        await juntar(
+          "Compondo a remuneração da frota",
+          composicaoDaFrota(db, contexto, leitura.entidades.equipamento ?? "CAVALO", periodoEfetivo),
+        );
       }
       break;
 
