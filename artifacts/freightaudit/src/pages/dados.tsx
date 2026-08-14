@@ -85,7 +85,7 @@ export default function Dados() {
   return (
     <Layout>
       <div className="px-10 py-6 max-w-[1600px]">
-        <h1 className="text-3xl font-bold uppercase tracking-tight">Dados</h1>
+        <h1 className="text-3xl font-bold uppercase tracking-tight">Cobertura de dados</h1>
         <p className="text-sm text-muted-foreground mt-1">
           Tudo o que já entrou no sistema — e, do catálogo do Freightech, o que ainda não
           chegou.

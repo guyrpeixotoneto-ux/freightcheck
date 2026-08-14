@@ -264,7 +264,7 @@ export const ARTIGOS: Artigo[] = [
       "posição, uma reordenação do Freightec viraria centenas de alterações " +
       "inexistentes.",
     fonte: "lib/ingest/src/identity.ts",
-    tela: { label: "Dados", href: "/dados" },
+    tela: { label: "Cobertura de dados", href: "/dados" },
   },
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -477,7 +477,7 @@ export const ARTIGOS: Artigo[] = [
       "originou, e por que recalcular comparações nunca perde dado: o que é derivado " +
       "pode ser refeito, o que é evidência não é tocado.",
     fonte: "docs/ARQUITETURA.md",
-    tela: { label: "Dados", href: "/dados" },
+    tela: { label: "Cobertura de dados", href: "/dados" },
   },
   {
     id: "conceito-curadoria",
@@ -683,22 +683,32 @@ export const ARTIGOS: Artigo[] = [
       "modulo", "modulos",
     ],
     corpo:
-      "**Página inicial** — o panorama do que existe.\n" +
-      "**Dados** — o que foi importado e o que falta.\n" +
-      "**Acompanhamento de vigência** — o resumo de uma vigência.\n" +
-      "**Parâmetros** — o catálogo de cartões, com quanto mudou em cada gaveta.\n" +
-      "**Book do Operador** — as regras, por bloco.\n" +
-      "**Alterações** — linha a linha, com veículo, valor anterior e valor novo.\n" +
-      "**Comparar vigências** — duas vigências escolhidas à mão.\n" +
-      "**Vigências** — o histórico de datas.\n" +
-      "**Curadoria** — a semântica dos atributos e as confirmações.\n" +
-      "**Versões** — mudança na fonte e correção da interpretação.\n" +
-      "**Importações** — subir a planilha e promover.\n" +
-      "**Balanço de massa** — se toda célula do arquivo chegou a algum lugar.\n" +
-      "**Análise de frota** — cavalos e carretas.\n" +
-      "**Usuário / Configurações** — contas e acesso.\n\n" +
-      "Um item que não funciona não entra no menu: parecer o Freightech não autoriza " +
-      "prometer uma tela que não existe.",
+      "O menu tem cinco seções, e no topo dele fica a unidade aberta — unidade, canal e " +
+      "vigência mais recente da seleção que os números da tela estão usando.\n\n" +
+      "**Visão executiva**\n" +
+      "*Visão geral* — o panorama do que existe.\n" +
+      "*Acompanhamento* — o resumo de uma vigência.\n" +
+      "*Análise de frota* — cavalos e carretas.\n\n" +
+      "**Auditoria**\n" +
+      "*Alterações* — linha a linha, com veículo, valor anterior e valor novo.\n" +
+      "*Comparar vigências* — duas vigências escolhidas à mão.\n" +
+      "*Parâmetros* — o catálogo de cartões, com quanto mudou em cada gaveta.\n" +
+      "*Vigências* — o histórico de datas.\n\n" +
+      "**Inteligência**\n" +
+      "*Assistente IA* — esta conversa.\n" +
+      "*Book do Operador* — as regras, por bloco.\n\n" +
+      "**Dados & governança**\n" +
+      "*Importações* — subir a planilha e promover.\n" +
+      "*Balanço de massa* — se toda célula do arquivo chegou a algum lugar.\n" +
+      "*Curadoria* — a semântica dos atributos e as confirmações.\n" +
+      "*Cobertura de dados* — o que foi importado e o que falta.\n" +
+      "*Versões* — mudança na fonte e correção da interpretação.\n\n" +
+      "**Administração**\n" +
+      "*Unidades* — as unidades e canais que já entregaram vigência.\n" +
+      "*Usuários* — contas e acesso.\n\n" +
+      "Alterações, Importações e Curadoria trazem no menu quanto há para fazer; onde não " +
+      "há nada, não há número. Um item que não funciona não entra no menu: parecer o " +
+      "Freightech não autoriza prometer uma tela que não existe.",
     fonte: "artifacts/freightaudit/src/components/layout/sidebar.tsx",
   },
 

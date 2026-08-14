@@ -56,6 +56,12 @@
   --color-brand-red: hsl(var(--brand-red));
   --color-brand-red-foreground: hsl(var(--brand-red-foreground));
 
+  --color-nav-executiva: hsl(var(--nav-executiva));
+  --color-nav-auditoria: hsl(var(--nav-auditoria));
+  --color-nav-inteligencia: hsl(var(--nav-inteligencia));
+  --color-nav-dados: hsl(var(--nav-dados));
+  --color-nav-admin: hsl(var(--nav-admin));
+
   --color-sidebar: hsl(var(--sidebar));
   --color-sidebar-foreground: hsl(var(--sidebar-foreground));
   --color-sidebar-border: hsl(var(--sidebar-border));
@@ -155,6 +161,30 @@
   --loss-on-dark: 0 100% 92%;
   --gain-on-dark: 140 70% 88%;
 
+  /*
+   * As cinco cores das seções do menu — e por que elas existem num produto que
+   * se descreve como "duas cores e um cinza".
+   *
+   * O menu tem quinze itens. Em lista única eles se leem um a um; agrupados em
+   * cinco blocos, o olho pula para o bloco certo e lê três. O que faz o pulo
+   * funcionar é o bloco ter uma marca própria, e uma marca que não é cor seria
+   * mais um ícone cinza no meio de quinze ícones cinza.
+   *
+   * O limite é onde a regra continua valendo: **estas cores só pintam o título
+   * da seção e o seu ícone.** Nenhum dado, nenhum valor, nenhum estado é dito
+   * por elas — laranja segue sendo ação, vermelho segue sendo a marca no topo e
+   * o item aberto, verde e vermelho de valor seguem sendo ganho e perda. Uma
+   * seção verde não diz que o que está nela vai bem.
+   *
+   * A luminosidade de cada uma foi escolhida contra o branco da lateral: são
+   * títulos de 11px em negrito, e todos passam de 4,5:1 sobre `--sidebar`.
+   */
+  --nav-executiva: 358 79% 39%;
+  --nav-auditoria: 265 55% 45%;
+  --nav-inteligencia: 240 55% 48%;
+  --nav-dados: 152 60% 27%;
+  --nav-admin: 0 0% 42%;
+
   /* A lateral do Freightech é branca, não escura. */
   --sidebar: 0 0% 100%;
   --sidebar-foreground: 0 0% 30%;
@@ -217,6 +247,13 @@
   --chart-3: 142 71% 45%;
   --chart-4: 38 92% 50%;
   --chart-5: 0 84% 60%;
+
+  /* As mesmas cinco, clareadas para continuarem legíveis sobre a lateral escura. */
+  --nav-executiva: 358 70% 65%;
+  --nav-auditoria: 265 70% 75%;
+  --nav-inteligencia: 240 70% 75%;
+  --nav-dados: 152 45% 60%;
+  --nav-admin: 0 0% 70%;
 
   --sidebar: 222 47% 11%;
   --sidebar-foreground: 210 40% 98%;
