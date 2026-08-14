@@ -258,6 +258,23 @@ function fatoQueResponde(dossie: Dossie): Escolha | null {
  * número que ninguém consultou.
  */
 function redacaoDeterministica(dossie: Dossie): string {
+  /*
+    Um cumprimento se responde cumprimentando.
+
+    Não há dossiê a percorrer aqui — a orquestração não consultou nada, e é
+    justamente esse o ponto. O que sai é quem o assistente é e o que dá para
+    perguntar a ele; os exemplos ficam com as sugestões clicáveis, que é onde a
+    tela já os oferece, em vez de repetidos no meio do texto.
+  */
+  if (dossie.plano.intencao === "SAUDACAO") {
+    return (
+      "Olá. Sou o assistente do FreightCheck: respondo sobre os parâmetros do modelo de " +
+      "remuneração, o que mudou entre as vigências, quanto isso pesou em dinheiro e o que " +
+      "o Book do Operador registra — sempre a partir do que foi importado, com a fonte ao " +
+      "lado para você conferir.\n\nSobre o que você quer saber?"
+    );
+  }
+
   const partes: string[] = [];
   // A numeração das citações é a de `montarFontes`: trechos, depois evidências.
   const primeiraEvidencia = dossie.trechos.length + 1;
@@ -406,6 +423,14 @@ function sugerir(dossie: Dossie): string[] {
   const saida: string[] = [];
 
   switch (plano.intencao) {
+    /*
+      Depois de um "bom dia", as sugestões são o próprio convite: elas dizem, em
+      forma clicável, o que este assistente sabe responder. É por isso que a
+      apresentação não repete exemplos no texto.
+    */
+    case "SAUDACAO":
+      return SUGESTOES.slice(0, 3).map((s) => s.pergunta);
+
     case "CONCEITUAL":
     case "DISPONIBILIDADE":
       if (gaveta) {

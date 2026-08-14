@@ -55,6 +55,8 @@ export type Intencao =
   | "PANORAMA"
   /** "que vigências existem", "quais unidades" */
   | "CATALOGO_DE_CONTEXTO"
+  /** "ola", "bom dia", "tudo bem?", "obrigado" — conversa, não consulta */
+  | "SAUDACAO"
   | "DESCONHECIDA";
 
 /** As intenções que se respondem sem tocar o banco. */
@@ -322,6 +324,45 @@ export function ehContinuacao(pergunta: string): boolean {
   return false;
 }
 
+// ── Saudação ────────────────────────────────────────────────────────────────
+
+/**
+ * As formas de dizer olá, obrigado e tchau.
+ *
+ * A lista é curta de propósito: ela não precisa cobrir o português social
+ * inteiro, só o que se digita antes de começar a trabalhar. Uma saudação não
+ * reconhecida cai em DESCONHECIDA, que é o comportamento de hoje — o custo de
+ * errar por omissão é uma resposta sem graça, e o de errar por excesso é uma
+ * pergunta de verdade tratada como conversa fiada.
+ */
+const SAUDACOES =
+  /\b(ola|oi+|opa|e ai|salve|bom dia|boa tarde|boa noite|bom fim de semana|tudo (bem|certo|bom|tranquilo)|como vai|como (voce |vc )?esta|beleza|blz|hey|hi|hello|obrigad[oa]|agradec\w*|valeu|vlw|tchau|falou|ate (logo|mais|breve)|bom trabalho)\b/g;
+
+/**
+ * Palavras que acompanham a saudação sem lhe acrescentar pedido.
+ *
+ * "Bom dia, assistente" e "oi, tudo bem por aí?" continuam sendo só um bom dia.
+ */
+const RUIDO_SOCIAL = /\b(por favor|obrigado|voce|vc|ai|por ai|entao|assistente|bot|ia|amigo|pessoal|gente|time|entao|ne|hein|so isso|nada)\b/g;
+
+/**
+ * A frase inteira é conversa, e não pergunta.
+ *
+ * Repare que a checagem é sobre **o que sobra**, não sobre o que casa. Um
+ * "bom dia" no começo de uma pergunta de verdade — "bom dia, qual o valor do
+ * IPVA?" — deixa "qual o valor do ipva" para trás, e aí não é saudação: é uma
+ * pergunta educada, e responder a ela com uma apresentação seria ignorar o que
+ * foi perguntado. Só quando não sobra nada além de pontuação é que a frase não
+ * pede consulta nenhuma.
+ */
+export function ehSaudacao(pergunta: string): boolean {
+  const frase = normalizar(pergunta).trim();
+  if (!frase) return false;
+  if (!frase.match(SAUDACOES)) return false;
+  const resto = frase.replace(SAUDACOES, " ").replace(RUIDO_SOCIAL, " ");
+  return /^[\s,.!?;:'"()\-—…]*$/.test(resto);
+}
+
 // ── Classificação ───────────────────────────────────────────────────────────
 
 interface Padrao {
@@ -463,6 +504,34 @@ const PADROES: Padrao[] = [
  */
 export function interpretar(pergunta: string): Leitura {
   const frase = normalizar(pergunta).trim();
+
+  /*
+    A saudação sai antes de qualquer padrão, e sem entidade nenhuma.
+
+    Ela não é uma consulta que falhou — é uma frase que não pediu consulta. Sem
+    esta saída, "ola" percorria os padrões, não casava nenhum, virava
+    DESCONHECIDA e chegava ao fim da orquestração sem evidência e sem trecho,
+    onde a única conclusão possível era a lacuna "não encontrei nada sobre isto"
+    — verdadeira, e a pior primeira impressão que este produto podia dar a quem
+    abriu a tela para dizer bom dia.
+
+    Também não é continuação: quem cumprimenta no meio de uma conversa não está
+    voltando ao assunto anterior, e herdar parâmetro ou período aqui só sujaria
+    o painel técnico com uma herança que ninguém usa.
+  */
+  if (ehSaudacao(pergunta)) {
+    return {
+      intencao: "SAUDACAO",
+      continuacao: false,
+      porque: "é conversa, não consulta",
+      entidades: {
+        termoDoParametro: null,
+        periodo: null,
+        intervalo: null,
+        equipamento: null,
+      },
+    };
+  }
 
   let intencao: Intencao = "DESCONHECIDA";
   let porque = "nenhum padrão casou";
