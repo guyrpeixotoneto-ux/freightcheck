@@ -26,6 +26,7 @@ import { getFamiliesView, listContexts, listPeriods, resolveContext } from "@wor
 import { responder, type Resposta } from "../resposta";
 import { disponivel, modeloConfigurado } from "../llm";
 import { rotuloDoPeriodo } from "../formato";
+import { perguntaTecnica } from "../interpretacao";
 import { CASOS, SEQUENCIAS, type Categoria } from "../aceitacao/bateria";
 import { mantemAssunto, verificar, type Falha } from "../aceitacao/verificacoes";
 import type { EstadoDaConversa } from "../conversa";
@@ -193,7 +194,7 @@ async function rodar(db: Database, marcadores: Marcadores, so: Set<string> | nul
       pergunta,
       esperado: caso.esperado,
       resposta,
-      falhas: verificar(resposta, caso.espera ?? {}),
+      falhas: verificar(resposta, caso.espera ?? {}, perguntaTecnica(pergunta)),
       msDecorridos,
     });
     process.stdout.write(`  ${caso.id} · ${msDecorridos} ms\n`);
@@ -243,7 +244,7 @@ async function rodarConversas(db: Database, marcadores: Marcadores) {
       const resposta = await responder(db, pergunta, { estado, historico: [...historico] });
       const msDecorridos = Date.now() - inicio;
 
-      const falhas = verificar(resposta, passo.espera ?? {});
+      const falhas = verificar(resposta, passo.espera ?? {}, perguntaTecnica(pergunta));
 
       /*
         A continuidade é conferida contra o valor do marcador, não contra o

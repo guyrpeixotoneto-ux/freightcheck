@@ -224,13 +224,22 @@ function lacunaDoQualificador(termoPerguntado: string, alvo: Alvo): Lacuna | nul
   if (ausentes.length === 0) return null;
 
   const colunas = alvo.atributos.map((a) => a.rotulo).join(", ");
+  /*
+    A lacuna é dita como quem opera a diria — e diz o que ela destravaria.
+
+    A frase anterior era "nenhuma coluna dela trata de preço", que é verdadeira
+    e fala a língua do banco. Pior: escrita assim, ela virava o assunto da
+    resposta inteira, porque é a única frase categórica do dossiê. Aqui ela diz
+    três coisas na ordem que interessa a quem perguntou — o que existe, o que
+    falta, e o que passaria a ser possível com o que falta.
+  */
   return {
     tipo: "CONCEITO_SEM_DADO",
     explicacao:
-      `O FreightCheck tem a gaveta "${alvo.parametro}", mas nenhuma coluna dela trata de ` +
-      `${ausentes.map((a) => `"${a}"`).join(", ")}. O que este export traz nesta gaveta é: ` +
-      `${colunas}. Para responder sobre ${ausentes.join(", ")} faltaria o arquivo que o ` +
-      `Freightech publica nessa tela, e que a planilha de equipamento não carrega.`,
+      `Sobre ${alvo.parametro}, o arquivo de equipamentos que o FreightCheck recebe hoje traz ` +
+      `${colunas} — não traz ${ausentes.join(", ")}. Esse dado existe no Freightech, noutra ` +
+      `tela, num arquivo que ainda não foi importado; com ele, daria para fechar a conta ` +
+      `completa de ${ausentes.join(", ")} por equipamento.`,
   };
 }
 
@@ -802,6 +811,23 @@ export async function orquestrar(
           parametros: alvo ? [alvo.parametro] : [],
         });
 
+  /*
+    ---- 6b. dedup entre o índice e o documento ------------------------------
+
+    O índice do Book diz "X é um bloco da categoria Y do Book do Operador"; o
+    documento de X diz o que a regra determina. Quando os dois estão no dossiê,
+    o primeiro não acrescenta nada — e acrescenta um risco: é a frase mais
+    fácil de repetir, e foi ela que abriu as respostas que motivaram esta
+    revisão. Fonte que diz a mesma coisa não aumenta confiança; aumenta o
+    tamanho da resposta.
+  */
+  const blocosNoDossie = new Set(documentos.map((d) => normalizar(d.trecho.bloco)));
+  const semRepetir = trechos.filter(
+    (t) => !(t.trecho.corpus === "BOOK_INDICE" && blocosNoDossie.has(normalizar(t.trecho.titulo))),
+  );
+  trechos.length = 0;
+  trechos.push(...semRepetir);
+
   // ---- 7. lacunas ----------------------------------------------------------
   /*
     O qualificador só é lacuna quando a pergunta espera uma coluna.
@@ -843,10 +869,10 @@ export async function orquestrar(
         noCatalogo || noBook
           ? `${noCatalogo ? "O Freightech publica este assunto" : "O Book do Operador trata deste assunto"}, ` +
             `mas nenhuma coluna deste export alimenta "${termoDoParametro}" — então não há número a somar aqui.`
-          : `Nenhuma coluna deste export corresponde a "${termoDoParametro}"` +
+          : `O arquivo importado não tem nada sobre "${termoDoParametro}"` +
             (documentos.length > 0
-              ? ", e o que sai abaixo vem do que o Book do Operador registra sobre o assunto — regra, não número apurado."
-              : ". Pode ser que o Freightech o publique noutra tela cujo arquivo ainda não importamos."),
+              ? " — o que sai daqui é a regra registrada no Book, não número apurado."
+              : ". Pode ser que o Freightech publique esse assunto noutra tela, cujo arquivo ainda não foi importado."),
     });
   }
 
@@ -857,8 +883,10 @@ export async function orquestrar(
     lacunas.push({
       tipo: "DADO_SEM_PRECO",
       explicacao:
-        "Há dado, e o impacto em dinheiro não é apurável: a semântica do atributo ainda não " +
-        "foi confirmada na Curadoria, então somar a variação seria adivinhação.",
+        "Dá para ver o que mudou, mas não quanto isso vale em dinheiro: ainda não foi " +
+        "confirmado como esse valor deve ser somado, e somar sem essa confirmação seria " +
+        "chute. A confirmação é feita na tela de Curadoria, e destrava o impacto destas " +
+        "mesmas alterações.",
     });
   }
 

@@ -37,6 +37,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { estimarTokens, type EventoDeIa } from "./observabilidade";
 import { itensCitaveis, type Dossie } from "./orquestrador";
+import { perguntaTecnica } from "./interpretacao";
 
 /**
  * `claude-opus-5` por padrão.
@@ -136,31 +137,75 @@ Quando a origem importa para a confiança, ela se diz em português normal:
 
 ## Como a resposta é construída
 
-**A primeira frase responde a pergunta.** Sem preâmbulo, sem repetir o que foi
-perguntado, sem anunciar o que você vai fazer, sem dizer onde procurou.
+**A primeira coisa é a resposta.** Não o caminho até ela, não a definição do
+que a pessoa perguntou, não onde você procurou. Quem perguntou "como funciona o
+preço do combustível?" quer ler, na primeira frase, que existem duas
+referências de preço e qual delas vale — e não que existe uma tela chamada
+Combustível.
 
-**O tamanho é proporcional à pergunta.** "Qual o IPVA do cavalo ABC1234?" se
-responde em uma ou duas frases. "Analise o que mudou na remuneração entre
-janeiro e agosto" admite um arco: o que você está olhando, os achados do mais
-importante ao menos, e o que isso implica. Não use estrutura de relatório —
-resumo executivo, metodologia, conclusão — em pergunta que cabe num parágrafo.
+**Depois, na ordem que a pergunta pedir**: como funciona (a regra, o cálculo),
+um exemplo quando número ajudar, o que isso significa na operação, o que os
+dados do FreightCheck mostram sobre isso, o que falta para fechar, e o que daria
+para descobrir em seguida.
 
-**Prosa por padrão.** Parágrafos curtos. Título só quando a resposta for longa o
-bastante para precisar de mapa. Lista quando os itens forem mesmo uma
-enumeração; tabela quando a comparação tiver colunas — e, quando o Book trouxer
-uma tabela que responde, reproduza a tabela em vez de descrevê-la em prosa.
-Negrito em um ou dois números que importam de verdade, não em tudo.
+**Isto é um repertório, não um formulário.** Use os blocos que a pergunta pedir
+e ignore os outros. Duas respostas seguidas com a mesma estrutura já é uma
+estrutura demais: o que faz uma conversa parecer humana é a forma mudar com o
+assunto. Pergunta factual se responde em duas frases, sem título nenhum;
+investigação admite seções curtas; comparação pede tabela. Nunca imponha
+"Resumo / Análise / Conclusão" a uma pergunta que cabe num parágrafo.
 
-**Explicar é mais do que transcrever.** Um documento diz "auditoria bimestral da
-estrutura administrativa"; a resposta boa diz o que isso significa para quem
-opera — o que é conferido, contra o quê, e o que acontece se divergir —, tudo
-isso ainda saindo do que está escrito. Se a pergunta pede o que o documento não
-tem, diga o que ele tem e o que falta.
+**Traduza o sistema para a operação.** O material que você recebe foi escrito
+para as telas do produto e para o banco, e usa o vocabulário de lá: gaveta,
+parâmetro, atributo, coluna, export, vigência, escopo, recorte. A resposta usa o
+vocabulário de quem opera: "o arquivo de equipamentos traz o consumo negociado,
+mas não traz o preço do diesel" diz a mesma coisa que "nenhuma coluna deste
+export alimenta a gaveta Combustível" e é a única das duas que alguém entende.
+Nome de campo do sistema só aparece se a pergunta pediu nome de campo.
+
+**Exemplo numérico quando houver regra.** Uma regra descrita em prosa se
+entende; uma regra com um exemplo se aprende. "Se o preço da ANP for R$ 6,20/L e
+o da operadora R$ 6,05/L, e a regra manda usar o menor, a remuneração usa R$
+6,05/L." Deixe explícito que o exemplo é ilustrativo — **número ilustrativo
+nunca se confunde com número apurado**, e nenhum exemplo pode ser construído com
+valores que pareçam vir dos dados.
+
+**Diga o que a mudança significa, não só que ela houve.** "Consumo negociado
+passou de 2,1 para 2,0 km/L" é metade da frase. A outra metade é o que isso faz:
+menos quilômetro por litro reconhecido significa mais litro reconhecido para a
+mesma distância. Interprete sempre que a interpretação se sustentar no que está
+no material — e marque como leitura quando for leitura.
+
+**Não repita a mesma coisa em dois lugares.** Duas fontes que dizem o mesmo
+aumentam a confiança, não o tamanho da resposta: diga uma vez, cite as duas se
+fizer sentido. Recapitular no fim o que já foi dito no começo é a forma mais
+comum de uma resposta boa ficar ruim.
+
+**Falta de dado não sequestra a resposta.** Responda primeiro tudo o que dá para
+responder com segurança; só depois diga o que falta — em uma ou duas frases, com
+o que aquilo destravaria. Uma pergunta que tem 80% de resposta e 20% de lacuna
+não vira uma resposta sobre a lacuna.
+
+**Tamanho é consequência, não estilo.** Pergunta simples, resposta curta.
+Pergunta executiva, síntese e consequência. Investigação, profundidade. Não
+encha; não corte o que a pergunta pediu.
+
+**Formatação a serviço da leitura.** Título curto só quando houver conteúdo
+suficiente para precisar de mapa. Lista quando os itens forem mesmo uma
+enumeração. Negrito em um ou dois números que decidem, não em tudo. Nada de um
+parágrafo por frase, nada de blocos de dez linhas.
 
 **Varie as aberturas.** Nunca abra duas respostas da conversa com a mesma frase.
-Nada de suspense ("deixa eu verificar"), nada de elogiar a pergunta, nada de
-"posso ajudar em mais alguma coisa?" no fim. Se houver um próximo passo óbvio e
-específico, ofereça-o em uma frase; se não houver, termine.
+Nada de suspense, nada de elogiar a pergunta, nada de "posso ajudar em mais
+alguma coisa?" no fim. Se houver um próximo passo óbvio e específico, ofereça-o
+em uma frase; se não houver, termine.
+
+## Antes de entregar, confira
+
+Sete perguntas, e qualquer "não" pede reescrita: a conclusão está no começo? Eu
+interpretei o material ou reproduzi? Há informação repetida? Sobrou nome de
+campo do sistema? Um exemplo ajudaria? Fato, cálculo e leitura estão
+distinguíveis? Quem não conhece a estrutura interna do FreightCheck entenderia?
 
 ## Cruzar fontes é o que se espera de você
 
@@ -277,17 +322,33 @@ function emTexto(d: Dossie): string {
 
   const itens = itensCitaveis(d);
 
+  /*
+    O vocabulário de sistema só entra quando alguém o pediu.
+
+    Nome de coluna e código de atributo ficam fora do material por padrão: o
+    modelo repetia `Precoanp, Precooperadora` numa resposta sobre como o preço
+    funciona porque a lista estava no dossiê, e nenhuma instrução de estilo
+    segura de forma confiável um dado presente no contexto. Numa pergunta
+    declaradamente técnica — "qual coluna alimenta isso?" — a mesma lista é a
+    resposta, e aí ela entra.
+  */
+  const tecnica = perguntaTecnica(d.pergunta);
+
   const conceito = itens.filter((i) => i.tipo === "CONCEITO");
   if (conceito.length > 0) {
     partes.push(
-      "## CONCEITO — o que este produto e o Freightech publicam sobre o assunto\n\n" +
+      "## CONCEITO — o que o Freightech publica sobre o assunto\n\n" +
+        "_Escrito para as telas do produto: pode dizer \"a tabela abaixo\" e nomear campos do " +
+        "sistema. Traduza para linguagem de operação; não copie._\n\n" +
         conceito
-          .map(
-            (i) =>
-              i.tipo === "CONCEITO"
-                ? `### [${i.id}] ${i.trecho.trecho.titulo}\n(fonte: ${i.trecho.trecho.fonte})\n\n${i.trecho.trecho.texto}`
-                : "",
-          )
+          .map((i) => {
+            if (i.tipo !== "CONCEITO") return "";
+            const t = i.trecho.trecho;
+            return (
+              `### [${i.id}] ${t.titulo}\n(fonte: ${t.fonte})\n\n${t.texto}` +
+              (tecnica && t.tecnico ? `\n\n${t.tecnico}` : "")
+            );
+          })
           .join("\n\n"),
     );
   }
@@ -366,7 +427,7 @@ function emTexto(d: Dossie): string {
 
   if (d.lacunas.length > 0) {
     partes.push(
-      "## LACUNAS (dizer na resposta, com as palavras da conversa)\n\n" +
+      "## O QUE FALTA (dizer **depois** de responder o que dá, em uma ou duas frases suas)\n\n" +
         d.lacunas.map((l) => `- [${l.tipo}] ${l.explicacao}`).join("\n"),
     );
   }

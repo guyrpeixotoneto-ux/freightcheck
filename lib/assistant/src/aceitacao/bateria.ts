@@ -175,8 +175,22 @@ export const CASOS: CasoDeAceitacao[] = [
   {
     id: "param-o-que-e",
     categoria: "PARAMETRO",
-    pergunta: "O que é a gaveta {PARAM} e o que ela alimenta?",
-    esperado: "Explica o conceito e diz quais colunas do export a alimentam.",
+    pergunta: "O que é {PARAM} e o que ele influencia na remuneração?",
+    esperado:
+      "Explica em linguagem de operação. Nome de campo do sistema não deve aparecer — a " +
+      "pergunta não é técnica.",
+  },
+  {
+    /*
+      O contraponto: aqui o nome do campo **é** a resposta. A mesma regra que
+      esconde `Precoanp` de quem pergunta como o preço funciona tem de revelá-lo
+      a quem pergunta qual coluna alimenta o quê — senão ela não é uma regra
+      sobre a pergunta, é censura de vocabulário.
+    */
+    id: "param-tecnica",
+    categoria: "PARAMETRO",
+    pergunta: "Quais colunas do export alimentam {PARAM}?",
+    esperado: "Pergunta técnica: os códigos de atributo e os nomes de coluna podem e devem sair.",
   },
   {
     id: "param-evolucao",
@@ -508,6 +522,88 @@ export const CASOS: CasoDeAceitacao[] = [
     esperado:
       "Diz o que é apurado, o que é estimado e o que está sem semântica confirmada. É a " +
       "pergunta que mais pede honestidade sobre cobertura.",
+    espera: { usaDado: true },
+  },
+
+  /*
+    ══ 8b. As dez do aceite de estilo ════════════════════════════════════════
+
+    Estas vieram nomeadas no pedido de revisão de estilo, e ficam juntas de
+    propósito: é a lista que se compara entre a rodada de antes e a de depois.
+    Cada uma existe porque a resposta atual a responde de um jeito documental —
+    abrindo pela estrutura do sistema, listando nome de campo, ou deixando a
+    conclusão perdida no meio.
+  */
+  {
+    id: "estilo-combustivel",
+    categoria: "MULTIFONTE",
+    pergunta: "Como funciona o preço de combustível?",
+    esperado:
+      "Abre pelas duas referências de preço e por qual delas vale — não por " +
+      "\"existe uma tela chamada Combustível\". Exemplo numérico ilustrativo ajuda. " +
+      "O que o arquivo de equipamentos traz e não traz entra no fim, em uma frase.",
+  },
+  {
+    id: "estilo-cavalo-mes",
+    categoria: "OPERACAO",
+    pergunta: "O que mudou no cavalo este mês?",
+    esperado: "O movimento do equipamento com a leitura do que ele significa, não só a contagem.",
+    espera: { usaDado: true },
+  },
+  {
+    id: "estilo-remuneracao-caiu",
+    categoria: "EXECUTIVA",
+    pergunta: "Por que minha remuneração caiu?",
+    esperado:
+      "Decompõe: o que mudou, quais parâmetros, quantos equipamentos, qual pesou mais, e o " +
+      "que ainda não dá para afirmar. Não procura a frase literal da pergunta.",
+    espera: { usaDado: true },
+  },
+  {
+    id: "estilo-maior-mudanca",
+    categoria: "COMPARACAO",
+    pergunta: "Qual foi a maior mudança entre {MES_ANTERIOR} e {MES}?",
+    esperado: "Uma resposta com um protagonista claro, e o critério da escolha dito.",
+    espera: { usaDado: true },
+  },
+  {
+    id: "estilo-ipva-barato",
+    categoria: "PARAMETRO",
+    pergunta: "O IPVA ficou mais barato?",
+    esperado:
+      "Responde sim/não com o número, e diz a armadilha se ela existir — entrada de ativo " +
+      "não é queda de preço.",
+    espera: { usaDado: true },
+  },
+  {
+    id: "estilo-quanto-por-mes",
+    categoria: "IMPACTO",
+    pergunta: "Quanto essa mudança representa por mês?",
+    esperado: "Valor mensal com a periodicidade explícita, sem converter nada.",
+  },
+  {
+    id: "estilo-parametros-do-cavalo",
+    categoria: "PARAMETRO",
+    pergunta: "Quais parâmetros influenciam a remuneração do cavalo?",
+    esperado: "Lista em linguagem de operação, agrupada por natureza — não nomes de coluna.",
+  },
+  {
+    id: "estilo-book-combustivel",
+    categoria: "BOOK_PURO",
+    pergunta: "O que o Book diz sobre combustível?",
+    esperado: "A regra registrada, interpretada — não o parágrafo do documento colado.",
+  },
+  {
+    id: "estilo-divergencia",
+    categoria: "MULTIFONTE",
+    pergunta: "Existe alguma divergência entre o Book e os parâmetros?",
+    esperado: "Compara os dois lados e diz o que sustentaria a conclusão; não força divergência.",
+  },
+  {
+    id: "estilo-investigar-primeiro",
+    categoria: "EXECUTIVA",
+    pergunta: "Quais mudanças eu deveria investigar primeiro?",
+    esperado: "Prioriza por consequência, com o porquê de cada uma em uma linha.",
     espera: { usaDado: true },
   },
 

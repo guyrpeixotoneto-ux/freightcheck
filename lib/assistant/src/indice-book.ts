@@ -561,7 +561,7 @@ export async function buscarNoBook(
  * foi escrito. O teto existe porque um manual de duzentas páginas não cabe, e
  * nesse caso os trechos ranqueados continuam sendo a resposta.
  */
-export const TETO_DO_DOCUMENTO_INTEIRO = 12000;
+export const TETO_DO_DOCUMENTO_INTEIRO = 6000;
 
 export async function documentoDoBloco(
   db: Database,

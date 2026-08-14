@@ -231,8 +231,18 @@ function fatoQueResponde(dossie: Dossie): Escolha | null {
   return visivel ? { evidencia: primeira.evidencia, fato: visivel, fonte: primeira.id } : null;
 }
 
-/** O trecho do Book que abre a resposta, com o teto de tamanho da abertura. */
-const TETO_DA_ABERTURA = 1600;
+/**
+ * Quanto do documento a redação em código transcreve.
+ *
+ * Ela não resume — sem modelo, resumir seria inventar —, então o que ela pode
+ * fazer é escolher bem e parar cedo. Mil caracteres cobrem a regra que
+ * responde; o resto do documento continua a um clique, pela fonte. O teto era
+ * quase o dobro, e o efeito era o que se via na tela: um bloco de documento
+ * colado, que é exatamente a impressão que esta revisão existe para desfazer.
+ */
+const TETO_DA_ABERTURA = 1000;
+/** E de quantos pedaços ela pode ser feita. */
+const TRECHOS_NA_ABERTURA = 2;
 
 /**
  * A resposta montada em código.
@@ -285,7 +295,7 @@ export function redacaoDeterministica(dossie: Dossie): string {
   */
   if (doBook.length > 0) {
     let acumulado = 0;
-    for (const item of doBook) {
+    for (const item of doBook.slice(0, TRECHOS_NA_ABERTURA)) {
       const texto = item.documento.trecho.texto;
       if (acumulado > 0 && acumulado + texto.length > TETO_DA_ABERTURA) break;
       partes.push(`${texto} [${item.id}]`);

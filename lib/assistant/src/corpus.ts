@@ -37,6 +37,23 @@ export interface Trecho {
   id: string;
   corpus: Corpus;
   titulo: string;
+  /**
+   * O vocabulário de sistema deste assunto — nomes de coluna, códigos de
+   * atributo, nome do parâmetro interno.
+   *
+   * Fica **fora** de `texto` de propósito, e esta separação é a correção de um
+   * defeito de contexto que passava por defeito de estilo. O trecho de
+   * Combustível terminava com "mostra as colunas: Descricao, Iniciativa,
+   * Creditoimposto, Precoanp, Precooperadora" — e um modelo instruído a ser
+   * fiel ao dossiê repetia aquilo numa resposta sobre como o preço funciona.
+   * Não era o modelo sendo técnico: era o material sendo técnico, e nenhum
+   * prompt corrige um parágrafo que já vem assim escrito.
+   *
+   * O identificador continua na busca (`termos`), onde ele serve — quem digita
+   * `Precoanp` tem de achar esta tela —, e só chega ao modelo quando a pergunta
+   * é declaradamente técnica.
+   */
+  tecnico?: string;
   /** Onde ele mora — a seção do catálogo, a categoria do bloco, a área do artigo. */
   secao: string;
   /** A prosa recuperável. */
@@ -86,51 +103,56 @@ function trechosDoCatalogo(): Trecho[] {
 
   for (const secao of CATALOGO_FREIGHTECH) {
     for (const cartao of secao.cartoes) {
-      const partes: string[] = [
-        `"${cartao.nome}" é uma gaveta da seção ${secao.titulo.toUpperCase()} do Freightech.`,
-      ];
+      /*
+        O trecho abre pelo assunto, não pela identidade do cartão.
+
+        A abertura era `"Combustível" é uma gaveta da seção FROTA do
+        Freightech` — uma frase sobre a arrumação do sistema, no lugar em que
+        se espera a explicação. Quem lê a resposta já sabe que perguntou sobre
+        combustível; o que ele não sabe é como o preço funciona, e é a `nota`
+        que diz isso. Título e seção continuam existindo como metadado: eles
+        aparecem no cabeçalho do dossiê e na lista de fontes, que é onde a
+        identidade pertence.
+      */
+      const partes: string[] = [];
 
       if (cartao.nota) partes.push(cartao.nota);
+      else partes.push(`${cartao.nome} é uma das telas de ${secao.titulo} do Freightech.`);
 
-      if (cartao.colunas?.length) {
+      if (cartao.entidade) {
+        partes.push(`É um inventário de ${cartao.entidade.toLowerCase()}: uma linha por veículo.`);
+      }
+
+      if (!cartao.parametros?.length && !cartao.atributos?.length) {
+        /*
+          A ausência dita em linguagem de operação, não de banco.
+
+          "Nenhum parâmetro deste export alimenta esta gaveta" é verdadeiro e
+          incompreensível para quem não conhece a estrutura interna. O que a
+          pessoa precisa saber é qual arquivo tem o dado e qual não tem.
+        */
         partes.push(
-          `No Freightech esta tela mostra as colunas: ${cartao.colunas.join(", ")}.`,
+          `O arquivo de equipamentos que o FreightCheck recebe hoje não traz os dados desta ` +
+            `tela — eles existem no Freightech, em outro arquivo, que ainda não foi importado.`,
         );
       }
 
+      // ---- o vocabulário de sistema, separado ------------------------------
+      const tecnico: string[] = [];
+      if (cartao.colunas?.length) {
+        tecnico.push(`Colunas desta tela no Freightech: ${cartao.colunas.join(", ")}.`);
+      }
       if (cartao.formulario?.length) {
         const campos = cartao.formulario.flatMap((s) =>
           s.campos.map((c) => (c.calculado ? `${c.nome} (calculado)` : c.nome)),
         );
-        partes.push(
-          `No Freightech este cartão abre uma ficha, não uma tabela. Campos: ${campos.join(", ")}.`,
-        );
+        tecnico.push(`No Freightech este cartão abre uma ficha, não uma tabela. Campos: ${campos.join(", ")}.`);
       }
-
       if (cartao.parametros?.length) {
-        partes.push(
-          `No FreightCheck, é alimentada pelo parâmetro ${cartao.parametros.join(", ")}.`,
-        );
-      } else if (!cartao.atributos?.length) {
-        /*
-          Cartão sem parâmetro e sem atributo é cartão sem dado neste export — e
-          dizer isso no próprio trecho é o que permite ao assistente distinguir
-          "não encontrei" de "o Freightech tem, o nosso export não traz". Sem
-          esta frase, a ausência precisaria ser inferida da falta de um campo, e
-          inferência de ausência é exatamente o que produz resposta inventada.
-        */
-        partes.push(
-          "Nenhum parâmetro deste export alimenta esta gaveta: o Freightech a publica, " +
-            "e a planilha de equipamento que o FreightCheck recebe não traz as colunas dela.",
-        );
+        tecnico.push(`No FreightCheck corresponde ao parâmetro ${cartao.parametros.join(", ")}.`);
       }
-
       if (cartao.atributos?.length) {
-        partes.push(`Colunas do export que são esta gaveta: ${cartao.atributos.join(", ")}.`);
-      }
-
-      if (cartao.entidade) {
-        partes.push(`É um inventário de ${cartao.entidade.toLowerCase()}: uma linha por veículo.`);
+        tecnico.push(`Colunas do export que a alimentam: ${cartao.atributos.join(", ")}.`);
       }
 
       const termos = [
@@ -150,6 +172,7 @@ function trechosDoCatalogo(): Trecho[] {
         titulo: cartao.nome,
         secao: secao.titulo,
         texto: partes.join(" "),
+        ...(tecnico.length > 0 ? { tecnico: tecnico.join(" ") } : {}),
         termos: [...new Set(termos)],
         fonte: `Catálogo do Freightech · ${secao.titulo} › ${cartao.nome}`,
         tela: { label: "Parâmetros", href: "/parametros" },
