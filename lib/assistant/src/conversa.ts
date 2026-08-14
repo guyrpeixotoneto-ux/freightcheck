@@ -67,8 +67,21 @@ export function avancarEstado(
   const base = anterior ?? ESTADO_VAZIO;
   const { plano, leitura } = dossie;
 
-  const periodo = leitura.entidades.periodo ?? (leitura.continuacao ? base.periodo : null);
-  const intervalo = leitura.entidades.intervalo ?? (leitura.continuacao ? base.intervalo : null);
+  /*
+    A vigência do fio sobrevive à pergunta que não a menciona.
+
+    A regra anterior zerava o período sempre que a frase não fosse detectada
+    como continuação — e a conversa voltava para a vigência mais recente no
+    meio do caminho. Numa sequência real isso aparecia assim: alguém falava de
+    julho, perguntava "qual foi o impacto?" (julho, correto), e a seguinte,
+    "quais veículos mais sofreram?", respondia sobre agosto sem avisar.
+
+    Guardar não é usar: só as intenções que pedem recorte consultam este campo,
+    e a resposta sempre declara qual vigência descreveu. Trocar de vigência em
+    silêncio é o que este produto não faz em nenhuma tela.
+  */
+  const periodo = leitura.entidades.periodo ?? base.periodo;
+  const intervalo = leitura.entidades.intervalo ?? base.intervalo;
 
   return {
     intencao: plano.intencao === "DESCONHECIDA" ? base.intencao : plano.intencao,

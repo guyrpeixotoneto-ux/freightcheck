@@ -42,7 +42,9 @@ import {
 import {
   INTENCOES_COM_PARAMETRO,
   INTENCOES_COM_RECORTE,
+  INTENCOES_QUE_HERDAM_ASSUNTO,
   interpretar,
+  temPronomeAnaforico,
   mesParaNumero,
   type Intencao,
   type Leitura,
@@ -248,6 +250,57 @@ export async function orquestrar(
   let termoDoParametro = leitura.entidades.termoDoParametro;
   let periodoPedido = leitura.entidades.periodo;
   let intervaloPedido = leitura.entidades.intervalo;
+
+  /*
+    O assunto do fio vale para toda pergunta que não traga o seu.
+
+    Isto roda **fora** do bloco de continuação de propósito, e é a correção do
+    defeito que a sequência de aceite expôs. "Quanto mudou em agosto?" logo
+    depois de uma resposta sobre combustível tem verbo, tem período e não
+    parece continuação nenhuma — mas não diz *o quê*, e num fio aberto o quê é
+    o combustível. Antes disso ela caía no agregado da vigência: uma resposta
+    verdadeira sobre outro assunto, que é o pior defeito que este assistente
+    pode ter.
+
+    O pronome anafórico é o caso explícito da mesma regra: "isso está previsto
+    no Book?" declara, com todas as letras, que o assunto está na conversa.
+  */
+  const pronome = temPronomeAnaforico(pergunta);
+  if (estado && !termoDoParametro && estado.termoDoParametro) {
+    const pedeAssunto = INTENCOES_QUE_HERDAM_ASSUNTO.has(intencao) || pronome;
+    if (pedeAssunto) {
+      termoDoParametro = estado.termoDoParametro;
+      herdado.push("assunto");
+    }
+  }
+
+  /*
+    E a vigência do fio vale pelo mesmo motivo.
+
+    Sem isto, "qual foi o impacto?" no meio de uma conversa sobre julho
+    respondia sobre a vigência mais recente — trocava o período em silêncio,
+    que é exatamente o que este produto não faz em nenhuma outra tela.
+  */
+  /*
+    Comparação fica de fora: ela tem lógica própria de pontas, logo abaixo.
+
+    Herdar a vigência aqui dava as duas pontas iguais — "Compare." respondia
+    "julho/2026 → julho/2026, 0 comparações", que é a forma mais silenciosa de
+    não responder: um resultado válido, com zero em tudo, sem nada dizendo que
+    a pergunta não foi entendida.
+  */
+  if (
+    estado &&
+    !periodoPedido &&
+    !intervaloPedido &&
+    intencao !== "COMPARACAO" &&
+    INTENCOES_COM_RECORTE.has(intencao) &&
+    (estado.periodo || estado.intervalo)
+  ) {
+    if (estado.periodo) periodoPedido = estado.periodo;
+    else intervaloPedido = estado.intervalo;
+    herdado.push("vigência da conversa");
+  }
 
   if (leitura.continuacao && estado) {
     if (intencao === "DESCONHECIDA" && estado.intencao) {
@@ -537,8 +590,18 @@ export async function orquestrar(
 
   // ---- 6. corpus conceitual -----------------------------------------------
   marcar("buscarConceito", "Consultando o conhecimento do produto");
+  /*
+    Quem pergunta do Book quer o Book.
+
+    Sem restringir o corpus, "isso está previsto no Book?" era respondida pelo
+    cartão "Cavalo" do catálogo do Freightech — que menciona o parâmetro
+    herdado e por isso subia pelo empurrão de ligação. O catálogo descreve o
+    que o Freightech publica; o Book registra o que foi contratado. São
+    perguntas diferentes, e a segunda não se responde com a primeira.
+  */
   const trechos = buscarTrechos(pergunta, {
     limite: intencao === "CONCEITUAL" || intencao === "DISPONIBILIDADE" ? 4 : 2,
+    ...(intencao === "BOOK" ? { corpora: ["BOOK_INDICE", "ARTIGO"] as const } : {}),
     atributos: alvo?.atributos.map((a) => a.codigo) ?? [],
     parametros: alvo ? [alvo.parametro] : [],
   });

@@ -315,10 +315,100 @@ export interface Passo {
   herda?: boolean;
   /** O recorte da resposta tem de casar isto. */
   recorte?: RegExp;
+  /** Pelo menos uma destas ferramentas tem de ter rodado. */
+  ferramentas?: string[];
+  /** Precisa ter consultado alguma coisa — não basta devolver texto. */
+  naoVazio?: boolean;
+  /** Pergunta conceitual: não pode carregar recorte de vigência. */
+  semRecorte?: boolean;
   esperado: string;
 }
 
 export const CONVERSAS: { nome: string; passos: Passo[] }[] = [
+  {
+    /*
+      A sequência de aceite, exatamente como foi pedida.
+
+      Ela existe porque a bateria de perguntas isoladas passava inteira
+      enquanto esta quebrava em quatro dos nove turnos. Perguntas soltas
+      nomeiam o próprio assunto; uma conversa de verdade usa pronome — "isso",
+      "a fonte", "o impacto" — e para de nomear qualquer coisa depois do
+      segundo turno. É aqui que o fio arrebenta, e é por isso que ela é o caso
+      que não pode voltar a falhar.
+    */
+    nome: "a sequência de aceite: nove turnos sem repetir o assunto",
+    passos: [
+      {
+        pergunta: "Como funciona combustível?",
+        intencao: "CONCEITUAL",
+        semRecorte: true,
+        esperado: "O conceito, sem arrastar vigência nenhuma.",
+      },
+      {
+        pergunta: "Quanto mudou em agosto?",
+        intencao: "EVOLUCAO",
+        herda: true,
+        recorte: /agosto/i,
+        esperado:
+          "Quanto mudou **o combustível** em agosto. Sem herdar o assunto, respondia o " +
+          "agregado da vigência — verdadeiro e sobre outra coisa.",
+      },
+      {
+        pergunta: "E julho?",
+        intencao: "VALOR",
+        herda: true,
+        recorte: /julho/i,
+        esperado: "O mesmo assunto, no mês que a frase troca.",
+      },
+      {
+        pergunta: "Compare.",
+        intencao: "COMPARACAO",
+        herda: true,
+        ferramentas: ["compararIntervalo"],
+        esperado:
+          "Duas vigências diferentes. Herdando a vigência do fio como as duas pontas, " +
+          "respondia 'julho → julho, 0 comparações' — um resultado válido e vazio.",
+      },
+      {
+        pergunta: "Qual foi o impacto?",
+        intencao: "MOVIMENTO",
+        herda: true,
+        ferramentas: ["movimentoDoParametro", "resumoDaVigencia"],
+        esperado:
+          "O impacto do que está em discussão. Antes não casava padrão nenhum, caía em " +
+          "DESCONHECIDA e era respondida por um artigo, sem consultar nada.",
+      },
+      {
+        pergunta: "Quais veículos mais sofreram?",
+        intencao: "VEICULOS",
+        ferramentas: ["veiculosAfetados"],
+        esperado: "Os ativos afetados, no recorte que a conversa vinha usando.",
+      },
+      {
+        pergunta: "Por quê?",
+        intencao: "PROCEDENCIA",
+        herda: true,
+        esperado: "Refaz a consulta e desce à origem.",
+      },
+      {
+        pergunta: "Isso está previsto no Book?",
+        intencao: "BOOK",
+        herda: true,
+        esperado:
+          "O Book — não o catálogo do Freightech. O 'isso' é o assunto do fio, e sem " +
+          "resolvê-lo a resposta vinha do cartão de inventário do cavalo.",
+      },
+      {
+        pergunta: "Me mostre a fonte.",
+        intencao: "PROCEDENCIA",
+        herda: true,
+        naoVazio: true,
+        esperado:
+          "A origem do que foi dito. Antes 'fonte' e 'mostre' viravam o nome de um " +
+          "parâmetro inexistente, e a resposta era uma frase solta de um artigo.",
+      },
+    ],
+  },
   {
     nome: "IPVA, do intervalo ao mês e à origem",
     passos: [
