@@ -120,8 +120,27 @@ describe("whyCannotPromote", () => {
     expect(whyCannotPromote("FAILED")).toMatch(/falhou/i);
   });
 
-  it("explica a duplicata em vez de mandar aprovar o que não existe", () => {
-    expect(whyCannotPromote("SKIPPED_DUPLICATE")).toMatch(/duplicata/i);
+  it("separa arquivo repetido de dado repetido, em vez de dizer só 'duplicata'", () => {
+    // "Duplicata" era uma palavra só, e escondia duas situações que o operador
+    // lê de formas diferentes. Uma diz "você já mandou este arquivo"; a outra
+    // diz "o arquivo é outro, mas o número não vai mudar" — e é essa segunda
+    // que evita a pergunta "então por que meu dado não apareceu?".
+    const arquivo = whyCannotPromote("SKIPPED_DUPLICATE")!;
+    expect(arquivo).toMatch(/já foi recebido anteriormente/i);
+    expect(arquivo).toMatch(/nenhum dado foi importado novamente/i);
+
+    const dados = whyCannotPromote("SKIPPED_DUPLICATE_DATA")!;
+    expect(dados).toMatch(/o arquivo é diferente/i);
+    expect(dados).toMatch(/dados normalizados/i);
+    expect(dados).toMatch(/nenhum dado foi duplicado/i);
+
+    expect(arquivo).not.toBe(dados);
+  });
+
+  it("diz que o dado não fecha, e que o caminho é reenviar", () => {
+    const erro = whyCannotPromote("VALIDATION_ERROR")!;
+    expect(erro).toMatch(/não fecha/i);
+    expect(erro).toMatch(/envie o arquivo de novo/i);
   });
 
   it("um estado novo no futuro ainda recusa, e diz qual é", () => {

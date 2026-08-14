@@ -432,7 +432,9 @@ export function buildGroup(
   // A frota da série a que este grupo pertence. Quando o grupo abrange mais de
   // uma comparação (não acontece hoje, mas nada impede), toma-se a maior.
   const fleet = Math.max(
-    ...rows.map((r) => fleetByChangeSet.get(r.change_set_id) ?? 0),
+    ...rows.map(
+      (r) => fleetByChangeSet.get(`${r.change_set_id}\u001f${r.entity_type}`) ?? 0,
+    ),
     vehicles,
   );
 
@@ -789,6 +791,41 @@ export async function getGroupedView(
      ORDER BY sb.entity_type_set
   `);
 
+  // As séries desta vigência, uma por **componente** de equipamento.
+  //
+  // Uma vigência completa cobre CARRETA e CAVALO num snapshot só desde que os
+  // dois passaram a ser componentes da mesma identidade canônica. A tela
+  // continua mostrando uma série por equipamento, e a frota de cada uma é a
+  // dela — não a soma das duas. Sem essa distinção, a cobertura de um atributo
+  // de cavalo era medida contra a frota inteira e um atributo presente em todos
+  // os cavalos aparecia como "parcial".
+  const { rows: seriesRows } = await db.execute<{
+    change_set_id: string;
+    entity_type: string;
+    snapshot_label: string;
+    previous_label: string | null;
+    fleet: number;
+  }>(sql`
+    SELECT cs.id AS change_set_id,
+           t AS entity_type,
+           sb.source_label AS snapshot_label,
+           sa.source_label AS previous_label,
+           (
+             SELECT count(DISTINCT f.entity_id)::int
+               FROM fact f
+               JOIN entity e ON e.id = f.entity_id
+              WHERE f.snapshot_id = sb.id AND e.entity_type = t
+           ) AS fleet
+      FROM change_set cs
+      JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+      JOIN snapshot sa ON sa.id = cs.snapshot_a_id
+      CROSS JOIN LATERAL unnest(string_to_array(sb.entity_type_set, '+')) AS t
+     WHERE sb.effective_date = ${target.effective_date}::date
+       AND sb.status <> 'SUPERSEDED'
+       AND ${contextFilter("sb", context)}
+     ORDER BY t
+  `);
+
   // Séries que existiram nesta vigência mas ainda não têm comparação (a
   // primeira de uma série não tem anterior). Nomeadas, nunca supostas zero.
   const { rows: snapshotsHere } = await db.execute<{
@@ -796,19 +833,27 @@ export async function getGroupedView(
     source_label: string;
     fleet: number;
   }>(sql`
-    SELECT s.entity_type_set, s.source_label, s.entity_count AS fleet
+    SELECT t AS entity_type_set,
+           s.source_label,
+           (
+             SELECT count(DISTINCT f.entity_id)::int
+               FROM fact f
+               JOIN entity e ON e.id = f.entity_id
+              WHERE f.snapshot_id = s.id AND e.entity_type = t
+           ) AS fleet
       FROM snapshot s
+      CROSS JOIN LATERAL unnest(string_to_array(s.entity_type_set, '+')) AS t
      WHERE s.effective_date = ${target.effective_date}::date
        AND s.status <> 'SUPERSEDED'
        AND ${contextFilter("s", context)}
-     ORDER BY s.entity_type_set
+     ORDER BY t
   `);
 
-  const withSet = new Set(sets.map((s) => s.entity_type_set));
+  const withSet = new Set(seriesRows.map((s) => s.entity_type));
   const series: GroupedSeries[] = [
-    ...sets.map((s) => ({
-      entityTypeSet: s.entity_type_set,
-      equipment: equipmentLabel(s.entity_type_set),
+    ...seriesRows.map((s) => ({
+      entityTypeSet: s.entity_type,
+      equipment: equipmentLabel(s.entity_type),
       snapshotLabel: s.snapshot_label,
       previousLabel: s.previous_label,
       fleet: s.fleet,
@@ -836,7 +881,11 @@ export async function getGroupedView(
   );
 
   const changeSetIds = sets.map((s) => s.change_set_id);
-  const fleetByChangeSet = new Map(sets.map((s) => [s.change_set_id, s.fleet]));
+  // Indexada por (comparação, equipamento): a frota de um grupo é a do
+  // equipamento a que o atributo pertence.
+  const fleetByChangeSet = new Map(
+    seriesRows.map((s) => [`${s.change_set_id}\u001f${s.entity_type}`, s.fleet]),
+  );
   const rows = await loadChanges(db, changeSetIds);
 
   const changedByEntity = indexChangedAttributesByEntity(
@@ -930,9 +979,15 @@ export async function getAccumulatedImpact(
   // O acumulado é o desta unidade e deste canal. Somar o histórico de todas as
   // unidades sob o título de uma delas seria a mesma confusão entre vigência e
   // histórico que este campo existe para desfazer, um nível acima.
-  const { rows: sets } = await db.execute<{ id: string }>(sql`
-    SELECT cs.id FROM change_set cs
+  // Uma comparação por (vigência, equipamento): é assim que a tela conta, e é o
+  // que mantém o número comparável com o de antes de CAVALO e CARRETA passarem
+  // a dividir um snapshot. Os ids saem distintos para `loadChanges`, senão cada
+  // alteração seria carregada — e somada — duas vezes.
+  const { rows: sets } = await db.execute<{ id: string; entity_type: string }>(sql`
+    SELECT cs.id, t AS entity_type
+      FROM change_set cs
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+      CROSS JOIN LATERAL unnest(string_to_array(sb.entity_type_set, '+')) AS t
      WHERE ${contextFilter("sb", context)}
   `);
   const { rows: span } = await db.execute<{ from: string | null; to: string | null }>(sql`
@@ -940,7 +995,7 @@ export async function getAccumulatedImpact(
       FROM change_set cs JOIN snapshot sb ON sb.id = cs.snapshot_b_id
      WHERE ${contextFilter("sb", context)}
   `);
-  const rows = await loadChanges(db, sets.map((s) => s.id));
+  const rows = await loadChanges(db, [...new Set(sets.map((s) => s.id))]);
   return {
     ...summariseImpact(rows),
     comparisons: sets.length,

@@ -90,9 +90,16 @@ export async function listPeriods(db: Database, context?: SeriesContext) {
     effective_date: string;
     series: string[];
   }>(sql`
+    -- Uma série é um **componente** da vigência, não o conjunto que ela cobre.
+    -- Desde que CAVALO e CARRETA passaram a ser componentes de uma mesma
+    -- identidade canônica, uma vigência completa guarda entity_type_set =
+    -- "CARRETA+CAVALO"; ler isso como uma série faria as duas sumirem da tela e
+    -- aparecer uma terceira, que não existe. O unnest devolve os componentes,
+    -- que é o que a tela sempre mostrou.
     SELECT s.effective_date::text AS effective_date,
-           array_agg(DISTINCT s.entity_type_set ORDER BY s.entity_type_set) AS series
-      FROM snapshot s
+           array_agg(DISTINCT t ORDER BY t) AS series
+      FROM snapshot s,
+           unnest(string_to_array(s.entity_type_set, '+')) t
      WHERE s.status <> 'SUPERSEDED'
        AND ${contextFilter("s", resolved)}
      GROUP BY s.effective_date
@@ -118,11 +125,12 @@ export async function knownSeries(
   if (!resolved) return [];
 
   const { rows } = await db.execute<{ entity_type_set: string }>(sql`
-    SELECT DISTINCT s.entity_type_set
-      FROM snapshot s
+    SELECT DISTINCT t AS entity_type_set
+      FROM snapshot s,
+           unnest(string_to_array(s.entity_type_set, '+')) t
      WHERE s.status <> 'SUPERSEDED'
        AND ${contextFilter("s", resolved)}
-     ORDER BY s.entity_type_set
+     ORDER BY t
   `);
   return rows.map((r) => r.entity_type_set);
 }
@@ -242,16 +250,27 @@ export async function getConsolidated(
     // Each series compares against its own previous vigência. A series that
     // skipped a period compares against whatever it last delivered, which is
     // the truthful comparison for that series.
+    // Uma vigência cobre mais de um equipamento desde que os dois passaram a ser
+    // componentes da mesma identidade. A tela continua listando um por série;
+    // os totais, abaixo, continuam somando **uma vez por comparação** — somá-los
+    // por componente contaria a mesma alteração duas vezes.
+    const componentes = snapshot.entityTypeSet
+      .split("+")
+      .filter((t) => t !== "")
+      .sort();
+
     const previousId = await findPreviousSnapshot(db, snapshot.id);
     if (!previousId) {
-      present.push({
-        entityTypeSet: snapshot.entityTypeSet,
-        snapshotId: snapshot.id,
-        sourceLabel: snapshot.sourceLabel,
-        changeSetId: null,
-        previousLabel: null,
-        reason: "Primeira vigência desta série; não há anterior com que comparar.",
-      });
+      for (const componente of componentes) {
+        present.push({
+          entityTypeSet: componente,
+          snapshotId: snapshot.id,
+          sourceLabel: snapshot.sourceLabel,
+          changeSetId: null,
+          previousLabel: null,
+          reason: "Primeira vigência desta série; não há anterior com que comparar.",
+        });
+      }
       continue;
     }
 
@@ -268,14 +287,16 @@ export async function getConsolidated(
       .from(snapshotTable)
       .where(sql`${snapshotTable.id} = ${previousId}`);
 
-    present.push({
-      entityTypeSet: snapshot.entityTypeSet,
-      snapshotId: snapshot.id,
-      sourceLabel: snapshot.sourceLabel,
-      changeSetId: set.id,
-      previousLabel: previous?.sourceLabel ?? null,
-      reason: null,
-    });
+    for (const componente of componentes) {
+      present.push({
+        entityTypeSet: componente,
+        snapshotId: snapshot.id,
+        sourceLabel: snapshot.sourceLabel,
+        changeSetId: set.id,
+        previousLabel: previous?.sourceLabel ?? null,
+        reason: null,
+      });
+    }
     changeSetIds.push(set.id);
 
     totals.valueChanges += set.valueChanges;

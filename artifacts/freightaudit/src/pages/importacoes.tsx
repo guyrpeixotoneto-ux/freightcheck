@@ -303,8 +303,10 @@ export default function Importacoes() {
             <h1 className="text-3xl font-bold tracking-tight">Importações</h1>
             <p className="text-muted-foreground mt-1 max-w-3xl leading-relaxed">
               Cada arquivo recebido, o que saiu dele e o que o pipeline apontou.
-              <br className="hidden sm:inline" /> O mesmo conteúdo reentregue é
-              reconhecido pelo SHA-256 e recusado como duplicata.
+              <br className="hidden sm:inline" /> O mesmo arquivo reentregue é
+              reconhecido pelo SHA-256. O mesmo <em>dado</em>, num arquivo
+              diferente, é reconhecido pela identidade da vigência — e nenhum dos
+              dois entra duas vezes.
             </p>
           </div>
         </div>
@@ -396,8 +398,12 @@ export default function Importacoes() {
           <div>
             <p className="font-semibold text-sm">Segurança e deduplicação</p>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Usamos SHA-256 para reconhecer arquivos já processados e evitar
-              duplicidade.
+              Duas camadas. O SHA-256 reconhece o arquivo idêntico antes de
+              lê-lo. A identidade canônica da vigência — unidade, canal, data e
+              família, todas normalizadas — reconhece o mesmo dado ainda que o
+              arquivo seja outro: rótulo escrito de outro jeito, CNPJ com ou sem
+              máscara, placa com ou sem hífen, linhas ou abas em outra ordem. O
+              banco garante uma única versão ativa por vigência.
             </p>
           </div>
         </div>
@@ -527,7 +533,12 @@ function RunCard({
       </div>
 
       {run.failureReason && (
-        <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+        <p
+          className={cn(
+            "text-sm border rounded-xl px-4 py-3",
+            TONS[estadoDaImportacao(run.status).tom],
+          )}
+        >
           {run.failureReason}
         </p>
       )}
@@ -627,19 +638,52 @@ function RunCard({
   );
 }
 
+/**
+ * Como cada estado se chama e o que ele significa, para quem opera.
+ *
+ * "Duplicata" era uma palavra só, e ela escondia três situações que pedem
+ * reações diferentes: o mesmo arquivo de novo (não faça nada), o mesmo dado num
+ * arquivo diferente (não faça nada, e saiba que o número não vai mudar) e uma
+ * vigência que já existe (decida se é correção). O estado do run distingue as
+ * duas primeiras; a terceira chega como recusa da aprovação.
+ */
+const ESTADOS: Record<string, { rotulo: string; tom: "ok" | "erro" | "neutro" | "espera" }> = {
+  PROMOTED: { rotulo: "aprovada", tom: "ok" },
+  PREVIEWED: { rotulo: "conferida", tom: "espera" },
+  PENDING: { rotulo: "na fila", tom: "espera" },
+  READING: { rotulo: "lendo", tom: "espera" },
+  STAGED: { rotulo: "preparada", tom: "espera" },
+  PROMOTING: { rotulo: "aprovando", tom: "espera" },
+  FAILED: { rotulo: "falhou", tom: "erro" },
+  ABORTED: { rotulo: "abortada", tom: "erro" },
+  VALIDATION_ERROR: { rotulo: "dado não fecha", tom: "erro" },
+  SKIPPED_DUPLICATE: { rotulo: "arquivo já recebido", tom: "neutro" },
+  SKIPPED_DUPLICATE_DATA: { rotulo: "dados já registrados", tom: "neutro" },
+};
+
+const TONS = {
+  ok: "bg-emerald-50 text-emerald-700 border-emerald-200",
+  erro: "bg-red-50 text-red-800 border-red-200",
+  // Duplicata não é erro: é o sistema tendo feito o trabalho dele. Pintá-la de
+  // vermelho ensina o operador a procurar culpa onde não há.
+  neutro: "bg-slate-100 text-slate-700 border-slate-300",
+  espera: "bg-amber-50 text-amber-800 border-amber-200",
+} as const;
+
+export function estadoDaImportacao(status: string) {
+  return ESTADOS[status] ?? { rotulo: status.toLowerCase(), tom: "espera" as const };
+}
+
 function StatusPill({ status }: { status: string }) {
+  const estado = estadoDaImportacao(status);
   return (
     <span
       className={cn(
         "shrink-0 rounded-full border px-3 py-1 text-xs font-medium",
-        status === "PROMOTED"
-          ? "bg-emerald-50 text-emerald-700 border-emerald-200"
-          : status === "FAILED"
-            ? "bg-red-50 text-red-800 border-red-200"
-            : "bg-amber-50 text-amber-800 border-amber-200",
+        TONS[estado.tom],
       )}
     >
-      {status.toLowerCase()}
+      {estado.rotulo}
     </span>
   );
 }

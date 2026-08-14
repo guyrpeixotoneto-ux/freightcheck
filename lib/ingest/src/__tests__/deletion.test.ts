@@ -3,6 +3,7 @@ import { copyFileSync } from "node:fs";
 import path from "node:path";
 import { tmpdir } from "node:os";
 import { createTestDatabase, modelExportPaths, type TestDb } from "../testing";
+import { corrigirValoresNumericos } from "./planilha-sintetica";
 import {
   captureRaw,
   preview,
@@ -196,14 +197,20 @@ describe("a ordem em que as coisas podem ser desfeitas", () => {
   let segunda: string;
 
   beforeAll(async () => {
-    // A revisão 2 da mesma vigência, vinda de outra execução sobre o mesmo
-    // arquivo: é o caso real de uma correção reimportada.
+    // A revisão 2 da mesma vigência: o caso real de uma correção reimportada.
+    //
+    // Antes bastava reimportar o **mesmo** arquivo com `allowReprocess`. Com a
+    // identidade canônica, reenviar o mesmo conteúdo é reconhecido como dado
+    // igual e não abre revisão nenhuma — que é o comportamento correto. Para
+    // haver revisão 2, o arquivo precisa de fato corrigir alguma coisa.
     [primeira] = (
       await ctx.pool.query<{ id: string }>(
         `SELECT id FROM import_run ORDER BY started_at LIMIT 1`,
       )
     ).rows.map((r) => r.id);
-    segunda = await importar(modelExportPaths().carreta, { revisao: true });
+    segunda = await importar(corrigirValoresNumericos(modelExportPaths().carreta), {
+      revisao: true,
+    });
   }, 600_000);
 
   it("recusa apagar a importação que outra corrigiu depois", async () => {

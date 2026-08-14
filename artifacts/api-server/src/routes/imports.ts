@@ -4,6 +4,8 @@ import path from "node:path";
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import {
+  ImportDeletionRefused,
+  PromocaoRecusada,
   captureRaw,
   deleteImportRun,
   ensureImportStorageDir,
@@ -11,15 +13,14 @@ import {
   getImportRunSheets,
   getImportRunSnapshots,
   getImportRunStatus,
-  ImportDeletionRefused,
   listImportDeletions,
   listImportRuns,
   markRunFailed,
   planImportDeletion,
   preview,
   promote,
-  stage,
   receiveFile,
+  stage,
 } from "@workspace/ingest";
 
 /**
@@ -126,7 +127,11 @@ export function whyCannotPromote(status: string): string | null {
     case "FAILED":
       return "Esta importação falhou ao ser lida, então não há o que aprovar. Corrija a origem e envie o arquivo de novo.";
     case "SKIPPED_DUPLICATE":
-      return "Este arquivo foi recusado como duplicata: o conteúdo já havia entrado antes. Não há o que aprovar.";
+      return "Este arquivo já foi recebido anteriormente. Nenhum dado foi importado novamente.";
+    case "SKIPPED_DUPLICATE_DATA":
+      return "O arquivo é diferente, mas os dados normalizados desta vigência são iguais aos já registrados. Nenhum dado foi duplicado.";
+    case "VALIDATION_ERROR":
+      return "Esta importação não pode ser aprovada: o dado não fecha. Veja o motivo na importação, corrija a origem e envie o arquivo de novo.";
     case "ABORTED":
       return "Esta importação foi abortada. Envie o arquivo de novo para recomeçar.";
     default:
@@ -303,11 +308,25 @@ router.post("/imports/:id/promote", async (req, res): Promise<void> => {
     });
     res.json(result);
   } catch (err) {
-    // Recusas de regra — o run ainda não foi conferido, ou a vigência já
-    // existe — são escritas para quem opera e chegam inteiras à tela, em vez
-    // de virarem um 500 mudo. A transação já desfez o que tinha começado.
+    // Recusas de regra são escritas para quem opera e chegam inteiras à tela,
+    // em vez de virarem um 500 mudo. A transação já desfez o que tinha
+    // começado.
+    //
+    // O código HTTP separa duas coisas que a tela precisa tratar diferente:
+    // 409 é "já existe uma versão ativa" — um conflito que o operador resolve
+    // decidindo registrar uma correção, com o run ainda aprovável. 422 é "o
+    // dado não fecha", e aí não há botão que resolva: o caminho é corrigir a
+    // origem e reenviar.
     const message = err instanceof Error ? err.message : "Erro desconhecido";
     req.log.warn({ err }, "Promotion refused");
+    if (err instanceof PromocaoRecusada) {
+      res.status(err.decisao === "VIGENCIA_ATIVA_EXISTENTE" ? 409 : 422).json({
+        error: message,
+        decisao: err.decisao,
+        detalhe: err.detalhe,
+      });
+      return;
+    }
     res.status(422).json({ error: message });
   }
 });

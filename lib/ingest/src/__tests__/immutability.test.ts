@@ -9,6 +9,7 @@ import {
 } from "@workspace/db";
 import { captureRaw, preview, promote, receiveFile, stage } from "../pipeline";
 import { createTestDatabase, realExportPath, type TestDb } from "../testing";
+import { corrigirValoresNumericos } from "./planilha-sintetica";
 
 /**
  * These invariants are enforced by database triggers, so the tests deliberately
@@ -203,12 +204,15 @@ describe("revision handling", () => {
       await preview(fresh.db, first.importRunId);
       await promote(fresh.db, first.importRunId);
 
-      const { copyFileSync, appendFileSync } = await import("node:fs");
-      const { tmpdir } = await import("node:os");
-      const path = await import("node:path");
-      const copy = path.join(tmpdir(), `freightec-revision-${process.pid}.xlsx`);
-      copyFileSync(realExportPath(), copy);
-      appendFileSync(copy, Buffer.from("revision"));
+      // Uma correção de verdade, e não só outros bytes.
+      //
+      // Este teste acrescentava lixo ao fim do arquivo: o sha mudava, o
+      // conteúdo não. Com a identidade canônica isso passou a ser reconhecido
+      // pelo que sempre foi — o mesmo dado — e vira `SKIPPED_DUPLICATE_DATA`,
+      // sem revisão nenhuma. Para provar o que o nome do teste promete, o valor
+      // precisa mudar: aqui cada número das abas de origem é somado de 1, o que
+      // corrige todas as nove vigências de uma vez.
+      const copy = await corrigirValoresNumericos(realExportPath());
 
       const second = await receiveFile(fresh.db, { filePath: copy });
       await captureRaw(fresh.db, second.importRunId);
