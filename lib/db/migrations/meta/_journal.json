@@ -64,6 +64,13 @@
       "when": 1786643365336,
       "tag": "0008_book_entries",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1786665947379,
+      "tag": "0009_entity_type_correction",
+      "breakpoints": true
     }
   ]
 }
