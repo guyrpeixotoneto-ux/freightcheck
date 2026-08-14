@@ -1,5 +1,5 @@
 import { Link } from "wouter";
-import { Bell, ChevronDown, CloudDownload, Menu, SlidersHorizontal } from "lucide-react";
+import { ChevronDown, Menu } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,31 +9,27 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/auth";
-import { useCuradoriaPendente, useImportacoesEmAndamento } from "./contadores";
 
 /**
  * A faixa vermelha do Freightech.
  *
  * É o primeiro elemento que o usuário reconhece, e por isso é o primeiro que
  * este produto passou a ter: o mesmo lugar para o menu, a mesma marca à
- * esquerda, os mesmos três indicadores à direita, o mesmo e-mail com a seta.
+ * esquerda, o mesmo e-mail com a seta.
  *
- * A diferença é o que os indicadores contam. No Freightech eles são
- * notificações do sistema; aqui cada um é um número do próprio trabalho e leva
- * à tela que o resolve:
+ * **Os três indicadores saíram daqui.** A nuvem contava importações em
+ * andamento, o sino contava atributos monetários sem semântica confirmada, e o
+ * filtro levava à seleção de contexto — os três agora estão no menu, ao lado do
+ * item que resolve cada um, e a unidade aberta está escrita no topo dele. O
+ * mesmo número em dois lugares da mesma tela não é reforço: é a pergunta "estes
+ * seis são os mesmos seis?" toda vez que os dois entram no campo de visão, e uma
+ * defasagem de cache entre eles bastaria para a resposta ser não.
  *
- * - a nuvem → importações em andamento;
- * - o filtro → a seleção de contexto (unidade, canal, vigência);
- * - o sino → atributos monetários ainda sem semântica confirmada, que é o que
- *   segura impacto financeiro em "não calculável".
- *
- * Um badge que não conta nada não aparece. Bolinha com zero é ruído que ensina
- * o olho a ignorar o lugar onde o número importante vai aparecer depois.
+ * O que fica aqui é o que não tem lugar melhor: a marca, o botão que recolhe a
+ * lateral e quem está logado.
  */
 export function Topbar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
   const { user, logout, isSubmitting } = useAuth();
-  const importsRunning = useImportacoesEmAndamento();
-  const backlog = useCuradoriaPendente();
 
   return (
     <header className="h-16 bg-brand-red text-brand-red-foreground flex items-center gap-4 px-4 shrink-0 sticky top-0 z-40">
@@ -51,27 +47,6 @@ export function Topbar({ onToggleSidebar }: { onToggleSidebar: () => void }) {
       </Link>
 
       <div className="flex-1" />
-
-      <Indicador
-        href="/importacoes"
-        titulo="Importações em andamento"
-        contagem={importsRunning}
-        alwaysShowCount
-      >
-        <CloudDownload className="w-6 h-6" />
-      </Indicador>
-
-      <Indicador href="/parametros" titulo="Escolha de segmento" contagem={0}>
-        <SlidersHorizontal className="w-6 h-6" />
-      </Indicador>
-
-      <Indicador
-        href="/curadoria"
-        titulo="Atributos monetários sem semântica confirmada"
-        contagem={backlog}
-      >
-        <Bell className="w-6 h-6" />
-      </Indicador>
 
       {user && (
         <DropdownMenu>
@@ -119,37 +94,5 @@ function Logotipo() {
         <span className="font-light">check</span>
       </span>
     </>
-  );
-}
-
-/** Ícone com a bolinha laranja. A bolinha só existe quando há o que contar. */
-function Indicador({
-  href,
-  titulo,
-  contagem,
-  alwaysShowCount,
-  children,
-}: {
-  href: string;
-  titulo: string;
-  contagem: number;
-  alwaysShowCount?: boolean;
-  children: React.ReactNode;
-}) {
-  const mostra = contagem > 0 || alwaysShowCount;
-  return (
-    <Link
-      href={href}
-      title={titulo}
-      aria-label={`${titulo}${contagem > 0 ? `: ${contagem}` : ""}`}
-      className="flex items-center gap-1.5 px-2 py-2 rounded hover:bg-white/10 transition-colors"
-    >
-      {children}
-      {mostra && (
-        <span className="min-w-7 h-7 px-1.5 rounded-full bg-brand text-brand-foreground text-[0.8125rem] font-bold flex items-center justify-center tabular-nums">
-          {contagem}
-        </span>
-      )}
-    </Link>
   );
 }

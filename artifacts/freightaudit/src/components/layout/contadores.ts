@@ -2,12 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import { getApiUrl } from "@/lib/api";
 
 /**
- * Os números que a casca do produto mostra — no menu e na faixa vermelha.
+ * Os números que o menu mostra ao lado dos itens.
  *
- * Estavam dentro da `Topbar`. Saíram para cá quando o menu passou a mostrar os
- * mesmos três números ao lado dos itens: duas cópias das mesmas consultas com
- * chaves de cache diferentes seriam duas idas ao banco por página aberta, para
- * escrever o mesmo algarismo em dois lugares da mesma tela.
+ * Estavam dentro da `Topbar`, que os escrevia em bolinhas próprias. Saíram para
+ * cá com a faixa vermelha: cada número passou a viver junto do item que o
+ * resolve, e não em dois lugares da mesma tela — o mesmo algarismo repetido não
+ * reforça, obriga a conferir se os dois são o mesmo, e duas consultas com
+ * chaves de cache diferentes bastariam para não serem.
  *
  * A regra dos três é uma só, e é a que já valia: **contagem que não conta nada
  * não vira bolinha.** Zero com desenho de alerta ensina o olho a ignorar
