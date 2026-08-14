@@ -3,16 +3,33 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ArrowRight, ChevronRight, Info } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
-import { formatBrl, formatBrlShort, formatPercent, periodicitySuffix } from "@/lib/format";
 import {
+  formatBrl,
+  formatBrlShort,
+  formatPercent,
+  formatValue,
+  periodicitySuffix,
+} from "@/lib/format";
+import {
+  bloqueiosDaApuracao,
+  comparativoDeLeituras,
   fatosDoIntervalo,
+  placarDaPonta,
+  placarDosMovimentos,
   porPeriodicidade,
+  precificada,
+  semPreco as naoPrecificada,
+  variacoesNominais,
+  type Comparativo,
   type EndToEndEntry,
+  type Entrada,
   type Fato,
   type Movimentos,
   type ParameterRollup,
+  type Placar,
   type PontaAPonta,
   type RangeEntry,
+  type VariacaoNominal,
 } from "@/lib/analise";
 import { GroupCard } from "@/components/inicio/group-card";
 import { TabelaFreightech, type ColunaTabela } from "@/components/parametros/tabela";
@@ -44,11 +61,22 @@ import type { ChangeGroup } from "@/components/inicio/types";
  * do caminho; PONTA A PONTA compara o estado das duas vigências. Um valor que
  * foi de 10 a 20 e voltou a 10 aparece na primeira como duas alterações e na
  * segunda como nada. A subtração entre elas é o que permite dizer, sem chutar,
- * **o que foi revertido**.
+ * **o que foi revertido** — e o bloco *Movimento × posição* põe as duas na
+ * mesma tabela, porque alternar entre pílulas para comparar quatro números é
+ * pedir que o gestor faça de cabeça a conta que a tela já tem pronta.
+ *
+ * **E os números não somem quando o dinheiro some.** O placar operacional —
+ * alterações, cobertura da apuração, colunas, veículos sobre a frota — aparece
+ * com ou sem impacto apurado, e *o que mudou, em número* mostra o antes → depois
+ * na grandeza que a coluna mede. Num cartão em que a semântica ainda não foi
+ * confirmada, e por isso nada é precificável, o que havia era uma frase e
+ * nenhum número; o tamanho do que mexeu é apurável mesmo ali, e é ele que
+ * dimensiona o trabalho.
  *
  * A ordem da tela é a ordem da pergunta: o que aconteceu → quanto vale → o que
- * merece atenção → quando aconteceu → onde estão os maiores → o que não dá para
- * valorar → a evidência.
+ * mudou no caminho contra o que continua diferente → o que merece atenção → o
+ * que mudou sem virar dinheiro → quando aconteceu → onde estão os maiores → o
+ * que trava a apuração → a evidência.
  *
  * As recusas de sempre, inteiras:
  *
@@ -433,10 +461,8 @@ function LeituraMovimentos({
   onAbrirCartao?: (parameterKey: string) => void;
   temCartao?: (parameterKey: string) => boolean;
 }) {
-  const comPreco = doCartao.filter(
-    (e) => e.confidence === "CALCULATED" && e.amount !== null && e.amount !== 0,
-  );
-  const semPreco = doCartao.filter((e) => e.confidence !== "CALCULATED" || e.amount === null);
+  const comPreco = doCartao.filter(precificada);
+  const semPreco = doCartao.filter(naoPrecificada);
 
   const fatos = useMemo(
     () =>
@@ -455,9 +481,10 @@ function LeituraMovimentos({
     um cartão são as **colunas** daquele parâmetro, e não parâmetros. Na
     Depreciação dava "2 parâmetros alterados" para um parâmetro só. Na visão
     geral, onde a pergunta é mesmo quantas gavetas se mexeram, o número certo é
-    o do consolidado por parâmetro.
+    o do consolidado por parâmetro. O placar carrega os dois e a tela escolhe.
   */
-  const colunasAlteradas = new Set(doCartao.map((e) => e.attributeCode ?? e.title)).size;
+  const placar = useMemo(() => placarDosMovimentos(mov), [mov]);
+  const comparativo = useMemo(() => comparativoDeLeituras(mov, p2p), [mov, p2p]);
 
   return (
     <div className="space-y-8">
@@ -472,19 +499,24 @@ function LeituraMovimentos({
 
       <Resumo
         titulo={`${mov.fromLabel} → ${mov.toLabel}`}
-        perdas={somar(comPreco, (v) => v < 0)}
-        ganhos={somar(comPreco, (v) => v > 0)}
-        parametros={mov.byParameter.length}
-        colunas={colunasAlteradas}
-        veiculos={mov.totals.vehiclesTouched}
-        alteracoes={doCartao.length}
-        comImpacto={comPreco.length}
-        semImpacto={semPreco.length}
+        placar={placar}
         motivo={motivoMaisComum(semPreco)}
         nome={nome}
       />
 
+      {comparativo && (
+        <MovimentoVersusPosicao
+          comparativo={comparativo}
+          deLabel={mov.fromLabel}
+          ateLabel={mov.toLabel}
+        />
+      )}
+
       {fatos.length > 0 && <Atencao fatos={fatos} onAbrir={onAbrir} />}
+
+      {semPreco.length > 0 && (
+        <SemVirarDinheiro entradas={semPreco} aoAbrir={onAbrir} />
+      )}
 
       <QuandoAconteceu movimentos={mov.movements} doCartao={doCartao} />
 
@@ -520,17 +552,6 @@ function LeituraMovimentos({
   );
 }
 
-function somar(entradas: RangeEntry[] | EndToEndEntry[], filtro: (v: number) => boolean) {
-  const baldes: Record<string, number> = {};
-  for (const entrada of entradas as RangeEntry[]) {
-    const valor = entrada.amount ?? 0;
-    if (!filtro(valor)) continue;
-    const balde = entrada.periodicity ?? "SEM_PERIODICIDADE";
-    baldes[balde] = (baldes[balde] ?? 0) + valor;
-  }
-  return baldes;
-}
-
 function motivoMaisComum(entradas: { reason: string | null }[]): string | null {
   const contagem = new Map<string, number>();
   for (const entrada of entradas) {
@@ -547,39 +568,34 @@ function motivoMaisComum(entradas: { reason: string | null }[]): string | null {
 /**
  * A primeira área: quanto perdi, quanto ganhei, onde e o que falta valorar.
  *
- * O líquido não está aqui e não vai estar. E quando não há nada valorado, esta
- * área não fica vazia nem some: ela passa a dizer o que **de fato** aconteceu —
- * "10 alterações, 0 com impacto calculado" — e por quê. Numa auditoria, saber
- * que a Ambev mexeu em dez pontos que ninguém consegue precificar é tão
- * acionável quanto um número.
+ * O líquido não está aqui e não vai estar.
+ *
+ * **E os números não somem quando o dinheiro some.** Isto aqui era tudo-ou-nada:
+ * com uma alteração precificada, quatro blocos; com nenhuma, uma frase e mais
+ * nada. Num cartão como Cavalo — em que a semântica não está confirmada e por
+ * isso *nada* é precificável — o gestor ficava sem número nenhum, olhando para
+ * "1 alteração identificada, 0 com impacto calculado". Só que os números que
+ * não dependem de dinheiro continuam todos de pé: quantos ativos foram
+ * tocados, que fatia da frota é isso, em quantas vigências aconteceu, e quanto
+ * do que mudou este export consegue precificar. São eles que dimensionam o
+ * trabalho, e são eles que agora aparecem sempre.
+ *
+ * A explicação de por que não há dinheiro continua junto, porque a distinção
+ * que ela sustenta é a mais cara da tela: *não houve impacto* e *houve
+ * alteração e ainda não sabemos valorar* são coisas diferentes.
  */
 function Resumo({
   titulo,
-  perdas,
-  ganhos,
-  parametros,
-  colunas,
-  veiculos,
-  alteracoes,
-  comImpacto,
-  semImpacto,
+  placar,
   motivo,
   nome,
 }: {
   titulo: string;
-  perdas: Record<string, number>;
-  ganhos: Record<string, number>;
-  /** Gavetas que se mexeram. Numa só gaveta o número interessante é o de colunas. */
-  parametros: number;
-  colunas: number;
-  veiculos: number;
-  alteracoes: number;
-  comImpacto: number;
-  semImpacto: number;
+  placar: Placar;
   motivo: string | null;
   nome: string;
 }) {
-  const nadaValorado = comImpacto === 0;
+  const nadaValorado = placar.precificadas === 0;
 
   return (
     <section className="space-y-3">
@@ -588,7 +604,11 @@ function Resumo({
       {nadaValorado ? (
         <div className="bg-card border border-l-[6px] border-l-brand px-6 py-5">
           <p className="text-2xl font-bold">
-            {alteracoes} {alteracoes === 1 ? "alteração identificada" : "alterações identificadas"} neste cartão
+            {placar.alteracoes}{" "}
+            {placar.alteracoes === 1
+              ? "alteração identificada"
+              : "alterações identificadas"}{" "}
+            neste cartão
           </p>
           <p className="text-2xl font-bold text-muted-foreground">
             0 com impacto financeiro calculado
@@ -600,52 +620,130 @@ function Resumo({
           )}
           <p className="text-sm text-muted-foreground mt-2 max-w-3xl">
             A Ambev mexeu em {nome} e o valor disso ainda não é apurável com este
-            export — o que é diferente de não ter havido impacto. As alterações
-            estão listadas abaixo, com veículo, valor anterior e valor novo.
+            export — o que é diferente de não ter havido impacto. O tamanho do que
+            mexeu está nos números abaixo, e as alterações estão listadas adiante
+            com veículo, valor anterior e valor novo.
           </p>
         </div>
       ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <Bloco titulo="Prejuízos identificados" tom="perda">
-            <Valores buckets={perdas} tom="perda" />
+            <Valores buckets={placar.perdas} tom="perda" />
           </Bloco>
           <Bloco titulo="Ganhos identificados" tom="ganho">
-            <Valores buckets={ganhos} tom="ganho" />
+            <Valores buckets={placar.ganhos} tom="ganho" />
           </Bloco>
           {/*
-            Num cartão, "parâmetros alterados" seria sempre 1 — o próprio
-            cartão. O que muda ali é quais **colunas** dele se mexeram, e é
-            esse o número que ajuda. Na visão geral vale o contrário: a
-            pergunta é quantas gavetas a Ambev tocou.
+            O bruto, e nomeado como bruto.
+
+            É a resposta a "quanto de dinheiro a Ambev mexeu no período", que é
+            uma pergunta diferente de "quanto sobrou" — e continua não sendo um
+            líquido: prejuízo e ganho entram os dois em módulo, e a legenda diz
+            isso, porque um número grande sem legenda vira resultado na primeira
+            reunião em que for citado.
           */}
-          <Bloco titulo={parametros > 1 ? "Parâmetros alterados" : "Colunas alteradas"}>
-            <div className="text-2xl font-bold">
-              {parametros > 1 ? parametros : colunas}
-            </div>
+          <Bloco titulo="Movimentado no período">
+            <Valores buckets={placar.movimentado} tom="neutro" />
             <p className="text-xs text-muted-foreground mt-1">
-              {parametros > 1 ? `em ${nome}` : `do parâmetro ${nome}`}
-            </p>
-          </Bloco>
-          <Bloco titulo="Veículos afetados">
-            <div className="text-2xl font-bold">{veiculos}</div>
-            <p className="text-xs text-muted-foreground mt-1">
-              ativos distintos — o mesmo caminhão não conta duas vezes
+              soma em módulo de prejuízos e ganhos — é quanto passou pela mesa,
+              nunca quanto sobrou
             </p>
           </Bloco>
         </div>
       )}
 
-      {semImpacto > 0 && !nadaValorado && (
+      <PlacarOperacional placar={placar} nome={nome} />
+
+      {placar.semPreco > 0 && !nadaValorado && (
         <p className="text-sm flex items-start gap-2 text-brand-red">
           <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
           <span>
-            <strong>{semImpacto}</strong>{" "}
-            {semImpacto === 1 ? "alteração precisa" : "alterações precisam"} de análise —
-            o impacto financeiro ainda não é calculável. Não é zero.
+            <strong>{placar.semPreco}</strong>{" "}
+            {placar.semPreco === 1 ? "alteração precisa" : "alterações precisam"} de
+            análise — o impacto financeiro ainda não é calculável. Não é zero.
           </span>
         </p>
       )}
     </section>
+  );
+}
+
+/**
+ * Os números que existem com ou sem dinheiro apurado.
+ *
+ * A cobertura é o número novo, e é o mais gerencial dos quatro: *que fatia do
+ * que mudou este export consegue precificar*. Nesta base ela é baixa, e é bom
+ * que esteja escrita — uma tela que só mostra o dinheiro apurado deixa quem lê
+ * concluir que o apurado é o total.
+ */
+function PlacarOperacional({ placar, nome }: { placar: Placar; nome: string }) {
+  const cobertura = placar.cobertura === null ? null : Math.round(placar.cobertura * 100);
+  const fatiaDaFrota =
+    placar.frota && placar.frota > 0
+      ? Math.round((placar.veiculos / placar.frota) * 100)
+      : null;
+
+  return (
+    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <Bloco titulo="Alterações no período">
+        <div className="text-2xl font-bold">{placar.alteracoes}</div>
+        <p className="text-xs text-muted-foreground mt-1">
+          {placar.precificadas}{" "}
+          {placar.precificadas === 1 ? "precificada" : "precificadas"} ·{" "}
+          {placar.semPreco} sem valoração
+        </p>
+      </Bloco>
+
+      <Bloco titulo="Cobertura da apuração">
+        <div
+          className={cn(
+            "text-2xl font-bold",
+            cobertura !== null && cobertura < 50 && "text-brand-red",
+          )}
+        >
+          {cobertura === null ? "—" : `${cobertura}%`}
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          do que mudou tem impacto calculável — o resto está à espera de curadoria
+        </p>
+      </Bloco>
+
+      {/*
+        Num cartão, "parâmetros alterados" seria sempre 1 — o próprio cartão. O
+        que muda ali é quais **colunas** dele se mexeram, e é esse o número que
+        ajuda. Na visão geral vale o contrário: a pergunta é quantas gavetas a
+        Ambev tocou.
+      */}
+      <Bloco titulo={placar.parametros > 1 ? "Parâmetros alterados" : "Colunas alteradas"}>
+        <div className="text-2xl font-bold">
+          {placar.parametros > 1 ? placar.parametros : placar.colunas}
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          {placar.parametros > 1 ? `em ${nome}` : `do parâmetro ${nome}`}
+          {placar.vigenciasComAlteracao !== null &&
+            placar.vigenciasNoIntervalo !== null &&
+            ` · mexeu em ${placar.vigenciasComAlteracao} de ${placar.vigenciasNoIntervalo} ${
+              placar.vigenciasNoIntervalo === 1 ? "vigência" : "vigências"
+            }`}
+        </p>
+      </Bloco>
+
+      <Bloco titulo="Veículos afetados">
+        <div className="text-2xl font-bold">
+          {placar.veiculos}
+          {placar.frota !== null && (
+            <span className="text-sm font-normal text-muted-foreground">
+              {" "}
+              de {placar.frota}
+            </span>
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground mt-1">
+          {fatiaDaFrota !== null && `${fatiaDaFrota}% da frota · `}
+          ativos distintos — o mesmo caminhão não conta duas vezes
+        </p>
+      </Bloco>
+    </div>
   );
 }
 
@@ -654,7 +752,7 @@ function Valores({
   tom,
 }: {
   buckets: Record<string, number>;
-  tom: "perda" | "ganho";
+  tom: "perda" | "ganho" | "neutro";
 }) {
   const linhas = porPeriodicidade(buckets);
   if (linhas.length === 0) {
@@ -667,7 +765,8 @@ function Valores({
           key={periodicity}
           className={cn(
             "text-2xl font-bold leading-tight",
-            tom === "perda" ? "text-brand-red" : "text-success",
+            tom === "perda" && "text-brand-red",
+            tom === "ganho" && "text-success",
           )}
         >
           {formatBrlShort(amount)}
@@ -709,6 +808,287 @@ function Cabecalho({ titulo, complemento }: { titulo: string; complemento?: stri
       {complemento && (
         <span className="text-xs text-muted-foreground">{complemento}</span>
       )}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Movimento × posição                                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * As duas leituras na mesma tabela — a comparação de período que faltava.
+ *
+ * A aba sempre teve as duas contas, mas atrás de uma pílula: para responder
+ * *"do que mexeram no caminho, quanto continua valendo hoje?"* era preciso
+ * alternar entre as leituras e guardar quatro números de cabeça. Aqui elas
+ * ficam lado a lado, e a diferença entre uma e outra vira linha.
+ *
+ * As recusas continuam inteiras. **Prejuízo e ganho nunca se cruzam**: a
+ * diferença é calculada dentro de cada lado, e nunca entre eles. **Nada soma
+ * periodicidades**: uma linha por balde, sempre. E a diferença é nomeada pelo
+ * que ela é — o que não sobreviveu ao caminho, seja porque voltou atrás, seja
+ * porque outro movimento no sentido oposto o compensou. Afirmar qual dos dois
+ * foi exigiria olhar ativo a ativo, e isso está logo abaixo, em "mexeu e
+ * voltou", onde é subtração de conjuntos e não interpretação de total.
+ */
+function MovimentoVersusPosicao({
+  comparativo,
+  deLabel,
+  ateLabel,
+}: {
+  comparativo: Comparativo;
+  deLabel: string;
+  ateLabel: string;
+}) {
+  const temDinheiro =
+    comparativo.perdas.length > 0 || comparativo.ganhos.length > 0;
+
+  return (
+    <section className="space-y-3">
+      <Cabecalho
+        titulo="Movimento × posição"
+        complemento={`o que a Ambev mexeu no caminho, e o que continua diferente em ${ateLabel}`}
+      />
+
+      <div className="bg-card border">
+        {temDinheiro && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-xs uppercase tracking-wider text-muted-foreground">
+                  <th className="text-left font-medium px-5 py-3">Por periodicidade</th>
+                  <th className="text-right font-medium px-5 py-3">
+                    Movimento no caminho
+                    <div className="normal-case tracking-normal font-normal text-[0.6875rem]">
+                      somando {comparativo.vigencias}{" "}
+                      {comparativo.vigencias === 1 ? "transição" : "transições"}
+                    </div>
+                  </th>
+                  <th className="text-right font-medium px-5 py-3">
+                    Diferença hoje
+                    <div className="normal-case tracking-normal font-normal text-[0.6875rem]">
+                      {ateLabel} contra {deLabel}, ativo a ativo
+                    </div>
+                  </th>
+                  <th className="text-right font-medium px-5 py-3">
+                    Não sobreviveu
+                    <div className="normal-case tracking-normal font-normal text-[0.6875rem]">
+                      revertido ou compensado no caminho
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {[
+                  ["Prejuízos", comparativo.perdas, "perda"] as const,
+                  ["Ganhos", comparativo.ganhos, "ganho"] as const,
+                ].flatMap(([rotulo, linhas, tom]) =>
+                  linhas.map((linha) => (
+                    <tr key={`${tom}-${linha.periodicidade}`}>
+                      <td className="px-5 py-3">
+                        <span className="font-medium">{rotulo}</span>
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · R${periodicitySuffix(linha.periodicidade)}
+                        </span>
+                      </td>
+                      <td
+                        className={cn(
+                          "px-5 py-3 text-right tabular-nums font-medium",
+                          tom === "perda" ? "text-brand-red" : "text-success",
+                        )}
+                      >
+                        {formatBrl(linha.movimento)}
+                      </td>
+                      <td
+                        className={cn(
+                          "px-5 py-3 text-right tabular-nums font-medium",
+                          tom === "perda" ? "text-brand-red" : "text-success",
+                        )}
+                      >
+                        {formatBrl(linha.posicao)}
+                      </td>
+                      <td className="px-5 py-3 text-right tabular-nums text-muted-foreground">
+                        {linha.diferenca === 0 ? "—" : formatBrl(linha.diferenca)}
+                      </td>
+                    </tr>
+                  )),
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <div className={cn("px-5 py-4 text-sm space-y-1", temDinheiro && "border-t")}>
+          <p>
+            <strong className="tabular-nums">{comparativo.alteracoesMovimento}</strong>{" "}
+            {comparativo.alteracoesMovimento === 1 ? "alteração" : "alterações"} no
+            caminho ·{" "}
+            <strong className="tabular-nums">{comparativo.alteracoesPosicao}</strong>{" "}
+            {comparativo.alteracoesPosicao === 1
+              ? "continua diferente"
+              : "continuam diferentes"}{" "}
+            hoje
+          </p>
+          {comparativo.atributosRevertidos > 0 ? (
+            <p className="text-muted-foreground text-xs">
+              {comparativo.atributosRevertidos}{" "}
+              {comparativo.atributosRevertidos === 1 ? "coluna voltou" : "colunas voltaram"}{" "}
+              ao ponto de partida, em {comparativo.ativosRevertidos}{" "}
+              {comparativo.ativosRevertidos === 1 ? "ativo" : "ativos"} — mexeu depois
+              de {deLabel} e hoje está como estava. A lista está na leitura ponta a
+              ponta.
+            </p>
+          ) : (
+            <p className="text-muted-foreground text-xs">
+              Nada voltou ao ponto de partida no intervalo: tudo o que mexeu depois de{" "}
+              {deLabel} continua diferente hoje.
+            </p>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* O que mudou sem virar dinheiro                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A variação de quem ainda não tem preço — o bloco que faltava na tela.
+ *
+ * Uma alteração sem impacto calculável não é uma alteração sem informação, e
+ * era assim que ela vinha sendo tratada: contada num alerta vermelho e listada
+ * numa tabela cujo conteúdo era o motivo de não haver número. Só que o número
+ * existe — não em reais, e sim na grandeza que a coluna mede. O total do grupo
+ * foi de 500 para 600; o par antes→depois mais comum foi "ATIVO → INATIVO" em
+ * dez veículos. Isso é gerencial e é auditável, e sai do mesmo grupo que a
+ * tela já recebe.
+ *
+ * **Somável ganha total; não somável ganha padrão.** Somar km/l de 62 cavalos
+ * produz um número que existe e não significa nada, e a semântica do atributo é
+ * quem decide qual das duas formas aparece — nunca a aparência do valor.
+ */
+function SemVirarDinheiro({
+  entradas,
+  aoAbrir,
+}: {
+  entradas: Entrada[];
+  aoAbrir: (chave: string) => void;
+}) {
+  const linhas = useMemo(() => variacoesNominais(entradas), [entradas]);
+  const [tudo, setTudo] = useState(false);
+  const TOPO = 6;
+  const visiveis = tudo ? linhas : linhas.slice(0, TOPO);
+
+  return (
+    <section className="space-y-3">
+      <Cabecalho
+        titulo="O que mudou, em número"
+        complemento="sem passar por dinheiro — na grandeza que a coluna mede"
+      />
+      <div className="bg-card border divide-y">
+        {visiveis.map((linha) => (
+          <button
+            key={linha.chave}
+            type="button"
+            onClick={() => aoAbrir(linha.chave)}
+            className="w-full text-left px-5 py-3 hover:bg-accent transition-colors flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1"
+          >
+            <div className="min-w-0">
+              <div className="font-medium truncate">
+                {linha.titulo}
+                <span className="text-muted-foreground font-normal">
+                  {" "}
+                  · {linha.equipamento}
+                </span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {linha.periodo && `${linha.periodo} · `}
+                {linha.veiculos}
+                {linha.frota > 0 && ` de ${linha.frota}`}{" "}
+                {linha.veiculos === 1 ? "veículo" : "veículos"}
+                {!linha.somavel && linha.padroes > 1 && (
+                  <> · {linha.padroes} padrões distintos de alteração</>
+                )}
+              </div>
+            </div>
+            <ParDeValores linha={linha} />
+          </button>
+        ))}
+      </div>
+
+      {linhas.length > TOPO && (
+        <button
+          type="button"
+          onClick={() => setTudo((v) => !v)}
+          className="w-full bg-card border px-5 py-3 text-[0.8125rem] font-bold uppercase tracking-wide text-brand hover:bg-accent transition-colors"
+        >
+          {tudo ? `Mostrar só os ${TOPO} maiores` : `Ver todas as ${linhas.length}`}
+        </button>
+      )}
+    </section>
+  );
+}
+
+/** Antes → depois, na forma que a semântica do atributo autoriza. */
+function ParDeValores({ linha }: { linha: VariacaoNominal }) {
+  if (linha.somavel) {
+    return (
+      <div className="shrink-0 text-right">
+        <div className="text-sm tabular-nums">
+          <span className="text-muted-foreground">
+            {formatValue(linha.totalAntes, linha.unidade)}
+          </span>
+          <ArrowRight className="w-3 h-3 inline mx-1.5 text-muted-foreground" />
+          <span className="font-medium">
+            {formatValue(linha.totalDepois, linha.unidade)}
+          </span>
+          {linha.deltaPercent !== null && (
+            <span
+              className={cn(
+                "ml-3 font-bold",
+                linha.deltaPercent < 0 ? "text-brand-red" : "text-success",
+              )}
+            >
+              {formatPercent(linha.deltaPercent)}
+            </span>
+          )}
+        </div>
+        <div className="text-[0.6875rem] text-muted-foreground">
+          total do grupo · impacto financeiro não calculável
+        </div>
+      </div>
+    );
+  }
+
+  if (!linha.padrao) {
+    return (
+      <div className="shrink-0 text-right text-xs text-muted-foreground italic max-w-sm">
+        {linha.motivo ?? "Sem valor comparável registrado."}
+      </div>
+    );
+  }
+
+  return (
+    <div className="shrink-0 text-right">
+      <div className="text-sm">
+        <span className="text-muted-foreground">{linha.padrao.antes ?? "sem valor"}</span>
+        <ArrowRight className="w-3 h-3 inline mx-1.5 text-muted-foreground" />
+        <span className="font-medium">{linha.padrao.depois ?? "sem valor"}</span>
+      </div>
+      <div className="text-[0.6875rem] text-muted-foreground">
+        alteração mais comum · {linha.padrao.veiculos}{" "}
+        {linha.padrao.veiculos === 1 ? "veículo" : "veículos"}
+        {/*
+          Não somável não ganha total, e a razão está escrita: a média de uma
+          grandeza que não se acumula é um número que existe e não significa
+          nada.
+        */}
+        {linha.padroes > 1 && " · não somável, sem total"}
+      </div>
     </div>
   );
 }
@@ -1301,6 +1681,7 @@ function PrecisamDeAnalise({
     trabalho.
   */
   const parametros = new Set(entradas.map((e) => e.parameterKey)).size;
+  const bloqueios = bloqueiosDaApuracao(entradas);
 
   type Linha = (RangeEntry | EndToEndEntry) & { periodLabel?: string };
   const colunas: ColunaTabela<Linha>[] = [
@@ -1328,6 +1709,41 @@ function PrecisamDeAnalise({
       alinhar: "right",
       valor: (l) => l.vehicles,
       celula: (l) => <span className="tabular-nums">{l.vehicles}</span>,
+    },
+    /*
+      O antes → depois entra na própria tabela, e não só no detalhe.
+
+      Sem ele, a tabela do que não tem preço listava o motivo de não haver
+      número e mais nada — quem quisesse saber *o que* mudou tinha de abrir
+      cada linha, uma a uma. A grandeza é a que a coluna mede, escolhida pela
+      semântica: somável mostra o total do grupo, o resto mostra o par de
+      valores dominante.
+    */
+    {
+      titulo: "De → para",
+      alinhar: "left",
+      valor: (l) => rotuloDoPar(l),
+      celula: (l) => <span className="text-xs">{rotuloDoPar(l)}</span>,
+    },
+    {
+      titulo: "Variação",
+      alinhar: "right",
+      valor: (l) => l.group.aggregate.deltaPercent,
+      celula: (l) =>
+        l.group.aggregate.summable && l.group.aggregate.deltaPercent !== null ? (
+          <span
+            className={cn(
+              "tabular-nums",
+              l.group.aggregate.deltaPercent < 0 ? "text-brand-red" : "text-success",
+            )}
+          >
+            {formatPercent(l.group.aggregate.deltaPercent)}
+          </span>
+        ) : (
+          <span className="text-muted-foreground text-xs" title="Atributo não somável: a variação do total não é uma medida válida.">
+            —
+          </span>
+        ),
     },
     {
       titulo: "Unidade",
@@ -1373,6 +1789,44 @@ function PrecisamDeAnalise({
         </p>
       </button>
 
+      {/*
+        A fila de trabalho, e não só o diagnóstico.
+
+        "89% do que mudou não tem preço" diz o tamanho do buraco; o motivo
+        agrupado diz por onde tapá-lo, e em que ordem. Fica fora do acordeão de
+        propósito: é a parte acionável, e esconder a parte acionável atrás de um
+        clique é como não a ter.
+
+        Some quando há um motivo só e pouca coisa parada: aí ele repetiria a
+        frase que o cabeçalho acima já diz, e uma tela que diz a mesma coisa
+        três vezes ensina a parar de ler.
+      */}
+      {(bloqueios.length > 1 || entradas.length > 3) && (
+        <div className="bg-card border divide-y">
+          {bloqueios.map((bloqueio) => (
+            <div
+              key={bloqueio.motivo}
+              className="px-5 py-3 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1 text-sm"
+            >
+              <span className="text-muted-foreground min-w-0 flex-1">{bloqueio.motivo}</span>
+              <div className="shrink-0 text-right">
+                <div>
+                  <span className="tabular-nums font-medium">{bloqueio.alteracoes}</span>{" "}
+                  {bloqueio.alteracoes === 1 ? "alteração" : "alterações"} ·{" "}
+                  <span className="tabular-nums font-medium">{bloqueio.colunas}</span>{" "}
+                  {bloqueio.colunas === 1 ? "coluna" : "colunas"}
+                </div>
+                <div className="text-xs text-muted-foreground">
+                  maior grupo parado: {bloqueio.maiorGrupo.titulo} ·{" "}
+                  {bloqueio.maiorGrupo.veiculos}{" "}
+                  {bloqueio.maiorGrupo.veiculos === 1 ? "veículo" : "veículos"}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {aberto && (
         <TabelaFreightech
           id="analise:sem-valoracao"
@@ -1385,6 +1839,26 @@ function PrecisamDeAnalise({
       )}
     </section>
   );
+}
+
+/**
+ * "De → para" de uma linha, na forma que a semântica autoriza.
+ *
+ * Somável mostra o total do grupo; o resto mostra o par de valores que mais se
+ * repete, porque somar o que não é somável produz um número que existe e não
+ * significa nada.
+ */
+function rotuloDoPar(entrada: RangeEntry | EndToEndEntry): string {
+  const agregado = entrada.group.aggregate;
+  if (agregado.summable && agregado.totalBefore !== null) {
+    return `${formatValue(agregado.totalBefore, entrada.unit)} → ${formatValue(
+      agregado.totalAfter,
+      entrada.unit,
+    )}`;
+  }
+  const padrao = entrada.group.dominantPattern;
+  if (!padrao) return "—";
+  return `${padrao.before ?? "sem valor"} → ${padrao.after ?? "sem valor"}`;
 }
 
 /* ------------------------------------------------------------------ */
@@ -1426,28 +1900,21 @@ function LeituraPonta({
     );
   }
 
-  const comPreco = p2p.entries.filter(
-    (e) => e.confidence === "CALCULATED" && e.amount !== null && e.amount !== 0,
-  );
-  const semPreco = p2p.entries.filter((e) => e.confidence !== "CALCULATED" || e.amount === null);
+  const comPreco = p2p.entries.filter(precificada);
+  const semPreco = p2p.entries.filter(naoPrecificada);
 
   return (
     <div className="space-y-8">
       <Resumo
         titulo={`${p2p.fromLabel} → ${p2p.toLabel}`}
-        perdas={somar(p2p.entries, (v) => v < 0)}
-        ganhos={somar(p2p.entries, (v) => v > 0)}
-        parametros={p2p.byParameter.length}
-        colunas={new Set(p2p.entries.map((e) => e.attributeCode ?? e.title)).size}
-        veiculos={p2p.totals.vehiclesTouched}
-        alteracoes={p2p.entries.length}
-        comImpacto={comPreco.length}
-        semImpacto={semPreco.length}
+        placar={placarDaPonta(p2p)}
         motivo={motivoMaisComum(semPreco)}
         nome={nome}
       />
 
       <Frota p2p={p2p} />
+
+      {semPreco.length > 0 && <SemVirarDinheiro entradas={semPreco} aoAbrir={onAbrir} />}
 
       {p2p.reverted.length > 0 && <Revertidos p2p={p2p} />}
 
