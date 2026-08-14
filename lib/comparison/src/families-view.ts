@@ -22,6 +22,15 @@ import {
   type ImpactSummary,
 } from "./grouped";
 import { listPeriods } from "./consolidated";
+import { movementTransitions, resolveTransitions } from "./transitions";
+import {
+  executiveDigest,
+  rollupByEntity,
+  topChanges,
+  type EntityRollup,
+  type ExecutiveDigest,
+  type TopChange,
+} from "./rollups";
 import {
   contextFilter,
   listContexts,
@@ -360,6 +369,22 @@ export interface RangeAnalysis {
    * ninguém descobre olhando.
    */
   byParameter: ParameterRollup[];
+  /** O resumo executivo — ver `rollups.ts`. */
+  digest: ExecutiveDigest;
+  /** O que mudou em cada ativo, com o drill-down campo a campo. */
+  byEntity: EntityRollup[];
+  /** As maiores alterações, ativo a ativo e campo a campo. */
+  top: TopChange[];
+  /**
+   * Quantas transições foram calculadas na hora por não haver comparação
+   * gravada.
+   *
+   * Diagnóstico e log. **Não é vocabulário de tela**: para quem lê a análise, a
+   * resposta é a mesma tenha ela vindo do cache ou não, e dizer "esta veio sem
+   * cache" seria expor um detalhe de armazenamento como se fosse ressalva sobre
+   * o dado.
+   */
+  computedOnRead: number;
   entries: RangeEntry[];
 }
 
@@ -434,26 +459,23 @@ export async function getRangeAnalysis(
   const [inicio, fim] =
     alvoInicio <= alvoFim ? [alvoInicio, alvoFim] : [alvoFim, alvoInicio];
 
-  const { rows: sets } = await db.execute<{
-    change_set_id: string;
-    period: string;
-    entity_type_set: string;
-    fleet: number;
-  }>(sql`
-    SELECT cs.id AS change_set_id,
-           sb.effective_date::text AS period,
-           sb.entity_type_set,
-           sb.entity_count AS fleet
-      FROM change_set cs
-      JOIN snapshot sb ON sb.id = cs.snapshot_b_id
-     WHERE sb.effective_date > ${inicio}::date
-       AND sb.effective_date <= ${fim}::date
-       AND sb.status <> 'SUPERSEDED'
-       AND ${contextFilter("sb", context)}
-     ORDER BY sb.effective_date DESC, sb.entity_type_set
-  `);
+  /*
+    As transições do intervalo, resolvidas — lidas quando já existem gravadas,
+    calculadas na hora quando não.
 
-  const todasAsLinhas = await loadChanges(db, sets.map((s) => s.change_set_id));
+    Era aqui que a leitura ficava presa ao `change_set`: um SELECT em
+    `change_set` e, sem linha, zero. Zero numa tela de auditoria se lê como "a
+    Ambev não mexeu em nada", e as duas formas de não haver comparação gravada
+    são rotineiras — ninguém mandou calcular, ou a vigência foi reimportada e o
+    conjunto antigo ficou apontando para um snapshot morto. Ver `transitions.ts`.
+  */
+  const { pairs, gaps: lacunas } = await movementTransitions(db, context, inicio, fim);
+  const transicoes = await resolveTransitions(db, pairs, {
+    materialize: true,
+    materializedBy: "api:analise-intervalo",
+  });
+
+  const todasAsLinhas = transicoes.flatMap((t) => t.rows);
 
   /*
     O índice de composição é montado sobre **todas** as linhas do intervalo, e
@@ -476,8 +498,18 @@ export async function getRangeAnalysis(
     ? todasAsLinhas.filter((r) => noEscopo(r.attribute_code))
     : todasAsLinhas;
 
-  const periodoDoSet = new Map(sets.map((s) => [s.change_set_id, s.period]));
-  const fleetByChangeSet = new Map(sets.map((s) => [s.change_set_id, s.fleet]));
+  const periodoDoSet = new Map(transicoes.map((t) => [t.key, t.to.effectiveDate]));
+  const fleetByChangeSet = new Map(transicoes.map((t) => [t.key, t.to.entityCount]));
+  /*
+    A ordem cronológica das transições, para o drill-down por ativo saber qual
+    é o "antes" e qual é o "depois" quando o mesmo campo mexeu mais de uma vez
+    no intervalo. Sem ela, "de 3.000 para 3.500" poderia sair invertido.
+  */
+  const ordemDaTransicao = new Map(
+    [...transicoes]
+      .sort((a, b) => a.to.effectiveDate.localeCompare(b.to.effectiveDate))
+      .map((t, indice) => [t.key, indice] as const),
+  );
 
   // ---- movimento por vigência ---------------------------------------------
   /*
@@ -506,13 +538,13 @@ export async function getRangeAnalysis(
   }
 
   const movements: RangeMovement[] = noIntervalo
-    .filter((periodo) => sets.some((s) => s.period === periodo))
+    .filter((periodo) => transicoes.some((t) => t.to.effectiveDate === periodo))
     .map((periodo) => {
       const linhas = rowsPorPeriodo.get(periodo) ?? [];
       return {
         period: periodo,
         label: periodLabel(periodo),
-        comparisons: sets.filter((s) => s.period === periodo).length,
+        comparisons: transicoes.filter((t) => t.to.effectiveDate === periodo).length,
         changes: linhas.length,
         vehicles: new Set(
           linhas.map((r) => r.entity_id).filter((v): v is string => v !== null),
@@ -521,16 +553,14 @@ export async function getRangeAnalysis(
       };
     });
 
-  const gaps = noIntervalo
-    .filter((periodo) => !sets.some((s) => s.period === periodo))
-    .map((periodo) => ({
-      period: periodo,
-      label: periodLabel(periodo),
-      reason:
-        "Vigência importada sem comparação: é a primeira da série, ou a " +
-        "comparação ainda não foi calculada. O que houve aqui não está " +
-        "somado — e não está contado como zero.",
-    }));
+  /*
+    Sobrou uma razão só para uma vigência ficar de fora: **não há entrega
+    anterior** naquela série. Antes havia duas — a primeira da série e "a
+    comparação ainda não foi calculada" —, e a segunda deixou de existir agora
+    que ela é calculada na hora. A frase que a tela mostra deixou de misturar um
+    fato do dado com um detalhe de armazenamento.
+  */
+  const gaps = lacunas.map(({ period, label, reason }) => ({ period, label, reason }));
 
   // ---- ranking, um item por grupo dentro de cada vigência ------------------
   const baldes = new Map<string, typeof rows>();
@@ -637,6 +667,11 @@ export async function getRangeAnalysis(
     else if (valor > 0) gains[balde] = (gains[balde] ?? 0) + valor;
   }
 
+  const frota = {
+    added: transicoes.reduce((soma, t) => soma + t.entitiesAdded, 0),
+    removed: transicoes.reduce((soma, t) => soma + t.entitiesRemoved, 0),
+  };
+
   return {
     context,
     from: inicio,
@@ -658,8 +693,12 @@ export async function getRangeAnalysis(
       vehiclesTouched: new Set(
         rows.map((r) => r.entity_id).filter((v): v is string => v !== null),
       ).size,
-      comparisons: sets.length,
+      comparisons: transicoes.length,
     },
+    digest: executiveDigest(rows, changedByEntity, frota),
+    byEntity: rollupByEntity(rows, changedByEntity, ordemDaTransicao),
+    top: topChanges(rows, changedByEntity),
+    computedOnRead: transicoes.filter((t) => t.origin === "COMPUTED").length,
     byParameter,
     entries,
   };

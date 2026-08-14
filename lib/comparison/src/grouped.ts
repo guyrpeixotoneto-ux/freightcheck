@@ -209,7 +209,7 @@ export interface GroupedView {
 // Leitura
 // ---------------------------------------------------------------------------
 
-interface RawChange extends Record<string, unknown> {
+export interface RawChange extends Record<string, unknown> {
   id: number;
   change_set_id: string;
   category: string;
@@ -232,6 +232,8 @@ interface RawChange extends Record<string, unknown> {
   impact_periodicity: string | null;
   impact_reason: string | null;
   cost_class: string | null;
+  /** `remuneracao/cadastral/cad_identificacao` — a classificação sai daqui. */
+  taxonomy_path: string | null;
   taxonomy_name: string | null;
   semantics_status: string | null;
   aggregation: string | null;
@@ -264,7 +266,7 @@ export async function loadChanges(
            c.comparability, c.inconclusive_reason,
            c.impact_confidence, c.impact_amount::text AS impact_amount,
            c.impact_periodicity, c.impact_reason,
-           c.cost_class, c.taxonomy_name, c.semantics_status,
+           c.cost_class, c.taxonomy_path, c.taxonomy_name, c.semantics_status,
            a.aggregation, a.is_monetary, a.unit
       FROM "change" c
       LEFT JOIN attribute a ON a.code = c.attribute_code

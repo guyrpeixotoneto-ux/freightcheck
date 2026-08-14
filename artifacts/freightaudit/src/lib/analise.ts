@@ -91,6 +91,101 @@ export interface ParameterRollup {
   notCalculable: number;
 }
 
+/**
+ * A classe de uma alteração — o eixo pelo qual a tela filtra.
+ *
+ * Sai da curadoria e nunca de palpite sobre o nome da coluna: ver
+ * `lib/comparison/src/classify.ts`. `RECEITA_*` existe no domínio e não é
+ * emitido enquanto a taxonomia deste produto não declarar um ramo de receita.
+ */
+export type ClasseDeAlteracao =
+  | "CUSTO_AUMENTOU"
+  | "CUSTO_REDUZIU"
+  | "RECEITA_AUMENTOU"
+  | "RECEITA_REDUZIU"
+  | "OPERACIONAL"
+  | "CADASTRAL"
+  | "SEM_IMPACTO_APURADO"
+  | "EQUIPAMENTO_NOVO"
+  | "EQUIPAMENTO_REMOVIDO";
+
+export const ROTULO_DA_CLASSE: Record<ClasseDeAlteracao, string> = {
+  CUSTO_AUMENTOU: "Aumento de custo",
+  CUSTO_REDUZIU: "Redução de custo",
+  RECEITA_AUMENTOU: "Aumento de receita",
+  RECEITA_REDUZIU: "Redução de receita",
+  OPERACIONAL: "Alteração operacional",
+  CADASTRAL: "Alteração cadastral",
+  SEM_IMPACTO_APURADO: "Sem impacto apurado",
+  EQUIPAMENTO_NOVO: "Novo equipamento",
+  EQUIPAMENTO_REMOVIDO: "Equipamento removido",
+};
+
+/** O resumo executivo — a primeira resposta da aba. */
+export interface Digest {
+  entitiesChanged: number;
+  fieldsChanged: number;
+  attributesChanged: number;
+  entitiesAdded: number;
+  entitiesRemoved: number;
+  increasesByPeriodicity: Record<string, number>;
+  decreasesByPeriodicity: Record<string, number>;
+  netByPeriodicity: Record<string, number>;
+  withoutCalculatedImpact: number;
+  byClass: Record<ClasseDeAlteracao, number>;
+}
+
+/** Uma linha do drill-down de um ativo. */
+export interface CampoDoAtivo {
+  attributeCode: string | null;
+  title: string;
+  parameterKey: string;
+  parameterName: string;
+  unit: string | null;
+  isMonetary: boolean | null;
+  valueBefore: string | null;
+  valueAfter: string | null;
+  deltaPercent: number | null;
+  movements: number;
+  impactAmount: number | null;
+  impactPeriodicity: string | null;
+  impactConfidence: string;
+  reason: string | null;
+  classification: ClasseDeAlteracao;
+  coveredByParts: boolean;
+}
+
+/** O que mudou num ativo. */
+export interface AtivoAlterado {
+  entityId: string;
+  plate: string | null;
+  entityType: string | null;
+  equipment: string;
+  status: "ALTERADO" | "NOVO" | "REMOVIDO";
+  changes: number;
+  impact: { byPeriodicity: Record<string, number>; notCalculable: number };
+  weight: number;
+  attributes: CampoDoAtivo[];
+}
+
+/** Uma alteração de um campo de um ativo, com dinheiro apurado. */
+export interface MaiorImpacto {
+  key: string;
+  entityId: string;
+  plate: string | null;
+  equipment: string;
+  attributeCode: string | null;
+  title: string;
+  parameterKey: string;
+  parameterName: string;
+  unit: string | null;
+  valueBefore: string | null;
+  valueAfter: string | null;
+  amount: number;
+  periodicity: string;
+  classification: ClasseDeAlteracao;
+}
+
 export interface Movimentos {
   from: string;
   fromLabel: string;
@@ -104,6 +199,9 @@ export interface Movimentos {
   gainsByPeriodicity: Record<string, number>;
   totals: { changes: number; vehiclesTouched: number; comparisons: number };
   byParameter: ParameterRollup[];
+  digest: Digest;
+  byEntity: AtivoAlterado[];
+  top: MaiorImpacto[];
   entries: RangeEntry[];
 }
 
@@ -164,6 +262,9 @@ export interface PontaAPonta {
   gainsByPeriodicity: Record<string, number>;
   totals: { changes: number; vehiclesTouched: number };
   byParameter: ParameterRollup[];
+  digest: Digest;
+  byEntity: AtivoAlterado[];
+  top: MaiorImpacto[];
   entries: EndToEndEntry[];
 }
 
@@ -187,6 +288,236 @@ const ORDEM_PERIODICIDADE = (p: string) => {
   const i = ORDEM.indexOf(p);
   return i === -1 ? ORDEM.length : i;
 };
+
+/* ------------------------------------------------------------------ */
+/* Filtros da auditoria                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * O recorte que quem audita aplica sobre o que já está na tela.
+ *
+ * Do lado do cliente de propósito: a resposta traz o intervalo inteiro — os
+ * ativos, os campos, os valores —, e refazer a viagem ao servidor a cada clique
+ * num filtro trocaria uma reordenação instantânea por meio segundo de espera. O
+ * recorte do **cartão**, esse sim, continua indo na consulta: é o que faz
+ * "veículos afetados" significar ativos distintos.
+ */
+export interface FiltroDaAnalise {
+  /** Vazio = todas. Mais de uma classe = união, nunca interseção. */
+  classes: ClasseDeAlteracao[];
+  /** Placa, chassi ou qualquer identificador que apareça na linha. */
+  busca: string;
+  /** Chaves de parâmetro. Vazio = todos. */
+  parametros: string[];
+  impacto: "todos" | "com-impacto" | "sem-impacto";
+}
+
+export const FILTRO_VAZIO: FiltroDaAnalise = {
+  classes: [],
+  busca: "",
+  parametros: [],
+  impacto: "todos",
+};
+
+export function filtroAtivo(filtro: FiltroDaAnalise): boolean {
+  return (
+    filtro.classes.length > 0 ||
+    filtro.busca.trim() !== "" ||
+    filtro.parametros.length > 0 ||
+    filtro.impacto !== "todos"
+  );
+}
+
+const normalizar = (texto: string) =>
+  texto
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+function campoPassa(campo: CampoDoAtivo, filtro: FiltroDaAnalise): boolean {
+  if (filtro.classes.length > 0 && !filtro.classes.includes(campo.classification)) {
+    return false;
+  }
+  if (filtro.parametros.length > 0 && !filtro.parametros.includes(campo.parameterKey)) {
+    return false;
+  }
+  const temImpacto = campo.impactConfidence === "CALCULATED" && campo.impactAmount !== null;
+  if (filtro.impacto === "com-impacto" && !temImpacto) return false;
+  if (filtro.impacto === "sem-impacto" && temImpacto) return false;
+  return true;
+}
+
+/**
+ * Os ativos que sobrevivem ao filtro, já com os campos recortados.
+ *
+ * Um ativo cujos campos todos caíram **sai da lista**: mantê-lo com "0
+ * alterações" faria a contagem do topo discordar do que está logo abaixo. A
+ * exceção é a entrada e a saída de frota, que não têm campo nenhum e continuam
+ * sendo o fato — elas só somem quando o filtro pede explicitamente outra classe.
+ */
+export function filtrarAtivos(
+  ativos: AtivoAlterado[],
+  filtro: FiltroDaAnalise,
+): AtivoAlterado[] {
+  const busca = normalizar(filtro.busca.trim());
+
+  return ativos
+    .map((ativo) => {
+      if (busca !== "") {
+        const alvo = normalizar(
+          [
+            ativo.plate ?? "",
+            ativo.entityId,
+            ...ativo.attributes.map((a) => `${a.valueBefore ?? ""} ${a.valueAfter ?? ""}`),
+          ].join(" "),
+        );
+        if (!alvo.includes(busca)) return null;
+      }
+
+      const semCampos = ativo.attributes.length === 0;
+      if (semCampos) {
+        const classe: ClasseDeAlteracao =
+          ativo.status === "NOVO" ? "EQUIPAMENTO_NOVO" : "EQUIPAMENTO_REMOVIDO";
+        if (filtro.classes.length > 0 && !filtro.classes.includes(classe)) return null;
+        if (filtro.impacto === "com-impacto") return null;
+        if (filtro.parametros.length > 0) return null;
+        return ativo;
+      }
+
+      const campos = ativo.attributes.filter((campo) => campoPassa(campo, filtro));
+      if (campos.length === 0) return null;
+      return { ...ativo, attributes: campos, changes: campos.length };
+    })
+    .filter((ativo): ativo is AtivoAlterado => ativo !== null);
+}
+
+/** Os maiores impactos que sobrevivem ao filtro. */
+export function filtrarImpactos(
+  linhas: MaiorImpacto[],
+  filtro: FiltroDaAnalise,
+): MaiorImpacto[] {
+  const busca = normalizar(filtro.busca.trim());
+  return linhas.filter((linha) => {
+    if (filtro.impacto === "sem-impacto") return false;
+    if (filtro.classes.length > 0 && !filtro.classes.includes(linha.classification)) {
+      return false;
+    }
+    if (filtro.parametros.length > 0 && !filtro.parametros.includes(linha.parameterKey)) {
+      return false;
+    }
+    if (busca === "") return true;
+    return normalizar(
+      `${linha.plate ?? ""} ${linha.entityId} ${linha.valueBefore ?? ""} ${linha.valueAfter ?? ""}`,
+    ).includes(busca);
+  });
+}
+
+export type OrdemDosImpactos =
+  | "maior-aumento"
+  | "maior-reducao"
+  | "maior-absoluto"
+  | "mais-alteracoes";
+
+export const ROTULO_DA_ORDEM: Record<OrdemDosImpactos, string> = {
+  "maior-absoluto": "Maior impacto absoluto",
+  "maior-aumento": "Maior aumento",
+  "maior-reducao": "Maior redução",
+  "mais-alteracoes": "Quantidade de alterações",
+};
+
+/**
+ * A ordem dos maiores impactos.
+ *
+ * **A periodicidade não entra na comparação, e sim no agrupamento.** Ordenar
+ * R$/mês contra R$/ano numa fila só produziria um ranking que nenhuma das duas
+ * grandezas justifica; a tela faz uma lista por balde e esta função ordena
+ * dentro de cada uma.
+ */
+export function ordenarImpactos(
+  linhas: MaiorImpacto[],
+  ordem: OrdemDosImpactos,
+  /** Quantas alterações cada ativo tem — só usado por "mais-alteracoes". */
+  alteracoesPorAtivo?: Map<string, number>,
+): MaiorImpacto[] {
+  const copia = [...linhas];
+  switch (ordem) {
+    case "maior-aumento":
+      return copia.sort((a, b) => b.amount - a.amount);
+    case "maior-reducao":
+      return copia.sort((a, b) => a.amount - b.amount);
+    case "mais-alteracoes":
+      return copia.sort((a, b) => {
+        const peso = (linha: MaiorImpacto) => alteracoesPorAtivo?.get(linha.entityId) ?? 0;
+        const diferenca = peso(b) - peso(a);
+        return diferenca !== 0 ? diferenca : Math.abs(b.amount) - Math.abs(a.amount);
+      });
+    default:
+      return copia.sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount));
+  }
+}
+
+/**
+ * O impacto de um parâmetro somado sobre os ativos — a leitura transversal.
+ *
+ * Sai de `byEntity` e não de `byParameter` do servidor de propósito: é este o
+ * rol que responde à mesma pergunta **depois do filtro**, e um filtro que
+ * mudasse a lista de cima e não a de baixo mostraria duas respostas
+ * contraditórias na mesma tela.
+ */
+export interface ParametroTransversal {
+  parameterKey: string;
+  parameterName: string;
+  entities: number;
+  changes: number;
+  byPeriodicity: Record<string, number>;
+  semImpacto: number;
+}
+
+export function porParametroDosAtivos(ativos: AtivoAlterado[]): ParametroTransversal[] {
+  const mapa = new Map<string, ParametroTransversal & { ativos: Set<string> }>();
+
+  for (const ativo of ativos) {
+    for (const campo of ativo.attributes) {
+      const atual = mapa.get(campo.parameterKey) ?? {
+        parameterKey: campo.parameterKey,
+        parameterName: campo.parameterName,
+        entities: 0,
+        changes: 0,
+        byPeriodicity: {} as Record<string, number>,
+        semImpacto: 0,
+        ativos: new Set<string>(),
+      };
+      atual.changes += 1;
+      atual.ativos.add(ativo.entityId);
+      if (
+        campo.impactConfidence === "CALCULATED" &&
+        campo.impactAmount !== null &&
+        !campo.coveredByParts
+      ) {
+        const balde = campo.impactPeriodicity ?? "SEM_PERIODICIDADE";
+        atual.byPeriodicity[balde] = Number(
+          ((atual.byPeriodicity[balde] ?? 0) + campo.impactAmount).toFixed(2),
+        );
+      } else {
+        atual.semImpacto += 1;
+      }
+      mapa.set(campo.parameterKey, atual);
+    }
+  }
+
+  return [...mapa.values()]
+    .map(({ ativos: distintos, ...resto }) => ({ ...resto, entities: distintos.size }))
+    .sort((a, b) => {
+      const peso = (p: ParametroTransversal) => {
+        const valores = Object.values(p.byPeriodicity).map(Math.abs);
+        return valores.length === 0 ? 0 : Math.max(...valores);
+      };
+      const diferenca = peso(b) - peso(a);
+      if (diferenca !== 0) return diferenca;
+      if (b.changes !== a.changes) return b.changes - a.changes;
+      return a.parameterName.localeCompare(b.parameterName, "pt-BR");
+    });
+}
 
 /* ------------------------------------------------------------------ */
 /* O que merece sua atenção                                            */

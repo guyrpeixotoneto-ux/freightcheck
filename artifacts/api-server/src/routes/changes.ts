@@ -353,8 +353,16 @@ router.get("/changes/range", async (req, res): Promise<void> => {
     res.json(analysis);
   } catch (err) {
     if (sendContextError(res, err)) return;
+    /*
+      O detalhe técnico fica no log; a tela recebe a frase que descreve o que
+      falhou do ponto de vista de quem pediu. "Internal server error" mandava
+      quem audita procurar um problema que não é dele — e, pior, sugeria que o
+      dado estava errado quando o que falhou foi a leitura.
+    */
     req.log.error({ err }, "Error building range analysis");
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({
+      error: "Não foi possível concluir a comparação destas vigências. Tente novamente.",
+    });
   }
 });
 
@@ -394,7 +402,9 @@ router.get("/changes/end-to-end", async (req, res): Promise<void> => {
   } catch (err) {
     if (sendContextError(res, err)) return;
     req.log.error({ err }, "Error building end-to-end analysis");
-    res.status(500).json({ error: "Internal server error" });
+    res.status(500).json({
+      error: "Não foi possível concluir a comparação destas vigências. Tente novamente.",
+    });
   }
 });
 

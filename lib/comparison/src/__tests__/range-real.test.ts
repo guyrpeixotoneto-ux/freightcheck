@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
+import { changeSetTable } from "@workspace/db";
 import {
   createTestDatabase,
   importFixture,
@@ -377,6 +378,42 @@ describe("o recorte por coluna", () => {
       const daColuna = entrada.attributeCode === "cavalo.amortizacao_cavalo";
       expect(daColuna || entrada.parameterKey === chave).toBe(true);
     }
+  });
+
+  it("a análise sem cache diz exatamente o mesmo que a análise com cache", async () => {
+    /*
+      Sobre o export real, e não sobre fixture: as 16 transições da série
+      inteira, 3.224 alterações, calculadas na hora contra lidas do banco. Se as
+      duas leituras divergissem em qualquer número, o caminho novo teria virado
+      um segundo motor — que é exatamente o que ele não pode ser.
+
+      O teste roda por último no arquivo de propósito: ele apaga as comparações
+      e as reconstrói, e essa reconstrução é o que os anteriores usaram.
+    */
+    const periodos = await listPeriods(ctx.db);
+    const inicio = periodos[periodos.length - 1].effective_date;
+    const fim = periodos[0].effective_date;
+
+    const comCache = (await getRangeAnalysis(ctx.db, inicio, fim))!;
+    expect(comCache.computedOnRead).toBe(0);
+
+    await ctx.db.delete(changeSetTable);
+    const semCache = (await getRangeAnalysis(ctx.db, inicio, fim))!;
+
+    expect(semCache.computedOnRead).toBeGreaterThan(0);
+    expect(semCache.totals).toEqual(comCache.totals);
+    expect(semCache.impact).toEqual(comCache.impact);
+    expect(semCache.lossesByPeriodicity).toEqual(comCache.lossesByPeriodicity);
+    expect(semCache.gainsByPeriodicity).toEqual(comCache.gainsByPeriodicity);
+    expect(semCache.digest).toEqual(comCache.digest);
+    expect(semCache.byParameter).toEqual(comCache.byParameter);
+    expect(semCache.byEntity.length).toBe(comCache.byEntity.length);
+    expect(semCache.top.length).toBe(comCache.top.length);
+
+    // E a leitura seguinte já encontra tudo pronto: o cálculo na hora
+    // materializa o que faltava, e não vira custo permanente.
+    const depois = (await getRangeAnalysis(ctx.db, inicio, fim))!;
+    expect(depois.computedOnRead).toBe(0);
   });
 
   it("ponta a ponta lê o mesmo recorte de colunas", async () => {

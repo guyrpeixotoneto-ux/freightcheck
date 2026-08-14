@@ -1,6 +1,13 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ArrowRight, ChevronRight, Info } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowRight,
+  ChevronDown,
+  ChevronRight,
+  Info,
+  Search,
+} from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -14,17 +21,32 @@ import {
   bloqueiosDaApuracao,
   comparativoDeLeituras,
   fatosDoIntervalo,
+  filtrarAtivos,
+  filtrarImpactos,
+  filtroAtivo,
+  FILTRO_VAZIO,
+  ordenarImpactos,
   placarDaPonta,
   placarDosMovimentos,
+  porParametroDosAtivos,
   porPeriodicidade,
   precificada,
+  ROTULO_DA_CLASSE,
+  ROTULO_DA_ORDEM,
   semPreco as naoPrecificada,
   variacoesNominais,
+  type AtivoAlterado,
+  type CampoDoAtivo,
+  type ClasseDeAlteracao,
   type Comparativo,
+  type Digest,
   type EndToEndEntry,
   type Entrada,
   type Fato,
+  type FiltroDaAnalise,
+  type MaiorImpacto,
   type Movimentos,
+  type OrdemDosImpactos,
   type ParameterRollup,
   type Placar,
   type PontaAPonta,
@@ -85,10 +107,25 @@ import type { ChangeGroup } from "@/components/inicio/types";
  * nenhum número; o tamanho do que mexeu é apurável mesmo ali, e é ele que
  * dimensiona o trabalho.
  *
- * A ordem da tela é a ordem da pergunta: o que aconteceu → quanto vale → o que
- * mudou no caminho contra o que continua diferente → o que merece atenção → o
- * que mudou sem virar dinheiro → quando aconteceu → onde estão os maiores → o
- * que trava a apuração → a evidência.
+ * **E a resposta começa pelo ativo.** A aba agregava por coluna — "a manutenção
+ * mudou em 31 cavalos" — e nunca por cavalo, que é como quem negocia com a
+ * Ambev abre a conversa. Agora o topo responde em cinco números (quantos
+ * cavalos, quantos campos, quanto subiu, quanto caiu, quantas sem preço), e
+ * abaixo vêm os maiores impactos um a um, o rol por cavalo com o drill-down
+ * campo a campo, e o mesmo material virado de lado por parâmetro. Um filtro só
+ * recorta os três ao mesmo tempo: duas listas que respondessem sobre conjuntos
+ * diferentes mostrariam duas verdades na mesma tela.
+ *
+ * **O líquido existe, e nunca sozinho.** A recusa a somar prejuízo com ganho
+ * continua de pé onde ela protege — os dois brutos aparecem primeiro, sempre —,
+ * mas o líquido passou a ser pedido por nome e é entregue rotulado como
+ * *conhecido*, com a contagem do que não foi possível precificar colada nele.
+ *
+ * A ordem da tela é a ordem da pergunta: o que mudou entre as vigências → em
+ * que cavalo e em que campo → quanto vale → o que mudou no caminho contra o que
+ * continua diferente → o que merece atenção → o que mudou sem virar dinheiro →
+ * quando aconteceu → onde estão os maiores → o que trava a apuração → a
+ * evidência.
  *
  * As recusas de sempre, inteiras:
  *
@@ -496,19 +533,21 @@ function EscopoDeColunas({
 }
 
 /**
- * As vigências do intervalo sem comparação calculada.
+ * As vigências do intervalo que não têm com o que se comparar.
  *
- * Quando **nenhuma** tem, esta leitura não tem o que somar — e a outra tem: a
- * ponta a ponta não lê `change_set`, compara os dois retratos na hora. Mandar
- * para lá é a diferença entre uma tela que parece dizer "não mudou nada" e uma
- * que diz onde a resposta está.
+ * Sobrou uma razão só, e é um fato do dado: **é a primeira entrega daquela
+ * série**, e a primeira entrega não tem antes. A outra razão — "a comparação
+ * ainda não foi calculada" — deixou de existir quando a comparação passou a ser
+ * feita na hora, e com ela saiu da tela a única frase que expunha um detalhe de
+ * armazenamento como se fosse ressalva sobre o dado.
  */
 function Lacunas({
   gaps,
-  semNenhumaComparacao,
+  todasAsVigencias,
 }: {
   gaps: { label: string; reason: string }[];
-  semNenhumaComparacao: boolean;
+  /** Nenhuma vigência do intervalo tem anterior: não há trecho a percorrer. */
+  todasAsVigencias: boolean;
 }) {
   return (
     <div className="bg-card border border-l-[6px] border-l-brand-red px-6 py-4 text-sm">
@@ -522,14 +561,11 @@ function Lacunas({
       <p className="text-muted-foreground mt-1">
         {gaps.map((g) => g.label).join(", ")} — {gaps[0].reason}
       </p>
-      {semNenhumaComparacao && (
+      {todasAsVigencias && (
         <p className="text-muted-foreground mt-2">
-          Nenhuma vigência do intervalo tem comparação calculada, então esta leitura
-          não tem movimento nenhum para somar — os zeros abaixo são a ausência da
-          comparação, e não a ausência de alteração.{" "}
-          <strong className="text-foreground">Ponta a ponta</strong> continua
-          respondendo: ela compara os dois retratos na hora, sem depender de
-          comparação gravada.
+          Como isso vale para todas as vigências do intervalo, esta leitura não tem
+          trecho nenhum a percorrer — os zeros abaixo dizem que não há caminho, e não
+          que nada mudou. Importe a vigência anterior para que o trecho exista.
         </p>
       )}
     </div>
@@ -594,7 +630,26 @@ function LeituraMovimentos({
         justamente o que sustenta a comparação.
       */}
       {mov.gaps.length > 0 && (
-        <Lacunas gaps={mov.gaps} semNenhumaComparacao={mov.totals.comparisons === 0} />
+        <Lacunas gaps={mov.gaps} todasAsVigencias={mov.totals.comparisons === 0} />
+      )}
+
+      {mov.totals.changes === 0 && mov.totals.comparisons > 0 ? (
+        <NadaMudou
+          de={mov.fromLabel}
+          ate={mov.toLabel}
+          ativos={0}
+          leitura="movimentos"
+        />
+      ) : (
+        <>
+          <ResumoExecutivo
+            digest={mov.digest}
+            titulo={`${mov.fromLabel} → ${mov.toLabel}`}
+            leitura="movimentos"
+          />
+
+          <AuditoriaPorAtivo ativos={mov.byEntity} impactos={mov.top} leitura="movimentos" />
+        </>
       )}
 
       <Resumo
@@ -659,6 +714,877 @@ function motivoMaisComum(entradas: { reason: string | null }[]): string | null {
     contagem.set(entrada.reason, (contagem.get(entrada.reason) ?? 0) + 1);
   }
   return [...contagem.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? null;
+}
+
+/* ------------------------------------------------------------------ */
+/* O que mudou entre estas vigências — a primeira resposta da aba      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * O resumo executivo, no topo, respondendo em cinco números.
+ *
+ * *Quantos cavalos mudaram, quantos campos, quanto subiu, quanto caiu, e
+ * quantas alterações ninguém consegue precificar.* É a pergunta com que o
+ * gestor chega, e ela vinha sendo respondida em terceiro lugar, depois de dois
+ * blocos que explicavam a leitura.
+ *
+ * **O líquido está aqui, e nunca sozinho.** Este produto se recusou por muito
+ * tempo a somar prejuízo com ganho, e a razão continua válida: meio milhão
+ * saindo e meio milhão entrando não é "vinte mil de prejuízo". O que mudou é
+ * que o líquido passou a ser pedido por nome — e a forma de entregá-lo sem
+ * mentir é esta: os dois brutos primeiro, o líquido rotulado como
+ * **conhecido**, e a contagem do que ficou de fora colada nele. Um líquido
+ * calculado sobre metade das alterações é meia verdade; a outra metade tem de
+ * estar na mesma moldura.
+ */
+function ResumoExecutivo({
+  digest,
+  titulo,
+  leitura,
+}: {
+  digest: Digest;
+  titulo: string;
+  leitura: "movimentos" | "ponta";
+}) {
+  const aumentos = porPeriodicidade(digest.increasesByPeriodicity);
+  const reducoes = porPeriodicidade(digest.decreasesByPeriodicity);
+  const liquido = porPeriodicidade(digest.netByPeriodicity);
+
+  return (
+    <section className="space-y-3">
+      <Cabecalho titulo="O que mudou entre estas vigências" complemento={titulo} />
+
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+        <Bloco titulo={leitura === "movimentos" ? "Cavalos alterados" : "Cavalos diferentes"}>
+          <div className="text-3xl font-bold">{digest.entitiesChanged}</div>
+          <p className="text-xs text-muted-foreground mt-1">
+            ativos distintos — o mesmo caminhão não conta duas vezes
+          </p>
+        </Bloco>
+
+        <Bloco titulo="Campos modificados">
+          <div className="text-3xl font-bold">{digest.fieldsChanged}</div>
+          <p className="text-xs text-muted-foreground mt-1">
+            em {digest.attributesChanged}{" "}
+            {digest.attributesChanged === 1 ? "coluna distinta" : "colunas distintas"}
+          </p>
+        </Bloco>
+
+        <Bloco titulo="Aumentos identificados" tom="ganho">
+          <Valores buckets={digest.increasesByPeriodicity} tom="ganho" />
+          <p className="text-xs text-muted-foreground mt-1">
+            {aumentos.length === 0 ? "nenhum apurado" : "bruto, sem compensar com o que caiu"}
+          </p>
+        </Bloco>
+
+        <Bloco titulo="Reduções identificadas" tom="perda">
+          <Valores buckets={digest.decreasesByPeriodicity} tom="perda" />
+          <p className="text-xs text-muted-foreground mt-1">
+            {reducoes.length === 0 ? "nenhuma apurada" : "bruto, sem compensar com o que subiu"}
+          </p>
+        </Bloco>
+
+        <Bloco titulo="Sem impacto apurado">
+          <div
+            className={cn(
+              "text-3xl font-bold",
+              digest.withoutCalculatedImpact > 0 && "text-brand-red",
+            )}
+          >
+            {digest.withoutCalculatedImpact}
+          </div>
+          <p className="text-xs text-muted-foreground mt-1">
+            mudaram e o valor não é calculável — não é zero
+          </p>
+        </Bloco>
+      </div>
+
+      {(digest.entitiesAdded > 0 || digest.entitiesRemoved > 0) && (
+        <div className="grid sm:grid-cols-2 gap-4">
+          <Bloco titulo="Novos cavalos">
+            <div className="text-2xl font-bold">{digest.entitiesAdded}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              entraram na frota — fora do dinheiro, sempre
+            </p>
+          </Bloco>
+          <Bloco titulo="Cavalos removidos">
+            <div className="text-2xl font-bold">{digest.entitiesRemoved}</div>
+            <p className="text-xs text-muted-foreground mt-1">
+              saíram da frota — frota menor não é preço menor
+            </p>
+          </Bloco>
+        </div>
+      )}
+
+      {liquido.length > 0 && (
+        <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4">
+          <div className="text-xs uppercase tracking-wider text-muted-foreground">
+            Impacto líquido conhecido
+          </div>
+          <div className="mt-2 flex flex-wrap items-baseline gap-x-6 gap-y-1">
+            {liquido.map(({ periodicity, amount }) => (
+              <span
+                key={periodicity}
+                className={cn(
+                  "text-2xl font-bold tabular-nums",
+                  amount < 0 ? "text-brand-red" : "text-success",
+                )}
+              >
+                {amount > 0 ? "+" : ""}
+                {formatBrlShort(amount)}
+                <span className="text-sm font-normal">{periodicitySuffix(periodicity)}</span>
+              </span>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground mt-2 max-w-3xl">
+            Aumentos menos reduções, <strong className="text-foreground">dentro de cada
+            periodicidade</strong> e somente sobre o que foi possível precificar.
+            {digest.withoutCalculatedImpact > 0 && (
+              <>
+                {" "}
+                <strong className="text-brand-red">
+                  {digest.withoutCalculatedImpact}{" "}
+                  {digest.withoutCalculatedImpact === 1
+                    ? "alteração adicional não possui"
+                    : "alterações adicionais não possuem"}{" "}
+                  impacto financeiro apurado
+                </strong>{" "}
+                e ficam fora deste número — que por isso não é o total.
+              </>
+            )}
+          </p>
+        </div>
+      )}
+
+      <ClassesDaAlteracao byClass={digest.byClass} />
+    </section>
+  );
+}
+
+/** A distribuição por classe, em linha. O que não aconteceu não vira zero na tela. */
+function ClassesDaAlteracao({
+  byClass,
+}: {
+  byClass: Record<ClasseDeAlteracao, number>;
+}) {
+  const presentes = (Object.entries(byClass) as [ClasseDeAlteracao, number][])
+    .filter(([, quantas]) => quantas > 0)
+    .sort((a, b) => b[1] - a[1]);
+  if (presentes.length === 0) return null;
+
+  return (
+    <div className="bg-card border px-5 py-3 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+      {presentes.map(([classe, quantas]) => (
+        <span key={classe} className="flex items-baseline gap-2">
+          <span className={cn("font-bold tabular-nums", corDaClasse(classe))}>{quantas}</span>
+          <span className="text-muted-foreground">{ROTULO_DA_CLASSE[classe]}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function corDaClasse(classe: ClasseDeAlteracao): string {
+  if (classe === "CUSTO_AUMENTOU" || classe === "RECEITA_REDUZIU") return "text-brand-red";
+  if (classe === "CUSTO_REDUZIU" || classe === "RECEITA_AUMENTOU") return "text-success";
+  return "";
+}
+
+/* ------------------------------------------------------------------ */
+/* Filtros da auditoria                                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * O recorte de quem audita, sobre o que já está na tela.
+ *
+ * Quatro eixos, e nenhum deles é uma nova viagem ao servidor: a resposta já
+ * trouxe o intervalo inteiro, e trocar meio segundo de espera por um clique
+ * instantâneo é a diferença entre um filtro que se usa e um que se evita.
+ */
+function Filtros({
+  filtro,
+  onFiltro,
+  classesPresentes,
+  parametrosPresentes,
+  totalDeAtivos,
+  ativosVisiveis,
+}: {
+  filtro: FiltroDaAnalise;
+  onFiltro: (proximo: FiltroDaAnalise) => void;
+  classesPresentes: ClasseDeAlteracao[];
+  parametrosPresentes: { key: string; name: string }[];
+  totalDeAtivos: number;
+  ativosVisiveis: number;
+}) {
+  const alternar = <T,>(lista: T[], valor: T): T[] =>
+    lista.includes(valor) ? lista.filter((v) => v !== valor) : [...lista, valor];
+
+  return (
+    <section className="space-y-3">
+      <Cabecalho
+        titulo="Filtrar"
+        complemento={
+          filtroAtivo(filtro)
+            ? `${ativosVisiveis} de ${totalDeAtivos} ${totalDeAtivos === 1 ? "cavalo" : "cavalos"}`
+            : "sobre o que já está na tela"
+        }
+      />
+      <div className="bg-card border divide-y">
+        <div className="px-5 py-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs uppercase tracking-wider text-muted-foreground w-32 shrink-0">
+            Tipo de alteração
+          </span>
+          <Pilula
+            ativa={filtro.classes.length === 0}
+            onClick={() => onFiltro({ ...filtro, classes: [] })}
+          >
+            Todas
+          </Pilula>
+          {classesPresentes.map((classe) => (
+            <Pilula
+              key={classe}
+              ativa={filtro.classes.includes(classe)}
+              onClick={() => onFiltro({ ...filtro, classes: alternar(filtro.classes, classe) })}
+            >
+              {ROTULO_DA_CLASSE[classe]}
+            </Pilula>
+          ))}
+        </div>
+
+        <div className="px-5 py-3 flex flex-wrap items-center gap-2">
+          <span className="text-xs uppercase tracking-wider text-muted-foreground w-32 shrink-0">
+            Impacto
+          </span>
+          {(
+            [
+              ["todos", "Todos"],
+              ["com-impacto", "Somente com impacto financeiro"],
+              ["sem-impacto", "Somente sem impacto financeiro"],
+            ] as const
+          ).map(([valor, rotulo]) => (
+            <Pilula
+              key={valor}
+              ativa={filtro.impacto === valor}
+              onClick={() => onFiltro({ ...filtro, impacto: valor })}
+            >
+              {rotulo}
+            </Pilula>
+          ))}
+        </div>
+
+        {parametrosPresentes.length > 1 && (
+          <div className="px-5 py-3 flex flex-wrap items-center gap-2">
+            <span className="text-xs uppercase tracking-wider text-muted-foreground w-32 shrink-0">
+              Parâmetro
+            </span>
+            <Pilula
+              ativa={filtro.parametros.length === 0}
+              onClick={() => onFiltro({ ...filtro, parametros: [] })}
+            >
+              Todos
+            </Pilula>
+            {parametrosPresentes.map((parametro) => (
+              <Pilula
+                key={parametro.key}
+                ativa={filtro.parametros.includes(parametro.key)}
+                onClick={() =>
+                  onFiltro({ ...filtro, parametros: alternar(filtro.parametros, parametro.key) })
+                }
+              >
+                {parametro.name}
+              </Pilula>
+            ))}
+          </div>
+        )}
+
+        <div className="px-5 py-3 flex flex-wrap items-center gap-3">
+          <span className="text-xs uppercase tracking-wider text-muted-foreground w-32 shrink-0">
+            Cavalo
+          </span>
+          <div className="flex items-center gap-2 flex-1 min-w-48">
+            <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+            <input
+              type="search"
+              value={filtro.busca}
+              onChange={(evento) => onFiltro({ ...filtro, busca: evento.target.value })}
+              placeholder="Placa, chassi ou qualquer valor da linha"
+              className="w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            />
+          </div>
+          {filtroAtivo(filtro) && (
+            <button
+              type="button"
+              onClick={() => onFiltro(FILTRO_VAZIO)}
+              className="text-[0.8125rem] font-bold uppercase tracking-wide text-brand"
+            >
+              Limpar
+            </button>
+          )}
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function Pilula({
+  ativa,
+  onClick,
+  children,
+}: {
+  ativa: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={ativa}
+      onClick={onClick}
+      className={cn(
+        "px-3 py-1.5 text-xs border transition-colors",
+        ativa
+          ? "bg-brand text-brand-foreground border-brand"
+          : "bg-card text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Maiores impactos                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * As maiores alterações, uma a uma: qual cavalo, qual campo, de quanto para
+ * quanto.
+ *
+ * A tela sabia dizer "a manutenção subiu em 31 ativos" e não sabia dizer "no
+ * ABC1D23 subiu R$ 1.620". Esta seção é a segunda pergunta, e vem com a placa
+ * na frente porque é ela que o gestor leva para a conversa.
+ *
+ * **Uma lista por periodicidade, sempre.** Ordenar R$/mês contra R$/ano numa
+ * fila só daria um ranking que nenhuma das duas grandezas justifica.
+ */
+function MaioresImpactos({
+  linhas,
+  ordem,
+  onOrdem,
+  alteracoesPorAtivo,
+}: {
+  linhas: MaiorImpacto[];
+  ordem: OrdemDosImpactos;
+  onOrdem: (proxima: OrdemDosImpactos) => void;
+  alteracoesPorAtivo: Map<string, number>;
+}) {
+  const [tudo, setTudo] = useState(false);
+  const TOPO = 8;
+  const periodicidades = [...new Set(linhas.map((l) => l.periodicity))].sort();
+
+  return (
+    <section className="space-y-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
+        <Cabecalho titulo="Maiores impactos" complemento="cavalo a cavalo, campo a campo" />
+        <div className="flex flex-wrap gap-2">
+          {(Object.keys(ROTULO_DA_ORDEM) as OrdemDosImpactos[]).map((valor) => (
+            <Pilula key={valor} ativa={ordem === valor} onClick={() => onOrdem(valor)}>
+              {ROTULO_DA_ORDEM[valor]}
+            </Pilula>
+          ))}
+        </div>
+      </div>
+
+      {periodicidades.map((periodicidade) => {
+        const doBalde = ordenarImpactos(
+          linhas.filter((l) => l.periodicity === periodicidade),
+          ordem,
+          alteracoesPorAtivo,
+        );
+        const visiveis = tudo ? doBalde : doBalde.slice(0, TOPO);
+        return (
+          <div key={periodicidade} className="bg-card border">
+            <div className="px-5 py-3 border-b text-xs uppercase tracking-wider text-muted-foreground">
+              R${periodicitySuffix(periodicidade)}
+              <span className="normal-case tracking-normal"> · {doBalde.length} alterações</span>
+            </div>
+            <ul className="divide-y">
+              {visiveis.map((linha) => (
+                <li
+                  key={linha.key}
+                  className="px-5 py-3 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1"
+                >
+                  <div className="min-w-0">
+                    <div className="font-medium">
+                      <span className="font-mono">{linha.plate ?? "sem placa"}</span>
+                      <span className="text-muted-foreground font-normal"> · {linha.title}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      {linha.parameterName} · {linha.equipment}
+                    </div>
+                  </div>
+                  <div className="flex items-baseline gap-4 shrink-0">
+                    <span className="text-sm tabular-nums text-muted-foreground">
+                      {linha.valueBefore ?? "sem valor"}
+                      <ArrowRight className="w-3 h-3 inline mx-1.5" />
+                      <span className="text-foreground font-medium">
+                        {linha.valueAfter ?? "sem valor"}
+                      </span>
+                    </span>
+                    <span
+                      className={cn(
+                        "text-sm font-bold tabular-nums w-32 text-right",
+                        linha.amount < 0 ? "text-brand-red" : "text-success",
+                      )}
+                    >
+                      {linha.amount > 0 ? "+" : ""}
+                      {formatBrl(linha.amount)}
+                      <span className="text-xs font-normal">
+                        {periodicitySuffix(linha.periodicity)}
+                      </span>
+                    </span>
+                  </div>
+                </li>
+              ))}
+            </ul>
+            {doBalde.length > TOPO && (
+              <button
+                type="button"
+                onClick={() => setTudo((v) => !v)}
+                className="w-full px-5 py-3 border-t text-[0.8125rem] font-bold uppercase tracking-wide text-brand hover:bg-accent transition-colors"
+              >
+                {tudo ? `Mostrar só os ${TOPO} maiores` : `Ver todas as ${doBalde.length}`}
+              </button>
+            )}
+          </div>
+        );
+      })}
+    </section>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Alterações por cavalo                                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * O que mudou em cada cavalo, com o drill-down campo a campo.
+ *
+ * É a leitura que faltava: a tela agregava por coluna — "31 ativos com a
+ * manutenção alterada" — e nunca por ativo. Quem negocia com a Ambev abre a
+ * conversa pela placa, e precisava exportar duas planilhas para montar esta
+ * tabela à mão.
+ *
+ * **Só as linhas que mudaram, por padrão.** Mostrar as setenta colunas do
+ * cavalo com sessenta e seis "—" enterraria as quatro que interessam; o
+ * interruptor está ali para quem quiser conferir o que ficou igual.
+ */
+function AlteracoesPorCavalo({
+  ativos,
+  aberto,
+  onAbrir,
+}: {
+  ativos: AtivoAlterado[];
+  aberto: string | null;
+  onAbrir: (entityId: string | null) => void;
+}) {
+  const [tudo, setTudo] = useState(false);
+  const TOPO = 12;
+  const visiveis = tudo ? ativos : ativos.slice(0, TOPO);
+
+  return (
+    <section className="space-y-3">
+      <Cabecalho
+        titulo="Alterações por cavalo"
+        complemento="clique para ver campo a campo"
+      />
+      <div className="bg-card border divide-y">
+        {visiveis.map((ativo) => (
+          <div key={ativo.entityId}>
+            <button
+              type="button"
+              onClick={() => onAbrir(aberto === ativo.entityId ? null : ativo.entityId)}
+              aria-expanded={aberto === ativo.entityId}
+              className="w-full text-left px-5 py-3 hover:bg-accent transition-colors flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1"
+            >
+              <div className="flex items-baseline gap-3 min-w-0">
+                {aberto === ativo.entityId ? (
+                  <ChevronDown className="w-4 h-4 shrink-0 self-center text-muted-foreground" />
+                ) : (
+                  <ChevronRight className="w-4 h-4 shrink-0 self-center text-muted-foreground" />
+                )}
+                <div className="min-w-0">
+                  <div className="font-medium font-mono">{ativo.plate ?? "sem placa"}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {ativo.equipment}
+                    {ativo.status !== "ALTERADO" && (
+                      <span className="text-brand font-medium">
+                        {" "}
+                        · {ativo.status === "NOVO" ? "entrou na frota" : "saiu da frota"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-baseline gap-6 shrink-0">
+                <ImpactoDoAtivo ativo={ativo} />
+                <span className="text-sm tabular-nums w-28 text-right">
+                  {ativo.changes} {ativo.changes === 1 ? "alteração" : "alterações"}
+                </span>
+              </div>
+            </button>
+
+            {aberto === ativo.entityId && <CamposDoAtivo ativo={ativo} />}
+          </div>
+        ))}
+      </div>
+
+      {ativos.length > TOPO && (
+        <button
+          type="button"
+          onClick={() => setTudo((v) => !v)}
+          className="w-full bg-card border px-5 py-3 text-[0.8125rem] font-bold uppercase tracking-wide text-brand hover:bg-accent transition-colors"
+        >
+          {tudo ? `Mostrar só os ${TOPO} maiores` : `Ver todos os ${ativos.length}`}
+        </button>
+      )}
+    </section>
+  );
+}
+
+function ImpactoDoAtivo({ ativo }: { ativo: AtivoAlterado }) {
+  const baldes = porPeriodicidade(ativo.impact.byPeriodicity);
+  if (baldes.length === 0) {
+    return (
+      <span className="text-xs text-muted-foreground italic">sem impacto apurado</span>
+    );
+  }
+  return (
+    <span className="flex flex-wrap items-baseline gap-3 justify-end">
+      {baldes.map(({ periodicity, amount }) => (
+        <span
+          key={periodicity}
+          className={cn(
+            "text-sm font-bold tabular-nums",
+            amount < 0 ? "text-brand-red" : "text-success",
+          )}
+        >
+          {amount > 0 ? "+" : ""}
+          {formatBrlShort(amount)}
+          <span className="text-xs font-normal">{periodicitySuffix(periodicity)}</span>
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** A tabela do drill-down: informação, antes, depois, variação. */
+function CamposDoAtivo({ ativo }: { ativo: AtivoAlterado }) {
+  if (ativo.attributes.length === 0) {
+    return (
+      <p className="px-5 pb-4 text-sm text-muted-foreground">
+        {ativo.status === "NOVO"
+          ? "Entrou na frota neste intervalo. Um ativo novo não tem valor anterior com que comparar, e por isso não produz alteração de campo — entrada de frota fica fora do dinheiro, sempre."
+          : "Saiu da frota neste intervalo. Não há valor novo com que comparar."}
+      </p>
+    );
+  }
+
+  return (
+    <div className="px-5 pb-4 overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b text-xs uppercase tracking-wider text-muted-foreground">
+            <th className="text-left font-medium py-2">Informação</th>
+            <th className="text-right font-medium py-2 px-4">Antes</th>
+            <th className="text-right font-medium py-2 px-4">Depois</th>
+            <th className="text-right font-medium py-2">Variação</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {ativo.attributes.map((campo) => (
+            <tr key={`${campo.attributeCode}`}>
+              <td className="py-2 pr-4">
+                <div className="font-medium">{campo.title}</div>
+                <div className="text-xs text-muted-foreground">
+                  {campo.parameterName} · {ROTULO_DA_CLASSE[campo.classification]}
+                  {campo.movements > 1 && ` · mexeu ${campo.movements} vezes no intervalo`}
+                </div>
+              </td>
+              <td className="py-2 px-4 text-right tabular-nums text-muted-foreground">
+                {campo.valueBefore ?? "sem valor"}
+              </td>
+              <td className="py-2 px-4 text-right tabular-nums font-medium">
+                {campo.valueAfter ?? "sem valor"}
+              </td>
+              <td className="py-2 text-right">
+                <VariacaoDoCampo campo={campo} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/**
+ * A variação de um campo — e a recusa que sustenta a tela inteira.
+ *
+ * Impacto apurado vira número em reais. Impacto **não apurado** vira a frase, e
+ * nunca R$ 0: os dois são estados diferentes, e confundi-los é dizer que
+ * sabemos que não custou nada quando o que sabemos é que ainda não sabemos.
+ */
+function VariacaoDoCampo({ campo }: { campo: CampoDoAtivo }) {
+  if (campo.impactConfidence === "CALCULATED" && campo.impactAmount !== null) {
+    return (
+      <div>
+        <span
+          className={cn(
+            "font-bold tabular-nums",
+            campo.impactAmount < 0 ? "text-brand-red" : "text-success",
+          )}
+        >
+          {campo.impactAmount > 0 ? "+" : ""}
+          {formatBrl(campo.impactAmount)}
+          <span className="text-xs font-normal">
+            {periodicitySuffix(campo.impactPeriodicity ?? "")}
+          </span>
+        </span>
+        {campo.coveredByParts && (
+          <div className="text-[0.6875rem] text-muted-foreground">
+            fora da soma: as parcelas deste total também mudaram
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="text-xs text-muted-foreground max-w-xs ml-auto">
+      <div className="italic">Impacto financeiro não apurado</div>
+      {campo.reason && <div className="text-[0.6875rem] mt-0.5">{campo.reason}</div>}
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* Alterações por parâmetro                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A leitura transversal: qual componente da remuneração está mudando mais.
+ *
+ * A mesma matéria de "por cavalo", virada de lado. As duas saem do **mesmo**
+ * conjunto já filtrado — se uma respondesse sobre o intervalo inteiro e a outra
+ * sobre o recorte, a tela mostraria duas verdades ao mesmo tempo.
+ */
+function AlteracoesPorParametro({ ativos }: { ativos: AtivoAlterado[] }) {
+  const linhas = useMemo(() => porParametroDosAtivos(ativos), [ativos]);
+  const [tudo, setTudo] = useState(false);
+  const TOPO = 8;
+  const visiveis = tudo ? linhas : linhas.slice(0, TOPO);
+  if (linhas.length === 0) return null;
+
+  return (
+    <section className="space-y-3">
+      <Cabecalho
+        titulo="Alterações por parâmetro"
+        complemento="qual componente da remuneração está mudando mais"
+      />
+      <div className="bg-card border divide-y">
+        {visiveis.map((linha) => (
+          <div
+            key={linha.parameterKey}
+            className="px-5 py-3 flex flex-wrap items-baseline justify-between gap-x-6 gap-y-1"
+          >
+            <div className="min-w-0">
+              <div className="font-medium">{linha.parameterName}</div>
+              <div className="text-xs text-muted-foreground">
+                {linha.entities} {linha.entities === 1 ? "cavalo alterado" : "cavalos alterados"} ·{" "}
+                {linha.changes} {linha.changes === 1 ? "alteração" : "alterações"}
+                {linha.semImpacto > 0 && (
+                  <span className="text-brand-red"> · {linha.semImpacto} sem valoração</span>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-wrap items-baseline gap-4 justify-end shrink-0">
+              {porPeriodicidade(linha.byPeriodicity).length === 0 ? (
+                <span className="text-xs text-muted-foreground italic">
+                  sem impacto apurado
+                </span>
+              ) : (
+                porPeriodicidade(linha.byPeriodicity).map(({ periodicity, amount }) => (
+                  <span
+                    key={periodicity}
+                    className={cn(
+                      "text-sm font-bold tabular-nums",
+                      amount < 0 ? "text-brand-red" : "text-success",
+                    )}
+                  >
+                    {amount > 0 ? "+" : ""}
+                    {formatBrlShort(amount)}
+                    <span className="text-xs font-normal">
+                      {periodicitySuffix(periodicity)}
+                    </span>
+                  </span>
+                ))
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+      {linhas.length > TOPO && (
+        <button
+          type="button"
+          onClick={() => setTudo((v) => !v)}
+          className="w-full bg-card border px-5 py-3 text-[0.8125rem] font-bold uppercase tracking-wide text-brand hover:bg-accent transition-colors"
+        >
+          {tudo ? `Mostrar só os ${TOPO} maiores` : `Ver todos os ${linhas.length}`}
+        </button>
+      )}
+    </section>
+  );
+}
+
+/**
+ * "Nada mudou" — dito só quando é verdade.
+ *
+ * A regra é a que o produto inteiro segue e que esta aba passou a poder
+ * cumprir: zero alterações só se afirma depois de a comparação ter **rodado**
+ * — os dois retratos encontrados, os ativos pareados pela identidade canônica,
+ * os campos elegíveis percorridos, os valores confrontados. Enquanto a leitura
+ * dependia de comparação gravada, "0 alterações" também queria dizer "não
+ * comparei", e as duas frases chegavam na tela exatamente iguais.
+ */
+function NadaMudou({
+  de,
+  ate,
+  ativos,
+  leitura,
+}: {
+  de: string;
+  ate: string;
+  ativos: number;
+  leitura: "movimentos" | "ponta";
+}) {
+  return (
+    <div className="bg-card border border-l-[6px] border-l-success px-6 py-5">
+      <p className="text-2xl font-bold">Nenhuma alteração encontrada</p>
+      <p className="text-sm text-muted-foreground mt-2 max-w-3xl">
+        {leitura === "movimentos"
+          ? `Os retratos de ${de} até ${ate} foram comparados`
+          : `Os retratos de ${de} e ${ate} foram comparados`}
+        , ativo a ativo, campo a campo
+        {ativos > 0 && ` — ${ativos} ${ativos === 1 ? "cavalo" : "cavalos"} nas duas pontas`}
+        , e nenhum valor está diferente. Isto é uma conclusão da comparação, e não a
+        ausência dela.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * O bloco de auditoria por ativo, inteiro — filtro, maiores, por cavalo, por
+ * parâmetro.
+ *
+ * Está numa função só porque as quatro partes compartilham um estado: o filtro
+ * recorta as três de baixo ao mesmo tempo. Separá-las obrigaria a subir o
+ * estado para a leitura e a passá-lo por quatro props em duas telas.
+ */
+function AuditoriaPorAtivo({
+  ativos,
+  impactos,
+  leitura,
+}: {
+  ativos: AtivoAlterado[];
+  impactos: MaiorImpacto[];
+  leitura: "movimentos" | "ponta";
+}) {
+  const [filtro, setFiltro] = useState<FiltroDaAnalise>(FILTRO_VAZIO);
+  const [ordem, setOrdem] = useState<OrdemDosImpactos>("maior-absoluto");
+  const [abertoAtivo, setAbertoAtivo] = useState<string | null>(null);
+
+  const classesPresentes = useMemo(() => {
+    const presentes = new Set<ClasseDeAlteracao>();
+    for (const ativo of ativos) {
+      if (ativo.attributes.length === 0) {
+        presentes.add(ativo.status === "NOVO" ? "EQUIPAMENTO_NOVO" : "EQUIPAMENTO_REMOVIDO");
+      }
+      for (const campo of ativo.attributes) presentes.add(campo.classification);
+    }
+    return [...presentes];
+  }, [ativos]);
+
+  const parametrosPresentes = useMemo(() => {
+    const mapa = new Map<string, string>();
+    for (const ativo of ativos) {
+      for (const campo of ativo.attributes) mapa.set(campo.parameterKey, campo.parameterName);
+    }
+    return [...mapa].map(([key, name]) => ({ key, name }));
+  }, [ativos]);
+
+  const filtrados = useMemo(() => filtrarAtivos(ativos, filtro), [ativos, filtro]);
+  const impactosFiltrados = useMemo(
+    () => filtrarImpactos(impactos, filtro),
+    [impactos, filtro],
+  );
+  const alteracoesPorAtivo = useMemo(
+    () => new Map(filtrados.map((a) => [a.entityId, a.changes])),
+    [filtrados],
+  );
+
+  if (ativos.length === 0) return null;
+
+  return (
+    <>
+      <Filtros
+        filtro={filtro}
+        onFiltro={setFiltro}
+        classesPresentes={classesPresentes}
+        parametrosPresentes={parametrosPresentes}
+        totalDeAtivos={ativos.length}
+        ativosVisiveis={filtrados.length}
+      />
+
+      {filtrados.length === 0 ? (
+        <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm">
+          Nenhuma alteração deste intervalo passa pelo filtro escolhido. As alterações
+          continuam lá — o recorte é que não as alcança.
+        </div>
+      ) : (
+        <>
+          {impactosFiltrados.length > 0 && (
+            <MaioresImpactos
+              linhas={impactosFiltrados}
+              ordem={ordem}
+              onOrdem={setOrdem}
+              alteracoesPorAtivo={alteracoesPorAtivo}
+            />
+          )}
+
+          <AlteracoesPorCavalo
+            ativos={filtrados}
+            aberto={abertoAtivo}
+            onAbrir={setAbertoAtivo}
+          />
+
+          <AlteracoesPorParametro ativos={filtrados} />
+        </>
+      )}
+
+      {leitura === "movimentos" && impactos.length === 0 && ativos.length > 0 && (
+        <p className="text-xs text-muted-foreground flex gap-2 max-w-3xl">
+          <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          <span>
+            Nenhuma das alterações deste intervalo tem impacto financeiro apurável com este
+            export — o que é diferente de não ter havido impacto. O tamanho do que mexeu está
+            acima, cavalo a cavalo.
+          </span>
+        </p>
+      )}
+    </>
+  );
 }
 
 /* ------------------------------------------------------------------ */
@@ -2005,6 +2931,25 @@ function LeituraPonta({
 
   return (
     <div className="space-y-8">
+      {p2p.totals.changes === 0 ? (
+        <NadaMudou
+          de={p2p.fromLabel}
+          ate={p2p.toLabel}
+          ativos={p2p.entitiesCompared}
+          leitura="ponta"
+        />
+      ) : (
+        <>
+          <ResumoExecutivo
+            digest={p2p.digest}
+            titulo={`${p2p.fromLabel} → ${p2p.toLabel}`}
+            leitura="ponta"
+          />
+
+          <AuditoriaPorAtivo ativos={p2p.byEntity} impactos={p2p.top} leitura="ponta" />
+        </>
+      )}
+
       <Resumo
         titulo={`${p2p.fromLabel} → ${p2p.toLabel}`}
         placar={placarDaPonta(p2p)}

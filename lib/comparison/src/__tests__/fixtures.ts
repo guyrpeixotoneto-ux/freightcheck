@@ -85,14 +85,19 @@ export async function buildFixture(
     .values({ sourceFileId: file.id, status: "PROMOTED" })
     .returning();
 
-  const [nodeFixo] = await db
-    .select()
-    .from(taxonomyNodeTable)
-    .where(eq(taxonomyNodeTable.code, "cf_frota_carreta"));
-  const [nodeVar] = await db
-    .select()
-    .from(taxonomyNodeTable)
-    .where(eq(taxonomyNodeTable.code, "cv_combustivel"));
+  /*
+    A árvore inteira, e não dois nós escolhidos a dedo.
+
+    Eram dois — um de custo fixo e um de combustível — e o efeito é que
+    `taxonomyCode: "cad_identificacao"` caía calado em custo fixo. Uma fixture
+    que quer provar que alteração **cadastral** aparece sem virar dinheiro
+    precisa poder colocar o atributo no ramo cadastral de verdade; um `?? null`
+    silencioso ali produziria um teste que passa dizendo a coisa errada.
+  */
+  const nodes = new Map(
+    (await db.select().from(taxonomyNodeTable)).map((node) => [node.code, node]),
+  );
+  const nodeFixo = nodes.get("cf_frota_carreta");
 
   // --- attributes -----------------------------------------------------------
   const attributeIds = new Map<string, string>();
@@ -107,8 +112,16 @@ export async function buildFixture(
       attributeIds.set(spec.code, existing.id);
       continue;
     }
-    const node =
-      spec.taxonomyCode === "cv_combustivel" ? nodeVar : spec.taxonomyCode ? nodeFixo : null;
+    const node = spec.taxonomyCode
+      ? (nodes.get(spec.taxonomyCode) ??
+        (() => {
+          throw new Error(
+            `Nó de taxonomia "${spec.taxonomyCode}" não existe. ` +
+              `Rode seedTaxonomy antes, ou use um código da árvore.`,
+          );
+        })())
+      : null;
+    void nodeFixo;
     const [created] = await db
       .insert(attributeTable)
       .values({

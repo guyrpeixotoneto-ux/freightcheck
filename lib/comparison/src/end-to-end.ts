@@ -2,7 +2,6 @@ import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { loadAttributeClassificationsAt } from "./classification";
 import { indexChangedAttributesByEntity, isCoveredByParts } from "./composition";
-import { diffSnapshots, type ComputedChange } from "./engine";
 import { attributeLabel, equipmentLabel } from "./labels";
 import { FAMILIES, placementOf, scopeFilter, type FamilyCode } from "./families";
 import type { ParameterRollup } from "./families-view";
@@ -16,8 +15,16 @@ import {
   type ImpactSummary,
 } from "./grouped";
 import { listPeriods } from "./consolidated";
+import { endToEndTransitions, movementTransitions, resolveTransitions } from "./transitions";
 import {
-  contextFilter,
+  executiveDigest,
+  rollupByEntity,
+  topChanges,
+  type EntityRollup,
+  type ExecutiveDigest,
+  type TopChange,
+} from "./rollups";
+import {
   listContexts,
   resolveContext,
   type ContextInfo,
@@ -139,6 +146,14 @@ export interface EndToEndAnalysis {
    * diferente hoje". Mesma função de soma, mesmo índice de composição — as
    * partes fecham com o todo dentro de cada periodicidade.
    */
+  /** O resumo executivo — ver `rollups.ts`. As duas leituras usam o mesmo. */
+  digest: ExecutiveDigest;
+  /** O que continua diferente em cada ativo, com o drill-down campo a campo. */
+  byEntity: EntityRollup[];
+  /** As maiores diferenças, ativo a ativo e campo a campo. */
+  top: TopChange[];
+  /** Transições calculadas na hora. Diagnóstico; nunca vocabulário de tela. */
+  computedOnRead: number;
   byParameter: ParameterRollup[];
   entries: EndToEndEntry[];
 }
@@ -215,113 +230,65 @@ export async function getEndToEndAnalysis(
   const [inicio, fim] =
     alvoInicio <= alvoFim ? [alvoInicio, alvoFim] : [alvoFim, alvoInicio];
 
-  const { rows: snapshots } = await db.execute<{
-    id: string;
-    effective_date: string;
-    entity_type_set: string;
-    source_label: string;
-    entity_count: number;
-  }>(sql`
-    SELECT s.id::text AS id, s.effective_date::text AS effective_date,
-           s.entity_type_set, s.source_label, s.entity_count
-      FROM snapshot s
-     WHERE s.effective_date IN (${inicio}::date, ${fim}::date)
-       AND s.status <> 'SUPERSEDED'
-       AND ${contextFilter("s", context)}
-  `);
+  /*
+    As pontas, resolvidas pelo mesmo caminho que os movimentos.
 
-  const naPonta = (data: string) =>
-    new Map(snapshots.filter((s) => s.effective_date === data).map((s) => [s.entity_type_set, s]));
-  const deA = naPonta(inicio);
-  const deB = naPonta(fim);
+    Esta leitura sempre soube comparar dois retratos que não se sucedem — era a
+    única do produto que não dependia de `change_set`. O que mudou é que ela
+    deixou de ter caminho próprio: pede a comparação à resolução de transições
+    (`transitions.ts`), que aproveita a comparação gravada quando as duas pontas
+    são consecutivas e calcula quando não. Um motor, duas agregações.
+  */
+  const { pairs, missingSeries } = await endToEndTransitions(db, context, inicio, fim);
 
   /*
-    Só se compara série com série do mesmo equipamento. Uma que exista só numa
-    das pontas não vira zero nem entra na conta: é dita, e o motivo é o que
-    manda importar o arquivo que falta.
+    O caminho percorrido, resolvido **antes** das pontas.
+
+    Ele é preciso de todo jeito — é dele que sai "mexeu e voltou", a única
+    pergunta desta tela que exige as transições intermediárias —, e resolvê-lo
+    primeiro permite reaproveitar a transição quando as duas pontas são
+    consecutivas. Julho contra agosto é o caso mais comum da aba, e nele a
+    comparação é feita uma vez, não duas.
   */
-  const paresComparaveis = [...deB.keys()].filter((serie) => deA.has(serie)).sort();
-  const missingSeries = [
-    ...[...deB.keys()].filter((s) => !deA.has(s)).map((s) => ({
-      entityTypeSet: s,
-      reason: `A série existe em ${periodLabel(fim)} e não em ${periodLabel(inicio)}: não há ponta inicial com que comparar.`,
-    })),
-    ...[...deA.keys()].filter((s) => !deB.has(s)).map((s) => ({
-      entityTypeSet: s,
-      reason: `A série existe em ${periodLabel(inicio)} e não em ${periodLabel(fim)}: não há ponta final com que comparar.`,
-    })),
-  ];
+  const { pairs: doCaminho } = await movementTransitions(db, context, inicio, fim);
+  const percurso = await resolveTransitions(db, doCaminho, {
+    materialize: true,
+    materializedBy: "api:analise-ponta-a-ponta",
+  });
 
-  const semanticsA = await loadAttributeClassificationsAt(db, inicio);
-  const semanticsB = await loadAttributeClassificationsAt(db, fim);
-
-  const todas: { serie: string; linha: ComputedChange }[] = [];
-  let entitiesAdded = 0;
-  let entitiesRemoved = 0;
-  let entitiesCompared = 0;
-  const fleetByChangeSet = new Map<string, number>();
-
-  for (const serie of paresComparaveis) {
-    const a = deA.get(serie)!;
-    const b = deB.get(serie)!;
-    const diff = await diffSnapshots(
-      db,
-      { id: a.id, effectiveDate: a.effective_date },
-      { id: b.id, effectiveDate: b.effective_date },
-      semanticsA,
-      semanticsB,
-    );
-    for (const linha of diff.changes) todas.push({ serie, linha });
-    entitiesAdded += diff.entitiesAdded;
-    entitiesRemoved += diff.entitiesRemoved;
-    entitiesCompared += b.entity_count - diff.entitiesAdded;
-    /*
-      `buildGroup` usa a frota da série para dizer a cobertura do grupo, e a
-      chave que ele consulta é o `change_set_id` da linha. Aqui não existe
-      `change_set` — o nome da série ocupa esse lugar, que é o que a chave
-      significa nesta leitura: de qual arquivo aquele grupo veio.
-    */
-    fleetByChangeSet.set(serie, b.entity_count);
-  }
-
-  // ---- traduz para a forma que o agrupamento já sabe ler --------------------
-  const porId = new Map(
-    [...semanticsB.values()].map((c) => [c.attributeId, c] as const),
+  const jaResolvidas = new Map(percurso.map((t) => [`${t.from.id}|${t.to.id}`, t]));
+  const aResolver = pairs.filter((par) => !jaResolvidas.has(`${par.from.id}|${par.to.id}`));
+  const novas = await resolveTransitions(db, aResolver);
+  const transicoes = pairs.map(
+    (par) =>
+      jaResolvidas.get(`${par.from.id}|${par.to.id}`) ??
+      novas.find((t) => t.from.id === par.from.id && t.to.id === par.to.id)!,
   );
-  const linhas: LinhaCrua[] = todas
-    .filter(({ linha }) => linha.category === "SOURCE_CHANGE")
-    .map(({ serie, linha }, indice) => {
-      const semantica = linha.attributeId ? porId.get(linha.attributeId) : undefined;
-      return {
-        id: indice,
-        change_set_id: serie,
-        category: linha.category,
-        change_type: linha.changeType,
-        nature: linha.nature ?? null,
-        entity_id: linha.entityId ?? null,
-        entity_label: linha.entityLabel ?? null,
-        entity_type: linha.entityType ?? semantica?.entityType ?? null,
-        attribute_code: semantica?.attributeCode ?? null,
-        attribute_source_name: semantica?.attributeName ?? null,
-        value_before: linha.valueBefore ?? null,
-        value_after: linha.valueAfter ?? null,
-        numeric_before: linha.numericBefore === undefined ? null : (linha.numericBefore as string | null),
-        numeric_after: linha.numericAfter === undefined ? null : (linha.numericAfter as string | null),
-        delta_percent: linha.deltaPercent === undefined ? null : (linha.deltaPercent as string | null),
-        comparability: linha.comparability,
-        inconclusive_reason: linha.inconclusiveReason ?? null,
-        impact_confidence: linha.impactConfidence,
-        impact_amount: linha.impactAmount === undefined ? null : (linha.impactAmount as string | null),
-        impact_periodicity: linha.impactPeriodicity ?? null,
-        impact_reason: linha.impactReason ?? null,
-        cost_class: linha.costClass ?? null,
-        taxonomy_name: linha.taxonomyName ?? null,
-        semantics_status: linha.semanticsStatus ?? null,
-        aggregation: semantica?.aggregation ?? null,
-        is_monetary: semantica?.isMonetary ?? null,
-        unit: semantica?.unit ?? null,
-      };
-    });
+
+  const entitiesAdded = transicoes.reduce((soma, t) => soma + t.entitiesAdded, 0);
+  const entitiesRemoved = transicoes.reduce((soma, t) => soma + t.entitiesRemoved, 0);
+  const entitiesCompared = transicoes.reduce((soma, t) => soma + t.entitiesCompared, 0);
+  /*
+    `buildGroup` usa a frota da ponta de chegada para dizer a cobertura do
+    grupo, e a chave que ele consulta é a da transição.
+  */
+  const fleetByChangeSet = new Map(transicoes.map((t) => [t.key, t.to.entityCount]));
+
+  const deA = new Map(pairs.map((p) => [p.entityTypeSet, p.from]));
+  const deB = new Map(pairs.map((p) => [p.entityTypeSet, p.to]));
+
+  /*
+    Só o eixo do valor entra nesta leitura.
+
+    Entrada e saída de frota têm eixo próprio, fora do dinheiro; coluna nova e
+    mudança de significado são fatos da série inteira e não do salto entre duas
+    pontas. As linhas existem no resultado da comparação e são filtradas aqui —
+    e não deixadas de calcular — para que as duas leituras continuem saindo do
+    mesmo conjunto.
+  */
+  const linhas: LinhaCrua[] = transicoes
+    .flatMap((t) => t.rows)
+    .filter((linha) => linha.category === "SOURCE_CHANGE");
 
   const noEscopo = scopeFilter(parameterKeys, attributeCodes);
   const doCartao = noEscopo ? linhas.filter((l) => noEscopo(l.attribute_code)) : linhas;
@@ -395,50 +362,51 @@ export async function getEndToEndAnalysis(
   const diferentesAgora = new Set(
     doCartao.map((l) => `${l.entity_id}|${l.attribute_code}`),
   );
-  const { rows: mexeram } = await db.execute<{
-    entity_id: string;
-    attribute_code: string;
-    periodos: number;
-  }>(sql`
-    SELECT c.entity_id::text AS entity_id, c.attribute_code, count(DISTINCT sb.effective_date)::int AS periodos
-      FROM "change" c
-      JOIN change_set cs ON cs.id = c.change_set_id
-      JOIN snapshot sb   ON sb.id = cs.snapshot_b_id
-     WHERE sb.effective_date > ${inicio}::date
-       AND sb.effective_date <= ${fim}::date
-       AND sb.status <> 'SUPERSEDED'
-       AND c.change_type = 'VALUE_CHANGED'
-       AND c.entity_id IS NOT NULL
-       AND c.attribute_code IS NOT NULL
-       AND ${contextFilter("sb", context)}
-     GROUP BY 1, 2
-  `);
 
-  const revertidoPorAtributo = new Map<
+  /*
+    O caminho percorrido (resolvido lá em cima) é quem responde "mexeu e voltou",
+    e não mais um SELECT em `change`.
+
+    A consulta antiga lia a tabela de alterações gravadas: sem comparação
+    materializada ela devolvia vazio, e "mexeu e voltou" virava "nada voltou" —
+    uma afirmação, e falsa.
+  */
+  const mexeram = new Map<
     string,
-    { entities: number; periods: number }
+    { ativos: Set<string>; periodos: Set<string>; nome: string | null; equipamento: string | null }
   >();
-  for (const linha of mexeram) {
-    if (noEscopo && !noEscopo(linha.attribute_code)) continue;
-    if (diferentesAgora.has(`${linha.entity_id}|${linha.attribute_code}`)) continue;
-    const atual = revertidoPorAtributo.get(linha.attribute_code) ?? { entities: 0, periods: 0 };
-    atual.entities += 1;
-    atual.periods = Math.max(atual.periods, linha.periodos);
-    revertidoPorAtributo.set(linha.attribute_code, atual);
+  for (const transicao of percurso) {
+    for (const linha of transicao.rows) {
+      if (linha.change_type !== "VALUE_CHANGED") continue;
+      if (!linha.entity_id || !linha.attribute_code) continue;
+      if (noEscopo && !noEscopo(linha.attribute_code)) continue;
+      const atual = mexeram.get(linha.attribute_code) ?? {
+        ativos: new Set<string>(),
+        periodos: new Set<string>(),
+        nome: linha.attribute_source_name,
+        equipamento: linha.entity_type,
+      };
+      atual.ativos.add(linha.entity_id);
+      atual.periodos.add(transicao.to.effectiveDate);
+      mexeram.set(linha.attribute_code, atual);
+    }
   }
 
-  const reverted = [...revertidoPorAtributo.entries()]
+  const reverted = [...mexeram.entries()]
     .map(([attributeCode, dados]) => {
-      const semantica = [...semanticsB.values()].find((c) => c.attributeCode === attributeCode);
+      const voltaram = [...dados.ativos].filter(
+        (entityId) => !diferentesAgora.has(`${entityId}|${attributeCode}`),
+      );
       return {
         attributeCode,
-        title: attributeLabel(attributeCode, semantica?.attributeName ?? attributeCode),
-        equipment: equipmentLabel(semantica?.entityType ?? ""),
+        title: attributeLabel(attributeCode, dados.nome ?? attributeCode),
+        equipment: equipmentLabel(dados.equipamento ?? ""),
         parameterKey: placementOf(attributeCode).parameterKey,
-        entities: dados.entities,
-        periods: dados.periods,
+        entities: voltaram.length,
+        periods: dados.periodos.size,
       };
     })
+    .filter((linha) => linha.entities > 0)
     .sort((a, b) => b.entities - a.entities);
 
   const linhasPorParametro = new Map<string, LinhaCrua[]>();
@@ -497,13 +465,13 @@ export async function getEndToEndAnalysis(
     to: fim,
     toLabel: periodLabel(fim),
     periods: datas.map((d) => ({ date: d, label: periodLabel(d) })),
-    series: paresComparaveis.map((serie) => ({
-      entityTypeSet: serie,
-      equipment: deB.get(serie)!.entity_type_set,
-      fromLabel: deA.get(serie)!.source_label,
-      toLabel: deB.get(serie)!.source_label,
-      fleetFrom: deA.get(serie)!.entity_count,
-      fleetTo: deB.get(serie)!.entity_count,
+    series: pairs.map((par) => ({
+      entityTypeSet: par.entityTypeSet,
+      equipment: deB.get(par.entityTypeSet)!.entityTypeSet,
+      fromLabel: deA.get(par.entityTypeSet)!.sourceLabel,
+      toLabel: deB.get(par.entityTypeSet)!.sourceLabel,
+      fleetFrom: deA.get(par.entityTypeSet)!.entityCount,
+      fleetTo: deB.get(par.entityTypeSet)!.entityCount,
     })),
     missingSeries,
     fleet: { added: entitiesAdded, removed: entitiesRemoved },
@@ -522,6 +490,13 @@ export async function getEndToEndAnalysis(
         doCartao.map((l) => l.entity_id).filter((v): v is string => v !== null),
       ).size,
     },
+    digest: executiveDigest(doCartao as never, changedByEntity, {
+      added: entitiesAdded,
+      removed: entitiesRemoved,
+    }),
+    byEntity: rollupByEntity(doCartao as never, changedByEntity),
+    top: topChanges(doCartao as never, changedByEntity),
+    computedOnRead: transicoes.filter((t) => t.origin === "COMPUTED").length,
     byParameter,
     entries,
   };

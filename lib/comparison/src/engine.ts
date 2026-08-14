@@ -180,7 +180,6 @@ export async function computeChangeSet(
   // meant then, not what they mean today.
   const semanticsA = await loadAttributeClassificationsAt(db, a.effectiveDate);
   const semanticsB = await loadAttributeClassificationsAt(db, b.effectiveDate);
-  const classifications = semanticsB;
 
   return db.transaction(async (tx) => {
     if (existing.length > 0) {
@@ -199,137 +198,21 @@ export async function computeChangeSet(
       .returning();
 
     /*
-      Os eixos 1 e 2 são calculados fora daqui, por `diffSnapshots`, e só então
-      gravados. A extração não mudou uma vírgula do cálculo — mudou quem pode
-      chamá-lo: a leitura ponta a ponta compara duas vigências que **não** se
-      sucedem e precisa exatamente desta conta, sem gravar nada. Gravar um
-      `change_set` de abril contra agosto seria pior do que duplicar código: a
-      tela de agosto o apanharia pelo `snapshot_b` e somaria oito meses de
-      movimento ao total de um mês.
+      O cálculo inteiro é de `compareSnapshots`; aqui só se grava.
+
+      A separação não é estética. Quem lê uma análise precisa exatamente desta
+      conta e **não** pode gravá-la: a leitura ponta a ponta compara duas
+      vigências que não se sucedem, e gravar um `change_set` de abril contra
+      agosto faria a tela de agosto apanhá-lo pelo `snapshot_b` e somar oito
+      meses de movimento ao total de um mês. Um cálculo, dois usos, uma
+      verdade só — reescrever a comparação para a tela é como se produzem dois
+      números que discordam sem que ninguém saiba qual está certo.
     */
-    const diff = await diffSnapshots(tx, a, b, semanticsA, semanticsB);
-    const rows: (typeof changeTable.$inferInsert)[] = diff.changes.map((linha) => ({
+    const comparison = await compareSnapshots(tx, a, b, semanticsA, semanticsB);
+    const rows: (typeof changeTable.$inferInsert)[] = comparison.changes.map((linha) => ({
       ...linha,
       changeSetId: set.id,
     }));
-    const { unchanged, inconclusive, entitiesAdded, entitiesRemoved } = diff;
-    const calculatedImpact = { ...diff.calculatedImpactByPeriodicity };
-    let impactNotCalculable = diff.impactNotCalculable;
-
-    // ---------------------------------------------------------------------
-    // Axis 3b — the source changed what a column means
-    //
-    // One row per attribute, not one per asset. Only versions born of a
-    // SOURCE_SEMANTICS_CHANGE surface here: a curation correction is us fixing
-    // our own understanding, and reporting it as an Ambev change would
-    // announce a contract change that never happened.
-    // ---------------------------------------------------------------------
-    const { rows: semanticsChanges } = await tx.execute<{
-      attribute_id: string;
-      version_before: number;
-      version_after: number;
-      field: string;
-      value_before: string | null;
-      value_after: string | null;
-      reason: string | null;
-    }>(sql`
-      WITH was AS (
-        SELECT * FROM attribute_semantics
-         WHERE effective_from <= ${a.effectiveDate}::date
-           AND (effective_until IS NULL OR ${a.effectiveDate}::date < effective_until)
-      ),
-      is_now AS (
-        SELECT * FROM attribute_semantics
-         WHERE effective_from <= ${b.effectiveDate}::date
-           AND (effective_until IS NULL OR ${b.effectiveDate}::date < effective_until)
-      )
-      SELECT was.attribute_id,
-             was.version    AS version_before,
-             is_now.version AS version_after,
-             field.name     AS field,
-             field.before   AS value_before,
-             field.after    AS value_after,
-             is_now.supersede_reason AS reason
-        FROM was
-        JOIN is_now ON is_now.attribute_id = was.attribute_id
-        CROSS JOIN LATERAL (
-          VALUES
-            ('unit', was.unit, is_now.unit),
-            ('periodicity', was.periodicity, is_now.periodicity),
-            ('aggregation', was.aggregation, is_now.aggregation),
-            ('is_monetary', was.is_monetary::text, is_now.is_monetary::text),
-            ('calculation_basis', was.calculation_basis, is_now.calculation_basis)
-        ) AS field(name, before, after)
-       WHERE was.version <> is_now.version
-         AND is_now.change_origin = 'SOURCE_SEMANTICS_CHANGE'
-         AND field.before IS DISTINCT FROM field.after
-    `);
-
-    let semanticsChanged = 0;
-    for (const row of semanticsChanges) {
-      const classification = classifications.get(row.attribute_id);
-      semanticsChanged++;
-      impactNotCalculable++;
-      rows.push({
-        changeSetId: set.id,
-        category: "SEMANTICS_CHANGE",
-        changeType: "SEMANTICS_CHANGED",
-        nature: row.field.toUpperCase(),
-        attributeId: row.attribute_id,
-        valueBefore: row.value_before,
-        valueAfter: row.value_after,
-        semanticsVersionA: row.version_before,
-        semanticsVersionB: row.version_after,
-        comparability: "COMPARABLE",
-        impactConfidence: "NOT_CALCULABLE",
-        impactReason:
-          "Mudança de significado, não de valor. O que ela custa depende de reinterpretar " +
-          "a série inteira, e isso não se resolve como diferença entre dois números.",
-        inconclusiveReason: row.reason,
-        ...(classification ? classificationColumns(classification) : {}),
-      });
-    }
-
-    // ---------------------------------------------------------------------
-    // Axis 4 — layout: a column that appeared or vanished
-    // ---------------------------------------------------------------------
-    const { rows: layout } = await tx.execute<{
-      attribute_id: string;
-      direction: string;
-    }>(sql`
-      WITH la AS (SELECT attribute_id FROM snapshot_attribute WHERE snapshot_id = ${snapshotAId}),
-           lb AS (SELECT attribute_id FROM snapshot_attribute WHERE snapshot_id = ${snapshotBId})
-      SELECT COALESCE(la.attribute_id, lb.attribute_id) AS attribute_id,
-             CASE WHEN la.attribute_id IS NULL THEN 'ADDED' ELSE 'REMOVED' END AS direction
-        FROM la
-        FULL OUTER JOIN lb ON lb.attribute_id = la.attribute_id
-       WHERE la.attribute_id IS NULL OR lb.attribute_id IS NULL
-    `);
-
-    let attributesAdded = 0;
-    let attributesRemoved = 0;
-    for (const row of layout) {
-      const classification = classifications.get(row.attribute_id);
-      if (row.direction === "ADDED") attributesAdded++;
-      else attributesRemoved++;
-      impactNotCalculable++;
-      rows.push({
-        changeSetId: set.id,
-        category: "LAYOUT_CHANGE",
-        changeType: row.direction === "ADDED" ? "ATTRIBUTE_ADDED" : "ATTRIBUTE_REMOVED",
-        nature: row.direction === "ADDED" ? "APPEARED" : "DISAPPEARED",
-        attributeId: row.attribute_id,
-        valueBefore: row.direction === "ADDED" ? null : "no layout",
-        valueAfter: row.direction === "ADDED" ? "no layout" : null,
-        comparability: "COMPARABLE",
-        impactConfidence: "NOT_CALCULABLE",
-        impactReason:
-          row.direction === "ADDED"
-            ? "Coluna nova: não há valor anterior com que comparar."
-            : "Coluna deixou de vir no export: não há valor novo com que comparar.",
-        ...(classification ? classificationColumns(classification) : {}),
-      });
-    }
 
     for (let i = 0; i < rows.length; i += 1000) {
       await tx.insert(changeTable).values(rows.slice(i, i + 1000));
@@ -339,22 +222,183 @@ export async function computeChangeSet(
       .update(changeSetTable)
       .set({
         status: "DONE",
-        valueChanges: rows.filter((r) => r.category === "SOURCE_CHANGE").length,
-        entitiesAdded,
-        entitiesRemoved,
-        attributesAdded,
-        attributesRemoved,
-        unchanged,
-        inconclusive,
-        semanticsChanges: semanticsChanged,
-        calculatedImpactByPeriodicity: roundBuckets(calculatedImpact),
-        impactNotCalculable,
+        valueChanges: comparison.valueChanges,
+        entitiesAdded: comparison.entitiesAdded,
+        entitiesRemoved: comparison.entitiesRemoved,
+        attributesAdded: comparison.attributesAdded,
+        attributesRemoved: comparison.attributesRemoved,
+        unchanged: comparison.unchanged,
+        inconclusive: comparison.inconclusive,
+        semanticsChanges: comparison.semanticsChanges,
+        calculatedImpactByPeriodicity: roundBuckets(
+          comparison.calculatedImpactByPeriodicity,
+        ),
+        impactNotCalculable: comparison.impactNotCalculable,
       })
       .where(eq(changeSetTable.id, set.id))
       .returning();
 
     return toSummary(updated, a.sourceLabel, b.sourceLabel);
   });
+}
+
+export interface SnapshotComparison extends SnapshotDiff {
+  /** Linhas de SOURCE_CHANGE — as que dizem "um valor mudou". */
+  valueChanges: number;
+  attributesAdded: number;
+  attributesRemoved: number;
+  semanticsChanges: number;
+}
+
+/**
+ * A comparação completa de duas vigências, **sem gravar nada**.
+ *
+ * Os quatro eixos do produto num lugar só: valor e frota (`diffSnapshots`),
+ * mais significado e layout, que dependem de tabelas de catálogo e não de
+ * `fact`. Era este último par que só existia dentro de `computeChangeSet`, e a
+ * consequência aparecia na tela: uma comparação **materializada** trazia coluna
+ * nova e mudança de significado, e a mesma comparação **calculada na hora** não
+ * trazia — duas leituras da mesma pergunta com composições diferentes,
+ * conforme houvesse cache ou não. Agora as duas saem daqui.
+ *
+ * Quem grava é `computeChangeSet`; quem lê é a resolução de transições
+ * (`transitions.ts`). Nenhum dos dois recalcula por conta própria.
+ */
+export async function compareSnapshots(
+  /** `db` ou uma transação — as duas sabem executar SQL. */
+  executor: Pick<Database, "execute">,
+  a: { id: string; effectiveDate: string },
+  b: { id: string; effectiveDate: string },
+  semanticsA: Map<string, AttributeClassification>,
+  semanticsB: Map<string, AttributeClassification>,
+): Promise<SnapshotComparison> {
+  const diff = await diffSnapshots(executor, a, b, semanticsA, semanticsB);
+  const rows: ComputedChange[] = [...diff.changes];
+  const classifications = semanticsB;
+  let impactNotCalculable = diff.impactNotCalculable;
+
+  // ---------------------------------------------------------------------
+  // Axis 3b — the source changed what a column means
+  //
+  // One row per attribute, not one per asset. Only versions born of a
+  // SOURCE_SEMANTICS_CHANGE surface here: a curation correction is us fixing
+  // our own understanding, and reporting it as an Ambev change would
+  // announce a contract change that never happened.
+  // ---------------------------------------------------------------------
+  const { rows: semanticsChanges } = await executor.execute<{
+    attribute_id: string;
+    version_before: number;
+    version_after: number;
+    field: string;
+    value_before: string | null;
+    value_after: string | null;
+    reason: string | null;
+  }>(sql`
+    WITH was AS (
+      SELECT * FROM attribute_semantics
+       WHERE effective_from <= ${a.effectiveDate}::date
+         AND (effective_until IS NULL OR ${a.effectiveDate}::date < effective_until)
+    ),
+    is_now AS (
+      SELECT * FROM attribute_semantics
+       WHERE effective_from <= ${b.effectiveDate}::date
+         AND (effective_until IS NULL OR ${b.effectiveDate}::date < effective_until)
+    )
+    SELECT was.attribute_id,
+           was.version    AS version_before,
+           is_now.version AS version_after,
+           field.name     AS field,
+           field.before   AS value_before,
+           field.after    AS value_after,
+           is_now.supersede_reason AS reason
+      FROM was
+      JOIN is_now ON is_now.attribute_id = was.attribute_id
+      CROSS JOIN LATERAL (
+        VALUES
+          ('unit', was.unit, is_now.unit),
+          ('periodicity', was.periodicity, is_now.periodicity),
+          ('aggregation', was.aggregation, is_now.aggregation),
+          ('is_monetary', was.is_monetary::text, is_now.is_monetary::text),
+          ('calculation_basis', was.calculation_basis, is_now.calculation_basis)
+      ) AS field(name, before, after)
+     WHERE was.version <> is_now.version
+       AND is_now.change_origin = 'SOURCE_SEMANTICS_CHANGE'
+       AND field.before IS DISTINCT FROM field.after
+  `);
+
+  let semanticsChanged = 0;
+  for (const row of semanticsChanges) {
+    const classification = classifications.get(row.attribute_id);
+    semanticsChanged++;
+    impactNotCalculable++;
+    rows.push({
+      category: "SEMANTICS_CHANGE",
+      changeType: "SEMANTICS_CHANGED",
+      nature: row.field.toUpperCase(),
+      attributeId: row.attribute_id,
+      valueBefore: row.value_before,
+      valueAfter: row.value_after,
+      semanticsVersionA: row.version_before,
+      semanticsVersionB: row.version_after,
+      comparability: "COMPARABLE",
+      impactConfidence: "NOT_CALCULABLE",
+      impactReason:
+        "Mudança de significado, não de valor. O que ela custa depende de reinterpretar " +
+        "a série inteira, e isso não se resolve como diferença entre dois números.",
+      inconclusiveReason: row.reason,
+      ...(classification ? classificationColumns(classification) : {}),
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Axis 4 — layout: a column that appeared or vanished
+  // ---------------------------------------------------------------------
+  const { rows: layout } = await executor.execute<{
+    attribute_id: string;
+    direction: string;
+  }>(sql`
+    WITH la AS (SELECT attribute_id FROM snapshot_attribute WHERE snapshot_id = ${a.id}),
+         lb AS (SELECT attribute_id FROM snapshot_attribute WHERE snapshot_id = ${b.id})
+    SELECT COALESCE(la.attribute_id, lb.attribute_id) AS attribute_id,
+           CASE WHEN la.attribute_id IS NULL THEN 'ADDED' ELSE 'REMOVED' END AS direction
+      FROM la
+      FULL OUTER JOIN lb ON lb.attribute_id = la.attribute_id
+     WHERE la.attribute_id IS NULL OR lb.attribute_id IS NULL
+  `);
+
+  let attributesAdded = 0;
+  let attributesRemoved = 0;
+  for (const row of layout) {
+    const classification = classifications.get(row.attribute_id);
+    if (row.direction === "ADDED") attributesAdded++;
+    else attributesRemoved++;
+    impactNotCalculable++;
+    rows.push({
+      category: "LAYOUT_CHANGE",
+      changeType: row.direction === "ADDED" ? "ATTRIBUTE_ADDED" : "ATTRIBUTE_REMOVED",
+      nature: row.direction === "ADDED" ? "APPEARED" : "DISAPPEARED",
+      attributeId: row.attribute_id,
+      valueBefore: row.direction === "ADDED" ? null : "no layout",
+      valueAfter: row.direction === "ADDED" ? "no layout" : null,
+      comparability: "COMPARABLE",
+      impactConfidence: "NOT_CALCULABLE",
+      impactReason:
+        row.direction === "ADDED"
+          ? "Coluna nova: não há valor anterior com que comparar."
+          : "Coluna deixou de vir no export: não há valor novo com que comparar.",
+      ...(classification ? classificationColumns(classification) : {}),
+    });
+  }
+
+  return {
+    ...diff,
+    changes: rows,
+    impactNotCalculable,
+    valueChanges: rows.filter((r) => r.category === "SOURCE_CHANGE").length,
+    attributesAdded,
+    attributesRemoved,
+    semanticsChanges: semanticsChanged,
+  };
 }
 
 /**

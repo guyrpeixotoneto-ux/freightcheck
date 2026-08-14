@@ -9,5 +9,8 @@ export * from "./anomalies";
 export * from "./labels";
 export * from "./grouped";
 export * from "./families";
+export * from "./classify";
+export * from "./transitions";
+export * from "./rollups";
 export * from "./families-view";
 export * from "./end-to-end";
