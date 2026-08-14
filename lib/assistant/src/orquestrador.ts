@@ -23,7 +23,9 @@ import type { Database } from "@workspace/db";
 import { buscarTrechos, type TrechoRelevante } from "./corpus";
 import {
   compararIntervalo,
+  anexoDoBook,
   coberturaDoBook,
+  composicaoDaFrota,
   buscarNoTextoDoBook,
   listarVigencias,
   movimentoDoParametro,
@@ -36,9 +38,17 @@ import {
   serieDoParametro,
   veiculosAfetados,
   veiculosDoGrupo,
+  type Anexo,
   type ContextoResolvido,
   type Evidencia,
 } from "./ferramentas";
+import {
+  balancoDasImportacoes,
+  buscarNasCelulas,
+  estadoDaCuradoria,
+  historicoDaSemantica,
+  importacoesRecentes,
+} from "./governanca";
 import {
   INTENCOES_COM_PARAMETRO,
   INTENCOES_COM_RECORTE,
@@ -101,6 +111,15 @@ export interface Dossie {
   plano: Plano;
   trechos: TrechoRelevante[];
   evidencias: Evidencia[];
+  /**
+   * Os arquivos que vão junto para o modelo ler.
+   *
+   * Ficam fora de `evidencias` porque não são resultado de consulta: uma
+   * evidência traz números que a validação confere, e um anexo traz um
+   * documento que ela não tem como conferir. Confundir os dois faria a trava
+   * de lastro parecer cobrir o que não cobre.
+   */
+  anexos: Anexo[];
   lacunas: Lacuna[];
   etapas: Etapa[];
   /** Quando a pergunta casa duas gavetas e o assistente precisa perguntar. */
@@ -404,6 +423,7 @@ export async function orquestrar(
 
   // ---- 5. execução ---------------------------------------------------------
   const evidencias: Evidencia[] = [];
+  const anexos: Anexo[] = [];
   const lacunas: Lacuna[] = [];
   const juntar = async (
     rotulo: string,
@@ -447,6 +467,20 @@ export async function orquestrar(
       if (evidencias.length === 0) {
         marcar("consultar", "Consultando o Book do Operador");
         evidencias.push(await coberturaDoBook(db));
+      }
+      /*
+        Quando o bloco tem arquivo, o arquivo vai junto.
+
+        Até aqui o assistente sabia que o PDF existia e dizia, com todas as
+        letras, que não o tinha lido. Agora ele lê — e a diferença entre as duas
+        situações continua visível, porque o anexo entra numerado nas fontes.
+      */
+      if (termoDoParametro) {
+        const anexo = await anexoDoBook(db, termoDoParametro).catch(() => null);
+        if (anexo) {
+          marcar("anexar", "Abrindo o documento do Book");
+          anexos.push(anexo);
+        }
       }
       break;
 
@@ -584,6 +618,56 @@ export async function orquestrar(
       }
       break;
 
+    /*
+      ---- governança do dado -------------------------------------------------
+
+      Nenhuma das três precisa de recorte, e isso é uma afirmação sobre o
+      domínio, não uma economia: curadoria, importação e balanço descrevem o
+      **pipeline**, que é um só para todas as unidades. Filtrá-los por
+      (unidade, canal) responderia uma pergunta que ninguém faz e esconderia
+      metade do que se quis saber.
+    */
+    case "CURADORIA":
+      await juntar("Consultando a curadoria", estadoDaCuradoria(db));
+      if (alvo?.atributos[0]) {
+        await juntar(
+          "Recuperando o histórico da semântica",
+          historicoDaSemantica(db, alvo.atributos[0].codigo),
+        );
+      }
+      break;
+
+    case "IMPORTACOES":
+      await juntar("Consultando as importações", importacoesRecentes(db));
+      break;
+
+    case "BALANCO":
+      await juntar("Consultando o balanço de massa", balancoDasImportacoes(db));
+      break;
+
+    case "CELULAS":
+      /*
+        A busca usa o termo que sobrou da frase, e não a frase inteira.
+
+        "Onde aparece a placa ABC1D23 na planilha?" tem seis palavras de
+        operação e uma de conteúdo; procurar a frase toda em `raw_cell` não
+        acharia nada, e procurar cada palavra acharia tudo. `termoDoParametro`
+        já é exatamente o resíduo depois da poda.
+      */
+      if (termoDoParametro) {
+        await juntar("Procurando nas células importadas", buscarNasCelulas(db, termoDoParametro));
+      }
+      break;
+
+    case "COMPOSICAO":
+      if (contexto) {
+        await juntar(
+          "Compondo a remuneração da frota",
+          composicaoDaFrota(db, contexto, leitura.entidades.equipamento ?? "CAVALO", periodoEfetivo),
+        );
+      }
+      break;
+
     case "SAUDACAO":
     case "DESCONHECIDA":
       break;
@@ -705,6 +789,7 @@ export async function orquestrar(
     plano,
     trechos,
     evidencias,
+    anexos,
     lacunas,
     etapas,
     desambiguacao,
@@ -730,6 +815,41 @@ function numerosDoTexto(texto: string): string[] {
  * cita "28.511,24" como está escrito no fato, e comparar `28511.24 === 28511.24`
  * exigiria reimplementar a formatação pt-BR só para desfazê-la.
  */
+/**
+ * As citações cujo conteúdo a validação não tem como conferir por número.
+ *
+ * Um trecho e uma evidência chegam com tudo o que autorizam citar — o texto e a
+ * lista de números. Um anexo chega como um PDF: o que ele contém só é conhecido
+ * por quem o leu, e não existe lista para comparar. Fingir que existe seria pior
+ * que admitir que não existe.
+ *
+ * A numeração é a de `montarFontes`: trechos, evidências e anexos por último.
+ */
+function citacoesDeAnexo(dossie: Dossie): Set<number> {
+  const primeira = dossie.trechos.length + dossie.evidencias.length + 1;
+  return new Set(dossie.anexos.map((_, i) => primeira + i));
+}
+
+/** Quebra o texto em frases, nas mesmas fronteiras que o portão usa. */
+function frases(texto: string): string[] {
+  return texto.split(/(?<=[.!?])\s+|\n+/).filter((f) => f.trim().length > 0);
+}
+
+/**
+ * Nenhum número sem lastro — **e o que fazer quando o lastro é um documento.**
+ *
+ * Sem anexo, nada muda: todo número do texto é conferido contra o conjunto que
+ * as evidências autorizam. Com anexo, a frase que **cita o anexo** fica de fora
+ * da conferência numérica, e só ela.
+ *
+ * Isto não é um furo aberto na trava; é o único desenho que mantém a promessa
+ * quando a fonte é um arquivo. A promessa nunca foi "todo número foi conferido
+ * por nós" — foi "todo número é conferível por quem lê". Um número que sai de
+ * uma consulta é conferível contra a evidência ao lado; um número que sai do
+ * contrato é conferível abrindo o contrato, que está numerado nas fontes e a um
+ * clique na tela do Book. O que continua proibido é o número **sem** citação, que
+ * é o caso em que quem lê não tem para onde ir — e esse segue sendo descartado.
+ */
 export function numerosSemLastro(texto: string, dossie: Dossie): string[] {
   /*
     O marcador de citação não é uma afirmação numérica.
@@ -739,6 +859,23 @@ export function numerosSemLastro(texto: string, dossie: Dossie): string[] {
     partir da décima fonte — um defeito que só apareceria em respostas ricas,
     que são exatamente as que mais interessam.
   */
+  /*
+    Com anexo no dossiê, a conferência passa a ser por frase — porque a licença
+    é por frase. Sem anexo, o caminho é o de sempre, sobre o texto inteiro: um
+    dossiê sem arquivo não tem frase isenta, e dividir em frases só criaria uma
+    diferença de comportamento onde não há diferença de regra.
+  */
+  const deAnexo = citacoesDeAnexo(dossie);
+  if (deAnexo.size > 0) {
+    const semLastro: string[] = [];
+    for (const frase of frases(texto)) {
+      const citadas = (frase.match(/\[\d{1,2}\]/g) ?? []).map((c) => Number(c.slice(1, -1)));
+      if (citadas.some((n) => deAnexo.has(n))) continue;
+      semLastro.push(...numerosSemLastro(frase, { ...dossie, anexos: [] }));
+    }
+    return semLastro;
+  }
+
   const semCitacoes = texto.replace(/\[\d{1,2}\]/g, " ");
   const permitidos = new Set<string>();
 
@@ -798,7 +935,7 @@ export function numerosSemLastro(texto: string, dossie: Dossie): string[] {
  * inteira, porque o texto foi construído em cima daquela suposta fonte.
  */
 export function citacoesSemFonte(texto: string, dossie: Dossie): string[] {
-  const quantas = dossie.trechos.length + dossie.evidencias.length;
+  const quantas = dossie.trechos.length + dossie.evidencias.length + dossie.anexos.length;
   const citadas: string[] = texto.match(/\[\d{1,2}\]/g) ?? [];
   return [
     ...new Set(

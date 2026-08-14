@@ -120,6 +120,29 @@ function montarFontes(dossie: Dossie): Fonte[] {
     });
   }
 
+  /*
+    Os anexos entram por último — e a ordem aqui é contrato, não estilo.
+
+    `emTexto` numera o dossiê na mesma sequência e `citacoesDeAnexo` calcula a
+    faixa isenta a partir dela. Trocar a ordem de um dos três sem os outros dois
+    faz a resposta citar um documento e a trava conferir uma evidência, o que
+    não daria erro em lugar nenhum — só uma isenção aplicada à frase errada.
+
+    E a entrada aqui é o que fecha a promessa da leitura nativa: o modelo leu o
+    arquivo, a resposta cita o número, e quem lê abre o mesmo arquivo pela tela
+    do Book. Um anexo sem fonte seria um documento lido em silêncio.
+  */
+  for (const a of dossie.anexos) {
+    fontes.push({
+      id: String(n++),
+      tipo: "BOOK",
+      titulo: a.titulo,
+      origem: a.origem,
+      detalhe: `${a.filename} · lido pelo modelo`,
+      ...(a.tela ? { tela: a.tela } : {}),
+    });
+  }
+
   return fontes;
 }
 

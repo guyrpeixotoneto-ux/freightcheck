@@ -115,6 +115,14 @@ a alguém que cumprimentou, diga em uma frase o que você faz e convide a
 pergunta. As sugestões clicáveis já dão exemplos ao lado; não os repita no
 texto.
 
+**Quando há ANEXOS, você está lendo o arquivo.** O documento vem junto desta
+mensagem e você o lê de verdade — não é um resumo nem uma transcrição. Duas
+obrigações: (1) toda afirmação tirada dele leva a citação do anexo, inclusive
+número, valor e percentual, porque é ela que permite a quem lê abrir o mesmo
+arquivo e conferir; (2) não misture o que está no arquivo com o que está nas
+EVIDÊNCIAS sem dizer de onde veio cada coisa. Se o arquivo não responder o que
+foi perguntado, diga isso — ter lido não obriga a ter achado.
+
 ## Como conversar
 
 Isto é uma conversa com um analista, não um relatório gerado por sistema.
@@ -195,6 +203,20 @@ export interface DossieParaRedacao {
   }[];
   lacunas: { tipo: string; explicacao: string }[];
   desambiguacao: { termo: string; opcoes: string[] } | null;
+  /**
+   * Os arquivos que acompanham a pergunta, já em base64.
+   *
+   * Vão como blocos nativos, não como texto: o modelo lê PDF e imagem direto, e
+   * qualquer extração no meio do caminho seria uma tradução que a resposta
+   * citaria como se fosse o original.
+   */
+  anexos: {
+    titulo: string;
+    filename: string;
+    mimeType: string;
+    dados: string;
+    origem: string;
+  }[];
 }
 
 /**
@@ -281,6 +303,20 @@ function emTexto(d: DossieParaRedacao): string {
     );
   }
 
+  if (d.anexos.length > 0) {
+    partes.push(
+      "## ANEXOS (você está lendo estes arquivos)\n\n" +
+        d.anexos
+          .map(
+            (a) =>
+              `### [${n++}] ${a.titulo}\n(origem: ${a.origem})\n` +
+              `O arquivo "${a.filename}" acompanha esta mensagem — leia-o e responda a partir dele, ` +
+              `citando este número.`,
+          )
+          .join("\n\n"),
+    );
+  }
+
   if (d.lacunas.length > 0) {
     partes.push(
       "## LACUNAS (dizer na resposta)\n\n" +
@@ -320,9 +356,39 @@ function montarMensagens(pedido: PedidoDeRedacao): Anthropic.Beta.BetaMessagePar
   */
   while (mensagens.length > 0 && mensagens[0]!.role === "assistant") mensagens.shift();
 
+  /*
+    O arquivo vem **antes** do texto na última mensagem.
+
+    É a ordem que a API recomenda para documento e imagem, e ela tem uma razão
+    de leitura: o dossiê termina apontando para os anexos ("leia-o e responda a
+    partir dele"), e um ponteiro só aponta para a frente se o alvo já passou.
+  */
+  const anexos: Anthropic.Beta.BetaContentBlockParam[] = pedido.dossie.anexos.map((a) =>
+    a.mimeType === "application/pdf"
+      ? {
+          type: "document" as const,
+          source: { type: "base64" as const, media_type: "application/pdf" as const, data: a.dados },
+          title: a.filename,
+        }
+      : {
+          type: "image" as const,
+          source: {
+            type: "base64" as const,
+            media_type: a.mimeType as "image/jpeg" | "image/png" | "image/gif" | "image/webp",
+            data: a.dados,
+          },
+        },
+  );
+
   mensagens.push({
     role: "user",
-    content: `# DOSSIÊ\n\n${emTexto(pedido.dossie)}\n\n# PERGUNTA\n\n${pedido.pergunta}`,
+    content: [
+      ...anexos,
+      {
+        type: "text",
+        text: `# DOSSIÊ\n\n${emTexto(pedido.dossie)}\n\n# PERGUNTA\n\n${pedido.pergunta}`,
+      },
+    ],
   });
 
   return mensagens;

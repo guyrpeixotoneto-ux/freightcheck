@@ -36,6 +36,7 @@ import {
   type ContextInfo,
   type SeriesContext,
 } from "@workspace/comparison";
+import { getVisaoDeFrota } from "@workspace/composition";
 import {
   INTEIRO,
   cobertura,
@@ -875,6 +876,82 @@ export async function regraDoBook(
   };
 }
 
+/**
+ * Como a remuneração da frota se compõe nesta vigência.
+ *
+ * A tela de Composição responde o que nenhuma outra respondia: não *quanto
+ * mudou*, mas **de que o total é feito** — quantos equipamentos entraram no
+ * mensal, quantos ficaram incompletos, e quantos componentes monetários ainda
+ * não têm regra financeira. Esse último número é o que separa "o total é este"
+ * de "o total é este até onde dá para afirmar", e por isso ele sai como
+ * ressalva, não como rodapé.
+ *
+ * Chama `getVisaoDeFrota`, o mesmo serviço da tela. Se o assistente e a tela
+ * divergirem num número, é bug de um serviço só — não de dois caminhos que
+ * calculam a mesma coisa de jeitos diferentes.
+ */
+export async function composicaoDaFrota(
+  db: Database,
+  ctx: ContextoResolvido,
+  equipamento: "CAVALO" | "CARRETA",
+  periodo?: string,
+): Promise<Evidencia | null> {
+  const visao = await getVisaoDeFrota(db, equipamento, {
+    context: ctx.contexto,
+    ...(periodo ? { period: periodo } : {}),
+  });
+  if (!visao) return null;
+
+  const r = visao.resumo;
+  const fatos: Fato[] = [
+    {
+      rotulo: "Equipamentos na frota",
+      valor: INTEIRO.format(r.equipamentos),
+      detalhe: `${INTEIRO.format(r.comValorApurado)} com valor apurado`,
+    },
+    { rotulo: "Total mensal", valor: dinheiro(r.mensalTotal, "MENSAL"), detalhe: "somado na frota" },
+    {
+      rotulo: "Movimento",
+      valor: `${INTEIRO.format(r.comAumento)} subiram · ${INTEIRO.format(r.comReducao)} caíram`,
+      detalhe: `${INTEIRO.format(r.semVariacao)} sem variação`,
+    },
+  ];
+
+  if (r.incompletos > 0) {
+    fatos.push({
+      rotulo: "Incompletos",
+      valor: INTEIRO.format(r.incompletos),
+      detalhe: "sem as duas pontas para comparar",
+    });
+  }
+
+  return {
+    ferramenta: "composicaoDaFrota",
+    titulo: `Composição · ${visao.rotuloDoTipo} · ${visao.periodLabel}`,
+    fatos,
+    numeros: [
+      r.equipamentos,
+      r.comValorApurado,
+      r.mensalTotal,
+      r.comAumento,
+      r.comReducao,
+      r.semVariacao,
+      r.incompletos,
+      r.componentesSemRegra,
+      visao.totalSemFiltro,
+    ],
+    origem: `getVisaoDeFrota(${equipamento}) · ${visao.effectiveDate}`,
+    recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
+    tela: { label: "Composição", href: "/composicao" },
+    destaque: "Total mensal",
+    nota: !visao.serieEntregue
+      ? "Esta vigência não entregou a série deste equipamento — o que aparece vem da vigência anterior."
+      : r.componentesSemRegra > 0
+        ? `${INTEIRO.format(r.componentesSemRegra)} componente(s) monetário(s) sem regra financeira ficaram fora do total.`
+        : undefined,
+  };
+}
+
 /** Quais blocos já têm regra registrada. */
 export async function coberturaDoBook(db: Database): Promise<Evidencia> {
   const entradas = await entradasVigentes(db);
@@ -946,5 +1023,99 @@ export async function buscarNoTextoDoBook(
     nota:
       "A busca alcança apenas regras escritas no sistema. Documento anexado não é " +
       "procurável por texto — se a regra estiver num PDF, ela não aparece aqui.",
+  };
+}
+
+// ── Anexos do Book ──────────────────────────────────────────────────────────
+
+/**
+ * Um arquivo do Book, pronto para ir ao modelo como arquivo.
+ *
+ * Não há texto extraído aqui de propósito. A alternativa era rodar um OCR na
+ * importação e guardar o resultado numa coluna — e aí o assistente citaria um
+ * texto derivado como se fosse o documento, com a fidelidade de um parser e a
+ * aparência de uma fonte. Num produto que existe para não exibir o que não pode
+ * sustentar, a camada intermediária é justamente o que não se quer.
+ *
+ * O modelo lê PDF e imagem nativamente. Mandar os bytes é mais fiel e tem um
+ * preço explícito: o que o modelo afirmar a partir do arquivo não é conferível
+ * contra uma lista de números, como o resto do dossiê. É por isso que o anexo
+ * entra numerado nas fontes — quem ler a resposta abre o mesmo arquivo que o
+ * modelo leu e confere lá, que é a promessa que este produto faz.
+ */
+export interface Anexo {
+  titulo: string;
+  filename: string;
+  /** `application/pdf`, `image/png`… — decide o tipo do bloco na chamada. */
+  mimeType: string;
+  /** Os bytes em base64, como a API os quer. */
+  dados: string;
+  origem: string;
+  tela?: { label: string; href: string };
+}
+
+/** O que o modelo consegue ler direto, sem intermediário. */
+const MIMES_LEGIVEIS = new Set([
+  "application/pdf",
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
+
+/**
+ * O teto de um anexo.
+ *
+ * A API aceita 32 MB por requisição; 8 MB por arquivo deixa folga para o
+ * dossiê, a conversa e um segundo anexo sem chegar perto do limite. Um arquivo
+ * maior não é truncado — truncar um PDF pela metade produz um documento que
+ * *parece* completo e responde errado sobre o que estava no fim.
+ */
+const TETO_DO_ANEXO = 8 * 1024 * 1024;
+
+/**
+ * O arquivo vigente do bloco que a pergunta nomeia — quando dá para lê-lo.
+ *
+ * Devolve `null` em silêncio nos casos em que não dá (bloco sem documento,
+ * formato que o modelo não lê, arquivo grande demais). O silêncio aqui é
+ * correto porque `regraDoBook` já responde na mesma pergunta e já diz o que o
+ * anexo é; o que se perde é a leitura do conteúdo, e isso a resposta declara
+ * pela nota que já existe lá.
+ */
+export async function anexoDoBook(db: Database, termo: string): Promise<Anexo | null> {
+  const alvo = termo.trim().toLowerCase();
+  if (!alvo) return null;
+
+  const [achado] = await db
+    .select({
+      blockKey: bookEntryTable.blockKey,
+      blockTitle: bookEntryTable.blockTitle,
+      filename: bookEntryTable.filename,
+      mimeType: bookEntryTable.mimeType,
+      byteSize: bookEntryTable.byteSize,
+      revision: bookEntryTable.revision,
+      content: bookEntryTable.content,
+    })
+    .from(bookEntryTable)
+    .where(
+      and(
+        eq(bookEntryTable.kind, "DOCUMENTO"),
+        sql`lower(${bookEntryTable.blockKey}) LIKE ${`%${alvo}%`}`,
+      ),
+    )
+    .orderBy(desc(bookEntryTable.revision))
+    .limit(1);
+
+  if (!achado?.content) return null;
+  if (!MIMES_LEGIVEIS.has(achado.mimeType)) return null;
+  if (Number(achado.byteSize) > TETO_DO_ANEXO) return null;
+
+  return {
+    titulo: `Book · ${achado.blockTitle} · ${achado.filename ?? "documento"}`,
+    filename: achado.filename ?? "documento",
+    mimeType: achado.mimeType,
+    dados: Buffer.from(achado.content).toString("base64"),
+    origem: `book_entry · bloco "${achado.blockKey}" · revisão ${achado.revision}`,
+    tela: { label: "Book do Operador", href: "/book-operador" },
   };
 }

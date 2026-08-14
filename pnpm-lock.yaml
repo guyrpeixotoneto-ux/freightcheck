@@ -655,15 +655,24 @@ importers:
       '@anthropic-ai/sdk':
         specifier: 'catalog:'
         version: 0.116.0(zod@3.25.76)
+      '@workspace/balance':
+        specifier: workspace:*
+        version: link:../balance
       '@workspace/comparison':
         specifier: workspace:*
         version: link:../comparison
+      '@workspace/composition':
+        specifier: workspace:*
+        version: link:../composition
       '@workspace/curation':
         specifier: workspace:*
         version: link:../curation
       '@workspace/db':
         specifier: workspace:*
         version: link:../db
+      '@workspace/ingest':
+        specifier: workspace:*
+        version: link:../ingest
       '@workspace/knowledge':
         specifier: workspace:*
         version: link:../knowledge
