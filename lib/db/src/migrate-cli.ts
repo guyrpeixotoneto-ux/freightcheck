@@ -1,4 +1,5 @@
 import { runMigrations } from "./migrate";
+import { diagnosticar } from "./diagnostico";
 
 /**
  * Aplicar as migrations pela linha de comando.
@@ -71,22 +72,31 @@ runMigrations(url, undefined, { adoptExisting })
         );
       }
       /*
-        A dica só aparece quando ela é plausível: a fila parou na primeira
-        migration de todas e o registro estava vazio. É a assinatura do
-        registro perdido — e, fora dela, sugerir adoção mandaria alguém adotar
-        um banco que está genuinamente incompleto.
+        A dica sai de `diagnosticar`, e não de uma conferência escrita aqui.
+        Enquanto esta linha tinha a sua própria versão da assinatura do registro
+        perdido, existiam duas no repositório — esta e a do `/api/healthz` —,
+        com critérios que já divergiam num detalhe. Duas respostas possíveis
+        para a mesma pergunta é exatamente o que produziu, na interface, um
+        aviso mandando adotar e outro mandando reiniciar.
       */
-      if (
-        report.alreadyApplied.length === 0 &&
-        report.adopted.length === 0 &&
-        report.failure.tag === report.pending[0] &&
-        report.pending[0]?.startsWith("0000")
-      ) {
+      const diagnostico = diagnosticar({
+        configurada: true,
+        alcancavel: true,
+        pendentes: report.pending,
+        aplicadas:
+          report.alreadyApplied.length +
+          report.applied.length +
+          report.adopted.length,
+        falha: {
+          tag: report.failure.tag,
+          ...(report.failure.code ? { code: report.failure.code } : {}),
+        },
+      });
+
+      if (diagnostico.estado === "REGISTRO_PERDIDO") {
+        console.error(`\n${diagnostico.resumo} ${diagnostico.risco.texto}`);
         console.error(
-          `\nO registro de migrations está vazio e o banco já tem objetos desta ` +
-            `migration. É o caso do registro perdido: o schema existe, o registro ` +
-            `dele é que sumiu. Se este banco de fato já teve estas migrations, ` +
-            `rode de novo com --adotar-existentes.`,
+          `\n${diagnostico.acao?.texto} Aqui, é rodar de novo com --adotar-existentes.`,
         );
       }
       process.exit(1);
