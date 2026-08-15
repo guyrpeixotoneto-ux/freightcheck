@@ -612,6 +612,7 @@ const MOTIVO_DA_REDACAO: Record<
   string
 > = {
   IA: "escreveu esta resposta",
+  PODADA: "escreveu, e a trava de lastro tirou uma frase sem lastro",
   DESCARTADA: "escreveu, e a trava de lastro descartou o texto",
   RECUSA: "recusou a pergunta",
   ERRO: "não respondeu — a chamada falhou",

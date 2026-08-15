@@ -1171,6 +1171,76 @@ function numerosDoTexto(texto: string): string[] {
 }
 
 /**
+ * As datas do texto, como datas — e não como três números soltos.
+ *
+ * `01/08/2026` é uma referência de tempo, não uma quantia apurada. Partida em
+ * tokens, ela chegava à conferência como `01`, `08` e `2026`, e os dois
+ * primeiros não estão em evidência nenhuma: a resposta inteira era descartada
+ * por conter a data da própria vigência que ela descrevia.
+ *
+ * O que se confere numa data é o **ano**, que é o que a liga ao recorte. Dia e
+ * mês não podem contrabandear grandeza: eles são limitados a dois dígitos e
+ * vivem dentro de uma forma que nada mais tem.
+ */
+const DATA = /\b(\d{1,2}\/)?\d{1,2}\/(\d{2}|\d{4})\b/g;
+
+/**
+ * Um arredondamento declarado — "cerca de R$ 28,5 mil".
+ *
+ * É a forma como se escreve para ser entendido, e a trava a tratava como
+ * invenção porque `28,5` não está escrito em lugar nenhum. Está: é
+ * `28.511,24` dito na escala em que a frase o diz. A conferência é numérica —
+ * o valor arredondado na mesma casa tem de bater com algum número que as
+ * evidências autorizam —, então "cerca de R$ 90 mil" continua sendo recusado
+ * sobre o mesmo dossiê.
+ */
+const ARREDONDAMENTO = /\b(\d{1,3}(?:[.,]\d{1,2})?)\s*(mil|milhao|milhoes|milhões|bilhao|bilhoes|bilhões)\b/gi;
+
+const ESCALAS: Record<string, number> = {
+  mil: 1e3,
+  milhao: 1e6, milhoes: 1e6, "milhões": 1e6,
+  bilhao: 1e9, bilhoes: 1e9, "bilhões": 1e9,
+};
+
+/** "28,5" → 28.5 — o separador decimal deste produto é a vírgula. */
+function comoNumero(escrito: string): number {
+  return Number(escrito.replace(/\./g, "").replace(",", "."));
+}
+
+/**
+ * O texto sem o que já foi conferido por outro critério.
+ *
+ * Devolve o texto com datas e arredondamentos **válidos** removidos, para que a
+ * conferência por token — que continua sendo a regra geral — não os veja. Um
+ * arredondamento que não bate com nada fica no texto e reprova, como deve.
+ */
+function semOsJaConferidos(
+  texto: string,
+  permitidos: Set<string>,
+  valores: number[],
+): string {
+  let saida = texto.replace(ARREDONDAMENTO, (inteiro, escrito: string, escala: string) => {
+    const alvo = comoNumero(escrito);
+    if (!Number.isFinite(alvo)) return inteiro;
+    const fator = ESCALAS[escala.toLowerCase()] ?? 1;
+    const casas = (escrito.split(/[.,]/)[1] ?? "").length;
+    const potencia = 10 ** casas;
+    const bate = valores.some(
+      (v) => Math.round((Math.abs(v) / fator) * potencia) / potencia === alvo,
+    );
+    return bate ? " " : inteiro;
+  });
+
+  saida = saida.replace(DATA, (inteiro) => {
+    const ano = inteiro.split("/").pop() ?? "";
+    const cheio = ano.length === 2 ? `20${ano}` : ano;
+    return permitidos.has(cheio) || permitidos.has(ano) ? " " : inteiro;
+  });
+
+  return saida;
+}
+
+/**
  * Nenhum número sem lastro.
  *
  * Junta tudo o que as evidências autorizam citar — os valores crus e cada
@@ -1203,6 +1273,93 @@ function citacoesDeAnexo(dossie: Dossie): Set<number> {
 /** Quebra o texto em frases, nas mesmas fronteiras que o portão usa. */
 function frases(texto: string): string[] {
   return texto.split(/(?<=[.!?])\s+|\n+/).filter((f) => f.trim().length > 0);
+}
+
+/**
+ * As frases **com o que vem entre elas** — para poder remontar o texto.
+ *
+ * `frases` serve para conferir; esta serve para reescrever. A diferença é que
+ * aqui `join("")` devolve o original byte a byte, o que é o que permite tirar
+ * uma frase do meio de uma resposta sem estragar a pontuação e os parágrafos
+ * das que ficam.
+ */
+export function emFrases(texto: string): string[] {
+  const saida: string[] = [];
+  let inicio = 0;
+  for (let i = 0; i < texto.length; i++) {
+    const c = texto[i];
+    const fecha =
+      c === "\n" ||
+      ((c === "." || c === "!" || c === "?") && /\s/.test(texto[i + 1] ?? " "));
+    if (!fecha) continue;
+    let j = i + 1;
+    while (j < texto.length && /\s/.test(texto[j]!)) j += 1;
+    saida.push(texto.slice(inicio, j));
+    inicio = j;
+    i = j - 1;
+  }
+  if (inicio < texto.length) saida.push(texto.slice(inicio));
+  return saida;
+}
+
+export interface Saneamento {
+  /** O texto sem as frases que não se sustentam. */
+  texto: string;
+  /** Quantas frases saíram, e de quantas. */
+  removidas: number;
+  total: number;
+  /** O que fez cada uma sair — para o painel técnico. */
+  recusados: string[];
+  /** Sobrou pouco demais: o que vale é a redação em código. */
+  irrecuperavel: boolean;
+}
+
+/**
+ * Tira da resposta o que ela não sustenta — e só isso.
+ *
+ * **O que havia antes.** Um único número sem lastro descartava a resposta
+ * inteira. A regra era defensável e o preço era alto e invisível: medido sobre
+ * saídas realistas, duas em cada dez respostas eram jogadas fora por causa de
+ * uma data de vigência ou de um valor arredondado — texto bom, fiel ao dossiê,
+ * substituído por uma redação em código que responde a mesma pergunta com
+ * menos. Quanto melhor a redação, maior a chance de ela cair.
+ *
+ * **O que a garantia sempre foi.** "Nenhum número sem lastro chega à tela" —
+ * uma afirmação sobre o que a pessoa lê, não sobre o tamanho da unidade
+ * descartada. Tirar a frase que não se sustenta cumpre a promessa por inteiro,
+ * e é a única leitura em que o custo do erro é proporcional a ele.
+ *
+ * **Quando ainda se descarta tudo.** Quando o que sai passa de um terço das
+ * frases. Aí o problema não é um número: é uma resposta construída sobre
+ * material que não existe, e remendá-la produziria um texto que não conclui o
+ * que começou a dizer.
+ */
+export function sanear(texto: string, dossie: Dossie): Saneamento {
+  const pedacos = emFrases(texto);
+  const mantidas: string[] = [];
+  const recusados: string[] = [];
+  let removidas = 0;
+
+  for (const pedaco of pedacos) {
+    const semLastro = numerosSemLastro(pedaco, dossie);
+    const semFonte = citacoesSemFonte(pedaco, dossie);
+    if (semLastro.length === 0 && semFonte.length === 0) {
+      mantidas.push(pedaco);
+      continue;
+    }
+    recusados.push(...semLastro, ...semFonte);
+    removidas += 1;
+  }
+
+  const total = pedacos.length;
+  const saneado = mantidas.join("").trim();
+  return {
+    texto: saneado,
+    removidas,
+    total,
+    recusados: [...new Set(recusados)],
+    irrecuperavel: saneado.length === 0 || removidas * 3 > total,
+  };
 }
 
 /**
@@ -1248,6 +1405,8 @@ export function numerosSemLastro(texto: string, dossie: Dossie): string[] {
 
   const semCitacoes = texto.replace(/\[\d{1,2}\]/g, " ");
   const permitidos = new Set<string>();
+  /** Os mesmos números como grandeza, para conferir arredondamento. */
+  const valores: number[] = [];
 
   const registrar = (valor: string | number | undefined | null) => {
     if (valor === undefined || valor === null) return;
@@ -1264,6 +1423,7 @@ export function numerosSemLastro(texto: string, dossie: Dossie): string[] {
     registrar(e.nota);
     registrar(e.origem);
     for (const n of e.numeros) {
+      valores.push(n);
       registrar(n);
       registrar(n.toLocaleString("pt-BR"));
       registrar(n.toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
@@ -1303,7 +1463,7 @@ export function numerosSemLastro(texto: string, dossie: Dossie): string[] {
   }
   for (const l of dossie.lacunas) registrar(l.explicacao);
 
-  return numerosDoTexto(semCitacoes).filter((token) => {
+  return numerosDoTexto(semOsJaConferidos(semCitacoes, permitidos, valores)).filter((token) => {
     if (permitidos.has(token) || permitidos.has(token.replace(/\./g, ""))) return false;
     // Um algarismo isolado é numeração de lista ou ordinal, não afirmação.
     if (token.length === 1) return false;

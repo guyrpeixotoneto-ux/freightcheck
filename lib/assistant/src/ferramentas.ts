@@ -317,13 +317,29 @@ export async function resumoDaVigencia(
           ? "por periodicidade, nunca somado entre elas"
           : `${INTEIRO.format(r.notCalculable)} alterações sem preço`,
       },
+      /*
+        A participação sai calculada daqui, e não da cabeça do modelo.
+
+        "Financiamento (12)" deixa a pergunta seguinte — quanto isso é do
+        total? — para quem lê, e a instrução proíbe o modelo de dividir. O
+        resultado era uma resposta que não conseguia dizer o que importa, ou
+        uma que dizia e era descartada pela trava por citar um número que
+        nenhuma consulta devolveu. Cálculo é do backend; esta é a conta.
+      */
       ...(r.topParameters.length > 0
         ? [
             {
               rotulo: "Parâmetros que mais mexeram",
               valor: r.topParameters
                 .slice(0, 3)
-                .map((p) => `${p.name} (${INTEIRO.format(p.changes)})`)
+                .map(
+                  (p) =>
+                    `${p.name} (${INTEIRO.format(p.changes)}` +
+                    (r.changes > 0
+                      ? `, ${Math.round((p.changes / r.changes) * 100)}% do movimento`
+                      : "") +
+                    ")",
+                )
                 .join(", "),
             },
           ]
@@ -336,6 +352,9 @@ export async function resumoDaVigencia(
       r.notCalculable,
       ...numerosDoImpacto(r.impact),
       ...r.topParameters.slice(0, 3).map((p) => p.changes),
+      ...(r.changes > 0
+        ? r.topParameters.slice(0, 3).map((p) => Math.round((p.changes / r.changes) * 100))
+        : []),
     ],
     origem: `getFamiliesView · ${visao.periodLabel} · ${ctx.info.label}`,
     recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),

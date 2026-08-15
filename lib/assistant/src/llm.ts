@@ -417,7 +417,18 @@ function emTexto(d: Dossie): string {
     );
   }
 
-  const dado = itens.filter((i) => i.tipo === "DADO");
+  /*
+    Evidência cujos fatos são todos internos não vai ao modelo.
+
+    O registro do Book — bloco, revisão, tipo de entrada — é marcado como
+    interno inteiro, e a filtragem acontecia **depois** do cabeçalho: o dossiê
+    ganhava "### [8] Book · PNEU" seguido de nada. Uma fonte numerada, citável,
+    que não sustenta afirmação nenhuma. Ela continua no dossiê como fonte na
+    tela; o que ela não faz mais é ocupar um número no material que o modelo lê.
+  */
+  const dado = itens.filter(
+    (i) => i.tipo === "DADO" && i.evidencia.fatos.some((f) => !f.interno),
+  );
   if (dado.length > 0) {
     partes.push(
       "## EVIDÊNCIA — consultada agora, no recorte de quem perguntou\n\n" +

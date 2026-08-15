@@ -39,7 +39,7 @@ export interface Resposta {
     numerosRecusados: string[];
     /** O que aconteceu com a chamada ao modelo — `null` quando não houve uma. */
     ia: {
-      desfecho: "IA" | "DESCARTADA" | "RECUSA" | "ERRO" | "SEM_CHAVE";
+      desfecho: "IA" | "PODADA" | "DESCARTADA" | "RECUSA" | "ERRO" | "SEM_CHAVE";
       modelo: string;
       latenciaMs: number;
       erro: string | null;

@@ -42,9 +42,11 @@ import { registrar, type EventoDeIa } from "./observabilidade";
 import type { Intencao } from "./interpretacao";
 import {
   citacoesSemFonte,
+  emFrases,
   itensCitaveis,
   numerosSemLastro,
   orquestrar,
+  sanear,
   recorteDoDossie,
   type Dossie,
   type Etapa,
@@ -428,40 +430,40 @@ function ultimaFronteira(texto: string): number {
 }
 
 /**
- * Deixa passar o que já foi conferido, e fecha na primeira frase que reprova.
+ * Deixa passar o que já foi conferido, e **pula** o que não passa.
  *
  * A alternativa era transmitir cru e corrigir depois — mostrar um número que
  * ninguém consultou e retirá-lo em seguida. Num produto cuja regra é não exibir
  * o que não se pode sustentar, o instante em que o número aparece na tela já é
  * o dano; retirá-lo depois não desfaz a leitura.
+ *
+ * O que mudou é o que acontece com a frase que reprova. Antes o portão fechava
+ * e nada mais saía: a pessoa via meia resposta parar no meio e, no fim, ser
+ * substituída inteira. Agora a frase é pulada e o resto continua — o mesmo que
+ * a conferência final faz com o texto completo, de modo que o que se lê durante
+ * a escrita é o que fica no fim.
  */
 export function portaoDeLastro(dossie: Dossie, aoTexto: (pedaco: string) => void) {
   let bruto = "";
   let liberado = 0;
-  let fechado = false;
 
   return {
     receber(pedaco: string): void {
       bruto += pedaco;
-      if (fechado) return;
 
       const pendente = bruto.slice(liberado);
       const corte = ultimaFronteira(pendente);
       if (corte <= 0) return;
 
-      const candidato = pendente.slice(0, corte);
-      if (
-        numerosSemLastro(candidato, dossie).length > 0 ||
-        citacoesSemFonte(candidato, dossie).length > 0
-      ) {
-        // A resposta inteira vai ser descartada pela conferência final — o
-        // veredito por frase e o da resposta inteira são o mesmo. Parar aqui só
-        // evita continuar mostrando um texto que já não vale.
-        fechado = true;
-        return;
+      for (const frase of emFrases(pendente.slice(0, corte))) {
+        if (
+          numerosSemLastro(frase, dossie).length > 0 ||
+          citacoesSemFonte(frase, dossie).length > 0
+        ) {
+          continue;
+        }
+        aoTexto(frase);
       }
-
-      aoTexto(candidato);
       liberado += corte;
     },
   };
@@ -621,21 +623,29 @@ export async function responder(
 
     if (doModelo) {
       /*
-        Duas travas, e as duas descartam a resposta inteira em vez de remendá-la.
+        O que não se sustenta sai; o que se sustenta fica.
 
-        Um número que nenhuma consulta devolveu provavelmente tem o raciocínio
-        construído em cima dele, e trocar o número deixaria a conclusão de pé.
-        Uma citação que aponta para fonte inexistente é o mesmo defeito noutra
-        moeda: a frase se apresenta como conferível e manda quem lê para um
-        lugar que não existe.
+        A regra anterior descartava a resposta inteira ao primeiro número sem
+        lastro. Ela cumpria a promessa e cobrava caro por ela: uma data de
+        vigência ou um valor arredondado — texto fiel ao dossiê — derrubava
+        análises inteiras, e quanto melhor a redação, maior a chance de cair.
+
+        A promessa nunca foi "a resposta é atômica"; foi "nada sem lastro chega
+        à tela". Podar a frase cumpre isso por inteiro. E quando a poda passa de
+        um terço das frases, o descarte volta a ser total — aí não é um número
+        fora do lugar, é uma resposta construída sobre material que não existe.
       */
-      const semLastro = numerosSemLastro(doModelo, dossie);
-      const semFonte = citacoesSemFonte(doModelo, dossie);
-      if (semLastro.length === 0 && semFonte.length === 0) {
+      const saneamento = sanear(doModelo, dossie);
+      numerosRecusados = saneamento.recusados;
+
+      if (saneamento.recusados.length === 0) {
         texto = doModelo;
         redacao = "IA";
+      } else if (!saneamento.irrecuperavel) {
+        texto = saneamento.texto;
+        redacao = "IA";
+        desfecho = "PODADA";
       } else {
-        numerosRecusados = [...semLastro, ...semFonte];
         desfecho = "DESCARTADA";
       }
     }
