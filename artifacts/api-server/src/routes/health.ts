@@ -104,9 +104,46 @@ function descreverPendencia(migrations: MigrationHealth): string {
 
   return (
     `Conectado, mas ${quantas} neste banco: ${migrations.pending.join(", ")}. ` +
-    `As telas que dependem ${uma ? "dela respondem erro até que ela rode" : "delas respondem erro até que rodem"}.${parou}`
+    `As telas que dependem ${uma ? "dela respondem erro até que ela rode" : "delas respondem erro até que rodem"}.${parou}` +
+    registroPerdido(migrations)
   );
 }
+
+/**
+ * O registro de migrations se perdeu — e é preciso dizer isso, não deixar
+ * deduzir.
+ *
+ * A assinatura é inconfundível: **nada** aplicado (o registro está vazio) e a
+ * fila parou logo na primeira migration por um objeto que já existe. Um banco
+ * genuinamente novo não falha assim — ele não tem objeto nenhum, e a `0000`
+ * entra limpa. Então o que se tem é um banco com o schema e sem o registro
+ * dele: restaurado de um dump sem o schema `drizzle`, recriado à mão, ou
+ * apontado para outra URL.
+ *
+ * Sem esta frase, o texto acima manda rodar as migrations — e rodá-las é
+ * exatamente o que já falhou, quantas vezes se tente. Um diagnóstico que
+ * prescreve o que não funciona é pior do que nenhum: ele consome as tentativas
+ * de quem está tentando.
+ */
+function registroPerdido(migrations: MigrationHealth): string {
+  const primeira = migrations.pending[0];
+  const assinatura =
+    migrations.applied === 0 &&
+    migrations.failure !== undefined &&
+    migrations.failure.tag === primeira &&
+    JA_EXISTE_SQLSTATES.has(migrations.failure.code ?? "");
+  if (!assinatura) return "";
+
+  return (
+    " Este banco tem o schema e não tem o registro dele — por isso a fila " +
+    "recomeça da primeira migration e esbarra em algo que já existe. Rodar as " +
+    "migrations de novo vai falhar igual. A saída é declarar o que o banco já " +
+    "tem, com `pnpm --filter @workspace/db run migrate:adotar`."
+  );
+}
+
+/** Os SQLSTATEs de "isto já existe" — ver `JA_EXISTE` em `@workspace/db`. */
+const JA_EXISTE_SQLSTATES = new Set(["42710", "42P07", "42701", "42P06"]);
 
 /**
  * @param probe  pergunta ao banco se o schema está lá; separado da rota para
