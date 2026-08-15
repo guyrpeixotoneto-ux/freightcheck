@@ -189,6 +189,36 @@ export function verificar(
       falhas.push({ regra: "citacao-valida", detalhe: `cita [${n}] e a fonte não existe` });
     }
   }
+  /*
+    Marcador de forma que a tela não conhece.
+
+    A resposta pode usar `:::cards` e `:::abas`; qualquer outra cerca é sintaxe
+    inventada. A tela degrada bem — mostra o conteúdo sem a moldura —, mas o
+    modelo estar inventando forma é sinal de que a instrução não está clara, e
+    isso se conserta na instrução, não na tela.
+  */
+  for (const cerca of texto.matchAll(/^:::\s*([a-zA-Z]*)/gm)) {
+    const nome = (cerca[1] ?? "").toLowerCase();
+    if (nome && !["cards", "cartoes", "abas"].includes(nome)) {
+      falhas.push({ regra: "forma-conhecida", detalhe: `bloco ":::${nome}" não existe na tela` });
+    }
+  }
+
+  /*
+    Citação em excesso também é defeito.
+
+    Uma por afirmação, não uma por frase: o corpo é para ler e a lista de
+    fontes é para auditar. Acima de uma citação a cada duas frases, o texto
+    vira um documento anotado.
+  */
+  const frasesTotais = texto.split(/(?<=[.!?])\s+|\n+/).filter((f) => f.trim().length > 30).length;
+  if (frasesTotais >= 4 && citadas.length > frasesTotais * 0.6) {
+    falhas.push({
+      regra: "citacao-sem-excesso",
+      detalhe: `${citadas.length} citações para ${frasesTotais} frases`,
+    });
+  }
+
   if (resposta.fontes.length > 0 && citadas.length === 0 && texto.length > 200) {
     falhas.push({
       regra: "citacao-presente",
