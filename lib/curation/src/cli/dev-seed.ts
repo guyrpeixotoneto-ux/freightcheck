@@ -78,7 +78,21 @@ try {
     await captureRaw(db, received.importRunId);
     const staged = await stage(db, received.importRunId);
     const report = await preview(db, received.importRunId);
-    const promoted = await promote(db, received.importRunId);
+    /*
+      Os equipamentos que esta importação cria são declarados aqui.
+
+      A promoção recusa criar um tipo de equipamento que o dicionário ainda não
+      conhece — uma identidade nova é o começo de uma frota paralela, e foi
+      assim que 80 carretas passaram a existir duas vezes. A recusa é correta;
+      o que faltava era este script declarar o que ele sabe que vai criar.
+      Sem isto, semear um banco vazio com os dois workbooks parava no segundo:
+      o CARRETA entrava, o CAVALO era recusado, e o banco ficava pela metade
+      sem que nada dissesse por quê.
+    */
+    const promoted = await promote(db, received.importRunId, {
+      confirmNewEntityTypes: ["CAVALO", "CARRETA"],
+      promotedBy: "dev:seed",
+    });
     console.log(
       `      ${name}: ${promoted.snapshots.length} vigências · ` +
         `${promoted.factsInserted.toLocaleString("pt-BR")} fatos · ` +

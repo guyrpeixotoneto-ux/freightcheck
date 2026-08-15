@@ -37,9 +37,20 @@ export interface Resposta {
     herdado: string[];
     ferramentas: string[];
     numerosRecusados: string[];
+    /** O rastro que explica esta resposta depois que ela aconteceu. */
+    rastro: {
+      assunto: string | null;
+      comoReconheceu: string | null;
+      necessidades: string[];
+      book: { candidatos: number; selecionados: number; melhorPontuacao: number };
+      etapas: { nome: string; ms: number }[];
+      orquestracaoMs: number;
+      frasesPodadas: number;
+      frasesTotais: number;
+    };
     /** O que aconteceu com a chamada ao modelo — `null` quando não houve uma. */
     ia: {
-      desfecho: "IA" | "DESCARTADA" | "RECUSA" | "ERRO" | "SEM_CHAVE";
+      desfecho: "IA" | "PODADA" | "DESCARTADA" | "RECUSA" | "ERRO" | "SEM_CHAVE";
       modelo: string;
       latenciaMs: number;
       erro: string | null;
@@ -47,10 +58,15 @@ export interface Resposta {
   };
   conversationId: string;
   conversationTitle: string;
+  /** O id da resposta gravada — o que a tela usa para votar. */
+  messageId?: string | null;
 }
 
 /** Uma linha da conversa na tela. */
 export interface Turno {
+  /** O id da mensagem no banco — só existe depois de ela ser gravada. */
+  mensagemId?: string;
+  conversaId?: string;
   papel: "PERGUNTA" | "RESPOSTA";
   texto: string;
   resposta?: Resposta;

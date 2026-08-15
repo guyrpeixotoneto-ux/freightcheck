@@ -316,12 +316,57 @@ export function blocosDaPlanilha(buffer: Buffer): {
  * usa markdown quase sempre, e reconhecer `#` e `-` custa cinco linhas; o que
  * não for reconhecido continua parágrafo.
  */
+/** `| a | b |` — a linha de uma tabela em markdown. */
+function celulasDaLinha(linha: string): string[] | null {
+  if (!/^\|.*\|$/.test(linha)) return null;
+  return linha
+    .slice(1, -1)
+    .split(/(?<!\\)\|/)
+    .map((c) => c.replace(/\\\|/g, "|").trim());
+}
+
+/** `| --- | :--: |` — a linha que separa o cabeçalho do corpo, e não é conteúdo. */
+function ehSeparadora(celulas: string[]): boolean {
+  return celulas.length > 0 && celulas.every((c) => /^:?-{2,}:?$/.test(c));
+}
+
 export function blocosDoTexto(texto: string): BlocoDeDocumento[] {
   const blocos: BlocoDeDocumento[] = [];
 
-  for (const bruto of texto.split(/\n/)) {
-    const linha = bruto.trim();
+  /*
+    A tabela escrita à mão era perdida — e ela é a forma mais comum de uma
+    regra curta.
+
+    Word, PowerPoint e Excel tinham o seu ramo de tabela; markdown digitado no
+    sistema, não. Cada linha virava um parágrafo, a linha separadora `| --- |`
+    ficava guardada como conteúdo, e o que chegava ao modelo era uma grade sem
+    nome de coluna — pior do que não mandar, porque parece informação. Um
+    critério que só significa algo por estar na coluna "Consequência" chegava
+    sem a coluna.
+
+    Como efeito, `temTabela` era sempre falso para entrada de texto, e a regra
+    de fatiamento que existe justamente para **não partir uma tabela** nunca se
+    aplicava a ela.
+  */
+  const linhas = texto.split(/\n/);
+  for (let i = 0; i < linhas.length; i++) {
+    const linha = linhas[i]!.trim();
     if (!linha) continue;
+
+    const celulas = celulasDaLinha(linha);
+    if (celulas && !ehSeparadora(celulas)) {
+      const corpo: string[][] = [];
+      let j = i + 1;
+      for (; j < linhas.length; j++) {
+        const seguinte = celulasDaLinha(linhas[j]!.trim());
+        if (!seguinte) break;
+        if (ehSeparadora(seguinte)) continue;
+        corpo.push(seguinte);
+      }
+      blocos.push({ tipo: "TABELA", cabecalho: celulas, linhas: corpo });
+      i = j - 1;
+      continue;
+    }
 
     const titulo = /^(#{1,4})\s+(.*)$/.exec(linha);
     if (titulo) {

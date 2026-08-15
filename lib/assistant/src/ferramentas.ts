@@ -23,11 +23,13 @@
 import { and, desc, eq, sql } from "drizzle-orm";
 import { bookEntryTable, type Database } from "@workspace/db";
 import {
+  buildCockpit,
   contextFilter,
   getAttributeSeries,
   getChangeProvenance,
   getEndToEndAnalysis,
   getFamiliesView,
+  getGroupedView,
   getGroupVehicles,
   getRangeAnalysis,
   listContexts,
@@ -105,6 +107,19 @@ export interface Evidencia {
    * lista.
    */
   destaque?: string;
+  /**
+   * O assunto que **esta consulta descobriu ser o que mais pesa**.
+   *
+   * É o que permite um segundo salto: quem pergunta "o que devo investigar?"
+   * não sabe o nome do parâmetro que vai sair na frente, e por isso não pode
+   * pedir a regra dele na mesma frase. Um analista, tendo achado o item, iria
+   * ler o que o Book diz sobre ele — e é isso que a orquestração faz com este
+   * campo.
+   *
+   * Só as ferramentas que **ordenam** o preenchem. Uma consulta que devolve o
+   * agregado não descobriu assunto nenhum; ela descreveu o conjunto.
+   */
+  assuntoEmDestaque?: string;
 }
 
 export interface ContextoResolvido {
@@ -318,13 +333,29 @@ export async function resumoDaVigencia(
           ? "por periodicidade, nunca somado entre elas"
           : `${INTEIRO.format(r.notCalculable)} alterações sem preço`,
       },
+      /*
+        A participação sai calculada daqui, e não da cabeça do modelo.
+
+        "Financiamento (12)" deixa a pergunta seguinte — quanto isso é do
+        total? — para quem lê, e a instrução proíbe o modelo de dividir. O
+        resultado era uma resposta que não conseguia dizer o que importa, ou
+        uma que dizia e era descartada pela trava por citar um número que
+        nenhuma consulta devolveu. Cálculo é do backend; esta é a conta.
+      */
       ...(r.topParameters.length > 0
         ? [
             {
               rotulo: "Parâmetros que mais mexeram",
               valor: r.topParameters
                 .slice(0, 3)
-                .map((p) => `${p.name} (${INTEIRO.format(p.changes)})`)
+                .map(
+                  (p) =>
+                    `${p.name} (${INTEIRO.format(p.changes)}` +
+                    (r.changes > 0
+                      ? `, ${Math.round((p.changes / r.changes) * 100)}% do movimento`
+                      : "") +
+                    ")",
+                )
                 .join(", "),
             },
           ]
@@ -337,10 +368,92 @@ export async function resumoDaVigencia(
       r.notCalculable,
       ...numerosDoImpacto(r.impact),
       ...r.topParameters.slice(0, 3).map((p) => p.changes),
+      ...(r.changes > 0
+        ? r.topParameters.slice(0, 3).map((p) => Math.round((p.changes / r.changes) * 100))
+        : []),
     ],
     origem: `getFamiliesView · ${visao.periodLabel} · ${ctx.info.label}`,
     recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
     tela: { label: "Parâmetros", href: "/parametros" },
+  };
+}
+
+/**
+ * O que merece atenção nesta vigência — a fila de investigação, com o porquê.
+ *
+ * **Uma capacidade que existia e o assistente não alcançava.** `buildCockpit`
+ * ordena os grupos de alteração por criticidade e diz, para cada um, os motivos
+ * que formaram o score: abrangência na frota, magnitude do movimento, se há
+ * dinheiro apurado, se há troca de formato. É a resposta literal a "tem alguma
+ * coisa fora do padrão?" e a "o que eu deveria investigar primeiro?" — e até
+ * aqui essas perguntas recebiam o agregado da vigência, que é verdadeiro e não
+ * responde nenhuma das duas.
+ *
+ * **Nada aqui calcula.** O cockpit é projeção pura sobre o que o motor já
+ * apurou, e é o mesmo objeto que a tela de Alterações usa para ordenar a fila.
+ * O assistente e a tela discordarem sobre o que é crítico seria pior do que o
+ * assistente não ter opinião.
+ *
+ * **Os motivos vão junto porque a ordem sem eles é um oráculo.** "Financiamento
+ * é o primeiro" não se audita; "é o primeiro porque atinge toda a frota e tem
+ * R$ 28 mil apurados" se audita — e é a diferença entre um assistente que
+ * ordena e um que explica por que ordenou.
+ */
+export async function filaDeInvestigacao(
+  db: Database,
+  ctx: ContextoResolvido,
+  periodo?: string,
+): Promise<Evidencia | null> {
+  const visao = await getGroupedView(db, periodo, ctx.contexto);
+  if (!visao) return null;
+
+  const cockpit = buildCockpit(visao);
+  const fila = cockpit.priorities.slice(0, 5);
+  if (fila.length === 0) return null;
+
+  /*
+    O diagnóstico diz o que aconteceu; o título diz **com o quê**.
+
+    Sem o título, dois grupos diferentes que sofreram a mesma coisa aparecem
+    como duas linhas idênticas — "O valor foi zerado em 10 cavalos" duas vezes,
+    uma sobre financiamento e outra sobre depreciação. A fila fica com cara de
+    duplicata e quem lê não tem como escolher por onde começar, que é a única
+    coisa que ela existe para responder.
+  */
+  const tituloDoGrupo = new Map(visao.groups.map((g) => [g.key, g.title]));
+
+  const fatos: Fato[] = fila.map((item) => ({
+    rotulo: `${item.rank}. ${tituloDoGrupo.get(item.key) ?? item.key}`,
+    valor: `${item.diagnosis} (${item.severity.toLowerCase()}, ${item.shareLabel})`,
+    /*
+      Os motivos do score, e não o score.
+
+      O número é comparável e não é explicável: "72 pontos" não diz a ninguém
+      por que este veio antes daquele. Os motivos dizem, e são o que a tela de
+      Alterações mostra ao lado da mesma fila.
+    */
+    detalhe: item.reasons.map((r) => r.label).join("; ") || undefined,
+  }));
+
+  return {
+    ferramenta: "filaDeInvestigacao",
+    titulo: `O que merece atenção em ${visao.periodLabel}`,
+    fatos,
+    numeros: fila.flatMap((i) => [
+      i.rank,
+      ...(i.sharePercent !== null ? [i.sharePercent] : []),
+    ]),
+    origem: `buildCockpit · ${visao.periodLabel} · ${ctx.info.label}`,
+    recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
+    tela: { label: "Alterações", href: "/alteracoes" },
+    destaque: fatos[0]?.rotulo,
+    ...(fila[0] && tituloDoGrupo.get(fila[0].key)
+      ? { assuntoEmDestaque: tituloDoGrupo.get(fila[0].key)! }
+      : {}),
+    nota:
+      "A ordem é a mesma da tela de Alterações, e cada posição vem com os " +
+      "motivos que a colocaram ali. Criticidade ordena a investigação; ela não " +
+      "afirma que houve erro.",
   };
 }
 
@@ -630,6 +743,7 @@ export async function rankingDeImpacto(
     origem: `getFamiliesView → summary.${lado === "PERDA" ? "lossesByPeriodicity" : "gainsByPeriodicity"} · ${visao.periodLabel}`,
     recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
     tela: { label: "Parâmetros", href: "/parametros" },
+    ...(relevantes[0] ? { assuntoEmDestaque: relevantes[0].p.name } : {}),
   };
 }
 

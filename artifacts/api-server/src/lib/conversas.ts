@@ -156,6 +156,49 @@ export async function guardarEstado(db: Database, id: string, estado: object) {
  * conversa mesmo se duas abas perguntarem quase junto — a segunda lê a posição
  * depois da primeira ter gravado, e nenhuma das duas sobrescreve a outra.
  */
+/**
+ * O voto de quem leu, guardado no turno.
+ *
+ * O filtro do dono passa pela conversa, não pela mensagem: quem vota tem de ser
+ * quem perguntou. Sem isso, um id de mensagem adivinhado deixaria qualquer
+ * pessoa autenticada escrever no histórico de outra.
+ *
+ * Votar de novo troca o voto — inclusive para nenhum, que é como se desfaz um
+ * clique errado. É a mesma regra de toda opinião: a última vale.
+ */
+export async function registrarFeedback(
+  db: Database,
+  ownerId: string,
+  conversationId: string,
+  messageId: string,
+  feedback: "UTIL" | "NAO_UTIL" | null,
+  nota?: string | null,
+) {
+  const conversa = await acharConversa(db, ownerId, conversationId);
+  if (!conversa) return null;
+
+  const [linha] = await db
+    .update(assistantMessageTable)
+    .set({
+      feedback,
+      feedbackNote: nota ?? null,
+      feedbackAt: feedback ? new Date() : null,
+    })
+    .where(
+      and(
+        eq(assistantMessageTable.id, messageId),
+        eq(assistantMessageTable.conversationId, conversationId),
+        eq(assistantMessageTable.role, "RESPOSTA"),
+      ),
+    )
+    .returning({
+      id: assistantMessageTable.id,
+      feedback: assistantMessageTable.feedback,
+    });
+
+  return linha ?? null;
+}
+
 export async function gravarTurno(
   db: Database,
   conversationId: string,
@@ -173,7 +216,7 @@ export async function gravarTurno(
 
   const proxima = linha?.proxima ?? 0;
 
-  await db.insert(assistantMessageTable).values([
+  const gravadas = await db.insert(assistantMessageTable).values([
     { conversationId, position: proxima, role: "PERGUNTA", content: pergunta },
     {
       conversationId,
@@ -183,5 +226,14 @@ export async function gravarTurno(
       writer: resposta.redacao,
       evidence: resposta.evidencia,
     },
-  ]);
+  ]).returning({ id: assistantMessageTable.id, role: assistantMessageTable.role });
+
+  /*
+    O id da resposta volta porque a tela precisa dele para votar.
+
+    Sem isto o feedback só existiria depois de recarregar a conversa — e o
+    momento em que alguém quer dizer "isto não ajudou" é o momento em que
+    acabou de ler.
+  */
+  return { respostaId: gravadas.find((g) => g.role === "RESPOSTA")?.id ?? null };
 }

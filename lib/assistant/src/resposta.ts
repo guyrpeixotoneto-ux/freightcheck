@@ -42,9 +42,11 @@ import { registrar, type EventoDeIa } from "./observabilidade";
 import type { Intencao } from "./interpretacao";
 import {
   citacoesSemFonte,
+  emFrases,
   itensCitaveis,
   numerosSemLastro,
   orquestrar,
+  sanear,
   recorteDoDossie,
   type Dossie,
   type Etapa,
@@ -87,6 +89,32 @@ export interface Resposta {
     herdado: string[];
     ferramentas: string[];
     numerosRecusados: string[];
+    /**
+     * O rastro que explica esta resposta **depois** que ela aconteceu.
+     *
+     * Sem ele, investigar uma resposta ruim é reproduzir a pergunta à mão e
+     * instrumentar o código — que é o que a auditoria teve de fazer para
+     * descobrir que "remuneração" era palavra de bloqueio. Cada campo aqui é
+     * uma pergunta que alguém faz olhando para uma resposta que decepcionou:
+     * o que ele entendeu que eu queria, o que ele foi buscar, quanto material
+     * havia, com que folga o corte passou, e onde o tempo foi.
+     */
+    rastro: {
+      /** O assunto reconhecido, e por qual caminho. */
+      assunto: string | null;
+      comoReconheceu: string | null;
+      /** Tudo o que o plano decidiu descobrir, não só o que deu nome. */
+      necessidades: string[];
+      /** O que a busca no Book viu, antes e depois do limiar. */
+      book: { candidatos: number; selecionados: number; melhorPontuacao: number };
+      /** Cada etapa e o instante em que ela começou. */
+      etapas: { nome: string; ms: number }[];
+      /** Quanto a orquestração levou, sem a chamada ao modelo. */
+      orquestracaoMs: number;
+      /** Quantas frases a trava removeu, de quantas. */
+      frasesPodadas: number;
+      frasesTotais: number;
+    };
     /**
      * O que aconteceu com a chamada ao modelo — `null` quando não houve uma.
      *
@@ -428,40 +456,40 @@ function ultimaFronteira(texto: string): number {
 }
 
 /**
- * Deixa passar o que já foi conferido, e fecha na primeira frase que reprova.
+ * Deixa passar o que já foi conferido, e **pula** o que não passa.
  *
  * A alternativa era transmitir cru e corrigir depois — mostrar um número que
  * ninguém consultou e retirá-lo em seguida. Num produto cuja regra é não exibir
  * o que não se pode sustentar, o instante em que o número aparece na tela já é
  * o dano; retirá-lo depois não desfaz a leitura.
+ *
+ * O que mudou é o que acontece com a frase que reprova. Antes o portão fechava
+ * e nada mais saía: a pessoa via meia resposta parar no meio e, no fim, ser
+ * substituída inteira. Agora a frase é pulada e o resto continua — o mesmo que
+ * a conferência final faz com o texto completo, de modo que o que se lê durante
+ * a escrita é o que fica no fim.
  */
 export function portaoDeLastro(dossie: Dossie, aoTexto: (pedaco: string) => void) {
   let bruto = "";
   let liberado = 0;
-  let fechado = false;
 
   return {
     receber(pedaco: string): void {
       bruto += pedaco;
-      if (fechado) return;
 
       const pendente = bruto.slice(liberado);
       const corte = ultimaFronteira(pendente);
       if (corte <= 0) return;
 
-      const candidato = pendente.slice(0, corte);
-      if (
-        numerosSemLastro(candidato, dossie).length > 0 ||
-        citacoesSemFonte(candidato, dossie).length > 0
-      ) {
-        // A resposta inteira vai ser descartada pela conferência final — o
-        // veredito por frase e o da resposta inteira são o mesmo. Parar aqui só
-        // evita continuar mostrando um texto que já não vale.
-        fechado = true;
-        return;
+      for (const frase of emFrases(pendente.slice(0, corte))) {
+        if (
+          numerosSemLastro(frase, dossie).length > 0 ||
+          citacoesSemFonte(frase, dossie).length > 0
+        ) {
+          continue;
+        }
+        aoTexto(frase);
       }
-
-      aoTexto(candidato);
       liberado += corte;
     },
   };
@@ -518,6 +546,20 @@ function sugerir(dossie: Dossie): string[] {
       saida.push("Onde perdemos mais dinheiro?");
       saida.push("Quais veículos foram mais impactados?");
       break;
+    /*
+      Depois da fila, o próximo passo é sempre o primeiro item dela — e ele tem
+      nome. Perguntar pela regra do que ficou em primeiro lugar é o movimento
+      natural de quem acabou de saber por onde começar.
+    */
+    case "ATENCAO": {
+      const primeiro = dossie.evidencias.find((e) => e.assuntoEmDestaque)?.assuntoEmDestaque;
+      if (primeiro) {
+        saida.push(`O que o Book diz sobre ${primeiro.toLowerCase()}?`);
+        saida.push(`Quais veículos foram afetados em ${primeiro.toLowerCase()}?`);
+      }
+      saida.push("Onde perdemos mais dinheiro?");
+      break;
+    }
     case "EVOLUCAO":
     case "COMPARACAO":
       if (gaveta && !bloco) saida.push(`O que o Book do Operador diz sobre ${gaveta}?`);
@@ -599,6 +641,8 @@ export async function responder(
   let redacao: Resposta["redacao"] = "DETERMINISTICA";
   let numerosRecusados: string[] = [];
   let ia: Resposta["tecnico"]["ia"] = null;
+  let frasesPodadas = 0;
+  let frasesTotais = 0;
 
   if (!opcoes.semIa && disponivel()) {
     const pedido: PedidoDeRedacao = {
@@ -621,21 +665,31 @@ export async function responder(
 
     if (doModelo) {
       /*
-        Duas travas, e as duas descartam a resposta inteira em vez de remendá-la.
+        O que não se sustenta sai; o que se sustenta fica.
 
-        Um número que nenhuma consulta devolveu provavelmente tem o raciocínio
-        construído em cima dele, e trocar o número deixaria a conclusão de pé.
-        Uma citação que aponta para fonte inexistente é o mesmo defeito noutra
-        moeda: a frase se apresenta como conferível e manda quem lê para um
-        lugar que não existe.
+        A regra anterior descartava a resposta inteira ao primeiro número sem
+        lastro. Ela cumpria a promessa e cobrava caro por ela: uma data de
+        vigência ou um valor arredondado — texto fiel ao dossiê — derrubava
+        análises inteiras, e quanto melhor a redação, maior a chance de cair.
+
+        A promessa nunca foi "a resposta é atômica"; foi "nada sem lastro chega
+        à tela". Podar a frase cumpre isso por inteiro. E quando a poda passa de
+        um terço das frases, o descarte volta a ser total — aí não é um número
+        fora do lugar, é uma resposta construída sobre material que não existe.
       */
-      const semLastro = numerosSemLastro(doModelo, dossie);
-      const semFonte = citacoesSemFonte(doModelo, dossie);
-      if (semLastro.length === 0 && semFonte.length === 0) {
+      const saneamento = sanear(doModelo, dossie);
+      numerosRecusados = saneamento.recusados;
+      frasesPodadas = saneamento.removidas;
+      frasesTotais = saneamento.total;
+
+      if (saneamento.recusados.length === 0) {
         texto = doModelo;
         redacao = "IA";
+      } else if (!saneamento.irrecuperavel) {
+        texto = saneamento.texto;
+        redacao = "IA";
+        desfecho = "PODADA";
       } else {
-        numerosRecusados = [...semLastro, ...semFonte];
         desfecho = "DESCARTADA";
       }
     }
@@ -678,6 +732,16 @@ export async function responder(
       ferramentas: dossie.evidencias.map((e: Evidencia) => e.ferramenta),
       numerosRecusados,
       ia,
+      rastro: {
+        assunto: dossie.plano.assunto,
+        comoReconheceu: dossie.plano.comoReconheceu,
+        necessidades: dossie.plano.necessidades,
+        book: dossie.diagnostico.book,
+        etapas: dossie.etapas.map((e) => ({ nome: e.nome, ms: e.ms })),
+        orquestracaoMs: dossie.diagnostico.ms,
+        frasesPodadas,
+        frasesTotais,
+      },
     },
   };
 }

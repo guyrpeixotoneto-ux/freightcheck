@@ -21,6 +21,7 @@ import {
   arquivarConversa,
   criarConversa,
   gravarTurno,
+  registrarFeedback,
   listarConversas,
   mensagensDaConversa,
   renomearConversa,
@@ -47,7 +48,7 @@ beforeAll(async () => {
   outra = await criarPessoa("outra@empresa.com");
 
   const criada = await criarConversa(banco.db, dona, "Quanto mudou o IPVA", {
-    termoDoParametro: "ipva",
+    assunto: "ipva",
   });
   conversa = criada.id;
   await gravarTurno(banco.db, conversa, "Quanto mudou o IPVA?", {
@@ -98,6 +99,60 @@ describe("excluir é arquivar", () => {
       SELECT count(*)::int AS n FROM assistant_message WHERE conversation_id = ${conversa}
     `);
     expect(rows[0]!.n, "as mensagens continuam no banco").toBe(antes.length);
+  });
+});
+
+/*
+  O voto é a única medida de qualidade que não fomos nós que escolhemos medir —
+  e por isso ele precisa das mesmas garantias de toda escrita neste produto:
+  quem vota é quem perguntou, e só a resposta recebe voto.
+*/
+describe("o voto de quem leu", () => {
+  /*
+    Uma conversa só desta suíte: a de cima é arquivada pelo teste de exclusão, e
+    `acharConversa` — que é o filtro do dono — não enxerga arquivada. Reusá-la
+    faria estes casos passarem ou falharem conforme a ordem em que rodassem.
+  */
+  let propria: string;
+  let respostaId: string;
+
+  beforeAll(async () => {
+    const criada = await criarConversa(banco.db, dona, "Voto", {});
+    propria = criada.id;
+    await gravarTurno(banco.db, propria, "Quanto mudou o pneu?", {
+      texto: "Mudou.",
+      redacao: "IA",
+      evidencia: {},
+    });
+    const mensagens = await mensagensDaConversa(banco.db, propria);
+    respostaId = mensagens.find((m) => m.role === "RESPOSTA")!.id;
+  });
+
+  it("a dona vota, e votar de novo troca o voto", async () => {
+
+    const util = await registrarFeedback(banco.db, dona, propria, respostaId, "UTIL");
+    expect(util?.feedback).toBe("UTIL");
+
+    const naoUtil = await registrarFeedback(banco.db, dona, propria, respostaId, "NAO_UTIL");
+    expect(naoUtil?.feedback).toBe("NAO_UTIL");
+  });
+
+  it("e clicar de novo desfaz", async () => {
+    await registrarFeedback(banco.db, dona, propria, respostaId, "UTIL");
+    const desfeito = await registrarFeedback(banco.db, dona, propria, respostaId, null);
+    expect(desfeito?.feedback).toBeNull();
+  });
+
+  it("outra pessoa não vota", async () => {
+    expect(await registrarFeedback(banco.db, outra, propria, respostaId, "UTIL")).toBeNull();
+  });
+
+  it("a pergunta não recebe voto", async () => {
+    const mensagens = await mensagensDaConversa(banco.db, propria);
+    const pergunta = mensagens.find((m) => m.role === "PERGUNTA")!;
+    expect(
+      await registrarFeedback(banco.db, dona, propria, pergunta.id, "UTIL"),
+    ).toBeNull();
   });
 });
 

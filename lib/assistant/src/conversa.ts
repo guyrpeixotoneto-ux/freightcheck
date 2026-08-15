@@ -21,8 +21,21 @@ import type { Dossie } from "./orquestrador";
 export interface EstadoDaConversa {
   /** O que se estava perguntando. */
   intencao: Intencao | null;
-  /** O termo que nomeava a gaveta, como a pessoa o escreveu. */
-  termoDoParametro: string | null;
+  /**
+   * O assunto **reconhecido** da conversa — nunca o resíduo da frase.
+   *
+   * Chamava-se `termoDoParametro` e guardava o que a interpretação tinha
+   * sobrado da pergunta, resolvesse ou não. Numa sequência real isso aparecia
+   * assim: o terceiro turno ("qual teve maior impacto?") gravava `"maior"`, e
+   * o quarto e o quinto herdavam essa palavra, não resolviam nada e paravam de
+   * consultar. Um turno ruim envenenava todos os seguintes, e a conversa não se
+   * recuperava sem recomeçar.
+   *
+   * Aqui só entra o que `reconhecerAssunto` reconheceu. Um turno que não
+   * reconheceu nada não escreve — e, por não escrever, preserva o assunto que
+   * estava em pé.
+   */
+  assunto: string | null;
   /** A gaveta resolvida — para a tela poder mostrá-la. */
   parametro: string | null;
   periodo: PeriodoPedido | null;
@@ -52,7 +65,7 @@ export interface EstadoDaConversa {
 
 export const ESTADO_VAZIO: EstadoDaConversa = {
   intencao: null,
-  termoDoParametro: null,
+  assunto: null,
   parametro: null,
   blocoDoBook: null,
   periodo: null,
@@ -108,8 +121,16 @@ export function avancarEstado(
       plano.intencao === "DESCONHECIDA" || plano.intencao === "SAUDACAO"
         ? base.intencao
         : plano.intencao,
-    termoDoParametro: leitura.entidades.termoDoParametro ?? base.termoDoParametro,
-    parametro: plano.alvo?.parametro ?? (leitura.entidades.termoDoParametro ? null : base.parametro),
+    /*
+      Só conhecimento resolvido, e só quando houve.
+
+      `plano.assunto` é o que o produto reconheceu nesta pergunta. Quando não
+      reconheceu nada, o assunto do fio continua o de antes: uma pergunta de
+      continuidade ("qual teve maior impacto?", "por quê?") não muda de assunto
+      — ela pergunta outra coisa **sobre o mesmo**.
+    */
+    assunto: plano.assunto ?? base.assunto,
+    parametro: plano.alvo?.parametro ?? (plano.assunto ? null : base.parametro),
     /*
       O bloco do fio é o do documento que mais pesou nesta resposta — e ele só
       é trocado quando esta resposta teve documento. Uma pergunta de dado no
@@ -147,7 +168,7 @@ export function desserializarEstado(bruto: unknown): EstadoDaConversa {
   const o = bruto as Record<string, unknown>;
   return {
     intencao: (o.intencao as Intencao) ?? null,
-    termoDoParametro: (o.termoDoParametro as string) ?? null,
+    assunto: (o.assunto as string) ?? null,
     parametro: (o.parametro as string) ?? null,
     blocoDoBook: (o.blocoDoBook as string) ?? null,
     periodo: (o.periodo as PeriodoPedido) ?? null,

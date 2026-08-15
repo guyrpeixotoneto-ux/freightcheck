@@ -1,8 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "wouter";
-import { ArrowRight, BookOpen, ChevronDown, Database, FileText, Info } from "lucide-react";
+import {
+  ArrowRight,
+  BookOpen,
+  Check,
+  ChevronDown,
+  Copy,
+  Database,
+  FileText,
+  Info,
+  ThumbsDown,
+  ThumbsUp,
+} from "lucide-react";
 import { Markdown } from "./markdown";
 import { cn } from "@/lib/utils";
+import { getApiUrl } from "@/lib/api";
 import type { Fonte, Lacuna, Resposta, Turno } from "./tipos";
 
 /**
@@ -30,15 +42,26 @@ export function Mensagem({ turno }: { turno: Turno }) {
     );
   }
 
-  return <RespostaDoAssistente resposta={turno.resposta} texto={turno.texto} />;
+  return (
+    <RespostaDoAssistente
+      resposta={turno.resposta}
+      texto={turno.texto}
+      {...(turno.mensagemId ? { mensagemId: turno.mensagemId } : {})}
+      {...(turno.conversaId ? { conversaId: turno.conversaId } : {})}
+    />
+  );
 }
 
 function RespostaDoAssistente({
   resposta,
   texto,
+  mensagemId,
+  conversaId,
 }: {
   resposta?: Resposta;
   texto: string;
+  mensagemId?: string;
+  conversaId?: string;
 }) {
   /*
     Clicar numa citação abre as fontes já com aquela em destaque.
@@ -68,6 +91,86 @@ function RespostaDoAssistente({
           aoFechar={() => setCitada(null)}
         />
       )}
+
+      {resposta && <Acoes texto={texto} mensagemId={mensagemId} conversaId={conversaId} />}
+    </div>
+  );
+}
+
+/**
+ * O que se faz com uma resposta depois de lê-la.
+ *
+ * **Copiar** é o gesto mais frequente e não existia: quem audita leva o texto
+ * para um e-mail, um chamado, uma apresentação — e estava tendo de selecionar
+ * com o mouse um texto que tem citações e tabelas no meio.
+ *
+ * **O voto** é a única medida de qualidade deste assistente que não fomos nós
+ * que escolhemos medir. A bateria e o benchmark cobrem o que pensamos em
+ * cobrir; quem perguntou é quem sabe se a resposta serviu. Ele é discreto de
+ * propósito — aparece ao lado, não pede nada, e não interrompe a leitura.
+ *
+ * Clicar de novo no mesmo voto o desfaz, porque um clique errado se corrige
+ * clicando de novo e não com uma segunda affordance.
+ */
+function Acoes({
+  texto,
+  mensagemId,
+  conversaId,
+}: {
+  texto: string;
+  mensagemId?: string;
+  conversaId?: string;
+}) {
+  const [copiado, setCopiado] = useState(false);
+  const [voto, setVoto] = useState<"UTIL" | "NAO_UTIL" | null>(null);
+
+  const copiar = async () => {
+    await navigator.clipboard.writeText(texto);
+    setCopiado(true);
+    window.setTimeout(() => setCopiado(false), 2000);
+  };
+
+  const votar = async (novo: "UTIL" | "NAO_UTIL") => {
+    const valor = voto === novo ? null : novo;
+    setVoto(valor);
+    if (!mensagemId || !conversaId) return;
+    await fetch(
+      getApiUrl(`/assistant/conversations/${conversaId}/messages/${mensagemId}/feedback`),
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ feedback: valor }),
+      },
+    ).catch(() => undefined);
+  };
+
+  const botao = "p-1.5 rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors";
+
+  return (
+    <div className="flex items-center gap-1 -ml-1.5 pt-1">
+      <button type="button" onClick={copiar} className={botao} aria-label="Copiar resposta">
+        {copiado ? <Check className="w-3.5 h-3.5 text-brand" /> : <Copy className="w-3.5 h-3.5" />}
+      </button>
+      <button
+        type="button"
+        onClick={() => votar("UTIL")}
+        aria-label="Esta resposta ajudou"
+        aria-pressed={voto === "UTIL"}
+        className={cn(botao, voto === "UTIL" && "text-brand")}
+      >
+        <ThumbsUp className="w-3.5 h-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={() => votar("NAO_UTIL")}
+        aria-label="Esta resposta não ajudou"
+        aria-pressed={voto === "NAO_UTIL"}
+        className={cn(botao, voto === "NAO_UTIL" && "text-destructive")}
+      >
+        <ThumbsDown className="w-3.5 h-3.5" />
+      </button>
+      {copiado && <span className="text-[0.6875rem] text-muted-foreground">copiado</span>}
     </div>
   );
 }

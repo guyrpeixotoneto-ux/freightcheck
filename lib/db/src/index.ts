@@ -54,6 +54,32 @@ export const pool: pg.Pool = new Proxy({} as pg.Pool, {
 });
 
 /**
+ * Encerra o pool do processo e esquece dele.
+ *
+ * **Por que não `pool.end()`.** O `pool` acima é um Proxy que encaminha
+ * *leituras* e nada mais: um método obtido por ele roda com `this` apontando
+ * para o Proxy, e as escritas que `end()` faz em si mesmo (`ending`, a fila de
+ * clientes) caem no alvo vazio em vez de no pool de verdade. Chamar
+ * `pool.end()` não encerra nada, e não avisa.
+ *
+ * **Por que isso importa fora de teste.** Quem troca `DATABASE_URL` em tempo de
+ * execução — os testes que sobem um banco descartável e apontam as rotas para
+ * ele — precisa devolver as conexões antes de derrubar o banco. Sem isto sobra
+ * o recurso do Postgres: matar as conexões por fora, o que faz o `pg` emitir
+ * `57P01` em cada cliente que estava aberto. Nove testes passam e a suíte falha
+ * no desligamento, com quatro exceções não tratadas e nenhuma pista.
+ *
+ * Esquecer o pool é parte do contrato: a próxima leitura de `db` reconecta,
+ * com a `DATABASE_URL` que valer naquele momento.
+ */
+export async function encerrarPoolDoProcesso(): Promise<void> {
+  const atual = _pool;
+  _pool = undefined;
+  _db = undefined;
+  if (atual) await atual.end();
+}
+
+/**
  * O SQLSTATE de um erro do Postgres — procurado também dentro do que o
  * embrulhou.
  *

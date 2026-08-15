@@ -47,8 +47,16 @@ export interface EventoDeIa {
   turnosNoHistorico: number;
   /** A intenção que a orquestração resolveu, quando o chamador a informa. */
   intencao: string | null;
-  /** O que aconteceu com o texto: aceito, descartado pela trava, ou falha. */
-  desfecho: "IA" | "DESCARTADA" | "RECUSA" | "ERRO" | "SEM_CHAVE";
+  /**
+   * O que aconteceu com o texto.
+   *
+   * `PODADA` é o desfecho que faltava, e ele mede uma coisa diferente de
+   * `DESCARTADA`: o modelo escreveu bem, uma frase não se sustentou, e ela saiu
+   * sozinha. Enquanto os dois eram a mesma palavra, não havia como distinguir
+   * "o dossiê chegou pobre" de "o modelo arredondou um valor" — e as duas
+   * pedem ações opostas.
+   */
+  desfecho: "IA" | "PODADA" | "DESCARTADA" | "RECUSA" | "ERRO" | "SEM_CHAVE";
   erro: string | null;
 }
 
@@ -97,18 +105,23 @@ export function eventosRecentes(limite = 50): EventoDeIa[] {
 export function resumoDaIa() {
   const total = anel.length;
   if (total === 0) {
-    return { total: 0, tokens: 0, custoUsd: 0, latenciaMediaMs: 0, descartadas: 0, erros: 0 };
+    return {
+      total: 0, tokens: 0, custoUsd: 0, latenciaMediaMs: 0,
+      descartadas: 0, podadas: 0, erros: 0,
+    };
   }
   let tokens = 0;
   let custoUsd = 0;
   let latencia = 0;
   let descartadas = 0;
+  let podadas = 0;
   let erros = 0;
   for (const e of anel) {
     tokens += e.tokensEntrada + e.tokensSaida;
     custoUsd += e.custoUsd;
     latencia += e.latenciaMs;
     if (e.desfecho === "DESCARTADA") descartadas++;
+    if (e.desfecho === "PODADA") podadas++;
     if (e.desfecho === "ERRO") erros++;
   }
   return {
@@ -117,6 +130,7 @@ export function resumoDaIa() {
     custoUsd: Number(custoUsd.toFixed(4)),
     latenciaMediaMs: Math.round(latencia / total),
     descartadas,
+    podadas,
     erros,
   };
 }

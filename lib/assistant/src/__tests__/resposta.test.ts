@@ -47,7 +47,10 @@ function dossie(parcial: Partial<Dossie> = {}): Dossie {
     leitura: interpretar("o que é QLP ADM?"),
     plano: {
       intencao: "CONCEITUAL",
+      necessidades: ["CONCEITUAL"],
       porque: "pede definição",
+      assunto: null,
+      comoReconheceu: null,
       herdado: [],
       alvo: null,
       resolucao: null,
@@ -62,6 +65,7 @@ function dossie(parcial: Partial<Dossie> = {}): Dossie {
     lacunas: [],
     etapas: [],
     desambiguacao: null,
+    diagnostico: { book: { candidatos: 0, selecionados: 0, melhorPontuacao: 0 }, ms: 0 },
     ...parcial,
   };
 }

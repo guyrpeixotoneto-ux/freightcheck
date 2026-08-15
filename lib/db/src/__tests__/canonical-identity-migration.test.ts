@@ -208,6 +208,7 @@ describe("0015 sobre um banco parado na 0014", () => {
       "0016_canonical_identity_enforcement",
       "0017_fato_herdado",
       "0018_identidade_forte",
+      "0019_assistant_feedback",
     ]);
 
     const linhas = await retrato(pool);

@@ -22,12 +22,14 @@
 import type { Database } from "@workspace/db";
 import { buscarTrechos, type TrechoRelevante } from "./corpus";
 import {
-  buscarNoBook,
+  buscarNoBookDetalhado,
   documentoDoBloco,
+  LIMIAR_PARA_DEFINIR,
   type TrechoDoBookRanqueado,
 } from "./indice-book";
 import {
   compararIntervalo,
+  filaDeInvestigacao,
   anexoDoBook,
   coberturaDoBook,
   composicaoDaFrota,
@@ -56,6 +58,8 @@ import {
   historicoDaSemantica,
   importacoesRecentes,
 } from "./governanca";
+import { reconhecerAssunto, type AssuntoReconhecido } from "./assunto";
+import { planejar, type Necessidade, type Plano as PlanoDeInvestigacao } from "./plano";
 import {
   INTENCOES_COM_PARAMETRO,
   INTENCOES_COM_RECORTE,
@@ -69,7 +73,7 @@ import {
 } from "./interpretacao";
 import { normalizar, termos } from "./normalizar";
 import { resolverParametro, type Alvo, type Resolucao } from "./parametros";
-import { listPeriods } from "@workspace/comparison";
+import { garantirComparacoes, listPeriods } from "@workspace/comparison";
 import { rotuloDoPeriodo } from "./formato";
 import type { EstadoDaConversa } from "./conversa";
 
@@ -97,12 +101,37 @@ export interface Etapa {
   nome: string;
   /** O que a tela mostra enquanto isto roda. */
   rotulo: string;
+  /**
+   * Milissegundos desde o início da orquestração.
+   *
+   * É o que transforma a lista de etapas em diagnóstico: sem ele dá para ver
+   * **o que** rodou e não **onde o tempo foi**, que é a pergunta que alguém faz
+   * olhando para uma resposta lenta.
+   */
+  ms: number;
 }
 
 export interface Plano {
+  /**
+   * A necessidade principal — o nome da resposta.
+   *
+   * Continua sendo uma `Intencao` para não quebrar o estado da conversa, a
+   * tela e as sugestões; o que mudou é de onde ela vem. Antes era o primeiro
+   * padrão que casava, e nada mais era executado. Agora é a primeira de
+   * `necessidades`, e todas são.
+   */
   intencao: Intencao;
+  /** Tudo o que esta pergunta precisa descobrir. */
+  necessidades: Necessidade[];
   /** Por que esta intenção — para o painel técnico. */
   porque: string;
+  /**
+   * O assunto que o produto reconheceu, ou `null` quando a pergunta não nomeia
+   * nenhum. É o que a conversa guarda — nunca o resíduo da frase.
+   */
+  assunto: string | null;
+  /** Como ele foi reconhecido: por gaveta, ou só por vocabulário. */
+  comoReconheceu: AssuntoReconhecido["como"] | null;
   /** O que foi herdado da conversa anterior. */
   herdado: string[];
   alvo: Alvo | null;
@@ -144,6 +173,20 @@ export interface Dossie {
   etapas: Etapa[];
   /** Quando a pergunta casa duas gavetas e o assistente precisa perguntar. */
   desambiguacao: { termo: string; opcoes: string[] } | null;
+  /**
+   * O que a recuperação viu antes de decidir — para explicar uma resposta ruim
+   * **depois** que ela aconteceu.
+   *
+   * Sem isto, uma resposta que trouxe o documento errado só se investiga
+   * reproduzindo a pergunta à mão e instrumentando o código. Os números aqui
+   * respondem as três perguntas que se faz nessa hora: quantos candidatos
+   * havia, quantos passaram do limiar, e com que folga o primeiro passou.
+   */
+  diagnostico: {
+    book: { candidatos: number; selecionados: number; melhorPontuacao: number };
+    /** O tempo total da orquestração, sem a chamada ao modelo. */
+    ms: number;
+  };
 }
 
 // ── Resolução de período ────────────────────────────────────────────────────
@@ -281,8 +324,9 @@ export async function orquestrar(
   opcoes: OpcoesDeOrquestracao = {},
 ): Promise<Dossie> {
   const etapas: Etapa[] = [];
+  const comecou = Date.now();
   const marcar = (nome: string, rotulo: string) => {
-    const etapa = { nome, rotulo };
+    const etapa = { nome, rotulo, ms: Date.now() - comecou };
     etapas.push(etapa);
     opcoes.aoAvancar?.(etapa);
   };
@@ -295,7 +339,15 @@ export async function orquestrar(
   // ---- 2. herança da conversa ---------------------------------------------
   const herdado: string[] = [];
   let intencao = leitura.intencao;
-  let termoDoParametro = leitura.entidades.termoDoParametro;
+  /*
+    O candidato é uma hipótese até `reconhecerAssunto` a confirmar.
+
+    A variável chamava-se `termoDoParametro`, e o nome era metade do defeito:
+    todo o resto desta função a lia como um parâmetro estabelecido, quando ela
+    era o resíduo da frase. Aqui ela é o palpite, e `assunto` — logo abaixo — é
+    o que o produto reconheceu.
+  */
+  let candidato = leitura.entidades.assuntoCandidato;
   let periodoPedido = leitura.entidades.periodo;
   let intervaloPedido = leitura.entidades.intervalo;
 
@@ -314,10 +366,10 @@ export async function orquestrar(
     no Book?" declara, com todas as letras, que o assunto está na conversa.
   */
   const pronome = temPronomeAnaforico(pergunta);
-  if (estado && !termoDoParametro && estado.termoDoParametro) {
+  if (estado && !candidato && estado.assunto) {
     const pedeAssunto = INTENCOES_QUE_HERDAM_ASSUNTO.has(intencao) || pronome;
     if (pedeAssunto) {
-      termoDoParametro = estado.termoDoParametro;
+      candidato = estado.assunto;
       herdado.push("assunto");
     }
   }
@@ -350,15 +402,35 @@ export async function orquestrar(
     herdado.push("vigência da conversa");
   }
 
+  /*
+    Não entender a forma da pergunta não é motivo para largar a conversa.
+
+    `DESCONHECIDA` quer dizer "nenhum padrão casou" — uma afirmação sobre a
+    nossa lista de padrões, não sobre a pergunta. Dentro de um fio aberto, a
+    leitura que erra menos é que ela continua o fio: "qual teve maior
+    impacto?", logo depois de um resumo de agosto, é sobre agosto. Antes, a
+    herança da intenção dependia de `ehContinuacao`, que mede a **forma** da
+    frase — e essa frase tem verbo, objeto e quatro palavras, então não parecia
+    continuação nenhuma. O turno virava um beco: sem intenção, sem consulta,
+    sem resposta.
+
+    Isto não é um padrão a mais; é uma condição a menos. A primeira pergunta de
+    uma conversa continua sem ter o que herdar, e segue caindo em
+    `DESCONHECIDA`.
+  */
+  if (estado?.intencao && intencao === "DESCONHECIDA") {
+    intencao = estado.intencao;
+    herdado.push("intenção");
+  }
+
   if (leitura.continuacao && estado) {
-    if (intencao === "DESCONHECIDA" && estado.intencao) {
-      intencao = estado.intencao;
-      herdado.push("intenção");
-    }
-    if (!termoDoParametro && estado.termoDoParametro) {
-      termoDoParametro = estado.termoDoParametro;
-      herdado.push("parâmetro");
-    }
+    /*
+      A herança do assunto já aconteceu acima, para toda intenção que o admite.
+      Repeti-la aqui só produzia um segundo rótulo — "parâmetro" — para a mesma
+      coisa que o primeiro caminho chama de "assunto", e um teste da bateria
+      passou a falhar contra o rótulo que o outro caminho escreve. Um fato, um
+      nome.
+    */
     /*
       Comparação em continuação: o período que a frase traz é uma das pontas, e
       a outra vem da pergunta anterior. "Compare os dois" sem período nenhum
@@ -385,7 +457,7 @@ export async function orquestrar(
       na tela denunciava que julho não tinha entrado em nada.
     */
     if (periodoPedido && !intervaloPedido && (intencao === "EVOLUCAO" || intencao === "COMPARACAO")) {
-      intencao = termoDoParametro ? "VALOR" : "MOVIMENTO";
+      intencao = candidato ? "VALOR" : "MOVIMENTO";
       herdado.push("assunto, com o período trocado");
     }
 
@@ -399,36 +471,120 @@ export async function orquestrar(
     }
   }
 
-  // ---- 3. resolução do parâmetro ------------------------------------------
+  // ---- 3. reconhecimento do assunto ---------------------------------------
+  /*
+    O candidato vira assunto só se o produto o reconhecer.
+
+    Antes, qualquer resíduo virava termo e ia direto ao resolvedor; quando ele
+    não achava gaveta, o portão `alvoPerdido` desligava todas as consultas e a
+    pergunta terminava sem evidência. Agora existe um terceiro desfecho — **não
+    havia assunto** —, e ele é o mais comum numa conversa: "qual foi o impacto
+    dessas alterações?" não nomeia gaveta nenhuma, e a resposta certa é o
+    movimento do recorte.
+
+    Equipamento não entra: ele é dimensão, e deixá-lo entrar fazia "e nos
+    cavalos?" resolver para a gaveta "Manutenção cavalo".
+  */
+  let assunto: AssuntoReconhecido | null = null;
   let resolucao: Resolucao | null = null;
   let alvo: Alvo | null = null;
   let desambiguacao: Dossie["desambiguacao"] = null;
 
-  if (termoDoParametro && INTENCOES_COM_PARAMETRO.has(intencao)) {
-    marcar("resolverParametro", "Identificando o parâmetro");
-    resolucao = await resolverParametro(db, termoDoParametro, {
+  if (candidato && INTENCOES_COM_PARAMETRO.has(intencao)) {
+    marcar("reconhecerAssunto", "Identificando o assunto");
+    assunto = await reconhecerAssunto(db, candidato, {
       ...(leitura.entidades.equipamento ? { equipamento: leitura.entidades.equipamento } : {}),
     });
-    alvo = resolucao.escolhido;
-    if (resolucao.ambiguo && resolucao.alvos.length > 1) {
+    resolucao = assunto?.resolucao ?? null;
+    alvo = assunto?.alvo ?? null;
+    if (resolucao?.ambiguo && resolucao.alvos.length > 1) {
       desambiguacao = {
-        termo: termoDoParametro,
+        termo: assunto!.termo,
         opcoes: resolucao.alvos.slice(0, 4).map((a) => a.parametro),
       };
     }
   }
 
-  // ---- 4. contexto ---------------------------------------------------------
-  const precisaRecorte = INTENCOES_COM_RECORTE.has(intencao);
+  /** O assunto reconhecido, para quem precisa do termo — Book, regra, lacuna. */
+  const termoDoAssunto = assunto?.termo ?? null;
+
+  // ---- 4. o Book, antes do plano -------------------------------------------
+  /*
+    A busca vem antes de decidir o que fazer, e essa inversão é o coração da
+    fase.
+
+    Ela roda para toda pergunta que não seja saudação, sobre a frase inteira, e
+    custa quatro milissegundos sobre um índice em memória. O que muda é o uso:
+    o plano passa a **ver** o que a recuperação trouxe. Uma pergunta como "com
+    que frequência a auditoria QLP ADM acontece?" sempre recuperou a seção
+    certa; o que faltava era alguém olhar para isso antes de concluir que a
+    pergunta não tinha classificação.
+  */
+  const achadosDoBook: TrechoDoBookRanqueado[] = [];
+  let diagnosticoDoBook = { candidatos: 0, selecionados: 0, melhorPontuacao: 0 };
+  if (leitura.intencao !== "SAUDACAO") {
+    marcar("book", "Procurando no Book do Operador");
+    const busca = await buscarNoBookDetalhado(db, pergunta, {
+      limite: 6,
+      blocoPreferido: estado?.blocoDoBook ?? null,
+      termosExtras: [
+        ...(termoDoAssunto ? [termoDoAssunto] : []),
+        ...(alvo ? [alvo.parametro] : []),
+      ],
+    }).catch(() => ({ selecionados: [], candidatos: 0, melhorPontuacao: 0 }));
+    achadosDoBook.push(...busca.selecionados);
+    diagnosticoDoBook = {
+      candidatos: busca.candidatos,
+      selecionados: busca.selecionados.length,
+      melhorPontuacao: Number(busca.melhorPontuacao.toFixed(3)),
+    };
+  }
+
+  // ---- 5. o plano de investigação ------------------------------------------
+  if (leitura.intencao !== "SAUDACAO") marcar("planejar", "Decidindo o que consultar");
+  const investigacao = planejar({
+    pergunta,
+    leitura: { ...leitura, intencao },
+    assunto: termoDoAssunto,
+    temConversa: Boolean(estado?.intencao),
+    herdada: estado?.intencao ?? null,
+    temRegraDoBook: (achadosDoBook[0]?.pontos ?? 0) >= LIMIAR_PARA_DEFINIR,
+  });
+  intencao = investigacao.principal;
+
+  // ---- 6. contexto ---------------------------------------------------------
+  const precisaRecorte = investigacao.necessidades.some((n) => INTENCOES_COM_RECORTE.has(n));
   let contexto: ContextoResolvido | null = null;
 
-  if (precisaRecorte || intencao === "PANORAMA" || intencao === "CATALOGO_DE_CONTEXTO") {
+  const querContexto =
+    precisaRecorte ||
+    investigacao.necessidades.includes("PANORAMA") ||
+    investigacao.necessidades.includes("CATALOGO_DE_CONTEXTO");
+  if (querContexto) {
     marcar("resolverContexto", "Resolvendo unidade e canal");
     contexto = await resolverContexto(db, {
       ...(opcoes.recorte?.scopeHash ? { scopeHash: opcoes.recorte.scopeHash } : {}),
       ...(opcoes.recorte?.channel !== undefined ? { channel: opcoes.recorte.channel } : {}),
       ...(estado?.scopeHash && !opcoes.recorte?.scopeHash ? { scopeHash: estado.scopeHash } : {}),
     });
+  }
+
+  /*
+    ---- as comparações que este recorte precisa, garantidas -------------------
+
+    `change` e `change_set` são estado derivado, e até aqui só existiam quando
+    alguém abria a tela de Alterações. Ler a ausência deles como ausência de
+    movimento fazia esta função responder "0 alterações" num banco com 124 mil
+    fatos — com a fonte ao lado, indistinguível de uma consulta legítima.
+
+    A garantia é idempotente e barata quando já está feita: uma consulta
+    descobre o que falta, e numa base em dia nada é calculado. O custo real
+    aparece uma vez, na primeira pergunta depois de uma importação — que é
+    exatamente quando ele deve aparecer.
+  */
+  if (contexto && precisaRecorte) {
+    marcar("garantirComparacoes", "Conferindo as comparações da vigência");
+    await garantirComparacoes(db, contexto.contexto).catch(() => null);
   }
 
   const periodo = contexto ? await resolverPeriodo(db, contexto, periodoPedido) : null;
@@ -441,7 +597,10 @@ export async function orquestrar(
 
   const plano: Plano = {
     intencao,
-    porque: leitura.porque,
+    necessidades: investigacao.necessidades,
+    porque: investigacao.porque.join(" · ") || leitura.porque,
+    assunto: termoDoAssunto,
+    comoReconheceu: assunto?.como ?? null,
     herdado,
     alvo,
     resolucao,
@@ -455,13 +614,54 @@ export async function orquestrar(
   const documentos: TrechoDoBookRanqueado[] = [];
   const anexos: Anexo[] = [];
   const lacunas: Lacuna[] = [];
-  const juntar = async (
-    rotulo: string,
-    promessa: Promise<Evidencia | null>,
-  ): Promise<void> => {
+  /*
+    A mesma consulta não entra duas vezes.
+
+    Com o plano executando um conjunto, duas necessidades podem pedir a mesma
+    ferramenta — "o que mudou e o que mais pesou?" quer o movimento e o
+    ranking, e as duas passam pelo resumo da vigência. Sem esta guarda o dossiê
+    ganharia a mesma evidência com dois números de citação, e a resposta citaria
+    duas fontes idênticas como se fossem confirmação independente.
+  */
+  const vistas = new Set<string>();
+  /*
+    As consultas partem juntas e são colhidas em ordem.
+
+    Nenhuma delas consome o resultado de outra — são leituras independentes do
+    mesmo recorte —, e mesmo assim rodavam em fila: "quanto mudou o pneu desde
+    dezembro?" fazia seis, uma após a outra, e levava 239 ms para uma soma de
+    trabalho que cabe em 115. Uma promessa em JavaScript começa quando é criada,
+    então enfileirar em vez de aguardar já as põe a correr em paralelo.
+
+    **A ordem da colheita é a de declaração, e isso não é detalhe.** É ela que
+    numera as citações; colher por ordem de chegada faria a mesma pergunta citar
+    fontes com números diferentes conforme a latência do banco naquele instante,
+    e a resposta guardada na conversa deixaria de casar com as fontes ao lado.
+
+    **O leque não é limitado, e é uma escolha.** Seis consultas curtas por
+    pergunta, contra um pool de dez conexões: com vários analistas perguntando
+    ao mesmo tempo o pool enfileira, que é exatamente o que acontecia antes
+    desta mudança e sem nenhum erro novo. Um semáforo aqui protegeria contra uma
+    carga que este produto não tem — ele é interno e de uma operação — e cobraria
+    a complexidade agora. Se um dia a espera aparecer no tempo de resposta, o
+    lugar de resolvê-la é o tamanho do pool, não o número de perguntas que uma
+    resposta pode fazer.
+  */
+  const pendentes: Promise<Evidencia | null>[] = [];
+  const juntar = (rotulo: string, promessa: Promise<Evidencia | null>): void => {
     marcar("consultar", rotulo);
-    const evidencia = await promessa.catch(() => null);
-    if (evidencia) evidencias.push(evidencia);
+    pendentes.push(promessa.catch(() => null));
+  };
+
+  const colher = async (): Promise<void> => {
+    for (const promessa of pendentes.splice(0)) {
+      const evidencia = await promessa;
+      if (!evidencia) continue;
+      const chave = `${evidencia.ferramenta}|${evidencia.titulo}|${evidencia.origem}`;
+      if (vistas.has(chave)) continue;
+      vistas.add(chave);
+      evidencias.push(evidencia);
+    }
   };
 
   const periodoEfetivo = plano.periodo ?? undefined;
@@ -479,10 +679,32 @@ export async function orquestrar(
     Sem alvo, os caminhos que consultam o agregado do recorte ficam desligados,
     e o que sai é a lacuna que diz o que aconteceu.
   */
-  const nomeouParametro = Boolean(termoDoParametro) && INTENCOES_COM_PARAMETRO.has(intencao);
-  const alvoPerdido = nomeouParametro && !alvo && !desambiguacao;
+  /*
+    O portão passou a depender de reconhecimento, não de resolução.
 
-  switch (intencao) {
+    Ele existe para impedir a pior resposta que este assistente dava: perguntar
+    "quanto mudou o pedágio?" e receber o movimento **de tudo**, R$ 28 mil que
+    não têm nada a ver com pedágio. Mas ele disparava sempre que a resolução
+    falhava — inclusive quando o "termo" era `dessas` —, e aí desligava as
+    consultas de perguntas que não nomeavam nada.
+
+    Agora só fecha quando a pessoa nomeou algo que o produto conhece e para o
+    qual não existe coluna. Quem não nomeou nada (`assunto === null`) consulta
+    o recorte, que é o que perguntou.
+  */
+  const alvoPerdido = assunto !== null && !alvo && !desambiguacao;
+
+  /*
+    Uma passagem por necessidade, e todas são executadas.
+
+    Era um `switch` sobre a intenção única: o que não fosse o caso escolhido
+    simplesmente não acontecia, e uma pergunta que pedia duas coisas recebia
+    uma. Aqui o `switch` continua — ele é a forma certa de despachar um valor
+    fechado —, mas ele roda dentro de um laço, e o que decide quantas vezes é o
+    plano.
+  */
+  for (const necessidade of investigacao.necessidades) {
+  switch (necessidade) {
     case "CONCEITUAL":
     case "DISPONIBILIDADE":
       // Conceito não consulta impacto. É a correção do defeito que fazia
@@ -496,31 +718,35 @@ export async function orquestrar(
         como um todo — "quantos blocos já têm regra?" —, que é dado e não
         conteúdo.
       */
-      if (!termoDoParametro) {
-        marcar("consultar", "Consultando o Book do Operador");
-        evidencias.push(await coberturaDoBook(db));
+      /*
+        A cobertura só é resposta quando não há regra a mostrar.
+
+        Ela conta quantos blocos já têm conteúdo — dado sobre o Book, não
+        conteúdo dele. Quem perguntou algo que a busca respondeu quer a regra;
+        entregar a estatística ao lado dela é trocar a resposta pela ficha.
+      */
+      if (!termoDoAssunto && !investigacao.bookPorEvidencia) {
+        juntar("Consultando o Book do Operador", coberturaDoBook(db));
       }
       break;
 
     case "PANORAMA":
       if (contexto) {
-        marcar("consultar", "Consultando o que foi importado");
-        evidencias.push(await panoramaDoContexto(db, contexto));
+        juntar("Consultando o que foi importado", panoramaDoContexto(db, contexto));
       }
       break;
 
     case "CATALOGO_DE_CONTEXTO":
       if (contexto) {
-        marcar("consultar", "Listando vigências");
-        evidencias.push(await listarVigencias(db, contexto));
+        juntar("Listando vigências", listarVigencias(db, contexto));
       }
       break;
 
     case "MOVIMENTO":
       if (contexto && !alvoPerdido) {
-        await juntar("Consultando alterações", resumoDaVigencia(db, contexto, periodoEfetivo));
+        juntar("Consultando alterações", resumoDaVigencia(db, contexto, periodoEfetivo));
         if (alvo) {
-          await juntar(
+          juntar(
             "Consultando o parâmetro",
             movimentoDoParametro(db, contexto, alvo, periodoEfetivo),
           );
@@ -530,15 +756,15 @@ export async function orquestrar(
 
     case "VALOR":
       if (contexto && alvo) {
-        await juntar(
+        juntar(
           "Consultando o parâmetro",
           movimentoDoParametro(db, contexto, alvo, periodoEfetivo),
         );
         for (const atributo of alvo.atributos.slice(0, 2)) {
-          await juntar("Consultando a série", serieDoParametro(db, contexto, atributo.codigo));
+          juntar("Consultando a série", serieDoParametro(db, contexto, atributo.codigo));
         }
       } else if (contexto && !alvoPerdido) {
-        await juntar("Consultando alterações", resumoDaVigencia(db, contexto, periodoEfetivo));
+        juntar("Consultando alterações", resumoDaVigencia(db, contexto, periodoEfetivo));
       }
       break;
 
@@ -552,21 +778,21 @@ export async function orquestrar(
           a manutenção?" ouvia nove médias e nunca as 72 alterações que a tela
           de Parâmetros mostra para a mesma gaveta.
         */
-        await juntar(
+        juntar(
           "Consultando o parâmetro",
           movimentoDoParametro(db, contexto, alvo, periodoEfetivo),
         );
         for (const atributo of alvo.atributos.slice(0, 3)) {
-          await juntar("Consultando a série", serieDoParametro(db, contexto, atributo.codigo));
+          juntar("Consultando a série", serieDoParametro(db, contexto, atributo.codigo));
         }
-        await juntar(
+        juntar(
           "Calculando o intervalo",
           compararIntervalo(db, contexto, intervalo?.de ?? undefined, intervalo?.ate ?? undefined, [
             `${alvo.atributos[0]?.familia ?? ""}|${alvo.parametro}`,
           ]),
         );
       } else if (contexto && !alvoPerdido) {
-        await juntar(
+        juntar(
           "Calculando o intervalo",
           compararIntervalo(db, contexto, intervalo?.de ?? undefined, intervalo?.ate ?? undefined),
         );
@@ -575,17 +801,23 @@ export async function orquestrar(
 
     case "COMPARACAO":
       if (contexto && !alvoPerdido) {
-        await juntar(
+        juntar(
           "Comparando as vigências",
           compararIntervalo(db, contexto, intervalo?.de ?? undefined, intervalo?.ate ?? undefined),
         );
       }
       break;
 
+    case "ATENCAO":
+      if (contexto) {
+        juntar("Montando a fila de investigação", filaDeInvestigacao(db, contexto, periodoEfetivo));
+      }
+      break;
+
     case "RANKING_PERDA":
     case "RANKING_GANHO":
       if (contexto) {
-        await juntar(
+        juntar(
           "Calculando impacto",
           rankingDeImpacto(db, contexto, intencao === "RANKING_PERDA" ? "PERDA" : "GANHO", periodoEfetivo),
         );
@@ -594,13 +826,13 @@ export async function orquestrar(
 
     case "VEICULOS":
       if (contexto) {
-        await juntar("Consultando veículos afetados", veiculosAfetados(db, contexto, periodoEfetivo));
+        juntar("Consultando veículos afetados", veiculosAfetados(db, contexto, periodoEfetivo));
       }
       break;
 
     case "SEM_PRECO":
       if (contexto) {
-        await juntar("Verificando o que não tem preço", semParaPrecificar(db, contexto, periodoEfetivo));
+        juntar("Verificando o que não tem preço", semParaPrecificar(db, contexto, periodoEfetivo));
       }
       break;
 
@@ -620,19 +852,19 @@ export async function orquestrar(
         agora, no mesmo recorte, e desce até a linha que mudou.
       */
       if (contexto && alvo) {
-        await juntar(
+        juntar(
           "Recuperando a origem",
           movimentoDoParametro(db, contexto, alvo, periodoEfetivo),
         );
         const primeiraColuna = alvo.atributos[0];
         if (primeiraColuna && plano.periodo) {
-          await juntar(
+          juntar(
             "Descendo até as linhas",
             veiculosDoGrupo(db, contexto, plano.periodo, primeiraColuna.codigo, primeiraColuna.equipamento),
           );
         }
       } else if (contexto && !alvoPerdido) {
-        await juntar("Recuperando a origem", resumoDaVigencia(db, contexto, periodoEfetivo));
+        juntar("Recuperando a origem", resumoDaVigencia(db, contexto, periodoEfetivo));
       }
       break;
 
@@ -646,9 +878,9 @@ export async function orquestrar(
       metade do que se quis saber.
     */
     case "CURADORIA":
-      await juntar("Consultando a curadoria", estadoDaCuradoria(db));
+      juntar("Consultando a curadoria", estadoDaCuradoria(db));
       if (alvo?.atributos[0]) {
-        await juntar(
+        juntar(
           "Recuperando o histórico da semântica",
           historicoDaSemantica(db, alvo.atributos[0].codigo),
         );
@@ -656,11 +888,11 @@ export async function orquestrar(
       break;
 
     case "IMPORTACOES":
-      await juntar("Consultando as importações", importacoesRecentes(db));
+      juntar("Consultando as importações", importacoesRecentes(db));
       break;
 
     case "BALANCO":
-      await juntar("Consultando o balanço de massa", balancoDasImportacoes(db));
+      juntar("Consultando o balanço de massa", balancoDasImportacoes(db));
       break;
 
     case "CELULAS":
@@ -669,17 +901,22 @@ export async function orquestrar(
 
         "Onde aparece a placa ABC1D23 na planilha?" tem seis palavras de
         operação e uma de conteúdo; procurar a frase toda em `raw_cell` não
-        acharia nada, e procurar cada palavra acharia tudo. `termoDoParametro`
+        acharia nada, e procurar cada palavra acharia tudo. `assuntoCandidato`
         já é exatamente o resíduo depois da poda.
       */
-      if (termoDoParametro) {
-        await juntar("Procurando nas células importadas", buscarNasCelulas(db, termoDoParametro));
+      /*
+        A busca nas células é literal — uma placa, um número de chassi —, então
+        ela usa o candidato cru e não o assunto reconhecido: o que se procura
+        aqui é justamente o que o dicionário do produto **não** conhece.
+      */
+      if (candidato) {
+        juntar("Procurando nas células importadas", buscarNasCelulas(db, candidato));
       }
       break;
 
     case "COMPOSICAO":
       if (contexto) {
-        await juntar(
+        juntar(
           "Compondo a remuneração da frota",
           composicaoDaFrota(db, contexto, leitura.entidades.equipamento ?? "CAVALO", periodoEfetivo),
         );
@@ -730,6 +967,7 @@ export async function orquestrar(
     case "DESCONHECIDA":
       break;
   }
+  }
 
   /*
     ---- 5b. o Book, para qualquer pergunta -----------------------------------
@@ -746,33 +984,33 @@ export async function orquestrar(
     agosto" sem parâmetro nomeado não têm o que buscar no Book, e uma busca sem
     termo devolveria os trechos mais genéricos do corpus inteiro.
   */
-  const perguntaDeConteudo =
-    intencao === "BOOK" || intencao === "CONCEITUAL" || intencao === "DISPONIBILIDADE";
+  /*
+    Quanto do Book entra na resposta — decidido pelo plano, não pela frase.
 
-  if (intencao !== "SAUDACAO" && (termoDoParametro || perguntaDeConteudo)) {
-    marcar("book", "Procurando no Book do Operador");
+    A busca já rodou lá em cima e o limiar já descartou o que era ruído. O que
+    se decide aqui é largura: uma pergunta cuja necessidade **é** a regra fica
+    com os seis trechos; uma pergunta de número que por acaso casou uma regra
+    fica com três, para o dado não ser empurrado para fora do dossiê pelo
+    contexto que só o acompanha.
+  */
+  const querRegra =
+    investigacao.necessidades.includes("BOOK") ||
+    investigacao.necessidades.includes("CONCEITUAL") ||
+    investigacao.necessidades.includes("DISPONIBILIDADE");
 
-    const achados = await buscarNoBook(db, pergunta, {
-      limite: perguntaDeConteudo ? 6 : 3,
-      blocoPreferido: estado?.blocoDoBook ?? null,
-      termosExtras: [
-        ...(termoDoParametro ? [termoDoParametro] : []),
-        ...(alvo ? [alvo.parametro] : []),
-      ],
-    }).catch(() => []);
+  documentos.push(...achadosDoBook.slice(0, querRegra ? 6 : 3));
 
-    documentos.push(...achados);
-
+  if (leitura.intencao !== "SAUDACAO") {
     /*
       A par do conteúdo, o registro: qual bloco, que revisão, que tipo de
       entrada. Isso não entra na prosa — os fatos são marcados como internos —,
       mas é o que sustenta a fonte na tela e o que responde "isto está mesmo
       registrado no Book?".
     */
-    if (termoDoParametro) {
-      await juntar(
+    if (termoDoAssunto) {
+      juntar(
         "Consultando o registro do Book",
-        regraDoBook(db, termoDoParametro, { documentoLido: achados.length > 0 }),
+        regraDoBook(db, termoDoAssunto, { documentoLido: documentos.length > 0 }),
       );
     }
 
@@ -786,10 +1024,10 @@ export async function orquestrar(
       lê montando o resto. O teto de tamanho decide: manual de duzentas páginas
       continua vindo por trecho.
     */
-    const principal = achados[0]?.trecho;
+    const principal = achadosDoBook[0]?.trecho;
     const nomeouOBloco =
       principal &&
-      perguntaDeConteudo &&
+      querRegra &&
       termos(pergunta).some((p) => normalizar(principal.bloco).includes(p));
 
     if (principal && nomeouOBloco) {
@@ -800,7 +1038,7 @@ export async function orquestrar(
         documentos.push(
           ...inteiro.map((trecho) => ({
             trecho,
-            pontos: achados[0].pontos,
+            pontos: achadosDoBook[0]!.pontos,
             porque: ["documento inteiro — a pergunta é sobre este bloco"],
           })),
           ...outros,
@@ -816,12 +1054,71 @@ export async function orquestrar(
       mandar o arquivo junto seria a mesma informação duas vezes: uma
       conferível contra o texto do dossiê e outra não.
     */
-    if (termoDoParametro && documentos.length === 0) {
-      const anexo = await anexoDoBook(db, termoDoParametro).catch(() => null);
+    if (termoDoAssunto && documentos.length === 0) {
+      const anexo = await anexoDoBook(db, termoDoAssunto).catch(() => null);
       if (anexo?.conteudo.forma === "NATIVO") {
         marcar("anexar", "Abrindo o documento do Book");
         anexos.push(anexo);
       }
+    }
+  }
+
+  /*
+    ---- a colheita ----------------------------------------------------------
+
+    Aqui, e não antes: o registro do Book é enfileirado depois do laço, e a
+    lacuna e a redação leem `evidencias` depois daqui. Colher cedo demais
+    devolveria a fila ao comportamento sequencial sem que nada denunciasse.
+  */
+  await colher();
+
+  /*
+    ---- o segundo salto ------------------------------------------------------
+
+    Achou o que pesa; agora vai ler o que a regra diz sobre aquilo.
+
+    É o que um analista faz e o que este assistente não fazia. Quem pergunta "o
+    que eu deveria investigar primeiro?" não sabe o nome do parâmetro que vai
+    sair na frente — e por isso não tem como pedir a regra dele na mesma frase.
+    A primeira busca no Book usou as palavras da pergunta, que não continham o
+    assunto porque ele ainda não era conhecido; esta usa o assunto que a
+    consulta descobriu.
+
+    **Três guardas, e cada uma evita um jeito de isto piorar a resposta.** Só
+    salta a partir de uma ferramenta que **ordenou** alguma coisa: o agregado
+    não descobriu assunto, descreveu o conjunto. Só salta quando a primeira
+    busca não respondeu com confiança — havendo regra forte, a pergunta já foi
+    respondida pelas duas fontes. E o limiar continua decidindo, então um
+    assunto sem regra registrada não traz nada, e o silêncio aqui é uma
+    resposta correta.
+
+    A segunda guarda mede **confiança**, não presença. Medir presença era o
+    primeiro desenho, e ele se anulava sozinho: uma pergunta executiva costuma
+    casar fracamente algum bloco pelas palavras soltas da frase, e esse
+    documento fraco — que não responde nada — bloqueava a busca dirigida que
+    responderia.
+  */
+  const emDestaque = evidencias.find((e) => e.assuntoEmDestaque)?.assuntoEmDestaque;
+  const jaRespondeu = (achadosDoBook[0]?.pontos ?? 0) >= LIMIAR_PARA_DEFINIR;
+  if (emDestaque && !jaRespondeu) {
+    marcar("segundoSalto", `Procurando a regra de ${emDestaque}`);
+    const doDestaque = await buscarNoBookDetalhado(db, emDestaque, { limite: 3 }).catch(() => null);
+    if (doDestaque && doDestaque.selecionados.length > 0) {
+      /*
+        O que a busca dirigida achou vem primeiro.
+
+        Ela procurou pelo assunto que a consulta descobriu; a primeira procurou
+        pelas palavras de uma pergunta que ainda não sabia o assunto. Entre as
+        duas, a segunda é a que fala do que a resposta vai tratar.
+      */
+      const antes = documentos.splice(0);
+      documentos.push(...doDestaque.selecionados, ...antes);
+      documentos.splice(6);
+      diagnosticoDoBook = {
+        candidatos: diagnosticoDoBook.candidatos + doDestaque.candidatos,
+        selecionados: documentos.length,
+        melhorPontuacao: Number(doDestaque.melhorPontuacao.toFixed(3)),
+      };
     }
   }
 
@@ -880,8 +1177,8 @@ export async function orquestrar(
     aqui produzia a nota "nenhuma coluna da gaveta Pneu trata de regra, bloco",
     verdadeira e sem nenhuma relação com o que foi perguntado.
   */
-  if (termoDoParametro && alvo && intencao !== "BOOK") {
-    const lacuna = lacunaDoQualificador(termoDoParametro, alvo);
+  if (termoDoAssunto && alvo && intencao !== "BOOK") {
+    const lacuna = lacunaDoQualificador(termoDoAssunto, alvo);
     if (lacuna) lacunas.push(lacuna);
   }
 
@@ -896,8 +1193,21 @@ export async function orquestrar(
     terminar com "nenhum parâmetro corresponde a unknown" seria negar a resposta
     que acabou de ser dada.
   */
+  /*
+    O registro do Book não conta como número consultado.
+
+    `regraDoBook` diz qual bloco cobre o assunto e em que revisão — é evidência
+    de que a regra existe, não de que houve movimento. Contá-la aqui fazia a
+    lacuna desaparecer justamente no caso que a criou: "quanto mudou o
+    pedágio?" passou a trazer o registro do Book (porque a busca deixou de
+    depender do assunto extraído) e, com ele, a deixar de dizer que o export
+    não traz pedágio.
+  */
+  const evidenciasDeDado = evidencias.filter(
+    (e) => !e.ferramenta.toLowerCase().includes("book"),
+  );
   const precisavaDeNumero = INTENCOES_COM_RECORTE.has(intencao);
-  if (alvoPerdido && (precisavaDeNumero ? evidencias.length === 0 : trechos.length === 0)) {
+  if (alvoPerdido && (precisavaDeNumero ? evidenciasDeDado.length === 0 : trechos.length === 0)) {
     /*
       Distinguir "o produto não conhece isto" de "o produto conhece e o export
       não traz" é o que separa duas conversas muito diferentes: a primeira
@@ -911,8 +1221,8 @@ export async function orquestrar(
       explicacao:
         noCatalogo || noBook
           ? `${noCatalogo ? "O Freightech publica este assunto" : "O Book do Operador trata deste assunto"}, ` +
-            `mas nenhuma coluna deste export alimenta "${termoDoParametro}" — então não há número a somar aqui.`
-          : `O arquivo importado não tem nada sobre "${termoDoParametro}"` +
+            `mas nenhuma coluna deste export alimenta "${termoDoAssunto}" — então não há número a somar aqui.`
+          : `O arquivo importado não tem nada sobre "${termoDoAssunto}"` +
             (documentos.length > 0
               ? " — o que sai daqui é a regra registrada no Book, não número apurado."
               : ". Pode ser que o Freightech publique esse assunto noutra tela, cujo arquivo ainda não foi importado."),
@@ -980,6 +1290,7 @@ export async function orquestrar(
     lacunas,
     etapas,
     desambiguacao,
+    diagnostico: { book: diagnosticoDoBook, ms: Date.now() - comecou },
   };
 }
 
@@ -1023,6 +1334,76 @@ function numerosDoTexto(texto: string): string[] {
 }
 
 /**
+ * As datas do texto, como datas — e não como três números soltos.
+ *
+ * `01/08/2026` é uma referência de tempo, não uma quantia apurada. Partida em
+ * tokens, ela chegava à conferência como `01`, `08` e `2026`, e os dois
+ * primeiros não estão em evidência nenhuma: a resposta inteira era descartada
+ * por conter a data da própria vigência que ela descrevia.
+ *
+ * O que se confere numa data é o **ano**, que é o que a liga ao recorte. Dia e
+ * mês não podem contrabandear grandeza: eles são limitados a dois dígitos e
+ * vivem dentro de uma forma que nada mais tem.
+ */
+const DATA = /\b(\d{1,2}\/)?\d{1,2}\/(\d{2}|\d{4})\b/g;
+
+/**
+ * Um arredondamento declarado — "cerca de R$ 28,5 mil".
+ *
+ * É a forma como se escreve para ser entendido, e a trava a tratava como
+ * invenção porque `28,5` não está escrito em lugar nenhum. Está: é
+ * `28.511,24` dito na escala em que a frase o diz. A conferência é numérica —
+ * o valor arredondado na mesma casa tem de bater com algum número que as
+ * evidências autorizam —, então "cerca de R$ 90 mil" continua sendo recusado
+ * sobre o mesmo dossiê.
+ */
+const ARREDONDAMENTO = /\b(\d{1,3}(?:[.,]\d{1,2})?)\s*(mil|milhao|milhoes|milhões|bilhao|bilhoes|bilhões)\b/gi;
+
+const ESCALAS: Record<string, number> = {
+  mil: 1e3,
+  milhao: 1e6, milhoes: 1e6, "milhões": 1e6,
+  bilhao: 1e9, bilhoes: 1e9, "bilhões": 1e9,
+};
+
+/** "28,5" → 28.5 — o separador decimal deste produto é a vírgula. */
+function comoNumero(escrito: string): number {
+  return Number(escrito.replace(/\./g, "").replace(",", "."));
+}
+
+/**
+ * O texto sem o que já foi conferido por outro critério.
+ *
+ * Devolve o texto com datas e arredondamentos **válidos** removidos, para que a
+ * conferência por token — que continua sendo a regra geral — não os veja. Um
+ * arredondamento que não bate com nada fica no texto e reprova, como deve.
+ */
+function semOsJaConferidos(
+  texto: string,
+  permitidos: Set<string>,
+  valores: number[],
+): string {
+  let saida = texto.replace(ARREDONDAMENTO, (inteiro, escrito: string, escala: string) => {
+    const alvo = comoNumero(escrito);
+    if (!Number.isFinite(alvo)) return inteiro;
+    const fator = ESCALAS[escala.toLowerCase()] ?? 1;
+    const casas = (escrito.split(/[.,]/)[1] ?? "").length;
+    const potencia = 10 ** casas;
+    const bate = valores.some(
+      (v) => Math.round((Math.abs(v) / fator) * potencia) / potencia === alvo,
+    );
+    return bate ? " " : inteiro;
+  });
+
+  saida = saida.replace(DATA, (inteiro) => {
+    const ano = inteiro.split("/").pop() ?? "";
+    const cheio = ano.length === 2 ? `20${ano}` : ano;
+    return permitidos.has(cheio) || permitidos.has(ano) ? " " : inteiro;
+  });
+
+  return saida;
+}
+
+/**
  * Nenhum número sem lastro.
  *
  * Junta tudo o que as evidências autorizam citar — os valores crus e cada
@@ -1055,6 +1436,93 @@ function citacoesDeAnexo(dossie: Dossie): Set<number> {
 /** Quebra o texto em frases, nas mesmas fronteiras que o portão usa. */
 function frases(texto: string): string[] {
   return texto.split(/(?<=[.!?])\s+|\n+/).filter((f) => f.trim().length > 0);
+}
+
+/**
+ * As frases **com o que vem entre elas** — para poder remontar o texto.
+ *
+ * `frases` serve para conferir; esta serve para reescrever. A diferença é que
+ * aqui `join("")` devolve o original byte a byte, o que é o que permite tirar
+ * uma frase do meio de uma resposta sem estragar a pontuação e os parágrafos
+ * das que ficam.
+ */
+export function emFrases(texto: string): string[] {
+  const saida: string[] = [];
+  let inicio = 0;
+  for (let i = 0; i < texto.length; i++) {
+    const c = texto[i];
+    const fecha =
+      c === "\n" ||
+      ((c === "." || c === "!" || c === "?") && /\s/.test(texto[i + 1] ?? " "));
+    if (!fecha) continue;
+    let j = i + 1;
+    while (j < texto.length && /\s/.test(texto[j]!)) j += 1;
+    saida.push(texto.slice(inicio, j));
+    inicio = j;
+    i = j - 1;
+  }
+  if (inicio < texto.length) saida.push(texto.slice(inicio));
+  return saida;
+}
+
+export interface Saneamento {
+  /** O texto sem as frases que não se sustentam. */
+  texto: string;
+  /** Quantas frases saíram, e de quantas. */
+  removidas: number;
+  total: number;
+  /** O que fez cada uma sair — para o painel técnico. */
+  recusados: string[];
+  /** Sobrou pouco demais: o que vale é a redação em código. */
+  irrecuperavel: boolean;
+}
+
+/**
+ * Tira da resposta o que ela não sustenta — e só isso.
+ *
+ * **O que havia antes.** Um único número sem lastro descartava a resposta
+ * inteira. A regra era defensável e o preço era alto e invisível: medido sobre
+ * saídas realistas, duas em cada dez respostas eram jogadas fora por causa de
+ * uma data de vigência ou de um valor arredondado — texto bom, fiel ao dossiê,
+ * substituído por uma redação em código que responde a mesma pergunta com
+ * menos. Quanto melhor a redação, maior a chance de ela cair.
+ *
+ * **O que a garantia sempre foi.** "Nenhum número sem lastro chega à tela" —
+ * uma afirmação sobre o que a pessoa lê, não sobre o tamanho da unidade
+ * descartada. Tirar a frase que não se sustenta cumpre a promessa por inteiro,
+ * e é a única leitura em que o custo do erro é proporcional a ele.
+ *
+ * **Quando ainda se descarta tudo.** Quando o que sai passa de um terço das
+ * frases. Aí o problema não é um número: é uma resposta construída sobre
+ * material que não existe, e remendá-la produziria um texto que não conclui o
+ * que começou a dizer.
+ */
+export function sanear(texto: string, dossie: Dossie): Saneamento {
+  const pedacos = emFrases(texto);
+  const mantidas: string[] = [];
+  const recusados: string[] = [];
+  let removidas = 0;
+
+  for (const pedaco of pedacos) {
+    const semLastro = numerosSemLastro(pedaco, dossie);
+    const semFonte = citacoesSemFonte(pedaco, dossie);
+    if (semLastro.length === 0 && semFonte.length === 0) {
+      mantidas.push(pedaco);
+      continue;
+    }
+    recusados.push(...semLastro, ...semFonte);
+    removidas += 1;
+  }
+
+  const total = pedacos.length;
+  const saneado = mantidas.join("").trim();
+  return {
+    texto: saneado,
+    removidas,
+    total,
+    recusados: [...new Set(recusados)],
+    irrecuperavel: saneado.length === 0 || removidas * 3 > total,
+  };
 }
 
 /**
@@ -1100,6 +1568,8 @@ export function numerosSemLastro(texto: string, dossie: Dossie): string[] {
 
   const semCitacoes = texto.replace(/\[\d{1,2}\]/g, " ");
   const permitidos = new Set<string>();
+  /** Os mesmos números como grandeza, para conferir arredondamento. */
+  const valores: number[] = [];
 
   const registrar = (valor: string | number | undefined | null) => {
     if (valor === undefined || valor === null) return;
@@ -1116,6 +1586,7 @@ export function numerosSemLastro(texto: string, dossie: Dossie): string[] {
     registrar(e.nota);
     registrar(e.origem);
     for (const n of e.numeros) {
+      valores.push(n);
       registrar(n);
       registrar(n.toLocaleString("pt-BR"));
       registrar(n.toLocaleString("pt-BR", { minimumFractionDigits: 2 }));
@@ -1155,7 +1626,7 @@ export function numerosSemLastro(texto: string, dossie: Dossie): string[] {
   }
   for (const l of dossie.lacunas) registrar(l.explicacao);
 
-  return numerosDoTexto(semCitacoes).filter((token) => {
+  return numerosDoTexto(semOsJaConferidos(semCitacoes, permitidos, valores)).filter((token) => {
     if (permitidos.has(token) || permitidos.has(token.replace(/\./g, ""))) return false;
     // Um algarismo isolado é numeração de lista ou ordinal, não afirmação.
     if (token.length === 1) return false;

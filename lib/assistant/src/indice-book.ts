@@ -42,7 +42,7 @@ import {
   renderizarBlocos,
   type BlocoDeDocumento,
 } from "./documento";
-import { normalizar, termos } from "./normalizar";
+import { normalizar, termos, PALAVRAS_DE_PERGUNTA } from "./normalizar";
 
 // ── O que um trecho é ───────────────────────────────────────────────────────
 
@@ -354,6 +354,26 @@ export interface OpcoesDaBusca {
   termosExtras?: string[];
 }
 
+/**
+ * As palavras que nomeiam **onde procurar**, e nunca o que procurar.
+ *
+ * "O que o Book diz sobre pneu?" tem uma palavra de conteúdo — pneu — e cinco
+ * que descrevem a consulta. Contadas como conteúdo, elas encontram o bloco
+ * chamado *BOOK VALE PEDÁGIO*, cujo título começa com a palavra que a pessoa
+ * usou para dizer *onde* olhar. Foi assim que a pergunta mais direta sobre
+ * pneu devolveu pedágio em primeiro lugar, com o dobro da pontuação.
+ *
+ * A lista é curta e é sobre este produto: são os nomes que a operação dá às
+ * fontes. Ela não cresce com o assunto, só com as formas de nomear a fonte —
+ * e é por isso que ela pode ser fechada sem voltar a ser a lista de bloqueio
+ * que a Fase 1 desmontou.
+ */
+const PALAVRAS_DE_FONTE: ReadonlySet<string> = new Set([
+  "book", "operador", "bloco", "blocos", "regra", "regras", "contrato",
+  "manual", "documento", "documentos", "anexo", "anexos", "anexado",
+  "arquivo", "arquivos", "capitulo", "secao", "item", "itens",
+]);
+
 /** Uma sigla é curta, escrita em caixa alta, e não se parece com palavra. */
 function siglasDe(pergunta: string): string[] {
   return [...pergunta.matchAll(/\b[A-Z][A-Z0-9]{1,5}\b/g)]
@@ -444,6 +464,12 @@ function raridadeDoIndice(trechos: TrechoDoBook[]): Raridade {
     bastante, e a busca deixa de funcionar justamente no ambiente de quem está
     começando a registrar o Book. Esta forma é sempre positiva, preserva a
     ordem (raro pesa mais) e degrada suavemente quando há pouco material.
+
+    O que ela **não** resolve sozinha é a palavra rara e fora do assunto: num
+    índice pequeno a raridade de "periodicidade" chega perto da de "manutenção",
+    e um trecho que casa só a primeira empata com um que casa as duas. Quem
+    resolve isso é a largura, logo abaixo — e não um expoente aqui, que só
+    troca o erro de lado.
   */
   for (const [termo, quantos] of frequencia) {
     pesos.set(termo, Math.log(1 + total / (1 + quantos)));
@@ -473,6 +499,34 @@ function cobertura(texto: string[], alvo: Set<string>, pesos: Map<string, number
 }
 
 /**
+ * Quantos dos termos **de conteúdo** este trecho alcança.
+ *
+ * A cobertura acima mede peso e é normalizada, então casar uma palavra rara
+ * vale tanto quanto casar a única palavra que a pergunta trouxe: "qual a
+ * periodicidade da revisão de manutenção?" tem a seção *Periodicidade* de PREÇO
+ * COMBUSTÍVEIS empatando com a de MANUTENÇÃO, porque cada uma casa um termo.
+ * A largura desempata — a de MANUTENÇÃO casa dois.
+ *
+ * **Ela conta sobre os termos de conteúdo, e a cobertura sobre todos.** Não é
+ * inconsistência: são duas perguntas diferentes. "Quanto do que foi perguntado
+ * este trecho cobre?" inclui as palavras da pergunta, e é a diluição por elas
+ * que impede "teve alteração na remuneração?" — feita só de palavras que estão
+ * em todo bloco — de recuperar um documento qualquer. "Quantos assuntos
+ * distintos este trecho alcança?" só faz sentido sobre os assuntos: contar
+ * "teve" e "existe" como largura puniria o trecho certo por ele não conter os
+ * verbos de quem perguntou, e foi o que tirou o Book da pergunta cruzada.
+ *
+ * Raiz quadrada porque ela desempata sem dominar: linear, ela puniria demais a
+ * pergunta longa em que o trecho certo cobre dois de cinco assuntos.
+ */
+function largura(texto: string[], conteudo: Set<string>): number {
+  if (conteudo.size === 0) return 1;
+  let casados = 0;
+  for (const termo of conteudo) if (texto.includes(termo)) casados += 1;
+  return Math.sqrt(casados / conteudo.size);
+}
+
+/**
  * Ranqueia os trechos para esta pergunta — recall primeiro, precisão depois.
  *
  * Separado da consulta ao banco de propósito: assim ele é testável com trechos
@@ -486,8 +540,20 @@ export function ranquear(
 ): TrechoDoBookRanqueado[] {
   const { limite = 6, blocoPreferido = null, termosExtras = [] } = opcoes;
 
-  const palavras = [...termos(pergunta), ...termosExtras.flatMap((t) => termos(t))];
+  /*
+    O vocabulário de fonte sai da consulta, não do índice.
+
+    Ele continua indexado — quem procurar literalmente por "BOOK VALE PEDÁGIO"
+    tem de achar o bloco —, mas deixa de pontuar quando aparece na **pergunta**,
+    onde a sua função é dizer onde olhar.
+  */
+  const palavras = [...termos(pergunta), ...termosExtras.flatMap((t) => termos(t))].filter(
+    (p) => !PALAVRAS_DE_FONTE.has(p),
+  );
   if (palavras.length === 0) return [];
+
+  /** Os termos que nomeiam assunto — a base da largura, nunca da diluição. */
+  const conteudo = new Set(palavras.filter((p) => !PALAVRAS_DE_PERGUNTA.has(p)));
 
   const { pesos, frequencia, total } = raridadeDoIndice(trechos);
   const { principais, secundarios } = expandir(palavras, trechos);
@@ -526,8 +592,9 @@ export function ranquear(
         trecho,
         vocabulario,
         bruto:
-          cobertura(vocabulario, principais, pesos) +
-          cobertura(vocabulario, secundarios, pesos) * 0.3,
+          (cobertura(vocabulario, principais, pesos) +
+            cobertura(vocabulario, secundarios, pesos) * 0.3) *
+          largura(vocabulario, conteudo),
       };
     })
     .filter((c) => c.bruto > 0 || (alvoPreferido && normalizar(c.trecho.bloco) === alvoPreferido))
@@ -588,12 +655,23 @@ export function ranquear(
     */
     if (trecho.posicao === 0) {
       /*
-        Multiplicativo, e não somado: um bônus fixo resgata do limiar um trecho
-        que casou mal — foi o que deixou passar o documento de custo fixo numa
-        pergunta que só dizia "remuneração". Proporcional, ele desempata entre
-        dois trechos parecidos e não salva nenhum.
+        Proporcional ao próprio casamento, e não à pontuação acumulada.
+
+        Um bônus fixo resgataria do limiar um trecho que casou mal — foi o que
+        deixou passar o documento de custo fixo numa pergunta que só dizia
+        "remuneração" —, então ele continua proporcional. O que mudou é a **base**:
+        era `pontos *= 1,2`, que multiplicava também o casamento de título e o de
+        seção, e assim a abertura de um documento vizinho passava à frente da
+        seção que respondia. "Com que frequência a auditoria QLP ADM acontece?"
+        vinha com a abertura do DESCONTO QLP ADM, que fala de auditoria e não
+        diz frequência nenhuma, à frente de *QLP ADM › Frequência*, que responde
+        em uma linha.
+
+        Sobre `bruto`, o bônus mede o que ele sempre quis medir: que a abertura
+        de um documento relevante costuma trazer o objetivo. Ele desempata entre
+        trechos parecidos e não amplifica sinal que não é dele.
       */
-      pontos *= 1.2;
+      pontos += bruto * 0.2;
       porque.push("abertura do documento");
     }
 
@@ -633,15 +711,64 @@ export function ranquear(
  */
 export const LIMIAR_DO_BOOK = 0.35;
 
+/**
+ * O limiar para a regra **definir** a pergunta, e não apenas acompanhá-la.
+ *
+ * Exibir um trecho pede que ele seja relevante; deixá-lo decidir o que a
+ * pergunta quer pede que ele seja a resposta. São exigências diferentes, e por
+ * isso são dois limiares.
+ *
+ * Ele é expresso como múltiplo do piso, e não como um número próprio, porque é
+ * disso que ele fala: "confortavelmente acima do ruído", não "acima de 0,7".
+ * Um número solto precisaria ser recalibrado toda vez que a pontuação mudasse
+ * de escala — e precisou, na primeira vez em que mudou: a largura entrou na
+ * cobertura, tudo desceu, e duas perguntas que o Book responde deixaram de ser
+ * perguntas de Book sem que nada no critério tivesse mudado de opinião.
+ *
+ * Medido no índice: as perguntas que o Book responde pontuam de 0,59 a 2,53; as
+ * que ele não responde ficam em 0,45 e em zero.
+ */
+export const LIMIAR_PARA_DEFINIR = LIMIAR_DO_BOOK * 1.5;
+
+export interface BuscaNoBook {
+  /** O que passou do limiar e vai ao dossiê. */
+  selecionados: TrechoDoBookRanqueado[];
+  /** Quantos trechos o ranqueamento considerou, antes do corte. */
+  candidatos: number;
+  /** A nota do primeiro colocado, tenha ele passado ou não. */
+  melhorPontuacao: number;
+}
+
+/**
+ * A busca completa, com o que ela viu — e não só com o que ela escolheu.
+ *
+ * O corte pelo limiar é a decisão mais consequente do retrieval e a que menos
+ * aparece quando erra: o que sai daqui é uma lista curta, e nada nela diz se
+ * ela é curta porque não havia mais nada ou porque o limiar comeu o resto.
+ * Quem investiga uma resposta ruim precisa das duas coisas.
+ */
+export async function buscarNoBookDetalhado(
+  db: Database,
+  pergunta: string,
+  opcoes: OpcoesDaBusca = {},
+): Promise<BuscaNoBook> {
+  const trechos = await trechosDoBook(db);
+  if (trechos.length === 0) return { selecionados: [], candidatos: 0, melhorPontuacao: 0 };
+  const ranqueados = ranquear(trechos, pergunta, opcoes);
+  return {
+    selecionados: ranqueados.filter((r) => r.pontos >= LIMIAR_DO_BOOK),
+    candidatos: ranqueados.length,
+    melhorPontuacao: ranqueados[0]?.pontos ?? 0,
+  };
+}
+
 /** A busca completa: índice, ranqueamento e limiar. */
 export async function buscarNoBook(
   db: Database,
   pergunta: string,
   opcoes: OpcoesDaBusca = {},
 ): Promise<TrechoDoBookRanqueado[]> {
-  const trechos = await trechosDoBook(db);
-  if (trechos.length === 0) return [];
-  return ranquear(trechos, pergunta, opcoes).filter((r) => r.pontos >= LIMIAR_DO_BOOK);
+  return (await buscarNoBookDetalhado(db, pergunta, opcoes)).selecionados;
 }
 
 /**
