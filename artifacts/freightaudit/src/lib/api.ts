@@ -1,3 +1,6 @@
+import { ehDiagnostico, type Diagnostico } from "@/lib/diagnostico";
+import { ErroDeTransporte, diagnosticarTransporte } from "@/lib/transporte";
+
 /**
  * Returns the full URL for an API endpoint path.
  * In the Replit monorepo, the api-server is mounted at /api.
@@ -24,31 +27,24 @@ export function getApiUrl(path: string): string {
  */
 export async function readJson(response: Response): Promise<Record<string, unknown>> {
   const text = await response.text();
+
+  /*
+    As frases desta função eram escritas aqui, em `throw new Error(...)`. Era a
+    mesma classe de defeito que produziu, no eixo do banco, dois avisos
+    contraditórios na mesma tela: diagnóstico redigido onde o erro acontece, sem
+    tipo e sem dono. Agora quem classifica é `diagnosticarTransporte`, e o que
+    sobe carrega o diagnóstico em vez de uma linha de texto.
+  */
   if (!text.trim()) {
-    // Um 5xx de corpo vazio nunca é nosso: toda resposta desta API é JSON,
-    // mesmo quando é erro. Corpo vazio quer dizer que a requisição parou numa
-    // camada antes — o roteador sem ninguém na porta (502), ou o proxy do Vite
-    // sem servidor atrás (500). Dizer "o servidor respondeu" a respeito de um
-    // servidor que não chegou a ser consultado mandou uma tela ser reescrita
-    // duas vezes atrás de um defeito que estava no ambiente.
-    if (response.status >= 500) {
-      throw new Error(
-        `A API não respondeu (${response.status}). A interface está no ar, mas o ` +
-          `servidor por trás de /api não está, e nada foi enviado. Confira o ` +
-          `processo "API Server" e depois /api/healthz.`,
-      );
-    }
-    throw new Error(
-      response.ok
-        ? `O servidor respondeu ${response.status} sem conteúdo. A conexão pode ter sido interrompida a caminho.`
-        : `O servidor respondeu ${response.status} sem detalhar o motivo.`,
+    throw new ErroDeTransporte(
+      diagnosticarTransporte({ status: response.status, corpoVazio: true }),
     );
   }
   try {
     return JSON.parse(text) as Record<string, unknown>;
   } catch {
-    throw new Error(
-      `Resposta inesperada do servidor (${response.status}): ${text.slice(0, 160)}`,
+    throw new ErroDeTransporte(
+      diagnosticarTransporte({ status: response.status, corpoNaoJson: text }),
     );
   }
 }
@@ -66,12 +62,34 @@ export class ApiError extends Error {
   readonly status: number;
   /** O `code` que a API manda em alguns erros — `SCHEMA_AUSENTE`, … */
   readonly code?: string;
+  /**
+   * O contexto da rota: qual schema falta, e o que houve com o envio.
+   *
+   * É só o que a rota sabe e mais ninguém. Recomendação nenhuma vem por aqui.
+   */
+  readonly contexto?: string;
+  /**
+   * O estado do banco classificado pelo servidor.
+   *
+   * Quando vem preenchido, é a **única** recomendação que a interface
+   * apresenta. Era daqui que nascia o defeito que este campo elimina: a tela
+   * imprimia o texto da rota e o do `/healthz` um embaixo do outro, e os dois
+   * mandavam fazer coisas diferentes sobre o mesmo erro.
+   */
+  readonly diagnostico?: Diagnostico;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    extra?: { contexto?: string; diagnostico?: Diagnostico },
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     if (code !== undefined) this.code = code;
+    if (extra?.contexto !== undefined) this.contexto = extra.contexto;
+    if (extra?.diagnostico !== undefined) this.diagnostico = extra.diagnostico;
   }
 }
 
@@ -82,17 +100,53 @@ export class ApiError extends Error {
  * vira exceção, que é o que o React Query sabe tratar — `isError` em vez de
  * `data` com o formato errado.
  */
+/**
+ * O erro de uma resposta que não deu certo, com tudo o que ela trouxe.
+ *
+ * **Este é o único lugar que constrói um `ApiError` a partir de uma resposta.**
+ * Não é organização: enquanto cada tela montava o seu, elas montavam pela
+ * metade. A de Alterações criava um `ApiError` com status e `code` e deixava
+ * `contexto` e `diagnostico` para trás; as de Importações e do Assistente
+ * jogavam fora até o status, subindo um `Error` de uma linha. O efeito é que a
+ * tela perdia o diagnóstico estruturado justamente no caminho em que ele mais
+ * importa — o do upload — e caía no texto cru ao lado do aviso do `/healthz`,
+ * que é o defeito das duas recomendações voltando pela porta dos fundos.
+ *
+ * @param prefixo  o nome do arquivo, quando a chamada é um envio. Entra na
+ *                 mensagem **e** no contexto: "qual arquivo" é a primeira coisa
+ *                 que se quer saber quando se mandaram vários.
+ */
+export function erroDaResposta(
+  response: Response,
+  body: Record<string, unknown>,
+  prefixo?: string,
+): ApiError {
+  const comPrefixo = (texto: string) =>
+    prefixo ? `${prefixo}: ${texto}` : texto;
+  const mensagem =
+    typeof body.error === "string"
+      ? body.error
+      : `o servidor respondeu ${response.status}.`;
+
+  return new ApiError(
+    comPrefixo(mensagem),
+    response.status,
+    typeof body.code === "string" ? body.code : undefined,
+    {
+      ...(typeof body.contexto === "string"
+        ? { contexto: comPrefixo(body.contexto) }
+        : {}),
+      ...(ehDiagnostico(body.diagnostico)
+        ? { diagnostico: body.diagnostico }
+        : {}),
+    },
+  );
+}
+
 export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(getApiUrl(path), init);
   const body = await readJson(response);
-  if (!response.ok) {
-    const message = typeof body.error === "string" ? body.error : undefined;
-    throw new ApiError(
-      message ?? `O servidor respondeu ${response.status} em ${path}.`,
-      response.status,
-      typeof body.code === "string" ? body.code : undefined,
-    );
-  }
+  if (!response.ok) throw erroDaResposta(response, body);
   // `readJson` descreve o corpo como objeto porque é assim que os erros desta
   // API vêm; várias rotas devolvem lista, e a conversão passa por `unknown`.
   return body as unknown as T;

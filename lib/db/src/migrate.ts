@@ -131,13 +131,13 @@ export function readMigrations(
  */
 const MIGRATION_LOCK = 8_675_309;
 
-/** SQLSTATEs que dizem "isto que você quer criar já existe". */
-const JA_EXISTE = new Set([
-  "42710", // duplicate_object — um tipo, uma constraint
-  "42P07", // duplicate_table — tabela ou índice
-  "42701", // duplicate_column
-  "42P06", // duplicate_schema
-]);
+/*
+ * A lista de SQLSTATEs de "isto já existe" morava aqui e não era usada por
+ * ninguém: a adoção decide por inspeção de schema (ver `tudoJaExiste`), e não
+ * por código de erro. Quem precisava dela de verdade era o diagnóstico, que
+ * mantinha a sua própria cópia literal no `/api/healthz` — duas listas que
+ * ninguém garantia andarem juntas. Agora existe uma só, em `diagnostico.ts`.
+ */
 
 /** O que uma migration cria, extraído do SQL dela. */
 interface ObjetosCriados {
@@ -208,9 +208,29 @@ function objetosRemovidosPor(statements: string[]): Set<string> {
   return nomes;
 }
 
-/** A migration mexe em dados, e não só em estrutura? */
+/**
+ * A migration mexe em dados, e não só em estrutura?
+ *
+ * A pergunta existe para a adoção: o schema estar como a migration o deixaria
+ * prova que a estrutura entrou, e não prova nada sobre um backfill. Quem adota
+ * precisa conferir esse pedaço à mão, e para isso precisa saber quais são.
+ *
+ * **Corpo de função não conta.** A `0009` define
+ * `freightcheck_correct_entity_type`, e dentro dela há uma dúzia de `UPDATE` —
+ * que não rodam quando a migration roda: rodam quando alguém chama a função,
+ * um dia, se chamar. Contá-los fazia a adoção acusar a `0009` e mandar
+ * conferir à mão um backfill que nunca existiu. Um aviso que não se sustenta
+ * gasta a atenção de quem opera e ensina a ignorar os próximos — que é o
+ * oposto do que estes avisos existem para fazer.
+ *
+ * O corte é pelos delimitadores `$$` (ou `$tag$`), que é como todo corpo de
+ * função aqui é escrito. Fora deles, um `UPDATE` roda na hora da migration.
+ */
 export function mexeEmDados(statements: string[]): boolean {
-  return /^\s*(INSERT INTO|UPDATE\s|DELETE FROM)/im.test(statements.join("\n"));
+  const semCorpoDeFuncao = statements
+    .join("\n")
+    .replace(/\$([A-Za-z_]*)\$[\s\S]*?\$\1\$/g, " corpo de função ");
+  return /^\s*(INSERT INTO|UPDATE\s|DELETE FROM)/im.test(semCorpoDeFuncao);
 }
 
 /**

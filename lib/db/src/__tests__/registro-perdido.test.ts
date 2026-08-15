@@ -89,9 +89,19 @@ describe("registro de migrations perdido", () => {
     );
     expect(segunda.applied).toEqual([soConstraints]);
 
-    // As que mexem em dados saem nomeadas: o schema não prova que o backfill
-    // delas rodou, e quem adotou precisa conferir esse pedaço.
-    expect(segunda.adoptedWithData).toContain("0009_entity_type_correction");
+    /*
+      As que mexem em dados saem nomeadas: o schema não prova que o backfill
+      delas rodou, e quem adotou precisa conferir esse pedaço. A `0015` faz
+      backfill de verdade — `UPDATE` em cima de tabelas que já existiam.
+
+      A `0009` não entra, e não entrar é o ponto: os `UPDATE` dela vivem todos
+      dentro do corpo de `freightcheck_correct_entity_type`, e rodam quando
+      alguém chama a função, não quando a migration entra. Enquanto ela era
+      acusada aqui, a adoção mandava conferir à mão um backfill inexistente —
+      e um aviso que não se sustenta ensina a ignorar os próximos.
+    */
+    expect(segunda.adoptedWithData).toContain("0015_canonical_identity");
+    expect(segunda.adoptedWithData).not.toContain("0009_entity_type_correction");
 
     // E o registro volta a refletir o banco: uma terceira passada não tem o
     // que fazer, nem precisa da bandeira.
