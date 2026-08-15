@@ -9,6 +9,7 @@ import {
   guardarEstado,
   listarConversas,
   mensagensDaConversa,
+  registrarFeedback,
   renomearConversa,
   tituloDe,
 } from "../lib/conversas";
@@ -139,6 +140,42 @@ router.post("/assistant/conversations/:id/archive", async (req, res): Promise<vo
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
+/**
+ * O voto de quem leu.
+ *
+ * `feedback: null` desfaz — um clique errado se corrige clicando de novo, e não
+ * há por que exigir uma rota diferente para isso.
+ */
+router.post(
+  "/assistant/conversations/:id/messages/:messageId/feedback",
+  async (req, res): Promise<void> => {
+    try {
+      const { feedback, nota } = (req.body ?? {}) as Record<string, unknown>;
+      if (feedback !== null && feedback !== "UTIL" && feedback !== "NAO_UTIL") {
+        res.status(400).json({ error: "Voto inválido." });
+        return;
+      }
+
+      const linha = await registrarFeedback(
+        db,
+        req.user!.id,
+        req.params.id,
+        req.params.messageId,
+        feedback,
+        typeof nota === "string" ? nota.slice(0, 1000) : null,
+      );
+      if (!linha) {
+        res.status(404).json({ error: "Mensagem não encontrada." });
+        return;
+      }
+      res.json(linha);
+    } catch (err) {
+      req.log.error({ err }, "Error recording assistant feedback");
+      res.status(500).json({ error: "Internal server error" });
+    }
+  },
+);
 
 // ── Perguntar ───────────────────────────────────────────────────────────────
 
@@ -273,7 +310,7 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
       }
     }
 
-    await gravarTurno(db, conversa.id, pergunta, {
+    const gravado = await gravarTurno(db, conversa.id, pergunta, {
       texto: resposta.texto,
       redacao: resposta.redacao,
       evidencia: {
@@ -288,6 +325,7 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
       ...resposta,
       conversationId: conversa.id,
       conversationTitle: conversa.title,
+      messageId: gravado.respostaId,
     };
 
     if (emEventos) {

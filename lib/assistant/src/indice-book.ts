@@ -730,15 +730,45 @@ export const LIMIAR_DO_BOOK = 0.35;
  */
 export const LIMIAR_PARA_DEFINIR = LIMIAR_DO_BOOK * 1.5;
 
+export interface BuscaNoBook {
+  /** O que passou do limiar e vai ao dossiê. */
+  selecionados: TrechoDoBookRanqueado[];
+  /** Quantos trechos o ranqueamento considerou, antes do corte. */
+  candidatos: number;
+  /** A nota do primeiro colocado, tenha ele passado ou não. */
+  melhorPontuacao: number;
+}
+
+/**
+ * A busca completa, com o que ela viu — e não só com o que ela escolheu.
+ *
+ * O corte pelo limiar é a decisão mais consequente do retrieval e a que menos
+ * aparece quando erra: o que sai daqui é uma lista curta, e nada nela diz se
+ * ela é curta porque não havia mais nada ou porque o limiar comeu o resto.
+ * Quem investiga uma resposta ruim precisa das duas coisas.
+ */
+export async function buscarNoBookDetalhado(
+  db: Database,
+  pergunta: string,
+  opcoes: OpcoesDaBusca = {},
+): Promise<BuscaNoBook> {
+  const trechos = await trechosDoBook(db);
+  if (trechos.length === 0) return { selecionados: [], candidatos: 0, melhorPontuacao: 0 };
+  const ranqueados = ranquear(trechos, pergunta, opcoes);
+  return {
+    selecionados: ranqueados.filter((r) => r.pontos >= LIMIAR_DO_BOOK),
+    candidatos: ranqueados.length,
+    melhorPontuacao: ranqueados[0]?.pontos ?? 0,
+  };
+}
+
 /** A busca completa: índice, ranqueamento e limiar. */
 export async function buscarNoBook(
   db: Database,
   pergunta: string,
   opcoes: OpcoesDaBusca = {},
 ): Promise<TrechoDoBookRanqueado[]> {
-  const trechos = await trechosDoBook(db);
-  if (trechos.length === 0) return [];
-  return ranquear(trechos, pergunta, opcoes).filter((r) => r.pontos >= LIMIAR_DO_BOOK);
+  return (await buscarNoBookDetalhado(db, pergunta, opcoes)).selecionados;
 }
 
 /**

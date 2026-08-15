@@ -93,6 +93,19 @@ export const assistantMessageTable = pgTable(
     content: text("content").notNull(),
     /** O dossiê reduzido: evidências, trechos, lacunas, recorte. */
     evidence: jsonb("evidence"),
+    /**
+     * O voto de quem leu: `UTIL`, `NAO_UTIL`, ou nada.
+     *
+     * É a única medida de qualidade deste assistente que não fomos nós que
+     * escolhemos medir. A bateria, o benchmark e os cenários da trava de lastro
+     * cobrem o que pensamos em cobrir; o analista que perguntou é quem sabe se
+     * a resposta serviu. Nulo é o estado normal — a maioria das respostas não
+     * recebe voto, e ler ausência como "ruim" inventaria um sinal.
+     */
+    feedback: text("feedback"),
+    /** O que a pessoa quis dizer junto com o voto. Opcional. */
+    feedbackNote: text("feedback_note"),
+    feedbackAt: timestamp("feedback_at", { withTimezone: true }),
     /** IA ou DETERMINISTICA — para o painel técnico, nunca para a leitura. */
     writer: text("writer"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

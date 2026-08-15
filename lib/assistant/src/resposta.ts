@@ -90,6 +90,32 @@ export interface Resposta {
     ferramentas: string[];
     numerosRecusados: string[];
     /**
+     * O rastro que explica esta resposta **depois** que ela aconteceu.
+     *
+     * Sem ele, investigar uma resposta ruim é reproduzir a pergunta à mão e
+     * instrumentar o código — que é o que a auditoria teve de fazer para
+     * descobrir que "remuneração" era palavra de bloqueio. Cada campo aqui é
+     * uma pergunta que alguém faz olhando para uma resposta que decepcionou:
+     * o que ele entendeu que eu queria, o que ele foi buscar, quanto material
+     * havia, com que folga o corte passou, e onde o tempo foi.
+     */
+    rastro: {
+      /** O assunto reconhecido, e por qual caminho. */
+      assunto: string | null;
+      comoReconheceu: string | null;
+      /** Tudo o que o plano decidiu descobrir, não só o que deu nome. */
+      necessidades: string[];
+      /** O que a busca no Book viu, antes e depois do limiar. */
+      book: { candidatos: number; selecionados: number; melhorPontuacao: number };
+      /** Cada etapa e o instante em que ela começou. */
+      etapas: { nome: string; ms: number }[];
+      /** Quanto a orquestração levou, sem a chamada ao modelo. */
+      orquestracaoMs: number;
+      /** Quantas frases a trava removeu, de quantas. */
+      frasesPodadas: number;
+      frasesTotais: number;
+    };
+    /**
      * O que aconteceu com a chamada ao modelo — `null` quando não houve uma.
      *
      * Sem isto, `redacao: "DETERMINISTICA"` é ambíguo de um jeito caro: não se
@@ -601,6 +627,8 @@ export async function responder(
   let redacao: Resposta["redacao"] = "DETERMINISTICA";
   let numerosRecusados: string[] = [];
   let ia: Resposta["tecnico"]["ia"] = null;
+  let frasesPodadas = 0;
+  let frasesTotais = 0;
 
   if (!opcoes.semIa && disponivel()) {
     const pedido: PedidoDeRedacao = {
@@ -637,6 +665,8 @@ export async function responder(
       */
       const saneamento = sanear(doModelo, dossie);
       numerosRecusados = saneamento.recusados;
+      frasesPodadas = saneamento.removidas;
+      frasesTotais = saneamento.total;
 
       if (saneamento.recusados.length === 0) {
         texto = doModelo;
@@ -688,6 +718,16 @@ export async function responder(
       ferramentas: dossie.evidencias.map((e: Evidencia) => e.ferramenta),
       numerosRecusados,
       ia,
+      rastro: {
+        assunto: dossie.plano.assunto,
+        comoReconheceu: dossie.plano.comoReconheceu,
+        necessidades: dossie.plano.necessidades,
+        book: dossie.diagnostico.book,
+        etapas: dossie.etapas.map((e) => ({ nome: e.nome, ms: e.ms })),
+        orquestracaoMs: dossie.diagnostico.ms,
+        frasesPodadas,
+        frasesTotais,
+      },
     },
   };
 }

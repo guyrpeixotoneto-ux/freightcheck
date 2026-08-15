@@ -22,7 +22,7 @@
 import type { Database } from "@workspace/db";
 import { buscarTrechos, type TrechoRelevante } from "./corpus";
 import {
-  buscarNoBook,
+  buscarNoBookDetalhado,
   documentoDoBloco,
   LIMIAR_PARA_DEFINIR,
   type TrechoDoBookRanqueado,
@@ -97,6 +97,14 @@ export interface Etapa {
   nome: string;
   /** O que a tela mostra enquanto isto roda. */
   rotulo: string;
+  /**
+   * Milissegundos desde o início da orquestração.
+   *
+   * É o que transforma a lista de etapas em diagnóstico: sem ele dá para ver
+   * **o que** rodou e não **onde o tempo foi**, que é a pergunta que alguém faz
+   * olhando para uma resposta lenta.
+   */
+  ms: number;
 }
 
 export interface Plano {
@@ -161,6 +169,20 @@ export interface Dossie {
   etapas: Etapa[];
   /** Quando a pergunta casa duas gavetas e o assistente precisa perguntar. */
   desambiguacao: { termo: string; opcoes: string[] } | null;
+  /**
+   * O que a recuperação viu antes de decidir — para explicar uma resposta ruim
+   * **depois** que ela aconteceu.
+   *
+   * Sem isto, uma resposta que trouxe o documento errado só se investiga
+   * reproduzindo a pergunta à mão e instrumentando o código. Os números aqui
+   * respondem as três perguntas que se faz nessa hora: quantos candidatos
+   * havia, quantos passaram do limiar, e com que folga o primeiro passou.
+   */
+  diagnostico: {
+    book: { candidatos: number; selecionados: number; melhorPontuacao: number };
+    /** O tempo total da orquestração, sem a chamada ao modelo. */
+    ms: number;
+  };
 }
 
 // ── Resolução de período ────────────────────────────────────────────────────
@@ -298,8 +320,9 @@ export async function orquestrar(
   opcoes: OpcoesDeOrquestracao = {},
 ): Promise<Dossie> {
   const etapas: Etapa[] = [];
+  const comecou = Date.now();
   const marcar = (nome: string, rotulo: string) => {
-    const etapa = { nome, rotulo };
+    const etapa = { nome, rotulo, ms: Date.now() - comecou };
     etapas.push(etapa);
     opcoes.aoAvancar?.(etapa);
   };
@@ -494,17 +517,23 @@ export async function orquestrar(
     pergunta não tinha classificação.
   */
   const achadosDoBook: TrechoDoBookRanqueado[] = [];
+  let diagnosticoDoBook = { candidatos: 0, selecionados: 0, melhorPontuacao: 0 };
   if (leitura.intencao !== "SAUDACAO") {
     marcar("book", "Procurando no Book do Operador");
-    const achados = await buscarNoBook(db, pergunta, {
+    const busca = await buscarNoBookDetalhado(db, pergunta, {
       limite: 6,
       blocoPreferido: estado?.blocoDoBook ?? null,
       termosExtras: [
         ...(termoDoAssunto ? [termoDoAssunto] : []),
         ...(alvo ? [alvo.parametro] : []),
       ],
-    }).catch(() => []);
-    achadosDoBook.push(...achados);
+    }).catch(() => ({ selecionados: [], candidatos: 0, melhorPontuacao: 0 }));
+    achadosDoBook.push(...busca.selecionados);
+    diagnosticoDoBook = {
+      candidatos: busca.candidatos,
+      selecionados: busca.selecionados.length,
+      melhorPontuacao: Number(busca.melhorPontuacao.toFixed(3)),
+    };
   }
 
   // ---- 5. o plano de investigação ------------------------------------------
@@ -591,17 +620,44 @@ export async function orquestrar(
     duas fontes idênticas como se fossem confirmação independente.
   */
   const vistas = new Set<string>();
-  const juntar = async (
-    rotulo: string,
-    promessa: Promise<Evidencia | null>,
-  ): Promise<void> => {
+  /*
+    As consultas partem juntas e são colhidas em ordem.
+
+    Nenhuma delas consome o resultado de outra — são leituras independentes do
+    mesmo recorte —, e mesmo assim rodavam em fila: "quanto mudou o pneu desde
+    dezembro?" fazia seis, uma após a outra, e levava 239 ms para uma soma de
+    trabalho que cabe em 115. Uma promessa em JavaScript começa quando é criada,
+    então enfileirar em vez de aguardar já as põe a correr em paralelo.
+
+    **A ordem da colheita é a de declaração, e isso não é detalhe.** É ela que
+    numera as citações; colher por ordem de chegada faria a mesma pergunta citar
+    fontes com números diferentes conforme a latência do banco naquele instante,
+    e a resposta guardada na conversa deixaria de casar com as fontes ao lado.
+
+    **O leque não é limitado, e é uma escolha.** Seis consultas curtas por
+    pergunta, contra um pool de dez conexões: com vários analistas perguntando
+    ao mesmo tempo o pool enfileira, que é exatamente o que acontecia antes
+    desta mudança e sem nenhum erro novo. Um semáforo aqui protegeria contra uma
+    carga que este produto não tem — ele é interno e de uma operação — e cobraria
+    a complexidade agora. Se um dia a espera aparecer no tempo de resposta, o
+    lugar de resolvê-la é o tamanho do pool, não o número de perguntas que uma
+    resposta pode fazer.
+  */
+  const pendentes: Promise<Evidencia | null>[] = [];
+  const juntar = (rotulo: string, promessa: Promise<Evidencia | null>): void => {
     marcar("consultar", rotulo);
-    const evidencia = await promessa.catch(() => null);
-    if (!evidencia) return;
-    const chave = `${evidencia.ferramenta}|${evidencia.titulo}|${evidencia.origem}`;
-    if (vistas.has(chave)) return;
-    vistas.add(chave);
-    evidencias.push(evidencia);
+    pendentes.push(promessa.catch(() => null));
+  };
+
+  const colher = async (): Promise<void> => {
+    for (const promessa of pendentes.splice(0)) {
+      const evidencia = await promessa;
+      if (!evidencia) continue;
+      const chave = `${evidencia.ferramenta}|${evidencia.titulo}|${evidencia.origem}`;
+      if (vistas.has(chave)) continue;
+      vistas.add(chave);
+      evidencias.push(evidencia);
+    }
   };
 
   const periodoEfetivo = plano.periodo ?? undefined;
@@ -666,30 +722,27 @@ export async function orquestrar(
         entregar a estatística ao lado dela é trocar a resposta pela ficha.
       */
       if (!termoDoAssunto && !investigacao.bookPorEvidencia) {
-        marcar("consultar", "Consultando o Book do Operador");
-        evidencias.push(await coberturaDoBook(db));
+        juntar("Consultando o Book do Operador", coberturaDoBook(db));
       }
       break;
 
     case "PANORAMA":
       if (contexto) {
-        marcar("consultar", "Consultando o que foi importado");
-        evidencias.push(await panoramaDoContexto(db, contexto));
+        juntar("Consultando o que foi importado", panoramaDoContexto(db, contexto));
       }
       break;
 
     case "CATALOGO_DE_CONTEXTO":
       if (contexto) {
-        marcar("consultar", "Listando vigências");
-        evidencias.push(await listarVigencias(db, contexto));
+        juntar("Listando vigências", listarVigencias(db, contexto));
       }
       break;
 
     case "MOVIMENTO":
       if (contexto && !alvoPerdido) {
-        await juntar("Consultando alterações", resumoDaVigencia(db, contexto, periodoEfetivo));
+        juntar("Consultando alterações", resumoDaVigencia(db, contexto, periodoEfetivo));
         if (alvo) {
-          await juntar(
+          juntar(
             "Consultando o parâmetro",
             movimentoDoParametro(db, contexto, alvo, periodoEfetivo),
           );
@@ -699,15 +752,15 @@ export async function orquestrar(
 
     case "VALOR":
       if (contexto && alvo) {
-        await juntar(
+        juntar(
           "Consultando o parâmetro",
           movimentoDoParametro(db, contexto, alvo, periodoEfetivo),
         );
         for (const atributo of alvo.atributos.slice(0, 2)) {
-          await juntar("Consultando a série", serieDoParametro(db, contexto, atributo.codigo));
+          juntar("Consultando a série", serieDoParametro(db, contexto, atributo.codigo));
         }
       } else if (contexto && !alvoPerdido) {
-        await juntar("Consultando alterações", resumoDaVigencia(db, contexto, periodoEfetivo));
+        juntar("Consultando alterações", resumoDaVigencia(db, contexto, periodoEfetivo));
       }
       break;
 
@@ -721,21 +774,21 @@ export async function orquestrar(
           a manutenção?" ouvia nove médias e nunca as 72 alterações que a tela
           de Parâmetros mostra para a mesma gaveta.
         */
-        await juntar(
+        juntar(
           "Consultando o parâmetro",
           movimentoDoParametro(db, contexto, alvo, periodoEfetivo),
         );
         for (const atributo of alvo.atributos.slice(0, 3)) {
-          await juntar("Consultando a série", serieDoParametro(db, contexto, atributo.codigo));
+          juntar("Consultando a série", serieDoParametro(db, contexto, atributo.codigo));
         }
-        await juntar(
+        juntar(
           "Calculando o intervalo",
           compararIntervalo(db, contexto, intervalo?.de ?? undefined, intervalo?.ate ?? undefined, [
             `${alvo.atributos[0]?.familia ?? ""}|${alvo.parametro}`,
           ]),
         );
       } else if (contexto && !alvoPerdido) {
-        await juntar(
+        juntar(
           "Calculando o intervalo",
           compararIntervalo(db, contexto, intervalo?.de ?? undefined, intervalo?.ate ?? undefined),
         );
@@ -744,7 +797,7 @@ export async function orquestrar(
 
     case "COMPARACAO":
       if (contexto && !alvoPerdido) {
-        await juntar(
+        juntar(
           "Comparando as vigências",
           compararIntervalo(db, contexto, intervalo?.de ?? undefined, intervalo?.ate ?? undefined),
         );
@@ -754,7 +807,7 @@ export async function orquestrar(
     case "RANKING_PERDA":
     case "RANKING_GANHO":
       if (contexto) {
-        await juntar(
+        juntar(
           "Calculando impacto",
           rankingDeImpacto(db, contexto, intencao === "RANKING_PERDA" ? "PERDA" : "GANHO", periodoEfetivo),
         );
@@ -763,13 +816,13 @@ export async function orquestrar(
 
     case "VEICULOS":
       if (contexto) {
-        await juntar("Consultando veículos afetados", veiculosAfetados(db, contexto, periodoEfetivo));
+        juntar("Consultando veículos afetados", veiculosAfetados(db, contexto, periodoEfetivo));
       }
       break;
 
     case "SEM_PRECO":
       if (contexto) {
-        await juntar("Verificando o que não tem preço", semParaPrecificar(db, contexto, periodoEfetivo));
+        juntar("Verificando o que não tem preço", semParaPrecificar(db, contexto, periodoEfetivo));
       }
       break;
 
@@ -789,19 +842,19 @@ export async function orquestrar(
         agora, no mesmo recorte, e desce até a linha que mudou.
       */
       if (contexto && alvo) {
-        await juntar(
+        juntar(
           "Recuperando a origem",
           movimentoDoParametro(db, contexto, alvo, periodoEfetivo),
         );
         const primeiraColuna = alvo.atributos[0];
         if (primeiraColuna && plano.periodo) {
-          await juntar(
+          juntar(
             "Descendo até as linhas",
             veiculosDoGrupo(db, contexto, plano.periodo, primeiraColuna.codigo, primeiraColuna.equipamento),
           );
         }
       } else if (contexto && !alvoPerdido) {
-        await juntar("Recuperando a origem", resumoDaVigencia(db, contexto, periodoEfetivo));
+        juntar("Recuperando a origem", resumoDaVigencia(db, contexto, periodoEfetivo));
       }
       break;
 
@@ -815,9 +868,9 @@ export async function orquestrar(
       metade do que se quis saber.
     */
     case "CURADORIA":
-      await juntar("Consultando a curadoria", estadoDaCuradoria(db));
+      juntar("Consultando a curadoria", estadoDaCuradoria(db));
       if (alvo?.atributos[0]) {
-        await juntar(
+        juntar(
           "Recuperando o histórico da semântica",
           historicoDaSemantica(db, alvo.atributos[0].codigo),
         );
@@ -825,11 +878,11 @@ export async function orquestrar(
       break;
 
     case "IMPORTACOES":
-      await juntar("Consultando as importações", importacoesRecentes(db));
+      juntar("Consultando as importações", importacoesRecentes(db));
       break;
 
     case "BALANCO":
-      await juntar("Consultando o balanço de massa", balancoDasImportacoes(db));
+      juntar("Consultando o balanço de massa", balancoDasImportacoes(db));
       break;
 
     case "CELULAS":
@@ -847,13 +900,13 @@ export async function orquestrar(
         aqui é justamente o que o dicionário do produto **não** conhece.
       */
       if (candidato) {
-        await juntar("Procurando nas células importadas", buscarNasCelulas(db, candidato));
+        juntar("Procurando nas células importadas", buscarNasCelulas(db, candidato));
       }
       break;
 
     case "COMPOSICAO":
       if (contexto) {
-        await juntar(
+        juntar(
           "Compondo a remuneração da frota",
           composicaoDaFrota(db, contexto, leitura.entidades.equipamento ?? "CAVALO", periodoEfetivo),
         );
@@ -905,7 +958,7 @@ export async function orquestrar(
       registrado no Book?".
     */
     if (termoDoAssunto) {
-      await juntar(
+      juntar(
         "Consultando o registro do Book",
         regraDoBook(db, termoDoAssunto, { documentoLido: documentos.length > 0 }),
       );
@@ -959,6 +1012,15 @@ export async function orquestrar(
       }
     }
   }
+
+  /*
+    ---- a colheita ----------------------------------------------------------
+
+    Aqui, e não antes: o registro do Book é enfileirado depois do laço, e a
+    lacuna e a redação leem `evidencias` depois daqui. Colher cedo demais
+    devolveria a fila ao comportamento sequencial sem que nada denunciasse.
+  */
+  await colher();
 
   // ---- 6. corpus conceitual -----------------------------------------------
   /*
@@ -1128,6 +1190,7 @@ export async function orquestrar(
     lacunas,
     etapas,
     desambiguacao,
+    diagnostico: { book: diagnosticoDoBook, ms: Date.now() - comecou },
   };
 }
 

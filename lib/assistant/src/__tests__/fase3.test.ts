@@ -51,6 +51,7 @@ const DOSSIE = {
   lacunas: [],
   etapas: [],
   desambiguacao: null,
+  diagnostico: { book: { candidatos: 0, selecionados: 0, melhorPontuacao: 0 }, ms: 0 },
 } satisfies Dossie;
 
 describe("P0.4 — a trava reconhece o que é conferível", () => {

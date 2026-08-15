@@ -65,6 +65,7 @@ function dossie(parcial: Partial<Dossie> = {}): Dossie {
     lacunas: [],
     etapas: [],
     desambiguacao: null,
+    diagnostico: { book: { candidatos: 0, selecionados: 0, melhorPontuacao: 0 }, ms: 0 },
     ...parcial,
   };
 }

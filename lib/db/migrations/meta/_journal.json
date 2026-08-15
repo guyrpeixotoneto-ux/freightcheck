@@ -127,6 +127,13 @@
       "when": 1786845780000,
       "tag": "0017_fato_herdado",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786845840000,
+      "tag": "0018_assistant_feedback",
+      "breakpoints": true
     }
   ]
 }

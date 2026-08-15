@@ -138,7 +138,13 @@ export default function Assistente() {
       setEmCurso("");
       setTurnos((atuais) => [
         ...atuais,
-        { papel: "RESPOSTA", texto: r.texto, resposta: r },
+        {
+          papel: "RESPOSTA",
+          texto: r.texto,
+          resposta: r,
+          ...(r.messageId ? { mensagemId: r.messageId } : {}),
+          conversaId: r.conversationId,
+        },
       ]);
       void cliente.invalidateQueries({ queryKey: ["assistant-conversations"] });
     },
@@ -167,12 +173,14 @@ export default function Assistente() {
 
   const abrirConversa = async (id: string) => {
     const dados = await fetchJson<{
-      mensagens: { role: string; content: string; evidence: unknown }[];
+      mensagens: { id: string; role: string; content: string; evidence: unknown }[];
     }>(`/assistant/conversations/${id}`);
     setConversaId(id);
     setTurnos(
       dados.mensagens.map((m) => ({
         papel: m.role === "PERGUNTA" ? "PERGUNTA" : "RESPOSTA",
+        mensagemId: m.id,
+        conversaId: id,
         texto: m.content,
         // O dossiê guardado é a citação, não o objeto inteiro: uma conversa
         // reaberta mostra as fontes daquele dia sem refazer as consultas.
@@ -631,9 +639,37 @@ function PainelTecnico({ resposta }: { resposta: Resposta }) {
         <span className="text-muted-foreground">herdado:</span>{" "}
         {t.herdado.length > 0 ? t.herdado.join(", ") : "—"}
       </p>
+      {/*
+        O plano inteiro, e não só a necessidade que deu nome.
+
+        Desde que a classificação virou plano, uma pergunta pode precisar de
+        duas coisas — e ver só a primeira esconde exatamente a decisão que
+        passou a ser possível.
+      */}
+      <p>
+        <span className="text-muted-foreground">plano:</span>{" "}
+        {t.rastro.necessidades.join(" + ")}
+      </p>
+      <p>
+        <span className="text-muted-foreground">assunto:</span>{" "}
+        {t.rastro.assunto
+          ? `${t.rastro.assunto}${t.rastro.comoReconheceu ? ` (${t.rastro.comoReconheceu.toLowerCase().replace(/_/g, " ")})` : ""}`
+          : "nenhum reconhecido"}
+      </p>
       <p>
         <span className="text-muted-foreground">ferramentas:</span>{" "}
         {t.ferramentas.length > 0 ? t.ferramentas.join(", ") : "—"}
+      </p>
+      {/*
+        Quantos candidatos havia e quantos passaram — a pergunta que se faz
+        quando a resposta trouxe o documento errado, ou nenhum.
+      */}
+      <p>
+        <span className="text-muted-foreground">Book:</span>{" "}
+        {t.rastro.book.candidatos} candidatos · {t.rastro.book.selecionados} acima do limiar
+        {t.rastro.book.candidatos > 0
+          ? ` · melhor ${t.rastro.book.melhorPontuacao.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}`
+          : ""}
       </p>
       <p>
         <span className="text-muted-foreground">redação:</span> {resposta.redacao}
@@ -659,8 +695,26 @@ function PainelTecnico({ resposta }: { resposta: Resposta }) {
       {t.numerosRecusados.length > 0 && (
         <p className="text-destructive">
           o que a trava recusou: {t.numerosRecusados.join(", ")}
+          {t.rastro.frasesPodadas > 0
+            ? ` · ${t.rastro.frasesPodadas} de ${t.rastro.frasesTotais} frases removidas`
+            : ""}
         </p>
       )}
+      {/*
+        Onde o tempo foi.
+
+        Cada etapa com o instante em que começou, e o total da orquestração
+        separado da chamada ao modelo — que são as duas metades de uma resposta
+        lenta, e pedem correções diferentes.
+      */}
+      <p>
+        <span className="text-muted-foreground">tempo:</span>{" "}
+        {t.rastro.orquestracaoMs} ms de orquestração
+        {t.ia ? ` + ${t.ia.latenciaMs} ms de modelo` : ""}
+      </p>
+      <p className="text-muted-foreground break-all">
+        {t.rastro.etapas.map((e) => `${e.nome}@${e.ms}`).join(" → ")}
+      </p>
     </div>
   );
 }
