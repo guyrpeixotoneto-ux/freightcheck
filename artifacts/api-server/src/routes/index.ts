@@ -12,6 +12,7 @@ import bookRouter from "./book";
 import assistantRouter from "./assistant";
 import balanceRouter from "./balance";
 import compositionRouter from "./composition";
+import dreRouter from "./dre";
 import ticketsRouter from "./tickets";
 
 /**
@@ -53,6 +54,14 @@ import ticketsRouter from "./tickets";
  * **o que compõe o que aquele ativo recebe** e o que fica de fora, com o
  * motivo escrito.
  *
+ * `dre` é a DRE: o resultado por unidade econômica — cavalo, carreta ou
+ * conjunto. Também não tem tabela própria: reorganiza em seções contábeis o que
+ * a Composição já apura, acrescenta a normalização de periodicidade e a métrica
+ * de cobertura, e recusa-se a fechar subtotal cujo componente essencial falte.
+ * Fica separada da Composição de propósito: uma responde "por que este
+ * equipamento recebe este valor" e a outra "o que sobra depois dos custos", e as
+ * duas leem os mesmos fatos pelo mesmo motor.
+ *
  * `assistant` é o Assistente de IA. É a única superfície que **não** tem dado
  * próprio: ela responde a partir do conhecimento registrado em código e de
  * consultas às mesmas funções que as telas usam. Um número que aparece lá
@@ -78,6 +87,7 @@ router.use(bookRouter);
 router.use(assistantRouter);
 router.use(balanceRouter);
 router.use(compositionRouter);
+router.use(dreRouter);
 router.use(ticketsRouter);
 
 export default router;

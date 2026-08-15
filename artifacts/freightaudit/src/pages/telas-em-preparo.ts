@@ -244,6 +244,15 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
     ],
     hoje: [
       {
+        href: "/dre",
+        label: "DRE",
+        porque:
+          "A demonstração que o banco sustenta hoje: receita, amortização, juros e " +
+          "IPVA por conjunto, com a origem de cada número e a cobertura medida. Ela " +
+          "recusa exibir EBITDA e margem de contribuição justamente pelo que falta " +
+          "aqui, e abre a ficha de cada veículo a partir do ranking.",
+      },
+      {
         href: "/composicao",
         label: "Composição",
         porque: "O lado da receita, que é a metade da conta que o banco já sustenta.",

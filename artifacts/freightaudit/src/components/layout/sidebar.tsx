@@ -6,6 +6,7 @@ import {
   Building2,
   Bot,
   Calculator,
+  Receipt,
   CalendarDays,
   ChartColumn,
   ChartNoAxesCombined,
@@ -180,6 +181,19 @@ const NAV_GROUPS: NavGroup[] = [
         procura um valor, e só depois procura a inconsistência dele.
       */
       { href: "/composicao", label: "Composição", icon: Calculator },
+      /*
+        A DRE vem depois da Composição porque é a pergunta seguinte. A Composição
+        responde "por que este equipamento recebe este valor"; a DRE responde "o
+        que sobra depois dos custos" — e usa exatamente a mesma apuração, com as
+        linhas reorganizadas em seções contábeis. Duas telas e um motor.
+
+        Fica aqui, e não na seção **Frota**, pelo mesmo motivo que a Composição:
+        as duas abrem na frota e descem ao ativo. A seção Frota olha o ativo
+        individual desde a primeira tela, e é lá que vive o `/dre-veiculo` ainda
+        em preparo — que continua em preparo, porque o que falta a ele é custo
+        operacional, e não esta apuração.
+      */
+      { href: "/dre", label: "DRE", icon: Receipt, novidade: true },
     ],
   },
   {

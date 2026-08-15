@@ -11,12 +11,8 @@
   "include": ["src"],
   "references": [
     { "path": "../db" },
-    { "path": "../knowledge" },
-    { "path": "../curation" },
     { "path": "../comparison" },
-    { "path": "../ingest" },
-    { "path": "../balance" },
     { "path": "../composition" },
-    { "path": "../dre" }
+    { "path": "../simulation" }
   ]
 }

@@ -19,6 +19,8 @@ import Importacoes from '@/pages/importacoes';
 import BalancoMassa from '@/pages/balanco-massa';
 import Composicao from '@/pages/composicao';
 import ComposicaoEquipamento from '@/pages/composicao-equipamento';
+import DRE from '@/pages/dre';
+import DREVeiculo from '@/pages/dre-veiculo';
 import ApresentacaoVideo from '@/components/video/ApresentacaoVideo';
 import AnaliseEquipamentos from '@/pages/analise-equipamentos';
 import Curadoria from '@/pages/curadoria';
@@ -87,6 +89,8 @@ function Router() {
       <Route path="/importacoes" component={Importacoes} />
       <Route path="/composicao" component={Composicao} />
       <Route path="/composicao/:entityId" component={ComposicaoEquipamento} />
+      <Route path="/dre" component={DRE} />
+      <Route path="/dre/:entityId" component={DREVeiculo} />
       <Route path="/balanco-massa" component={BalancoMassa} />
       <Route path="/analise-equipamentos" component={AnaliseEquipamentos} />
       <Route path="/curadoria" component={Curadoria} />
