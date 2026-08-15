@@ -13,12 +13,54 @@
  * dimensões, não.
  */
 
-/** Sem acento e sem caixa: ninguém digita "vigência" com o acento certo. */
+/**
+ * Como se escreve depressa — e é a mesma palavra.
+ *
+ * `qnt mudou o pneu?` perdia as duas coisas de uma vez: nenhum detector casava
+ * (`quanto mudou` é a forma que EVOLUÇÃO conhece) e o assunto sumia, porque
+ * `qnt` sobrava no candidato e o reconhecimento falhava com ele dentro.
+ *
+ * **Por que isto não é mais uma lista aberta.** Todas as expansões abaixo são
+ * de palavras que já estão em `PALAVRAS_DE_PERGUNTA` — a classe fechada da
+ * *forma* de perguntar. Não há nenhum assunto aqui, e não pode haver: o dia em
+ * que alguém quiser escrever `pn` para `pneu`, a resposta certa é o índice do
+ * Book, não esta tabela. Ela cresce com a ortografia do português apressado,
+ * que é finita, e não com o catálogo, que não é.
+ */
+const ABREVIACOES: ReadonlyMap<string, string> = new Map([
+  ["qnt", "quanto"], ["qto", "quanto"], ["qtos", "quantos"],
+  ["pq", "porque"], ["pqe", "porque"],
+  ["vc", "voce"], ["vcs", "voces"],
+  ["tb", "tambem"], ["tbm", "tambem"],
+  ["td", "tudo"], ["tds", "todos"],
+  ["msm", "mesmo"],
+  ["ta", "esta"], ["tao", "estao"],
+  ["hj", "hoje"],
+  ["blz", "beleza"], ["obg", "obrigado"],
+]);
+
+const FORMA_ABREVIADA = new RegExp(
+  `\\b(${[...ABREVIACOES.keys()].join("|")})\\b`,
+  "g",
+);
+
+/**
+ * Sem acento, sem caixa — e sem a pressa de quem digitou.
+ *
+ * A expansão mora aqui, e não numa etapa à parte, porque este é o funil: os
+ * detectores, `termos`, `pontuar` e o índice do Book todos passam por ele. Uma
+ * camada separada teria de ser chamada em cada um deles, e o dia em que alguém
+ * esquecesse um seria o dia em que `qnt` voltaria a ser um assunto.
+ *
+ * A troca é de palavra inteira (`\b`): `ta` vira `esta`, e `tarifa` continua
+ * sendo tarifa.
+ */
 export function normalizar(texto: string): string {
   return texto
     .toLowerCase()
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "");
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(FORMA_ABREVIADA, (m) => ABREVIACOES.get(m) ?? m);
 }
 
 /**
@@ -211,10 +253,27 @@ export function pontuar(pergunta: string, termosDoAssunto: string[]): number {
  */
 function variante(termo: string, palavras: Set<string>): boolean {
   for (const palavra of palavras) {
-    if (palavra.startsWith(termo)) return true;
-    if (palavra.length > 4 && termo.startsWith(palavra)) return true;
+    if (palavra.startsWith(termo) && flexao(palavra, termo)) return true;
+    if (palavra.length > 4 && termo.startsWith(palavra) && flexao(termo, palavra)) return true;
   }
   return false;
+}
+
+/**
+ * O que sobra do prefixo é flexão da mesma palavra, ou é outra palavra?
+ *
+ * A regra anterior aceitava qualquer prefixo, e o resultado foi este: quem
+ * perguntou "me dá o CPF do **motorista** da placa ABC1D23" recebeu o cartão
+ * **Motor** do catálogo a 0,800 — o casamento inteiro estava em `motorista`
+ * começar com `motor`. Um sufixo derivacional não flexiona uma palavra, faz
+ * outra: `-ista`, `-agem`, `-mento`, `-dade` mudam o que a palavra nomeia.
+ *
+ * O corte é o comprimento do que sobra. Flexão do português é curta — plural
+ * (`vigencia`/`vigencias`), gênero (`apurado`/`apurada`), e no máximo os dois
+ * juntos. Duas letras cobrem isso e não cobrem `-ista`.
+ */
+function flexao(longa: string, curta: string): boolean {
+  return longa.length - curta.length <= 2;
 }
 
 /**

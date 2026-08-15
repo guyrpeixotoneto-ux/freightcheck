@@ -367,8 +367,21 @@ export function buscarTrechos(
       Como reforço ele faz o que se espera dele: desempata entre dois trechos que
       cobrem a pergunta igualmente bem, a favor do que a anuncia no título.
     */
-    const pontos =
-      Math.max(porTermo, porPergunta) + porTitulo * 0.3 + forcaDaLigacao;
+    /*
+      E ele só reforça o que já se sustenta sozinho.
+
+      Como parcela livre, o título era capaz de carregar um trecho sobre o
+      limiar por conta própria: "me dá o CPF do motorista da placa ABC1D23"
+      recuperava o artigo "A placa não é a chave" com 0,257 de base — abaixo do
+      corte — e 0,3 de título, porque a pergunta cita uma placa. A pessoa
+      perguntou uma coisa que este produto não tem, e recebia contexto sobre
+      outra, o que é a forma mais fácil de uma resposta parecer que respondeu.
+
+      Reforço quer dizer desempate: o trecho precisa cobrir a pergunta antes de
+      o título valer alguma coisa.
+    */
+    const base = Math.max(porTermo, porPergunta) + forcaDaLigacao;
+    const pontos = base >= LIMIAR ? base + porTitulo * 0.3 : base;
 
     if (pontos >= LIMIAR) achados.push({ trecho, pontos });
   }

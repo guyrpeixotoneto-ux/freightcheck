@@ -375,6 +375,17 @@ export async function resumoDaVigencia(
     origem: `getFamiliesView · ${visao.periodLabel} · ${ctx.info.label}`,
     recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
     tela: { label: "Parâmetros", href: "/parametros" },
+    /*
+      O que mais mexeu, para quem vier atrás da regra dele.
+
+      O segundo salto da Fase 5 — achado o item que pesa, vá ler a regra dele —
+      dependia de alguém publicar qual é esse item, e só o ranking e a fila
+      publicavam. O resumo da vigência é a forma mais comum de a descoberta
+      acontecer, e ficou de fora por omissão: "existe alguma regra no Book
+      relacionada a essa alteração?" chega aqui com um pronome no lugar do
+      assunto, recebe o resumo, e não tinha como saber de que regra ir atrás.
+    */
+    ...(r.topParameters[0] ? { assuntoEmDestaque: r.topParameters[0].name } : {}),
   };
 }
 

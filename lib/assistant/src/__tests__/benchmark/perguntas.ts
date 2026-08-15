@@ -100,7 +100,20 @@ export const BENCHMARK: CasoDeBenchmark[] = [
   { pergunta: "Qual o preço do combustível em reais?", categoria: "combustivel", intencao: ["VALOR","CONCEITUAL","DISPONIBILIDADE"], fontes: ["CONCEITO"], lacuna: "CONCEITO_SEM_DADO" },
   { pergunta: "O que mudou no consumo negociado?", categoria: "combustivel", intencao: ["MOVIMENTO"], fontes: ["DADO","BOOK"], exigeEvidencia: true },
   { pergunta: "Quanto mudou combustível?", categoria: "combustivel", intencao: ["EVOLUCAO"], fontes: ["DADO"], exigeEvidencia: true },
-  { pergunta: "O que mudou no diesel?", categoria: "combustivel", intencao: ["MOVIMENTO"], fontes: ["DADO"], exigeEvidencia: true, nota: "sinônimo de domínio: diesel → combustível" },
+  /*
+    Reclassificada na Fase 6, e a razão importa mais que o caso.
+
+    Ela pedia `DADO` com a nota "sinônimo de domínio: diesel → combustível". Os
+    dados dizem outra coisa: o catálogo do Freightech publica um campo `Diesel
+    destino` que **este export não traz**, e as colunas de combustível que ele
+    traz medem consumo e capacidade — não o preço do diesel. Atendê-la seria
+    responder com o número certo sobre o assunto errado, que é a pior resposta
+    que este produto sabe dar e a razão de o portão de assunto existir.
+
+    O que ela mede agora é o que deve acontecer: a regra do Book responde o que
+    dá, e a coluna que falta é declarada em vez de substituída.
+  */
+  { pergunta: "O que mudou no diesel?", categoria: "combustivel", intencao: ["MOVIMENTO", "BOOK"], fontes: ["BOOK"], lacuna: "CONCEITO_SEM_DADO", nota: "o export não traz diesel; a regra responde e a lacuna declara" },
   { pergunta: "Como funciona o crédito de imposto no diesel?", categoria: "combustivel", intencao: ["CONCEITUAL"], fontes: ["BOOK"] },
 
   // ── Book ──────────────────────────────────────────────────────────────────
