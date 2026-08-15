@@ -65,6 +65,8 @@ export type Intencao =
   | "CELULAS"
   /** "composição da frota", "ficha do cavalo" */
   | "COMPOSICAO"
+  /** "qual caminhão dá prejuízo", "quanto sobra", "EBITDA", "margem" */
+  | "DRE"
   /** "ola", "bom dia", "tudo bem?", "obrigado" — conversa, não consulta */
   | "SAUDACAO"
   | "DESCONHECIDA";
@@ -80,6 +82,9 @@ export const INTENCOES_COM_RECORTE: ReadonlySet<Intencao> = new Set<Intencao>([
   // Composição descreve a frota de um recorte: sem unidade e canal, somar o
   // mensal de todas as operações produziria um total que ninguém opera.
   "COMPOSICAO",
+  // A DRE, pelo mesmo motivo e com uma agravante: um resultado somado sobre
+  // duas operações diferentes é um número que nenhum gestor tem como agir.
+  "DRE",
   "VALOR",
   "EVOLUCAO",
   "COMPARACAO",
@@ -520,6 +525,41 @@ const PADROES: Padrao[] = [
     porque: "delimita um intervalo de vigências",
   },
 
+  /*
+    A DRE vem **antes** de COMPOSIÇÃO, e a ordem é a que separa duas perguntas
+    quase idênticas na forma. "Como se compõe a remuneração do ABC1D23?" é
+    composição — a memória de cálculo do que ele recebe. "Quanto sobra do
+    ABC1D23?" é DRE — o que resta depois dos custos. As duas leem os mesmos
+    fatos, e só a segunda fala de resultado, margem, EBITDA ou prejuízo.
+
+    Como COMPOSIÇÃO casa a palavra "composição" sozinha, deixá-la antes faria
+    "a composição do resultado" cair na tela errada.
+
+    Pelo mesmo motivo ela vem antes dos **rankings** e de VEÍCULOS. "Quais
+    veículos são deficitários?" casa `quais veiculos` e iria para a lista de
+    ativos afetados — que responde outra pergunta, a de quem mudou mais entre
+    duas vigências. O que separa as duas é o vocabulário de resultado, e só a
+    DRE o reconhece: "impactados" não casa nada aqui, e continua indo para
+    VEÍCULOS como antes.
+
+    A última alternativa do padrão é a que atende "por que o ABC1D23 piorou em
+    agosto?" — uma placa nomeada com verbo de piora. Sem ela a frase cairia em
+    RANKING_PERDA por causa de "piorou", e a resposta seria um ranking de
+    parâmetros da frota para uma pergunta sobre um caminhão.
+
+    O `(?!...)` na frente é o que devolve a CONCEITUAL as perguntas de
+    definição. Estar antes dos rankings tirou da DRE a possibilidade de vir
+    depois de CONCEITUAL — que é onde COMPOSIÇÃO resolve o mesmo problema pela
+    ordem —, então ela o resolve dizendo, no próprio padrão, que "o que é DRE?"
+    não é uma consulta de resultado.
+  */
+  {
+    intencao: "DRE",
+    quando:
+      /^(?!.*\b(o que (e|sao|significa)|que e|como funciona|explique|explica|defini(cao|r)|para que serve)\b).*?(?:\bdre\b|\bebitda\b|\bmargem( de contribuicao)?\b|\bresultado (economico|apurado|operacional)\b|\bda (dinheiro|lucro|prejuizo)\b|\b(prejuizo|lucrativ\w*|deficitari\w*|rentabilidade|rentav\w*)\b|\bquanto (sobra|sobrou|resta|restou)\b|\b(caminh(ao|oes)|cavalo?s?|veiculos?|conjuntos?)\b.{0,25}\b(da|dao|deu|deram) (mais )?(dinheiro|lucro|prejuizo)\b|\bcusto por km\b|\bcusto\/km\b|\b[a-z]{3}\d[a-z0-9]\d{2}\b.{0,40}\b(piorou|melhorou|caiu|despencou|desandou)\b)/,
+    porque: "pede o resultado econômico apurado",
+  },
+
   // ---- rankings -------------------------------------------------------------
   {
     intencao: "RANKING_PERDA",
@@ -568,6 +608,7 @@ const PADROES: Padrao[] = [
     e CONCEITUAL já o reconhece — inverter a ordem faria toda pergunta sobre o
     conceito abrir uma consulta de frota.
   */
+
   {
     intencao: "COMPOSICAO",
     quando: /\bcomposicao\b|\bcomo se comp(oe|õe)\b|\bficha (do|da) (cavalo|carreta|equipamento|veiculo)\b|\bvisao (de|da) frota\b/,

@@ -5,6 +5,7 @@ import {
   Building2,
   Bot,
   Calculator,
+  Receipt,
   CalendarDays,
   ChartNoAxesCombined,
   ChevronDown,
@@ -124,7 +125,14 @@ const NAV_GROUPS: NavGroup[] = [
         executiva e não na auditoria por ser a porta de entrada — quem abre
         procura um valor, e só depois procura a inconsistência dele.
       */
-      { href: "/composicao", label: "Composição", icon: Calculator, novidade: true },
+      { href: "/composicao", label: "Composição", icon: Calculator },
+      /*
+        A DRE vem depois da Composição porque é a pergunta seguinte. A Composição
+        responde "por que este equipamento recebe este valor"; a DRE responde "o
+        que sobra depois dos custos" — e usa exatamente a mesma apuração, com as
+        linhas reorganizadas em seções contábeis. Duas telas e um motor.
+      */
+      { href: "/dre", label: "DRE", icon: Receipt, novidade: true },
     ],
   },
   {
