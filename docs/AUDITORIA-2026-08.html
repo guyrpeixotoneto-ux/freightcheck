@@ -1,0 +1,2430 @@
+<title>Auditoria do FreightCheck</title>
+<style>
+  :root {
+    --ground: #F2F4F6;
+    --surface: #FFFFFF;
+    --surface-2: #E9EDF1;
+    --ink: #10151A;
+    --muted: #5C6874;
+    --rule: #D3DAE1;
+    --rule-soft: #E4E9ED;
+    --verdict: #B01620;
+    --verdict-soft: #FBEBEC;
+    --scale: #A96A05;
+    --scale-soft: #FDF2E0;
+    --ok: #1B6B4A;
+    --ok-soft: #E6F2EC;
+    --info: #33477F;
+    --info-soft: #ECEFF8;
+    --shadow: 0 1px 2px rgba(16, 21, 26, .06), 0 8px 24px -16px rgba(16, 21, 26, .22);
+
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0E1317;
+      --surface: #161D23;
+      --surface-2: #1E262E;
+      --ink: #E3EAEF;
+      --muted: #93A2AE;
+      --rule: #27313A;
+      --rule-soft: #1E262E;
+      --verdict: #F2707A;
+      --verdict-soft: #2C171A;
+      --scale: #E0A23F;
+      --scale-soft: #2A2113;
+      --ok: #5BB98C;
+      --ok-soft: #12241C;
+      --info: #93A6E4;
+      --info-soft: #191E30;
+      --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .8);
+    }
+  }
+
+  :root[data-theme="dark"] {
+    --ground: #0E1317;
+    --surface: #161D23;
+    --surface-2: #1E262E;
+    --ink: #E3EAEF;
+    --muted: #93A2AE;
+    --rule: #27313A;
+    --rule-soft: #1E262E;
+    --verdict: #F2707A;
+    --verdict-soft: #2C171A;
+    --scale: #E0A23F;
+    --scale-soft: #2A2113;
+    --ok: #5BB98C;
+    --ok-soft: #12241C;
+    --info: #93A6E4;
+    --info-soft: #191E30;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px -16px rgba(0, 0, 0, .8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 clamp(1rem, 4vw, 3rem) 6rem;
+  }
+
+  .col {
+    max-width: 72ch;
+  }
+
+  /* ---------- masthead ---------- */
+
+  header.masthead {
+    border-bottom: 2px solid var(--ink);
+    padding: clamp(2.5rem, 7vw, 5rem) 0 1.75rem;
+    margin-bottom: 2.5rem;
+  }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 1rem;
+  }
+
+  h1 {
+    font-size: clamp(2.1rem, 6vw, 3.4rem);
+    line-height: 1.04;
+    letter-spacing: -.028em;
+    font-weight: 800;
+    margin: 0 0 .85rem;
+    text-wrap: balance;
+  }
+
+  .standfirst {
+    font-size: clamp(1.02rem, 2vw, 1.2rem);
+    color: var(--muted);
+    max-width: 62ch;
+    margin: 0 0 2rem;
+  }
+
+  .facts {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+  }
+
+  .fact {
+    background: var(--surface);
+    padding: .85rem 1rem;
+  }
+
+  .fact dt {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 .3rem;
+  }
+
+  .fact dd {
+    margin: 0;
+    font-size: 1.28rem;
+    font-weight: 700;
+    letter-spacing: -.02em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fact dd small {
+    font-size: .78rem;
+    font-weight: 500;
+    color: var(--muted);
+    letter-spacing: 0;
+  }
+
+  /* ---------- index ---------- */
+
+  nav.toc {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    padding: 1.25rem 1.5rem;
+    margin: 0 0 3.5rem;
+    box-shadow: var(--shadow);
+  }
+
+  nav.toc h2 {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 0 0 .9rem;
+    font-weight: 600;
+  }
+
+  nav.toc ol {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    columns: 2;
+    column-gap: 2.5rem;
+    counter-reset: toc;
+  }
+
+  nav.toc li {
+    counter-increment: toc;
+    break-inside: avoid;
+    padding: .16rem 0;
+  }
+
+  nav.toc a {
+    color: var(--ink);
+    text-decoration: none;
+    font-size: .9rem;
+    display: flex;
+    gap: .6rem;
+  }
+
+  nav.toc a::before {
+    content: counter(toc, decimal-leading-zero);
+    font-family: var(--mono);
+    font-size: .74rem;
+    color: var(--muted);
+    flex: 0 0 1.5rem;
+    padding-top: .16rem;
+  }
+
+  nav.toc a:hover { color: var(--verdict); text-decoration: underline; }
+
+  @media (max-width: 640px) { nav.toc ol { columns: 1; } }
+
+  /* ---------- sections ---------- */
+
+  section {
+    padding-top: 3.25rem;
+    margin-top: 3.25rem;
+    border-top: 1px solid var(--rule);
+  }
+
+  section:first-of-type { border-top: 0; margin-top: 0; }
+
+  h2 {
+    font-size: clamp(1.5rem, 3.4vw, 2.05rem);
+    line-height: 1.14;
+    letter-spacing: -.022em;
+    font-weight: 750;
+    margin: 0 0 1.4rem;
+    text-wrap: balance;
+    display: flex;
+    align-items: baseline;
+    gap: .8rem;
+  }
+
+  h2 .num {
+    font-family: var(--mono);
+    font-size: .8rem;
+    font-weight: 600;
+    color: var(--verdict);
+    letter-spacing: .08em;
+    flex: 0 0 auto;
+    padding-top: .1rem;
+  }
+
+  h3 {
+    font-size: 1.16rem;
+    font-weight: 700;
+    letter-spacing: -.012em;
+    margin: 2.4rem 0 .8rem;
+    text-wrap: balance;
+  }
+
+  h4 {
+    font-size: .96rem;
+    font-weight: 700;
+    margin: 1.6rem 0 .5rem;
+  }
+
+  p { margin: 0 0 1.05rem; }
+
+  ul, ol { margin: 0 0 1.15rem; padding-left: 1.3rem; }
+  li { margin-bottom: .38rem; }
+  li > ul, li > ol { margin-top: .38rem; }
+
+  strong { font-weight: 680; }
+
+  a { color: var(--verdict); }
+
+  code, .path {
+    font-family: var(--mono);
+    font-size: .845em;
+    background: var(--surface-2);
+    padding: .1em .38em;
+    border-radius: 2px;
+    word-break: break-word;
+  }
+
+  /* ---------- verdict callouts ---------- */
+
+  .call {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 4px solid var(--muted);
+    padding: 1.1rem 1.35rem;
+    margin: 1.6rem 0;
+    box-shadow: var(--shadow);
+  }
+
+  .call > :last-child { margin-bottom: 0; }
+
+  .call .tag {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    font-weight: 700;
+    display: block;
+    margin-bottom: .5rem;
+  }
+
+  .call.p0 { border-left-color: var(--verdict); background: var(--verdict-soft); }
+  .call.p0 .tag { color: var(--verdict); }
+  .call.p1 { border-left-color: var(--scale); background: var(--scale-soft); }
+  .call.p1 .tag { color: var(--scale); }
+  .call.ok { border-left-color: var(--ok); background: var(--ok-soft); }
+  .call.ok .tag { color: var(--ok); }
+  .call.note { border-left-color: var(--info); background: var(--info-soft); }
+  .call.note .tag { color: var(--info); }
+
+  /* ---------- status chips ---------- */
+
+  .chip {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: .64rem;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    font-weight: 700;
+    padding: .18em .5em;
+    border: 1px solid currentColor;
+    border-radius: 2px;
+    white-space: nowrap;
+    vertical-align: .08em;
+  }
+
+  .chip.maduro { color: var(--ok); }
+  .chip.parcial { color: var(--scale); }
+  .chip.back { color: var(--info); }
+  .chip.raso { color: var(--info); }
+  .chip.dup { color: var(--verdict); }
+  .chip.none { color: var(--verdict); }
+
+  /* ---------- tables ---------- */
+
+  .scroller {
+    overflow-x: auto;
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    margin: 1.6rem 0;
+    box-shadow: var(--shadow);
+  }
+
+  table {
+    border-collapse: collapse;
+    width: 100%;
+    min-width: 46rem;
+    font-size: .875rem;
+  }
+
+  thead th {
+    background: var(--surface-2);
+    text-align: left;
+    font-family: var(--mono);
+    font-size: .64rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--muted);
+    padding: .7rem .8rem;
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+
+  tbody td {
+    padding: .62rem .8rem;
+    border-bottom: 1px solid var(--rule-soft);
+    vertical-align: top;
+  }
+
+  tbody tr:last-child td { border-bottom: 0; }
+
+  td.num, th.num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+
+  table.compact { min-width: 34rem; }
+
+  /* ---------- maturity ruler ---------- */
+
+  .ruler {
+    display: inline-flex;
+    gap: 2px;
+    vertical-align: middle;
+  }
+
+  .ruler i {
+    width: 9px;
+    height: 15px;
+    background: var(--rule);
+    display: block;
+  }
+
+  .ruler i.on { background: var(--scale); }
+  .ruler i.on.low { background: var(--verdict); }
+  .ruler i.on.high { background: var(--ok); }
+
+  .rulerv {
+    font-family: var(--mono);
+    font-size: .78rem;
+    font-weight: 700;
+    margin-left: .45rem;
+    vertical-align: middle;
+  }
+
+  /* ---------- score board ---------- */
+
+  .scores {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(15.5rem, 1fr));
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin: 1.8rem 0;
+  }
+
+  .score {
+    background: var(--surface);
+    padding: .8rem .95rem;
+    display: flex;
+    align-items: center;
+    gap: .8rem;
+  }
+
+  .score .lbl { flex: 1; font-size: .875rem; }
+
+  .score .val {
+    font-family: var(--mono);
+    font-size: 1.3rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -.03em;
+  }
+
+  .score .val.bad { color: var(--verdict); }
+  .score .val.mid { color: var(--scale); }
+  .score .val.good { color: var(--ok); }
+
+  .score .bar {
+    flex: 0 0 4.5rem;
+    height: 5px;
+    background: var(--rule);
+    position: relative;
+  }
+
+  .score .bar span {
+    position: absolute;
+    inset: 0 auto 0 0;
+    background: currentColor;
+    display: block;
+  }
+
+  /* ---------- gap cards ---------- */
+
+  .gap {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-top: 3px solid var(--verdict);
+    padding: 1.2rem 1.35rem;
+    margin: 1.4rem 0;
+    box-shadow: var(--shadow);
+  }
+
+  .gap h4 {
+    margin: 0 0 .7rem;
+    font-size: 1.02rem;
+    display: flex;
+    gap: .7rem;
+    align-items: baseline;
+  }
+
+  .gap h4 .rank {
+    font-family: var(--mono);
+    font-size: .82rem;
+    color: var(--verdict);
+    font-weight: 700;
+    flex: 0 0 auto;
+  }
+
+  .gap dl {
+    margin: 0;
+    display: grid;
+    grid-template-columns: 8.5rem 1fr;
+    gap: .42rem 1rem;
+    font-size: .9rem;
+  }
+
+  .gap dt {
+    font-family: var(--mono);
+    font-size: .64rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 700;
+    padding-top: .28rem;
+  }
+
+  .gap dd { margin: 0; }
+
+  @media (max-width: 620px) {
+    .gap dl { grid-template-columns: 1fr; gap: .1rem .5rem; }
+    .gap dd { margin-bottom: .55rem; }
+  }
+
+  /* ---------- strength list ---------- */
+
+  ol.strengths {
+    list-style: none;
+    padding: 0;
+    counter-reset: s;
+    display: grid;
+    gap: 1px;
+    background: var(--rule);
+    border: 1px solid var(--rule);
+    margin: 1.6rem 0;
+  }
+
+  ol.strengths li {
+    counter-increment: s;
+    background: var(--surface);
+    padding: .95rem 1.15rem .95rem 3.2rem;
+    position: relative;
+    margin: 0;
+    font-size: .93rem;
+  }
+
+  ol.strengths li::before {
+    content: counter(s, decimal-leading-zero);
+    position: absolute;
+    left: 1.15rem;
+    top: .95rem;
+    font-family: var(--mono);
+    font-size: .78rem;
+    font-weight: 700;
+    color: var(--ok);
+  }
+
+  /* ---------- phase ---------- */
+
+  .phase {
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    margin: 1.3rem 0;
+    box-shadow: var(--shadow);
+  }
+
+  .phase > header {
+    padding: .85rem 1.2rem;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--rule);
+    display: flex;
+    align-items: baseline;
+    gap: .8rem;
+    flex-wrap: wrap;
+  }
+
+  .phase > header .n {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--verdict);
+  }
+
+  .phase > header h3 { margin: 0; font-size: 1.02rem; }
+  .phase > div { padding: 1.1rem 1.2rem; }
+  .phase > div > :last-child { margin-bottom: 0; }
+  .phase p { font-size: .92rem; }
+  .phase ul { font-size: .92rem; }
+
+  /* ---------- misc ---------- */
+
+  .lede {
+    font-size: 1.06rem;
+    border-left: 3px solid var(--verdict);
+    padding-left: 1.1rem;
+    margin: 0 0 1.7rem;
+  }
+
+  hr.soft { border: 0; border-top: 1px solid var(--rule); margin: 2.2rem 0; }
+
+  .unproven {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--scale);
+    border: 1px dashed currentColor;
+    padding: .1em .45em;
+    white-space: nowrap;
+  }
+
+  footer.end {
+    margin-top: 4rem;
+    padding-top: 1.5rem;
+    border-top: 2px solid var(--ink);
+    font-size: .85rem;
+    color: var(--muted);
+  }
+
+  a:focus-visible, summary:focus-visible {
+    outline: 2px solid var(--verdict);
+    outline-offset: 2px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <p class="eyebrow">Diagnóstico técnico e de produto · commit b3acc24 · agosto/2026</p>
+  <h1>Auditoria do FreightCheck</h1>
+  <p class="standfirst">
+    Um levantamento do que existe hoje no código, do que existe pela metade, do que existe e não
+    aparece, e do que ainda não existe — feito ponta a ponta sobre o repositório, sem tomar a
+    presença de um arquivo como prova de funcionamento.
+  </p>
+  <dl class="facts">
+    <div class="fact"><dt>Linhas de código</dt><dd>102.916</dd></div>
+    <div class="fact"><dt>Tabelas</dt><dd>35</dd></div>
+    <div class="fact"><dt>Migrations</dt><dd>18</dd></div>
+    <div class="fact"><dt>Rotas HTTP</dt><dd>80</dd></div>
+    <div class="fact"><dt>Telas roteadas</dt><dd>19</dd></div>
+    <div class="fact"><dt>Arquivos de teste</dt><dd>64 <small>/ 25 com Postgres real</small></dd></div>
+  </dl>
+</header>
+
+<nav class="toc">
+  <h2>Índice</h2>
+  <ol>
+    <li><a href="#s1">Resumo executivo</a></li>
+    <li><a href="#s2">O que o FreightCheck é hoje</a></li>
+    <li><a href="#s3">Arquitetura e fluxo real atual</a></li>
+    <li><a href="#s4">Inventário completo do que existe</a></li>
+    <li><a href="#s5">Matriz de maturidade</a></li>
+    <li><a href="#s6">Auditoria módulo por módulo</a></li>
+    <li><a href="#s7">Ativos subutilizados</a></li>
+    <li><a href="#s8">Dívida técnica</a></li>
+    <li><a href="#s9">Dívida de produto</a></li>
+    <li><a href="#s10">Lacunas de confiabilidade</a></li>
+    <li><a href="#s11">Lacunas de auditoria</a></li>
+    <li><a href="#s12">Lacunas financeiras</a></li>
+    <li><a href="#s13">Lacunas de recuperação</a></li>
+    <li><a href="#s14">Lacunas do Assistente IA</a></li>
+    <li><a href="#s15">As 10 maiores forças</a></li>
+    <li><a href="#s16">Os 10 maiores gaps</a></li>
+    <li><a href="#s17">Arquitetura futura recomendada</a></li>
+    <li><a href="#s18">Roadmap por fases</a></li>
+    <li><a href="#s19">P0 / P1 / P2 / P3</a></li>
+    <li><a href="#s20">Veredito final</a></li>
+  </ol>
+</nav>
+
+<!-- ==================================================================== -->
+<section id="s1">
+<h2><span class="num">01</span> Resumo executivo</h2>
+<div class="col">
+
+<p class="lede">
+O FreightCheck tem uma das melhores fundações de integridade de dados que eu já vi num produto
+deste porte — e um defeito de montagem que faz essa fundação não chegar à tela. A engenharia do
+núcleo está acima da média do mercado; o caminho oficial do produto está quebrado num ponto só,
+e esse ponto é justamente o que transforma dado em auditoria.
+</p>
+
+<p>
+O que o produto faz bem, ele faz com um rigor incomum: RAW imutável garantido por
+<em>trigger</em> de banco, identidade canônica de vigência calculada por coluna gerada,
+proveniência de cada fato até a célula do Excel, impacto financeiro com portão explícito que
+recusa produzir número sem semântica confirmada, periodicidades nunca somadas entre si,
+semântica versionada com vigência por data, e um balanço de massa que responde à pergunta que
+quase nenhum sistema de auditoria faz — <em>sumiu alguma coisa?</em>
+</p>
+
+<p>
+E há um achado de gravidade máxima. <strong>A promoção de uma importação, pelo caminho que o
+produto de fato usa, não dispara nenhuma das cinco rotinas pós-promoção.</strong> Semear
+taxonomia, propor semântica, aplicar as confirmações, versionar a semântica e calcular as
+comparações existem no código, estão corretas, e estão escritas dentro de uma rota que o Express
+nunca alcança porque outra idêntica foi montada antes dela. O efeito num banco novo alimentado
+exclusivamente pela interface é encadeado: todo atributo permanece <code>UNKNOWN</code>, o portão
+de impacto recusa 100% das alterações, e a resposta financeira do produto é estruturalmente zero.
+</p>
+
+<p>
+Depois desse, os achados se organizam em três famílias. <strong>Confiabilidade:</strong> além do
+acima, "quanto perdemos historicamente" é uma soma das comparações que por acaso já foram
+calculadas, e a tela "Análise de frota" — que mora na seção <em>Visão executiva</em> do menu — lê
+uma planilha de demonstração comitada no repositório, fora de todo o pipeline canônico.
+<strong>Ciclo de auditoria:</strong> não existe entidade "auditoria", não existe criação de
+contestação a partir de um achado, não existe reconciliação com o valor efetivamente pago, e não
+existe uma única linha de código sobre recuperação de valores. <strong>Governança:</strong> não
+há papéis nem permissões — qualquer pessoa autenticada exclui importação, confirma semântica,
+cria usuário e lê todas as unidades.
+</p>
+
+<p>
+A leitura de negócio é direta: o FreightCheck hoje é um <strong>detector de alterações de
+altíssima qualidade</strong> com um <strong>motor de precificação bem desenhado e desligado</strong>,
+e sem nenhuma das camadas que transformam um achado em dinheiro de volta. O caminho mais curto
+para valor não é construir features novas — é ligar o que já está construído e fechar o ciclo
+achado → contestação → recuperação.
+</p>
+
+</div>
+</section>
+
+<!-- ==================================================================== -->
+<section id="s2">
+<h2><span class="num">02</span> O que o FreightCheck é hoje</h2>
+<div class="col">
+
+<p>
+O FreightCheck é um monorepo pnpm com três artefatos executáveis e doze bibliotecas. O produto
+recebe o <em>export</em> de remuneração de equipamento que o Freightec entrega em Excel — uma
+linha por placa, dezenas de colunas de parâmetro, congelado por vigência — e responde:
+<strong>o que mudou entre duas vigências, em qual célula, quanto vale, e quando a comparação não
+é confiável.</strong>
+</p>
+
+<h3>Superfícies</h3>
+<div class="scroller">
+<table class="compact">
+<thead><tr><th>Pacote</th><th>Papel</th><th>Estado</th></tr></thead>
+<tbody>
+<tr><td><code>artifacts/api-server</code></td><td>Express + Drizzle, 80 rotas em 14 routers</td><td>Em uso</td></tr>
+<tr><td><code>artifacts/freightaudit</code></td><td>React 19 + Vite + wouter, 19 telas</td><td>Em uso</td></tr>
+<tr><td><code>artifacts/mockup-sandbox</code></td><td>Sandbox de mockups</td><td>Fora do produto</td></tr>
+<tr><td><code>lib/db</code></td><td>35 tabelas, 18 migrations, triggers de imutabilidade</td><td>Em uso</td></tr>
+<tr><td><code>lib/ingest</code></td><td>Pipeline RAW → staging → preview → promoção</td><td>Em uso</td></tr>
+<tr><td><code>lib/curation</code></td><td>Taxonomia, proposta e confirmação de semântica</td><td>Parcialmente alcançável</td></tr>
+<tr><td><code>lib/comparison</code></td><td>Motor de diff, impacto, agrupamento, cockpit, chamados</td><td>Em uso</td></tr>
+<tr><td><code>lib/composition</code></td><td>Memória de cálculo da remuneração por equipamento</td><td>Em uso</td></tr>
+<tr><td><code>lib/balance</code></td><td>Balanço de massa célula → fato</td><td>Em uso</td></tr>
+<tr><td><code>lib/assistant</code></td><td>Orquestração determinística + redação por LLM</td><td>Em uso</td></tr>
+<tr><td><code>lib/knowledge</code></td><td>Catálogo do Freightech e índice do Book</td><td>Em uso</td></tr>
+<tr><td><code>lib/simulation</code></td><td>Horizonte e periodicidade</td><td><strong>Zero consumidores</strong></td></tr>
+<tr><td><code>lib/api-spec</code>, <code>lib/api-zod</code>, <code>lib/api-client-react</code></td><td>OpenAPI + cliente gerado</td><td><strong>Só telas mortas</strong></td></tr>
+</tbody>
+</table>
+</div>
+
+<h3>O modelo de domínio, em quatro camadas</h3>
+<p>
+<strong>RAW</strong> (<code>source_file</code>, <code>raw_sheet</code>, <code>raw_row</code>,
+<code>raw_cell</code>) é imutável por trigger. <strong>STAGING</strong>
+(<code>staged_fact</code>, <code>column_mapping</code>, <code>validation_issue</code>) é
+descartável. <strong>CANONICAL</strong> é o grão <code>(snapshot, entidade, atributo) → valor</code>
+em <code>fact</code>, com <code>entity</code>, <code>attribute</code>,
+<code>attribute_semantics</code>, <code>taxonomy_node</code> e <code>scope</code> ao redor.
+<strong>COMPARISON</strong> (<code>change_set</code>, <code>change</code>) é derivado e
+recalculável.
+</p>
+<p>
+Ao lado, três subsistemas com tabelas próprias: <strong>Chamados</strong>
+(<code>ticket_import</code>, <code>ticket</code>, <code>ticket_change</code>),
+<strong>Book do Operador</strong> (<code>book_entry</code>, versionado, sem DELETE) e
+<strong>Assistente</strong> (<code>assistant_conversation</code>,
+<code>assistant_message</code>).
+</p>
+
+</div>
+</section>
+
+<!-- ==================================================================== -->
+<section id="s3">
+<h2><span class="num">03</span> Arquitetura e fluxo real atual</h2>
+<div class="col">
+
+<p>
+O fluxo desenhado nos comentários do repositório e o fluxo que o código de fato executa
+divergem em um ponto. Abaixo está o executado, estágio a estágio.
+</p>
+
+</div>
+
+<div class="scroller">
+<table>
+<thead><tr><th>Estágio</th><th>Entra</th><th>Persiste em</th><th>Serviço</th><th>Tela</th><th>Controle</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>1. Recepção</strong></td>
+  <td>.xlsx em base64</td>
+  <td><code>source_file</code>, <code>import_run</code></td>
+  <td><code>receiveFile</code></td>
+  <td>Importações</td>
+  <td>Assinatura PK, SHA-256, recusa de duplicata de arquivo (409)</td>
+</tr>
+<tr>
+  <td><strong>2. Captura RAW</strong></td>
+  <td>Arquivo em disco</td>
+  <td><code>raw_sheet</code>, <code>raw_row</code>, <code>raw_cell</code></td>
+  <td><code>captureRaw</code></td>
+  <td>— (assíncrono)</td>
+  <td>Trigger de imutabilidade (<code>0001</code>)</td>
+</tr>
+<tr>
+  <td><strong>3. Staging</strong></td>
+  <td>Células</td>
+  <td><code>staged_fact</code>, <code>validation_issue</code></td>
+  <td><code>stage</code></td>
+  <td>— </td>
+  <td>9 códigos de validação; identidade de equipamento por colunas</td>
+</tr>
+<tr>
+  <td><strong>4. Preview</strong></td>
+  <td>Fatos preparados</td>
+  <td>contadores em <code>import_run</code></td>
+  <td><code>preview</code></td>
+  <td>Importações (cartão)</td>
+  <td>Estado <code>PREVIEWED</code> é o portão da aprovação humana</td>
+</tr>
+<tr>
+  <td><strong>5. Promoção</strong></td>
+  <td>Decisão humana</td>
+  <td><code>snapshot</code>, <code>entity</code>, <code>attribute</code>, <code>fact</code>, <code>import_decision</code></td>
+  <td><code>promote</code></td>
+  <td>Importações (botão)</td>
+  <td>Transação única; identidade canônica pelo banco; recusa escrita</td>
+</tr>
+<tr style="background: var(--verdict-soft)">
+  <td><strong>6. Pós-promoção</strong></td>
+  <td>—</td>
+  <td><strong>nada</strong></td>
+  <td><strong>não executa</strong></td>
+  <td>—</td>
+  <td><strong>Ver achado abaixo</strong></td>
+</tr>
+<tr>
+  <td><strong>7. Comparação</strong></td>
+  <td>Par de vigências</td>
+  <td><code>change_set</code>, <code>change</code></td>
+  <td><code>computeChangeSet</code></td>
+  <td>Alterações, Comparar</td>
+  <td>Sob demanda, só em 3 das 8 rotas de leitura</td>
+</tr>
+<tr>
+  <td><strong>8. Agrupamento</strong></td>
+  <td><code>change</code> existentes</td>
+  <td>— (projeção)</td>
+  <td><code>getGroupedView</code>, <code>buildCockpit</code></td>
+  <td>Visão geral, Acompanhamento, Parâmetros</td>
+  <td>Selos, criticidade explicável, cobertura</td>
+</tr>
+<tr>
+  <td><strong>9. Investigação</strong></td>
+  <td>Grupo escolhido</td>
+  <td>— </td>
+  <td><code>getGroupVehicles</code>, <code>getChangeProvenance</code></td>
+  <td>Parâmetros → veículos → célula</td>
+  <td>Proveniência até <code>raw_cell</code></td>
+</tr>
+<tr style="background: var(--verdict-soft)">
+  <td><strong>10. Chamado</strong></td>
+  <td>Export externo do Freightec</td>
+  <td><code>ticket*</code></td>
+  <td><code>importarChamados</code></td>
+  <td>Alterações › aba Chamados</td>
+  <td><strong>Somente leitura — não se cria chamado a partir de um achado</strong></td>
+</tr>
+<tr style="background: var(--verdict-soft)">
+  <td><strong>11. Resolução</strong></td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td>—</td>
+  <td><strong>Não existe</strong></td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="col">
+
+<div class="call p0">
+<span class="tag">P0 · O achado estrutural</span>
+<p><strong>O estágio 6 existe no código e é inalcançável.</strong></p>
+<p>
+<code>artifacts/api-server/src/routes/index.ts:74-75</code> monta <code>importsRouter</code>
+<em>antes</em> de <code>overviewRouter</code>. Os dois declaram
+<code>POST /imports/:id/promote</code>. O Express casa a primeira rota registrada, e o handler de
+<code>imports.ts:272</code> sempre responde — nunca chama <code>next()</code>. O handler de
+<code>overview.ts:206</code> é, portanto, código morto.
+</p>
+<p>
+E é dentro dele que vivem as cinco chamadas pós-promoção
+(<code>overview.ts:212-220</code>): <code>seedTaxonomy</code>, <code>runProposalPass</code>,
+<code>applyConfirmations</code>, <code>backfillSemantics</code> e
+<code>computeMissingChangeSets</code>. Nenhuma delas tem outro chamador no caminho do produto —
+só as CLIs de desenvolvimento (<code>lib/curation/src/cli/*</code>) e a rota
+<code>POST /curation/proposal-pass</code>, <strong>que nenhuma tela chama</strong>.
+</p>
+<p>Encadeamento em banco novo alimentado só pela interface:</p>
+<ul>
+  <li><code>taxonomy_node</code> vazia → <code>cost_class</code> nulo em toda alteração;</li>
+  <li>atributos nascem <code>UNKNOWN</code> (<code>pipeline.ts:1638</code>) e ninguém os move;</li>
+  <li><code>assessImpact</code> (<code>impact.ts:50</code>) exige <code>CONFIRMED</code> → devolve
+      <code>NOT_CALCULABLE</code> para <strong>100%</strong> das alterações;</li>
+  <li><code>attribute_semantics</code> vazia → sem histórico de significado;</li>
+  <li><code>change_set</code> só nasce quando alguém abre uma tela que calcula.</li>
+</ul>
+<p>
+Consequência de negócio: <strong>o produto não produz nenhum número financeiro</strong> — e a
+frase que ele mostra no lugar ("nenhuma destas alterações teve impacto financeiro calculado")
+está redigida com tanta elegância que parece uma limitação de dados, não um defeito de montagem.
+</p>
+</div>
+
+<div class="call p0">
+<span class="tag">P0 · Consequência derivada</span>
+<p><strong>"Quanto perdemos historicamente" depende de quem abriu qual tela.</strong></p>
+<p>
+<code>getGroupedView</code> declara explicitamente que <em>não</em> calcula comparação
+(<code>grouped.ts:735-738</code>) — a premissa é que a importação já as calculou.
+<code>getAccumulatedImpact</code> (<code>grouped.ts:961</code>) soma os <code>change_set</code>
+que existem na tabela. Como só <code>/changes/latest</code> (o contador da barra lateral) e
+<code>/changes/consolidated</code> (a aba Alterações, para o período pedido) calculam sob
+demanda, o acumulado histórico é <strong>sistematicamente subestimado</strong> e varia conforme
+a navegação. As telas Visão geral, Acompanhamento, Parâmetros e Cobertura de dados leem
+<code>grouped</code>/<code>families</code>, que nunca calculam.
+</p>
+</div>
+
+<h3>Cadeia de custódia — existe o suficiente?</h3>
+<p>
+Para o eixo <em>dado</em>, sim, e com folga. Um número na tela retrocede por
+<code>fact.raw_cell_id</code> até a célula, a linha, a aba, o arquivo e o SHA-256 dele; RAW não
+aceita UPDATE nem DELETE; o snapshot fechado é congelado por trigger e só transita para
+<code>SUPERSEDED</code>; a exclusão de importação exige uma declaração local à transação
+(<code>0010</code>) e deixa registro append-only em <code>import_deletion</code>.
+</p>
+<p>
+Para o eixo <em>decisão</em>, não. Há trilha de curadoria (<code>curation_event</code>), de
+decisão de importação (<code>import_decision</code>) e de exclusão. Não há trilha de quem
+classificou um achado, quem o encerrou, quem o contestou, quem o aprovou — porque essas ações
+não existem no produto.
+</p>
+
+</div>
+</section>
+
+<!-- ==================================================================== -->
+<section id="s4">
+<h2><span class="num">04</span> Inventário completo do que existe</h2>
+
+<div class="scroller">
+<table>
+<thead><tr><th>Capacidade</th><th>Classificação</th><th>Evidência / ressalva</th></tr></thead>
+<tbody>
+
+<tr><td colspan="3" style="background:var(--surface-2); font-weight:700; font-family:var(--mono); font-size:.7rem; letter-spacing:.1em; text-transform:uppercase">Existe e está maduro</td></tr>
+<tr><td>Pipeline de importação RAW → staging → preview → promoção</td><td><span class="chip maduro">Maduro</span></td><td><code>pipeline.ts</code> (2.176 linhas), máquina de 11 estados, recusas escritas</td></tr>
+<tr><td>Imutabilidade de RAW e de vigência fechada</td><td><span class="chip maduro">Maduro</span></td><td>Triggers em <code>0001</code>, porta declarada em <code>0010</code></td></tr>
+<tr><td>Identidade canônica de vigência</td><td><span class="chip maduro">Maduro</span></td><td><code>0015</code>/<code>0016</code>: coluna gerada pelo banco + índice único</td></tr>
+<tr><td>Deduplicação por conteúdo (arquivo e dados)</td><td><span class="chip maduro">Maduro</span></td><td><code>SKIPPED_DUPLICATE</code> e <code>SKIPPED_DUPLICATE_DATA</code>, 806 linhas de teste</td></tr>
+<tr><td>Motor de comparação com naturezas e comparabilidade</td><td><span class="chip maduro">Maduro</span></td><td><code>engine.ts</code>, <code>change.nature</code>, <code>comparability</code>, <code>inconclusive_reason</code></td></tr>
+<tr><td>Proveniência até a célula</td><td><span class="chip maduro">Maduro</span></td><td><code>GET /changes/:id/provenance</code>, <code>fact.raw_cell_id</code></td></tr>
+<tr><td>Portão de impacto (recusa explícita com motivo)</td><td><span class="chip maduro">Maduro</span></td><td><code>impact.ts</code> — 5 recusas nomeadas, nunca zero</td></tr>
+<tr><td>Nunca somar periodicidades</td><td><span class="chip maduro">Maduro</span></td><td><code>impactByPeriodicity</code> em todo o caminho, incluindo <code>0004</code></td></tr>
+<tr><td>Contexto obrigatório (unidade, canal)</td><td><span class="chip maduro">Maduro</span></td><td><code>series.ts</code>, resposta sempre declara o contexto escolhido</td></tr>
+<tr><td>Semântica versionada por vigência</td><td><span class="chip maduro">Maduro</span></td><td><code>attribute_semantics</code> + <code>loadAttributeClassificationsAt</code></td></tr>
+<tr><td>Criticidade explicável</td><td><span class="chip maduro">Maduro</span></td><td><code>cockpit.ts:168</code> — score aditivo, cada ponto vira frase</td></tr>
+<tr><td>Balanço de massa</td><td><span class="chip maduro">Maduro</span></td><td><code>lib/balance</code> — conservação célula → fato, por vigência</td></tr>
+<tr><td>Composição da remuneração por equipamento</td><td><span class="chip maduro">Maduro</span></td><td><code>lib/composition</code> — parcelas, exclusões nomeadas, divergência declarada</td></tr>
+<tr><td>Book do Operador (documento versionado)</td><td><span class="chip maduro">Maduro</span></td><td><code>book_entry</code>: revisão, SHA-256, autor, sem DELETE</td></tr>
+<tr><td>Assistente com orquestração determinística e trava de lastro</td><td><span class="chip maduro">Maduro</span></td><td><code>orquestrador.ts</code>, <code>numerosSemLastro</code>, 4 tipos de lacuna</td></tr>
+<tr><td>Autenticação e sessão</td><td><span class="chip maduro">Maduro</span></td><td>scrypt com parâmetros no hash, <code>timingSafeEqual</code>, portão fecha por padrão</td></tr>
+<tr><td>Diagnóstico de banco e migrations</td><td><span class="chip maduro">Maduro</span></td><td><code>/api/healthz</code> diz quais migrations faltam, sem vazar credencial</td></tr>
+
+<tr><td colspan="3" style="background:var(--surface-2); font-weight:700; font-family:var(--mono); font-size:.7rem; letter-spacing:.1em; text-transform:uppercase">Existe, mas está parcial</td></tr>
+<tr><td>Curadoria de semântica</td><td><span class="chip parcial">Parcial</span></td><td>Tela existe; o <em>proposal pass</em> e a taxonomia nunca rodam pelo produto — a fila abre vazia e o seletor de taxonomia também</td></tr>
+<tr><td>Semântica confirmada</td><td><span class="chip parcial">Parcial</span></td><td><strong>17 atributos</strong> em <code>confirmations.ts</code> contra ~138 do export</td></tr>
+<tr><td>Chamados</td><td><span class="chip parcial">Parcial</span></td><td>Ingestão e leitura completas; sem criação, sem SLA, sem resposta da contraparte, sem conclusão</td></tr>
+<tr><td>Detecção de anomalias</td><td><span class="chip parcial">Parcial</span></td><td><code>anomalies.ts</code> detecta <em>só</em> serial-do-Excel × data; o resto é regra de selo</td></tr>
+<tr><td>Histórico de parâmetro</td><td><span class="chip parcial">Parcial</span></td><td><code>/attributes/:code/series</code> e <code>/composition/equipment/:id/history</code> existem; não há linha do tempo unificada de veículo</td></tr>
+<tr><td>Versões da semântica</td><td><span class="chip parcial">Parcial</span></td><td>Tela Versões existe; o <em>backfill</em> que a alimenta só roda pela rota morta ou por CLI</td></tr>
+<tr><td>Impacto acumulado</td><td><span class="chip parcial">Parcial</span></td><td>Soma o que existe; depende da navegação (ver §03)</td></tr>
+
+<tr><td colspan="3" style="background:var(--surface-2); font-weight:700; font-family:var(--mono); font-size:.7rem; letter-spacing:.1em; text-transform:uppercase">Existe no backend, mas não no produto</td></tr>
+<tr><td><code>GET /changes/range</code> e <code>/changes/end-to-end</code></td><td><span class="chip back">Backend</span></td><td>Análise de intervalo e ponta-a-ponta; só alcançável dentro de um cartão de Parâmetros</td></tr>
+<tr><td><code>GET /entities/table</code> e <code>/attributes/:code/domain</code></td><td><span class="chip back">Backend</span></td><td>Inventário de frota e domínio de valores — enterrados em abas de cartão</td></tr>
+<tr><td><code>GET /import-deletions</code></td><td><span class="chip back">Backend</span></td><td>Histórico de exclusões — <strong>nenhuma tela consome</strong></td></tr>
+<tr><td><code>POST /curation/proposal-pass</code></td><td><span class="chip back">Backend</span></td><td><strong>Nenhuma tela consome</strong> — e é a rota que destrava a curadoria</td></tr>
+<tr><td><code>GET /assistant/usage</code> e <code>/assistant/suggestions</code></td><td><span class="chip back">Backend</span></td><td>Custo, latência e desfecho de cada chamada de IA — <strong>nenhuma tela consome</strong></td></tr>
+<tr><td><code>import_decision</code> (vocabulário completo de recusa)</td><td><span class="chip back">Backend</span></td><td>Toda decisão de promoção gravada com motivo; sem tela dedicada</td></tr>
+<tr><td><code>validation_issue</code> e <code>sentinel_rule</code></td><td><span class="chip back">Backend</span></td><td>9 códigos de validação e regras de sentinela; sem tela de qualidade de dados</td></tr>
+<tr><td><code>attribute_alias</code> e <code>snapshot_attribute</code></td><td><span class="chip back">Backend</span></td><td>Aliases de coluna e presença por layout — matéria-prima de <em>schema drift</em> não exposta</td></tr>
+<tr><td><code>ticket.payload</code> (linha original inteira)</td><td><span class="chip back">Backend</span></td><td>Evidência bruta preservada; a tela não a mostra</td></tr>
+<tr><td><code>snapshot_merge</code></td><td><span class="chip back">Backend</span></td><td>Fusão de identidades históricas com renumeração; invisível</td></tr>
+
+<tr><td colspan="3" style="background:var(--surface-2); font-weight:700; font-family:var(--mono); font-size:.7rem; letter-spacing:.1em; text-transform:uppercase">Existe no frontend, mas é superficial</td></tr>
+<tr><td>Unidades</td><td><span class="chip raso">Raso</span></td><td>Lista de contextos com contagem de períodos; nenhum indicador, nenhuma comparação</td></tr>
+<tr><td>Análise de frota</td><td><span class="chip raso">Raso</span></td><td>Lê planilha estática (ver §10); não respeita unidade nem vigência</td></tr>
+<tr><td>Cobertura de dados</td><td><span class="chip raso">Raso</span></td><td>Diz o que veio e o que falta; não vira ação nem pedido de arquivo</td></tr>
+<tr><td>Versões</td><td><span class="chip raso">Raso</span></td><td>Lista e dois botões; sem visão de impacto da mudança de significado</td></tr>
+
+<tr><td colspan="3" style="background:var(--surface-2); font-weight:700; font-family:var(--mono); font-size:.7rem; letter-spacing:.1em; text-transform:uppercase">Duplicado / fragmentado</td></tr>
+<tr><td><code>routes/overview.ts</code> × <code>routes/imports.ts</code></td><td><span class="chip dup">Duplicado</span></td><td>4 rotas idênticas com comportamento divergente (202 × 200, <code>FAIL</code> × <code>REJECT</code>)</td></tr>
+<tr><td>Camada semântica em 4 lugares</td><td><span class="chip dup">Fragmentado</span></td><td><code>attribute</code> (banco), <code>attribute_semantics</code> (banco), <code>confirmations.ts</code> (código), <code>families.ts</code> + <code>regras.ts</code> + <code>catalogo.ts</code> (código)</td></tr>
+<tr><td>Duas telas para "o que mudou"</td><td><span class="chip dup">Fragmentado</span></td><td>Visão geral, Acompanhamento e Alterações leem o mesmo material com recortes diferentes</td></tr>
+<tr><td>Duas leituras de impacto que nunca se somam</td><td><span class="chip dup">Fragmentado</span></td><td>Planilha e Chamados, corretamente separadas — mas sem nenhuma tela que as concilie</td></tr>
+<tr><td>Código morto</td><td><span class="chip dup">Morto</span></td><td><code>pages/dashboard.tsx</code>, <code>pages/simulacao.tsx</code>, <code>pages/snapshots/*</code>, <code>lib/simulation</code>, <code>lib/api-spec</code>, <code>lib/api-client-react</code></td></tr>
+
+<tr><td colspan="3" style="background:var(--surface-2); font-weight:700; font-family:var(--mono); font-size:.7rem; letter-spacing:.1em; text-transform:uppercase">Não existe</td></tr>
+<tr><td>Auditoria como entidade (escopo, hipótese, achado, parecer)</td><td><span class="chip none">Ausente</span></td><td>Nenhuma tabela, nenhuma rota</td></tr>
+<tr><td>Criação de chamado / contestação a partir de um achado</td><td><span class="chip none">Ausente</span></td><td>Só <code>POST /ticket-imports</code> (upload de export externo)</td></tr>
+<tr><td>Recuperação de valores em qualquer forma</td><td><span class="chip none">Ausente</span></td><td>Zero ocorrências de recuperado/creditado/reconhecido no repositório</td></tr>
+<tr><td>Reconciliação com valor pago / ERP / TMS</td><td><span class="chip none">Ausente</span></td><td>Nenhuma integração, nenhuma tabela de pagamento</td></tr>
+<tr><td>Papéis e permissões</td><td><span class="chip none">Ausente</span></td><td><code>app_user</code> não tem coluna de papel</td></tr>
+<tr><td>Isolamento por unidade / <em>tenant</em></td><td><span class="chip none">Ausente</span></td><td>Contexto é filtro de leitura, não fronteira de autorização</td></tr>
+<tr><td>Exportação (Excel, CSV, PDF)</td><td><span class="chip none">Ausente</span></td><td>Nenhum <code>download</code>, <code>Blob</code> ou geração de arquivo em nenhuma tela</td></tr>
+<tr><td>Materialidade e risco formais</td><td><span class="chip none">Ausente</span></td><td>Só o score de criticidade da vigência</td></tr>
+<tr><td>Detecção estatística de anomalia</td><td><span class="chip none">Ausente</span></td><td>Sem distribuição, sem <em>baseline</em>, sem comparação entre pares</td></tr>
+<tr><td>Custos do veículo (combustível, pneu, manutenção, pedágio)</td><td><span class="chip none">Ausente</span></td><td>O export é de remuneração; não há fonte de custo</td></tr>
+<tr><td>Benchmarking entre unidades</td><td><span class="chip none">Ausente</span></td><td>Comparação entre contextos é recusada por desenho</td></tr>
+<tr><td>Notificação, alerta, fila de trabalho, SLA</td><td><span class="chip none">Ausente</span></td><td>Só contadores na barra lateral</td></tr>
+<tr><td>Trilha de auditoria unificada com tela</td><td><span class="chip none">Ausente</span></td><td>Três trilhas parciais, nenhuma superfície</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<!-- ==================================================================== -->
+<section id="s5">
+<h2><span class="num">05</span> Matriz de maturidade</h2>
+<div class="col">
+<p>
+Maturidade de 0 a 5: <strong>0</strong> inexistente · <strong>1</strong> embrionário ·
+<strong>2</strong> parcial · <strong>3</strong> funcional · <strong>4</strong> maduro ·
+<strong>5</strong> referência. Confiabilidade responde: <em>eu apostaria dinheiro neste
+número?</em>
+</p>
+</div>
+
+<div class="scroller">
+<table>
+<thead><tr>
+  <th>Capacidade</th><th>Existe?</th><th class="num">Maturidade</th><th>Frontend</th><th>Backend</th><th>Dados</th><th>Confiab.</th><th>Problema principal</th><th>Prio</th>
+</tr></thead>
+<tbody>
+<tr><td>Ingestão e imutabilidade</td><td>Sim</td><td class="num"><span class="ruler"><i class="on high"></i><i class="on high"></i><i class="on high"></i><i class="on high"></i><i class="on high"></i></span><span class="rulerv">5</span></td><td>Boa</td><td>Excelente</td><td>Íntegro</td><td>Alta</td><td>Nenhum relevante</td><td>—</td></tr>
+<tr><td>Identidade canônica de vigência</td><td>Sim</td><td class="num"><span class="ruler"><i class="on high"></i><i class="on high"></i><i class="on high"></i><i class="on high"></i><i class="on high"></i></span><span class="rulerv">5</span></td><td>n/a</td><td>Excelente</td><td>Íntegro</td><td>Alta</td><td>Nenhum relevante</td><td>—</td></tr>
+<tr><td>Rastreabilidade célula → número</td><td>Sim</td><td class="num"><span class="ruler"><i class="on high"></i><i class="on high"></i><i class="on high"></i><i class="on high"></i><i></i></span><span class="rulerv">4</span></td><td>Escondida</td><td>Excelente</td><td>Íntegro</td><td>Alta</td><td>Um clique fundo demais</td><td>P3</td></tr>
+<tr><td>Detecção de alterações</td><td>Sim</td><td class="num"><span class="ruler"><i class="on high"></i><i class="on high"></i><i class="on high"></i><i class="on high"></i><i></i></span><span class="rulerv">4</span></td><td>Boa</td><td>Excelente</td><td>Íntegro</td><td>Média</td><td>Comparações não são calculadas na importação</td><td>P0</td></tr>
+<tr><td>Balanço de massa</td><td>Sim</td><td class="num"><span class="ruler"><i class="on high"></i><i class="on high"></i><i class="on high"></i><i class="on high"></i><i></i></span><span class="rulerv">4</span></td><td>Boa</td><td>Excelente</td><td>Íntegro</td><td>Alta</td><td>Não vira ação</td><td>P2</td></tr>
+<tr><td>Composição da remuneração</td><td>Sim</td><td class="num"><span class="ruler"><i class="on high"></i><i class="on high"></i><i class="on high"></i><i class="on high"></i><i></i></span><span class="rulerv">4</span></td><td>Boa</td><td>Excelente</td><td>Parcial</td><td>Média</td><td>Depende da semântica confirmada, que é 12%</td><td>P0</td></tr>
+<tr><td>Criticidade / priorização</td><td>Sim</td><td class="num"><span class="ruler"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="rulerv">3</span></td><td>Boa</td><td>Boa</td><td>Derivado</td><td>Média</td><td>Não considera materialidade nem duração</td><td>P1</td></tr>
+<tr><td>Assistente IA</td><td>Sim</td><td class="num"><span class="ruler"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="rulerv">3</span></td><td>Boa</td><td>Excelente</td><td>Herdado</td><td>Média</td><td>Sem chamados, sem recuperação, sem redação de contestação</td><td>P1</td></tr>
+<tr><td>Book do Operador</td><td>Sim</td><td class="num"><span class="ruler"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="rulerv">3</span></td><td>Boa</td><td>Boa</td><td>Manual</td><td>Média</td><td>Sem vínculo estrutural com atributo/veículo/alteração</td><td>P1</td></tr>
+<tr><td>Chamados</td><td>Sim</td><td class="num"><span class="ruler"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span class="rulerv">2</span></td><td>Aba única</td><td>Boa</td><td>Externo</td><td>Média</td><td>Somente leitura; não é ferramenta de contestação</td><td>P1</td></tr>
+<tr><td>Curadoria de semântica</td><td>Sim</td><td class="num"><span class="ruler"><i class="on"></i><i class="on"></i><i></i><i></i><i></i></span><span class="rulerv">2</span></td><td>Boa</td><td>Boa</td><td>Vazio</td><td>Baixa</td><td>Passe de proposta e taxonomia nunca rodam</td><td>P0</td></tr>
+<tr><td>Impacto financeiro</td><td>Sim</td><td class="num"><span class="ruler"><i class="on low"></i><i class="on low"></i><i></i><i></i><i></i></span><span class="rulerv">2</span></td><td>Boa</td><td>Excelente</td><td>Bloqueado</td><td><strong>Baixa</strong></td><td>Motor correto, desligado pelo P0 e por 12% de cobertura semântica</td><td>P0</td></tr>
+<tr><td>Qualidade de dados</td><td>Parcial</td><td class="num"><span class="ruler"><i class="on low"></i><i class="on low"></i><i></i><i></i><i></i></span><span class="rulerv">2</span></td><td>Nenhum</td><td>Disperso</td><td>Íntegro</td><td>Média</td><td>Validações isoladas, sem módulo nem tela</td><td>P1</td></tr>
+<tr><td>Histórico e linha do tempo</td><td>Parcial</td><td class="num"><span class="ruler"><i class="on low"></i><i class="on low"></i><i></i><i></i><i></i></span><span class="rulerv">2</span></td><td>Fragmentado</td><td>Boa</td><td>Íntegro</td><td>Média</td><td>Três séries diferentes, nenhuma timeline unificada</td><td>P1</td></tr>
+<tr><td>Governança e trilha</td><td>Parcial</td><td class="num"><span class="ruler"><i class="on low"></i><i class="on low"></i><i></i><i></i><i></i></span><span class="rulerv">2</span></td><td>Nenhum</td><td>Parcial</td><td>Parcial</td><td>Média</td><td>Sem papéis; sem tela de trilha</td><td>P0</td></tr>
+<tr><td>Comparador de vigências</td><td>Sim</td><td class="num"><span class="ruler"><i class="on"></i><i class="on"></i><i class="on"></i><i></i><i></i></span><span class="rulerv">3</span></td><td>Simples</td><td>Excelente</td><td>Íntegro</td><td>Média</td><td>A×B funciona; multivigência existe e está escondido</td><td>P2</td></tr>
+<tr><td>Cavalo / Carreta 360°</td><td>Parcial</td><td class="num"><span class="ruler"><i class="on low"></i><i class="on low"></i><i></i><i></i><i></i></span><span class="rulerv">2</span></td><td>Composição</td><td>Boa</td><td>Parcial</td><td>Média</td><td>Tem remuneração e histórico; não tem chamado, documento, evidência</td><td>P1</td></tr>
+<tr><td>Detecção de anomalias</td><td>Parcial</td><td class="num"><span class="ruler"><i class="on low"></i><i></i><i></i><i></i><i></i></span><span class="rulerv">1</span></td><td>Selo</td><td>Estreito</td><td>Íntegro</td><td>Média</td><td>Um único detector, de formato</td><td>P1</td></tr>
+<tr><td>Unidades / benchmarking</td><td>Parcial</td><td class="num"><span class="ruler"><i class="on low"></i><i></i><i></i><i></i><i></i></span><span class="rulerv">1</span></td><td>Lista</td><td>Contextos</td><td>Íntegro</td><td>Média</td><td>Comparação entre contextos recusada por desenho</td><td>P2</td></tr>
+<tr><td>Relatórios e exportação</td><td>Não</td><td class="num"><span class="ruler"><i></i><i></i><i></i><i></i><i></i></span><span class="rulerv">0</span></td><td>Nenhum</td><td>Nenhum</td><td>Disponível</td><td>—</td><td>Auditoria que não sai da tela não é entregável</td><td>P1</td></tr>
+<tr><td>Auditoria formal</td><td>Não</td><td class="num"><span class="ruler"><i></i><i></i><i></i><i></i><i></i></span><span class="rulerv">0</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>Alteração detectada ≠ auditoria</td><td>P1</td></tr>
+<tr><td>Contestação</td><td>Não</td><td class="num"><span class="ruler"><i></i><i></i><i></i><i></i><i></i></span><span class="rulerv">0</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>Achado não vira pedido</td><td>P1</td></tr>
+<tr><td>Recuperação de valores</td><td>Não</td><td class="num"><span class="ruler"><i></i><i></i><i></i><i></i><i></i></span><span class="rulerv">0</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>Nenhuma etapa do funil existe</td><td>P1</td></tr>
+<tr><td>Reconciliação com o pago</td><td>Não</td><td class="num"><span class="ruler"><i></i><i></i><i></i><i></i><i></i></span><span class="rulerv">0</span></td><td>—</td><td>—</td><td>Ausente</td><td>—</td><td>Sem prova financeira; só prova cadastral</td><td>P1</td></tr>
+<tr><td>DRE do veículo</td><td>Não</td><td class="num"><span class="ruler"><i></i><i></i><i></i><i></i><i></i></span><span class="rulerv">0</span></td><td>—</td><td>Receita só</td><td>Sem custo</td><td>—</td><td>Fonte de custo não existe</td><td>P2</td></tr>
+<tr><td>Materialidade e risco</td><td>Não</td><td class="num"><span class="ruler"><i></i><i></i><i></i><i></i><i></i></span><span class="rulerv">0</span></td><td>—</td><td>—</td><td>Disponível</td><td>—</td><td>Score de vigência não é materialidade</td><td>P1</td></tr>
+<tr><td>Permissões e isolamento</td><td>Não</td><td class="num"><span class="ruler"><i></i><i></i><i></i><i></i><i></i></span><span class="rulerv">0</span></td><td>—</td><td>—</td><td>—</td><td>—</td><td>Autenticado = tudo liberado</td><td>P0</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<!-- ==================================================================== -->
+<section id="s6">
+<h2><span class="num">06</span> Auditoria módulo por módulo</h2>
+<div class="col">
+
+<h3>A · Visão executiva</h3>
+<p>
+A tela <code>/</code> (Visão geral) e <code>/vigencia</code> (Acompanhamento) leem
+<code>/changes/grouped</code> e <code>/changes/families</code>, e ambas montam o
+<code>CockpitView</code>: KPIs (alterações, pontos, atenção, veículos, frota, impacto por
+periodicidade), narrativa determinística, panorama por criticidade/selo/equipamento, fila de
+prioridades e histórico. É um bom painel — e a redação dele
+(<code>cockpit.ts:588</code> <code>narrate</code>) é a melhor peça de comunicação do produto.
+</p>
+<p>Contra as nove perguntas pedidas:</p>
+<div class="scroller"><table class="compact">
+<thead><tr><th>Pergunta</th><th>Responde?</th><th>Como</th></tr></thead>
+<tbody>
+<tr><td>Quanto estamos perdendo</td><td>Parcial</td><td><code>impact.byPeriodicity</code> negativo da vigência; hoje sempre vazio (P0)</td></tr>
+<tr><td>Quanto estamos ganhando</td><td>Parcial</td><td>Mesmo campo, sinal positivo; não separado visualmente</td></tr>
+<tr><td>Quanto está em risco</td><td><strong>Não</strong></td><td>Não existe conceito de exposição</td></tr>
+<tr><td>Quantos veículos impactados</td><td>Sim</td><td><code>kpis.vehicles</code> — ativos distintos, sem dupla contagem</td></tr>
+<tr><td>Quantas alterações críticas</td><td>Sim</td><td><code>bySeverity</code> com corte ≥70</td></tr>
+<tr><td>Quanto está inconclusivo</td><td>Sim</td><td><code>totals.inconclusive</code> + <code>pricing.notCalculableChanges</code>, com motivos agrupados</td></tr>
+<tr><td>Quanto foi contestado</td><td><strong>Não</strong></td><td>Chamados existem, mas não se ligam a um achado</td></tr>
+<tr><td>Quanto foi recuperado</td><td><strong>Não</strong></td><td>Não existe</td></tr>
+<tr><td>Onde estão os maiores problemas</td><td>Sim</td><td><code>priorities</code>, ordenado e explicado</td></tr>
+</tbody>
+</table></div>
+<p>
+A visão executiva de hoje é <strong>uma visão executiva da vigência</strong>, não do negócio.
+Ela responde "o que aconteceu neste mês nesta unidade" e não "onde estamos perdendo dinheiro".
+</p>
+
+<h3>B · Importações e vigências</h3>
+<p>
+O mais forte do produto. Estão cobertos: arquivo recebido, origem, canal (derivado do rótulo),
+data, vigência, hash SHA-256, duplicidade em dois níveis (arquivo e dados normalizados),
+11 estados de execução, contadores de erro e aviso, registros importados, histórico completo,
+promoção com decisão humana e recusa escrita, exclusão com plano prévio do que sai.
+</p>
+<p>
+Faltam: <strong>unidade como campo declarado</strong> (é derivada de células de escopo),
+<strong>indicador de qualidade por importação</strong> (as <code>validation_issue</code> existem
+e não sobem para a tela), e <strong>a tela do histórico de exclusões</strong> —
+<code>GET /import-deletions</code> não tem consumidor.
+</p>
+
+<h3>C · Qualidade de dados</h3>
+<p>Não existe um módulo de Data Quality. Existem validações isoladas, em três lugares:</p>
+<div class="scroller"><table class="compact">
+<thead><tr><th>Verificação pedida</th><th>Existe?</th><th>Onde</th></tr></thead>
+<tbody>
+<tr><td>Campos ausentes</td><td>Parcial</td><td><code>ROW_MISSING_GRAIN_KEY</code>; <code>fact.is_null</code> + <code>null_reason</code></td></tr>
+<tr><td>Duplicidades</td><td>Sim</td><td><code>ENTIDADE_DUPLICADA_CONFLITANTE</code>/<code>CONSOLIDADA</code>, dedup por conteúdo</td></tr>
+<tr><td>Placas inválidas</td><td><strong>Não</strong></td><td>Não há validação de formato de placa</td></tr>
+<tr><td>Atributos desconhecidos</td><td>Sim</td><td><code>NEW_ATTRIBUTE</code>, <code>attribute_alias</code>, <code>AMBIGUOUS_COLUMN_SLUG</code></td></tr>
+<tr><td>Valores zerados</td><td>Parcial</td><td><code>ZEROING</code>/<code>FROM_ZERO</code> na comparação; não na entrada</td></tr>
+<tr><td>Valores fora da faixa</td><td><strong>Não</strong></td><td><code>semantics.ts</code> usa faixa só para <em>propor</em> semântica</td></tr>
+<tr><td>Periodicidades incoerentes</td><td>Sim</td><td><code>detectPeriodicityConflicts</code> — nome da coluna nunca é confiado sozinho</td></tr>
+<tr><td>Mudanças impossíveis</td><td><strong>Não</strong></td><td>Não há regra de plausibilidade</td></tr>
+<tr><td>Perda de atributos</td><td>Sim</td><td><code>attributes_removed</code>, <code>DISAPPEARED</code>, <code>snapshot_attribute.present_in_layout</code></td></tr>
+<tr><td>Mudança de unidade</td><td>Sim</td><td><code>SEMANTICS_DRIFT</code> + versionamento</td></tr>
+<tr><td>Divergência de schema</td><td>Parcial</td><td><code>MIXED_TYPE_COLUMN</code>, <code>TYPE_CHANGE</code>; sem visão de <em>drift</em></td></tr>
+<tr><td>Quebra de identidade canônica</td><td>Sim</td><td><code>0015</code>/<code>0016</code> + <code>ENTITY_IDENTIFIER_CONFLICT</code> + <code>snapshot_merge</code></td></tr>
+<tr><td>Dados incompatíveis entre vigências</td><td>Sim</td><td><code>comparability = INCONCLUSIVE</code> com motivo</td></tr>
+</tbody>
+</table></div>
+<p>
+Veredito: <strong>a matéria-prima de um bom módulo de qualidade já está no banco</strong>
+(<code>validation_issue</code>, <code>sentinel_rule</code>, <code>snapshot_attribute</code>,
+<code>attribute_alias</code>, balanço de massa) e não existe nem serviço agregador nem tela.
+</p>
+
+<h3>D · Comparador de vigências</h3>
+<p>
+Comparação A×B funciona e é sólida: <code>POST /change-sets</code> com recusa escrita para escopo
+incompatível, e a tela <code>/comparar</code>. Cada <code>change</code> carrega valor antes,
+valor depois, delta absoluto, delta percentual, natureza, comparabilidade, impacto,
+periodicidade, classe de custo, caminho de taxonomia, versão da semântica dos dois lados,
+rótulo da entidade e tipo de equipamento — mais o par de <code>fact_id</code> que leva à célula.
+</p>
+<p>
+<strong>Comparação além de A×B existe e está escondida:</strong>
+<code>GET /changes/range</code> (o que mudou entre duas vigências quaisquer, somando os
+movimentos) e <code>GET /changes/end-to-end</code> (o estado de uma contra o da outra, que
+<em>não</em> é a soma dos movimentos — a distinção está corretamente implementada). As duas só
+são alcançáveis dentro de uma aba de um cartão em <code>/parametros</code>. É provavelmente o
+ativo subutilizado mais valioso do produto.
+</p>
+<p>
+Falta: comparação por <strong>frota</strong> e por <strong>unidade</strong> como eixo de primeira
+classe, e explicação causal da diferença (hoje há diagnóstico do grupo, não da diferença).
+</p>
+
+<h3>E · Impacto financeiro</h3>
+<p>
+O motor é conceitualmente correto e conservador: <code>impacto = valor novo − valor anterior</code>
+por ativo, só quando semântica confirmada + monetário + somável + numérico dos dois lados,
+acumulado <em>dentro</em> de cada periodicidade, com exclusão de dupla contagem (parcela que já
+está num total).
+</p>
+<div class="scroller"><table class="compact">
+<thead><tr><th>Capacidade</th><th>Estado</th></tr></thead>
+<tbody>
+<tr><td>Perda / ganho mensal</td><td>Existe como <code>byPeriodicity["MENSAL"]</code> — bloqueado pelo P0</td></tr>
+<tr><td>Perda / ganho anual</td><td>Existe como <code>byPeriodicity["ANUAL"]</code> — mas é o parâmetro <em>declarado</em> anual, não a anualização do mensal</td></tr>
+<tr><td>Impacto acumulado</td><td>Existe (<code>getAccumulatedImpact</code>) — não confiável, ver §03</td></tr>
+<tr><td>Impacto futuro</td><td><strong>Não existe</strong> — <code>lib/simulation</code> tem horizonte e periodicidade e nenhum consumidor</td></tr>
+<tr><td>Por veículo</td><td>Existe (<code>getGroupVehicles</code>, composição)</td></tr>
+<tr><td>Por unidade</td><td>Existe implicitamente pelo contexto; não há visão comparativa</td></tr>
+<tr><td>Por atributo</td><td>Existe (o grão do grupo)</td></tr>
+<tr><td>Por família</td><td>Existe (<code>families-view.ts</code>, com a soma fechando com o total)</td></tr>
+<tr><td>Por vigência</td><td>Existe (<code>change_set.calculated_impact_by_periodicity</code>)</td></tr>
+<tr><td>Valor em risco</td><td><strong>Não existe</strong></td></tr>
+<tr><td>Valor inconclusivo</td><td>Existe e é contado separadamente, nunca como zero</td></tr>
+</tbody>
+</table></div>
+<div class="call ok">
+<span class="tag">O que está certo aqui</span>
+<p>
+A recusa em produzir número é a melhor decisão de arquitetura do produto. <code>NOT_CALCULABLE</code>
+com motivo escrito, contado num campo separado, jamais convertido em zero, e a narrativa
+obrigada a dizê-lo. É exatamente a postura de uma ferramenta de auditoria financeira séria.
+</p>
+</div>
+<div class="call p0">
+<span class="tag">O que está errado</span>
+<p>
+Essa mesma recusa hoje cobre 100% dos casos por um defeito de montagem, e cobriria ~88% mesmo
+depois de corrigido, porque só 17 dos ~138 atributos têm semântica confirmada. O produto está
+tecnicamente correto e financeiramente mudo.
+</p>
+</div>
+
+<h3>F · Cavalo 360° e Carreta 360°</h3>
+<p>
+Existe um embrião real e bom: <code>/composicao/:entityId</code> monta a ficha de um equipamento
+com identificação, unidade, vigência, componentes da remuneração com fórmula e parcelas,
+exclusões nomeadas, origem até a célula, histórico por vigência
+(<code>/composition/equipment/:id/history</code>) e alterações
+(<code>/composition/equipment/:id/changes</code>).
+</p>
+<div class="scroller"><table class="compact">
+<thead><tr><th>Bloco do dossiê</th><th>Hoje</th></tr></thead>
+<tbody>
+<tr><td>Identificação, unidade, vigência</td><td>Sim</td></tr>
+<tr><td>Modelo</td><td>Existe como atributo; não é dimensão de navegação</td></tr>
+<tr><td>Parâmetros e remuneração</td><td>Sim, com memória de cálculo</td></tr>
+<tr><td>Histórico e alterações</td><td>Sim</td></tr>
+<tr><td>Custos</td><td><strong>Não</strong> — não há fonte</td></tr>
+<tr><td>Impactos</td><td>Sim, na vigência</td></tr>
+<tr><td>Anomalias</td><td>Só a de formato</td></tr>
+<tr><td>Chamados</td><td><strong>Não</strong> — <code>ticket.entity_label</code> tem a placa e não há junção nem tela</td></tr>
+<tr><td>Documentos e evidências</td><td><strong>Não</strong> — Book não se liga a veículo</td></tr>
+<tr><td>Timeline unificada</td><td><strong>Não</strong> — há três séries separadas</td></tr>
+</tbody>
+</table></div>
+<p>
+<strong>Com os dados de hoje seria possível construir o 360° quase inteiro</strong>, com exceção
+de custos. A ligação chamado ↔ veículo já existe no dado (<code>ticket.entity_label</code>) e
+custa uma junção.
+</p>
+
+<h3>G · DRE do veículo</h3>
+<div class="scroller"><table class="compact">
+<thead><tr><th>Linha da DRE</th><th>Classificação</th><th>Observação</th></tr></thead>
+<tbody>
+<tr><td>Receita / remuneração</td><td><strong>Já possível</strong></td><td><code>lib/composition</code> entrega o mensal por ativo com memória de cálculo</td></tr>
+<tr><td>Custos fixos — financiamento</td><td>Parcialmente possível</td><td><code>finame</code>, <code>juros_finame</code>, <code>amortizacao</code> existem e estão confirmados — mas são <em>componentes da remuneração</em>, não desembolso do transportador</td></tr>
+<tr><td>Custos fixos — IPVA / licenciamento</td><td>Parcialmente possível</td><td><code>cavalo.ipva_licenciamento</code> confirmado; idem ressalva</td></tr>
+<tr><td>Custos fixos — seguro, depreciação</td><td>Parcialmente possível</td><td>Colunas existem; semântica não confirmada</td></tr>
+<tr><td>Custos fixos — motorista, administração</td><td><strong>Impossível hoje</strong></td><td>Não vem no export</td></tr>
+<tr><td>Custos variáveis — combustível, pneu, manutenção, pedágio</td><td><strong>Impossível hoje</strong></td><td><code>Custo Variável Simulado</code> é R$/km e falta a quilometragem do período (o produto chama isso de <code>BASE_QUE_FALTA</code> e diz o que destravaria)</td></tr>
+<tr><td>Margem / resultado</td><td><strong>Impossível hoje</strong></td><td>Depende de tudo acima</td></tr>
+</tbody>
+</table></div>
+<div class="call note">
+<span class="tag">A distinção que ninguém pode perder</span>
+<p>
+O export do Freightec é a <strong>tabela de remuneração</strong> — quanto a Ambev paga, e com que
+composição. Ele contém <em>parâmetros nomeados como custo</em> (IPVA, FINAME, depreciação) porque
+o modelo de remuneração é construído sobre uma estrutura de custo presumida. Isso <strong>não</strong>
+é o custo real do transportador. Montar uma DRE somando esses campos como se fossem desembolso
+produziria uma margem falsa e é o erro mais caro possível neste produto. Dados adicionais
+necessários: abastecimento, ordens de manutenção, pedágio, folha do motorista, quilometragem
+rodada, apólices, e o financiamento real do ativo.
+</p>
+</div>
+
+<h3>5 · Histórico e linha do tempo</h3>
+<p>
+Os dados permitem, e a interface só entrega em pedaços. Existe: série de atributo
+(<code>/attributes/:code/series</code>), histórico de remuneração do equipamento
+(<code>/composition/equipment/:id/history</code>, com <code>SerieDeComponente</code> por
+componente e vigência), histórico de semântica (<code>/curation/versions/:code</code>),
+histórico de importação e histórico do Book.
+</p>
+<p>
+<strong>O exemplo pedido — "IPVA do cavalo XYZ: Dez/25 → R$ X · Jan/26 → R$ Y · Mar/26 →
+periodicidade alterada · Ago/26 → R$ Z" — é montável hoje com dado existente e não tem tela.</strong>
+Ele cruza três fontes que já respondem separadamente: valor por vigência (<code>fact</code>),
+mudança de significado (<code>attribute_semantics</code>) e alteração apurada
+(<code>change</code>). Falta o serviço que as intercala numa linha e a tela que a mostra.
+</p>
+
+<h3>6 · Regras e parâmetros</h3>
+<p>
+Existe uma camada semântica de verdade, e ela está boa — mas <strong>partida em quatro</strong>:
+</p>
+<div class="scroller"><table class="compact">
+<thead><tr><th>Onde</th><th>O que guarda</th><th>Mutável em runtime?</th></tr></thead>
+<tbody>
+<tr><td><code>attribute</code> (banco)</td><td>Nome canônico, unidade, periodicidade, agregação, monetário, taxonomia, status, quem confirmou</td><td>Sim</td></tr>
+<tr><td><code>attribute_semantics</code> (banco)</td><td>Tudo acima, versionado com vigência por data, com origem da mudança e motivo</td><td>Sim</td></tr>
+<tr><td><code>attribute_alias</code> (banco)</td><td>Aliases de cabeçalho, com confiança de casamento</td><td>Sim</td></tr>
+<tr><td><code>confirmations.ts</code> (código)</td><td>17 confirmações com autor e base da decisão</td><td>Não — <em>pull request</em></td></tr>
+<tr><td><code>families.ts</code>, <code>regras.ts</code>, <code>catalogo.ts</code> (código)</td><td>Família operacional, composição de totais, catálogo de cartões do Freightech</td><td>Não</td></tr>
+</tbody>
+</table></div>
+<p>
+A escolha de deixar em código o que precisa de revisão é <strong>defensável e bem
+argumentada</strong> nos comentários. O problema não é a escolha, é a consequência: sem uma tela
+que mostre a camada semântica <em>inteira</em>, ninguém sabe onde procurar a regra de um
+parâmetro. Faltam da lista pedida: <strong>descrição</strong>, <strong>fórmula</strong>,
+<strong>tolerância</strong>, <strong>fonte</strong> e <strong>nível de confiança</strong> como
+campos de primeira classe. <code>calculation_basis</code> e <code>rationale</code> existem e são
+o começo disso.
+</p>
+
+<h3>7 · Detecção de anomalias — nível 1</h3>
+<p>
+<code>anomalies.ts</code> não é o que o nome sugere: detecta exclusivamente
+<strong>data virando serial do Excel e vice-versa</strong>. É excelente no que faz — inclusive
+distingue troca de formato pura de troca de formato com mudança real, com tolerância de precisão
+declarada — e é um único detector.
+</p>
+<div class="scroller"><table class="compact">
+<thead><tr><th>Anomalia pedida</th><th>Detecta?</th></tr></thead>
+<tbody>
+<tr><td>Queda de 80% num parâmetro</td><td>Parcial — vira selo/score, não alerta</td></tr>
+<tr><td>Parâmetro que desapareceu</td><td>Sim — <code>DISAPPEARED</code>, <code>attributes_removed</code></td></tr>
+<tr><td>Zero inesperado</td><td>Parcial — <code>ZEROING</code> é natureza, não anomalia</td></tr>
+<tr><td>Mudança de periodicidade</td><td>Sim — <code>SEMANTICS_DRIFT</code></td></tr>
+<tr><td>Alteração simultânea em muitos veículos</td><td>Parcial — <code>coverage = TOTAL</code> pontua 30, mas nunca é sinalizado como <em>suspeito</em></td></tr>
+<tr><td>Mudança incompatível com histórico</td><td><strong>Não</strong></td></tr>
+<tr><td>Veículo fora do padrão dos equivalentes</td><td><strong>Não</strong> — não há noção de "equivalente"</td></tr>
+<tr><td>Alteração sem justificativa</td><td><strong>Não</strong> — não há campo de justificativa</td></tr>
+<tr><td>Valor fora da distribuição histórica</td><td><strong>Não</strong> — nenhum cálculo de distribuição</td></tr>
+</tbody>
+</table></div>
+<p><strong>Classificação: nível 1 — regras simples.</strong> Não há regras configuráveis, estatística, detecção inteligente nem investigação assistida por IA.</p>
+
+<h3>8 · Auditorias</h3>
+<p>
+<strong>Não existe.</strong> Nenhuma tabela, nenhuma rota, nenhuma tela contém título, escopo,
+período, hipótese, achado, evidência, materialidade, responsável, status, conclusão, parecer,
+recomendação ou ação. O produto detecta alterações e as prioriza; não abre, conduz nem encerra
+uma auditoria. A confusão entre "alteração detectada" e "auditoria" é a maior lacuna conceitual
+do produto.
+</p>
+
+<h3>9 · Chamados e contestações</h3>
+<p>
+O módulo é bem modelado <em>para o que ele é</em>: a ingestão de um export da fila de chamados do
+Freightec. <code>ticket_import</code> guarda mapeamento de colunas com motivo, colunas não
+reconhecidas e colunas de parâmetro nomeadas; <code>ticket</code> guarda a linha original
+inteira em <code>payload</code>; <code>ticket_change</code> desdobra um chamado em uma linha por
+parâmetro, com <code>before_source</code> distinguindo <strong>ARQUIVO</strong> (o próprio
+chamado trouxe o antes) de <strong>VIGENCIA</strong> (buscado na vigência que o chamado nomeia)
+de <strong>AUSENTE</strong> — uma distinção de força de prova que quase nenhum sistema faz.
+</p>
+<p>Contra o que uma contestação financeira precisa:</p>
+<div class="scroller"><table class="compact">
+<thead><tr><th>Campo</th><th>Existe?</th></tr></thead>
+<tbody>
+<tr><td>Veículo, atributo, vigência, valor anterior, valor atual, diferença</td><td>Sim</td></tr>
+<tr><td>Impacto</td><td>Sim — só quando o chamado está atendido</td></tr>
+<tr><td>Evidência</td><td>Parcial — <code>payload</code> guarda a linha e a tela não a mostra</td></tr>
+<tr><td>Documento anexo</td><td><strong>Não</strong></td></tr>
+<tr><td>Justificativa</td><td><strong>Não</strong></td></tr>
+<tr><td>Responsável</td><td>Parcial — <code>requested_by</code> vem do arquivo</td></tr>
+<tr><td>SLA</td><td><strong>Não</strong> — há <code>ageInDays</code> e <code>averageDaysToClose</code>, que é medição, não acordo</td></tr>
+<tr><td>Status</td><td>Sim — 6 caixas normalizadas</td></tr>
+<tr><td>Resposta da contraparte</td><td><strong>Não</strong></td></tr>
+<tr><td>Conclusão</td><td><strong>Não</strong></td></tr>
+<tr><td>Origem num achado do FreightCheck</td><td><strong>Não</strong></td></tr>
+</tbody>
+</table></div>
+<p>
+<strong>Veredito: é gestão de tickets de terceiros, não ferramenta de contestação.</strong> A
+separação entre a régua da planilha e a régua do chamado está certa e deve ser preservada; o que
+falta é a terceira coisa — <em>a nossa contestação</em>, que nasce de um achado e vive num
+ciclo próprio.
+</p>
+
+<h3>10 · Recuperação de valores</h3>
+<div class="call p0">
+<span class="tag">Ausência total</span>
+<p>
+O funil <strong>identificado → validado → contestado → reconhecido → creditado → recuperado</strong>
+não tem uma única etapa implementada. Busca no repositório inteiro por
+<em>recupera/contesta/reconcilia/aging/SLA</em> retorna apenas comentários de outros assuntos.
+Não existe por chamado, por veículo, por unidade, por parâmetro, por auditoria nem por período.
+Não existe aging (só idade de chamado externo), prazo médio (só
+<code>averageDaysToClose</code> do export), taxa de sucesso, percentual recuperado, recuperação
+acumulada, valores perdidos nem valores em negociação.
+</p>
+<p>
+<strong>Esta é a lacuna que mais separa o FreightCheck de um produto que paga por si.</strong>
+</p>
+</div>
+
+<h3>11 · Documentos e evidências</h3>
+<p>
+<code>book_entry</code> é bem feito: um documento por bloco, revisão incremental (a maior é a
+vigente, sem coluna "é a atual"), SHA-256 do conteúdo, autor obrigatório, tamanho, MIME, nota,
+e sem DELETE. O binário mora no banco por uma razão declarada e correta (o disco da plataforma
+não sobrevive a deploy).
+</p>
+<p>Relacionamentos:</p>
+<ul>
+  <li><strong>Com bloco do Freightech:</strong> por texto (<code>block_key</code>), deliberadamente, com a categoria e o título do dia do envio preservados.</li>
+  <li><strong>Com atributo:</strong> não existe estruturalmente — existe por busca textual no assistente (<code>indice-book.ts</code>).</li>
+  <li><strong>Com veículo, vigência, alteração, chamado:</strong> <strong>não existe.</strong></li>
+</ul>
+<p>
+Não há contratos, planilhas de apoio, anexos de chamado nem evidências de auditoria. Uma
+auditoria, hoje, <strong>não consegue provar a própria conclusão</strong> — consegue provar de
+onde veio cada número, que é diferente e insuficiente.
+</p>
+
+<h3>12 · Assistente IA</h3>
+<p>
+Arquitetura acima da média: a decisão de fonte é <strong>determinística e testável</strong> — 20
+intenções resolvidas em código (<code>interpretacao.ts</code>), plano montado a partir da
+intenção, ferramentas executadas, e só então o modelo redige sobre material fechado. Há trava de
+lastro (<code>numerosSemLastro</code>, <code>citacoesSemFonte</code>) que descarta a resposta
+inteira se aparecer número sem evidência; quatro tipos de lacuna que não se confundem; herança
+conversacional estruturada; fallback em código quando não há chave; e observabilidade de custo,
+latência e desfecho.
+</p>
+<div class="scroller"><table class="compact">
+<thead><tr><th>Eixo</th><th>Nível</th><th>Detalhe</th></tr></thead>
+<tbody>
+<tr><td>Retrieval — dado estruturado</td><td>Forte</td><td>16 ferramentas sobre as mesmas funções que as telas usam</td></tr>
+<tr><td>Retrieval — Book</td><td>Forte</td><td>Índice próprio com ranqueamento e anexos</td></tr>
+<tr><td>Retrieval — parâmetros</td><td>Forte</td><td><code>resolverParametro</code> com aliases e desambiguação</td></tr>
+<tr><td>Retrieval — chamados</td><td><strong>Ausente</strong></td><td>Nenhuma intenção, nenhuma ferramenta</td></tr>
+<tr><td>Raciocínio — cruzar fontes</td><td>Médio</td><td>Cruza Book + dado; não cruza chamado × planilha</td></tr>
+<tr><td>Raciocínio — calcular impacto</td><td>Forte</td><td>Não calcula: <em>lê</em> o motor, que é o certo</td></tr>
+<tr><td>Raciocínio — periodicidade</td><td>Forte</td><td>Herda a regra do motor</td></tr>
+<tr><td>Raciocínio — cavalo × carreta</td><td>Forte</td><td>Séries independentes respeitadas</td></tr>
+<tr><td>Raciocínio — fato × hipótese</td><td>Forte</td><td>É o eixo central do desenho</td></tr>
+<tr><td>Grounding</td><td>Forte</td><td>Evidência viaja com a resposta; a tela diz quem redigiu</td></tr>
+<tr><td>UX</td><td>Bom</td><td>Conversa com herança; sem próximos passos acionáveis</td></tr>
+</tbody>
+</table></div>
+<p>Contra as onze perguntas-alvo:</p>
+<div class="scroller"><table class="compact">
+<thead><tr><th>Pergunta</th><th>Responde?</th></tr></thead>
+<tbody>
+<tr><td>Por que a remuneração deste cavalo caiu?</td><td>Sim — <code>COMPOSICAO</code> + <code>MOVIMENTO</code></td></tr>
+<tr><td>O que mudou nesta placa?</td><td>Sim — <code>veiculosAfetados</code>, <code>composicaoDaFrota</code></td></tr>
+<tr><td>Quais foram as maiores perdas desde janeiro?</td><td>Sim — <code>RANKING_PERDA</code> com intervalo</td></tr>
+<tr><td>Quais parâmetros mais reduziram remuneração?</td><td>Sim — <code>rankingDeImpacto</code></td></tr>
+<tr><td>Quais mudanças parecem anormais?</td><td><strong>Não</strong> — não há detector para consultar</td></tr>
+<tr><td>Essa mudança é compatível com o Book?</td><td>Parcial — traz a regra do Book, não confronta</td></tr>
+<tr><td>Quais veículos tiveram comportamento semelhante?</td><td><strong>Não</strong></td></tr>
+<tr><td>Quanto essa alteração custou?</td><td>Sim — lendo o motor</td></tr>
+<tr><td>Quanto já foi recuperado?</td><td><strong>Não</strong> — não existe o dado</td></tr>
+<tr><td>Quais chamados priorizar?</td><td><strong>Não</strong></td></tr>
+<tr><td>Monte uma contestação com as evidências</td><td><strong>Não</strong> — e é a capacidade de maior valor</td></tr>
+</tbody>
+</table></div>
+
+<h3>13 · Reconciliação</h3>
+<div class="call p0">
+<span class="tag">Ponto crítico</span>
+<p>
+<strong>Não existe nenhuma estrutura de reconciliação.</strong> O FreightCheck compara
+<em>tabela contra tabela</em>. Ele prova que o cadastro remunerado mudou; não prova que o
+pagamento saiu errado.
+</p>
+<p>Falta, exatamente:</p>
+<ul>
+  <li><strong>O esperado</strong> — existe em embrião: <code>lib/composition</code> já calcula a remuneração mensal por ativo a partir da vigência vigente. É a base do "deveria receber".</li>
+  <li><strong>O realizado</strong> — não existe. Nenhuma tabela de pagamento, fatura, CT-e, medição ou romaneio.</li>
+  <li><strong>A terceira fonte</strong> — não existe integração com ERP, financeiro ou TMS. Não há sequer um conector, uma fila ou um contrato de importação genérico: o único caminho de entrada é upload manual de .xlsx.</li>
+  <li><strong>A chave de casamento</strong> — não existe. Reconciliar exige (ativo, período, componente) dos dois lados; o lado canônico tem, o outro não existe.</li>
+</ul>
+<p>
+Enquanto isso não existir, toda conclusão do produto é da forma <em>"a tabela mudou e isso
+valeria R$ X"</em>, e nunca <em>"você recebeu R$ X a menos do que deveria"</em>. A diferença
+entre as duas frases é a diferença entre um relatório e uma cobrança.
+</p>
+</div>
+
+<h3>14 · Risco e materialidade</h3>
+<p>
+Existe <strong>criticidade</strong> — e ela é boa: score aditivo, explicável, com cada ponto
+virando frase, cortes declarados, desempate determinístico. Existe <strong>confiança</strong>
+como <code>impact_confidence</code> e <code>semantics_status</code>. Existe
+<strong>quantidade de veículos</strong> como <code>coverage</code> e <code>vehicles</code>.
+</p>
+<p>
+Não existe <strong>materialidade</strong> (o score é da vigência, não do dinheiro),
+<strong>risco</strong> (não há probabilidade nem consequência), <strong>exposição</strong>,
+<strong>recorrência</strong> (nada olha "isto já aconteceu antes") nem <strong>tempo de
+exposição</strong> (nada mede há quantas vigências uma perda persiste).
+</p>
+<p>
+O que seria necessário para <code>materialidade = impacto × quantidade × duração × confiança</code>:
+impacto e quantidade já existem; <strong>duração</strong> exige uma consulta nova sobre
+<code>change</code> ao longo das vigências (o dado está lá); <strong>confiança</strong> exige
+mapear <code>impact_confidence</code> + <code>semantics_status</code> + <code>comparability</code>
+para um escalar. Nenhuma tabela nova é obrigatória.
+</p>
+
+<h3>15 · Unidades e benchmarking</h3>
+<p>
+O produto trata contexto <code>(unidade, canal)</code> como <strong>fronteira intransponível</strong>,
+e por bons motivos: somar duas unidades produziria um total que nenhuma reconhece. A decisão
+está certa <em>para agregação</em> e virou, por omissão, também uma proibição de
+<em>comparação</em> — que é coisa diferente e é exatamente o que a auditoria precisa.
+</p>
+<p>
+Hoje: <code>/unidades</code> lista contextos com última vigência e número de períodos. Nenhuma
+das cinco perguntas pedidas — qual unidade perdeu mais, qual tem mais divergências, qual tem pior
+qualidade de dados, se o mesmo modelo recebe parâmetros diferentes, se há diferenças sem
+justificativa operacional — é respondível pela interface. As três primeiras são calculáveis com
+o dado atual.
+</p>
+
+<h3>16 · Governança e audit trail</h3>
+<div class="scroller"><table class="compact">
+<thead><tr><th>Item</th><th>Estado</th></tr></thead>
+<tbody>
+<tr><td>Autenticação</td><td>Forte — scrypt com parâmetros no hash, sessão com token hasheado, expiração absoluta de 7 dias, trava de tentativas</td></tr>
+<tr><td>Autorização</td><td><strong>Inexistente</strong> — autenticado é tudo-ou-nada</td></tr>
+<tr><td>Permissões</td><td><strong>Inexistentes</strong> — <code>app_user</code> não tem papel</td></tr>
+<tr><td>Isolamento</td><td><strong>Inexistente</strong> — qualquer usuário lê e escreve em qualquer unidade</td></tr>
+<tr><td>Quem importou</td><td>Sim — <code>source_file.received_by</code>, <code>import_run.triggered_by</code></td></tr>
+<tr><td>Quem promoveu</td><td>Sim — <code>promotedBy</code> do e-mail da sessão</td></tr>
+<tr><td>Quem mudou a semântica</td><td>Sim — <code>curation_event</code> com antes, depois, motivo e ator</td></tr>
+<tr><td>Quem excluiu</td><td>Sim — <code>import_deletion</code>, append-only, com o que saiu</td></tr>
+<tr><td>Quem classificou / encerrou / aprovou um achado</td><td><strong>Não</strong> — as ações não existem</td></tr>
+<tr><td>Quem criou / desabilitou usuário</td><td>Sim — <code>created_by</code>, <code>disabled_by</code></td></tr>
+<tr><td>Quem leu o quê</td><td><strong>Não</strong></td></tr>
+<tr><td>Timestamps</td><td>Sim, com fuso, em toda tabela relevante</td></tr>
+<tr><td>Imutabilidade</td><td>Forte — RAW e vigência fechada por trigger</td></tr>
+<tr><td>Tela de trilha</td><td><strong>Não existe nenhuma</strong></td></tr>
+</tbody>
+</table></div>
+<p>
+Resposta à pergunta "quem fez o quê, quando e com base em qual informação?": <strong>respondível
+por SQL para importação, promoção, curadoria e exclusão; irrespondível pelo produto, e
+inexistente para tudo que é julgamento de auditoria.</strong>
+</p>
+
+<h3>17 · Relatórios e exportação</h3>
+<p>
+<strong>Zero.</strong> Nenhuma tela do produto gera Excel, CSV, PDF ou link compartilhável.
+Nenhum <code>Blob</code>, <code>download</code> ou biblioteca de geração de documento no
+frontend. A única direção de arquivo que existe é <em>entrada</em> (upload de .xlsx de vigência e
+de chamados).
+</p>
+<p>
+Para um produto de auditoria isto é grave por dois motivos: o entregável de uma auditoria é um
+documento, e a contraparte que vai receber a contestação não tem acesso ao sistema.
+</p>
+
+<h3>18 · UX e arquitetura de navegação</h3>
+<p>
+A barra lateral é bem construída — cinco seções por trabalho, contadores de fila, unidade aberta
+como estado, seções recolhíveis com o trabalho escondido subindo para o cabeçalho. A regra
+declarada ("item que não funciona não entra na lista") é a postura certa.
+</p>
+<p>Problemas reais:</p>
+<ul>
+  <li><strong>Funcionalidade escondida.</strong> Análise de intervalo e ponta-a-ponta, tabela de inventário, domínio de valores e proveniência estão todos a três ou quatro cliques, dentro de abas de cartões.</li>
+  <li><strong>Três telas para a mesma pergunta.</strong> Visão geral, Acompanhamento e Alterações leem material sobreposto com recortes diferentes; nada na navegação diz quando usar qual.</li>
+  <li><strong>Uma tela que não pertence à seção em que está.</strong> "Análise de frota" está em Visão executiva e é a única tela do produto fora do modelo canônico.</li>
+  <li><strong>Nomes que não dizem o trabalho.</strong> "Composição", "Versões", "Cobertura de dados", "Balanço de massa" são nomes de mecanismo, não de pergunta.</li>
+  <li><strong>Chamados como aba, não como módulo.</strong> Fica dentro de Alterações; não aparece na navegação nem tem contador.</li>
+  <li><strong>Sem drill-down do executivo ao veículo.</strong> Existe grupo → veículos → célula, mas não existe unidade → parâmetro → veículo → chamado.</li>
+  <li><strong>Ausência de visão executiva de negócio</strong>, no sentido de "onde está o dinheiro", distinta da visão executiva da vigência.</li>
+  <li><strong>Uma rota de apresentação em vídeo</strong> (<code>/apresentacao</code>) dentro do produto.</li>
+</ul>
+
+</div>
+</section>
+
+<!-- ==================================================================== -->
+<section id="s7">
+<h2><span class="num">07</span> Ativos subutilizados do FreightCheck</h2>
+<div class="col">
+<p>
+O que já existe no backend ou no banco, funciona, e hoje gera pouco ou nenhum valor —
+ordenado por retorno sobre esforço.
+</p>
+</div>
+
+<div class="scroller">
+<table>
+<thead><tr><th>Ativo</th><th>Onde está</th><th>O que destrava</th><th>Esforço</th></tr></thead>
+<tbody>
+<tr><td><strong>As cinco rotinas pós-promoção</strong></td><td><code>overview.ts:212-220</code> (morto)</td><td>Taxonomia, semântica proposta, 17 confirmações aplicadas, versões e <em>todas</em> as comparações. É o produto financeiro inteiro, ligado por um <em>move</em> de linhas.</td><td>Mínimo</td></tr>
+<tr><td><strong>Análise de intervalo e ponta-a-ponta</strong></td><td><code>/changes/range</code>, <code>/changes/end-to-end</code></td><td>"O que mudou desde janeiro" como tela de primeira classe, com a distinção correta entre soma de movimentos e estado-contra-estado. Alimenta perda acumulada e valor em risco.</td><td>Baixo</td></tr>
+<tr><td><strong>Ligação chamado ↔ veículo</strong></td><td><code>ticket.entity_label</code> + <code>entity.identifier</code></td><td>Cavalo 360° com chamados; "esta placa tem chamado aberto sobre este parâmetro"; conciliação das duas réguas.</td><td>Baixo</td></tr>
+<tr><td><strong><code>validation_issue</code> + <code>sentinel_rule</code> + balanço de massa</strong></td><td>Banco, sem tela</td><td>Módulo de Qualidade de Dados com nota por importação e por unidade.</td><td>Médio</td></tr>
+<tr><td><strong><code>import_decision</code></strong></td><td>Banco, sem tela</td><td>Trilha de decisões de importação — "por que esta vigência foi recusada em julho".</td><td>Baixo</td></tr>
+<tr><td><strong><code>attribute_semantics</code> versionado</strong></td><td>Banco, tela rasa</td><td>Linha do tempo de significado por parâmetro, e o alerta "este parâmetro mudou de sentido — as comparações anteriores usam outra régua".</td><td>Baixo</td></tr>
+<tr><td><strong><code>snapshot_attribute</code> + <code>attribute_alias</code></strong></td><td>Banco, sem tela</td><td>Detecção de <em>schema drift</em>: coluna que sumiu do layout, coluna que trocou de nome, cobertura por vigência.</td><td>Médio</td></tr>
+<tr><td><strong><code>lib/composition</code></strong></td><td>Tela existe, uso baixo</td><td>É o "quanto este ativo deveria receber". É a metade esperada de qualquer reconciliação futura, já pronta e com memória de cálculo.</td><td>—</td></tr>
+<tr><td><strong>Proveniência até a célula</strong></td><td><code>/changes/:id/provenance</code></td><td>É o anexo de prova de qualquer contestação. Hoje é um detalhe de UI; deveria ser um artefato exportável.</td><td>Baixo</td></tr>
+<tr><td><strong><code>ticket.payload</code></strong></td><td>Banco, sem tela</td><td>Evidência bruta do chamado, preservada com cabeçalhos originais.</td><td>Mínimo</td></tr>
+<tr><td><strong>Observabilidade de IA</strong></td><td><code>/assistant/usage</code></td><td>Custo, latência, taxa de descarte por trava de lastro. Governança de IA sem construir nada.</td><td>Mínimo</td></tr>
+<tr><td><strong><code>lib/simulation</code></strong></td><td>Zero consumidores</td><td>Horizonte e periodicidade — a base da projeção anual e do impacto futuro.</td><td>Médio</td></tr>
+<tr><td><strong>Catálogo do Freightech</strong></td><td><code>lib/knowledge/catalogo.ts</code></td><td>Já diz o que o Freightech publica e este export não traz. É a lista de arquivos a pedir — hoje é rodapé.</td><td>Baixo</td></tr>
+</tbody>
+</table>
+</div>
+</section>
+
+<!-- ==================================================================== -->
+<section id="s8">
+<h2><span class="num">08</span> Dívida técnica</h2>
+<div class="col">
+
+<h4>Arquitetura</h4>
+<ul>
+  <li><strong>Rotas duplicadas com semântica divergente.</strong> <code>overview.ts</code> replica quatro rotas de <code>imports.ts</code>: <code>GET /imports</code>, <code>GET /imports/:id</code>, <code>GET /imports/:id/status</code>, <code>POST /imports/:id/promote</code>, mais <code>POST /imports</code>. As respostas divergem (202 × 200, corpo <code>{run, sheets, snapshots}</code> × <code>{sheets, snapshots}</code>, <code>onExistingSnapshot: "FAIL"</code> × <code>"REJECT"</code>). Custou o P0 desta auditoria.</li>
+  <li><strong>Sem verificação de colisão de rotas.</strong> Nada no <em>build</em> nem nos testes detecta duas rotas com o mesmo método e caminho.</li>
+  <li><strong>Contrato de API sem autoridade.</strong> <code>lib/api-spec/openapi.yaml</code> e os clientes gerados descrevem um schema anterior; só <code>health.ts</code> usa <code>@workspace/api-zod</code>. As 79 outras rotas não têm contrato verificado.</li>
+  <li><strong><code>fleet-analysis</code> fora da arquitetura.</strong> Lê <code>attached_assets/*.xlsx</code> por <code>readdirSync().find()</code> — a escolha do arquivo depende da ordem do diretório — e cacheia em memória de processo, sem invalidação.</li>
+</ul>
+
+<h4>Schema e dados</h4>
+<ul>
+  <li><strong>Quatro fontes de verdade semântica</strong> (§06.6) sem uma leitura unificada.</li>
+  <li><strong>Sem coluna de papel em <code>app_user</code></strong> — toda autorização futura exige migration.</li>
+  <li><strong>Sem <code>tenant</code>/organização.</strong> <code>scope</code> é dimensão de dado, não de acesso.</li>
+  <li><strong><code>ticket.entity_label</code> não é chave estrangeira</strong> — a ligação com <code>entity</code> existe como texto e nunca é resolvida.</li>
+  <li><strong><code>meta/_journal.json</code> com 12 snapshots para 18 migrations</strong> — o diretório <code>meta</code> do Drizzle está defasado. <span class="unproven">Não comprovado</span> se isso quebra <code>drizzle-kit generate</code>; o caminho de execução usa <code>runMigrations</code> sobre os <code>.sql</code>, que está íntegro.</li>
+</ul>
+
+<h4>Código morto</h4>
+<ul>
+  <li><code>pages/dashboard.tsx</code> (~1 tela completa), <code>pages/simulacao.tsx</code>, <code>pages/snapshots/index.tsx</code>, <code>pages/snapshots/[id].tsx</code> — não roteadas.</li>
+  <li><code>lib/simulation</code> — <strong>zero</strong> importadores.</li>
+  <li><code>lib/api-spec</code>, <code>lib/api-client-react</code> — consumidos só pelas telas mortas.</li>
+  <li><code>overview.ts</code> — 4 de 6 rotas inalcançáveis.</li>
+  <li><code>artifacts/mockup-sandbox</code> e <code>components/video/*</code> — fora do produto, mas construídos no <em>build</em>.</li>
+</ul>
+
+<h4>Segurança</h4>
+<ul>
+  <li><strong>Sem autorização</strong> (detalhado em §10).</li>
+  <li><strong><code>DELETE /imports/:id</code> aberto a qualquer usuário autenticado</strong> — apaga RAW e vigência fechada, com uma porta declarada na transação. O rastro fica, o dado não.</li>
+  <li><strong><code>express.json({ limit: "64mb" })</code> global</strong> — o limite existe para uma rota e vale para todas.</li>
+  <li><code>cors()</code> sem origem declarada.</li>
+  <li>Rate limiting só no login, em memória de processo.</li>
+</ul>
+
+<h4>Performance</h4>
+<ul>
+  <li><strong><code>promote</code> carrega todos os <code>staged_fact</code> em memória</strong> e insere numa transação única — ~43k células por arquivo hoje; escala linear com a frota.</li>
+  <li><strong><code>computeMissingChangeSets</code> é sequencial</strong> sobre todos os pares de todas as séries.</li>
+  <li><strong><code>getConsolidated</code> calcula sob demanda dentro do <em>request</em></strong> — o primeiro a abrir paga a conta.</li>
+  <li>Cache de processo em <code>fleet-analysis</code> e anel de observabilidade em memória: ambos morrem no restart e não sobrevivem a múltiplas instâncias.</li>
+</ul>
+
+<h4>Testes</h4>
+<ul>
+  <li>64 arquivos, ~896 casos, 25 contra Postgres real criado das migrations — <strong>excelente</strong>.</li>
+  <li>Nenhum teste cobre a <strong>montagem de rotas</strong> — é o buraco por onde passou o P0.</li>
+  <li>Nenhum teste end-to-end do fluxo do produto (upload → promoção → tela mostra impacto).</li>
+  <li>A bateria do assistente exige <code>ASSISTANT_EVAL_DATABASE_URL</code> com dado real promovido; sem isso é pulada silenciosamente.</li>
+  <li>Nenhum teste de frontend além de três utilitários.</li>
+</ul>
+
+</div>
+</section>
+
+<!-- ==================================================================== -->
+<section id="s9">
+<h2><span class="num">09</span> Dívida de produto</h2>
+<div class="col">
+
+<ul>
+  <li><strong>O ciclo da auditoria não fecha.</strong> O produto termina em "aqui está o que mudou e quanto vale". Não há classificar, decidir, contestar, acompanhar, provar, recuperar. É a dívida de produto que contém todas as outras.</li>
+  <li><strong>Não existe entregável.</strong> Nada sai do sistema. Um auditor não consegue mandar nada para a Ambev, para a diretoria ou para o jurídico sem tirar print.</li>
+  <li><strong>Não existe fila de trabalho.</strong> Há prioridades calculadas e nenhuma forma de atribuir, marcar como visto, arquivar com motivo ou reabrir. Toda vigência recomeça do zero.</li>
+  <li><strong>Não existe estado de investigação.</strong> Uma alteração revisada e considerada legítima aparece amanhã igual à que ninguém olhou.</li>
+  <li><strong>Não existe alerta.</strong> Nada avisa que uma vigência chegou, que uma perda apareceu, que um chamado passou do prazo. O produto é 100% <em>pull</em>.</li>
+  <li><strong>A visão executiva é da vigência, não do negócio.</strong> Responde ao mês; não responde ao ano, à unidade, ao acumulado nem ao recuperado.</li>
+  <li><strong>Funcionalidade cara escondida em abas.</strong> §06.18.</li>
+  <li><strong>Nomes de mecanismo no lugar de nomes de trabalho.</strong> §06.18.</li>
+  <li><strong>Chamados é aba de outra tela</strong> apesar de ser um dos dois caminhos pelos quais a remuneração muda.</li>
+  <li><strong>Curadoria pede trabalho sem explicar o retorno.</strong> A tela não diz que confirmar um atributo é o que destrava dinheiro — e é.</li>
+  <li><strong>Não existe onboarding de unidade.</strong> Não há cadastro; unidade é o que apareceu numa planilha.</li>
+  <li><strong>O Book é uma biblioteca, não uma referência.</strong> Guarda documento por bloco e não se conecta ao parâmetro que a pessoa está olhando.</li>
+  <li><strong>Uma tela de demonstração no menu executivo</strong> (§10).</li>
+</ul>
+
+</div>
+</section>
+
+<!-- ==================================================================== -->
+<section id="s10">
+<h2><span class="num">10</span> Lacunas de confiabilidade</h2>
+<div class="col">
+
+<div class="call p0">
+<span class="tag">P0-1 · Pós-promoção não executa</span>
+<p>
+Detalhado em §03. <strong>Risco:</strong> o produto reporta ausência de impacto financeiro como
+se fosse uma característica dos dados. Um cliente concluiria que não há perdas.
+<strong>Evidência:</strong> <code>routes/index.ts:74-75</code>, <code>routes/overview.ts:206-222</code>,
+<code>routes/imports.ts:272-332</code>, <code>impact.ts:50</code>, <code>pipeline.ts:1638</code>.
+</p>
+</div>
+
+<div class="call p0">
+<span class="tag">P0-2 · Acumulado histórico depende da navegação</span>
+<p>
+<code>getAccumulatedImpact</code> soma <code>change_set</code> existentes; a criação deles é
+sob demanda e parcial. <strong>Risco:</strong> dois usuários veem números históricos diferentes,
+e o número cresce sozinho conforme alguém navega. Para uma auditoria, um número que muda sem
+que o dado mude é pior do que nenhum número.
+</p>
+</div>
+
+<div class="call p0">
+<span class="tag">P0-3 · Tela executiva alimentada por planilha de demonstração</span>
+<p>
+<code>routes/fleet-analysis.ts:12-27</code> procura o primeiro <code>.xlsx</code> em
+<code>attached_assets/</code> — hoje há quatro arquivos lá, dois deles modelos — e serve
+<code>/fleet-analysis/{summary,carretas,cavalos}</code> a partir dele, com cache de processo. A
+tela "Análise de frota" está na seção <strong>Visão executiva</strong> do menu
+(<code>sidebar.tsx:119</code>). Não passa por RAW, não tem vigência, não respeita a unidade
+selecionada e não tem proveniência.
+<strong>Risco:</strong> números de demonstração apresentados como produção, num lugar onde
+ninguém vai duvidar deles.
+</p>
+</div>
+
+<div class="call p1">
+<span class="tag">P1-4 · Cobertura semântica de 12%</span>
+<p>
+17 atributos confirmados contra ~138 do export. Mesmo com o P0-1 resolvido, a maior parte do
+dinheiro do arquivo permanece não precificada — e o produto dirá corretamente que não sabe,
+o que é honesto e comercialmente insuficiente.
+</p>
+</div>
+
+<div class="call p1">
+<span class="tag">P1-5 · Exclusão de importação sem controle de quem</span>
+<p>
+<code>DELETE /imports/:id</code> apaga RAW e vigência fechada. Exige sessão, plano prévio e
+grava rastro — mas qualquer usuário autenticado pode executá-la.
+</p>
+</div>
+
+<div class="call p1">
+<span class="tag">P1-6 · Sem autorização, sem isolamento</span>
+<p>
+Todo usuário lê e escreve tudo, em todas as unidades. Num produto B2B vendido a uma
+transportadora que audita a Ambev — ou pior, vendido a várias transportadoras — isto é
+bloqueante comercialmente antes de ser bloqueante tecnicamente.
+</p>
+</div>
+
+</div>
+</section>
+
+<!-- ==================================================================== -->
+<section id="s11">
+<h2><span class="num">11</span> Lacunas de auditoria</h2>
+<div class="col">
+<ul>
+  <li><strong>Não existe o objeto "auditoria"</strong> — título, escopo, período, hipótese, materialidade, responsável, status, conclusão, parecer, recomendações, ações.</li>
+  <li><strong>Não existe o objeto "achado"</strong> distinto de "alteração". Toda alteração é tratada igual; nada registra que alguém olhou, concluiu e por quê.</li>
+  <li><strong>Não existe evidência anexável a uma conclusão.</strong> Há proveniência (de onde veio o número) e não há dossiê (o que sustenta esta conclusão).</li>
+  <li><strong>Não existe trilha de julgamento.</strong> Quem classificou, quem encerrou, quem aprovou — nenhuma dessas ações existe, logo nada as registra.</li>
+  <li><strong>Não existe amostragem nem escopo declarado.</strong> A auditoria é sempre "tudo o que mudou", sem recorte, sem materialidade mínima, sem população definida.</li>
+  <li><strong>Não existe papel de trabalho nem parecer.</strong> Nenhum artefato sai do sistema.</li>
+  <li><strong>Não existe segregação de funções.</strong> A mesma pessoa importa, promove, confirma semântica, conclui e (se existisse) aprovaria.</li>
+  <li><strong>Não existe tela de trilha</strong>, embora três trilhas parciais existam no banco.</li>
+</ul>
+</div>
+</section>
+
+<!-- ==================================================================== -->
+<section id="s12">
+<h2><span class="num">12</span> Lacunas financeiras</h2>
+<div class="col">
+<ul>
+  <li><strong>Nenhum número financeiro chega à tela pelo caminho do produto</strong> (P0-1).</li>
+  <li><strong>Sem anualização.</strong> <code>ANUAL</code> é o parâmetro declarado anual, não o mensal projetado. "Quanto isto custa por ano" não é respondível.</li>
+  <li><strong>Sem impacto futuro.</strong> Uma perda mensal que persiste não é projetada para frente. <code>lib/simulation</code> existe e não é usada.</li>
+  <li><strong>Sem valor em risco</strong> e sem separação entre perda confirmada, perda provável e perda possível.</li>
+  <li><strong>Sem visão de resultado por unidade e por frota</strong> — só por vigência e por parâmetro.</li>
+  <li><strong>Sem conciliação entre as duas réguas.</strong> Planilha e chamados corretamente não se somam — e nada mostra a relação entre elas ("este chamado explica esta alteração").</li>
+  <li><strong>Sem custo</strong>, logo sem margem, sem DRE e sem rentabilidade por ativo.</li>
+  <li><strong>Sem prova financeira</strong> (§06.13): o produto prova mudança de tabela, não erro de pagamento.</li>
+</ul>
+</div>
+</section>
+
+<!-- ==================================================================== -->
+<section id="s13">
+<h2><span class="num">13</span> Lacunas de recuperação</h2>
+<div class="col">
+<p>
+Não é uma lacuna — é o módulo inteiro. As seis etapas do funil, os seis eixos de agregação e as
+sete métricas pedidas somam <strong>zero implementação</strong>.
+</p>
+<div class="scroller"><table class="compact">
+<thead><tr><th>Etapa</th><th>Existe hoje?</th><th>O mais próximo que há</th></tr></thead>
+<tbody>
+<tr><td>Valor identificado</td><td>Parcial</td><td><code>change.impact_amount</code> — quando o motor está ligado</td></tr>
+<tr><td>Valor validado</td><td>Não</td><td>Não há ato de validação</td></tr>
+<tr><td>Valor contestado</td><td>Não</td><td>Chamados externos, sem vínculo com achado</td></tr>
+<tr><td>Valor reconhecido</td><td>Não</td><td><code>ticket.status_bucket = ATENDIDO</code>, que é do fluxo do Freightec</td></tr>
+<tr><td>Valor creditado</td><td>Não</td><td>Nada</td></tr>
+<tr><td>Valor recuperado</td><td>Não</td><td>Nada</td></tr>
+</tbody>
+</table></div>
+<p>
+O único material aproveitável é <code>ticket_change.impact_amount</code> com
+<code>before_source</code> (força de prova) e <code>ageInDays</code> — bases honestas para
+aging e prazo médio, sobre chamados de terceiros.
+</p>
+</div>
+</section>
+
+<!-- ==================================================================== -->
+<section id="s14">
+<h2><span class="num">14</span> Lacunas do Assistente IA</h2>
+<div class="col">
+<ul>
+  <li><strong>Não conhece chamados.</strong> Nenhuma das 20 intenções e nenhuma das 16 ferramentas toca <code>ticket*</code>. Metade da história da remuneração é invisível ao assistente.</li>
+  <li><strong>Não sabe o que é anormal.</strong> Sem detector para consultar, "quais mudanças parecem anormais?" não tem fonte.</li>
+  <li><strong>Não confronta o Book com o dado.</strong> Traz a regra e traz o número; não diz se um contradiz o outro — que é a pergunta de auditoria de maior valor.</li>
+  <li><strong>Não compara veículos entre si.</strong> Sem noção de "equivalente", não responde "quais tiveram comportamento semelhante".</li>
+  <li><strong>Não redige contestação.</strong> A capacidade de maior valor comercial — montar o texto com evidência, proveniência e impacto — não existe, e todos os insumos existem.</li>
+  <li><strong>Não age.</strong> É estritamente de leitura: não abre chamado, não marca achado, não gera documento, não agenda nada.</li>
+  <li><strong>Não oferece próximos passos.</strong> Termina a resposta; não propõe o que fazer com ela.</li>
+  <li><strong>Não tem memória de auditoria.</strong> Conversas são privadas do autor e não se ligam a achado, veículo ou vigência — o raciocínio que sustentou uma decisão fica num lugar que nenhuma auditoria alcança.</li>
+  <li><strong>Observabilidade existe e não é exposta</strong> (<code>/assistant/usage</code>).</li>
+</ul>
+<div class="call ok">
+<span class="tag">O que não precisa mudar</span>
+<p>
+A arquitetura de <em>grounding</em> é a coisa certa e deve ser preservada exatamente como está:
+decisão de fonte em código, modelo só redigindo, trava de lastro descartando resposta inteira,
+quatro tipos de lacuna, e a tela dizendo quem redigiu. Toda capacidade nova deve entrar por
+ferramenta nova, nunca afrouxando o portão.
+</p>
+</div>
+</div>
+</section>
+
+<!-- ==================================================================== -->
+<section id="s15">
+<h2><span class="num">15</span> As 10 maiores forças</h2>
+<ol class="strengths">
+<li><strong>Imutabilidade garantida pelo banco, não por convenção.</strong> Triggers em <code>0001</code> tornam impossível um UPDATE em RAW ou a edição de uma vigência fechada — inclusive por bug futuro. A exclusão de importação abre uma porta declarada por transação e append-only. Esta é a fundação sobre a qual uma auditoria séria pode ser construída, e ela já existe.</li>
+<li><strong>Identidade canônica calculada pelo banco.</strong> <code>0015</code>/<code>0016</code>: <code>canonical_snapshot_key</code> é coluna gerada com normalização em SQL espelhada byte a byte no TypeScript e um teste prendendo os dois lados. Nenhum caminho da aplicação consegue criar duas vigências ativas para a mesma realidade.</li>
+<li><strong>Proveniência célula a célula.</strong> Todo fato guarda a <code>raw_cell</code> de origem; <code>/changes/:id/provenance</code> devolve os dois lados até a coluna e a linha da planilha. É o ativo mais valioso do produto para contestação.</li>
+<li><strong>A recusa de precificar sem lastro.</strong> <code>impact.ts</code> tem cinco recusas nomeadas, nunca produz zero e nunca esconde a ausência. É a decisão que separa uma ferramenta de auditoria de um dashboard.</li>
+<li><strong>Periodicidades nunca somadas.</strong> R$/mês e R$/ano permanecem grandezas distintas do banco à narrativa, com exclusão de dupla contagem entre total e parcela. Erros deste tipo são a causa mais comum de número errado em produtos de custo.</li>
+<li><strong>Semântica versionada com vigência por data.</strong> Uma comparação Dez/25 × Jan/26 usa o significado que as colunas tinham <em>então</em>. Mudança na fonte cria versão; correção da interpretação reescreve — ações distintas que nunca dividem botão.</li>
+<li><strong>Contexto (unidade, canal) obrigatório, e declarado na resposta.</strong> Escolher por padrão nunca é escolher em silêncio: toda resposta diz de quem é o período que descreve e quais outros existem.</li>
+<li><strong>Balanço de massa.</strong> A pergunta inversa — <em>toda célula chegou a algum lugar?</em> — pega a classe de defeito que nenhuma tela pega: dado que sumiu não aparece em lugar nenhum.</li>
+<li><strong>Criticidade explicável.</strong> Score aditivo, cada critério com pontos declarados, cada ponto virando frase na tela, cortes públicos, desempate determinístico. E a correção do caso <code>data_fim_contrato</code> — troca de formato pura sai da tabela e vale 5 pontos fixos — mostra maturidade rara de julgamento.</li>
+<li><strong>Assistente com decisão de fonte em código e trava de lastro.</strong> O modelo redige, não descobre; número sem evidência derruba a resposta inteira; sem chave o produto não perde função. É a postura correta para IA em contexto financeiro, e está implementada, testada e observada.</li>
+</ol>
+<div class="col">
+<p>
+<strong>Menção honrosa que não cabia em dez:</strong> a documentação em código. Os comentários
+deste repositório explicam <em>por que</em> cada decisão foi tomada, o que foi tentado antes e
+o que quebrou. Isso não é enfeite — foi o que tornou esta auditoria possível em horas em vez de
+semanas, e é um ativo real de manutenção.
+</p>
+</div>
+</section>
+
+<!-- ==================================================================== -->
+<section id="s16">
+<h2><span class="num">16</span> Os 10 maiores gaps</h2>
+
+<div class="gap">
+<h4><span class="rank">01</span> A promoção não dispara a pós-promoção</h4>
+<dl>
+<dt>Problema</dt><dd>As cinco rotinas que transformam dado importado em auditoria financeira vivem numa rota que o Express nunca alcança.</dd>
+<dt>Evidência</dt><dd><code>routes/index.ts:74-75</code> monta <code>importsRouter</code> antes de <code>overviewRouter</code>; ambos declaram <code>POST /imports/:id/promote</code>; <code>imports.ts:272</code> sempre responde. As chamadas estão em <code>overview.ts:212-220</code>.</dd>
+<dt>Consequência</dt><dd>Taxonomia vazia, semântica <code>UNKNOWN</code>, impacto <code>NOT_CALCULABLE</code> em 100% dos casos, comparações não calculadas.</dd>
+<dt>Risco</dt><dd>Máximo. O produto entrega ausência de resultado com a aparência de rigor metodológico.</dd>
+<dt>Solução</dt><dd>Mover a pós-promoção para dentro do serviço de promoção (não da rota), remover a rota duplicada, e cobrir com um teste de montagem de rotas e um teste end-to-end.</dd>
+<dt>Dificuldade</dt><dd>Baixa</dd>
+<dt>Impacto</dt><dd>Destrava o produto financeiro inteiro</dd>
+</dl>
+</div>
+
+<div class="gap">
+<h4><span class="rank">02</span> Não existe ciclo de recuperação de valores</h4>
+<dl>
+<dt>Problema</dt><dd>Do valor identificado ao valor recuperado, nenhuma etapa existe.</dd>
+<dt>Evidência</dt><dd>Busca no repositório por recupera/contesta/reconhecido/creditado/aging/SLA: zero implementações.</dd>
+<dt>Consequência</dt><dd>O produto identifica dinheiro e não acompanha um centavo de volta. O ROI é invisível para quem paga por ele.</dd>
+<dt>Risco</dt><dd>Comercial máximo — é a razão pela qual um cliente renova.</dd>
+<dt>Solução</dt><dd>Entidade <em>Recuperação</em> ligada a achado, com etapas, valores por etapa, aging, responsável e evidência.</dd>
+<dt>Dificuldade</dt><dd>Média</dd>
+<dt>Impacto</dt><dd>Máximo</dd>
+</dl>
+</div>
+
+<div class="gap">
+<h4><span class="rank">03</span> Não existe reconciliação com o valor pago</h4>
+<dl>
+<dt>Problema</dt><dd>O produto compara tabela contra tabela. Nunca compara com o que foi efetivamente pago.</dd>
+<dt>Evidência</dt><dd>Nenhuma tabela de pagamento, fatura ou medição; única entrada é upload de .xlsx.</dd>
+<dt>Consequência</dt><dd>Toda conclusão é "a tabela mudou e isso valeria R$ X", nunca "você recebeu a menos".</dd>
+<dt>Risco</dt><dd>Alto — uma alteração de tabela não é, por si, prova de erro de pagamento.</dd>
+<dt>Solução</dt><dd>Camada de realizado com chave (ativo, período, componente); <code>lib/composition</code> já é o lado esperado.</dd>
+<dt>Dificuldade</dt><dd>Alta — depende de dado externo</dd>
+<dt>Impacto</dt><dd>Máximo — é o que transforma relatório em cobrança</dd>
+</dl>
+</div>
+
+<div class="gap">
+<h4><span class="rank">04</span> Não existe auditoria como objeto</h4>
+<dl>
+<dt>Problema</dt><dd>O produto confunde alteração detectada com auditoria conduzida.</dd>
+<dt>Evidência</dt><dd>Nenhuma tabela com escopo, hipótese, achado, parecer, responsável ou conclusão.</dd>
+<dt>Consequência</dt><dd>Nada tem dono, nada é encerrado, nada é aprovado, toda vigência recomeça do zero.</dd>
+<dt>Risco</dt><dd>Alto — sem isso não há trilha de julgamento, que é metade de uma auditoria.</dd>
+<dt>Solução</dt><dd>Entidades Auditoria e Achado, com estado, responsável e vínculo a evidência.</dd>
+<dt>Dificuldade</dt><dd>Média</dd>
+<dt>Impacto</dt><dd>Alto</dd>
+</dl>
+</div>
+
+<div class="gap">
+<h4><span class="rank">05</span> Cobertura semântica de 12%</h4>
+<dl>
+<dt>Problema</dt><dd>17 atributos confirmados contra ~138 do export; o portão de impacto exige confirmação.</dd>
+<dt>Evidência</dt><dd><code>lib/curation/src/confirmations.ts</code> × <code>classification.ts:12</code>.</dd>
+<dt>Consequência</dt><dd>Mesmo com o gap 01 corrigido, ~88% do dinheiro do arquivo permanece não precificado.</dd>
+<dt>Risco</dt><dd>Alto</dd>
+<dt>Solução</dt><dd>Campanha de curadoria assistida: fila priorizada por dinheiro em jogo, evidência estatística ao lado, confirmação em lote com justificativa. A tela existe; falta a fila e o motivo.</dd>
+<dt>Dificuldade</dt><dd>Média — é trabalho de domínio, não de código</dd>
+<dt>Impacto</dt><dd>Máximo</dd>
+</dl>
+</div>
+
+<div class="gap">
+<h4><span class="rank">06</span> Achado não vira contestação</h4>
+<dl>
+<dt>Problema</dt><dd>Chamados só entram por upload de export de terceiro; não há caminho de um achado para um pedido.</dd>
+<dt>Evidência</dt><dd><code>routes/tickets.ts</code> — nenhum <code>POST /tickets</code>.</dd>
+<dt>Consequência</dt><dd>O trabalho de contestação acontece fora do sistema, e a evidência fica para trás.</dd>
+<dt>Risco</dt><dd>Alto</dd>
+<dt>Solução</dt><dd>Contestação como entidade nossa, pré-preenchida a partir do achado (veículo, parâmetro, vigência, antes, depois, delta, impacto, proveniência) e conciliada depois com o chamado externo pelo número.</dd>
+<dt>Dificuldade</dt><dd>Média</dd>
+<dt>Impacto</dt><dd>Máximo</dd>
+</dl>
+</div>
+
+<div class="gap">
+<h4><span class="rank">07</span> Nada sai do sistema</h4>
+<dl>
+<dt>Problema</dt><dd>Zero exportação: sem Excel, CSV, PDF ou link compartilhável.</dd>
+<dt>Evidência</dt><dd>Nenhum <code>Blob</code>/<code>download</code>/geração de documento no frontend.</dd>
+<dt>Consequência</dt><dd>O entregável de uma auditoria não existe; a contraparte não tem acesso ao sistema.</dd>
+<dt>Risco</dt><dd>Alto — bloqueia o uso real mesmo com tudo funcionando.</dd>
+<dt>Solução</dt><dd>Exportação como serviço, com proveniência embutida no artefato.</dd>
+<dt>Dificuldade</dt><dd>Baixa</dd>
+<dt>Impacto</dt><dd>Alto</dd>
+</dl>
+</div>
+
+<div class="gap">
+<h4><span class="rank">08</span> Sem papéis, sem permissões, sem isolamento</h4>
+<dl>
+<dt>Problema</dt><dd>Autenticado é tudo-ou-nada, em todas as unidades.</dd>
+<dt>Evidência</dt><dd><code>app_user</code> sem coluna de papel; <code>require-session.ts</code> só distingue autenticado de anônimo.</dd>
+<dt>Consequência</dt><dd>Qualquer usuário exclui importação, confirma semântica e cria usuário. Sem segregação de funções.</dd>
+<dt>Risco</dt><dd>Alto — bloqueante para venda enterprise e para multi-cliente.</dd>
+<dt>Solução</dt><dd>Papéis (leitor, analista, curador, administrador), autorização por rota e escopo de acesso por unidade.</dd>
+<dt>Dificuldade</dt><dd>Média</dd>
+<dt>Impacto</dt><dd>Alto</dd>
+</dl>
+</div>
+
+<div class="gap">
+<h4><span class="rank">09</span> Detecção de anomalias em nível 1</h4>
+<dl>
+<dt>Problema</dt><dd>Um único detector, de troca de formato. Nada estatístico, nada configurável, nada sobre histórico ou pares.</dd>
+<dt>Evidência</dt><dd><code>anomalies.ts</code> — apenas <code>DATA_COMO_SERIAL_EXCEL</code> e o inverso.</dd>
+<dt>Consequência</dt><dd>Alterações que só um humano atento pegaria passam batido; a priorização é por regra, não por estranheza.</dd>
+<dt>Risco</dt><dd>Médio-alto — é o que separa auditar de conferir.</dd>
+<dt>Solução</dt><dd>Motor de detecção com regras configuráveis primeiro, depois <em>baseline</em> histórico e comparação entre equivalentes.</dd>
+<dt>Dificuldade</dt><dd>Média</dd>
+<dt>Impacto</dt><dd>Alto</dd>
+</dl>
+</div>
+
+<div class="gap">
+<h4><span class="rank">10</span> Uma tela executiva fora do modelo canônico</h4>
+<dl>
+<dt>Problema</dt><dd>"Análise de frota" lê uma planilha comitada no repositório.</dd>
+<dt>Evidência</dt><dd><code>routes/fleet-analysis.ts:12-27</code>; <code>sidebar.tsx:119</code> a coloca em Visão executiva.</dd>
+<dt>Consequência</dt><dd>Números de demonstração no lugar mais confiável do produto, sem vigência e sem proveniência.</dd>
+<dt>Risco</dt><dd>Alto — contradiz frontalmente a promessa central do produto.</dd>
+<dt>Solução</dt><dd>Reconstruir sobre <code>getEntityTable</code> e <code>lib/composition</code>, ou retirar do menu até que exista.</dd>
+<dt>Dificuldade</dt><dd>Baixa para retirar; média para reconstruir</dd>
+<dt>Impacto</dt><dd>Alto em confiança</dd>
+</dl>
+</div>
+
+</section>
+
+<!-- ==================================================================== -->
+<section id="s17">
+<h2><span class="num">17</span> Arquitetura futura recomendada</h2>
+<div class="col">
+<p>
+A hipótese de doze módulos apresentada é razoável, e eu proponho uma variação. Três mudanças, e
+o motivo de cada uma:
+</p>
+<ul>
+  <li><strong>Frota absorve DRE.</strong> DRE como módulo próprio promete uma demonstração de resultado que os dados não sustentam e não sustentarão sem fontes de custo. Ele entra como <em>aba</em> do dossiê do ativo, começando por Receita, e cresce quando houver custo.</li>
+  <li><strong>Recuperações e Chamados viram um módulo só: Contestação &amp; Recuperação.</strong> Separá-los produziria duas filas para o mesmo dinheiro e duas contas de "quanto está aberto". Chamados externos são <em>uma origem</em> dentro dele.</li>
+  <li><strong>Entra um módulo Qualidade de Dados</strong>, hoje espalhado entre Importações, Balanço de Massa, Curadoria e Cobertura. É a garantia de que os números dos outros onze módulos valem.</li>
+</ul>
+</div>
+
+<div class="scroller">
+<table>
+<thead><tr><th>Módulo</th><th>Objetivo</th><th>Usuário</th><th>Responde</th><th>Já existe</th><th>Falta</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>1 · Visão Executiva</strong></td>
+  <td>Onde está o dinheiro, agora e no acumulado</td>
+  <td>Diretoria, gestão</td>
+  <td>Quanto perdemos, ganhamos, está em risco, foi contestado, foi recuperado, e onde</td>
+  <td>Cockpit da vigência, KPIs, narrativa, prioridades</td>
+  <td>Eixo de negócio (ano, unidade, acumulado, recuperado); risco; exportação</td>
+</tr>
+<tr>
+  <td><strong>2 · Alterações</strong></td>
+  <td>O que mudou, entre o quê, e por quê importa</td>
+  <td>Analista de auditoria</td>
+  <td>O que mudou nesta vigência, no intervalo, ponta a ponta</td>
+  <td>Grupos, selos, criticidade, veículos, proveniência, intervalo, ponta-a-ponta</td>
+  <td>Trazer intervalo e ponta-a-ponta à superfície; estado de investigação; ação sobre o achado</td>
+</tr>
+<tr>
+  <td><strong>3 · Impacto Financeiro</strong></td>
+  <td>Quanto vale, com que confiança, e por quanto tempo</td>
+  <td>Custos, controladoria</td>
+  <td>Mensal, anual, acumulado, futuro, em risco, por eixo</td>
+  <td>Motor de impacto, periodicidades, dupla contagem, famílias</td>
+  <td>Ligar o motor (P0); anualização; projeção; valor em risco; materialidade</td>
+</tr>
+<tr>
+  <td><strong>4 · Frota</strong> <small>(inclui 360° e Receita/DRE)</small></td>
+  <td>O dossiê de cada ativo e do conjunto</td>
+  <td>Analista, operação</td>
+  <td>Por que este ativo recebe isto; o que mudou nele; o que está aberto sobre ele</td>
+  <td>Composição com memória de cálculo, histórico, alterações, tabela de inventário</td>
+  <td>Timeline unificada; chamados do ativo; documentos; anomalias; custos (fonte externa)</td>
+</tr>
+<tr>
+  <td><strong>5 · Auditorias</strong></td>
+  <td>Conduzir e encerrar trabalhos formais</td>
+  <td>Auditor responsável</td>
+  <td>O que estamos auditando, com que hipótese, com que conclusão</td>
+  <td>Nada</td>
+  <td>Tudo: escopo, hipótese, achado, evidência, materialidade, parecer, aprovação</td>
+</tr>
+<tr>
+  <td><strong>6 · Contestação &amp; Recuperação</strong></td>
+  <td>Transformar achado em dinheiro de volta</td>
+  <td>Analista, financeiro</td>
+  <td>O que pedimos, o que responderam, quanto voltou, o que está atrasado</td>
+  <td>Ingestão e leitura de chamados externos; <code>before_source</code>; idade</td>
+  <td>Contestação nossa a partir do achado; funil de 6 etapas; aging; SLA; taxa de sucesso; conciliação com o chamado externo</td>
+</tr>
+<tr>
+  <td><strong>7 · Reconciliação</strong></td>
+  <td>Esperado × pago</td>
+  <td>Financeiro</td>
+  <td>Recebemos o que a tabela mandava?</td>
+  <td>O lado esperado (<code>lib/composition</code>)</td>
+  <td>Lado realizado; chave de casamento; integração ERP/TMS/financeiro; tratamento de divergência</td>
+</tr>
+<tr>
+  <td><strong>8 · Qualidade de Dados</strong></td>
+  <td>Garantir que os números valem</td>
+  <td>Governança de dados</td>
+  <td>O arquivo veio inteiro? Alguma coluna sumiu? Onde há risco de leitura errada?</td>
+  <td>Balanço de massa, <code>validation_issue</code>, <code>sentinel_rule</code>, <code>snapshot_attribute</code>, dedup</td>
+  <td>Agregação, nota por importação e unidade, <em>schema drift</em>, tela</td>
+</tr>
+<tr>
+  <td><strong>9 · Dados &amp; Vigências</strong></td>
+  <td>Receber, conferir, promover, desfazer</td>
+  <td>Operação</td>
+  <td>O que entrou, quando, por quem, com que decisão</td>
+  <td>Pipeline completo, decisões, exclusões, histórico</td>
+  <td>Tela de decisões e exclusões; qualidade por importação; agendamento/recebimento automático</td>
+</tr>
+<tr>
+  <td><strong>10 · Regras &amp; Parâmetros</strong></td>
+  <td>A camada semântica, inteira e num lugar só</td>
+  <td>Curador, analista sênior</td>
+  <td>O que este parâmetro significa, desde quando, com que confiança, e qual regra o rege</td>
+  <td>Curadoria, versões, taxonomia, famílias, catálogo, Book</td>
+  <td>Unificação das quatro fontes; descrição, fórmula, tolerância, fonte, confiança; ligação parâmetro ↔ bloco do Book</td>
+</tr>
+<tr>
+  <td><strong>11 · Assistente IA</strong></td>
+  <td>Analista sênior sempre disponível</td>
+  <td>Todos</td>
+  <td>Qualquer pergunta acima, com evidência</td>
+  <td>Orquestração determinística, 16 ferramentas, trava de lastro, observabilidade</td>
+  <td>Ferramentas de chamado, recuperação, anomalia e confronto com o Book; redação de contestação; ações</td>
+</tr>
+<tr>
+  <td><strong>12 · Administração &amp; Governança</strong></td>
+  <td>Quem pode o quê, e quem fez o quê</td>
+  <td>Administrador, auditoria interna</td>
+  <td>Quem fez o quê, quando, com base em quê</td>
+  <td>Usuários, sessões, três trilhas parciais</td>
+  <td>Papéis, permissões, escopo por unidade, trilha unificada com tela, segregação de funções</td>
+</tr>
+</tbody>
+</table>
+</div>
+
+<div class="col">
+<div class="call note">
+<span class="tag">Um princípio de arquitetura para a próxima fase</span>
+<p>
+Os módulos 5, 6 e 7 introduzem, pela primeira vez, <strong>dado que nasce dentro do
+FreightCheck</strong> — julgamento, pedido, resposta, valor recuperado. Até hoje tudo o que o
+banco guarda é derivado de um arquivo externo, e é isso que permite as garantias de
+imutabilidade atuais. O dado julgado precisa de um regime próprio: versionado e append-only
+como o Book, com autor obrigatório e motivo escrito, nunca sobrescrito. Misturá-lo com o
+canônico derivado seria a forma mais rápida de destruir a melhor propriedade que este produto
+tem.
+</p>
+</div>
+</div>
+</section>
+
+<!-- ==================================================================== -->
+<section id="s18">
+<h2><span class="num">18</span> Roadmap por fases</h2>
+<div class="col">
+<p>
+A ordem abaixo é de <strong>dependência</strong>, não de facilidade. Cada fase pressupõe a
+anterior; nenhuma estimativa de prazo é dada porque nada no repositório sustenta uma.
+</p>
+</div>
+
+<div class="phase">
+<header><span class="n">Fase 1</span><h3>Tornar confiável</h3></header>
+<div>
+<p><strong>Objetivo:</strong> que todo número que a tela mostra seja reproduzível e independente de quem navegou primeiro.</p>
+<p><strong>Entregas:</strong></p>
+<ul>
+  <li>Pós-promoção dentro do serviço de promoção; rota duplicada removida.</li>
+  <li>Teste de montagem de rotas (nenhum método+caminho duplicado) e teste end-to-end do fluxo do produto.</li>
+  <li>Comparações calculadas na importação, não na navegação; telas de leitura passam a ser estritamente leitura.</li>
+  <li>"Análise de frota" reconstruída sobre o canônico ou retirada do menu.</li>
+  <li>Papéis, autorização por rota e escopo de acesso por unidade.</li>
+  <li>Código morto removido (telas não roteadas, <code>lib/simulation</code>, cliente OpenAPI).</li>
+</ul>
+<p><strong>Dependências:</strong> nenhuma. <strong>Riscos:</strong> mover a pós-promoção para dentro da transação de promoção alonga o tempo de resposta — deve rodar depois do commit, com estado observável. <strong>Resultado:</strong> o produto passa a produzir número financeiro e a produzir o mesmo número duas vezes.</p>
+</div>
+</div>
+
+<div class="phase">
+<header><span class="n">Fase 2</span><h3>Tornar auditável</h3></header>
+<div>
+<p><strong>Objetivo:</strong> que uma conclusão tenha dono, evidência e prova.</p>
+<p><strong>Entregas:</strong></p>
+<ul>
+  <li>Entidades Auditoria e Achado, com estado, responsável, motivo e histórico append-only.</li>
+  <li>Estado de investigação sobre alteração e grupo (visto, legítimo, suspeito, em contestação, encerrado) com quem e por quê.</li>
+  <li>Dossiê de evidência: proveniência, série histórica, bloco do Book e documentos anexos, como artefato.</li>
+  <li>Módulo de Qualidade de Dados agregando o que já existe no banco.</li>
+  <li>Trilha de auditoria unificada, com tela.</li>
+  <li>Exportação (Excel, CSV, PDF) com proveniência embutida.</li>
+  <li>Ligação parâmetro ↔ bloco do Book.</li>
+</ul>
+<p><strong>Dependências:</strong> Fase 1. <strong>Riscos:</strong> o dado julgado precisa de regime próprio (§17) — se entrar como coluna mutável no canônico, a imutabilidade se perde. <strong>Resultado:</strong> uma auditoria consegue provar a própria conclusão e sair do sistema.</p>
+</div>
+</div>
+
+<div class="phase">
+<header><span class="n">Fase 3</span><h3>Tornar financeiramente poderoso</h3></header>
+<div>
+<p><strong>Objetivo:</strong> que o número financeiro cubra o arquivo e responda no eixo do negócio.</p>
+<p><strong>Entregas:</strong></p>
+<ul>
+  <li>Campanha de curadoria assistida: fila ordenada por dinheiro em jogo, evidência estatística ao lado, confirmação em lote com justificativa — de 17 para a maior cobertura defensável.</li>
+  <li>Anualização declarada, projeção de impacto futuro e valor em risco, com <code>lib/simulation</code>.</li>
+  <li>Materialidade formal: impacto × quantidade × duração × confiança, com cada fator visível.</li>
+  <li>Impacto por unidade, por frota e por período como eixos de primeira classe.</li>
+  <li>Análise de intervalo e ponta-a-ponta promovidas a telas.</li>
+</ul>
+<p><strong>Dependências:</strong> Fases 1 e 2. <strong>Riscos:</strong> pressa na curadoria produz semântica confirmada errada — o pior defeito possível, porque atravessa o portão. Cada confirmação precisa da conta que a sustenta, como as 17 atuais têm. <strong>Resultado:</strong> "quanto estamos perdendo" tem resposta defensável.</p>
+</div>
+</div>
+
+<div class="phase">
+<header><span class="n">Fase 4</span><h3>Fechar o ciclo de recuperação</h3></header>
+<div>
+<p><strong>Objetivo:</strong> que o dinheiro identificado seja perseguido até voltar.</p>
+<p><strong>Entregas:</strong></p>
+<ul>
+  <li>Contestação como entidade nossa, nascida de um achado, pré-preenchida com veículo, parâmetro, vigência, valores, delta, impacto e proveniência.</li>
+  <li>Funil de seis etapas com valor em cada uma, por chamado, veículo, unidade, parâmetro, auditoria e período.</li>
+  <li>Aging, prazo médio, taxa de sucesso, percentual recuperado, acumulado, perdido e em negociação.</li>
+  <li>Conciliação com o chamado externo do Freightec pelo número, sem fundir as réguas.</li>
+  <li>Reconciliação esperado × pago, começando pelo lado esperado que já existe, com a integração de realizado.</li>
+</ul>
+<p><strong>Dependências:</strong> Fases 1–3; e a reconciliação depende de dado que hoje não existe em nenhuma forma. <strong>Riscos:</strong> a integração de realizado é o item de maior incerteza do roadmap inteiro — deve ser tratada como descoberta, não como implementação. <strong>Resultado:</strong> o produto passa a ter ROI mensurável dentro dele mesmo.</p>
+</div>
+</div>
+
+<div class="phase">
+<header><span class="n">Fase 5</span><h3>Tornar inteligente</h3></header>
+<div>
+<p><strong>Objetivo:</strong> que o sistema encontre o que um humano atento encontraria.</p>
+<p><strong>Entregas:</strong></p>
+<ul>
+  <li>Motor de detecção com regras configuráveis e versionadas, sobre a camada semântica unificada.</li>
+  <li><em>Baseline</em> histórico por parâmetro e por ativo; valor fora da distribuição.</li>
+  <li>Noção de equivalência (mesmo modelo, mesma unidade, mesma categoria) e detecção de outlier entre pares.</li>
+  <li>Confronto automático entre valor observado e regra do Book.</li>
+  <li>Assistente com ferramentas de chamado, recuperação, anomalia e benchmarking; redação de contestação a partir de evidência; próximos passos acionáveis.</li>
+</ul>
+<p><strong>Dependências:</strong> Fases 1–4 — sobretudo a camada semântica da 3, sem a qual regra configurável não tem sobre o que operar. <strong>Riscos:</strong> alarme falso destrói confiança mais rápido do que detecção ganha. Toda regra precisa nascer com taxa de acerto medida sobre histórico. <strong>Resultado:</strong> nível 3–4 de detecção, com investigação assistida.</p>
+</div>
+</div>
+
+<div class="phase">
+<header><span class="n">Fase 6</span><h3>Tornar executivo e escalável</h3></header>
+<div>
+<p><strong>Objetivo:</strong> que o produto sirva a uma organização, não a um analista.</p>
+<p><strong>Entregas:</strong></p>
+<ul>
+  <li>Benchmarking entre unidades, operações e períodos — comparação sem agregação indevida.</li>
+  <li>Visão executiva de negócio com drill-down unidade → parâmetro → veículo → contestação.</li>
+  <li>Alertas, filas de trabalho e SLA interno.</li>
+  <li>Relatórios recorrentes e compartilhamento executivo.</li>
+  <li>Recebimento automático de arquivo; processamento assíncrono com fila; múltiplas instâncias.</li>
+  <li>Multi-cliente com isolamento real.</li>
+</ul>
+<p><strong>Dependências:</strong> todas. <strong>Riscos:</strong> comparar unidades sem normalizar frota, modelo e operação produz ranking injusto — o eixo de comparação precisa ser declarado na tela. <strong>Resultado:</strong> plataforma, não ferramenta.</p>
+</div>
+</div>
+
+</section>
+
+<!-- ==================================================================== -->
+<section id="s19">
+<h2><span class="num">19</span> P0 / P1 / P2 / P3</h2>
+
+<h3>P0 — Confiabilidade</h3>
+<div class="scroller"><table class="compact">
+<thead><tr><th>Ação</th><th>Por quê</th></tr></thead>
+<tbody>
+<tr><td>Mover a pós-promoção para o serviço de promoção</td><td>Produz número errado (zero) hoje</td></tr>
+<tr><td>Remover as rotas duplicadas de <code>overview.ts</code></td><td>Causa raiz do acima; risco de repetição</td></tr>
+<tr><td>Teste de montagem de rotas + end-to-end do fluxo</td><td>Nada hoje detectaria a recorrência</td></tr>
+<tr><td>Calcular comparações na importação; leitura só lê</td><td>Número histórico varia com a navegação</td></tr>
+<tr><td>Retirar ou reconstruir "Análise de frota"</td><td>Dado de demonstração em posição executiva</td></tr>
+<tr><td>Papéis, autorização e escopo por unidade</td><td>Exclusão de dado e confirmação de semântica sem controle</td></tr>
+<tr><td>Restringir <code>DELETE /imports/:id</code> a papel administrativo</td><td>Apaga RAW e vigência fechada</td></tr>
+</tbody>
+</table></div>
+
+<h3>P1 — Captura de valor</h3>
+<div class="scroller"><table class="compact">
+<thead><tr><th>Ação</th><th>Por quê</th></tr></thead>
+<tbody>
+<tr><td>Campanha de curadoria assistida (17 → cobertura defensável)</td><td>Cada atributo confirmado é dinheiro que passa a ser mensurável</td></tr>
+<tr><td>Contestação nascida do achado</td><td>Sem ela o trabalho de cobrança acontece fora do sistema</td></tr>
+<tr><td>Funil de recuperação com valor em cada etapa</td><td>É o ROI do produto</td></tr>
+<tr><td>Exportação com proveniência embutida</td><td>A contraparte não tem acesso ao sistema</td></tr>
+<tr><td>Auditoria e Achado como entidades</td><td>Sem dono e sem conclusão, o achado não vira cobrança</td></tr>
+<tr><td>Anualização, impacto futuro e valor em risco</td><td>Transforma R$ 12 mil/mês em R$ 144 mil/ano na conversa certa</td></tr>
+<tr><td>Materialidade formal</td><td>Prioriza por dinheiro, não por movimento</td></tr>
+<tr><td>Trazer intervalo e ponta-a-ponta à superfície</td><td>"Quanto perdemos desde janeiro" já é calculável e está escondido</td></tr>
+<tr><td>Ligar chamado ↔ veículo ↔ achado</td><td>Junção barata, valor alto</td></tr>
+<tr><td>Reconciliação esperado × pago</td><td>É o que transforma relatório em cobrança</td></tr>
+</tbody>
+</table></div>
+
+<h3>P2 — Produtividade</h3>
+<div class="scroller"><table class="compact">
+<thead><tr><th>Ação</th><th>Por quê</th></tr></thead>
+<tbody>
+<tr><td>Estado de investigação por alteração e grupo</td><td>Hoje toda vigência recomeça do zero</td></tr>
+<tr><td>Módulo de Qualidade de Dados agregando o existente</td><td>Evita retrabalho e pega defeito de origem cedo</td></tr>
+<tr><td>Timeline unificada por veículo e por parâmetro</td><td>Dado existe em três lugares e não se lê junto</td></tr>
+<tr><td>Telas para <code>import_decision</code> e <code>import_deletion</code></td><td>Registro existe e ninguém alcança</td></tr>
+<tr><td>Motor de detecção com regras configuráveis</td><td>Reduz a leitura linha a linha</td></tr>
+<tr><td>Benchmarking entre unidades</td><td>Três das cinco perguntas já são calculáveis</td></tr>
+<tr><td>Assistente com ferramentas de chamado e recuperação</td><td>Metade da história hoje é invisível a ele</td></tr>
+<tr><td>Camada semântica unificada numa leitura</td><td>Quatro fontes hoje, nenhuma visão única</td></tr>
+</tbody>
+</table></div>
+
+<h3>P3 — Experiência</h3>
+<div class="scroller"><table class="compact">
+<thead><tr><th>Ação</th><th>Por quê</th></tr></thead>
+<tbody>
+<tr><td>Chamados como módulo, não como aba</td><td>É um dos dois caminhos da mudança</td></tr>
+<tr><td>Renomear telas de mecanismo para telas de pergunta</td><td>Composição, Versões, Balanço de massa</td></tr>
+<tr><td>Consolidar Visão geral, Acompanhamento e Alterações</td><td>Três leituras sobrepostas sem regra de uso</td></tr>
+<tr><td>Drill-down do executivo ao veículo</td><td>Falta o caminho unidade → parâmetro → veículo</td></tr>
+<tr><td>Proveniência a um clique</td><td>É o ativo mais forte e está fundo demais</td></tr>
+<tr><td>Expor observabilidade de IA</td><td>Rota pronta, sem consumidor</td></tr>
+<tr><td>Retirar <code>/apresentacao</code> do produto</td><td>Material de venda dentro da ferramenta</td></tr>
+<tr><td>Curadoria explicando o retorno do trabalho</td><td>Confirmar atributo é o que destrava dinheiro, e a tela não diz</td></tr>
+</tbody>
+</table></div>
+
+</section>
+
+<!-- ==================================================================== -->
+<section id="s20">
+<h2><span class="num">20</span> Veredito final</h2>
+<div class="col">
+
+<p class="lede">
+Se o FreightCheck fosse colocado amanhã nas mãos de uma grande transportadora para auditar
+milhões de reais em remuneração, ele seria <strong>confiável no que afirma, incompleto no que
+cobre, e insuficiente para fechar um único caso</strong>.
+</p>
+
+<p>
+Ele não mentiria. Essa é uma qualidade rara e é a mais difícil de construir: cada número que ele
+mostrasse teria célula de origem, e tudo que ele não soubesse ele diria, com o motivo escrito. A
+transportadora poderia confiar no que aparecesse na tela.
+</p>
+
+<p>
+Mas quase nada apareceria. Pelo caminho oficial do produto, o impacto financeiro seria zero em
+todas as vigências — por um defeito de montagem, não de conceito. Corrigido esse defeito, ~88%
+dos parâmetros continuariam sem preço por falta de curadoria. E, com tudo precificado, a
+transportadora ainda não conseguiria abrir uma contestação, anexar uma prova, acompanhar uma
+resposta, registrar um crédito ou exportar um relatório para mandar à Ambev. Ela usaria o
+FreightCheck para <em>descobrir</em> e o Excel para <em>cobrar</em> — que é exatamente a situação
+que o produto existe para acabar.
+</p>
+
+<h3>Notas</h3>
+</div>
+
+<div class="scores">
+  <div class="score"><span class="lbl">Integridade dos dados</span><span class="bar" style="color:var(--ok)"><span style="width:90%"></span></span><span class="val good">9</span></div>
+  <div class="score"><span class="lbl">Auditabilidade</span><span class="bar" style="color:var(--scale)"><span style="width:50%"></span></span><span class="val mid">5</span></div>
+  <div class="score"><span class="lbl">Detecção de alterações</span><span class="bar" style="color:var(--ok)"><span style="width:80%"></span></span><span class="val good">8</span></div>
+  <div class="score"><span class="lbl">Impacto financeiro</span><span class="bar" style="color:var(--verdict)"><span style="width:30%"></span></span><span class="val bad">3</span></div>
+  <div class="score"><span class="lbl">Gestão de evidências</span><span class="bar" style="color:var(--scale)"><span style="width:40%"></span></span><span class="val mid">4</span></div>
+  <div class="score"><span class="lbl">Gestão de contestação</span><span class="bar" style="color:var(--verdict)"><span style="width:20%"></span></span><span class="val bad">2</span></div>
+  <div class="score"><span class="lbl">Recuperação de valores</span><span class="bar" style="color:var(--verdict)"><span style="width:0%"></span></span><span class="val bad">0</span></div>
+  <div class="score"><span class="lbl">Inteligência</span><span class="bar" style="color:var(--verdict)"><span style="width:20%"></span></span><span class="val bad">2</span></div>
+  <div class="score"><span class="lbl">Assistente IA</span><span class="bar" style="color:var(--scale)"><span style="width:60%"></span></span><span class="val mid">6</span></div>
+  <div class="score"><span class="lbl">UX operacional</span><span class="bar" style="color:var(--scale)"><span style="width:60%"></span></span><span class="val mid">6</span></div>
+  <div class="score"><span class="lbl">UX executiva</span><span class="bar" style="color:var(--verdict)"><span style="width:30%"></span></span><span class="val bad">3</span></div>
+  <div class="score"><span class="lbl">Governança</span><span class="bar" style="color:var(--verdict)"><span style="width:30%"></span></span><span class="val bad">3</span></div>
+  <div class="score"><span class="lbl">Escalabilidade</span><span class="bar" style="color:var(--scale)"><span style="width:40%"></span></span><span class="val mid">4</span></div>
+  <div class="score"><span class="lbl"><strong>Produto geral</strong></span><span class="bar" style="color:var(--scale)"><span style="width:45%"></span></span><span class="val mid">4,5</span></div>
+</div>
+
+<div class="col">
+<p style="font-size:.88rem; color:var(--muted)">
+As notas separam <em>qualidade do que existe</em> de <em>cobertura do necessário</em>. Integridade
+9 e Impacto 3 no mesmo produto não é contradição: o motor de impacto está entre as melhores
+peças do repositório e está desligado. Governança 3 reflete trilhas boas em três domínios e
+autorização inexistente. Produto geral 4,5 é a média ponderada pelo que uma transportadora
+precisaria para operar de verdade.
+</p>
+
+<h3>A menor quantidade de mudanças estruturais</h3>
+
+<p>
+Cinco. Não mais que isso, e nenhuma delas é uma reconstrução.
+</p>
+
+<ol>
+  <li>
+    <strong>Ligar a pós-promoção e eliminar a rota duplicada.</strong> É mover chamadas de função
+    e apagar código morto. Destrava taxonomia, semântica, versões, comparações e — por
+    consequência — todo o resultado financeiro do produto. É a maior razão custo-benefício que
+    este repositório oferece.
+  </li>
+  <li>
+    <strong>Introduzir o dado julgado, com regime próprio.</strong> Duas entidades novas —
+    <em>Achado</em> (com estado, responsável, motivo, evidência) e <em>Contestação/Recuperação</em>
+    (com o funil de seis etapas) — append-only, autor obrigatório, motivo escrito, jamais
+    sobrescritas, ao lado do canônico derivado e nunca dentro dele. É a mudança que fecha o
+    ciclo da auditoria e a única que muda a natureza do produto.
+  </li>
+  <li>
+    <strong>Autorização e escopo.</strong> Papéis em <code>app_user</code>, verificação por rota,
+    e escopo de acesso por unidade. Sem isso não há segregação de funções, não há multi-cliente
+    e não há venda enterprise.
+  </li>
+  <li>
+    <strong>Exportação como serviço de primeira classe</strong>, com proveniência embutida no
+    artefato. Uma auditoria cujo resultado não sai do sistema não foi entregue.
+  </li>
+  <li>
+    <strong>Unificar a camada semântica numa leitura só</strong> — banco, versões, aliases,
+    confirmações em código, famílias e catálogo — e usá-la para financiar a campanha de
+    curadoria. É o que leva a cobertura de 12% para um número defensável, e é o que dá base a
+    qualquer regra configurável de detecção depois.
+  </li>
+</ol>
+
+<p>
+Tudo o mais no roadmap — reconciliação, detecção estatística, benchmarking, DRE, alertas — é
+extensão sobre essas cinco. E vale registrar o que <strong>não</strong> está nesta lista:
+o pipeline de ingestão, o modelo canônico, o motor de comparação, o portão de impacto, a
+composição, o balanço de massa e a arquitetura do assistente. Essas peças estão certas. O
+FreightCheck não precisa ser reconstruído — precisa ser ligado, fechado e liberado.
+</p>
+
+</div>
+
+<footer class="end">
+  <p>
+    Auditoria conduzida sobre o commit <code>b3acc24</code> em 15/08/2026, lendo código,
+    migrations, rotas, telas e testes. Afirmações de comportamento são derivadas de leitura
+    estática do código e das regras de roteamento do Express; a aplicação não foi executada
+    contra um banco nesta sessão — os achados marcados como P0 são conclusivos por leitura, e um
+    teste end-to-end é a primeira entrega recomendada da Fase 1.
+  </p>
+</footer>
+
+</section>
+
+</div>
