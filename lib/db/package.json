@@ -14,7 +14,9 @@
     "migrate": "tsx ./src/migrate-cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
-    "migrate:adotar": "tsx ./src/migrate-cli.ts --adotar-existentes"
+    "migrate:adotar": "tsx ./src/migrate-cli.ts --adotar-existentes",
+    "bridge:down": "tsx ./src/bridge-cli.ts down",
+    "bridge:up": "tsx ./src/bridge-cli.ts up"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",

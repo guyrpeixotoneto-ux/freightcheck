@@ -159,12 +159,21 @@ async function startApi() {
      * explicador leva a frase até a tela.
      */
     runInstall: () => runCaptured("pnpm", ["install", "--frozen-lockfile"]),
-    // Sem `DATABASE_URL` não há o que aplicar, e isso não é motivo para não
-    // subir: a API responde, e as rotas que precisam de banco dizem o que
-    // falta. Não subir aqui seria devolver 502 a quem só queria abrir a tela.
-    runMigrations: process.env["DATABASE_URL"]
-      ? () => runCaptured("pnpm", ["--filter", "@workspace/db", "run", "migrate"])
-      : null,
+    /*
+      Migrar o banco de desenvolvimento **não** é efeito colateral de subir o
+      servidor. Era, e o custo apareceu inteiro: como o Publishing calcula o
+      diff comparando Development com Production, um `Run` depois de um merge
+      levava o banco de desenvolvimento para a migration seguinte sem ninguém
+      decidir isso — e a publicação seguinte encontrava uma diferença que
+      ninguém pediu. Foi assim que Development chegou à `0018` enquanto
+      Production estava com o registro vazio.
+
+      Agora migrar é ato explícito: `pnpm --filter @workspace/db run migrate`.
+      Nada se perde em cobertura — a suíte cria banco descartável por arquivo a
+      partir das migrations, então testar a migration seguinte nunca dependeu
+      deste banco.
+    */
+    runMigrations: null,
     runBuild: () =>
       runCaptured("pnpm", ["--filter", "@workspace/api-server", "run", "build"]),
     spawnServer: () =>
@@ -177,7 +186,12 @@ async function startApi() {
 
   if (!process.env["DATABASE_URL"]) {
     console.warn(
-      "[api] DATABASE_URL não está definido — subindo sem aplicar migrations.",
+      "[api] DATABASE_URL não está definido — subindo sem banco.",
+    );
+  } else {
+    console.warn(
+      "[api] migrations NÃO são aplicadas na partida. Development só avança por " +
+        "`pnpm --filter @workspace/db run migrate`, e depois de Production — ver docs/MIGRATIONS.md.",
     );
   }
 
