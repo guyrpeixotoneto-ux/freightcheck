@@ -1,7 +1,14 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useSearch } from "wouter";
-import { AlertTriangle, Search, X } from "lucide-react";
+import {
+  AlertTriangle,
+  CalendarDays,
+  ChevronDown,
+  ChevronUp,
+  Search,
+  X,
+} from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import {
   Select,
@@ -14,9 +21,9 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
-import { ResumoExecutivo } from "@/components/vigencia/resumo";
+import { FaixaResumo, ResumoExecutivo } from "@/components/vigencia/resumo";
 import { Panorama } from "@/components/vigencia/panorama";
-import { Prioridade } from "@/components/vigencia/prioridade";
+import { LinhaPrioridade } from "@/components/vigencia/prioridade";
 import {
   FILTRO_VAZIO,
   FOCO_LABEL,
@@ -28,6 +35,7 @@ import {
   juntarPrioridades,
   type FiltroCockpit,
   type Foco,
+  type ItemCockpit,
 } from "@/lib/cockpit";
 import type { ChangeGroup, GroupedView } from "@/components/inicio/types";
 
@@ -104,22 +112,17 @@ export default function Vigencia() {
 
   return (
     <Layout>
-      <header className="border-b bg-card px-8 py-5">
+      <header className="px-8 pt-7 pb-5 max-w-[1600px]">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">
-            <div className="text-[0.6875rem] font-bold uppercase tracking-[0.12em] text-muted-foreground">
-              Monitoramento da vigência
-            </div>
-            <h1 className="text-3xl font-bold tracking-tight mt-0.5">
+            <h1 className="text-4xl font-bold tracking-tight">
               {data ? capitalizar(data.periodLabel) : "Acompanhamento"}
             </h1>
             {data && (
-              <p className="text-sm font-semibold mt-1 uppercase tracking-wide">
-                {data.context.label}
-              </p>
+              <p className="text-base text-muted-foreground mt-1">{data.context.label}</p>
             )}
             {data && (
-              <p className="text-muted-foreground text-xs mt-1">
+              <p className="text-muted-foreground text-xs mt-1.5">
                 {data.series.map((s, i) => (
                   <span key={s.entityTypeSet}>
                     {i > 0 && " · "}
@@ -133,14 +136,22 @@ export default function Vigencia() {
             )}
           </div>
 
+          {/*
+            O seletor traz o rótulo colado nele. Fora da faixa branca do
+            cabeçalho antigo, um "Vigência" solto sobre o cinza da página não
+            teria mais a que se referir — dentro da mesma moldura do campo, tem.
+          */}
           {data && data.periods.length > 1 && (
-            <div className="space-y-1.5">
-              <div className="text-[0.6875rem] font-bold uppercase tracking-[0.08em] text-muted-foreground">
+            <div className="flex items-stretch border rounded-lg bg-card shadow-sm overflow-hidden">
+              <span className="flex items-center px-3 text-xs font-semibold text-muted-foreground border-r">
                 Vigência
-              </div>
+              </span>
               <Select value={data.period} onValueChange={setPeriod}>
-                <SelectTrigger className="w-56">
-                  <SelectValue />
+                <SelectTrigger className="w-52 border-0 shadow-none rounded-none focus:ring-0">
+                  <span className="flex items-center gap-2 min-w-0">
+                    <CalendarDays className="w-4 h-4 shrink-0 text-muted-foreground" />
+                    <SelectValue />
+                  </span>
                 </SelectTrigger>
                 <SelectContent>
                   {data.periods.map((p) => (
@@ -155,17 +166,17 @@ export default function Vigencia() {
         </div>
       </header>
 
-      <div className="px-8 py-6 space-y-5 max-w-[1600px]">
+      <div className="px-8 pb-6 space-y-4 max-w-[1600px]">
         {isLoading && <Esqueleto />}
 
         {error && (
-          <div className="border border-red-300 bg-red-50 px-5 py-4">
+          <div className="border border-red-300 rounded-xl bg-red-50 px-5 py-4">
             <p className="font-semibold text-red-900">Não foi possível carregar a vigência.</p>
             <p className="text-sm text-red-900/80 mt-1">{(error as Error).message}</p>
             <button
               onClick={() => void refetch()}
               disabled={isFetching}
-              className="mt-3 text-xs font-semibold uppercase tracking-wide border border-red-700 text-red-800 px-3 py-1.5 hover:bg-red-100 disabled:opacity-50"
+              className="mt-3 text-xs font-semibold uppercase tracking-wide border border-red-700 rounded-lg text-red-800 px-3 py-1.5 hover:bg-red-100 disabled:opacity-50"
             >
               {isFetching ? "Tentando…" : "Tentar novamente"}
             </button>
@@ -176,10 +187,12 @@ export default function Vigencia() {
           <>
             <ResumoExecutivo cockpit={data.cockpit} />
 
+            {data.totals.changes > 0 && <FaixaResumo cockpit={data.cockpit} />}
+
             <Avisos data={data} />
 
             {data.totals.changes === 0 ? (
-              <section className="bg-card border shadow-sm px-6 py-10 text-center">
+              <section className="bg-card border rounded-xl shadow-sm px-6 py-10 text-center">
                 {data.cockpit.baseline.hasBaseline ? (
                   <>
                     <p className="text-lg font-bold">
@@ -217,21 +230,28 @@ export default function Vigencia() {
               <>
                 <Panorama cockpit={data.cockpit} filtro={filtro} aoFiltrar={mudarFiltro} />
 
-                <section className="bg-card border shadow-sm">
-                  <div className="px-5 py-4 border-b">
-                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <section className="bg-card border rounded-xl shadow-sm overflow-hidden">
+                  <div className="px-5 pt-4 pb-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
                       <div>
                         <h2 className="text-lg font-bold">Prioridades para investigação</h2>
                         <p className="text-xs text-muted-foreground mt-0.5">
-                          Ordenadas pelo nível de atenção, pela abrangência e pela magnitude da
-                          mudança. Nenhum ponto é escondido — o último da fila continua na
-                          lista.
+                          Ordenadas pelo nível de atenção, pela abrangência e pela magnitude
+                          da mudança — a soma que dá a posição está na coluna{" "}
+                          <span className="font-medium">Pontos</span>.
                         </p>
                       </div>
-                      <span className="text-xs text-muted-foreground tabular-nums">
-                        {visiveis.length} de {entradas.length}{" "}
-                        {entradas.length === 1 ? "ponto" : "pontos"}
-                      </span>
+
+                      <div className="relative">
+                        <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                        <input
+                          value={filtro.busca}
+                          onChange={(e) => mudarFiltro({ busca: e.target.value })}
+                          placeholder="Buscar parâmetro…"
+                          aria-label="Buscar parâmetro"
+                          className="border rounded-lg bg-card pl-9 pr-3 py-2 text-xs w-64 focus:outline-none focus:ring-1 focus:ring-brand"
+                        />
+                      </div>
                     </div>
 
                     <Filtros
@@ -244,19 +264,12 @@ export default function Vigencia() {
                   </div>
 
                   {visiveis.length === 0 ? (
-                    <p className="px-5 py-8 text-center text-sm text-muted-foreground">
+                    <p className="px-5 py-8 text-center text-sm text-muted-foreground border-t">
                       Nenhum ponto atende a este recorte. Os {entradas.length} pontos da
                       vigência continuam aqui — limpe o filtro para vê-los.
                     </p>
                   ) : (
-                    visiveis.map((entry) => (
-                      <Prioridade
-                        key={entry.item.key}
-                        entry={entry}
-                        period={data.period}
-                        contexto={contexto}
-                      />
-                    ))
+                    <Fila entradas={visiveis} period={data.period} contexto={contexto} />
                   )}
                 </section>
               </>
@@ -272,6 +285,109 @@ export default function Vigencia() {
 
 function capitalizar(texto: string): string {
   return texto.charAt(0).toUpperCase() + texto.slice(1);
+}
+
+/** Quantos pontos a fila abre mostrando, antes de alguém pedir o resto. */
+const PONTOS_VISIVEIS = 3;
+
+/**
+ * A fila, em tabela.
+ *
+ * Abre com os primeiros pontos e o resto a um clique — e o clique diz quantos
+ * são, porque uma lista que esconde sem dizer quanto esconde é uma lista em que
+ * não se confia. Nenhum ponto sai: "ver todos" mostra os {@link PONTOS_VISIVEIS}
+ * primeiros e todos os outros, na mesma ordem.
+ */
+function Fila({
+  entradas,
+  period,
+  contexto,
+}: {
+  entradas: ItemCockpit[];
+  period: string;
+  contexto: URLSearchParams;
+}) {
+  const [tudo, setTudo] = useState(false);
+  const mostrados = tudo ? entradas : entradas.slice(0, PONTOS_VISIVEIS);
+
+  return (
+    <>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-t bg-muted/30">
+              <Cabecalho className="pl-5 pr-2">#</Cabecalho>
+              <Cabecalho>Criticidade</Cabecalho>
+              <Cabecalho>Parâmetro</Cabecalho>
+              <Cabecalho>Frota</Cabecalho>
+              <Cabecalho alinhamento="right">Pontos</Cabecalho>
+              <Cabecalho alinhamento="right">Veículos</Cabecalho>
+              <Cabecalho alinhamento="center">Anomalia</Cabecalho>
+              <Cabecalho alinhamento="right">Impacto</Cabecalho>
+              <Cabecalho alinhamento="right" className="pl-2 pr-5">
+                Ações
+              </Cabecalho>
+            </tr>
+          </thead>
+          <tbody>
+            {mostrados.map((entry) => (
+              <LinhaPrioridade
+                key={entry.item.key}
+                entry={entry}
+                period={period}
+                contexto={contexto}
+              />
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {entradas.length > PONTOS_VISIVEIS && (
+        <button
+          onClick={() => setTudo(!tudo)}
+          aria-expanded={tudo}
+          className="w-full border-t px-5 py-3 text-xs font-semibold text-muted-foreground hover:text-foreground hover:bg-muted/40 transition-colors inline-flex items-center justify-center gap-1.5"
+        >
+          {tudo ? (
+            <>
+              Ver menos
+              <ChevronUp className="w-3.5 h-3.5" />
+            </>
+          ) : (
+            <>
+              Ver todos os pontos ({entradas.length})
+              <ChevronDown className="w-3.5 h-3.5" />
+            </>
+          )}
+        </button>
+      )}
+    </>
+  );
+}
+
+function Cabecalho({
+  children,
+  alinhamento = "left",
+  className,
+}: {
+  children: React.ReactNode;
+  alinhamento?: "left" | "right" | "center";
+  className?: string;
+}) {
+  return (
+    <th
+      scope="col"
+      className={cn(
+        "px-2 py-2.5 text-xs font-semibold text-muted-foreground whitespace-nowrap",
+        alinhamento === "right" && "text-right",
+        alinhamento === "center" && "text-center",
+        alinhamento === "left" && "text-left",
+        className,
+      )}
+    >
+      {children}
+    </th>
+  );
 }
 
 /**
@@ -331,7 +447,7 @@ function Aviso({
   return (
     <div
       className={cn(
-        "flex gap-3 border px-4 py-3 text-sm",
+        "flex gap-3 border rounded-xl px-4 py-3 text-sm",
         tom === "alerta"
           ? "border-amber-400 bg-amber-50 text-amber-900"
           : "bg-muted/40 text-muted-foreground",
@@ -366,7 +482,7 @@ function Filtros({
   const focos: Foco[] = ["TODOS", "ATENCAO", "IMPACTO", "SEM_PRECO", "ANOMALIA"];
 
   return (
-    <div className="flex flex-wrap items-center gap-1.5 mt-3">
+    <div className="flex flex-wrap items-center gap-2 mt-3">
       {focos.map((foco) => (
         <Chip
           key={foco}
@@ -411,16 +527,6 @@ function Filtros({
         </Chip>
       )}
 
-      <div className="relative ml-auto">
-        <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-        <input
-          value={filtro.busca}
-          onChange={(e) => aoFiltrar({ busca: e.target.value })}
-          placeholder="Buscar parâmetro…"
-          className="border bg-card pl-8 pr-3 py-1.5 text-xs w-56 focus:outline-none focus:ring-1 focus:ring-brand"
-        />
-      </div>
-
       {filtroAtivo(filtro) && (
         <button
           onClick={aoLimpar}
@@ -450,9 +556,9 @@ function Chip({
       disabled={desabilitado}
       aria-pressed={ativo}
       className={cn(
-        "inline-flex items-center text-xs font-semibold px-2.5 py-1 border transition-colors",
+        "inline-flex items-center text-xs font-semibold px-3 py-1.5 border rounded-lg transition-colors",
         ativo
-          ? "border-brand bg-accent text-foreground"
+          ? "border-brand-red bg-red-50 text-brand-red"
           : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40",
         desabilitado && "opacity-40 cursor-not-allowed hover:text-muted-foreground",
       )}
@@ -532,42 +638,38 @@ function Rodape({ data }: { data: GroupedView }) {
   );
 }
 
-/** O esqueleto acompanha o layout novo: cinco números, quatro blocos, uma fila. */
+/** O esqueleto acompanha o layout: cinco cartões, uma faixa, quatro blocos, a fila. */
 function Esqueleto() {
   return (
-    <div className="space-y-5" aria-hidden>
-      <div className="bg-card border shadow-sm">
-        <div className="grid grid-cols-2 lg:grid-cols-5 divide-x">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="px-5 py-4 space-y-2">
+    <div className="space-y-4" aria-hidden>
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="bg-card border rounded-xl shadow-sm px-4 py-4 space-y-3">
+            <div className="flex items-center gap-2.5">
+              <Skeleton className="h-9 w-9 rounded-full" />
               <Skeleton className="h-3 w-24" />
-              <Skeleton className="h-8 w-16" />
-              <Skeleton className="h-3 w-28" />
             </div>
-          ))}
-        </div>
-        <div className="border-t px-5 py-4 space-y-2">
-          <Skeleton className="h-4 w-64" />
-          <Skeleton className="h-3 w-full max-w-3xl" />
-        </div>
+            <Skeleton className="h-8 w-16" />
+            <Skeleton className="h-3 w-28" />
+          </div>
+        ))}
       </div>
+      <Skeleton className="h-12 w-full rounded-xl" />
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="bg-card border shadow-sm px-4 py-3.5 space-y-2.5">
-            <Skeleton className="h-3 w-28" />
+          <div key={i} className="bg-card border rounded-xl shadow-sm px-4 py-4 space-y-3">
+            <Skeleton className="h-4 w-28" />
             {Array.from({ length: 4 }).map((__, j) => (
               <Skeleton key={j} className="h-3 w-full" />
             ))}
           </div>
         ))}
       </div>
-      <div className="bg-card border shadow-sm divide-y">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="px-5 py-4 space-y-2">
-            <Skeleton className="h-4 w-72" />
-            <Skeleton className="h-3 w-52" />
-            <Skeleton className="h-3 w-full max-w-2xl" />
-          </div>
+      <div className="bg-card border rounded-xl shadow-sm px-5 py-4 space-y-3">
+        <Skeleton className="h-5 w-64" />
+        <Skeleton className="h-8 w-full max-w-md" />
+        {Array.from({ length: 3 }).map((_, i) => (
+          <Skeleton key={i} className="h-10 w-full" />
         ))}
       </div>
     </div>
