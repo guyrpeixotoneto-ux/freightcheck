@@ -61,6 +61,24 @@ diferença e oferecer aplicá-la.
 versionada na partida e `/api/healthz` mostra o resultado. Aceitar a proposta é
 o único jeito de este projeto ficar com dois schemas.
 
+Ela costuma aparecer como uma pergunta de *renomeação* — "Detected potential
+conflicts: essas colunas foram removidas e essa foi adicionada; alguma delas foi
+renomeada?". É o resolvedor de conflitos do drizzle-kit, e a pergunta não tem
+resposta certa **nenhuma**: as opções todas terminam em aplicar DDL fora da fila.
+Não há como responder "isso já está tratado numa migration" — só cancelar.
+
+O que ela mostra, porém, é informação boa de graça: a lista de diferenças diz
+exatamente **quanto produção está atrás**. Uma pergunta sobre `ticket` perdendo
+`parameter_label`, `attribute_code`, `requested_value_*`, `applied_value_*` e
+`impact_*` e ganhando `changed_parameter_count` é a `0013` inteira — ou seja,
+produção ainda está na `0012`.
+
+A conferência que vale é esta, somente leitura, contra o banco de produção:
+
+```sql
+SELECT created_at FROM drizzle.__drizzle_migrations ORDER BY created_at;
+```
+
 ## O `meta/` do drizzle, e o que ele não representa
 
 `migrations/meta/*.json` são a fotografia que o drizzle-kit usa como base do
