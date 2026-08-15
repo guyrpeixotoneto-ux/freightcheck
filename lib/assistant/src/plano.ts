@@ -75,8 +75,26 @@ export interface Plano {
 interface Detector {
   necessidade: Necessidade;
   quando: RegExp;
+  /**
+   * A forma que casa `quando` e mesmo assim não é esta necessidade.
+   *
+   * Existe porque alargar um vocabulário cria vizinhança: quando VALOR passou
+   * a conhecer `preço`, ele passou a casar duas perguntas que não são de
+   * valor — "o que é preço de combustível?" (definição) e "temos preço de
+   * combustível?" (disponibilidade). Trocar um erro por outro não é corrigir.
+   *
+   * Como campo, e não como `(?!...)` embutido, porque a exceção é uma
+   * afirmação sobre o domínio — "perguntar se temos o preço não é perguntar o
+   * preço" — e merece ser lida como tal, em vez de ficar escondida no começo
+   * de uma expressão de duzentos caracteres.
+   */
+  exceto?: RegExp;
   porque: string;
 }
+
+/** O detector casa a frase, e a exceção dele não. */
+const casa = (d: Detector, frase: string): boolean =>
+  d.quando.test(frase) && !(d.exceto?.test(frase) ?? false);
 
 /**
  * Um detector por necessidade — e a ordem aqui não decide nada.
@@ -128,7 +146,16 @@ const DETECTORES: Detector[] = [
   },
   {
     necessidade: "COMPOSICAO",
-    quando: /\bcomposicao\b|\bcomo se comp(oe|õe)\b|\bficha (do|da) (cavalo|carreta|equipamento|veiculo)\b|\bvisao (de|da) frota\b/,
+    /*
+      A forma em lista é a mesma pergunta.
+
+      "Quais parâmetros impactam a remuneração do cavalo?" não casava nada — e
+      uma pergunta que não casa nada recebe o plano padrão, que é o movimento
+      do recorte. Quem pergunta **de que** a remuneração é feita não está
+      perguntando o que mudou nela: `quais parâmetros/itens/componentes` +
+      `compõem/impactam/entram/fazem parte` é composição escrita como lista.
+    */
+    quando: /\bcomposicao\b|\bcomo se comp(oe|õe)\b|\bficha (do|da) (cavalo|carreta|equipamento|veiculo)\b|\bvisao (de|da) frota\b|\b(quais|que|quantos) (parametros?|itens?|componentes?|verbas?|rubricas?)\b[^?]{0,30}\b(comp(oe|oem|õe|õem)|impactam?|entram?|formam?|fazem parte|constituem|integram)\b/,
     porque: "pede a composição da remuneração",
   },
   {
@@ -191,16 +218,79 @@ const DETECTORES: Detector[] = [
   },
   {
     necessidade: "MOVIMENTO",
+    /*
+      Mudança se pergunta de três formas, e o detector conhecia uma.
+
+      A **interrogativa** — "o que mudou?", "teve alteração?" — era a única.
+      Faltavam as outras duas, e cada uma custava uma pergunta inteira:
+
+      A **declarativa**: "O IPVA mudou e isso está previsto no Book?" traz o
+      dado na primeira oração e a regra na segunda. Sem reconhecer a primeira,
+      o plano ficava só com BOOK e a resposta não tinha número nenhum.
+
+      A **de igualdade**, que é a mesma pergunta pela negativa: "tá tudo
+      igual?" quer exatamente o que "o que mudou?" quer. Ela recebia
+      DESCONHECIDA — nenhuma consulta, e uma resposta construída sobre o vazio.
+    */
     quando:
-      /\b(o que (mudou|alterou|aconteceu|houve|ocorreu|entrou|saiu|rolou)|mudancas?|alterac(ao|oes)|resumo)\b|\b(teve|houve|tivemos|ocorreu|aconteceu|rolou)\b.{0,30}\b(alterac\w*|mudanc\w*|movimento|diferenc\w*)\b|\bmudou (alguma coisa|algo)\b|\b(qual (foi |e |era )?o impacto|quanto (isso |isto )?(custou|impactou|pesou)|que impacto)\b/,
+      /\b(o que (mudou|alterou|aconteceu|houve|ocorreu|entrou|saiu|rolou)|mudancas?|alterac(ao|oes)|resumo)\b|\b(teve|houve|tivemos|ocorreu|aconteceu|rolou)\b.{0,30}\b(alterac\w*|mudanc\w*|movimento|diferenc\w*)\b|\bmudou (alguma coisa|algo)\b|\b(qual (foi |e |era )?o impacto|quanto (isso |isto )?(custou|impactou|pesou)|que impacto)\b|\b\w+ (mudou|mudaram|alterou|alteraram|subiu|subiram|caiu|cairam|variou|variaram|aumentou|aumentaram|reduziu|reduziram)\b|\b(esta|ficou|continua|permanece|segue) tudo (igual|na mesma|do mesmo jeito|como estava)\b|\b(tudo|nada) (igual|mudou)\b|\bna mesma\b|\bsem (alterac\w*|mudanc\w*|novidade)\b|\bcontinua igual\b/,
+    /*
+      "Por quê" pede a razão, e razão não é listagem.
+
+      Foi o preço de reconhecer a oração declarativa: "por que o pneu subiu
+      15%?" passou a casar `pneu subiu` e virou movimento — a lista do que
+      mudou na vigência, para quem perguntou a **causa** de uma alteração
+      específica. Quem responde isso é PROCEDÊNCIA (de onde veio este número)
+      ou CONCEITUAL (como esta conta funciona), e as duas já sabiam.
+    */
+    exceto: /\b(por ?que|porque|pq|qual (o )?motivo|qual (a )?razao)\b/,
     porque: "pede o movimento de uma vigência",
   },
   {
     necessidade: "VALOR",
-    quando: /\b(quanto (esta|e|foi|ficou)|qual o valor|valor (do|da|de)|quanto (custa|vale))\b/,
+    /*
+      Valor tem mais de um nome, e o vocabulário conhecia um só.
+
+      "Qual o preço do combustível em reais?" não casava detector nenhum e caía
+      no BOOK por evidência — a pergunta mais direta que este produto recebe,
+      respondida pela regra em vez de pelo número. `preço`, `custo` e `tarifa`
+      pedem a mesma coisa que `valor`, e um vocabulário fechado com um buraco
+      erra em toda pergunta de preço, não só na que a bateria escreveu.
+    */
+    quando: /\b(quanto (esta|e|foi|ficou)|qual (o|a) (valor|preco|custo|tarifa)|(valor|preco|custo|tarifa) (do|da|de)|quanto (custa|vale))\b/,
+    /*
+      Duas perguntas que citam o preço e não pedem o preço.
+
+      A **definição**: "o que é preço de combustível?" pede o conceito, e é de
+      CONCEITUAL. A **disponibilidade**: "temos preço de combustível?" pergunta
+      se o dado existe — e a forma é a mesma que DISPONIBILIDADE já reconhece,
+      escrita aqui de novo de propósito, porque é dela que a exceção fala.
+
+      Sem a segunda, "temos preço de combustível?" passava a disparar também a
+      consulta do valor, e uma resposta que era conceitual voltava carregando a
+      vigência de agosto — um número verdadeiro para uma pergunta que só queria
+      saber se ele existe.
+    */
+    exceto:
+      /\b(o que (e|sao|significa)|que e|como funciona|como e (calculad\w*|compost\w*|apurad\w*)|explique|explica|defini(cao|r)|para que serve)\b|\b(temos|existe|existem|ha|tem)\b[^?]{0,30}\b(parametro|coluna|dado|informacao|preco|valor|custo|tarifa)\b/,
     porque: "pede o valor corrente de um parâmetro",
   },
 ];
+
+/**
+ * A frase nomeia a fonte, em vez de descrever o que quer saber.
+ *
+ * `no Book`, `o Book diz`, `previsto no contrato`, `está no manual`. É o
+ * complemento de lugar da pergunta — e quando ele existe, é ele que manda:
+ * ver o comentário em `planejar`.
+ *
+ * Note o que **não** está aqui: `regra`. "Qual a regra do IPVA?" nomeia o que
+ * se quer, não onde está — e continua sendo ordenada pelo verbo, que é o que
+ * mantém "qual a regra do bloco PNEU?" respondendo com a regra e não com o
+ * bloco.
+ */
+const FONTE_NOMEADA =
+  /\b(n[oa]s?|d[oa]s?|pel[oa]s?) (book|contrato|manual)\b|\bo (book|contrato|manual) (diz|fala|traz|prev[eê]|cobre|menciona)\b|\bsegundo o (book|contrato|manual)\b/;
 
 /**
  * A pergunta que quer saber **o que importa**, sem dizer sobre o quê.
@@ -395,7 +485,7 @@ export function planejar(entrada: EntradaDoPlano): Plano {
   const porque: string[] = [];
 
   for (const detector of DETECTORES) {
-    if (!detector.quando.test(frase)) continue;
+    if (!casa(detector, frase)) continue;
     necessidades.add(detector.necessidade);
     explicitas.add(detector.necessidade);
     porque.push(detector.porque);
@@ -502,6 +592,28 @@ export function planejar(entrada: EntradaDoPlano): Plano {
     };
   }
 
+  /*
+    ---- a fonte nomeada nomeia a resposta ------------------------------------
+
+    "Existe alguma regra no Book relacionada a essa alteração?" detecta as duas
+    necessidades, e as duas explicitamente: MOVIMENTO pela palavra `alteração`,
+    BOOK pela palavra `Book`. Empatadas em explicitude, quem decidia era a
+    ORDEM fixa — e MOVIMENTO vem antes. A resposta se chamava pelo que não
+    tinha sido pedido, e ia buscar o movimento do recorte para uma pergunta que
+    dizia, com todas as letras, onde queria que se procurasse.
+
+    A regra é estreita de propósito: só vale quando a frase **nomeia** a fonte
+    (`no Book`, `o Book diz`, `no contrato`, `no manual`). Escrever o nome da
+    fonte é o ato mais explícito que existe nesta interface — mais explícito
+    que o verbo, que descreve o que se quer saber e não onde. Uma pergunta que
+    não nomeia fonte nenhuma não passa por aqui, e continua sendo ordenada pelo
+    que o verbo pediu.
+  */
+  if (necessidades.has("BOOK") && FONTE_NOMEADA.test(frase)) {
+    explicitas.clear();
+    explicitas.add("BOOK");
+  }
+
   const ordenadas = ordenar(necessidades, explicitas);
   return {
     necessidades: ordenadas,
@@ -516,7 +628,7 @@ export function planejar(entrada: EntradaDoPlano): Plano {
 export function detectar(pergunta: string): Necessidade[] {
   const frase = normalizar(pergunta);
   const achadas = new Set(
-    DETECTORES.filter((d) => d.quando.test(frase)).map((d) => d.necessidade),
+    DETECTORES.filter((d) => casa(d, frase)).map((d) => d.necessidade),
   );
   return ordenar(achadas, achadas);
 }
@@ -534,7 +646,7 @@ export function detectar(pergunta: string): Necessidade[] {
  */
 export function leituraProvisoria(pergunta: string): { intencao: Necessidade; porque: string } {
   const frase = normalizar(pergunta);
-  const casados = DETECTORES.filter((d) => d.quando.test(frase));
+  const casados = DETECTORES.filter((d) => casa(d, frase));
   if (casados.length === 0) return { intencao: "DESCONHECIDA", porque: "nenhum detector casou" };
   const achadas = new Set(casados.map((d) => d.necessidade));
   const principal = ordenar(achadas, achadas)[0]!;

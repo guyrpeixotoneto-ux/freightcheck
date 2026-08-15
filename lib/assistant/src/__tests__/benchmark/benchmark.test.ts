@@ -34,14 +34,19 @@ const rodar = URL_DO_BANCO ? describe : describe.skip;
  * Fase 2 (95/103). "Qual a margem de lucro da transportadora?" mudou de
  * categoria ao encontrar a `main`: ela estava entre as impossíveis porque, no
  * dia em que foi escrita, era — e o módulo de DRE a tornou respondível. Um
- * benchmark que não reclassifica esses casos mede o produto de ontem. Os números abaixo são o **depois** da Fase 2: eles travam o
- * ganho, de modo que nenhuma mudança futura possa devolver silenciosamente uma
- * categoria ao que ela era. Quem melhorar uma categoria sobe o piso dela no
- * mesmo commit.
+ * benchmark que não reclassifica esses casos mede o produto de ontem. A Fase 6 fechou as oito
+ * restantes e os pisos abaixo são o **depois** dela: 103/103, todas as
+ * categorias completas.
+ *
+ * Um piso igual ao total tem uma consequência que vale dizer em voz alta: daqui
+ * em diante qualquer regressão reprova, porque não há folga nenhuma. É o
+ * objetivo — a folga era o que permitia uma categoria voltar em silêncio.
+ * Quem melhorar uma categoria sobe o piso dela no mesmo commit; quem
+ * acrescentar perguntas novas mede o que elas dão antes de travar.
  */
 const PISO: Record<string, number> = {
-  alteracoes: 15, parametros: 10, impacto: 10, equipamentos: 8, combustivel: 6,
-  book: 13, comparacao: 6, cruzada: 4, informal: 8, executiva: 7, impossivel: 8,
+  alteracoes: 15, parametros: 11, impacto: 10, equipamentos: 8, combustivel: 8,
+  book: 13, comparacao: 6, cruzada: 6, informal: 10, executiva: 7, impossivel: 9,
 };
 
 rodar("benchmark do assistente", () => {

@@ -35,6 +35,7 @@
 import type { Database } from "@workspace/db";
 import { BLOCOS_BOOK, CATALOGO_FREIGHTECH } from "@workspace/knowledge";
 import { normalizar, termos } from "./normalizar";
+import { buscarNoBookDetalhado, LIMIAR_PARA_DEFINIR } from "./indice-book";
 import { carregarDicionario, resolverParametro, type Alvo, type Resolucao } from "./parametros";
 
 /**
@@ -124,6 +125,14 @@ export function esquecerVocabulario(): void {
 export type ComoReconheceu =
   /** Casou o dicionário de parâmetros: há coluna, há número. */
   | "PARAMETRO"
+  /**
+   * O conteúdo do Book disse de que a palavra fala, e aquilo tem coluna.
+   *
+   * É `PARAMETRO` em tudo o que importa — há gaveta, há número —, e se
+   * distingue dele só no rastro: quem investigar a resposta precisa saber que
+   * o caminho até a gaveta passou por um bloco do Book, e por qual.
+   */
+  | "CONTEUDO_DO_BOOK"
   /** O Book ou o catálogo conhecem o assunto; este export não o traz. */
   | "CONHECIDO_SEM_DADO";
 
@@ -135,6 +144,8 @@ export interface AssuntoReconhecido {
   alvo: Alvo | null;
   /** A resolução completa, para a desambiguação e para o painel técnico. */
   resolucao: Resolucao | null;
+  /** O bloco que ligou a palavra à gaveta, quando foi o conteúdo que resolveu. */
+  blocoDoBook?: string;
 }
 
 /**
@@ -152,6 +163,51 @@ export function candidatoLimpo(candidato: string | null): string | null {
     (p) => !TERMOS_DE_EQUIPAMENTO.has(p) && !TERMOS_ABRANGENTES.has(p),
   );
   return palavras.length > 0 ? palavras.join(" ") : null;
+}
+
+/**
+ * De que o Book fala quando fala esta palavra — e aquilo tem coluna?
+ *
+ * **O buraco que isto fecha.** O vocabulário do produto é feito de *títulos*:
+ * títulos de bloco do Book, nomes de cartão do catálogo, rótulos de parâmetro.
+ * `diesel` não é o título de nada. Ele é o assunto de que o bloco PREÇO
+ * COMBUSTÍVEIS fala — e o produto mede combustível, com sete colunas. Sem este
+ * passo, "o que mudou no diesel?" era reconhecida como *conhecida sem dado*, o
+ * que fecha o portão que existe para `pedágio`: uma coisa que o produto de
+ * fato não mede. As duas perguntas recebiam a mesma resposta, e uma delas
+ * estava errada.
+ *
+ * **Por que não uma tabela de sinônimos.** Porque ela seria infinita e estaria
+ * sempre desatualizada: quem escreve o Book não consulta o código do
+ * assistente. O índice da Fase 3 já sabe de que fala cada trecho — é ele quem
+ * responde, e ele se atualiza sozinho quando a operação anexa uma regra nova.
+ * Escrever `diesel → combustível` à mão seria pedir para escrever, no mês que
+ * vem, `arla → consumo`.
+ *
+ * **As duas guardas, e por que as duas são necessárias.** O bloco tem de vir
+ * com confiança (`LIMIAR_PARA_DEFINIR`, o mesmo corte que decide se uma regra
+ * responde sozinha), e o título dele tem de resolver para uma gaveta. É a
+ * segunda que preserva o portão: `pedágio` acha BOOK VALE PEDÁGIO com folga, e
+ * nenhuma coluna se chama assim — então nada é adotado, e a lacuna continua
+ * sendo a resposta.
+ */
+async function resolverPeloConteudoDoBook(
+  db: Database,
+  termo: string,
+  opcoes: { equipamento?: string },
+): Promise<{ alvo: Alvo; resolucao: Resolucao; bloco: string } | null> {
+  const busca = await buscarNoBookDetalhado(db, termo, { limite: 1 }).catch(() => null);
+  const primeiro = busca?.selecionados[0];
+  if (!primeiro || primeiro.pontos < LIMIAR_PARA_DEFINIR) return null;
+
+  const bloco = primeiro.trecho.bloco;
+  // O termo da pergunta não entra aqui: quem procura a gaveta é o **bloco**, e
+  // misturar os dois traria de volta o casamento por semelhança textual que a
+  // recusa de parâmetro fantasma existe para impedir.
+  const resolucao = await resolverParametro(db, bloco, opcoes);
+  if (!resolucao.escolhido) return null;
+
+  return { alvo: resolucao.escolhido, resolucao, bloco };
 }
 
 /**
@@ -226,6 +282,28 @@ export async function reconhecerAssunto(
     }
     return dicionario.some((p) => p.termos.some((t) => t === palavra));
   };
+
+  /*
+    Sem gaveta pelo nome — e antes de decidir qualquer coisa, pergunte ao Book
+    de que esta palavra fala.
+
+    Ela vem **antes** das duas conclusões seguintes porque as duas estão
+    erradas quando o conteúdo responde. `recapagem` não é o título de nada, e
+    por isso o caminho de baixo a devolveria como "a pessoa não nomeou nada" —
+    e a pergunta consultaria o recorte inteiro. `diesel` é conhecido pelo
+    catálogo, e o caminho do meio o devolveria como "conhecido sem dado". Nos
+    dois casos quem sabe a resposta é o texto da regra, não a lista de títulos.
+  */
+  const peloConteudo = await resolverPeloConteudoDoBook(db, termo, opcoesDeEquipamento);
+  if (peloConteudo) {
+    return {
+      termo,
+      como: "CONTEUDO_DO_BOOK",
+      alvo: peloConteudo.alvo,
+      resolucao: peloConteudo.resolucao,
+      blocoDoBook: peloConteudo.bloco,
+    };
+  }
 
   if (palavras.some(conhecida)) {
     return { termo, como: "CONHECIDO_SEM_DADO", alvo: null, resolucao };
