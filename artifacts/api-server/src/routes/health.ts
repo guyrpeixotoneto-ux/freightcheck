@@ -1,9 +1,12 @@
 import { Router, type IRouter } from "express";
-import { sql } from "drizzle-orm";
-import { db } from "@workspace/db";
-import { appliedMigrations } from "@workspace/db/migrate";
 import { HealthCheckResponse } from "@workspace/api-zod";
-import { expectedMigrations, relatorioDaPartida } from "../lib/migrations";
+import {
+  diagnosticar,
+  textoDoDiagnostico,
+  type Diagnostico,
+  type EstadoObservado,
+} from "@workspace/db/diagnostico";
+import { observarBanco } from "../lib/migrations";
 
 /**
  * Saúde do processo, e — o que faltava — do que ele enxerga do banco.
@@ -54,145 +57,62 @@ export interface DatabaseHealth {
   migrations?: MigrationHealth;
   /** Código da falha, quando há. Código, nunca a mensagem — ver abaixo. */
   code?: string;
+  /**
+   * O estado classificado — a resposta que importa, e a única que a interface
+   * deve apresentar como recomendação. Ver `lib/db/src/diagnostico.ts`.
+   */
+  diagnostico: Diagnostico;
+  /**
+   * O mesmo diagnóstico como texto corrido, para quem lê por `curl`.
+   *
+   * É derivado de `diagnostico`, nunca escrito à parte: se divergisse, estariam
+   * de volta as duas versões da verdade que este módulo existe para eliminar.
+   */
   detail: string;
 }
 
 /**
- * Só o código do erro atravessa, nunca a mensagem.
+ * @param observar  o estado do banco agora; separado da rota para os testes
+ *                  poderem exercitar cada desfecho sem um Postgres do lado.
  *
- * Mensagens de driver carregam host, porta e às vezes usuário, e este endpoint
- * é público. O código diz o suficiente para agir e não descreve a topologia de
- * ninguém.
- */
-function explain(code: string | undefined): string {
-  switch (code) {
-    case "ECONNREFUSED":
-    case "ETIMEDOUT":
-    case "ENOTFOUND":
-    case "EAI_AGAIN":
-      return "A DATABASE_URL chegou ao processo, mas o banco não respondeu no endereço que ela aponta.";
-    case "28P01":
-    case "28000":
-      return "O banco recusou as credenciais da DATABASE_URL que este processo recebeu.";
-    case "3D000":
-      return "A DATABASE_URL aponta para um banco que não existe.";
-    default:
-      return "A DATABASE_URL chegou ao processo, mas a conexão falhou.";
-  }
-}
-
-/**
- * A pendência dita de um jeito que diz o que fazer.
- *
- * Nomear as migrations que faltam é o ponto: "faltam 2" manda procurar; "faltam
- * 0008_book_entries e 0009_…" já diz qual tela vai responder erro e o que
- * precisa rodar para ela voltar.
- */
-function descreverPendencia(migrations: MigrationHealth): string {
-  const uma = migrations.pending.length === 1;
-  const quantas = uma
-    ? "1 migration não foi aplicada"
-    : `${migrations.pending.length} migrations não foram aplicadas`;
-
-  const parou = migrations.failure
-    ? ` A tentativa parou em ${migrations.failure.tag}` +
-      (migrations.failure.code
-        ? ` (SQLSTATE ${migrations.failure.code}).`
-        : ".") +
-      " O log do servidor tem a mensagem inteira."
-    : "";
-
-  return (
-    `Conectado, mas ${quantas} neste banco: ${migrations.pending.join(", ")}. ` +
-    `As telas que dependem ${uma ? "dela respondem erro até que ela rode" : "delas respondem erro até que rodem"}.${parou}` +
-    registroPerdido(migrations)
-  );
-}
-
-/**
- * O registro de migrations se perdeu — e é preciso dizer isso, não deixar
- * deduzir.
- *
- * A assinatura é inconfundível: **nada** aplicado (o registro está vazio) e a
- * fila parou logo na primeira migration por um objeto que já existe. Um banco
- * genuinamente novo não falha assim — ele não tem objeto nenhum, e a `0000`
- * entra limpa. Então o que se tem é um banco com o schema e sem o registro
- * dele: restaurado de um dump sem o schema `drizzle`, recriado à mão, ou
- * apontado para outra URL.
- *
- * Sem esta frase, o texto acima manda rodar as migrations — e rodá-las é
- * exatamente o que já falhou, quantas vezes se tente. Um diagnóstico que
- * prescreve o que não funciona é pior do que nenhum: ele consome as tentativas
- * de quem está tentando.
- */
-function registroPerdido(migrations: MigrationHealth): string {
-  const primeira = migrations.pending[0];
-  const assinatura =
-    migrations.applied === 0 &&
-    migrations.failure !== undefined &&
-    migrations.failure.tag === primeira &&
-    JA_EXISTE_SQLSTATES.has(migrations.failure.code ?? "");
-  if (!assinatura) return "";
-
-  return (
-    " Este banco tem o schema e não tem o registro dele — por isso a fila " +
-    "recomeça da primeira migration e esbarra em algo que já existe. Rodar as " +
-    "migrations de novo vai falhar igual. A saída é declarar o que o banco já " +
-    "tem, com `pnpm --filter @workspace/db run migrate:adotar`."
-  );
-}
-
-/** Os SQLSTATEs de "isto já existe" — ver `JA_EXISTE` em `@workspace/db`. */
-const JA_EXISTE_SQLSTATES = new Set(["42710", "42P07", "42701", "42P06"]);
-
-/**
- * @param probe  pergunta ao banco se o schema está lá; separado da rota para
- *               os testes poderem exercitar cada desfecho sem um banco real.
+ * Este endpoint deixou de classificar nada por conta própria. Ele observa,
+ * entrega o que observou a `diagnosticar` e publica o resultado. Enquanto a
+ * classificação morava aqui, ela era **uma** das duas do repositório — a outra
+ * estava escrita à mão nas rotas de Chamados e do Book, que não tinham como
+ * saber o estado do banco e mesmo assim prescreviam remédio. Ver
+ * `lib/db/src/diagnostico.ts`.
  */
 export async function describeDatabase(
-  probe: () => Promise<{ migrated: boolean; migrations?: MigrationHealth }>,
-  databaseUrl: string | undefined = process.env["DATABASE_URL"],
+  observar: () => Promise<EstadoObservado>,
 ): Promise<DatabaseHealth> {
-  if (!databaseUrl) {
-    return {
-      configured: false,
-      reachable: false,
-      migrated: false,
-      detail:
-        "Este processo não recebeu DATABASE_URL. O banco pode existir e estar " +
-        "saudável: o que falta é a variável chegar até aqui.",
-    };
-  }
+  const estado = await observar();
+  const diagnostico = diagnosticar(estado);
 
-  try {
-    const { migrated, migrations } = await probe();
-    const pendentes = migrations?.pending ?? [];
-    const upToDate = migrated && pendentes.length === 0;
-    return {
-      configured: true,
-      reachable: true,
-      migrated,
-      upToDate,
-      ...(migrations ? { migrations } : {}),
-      detail: !migrated
-        ? "Conectado, mas o schema não existe neste banco — faltam migrations."
-        : upToDate
-          ? "Conectado, com o schema aplicado."
-          : descreverPendencia(migrations!),
-    };
-  } catch (err) {
-    const code =
-      typeof err === "object" && err !== null && "code" in err
-        ? String((err as { code: unknown }).code)
-        : undefined;
-    return {
-      configured: true,
-      reachable: false,
-      migrated: false,
-      ...(code ? { code } : {}),
-      detail: explain(code),
-    };
-  }
+  return {
+    configured: estado.configurada,
+    reachable: estado.alcancavel,
+    /*
+      `migrated` sobrevive por compatibilidade — é o campo que respondia por uma
+      tabela só e por isso dizia "sim" num banco a que faltavam cinco
+      migrations. Aqui ele significa o que o nome promete: alguma migration
+      deste build está registrada. Quem precisa do estado real lê `diagnostico`.
+    */
+    migrated: estado.alcancavel && estado.aplicadas > 0,
+    upToDate: diagnostico.estado === "SAUDAVEL",
+    ...(estado.alcancavel
+      ? {
+          migrations: {
+            expected: estado.aplicadas + estado.pendentes.length,
+            applied: estado.aplicadas,
+            pending: estado.pendentes,
+            ...(estado.falha ? { failure: estado.falha } : {}),
+          },
+        }
+      : {}),
+    ...(estado.codigoDeConexao ? { code: estado.codigoDeConexao } : {}),
+    diagnostico,
+    detail: textoDoDiagnostico(diagnostico),
+  };
 }
 
 /**
@@ -205,53 +125,9 @@ export async function describeDatabase(
  */
 router.get("/healthz", async (_req, res) => {
   const base = HealthCheckResponse.parse({ status: "ok" });
-  const database = await describeDatabase(async () => {
-    const result = await db.execute<{ migrated: boolean }>(
-      sql`select to_regclass('public.import_run') is not null as migrated`,
-    );
-    const migrated = Boolean(result.rows[0]?.migrated);
-    return { migrated, migrations: await pesquisarMigrations(migrated) };
-  });
+  const database = await describeDatabase(() => observarBanco());
   res.json({ ...base, database });
 });
-
-/**
- * O que o banco tem, comparado ao que este build carrega.
- *
- * A lista de aplicadas vem do banco a cada chamada, e não do que este processo
- * fez na partida: quem migrou pode ter sido outra instância, ou uma pessoa pela
- * linha de comando, e a resposta precisa valer para agora. O relatório da
- * partida entra só para dizer *onde parou* — informação que o banco não guarda.
- */
-async function pesquisarMigrations(
-  migrated: boolean,
-): Promise<MigrationHealth> {
-  const esperadas = expectedMigrations();
-  const relatorio = relatorioDaPartida();
-
-  // Num banco vazio a tabela de registro também não existe, e perguntar por ela
-  // devolveria um erro que `describeDatabase` leria como "o banco caiu".
-  const aplicadas = migrated
-    ? new Set<number>(await appliedMigrations(db))
-    : new Set<number>();
-  const pending = esperadas
-    .filter((migration) => !aplicadas.has(migration.when))
-    .map((migration) => migration.tag);
-
-  return {
-    expected: esperadas.length,
-    applied: esperadas.length - pending.length,
-    pending,
-    ...(relatorio?.failure
-      ? {
-          failure: {
-            tag: relatorio.failure.tag,
-            ...(relatorio.failure.code ? { code: relatorio.failure.code } : {}),
-          },
-        }
-      : {}),
-  };
-}
 
 const startedAt = new Date().toISOString();
 

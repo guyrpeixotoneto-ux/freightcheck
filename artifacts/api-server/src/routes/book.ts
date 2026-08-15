@@ -3,6 +3,7 @@ import path from "node:path";
 import { Router, type IRouter, type Response } from "express";
 import { desc, eq, sql } from "drizzle-orm";
 import { db, bookEntryTable, codigoDoPostgres } from "@workspace/db";
+import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
 
 /**
  * Book do Operador — a regra de cada bloco, escrita ou anexada.
@@ -402,7 +403,7 @@ router.get("/book/entries", async (req, res): Promise<void> => {
     res.json(linhas);
   } catch (err) {
     req.log.error({ err }, "Error listing book entries");
-    responderFalha(res, err);
+    await responderFalha(res, err);
   }
 });
 
@@ -432,7 +433,7 @@ router.get("/book/entries/history", async (req, res): Promise<void> => {
     res.json(linhas);
   } catch (err) {
     req.log.error({ err }, "Error listing book entry history");
-    responderFalha(res, err);
+    await responderFalha(res, err);
   }
 });
 
@@ -530,7 +531,7 @@ router.post("/book/entries", async (req, res): Promise<void> => {
       return;
     }
     req.log.error({ err }, "Error storing book entry");
-    responderFalha(res, err);
+    await responderFalha(res, err);
   }
 });
 
@@ -597,7 +598,7 @@ router.get("/book/entries/:id/content", async (req, res): Promise<void> => {
     res.send(bytes);
   } catch (err) {
     req.log.error({ err }, "Error reading book entry content");
-    responderFalha(res, err);
+    await responderFalha(res, err);
   }
 });
 
@@ -611,10 +612,13 @@ function isUniqueViolation(err: unknown): boolean {
  * `42P01` é relação inexistente e `42704` é objeto inexistente — o segundo pega
  * o `book_entry_kind`, que é um tipo e não uma tabela. Os dois significam a
  * mesma coisa aqui: a migration `0008_book_entries` não rodou neste banco.
+ *
+ * A lista mora em `lib/schema-ausente.ts`, junto da resposta que ela decide.
+ * Este nome fica porque é o vocabulário desta rota, e porque é por ele que os
+ * testes perguntam.
  */
 export function faltaOSchemaDoBook(err: unknown): boolean {
-  const code = codigoDoPostgres(err);
-  return code === "42P01" || code === "42704";
+  return faltaSchema(err);
 }
 
 /**
@@ -624,20 +628,20 @@ export function faltaOSchemaDoBook(err: unknown): boolean {
  * "Internal server error" foi o que esta rota respondeu a um envio de documento
  * num banco onde a tabela do Book não existia. A frase manda procurar no lugar
  * errado: ela sugere um defeito no envio, quando o arquivo estava perfeito e o
- * que faltava era uma migration. Agora a diferença aparece no status (503, e
- * não 500 — é indisponibilidade temporária, não erro do pedido) e na frase, que
- * diz o que rodar e para onde olhar.
+ * que faltava era uma migration.
+ *
+ * O que esta rota diz é só o que ela sabe: qual schema falta, e que o documento
+ * não se perdeu. O que houve com o banco e o que resolve vêm de `diagnosticar`
+ * — ver `lib/schema-ausente.ts`.
  */
-function responderFalha(res: Response, err: unknown): void {
+async function responderFalha(res: Response, err: unknown): Promise<void> {
   if (faltaOSchemaDoBook(err)) {
-    res.status(503).json({
-      error:
-        "O Book do Operador não tem onde guardar neste banco: a tabela que a " +
-        "migration 0008_book_entries cria não existe aqui. Não é o seu arquivo " +
-        "— nada chegou a ser gravado, e nada se perdeu. /api/healthz diz quais " +
-        "migrations faltam.",
-      code: "SCHEMA_AUSENTE",
-    });
+    await responderSchemaAusente(
+      res,
+      "O Book do Operador não tem onde guardar neste banco: a tabela que a " +
+        "migration 0008_book_entries cria não existe aqui. Não é o seu " +
+        "arquivo — nada chegou a ser gravado, e nada se perdeu.",
+    );
     return;
   }
   res.status(500).json({ error: "Internal server error" });

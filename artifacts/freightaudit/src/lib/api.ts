@@ -1,3 +1,5 @@
+import { ehDiagnostico, type Diagnostico } from "@/lib/diagnostico";
+
 /**
  * Returns the full URL for an API endpoint path.
  * In the Replit monorepo, the api-server is mounted at /api.
@@ -66,12 +68,34 @@ export class ApiError extends Error {
   readonly status: number;
   /** O `code` que a API manda em alguns erros — `SCHEMA_AUSENTE`, … */
   readonly code?: string;
+  /**
+   * O contexto da rota: qual schema falta, e o que houve com o envio.
+   *
+   * É só o que a rota sabe e mais ninguém. Recomendação nenhuma vem por aqui.
+   */
+  readonly contexto?: string;
+  /**
+   * O estado do banco classificado pelo servidor.
+   *
+   * Quando vem preenchido, é a **única** recomendação que a interface
+   * apresenta. Era daqui que nascia o defeito que este campo elimina: a tela
+   * imprimia o texto da rota e o do `/healthz` um embaixo do outro, e os dois
+   * mandavam fazer coisas diferentes sobre o mesmo erro.
+   */
+  readonly diagnostico?: Diagnostico;
 
-  constructor(message: string, status: number, code?: string) {
+  constructor(
+    message: string,
+    status: number,
+    code?: string,
+    extra?: { contexto?: string; diagnostico?: Diagnostico },
+  ) {
     super(message);
     this.name = "ApiError";
     this.status = status;
     if (code !== undefined) this.code = code;
+    if (extra?.contexto !== undefined) this.contexto = extra.contexto;
+    if (extra?.diagnostico !== undefined) this.diagnostico = extra.diagnostico;
   }
 }
 
@@ -91,6 +115,12 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
       message ?? `O servidor respondeu ${response.status} em ${path}.`,
       response.status,
       typeof body.code === "string" ? body.code : undefined,
+      {
+        ...(typeof body.contexto === "string" ? { contexto: body.contexto } : {}),
+        ...(ehDiagnostico(body.diagnostico)
+          ? { diagnostico: body.diagnostico }
+          : {}),
+      },
     );
   }
   // `readJson` descreve o corpo como objeto porque é assim que os erros desta
