@@ -99,5 +99,10 @@ jobs:
 
       # A régua do assistente. Ela roda junto com o resto — o piso por categoria
       # está no próprio teste, e cair abaixo dele reprova aqui.
+      #
+      # `exec vitest run <caminho>`, e não `run test -- <caminho>`: o `--` do
+      # pnpm chega ao vitest como argumento solto, que ele ignora como filtro. O
+      # passo rodava a suíte inteira do assistente de novo, e dizia no nome que
+      # rodava só o benchmark.
       - name: Benchmark do assistente
-        run: pnpm --filter @workspace/assistant run test -- src/__tests__/benchmark
+        run: pnpm --filter @workspace/assistant exec vitest run src/__tests__/benchmark
