@@ -54,16 +54,27 @@ async function bancoNovo(): Promise<{ nome: string; url: string; pool: pg.Pool }
 /**
  * Aplica a fila até `ate` (inclusive) do mesmo jeito que `runMigrations` — uma
  * transação por migration, registro por carimbo — e para ali.
+ *
+ * O que já está registrado é pulado, de modo que dois pontos de parada em
+ * sequência (`0014`, gravar histórico, `0019`) sejam a continuação da mesma
+ * fila e não uma segunda tentativa de aplicá-la desde a `0000`.
  */
 async function aplicarAte(pool: pg.Pool, ate: string): Promise<void> {
+  const { rows } = await pool.query<{ created_at: string }>(
+    `SELECT created_at FROM "drizzle"."__drizzle_migrations"`,
+  );
+  const aplicadas = new Set(rows.map((l) => Number(l.created_at)));
+
   for (const m of readMigrations()) {
-    await pool.query("BEGIN");
-    for (const comando of m.statements) await pool.query(comando);
-    await pool.query(
-      `INSERT INTO "drizzle"."__drizzle_migrations" ("hash", "created_at") VALUES ($1, $2)`,
-      [m.hash, m.when],
-    );
-    await pool.query("COMMIT");
+    if (!aplicadas.has(m.when)) {
+      await pool.query("BEGIN");
+      for (const comando of m.statements) await pool.query(comando);
+      await pool.query(
+        `INSERT INTO "drizzle"."__drizzle_migrations" ("hash", "created_at") VALUES ($1, $2)`,
+        [m.hash, m.when],
+      );
+      await pool.query("COMMIT");
+    }
     if (m.tag === ate) return;
   }
   throw new Error(`migration ${ate} não existe`);
@@ -209,6 +220,7 @@ describe("0015 sobre um banco parado na 0014", () => {
       "0017_fato_herdado",
       "0018_identidade_forte",
       "0019_assistant_feedback",
+      "0020_identidade_search_path",
     ]);
 
     const linhas = await retrato(pool);
@@ -655,6 +667,275 @@ describe("0018 sobre um banco que já tinha passado pela 0015 antiga", () => {
 
     await expect(rodar0018(pool)).rejects.toThrow(/canal vazio/);
     await pool.query("ROLLBACK").catch(() => {});
+    await pool.end();
+  }, 300_000);
+});
+
+/**
+ * O DDL que derrubou o deploy — e de onde ele veio.
+ *
+ * O erro de produção foi `function freightcheck_snapshot_key(text, text, text,
+ * date, jsonb) does not exist`, num `ALTER TABLE ... ADD COLUMN
+ * canonical_snapshot_key ... GENERATED ALWAYS AS (...)`. O comando não estava
+ * no repositório: a `0015` escreve os identificadores entre aspas, numa linha
+ * só, dentro de um `DO $$`, e *depois* de criar as funções. A forma do erro —
+ * sem aspas, em caixa baixa — é a que `pg_get_expr()` devolve ao ler a
+ * expressão de um banco vivo, que é como uma ferramenta de diff a obtém.
+ *
+ * O que se prova aqui: aquele DDL, sozinho, falha exatamente com o erro do
+ * deploy; e a fila versionada atravessa o mesmo banco sem tropeçar nele.
+ */
+describe("o DDL do deploy, e a fila que não precisa dele", () => {
+  /** O comando como a introspecção o produz — o que foi parar em produção. */
+  const DDL_INTROSPECTADO = `ALTER TABLE "snapshot"
+     ADD COLUMN "canonical_snapshot_key" text
+     GENERATED ALWAYS AS (
+       freightcheck_snapshot_key(
+         source_system, dataset_family, canal, effective_date, canonical_scope)
+     ) STORED`;
+
+  it("é a introspecção de um banco vivo, e não o texto desta migration", async () => {
+    const { url, pool } = await bancoNovo();
+    await runMigrations(url);
+
+    // O banco devolve a expressão sem aspas e em caixa baixa: é a forma do
+    // erro do deploy, e é o que qualquer ferramenta de diff copia.
+    const { rows } = await pool.query<{ expressao: string }>(
+      `SELECT pg_get_expr(d.adbin, d.adrelid) AS expressao
+         FROM pg_attribute a
+         JOIN pg_class c ON c.oid = a.attrelid
+         JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum
+        WHERE c.relname = 'snapshot' AND a.attname = 'canonical_snapshot_key'`,
+    );
+    expect(rows[0]!.expressao).toBe(
+      "freightcheck_snapshot_key(source_system, dataset_family, canal, effective_date, canonical_scope)",
+    );
+
+    // E o repositório escreve a mesma coluna de outro jeito — com aspas, numa
+    // linha só — o que é o que permite dizer que o DDL do deploy não saiu
+    // daqui. (A forma sem aspas também aparece na `0015`, mas como o valor
+    // *esperado* de uma conferência, nunca como DDL.)
+    const m = readMigrations().find((x) => x.tag === "0015_canonical_identity")!;
+    const criacao = m.statements
+      .flatMap((s) => s.split("\n"))
+      .filter((linha) => linha.includes("GENERATED ALWAYS"));
+    expect(criacao).toHaveLength(1);
+    expect(criacao[0]).toContain(`freightcheck_snapshot_key("source_system"`);
+    expect(criacao[0]).not.toContain("(source_system,");
+    await pool.end();
+  }, 300_000);
+
+  it("aplicado num banco parado na 0014, reproduz o erro do deploy", async () => {
+    const { pool } = await bancoNovo();
+    await aplicarAte(pool, "0014_chamados_formato_real");
+    await gravarHistorico(pool, [
+      { rotulo: "EMPURRADA_1_8_2026", data: "2026-08-01", unidade: "12345678000199" },
+    ]);
+
+    // As três colunas que o diff acrescenta antes da coluna gerada. Nenhuma
+    // função vem junto: o modelo de snapshot do drizzle não representa função.
+    for (const [coluna, tipo] of [
+      ["dataset_family", "text"],
+      ["canal", "text"],
+      ["canonical_scope", "jsonb"],
+    ]) {
+      await pool.query(`ALTER TABLE "snapshot" ADD COLUMN "${coluna}" ${tipo}`);
+    }
+
+    await expect(pool.query(DDL_INTROSPECTADO)).rejects.toThrow(
+      /function freightcheck_snapshot_key\(text, text, text, date, jsonb\) does not exist/,
+    );
+    await pool.end();
+  }, 300_000);
+
+  it("a fila versionada atravessa o mesmo banco e preserva as vigências", async () => {
+    const { url, pool } = await bancoNovo();
+    await aplicarAte(pool, "0014_chamados_formato_real");
+    const ids = await gravarHistorico(pool, [
+      { rotulo: "EMPURRADA_1_8_2026", data: "2026-08-01", unidade: "12345678000199" },
+      { rotulo: "ROTA_1_8_2026", data: "2026-08-01", unidade: "98765432000111" },
+    ]);
+
+    const relatorio = await runMigrations(url);
+    expect(relatorio.failure).toBeUndefined();
+    expect(relatorio.applied).toContain("0015_canonical_identity");
+    expect(relatorio.applied).toContain("0020_identidade_search_path");
+
+    // As duas vigências continuam lá, com os mesmos ids e os mesmos fatos.
+    const linhas = await retrato(pool);
+    expect(linhas).toHaveLength(2);
+    expect(linhas.map((l) => Number(l.fatos))).toEqual([1, 1]);
+    const { rows: sobreviventes } = await pool.query<{ id: string }>(
+      `SELECT "id" FROM "snapshot" ORDER BY "source_label"`,
+    );
+    expect(sobreviventes.map((s) => s.id).sort()).toEqual([...ids].sort());
+    await pool.end();
+  }, 300_000);
+
+  it("a fila se recupera do diff que morreu no meio do caminho", async () => {
+    // O estado em que o deploy deixou o banco: as três colunas entraram, a
+    // coluna gerada não, e o registro de migrations continua na 0014.
+    const referencia = await bancoNovo();
+    await runMigrations(referencia.url);
+
+    const { url, pool } = await bancoNovo();
+    await aplicarAte(pool, "0014_chamados_formato_real");
+    await gravarHistorico(pool, [
+      { rotulo: "EMPURRADA_1_8_2026", data: "2026-08-01", unidade: "12345678000199" },
+    ]);
+    for (const [coluna, tipo] of [
+      ["dataset_family", "text"],
+      ["canal", "text"],
+      ["canonical_scope", "jsonb"],
+    ]) {
+      await pool.query(`ALTER TABLE "snapshot" ADD COLUMN "${coluna}" ${tipo}`);
+    }
+    await pool.query(DDL_INTROSPECTADO).catch(() => {
+      // Falha esperada — é o que produção viu.
+    });
+
+    const relatorio = await runMigrations(url);
+    expect(relatorio.failure).toBeUndefined();
+
+    // Mesmo schema de um banco que nunca viu o diff, e o dado convertido.
+    expect(await estrutura(pool)).toEqual(await estrutura(referencia.pool));
+    const linhas = await retrato(pool);
+    expect(linhas[0]!.canal).toBe("EMPURRADA");
+    expect(linhas[0]!.canonical_snapshot_key).toMatch(/^[0-9a-f]{64}$/);
+    expect(Number(linhas[0]!.fatos)).toBe(1);
+    await pool.end();
+    await referencia.pool.end();
+  }, 300_000);
+});
+
+/**
+ * A `0020` — a identidade deixa de depender do `search_path` de quem escreve.
+ *
+ * As onze funções da `0015` são `LANGUAGE sql` de corpo textual: os nomes que
+ * elas chamam por dentro são resolvidos na primeira chamada de **cada sessão**,
+ * com o `search_path` de quem chamou. Como `freightcheck_snapshot_key` é a
+ * expressão de uma coluna **gerada**, isso vale para todo `INSERT` em
+ * `snapshot` — e uma conexão com outro `search_path` perdia o caminho de
+ * escrita inteiro.
+ */
+describe("0020 sobre a identidade já gravada", () => {
+  /** Um `INSERT` em `snapshot` de uma sessão com `search_path` zerado. */
+  async function inserirComSearchPathVazio(url: string): Promise<string> {
+    const cliente = new pg.Client({ connectionString: url });
+    await cliente.connect();
+    try {
+      await cliente.query(`SET search_path = ''`);
+      const { rows: arquivo } = await cliente.query<{ id: string }>(
+        `INSERT INTO public."source_file" ("filename", "content_sha256", "byte_size", "storage_path")
+         VALUES ('sem-search-path.xlsx', md5(random()::text), 1, '/tmp/x.xlsx') RETURNING "id"`,
+      );
+      const { rows: run } = await cliente.query<{ id: string }>(
+        `INSERT INTO public."import_run" ("source_file_id", "status")
+         VALUES ($1, 'PROMOTED') RETURNING "id"`,
+        [arquivo[0]!.id],
+      );
+      const { rows } = await cliente.query<{ chave: string }>(
+        `INSERT INTO public."snapshot" (
+           "source_file_id", "import_run_id", "source_label", "effective_date",
+           "scope_hash", "entity_type_set", "dataset_family", "canal", "canonical_scope")
+         VALUES ($1, $2, 'EMPURRADA_1_10_2026', '2026-10-01', md5('x'), 'CARRETA',
+                 'REMUNERACAO_EQUIPAMENTO', 'EMPURRADA',
+                 '[{"scopeType": "UNIDADE", "code": "12345678000199"}]'::jsonb)
+         RETURNING "canonical_snapshot_key" AS chave`,
+        [arquivo[0]!.id, run[0]!.id],
+      );
+      return rows[0]!.chave;
+    } finally {
+      await cliente.end();
+    }
+  }
+
+  /** Só a `0020`, do disco, como `runMigrations` a aplicaria. */
+  async function rodar0020(pool: pg.Pool): Promise<void> {
+    const m = readMigrations().find(
+      (x) => x.tag === "0020_identidade_search_path",
+    )!;
+    await pool.query("BEGIN");
+    try {
+      for (const comando of m.statements) await pool.query(comando);
+      await pool.query("COMMIT");
+    } catch (err) {
+      await pool.query("ROLLBACK");
+      throw err;
+    }
+  }
+
+  it("antes dela a coluna gerada não se calcula com search_path vazio; depois, sim", async () => {
+    const { url, pool } = await bancoNovo();
+    await aplicarAte(pool, "0019_assistant_feedback");
+
+    // O defeito, medido: a função interna some para quem chama de fora do
+    // `public`, e o que quebra é a coluna gerada — não uma consulta qualquer.
+    await expect(inserirComSearchPathVazio(url)).rejects.toThrow(
+      /function freightcheck_norm_canal\(text\) does not exist/,
+    );
+
+    await rodar0020(pool);
+
+    const chave = await inserirComSearchPathVazio(url);
+    expect(chave).toMatch(/^[0-9a-f]{64}$/);
+
+    // E é a mesma chave que uma sessão normal calcularia.
+    const { rows } = await pool.query<{ chave: string }>(
+      `SELECT freightcheck_snapshot_key(
+                'FREIGHTEC', 'REMUNERACAO_EQUIPAMENTO', 'EMPURRADA', '2026-10-01'::date,
+                '[{"scopeType": "UNIDADE", "code": "12345678000199"}]'::jsonb) AS chave`,
+    );
+    expect(chave).toBe(rows[0]!.chave);
+    await pool.end();
+  }, 300_000);
+
+  it("não muda nenhuma identidade já gravada, e pode rodar de novo", async () => {
+    const { url, pool } = await bancoNovo();
+    await aplicarAte(pool, "0014_chamados_formato_real");
+    await gravarHistorico(pool, [
+      { rotulo: "EMPURRADA_1_8_2026", data: "2026-08-01", unidade: "12345678000199" },
+      { rotulo: "EMPURRADA_01_9_2026", data: "2026-09-01", unidade: "12.345.678/0001-99" },
+      { rotulo: "ROTA_1_8_2026", data: "2026-08-01", unidade: "98765432000111" },
+    ]);
+    await aplicarAte(pool, "0019_assistant_feedback");
+
+    const antes = await retrato(pool);
+    const estruturaAntes = await estrutura(pool);
+    expect(antes).toHaveLength(3);
+
+    await rodar0020(pool);
+    expect(await retrato(pool)).toEqual(antes);
+
+    // Rodar de novo é inócuo — é o que um registro perdido faria.
+    await rodar0020(pool);
+    expect(await retrato(pool)).toEqual(antes);
+
+    // A única diferença de schema é o `SET` das funções, que não aparece em
+    // coluna, constraint nem índice.
+    expect(await estrutura(pool)).toEqual(estruturaAntes);
+    const { rows } = await pool.query<{ proname: string; proconfig: string[] }>(
+      `SELECT p.proname, p.proconfig FROM pg_proc p
+         JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public' AND p.proname LIKE 'freightcheck_%'
+          AND p.proname NOT LIKE '%immutable%'
+          AND p.proname NOT IN ('freightcheck_correct_entity_type', 'freightcheck_purge_em_curso')
+        ORDER BY 1`,
+    );
+    expect(rows).toHaveLength(11);
+    for (const f of rows) {
+      expect(f.proconfig).toEqual(["search_path=pg_catalog, public"]);
+    }
+    await pool.end();
+  }, 300_000);
+
+  it("aborta, nomeando o que falta, quando as funções não estão lá", async () => {
+    const { pool } = await bancoNovo();
+    await aplicarAte(pool, "0014_chamados_formato_real");
+
+    await expect(rodar0020(pool)).rejects.toThrow(
+      /Funções da identidade canônica ausentes[\s\S]*freightcheck_snapshot_key/,
+    );
     await pool.end();
   }, 300_000);
 });

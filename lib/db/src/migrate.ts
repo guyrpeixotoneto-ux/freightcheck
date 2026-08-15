@@ -147,6 +147,8 @@ interface ObjetosCriados {
   colunas: { tabela: string; coluna: string }[];
   /** `CREATE TRIGGER x ... ON "tabela"` — o nome vem sem aspas no SQL daqui. */
   gatilhos: { tabela: string; gatilho: string }[];
+  /** Só os nomes: a assinatura não sai do SQL sem um parser de verdade. */
+  funcoes: string[];
 }
 
 function objetosCriadosPor(statements: string[]): ObjetosCriados {
@@ -168,14 +170,33 @@ function objetosCriadosPor(statements: string[]): ObjetosCriados {
         /CREATE\s+TRIGGER\s+"?([A-Za-z0-9_]+)"?[\s\S]*?\sON\s+"?([A-Za-z0-9_]+)"?/gi,
       ),
     ].map((m) => ({ gatilho: m[1], tabela: m[2] })),
+    funcoes: todos(
+      /CREATE\s+(?:OR\s+REPLACE\s+)?FUNCTION\s+(?:"?public"?\.)?"?([A-Za-z0-9_]+)"?\s*\(/gi,
+    ),
   };
 }
 
 /*
- * `CREATE OR REPLACE FUNCTION`, `CREATE OR REPLACE VIEW`, `CREATE TABLE IF NOT
- * EXISTS` e `CREATE EXTENSION IF NOT EXISTS` ficam de fora de propósito: são
- * idempotentes, nunca levantam duplicata, e por isso nunca são o motivo de uma
- * migration falhar aqui. Conferi-los seria trabalho sem consequência.
+ * `CREATE OR REPLACE VIEW`, `CREATE TABLE IF NOT EXISTS` e `CREATE EXTENSION IF
+ * NOT EXISTS` ficam de fora de propósito: são idempotentes, nunca levantam
+ * duplicata, e por isso nunca são o motivo de uma migration *falhar* aqui.
+ *
+ * `CREATE OR REPLACE FUNCTION` era listado junto com eles, e essa era a
+ * pergunta errada. A adoção não pergunta "isto pode falhar por duplicata?", e
+ * sim "há evidência de que esta migration já rodou?" — e para essa, uma função
+ * ausente é a evidência mais forte que existe de que ela **não** rodou. O caso
+ * concreto: a proposta de schema do Publishing copia colunas, índices e a
+ * coluna gerada, e não copia função nenhuma (o modelo de snapshot do drizzle
+ * não as representa). Um banco que atravessou aquele diff tem a estrutura e não
+ * tem as funções que a sustentam; sem esta conferência, a adoção carimbaria a
+ * migration como aplicada e o banco ficaria sem elas para sempre — que é
+ * exatamente o estado em que `freightcheck_snapshot_key ... does not exist`
+ * aparece longe da causa. Ver `0020_identidade_search_path.sql`.
+ *
+ * Só o nome é conferido, e não a assinatura: tirar a assinatura do SQL exigiria
+ * um parser, e o nome já responde à pergunta que a adoção faz. Uma função
+ * homônima com outra assinatura é assunto das conferências de dentro de cada
+ * migration, que sabem qual assinatura esperam.
  */
 
 /**
@@ -200,6 +221,12 @@ function objetosRemovidosPor(statements: string[]): Set<string> {
   capturar(/DROP\s+INDEX\s+(?:IF\s+EXISTS\s+)?"([^"]+)"/gi);
   capturar(/DROP\s+TRIGGER\s+(?:IF\s+EXISTS\s+)?"?([A-Za-z0-9_]+)"?/gi);
   capturar(/DROP\s+TYPE\s+(?:IF\s+EXISTS\s+)?(?:"public"\.)?"([^"]+)"/gi);
+  // Nenhuma migration derruba função hoje. A captura entra junto com a
+  // conferência de funções em `tudoJaExiste`: sem ela, a primeira que
+  // derrubasse uma reprovaria para sempre a adoção da que a criou.
+  capturar(
+    /DROP\s+FUNCTION\s+(?:IF\s+EXISTS\s+)?(?:"?public"?\.)?"?([A-Za-z0-9_]+)"?/gi,
+  );
   for (const m of sql.matchAll(
     /ALTER\s+TABLE\s+"([^"]+)"\s+DROP\s+COLUMN\s+(?:IF\s+EXISTS\s+)?"([^"]+)"/gi,
   )) {
@@ -251,6 +278,11 @@ export function mexeEmDados(statements: string[]): boolean {
  * **Nem tudo o que ela cria precisa existir hoje.** A `0000` cria
  * `snapshot_business_key_uq`; a `0016` derruba esse índice. Exigir o conjunto
  * inteiro reprovaria a `0000` num banco impecável. Por isso `removidosDepois`.
+ *
+ * **Função também conta.** É o que separa um banco que rodou a migration de um
+ * que atravessou uma proposta de diff de schema: o diff copia coluna, índice e
+ * até coluna gerada, e não copia função nenhuma. Ver o comentário acima de
+ * `objetosCriadosPor`.
  */
 async function tudoJaExiste(
   client: pg.PoolClient,
@@ -272,13 +304,15 @@ async function tudoJaExiste(
       (g) =>
         !removidosDepois.has(g.gatilho) && !removidosDepois.has(g.tabela),
     ),
+    funcoes: bruto.funcoes.filter((n) => !removidosDepois.has(n)),
   };
   const total =
     objetos.tabelas.length +
     objetos.tipos.length +
     objetos.indices.length +
     objetos.colunas.length +
-    objetos.gatilhos.length;
+    objetos.gatilhos.length +
+    objetos.funcoes.length;
   if (total === 0) return false;
 
   // `to_regclass`/`to_regtype` devolvem NULL em vez de levantar erro quando o
@@ -307,6 +341,17 @@ async function tudoJaExiste(
             AND c.relname = $2
        ) AS existe`,
       [gatilho, tabela],
+    );
+    if (!rows[0]?.existe) return false;
+  }
+  for (const funcao of objetos.funcoes) {
+    const { rows } = await client.query<{ existe: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'public' AND p.proname = $1
+       ) AS existe`,
+      [funcao],
     );
     if (!rows[0]?.existe) return false;
   }
