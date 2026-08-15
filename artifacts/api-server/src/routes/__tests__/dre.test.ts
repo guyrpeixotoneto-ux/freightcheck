@@ -4,7 +4,7 @@ import express from "express";
 import { captureRaw, preview, promote, receiveFile, stage } from "@workspace/ingest";
 import { createTestDatabase, realExportPath, type TestDb } from "@workspace/ingest/testing";
 import { applyConfirmations, runProposalPass, seedTaxonomy } from "@workspace/curation";
-import { createDb } from "@workspace/db";
+import { createDb, encerrarPoolDoProcesso } from "@workspace/db";
 
 /**
  * As rotas da DRE, sobre o export real.
@@ -90,12 +90,18 @@ afterAll(async () => {
   /*
     As rotas usam o `db` do processo, e não o do `TestDb` — é assim que elas
     rodam em produção, e testá-las de outro jeito testaria outra coisa. O preço
-    é este encerramento: o pool do processo não é alcançável daqui (o `db`
-    exportado é um Proxy sem `end` utilizável), e sem fechá-lo o `DROP DATABASE`
-    esbarra em "is being accessed by other users" com os testes todos verdes.
-    Derrubar as conexões pelo próprio Postgres resolve sem exportar nada novo.
+    é este encerramento: os dois pools têm de devolver as conexões antes do
+    `DROP DATABASE`, ou ele esbarra em "is being accessed by other users" com os
+    testes todos verdes.
+
+    O do processo se encerra por `encerrarPoolDoProcesso()`. Derrubá-lo pelo
+    Postgres em vez de fechá-lo — que era o que estava aqui — deixa o `pg`
+    emitir `57P01` em cada conexão que ainda estava aberta: no CI foram quatro
+    exceções não tratadas, com os 108 testes verdes e a suíte falhando no
+    desligamento.
   */
   await ctx?.pool.end().catch(() => {});
+  await encerrarPoolDoProcesso().catch(() => {});
 
   const admin = createDb(
     process.env.TEST_ADMIN_DATABASE_URL ??
