@@ -86,7 +86,10 @@ describe("metadata do drizzle", () => {
       .sort();
     expect(noDisco).toEqual(noJournal);
     // O defeito que isto prende: o journal ia até 0017 e o disco parava em 0011.
-    expect(noDisco.at(-1)).toBe("0017");
+    expect(noDisco.at(-1)).toBe(
+      String(journal.entries.at(-1)!.idx).padStart(4, "0"),
+    );
+    expect(Number(noDisco.at(-1))).toBeGreaterThanOrEqual(17);
   });
 
   it("encadeia os snapshots por prevId, sem buraco", () => {

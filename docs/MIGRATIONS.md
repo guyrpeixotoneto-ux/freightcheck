@@ -100,6 +100,19 @@ trataria como ausentes. É mais um motivo para ele estar desligado.
 4. rode os testes de migration (`pnpm --filter @workspace/db test`);
 5. commite SQL e snapshot juntos. Um sem o outro é o começo da divergência.
 
+## As constraints da identidade, e a `0018`
+
+A validação explícita do backfill e as quatro constraints que fecham identidade
+vazia (`snapshot_canal_nao_vazio_ck`, `snapshot_dataset_family_nao_vazio_ck`,
+`snapshot_canonical_scope_ck`, `snapshot_canonical_scope_nao_vazio_ck`) entraram
+na `0015`. Um banco que ainda não a aplicou — produção — recebe tudo por lá.
+
+Um banco que já a aplicou, não: o registro é por carimbo, e migration aplicada
+não roda de novo. A `0018` existe só para esse caso, e é escrita para os dois:
+onde as constraints já estão, ela confere e não faz nada; onde faltam, ela
+valida o dado e as cria. É a diferença entre corrigir uma migration e deixar
+desenvolvimento e produção com schemas diferentes.
+
 Migration já aplicada não se reescreve por conveniência — o registro em
 `drizzle.__drizzle_migrations` é por carimbo (`when`), então um arquivo editado
 não roda de novo em quem já o aplicou, e os dois ambientes passam a ter

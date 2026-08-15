@@ -207,6 +207,7 @@ describe("0015 sobre um banco parado na 0014", () => {
       "0015_canonical_identity",
       "0016_canonical_identity_enforcement",
       "0017_fato_herdado",
+      "0018_identidade_forte",
     ]);
 
     const linhas = await retrato(pool);
@@ -511,6 +512,88 @@ describe("reentrância", () => {
         WHERE c.relname = 'snapshot' AND t.tgname = 'snapshot_immutable'`,
     );
     expect(rows[0]!.habilitado).toBe("O");
+    await pool.end();
+  }, 300_000);
+});
+
+describe("0018 sobre um banco que já tinha passado pela 0015 antiga", () => {
+  /** As quatro constraints, como um banco pré-`0018` não as tinha. */
+  async function tirarAsConstraints(pool: pg.Pool): Promise<void> {
+    for (const nome of [
+      "snapshot_canonical_scope_ck",
+      "snapshot_canal_nao_vazio_ck",
+      "snapshot_dataset_family_nao_vazio_ck",
+      "snapshot_canonical_scope_nao_vazio_ck",
+    ]) {
+      await pool.query(`ALTER TABLE "snapshot" DROP CONSTRAINT IF EXISTS "${nome}"`);
+    }
+  }
+
+  async function rodar0018(pool: pg.Pool): Promise<void> {
+    const m = readMigrations().find((x) => x.tag === "0018_identidade_forte")!;
+    await pool.query("BEGIN");
+    for (const comando of m.statements) await pool.query(comando);
+    await pool.query("COMMIT");
+  }
+
+  const nomes = async (pool: pg.Pool) => {
+    const { rows } = await pool.query<{ conname: string }>(
+      `SELECT c.conname FROM pg_constraint c
+         JOIN pg_class t ON t.oid = c.conrelid
+        WHERE t.relname = 'snapshot' AND c.contype = 'c' ORDER BY 1`,
+    );
+    return rows.map((r) => r.conname);
+  };
+
+  it("completa as constraints que faltavam, sem tocar em dado", async () => {
+    const { url, pool } = await bancoNovo();
+    await aplicarAte(pool, "0014_chamados_formato_real");
+    await gravarHistorico(pool, [
+      { rotulo: "EMPURRADA_1_8_2026", data: "2026-08-01", unidade: "12345678000199" },
+    ]);
+    expect((await runMigrations(url)).failure).toBeUndefined();
+
+    const antes = await retrato(pool);
+    await tirarAsConstraints(pool);
+    expect(await nomes(pool)).toEqual([]);
+
+    await rodar0018(pool);
+    expect(await nomes(pool)).toEqual([
+      "snapshot_canal_nao_vazio_ck",
+      "snapshot_canonical_scope_ck",
+      "snapshot_canonical_scope_nao_vazio_ck",
+      "snapshot_dataset_family_nao_vazio_ck",
+    ]);
+    expect(await retrato(pool)).toEqual(antes);
+    await pool.end();
+  }, 300_000);
+
+  it("não faz nada quando elas já estão lá, e pode rodar de novo", async () => {
+    const { url, pool } = await bancoNovo();
+    await runMigrations(url);
+    const antes = await nomes(pool);
+    await rodar0018(pool);
+    await rodar0018(pool);
+    expect(await nomes(pool)).toEqual(antes);
+    await pool.end();
+  }, 300_000);
+
+  it("aborta, nomeando a vigência, quando o dado já não sustenta a identidade", async () => {
+    const { url, pool } = await bancoNovo();
+    await aplicarAte(pool, "0014_chamados_formato_real");
+    await gravarHistorico(pool, [
+      { rotulo: "EMPURRADA_1_8_2026", data: "2026-08-01", unidade: "12345678000199" },
+    ]);
+    await runMigrations(url);
+
+    // Um banco pré-`0018`, em que alguém esvaziou o canal por fora.
+    await tirarAsConstraints(pool);
+    await pool.query(`ALTER TABLE "snapshot" DISABLE TRIGGER "snapshot_immutable"`);
+    await pool.query(`UPDATE "snapshot" SET "canal" = ''`);
+    await pool.query(`ALTER TABLE "snapshot" ENABLE TRIGGER "snapshot_immutable"`);
+
+    await expect(rodar0018(pool)).rejects.toThrow(/canal vazio/);
+    await pool.query("ROLLBACK").catch(() => {});
     await pool.end();
   }, 300_000);
 });
