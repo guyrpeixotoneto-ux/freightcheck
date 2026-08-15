@@ -146,13 +146,27 @@ async function diffDoPublishing(dev: pg.Pool, prod: pg.Pool) {
   const CON = `SELECT conname AS k, contype::text||' '||pg_get_constraintdef(oid) AS v
                  FROM pg_constraint WHERE connamespace='public'::regnamespace`;
 
+  // Views, funções e colunas geradas entram na conta de propósito: são
+  // exatamente o que um diff de schema não modela, e portanto o que passaria
+  // despercebido numa comparação que só olhasse tabela e coluna.
+  const VW = `SELECT viewname AS k, md5(definition) AS v FROM pg_views WHERE schemaname='public'`;
+  const FN = `SELECT p.oid::regprocedure::text AS k, 'fn' AS v FROM pg_proc p
+               WHERE p.pronamespace='public'::regnamespace AND p.proname LIKE 'freightcheck%'`;
+  const GEN = `SELECT k.relname||'.'||a.attname AS k, a.attgenerated::text AS v
+                 FROM pg_attribute a JOIN pg_class k ON k.oid=a.attrelid
+                  AND k.relnamespace='public'::regnamespace
+                WHERE a.attgenerated <> '' AND NOT a.attisdropped`;
+
   const saida = { addTable: [] as string[], addColumn: [] as string[],
                   addIndex: [] as string[], addConstraint: [] as string[],
+                  addView: [] as string[], addFunction: [] as string[],
+                  addGenerated: [] as string[],
                   drop: [] as string[], alter: [] as string[] };
 
   for (const [sql, destinoAdd] of [
     [TBL, saida.addTable], [COLS, saida.addColumn],
     [IDX, saida.addIndex], [CON, saida.addConstraint],
+    [VW, saida.addView], [FN, saida.addFunction], [GEN, saida.addGenerated],
   ] as const) {
     const d = await ler(dev, sql);
     const p = await ler(prod, sql);
@@ -193,11 +207,21 @@ describe("o contrato com o Publishing", () => {
     const rel = await bridgeDown(dev.url);
     expect(rel.falha).toBeUndefined();
 
+    /*
+      O critério completo, e não só o de tabela e coluna: **nada** sobra em
+      nenhuma categoria, exceto as seis colunas da allowlist. Views, funções e
+      colunas geradas contam aqui porque são o que um diff de schema não modela
+      — e, no caso das funções, a prova disso é o próprio erro que derrubou o
+      deploy: ele chamou `freightcheck_snapshot_key` sem tê-la criado.
+    */
     const depois = await diffDoPublishing(dev.pool, prod.pool);
     expect(depois.drop).toEqual([]);
     expect(depois.addTable).toEqual([]);
     expect(depois.addIndex).toEqual([]);
     expect(depois.addConstraint).toEqual([]);
+    expect(depois.addView).toEqual([]);
+    expect(depois.addFunction).toEqual([]);
+    expect(depois.addGenerated).toEqual([]);
     expect(depois.alter).toEqual([]);
     expect(depois.addColumn.sort()).toEqual(
       ALLOWLIST.map((a) => `${a.tabela}.${a.coluna}`).sort(),

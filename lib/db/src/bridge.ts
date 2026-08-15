@@ -126,9 +126,48 @@ const INDICES_REMOVIDOS = [
   "ticket_vigencia_idx",
 ];
 
+/**
+ * As três views da `0015`. Duas dependem da coluna gerada; a terceira não —
+ * `freightcheck_fato_duplicado` olha só para `fact`.
+ *
+ * Ela sai mesmo assim, e o motivo é o critério, não a dependência: **não há
+ * como provar que o Publishing ignora views.** Para funções há prova direta —
+ * o deploy morreu chamando `freightcheck_snapshot_key`, o que significa que o
+ * diff dele trazia a coluna gerada e não trazia a função. Para views não existe
+ * evidência equivalente, e uma view que ele tentasse criar em Production
+ * referenciaria colunas que só a fila cria. Na dúvida, o bridge remove.
+ */
 const VIEWS_REMOVIDAS = [
   "freightcheck_snapshot_ativo_duplicado",
   "freightcheck_identidade_vigencia",
+  "freightcheck_fato_duplicado",
+];
+
+/**
+ * As onze funções da identidade canônica, criadas pela `0015`.
+ *
+ * Production tem seis funções `freightcheck_*` — as da `0001` e da `0009` —, e
+ * não tem nenhuma destas. Elas saem para que o estado pós-`down` seja
+ * comparável a Production em **todas** as categorias, e não só nas que se
+ * consegue argumentar. Depois da coluna gerada e das views, nada mais depende
+ * delas: são posteriores a `freightcheck_correct_entity_type` e aos gatilhos de
+ * imutabilidade, que portanto não as chamam.
+ *
+ * O `up` as recria antes de qualquer coisa que as use, levantando as definições
+ * da própria `0015` — `CREATE OR REPLACE FUNCTION`, idempotente e sem dado.
+ */
+const FUNCOES_REMOVIDAS = [
+  "freightcheck_sem_acento",
+  "freightcheck_norm_documento",
+  "freightcheck_norm_identificador",
+  "freightcheck_norm_scope_code",
+  "freightcheck_norm_canal",
+  "freightcheck_canal_do_rotulo",
+  "freightcheck_dataset_family",
+  "freightcheck_canonical_scope",
+  "freightcheck_serialize_scope",
+  "freightcheck_iso_date",
+  "freightcheck_snapshot_key",
 ];
 
 const CHECKS_REMOVIDOS: [string, string][] = [
@@ -372,17 +411,32 @@ export async function bridgeDown(
       );
     }
 
-    // As funções da identidade precisam continuar de pé: o `up` recria a coluna
-    // gerada, e sem elas a restauração seria impossível.
-    const { rows: fn } = await c.query<{ n: string }>(
-      `SELECT count(*) AS n FROM pg_proc
-        WHERE pronamespace='public'::regnamespace AND proname='freightcheck_snapshot_key'`,
-    );
-    exigir(
-      "freightcheck_snapshot_key existe",
-      Number(fn[0]!.n) === 1,
-      "sem ela o bridge-up não recria a coluna gerada",
-    );
+    /*
+      Não se derruba o que não se sabe levantar. Construir o plano do `up` aqui
+      — antes do primeiro DDL — prova que cada objeto removido tem, no
+      repositório, a definição exata que o restaura, e que nenhuma delas mexe em
+      dados. Se uma migration for editada de um jeito que quebre esse
+      levantamento, o `down` para aqui em vez de deixar Development pela metade.
+
+      Também é o que substitui a antiga exigência de "a função tal existe no
+      banco": agora que o `down` remove as funções da identidade, exigir a
+      presença delas quebraria a repetibilidade dele.
+    */
+    let objetosDoUp = 0;
+    try {
+      objetosDoUp = planoUp().length;
+    } catch (err) {
+      throw new BridgeAbortou(
+        `o plano de restauração não pôde ser construído: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+    }
+    rel.precondicoes.push({
+      nome: "plano de restauração construível",
+      ok: true,
+      detalhe: `${objetosDoUp} objetos, nenhum statement mexe em dados`,
+    });
 
     // -----------------------------------------------------------------------
     // 2. Dependências — nada de CASCADE
@@ -431,6 +485,16 @@ export async function bridgeDown(
     }
     for (const t of TABELAS_REMOVIDAS) {
       if (await existeTabela(c, t)) await exec(`DROP TABLE "${t}" RESTRICT`);
+    }
+    // Depois da coluna gerada e das views, nada mais depende delas. `RESTRICT`
+    // continua sendo quem decide: se algo depender, o bridge cai aqui.
+    for (const f of FUNCOES_REMOVIDAS) {
+      const { rows } = await c.query<{ assinatura: string }>(
+        `SELECT p.oid::regprocedure::text AS assinatura FROM pg_proc p
+          WHERE p.pronamespace='public'::regnamespace AND p.proname=$1`,
+        [f],
+      );
+      for (const r of rows) await exec(`DROP FUNCTION ${r.assinatura} RESTRICT`);
     }
     for (const col of COLUNAS_LEGADAS_TICKET) {
       await exec(
@@ -494,6 +558,24 @@ export async function bridgeDown(
       "nenhuma coluna gerada no schema",
       Number(gerada[0]!.n) === 0,
       `${gerada[0]!.n} coluna(s) gerada(s) — o Publishing tentaria recriá-la`,
+    );
+    const { rows: views } = await c.query<{ nome: string }>(
+      `SELECT viewname AS nome FROM pg_views WHERE schemaname='public'`,
+    );
+    conferir(
+      "nenhuma view do schema canônico",
+      views.length === 0,
+      `sobrou: ${views.map((v) => v.nome).join(", ")}`,
+    );
+    const { rows: fns } = await c.query<{ nome: string }>(
+      `SELECT proname AS nome FROM pg_proc
+        WHERE pronamespace='public'::regnamespace AND proname = ANY($1)`,
+      [FUNCOES_REMOVIDAS],
+    );
+    conferir(
+      "nenhuma função da identidade",
+      fns.length === 0,
+      `sobrou: ${fns.map((f) => f.nome).join(", ")}`,
     );
 
     if (dryRun) await c.query("ROLLBACK");
@@ -590,7 +672,11 @@ function planoUp(): { objeto: string; sql: string }[] {
     add(`índice ${i}`, levantar("0016_canonical_identity_enforcement", new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
   }
 
-  // 4. A identidade canônica: coluna gerada, índices e views.
+  // 4. A identidade canônica. As funções vêm primeiro: a coluna gerada e as
+  //    views as chamam, e `CREATE OR REPLACE FUNCTION` é idempotente.
+  for (const f of FUNCOES_REMOVIDAS) {
+    add(`função ${f}`, levantar("0015_canonical_identity", new RegExp(`CREATE OR REPLACE FUNCTION ${f}\\(`)));
+  }
   add("snapshot.canonical_snapshot_key", levantar("0015_canonical_identity", /ADD COLUMN "canonical_snapshot_key" text/));
   add("índice snapshot_canonical_key_idx", levantar("0015_canonical_identity", /snapshot_canonical_key_idx/));
   add("índices únicos da identidade", levantar("0016_canonical_identity_enforcement", /snapshot_canonical_live_uq/));
