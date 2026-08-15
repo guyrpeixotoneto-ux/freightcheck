@@ -1,5 +1,10 @@
 import { ApiError } from "@/lib/api";
 import { ehDiagnostico, type Diagnostico } from "@/lib/diagnostico";
+import {
+  ErroDeTransporte,
+  diagnosticarTransporte,
+  type DiagnosticoDeTransporte,
+} from "@/lib/transporte";
 
 /**
  * O que a tela mostra quando uma chamada falha — decidido antes de desenhar.
@@ -13,74 +18,79 @@ import { ehDiagnostico, type Diagnostico } from "@/lib/diagnostico";
  *
  * Deixar os textos coerentes resolveria aquele caso e nenhum futuro: bastaria
  * alguém escrever a terceira frase. O que fecha a porta é o tipo abaixo, onde
- * **duas recomendações não são representáveis** — há um campo para o
- * diagnóstico, e a mensagem crua só existe quando ele não existe.
+ * **duas orientações não são representáveis** — há um campo para ela, e a
+ * mensagem crua só existe quando ele está vazio.
  *
- * Pura de propósito, e em `lib/` e não no componente, porque é isto que precisa
- * de teste: o que a tela decide mostrar, não como ela desenha.
+ * **Dois eixos, uma orientação.** As falhas vêm de camadas independentes: o
+ * banco (migrations, registro, schema) e o transporte (a requisição chegou? o
+ * que respondeu era nosso?). Cada um tem a sua autoridade — `diagnosticar` no
+ * servidor, `diagnosticarTransporte` aqui — e as duas devolvem a mesma forma.
+ * A escolha entre elas é feita neste arquivo, uma vez, e nunca resulta em duas.
  */
+/**
+ * A orientação escolhida, sem perder de qual eixo ela veio.
+ *
+ * Quem desenha só precisa de `Orientacao` — e é por isso que o componente
+ * recebe essa forma, e não esta. Mas quem inspeciona (um teste, uma tela que
+ * queira tratar `SEM_RESPOSTA` de modo próprio) precisa poder perguntar. União
+ * discriminada por `estado`: os dois conjuntos de estados são disjuntos.
+ */
+export type OrientacaoApresentada = Diagnostico | DiagnosticoDeTransporte;
+
 export interface Apresentacao {
-  /**
-   * A requisição não completou — não há resposta nenhuma para diagnosticar.
-   * Quando presente, é o texto da explicação; caso contrário, `null`.
-   */
-  falhaDeRede: string | null;
   /**
    * O que a rota sabe e o diagnóstico não: qual schema falta, e o que houve com
    * o arquivo enviado. **Nunca recomenda nada** — é por isso que pode aparecer
-   * ao lado do diagnóstico sem voltar a ser uma segunda opinião.
+   * ao lado da orientação sem voltar a ser uma segunda opinião.
    */
   contexto: string | null;
-  /** A recomendação. Quando existe, é a única que a tela apresenta. */
-  diagnostico: Diagnostico | null;
+  /** A orientação. Quando existe, é a única que a tela apresenta. */
+  orientacao: OrientacaoApresentada | null;
   /**
    * A mensagem do servidor, crua.
    *
-   * Só é preenchida quando **não** há diagnóstico — erro não tipado, um bundle
+   * Só é preenchida quando **não** há orientação — erro não tipado, um bundle
    * antigo ainda no ar, uma rota que não passa por `responderSchemaAusente`. Aí
    * ela é a única coisa que se tem, e não uma opinião concorrente.
    */
   mensagemCrua: string | null;
-  /** O link para o `/healthz`, que só ajuda quando não se diagnosticou nada. */
+  /** O link para o `/healthz`, que só ajuda quando não se orientou nada. */
   mostrarLinkHealthz: boolean;
 }
 
-export const FALHA_DE_REDE =
-  "A requisição não completou: esta tela não chegou a receber resposta " +
-  "nenhuma do servidor, nem de erro. Abra /api/healthz para saber qual dos " +
-  'dois casos é. Sem resposta, o processo "API Server" não está de pé. Com ' +
-  "resposta, ele está — e o que caiu foi só esta chamada, no meio do " +
-  "caminho; o registro do processo diz o que aconteceu na hora.";
-
 /**
- * A falha que acontece antes de existir resposta.
+ * A orientação que vale para este erro, do mais próximo ao mais distante.
  *
- * `fetch` rejeita com `TypeError` quando a requisição não completa — conexão
- * recusada, DNS, o proxy do Vite sem servidor atrás. O navegador escreve isso
- * como "Failed to fetch" (ou "Load failed", no Safari), palavras que não dizem
- * a quem lê sequer de que lado o defeito está.
+ * A ordem é a da proximidade, e cada degrau exclui o de baixo por um motivo:
  *
- * Nenhum erro nosso é `TypeError`: `ApiError` e o que `readJson` levanta são
- * `Error`, então a checagem não captura falha de servidor por engano.
+ * 1. **Transporte.** Se a requisição não chegou, ou quem respondeu não era a
+ *    nossa API, o estado do banco não explica nada — e perguntá-lo daria uma
+ *    resposta sobre outra coisa. É o degrau que fecha o buraco que sobrava:
+ *    antes, um roteador sem ninguém atrás podia ser apresentado com a
+ *    recomendação de rodar `migrate`.
+ * 2. **O diagnóstico que veio no próprio erro**, que descreve o banco no
+ *    instante em que a chamada falhou.
+ * 3. **O `/healthz`**, que é uma segunda pergunta, feita depois.
  */
-function ehFalhaDeRede(error: unknown): boolean {
-  return error instanceof TypeError;
-}
-
-/** O diagnóstico que vale para este erro, do mais próximo ao mais distante. */
-function escolherDiagnostico(
+function escolherOrientacao(
   error: unknown,
   saude: { diagnostico?: Diagnostico } | undefined,
-): Diagnostico | null {
+): OrientacaoApresentada | null {
+  if (error instanceof ErroDeTransporte) return error.diagnostico;
+
   /*
-    O que veio no próprio erro descreve o banco no instante em que a chamada
-    falhou. O do `/healthz` é uma segunda pergunta, feita depois. Quando os dois
-    existem vêm da mesma função e dos mesmos fatos — mas o primeiro é o do
-    momento certo.
+    `fetch` rejeita com `TypeError` quando a requisição não completa. Nenhum
+    erro nosso é `TypeError` — `ApiError` e `ErroDeTransporte` são `Error` —,
+    então a checagem não captura falha de servidor por engano.
   */
+  if (error instanceof TypeError) {
+    return diagnosticarTransporte({ naoCompletou: true });
+  }
+
   if (error instanceof ApiError && ehDiagnostico(error.diagnostico)) {
     return error.diagnostico;
   }
+
   if (saude && ehDiagnostico(saude.diagnostico)) {
     /*
       Um banco saudável não explica o erro que trouxe alguém até aqui: a causa
@@ -90,6 +100,7 @@ function escolherDiagnostico(
     */
     return saude.diagnostico.estado === "SAUDAVEL" ? null : saude.diagnostico;
   }
+
   return null;
 }
 
@@ -97,28 +108,17 @@ export function apresentar(
   error: unknown,
   saude?: { diagnostico?: Diagnostico },
 ): Apresentacao {
-  if (ehFalhaDeRede(error)) {
-    return {
-      falhaDeRede: FALHA_DE_REDE,
-      contexto: null,
-      diagnostico: null,
-      mensagemCrua: null,
-      mostrarLinkHealthz: false,
-    };
-  }
-
-  const diagnostico = escolherDiagnostico(error, saude);
+  const orientacao = escolherOrientacao(error, saude);
   const contexto =
     error instanceof ApiError && error.contexto ? error.contexto : null;
   const mensagem = error instanceof Error ? error.message : String(error);
 
   return {
-    falhaDeRede: null,
-    // Sem diagnóstico o contexto viria sozinho e sem remédio — a mensagem crua
+    // Sem orientação o contexto viria sozinho e sem remédio — a mensagem crua
     // já o contém por inteiro, e repetir metade dela não ajuda ninguém.
-    contexto: diagnostico ? contexto : null,
-    diagnostico,
-    mensagemCrua: diagnostico ? null : mensagem,
-    mostrarLinkHealthz: diagnostico === null,
+    contexto: orientacao ? contexto : null,
+    orientacao,
+    mensagemCrua: orientacao ? null : mensagem,
+    mostrarLinkHealthz: orientacao === null,
   };
 }

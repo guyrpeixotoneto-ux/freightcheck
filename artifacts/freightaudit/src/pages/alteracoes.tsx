@@ -15,7 +15,7 @@ import { ApiErrorNotice } from "@/components/api-error";
 import { Layout } from "@/components/layout/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { ApiError, fetchJson, getApiUrl, readJson } from "@/lib/api";
+import { erroDaResposta, fetchJson, getApiUrl, readJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
   ChangeTable,
@@ -532,17 +532,14 @@ function AbaChamados() {
         }),
       });
       const body = await readJson(response);
-      if (!response.ok) {
-        // `ApiError` e não `Error`: o status e o `code` são o que permite à
-        // tela dizer "faltam migrations" em vez de repetir a frase do servidor.
-        throw new ApiError(
-          typeof body.error === "string"
-            ? `${file.name}: ${body.error}`
-            : `${file.name}: o servidor respondeu ${response.status}.`,
-          response.status,
-          typeof body.code === "string" ? body.code : undefined,
-        );
-      }
+      /*
+        `erroDaResposta` e não um `ApiError` montado aqui: esta linha construía
+        o erro com status e `code` e deixava `contexto` e `diagnostico` para
+        trás. Era justamente neste caminho — o do upload de chamados — que o
+        diagnóstico estruturado se perdia, e a tela voltava a mostrar o texto
+        cru da rota ao lado do aviso do `/healthz`, dizendo coisas diferentes.
+      */
+      if (!response.ok) throw erroDaResposta(response, body, file.name);
       return body.ticketImportId as string;
     },
     onSuccess: () => {
