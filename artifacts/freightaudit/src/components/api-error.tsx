@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import { fetchJson } from "@/lib/api";
 import { apresentar } from "@/lib/apresentar-erro";
-import type { Diagnostico } from "@/lib/diagnostico";
+import type { Diagnostico, Orientacao } from "@/lib/diagnostico";
 
 /**
  * Uma chamada de API que falhou, dita de um jeito que aponta para a causa.
@@ -27,13 +27,13 @@ interface DatabaseHealth {
   detail: string;
 }
 
-/** O único lugar do repositório que desenha uma recomendação. */
-function Recomendacao({ diagnostico }: { diagnostico: Diagnostico }) {
-  const { acao } = diagnostico;
+/** O único lugar do repositório que desenha uma orientação. */
+function BlocoDeOrientacao({ orientacao }: { orientacao: Orientacao }) {
+  const { acao } = orientacao;
   return (
     <div className="space-y-2 text-sm">
-      <p>{diagnostico.resumo}</p>
-      <p>{diagnostico.risco.texto}</p>
+      <p>{orientacao.resumo}</p>
+      <p>{orientacao.risco.texto}</p>
       {acao === null ? (
         <p className="font-medium">Nenhuma ação é necessária.</p>
       ) : (
@@ -54,8 +54,8 @@ function Recomendacao({ diagnostico }: { diagnostico: Diagnostico }) {
           )}
         </div>
       )}
-      {diagnostico.evidencia && (
-        <p className="text-xs opacity-80">{diagnostico.evidencia}</p>
+      {orientacao.evidencia && (
+        <p className="text-xs opacity-80">{orientacao.evidencia}</p>
       )}
     </div>
   );
@@ -86,9 +86,8 @@ export function ApiErrorNotice({
         {what}
       </div>
 
-      {vista.falhaDeRede && <p className="text-sm">{vista.falhaDeRede}</p>}
       {vista.contexto && <p className="text-sm">{vista.contexto}</p>}
-      {vista.diagnostico && <Recomendacao diagnostico={vista.diagnostico} />}
+      {vista.orientacao && <BlocoDeOrientacao orientacao={vista.orientacao} />}
       {vista.mensagemCrua && (
         <p className="text-xs font-mono break-words opacity-80">
           {vista.mensagemCrua}

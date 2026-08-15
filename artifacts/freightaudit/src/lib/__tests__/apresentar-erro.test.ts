@@ -1,35 +1,50 @@
 /**
- * O transporte inteiro: o corpo que a rota responde, o `ApiError` que ele vira,
- * e o que a tela decide mostrar.
+ * O que a tela decide mostrar, nos dois eixos e no encontro deles.
  *
- * Os cinco estados são decididos no servidor e testados lá, na função pura. O
- * que se fixa aqui é a outra metade do defeito: **a tela não pode apresentar
- * duas recomendações para o mesmo erro.** Foi assim que um ambiente ficou
- * travado — o parágrafo de cima mandava adotar, o de baixo mandava reiniciar, e
- * quem lia seguia o de baixo.
+ * A classificação do banco é do servidor e é testada lá; a do transporte é
+ * daqui e tem arquivo próprio. O que se fixa **neste** é a arbitragem: qual
+ * orientação vence, e a invariante que impede a tela de mostrar duas.
  *
- * Os corpos abaixo são cópias literais do que `responderSchemaAusente` e o
- * `/api/healthz` respondem, para que o teste falhe se a forma mudar de um lado
- * só.
+ * Foi assim que um ambiente ficou travado — o parágrafo de cima mandava adotar,
+ * o de baixo mandava reiniciar, e quem lia seguia o de baixo. Os corpos abaixo
+ * são cópias do que `responderSchemaAusente` e o `/api/healthz` respondem, para
+ * que o teste falhe se a forma mudar de um lado só.
  */
 import { describe, expect, it } from "vitest";
 import { ApiError } from "@/lib/api";
 import { apresentar } from "@/lib/apresentar-erro";
 import { ehDiagnostico, type Diagnostico } from "@/lib/diagnostico";
+import { ErroDeTransporte, diagnosticarTransporte } from "@/lib/transporte";
 
 const REGISTRO_PERDIDO: Diagnostico = {
   estado: "REGISTRO_PERDIDO",
   resumo:
     "Este banco tem o schema e não tem o registro dele. (…) Rodar as " +
     "migrations de novo falha igual.",
-  risco: { emRisco: false, texto: "Nada se perdeu, e o que está gravado está íntegro." },
+  risco: {
+    emRisco: false,
+    texto: "Nada se perdeu, e o que está gravado está íntegro.",
+  },
   acao: {
     codigo: "ADOTAR_MIGRATIONS",
     texto: "Declarar o que o banco já tem. Reiniciar o servidor não resolve.",
     comando: "pnpm --filter @workspace/db run migrate:adotar",
     quem: "operador",
   },
-  evidencia: "A tentativa parou em 0000_freightcheck_foundation (SQLSTATE 42710).",
+  evidencia:
+    "A tentativa parou em 0000_freightcheck_foundation (SQLSTATE 42710).",
+};
+
+const PENDENTES: Diagnostico = {
+  estado: "MIGRATIONS_PENDENTES",
+  resumo: "Conectado, mas 2 migrations deste build não estão aplicadas.",
+  risco: { emRisco: false, texto: "Nada se perdeu." },
+  acao: {
+    codigo: "APLICAR_MIGRATIONS",
+    texto: "Aplicar as migrations que faltam.",
+    comando: "pnpm --filter @workspace/db run migrate",
+    quem: "operador",
+  },
 };
 
 const SAUDAVEL: Diagnostico = {
@@ -42,69 +57,70 @@ const SAUDAVEL: Diagnostico = {
 /** O 503 de Chamados como ele chega: contexto da rota + diagnóstico do banco. */
 const erroDeChamados = (diagnostico: Diagnostico) =>
   new ApiError(
-    "Este banco ainda não tem onde guardar chamados: (…) nada se perdeu. " +
-      "Este banco tem o schema e não tem o registro dele. (…)",
+    "Chamados Camaçari.xlsx: este banco ainda não tem onde guardar chamados " +
+      "(…) nada se perdeu. Este banco tem o schema e não tem o registro dele.",
     503,
     "SCHEMA_AUSENTE",
     {
       contexto:
-        "Este banco ainda não tem onde guardar chamados: falta pelo menos " +
-        "uma das migrations que criam esse schema. Não é o seu arquivo — " +
-        "nada chegou a ser gravado, e nada se perdeu.",
+        "Chamados Camaçari.xlsx: este banco ainda não tem onde guardar " +
+        "chamados: falta pelo menos uma das migrations que criam esse " +
+        "schema. Não é o seu arquivo — nada chegou a ser gravado.",
       diagnostico,
     },
   );
 
+/** Tudo o que a tela vai escrever, junto — para conferir o conjunto. */
+const naTela = (vista: ReturnType<typeof apresentar>): string =>
+  [
+    vista.contexto,
+    vista.orientacao?.resumo,
+    vista.orientacao?.risco.texto,
+    vista.orientacao?.acao?.texto,
+    vista.orientacao?.acao?.comando,
+    vista.orientacao?.evidencia,
+    vista.mensagemCrua,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
 describe("apresentar", () => {
   /**
-   * **A regressão do caso vivido.**
-   *
-   * Registro de migrations perdido, schema existente, `42710` na `0000`. A tela
-   * tem de mostrar `migrate:adotar` e mais nada — em particular, não pode
-   * mostrar a mensagem crua da rota ao lado, que era de onde saía o "suba o
-   * servidor de novo ou rode `migrate`".
+   * **A regressão do caso vivido.** Registro perdido, schema existente, `42710`
+   * na `0000`. A tela mostra `migrate:adotar` e mais nada — em particular, não
+   * a mensagem crua da rota, que era de onde saía o "suba o servidor de novo".
    */
   it("registro perdido: mostra adotar, e nenhuma segunda recomendação", () => {
     const vista = apresentar(erroDeChamados(REGISTRO_PERDIDO));
 
-    expect(vista.diagnostico?.estado).toBe("REGISTRO_PERDIDO");
-    expect(vista.diagnostico?.acao?.comando).toBe(
+    expect(vista.orientacao?.estado).toBe("REGISTRO_PERDIDO");
+    expect(vista.orientacao?.acao?.comando).toBe(
       "pnpm --filter @workspace/db run migrate:adotar",
     );
-
-    // A mensagem crua some quando há diagnóstico — é a metade do defeito que
-    // vivia no componente.
     expect(vista.mensagemCrua).toBeNull();
     expect(vista.mostrarLinkHealthz).toBe(false);
 
-    // E nada do que a tela vai escrever oferece o caminho que não funciona.
-    const naTela = [
-      vista.contexto,
-      vista.diagnostico?.resumo,
-      vista.diagnostico?.risco.texto,
-      vista.diagnostico?.acao?.texto,
-      vista.diagnostico?.acao?.comando,
-      vista.diagnostico?.evidencia,
-      vista.mensagemCrua,
-      vista.falhaDeRede,
-    ]
-      .filter(Boolean)
-      .join(" ");
+    // O nome do arquivo sobrevive: com vários enviados, "qual deles" é a
+    // primeira pergunta de quem lê o aviso.
+    expect(vista.contexto).toMatch(/Chamados Camaçari\.xlsx/);
 
-    expect(naTela).toMatch(/migrate:adotar/);
-    expect(naTela).not.toMatch(/run migrate`/);
-    expect(naTela).not.toMatch(/suba o servidor/i);
+    expect(naTela(vista)).toMatch(/migrate:adotar/);
+    expect(naTela(vista)).not.toMatch(/run migrate`/);
+    expect(naTela(vista)).not.toMatch(/suba o servidor/i);
   });
 
   /**
-   * A invariante que torna o defeito irrepresentável, conferida em todo caminho
-   * que esta função tem: onde há diagnóstico não há mensagem crua, e vice-versa.
+   * A invariante que torna o defeito irrepresentável, em todo caminho que esta
+   * função tem: onde há orientação não há mensagem crua, e vice-versa.
    */
-  it("diagnóstico e mensagem crua nunca coexistem", () => {
+  it("orientação e mensagem crua nunca coexistem", () => {
     const casos: unknown[] = [
       erroDeChamados(REGISTRO_PERDIDO),
       new ApiError("Internal server error", 500),
       new ApiError("Arquivo sem coluna de chamado", 400),
+      new ErroDeTransporte(
+        diagnosticarTransporte({ status: 502, corpoVazio: true }),
+      ),
       new Error("qualquer coisa"),
       new TypeError("Failed to fetch"),
       "um erro que nem é Error",
@@ -112,16 +128,64 @@ describe("apresentar", () => {
 
     for (const caso of casos) {
       const vista = apresentar(caso);
-      expect(
-        vista.diagnostico !== null && vista.mensagemCrua !== null,
-      ).toBe(false);
+      expect(vista.orientacao !== null && vista.mensagemCrua !== null).toBe(
+        false,
+      );
     }
+  });
+
+  describe("o eixo do transporte vence o do banco", () => {
+    /**
+     * **O buraco que faltava fechar.** Um roteador sem ninguém atrás de `/api`
+     * não se explica pelo estado do banco — e o `/healthz` pode estar em cache
+     * de antes, respondendo sobre migrations. Apresentar `migrate` como
+     * resposta a "a API não está no ar" é a mesma contradição de sempre, só que
+     * entre camadas.
+     */
+    it("API ausente não é apresentada com recomendação de banco", () => {
+      const vista = apresentar(
+        new ErroDeTransporte(
+          diagnosticarTransporte({ status: 502, corpoVazio: true }),
+        ),
+        { diagnostico: PENDENTES },
+      );
+
+      expect(vista.orientacao?.estado).toBe("API_AUSENTE");
+      expect(vista.orientacao?.acao?.codigo).toBe("RESTABELECER_API");
+      expect(naTela(vista)).not.toMatch(/migrate/);
+    });
+
+    it("requisição que não completou também ignora o healthz", () => {
+      const vista = apresentar(new TypeError("Failed to fetch"), {
+        diagnostico: REGISTRO_PERDIDO,
+      });
+
+      expect(vista.orientacao?.estado).toBe("SEM_RESPOSTA");
+      expect(naTela(vista)).not.toMatch(/migrate:adotar/);
+      expect(vista.mensagemCrua).toBeNull();
+    });
+
+    it("resposta que não é nossa não vira diagnóstico de banco", () => {
+      const vista = apresentar(
+        new ErroDeTransporte(
+          diagnosticarTransporte({
+            status: 200,
+            corpoNaoJson: "<!doctype html><h1>504 Gateway Timeout</h1>",
+          }),
+        ),
+        { diagnostico: REGISTRO_PERDIDO },
+      );
+
+      expect(vista.orientacao?.estado).toBe("RESPOSTA_ESTRANHA");
+      expect(vista.orientacao?.evidencia).toMatch(/504 Gateway Timeout/);
+      expect(naTela(vista)).not.toMatch(/migrate/);
+    });
   });
 
   it("erro não tipado cai no fallback: mensagem crua e o link do healthz", () => {
     const vista = apresentar(new ApiError("Internal server error", 500));
 
-    expect(vista.diagnostico).toBeNull();
+    expect(vista.orientacao).toBeNull();
     expect(vista.mensagemCrua).toBe("Internal server error");
     expect(vista.mostrarLinkHealthz).toBe(true);
   });
@@ -130,15 +194,7 @@ describe("apresentar", () => {
     const vista = apresentar("caiu");
 
     expect(vista.mensagemCrua).toBe("caiu");
-    expect(vista.diagnostico).toBeNull();
-  });
-
-  it("falha de rede não inventa diagnóstico — não houve resposta", () => {
-    const vista = apresentar(new TypeError("Failed to fetch"));
-
-    expect(vista.falhaDeRede).toMatch(/não completou/);
-    expect(vista.diagnostico).toBeNull();
-    expect(vista.mensagemCrua).toBeNull();
+    expect(vista.orientacao).toBeNull();
   });
 
   it("sem diagnóstico no erro, o do /healthz vale", () => {
@@ -146,7 +202,7 @@ describe("apresentar", () => {
       diagnostico: REGISTRO_PERDIDO,
     });
 
-    expect(vista.diagnostico?.estado).toBe("REGISTRO_PERDIDO");
+    expect(vista.orientacao?.estado).toBe("REGISTRO_PERDIDO");
     expect(vista.mensagemCrua).toBeNull();
   });
 
@@ -159,18 +215,16 @@ describe("apresentar", () => {
       diagnostico: SAUDAVEL,
     });
 
-    expect(vista.diagnostico).toBeNull();
+    expect(vista.orientacao).toBeNull();
     expect(vista.mensagemCrua).toBe("Internal server error");
   });
 
   it("o diagnóstico do próprio erro tem prioridade sobre o do /healthz", () => {
-    // O `/healthz` é uma segunda pergunta, feita depois; o do erro descreve o
-    // banco no instante em que a chamada falhou.
     const vista = apresentar(erroDeChamados(REGISTRO_PERDIDO), {
       diagnostico: SAUDAVEL,
     });
 
-    expect(vista.diagnostico?.estado).toBe("REGISTRO_PERDIDO");
+    expect(vista.orientacao?.estado).toBe("REGISTRO_PERDIDO");
   });
 
   /**
@@ -188,7 +242,7 @@ describe("apresentar", () => {
         diagnostico: { estado: "INVENTADO" } as unknown as Diagnostico,
       }),
     );
-    expect(vista.diagnostico).toBeNull();
+    expect(vista.orientacao).toBeNull();
     expect(vista.mensagemCrua).toBe("erro");
   });
 });
