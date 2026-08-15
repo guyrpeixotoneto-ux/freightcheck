@@ -47,6 +47,21 @@ COMMENT ON TABLE "snapshot_merge" IS
 -- ---------------------------------------------------------------------------
 -- 2. A fusão dos conflitos históricos
 -- ---------------------------------------------------------------------------
+-- Os índices antigos saem **antes** da fusão, e não depois.
+--
+-- Eles codificavam exatamente a definição de identidade que esta migration
+-- substitui — rótulo literal, hash de escopo não normalizado e o conjunto de
+-- tipos que por acaso veio no arquivo. Mantê-los não acrescenta proteção
+-- nenhuma (a trava nova entra adiante, mais forte) e recusa a própria fusão: a
+-- revisão fundida herda o rótulo e o `scope_hash` da origem mais recente, que
+-- ainda está ativa no instante do INSERT, e `snapshot_business_key_live_uq`
+-- barra as duas como se fossem a mesma vigência viva. Foi o que aconteceu no
+-- caso de duas entregas com o mesmo conjunto de tipos e o rótulo escrito de
+-- dois jeitos — `EMPURRADA_1_8_2026` e `EMPURRADA_01_8_2026` —, que é
+-- justamente um dos casos que esta migration existe para resolver.
+DROP INDEX IF EXISTS "snapshot_business_key_live_uq";--> statement-breakpoint
+DROP INDEX IF EXISTS "snapshot_business_key_uq";--> statement-breakpoint
+
 ALTER TABLE "snapshot" DISABLE TRIGGER "snapshot_immutable";--> statement-breakpoint
 ALTER TABLE "fact" DISABLE TRIGGER "fact_immutable";--> statement-breakpoint
 
@@ -221,24 +236,48 @@ END $$;--> statement-breakpoint
 -- ---------------------------------------------------------------------------
 -- 4. A trava
 -- ---------------------------------------------------------------------------
--- No máximo uma vigência ativa por identidade canônica. Esta linha é a
--- garantia: ela não depende de nenhum caminho da aplicação estar correto.
-CREATE UNIQUE INDEX "snapshot_canonical_live_uq"
-  ON "snapshot" USING btree ("canonical_snapshot_key")
-  WHERE "status" <> 'SUPERSEDED';--> statement-breakpoint
+-- No máximo uma vigência ativa por identidade canônica, e sem empate de
+-- revisão dentro de uma identidade. Estas duas linhas são a garantia: elas não
+-- dependem de nenhum caminho da aplicação estar correto.
+--
+-- Os dois índices estão no diff automático que o Publishing propõe, e por isso
+-- podem já existir num banco que atravessou aquela proposta pela metade. Se
+-- existirem com a definição esperada, são adotados; com qualquer outra
+-- definição a migration para, porque um índice de identidade diferente do
+-- declarado aqui tranca outra coisa — e "trancado" passaria a significar algo
+-- que ninguém verificou.
+DO $$
+DECLARE
+  esperado record;
+  atual    text;
+BEGIN
+  FOR esperado IN
+    SELECT * FROM (VALUES
+      ('snapshot_canonical_live_uq',
+       'CREATE UNIQUE INDEX snapshot_canonical_live_uq ON public.snapshot USING btree (canonical_snapshot_key) WHERE (status <> ''SUPERSEDED''::snapshot_status)',
+       'CREATE UNIQUE INDEX "snapshot_canonical_live_uq" ON "snapshot" USING btree ("canonical_snapshot_key") WHERE "status" <> ''SUPERSEDED'''),
+      ('snapshot_canonical_revision_uq',
+       'CREATE UNIQUE INDEX snapshot_canonical_revision_uq ON public.snapshot USING btree (canonical_snapshot_key, revision)',
+       'CREATE UNIQUE INDEX "snapshot_canonical_revision_uq" ON "snapshot" USING btree ("canonical_snapshot_key", "revision")')
+    ) AS v(nome, definicao, criacao)
+  LOOP
+    SELECT pg_get_indexdef(i.indexrelid) INTO atual
+      FROM pg_index i
+      JOIN pg_class c ON c.oid = i.indexrelid
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE n.nspname = 'public' AND c.relname = esperado.nome;
 
--- E a numeração de revisão não admite empate, o que impede duas promoções
--- concorrentes de gravarem a mesma revisão da mesma identidade.
-CREATE UNIQUE INDEX "snapshot_canonical_revision_uq"
-  ON "snapshot" USING btree ("canonical_snapshot_key", "revision");--> statement-breakpoint
-
--- Os índices antigos codificavam exatamente a definição de identidade que esta
--- migration substitui — rótulo literal, hash de escopo não normalizado e o
--- conjunto de tipos que por acaso veio no arquivo. Mantê-los não acrescentaria
--- proteção e recusaria fusões legítimas, em que o conjunto de tipos muda de uma
--- revisão para a outra.
-DROP INDEX IF EXISTS "snapshot_business_key_live_uq";--> statement-breakpoint
-DROP INDEX IF EXISTS "snapshot_business_key_uq";--> statement-breakpoint
+    IF atual IS NULL THEN
+      EXECUTE esperado.criacao;
+    ELSIF replace(replace(lower(atual), ' ', ''), '"', '')
+       <> replace(replace(lower(esperado.definicao), ' ', ''), '"', '') THEN
+      RAISE EXCEPTION
+        E'O índice % já existe com outra definição.\n  encontrada: %\n  esperada:   %\n\nNada foi trancado e nada foi alterado. Remova-o ou alinhe-o e rode de novo.',
+        esperado.nome, atual, esperado.definicao
+        USING ERRCODE = 'data_exception';
+    END IF;
+  END LOOP;
+END $$;--> statement-breakpoint
 
 -- ---------------------------------------------------------------------------
 -- 5. Auditoria da decisão
