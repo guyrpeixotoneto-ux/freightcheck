@@ -19,5 +19,5 @@ ALTER TABLE "fact" ADD COLUMN IF NOT EXISTS "inherited_from_snapshot_id" uuid;--
 COMMENT ON COLUMN "fact"."inherited_from_snapshot_id" IS
   'A revisão de onde este fato foi herdado, quando ele não nasceu do arquivo desta importação. Nulo no caso normal.';--> statement-breakpoint
 
-CREATE INDEX "fact_inherited_idx" ON "fact" USING btree ("inherited_from_snapshot_id")
+CREATE INDEX IF NOT EXISTS "fact_inherited_idx" ON "fact" USING btree ("inherited_from_snapshot_id")
   WHERE "inherited_from_snapshot_id" IS NOT NULL;

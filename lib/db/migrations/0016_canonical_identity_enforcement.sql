@@ -307,6 +307,6 @@ CREATE TABLE IF NOT EXISTS "import_decision" (
   "created_at" timestamp with time zone DEFAULT now() NOT NULL
 );--> statement-breakpoint
 
-CREATE INDEX "import_decision_run_idx" ON "import_decision" USING btree ("import_run_id");--> statement-breakpoint
-CREATE INDEX "import_decision_key_idx" ON "import_decision" USING btree ("canonical_snapshot_key");--> statement-breakpoint
-CREATE INDEX "import_decision_sha_idx" ON "import_decision" USING btree ("content_sha256");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "import_decision_run_idx" ON "import_decision" USING btree ("import_run_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "import_decision_key_idx" ON "import_decision" USING btree ("canonical_snapshot_key");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "import_decision_sha_idx" ON "import_decision" USING btree ("content_sha256");--> statement-breakpoint

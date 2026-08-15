@@ -13,5 +13,6 @@
 # de dentro da imagem. As migrations em si continuam indo: o `build.mjs` do
 # api-server copia `lib/db/migrations` para junto do bundle.
 #
-# Ver docs/MIGRATIONS.md.
-lib/db/drizzle.config.ts
+# O nome do arquivo é `drizzle-kit.config.ts`, e não `drizzle.config.ts`, por
+# um motivo que não é de estilo — ver docs/MIGRATIONS.md.
+lib/db/drizzle-kit.config.ts

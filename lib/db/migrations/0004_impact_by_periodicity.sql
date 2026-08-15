@@ -9,7 +9,7 @@
 --
 -- Annualising the two into one comparable figure is F4's work, and needs its
 -- own confirmed rules. Change sets are derived data: recomputing rebuilds this.
-ALTER TABLE "change_set" DROP COLUMN "calculated_impact";
+ALTER TABLE "change_set" DROP COLUMN IF EXISTS "calculated_impact";
 --> statement-breakpoint
 ALTER TABLE "change_set"
-  ADD COLUMN "calculated_impact_by_periodicity" jsonb DEFAULT '{}'::jsonb NOT NULL;
+  ADD COLUMN IF NOT EXISTS "calculated_impact_by_periodicity" jsonb DEFAULT '{}'::jsonb NOT NULL;

@@ -22,10 +22,34 @@
  * continuam liberados: eles mexem em arquivo do repositório, que é onde a
  * decisão de schema é tomada e revisada.
  *
- * Isto tranca o que o repositório controla. O que ele não controla — a proposta
- * de schema que o Publishing monta no navegador comparando dois bancos — não
- * tem interruptor deste lado: ela se recusa na hora de publicar, e a
- * `docs/MIGRATIONS.md` diz por quê e o que fazer no lugar.
+ * ---------------------------------------------------------------------------
+ * Por que este arquivo não se chama `drizzle.config.ts`
+ * ---------------------------------------------------------------------------
+ * Porque o nome é o gatilho. O Publishing do Replit decide que um projeto "usa
+ * Drizzle" procurando um `drizzle.config.ts`; achando um, ele acrescenta ao
+ * deploy um passo próprio de migração de schema, derivado do `schema.ts` e
+ * aplicado direto no banco de produção — fora da fila versionada, e sem passar
+ * por este arquivo, de modo que as proibições acima não o alcançam.
+ *
+ * Esse passo não tem como funcionar aqui, e o motivo é estrutural:
+ * `snapshot.canonical_snapshot_key` é uma coluna gerada por
+ * `freightcheck_snapshot_key(...)` (ver `schema/canonical.ts`), e o drizzle
+ * modela a coluna mas não a função — nenhum snapshot dele descreve funções.
+ * O DDL que ele emite chama uma função que ele nunca cria:
+ *
+ *     ALTER TABLE "snapshot" ADD COLUMN "canonical_snapshot_key" text
+ *       GENERATED ALWAYS AS (freightcheck_snapshot_key(...)) STORED;
+ *     ERROR: function freightcheck_snapshot_key(text, text, text, date, jsonb)
+ *            does not exist
+ *
+ * O deploy morria aí, e a única saída que a tela oferecia era copiar o banco de
+ * desenvolvimento por cima do de produção. Com o arquivo fora do nome
+ * procurado, o passo não é montado: a publicação volta a ser build e start, e
+ * quem aplica o schema é `runMigrations()` na partida, como sempre foi.
+ *
+ * O `generate` continua inteiro — `package.json` o chama com `--config`
+ * explícito. É o desenvolvedor que aponta para esta configuração; nenhuma
+ * varredura a encontra sozinha.
  */
 import { defineConfig } from "drizzle-kit";
 

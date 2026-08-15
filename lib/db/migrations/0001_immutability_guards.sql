@@ -25,24 +25,60 @@ END;
 $$ LANGUAGE plpgsql;
 --> statement-breakpoint
 
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t
+                 JOIN pg_class c ON c.oid = t.tgrelid
+                WHERE NOT t.tgisinternal
+                  AND t.tgname = 'source_file_immutable'
+                  AND c.relname = 'source_file') THEN
 CREATE TRIGGER source_file_immutable
   BEFORE UPDATE OR DELETE ON "source_file"
   FOR EACH ROW EXECUTE FUNCTION freightcheck_raw_is_immutable();
+  END IF;
+END $reentrante$;
 --> statement-breakpoint
 
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t
+                 JOIN pg_class c ON c.oid = t.tgrelid
+                WHERE NOT t.tgisinternal
+                  AND t.tgname = 'raw_sheet_immutable'
+                  AND c.relname = 'raw_sheet') THEN
 CREATE TRIGGER raw_sheet_immutable
   BEFORE UPDATE OR DELETE ON "raw_sheet"
   FOR EACH ROW EXECUTE FUNCTION freightcheck_raw_is_immutable();
+  END IF;
+END $reentrante$;
 --> statement-breakpoint
 
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t
+                 JOIN pg_class c ON c.oid = t.tgrelid
+                WHERE NOT t.tgisinternal
+                  AND t.tgname = 'raw_row_immutable'
+                  AND c.relname = 'raw_row') THEN
 CREATE TRIGGER raw_row_immutable
   BEFORE UPDATE OR DELETE ON "raw_row"
   FOR EACH ROW EXECUTE FUNCTION freightcheck_raw_is_immutable();
+  END IF;
+END $reentrante$;
 --> statement-breakpoint
 
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t
+                 JOIN pg_class c ON c.oid = t.tgrelid
+                WHERE NOT t.tgisinternal
+                  AND t.tgname = 'raw_cell_immutable'
+                  AND c.relname = 'raw_cell') THEN
 CREATE TRIGGER raw_cell_immutable
   BEFORE UPDATE OR DELETE ON "raw_cell"
   FOR EACH ROW EXECUTE FUNCTION freightcheck_raw_is_immutable();
+  END IF;
+END $reentrante$;
 --> statement-breakpoint
 
 -- ---------------------------------------------------------------------------
@@ -98,9 +134,18 @@ END;
 $$ LANGUAGE plpgsql;
 --> statement-breakpoint
 
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t
+                 JOIN pg_class c ON c.oid = t.tgrelid
+                WHERE NOT t.tgisinternal
+                  AND t.tgname = 'snapshot_immutable'
+                  AND c.relname = 'snapshot') THEN
 CREATE TRIGGER snapshot_immutable
   BEFORE UPDATE OR DELETE ON "snapshot"
   FOR EACH ROW EXECUTE FUNCTION freightcheck_snapshot_is_immutable();
+  END IF;
+END $reentrante$;
 --> statement-breakpoint
 
 -- Facts belonging to a snapshot that is no longer DRAFT are frozen with it.
@@ -130,6 +175,15 @@ END;
 $$ LANGUAGE plpgsql;
 --> statement-breakpoint
 
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t
+                 JOIN pg_class c ON c.oid = t.tgrelid
+                WHERE NOT t.tgisinternal
+                  AND t.tgname = 'fact_immutable'
+                  AND c.relname = 'fact') THEN
 CREATE TRIGGER fact_immutable
   BEFORE INSERT OR UPDATE OR DELETE ON "fact"
   FOR EACH ROW EXECUTE FUNCTION freightcheck_fact_is_immutable();
+  END IF;
+END $reentrante$;

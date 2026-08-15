@@ -63,13 +63,28 @@ describe("registro de migrations perdido", () => {
     await banco.pool.query(`DELETE FROM "drizzle"."__drizzle_migrations"`);
     await banco.pool.end();
 
-    // Sem declarar nada, a fila trava na 0000 — que é o estado em que um
-    // ambiente de verdade ficou, com toda migration nova barrada para sempre.
-    const semDeclarar = await runMigrations(url);
-    expect(semDeclarar.failure?.tag).toBe("0000_freightcheck_foundation");
-    expect(semDeclarar.applied).toEqual([]);
+    /*
+      Sem declarar nada, a fila atravessa. Aqui ela travava na `0000` — um tipo
+      que já existia, `42710`, e nenhuma migration nova entrava nunca mais —, e
+      esse travamento era o que empurrava quem publica para as duas saídas
+      ruins: aceitar o diff do Publishing ou copiar desenvolvimento por cima de
+      produção. Agora cada migration confere antes de criar, então rodá-las
+      sobre um banco que já as contém é trabalho repetido, não erro.
 
-    // Declarada a adoção, o registro é reconstruído e a fila anda.
+      A bandeira continua existindo, e continua sendo outra coisa: ela **pula**
+      a migration e carimba o registro. Esta passada não pula nada — roda tudo.
+    */
+    const semDeclarar = await runMigrations(url);
+    expect(semDeclarar.failure).toBeUndefined();
+    expect(semDeclarar.applied).toEqual(primeira.applied);
+    expect(semDeclarar.adopted).toEqual([]);
+
+    // De novo o acidente, agora para exercitar a adoção declarada.
+    const outraVez = createDb(url);
+    await outraVez.pool.query(`DELETE FROM "drizzle"."__drizzle_migrations"`);
+    await outraVez.pool.end();
+
+    // Declarada a adoção, o registro é reconstruído sem rodar o que já está lá.
     const segunda = await runMigrations(url, undefined, { adoptExisting: true });
     expect(segunda.failure).toBeUndefined();
     expect(segunda.pending).toEqual([]);
@@ -127,14 +142,31 @@ describe("registro de migrations perdido", () => {
         adoptExisting: true,
       });
 
-      // A 0012 não pode ser adotada — falta a tabela `ticket`. Adotá-la faria
-      // o registro afirmar um estado que o banco não tem, e a 0013, que altera
-      // `ticket`, entraria depois num vazio. Nem a bandeira força isso: ela
-      // declara a intenção, não dispensa a conferência.
+      // A 0012 não pode ser **adotada** — falta a tabela `ticket`. Adotá-la
+      // faria o registro afirmar um estado que o banco não tem, e a 0013, que
+      // altera `ticket`, entraria depois num vazio. Nem a bandeira força isso:
+      // ela declara a intenção, não dispensa a conferência.
       expect(depois.adopted).not.toContain("0012_chamados");
-      expect(depois.failure?.tag).toBe("0012_chamados");
       // O que vinha antes dela continua sendo adotado: é verdade conferida.
       expect(depois.adopted).toContain("0000_freightcheck_foundation");
+
+      /*
+        E o que não pôde ser adotado é **rodado**, em vez de derrubar a fila.
+        Antes isto parava em `0012_chamados` e o banco ficava sem `ticket` para
+        sempre; a migration recria o que falta e as seguintes entram em cima do
+        estado certo. Recusar a adoção e recusar o conserto eram a mesma coisa,
+        e não deviam ser.
+      */
+      expect(depois.applied).toContain("0012_chamados");
+      expect(depois.failure).toBeUndefined();
+      expect(depois.pending).toEqual([]);
+
+      const conferencia = createDb(parcial);
+      const { rows } = await conferencia.pool.query<{ existe: boolean }>(
+        `SELECT to_regclass('public."ticket"') IS NOT NULL AS existe`,
+      );
+      await conferencia.pool.end();
+      expect(rows[0]!.existe).toBe(true);
     } finally {
       await apagarBanco(nome);
     }

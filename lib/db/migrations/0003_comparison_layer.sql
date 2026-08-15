@@ -1,4 +1,4 @@
-CREATE TABLE "change_set" (
+CREATE TABLE IF NOT EXISTS "change_set" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"snapshot_a_id" uuid NOT NULL,
 	"snapshot_b_id" uuid NOT NULL,
@@ -17,7 +17,7 @@ CREATE TABLE "change_set" (
 	"failure_reason" text
 );
 --> statement-breakpoint
-CREATE TABLE "change" (
+CREATE TABLE IF NOT EXISTS "change" (
 	"id" bigserial PRIMARY KEY NOT NULL,
 	"change_set_id" uuid NOT NULL,
 	"category" text NOT NULL,
@@ -53,19 +53,75 @@ CREATE TABLE "change" (
 	"entity_type" text
 );
 --> statement-breakpoint
-ALTER TABLE "change_set" ADD CONSTRAINT "change_set_snapshot_a_id_snapshot_id_fk" FOREIGN KEY ("snapshot_a_id") REFERENCES "public"."snapshot"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "change_set" ADD CONSTRAINT "change_set_snapshot_b_id_snapshot_id_fk" FOREIGN KEY ("snapshot_b_id") REFERENCES "public"."snapshot"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "change" ADD CONSTRAINT "change_change_set_id_change_set_id_fk" FOREIGN KEY ("change_set_id") REFERENCES "public"."change_set"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "change" ADD CONSTRAINT "change_entity_id_entity_id_fk" FOREIGN KEY ("entity_id") REFERENCES "public"."entity"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "change" ADD CONSTRAINT "change_attribute_id_attribute_id_fk" FOREIGN KEY ("attribute_id") REFERENCES "public"."attribute"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "change" ADD CONSTRAINT "change_fact_a_id_fact_id_fk" FOREIGN KEY ("fact_a_id") REFERENCES "public"."fact"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "change" ADD CONSTRAINT "change_fact_b_id_fact_id_fk" FOREIGN KEY ("fact_b_id") REFERENCES "public"."fact"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "change_set_pair_uq" ON "change_set" USING btree ("snapshot_a_id","snapshot_b_id");--> statement-breakpoint
-CREATE INDEX "change_set_b_idx" ON "change_set" USING btree ("snapshot_b_id");--> statement-breakpoint
-CREATE INDEX "change_set_idx" ON "change" USING btree ("change_set_id");--> statement-breakpoint
-CREATE INDEX "change_materiality_idx" ON "change" USING btree ("change_set_id","impact_amount");--> statement-breakpoint
-CREATE INDEX "change_attribute_idx" ON "change" USING btree ("change_set_id","attribute_id");--> statement-breakpoint
-CREATE INDEX "change_entity_idx" ON "change" USING btree ("change_set_id","entity_id");--> statement-breakpoint
-CREATE INDEX "change_type_idx" ON "change" USING btree ("change_set_id","change_type");--> statement-breakpoint
-CREATE INDEX "change_cost_class_idx" ON "change" USING btree ("change_set_id","cost_class");--> statement-breakpoint
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conname = 'change_set_snapshot_a_id_snapshot_id_fk'
+                   AND conrelid = '"change_set"'::regclass) THEN
+ALTER TABLE "change_set" ADD CONSTRAINT "change_set_snapshot_a_id_snapshot_id_fk" FOREIGN KEY ("snapshot_a_id") REFERENCES "public"."snapshot"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
+END $reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conname = 'change_set_snapshot_b_id_snapshot_id_fk'
+                   AND conrelid = '"change_set"'::regclass) THEN
+ALTER TABLE "change_set" ADD CONSTRAINT "change_set_snapshot_b_id_snapshot_id_fk" FOREIGN KEY ("snapshot_b_id") REFERENCES "public"."snapshot"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
+END $reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conname = 'change_change_set_id_change_set_id_fk'
+                   AND conrelid = '"change"'::regclass) THEN
+ALTER TABLE "change" ADD CONSTRAINT "change_change_set_id_change_set_id_fk" FOREIGN KEY ("change_set_id") REFERENCES "public"."change_set"("id") ON DELETE cascade ON UPDATE no action;
+  END IF;
+END $reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conname = 'change_entity_id_entity_id_fk'
+                   AND conrelid = '"change"'::regclass) THEN
+ALTER TABLE "change" ADD CONSTRAINT "change_entity_id_entity_id_fk" FOREIGN KEY ("entity_id") REFERENCES "public"."entity"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
+END $reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conname = 'change_attribute_id_attribute_id_fk'
+                   AND conrelid = '"change"'::regclass) THEN
+ALTER TABLE "change" ADD CONSTRAINT "change_attribute_id_attribute_id_fk" FOREIGN KEY ("attribute_id") REFERENCES "public"."attribute"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
+END $reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conname = 'change_fact_a_id_fact_id_fk'
+                   AND conrelid = '"change"'::regclass) THEN
+ALTER TABLE "change" ADD CONSTRAINT "change_fact_a_id_fact_id_fk" FOREIGN KEY ("fact_a_id") REFERENCES "public"."fact"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
+END $reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conname = 'change_fact_b_id_fact_id_fk'
+                   AND conrelid = '"change"'::regclass) THEN
+ALTER TABLE "change" ADD CONSTRAINT "change_fact_b_id_fact_id_fk" FOREIGN KEY ("fact_b_id") REFERENCES "public"."fact"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
+END $reentrante$;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "change_set_pair_uq" ON "change_set" USING btree ("snapshot_a_id","snapshot_b_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "change_set_b_idx" ON "change_set" USING btree ("snapshot_b_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "change_set_idx" ON "change" USING btree ("change_set_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "change_materiality_idx" ON "change" USING btree ("change_set_id","impact_amount");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "change_attribute_idx" ON "change" USING btree ("change_set_id","attribute_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "change_entity_idx" ON "change" USING btree ("change_set_id","entity_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "change_type_idx" ON "change" USING btree ("change_set_id","change_type");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "change_cost_class_idx" ON "change" USING btree ("change_set_id","cost_class");--> statement-breakpoint
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conname = 'taxonomy_node_parent_id_taxonomy_node_id_fk'
+                   AND conrelid = '"taxonomy_node"'::regclass) THEN
 ALTER TABLE "taxonomy_node" ADD CONSTRAINT "taxonomy_node_parent_id_taxonomy_node_id_fk" FOREIGN KEY ("parent_id") REFERENCES "public"."taxonomy_node"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
+END $reentrante$;
