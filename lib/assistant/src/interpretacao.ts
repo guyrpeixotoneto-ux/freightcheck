@@ -40,6 +40,17 @@ export type Intencao =
   | "COMPARACAO"
   /** "o que mudou em agosto" */
   | "MOVIMENTO"
+  /**
+   * "tem algo fora do padrão?", "o que eu deveria investigar primeiro?"
+   *
+   * Não é o ranking, e a diferença é o que a torna necessária. O ranking ordena
+   * por dinheiro; esta ordena por **criticidade** — abrangência na frota,
+   * magnitude do movimento, se há valor apurado, se há troca de formato — e
+   * devolve, para cada posição, os motivos que a colocaram ali. É a fila de
+   * investigação que a tela de Alterações já mostrava e que o assistente não
+   * alcançava.
+   */
+  | "ATENCAO"
   /** "onde perdemos mais", "qual parâmetro mais piorou" */
   | "RANKING_PERDA"
   /** "onde ganhamos mais" */
@@ -85,6 +96,7 @@ export const INTENCOES_COM_RECORTE: ReadonlySet<Intencao> = new Set<Intencao>([
   "EVOLUCAO",
   "COMPARACAO",
   "MOVIMENTO",
+  "ATENCAO",
   "RANKING_PERDA",
   "RANKING_GANHO",
   "VEICULOS",

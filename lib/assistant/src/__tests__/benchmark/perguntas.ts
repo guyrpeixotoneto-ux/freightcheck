@@ -54,8 +54,8 @@ export const BENCHMARK: CasoDeBenchmark[] = [
   { pergunta: "Teve mudança?", categoria: "alteracoes", intencao: ["MOVIMENTO"], fontes: ["DADO"], exigeEvidencia: true },
   { pergunta: "Houve alteração na remuneração", categoria: "alteracoes", intencao: ["MOVIMENTO"], fontes: ["DADO"], exigeEvidencia: true },
   { pergunta: "O que aconteceu na última vigência?", categoria: "alteracoes", intencao: ["MOVIMENTO"], fontes: ["DADO"], exigeEvidencia: true },
-  { pergunta: "Tem alguma alteração relevante que eu deveria investigar?", categoria: "alteracoes", intencao: ["MOVIMENTO","RANKING_PERDA"], fontes: ["DADO"], exigeEvidencia: true, nota: "resíduo 'relevante deveria investigar' vira assunto e desliga as consultas" },
-  { pergunta: "Quais são as três alterações mais importantes?", categoria: "alteracoes", intencao: ["MOVIMENTO","RANKING_PERDA"], fontes: ["DADO"], exigeEvidencia: true, nota: "resíduo 'tres' vira assunto" },
+  { pergunta: "Tem alguma alteração relevante que eu deveria investigar?", categoria: "alteracoes", intencao: ["ATENCAO","MOVIMENTO","RANKING_PERDA"], fontes: ["DADO"], exigeEvidencia: true, nota: "resíduo 'relevante deveria investigar' vira assunto e desliga as consultas" },
+  { pergunta: "Quais são as três alterações mais importantes?", categoria: "alteracoes", intencao: ["MOVIMENTO","ATENCAO","RANKING_PERDA"], fontes: ["DADO"], exigeEvidencia: true, nota: "resíduo 'tres' vira assunto" },
   { pergunta: "O que mudou na remuneração dos cavalos?", categoria: "alteracoes", intencao: ["MOVIMENTO"], fontes: ["DADO"], exigeEvidencia: true, assunto: "cavalo" },
   { pergunta: "O que mudou na remuneração das carretas?", categoria: "alteracoes", intencao: ["MOVIMENTO"], fontes: ["DADO"], exigeEvidencia: true, assunto: "carreta" },
 
@@ -147,13 +147,13 @@ export const BENCHMARK: CasoDeBenchmark[] = [
   { pergunta: "e aí, o que mudou?", categoria: "informal", intencao: ["MOVIMENTO"], fontes: ["DADO"], exigeEvidencia: true },
 
   // ── executivas ────────────────────────────────────────────────────────────
-  { pergunta: "Me diga apenas o que merece minha atenção.", categoria: "executiva", intencao: ["MOVIMENTO","RANKING_PERDA"], fontes: ["DADO"], exigeEvidencia: true },
-  { pergunta: "Tem alguma coisa fora do padrão?", categoria: "executiva", intencao: ["MOVIMENTO","RANKING_PERDA"], fontes: ["DADO"], exigeEvidencia: true },
-  { pergunta: "O que eu deveria investigar primeiro?", categoria: "executiva", intencao: ["MOVIMENTO","RANKING_PERDA"], fontes: ["DADO"], exigeEvidencia: true },
-  { pergunta: "Resuma agosto para a diretoria.", categoria: "executiva", intencao: ["MOVIMENTO"], fontes: ["DADO"], exigeEvidencia: true },
-  { pergunta: "Explique isso como se estivesse falando com o diretor da operação.", categoria: "executiva", intencao: ["CONCEITUAL","MOVIMENTO"], fontes: ["DADO","CONCEITO","BOOK"] },
-  { pergunta: "Me dá um panorama de agosto.", categoria: "executiva", intencao: ["MOVIMENTO","PANORAMA"], fontes: ["DADO"], exigeEvidencia: true },
-  { pergunta: "Vale a pena eu me preocupar com alguma coisa?", categoria: "executiva", intencao: ["MOVIMENTO","RANKING_PERDA"], fontes: ["DADO"], exigeEvidencia: true },
+  { pergunta: "Me diga apenas o que merece minha atenção.", categoria: "executiva", intencao: ["ATENCAO","MOVIMENTO","RANKING_PERDA"], fontes: ["DADO"], exigeEvidencia: true },
+  { pergunta: "Tem alguma coisa fora do padrão?", categoria: "executiva", intencao: ["ATENCAO","MOVIMENTO","RANKING_PERDA"], fontes: ["DADO"], exigeEvidencia: true },
+  { pergunta: "O que eu deveria investigar primeiro?", categoria: "executiva", intencao: ["ATENCAO","MOVIMENTO","RANKING_PERDA"], fontes: ["DADO"], exigeEvidencia: true },
+  { pergunta: "Resuma agosto para a diretoria.", categoria: "executiva", intencao: ["ATENCAO","MOVIMENTO"], fontes: ["DADO"], exigeEvidencia: true },
+  { pergunta: "Explique isso como se estivesse falando com o diretor da operação.", categoria: "executiva", intencao: ["CONCEITUAL","ATENCAO","MOVIMENTO"], fontes: ["DADO","CONCEITO","BOOK"] },
+  { pergunta: "Me dá um panorama de agosto.", categoria: "executiva", intencao: ["MOVIMENTO","PANORAMA","ATENCAO"], fontes: ["DADO"], exigeEvidencia: true },
+  { pergunta: "Vale a pena eu me preocupar com alguma coisa?", categoria: "executiva", intencao: ["ATENCAO","MOVIMENTO","RANKING_PERDA"], fontes: ["DADO"], exigeEvidencia: true },
 
   // ── impossíveis / não alucinação ──────────────────────────────────────────
   { pergunta: "Qual a previsão do tempo em Salvador?", categoria: "impossivel", intencao: ["DESCONHECIDA"], fontes: ["NENHUMA"], lacuna: "NAO_ENCONTREI" },

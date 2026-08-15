@@ -29,6 +29,7 @@ import {
 } from "./indice-book";
 import {
   compararIntervalo,
+  filaDeInvestigacao,
   anexoDoBook,
   coberturaDoBook,
   composicaoDaFrota,
@@ -804,6 +805,12 @@ export async function orquestrar(
       }
       break;
 
+    case "ATENCAO":
+      if (contexto) {
+        juntar("Montando a fila de investigação", filaDeInvestigacao(db, contexto, periodoEfetivo));
+      }
+      break;
+
     case "RANKING_PERDA":
     case "RANKING_GANHO":
       if (contexto) {
@@ -1021,6 +1028,56 @@ export async function orquestrar(
     devolveria a fila ao comportamento sequencial sem que nada denunciasse.
   */
   await colher();
+
+  /*
+    ---- o segundo salto ------------------------------------------------------
+
+    Achou o que pesa; agora vai ler o que a regra diz sobre aquilo.
+
+    É o que um analista faz e o que este assistente não fazia. Quem pergunta "o
+    que eu deveria investigar primeiro?" não sabe o nome do parâmetro que vai
+    sair na frente — e por isso não tem como pedir a regra dele na mesma frase.
+    A primeira busca no Book usou as palavras da pergunta, que não continham o
+    assunto porque ele ainda não era conhecido; esta usa o assunto que a
+    consulta descobriu.
+
+    **Três guardas, e cada uma evita um jeito de isto piorar a resposta.** Só
+    salta a partir de uma ferramenta que **ordenou** alguma coisa: o agregado
+    não descobriu assunto, descreveu o conjunto. Só salta quando a primeira
+    busca não respondeu com confiança — havendo regra forte, a pergunta já foi
+    respondida pelas duas fontes. E o limiar continua decidindo, então um
+    assunto sem regra registrada não traz nada, e o silêncio aqui é uma
+    resposta correta.
+
+    A segunda guarda mede **confiança**, não presença. Medir presença era o
+    primeiro desenho, e ele se anulava sozinho: uma pergunta executiva costuma
+    casar fracamente algum bloco pelas palavras soltas da frase, e esse
+    documento fraco — que não responde nada — bloqueava a busca dirigida que
+    responderia.
+  */
+  const emDestaque = evidencias.find((e) => e.assuntoEmDestaque)?.assuntoEmDestaque;
+  const jaRespondeu = (achadosDoBook[0]?.pontos ?? 0) >= LIMIAR_PARA_DEFINIR;
+  if (emDestaque && !jaRespondeu) {
+    marcar("segundoSalto", `Procurando a regra de ${emDestaque}`);
+    const doDestaque = await buscarNoBookDetalhado(db, emDestaque, { limite: 3 }).catch(() => null);
+    if (doDestaque && doDestaque.selecionados.length > 0) {
+      /*
+        O que a busca dirigida achou vem primeiro.
+
+        Ela procurou pelo assunto que a consulta descobriu; a primeira procurou
+        pelas palavras de uma pergunta que ainda não sabia o assunto. Entre as
+        duas, a segunda é a que fala do que a resposta vai tratar.
+      */
+      const antes = documentos.splice(0);
+      documentos.push(...doDestaque.selecionados, ...antes);
+      documentos.splice(6);
+      diagnosticoDoBook = {
+        candidatos: diagnosticoDoBook.candidatos + doDestaque.candidatos,
+        selecionados: documentos.length,
+        melhorPontuacao: Number(doDestaque.melhorPontuacao.toFixed(3)),
+      };
+    }
+  }
 
   // ---- 6. corpus conceitual -----------------------------------------------
   /*

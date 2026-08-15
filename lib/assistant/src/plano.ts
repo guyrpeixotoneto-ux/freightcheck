@@ -275,6 +275,14 @@ const ORDEM: Necessidade[] = [
   */
   "SEM_PRECO",
   "DISPONIBILIDADE",
+  /*
+    A fila de investigação vem antes de tudo o que ela resume.
+
+    Quem pergunta "o que eu deveria investigar primeiro?" recebe a fila; o
+    movimento da vigência entra junto, para dar o tamanho do que se está
+    ordenando, mas não é ele que dá nome à resposta.
+  */
+  "ATENCAO",
   "COMPARACAO", "EVOLUCAO",
   /*
     Quem pergunta por placas quer placas.
@@ -312,11 +320,33 @@ const ORDEM: Necessidade[] = [
   "DESCONHECIDA",
 ];
 
-function ordenar(necessidades: Set<Necessidade>): Necessidade[] {
-  const saida = ORDEM.filter((n) => necessidades.has(n));
-  // Uma necessidade nova que ninguém colocou em ORDEM ainda assim é executada.
-  for (const n of necessidades) if (!saida.includes(n)) saida.push(n);
-  return saida;
+/**
+ * A ordem final: o que a frase pediu vem antes do que o plano acrescentou.
+ *
+ * As duas classes existem desde que o plano passou a completar a pergunta.
+ * "Quais foram as principais alterações de agosto?" pede alterações — o
+ * movimento é explícito — e ganha a fila de investigação junto, porque
+ * "principais" pede uma ordem; a resposta se chama movimento. "O que eu
+ * deveria investigar primeiro?" não pede nada explicitamente: tudo ali foi o
+ * plano que acrescentou, e aí quem nomeia é a fila.
+ *
+ * Sem esta distinção, uma ordem fixa tinha de escolher entre errar num caso ou
+ * no outro — e errar aqui não muda o que é consultado, muda o nome da resposta
+ * e o que a conversa guarda como assunto.
+ */
+function ordenar(
+  necessidades: Set<Necessidade>,
+  explicitas: Set<Necessidade>,
+): Necessidade[] {
+  const posicao = (n: Necessidade) => {
+    const i = ORDEM.indexOf(n);
+    return i === -1 ? ORDEM.length : i;
+  };
+  return [...necessidades].sort((a, b) => {
+    const pesoA = explicitas.has(a) ? 0 : 1;
+    const pesoB = explicitas.has(b) ? 0 : 1;
+    return pesoA - pesoB || posicao(a) - posicao(b);
+  });
 }
 
 /**
@@ -341,11 +371,14 @@ export function planejar(entrada: EntradaDoPlano): Plano {
   }
 
   const necessidades = new Set<Necessidade>();
+  /** O que a própria frase pediu — o resto foi o plano que completou. */
+  const explicitas = new Set<Necessidade>();
   const porque: string[] = [];
 
   for (const detector of DETECTORES) {
     if (!detector.quando.test(frase)) continue;
     necessidades.add(detector.necessidade);
+    explicitas.add(detector.necessidade);
     porque.push(detector.porque);
   }
 
@@ -357,6 +390,7 @@ export function planejar(entrada: EntradaDoPlano): Plano {
   */
   if (leitura.entidades.intervalo?.ate && !necessidades.has("COMPARACAO")) {
     necessidades.add("COMPARACAO");
+    explicitas.add("COMPARACAO");
     porque.push("cita dois períodos");
   }
 
@@ -369,6 +403,16 @@ export function planejar(entrada: EntradaDoPlano): Plano {
     que houve **e** o que pesou; entregar só um dos dois é responder metade.
   */
   if (DESTAQUE.test(frase) && ancorada) {
+    /*
+      Três necessidades, e cada uma responde uma metade da pergunta.
+
+      A fila diz **o que** merece atenção e por quê; o movimento diz o tamanho
+      do que ela está ordenando; o ranking diz onde está o dinheiro. Antes eram
+      só as duas últimas, e a resposta a "tem algo fora do padrão?" era o
+      agregado da vigência — verdadeiro, e sem nenhuma opinião sobre o que
+      estava fora do padrão.
+    */
+    necessidades.add("ATENCAO");
     if (!necessidades.has("MOVIMENTO")) {
       necessidades.add("MOVIMENTO");
       porque.push("pede o que se destaca no recorte");
@@ -387,6 +431,7 @@ export function planejar(entrada: EntradaDoPlano): Plano {
   */
   if (necessidades.size === 0 && leitura.intencao !== "DESCONHECIDA") {
     necessidades.add(leitura.intencao);
+    explicitas.add(leitura.intencao);
     porque.push(leitura.porque);
   }
 
@@ -438,7 +483,7 @@ export function planejar(entrada: EntradaDoPlano): Plano {
     };
   }
 
-  const ordenadas = ordenar(necessidades);
+  const ordenadas = ordenar(necessidades, explicitas);
   return {
     necessidades: ordenadas,
     principal: ordenadas[0]!,
@@ -451,9 +496,10 @@ export function planejar(entrada: EntradaDoPlano): Plano {
 /** As necessidades que a frase revela, na ordem de leitura. */
 export function detectar(pergunta: string): Necessidade[] {
   const frase = normalizar(pergunta);
-  return ordenar(
-    new Set(DETECTORES.filter((d) => d.quando.test(frase)).map((d) => d.necessidade)),
+  const achadas = new Set(
+    DETECTORES.filter((d) => d.quando.test(frase)).map((d) => d.necessidade),
   );
+  return ordenar(achadas, achadas);
 }
 
 /**
@@ -471,7 +517,8 @@ export function leituraProvisoria(pergunta: string): { intencao: Necessidade; po
   const frase = normalizar(pergunta);
   const casados = DETECTORES.filter((d) => d.quando.test(frase));
   if (casados.length === 0) return { intencao: "DESCONHECIDA", porque: "nenhum detector casou" };
-  const principal = ordenar(new Set(casados.map((d) => d.necessidade)))[0]!;
+  const achadas = new Set(casados.map((d) => d.necessidade));
+  const principal = ordenar(achadas, achadas)[0]!;
   const dele = casados.find((d) => d.necessidade === principal);
   return { intencao: principal, porque: dele?.porque ?? "detectada pelo plano" };
 }

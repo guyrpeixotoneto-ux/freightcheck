@@ -546,6 +546,20 @@ function sugerir(dossie: Dossie): string[] {
       saida.push("Onde perdemos mais dinheiro?");
       saida.push("Quais veículos foram mais impactados?");
       break;
+    /*
+      Depois da fila, o próximo passo é sempre o primeiro item dela — e ele tem
+      nome. Perguntar pela regra do que ficou em primeiro lugar é o movimento
+      natural de quem acabou de saber por onde começar.
+    */
+    case "ATENCAO": {
+      const primeiro = dossie.evidencias.find((e) => e.assuntoEmDestaque)?.assuntoEmDestaque;
+      if (primeiro) {
+        saida.push(`O que o Book diz sobre ${primeiro.toLowerCase()}?`);
+        saida.push(`Quais veículos foram afetados em ${primeiro.toLowerCase()}?`);
+      }
+      saida.push("Onde perdemos mais dinheiro?");
+      break;
+    }
     case "EVOLUCAO":
     case "COMPARACAO":
       if (gaveta && !bloco) saida.push(`O que o Book do Operador diz sobre ${gaveta}?`);
