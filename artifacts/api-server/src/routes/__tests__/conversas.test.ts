@@ -47,7 +47,7 @@ beforeAll(async () => {
   outra = await criarPessoa("outra@empresa.com");
 
   const criada = await criarConversa(banco.db, dona, "Quanto mudou o IPVA", {
-    termoDoParametro: "ipva",
+    assunto: "ipva",
   });
   conversa = criada.id;
   await gravarTurno(banco.db, conversa, "Quanto mudou o IPVA?", {

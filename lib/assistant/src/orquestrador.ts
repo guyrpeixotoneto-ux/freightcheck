@@ -53,6 +53,7 @@ import {
   historicoDaSemantica,
   importacoesRecentes,
 } from "./governanca";
+import { reconhecerAssunto, type AssuntoReconhecido } from "./assunto";
 import {
   INTENCOES_COM_PARAMETRO,
   INTENCOES_COM_RECORTE,
@@ -66,7 +67,7 @@ import {
 } from "./interpretacao";
 import { normalizar, termos } from "./normalizar";
 import { resolverParametro, type Alvo, type Resolucao } from "./parametros";
-import { listPeriods } from "@workspace/comparison";
+import { garantirComparacoes, listPeriods } from "@workspace/comparison";
 import { rotuloDoPeriodo } from "./formato";
 import type { EstadoDaConversa } from "./conversa";
 
@@ -100,6 +101,13 @@ export interface Plano {
   intencao: Intencao;
   /** Por que esta intenção — para o painel técnico. */
   porque: string;
+  /**
+   * O assunto que o produto reconheceu, ou `null` quando a pergunta não nomeia
+   * nenhum. É o que a conversa guarda — nunca o resíduo da frase.
+   */
+  assunto: string | null;
+  /** Como ele foi reconhecido: por gaveta, ou só por vocabulário. */
+  comoReconheceu: AssuntoReconhecido["como"] | null;
   /** O que foi herdado da conversa anterior. */
   herdado: string[];
   alvo: Alvo | null;
@@ -292,7 +300,15 @@ export async function orquestrar(
   // ---- 2. herança da conversa ---------------------------------------------
   const herdado: string[] = [];
   let intencao = leitura.intencao;
-  let termoDoParametro = leitura.entidades.termoDoParametro;
+  /*
+    O candidato é uma hipótese até `reconhecerAssunto` a confirmar.
+
+    A variável chamava-se `termoDoParametro`, e o nome era metade do defeito:
+    todo o resto desta função a lia como um parâmetro estabelecido, quando ela
+    era o resíduo da frase. Aqui ela é o palpite, e `assunto` — logo abaixo — é
+    o que o produto reconheceu.
+  */
+  let candidato = leitura.entidades.assuntoCandidato;
   let periodoPedido = leitura.entidades.periodo;
   let intervaloPedido = leitura.entidades.intervalo;
 
@@ -311,10 +327,10 @@ export async function orquestrar(
     no Book?" declara, com todas as letras, que o assunto está na conversa.
   */
   const pronome = temPronomeAnaforico(pergunta);
-  if (estado && !termoDoParametro && estado.termoDoParametro) {
+  if (estado && !candidato && estado.assunto) {
     const pedeAssunto = INTENCOES_QUE_HERDAM_ASSUNTO.has(intencao) || pronome;
     if (pedeAssunto) {
-      termoDoParametro = estado.termoDoParametro;
+      candidato = estado.assunto;
       herdado.push("assunto");
     }
   }
@@ -347,15 +363,35 @@ export async function orquestrar(
     herdado.push("vigência da conversa");
   }
 
+  /*
+    Não entender a forma da pergunta não é motivo para largar a conversa.
+
+    `DESCONHECIDA` quer dizer "nenhum padrão casou" — uma afirmação sobre a
+    nossa lista de padrões, não sobre a pergunta. Dentro de um fio aberto, a
+    leitura que erra menos é que ela continua o fio: "qual teve maior
+    impacto?", logo depois de um resumo de agosto, é sobre agosto. Antes, a
+    herança da intenção dependia de `ehContinuacao`, que mede a **forma** da
+    frase — e essa frase tem verbo, objeto e quatro palavras, então não parecia
+    continuação nenhuma. O turno virava um beco: sem intenção, sem consulta,
+    sem resposta.
+
+    Isto não é um padrão a mais; é uma condição a menos. A primeira pergunta de
+    uma conversa continua sem ter o que herdar, e segue caindo em
+    `DESCONHECIDA`.
+  */
+  if (estado?.intencao && intencao === "DESCONHECIDA") {
+    intencao = estado.intencao;
+    herdado.push("intenção");
+  }
+
   if (leitura.continuacao && estado) {
-    if (intencao === "DESCONHECIDA" && estado.intencao) {
-      intencao = estado.intencao;
-      herdado.push("intenção");
-    }
-    if (!termoDoParametro && estado.termoDoParametro) {
-      termoDoParametro = estado.termoDoParametro;
-      herdado.push("parâmetro");
-    }
+    /*
+      A herança do assunto já aconteceu acima, para toda intenção que o admite.
+      Repeti-la aqui só produzia um segundo rótulo — "parâmetro" — para a mesma
+      coisa que o primeiro caminho chama de "assunto", e um teste da bateria
+      passou a falhar contra o rótulo que o outro caminho escreve. Um fato, um
+      nome.
+    */
     /*
       Comparação em continuação: o período que a frase traz é uma das pontas, e
       a outra vem da pergunta anterior. "Compare os dois" sem período nenhum
@@ -382,7 +418,7 @@ export async function orquestrar(
       na tela denunciava que julho não tinha entrado em nada.
     */
     if (periodoPedido && !intervaloPedido && (intencao === "EVOLUCAO" || intencao === "COMPARACAO")) {
-      intencao = termoDoParametro ? "VALOR" : "MOVIMENTO";
+      intencao = candidato ? "VALOR" : "MOVIMENTO";
       herdado.push("assunto, com o período trocado");
     }
 
@@ -396,24 +432,42 @@ export async function orquestrar(
     }
   }
 
-  // ---- 3. resolução do parâmetro ------------------------------------------
+  // ---- 3. reconhecimento do assunto ---------------------------------------
+  /*
+    O candidato vira assunto só se o produto o reconhecer.
+
+    Antes, qualquer resíduo virava termo e ia direto ao resolvedor; quando ele
+    não achava gaveta, o portão `alvoPerdido` desligava todas as consultas e a
+    pergunta terminava sem evidência. Agora existe um terceiro desfecho — **não
+    havia assunto** —, e ele é o mais comum numa conversa: "qual foi o impacto
+    dessas alterações?" não nomeia gaveta nenhuma, e a resposta certa é o
+    movimento do recorte.
+
+    Equipamento não entra: ele é dimensão, e deixá-lo entrar fazia "e nos
+    cavalos?" resolver para a gaveta "Manutenção cavalo".
+  */
+  let assunto: AssuntoReconhecido | null = null;
   let resolucao: Resolucao | null = null;
   let alvo: Alvo | null = null;
   let desambiguacao: Dossie["desambiguacao"] = null;
 
-  if (termoDoParametro && INTENCOES_COM_PARAMETRO.has(intencao)) {
-    marcar("resolverParametro", "Identificando o parâmetro");
-    resolucao = await resolverParametro(db, termoDoParametro, {
+  if (candidato && INTENCOES_COM_PARAMETRO.has(intencao)) {
+    marcar("reconhecerAssunto", "Identificando o assunto");
+    assunto = await reconhecerAssunto(db, candidato, {
       ...(leitura.entidades.equipamento ? { equipamento: leitura.entidades.equipamento } : {}),
     });
-    alvo = resolucao.escolhido;
-    if (resolucao.ambiguo && resolucao.alvos.length > 1) {
+    resolucao = assunto?.resolucao ?? null;
+    alvo = assunto?.alvo ?? null;
+    if (resolucao?.ambiguo && resolucao.alvos.length > 1) {
       desambiguacao = {
-        termo: termoDoParametro,
+        termo: assunto!.termo,
         opcoes: resolucao.alvos.slice(0, 4).map((a) => a.parametro),
       };
     }
   }
+
+  /** O assunto reconhecido, para quem precisa do termo — Book, regra, lacuna. */
+  const termoDoAssunto = assunto?.termo ?? null;
 
   // ---- 4. contexto ---------------------------------------------------------
   const precisaRecorte = INTENCOES_COM_RECORTE.has(intencao);
@@ -428,6 +482,24 @@ export async function orquestrar(
     });
   }
 
+  /*
+    ---- as comparações que este recorte precisa, garantidas -------------------
+
+    `change` e `change_set` são estado derivado, e até aqui só existiam quando
+    alguém abria a tela de Alterações. Ler a ausência deles como ausência de
+    movimento fazia esta função responder "0 alterações" num banco com 124 mil
+    fatos — com a fonte ao lado, indistinguível de uma consulta legítima.
+
+    A garantia é idempotente e barata quando já está feita: uma consulta
+    descobre o que falta, e numa base em dia nada é calculado. O custo real
+    aparece uma vez, na primeira pergunta depois de uma importação — que é
+    exatamente quando ele deve aparecer.
+  */
+  if (contexto && precisaRecorte) {
+    marcar("garantirComparacoes", "Conferindo as comparações da vigência");
+    await garantirComparacoes(db, contexto.contexto).catch(() => null);
+  }
+
   const periodo = contexto ? await resolverPeriodo(db, contexto, periodoPedido) : null;
   const intervalo = contexto && intervaloPedido
     ? {
@@ -439,6 +511,8 @@ export async function orquestrar(
   const plano: Plano = {
     intencao,
     porque: leitura.porque,
+    assunto: termoDoAssunto,
+    comoReconheceu: assunto?.como ?? null,
     herdado,
     alvo,
     resolucao,
@@ -476,8 +550,20 @@ export async function orquestrar(
     Sem alvo, os caminhos que consultam o agregado do recorte ficam desligados,
     e o que sai é a lacuna que diz o que aconteceu.
   */
-  const nomeouParametro = Boolean(termoDoParametro) && INTENCOES_COM_PARAMETRO.has(intencao);
-  const alvoPerdido = nomeouParametro && !alvo && !desambiguacao;
+  /*
+    O portão passou a depender de reconhecimento, não de resolução.
+
+    Ele existe para impedir a pior resposta que este assistente dava: perguntar
+    "quanto mudou o pedágio?" e receber o movimento **de tudo**, R$ 28 mil que
+    não têm nada a ver com pedágio. Mas ele disparava sempre que a resolução
+    falhava — inclusive quando o "termo" era `dessas` —, e aí desligava as
+    consultas de perguntas que não nomeavam nada.
+
+    Agora só fecha quando a pessoa nomeou algo que o produto conhece e para o
+    qual não existe coluna. Quem não nomeou nada (`assunto === null`) consulta
+    o recorte, que é o que perguntou.
+  */
+  const alvoPerdido = assunto !== null && !alvo && !desambiguacao;
 
   switch (intencao) {
     case "CONCEITUAL":
@@ -493,7 +579,7 @@ export async function orquestrar(
         como um todo — "quantos blocos já têm regra?" —, que é dado e não
         conteúdo.
       */
-      if (!termoDoParametro) {
+      if (!termoDoAssunto) {
         marcar("consultar", "Consultando o Book do Operador");
         evidencias.push(await coberturaDoBook(db));
       }
@@ -666,11 +752,16 @@ export async function orquestrar(
 
         "Onde aparece a placa ABC1D23 na planilha?" tem seis palavras de
         operação e uma de conteúdo; procurar a frase toda em `raw_cell` não
-        acharia nada, e procurar cada palavra acharia tudo. `termoDoParametro`
+        acharia nada, e procurar cada palavra acharia tudo. `assuntoCandidato`
         já é exatamente o resíduo depois da poda.
       */
-      if (termoDoParametro) {
-        await juntar("Procurando nas células importadas", buscarNasCelulas(db, termoDoParametro));
+      /*
+        A busca nas células é literal — uma placa, um número de chassi —, então
+        ela usa o candidato cru e não o assunto reconhecido: o que se procura
+        aqui é justamente o que o dicionário do produto **não** conhece.
+      */
+      if (candidato) {
+        await juntar("Procurando nas células importadas", buscarNasCelulas(db, candidato));
       }
       break;
 
@@ -706,14 +797,27 @@ export async function orquestrar(
   const perguntaDeConteudo =
     intencao === "BOOK" || intencao === "CONCEITUAL" || intencao === "DISPONIBILIDADE";
 
-  if (intencao !== "SAUDACAO" && (termoDoParametro || perguntaDeConteudo)) {
+  /*
+    Procurar é diferente de entregar, e a condição estava na etapa errada.
+
+    A busca só rodava quando havia assunto extraído — e `remuneracao` estava na
+    lista de bloqueio, então a pergunta mais frequente do produto nunca chegava
+    ao Book. Amarrar a **busca** à existência de assunto era condicionar a
+    fonte à qualidade de um palpite.
+
+    Agora toda pergunta que não é saudação procura, com a frase inteira. Quem
+    decide o que entra continua sendo o limiar de `buscarNoBook`: um casamento
+    fraco não vira documento no dossiê, e é por isso que "quantos veículos
+    temos?" continua não trazendo regra nenhuma.
+  */
+  if (intencao !== "SAUDACAO") {
     marcar("book", "Procurando no Book do Operador");
 
     const achados = await buscarNoBook(db, pergunta, {
       limite: perguntaDeConteudo ? 6 : 3,
       blocoPreferido: estado?.blocoDoBook ?? null,
       termosExtras: [
-        ...(termoDoParametro ? [termoDoParametro] : []),
+        ...(termoDoAssunto ? [termoDoAssunto] : []),
         ...(alvo ? [alvo.parametro] : []),
       ],
     }).catch(() => []);
@@ -726,10 +830,10 @@ export async function orquestrar(
       mas é o que sustenta a fonte na tela e o que responde "isto está mesmo
       registrado no Book?".
     */
-    if (termoDoParametro) {
+    if (termoDoAssunto) {
       await juntar(
         "Consultando o registro do Book",
-        regraDoBook(db, termoDoParametro, { documentoLido: achados.length > 0 }),
+        regraDoBook(db, termoDoAssunto, { documentoLido: achados.length > 0 }),
       );
     }
 
@@ -773,8 +877,8 @@ export async function orquestrar(
       mandar o arquivo junto seria a mesma informação duas vezes: uma
       conferível contra o texto do dossiê e outra não.
     */
-    if (termoDoParametro && documentos.length === 0) {
-      const anexo = await anexoDoBook(db, termoDoParametro).catch(() => null);
+    if (termoDoAssunto && documentos.length === 0) {
+      const anexo = await anexoDoBook(db, termoDoAssunto).catch(() => null);
       if (anexo?.conteudo.forma === "NATIVO") {
         marcar("anexar", "Abrindo o documento do Book");
         anexos.push(anexo);
@@ -837,8 +941,8 @@ export async function orquestrar(
     aqui produzia a nota "nenhuma coluna da gaveta Pneu trata de regra, bloco",
     verdadeira e sem nenhuma relação com o que foi perguntado.
   */
-  if (termoDoParametro && alvo && intencao !== "BOOK") {
-    const lacuna = lacunaDoQualificador(termoDoParametro, alvo);
+  if (termoDoAssunto && alvo && intencao !== "BOOK") {
+    const lacuna = lacunaDoQualificador(termoDoAssunto, alvo);
     if (lacuna) lacunas.push(lacuna);
   }
 
@@ -853,8 +957,21 @@ export async function orquestrar(
     terminar com "nenhum parâmetro corresponde a unknown" seria negar a resposta
     que acabou de ser dada.
   */
+  /*
+    O registro do Book não conta como número consultado.
+
+    `regraDoBook` diz qual bloco cobre o assunto e em que revisão — é evidência
+    de que a regra existe, não de que houve movimento. Contá-la aqui fazia a
+    lacuna desaparecer justamente no caso que a criou: "quanto mudou o
+    pedágio?" passou a trazer o registro do Book (porque a busca deixou de
+    depender do assunto extraído) e, com ele, a deixar de dizer que o export
+    não traz pedágio.
+  */
+  const evidenciasDeDado = evidencias.filter(
+    (e) => !e.ferramenta.toLowerCase().includes("book"),
+  );
   const precisavaDeNumero = INTENCOES_COM_RECORTE.has(intencao);
-  if (alvoPerdido && (precisavaDeNumero ? evidencias.length === 0 : trechos.length === 0)) {
+  if (alvoPerdido && (precisavaDeNumero ? evidenciasDeDado.length === 0 : trechos.length === 0)) {
     /*
       Distinguir "o produto não conhece isto" de "o produto conhece e o export
       não traz" é o que separa duas conversas muito diferentes: a primeira
@@ -868,8 +985,8 @@ export async function orquestrar(
       explicacao:
         noCatalogo || noBook
           ? `${noCatalogo ? "O Freightech publica este assunto" : "O Book do Operador trata deste assunto"}, ` +
-            `mas nenhuma coluna deste export alimenta "${termoDoParametro}" — então não há número a somar aqui.`
-          : `O arquivo importado não tem nada sobre "${termoDoParametro}"` +
+            `mas nenhuma coluna deste export alimenta "${termoDoAssunto}" — então não há número a somar aqui.`
+          : `O arquivo importado não tem nada sobre "${termoDoAssunto}"` +
             (documentos.length > 0
               ? " — o que sai daqui é a regra registrada no Book, não número apurado."
               : ". Pode ser que o Freightech publique esse assunto noutra tela, cujo arquivo ainda não foi importado."),

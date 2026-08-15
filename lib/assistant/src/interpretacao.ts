@@ -170,8 +170,15 @@ export interface PeriodoPedido {
 }
 
 export interface Entidades {
-  /** O termo que nomeia a gaveta — cru, para o resolvedor. */
-  termoDoParametro: string | null;
+  /**
+   * O que a frase pode estar nomeando — **hipótese**, não afirmação.
+   *
+   * Chamava-se `termoDoParametro`, e o nome era a origem do defeito: quem lia
+   * o campo tratava o resíduo da frase como um parâmetro já estabelecido. Aqui
+   * ele é o que sempre foi de verdade — um palpite —, e quem decide se há
+   * assunto é `reconhecerAssunto`, contra o vocabulário do produto.
+   */
+  assuntoCandidato: string | null;
   periodo: PeriodoPedido | null;
   /** Quando a pergunta delimita um intervalo: "desde dezembro", "de julho a agosto". */
   intervalo: { de: PeriodoPedido; ate: PeriodoPedido | null } | null;
@@ -251,77 +258,110 @@ function lerEquipamento(frase: string): "CAVALO" | "CARRETA" | null {
 }
 
 /**
- * Palavras que nomeiam a operação e nunca o parâmetro.
+ * Palavras com que se **pergunta**, e nunca se nomeia uma coisa.
  *
- * Sem esta poda, "quanto mudou o IPVA" ofereceria "quanto mudou ipva" ao
- * resolvedor, e a busca textual do resolvedor casaria qualquer coluna cujo
- * nome contivesse "mudou" — que não existe, mas o mesmo vale para "valor",
- * "total" e "impacto", que existem em dezenas.
+ * **O que esta lista deixou de ser.** Ela era "as palavras que não são
+ * parâmetro" — e nessa forma continha `remuneracao`, `impacto`, `veiculo`,
+ * `book`, `parametro`: o vocabulário do domínio, tratado como ruído. Uma lista
+ * assim é aberta por construção. Ela cresce com o que as pessoas escrevem, não
+ * com o que o produto tem, e cada palavra que faltava nela virava um parâmetro
+ * inexistente que desligava todas as consultas da pergunta.
+ *
+ * **O que ela é agora.** As palavras que compõem uma pergunta em português —
+ * interrogativos, verbos de existência e de pedido, termos de comparação e de
+ * juízo — mais os verbos com que se fala de mudança. É uma classe fechada: ela
+ * descreve a *forma* de perguntar, que é finita, e não os *assuntos*, que não
+ * são. Nada de domínio entra aqui; quem decide se o que sobrou é assunto é
+ * `reconhecerAssunto`, contra o vocabulário real do produto.
+ *
+ * O que sai daqui é um **candidato**, não uma afirmação. `termoDoParametro`
+ * carregava a segunda; `assuntoCandidato` carrega o primeiro, e o nome mudou
+ * para que nenhum chamador continue lendo hipótese como fato.
  */
-const PALAVRAS_DE_OPERACAO = new Set([
+const PALAVRAS_DE_PERGUNTA = new Set([
+  // interrogativos e dêiticos
   "quanto", "quantos", "quantas", "qual", "quais", "como", "onde", "quando",
+  "esse", "essa", "isso", "esta", "este", "dessas", "desses", "dessa", "desse",
+  "aquilo", "aquele", "aquela", "coisa", "coisas", "algo", "nada", "alguma", "algum",
+  // existência e posse
+  "teve", "tem", "tinha", "tiveram", "tivemos", "havia", "houve", "existe",
+  "existem", "temos", "disponivel",
+  // mudança, na forma verbal
   "mudou", "mudaram", "mudanca", "mudancas", "alterou", "alteracao", "alteracoes",
-  "funciona", "calculado", "calcula", "composto", "composicao", "significa",
-  "evolucao", "evoluiu", "variou", "variacao", "subiu", "caiu", "aumentou",
-  "diminuiu", "compare", "comparar", "comparacao", "versus", "contra",
-  "impacto", "impactos", "perdemos", "perda", "perdas", "ganhamos", "ganho",
-  "ganhos", "piorou", "melhorou", "prejudicou", "afetados", "afetado",
-  "veiculo", "veiculos", "placa", "placas", "frota", "vigencia", "vigencias",
-  "parametro", "parametros", "book", "operador", "diz", "fala", "sobre",
-  "desde", "entre", "ate", "periodo", "mes", "meses", "ano", "temos", "existe",
-  "existem", "disponivel", "precificar", "precificado", "semantica",
-  "confirmada", "confirmado", "numero", "valor", "valores", "dado", "dados",
-  "freightcheck", "sistema", "produto", "sofreram", "sofreu", "contribuiram",
-  "importante", "importantes", "principal", "principais", "estranha", "estranho",
-  "dinheiro", "reais", "foram", "foi", "veio", "esse", "essa", "isso", "esta",
-  "impactado", "impactados", "impactada", "impactadas", "afetada", "afetadas",
-  "suficiente", "importado", "importados", "importadas", "calcular", "calculo",
-  "dois", "duas", "ambos", "ambas",
-  "aconteceu", "acontece", "aconteceram", "houve", "ocorreu", "ocorreram",
-  /*
-    "Teve" sobrava como assunto de "teve alteração na remuneração?" — e um
-    resíduo qualquer basta para a frase parecer ter assunto próprio e disparar
-    uma busca por ele. O verbo de existência nunca nomeia coisa nenhuma.
-  */
-  "teve", "tem", "tinha", "tiveram", "tivemos", "ha", "havia",
-  "coisa", "coisas", "algo", "nada", "alguma", "algum",
-  "rolou", "entrou", "saiu", "resumo", "panorama", "situacao",
-  "bloco", "blocos", "regra", "regras", "cobre", "cobertura", "cobertos",
-  /*
-    Palavras que a pergunta usa para se referir **à resposta anterior**, e nunca
-    para nomear um parâmetro.
-
-    "Me mostre a fonte" oferecia "fonte" ao resolvedor, que não achava gaveta
-    nenhuma com esse nome e declarava que o FreightCheck não conhece "fonte" —
-    quando a pergunta era sobre a fonte do que acabara de ser dito. O mesmo com
-    "isso está previsto no Book?", que virava uma busca por um parâmetro
-    chamado "previsto".
-  */
-  /*
-    Como se pede um documento, e nunca como se chama um.
-
-    "Você não consegue ler o que tem no documento QLP ADM?" deixava para o
-    resolvedor a frase inteira — "consegue ler documento qlp adm" —, e com ela
-    a busca textual do Book (que procura o termo dentro do texto das regras)
-    não achava nada e o casamento por título dependia de sorte. O nome do bloco
-    é o que sobra depois de tirar o pedido: `qlp adm`.
-  */
-  "documento", "documentos", "anexo", "anexos", "anexado", "anexada",
-  "arquivo", "arquivos", "conteudo", "ler", "leia", "leu", "abrir", "abre",
-  "abra", "consegue", "conseguiu", "transcreve", "transcrever", "pdf",
+  "aconteceu", "acontece", "aconteceram", "ocorreu", "ocorreram", "rolou",
+  "entrou", "saiu", "sofreram", "sofreu", "variou", "variacao", "evoluiu",
+  "subiu", "caiu", "aumentou", "diminuiu", "reduziu", "cresceu",
+  "custou", "custaram", "custa", "custam", "custar", "pesou", "pesaram",
+  "impactou", "impactaram", "afetou", "afetaram", "influenciou",
+  "reduzir", "aumentar", "subir", "cair", "mudar", "alterar", "variar",
+  // perda e ganho nomeiam a medida do ranking; dinheiro e reais, a unidade
+  "perdemos", "perda", "perdas", "perdeu", "perderam", "prejudicou",
+  "ganhamos", "ganho", "ganhos", "ganhou", "ganharam", "dinheiro", "reais",
+  // comparação e juízo
+  "compare", "comparar", "comparacao", "versus", "contra", "diferenca",
+  "maior", "menor", "melhor", "pior", "melhorou", "piorou", "relevante",
+  "importante", "importantes", "principal", "principais", "estranho", "estranha",
+  "fora", "padrao", "merece", "atencao", "vale", "pena", "preocupar",
+  "tres", "dois", "duas", "ambos", "ambas", "apenas", "somente",
+  // cópulas e particípios, que ligam sem nomear
+  "foram", "foi", "era", "eram", "sido", "seja", "esta", "estao", "ficou",
+  "impactado", "impactados", "impactada", "impactadas", "afetado", "afetados",
+  "afetada", "afetadas", "sofrido", "sofridos", "calculado", "calculada",
+  "apurado", "apurada", "importado", "importados", "importada", "importadas",
+  // o eixo dos ativos: quem foi atingido, não o que mudou
+  "veiculo", "veiculos", "placa", "placas", "ativo", "ativos", "caminhoes",
+  // o eixo do tempo: delimita o recorte, nunca nomeia um assunto
+  "desde", "entre", "periodo", "periodos", "mes", "meses", "ano", "anos",
+  "dia", "dias", "semana", "semanas", "trimestre", "semestre",
+  "vigencia", "vigencias", "ultimos", "ultimas", "recente", "recentes",
+  // pedido e investigação
+  "diga", "diz", "fala", "falar", "conta", "contar", "mostre", "mostrem",
+  "exiba", "exibir", "liste", "listar", "traga", "trazer", "resuma", "resumo",
+  "explique", "explica", "investigar", "investigacao", "verificar", "ver",
+  "olhar", "saber", "entender", "deveria", "consegue", "conseguiu", "podem",
+  "pode", "poderia", "quero", "queria", "gostaria", "preciso",
+  // referência à conversa e às fontes
   "fonte", "fontes", "origem", "procedencia", "previsto", "prevista",
   "previstos", "previstas", "citado", "citada", "acima", "disse", "falou",
-  // "Me mostre a fonte" oferecia "mostre" ao resolvedor — e um termo residual
-  // qualquer basta para a frase parecer ter assunto próprio e não herdar nada.
-  "mostre", "mostrem", "exiba", "exibir", "liste", "listar", "traga", "trazer",
-  "anterior", "anteriores", "seguinte", "proxima", "proximo", "passada", "passado",
-  "ultima", "ultimo", "atual", "corrente", "primeira", "primeiro", "remuneracao",
+  "anterior", "anteriores", "seguinte", "proxima", "proximo", "passada",
+  "passado", "ultima", "ultimo", "atual", "corrente", "primeira", "primeiro",
+  "relacionada", "relacionado", "sobre",
+  /*
+    Como se nomeia a **fonte**, e nunca o assunto.
+
+    "Book", "regra", "contrato", "bloco" dizem *onde procurar*; o assunto é o
+    que vem depois deles. Tratá-los como assunto fazia "o Book cobre quantos
+    blocos?" procurar uma gaveta chamada `book cobre blocos` — e, por o produto
+    reconhecer "book" no título dos seus próprios blocos, a pergunta deixava de
+    consultar a cobertura que ela pedia.
+
+    É a fatia estreita e segura de uma distinção maior: no ranqueamento do Book
+    estas palavras também não deveriam pontuar como conteúdo, e é por isso que
+    "o que o Book diz sobre pneu?" ainda traz BOOK VALE PEDÁGIO à frente de
+    PNEU. Aquilo se resolve no ranqueamento, não aqui.
+  */
+  "book", "operador", "bloco", "blocos", "cobre", "cobertura", "cobertos",
+  "regra", "regras", "contrato", "manual", "capitulo", "secao", "item",
+  // como se pede um documento — nunca como se chama um
+  "documento", "documentos", "anexo", "anexos", "anexado", "anexada",
+  "arquivo", "arquivos", "conteudo", "ler", "leia", "leu", "abrir", "abre",
+  "abra", "transcreve", "transcrever",
+  // interlocutores e destinatários
+  "diretor", "diretoria", "operacao", "assistente", "voce", "estivesse",
+  "falando", "minha", "meu", "eu",
   ...Object.keys(MESES),
 ]);
 
-/** O que sobra da frase depois de tirar operação, meses e ruído. */
-function extrairTermoDoParametro(pergunta: string): string | null {
-  const palavras = termos(pergunta).filter((p) => !PALAVRAS_DE_OPERACAO.has(p));
+/**
+ * O candidato a assunto: o que sobra depois de tirar a forma da pergunta.
+ *
+ * É uma **hipótese**. Ela só vira assunto depois de `reconhecerAssunto` a
+ * confrontar com o vocabulário real do produto — e o caso mais comum é ela não
+ * virar, porque a maioria das perguntas de uma conversa não nomeia gaveta
+ * nenhuma.
+ */
+function extrairAssuntoCandidato(pergunta: string): string | null {
+  const palavras = termos(pergunta).filter((p) => !PALAVRAS_DE_PERGUNTA.has(p));
   return palavras.length > 0 ? palavras.join(" ") : null;
 }
 
@@ -655,7 +695,7 @@ export function interpretar(pergunta: string): Leitura {
       continuacao: false,
       porque: "é conversa, não consulta",
       entidades: {
-        termoDoParametro: null,
+        assuntoCandidato: null,
         periodo: null,
         intervalo: null,
         equipamento: null,
@@ -697,7 +737,7 @@ export function interpretar(pergunta: string): Leitura {
     intervalo = { de: meses[0], ate: null };
   }
 
-  const termoDoParametro = extrairTermoDoParametro(pergunta);
+  const assuntoCandidato = extrairAssuntoCandidato(pergunta);
 
   /*
     "Por quê?" pergunta duas coisas diferentes conforme traga ou não um objeto.
@@ -735,7 +775,7 @@ export function interpretar(pergunta: string): Leitura {
   */
   const temPedidoProprio =
     intencao !== "DESCONHECIDA" &&
-    (Boolean(termoDoParametro) || Boolean(intervalo?.ate) || meses.length >= 2);
+    (Boolean(assuntoCandidato) || Boolean(intervalo?.ate) || meses.length >= 2);
   const continuacao = ehContinuacao(pergunta) && !temPedidoProprio;
 
   return {
@@ -743,7 +783,7 @@ export function interpretar(pergunta: string): Leitura {
     continuacao,
     porque,
     entidades: {
-      termoDoParametro,
+      assuntoCandidato,
       periodo,
       intervalo,
       equipamento: lerEquipamento(frase),

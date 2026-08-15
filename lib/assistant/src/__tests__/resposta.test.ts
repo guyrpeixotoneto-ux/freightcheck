@@ -48,6 +48,8 @@ function dossie(parcial: Partial<Dossie> = {}): Dossie {
     plano: {
       intencao: "CONCEITUAL",
       porque: "pede definição",
+      assunto: null,
+      comoReconheceu: null,
       herdado: [],
       alvo: null,
       resolucao: null,

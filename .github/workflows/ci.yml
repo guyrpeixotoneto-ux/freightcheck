@@ -1,0 +1,98 @@
+# Testes com banco — porque sem banco 44% da suíte não roda.
+#
+# Não havia CI neste repositório, e o efeito não era "os testes não rodam
+# automaticamente": era que **os testes que mais importam nunca rodaram**. As
+# suítes deste produto se dividem em duas naturezas, e a divisão não é acidental.
+# As puras cobrem parsing, ranqueamento e redação; as `-real` e a bateria do
+# assistente cobrem o que só existe contra dado promovido — se o número que o
+# assistente cita é o mesmo que a tela mostra, se a comparação entre vigências
+# bate com o motor, se a identidade canônica se mantém entre importações.
+#
+# Sem `DATABASE_URL`, as segundas se marcam como puladas e o resultado fica
+# verde. Medido em 15/08/2026: **420 de 963 testes pulados**, com `balance` e
+# `db` pulando 100% do que têm. A bateria do assistente — 73 provas — nunca
+# rodou desde que foi escrita, e apodreceu: uma delas falhava contra um rótulo
+# que o código havia mudado, e ninguém soube.
+#
+# Este arquivo existe para que "verde" queira dizer a mesma coisa que dizia
+# quando alguém rodava à mão com um banco ao lado.
+
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Duas variáveis, porque são dois modos de teste — e a diferença importa.
+  #
+  # `TEST_ADMIN_DATABASE_URL` é a conexão de administração: as suítes `-real` de
+  # ingest, comparison, composition, curation, balance e db criam um banco
+  # descartável por arquivo, a partir das migrations versionadas. Elas não
+  # querem o banco semeado; querem um vazio que provem que as migrations sobem.
+  #
+  # `ASSISTANT_EVAL_DATABASE_URL` é o banco **semeado**: a bateria e o benchmark
+  # do assistente precisam do export real promovido, porque o que eles conferem
+  # é se o número que o assistente cita é o mesmo que o motor devolve.
+  #
+  # `DATABASE_URL` fica de fora de propósito. Uma rota do api-server testa
+  # exatamente o que acontece quando ela **não** está definida, e defini-la aqui
+  # faria esse teste medir o ambiente em vez do código. O seed a recebe inline.
+  TEST_ADMIN_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres?application_name=ci
+  ASSISTANT_EVAL_DATABASE_URL: postgres://postgres:postgres@localhost:5432/freightcheck
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: freightcheck
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Instalar
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm run typecheck
+
+      # Migrations e os dois workbooks reais de `attached_assets`. É o mesmo
+      # caminho que um desenvolvedor roda para ter um banco de trabalho, e é de
+      # propósito: um seed exclusivo de CI seria uma segunda verdade sobre o que
+      # "banco pronto" significa.
+      - name: Semear o banco
+        env:
+          DATABASE_URL: postgres://postgres:postgres@localhost:5432/freightcheck
+        run: pnpm run dev:seed
+
+      - name: Testes
+        run: pnpm -r --if-present run test
+
+      # A régua do assistente. Ela roda junto com o resto — o piso por categoria
+      # está no próprio teste, e cair abaixo dele reprova aqui.
+      - name: Benchmark do assistente
+        run: pnpm --filter @workspace/assistant run test -- src/__tests__/benchmark

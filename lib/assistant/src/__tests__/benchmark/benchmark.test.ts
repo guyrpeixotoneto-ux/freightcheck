@@ -1,6 +1,7 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { createDb, type Database } from "@workspace/db";
 import { resolveContext } from "@workspace/comparison";
+import { semearBookDeTeste } from "../fixtures/book";
 import { orquestrar } from "../../orquestrador";
 import { BENCHMARK, type Fonte } from "./perguntas";
 
@@ -26,10 +27,17 @@ import { BENCHMARK, type Fonte } from "./perguntas";
 const URL_DO_BANCO = process.env.ASSISTANT_EVAL_DATABASE_URL ?? process.env.DATABASE_URL;
 const rodar = URL_DO_BANCO ? describe : describe.skip;
 
-/** O piso medido em 15/08/2026. Subir é progresso; cair é regressão. */
+/**
+ * O piso por categoria. Subir é progresso; cair é regressão.
+ *
+ * Medido em 15/08/2026 (69/103) e levantado pela Fase 1 (79/103). Os números
+ * abaixo são o **depois** da Fase 1: eles travam o ganho, de modo que nenhuma
+ * mudança futura possa devolver silenciosamente uma categoria ao que ela era.
+ * Quem melhorar uma categoria sobe o piso dela no mesmo commit.
+ */
 const PISO: Record<string, number> = {
-  alteracoes: 13, parametros: 9, impacto: 7, equipamentos: 8, combustivel: 6,
-  book: 6, comparacao: 4, cruzada: 3, informal: 5, executiva: 2, impossivel: 6,
+  alteracoes: 15, parametros: 9, impacto: 10, equipamentos: 8, combustivel: 6,
+  book: 6, comparacao: 6, cruzada: 3, informal: 7, executiva: 2, impossivel: 7,
 };
 
 rodar("benchmark do assistente", () => {
@@ -39,6 +47,7 @@ rodar("benchmark do assistente", () => {
   beforeAll(async () => {
     ({ db } = createDb(URL_DO_BANCO!));
     expect(await resolveContext(db), "o benchmark precisa de um banco promovido").toBeTruthy();
+    await semearBookDeTeste(db);
 
     for (const caso of BENCHMARK) {
       if (caso.categoria === "followup") continue;

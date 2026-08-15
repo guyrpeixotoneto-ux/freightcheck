@@ -138,9 +138,9 @@ describe("entidades", () => {
   });
 
   it("extrai o assunto e descarta a operação", () => {
-    expect(interpretar("quanto mudou o IPVA desde dezembro?").entidades.termoDoParametro).toBe("ipva");
-    expect(interpretar("onde perdemos mais dinheiro?").entidades.termoDoParametro).toBeNull();
-    expect(interpretar("quais veículos foram mais impactados?").entidades.termoDoParametro).toBeNull();
+    expect(interpretar("quanto mudou o IPVA desde dezembro?").entidades.assuntoCandidato).toBe("ipva");
+    expect(interpretar("onde perdemos mais dinheiro?").entidades.assuntoCandidato).toBeNull();
+    expect(interpretar("quais veículos foram mais impactados?").entidades.assuntoCandidato).toBeNull();
   });
 
   /*
@@ -153,9 +153,9 @@ describe("entidades", () => {
   it("descarta o vocabulário de quem pede um documento", () => {
     expect(
       interpretar("você não consegue ler o que tem no documento QLP ADM?").entidades
-        .termoDoParametro,
+        .assuntoCandidato,
     ).toBe("qlp adm");
-    expect(interpretar("abre o anexo de pneu").entidades.termoDoParametro).toBe("pneu");
+    expect(interpretar("abre o anexo de pneu").entidades.assuntoCandidato).toBe("pneu");
   });
 
   it("lê o equipamento", () => {
@@ -186,6 +186,6 @@ describe("continuação", () => {
     const leitura = interpretar("E julho?");
     expect(leitura.continuacao).toBe(true);
     expect(leitura.entidades.periodo).toEqual({ mes: "julho" });
-    expect(leitura.entidades.termoDoParametro).toBeNull();
+    expect(leitura.entidades.assuntoCandidato).toBeNull();
   });
 });

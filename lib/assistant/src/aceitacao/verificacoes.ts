@@ -309,6 +309,6 @@ export function mantemAssunto(resposta: Resposta, assunto: string): boolean {
   const noEstado =
     (resposta.estado.blocoDoBook ?? "").toLowerCase().includes(alvo) ||
     (resposta.estado.parametro ?? "").toLowerCase().includes(alvo) ||
-    (resposta.estado.termoDoParametro ?? "").toLowerCase().includes(alvo);
+    (resposta.estado.assunto ?? "").toLowerCase().includes(alvo);
   return nasFontes || noRecorte || noEstado;
 }

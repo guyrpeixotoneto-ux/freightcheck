@@ -2,6 +2,7 @@ export * from "./series";
 export * from "./classification";
 export * from "./impact";
 export * from "./engine";
+export * from "./garantia";
 export * from "./query";
 export * from "./consolidated";
 export * from "./composition";

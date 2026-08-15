@@ -123,7 +123,7 @@ describe("a resposta a um cumprimento", () => {
 describe("a saudação não carrega entidade nem herança", () => {
   it("não nomeia parâmetro, período nem intervalo", () => {
     const leitura = interpretar("bom dia");
-    expect(leitura.entidades.termoDoParametro).toBeNull();
+    expect(leitura.entidades.assuntoCandidato).toBeNull();
     expect(leitura.entidades.periodo).toBeNull();
     expect(leitura.entidades.intervalo).toBeNull();
   });
@@ -137,7 +137,7 @@ describe("a saudação não carrega entidade nem herança", () => {
     const anterior = {
       ...ESTADO_VAZIO,
       intencao: "EVOLUCAO" as const,
-      termoDoParametro: "ipva",
+      assunto: "ipva",
       parametro: "IPVA",
     };
     const dossie = {
@@ -150,6 +150,6 @@ describe("a saudação não carrega entidade nem herança", () => {
     const depois = avancarEstado(anterior, dossie);
 
     expect(depois.intencao, "o fio continua no que se investigava").toBe("EVOLUCAO");
-    expect(depois.termoDoParametro).toBe("ipva");
+    expect(depois.assunto).toBe("ipva");
   });
 });

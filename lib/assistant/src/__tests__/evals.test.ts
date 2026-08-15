@@ -12,6 +12,7 @@ import { responder } from "../resposta";
 import { avancarEstado, ESTADO_VAZIO, type EstadoDaConversa } from "../conversa";
 import { resolverParametro } from "../parametros";
 import { CASOS, CONVERSAS } from "./bateria";
+import { semearBookDeTeste } from "./fixtures/book";
 
 /**
  * A bateria — perguntas reais contra o banco real.
@@ -42,6 +43,7 @@ rodar("bateria do assistente", () => {
     ({ db } = createDb(URL_DO_BANCO!));
     const contexto = await resolveContext(db);
     expect(contexto, "a bateria precisa de um banco com vigência promovida").toBeTruthy();
+    await semearBookDeTeste(db);
   });
 
   describe("intenção e ferramenta", () => {
@@ -390,7 +392,7 @@ rodar("bateria do assistente", () => {
         estado: primeira.estado,
       });
 
-      expect(segunda.tecnico.herdado).toContain("parâmetro");
+      expect(segunda.tecnico.herdado).toContain("assunto");
       expect(segunda.recorte, "a resposta descreve julho").toMatch(/julho/i);
       expect(segunda.intencao, "a intenção passa a ser sobre aquele mês").toBe("VALOR");
     });
@@ -413,7 +415,7 @@ rodar("bateria do assistente", () => {
         semIa: true,
         estado: primeira.estado,
       });
-      expect(segunda.estado.termoDoParametro).toContain("pneu");
+      expect(segunda.estado.assunto).toContain("pneu");
     });
 
     it('"E na vigência anterior?" troca só o recorte', async () => {
@@ -493,7 +495,7 @@ rodar("bateria do assistente", () => {
         semIa: true,
       });
       const estado = primeira.estado;
-      expect(estado.termoDoParametro).toBe("ipva");
+      expect(estado.assunto).toBe("ipva");
       expect(estado.contexto).toBeTruthy();
     });
   });
@@ -556,7 +558,7 @@ rodar("bateria do assistente", () => {
       const dossie = await orquestrar(db, "Quanto mudou o IPVA em agosto?");
       const estado: EstadoDaConversa = avancarEstado(ESTADO_VAZIO, dossie);
       expect(estado.intencao).toBeTruthy();
-      expect(estado.termoDoParametro).toBe("ipva");
+      expect(estado.assunto).toBe("ipva");
       expect(estado.scopeHash).toBeTruthy();
     });
   });
