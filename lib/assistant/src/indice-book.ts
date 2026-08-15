@@ -378,9 +378,19 @@ function expandir(
   const principais = new Set(palavras);
   const secundarios = new Set<string>();
 
+  /*
+    A expansão vem do **título**, nunca da categoria.
+
+    "Equipamentos" é a categoria de dezenas de blocos, e incluí-la aqui fazia
+    dela um ímã: quem perguntasse por "pneu" — bloco da categoria Equipamentos —
+    recebia "equipamentos" como termo secundário, e aí todo bloco de
+    equipamento subia junto. Foi assim que "teve alteração na remuneração de
+    pneu?" devolveu custo fixo de equipamentos à frente de pneu. Categoria
+    agrupa; ela não é vocabulário de assunto.
+  */
   const titulos = new Map<string, string[]>();
   for (const t of trechos) {
-    if (!titulos.has(t.bloco)) titulos.set(t.bloco, termos(`${t.categoria} ${t.bloco}`));
+    if (!titulos.has(t.bloco)) titulos.set(t.bloco, termos(t.bloco));
   }
 
   for (const [, termosDoTitulo] of titulos) {
@@ -393,12 +403,73 @@ function expandir(
   return { principais, secundarios };
 }
 
-/** Quanto do texto casa com o conjunto de termos, com peso por tamanho. */
-function cobertura(texto: string[], alvo: Set<string>): number {
+/**
+ * Quanto uma palavra vale, medido no próprio índice.
+ *
+ * "Remuneração" está em 22 dos 66 blocos do Book; "pneu", em 1. Contadas com o
+ * mesmo peso, uma pergunta que só diz "remuneração" casa vinte e dois
+ * documentos igualmente bem, e o desempate acaba sendo o acaso da ordem — foi
+ * assim que "teve alteração na remuneração?" recebeu de volta o documento de
+ * custo fixo de equipamentos, inteiro.
+ *
+ * O peso é a raridade: `log(N / (1 + quantos trechos contêm))`. Palavra que
+ * está em quase tudo tende a zero e para de decidir; palavra rara decide
+ * sozinha. É a mesma ideia de IDF, calculada sobre este índice — não sobre um
+ * corpus genérico de português, que não saberia que "detalhamento" é ruído
+ * **aqui**, em 43 dos 66 blocos.
+ */
+interface Raridade {
+  /** O peso de cada termo: maior quanto mais raro. Sempre positivo. */
+  pesos: Map<string, number>;
+  /** Em quantos trechos cada termo aparece. */
+  frequencia: Map<string, number>;
+  total: number;
+}
+
+function raridadeDoIndice(trechos: TrechoDoBook[]): Raridade {
+  const frequencia = new Map<string, number>();
+  for (const trecho of trechos) {
+    for (const termo of new Set(termos(`${trecho.bloco} ${trecho.secao ?? ""} ${trecho.texto}`))) {
+      frequencia.set(termo, (frequencia.get(termo) ?? 0) + 1);
+    }
+  }
+
+  const total = Math.max(trechos.length, 1);
+  const pesos = new Map<string, number>();
+  /*
+    `log(1 + total/(1+df))` em vez do IDF clássico `log(total/df)`.
+
+    O clássico vai a zero — e a negativo — quando o termo está em quase tudo, e
+    num índice pequeno ele zera **tudo**: com cinco trechos, nada é raro o
+    bastante, e a busca deixa de funcionar justamente no ambiente de quem está
+    começando a registrar o Book. Esta forma é sempre positiva, preserva a
+    ordem (raro pesa mais) e degrada suavemente quando há pouco material.
+  */
+  for (const [termo, quantos] of frequencia) {
+    pesos.set(termo, Math.log(1 + total / (1 + quantos)));
+  }
+  return { pesos, frequencia, total };
+}
+
+/**
+ * Quanto do que a pergunta pede este texto cobre — pesado pela raridade.
+ *
+ * Termo que o índice não conhece vale o peso máximo observado: ele é raro por
+ * definição, e é justamente o caso de uma sigla que aparece num documento só.
+ */
+function cobertura(texto: string[], alvo: Set<string>, pesos: Map<string, number>): number {
   if (alvo.size === 0) return 0;
+  // Termo que o índice não conhece é raro por definição — é o caso da sigla que
+  // aparece num documento só, e ele não pode valer menos que os conhecidos.
+  const maximo = Math.max(1, ...pesos.values());
+  const peso = (t: string) => pesos.get(t) ?? maximo;
+  let possivel = 0;
   let acertos = 0;
-  for (const termo of alvo) if (texto.includes(termo)) acertos++;
-  return acertos / alvo.size;
+  for (const termo of alvo) {
+    possivel += peso(termo);
+    if (texto.includes(termo)) acertos += peso(termo);
+  }
+  return possivel > 0 ? acertos / possivel : 0;
 }
 
 /**
@@ -418,7 +489,20 @@ export function ranquear(
   const palavras = [...termos(pergunta), ...termosExtras.flatMap((t) => termos(t))];
   if (palavras.length === 0) return [];
 
+  const { pesos, frequencia, total } = raridadeDoIndice(trechos);
   const { principais, secundarios } = expandir(palavras, trechos);
+
+  /*
+    Não há corte binário por palavra comum — o peso já faz esse trabalho.
+
+    A tentação era recusar de saída a pergunta feita só de palavras
+    onipresentes ("teve alteração na remuneração?"). Ela produz falso negativo
+    na pergunta legítima que usa a mesma palavra — "o que o Book diz sobre
+    remuneração?" —, e não é preciso: com o peso pela raridade, casar só
+    "remuneração" dá nota baixa, e o limiar de `buscarNoBook` a descarta. Um
+    critério que decide por presença de palavra volta a ser o que este índice
+    existe para não ser.
+  */
   const siglas = siglasDe(pergunta);
   const frase = normalizar(pergunta).replace(/[^a-z0-9\s]/g, " ").replace(/\s+/g, " ").trim();
   const alvoPreferido = blocoPreferido ? normalizar(blocoPreferido) : null;
@@ -441,7 +525,9 @@ export function ranquear(
       return {
         trecho,
         vocabulario,
-        bruto: cobertura(vocabulario, principais) + cobertura(vocabulario, secundarios) * 0.3,
+        bruto:
+          cobertura(vocabulario, principais, pesos) +
+          cobertura(vocabulario, secundarios, pesos) * 0.3,
       };
     })
     .filter((c) => c.bruto > 0 || (alvoPreferido && normalizar(c.trecho.bloco) === alvoPreferido))
@@ -454,14 +540,14 @@ export function ranquear(
     let pontos = bruto;
 
     const normalizado = normalizar(trecho.texto);
-    const noTitulo = cobertura(termos(`${trecho.categoria} ${trecho.bloco}`), principais);
+    const noTitulo = cobertura(termos(`${trecho.categoria} ${trecho.bloco}`), principais, pesos);
     if (noTitulo > 0.5) {
       pontos += noTitulo;
       porque.push(`título do bloco (${trecho.bloco})`);
     }
 
     if (trecho.secao) {
-      const naSecao = cobertura(termos(trecho.secao), principais);
+      const naSecao = cobertura(termos(trecho.secao), principais, pesos);
       if (naSecao > 0.4) {
         pontos += naSecao * 0.6;
         porque.push(`seção "${trecho.secao}"`);
@@ -501,7 +587,13 @@ export function ranquear(
       propósito — ele desempata, não decide.
     */
     if (trecho.posicao === 0) {
-      pontos += 0.2;
+      /*
+        Multiplicativo, e não somado: um bônus fixo resgata do limiar um trecho
+        que casou mal — foi o que deixou passar o documento de custo fixo numa
+        pergunta que só dizia "remuneração". Proporcional, ele desempata entre
+        dois trechos parecidos e não salva nenhum.
+      */
+      pontos *= 1.2;
       porque.push("abertura do documento");
     }
 
@@ -539,7 +631,7 @@ export function ranquear(
  * Vale a mesma regra do corpus conceitual — quem não passa daqui não entra na
  * resposta, e a resposta certa passa a ser "não encontrei no Book".
  */
-export const LIMIAR_DO_BOOK = 0.25;
+export const LIMIAR_DO_BOOK = 0.35;
 
 /** A busca completa: índice, ranqueamento e limiar. */
 export async function buscarNoBook(

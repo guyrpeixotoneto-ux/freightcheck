@@ -278,6 +278,13 @@ const PALAVRAS_DE_OPERACAO = new Set([
   "suficiente", "importado", "importados", "importadas", "calcular", "calculo",
   "dois", "duas", "ambos", "ambas",
   "aconteceu", "acontece", "aconteceram", "houve", "ocorreu", "ocorreram",
+  /*
+    "Teve" sobrava como assunto de "teve alteração na remuneração?" — e um
+    resíduo qualquer basta para a frase parecer ter assunto próprio e disparar
+    uma busca por ele. O verbo de existência nunca nomeia coisa nenhuma.
+  */
+  "teve", "tem", "tinha", "tiveram", "tivemos", "ha", "havia",
+  "coisa", "coisas", "algo", "nada", "alguma", "algum",
   "rolou", "entrou", "saiu", "resumo", "panorama", "situacao",
   "bloco", "blocos", "regra", "regras", "cobre", "cobertura", "cobertos",
   /*
@@ -575,9 +582,20 @@ const PADROES: Padrao[] = [
   },
 
   // ---- movimento da vigência ------------------------------------------------
+  /*
+    O verbo pode vir antes do objeto, e no singular.
+
+    "Teve alteração na remuneração?" é a pergunta mais natural que existe neste
+    produto, e ela não casava nada: o padrão exigia "o que mudou" ou o plural
+    "alterações". Caindo em DESCONHECIDA, ela não consultava vigência nenhuma —
+    e, por ter sobrado a palavra "teve" como assunto, ia parar numa busca no
+    Book que devolveu um documento inteiro sobre custo fixo. Três defeitos em
+    fila, e o primeiro é este.
+  */
   {
     intencao: "MOVIMENTO",
-    quando: /\b(o que (mudou|alterou|aconteceu|houve|ocorreu|entrou|saiu|rolou)|mudancas|alteracoes|resumo)\b/,
+    quando:
+      /\b(o que (mudou|alterou|aconteceu|houve|ocorreu|entrou|saiu|rolou)|mudancas?|alterac(ao|oes)|resumo)\b|\b(teve|houve|tivemos|ocorreu|aconteceu|rolou)\b.{0,30}\b(alterac\w*|mudanc\w*|movimento|diferenc\w*)\b|\bmudou (alguma coisa|algo)\b/,
     porque: "pede o movimento de uma vigência",
   },
 
