@@ -563,6 +563,26 @@ async function lerVigencia(
 }
 
 /**
+ * Um componente que passou no portão da semântica, **antes** de qualquer
+ * decisão de escopo ou de árvore.
+ *
+ * Existe para a DRE. A Composição responde "o que este equipamento recebe", e
+ * para isso `carreta.custo_fixo` tem de sair — ele remunera o conjunto. A DRE do
+ * conjunto pergunta outra coisa, e precisa exatamente daquele valor. Sem esta
+ * lista ela teria de reimplementar o portão para alcançá-lo, e o produto
+ * passaria a ter duas respostas para "este número é confiável?".
+ */
+export interface ValorAprovado {
+  code: string;
+  titulo: string;
+  valor: number;
+  classificacao: AttributeClassification;
+  fato: FatoDoAtivo;
+  /** Por que ele não entra no total *deste* equipamento, quando não entra. */
+  excluidoPor: MotivoDeExclusao | null;
+}
+
+/**
  * O núcleo: dos fatos de um ativo à composição dele.
  *
  * Separado da leitura do banco de propósito — é uma função pura, e é ela que os
@@ -577,6 +597,8 @@ export function comporDeFatos(
   naoApurados: ComponenteNaoApurado[];
   totais: TotalDaGaveta[];
   integridade: AlertaDeIntegridade[];
+  /** Tudo o que passou no portão, com ou sem lugar no total deste equipamento. */
+  aprovados: Map<string, ValorAprovado>;
 } {
   const regra = regraDe(entityType);
   const foraDoEscopo = new Map(regra.foraDoEscopo.map((f) => [f.code, f]));
@@ -585,20 +607,46 @@ export function comporDeFatos(
   /* Passo 1 — quem passa no portão, antes de qualquer decisão de árvore. */
   const elegiveis: string[] = [];
   const motivos = new Map<string, MotivoDeExclusao>();
+  const aprovados = new Map<string, ValorAprovado>();
 
   for (const fato of fatos) {
-    if (foraDoEscopo.has(fato.code)) {
-      motivos.set(fato.code, "ESCOPO_DE_CONJUNTO");
+    const classificacao = classificacoes.get(fato.attribute_id);
+    /*
+      O portão vem antes do escopo. A ordem importa por uma razão só, e ela é
+      de honestidade: um atributo de conjunto cuja semântica ninguém confirmou
+      era anunciado como "remunera o conjunto", frase que dá ao curador a
+      impressão de que não há nada a fazer. O motivo verdadeiro é o outro. Nos
+      dados reais os dois atributos de conjunto são CONFIRMED, então nada muda
+      de comportamento — muda o que o produto diz no dia em que deixarem de ser.
+    */
+    const motivo = motivoDeExclusao(fato, classificacao);
+    if (motivo !== null) {
+      motivos.set(fato.code, motivo);
       continue;
     }
-    const motivo = motivoDeExclusao(fato, classificacoes.get(fato.attribute_id));
-    if (motivo === null) elegiveis.push(fato.code);
-    else motivos.set(fato.code, motivo);
+
+    const escopoDeConjunto = foraDoEscopo.has(fato.code);
+    if (escopoDeConjunto) motivos.set(fato.code, "ESCOPO_DE_CONJUNTO");
+    else elegiveis.push(fato.code);
+
+    aprovados.set(fato.code, {
+      code: fato.code,
+      titulo: attributeLabel(fato.code, fato.source_name),
+      valor: numeroDe(fato)!,
+      classificacao: classificacao!,
+      fato,
+      excluidoPor: escopoDeConjunto ? "ESCOPO_DE_CONJUNTO" : null,
+    });
   }
 
   /* Passo 2 — a árvore. Parcela de total que entrou não entra sozinha. */
   const { raizes, absorvidas } = resolverRaizes(elegiveis);
-  for (const [parte] of absorvidas) motivos.set(parte, "PARCELA_DE_TOTAL");
+  for (const [parte, total] of absorvidas) {
+    motivos.set(parte, "PARCELA_DE_TOTAL");
+    const aprovado = aprovados.get(parte);
+    if (aprovado) aprovados.set(parte, { ...aprovado, excluidoPor: "PARCELA_DE_TOTAL" });
+    void total;
+  }
 
   /* Passo 3 — as linhas calculáveis, cada uma com a sua conta. */
   const linhas: LinhaCalculavel[] = [];
@@ -761,7 +809,7 @@ export function comporDeFatos(
       componentes: porGaveta.get(gaveta)!.componentes,
     }));
 
-  return { linhas, naoApurados, totais, integridade };
+  return { linhas, naoApurados, totais, integridade, aprovados };
 }
 
 /**

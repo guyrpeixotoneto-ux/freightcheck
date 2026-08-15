@@ -39,6 +39,7 @@ import {
   type SeriesContext,
 } from "@workspace/comparison";
 import { getVisaoDeFrota } from "@workspace/composition";
+import { AVISO_DE_CIRCULARIDADE, getDREDaFrota, getPonteDaDRE, explicarResultado } from "@workspace/dre";
 import {
   INTEIRO,
   cobertura,
@@ -1288,5 +1289,250 @@ export async function anexoDoBook(db: Database, termo: string): Promise<Anexo | 
   return {
     ...comum,
     conteudo: { forma: "EXTRAIDO", texto: extraido.texto, imagens: extraido.imagens },
+  };
+}
+
+
+// ── DRE ─────────────────────────────────────────────────────────────────────
+
+/**
+ * O resultado apurado da frota, e quem o puxa para baixo (§28).
+ *
+ * **A regra que esta função existe para respeitar: o Assistente não tem
+ * aritmética própria.** Ela chama `getDREDaFrota` — a mesma função da tela — e
+ * traduz o resultado para evidência. Um número que aparece aqui apareceu antes
+ * em `/dre`, e a evidência diz em qual tela conferi-lo.
+ *
+ * Os dois subtotais que o export não sustenta — EBITDA e margem de contribuição
+ * — entram como fatos que **dizem o que falta**, e não somem. "Não sei" com o
+ * motivo é uma resposta; silêncio sobre um EBITDA que o usuário perguntou é a
+ * pior das respostas possíveis.
+ */
+export async function resultadoDaFrota(
+  db: Database,
+  ctx: ContextoResolvido,
+  escopo: "CAVALO" | "CARRETA" | "CONJUNTO",
+  periodo?: string,
+): Promise<Evidencia | null> {
+  const view = await getDREDaFrota(db, escopo, {
+    context: ctx.contexto,
+    ...(periodo ? { period: periodo } : {}),
+  });
+  if (!view) return null;
+
+  const { consolidado } = view;
+  const sub = (id: string) => consolidado.subtotais.find((s) => s.id === id)!;
+  const receita = sub("RECEITA_BRUTA");
+  const resultado = sub("RESULTADO_ECONOMICO");
+  const ebitda = sub("EBITDA");
+
+  const numeros: number[] = [consolidado.unidades, consolidado.ativos];
+  const fatos: Fato[] = [];
+
+  if (receita.valorParcial !== null) {
+    fatos.push({
+      rotulo: "Receita apurada",
+      valor: dinheiro(receita.valorParcial, "MENSAL"),
+      detalhe: `${INTEIRO.format(consolidado.unidades)} unidades econômicas · ${INTEIRO.format(consolidado.ativos)} ativos`,
+    });
+    numeros.push(receita.valorParcial);
+  }
+
+  if (resultado.valorParcial !== null) {
+    fatos.push({
+      rotulo: "Resultado apurado",
+      valor: dinheiro(resultado.valorParcial, "MENSAL"),
+      detalhe:
+        receita.valorParcial !== null && receita.valorParcial !== 0
+          ? `${((resultado.valorParcial / receita.valorParcial) * 100).toFixed(1)}% da receita`
+          : undefined,
+    });
+    numeros.push(resultado.valorParcial);
+  }
+
+  /*
+    O EBITDA pedido e não entregue. A frase nomeia os componentes que faltam,
+    porque "não é possível calcular" sem dizer o que falta manda quem perguntou
+    embora sem nada — e o que falta é exatamente a pergunta a fazer à Ambev.
+  */
+  if (!ebitda.conclusivo) {
+    fatos.push({
+      rotulo: "EBITDA",
+      valor: "não apurável",
+      detalhe: `faltam ${ebitda.bloqueadoPor.map((b) => b.titulo.toLowerCase()).join(", ")}`,
+    });
+  }
+
+  fatos.push({
+    rotulo: "Cobertura da DRE",
+    valor: `${consolidado.cobertura.percentual.toFixed(0)}%`,
+    detalhe: `${INTEIRO.format(consolidado.cobertura.apurados)} de ${INTEIRO.format(consolidado.cobertura.aplicaveis)} componentes com dado`,
+  });
+  numeros.push(consolidado.cobertura.percentual);
+
+  fatos.push({
+    rotulo: "Distribuição",
+    valor: `${INTEIRO.format(consolidado.distribuicao.positivas)} positivas · ${INTEIRO.format(consolidado.distribuicao.negativas)} negativas`,
+    detalhe:
+      consolidado.distribuicao.semResultado > 0
+        ? `${INTEIRO.format(consolidado.distribuicao.semResultado)} sem resultado apurável`
+        : undefined,
+  });
+  numeros.push(
+    consolidado.distribuicao.positivas,
+    consolidado.distribuicao.negativas,
+    consolidado.distribuicao.semResultado,
+  );
+
+  /* Os extremos do ranking: é o que responde "qual dá mais prejuízo". */
+  const comResultado = view.ranking.filter((l) => l.resultado !== null);
+  const piores = [...comResultado].sort((a, b) => a.resultado! - b.resultado!).slice(0, 5);
+  const melhores = [...comResultado].sort((a, b) => b.resultado! - a.resultado!).slice(0, 5);
+
+  if (piores.length > 0) {
+    fatos.push({
+      rotulo: "Menores resultados",
+      valor: piores.map((l) => `${l.rotulo} (${dinheiro(l.resultado!, "MENSAL")})`).join(" · "),
+    });
+    numeros.push(...piores.map((l) => l.resultado!));
+  }
+  if (melhores.length > 0) {
+    fatos.push({
+      rotulo: "Maiores resultados",
+      valor: melhores.map((l) => `${l.rotulo} (${dinheiro(l.resultado!, "MENSAL")})`).join(" · "),
+    });
+    numeros.push(...melhores.map((l) => l.resultado!));
+  }
+
+  if (view.atencao.length > 0) {
+    fatos.push({
+      rotulo: "Precisam de atenção",
+      valor: INTEIRO.format(view.atencao.length),
+      detalhe: view.atencao.slice(0, 3).map((a) => `${a.rotulo}: ${a.mensagem}`).join(" · "),
+    });
+    numeros.push(view.atencao.length);
+  }
+
+  return {
+    ferramenta: "resultadoDaFrota",
+    titulo: `DRE · ${escopo === "CONJUNTO" ? "Conjuntos" : escopo === "CAVALO" ? "Cavalos" : "Carretas"} · ${view.vigencias.alvo.periodLabel}`,
+    fatos,
+    numeros,
+    origem: `getDREDaFrota(${escopo}) · ${view.vigencias.alvo.effectiveDate}`,
+    recorte: recorteDe(ctx.info, { vigencia: view.vigencias.alvo.periodLabel }),
+    tela: { label: "DRE", href: "/dre" },
+    destaque: "Resultado apurado",
+    /*
+      A ressalva de circularidade acompanha toda resposta de DRE. Ela não é uma
+      lacuna de dado que a curadoria possa fechar: é o que o export **é**, e uma
+      resposta que a omitisse afirmaria ter medido custo incorrido.
+    */
+    nota: AVISO_DE_CIRCULARIDADE,
+  };
+}
+
+/**
+ * A placa citada na pergunta, quando há uma.
+ *
+ * O reconhecimento é da **forma** de uma placa, e a existência é conferida no
+ * banco. Reconhecer só pela forma faria "ABC1D23" de uma pergunta hipotética
+ * abrir a ficha de um veículo que não existe; conferir sem reconhecer faria
+ * cada palavra da frase virar uma consulta.
+ *
+ * Aceita os dois padrões em circulação: o antigo (ABC1234) e o Mercosul
+ * (ABC1D23). A frota real usa o segundo, e o primeiro continua válido enquanto
+ * houver equipamento não replacado.
+ */
+const FORMA_DE_PLACA = /\b([A-Z]{3}\d[A-Z0-9]\d{2})\b/gi;
+
+export async function placaCitada(
+  db: Database,
+  pergunta: string,
+): Promise<{ placa: string; entityId: string; entityType: string } | null> {
+  const candidatas = [...pergunta.matchAll(FORMA_DE_PLACA)].map((m) => m[1].toUpperCase());
+  if (candidatas.length === 0) return null;
+
+  const { rows } = await db.execute<{
+    entity_id: string;
+    entity_type: string;
+    placa: string;
+  }>(sql`
+    SELECT ei.entity_id::text AS entity_id, e.entity_type, ei.identifier_value AS placa
+      FROM entity_identifier ei
+      JOIN entity e ON e.id = ei.entity_id
+     WHERE ei.identifier_type = 'PLACA'
+       AND ei.is_current
+       AND ei.identifier_value = ANY(${candidatas})
+     LIMIT 1
+  `);
+
+  const linha = rows[0];
+  return linha
+    ? { placa: linha.placa, entityId: linha.entity_id, entityType: linha.entity_type }
+    : null;
+}
+
+/**
+ * Por que o resultado de uma unidade mudou — com a ponte real de alterações.
+ *
+ * Responde às perguntas de §28 que citam uma placa: "por que o ABC1D23 piorou
+ * em agosto?". A explicação vem de `explicarResultado`, que a deriva dos
+ * números; nada aqui é escrito à mão.
+ */
+export async function porQueOResultadoMudou(
+  db: Database,
+  ctx: ContextoResolvido,
+  entityId: string,
+  escopo: "CAVALO" | "CARRETA" | "CONJUNTO",
+  periodo?: string,
+): Promise<Evidencia | null> {
+  const ponte = await getPonteDaDRE(db, entityId, escopo, {
+    context: ctx.contexto,
+    ...(periodo ? { period: periodo } : {}),
+  });
+  if (!ponte || ponte.de === null) return null;
+
+  const explicacao = explicarResultado(ponte);
+  const numeros: number[] = [];
+  const fatos: Fato[] = [];
+
+  if (ponte.variacaoDoResultado !== null) {
+    fatos.push({
+      rotulo: "Variação do resultado",
+      valor: dinheiro(ponte.variacaoDoResultado, "MENSAL"),
+      detalhe: `${ponte.de.periodLabel} → ${ponte.para.periodLabel}`,
+    });
+    numeros.push(ponte.variacaoDoResultado);
+  }
+
+  for (const linha of ponte.porLinha) {
+    fatos.push({ rotulo: linha.titulo, valor: dinheiro(linha.efeito, "MENSAL") });
+    numeros.push(linha.efeito);
+  }
+
+  if (ponte.saldo !== null) {
+    fatos.push({ rotulo: "Saldo das alterações", valor: dinheiro(ponte.saldo, "MENSAL") });
+    numeros.push(ponte.saldo);
+  }
+
+  if (ponte.naoAtribuido !== null && Math.abs(ponte.naoAtribuido) >= 0.01) {
+    fatos.push({
+      rotulo: "Não atribuído",
+      valor: dinheiro(ponte.naoAtribuido, "MENSAL"),
+      detalhe: "variação que nenhuma alteração de parâmetro explica",
+    });
+    numeros.push(ponte.naoAtribuido);
+  }
+
+  return {
+    ferramenta: "porQueOResultadoMudou",
+    titulo: `DRE · o que mudou · ${ponte.de.periodLabel} → ${ponte.para.periodLabel}`,
+    fatos,
+    numeros,
+    origem: `getPonteDaDRE(${entityId}) · ${ponte.para.effectiveDate}`,
+    recorte: recorteDe(ctx.info, { vigencia: ponte.para.periodLabel }),
+    tela: { label: "DRE do veículo", href: `/dre/${entityId}?escopo=${escopo}` },
+    destaque: "Variação do resultado",
+    ...(explicacao ? { nota: explicacao.resumo } : {}),
   };
 }

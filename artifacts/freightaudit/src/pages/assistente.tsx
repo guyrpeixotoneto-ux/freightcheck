@@ -19,7 +19,7 @@ import type {
   Resposta,
   Turno,
 } from "@/components/assistente/tipos";
-import { fetchJson, getApiUrl, readJson } from "@/lib/api";
+import { erroDaResposta, fetchJson, getApiUrl, readJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
@@ -113,10 +113,7 @@ export default function Assistente() {
       });
 
       if (!resposta.ok) {
-        const corpo = await readJson(resposta);
-        throw new Error(
-          typeof corpo.error === "string" ? corpo.error : `O servidor respondeu ${resposta.status}.`,
-        );
+        throw erroDaResposta(resposta, await readJson(resposta));
       }
 
       /*

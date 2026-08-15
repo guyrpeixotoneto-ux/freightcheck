@@ -77,6 +77,8 @@ export type Intencao =
   | "CELULAS"
   /** "composição da frota", "ficha do cavalo" */
   | "COMPOSICAO"
+  /** "qual caminhão dá prejuízo", "quanto sobra", "EBITDA", "margem" */
+  | "DRE"
   /** "ola", "bom dia", "tudo bem?", "obrigado" — conversa, não consulta */
   | "SAUDACAO"
   | "DESCONHECIDA";
@@ -92,6 +94,9 @@ export const INTENCOES_COM_RECORTE: ReadonlySet<Intencao> = new Set<Intencao>([
   // Composição descreve a frota de um recorte: sem unidade e canal, somar o
   // mensal de todas as operações produziria um total que ninguém opera.
   "COMPOSICAO",
+  // A DRE, pelo mesmo motivo e com uma agravante: um resultado somado sobre
+  // duas operações diferentes é um número que nenhum gestor tem como agir.
+  "DRE",
   "VALOR",
   "EVOLUCAO",
   "COMPARACAO",

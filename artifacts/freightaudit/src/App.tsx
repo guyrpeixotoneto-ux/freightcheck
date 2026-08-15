@@ -19,6 +19,8 @@ import Importacoes from '@/pages/importacoes';
 import BalancoMassa from '@/pages/balanco-massa';
 import Composicao from '@/pages/composicao';
 import ComposicaoEquipamento from '@/pages/composicao-equipamento';
+import DRE from '@/pages/dre';
+import DREVeiculo from '@/pages/dre-veiculo';
 import ApresentacaoVideo from '@/components/video/ApresentacaoVideo';
 import AnaliseEquipamentos from '@/pages/analise-equipamentos';
 import Curadoria from '@/pages/curadoria';
@@ -28,6 +30,8 @@ import Vigencias from '@/pages/vigencias';
 import Versoes from '@/pages/versoes';
 import Unidades from '@/pages/unidades';
 import Configuracoes from '@/pages/configuracoes';
+import { EmPreparo } from '@/pages/em-preparo';
+import { TELAS_EM_PREPARO } from '@/pages/telas-em-preparo';
 
 /**
  * As rotas do produto.
@@ -85,6 +89,8 @@ function Router() {
       <Route path="/importacoes" component={Importacoes} />
       <Route path="/composicao" component={Composicao} />
       <Route path="/composicao/:entityId" component={ComposicaoEquipamento} />
+      <Route path="/dre" component={DRE} />
+      <Route path="/dre/:entityId" component={DREVeiculo} />
       <Route path="/balanco-massa" component={BalancoMassa} />
       <Route path="/analise-equipamentos" component={AnaliseEquipamentos} />
       <Route path="/curadoria" component={Curadoria} />
@@ -92,6 +98,27 @@ function Router() {
       <Route path="/versoes" component={Versoes} />
       <Route path="/unidades" component={Unidades} />
       <Route path="/configuracoes" component={Configuracoes} />
+
+      {/*
+        As dezoito telas que o menu anuncia e o banco ainda não sustenta.
+
+        Elas entram no roteador pela mesma razão que `/simulacao` saiu, e não
+        pela razão oposta: o pecado nunca foi a rota existir, foi a rota abrir
+        uma tela que pede dado a um endereço morto e para num erro. Estas abrem
+        uma página que não pede nada a ninguém e diz o que falta — ver
+        `pages/telas-em-preparo.ts`, onde mora o texto de cada uma.
+
+        A rota vem daqui, e não de dezoito linhas escritas à mão, para que
+        construir a tela de verdade seja um movimento só: tira-se a entrada do
+        catálogo e escreve-se o `<Route>` acima. Enquanto as duas coexistirem, a
+        linha explícita ganha — o `Switch` entrega ao primeiro que casa.
+      */}
+      {TELAS_EM_PREPARO.map((tela) => (
+        <Route key={tela.href} path={tela.href}>
+          <EmPreparo tela={tela} />
+        </Route>
+      ))}
+
       <Route component={NotFound} />
     </Switch>
   );

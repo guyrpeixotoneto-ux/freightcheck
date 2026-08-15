@@ -31,14 +31,17 @@ const rodar = URL_DO_BANCO ? describe : describe.skip;
  * O piso por categoria. Subir é progresso; cair é regressão.
  *
  * Medido em 15/08/2026 (69/103), levantado pela Fase 1 (79/103) e de novo pela
- * Fase 2 (95/103). Os números abaixo são o **depois** da Fase 2: eles travam o
+ * Fase 2 (95/103). "Qual a margem de lucro da transportadora?" mudou de
+ * categoria ao encontrar a `main`: ela estava entre as impossíveis porque, no
+ * dia em que foi escrita, era — e o módulo de DRE a tornou respondível. Um
+ * benchmark que não reclassifica esses casos mede o produto de ontem. Os números abaixo são o **depois** da Fase 2: eles travam o
  * ganho, de modo que nenhuma mudança futura possa devolver silenciosamente uma
  * categoria ao que ela era. Quem melhorar uma categoria sobe o piso dela no
  * mesmo commit.
  */
 const PISO: Record<string, number> = {
-  alteracoes: 15, parametros: 9, impacto: 10, equipamentos: 8, combustivel: 6,
-  book: 13, comparacao: 6, cruzada: 4, informal: 8, executiva: 7, impossivel: 9,
+  alteracoes: 15, parametros: 10, impacto: 10, equipamentos: 8, combustivel: 6,
+  book: 13, comparacao: 6, cruzada: 4, informal: 8, executiva: 7, impossivel: 8,
 };
 
 rodar("benchmark do assistente", () => {

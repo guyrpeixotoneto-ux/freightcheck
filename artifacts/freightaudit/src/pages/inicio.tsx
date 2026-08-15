@@ -6,17 +6,19 @@ import {
   ArrowDownRight,
   ArrowUpRight,
   CalendarDays,
+  ChartNoAxesCombined,
   ChevronRight,
   CircleHelp,
   CloudDownload,
   Database,
-  FileSearch,
   FileText,
   GitCompareArrows,
   Info,
   ReceiptText,
+  Search,
   ShieldCheck,
   SlidersVertical,
+  TrendingUp,
   Truck,
   type LucideIcon,
 } from "lucide-react";
@@ -86,6 +88,21 @@ import type { BalancoResumo } from "@/components/balanco/tipos";
  * 3. **Nenhuma comparação inventada.** "vs vigência anterior" só aparece quando
  *    existe vigência anterior e ela foi de fato consultada.
  */
+
+/**
+ * O cartão desta tela.
+ *
+ * Canto arredondado e sombra baixa, contra o cartão quase reto que o resto do
+ * produto usa (`--radius: 0.25rem`). A diferença é deliberada e local: a Visão
+ * geral é a única tela feita de blocos que se leem em paralelo — cinco números,
+ * uma faixa, quatro painéis —, e a borda arredondada é o que separa um bloco do
+ * outro sobre o cinza da página sem precisar de mais linha. Nas telas de tabela,
+ * onde a régua reta alinha coluna com coluna, o canto continua o do Freightech.
+ *
+ * Vale como uma decisão só, escrita num lugar só: se um dia a casca inteira for
+ * arredondada, é esta constante que some.
+ */
+const CARTAO = "bg-card border rounded-2xl shadow-sm";
 export default function Inicio() {
   const search = useSearch();
   const [, navegar] = useLocation();
@@ -220,7 +237,7 @@ export default function Inicio() {
             />
 
             {!view.complete && (
-              <div className="flex gap-3 rounded-lg border border-amber-400 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+              <div className="flex gap-3 rounded-2xl border border-amber-400 bg-amber-50 px-5 py-4 text-sm text-amber-900">
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
                 <p>
                   <strong>Visão parcial.</strong> Nesta vigência chegou apenas{" "}
@@ -285,10 +302,18 @@ function Cabecalho({
   ].filter((p): p is string => p !== null);
 
   return (
-    <header className="border-b bg-card px-8 py-6">
+    /*
+      Sem a faixa branca com borda embaixo que havia aqui.
+
+      O título passou a morar sobre o mesmo cinza dos cartões: a faixa desenhava
+      uma segunda barra logo abaixo da vermelha do Freightech, e as duas juntas
+      empurravam o primeiro número para baixo da dobra em tela de 13 polegadas.
+      O que qualifica os números é o texto, não o fundo atrás dele.
+    */
+    <header className="px-8 pt-7 pb-2">
       <div className="flex flex-wrap items-start justify-between gap-4 max-w-[1600px]">
         <div className="min-w-0">
-          <h1 className="text-3xl font-bold tracking-tight">
+          <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
             Visão geral{unidade ? ` — ${unidade}` : ""}
           </h1>
           {partes.length > 0 && (
@@ -299,8 +324,8 @@ function Cabecalho({
         <div className="flex items-center gap-3 shrink-0">
           {contextos.length > 1 && (
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex items-center gap-2 border bg-card px-4 py-2.5 text-sm font-semibold hover:border-brand transition-colors">
-                <GitCompareArrows className="w-4 h-4 text-brand" />
+              <DropdownMenuTrigger className={BOTAO_DE_TROCA}>
+                <GitCompareArrows className="w-4 h-4" />
                 Trocar unidade
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-72">
@@ -338,8 +363,8 @@ function Cabecalho({
 
           {view && view.periods.length > 1 && (
             <DropdownMenu>
-              <DropdownMenuTrigger className="flex items-center gap-2 border bg-card px-4 py-2.5 text-sm font-semibold hover:border-brand transition-colors">
-                <CalendarDays className="w-4 h-4 text-brand" />
+              <DropdownMenuTrigger className={BOTAO_DE_TROCA}>
+                <CalendarDays className="w-4 h-4" />
                 Trocar vigência
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
@@ -366,6 +391,18 @@ function Cabecalho({
     </header>
   );
 }
+
+/**
+ * Os dois botões de troca do cabeçalho, com a mesma casca.
+ *
+ * Contorno vermelho e fundo branco: são as duas únicas ações desta tela, e o
+ * laranja cheio está reservado para a ação que cria trabalho — "Enviar a
+ * primeira planilha", no banco vazio. Trocar de unidade e trocar de vigência
+ * não mudam nada no banco; mudam o recorte do que se está lendo.
+ */
+const BOTAO_DE_TROCA =
+  "flex items-center gap-2 rounded-lg border border-brand-red bg-card px-4 py-2.5 " +
+  "text-sm font-bold text-brand-red hover:bg-accent transition-colors";
 
 /** O nome da unidade; sem escopo cadastrado sobra o rótulo que o servidor montou. */
 function nomeDaUnidade(contexto: SeriesContext): string {
@@ -411,8 +448,19 @@ function Indicadores({
       >
         {impactos.length === 0 ? (
           <>
-            <ValorGrande texto="nenhum valor apurável" apagado />
-            <Nota texto={`${view.impact.notCalculable} alterações sem preço, todas listadas`} />
+            {/*
+              "Nenhum valor apurável" ocupa o lugar do número, no corpo do
+              número — e não numa linha cinza de rodapé. É a resposta da
+              vigência à pergunta do cartão: escondê-la num cinza pequeno faria
+              o olho procurar um valor que não existe e concluir que a tela não
+              carregou.
+            */}
+            <ValorGrande texto="Nenhum valor apurável" apagado />
+            <Nota
+              texto={`${view.impact.notCalculable.toLocaleString("pt-BR")} ${
+                view.impact.notCalculable === 1 ? "alteração sem preço" : "alterações sem preço"
+              }`}
+            />
           </>
         ) : (
           <>
@@ -508,6 +556,7 @@ function Indicadores({
         icone={ShieldCheck}
         titulo="Cobertura auditada"
         ajuda="Das células que as planilhas trouxeram, quanto a auditoria alcança: tudo menos a perda declarada e o resíduo sem destino. É percentual de célula, não de dinheiro."
+        tom="ok"
       >
         {coberturaAuditada === null ? (
           <>
@@ -529,27 +578,46 @@ function Indicadores({
   );
 }
 
+/**
+ * O cartão de um número.
+ *
+ * O selo do ícone é laranja em quatro dos cinco e verde no da cobertura, e não é
+ * enfeite: a cobertura é a única medida da régua que fala da **apuração** e não
+ * da remuneração — ela responde "dá para confiar nos outros quatro?". O verde
+ * aqui é o mesmo verde do arco lá embaixo, e nenhum dos dois é dito por cor
+ * sozinha: o número e o rótulo continuam ao lado.
+ */
 function Indicador({
   icone: Icone,
   titulo,
   ajuda,
+  tom,
   children,
 }: {
   icone: LucideIcon;
   titulo: string;
   ajuda: string;
+  tom?: "marca" | "ok";
   children: React.ReactNode;
 }) {
   return (
-    <section className="bg-card border shadow-sm p-5 flex flex-col">
-      <div className="flex items-center gap-2">
-        <span className="w-8 h-8 rounded-full bg-accent flex items-center justify-center shrink-0">
-          <Icone className="w-4 h-4 text-brand" strokeWidth={2.25} />
+    <section className={cn(CARTAO, "p-5 flex flex-col")}>
+      <div className="flex items-start gap-2.5">
+        <span
+          className={cn(
+            "w-9 h-9 rounded-xl flex items-center justify-center shrink-0",
+            tom === "ok" ? "bg-emerald-50" : "bg-accent",
+          )}
+        >
+          <Icone
+            className={cn("w-[1.125rem] h-[1.125rem]", tom === "ok" ? "text-emerald-600" : "text-brand")}
+            strokeWidth={2.25}
+          />
         </span>
-        <h2 className="text-[0.8125rem] font-bold min-w-0 flex-1 leading-tight">{titulo}</h2>
+        <h2 className="text-[0.8125rem] font-bold min-w-0 flex-1 leading-tight pt-1.5">{titulo}</h2>
         <Ajuda texto={ajuda} />
       </div>
-      <div className="mt-4">{children}</div>
+      <div className="mt-5">{children}</div>
     </section>
   );
 }
@@ -584,7 +652,7 @@ function Ajuda({ texto }: { texto: string }) {
  * O número que o cartão existe para mostrar.
  *
  * O corpo é generoso, mas não a ponto de estourar a coluna: com cinco cartões
- * lado a lado em tela de 13 polegadas, "R$ 39.936" em `text-3xl` era cortado no
+ * lado a lado em tela de 13 polegadas, "R$ 39.936" em corpo fixo era cortado no
  * meio do "/mês" — e um valor cortado é pior do que um valor menor, porque
  * quem lê não percebe que falta pedaço. O sufixo da periodicidade fica menor e
  * cinza, como no Acompanhamento, e nunca desaparece.
@@ -603,15 +671,29 @@ function ValorGrande({
   return (
     <div
       className={cn(
-        "font-bold tabular-nums leading-tight whitespace-nowrap",
+        "font-extrabold tabular-nums leading-none whitespace-nowrap",
         /*
           O corpo cede ao comprimento, e não o contrário. "83" e "−R$ 39.936"
           moram no mesmo cartão de 193px: em corpo único, ou o primeiro fica
           pequeno à toa ou o segundo quebra no hífen — e "−" sozinho numa linha
           com "R$ 39.936" na outra chega a ser lido como dois números.
+
+          Três degraus, e não dois: a contagem curta ("244", "62") é o número
+          que esta tela existe para mostrar de longe, e ela cabe no maior deles
+          sem chegar perto da borda.
         */
-        texto.length > 8 ? "text-2xl" : "text-[1.75rem]",
-        apagado && "text-lg text-muted-foreground font-semibold whitespace-normal",
+        texto.length > 12
+          ? "text-2xl"
+          : texto.length > 8
+            ? "text-3xl"
+            : "text-[2.5rem]",
+        /*
+          A frase que ocupa o lugar do número quebra linha e usa entrelinha de
+          texto — "Nenhum valor apurável" em `leading-none` encosta uma linha na
+          outra —, mas continua no corpo e no peso de um número: é a resposta do
+          cartão, não uma nota de rodapé.
+        */
+        apagado && "text-2xl leading-tight whitespace-normal",
         tom === "grave" && "text-red-700",
         tom === "ok" && !apagado && "text-emerald-700",
         tom === "atencao" && "text-brand-red",
@@ -626,16 +708,16 @@ function ValorGrande({
 }
 
 function Nota({ texto }: { texto: string }) {
-  return <p className="text-xs text-muted-foreground mt-1.5 leading-snug">{texto}</p>;
+  return <p className="text-xs text-muted-foreground mt-3 leading-snug">{texto}</p>;
 }
 
 function Barra({ proporcao, tom }: { proporcao: number; tom: Tom }) {
   const largura = Math.max(0, Math.min(1, proporcao)) * 100;
   return (
-    <div className="mt-3 h-1.5 w-full bg-muted overflow-hidden">
+    <div className="mt-3 h-1.5 w-full rounded-full bg-muted overflow-hidden">
       <div
         className={cn(
-          "h-full",
+          "h-full rounded-full",
           tom === "grave" && "bg-red-600",
           tom === "atencao" && "bg-brand",
           tom === "ok" && "bg-emerald-600",
@@ -675,56 +757,87 @@ function Atencao({ pontos }: { pontos: PontoDeAtencao[] }) {
   if (pontos.length === 0) return null;
 
   return (
-    <section className="bg-card border shadow-sm px-6 py-5">
-      <div className="flex items-center gap-2.5 mb-4">
-        <AlertTriangle className="w-5 h-5 text-brand-red shrink-0" strokeWidth={2.25} />
-        <h2 className="text-base font-bold">O que merece sua atenção</h2>
-      </div>
+    <section className={cn(CARTAO, "px-6 py-5")}>
+      {/*
+        O título fica na mesma linha dos pontos, e não numa linha própria acima
+        deles. São três ou quatro leituras curtas: com o rótulo em cima, a faixa
+        gastava duas alturas de linha para dizer uma frase que não muda nunca —
+        e empurrava para baixo justamente o que muda a cada vigência.
+      */}
+      <div className="flex flex-col gap-y-5 xl:flex-row xl:items-center xl:gap-x-6">
+        <div className="flex items-center gap-3 shrink-0 xl:border-r xl:pr-6">
+          <span className="w-9 h-9 rounded-xl bg-accent flex items-center justify-center shrink-0">
+            <AlertTriangle className="w-[1.125rem] h-[1.125rem] text-brand" strokeWidth={2.25} />
+          </span>
+          <h2 className="text-base font-bold leading-tight">O que merece sua atenção</h2>
+        </div>
 
-      <div className="grid gap-x-6 gap-y-5 sm:grid-cols-2 xl:grid-cols-4 xl:divide-x">
-        {pontos.map((ponto, indice) => {
-          const Icone = ICONES_DO_PONTO[ponto.chave] ?? Info;
-          return (
-            <Link
-              key={ponto.chave}
-              href={ponto.href}
-              className={cn(
-                "group flex items-start gap-3 min-w-0",
-                indice > 0 && "xl:pl-6",
-              )}
-            >
-              <span
+        <div
+          className={cn(
+            "grid flex-1 gap-x-6 gap-y-5 sm:grid-cols-2 xl:divide-x",
+            COLUNAS_DA_ATENCAO[pontos.length] ?? "xl:grid-cols-4",
+          )}
+        >
+          {pontos.map((ponto, indice) => {
+            const Icone = ICONES_DO_PONTO[ponto.chave] ?? Info;
+            return (
+              <Link
+                key={ponto.chave}
+                href={ponto.href}
                 className={cn(
-                  "w-2.5 h-2.5 rounded-full shrink-0 mt-1.5",
-                  CORES_DO_TOM[ponto.tom],
+                  "group flex items-start gap-2.5 min-w-0",
+                  indice > 0 && "xl:pl-6",
                 )}
-              />
-              <Icone className="w-5 h-5 shrink-0 mt-0.5 text-muted-foreground" />
-              <span className="min-w-0">
-                <span className="block text-sm font-bold group-hover:text-brand transition-colors">
-                  {ponto.titulo}
-                </span>
-                <span className="block text-sm text-muted-foreground leading-snug">
-                  {ponto.detalhe}
-                </span>
-                {ponto.valor && (
-                  <span
-                    className={cn(
-                      "block text-sm font-bold tabular-nums mt-0.5",
-                      ponto.tom === "grave" ? "text-red-700" : "text-emerald-700",
-                    )}
-                  >
-                    {ponto.valor}
+              >
+                <span
+                  className={cn(
+                    "w-2.5 h-2.5 rounded-full shrink-0 mt-1.5",
+                    CORES_DO_TOM[ponto.tom],
+                  )}
+                />
+                <Icone className="w-5 h-5 shrink-0 mt-0.5 text-muted-foreground" />
+                <span className="min-w-0">
+                  <span className="block text-sm font-bold group-hover:text-brand transition-colors">
+                    {ponto.titulo}
                   </span>
-                )}
-              </span>
-            </Link>
-          );
-        })}
+                  <span className="block text-[0.8125rem] text-muted-foreground leading-snug mt-0.5">
+                    {ponto.detalhe}
+                  </span>
+                  {ponto.valor && (
+                    <span
+                      className={cn(
+                        "block text-sm font-bold tabular-nums mt-0.5",
+                        ponto.tom === "grave" ? "text-red-700" : "text-emerald-700",
+                      )}
+                    >
+                      {ponto.valor}
+                    </span>
+                  )}
+                </span>
+              </Link>
+            );
+          })}
+        </div>
       </div>
     </section>
   );
 }
+
+/**
+ * Quantas colunas a faixa abre, pelo número de pontos que a vigência produziu.
+ *
+ * A conta é do dado e não do desenho: uma vigência sem impacto apurado não tem
+ * o ponto de maior impacto, e três pontos numa grade de quatro deixariam um
+ * quarto de faixa vazio à direita — buraco que se lê como "faltou carregar".
+ * As classes ficam escritas por extenso porque o Tailwind varre o código-fonte:
+ * `xl:grid-cols-${n}` não existiria no CSS gerado.
+ */
+const COLUNAS_DA_ATENCAO: Record<number, string> = {
+  1: "xl:grid-cols-1",
+  2: "xl:grid-cols-2",
+  3: "xl:grid-cols-3",
+  4: "xl:grid-cols-4",
+};
 
 // ---------------------------------------------------------------------------
 // Maiores impactos
@@ -748,7 +861,7 @@ function MaioresImpactos({
   period: string;
 }) {
   return (
-    <section className="bg-card border shadow-sm px-6 py-5 flex flex-col">
+    <section className={cn(CARTAO, "px-6 py-5 flex flex-col")}>
       <div className="flex items-center gap-2">
         <h2 className="text-base font-bold">Maiores impactos</h2>
         {ranking && (
@@ -761,10 +874,7 @@ function MaioresImpactos({
       </div>
 
       {ranking === null ? (
-        <p className="text-sm text-muted-foreground mt-4 flex-1">
-          Nenhum parâmetro desta vigência tem impacto apurado. Sem semântica confirmada não há
-          preço, e sem preço não há ranking — a Curadoria é onde isso se destrava.
-        </p>
+        <SemPodio />
       ) : (
         <>
           <ol className="mt-4 space-y-3.5 flex-1">
@@ -818,12 +928,48 @@ function MaioresImpactos({
 
       <Link
         href={`/parametros?period=${period}`}
-        className="mt-4 self-start inline-flex items-center gap-1.5 border border-brand-red px-4 py-2 text-[0.8125rem] font-bold uppercase tracking-wide text-brand-red hover:bg-accent transition-colors"
+        className="mt-5 self-start inline-flex items-center gap-1.5 rounded-lg border border-brand-red px-5 py-2.5 text-sm font-bold text-brand-red hover:bg-accent transition-colors"
       >
         Ver todos os impactos
         <ChevronRight className="w-4 h-4" />
       </Link>
     </section>
+  );
+}
+
+/**
+ * O pódio que não existe nesta vigência.
+ *
+ * Duas frases, e as duas dizem a mesma coisa em alturas diferentes: a primeira
+ * é o fato ("nenhum parâmetro tem impacto apurado"), a segunda é a cadeia que
+ * produziu o fato ("sem semântica não há preço, sem preço não há ranking").
+ * Quem só passa o olho lê a primeira e já sabe que não é defeito da tela; quem
+ * precisa agir lê a segunda e sabe onde a corrente começa.
+ *
+ * O desenho é de dois ícones e um círculo cinza, sem arquivo de imagem: um
+ * vazio ilustrado ocupa o lugar que o pódio ocuparia, e um painel que encolhe
+ * quando não tem dado faz a linha inteira dançar ao trocar de vigência.
+ */
+function SemPodio() {
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center text-center px-4 py-8">
+      <span
+        className="relative w-28 h-28 rounded-full bg-muted flex items-center justify-center"
+        aria-hidden="true"
+      >
+        <ChartNoAxesCombined className="w-12 h-12 text-muted-foreground/40" strokeWidth={1.75} />
+        <Search
+          className="w-7 h-7 text-muted-foreground/50 absolute right-6 bottom-6"
+          strokeWidth={2}
+        />
+      </span>
+      <p className="text-base font-bold mt-5 max-w-sm leading-snug">
+        Nenhum parâmetro desta vigência tem impacto apurado.
+      </p>
+      <p className="text-sm text-muted-foreground mt-1.5 max-w-md leading-snug">
+        Sem semântica confirmada não há preço, e sem preço não há ranking.
+      </p>
+    </div>
   );
 }
 
@@ -858,7 +1004,7 @@ function UltimasAlteracoes({ view }: { view: FamiliesView }) {
   const linhas = ultimasAlteracoes(view);
 
   return (
-    <section className="bg-card border shadow-sm px-6 py-5 flex flex-col">
+    <section className={cn(CARTAO, "px-6 py-5 flex flex-col")}>
       <div className="flex items-center gap-2">
         <h2 className="text-base font-bold">Alterações em destaque</h2>
         <Ajuda texto="As alterações mais relevantes da vigência aberta, na mesma ordem do Acompanhamento: dinheiro primeiro, ruído por último." />
@@ -875,11 +1021,11 @@ function UltimasAlteracoes({ view }: { view: FamiliesView }) {
           O cliente não mexeu em nada nesta vigência.
         </p>
       ) : (
-        <ul className="mt-3 divide-y flex-1">
-          {linhas.map((linha) => {
+        <ol className="mt-3 divide-y flex-1">
+          {linhas.map((linha, indice) => {
             const Icone = ICONE_DA_LINHA[linha.tipo];
             return (
-              <li key={linha.chave} className="flex items-start gap-3 py-3">
+              <li key={linha.chave} className="flex items-start gap-3 py-3.5">
                 <span
                   className={cn(
                     "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
@@ -888,19 +1034,28 @@ function UltimasAlteracoes({ view }: { view: FamiliesView }) {
                 >
                   <Icone className="w-4 h-4" />
                 </span>
+                {/*
+                  A ordem numerada, e não bolinha de lista: esta fila é a do
+                  cockpit, e o "1." afirma que existe um primeiro — quem lê
+                  precisa saber que a lista está ordenada por relevância e não
+                  pela ordem em que os dados chegaram.
+                */}
+                <span className="text-sm font-bold text-muted-foreground tabular-nums shrink-0 pt-1">
+                  {indice + 1}.
+                </span>
                 <span className="min-w-0 flex-1">
                   <span className="block text-sm font-semibold leading-snug">{linha.titulo}</span>
-                  <span className="block text-xs text-muted-foreground mt-0.5 leading-snug">
+                  <span className="block text-xs text-muted-foreground mt-1 leading-snug">
                     {linha.detalhe}
                   </span>
                 </span>
-                <span className="text-xs text-muted-foreground tabular-nums shrink-0 pt-0.5">
+                <span className="shrink-0 rounded-lg border px-2.5 py-1.5 text-xs text-muted-foreground tabular-nums">
                   {linha.direita}
                 </span>
               </li>
             );
           })}
-        </ul>
+        </ol>
       )}
     </section>
   );
@@ -930,61 +1085,59 @@ function QualidadeDaAuditoria({
   const qualidade = coberturaAuditada ? qualidadeDaCobertura(coberturaAuditada.percentual) : null;
 
   return (
-    <section className="bg-card border shadow-sm px-6 py-5">
+    <section className={cn(CARTAO, "px-6 py-5 flex flex-col")}>
       <div className="flex items-center gap-2">
         <h2 className="text-base font-bold">Qualidade da auditoria</h2>
         <Ajuda texto="Três medidas da apuração, não da remuneração: quanto das células importadas a auditoria alcança, quantas alterações ficaram sem preço, e quando a última planilha entrou." />
       </div>
 
-      <div className="flex items-center gap-5 mt-5 divide-x">
+      {/*
+        As três medidas na mesma régua, cada uma com rótulo e nota por baixo.
+
+        A barra e o adjetivo ("Alta", "Parcial") que ficavam abaixo saíram: o
+        arco já é a figura da cobertura, e desenhá-la duas vezes na mesma altura
+        dobrava o peso visual de uma medida só — a que fala da apuração — dentro
+        do painel que compara as três. O adjetivo continua existindo em
+        `qualidadeDaCobertura`, e é ele que dá a cor do arco.
+      */}
+      <div className="flex items-center gap-4 mt-6 divide-x">
         {coberturaAuditada && (
-          <div className="flex flex-col items-center gap-1 pr-5 shrink-0">
+          <div className="flex flex-col items-center gap-2 pr-4 shrink-0">
             <Rosca percentual={coberturaAuditada.percentual} tom={qualidade?.tom ?? "ok"} />
-            <span className="text-xs uppercase tracking-wide text-muted-foreground">
-              Cobertura
+            <span className="text-center">
+              <span className="block text-[0.8125rem] font-semibold leading-tight">
+                Cobertura auditada
+              </span>
+              <span className="block text-xs text-muted-foreground">das células importadas</span>
             </span>
           </div>
         )}
 
         <Medida
           valor={view.impact.notCalculable.toLocaleString("pt-BR")}
-          rotulo="sem preço apurado"
+          rotulo="Alterações sem preço"
+          nota="requerem análise"
         />
 
         {ultima && (
-          <Medida valor={ultima.hora} rotulo="última importação" nota={ultima.relativo} />
+          <Medida valor={ultima.hora} rotulo="Última importação" nota={ultima.relativo} />
         )}
       </div>
 
-      {coberturaAuditada && qualidade && (
-        <>
-          <div className="mt-5">
-            <Barra proporcao={coberturaAuditada.percentual / 100} tom={qualidade.tom} />
-          </div>
-          <p
-            className={cn(
-              "text-sm font-bold mt-2",
-              qualidade.tom === "ok" && "text-emerald-700",
-              qualidade.tom === "atencao" && "text-brand-red",
-              qualidade.tom === "grave" && "text-red-700",
-            )}
-          >
-            {qualidade.palavra}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {coberturaAuditada.celulas.toLocaleString("pt-BR")} células conferidas em{" "}
-            {coberturaAuditada.importacoes}{" "}
-            {coberturaAuditada.importacoes === 1 ? "importação" : "importações"}
-            {coberturaAuditada.foraDaAuditoria === 0 ? (
-              <>. Toda célula que os arquivos trouxeram chegou a um destino declarado.</>
-            ) : (
-              <>
-                ; {coberturaAuditada.foraDaAuditoria.toLocaleString("pt-BR")} ficaram fora da
-                auditoria — o Balanço de massa diz quais e por quê.
-              </>
-            )}
-          </p>
-        </>
+      {coberturaAuditada && (
+        <p className="text-xs text-muted-foreground leading-snug mt-auto pt-5">
+          {coberturaAuditada.celulas.toLocaleString("pt-BR")} células conferidas em{" "}
+          {coberturaAuditada.importacoes}{" "}
+          {coberturaAuditada.importacoes === 1 ? "importação" : "importações"}
+          {coberturaAuditada.foraDaAuditoria === 0 ? (
+            <>. Toda célula que os arquivos trouxeram chegou a um destino declarado.</>
+          ) : (
+            <>
+              ; {coberturaAuditada.foraDaAuditoria.toLocaleString("pt-BR")} ficaram fora da
+              auditoria — o Balanço de massa diz quais e por quê.
+            </>
+          )}
+        </p>
       )}
     </section>
   );
@@ -1000,9 +1153,9 @@ function Medida({
   nota?: string;
 }) {
   return (
-    <div className="min-w-0 flex-1 px-1 text-center">
-      <div className="text-2xl font-bold tabular-nums">{valor}</div>
-      <div className="text-sm text-muted-foreground leading-snug">{rotulo}</div>
+    <div className="min-w-0 flex-1 px-2 text-center">
+      <div className="text-[2rem] font-extrabold tabular-nums leading-none">{valor}</div>
+      <div className="text-[0.8125rem] font-semibold leading-tight mt-2">{rotulo}</div>
       {nota && <div className="text-xs text-muted-foreground">{nota}</div>}
     </div>
   );
@@ -1025,7 +1178,7 @@ function Rosca({ percentual, tom }: { percentual: number; tom: Tom }) {
   return (
     <svg
       viewBox="0 0 64 64"
-      className="w-20 h-20 shrink-0"
+      className="w-[5.5rem] h-[5.5rem] shrink-0"
       role="img"
       aria-label={`Cobertura de ${escreverPercentual(percentual, 1)}`}
     >
@@ -1062,11 +1215,43 @@ function Rosca({ percentual, tom }: { percentual: number; tom: Tom }) {
 // Explorar
 // ---------------------------------------------------------------------------
 
-const PORTAS: { href: string; icone: LucideIcon; titulo: string }[] = [
-  { href: "/comparar", icone: GitCompareArrows, titulo: "Comparar vigências" },
-  { href: "/parametros", icone: SlidersVertical, titulo: "Parâmetros" },
-  { href: "/curadoria", icone: FileSearch, titulo: "Curadoria" },
-  { href: "/importacoes", icone: CloudDownload, titulo: "Importações" },
+/**
+ * As quatro portas, e por que são estas quatro.
+ *
+ * Elas seguem a ordem em que a pergunta aparece depois de a pessoa olhar os
+ * números acima: *qual parâmetro fez isso* (Parâmetros), *em quais ativos*
+ * (Veículos), *o que aqui é defeito de arquivo e não mudança de contrato*
+ * (Anomalias) e *isto é normal para esta unidade?* (Comparar vigências).
+ * Importações e Curadoria saíram: as duas já são alcançadas por um clique na
+ * faixa de atenção quando têm o que mostrar, e uma porta que repete um caminho
+ * de dois passos acima só divide a atenção.
+ *
+ * A cor de cada ícone é a da seção do menu a que a tela pertence — os mesmos
+ * cinco `--nav-*`. É a única cor além de laranja e vermelho que este produto
+ * usa, e o limite dela continua o mesmo: **ela pinta o caminho, nunca o dado**.
+ * Nenhuma delas diz que algo vai bem ou mal.
+ */
+const PORTAS: { href: string; icone: LucideIcon; titulo: string; cor: string }[] = [
+  { href: "/parametros", icone: SlidersVertical, titulo: "Parâmetros", cor: "text-nav-admin" },
+  {
+    href: "/analise-equipamentos",
+    icone: Truck,
+    titulo: "Veículos",
+    cor: "text-nav-inteligencia",
+  },
+  /*
+    Anomalias abre o Acompanhamento, que é onde elas moram: o painel de
+    prioridade traz o indício de troca de formato ponto a ponto, e o KPI de
+    anomalias fica no resumo da mesma tela. Não há rota `/anomalias`, e
+    inventá-la aqui seria pôr no atalho uma promessa que o roteador não cumpre.
+  */
+  { href: "/vigencia", icone: AlertTriangle, titulo: "Anomalias", cor: "text-brand-red" },
+  {
+    href: "/comparar",
+    icone: TrendingUp,
+    titulo: "Comparar vigências",
+    cor: "text-nav-auditoria",
+  },
 ];
 
 /**
@@ -1079,18 +1264,21 @@ const PORTAS: { href: string; icone: LucideIcon; titulo: string }[] = [
  */
 function Explorar() {
   return (
-    <section className="bg-card border shadow-sm px-6 py-5 flex flex-col">
+    <section className={cn(CARTAO, "px-6 py-5 flex flex-col")}>
       <h2 className="text-base font-bold">Explorar</h2>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-4 flex-1">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mt-5 flex-1">
         {PORTAS.map((porta) => (
           <Link
             key={porta.href}
             href={porta.href}
-            className="group border p-4 flex flex-col items-center justify-center text-center gap-2.5 min-h-28 hover:border-brand hover:bg-accent/40 transition-colors"
+            className="group rounded-xl border p-4 flex flex-col min-h-32 hover:border-brand hover:bg-accent/40 transition-colors"
           >
-            <porta.icone className="w-6 h-6 text-brand-red" strokeWidth={2} />
-            <span className="text-sm font-semibold leading-snug group-hover:text-brand transition-colors">
-              {porta.titulo}
+            <porta.icone className={cn("w-6 h-6 shrink-0", porta.cor)} strokeWidth={2} />
+            <span className="mt-auto pt-6 flex items-end justify-between gap-2">
+              <span className="text-sm font-semibold leading-snug group-hover:text-brand transition-colors">
+                {porta.titulo}
+              </span>
+              <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground" />
             </span>
           </Link>
         ))}
@@ -1113,7 +1301,7 @@ function Explorar() {
  */
 function Rodape() {
   return (
-    <aside className="bg-card border border-l-[6px] border-l-emerald-600 shadow-sm">
+    <aside className={cn(CARTAO, "border-l-[6px] border-l-emerald-600 overflow-hidden")}>
       <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-6 py-4">
         <ShieldCheck className="w-6 h-6 text-emerald-600 shrink-0" strokeWidth={2} />
         <div className="min-w-0 flex-1">
@@ -1139,7 +1327,7 @@ function Rodape() {
 /** Banco sem vigência nenhuma: a tela diz o que fazer, e não finge um painel. */
 function BancoVazio() {
   return (
-    <section className="bg-card border shadow-sm px-8 py-10 text-center">
+    <section className={cn(CARTAO, "px-8 py-10 text-center")}>
       <CloudDownload className="w-10 h-10 text-brand mx-auto" strokeWidth={1.75} />
       <h2 className="text-xl font-bold mt-4">Nenhuma vigência importada ainda</h2>
       <p className="text-sm text-muted-foreground mt-2 max-w-xl mx-auto">
@@ -1149,7 +1337,7 @@ function BancoVazio() {
       </p>
       <Link
         href="/importacoes"
-        className="mt-5 inline-flex items-center gap-2 bg-brand text-brand-foreground px-6 py-3 text-[0.8125rem] font-bold uppercase tracking-wide hover:bg-brand-dark transition-colors"
+        className="mt-5 inline-flex items-center gap-2 rounded-lg bg-brand text-brand-foreground px-6 py-3 text-[0.8125rem] font-bold uppercase tracking-wide hover:bg-brand-dark transition-colors"
       >
         Enviar a primeira planilha
         <ChevronRight className="w-4 h-4" />

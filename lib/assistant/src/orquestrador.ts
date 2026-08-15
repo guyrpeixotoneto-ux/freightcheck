@@ -33,6 +33,9 @@ import {
   anexoDoBook,
   coberturaDoBook,
   composicaoDaFrota,
+  resultadoDaFrota,
+  porQueOResultadoMudou,
+  placaCitada,
   listarVigencias,
   movimentoDoParametro,
   panoramaDoContexto,
@@ -917,6 +920,46 @@ export async function orquestrar(
           "Compondo a remuneração da frota",
           composicaoDaFrota(db, contexto, leitura.entidades.equipamento ?? "CAVALO", periodoEfetivo),
         );
+      }
+      break;
+
+    /*
+      A DRE sempre em escopo de CONJUNTO quando ninguém pediu outro.
+
+      É o único escopo em que a pergunta "este caminhão dá dinheiro?" tem
+      resposta completa: um cavalo sozinho não carrega o implemento que roda com
+      ele, e uma carreta sozinha não carrega o cavalo. Responder por cavalo
+      quando perguntaram por caminhão daria um número menor, verdadeiro sobre
+      outra coisa, e indistinguível do certo na leitura.
+    */
+    case "DRE":
+      if (contexto) {
+        const escopoDaDRE =
+          leitura.entidades.equipamento === "CARRETA"
+            ? "CARRETA"
+            : leitura.entidades.equipamento === "CAVALO"
+              ? "CAVALO"
+              : "CONJUNTO";
+        await juntar(
+          "Apurando o resultado da frota",
+          resultadoDaFrota(db, contexto, escopoDaDRE, periodoEfetivo),
+        );
+
+        /*
+          Quando a pergunta nomeia uma placa, a ponte vem junto.
+
+          "Por que o ABC1D23 piorou em agosto?" precisa das duas coisas: o
+          resultado da frota dá a régua, e a ponte diz o que empurrou aquele
+          veículo. Sem a segunda, a resposta seria um número de frota para uma
+          pergunta sobre um caminhão.
+        */
+        const veiculo = await placaCitada(db, pergunta).catch(() => null);
+        if (veiculo) {
+          await juntar(
+            `Apurando o que mudou em ${veiculo.placa}`,
+            porQueOResultadoMudou(db, contexto, veiculo.entityId, escopoDaDRE, periodoEfetivo),
+          );
+        }
       }
       break;
 

@@ -132,7 +132,14 @@
       "idx": 18,
       "version": "7",
       "when": 1786845840000,
-      "tag": "0018_assistant_feedback",
+      "tag": "0018_identidade_forte",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786845900000,
+      "tag": "0019_assistant_feedback",
       "breakpoints": true
     }
   ]

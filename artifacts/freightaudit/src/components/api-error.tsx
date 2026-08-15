@@ -1,19 +1,21 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
 import { fetchJson } from "@/lib/api";
+import { apresentar } from "@/lib/apresentar-erro";
+import type { Diagnostico, Orientacao } from "@/lib/diagnostico";
 
 /**
  * Uma chamada de API que falhou, dita de um jeito que aponta para a causa.
  *
  * Um 500 em `/api/overview` não é um defeito do Painel, e tratá-lo como tal
  * manda quem está olhando procurar no lugar errado. Quase sempre a resposta
- * está em `/api/healthz`, que é público, responde mesmo com o banco fora e diz
- * qual dos três elos quebrou: a variável não chegou ao processo, o banco não
- * respondeu no endereço dela, ou o schema não existe do outro lado.
+ * está no diagnóstico do banco, que o servidor classifica num lugar só e
+ * publica tanto no corpo do erro quanto no `/api/healthz`.
  *
- * Então é isso que este aviso faz — pergunta ao `/healthz` e escreve a resposta
- * em português, sem expor host, porta nem credencial (o endpoint já se recusa a
- * devolvê-los).
+ * **Uma recomendação, nunca duas.** Este componente imprimia dois textos
+ * sempre: o do `/healthz` e a mensagem crua da rota, um embaixo do outro. Ver
+ * `lib/apresentar-erro.ts`, que é onde essa decisão passou a morar e onde ela é
+ * testada. Aqui só se desenha o que aquela função devolveu.
  */
 
 interface DatabaseHealth {
@@ -21,66 +23,42 @@ interface DatabaseHealth {
   reachable: boolean;
   migrated: boolean;
   upToDate?: boolean;
-  migrations?: {
-    expected: number;
-    applied: number;
-    pending: string[];
-    failure?: { tag: string; code?: string };
-  };
-  code?: string;
+  diagnostico?: Diagnostico;
   detail: string;
 }
 
-function diagnose(database: DatabaseHealth | undefined): string | null {
-  if (!database) return null;
-  if (!database.configured) {
-    return (
-      "O servidor da API está no ar, mas não recebeu a DATABASE_URL. Toda rota " +
-      "que lê o banco responde 500 enquanto isso. O banco pode estar saudável: " +
-      "o que falta é a variável chegar ao processo publicado."
-    );
-  }
-  if (!database.reachable) return database.detail;
-  if (!database.migrated) {
-    return (
-      "O servidor conecta no banco, mas o schema não existe lá — faltam as " +
-      "migrations. Nenhuma tabela consultada por esta tela foi criada ainda."
-    );
-  }
-  /*
-    O caso do meio, que faltava: o banco existe e está quase todo lá, e o que
-    falta é a migration da tela que acabou de falhar. Enquanto este ramo não
-    existia, "conectado e migrado" mandava procurar o defeito na tela — e o
-    defeito era uma tabela que nunca chegou a ser criada.
-  */
-  const pendentes = database.migrations?.pending ?? [];
-  if (pendentes.length > 0) return database.detail;
-  return null;
-}
-
-/**
- * A falha que acontece antes de existir resposta.
- *
- * `fetch` rejeita com `TypeError` quando a requisição não completa — conexão
- * recusada, DNS, o proxy do Vite sem servidor atrás. O navegador escreve isso
- * como "Failed to fetch" (ou "Load failed", no Safari), palavras que não dizem
- * a quem lê sequer de que lado o defeito está.
- *
- * É o único caso em que a resposta do `/healthz` não basta para o diagnóstico —
- * mas ele continua sendo o que separa as duas causas. Com o processo fora do
- * ar, o `/healthz` cai pela mesma razão e o link no fim deste aviso leva ao
- * mesmo nada; com o processo de pé, ele responde, e então o que morreu foi
- * **esta** requisição — o servidor reiniciou no meio dela, ou a conexão foi
- * cortada antes de qualquer resposta. Culpar o processo inteiro nos dois casos
- * mandava procurar um servidor derrubado que estava de pé o tempo todo: a tela
- * em que isso apareceu só é alcançável depois de a sessão ter sido confirmada
- * pela mesma API. Daí o texto nomear as duas e dizer como distingui-las.
- *
- * Nenhum erro nosso é `TypeError`: `ApiError` e o que `readJson` levanta são
- * `Error`, então a checagem não captura falha de servidor por engano.
- */
-function isFalhaDeRede(error: unknown): boolean {
-  return error instanceof TypeError;
+/** O único lugar do repositório que desenha uma orientação. */
+function BlocoDeOrientacao({ orientacao }: { orientacao: Orientacao }) {
+  const { acao } = orientacao;
+  return (
+    <div className="space-y-2 text-sm">
+      <p>{orientacao.resumo}</p>
+      <p>{orientacao.risco.texto}</p>
+      {acao === null ? (
+        <p className="font-medium">Nenhuma ação é necessária.</p>
+      ) : (
+        <div className="space-y-1">
+          <p className="font-medium">
+            {acao.texto}
+            {acao.quem === "plataforma" && (
+              <span className="font-normal">
+                {" "}
+                (não é algo que se resolva por esta tela)
+              </span>
+            )}
+          </p>
+          {acao.comando && (
+            <pre className="text-xs font-mono bg-amber-100/70 rounded px-2 py-1 overflow-x-auto">
+              {acao.comando}
+            </pre>
+          )}
+        </div>
+      )}
+      {orientacao.evidencia && (
+        <p className="text-xs opacity-80">{orientacao.evidencia}</p>
+      )}
+    </div>
+  );
 }
 
 export function ApiErrorNotice({
@@ -99,14 +77,7 @@ export function ApiErrorNotice({
     staleTime: 30_000,
   });
 
-  const cause = isFalhaDeRede(error)
-    ? "A requisição não completou: esta tela não chegou a receber resposta " +
-      "nenhuma do servidor, nem de erro. Abra /api/healthz para saber qual dos " +
-      'dois casos é. Sem resposta, o processo "API Server" não está de pé. Com ' +
-      "resposta, ele está — e o que caiu foi só esta chamada, no meio do " +
-      "caminho; o registro do processo diz o que aconteceu na hora."
-    : diagnose(health?.database);
-  const message = error instanceof Error ? error.message : String(error);
+  const vista = apresentar(error, health?.database);
 
   return (
     <div className="rounded-lg border border-amber-300 bg-amber-50 px-5 py-4 space-y-2 text-amber-900">
@@ -114,9 +85,15 @@ export function ApiErrorNotice({
         <AlertTriangle className="w-4 h-4 shrink-0" />
         {what}
       </div>
-      {cause && <p className="text-sm">{cause}</p>}
-      <p className="text-xs font-mono break-words opacity-80">{message}</p>
-      {!cause && (
+
+      {vista.contexto && <p className="text-sm">{vista.contexto}</p>}
+      {vista.orientacao && <BlocoDeOrientacao orientacao={vista.orientacao} />}
+      {vista.mensagemCrua && (
+        <p className="text-xs font-mono break-words opacity-80">
+          {vista.mensagemCrua}
+        </p>
+      )}
+      {vista.mostrarLinkHealthz && (
         <p className="text-xs">
           <a href="/api/healthz" className="underline">
             /api/healthz

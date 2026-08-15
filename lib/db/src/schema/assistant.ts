@@ -6,7 +6,9 @@ import {
   timestamp,
   integer,
   index,
+  check,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { appUserTable } from "./auth";
 
 /**
@@ -112,5 +114,13 @@ export const assistantMessageTable = pgTable(
   },
   (t) => [
     index("assistant_message_conversation_idx").on(t.conversationId, t.position),
+    /**
+     * Só a resposta recebe voto, e só um dos dois valores. Um voto numa
+     * pergunta seria um dado que nenhuma tela sabe ler.
+     */
+    check(
+      "assistant_message_feedback_ck",
+      sql`${t.feedback} IS NULL OR (${t.role} = 'RESPOSTA' AND ${t.feedback} IN ('UTIL', 'NAO_UTIL'))`,
+    ),
   ],
 );

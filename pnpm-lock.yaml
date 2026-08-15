@@ -197,6 +197,9 @@ importers:
       '@workspace/db':
         specifier: workspace:*
         version: link:../../lib/db
+      '@workspace/dre':
+        specifier: workspace:*
+        version: link:../../lib/dre
       '@workspace/ingest':
         specifier: workspace:*
         version: link:../../lib/ingest
@@ -676,6 +679,9 @@ importers:
       '@workspace/db':
         specifier: workspace:*
         version: link:../db
+      '@workspace/dre':
+        specifier: workspace:*
+        version: link:../dre
       '@workspace/ingest':
         specifier: workspace:*
         version: link:../ingest
@@ -826,6 +832,40 @@ importers:
       drizzle-kit:
         specifier: ^0.31.10
         version: 0.31.10
+      tsx:
+        specifier: 'catalog:'
+        version: 4.23.1
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@25.9.5)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.1)(yaml@2.9.0)
+
+  lib/dre:
+    dependencies:
+      '@workspace/comparison':
+        specifier: workspace:*
+        version: link:../comparison
+      '@workspace/composition':
+        specifier: workspace:*
+        version: link:../composition
+      '@workspace/db':
+        specifier: workspace:*
+        version: link:../db
+      '@workspace/simulation':
+        specifier: workspace:*
+        version: link:../simulation
+      drizzle-orm:
+        specifier: 'catalog:'
+        version: 0.45.2(@types/pg@8.20.0)(pg@8.22.0)
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.9.5
+      '@workspace/curation':
+        specifier: workspace:*
+        version: link:../curation
+      '@workspace/ingest':
+        specifier: workspace:*
+        version: link:../ingest
       tsx:
         specifier: 'catalog:'
         version: 4.23.1

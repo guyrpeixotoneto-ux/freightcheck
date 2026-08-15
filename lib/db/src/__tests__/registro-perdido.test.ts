@@ -72,12 +72,36 @@ describe("registro de migrations perdido", () => {
     // Declarada a adoção, o registro é reconstruído e a fila anda.
     const segunda = await runMigrations(url, undefined, { adoptExisting: true });
     expect(segunda.failure).toBeUndefined();
-    expect(segunda.adopted).toEqual(primeira.applied);
     expect(segunda.pending).toEqual([]);
 
-    // As que mexem em dados saem nomeadas: o schema não prova que o backfill
-    // delas rodou, e quem adotou precisa conferir esse pedaço.
-    expect(segunda.adoptedWithData).toContain("0009_entity_type_correction");
+    /*
+      A adoção só reconhece migration que **cria objeto** — tabela, tipo, índice,
+      coluna, gatilho. A `0018` não cria nenhum: ela valida o dado e acrescenta
+      constraints, e nenhuma inspeção da forma do schema prova que ela rodou.
+
+      Então ela não é adotada: é rodada. E rodar é o desfecho certo aqui, porque
+      ela é idempotente por construção — adota a constraint que já existe, cria a
+      que falta, e para se o dado não sustentar a identidade.
+    */
+    const soConstraints = "0018_identidade_forte";
+    expect(segunda.adopted).toEqual(
+      primeira.applied.filter((tag) => tag !== soConstraints),
+    );
+    expect(segunda.applied).toEqual([soConstraints]);
+
+    /*
+      As que mexem em dados saem nomeadas: o schema não prova que o backfill
+      delas rodou, e quem adotou precisa conferir esse pedaço. A `0015` faz
+      backfill de verdade — `UPDATE` em cima de tabelas que já existiam.
+
+      A `0009` não entra, e não entrar é o ponto: os `UPDATE` dela vivem todos
+      dentro do corpo de `freightcheck_correct_entity_type`, e rodam quando
+      alguém chama a função, não quando a migration entra. Enquanto ela era
+      acusada aqui, a adoção mandava conferir à mão um backfill inexistente —
+      e um aviso que não se sustenta ensina a ignorar os próximos.
+    */
+    expect(segunda.adoptedWithData).toContain("0015_canonical_identity");
+    expect(segunda.adoptedWithData).not.toContain("0009_entity_type_correction");
 
     // E o registro volta a refletir o banco: uma terceira passada não tem o
     // que fazer, nem precisa da bandeira.

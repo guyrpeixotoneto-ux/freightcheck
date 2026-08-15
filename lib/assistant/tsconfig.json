@@ -16,6 +16,7 @@
     { "path": "../comparison" },
     { "path": "../ingest" },
     { "path": "../balance" },
-    { "path": "../composition" }
+    { "path": "../composition" },
+    { "path": "../dre" }
   ]
 }

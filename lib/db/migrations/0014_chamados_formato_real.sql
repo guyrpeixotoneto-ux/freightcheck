@@ -34,13 +34,35 @@
 -- ---------------------------------------------------------------------------
 
 -- A vigência que o próprio chamado nomeia. Casa com `snapshot.source_label`.
-ALTER TABLE "ticket" ADD COLUMN "vigencia_label" text;--> statement-breakpoint
+-- Reentrante pelo mesmo motivo da `0013`: um diff automático aceito por engano
+-- deixaria estas colunas de pé sem registrar nada, e a fila morreria aqui.
+DO $$
+DECLARE
+  achado text;
+BEGIN
+  SELECT string_agg(format('%s.%s é %s, esperado text', t.tabela, t.coluna, c.data_type), E'\n  ')
+    INTO achado
+    FROM (VALUES
+      ('ticket', 'vigencia_label'), ('ticket', 'entity_description'),
+      ('ticket_change', 'change_kind')
+    ) AS t(tabela, coluna)
+    JOIN information_schema.columns c
+      ON c.table_schema = 'public' AND c.table_name = t.tabela AND c.column_name = t.coluna
+   WHERE c.data_type <> 'text';
+  IF achado IS NOT NULL THEN
+    RAISE EXCEPTION
+      E'Colunas dos chamados já existem com outro tipo:\n  %\n\nNada foi alterado.',
+      achado USING ERRCODE = 'data_exception';
+  END IF;
+END $$;--> statement-breakpoint
+
+ALTER TABLE "ticket" ADD COLUMN IF NOT EXISTS "vigencia_label" text;--> statement-breakpoint
 
 -- O ativo como o arquivo o descreve, inteiro. `entity_label` guarda a placa
 -- extraída daqui quando existe uma.
-ALTER TABLE "ticket" ADD COLUMN "entity_description" text;--> statement-breakpoint
+ALTER TABLE "ticket" ADD COLUMN IF NOT EXISTS "entity_description" text;--> statement-breakpoint
 
-CREATE INDEX "ticket_vigencia_idx" ON "ticket" USING btree ("vigencia_label");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "ticket_vigencia_idx" ON "ticket" USING btree ("vigencia_label");--> statement-breakpoint
 
 -- ---------------------------------------------------------------------------
 -- A alteração
@@ -49,6 +71,6 @@ CREATE INDEX "ticket_vigencia_idx" ON "ticket" USING btree ("vigencia_label");--
 -- SET | ADD | FORM_THIS | … — texto, e não enum, porque é vocabulário do
 -- Freightech: ele inventa uma operação nova sem avisar, e uma migration não
 -- pode ser pré-requisito para receber um arquivo.
-ALTER TABLE "ticket_change" ADD COLUMN "change_kind" text;--> statement-breakpoint
+ALTER TABLE "ticket_change" ADD COLUMN IF NOT EXISTS "change_kind" text;--> statement-breakpoint
 
-CREATE INDEX "ticket_change_kind_idx" ON "ticket_change" USING btree ("change_kind");
+CREATE INDEX IF NOT EXISTS "ticket_change_kind_idx" ON "ticket_change" USING btree ("change_kind");

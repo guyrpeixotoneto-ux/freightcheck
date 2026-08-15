@@ -156,6 +156,24 @@ const DETECTORES: Detector[] = [
     quando: /\bdesde\b|\bao longo\b|\bevolu(cao|iu|ir)\b|\bhistorico\b|\bserie\b|\bde \w+ (a|ate|para) \w+\b|\bnos ultimos\b|\bquanto (mudou|variou|subiu|caiu|aumentou|diminuiu)\b/,
     porque: "delimita um intervalo de vigências",
   },
+  /*
+    A DRE vem **antes** de COMPOSIÇÃO, e a ordem é a que separa duas perguntas
+    quase idênticas na forma. "Como se compõe a remuneração do ABC1D23?" é
+    composição — a memória de cálculo do que ele recebe. "Quanto sobra do
+    ABC1D23?" é DRE: o que resta depois dos custos.
+
+    Aqui, onde os detectores não se excluem, "antes" quer dizer só a ordem de
+    leitura em ORDEM — as duas necessidades podem coexistir, e quando coexistem
+    é a DRE que dá nome à resposta. O `(?!...)` na frente continua devolvendo a
+    CONCEITUAL as perguntas de definição: "o que é DRE?" não é uma consulta de
+    resultado.
+  */
+  {
+    necessidade: "DRE",
+    quando:
+      /^(?!.*\b(o que (e|sao|significa)|que e|como funciona|explique|explica|defini(cao|r)|para que serve)\b).*?(?:\bdre\b|\bebitda\b|\bmargem( de contribuicao)?\b|\bresultado (economico|apurado|operacional)\b|\bda (dinheiro|lucro|prejuizo)\b|\b(prejuizo|lucrativ\w*|deficitari\w*|rentabilidade|rentav\w*)\b|\bquanto (sobra|sobrou|resta|restou)\b|\b(caminh(ao|oes)|cavalo?s?|veiculos?|conjuntos?)\b.{0,25}\b(da|dao|deu|deram) (mais )?(dinheiro|lucro|prejuizo)\b|\bcusto por km\b|\bcusto\/km\b|\b[a-z]{3}\d[a-z0-9]\d{2}\b.{0,40}\b(piorou|melhorou|caiu|despencou|desandou)\b)/,
+    porque: "pede o resultado econômico apurado",
+  },
   {
     necessidade: "RANKING_PERDA",
     quando: /\b(perdemos|perda|perdas|prejudic\w*|piorou|pior|caiu mais|reduziu|queda)\b/,
@@ -291,6 +309,7 @@ const ORDEM: Necessidade[] = [
     substantivo e o movimento pelo verbo; a resposta traz os dois, e o nome é
     o que foi perguntado.
   */
+  "DRE",
   "VEICULOS",
   /*
     O movimento vem antes do ranking quando a frase pede os dois.

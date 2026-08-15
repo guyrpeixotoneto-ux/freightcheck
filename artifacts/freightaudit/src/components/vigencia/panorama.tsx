@@ -1,4 +1,6 @@
+import { Info } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { formatBrlShort, periodicitySuffix } from "@/lib/format";
 import type { CockpitView, Severity } from "@/components/inicio/types";
 import type { FiltroCockpit } from "@/lib/cockpit";
 
@@ -8,7 +10,7 @@ import type { FiltroCockpit } from "@/lib/cockpit";
  * Fica entre o resumo e a fila porque responde a pergunta que nasce depois do
  * "quanto" e antes do "por onde começo": *de que tipo é este risco*. Quatro
  * recortes, e cada um deles é uma **partição de coisas diferentes** — por isso
- * a unidade vai escrita em cada bloco:
+ * a unidade vai escrita no pé de cada cartão:
  *
  * - **criticidade** conta pontos (grupos);
  * - **natureza do sinal** conta pontos, com o selo que o motor já atribuía;
@@ -34,9 +36,20 @@ export function Panorama({
   const totalAlteracoes = cockpit.kpis.changes;
   const pricing = panorama.pricing;
 
+  const impacto = Object.entries(cockpit.kpis.impact.byPeriodicity).sort(([a], [b]) =>
+    a.localeCompare(b),
+  );
+
+  const rodapePontos = `${totalPontos.toLocaleString("pt-BR")} ${
+    totalPontos === 1 ? "ponto no total" : "pontos no total"
+  }`;
+  const rodapeAlteracoes = `${totalAlteracoes.toLocaleString("pt-BR")} ${
+    totalAlteracoes === 1 ? "alteração no total" : "alterações no total"
+  }`;
+
   return (
     <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-      <Bloco titulo="Por criticidade" unidade="pontos da remuneração">
+      <Bloco titulo="Por criticidade" rodape={rodapePontos}>
         {panorama.bySeverity.map((b) => (
           <Linha
             key={b.severity}
@@ -45,6 +58,7 @@ export function Panorama({
             total={totalPontos}
             cor={COR_SEVERIDADE[b.severity]}
             ativo={filtro.severidade === b.severity}
+            titulo={`${b.changes.toLocaleString("pt-BR")} alterações`}
             aoClicar={
               b.groups === 0
                 ? undefined
@@ -53,12 +67,11 @@ export function Panorama({
                       severidade: filtro.severidade === b.severity ? null : b.severity,
                     })
             }
-            detalhe={`${b.changes.toLocaleString("pt-BR")} alt.`}
           />
         ))}
       </Bloco>
 
-      <Bloco titulo="Por natureza do sinal" unidade="pontos da remuneração">
+      <Bloco titulo="Natureza do sinal" rodape={rodapePontos}>
         {panorama.byBadge.map((b) => (
           <Linha
             key={b.badge}
@@ -67,15 +80,13 @@ export function Panorama({
             total={totalPontos}
             cor={COR_SELO[b.badge] ?? "bg-zinc-400"}
             ativo={filtro.selo === b.badge}
-            aoClicar={() =>
-              aoFiltrar({ selo: filtro.selo === b.badge ? null : b.badge })
-            }
-            detalhe={`${b.changes.toLocaleString("pt-BR")} alt.`}
+            titulo={`${b.changes.toLocaleString("pt-BR")} alterações`}
+            aoClicar={() => aoFiltrar({ selo: filtro.selo === b.badge ? null : b.badge })}
           />
         ))}
       </Bloco>
 
-      <Bloco titulo="Por frota" unidade="alterações">
+      <Bloco titulo="Por frota" rodape={rodapeAlteracoes}>
         {panorama.byEquipment.map((b) => (
           <Linha
             key={b.entityType ?? "sem"}
@@ -84,6 +95,11 @@ export function Panorama({
             total={totalAlteracoes}
             cor="bg-sky-600"
             ativo={filtro.equipamento === b.entityType}
+            titulo={
+              b.fleet === null
+                ? `${b.groups} pontos`
+                : `${b.groups} pontos · frota de ${b.fleet}`
+            }
             aoClicar={
               b.entityType === null
                 ? undefined
@@ -92,16 +108,26 @@ export function Panorama({
                       equipamento: filtro.equipamento === b.entityType ? null : b.entityType,
                     })
             }
-            detalhe={
-              b.fleet === null
-                ? `${b.groups} pontos`
-                : `${b.groups} pontos · frota de ${b.fleet}`
-            }
           />
         ))}
       </Bloco>
 
-      <Bloco titulo="Por impacto financeiro" unidade="alterações">
+      {/*
+        O rodapé deste bloco é o único que não conta: quando não há preço, ele
+        diz isso com todas as letras, e o motivo — que é a pergunta seguinte de
+        quem lê "sem preço: 244" — fica no ícone, sem ocupar a coluna inteira.
+      */}
+      <Bloco
+        titulo="Impacto financeiro"
+        rodape={
+          impacto.length === 0
+            ? "Impacto não calculado"
+            : impacto
+                .map(([p, valor]) => `${formatBrlShort(valor)}${periodicitySuffix(p)}`)
+                .join(" · ")
+        }
+        nota={pricing.reasons.length > 0 ? motivoDoPreco(pricing.reasons) : undefined}
+      >
         <Linha
           rotulo="Com valor apurado"
           valor={pricing.calculatedChanges}
@@ -115,10 +141,11 @@ export function Panorama({
           }
         />
         <Linha
-          rotulo="Fora do total (já nas parcelas)"
+          rotulo="Fora do total (parcelas)"
           valor={pricing.excludedChanges}
           total={totalAlteracoes}
           cor="bg-violet-500"
+          titulo="Já contadas dentro de outro parâmetro"
         />
         <Linha
           rotulo="Sem preço"
@@ -132,22 +159,17 @@ export function Panorama({
               : () => aoFiltrar({ foco: filtro.foco === "SEM_PRECO" ? "TODOS" : "SEM_PRECO" })
           }
         />
-        {pricing.reasons.length > 0 && (
-          <p className="text-[0.6875rem] text-muted-foreground leading-snug pt-1.5 border-t mt-1">
-            <span className="font-semibold text-foreground">Por que falta preço:</span>{" "}
-            {pricing.reasons[0].reason}
-            {pricing.reasons.length > 1 && (
-              <>
-                {" "}
-                (+{pricing.reasons.length - 1}{" "}
-                {pricing.reasons.length === 2 ? "outro motivo" : "outros motivos"})
-              </>
-            )}
-          </p>
-        )}
       </Bloco>
     </section>
   );
+}
+
+function motivoDoPreco(reasons: { reason: string; groups: number; changes: number }[]): string {
+  const extras =
+    reasons.length > 1
+      ? ` (+${reasons.length - 1} ${reasons.length === 2 ? "outro motivo" : "outros motivos"})`
+      : "";
+  return `Por que falta preço: ${reasons[0].reason}${extras}`;
 }
 
 const COR_SEVERIDADE: Record<Severity, string> = {
@@ -169,28 +191,35 @@ const COR_SELO: Record<string, string> = {
 
 function Bloco({
   titulo,
-  unidade,
+  rodape,
+  nota,
   children,
 }: {
   titulo: string;
-  unidade: string;
+  rodape: string;
+  /** O que o ícone do rodapé conta quando alguém para o cursor nele. */
+  nota?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div className="bg-card border shadow-sm px-4 py-3.5">
-      <div className="flex items-baseline justify-between gap-2 mb-2.5">
-        <h3 className="text-[0.6875rem] font-bold uppercase tracking-[0.08em] text-muted-foreground">
-          {titulo}
-        </h3>
-        <span className="text-[0.625rem] text-muted-foreground">{unidade}</span>
-      </div>
-      <div className="space-y-1.5">{children}</div>
+    <div className="bg-card border rounded-xl shadow-sm px-4 py-4 flex flex-col">
+      <h3 className="text-[0.9375rem] font-bold mb-3">{titulo}</h3>
+      <div className="space-y-2.5 flex-1">{children}</div>
+      <p className="text-[0.6875rem] text-muted-foreground mt-3 pt-2.5 border-t flex items-center gap-1">
+        {rodape}
+        {nota && (
+          <span title={nota} className="inline-flex cursor-help">
+            <Info className="w-3 h-3" />
+            <span className="sr-only">{nota}</span>
+          </span>
+        )}
+      </p>
     </div>
   );
 }
 
 /**
- * Uma linha do panorama: rótulo, barra proporcional e contagem.
+ * Uma linha do panorama: rótulo, contagem e barra proporcional.
  *
  * A barra é proporcional ao total do bloco, e nunca a um máximo local — uma
  * barra cheia porque é a maior de três valores pequenos faria "3 de 244" ocupar
@@ -201,7 +230,7 @@ function Linha({
   valor,
   total,
   cor,
-  detalhe,
+  titulo,
   ativo,
   aoClicar,
 }: {
@@ -209,7 +238,7 @@ function Linha({
   valor: number;
   total: number;
   cor: string;
-  detalhe?: string;
+  titulo?: string;
   ativo?: boolean;
   aoClicar?: () => void;
 }) {
@@ -227,27 +256,29 @@ function Linha({
         </span>
         <span className="text-[0.8125rem] font-bold tabular-nums shrink-0">
           {valor.toLocaleString("pt-BR")}
-          {detalhe && (
-            <span className="ml-1.5 font-normal text-[0.6875rem] text-muted-foreground">
-              {detalhe}
-            </span>
-          )}
         </span>
       </div>
-      <div className="h-1 bg-muted mt-1 overflow-hidden">
-        <div className={cn("h-full", cor)} style={{ width: `${fatia}%` }} />
+      <div className="h-[3px] bg-muted rounded-full mt-1.5 overflow-hidden">
+        <div className={cn("h-full rounded-full", cor)} style={{ width: `${fatia}%` }} />
       </div>
     </>
   );
 
-  if (!aoClicar) return <div className="px-1 py-0.5">{conteudo}</div>;
+  if (!aoClicar) {
+    return (
+      <div className="px-1" title={titulo}>
+        {conteudo}
+      </div>
+    );
+  }
 
   return (
     <button
       onClick={aoClicar}
       aria-pressed={ativo}
+      title={titulo}
       className={cn(
-        "w-full text-left px-1 py-0.5 rounded-sm transition-colors hover:bg-muted/60",
+        "w-full text-left px-1 py-0.5 -my-0.5 rounded-md transition-colors hover:bg-muted/60",
         ativo && "bg-accent ring-1 ring-brand",
       )}
     >

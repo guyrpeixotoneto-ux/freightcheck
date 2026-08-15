@@ -3,6 +3,7 @@ import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { Router, type IRouter, type Response } from "express";
 import { codigoDoPostgres, db } from "@workspace/db";
+import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
 import {
   ensureImportStorageDir,
   markTicketImportFailed,
@@ -51,8 +52,7 @@ const DEFAULT_ACTOR = "upload";
  * toda consulta morre por causa de uma coluna.
  */
 export function faltaOSchemaDeChamados(err: unknown): boolean {
-  const code = codigoDoPostgres(err);
-  return code === "42P01" || code === "42703" || code === "42704";
+  return faltaSchema(err);
 }
 
 /**
@@ -64,17 +64,15 @@ export function faltaOSchemaDeChamados(err: unknown): boolean {
  * O status também muda: 503 é indisponibilidade temporária deste ambiente, e
  * não erro do pedido.
  */
-function responderFalha(res: Response, err: unknown): void {
+async function responderFalha(res: Response, err: unknown): Promise<void> {
   if (faltaOSchemaDeChamados(err)) {
-    res.status(503).json({
-      error:
-        "Este banco ainda não tem onde guardar chamados: faltam as migrations " +
-        "0013_chamados_por_parametro e 0014_chamados_formato_real. Não é o seu " +
-        "arquivo — nada chegou a ser gravado, e nada se perdeu. Suba o servidor " +
-        "de novo (ele aplica as migrations na partida) ou rode " +
-        "`pnpm --filter @workspace/db run migrate`. /api/healthz diz quais faltam.",
-      code: "SCHEMA_AUSENTE",
-    });
+    await responderSchemaAusente(
+      res,
+      "Este banco ainda não tem onde guardar chamados: falta pelo menos uma " +
+        "das migrations que criam esse schema (0012_chamados, " +
+        "0013_chamados_por_parametro, 0014_chamados_formato_real). Não é o seu " +
+        "arquivo — nada chegou a ser gravado, e nada se perdeu.",
+    );
     return;
   }
   res.status(500).json({ error: "Internal server error" });
@@ -200,7 +198,7 @@ router.get("/ticket-imports", async (req, res): Promise<void> => {
     res.json(await listTicketImports(db));
   } catch (err) {
     req.log.error({ err }, "Error listing ticket imports");
-    responderFalha(res, err);
+    await responderFalha(res, err);
   }
 });
 
@@ -246,7 +244,7 @@ router.post("/ticket-imports", async (req, res): Promise<void> => {
     void readInBackground(received.ticketImportId, req.log);
   } catch (err) {
     req.log.error({ err }, "Error receiving ticket import");
-    responderFalha(res, err);
+    await responderFalha(res, err);
   }
 });
 
@@ -264,7 +262,7 @@ router.get("/ticket-imports/:id", async (req, res): Promise<void> => {
     res.json(run);
   } catch (err) {
     req.log.error({ err }, "Error loading ticket import");
-    responderFalha(res, err);
+    await responderFalha(res, err);
   }
 });
 
@@ -313,7 +311,7 @@ router.get("/tickets", async (req, res): Promise<void> => {
     res.json({ import: run, imports, totals, byParameter, ...changes });
   } catch (err) {
     req.log.error({ err }, "Error listing tickets");
-    responderFalha(res, err);
+    await responderFalha(res, err);
   }
 });
 
@@ -341,7 +339,7 @@ router.get("/tickets/:id", async (req, res): Promise<void> => {
     res.json(ticket);
   } catch (err) {
     req.log.error({ err }, "Error loading ticket");
-    responderFalha(res, err);
+    await responderFalha(res, err);
   }
 });
 

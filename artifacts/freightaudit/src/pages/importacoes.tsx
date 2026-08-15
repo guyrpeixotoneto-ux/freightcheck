@@ -24,7 +24,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from "@/components/ui/dialog";
-import { fetchJson, getApiUrl, readJson } from "@/lib/api";
+import { erroDaResposta, fetchJson, getApiUrl, readJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 /**
@@ -203,7 +203,10 @@ export default function Importacoes() {
           }),
         });
         const body = await readJson(response);
-        if (!response.ok) throw new Error(`${file.name}: ${body.error}`);
+        // Um `Error` de uma linha jogava fora o status, o `code` e o
+        // diagnóstico — e com eles a diferença entre "este arquivo não serve" e
+        // "este banco não tem onde guardar".
+        if (!response.ok) throw erroDaResposta(response, body, file.name);
         ids.push(body.importRunId as string);
       }
       return ids;
@@ -235,7 +238,7 @@ export default function Importacoes() {
         body: JSON.stringify({ confirmNewEntityTypes }),
       });
       const body = await readJson(response);
-      if (!response.ok) throw new Error(body.error as string);
+      if (!response.ok) throw erroDaResposta(response, body);
       return body;
     },
     onSuccess: (_result, { importRunId }) => {
@@ -268,7 +271,7 @@ export default function Importacoes() {
         body: JSON.stringify({ reason }),
       });
       const body = await readJson(response);
-      if (!response.ok) throw new Error(body.error as string);
+      if (!response.ok) throw erroDaResposta(response, body);
       return body as unknown as DeletionPlan;
     },
     onSuccess: (result) => {

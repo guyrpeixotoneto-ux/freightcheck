@@ -87,6 +87,22 @@ const casos: { pergunta: string; intencao: Intencao }[] = [
   { pergunta: "Por quê?", intencao: "PROCEDENCIA" },
   { pergunta: "me mostre a fonte", intencao: "PROCEDENCIA" },
 
+  // ---- DRE ------------------------------------------------------------------
+  /*
+    As perguntas de §28, uma a uma. As três primeiras são as que mais importam:
+    nenhuma delas contém a palavra "DRE", e todas pedem resultado apurado. Um
+    classificador que só reconhecesse a sigla mandaria as três para lugar nenhum.
+  */
+  { pergunta: "Qual cavalo mais dá prejuízo?", intencao: "DRE" },
+  { pergunta: "Quais caminhões têm EBITDA negativo?", intencao: "DRE" },
+  { pergunta: "quanto sobra por caminhão?", intencao: "DRE" },
+  { pergunta: "mostre a DRE de agosto", intencao: "DRE" },
+  { pergunta: "qual a margem da frota?", intencao: "DRE" },
+  { pergunta: "quais veículos são deficitários?", intencao: "DRE" },
+  { pergunta: "qual o resultado econômico da unidade?", intencao: "DRE" },
+  { pergunta: "Mostre os 10 veículos com maior custo por km", intencao: "DRE" },
+  { pergunta: "Por que o ABC1D23 piorou em agosto?", intencao: "DRE" },
+
   // ---- panorama e contexto ------------------------------------------------------
   { pergunta: "o que temos importado?", intencao: "PANORAMA" },
   { pergunta: "quantas vigências temos?", intencao: "PANORAMA" },
@@ -98,11 +114,50 @@ describe("classificação de intenção", () => {
     expect(interpretar(pergunta).intencao).toBe(intencao);
   });
 
+  /*
+    A fronteira entre DRE e Composição.
+
+    As duas perguntas nomeiam o mesmo equipamento e leem os mesmos fatos, e
+    pedem coisas diferentes: uma quer a memória de cálculo do que ele recebe, a
+    outra quer o que sobra. Confundi-las produz uma resposta correta sobre a
+    pergunta errada.
+  */
+  /*
+    A DRE não pode roubar as perguntas dos rankings nem a de veículos afetados.
+    Ela vem antes das duas na ordem dos padrões, então esta é a asserção que
+    impede a mudança de ordem de virar uma regressão silenciosa.
+  */
+  it("não rouba as perguntas de ranking e de veículos afetados", () => {
+    expect(interpretar("onde perdemos mais dinheiro?").intencao).toBe("RANKING_PERDA");
+    expect(interpretar("qual parâmetro mais prejudicou a remuneração").intencao).toBe(
+      "RANKING_PERDA",
+    );
+    expect(interpretar("quais veículos foram mais impactados?").intencao).toBe("VEICULOS");
+    expect(interpretar("quais placas mudaram?").intencao).toBe("VEICULOS");
+  });
+
+  it("separa a composição do resultado", () => {
+    expect(interpretar("como se compõe a remuneração do cavalo").intencao).toBe("COMPOSICAO");
+    expect(interpretar("visão de frota dos cavalos").intencao).toBe("COMPOSICAO");
+    expect(interpretar("quanto sobra do cavalo depois dos custos").intencao).toBe("DRE");
+    expect(interpretar("o que é DRE?").intencao).toBe("CONCEITUAL");
+  });
+
   it("variações da mesma pergunta caem na mesma intenção", () => {
     const grupos: string[][] = [
       ["onde perdemos mais dinheiro?", "onde tivemos maior perda?", "o que mais prejudicou?"],
       ["o que é IPVA?", "que é IPVA", "o que significa IPVA"],
       ["compare julho com agosto", "compare julho e agosto", "julho x agosto"],
+      /*
+        As três formas de perguntar a mesma coisa sobre resultado. Se elas se
+        separarem, o que existe é um dicionário de frases — a mesma armadilha
+        que o cabeçalho deste arquivo descreve.
+      */
+      [
+        "qual cavalo dá mais prejuízo",
+        "quais veículos são deficitários",
+        "quais caminhões têm EBITDA negativo",
+      ],
     ];
     for (const grupo of grupos) {
       const intencoes = new Set(grupo.map((p) => interpretar(p).intencao));
