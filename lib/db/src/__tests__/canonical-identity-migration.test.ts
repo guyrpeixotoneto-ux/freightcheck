@@ -516,6 +516,66 @@ describe("reentrância", () => {
   }, 300_000);
 });
 
+describe("0013 sobre um banco em que o diff dos chamados foi aceito", () => {
+  /**
+   * O estado do print: produção parada na `0012`, e alguém aceitou a proposta
+   * do Publishing — as nove colunas de parâmetro saíram de `ticket`,
+   * `changed_parameter_count` entrou, `ticket_change` foi criada. O schema
+   * mudou; o registro de migrations, não.
+   *
+   * Sem reentrância a fila morria aqui, em `duplicate_column`, e `0014`–`0018`
+   * nunca entrariam. É o mesmo travamento que a adoção já teve de resolver uma
+   * vez neste projeto.
+   */
+  it("adota o que o diff deixou pronto e completa o resto", async () => {
+    const referencia = await bancoNovo();
+    await runMigrations(referencia.url);
+
+    const { url, pool } = await bancoNovo();
+    await aplicarAte(pool, "0012_chamados");
+
+    for (const coluna of [
+      "parameter_label",
+      "attribute_code",
+      "requested_value_raw",
+      "requested_value_numeric",
+      "applied_value_raw",
+      "applied_value_numeric",
+      "impact_amount",
+      "impact_confidence",
+      "impact_reason",
+    ]) {
+      await pool.query(`ALTER TABLE "ticket" DROP COLUMN IF EXISTS "${coluna}"`);
+    }
+    await pool.query(
+      `ALTER TABLE "ticket" ADD COLUMN "changed_parameter_count" integer DEFAULT 0 NOT NULL`,
+    );
+
+    const relatorio = await runMigrations(url);
+    expect(relatorio.failure).toBeUndefined();
+    expect(relatorio.applied).toContain("0013_chamados_por_parametro");
+    expect(relatorio.applied).toContain("0018_identidade_forte");
+
+    expect(await estrutura(pool)).toEqual(await estrutura(referencia.pool));
+    await pool.end();
+    await referencia.pool.end();
+  }, 300_000);
+
+  it("aborta quando a coluna homônima chegou com outro tipo", async () => {
+    const { url, pool } = await bancoNovo();
+    await aplicarAte(pool, "0012_chamados");
+    await pool.query(
+      `ALTER TABLE "ticket" ADD COLUMN "changed_parameter_count" text`,
+    );
+
+    const relatorio = await runMigrations(url);
+    expect(relatorio.failure?.tag).toBe("0013_chamados_por_parametro");
+    expect(relatorio.failure?.message).toContain("changed_parameter_count");
+    expect(relatorio.failure?.message).toContain("Nada foi alterado");
+    await pool.end();
+  }, 300_000);
+});
+
 describe("0018 sobre um banco que já tinha passado pela 0015 antiga", () => {
   /** As quatro constraints, como um banco pré-`0018` não as tinha. */
   async function tirarAsConstraints(pool: pg.Pool): Promise<void> {
