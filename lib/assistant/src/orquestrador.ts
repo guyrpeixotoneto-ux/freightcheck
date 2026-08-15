@@ -24,6 +24,7 @@ import { buscarTrechos, type TrechoRelevante } from "./corpus";
 import {
   buscarNoBook,
   documentoDoBloco,
+  LIMIAR_PARA_DEFINIR,
   type TrechoDoBookRanqueado,
 } from "./indice-book";
 import {
@@ -54,6 +55,7 @@ import {
   importacoesRecentes,
 } from "./governanca";
 import { reconhecerAssunto, type AssuntoReconhecido } from "./assunto";
+import { planejar, type Necessidade, type Plano as PlanoDeInvestigacao } from "./plano";
 import {
   INTENCOES_COM_PARAMETRO,
   INTENCOES_COM_RECORTE,
@@ -98,7 +100,17 @@ export interface Etapa {
 }
 
 export interface Plano {
+  /**
+   * A necessidade principal — o nome da resposta.
+   *
+   * Continua sendo uma `Intencao` para não quebrar o estado da conversa, a
+   * tela e as sugestões; o que mudou é de onde ela vem. Antes era o primeiro
+   * padrão que casava, e nada mais era executado. Agora é a primeira de
+   * `necessidades`, e todas são.
+   */
   intencao: Intencao;
+  /** Tudo o que esta pergunta precisa descobrir. */
+  necessidades: Necessidade[];
   /** Por que esta intenção — para o painel técnico. */
   porque: string;
   /**
@@ -469,11 +481,53 @@ export async function orquestrar(
   /** O assunto reconhecido, para quem precisa do termo — Book, regra, lacuna. */
   const termoDoAssunto = assunto?.termo ?? null;
 
-  // ---- 4. contexto ---------------------------------------------------------
-  const precisaRecorte = INTENCOES_COM_RECORTE.has(intencao);
+  // ---- 4. o Book, antes do plano -------------------------------------------
+  /*
+    A busca vem antes de decidir o que fazer, e essa inversão é o coração da
+    fase.
+
+    Ela roda para toda pergunta que não seja saudação, sobre a frase inteira, e
+    custa quatro milissegundos sobre um índice em memória. O que muda é o uso:
+    o plano passa a **ver** o que a recuperação trouxe. Uma pergunta como "com
+    que frequência a auditoria QLP ADM acontece?" sempre recuperou a seção
+    certa; o que faltava era alguém olhar para isso antes de concluir que a
+    pergunta não tinha classificação.
+  */
+  const achadosDoBook: TrechoDoBookRanqueado[] = [];
+  if (leitura.intencao !== "SAUDACAO") {
+    marcar("book", "Procurando no Book do Operador");
+    const achados = await buscarNoBook(db, pergunta, {
+      limite: 6,
+      blocoPreferido: estado?.blocoDoBook ?? null,
+      termosExtras: [
+        ...(termoDoAssunto ? [termoDoAssunto] : []),
+        ...(alvo ? [alvo.parametro] : []),
+      ],
+    }).catch(() => []);
+    achadosDoBook.push(...achados);
+  }
+
+  // ---- 5. o plano de investigação ------------------------------------------
+  if (leitura.intencao !== "SAUDACAO") marcar("planejar", "Decidindo o que consultar");
+  const investigacao = planejar({
+    pergunta,
+    leitura: { ...leitura, intencao },
+    assunto: termoDoAssunto,
+    temConversa: Boolean(estado?.intencao),
+    herdada: estado?.intencao ?? null,
+    temRegraDoBook: (achadosDoBook[0]?.pontos ?? 0) >= LIMIAR_PARA_DEFINIR,
+  });
+  intencao = investigacao.principal;
+
+  // ---- 6. contexto ---------------------------------------------------------
+  const precisaRecorte = investigacao.necessidades.some((n) => INTENCOES_COM_RECORTE.has(n));
   let contexto: ContextoResolvido | null = null;
 
-  if (precisaRecorte || intencao === "PANORAMA" || intencao === "CATALOGO_DE_CONTEXTO") {
+  const querContexto =
+    precisaRecorte ||
+    investigacao.necessidades.includes("PANORAMA") ||
+    investigacao.necessidades.includes("CATALOGO_DE_CONTEXTO");
+  if (querContexto) {
     marcar("resolverContexto", "Resolvendo unidade e canal");
     contexto = await resolverContexto(db, {
       ...(opcoes.recorte?.scopeHash ? { scopeHash: opcoes.recorte.scopeHash } : {}),
@@ -510,7 +564,8 @@ export async function orquestrar(
 
   const plano: Plano = {
     intencao,
-    porque: leitura.porque,
+    necessidades: investigacao.necessidades,
+    porque: investigacao.porque.join(" · ") || leitura.porque,
     assunto: termoDoAssunto,
     comoReconheceu: assunto?.como ?? null,
     herdado,
@@ -526,13 +581,27 @@ export async function orquestrar(
   const documentos: TrechoDoBookRanqueado[] = [];
   const anexos: Anexo[] = [];
   const lacunas: Lacuna[] = [];
+  /*
+    A mesma consulta não entra duas vezes.
+
+    Com o plano executando um conjunto, duas necessidades podem pedir a mesma
+    ferramenta — "o que mudou e o que mais pesou?" quer o movimento e o
+    ranking, e as duas passam pelo resumo da vigência. Sem esta guarda o dossiê
+    ganharia a mesma evidência com dois números de citação, e a resposta citaria
+    duas fontes idênticas como se fossem confirmação independente.
+  */
+  const vistas = new Set<string>();
   const juntar = async (
     rotulo: string,
     promessa: Promise<Evidencia | null>,
   ): Promise<void> => {
     marcar("consultar", rotulo);
     const evidencia = await promessa.catch(() => null);
-    if (evidencia) evidencias.push(evidencia);
+    if (!evidencia) return;
+    const chave = `${evidencia.ferramenta}|${evidencia.titulo}|${evidencia.origem}`;
+    if (vistas.has(chave)) return;
+    vistas.add(chave);
+    evidencias.push(evidencia);
   };
 
   const periodoEfetivo = plano.periodo ?? undefined;
@@ -565,7 +634,17 @@ export async function orquestrar(
   */
   const alvoPerdido = assunto !== null && !alvo && !desambiguacao;
 
-  switch (intencao) {
+  /*
+    Uma passagem por necessidade, e todas são executadas.
+
+    Era um `switch` sobre a intenção única: o que não fosse o caso escolhido
+    simplesmente não acontecia, e uma pergunta que pedia duas coisas recebia
+    uma. Aqui o `switch` continua — ele é a forma certa de despachar um valor
+    fechado —, mas ele roda dentro de um laço, e o que decide quantas vezes é o
+    plano.
+  */
+  for (const necessidade of investigacao.necessidades) {
+  switch (necessidade) {
     case "CONCEITUAL":
     case "DISPONIBILIDADE":
       // Conceito não consulta impacto. É a correção do defeito que fazia
@@ -579,7 +658,14 @@ export async function orquestrar(
         como um todo — "quantos blocos já têm regra?" —, que é dado e não
         conteúdo.
       */
-      if (!termoDoAssunto) {
+      /*
+        A cobertura só é resposta quando não há regra a mostrar.
+
+        Ela conta quantos blocos já têm conteúdo — dado sobre o Book, não
+        conteúdo dele. Quem perguntou algo que a busca respondeu quer a regra;
+        entregar a estatística ao lado dela é trocar a resposta pela ficha.
+      */
+      if (!termoDoAssunto && !investigacao.bookPorEvidencia) {
         marcar("consultar", "Consultando o Book do Operador");
         evidencias.push(await coberturaDoBook(db));
       }
@@ -778,6 +864,7 @@ export async function orquestrar(
     case "DESCONHECIDA":
       break;
   }
+  }
 
   /*
     ---- 5b. o Book, para qualquer pergunta -----------------------------------
@@ -794,36 +881,23 @@ export async function orquestrar(
     agosto" sem parâmetro nomeado não têm o que buscar no Book, e uma busca sem
     termo devolveria os trechos mais genéricos do corpus inteiro.
   */
-  const perguntaDeConteudo =
-    intencao === "BOOK" || intencao === "CONCEITUAL" || intencao === "DISPONIBILIDADE";
-
   /*
-    Procurar é diferente de entregar, e a condição estava na etapa errada.
+    Quanto do Book entra na resposta — decidido pelo plano, não pela frase.
 
-    A busca só rodava quando havia assunto extraído — e `remuneracao` estava na
-    lista de bloqueio, então a pergunta mais frequente do produto nunca chegava
-    ao Book. Amarrar a **busca** à existência de assunto era condicionar a
-    fonte à qualidade de um palpite.
-
-    Agora toda pergunta que não é saudação procura, com a frase inteira. Quem
-    decide o que entra continua sendo o limiar de `buscarNoBook`: um casamento
-    fraco não vira documento no dossiê, e é por isso que "quantos veículos
-    temos?" continua não trazendo regra nenhuma.
+    A busca já rodou lá em cima e o limiar já descartou o que era ruído. O que
+    se decide aqui é largura: uma pergunta cuja necessidade **é** a regra fica
+    com os seis trechos; uma pergunta de número que por acaso casou uma regra
+    fica com três, para o dado não ser empurrado para fora do dossiê pelo
+    contexto que só o acompanha.
   */
-  if (intencao !== "SAUDACAO") {
-    marcar("book", "Procurando no Book do Operador");
+  const querRegra =
+    investigacao.necessidades.includes("BOOK") ||
+    investigacao.necessidades.includes("CONCEITUAL") ||
+    investigacao.necessidades.includes("DISPONIBILIDADE");
 
-    const achados = await buscarNoBook(db, pergunta, {
-      limite: perguntaDeConteudo ? 6 : 3,
-      blocoPreferido: estado?.blocoDoBook ?? null,
-      termosExtras: [
-        ...(termoDoAssunto ? [termoDoAssunto] : []),
-        ...(alvo ? [alvo.parametro] : []),
-      ],
-    }).catch(() => []);
+  documentos.push(...achadosDoBook.slice(0, querRegra ? 6 : 3));
 
-    documentos.push(...achados);
-
+  if (leitura.intencao !== "SAUDACAO") {
     /*
       A par do conteúdo, o registro: qual bloco, que revisão, que tipo de
       entrada. Isso não entra na prosa — os fatos são marcados como internos —,
@@ -833,7 +907,7 @@ export async function orquestrar(
     if (termoDoAssunto) {
       await juntar(
         "Consultando o registro do Book",
-        regraDoBook(db, termoDoAssunto, { documentoLido: achados.length > 0 }),
+        regraDoBook(db, termoDoAssunto, { documentoLido: documentos.length > 0 }),
       );
     }
 
@@ -847,10 +921,10 @@ export async function orquestrar(
       lê montando o resto. O teto de tamanho decide: manual de duzentas páginas
       continua vindo por trecho.
     */
-    const principal = achados[0]?.trecho;
+    const principal = achadosDoBook[0]?.trecho;
     const nomeouOBloco =
       principal &&
-      perguntaDeConteudo &&
+      querRegra &&
       termos(pergunta).some((p) => normalizar(principal.bloco).includes(p));
 
     if (principal && nomeouOBloco) {
@@ -861,7 +935,7 @@ export async function orquestrar(
         documentos.push(
           ...inteiro.map((trecho) => ({
             trecho,
-            pontos: achados[0].pontos,
+            pontos: achadosDoBook[0]!.pontos,
             porque: ["documento inteiro — a pergunta é sobre este bloco"],
           })),
           ...outros,

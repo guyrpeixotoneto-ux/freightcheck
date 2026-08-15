@@ -633,6 +633,18 @@ export function ranquear(
  */
 export const LIMIAR_DO_BOOK = 0.35;
 
+/**
+ * O limiar para a regra **definir** a pergunta, e não apenas acompanhá-la.
+ *
+ * Exibir um trecho pede que ele seja relevante; deixá-lo decidir o que a
+ * pergunta quer pede que ele seja a resposta. Medido no índice real, a
+ * separação é limpa: as perguntas que o Book de fato responde — prazo de
+ * contestação, periodicidade da revisão, o que acontece sem a nota fiscal —
+ * pontuam de 0,73 a 2,85; as que ele não responde, e que só casam uma palavra
+ * solta, ficam em 0,42 e 0,64.
+ */
+export const LIMIAR_PARA_DEFINIR = 0.7;
+
 /** A busca completa: índice, ranqueamento e limiar. */
 export async function buscarNoBook(
   db: Database,

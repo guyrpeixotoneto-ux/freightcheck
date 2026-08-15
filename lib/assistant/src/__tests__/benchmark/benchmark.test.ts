@@ -30,14 +30,15 @@ const rodar = URL_DO_BANCO ? describe : describe.skip;
 /**
  * O piso por categoria. Subir é progresso; cair é regressão.
  *
- * Medido em 15/08/2026 (69/103) e levantado pela Fase 1 (79/103). Os números
- * abaixo são o **depois** da Fase 1: eles travam o ganho, de modo que nenhuma
- * mudança futura possa devolver silenciosamente uma categoria ao que ela era.
- * Quem melhorar uma categoria sobe o piso dela no mesmo commit.
+ * Medido em 15/08/2026 (69/103), levantado pela Fase 1 (79/103) e de novo pela
+ * Fase 2 (95/103). Os números abaixo são o **depois** da Fase 2: eles travam o
+ * ganho, de modo que nenhuma mudança futura possa devolver silenciosamente uma
+ * categoria ao que ela era. Quem melhorar uma categoria sobe o piso dela no
+ * mesmo commit.
  */
 const PISO: Record<string, number> = {
   alteracoes: 15, parametros: 9, impacto: 10, equipamentos: 8, combustivel: 6,
-  book: 6, comparacao: 6, cruzada: 3, informal: 7, executiva: 2, impossivel: 7,
+  book: 13, comparacao: 6, cruzada: 4, informal: 8, executiva: 7, impossivel: 9,
 };
 
 rodar("benchmark do assistente", () => {
