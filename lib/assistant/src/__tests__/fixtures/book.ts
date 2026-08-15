@@ -213,6 +213,18 @@ Arla, lubrificantes e filtros são remunerados dentro do custo variável, com va
  * A guarda importa: um banco de desenvolvimento com conteúdo real anexado pela
  * operação não pode ser sobrescrito por fixture ao rodar a suíte. Vazio é o
  * único estado em que semear é seguro, e é o estado do CI.
+ *
+ * **A contagem sozinha não basta, e o CI foi quem mostrou.** Quatro arquivos de
+ * teste semeiam, o vitest os roda em paralelo e todos apontam para o mesmo banco
+ * de avaliação. Ler "está vazio" e depois inserir são dois momentos: num banco
+ * recém-criado os quatro leem zero antes de qualquer um gravar, e três esbarram
+ * na única `(block_key, revision)`. Localmente nunca apareceu porque a primeira
+ * execução deixava o banco semeado para as seguintes — o defeito só existe no
+ * primeiro contato com um banco limpo, que é exatamente o do CI.
+ *
+ * Por isso a inserção é ela própria idempotente: a contagem continua dizendo a
+ * intenção — não sobrescrever conteúdo real —, e o `ON CONFLICT DO NOTHING`
+ * garante que perder a corrida seja não fazer nada, em vez de quebrar.
  */
 export async function semearBookDeTeste(db: Database): Promise<number> {
   const { rows } = await db.execute<{ n: string }>(
@@ -242,6 +254,13 @@ export async function semearBookDeTeste(db: Database): Promise<number> {
     });
   }
 
-  if (linhas.length > 0) await db.insert(bookEntryTable).values(linhas);
-  return linhas.length;
+  if (linhas.length === 0) return 0;
+  const inseridas = await db
+    .insert(bookEntryTable)
+    .values(linhas)
+    .onConflictDoNothing({
+      target: [bookEntryTable.blockKey, bookEntryTable.revision],
+    })
+    .returning({ id: bookEntryTable.id });
+  return inseridas.length;
 }
