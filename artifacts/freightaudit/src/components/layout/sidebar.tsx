@@ -2,28 +2,46 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import {
   ArrowRightLeft,
+  BadgeCheck,
   Building2,
   Bot,
   Calculator,
   CalendarDays,
+  ChartColumn,
   ChartNoAxesCombined,
   ChevronDown,
   ChevronRight,
+  CircleDollarSign,
+  ClipboardCheck,
   ClipboardList,
   CloudDownload,
   Cog,
+  Container,
   Database,
   FileSearch,
+  FileSpreadsheet,
   FileText,
+  Gavel,
   GitCompareArrows,
+  Handshake,
+  History,
   House,
   Layers,
   MapPin,
+  Plug,
+  RefreshCcwDot,
   Scale,
   ScanSearch,
+  Settings2,
+  Shield,
+  ShieldCheck,
   SlidersVertical,
   Sparkles,
+  SquareActivity,
+  SquareTerminal,
+  Tractor,
   TrendingUp,
+  TriangleAlert,
   Truck,
   Users,
   type LucideIcon,
@@ -50,18 +68,19 @@ import { useSecoesRecolhidas } from "./preferencias";
  * A lateral do produto.
  *
  * Três blocos, de cima para baixo: **onde estou** (a unidade aberta), **para
- * onde vou** (as telas, em cinco seções) e **o que posso perguntar** (o
+ * onde vou** (as telas, em sete seções) e **o que posso perguntar** (o
  * assistente). A ordem é a da pergunta que a pessoa traz ao abrir o sistema.
  *
  * O que mudou em relação à lista única que existia aqui, e por quê:
  *
- * 1. **Cinco seções no lugar de quinze itens soltos.** Quinze itens em lista
- *    corrida se leem um a um, sempre; agrupados por trabalho — o que a diretoria
- *    olha, o que a auditoria abre, o que a inteligência responde, o que a
- *    governança alimenta, o que a administração ajusta — o olho pula ao bloco e
- *    lê três. Foi isso que substituiu a busca por funcionalidade que morava
- *    aqui: com quinze itens visíveis e agrupados, o campo de busca era um passo
- *    a mais para chegar ao que já estava na tela.
+ * 1. **Sete seções no lugar de uma lista corrida.** Trinta e dois itens em
+ *    lista corrida se leem um a um, sempre; agrupados por trabalho — o que a
+ *    diretoria olha, o que a auditoria abre, o que a recuperação cobra, o que a
+ *    frota detalha, o que a inteligência responde, o que a governança alimenta,
+ *    o que a administração ajusta — o olho pula ao bloco e lê cinco. Foi isso
+ *    que substituiu a busca por funcionalidade que morava aqui: com os itens
+ *    visíveis e agrupados, o campo de busca era um passo a mais para chegar ao
+ *    que já estava na tela.
  * 2. **A unidade saiu do botão e virou estado.** O botão laranja "Seleção de
  *    unidades" não dizia qual unidade estava aberta — e essa é a primeira coisa
  *    que precisa estar dita, porque todo número da tela depende dela. Agora o
@@ -70,14 +89,18 @@ import { useSecoesRecolhidas } from "./preferencias";
  * 3. **Os números vêm junto com os itens.** Alterações, Importações e Curadoria
  *    mostram quanto há para fazer antes de a pessoa clicar. Bolinha com zero não
  *    aparece: contagem que não conta nada ensina o olho a ignorar o lugar.
- * 4. **As seções recolhem.** Quem passa o dia em Auditoria fecha as outras
- *    quatro e fica com quatro itens na tela. A escolha vale para o navegador,
- *    não para a página — ver `useSecoesRecolhidas` —, e recolher esconde a lista,
- *    nunca a informação: a seção fechada que contém a tela aberta leva a barra
- *    vermelha, e a que esconde fila de trabalho traz a soma no cabeçalho.
+ * 4. **As seções recolhem.** Quem passa o dia em Auditoria fecha as outras seis
+ *    e fica com sete itens na tela — e é o crescimento da lista que transformou
+ *    esse recurso de conforto em necessidade. A escolha vale para o navegador,
+ *    não para a página — ver `useSecoesRecolhidas` —, e recolher esconde a
+ *    lista, nunca a informação: a seção fechada que contém a tela aberta leva a
+ *    barra vermelha, e a que esconde fila de trabalho traz a soma no cabeçalho.
  *
- * A regra antiga continua acima de tudo: **item que não funciona não entra na
- * lista.** Nenhum item daqui aponta para uma tela que não existe.
+ * A regra antiga continua acima de tudo, com o alcance dito por extenso:
+ * **nenhum item daqui leva a lugar nenhum, e nenhum leva a um número
+ * inventado.** Os dezoito itens que ainda não têm tela abrem uma página que
+ * diz o que falta no banco para respondê-los e para onde ir enquanto isso — ver
+ * o comentário de `NAV_GROUPS` e `pages/telas-em-preparo.ts`.
  */
 
 interface NavItem {
@@ -95,6 +118,14 @@ interface NavGroup {
   icon: LucideIcon;
   /** A classe de cor da seção — ver o bloco `--nav-*` em `index.css`. */
   cor: string;
+  /**
+   * O fundo da tarja "Novo" desta seção.
+   *
+   * Vive aqui, escrito por extenso, e não é derivado de `cor`: o Tailwind lê as
+   * classes do código-fonte, e `bg-nav-${chave}` montado em tempo de execução
+   * não existe na folha de estilo — a tarja sairia sem fundo.
+   */
+  tarja: string;
   itens: NavItem[];
 }
 
@@ -108,11 +139,35 @@ interface NavGroup {
  */
 const NOVIDADE_ATE = "2026-12-31";
 
+/**
+ * As sete seções, e a ordem em que se lê o trabalho de um dia.
+ *
+ * A lista dobrou — de dezessete itens em cinco seções para trinta e cinco em sete —
+ * e nenhum item saiu: as duas seções novas, **Recuperação** e **Frota**, e os
+ * itens acrescentados às cinco antigas nomeiam trabalho que o produto vai
+ * fazer; nada do que já existia mudou de nome, de lugar relativo ou de endereço.
+ *
+ * A ordem das sete é a de uma auditoria completa, de cima para baixo: vê-se o
+ * retrato (**Visão executiva**), procura-se o desvio (**Auditoria**), cobra-se
+ * o desvio achado (**Recuperação**), desce-se ao ativo que o sofreu (**Frota**),
+ * pergunta-se ao assistente o que sobrou (**Inteligência**), e por baixo de
+ * tudo estão o material (**Dados & governança**) e a casa (**Administração**).
+ *
+ * Dezessete destes itens ainda não têm tela — e é aqui que a regra antiga desta
+ * lateral, *item que não funciona não entra na lista*, precisou de uma emenda
+ * em vez de uma exceção. Todos eles **abrem**, e o que abrem diz a verdade: a
+ * pergunta que a tela vai responder, o dado que falta no banco para respondê-la
+ * e a tela que hoje chega mais perto — ver `pages/telas-em-preparo.ts`. O que a
+ * regra proíbe continua proibido, e ficou mais explícito: não há, em nenhuma
+ * dessas telas, um número de exemplo. Clicar leva a algum lugar; o que aquele
+ * lugar informa é o que ainda não se sabe.
+ */
 const NAV_GROUPS: NavGroup[] = [
   {
     titulo: "Visão executiva",
     icon: ChartNoAxesCombined,
     cor: "text-nav-executiva",
+    tarja: "bg-nav-executiva",
     itens: [
       { href: "/", label: "Visão geral", icon: House },
       { href: "/vigencia", label: "Acompanhamento", icon: TrendingUp },
@@ -124,33 +179,80 @@ const NAV_GROUPS: NavGroup[] = [
         executiva e não na auditoria por ser a porta de entrada — quem abre
         procura um valor, e só depois procura a inconsistência dele.
       */
-      { href: "/composicao", label: "Composição", icon: Calculator, novidade: true },
+      { href: "/composicao", label: "Composição", icon: Calculator },
     ],
   },
   {
     titulo: "Auditoria",
     icon: ScanSearch,
     cor: "text-nav-auditoria",
+    tarja: "bg-nav-auditoria",
     itens: [
       { href: "/alteracoes", label: "Alterações", icon: ArrowRightLeft, contador: "alteracoes" },
       { href: "/comparar", label: "Comparar vigências", icon: GitCompareArrows },
       { href: "/parametros", label: "Parâmetros", icon: SlidersVertical },
       { href: "/vigencias", label: "Vigências", icon: CalendarDays },
+      /*
+        Os três novos vêm depois dos quatro que funcionam, e nessa ordem, porque
+        é a ordem da pergunta: o que mudou (Alterações) vira quanto custou
+        (Impacto financeiro), quanto custou vira o que disso é anormal
+        (Anomalias), e o anormal vira um caso com dono (Auditorias).
+      */
+      { href: "/impacto-financeiro", label: "Impacto financeiro", icon: CircleDollarSign, novidade: true },
+      { href: "/anomalias", label: "Anomalias", icon: TriangleAlert, novidade: true },
+      { href: "/auditorias", label: "Auditorias", icon: ClipboardCheck, novidade: true },
+    ],
+  },
+  {
+    /*
+      Recuperação é seção própria, e não a cauda da Auditoria, porque é outro
+      trabalho e quase sempre outra pessoa: auditar é descobrir, recuperar é
+      cobrar. Quem passa o dia numa das duas fecha a outra.
+    */
+    titulo: "Recuperação",
+    icon: RefreshCcwDot,
+    cor: "text-nav-recuperacao",
+    tarja: "bg-nav-recuperacao",
+    itens: [
+      { href: "/contestacao", label: "Contestação & Recuperação", icon: Gavel, novidade: true },
+      { href: "/reconciliacao", label: "Reconciliação", icon: Handshake, novidade: true },
+      { href: "/risco-materialidade", label: "Risco & Materialidade", icon: ShieldCheck, novidade: true },
+    ],
+  },
+  {
+    /*
+      Frota olha o ativo individual; Análise de frota, lá em cima, olha a
+      categoria. São níveis diferentes da mesma pergunta, e por isso a seção
+      repete o caminhão da Visão executiva no seu ícone: o olho reconhece o
+      assunto, e a posição na lista diz de que altura ele está sendo visto.
+    */
+    titulo: "Frota",
+    icon: Truck,
+    cor: "text-nav-frota",
+    tarja: "bg-nav-frota",
+    itens: [
+      { href: "/cavalo-360", label: "Cavalo 360°", icon: Tractor, novidade: true },
+      { href: "/carreta-360", label: "Carreta 360°", icon: Container, novidade: true },
+      { href: "/dre-veiculo", label: "DRE do veículo", icon: FileSpreadsheet, novidade: true },
+      { href: "/benchmark-unidades", label: "Benchmark de unidades", icon: ChartColumn, novidade: true },
     ],
   },
   {
     titulo: "Inteligência",
     icon: Sparkles,
     cor: "text-nav-inteligencia",
+    tarja: "bg-nav-inteligencia",
     itens: [
-      { href: "/assistente", label: "Assistente IA", icon: Bot, novidade: true },
+      { href: "/assistente", label: "Assistente IA", icon: Bot },
       { href: "/book-operador", label: "Book do Operador", icon: FileText },
+      { href: "/monitor-ia", label: "Monitor de IA", icon: SquareActivity, novidade: true },
     ],
   },
   {
     titulo: "Dados & governança",
     icon: Database,
     cor: "text-nav-dados",
+    tarja: "bg-nav-dados",
     itens: [
       { href: "/importacoes", label: "Importações", icon: CloudDownload, contador: "importacoes" },
       /*
@@ -167,15 +269,31 @@ const NAV_GROUPS: NavGroup[] = [
       */
       { href: "/dados", label: "Cobertura de dados", icon: ClipboardList },
       { href: "/versoes", label: "Versões", icon: Layers },
+      { href: "/qualidade-dados", label: "Qualidade de dados", icon: BadgeCheck, novidade: true },
+      { href: "/fontes-dados", label: "Fontes de dados", icon: Database, novidade: true },
+      { href: "/historico-decisoes", label: "Histórico de decisões", icon: History, novidade: true },
+      { href: "/logs-sistema", label: "Logs de sistema", icon: SquareTerminal, novidade: true },
     ],
   },
   {
     titulo: "Administração",
     icon: Cog,
     cor: "text-nav-admin",
+    tarja: "bg-nav-admin",
     itens: [
       { href: "/unidades", label: "Unidades", icon: Building2 },
+      /*
+        "Usuários" continua em `/configuracoes`, que é onde a tela sempre esteve
+        e para onde o menu da faixa vermelha e o assistente já apontam. A
+        Configurações desta lista — os ajustes da instalação — nasce em
+        `/ajustes` por isso: mudar o endereço de uma tela que funciona, para dar
+        o nome bonito a uma que ainda não existe, quebraria os dois links por
+        uma questão de nomenclatura.
+      */
       { href: "/configuracoes", label: "Usuários", icon: Users },
+      { href: "/ajustes", label: "Configurações", icon: Settings2, novidade: true },
+      { href: "/integracoes", label: "Integrações", icon: Plug, novidade: true },
+      { href: "/seguranca", label: "Segurança", icon: Shield, novidade: true },
     ],
   },
 ];
@@ -268,6 +386,7 @@ export function Sidebar({ open }: { open: boolean }) {
                       <ItemDoMenu
                         key={item.href}
                         item={item}
+                        tarja={grupo.tarja}
                         ativo={estaAtivo(location, item.href)}
                         contagem={item.contador ? contadores[item.contador] : 0}
                       />
@@ -297,7 +416,7 @@ type Contadores = Record<NonNullable<NavItem["contador"]>, number>;
  * **Ela encolhe; não desaparece.** Antes o hambúrguer removia a lateral inteira,
  * e o preço era alto para quem só queria ler uma tabela larga: com a lateral
  * fora, ir para a próxima tela custava trazê-la de volta, clicar e recolher de
- * novo. A faixa devolve 225px ao conteúdo e mantém as quinze telas a um clique.
+ * novo. A faixa devolve 225px ao conteúdo e mantém todas as telas a um clique.
  *
  * O que sobrevive ao encolhimento, e por quê:
  *
@@ -470,10 +589,12 @@ function estaAtivo(location: string, href: string): boolean {
 
 function ItemDoMenu({
   item,
+  tarja,
   ativo,
   contagem,
 }: {
   item: NavItem;
+  tarja: string;
   ativo: boolean;
   contagem: number;
 }) {
@@ -498,8 +619,24 @@ function ItemDoMenu({
       />
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
       {contagem > 0 && <Contador valor={contagem} tipo={item.contador!} />}
+      {/*
+        A tarja leva a cor da seção, e não uma cor só para todas: com dezoito
+        novidades no menu, uma tarja única viraria uma coluna de manchas iguais
+        à direita da lista, que o olho lê como enfeite. Pintada pela seção, ela
+        some dentro do bloco a que pertence e reforça o agrupamento.
+
+        O texto é `text-sidebar`, e não branco: no tema escuro estas cores
+        clareiam para continuar legíveis como título, e branco sobre elas fica
+        ilegível. `text-sidebar` é branco no tema claro e quase preto no escuro
+        — o contraste se inverte junto com o fundo.
+      */}
       {item.novidade && dentroDoPrazo() && (
-        <span className="rounded-full bg-nav-inteligencia px-2 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide text-white">
+        <span
+          className={cn(
+            "shrink-0 rounded-full px-2 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide text-sidebar",
+            tarja,
+          )}
+        >
           Novo
         </span>
       )}

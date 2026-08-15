@@ -1,0 +1,456 @@
+import {
+  BadgeCheck,
+  ChartColumn,
+  CircleDollarSign,
+  ClipboardCheck,
+  Container,
+  Database,
+  FileSpreadsheet,
+  Gavel,
+  Handshake,
+  History,
+  Plug,
+  Settings2,
+  Shield,
+  ShieldCheck,
+  SquareActivity,
+  SquareTerminal,
+  Tractor,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
+
+/**
+ * O catálogo das telas anunciadas no menu que o banco ainda não sustenta.
+ *
+ * Uma linha aqui é um contrato em três partes: **a pergunta** que a tela vai
+ * responder, **o que falta** para ela responder — sempre um dado que não
+ * existe, nunca um prazo — e **onde olhar hoje**, que é a tela já funcionando
+ * mais perto daquela pergunta.
+ *
+ * O terceiro campo é o que separa este catálogo de uma lista de promessas.
+ * "Impacto financeiro em preparo" deixa quem abriu no mesmo lugar; "o delta de
+ * cada parâmetro está em Alterações, e o valor montado de um equipamento está
+ * em Composição" entrega metade da resposta na hora.
+ *
+ * Tirar uma linha daqui é o passo final de construir a tela: some do catálogo,
+ * a rota passa a apontar para a tela de verdade em `App.tsx`, e o menu não muda
+ * uma vírgula — o item já estava lá, no lugar certo, com o nome certo.
+ */
+
+export interface TelaEmPreparo {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  /** A classe de cor da seção a que ela pertence — ver `--nav-*` em `index.css`. */
+  cor: string;
+  /** A pergunta que a tela vai responder, numa frase. */
+  pergunta: string;
+  /** O que precisa existir antes — sempre um dado, nunca um prazo. */
+  depende: string[];
+  /** Onde olhar hoje: telas que já funcionam e chegam perto. */
+  hoje: { href: string; label: string; porque: string }[];
+}
+
+export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
+  // -------------------------------------------------------------------------
+  // Auditoria
+  // -------------------------------------------------------------------------
+  {
+    href: "/impacto-financeiro",
+    label: "Impacto financeiro",
+    icon: CircleDollarSign,
+    cor: "text-nav-auditoria",
+    pergunta:
+      "Quanto a mudança de vigência custa em reais, por unidade e por rubrica — não a variação do parâmetro, mas o dinheiro que ela move.",
+    depende: [
+      "O volume realizado por equipamento no período. O banco guarda o que a tabela manda pagar; sem quantas viagens, toneladas ou quilômetros cada ativo fez, a variação de um parâmetro não vira valor.",
+      "A regra de conversão de cada rubrica em reais, versionada junto da vigência — a mesma fórmula que a Composição já monta para um equipamento, aplicada à frota inteira.",
+    ],
+    hoje: [
+      {
+        href: "/alteracoes",
+        label: "Alterações",
+        porque: "O delta de cada parâmetro entre a vigência anterior e a atual, item a item.",
+      },
+      {
+        href: "/composicao",
+        label: "Composição",
+        porque: "Como o valor de um equipamento é montado, rubrica por rubrica, até a célula de origem.",
+      },
+    ],
+  },
+  {
+    href: "/anomalias",
+    label: "Anomalias",
+    icon: TriangleAlert,
+    cor: "text-nav-auditoria",
+    pergunta:
+      "Que valores desta vigência estão fora do que a própria base explica — o outlier que ninguém pediu para procurar.",
+    depende: [
+      "Uma régua estatística por rubrica sobre o histórico de vigências. Com poucas vigências importadas, qualquer limiar acusa tudo ou não acusa nada, e as duas falhas custam a confiança da tela.",
+      "A separação entre desvio e mudança negociada: reajuste combinado e erro de digitação têm a mesma cara num gráfico, e só o registro da negociação os distingue.",
+    ],
+    hoje: [
+      {
+        href: "/curadoria",
+        label: "Curadoria",
+        porque: "O que a importação não soube classificar sozinha — o desvio que já aparece hoje.",
+      },
+      {
+        href: "/comparar",
+        label: "Comparar vigências",
+        porque: "A variação item a item entre duas vigências quaisquer, para olhar com o olho humano.",
+      },
+    ],
+  },
+  {
+    href: "/auditorias",
+    label: "Auditorias",
+    icon: ClipboardCheck,
+    cor: "text-nav-auditoria",
+    pergunta:
+      "Que ciclos de auditoria estão abertos, quem responde por cada achado e o que já foi fechado — com data e nome.",
+    depende: [
+      "O achado como registro próprio no banco: hoje existe a confirmação de curadoria, que diz que alguém olhou um item, e não o caso de auditoria, que atravessa vigências e tem dono, prazo e desfecho.",
+      "O vínculo entre achado e evidência — a alteração, o parâmetro ou a célula que o originou —, sem o qual o ciclo vira lista de tarefas sem lastro.",
+    ],
+    hoje: [
+      {
+        href: "/alteracoes",
+        label: "Alterações",
+        porque: "A fila do que mudou na vigência aberta, que é de onde os achados nascem.",
+      },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // Recuperação
+  // -------------------------------------------------------------------------
+  {
+    href: "/contestacao",
+    label: "Contestação & Recuperação",
+    icon: Gavel,
+    cor: "text-nav-recuperacao",
+    pergunta:
+      "Que valores cabem contestar junto à Freightec, em que estágio está cada pedido e quanto já voltou.",
+    depende: [
+      "O impacto financeiro apurado — não se contesta uma variação de parâmetro, contesta-se um valor pago a mais.",
+      "O estágio de cada pedido como estado no banco: aberto, enviado, aceito, recusado, recuperado — com o documento que sustenta cada transição.",
+    ],
+    hoje: [
+      {
+        href: "/comparar",
+        label: "Comparar vigências",
+        porque: "A prova documental de que o parâmetro mudou, que é o anexo de qualquer contestação.",
+      },
+    ],
+  },
+  {
+    href: "/reconciliacao",
+    label: "Reconciliação",
+    icon: Handshake,
+    cor: "text-nav-recuperacao",
+    pergunta:
+      "O que a tabela manda pagar bate com o que foi efetivamente pago, viagem a viagem.",
+    depende: [
+      "A entrada do realizado — fatura, pagamento ou espelho de frete. Hoje só entra a tabela de remuneração; sem o outro lado não há o que reconciliar.",
+      "A chave que liga um pagamento à linha de tabela que o justifica. Sem ela a comparação vira soma contra soma, que fecha por acaso e esconde erro compensado.",
+    ],
+    hoje: [
+      {
+        href: "/balanco-massa",
+        label: "Balanço de massa",
+        porque: "A conferência que já existe: toda célula que o arquivo trouxe chegou a algum lugar.",
+      },
+    ],
+  },
+  {
+    href: "/risco-materialidade",
+    label: "Risco & Materialidade",
+    icon: ShieldCheck,
+    cor: "text-nav-recuperacao",
+    pergunta:
+      "Onde vale gastar a hora de auditoria — qual desvio é grande o bastante para pagar o trabalho de contestá-lo.",
+    depende: [
+      "O impacto financeiro apurado, que é o numerador de qualquer conta de materialidade.",
+      "O limiar por unidade, decidido e registrado no produto. Materialidade herdada de outra empresa é chute com aparência de norma.",
+    ],
+    hoje: [
+      {
+        href: "/analise-equipamentos",
+        label: "Análise de frota",
+        porque: "Onde a frota se concentra — a exposição que hoje dá para ver sem o valor em reais.",
+      },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // Frota
+  // -------------------------------------------------------------------------
+  {
+    href: "/cavalo-360",
+    label: "Cavalo 360°",
+    icon: Tractor,
+    cor: "text-nav-frota",
+    pergunta:
+      "Tudo o que a base sabe sobre um cavalo mecânico numa tela só: como ele é remunerado, o que mudou para ele e como se compara aos iguais.",
+    depende: [
+      "A chave de frota — placa ou número de ativo — ligando a vigência ao equipamento físico. A planilha traz categoria e configuração; o veículo individual só aparece quando essa chave entra.",
+      "O cadastro de frota da unidade, para que a tela saiba quais cavalos existem antes de saber o que cada um recebe.",
+    ],
+    hoje: [
+      {
+        href: "/analise-equipamentos",
+        label: "Análise de frota",
+        porque: "O comportamento da frota por categoria, que é o nível que a base sustenta hoje.",
+      },
+      {
+        href: "/composicao",
+        label: "Composição",
+        porque: "O drill-down por equipamento: por que aquela configuração recebe o que recebe.",
+      },
+    ],
+  },
+  {
+    href: "/carreta-360",
+    label: "Carreta 360°",
+    icon: Container,
+    cor: "text-nav-frota",
+    pergunta:
+      "O mesmo retrato completo para o implemento: como a carreta entra na remuneração do conjunto e o que muda quando ela troca de cavalo.",
+    depende: [
+      "A chave de frota do implemento, e o vínculo cavalo–carreta ao longo do tempo: o conjunto é que é remunerado, e ele se desfaz e refaz.",
+      "O histórico de composição do conjunto, sem o qual a tela mostra a foto de hoje como se valesse para o período inteiro.",
+    ],
+    hoje: [
+      {
+        href: "/composicao",
+        label: "Composição",
+        porque: "Como o conjunto é montado a partir das suas partes, com a origem de cada parcela.",
+      },
+    ],
+  },
+  {
+    href: "/dre-veiculo",
+    label: "DRE do veículo",
+    icon: FileSpreadsheet,
+    cor: "text-nav-frota",
+    pergunta:
+      "Receita, custo e margem de um veículo no período — se ele se paga, e por quanto.",
+    depende: [
+      "O custo operacional: combustível, manutenção, pneu, pessoal, depreciação. Nada disso vem da planilha de remuneração, que só conhece o lado da receita.",
+      "O critério de rateio do custo indireto por veículo, escrito e versionado. DRE por ativo sem rateio declarado é opinião apresentada como resultado.",
+    ],
+    hoje: [
+      {
+        href: "/composicao",
+        label: "Composição",
+        porque: "O lado da receita, que é a metade da conta que o banco já sustenta.",
+      },
+    ],
+  },
+  {
+    href: "/benchmark-unidades",
+    label: "Benchmark de unidades",
+    icon: ChartColumn,
+    cor: "text-nav-frota",
+    pergunta:
+      "Como cada unidade se paga em relação às outras, na mesma régua — e o que explica a diferença.",
+    depende: [
+      "Mais de uma unidade com vigência importada. Com uma só, a tela compara a unidade consigo mesma.",
+      "A normalização por perfil de operação: distância média, tipo de carga, mix de frota. Comparar reais por viagem entre operações diferentes produz um ranking que mede a operação, não a tabela.",
+    ],
+    hoje: [
+      {
+        href: "/unidades",
+        label: "Unidades",
+        porque: "Que unidades existem e o que cada uma já entregou de vigência.",
+      },
+      {
+        href: "/vigencia",
+        label: "Acompanhamento",
+        porque: "O acompanhamento da unidade aberta, que é a régua de uma unidade por vez.",
+      },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // Inteligência
+  // -------------------------------------------------------------------------
+  {
+    href: "/monitor-ia",
+    label: "Monitor de IA",
+    icon: SquareActivity,
+    cor: "text-nav-inteligencia",
+    pergunta:
+      "O que o assistente respondeu, com que material, em que modo e a que custo — o rastro de tudo que a IA disse neste produto.",
+    depende: [
+      "O registro de cada resposta no banco: a pergunta, os trechos que ela citou, o modelo, o esforço e os tokens. Hoje a resposta é dita na tela e não fica.",
+      "A retenção decidida em produto — o que se guarda de uma pergunta feita por uma pessoa, e por quanto tempo.",
+    ],
+    hoje: [
+      {
+        href: "/assistente",
+        label: "Assistente IA",
+        porque: "Cada resposta já diz em qual dos dois modos foi redigida e sobre que material.",
+      },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // Dados & governança
+  // -------------------------------------------------------------------------
+  {
+    href: "/qualidade-dados",
+    label: "Qualidade de dados",
+    icon: BadgeCheck,
+    cor: "text-nav-dados",
+    pergunta:
+      "Que regra de qualidade cada vigência passou, onde falhou e o que a falha impede de afirmar.",
+    depende: [
+      "O catálogo de regras como dado versionado, e não como código espalhado pela importação: uma regra que muda sem deixar registro reescreve o passado da tela.",
+      "O resultado de cada regra gravado por vigência, para que a tela mostre histórico e não apenas o estado de agora.",
+    ],
+    hoje: [
+      {
+        href: "/balanco-massa",
+        label: "Balanço de massa",
+        porque: "A regra de qualidade que já roda: toda célula do arquivo chegou a algum lugar.",
+      },
+      {
+        href: "/dados",
+        label: "Cobertura de dados",
+        porque: "O que a base cobre e o que ficou de fora, por tipo de entidade.",
+      },
+    ],
+  },
+  {
+    href: "/fontes-dados",
+    label: "Fontes de dados",
+    icon: Database,
+    cor: "text-nav-dados",
+    pergunta:
+      "De onde vem cada número — arquivo, aba, coluna, quem enviou e quando —, e o que quebra se aquela fonte parar.",
+    depende: [
+      "O catálogo de fontes acima do registro de importação: hoje o banco sabe qual arquivo trouxe cada fato, e não qual sistema, área ou pessoa responde por aquele arquivo.",
+      "A dependência declarada entre fonte e tela, para que a pergunta 'o que para de funcionar se esta fonte atrasar' tenha resposta.",
+    ],
+    hoje: [
+      {
+        href: "/importacoes",
+        label: "Importações",
+        porque: "Cada arquivo recebido, com o que ele trouxe e o que foi recusado.",
+      },
+      {
+        href: "/versoes",
+        label: "Versões",
+        porque: "As versões do que foi ingerido, em ordem.",
+      },
+    ],
+  },
+  {
+    href: "/historico-decisoes",
+    label: "Histórico de decisões",
+    icon: History,
+    cor: "text-nav-dados",
+    pergunta:
+      "Quem decidiu o quê, quando e com base em quê — numa linha do tempo só, atravessando curadoria, vigências e acessos.",
+    depende: [
+      "A reunião do que já é gravado em separado: as confirmações de curadoria carregam autor e carimbo, a promoção de vigência também, e os dois não se leem juntos.",
+      "A decisão como registro de primeira classe, com o estado anterior e o posterior, para que a linha do tempo mostre o efeito e não só o clique.",
+    ],
+    hoje: [
+      {
+        href: "/curadoria",
+        label: "Curadoria",
+        porque: "As confirmações já ficam no nome de quem as fez — é a metade que existe.",
+      },
+      {
+        href: "/versoes",
+        label: "Versões",
+        porque: "O que entrou em cada versão, que é o efeito das decisões de ingestão.",
+      },
+    ],
+  },
+  {
+    href: "/logs-sistema",
+    label: "Logs de sistema",
+    icon: SquareTerminal,
+    cor: "text-nav-dados",
+    pergunta:
+      "O que o servidor fez, em ordem, quando algo não saiu como esperado — sem pedir o terminal a alguém.",
+    depende: [
+      "Coleta e retenção de log do lado do servidor, hoje escrito na saída do processo e perdido a cada reinício.",
+      "Uma rota autenticada que os exponha filtrados: log de servidor carrega caminho de arquivo, consulta e identificador de pessoa, e não é material para qualquer sessão aberta.",
+    ],
+    hoje: [
+      {
+        href: "/importacoes",
+        label: "Importações",
+        porque: "O erro de ingestão já aparece na própria importação que o produziu, com a linha do arquivo.",
+      },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // Administração
+  // -------------------------------------------------------------------------
+  {
+    href: "/ajustes",
+    label: "Configurações",
+    icon: Settings2,
+    cor: "text-nav-admin",
+    pergunta:
+      "Os ajustes que valem para a instalação inteira: moeda, fuso, casas decimais, limiares e o que cada tela assume por padrão.",
+    depende: [
+      "Os ajustes como dado no banco, e não como constante no código. Hoje cada padrão está escrito onde é usado, o que é honesto e não é configurável.",
+      "O registro de quem mudou cada ajuste e quando: mexer num limiar muda o que todas as telas afirmam, e isso é decisão auditável.",
+    ],
+    hoje: [
+      {
+        href: "/configuracoes",
+        label: "Usuários",
+        porque: "A administração que já existe: quem pode entrar, e em nome de quem cada ação fica.",
+      },
+    ],
+  },
+  {
+    href: "/integracoes",
+    label: "Integrações",
+    icon: Plug,
+    cor: "text-nav-admin",
+    pergunta:
+      "Que sistemas entregam e consomem dados aqui, e se a última troca de cada um funcionou.",
+    depende: [
+      "O conector como coisa do produto: endereço, credencial guardada em cofre, agenda e resultado da última execução. Hoje a entrada é envio manual de arquivo em Importações.",
+      "O contrato de cada troca versionado, para que a mudança do outro lado apareça como falha nomeada e não como importação silenciosamente incompleta.",
+    ],
+    hoje: [
+      {
+        href: "/importacoes",
+        label: "Importações",
+        porque: "O caminho de entrada que existe hoje, com o resultado de cada arquivo enviado.",
+      },
+    ],
+  },
+  {
+    href: "/seguranca",
+    label: "Segurança",
+    icon: Shield,
+    cor: "text-nav-admin",
+    pergunta:
+      "Quem entrou, de onde, o que abriu e o que continua aberto agora.",
+    depende: [
+      "O registro de sessão além do último login: início, fim, origem e encerramento — a tela de Usuários já conta as sessões abertas, e não sabe contar a história delas.",
+      "O registro de acesso a dado sensível, que é o que uma tela de segurança precisa mostrar e o servidor ainda não grava.",
+    ],
+    hoje: [
+      {
+        href: "/configuracoes",
+        label: "Usuários",
+        porque: "Quem tem acesso, o último login de cada pessoa e quantas sessões estão abertas.",
+      },
+    ],
+  },
+];
