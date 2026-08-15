@@ -26,7 +26,7 @@
 -- ---------------------------------------------------------------------------
 -- O registro do que foi apagado
 -- ---------------------------------------------------------------------------
-CREATE TABLE "import_deletion" (
+CREATE TABLE IF NOT EXISTS "import_deletion" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"import_run_id" uuid NOT NULL,
 	"filename" text NOT NULL,
@@ -41,8 +41,8 @@ CREATE TABLE "import_deletion" (
 	"deleted_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE INDEX "import_deletion_deleted_at_idx" ON "import_deletion" USING btree ("deleted_at");--> statement-breakpoint
-CREATE INDEX "import_deletion_sha256_idx" ON "import_deletion" USING btree ("content_sha256");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "import_deletion_deleted_at_idx" ON "import_deletion" USING btree ("deleted_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "import_deletion_sha256_idx" ON "import_deletion" USING btree ("content_sha256");--> statement-breakpoint
 
 -- ---------------------------------------------------------------------------
 -- Chave estrangeira sem índice é varredura por linha apagada
@@ -51,16 +51,16 @@ CREATE INDEX "import_deletion_sha256_idx" ON "import_deletion" USING btree ("con
 -- apagar um fato o Postgres confere quem aponta para ele, e sem índice essa
 -- conferência é uma varredura sequencial — por linha. Com um arquivo real
 -- (41.391 fatos, 42.770 células) a exclusão levava 28 segundos; com eles, 2.
-CREATE INDEX "fact_attribute_idx" ON "fact" USING btree ("attribute_id");--> statement-breakpoint
-CREATE INDEX "snapshot_attribute_attribute_idx" ON "snapshot_attribute" USING btree ("attribute_id");--> statement-breakpoint
-CREATE INDEX "column_mapping_attribute_idx" ON "column_mapping" USING btree ("target_attribute_id");--> statement-breakpoint
-CREATE INDEX "staged_fact_raw_cell_idx" ON "staged_fact" USING btree ("raw_cell_id");--> statement-breakpoint
-CREATE INDEX "validation_issue_sheet_idx" ON "validation_issue" USING btree ("raw_sheet_id");--> statement-breakpoint
-CREATE INDEX "validation_issue_row_idx" ON "validation_issue" USING btree ("raw_row_id");--> statement-breakpoint
-CREATE INDEX "validation_issue_cell_idx" ON "validation_issue" USING btree ("raw_cell_id");--> statement-breakpoint
-CREATE INDEX "change_fact_a_idx" ON "change" USING btree ("fact_a_id");--> statement-breakpoint
-CREATE INDEX "change_fact_b_idx" ON "change" USING btree ("fact_b_id");--> statement-breakpoint
-CREATE INDEX "attribute_semantics_evidence_idx" ON "attribute_semantics" USING btree ("evidence_snapshot_id");
+CREATE INDEX IF NOT EXISTS "fact_attribute_idx" ON "fact" USING btree ("attribute_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "snapshot_attribute_attribute_idx" ON "snapshot_attribute" USING btree ("attribute_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "column_mapping_attribute_idx" ON "column_mapping" USING btree ("target_attribute_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "staged_fact_raw_cell_idx" ON "staged_fact" USING btree ("raw_cell_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "validation_issue_sheet_idx" ON "validation_issue" USING btree ("raw_sheet_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "validation_issue_row_idx" ON "validation_issue" USING btree ("raw_row_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "validation_issue_cell_idx" ON "validation_issue" USING btree ("raw_cell_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "change_fact_a_idx" ON "change" USING btree ("fact_a_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "change_fact_b_idx" ON "change" USING btree ("fact_b_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "attribute_semantics_evidence_idx" ON "attribute_semantics" USING btree ("evidence_snapshot_id");
 --> statement-breakpoint
 
 -- ---------------------------------------------------------------------------
@@ -218,6 +218,15 @@ END;
 $$ LANGUAGE plpgsql;
 --> statement-breakpoint
 
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger t
+                 JOIN pg_class c ON c.oid = t.tgrelid
+                WHERE NOT t.tgisinternal
+                  AND t.tgname = 'import_deletion_immutable'
+                  AND c.relname = 'import_deletion') THEN
 CREATE TRIGGER import_deletion_immutable
   BEFORE UPDATE OR DELETE ON "import_deletion"
   FOR EACH ROW EXECUTE FUNCTION freightcheck_import_deletion_is_immutable();
+  END IF;
+END $reentrante$;

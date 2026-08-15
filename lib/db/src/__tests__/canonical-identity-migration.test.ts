@@ -659,6 +659,124 @@ describe("0018 sobre um banco que já tinha passado pela 0015 antiga", () => {
   }, 300_000);
 });
 
+/**
+ * A fila sobre um banco que tem o schema e não tem o registro.
+ *
+ * É o estado real de produção, medido em 15/08/2026 pelo `/api/healthz`:
+ * `applied: 0`, schema inteiro de pé, e a fila morrendo na `0000` com
+ * `42710 — type "import_run_status" already exists`. Nesse estado nenhuma
+ * migration nova entra nunca mais, e o deploy passa a oferecer como única saída
+ * copiar desenvolvimento por cima de produção.
+ *
+ * O que estas provas prendem é a propriedade que destrava isso sem flag e sem
+ * DDL à mão: **toda migration da fila atravessa um banco que já a contém**.
+ * Cada objeto é procurado antes de criado; o que já está lá é adotado, o que
+ * falta é criado, e o registro é escrito no fim. É a mesma reentrância que as
+ * `0013`–`0018` já tinham, agora estendida às `0000`–`0012`, que eram onde a
+ * fila parava.
+ */
+describe("a fila inteira sobre um banco com schema e sem registro", () => {
+  it("recompõe o registro sem alterar a estrutura", async () => {
+    const { url, pool } = await bancoNovo();
+    expect((await runMigrations(url)).failure).toBeUndefined();
+    const antes = await estrutura(pool);
+
+    // O estado de produção: o schema fica, o registro some.
+    await pool.query(`DELETE FROM "drizzle"."__drizzle_migrations"`);
+
+    const relatorio = await runMigrations(url);
+    expect(relatorio.failure).toBeUndefined();
+    // Aplicadas de verdade, uma a uma — não adotadas por bandeira nenhuma.
+    expect(relatorio.applied).toHaveLength(readMigrations().length);
+    expect(relatorio.adopted).toEqual([]);
+
+    expect(await estrutura(pool)).toEqual(antes);
+    const { rows } = await pool.query<{ n: string }>(
+      `SELECT count(*) AS n FROM "drizzle"."__drizzle_migrations"`,
+    );
+    expect(Number(rows[0]!.n)).toBe(readMigrations().length);
+    await pool.end();
+  }, 600_000);
+
+  it("preserva o dado que já estava lá", async () => {
+    const { url, pool } = await bancoNovo();
+    await aplicarAte(pool, "0014_chamados_formato_real");
+    await gravarHistorico(pool, [
+      { rotulo: "EMPURRADA_1_8_2026", data: "2026-08-01", unidade: "12345678000199" },
+    ]);
+    expect((await runMigrations(url)).failure).toBeUndefined();
+    const antes = await retrato(pool);
+
+    await pool.query(`DELETE FROM "drizzle"."__drizzle_migrations"`);
+    expect((await runMigrations(url)).failure).toBeUndefined();
+
+    // A identidade canônica não se recalcula para outra coisa, e o fato
+    // continua pendurado na mesma vigência.
+    expect(await retrato(pool)).toEqual(antes);
+    await pool.end();
+  }, 600_000);
+
+  /**
+   * O caso do print do deploy, e o item que motivou esta suíte.
+   *
+   * O passo de schema do Publishing deriva o DDL do `schema.ts`, onde
+   * `canonical_snapshot_key` é uma coluna gerada por `freightcheck_snapshot_key`
+   * — função que nenhum snapshot do drizzle descreve e que ele, portanto, nunca
+   * cria. O DDL dele morre em `function ... does not exist`.
+   *
+   * A `0015` não pode depender de a função existir por acaso: ela a cria, e só
+   * então adiciona a coluna. Aqui isso é provado no estado mais hostil — as
+   * colunas de identidade já criadas por fora, e nenhuma das funções de pé.
+   */
+  it("a 0015 cria a função antes da coluna gerada, mesmo com o diff pela metade", async () => {
+    const { url, pool } = await bancoNovo();
+    await aplicarAte(pool, "0014_chamados_formato_real");
+    await gravarHistorico(pool, [
+      { rotulo: "EMPURRADA_1_8_2026", data: "2026-08-01", unidade: "12345678000199" },
+    ]);
+
+    // O que o Publishing consegue aplicar antes de morrer: as colunas simples.
+    await pool.query(`ALTER TABLE "snapshot" ADD COLUMN "dataset_family" text`);
+    await pool.query(`ALTER TABLE "snapshot" ADD COLUMN "canal" text`);
+    await pool.query(`ALTER TABLE "snapshot" ADD COLUMN "canonical_scope" jsonb`);
+
+    // Nenhuma função da identidade existe — é exatamente por isso que o DDL
+    // dele falha, e o mesmo DDL falha aqui, com a mensagem do deploy.
+    const { rows: fn } = await pool.query<{ n: string }>(
+      `SELECT count(*) AS n FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public' AND p.proname = 'freightcheck_snapshot_key'`,
+    );
+    expect(Number(fn[0]!.n)).toBe(0);
+    await expect(
+      pool.query(
+        `ALTER TABLE "snapshot" ADD COLUMN "canonical_snapshot_key" text
+         GENERATED ALWAYS AS (freightcheck_snapshot_key("source_system", "dataset_family", "canal", "effective_date", "canonical_scope")) STORED`,
+      ),
+    ).rejects.toThrow(/function freightcheck_snapshot_key.*does not exist/s);
+
+    // A fila, sobre o mesmo banco, chega até o fim: a 0015 cria a função e
+    // depois a coluna, na mesma transação.
+    const relatorio = await runMigrations(url);
+    expect(relatorio.failure).toBeUndefined();
+    expect(relatorio.applied).toContain("0015_canonical_identity");
+
+    const { rows: assinatura } = await pool.query<{ args: string; ret: string }>(
+      `SELECT pg_get_function_arguments(p.oid) AS args, pg_get_function_result(p.oid) AS ret
+         FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
+        WHERE n.nspname = 'public' AND p.proname = 'freightcheck_snapshot_key'`,
+    );
+    // `date` e `jsonb` — os dois tipos que a mensagem do deploy nomeia.
+    expect(assinatura[0]!.args).toBe(
+      "source_system text, dataset_family text, canal text, effective_date date, canonical_scope jsonb",
+    );
+    expect(assinatura[0]!.ret).toBe("text");
+
+    const linhas = await retrato(pool);
+    expect(linhas[0]!.canonical_snapshot_key).toMatch(/^[0-9a-f]{64}$/);
+    await pool.end();
+  }, 600_000);
+});
+
 /** Estrutura comparável: colunas, constraints e índices que importam aqui. */
 async function estrutura(pool: pg.Pool) {
   const { rows: colunas } = await pool.query(

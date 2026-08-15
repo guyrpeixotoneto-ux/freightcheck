@@ -1,4 +1,4 @@
-CREATE TABLE "taxonomy_node" (
+CREATE TABLE IF NOT EXISTS "taxonomy_node" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"parent_id" uuid,
 	"code" text NOT NULL,
@@ -12,7 +12,7 @@ CREATE TABLE "taxonomy_node" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-CREATE TABLE "curation_event" (
+CREATE TABLE IF NOT EXISTS "curation_event" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"change_category" text DEFAULT 'CURATION_CHANGE' NOT NULL,
 	"target_kind" text NOT NULL,
@@ -27,21 +27,35 @@ CREATE TABLE "curation_event" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
-ALTER TABLE "attribute" ADD COLUMN "taxonomy_node_id" uuid;--> statement-breakpoint
-ALTER TABLE "attribute" ADD COLUMN "semantics_rationale" text;--> statement-breakpoint
-ALTER TABLE "attribute" ADD COLUMN "confirmed_by" text;--> statement-breakpoint
-ALTER TABLE "attribute" ADD COLUMN "confirmed_at" timestamp with time zone;--> statement-breakpoint
-CREATE UNIQUE INDEX "taxonomy_node_path_uq" ON "taxonomy_node" USING btree ("path");--> statement-breakpoint
-CREATE UNIQUE INDEX "taxonomy_node_code_uq" ON "taxonomy_node" USING btree ("code");--> statement-breakpoint
-CREATE INDEX "taxonomy_node_parent_idx" ON "taxonomy_node" USING btree ("parent_id");--> statement-breakpoint
-CREATE INDEX "curation_event_target_idx" ON "curation_event" USING btree ("target_kind","target_id");--> statement-breakpoint
-CREATE INDEX "curation_event_created_idx" ON "curation_event" USING btree ("created_at");--> statement-breakpoint
-CREATE INDEX "curation_event_label_idx" ON "curation_event" USING btree ("target_label");--> statement-breakpoint
-ALTER TABLE "attribute" ADD CONSTRAINT "attribute_taxonomy_node_id_taxonomy_node_id_fk" FOREIGN KEY ("taxonomy_node_id") REFERENCES "public"."taxonomy_node"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+ALTER TABLE "attribute" ADD COLUMN IF NOT EXISTS "taxonomy_node_id" uuid;--> statement-breakpoint
+ALTER TABLE "attribute" ADD COLUMN IF NOT EXISTS "semantics_rationale" text;--> statement-breakpoint
+ALTER TABLE "attribute" ADD COLUMN IF NOT EXISTS "confirmed_by" text;--> statement-breakpoint
+ALTER TABLE "attribute" ADD COLUMN IF NOT EXISTS "confirmed_at" timestamp with time zone;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "taxonomy_node_path_uq" ON "taxonomy_node" USING btree ("path");--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "taxonomy_node_code_uq" ON "taxonomy_node" USING btree ("code");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "taxonomy_node_parent_idx" ON "taxonomy_node" USING btree ("parent_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "curation_event_target_idx" ON "curation_event" USING btree ("target_kind","target_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "curation_event_created_idx" ON "curation_event" USING btree ("created_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "curation_event_label_idx" ON "curation_event" USING btree ("target_label");--> statement-breakpoint
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conname = 'attribute_taxonomy_node_id_taxonomy_node_id_fk'
+                   AND conrelid = '"attribute"'::regclass) THEN
+ALTER TABLE "attribute" ADD CONSTRAINT "attribute_taxonomy_node_id_taxonomy_node_id_fk" FOREIGN KEY ("taxonomy_node_id") REFERENCES "public"."taxonomy_node"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
+END $reentrante$;--> statement-breakpoint
 -- Self-referential hierarchy: a node's parent must be a real node.
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conname = 'taxonomy_node_parent_id_fk'
+                   AND conrelid = '"taxonomy_node"'::regclass) THEN
 ALTER TABLE "taxonomy_node"
   ADD CONSTRAINT "taxonomy_node_parent_id_fk"
   FOREIGN KEY ("parent_id") REFERENCES "public"."taxonomy_node"("id");
+  END IF;
+END $reentrante$;
 --> statement-breakpoint
 
 -- A CONFIRMED attribute is a human act, structurally.
@@ -51,17 +65,29 @@ ALTER TABLE "taxonomy_node"
 -- attributed confirmer is rejected by the database, whatever wrote the row.
 -- The financial engine in F4 will only read CONFIRMED attributes, so this
 -- constraint is what ultimately protects every number the product displays.
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conname = 'attribute_confirmed_requires_actor'
+                   AND conrelid = '"attribute"'::regclass) THEN
 ALTER TABLE "attribute"
   ADD CONSTRAINT "attribute_confirmed_requires_actor"
   CHECK (
     (semantics_status <> 'CONFIRMED')
     OR (confirmed_by IS NOT NULL AND confirmed_at IS NOT NULL)
   );
+  END IF;
+END $reentrante$;
 --> statement-breakpoint
 
 -- A monetary attribute cannot be CONFIRMED while we still cannot say what its
 -- numbers mean. Without unit, periodicity and aggregation, summing it is
 -- guesswork — exactly the ipvaLicenciamentoMensal trap.
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conname = 'attribute_confirmed_monetary_is_complete'
+                   AND conrelid = '"attribute"'::regclass) THEN
 ALTER TABLE "attribute"
   ADD CONSTRAINT "attribute_confirmed_monetary_is_complete"
   CHECK (
@@ -69,3 +95,5 @@ ALTER TABLE "attribute"
     OR (is_monetary IS NOT TRUE)
     OR (unit IS NOT NULL AND periodicity IS NOT NULL AND aggregation IS NOT NULL)
   );
+  END IF;
+END $reentrante$;

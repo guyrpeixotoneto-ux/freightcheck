@@ -37,9 +37,28 @@ uma função que ele não cria.
 ### O que está trancado, e onde
 
 **`drizzle-kit push`, `migrate` e `drop` abortam** em
-`lib/db/drizzle.config.ts`, antes de abrir conexão. `generate`, `check` e `up`
-continuam liberados: eles mexem em arquivo do repositório, que é onde a decisão
-de schema é tomada e revisada.
+`lib/db/drizzle-kit.config.ts`, antes de abrir conexão. `generate`, `check` e
+`up` continuam liberados: eles mexem em arquivo do repositório, que é onde a
+decisão de schema é tomada e revisada.
+
+**A configuração não se chama `drizzle.config.ts`, e o nome é o ponto.** O
+Publishing decide que um projeto "usa Drizzle" procurando por esse nome; achando
+um, ele acrescenta ao deploy um passo próprio de migração de schema — derivado
+do `schema.ts`, aplicado direto em produção, sem passar pela configuração e
+portanto sem esbarrar nas proibições acima. Aqui esse passo não tinha como
+funcionar: `snapshot.canonical_snapshot_key` é gerada por
+`freightcheck_snapshot_key(...)`, o drizzle modela a coluna e não a função, e o
+DDL dele morria em
+
+```
+ALTER TABLE "snapshot" ADD COLUMN "canonical_snapshot_key" text
+  GENERATED ALWAYS AS (freightcheck_snapshot_key(...)) STORED;
+ERROR: function freightcheck_snapshot_key(text, text, text, date, jsonb) does not exist
+```
+
+com a tela oferecendo, como saída, copiar o banco de desenvolvimento por cima do
+de produção. Com o arquivo fora do nome procurado, o passo não é montado. O
+`generate` continua inteiro: o `package.json` o chama com `--config` explícito.
 
 **A configuração não vai para a imagem publicada** (`.replitignore`), de modo
 que nenhum passo de publicação consiga usá-la de dentro do contêiner.
@@ -67,17 +86,47 @@ renomeada?". É o resolvedor de conflitos do drizzle-kit, e a pergunta não tem
 resposta certa **nenhuma**: as opções todas terminam em aplicar DDL fora da fila.
 Não há como responder "isso já está tratado numa migration" — só cancelar.
 
-O que ela mostra, porém, é informação boa de graça: a lista de diferenças diz
-exatamente **quanto produção está atrás**. Uma pergunta sobre `ticket` perdendo
-`parameter_label`, `attribute_code`, `requested_value_*`, `applied_value_*` e
-`impact_*` e ganhando `changed_parameter_count` é a `0013` inteira — ou seja,
-produção ainda está na `0012`.
+O que ela mostra, porém, é informação boa de graça: a lista de diferenças diz o
+que o **schema** de produção tem, que é outra pergunta. Uma pergunta sobre
+`ticket` perdendo `parameter_label`, `attribute_code`, `requested_value_*`,
+`applied_value_*` e `impact_*` e ganhando `changed_parameter_count` é a `0013`
+inteira — o schema de lá é anterior a ela.
 
-A conferência que vale é esta, somente leitura, contra o banco de produção:
+Isso **não** diz em que migration produção está: o registro é o que responde
+isso, e ele pode estar vazio com o schema inteiro de pé (foi o caso em
+15/08/2026 — ver a seção seguinte). As duas conferências, somente leitura:
 
 ```sql
+-- o registro
 SELECT created_at FROM drizzle.__drizzle_migrations ORDER BY created_at;
 ```
+
+De fora, sem credencial, `/api/healthz` responde o mesmo em `database.migrations`
+— `applied`, `pending` pelo nome, e onde a última tentativa parou. Se a
+publicação estiver atrás de um gate de autenticação, o `curl` leva 307 e o
+navegador logado não.
+
+## Um banco que tem o schema e não tem o registro
+
+Acontece: `drizzle.__drizzle_migrations` vazio num banco inteiro de pé. Foi o
+estado de produção em 15/08/2026 — `/api/healthz` respondendo `applied: 0` com
+todas as telas funcionando.
+
+Isso **não trava mais a fila**. Toda migration, da `0000` à `0019`, atravessa um
+banco que já a contém: tipo, tabela, índice, coluna, constraint e gatilho são
+procurados antes de criados, e o que já está lá é deixado como está. Rodar a
+fila sobre um banco existente é trabalho repetido, não erro — o servidor faz
+isso sozinho na partida e o registro se recompõe.
+
+O que a reentrância **não** faz é inventar backfill. Uma migration que converte
+dado roda o `UPDATE` de novo; todos eles são escritos com `WHERE` que os torna
+inócuos quando o dado já está convertido, e é isso que os testes de
+`registro-perdido.test.ts` e `canonical-identity-migration.test.ts` prendem.
+
+`migrate:adotar` continua existindo para o caso oposto — quando se quer
+**registrar sem rodar**, por saber que aquele estado já foi alcançado. É
+declaração de quem opera, não conserto de partida, e não é mais pré-requisito
+para destravar nada.
 
 ## O `meta/` do drizzle, e o que ele não representa
 

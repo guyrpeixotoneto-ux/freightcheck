@@ -10,7 +10,7 @@
     "./diagnostico": "./src/diagnostico.ts"
   },
   "scripts": {
-    "generate": "drizzle-kit generate --config ./drizzle.config.ts",
+    "generate": "drizzle-kit generate --config ./drizzle-kit.config.ts",
     "migrate": "tsx ./src/migrate-cli.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",

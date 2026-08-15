@@ -22,12 +22,31 @@
 -- ritual. O que se mantém é a regra de nunca descartar em silêncio — a linha
 -- original de cada chamado fica inteira em `ticket.payload`.
 
-CREATE TYPE "public"."ticket_import_status" AS ENUM('PENDING', 'READING', 'READ', 'FAILED', 'SKIPPED_DUPLICATE');--> statement-breakpoint
+DO $reentrante$
+DECLARE
+  faltando text;
+BEGIN
+  IF to_regtype('"public"."ticket_import_status"') IS NULL THEN
+CREATE TYPE "public"."ticket_import_status" AS ENUM('PENDING', 'READING', 'READ', 'FAILED', 'SKIPPED_DUPLICATE');
+  ELSE
+    -- Existe. Exige-se que os valores desta migration estejam lá; um
+    -- valor a mais não é conflito (a 0015 acrescenta dois a import_run_status).
+    SELECT string_agg(v, ', ') INTO faltando
+      FROM unnest(ARRAY['PENDING', 'READING', 'READ', 'FAILED', 'SKIPPED_DUPLICATE']) v
+     WHERE v <> ALL (SELECT e.enumlabel::text FROM pg_enum e
+                      WHERE e.enumtypid = '"public"."ticket_import_status"'::regtype);
+    IF faltando IS NOT NULL THEN
+      RAISE EXCEPTION
+        E'O tipo ticket_import_status já existe sem os valores que esta migration declara: %.\n\nSubstituí-lo mudaria o significado de colunas que já têm dado. Confira de onde ele veio e alinhe-o. Nada foi alterado.',
+        faltando USING ERRCODE = 'data_exception';
+    END IF;
+  END IF;
+END $reentrante$;--> statement-breakpoint
 
 -- ---------------------------------------------------------------------------
 -- O envio
 -- ---------------------------------------------------------------------------
-CREATE TABLE "ticket_import" (
+CREATE TABLE IF NOT EXISTS "ticket_import" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"filename" text NOT NULL,
 	"content_sha256" text NOT NULL,
@@ -50,13 +69,13 @@ CREATE TABLE "ticket_import" (
 -- O sha não é UNIQUE de propósito: uma duplicata recusada também vira linha
 -- aqui, com status SKIPPED_DUPLICATE e o motivo escrito. Recusar não é
 -- esquecer — a mesma regra de `import_run`.
-CREATE INDEX "ticket_import_sha256_idx" ON "ticket_import" USING btree ("content_sha256");--> statement-breakpoint
-CREATE INDEX "ticket_import_received_idx" ON "ticket_import" USING btree ("received_at");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "ticket_import_sha256_idx" ON "ticket_import" USING btree ("content_sha256");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "ticket_import_received_idx" ON "ticket_import" USING btree ("received_at");--> statement-breakpoint
 
 -- ---------------------------------------------------------------------------
 -- O chamado
 -- ---------------------------------------------------------------------------
-CREATE TABLE "ticket" (
+CREATE TABLE IF NOT EXISTS "ticket" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"ticket_import_id" uuid NOT NULL,
 	"external_id" text NOT NULL,
@@ -82,12 +101,33 @@ CREATE TABLE "ticket" (
 );
 --> statement-breakpoint
 
-ALTER TABLE "ticket" ADD CONSTRAINT "ticket_ticket_import_id_ticket_import_id_fk" FOREIGN KEY ("ticket_import_id") REFERENCES "public"."ticket_import"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint
+                 WHERE conname = 'ticket_ticket_import_id_ticket_import_id_fk'
+                   AND conrelid = '"ticket"'::regclass) THEN
+ALTER TABLE "ticket" ADD CONSTRAINT "ticket_ticket_import_id_ticket_import_id_fk" FOREIGN KEY ("ticket_import_id") REFERENCES "public"."ticket_import"("id") ON DELETE no action ON UPDATE no action;
+  END IF;
+END $reentrante$;--> statement-breakpoint
 
 -- Uma linha do arquivo entra uma vez só. É o que torna a leitura repetível
 -- sem virar duplicação quando ela é retomada depois de uma queda no meio.
-CREATE UNIQUE INDEX "ticket_import_row_uq" ON "ticket" USING btree ("ticket_import_id","source_row_index");--> statement-breakpoint
-CREATE INDEX "ticket_import_idx" ON "ticket" USING btree ("ticket_import_id");--> statement-breakpoint
-CREATE INDEX "ticket_external_id_idx" ON "ticket" USING btree ("external_id");--> statement-breakpoint
-CREATE INDEX "ticket_status_bucket_idx" ON "ticket" USING btree ("status_bucket");--> statement-breakpoint
-CREATE INDEX "ticket_attribute_idx" ON "ticket" USING btree ("attribute_code");
+CREATE UNIQUE INDEX IF NOT EXISTS "ticket_import_row_uq" ON "ticket" USING btree ("ticket_import_id","source_row_index");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "ticket_import_idx" ON "ticket" USING btree ("ticket_import_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "ticket_external_id_idx" ON "ticket" USING btree ("external_id");--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "ticket_status_bucket_idx" ON "ticket" USING btree ("status_bucket");--> statement-breakpoint
+-- Só existe enquanto `ticket` carregar parâmetro: a `0013` derruba a coluna e
+-- este índice junto. Num banco que já passou por lá — e é o caso de qualquer
+-- banco que reencontre esta fila sem registro —, a coluna não está mais lá, e
+-- criar o índice sobre ela falharia com `42703`, travando tudo o que vem
+-- depois. A condição é sobre a coluna, e não sobre o índice: é ela que decide
+-- se este objeto ainda faz sentido.
+DO $reentrante$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND table_name = 'ticket'
+                AND column_name = 'attribute_code') THEN
+CREATE INDEX IF NOT EXISTS "ticket_attribute_idx" ON "ticket" USING btree ("attribute_code");
+  END IF;
+END $reentrante$;

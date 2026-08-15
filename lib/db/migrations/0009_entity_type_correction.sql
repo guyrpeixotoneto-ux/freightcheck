@@ -1,4 +1,4 @@
-CREATE TABLE "entity_type_correction" (
+CREATE TABLE IF NOT EXISTS "entity_type_correction" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"from_entity_type" text NOT NULL,
 	"to_entity_type" text NOT NULL,
