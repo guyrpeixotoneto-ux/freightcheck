@@ -67,6 +67,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # A versão vem do `packageManager` no package.json — que é onde ela
+      # também vale para quem roda o projeto na máquina, via corepack. Sem ela
+      # declarada em algum dos dois lugares, esta action falha antes de instalar
+      # qualquer coisa, e foi assim que este workflow reprovou cinco vezes
+      # seguidas sem nunca ter chegado a rodar um teste.
       - uses: pnpm/action-setup@v4
 
       - uses: actions/setup-node@v4
