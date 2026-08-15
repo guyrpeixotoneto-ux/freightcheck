@@ -3,3 +3,15 @@
 
 # No need to store the pnpm store twice.
 .local
+
+# A configuração do drizzle-kit não vai para a imagem publicada.
+#
+# Em produção o schema muda por migration versionada, aplicada por
+# `runMigrations()` na partida do servidor — o drizzle-kit não roda lá, e não
+# tem por que existir lá. Deixar o arquivo de fora é o que garante que nenhum
+# passo de publicação consiga usá-lo para propor ou aplicar um diff de schema
+# de dentro da imagem. As migrations em si continuam indo: o `build.mjs` do
+# api-server copia `lib/db/migrations` para junto do bundle.
+#
+# Ver docs/MIGRATIONS.md.
+lib/db/drizzle.config.ts

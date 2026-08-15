@@ -72,8 +72,22 @@ describe("registro de migrations perdido", () => {
     // Declarada a adoção, o registro é reconstruído e a fila anda.
     const segunda = await runMigrations(url, undefined, { adoptExisting: true });
     expect(segunda.failure).toBeUndefined();
-    expect(segunda.adopted).toEqual(primeira.applied);
     expect(segunda.pending).toEqual([]);
+
+    /*
+      A adoção só reconhece migration que **cria objeto** — tabela, tipo, índice,
+      coluna, gatilho. A `0018` não cria nenhum: ela valida o dado e acrescenta
+      constraints, e nenhuma inspeção da forma do schema prova que ela rodou.
+
+      Então ela não é adotada: é rodada. E rodar é o desfecho certo aqui, porque
+      ela é idempotente por construção — adota a constraint que já existe, cria a
+      que falta, e para se o dado não sustentar a identidade.
+    */
+    const soConstraints = "0018_identidade_forte";
+    expect(segunda.adopted).toEqual(
+      primeira.applied.filter((tag) => tag !== soConstraints),
+    );
+    expect(segunda.applied).toEqual([soConstraints]);
 
     /*
       As que mexem em dados saem nomeadas: o schema não prova que o backfill

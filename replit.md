@@ -53,6 +53,11 @@ em `/api` — que é o aceite desta configuração.
 - `pnpm run build` — typecheck + build de todos os pacotes
 - `pnpm --filter @workspace/db run migrate` — aplica as migrations à mão
 - `pnpm dev:seed` — ferramenta de desenvolvimento; **não** é o caminho do produto
+- **Schema muda só por migration versionada** — `lib/db/migrations/*.sql`,
+  aplicada por `runMigrations()`. `drizzle-kit push` está desligado, e a
+  proposta de schema que o Publishing oferece ao publicar **se recusa**: ela
+  copia estrutura sem backfill, sem as funções da identidade canônica e sem a
+  fusão da `0016`. Ver `docs/MIGRATIONS.md`.
 - Única env obrigatória: `DATABASE_URL`
 - Opcional: `ANTHROPIC_API_KEY` liga a redação por modelo no Assistente de IA.
   Sem ela o assistente **continua respondendo**, com a redação montada em código

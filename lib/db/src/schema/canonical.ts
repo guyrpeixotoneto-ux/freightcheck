@@ -220,6 +220,29 @@ export const snapshotTable = pgTable(
     index("snapshot_canonical_key_idx").on(t.canonicalSnapshotKey),
     index("snapshot_effective_date_idx").on(t.effectiveDate),
     index("snapshot_import_run_idx").on(t.importRunId),
+    /*
+      `NOT NULL` cobre o nulo e nada mais.
+
+      String vazia e `[]` satisfazem a obrigatoriedade e destroem a identidade:
+      duas vigências com canal vazio na mesma data são a mesma chave canônica, e
+      o que era para virar revisão vira fusão silenciosa de duas realidades
+      diferentes. Estas quatro são o que impede uma identidade *ambígua* — e
+      valem no banco, não no caminho de escrita, porque o caminho de escrita é
+      exatamente o que pode errar.
+    */
+    check(
+      "snapshot_canonical_scope_ck",
+      sql`${t.canonicalScope} = freightcheck_canonical_scope(${t.canonicalScope})`,
+    ),
+    check("snapshot_canal_nao_vazio_ck", sql`btrim(${t.canal}) <> ''`),
+    check(
+      "snapshot_dataset_family_nao_vazio_ck",
+      sql`btrim(${t.datasetFamily}) <> ''`,
+    ),
+    check(
+      "snapshot_canonical_scope_nao_vazio_ck",
+      sql`jsonb_array_length(${t.canonicalScope}) > 0`,
+    ),
   ],
 );
 
