@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ranquear, trechosDosBlocos, type TrechoDoBook } from "../indice-book";
+import { LIMIAR_DO_BOOK, ranquear, trechosDosBlocos, type TrechoDoBook } from "../indice-book";
 import type { BlocoDeDocumento } from "../documento";
 
 /**
@@ -160,6 +160,50 @@ describe("ranqueamento", () => {
 
   it("não devolve nada quando a pergunta não toca o Book", () => {
     expect(ranquear(INDICE, "qual o preço do dólar hoje?")).toEqual([]);
+  });
+
+  /*
+    O caso que apareceu na tela, e o mais caro de todos.
+
+    "Teve alteração na remuneração?" é uma pergunta sobre o dado — o que mudou
+    entre as vigências. Ela devolvia um documento inteiro do Book porque a
+    palavra "remuneração" está em quase metade dos blocos, e o ranqueamento a
+    contava com o mesmo peso de "pneu", que está em um. Uma pergunta feita só de
+    palavras que não distinguem nada não procura documento nenhum.
+  */
+  it("palavra que está em quase tudo não recupera nada", () => {
+    const comuns = [
+      ...trechosDosBlocos(
+        [{ tipo: "PARAGRAFO", texto: "Detalhamento da composição do modelo de remuneração." }],
+        meta("CUSTO FIXO DE EQUIPAMENTOS", "Equipamentos"),
+      ),
+      ...trechosDosBlocos(
+        [{ tipo: "PARAGRAFO", texto: "Detalhamento do modelo de remuneração da equipe." }],
+        meta("EQUIPE ARMAZÉM"),
+      ),
+      ...trechosDosBlocos(
+        [{ tipo: "PARAGRAFO", texto: "Detalhamento da remuneração de pneus por eixo." }],
+        meta("PNEU", "Equipamentos"),
+      ),
+    ];
+
+    /*
+      Não é um corte binário: a nota cai abaixo do limiar, e é `buscarNoBook`
+      que descarta. A diferença importa — um corte por presença de palavra
+      recusaria também "o que o Book diz sobre remuneração?", que é legítima.
+    */
+    const soComum = ranquear(comuns, "teve alteração na remuneração?");
+    expect(soComum[0]!.pontos).toBeLessThan(LIMIAR_DO_BOOK);
+
+    // Uma palavra que discrimina muda tudo — e traz o bloco certo à frente.
+    const comPneu = ranquear(comuns, "teve alteração na remuneração de pneu?");
+    expect(comPneu[0]!.pontos).toBeGreaterThan(LIMIAR_DO_BOOK);
+    expect(comPneu[0]!.trecho.bloco).toBe("PNEU");
+
+    // E a pergunta legítima sobre o mesmo assunto continua achando.
+    expect(ranquear(comuns, "o que o Book diz sobre remuneração?")[0]!.pontos).toBeGreaterThan(
+      LIMIAR_DO_BOOK,
+    );
   });
 
   it("não deixa um documento só ocupar a resposta inteira", () => {

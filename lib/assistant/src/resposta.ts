@@ -232,6 +232,29 @@ function fatoQueResponde(dossie: Dossie): Escolha | null {
 }
 
 /**
+ * Linhas que são carimbo do documento, não conteúdo dele.
+ *
+ * O primeiro trecho de um `.docx` de operação costuma trazer o cabeçalho de
+ * quem o exportou: a etiqueta da categoria (`#Equipamentos`) e a data-hora da
+ * geração. Numa resposta a "teve alteração na remuneração?", isso apareceu
+ * assim, na tela: título, hashtag, `05/05/2022 11:49:26`. É conteúdo do
+ * arquivo e não é resposta a nada — some quando a redação em código transcreve.
+ */
+function semCarimboDoDocumento(texto: string): string {
+  return texto
+    .split("\n")
+    .filter((linha) => {
+      const limpa = linha.trim();
+      if (/^#[A-Za-zÀ-ÿ][\wÀ-ÿ-]*$/.test(limpa)) return false;
+      if (/^\d{2}\/\d{2}\/\d{4}(\s+\d{2}:\d{2}(:\d{2})?)?$/.test(limpa)) return false;
+      return true;
+    })
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/**
  * Quanto do documento a redação em código transcreve.
  *
  * Ela não resume — sem modelo, resumir seria inventar —, então o que ela pode
@@ -296,7 +319,8 @@ export function redacaoDeterministica(dossie: Dossie): string {
   if (doBook.length > 0) {
     let acumulado = 0;
     for (const item of doBook.slice(0, TRECHOS_NA_ABERTURA)) {
-      const texto = item.documento.trecho.texto;
+      const texto = semCarimboDoDocumento(item.documento.trecho.texto);
+      if (!texto) continue;
       if (acumulado > 0 && acumulado + texto.length > TETO_DA_ABERTURA) break;
       partes.push(`${texto} [${item.id}]`);
       acumulado += texto.length;
