@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
@@ -9,7 +9,6 @@ import {
   ListFilter,
   Lock,
   TriangleAlert,
-  Truck,
 } from "lucide-react";
 import { getApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -31,8 +30,9 @@ import type { ItemCockpit } from "@/lib/cockpit";
  *
  * Três camadas, e a disciplina desta tela é não misturá-las:
  *
- * 1. **A linha** responde *o que é, em quanto da frota, e quanto custa* — em
- *    linguagem de auditor. Nada de `2028-07-01T12:00:00Z → 46935.5` aqui.
+ * 1. **A linha da tabela** responde *o que é, em quanto da frota, e quanto
+ *    custa* — em linguagem de auditor, e em colunas que se comparam de cima a
+ *    baixo. Nada de `2028-07-01T12:00:00Z → 46935.5` aqui.
  * 2. **A investigação** abre a profundidade técnica: os dois lados como vieram,
  *    o diagnóstico, os padrões, os veículos, a série e a origem.
  * 3. **A conta da prioridade** fica visível no fim da investigação. Um ranking
@@ -73,7 +73,18 @@ const ROTULO_SEVERIDADE: Record<Severity, string> = {
   BAIXO: "Baixo",
 };
 
-export function Prioridade({
+/** As colunas da fila, para o `colSpan` da investigação não sair do lugar. */
+export const COLUNAS_PRIORIDADE = 9;
+
+/**
+ * Uma linha da fila de investigação.
+ *
+ * A linha é uma leitura de tabela: posição, criticidade, parâmetro, frota,
+ * pontos da conta de prioridade, veículos, anomalia, impacto e a ação. Nove
+ * colunas que se comparam de cima a baixo — que é como se escolhe por onde
+ * começar. O diagnóstico e a prova ficam na investigação, um clique abaixo.
+ */
+export function LinhaPrioridade({
   entry,
   period,
   contexto,
@@ -85,193 +96,148 @@ export function Prioridade({
 }) {
   const { item, group } = entry;
   const [aberto, setAberto] = useState(false);
-  /*
-    Um contador, e não um booleano: pedir "ver os veículos" duas vezes seguidas
-    precisa rolar duas vezes, e um booleano que já está `true` não dispara o
-    efeito da segunda vez — o botão pareceria quebrado.
-  */
-  const [pedidosDeVeiculos, setPedidosDeVeiculos] = useState(0);
   const cores = CORES[item.severity];
   const dinheiro = group.impact.amount !== null && group.impact.amount !== 0;
 
   return (
-    <div className={cn("border-b last:border-b-0", aberto && "bg-muted/20")}>
-      <div className="flex">
-        <div className={cn("w-[3px] shrink-0", cores.barra)} aria-hidden />
-        <div className="flex-1 min-w-0 px-4 py-3.5">
-          {/*
-            A coluna do impacto desce para baixo do texto quando a largura não
-            comporta as duas — o número não pode ser espremido a ponto de
-            "R$ 28.511/mês" quebrar no meio, e a fila continua legível em
-            notebook e tablet.
-          */}
-          <div className="flex flex-wrap md:flex-nowrap gap-x-4 gap-y-2 items-start">
-            <span className="text-lg font-bold tabular-nums text-muted-foreground w-8 shrink-0 pt-0.5">
-              {String(item.rank).padStart(2, "0")}
+    <>
+      <tr className={cn("border-t transition-colors", aberto ? "bg-muted/40" : "hover:bg-muted/30")}>
+        <td className="pl-5 pr-2 py-3 align-middle text-[0.9375rem] font-bold tabular-nums text-muted-foreground">
+          {String(item.rank).padStart(2, "0")}
+        </td>
+
+        <td className="px-2 py-3 align-middle">
+          <span
+            className={cn(
+              "inline-block text-[0.625rem] font-bold uppercase tracking-[0.08em] px-1.5 py-0.5 border rounded-md whitespace-nowrap",
+              cores.chip,
+            )}
+          >
+            {ROTULO_SEVERIDADE[item.severity]}
+          </span>
+        </td>
+
+        <td className="px-2 py-3 align-middle max-w-md">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-semibold text-[0.9375rem] truncate" title={group.title}>
+              {group.title}
             </span>
+            <span className="text-[0.6875rem] text-muted-foreground bg-muted rounded-md px-1.5 py-0.5 shrink-0">
+              {group.badgeLabel}
+            </span>
+          </div>
+          {/*
+            A abrangência é a segunda pergunta de quem lê o nome do parâmetro, e
+            cabe embaixo dele sem custar uma coluna: "62 de 82 cavalos" só faz
+            sentido colado ao ponto a que se refere.
+          */}
+          <div className="text-[0.6875rem] text-muted-foreground mt-0.5 truncate">
+            {item.shareLabel}
+          </div>
+        </td>
 
-            <div className="min-w-0 flex-1 basis-80">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span
-                  className={cn(
-                    "text-[0.625rem] font-bold uppercase tracking-[0.08em] px-1.5 py-0.5 border rounded-sm",
-                    cores.chip,
-                  )}
-                >
-                  {ROTULO_SEVERIDADE[item.severity]}
-                </span>
-                <h3 className="font-bold text-[0.9375rem] truncate">{group.title}</h3>
-                <span className="text-sm text-muted-foreground">— {group.equipment}</span>
-                <span className="text-[0.6875rem] text-muted-foreground border px-1.5 py-0.5 rounded-sm">
-                  {group.badgeLabel}
-                </span>
-                {item.hasAnomaly && (
-                  <span
-                    className={cn(
-                      "text-[0.6875rem] inline-flex items-center gap-1",
-                      group.formatOnly ? "text-slate-600" : "text-amber-800",
-                    )}
-                  >
-                    {group.formatOnly ? (
-                      <Info className="w-3 h-3" />
-                    ) : (
-                      <TriangleAlert className="w-3 h-3" />
-                    )}
-                    {group.formatOnly
-                      ? "troca de formato, sem mudança de valor"
-                      : "possível anomalia de formato"}
-                  </span>
-                )}
-              </div>
+        <td className="px-2 py-3 align-middle text-[0.8125rem] text-muted-foreground whitespace-nowrap">
+          {group.equipment}
+        </td>
 
-              <div className="text-[0.8125rem] text-muted-foreground mt-1">
-                {item.shareLabel}
-                {item.sharePercent !== null && (
-                  <>
-                    {" · "}
-                    <span className="font-semibold text-foreground tabular-nums">
-                      {item.sharePercent.toLocaleString("pt-BR")}%
-                    </span>{" "}
-                    da frota
-                  </>
-                )}
-              </div>
+        <td
+          className="px-2 py-3 align-middle text-right"
+          title={`Soma da conta de prioridade: ${item.reasons
+            .map((r) => `${r.label} +${r.points}`)
+            .join(", ")}`}
+        >
+          <span className={cn("text-[0.9375rem] font-bold tabular-nums", cores.texto)}>
+            {item.score}
+          </span>
+        </td>
 
-              <p className="text-sm mt-1.5 leading-snug">{item.diagnosis}</p>
-              {item.patternsSummary && (
-                <p className="text-xs text-muted-foreground mt-1">{item.patternsSummary}</p>
-              )}
+        <td className="px-2 py-3 align-middle text-right text-[0.9375rem] tabular-nums">
+          {group.vehicles}
+        </td>
 
-              <div className="flex flex-wrap items-center gap-1.5 mt-2.5">
-                <Acao
-                  aoClicar={() => setAberto(!aberto)}
-                  principal
-                >
-                  {aberto ? (
-                    <ChevronDown className="w-3.5 h-3.5" />
-                  ) : (
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  )}
-                  Investigar
-                </Acao>
-                <Acao
-                  aoClicar={() => {
-                    setAberto(true);
-                    setPedidosDeVeiculos((n) => n + 1);
-                  }}
-                >
-                  <Truck className="w-3.5 h-3.5" />
-                  Ver {group.vehicles} {group.vehicles === 1 ? "veículo" : "veículos"}
-                </Acao>
-                <LinkAcao href="/comparar">
-                  <GitCompareArrows className="w-3.5 h-3.5" />
-                  Comparar vigências
-                </LinkAcao>
-                {group.attributeCode && (
-                  <LinkAcao
-                    href={`/alteracoes?search=${encodeURIComponent(group.attributeCode)}`}
-                  >
-                    <ListFilter className="w-3.5 h-3.5" />
-                    Ver linha a linha
-                  </LinkAcao>
-                )}
-              </div>
-            </div>
-
-            <div className="shrink-0 w-full pl-12 md:pl-0 md:w-44 md:text-right">
-              {dinheiro ? (
-                <>
-                  <div
-                    className={cn(
-                      "text-lg font-bold tabular-nums whitespace-nowrap",
-                      group.impact.amount! < 0 ? "text-red-700" : "text-emerald-700",
-                    )}
-                  >
-                    {formatBrl(group.impact.amount!)}
-                    <span className="text-xs font-normal text-muted-foreground">
-                      {periodicitySuffix(group.impact.periodicity)}
-                    </span>
-                  </div>
-                  <div className="text-[0.6875rem] text-muted-foreground mt-0.5">
-                    apurado em {group.impact.countedVehicles}{" "}
-                    {group.impact.countedVehicles === 1 ? "veículo" : "veículos"}
-                  </div>
-                </>
+        <td className="px-2 py-3 align-middle text-center">
+          {item.hasAnomaly ? (
+            <span
+              className="inline-flex items-center justify-center"
+              title={
+                group.formatOnly
+                  ? "Troca de formato, sem mudança de valor"
+                  : "Possível anomalia de formato junto de mudança de valor"
+              }
+            >
+              {group.formatOnly ? (
+                <Info className="w-3.5 h-3.5 text-slate-500" />
               ) : (
-                <>
-                  <div className="text-[0.8125rem] font-semibold text-muted-foreground">
-                    Impacto ainda não calculável
-                  </div>
-                  <div className="text-[0.6875rem] text-muted-foreground mt-0.5 leading-snug">
-                    {group.impact.reason
-                      ? "Este parâmetro não tem regra de precificação suficiente."
-                      : "Sem valor apurado nesta vigência."}
-                  </div>
-                </>
+                <TriangleAlert className="w-3.5 h-3.5 text-amber-600" />
               )}
+              <span className="sr-only">
+                {group.formatOnly ? "troca de formato" : "possível anomalia"}
+              </span>
+            </span>
+          ) : (
+            <span className="text-muted-foreground" aria-hidden>
+              —
+            </span>
+          )}
+        </td>
+
+        <td className="px-2 py-3 align-middle text-right whitespace-nowrap">
+          {dinheiro ? (
+            <>
+              <div
+                className={cn(
+                  "text-[0.9375rem] font-bold tabular-nums",
+                  group.impact.amount! < 0 ? "text-red-700" : "text-emerald-700",
+                )}
+              >
+                {formatBrl(group.impact.amount!)}
+                <span className="text-[0.6875rem] font-normal text-muted-foreground">
+                  {periodicitySuffix(group.impact.periodicity)}
+                </span>
+              </div>
               {group.impact.excludedVehicles > 0 && (
-                <div className="text-[0.6875rem] text-violet-800 mt-1">
+                <div className="text-[0.6875rem] text-violet-800">
                   {group.impact.excludedVehicles} de {group.vehicles} fora do total
                 </div>
               )}
-            </div>
-          </div>
-        </div>
-      </div>
+            </>
+          ) : (
+            <span
+              className="text-[0.8125rem] text-muted-foreground"
+              title={
+                group.impact.reason ??
+                "Sem valor apurado nesta vigência."
+              }
+            >
+              Não calculado
+            </span>
+          )}
+        </td>
+
+        <td className="pl-2 pr-5 py-3 align-middle text-right">
+          <button
+            onClick={() => setAberto(!aberto)}
+            aria-expanded={aberto}
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md bg-brand-red text-brand-red-foreground hover:opacity-90 transition-opacity whitespace-nowrap"
+          >
+            {aberto ? (
+              <ChevronDown className="w-3.5 h-3.5" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5" />
+            )}
+            Investigar
+          </button>
+        </td>
+      </tr>
 
       {aberto && (
-        <Investigacao
-          entry={entry}
-          period={period}
-          contexto={contexto}
-          pedidosDeVeiculos={pedidosDeVeiculos}
-        />
+        <tr className="border-t">
+          <td colSpan={COLUNAS_PRIORIDADE} className="p-0">
+            <Investigacao entry={entry} period={period} contexto={contexto} />
+          </td>
+        </tr>
       )}
-    </div>
-  );
-}
-
-function Acao({
-  children,
-  aoClicar,
-  principal,
-}: {
-  children: React.ReactNode;
-  aoClicar: () => void;
-  principal?: boolean;
-}) {
-  return (
-    <button
-      onClick={aoClicar}
-      className={cn(
-        "inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 border rounded-sm transition-colors",
-        principal
-          ? "border-brand text-brand hover:bg-accent"
-          : "border-border text-muted-foreground hover:text-foreground hover:border-foreground/40",
-      )}
-    >
-      {children}
-    </button>
+    </>
   );
 }
 
@@ -294,15 +260,12 @@ function Investigacao({
   entry,
   period,
   contexto,
-  pedidosDeVeiculos,
 }: {
   entry: ItemCockpit;
   period: string;
   contexto: URLSearchParams;
-  pedidosDeVeiculos: number;
 }) {
   const { item, group } = entry;
-  const veiculosRef = useRef<HTMLDivElement>(null);
 
   const vehicles = useQuery({
     queryKey: ["group-vehicles", period, group.key, contexto.toString()],
@@ -335,14 +298,26 @@ function Investigacao({
     enabled: group.attributeCode !== null,
   });
 
-  useEffect(() => {
-    if (pedidosDeVeiculos > 0) {
-      veiculosRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    }
-  }, [pedidosDeVeiculos]);
-
   return (
-    <div className="border-t bg-card px-6 py-5 space-y-5 text-sm">
+    <div className="bg-card px-6 py-5 space-y-5 text-sm">
+      {/*
+        As saídas para o resto do produto ficam no topo da investigação, e não
+        na linha da fila: na fila elas competiam com a única ação que importa
+        ali, que é abrir isto aqui.
+      */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <LinkAcao href="/comparar">
+          <GitCompareArrows className="w-3.5 h-3.5" />
+          Comparar vigências
+        </LinkAcao>
+        {group.attributeCode && (
+          <LinkAcao href={`/alteracoes?search=${encodeURIComponent(group.attributeCode)}`}>
+            <ListFilter className="w-3.5 h-3.5" />
+            Ver linha a linha
+          </LinkAcao>
+        )}
+      </div>
+
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
         <Secao titulo="O que mudou">
           <OQueMudou group={group} />
@@ -480,7 +455,7 @@ function Investigacao({
         </Secao>
       )}
 
-      <div ref={veiculosRef}>
+      <div>
         {/*
           O título muda de palavra quando o grupo é troca de formato pura.
           "Veículos afetados" descreve dano, e é a mesma expressão que encima o
