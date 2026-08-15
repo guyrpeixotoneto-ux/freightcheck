@@ -79,6 +79,50 @@ A conferência que vale é esta, somente leitura, contra o banco de produção:
 SELECT created_at FROM drizzle.__drizzle_migrations ORDER BY created_at;
 ```
 
+### Como reconhecer que a proposta foi aceita
+
+Um deploy parou assim:
+
+```
+function freightcheck_snapshot_key(text, text, text, date, jsonb) does not exist
+```
+
+no comando:
+
+```sql
+ALTER TABLE "snapshot" ADD COLUMN "canonical_snapshot_key" text
+GENERATED ALWAYS AS (
+  freightcheck_snapshot_key(
+    source_system, dataset_family, canal, effective_date, canonical_scope)
+) STORED;
+```
+
+**Esse comando não existe neste repositório**, e dá para provar isso lendo o
+próprio comando. A `0015` cria a mesma coluna com os identificadores **entre
+aspas**, numa linha só, dentro de um `DO $$` — e trezentas linhas depois de
+criar as funções, na mesma transação. A forma sem aspas, em caixa baixa e
+quebrada em várias linhas é exatamente o que `pg_get_expr()` devolve ao ler a
+expressão de uma coluna gerada de um banco **vivo**:
+
+```
+freightcheck_snapshot_key(source_system, dataset_family, canal, effective_date, canonical_scope)
+```
+
+Ou seja: aquele DDL foi derivado por **introspecção do banco de
+desenvolvimento** e aplicado em produção. Ele copia a coluna gerada e não copia
+as funções — o modelo de snapshot do drizzle não representa função nenhuma — e
+produção, que ainda não tinha rodado a `0015`, não tinha o que a coluna chama.
+
+**O tell, em uma linha:** identificadores sem aspas no `GENERATED ALWAYS AS`
+quer dizer introspecção de banco; com aspas, quer dizer repositório.
+
+O conserto não é aplicar a função à mão em produção nem copiar o banco de
+desenvolvimento: é deixar a fila versionada rodar. Ela atravessa até o banco em
+que a proposta morreu no meio — as três colunas de identidade acrescentadas e
+mais nada —, porque cada objeto da `0015` é procurado antes de ser criado.
+Coberto em `canonical-identity-migration.test.ts`, no bloco *o DDL do deploy, e
+a fila que não precisa dele*.
+
 ## O `meta/` do drizzle, e o que ele não representa
 
 `migrations/meta/*.json` são a fotografia que o drizzle-kit usa como base do
@@ -130,6 +174,37 @@ não roda de novo. A `0018` existe só para esse caso, e é escrita para os dois
 onde as constraints já estão, ela confere e não faz nada; onde faltam, ela
 valida o dado e as cria. É a diferença entre corrigir uma migration e deixar
 desenvolvimento e produção com schemas diferentes.
+
+## O `search_path` das funções da identidade, e a `0020`
+
+As onze funções `freightcheck_*` da identidade nasceram na `0015` sem `SET
+search_path`. Numa função `LANGUAGE sql` de corpo textual, os nomes de dentro do
+corpo são resolvidos **na primeira chamada de cada sessão**, com o `search_path`
+de quem chamou — não com o de quem a criou:
+
+```sql
+SET search_path = '';
+SELECT public.freightcheck_snapshot_key('FREIGHTEC','X','E','2026-08-01','[]');
+-- ERROR:  function freightcheck_norm_canal(text) does not exist
+-- CONTEXT: SQL function "freightcheck_snapshot_key" during startup
+```
+
+E `freightcheck_snapshot_key` não é chamada só por quem quer: ela é a expressão
+da coluna **gerada** `snapshot.canonical_snapshot_key`, avaliada em todo
+`INSERT` e todo `UPDATE`; `freightcheck_canonical_scope` é a expressão do `CHECK
+snapshot_canonical_scope_ck`. Uma conexão cujo `search_path` não inclua `public`
+— um pooler que o redefine, um papel de deploy com `search_path` próprio — não
+perde uma consulta: perde o caminho de escrita inteiro de `snapshot`.
+
+A `0020` pina o `search_path` das onze, com os corpos idênticos, e prova que
+nenhuma identidade já gravada mudou de valor: ela recalcula a chave de cada
+vigência e compara com a que está na coluna, abortando a transação inteira se
+alguma divergir. `CREATE OR REPLACE` substitui no lugar — o OID não muda, e a
+expressão gravada da coluna gerada guarda o OID, não o nome —, de modo que
+nenhuma linha é reescrita e nenhum índice é refeito.
+
+Como a `0018`, ela vale para os dois lados: onde as funções já estão pinadas,
+confere e não faz nada.
 
 Migration já aplicada não se reescreve por conveniência — o registro em
 `drizzle.__drizzle_migrations` é por carimbo (`when`), então um arquivo editado

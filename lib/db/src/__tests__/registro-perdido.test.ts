@@ -139,4 +139,49 @@ describe("registro de migrations perdido", () => {
       await apagarBanco(nome);
     }
   }, 300_000);
+
+  it("recusa adotar um banco a que falte uma função, ainda que o schema esteja inteiro", async () => {
+    const nome = `${NOME}_sem_funcao`;
+    const semFuncao = await criarBanco(nome);
+    try {
+      await runMigrations(semFuncao);
+
+      const banco = createDb(semFuncao);
+      await banco.pool.query(`DELETE FROM "drizzle"."__drizzle_migrations"`);
+      /*
+        O estado que uma proposta de diff de schema produz: colunas, índices e
+        até a coluna gerada continuam lá — e a função que a identidade chama por
+        dentro, não. Ele é construível justamente porque uma função `LANGUAGE
+        sql` de corpo textual não registra dependência: o Postgres deixa
+        derrubar `freightcheck_iso_date` sem reclamar, mesmo com
+        `freightcheck_snapshot_key` chamando-a.
+
+        Sem conferir função, a adoção carimbaria a `0015` como aplicada e o
+        banco ficaria sem ela para sempre — e `function ... does not exist`
+        apareceria na primeira escrita, longe da causa.
+      */
+      await banco.pool.query(`DROP FUNCTION "freightcheck_iso_date"(date)`);
+      await banco.pool.end();
+
+      const depois = await runMigrations(semFuncao, undefined, {
+        adoptExisting: true,
+      });
+
+      expect(depois.adopted).not.toContain("0015_canonical_identity");
+      // Não adotada, ela é rodada — e rodar recria a função que faltava.
+      expect(depois.failure).toBeUndefined();
+      expect(depois.applied).toContain("0015_canonical_identity");
+
+      const conferencia = createDb(semFuncao);
+      const { rows } = await conferencia.pool.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM pg_proc p
+           JOIN pg_namespace n ON n.oid = p.pronamespace
+          WHERE n.nspname = 'public' AND p.proname = 'freightcheck_iso_date'`,
+      );
+      expect(rows[0]!.n).toBe("1");
+      await conferencia.pool.end();
+    } finally {
+      await apagarBanco(nome);
+    }
+  }, 300_000);
 });

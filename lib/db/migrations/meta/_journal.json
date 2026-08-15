@@ -141,6 +141,13 @@
       "when": 1786845900000,
       "tag": "0019_assistant_feedback",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786845960000,
+      "tag": "0020_identidade_search_path",
+      "breakpoints": true
     }
   ]
 }
