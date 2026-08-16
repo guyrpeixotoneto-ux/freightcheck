@@ -142,8 +142,17 @@ const TABELAS_DERIVADAS: { nome: string; migration: string; marca: RegExp }[] = 
   },
 ];
 
-/** Colunas que o `down` remove de tabelas que ficam. */
-const COLUNAS_REMOVIDAS: [string, string][] = [
+/**
+ * Colunas que o `down` remove de tabelas que ficam.
+ *
+ * Exportada porque é a lista que a reconciliação tem de cobrir. Depois que o
+ * `down` roda, **só o `up` devolve estas colunas**: a fila de migrations não
+ * consegue, porque o registro já dá por aplicadas as migrations que as criam. A
+ * `0023_reconciliar_bridge` fecha esse buraco para as que dá para fechar, e
+ * `reconciliacao-bridge.test.ts` exige que toda entrada daqui esteja de um dos
+ * dois lados dessa fronteira — nunca esquecida no meio.
+ */
+export const COLUNAS_REMOVIDAS: [string, string][] = [
   ["snapshot", "canonical_snapshot_key"],
   ["ticket", "changed_parameter_count"],
   ["ticket", "vigencia_label"],
@@ -165,7 +174,8 @@ const COLUNAS_REMOVIDAS: [string, string][] = [
   ["attribute_semantics", "definition"],
 ];
 
-const INDICES_REMOVIDOS = [
+/** Índices que o `down` remove. Exportada pelo motivo de `COLUNAS_REMOVIDAS`. */
+export const INDICES_REMOVIDOS = [
   "snapshot_canonical_live_uq",
   "snapshot_canonical_revision_uq",
   "snapshot_canonical_key_idx",
