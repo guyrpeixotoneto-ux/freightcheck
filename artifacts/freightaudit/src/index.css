@@ -90,9 +90,9 @@
  * A paleta do FreightCheck: marinho, branco e um laranja.
  *
  * A leitura da tela é hierárquica e a cor segue essa hierarquia. **O marinho é
- * a única cor de ação** — faixa do topo, marca, item aberto do menu, tarja
- * "Novo", contador, aba ativa, botão de contorno, link. Ele aparece em toda
- * parte porque é sempre a mesma coisa: "isto é do produto, e isto se clica".
+ * a única cor de ação** — faixa do topo, marca, item aberto do menu, contador,
+ * aba ativa, botão de contorno, link. Ele aparece em toda parte porque é sempre
+ * a mesma coisa: "isto é do produto, e isto se clica".
  *
  * **O laranja é a única cor de atenção**, e é escasso de propósito. Ele marca
  * o que exige olhar humano — o triângulo de alerta, o ponto da pendência, o
@@ -120,7 +120,7 @@
   --popover-foreground: 213 47% 16%;
   --popover-border: 214 30% 91%;
 
-  /* Marinho: a cor de ação. Botão, aba aberta, link, tarja, contador. */
+  /* Marinho: a cor de ação. Botão, aba aberta, link, contador. */
   --primary: 212 73% 29%;
   --primary-foreground: 0 0% 100%;
 
@@ -224,10 +224,11 @@
    * cor.
    *
    * **Os sete tokens ficam.** Cada um é consumido em um lugar diferente do
-   * `sidebar.tsx` — título, ícone, tarja "Novo", cartão do assistente — e
-   * mantê-los separados é o que permite devolver a cor a uma seção, ou às
-   * sete, mexendo só nestas linhas. Apontar os sete para o mesmo valor é uma
-   * decisão de paleta, e é aqui que essa decisão deve morar.
+   * `sidebar.tsx` — o título da seção, o ícone dele, o contador que a seção
+   * recolhida traz e o cartão do assistente — e mantê-los separados é o que
+   * permite devolver a cor a uma seção, ou às sete, mexendo só nestas linhas.
+   * Apontar os sete para o mesmo valor é uma decisão de paleta, e é aqui que
+   * essa decisão deve morar.
    */
   --nav-executiva: 212 73% 29%;
   --nav-auditoria: 212 73% 29%;
@@ -338,9 +339,9 @@
   --chart-5: 212 60% 45%;
 
   /*
-   * As sete, clareadas. Elas pintam a tarja "Novo", que leva `text-sidebar`
-   * como cor de texto — quase preto aqui. É o que mantém a tarja legível nos
-   * dois temas sem uma regra por tema.
+   * As sete, clareadas. Elas pintam o contador que a seção recolhida traz, e
+   * ele leva `text-sidebar` como cor de texto — quase preto aqui. É o que o
+   * mantém legível nos dois temas sem uma regra por tema.
    */
   --nav-executiva: 212 80% 66%;
   --nav-auditoria: 212 80% 66%;
