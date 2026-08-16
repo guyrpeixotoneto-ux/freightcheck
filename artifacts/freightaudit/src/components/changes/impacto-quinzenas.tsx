@@ -487,7 +487,7 @@ function CartoesDeVariacao({
 }
 
 const LADRILHO: Record<string, string> = {
-  blue: "bg-blue-50 text-blue-600",
+  blue: "bg-brand/10 text-brand",
   green: "bg-emerald-50 text-emerald-600",
   orange: "bg-orange-50 text-orange-600",
   red: "bg-red-50 text-red-600",

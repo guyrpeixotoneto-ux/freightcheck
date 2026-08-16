@@ -155,7 +155,7 @@ export function ImpactoPanorama({
   const data = query.data;
   if (!data) {
     return (
-      <Card className="rounded-2xl p-6">
+      <Card className="p-6">
         <p className="text-sm text-muted-foreground">Lendo as vigências…</p>
       </Card>
     );
@@ -173,7 +173,7 @@ export function ImpactoPanorama({
 
   if (data.parametros.length === 0) {
     return (
-      <Card className="rounded-2xl p-6">
+      <Card className="p-6">
         <p className="text-sm text-muted-foreground">
           Nenhum parâmetro mudou de valor entre as {data.periods.length}{" "}
           vigências desta série.
@@ -225,7 +225,7 @@ export function ImpactoPanorama({
       </div>
 
       {/* ---- ranking 1: o dinheiro ------------------------------------- */}
-      <Card className="rounded-2xl overflow-hidden">
+      <Card className="overflow-hidden">
         <Cabecalho
           titulo="Maior impacto financeiro"
           detalhe={
@@ -248,7 +248,7 @@ export function ImpactoPanorama({
 
       {/* ---- as colunas que já contêm o outro equipamento --------------- */}
       {conjunto.length > 0 && (
-        <Card className="rounded-2xl overflow-hidden">
+        <Card className="overflow-hidden">
           <Cabecalho
             titulo="Visão de conjunto"
             detalhe="Estas colunas já carregam o outro equipamento dentro delas — somá-las às linhas acima contaria cada cavalo duas vezes. Ficam aqui, fora dos rankings, porque quem confere a planilha vai encontrá-las e precisa saber por que não entraram."
@@ -258,7 +258,7 @@ export function ImpactoPanorama({
       )}
 
       {/* ---- ranking 2: a quantidade ----------------------------------- */}
-      <Card className="rounded-2xl overflow-hidden">
+      <Card className="overflow-hidden">
         <Cabecalho
           titulo="Mais alterados"
           detalhe="Por quantidade de mudanças de valor, monetário ou não — meses, km, km/l, R$/km e percentuais entram aqui. Quantidade de alterações não é impacto financeiro, e esta coluna nunca vira dinheiro."
@@ -556,7 +556,7 @@ function Etiqueta({
 }
 
 const LADRILHO = {
-  blue: "bg-blue-50 text-blue-600",
+  blue: "bg-brand/10 text-brand",
   green: "bg-emerald-50 text-emerald-600",
   amber: "bg-amber-50 text-amber-600",
   slate: "bg-slate-100 text-slate-600",
@@ -576,10 +576,10 @@ function Resumo({
   hint?: string;
 }) {
   return (
-    <div className="rounded-2xl border bg-card shadow-sm px-5 py-5 flex items-center gap-4">
+    <div className="rounded-xl border bg-card shadow-sm px-5 py-5 flex items-center gap-4">
       <div
         className={cn(
-          "h-12 w-12 rounded-2xl grid place-content-center shrink-0",
+          "h-12 w-12 rounded-xl grid place-content-center shrink-0",
           LADRILHO[tone],
         )}
       >
