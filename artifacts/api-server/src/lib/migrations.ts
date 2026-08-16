@@ -10,6 +10,7 @@ import {
   type MigrationReport,
 } from "@workspace/db/migrate";
 import type { EstadoObservado } from "@workspace/db/diagnostico";
+import { bridgePendente } from "@workspace/db/bridge-marcador";
 
 /**
  * O que este processo sabe sobre as migrations: quais ele carrega e o que
@@ -174,12 +175,30 @@ export async function observarBanco(
       .map((migration) => migration.tag);
     const falha = relatorioDaPartida()?.failure;
 
+    /*
+      O bridge é perguntado aqui, e não numa rota, porque é a mesma leitura que
+      o `/healthz` e as rotas de schema ausente compartilham — e é o que permite
+      um bridge pela metade aparecer **antes** de alguma tela quebrar. Até aqui
+      esse estado só se manifestava quando uma consulta morria, o que podia
+      levar semanas: em 16/08/2026 levou até alguém abrir a única tela que lia a
+      coluna que o bridge tinha removido.
+    */
+    const bridge = await bridgePendente(async (texto) => {
+      const r = await db.execute<Record<string, unknown>>(sql.raw(texto));
+      return { rows: r.rows };
+    });
+
     return {
       configurada: true,
       alcancavel: true,
       pendentes,
       aplicadas: esperadas.length - pendentes.length,
       temSchema,
+      ...(bridge.pendente
+        ? {
+            bridgePendente: bridge.desde ? { desde: bridge.desde } : {},
+          }
+        : {}),
       ...(falha
         ? { falha: { tag: falha.tag, ...(falha.code ? { code: falha.code } : {}) } }
         : {}),

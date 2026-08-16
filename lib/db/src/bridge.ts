@@ -64,6 +64,11 @@
  */
 import pg from "pg";
 import { readMigrations, mexeEmDados } from "./migrate";
+import {
+  CRIAR_MARCADOR,
+  LIMPAR_MARCADOR,
+  MARCAR_DESCIDA,
+} from "./bridge-marcador";
 
 // ---------------------------------------------------------------------------
 // O que o bridge move, nominalmente
@@ -142,8 +147,17 @@ const TABELAS_DERIVADAS: { nome: string; migration: string; marca: RegExp }[] = 
   },
 ];
 
-/** Colunas que o `down` remove de tabelas que ficam. */
-const COLUNAS_REMOVIDAS: [string, string][] = [
+/**
+ * Colunas que o `down` remove de tabelas que ficam.
+ *
+ * Exportada porque é a lista que a reconciliação tem de cobrir. Depois que o
+ * `down` roda, **só o `up` devolve estas colunas**: a fila de migrations não
+ * consegue, porque o registro já dá por aplicadas as migrations que as criam. A
+ * `0024_reconciliar_bridge` fecha esse buraco para as que dá para fechar, e
+ * `reconciliacao-bridge.test.ts` exige que toda entrada daqui esteja de um dos
+ * dois lados dessa fronteira — nunca esquecida no meio.
+ */
+export const COLUNAS_REMOVIDAS: [string, string][] = [
   ["snapshot", "canonical_snapshot_key"],
   ["ticket", "changed_parameter_count"],
   ["ticket", "vigencia_label"],
@@ -165,7 +179,8 @@ const COLUNAS_REMOVIDAS: [string, string][] = [
   ["attribute_semantics", "definition"],
 ];
 
-const INDICES_REMOVIDOS = [
+/** Índices que o `down` remove. Exportada pelo motivo de `COLUNAS_REMOVIDAS`. */
+export const INDICES_REMOVIDOS = [
   "snapshot_canonical_live_uq",
   "snapshot_canonical_revision_uq",
   "snapshot_canonical_key_idx",
@@ -648,6 +663,21 @@ export async function bridgeDown(
       `sobrou: ${fns.map((f) => f.nome).join(", ")}`,
     );
 
+    /*
+      O marcador entra **com** o bridge, e não depois dele.
+
+      O `down` inteiro é uma transação — ou entra tudo, ou nada. O marcador vai
+      junto: um `down` que aborta não deixa marcador, e um `down` que entra não
+      tem como deixar de deixá-lo. Escrevê-lo depois do `COMMIT` criaria uma
+      segunda verdade sobre o mesmo fato, capaz de discordar da primeira
+      exatamente na janela em que alguém precisaria dela.
+
+      Em `dryRun` ele é escrito e desfeito junto com o resto, que é o que faz o
+      ensaio ensaiar também esta parte.
+    */
+    for (const comando of CRIAR_MARCADOR) await c.query(comando);
+    await c.query(MARCAR_DESCIDA, [JSON.stringify(rel.ddl)]);
+
     if (dryRun) await c.query("ROLLBACK");
     else await c.query("COMMIT");
     return rel;
@@ -988,6 +1018,13 @@ export async function bridgeUp(connectionString: string): Promise<BridgeReport> 
       await c.query(`ALTER TABLE "ticket_import" ALTER COLUMN "parameter_columns" SET DEFAULT '[]'::jsonb`);
       await c.query(`ALTER TABLE "ticket_import" ALTER COLUMN "parameter_columns" SET NOT NULL`);
     }
+
+    /*
+      O `up` concluiu: não há mais bridge pendente. Some junto com a restauração
+      e pela mesma razão do `down` — se o `up` abortar, o marcador continua lá,
+      que é a resposta certa para um bridge que ainda não terminou.
+    */
+    await c.query(LIMPAR_MARCADOR);
 
     await c.query("COMMIT");
     rel.verificacao.push({
