@@ -1,0 +1,42 @@
+-- O significado de uma coluna, escrito por quem sabe.
+--
+-- O produto já guardava quatro coisas sobre o que uma variável é — unidade,
+-- periodicidade, agregação e lugar na taxonomia — e nenhuma delas responde "o
+-- que é esta coluna". As três respostas em prosa que existiam respondem outras
+-- perguntas:
+--
+--   * `attribute.semantics_rationale` — por que o motor *propôs* algo. É
+--     sobrescrito pela justificativa da confirmação seguinte (engine.ts), então
+--     não serve de definição nem para o que ele mesmo guarda.
+--   * `curation_event.reason` — por que uma pessoa confirmou naquele dia. É um
+--     ato datado, não uma descrição.
+--   * `attribute_semantics.calculation_basis` — como a fonte calcula o número.
+--     É a resposta mais próxima, e é justamente por existir que esta coluna é
+--     modelada igual a ela.
+--
+-- Falta a quarta, e é a única que o curador consegue responder no primeiro dia:
+-- "vidaCombustivel é a vida útil considerada em contrato" não exige decidir se
+-- o número é mensal ou anual. Hoje a tela exige as duas coisas no mesmo ato — a
+-- confirmação pede justificativa obrigatória e, se for monetário, o banco
+-- recusa sem unidade + periodicidade + agregação. O resultado observado é 75
+-- atributos pendentes e nenhum confirmado: ninguém escreve nada porque escrever
+-- custa decidir.
+--
+-- Duas colunas, ambas anuláveis, nenhum default, nenhum dado tocado:
+--
+--   1. `attribute.definition` — a projeção, como todo o resto de `attribute`.
+--   2. `attribute_semantics.definition` — a verdade versionada. Pelo mesmo
+--      motivo de `calculation_basis`: quando a Ambev muda o que a coluna
+--      carrega, a definição anterior continua verdadeira para as vigências dela
+--      e precisa sobreviver para ser lida ao lado dos números que descreveu.
+--
+-- O que esta migration deliberadamente NÃO faz: mexer em `semantics_status`.
+-- Escrever prosa não pode destravar dinheiro — só a confirmação técnica
+-- destrava, e ela continua exatamente como estava, com os mesmos portões.
+
+-- `IF NOT EXISTS` porque a fila é reentrante: `runMigrations()` atravessa um
+-- banco em que o Publishing já criou a coluna, e o `bridge-up` levanta estes
+-- dois statements do disco para restaurar Development.
+
+ALTER TABLE "attribute" ADD COLUMN IF NOT EXISTS "definition" text;--> statement-breakpoint
+ALTER TABLE "attribute_semantics" ADD COLUMN IF NOT EXISTS "definition" text;

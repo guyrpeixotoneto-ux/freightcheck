@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { attributeLabel, equipmentLabel } from "./labels";
+import { INHERITED_COST_CLASS_JOIN } from "./classification";
 import {
   COMPOSITIONS,
   ESCOPOS_DE_CONJUNTO,
@@ -44,7 +45,26 @@ import {
  *    contém o cavalo inteiro. Listar os seis como seis impactos econômicos
  *    independentes multiplicaria o mesmo real — que é justamente o erro que
  *    `composition.ts` foi escrito para impedir do outro lado do produto.
+ * 4. **Fixo e variável se leem separados, e o corte é filtro — nunca uma
+ *    segunda contagem.** Custo fixo e custo variável são dois dinheiros, e
+ *    quem confere o mês pergunta por um de cada vez: o financiamento subiu, ou
+ *    foi o combustível? Os recortes saem dos mesmos rankings já ordenados, com
+ *    as mesmas exclusões de parcela e de conjunto aplicadas antes — de modo
+ *    que fixo, variável e sem classe **somam exatamente o todo**, e a lista de
+ *    um recorte é uma sublista da lista inteira, na mesma ordem.
  */
+
+/**
+ * A classe de custo de um parâmetro, na leitura da tela.
+ *
+ * As duas primeiras são o que a taxonomia declara em `custo_fixo` e
+ * `custo_variavel` e todo descendente herda. `SEM_CLASSE` não é uma terceira
+ * classe de dinheiro: é a caixa de quem a taxonomia não classifica como custo —
+ * o cadastral, que é especificação do ativo e deliberadamente não remunera
+ * nada, e o que ainda ninguém classificou. As duas coisas ficam distinguíveis
+ * pelo grupo, que vem junto em `grupoDeCusto`.
+ */
+export type ClasseDeCusto = "FIXO" | "VARIAVEL" | "SEM_CLASSE";
 
 /** O papel de um parâmetro na árvore econômica. */
 export type PapelEconomico =
@@ -124,6 +144,20 @@ export interface ParametroAlterado {
   /** Por que não passa. Vazio quando passa. */
   impactoMotivo: string;
 
+  // ---- a classe de custo -------------------------------------------------
+  /**
+   * FIXO ou VARIAVEL, herdada do nó mais próximo da taxonomia que declara
+   * classe. `SEM_CLASSE` quando nenhum ancestral declara — e aí a razão está
+   * no grupo.
+   */
+  classeDeCusto: ClasseDeCusto;
+  /**
+   * O nó da taxonomia em que o parâmetro está pendurado: "Combustível",
+   * "Seguros e tributos", "Especificação técnica". É o *porquê* da classe, e
+   * sem ele "custo variável" seria um rótulo que ninguém consegue conferir.
+   */
+  grupoDeCusto: string | null;
+
   // ---- a economia --------------------------------------------------------
   papel: PapelEconomico;
   /** O código do total que já contém este parâmetro, quando é parcela. */
@@ -156,11 +190,18 @@ export interface ImpactoPorPeriodicidade {
   codes: string[];
 }
 
-export interface PanoramaDeAlteracoes {
-  context: ContextInfo;
-  periods: PanoramaPeriodo[];
-  /** Tudo que mudou, na ordem de relevância econômica. */
-  parametros: ParametroAlterado[];
+export interface TotaisDoPanorama {
+  /** Linhas econômicas — totais e simples, sem as parcelas. */
+  linhasEconomicas: number;
+  parametrosAlterados: number;
+  comImpacto: number;
+  semImpacto: number;
+  alteracoes: number;
+  ativosAfetados: number;
+}
+
+/** As listas de uma leitura: a inteira, ou a de uma classe de custo. */
+export interface LeituraDeAlteracoes {
   /** Códigos, por número de alterações. Inclui não monetários. */
   maisAlterados: string[];
   /** Códigos, só os que passam na régua. Achatado de `impactoPorPeriodicidade`. */
@@ -171,20 +212,68 @@ export interface PanoramaDeAlteracoes {
   semLeituraFinanceira: string[];
   /** As colunas que já contêm o outro equipamento — fora dos rankings, na tela. */
   visaoDeConjunto: string[];
-  totais: {
-    /** Linhas econômicas — totais e simples, sem as parcelas. */
-    linhasEconomicas: number;
-    parametrosAlterados: number;
-    comImpacto: number;
-    semImpacto: number;
-    alteracoes: number;
-    ativosAfetados: number;
-  };
+  totais: TotaisDoPanorama;
+}
+
+/**
+ * O panorama visto por uma classe de custo só.
+ *
+ * Cada recorte é a leitura inteira filtrada, e não refeita: mesmas exclusões,
+ * mesma ordem, mesmas contas. Um recorte vazio é um resultado — "nada de custo
+ * variável mudou" —, e por isso os três vêm sempre, com `nome` e `descricao`
+ * prontos para a tela nomear a caixa em vez de traduzir um enum.
+ */
+export interface RecorteDeCusto extends LeituraDeAlteracoes {
+  classe: ClasseDeCusto;
+  nome: string;
+  descricao: string;
+}
+
+export interface PanoramaDeAlteracoes extends LeituraDeAlteracoes {
+  context: ContextInfo;
+  periods: PanoramaPeriodo[];
+  /** Tudo que mudou, na ordem de relevância econômica. */
+  parametros: ParametroAlterado[];
+  /** As mesmas listas, por classe de custo. Fixo, variável e sem classe. */
+  recortes: RecorteDeCusto[];
 }
 
 export interface PanoramaOptions {
   context?: Partial<SeriesContext>;
 }
+
+/**
+ * Como cada classe se chama e o que ela reúne.
+ *
+ * O texto vem daqui, e não da tela, porque é a mesma frase que a taxonomia
+ * sustenta: quem quiser conferir por que o combustível é variável segue de
+ * `cv_combustivel` até `custo_variavel` em `@workspace/curation`. A ordem é a
+ * da conta — fixo, variável, e o que não é custo por último.
+ */
+const CLASSES: { classe: ClasseDeCusto; nome: string; descricao: string }[] = [
+  {
+    classe: "FIXO",
+    nome: "Custo fixo",
+    descricao:
+      "O que se paga por ter o ativo: financiamento, depreciação, seguros, " +
+      "tributos e a remuneração de capital.",
+  },
+  {
+    classe: "VARIAVEL",
+    nome: "Custo variável",
+    descricao:
+      "O que se paga por rodar: combustível, manutenção, pneus e o lucro " +
+      "variável previsto.",
+  },
+  {
+    classe: "SEM_CLASSE",
+    nome: "Sem classe",
+    descricao:
+      "A taxonomia não declara custo para estes. São os cadastrais — " +
+      "especificação, contrato, identificação, que não remuneram nada — e os " +
+      "que ainda ninguém classificou. O grupo de cada linha diz qual é o caso.",
+  },
+];
 
 const round2 = (valor: number) => Math.round(valor * 100) / 100;
 const num = (valor: string | null): number | null =>
@@ -342,10 +431,7 @@ export async function getPanoramaDeAlteracoes(
      GROUP BY 1
   `);
   if (mudancas.length === 0) {
-    return {
-      context,
-      periods,
-      parametros: [],
+    const vazio = {
       maisAlterados: [],
       maiorImpacto: [],
       impactoPorPeriodicidade: [],
@@ -360,24 +446,48 @@ export async function getPanoramaDeAlteracoes(
         ativosAfetados: 0,
       },
     };
+    return {
+      context,
+      periods,
+      parametros: [],
+      ...vazio,
+      // Os três recortes vêm mesmo assim: a tela oferece o corte antes de saber
+      // o que tem dentro, e uma lista de recortes vazia a faria esconder o
+      // seletor justamente quando a resposta é "nada mudou em lugar nenhum".
+      recortes: CLASSES.map((c) => ({ ...c, ...vazio })),
+    };
   }
   const alterados = new Set(mudancas.map((m) => m.code));
 
   // ---- a régua de cada um ---------------------------------------------------
+  /*
+    A classe de custo entra aqui, na mesma leitura, e não numa segunda consulta:
+    ela é atributo do parâmetro tanto quanto a unidade, e o recorte da tela é
+    inútil se um parâmetro puder aparecer na lista sem saber em que caixa cai.
+    A junção é a de `classification.ts` — o nó mais próximo que declara classe —
+    importada de lá para que exista uma definição só de "fixo ou variável".
+  */
   const { rows: atributos } = await db.execute<{
     code: string;
     source_name: string;
+    display_name: string | null;
     entity_type: string;
     unit: string | null;
     periodicity: string | null;
     aggregation: string | null;
     is_monetary: boolean | null;
     semantics_status: string;
+    cost_class: string | null;
+    taxonomy_name: string | null;
   }>(sql`
-    SELECT a.code, a.source_name, a.entity_type, a.unit, a.periodicity,
+    SELECT a.code, a.source_name, a.display_name, a.entity_type, a.unit, a.periodicity,
            a.aggregation, a.is_monetary,
-           a.semantics_status::text AS semantics_status
+           a.semantics_status::text AS semantics_status,
+           inherited.cost_class,
+           node.name AS taxonomy_name
       FROM attribute a
+      LEFT JOIN taxonomy_node node ON node.id = a.taxonomy_node_id
+      ${INHERITED_COST_CLASS_JOIN}
      WHERE a.data_type = 'NUMERIC'
   `);
   const reguaDe = new Map(atributos.map((a) => [a.code, a]));
@@ -513,7 +623,7 @@ export async function getPanoramaDeAlteracoes(
 
     parametros.push({
       code: m.code,
-      title: attributeLabel(m.code, regua.source_name),
+      title: attributeLabel(m.code, regua.source_name, regua.display_name),
       entityType: regua.entity_type,
       equipment: equipmentLabel(regua.entity_type),
       changes: m.changes,
@@ -532,6 +642,16 @@ export async function getPanoramaDeAlteracoes(
       semanticsStatus: regua.semantics_status,
       impactoCalculavel: calculavel,
       impactoMotivo: motivo,
+      /*
+        Só FIXO e VARIAVEL são classes de custo. Qualquer outra coisa que o
+        banco traga — inclusive nada — cai em SEM_CLASSE em vez de virar uma
+        quarta caixa que a tela não sabe nomear.
+      */
+      classeDeCusto:
+        regua.cost_class === "FIXO" || regua.cost_class === "VARIAVEL"
+          ? regua.cost_class
+          : "SEM_CLASSE",
+      grupoDeCusto: regua.taxonomy_name,
       papel,
       dentroDe,
       parcelas: composicao?.parts ?? [],
@@ -626,6 +746,47 @@ export async function getPanoramaDeAlteracoes(
     .sort((a, b) => precoDe(b) - precoDe(a) || b.changes - a.changes)
     .map((p) => p.code);
 
+  /*
+    O recorte é **filtro das listas prontas**, e a diferença não é de estilo.
+
+    Refazer os rankings dentro de cada classe recalcularia `linhaEconomica`
+    sobre um subconjunto, e a regra depende de quem mais mudou: uma parcela cujo
+    total está em outra classe voltaria a ser raiz e apareceria como linha
+    econômica que o panorama inteiro não tem. Filtrando o que já está ordenado,
+    fixo + variável + sem classe reconstroem exatamente o todo — que é o que
+    permite à tela oferecer o corte sem que os números mudem de significado ao
+    trocar de aba.
+  */
+  const classeDe = new Map(parametros.map((p) => [p.code, p.classeDeCusto]));
+  const recorte = (descricao: (typeof CLASSES)[number]): RecorteDeCusto => {
+    const daClasse = (code: string) => classeDe.get(code) === descricao.classe;
+    const dentro = parametros.filter((p) => p.classeDeCusto === descricao.classe);
+    const maisAlteradosDaClasse = maisAlterados.filter(daClasse);
+    const maiorImpactoDaClasse = maiorImpacto.filter(daClasse);
+    const semLeituraDaClasse = semLeituraFinanceira.filter(daClasse);
+
+    return {
+      ...descricao,
+      maisAlterados: maisAlteradosDaClasse,
+      maiorImpacto: maiorImpactoDaClasse,
+      impactoPorPeriodicidade: impactoPorPeriodicidade
+        .map((g) => ({ periodicity: g.periodicity, codes: g.codes.filter(daClasse) }))
+        // Uma periodicidade que ficou sem nenhum código nesta classe não é um
+        // grupo vazio na tela: ela simplesmente não existe neste recorte.
+        .filter((g) => g.codes.length > 0),
+      semLeituraFinanceira: semLeituraDaClasse,
+      visaoDeConjunto: visaoDeConjunto.filter(daClasse),
+      totais: {
+        linhasEconomicas: maisAlteradosDaClasse.length,
+        parametrosAlterados: dentro.length,
+        comImpacto: maiorImpactoDaClasse.length,
+        semImpacto: semLeituraDaClasse.length,
+        alteracoes: dentro.reduce((s, p) => s + p.changes, 0),
+        ativosAfetados: Math.max(0, ...dentro.map((p) => p.entities)),
+      },
+    };
+  };
+
   return {
     context,
     periods,
@@ -635,6 +796,7 @@ export async function getPanoramaDeAlteracoes(
     impactoPorPeriodicidade,
     semLeituraFinanceira,
     visaoDeConjunto,
+    recortes: CLASSES.map(recorte),
     totais: {
       linhasEconomicas: maisAlterados.length,
       parametrosAlterados: parametros.length,

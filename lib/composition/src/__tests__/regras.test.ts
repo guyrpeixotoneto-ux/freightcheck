@@ -31,6 +31,7 @@ function classificacao(
   return {
     attributeCode: parcial.attributeCode ?? "x.y",
     attributeName: parcial.attributeName ?? "X",
+    attributeDisplayName: null,
     entityType: "CAVALO",
     dataType: "NUMERIC",
     unit: null,
@@ -50,6 +51,7 @@ function fato(parcial: Partial<FatoDoAtivo> & { code: string }): FatoDoAtivo {
     attribute_id: parcial.attribute_id ?? parcial.code,
     code: parcial.code,
     source_name: parcial.source_name ?? parcial.code.split(".").pop()!,
+    display_name: parcial.display_name ?? null,
     data_type: parcial.data_type ?? "NUMERIC",
     value_numeric: parcial.value_numeric ?? null,
     value_text: parcial.value_text ?? null,

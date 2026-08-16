@@ -13,6 +13,7 @@ import {
 import { ApiErrorNotice } from "@/components/api-error";
 import {
   ImpactoPanorama,
+  type Corte,
   type EscolhaDeParametro,
 } from "@/components/changes/impacto-panorama";
 import { Card } from "@/components/ui/card";
@@ -180,9 +181,18 @@ const FUNDO_GRUPO =
  */
 export function ImpactoQuinzenas() {
   const [escolha, setEscolha] = useState<EscolhaDeParametro | null>(null);
+  /*
+    O corte de custo do panorama mora aqui, e não lá dentro, para sobreviver à
+    ida e à volta: quem filtrou por custo variável e abriu um parâmetro está a
+    meio caminho de uma pergunta, e voltar para a lista inteira o obrigaria a
+    refazer o filtro a cada linha que quisesse conferir.
+  */
+  const [corte, setCorte] = useState<Corte>("TUDO");
 
   if (escolha === null) {
-    return <ImpactoPanorama onEscolher={setEscolha} />;
+    return (
+      <ImpactoPanorama onEscolher={setEscolha} corte={corte} onCorte={setCorte} />
+    );
   }
   return (
     <MatrizDeQuinzenas

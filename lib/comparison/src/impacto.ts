@@ -306,6 +306,7 @@ export async function listImpactParameters(
   const { rows } = await db.execute<{
     code: string;
     source_name: string;
+    display_name: string | null;
     entity_type: string;
     unit: string | null;
     periodicity: string | null;
@@ -313,7 +314,7 @@ export async function listImpactParameters(
     is_monetary: boolean | null;
     semantics_status: string;
   }>(sql`
-    SELECT a.code, a.source_name, a.entity_type, a.unit, a.periodicity,
+    SELECT a.code, a.source_name, a.display_name, a.entity_type, a.unit, a.periodicity,
            a.aggregation, a.is_monetary,
            a.semantics_status::text AS semantics_status
       FROM attribute a
@@ -325,7 +326,7 @@ export async function listImpactParameters(
   return rows
     .map((r) => ({
       code: r.code,
-      title: attributeLabel(r.code, r.source_name),
+      title: attributeLabel(r.code, r.source_name, r.display_name),
       sourceName: r.source_name,
       entityType: r.entity_type,
       unit: r.unit,
@@ -477,13 +478,14 @@ export async function getQuinzenaMatrix(
     value_numeric: string | null;
     value_text: string | null;
     source_name: string;
+    display_name: string | null;
   }>(sql`
     SELECT DISTINCT ON (f.entity_id)
            f.entity_id::text AS entity_id,
            f.value_date::text AS value_date,
            f.value_numeric::text AS value_numeric,
            f.value_text,
-           a.source_name
+           a.source_name, a.display_name
       FROM fact f
       JOIN snapshot s  ON s.id = f.snapshot_id
       JOIN attribute a ON a.id = f.attribute_id
@@ -658,7 +660,14 @@ export async function getQuinzenaMatrix(
     parameters,
     groupedBy:
       agrupador.length > 0
-        ? { code: groupCode, title: attributeLabel(groupCode, agrupador[0].source_name) }
+        ? {
+            code: groupCode,
+            title: attributeLabel(
+              groupCode,
+              agrupador[0].source_name,
+              agrupador[0].display_name,
+            ),
+          }
         : null,
     periods,
     groups,

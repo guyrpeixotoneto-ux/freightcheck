@@ -206,6 +206,22 @@ e-mail, e exclusão de conta.
   antes de tomar o dia: a fonte grava `12:00:00`, `23:59:59.000` e
   `23:59:59.999` no mesmo campo, e nem truncar nem arredondar para a meia-noite
   reproduz os grupos das duas tabelas do cliente — ver `diaDoInstante`.
+- **A aba Impacto abre no panorama**, e não na tabela de um parâmetro: abrir num
+  parâmetro afirmava, sem dizer, que tinha sido aquele que mudou.
+  `getPanoramaDeAlteracoes` (`lib/comparison/src/panorama.ts`), servida por
+  `GET /api/impacto/panorama`, lista *tudo que mudou* entre as vigências em dois
+  rankings — quantidade e dinheiro, nunca um só —, e a matriz acima vira o
+  segundo nível, alcançável clicando numa linha. **O corte por classe de custo é
+  filtro, nunca recontagem**: fixo, variável e sem classe saem dos mesmos
+  rankings já ordenados, com as mesmas exclusões de parcela e de conjunto, e
+  somam exatamente o todo — medido em 16/08/2026 sobre o export real, 12 + 10 +
+  5 = 27 linhas econômicas. A classe vem da taxonomia (o nó mais próximo que
+  declara `cost_class`, junção única em `INHERITED_COST_CLASS_JOIN` de
+  `classification.ts`) e não de um segundo mapa de nomes; o grupo de cada
+  parâmetro aparece na linha porque é o que torna a classe conferível. O achado
+  que o corte deixa à vista: **2.155 das 2.931 alterações são de custo variável
+  e nenhuma tem impacto apurável**, enquanto as quatro apuráveis são todas de
+  custo fixo.
 - `docs/ARQUITETURA.md` — as decisões estruturais em prosa
 - `docs/PROPOSTA-NAVEGACAO-FREIGHTECH.md` — o mapeamento Freightech → FreightCheck
 

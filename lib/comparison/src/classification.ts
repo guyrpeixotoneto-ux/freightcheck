@@ -16,13 +16,42 @@ import type { Database } from "@workspace/db";
  * path that is a prefix of mine. That is a single lateral join, no recursion.
  */
 
+/**
+ * The inheritance itself, as a joinable fragment.
+ *
+ * Three queries need it now — the two below and the panorama's — and the rule
+ * they share is not a formatting detail: "the nearest ancestor that declares a
+ * class" is the whole answer to *is this fixed or variable*, and a second copy
+ * of it would be a second answer waiting to drift from this one.
+ *
+ * The contract is one identifier: the outer query must expose the attribute's
+ * own taxonomy node as `node`. The join adds `inherited.cost_class`.
+ */
+export const INHERITED_COST_CLASS_JOIN = sql`
+      LEFT JOIN LATERAL (
+        SELECT ancestor.cost_class
+          FROM taxonomy_node ancestor
+         WHERE node.path IS NOT NULL
+           AND ancestor.cost_class IS NOT NULL
+           AND (node.path = ancestor.path OR node.path LIKE ancestor.path || '/%')
+         ORDER BY length(ancestor.path) DESC
+         LIMIT 1
+      ) AS inherited ON true`;
+
 export interface AttributeClassification {
   /** Which semantics version this describes. Null before any versioning. */
   semanticsVersion?: number | null;
   calculationBasis?: string | null;
   attributeId: string;
   attributeCode: string;
+  /** O nome de leitura: apelido gerencial quando existe, literal da planilha quando não. */
   attributeName: string;
+  /**
+   * Só o apelido, sem o literal por trás. Separado de `attributeName` porque
+   * `attributeLabel` precisa saber se houve curadoria: um apelido confirmado
+   * ganha do vocabulário fixo, um nome de coluna não.
+   */
+  attributeDisplayName: string | null;
   entityType: string;
   dataType: string;
   unit: string | null;
@@ -78,15 +107,7 @@ export async function loadAttributeClassificationsAt(
            node.name
       FROM attribute_semantics v
       LEFT JOIN taxonomy_node node ON node.id = v.taxonomy_node_id
-      LEFT JOIN LATERAL (
-        SELECT ancestor.cost_class
-          FROM taxonomy_node ancestor
-         WHERE node.path IS NOT NULL
-           AND ancestor.cost_class IS NOT NULL
-           AND (node.path = ancestor.path OR node.path LIKE ancestor.path || '/%')
-         ORDER BY length(ancestor.path) DESC
-         LIMIT 1
-      ) AS inherited ON true
+      ${INHERITED_COST_CLASS_JOIN}
      WHERE v.effective_from <= ${date}::date
        AND (v.effective_until IS NULL OR ${date}::date < v.effective_until)
   `);
@@ -147,16 +168,7 @@ export async function loadAttributeClassifications(
            node.name
       FROM attribute a
       LEFT JOIN taxonomy_node node ON node.id = a.taxonomy_node_id
-      -- Nearest ancestor (or the node itself) that actually declares a class.
-      LEFT JOIN LATERAL (
-        SELECT ancestor.cost_class
-          FROM taxonomy_node ancestor
-         WHERE node.path IS NOT NULL
-           AND ancestor.cost_class IS NOT NULL
-           AND (node.path = ancestor.path OR node.path LIKE ancestor.path || '/%')
-         ORDER BY length(ancestor.path) DESC
-         LIMIT 1
-      ) AS inherited ON true
+      ${INHERITED_COST_CLASS_JOIN}
   `);
 
   const map = new Map<string, AttributeClassification>();
@@ -165,6 +177,7 @@ export async function loadAttributeClassifications(
       attributeId: row.id,
       attributeCode: row.code,
       attributeName: row.display_name ?? row.source_name,
+      attributeDisplayName: row.display_name,
       entityType: row.entity_type,
       dataType: row.data_type,
       unit: row.unit,

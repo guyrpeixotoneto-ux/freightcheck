@@ -296,6 +296,7 @@ export async function getEndToEndAnalysis(
         entity_type: linha.entityType ?? semantica?.entityType ?? null,
         attribute_code: semantica?.attributeCode ?? null,
         attribute_source_name: semantica?.attributeName ?? null,
+        attribute_display_name: semantica?.attributeDisplayName ?? null,
         value_before: linha.valueBefore ?? null,
         value_after: linha.valueAfter ?? null,
         numeric_before: linha.numericBefore === undefined ? null : (linha.numericBefore as string | null),
@@ -428,7 +429,11 @@ export async function getEndToEndAnalysis(
       const semantica = [...semanticsB.values()].find((c) => c.attributeCode === attributeCode);
       return {
         attributeCode,
-        title: attributeLabel(attributeCode, semantica?.attributeName ?? attributeCode),
+        title: attributeLabel(
+          attributeCode,
+          semantica?.attributeName ?? attributeCode,
+          semantica?.attributeDisplayName,
+        ),
         equipment: equipmentLabel(semantica?.entityType ?? ""),
         parameterKey: placementOf(attributeCode).parameterKey,
         entities: dados.entities,

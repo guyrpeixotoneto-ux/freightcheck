@@ -68,6 +68,14 @@ export const attributeSemanticsTable = pgTable(
      */
     calculationBasis: text("calculation_basis"),
 
+    /**
+     * What the column meant over this stretch. Versioned for the same reason
+     * `calculation_basis` is: when the Ambev changes what a column holds, the
+     * old definition was true for its own vigências and must survive to be
+     * read next to the numbers it described.
+     */
+    definition: text("definition"),
+
     semanticsStatus: text("semantics_status").notNull().default("UNKNOWN"),
     confirmedBy: text("confirmed_by"),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
