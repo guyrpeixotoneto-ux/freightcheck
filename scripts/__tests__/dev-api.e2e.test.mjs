@@ -53,16 +53,33 @@ describe("node scripts/dev.mjs api", () => {
         ...process.env,
         API_PORT: String(port),
         PORT: "",
-        // Porta 1 não aceita conexão: as migrations falham em segundos, que é
-        // a falha que antes derrubava o processo inteiro em silêncio.
+        // Porta 1 não aceita conexão.
         DATABASE_URL: "postgres://ninguem@127.0.0.1:1/inexistente?sslmode=disable",
       },
     });
 
-    const resposta = await esperarResposta(port, 90_000);
+    /*
+      A invariante é esta, e é a única que importa aqui: **alguém responde**.
+      O estado que este teste torna impossível é a porta vazia, que vira 502 sem
+      corpo e manda quem depura procurar o defeito na tela errada.
 
-    expect(resposta.status).toBe(503);
-    const corpo = await resposta.json();
-    expect(corpo.error).toMatch(/migrations/i);
+      O *status* mudou, e mudou de propósito. Enquanto `dev.mjs` aplicava as
+      migrations na partida, um banco inalcançável derrubava esse passo e quem
+      ficava na porta era o explicador, com 503. Migrar Development deixou de ser
+      efeito colateral de subir o servidor — a ordem correta é Production
+      primeiro, e um `Run` que migrasse sozinho fabricaria justamente o diff que
+      trava o Publishing (ver `sem-auto-migracao.test.mjs`). Sem esse passo, o
+      servidor sobe, e o diagnóstico do banco passa a morar onde ele sempre
+      pertenceu: em `/api/healthz`, que responde 200 com o banco fora.
+    */
+    const resposta = await esperarResposta(port, 90_000);
+    expect(resposta.status).toBeGreaterThanOrEqual(200);
+
+    const saude = await fetch(`http://127.0.0.1:${port}/api/healthz`);
+    expect(saude.status).toBe(200);
+    const corpo = await saude.json();
+    expect(corpo.database.configured).toBe(true);
+    expect(corpo.database.reachable).toBe(false);
+    expect(corpo.database.detail).toMatch(/banco/i);
   }, 120_000);
 });
