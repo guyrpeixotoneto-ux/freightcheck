@@ -186,7 +186,7 @@ describe("porta 1 — a vigência importada chega a todo módulo que a consome",
     `);
     const semAnterior: string[] = [];
     for (const s of vivas.rows) {
-      if ((await findPreviousSnapshot(ctx.db, s.id)) === null) semAnterior.push(s.d);
+      if (!(await findPreviousSnapshot(ctx.db, s.id)).encontrada) semAnterior.push(s.d);
     }
     // Exatamente uma: a primeira da série. Mais de uma quer dizer que a série
     // se partiu em duas e que Alterações vai responder "não há anterior com que
@@ -197,12 +197,16 @@ describe("porta 1 — a vigência importada chega a todo módulo que a consome",
   it("fica disponível para comparação — o par mais recente produz alterações apuradas", async () => {
     const vivas = await listComparableSnapshots(ctx.db);
     const ultima = vivas[vivas.length - 1];
-    const anteriorId = await findPreviousSnapshot(ctx.db, ultima.id);
-    expect(anteriorId).not.toBeNull();
+    const anterior = await findPreviousSnapshot(ctx.db, ultima.id);
+    expect(anterior.encontrada).toBe(true);
+    if (!anterior.encontrada) return;
 
-    const conjunto = await computeChangeSet(ctx.db, anteriorId!, ultima.id, {
-      computedBy: "teste:propagacao",
-    });
+    const conjunto = await computeChangeSet(
+      ctx.db,
+      anterior.vigencia.snapshotId,
+      ultima.id,
+      { computedBy: "teste:propagacao" },
+    );
     expect(conjunto.valueChanges).toBeGreaterThan(0);
 
     const { total } = await listChanges(ctx.db, conjunto.id, {});

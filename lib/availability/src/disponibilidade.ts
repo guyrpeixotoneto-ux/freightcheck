@@ -12,6 +12,7 @@ import {
   type ContextoDisponivel,
   type EquipamentoDaVigencia,
   type EscopoDaVigencia,
+  type OpcoesDaAnterior,
   type Recorte,
   type ResultadoDaAnterior,
   type SerieDisponivel,
@@ -350,7 +351,20 @@ export async function serieDe(
 export async function vigenciaAnterior(
   db: Database,
   snapshotId: string,
+  opcoes: OpcoesDaAnterior = {},
 ): Promise<ResultadoDaAnterior> {
+  /*
+    A guarda de cobertura de equipamento entra na consulta, e não depois dela.
+
+    Filtrar em memória o que a consulta trouxe daria outra resposta: a anterior
+    correta pode estar duas vigências atrás, e o `LIMIT 1` teria descartado o
+    caminho até ela. É a diferença entre "pular a que não serve" e "desistir na
+    primeira que não serve".
+  */
+  const mesmaCobertura = opcoes.exigirMesmoEntityTypeSet
+    ? sql` AND anterior.entity_type_set = alvo.entity_type_set`
+    : sql``;
+
   const { rows } = await db.execute<{ id: string }>(sql`
     SELECT anterior.id::text AS id
       FROM snapshot alvo
@@ -358,6 +372,7 @@ export async function vigenciaAnterior(
         ON ${chaveDeSerieSql("anterior")} = ${chaveDeSerieSql("alvo")}
        AND ${filtroDeVigenciaDisponivel("anterior")}
        AND anterior.effective_date < alvo.effective_date
+       ${mesmaCobertura}
      WHERE alvo.id = ${snapshotId}::uuid
        AND ${filtroDeVigenciaDisponivel("alvo")}
      ORDER BY anterior.effective_date DESC
@@ -374,9 +389,32 @@ export async function vigenciaAnterior(
     return {
       encontrada: false,
       motivo: "VIGENCIA_DESCONHECIDA",
-      frase: "Esta vigência não está disponível — ou não existe, ou foi substituída por uma revisão.",
+      frase:
+        "Não foi possível determinar a vigência anterior: esta vigência não está " +
+        "disponível — ou não existe, ou foi substituída por uma revisão.",
     };
   }
+
+  /*
+    Não achou com a guarda ligada. Antes de dizer "é a primeira", perguntar sem
+    a guarda: se existe anterior e ela foi recusada pela cobertura, dizer
+    "primeira da série" seria falso — e é exatamente a frase falsa que a tela
+    mostra hoje.
+  */
+  if (opcoes.exigirMesmoEntityTypeSet) {
+    const semGuarda = await vigenciaAnterior(db, snapshotId);
+    if (semGuarda.encontrada) {
+      return {
+        encontrada: false,
+        motivo: "COBERTURA_DE_EQUIPAMENTO_DIFERENTE",
+        frase:
+          `Existe uma vigência anterior nesta série (${semGuarda.vigencia.sourceLabel}), e ela ` +
+          `cobre outro conjunto de equipamentos. A comparação entre coberturas diferentes ainda ` +
+          `não é feita.`,
+      };
+    }
+  }
+
   return {
     encontrada: false,
     motivo: "PRIMEIRA_DA_SERIE",

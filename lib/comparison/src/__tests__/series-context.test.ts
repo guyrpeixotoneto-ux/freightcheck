@@ -309,9 +309,16 @@ describe("dois canais na mesma unidade", () => {
 
     // ROTA é a primeira do seu canal: não há anterior, e inventar uma seria
     // declarar alterada uma frota que ninguém alterou.
-    expect(await findPreviousSnapshot(ctx.db, rota.id)).toBeNull();
+    const daRota = await findPreviousSnapshot(ctx.db, rota.id);
+    expect(daRota.encontrada).toBe(false);
+    if (!daRota.encontrada) expect(daRota.motivo).toBe("PRIMEIRA_DA_SERIE");
+
     // E o canal EMPURRADA continua encadeado normalmente.
-    expect(await findPreviousSnapshot(ctx.db, empurradaFev.id)).toBe(empurradaJan.id);
+    const daEmpurrada = await findPreviousSnapshot(ctx.db, empurradaFev.id);
+    expect(daEmpurrada.encontrada).toBe(true);
+    if (daEmpurrada.encontrada) {
+      expect(daEmpurrada.vigencia.snapshotId).toBe(empurradaJan.id);
+    }
   });
 
   it("comparar canais diferentes é recusado por escrito", async () => {

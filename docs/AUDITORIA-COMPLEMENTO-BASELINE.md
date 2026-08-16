@@ -159,6 +159,19 @@ Uma pega antes; a outra pega sempre.
 
 ---
 
+### A.6 Dívidas com prazo — aceitas até um PR nomeado, e não além
+
+Uma dívida sem dono e sem prazo é uma decisão tomada por omissão. As que a
+sequência está carregando, com o PR que as encerra:
+
+| Dívida | Desde | Encerra em | Por que é aceitável até lá |
+|---|---|---|---|
+| **`coverage` recorta por `scope_hash` cru** | PR-7 | **PR-10** | O contexto de Alterações/Impacto passou ao escopo canônico e o da Cobertura não. Num banco com o CNPJ escrito de uma forma só — todos os que existem hoje — os dois dão o mesmo recorte; num banco misto, a Cobertura enxerga duas unidades onde há uma. **Nenhuma solução intermediária deve ser criada**: nada de traduzir `scope_hash` dentro de `coverage`, nada de aceitar as duas chaves lá. A correção é migrar o pacote para a autoridade, de uma vez, no PR-10 |
+| **`entity_type_set` na identidade da série** | — | **PR-9** | Remover a guarda sem a comparação por componente faria a primeira vigência com cavalos reportar "244 cavalos entraram" como crescimento de frota. Desde o PR-8 a recusa ao menos **diz** que existe uma anterior, em vez de afirmar que é a primeira da série |
+| **`scope_hash` legado aceito em `resolveContext`** | PR-7 | **PR-14** | Links e favoritos anteriores à mudança carregam o hash cru. Sai quando o front-end passar a usar o identificador novo explicitamente |
+
+---
+
 ## Parte B — As definições concorrentes de série
 
 `Arquivo/função | Como define a série | Campos utilizados | Módulos consumidores | Divergência possível | Definição correta proposta`
@@ -370,7 +383,7 @@ Nenhum consumidor migrou neste PR — por desenho. O inventário do que resta:
 | Onde | O que reconstrói | Migra em |
 |---|---|---|
 | ~~`comparison/series.ts`~~ | **migrado**: canal pela coluna (PR-6) e escopo pelo canônico (PR-7), este último via `@workspace/availability` | — |
-| `comparison/engine.ts` (`findPreviousSnapshot`, guardas de `computeChangeSet`) | série com `entity_type_set` | PR-8, PR-9 |
+| `comparison/engine.ts` (guardas de `computeChangeSet`) | série com `entity_type_set`. `findPreviousSnapshot` **já delega** à autoridade desde o PR-8, com a guarda passada como opção declarada | PR-9 |
 | `routes/changes.ts` (`/changes/latest`) | série sem canal | PR-11 |
 | `ingest/chamados.ts` (`valoresVigentes`) | "a mais recente" sem canal | PR-11 |
 | `coverage/{observado,esperado,matriz}.ts` | recorte por `scope_hash` | PR-10 |
@@ -639,7 +652,7 @@ de toda a sequência.
 | **PR-5** | Criar a autoridade de **disponibilidade** com o contrato da Parte E e testes próprios. **Nenhum consumidor migra** — **feito** | — |
 | **PR-6** | Canal passa a ser lido de `snapshot.canal` em `listContexts`/`contextFilter`/`findPreviousSnapshot`/`seriesKey`. Comentários vencidos de `series.ts` e `vigencia.ts` corrigidos — **feito** | `it.fails` de **D2** ✔ invertido |
 | **PR-7** | Contexto passa a ser `(canonical_scope, canal)`; identificador novo, com o `scope_hash` antigo aceito por `resolveContext` — **feito** | `it.fails` de **D1** ✔ invertido |
-| **PR-8** | `vigenciaAnterior` na autoridade; `findPreviousSnapshot` delega. Motivo nomeado no `null`. **Guarda de `entity_type_set` ainda de pé** | — |
+| **PR-8** | `vigenciaAnterior` na autoridade; `findPreviousSnapshot` delega. Motivo nomeado no `null`, com `COBERTURA_DE_EQUIPAMENTO_DIFERENTE` tornando D3 legível. **Guarda de `entity_type_set` ainda de pé** — **feito** | — |
 | **PR-9** | `entity_type_set` sai da série **e** comparação por componente com `NAO_ENTREGUE` — as duas metades juntas, nunca separadas | `it.fails` de **D3** |
 
 ### P2 — propagação

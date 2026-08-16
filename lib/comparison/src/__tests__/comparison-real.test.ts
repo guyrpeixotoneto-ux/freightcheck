@@ -5,6 +5,7 @@ import { captureRaw, preview, promote, receiveFile, stage } from "@workspace/ing
 import { createTestDatabase, realExportPath, type TestDb } from "@workspace/ingest/testing";
 import { applyConfirmations, runProposalPass, seedTaxonomy } from "@workspace/curation";
 import { computeChangeSet, findPreviousSnapshot } from "../engine";
+import { vigenciaAnterior } from "@workspace/availability";
 import { getChangeProvenance, listChanges, listComparableSnapshots } from "../query";
 import { getEntityTable } from "../grouped";
 
@@ -270,17 +271,56 @@ describe("reimportar o mesmo conteúdo não gera alteração falsa", () => {
 describe("escolha do snapshot anterior", () => {
   it("aponta para a vigência imediatamente anterior", async () => {
     const julho = snapshots.find((s) => s.sourceLabel === "EMPURRADA_2_7_2026")!;
-    const previous = await findPreviousSnapshot(ctx.db, julho.id);
-    const [row] = await ctx.db
-      .select()
-      .from(snapshotTable)
-      .where(eq(snapshotTable.id, previous!));
-    expect(row.sourceLabel).toBe("EMPURRADA_2_6_2026");
+    const anterior = await findPreviousSnapshot(ctx.db, julho.id);
+    expect(anterior.encontrada).toBe(true);
+    if (!anterior.encontrada) return;
+    expect(anterior.vigencia.sourceLabel).toBe("EMPURRADA_2_6_2026");
   });
 
-  it("devolve null para a primeira vigência da série", async () => {
+  it("na primeira da série, diz que é a primeira — e não devolve um nulo mudo", async () => {
     const primeira = snapshots[0];
-    expect(await findPreviousSnapshot(ctx.db, primeira.id)).toBeNull();
+    const anterior = await findPreviousSnapshot(ctx.db, primeira.id);
+    expect(anterior.encontrada).toBe(false);
+    if (anterior.encontrada) return;
+    expect(anterior.motivo).toBe("PRIMEIRA_DA_SERIE");
+    expect(anterior.frase).toContain("primeira vigência da série");
+  });
+
+  it("o consumidor não decide: a resposta é a mesma da autoridade, vigência a vigência", async () => {
+    /*
+      A prova de que a delegação é delegação.
+
+      `findPreviousSnapshot` não tem mais definição própria de série, de escopo,
+      de canal nem de anterior — ele repassa a pergunta. Comparar as duas
+      respostas sobre as nove vigências do export real é o que impede a
+      definição de voltar a se bifurcar no dia em que alguém precisar de um caso
+      a mais aqui dentro.
+    */
+    for (const snapshot of snapshots) {
+      const doConsumidor = await findPreviousSnapshot(ctx.db, snapshot.id);
+      const daAutoridade = await vigenciaAnterior(ctx.db, snapshot.id, {
+        exigirMesmoEntityTypeSet: true,
+      });
+      expect(doConsumidor.encontrada, snapshot.sourceLabel).toBe(daAutoridade.encontrada);
+      if (doConsumidor.encontrada && daAutoridade.encontrada) {
+        expect(doConsumidor.vigencia.snapshotId).toBe(daAutoridade.vigencia.snapshotId);
+      } else if (!doConsumidor.encontrada && !daAutoridade.encontrada) {
+        expect(doConsumidor.motivo).toBe(daAutoridade.motivo);
+      }
+    }
+  });
+
+  it("uma vigência que não existe é outra coisa, e a resposta separa as duas", async () => {
+    // "não existe anterior" e "não foi possível determinar" davam o mesmo
+    // `null`. A distinção é o que permite a tela dizer a verdade em cada caso.
+    const anterior = await findPreviousSnapshot(
+      ctx.db,
+      "00000000-0000-0000-0000-000000000000",
+    );
+    expect(anterior.encontrada).toBe(false);
+    if (anterior.encontrada) return;
+    expect(anterior.motivo).toBe("VIGENCIA_DESCONHECIDA");
+    expect(anterior.frase).toContain("Não foi possível determinar");
   });
 });
 

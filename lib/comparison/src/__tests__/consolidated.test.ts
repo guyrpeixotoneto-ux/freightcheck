@@ -180,7 +180,13 @@ describe("primeira vigência de uma série", () => {
     expect(view.complete).toBe(true);
     for (const series of view.present) {
       expect(series.changeSetId).toBeNull();
-      expect(series.reason).toMatch(/Primeira vigência/);
+      /*
+        A frase passou a vir da autoridade, e por isso a asserção deixou de
+        prender a redação exata: quem a escreve é `vigenciaAnterior`, num lugar
+        só, e prendê-la aqui faria dois donos para o mesmo texto. O que importa
+        é o **caso** — primeira da série —, e é ele que a asserção afirma.
+      */
+      expect(series.reason).toMatch(/primeira vigência da série/i);
     }
     expect(view.totals.valueChanges).toBe(0);
     expect(view.impactByPeriodicity).toEqual({});

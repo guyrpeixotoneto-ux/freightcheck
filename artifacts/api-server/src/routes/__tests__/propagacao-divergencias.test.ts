@@ -214,6 +214,27 @@ describe("divergência 1 — a entrega parcial parte a série de Alterações", 
     expect((await getQuinzenaMatrix(ctx.db, {}))!.periods.length).toBe(2);
   }, 300_000);
 
+  it("a recusa já diz a verdade: existe anterior, e a cobertura é que difere", async () => {
+    /*
+      Corrigido pela metade no PR-8, e a metade importa.
+
+      A recusa continua — a guarda de `entity_type_set` só sai no PR-9, junto
+      com a comparação por componente. O que mudou é que ela **para de mentir**:
+      antes a tela dizia "é a primeira vigência da série" para uma vigência que
+      tem anterior no banco, e agora o motivo é nomeado e a frase cita qual é a
+      anterior que foi recusada.
+    */
+    const vigencias = await vivas(ctx.db);
+    const fevereiro = vigencias.find((v) => v.effectiveDate === "2026-02-01")!;
+    const anterior = await findPreviousSnapshot(ctx.db, fevereiro.id);
+
+    expect(anterior.encontrada).toBe(false);
+    if (anterior.encontrada) return;
+    expect(anterior.motivo).toBe("COBERTURA_DE_EQUIPAMENTO_DIFERENTE");
+    expect(anterior.motivo).not.toBe("PRIMEIRA_DA_SERIE");
+    expect(anterior.frase).toContain("EMPURRADA_1_1_2026");
+  }, 300_000);
+
   it.fails(
     "Alterações deveria achar a vigência anterior de fevereiro — hoje devolve “não há anterior”",
     async () => {
@@ -222,7 +243,7 @@ describe("divergência 1 — a entrega parcial parte a série de Alterações", 
       const anterior = await findPreviousSnapshot(ctx.db, fevereiro.id);
       // Correção esperada: a série é (escopo canônico, canal), e a cobertura de
       // equipamento é um atributo da entrega — não um componente da identidade.
-      expect(anterior).not.toBeNull();
+      expect(anterior.encontrada).toBe(true);
     },
     300_000,
   );

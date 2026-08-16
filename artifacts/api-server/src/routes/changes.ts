@@ -161,15 +161,24 @@ router.get("/changes/latest", async (req, res): Promise<void> => {
         series.find((s) => s.entityTypeSet === requested)) ||
       series[0];
     const latest = chosen.latest;
-    const previousId = await findPreviousSnapshot(db, latest.id);
-    if (!previousId) {
+    const anterior = await findPreviousSnapshot(db, latest.id);
+    if (!anterior.encontrada) {
+      /*
+        A frase e o motivo vêm da autoridade.
+
+        A rota escrevia "é a primeira vigência da série" para qualquer recusa, e
+        para uma parte delas isso era falso: existe anterior, e a guarda de
+        cobertura de equipamento é que a recusou. `motivo` vai junto para que a
+        tela possa tratar os casos de forma diferente sem interpretar texto.
+      */
       res.status(409).json({
-        error: `"${latest.sourceLabel}" é a primeira vigência da série; não há anterior com que comparar.`,
+        error: `"${latest.sourceLabel}": ${anterior.frase}`,
+        motivo: anterior.motivo,
       });
       return;
     }
 
-    const set = await computeChangeSet(db, previousId, latest.id, {
+    const set = await computeChangeSet(db, anterior.vigencia.snapshotId, latest.id, {
       computedBy: "api:latest",
     });
     const filters = parseFilters(req.query as Record<string, unknown>);

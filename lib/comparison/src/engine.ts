@@ -1,5 +1,9 @@
 import { and, desc, eq, sql } from "drizzle-orm";
-import { chaveDeEscopoSql } from "@workspace/availability";
+import {
+  chaveDeEscopoSql,
+  vigenciaAnterior,
+  type ResultadoDaAnterior,
+} from "@workspace/availability";
 import type { Database } from "@workspace/db";
 import {
   changeSetTable,
@@ -56,59 +60,34 @@ export interface ChangeSetSummary {
 }
 
 /**
- * The snapshot a given one should be compared against: the most recent live
- * snapshot, of the same source, scope, **channel** and entity coverage, that
- * precedes it.
+ * A vigência com que esta deve ser comparada — **decidida pela autoridade**.
  *
- * Superseded revisions are excluded on purpose — comparing against a snapshot
- * that has itself been replaced would report differences that no longer stand.
+ * Esta função não decide mais nada. Ela repassa a pergunta para
+ * `@workspace/availability`, que é o lugar único onde o produto define o que é
+ * a mesma série e qual é a anterior dela, e devolve a resposta como veio.
  *
- * The channel joined the key when the label parser stopped being hard-coded to
- * `EMPURRADA`. Without it, the first vigência of a second channel would pick
- * the other channel's previous vigência as its baseline — same unit, same
- * coverage, a different remuneration — and every asset would look changed.
+ * O que ela decidia, e por que parou: escopo pelo `scope_hash` cru, canal por
+ * expressão regular sobre o rótulo, série incluindo `entity_type_set`, e `null`
+ * para três situações diferentes. Três das quatro já tinham sido corrigidas em
+ * PRs anteriores; o que sobra aqui é a delegação, que é o que impede a quinta
+ * definição de aparecer no dia em que alguém precisar de um caso a mais.
  *
- * O canal vem de `snapshot.canal`. Vinha de uma expressão regular sobre o
- * rótulo, e as duas discordam quando o rótulo chega escrito de outro jeito —
- * ver `series.ts`.
+ * **A guarda de cobertura de equipamento continua ligada**, e continua errada.
+ * `entity_type_set` é descritivo e cresce com entrega parcial, de modo que
+ * usá-lo como identidade de série parte a série em duas — é a divergência D3 da
+ * auditoria. Ela não sai aqui de propósito: removê-la sem a comparação por
+ * componente faria a primeira vigência com cavalos reportar "244 cavalos
+ * entraram" como crescimento de frota. As duas metades andam juntas, no PR-9.
+ *
+ * O que muda desde já é a **frase**: quando existe uma anterior e a guarda a
+ * recusa, a resposta diz isso, em vez de afirmar que esta é a primeira da
+ * série. Era falso, e era o que a tela mostrava.
  */
-export async function findPreviousSnapshot(
+export function findPreviousSnapshot(
   db: Database,
   snapshotId: string,
-): Promise<string | null> {
-  const [target] = await db
-    .select()
-    .from(snapshotTable)
-    .where(eq(snapshotTable.id, snapshotId));
-  if (!target) throw new Error(`Snapshot ${snapshotId} não encontrado.`);
-
-  const [previous] = await db
-    .select({ id: snapshotTable.id })
-    .from(snapshotTable)
-    .where(
-      and(
-        eq(snapshotTable.sourceSystem, target.sourceSystem),
-        /*
-          Escopo canônico, e não `scope_hash`.
-
-          O hash cru é dos códigos como vieram, de modo que a mesma unidade com
-          o CNPJ mascarado num arquivo e sem máscara no outro não encontraria a
-          própria anterior — e a tela responderia "não há anterior" para uma
-          vigência que tem anterior no banco.
-        */
-        sql`${chaveDeEscopoSql("snapshot")} = (
-              SELECT ${chaveDeEscopoSql("alvo")} FROM snapshot alvo WHERE alvo.id = ${snapshotId}::uuid
-            )`,
-        eq(snapshotTable.entityTypeSet, target.entityTypeSet),
-        eq(snapshotTable.canal, target.canal),
-        sql`${snapshotTable.status} <> 'SUPERSEDED'`,
-        sql`${snapshotTable.effectiveDate} < ${target.effectiveDate}`,
-      ),
-    )
-    .orderBy(desc(snapshotTable.effectiveDate))
-    .limit(1);
-
-  return previous?.id ?? null;
+): Promise<ResultadoDaAnterior> {
+  return vigenciaAnterior(db, snapshotId, { exigirMesmoEntityTypeSet: true });
 }
 
 interface PairedFact extends Record<string, unknown> {

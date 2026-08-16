@@ -117,13 +117,13 @@ export async function garantirComparacoes(
     }
 
     const anterior = await findPreviousSnapshot(db, snapshot.id);
-    if (!anterior) {
+    if (!anterior.encontrada) {
       semAnterior += 1;
       continue;
     }
 
     try {
-      await computeChangeSet(db, anterior, snapshot.id, {
+      await computeChangeSet(db, anterior.vigencia.snapshotId, snapshot.id, {
         computedBy: opcoes.computedBy ?? "assistant:garantia",
       });
       calculados += 1;

@@ -261,8 +261,8 @@ export async function getConsolidated(
       .filter((t) => t !== "")
       .sort();
 
-    const previousId = await findPreviousSnapshot(db, snapshot.id);
-    if (!previousId) {
+    const anterior = await findPreviousSnapshot(db, snapshot.id);
+    if (!anterior.encontrada) {
       for (const componente of componentes) {
         present.push({
           entityTypeSet: componente,
@@ -270,12 +270,16 @@ export async function getConsolidated(
           sourceLabel: snapshot.sourceLabel,
           changeSetId: null,
           previousLabel: null,
-          reason: "Primeira vigência desta série; não há anterior com que comparar.",
+          // A frase vem da autoridade: "primeira da série" e "existe anterior
+          // com outra cobertura" são coisas diferentes, e escrever a primeira
+          // no lugar da segunda é o que a tela fazia.
+          reason: anterior.frase,
         });
       }
       continue;
     }
 
+    const previousId = anterior.vigencia.snapshotId;
     const existing = await getChangeSetForPair(db, previousId, snapshot.id);
     const set =
       existing ??
@@ -284,18 +288,16 @@ export async function getConsolidated(
       }).then(() => getChangeSetForPair(db, previousId, snapshot.id)));
     if (!set) continue;
 
-    const [previous] = await db
-      .select({ sourceLabel: snapshotTable.sourceLabel })
-      .from(snapshotTable)
-      .where(sql`${snapshotTable.id} = ${previousId}`);
-
     for (const componente of componentes) {
       present.push({
         entityTypeSet: componente,
         snapshotId: snapshot.id,
         sourceLabel: snapshot.sourceLabel,
         changeSetId: set.id,
-        previousLabel: previous?.sourceLabel ?? null,
+        // O rótulo da anterior vem junto da resposta da autoridade; a consulta
+        // que o buscava de novo era uma ida ao banco para reler o que já
+        // estava em mãos.
+        previousLabel: anterior.vigencia.sourceLabel,
         reason: null,
       });
     }
