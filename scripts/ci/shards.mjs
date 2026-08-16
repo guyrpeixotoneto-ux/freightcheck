@@ -16,11 +16,22 @@
  *   modelos_curados       -> comparison
  *   modelos_promovidos    -> balance
  *
- * Tempos medidos por pacote, isolados, com cache e template frios:
+ * Tempos medidos de cada shard, cada um como o job o roda — banco vazio, sem
+ * template, cache do vitest frio:
  *
- *   ingest 96.9s · comparison 56.1s · balance 58.4s · composition 33.8s
- *   dre 30.7s · curation 26.8s · api-server 26.9s · db 18.4s · assistant 16.5s
- *   scripts 2.5s · freightaudit 1.3s · simulation 1.0s · knowledge 0.7s
+ *   ingest      101.6s   <- caminho crítico
+ *   balance      66.0s
+ *   curado       65.8s
+ *   assistente   59.1s   (29.8s de seed + 20.2s de testes + 9.2s de benchmark)
+ *   unit         19.8s
+ *
+ * `ingest` é 1,5× o seguinte e não dá para dividir por aqui: é um pacote só, e
+ * o que pesa nele são quatro arquivos que importam o workbook de verdade
+ * porque **a importação é o objeto do teste** — eles não podem clonar um banco
+ * já importado. Quebrá-lo exigiria sharding por arquivo dentro do pacote, o
+ * que é possível (ele não usa template, então não há localidade a preservar) e
+ * levaria o caminho crítico a ~60s. Não está feito porque 101s já cabe com
+ * folga no alvo, e um shard a mais custa mais manutenção do que os 40s valem.
  *
  * Manter isto honesto é a única obrigação de quem mexer aqui: um pacote com
  * testes que não apareça em nenhum shard **não roda no CI**, e o verde deixaria
@@ -45,13 +56,18 @@ export const RAIZ = path.resolve(
  * criam os seus próprios bancos e não pagam o seed.
  */
 export const SHARDS = {
+  // `db` entra aqui, e não junto de `ingest`, por balanceamento medido: com ele
+  // no shard do ingest o caminho crítico era 111.1s contra 3.4s deste; separado,
+  // são ~97s e ~22s. As migrations são o objeto dos testes de `db`, então ele
+  // precisa de Postgres — que o job já sobe para todos os shards.
   unit: [
     "@workspace/knowledge",
     "@workspace/simulation",
     "@workspace/scripts",
     "@workspace/freightaudit",
+    "@workspace/db",
   ],
-  ingest: ["@workspace/ingest", "@workspace/db"],
+  ingest: ["@workspace/ingest"],
   curado: [
     "@workspace/comparison",
     "@workspace/curation",

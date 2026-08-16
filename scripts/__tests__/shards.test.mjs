@@ -59,9 +59,7 @@ describe("a divisão em shards cobre a bateria inteira", () => {
   });
 
   it("os filtros do pnpm saem no formato que o workflow usa", () => {
-    expect(filtrosDoShard("ingest")).toBe(
-      "--filter @workspace/ingest --filter @workspace/db",
-    );
+    expect(filtrosDoShard("ingest")).toBe("--filter @workspace/ingest");
     expect(() => filtrosDoShard("nao-existe")).toThrow(/não existe/);
   });
 });
