@@ -102,6 +102,16 @@ export interface TicketFilters {
   beforeSource: string;
   changeKind: string;
   parameterLabel: string;
+  /** O assunto do chamado, exato. É por onde a visão por tipo abre uma folha. */
+  subject: string;
+  /**
+   * Só os chamados sem assunto.
+   *
+   * Separado de `subject` porque vazio já quer dizer "sem filtro" em todo o
+   * resto desta interface — e o grupo dos sem assunto é uma folha de verdade da
+   * árvore por tipo, que sem isto seria a única que não abriria.
+   */
+  subjectMissing: boolean;
   search: string;
   minAbsImpact: string;
   onlyDivergent: boolean;
@@ -113,6 +123,8 @@ export const emptyTicketFilters: TicketFilters = {
   beforeSource: "",
   changeKind: "",
   parameterLabel: "",
+  subject: "",
+  subjectMissing: false,
   search: "",
   minAbsImpact: "",
   onlyDivergent: false,
@@ -130,6 +142,8 @@ export function toTicketQuery(
   if (filters.beforeSource) params.set("beforeSource", filters.beforeSource);
   if (filters.changeKind) params.set("changeKind", filters.changeKind);
   if (filters.parameterLabel) params.set("parameterLabel", filters.parameterLabel);
+  if (filters.subjectMissing) params.set("subjectMissing", "true");
+  else if (filters.subject) params.set("subject", filters.subject);
   if (filters.search) params.set("search", filters.search);
   if (filters.minAbsImpact) params.set("minAbsImpact", filters.minAbsImpact);
   if (filters.onlyDivergent) params.set("onlyDivergent", "true");
@@ -1010,6 +1024,7 @@ export function TicketQuickFilters({
     filters.statusBucket,
     filters.beforeSource,
     filters.parameterLabel,
+    filters.subjectMissing ? "sem assunto" : filters.subject,
     filters.minAbsImpact,
     filters.onlyDivergent ? "sim" : "",
   ].filter(Boolean).length;
@@ -1146,6 +1161,8 @@ export function TicketFilterBar({
     Boolean(filters.beforeSource) ||
     Boolean(filters.changeKind) ||
     Boolean(filters.parameterLabel) ||
+    Boolean(filters.subject) ||
+    filters.subjectMissing ||
     Boolean(filters.search) ||
     Boolean(filters.minAbsImpact) ||
     filters.onlyDivergent;
@@ -1238,6 +1255,26 @@ export function TicketFilterBar({
           <button
             className="underline"
             onClick={() => onChange({ ...filters, parameterLabel: "" })}
+          >
+            remover
+          </button>
+        </div>
+      )}
+
+      {/* O corte que a visão por tipo deixa para trás quando alguém volta ao
+          Resumo por uma folha da árvore. Sem esta linha, a lista viria recortada
+          por um filtro que não aparece em chip nenhum. */}
+      {(filters.subject || filters.subjectMissing) && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          filtrando pelo assunto
+          <span className="font-medium text-foreground">
+            {filters.subjectMissing ? "chamados sem assunto" : filters.subject}
+          </span>
+          <button
+            className="underline"
+            onClick={() =>
+              onChange({ ...filters, subject: "", subjectMissing: false })
+            }
           >
             remover
           </button>

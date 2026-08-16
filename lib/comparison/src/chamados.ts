@@ -1,10 +1,16 @@
-import { and, asc, desc, eq, gte, ilike, isNotNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import {
   type Database,
   ticketChangeTable,
   ticketImportTable,
   ticketTable,
 } from "@workspace/db";
+import {
+  CLASSES_DE_VALOR,
+  NAO_CLASSIFICADO,
+  classificarParametro,
+  type ClasseNaTela,
+} from "@workspace/knowledge";
 
 /**
  * Chamados, do lado da leitura.
@@ -68,6 +74,25 @@ export interface TicketFilters {
   parameterLabel?: string;
   beforeSource?: string;
   changeKind?: string;
+  /**
+   * O assunto do chamado, exato.
+   *
+   * É o corte da visão por tipo: lá a árvore desce até *classe → parâmetro →
+   * assunto*, e clicar numa folha precisa trazer exatamente aquelas linhas. Por
+   * isso é igualdade e não `ilike` — "Ajuste complemento PM" e "Ajuste
+   * complemento PM 2" são dois motivos, e a folha de um não pode arrastar o
+   * outro junto.
+   */
+  subject?: string;
+  /**
+   * Só os chamados sem assunto declarado.
+   *
+   * Existe separado de `subject` porque string vazia já quer dizer "sem filtro"
+   * em toda esta interface, e o grupo dos sem assunto é uma folha real da
+   * árvore — no export que motivou esta tela ele tem oito chamados. Sem este
+   * campo, essa folha seria a única que não abriria.
+   */
+  subjectMissing?: boolean;
   /** Texto livre: número, parâmetro, placa, solicitante ou assunto. */
   search?: string;
   /** Só o que de fato variou — agora diferente de antes. */
@@ -197,6 +222,11 @@ function buildWhere(ticketImportId: string, filters: TicketFilters): SQL | undef
   }
   if (filters.changeKind) {
     parts.push(eq(ticketChangeTable.changeKind, filters.changeKind));
+  }
+  if (filters.subjectMissing) {
+    parts.push(isNull(ticketTable.subject));
+  } else if (filters.subject) {
+    parts.push(eq(ticketTable.subject, filters.subject));
   }
   if (filters.onlyDivergent) {
     parts.push(DIVERGENT);
@@ -479,6 +509,241 @@ export async function getTicketTotals(
         : Math.round(Number(chamados.avgDays) * 10) / 10,
     stillOpen: chamados?.stillOpen ?? 0,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Alterações por tipo de valor
+// ---------------------------------------------------------------------------
+
+/**
+ * A visão por tipo: o que os chamados mexeram no fixo, no variável e no diesel.
+ *
+ * É a pergunta que a aba Resumo não responde. Lá a lista está ordenada por
+ * materialidade e diz *quais* alterações existem; aqui a mesma população é
+ * dobrada em três — os componentes da remuneração — e cada um abre em
+ * parâmetro e depois em assunto do chamado. Quem confere o mês quer saber
+ * primeiro se o mês mexeu no fixo ou no variável, e só depois em quê.
+ *
+ * **A conta não fecha por soma, e isso é o achado, não o defeito.** Um
+ * parâmetro pode mexer em dois valores — `cavaloEmpurrada` mexe no fixo e no
+ * variável —, então somar as classes conta essas alterações duas vezes.
+ * `overlap` é exatamente quantas são, e existe para a tela poder escrever a
+ * diferença em vez de deixar quem lê descobri-la subtraindo números na cabeça.
+ */
+
+/** Um assunto de chamado dentro de um parâmetro — a folha da árvore. */
+export interface TicketSubjectRollup {
+  /** O assunto como o chamado o escreveu. `null` é chamado sem assunto. */
+  subject: string | null;
+  /**
+   * Alterações de parâmetro. É o grão da tela inteira.
+   *
+   * Também é o número de chamados distintos desta folha, e não por acaso:
+   * `ticket_change` é único por (chamado, parâmetro), então um chamado aparece
+   * no máximo uma vez em cada parâmetro. A igualdade se perde uma linha acima,
+   * na classe, onde o mesmo chamado pode ter mexido em dois parâmetros.
+   */
+  changes: number;
+  calculated: number;
+  impactSum: number | null;
+}
+
+/** Um parâmetro dentro de uma classe, com os assuntos que o pediram. */
+export interface TicketParameterInClass {
+  parameterLabel: string;
+  attributeCode: string | null;
+  changes: number;
+  calculated: number;
+  impactSum: number | null;
+  /** Por que este parâmetro caiu nesta classe. Vem da tabela de classificação. */
+  porque: string | null;
+  /** Em que outras classes ele também entra — vazio quando entra só nesta. */
+  tambemEm: ClasseNaTela[];
+  subjects: TicketSubjectRollup[];
+}
+
+/** Uma das quatro caixas: fixo, variável, variável diesel, não classificado. */
+export interface TicketClassRollup {
+  classe: ClasseNaTela;
+  nome: string;
+  descricao: string;
+  changes: number;
+  calculated: number;
+  impactSum: number | null;
+  parameters: TicketParameterInClass[];
+}
+
+export interface TicketClassificationView {
+  classes: TicketClassRollup[];
+  /** Alterações do envio, sem dupla contagem. Bate com `TicketTotals.changes`. */
+  changes: number;
+  /** Quantas foram contadas em mais de uma classe. */
+  overlap: number;
+  /** Quantas não têm classe — a fila de trabalho da tabela de classificação. */
+  unclassified: number;
+}
+
+/** O grão bruto que o banco devolve, antes de qualquer classificação. */
+export interface TicketGroupedRow {
+  parameterLabel: string;
+  attributeCode: string | null;
+  subject: string | null;
+  changes: number;
+  calculated: number;
+  impactSum: number | null;
+}
+
+/**
+ * Dobrar o grão bruto nas quatro caixas.
+ *
+ * Separado da consulta de propósito: a regra de classificação é a única parte
+ * disto que pode estar errada de um jeito que ninguém percebe, e uma função
+ * pura pode ser testada com dez linhas inventadas em vez de um banco inteiro.
+ *
+ * Uma classe vazia continua na lista. "Nenhum chamado mexeu no diesel neste
+ * mês" é resposta, e uma caixa que some quando dá zero deixa quem lê sem saber
+ * se a pergunta foi feita.
+ */
+export function classificarAlteracoes(
+  rows: TicketGroupedRow[],
+): TicketClassificationView {
+  const caixas = new Map<ClasseNaTela, Map<string, TicketParameterInClass>>(
+    CLASSES_DE_VALOR.map((c) => [c.codigo, new Map()]),
+  );
+
+  let changes = 0;
+  let overlap = 0;
+  let unclassified = 0;
+
+  for (const row of rows) {
+    changes += row.changes;
+
+    const conhecido = classificarParametro(row.parameterLabel);
+    const classes: ClasseNaTela[] =
+      conhecido && conhecido.classes.length > 0
+        ? conhecido.classes
+        : [NAO_CLASSIFICADO];
+
+    if (classes[0] === NAO_CLASSIFICADO) unclassified += row.changes;
+    // Contadas uma vez a menos do que aparecem: o excedente é o que faz a soma
+    // das classes passar do total.
+    overlap += row.changes * (classes.length - 1);
+
+    for (const classe of classes) {
+      const porClasse = caixas.get(classe);
+      if (!porClasse) continue;
+
+      const atual = porClasse.get(row.parameterLabel) ?? {
+        parameterLabel: row.parameterLabel,
+        attributeCode: row.attributeCode,
+        changes: 0,
+        calculated: 0,
+        impactSum: null,
+        porque: conhecido?.porque ?? null,
+        tambemEm: classes.filter((outra) => outra !== classe),
+        subjects: [],
+      };
+
+      atual.changes += row.changes;
+      atual.calculated += row.calculated;
+      if (row.impactSum !== null) {
+        atual.impactSum = (atual.impactSum ?? 0) + row.impactSum;
+      }
+      atual.subjects.push({
+        subject: row.subject,
+        changes: row.changes,
+        calculated: row.calculated,
+        impactSum: row.impactSum,
+      });
+
+      porClasse.set(row.parameterLabel, atual);
+    }
+  }
+
+  const classes = CLASSES_DE_VALOR.map((descricao) => {
+    const parameters = [...(caixas.get(descricao.codigo)?.values() ?? [])]
+      .map((p) => ({ ...p, subjects: [...p.subjects].sort(porTamanho) }))
+      .sort(porTamanho);
+
+    return {
+      classe: descricao.codigo,
+      nome: descricao.nome,
+      descricao: descricao.descricao,
+      changes: parameters.reduce((soma, p) => soma + p.changes, 0),
+      calculated: parameters.reduce((soma, p) => soma + p.calculated, 0),
+      impactSum: somarApurados(parameters),
+      parameters,
+    };
+  });
+
+  return { classes, changes, overlap, unclassified };
+}
+
+/** Do maior para o menor, e o alfabeto desempata — para a ordem não dançar. */
+function porTamanho(
+  a: { changes: number; parameterLabel?: string; subject?: string | null },
+  b: { changes: number; parameterLabel?: string; subject?: string | null },
+): number {
+  if (a.changes !== b.changes) return b.changes - a.changes;
+  const nomeA = a.parameterLabel ?? a.subject ?? "";
+  const nomeB = b.parameterLabel ?? b.subject ?? "";
+  return nomeA.localeCompare(nomeB, "pt-BR");
+}
+
+/**
+ * `null` quando nada foi apurado, e não zero.
+ *
+ * Zero é uma afirmação — "mexeram e não mudou nada" — e é falsa quando a
+ * verdade é "ninguém conseguiu apurar". A tela mostra as duas coisas com
+ * palavras diferentes, e depende desta distinção chegar até ela.
+ */
+function somarApurados(itens: { impactSum: number | null }[]): number | null {
+  const apurados = itens.filter((i) => i.impactSum !== null);
+  if (apurados.length === 0) return null;
+  return apurados.reduce((soma, i) => soma + (i.impactSum ?? 0), 0);
+}
+
+/**
+ * As alterações do envio agrupadas por parâmetro e assunto, e classificadas.
+ *
+ * O agrupamento é do banco; a classificação é de `@workspace/knowledge` e roda
+ * aqui, em TypeScript. É de propósito: a tabela que diz o que é fixo e o que é
+ * variável é conhecimento do modelo de remuneração, revisável em código, e
+ * empurrá-la para dentro de um `CASE` em SQL a tornaria invisível justamente
+ * para quem precisa conferi-la.
+ */
+export async function getTicketClassification(
+  db: Database,
+  ticketImportId: string,
+): Promise<TicketClassificationView> {
+  const rows = await db
+    .select({
+      parameterLabel: ticketChangeTable.parameterLabel,
+      attributeCode: ticketChangeTable.attributeCode,
+      subject: ticketTable.subject,
+      changes: sql<number>`count(*)`.mapWith(Number),
+      calculated: sql<number>`count(*) filter (where ${ticketChangeTable.impactConfidence} = 'CALCULATED')`.mapWith(Number),
+      impactSum: sql<string | null>`sum(${ticketChangeTable.impactAmount}) filter (where ${ticketChangeTable.impactConfidence} = 'CALCULATED')`,
+    })
+    .from(ticketChangeTable)
+    .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
+    .where(eq(ticketChangeTable.ticketImportId, ticketImportId))
+    .groupBy(
+      ticketChangeTable.parameterLabel,
+      ticketChangeTable.attributeCode,
+      ticketTable.subject,
+    );
+
+  return classificarAlteracoes(
+    rows.map((r) => ({
+      parameterLabel: r.parameterLabel,
+      attributeCode: r.attributeCode,
+      subject: r.subject,
+      changes: r.changes,
+      calculated: r.calculated,
+      impactSum: r.impactSum === null ? null : Number(r.impactSum),
+    })),
+  );
 }
 
 /**
