@@ -58,8 +58,7 @@ import {
 } from "@/components/changes/change-table";
 import {
   TicketChangeTable,
-  TicketFilterBar,
-  TicketQuickFilters,
+  TicketFilterPanel,
   emptyTicketFilters,
   toTicketQuery,
   type OrdemChamados,
@@ -716,7 +715,6 @@ function AbaChamados() {
   // não tem as tabelas".
   const [erroUpload, setErroUpload] = useState<unknown>(null);
   const [painel, setPainel] = useState<Painel>(null);
-  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [janela, setJanela] = useState<Janela>(primeiraPagina);
   /*
     A ordem pedida no cabeçalho da tabela vive aqui, e não lá dentro, porque
@@ -1310,20 +1308,11 @@ function AbaChamados() {
 
         {run && visao === "resumo" && (
           <Card className="rounded-2xl p-4 space-y-4">
-            <TicketQuickFilters
+            <TicketFilterPanel
               filters={filters}
               onChange={setFilters}
               totals={totals ?? undefined}
-              avancadoAberto={filtrosAbertos}
-              onToggleAvancado={() => setFiltrosAbertos((v) => !v)}
             />
-            {filtrosAbertos && (
-              <TicketFilterBar
-                filters={filters}
-                onChange={setFilters}
-                totals={totals ?? undefined}
-              />
-            )}
           </Card>
         )}
 
