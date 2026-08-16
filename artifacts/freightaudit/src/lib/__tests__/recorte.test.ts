@@ -129,6 +129,22 @@ describe("cada aba recebe só o que sabe honrar", () => {
     expect(query(link).has("impactConfidence")).toBe(false);
   });
 
+  it("Cliente recebe o mesmo que o Impacto", () => {
+    // Ela lê a série inteira e mostra o subconjunto acionável do que o Impacto
+    // apurou: unidade é o assunto, vigência única estreitaria a leitura, e
+    // filtro de linha é vocabulário de outra aba.
+    const link = linkDeAlteracoes({
+      aba: "cliente",
+      recorte: recorte({ period: "2026-08-01", scopeHash: "abc", canal: "" }),
+      filtros: { impactConfidence: "NOT_CALCULABLE" },
+    });
+    expect(query(link).get("aba")).toBe("cliente");
+    expect(query(link).get("scopeHash")).toBe("abc");
+    expect(query(link).get("canal")).toBe("");
+    expect(query(link).has("period")).toBe(false);
+    expect(query(link).has("impactConfidence")).toBe(false);
+  });
+
   it("Chamados não recebe recorte nenhum", () => {
     // O export de chamados é uma população própria: não é recortado por unidade
     // nem por vigência em lugar nenhum do produto, e fingir que é seria pior do
@@ -236,10 +252,11 @@ describe("as duas telas nomeiam a unidade igual", () => {
 });
 
 describe("a aba pedida no endereço", () => {
-  it("aceita as três que existem, e só elas", () => {
+  it("aceita as quatro que existem, e só elas", () => {
     expect(abaValida("planilha")).toBe(true);
     expect(abaValida("chamados")).toBe(true);
     expect(abaValida("impacto")).toBe(true);
+    expect(abaValida("cliente")).toBe(true);
     expect(abaValida("curadoria")).toBe(false);
     expect(abaValida(null)).toBe(false);
   });

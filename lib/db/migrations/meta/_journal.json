@@ -162,6 +162,20 @@
       "when": 1786846080000,
       "tag": "0022_significado",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786932480000,
+      "tag": "0023_semantica_coerente",
+      "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786932540000,
+      "tag": "0024_reconciliar_bridge",
+      "breakpoints": true
     }
   ]
 }

@@ -20,6 +20,7 @@ import {
   DollarSign,
   FileSpreadsheet,
   Folder,
+  Handshake,
   Headset,
   HelpCircle,
   Layers,
@@ -81,6 +82,8 @@ import {
 } from "@/components/changes/ticket-table";
 import { TicketClassification } from "@/components/changes/ticket-classification";
 import { ImpactoQuinzenas } from "@/components/changes/impacto-quinzenas";
+import { ClienteRecomendacoes } from "@/components/changes/cliente-recomendacoes";
+import type { JanelaDeVigencias } from "@/components/changes/janela-vigencias";
 import type { SeriesContext } from "@/components/inicio/types";
 
 /**
@@ -106,6 +109,15 @@ import type { SeriesContext } from "@/components/inicio/types";
  * não conseguem mostrar o ativo que **não** mudou — ele não está em lista de
  * alteração nenhuma — e sem ele o total da coluna não fecha com o que a Ambev
  * pagou. Ela também não soma com as outras: é o estado, não o movimento.
+ *
+ * **Cliente** é a quarta, e é a única que não responde "o que mudou": ela
+ * responde *o que fazer a respeito*. A cadeia é `Impacto identifica → semântica
+ * interpreta → Cliente recomenda`, e a aba mostra o subconjunto das alterações
+ * em que o movimento vai contra nós **e** existe algo objetivo a pedir ou a
+ * perguntar. Ela não recalcula nada: o dinheiro é o mesmo que o Impacto apurou,
+ * e o que ela acrescenta é a leitura econômica — porque o sinal matemático da
+ * variação não é o sinal econômico dela. Uma taxa que cai reduz o que
+ * recebemos; uma idade que sobe não é premissa que alguém mexeu.
  */
 
 /**
@@ -133,7 +145,49 @@ export default function Alteracoes({
   const pedida = new URLSearchParams(search).get("aba");
   const aba: AbaDeAlteracoes = abaValida(pedida) ? pedida : abaInicial;
 
-  const trocarAba = (proxima: AbaDeAlteracoes) => {
+  /*
+    O parâmetro que a aba Cliente mandou abrir no Impacto.
+
+    Mora aqui porque a travessia é entre abas: "ver por placa e vigência" leva a
+    pessoa da recomendação à tabela do segundo nível, e guardar isso dentro de
+    uma das duas faria a escolha morrer na troca. Zera ao trocar de aba pela
+    barra para que a próxima entrada em Impacto abra no panorama, como sempre.
+
+    Continua em estado, e não no endereço, e a diferença com a aba é real: a aba
+    é o assunto — dá para apontar para ela de fora, e a Visão geral aponta. Isto
+    é o meio de uma frase que começou na aba ao lado, e um endereço para o meio
+    de uma frase abriria a matriz num parâmetro sem que ninguém o tivesse
+    escolhido — que é a porta fechada em 16/08/2026.
+  */
+  const [doCliente, setDoCliente] = useState<{
+    entityType: string;
+    code: string;
+  } | null>(null);
+  /*
+    O recorte De/Até, compartilhado por Impacto e Cliente.
+
+    Mora aqui pelo mesmo motivo que a travessia acima: as duas abas respondem
+    sobre o mesmo período, e perder o recorte ao trocar de aba faria "quanto
+    isso custou" e "o que pedir ao cliente" falarem de meses diferentes com a
+    mesma cara. As abas Planilha e Chamados não o recebem — elas não leem a
+    série, leem comparações gravadas e chamados, e um "de/até" ali seria um
+    filtro que promete um corte que aquelas contas não fazem.
+  */
+  const [janela, setJanela] = useState<JanelaDeVigencias>({});
+
+  /**
+   * Trocar de aba — pela barra, ou por uma travessia de dentro de uma delas.
+   *
+   * `limparTravessia` é o que separa as duas. Pela barra, quem clica em
+   * "Impacto" pediu o panorama, e a escolha que a aba Cliente tinha entregado
+   * morre ali. Pela travessia — "ver por placa e vigência" —, ela é justamente o
+   * que se está pedindo, e sobrevive à troca.
+   */
+  const trocarAba = (
+    proxima: AbaDeAlteracoes,
+    { limparTravessia = true }: { limparTravessia?: boolean } = {},
+  ) => {
+    if (limparTravessia) setDoCliente(null);
     /*
       O recorte de linha fica na aba que o aplica.
 
@@ -199,6 +253,13 @@ export default function Alteracoes({
             label="Impacto"
             hint="quanto cada ativo custa em cada quinzena"
           />
+          <AbaBotao
+            active={aba === "cliente"}
+            onClick={() => trocarAba("cliente")}
+            icon={<Handshake className="w-4 h-4" />}
+            label="Cliente"
+            hint="o que propor, o que investigar, e o que não levar"
+          />
         </nav>
       </div>
 
@@ -212,9 +273,31 @@ export default function Alteracoes({
             A matriz põe todas as quinzenas lado a lado — é a série inteira, e
             recortá-la na vigência aberta na Visão geral deixaria uma coluna só.
             Já a unidade é o assunto: sem ela, quem trocou para CAMAÇARI e veio
-            para cá leria os números de outra unidade sem nada dizendo isso.
+            para cá leria os números de outra unidade sem nada dizendo isso. O
+            De/Até é outro recorte, e de outra natureza — ele estreita a série, e
+            é escolhido aqui dentro.
           */}
-          <ImpactoQuinzenas contexto={paramsDoRecorte(lerRecorte(search), { comPeriodo: false })} />
+          <ImpactoQuinzenas
+            contexto={paramsDoRecorte(lerRecorte(search), { comPeriodo: false })}
+            escolhaInicial={doCliente}
+            janela={janela}
+            onJanela={setJanela}
+            key={doCliente ? `${doCliente.entityType}:${doCliente.code}` : "panorama"}
+          />
+        </div>
+      )}
+      {aba === "cliente" && (
+        <div className="p-8">
+          <ClienteRecomendacoes
+            janela={janela}
+            onJanela={setJanela}
+            onAbrirImpacto={(escolha) => {
+              setDoCliente(escolha);
+              // A travessia é dentro da tela, e o endereço acompanha: a aba é o
+              // assunto, e ele mudou.
+              trocarAba("impacto", { limparTravessia: false });
+            }}
+          />
         </div>
       )}
     </Layout>

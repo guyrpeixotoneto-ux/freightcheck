@@ -30,12 +30,13 @@
 // As abas
 // ---------------------------------------------------------------------------
 
-export type AbaDeAlteracoes = "planilha" | "chamados" | "impacto";
+export type AbaDeAlteracoes = "planilha" | "chamados" | "impacto" | "cliente";
 
 export const ABAS_DE_ALTERACOES: AbaDeAlteracoes[] = [
   "planilha",
   "chamados",
   "impacto",
+  "cliente",
 ];
 
 export const abaValida = (valor: string | null): valor is AbaDeAlteracoes =>
@@ -187,9 +188,18 @@ export interface DestinoDeAlteracoes {
  *   linha já leva até ela. A cadeia fecha dentro da aba; o que não existe é um
  *   endereço para o meio dela, e inventá-lo custaria uma das duas mentiras
  *   acima.
+ * - **Cliente** recebe o mesmo que o Impacto, e pela mesma razão: ela lê a série
+ *   inteira, com o recorte De/Até que as duas partilham, e a unidade é o assunto.
+ *   Vigência única e filtro de linha ficam de fora — o que ela mostra é o
+ *   subconjunto acionável do que o Impacto apurou, não uma lista de alterações.
  * - **Chamados** não recebe nada: os chamados não são recortados por unidade
  *   nem por vigência em lugar nenhum do produto, e fingir que são seria pior do
  *   que não filtrar.
+ *
+ * O De/Até não entra em endereço nenhum, e é decisão e não esquecimento: ele
+ * mora na tela porque atravessa Impacto e Cliente durante uma pergunta só, e
+ * quem chega de fora chega no começo dela — com a série inteira à vista, que é
+ * onde a pergunta começa.
  *
  * A aba `planilha` não é escrita no endereço por ser o padrão de quem abre
  * `/alteracoes` — um `?aba=planilha` a mais em todo link do produto é ruído que
@@ -220,6 +230,8 @@ export function paramsDeAlteracoes({
 
   if (aba !== "chamados") {
     for (const [chave, valor] of paramsDoRecorte(recorte, {
+      // Só a Planilha responde por uma vigência. Impacto e Cliente leem a série
+      // inteira, e uma vigência ali estreitaria a leitura a uma coluna.
       comPeriodo: aba === "planilha",
     })) {
       params.set(chave, valor);

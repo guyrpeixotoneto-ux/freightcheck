@@ -3,6 +3,7 @@ export * from "./conversa";
 export * from "./corpus";
 export * from "./ferramentas";
 export * from "./formato";
+export * from "./formula";
 export * from "./interpretacao";
 export * from "./normalizar";
 export * from "./observabilidade";
