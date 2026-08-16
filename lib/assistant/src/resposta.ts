@@ -326,6 +326,23 @@ export function redacaoDeterministica(dossie: Dossie): string {
 
   if (dossie.desambiguacao) {
     const { termo, opcoes } = dossie.desambiguacao;
+    /*
+      Duas coisas diferentes chegam aqui, e elas não podem receber a mesma frase.
+
+      A ambiguidade de sempre é **uma coisa que existe com mais de um nome
+      possível**: "manutenção" casa duas gavetas, e perguntar qual delas é a
+      resposta certa. A que o portão de correspondência produz é o oposto — o
+      que foi pedido **não existe**, e o que existe é um vizinho. Dizer
+      `"qlp administrativo" pode ser mais de uma coisa aqui: DESCONTO QLP ADM,
+      QLP ADM` afirma que o termo pedido é uma dessas duas, que é a troca
+      silenciosa entrando pela porta da redação depois de a orquestração a ter
+      barrado.
+
+      Quando há lacuna, é ela que abre: `explicarFalta` já escreve as duas
+      metades obrigatórias — não encontrei X, encontrei Y, era Y?
+    */
+    const naoEncontrei = dossie.lacunas.find((l) => l.tipo === "NAO_ENCONTREI");
+    if (naoEncontrei) return naoEncontrei.explicacao;
     return `"${termo}" pode ser mais de uma coisa aqui: ${opcoes.join(", ")}. Qual delas você quer?`;
   }
 

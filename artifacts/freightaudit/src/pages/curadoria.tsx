@@ -7,6 +7,7 @@ import {
   FileSearch,
   Lock,
   ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -703,10 +704,30 @@ function MeaningCard({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const dirty =
-    displayName.trim() !== (detail.displayName ?? "").trim() ||
-    definition.trim() !== (detail.definition ?? "").trim() ||
-    basis.trim() !== (detail.calculationBasis ?? "").trim();
+  /*
+    Só sobe o que a pessoa mexeu. Mandar os três campos em toda gravação fazia
+    uma caixa vazia em que ninguém tocou chegar ao servidor como "apague isto",
+    e a base de cálculo é o único dos três que exige semântica versionada — era
+    por aí que dar um nome legível a uma coluna terminava numa recusa sobre
+    backfill, um assunto que não é o de quem está batizando a coluna.
+
+    `undefined` some no JSON.stringify, e é exatamente o que o servidor lê como
+    "não mexa neste campo". Limpar continua possível: campo apagado difere do
+    guardado e sobe como "", que vira NULL do outro lado.
+  */
+  const edits: {
+    displayName?: string;
+    definition?: string;
+    calculationBasis?: string;
+  } = {};
+  if (displayName.trim() !== (detail.displayName ?? "").trim())
+    edits.displayName = displayName;
+  if (definition.trim() !== (detail.definition ?? "").trim())
+    edits.definition = definition;
+  if (basis.trim() !== (detail.calculationBasis ?? "").trim())
+    edits.calculationBasis = basis;
+
+  const dirty = Object.keys(edits).length > 0;
 
   const save = useMutation({
     mutationFn: async () => {
@@ -715,11 +736,7 @@ function MeaningCard({
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            displayName,
-            definition,
-            calculationBasis: basis,
-          }),
+          body: JSON.stringify(edits),
         },
       );
       const body = await response.json();
@@ -750,7 +767,7 @@ function MeaningCard({
       <CardContent className="space-y-4">
         <Field
           label="Nome gerencial"
-          hint={`Como o atributo aparece nas telas. A importação continua casando por ${detail.sourceName}, que é o nome exibido enquanto este campo estiver vazio.`}
+          hint={`Um apelido de leitura, e só isso. A coluna importada continua sendo ${detail.sourceName} — é por ela que a importação encontra o dado, e ela nunca é renomeada nem sai das telas. Em branco, aparece o nome de origem.`}
         >
           <Input
             value={displayName}
@@ -760,6 +777,18 @@ function MeaningCard({
             }}
             placeholder={detail.sourceName}
           />
+          {/* O apelido ao lado da origem, como a tela mostra de verdade: dizer
+              "o nome importado continua vinculado" convence menos do que ver o
+              par enquanto se digita. */}
+          <p className="text-xs text-muted-foreground">
+            Nas telas:{" "}
+            <span className="font-medium text-foreground">
+              {displayName.trim() || detail.sourceName}
+            </span>
+            {displayName.trim() && (
+              <span className="font-mono"> · {detail.sourceName}</span>
+            )}
+          </p>
         </Field>
 
         <Field
@@ -778,7 +807,7 @@ function MeaningCard({
         </Field>
 
         <Field
-          label="Como a fonte calcula"
+          label="Fórmula de cálculo"
           hint="Quando se sabe. É o campo que faltava no caso do IPVA, que trocou de base de cálculo duas vezes sem mudar de unidade."
         >
           <Textarea
@@ -790,6 +819,7 @@ function MeaningCard({
             placeholder="Ex.: 1,000% do valor da nota de compra."
             rows={2}
           />
+          <FormulaEmPortugues detail={detail} formula={basis} />
         </Field>
 
         {error && (
@@ -820,6 +850,126 @@ function MeaningCard({
     </Card>
   );
 }
+
+/**
+ * "O que essa fórmula quer dizer?", respondido em português.
+ *
+ * O campo acima guarda a regra como a fonte a explicou — "1,000% do valor da
+ * nota", "menor entre o preço da ANP e o da operadora". Quem escreveu entende;
+ * quem lê meses depois, muitas vezes não. O botão pede ao modelo uma leitura
+ * daquele texto, e é só isso que ele faz.
+ *
+ * Três decisões que a tela precisa deixar claras, porque nenhuma delas é óbvia
+ * olhando um botão:
+ *
+ * - **Lê o que está digitado, não o que está salvo.** A fórmula sobe no corpo
+ *   do pedido. Pedir para salvar antes faria a leitura custar um ato que ela
+ *   não deveria custar — e num atributo sem semântica versionada a base de
+ *   cálculo nem pode ser gravada ainda.
+ * - **Não grava e não confere.** Não há onde guardar o resultado e não deve
+ *   haver: é paráfrase do que uma pessoa digitou, não apuração. O rodapé diz
+ *   isso na tela, e não só aqui.
+ * - **Envelhece à vista.** Se o texto muda depois da leitura, a leitura passa a
+ *   falar de outra fórmula. Ela continua visível — apagá-la sozinha pareceria
+ *   defeito — mas avisando sobre o quê ela foi feita.
+ */
+function FormulaEmPortugues({
+  detail,
+  formula,
+}: {
+  detail: AttributeDetail;
+  formula: string;
+}) {
+  const [leitura, setLeitura] = useState<{
+    texto: string | null;
+    motivo: string;
+    sobre: string;
+  } | null>(null);
+
+  const ler = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(
+        getApiUrl(`/curation/attributes/${detail.code}/formula/leitura`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ calculationBasis: formula }),
+        },
+      );
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Falha ao ler a fórmula");
+      return body as { texto: string | null; motivo: string };
+    },
+    onSuccess: (body) => setLeitura({ ...body, sobre: formula.trim() }),
+  });
+
+  const vazia = !formula.trim();
+  const desatualizada = leitura !== null && leitura.sobre !== formula.trim();
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-3">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => ler.mutate()}
+          disabled={vazia || ler.isPending}
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          {ler.isPending ? "Lendo…" : "Explicar esta fórmula"}
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          {vazia
+            ? "Escreva a fórmula acima para pedir a leitura."
+            : "Uma leitura em português do texto acima. Não grava nada."}
+        </p>
+      </div>
+
+      {ler.isError && (
+        <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+          {ler.error.message}
+        </p>
+      )}
+
+      {leitura && (
+        <div className="rounded-md border bg-muted/40 px-3 py-2 space-y-1.5">
+          {leitura.texto ? (
+            <p className="text-sm whitespace-pre-line">{leitura.texto}</p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {MOTIVO_SEM_LEITURA[leitura.motivo] ?? MOTIVO_SEM_LEITURA.ERRO}
+            </p>
+          )}
+          {desatualizada && (
+            <p className="text-xs text-amber-700">
+              O texto mudou depois desta leitura — ela fala da versão anterior.
+            </p>
+          )}
+          {leitura.texto && (
+            <p className="text-xs text-muted-foreground">
+              Escrito por IA a partir do texto acima. É uma leitura, não uma
+              conferência: não diz se a fórmula está certa e não confirma nada.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Por que não houve leitura, dito para quem está curando a coluna.
+ *
+ * Nenhuma destas frases é um erro do curador, e nenhuma pede ação dele sobre a
+ * fórmula — por isso saem em texto normal, e não em vermelho de erro.
+ */
+const MOTIVO_SEM_LEITURA: Record<string, string> = {
+  VAZIO: "Não há fórmula escrita para ler.",
+  SEM_CHAVE:
+    "A leitura por IA não está configurada neste ambiente. O campo continua funcionando normalmente.",
+  RECUSA: "O modelo não quis ler este texto. O campo segue salvo do mesmo jeito.",
+  ERRO: "Não consegui ler agora. Tente de novo em alguns instantes.",
+};
 
 function Field({
   label,
