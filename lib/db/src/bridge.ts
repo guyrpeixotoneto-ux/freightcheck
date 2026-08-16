@@ -236,6 +236,11 @@ const CHECKS_REMOVIDOS: [string, string][] = [
   ["snapshot", "snapshot_canonical_scope_ck"],
   ["snapshot", "snapshot_canonical_scope_nao_vazio_ck"],
   ["assistant_message", "assistant_message_feedback_ck"],
+  // A `0023` — as duas travas da coerência semântica. São comportamento, e não
+  // forma: um Development que as tenha recusaria uma linha que o Publishing
+  // aceita, então o `down` as derruba e o `up` as repõe.
+  ["attribute", "attribute_semantica_coerente"],
+  ["attribute_semantics", "attribute_semantics_semantica_coerente"],
 ];
 
 const NULLABLE_TEMPORARIO: [string, string][] = [
@@ -865,6 +870,25 @@ function planoUp(): PassoUp[] {
       `${t}.definition`,
       levantar(M22, new RegExp(`ALTER TABLE "${t}" ADD COLUMN IF NOT EXISTS "definition"`)),
     );
+  }
+
+  // A `0023` — a coerência entre unidade, tipo e agregação. A normalização vem
+  // junto e antes: a constraint não anexa sobre a linha que a viola, e o export
+  // real tem duas (os dois `prazoPagamento`, tipo UNKNOWN com média proposta).
+  const M23 = "0023_semantica_coerente";
+  // A normalização vem primeiro e é escrita de linha, como o backfill da 0021:
+  // a constraint não anexa sobre a linha que a viola, e o `up` precisa da mesma
+  // ordem que a migration teve.
+  p.push({
+    migration: M23,
+    objeto: "agregações impossíveis, normalizadas antes da trava",
+    sql: reconstruir(M23, /UPDATE "attribute"/),
+    reconstroiDados: true,
+  });
+  for (const t of ["attribute", "attribute_semantics"]) {
+    const nome = t === "attribute" ? "attribute_semantica_coerente" : "attribute_semantics_semantica_coerente";
+    add(M23, `${nome} (drop)`, levantar(M23, new RegExp(`ALTER TABLE "${t}" DROP CONSTRAINT IF EXISTS "${nome}"`)));
+    add(M23, nome, levantar(M23, new RegExp(`ALTER TABLE "${t}" ADD CONSTRAINT "${nome}"`)));
   }
 
   // 5. Obrigatoriedade e constraints.

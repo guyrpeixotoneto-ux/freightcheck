@@ -11,6 +11,7 @@ import {
   snapshotTable,
   taxonomyNodeTable,
 } from "@workspace/db";
+import { coerenciaDaSemantica } from "./agregacao";
 import {
   detectPeriodicityConflicts,
   proposeSemantics,
@@ -343,6 +344,22 @@ export async function confirmAttribute(
         `Sem isso, somar este atributo é adivinhação.`,
     );
   }
+
+  /*
+    A coerência entre unidade, tipo e agregação, na mesma redação que a tela
+    mostra. A constraint no banco recusa o mesmo estado — este erro existe para
+    que o curador leia uma frase em vez de um nome de constraint, e não para
+    substituir a guarda: o padrão de todo este módulo é a regra escrita duas
+    vezes, uma legível e uma inescapável.
+  */
+  const coerente = coerenciaDaSemantica({
+    unit,
+    aggregation,
+    isMonetary,
+    semanticsStatus: "CONFIRMED",
+    dataType: attribute.dataType,
+  });
+  if (!coerente.ok) throw new Error(`"${input.code}": ${coerente.motivo}`);
 
   let taxonomyNodeId = attribute.taxonomyNodeId;
   if (input.taxonomyCode) {
