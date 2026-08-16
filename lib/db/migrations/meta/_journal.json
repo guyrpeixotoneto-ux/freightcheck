@@ -169,6 +169,13 @@
       "when": 1786932480000,
       "tag": "0023_semantica_coerente",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1787018880000,
+      "tag": "0024_ciclo_nao_e_quantidade",
+      "breakpoints": true
     }
   ]
 }

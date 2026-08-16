@@ -102,8 +102,17 @@ describe("registro de migrations perdido", () => {
       dois CHECKs da coerência semântica, e normaliza antes as linhas que os
       violariam. `DROP CONSTRAINT IF EXISTS` antes do `ADD` é o que a torna
       idempotente — rodá-la duas vezes deixa o banco no mesmo lugar.
+
+      A `0024` não cria objeto nenhum: ela só corrige a semântica de `ciclo` e
+      converge o `prazoPagamento`. Rodá-la de novo não duplica nada porque o
+      `RETURNING` que alimenta o histórico só encontra linha quando ainda há o
+      que corrigir.
     */
-    const soConstraints = ["0018_identidade_forte", "0023_semantica_coerente"];
+    const soConstraints = [
+      "0018_identidade_forte",
+      "0023_semantica_coerente",
+      "0024_ciclo_nao_e_quantidade",
+    ];
     expect(segunda.adopted).toEqual(
       primeira.applied.filter((tag) => !soConstraints.includes(tag)),
     );
