@@ -23,12 +23,16 @@ const ENTRADAS = [
 describe("o bloco que o termo nomeia", () => {
   it("acha o bloco quando a pergunta traz mais que o título", () => {
     // A pergunta da tela: "QLP ADM como está de Camaçari?".
-    expect(blocoQueOTermoNomeia(ENTRADAS, "qlp adm camacari")?.blockTitle).toBe("QLP ADM");
+    expect(blocoQueOTermoNomeia(ENTRADAS, "qlp adm camacari")?.blockTitle).toBe(
+      "QLP ADM",
+    );
     expect(blocoQueOTermoNomeia(ENTRADAS, "pneu")?.blockTitle).toBe("PNEU");
   });
 
   it("acha o bloco quando o título traz mais que a pergunta", () => {
-    expect(blocoQueOTermoNomeia(ENTRADAS, "saude")?.blockTitle).toBe("PLANO DE SAÚDE");
+    expect(blocoQueOTermoNomeia(ENTRADAS, "saude")?.blockTitle).toBe(
+      "PLANO DE SAÚDE",
+    );
   });
 
   /*
@@ -45,7 +49,9 @@ describe("o bloco que o termo nomeia", () => {
   });
 
   it("ignora acento e caixa, como o resto da busca", () => {
-    expect(blocoQueOTermoNomeia(ENTRADAS, "Plano de Saúde")?.blockTitle).toBe("PLANO DE SAÚDE");
+    expect(blocoQueOTermoNomeia(ENTRADAS, "Plano de Saúde")?.blockTitle).toBe(
+      "PLANO DE SAÚDE",
+    );
   });
 
   it("não inventa bloco quando a pergunta não nomeia nenhum", () => {

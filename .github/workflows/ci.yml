@@ -16,6 +16,39 @@
 #
 # Este arquivo existe para que "verde" queira dizer a mesma coisa que dizia
 # quando alguém rodava à mão com um banco ao lado.
+#
+# ---------------------------------------------------------------------------
+# A bateria roda em jobs paralelos, e a divisão não é arbitrária
+# ---------------------------------------------------------------------------
+#
+# Era um job só, sequencial, de ~11 minutos, com o passo de testes respondendo
+# por 90% disso. Três medições explicaram onde o tempo ia, e as três foram
+# corrigidas antes deste arquivo mudar:
+#
+#   1. `pnpm -r run test` ordena topologicamente por padrão, e o grafo aqui é
+#      uma corrente de oito níveis. A ordem não comprava nada — todo pacote
+#      exporta TypeScript-fonte, nenhum `test` consome build de outro — e
+#      custava o caminho crítico inteiro. `--no-sort` no script `test`.
+#   2. Sete pacotes traziam `fileParallelism: false`, que no vitest 3 é
+#      literalmente `maxWorkers = 1`.
+#   3. Dezesseis arquivos reconstruíam a mesma base real no `beforeAll`. Agora
+#      o preparo caro roda uma vez e cada suíte **clona** um banco-template.
+#
+# O que sobrou é este arquivo. A divisão em shards mora em
+# `scripts/ci/shards.mjs`, e não aqui, por dois motivos:
+#
+# **Localidade de template.** As suítes que partem de dado real clonam um
+# template que vive no Postgres *daquele job*. Espalhar `comparison`,
+# `curation`, `composition` e `dre` por jobs diferentes faria cada um
+# reconstruir o mesmo template — 26 s medidos, quatro vezes. Por isso a divisão
+# é primeiro por template compartilhado e só depois por peso, e por isso ela
+# **não** usa o `--shard` do vitest, que distribui arquivos por hash do caminho
+# e desfaria exatamente esse ganho.
+#
+# **Um pacote fora de todo shard não roda, e ninguém vê.** É a mesma classe de
+# defeito que produziu os 420 pulados. `scripts/__tests__/shards.test.mjs`
+# reprova quem criar um pacote com testes sem dizer em que job ele roda — e ela
+# roda junto com a suíte, no shard `unit`, não como etapa opcional.
 
 name: CI
 
@@ -31,14 +64,16 @@ concurrency:
 env:
   # Duas variáveis, porque são dois modos de teste — e a diferença importa.
   #
-  # `TEST_ADMIN_DATABASE_URL` é a conexão de administração: as suítes `-real` de
-  # ingest, comparison, composition, curation, balance e db criam um banco
-  # descartável por arquivo, a partir das migrations versionadas. Elas não
-  # querem o banco semeado; querem um vazio que provem que as migrations sobem.
+  # `TEST_ADMIN_DATABASE_URL` é a conexão de administração: as suítes que falam
+  # com banco criam um descartável por arquivo, a partir das migrations
+  # versionadas. Elas não querem o banco semeado; querem um vazio que prove que
+  # as migrations sobem.
   #
   # `ASSISTANT_EVAL_DATABASE_URL` é o banco **semeado**: a bateria e o benchmark
   # do assistente precisam do export real promovido, porque o que eles conferem
-  # é se o número que o assistente cita é o mesmo que o motor devolve.
+  # é se o número que o assistente cita é o mesmo que o motor devolve. Só o
+  # shard `assistente` paga esse seed — os outros criam os seus próprios bancos
+  # e não têm o que fazer com ele.
   #
   # `DATABASE_URL` fica de fora de propósito. Uma rota do api-server testa
   # exatamente o que acontece quando ela **não** está definida, e defini-la aqui
@@ -47,23 +82,9 @@ env:
   ASSISTANT_EVAL_DATABASE_URL: postgres://postgres:postgres@localhost:5432/freightcheck
 
 jobs:
-  test:
+  typecheck:
+    name: Typecheck
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: freightcheck
-        ports: ["5432:5432"]
-        options: >-
-          --health-cmd "pg_isready -U postgres"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 20
-
     steps:
       - uses: actions/checkout@v4
 
@@ -82,27 +103,99 @@ jobs:
       - name: Instalar
         run: pnpm install --frozen-lockfile
 
+      # Não depende de banco, e por isso não espera por um. Era o segundo passo
+      # de um job de onze minutos; agora responde sozinho em ~30 s.
       - name: Typecheck
         run: pnpm run typecheck
+
+  testes:
+    name: Testes (${{ matrix.shard }})
+    runs-on: ubuntu-latest
+
+    strategy:
+      # Um shard vermelho não cancela os outros: quem lê o resultado quer saber
+      # tudo o que quebrou, não a primeira coisa que quebrou.
+      fail-fast: false
+      matrix:
+        shard: [unit, ingest, curado, balance, assistente]
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: freightcheck
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Instalar
+        run: pnpm install --frozen-lockfile
 
       # Migrations e os dois workbooks reais de `attached_assets`. É o mesmo
       # caminho que um desenvolvedor roda para ter um banco de trabalho, e é de
       # propósito: um seed exclusivo de CI seria uma segunda verdade sobre o que
       # "banco pronto" significa.
-      - name: Semear o banco
+      #
+      # Quem precisa dele está declarado em `scripts/ci/shards.mjs`, e não
+      # repetido aqui: um `if` escrito à mão neste arquivo é a forma mais fácil
+      # de o assistente passar a rodar sem banco e ficar verde pulando tudo.
+      - name: Semear o banco (só o shard que precisa)
         env:
           DATABASE_URL: postgres://postgres:postgres@localhost:5432/freightcheck
-        run: pnpm run dev:seed
+        run: |
+          if node scripts/ci/shards.mjs precisa-seed "${{ matrix.shard }}"; then
+            pnpm run dev:seed
+          else
+            echo "shard ${{ matrix.shard }} não usa o banco semeado — pulando"
+          fi
 
       - name: Testes
-        run: pnpm -r --if-present run test
+        run: |
+          pnpm -r --if-present --no-sort \
+            $(node scripts/ci/shards.mjs filtros "${{ matrix.shard }}") \
+            run test
 
-      # A régua do assistente. Ela roda junto com o resto — o piso por categoria
-      # está no próprio teste, e cair abaixo dele reprova aqui.
+      # A régua do assistente. O piso por categoria está no próprio teste, e
+      # cair abaixo dele reprova aqui.
       #
       # `exec vitest run <caminho>`, e não `run test -- <caminho>`: o `--` do
       # pnpm chega ao vitest como argumento solto, que ele ignora como filtro. O
       # passo rodava a suíte inteira do assistente de novo, e dizia no nome que
       # rodava só o benchmark.
       - name: Benchmark do assistente
+        if: matrix.shard == 'assistente'
         run: pnpm --filter @workspace/assistant exec vitest run src/__tests__/benchmark
+
+  # Um check só para a proteção de branch apontar, em vez de cinco nomes que
+  # mudam sempre que a divisão muda.
+  #
+  # `if: always()` para que ele rode mesmo quando um shard reprova — sem isso
+  # ele seria pulado junto, e um job pulado conta como não-reprovado nas regras
+  # de proteção, que é precisamente o falso verde que este arquivo existe para
+  # impedir. A conferência é explícita contra `success` e não contra
+  # `!= failure`: cancelado e pulado também não são passar.
+  ci:
+    name: CI completo
+    if: always()
+    needs: [typecheck, testes]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Exigir que typecheck e todos os shards tenham passado
+        run: |
+          echo "typecheck: ${{ needs.typecheck.result }}"
+          echo "testes:    ${{ needs.testes.result }}"
+          [ "${{ needs.typecheck.result }}" = "success" ] || exit 1
+          [ "${{ needs.testes.result }}" = "success" ] || exit 1

@@ -22,8 +22,10 @@ import { ADVERSARIAL, type Fonte } from "./adversarial";
  * existe para não ser.
  */
 
-const URL_DO_BANCO = process.env.ASSISTANT_EVAL_DATABASE_URL ?? process.env.DATABASE_URL;
-const rodar = URL_DO_BANCO ? describe : describe.skip;
+import {
+  comBancoDeAvaliacao as rodar,
+  URL_DO_BANCO_DE_AVALIACAO as URL_DO_BANCO,
+} from "../banco-de-avaliacao";
 
 /**
  * O piso por eixo — **medido**, e não escolhido.
@@ -70,11 +72,17 @@ const PISO: Record<string, number> = {
 
 rodar("bateria adversarial", () => {
   let db: Database;
-  const porEixo = new Map<string, { ok: number; total: number; falhas: string[] }>();
+  const porEixo = new Map<
+    string,
+    { ok: number; total: number; falhas: string[] }
+  >();
 
   beforeAll(async () => {
     ({ db } = createDb(URL_DO_BANCO!));
-    expect(await resolveContext(db), "esta bateria precisa de um banco promovido").toBeTruthy();
+    expect(
+      await resolveContext(db),
+      "esta bateria precisa de um banco promovido",
+    ).toBeTruthy();
     await semearBookDeTeste(db);
 
     for (const caso of ADVERSARIAL) {

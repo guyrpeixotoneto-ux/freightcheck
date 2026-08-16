@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { eq, sql } from "drizzle-orm";
 import { changeTable, snapshotTable } from "@workspace/db";
 import { captureRaw, preview, promote, receiveFile, stage } from "@workspace/ingest";
-import { createTestDatabase, realExportPath, type TestDb } from "@workspace/ingest/testing";
+import { criarBancoComExportRealPromovido, realExportPath, type TestDb } from "@workspace/ingest/testing";
 import { applyConfirmations, runProposalPass, seedTaxonomy } from "@workspace/curation";
 import { computeChangeSet, findPreviousSnapshot } from "../engine";
 import { getChangeProvenance, listChanges, listComparableSnapshots } from "../query";
@@ -32,12 +32,7 @@ let ctx: TestDb;
 let snapshots: Awaited<ReturnType<typeof listComparableSnapshots>>;
 
 beforeAll(async () => {
-  ctx = await createTestDatabase("comparison_real");
-  const received = await receiveFile(ctx.db, { filePath: realExportPath() });
-  await captureRaw(ctx.db, received.importRunId);
-  await stage(ctx.db, received.importRunId);
-  await preview(ctx.db, received.importRunId);
-  await promote(ctx.db, received.importRunId);
+  ctx = await criarBancoComExportRealPromovido("comparison_real");
   await seedTaxonomy(ctx.db, "test");
   await runProposalPass(ctx.db, "test:proposal");
   snapshots = await listComparableSnapshots(ctx.db);

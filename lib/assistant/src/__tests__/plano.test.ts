@@ -33,7 +33,9 @@ function plano(
 
 describe("uma pergunta pode precisar de duas coisas", () => {
   it("dado e regra saem juntos quando a frase pede os dois", () => {
-    const p = plano("Teve alteração na remuneração de pneu e existe alguma regra do Book relacionada?");
+    const p = plano(
+      "Teve alteração na remuneração de pneu e existe alguma regra do Book relacionada?",
+    );
     expect(p.necessidades).toContain("MOVIMENTO");
     expect(p.necessidades).toContain("BOOK");
   });
@@ -98,13 +100,17 @@ describe("o plano padrão só vale para pergunta deste produto", () => {
 
 describe("o plano reage ao que foi recuperado", () => {
   it("uma regra forte define a pergunta que nenhum detector nomeou", () => {
-    const p = plano("Posso somar parcelas mensais e por km?", { regraForte: true });
+    const p = plano("Posso somar parcelas mensais e por km?", {
+      regraForte: true,
+    });
     expect(p.principal).toBe("BOOK");
     expect(p.bookPorEvidencia).toBe(true);
   });
 
   it("sem regra forte, a mesma pergunta não vira pergunta de Book", () => {
-    const p = plano("Posso somar parcelas mensais e por km?", { regraForte: false });
+    const p = plano("Posso somar parcelas mensais e por km?", {
+      regraForte: false,
+    });
     expect(p.necessidades).not.toContain("BOOK");
   });
 
@@ -114,12 +120,18 @@ describe("o plano reage ao que foi recuperado", () => {
     uma regra viraria uma pergunta de Book.
   */
   it("a regra não rouba o nome de quem pediu número", () => {
-    const p = plano("Quanto mudou o pneu desde dezembro?", { regraForte: true });
+    const p = plano("Quanto mudou o pneu desde dezembro?", {
+      regraForte: true,
+    });
     expect(p.principal).toBe("EVOLUCAO");
   });
 
   it("e não rouba o nome de quem pediu a origem", () => {
-    const p = plano("Por quê?", { regraForte: true, temConversa: true, herdada: "MOVIMENTO" });
+    const p = plano("Por quê?", {
+      regraForte: true,
+      temConversa: true,
+      herdada: "MOVIMENTO",
+    });
     expect(p.principal).toBe("PROCEDENCIA");
   });
 });
@@ -147,7 +159,9 @@ describe("a ordem entre detectores não decide mais onde procurar", () => {
   });
 
   it("a negação de preço é pendência, não disponibilidade", () => {
-    expect(plano("Quais parâmetros não têm preço suficiente?").principal).toBe("SEM_PRECO");
+    expect(plano("Quais parâmetros não têm preço suficiente?").principal).toBe(
+      "SEM_PRECO",
+    );
   });
 });
 

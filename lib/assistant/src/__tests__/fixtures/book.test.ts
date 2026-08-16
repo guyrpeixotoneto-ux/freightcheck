@@ -24,8 +24,10 @@ import { semearBookDeTeste } from "./book";
  * garantia.
  */
 
-const URL_DO_BANCO = process.env.ASSISTANT_EVAL_DATABASE_URL ?? process.env.DATABASE_URL;
-const rodar = URL_DO_BANCO ? describe : describe.skip;
+import {
+  comBancoDeAvaliacao as rodar,
+  URL_DO_BANCO_DE_AVALIACAO as URL_DO_BANCO,
+} from "../banco-de-avaliacao";
 
 rodar("a fixture do Book resiste a semear em paralelo", () => {
   it("quatro conexões concorrentes num banco vazio deixam um Book só", async () => {
@@ -51,7 +53,9 @@ rodar("a fixture do Book resiste a semear em paralelo", () => {
         que derrubou a suíte do assistente no CI:
         `duplicate key value violates unique constraint "book_entry_block_revision_uq"`.
       */
-      const resultados = await Promise.all(bancos.map((db) => semearBookDeTeste(db)));
+      const resultados = await Promise.all(
+        bancos.map((db) => semearBookDeTeste(db)),
+      );
 
       // Quem perde a corrida não grava nada, e diz isso devolvendo zero.
       expect(resultados.filter((n) => n > 0).length).toBeLessThanOrEqual(1);

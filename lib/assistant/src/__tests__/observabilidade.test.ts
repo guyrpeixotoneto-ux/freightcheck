@@ -18,7 +18,10 @@ import {
  * cada desfecho pelo que ele é.
  */
 
-function evento(desfecho: EventoDeIa["desfecho"], extra: Partial<EventoDeIa> = {}) {
+function evento(
+  desfecho: EventoDeIa["desfecho"],
+  extra: Partial<EventoDeIa> = {},
+) {
   return registrar({
     modelo: "claude-opus-5",
     esforco: "medium",
@@ -74,6 +77,8 @@ describe("o anel de chamadas ao modelo", () => {
   it("cobra pelo preço do modelo, e um modelo desconhecido erra para cima", () => {
     expect(estimarCustoUsd("claude-opus-5", 1_000_000, 1_000_000)).toBe(30);
     expect(estimarCustoUsd("claude-haiku-4-5", 1_000_000, 1_000_000)).toBe(6);
-    expect(estimarCustoUsd("modelo-que-nao-existe", 1_000_000, 1_000_000)).toBe(30);
+    expect(estimarCustoUsd("modelo-que-nao-existe", 1_000_000, 1_000_000)).toBe(
+      30,
+    );
   });
 });
