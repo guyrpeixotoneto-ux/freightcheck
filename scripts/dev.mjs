@@ -47,9 +47,10 @@ const API_PORT = process.env["API_PORT"] ?? "8080";
 
 const children = new Set();
 
-function spawnChild(command, args, env = {}) {
+/** `cwd` só é passado por quem precisa rodar dentro de um artifact. */
+function spawnChild(command, args, env = {}, cwd = root) {
   const child = spawn(command, args, {
-    cwd: root,
+    cwd,
     stdio: "inherit",
     env: { ...process.env, ...env },
   });
@@ -158,7 +159,24 @@ async function startApi() {
      * o lockfile estiver mesmo desatualizado, o install falha dizendo isso, e o
      * explicador leva a frase até a tela.
      */
-    runInstall: () => runCaptured("pnpm", ["install", "--frozen-lockfile"]),
+    /*
+      Instalar dependência **não** é efeito colateral de subir o servidor, pelo
+      mesmo motivo que migrar não é — e aqui o custo apareceu inteiro.
+
+      Este passo era a primeira coisa que `start()` fazia, antes de qualquer
+      porta ser aberta. Num contêiner onde o `pnpm` não sobe — o bootstrap do
+      Replit entrando em laço no `pnpm add pnpm@10.33.0`, que foi o que
+      derrubou o build da publicação —, ele não falha rápido: fica pendurado.
+      E enquanto ele pendura, ninguém escuta na 8080. O sintoma que chega a
+      quem opera é "o workflow não abriu a porta em 90 segundos", que não se
+      parece nem um pouco com "o gerenciador de pacotes não existe".
+
+      A ordem certa é a inversa: a porta abre, e quem não conseguir subir
+      explica o motivo por ela. É o que o explicador do supervisor faz.
+
+      Instalar continua sendo ato explícito: `pnpm install --frozen-lockfile`.
+    */
+    runInstall: null,
     /*
       Migrar o banco de desenvolvimento **não** é efeito colateral de subir o
       servidor. Era, e o custo apareceu inteiro: como o Publishing calcula o
@@ -174,8 +192,18 @@ async function startApi() {
       deste banco.
     */
     runMigrations: null,
-    runBuild: () =>
-      runCaptured("pnpm", ["--filter", "@workspace/api-server", "run", "build"]),
+    /*
+      O mesmo comando que `@workspace/api-server` declara em `build`, invocado
+      direto. Passar por `pnpm run` aqui só acrescentaria uma dependência do
+      gerenciador de pacotes ao caminho que abre a porta — e é exatamente essa
+      dependência que deixou os dois workflows mudos por 90 segundos.
+
+      `scripts/__tests__/startup-sem-pnpm.test.mjs` prende os dois lados: que
+      este caminho não invoca `pnpm`, e que o comando aqui continua sendo o
+      mesmo que o `package.json` declara. Sem essa segunda prova, a duplicação
+      viraria deriva na primeira vez que alguém mudasse o script.
+    */
+    runBuild: () => runCaptured("node", ["artifacts/api-server/build.mjs"]),
     spawnServer: () =>
       spawnChild(
         "node",
@@ -211,15 +239,25 @@ async function startApi() {
 // interface
 // ---------------------------------------------------------------------------
 
+/*
+ * O mesmo comando que `@workspace/freightaudit` declara em `dev`, pelo binário
+ * local em vez de `pnpm run`.
+ *
+ * A web não tem supervisor nem explicador: se o comando não sobe, ninguém
+ * ocupa a 25609 e o roteador devolve 502. Enquanto isso passava por `pnpm`, um
+ * gerenciador de pacotes quebrado no contêiner era suficiente para deixar a
+ * interface inteira fora do ar sem nenhuma mensagem — foi o que aconteceu.
+ * Chamando o `vite` direto, a única coisa entre o workflow e a porta é o vite.
+ */
 function startWeb() {
-  spawnChild("pnpm", ["--filter", "@workspace/freightaudit", "run", "dev"], {
+  spawnChild("./node_modules/.bin/vite", ["--config", "vite.config.ts", "--host", "0.0.0.0"], {
     PORT: WEB_PORT,
     BASE_PATH: "/",
     // É isto que faz o `/api` da interface chegar ao api-server. Sem ele o
     // Vite devolve o index.html para chamadas de API, e o erro que aparece na
     // tela não tem relação nenhuma com a causa.
     API_PROXY_TARGET: `http://127.0.0.1:${API_PORT}`,
-  });
+  }, path.join(root, "artifacts/freightaudit"));
   console.log(`[web] interface em http://localhost:${WEB_PORT}`);
 }
 
