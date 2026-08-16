@@ -47,14 +47,14 @@ export default function Login() {
 
   return (
     <div className="min-h-[100dvh] grid lg:grid-cols-[1.1fr_1fr] bg-background">
-      <aside className="hidden lg:flex flex-col justify-between bg-brand-red text-brand-red-foreground p-12">
+      <aside className="hidden lg:flex flex-col justify-between bg-topbar text-topbar-foreground p-12">
         <div className="font-bold text-xl tracking-tight flex items-center gap-2">
-          <div className="w-9 h-9 rounded-sm bg-white text-brand-red flex items-center justify-center font-extrabold text-xl italic">
+          <div className="w-9 h-9 rounded-sm bg-white text-topbar flex items-center justify-center font-extrabold text-xl italic">
             F
           </div>
           <span className="text-2xl leading-none">
             <span className="font-extrabold italic">Freight</span>
-            <span className="font-light">check</span>
+            <span className="font-light text-topbar-accent">check</span>
           </span>
         </div>
 
@@ -85,7 +85,7 @@ export default function Login() {
       <main className="flex items-center justify-center p-6 sm:p-12">
         <div className="w-full max-w-sm">
           <div className="lg:hidden font-bold text-xl tracking-tight flex items-center gap-2 mb-10">
-            <div className="w-9 h-9 rounded-sm bg-brand-red text-white flex items-center justify-center font-extrabold text-xl italic">
+            <div className="w-9 h-9 rounded-sm bg-topbar text-white flex items-center justify-center font-extrabold text-xl italic">
               F
             </div>
             <span className="text-2xl leading-none">

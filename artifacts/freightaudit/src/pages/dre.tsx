@@ -136,7 +136,7 @@ export default function DRE() {
               className={cn(
                 "px-5 py-2.5 text-sm font-semibold uppercase tracking-wide border-b-2 transition-colors",
                 e === escopo
-                  ? "border-brand-red text-brand-red"
+                  ? "border-brand text-brand"
                   : "border-transparent text-muted-foreground hover:text-foreground",
               )}
             >
