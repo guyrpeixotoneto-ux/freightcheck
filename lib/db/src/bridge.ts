@@ -61,6 +61,34 @@
  * executor de migrations: ele restaura uma lista nominal de objetos, cada um
  * com a definição exata que a migration proprietária lhe dá, e nenhuma
  * transformação de dados é reaplicada.
+ *
+ * ---------------------------------------------------------------------------
+ * A premissa tem prazo, e ela venceu
+ * ---------------------------------------------------------------------------
+ * Tudo acima vale enquanto **Production estiver atrás de Development**. É a
+ * situação para a qual o bridge foi escrito — Production no schema pós-`0012`,
+ * Development na `0018` — e é uma situação que o deploy seguinte encerra: a
+ * fila roda na partida do servidor e Production chega à `0019`.
+ *
+ * Depois disso o mesmo `down` deixa de ser inócuo e passa a ser o defeito. Ele
+ * derruba de Development colunas que Production **agora tem**, e o diff que o
+ * Publishing calcula inverte de direção:
+ *
+ *     ticket: changed_parameter_count, vigencia_label, entity_description
+ *             removidas; parameter_label adicionada
+ *
+ * — que é a `0013` e a `0014` sendo desfeitas em Production. Foi o que apareceu
+ * na tela de publicação em 16/08/2026, com os dois bancos já canônicos.
+ *
+ * A primeira versão deste módulo não tinha como perceber isso: `bridgeDown`
+ * conferia oito pré-condições, todas do lado de Development, e **nenhuma
+ * olhava para Production**. Um script cujo contrato inteiro é "aproximar
+ * Development de Production" media essa aproximação contra uma suposição.
+ *
+ * Agora não mede mais. `bridgeDown` exige a conexão de Production, lê o schema
+ * de lá — somente leitura, nenhum DDL — e confere **objeto por objeto** que
+ * cada mudança que faria aproxima os dois bancos. Production à frente em
+ * qualquer ponto derruba o bridge nomeando o ponto, antes do primeiro DDL.
  */
 import pg from "pg";
 import { readMigrations, mexeEmDados } from "./migrate";
@@ -247,6 +275,56 @@ async function existeColuna(
   return rows[0]!.e;
 }
 
+async function existeIndice(c: pg.PoolClient, nome: string): Promise<boolean> {
+  const { rows } = await c.query<{ e: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM pg_indexes
+                     WHERE schemaname='public' AND indexname=$1) AS e`,
+    [nome],
+  );
+  return rows[0]!.e;
+}
+
+async function existeView(c: pg.PoolClient, nome: string): Promise<boolean> {
+  const { rows } = await c.query<{ e: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM pg_views
+                     WHERE schemaname='public' AND viewname=$1) AS e`,
+    [nome],
+  );
+  return rows[0]!.e;
+}
+
+async function existeFuncao(c: pg.PoolClient, nome: string): Promise<boolean> {
+  const { rows } = await c.query<{ e: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM pg_proc
+                     WHERE pronamespace='public'::regnamespace AND proname=$1) AS e`,
+    [nome],
+  );
+  return rows[0]!.e;
+}
+
+async function existeConstraint(c: pg.PoolClient, nome: string): Promise<boolean> {
+  const { rows } = await c.query<{ e: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM pg_constraint
+                     WHERE connamespace='public'::regnamespace AND conname=$1) AS e`,
+    [nome],
+  );
+  return rows[0]!.e;
+}
+
+/** `true` se a coluna existe **e** é obrigatória. Coluna ausente devolve `false`. */
+async function colunaObrigatoria(
+  c: pg.PoolClient,
+  tabela: string,
+  coluna: string,
+): Promise<boolean> {
+  const { rows } = await c.query<{ n: string }>(
+    `SELECT is_nullable AS n FROM information_schema.columns
+      WHERE table_schema='public' AND table_name=$1 AND column_name=$2`,
+    [tabela, coluna],
+  );
+  return rows[0]?.n === "NO";
+}
+
 /**
  * A estrutura comparável de um banco — o que o critério final do `up` compara.
  *
@@ -277,6 +355,92 @@ export async function estruturaDe(
         FROM pg_type t JOIN pg_enum e ON e.enumtypid=t.oid
     ) s ORDER BY linha`);
   return rows.map((r) => r.linha);
+}
+
+// ---------------------------------------------------------------------------
+// A direção — a pré-condição que faltava
+// ---------------------------------------------------------------------------
+
+/**
+ * Cada mudança que o `down` faria e que **afasta** Development de Production.
+ *
+ * O contrato do bridge é uma frase só: aproximar Development de Production nos
+ * pontos que geram DDL destrutivo ou impossível. A frase tem um sujeito
+ * verificável — Production — e a primeira versão deste módulo não o verificava:
+ * as oito pré-condições olhavam todas para Development, e a aproximação era
+ * suposta a partir de um retrato de Production tirado uma vez, em 15/08/2026.
+ *
+ * O retrato venceu no deploy seguinte, quando `runMigrations()` levou Production
+ * à `0019`, e o `down` passou a fazer o oposto do que promete: derrubar de
+ * Development o que Production tem, e recriar em Development o que Production
+ * não tem — que é um diff destrutivo com o sinal trocado.
+ *
+ * Esta função é a leitura que faltava, e a regra é simétrica:
+ *
+ * - o que o `down` **remove** de Development tem de estar **ausente** de
+ *   Production — senão o Publishing proporia removê-lo de lá também;
+ * - o que o `down` **recria** em Development tem de estar **presente** em
+ *   Production — senão o Publishing proporia criá-lo lá.
+ *
+ * Production é aberta somente para leitura: nenhum comando aqui é DDL, e o
+ * bridge nunca escreve no banco que está medindo.
+ */
+async function divergenciasDeDirecao(prod: pg.PoolClient): Promise<string[]> {
+  const fora: string[] = [];
+  const remove = (o: string, ddl: string) =>
+    fora.push(`${o} existe em Production — o Publishing proporia ${ddl} lá`);
+  const cria = (o: string, ddl: string) =>
+    fora.push(`${o} não existe em Production — o Publishing proporia ${ddl} lá`);
+
+  // ---- o que o `down` remove de Development --------------------------------
+  for (const t of TABELAS_REMOVIDAS) {
+    if (await existeTabela(prod, t)) remove(`a tabela "${t}"`, "DROP TABLE");
+  }
+  for (const [t, col] of COLUNAS_REMOVIDAS) {
+    if (await existeColuna(prod, t, col)) remove(`"${t}"."${col}"`, "DROP COLUMN");
+  }
+  for (const i of INDICES_REMOVIDOS) {
+    if (await existeIndice(prod, i)) remove(`o índice "${i}"`, "DROP INDEX");
+  }
+  for (const v of VIEWS_REMOVIDAS) {
+    if (await existeView(prod, v)) remove(`a view "${v}"`, "DROP VIEW");
+  }
+  for (const f of FUNCOES_REMOVIDAS) {
+    if (await existeFuncao(prod, f)) remove(`a função ${f}()`, "DROP FUNCTION");
+  }
+  for (const [, cc] of CHECKS_REMOVIDOS) {
+    if (await existeConstraint(prod, cc)) remove(`a constraint "${cc}"`, "DROP CONSTRAINT");
+  }
+  /*
+    `NULLABLE_TEMPORARIO` é o único caso que não é presença ou ausência.
+    As três colunas estão na allowlist: quando Production não as tem, o
+    Publishing as cria nullable e o afrouxamento em Development é justamente o
+    que faz os dois lados baterem. Se Production já as tem **obrigatórias**,
+    afrouxá-las aqui inverte o sinal — vira um ALTER de comportamento em cima
+    de uma coluna que já está no estado final.
+  */
+  for (const [t, col] of NULLABLE_TEMPORARIO) {
+    if (await colunaObrigatoria(prod, t, col)) {
+      fora.push(
+        `"${t}"."${col}" já é NOT NULL em Production — ` +
+          `o Publishing proporia DROP NOT NULL lá`,
+      );
+    }
+  }
+
+  // ---- o que o `down` recria em Development --------------------------------
+  if (await existeTabela(prod, "ticket")) {
+    for (const col of COLUNAS_LEGADAS_TICKET) {
+      if (!(await existeColuna(prod, "ticket", col.nome))) {
+        cria(`"ticket"."${col.nome}"`, "ADD COLUMN");
+      }
+    }
+  }
+  for (const i of INDICES_LEGADOS) {
+    if (!(await existeIndice(prod, i.nome))) cria(`o índice "${i.nome}"`, "CREATE INDEX");
+  }
+
+  return fora;
 }
 
 // ---------------------------------------------------------------------------
@@ -325,6 +489,15 @@ async function dependentesInesperados(
 
 export interface DownOptions {
   dryRun?: boolean;
+  /**
+   * A conexão de Production. **Obrigatória**, e usada somente para leitura.
+   *
+   * Não tem default e não tem escape. Um bridge que aproxima Development de
+   * Production sem olhar para Production não está aproximando nada — está
+   * apostando num retrato, e foi a aposta que virou a proposta de desfazer a
+   * `0013` e a `0014` em produção. Sem esta conexão o `down` não roda.
+   */
+  producao?: string;
 }
 
 export async function bridgeDown(
@@ -357,6 +530,59 @@ export async function bridgeDown(
       rel.precondicoes.push({ nome, ok, detalhe });
       if (!ok) throw new BridgeAbortou(`pré-condição falhou — ${nome}: ${detalhe}`);
     };
+
+    /*
+      A primeira pré-condição é sobre o outro banco, e vem antes de todas
+      porque decide se as outras têm sentido. As de Development perguntam "dá
+      para fazer isto sem perder dado?"; esta pergunta "isto ainda é o que o
+      bridge existe para fazer?". Com Production à frente a resposta é não, e
+      nenhuma resposta das seguintes conserta isso.
+    */
+    if (!options.producao) {
+      throw new BridgeAbortou(
+        "a conexão de Production não foi informada. O `down` mede o que faz " +
+          "contra o schema de lá, e sem ele não há como saber se aproxima ou " +
+          "afasta os dois bancos — defina PRODUCTION_DATABASE_URL.",
+      );
+    }
+    {
+      const poolProd = new pg.Pool({ connectionString: options.producao });
+      let divergencias: string[];
+      try {
+        const cp = await poolProd.connect();
+        try {
+          divergencias = await divergenciasDeDirecao(cp);
+        } finally {
+          cp.release();
+        }
+      } catch (err) {
+        throw new BridgeAbortou(
+          `não foi possível ler o schema de Production: ${
+            err instanceof Error ? err.message : String(err)
+          }`,
+        );
+      } finally {
+        await poolProd.end().catch(() => {});
+      }
+
+      /*
+        A saída vem antes da enumeração, e não depois. São dezenas de objetos
+        quando Production está canônica; quem lê tem de encontrar o que fazer
+        na primeira tela, não no fim de uma lista que rolou.
+      */
+      exigir(
+        "Production atrás de Development",
+        divergencias.length === 0,
+        divergencias.length === 0
+          ? "nenhum objeto do bridge existe à frente em Production"
+          : `Production está à frente em ${divergencias.length} objeto(s), e o ` +
+            "`down` faria o Publishing\n" +
+            "    propor desfazer isso em produção. Se Production já está canônica, o\n" +
+            "    bridge acabou: rode `bridge:up` em Development e publique com diff\n" +
+            "    zero — ver docs/MIGRATIONS.md. Os objetos, um a um:\n" +
+            divergencias.map((d) => `      · ${d}`).join("\n"),
+      );
+    }
 
     for (const t of TABELAS_REMOVIDAS) {
       if (!(await existeTabela(c, t))) {

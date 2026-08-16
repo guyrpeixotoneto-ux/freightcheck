@@ -1,7 +1,13 @@
 import { afterAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { runMigrations, readMigrations } from "../migrate";
-import { ALLOWLIST, bridgeDown, bridgeUp, estruturaDe } from "../bridge";
+import {
+  ALLOWLIST,
+  bridgeDown,
+  bridgeUp,
+  estruturaDe,
+  type BridgeReport,
+} from "../bridge";
 
 /**
  * O bridge deploy, contra PostgreSQL de verdade.
@@ -73,6 +79,34 @@ async function production(): Promise<{ url: string; pool: pg.Pool }> {
   const b = await bancoNovo();
   await aplicarAte(b.pool, "0012_chamados");
   return b;
+}
+
+/**
+ * A Production que o `down` exige, para os testes que não a medem.
+ *
+ * `bridgeDown` não roda sem a conexão de Production — é a pré-condição que
+ * faltava, e a que este arquivo mais exercita indiretamente. Os testes que
+ * conferem o lado de Development (dry-run, dependência inesperada, tabela com
+ * linha) precisam de uma Production válida sem se importar com ela; criar um
+ * banco por teste para responder sempre a mesma coisa seria dez bancos de
+ * enfeite. Este é criado uma vez e reaproveitado.
+ */
+let producaoPadraoUrl: string | undefined;
+async function producaoAtras(): Promise<string> {
+  if (!producaoPadraoUrl) {
+    const p = await production();
+    await p.pool.end();
+    producaoPadraoUrl = p.url;
+  }
+  return producaoPadraoUrl;
+}
+
+/** `bridgeDown` contra uma Production atrás — o caso para o qual ele foi escrito. */
+async function down(
+  devUrl: string,
+  options: { dryRun?: boolean } = {},
+): Promise<BridgeReport> {
+  return bridgeDown(devUrl, { ...options, producao: await producaoAtras() });
 }
 
 /**
@@ -204,7 +238,9 @@ describe("o contrato com o Publishing", () => {
     expect(antes.drop.length).toBeGreaterThan(0);
     expect(antes.addTable.length).toBeGreaterThan(0);
 
-    const rel = await bridgeDown(dev.url);
+    // A Production que o `down` lê é a mesma que este teste mede — é o que
+    // torna a conferência de direção parte do contrato, e não um lado.
+    const rel = await bridgeDown(dev.url, { producao: prod.url });
     expect(rel.falha).toBeUndefined();
 
     /*
@@ -233,7 +269,7 @@ describe("o contrato com o Publishing", () => {
 
   it("nenhuma coluna gerada sobra em Development — é o que trava o deploy", async () => {
     const dev = await development();
-    expect((await bridgeDown(dev.url)).falha).toBeUndefined();
+    expect((await down(dev.url)).falha).toBeUndefined();
     const { rows } = await dev.pool.query<{ n: string }>(
       `SELECT count(*) AS n FROM pg_attribute a
          JOIN pg_class k ON k.oid=a.attrelid AND k.relnamespace='public'::regnamespace
@@ -249,7 +285,7 @@ describe("bridge-down: fail-closed, transacional, sem CASCADE", () => {
     const dev = await development();
     const antes = await estruturaDe(dev.pool);
 
-    const rel = await bridgeDown(dev.url, { dryRun: true });
+    const rel = await down(dev.url, { dryRun: true });
     expect(rel.falha).toBeUndefined();
     expect(rel.dryRun).toBe(true);
     expect(rel.ddl.length).toBeGreaterThan(0);
@@ -270,7 +306,7 @@ describe("bridge-down: fail-closed, transacional, sem CASCADE", () => {
       INSERT INTO "ticket" ("ticket_import_id","external_id","source_row_index")
         SELECT id, 'CH-1', 1 FROM "ticket_import" LIMIT 1;`);
 
-    const rel = await bridgeDown(dev.url);
+    const rel = await down(dev.url);
     expect(rel.falha).toMatch(/ticket sem linhas/);
     expect(rel.precondicoes.some((p) => !p.ok)).toBe(true);
 
@@ -288,7 +324,7 @@ describe("bridge-down: fail-closed, transacional, sem CASCADE", () => {
     );
     const antes = await estruturaDe(dev.pool);
 
-    const rel = await bridgeDown(dev.url);
+    const rel = await down(dev.url);
     expect(rel.falha).toMatch(/dependência inesperada em ticket_change/);
     expect(rel.falha).toMatch(/relatorio_de_alguem/);
     expect(rel.falha).toMatch(/não usa CASCADE/);
@@ -309,17 +345,17 @@ describe("bridge-down: fail-closed, transacional, sem CASCADE", () => {
       INSERT INTO "import_decision" ("import_run_id","decisao","motivo")
         SELECT id, 'PROMOVIDO', 'teste' FROM "import_run" LIMIT 1;`);
 
-    const rel = await bridgeDown(dev.url);
+    const rel = await down(dev.url);
     expect(rel.falha).toMatch(/import_decision vazia/);
     await dev.pool.end();
   }, 600_000);
 
   it("rodar o bridge-down duas vezes dá o mesmo resultado", async () => {
     const dev = await development();
-    expect((await bridgeDown(dev.url)).falha).toBeUndefined();
+    expect((await down(dev.url)).falha).toBeUndefined();
     const primeira = await estruturaDe(dev.pool);
 
-    const segunda = await bridgeDown(dev.url);
+    const segunda = await down(dev.url);
     expect(segunda.falha).toBeUndefined();
     expect(await estruturaDe(dev.pool)).toEqual(primeira);
     await dev.pool.end();
@@ -333,7 +369,7 @@ describe("bridge-up: o estado canônico volta inteiro", () => {
     const canonico = await estruturaDe(referencia.pool);
 
     const dev = await development();
-    expect((await bridgeDown(dev.url)).falha).toBeUndefined();
+    expect((await down(dev.url)).falha).toBeUndefined();
     expect(await estruturaDe(dev.pool)).not.toEqual(canonico);
 
     const rel = await bridgeUp(dev.url);
@@ -353,7 +389,7 @@ describe("bridge-up: o estado canônico volta inteiro", () => {
          FROM "snapshot" ORDER BY "effective_date"`,
     );
 
-    expect((await bridgeDown(dev.url)).falha).toBeUndefined();
+    expect((await down(dev.url)).falha).toBeUndefined();
     expect((await bridgeUp(dev.url)).falha).toBeUndefined();
 
     const depois = await dev.pool.query(
@@ -367,7 +403,7 @@ describe("bridge-up: o estado canônico volta inteiro", () => {
 
   it("rodar o bridge-up duas vezes dá o mesmo resultado", async () => {
     const dev = await development();
-    expect((await bridgeDown(dev.url)).falha).toBeUndefined();
+    expect((await down(dev.url)).falha).toBeUndefined();
     expect((await bridgeUp(dev.url)).falha).toBeUndefined();
     const primeira = await estruturaDe(dev.pool);
 
@@ -388,7 +424,7 @@ describe("bridge-up: o estado canônico volta inteiro", () => {
     const antes = await ler();
     expect(antes.length).toBe(readMigrations().length);
 
-    expect((await bridgeDown(dev.url)).falha).toBeUndefined();
+    expect((await down(dev.url)).falha).toBeUndefined();
     expect(await ler()).toEqual(antes);
     expect((await bridgeUp(dev.url)).falha).toBeUndefined();
     expect(await ler()).toEqual(antes);
@@ -441,7 +477,7 @@ describe("a invariante final: schema e registro andam juntos", () => {
     const dev = await developmentNa0018();
     expect(await registradas(dev.pool)).toBe(19);
 
-    expect((await bridgeDown(dev.url)).falha).toBeUndefined();
+    expect((await down(dev.url)).falha).toBeUndefined();
     const rel = await bridgeUp(dev.url);
     expect(rel.falha).toBeUndefined();
     expect(rel.precondicoes.some((p) => /adiado para a fila/.test(p.nome))).toBe(true);
@@ -472,7 +508,7 @@ describe("a invariante final: schema e registro andam juntos", () => {
     await noveVigenciasReais(prod.pool);
 
     // ---- Fase A: o bridge desmonta o diff perigoso ----------------------
-    expect((await bridgeDown(dev.url)).falha).toBeUndefined();
+    expect((await bridgeDown(dev.url, { producao: prod.url })).falha).toBeUndefined();
     const diffNoDeploy = await diffDoPublishing(dev.pool, prod.pool);
     expect(diffNoDeploy.drop).toEqual([]);
     expect(diffNoDeploy.addColumn.sort()).toEqual(
@@ -636,6 +672,159 @@ describe("a Fase B sobre Production", () => {
          FROM "ticket" t`,
     );
     expect(rows[0]!.n).toBe(Number(rows[0]!.c));
+    await prod.pool.end();
+  }, 600_000);
+});
+
+/**
+ * O dia seguinte ao deploy — e a regressão que ele trouxe.
+ *
+ * O bloco acima prova que o fluxo funciona **uma vez**: Production sai do
+ * schema pós-`0012`, atravessa a fila e termina canônica, com diff zero contra
+ * Development. Era esse o estado em 16/08/2026, e era esse o "tava dando tudo
+ * certo".
+ *
+ * O que ninguém tinha escrito é o que acontece quando alguém roda a Fase A de
+ * novo depois disso. O `down` não olhava para Production: ele derrubava de
+ * Development as colunas da `0013` e da `0014` e recriava as nove da `0012`,
+ * exatamente como no primeiro dia — só que agora Production **tem** as
+ * primeiras e **não tem** as segundas, e o diff do Publishing inverte:
+ *
+ *     ticket: changed_parameter_count, vigencia_label e entity_description
+ *             removidas; parameter_label adicionada
+ *
+ * que é a tela de conflito que apareceu. O script escrito para impedir DDL
+ * destrutivo em produção tinha virado a única coisa capaz de propô-lo.
+ *
+ * Estas provas prendem as duas metades: que o `down` recusa, e que o caminho
+ * certo a partir dali continua aberto.
+ */
+describe("depois que Production alcança Development", () => {
+  /** Os dois lados canônicos: o estado em que o deploy anterior os deixou. */
+  async function ambosCanonicos() {
+    const dev = await bancoNovo();
+    const prod = await bancoNovo();
+    expect((await runMigrations(dev.url)).failure).toBeUndefined();
+    expect((await runMigrations(prod.url)).failure).toBeUndefined();
+    expect(await estruturaDe(dev.pool)).toEqual(await estruturaDe(prod.pool));
+    return { dev, prod };
+  }
+
+  it("o down recusa, e nomeia as colunas da captura de tela", async () => {
+    const { dev, prod } = await ambosCanonicos();
+    const antes = await estruturaDe(dev.pool);
+
+    const rel = await bridgeDown(dev.url, { producao: prod.url });
+
+    expect(rel.falha).toMatch(/Production atrás de Development/);
+    // As três da tela, nomeadas — quem lê o erro não precisa deduzir nada.
+    expect(rel.falha).toMatch(/"ticket"\."changed_parameter_count"/);
+    expect(rel.falha).toMatch(/"ticket"\."vigencia_label"/);
+    expect(rel.falha).toMatch(/"ticket"\."entity_description"/);
+    // E a saída, na mesma mensagem.
+    expect(rel.falha).toMatch(/bridge:up/);
+
+    // Nada aplicado: Development está como estava.
+    expect(await estruturaDe(dev.pool)).toEqual(antes);
+    // E o diff continua zero — a publicação seguinte não tem o que propor.
+    const diff = await diffDoPublishing(dev.pool, prod.pool);
+    expect(diff.drop).toEqual([]);
+    expect(diff.addColumn).toEqual([]);
+    expect(diff.addTable).toEqual([]);
+    expect(diff.alter).toEqual([]);
+
+    await dev.pool.end();
+    await prod.pool.end();
+  }, 600_000);
+
+  it("recusa também em --dry-run: a conferência vem antes do primeiro DDL", async () => {
+    const { dev, prod } = await ambosCanonicos();
+    const rel = await bridgeDown(dev.url, { producao: prod.url, dryRun: true });
+    expect(rel.falha).toMatch(/Production atrás de Development/);
+    expect(rel.ddl).toEqual([]);
+    await dev.pool.end();
+    await prod.pool.end();
+  }, 600_000);
+
+  it("sem a conexão de Production o down não roda — nem contra uma atrás", async () => {
+    const dev = await development();
+    const antes = await estruturaDe(dev.pool);
+
+    const rel = await bridgeDown(dev.url);
+    expect(rel.falha).toMatch(/conexão de Production não foi informada/);
+    expect(rel.falha).toMatch(/PRODUCTION_DATABASE_URL/);
+    expect(rel.ddl).toEqual([]);
+    expect(await estruturaDe(dev.pool)).toEqual(antes);
+
+    await dev.pool.end();
+  }, 600_000);
+
+  it("Production ilegível derruba o bridge em vez de virar suposição", async () => {
+    const dev = await development();
+    const antes = await estruturaDe(dev.pool);
+
+    const rel = await bridgeDown(dev.url, {
+      producao: urlDe(`fc_nao_existe_${process.pid}`),
+    });
+    expect(rel.falha).toMatch(/não foi possível ler o schema de Production/);
+    expect(rel.ddl).toEqual([]);
+    expect(await estruturaDe(dev.pool)).toEqual(antes);
+
+    await dev.pool.end();
+  }, 600_000);
+
+  it("Production só um passo à frente já basta para recusar", async () => {
+    // O caso sutil: Production aplicou a `0013` e parou. Duas das três colunas
+    // da tela ainda não existem lá, e mesmo assim o `down` afastaria os bancos.
+    const dev = await development();
+    const prod = await bancoNovo();
+    await aplicarAte(prod.pool, "0013_chamados_por_parametro");
+
+    const rel = await bridgeDown(dev.url, { producao: prod.url });
+    expect(rel.falha).toMatch(/Production atrás de Development/);
+    expect(rel.falha).toMatch(/"ticket"\."changed_parameter_count"/);
+    // A `0014` não rodou lá, então estas duas não podem ser citadas.
+    expect(rel.falha).not.toMatch(/"ticket"\."vigencia_label"/);
+    // E a `0013` já derrubou as legadas: recriá-las em Development as proporia lá.
+    expect(rel.falha).toMatch(/"ticket"\."parameter_label" não existe em Production/);
+
+    await dev.pool.end();
+    await prod.pool.end();
+  }, 600_000);
+
+  it("o up continua sendo o caminho de volta de um Development represado", async () => {
+    // Development como a tela o encontrou: no estado do `down`, com Production
+    // já canônica. É daqui que se sai, e o `up` é quem sai.
+    const dev = await development();
+    const canonico = await estruturaDe(dev.pool);
+    expect((await down(dev.url)).falha).toBeUndefined();
+
+    const prod = await bancoNovo();
+    expect((await runMigrations(prod.url)).failure).toBeUndefined();
+
+    // O diff invertido da captura de tela, medido.
+    const invertido = await diffDoPublishing(dev.pool, prod.pool);
+    expect(invertido.drop).toContain("ticket.changed_parameter_count");
+    expect(invertido.drop).toContain("ticket.vigencia_label");
+    expect(invertido.drop).toContain("ticket.entity_description");
+    expect(invertido.addColumn).toContain("ticket.parameter_label");
+
+    // E o `up` o fecha, sem tocar no registro.
+    expect((await bridgeUp(dev.url)).falha).toBeUndefined();
+    expect(await estruturaDe(dev.pool)).toEqual(canonico);
+
+    const depois = await diffDoPublishing(dev.pool, prod.pool);
+    expect(depois.drop).toEqual([]);
+    expect(depois.addColumn).toEqual([]);
+    expect(depois.addTable).toEqual([]);
+    expect(depois.addIndex).toEqual([]);
+    expect(depois.addConstraint).toEqual([]);
+    expect(depois.addView).toEqual([]);
+    expect(depois.addFunction).toEqual([]);
+    expect(depois.addGenerated).toEqual([]);
+    expect(depois.alter).toEqual([]);
+
+    await dev.pool.end();
     await prod.pool.end();
   }, 600_000);
 });

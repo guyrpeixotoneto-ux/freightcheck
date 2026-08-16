@@ -92,6 +92,42 @@ que o **schema** de produção tem, que é outra pergunta. Uma pergunta sobre
 `applied_value_*` e `impact_*` e ganhando `changed_parameter_count` é a `0013`
 inteira — o schema de lá é anterior a ela.
 
+### A direção da pergunta é o diagnóstico
+
+A leitura acima depende de saber para que lado a lista aponta, e a tela não diz.
+A convenção é a do diff: **removida** é coluna que produção tem e desenvolvimento
+não; **adicionada** é o contrário. A pergunta é sempre sobre o que aconteceria
+com produção.
+
+Com isso a mesma tela responde duas coisas opostas, e a diferença importa mais
+do que tudo o que está escrito nela:
+
+| a tela diz que `ticket` … | quem está atrás | o que fazer |
+| --- | --- | --- |
+| perde `parameter_label` e ganha `changed_parameter_count` | **produção**, anterior à `0013` | cancelar; o servidor aplica a fila na partida |
+| perde `changed_parameter_count`, `vigencia_label` e `entity_description` e ganha `parameter_label` | **desenvolvimento** | cancelar; ver abaixo |
+
+A segunda linha é a `0013` e a `0014` sendo **desfeitas em produção**, e apareceu
+em 16/08/2026 — com produção já canônica e desenvolvimento represado no estado do
+`bridge-down`. Cancelar continua sendo a resposta; o que muda é o conserto, que
+agora é do lado de desenvolvimento:
+
+```
+pnpm --filter @workspace/db run bridge:up      # devolve o schema canônico
+pnpm --filter @workspace/db run migrate        # e a fila leva o que faltar
+```
+
+Feito isso os dois lados batem, a publicação seguinte não tem o que propor, e a
+tela não aparece.
+
+**O `bridge:down` não roda mais às cegas.** Ele foi escrito para o primeiro caso
+— produção atrás — e não tinha como perceber quando o caso virou o segundo:
+oito pré-condições, todas olhando para desenvolvimento, e nenhuma para produção.
+Foi ele que fabricou a tela de 16/08. Agora exige `PRODUCTION_DATABASE_URL`, lê
+o schema de lá (somente leitura) e confere objeto por objeto que cada mudança
+aproxima os dois bancos; produção à frente em qualquer ponto derruba o bridge
+nomeando o ponto, antes do primeiro DDL. Ver `lib/db/src/bridge.ts`.
+
 Isso **não** diz em que migration produção está: o registro é o que responde
 isso, e ele pode estar vazio com o schema inteiro de pé (foi o caso em
 15/08/2026 — ver a seção seguinte). As duas conferências, somente leitura:
