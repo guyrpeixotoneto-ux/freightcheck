@@ -1,10 +1,16 @@
-import { and, asc, desc, eq, gte, ilike, isNotNull, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
 import {
   type Database,
   ticketChangeTable,
   ticketImportTable,
   ticketTable,
 } from "@workspace/db";
+import {
+  CLASSES_DE_VALOR,
+  NAO_CLASSIFICADO,
+  classificarParametro,
+  type ClasseNaTela,
+} from "@workspace/knowledge";
 
 /**
  * Chamados, do lado da leitura.
@@ -68,11 +74,34 @@ export interface TicketFilters {
   parameterLabel?: string;
   beforeSource?: string;
   changeKind?: string;
+  /**
+   * O assunto do chamado, exato.
+   *
+   * É o corte da visão por tipo: lá a árvore desce até *classe → parâmetro →
+   * assunto*, e clicar numa folha precisa trazer exatamente aquelas linhas. Por
+   * isso é igualdade e não `ilike` — "Ajuste complemento PM" e "Ajuste
+   * complemento PM 2" são dois motivos, e a folha de um não pode arrastar o
+   * outro junto.
+   */
+  subject?: string;
+  /**
+   * Só os chamados sem assunto declarado.
+   *
+   * Existe separado de `subject` porque string vazia já quer dizer "sem filtro"
+   * em toda esta interface, e o grupo dos sem assunto é uma folha real da
+   * árvore — no export que motivou esta tela ele tem oito chamados. Sem este
+   * campo, essa folha seria a única que não abriria.
+   */
+  subjectMissing?: boolean;
   /** Texto livre: número, parâmetro, placa, solicitante ou assunto. */
   search?: string;
   /** Só o que de fato variou — agora diferente de antes. */
   onlyDivergent?: boolean;
   minAbsImpact?: number;
+  /** A coluna pela qual o cabeçalho da tabela pediu para ordenar. */
+  sort?: string;
+  /** asc | desc. Só faz sentido acompanhado de `sort`. */
+  dir?: string;
   limit?: number;
   offset?: number;
 }
@@ -198,6 +227,11 @@ function buildWhere(ticketImportId: string, filters: TicketFilters): SQL | undef
   if (filters.changeKind) {
     parts.push(eq(ticketChangeTable.changeKind, filters.changeKind));
   }
+  if (filters.subjectMissing) {
+    parts.push(isNull(ticketTable.subject));
+  } else if (filters.subject) {
+    parts.push(eq(ticketTable.subject, filters.subject));
+  }
   if (filters.onlyDivergent) {
     parts.push(DIVERGENT);
   }
@@ -236,12 +270,121 @@ const idade = (openedAt: Date | null, closedAt: Date | null) => {
 };
 
 /**
- * As alterações de um envio, ordenadas por materialidade.
+ * A ordem do ciclo de vida, para a coluna Situação não ordenar por alfabeto.
  *
- * A mesma ordem da aba Planilha, pelo mesmo motivo: primeiro o que tem impacto
- * apurado, depois pelo tamanho da variação. Nada é omitido por ser pequeno — o
- * filtro de materialidade mínima é uma escolha de quem lê, e nunca um padrão
- * nosso.
+ * "Aberto, em andamento, atendido, recusado, cancelado" é a sequência que o
+ * chamado percorre; em ordem alfabética ela vira "aberto, atendido, cancelado,
+ * em andamento, recusado", que não é ordem nenhuma.
+ */
+const ORDEM_SITUACAO = [
+  "ABERTO",
+  "EM_ANDAMENTO",
+  "ATENDIDO",
+  "RECUSADO",
+  "CANCELADO",
+  "DESCONHECIDO",
+];
+
+/**
+ * A ordem das operações é a do assunto, e não a do alfabeto nem a da contagem.
+ *
+ * É a mesma dos filtros rápidos da tela: `fórmula` vem primeiro por ser o que
+ * o export tem em massa, e `valor` logo atrás por ser onde estão os números.
+ */
+const ORDEM_OPERACAO = ["FORM_THIS", "SET", "ADD", "REMOVE"];
+
+/**
+ * `CASE ... END` com a posição de cada valor numa ordem declarada aqui.
+ *
+ * As posições entram como literais e não como parâmetros: `CASE col WHEN $1
+ * THEN $2 END` deixa o Postgres sem tipo para o resultado do `CASE`, e ele
+ * recusa a consulta inteira. Os índices são gerados pelo próprio laço, então
+ * não há texto de fora nesse caminho — o valor comparado, esse sim, continua
+ * sendo parâmetro.
+ */
+function posicaoNaOrdem(coluna: SQL, valores: string[]): SQL {
+  const casos = valores.map(
+    (valor, indice) => sql`WHEN ${valor} THEN ${sql.raw(String(indice))}`,
+  );
+  return sql`CASE ${coluna} ${sql.join(casos, sql` `)} ELSE ${sql.raw(String(valores.length))} END`;
+}
+
+/**
+ * A régua que o cabeçalho da tabela pediu, em SQL.
+ *
+ * Ordenar é do servidor porque a lista é paginada. Ordenar no navegador o que
+ * chegou reordenaria cinquenta linhas de mil e duzentas, e "Impacto ↓" passaria
+ * a significar "o maior desta página" — parecido o bastante com a verdade para
+ * ninguém desconfiar.
+ *
+ * Nulo nunca é o menor valor: cai no fim nos dois sentidos, em vez de fingir um
+ * zero que ninguém apurou. Um chamado sem impacto apurado não é um chamado de
+ * impacto zero.
+ */
+function ordenacaoPedida(sort: string, dir: string): SQL[] | null {
+  const sentido = dir === "desc" ? sql`desc` : sql`asc`;
+  const fim = sql`nulls last`;
+
+  switch (sort) {
+    case "chamado":
+      // O parâmetro é a segunda régua dentro da primeira: o mesmo chamado
+      // aparece com os seus parâmetros juntos, e não espalhado pela lista.
+      return [
+        sql`${ticketTable.externalId} ${sentido} ${fim}`,
+        sql`${ticketChangeTable.parameterLabel} ${sentido} ${fim}`,
+      ];
+    case "tipo":
+      return [
+        // A linha sem operação declarada fica no fim dos dois sentidos: o
+        // `CASE` sozinho a mandaria para o topo quando o sentido inverte.
+        sql`(${ticketChangeTable.changeKind} IS NULL) asc`,
+        sql`${posicaoNaOrdem(sql`${ticketChangeTable.changeKind}`, ORDEM_OPERACAO)} ${sentido}`,
+        sql`${ticketChangeTable.parameterLabel} asc ${fim}`,
+      ];
+    case "impacto":
+      // "Não calculável" fica fora da régua, e não no zero dela.
+      return [
+        sql`(CASE WHEN ${ticketChangeTable.impactConfidence} = 'CALCULATED'
+              THEN ${ticketChangeTable.impactAmount} END) ${sentido} ${fim}`,
+      ];
+    case "situacao":
+      return [
+        sql`${posicaoNaOrdem(sql`${ticketTable.statusBucket}`, ORDEM_SITUACAO)} ${sentido}`,
+      ];
+    case "data":
+      // A data da alteração é a do fechamento; enquanto o chamado corre, a de
+      // abertura é o que existe — a mesma escolha que a coluna faz na tela.
+      return [
+        sql`coalesce(${ticketTable.closedAt}, ${ticketTable.openedAt}) ${sentido} ${fim}`,
+      ];
+    default:
+      return null;
+  }
+}
+
+/** A ordem de casa: materialidade, como a aba Planilha. */
+const POR_MATERIALIDADE: SQL[] = [
+  // SQL cru: envolver uma expressão que já traz `nulls last` produziria
+  // `... nulls last desc`, que o Postgres recusa. O `desc` vem antes.
+  sql`(${ticketChangeTable.impactConfidence} = 'CALCULATED') desc`,
+  sql`abs(coalesce(${ticketChangeTable.deltaAbsolute}, 0)) desc`,
+  sql`${ticketTable.openedAt} desc nulls last`,
+];
+
+/**
+ * As alterações de um envio, ordenadas por materialidade — ou pela régua que o
+ * cabeçalho da tabela pediu.
+ *
+ * A ordem de casa é a mesma da aba Planilha, pelo mesmo motivo: primeiro o que
+ * tem impacto apurado, depois pelo tamanho da variação. Nada é omitido por ser
+ * pequeno — o filtro de materialidade mínima é uma escolha de quem lê, e nunca
+ * um padrão nosso.
+ *
+ * Qualquer que seja a régua, a lista termina desempatada pela posição da linha
+ * no arquivo. Não é enfeite: sem um critério que separe duas linhas iguais, o
+ * Postgres pode devolver a mesma linha na página 2 e na 3 e nunca devolver
+ * outra — e uma auditoria com uma linha faltando é pior do que uma sem
+ * paginação nenhuma.
  */
 export async function listTicketChanges(
   db: Database,
@@ -256,17 +399,17 @@ export async function listTicketChanges(
     .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
     .where(where);
 
+  const pedida = filters.sort
+    ? ordenacaoPedida(filters.sort, filters.dir ?? "asc")
+    : null;
+
   const rows = await db
     .select({ c: ticketChangeTable, t: ticketTable })
     .from(ticketChangeTable)
     .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
     .where(where)
-    // SQL cru: envolver uma expressão que já traz `nulls last` produziria
-    // `... nulls last desc`, que o Postgres recusa. O `desc` vem antes.
     .orderBy(
-      sql`(${ticketChangeTable.impactConfidence} = 'CALCULATED') desc`,
-      sql`abs(coalesce(${ticketChangeTable.deltaAbsolute}, 0)) desc`,
-      sql`${ticketTable.openedAt} desc nulls last`,
+      ...(pedida ?? POR_MATERIALIDADE),
       asc(ticketTable.sourceRowIndex),
       asc(ticketChangeTable.sourceColumnIndex),
     )
@@ -479,6 +622,241 @@ export async function getTicketTotals(
         : Math.round(Number(chamados.avgDays) * 10) / 10,
     stillOpen: chamados?.stillOpen ?? 0,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Alterações por tipo de valor
+// ---------------------------------------------------------------------------
+
+/**
+ * A visão por tipo: o que os chamados mexeram no fixo, no variável e no diesel.
+ *
+ * É a pergunta que a aba Resumo não responde. Lá a lista está ordenada por
+ * materialidade e diz *quais* alterações existem; aqui a mesma população é
+ * dobrada em três — os componentes da remuneração — e cada um abre em
+ * parâmetro e depois em assunto do chamado. Quem confere o mês quer saber
+ * primeiro se o mês mexeu no fixo ou no variável, e só depois em quê.
+ *
+ * **A conta não fecha por soma, e isso é o achado, não o defeito.** Um
+ * parâmetro pode mexer em dois valores — `cavaloEmpurrada` mexe no fixo e no
+ * variável —, então somar as classes conta essas alterações duas vezes.
+ * `overlap` é exatamente quantas são, e existe para a tela poder escrever a
+ * diferença em vez de deixar quem lê descobri-la subtraindo números na cabeça.
+ */
+
+/** Um assunto de chamado dentro de um parâmetro — a folha da árvore. */
+export interface TicketSubjectRollup {
+  /** O assunto como o chamado o escreveu. `null` é chamado sem assunto. */
+  subject: string | null;
+  /**
+   * Alterações de parâmetro. É o grão da tela inteira.
+   *
+   * Também é o número de chamados distintos desta folha, e não por acaso:
+   * `ticket_change` é único por (chamado, parâmetro), então um chamado aparece
+   * no máximo uma vez em cada parâmetro. A igualdade se perde uma linha acima,
+   * na classe, onde o mesmo chamado pode ter mexido em dois parâmetros.
+   */
+  changes: number;
+  calculated: number;
+  impactSum: number | null;
+}
+
+/** Um parâmetro dentro de uma classe, com os assuntos que o pediram. */
+export interface TicketParameterInClass {
+  parameterLabel: string;
+  attributeCode: string | null;
+  changes: number;
+  calculated: number;
+  impactSum: number | null;
+  /** Por que este parâmetro caiu nesta classe. Vem da tabela de classificação. */
+  porque: string | null;
+  /** Em que outras classes ele também entra — vazio quando entra só nesta. */
+  tambemEm: ClasseNaTela[];
+  subjects: TicketSubjectRollup[];
+}
+
+/** Uma das quatro caixas: fixo, variável, variável diesel, não classificado. */
+export interface TicketClassRollup {
+  classe: ClasseNaTela;
+  nome: string;
+  descricao: string;
+  changes: number;
+  calculated: number;
+  impactSum: number | null;
+  parameters: TicketParameterInClass[];
+}
+
+export interface TicketClassificationView {
+  classes: TicketClassRollup[];
+  /** Alterações do envio, sem dupla contagem. Bate com `TicketTotals.changes`. */
+  changes: number;
+  /** Quantas foram contadas em mais de uma classe. */
+  overlap: number;
+  /** Quantas não têm classe — a fila de trabalho da tabela de classificação. */
+  unclassified: number;
+}
+
+/** O grão bruto que o banco devolve, antes de qualquer classificação. */
+export interface TicketGroupedRow {
+  parameterLabel: string;
+  attributeCode: string | null;
+  subject: string | null;
+  changes: number;
+  calculated: number;
+  impactSum: number | null;
+}
+
+/**
+ * Dobrar o grão bruto nas quatro caixas.
+ *
+ * Separado da consulta de propósito: a regra de classificação é a única parte
+ * disto que pode estar errada de um jeito que ninguém percebe, e uma função
+ * pura pode ser testada com dez linhas inventadas em vez de um banco inteiro.
+ *
+ * Uma classe vazia continua na lista. "Nenhum chamado mexeu no diesel neste
+ * mês" é resposta, e uma caixa que some quando dá zero deixa quem lê sem saber
+ * se a pergunta foi feita.
+ */
+export function classificarAlteracoes(
+  rows: TicketGroupedRow[],
+): TicketClassificationView {
+  const caixas = new Map<ClasseNaTela, Map<string, TicketParameterInClass>>(
+    CLASSES_DE_VALOR.map((c) => [c.codigo, new Map()]),
+  );
+
+  let changes = 0;
+  let overlap = 0;
+  let unclassified = 0;
+
+  for (const row of rows) {
+    changes += row.changes;
+
+    const conhecido = classificarParametro(row.parameterLabel);
+    const classes: ClasseNaTela[] =
+      conhecido && conhecido.classes.length > 0
+        ? conhecido.classes
+        : [NAO_CLASSIFICADO];
+
+    if (classes[0] === NAO_CLASSIFICADO) unclassified += row.changes;
+    // Contadas uma vez a menos do que aparecem: o excedente é o que faz a soma
+    // das classes passar do total.
+    overlap += row.changes * (classes.length - 1);
+
+    for (const classe of classes) {
+      const porClasse = caixas.get(classe);
+      if (!porClasse) continue;
+
+      const atual = porClasse.get(row.parameterLabel) ?? {
+        parameterLabel: row.parameterLabel,
+        attributeCode: row.attributeCode,
+        changes: 0,
+        calculated: 0,
+        impactSum: null,
+        porque: conhecido?.porque ?? null,
+        tambemEm: classes.filter((outra) => outra !== classe),
+        subjects: [],
+      };
+
+      atual.changes += row.changes;
+      atual.calculated += row.calculated;
+      if (row.impactSum !== null) {
+        atual.impactSum = (atual.impactSum ?? 0) + row.impactSum;
+      }
+      atual.subjects.push({
+        subject: row.subject,
+        changes: row.changes,
+        calculated: row.calculated,
+        impactSum: row.impactSum,
+      });
+
+      porClasse.set(row.parameterLabel, atual);
+    }
+  }
+
+  const classes = CLASSES_DE_VALOR.map((descricao) => {
+    const parameters = [...(caixas.get(descricao.codigo)?.values() ?? [])]
+      .map((p) => ({ ...p, subjects: [...p.subjects].sort(porTamanho) }))
+      .sort(porTamanho);
+
+    return {
+      classe: descricao.codigo,
+      nome: descricao.nome,
+      descricao: descricao.descricao,
+      changes: parameters.reduce((soma, p) => soma + p.changes, 0),
+      calculated: parameters.reduce((soma, p) => soma + p.calculated, 0),
+      impactSum: somarApurados(parameters),
+      parameters,
+    };
+  });
+
+  return { classes, changes, overlap, unclassified };
+}
+
+/** Do maior para o menor, e o alfabeto desempata — para a ordem não dançar. */
+function porTamanho(
+  a: { changes: number; parameterLabel?: string; subject?: string | null },
+  b: { changes: number; parameterLabel?: string; subject?: string | null },
+): number {
+  if (a.changes !== b.changes) return b.changes - a.changes;
+  const nomeA = a.parameterLabel ?? a.subject ?? "";
+  const nomeB = b.parameterLabel ?? b.subject ?? "";
+  return nomeA.localeCompare(nomeB, "pt-BR");
+}
+
+/**
+ * `null` quando nada foi apurado, e não zero.
+ *
+ * Zero é uma afirmação — "mexeram e não mudou nada" — e é falsa quando a
+ * verdade é "ninguém conseguiu apurar". A tela mostra as duas coisas com
+ * palavras diferentes, e depende desta distinção chegar até ela.
+ */
+function somarApurados(itens: { impactSum: number | null }[]): number | null {
+  const apurados = itens.filter((i) => i.impactSum !== null);
+  if (apurados.length === 0) return null;
+  return apurados.reduce((soma, i) => soma + (i.impactSum ?? 0), 0);
+}
+
+/**
+ * As alterações do envio agrupadas por parâmetro e assunto, e classificadas.
+ *
+ * O agrupamento é do banco; a classificação é de `@workspace/knowledge` e roda
+ * aqui, em TypeScript. É de propósito: a tabela que diz o que é fixo e o que é
+ * variável é conhecimento do modelo de remuneração, revisável em código, e
+ * empurrá-la para dentro de um `CASE` em SQL a tornaria invisível justamente
+ * para quem precisa conferi-la.
+ */
+export async function getTicketClassification(
+  db: Database,
+  ticketImportId: string,
+): Promise<TicketClassificationView> {
+  const rows = await db
+    .select({
+      parameterLabel: ticketChangeTable.parameterLabel,
+      attributeCode: ticketChangeTable.attributeCode,
+      subject: ticketTable.subject,
+      changes: sql<number>`count(*)`.mapWith(Number),
+      calculated: sql<number>`count(*) filter (where ${ticketChangeTable.impactConfidence} = 'CALCULATED')`.mapWith(Number),
+      impactSum: sql<string | null>`sum(${ticketChangeTable.impactAmount}) filter (where ${ticketChangeTable.impactConfidence} = 'CALCULATED')`,
+    })
+    .from(ticketChangeTable)
+    .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
+    .where(eq(ticketChangeTable.ticketImportId, ticketImportId))
+    .groupBy(
+      ticketChangeTable.parameterLabel,
+      ticketChangeTable.attributeCode,
+      ticketTable.subject,
+    );
+
+  return classificarAlteracoes(
+    rows.map((r) => ({
+      parameterLabel: r.parameterLabel,
+      attributeCode: r.attributeCode,
+      subject: r.subject,
+      changes: r.changes,
+      calculated: r.calculated,
+      impactSum: r.impactSum === null ? null : Number(r.impactSum),
+    })),
+  );
 }
 
 /**

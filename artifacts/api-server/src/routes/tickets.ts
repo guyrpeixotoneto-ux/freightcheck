@@ -16,6 +16,7 @@ import {
 } from "@workspace/ingest";
 import {
   getTicket,
+  getTicketClassification,
   getTicketImport,
   getTicketTotals,
   getTicketsByParameter,
@@ -146,6 +147,15 @@ export function decodeTicketUpload(body: unknown): DecodeTicketResult {
   return { ok: true, value: { filename: safeName, extension, bytes } };
 }
 
+/**
+ * As colunas por que a tabela deixa ordenar.
+ *
+ * A lista existe para que `sort` não seja texto de fora atravessando até o
+ * `ORDER BY`: o que não estiver aqui simplesmente não é uma ordenação, e a
+ * consulta volta para a ordem de casa — materialidade.
+ */
+const ORDENACOES = ["chamado", "tipo", "impacto", "situacao", "data"];
+
 function parseTicketFilters(query: Record<string, unknown>): TicketFilters {
   const str = (key: string) =>
     typeof query[key] === "string" && query[key] !== ""
@@ -164,9 +174,13 @@ function parseTicketFilters(query: Record<string, unknown>): TicketFilters {
     parameterLabel: str("parameterLabel"),
     beforeSource: str("beforeSource"),
     changeKind: str("changeKind"),
+    subject: str("subject"),
+    subjectMissing: str("subjectMissing") === "true",
     search: str("search"),
     onlyDivergent: str("onlyDivergent") === "true",
     minAbsImpact: num("minAbsImpact"),
+    sort: ORDENACOES.includes(str("sort") ?? "") ? str("sort") : undefined,
+    dir: str("dir") === "desc" ? "desc" : "asc",
     limit: num("limit"),
     offset: num("offset"),
   };
@@ -389,6 +403,53 @@ router.get("/tickets", async (req, res): Promise<void> => {
     res.json({ import: run, imports, totals, byParameter, ...changes });
   } catch (err) {
     req.log.error({ err }, "Error listing tickets");
+    await responderFalha(res, err);
+  }
+});
+
+/**
+ * As alterações do envio dobradas por tipo de valor.
+ *
+ * Rota própria, e não mais um campo em `/tickets`: a visão por tipo é a segunda
+ * das duas da aba, e quem fica no Resumo não deve pagar por uma agregação que
+ * não vai ver. Sem filtro nenhum, de propósito — é a árvore do envio inteiro, e
+ * quem quiser recortar clica numa folha, que devolve para `/tickets` com o
+ * parâmetro e o assunto daquela folha.
+ *
+ * **Precisa vir antes de `/tickets/:id`.** O Express casa na ordem de registro,
+ * e `classification` cairia no `:id`, que responderia 400 por não ser UUID.
+ */
+router.get("/tickets/classification", async (req, res): Promise<void> => {
+  try {
+    const requested =
+      typeof req.query.ticketImportId === "string"
+        ? req.query.ticketImportId
+        : undefined;
+    if (requested !== undefined && !UUID.test(requested)) {
+      res.status(400).json({ error: "Identificador de envio inválido." });
+      return;
+    }
+
+    const run = requested
+      ? await getTicketImport(db, requested)
+      : await latestTicketImport(db);
+
+    // Mesma escolha de `/tickets`: sem envio é 200 com nada dentro, e não 404.
+    // A aba abre antes de existir arquivo, e isso é um estado, não um erro.
+    if (!run) {
+      res.json({
+        import: null,
+        classes: [],
+        changes: 0,
+        overlap: 0,
+        unclassified: 0,
+      });
+      return;
+    }
+
+    res.json({ import: run, ...(await getTicketClassification(db, run.id)) });
+  } catch (err) {
+    req.log.error({ err }, "Error classifying tickets");
     await responderFalha(res, err);
   }
 });

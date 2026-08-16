@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useSearch } from "wouter";
 import {
   Activity,
@@ -16,6 +21,7 @@ import {
   Folder,
   Headset,
   HelpCircle,
+  Layers,
   Loader2,
   Lock,
   SlidersHorizontal,
@@ -56,10 +62,12 @@ import {
   TicketQuickFilters,
   emptyTicketFilters,
   toTicketQuery,
+  type OrdemChamados,
   type TicketChangeRow,
   type TicketFilters as TicketFilterState,
   type TicketTotals,
 } from "@/components/changes/ticket-table";
+import { TicketClassification } from "@/components/changes/ticket-classification";
 
 /**
  * Alterações — o que mudou, pelos dois caminhos por onde a mudança chega.
@@ -685,8 +693,23 @@ const NOMES_DE_CAMPO: Record<string, string> = {
  */
 type Painel = "falhas" | "colunas" | "ignoradas" | null;
 
+/**
+ * As duas visões da aba, e a divisão de trabalho entre elas.
+ *
+ * **Resumo** é a lista: o que mudou, ordenado por materialidade, com filtro,
+ * busca e a linha de cada alteração. **Por tipo** é a mesma população dobrada
+ * pelos componentes da remuneração — fixo, variável, variável diesel —, que é a
+ * pergunta que vem antes: *o mês mexeu em quê?*
+ *
+ * São visões e não abas novas de propósito: o arquivo é o mesmo, os avisos de
+ * leitura são os mesmos, e a procedência no topo é a mesma. O que muda é por
+ * onde se entra nos números.
+ */
+type Visao = "resumo" | "tipos";
+
 function AbaChamados() {
   const [filters, setFilters] = useState<TicketFilterState>(emptyTicketFilters);
+  const [visao, setVisao] = useState<Visao>("resumo");
   const [envio, setEnvio] = useState<string | null>(null);
   // O erro inteiro, e não a frase dele: `ApiErrorNotice` precisa do status e do
   // `code` para separar "o arquivo não serve" de "o banco deste ambiente ainda
@@ -695,6 +718,12 @@ function AbaChamados() {
   const [painel, setPainel] = useState<Painel>(null);
   const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [janela, setJanela] = useState<Janela>(primeiraPagina);
+  /*
+    A ordem pedida no cabeçalho da tabela vive aqui, e não lá dentro, porque
+    quem ordena é o servidor: com a lista paginada, ordenar as cem linhas que
+    chegaram diria "o maior desta página" com a cara de "o maior de todos".
+  */
+  const [ordem, setOrdem] = useState<OrdemChamados>(null);
   /** O envio que a caixa de confirmação está prestes a apagar. */
   const [excluindo, setExcluindo] = useState<TicketImportSummary | null>(null);
   const [excluido, setExcluido] = useState<string | null>(null);
@@ -702,22 +731,31 @@ function AbaChamados() {
   const fileInput = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
-  // Filtrar, ou trocar de envio, muda o tamanho da lista — e a página em que se
-  // estava pode não existir mais do outro lado da troca.
+  // Filtrar, trocar de envio ou trocar a régua de ordenação muda o tamanho ou a
+  // sequência da lista — e a página em que se estava pode não existir mais, ou
+  // já não conter o que continha do outro lado da troca.
   useEffect(() => {
     setJanela((atual) => (atual.pagina === 1 ? atual : { ...atual, pagina: 1 }));
-  }, [filters, envio]);
+  }, [filters, envio, ordem]);
 
   const query = useQuery({
-    queryKey: ["tickets", filters, envio, janela],
+    queryKey: ["tickets", filters, envio, janela, ordem],
     queryFn: () =>
       fetchJson<TicketsResponse>(
         `/tickets?${toTicketQuery(
           filters,
           envio ? { ticketImportId: envio } : {},
           janela,
+          ordem,
         )}`,
       ),
+    /*
+      Virar a página não pode apagar a tabela: sem isto o `rows` some enquanto a
+      página seguinte não chega, a lista pisca em branco a cada clique, e a
+      seleção acumulada — que existe justamente para atravessar páginas — vai
+      junto, porque a tabela desmonta.
+    */
+    placeholderData: keepPreviousData,
     /**
      * A leitura roda fora da requisição que recebeu o arquivo, então quem
      * acabou de enviar veria a tela parada em "está sendo lido" até apertar
@@ -945,6 +983,31 @@ function AbaChamados() {
           </div>
         </div>
 
+        {/* As duas visões do mesmo arquivo. Fica logo abaixo da procedência
+            porque é a primeira escolha de quem chega: ver a lista, ou ver em
+            que valor da remuneração o mês mexeu. */}
+        {run && (
+          <div
+            role="tablist"
+            aria-label="visão dos chamados"
+            className="inline-flex rounded-xl border bg-muted/50 p-1"
+          >
+            <VisaoBotao
+              active={visao === "resumo"}
+              onClick={() => setVisao("resumo")}
+              label="Resumo"
+              hint="a lista das alterações, ordenada por materialidade"
+            />
+            <VisaoBotao
+              active={visao === "tipos"}
+              onClick={() => setVisao("tipos")}
+              label="Por tipo"
+              hint="as mesmas alterações dobradas por valor fixo, variável e diesel"
+              icon={<Layers className="w-4 h-4" />}
+            />
+          </div>
+        )}
+
         {excluido && (
           <p className="text-sm text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
             {excluido}
@@ -971,7 +1034,7 @@ function AbaChamados() {
           />
         )}
 
-        {totals && (
+        {totals && visao === "resumo" && (
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-5">
             <MetricCard
               tone="blue"
@@ -1241,7 +1304,11 @@ function AbaChamados() {
           </Card>
         )}
 
-        {run && (
+        {run && visao === "tipos" && (
+          <TicketClassification envio={envio ?? run.id} />
+        )}
+
+        {run && visao === "resumo" && (
           <Card className="rounded-2xl p-4 space-y-4">
             <TicketQuickFilters
               filters={filters}
@@ -1260,7 +1327,7 @@ function AbaChamados() {
           </Card>
         )}
 
-        {data && data.byParameter.length > 0 && (
+        {data && data.byParameter.length > 0 && visao === "resumo" && (
           <Card className="rounded-2xl">
             <div className="grid md:grid-cols-2 md:divide-x">
               <ParametrosMaisPedidos
@@ -1290,7 +1357,7 @@ function AbaChamados() {
           </Card>
         )}
 
-        {run && (
+        {run && visao === "resumo" && (
           <Card className="rounded-2xl overflow-hidden">
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-3 border-b">
               <CardTitle className="text-sm font-semibold">
@@ -1302,20 +1369,29 @@ function AbaChamados() {
                 className="text-xs text-muted-foreground"
                 title="Um chamado que altera oito parâmetros aparece em oito linhas. Nada é omitido por ser pequeno."
               >
-                Uma linha por parâmetro que um chamado mexeu · sem ordenação
-                pedida, vêm por materialidade
+                Uma linha por parâmetro que um chamado mexeu ·{" "}
+                {ordem
+                  ? "ordenadas pela coluna que você escolheu, na lista inteira"
+                  : "sem ordenação pedida, vêm por materialidade"}
               </p>
             </div>
             {query.isLoading && (
               <p className="p-6 text-sm text-muted-foreground">Lendo…</p>
             )}
             {data && (
-              <TicketChangeTable
-                rows={data.rows}
-                total={data.total}
-                janela={janela}
-                onJanela={setJanela}
-              />
+              // Enquanto a página pedida não chega, o que está na tela é a
+              // anterior. Apagá-la seria pior, e deixá-la firme diria que já é
+              // a nova — a opacidade é o meio-termo honesto.
+              <div className={cn(query.isPlaceholderData && "opacity-50")}>
+                <TicketChangeTable
+                  rows={data.rows}
+                  total={data.total}
+                  janela={janela}
+                  onJanela={setJanela}
+                  ordem={ordem}
+                  onOrdem={setOrdem}
+                />
+              </div>
             )}
           </Card>
         )}
@@ -1334,6 +1410,46 @@ function AbaChamados() {
         excluindo={excluir.isPending}
       />
     </>
+  );
+}
+
+/**
+ * Um dos dois botões de visão.
+ *
+ * Controle segmentado, e não uma segunda fileira de abas: as abas de cima
+ * separam duas fontes de dado que nunca somam uma com a outra, e repetir a
+ * mesma forma aqui sugeriria que Resumo e Por tipo também são populações
+ * diferentes. São a mesma, vista de dois jeitos.
+ */
+function VisaoBotao({
+  active,
+  onClick,
+  label,
+  hint,
+  icon,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  hint: string;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <button
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      title={hint}
+      className={cn(
+        "flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors",
+        active
+          ? "bg-card text-foreground shadow-sm"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 
