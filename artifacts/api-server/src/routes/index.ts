@@ -16,6 +16,7 @@ import coverageRouter from "./coverage";
 import dreRouter from "./dre";
 import ticketsRouter from "./tickets";
 import impactoRouter from "./impacto";
+import clienteRouter from "./cliente";
 
 /**
  * F0/F1 surface.
@@ -87,6 +88,14 @@ import impactoRouter from "./impacto";
  * aparecer como a diferença entre duas colunas. É o que permite ver o ativo que
  * **não** mudou — que não existe em lista de alteração nenhuma e sem o qual o
  * total da coluna não fecha com o que foi pago.
+ *
+ * `cliente` é a quarta, e é a camada seguinte à do impacto: das alterações
+ * apuradas, quais fazem sentido levar ao cliente como proposta de ajuste, quais
+ * precisam de investigação e quais não são assunto. Não recalcula nada — chama
+ * `@workspace/advisory`, que compõe o panorama de alterações com o
+ * comportamento econômico declarado em `@workspace/knowledge`. A regra que a
+ * separa da aba Impacto: lá está o universo do que mudou; aqui, o subconjunto
+ * em que o movimento nos prejudica **e** existe algo objetivo a pedir.
  */
 const router: IRouter = Router();
 
@@ -107,5 +116,6 @@ router.use(coverageRouter);
 router.use(dreRouter);
 router.use(ticketsRouter);
 router.use(impactoRouter);
+router.use(clienteRouter);
 
 export default router;
