@@ -232,3 +232,102 @@ describe("o laço", () => {
     expect(r.chamadas[0]!.erro).toContain("scopeHash");
   });
 });
+
+describe("citações — o número que liga a frase à consulta", () => {
+  it("cada resultado diz o seu número, e a contagem atravessa as rodadas", async () => {
+    criar
+      .mockResolvedValueOnce(
+        resposta(
+          [
+            usa("tu_1", "alteracoes", { nivel: "total" }),
+            usa("tu_2", "alteracoes", { nivel: "grupos" }),
+          ],
+          "tool_use",
+        ),
+      )
+      .mockResolvedValueOnce(resposta([usa("tu_3", "alteracoes", { nivel: "total" })], "tool_use"))
+      .mockResolvedValueOnce(resposta([texto("pronto [3]")], "end_turn"));
+
+    await investigar({ pergunta: "x", registro: registroDeTeste([]), ferramentas });
+
+    /*
+      A leitura é sobre o array final, e não sobre `mock.calls[n]`.
+
+      O laço empurra numa lista só e a passa por referência, então toda chamada
+      registrada pelo mock aponta para o **mesmo** array — que continua sendo
+      mutado depois. Ler `calls[1].messages.at(-1)` devolve a última mensagem do
+      estado final, não a da segunda chamada, e o teste mediria outra coisa.
+    */
+    const mensagens = (criar.mock.calls[0]![0] as { messages: { role: string; content: unknown }[] })
+      .messages;
+    const resultados = mensagens
+      .filter((m) => Array.isArray(m.content) && (m.content as { type?: string }[])[0]?.type === "tool_result")
+      .flatMap((m) => m.content as { content: string }[]);
+
+    expect(resultados).toHaveLength(3);
+    expect(resultados[0]!.content).toContain("Fonte [1]");
+    expect(resultados[1]!.content).toContain("Fonte [2]");
+    /*
+      O contador não reinicia por rodada. Se reiniciasse, duas consultas
+      diferentes da mesma resposta seriam a fonte [1], e a citação apontaria
+      para a vizinha sem nada quebrar.
+    */
+    expect(resultados[2]!.content).toContain("Fonte [3]");
+  });
+
+  it("uma consulta que falhou não recebe número — não sustenta afirmação", async () => {
+    const registro = new Registro().registrar({
+      nome: "alteracoes",
+      descricao: "falha sempre, para provar que uma consulta quebrada não vira fonte citável",
+      argumentos: {},
+      executar: async () => {
+        throw new Error("fora do ar");
+      },
+    });
+
+    criar
+      .mockResolvedValueOnce(resposta([usa("tu_1", "alteracoes", {})], "tool_use"))
+      .mockResolvedValueOnce(resposta([texto("não consegui")], "end_turn"));
+
+    await investigar({ pergunta: "x", registro, ferramentas });
+
+    const mensagens = (criar.mock.calls[0]![0] as { messages: { role: string; content: unknown }[] })
+      .messages;
+    const resultado = (mensagens
+      .filter((m) => Array.isArray(m.content) && (m.content as { type?: string }[])[0]?.type === "tool_result")
+      .flatMap((m) => m.content as { content: string }[]))[0]!;
+
+    expect(resultado.content).toContain("não devolveu nada citável");
+    expect(resultado.content).not.toContain("Fonte [");
+  });
+
+  it("a numeração do resultado casa com a das fontes que a tela mostra", async () => {
+    /*
+      As duas contas moram em lugares diferentes — o laço numera o que manda ao
+      modelo, `montarComAgente` numera o que a tela lista — e precisam concordar.
+      Se divergirem, a citação [2] do texto aponta para a fonte [3] da tela, e
+      nada em teste nenhum quebra.
+    */
+    criar
+      .mockResolvedValueOnce(
+        resposta(
+          [usa("tu_1", "alteracoes", { nivel: "total" }), usa("tu_2", "alteracoes", { nivel: "grupos" })],
+          "tool_use",
+        ),
+      )
+      .mockResolvedValueOnce(resposta([texto("pronto [2]")], "end_turn"));
+
+    const r = await investigar({ pergunta: "x", registro: registroDeTeste([]), ferramentas });
+    const { evidenciasDaInvestigacao } = await import("../agente");
+
+    const numeradas = evidenciasDaInvestigacao(r);
+    const mensagens = (criar.mock.calls[0]![0] as { messages: { role: string; content: unknown }[] })
+      .messages;
+    const doModelo = mensagens
+      .filter((m) => Array.isArray(m.content) && (m.content as { type?: string }[])[0]?.type === "tool_result")
+      .flatMap((m) => (m.content as { content: string }[]).map((c) => c.content));
+
+    expect(numeradas).toHaveLength(2);
+    doModelo.forEach((conteudo, i) => expect(conteudo).toContain(`Fonte [${i + 1}]`));
+  });
+});
