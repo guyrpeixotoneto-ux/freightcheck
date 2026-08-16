@@ -17,9 +17,8 @@ vi.mock("../migrations", async (original) => ({
   observarBanco,
 }));
 
-const { faltaSchema, responderSchemaAusente } = await import(
-  "../schema-ausente"
-);
+const { faltaSchema, responderSchemaAusente } =
+  await import("../schema-ausente");
 
 /** Um `res` do Express reduzido ao que esta função usa. */
 function resFalso() {
@@ -52,8 +51,49 @@ describe("faltaSchema", () => {
     expect(faltaSchema({ code: "42704" })).toBe(true);
   });
 
+  /**
+   * A função que a migration cria, e a coluna gerada que depende dela.
+   *
+   * `freightcheck_snapshot_key` sustenta `snapshot.canonical_snapshot_key`, e
+   * os gatilhos de imutabilidade também são funções. Num banco parado antes da
+   * migration que as cria, a tabela existe e a chamada morre — o mesmo desfecho
+   * de uma tabela ausente, uma camada abaixo.
+   */
+  it("reconhece função inexistente", () => {
+    expect(faltaSchema({ code: "42883" })).toBe(true);
+  });
+
+  /**
+   * **A regressão do caso vivido.** O `ON CONFLICT (snapshot_id, entity_type)`
+   * da promoção aponta para `snapshot_entity_type_uq`, que a `0021_cobertura`
+   * cria. Sem o índice, o Postgres responde 42P10 — e a rota respondia 422,
+   * mandando corrigir uma planilha que estava certa.
+   */
+  it("reconhece o ON CONFLICT sem índice que o case", () => {
+    expect(faltaSchema({ code: "42P10" })).toBe(true);
+  });
+
+  it("acha o código dentro do que o drizzle embrulhou", () => {
+    // É assim que ele chega: o wrapper por fora, com a consulta e os
+    // parâmetros, e o erro do `pg` — o que tem o SQLSTATE — em `cause`.
+    const embrulhado = Object.assign(
+      new Error('Failed query: INSERT INTO "snapshot_entity_type" …'),
+      {
+        cause: Object.assign(
+          new Error(
+            "there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          ),
+          { code: "42P10" },
+        ),
+      },
+    );
+
+    expect(faltaSchema(embrulhado)).toBe(true);
+  });
+
   it("não confunde violação de unicidade nem erro comum com schema ausente", () => {
     expect(faltaSchema({ code: "23505" })).toBe(false);
+    expect(faltaSchema({ code: "23503" })).toBe(false);
     expect(faltaSchema(new Error("boom"))).toBe(false);
     expect(faltaSchema(null)).toBe(false);
   });
@@ -71,7 +111,10 @@ describe("responderSchemaAusente", () => {
       configurada: true,
       alcancavel: true,
       aplicadas: 0,
-      pendentes: ["0000_freightcheck_foundation", "0013_chamados_por_parametro"],
+      pendentes: [
+        "0000_freightcheck_foundation",
+        "0013_chamados_por_parametro",
+      ],
       falha: { tag: "0000_freightcheck_foundation", code: "42710" },
     });
 

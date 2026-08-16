@@ -22,19 +22,46 @@ import { observarBanco } from "./migrations";
  * lo porque nenhuma rota escreve recomendação.
  */
 
-/** Os SQLSTATEs que dizem "esta parte do schema não existe aqui". */
+/**
+ * Os SQLSTATEs que dizem "esta parte do schema não existe aqui".
+ *
+ * Os cinco descrevem o mesmo desfecho por ângulos diferentes: uma migration
+ * criaria o objeto e não rodou neste banco. Nenhum deles é defeito do pedido, e
+ * é por isso que estão juntos — a lista é a autoridade, e as rotas só perguntam.
+ */
 const SCHEMA_AUSENTE = new Set([
   "42P01", // undefined_table
   "42703", // undefined_column
   "42704", // undefined_object — um tipo
+  "42883", // undefined_function
+  "42P10", // invalid_column_reference — o ON CONFLICT sem índice; ver abaixo
 ]);
 
 /**
  * O erro é schema ausente, e não defeito do pedido?
  *
- * `42703` é o mais traiçoeiro dos três: quando uma migration cria a tabela e a
+ * `42703` é o mais traiçoeiro do grupo: quando uma migration cria a tabela e a
  * seguinte lhe acrescenta colunas, um banco parado no meio tem a tabela — então
  * nada indica "falta migration" — e toda consulta morre por causa de uma coluna.
+ *
+ * **`42883` é o mesmo caso, uma camada abaixo.** Várias migrations deste projeto
+ * criam funções antes de usá-las — `freightcheck_snapshot_key` sustenta a coluna
+ * gerada `canonical_snapshot_key`, e os gatilhos de imutabilidade são funções.
+ * Num banco atrasado a tabela existe e a função não, e o que morre é a chamada.
+ *
+ * **`42P10` entra por um caminho só, e é este.** O Postgres o levanta quando um
+ * `ON CONFLICT (colunas)` não encontra índice único que case com a especificação
+ * — e todo `ON CONFLICT` deste código aponta para um índice que uma migration
+ * cria (`snapshot_entity_type_uq`, por exemplo). Não achá-lo é o banco estar
+ * atrás do repositório, não a planilha estar errada.
+ *
+ * O mesmo SQLSTATE também cobre um `ORDER BY` por posição fora da lista de
+ * seleção, que seria defeito nosso e não schema atrasado. Classificá-lo aqui
+ * ainda é a escolha certa: aquele defeito é estático — falha em toda chamada,
+ * inclusive nos testes, e nunca chega a um ambiente publicado —, enquanto o
+ * `ON CONFLICT` sem índice é exatamente o que aparece só onde a fila de
+ * migrations parou. Errar para o lado do diagnóstico de schema custa um 503 com
+ * o estado do banco anexo; errar para o outro lado manda corrigir a planilha.
  */
 export function faltaSchema(err: unknown): boolean {
   return SCHEMA_AUSENTE.has(codigoDoPostgres(err) ?? "");
