@@ -15,7 +15,10 @@ import {
 } from "@workspace/ingest";
 import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import {
+  componentesDaComparacao,
+  computeChangeSet,
   findPreviousSnapshot,
+  getGroupedView,
   getQuinzenaMatrix,
   listComparableSnapshots,
   listContexts,
@@ -48,10 +51,10 @@ import { encerrarPoolDoProcesso, type Database } from "@workspace/db";
  * permaneceria pulado depois da correção, e a divergência voltaria a ficar sem
  * dono. Ver `docs/AUDITORIA-INGESTAO-PROPAGACAO.md`, Parte 3.
  *
- * **Estado.** As divergências do canal (PR-6) e do escopo (PR-7) foram
- * corrigidas, e os `it.fails` delas viraram provas normais — com o corpo
- * intacto, que é a regra do protocolo. A de `entity_type_set` segue marcada, e
- * é o PR-9.
+ * **Estado.** As três divergências deste arquivo foram corrigidas: o canal
+ * (PR-6), o escopo (PR-7) e `entity_type_set` (PR-9). Os três `it.fails`
+ * viraram provas normais, com o corpo intacto, que é a regra do protocolo.
+ * Não resta nenhum marcado aqui.
  */
 
 const COLUNAS_FIXAS = [
@@ -162,16 +165,17 @@ async function vivas(db: Database): Promise<Vigencia[]> {
 
 // ---------------------------------------------------------------------------
 
-describe("divergência 1 — a entrega parcial parte a série de Alterações", () => {
+describe("divergência 1 — a entrega parcial partia a série de Alterações", () => {
   /*
     Janeiro veio só com carretas; fevereiro veio com carretas e cavalos.
 
     É a sequência que a Ambev produz sempre que passa a entregar um equipamento
     novo a partir de certa data, e ela muda `entity_type_set` de "CARRETA" para
     "CARRETA+CAVALO". O modelo canônico chama esse campo de **descritivo**
-    (ver `lib/db/src/schema/canonical.ts`); `findPreviousSnapshot` o usa como
-    **identidade da série**. As duas leituras não podem estar certas ao mesmo
-    tempo.
+    (ver `lib/db/src/schema/canonical.ts`); `findPreviousSnapshot` o usava como
+    **identidade da série**. As duas leituras não podiam estar certas ao mesmo
+    tempo, e a que ficou é a do modelo: a série é (escopo canônico, canal), e a
+    cobertura de equipamento recorta a comparação em vez de parti-la.
   */
   let ctx: TestDb;
 
@@ -214,39 +218,74 @@ describe("divergência 1 — a entrega parcial parte a série de Alterações", 
     expect((await getQuinzenaMatrix(ctx.db, {}))!.periods.length).toBe(2);
   }, 300_000);
 
-  it("a recusa já diz a verdade: existe anterior, e a cobertura é que difere", async () => {
+  it("Alterações acha a vigência anterior de fevereiro", async () => {
     /*
-      Corrigido pela metade no PR-8, e a metade importa.
+      Era o último `it.fails` da auditoria, e o protocolo é este: quando a
+      correção chega, a marca sai e o corpo do teste fica intacto.
 
-      A recusa continua — a guarda de `entity_type_set` só sai no PR-9, junto
-      com a comparação por componente. O que mudou é que ela **para de mentir**:
-      antes a tela dizia "é a primeira vigência da série" para uma vigência que
-      tem anterior no banco, e agora o motivo é nomeado e a frase cita qual é a
-      anterior que foi recusada.
+      Ele nasceu afirmando o que o produto **não** fazia — fevereiro devolvia
+      "não há anterior" para uma vigência que tem anterior no banco, porque
+      `entity_type_set` era usado como identidade da série. Passou pelo PR-8 na
+      forma intermediária ("existe anterior, e a cobertura é que difere": recusa
+      que ao menos não mentia), e agora não há recusa: a série é (escopo
+      canônico, canal), e a cobertura de equipamento é atributo da entrega.
     */
     const vigencias = await vivas(ctx.db);
     const fevereiro = vigencias.find((v) => v.effectiveDate === "2026-02-01")!;
     const anterior = await findPreviousSnapshot(ctx.db, fevereiro.id);
 
-    expect(anterior.encontrada).toBe(false);
-    if (anterior.encontrada) return;
-    expect(anterior.motivo).toBe("COBERTURA_DE_EQUIPAMENTO_DIFERENTE");
-    expect(anterior.motivo).not.toBe("PRIMEIRA_DA_SERIE");
-    expect(anterior.frase).toContain("EMPURRADA_1_1_2026");
+    expect(anterior.encontrada).toBe(true);
+    if (!anterior.encontrada) return;
+    expect(anterior.vigencia.sourceLabel).toBe("EMPURRADA_1_1_2026");
+    expect(anterior.vigencia.effectiveDate).toBe("2026-01-01");
   }, 300_000);
 
-  it.fails(
-    "Alterações deveria achar a vigência anterior de fevereiro — hoje devolve “não há anterior”",
-    async () => {
-      const vigencias = await vivas(ctx.db);
-      const fevereiro = vigencias.find((v) => v.effectiveDate === "2026-02-01")!;
-      const anterior = await findPreviousSnapshot(ctx.db, fevereiro.id);
-      // Correção esperada: a série é (escopo canônico, canal), e a cobertura de
-      // equipamento é um atributo da entrega — não um componente da identidade.
-      expect(anterior.encontrada).toBe(true);
-    },
-    300_000,
-  );
+  it("os cavalos de fevereiro não são reportados como frota que entrou", async () => {
+    /*
+      A outra metade do PR-9, e a razão de as duas andarem juntas.
+
+      Remover a guarda sem recortar a comparação faria a primeira vigência com
+      cavalos reportar cada cavalo como ativo que entrou na frota — a leitura
+      que `impacto.ts` descreve como errada: eles não entraram na frota,
+      entraram no arquivo. A comparação é por componente: só CARRETA está nas
+      duas pontas, e é só sobre CARRETA que os eixos falam.
+    */
+    const vigencias = await vivas(ctx.db);
+    const janeiro = vigencias.find((v) => v.effectiveDate === "2026-01-01")!;
+    const fevereiro = vigencias.find((v) => v.effectiveDate === "2026-02-01")!;
+
+    const componentes = await componentesDaComparacao(ctx.db, janeiro.id, fevereiro.id);
+    expect(componentes.comuns).toEqual(["CARRETA"]);
+    expect(componentes.soEmB).toEqual(["CAVALO"]);
+
+    const set = await computeChangeSet(ctx.db, janeiro.id, fevereiro.id, {
+      computedBy: "teste:propagacao",
+    });
+    // As duas carretas continuam nas duas pontas, e o cavalo não vira notícia.
+    expect(set.entitiesAdded).toBe(0);
+    expect(set.entitiesRemoved).toBe(0);
+  }, 300_000);
+
+  it("a tela não confunde “não mudou” com “não foi comparado”", async () => {
+    /*
+      O zero do cavalo precisa ter nome. A linha dele existe — a frota é dele e
+      está contada —, mas ela não aponta para o conjunto de alterações, e traz a
+      frase que diz por quê. Sem isso, o recorte por componente seria uma
+      omissão silenciosa: exatamente o defeito que esta auditoria persegue.
+    */
+    const view = (await getGroupedView(ctx.db, "2026-02-01"))!;
+    const carreta = view.series.find((s) => s.entityTypeSet === "CARRETA")!;
+    const cavalo = view.series.find((s) => s.entityTypeSet === "CAVALO")!;
+
+    expect(carreta.changeSetId).not.toBeNull();
+    expect(carreta.reason).toBeNull();
+    expect(carreta.previousLabel).toBe("EMPURRADA_1_1_2026");
+
+    expect(cavalo.changeSetId).toBeNull();
+    expect(cavalo.fleet).toBe(1);
+    expect(cavalo.reason).toContain("EMPURRADA_1_1_2026");
+    expect(cavalo.reason).toContain("não há com o que comparar");
+  }, 300_000);
 });
 
 // ---------------------------------------------------------------------------

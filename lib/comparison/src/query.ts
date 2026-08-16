@@ -1,5 +1,5 @@
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
-import { chaveDeEscopoSql } from "@workspace/availability";
+import { chaveDeEscopoSql, chaveDeSerieSql } from "@workspace/availability";
 import type { Database } from "@workspace/db";
 import { changeSetTable, changeTable, snapshotTable } from "@workspace/db";
 import { periodLabel } from "./labels";
@@ -453,6 +453,16 @@ export async function listComparableSnapshots(db: Database) {
       entityTypeSet: snapshotTable.entityTypeSet,
       scopeHash: sql<string>`${chaveDeEscopoSql("snapshot")}`,
       canal: snapshotTable.canal,
+      /*
+        A série a que esta vigência pertence, **lida da autoridade**.
+
+        Vem daqui e não é remontada por quem agrupa: montar a chave em memória
+        foi como o produto acabou com cinco definições de série, e a última
+        delas — `scope_hash|canal|entity_type_set` — estava certa por acidente,
+        porque a cobertura de equipamento vinha encobrindo a falta de
+        `dataset_family`.
+      */
+      serie: sql<string>`${chaveDeSerieSql("snapshot")}`,
       revision: snapshotTable.revision,
       status: snapshotTable.status,
       entityCount: snapshotTable.entityCount,

@@ -1,13 +1,16 @@
 import { sql } from "drizzle-orm";
-import { chaveDeEscopoSql } from "@workspace/availability";
+import { chaveDeSerieSql } from "@workspace/availability";
 import type { Database } from "@workspace/db";
 import { snapshotTable } from "@workspace/db";
-import { computeChangeSet, findPreviousSnapshot } from "./engine";
+import {
+  componentesDaComparacao,
+  computeChangeSet,
+  findPreviousSnapshot,
+} from "./engine";
 import { getChangeSetForPair } from "./query";
 import {
   contextFilter,
   resolveContext,
-  seriesKey,
   type ContextInfo,
   type SeriesContext,
 } from "./series";
@@ -161,28 +164,34 @@ export async function computeMissingChangeSets(
   const all = await db
     .select({
       id: snapshotTable.id,
-      scopeHash: sql<string>`${chaveDeEscopoSql("snapshot")}`,
       canal: snapshotTable.canal,
+      serie: sql<string>`${chaveDeSerieSql("snapshot")}`,
       sourceLabel: snapshotTable.sourceLabel,
-      entityTypeSet: snapshotTable.entityTypeSet,
       effectiveDate: snapshotTable.effectiveDate,
     })
     .from(snapshotTable)
     .where(sql`${snapshotTable.status} <> 'SUPERSEDED'`)
     .orderBy(snapshotTable.effectiveDate);
 
-  // A chave inclui o canal: sem ele, a vigência de agosto do canal ROTA seria
-  // comparada contra a de julho do canal EMPURRADA — mesma unidade, mesma
-  // cobertura, remunerações diferentes.
+  /*
+    O agrupamento é pela chave de série da autoridade — sistema, família e
+    contexto —, lida junto da vigência.
+
+    Ela inclui o canal: sem ele, agosto do canal ROTA seria comparada contra
+    julho do canal EMPURRADA, mesma unidade e remunerações diferentes. Inclui a
+    família: sem ela, a entrega de cavalos seria comparada contra a de carretas
+    do mesmo mês. E **não** inclui a cobertura de equipamento: com ela, a
+    vigência que passou a trazer cavalos abria uma série nova e nunca era
+    comparada com a de carretas do mês anterior.
+
+    Os pares consecutivos que saem daqui são exatamente os que `vigenciaAnterior`
+    aponta, porque a chave é a mesma. Produtor e consumidor não podem discordar
+    sobre qual par existe.
+  */
   const series = new Map<string, typeof all>();
   for (const snapshot of all) {
-    const key = seriesKey(
-      snapshot.scopeHash,
-      snapshot.canal,
-      snapshot.entityTypeSet,
-    );
-    if (!series.has(key)) series.set(key, []);
-    series.get(key)!.push(snapshot);
+    if (!series.has(snapshot.serie)) series.set(snapshot.serie, []);
+    series.get(snapshot.serie)!.push(snapshot);
   }
 
   let computed = 0;
@@ -288,17 +297,33 @@ export async function getConsolidated(
       }).then(() => getChangeSetForPair(db, previousId, snapshot.id)));
     if (!set) continue;
 
+    /*
+      A comparação é por componente. O motor recorta os eixos aos equipamentos
+      entregues nas duas pontas, então um componente que só existe nesta
+      vigência tem vigência anterior e não tem comparação. Escrever o
+      `changeSetId` na linha dele apontaria para um conjunto de alterações que
+      não fala dele — e a tela leria o zero como "não mudou".
+    */
+    const comparados = new Set(
+      (await componentesDaComparacao(db, previousId, snapshot.id)).comuns,
+    );
+
     for (const componente of componentes) {
+      const comparado = comparados.has(componente);
       present.push({
         entityTypeSet: componente,
         snapshotId: snapshot.id,
         sourceLabel: snapshot.sourceLabel,
-        changeSetId: set.id,
+        changeSetId: comparado ? set.id : null,
         // O rótulo da anterior vem junto da resposta da autoridade; a consulta
         // que o buscava de novo era uma ida ao banco para reler o que já
         // estava em mãos.
-        previousLabel: anterior.vigencia.sourceLabel,
-        reason: null,
+        previousLabel: comparado ? anterior.vigencia.sourceLabel : null,
+        reason: comparado
+          ? null
+          : `Este equipamento não veio em ${anterior.vigencia.sourceLabel}, a vigência ` +
+            `anterior desta série: não há com o que comparar. A entrega existe e está ` +
+            `contada; o que não existe é a comparação.`,
       });
     }
     changeSetIds.push(set.id);

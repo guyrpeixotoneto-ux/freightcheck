@@ -167,7 +167,7 @@ sequência está carregando, com o PR que as encerra:
 | Dívida | Desde | Encerra em | Por que é aceitável até lá |
 |---|---|---|---|
 | **`coverage` recorta por `scope_hash` cru** | PR-7 | **PR-10** | O contexto de Alterações/Impacto passou ao escopo canônico e o da Cobertura não. Num banco com o CNPJ escrito de uma forma só — todos os que existem hoje — os dois dão o mesmo recorte; num banco misto, a Cobertura enxerga duas unidades onde há uma. **Nenhuma solução intermediária deve ser criada**: nada de traduzir `scope_hash` dentro de `coverage`, nada de aceitar as duas chaves lá. A correção é migrar o pacote para a autoridade, de uma vez, no PR-10 |
-| **`entity_type_set` na identidade da série** | — | **PR-9** | Remover a guarda sem a comparação por componente faria a primeira vigência com cavalos reportar "244 cavalos entraram" como crescimento de frota. Desde o PR-8 a recusa ao menos **diz** que existe uma anterior, em vez de afirmar que é a primeira da série |
+| ~~**`entity_type_set` na identidade da série**~~ | — | **PR-9 — encerrada** | Saiu da série no PR-9, junto com a comparação por componente. A cobertura de equipamento recorta o que duas vigências comparam entre si, e o que ficou de fora volta nomeado no resultado |
 | **`scope_hash` legado aceito em `resolveContext`** | PR-7 | **PR-14** | Links e favoritos anteriores à mudança carregam o hash cru. Sai quando o front-end passar a usar o identificador novo explicitamente |
 
 ---
@@ -179,7 +179,7 @@ sequência está carregando, com o PR que as encerra:
 | # | Arquivo / função | Como define a série | Campos utilizados | Módulos consumidores | Divergência possível | Definição correta proposta |
 |---|---|---|---|---|---|---|
 | **B1** | `comparison/series.ts` → `listContexts`, `contextFilter` | "contexto" = unidade + canal; toda leitura recorta por ele | `scope_hash`, `substring(source_label …)` (**regex**), `status <> SUPERSEDED` | Alterações, Impacto, Panorama, Composição, DRE, Parâmetros, Consolidado, Assistente | **D1** CNPJ com/sem máscara parte a unidade em duas · **D2** rótulo em outra caixa parte o canal em dois | contexto = `(canonical_scope, canal)`, com `canal` lido da **coluna** |
-| **B2** | `comparison/series.ts` → `seriesKey` | chave textual de série | `scope_hash`, `channelOf(source_label)` (**regex**), `entity_type_set` | `consolidated.ts::computeMissingChangeSets` — o backfill que roda **após toda promoção** | D1, D2 e **D3**: entrega parcial cria uma segunda série, e o backfill nunca liga as duas | `serieDe()` = `(source_system, dataset_family, canal, canonical_scope)` — **sem** `entity_type_set` |
+| **B2** | ~~`comparison/series.ts` → `seriesKey`~~ | chave textual de série | `scope_hash`, `channelOf(source_label)` (**regex**), `entity_type_set` | `consolidated.ts::computeMissingChangeSets` — o backfill que roda **após toda promoção** | D1, D2 e **D3**: entrega parcial cria uma segunda série, e o backfill nunca liga as duas. **E faltava `dataset_family`** — `entity_type_set` mascarava a falta, porque cavalos e carretas de famílias diferentes também diferem no conjunto de equipamentos | **removida no PR-9.** Não foi substituída por outra função em memória: os três agrupamentos leem `chaveDeSerieSql` do banco, junto da vigência |
 | **B3** | `comparison/engine.ts` → `findPreviousSnapshot` | a viva mais recente que precede, "da mesma série" | `source_system`, `scope_hash`, `entity_type_set`, `channelOf(source_label)`, `status`, `effective_date <` | `/changes/latest`, `grouped`, `families`, `end-to-end`, Painel, Acompanhamento | D1, D2, **D3** — devolve `null` e a tela diz "não há anterior" | `previousSnapshot()` = mesma série (B2) + viva + `max(effective_date) < alvo` |
 | **B4** | `comparison/engine.ts` → guardas de `computeChangeSet` | recusa comparar pares "incomparáveis" | `scope_hash` igual, `entity_type_set` igual, `channelOf` igual | qualquer chamada a `computeChangeSet` | **D3**: recusa um par legítimo quando a cobertura de equipamento cresceu | guarda passa a ser `serieDe(a) === serieDe(b)`; equipamento presente só de um lado vira **componente não entregue**, não frota que mudou |
 | **B5** | `routes/changes.ts:139` (`/changes/latest`) | agrupa snapshots em séries para escolher "a mais recente" | `scope_hash`, `entity_type_set` — **sem canal** | Alterações (aba Planilha), na abertura da tela | com dois canais na mesma unidade, agrupa canais diferentes e pode escolher a série errada | delegar a `serieDe()` |
@@ -187,6 +187,7 @@ sequência está carregando, com o PR que as encerra:
 | **B7** | `coverage/{observado,esperado,matriz}.ts` | "recorte" da medição | `dataset_family`, `scope_hash`, `canal` (**coluna**) | Cobertura de dados (a tela inteira) | discorda de B1–B6 **no canal**: aqui a coluna, lá o regex. Cobertura vê a vigência; Impacto não | mesmo recorte, com `canonical_scope` no lugar de `scope_hash` |
 | **B8** | `coverage/descoberta.ts` → `janelaDosAtributos` | janela de aparição de cada atributo | `DISTINCT ON (dataset_family, effective_date)` e `lead() PARTITION BY dataset_family` — **sem escopo e sem canal** | `/coverage/discoveries`; **e o drill-down da célula** (`detalhe.ts:111`, que passa só `datasetFamily`) | com duas unidades, colapsa as duas na mesma data e sugere renomeação cruzando unidades | recorte **obrigatório**: `(dataset_family, canonical_scope, canal)` |
 | **B9** | *(escrita)* `snapshot.canonical_snapshot_key` | identidade da **vigência**, coluna gerada pelo banco | `source_system`, `dataset_family`, `canal`, `effective_date`, `canonical_scope` | `pipeline.ts::promote` e os índices únicos | **nenhuma** — é a definição correta | **é ela.** A série é ela **sem** `effective_date` |
+| **B11** | `comparison/end-to-end.ts` → `naPonta` | pareia as duas pontas do intervalo, "série com série" | `entity_type_set` como chave do `Map` de cada data | leitura ponta a ponta (Acompanhamento, cartão de intervalo) | **D3**, por outro caminho: abril com carretas e agosto com carretas e cavalos viram duas séries sem ponta do outro lado, e a tela diz "não há ponta inicial com que comparar" sobre um par que se compara | **encontrada durante o PR-9**, e corrigida nele: a chave passa a ser `chaveDeSerieSql`, e o que ficou de fora vem de `diff.componentes` |
 | **B10** | *(legado)* `db/bridge.ts` → `INDICES_LEGADOS` | identidade **anterior** à `0015`, recriada no deploy | `source_system`, `source_label`, `scope_hash`, `entity_type_set`, `revision` | nenhum módulo — é DDL de compatibilidade de publicação | — | remover quando a ponte de deploy não for mais necessária |
 
 ---
@@ -298,7 +299,17 @@ A correção tem duas metades, e a segunda é a que preserva a verdade dos núme
 
 1. a série deixa de depender de `entity_type_set`;
 2. a comparação passa a ser **por componente de equipamento**, e um equipamento
-   presente de um lado só é marcado **`NAO_ENTREGUE`**, não `ENTITY_ADDED`.
+   presente de um lado só fica **fora do recorte**, não vira `ENTITY_ADDED`.
+
+**Como ficou (PR-9).** `diffSnapshots` lê `snapshot_entity_type` das duas pontas,
+recorta os eixos 1 (valores), 2 (frota) e 4 (layout) aos componentes comuns e
+devolve `componentes: { comuns, soEmA, soEmB }` junto do resultado. O que ficou
+de fora não vira uma linha de `change` com rótulo próprio — vira **ausência de
+comparação nomeada na leitura**: `grouped.ts` e `consolidated.ts` deixam
+`changeSetId` nulo para esse componente e escrevem a frase que diz por quê. Foi
+a escolha entre inventar uma alteração que não houve e declarar que não há
+comparação; a segunda é a verdadeira, e é a que impede o zero de "não foi
+comparado" de aparecer com a cara de "não mudou".
 
 O vocabulário já existe e está testado: `impacto.ts` distingue `FORA_DA_FROTA`
 (o ativo não está nesta vigência) de `NAO_ENTREGUE` (esta vigência não trouxe o
@@ -383,8 +394,8 @@ Nenhum consumidor migrou neste PR — por desenho. O inventário do que resta:
 | Onde | O que reconstrói | Migra em |
 |---|---|---|
 | ~~`comparison/series.ts`~~ | **migrado**: canal pela coluna (PR-6) e escopo pelo canônico (PR-7), este último via `@workspace/availability` | — |
-| `comparison/engine.ts` (guardas de `computeChangeSet`) | série com `entity_type_set`. `findPreviousSnapshot` **já delega** à autoridade desde o PR-8, com a guarda passada como opção declarada | PR-9 |
-| `routes/changes.ts` (`/changes/latest`) | série sem canal | PR-11 |
+| ~~`comparison/engine.ts` (guardas de `computeChangeSet`)~~ | **migrado**: a guarda de `entity_type_set` saiu no PR-9 e a cobertura virou recorte por componente (`componentesDaComparacao`) | — |
+| ~~`routes/changes.ts` (`/changes/latest`)~~ | **migrado**: a chave de série montada à mão saiu no PR-9; a rota agrupa por `chaveDeSerieSql`, lida do banco | — |
 | `ingest/chamados.ts` (`valoresVigentes`) | "a mais recente" sem canal | PR-11 |
 | `coverage/{observado,esperado,matriz}.ts` | recorte por `scope_hash` | PR-10 |
 | `coverage/descoberta.ts` | janela sem escopo e sem canal | PR-12 |
@@ -556,7 +567,7 @@ está errado, ou ele deve `NOT_APPLICABLE`. Não há terceira saída.
 | Situação medida | Hoje | Deve ser |
 |---|---|---|
 | Equipamento sem atributo numérico, em Impacto | `404 "Nenhuma vigência importada ainda."` | `NOT_APPLICABLE` — "este equipamento não tem parâmetro numérico no dicionário" |
-| Primeira vigência da série, em Alterações | `409 "não há anterior"` | `EXISTS` + `PRIMEIRA_DA_SERIE` — correto na frase, hoje errado no gatilho (D3) |
+| Primeira vigência da série, em Alterações | `409 "não há anterior"` | `EXISTS` + `PRIMEIRA_DA_SERIE` — **feito no PR-9**: a frase e o motivo vêm da autoridade, e o gatilho passou a ser só a primeira da série |
 | Terceiro equipamento, em Composição/DRE | tela simplesmente não o mostra | `NOT_APPLICABLE` — "não há regra de composição declarada para este equipamento" |
 | Chamado aberto, sem impacto | `NOT_CALCULABLE` com motivo | **já correto** |
 | Atributo `PRESUMED` em Impacto financeiro | `somavel: false`, escolhível | **já correto** |
@@ -570,7 +581,7 @@ está errado, ou ele deve `NOT_APPLICABLE`. Não há terceira saída.
 
 | Módulo | O que ele chama hoje | O que passa a chamar | Ordem |
 |---|---|---|---|
-| **Alterações · Planilha** | `resolveContext`, `contextFilter`, `findPreviousSnapshot`, série própria em `routes/changes.ts` | `resolverContexto`, `filtroDeContexto`, `vigenciaAnterior`, `serieDe` | PR-5→8, PR-10 |
+| **Alterações · Planilha** | ~~série própria em `routes/changes.ts`~~ — **migrado no PR-9**; `resolveContext`, `contextFilter`, `findPreviousSnapshot` já delegam | `resolverContexto`, `filtroDeContexto`, `vigenciaAnterior`, `chaveDeSerieSql` | PR-5→9 |
 | **Alterações · Impacto** | `resolveContext`, `contextFilter`, `entity_type_set` p/ equipamentos | idem + `equipamentosDisponiveis`, `atributosDisponiveis` | PR-5→7, PR-9 |
 | **Alterações · Chamados** | `DISTINCT ON (scope_hash, entity_type_set)` próprio | `vigenciaAnterior` / `latestOfSeries` | PR-10 |
 | **Cobertura** | recorte próprio `(dataset_family, scope_hash, canal)` | `filtroDeSerie` + `vigenciasDisponiveis` | PR-9 |
@@ -653,7 +664,7 @@ de toda a sequência.
 | **PR-6** | Canal passa a ser lido de `snapshot.canal` em `listContexts`/`contextFilter`/`findPreviousSnapshot`/`seriesKey`. Comentários vencidos de `series.ts` e `vigencia.ts` corrigidos — **feito** | `it.fails` de **D2** ✔ invertido |
 | **PR-7** | Contexto passa a ser `(canonical_scope, canal)`; identificador novo, com o `scope_hash` antigo aceito por `resolveContext` — **feito** | `it.fails` de **D1** ✔ invertido |
 | **PR-8** | `vigenciaAnterior` na autoridade; `findPreviousSnapshot` delega. Motivo nomeado no `null`, com `COBERTURA_DE_EQUIPAMENTO_DIFERENTE` tornando D3 legível. **Guarda de `entity_type_set` ainda de pé** — **feito** | — |
-| **PR-9** | `entity_type_set` sai da série **e** comparação por componente com `NAO_ENTREGUE` — as duas metades juntas, nunca separadas | `it.fails` de **D3** |
+| **PR-9** | `entity_type_set` sai da série **e** comparação por componente — as duas metades juntas, nunca separadas. `seriesKey` deixa de existir: os três agrupamentos leem `chaveDeSerieSql` do banco — **feito** | `it.fails` de **D3** ✔ invertido |
 
 ### P2 — propagação
 

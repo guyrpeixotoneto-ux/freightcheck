@@ -811,6 +811,7 @@ export async function getGroupedView(
     previous_label: string | null;
     previous_date: string | null;
     fleet: number;
+    comparado: boolean;
   }>(sql`
     SELECT cs.id AS change_set_id,
            t AS entity_type,
@@ -827,7 +828,16 @@ export async function getGroupedView(
                FROM fact f
                JOIN entity e ON e.id = f.entity_id
               WHERE f.snapshot_id = sb.id AND e.entity_type = t
-           ) AS fleet
+           ) AS fleet,
+           -- A comparação é por componente: o motor recorta os eixos aos
+           -- equipamentos entregues nas **duas** pontas. Um componente que só
+           -- existe deste lado está dentro da comparação como vigência e fora
+           -- dela como conteúdo, e a tela precisa saber a diferença — senão
+           -- mostra o zero de "não foi comparado" com a cara de "não mudou".
+           EXISTS (
+             SELECT 1 FROM snapshot_entity_type ta
+              WHERE ta.snapshot_id = sa.id AND ta.entity_type = t
+           ) AS comparado
       FROM change_set cs
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
       JOIN snapshot sa ON sa.id = cs.snapshot_a_id
@@ -867,12 +877,17 @@ export async function getGroupedView(
       entityTypeSet: s.entity_type,
       equipment: equipmentLabel(s.entity_type),
       snapshotLabel: s.snapshot_label,
-      previousLabel: s.previous_label,
-      previousPeriod: s.previous_date,
-      previousPeriodLabel: s.previous_date ? periodLabel(s.previous_date) : null,
+      previousLabel: s.comparado ? s.previous_label : null,
+      previousPeriod: s.comparado ? s.previous_date : null,
+      previousPeriodLabel:
+        s.comparado && s.previous_date ? periodLabel(s.previous_date) : null,
       fleet: s.fleet,
-      changeSetId: s.change_set_id,
-      reason: null,
+      changeSetId: s.comparado ? s.change_set_id : null,
+      reason: s.comparado
+        ? null
+        : `Este equipamento não veio na vigência anterior (${s.previous_label}), ` +
+          `então não há com o que comparar. Ele existe nesta entrega e conta na frota; ` +
+          `o que não existe é a comparação, e ela não está contada como zero.`,
     })),
     ...snapshotsHere
       .filter((s) => !withSet.has(s.entity_type_set))

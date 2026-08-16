@@ -156,71 +156,23 @@ describe("a série e a vigência anterior", () => {
     });
   });
 
-  it("a guarda de cobertura de equipamento é opção, e diz por que recusou", async () => {
-    await comBanco("guarda_cobertura", async (ctx) => {
-      // Janeiro só carretas; fevereiro carretas e cavalos.
-      await importarEPromover(ctx.db, carretas("EMPURRADA_1_1_2026", ["AAA1A11"]));
-      await importarEPromover(ctx.db, {
-        vigencia: "EMPURRADA_1_2_2026",
-        abas: [
-          { nome: "carretas", placas: ["AAA1A11"], colunas: COLUNAS_DE_CARRETA },
-          { nome: "cavalos", placas: ["BBB1B11"], colunas: COLUNAS_DE_CAVALO },
-        ],
-      });
-      const vigencias = await vigenciasDisponiveis(ctx.db);
-      const fevereiro = vigencias[1];
-
-      // A definição correta encontra a anterior: a série é (escopo, canal), e a
-      // cobertura de equipamento é atributo da entrega.
-      const semGuarda = await vigenciaAnterior(ctx.db, fevereiro.snapshotId);
-      expect(semGuarda.encontrada).toBe(true);
-      if (semGuarda.encontrada) {
-        expect(semGuarda.vigencia.effectiveDate).toBe("2026-01-01");
-      }
-
-      /*
-        Com a guarda — o que o produto ainda aplica, até o PR-9 — a resposta é
-        recusa. O que muda desde já é a **frase**: ela diz que existe uma
-        anterior e que a cobertura é outra, em vez de afirmar que esta é a
-        primeira da série. A afirmação antiga era falsa, e era o que a tela
-        mostrava.
-      */
-      const comGuarda = await vigenciaAnterior(ctx.db, fevereiro.snapshotId, {
-        exigirMesmoEntityTypeSet: true,
-      });
-      expect(comGuarda.encontrada).toBe(false);
-      if (comGuarda.encontrada) return;
-      expect(comGuarda.motivo).toBe("COBERTURA_DE_EQUIPAMENTO_DIFERENTE");
-      expect(comGuarda.frase).toContain("EMPURRADA_1_1_2026");
-      expect(comGuarda.motivo).not.toBe("PRIMEIRA_DA_SERIE");
-    });
-  });
-
-  it("com a guarda ligada, a primeira da série continua sendo a primeira", async () => {
-    // A guarda não pode transformar todo caso em "cobertura diferente": quando
-    // não há anterior nenhuma, o motivo continua sendo o certo.
-    await comBanco("guarda_primeira", async (ctx) => {
-      await importarEPromover(ctx.db, carretas("EMPURRADA_1_1_2026", ["AAA1A11"]));
-      const [vigencia] = await vigenciasDisponiveis(ctx.db);
-      const anterior = await vigenciaAnterior(ctx.db, vigencia.snapshotId, {
-        exigirMesmoEntityTypeSet: true,
-      });
-      expect(anterior.encontrada).toBe(false);
-      if (anterior.encontrada) return;
-      expect(anterior.motivo).toBe("PRIMEIRA_DA_SERIE");
-    });
-  });
-
-  it("com a guarda ligada, a busca pula a entrega de outra cobertura em vez de parar nela", async () => {
+  it("a cobertura de equipamento não decide mais se existe anterior", async () => {
     /*
       Jan CARRETA, Fev CARRETA+CAVALO, Mar CARRETA.
 
-      A anterior de março, sob a guarda, é **janeiro** — e não "nenhuma". Filtrar
-      em memória o que a consulta trouxe daria o resultado errado: o `LIMIT 1`
-      teria devolvido fevereiro e o filtro o descartaria, encerrando a busca. É a
-      diferença entre pular a que não serve e desistir na primeira que não serve.
+      Entre o PR-8 e o PR-9 esta autoridade sabia recusar por cobertura: com a
+      guarda ligada, a anterior de março era **janeiro** — fevereiro era pulado
+      por trazer cavalos — e a anterior de fevereiro era "nenhuma, e a cobertura
+      é outra". A guarda saiu, e com ela o motivo `COBERTURA_DE_EQUIPAMENTO_
+      DIFERENTE`: a série é (escopo, canal), e a cobertura passou a recortar
+      **o que se compara**, em `diffSnapshots`, em vez de decidir se há o que
+      comparar.
+
+      A prova é a cadeia inteira, e não uma ponta: fevereiro tem janeiro, e
+      março tem **fevereiro** — a vigência imediatamente anterior, aquela que a
+      guarda descartava.
     */
-    await comBanco("guarda_pula", async (ctx) => {
+    await comBanco("cobertura_nao_recusa", async (ctx) => {
       await importarEPromover(ctx.db, carretas("EMPURRADA_1_1_2026", ["AAA1A11"]));
       await importarEPromover(ctx.db, {
         vigencia: "EMPURRADA_1_2_2026",
@@ -232,13 +184,18 @@ describe("a série e a vigência anterior", () => {
       await importarEPromover(ctx.db, carretas("EMPURRADA_1_3_2026", ["AAA1A11"]));
 
       const vigencias = await vigenciasDisponiveis(ctx.db);
-      const marco = vigencias[2];
-      const anterior = await vigenciaAnterior(ctx.db, marco.snapshotId, {
-        exigirMesmoEntityTypeSet: true,
-      });
-      expect(anterior.encontrada).toBe(true);
-      if (!anterior.encontrada) return;
-      expect(anterior.vigencia.effectiveDate).toBe("2026-01-01");
+      const [janeiro, fevereiro, marco] = vigencias;
+
+      const anteriorDeFevereiro = await vigenciaAnterior(ctx.db, fevereiro.snapshotId);
+      expect(anteriorDeFevereiro.encontrada).toBe(true);
+      if (!anteriorDeFevereiro.encontrada) return;
+      expect(anteriorDeFevereiro.vigencia.snapshotId).toBe(janeiro.snapshotId);
+
+      const anteriorDeMarco = await vigenciaAnterior(ctx.db, marco.snapshotId);
+      expect(anteriorDeMarco.encontrada).toBe(true);
+      if (!anteriorDeMarco.encontrada) return;
+      expect(anteriorDeMarco.vigencia.snapshotId).toBe(fevereiro.snapshotId);
+      expect(anteriorDeMarco.vigencia.effectiveDate).toBe("2026-02-01");
     });
   });
 

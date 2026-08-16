@@ -62,32 +62,27 @@ export interface ChangeSetSummary {
 /**
  * A vigência com que esta deve ser comparada — **decidida pela autoridade**.
  *
- * Esta função não decide mais nada. Ela repassa a pergunta para
+ * Esta função não decide nada. Ela repassa a pergunta para
  * `@workspace/availability`, que é o lugar único onde o produto define o que é
  * a mesma série e qual é a anterior dela, e devolve a resposta como veio.
  *
  * O que ela decidia, e por que parou: escopo pelo `scope_hash` cru, canal por
  * expressão regular sobre o rótulo, série incluindo `entity_type_set`, e `null`
- * para três situações diferentes. Três das quatro já tinham sido corrigidas em
- * PRs anteriores; o que sobra aqui é a delegação, que é o que impede a quinta
- * definição de aparecer no dia em que alguém precisar de um caso a mais.
+ * para três situações diferentes. A última das quatro cai agora: a cobertura de
+ * equipamento deixou de recusar a anterior. Uma entrega que passou a trazer
+ * cavalos além das carretas é a próxima vigência da mesma série — era a
+ * divergência D3 da auditoria, e é por ela que Alterações respondia "não há
+ * anterior" para uma vigência que tinha anterior no banco.
  *
- * **A guarda de cobertura de equipamento continua ligada**, e continua errada.
- * `entity_type_set` é descritivo e cresce com entrega parcial, de modo que
- * usá-lo como identidade de série parte a série em duas — é a divergência D3 da
- * auditoria. Ela não sai aqui de propósito: removê-la sem a comparação por
- * componente faria a primeira vigência com cavalos reportar "244 cavalos
- * entraram" como crescimento de frota. As duas metades andam juntas, no PR-9.
- *
- * O que muda desde já é a **frase**: quando existe uma anterior e a guarda a
- * recusa, a resposta diz isso, em vez de afirmar que esta é a primeira da
- * série. Era falso, e era o que a tela mostrava.
+ * A cobertura não sumiu do cálculo: ela mudou de papel. Deixou de decidir *se*
+ * há o que comparar e passou a recortar **o que** se compara, componente a
+ * componente, em `diffSnapshots`.
  */
 export function findPreviousSnapshot(
   db: Database,
   snapshotId: string,
 ): Promise<ResultadoDaAnterior> {
-  return vigenciaAnterior(db, snapshotId, { exigirMesmoEntityTypeSet: true });
+  return vigenciaAnterior(db, snapshotId);
 }
 
 interface PairedFact extends Record<string, unknown> {
@@ -153,11 +148,21 @@ export async function computeChangeSet(
       `Escopos diferentes: "${a.sourceLabel}" e "${b.sourceLabel}" cobrem unidades/operadores distintos e não são comparáveis.`,
     );
   }
-  if (a.entityTypeSet !== b.entityTypeSet) {
-    throw new Error(
-      `Coberturas diferentes: "${a.sourceLabel}" cobre ${a.entityTypeSet} e "${b.sourceLabel}" cobre ${b.entityTypeSet}.`,
-    );
-  }
+  /*
+    Cobertura de equipamento **não** recusa mais a comparação.
+
+    Exigir `entity_type_set` igual partia a série em duas: janeiro só carretas e
+    fevereiro carretas e cavalos deixavam de ser vigências sucessivas, e a tela
+    dizia "primeira vigência" para uma que tem anterior no banco. `entity_type_
+    set` é descritivo — cresce com entrega parcial —, e descritivo não é
+    identidade.
+
+    O que a cobertura faz agora está em `diffSnapshots`: os eixos que comparam
+    duas entregas são recortados aos componentes presentes nas **duas**, e o que
+    ficou de fora volta nomeado no resultado. Nenhuma recusa por cobertura
+    sobrou — nem a de coberturas disjuntas: recusar aqui faria este motor
+    discordar da autoridade sobre qual é o par a comparar.
+  */
   // O canal é componente da identidade da vigência, e não do escopo: duas
   // vigências da mesma unidade podem vir de canais diferentes e descrever
   // remunerações que não se sucedem. Comparar as duas produziria uma diferença
@@ -300,13 +305,40 @@ export async function computeChangeSet(
 
     // ---------------------------------------------------------------------
     // Axis 4 — layout: a column that appeared or vanished
+    //
+    // Recortado pelos mesmos componentes dos eixos 1 e 2. Sem isso, a primeira
+    // vigência que trouxesse cavalos reportaria as colunas de cavalo como
+    // "colunas novas no export" — e o export não mudou de layout: mudou de
+    // cobertura. Um atributo entra por componente comum quando tem ao menos um
+    // fato sobre esse componente naquela vigência.
     // ---------------------------------------------------------------------
+    const comunsDoLayout = filtroDeComponente("e", diff.componentes.comuns);
     const { rows: layout } = await tx.execute<{
       attribute_id: string;
       direction: string;
     }>(sql`
-      WITH la AS (SELECT attribute_id FROM snapshot_attribute WHERE snapshot_id = ${snapshotAId}),
-           lb AS (SELECT attribute_id FROM snapshot_attribute WHERE snapshot_id = ${snapshotBId})
+      WITH la AS (
+        SELECT sa.attribute_id
+          FROM snapshot_attribute sa
+         WHERE sa.snapshot_id = ${snapshotAId}
+           AND EXISTS (SELECT 1
+                         FROM fact f
+                         JOIN entity e ON e.id = f.entity_id
+                        WHERE f.snapshot_id = sa.snapshot_id
+                          AND f.attribute_id = sa.attribute_id
+                          AND ${comunsDoLayout})
+      ),
+      lb AS (
+        SELECT sa.attribute_id
+          FROM snapshot_attribute sa
+         WHERE sa.snapshot_id = ${snapshotBId}
+           AND EXISTS (SELECT 1
+                         FROM fact f
+                         JOIN entity e ON e.id = f.entity_id
+                        WHERE f.snapshot_id = sa.snapshot_id
+                          AND f.attribute_id = sa.attribute_id
+                          AND ${comunsDoLayout})
+      )
       SELECT COALESCE(la.attribute_id, lb.attribute_id) AS attribute_id,
              CASE WHEN la.attribute_id IS NULL THEN 'ADDED' ELSE 'REMOVED' END AS direction
         FROM la
@@ -393,6 +425,83 @@ export interface SnapshotDiff {
   /** Por periodicidade, sempre: um número mensal e um anual não se somam. */
   calculatedImpactByPeriodicity: Record<string, number>;
   impactNotCalculable: number;
+  /**
+   * Que componentes entraram na comparação, e que componentes ficaram de fora.
+   *
+   * Faz parte do resultado, e não é detalhe interno, porque sem ele o leitor
+   * não tem como distinguir "os cavalos não mudaram" de "os cavalos não foram
+   * comparados". As duas frases têm o mesmo zero na tela, e só uma delas é
+   * verdade.
+   */
+  componentes: ComponentesDaComparacao;
+}
+
+/** O recorte por equipamento de uma comparação entre duas vigências. */
+export interface ComponentesDaComparacao {
+  /** Entregues nas duas pontas. É sobre estes que os eixos 1, 2 e 4 falam. */
+  comuns: string[];
+  /** Entregues só na vigência anterior: saíram do recorte, não da frota. */
+  soEmA: string[];
+  /** Entregues só na nova: entraram no recorte, não na frota. */
+  soEmB: string[];
+}
+
+/**
+ * Que equipamentos as duas vigências têm em comum — lido de `snapshot_entity_type`.
+ *
+ * A fonte é a tabela de agregado por equipamento, e não `entity_type_set`. O
+ * texto da coluna é rótulo derivado: ele cresce quando uma revisão parcial
+ * herda componentes que o arquivo não trouxe, e é justamente por confiar nele
+ * que a comparação recusava séries inteiras. A tabela é contada na promoção,
+ * uma linha por (vigência, equipamento), e diz o que aquela entrega de fato
+ * tem.
+ */
+export async function componentesDaComparacao(
+  executor: Pick<Database, "execute">,
+  aId: string,
+  bId: string,
+): Promise<ComponentesDaComparacao> {
+  const { rows } = await executor.execute<{
+    entity_type: string;
+    em_a: boolean;
+    em_b: boolean;
+  }>(sql`
+    WITH ta AS (SELECT entity_type FROM snapshot_entity_type WHERE snapshot_id = ${aId}),
+         tb AS (SELECT entity_type FROM snapshot_entity_type WHERE snapshot_id = ${bId})
+    SELECT COALESCE(ta.entity_type, tb.entity_type) AS entity_type,
+           ta.entity_type IS NOT NULL AS em_a,
+           tb.entity_type IS NOT NULL AS em_b
+      FROM ta
+      FULL OUTER JOIN tb ON tb.entity_type = ta.entity_type
+     ORDER BY 1
+  `);
+  return {
+    comuns: rows.filter((r) => r.em_a && r.em_b).map((r) => r.entity_type),
+    soEmA: rows.filter((r) => r.em_a && !r.em_b).map((r) => r.entity_type),
+    soEmB: rows.filter((r) => !r.em_a && r.em_b).map((r) => r.entity_type),
+  };
+}
+
+/**
+ * O predicado que recorta uma consulta aos componentes comuns.
+ *
+ * Lista vazia devolve `false`, e não `IN ()`. Duas entregas sem equipamento em
+ * comum — carretas de um lado, cavalos do outro — produzem uma comparação
+ * vazia, e não uma recusa: a autoridade de disponibilidade responde que a
+ * anterior de fevereiro é janeiro, e o motor tem de comparar exatamente o par
+ * que ela indicou. Recusar aqui faria o produtor e o consumidor discordarem
+ * sobre qual par existe, que é a doença que esta auditoria persegue.
+ *
+ * O zero não fica mudo: `SnapshotDiff.componentes` diz que nenhum componente
+ * era comum, e é dali que a leitura tira a frase em vez de escrever "nada
+ * mudou".
+ */
+function filtroDeComponente(alias: string, comuns: string[]) {
+  if (comuns.length === 0) return sql`false`;
+  return sql`${sql.raw(alias)}.entity_type IN (${sql.join(
+    comuns.map((t) => sql`${t}`),
+    sql`, `,
+  )})`;
 }
 
 export async function diffSnapshots(
@@ -404,6 +513,23 @@ export async function diffSnapshots(
   semanticsA: Map<string, AttributeClassification>,
   semanticsB: Map<string, AttributeClassification>,
 ): Promise<SnapshotDiff> {
+  /*
+    O recorte, antes de qualquer conta.
+
+    Uma vigência que passou a trazer cavalos além das carretas é a próxima da
+    mesma série — mas os cavalos dela não têm com o que ser comparados. Comparar
+    a entrega inteira reportaria "244 cavalos entraram" como crescimento de
+    frota, que é a leitura que `impacto.ts` já descreve como errada: eles não
+    entraram na frota, entraram no arquivo.
+
+    Então a comparação é **por componente**: os eixos 1, 2 e 4 falam apenas dos
+    equipamentos entregues nas duas pontas, e os que ficaram de fora voltam
+    nomeados em `componentes`, para que o leitor possa dizer por que não há
+    número em vez de mostrar zero.
+  */
+  const componentes = await componentesDaComparacao(executor, a.id, b.id);
+  const comuns = filtroDeComponente("e", componentes.comuns);
+
   const rows: ComputedChange[] = [];
   let unchanged = 0;
   let inconclusive = 0;
@@ -419,6 +545,7 @@ export async function diffSnapshots(
     WITH fa AS (
       SELECT f.*, i.identifier_value AS entity_label
         FROM fact f
+        JOIN entity e ON e.id = f.entity_id AND ${comuns}
         LEFT JOIN entity_identifier i
           ON i.entity_id = f.entity_id
          AND i.identifier_type = 'PLACA'
@@ -428,6 +555,7 @@ export async function diffSnapshots(
     fb AS (
       SELECT f.*, i.identifier_value AS entity_label
         FROM fact f
+        JOIN entity e ON e.id = f.entity_id AND ${comuns}
         LEFT JOIN entity_identifier i
           ON i.entity_id = f.entity_id
          AND i.identifier_type = 'PLACA'
@@ -539,8 +667,18 @@ export async function diffSnapshots(
     entity_type: string;
     direction: string;
   }>(sql`
-    WITH ea AS (SELECT DISTINCT entity_id FROM fact WHERE snapshot_id = ${a.id}),
-         eb AS (SELECT DISTINCT entity_id FROM fact WHERE snapshot_id = ${b.id})
+    WITH ea AS (
+      SELECT DISTINCT f.entity_id
+        FROM fact f
+        JOIN entity e ON e.id = f.entity_id AND ${comuns}
+       WHERE f.snapshot_id = ${a.id}
+    ),
+    eb AS (
+      SELECT DISTINCT f.entity_id
+        FROM fact f
+        JOIN entity e ON e.id = f.entity_id AND ${comuns}
+       WHERE f.snapshot_id = ${b.id}
+    )
     SELECT COALESCE(ea.entity_id, eb.entity_id) AS entity_id,
            i.identifier_value AS entity_label,
            e.entity_type,
@@ -584,6 +722,7 @@ export async function diffSnapshots(
     entitiesRemoved,
     calculatedImpactByPeriodicity: roundBuckets(calculatedImpact),
     impactNotCalculable,
+    componentes,
   };
 }
 

@@ -131,20 +131,27 @@ router.get("/changes/latest", async (req, res): Promise<void> => {
     }
 
     /**
-     * Vigências only compare inside their own series. When the Ambev ships
-     * carretas and cavalos as separate files there are two series, and simply
-     * taking "the newest snapshot" would answer for one equipment type while
-     * silently dropping the other.
+     * Vigências só se comparam dentro da própria série, e quem diz qual é a
+     * série é a autoridade: `snapshot.serie` vem lida do banco por
+     * `listComparableSnapshots`, pela mesma expressão que `vigenciaAnterior`
+     * usa para achar a anterior.
+     *
+     * A chave daqui era montada à mão, `scope_hash|entity_type_set`, e era mais
+     * uma definição de série no produto. Ela inventava séries: quando fevereiro
+     * passava a trazer cavalos além das carretas, esta rota passava a oferecer
+     * duas — uma "CARRETA" parada em janeiro e uma "CARRETA+CAVALO" em
+     * fevereiro —, como se a unidade tivesse duas histórias paralelas. O
+     * equipamento continua descrevendo cada série, pela cobertura da última
+     * entrega dela; o que ele não faz mais é criar séries.
      */
-    const seriesKey = (s: (typeof snapshots)[number]) =>
-      `${s.scopeHash}|${s.entityTypeSet}`;
-    const series = [...new Set(snapshots.map(seriesKey))]
+    const series = [...new Set(snapshots.map((s) => s.serie))]
       .map((key) => {
-        const members = snapshots.filter((s) => seriesKey(s) === key);
+        const members = snapshots.filter((s) => s.serie === key);
+        const latest = members[members.length - 1];
         return {
           key,
-          entityTypeSet: members[0].entityTypeSet,
-          latest: members[members.length - 1],
+          entityTypeSet: latest.entityTypeSet,
+          latest,
           count: members.length,
         };
       })

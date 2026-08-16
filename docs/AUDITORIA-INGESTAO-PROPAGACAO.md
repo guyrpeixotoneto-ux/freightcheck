@@ -390,6 +390,15 @@ Alterações: findPrevious(fev) = NULL
 É a sequência que a Ambev produz **toda vez** que passa a entregar um
 equipamento novo a partir de certa data.
 
+**Corrigida no PR-9.** A série passou a ser a chave canônica sem a data
+(`chaveDeSerieSql`: sistema, família, canal, escopo canônico), e a cobertura de
+equipamento deixou de recusar a anterior. Ela não sumiu do cálculo: `diffSnapshots`
+lê `snapshot_entity_type` das duas pontas e recorta os eixos aos componentes
+comuns, devolvendo `componentes: { comuns, soEmA, soEmB }` — o que ficou de fora
+volta nomeado, e a leitura escreve a frase em vez de mostrar zero. As duas
+metades no mesmo PR: sem o recorte, a primeira vigência com cavalos reportaria
+cada cavalo como ativo que entrou na frota.
+
 ---
 
 ### D4 · Oito definições de "série", e nenhuma é a mesma
@@ -720,7 +729,7 @@ fronteira entre módulos não tem nenhum.
 | **Nenhum dado importado** | banco vazio | correto onde já é usado |
 | **Nenhum dado aplicável a esta análise** | equipamento sem atributo numérico no dicionário | Impacto: `404 "Nenhuma vigência importada ainda."` (D6) |
 | **Nenhuma alteração encontrada** | duas vigências idênticas | correto |
-| **Nenhuma vigência anterior disponível** | primeira da série | correto na frase, **errado no gatilho** — hoje dispara também quando a série se partiu por `entity_type_set` (D3) |
+| **Nenhuma vigência anterior disponível** | primeira da série | **corrigido no PR-9**: o gatilho passou a ser só a primeira da série. A frase e o motivo vêm de `vigenciaAnterior`, e a série não se parte mais por `entity_type_set` (D3) |
 | **Dados existentes, mas impacto não calculável** | atributo `PRESUMED`, ou chamado ainda aberto | correto — `somavel`, `NOT_CALCULABLE` com motivo |
 | **Filtros atuais não retornaram resultados** | filtro de materialidade/classe na lista | correto |
 | **Este módulo não se aplica a este equipamento** | terceiro `entity_type` em Composição/DRE | **não existe** (D12) |

@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { chaveDeSerieSql } from "@workspace/availability";
 import type { Database } from "@workspace/db";
 import { loadAttributeClassificationsAt } from "./classification";
 import { indexChangedAttributesByEntity, isCoveredByParts } from "./composition";
@@ -214,33 +215,48 @@ export async function getEndToEndAnalysis(
     entity_type_set: string;
     source_label: string;
     entity_count: number;
+    serie: string;
   }>(sql`
     SELECT s.id::text AS id, s.effective_date::text AS effective_date,
-           s.entity_type_set, s.source_label, s.entity_count
+           s.entity_type_set, s.source_label, s.entity_count,
+           ${chaveDeSerieSql("s")} AS serie
       FROM snapshot s
      WHERE s.effective_date IN (${inicio}::date, ${fim}::date)
        AND s.status <> 'SUPERSEDED'
        AND ${contextFilter("s", context)}
   `);
 
+  /*
+    As pontas são indexadas pela **chave de série** da autoridade, e não por
+    `entity_type_set`.
+
+    Indexar pelo conjunto de equipamentos era mais uma definição de série no
+    produto — a auditoria não a tinha catalogado —, e ela produzia aqui o mesmo
+    defeito de todas as outras: abril com carretas e agosto com carretas e
+    cavalos viravam duas séries distintas, cada uma sem ponta do outro lado, e a
+    tela dizia "não há ponta inicial com que comparar" sobre um par que se
+    compara. O que a cobertura de equipamento faz é recortar a comparação por
+    componente, dentro de `diffSnapshots`, e é de lá que sai o que ficou de
+    fora.
+  */
   const naPonta = (data: string) =>
-    new Map(snapshots.filter((s) => s.effective_date === data).map((s) => [s.entity_type_set, s]));
+    new Map(snapshots.filter((s) => s.effective_date === data).map((s) => [s.serie, s]));
   const deA = naPonta(inicio);
   const deB = naPonta(fim);
 
   /*
-    Só se compara série com série do mesmo equipamento. Uma que exista só numa
-    das pontas não vira zero nem entra na conta: é dita, e o motivo é o que
-    manda importar o arquivo que falta.
+    Só se compara série com série. Uma que exista só numa das pontas não vira
+    zero nem entra na conta: é dita, e o motivo é o que manda importar o arquivo
+    que falta.
   */
   const paresComparaveis = [...deB.keys()].filter((serie) => deA.has(serie)).sort();
   const missingSeries = [
     ...[...deB.keys()].filter((s) => !deA.has(s)).map((s) => ({
-      entityTypeSet: s,
+      entityTypeSet: deB.get(s)!.entity_type_set,
       reason: `A série existe em ${periodLabel(fim)} e não em ${periodLabel(inicio)}: não há ponta inicial com que comparar.`,
     })),
     ...[...deA.keys()].filter((s) => !deB.has(s)).map((s) => ({
-      entityTypeSet: s,
+      entityTypeSet: deA.get(s)!.entity_type_set,
       reason: `A série existe em ${periodLabel(inicio)} e não em ${periodLabel(fim)}: não há ponta final com que comparar.`,
     })),
   ];
@@ -264,6 +280,26 @@ export async function getEndToEndAnalysis(
       semanticsA,
       semanticsB,
     );
+    /*
+      O que a comparação não alcançou, dito por componente.
+
+      Um equipamento entregue numa ponta só fica fora do recorte, e o silêncio
+      dele tem de ter nome aqui pelo mesmo motivo que tem em `grouped.ts`: sem a
+      frase, o zero dele é lido como "não mudou".
+    */
+    for (const componente of diff.componentes.soEmB) {
+      missingSeries.push({
+        entityTypeSet: componente,
+        reason: `${equipmentLabel(componente)} veio em ${periodLabel(fim)} e não em ${periodLabel(inicio)}: não há ponta inicial deste equipamento com que comparar.`,
+      });
+    }
+    for (const componente of diff.componentes.soEmA) {
+      missingSeries.push({
+        entityTypeSet: componente,
+        reason: `${equipmentLabel(componente)} veio em ${periodLabel(inicio)} e não em ${periodLabel(fim)}: não há ponta final deste equipamento com que comparar.`,
+      });
+    }
+
     for (const linha of diff.changes) todas.push({ serie, linha });
     entitiesAdded += diff.entitiesAdded;
     entitiesRemoved += diff.entitiesRemoved;
@@ -494,7 +530,7 @@ export async function getEndToEndAnalysis(
     toLabel: periodLabel(fim),
     periods: datas.map((d) => ({ date: d, label: periodLabel(d) })),
     series: paresComparaveis.map((serie) => ({
-      entityTypeSet: serie,
+      entityTypeSet: deB.get(serie)!.entity_type_set,
       equipment: deB.get(serie)!.entity_type_set,
       fromLabel: deA.get(serie)!.source_label,
       toLabel: deB.get(serie)!.source_label,

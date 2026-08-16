@@ -298,9 +298,7 @@ describe("escolha do snapshot anterior", () => {
     */
     for (const snapshot of snapshots) {
       const doConsumidor = await findPreviousSnapshot(ctx.db, snapshot.id);
-      const daAutoridade = await vigenciaAnterior(ctx.db, snapshot.id, {
-        exigirMesmoEntityTypeSet: true,
-      });
+      const daAutoridade = await vigenciaAnterior(ctx.db, snapshot.id);
       expect(doConsumidor.encontrada, snapshot.sourceLabel).toBe(daAutoridade.encontrada);
       if (doConsumidor.encontrada && daAutoridade.encontrada) {
         expect(doConsumidor.vigencia.snapshotId).toBe(daAutoridade.vigencia.snapshotId);

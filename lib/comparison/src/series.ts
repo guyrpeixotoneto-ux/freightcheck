@@ -257,18 +257,17 @@ export function contextFilter(snapshotAlias: string, context: SeriesContext) {
              AND ${canalDe(snapshotAlias)} = ${context.channel}::text`;
 }
 
-/**
- * A chave da série: contexto + cobertura de equipamento.
- *
- * O canal entra pela coluna, e não mais pelo rótulo. `entity_type_set` continua
- * aqui e está errado — ele cresce com entrega parcial e parte a série —, mas
- * tirá-lo exige a comparação por componente, e as duas metades andam juntas no
- * PR-9. Ver `docs/AUDITORIA-COMPLEMENTO-BASELINE.md`, Parte D.3.
- */
-export function seriesKey(
-  scopeHash: string,
-  canal: string,
-  entityTypeSet: string,
-): string {
-  return `${scopeHash}|${canal}|${entityTypeSet}`;
-}
+/*
+  `seriesKey` não existe mais.
+
+  Era uma chave de série montada em memória — `scope_hash|canal|entity_type_set`
+  — e era a quinta definição de série no produto. Tirar `entity_type_set` dela
+  não bastava: faltava `dataset_family`, e a cobertura de equipamento vinha
+  mascarando a falta, porque cavalos e carretas de famílias diferentes também
+  diferem no conjunto de equipamentos. Uma chave certa por acidente.
+
+  Quem responde qual é a série é `chaveDeSerieSql`, em `@workspace/availability`:
+  sistema, família e contexto, que é a identidade canônica sem a data. Os três
+  agrupamentos que usavam `seriesKey` passaram a ler essa chave do banco, junto
+  da vigência, em vez de remontá-la aqui.
+*/

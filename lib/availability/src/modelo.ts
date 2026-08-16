@@ -138,46 +138,17 @@ export type VeredictoDeDisponibilidade =
 /**
  * Por que não há vigência anterior. `null` mudo é o que esta união substitui.
  *
- * Os três motivos respondem a perguntas diferentes, e a diferença é o ponto:
- * **não existe anterior** é um estado legítimo do dado, **não foi possível
- * determinar** é um defeito, e **existe e não foi aceita** é uma regra do
- * produto que alguém precisa poder ver. Uma frase só para os três é como "é a
- * primeira da série" acabou aparecendo para vigências que têm anterior.
+ * Os dois motivos respondem a perguntas diferentes: **não existe anterior** é
+ * estado legítimo do dado, e **não foi possível determinar** é defeito. Havia um
+ * terceiro entre o PR-8 e o PR-9 — "existe anterior, e a cobertura de
+ * equipamento é outra" —, e ele saiu junto com a guarda que o produzia: a
+ * cobertura deixou de recusar a anterior, e passou a recortar a comparação.
  */
 export type MotivoSemAnterior =
   /** É a mais antiga da série. Estado legítimo, e não falta de dado. */
   | "PRIMEIRA_DA_SERIE"
-  /**
-   * Existe anterior na série, e ela cobre outro conjunto de equipamentos.
-   *
-   * Só aparece com `exigirMesmoEntityTypeSet`, que é a guarda que o produto
-   * ainda aplica e que o PR-9 remove. Ele existe para que a recusa **diga** que
-   * há uma anterior: é a divergência D3 da auditoria, e enquanto ela viver é
-   * melhor que ela seja legível do que confundida com "primeira da série".
-   */
-  | "COBERTURA_DE_EQUIPAMENTO_DIFERENTE"
   /** O identificador não corresponde a vigência disponível nenhuma. */
   | "VIGENCIA_DESCONHECIDA";
-
-/** O que muda na busca pela anterior. */
-export interface OpcoesDaAnterior {
-  /**
-   * Exigir que a anterior cubra **o mesmo conjunto de equipamentos**.
-   *
-   * **É uma guarda de compatibilidade, e ela está errada.** `entity_type_set` é
-   * descritivo — cresce quando uma revisão parcial herda componentes que o
-   * arquivo não trouxe —, e usá-lo como identidade de série faz uma entrega
-   * parcial partir a série em duas. É a divergência D3, e o `false` é a
-   * definição correta.
-   *
-   * A opção existe para que os consumidores possam delegar a esta autoridade
-   * **sem mudar de comportamento** no mesmo PR em que passam a delegar. Ela sai
-   * no PR-9, junto com a comparação por componente — que é a metade sem a qual
-   * remover a guarda faria a primeira vigência com cavalos reportar "244
-   * cavalos entraram" como crescimento de frota.
-   */
-  exigirMesmoEntityTypeSet?: boolean;
-}
 
 export type ResultadoDaAnterior =
   | { encontrada: true; vigencia: VigenciaDisponivel }

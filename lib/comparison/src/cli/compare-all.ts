@@ -6,7 +6,6 @@
 import { createDb } from "@workspace/db";
 import { computeChangeSet } from "../engine";
 import { getChangeSetBreakdown, listChanges, listComparableSnapshots } from "../query";
-import { seriesKey } from "../series";
 
 const { db, pool } = createDb(process.env.DATABASE_URL!);
 const n = (v: number) => v.toLocaleString("pt-BR", { maximumFractionDigits: 2 });
@@ -21,19 +20,14 @@ const fmtImpact = (buckets: Record<string, number>) => {
 try {
   const all = await listComparableSnapshots(db);
 
-  // Vigências only compare within their own series: same source, same scope,
-  // same channel and same equipment coverage. When the Ambev ships carretas and
-  // cavalos as two files, there are two series, and pairing them by date alone
-  // would ask the engine to compare a trailer against a truck.
+  // Uma vigência só se compara dentro da própria série, e quem diz qual é a
+  // série é a autoridade: a chave vem lida do banco, junto da vigência. A
+  // cobertura de equipamento não entra nela — ela recorta o que cada par
+  // compara, dentro do motor, e não separa a série em duas.
   const series = new Map<string, typeof all>();
   for (const snapshot of all) {
-    const key = seriesKey(
-      snapshot.scopeHash,
-      snapshot.canal,
-      snapshot.entityTypeSet,
-    );
-    if (!series.has(key)) series.set(key, []);
-    series.get(key)!.push(snapshot);
+    if (!series.has(snapshot.serie)) series.set(snapshot.serie, []);
+    series.get(snapshot.serie)!.push(snapshot);
   }
 
   console.log(
@@ -44,7 +38,11 @@ try {
   const snapshots = all;
   for (const [key, group] of series) {
     if (series.size > 1) {
-      console.log(`  ── ${key.split("|").slice(1).filter(Boolean).join(" · ")} ──`);
+      // A chave é um hash: o cabeçalho nomeia a série pelo que ela entrega.
+      const primeira = group[0];
+      console.log(
+        `  ── ${primeira.canal} · ${primeira.entityTypeSet} · ${group.length} vigência(s) ──`,
+      );
     }
   for (let i = 1; i < group.length; i++) {
     const a = group[i - 1];

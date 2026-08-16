@@ -407,12 +407,17 @@ function Cabecalho({
  */
 function Avisos({ data }: { data: GroupedView }) {
   /*
-    A série sem anterior só vira aviso quando **alguma outra** foi comparada:
+    A série sem comparação só vira aviso quando **alguma outra** foi comparada:
     aí o número da tela cobre parte da frota, e isso precisa ser dito. Quando
-    nenhuma tem anterior, o resumo já abre dizendo que esta é a primeira
+    nenhuma tem comparação, o resumo já abre dizendo que esta é a primeira
     vigência, e repetir aqui seria a terceira vez na mesma tela.
+
+    São dois casos, e a frase de cada um vem pronta em `reason`: a série que não
+    tem anterior nenhuma, e o equipamento que a vigência anterior não trouxe —
+    este segundo tem anterior e não tem comparação, porque a comparação é por
+    componente.
   */
-  const primeiraVigencia = data.cockpit.baseline.hasBaseline
+  const semComparacao = data.cockpit.baseline.hasBaseline
     ? data.series.filter((s) => s.changeSetId === null)
     : [];
 
@@ -437,7 +442,7 @@ function Avisos({ data }: { data: GroupedView }) {
         </Aviso>
       )}
 
-      {primeiraVigencia.map((s) => (
+      {semComparacao.map((s) => (
         <Aviso key={s.entityTypeSet}>
           <strong>{s.equipment}:</strong> {s.reason}
         </Aviso>
