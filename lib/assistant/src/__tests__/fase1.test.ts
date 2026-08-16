@@ -21,15 +21,20 @@ import { ESTADO_VAZIO, type EstadoDaConversa } from "../conversa";
  * derivado desse banco no instante da pergunta.
  */
 
-const URL_DO_BANCO = process.env.ASSISTANT_EVAL_DATABASE_URL ?? process.env.DATABASE_URL;
-const rodar = URL_DO_BANCO ? describe : describe.skip;
+import {
+  comBancoDeAvaliacao as rodar,
+  URL_DO_BANCO_DE_AVALIACAO as URL_DO_BANCO,
+} from "./banco-de-avaliacao";
 
 rodar("Fase 1 — confiabilidade e perda da pergunta", () => {
   let db: Database;
 
   beforeAll(async () => {
     ({ db } = createDb(URL_DO_BANCO!));
-    expect(await resolveContext(db), "esta suíte precisa de um banco promovido").toBeTruthy();
+    expect(
+      await resolveContext(db),
+      "esta suíte precisa de um banco promovido",
+    ).toBeTruthy();
     await semearBookDeTeste(db);
   });
 
@@ -50,16 +55,24 @@ rodar("Fase 1 — confiabilidade e perda da pergunta", () => {
       await db.execute(sql`DELETE FROM change_set`);
 
       const dossie = await orquestrar(db, "Teve alteração na remuneração?");
-      const resumo = dossie.evidencias.find((e) => e.ferramenta === "resumoDaVigencia");
+      const resumo = dossie.evidencias.find(
+        (e) => e.ferramenta === "resumoDaVigencia",
+      );
 
-      expect(resumo, "a pergunta tinha de consultar o resumo da vigência").toBeTruthy();
+      expect(
+        resumo,
+        "a pergunta tinha de consultar o resumo da vigência",
+      ).toBeTruthy();
 
       const alteracoes = resumo!.fatos.find((f) => f.rotulo === "Alterações");
       expect(
         alteracoes?.valor,
         "sem o change set garantido, esta pergunta responde 0 e parece uma consulta legítima",
       ).not.toBe("0");
-      expect(resumo!.numeros.some((n) => n > 0), "nenhum número maior que zero").toBe(true);
+      expect(
+        resumo!.numeros.some((n) => n > 0),
+        "nenhum número maior que zero",
+      ).toBe(true);
     });
 
     it("é idempotente: perguntar de novo não recalcula nem muda o número", async () => {
@@ -67,9 +80,9 @@ rodar("Fase 1 — confiabilidade e perda da pergunta", () => {
       const segunda = await orquestrar(db, "Teve alteração na remuneração?");
 
       const numero = (d: typeof primeira) =>
-        d.evidencias.find((e) => e.ferramenta === "resumoDaVigencia")?.fatos.find(
-          (f) => f.rotulo === "Alterações",
-        )?.valor;
+        d.evidencias
+          .find((e) => e.ferramenta === "resumoDaVigencia")
+          ?.fatos.find((f) => f.rotulo === "Alterações")?.valor;
 
       expect(numero(segunda)).toBe(numero(primeira));
     });
@@ -98,22 +111,25 @@ rodar("Fase 1 — confiabilidade e perda da pergunta", () => {
       "cê consegue ver o que mudou?",
     ];
 
-    it.each(semAssuntoProprio)("%s → consulta o agregado, não um fantasma", async (pergunta) => {
-      const dossie = await orquestrar(db, pergunta);
+    it.each(semAssuntoProprio)(
+      "%s → consulta o agregado, não um fantasma",
+      async (pergunta) => {
+        const dossie = await orquestrar(db, pergunta);
 
-      expect(
-        dossie.plano.alvo,
-        `"${pergunta}" não nomeia gaveta nenhuma — nenhum alvo deveria ser resolvido`,
-      ).toBeNull();
-      expect(
-        dossie.evidencias.length,
-        `"${pergunta}" terminou sem consultar nada`,
-      ).toBeGreaterThan(0);
-      expect(
-        dossie.lacunas.map((l) => l.tipo),
-        "não existe assunto inexistente quando não houve assunto",
-      ).not.toContain("NAO_EXISTE_NO_PRODUTO");
-    });
+        expect(
+          dossie.plano.alvo,
+          `"${pergunta}" não nomeia gaveta nenhuma — nenhum alvo deveria ser resolvido`,
+        ).toBeNull();
+        expect(
+          dossie.evidencias.length,
+          `"${pergunta}" terminou sem consultar nada`,
+        ).toBeGreaterThan(0);
+        expect(
+          dossie.lacunas.map((l) => l.tipo),
+          "não existe assunto inexistente quando não houve assunto",
+        ).not.toContain("NAO_EXISTE_NO_PRODUTO");
+      },
+    );
 
     it("o que a pessoa nomeia e o produto conhece sem ter coluna continua virando lacuna", async () => {
       const dossie = await orquestrar(db, "Quanto mudou o pedágio?");
@@ -124,7 +140,10 @@ rodar("Fase 1 — confiabilidade e perda da pergunta", () => {
     });
 
     it("uma gaveta de verdade continua sendo resolvida", async () => {
-      const dossie = await orquestrar(db, "Quanto mudou o pneu desde dezembro?");
+      const dossie = await orquestrar(
+        db,
+        "Quanto mudou o pneu desde dezembro?",
+      );
       expect(dossie.plano.alvo?.parametro).toMatch(/pneu/i);
     });
   });
@@ -137,7 +156,11 @@ rodar("Fase 1 — confiabilidade e perda da pergunta", () => {
     ficava verdadeira sobre um assunto que ninguém pediu.
   */
   describe("P1.4 — equipamento é dimensão, não gaveta", () => {
-    it.each(["E nos cavalos?", "O que mudou na remuneração dos cavalos?", "e o cavalo?"])(
+    it.each([
+      "E nos cavalos?",
+      "O que mudou na remuneração dos cavalos?",
+      "e o cavalo?",
+    ])(
       "%s não resolve para uma gaveta que só contém a palavra",
       async (pergunta) => {
         const dossie = await orquestrar(db, pergunta, {
@@ -148,7 +171,10 @@ rodar("Fase 1 — confiabilidade e perda da pergunta", () => {
           `"${pergunta}" nomeia um equipamento, não uma gaveta`,
         ).toBeNull();
         expect(dossie.leitura.entidades.equipamento).toBe("CAVALO");
-        expect(dossie.evidencias.length, "e mesmo assim tem de consultar").toBeGreaterThan(0);
+        expect(
+          dossie.evidencias.length,
+          "e mesmo assim tem de consultar",
+        ).toBeGreaterThan(0);
       },
     );
 
@@ -205,7 +231,9 @@ rodar("Fase 1 — confiabilidade e perda da pergunta", () => {
     });
 
     it("um turno que não resolve assunto não apaga o assunto anterior", async () => {
-      const primeira = await responder(db, "Quanto mudou o pneu?", { semIa: true });
+      const primeira = await responder(db, "Quanto mudou o pneu?", {
+        semIa: true,
+      });
       expect(primeira.estado.parametro).toMatch(/pneu/i);
 
       const segunda = await responder(db, "Qual teve maior impacto?", {
@@ -229,7 +257,10 @@ rodar("Fase 1 — confiabilidade e perda da pergunta", () => {
   */
   describe("P0.3 — o Book não depende de haver assunto extraído", () => {
     it("uma pergunta sobre remuneração de pneu alcança o Book", async () => {
-      const dossie = await orquestrar(db, "Teve alteração na remuneração de pneu?");
+      const dossie = await orquestrar(
+        db,
+        "Teve alteração na remuneração de pneu?",
+      );
       expect(
         dossie.documentos.length,
         "a busca no Book tinha de ter rodado e encontrado o bloco",

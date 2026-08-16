@@ -362,3 +362,50 @@ export const absent = (reason = "VALUE_MISSING") => ({ missing: reason });
 
 /** A real date, in `value_date` — not a date-shaped string in `value_text`. */
 export const date = (iso: string) => ({ date: iso });
+
+/**
+ * A base real curada — construída uma vez, clonada por arquivo.
+ *
+ * Quatro arquivos deste pacote (`cockpit-real`, `families-real`,
+ * `grouped-real`, `range-real`) tinham `beforeAll` idêntico: importar os dois
+ * workbooks do Freightec, semear a taxonomia, propor e aplicar as semânticas,
+ * versioná-las e calcular os conjuntos de alteração. Cada um refazia tudo,
+ * gastando ~26 s antes da primeira asserção — e nesses quatro o preparo era
+ * 99–100% do tempo do arquivo.
+ *
+ * Agora o preparo é este bloco, executado uma vez por conteúdo, e cada arquivo
+ * recebe um clone físico dele. O isolamento não mudou: continuam sendo bancos
+ * separados, e um arquivo que escreve não é visto pelos outros.
+ *
+ * O rótulo de `computeMissingChangeSets` era o único ponto em que os quatro
+ * divergiam — cada um passava o seu (`test:cockpit`, `test:families`, …). Ele
+ * grava `computed_by`, que nenhuma asserção lê; aqui é um só, e uniforme.
+ *
+ * **Editar este corpo invalida o template automaticamente**: o hash que nomeia
+ * o banco inclui o texto desta função, além das migrations e dos workbooks.
+ */
+export async function fixtureModelosCurados(db: Database): Promise<void> {
+  const { importFixture, modelExportPaths } =
+    await import("@workspace/ingest/testing");
+  const {
+    applyConfirmations,
+    backfillSemantics,
+    runProposalPass,
+    seedTaxonomy,
+  } = await import("@workspace/curation");
+  const { computeMissingChangeSets } = await import("./consolidated");
+
+  const { carreta, cavalo } = modelExportPaths();
+  for (const filePath of [carreta, cavalo]) await importFixture(db, filePath);
+  await seedTaxonomy(db, "test");
+  await runProposalPass(db, "test");
+  await applyConfirmations(db);
+  await backfillSemantics(db);
+  await computeMissingChangeSets(db, "test:fixture");
+}
+
+/** Um banco próprio com a base real já curada. */
+export async function criarBancoComModelosCurados(name: string) {
+  const { createTestDatabaseFrom } = await import("@workspace/ingest/testing");
+  return createTestDatabaseFrom("modelos_curados", fixtureModelosCurados, name);
+}

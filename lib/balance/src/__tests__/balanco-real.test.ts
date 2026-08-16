@@ -7,9 +7,7 @@ import {
   stage,
 } from "@workspace/ingest";
 import {
-  createTestDatabase,
-  importFixture,
-  modelExportPaths,
+  criarBancoComModelosPromovidos,
   realExportPath,
   type TestDb,
 } from "@workspace/ingest/testing";
@@ -45,11 +43,7 @@ let ctx: TestDb;
 let runNaoPromovido: string;
 
 beforeAll(async () => {
-  ctx = await createTestDatabase("balance_real");
-  const { carreta, cavalo } = modelExportPaths();
-  for (const filePath of [carreta, cavalo]) {
-    await importFixture(ctx.db, filePath);
-  }
+  ctx = await criarBancoComModelosPromovidos("balance_real");
   await seedTaxonomy(ctx.db, "test");
   await runProposalPass(ctx.db, "test");
   await applyConfirmations(ctx.db);

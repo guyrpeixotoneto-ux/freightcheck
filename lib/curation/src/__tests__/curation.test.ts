@@ -1,8 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 import { attributeTable, curationEventTable, factTable } from "@workspace/db";
-import { captureRaw, preview, promote, receiveFile, stage } from "@workspace/ingest";
-import { createTestDatabase, realExportPath, type TestDb } from "@workspace/ingest/testing";
+import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest/testing";
 import {
   confirmAttribute,
   gatherEvidence,
@@ -24,12 +23,7 @@ import { seedTaxonomy } from "../taxonomy";
 let ctx: TestDb;
 
 beforeAll(async () => {
-  ctx = await createTestDatabase("curation");
-  const received = await receiveFile(ctx.db, { filePath: realExportPath() });
-  await captureRaw(ctx.db, received.importRunId);
-  await stage(ctx.db, received.importRunId);
-  await preview(ctx.db, received.importRunId);
-  await promote(ctx.db, received.importRunId);
+  ctx = await criarBancoComExportRealPromovido("curation");
   await seedTaxonomy(ctx.db, "test:bootstrap");
   await runProposalPass(ctx.db, "test:proposal");
 }, 300_000);

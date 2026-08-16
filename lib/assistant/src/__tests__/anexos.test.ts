@@ -39,16 +39,21 @@ const XLS_FILE = Buffer.from(
   "base64",
 );
 
-const MIME_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-const MIME_PPTX = "application/vnd.openxmlformats-officedocument.presentationml.presentation";
-const MIME_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+const MIME_DOCX =
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const MIME_PPTX =
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation";
+const MIME_XLSX =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 const MIME_XLS = "application/vnd.ms-excel";
 
 describe("leitor de zip", () => {
   it("abre um zip real e devolve os arquivos por caminho", () => {
     const arquivos = lerZip(DOCX);
     expect([...arquivos.keys()]).toContain("word/document.xml");
-    expect(arquivos.get("word/document.xml")!.toString("utf8")).toContain("Reajuste");
+    expect(arquivos.get("word/document.xml")!.toString("utf8")).toContain(
+      "Reajuste",
+    );
   });
 
   it("devolve vazio para bytes que não são zip, sem lançar", () => {
@@ -58,7 +63,9 @@ describe("leitor de zip", () => {
 
 describe("texto de XML do Office", () => {
   it("junta execuções partidas e desescapa entidades", () => {
-    const t = textoDoXml('<w:p><w:r><w:t>Reajuste de </w:t></w:r><w:r><w:t>7,5%</w:t></w:r></w:p>');
+    const t = textoDoXml(
+      "<w:p><w:r><w:t>Reajuste de </w:t></w:r><w:r><w:t>7,5%</w:t></w:r></w:p>",
+    );
     expect(t).toBe("Reajuste de 7,5%");
   });
 });
@@ -67,7 +74,9 @@ describe("Word", () => {
   it("tira o texto do documento, com o valor íntegro", () => {
     const r = extrairAnexo(MIME_DOCX, DOCX)!;
     expect(r.texto).toContain("Reajuste anual de 7,5%");
-    expect(r.texto, "entidade XML volta a ser o caractere").toContain("Clausula segunda & final");
+    expect(r.texto, "entidade XML volta a ser o caractere").toContain(
+      "Clausula segunda & final",
+    );
   });
 
   it("traz as figuras intactas e ignora o que o modelo não lê", () => {
@@ -75,7 +84,9 @@ describe("Word", () => {
     expect(r.imagens).toHaveLength(1);
     expect(r.imagens[0].mimeType).toBe("image/png");
     // Os bytes são os do PNG original — a assinatura sobrevive ao base64.
-    expect(Buffer.from(r.imagens[0].dados, "base64").subarray(1, 4).toString()).toBe("PNG");
+    expect(
+      Buffer.from(r.imagens[0].dados, "base64").subarray(1, 4).toString(),
+    ).toBe("PNG");
   });
 });
 
@@ -83,12 +94,16 @@ describe("PowerPoint", () => {
   it("põe os slides na ordem da apresentação, não na alfabética", () => {
     const r = extrairAnexo(MIME_PPTX, PPTX)!;
     // Cada slide entra como um título — "## Slide 4" —, que é como se cita um.
-    const ordem = [...r.texto.matchAll(/## Slide (\d+)\n\n(.+)/g)].map((m) => m[2]);
+    const ordem = [...r.texto.matchAll(/## Slide (\d+)\n\n(.+)/g)].map(
+      (m) => m[2],
+    );
     expect(ordem).toEqual(["Primeiro slide", "Segundo slide", "Decimo slide"]);
   });
 
   it("traz as figuras do deck", () => {
-    expect(extrairAnexo(MIME_PPTX, PPTX)!.imagens[0]!.mimeType).toBe("image/jpeg");
+    expect(extrairAnexo(MIME_PPTX, PPTX)!.imagens[0]!.mimeType).toBe(
+      "image/jpeg",
+    );
   });
 });
 
@@ -115,8 +130,13 @@ describe("Excel", () => {
     silêncio, que é o modo como esse erro normalmente passa despercebido.
   */
   it("lê o .xls legado, que não é zip nenhum", () => {
-    expect(XLS_FILE.subarray(0, 4).toString("hex"), "assinatura OLE2").toBe("d0cf11e0");
-    expect(lerZip(XLS_FILE).size, "não é zip — o leitor de zip não acha nada").toBe(0);
+    expect(XLS_FILE.subarray(0, 4).toString("hex"), "assinatura OLE2").toBe(
+      "d0cf11e0",
+    );
+    expect(
+      lerZip(XLS_FILE).size,
+      "não é zip — o leitor de zip não acha nada",
+    ).toBe(0);
 
     const r = extrairAnexo(MIME_XLS, XLS_FILE)!;
     expect(r.texto).toContain("| Placa | IPVA |");
@@ -132,7 +152,9 @@ describe("texto puro", () => {
   });
 
   it("markdown entra como é; csv vira a tabela que ele é", () => {
-    expect(extrairAnexo("text/markdown", Buffer.from("# t"))!.texto).toBe("## t");
+    expect(extrairAnexo("text/markdown", Buffer.from("# t"))!.texto).toBe(
+      "## t",
+    );
     expect(extrairAnexo("text/csv", Buffer.from("a,b\n1,2"))!.texto).toBe(
       "| a | b |\n| --- | --- |\n| 1 | 2 |",
     );

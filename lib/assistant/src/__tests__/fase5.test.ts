@@ -49,20 +49,27 @@ describe("a ordem do plano separa o que foi pedido do que foi acrescentado", () 
 
   it("e o conceito continua ganhando quando a frase pede conceito", () => {
     expect(
-      plano("Explique isso como se estivesse falando com o diretor da operação.").principal,
+      plano(
+        "Explique isso como se estivesse falando com o diretor da operação.",
+      ).principal,
     ).toBe("CONCEITUAL");
   });
 });
 
-const URL_DO_BANCO = process.env.ASSISTANT_EVAL_DATABASE_URL ?? process.env.DATABASE_URL;
-const rodar = URL_DO_BANCO ? describe : describe.skip;
+import {
+  comBancoDeAvaliacao as rodar,
+  URL_DO_BANCO_DE_AVALIACAO as URL_DO_BANCO,
+} from "./banco-de-avaliacao";
 
 rodar("Fase 5 — o que o assistente faz por conta própria", () => {
   let db: Database;
 
   beforeAll(async () => {
     ({ db } = createDb(URL_DO_BANCO!));
-    expect(await resolveContext(db), "esta suíte precisa de um banco promovido").toBeTruthy();
+    expect(
+      await resolveContext(db),
+      "esta suíte precisa de um banco promovido",
+    ).toBeTruthy();
     await semearBookDeTeste(db);
   });
 
@@ -76,8 +83,13 @@ rodar("Fase 5 — o que o assistente faz por conta própria", () => {
   */
   describe("P3.2 — a fila de investigação", () => {
     it("responde o que merece atenção, ordenado e com o porquê", async () => {
-      const dossie = await orquestrar(db, "O que eu deveria investigar primeiro?");
-      const fila = dossie.evidencias.find((e) => e.ferramenta === "filaDeInvestigacao");
+      const dossie = await orquestrar(
+        db,
+        "O que eu deveria investigar primeiro?",
+      );
+      const fila = dossie.evidencias.find(
+        (e) => e.ferramenta === "filaDeInvestigacao",
+      );
 
       expect(fila, "a pergunta tinha de montar a fila").toBeTruthy();
       expect(fila!.fatos.length).toBeGreaterThan(0);
@@ -88,9 +100,10 @@ rodar("Fase 5 — o que o assistente faz por conta própria", () => {
         única função que tem — dizer por onde começar.
       */
       const rotulos = fila!.fatos.map((f) => f.rotulo);
-      expect(new Set(rotulos).size, `posições repetidas: ${rotulos.join(" | ")}`).toBe(
-        rotulos.length,
-      );
+      expect(
+        new Set(rotulos).size,
+        `posições repetidas: ${rotulos.join(" | ")}`,
+      ).toBe(rotulos.length);
 
       /*
         E cada posição diz por que está ali. Uma ordem sem motivos é um oráculo,
@@ -107,8 +120,13 @@ rodar("Fase 5 — o que o assistente faz por conta própria", () => {
     });
 
     it("uma pergunta de parâmetro não monta fila nenhuma", async () => {
-      const dossie = await orquestrar(db, "Quanto mudou o pneu desde dezembro?");
-      expect(dossie.evidencias.map((e) => e.ferramenta)).not.toContain("filaDeInvestigacao");
+      const dossie = await orquestrar(
+        db,
+        "Quanto mudou o pneu desde dezembro?",
+      );
+      expect(dossie.evidencias.map((e) => e.ferramenta)).not.toContain(
+        "filaDeInvestigacao",
+      );
     });
   });
 
@@ -122,7 +140,10 @@ rodar("Fase 5 — o que o assistente faz por conta própria", () => {
   */
   describe("P3.3 — o segundo salto", () => {
     it("vai buscar a regra do que a consulta descobriu que pesa", async () => {
-      const dossie = await orquestrar(db, "O que eu deveria investigar primeiro?");
+      const dossie = await orquestrar(
+        db,
+        "O que eu deveria investigar primeiro?",
+      );
 
       expect(dossie.etapas.map((e) => e.nome)).toContain("segundoSalto");
       expect(
@@ -142,7 +163,10 @@ rodar("Fase 5 — o que o assistente faz por conta própria", () => {
       registrada não traz nada, e o silêncio é a resposta correta.
     */
     it("e o que ele traz continua passando pelo limiar", async () => {
-      const dossie = await orquestrar(db, "O que eu deveria investigar primeiro?");
+      const dossie = await orquestrar(
+        db,
+        "O que eu deveria investigar primeiro?",
+      );
       for (const documento of dossie.documentos) {
         expect(documento.pontos).toBeGreaterThanOrEqual(0.35);
       }
