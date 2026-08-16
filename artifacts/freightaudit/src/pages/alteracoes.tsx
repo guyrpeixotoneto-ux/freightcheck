@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useSearch } from "wouter";
 import {
   Activity,
@@ -52,6 +57,7 @@ import {
   TicketFilterPanel,
   emptyTicketFilters,
   toTicketQuery,
+  type OrdemChamados,
   type TicketChangeRow,
   type TicketFilters as TicketFilterState,
   type TicketTotals,
@@ -574,6 +580,12 @@ function AbaChamados() {
   const [erroUpload, setErroUpload] = useState<unknown>(null);
   const [painel, setPainel] = useState<Painel>(null);
   const [janela, setJanela] = useState<Janela>(primeiraPagina);
+  /*
+    A ordem pedida no cabeçalho da tabela vive aqui, e não lá dentro, porque
+    quem ordena é o servidor: com a lista paginada, ordenar as cem linhas que
+    chegaram diria "o maior desta página" com a cara de "o maior de todos".
+  */
+  const [ordem, setOrdem] = useState<OrdemChamados>(null);
   /** O envio que a caixa de confirmação está prestes a apagar. */
   const [excluindo, setExcluindo] = useState<TicketImportSummary | null>(null);
   const [excluido, setExcluido] = useState<string | null>(null);
@@ -581,22 +593,31 @@ function AbaChamados() {
   const fileInput = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
-  // Filtrar, ou trocar de envio, muda o tamanho da lista — e a página em que se
-  // estava pode não existir mais do outro lado da troca.
+  // Filtrar, trocar de envio ou trocar a régua de ordenação muda o tamanho ou a
+  // sequência da lista — e a página em que se estava pode não existir mais, ou
+  // já não conter o que continha do outro lado da troca.
   useEffect(() => {
     setJanela((atual) => (atual.pagina === 1 ? atual : { ...atual, pagina: 1 }));
-  }, [filters, envio]);
+  }, [filters, envio, ordem]);
 
   const query = useQuery({
-    queryKey: ["tickets", filters, envio, janela],
+    queryKey: ["tickets", filters, envio, janela, ordem],
     queryFn: () =>
       fetchJson<TicketsResponse>(
         `/tickets?${toTicketQuery(
           filters,
           envio ? { ticketImportId: envio } : {},
           janela,
+          ordem,
         )}`,
       ),
+    /*
+      Virar a página não pode apagar a tabela: sem isto o `rows` some enquanto a
+      página seguinte não chega, a lista pisca em branco a cada clique, e a
+      seleção acumulada — que existe justamente para atravessar páginas — vai
+      junto, porque a tabela desmonta.
+    */
+    placeholderData: keepPreviousData,
     /**
      * A leitura roda fora da requisição que recebeu o arquivo, então quem
      * acabou de enviar veria a tela parada em "está sendo lido" até apertar
@@ -1201,20 +1222,29 @@ function AbaChamados() {
                 className="text-xs text-muted-foreground"
                 title="Um chamado que altera oito parâmetros aparece em oito linhas. Nada é omitido por ser pequeno."
               >
-                Uma linha por parâmetro que um chamado mexeu · sem ordenação
-                pedida, vêm por materialidade
+                Uma linha por parâmetro que um chamado mexeu ·{" "}
+                {ordem
+                  ? "ordenadas pela coluna que você escolheu, na lista inteira"
+                  : "sem ordenação pedida, vêm por materialidade"}
               </p>
             </div>
             {query.isLoading && (
               <p className="p-6 text-sm text-muted-foreground">Lendo…</p>
             )}
             {data && (
-              <TicketChangeTable
-                rows={data.rows}
-                total={data.total}
-                janela={janela}
-                onJanela={setJanela}
-              />
+              // Enquanto a página pedida não chega, o que está na tela é a
+              // anterior. Apagá-la seria pior, e deixá-la firme diria que já é
+              // a nova — a opacidade é o meio-termo honesto.
+              <div className={cn(query.isPlaceholderData && "opacity-50")}>
+                <TicketChangeTable
+                  rows={data.rows}
+                  total={data.total}
+                  janela={janela}
+                  onJanela={setJanela}
+                  ordem={ordem}
+                  onOrdem={setOrdem}
+                />
+              </div>
             )}
           </Card>
         )}

@@ -98,6 +98,10 @@ export interface TicketFilters {
   /** Só o que de fato variou — agora diferente de antes. */
   onlyDivergent?: boolean;
   minAbsImpact?: number;
+  /** A coluna pela qual o cabeçalho da tabela pediu para ordenar. */
+  sort?: string;
+  /** asc | desc. Só faz sentido acompanhado de `sort`. */
+  dir?: string;
   limit?: number;
   offset?: number;
 }
@@ -267,12 +271,121 @@ const idade = (openedAt: Date | null, closedAt: Date | null) => {
 };
 
 /**
- * As alterações de um envio, ordenadas por materialidade.
+ * A ordem do ciclo de vida, para a coluna Situação não ordenar por alfabeto.
  *
- * A mesma ordem da aba Planilha, pelo mesmo motivo: primeiro o que tem impacto
- * apurado, depois pelo tamanho da variação. Nada é omitido por ser pequeno — o
- * filtro de materialidade mínima é uma escolha de quem lê, e nunca um padrão
- * nosso.
+ * "Aberto, em andamento, atendido, recusado, cancelado" é a sequência que o
+ * chamado percorre; em ordem alfabética ela vira "aberto, atendido, cancelado,
+ * em andamento, recusado", que não é ordem nenhuma.
+ */
+const ORDEM_SITUACAO = [
+  "ABERTO",
+  "EM_ANDAMENTO",
+  "ATENDIDO",
+  "RECUSADO",
+  "CANCELADO",
+  "DESCONHECIDO",
+];
+
+/**
+ * A ordem das operações é a do assunto, e não a do alfabeto nem a da contagem.
+ *
+ * É a mesma dos filtros rápidos da tela: `fórmula` vem primeiro por ser o que
+ * o export tem em massa, e `valor` logo atrás por ser onde estão os números.
+ */
+const ORDEM_OPERACAO = ["FORM_THIS", "SET", "ADD", "REMOVE"];
+
+/**
+ * `CASE ... END` com a posição de cada valor numa ordem declarada aqui.
+ *
+ * As posições entram como literais e não como parâmetros: `CASE col WHEN $1
+ * THEN $2 END` deixa o Postgres sem tipo para o resultado do `CASE`, e ele
+ * recusa a consulta inteira. Os índices são gerados pelo próprio laço, então
+ * não há texto de fora nesse caminho — o valor comparado, esse sim, continua
+ * sendo parâmetro.
+ */
+function posicaoNaOrdem(coluna: SQL, valores: string[]): SQL {
+  const casos = valores.map(
+    (valor, indice) => sql`WHEN ${valor} THEN ${sql.raw(String(indice))}`,
+  );
+  return sql`CASE ${coluna} ${sql.join(casos, sql` `)} ELSE ${sql.raw(String(valores.length))} END`;
+}
+
+/**
+ * A régua que o cabeçalho da tabela pediu, em SQL.
+ *
+ * Ordenar é do servidor porque a lista é paginada. Ordenar no navegador o que
+ * chegou reordenaria cinquenta linhas de mil e duzentas, e "Impacto ↓" passaria
+ * a significar "o maior desta página" — parecido o bastante com a verdade para
+ * ninguém desconfiar.
+ *
+ * Nulo nunca é o menor valor: cai no fim nos dois sentidos, em vez de fingir um
+ * zero que ninguém apurou. Um chamado sem impacto apurado não é um chamado de
+ * impacto zero.
+ */
+function ordenacaoPedida(sort: string, dir: string): SQL[] | null {
+  const sentido = dir === "desc" ? sql`desc` : sql`asc`;
+  const fim = sql`nulls last`;
+
+  switch (sort) {
+    case "chamado":
+      // O parâmetro é a segunda régua dentro da primeira: o mesmo chamado
+      // aparece com os seus parâmetros juntos, e não espalhado pela lista.
+      return [
+        sql`${ticketTable.externalId} ${sentido} ${fim}`,
+        sql`${ticketChangeTable.parameterLabel} ${sentido} ${fim}`,
+      ];
+    case "tipo":
+      return [
+        // A linha sem operação declarada fica no fim dos dois sentidos: o
+        // `CASE` sozinho a mandaria para o topo quando o sentido inverte.
+        sql`(${ticketChangeTable.changeKind} IS NULL) asc`,
+        sql`${posicaoNaOrdem(sql`${ticketChangeTable.changeKind}`, ORDEM_OPERACAO)} ${sentido}`,
+        sql`${ticketChangeTable.parameterLabel} asc ${fim}`,
+      ];
+    case "impacto":
+      // "Não calculável" fica fora da régua, e não no zero dela.
+      return [
+        sql`(CASE WHEN ${ticketChangeTable.impactConfidence} = 'CALCULATED'
+              THEN ${ticketChangeTable.impactAmount} END) ${sentido} ${fim}`,
+      ];
+    case "situacao":
+      return [
+        sql`${posicaoNaOrdem(sql`${ticketTable.statusBucket}`, ORDEM_SITUACAO)} ${sentido}`,
+      ];
+    case "data":
+      // A data da alteração é a do fechamento; enquanto o chamado corre, a de
+      // abertura é o que existe — a mesma escolha que a coluna faz na tela.
+      return [
+        sql`coalesce(${ticketTable.closedAt}, ${ticketTable.openedAt}) ${sentido} ${fim}`,
+      ];
+    default:
+      return null;
+  }
+}
+
+/** A ordem de casa: materialidade, como a aba Planilha. */
+const POR_MATERIALIDADE: SQL[] = [
+  // SQL cru: envolver uma expressão que já traz `nulls last` produziria
+  // `... nulls last desc`, que o Postgres recusa. O `desc` vem antes.
+  sql`(${ticketChangeTable.impactConfidence} = 'CALCULATED') desc`,
+  sql`abs(coalesce(${ticketChangeTable.deltaAbsolute}, 0)) desc`,
+  sql`${ticketTable.openedAt} desc nulls last`,
+];
+
+/**
+ * As alterações de um envio, ordenadas por materialidade — ou pela régua que o
+ * cabeçalho da tabela pediu.
+ *
+ * A ordem de casa é a mesma da aba Planilha, pelo mesmo motivo: primeiro o que
+ * tem impacto apurado, depois pelo tamanho da variação. Nada é omitido por ser
+ * pequeno — o filtro de materialidade mínima é uma escolha de quem lê, e nunca
+ * um padrão nosso.
+ *
+ * Qualquer que seja a régua, a lista termina desempatada pela posição da linha
+ * no arquivo. Não é enfeite: sem um critério que separe duas linhas iguais, o
+ * Postgres pode devolver a mesma linha na página 2 e na 3 e nunca devolver
+ * outra — e uma auditoria com uma linha faltando é pior do que uma sem
+ * paginação nenhuma.
  */
 export async function listTicketChanges(
   db: Database,
@@ -287,17 +400,17 @@ export async function listTicketChanges(
     .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
     .where(where);
 
+  const pedida = filters.sort
+    ? ordenacaoPedida(filters.sort, filters.dir ?? "asc")
+    : null;
+
   const rows = await db
     .select({ c: ticketChangeTable, t: ticketTable })
     .from(ticketChangeTable)
     .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
     .where(where)
-    // SQL cru: envolver uma expressão que já traz `nulls last` produziria
-    // `... nulls last desc`, que o Postgres recusa. O `desc` vem antes.
     .orderBy(
-      sql`(${ticketChangeTable.impactConfidence} = 'CALCULATED') desc`,
-      sql`abs(coalesce(${ticketChangeTable.deltaAbsolute}, 0)) desc`,
-      sql`${ticketTable.openedAt} desc nulls last`,
+      ...(pedida ?? POR_MATERIALIDADE),
       asc(ticketTable.sourceRowIndex),
       asc(ticketChangeTable.sourceColumnIndex),
     )

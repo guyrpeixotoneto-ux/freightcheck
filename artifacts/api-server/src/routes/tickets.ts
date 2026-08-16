@@ -147,6 +147,15 @@ export function decodeTicketUpload(body: unknown): DecodeTicketResult {
   return { ok: true, value: { filename: safeName, extension, bytes } };
 }
 
+/**
+ * As colunas por que a tabela deixa ordenar.
+ *
+ * A lista existe para que `sort` não seja texto de fora atravessando até o
+ * `ORDER BY`: o que não estiver aqui simplesmente não é uma ordenação, e a
+ * consulta volta para a ordem de casa — materialidade.
+ */
+const ORDENACOES = ["chamado", "tipo", "impacto", "situacao", "data"];
+
 function parseTicketFilters(query: Record<string, unknown>): TicketFilters {
   const str = (key: string) =>
     typeof query[key] === "string" && query[key] !== ""
@@ -170,6 +179,8 @@ function parseTicketFilters(query: Record<string, unknown>): TicketFilters {
     search: str("search"),
     onlyDivergent: str("onlyDivergent") === "true",
     minAbsImpact: num("minAbsImpact"),
+    sort: ORDENACOES.includes(str("sort") ?? "") ? str("sort") : undefined,
+    dir: str("dir") === "desc" ? "desc" : "asc",
     limit: num("limit"),
     offset: num("offset"),
   };
