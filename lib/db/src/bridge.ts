@@ -156,6 +156,13 @@ const COLUNAS_REMOVIDAS: [string, string][] = [
   ["assistant_message", "feedback"],
   ["assistant_message", "feedback_note"],
   ["assistant_message", "feedback_at"],
+  // A `0022`, pelo mesmo motivo das três acima. As duas são nullable e sem
+  // default — a forma exata da allowlist —, e ainda assim saem em vez de entrar
+  // nela: a allowlist não é "onde coluna nova cabe", é a lista fechada que a
+  // `0015` confere por tipo e aborta nomeando a diferença. Crescê-la afrouxaria
+  // a conferência para ganhar dois `ADD COLUMN` que a fila cria de graça.
+  ["attribute", "definition"],
+  ["attribute_semantics", "definition"],
 ];
 
 const INDICES_REMOVIDOS = [
@@ -846,6 +853,19 @@ function planoUp(): PassoUp[] {
     sql: reconstruir(M21, /INSERT INTO "snapshot_entity_type"/),
     reconstroiDados: true,
   });
+
+  // A `0022` — o significado escrito pelo curador. Duas colunas de texto e nada
+  // mais: sem índice, sem constraint, sem backfill. A tabela é nomeada dentro
+  // da marca porque as duas linhas são idênticas fora dela, e `levantar` exige
+  // casar exatamente um statement.
+  const M22 = "0022_significado";
+  for (const t of ["attribute", "attribute_semantics"]) {
+    add(
+      M22,
+      `${t}.definition`,
+      levantar(M22, new RegExp(`ALTER TABLE "${t}" ADD COLUMN IF NOT EXISTS "definition"`)),
+    );
+  }
 
   // 5. Obrigatoriedade e constraints.
   //    Os valores nunca saíram: o `down` só afrouxou o NOT NULL.

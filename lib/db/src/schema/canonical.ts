@@ -361,6 +361,22 @@ export const attributeTable = pgTable(
       () => taxonomyNodeTable.id,
     ),
     /**
+     * What the column *is*, written by whoever knows.
+     *
+     * The three prose fields around here answer three different questions, and
+     * conflating them is what left this one missing for so long:
+     * `semantics_rationale` is why the *engine* proposed something and is
+     * overwritten by the next confirmation; `curation_event.reason` is why a
+     * *person* confirmed on a given day; this is what the column means, which
+     * is the only one of the three a curator can answer on day one.
+     *
+     * Writing it never moves `semantics_status`. Prose does not unlock money —
+     * a confirmation does, and that still costs unit, periodicity and
+     * aggregation. Splitting the two is the whole point: the meaning can be
+     * recorded months before anyone can say whether the figure is monthly.
+     */
+    definition: text("definition"),
+    /**
      * Why the current semantics were proposed. Written whenever the engine
      * moves an attribute to PRESUMED, so a curator sees the reasoning rather
      * than a bare guess.
