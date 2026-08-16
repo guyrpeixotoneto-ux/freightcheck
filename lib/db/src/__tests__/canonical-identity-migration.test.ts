@@ -213,6 +213,7 @@ describe("0015 sobre um banco parado na 0014", () => {
       "0021_cobertura",
       "0022_significado",
       "0023_semantica_coerente",
+      "0024_ciclo_nao_e_quantidade",
     ]);
 
     const linhas = await retrato(pool);

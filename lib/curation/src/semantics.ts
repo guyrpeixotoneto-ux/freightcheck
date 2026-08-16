@@ -191,10 +191,39 @@ function guessUnit(evidence: AttributeEvidence): UnitGuess {
   };
 }
 
-function guessAggregation(unit: Unit | null, dataType: string): {
+/**
+ * Nomes que a fonte usa para *estado*, e não para medida.
+ *
+ * `ciclo` entrou aqui medido, e não por leitura do nome: no export real ele
+ * assume só 1 e 2, muda sempre de 1 para 2 — 17 transições nas nove vigências,
+ * nenhuma no sentido inverso — e separa exatamente quem recebe o lucro do novo
+ * ciclo (no ciclo 1 esse lucro é zero em todas as 503 linhas do cavalo). É a
+ * fase do contrato: os dois números são nomes de estado, e a distância entre
+ * eles não é uma unidade de nada.
+ *
+ * A lista é curta de propósito. Só entra nome cuja natureza foi medida no dado
+ * — a alternativa é voltar a adivinhar por palavra, que é o que produziu a
+ * média de 1,16 ciclos.
+ */
+const NOMES_DE_ESTADO = ["ciclo"];
+
+function guessAggregation(
+  unit: Unit | null,
+  evidence: AttributeEvidence,
+): {
   aggregation: Aggregation | null;
   reason: string;
 } {
+  const dataType = evidence.dataType;
+  const nome = evidence.code.split(".").slice(1).join(".");
+  if (NOMES_DE_ESTADO.includes(nome)) {
+    return {
+      aggregation: "NONE",
+      reason:
+        "É fase, e não medida: os valores são nomes de estado. A leitura é " +
+        "quantos ativos estão em cada um, e não soma nem média entre eles.",
+    };
+  }
   /*
     "Tipo desconhecido" e "tipo que não agrega" não são a mesma resposta.
 
@@ -366,7 +395,7 @@ export function guessTaxonomyCode(code: string, entityType: string): TaxonomyGue
  */
 export function proposeSemantics(evidence: AttributeEvidence): SemanticsProposal {
   const unitGuess = guessUnit(evidence);
-  const aggGuess = guessAggregation(unitGuess.unit, evidence.dataType);
+  const aggGuess = guessAggregation(unitGuess.unit, evidence);
   const taxonomy = guessTaxonomyCode(evidence.code, evidence.entityType);
 
   /*

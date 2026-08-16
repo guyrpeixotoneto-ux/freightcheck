@@ -891,6 +891,25 @@ function planoUp(): PassoUp[] {
     add(M23, nome, levantar(M23, new RegExp(`ALTER TABLE "${t}" ADD CONSTRAINT "${nome}"`)));
   }
 
+  // A `0024` — a correção semântica do `ciclo` e a convergência do
+  // `prazoPagamento`. São duas escritas de linha e nada de estrutura: o `down`
+  // não as desfaz (o valor antigo estava errado), e o `up` as reaplica porque
+  // são idempotentes — o `RETURNING` que alimenta o histórico só encontra linha
+  // quando de fato há o que corrigir.
+  const M24 = "0024_ciclo_nao_e_quantidade";
+  p.push({
+    migration: M24,
+    objeto: "ciclo deixa de ser tratado como quantidade",
+    sql: reconstruir(M24, /WITH corrigidos AS/),
+    reconstroiDados: true,
+  });
+  p.push({
+    migration: M24,
+    objeto: "prazoPagamento volta a não ter proposta",
+    sql: reconstruir(M24, /WITH normalizados AS/),
+    reconstroiDados: true,
+  });
+
   // 5. Obrigatoriedade e constraints.
   //    Os valores nunca saíram: o `down` só afrouxou o NOT NULL.
   for (const [t, col] of NULLABLE_TEMPORARIO) {
