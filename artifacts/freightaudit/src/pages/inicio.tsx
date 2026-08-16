@@ -661,6 +661,25 @@ function Indicadores({
  * da remuneração — ela responde "dá para confiar nos outros quatro?". O verde
  * aqui é o mesmo verde do arco lá embaixo, e nenhum dos dois é dito por cor
  * sozinha: o número e o rótulo continuam ao lado.
+ *
+ * **Quem abre uma tela diz isso no canto, e não num rodapé.** A primeira versão
+ * punha uma linha "VER A LISTA COMPLETA DAS ALTERAÇÕES" no pé de cada cartão que
+ * levava a algum lugar, e ela produzia um buraco: os cinco cartões têm a mesma
+ * altura, então o que não linkava ficava com cem pixels de vazio embaixo — que é
+ * exatamente o que se lê como "faltou carregar", e o que este arquivo já recusa
+ * na faixa de atenção logo abaixo.
+ *
+ * E o buraco não era um caso raro: **quatro estados normais o produzem**. Sem
+ * impacto apurado, o primeiro cartão não linka; sem alteração sem preço, o
+ * quarto não linka; sem importação, o quinto não linka; e "Veículos afetados"
+ * não linka nunca, por decisão. O rodapé só ficaria parelho na vigência em que
+ * tudo acontece ao mesmo tempo.
+ *
+ * A seta no canto superior resolve os quatro de uma vez, porque não ocupa
+ * altura: os cinco cartões passam a ter a mesma estrutura, e o que muda entre
+ * eles é a seta existir. Onde ela some, não sobra espaço nenhum. O destino, que
+ * o rodapé dizia por extenso, continua dito — no `title` da seta e no
+ * `aria-label` do link, que é onde quem usa leitor de tela sempre o ouviu.
  */
 function Indicador({
   icone: Icone,
@@ -681,8 +700,14 @@ function Indicador({
   abrir?: string;
   children: React.ReactNode;
 }) {
-  const conteudo = (
-    <>
+  return (
+    <section
+      className={cn(
+        CARTAO,
+        "p-5 flex flex-col",
+        href && "relative group focus-within:border-brand hover:border-brand transition-colors",
+      )}
+    >
       <div className="flex items-start gap-2.5">
         <span
           className={cn(
@@ -703,32 +728,36 @@ function Indicador({
           abrir a lista que o produziu. Aninhadas, um toque no ⓘ navegaria — e a
           definição, que é a defesa contra citar o número errado, viraria a coisa
           mais fácil de disparar por engano.
+
+          `relative z-10` nos dois pela mesma razão: o link do cartão passa por
+          baixo deles, e sem a camada o ⓘ deixaria de abrir a definição.
         */}
         <Ajuda texto={ajuda} />
+        {href && (
+          <ChevronRight
+            className="relative z-10 w-4 h-4 shrink-0 mt-0.5 text-muted-foreground group-hover:text-brand transition-colors"
+            aria-hidden
+          />
+        )}
       </div>
       <div className="mt-5">{children}</div>
-    </>
-  );
-
-  if (!href) {
-    return <section className={cn(CARTAO, "p-5 flex flex-col")}>{conteudo}</section>;
-  }
-
-  return (
-    <section className={cn(CARTAO, "flex flex-col relative group focus-within:border-brand hover:border-brand transition-colors")}>
-      <div className="p-5 flex flex-col flex-1">{conteudo}</div>
       {/*
         O link cobre o cartão inteiro (`absolute inset-0`) em vez de embrulhá-lo:
         assim o alvo do clique é o cartão todo — que é o que o olho vê como um
         botão — sem que o ⓘ e o texto do número virem filhos de uma âncora.
-        O rótulo acessível é a frase do rodapé, e não "saiba mais": quem navega
-        por leitor de tela ouve cinco links e precisa distinguir os cinco.
+
+        O rótulo acessível diz o destino por extenso, e não "saiba mais": quem
+        navega por leitor de tela ouve quatro links seguidos e precisa distinguir
+        os quatro. É a mesma frase que a seta carrega no `title`.
       */}
-      <span className="px-5 pb-4 pt-3 mt-auto flex items-center gap-1 text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground group-hover:text-brand transition-colors">
-        {abrir ?? "abrir"}
-        <ChevronRight className="w-3.5 h-3.5" />
-      </span>
-      <Link href={href} aria-label={`${titulo}: ${abrir ?? "abrir"}`} className="absolute inset-0 rounded-xl" />
+      {href && (
+        <Link
+          href={href}
+          aria-label={`${titulo}: ${abrir ?? "abrir"}`}
+          title={abrir}
+          className="absolute inset-0 rounded-xl"
+        />
+      )}
     </section>
   );
 }
