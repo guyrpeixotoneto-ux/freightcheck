@@ -1,8 +1,18 @@
-import { useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, HelpCircle } from "lucide-react";
+import {
+  ArrowRight,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  ChevronsUpDown,
+  HelpCircle,
+  Search,
+  SlidersHorizontal,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Paginacao } from "@/components/ui/paginacao";
 import { getApiUrl } from "@/lib/api";
@@ -17,16 +27,23 @@ import { cn } from "@/lib/utils";
 /**
  * A tabela de alterações vindas de chamados.
  *
- * O grão é o mesmo da aba Planilha — **um parâmetro que mudou** —, e por isso
- * as colunas centrais são as mesmas: Antes, Agora, Variação, Impacto. Um
- * chamado que mexe em oito parâmetros produz oito linhas aqui, e não uma.
+ * O grão é o mesmo da aba Planilha — **um parâmetro que mudou**. Um chamado
+ * que mexe em oito parâmetros produz oito linhas aqui, e não uma.
  *
- * Duas colunas são só deste lado, e são elas que justificam a aba existir:
- * **Chamado** (que pedido trouxe esta alteração) e **Situação** (em que pé
- * está, e há quanto tempo). E uma diferença não aparece como coluna, mas como
- * marca no valor: a procedência do "antes" — declarado pelo próprio chamado,
- * ou lido da vigência em vigor. As duas coisas não têm a mesma força de prova,
- * e mostrá-las iguais seria dar a um valor inferido a cara de um declarado.
+ * A tabela tem cinco colunas, e nenhuma delas é "Antes" ou "Agora": o par
+ * antes → agora mora embaixo do nome do parâmetro, junto do código do atributo
+ * e da placa, porque é ali que ele se lê como uma frase só — *este chamado
+ * mexeu neste parâmetro deste ativo, de tanto para tanto*. As colunas ficam
+ * para as perguntas que se fazem sobre a lista inteira, e que por isso ordenam:
+ * que tipo de mexida foi, quanto custou, em que pé está o chamado, e quando a
+ * alteração passou a valer.
+ *
+ * Duas coisas são só deste lado, e são elas que justificam a aba existir:
+ * o **chamado** que trouxe a alteração e a **situação** dele. E uma terceira não
+ * aparece como coluna, mas como marca no valor: a procedência do "antes" —
+ * declarado pelo próprio chamado, ou lido da vigência em vigor. As duas não têm
+ * a mesma força de prova, e mostrá-las iguais seria dar a um valor inferido a
+ * cara de um declarado.
  */
 
 export interface TicketChangeRow {
@@ -304,6 +321,119 @@ function TicketImpactCell({ row }: { row: TicketChangeRow }) {
   );
 }
 
+/**
+ * A régua de ordenação que o cabeçalho oferece — e a que vale quando ninguém
+ * clicou em nada.
+ *
+ * Sem clique, a ordem é a que o servidor devolveu: materialidade, primeiro o
+ * que tem impacto apurado e depois pelo tamanho da variação. Cada coluna
+ * oferece a sua régua, e o terceiro clique na mesma coluna devolve a de casa —
+ * porque uma lista ordenada por data já não responde "o que é grande", e
+ * voltar não pode custar recarregar a tela.
+ */
+type SortKey = "chamado" | "tipo" | "impacto" | "situacao" | "data";
+type SortDir = "asc" | "desc";
+type SortState = { key: SortKey; dir: SortDir } | null;
+
+/** O primeiro clique de cada coluna abre pelo lado que interessa. */
+const PRIMEIRO_SENTIDO: Record<SortKey, SortDir> = {
+  chamado: "asc",
+  tipo: "asc",
+  // Ascendente em número negativo é o maior prejuízo primeiro, que é o que se
+  // procura numa auditoria — não o maior valor absoluto.
+  impacto: "asc",
+  situacao: "asc",
+  data: "desc",
+};
+
+/** A ordem do ciclo de vida, para a coluna Situação não ordenar por alfabeto. */
+const ORDEM_SITUACAO = [
+  "ABERTO",
+  "EM_ANDAMENTO",
+  "ATENDIDO",
+  "RECUSADO",
+  "CANCELADO",
+  "DESCONHECIDO",
+];
+
+function chaveDeOrdenacao(
+  row: TicketChangeRow,
+  key: SortKey,
+): string | number | null {
+  switch (key) {
+    case "chamado":
+      // O ` ` mantém a segunda régua dentro da primeira: o mesmo chamado
+      // aparece com os seus parâmetros em ordem, e não espalhado.
+      return `${row.externalId} ${row.parameterLabel}`;
+    case "tipo":
+      return row.changeKind ? changeKindLabel(row.changeKind) : null;
+    case "impacto":
+      // "Não calculável" não é zero: fica fora da régua, nos dois sentidos.
+      return row.impactConfidence === "CALCULATED" ? row.impactAmount : null;
+    case "situacao": {
+      const posicao = ORDEM_SITUACAO.indexOf(row.statusBucket);
+      return posicao === -1 ? ORDEM_SITUACAO.length : posicao;
+    }
+    case "data": {
+      const iso = row.closedAt ?? row.openedAt;
+      if (!iso) return null;
+      const tempo = new Date(iso).getTime();
+      return Number.isNaN(tempo) ? null : tempo;
+    }
+  }
+}
+
+/**
+ * A caixa de seleção veste o azul da própria tabela, e não o laranja de ação.
+ *
+ * Marcar uma linha não é executar nada — é apontar. O laranja do sistema é o
+ * clique que faz acontecer, e usá-lo aqui deixaria a linha marcada dizendo duas
+ * cores ao mesmo tempo: a da caixa e a do fundo que ela acende.
+ */
+const ESTILO_CAIXA =
+  "border-input data-[state=checked]:bg-blue-600 data-[state=checked]:border-blue-600 data-[state=checked]:text-white";
+
+function SortHeader({
+  label,
+  chave,
+  sort,
+  onSort,
+  className,
+}: {
+  label: string;
+  chave: SortKey;
+  sort: SortState;
+  onSort: (key: SortKey) => void;
+  className?: string;
+}) {
+  const ativa = sort?.key === chave;
+  return (
+    <th className={cn("px-4 py-3 font-medium", className)}>
+      <button
+        onClick={() => onSort(chave)}
+        title={
+          ativa
+            ? "ordenar pelo outro sentido — o terceiro clique volta à ordem por materialidade"
+            : `ordenar por ${label.toLowerCase()}`
+        }
+        className={cn(
+          "inline-flex items-center gap-1.5 transition-colors hover:text-foreground",
+          ativa ? "text-foreground" : "text-muted-foreground",
+        )}
+      >
+        {label}
+        {!ativa ? (
+          <ChevronsUpDown className="w-3.5 h-3.5 opacity-40" />
+        ) : sort.dir === "asc" ? (
+          <ChevronUp className="w-3.5 h-3.5" />
+        ) : (
+          <ChevronDown className="w-3.5 h-3.5" />
+        )}
+      </button>
+    </th>
+  );
+}
+
 export function TicketChangeTable({
   rows,
   total,
@@ -317,6 +447,48 @@ export function TicketChangeTable({
   onJanela?: (janela: Janela) => void;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [sort, setSort] = useState<SortState>(null);
+  const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
+
+  const ordenadas = useMemo(() => {
+    if (!sort) return rows;
+    const sentido = sort.dir === "asc" ? 1 : -1;
+    return [...rows].sort((a, b) => {
+      const va = chaveDeOrdenacao(a, sort.key);
+      const vb = chaveDeOrdenacao(b, sort.key);
+      // Sem valor não é o menor valor: essas linhas ficam no fim dos dois
+      // sentidos, em vez de fingirem um zero que ninguém apurou.
+      if (va === null && vb === null) return 0;
+      if (va === null) return 1;
+      if (vb === null) return -1;
+      if (typeof va === "string" && typeof vb === "string") {
+        return va.localeCompare(vb, "pt-BR") * sentido;
+      }
+      return ((va as number) - (vb as number)) * sentido;
+    });
+  }, [rows, sort]);
+
+  const alternarOrdem = (chave: SortKey) =>
+    setSort((atual) => {
+      if (!atual || atual.key !== chave) {
+        return { key: chave, dir: PRIMEIRO_SENTIDO[chave] };
+      }
+      if (atual.dir === PRIMEIRO_SENTIDO[chave]) {
+        return { key: chave, dir: atual.dir === "asc" ? "desc" : "asc" };
+      }
+      return null;
+    });
+
+  const alternarLinha = (id: string) =>
+    setSelecionadas((atual) => {
+      const proxima = new Set(atual);
+      if (proxima.has(id)) proxima.delete(id);
+      else proxima.add(id);
+      return proxima;
+    });
+
+  const todasSelecionadas =
+    ordenadas.length > 0 && ordenadas.every((r) => selecionadas.has(r.id));
 
   if (rows.length === 0) {
     return (
@@ -327,134 +499,214 @@ export function TicketChangeTable({
   }
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b bg-muted/50 text-xs uppercase text-muted-foreground">
-            <th className="w-8" />
-            <th className="text-left px-4 py-2 font-medium">Chamado</th>
-            <th className="text-left px-4 py-2 font-medium">Parâmetro</th>
-            <th className="text-right px-4 py-2 font-medium">Antes</th>
-            <th className="text-right px-4 py-2 font-medium">Agora</th>
-            <th className="text-right px-4 py-2 font-medium">Variação</th>
-            <th className="text-right px-4 py-2 font-medium">Impacto</th>
-            <th className="text-left px-4 py-2 font-medium">Situação</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row) => (
-            <>
-              <tr
-                key={row.id}
-                className={cn(
-                  "border-b hover:bg-muted/40 cursor-pointer",
-                  row.impactConfidence === "CALCULATED" &&
-                    row.impactAmount !== null &&
-                    row.impactAmount < 0 &&
-                    "bg-red-50/60",
-                  row.statusBucket === "RECUSADO" && "bg-amber-50/50",
-                )}
-                onClick={() => setExpanded(expanded === row.id ? null : row.id)}
-              >
-                <td className="pl-3 text-muted-foreground">
-                  {expanded === row.id ? (
-                    <ChevronDown className="w-4 h-4" />
-                  ) : (
-                    <ChevronRight className="w-4 h-4" />
+    <div>
+      {selecionadas.size > 0 && (
+        <SelectionBar
+          rows={ordenadas.filter((r) => selecionadas.has(r.id))}
+          onClear={() => setSelecionadas(new Set())}
+        />
+      )}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b text-sm">
+              <th className="w-12 px-4 py-3">
+                <Checkbox
+                  className={ESTILO_CAIXA}
+                  checked={todasSelecionadas}
+                  onCheckedChange={(marcado) =>
+                    setSelecionadas(
+                      marcado === true
+                        ? new Set(ordenadas.map((r) => r.id))
+                        : new Set(),
+                    )
+                  }
+                  aria-label="selecionar todas as linhas visíveis"
+                />
+              </th>
+              <SortHeader
+                label="Chamado / Parâmetro"
+                chave="chamado"
+                sort={sort}
+                onSort={alternarOrdem}
+                className="text-left"
+              />
+              <SortHeader
+                label="Tipo"
+                chave="tipo"
+                sort={sort}
+                onSort={alternarOrdem}
+                className="text-left"
+              />
+              <SortHeader
+                label="Impacto"
+                chave="impacto"
+                sort={sort}
+                onSort={alternarOrdem}
+                className="text-right"
+              />
+              <SortHeader
+                label="Situação"
+                chave="situacao"
+                sort={sort}
+                onSort={alternarOrdem}
+                className="text-left"
+              />
+              <SortHeader
+                label="Alterado em"
+                chave="data"
+                sort={sort}
+                onSort={alternarOrdem}
+                className="text-left"
+              />
+              <th className="w-10" />
+            </tr>
+          </thead>
+          <tbody>
+            {ordenadas.map((row) => (
+              <Fragment key={row.id}>
+                <tr
+                  className={cn(
+                    "border-b hover:bg-muted/40 cursor-pointer",
+                    row.impactConfidence === "CALCULATED" &&
+                      row.impactAmount !== null &&
+                      row.impactAmount < 0 &&
+                      "bg-red-50/50",
+                    row.statusBucket === "RECUSADO" && "bg-amber-50/50",
+                    selecionadas.has(row.id) && "bg-blue-50/70",
                   )}
-                </td>
-                <td className="px-4 py-2 whitespace-nowrap">
-                  <div className="font-mono font-medium">{row.externalId}</div>
-                  <div className="text-xs text-muted-foreground tabular-nums">
-                    {shortDate(row.openedAt)}
-                  </div>
-                </td>
-                <td className="px-4 py-2">
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="font-medium">{row.parameterLabel}</span>
-                    <ChangeKindBadge kind={row.changeKind} />
-                  </div>
-                  <div className="font-mono text-xs text-muted-foreground">
-                    {row.attributeCode ?? (
-                      <span
-                        className="italic"
-                        title="o dicionário de atributos ainda não conhece este nome"
-                      >
-                        fora do dicionário
+                  onClick={() => setExpanded(expanded === row.id ? null : row.id)}
+                >
+                  <td
+                    className="px-4 py-3 align-top"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <Checkbox
+                      className={ESTILO_CAIXA}
+                      checked={selecionadas.has(row.id)}
+                      onCheckedChange={() => alternarLinha(row.id)}
+                      aria-label={`selecionar ${row.externalId} · ${row.parameterLabel}`}
+                    />
+                  </td>
+
+                  {/* Chamado e parâmetro na mesma coluna, e o "de → para"
+                      logo abaixo: é a linha inteira da história num relance,
+                      sem escolher entre saber de que chamado veio e saber o
+                      que ele fez com o valor. */}
+                  <td className="px-4 py-3">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="font-mono text-xs text-muted-foreground">
+                        {row.externalId}
                       </span>
-                    )}
-                    {row.entityLabel && <> · {row.entityLabel}</>}
-                  </div>
-                </td>
-                <td className="px-4 py-2 text-right">
-                  <ValueCell
-                    numeric={row.valueBeforeNumeric}
-                    raw={row.valueBeforeRaw}
-                    inferido={row.beforeSource === "VIGENCIA"}
-                    referencia={row.beforeReference}
-                  />
-                </td>
-                <td className="px-4 py-2 text-right">
-                  <ValueCell
-                    numeric={row.valueAfterNumeric}
-                    raw={row.valueAfterRaw}
-                  />
-                </td>
-                <td className="px-4 py-2 text-right font-mono tabular-nums">
-                  {row.deltaAbsolute === null ? (
-                    <span className="text-xs text-muted-foreground">—</span>
-                  ) : (
-                    <>
-                      <div
-                        className={
-                          row.deltaAbsolute < 0 ? "text-red-700" : "text-emerald-700"
-                        }
-                      >
+                      <span className="font-medium">{row.parameterLabel}</span>
+                    </div>
+                    <div className="mt-0.5 flex items-center gap-2 flex-wrap text-xs text-muted-foreground">
+                      <span className="font-mono">
+                        {row.attributeCode ?? (
+                          <span
+                            className="italic"
+                            title="o dicionário de atributos ainda não conhece este nome"
+                          >
+                            fora do dicionário
+                          </span>
+                        )}
+                      </span>
+                      {row.entityLabel && <span>· {row.entityLabel}</span>}
+                      <span className="inline-flex items-center gap-1.5">
+                        <ValueCell
+                          numeric={row.valueBeforeNumeric}
+                          raw={row.valueBeforeRaw}
+                          inferido={row.beforeSource === "VIGENCIA"}
+                          referencia={row.beforeReference}
+                        />
+                        <ArrowRight className="w-3 h-3 shrink-0" />
+                        <ValueCell
+                          numeric={row.valueAfterNumeric}
+                          raw={row.valueAfterRaw}
+                        />
+                      </span>
+                    </div>
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <ChangeKindBadge kind={row.changeKind} />
+                  </td>
+
+                  <td className="px-4 py-3 text-right whitespace-nowrap">
+                    <TicketImpactCell row={row} />
+                    {row.deltaAbsolute !== null && (
+                      <div className="text-xs text-muted-foreground font-mono tabular-nums mt-0.5">
                         {row.deltaAbsolute > 0 ? "+" : ""}
                         {decimal(row.deltaAbsolute)}
+                        {row.deltaPercent !== null && (
+                          <>
+                            {" "}
+                            ({row.deltaPercent > 0 ? "+" : ""}
+                            {row.deltaPercent.toFixed(1)}%)
+                          </>
+                        )}
                       </div>
-                      {row.deltaPercent !== null && (
-                        <div className="text-xs text-muted-foreground">
-                          {row.deltaPercent > 0 ? "+" : ""}
-                          {row.deltaPercent.toFixed(1)}%
-                        </div>
-                      )}
-                    </>
-                  )}
-                </td>
-                <td className="px-4 py-2 text-right whitespace-nowrap">
-                  <TicketImpactCell row={row} />
-                </td>
-                <td className="px-4 py-2">
-                  <StatusBadge row={row} />
-                  {row.ageInDays !== null && (
-                    <div
-                      className={cn(
-                        "text-xs mt-0.5",
-                        row.stillOpen && row.ageInDays > 30
-                          ? "text-amber-700"
-                          : "text-muted-foreground",
-                      )}
-                    >
-                      {row.stillOpen
-                        ? `${row.ageInDays} d em aberto`
-                        : `${row.ageInDays} d até fechar`}
+                    )}
+                  </td>
+
+                  <td className="px-4 py-3">
+                    <StatusBadge row={row} />
+                    {row.ageInDays !== null && (
+                      <div
+                        className={cn(
+                          "text-xs mt-0.5",
+                          row.stillOpen && row.ageInDays > 30
+                            ? "text-amber-700"
+                            : "text-muted-foreground",
+                        )}
+                      >
+                        {row.stillOpen
+                          ? `${row.ageInDays} d em aberto`
+                          : `${row.ageInDays} d até fechar`}
+                      </div>
+                    )}
+                  </td>
+
+                  {/* "Alterado em" é a data de fechamento, e não a de hoje nem
+                      a de abertura: é quando o pedido virou alteração. Enquanto
+                      o chamado corre, não existe essa data — e dizer "—" é mais
+                      honesto do que carimbar a abertura no lugar dela. */}
+                  <td className="px-4 py-3 whitespace-nowrap">
+                    {row.closedAt ? (
+                      <div className="tabular-nums">{shortDate(row.closedAt)}</div>
+                    ) : (
+                      <div className="text-muted-foreground italic">
+                        ainda em aberto
+                      </div>
+                    )}
+                    <div className="text-xs text-muted-foreground tabular-nums mt-0.5">
+                      aberto em {shortDate(row.openedAt)}
                     </div>
-                  )}
-                </td>
-              </tr>
-              {expanded === row.id && (
-                <tr key={`${row.id}-detail`} className="border-b bg-muted/30">
-                  <td />
-                  <td colSpan={7} className="px-4 py-4">
-                    <TicketDetail row={row} />
+                  </td>
+
+                  <td className="px-2 text-muted-foreground">
+                    {expanded === row.id ? (
+                      <ChevronDown className="w-4 h-4" />
+                    ) : (
+                      <ChevronRight className="w-4 h-4" />
+                    )}
                   </td>
                 </tr>
-              )}
-            </>
-          ))}
-        </tbody>
-      </table>
+                {expanded === row.id && (
+                  <tr className="border-b bg-muted/30">
+                    <td />
+                    <td colSpan={6} className="px-4 py-4">
+                      <TicketDetail row={row} />
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
       {janela && onJanela ? (
         <Paginacao
           total={total}
@@ -473,6 +725,65 @@ export function TicketChangeTable({
           </p>
         )
       )}
+    </div>
+  );
+}
+
+/**
+ * O que a seleção vale.
+ *
+ * A caixa de seleção existe para responder "quanto custa este conjunto de
+ * linhas" sem exportar nada: marcam-se as que interessam e a soma aparece. E
+ * aparece com a mesma ressalva de todos os outros números desta tela — quantas
+ * das marcadas ficaram de fora dela, porque não têm impacto apurado. Uma soma
+ * de 12 linhas que na verdade somou 3 é o começo de toda conta que ninguém
+ * consegue sustentar depois.
+ */
+function SelectionBar({
+  rows,
+  onClear,
+}: {
+  rows: TicketChangeRow[];
+  onClear: () => void;
+}) {
+  const apuradas = rows.filter(
+    (r) => r.impactConfidence === "CALCULATED" && r.impactAmount !== null,
+  );
+  const soma = apuradas.reduce((total, r) => total + (r.impactAmount ?? 0), 0);
+  const fora = rows.length - apuradas.length;
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b bg-blue-50 px-4 py-2.5 text-sm">
+      <span className="font-medium">
+        {rows.length} linha{rows.length === 1 ? "" : "s"} selecionada
+        {rows.length === 1 ? "" : "s"}
+      </span>
+      {apuradas.length > 0 ? (
+        <span className="text-muted-foreground">
+          impacto apurado{" "}
+          <span
+            className={cn(
+              "font-mono tabular-nums font-medium",
+              soma < 0 ? "text-red-700" : soma > 0 ? "text-emerald-700" : "text-foreground",
+            )}
+          >
+            {soma > 0 ? "+" : ""}
+            {brl(soma)}
+          </span>
+        </span>
+      ) : (
+        <span className="text-muted-foreground">
+          nenhuma delas tem impacto apurado
+        </span>
+      )}
+      {fora > 0 && apuradas.length > 0 && (
+        <span className="text-xs text-muted-foreground">
+          {fora} fora desta soma, por não ter impacto apurado
+        </span>
+      )}
+      <Button variant="ghost" size="sm" className="ml-auto" onClick={onClear}>
+        limpar seleção
+      </Button>
     </div>
   );
 }
@@ -657,6 +968,163 @@ function Field({ label, value }: { label: string; value: string }) {
   );
 }
 
+const capitalizar = (texto: string) =>
+  texto.charAt(0).toUpperCase() + texto.slice(1);
+
+/**
+ * A fileira da frente: o tipo da alteração, se ela tem preço, e a busca.
+ *
+ * São os três cortes que quem abre esta aba faz antes de qualquer outro — e a
+ * ordem dos chips é a do assunto, não a da contagem: num export real `fórmula`
+ * é 85% das linhas, e deixá-la em primeiro por ser a maior empurraria para o
+ * fim justamente `valor`, que é onde estão os números.
+ *
+ * O resto dos filtros — situação, procedência do "antes", variação mínima —
+ * continua existindo inteiro atrás do botão Filtros. Não sumiu: saiu da frente,
+ * porque cinco grupos de chips abertos de uma vez são uma tela que se lê antes
+ * de se usar.
+ */
+const ORDEM_OPERACAO = ["FORM_THIS", "SET", "ADD", "REMOVE"];
+
+export function TicketQuickFilters({
+  filters,
+  onChange,
+  totals,
+  avancadoAberto,
+  onToggleAvancado,
+}: {
+  filters: TicketFilters;
+  onChange: (f: TicketFilters) => void;
+  totals?: TicketTotals;
+  avancadoAberto: boolean;
+  onToggleAvancado: () => void;
+}) {
+  const operacoes = ORDEM_OPERACAO.filter((kind) =>
+    totals?.byChangeKind.some((k) => k.changeKind === kind),
+  );
+
+  const semCorte = !filters.changeKind && !filters.impactConfidence;
+
+  /** Quantos filtros vivem atrás do botão — para ele dizer que estão ligados. */
+  const avancadosAtivos = [
+    filters.statusBucket,
+    filters.beforeSource,
+    filters.parameterLabel,
+    filters.minAbsImpact,
+    filters.onlyDivergent ? "sim" : "",
+  ].filter(Boolean).length;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <QuickChip
+        active={semCorte}
+        onClick={() =>
+          onChange({ ...filters, changeKind: "", impactConfidence: "" })
+        }
+      >
+        Todos
+      </QuickChip>
+
+      {operacoes.map((kind) => (
+        <QuickChip
+          key={kind}
+          active={filters.changeKind === kind}
+          onClick={() =>
+            onChange({
+              ...filters,
+              changeKind: filters.changeKind === kind ? "" : kind,
+            })
+          }
+        >
+          {capitalizar(changeKindLabel(kind))}
+        </QuickChip>
+      ))}
+
+      <QuickChip
+        active={filters.impactConfidence === "CALCULATED"}
+        onClick={() =>
+          onChange({
+            ...filters,
+            impactConfidence:
+              filters.impactConfidence === "CALCULATED" ? "" : "CALCULATED",
+          })
+        }
+      >
+        Com impacto
+      </QuickChip>
+      <QuickChip
+        active={filters.impactConfidence === "NOT_CALCULABLE"}
+        onClick={() =>
+          onChange({
+            ...filters,
+            impactConfidence:
+              filters.impactConfidence === "NOT_CALCULABLE"
+                ? ""
+                : "NOT_CALCULABLE",
+          })
+        }
+      >
+        Sem impacto
+      </QuickChip>
+
+      <div className="flex items-center gap-2 ml-auto">
+        <div className="relative w-full sm:w-80">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+          <Input
+            value={filters.search}
+            onChange={(e) => onChange({ ...filters, search: e.target.value })}
+            placeholder="Buscar chamado ou parâmetro"
+            title="a busca também encontra pela placa do equipamento"
+            className="h-11 pl-9 rounded-xl bg-background"
+          />
+        </div>
+        <Button
+          variant="outline"
+          onClick={onToggleAvancado}
+          aria-expanded={avancadoAberto}
+          className={cn(
+            "h-11 rounded-xl gap-2",
+            (avancadoAberto || avancadosAtivos > 0) && "border-blue-600 text-blue-700",
+          )}
+        >
+          Filtros
+          {avancadosAtivos > 0 && (
+            <span className="rounded-full bg-blue-600 px-1.5 text-xs tabular-nums text-white">
+              {avancadosAtivos}
+            </span>
+          )}
+          <SlidersHorizontal className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function QuickChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "h-11 rounded-full border px-5 text-sm font-medium transition-colors",
+        active
+          ? "bg-blue-600 border-blue-600 text-white shadow-sm"
+          : "bg-background border-input text-foreground hover:bg-muted",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function TicketFilterBar({
   filters,
   onChange,
@@ -690,7 +1158,7 @@ export function TicketFilterBar({
   );
 
   return (
-    <div className="rounded-lg border bg-card p-4 space-y-3">
+    <div className="rounded-xl border bg-muted/30 p-4 space-y-3">
       <div className="flex flex-wrap items-center gap-2">
         <FilterGroup label="Situação">
           {(present.length > 0 ? present : ORDER.slice(0, 4)).map((bucket) => (
@@ -708,25 +1176,6 @@ export function TicketFilterBar({
             </Chip>
           ))}
         </FilterGroup>
-
-        {/* A operação é o filtro mais útil deste lado: separa as alterações
-            que têm número das que mudaram fórmula ou incluíram item. */}
-        {totals && totals.byChangeKind.length > 1 && (
-          <FilterGroup label="Operação">
-            {totals.byChangeKind
-              .filter((k) => k.changeKind)
-              .map((k) => (
-                <Chip
-                  key={k.changeKind}
-                  active={filters.changeKind === k.changeKind}
-                  onClick={() => set("changeKind", k.changeKind ?? "")}
-                >
-                  {changeKindLabel(k.changeKind)}
-                  <Count n={k.count} />
-                </Chip>
-              ))}
-          </FilterGroup>
-        )}
 
         <FilterGroup label="Valor anterior">
           {["ARQUIVO", "VIGENCIA", "AUSENTE"].map((source) => (
@@ -758,20 +1207,6 @@ export function TicketFilterBar({
             só o que variou
             {totals && <Count n={totals.divergent} />}
           </Chip>
-          <Chip
-            active={filters.impactConfidence === "CALCULATED"}
-            onClick={() => set("impactConfidence", "CALCULATED")}
-          >
-            só com impacto apurado
-            {totals && <Count n={totals.calculated} />}
-          </Chip>
-          <Chip
-            active={filters.impactConfidence === "NOT_CALCULABLE"}
-            onClick={() => set("impactConfidence", "NOT_CALCULABLE")}
-          >
-            só sem impacto apurado
-            {totals && <Count n={totals.notCalculable} />}
-          </Chip>
         </FilterGroup>
 
         <div className="flex items-center gap-2 ml-auto">
@@ -782,19 +1217,13 @@ export function TicketFilterBar({
             className="h-9 w-40"
             inputMode="numeric"
           />
-          <Input
-            placeholder="Buscar chamado, parâmetro ou placa…"
-            value={filters.search}
-            onChange={(e) => onChange({ ...filters, search: e.target.value })}
-            className="h-9 w-64"
-          />
           {active && (
             <Button
               variant="ghost"
               size="sm"
               onClick={() => onChange(emptyTicketFilters)}
             >
-              limpar
+              limpar tudo
             </Button>
           )}
         </div>
