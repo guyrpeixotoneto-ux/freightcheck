@@ -178,9 +178,17 @@ const FUNDO_GRUPO =
  * os três maiores nem sustentam soma de dinheiro. O seletor de parâmetro
  * continua existindo no segundo nível, como navegação lateral — o que ele
  * deixou de ser é a única porta para descobrir o que mudou.
+ *
+ * `escolhaInicial` é de quem chegou de outra aba com o parâmetro já em mente —
+ * a aba Cliente manda para cá quando alguém pede "ver por placa e vigência". É
+ * estado inicial, não trava: o botão de voltar leva ao panorama como sempre.
  */
-export function ImpactoQuinzenas() {
-  const [escolha, setEscolha] = useState<EscolhaDeParametro | null>(null);
+export function ImpactoQuinzenas({
+  escolhaInicial = null,
+}: {
+  escolhaInicial?: EscolhaDeParametro | null;
+} = {}) {
+  const [escolha, setEscolha] = useState<EscolhaDeParametro | null>(escolhaInicial);
   /*
     O corte de custo do panorama mora aqui, e não lá dentro, para sobreviver à
     ida e à volta: quem filtrou por custo variável e abriu um parâmetro está a
