@@ -161,22 +161,104 @@ export function SeloDeNovidade({ quantidade }: { quantidade: number }) {
   );
 }
 
-/** O aviso de medição incompleta — nunca um número otimista em silêncio. */
+/**
+ * O aviso de medição incompleta — nunca um número otimista em silêncio.
+ *
+ * **Ele também é o aviso de medição nenhuma.** Quando não sobra célula alguma,
+ * este é o único texto que a tela tem para explicar por que a matriz sumiu, e
+ * ficar escondido atrás de `linhas.length > 0` foi o que fez a tela anunciar
+ * "nenhuma vigência importada ainda" com nove vigências no banco. Por isso a
+ * mensagem muda de dono conforme o caso: com célula, o número acima é piso; sem
+ * nenhuma, não há número — há vigência sem medição.
+ *
+ * A ação existe porque o diagnóstico sozinho deixava quem opera sem saída: a
+ * contagem é derivada dos fatos, e refazê-la não depende de arquivo nenhum.
+ */
 export function MedicaoIncompleta({
   incompleto,
+  tudo = false,
+  aoRefazer,
+  refazendo = false,
+  erro,
+  desfecho,
 }: {
   incompleto: { vigencia: string; motivo: string }[];
+  /** Nenhuma célula foi medida: este aviso é o conteúdo da tela, não uma nota. */
+  tudo?: boolean;
+  aoRefazer?: () => void;
+  refazendo?: boolean;
+  erro?: string | null;
+  /**
+   * O que o último reparo fez.
+   *
+   * Existe para o desfecho silencioso: refazer só alcança vigência que tem
+   * fato, e uma vigência sem nenhum fato nunca entra na conta. Sem esta linha, o
+   * clique nesse caso não muda nada na tela e quem opera clica de novo.
+   */
+  desfecho?: { vigencias: number; linhas: number } | null;
 }) {
   if (incompleto.length === 0) return null;
+  const uma = incompleto.length === 1;
   return (
-    <div className="mt-5 bg-card border border-l-[6px] border-l-warning px-6 py-4 flex gap-3 text-sm">
-      <CircleAlert className="w-4 h-4 mt-0.5 shrink-0 text-warning" />
-      <div>
-        <strong>Medição incompleta.</strong>{" "}
-        {incompleto.length === 1 ? "Uma vigência não pôde" : `${incompleto.length} vigências não puderam`}{" "}
-        ser medida
-        {incompleto.length === 1 ? "" : "s"}: {incompleto.map((i) => i.vigencia).join(", ")}. O que
-        elas trazem não está contado como presente — a cobertura acima é o piso, não o retrato.
+    <div
+      className={cn(
+        "mt-5 bg-card border border-l-[6px] px-6 py-4 flex gap-3 text-sm",
+        tudo ? "border-l-brand-red" : "border-l-warning",
+      )}
+      role="status"
+    >
+      {tudo ? (
+        <TriangleAlert className="w-4 h-4 mt-0.5 shrink-0 text-brand-red" />
+      ) : (
+        <CircleAlert className="w-4 h-4 mt-0.5 shrink-0 text-warning" />
+      )}
+      <div className="min-w-0">
+        {tudo ? (
+          <p>
+            <strong>Há vigência importada, e não há medição.</strong>{" "}
+            {uma ? "A vigência" : `As ${incompleto.length} vigências`} no sistema
+            {uma ? " está" : " estão"} sem o agregado de cobertura, que é o denominador da matriz:{" "}
+            {incompleto.map((i) => i.vigencia).join(", ")}. Os dados não se perderam — a contagem
+            sai dos fatos, que continuam no banco.
+          </p>
+        ) : (
+          <p>
+            <strong>Medição incompleta.</strong>{" "}
+            {uma ? "Uma vigência não pôde" : `${incompleto.length} vigências não puderam`} ser
+            medida{uma ? "" : "s"}: {incompleto.map((i) => i.vigencia).join(", ")}. O que elas
+            trazem não está contado como presente — a cobertura acima é o piso, não o retrato.
+          </p>
+        )}
+
+        {aoRefazer && (
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <button
+              type="button"
+              onClick={aoRefazer}
+              disabled={refazendo}
+              className="border border-brand text-brand px-3 py-1.5 text-xs font-semibold uppercase tracking-wide hover:bg-brand hover:text-white transition-colors disabled:opacity-50 disabled:hover:bg-transparent disabled:hover:text-brand"
+            >
+              {refazendo ? "Refazendo a medição…" : "Refazer a medição"}
+            </button>
+            <span className="text-xs text-muted-foreground">
+              Reconta os fatos que já estão no banco. Não importa arquivo, não altera dado e não
+              sobrescreve medição existente.
+            </span>
+          </div>
+        )}
+
+        {erro && <p className="mt-2 text-xs text-brand-red">{erro}</p>}
+
+        {!erro && desfecho && desfecho.vigencias === 0 && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            Não havia contagem a refazer: as vigências acima não têm fato gravado, e o que falta
+            nelas não é a medição. A importação que as abriu está em{" "}
+            <a href="/importacoes" className="text-brand hover:underline">
+              Importações
+            </a>
+            .
+          </p>
+        )}
       </div>
     </div>
   );

@@ -12,6 +12,7 @@ import {
   runProposalPass,
   seedTaxonomy,
 } from "@workspace/curation";
+import { refazerAgregado } from "../agregado";
 import { semearContrato } from "../contrato";
 import { descobertas } from "../descoberta";
 import { detalheDaCelula, detalheDaLacuna, historicoDoAtributo } from "../detalhe";
@@ -368,5 +369,54 @@ describe("descoberta sobre o export real", () => {
     expect(achados.length).toBe(138);
     expect(achados.every((a) => a.arquivo !== null)).toBe(true);
     expect(achados.every((a) => a.entidadesAfetadas > 0)).toBe(true);
+  });
+});
+
+/*
+  Fica por último de propósito: é o único bloco deste arquivo que apaga uma
+  tabela, e vindo depois de tudo ele não pode alterar o que os anteriores
+  mediram. O que ele prova sobre dado real, e a fixture de `agregado.test.ts`
+  não alcança, é que a reconstrução reproduz o agregado que a **promoção**
+  escreveu — a de verdade, sobre 124 mil fatos, com herança entre revisões.
+*/
+describe("o agregado perdido, refeito sobre o dado real", () => {
+  it("refazer devolve exatamente o que `promote` tinha gravado", async () => {
+    const chave = (r: Record<string, unknown>) => `${r.snapshot_id}|${r.entity_type}`;
+    const ler = async () => {
+      const { rows } = await ctx.db.execute<Record<string, unknown>>(sql`
+        SELECT snapshot_id::text, entity_type, entity_count, attribute_count,
+               fact_count, value_count, null_count, inherited_fact_count
+          FROM snapshot_entity_type
+         ORDER BY snapshot_id, entity_type
+      `);
+      return new Map(rows.map((r) => [chave(r), JSON.stringify(r)]));
+    };
+
+    const daPromocao = await ler();
+    expect(daPromocao.size).toBeGreaterThan(0);
+    /*
+      A herança é o que torna esta comparação interessante: a revisão 2 traz
+      fatos herdados da 1, e `inherited_fact_count` só está certo se a
+      reconstrução contar `inherited_from_snapshot_id` como a promoção conta.
+    */
+    const comHeranca = [...daPromocao.values()].filter(
+      (v) => (JSON.parse(v) as { inherited_fact_count: number }).inherited_fact_count > 0,
+    );
+    expect(comHeranca.length).toBeGreaterThan(0);
+
+    await ctx.db.execute(sql`DELETE FROM snapshot_entity_type`);
+
+    const cega = await visaoDaCobertura(ctx.db, { vigencias: 9 });
+    expect(cega.linhas).toEqual([]);
+    expect(cega.incompleto.length).toBeGreaterThan(0);
+    expect(cega.resumo.veredito.frase).not.toMatch(/[Nn]enhuma vigência importada/);
+
+    const reparo = await refazerAgregado(ctx.db);
+    expect(reparo.vigencias).toBeGreaterThan(0);
+    expect(await ler()).toEqual(daPromocao);
+
+    const restaurada = await visaoDaCobertura(ctx.db, { vigencias: 9 });
+    expect(restaurada.linhas).toHaveLength(2);
+    expect(restaurada.incompleto).toEqual([]);
   });
 });

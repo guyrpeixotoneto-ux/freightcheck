@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Descobertas } from "@/components/cobertura/descobertas";
@@ -48,6 +48,14 @@ import { cn } from "@/lib/utils";
  * coberto?", depois "onde tem problema?", depois "o que exatamente falta?" e só
  * então "por que acreditamos nisso e de onde veio o dado?". Cada degrau abaixo
  * do segundo só carrega depois de um clique.
+ *
+ * **Matriz vazia tem duas causas, e a tela precisa saber qual.** `linhas` vazia
+ * significava, aqui, "nenhuma vigência importada ainda" — e significava isso
+ * mesmo quando a resposta trazia `incompleto` cheio, que é o caso oposto:
+ * vigência importada e sem agregado para medir. Foi o que a tela mostrou, com o
+ * seletor de unidade ao lado exibindo a vigência de ago/2026 que ela dizia não
+ * existir, e mandando enviar a primeira planilha para consertar. `incompleto` é
+ * o que separa as duas, e ele nunca mais fica escondido atrás de `linhas`.
  */
 export default function Dados() {
   const [vigencias, setVigencias] = useState(6);
@@ -58,6 +66,7 @@ export default function Dados() {
     null,
   );
   const [avancados, setAvancados] = useState(false);
+  const clienteDeConsultas = useQueryClient();
 
   const consulta = useQuery({
     queryKey: ["coverage", vigencias, criticidade, equipamento],
@@ -77,9 +86,43 @@ export default function Dados() {
     `entity_type` ser texto no banco e não enum.
   */
   const equipamentos = useMemo(() => {
-    if (!consulta.data) return [] as string[];
-    return [...new Set(consulta.data.linhas.map((l) => l.entityType))].sort();
-  }, [consulta.data]);
+    const daResposta = consulta.data?.linhas.map((l) => l.entityType) ?? [];
+    /*
+      O escolhido entra na lista mesmo quando a resposta não o traz. Filtrar por
+      um equipamento que a janela não tem devolve zero linhas — e, sem esta
+      linha, a opção selecionada sumiria do próprio `select` que a selecionou,
+      deixando o campo em branco e sem caminho de volta.
+    */
+    if (equipamento !== "TODOS") daResposta.push(equipamento);
+    return [...new Set(daResposta)].sort();
+  }, [consulta.data, equipamento]);
+
+  /*
+    Refazer a medição — a única escrita desta tela, e por pedido explícito.
+
+    A rota é `POST` de propósito (ver `/coverage/aggregate/rebuild`): recontar
+    dentro do `GET` faria uma tela de consulta escrever no banco sem que ninguém
+    pedisse, que é a regra que este módulo já segue para semear o contrato.
+  */
+  const refazer = useMutation({
+    mutationFn: () =>
+      fetchJson<{ vigencias: number; linhas: number; rotulos: string[] }>(
+        "/coverage/aggregate/rebuild",
+        { method: "POST" },
+      ),
+    onSuccess: () => clienteDeConsultas.invalidateQueries({ queryKey: ["coverage"] }),
+  });
+
+  const incompleto = consulta.data?.incompleto ?? [];
+  const semMedicao = consulta.data !== undefined && consulta.data.linhas.length === 0;
+  /*
+    `colunas` é a lista de vigências da janela, e ela não passa pelo filtro de
+    equipamento — por isso serve de testemunha: vazia significa que não há
+    vigência nenhuma, e é o único caso em que "nenhuma vigência importada" é
+    verdade. Com coluna e sem linha, ou a medição sumiu ou o filtro excluiu
+    tudo, e nenhuma das duas se resolve importando planilha.
+  */
+  const semVigencia = (consulta.data?.colunas.length ?? 0) === 0;
 
   return (
     <Layout>
@@ -102,7 +145,11 @@ export default function Dados() {
           <ApiErrorNotice error={consulta.error} what="a cobertura de dados" />
         )}
 
-        {consulta.data && consulta.data.linhas.length === 0 && (
+        {/*
+          Nada importado — o único caso em que esta frase é verdadeira, e por
+          isso ela agora depende de `colunas` e não de `linhas`.
+        */}
+        {semMedicao && semVigencia && (
           <div className="mt-8 bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm">
             <strong>Nenhuma vigência importada ainda.</strong> Não há cobertura a medir — a
             primeira planilha promovida abre esta tela.{" "}
@@ -113,10 +160,59 @@ export default function Dados() {
           </div>
         )}
 
+        {/*
+          Há vigência, e o filtro não deixou nada dela de pé.
+
+          Os filtros vêm junto, e não só a explicação: eles moram dentro do
+          ramo da matriz, então dizer "volte o filtro para todos" sem trazê-los
+          apontaria para um controle que a tela não está mostrando.
+        */}
+        {semMedicao && !semVigencia && incompleto.length === 0 && (
+          <>
+            <div className="mt-8 bg-card border border-l-[6px] border-l-border px-6 py-4 text-sm">
+              <strong>Nenhuma vigência atende a este filtro.</strong> Há{" "}
+              {consulta.data!.colunas.length === 1
+                ? "uma vigência importada"
+                : `${consulta.data!.colunas.length} vigências importadas`}{" "}
+              nesta janela, e nenhuma delas traz o equipamento escolhido. Volte o filtro para
+              "todos" ou amplie a janela de vigências.
+            </div>
+
+            <Filtros
+              vigencias={vigencias}
+              setVigencias={setVigencias}
+              criticidade={criticidade}
+              setCriticidade={setCriticidade}
+              equipamento={equipamento}
+              setEquipamento={setEquipamento}
+              equipamentos={equipamentos}
+              avancados={avancados}
+              setAvancados={setAvancados}
+            />
+          </>
+        )}
+
+        {semMedicao && incompleto.length > 0 && (
+          <MedicaoIncompleta
+            incompleto={incompleto}
+            tudo
+            aoRefazer={() => refazer.mutate()}
+            refazendo={refazer.isPending}
+            erro={refazer.error ? refazer.error.message : null}
+            desfecho={refazer.data ?? null}
+          />
+        )}
+
         {consulta.data && consulta.data.linhas.length > 0 && (
           <>
             <Resumo resumo={consulta.data.resumo} />
-            <MedicaoIncompleta incompleto={consulta.data.incompleto} />
+            <MedicaoIncompleta
+              incompleto={incompleto}
+              aoRefazer={() => refazer.mutate()}
+              refazendo={refazer.isPending}
+              erro={refazer.error ? refazer.error.message : null}
+              desfecho={refazer.data ?? null}
+            />
 
             <Filtros
               vigencias={vigencias}

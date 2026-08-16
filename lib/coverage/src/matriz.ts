@@ -234,7 +234,7 @@ export async function visaoDaCobertura(
       incompleto.push({
         vigencia: vigencia.sourceLabel,
         motivo:
-          "A vigência não tem agregado de cobertura gravado. O que ela traz não está contado como presente — é piso, não retrato.",
+          "A vigência não tem agregado de cobertura gravado. O que ela traz não está contado como presente — é piso, não retrato. Nada se perdeu: a contagem sai dos fatos, que continuam no banco, e refazer a medição a devolve.",
       });
       continue;
     }
@@ -314,7 +314,10 @@ export async function visaoDaCobertura(
     );
 
   return {
-    resumo: resumir(celulas, lacunas, achados.length),
+    resumo: resumir(celulas, lacunas, achados.length, {
+      incompletas: incompleto.length,
+      vigencias: vigencias.length,
+    }),
     colunas: montarColunas(vigencias),
     linhas: montarLinhas(celulas),
     lacunas: lacunasFiltradas.slice(0, filtro.limiteDeLacunas ?? 50),
@@ -562,8 +565,8 @@ function somar(contas: Contagem[]): Contagem {
   });
 }
 
-function resumoVazio(): ResumoDaCobertura {
-  const zero = contar({
+function zerado(): Contagem {
+  return contar({
     entidadesEsperadas: 0,
     entidadesEncontradas: 0,
     atributosEsperados: 0,
@@ -572,6 +575,10 @@ function resumoVazio(): ResumoDaCobertura {
     combinacoesEncontradas: 0,
     combinacoesNaoAplicaveis: 0,
   });
+}
+
+function resumoVazio(): ResumoDaCobertura {
+  const zero = zerado();
   return {
     geral: zero,
     critica: zero,
@@ -587,19 +594,83 @@ function resumoVazio(): ResumoDaCobertura {
 }
 
 /**
+ * Há vigência, e nenhuma delas pôde ser medida.
+ *
+ * O veredito continua `SEM_DADO` — porque não há número em que confiar —, mas a
+ * frase diz a verdade diferente: o dado está no banco e é a **medição** que
+ * falta. É a diferença entre "importe a primeira planilha" e "refaça a
+ * medição", e mandar fazer a primeira coisa quando é a segunda custa uma
+ * reimportação inteira para terminar exatamente onde se começou.
+ */
+function resumoNaoMedido(incompletas: number): ResumoDaCobertura {
+  const zero = zerado();
+  return {
+    geral: zero,
+    critica: zero,
+    lacunas: { total: 0, critico: 0, relevante: 0, informativo: 0 },
+    conjuntosParciais: 0,
+    conjuntosAusentes: 0,
+    novos: 0,
+    veredito: {
+      estado: "SEM_DADO",
+      frase:
+        incompletas === 1
+          ? "A vigência importada está sem agregado de cobertura — há dado, e não há medição."
+          : `As ${incompletas} vigências importadas estão sem agregado de cobertura — há dado, e não há medição.`,
+    },
+  };
+}
+
+/**
+ * Há vigência, e o filtro do pedido não deixou nenhuma célula.
+ *
+ * Acontece quando o equipamento pedido não existe na janela escolhida — trocar
+ * para "últimas 3" com o filtro em carreta, num recorte que só teve cavalo. É a
+ * terceira maneira de a matriz ficar vazia, e a única das três em que não há
+ * nada a consertar: o que mudou foi a pergunta.
+ */
+function resumoFiltrado(): ResumoDaCobertura {
+  const zero = zerado();
+  return {
+    geral: zero,
+    critica: zero,
+    lacunas: { total: 0, critico: 0, relevante: 0, informativo: 0 },
+    conjuntosParciais: 0,
+    conjuntosAusentes: 0,
+    novos: 0,
+    veredito: {
+      estado: "SEM_DADO",
+      frase: "Nenhuma vigência atende a este filtro — há dado importado fora dele.",
+    },
+  };
+}
+
+/**
  * O resumo, somado das células e não recalculado.
  *
  * A frase do veredito é o que responde "temos todos os dados necessários para
  * confiar nesta análise?". Ela é dura de propósito: cobertura crítica abaixo de
  * 100% diz que a análise está comprometida, e diz **qual** lacuna a compromete —
  * um percentual sozinho manda o leitor adivinhar.
+ *
+ * **Zero células tem três causas, e elas não são a mesma notícia.** Não há
+ * vigência; há vigência e nenhuma pôde ser medida; ou o filtro do pedido não
+ * deixou nada de pé. Dizer "nenhuma vigência importada" nas duas últimas manda
+ * quem opera importar de novo o que já está importado — foi o que a tela fez,
+ * com o seletor de unidade ao lado mostrando a vigência que ela dizia não
+ * existir. O contexto é o que separa as três, e é por isso que ele chega aqui.
  */
 function resumir(
   celulas: CelulaDaMatriz[],
   lacunas: Lacuna[],
   novos: number,
+  contexto: { incompletas: number; vigencias: number },
 ): ResumoDaCobertura {
-  if (celulas.length === 0) return resumoVazio();
+  if (celulas.length === 0) {
+    if (contexto.incompletas > 0) return resumoNaoMedido(contexto.incompletas);
+    if (contexto.vigencias > 0) return resumoFiltrado();
+    return resumoVazio();
+  }
 
   const geral = somar(celulas.map((c) => c.conta));
   const critica = somar(celulas.map((c) => c.contaCritica));
