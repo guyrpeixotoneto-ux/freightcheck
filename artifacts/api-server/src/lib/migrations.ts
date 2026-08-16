@@ -49,6 +49,84 @@ export function expectedMigrations(): { tag: string; when: number }[] {
   }));
 }
 
+/** O que o servidor decidiu sobre migrar na partida, e por quê. */
+export interface DecisaoDeMigracao {
+  migrar: boolean;
+  /** A frase que vai para o log. Ela nomeia o sinal que decidiu, não o efeito. */
+  motivo: string;
+}
+
+/** A chave que decide, quando alguém quer decidir explicitamente. */
+const CHAVE = "DB_MIGRATE_ON_BOOT";
+
+const SIM = new Set(["1", "true", "yes", "on"]);
+const NAO = new Set(["0", "false", "no", "off"]);
+
+/**
+ * Este ambiente aplica a fila versionada ao subir?
+ *
+ * **O defeito que esta função existe para fechar.** A regra — *Development não
+ * avança sozinho* — estava escrita em `scripts/dev.mjs`, na forma de um
+ * `runMigrations: null` que desliga o passo de migração **do supervisor**. Só
+ * que o supervisor não migra o banco: quem migra é o servidor que ele sobe, e o
+ * servidor decidia por conta própria, olhando apenas se `DATABASE_URL` existia.
+ * Em desenvolvimento ela sempre existe. O resultado era um `Run` que avançava o
+ * banco de desenvolvimento enquanto o console imprimia, na mesma partida, que
+ * não avançaria — Development chegou à `0021` por esse caminho.
+ *
+ * A regra estava na camada errada: quem precisa conhecê-la é o processo que
+ * abre conexão, não o que o inicia. Aqui ela está no processo certo, isolada do
+ * efeito, e por isso pode ser provada sem banco.
+ *
+ * **`DATABASE_URL` não classifica ambiente, e nunca foi capaz disso.** Ela diz
+ * que existe um banco alcançável — desenvolvimento, teste e produção têm um. O
+ * que ela não diz é de quem ele é. Esta função não a lê; o chamador é que trata
+ * a ausência dela, e depois de já ter decidido a política.
+ *
+ * **A ordem dos sinais.** `DB_MIGRATE_ON_BOOT` vence quando dita, porque é a
+ * única forma de fixar a resposta para um ambiente que ainda não existe — um
+ * Preview, um job, uma réplica de leitura que não pode escrever schema. Sem ela,
+ * decide `NODE_ENV`, que os dois lados já configuram por escrito: `dev.mjs`
+ * passa `development` ao subir o servidor, e o `[services.production.run.env]`
+ * do artifact passa `production`.
+ *
+ * **Valor não reconhecido não desliga nada.** Um `DB_MIGRATE_ON_BOOT=sim` — ou
+ * um espaço a mais — cai de volta no `NODE_ENV` em vez de virar "não migre", e
+ * o motivo carrega o valor recusado. Um erro de digitação numa variável de
+ * deploy não pode ser o que trava a fila de Production; ele tem que aparecer no
+ * log e deixar o comportamento correto de pé.
+ */
+export function deveMigrarNaPartida(
+  env: Partial<Record<string, string | undefined>> = process.env,
+): DecisaoDeMigracao {
+  const bruto = env[CHAVE];
+  const explicito = bruto?.trim().toLowerCase();
+
+  if (explicito !== undefined && explicito !== "") {
+    if (SIM.has(explicito)) {
+      return { migrar: true, motivo: `${CHAVE}=${bruto}` };
+    }
+    if (NAO.has(explicito)) {
+      return { migrar: false, motivo: `${CHAVE}=${bruto}` };
+    }
+  }
+
+  const naoReconhecido =
+    explicito !== undefined && explicito !== "" && !SIM.has(explicito) && !NAO.has(explicito)
+      ? ` (${CHAVE}=${bruto} não é um valor reconhecido e foi ignorado)`
+      : "";
+
+  const ambiente = env["NODE_ENV"];
+  if (ambiente === "production") {
+    return { migrar: true, motivo: `NODE_ENV=production${naoReconhecido}` };
+  }
+
+  return {
+    migrar: false,
+    motivo: `NODE_ENV=${ambiente ?? "não definido"}${naoReconhecido}`,
+  };
+}
+
 let ultimoRelatorio: MigrationReport | undefined;
 
 export function lembrarRelatorio(report: MigrationReport): void {

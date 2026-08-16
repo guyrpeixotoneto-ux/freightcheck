@@ -211,9 +211,24 @@ async function startApi() {
       "[api] DATABASE_URL não está definido — subindo sem banco.",
     );
   } else {
+    /*
+      Esta linha já afirmou uma coisa que este arquivo não controla.
+
+      Ela dizia "migrations NÃO são aplicadas na partida" — e o `runMigrations:
+      null` acima é verdade sobre o supervisor, mas o supervisor não abre conexão
+      com o banco. Quem abre é o servidor que ele sobe, e o servidor decidia
+      sozinho, pela mera existência de `DATABASE_URL`. O console prometia uma
+      coisa e o processo seguinte fazia outra, na mesma partida; foi assim que
+      Development chegou à `0021` sem ninguém pedir.
+
+      Agora quem decide é `deveMigrarNaPartida()`, dentro do servidor, e é o
+      servidor que registra a decisão e o motivo dela. Aqui fica só o que este
+      arquivo de fato sabe: que ele não migra, e por onde se migra à mão.
+    */
     console.warn(
-      "[api] migrations NÃO são aplicadas na partida. Development só avança por " +
-        "`pnpm --filter @workspace/db run migrate`, e depois de Production — ver docs/MIGRATIONS.md.",
+      "[api] este script não migra o banco. Development avança por " +
+        "`pnpm --filter @workspace/db run migrate` — ver docs/MIGRATIONS.md. " +
+        "A política do servidor sai no log dele, na partida.",
     );
   }
 
