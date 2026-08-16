@@ -34,6 +34,9 @@
       "path": "./lib/dre"
     },
     {
+      "path": "./lib/coverage"
+    },
+    {
       "path": "./lib/api-client-react"
     },
     {

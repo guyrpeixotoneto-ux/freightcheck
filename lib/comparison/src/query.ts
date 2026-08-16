@@ -251,6 +251,29 @@ export async function getChangeProvenance(
   };
 }
 
+/**
+ * Onde as alterações se concentram, atributo a atributo.
+ *
+ * Duas perguntas diferentes moram na mesma linha: *o que mais mudou* é uma
+ * contagem, *o que mais custou* é dinheiro, e o primeiro colocado quase nunca é
+ * o mesmo nos dois. Por isso `count` e `impact` vêm juntos e separados — quem
+ * lê escolhe a régua, e nenhuma delas vira a outra por descuido.
+ *
+ * `impact` é uma lista, e não um total: R$/mês e R$/ano são grandezas
+ * diferentes. Somá-las aqui produziria justamente o erro que este produto
+ * existe para pegar, e a soma por periodicidade é a mesma que o cartão do topo
+ * mostra — os dois números têm de fechar.
+ */
+export interface AttributeRollup {
+  attributeCode: string;
+  attributeName: string | null;
+  count: number;
+  /** Quantas das `count` têm preço apurado — o resto é fato sem preço. */
+  calculated: number;
+  /** Impacto apurado, uma entrada por periodicidade. Nunca somadas entre si. */
+  impact: { periodicity: string; amount: number }[];
+}
+
 /** Breakdown for the header of the Alterações screen. */
 export async function getChangeSetBreakdown(
   db: Database,
@@ -258,7 +281,7 @@ export async function getChangeSetBreakdown(
 ) {
   const ids = Array.isArray(changeSetId) ? changeSetId : [changeSetId];
   if (ids.length === 0) {
-    return { byCostClass: [], byType: [], bySemantics: [] };
+    return { byCostClass: [], byType: [], bySemantics: [], byAttribute: [] };
   }
   const scope = inArray(changeTable.changeSetId, ids);
   const byCostClass = await db
@@ -292,6 +315,63 @@ export async function getChangeSetBreakdown(
     .groupBy(changeTable.semanticsStatus)
     .orderBy(changeTable.semanticsStatus);
 
+  /*
+    Sem teto: o universo aqui é o de colunas da planilha — dezenas —, e não o de
+    linhas. Cortar no top-N pareceria prudente e seria a única forma de um
+    atributo caro sumir da leitura sem nada dizer que ele existia.
+
+    `attributeName` sai por `max()` porque o agrupamento é pelo código: o nome é
+    rótulo do mesmo atributo, e agrupar pelos dois partiria uma linha em duas na
+    vigência em que o cabeçalho foi reescrito.
+  */
+  const temAtributo = sql`${changeTable.attributeCode} IS NOT NULL`;
+  const byAttribute = await db
+    .select({
+      attributeCode: changeTable.attributeCode,
+      attributeName: sql<string | null>`max(${changeTable.attributeName})`,
+      count: sql<number>`count(*)`.mapWith(Number),
+      calculated: sql<number>`count(*) FILTER (
+        WHERE ${changeTable.impactConfidence} = 'CALCULATED'
+          AND ${changeTable.impactAmount} IS NOT NULL
+      )`.mapWith(Number),
+    })
+    .from(changeTable)
+    .where(and(scope, temAtributo))
+    .groupBy(changeTable.attributeCode)
+    .orderBy(sql`count(*) DESC`, changeTable.attributeCode);
+
+  /*
+    O mesmo recorte de `assessImpact`: só o que tem preço apurado entra, e uma
+    alteração sem periodicidade declarada ganha o próprio balde em vez de um
+    destino silencioso. É o que faz esta lista fechar com `impactByPeriodicity`.
+  */
+  const bucket = sql<string>`coalesce(${changeTable.impactPeriodicity}, 'SEM_PERIODICIDADE')`;
+  const impacts = await db
+    .select({
+      attributeCode: changeTable.attributeCode,
+      periodicity: bucket,
+      amount: sql<string | null>`sum(${changeTable.impactAmount})`,
+    })
+    .from(changeTable)
+    .where(
+      and(
+        scope,
+        temAtributo,
+        eq(changeTable.impactConfidence, "CALCULATED"),
+        sql`${changeTable.impactAmount} IS NOT NULL`,
+      ),
+    )
+    .groupBy(changeTable.attributeCode, bucket)
+    .orderBy(changeTable.attributeCode);
+
+  const impactoPorAtributo = new Map<string, AttributeRollup["impact"]>();
+  for (const linha of impacts) {
+    if (linha.attributeCode === null || linha.amount === null) continue;
+    const lista = impactoPorAtributo.get(linha.attributeCode) ?? [];
+    lista.push({ periodicity: linha.periodicity, amount: Number(linha.amount) });
+    impactoPorAtributo.set(linha.attributeCode, lista);
+  }
+
   return {
     byCostClass: byCostClass.map((r) => ({
       costClass: r.costClass ?? "SEM_CLASSE",
@@ -303,6 +383,19 @@ export async function getChangeSetBreakdown(
       semanticsStatus: r.semanticsStatus ?? "(sem atributo)",
       count: r.count,
     })),
+    byAttribute: byAttribute.flatMap<AttributeRollup>((r) =>
+      r.attributeCode === null
+        ? []
+        : [
+            {
+              attributeCode: r.attributeCode,
+              attributeName: r.attributeName,
+              count: r.count,
+              calculated: r.calculated,
+              impact: impactoPorAtributo.get(r.attributeCode) ?? [],
+            },
+          ],
+    ),
   };
 }
 

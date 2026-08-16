@@ -210,6 +210,7 @@ describe("0015 sobre um banco parado na 0014", () => {
       "0018_identidade_forte",
       "0019_assistant_feedback",
       "0020_chamados_exclusao",
+      "0021_cobertura",
     ]);
 
     const linhas = await retrato(pool);

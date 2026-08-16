@@ -476,6 +476,10 @@ export async function deleteImportRun(
     await tx.execute(
       sql`DELETE FROM snapshot_scope WHERE snapshot_id IN (${runSnapshots(importRunId)})`,
     );
+    /* O agregado de cobertura é derivado da vigência e morre com ela. */
+    await tx.execute(
+      sql`DELETE FROM snapshot_entity_type WHERE snapshot_id IN (${runSnapshots(importRunId)})`,
+    );
 
     // --- staging e apontamentos -------------------------------------------
     await tx.execute(
