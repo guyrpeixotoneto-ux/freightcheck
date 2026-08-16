@@ -1,3 +1,4 @@
+import { viraDinheiro } from "@workspace/curation";
 import type { AttributeClassification } from "./classification";
 
 /**
@@ -45,27 +46,12 @@ export function assessImpact({
     );
   }
 
-  // The gate. Nothing below CONFIRMED reaches a financial number — this is the
-  // same rule the database enforces on the attribute itself.
-  if (classification.semanticsStatus !== "CONFIRMED") {
-    return notCalculable(
-      `Semântica ${classification.semanticsStatus === "PRESUMED" ? "presumida" : "desconhecida"}: ` +
-        `o atributo ainda não foi confirmado na curadoria, então somar sua variação seria adivinhação.`,
-    );
-  }
-
-  if (classification.isMonetary !== true) {
-    return notCalculable(
-      "Não é um montante financeiro — a variação existe, mas não vira dinheiro por si só.",
-    );
-  }
-
-  if (classification.aggregation !== "SUM") {
-    return notCalculable(
-      `Agregação "${classification.aggregation ?? "indefinida"}": o atributo não é somável, ` +
-        `então a variação por ativo não se acumula em um total.`,
-    );
-  }
+  // O portão, e ele não mora aqui: `viraDinheiro` é a mesma decisão que o
+  // panorama, o impacto e a composição consultam. Este arquivo já teve a sua
+  // cópia da regra — CONFIRMED, monetário e SUM, nesta ordem — e era uma das
+  // cinco versões que a auditoria encontrou.
+  const dinheiro = viraDinheiro(classification);
+  if (!dinheiro.ok) return notCalculable(dinheiro.motivo);
 
   if (numericBefore === null || numericAfter === null) {
     return notCalculable(

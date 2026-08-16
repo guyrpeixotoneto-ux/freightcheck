@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { viraDinheiro } from "@workspace/curation";
 import type { Database } from "@workspace/db";
 import { attributeLabel, equipmentLabel } from "./labels";
 import { INHERITED_COST_CLASS_JOIN } from "./classification";
@@ -317,17 +318,11 @@ function motivoDaRegua(a: {
   semanticsStatus: string;
   isMonetary: boolean | null;
   aggregation: string | null;
+  unit: string | null;
 }): string {
-  if (a.semanticsStatus !== "CONFIRMED") {
-    return a.semanticsStatus === "PRESUMED"
-      ? "a semântica é presumida — ninguém confirmou o que a coluna significa"
-      : "a semântica é desconhecida — o significado da coluna ainda não foi levantado";
-  }
-  if (a.isMonetary !== true) return "não é um valor monetário";
-  if (a.aggregation !== "SUM") {
-    return `a agregação é ${a.aggregation ?? "indefinida"}, e o que não soma não acumula em total`;
-  }
-  return "";
+  // A régua é `viraDinheiro`, e nada além dela: esta função já foi a terceira
+  // redação da mesma regra, com frases próprias para os mesmos três casos.
+  return viraDinheiro(a).motivo;
 }
 
 /**
@@ -596,6 +591,7 @@ export async function getPanoramaDeAlteracoes(
       semanticsStatus: regua.semantics_status,
       isMonetary: regua.is_monetary,
       aggregation: regua.aggregation,
+      unit: regua.unit,
     });
     const calculavel = motivo === "";
 

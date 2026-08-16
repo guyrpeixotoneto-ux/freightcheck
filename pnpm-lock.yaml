@@ -738,6 +738,9 @@ importers:
 
   lib/comparison:
     dependencies:
+      '@workspace/curation':
+        specifier: workspace:*
+        version: link:../curation
       '@workspace/db':
         specifier: workspace:*
         version: link:../db
@@ -754,9 +757,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.9.5
-      '@workspace/curation':
-        specifier: workspace:*
-        version: link:../curation
       tsx:
         specifier: 'catalog:'
         version: 4.23.1
@@ -769,6 +769,9 @@ importers:
       '@workspace/comparison':
         specifier: workspace:*
         version: link:../comparison
+      '@workspace/curation':
+        specifier: workspace:*
+        version: link:../curation
       '@workspace/db':
         specifier: workspace:*
         version: link:../db
@@ -779,9 +782,6 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.9.5
-      '@workspace/curation':
-        specifier: workspace:*
-        version: link:../curation
       '@workspace/ingest':
         specifier: workspace:*
         version: link:../ingest
