@@ -296,6 +296,131 @@ describe("a reconciliação é medida agora, não citada", () => {
   });
 });
 
+/**
+ * O corte por classe de custo.
+ *
+ * A régua destes números é a mesma de sempre — aritmética sobre os dois
+ * arquivos de `attached_assets`, medida em 16/08/2026 —, e o que eles protegem
+ * é uma promessa só: **o recorte é um filtro, e não uma segunda contagem**. Se
+ * um dia fixo + variável + sem classe pararem de reconstruir o todo, a tela
+ * passa a ter dois números para a mesma pergunta e nenhum jeito de saber qual
+ * está certo.
+ */
+describe("fixo e variável se leem separados", () => {
+  it("classifica cada parâmetro pelo nó mais próximo que declara classe", async () => {
+    const panorama = (await getPanoramaDeAlteracoes(ctx.db))!;
+
+    // A classe é herdada: `cv_combustivel` não declara nada, `custo_variavel`
+    // declara VARIAVEL, e é dele que o combustível herda.
+    const diesel = de(panorama, "cavalo.combustivel_consumo_neg")!;
+    expect(diesel.classeDeCusto).toBe("VARIAVEL");
+    expect(diesel.grupoDeCusto).toBe("Combustível");
+
+    const ipva = de(panorama, "cavalo.ipva_licenciamento")!;
+    expect(ipva.classeDeCusto).toBe("FIXO");
+    expect(ipva.grupoDeCusto).toBe("Seguros e tributos");
+
+    // O cadastral não é uma terceira classe de dinheiro: o odômetro descreve o
+    // ativo e não remunera nada. Cai em SEM_CLASSE *com o grupo à mostra*, que
+    // é o que separa "não é custo" de "ninguém classificou ainda".
+    const odometro = de(panorama, "cavalo.odometro_entrada")!;
+    expect(odometro.classeDeCusto).toBe("SEM_CLASSE");
+    expect(odometro.grupoDeCusto).toBe("Especificação técnica");
+  });
+
+  it("os três recortes reconstroem o todo, parâmetro a parâmetro", async () => {
+    const panorama = (await getPanoramaDeAlteracoes(ctx.db))!;
+    const recorte = (classe: string) =>
+      panorama.recortes.find((r) => r.classe === classe)!;
+
+    const somaDe = (campo: keyof (typeof panorama)["totais"]) =>
+      panorama.recortes.reduce((s, r) => s + r.totais[campo], 0);
+
+    // Medido: 12 linhas econômicas de custo fixo, 10 de variável, 5 sem classe.
+    expect(recorte("FIXO").totais.linhasEconomicas).toBe(12);
+    expect(recorte("VARIAVEL").totais.linhasEconomicas).toBe(10);
+    expect(recorte("SEM_CLASSE").totais.linhasEconomicas).toBe(5);
+    expect(somaDe("linhasEconomicas")).toBe(panorama.totais.linhasEconomicas);
+
+    expect(somaDe("parametrosAlterados")).toBe(panorama.totais.parametrosAlterados);
+    expect(somaDe("comImpacto")).toBe(panorama.totais.comImpacto);
+    expect(somaDe("semImpacto")).toBe(panorama.totais.semImpacto);
+    expect(somaDe("alteracoes")).toBe(panorama.totais.alteracoes);
+
+    // E as listas, não só as contagens: nenhum código se perde entre os cortes,
+    // e nenhum aparece em dois.
+    const codigos = panorama.recortes.flatMap((r) => r.maisAlterados);
+    expect(new Set(codigos).size).toBe(codigos.length);
+    expect([...codigos].sort()).toEqual([...panorama.maisAlterados].sort());
+  });
+
+  it("preserva a ordem do ranking dentro de cada recorte", async () => {
+    const panorama = (await getPanoramaDeAlteracoes(ctx.db))!;
+
+    /*
+      A sublista tem de sair na mesma ordem da lista inteira. Reordenar dentro
+      da classe não mudaria os números, mas mudaria a leitura: um parâmetro que
+      é o quarto no panorama não pode virar o primeiro só porque três dos que
+      vinham antes dele eram de outra classe — quem compara o mês com o anterior
+      leria uma subida que não houve.
+    */
+    for (const recorte of panorama.recortes) {
+      const posicao = recorte.maisAlterados.map((c) =>
+        panorama.maisAlterados.indexOf(c),
+      );
+      expect(posicao).toEqual([...posicao].sort((a, b) => a - b));
+
+      // A ordem por alterações continua valendo dentro do corte.
+      const mudancas = recorte.maisAlterados.map((c) => de(panorama, c)!.changes);
+      expect(mudancas).toEqual([...mudancas].sort((a, b) => b - a));
+    }
+  });
+
+  it("o recorte carrega as mesmas exclusões de parcela e de conjunto", async () => {
+    const panorama = (await getPanoramaDeAlteracoes(ctx.db))!;
+    const fixo = panorama.recortes.find((r) => r.classe === "FIXO")!;
+
+    // `juros_finame_cavalo` é parcela de um total que também mudou: está fora
+    // do ranking inteiro, e continua fora do recorte de fixo.
+    expect(fixo.maisAlterados).not.toContain("cavalo.juros_finame_cavalo");
+
+    // `carreta.custo_fixo` já contém o cavalo: fora dos rankings, e presente na
+    // visão de conjunto — do lado do fixo, que é a classe dela.
+    expect(fixo.maisAlterados).not.toContain("carreta.custo_fixo");
+    expect(fixo.visaoDeConjunto).toContain("carreta.custo_fixo");
+
+    // E a coluna de conjunto do lucro variável cai no recorte de variável.
+    const variavel = panorama.recortes.find((r) => r.classe === "VARIAVEL")!;
+    expect(variavel.visaoDeConjunto).toEqual(["carreta.lucro_variavel_previsto"]);
+  });
+
+  it("mostra que o dinheiro apurado hoje é todo do custo fixo", async () => {
+    const panorama = (await getPanoramaDeAlteracoes(ctx.db))!;
+    const fixo = panorama.recortes.find((r) => r.classe === "FIXO")!;
+    const variavel = panorama.recortes.find((r) => r.classe === "VARIAVEL")!;
+
+    /*
+      O achado que o corte torna visível, e a razão de ele existir: 2.155 das
+      2.931 alterações são de custo variável — combustível, manutenção, lucro
+      variável — e **nenhuma** delas passa na régua do impacto, enquanto as
+      quatro apuráveis são todas de custo fixo. Numa lista só, os dois fatos
+      ficam misturados e a tela parece dizer que o mês foi caro em financiamento.
+    */
+    expect(variavel.totais.alteracoes).toBe(2155);
+    expect(variavel.totais.comImpacto).toBe(0);
+    expect(variavel.maiorImpacto).toEqual([]);
+    expect(variavel.impactoPorPeriodicidade).toEqual([]);
+
+    expect(fixo.totais.comImpacto).toBe(4);
+    expect(fixo.maiorImpacto).toEqual(panorama.maiorImpacto);
+
+    // As periodicidades vazias não sobram como grupos sem linha nenhuma.
+    for (const grupo of fixo.impactoPorPeriodicidade) {
+      expect(grupo.codes.length).toBeGreaterThan(0);
+    }
+  });
+});
+
 describe("as pontas são por equipamento", () => {
   it("reproduz os totais da coluna nas duas pontas do cavalo", async () => {
     const panorama = (await getPanoramaDeAlteracoes(ctx.db))!;

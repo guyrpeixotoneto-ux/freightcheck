@@ -2,10 +2,13 @@ import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowRight,
+  CircleHelp,
   Coins,
   Layers,
   ListTree,
+  Route,
   TriangleAlert,
+  Warehouse,
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Card } from "@/components/ui/card";
@@ -34,9 +37,29 @@ import { cn } from "@/lib/utils";
  * que ainda não sabemos monetizar é informação, e escondê-lo faria a tela dizer
  * que nada mudou ali. Ele entra no ranking de alterações, fica fora do
  * financeiro, e a linha diz qual das três confirmações falta.
+ *
+ * **Fixo e variável se escolhem, e o resto da tela inteira acompanha.** São
+ * dois dinheiros, e quem confere o mês pergunta por um de cada vez — o
+ * financiamento subiu, ou foi o combustível? O seletor troca os quatro números
+ * do topo e as três tabelas de uma vez: um corte que valesse só para uma
+ * tabela deixaria os ladrilhos falando do todo enquanto a lista embaixo fala de
+ * uma classe. Os recortes vêm prontos do servidor, filtrados dos mesmos
+ * rankings — fixo, variável e sem classe somam exatamente o todo.
  */
 
 type PapelEconomico = "TOTAL" | "PARCELA" | "CONJUNTO" | "SIMPLES";
+
+type ClasseDeCusto = "FIXO" | "VARIAVEL" | "SEM_CLASSE";
+
+/**
+ * O corte escolhido na tela. `TUDO` é o panorama inteiro, sem filtro.
+ *
+ * Mora no componente de cima, e não aqui dentro: quem filtra por custo variável
+ * e clica numa linha vai ao segundo nível e volta — e voltar para "Tudo" perde
+ * o corte no meio da pergunta, que é o mesmo desperdício que o botão de volta
+ * existe para evitar.
+ */
+export type Corte = "TUDO" | ClasseDeCusto;
 
 interface Reconciliacao {
   linhas: number;
@@ -78,6 +101,8 @@ export interface ParametroAlterado {
   semanticsStatus: string;
   impactoCalculavel: boolean;
   impactoMotivo: string;
+  classeDeCusto: ClasseDeCusto;
+  grupoDeCusto: string | null;
   papel: PapelEconomico;
   dentroDe: string | null;
   parcelas: string[];
@@ -97,22 +122,35 @@ interface ImpactoPorPeriodicidade {
   codes: string[];
 }
 
-interface Panorama {
-  periods: PanoramaPeriodo[];
-  parametros: ParametroAlterado[];
+interface TotaisDoPanorama {
+  linhasEconomicas: number;
+  parametrosAlterados: number;
+  comImpacto: number;
+  semImpacto: number;
+  alteracoes: number;
+  ativosAfetados: number;
+}
+
+/** As listas de uma leitura: o panorama inteiro, ou o de uma classe de custo. */
+interface LeituraDeAlteracoes {
   maisAlterados: string[];
   maiorImpacto: string[];
   impactoPorPeriodicidade: ImpactoPorPeriodicidade[];
   semLeituraFinanceira: string[];
   visaoDeConjunto: string[];
-  totais: {
-    linhasEconomicas: number;
-    parametrosAlterados: number;
-    comImpacto: number;
-    semImpacto: number;
-    alteracoes: number;
-    ativosAfetados: number;
-  };
+  totais: TotaisDoPanorama;
+}
+
+interface RecorteDeCusto extends LeituraDeAlteracoes {
+  classe: ClasseDeCusto;
+  nome: string;
+  descricao: string;
+}
+
+interface Panorama extends LeituraDeAlteracoes {
+  periods: PanoramaPeriodo[];
+  parametros: ParametroAlterado[];
+  recortes: RecorteDeCusto[];
 }
 
 export interface EscolhaDeParametro {
@@ -126,6 +164,27 @@ const POR_PERIODO: Record<string, string> = {
   PONTUAL: "valor único",
 };
 
+/** Como cada classe se lê ao lado do equipamento, na linha da tabela. */
+const CLASSE_EM_PALAVRAS: Record<ClasseDeCusto, string> = {
+  FIXO: "custo fixo",
+  VARIAVEL: "custo variável",
+  SEM_CLASSE: "sem classe de custo",
+};
+
+/**
+ * O complemento que cada classe pede depois de "nenhum parâmetro…".
+ *
+ * As duas formas ficam juntas porque a segunda não sai da primeira: "de" mais
+ * "sem classe de custo" produz "nenhum parâmetro de sem classe de custo", e a
+ * frase da tela não pode depender de as três caixas terem, por acaso, a mesma
+ * regência.
+ */
+const CLASSE_NA_FRASE: Record<ClasseDeCusto, string> = {
+  FIXO: "de custo fixo",
+  VARIAVEL: "de custo variável",
+  SEM_CLASSE: "sem classe de custo",
+};
+
 /** A unidade como se lê, e não como se guarda. */
 function unidadeCurta(p: ParametroAlterado): string {
   if (p.unit === "BRL") return "R$";
@@ -135,8 +194,12 @@ function unidadeCurta(p: ParametroAlterado): string {
 
 export function ImpactoPanorama({
   onEscolher,
+  corte,
+  onCorte,
 }: {
   onEscolher: (escolha: EscolhaDeParametro) => void;
+  corte: Corte;
+  onCorte: (c: Corte) => void;
 }) {
   const query = useQuery({
     queryKey: ["impacto", "panorama"],
@@ -165,9 +228,17 @@ export function ImpactoPanorama({
   const lista = (codes: string[]) =>
     codes.map((c) => porCodigo.get(c)).filter((p): p is ParametroAlterado => !!p);
 
-  const financeiros = lista(data.maiorImpacto);
-  const alterados = lista(data.maisAlterados);
-  const conjunto = lista(data.visaoDeConjunto);
+  /*
+    A leitura ativa. `TUDO` é o próprio panorama — ele já tem a mesma forma dos
+    recortes, e é por isso que a tela abaixo não sabe qual dos dois está lendo.
+  */
+  const recorte = data.recortes.find((r) => r.classe === corte) ?? null;
+  const leitura: LeituraDeAlteracoes = recorte ?? data;
+
+  const financeiros = lista(leitura.maiorImpacto);
+  const alterados = lista(leitura.maisAlterados);
+  const conjunto = lista(leitura.visaoDeConjunto);
+  const recorteVazio = recorte !== null && recorte.totais.parametrosAlterados === 0;
   const primeira = data.periods[0];
   const ultima = data.periods[data.periods.length - 1];
 
@@ -193,58 +264,87 @@ export function ImpactoPanorama({
         </p>
       </div>
 
+      <SeletorDeClasse
+        recortes={data.recortes}
+        totalGeral={data.totais.linhasEconomicas}
+        corte={corte}
+        onCorte={onCorte}
+      />
+
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
         <Resumo
           tone="blue"
           icon={<ListTree className="w-6 h-6" />}
           label="Linhas econômicas"
-          value={formatNumber(data.totais.linhasEconomicas, 0)}
+          value={formatNumber(leitura.totais.linhasEconomicas, 0)}
           hint="parcelas de um total já contado ficam no drill-down"
         />
         <Resumo
           tone="slate"
           icon={<Layers className="w-6 h-6" />}
           label="Alterações de valor"
-          value={formatNumber(data.totais.alteracoes, 0)}
-          hint={`em até ${data.totais.ativosAfetados} veículos`}
+          value={formatNumber(leitura.totais.alteracoes, 0)}
+          hint={`em até ${leitura.totais.ativosAfetados} veículos`}
         />
         <Resumo
           tone="green"
           icon={<Coins className="w-6 h-6" />}
           label="Com impacto apurável"
-          value={formatNumber(data.totais.comImpacto, 0)}
+          value={formatNumber(leitura.totais.comImpacto, 0)}
           hint="semântica confirmada, monetária e somável"
         />
         <Resumo
           tone="amber"
           icon={<AlertTriangle className="w-6 h-6" />}
           label="Sem leitura financeira"
-          value={formatNumber(data.totais.semImpacto, 0)}
+          value={formatNumber(leitura.totais.semImpacto, 0)}
           hint="mudaram, e ainda não sabemos quanto representam"
         />
       </div>
 
+      {/*
+        Um recorte vazio é uma resposta, e precisa ser dita: sem esta frase a
+        tela mostraria três tabelas vazias, que se leem como defeito e não como
+        "nada desta classe mudou".
+      */}
+      {recorteVazio && (
+        <Card className="p-6">
+          <p className="text-sm text-muted-foreground">
+            Nenhum parâmetro {recorte && CLASSE_NA_FRASE[recorte.classe]} mudou
+            de valor entre estas {data.periods.length} vigências.
+          </p>
+        </Card>
+      )}
+
       {/* ---- ranking 1: o dinheiro ------------------------------------- */}
-      <Card className="overflow-hidden">
-        <Cabecalho
-          titulo="Maior impacto financeiro"
-          detalhe={
-            financeiros.length > 0
-              ? "Só os parâmetros cuja semântica sustenta soma de dinheiro. A variação já vem separada em preço e frota — frota maior não é preço maior. Uma lista por periodicidade: R$/mês e R$/ano não se ordenam juntos sem uma conversão que aqui não se faz."
-              : "Nenhum parâmetro alterado passa na régua do impacto ainda."
-          }
-        />
-        {data.impactoPorPeriodicidade.map((grupo) => (
-          <div key={grupo.periodicity ?? "sem"}>
-            <div className="border-b bg-muted/30 px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              {grupo.periodicity
-                ? (POR_PERIODO[grupo.periodicity] ?? grupo.periodicity.toLowerCase())
-                : "sem periodicidade declarada"}
+      {!recorteVazio && (
+        <Card className="overflow-hidden">
+          <Cabecalho
+            titulo="Maior impacto financeiro"
+            detalhe={
+              financeiros.length > 0
+                ? "Só os parâmetros cuja semântica sustenta soma de dinheiro. A variação já vem separada em preço e frota — frota maior não é preço maior. Uma lista por periodicidade: R$/mês e R$/ano não se ordenam juntos sem uma conversão que aqui não se faz."
+                : recorte
+                  ? `Nenhum parâmetro ${CLASSE_NA_FRASE[recorte.classe]} passa na régua do impacto ainda. As ${formatNumber(recorte.totais.alteracoes, 0)} alterações desta classe aparecem abaixo, cada uma com o motivo de não haver dinheiro apurado.`
+                  : "Nenhum parâmetro alterado passa na régua do impacto ainda."
+            }
+          />
+          {leitura.impactoPorPeriodicidade.map((grupo) => (
+            <div key={grupo.periodicity ?? "sem"}>
+              <div className="border-b bg-muted/30 px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                {grupo.periodicity
+                  ? (POR_PERIODO[grupo.periodicity] ?? grupo.periodicity.toLowerCase())
+                  : "sem periodicidade declarada"}
+              </div>
+              <TabelaFinanceira
+                linhas={lista(grupo.codes)}
+                onEscolher={onEscolher}
+                comClasse={corte === "TUDO"}
+              />
             </div>
-            <TabelaFinanceira linhas={lista(grupo.codes)} onEscolher={onEscolher} />
-          </div>
-        ))}
-      </Card>
+          ))}
+        </Card>
+      )}
 
       {/* ---- as colunas que já contêm o outro equipamento --------------- */}
       {conjunto.length > 0 && (
@@ -253,18 +353,28 @@ export function ImpactoPanorama({
             titulo="Visão de conjunto"
             detalhe="Estas colunas já carregam o outro equipamento dentro delas — somá-las às linhas acima contaria cada cavalo duas vezes. Ficam aqui, fora dos rankings, porque quem confere a planilha vai encontrá-las e precisa saber por que não entraram."
           />
-          <TabelaFinanceira linhas={conjunto} onEscolher={onEscolher} />
+          <TabelaFinanceira
+            linhas={conjunto}
+            onEscolher={onEscolher}
+            comClasse={corte === "TUDO"}
+          />
         </Card>
       )}
 
       {/* ---- ranking 2: a quantidade ----------------------------------- */}
-      <Card className="overflow-hidden">
-        <Cabecalho
-          titulo="Mais alterados"
-          detalhe="Por quantidade de mudanças de valor, monetário ou não — meses, km, km/l, R$/km e percentuais entram aqui. Quantidade de alterações não é impacto financeiro, e esta coluna nunca vira dinheiro."
-        />
-        <TabelaDeAlteracoes linhas={alterados} onEscolher={onEscolher} />
-      </Card>
+      {alterados.length > 0 && (
+        <Card className="overflow-hidden">
+          <Cabecalho
+            titulo="Mais alterados"
+            detalhe="Por quantidade de mudanças de valor, monetário ou não — meses, km, km/l, R$/km e percentuais entram aqui. Quantidade de alterações não é impacto financeiro, e esta coluna nunca vira dinheiro."
+          />
+          <TabelaDeAlteracoes
+            linhas={alterados}
+            onEscolher={onEscolher}
+            comClasse={corte === "TUDO"}
+          />
+        </Card>
+      )}
 
       <p className="text-xs text-muted-foreground">
         <strong>Por que a soma das linhas não bate com a frota.</strong> Um
@@ -273,7 +383,113 @@ export function ImpactoPanorama({
         alteração vista de novo, e some do topo para reaparecer no drill-down do
         total. O mesmo vale para as colunas de conjunto, marcadas na tabela, que
         já carregam o outro equipamento dentro delas.
+        {recorte && (
+          <>
+            {" "}
+            <strong>E por que este corte não muda nenhum número.</strong> Fixo,
+            variável e sem classe são o mesmo panorama filtrado — as mesmas
+            exclusões, a mesma ordem —, e as três caixas somam exatamente as{" "}
+            {formatNumber(data.totais.linhasEconomicas, 0)} linhas econômicas de
+            “Tudo”.
+          </>
+        )}
       </p>
+    </div>
+  );
+}
+
+/**
+ * O ícone de cada corte — o mesmo do bloco de classes da aba Chamados.
+ *
+ * Galpão para o fixo e estrada para o variável não são escolhas novas: quem
+ * abre este produto todo mês já viu as duas ali, e trocá-las aqui obrigaria a
+ * reaprender a mesma distinção numa segunda tela.
+ */
+const ICONE_DO_CORTE: Record<Corte, React.ReactNode> = {
+  TUDO: <Layers className="w-4 h-4" />,
+  FIXO: <Warehouse className="w-4 h-4" />,
+  VARIAVEL: <Route className="w-4 h-4" />,
+  SEM_CLASSE: <CircleHelp className="w-4 h-4" />,
+};
+
+/**
+ * O seletor de classe de custo.
+ *
+ * Pílulas e não um `select`: são quatro opções, sempre as mesmas, e a contagem
+ * de cada uma é metade da informação — quem abre a aba precisa ver que 10 das
+ * 27 linhas são de custo variável **antes** de decidir se quer olhar para elas.
+ * Um dropdown esconderia exatamente isso atrás de um clique.
+ *
+ * Uma caixa vazia continua clicável, com o zero à mostra. Desabilitá-la
+ * pareceria defeito da tela; o zero é um resultado, e leva a uma frase que diz
+ * qual classe não mudou.
+ */
+function SeletorDeClasse({
+  recortes,
+  totalGeral,
+  corte,
+  onCorte,
+}: {
+  recortes: RecorteDeCusto[];
+  totalGeral: number;
+  corte: Corte;
+  onCorte: (c: Corte) => void;
+}) {
+  const opcoes: { valor: Corte; nome: string; contagem: number; titulo: string }[] = [
+    {
+      valor: "TUDO",
+      nome: "Tudo",
+      contagem: totalGeral,
+      titulo: "Fixo, variável e sem classe numa lista só.",
+    },
+    ...recortes.map((r) => ({
+      valor: r.classe as Corte,
+      nome: r.nome,
+      contagem: r.totais.linhasEconomicas,
+      titulo: r.descricao,
+    })),
+  ];
+
+  const ativo = opcoes.find((o) => o.valor === corte);
+
+  return (
+    <div className="space-y-2">
+      <div
+        role="tablist"
+        aria-label="classe de custo"
+        className="inline-flex flex-wrap rounded-xl border bg-muted/50 p-1"
+      >
+        {opcoes.map((o) => (
+          <button
+            key={o.valor}
+            role="tab"
+            aria-selected={o.valor === corte}
+            title={o.titulo}
+            onClick={() => onCorte(o.valor)}
+            className={cn(
+              "flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors",
+              o.valor === corte
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {ICONE_DO_CORTE[o.valor]}
+            {o.nome}
+            <span className="tabular-nums text-xs text-muted-foreground">
+              {formatNumber(o.contagem, 0)}
+            </span>
+          </button>
+        ))}
+      </div>
+      {/*
+        A frase da classe fica na tela, e não só no `title`: "custo variável" é
+        um rótulo que cada empresa preenche de um jeito, e quem confere precisa
+        saber que aqui ele quer dizer combustível, manutenção, pneus e lucro
+        variável — que é o que a taxonomia declara.
+      */}
+      {ativo && corte !== "TUDO" && (
+        <p className="text-xs text-muted-foreground max-w-3xl">{ativo.titulo}</p>
+      )}
     </div>
   );
 }
@@ -290,9 +506,11 @@ function Cabecalho({ titulo, detalhe }: { titulo: string; detalhe: string }) {
 function TabelaFinanceira({
   linhas,
   onEscolher,
+  comClasse,
 }: {
   linhas: ParametroAlterado[];
   onEscolher: (e: EscolhaDeParametro) => void;
+  comClasse: boolean;
 }) {
   const dinheiro = (v: number | null) =>
     v === null ? "—" : formatBrlShort(v);
@@ -329,7 +547,7 @@ function TabelaFinanceira({
               className="border-b last:border-0 cursor-pointer hover:bg-muted/40 focus:bg-muted/40 focus:outline-none"
             >
               <td className="px-4 py-2.5">
-                <NomeDoParametro p={p} />
+                <NomeDoParametro p={p} comClasse={comClasse} />
               </td>
               <td className="px-3 py-2.5 text-right tabular-nums">
                 {p.entities}
@@ -411,9 +629,11 @@ function TabelaFinanceira({
 function TabelaDeAlteracoes({
   linhas,
   onEscolher,
+  comClasse,
 }: {
   linhas: ParametroAlterado[];
   onEscolher: (e: EscolhaDeParametro) => void;
+  comClasse: boolean;
 }) {
   return (
     <div className="overflow-x-auto">
@@ -444,7 +664,7 @@ function TabelaDeAlteracoes({
               className="border-b last:border-0 cursor-pointer hover:bg-muted/40 focus:bg-muted/40 focus:outline-none"
             >
               <td className="px-4 py-2.5">
-                <NomeDoParametro p={p} />
+                <NomeDoParametro p={p} comClasse={comClasse} />
               </td>
               <td className="px-3 py-2.5 text-right tabular-nums font-medium">
                 {p.changes}
@@ -491,13 +711,30 @@ function TabelaDeAlteracoes({
  *
  * As etiquetas não são decoração: "contém o cavalo" é a diferença entre um
  * número que pode ser somado à frota de cavalos e um que já a contém.
+ *
+ * O grupo da taxonomia — "Combustível", "Seguros e tributos" — vem sempre, e é
+ * ele que torna a classe conferível: "custo variável" é um rótulo que cada
+ * empresa preenche de um jeito, e a linha que o afirma precisa dizer de onde
+ * ele saiu. A classe em si só aparece em "Tudo": dentro de um recorte ela
+ * repetiria, linha a linha, o que o seletor já diz uma vez.
  */
-function NomeDoParametro({ p }: { p: ParametroAlterado }) {
+function NomeDoParametro({
+  p,
+  comClasse,
+}: {
+  p: ParametroAlterado;
+  comClasse: boolean;
+}) {
   return (
     <div className="min-w-0">
       <div className="font-medium truncate">{p.title}</div>
       <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
         <span>{p.equipment.toLowerCase()}</span>
+        <span aria-hidden>·</span>
+        <span>
+          {comClasse && <>{CLASSE_EM_PALAVRAS[p.classeDeCusto]} · </>}
+          {p.grupoDeCusto ?? "sem grupo na taxonomia"}
+        </span>
         {p.papel === "TOTAL" && (
           <Etiqueta tone="neutro">
             total de {p.parcelas.length} parcelas
