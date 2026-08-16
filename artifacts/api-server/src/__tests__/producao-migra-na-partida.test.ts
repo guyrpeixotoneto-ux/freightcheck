@@ -19,6 +19,16 @@ import type { EstadoObservado } from "@workspace/db/diagnostico";
  * remover essa chamada por simetria com o `dev.mjs`, o bridge deploy inteiro
  * deixa de fazer sentido — a Fase B depende dela. Estas provas existem para que
  * essa remoção não passe.
+ *
+ * **O que este arquivo prova, e o que ele não prova.** Ele prova que a *chamada*
+ * existe no servidor e que o `dev.mjs` não a duplica. Por muito tempo isso foi
+ * lido como "logo, Development não migra" — e era falso: o `dev.mjs` sobe o
+ * servidor, e o servidor migrava sempre que houvesse `DATABASE_URL`. A ausência
+ * de um comando de migração aqui nunca disse nada sobre o processo seguinte.
+ *
+ * Quem prova a política por ambiente é `politica-de-migracao.test.ts`. Os dois
+ * arquivos se completam: lá se decide **se** migra, aqui se garante que, quando
+ * a resposta for sim, a chamada e o relatório continuam existindo.
  */
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const ler = (rel: string) => readFileSync(path.join(RAIZ, rel), "utf8");
@@ -49,7 +59,7 @@ describe("o servidor publicado aplica a fila", () => {
     expect(executavel).toMatch(/lembrarRelatorio\(\s*report\s*\)/);
   });
 
-  it("a assimetria com o dev é explícita: o dev não migra, o servidor migra", () => {
+  it("o dev não duplica a chamada — quem migra, quando migra, é o servidor", () => {
     const dev = readFileSync(path.join(RAIZ, "../..", "scripts/dev.mjs"), "utf8");
     const executavelDev = dev
       .replace(/\/\*[\s\S]*?\*\//g, "")
