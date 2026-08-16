@@ -45,16 +45,43 @@ paralela se redireciona.** A taxonomia passa a ter cinco classes:
 
 ### A.2 O contrato, na forma exata
 
-> **Números entram por duas portas — Importações e Chamados.**
-> **Regra que sustenta número entra pelo Book, e nunca vira número.**
-> **Todo o resto do FreightCheck é consumidor de uma única realidade canônica.**
+**Portas de entrada autorizadas — as três, e o que cada uma recebe:**
 
-`BOOK` não enfraquece a regra: ela não recebe medida, recebe a regra que
-justifica a medida. A fronteira está trancada por teste pelos dois lados —
-`fronteira-do-book.test.ts` prova que ela continua aceitando arquivo **e** que
-nenhum motor de cálculo lê `book_entry`.
+| Porta | Recebe | Escreve no canônico operacional? |
+|---|---|---|
+| **Importações** | dados operacionais canônicos | **sim** — é a origem do fato |
+| **Alterações → Chamados** | dados e anexos de chamados | não o núcleo; escreve `ticket*` |
+| **Book do Operador** | domínio documental separado | **não** — nunca |
 
-### A.3 Fleet Analysis — o que preservar, ao migrar
+> **Todo o restante do FreightCheck é consumidor.**
+
+### A.3 O Book do Operador, formalmente
+
+Registro da decisão, para que ela pare de depender de quem lembra dela:
+
+1. **O Book pertence a outro domínio.** As portas `IMPORTAÇÕES` e `CHAMADOS`
+   recebem *medida* — o que o ativo custa, o que foi pedido, o que voltou
+   aplicado. O Book recebe *regra*: o contrato, o manual, a planilha de apoio, o
+   texto escrito à mão no cartão do bloco. É o que o export do Freightec não
+   traz, e é o que responde "em que isso se apoia?" quando alguém aponta para
+   uma linha de remuneração.
+2. **Não escreve no canônico operacional.** `book_entry` é a única tabela que
+   ele toca. Nenhum motor de cálculo — `comparison`, `coverage`, `composition`,
+   `dre`, `balance`, `simulation`, `curation`, `ingest` — a lê. Seus únicos
+   leitores são a tela do Book e o índice do Assistente, que a **citam** como
+   fonte de regra, com link, nunca como parcela de uma soma.
+3. **Não é uma terceira porta de ingestão.** Importar arquivo por ali continua
+   sendo o comportamento correto e deve ser preservado; o que ele nunca faz é
+   virar número. A regra "duas portas" vale para o **canônico operacional**, e o
+   Book está fora dela por natureza do que recebe, não por exceção concedida.
+4. **A separação é protegida por teste, pelos dois lados.**
+   `fronteira-do-book.test.ts` prova que a porta continua aceitando PDF, XLSX,
+   DOCX e texto — para que ela não seja fechada por engano junto com as portas
+   indevidas, com que se parece na superfície — **e** que nenhum motor de
+   cálculo referencia `book_entry`, com caso de controle para que a asserção de
+   ausência não passe fingindo.
+
+### A.4 Fleet Analysis — o que preservar, ao migrar
 
 A tela responde quatro perguntas que nenhuma outra responde. O contrato de saída
 que a migração precisa reproduzir:
@@ -72,6 +99,59 @@ Três coisas mudam para melhor na migração, e nenhuma é opcional: a tela pass
 **rastreabilidade até a célula** como o resto do produto, e passa a respeitar
 unidade e canal em vez de somar tudo. O parser próprio com `EMPURRADA_` fixo
 desaparece junto.
+
+---
+
+### A.5 A autoridade de escrita — como a regra deixa de ser convenção
+
+Implementada no PR-2 (`lib/db/src/autoridade.ts`). O contrato das duas portas
+passa a ser conferido **no driver**: uma escrita numa tabela protegida só chega
+ao Postgres se, naquele instante, existir uma autoridade declarada capaz de
+fazê-la.
+
+| Conjunto | Tabelas | Quem pode escrever |
+|---|---|---|
+| **Núcleo canônico** | `fact`, `snapshot`, `snapshot_scope`, `snapshot_attribute`, `snapshot_entity_type`, `snapshot_merge`, `entity`, `entity_identifier`, `scope` | `INGESTAO` |
+| **Dicionário e classificação** | `attribute`, `attribute_alias`, `taxonomy_node` | `INGESTAO` ou `CURADORIA` |
+| **Todo o resto** | `import_run`, `raw_*`, `staged_fact`, `change*`, `ticket*`, `coverage_expectation`, `book_entry`, … | livre |
+
+**Por que duas autoridades e não uma.** A distinção é do domínio: a importação
+*descobre* que existe uma coluna nova; a curadoria decide *o que ela significa*
+e onde ela mora na árvore. Um fato não tem esse segundo dono — ninguém decide um
+fato depois que ele foi lido —, e por isso `CURADORIA` nunca alcança o núcleo.
+Uma autoridade única seria uma chave mestra.
+
+**Onde a proteção mora.** No `pg.Pool` criado por `createDb`, e nos clientes que
+saem dele — o que cobre a transação, que é por onde a promoção escreve tudo.
+Guardar só o pool teria deixado passar exatamente o caminho que mais importa.
+Como a conferência é sobre o **statement**, ela é indiferente à forma: drizzle,
+SQL cru, helper genérico ou string montada em tempo de execução chegam todos ao
+mesmo ponto.
+
+**O que ela deliberadamente não faz.** Não bloqueia leitura. Não bloqueia
+migration nem a ponte de deploy — as duas abrem o próprio `pg.Pool`, fora de
+`createDb`, e é correto: uma migration é a autoridade que muda a *forma* do
+canônico, e submetê-la à autoridade que protege o *conteúdo* inverteria a
+hierarquia. E não substitui as garantias do banco: a vigência ativa única, a
+imutabilidade do RAW e a identidade canônica continuam sendo do Postgres. A
+autoridade protege *quem escreve*; o banco protege *o que fica escrito*.
+
+**A concessão de teste é da conexão, não do ambiente.** `createTestDatabase`
+concede `FIXTURE_DE_TESTE` ao banco descartável que cria, porque os fixtures
+montam a camada canônica direto. Um processo de produção não tem como obtê-la —
+nada lá chama aquela função. Amarrá-la a `NODE_ENV` teria deixado a porta aberta
+para qualquer processo que exportasse a variável errada.
+
+**As duas camadas de enforcement, e por que ambas.**
+
+| | `fronteira-de-ingestao.test.ts` | `autoridade.ts` |
+|---|---|---|
+| Quando recusa | no CI, antes de existir execução | em runtime, quando o caminho roda |
+| O que examina | o código-fonte | o statement |
+| Ponto fraco | textual: não segue indireção nem string montada em runtime | só aparece quando alguém executa aquele caminho |
+| O que entrega | **nomeia o arquivo** que não pode existir | não tem como ser contornada |
+
+Uma pega antes; a outra pega sempre.
 
 ---
 
@@ -422,7 +502,8 @@ resultados idênticos aos de hoje.* O que muda é o que o produto passa a enxerg
 
 | Mudança | Impacto visível | Não muda | Risco | Como se verifica |
 |---|---|---|---|---|
-| Desativar ingestão de `overview.ts` | nenhum | tudo | **nenhum** — código inalcançável | teste: só um handler registra `POST /imports` |
+| Desativar ingestão de `overview.ts` | nenhum | tudo | **operacional baixo** — o código era inalcançável, mas inalcançável não é o mesmo que sem dependências | teste: só um handler registra `POST /imports` |
+| Autoridade central de escrita | nenhum no caminho feliz; escrita fora de autoridade passa a ser recusada | números do export real | **operacional baixo** — a recusa é nova, e um escritor legítimo não declarado falharia em runtime | o pipeline real roda por conexão sem concessão (`autoridade-do-pipeline.test.ts`) |
 | Preservar o Book | nenhum | tudo | nenhum | `fronteira-do-book.test.ts` (já existe) |
 | Mapear Fleet Analysis | nenhum — é documento | tudo | nenhum | teste de caracterização do formato de resposta atual |
 | Criar a autoridade sem consumidor | nenhum | tudo | nenhum | testes próprios da autoridade |
@@ -451,46 +532,59 @@ uma versão, mapeado para o novo, para não quebrar link colado.
 
 ### P0 — fronteiras arquiteturais
 
-| PR | O quê | Toca comportamento? |
-|---|---|---|
-| **PR-1** | Remover de `routes/overview.ts` os dois `POST` e as três leituras duplicadas; deixar só `GET /overview`. Teste que impede um segundo handler para `POST /imports` | não — o código é inalcançável |
-| **PR-2** | **Nada a fazer.** O Book fica como está; a fronteira já está presa por teste. Listado para que a preservação seja uma decisão registrada, e não um esquecimento | não |
-| **PR-3** | **Mapa** da migração de Fleet Analysis: ADR + teste de caracterização do formato de resposta atual + o de-para da Parte A.3. **Sem trocar a fonte** | não |
+| PR | O quê | Estado | Toca comportamento? |
+|---|---|---|---|
+| **PR-1** | Remover de `routes/overview.ts` os dois `POST` e as três leituras duplicadas; deixar só `GET /overview`. Enforcement em três alturas: rota, superfície e tabela | **feito** | não — o código era inalcançável |
+| **PR-2** | **A autoridade central de escrita.** `fact`, `snapshot`, `entity`, `scope`, `entity_identifier` e `snapshot_*` só aceitam escrita sob autoridade declarada, conferida no driver. `CURADORIA` modelada à parte, para o dicionário. Formalização do Book (Parte A.3) | **feito** | sim, no caminho de recusa |
+| **PR-3** | *(sem código)* O Book fica como está — a decisão está registrada na Parte A.3 e presa por `fronteira-do-book.test.ts`. Incorporado ao PR-2 | **feito** | não |
+| **PR-4** | **Mapa** da migração de Fleet Analysis: ADR + teste de caracterização do formato de resposta atual + o de-para da Parte A.4. **Sem trocar a fonte** | — | não |
+
+A autoridade central subiu de P1 para P0 por decisão de 16/08/2026: a varredura
+de código do PR-1 é uma boa rede e não pode ser a garantia arquitetural
+definitiva, e a diferença entre as duas não devia ficar em aberto pela duração
+de toda a sequência.
 
 ### P1 — autoridade da série e da disponibilidade
 
 | PR | O quê | Inverte |
 |---|---|---|
-| **PR-4** | Criar a autoridade com o contrato da Parte E e testes próprios. **Nenhum consumidor migra** | — |
-| **PR-5** | Canal passa a ser lido de `snapshot.canal` em `listContexts`/`contextFilter`/`findPreviousSnapshot`. Corrigir os comentários vencidos de `series.ts` e `vigencia.ts` | `it.fails` de **D2** |
-| **PR-6** | Contexto passa a ser `(canonical_scope, canal)`; identificador de contexto novo, com o antigo aceito por compatibilidade | `it.fails` de **D1** |
-| **PR-7** | `vigenciaAnterior` na autoridade; `findPreviousSnapshot` delega. Motivo nomeado no `null`. **Guarda de `entity_type_set` ainda de pé** | — |
-| **PR-8** | `entity_type_set` sai da série **e** comparação por componente com `NAO_ENTREGUE` — as duas metades juntas, nunca separadas | `it.fails` de **D3** |
+| **PR-5** | Criar a autoridade de **disponibilidade** com o contrato da Parte E e testes próprios. **Nenhum consumidor migra** | — |
+| **PR-6** | Canal passa a ser lido de `snapshot.canal` em `listContexts`/`contextFilter`/`findPreviousSnapshot`. Corrigir os comentários vencidos de `series.ts` e `vigencia.ts` | `it.fails` de **D2** |
+| **PR-7** | Contexto passa a ser `(canonical_scope, canal)`; identificador de contexto novo, com o antigo aceito por compatibilidade | `it.fails` de **D1** |
+| **PR-8** | `vigenciaAnterior` na autoridade; `findPreviousSnapshot` delega. Motivo nomeado no `null`. **Guarda de `entity_type_set` ainda de pé** | — |
+| **PR-9** | `entity_type_set` sai da série **e** comparação por componente com `NAO_ENTREGUE` — as duas metades juntas, nunca separadas | `it.fails` de **D3** |
 
 ### P2 — propagação
 
 | PR | O quê |
 |---|---|
-| **PR-9** | Cobertura, Vigências, Comparar, Composição, DRE, Parâmetros, Assistente passam a usar a autoridade |
-| **PR-10** | `/changes/latest` e `valoresVigentes` (chamados) passam a usar `serieDe`/`vigenciaAnterior` |
-| **PR-11** | `janelaDosAtributos` passa a exigir recorte |
-| **PR-12** | `getOverview` filtra vivas e contexto |
-| **PR-13** | `ContextBar` montado nas telas que recortam por contexto |
-| **PR-14** | Fleet Analysis passa a ler o canônico, executando o mapa do PR-3 |
-| **PR-15** | Remover as consultas paralelas que sobraram; teste que impede `status <> 'SUPERSEDED'` escrito à mão fora da autoridade |
+| **PR-10** | Cobertura, Vigências, Comparar, Composição, DRE, Parâmetros, Assistente passam a usar a autoridade |
+| **PR-11** | `/changes/latest` e `valoresVigentes` (chamados) passam a usar `serieDe`/`vigenciaAnterior` |
+| **PR-12** | `janelaDosAtributos` passa a exigir recorte |
+| **PR-13** | `getOverview` filtra vivas e contexto |
+| **PR-14** | `ContextBar` montado nas telas que recortam por contexto |
+| **PR-15** | Fleet Analysis passa a ler o canônico, executando o mapa do PR-4 |
+| **PR-16** | Remover as consultas paralelas que sobraram; teste que impede `status <> 'SUPERSEDED'` escrito à mão fora da autoridade |
+| **PR-17** | **A prova de propagação por porta:** para cada dado que entra, uma prova de que todo módulo elegível o enxerga — o segundo grande objetivo da auditoria |
 
 ### P3 — semântica de estados vazios
 
 | PR | O quê |
 |---|---|
-| **PR-16** | Separar as quatro causas de vazio do Impacto; vocabulário comum de vazio |
-| **PR-17** | `NOT_APPLICABLE` explícito em Composição e DRE para equipamento sem regra |
-| **PR-18** | `import_decision` na tela de Importações; `snapshot_merge` em Vigências |
+| **PR-18** | Separar as quatro causas de vazio do Impacto; vocabulário comum de vazio |
+| **PR-19** | `NOT_APPLICABLE` explícito em Composição e DRE para equipamento sem regra |
+| **PR-20** | `import_decision` na tela de Importações; `snapshot_merge` em Vigências |
 
-**Regra de sequência:** PR-4 antes de qualquer consumidor. PR-5 e PR-6 antes de
-PR-7. PR-7 antes de PR-8. Nada de P2 antes de todo o P1. Cada PR de P1 fecha com
+**Regra de sequência:** PR-5 antes de qualquer consumidor. PR-6 e PR-7 antes de
+PR-8. PR-8 antes de PR-9. Nada de P2 antes de todo o P1. Cada PR de P1 fecha com
 o `it.fails` correspondente **invertido** e o export real produzindo números
 idênticos.
+
+**Sobre "risco nenhum".** Nenhum PR desta sequência é descrito assim, e o PR-1
+foi corrigido para "risco operacional baixo". Código hoje inalcançável pode ter
+dependências não percebidas — um teste que o importa, um bundle que o inclui, um
+ambiente cuja ordem de montagem difere. Relatório de arquitetura não afirma
+absolutos.
 
 ---
 

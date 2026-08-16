@@ -1,5 +1,5 @@
 import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
-import type { Database } from "@workspace/db";
+import { comoAutoridade, type Database } from "@workspace/db";
 import {
   attributeSemanticsTable,
   attributeTable,
@@ -217,7 +217,18 @@ async function resolveTaxonomyNodeId(
 }
 
 /** Copy the current version into `attribute`, which is its projection. */
-async function projectCurrentVersion(db: Database, attributeId: string) {
+function projectCurrentVersion(db: Database, attributeId: string) {
+  /*
+    Projetar a versão vigente sobre `attribute` é escrita de dicionário.
+
+    Fica aqui, no ponto interno, e não nos três chamadores: é o único lugar do
+    arquivo que escreve, e declarar a autoridade nele é o que garante que um
+    quarto chamador futuro já nasça coberto.
+  */
+  return comoAutoridade("CURADORIA", () => projetarSobAutoridade(db, attributeId));
+}
+
+async function projetarSobAutoridade(db: Database, attributeId: string) {
   const [current] = await db
     .select()
     .from(attributeSemanticsTable)

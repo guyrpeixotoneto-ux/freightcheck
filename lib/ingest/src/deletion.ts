@@ -1,6 +1,6 @@
 import { unlinkSync } from "node:fs";
 import { sql } from "drizzle-orm";
-import type { Database } from "@workspace/db";
+import { comoAutoridade, type Database } from "@workspace/db";
 import { isInsideImportStorage } from "./storage";
 
 /**
@@ -407,7 +407,25 @@ export class ImportDeletionRefused extends Error {}
  * banco recusa e a transação inteira volta atrás —, mas acertar é o que faz a
  * operação ser uma só.
  */
-export async function deleteImportRun(
+export function deleteImportRun(
+  db: Database,
+  importRunId: string,
+  options: DeleteImportRunOptions,
+): Promise<ImportDeletionResult> {
+  /*
+    Desfazer uma importação é a mesma autoridade que a fez.
+
+    A exclusão apaga fato, vigência, entidade e escopo — o núcleo inteiro —, e
+    por isso ela é `INGESTAO` e não uma autoridade própria: quem pode desfazer
+    é a porta que fez, e uma autoridade separada para apagar seria uma segunda
+    chave para a mesma fechadura.
+  */
+  return comoAutoridade("INGESTAO", () =>
+    excluirSobAutoridade(db, importRunId, options),
+  );
+}
+
+async function excluirSobAutoridade(
   db: Database,
   importRunId: string,
   options: DeleteImportRunOptions,

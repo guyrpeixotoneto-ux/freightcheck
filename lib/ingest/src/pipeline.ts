@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync, statSync } from "node:fs";
 import { and, eq, inArray, sql } from "drizzle-orm";
-import type { Database } from "@workspace/db";
+import { comoAutoridade, type Database } from "@workspace/db";
 import {
   attributeAliasTable,
   attributeTable,
@@ -1392,10 +1392,26 @@ async function lockRun(
  * Em todos os casos, ao final existe **uma** vigência ativa para a identidade —
  * e o índice único do banco garante isso mesmo que este código erre.
  */
-export async function promote(
+export function promote(
   db: Database,
   importRunId: string,
   options: PromoteOptions = {},
+): Promise<PromoteResult> {
+  /*
+    A promoção é a autoridade de INGESTAO, e é aqui que ela se declara.
+
+    O invólucro é fino de propósito: o corpo continua exatamente como estava, e
+    o que a linha abaixo acrescenta é o escopo em que a escrita no núcleo
+    canônico é aceita pelo driver. Fora dele — de uma rota, de um job, de um
+    script —, o mesmo `INSERT` é recusado. Ver `lib/db/src/autoridade.ts`.
+  */
+  return comoAutoridade("INGESTAO", () => promoverSobAutoridade(db, importRunId, options));
+}
+
+async function promoverSobAutoridade(
+  db: Database,
+  importRunId: string,
+  options: PromoteOptions,
 ): Promise<PromoteResult> {
   const mode = options.onExistingSnapshot ?? "FAIL";
   try {

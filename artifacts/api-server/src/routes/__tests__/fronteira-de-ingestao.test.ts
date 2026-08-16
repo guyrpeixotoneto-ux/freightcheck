@@ -33,13 +33,23 @@ import type { IRouter } from "express";
  *    canônico. É a altura que pega o que não passa por rota nenhuma: um job, um
  *    script, um `INSERT` dentro de um módulo de leitura.
  *
- * **O que esta prova não é.** A terceira altura é varredura textual, não
- * análise de AST: ela reconhece as formas diretas de escrita — `.insert(X)`,
- * `INSERT INTO x` — e não segue uma escrita passada por indireção. É uma rede,
- * não uma prisão; a prisão é a autoridade de escrita centralizada, que é
- * mudança de comportamento e tem PR próprio. Enquanto ela não existe, esta rede
- * é o que impede a regressão silenciosa, e ela vem com caso de controle para
- * que uma varredura quebrada não passe fingindo que está tudo bem.
+ * **Esta prova é a rede; a prisão está em `lib/db/src/autoridade.ts`.** A
+ * terceira altura é varredura textual, não análise de AST: ela reconhece as
+ * formas diretas de escrita — `.insert(X)`, `INSERT INTO x`, o helper genérico
+ * e o símbolo interpolado — e não seguiria uma escrita montada em tempo de
+ * execução. Quem fecha essa diferença é a autoridade de escrita, que confere o
+ * **statement** no driver e por isso não depende de o código se parecer com
+ * nada.
+ *
+ * As duas convivem de propósito, e não por indecisão. A autoridade recusa em
+ * runtime, o que só aparece quando alguém executa o caminho; esta varredura
+ * recusa no CI, antes de existir execução, e **nomeia o arquivo** — que é o que
+ * transforma "algo quebrou em produção" em "esta linha não pode existir". Uma
+ * pega antes, a outra pega sempre.
+ *
+ * A varredura vem com caso de controle porque uma asserção de ausência que não
+ * sabe encontrar presença não prova nada — e foi ele que revelou que as duas
+ * formas indiretas de `pipeline.ts` não estavam sendo vistas.
  */
 
 const RAIZ = path.resolve(
@@ -248,7 +258,7 @@ const AUTORIZADOS_NO_NUCLEO: Record<string, string> = {
   "lib/comparison/src/testing.ts":
     "o construtor de fixtures sintéticas, exportado como `@workspace/comparison/testing` e usado só por teste",
   "lib/db/src/bridge.ts":
-    "a ponte de deploy: ela não escreve statement próprio — levanta o da migration que criou a tabela e o reexecuta",
+    "a ponte de deploy: ela não escreve statement próprio — levanta o da migration que criou a tabela e o reexecuta, por um pool próprio fora de `createDb` e portanto fora da autoridade, como toda migration",
 };
 
 const AUTORIZADOS_NO_DICIONARIO: Record<string, string> = {

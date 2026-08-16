@@ -1,6 +1,10 @@
 import { eq, isNull } from "drizzle-orm";
-import type { Database } from "@workspace/db";
-import { curationEventTable, taxonomyNodeTable } from "@workspace/db";
+import {
+  comoAutoridade,
+  curationEventTable,
+  taxonomyNodeTable,
+  type Database,
+} from "@workspace/db";
 
 /**
  * The remuneration hierarchy.
@@ -96,10 +100,19 @@ export interface SeedTaxonomyResult {
  * Create the tree if it is not there yet. Idempotent: re-running adds only
  * what is missing and never rewrites an existing node.
  */
-export async function seedTaxonomy(
+export function seedTaxonomy(
   db: Database,
   actor: string,
   root: TaxonomySeedNode = DEFAULT_TAXONOMY,
+): Promise<SeedTaxonomyResult> {
+  /* Semear a árvore de remuneração é decisão de curadoria — ver `autoridade.ts`. */
+  return comoAutoridade("CURADORIA", () => semearSobAutoridade(db, actor, root));
+}
+
+async function semearSobAutoridade(
+  db: Database,
+  actor: string,
+  root: TaxonomySeedNode,
 ): Promise<SeedTaxonomyResult> {
   let created = 0;
   let existing = 0;

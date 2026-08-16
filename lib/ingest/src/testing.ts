@@ -37,7 +37,18 @@ export async function createTestDatabase(name: string): Promise<TestDb> {
   const url = urlFor(dbName);
   await runMigrations(url);
 
-  const { db, pool } = createDb(url);
+  /*
+    O banco descartável nasce com a autoridade de fixture.
+
+    Os testes deste repositório montam a camada canônica direto para poder
+    variar uma coisa de cada vez — é o que `@workspace/comparison/testing` faz,
+    e é o que as provas de imutabilidade e de identidade precisam fazer. A
+    concessão é da **conexão**, e não do ambiente: um processo de produção não
+    tem como obtê-la, porque nada lá chama esta função. Amarrá-la a `NODE_ENV`
+    teria deixado a porta aberta para qualquer processo que exportasse a
+    variável errada. Ver `lib/db/src/autoridade.ts`.
+  */
+  const { db, pool } = createDb(url, { autoridadeDaConexao: "FIXTURE_DE_TESTE" });
   return {
     db,
     pool,

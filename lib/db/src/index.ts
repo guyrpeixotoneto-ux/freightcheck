@@ -2,6 +2,9 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import type { NodePgDatabase } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "./schema";
+import { protegerPool, type Autoridade } from "./autoridade";
+
+export * from "./autoridade";
 
 const { Pool } = pg;
 
@@ -10,12 +13,25 @@ export type Database = NodePgDatabase<typeof schema>;
 /**
  * Build an isolated connection. Tests use this to talk to a scratch database
  * without touching the process-wide `db` below.
+ *
+ * **Toda conexão criada aqui passa pela autoridade de escrita.** O pool é
+ * envolvido antes de o drizzle o receber, de modo que a proteção vale para
+ * qualquer forma de escrita — drizzle, SQL cru, transação — sem que nenhum
+ * chamador precise saber que ela existe. Ver `autoridade.ts`.
+ *
+ * `autoridadeDaConexao` é a concessão presa a esta conexão, e existe para um
+ * caso só: o banco descartável que `createTestDatabase` cria, onde os fixtures
+ * montam a camada canônica direto. Nada em produção a passa — a conexão do
+ * processo, logo abaixo, é criada sem ela.
  */
-export function createDb(connectionString: string): {
+export function createDb(
+  connectionString: string,
+  opcoes: { autoridadeDaConexao?: Autoridade } = {},
+): {
   db: Database;
   pool: pg.Pool;
 } {
-  const pool = new Pool({ connectionString });
+  const pool = protegerPool(new Pool({ connectionString }), opcoes.autoridadeDaConexao);
   return { db: drizzle(pool, { schema }), pool };
 }
 

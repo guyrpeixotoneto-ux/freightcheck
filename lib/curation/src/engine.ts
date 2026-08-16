@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
-import type { Database } from "@workspace/db";
+import { comoAutoridade, type Database } from "@workspace/db";
 import {
   attributeTable,
   curationEventTable,
@@ -176,7 +176,22 @@ export interface ProposeResult {
  * whose own name contradicts its values would invite exactly the wrong
  * confirmation.
  */
-export async function runProposalPass(
+export function runProposalPass(
+  db: Database,
+  actor: string,
+): Promise<ProposeResult> {
+  /*
+    A curadoria é autoridade própria, e não alcança o núcleo canônico.
+
+    A distinção é do domínio: a importação **descobre** que existe uma coluna
+    nova; a curadoria decide **o que ela significa**. Um fato não tem esse
+    segundo dono — ninguém decide um fato depois que ele foi lido —, e é por
+    isso que `CURADORIA` escreve o dicionário e nunca `fact`.
+  */
+  return comoAutoridade("CURADORIA", () => proporSobAutoridade(db, actor));
+}
+
+async function proporSobAutoridade(
   db: Database,
   actor: string,
 ): Promise<ProposeResult> {
@@ -303,7 +318,22 @@ export interface ConfirmInput {
  * duplicated as a database constraint — this function produces a readable
  * error, the constraint makes the rule unavoidable.
  */
-export async function confirmAttribute(
+export function confirmAttribute(
+  db: Database,
+  input: ConfirmInput,
+): Promise<void> {
+  /*
+    A curadoria é autoridade própria, e não alcança o núcleo canônico.
+
+    A distinção é do domínio: a importação **descobre** que existe uma coluna
+    nova; a curadoria decide **o que ela significa**. Um fato não tem esse
+    segundo dono — ninguém decide um fato depois que ele foi lido —, e é por
+    isso que `CURADORIA` escreve o dicionário e nunca `fact`.
+  */
+  return comoAutoridade("CURADORIA", () => confirmarSobAutoridade(db, input));
+}
+
+async function confirmarSobAutoridade(
   db: Database,
   input: ConfirmInput,
 ): Promise<void> {
