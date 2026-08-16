@@ -2,6 +2,7 @@ import { Fragment, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   ArrowDownRight,
+  ArrowLeft,
   ArrowUpRight,
   ChevronDown,
   ChevronRight,
@@ -10,6 +11,10 @@ import {
   Wallet,
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
+import {
+  ImpactoPanorama,
+  type EscolhaDeParametro,
+} from "@/components/changes/impacto-panorama";
 import { Card } from "@/components/ui/card";
 import { fetchJson } from "@/lib/api";
 import { formatBrlShort, formatNumber, formatValue } from "@/lib/format";
@@ -159,9 +164,44 @@ const FUNDO_CABECALHO =
 const FUNDO_GRUPO =
   "color-mix(in srgb, hsl(var(--muted)) 20%, hsl(var(--card)))";
 
+/**
+ * A aba, em dois níveis.
+ *
+ * O primeiro responde *o que mudou* — todos os parâmetros, os dois
+ * equipamentos, dois rankings. O segundo é esta tabela, alcançada clicando numa
+ * linha de lá.
+ *
+ * A ordem foi invertida em 16/08/2026, e a razão está nos dados: abrir direto
+ * na tabela do FINAME afirmava, sem dizer, que o FINAME tinha sido a alteração
+ * da quinzena. Ele é o décimo em número de alterações no cavalo, e na carreta
+ * os três maiores nem sustentam soma de dinheiro. O seletor de parâmetro
+ * continua existindo no segundo nível, como navegação lateral — o que ele
+ * deixou de ser é a única porta para descobrir o que mudou.
+ */
 export function ImpactoQuinzenas() {
-  const [entityType, setEntityType] = useState<string | null>(null);
-  const [attributeCode, setAttributeCode] = useState<string | null>(null);
+  const [escolha, setEscolha] = useState<EscolhaDeParametro | null>(null);
+
+  if (escolha === null) {
+    return <ImpactoPanorama onEscolher={setEscolha} />;
+  }
+  return (
+    <MatrizDeQuinzenas
+      inicial={escolha}
+      onVoltar={() => setEscolha(null)}
+      key={`${escolha.entityType}:${escolha.code}`}
+    />
+  );
+}
+
+function MatrizDeQuinzenas({
+  inicial,
+  onVoltar,
+}: {
+  inicial: EscolhaDeParametro;
+  onVoltar: () => void;
+}) {
+  const [entityType, setEntityType] = useState<string | null>(inicial.entityType);
+  const [attributeCode, setAttributeCode] = useState<string | null>(inicial.code);
   /** Grupos fechados. Nenhum por padrão: a tabela abre inteira, como a do Excel. */
   const [fechados, setFechados] = useState<Set<string>>(new Set());
   const [soComMovimento, setSoComMovimento] = useState(false);
@@ -206,6 +246,19 @@ export function ImpactoQuinzenas() {
 
   return (
     <div className={cn("space-y-5", query.isPlaceholderData && "opacity-60")}>
+      {/*
+        A volta é a primeira coisa da tela, e não um link no rodapé: quem chegou
+        aqui clicando numa linha do panorama está a meio caminho de uma
+        pergunta, e o caminho de volta faz parte da resposta.
+      */}
+      <button
+        onClick={onVoltar}
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Tudo que mudou
+      </button>
+
       {/* O que a tabela está mostrando, e as duas escolhas que a mudam. */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div

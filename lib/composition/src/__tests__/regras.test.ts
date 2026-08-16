@@ -160,7 +160,7 @@ describe("escopo de conjunto", () => {
     ]);
   });
 
-  it("as duas colunas de conjunto ficam na tela, com a evidência escrita", () => {
+  it("as colunas de conjunto ficam na tela, com a evidência escrita", () => {
     const resultado = comporDeFatos("CARRETA", carreta, mensalConfirmado);
     for (const code of ["carreta.custo_fixo", "carreta.finame"]) {
       const item = resultado.naoApurados.find((n) => n.code === code)!;
@@ -182,7 +182,21 @@ describe("escopo de conjunto", () => {
 
   it("o cavalo não tem exclusão de escopo — quem empresta não se defende", () => {
     expect(regraDe("CAVALO").foraDoEscopo).toHaveLength(0);
-    expect(regraDe("CARRETA").foraDoEscopo).toHaveLength(2);
+
+    // Por código, e não por contagem: o que este teste protege é *quais*
+    // colunas carregam o cavalo, e um `toHaveLength` passa a mentir no dia em
+    // que uma entra e outra sai. Toda entrada aqui carrega a medição que a
+    // sustenta, e a evidência é conferida no teste acima.
+    expect(regraDe("CARRETA").foraDoEscopo.map((f) => f.code).sort()).toEqual([
+      "carreta.custo_fixo",
+      "carreta.finame",
+      "carreta.lucro_variavel_previsto",
+    ]);
+    expect(
+      regraDe("CARRETA").foraDoEscopo.every(
+        (f) => f.escopo === "CONJUNTO" && f.evidencia.includes("conjunto"),
+      ),
+    ).toBe(true);
   });
 
   it("um tipo sem regra registrada não inventa exclusões", () => {
