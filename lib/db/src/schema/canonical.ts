@@ -382,6 +382,33 @@ export const attributeTable = pgTable(
      * than a bare guess.
      */
     semanticsRationale: text("semantics_rationale"),
+
+    /**
+     * Which way the money moves when this number moves — **from the
+     * carrier's side**.
+     *
+     * HIGHER_IS_BETTER | HIGHER_IS_WORSE | NEUTRAL | DEPENDS_ON_FORMULA.
+     *
+     * The point of view is half the fact: a higher negotiated consumption
+     * lowers the litres reimbursed, which is worse for whoever hauls and
+     * better for whoever contracts. Stored without saying whose side it is,
+     * the field would read inverted depending on who reads it.
+     *
+     * Free text for the same reason as `calculation_basis`: a fifth category
+     * should not cost a migration. `NULL` means nobody has curated it — which
+     * is not `NEUTRAL`, and the difference matters to anything that reasons
+     * over this.
+     */
+    economicDirection: text("economic_direction"),
+    /**
+     * The direction in one sentence, written by whoever knows: "more km per
+     * litre recognised means fewer litres reimbursed for the same distance".
+     *
+     * Same spirit as `definition`, and the reason both exist: a code sorts and
+     * filters, a sentence explains. Anything that has to say *why* needs the
+     * second.
+     */
+    economicEffect: text("economic_effect"),
     /** Only a human writes these two, and only for CONFIRMED. */
     confirmedBy: text("confirmed_by"),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),

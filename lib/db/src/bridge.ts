@@ -163,6 +163,14 @@ const COLUNAS_REMOVIDAS: [string, string][] = [
   // a conferência para ganhar dois `ADD COLUMN` que a fila cria de graça.
   ["attribute", "definition"],
   ["attribute_semantics", "definition"],
+  // A `0023`, pelo mesmo motivo da `0022`: a direção econômica e a frase que a
+  // explica são quatro colunas de texto nullable, exatamente a forma que a
+  // allowlist aceita — e mesmo assim saem, porque a allowlist é uma lista
+  // fechada conferida por tipo, e não um lugar onde coluna nova cabe.
+  ["attribute", "economic_direction"],
+  ["attribute", "economic_effect"],
+  ["attribute_semantics", "economic_direction"],
+  ["attribute_semantics", "economic_effect"],
 ];
 
 const INDICES_REMOVIDOS = [
@@ -865,6 +873,21 @@ function planoUp(): PassoUp[] {
       `${t}.definition`,
       levantar(M22, new RegExp(`ALTER TABLE "${t}" ADD COLUMN IF NOT EXISTS "definition"`)),
     );
+  }
+
+  // A `0023` — a leitura econômica. Mesma forma da `0022`: quatro colunas de
+  // texto, sem índice, sem constraint, sem backfill. A tabela **e** a coluna
+  // entram na marca porque as quatro linhas só diferem nesses dois pontos, e
+  // `levantar` exige casar exatamente um statement.
+  const M23 = "0023_direcao_economica";
+  for (const t of ["attribute", "attribute_semantics"]) {
+    for (const col of ["economic_direction", "economic_effect"]) {
+      add(
+        M23,
+        `${t}.${col}`,
+        levantar(M23, new RegExp(`ALTER TABLE "${t}" ADD COLUMN IF NOT EXISTS "${col}"`)),
+      );
+    }
   }
 
   // 5. Obrigatoriedade e constraints.

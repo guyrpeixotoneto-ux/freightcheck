@@ -156,11 +156,13 @@ export const parametros: Ferramenta = {
   nome: "parametros",
   descricao:
     "O dicionário dos parâmetros do modelo de remuneração, com a semântica de cada um: " +
-    "nome gerencial, unidade, periodicidade, se é monetário, como é agregado, e se a " +
-    "semântica está confirmada. Use para descobrir o código de um atributo antes de " +
-    "consultá-lo, para saber se um valor pode virar dinheiro, e para entender o que uma " +
-    "coluna significa. Semântica não confirmada é o motivo mais comum de um impacto vir " +
-    "nulo — se um número faltar, confira aqui antes de concluir.",
+    "nome gerencial, unidade, periodicidade, se é monetário, como é agregado, se a semântica " +
+    "está confirmada, o que a coluna significa, e **para que lado a remuneração anda quando " +
+    "o número sobe** (do ponto de vista da transportadora). Use para descobrir o código de " +
+    "um atributo antes de consultá-lo, para saber se um valor pode virar dinheiro, para " +
+    "entender o que uma coluna significa, e sempre que a pergunta for se algo é bom ou ruim. " +
+    "Semântica não confirmada é o motivo mais comum de um impacto vir nulo — se um número " +
+    "faltar, confira aqui antes de concluir.",
   argumentos: {
     busca: {
       tipo: "texto",
@@ -226,6 +228,17 @@ export const parametros: Ferramenta = {
           agregacao: p.agregacao,
           monetario: p.monetario,
           semantica: p.semantica,
+          definicao: p.definicao,
+          /*
+            A leitura econômica, e o `null` dito por extenso.
+
+            Sem esta distinção o modelo lê a ausência como neutralidade e
+            responde "esse aumento não muda nada" sobre uma coluna que ninguém
+            curou. `null` é falta de curadoria; `NEUTRAL` é uma afirmação, e as
+            duas pedem respostas opostas.
+          */
+          direcaoEconomica: p.direcaoEconomica,
+          efeitoEconomico: p.efeitoEconomico,
         })),
         /*
           A ressalva vai no material, e não no prompt. Ela é uma propriedade
@@ -235,7 +248,10 @@ export const parametros: Ferramenta = {
         */
         observacao:
           "Só parâmetros com semântica CONFIRMED entram em soma de dinheiro. PRESUMED e " +
-          "UNKNOWN continuam sendo listados nas alterações, com impacto nulo.",
+          "UNKNOWN continuam sendo listados nas alterações, com impacto nulo. " +
+          "`direcaoEconomica` é do ponto de vista da transportadora e diz para que lado a " +
+          "remuneração anda quando o número sobe; quando vier `null`, ninguém curou ainda — " +
+          "isso não é o mesmo que NEUTRAL, e não autoriza dizer que subir não muda nada.",
       },
       evidencias: [],
     };

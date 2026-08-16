@@ -76,6 +76,17 @@ export const attributeSemanticsTable = pgTable(
      */
     definition: text("definition"),
 
+    /**
+     * The economic reading of this stretch — see `attribute.economic_*`.
+     *
+     * Versioned for the same reason `definition` is: when the source changes
+     * what a column carries, the previous reading stays true for its own
+     * vigências. A direction kept only on the projection would let August's
+     * curation silently rewrite December's interpretation.
+     */
+    economicDirection: text("economic_direction"),
+    economicEffect: text("economic_effect"),
+
     semanticsStatus: text("semantics_status").notNull().default("UNKNOWN"),
     confirmedBy: text("confirmed_by"),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),

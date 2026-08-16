@@ -42,6 +42,20 @@ export interface Parametro {
   /** CONFIRMED | PRESUMED | UNKNOWN — decide se a variação pode virar dinheiro. */
   semantica: string;
   monetario: boolean | null;
+  /**
+   * Para que lado o dinheiro anda quando este número anda, do ponto de vista da
+   * transportadora — `HIGHER_IS_BETTER`, `HIGHER_IS_WORSE`, `NEUTRAL`,
+   * `DEPENDS_ON_FORMULA`, ou `null` quando ninguém curou.
+   *
+   * `null` não é `NEUTRAL`: o primeiro é ausência de curadoria, o segundo é uma
+   * afirmação. Quem raciocina sobre isto precisa distinguir os dois, e é por
+   * isso que a coluna nasceu anulável em vez de com default.
+   */
+  direcaoEconomica: string | null;
+  /** A direção em uma frase, escrita por quem cura. */
+  efeitoEconomico: string | null;
+  /** O que a coluna significa, quando a curadoria escreveu. */
+  definicao: string | null;
   /** A gaveta em que ele aparece na tela de Parâmetros. */
   parametro: string;
   familia: string;
@@ -63,6 +77,9 @@ interface LinhaCrua extends Record<string, unknown> {
   aggregation: string | null;
   semantics_status: string;
   is_monetary: boolean | null;
+  economic_direction: string | null;
+  economic_effect: string | null;
+  definition: string | null;
   aliases: string[] | null;
 }
 
@@ -122,6 +139,9 @@ export async function carregarDicionario(db: Database): Promise<Parametro[]> {
            a.aggregation,
            a.semantics_status::text AS semantics_status,
            a.is_monetary,
+           a.economic_direction,
+           a.economic_effect,
+           a.definition,
            coalesce(
              array_agg(DISTINCT al.source_name) FILTER (WHERE al.source_name IS NOT NULL),
              '{}'
@@ -144,6 +164,9 @@ export async function carregarDicionario(db: Database): Promise<Parametro[]> {
       agregacao: linha.aggregation,
       semantica: linha.semantics_status,
       monetario: linha.is_monetary,
+      direcaoEconomica: linha.economic_direction,
+      efeitoEconomico: linha.economic_effect,
+      definicao: linha.definition,
       parametro: colocacao.parameter,
       familia: colocacao.familyName,
       aliases: (linha.aliases ?? []).filter((a) => a && a !== linha.source_name),
