@@ -28,16 +28,19 @@ que sustenta número entra pelo Book** (Parte 1.3).
 
 O que existe é outra coisa, e é pior de detectar:
 
-1. **Uma porta de leitura não declarada, no menu, servindo dado que nunca foi
-   importado** — `Análise de frota` lê um `.xlsx` do disco do servidor. Hoje ela
-   devolve **tela vazia** com 124 mil fatos no banco.
+1. **Uma fonte paralela de leitura, no menu, servindo dado que nunca passou
+   pelo canônico** — `Análise de frota` lê um `.xlsx` do disco do servidor. Não
+   é porta de ingestão: ela não grava nada. É pior de outro jeito — hoje devolve
+   **tela vazia** com 124 mil fatos no banco. A funcionalidade **se preserva**;
+   o que muda é de onde ela lê.
 2. **Uma porta-sombra completa** — `routes/overview.ts` reimplementa
    `POST /imports` e `POST /imports/:id/promote` com validação mais fraca. Está
    inalcançável **por ordem de montagem**, e por nada mais.
-3. **Cinco definições diferentes de "quais vigências formam uma série"**, e
+3. **Oito definições de leitura para "quais vigências formam uma série"**, e
    **duas autoridades divergentes sobre o canal**. É daqui que sai a classe de
    defeito que motivou esta auditoria: o dado está no banco e um módulo não sabe
-   que ele existe.
+   que ele existe. A contagem subiu de cinco para oito no complemento, que as
+   tabela uma a uma — ver `docs/AUDITORIA-COMPLEMENTO-BASELINE.md`, Parte B.
 
 As três divergências centrais **não aparecem no export real** — ele é uma
 unidade, um canal, nove entregas completas escritas sempre do mesmo jeito. É o
@@ -57,7 +60,7 @@ percorriam. Cada uma delas dispara na primeira entrega que saia desse caminho.
 | `DELETE /imports/:id` (`routes/imports.ts`) | Importações | remoção de importação | apaga canônico, grava `import_deletion` | **Sim** | `IMPORTACOES` |
 | `POST /ticket-imports` (`routes/tickets.ts`) | Alterações → Chamados | `.xlsx`/`.csv` da fila do Freightech | `ticket_import`, `ticket`, `ticket_change` | **Sim** | `CHAMADOS` |
 | `DELETE /ticket-imports/:id` (`routes/tickets.ts`) | Alterações → Chamados | remoção de envio | apaga chamados, grava `ticket_import_deletion` | **Sim** | `CHAMADOS` |
-| `GET /fleet-analysis/*` (`routes/fleet-analysis.ts`) | **Análise de frota** (menu, 1ª seção) | planilha lida **do disco**, `attached_assets/*.xlsx` | nenhum — serve direto à tela | **Não** | **`INDEVIDA`** |
+| `GET /fleet-analysis/*` (`routes/fleet-analysis.ts`) | **Análise de frota** (menu, 1ª seção) | planilha lida **do disco**, `attached_assets/*.xlsx` | **não grava** — serve direto à tela | funcionalidade **sim**, a fonte **não** | **`FONTE PARALELA DE LEITURA INDEVIDA`** — não é porta |
 | `POST /imports` (`routes/overview.ts`) | nenhuma | `.xlsx` de vigência | `source_file` → `raw_*` → `staged_fact` | **Não** | **`INDEVIDA`** (sombra) |
 | `POST /imports/:id/promote` (`routes/overview.ts`) | nenhuma | promoção | canônico | **Não** | **`INDEVIDA`** (sombra) |
 | `POST /book/entries` (`routes/book.ts`) | Book do Operador | documento (PDF/DOCX/XLSX/imagem) ou texto | `book_entry` (blob no banco) | **Sim** | **`BOOK`** — terceira porta, documental e declarada |
@@ -87,7 +90,7 @@ propagação.
 
 ### 1.3 As entradas indevidas, em detalhe
 
-#### `INDEVIDA-1` — Análise de frota lê o disco do servidor
+#### `PARALELA-1` — Análise de frota lê o disco do servidor
 
 `artifacts/api-server/src/routes/fleet-analysis.ts` procura o **primeiro**
 `.xlsx` que encontrar em `attached_assets/`, lê as abas literais `carretas` e
@@ -113,6 +116,20 @@ deixou de existir e a rota devolve zero linhas — **sem erro**, porque
 `sheet_to_json(undefined)` devolve `[]`. É o caso literal desta auditoria: o
 banco tem nove vigências e 124 mil fatos, e a primeira seção do menu diz que não
 há dado.
+
+**Isto não é uma porta de entrada, e a distinção muda o que se faz com ela.**
+A rota não grava nada — não escreve em `fact`, não abre `snapshot`, não cria
+`entity`. Ela **lê** de um lugar que não é o canônico, e por isso a classe certa
+é *fonte paralela de leitura indevida*. Uma porta indevida se fecha; uma fonte
+paralela se **redireciona**.
+
+**A funcionalidade fica.** "Análise de frota" responde perguntas que nenhuma
+outra tela responde — composição de modelos, status de ativo, financiamento por
+vigência —, e o defeito nunca foi a análise: foi a origem. O destino é a mesma
+tela lendo `fact`/`entity`/`snapshot` pela autoridade de disponibilidade, com
+rastreabilidade até a célula como todo o resto do produto tem. O mapeamento
+dessa migração está no complemento desta auditoria
+(`docs/AUDITORIA-COMPLEMENTO-BASELINE.md`, Parte I, PR-3).
 
 #### `INDEVIDA-2` — a porta-sombra de `overview.ts`
 
@@ -375,29 +392,40 @@ equipamento novo a partir de certa data.
 
 ---
 
-### D4 · Cinco definições de "série", e nenhuma é a mesma
+### D4 · Oito definições de "série", e nenhuma é a mesma
 
 Todas resolvem a mesma pergunta — *quais vigências se sucedem?* — e nenhuma
-concorda com as outras:
+concorda com as outras. A revisão que produziu o complemento subiu a contagem de
+cinco para oito: `coverage/descoberta.ts` tinha passado despercebida, e o
+`bridge` de deploy guarda a nona, que é a identidade **anterior** à `0015` e
+explica de onde as outras vieram.
+
+A tabela completa — com campos usados, módulos consumidores, divergência
+possível e definição correta proposta por linha — está em
+**`docs/AUDITORIA-COMPLEMENTO-BASELINE.md`, Parte B**. O resumo:
 
 | Onde | Chave |
 |---|---|
 | `series.ts::listContexts` / `contextFilter` | `(scope_hash, canal-regex)` |
 | `series.ts::seriesKey` | `(scope_hash, canal-regex, entity_type_set)` |
-| `engine.ts::findPreviousSnapshot` | `(source_system, scope_hash, entity_type_set, canal-regex)` |
+| `engine.ts::findPreviousSnapshot` | `(source_system, scope_hash, entity_type_set, canal-regex)` + `effective_date <` |
+| `engine.ts::computeChangeSet` (guardas) | `scope_hash` = , `entity_type_set` = , `canal-regex` = |
 | `routes/changes.ts:139` (`/changes/latest`) | `(scope_hash, entity_type_set)` — **sem canal** |
 | `ingest/chamados.ts:1544` (`valoresVigentes`) | `(scope_hash, entity_type_set)` — **sem canal** |
-| `coverage/esperado.ts`, `observado.ts`, `matriz.ts` | `(dataset_family, scope_hash, canal-**coluna**)` |
+| `coverage/{observado,esperado,matriz}.ts` | `(dataset_family, scope_hash, canal-**coluna**)` |
+| `coverage/descoberta.ts::janelaDosAtributos` | `(dataset_family)` — **sem escopo e sem canal** |
+| *(escrita)* `snapshot.canonical_snapshot_key` | `(source_system, dataset_family, canal, effective_date, canonical_scope)` — **a correta** |
 
-As duas "sem canal" são as mais perigosas: com dois canais na mesma unidade,
-`/changes/latest` pode escolher a série errada, e o "valor anterior" de um
-chamado pode ser buscado numa vigência de outro canal — um número **declarado
-com procedência** e vindo do lugar errado.
+As duas "sem canal" e a "sem escopo" são as mais perigosas: com dois canais na
+mesma unidade, `/changes/latest` pode escolher a série errada; o "valor anterior"
+de um chamado pode ser buscado numa vigência de outro canal — um número
+**declarado com procedência** e vindo do lugar errado; e o candidato a renomeação
+do drill-down de Cobertura pode cruzar unidades.
 
 > **Correção sugerida:** uma função só, exportada de um lugar só, e nenhuma
 > consulta montando o predicado por conta própria. `series.ts` **já se declara**
 > esse lugar (*"Nenhuma consulta de leitura deve montar esse predicado por conta
-> própria"*) — a regra está escrita e é violada em cinco pontos.
+> própria"*) — a regra está escrita e é violada em oito pontos.
 
 ---
 
@@ -552,7 +580,7 @@ lugar nenhum. É o que a Parte 5 formaliza.
 | **quais vigências existem** | `listComparableSnapshots` (sem contexto) · `vigenciasObservadas` (recorte de cobertura) · `listPeriods` · `periodRows` do Impacto · `periodRows` do Panorama · a lista de `grouped.ts` |
 | **quais contextos existem** | `listContexts` (`scope_hash` + regex) · `recortes` de `matriz.ts` (`dataset_family` + `scope_hash` + coluna `canal`) |
 | **qual é o canal** | `snapshot.canal` (coluna) · `channelSql`/`channelOf` (regex, sem normalizar) |
-| **qual é a série comparável** | cinco definições (D4) |
+| **qual é a série comparável** | oito definições de leitura (D4) |
 | **quais equipamentos existem** | `entity_type_set` (Impacto, Alterações) · `snapshot_entity_type` (Cobertura) · `entity.entity_type` (Composição, DRE) · `REGRAS`/`plano.ts` (fixos) |
 | **quais atributos existem** | `attribute` por `entity_type` (Impacto) · `snapshot_attribute` (Cobertura) · `COMPOSITIONS` (Composição) · `plano.ts` (DRE) |
 | **quais estados de importação valem** | `status <> 'SUPERSEDED'` repetido **em ~60 consultas SQL escritas à mão** |
@@ -581,7 +609,7 @@ Três regras de uso, e todas já existem escritas no repositório — o que falt
 cumpri-las:
 
 1. **Nenhuma consulta de leitura monta o predicado de contexto por conta
-   própria.** Está em `series.ts`, violada em cinco pontos (D4).
+   própria.** Está em `series.ts`, violada em oito pontos (D4).
 2. **Nenhuma rota calcula disponibilidade.** Está em `routes/coverage.ts`
    (*"Nenhuma rota deste arquivo calcula cobertura"*) e funciona bem lá.
 3. **`status <> 'SUPERSEDED'` sai das consultas** e vira uma função. Sessenta
@@ -661,7 +689,7 @@ documento do Book
 
 | Regra | Violação |
 |---|---|
-| série = (escopo canônico, canal) | cinco definições concorrentes (D3, D4) |
+| série = (escopo canônico, canal) | oito definições concorrentes (D3, D4) |
 | um contexto por realidade de negócio | `scope_hash` e o regex de canal partem contextos (D1, D2) |
 | "não se aplica" ≠ "sem dados" | Impacto responde "nenhuma vigência importada" quando falta atributo (D6) |
 | chamado não entra em cobertura/impacto | **respeitado** — verificado por teste |
@@ -788,11 +816,14 @@ Importações) e `POST /ticket-imports` (`routes/tickets.ts`, aba Chamados). As
 duas funcionam, as duas têm exclusão auditada, e `lib/ingest/src/pipeline.ts` é
 o **único** escritor do canônico.
 
-**2. Portas indevidas.**
-`GET /fleet-analysis/*` — lê `.xlsx` do disco do servidor, está no menu e hoje
-devolve tela vazia. `POST /imports` e `POST /imports/:id/promote` em
+**2. Portas indevidas, e o que não é porta.**
+Porta indevida, uma só: `POST /imports` e `POST /imports/:id/promote` em
 `routes/overview.ts` — pipeline-sombra completo, com validação mais fraca,
 inalcançável apenas por ordem de montagem do router.
+
+`GET /fleet-analysis/*` **não é porta**: ela não grava. É uma *fonte paralela de
+leitura indevida* — lê `.xlsx` do disco, está no menu e hoje devolve tela vazia.
+A funcionalidade se preserva e migra para o canônico; ver o complemento.
 
 `POST /book/entries` **não** entra nesta lista: é a porta `BOOK`, documental e
 declarada, e importar arquivo por ela continua sendo o comportamento correto
@@ -819,7 +850,7 @@ filtros, estados aceitos e condição de vazio de cada um.
 | **Chamados** | parâmetro citado por alias | D10 |
 
 **7. Regras duplicadas de disponibilidade.** Parte 4.1 — sete regras, com
-destaque para as cinco definições de série e as duas de canal.
+destaque para as oito definições de série e as duas de canal.
 
 **8. Autoridade central proposta.** Parte 4.2 — um módulo de disponibilidade
 com `contextosDisponiveis`, `vigenciasDisponiveis`, `serieDe`,
@@ -834,12 +865,12 @@ Book), 8 especificadas para acompanhar cada correção.
 
 | # | Correção | Achado | Efeito | Risco | Toca dado histórico? |
 |---|---|---|---|---|---|
-| **P0** | Absorver ou remover `Análise de frota` | INDEVIDA-1 | fecha a terceira porta e a tela vazia | baixo | não |
+| **P0** | Mapear a migração de `Análise de frota` para o canônico — **sem remover a funcionalidade** | PARALELA-1 | a tela volta a ter dado, e com rastro | baixo | não |
 | **P0** | Remover as rotas de escrita de `overview.ts` | INDEVIDA-2 | fecha o pipeline-sombra | **nenhum** — código morto | não |
 | **P1** | Contexto por `canonical_scope` | D1 | uma unidade é uma unidade | médio | não — só leitura |
 | **P1** | Canal lido da coluna, em todo lugar | D2 | um canal é um canal | médio | não — só leitura |
 | **P1** | Tirar `entity_type_set` da identidade da série | D3 | entrega parcial deixa de partir a série | médio | não — só leitura |
-| **P2** | Módulo único de disponibilidade; migrar as cinco definições | D4 | módulos param de discordar | médio | não |
+| **P2** | Módulo único de disponibilidade; migrar as oito definições | D4 | módulos param de discordar | médio | não |
 | **P2** | Separar as quatro causas de vazio do Impacto | D6 | "não aplicável" ≠ "sem dados" | baixo | não |
 | **P2** | `ContextBar` nas telas que recortam por contexto | D5 | a segunda unidade fica alcançável | baixo | não |
 | **P3** | `getOverview` filtra `SUPERSEDED` e contexto | D7 | o painel para de divergir da Cobertura | baixo | não |
