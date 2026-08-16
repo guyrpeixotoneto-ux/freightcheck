@@ -17,9 +17,8 @@ vi.mock("../migrations", async (original) => ({
   observarBanco,
 }));
 
-const { faltaSchema, responderSchemaAusente } = await import(
-  "../schema-ausente"
-);
+const { faltaSchema, responderSchemaAusente } =
+  await import("../schema-ausente");
 
 /** Um `res` do Express reduzido ao que esta função usa. */
 function resFalso() {
@@ -52,8 +51,68 @@ describe("faltaSchema", () => {
     expect(faltaSchema({ code: "42704" })).toBe(true);
   });
 
+  /**
+   * A função que a migration cria, e a coluna gerada que depende dela.
+   *
+   * `freightcheck_snapshot_key` sustenta `snapshot.canonical_snapshot_key`, e
+   * os gatilhos de imutabilidade também são funções. Num banco parado antes da
+   * migration que as cria, a tabela existe e a chamada morre — o mesmo desfecho
+   * de uma tabela ausente, uma camada abaixo.
+   */
+  it("reconhece função inexistente", () => {
+    expect(faltaSchema({ code: "42883" })).toBe(true);
+  });
+
+  /**
+   * **42P10 não decide sozinho.**
+   *
+   * O Postgres 16 o levanta por quatro caminhos, e só um é schema. Os valores de
+   * `routine` abaixo foram medidos contra um Postgres de verdade, não deduzidos:
+   * é o nome da função em C que levantou o erro, e ele vem no protocolo sem
+   * tradução. Sem essa separação, um `ORDER BY 5` mal escrito mandaria alguém
+   * rodar migrations.
+   */
+  it("o ON CONFLICT sem índice é schema — pela rotina, não pelo SQLSTATE", () => {
+    expect(
+      faltaSchema({ code: "42P10", routine: "infer_arbiter_indexes" }),
+    ).toBe(true);
+  });
+
+  it("os outros três 42P10 são defeito de código, e não viram schema ausente", () => {
+    // ORDER BY / GROUP BY por posição fora da lista de seleção.
+    expect(
+      faltaSchema({ code: "42P10", routine: "findTargetlistEntrySQL92" }),
+    ).toBe(false);
+    // DISTINCT ON divergindo do ORDER BY.
+    expect(
+      faltaSchema({ code: "42P10", routine: "transformDistinctOnClause" }),
+    ).toBe(false);
+    // E o 42P10 sem rotina nenhuma: na dúvida, não é migration faltando.
+    expect(faltaSchema({ code: "42P10" })).toBe(false);
+  });
+
+  it("acha o erro do pg dentro do que o drizzle embrulhou, com os campos", () => {
+    // É assim que ele chega: o wrapper por fora, com a consulta e os
+    // parâmetros, e o erro do `pg` — o que tem o SQLSTATE e a rotina — em
+    // `cause`. Olhar só a superfície não acharia nem um nem outra.
+    const embrulhado = Object.assign(
+      new Error('Failed query: INSERT INTO "snapshot_entity_type" …'),
+      {
+        cause: Object.assign(
+          new Error(
+            "there is no unique or exclusion constraint matching the ON CONFLICT specification",
+          ),
+          { code: "42P10", routine: "infer_arbiter_indexes" },
+        ),
+      },
+    );
+
+    expect(faltaSchema(embrulhado)).toBe(true);
+  });
+
   it("não confunde violação de unicidade nem erro comum com schema ausente", () => {
     expect(faltaSchema({ code: "23505" })).toBe(false);
+    expect(faltaSchema({ code: "23503" })).toBe(false);
     expect(faltaSchema(new Error("boom"))).toBe(false);
     expect(faltaSchema(null)).toBe(false);
   });
@@ -71,7 +130,10 @@ describe("responderSchemaAusente", () => {
       configurada: true,
       alcancavel: true,
       aplicadas: 0,
-      pendentes: ["0000_freightcheck_foundation", "0013_chamados_por_parametro"],
+      pendentes: [
+        "0000_freightcheck_foundation",
+        "0013_chamados_por_parametro",
+      ],
       falha: { tag: "0000_freightcheck_foundation", code: "42710" },
     });
 
