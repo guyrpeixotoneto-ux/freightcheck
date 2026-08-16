@@ -31,6 +31,7 @@ function classificacao(
   return {
     attributeCode: parcial.attributeCode ?? "x.y",
     attributeName: parcial.attributeName ?? "X",
+    attributeDisplayName: null,
     entityType: "CAVALO",
     dataType: "NUMERIC",
     unit: null,
@@ -50,6 +51,7 @@ function fato(parcial: Partial<FatoDoAtivo> & { code: string }): FatoDoAtivo {
     attribute_id: parcial.attribute_id ?? parcial.code,
     code: parcial.code,
     source_name: parcial.source_name ?? parcial.code.split(".").pop()!,
+    display_name: parcial.display_name ?? null,
     data_type: parcial.data_type ?? "NUMERIC",
     value_numeric: parcial.value_numeric ?? null,
     value_text: parcial.value_text ?? null,
@@ -160,7 +162,7 @@ describe("escopo de conjunto", () => {
     ]);
   });
 
-  it("as duas colunas de conjunto ficam na tela, com a evidência escrita", () => {
+  it("as colunas de conjunto ficam na tela, com a evidência escrita", () => {
     const resultado = comporDeFatos("CARRETA", carreta, mensalConfirmado);
     for (const code of ["carreta.custo_fixo", "carreta.finame"]) {
       const item = resultado.naoApurados.find((n) => n.code === code)!;
@@ -182,7 +184,21 @@ describe("escopo de conjunto", () => {
 
   it("o cavalo não tem exclusão de escopo — quem empresta não se defende", () => {
     expect(regraDe("CAVALO").foraDoEscopo).toHaveLength(0);
-    expect(regraDe("CARRETA").foraDoEscopo).toHaveLength(2);
+
+    // Por código, e não por contagem: o que este teste protege é *quais*
+    // colunas carregam o cavalo, e um `toHaveLength` passa a mentir no dia em
+    // que uma entra e outra sai. Toda entrada aqui carrega a medição que a
+    // sustenta, e a evidência é conferida no teste acima.
+    expect(regraDe("CARRETA").foraDoEscopo.map((f) => f.code).sort()).toEqual([
+      "carreta.custo_fixo",
+      "carreta.finame",
+      "carreta.lucro_variavel_previsto",
+    ]);
+    expect(
+      regraDe("CARRETA").foraDoEscopo.every(
+        (f) => f.escopo === "CONJUNTO" && f.evidencia.includes("conjunto"),
+      ),
+    ).toBe(true);
   });
 
   it("um tipo sem regra registrada não inventa exclusões", () => {

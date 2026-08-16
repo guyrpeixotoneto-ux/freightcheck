@@ -1,4 +1,4 @@
-import { Router, type IRouter } from "express";
+import { Router, type IRouter, type Request, type Response } from "express";
 import { db } from "@workspace/db";
 import {
   acharConversa,
@@ -37,6 +37,36 @@ import {
 const router: IRouter = Router();
 
 const LIMITE_DA_PERGUNTA = 1000;
+
+/**
+ * A falha que se pode rastrear até a linha que a causou.
+ *
+ * `{ "error": "Internal server error" }` era uma constante: a mesma frase para
+ * o banco fora, para uma coluna que falta e para um defeito de código. Quem
+ * está na tela lê a frase, quem opera lê o log, e não havia nada ligando as
+ * duas leituras — com várias pessoas usando o produto, "deu erro às 14h" não
+ * seleciona uma linha entre as centenas daquele minuto.
+ *
+ * `requestId` é o que liga. É o mesmo `req.id` que o `pino-http` carimba em
+ * toda linha desta requisição, e sai também no corpo do erro; o stack completo
+ * fica só no log, que é onde ele não vira superfície de ataque. O `code` existe
+ * para a interface poder distinguir esta falha das recusas que ela já trata.
+ */
+const CODIGO_FALHA = "ASSISTENTE_FALHOU";
+
+function falhou(
+  req: Request,
+  res: Response,
+  err: unknown,
+  contexto: string,
+): void {
+  req.log.error({ err, requestId: req.id }, contexto);
+  res.status(500).json({
+    error: "O Assistente falhou ao responder. Nada foi gravado por esta chamada.",
+    code: CODIGO_FALHA,
+    requestId: req.id,
+  });
+}
 
 // ── Capacidades e sugestões ─────────────────────────────────────────────────
 
@@ -88,8 +118,7 @@ router.get("/assistant/conversations", async (req, res): Promise<void> => {
   try {
     res.json(await listarConversas(db, req.user!.id));
   } catch (err) {
-    req.log.error({ err }, "Error listing conversations");
-    res.status(500).json({ error: "Internal server error" });
+    falhou(req, res, err, "Falha ao listar as conversas do Assistente");
   }
 });
 
@@ -102,8 +131,7 @@ router.get("/assistant/conversations/:id", async (req, res): Promise<void> => {
     }
     res.json({ conversa, mensagens: await mensagensDaConversa(db, conversa.id) });
   } catch (err) {
-    req.log.error({ err }, "Error loading conversation");
-    res.status(500).json({ error: "Internal server error" });
+    falhou(req, res, err, "Falha ao carregar uma conversa do Assistente");
   }
 });
 
@@ -121,8 +149,7 @@ router.patch("/assistant/conversations/:id", async (req, res): Promise<void> => 
     }
     res.json(atualizada);
   } catch (err) {
-    req.log.error({ err }, "Error renaming conversation");
-    res.status(500).json({ error: "Internal server error" });
+    falhou(req, res, err, "Falha ao renomear uma conversa do Assistente");
   }
 });
 
@@ -136,8 +163,7 @@ router.post("/assistant/conversations/:id/archive", async (req, res): Promise<vo
     }
     res.json({ archived: true, id: arquivada.id });
   } catch (err) {
-    req.log.error({ err }, "Error archiving conversation");
-    res.status(500).json({ error: "Internal server error" });
+    falhou(req, res, err, "Falha ao arquivar uma conversa do Assistente");
   }
 });
 
@@ -171,8 +197,7 @@ router.post(
       }
       res.json(linha);
     } catch (err) {
-      req.log.error({ err }, "Error recording assistant feedback");
-      res.status(500).json({ error: "Internal server error" });
+      falhou(req, res, err, "Falha ao registrar o voto numa resposta do Assistente");
     }
   },
 );
@@ -335,17 +360,30 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
     }
     res.json(corpo);
   } catch (err) {
-    req.log.error({ err }, "Error answering assistant question");
     /*
       Num stream o cabeçalho já foi enviado e não há status para trocar: o erro
       vira o último evento, e a tela o mostra como mostraria qualquer falha.
+
+      **É por isso que um 500 nesta rota diz onde o defeito não está.** Quando a
+      tela pede `text/event-stream`, o `200` sai antes de a orquestração
+      começar: daí em diante nenhuma falha desta rota pode virar 500 — ela vira
+      este evento. Um `500` observado no navegador para esta chamada é,
+      portanto, prova de que a requisição não chegou até aqui, ou de que o
+      processo não sobreviveu para respondê-la.
     */
     if (res.headersSent) {
-      res.write(`event: erro\ndata: ${JSON.stringify({ error: "Internal server error" })}\n\n`);
+      req.log.error({ err, requestId: req.id }, "Falha no meio do stream do Assistente");
+      res.write(
+        `event: erro\ndata: ${JSON.stringify({
+          error: "O Assistente falhou ao responder.",
+          code: CODIGO_FALHA,
+          requestId: req.id,
+        })}\n\n`,
+      );
       res.end();
       return;
     }
-    res.status(500).json({ error: "Internal server error" });
+    falhou(req, res, err, "Falha ao responder uma pergunta ao Assistente");
   }
 });
 

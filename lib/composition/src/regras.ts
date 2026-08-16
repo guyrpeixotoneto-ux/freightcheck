@@ -21,7 +21,11 @@
  * do equipamento, quais são parcela de outro, e quais nem sequer são dele.
  */
 
-import { COMPOSITIONS, type Composition } from "@workspace/comparison";
+import {
+  COMPOSITIONS,
+  ESCOPOS_DE_CONJUNTO,
+  type Composition,
+} from "@workspace/comparison";
 
 // ---------------------------------------------------------------------------
 // Por que um componente ficou de fora
@@ -163,27 +167,22 @@ export interface RegraDeEquipamento {
  * (o mesmo valor sob outro nome) e apenas 15 com o do cavalo. A coincidência é
  * de valor, não de significado — a frota inteira usa poucos valores-padrão.
  */
-const CARRETA_FORA_DO_ESCOPO: ForaDoEscopo[] = [
-  {
-    code: "carreta.finame",
-    escopo: "CONJUNTO",
-    evidencia:
-      "Medido em 14/08/2026 nas 9 vigências: finame − finameImplemento é igual ao " +
-      "finameCavalo do cavalo que aponta esta carreta em Placa Carreta, em 558 de 558 " +
-      "linhas (tolerância R$ 0,01, zero exceções). Nas 99 linhas sem cavalo vinculado a " +
-      "diferença é zero. A coluna carrega o financiamento do cavalo somado ao do implemento — " +
-      "é do conjunto, e somá-la aqui contaria o cavalo duas vezes.",
-  },
-  {
-    code: "carreta.custo_fixo",
-    escopo: "CONJUNTO",
-    evidencia:
-      "custoFixo = finame + lucroFixomodeloNovoCiclo em 657 de 657 linhas. Como finame " +
-      "contém o cavalo (ver carreta.finame), custoFixo é o custo fixo do conjunto " +
-      "cavalo + carreta, e não o da carreta. É o número certo para a visão de CONJUNTO " +
-      "e o número errado para a linha de uma carreta.",
-  },
-];
+/**
+ * A lista mora em `@workspace/comparison`, ao lado de `COMPOSITIONS`.
+ *
+ * Ela subiu para lá em 16/08/2026, quando a visão "tudo que mudou" passou a
+ * precisar da mesma regra: um panorama que listasse `carreta.finame` e
+ * `cavalo.finame_cavalo` como duas linhas econômicas independentes contaria o
+ * cavalo duas vezes na tela de entrada do produto. Manter a cópia aqui faria as
+ * duas divergirem no dia em que alguém medisse uma relação nova — exatamente o
+ * argumento que já mantinha `COMPOSITIONS` do outro lado.
+ *
+ * Uma terceira coluna entrou na mudança: `carreta.lucro_variavel_previsto`,
+ * com a ressalva das 99 linhas sem cavalo vinculado escrita junto.
+ */
+const CARRETA_FORA_DO_ESCOPO: ForaDoEscopo[] = ESCOPOS_DE_CONJUNTO.filter(
+  (e) => e.entityType === "CARRETA",
+).map((e) => ({ code: e.code, escopo: "CONJUNTO", evidencia: e.evidence }));
 
 export const REGRAS: RegraDeEquipamento[] = [
   {

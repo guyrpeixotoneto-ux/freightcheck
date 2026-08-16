@@ -17,6 +17,7 @@ import {
   scopeTable,
   sentinelRuleTable,
   snapshotAttributeTable,
+  snapshotEntityTypeTable,
   snapshotMergeTable,
   snapshotScopeTable,
   snapshotTable,
@@ -1793,6 +1794,42 @@ export async function promote(
                )
           `);
         }
+
+        // --- cobertura --------------------------------------------------------
+        /*
+          O agregado por equipamento, contado agora e não em leitura.
+
+          É o denominador da matriz de Cobertura de dados: quantos cavalos e
+          quantas carretas esta vigência tem, e quantos fatos de cada um vieram
+          com valor, vieram vazios e vieram herdados. Perguntar isso depois
+          custaria `count(DISTINCT entity_id)` sobre a fact table — 208 ms com
+          124 mil fatos, medido no export real, sobre a tabela que é justamente
+          a que cresce para milhões.
+
+          Aqui é barato porque os fatos acabaram de ser escritos e a transação
+          ainda os tem à mão, e é exato porque conta os fatos em vez de inferir
+          a densidade do arquivo. Fica antes do `CLOSED` de propósito: depois
+          dele o gatilho `fact_immutable` congela o que esta contagem lê.
+        */
+        await tx.execute(sql`
+          INSERT INTO ${snapshotEntityTypeTable} (
+            snapshot_id, entity_type, entity_count, attribute_count,
+            fact_count, value_count, null_count, inherited_fact_count
+          )
+          SELECT ${snapshot.id}::uuid,
+                 e.entity_type,
+                 count(DISTINCT f.entity_id)::int,
+                 count(DISTINCT f.attribute_id)::int,
+                 count(*)::int,
+                 count(*) FILTER (WHERE NOT f.is_null)::int,
+                 count(*) FILTER (WHERE f.is_null)::int,
+                 count(*) FILTER (WHERE f.inherited_from_snapshot_id IS NOT NULL)::int
+            FROM ${factTable} f
+            JOIN ${entityTable} e ON e.id = f.entity_id
+           WHERE f.snapshot_id = ${snapshot.id}::uuid
+           GROUP BY e.entity_type
+              ON CONFLICT (snapshot_id, entity_type) DO NOTHING
+        `);
 
         // --- fechar -----------------------------------------------------------
         const [contagem] = await tx

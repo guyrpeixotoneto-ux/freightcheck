@@ -136,7 +136,7 @@ export async function carregarDicionario(db: Database): Promise<Parametro[]> {
     const colocacao = placementOf(linha.code);
     const base: Omit<Parametro, "termos"> = {
       codigo: linha.code,
-      rotulo: attributeLabel(linha.code, linha.source_name),
+      rotulo: attributeLabel(linha.code, linha.source_name, linha.display_name),
       nomeDeOrigem: linha.display_name ?? linha.source_name,
       equipamento: linha.entity_type,
       unidade: linha.unit,

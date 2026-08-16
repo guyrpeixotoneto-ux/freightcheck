@@ -8,6 +8,7 @@ import {
   getTaxonomyTree,
   listTaxonomyNodes,
   runProposalPass,
+  saveMeaning,
   seedTaxonomy,
 } from "@workspace/curation";
 
@@ -15,7 +16,14 @@ import {
  * Curation API (F2).
  *
  * The only endpoint that can confirm semantics is POST /curation/attributes/
- * :code/confirm, and it requires an actor and a reason. Everything else reads.
+ * :code/confirm, and it requires an actor and a reason.
+ *
+ * PATCH /curation/attributes/:code/meaning writes what a column is called and
+ * what it means, and nothing else. It is
+ * deliberately cheaper — no reason, no required fields, no status change — and
+ * that asymmetry is the feature: describing a column and vouching for its
+ * arithmetic are different acts, and welding them together is why the curation
+ * queue filled up with attributes nobody had written a word about.
  */
 const router: IRouter = Router();
 
@@ -54,7 +62,7 @@ router.get("/curation/attributes/:code", async (req, res): Promise<void> => {
 
 router.post("/curation/attributes/:code/confirm", async (req, res): Promise<void> => {
   try {
-    const { unit, periodicity, aggregation, isMonetary, taxonomyCode, displayName, reason } =
+    const { unit, periodicity, aggregation, isMonetary, taxonomyCode, reason } =
       req.body ?? {};
 
     /**
@@ -80,7 +88,6 @@ router.post("/curation/attributes/:code/confirm", async (req, res): Promise<void
       aggregation,
       isMonetary,
       taxonomyCode,
-      displayName,
       actor,
       reason,
     });
@@ -91,6 +98,30 @@ router.post("/curation/attributes/:code/confirm", async (req, res): Promise<void
     // curator, so it is surfaced rather than swallowed into a 500.
     const message = err instanceof Error ? err.message : "Erro desconhecido";
     req.log.warn({ err }, "Curation confirmation refused");
+    res.status(422).json({ error: message });
+  }
+});
+
+router.patch("/curation/attributes/:code/meaning", async (req, res): Promise<void> => {
+  try {
+    const { definition, calculationBasis, displayName } = req.body ?? {};
+
+    // Same rule as the confirmation: the signature comes from the session, not
+    // from the body. A name typed into a form never proved anything.
+    const result = await saveMeaning(db, {
+      code: req.params.code,
+      definition,
+      calculationBasis,
+      displayName,
+      actor: req.user!.email,
+    });
+    res.json(result);
+  } catch (err) {
+    // Refusals here are business rules with messages written for the curator
+    // ("nothing to write", "no versioned semantics yet"), so they are surfaced
+    // rather than swallowed into a 500 — same treatment as /confirm.
+    const message = err instanceof Error ? err.message : "Erro desconhecido";
+    req.log.warn({ err }, "Meaning update refused");
     res.status(422).json({ error: message });
   }
 });

@@ -9,9 +9,10 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/auth";
+import { Logotipo } from "./logotipo";
 
 /**
- * A faixa vermelha do Freightech.
+ * A faixa marinho do topo.
  *
  * É o primeiro elemento que o usuário reconhece, e por isso é o primeiro que
  * este produto passou a ter: o mesmo lugar para o menu, a mesma marca à
@@ -38,7 +39,7 @@ export function Topbar({
   const { user, logout, isSubmitting } = useAuth();
 
   return (
-    <header className="h-16 bg-brand-red text-brand-red-foreground flex items-center gap-4 px-4 shrink-0 sticky top-0 z-40">
+    <header className="h-16 bg-topbar text-topbar-foreground flex items-center gap-4 px-4 shrink-0 sticky top-0 z-40">
       <button
         type="button"
         onClick={onToggleSidebar}
@@ -54,7 +55,7 @@ export function Topbar({
         <Menu className="w-6 h-6" />
       </button>
 
-      <Link href="/" className="flex items-center gap-2 shrink-0">
+      <Link href="/" className="shrink-0">
         <Logotipo />
       </Link>
 
@@ -87,24 +88,5 @@ export function Topbar({
         </DropdownMenu>
       )}
     </header>
-  );
-}
-
-/**
- * A marca, no mesmo desenho do Freightech: um símbolo quadrado à esquerda e o
- * nome em duas espessuras. O nome é o nosso — a casca é que é familiar, e um
- * produto que se apresenta com o nome de outro não é um espelho, é uma cópia.
- */
-function Logotipo() {
-  return (
-    <>
-      <span className="w-9 h-9 rounded-sm bg-white text-brand-red flex items-center justify-center font-extrabold text-xl italic shrink-0">
-        F
-      </span>
-      <span className="text-2xl leading-none tracking-tight">
-        <span className="font-extrabold italic">Freight</span>
-        <span className="font-light">check</span>
-      </span>
-    </>
   );
 }

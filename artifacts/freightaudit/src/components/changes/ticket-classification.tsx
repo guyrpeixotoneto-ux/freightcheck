@@ -148,7 +148,7 @@ export function TicketClassification({ envio }: { envio: string | null }) {
 
   if (query.isLoading) {
     return (
-      <Card className="rounded-2xl p-6">
+      <Card className="p-6">
         <p className="text-sm text-muted-foreground">Classificando…</p>
       </Card>
     );
@@ -156,7 +156,7 @@ export function TicketClassification({ envio }: { envio: string | null }) {
 
   if (!data || data.changes === 0) {
     return (
-      <Card className="rounded-2xl p-6">
+      <Card className="p-6">
         <p className="text-sm text-muted-foreground">
           Nenhuma alteração de chamado para classificar neste envio.
         </p>
@@ -219,7 +219,7 @@ function CartaoDeClasse({
       aria-pressed={ativo}
       title={classe.descricao}
       className={cn(
-        "rounded-2xl border bg-card shadow-sm px-5 py-4 text-left transition-colors",
+        "rounded-xl border bg-card shadow-sm px-5 py-4 text-left transition-colors",
         ativo ? cn("ring-2", aparencia.anel) : "hover:bg-muted/40",
       )}
     >
@@ -351,7 +351,7 @@ function BlocoDeClasse({
   const aparencia = aparenciaDe(classe.classe);
 
   return (
-    <Card className="rounded-2xl overflow-hidden">
+    <Card className="overflow-hidden">
       <div className="flex flex-wrap items-center gap-3 border-b px-5 py-4">
         <div
           className={cn(

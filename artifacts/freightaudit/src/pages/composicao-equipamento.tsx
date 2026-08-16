@@ -135,7 +135,7 @@ export default function ComposicaoEquipamento() {
               className={cn(
                 "px-5 py-2.5 text-sm font-semibold uppercase tracking-wide border-b-2 transition-colors",
                 item.chave === aba
-                  ? "border-brand-red text-brand-red"
+                  ? "border-brand text-brand"
                   : "border-transparent text-muted-foreground hover:text-foreground",
               )}
             >
@@ -229,7 +229,7 @@ function Cabecalho({ composicao }: { composicao: Composicao }) {
               className={cn(
                 "inline-flex items-center gap-1.5 text-sm",
                 composicao.vinculo.carretaEntityId
-                  ? "text-brand-red hover:underline"
+                  ? "text-brand hover:underline"
                   : "text-muted-foreground pointer-events-none",
               )}
             >
@@ -831,7 +831,7 @@ function AbaHistorico({
                 type="monotone"
                 dataKey="mensal"
                 name="Remuneração mensal"
-                stroke="hsl(var(--brand-red))"
+                stroke="hsl(var(--brand))"
                 strokeWidth={2}
                 dot={{ r: 3 }}
                 connectNulls={false}

@@ -29,8 +29,30 @@ env = { "CI" = "true" }
 #
 # `scripts/dev.mjs` é a implementação única: é o que estas tasks rodam, o que
 # cada artifact roda, e o que `pnpm dev` roda fora do Replit e em CI.
+#
+# **As tasks tinham sumido, e o comentário acima continuou descrevendo-as.** A
+# seção existia vazia — `[workflows]` sem `runButton` e sem nenhum
+# `[[workflows.workflow]]` —, que é exatamente o estado que o primeiro parágrafo
+# diz não subir nada. Um comentário que descreve um bloco ausente é pior do que
+# nenhum: ele faz quem lê concluir que o Run está resolvido e procurar o defeito
+# no código. Está reescrito abaixo, nas mesmas portas dos artifacts.
 
 [workflows]
+runButton = "FreightCheck"
+
+[[workflows.workflow]]
+name = "FreightCheck"
+mode = "parallel"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/dev.mjs api"
+waitForPort = 8080
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "node scripts/dev.mjs web"
+waitForPort = 25609
 
 [agent]
 stack = "PNPM_WORKSPACE"

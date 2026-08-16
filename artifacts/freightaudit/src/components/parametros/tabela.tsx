@@ -204,7 +204,7 @@ export function TabelaFreightech<L>({
                         <ChevronsUpDown
                           className={cn(
                             "w-3.5 h-3.5 shrink-0",
-                            ativa ? "text-brand-red" : "text-foreground/50",
+                            ativa ? "text-brand" : "text-foreground/50",
                           )}
                         />
                       )}
@@ -219,7 +219,7 @@ export function TabelaFreightech<L>({
                         aria-label={`Filtrar ${coluna.titulo}`}
                         className={cn(
                           "shrink-0",
-                          filtros[indice] ? "text-brand-red" : "text-foreground/50",
+                          filtros[indice] ? "text-brand" : "text-foreground/50",
                         )}
                       >
                         <Menu className="w-3.5 h-3.5" />
@@ -452,10 +452,10 @@ function AbaVertical({
         ativa ? "bg-brand/25" : "hover:bg-accent",
       )}
     >
-      <span className={cn("relative", marcada ? "text-brand-red" : "text-muted-foreground")}>
+      <span className={cn("relative", marcada ? "text-brand" : "text-muted-foreground")}>
         {icone}
         {marcada && (
-          <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-brand-red" />
+          <span className="absolute -top-1 -right-1 w-1.5 h-1.5 rounded-full bg-brand" />
         )}
       </span>
       <span

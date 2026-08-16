@@ -1,7 +1,7 @@
 import { runMigrations } from "@workspace/db/migrate";
 import app from "./app";
 import { logger } from "./lib/logger";
-import { lembrarRelatorio, migrationsFolder } from "./lib/migrations";
+import { deveMigrarNaPartida, lembrarRelatorio, migrationsFolder } from "./lib/migrations";
 
 const rawPort = process.env["PORT"];
 
@@ -42,11 +42,36 @@ if (Number.isNaN(port) || port <= 0) {
  * uma falha de migration ia morrer: quem abre a tela e recebe 500 não tem como
  * lê-lo. Guardado aqui, ele sai por `/api/healthz`, que é onde a interface já
  * vai perguntar o motivo quando uma chamada falha.
+ *
+ * **A política vem antes da conexão, e a ordem é a correção.** Aqui se lia
+ * `DATABASE_URL` primeiro e migrava se ela existisse — o que fazia da presença
+ * de um banco a classificação do ambiente, e em desenvolvimento sempre há um.
+ * Agora `deveMigrarNaPartida()` decide antes, sem olhar a URL; a URL volta a ser
+ * o que é, uma pré-condição de execução, e não um sinal de quem somos.
+ *
+ * Desligado, nada se perde de visibilidade: `observarBanco()` pergunta ao banco
+ * a cada chamada de `/api/healthz` e continua listando o que falta. O que muda é
+ * quem aplica — em Development, uma pessoa, por
+ * `pnpm --filter @workspace/db run migrate`.
  */
 async function applyMigrationsInBackground(): Promise<void> {
+  const decisao = deveMigrarNaPartida();
+
+  if (!decisao.migrar) {
+    logger.info(
+      { motivo: decisao.motivo },
+      "Migrations não são aplicadas na partida neste ambiente. A fila avança por " +
+        "`pnpm --filter @workspace/db run migrate`; /api/healthz continua dizendo o que falta.",
+    );
+    return;
+  }
+
   const url = process.env["DATABASE_URL"];
   if (!url) {
-    logger.warn("DATABASE_URL ausente; pulando migrations.");
+    logger.warn(
+      { motivo: decisao.motivo },
+      "DATABASE_URL ausente; pulando migrations.",
+    );
     return;
   }
 

@@ -1,6 +1,7 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
+  attributeSemanticsTable,
   attributeTable,
   curationEventTable,
   factTable,
@@ -291,7 +292,13 @@ export interface ConfirmInput {
   aggregation?: Aggregation | null;
   isMonetary?: boolean | null;
   taxonomyCode?: string;
-  displayName?: string;
+  /*
+    Não há `displayName` aqui de propósito. O nome de leitura é descrição, e
+    descrição se grava por `saveMeaning` — sem justificativa e sem mexer no
+    status. Deixar a confirmação também escrever nele daria duas portas com
+    regras diferentes para a mesma coluna, que é exatamente a solda que o card
+    "Significado" veio desfazer.
+  */
   actor: string;
   reason: string;
 }
@@ -358,7 +365,6 @@ export async function confirmAttribute(
   record("aggregation", attribute.aggregation, aggregation);
   record("is_monetary", attribute.isMonetary, isMonetary);
   record("taxonomy_node_id", attribute.taxonomyNodeId, taxonomyNodeId);
-  record("display_name", attribute.displayName, input.displayName ?? attribute.displayName);
   record("semantics_status", attribute.semanticsStatus, "CONFIRMED");
 
   await db.transaction(async (tx) => {
@@ -370,7 +376,6 @@ export async function confirmAttribute(
         aggregation,
         isMonetary,
         taxonomyNodeId,
-        displayName: input.displayName ?? attribute.displayName,
         semanticsStatus: "CONFIRMED",
         semanticsRationale: input.reason,
         confirmedBy: input.actor,
@@ -407,6 +412,10 @@ export interface QueueItem {
   isMonetary: boolean | null;
   semanticsStatus: string;
   semanticsRationale: string | null;
+  /** What a curator wrote this column is. Independent of `semanticsStatus`. */
+  definition: string | null;
+  /** How the source produces it, from the version in force. */
+  calculationBasis: string | null;
   taxonomyPath: string | null;
   taxonomyName: string | null;
   costClass: string | null;
@@ -444,6 +453,8 @@ export async function getCurationQueue(
       isMonetary: attributeTable.isMonetary,
       semanticsStatus: attributeTable.semanticsStatus,
       semanticsRationale: attributeTable.semanticsRationale,
+      definition: attributeTable.definition,
+      calculationBasis: attributeSemanticsTable.calculationBasis,
       taxonomyPath: taxonomyNodeTable.path,
       taxonomyName: taxonomyNodeTable.name,
       costClass: taxonomyNodeTable.costClass,
@@ -452,6 +463,17 @@ export async function getCurationQueue(
     .leftJoin(
       taxonomyNodeTable,
       eq(attributeTable.taxonomyNodeId, taxonomyNodeTable.id),
+    )
+    // The version in force, for its `calculation_basis`. Left-joined and
+    // filtered on `effective_until IS NULL` inside the join: an attribute with
+    // no version yet must still appear in the queue — it is precisely the one
+    // nobody has looked at.
+    .leftJoin(
+      attributeSemanticsTable,
+      and(
+        eq(attributeSemanticsTable.attributeId, attributeTable.id),
+        isNull(attributeSemanticsTable.effectiveUntil),
+      ),
     )
     .where(
       options.includeConfirmed

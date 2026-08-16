@@ -56,6 +56,10 @@
   --color-brand-red: hsl(var(--brand-red));
   --color-brand-red-foreground: hsl(var(--brand-red-foreground));
 
+  --color-topbar: hsl(var(--topbar));
+  --color-topbar-foreground: hsl(var(--topbar-foreground));
+  --color-topbar-accent: hsl(var(--topbar-accent));
+
   --color-nav-executiva: hsl(var(--nav-executiva));
   --color-nav-auditoria: hsl(var(--nav-auditoria));
   --color-nav-recuperacao: hsl(var(--nav-recuperacao));
@@ -83,195 +87,278 @@
 }
 
 /*
- * A paleta do Freightech.
+ * A paleta do FreightCheck: marinho, branco e um laranja.
  *
- * O usuário deste produto passa o dia no Freightech. Abrir o FreightCheck e
- * encontrar outra cor, outra tipografia e outro formato de cartão custa uma
- * releitura inteira da tela antes de ler o dado. Então a casca é a mesma:
- * a faixa vermelha em cima, o laranja como única cor de ação, o cinza claro
- * como fundo de página, o cartão branco com a barra laranja na borda.
+ * A leitura da tela é hierárquica e a cor segue essa hierarquia. **O marinho é
+ * a única cor de ação** — faixa do topo, marca, item aberto do menu, contador,
+ * aba ativa, botão de contorno, link. Ele aparece em toda parte porque é sempre
+ * a mesma coisa: "isto é do produto, e isto se clica".
  *
- * Duas cores e um cinza — nada mais. O verde e o vermelho de valor continuam
- * existindo (ganho e perda), porque são leitura de dado, não de marca.
+ * **O laranja é a única cor de atenção**, e é escasso de propósito. Ele marca
+ * o que exige olhar humano — o triângulo de alerta, o ponto da pendência, o
+ * número da posição num ranking. Um laranja que também fosse botão faria o
+ * alerta perder o significado no primeiro clique.
+ *
+ * O verde e o vermelho não são marca nem ação: são leitura de dado. Ganho e
+ * perda continuam sendo ditos por eles, e por nada mais.
+ *
+ * Um cinza — frio, puxado para o azul do marinho — separa o fundo da página do
+ * branco do cartão. Nenhuma outra cor entra aqui.
  */
 :root {
-  --background: 0 0% 95%;
-  --foreground: 0 0% 20%;
-  --border: 0 0% 88%;
-  --input: 0 0% 80%;
-  --ring: 37 91% 55%;
+  --background: 210 40% 98%;
+  --foreground: 213 47% 16%;
+  --border: 214 30% 91%;
+  --input: 214 25% 85%;
+  --ring: 212 73% 29%;
 
   --card: 0 0% 100%;
-  --card-foreground: 0 0% 20%;
-  --card-border: 0 0% 88%;
+  --card-foreground: 213 47% 16%;
+  --card-border: 214 30% 91%;
 
   --popover: 0 0% 100%;
-  --popover-foreground: 0 0% 20%;
-  --popover-border: 0 0% 88%;
+  --popover-foreground: 213 47% 16%;
+  --popover-border: 214 30% 91%;
 
-  /* Laranja: a cor de ação. Botão, estrela, borda de cartão, régua de seção. */
-  --primary: 37 91% 55%;
+  /* Marinho: a cor de ação. Botão, aba aberta, link, contador. */
+  --primary: 212 73% 29%;
   --primary-foreground: 0 0% 100%;
 
-  --secondary: 0 0% 96%;
-  --secondary-foreground: 0 0% 20%;
+  --secondary: 214 32% 96%;
+  --secondary-foreground: 213 47% 16%;
 
-  --muted: 0 0% 96%;
-  --muted-foreground: 0 0% 45%;
+  --muted: 214 32% 96%;
+  --muted-foreground: 214 17% 46%;
 
-  --accent: 37 91% 95%;
-  --accent-foreground: 0 0% 20%;
+  --accent: 214 38% 94%;
+  --accent-foreground: 213 47% 16%;
 
-  --destructive: 358 79% 39%;
+  --destructive: 0 72% 44%;
   --destructive-foreground: 0 0% 100%;
 
-  --success: 142 60% 33%;
+  --success: 152 64% 31%;
   --success-foreground: 0 0% 100%;
 
-  --warning: 37 91% 55%;
-  --warning-foreground: 0 0% 20%;
+  /*
+   * O laranja da atenção. `--warning-foreground` é o marinho do texto, e não
+   * branco: branco sobre este laranja fica em 2,4:1 e o marinho em 7,0:1.
+   */
+  --warning: 36 94% 52%;
+  --warning-foreground: 213 47% 16%;
 
-  --chart-1: 37 91% 55%;
-  --chart-2: 358 79% 39%;
-  --chart-3: 0 0% 45%;
-  --chart-4: 142 60% 33%;
-  --chart-5: 210 60% 40%;
+  --chart-1: 212 73% 29%;
+  --chart-2: 36 94% 52%;
+  --chart-3: 214 17% 46%;
+  --chart-4: 152 64% 31%;
+  --chart-5: 212 62% 55%;
 
-  /* A marca: laranja de ação, vermelho de barra superior. */
-  --brand: 37 91% 55%;
+  /*
+   * A marca é uma cor só. `--brand-red` sobrevive porque cem lugares o usam
+   * para dizer **perda** — valor negativo, célula ausente, severidade crítica —
+   * e não porque a marca ainda seja vermelha. Ele saiu inteiro da casca: topo,
+   * menu e login agora são `--topbar` e `--brand`. Pintar de vermelho algo que
+   * não é prejuízo volta a embaralhar as duas leituras.
+   */
+  --brand: 212 73% 29%;
   --brand-foreground: 0 0% 100%;
-  --brand-red: 358 79% 39%;
+  --brand-red: 0 72% 44%;
   --brand-red-foreground: 0 0% 100%;
 
   /*
-   * O laranja do realce, escurecido — e o vermelho e o verde que sobrevivem a
+   * A faixa do topo é mais escura que o marinho de ação, e essa diferença é
+   * funcional: sobre ela nada se clica além da marca e do menu, então ela é
+   * moldura, não convite. O marinho de ação a 29% de luz sobre o branco do
+   * cartão é o mesmo tom que a faixa a 17% carrega — a mesma cor em duas
+   * profundidades, e não duas cores.
+   */
+  --topbar: 211 65% 17%;
+  --topbar-foreground: 0 0% 100%;
+  /*
+   * O azul da marca — o "Check" do logotipo, e só ele.
+   *
+   * Ele existe como token, e não como constante dentro do componente, porque a
+   * marca aparece sobre a faixa marinho e sobre o branco do login, e nos dois
+   * casos é este azul. `--brand` não serve: os 29% de luz dele medem 1,5:1
+   * sobre a faixa e sumiriam ali.
+   *
+   * Sobre `--topbar` este azul mede 3,9:1, abaixo dos 4,5:1 de AA — e fica.
+   * A WCAG dispensa logotipo e nome de marca da exigência de contraste (1.4.3),
+   * e é justamente por ser uma cor de marca que ela não pode ser escurecida até
+   * passar na conta. **O token é do logotipo.** Texto que precise ser lido sobre
+   * a faixa usa `--topbar-foreground`, que é branco em 15:1.
+   */
+  --topbar-accent: 208 79% 51%;
+
+  /*
+   * O marinho do realce, escurecido — e o vermelho e o verde que sobrevivem a
    * ele.
    *
    * O cartão sob o cursor se preenche, e o preenchimento não pode custar a
-   * leitura do número. Sobre o laranja claro da marca, o vermelho de perda
-   * (hsl 358 79% 39%) some: escuro sobre claro, os dois com a mesma
-   * luminosidade. A saída não é apagar a cor do valor — perda e ganho se
+   * leitura do número. A saída não é apagar a cor do valor — perda e ganho se
    * distinguem por ela — é escurecer o fundo e clarear os dois.
    *
-   * `--brand-dark` é o laranja mais claro que ainda deixa os três textos em
-   * AA (4,5:1) — varri a escala para achá-lo, porque cada ponto de luz a mais
-   * no fundo é um ponto a menos de contraste no número. Medido: perda 4,62:1,
-   * ganho 5,16:1, branco 6,12:1. Mexer numa das três sem refazer a conta
-   * devolve o defeito que elas existem para resolver.
+   * A conta foi refeita para o marinho, e ela ficou folgada onde a do laranja
+   * era apertada: laranja e vermelho eram vizinhos de matiz e brigavam por
+   * luminosidade, marinho e vermelho não. Medido sobre `--brand-dark`: perda
+   * 9,9:1, ganho 9,7:1, branco 13,2:1 — todos bem acima dos 4,5:1 de AA.
+   * Continua valendo a regra de antes: clarear `--brand-dark` sem refazer a
+   * conta devolve o defeito que estas três linhas existem para resolver.
    */
-  --brand-dark: 33 88% 30%;
+  --brand-dark: 212 78% 20%;
   --loss-on-dark: 0 100% 92%;
   --gain-on-dark: 140 70% 88%;
 
   /*
-   * As sete cores das seções do menu — e por que elas existem num produto que
-   * se descreve como "duas cores e um cinza".
+   * As sete seções do menu, hoje todas no mesmo marinho.
    *
-   * O menu tem trinta e cinco itens. Em lista única eles se leem um a um;
-   * agrupados em sete blocos, o olho pula para o bloco certo e lê cinco. O que
-   * faz o pulo funcionar é o bloco ter uma marca própria, e uma marca que não é
-   * cor seria mais um ícone cinza no meio de trinta e cinco ícones cinza.
+   * Elas já foram sete cores distintas — vermelho, roxo, laranja, azul, índigo,
+   * verde e cinza — para que o olho pulasse ao bloco certo em vez de ler os
+   * trinta e cinco itens um a um. O que derrubou o arranjo não foi o menu: foi
+   * a tela inteira. Numa página em que só o marinho se clica e só o laranja
+   * pede atenção, sete cores no menu são sete exceções à regra que o resto da
+   * interface passa o tempo todo ensinando — e um roxo que não significa nada
+   * custa mais do que rende.
    *
-   * O limite é onde a regra continua valendo: **estas cores só pintam o título
-   * da seção, o seu ícone e a tarja "Novo" dos itens que nasceram nela.**
-   * Nenhum dado, nenhum valor, nenhum estado é dito por elas — laranja segue
-   * sendo ação, vermelho segue sendo a marca no topo e o item aberto, verde e
-   * vermelho de valor seguem sendo ganho e perda. Uma seção verde não diz que o
-   * que está nela vai bem.
+   * O agrupamento não ficou sem marca: continuam o traço divisor entre blocos,
+   * o título em caixa alta, o ícone da seção e o recolher. O que saiu foi só a
+   * cor.
    *
-   * A luminosidade de cada uma foi escolhida contra o branco da lateral: são
-   * títulos de 11px em negrito, e todos passam de 4,5:1 sobre `--sidebar`.
-   * `--nav-recuperacao` é laranja escuro, e não o `--brand`: o laranja da marca
-   * é ação clicável, e um título de seção não é um botão.
+   * **Os sete tokens ficam.** Cada um é consumido em um lugar diferente do
+   * `sidebar.tsx` — o título da seção, o ícone dele, o contador que a seção
+   * recolhida traz e o cartão do assistente — e mantê-los separados é o que
+   * permite devolver a cor a uma seção, ou às sete, mexendo só nestas linhas.
+   * Apontar os sete para o mesmo valor é uma decisão de paleta, e é aqui que
+   * essa decisão deve morar.
    */
-  --nav-executiva: 358 79% 39%;
-  --nav-auditoria: 265 55% 45%;
-  --nav-recuperacao: 24 88% 38%;
-  --nav-frota: 217 85% 45%;
-  --nav-inteligencia: 240 55% 48%;
-  --nav-dados: 152 60% 27%;
-  --nav-admin: 0 0% 42%;
+  --nav-executiva: 212 73% 29%;
+  --nav-auditoria: 212 73% 29%;
+  --nav-recuperacao: 212 73% 29%;
+  --nav-frota: 212 73% 29%;
+  --nav-inteligencia: 212 73% 29%;
+  --nav-dados: 212 73% 29%;
+  --nav-admin: 212 73% 29%;
 
-  /* A lateral do Freightech é branca, não escura. */
+  /*
+   * A lateral é branca, e a faixa do topo é marinho. Os dois juntos é que
+   * fazem a leitura funcionar: o escuro fica na moldura, e a lista de trinta e
+   * cinco itens fica sobre branco, onde texto pequeno se lê melhor.
+   */
   --sidebar: 0 0% 100%;
-  --sidebar-foreground: 0 0% 30%;
-  --sidebar-border: 0 0% 88%;
-  --sidebar-primary: 37 91% 55%;
+  --sidebar-foreground: 215 45% 24%;
+  --sidebar-border: 214 30% 91%;
+  --sidebar-primary: 212 73% 29%;
   --sidebar-primary-foreground: 0 0% 100%;
-  --sidebar-accent: 0 0% 95%;
-  --sidebar-accent-foreground: 0 0% 15%;
-  --sidebar-ring: 37 91% 55%;
+  --sidebar-accent: 214 38% 94%;
+  --sidebar-accent-foreground: 213 50% 18%;
+  --sidebar-ring: 212 73% 29%;
 
   --app-font-sans: 'Montserrat', sans-serif;
   --app-font-mono: 'JetBrains Mono', monospace;
-  /* Cartão do Freightech é quase reto. */
-  --radius: 0.25rem;
+
+  /*
+   * O raio da casca inteira, num número só.
+   *
+   * Era `0.25rem` — o cartão quase reto do Freightech. A 15px de raiz isso dava
+   * 3,75px no cartão e **-0,25px** em `--radius-sm`, que o navegador lê como
+   * zero: a escala inteira estava espremida contra o canto reto, e as telas que
+   * queriam respirar escapavam para `rounded-2xl` escrito à mão, uma por uma.
+   *
+   * A 0.75rem a escala volta a ter os quatro degraus que a fórmula acima
+   * pressupõe — 7,25px, 9,25px, 11,25px e 15,25px. O de cima é o cartão
+   * (`Card` usa `rounded-xl`), e ele cai onde as telas já haviam chegado à mão
+   * com `rounded-2xl`: 15,25px contra 15px. Foi por isso que este valor, e não
+   * outro — subir o token não redesenha as telas que já estavam arredondadas,
+   * alcança as que não estavam.
+   *
+   * O que **não** segue esta alavanca é o `rounded` sem sufixo, que o Tailwind
+   * fixa em 0,25rem. Ele ficou de propósito nos chips, nos botões de ícone e
+   * nos esqueletos: raio grande em elemento de 20px vira pílula.
+   */
+  --radius: 0.75rem;
 }
 
+/*
+ * O tema escuro é a mesma paleta virada, e não outra.
+ *
+ * O marinho de ação não sobrevive ao fundo escuro — 29% de luz sobre 11% é
+ * mancha, não cor — então ele sobe para 62%, onde volta a ser azul legível.
+ * O laranja e o verde sobem menos, porque partiam de mais alto. O que não muda
+ * é o repartimento: marinho continua sendo ação, laranja continua sendo
+ * atenção, verde e vermelho continuam sendo ganho e perda.
+ */
 .dark {
-  --brand: 37 91% 55%;
-  --brand-foreground: 0 0% 100%;
-  --brand-red: 358 79% 39%;
-  --brand-red-foreground: 0 0% 100%;
+  --brand: 212 80% 62%;
+  --brand-foreground: 213 60% 10%;
+  --brand-dark: 212 75% 72%;
+  --brand-red: 0 75% 62%;
+  --brand-red-foreground: 213 60% 10%;
 
-  --background: 222 47% 11%;
+  --topbar: 213 55% 9%;
+  --topbar-foreground: 210 40% 98%;
+  --topbar-accent: 209 75% 64%;
+
+  --background: 213 44% 11%;
   --foreground: 210 40% 98%;
-  --border: 217 33% 17%;
-  --input: 217 33% 17%;
-  --ring: 243 75% 59%;
+  --border: 214 30% 19%;
+  --input: 214 30% 19%;
+  --ring: 212 80% 62%;
 
-  --card: 222 47% 11%;
+  --card: 213 42% 13%;
   --card-foreground: 210 40% 98%;
-  --card-border: 217 33% 17%;
+  --card-border: 214 30% 19%;
 
-  --popover: 222 47% 11%;
+  --popover: 213 42% 13%;
   --popover-foreground: 210 40% 98%;
-  --popover-border: 217 33% 17%;
+  --popover-border: 214 30% 19%;
 
-  --primary: 243 75% 59%;
-  --primary-foreground: 210 40% 98%;
+  --primary: 212 80% 62%;
+  --primary-foreground: 213 60% 10%;
 
-  --secondary: 217 33% 17%;
+  --secondary: 214 30% 19%;
   --secondary-foreground: 210 40% 98%;
 
-  --muted: 217 33% 17%;
-  --muted-foreground: 215 20.2% 65.1%;
+  --muted: 214 30% 19%;
+  --muted-foreground: 214 20% 66%;
 
-  --accent: 217 33% 17%;
+  --accent: 214 32% 22%;
   --accent-foreground: 210 40% 98%;
 
-  --destructive: 0 62.8% 30.6%;
-  --destructive-foreground: 210 40% 98%;
+  --destructive: 0 75% 62%;
+  --destructive-foreground: 213 60% 10%;
 
-  --success: 142 71% 45%;
-  --success-foreground: 210 40% 98%;
+  --success: 152 58% 52%;
+  --success-foreground: 213 60% 10%;
 
-  --warning: 38 92% 50%;
-  --warning-foreground: 48 96% 89%;
+  --warning: 38 94% 58%;
+  --warning-foreground: 213 60% 10%;
 
-  --chart-1: 243 75% 59%;
-  --chart-2: 215 16% 47%;
-  --chart-3: 142 71% 45%;
-  --chart-4: 38 92% 50%;
-  --chart-5: 0 84% 60%;
+  --chart-1: 212 80% 62%;
+  --chart-2: 38 94% 58%;
+  --chart-3: 214 20% 66%;
+  --chart-4: 152 58% 52%;
+  --chart-5: 212 60% 45%;
 
-  /* As mesmas sete, clareadas para continuarem legíveis sobre a lateral escura. */
-  --nav-executiva: 358 70% 65%;
-  --nav-auditoria: 265 70% 75%;
-  --nav-recuperacao: 24 85% 62%;
-  --nav-frota: 217 80% 70%;
-  --nav-inteligencia: 240 70% 75%;
-  --nav-dados: 152 45% 60%;
-  --nav-admin: 0 0% 70%;
+  /*
+   * As sete, clareadas. Elas pintam o contador que a seção recolhida traz, e
+   * ele leva `text-sidebar` como cor de texto — quase preto aqui. É o que o
+   * mantém legível nos dois temas sem uma regra por tema.
+   */
+  --nav-executiva: 212 80% 66%;
+  --nav-auditoria: 212 80% 66%;
+  --nav-recuperacao: 212 80% 66%;
+  --nav-frota: 212 80% 66%;
+  --nav-inteligencia: 212 80% 66%;
+  --nav-dados: 212 80% 66%;
+  --nav-admin: 212 80% 66%;
 
-  --sidebar: 222 47% 11%;
-  --sidebar-foreground: 210 40% 98%;
-  --sidebar-border: 217 33% 17%;
-  --sidebar-primary: 243 75% 59%;
-  --sidebar-primary-foreground: 210 40% 98%;
-  --sidebar-accent: 217 33% 17%;
+  --sidebar: 213 46% 10%;
+  --sidebar-foreground: 213 25% 84%;
+  --sidebar-border: 214 30% 19%;
+  --sidebar-primary: 212 80% 62%;
+  --sidebar-primary-foreground: 213 60% 10%;
+  --sidebar-accent: 214 34% 20%;
   --sidebar-accent-foreground: 210 40% 98%;
-  --sidebar-ring: 243 75% 59%;
+  --sidebar-ring: 212 80% 62%;
 }
 
 @layer base {

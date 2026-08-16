@@ -92,17 +92,18 @@ import type { BalancoResumo } from "@/components/balanco/tipos";
 /**
  * O cartão desta tela.
  *
- * Canto arredondado e sombra baixa, contra o cartão quase reto que o resto do
- * produto usa (`--radius: 0.25rem`). A diferença é deliberada e local: a Visão
- * geral é a única tela feita de blocos que se leem em paralelo — cinco números,
- * uma faixa, quatro painéis —, e a borda arredondada é o que separa um bloco do
- * outro sobre o cinza da página sem precisar de mais linha. Nas telas de tabela,
- * onde a régua reta alinha coluna com coluna, o canto continua o do Freightech.
+ * Ele existia porque o resto do produto era quase reto (`--radius: 0.25rem`) e
+ * esta tela — a única feita de blocos que se leem em paralelo — precisava do
+ * canto arredondado para separar um bloco do outro sobre o cinza da página sem
+ * gastar mais uma linha. O canto era a exceção, e o `rounded-2xl` escrito à mão
+ * era como ela se dizia.
  *
- * Vale como uma decisão só, escrita num lugar só: se um dia a casca inteira for
- * arredondada, é esta constante que some.
+ * A casca inteira foi arredondada, e a exceção acabou: `rounded-xl` é o mesmo
+ * raio que `Card` dá a qualquer cartão do produto. A constante fica pelo que
+ * sobrou dela — fundo, borda e sombra numa string só, repetida em nove seções
+ * desta página —, e agora ela segue `--radius` junto com o resto.
  */
-const CARTAO = "bg-card border rounded-2xl shadow-sm";
+const CARTAO = "bg-card border rounded-xl shadow-sm";
 export default function Inicio() {
   const search = useSearch();
   const [, navegar] = useLocation();
@@ -237,7 +238,7 @@ export default function Inicio() {
             />
 
             {!view.complete && (
-              <div className="flex gap-3 rounded-2xl border border-amber-400 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+              <div className="flex gap-3 rounded-xl border border-amber-400 bg-amber-50 px-5 py-4 text-sm text-amber-900">
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
                 <p>
                   <strong>Visão parcial.</strong> Nesta vigência chegou apenas{" "}
@@ -378,7 +379,7 @@ function Cabecalho({
                     <DropdownMenuItem
                       key={periodo.date}
                       onSelect={() => onTrocar({ period: periodo.date })}
-                      className={cn(periodo.date === view.period && "font-bold text-brand-red")}
+                      className={cn(periodo.date === view.period && "font-bold text-brand")}
                     >
                       {periodo.label}
                     </DropdownMenuItem>
@@ -401,8 +402,8 @@ function Cabecalho({
  * não mudam nada no banco; mudam o recorte do que se está lendo.
  */
 const BOTAO_DE_TROCA =
-  "flex items-center gap-2 rounded-lg border border-brand-red bg-card px-4 py-2.5 " +
-  "text-sm font-bold text-brand-red hover:bg-accent transition-colors";
+  "flex items-center gap-2 rounded-lg border border-brand bg-card px-4 py-2.5 " +
+  "text-sm font-bold text-brand hover:bg-accent transition-colors";
 
 /** O nome da unidade; sem escopo cadastrado sobra o rótulo que o servidor montou. */
 function nomeDaUnidade(contexto: SeriesContext): string {
@@ -719,7 +720,7 @@ function Barra({ proporcao, tom }: { proporcao: number; tom: Tom }) {
         className={cn(
           "h-full rounded-full",
           tom === "grave" && "bg-red-600",
-          tom === "atencao" && "bg-brand",
+          tom === "atencao" && "bg-warning",
           tom === "ok" && "bg-emerald-600",
         )}
         style={{ width: `${largura}%` }}
@@ -734,7 +735,7 @@ function Barra({ proporcao, tom }: { proporcao: number; tom: Tom }) {
 
 const CORES_DO_TOM: Record<Tom, string> = {
   grave: "bg-red-600",
-  atencao: "bg-brand",
+  atencao: "bg-warning",
   ok: "bg-emerald-600",
 };
 
@@ -766,8 +767,8 @@ function Atencao({ pontos }: { pontos: PontoDeAtencao[] }) {
       */}
       <div className="flex flex-col gap-y-5 xl:flex-row xl:items-center xl:gap-x-6">
         <div className="flex items-center gap-3 shrink-0 xl:border-r xl:pr-6">
-          <span className="w-9 h-9 rounded-xl bg-accent flex items-center justify-center shrink-0">
-            <AlertTriangle className="w-[1.125rem] h-[1.125rem] text-brand" strokeWidth={2.25} />
+          <span className="w-9 h-9 rounded-xl bg-warning/10 flex items-center justify-center shrink-0">
+            <AlertTriangle className="w-[1.125rem] h-[1.125rem] text-warning" strokeWidth={2.25} />
           </span>
           <h2 className="text-base font-bold leading-tight">O que merece sua atenção</h2>
         </div>
@@ -928,7 +929,7 @@ function MaioresImpactos({
 
       <Link
         href={`/parametros?period=${period}`}
-        className="mt-5 self-start inline-flex items-center gap-1.5 rounded-lg border border-brand-red px-5 py-2.5 text-sm font-bold text-brand-red hover:bg-accent transition-colors"
+        className="mt-5 self-start inline-flex items-center gap-1.5 rounded-lg border border-brand px-5 py-2.5 text-sm font-bold text-brand hover:bg-accent transition-colors"
       >
         Ver todos os impactos
         <ChevronRight className="w-4 h-4" />
@@ -987,7 +988,7 @@ const ICONE_DA_LINHA: Record<LinhaDeAlteracao["tipo"], LucideIcon> = {
 const COR_DA_LINHA: Record<LinhaDeAlteracao["tipo"], string> = {
   queda: "text-red-700 bg-red-50",
   alta: "text-emerald-700 bg-emerald-50",
-  "sem-preco": "text-brand bg-accent",
+  "sem-preco": "text-warning bg-warning/10",
   neutro: "text-muted-foreground bg-muted",
 };
 
@@ -1010,7 +1011,7 @@ function UltimasAlteracoes({ view }: { view: FamiliesView }) {
         <Ajuda texto="As alterações mais relevantes da vigência aberta, na mesma ordem do Acompanhamento: dinheiro primeiro, ruído por último." />
         <Link
           href="/alteracoes"
-          className="ml-auto text-[0.8125rem] font-bold text-brand-red hover:underline shrink-0"
+          className="ml-auto text-[0.8125rem] font-bold text-brand hover:underline shrink-0"
         >
           Ver todas
         </Link>
@@ -1227,9 +1228,10 @@ function Rosca({ percentual, tom }: { percentual: number; tom: Tom }) {
  * de dois passos acima só divide a atenção.
  *
  * A cor de cada ícone é a da seção do menu a que a tela pertence — os mesmos
- * cinco `--nav-*`. É a única cor além de laranja e vermelho que este produto
- * usa, e o limite dela continua o mesmo: **ela pinta o caminho, nunca o dado**.
- * Nenhuma delas diz que algo vai bem ou mal.
+ * `--nav-*`. Eles hoje apontam todos para o mesmo marinho, e o vínculo continua
+ * escrito assim mesmo: é ele que devolve a cor certa a cada porta no dia em que
+ * as seções voltarem a ter cores próprias. O limite é o de sempre — **estas
+ * cores pintam o caminho, nunca o dado**. Nenhuma diz que algo vai bem ou mal.
  */
 const PORTAS: { href: string; icone: LucideIcon; titulo: string; cor: string }[] = [
   { href: "/parametros", icone: SlidersVertical, titulo: "Parâmetros", cor: "text-nav-admin" },
@@ -1245,7 +1247,7 @@ const PORTAS: { href: string; icone: LucideIcon; titulo: string; cor: string }[]
     anomalias fica no resumo da mesma tela. Não há rota `/anomalias`, e
     inventá-la aqui seria pôr no atalho uma promessa que o roteador não cumpre.
   */
-  { href: "/vigencia", icone: AlertTriangle, titulo: "Anomalias", cor: "text-brand-red" },
+  { href: "/vigencia", icone: AlertTriangle, titulo: "Anomalias", cor: "text-brand" },
   {
     href: "/comparar",
     icone: TrendingUp,
@@ -1314,7 +1316,7 @@ function Rodape() {
         </div>
         <Link
           href="/balanco-massa"
-          className="text-[0.8125rem] font-bold uppercase tracking-wide text-brand-red hover:underline shrink-0 inline-flex items-center gap-1"
+          className="text-[0.8125rem] font-bold uppercase tracking-wide text-brand hover:underline shrink-0 inline-flex items-center gap-1"
         >
           Saiba como funciona
           <ChevronRight className="w-4 h-4" />

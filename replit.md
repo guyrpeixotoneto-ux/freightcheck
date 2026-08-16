@@ -162,6 +162,13 @@ e-mail, e exclusão de conta.
   `artifacts/api-server/src/routes/balance.ts`, tela em
   `artifacts/freightaudit/src/pages/balanco-massa.tsx`. É a única superfície que
   pergunta pelo que **não** está na tela. Ver a seção *Balanço de Massa* abaixo.
+- **Cobertura de dados** — `lib/coverage`, rotas em
+  `artifacts/api-server/src/routes/coverage.ts`, tela em
+  `artifacts/freightaudit/src/pages/dados.tsx` com os componentes em
+  `src/components/cobertura/`. É a **autoridade única** do produto sobre "o que
+  já temos versus o que deveríamos ter": nenhuma rota e nenhum componente
+  calcula cobertura por conta própria, e a tela recebe resumo, matriz, lacunas e
+  descobertas de uma medição só. Ver a seção *Cobertura de dados* abaixo.
 - **Conhecimento do Freightech** — `lib/knowledge`: o catálogo das telas de
   origem e o índice do Book, que eram da interface e agora são compartilhados,
   porque o assistente e as telas precisam da mesma verdade sobre o que o
@@ -176,6 +183,45 @@ e-mail, e exclusão de conta.
   `GET /api/tickets/classification`. **As classes não somam o total**: um
   parâmetro pode mexer em dois valores (`cavaloEmpurrada` mexe no fixo e no
   variável), e a tela escreve a diferença em vez de escondê-la.
+- **Alterações → Impacto** é a terceira aba e a única que **não parte da
+  alteração**: uma linha por ativo, uma coluna por vigência, e a alteração
+  aparecendo como a diferença entre duas colunas. `lib/comparison/src/impacto.ts`
+  (`getQuinzenaMatrix`), servida por `GET /api/impacto/quinzenas`, tela em
+  `artifacts/freightaudit/src/components/changes/impacto-quinzenas.tsx`. É
+  também o que o menu **Auditoria → Impacto financeiro** abre: `/impacto-financeiro`
+  é a mesma tela montada na aba Impacto, e por isso saiu de `TELAS_EM_PREPARO`.
+  O que aquela entrada dizia faltar continua faltando — o volume realizado por
+  equipamento, sem o qual a variação de um parâmetro não vira o dinheiro que ela
+  *move* —, e a tela mostra o preço contratado e a variação dele, nunca o custo
+  de uma operação. Existe
+  porque as outras duas, por construção, não conseguem mostrar o ativo que *não*
+  mudou — ele não está em lista de alteração nenhuma —, e sem ele o total da
+  coluna não fecha com o que foi pago. É a tabela dinâmica que o cliente monta no
+  Excel (`Soma de finameCavalo`, dobrada pela data de entrada), com três regras
+  que a dele não tem: **ausência não é zero** (ativo fora da vigência tem célula
+  vazia, nunca R$ 0,00), **vigência que não entregou o equipamento não é frota
+  vazia**, e **entrada/saída de ativo fica fora do dinheiro** — a variação entre
+  as pontas é decomposta em preço, entrada e saída, e as três somam exatamente a
+  ela. O agrupamento por data de entrada arredonda o instante **para o segundo**
+  antes de tomar o dia: a fonte grava `12:00:00`, `23:59:59.000` e
+  `23:59:59.999` no mesmo campo, e nem truncar nem arredondar para a meia-noite
+  reproduz os grupos das duas tabelas do cliente — ver `diaDoInstante`.
+- **A aba Impacto abre no panorama**, e não na tabela de um parâmetro: abrir num
+  parâmetro afirmava, sem dizer, que tinha sido aquele que mudou.
+  `getPanoramaDeAlteracoes` (`lib/comparison/src/panorama.ts`), servida por
+  `GET /api/impacto/panorama`, lista *tudo que mudou* entre as vigências em dois
+  rankings — quantidade e dinheiro, nunca um só —, e a matriz acima vira o
+  segundo nível, alcançável clicando numa linha. **O corte por classe de custo é
+  filtro, nunca recontagem**: fixo, variável e sem classe saem dos mesmos
+  rankings já ordenados, com as mesmas exclusões de parcela e de conjunto, e
+  somam exatamente o todo — medido em 16/08/2026 sobre o export real, 12 + 10 +
+  5 = 27 linhas econômicas. A classe vem da taxonomia (o nó mais próximo que
+  declara `cost_class`, junção única em `INHERITED_COST_CLASS_JOIN` de
+  `classification.ts`) e não de um segundo mapa de nomes; o grupo de cada
+  parâmetro aparece na linha porque é o que torna a classe conferível. O achado
+  que o corte deixa à vista: **2.155 das 2.931 alterações são de custo variável
+  e nenhuma tem impacto apurável**, enquanto as quatro apuráveis são todas de
+  custo fixo.
 - `docs/ARQUITETURA.md` — as decisões estruturais em prosa
 - `docs/PROPOSTA-NAVEGACAO-FREIGHTECH.md` — o mapeamento Freightech → FreightCheck
 
@@ -378,6 +424,70 @@ própria, sobre uma planilha construída com os defeitos dentro
 coluna sem cabeçalho, duas colunas colidindo no mesmo código e uma aba de pivô —,
 com a contagem exigida célula a célula. Uma saída que só contasse pela primeira
 vez em produção seria um número que ninguém teria como conferir.
+
+## Cobertura de dados
+
+**Arquivo não é a unidade de cobertura; dado é.** Importações responde *o que
+entrou* — arquivos, linhas, estados. Esta responde *com tudo que já importamos,
+quanto do universo de dados necessário nós realmente possuímos?*. A diferença
+tem consequência: três arquivos que se completam — 100 entidades com A/B/C, as
+mesmas 100 com D/E/F, mais 44 com tudo — não são três coberturas de 40%, 35% e
+20%; são **144 entidades e 6 atributos**. A consolidação já acontecia no
+`promote`, que funde entrega parcial na vigência canônica que existe e marca o
+que veio herdado; a cobertura só a lê.
+
+**Esperado, observado, lacuna — e a linha entre declaração e inferência.** O
+esperado tem quatro origens, e duas delas nunca viram linha no banco:
+
+| Origem | O que é | Onde vive |
+|---|---|---|
+| `CONTRATO` | o plano da DRE: `fontes` + `essencial`, com a evidência medida | `coverage_expectation` |
+| `CURADORIA` | uma pessoa confirmou, dispensou ou aceitou uma renomeação | `coverage_expectation` |
+| `HISTORICO` | a coluna veio e trouxe valor nas vigências anteriores | recalculado na leitura |
+| `ESTRUTURA` | veio para ≥90% das entidades desta mesma vigência | recalculado na leitura |
+
+As duas últimas chegam à tela dizendo *é inferência, não contrato*. Gravá-las as
+tornaria, em uma migration ou duas, indistinguíveis de contrato — e é assim que
+uma estatística vira verdade sem que ninguém tenha decidido. Promovê-las é um
+clique com nome e motivo, que escreve em `coverage_expectation` **e** em
+`curation_event`.
+
+**Cobertura crítica não é uma segunda lista.** Um atributo é crítico se, e
+somente se, alimenta um componente `essencial` do plano da DRE. É a mesma
+declaração que faz a DRE se recusar a fechar subtotal, então mudar uma muda a
+outra no mesmo commit — e não há uma cópia da regra espalhada pela aplicação
+para divergir da original.
+
+**Quatro estados que o resto do mundo confunde.** Ausência, nulo, zero e não
+aplicável: `fact.is_null = false` com valor zero é um zero econômico;
+`is_null = true` com `null_reason` é coluna entregue e vazia; sem linha em
+`snapshot_attribute` é coluna que não veio; `NOT_APPLICABLE` sai dos **dois**
+lados da fração, porque tirá-lo só de um faria uma dispensa legítima mexer no
+percentual.
+
+**Uma medição achou coisa no dado real.** Cinco colunas de carreta —
+`operador_tms`, `organizacao_de_compras`, `prazo_pagamento`,
+`unidade_promax_unb`, `unidade_tms` — continuam vindo no layout de Fev/26 em
+diante e chegam vazias para todas as carretas. Coluna entregue e valor presente
+passaram a ser duas contagens por causa disso: um histórico que contasse só o
+layout diria "presente nas 4 vigências anteriores" a respeito de colunas que não
+trazem número há três meses.
+
+**Escala.** Resumo e matriz saem de `snapshot_entity_type` (uma linha por
+vigência e equipamento) e `snapshot_attribute` (uma por vigência e coluna) — as
+duas escritas na promoção, as duas pequenas. **Nenhuma das duas é `fact`**: a
+única descida ao fato na matriz é a contagem de `NOT_APPLICABLE`, por índice
+parcial. `fact` só é lida no drill-down até a placa, por
+`(snapshot_id, attribute_id)`. Medido sobre o export real promovido (124.632
+fatos): a visão inteira das nove vigências leva **58 ms**.
+
+**Renomeação não é remapeamento.** `ipvaLicenciamentoMensal` aparecendo quando
+`ipvaLicenciamento` some produz um *candidato* com confiança e os motivos que a
+formaram, um a um — e nada mais. Semelhança de nome é portão, não peso: sem ela,
+entidade + família + tipo + coincidência de calendário somavam exatamente o
+limiar, e dois campos sem relação nenhuma que trocassem de lugar no mesmo mês
+seriam propostos um como o outro. A decisão é da Curadoria; o campo antigo
+continua contando como lacuna até alguém decidir.
 
 ## Architecture decisions
 

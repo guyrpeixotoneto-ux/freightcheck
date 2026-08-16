@@ -23,6 +23,21 @@ import type { AttributeSeries, ChangeGroup, GroupVehicle } from "@/components/in
  */
 const VEHICLE_PREVIEW = 12;
 
+/**
+ * A vigência de um lado da tabela, quando ela é uma só.
+ *
+ * As linhas de um grupo vêm todas da mesma comparação, então o normal é haver
+ * um único rótulo — e ele vira o subtítulo da coluna. Duas seriam um grupo que
+ * juntou séries com anteriores diferentes: aí a coluna volta a ser só "Antes",
+ * porque escrever um dos dois meses no cabeçalho de todas as linhas seria
+ * afirmar do lado errado. É a mesma disciplina do resto da tela — sem valor
+ * apurado se diz, não se estima.
+ */
+function vigenciaUnica(rotulos: (string | undefined)[]): string | null {
+  const distintos = [...new Set(rotulos.filter((r): r is string => !!r))];
+  return distintos.length === 1 ? distintos[0] : null;
+}
+
 export function TabelaVeiculos({
   rows,
   group,
@@ -37,6 +52,11 @@ export function TabelaVeiculos({
   if (rows.length === 0) {
     return <p className="text-muted-foreground">Nenhum veículo retornado.</p>;
   }
+
+  // Sobre `rows`, e não sobre as linhas visíveis: o cabeçalho descreve a
+  // tabela inteira, e não pode mudar de mês quando alguém busca uma placa.
+  const vigenciaAntes = vigenciaUnica(rows.map((r) => r.periodBeforeLabel));
+  const vigenciaAgora = vigenciaUnica(rows.map((r) => r.periodAfterLabel));
 
   const termo = busca.trim().toLowerCase();
   const filtradas = termo
@@ -76,8 +96,21 @@ export function TabelaVeiculos({
           <thead>
             <tr className="bg-muted/50 text-muted-foreground">
               <th className="text-left px-3 py-1.5 font-medium">Placa</th>
-              <th className="text-right px-3 py-1.5 font-medium">Antes</th>
-              <th className="text-right px-3 py-1.5 font-medium">Agora</th>
+              {/*
+                O mês fica no cabeçalho, e não só no topo da página.
+                "Antes/Agora" sozinhos obrigam quem está a dez linhas de
+                rolagem daqui a lembrar contra o que esta vigência foi
+                comparada — e a lembrança mais fácil, "o mês anterior", é a
+                que o motor não promete: cada série compara contra a última
+                entrega dela. Uma linha `0 → 2,19` não se lê sem saber qual
+                lado é qual mês.
+              */}
+              <th className="text-right px-3 py-1.5 font-medium">
+                <Vigencia titulo="Antes" periodo={vigenciaAntes} />
+              </th>
+              <th className="text-right px-3 py-1.5 font-medium">
+                <Vigencia titulo="Agora" periodo={vigenciaAgora} />
+              </th>
               <th className="text-right px-3 py-1.5 font-medium">Variação</th>
               <th className="text-right px-3 py-1.5 font-medium">Impacto</th>
               <th className="text-right px-3 py-1.5 font-medium">Origem</th>
@@ -194,6 +227,23 @@ export function TabelaVeiculos({
 }
 
 /**
+ * O rótulo de uma das duas colunas de valor.
+ *
+ * `Antes · julho/2026`. O mês vem em peso normal para a coluna continuar
+ * escaneável de cima a baixo — o cabeçalho ganha a data sem virar a coisa mais
+ * pesada da tabela. Sem vigência única, sobra o rótulo de sempre.
+ */
+function Vigencia({ titulo, periodo }: { titulo: string; periodo: string | null }) {
+  if (!periodo) return <>{titulo}</>;
+  return (
+    <>
+      {titulo}{" "}
+      <span className="font-normal text-muted-foreground">· {periodo}</span>
+    </>
+  );
+}
+
+/**
  * A célula da planilha, dos dois lados.
  *
  * Reaproveita `/changes/:id/provenance`. Rastreabilidade não muda de lugar
@@ -213,6 +263,17 @@ export function Proveniencia({ changeId }: { changeId: number }) {
 
   const side = (
     title: unknown,
+    /**
+     * A vigência daquele lado, ao lado da entrega.
+     *
+     * O `source_label` sozinho identifica o arquivo e não diz de quando ele é
+     * — e é justamente "de quando" que se vem conferir aqui, depois de ler
+     * "Antes" numa tabela. Os dois ficam: a data no título, onde o olho cai, e
+     * o rótulo da entrega logo abaixo, que é o que se cita ao pedir a planilha
+     * de volta para o cliente.
+     */
+    period: unknown,
+    delivery: unknown,
     sheet: unknown,
     row: unknown,
     column: unknown,
@@ -223,7 +284,9 @@ export function Proveniencia({ changeId }: { changeId: number }) {
     <div className="rounded border bg-card px-3 py-2 font-mono text-[0.6875rem]">
       <div className="font-sans uppercase tracking-wide text-muted-foreground mb-1">
         {String(title)}
+        {typeof period === "string" && period !== "" && <> · {period}</>}
       </div>
+      <div className="text-muted-foreground">entrega: {String(delivery)}</div>
       {sheet ? (
         <>
           <div>
@@ -246,7 +309,9 @@ export function Proveniencia({ changeId }: { changeId: number }) {
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
       {side(
-        `Antes — ${data.snapshot_before}`,
+        "Antes",
+        data.period_before_label,
+        data.snapshot_before,
         data.sheet_before,
         data.row_before,
         data.column_before,
@@ -255,7 +320,9 @@ export function Proveniencia({ changeId }: { changeId: number }) {
         data.type_before,
       )}
       {side(
-        `Agora — ${data.snapshot_after}`,
+        "Agora",
+        data.period_after_label,
+        data.snapshot_after,
         data.sheet_after,
         data.row_after,
         data.column_after,

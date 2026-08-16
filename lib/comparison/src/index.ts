@@ -13,4 +13,6 @@ export * from "./cockpit";
 export * from "./families";
 export * from "./families-view";
 export * from "./end-to-end";
+export * from "./impacto";
+export * from "./panorama";
 export * from "./chamados";

@@ -11,9 +11,12 @@
  * coluna continua na proveniência, ao lado da célula. Trocar o rótulo nunca
  * pode custar a capacidade de achar o dado na planilha do cliente.
  *
- * Fica em código, e não em `attribute.display_name`, porque preencher aquela
- * coluna seria alterar dado — e porque um rótulo revisto num pull request é
- * mais fácil de auditar do que um `UPDATE`.
+ * Este mapa fica em código porque é vocabulário de produto: um rótulo revisto
+ * num pull request é mais fácil de auditar do que um `UPDATE`. Ele é o padrão,
+ * não a palavra final — quando a curadoria dá um nome gerencial ao atributo,
+ * é esse nome que aparece. Quem batizou assinou e justificou a escolha na tela
+ * de curadoria, e um apelido dado por quem lê o número todo dia vale mais do
+ * que o nosso palpite escrito aqui.
  */
 
 /** Nome de leitura por código de atributo. Ausência aqui não é erro (ver `attributeLabel`). */
@@ -94,10 +97,19 @@ function humanise(sourceName: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+/**
+ * O rótulo de leitura, em ordem de autoridade: o nome gerencial confirmado na
+ * curadoria, o vocabulário deste arquivo, e por fim o literal da planilha
+ * humanizado. Quem não tem o `display_name` à mão chama com dois argumentos e
+ * cai no comportamento de sempre.
+ */
 export function attributeLabel(
   attributeCode: string | null,
   sourceName?: string | null,
+  displayName?: string | null,
 ): string {
+  const curated = displayName?.trim();
+  if (curated) return curated;
   if (attributeCode === null) return sourceName ? humanise(sourceName) : "(sem atributo)";
   const known = ATTRIBUTE_LABELS[attributeCode];
   if (known) return known;
@@ -123,6 +135,26 @@ export function equipmentPlural(entityType: string | null, count: number): strin
   };
   const pair = map[entityType ?? ""] ?? ["ativo", "ativos"];
   return `${count} ${count === 1 ? pair[0] : pair[1]}`;
+}
+
+const MONTHS = [
+  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+];
+
+/**
+ * `2026-08-01` → `agosto/2026`. Sem `Date`, para não depender de fuso.
+ *
+ * Morava em `grouped.ts`, e mudou de casa quando a proveniência passou a
+ * precisar dela: `query.ts` não pode importar `grouped.ts` sem fechar o ciclo
+ * `grouped → consolidated → query`. Aqui, ao lado dos outros rótulos de
+ * leitura, ela é do módulo que já é a resposta para "como isto se escreve na
+ * tela" — e continua exportada pelo pacote no mesmo nome de sempre.
+ */
+export function periodLabel(date: string): string {
+  const [year, month] = date.split("-");
+  const index = Number(month) - 1;
+  return index >= 0 && index < 12 ? `${MONTHS[index]}/${year}` : date;
 }
 
 /** Como a periodicidade aparece ao lado de um valor: "/mês", "/ano". */

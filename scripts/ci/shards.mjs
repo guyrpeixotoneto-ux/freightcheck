@@ -56,16 +56,19 @@ export const RAIZ = path.resolve(
  * criam os seus próprios bancos e não pagam o seed.
  */
 export const SHARDS = {
-  // `db` entra aqui, e não junto de `ingest`, por balanceamento medido: com ele
-  // no shard do ingest o caminho crítico era 111.1s contra 3.4s deste; separado,
-  // são ~97s e ~22s. As migrations são o objeto dos testes de `db`, então ele
-  // precisa de Postgres — que o job já sobe para todos os shards.
+  // `unit` é o shard **leve**, e não o shard "sem banco" — `db` e `coverage`
+  // falam com Postgres, que o job sobe para todos os shards de qualquer jeito.
+  // Os dois entram aqui por balanceamento medido: com `db` junto do `ingest` o
+  // caminho crítico eram 111.1s contra 3.4s deste, a divisão mais desequilibrada
+  // possível entre os cinco. `coverage` (38.9s) não usa template, então não tem
+  // localidade a preservar e cabe onde sobra espaço.
   unit: [
     "@workspace/knowledge",
     "@workspace/simulation",
     "@workspace/scripts",
     "@workspace/freightaudit",
     "@workspace/db",
+    "@workspace/coverage",
   ],
   ingest: ["@workspace/ingest"],
   curado: [

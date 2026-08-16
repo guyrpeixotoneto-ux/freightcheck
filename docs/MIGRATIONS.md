@@ -8,11 +8,60 @@ Onde isso roda:
 
 | momento | quem aplica |
 | --- | --- |
-| partida do servidor | `artifacts/api-server/src/index.ts` chama `runMigrations()` em segundo plano; o estado sai em `/api/healthz` |
-| post-merge do Replit | `scripts/post-merge.sh` |
-| desenvolvimento | `scripts/dev.mjs` |
+| partida do servidor **em Production** | `artifacts/api-server/src/index.ts` chama `runMigrations()` em segundo plano; o estado sai em `/api/healthz` |
+| desenvolvimento | **ninguém automaticamente** — ver a política abaixo |
+| post-merge do Replit | `scripts/post-merge.sh` instala; **não** migra, e diz isso |
 | à mão | `pnpm --filter @workspace/db run migrate` |
 | testes | cada banco de teste nasce das migrations, nunca de push |
+
+## Quem avança a fila só por ter subido
+
+A regra é uma: **só Production aplica migrations ao iniciar.** Todo o resto
+avança por comando explícito.
+
+| ambiente | migra na partida | como avança |
+| --- | --- | --- |
+| Development (`pnpm dev`) | não | `pnpm --filter @workspace/db run migrate` |
+| Testes e CI | não | cada arquivo cria um banco descartável a partir das migrations |
+| Preview / qualquer serviço novo | não — é o padrão | `DB_MIGRATE_ON_BOOT=1`, se for mesmo para migrar |
+| Production / Publish | **sim** | o próprio servidor, na partida |
+
+Quem decide é `deveMigrarNaPartida()`, em
+`artifacts/api-server/src/lib/migrations.ts`. Ela lê dois sinais, nesta ordem:
+
+1. **`DB_MIGRATE_ON_BOOT`**, quando dita. É a única forma de fixar a resposta
+   para um ambiente que ainda não existe. O `[services.production.run.env]` do
+   `artifact.toml` a escreve como `"1"`.
+2. **`NODE_ENV`**, na ausência dela. `production` migra; qualquer outra coisa,
+   não. Os dois lados já configuram isso por escrito — `scripts/dev.mjs` passa
+   `development` ao subir o servidor, o artifact passa `production`.
+
+Um valor não reconhecido em `DB_MIGRATE_ON_BOOT` cai de volta no `NODE_ENV` e
+aparece no log, em vez de virar "não migre": um erro de digitação numa variável
+de deploy não pode ser o que trava a fila de Production.
+
+### O que **não** classifica ambiente
+
+**`DATABASE_URL`.** Ela diz que existe um banco alcançável — desenvolvimento,
+teste e produção têm um. O que ela não diz é de quem ele é.
+
+Isto já foi um defeito real, e vale escrito porque a forma dele é traiçoeira. A
+regra estava em `scripts/dev.mjs`, na forma de um `runMigrations: null` que
+desliga o passo de migração **do supervisor**. Só que o supervisor não abre
+conexão: quem abre é o servidor que ele sobe, e o servidor decidia sozinho,
+olhando apenas se `DATABASE_URL` existia. Em desenvolvimento ela sempre existe.
+O resultado foi um `Run` que aplicou `0020_chamados_exclusao` e
+`0021_cobertura` no banco de desenvolvimento enquanto o console imprimia, na
+mesma partida, que não aplicaria.
+
+A regra estava na camada errada: quem precisa conhecê-la é o processo que abre
+conexão, não o que o inicia.
+
+### Desligado não é cego
+
+Com a migração automática desligada, `/api/healthz` continua dizendo o que
+falta: `observarBanco()` pergunta ao banco a cada chamada, e não ao que este
+processo fez na partida. O que muda é quem aplica — uma pessoa, por comando.
 
 ## Por que não existe uma segunda autoridade
 

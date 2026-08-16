@@ -95,7 +95,7 @@ import { useSecoesRecolhidas } from "./preferencias";
  *    esse recurso de conforto em necessidade. A escolha vale para o navegador,
  *    não para a página — ver `useSecoesRecolhidas` —, e recolher esconde a
  *    lista, nunca a informação: a seção fechada que contém a tela aberta leva a
- *    barra vermelha, e a que esconde fila de trabalho traz a soma no cabeçalho.
+ *    barra marinho, e a que esconde fila de trabalho traz a soma no cabeçalho.
  *
  * A regra antiga continua acima de tudo, com o alcance dito por extenso:
  * **nenhum item daqui leva a lugar nenhum, e nenhum leva a um número
@@ -110,8 +110,6 @@ interface NavItem {
   icon: LucideIcon;
   /** O número à direita, quando há um para mostrar. */
   contador?: "alteracoes" | "importacoes" | "curadoria";
-  /** A tarja de novidade, que expira sozinha — ver `NOVIDADE_ATE`. */
-  novidade?: boolean;
 }
 
 interface NavGroup {
@@ -119,26 +117,8 @@ interface NavGroup {
   icon: LucideIcon;
   /** A classe de cor da seção — ver o bloco `--nav-*` em `index.css`. */
   cor: string;
-  /**
-   * O fundo da tarja "Novo" desta seção.
-   *
-   * Vive aqui, escrito por extenso, e não é derivado de `cor`: o Tailwind lê as
-   * classes do código-fonte, e `bg-nav-${chave}` montado em tempo de execução
-   * não existe na folha de estilo — a tarja sairia sem fundo.
-   */
-  tarja: string;
   itens: NavItem[];
 }
-
-/**
- * Até quando "Novo" ainda é verdade.
- *
- * Uma tarja de novidade fixa no código vira mentira por decurso de prazo: seis
- * meses depois ela ainda chama de novo o que todo mundo já usa, e a próxima
- * novidade de verdade nasce sem poder ser anunciada, porque o lugar do anúncio
- * está gasto. Esta some sozinha na data.
- */
-const NOVIDADE_ATE = "2026-12-31";
 
 /**
  * As sete seções, e a ordem em que se lê o trabalho de um dia.
@@ -168,7 +148,6 @@ const NAV_GROUPS: NavGroup[] = [
     titulo: "Visão executiva",
     icon: ChartNoAxesCombined,
     cor: "text-nav-executiva",
-    tarja: "bg-nav-executiva",
     itens: [
       { href: "/", label: "Visão geral", icon: House },
       { href: "/vigencia", label: "Acompanhamento", icon: TrendingUp },
@@ -193,14 +172,13 @@ const NAV_GROUPS: NavGroup[] = [
         em preparo — que continua em preparo, porque o que falta a ele é custo
         operacional, e não esta apuração.
       */
-      { href: "/dre", label: "DRE", icon: Receipt, novidade: true },
+      { href: "/dre", label: "DRE", icon: Receipt },
     ],
   },
   {
     titulo: "Auditoria",
     icon: ScanSearch,
     cor: "text-nav-auditoria",
-    tarja: "bg-nav-auditoria",
     itens: [
       { href: "/alteracoes", label: "Alterações", icon: ArrowRightLeft, contador: "alteracoes" },
       { href: "/comparar", label: "Comparar vigências", icon: GitCompareArrows },
@@ -212,9 +190,9 @@ const NAV_GROUPS: NavGroup[] = [
         (Impacto financeiro), quanto custou vira o que disso é anormal
         (Anomalias), e o anormal vira um caso com dono (Auditorias).
       */
-      { href: "/impacto-financeiro", label: "Impacto financeiro", icon: CircleDollarSign, novidade: true },
-      { href: "/anomalias", label: "Anomalias", icon: TriangleAlert, novidade: true },
-      { href: "/auditorias", label: "Auditorias", icon: ClipboardCheck, novidade: true },
+      { href: "/impacto-financeiro", label: "Impacto financeiro", icon: CircleDollarSign },
+      { href: "/anomalias", label: "Anomalias", icon: TriangleAlert },
+      { href: "/auditorias", label: "Auditorias", icon: ClipboardCheck },
     ],
   },
   {
@@ -226,11 +204,10 @@ const NAV_GROUPS: NavGroup[] = [
     titulo: "Recuperação",
     icon: RefreshCcwDot,
     cor: "text-nav-recuperacao",
-    tarja: "bg-nav-recuperacao",
     itens: [
-      { href: "/contestacao", label: "Contestação & Recuperação", icon: Gavel, novidade: true },
-      { href: "/reconciliacao", label: "Reconciliação", icon: Handshake, novidade: true },
-      { href: "/risco-materialidade", label: "Risco & Materialidade", icon: ShieldCheck, novidade: true },
+      { href: "/contestacao", label: "Contestação & Recuperação", icon: Gavel },
+      { href: "/reconciliacao", label: "Reconciliação", icon: Handshake },
+      { href: "/risco-materialidade", label: "Risco & Materialidade", icon: ShieldCheck },
     ],
   },
   {
@@ -243,30 +220,27 @@ const NAV_GROUPS: NavGroup[] = [
     titulo: "Frota",
     icon: Truck,
     cor: "text-nav-frota",
-    tarja: "bg-nav-frota",
     itens: [
-      { href: "/cavalo-360", label: "Cavalo 360°", icon: Tractor, novidade: true },
-      { href: "/carreta-360", label: "Carreta 360°", icon: Container, novidade: true },
-      { href: "/dre-veiculo", label: "DRE do veículo", icon: FileSpreadsheet, novidade: true },
-      { href: "/benchmark-unidades", label: "Benchmark de unidades", icon: ChartColumn, novidade: true },
+      { href: "/cavalo-360", label: "Cavalo 360°", icon: Tractor },
+      { href: "/carreta-360", label: "Carreta 360°", icon: Container },
+      { href: "/dre-veiculo", label: "DRE do veículo", icon: FileSpreadsheet },
+      { href: "/benchmark-unidades", label: "Benchmark de unidades", icon: ChartColumn },
     ],
   },
   {
     titulo: "Inteligência",
     icon: Sparkles,
     cor: "text-nav-inteligencia",
-    tarja: "bg-nav-inteligencia",
     itens: [
       { href: "/assistente", label: "Assistente IA", icon: Bot },
       { href: "/book-operador", label: "Book do Operador", icon: FileText },
-      { href: "/monitor-ia", label: "Monitor de IA", icon: SquareActivity, novidade: true },
+      { href: "/monitor-ia", label: "Monitor de IA", icon: SquareActivity },
     ],
   },
   {
     titulo: "Dados & governança",
     icon: Database,
     cor: "text-nav-dados",
-    tarja: "bg-nav-dados",
     itens: [
       { href: "/importacoes", label: "Importações", icon: CloudDownload, contador: "importacoes" },
       /*
@@ -283,17 +257,16 @@ const NAV_GROUPS: NavGroup[] = [
       */
       { href: "/dados", label: "Cobertura de dados", icon: ClipboardList },
       { href: "/versoes", label: "Versões", icon: Layers },
-      { href: "/qualidade-dados", label: "Qualidade de dados", icon: BadgeCheck, novidade: true },
-      { href: "/fontes-dados", label: "Fontes de dados", icon: Database, novidade: true },
-      { href: "/historico-decisoes", label: "Histórico de decisões", icon: History, novidade: true },
-      { href: "/logs-sistema", label: "Logs de sistema", icon: SquareTerminal, novidade: true },
+      { href: "/qualidade-dados", label: "Qualidade de dados", icon: BadgeCheck },
+      { href: "/fontes-dados", label: "Fontes de dados", icon: Database },
+      { href: "/historico-decisoes", label: "Histórico de decisões", icon: History },
+      { href: "/logs-sistema", label: "Logs de sistema", icon: SquareTerminal },
     ],
   },
   {
     titulo: "Administração",
     icon: Cog,
     cor: "text-nav-admin",
-    tarja: "bg-nav-admin",
     itens: [
       { href: "/unidades", label: "Unidades", icon: Building2 },
       /*
@@ -305,9 +278,9 @@ const NAV_GROUPS: NavGroup[] = [
         uma questão de nomenclatura.
       */
       { href: "/configuracoes", label: "Usuários", icon: Users },
-      { href: "/ajustes", label: "Configurações", icon: Settings2, novidade: true },
-      { href: "/integracoes", label: "Integrações", icon: Plug, novidade: true },
-      { href: "/seguranca", label: "Segurança", icon: Shield, novidade: true },
+      { href: "/ajustes", label: "Configurações", icon: Settings2 },
+      { href: "/integracoes", label: "Integrações", icon: Plug },
+      { href: "/seguranca", label: "Segurança", icon: Shield },
     ],
   },
 ];
@@ -368,10 +341,10 @@ export function Sidebar({ open }: { open: boolean }) {
                     grupo.cor,
                     /*
                       Seção fechada com a tela aberta dentro dela leva a barra
-                      vermelha: fechar uma seção é escolher não ver a lista, e
+                      marinho: fechar uma seção é escolher não ver a lista, e
                       nunca deixar de saber onde se está.
                     */
-                    !aberto && contemAtivo ? "border-brand-red" : "border-transparent",
+                    !aberto && contemAtivo ? "border-brand" : "border-transparent",
                   )}
                 >
                   <grupo.icon className="w-4 h-4 shrink-0" strokeWidth={2.25} />
@@ -400,7 +373,6 @@ export function Sidebar({ open }: { open: boolean }) {
                       <ItemDoMenu
                         key={item.href}
                         item={item}
-                        tarja={grupo.tarja}
                         ativo={estaAtivo(location, item.href)}
                         contagem={item.contador ? contadores[item.contador] : 0}
                       />
@@ -506,8 +478,8 @@ function IconeDaFaixa({
         className={cn(
           "relative flex items-center justify-center h-11 border-l-[3px] transition-colors",
           ativo
-            ? "border-brand-red bg-brand-red/[0.07] text-brand-red"
-            : "border-transparent text-muted-foreground hover:bg-sidebar-accent",
+            ? "border-brand bg-sidebar-accent text-brand"
+            : "border-transparent text-muted-foreground hover:bg-muted",
         )}
       >
         <item.icon className="w-[1.125rem] h-[1.125rem]" />
@@ -516,8 +488,8 @@ function IconeDaFaixa({
             className={cn(
               "absolute top-1.5 right-2 min-w-4 h-4 px-1 rounded-full text-[0.5625rem] font-bold flex items-center justify-center tabular-nums",
               item.contador === "alteracoes"
-                ? "bg-brand-red text-brand-red-foreground"
-                : "bg-brand text-brand-foreground",
+                ? "bg-brand text-brand-foreground"
+                : "bg-warning text-warning-foreground",
             )}
           >
             {contagem > 99 ? "99+" : contagem}
@@ -554,7 +526,7 @@ function UnidadeNaFaixa() {
         }
       >
         <div className="w-11 h-11 mx-auto rounded-lg border border-sidebar-border flex items-center justify-center">
-          <MapPin className="w-4 h-4 text-brand-red" />
+          <MapPin className="w-4 h-4 text-brand" />
         </div>
       </Rotulo>
     </div>
@@ -564,9 +536,10 @@ function UnidadeNaFaixa() {
 /**
  * O nome que o ícone perdeu, de volta ao passar o mouse ou ao chegar pelo Tab.
  *
- * O fundo é o cinza do texto, e não o laranja do componente: na faixa o rótulo é
- * a única forma de ler o nome do item, e branco sobre o laranja da marca fica em
- * 2,2:1 — abaixo de qualquer limite de legibilidade.
+ * O fundo é o marinho quase preto do texto, e não o `--brand`: na faixa o rótulo
+ * é a única forma de ler o nome do item, e um tooltip com a cor de ação se lê
+ * como algo clicável, que ele não é. `--foreground` deixa branco em 15:1 e não
+ * promete clique nenhum.
  */
 function Rotulo({ texto, children }: { texto: string; children: React.ReactNode }) {
   return (
@@ -603,12 +576,10 @@ function estaAtivo(location: string, href: string): boolean {
 
 function ItemDoMenu({
   item,
-  tarja,
   ativo,
   contagem,
 }: {
   item: NavItem;
-  tarja: string;
   ativo: boolean;
   contagem: number;
 }) {
@@ -624,36 +595,26 @@ function ItemDoMenu({
         */
         "flex items-center gap-3 border-l-[3px] pl-[calc(1rem-3px)] pr-3 py-2 text-sm transition-colors",
         ativo
-          ? "border-brand-red bg-brand-red/[0.07] text-brand-red font-semibold"
-          : "border-transparent text-sidebar-foreground hover:bg-sidebar-accent",
+          ? "border-brand bg-sidebar-accent text-brand font-semibold"
+          : "border-transparent text-sidebar-foreground hover:bg-muted",
       )}
     >
       <item.icon
         className={cn("w-[1.125rem] h-[1.125rem] shrink-0", !ativo && "text-muted-foreground")}
       />
       <span className="min-w-0 flex-1 truncate">{item.label}</span>
-      {contagem > 0 && <Contador valor={contagem} tipo={item.contador!} />}
       {/*
-        A tarja leva a cor da seção, e não uma cor só para todas: com dezoito
-        novidades no menu, uma tarja única viraria uma coluna de manchas iguais
-        à direita da lista, que o olho lê como enfeite. Pintada pela seção, ela
-        some dentro do bloco a que pertence e reforça o agrupamento.
+        O contador é o único enfeite que sobrou à direita do rótulo, e agora ele
+        é o único que se lê.
 
-        O texto é `text-sidebar`, e não branco: no tema escuro estas cores
-        clareiam para continuar legíveis como título, e branco sobre elas fica
-        ilegível. `text-sidebar` é branco no tema claro e quase preto no escuro
-        — o contraste se inverte junto com o fundo.
+        Aqui havia também a tarja "Novo". Ela nasceu para dezoito itens ao mesmo
+        tempo, e é aí que ela se desfaz: uma tarja que aparece em metade da lista
+        não distingue nada — vira uma segunda coluna de manchas que o olho
+        aprende a pular, e leva o contador junto, porque ele mora no mesmo lugar
+        e tem o mesmo formato. A que sobrou diz quanto trabalho há, que é a única
+        informação daquela borda que muda de um dia para o outro.
       */}
-      {item.novidade && dentroDoPrazo() && (
-        <span
-          className={cn(
-            "shrink-0 rounded-full px-2 py-0.5 text-[0.625rem] font-bold uppercase tracking-wide text-sidebar",
-            tarja,
-          )}
-        >
-          Novo
-        </span>
-      )}
+      {contagem > 0 && <Contador valor={contagem} tipo={item.contador!} />}
     </Link>
   );
 }
@@ -661,10 +622,16 @@ function ItemDoMenu({
 /**
  * A bolinha do número.
  *
- * Vermelha em Alterações, laranja em Importações e Curadoria — e a diferença
+ * Marinho em Alterações, laranja em Importações e Curadoria — e a diferença
  * não é enfeite: alteração é fato consumado da vigência aberta, e as outras
  * duas são fila de trabalho de quem está olhando. Cores iguais fariam as três
  * pedirem a mesma coisa.
+ *
+ * A distinção é a mesma de antes; o que mudou foi passar a dizê-la com as duas
+ * cores que o resto da interface já usa nesse sentido. Fila de trabalho é
+ * exatamente o que `--warning` marca em toda parte — algo aqui espera por você
+ * —, e fato consumado é conteúdo do produto, que é o marinho. Antes o par era
+ * vermelho e laranja, e vermelho aqui competia com o vermelho de prejuízo.
  */
 function Contador({ valor, tipo }: { valor: number; tipo: NonNullable<NavItem["contador"]> }) {
   return (
@@ -672,22 +639,13 @@ function Contador({ valor, tipo }: { valor: number; tipo: NonNullable<NavItem["c
       className={cn(
         "min-w-6 h-6 px-1.5 rounded-full text-[0.6875rem] font-bold flex items-center justify-center tabular-nums shrink-0",
         tipo === "alteracoes"
-          ? "bg-brand-red text-brand-red-foreground"
-          : "bg-brand text-brand-foreground",
+          ? "bg-brand text-brand-foreground"
+          : "bg-warning text-warning-foreground",
       )}
     >
       {valor > 99 ? "99+" : valor}
     </span>
   );
-}
-
-/** Hoje, em `AAAA-MM-DD`, sem fuso: a comparação é de calendário, não de instante. */
-function dentroDoPrazo(): boolean {
-  const hoje = new Date();
-  const iso = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-${String(
-    hoje.getDate(),
-  ).padStart(2, "0")}`;
-  return iso <= NOVIDADE_ATE;
 }
 
 // ---------------------------------------------------------------------------
@@ -801,7 +759,7 @@ function CaixaDaUnidade({
         !semMoldura && "rounded-lg border border-sidebar-border px-3 py-2.5",
       )}
     >
-      <MapPin className="w-4 h-4 shrink-0 text-brand-red" />
+      <MapPin className="w-4 h-4 shrink-0 text-brand" />
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-bold truncate">{titulo}</span>
         {/*

@@ -148,6 +148,20 @@
       "when": 1786845960000,
       "tag": "0020_chamados_exclusao",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786846020000,
+      "tag": "0021_cobertura",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786846080000,
+      "tag": "0022_significado",
+      "breakpoints": true
     }
   ]
 }

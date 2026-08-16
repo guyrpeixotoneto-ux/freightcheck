@@ -12,8 +12,10 @@ import bookRouter from "./book";
 import assistantRouter from "./assistant";
 import balanceRouter from "./balance";
 import compositionRouter from "./composition";
+import coverageRouter from "./coverage";
 import dreRouter from "./dre";
 import ticketsRouter from "./tickets";
+import impactoRouter from "./impacto";
 
 /**
  * F0/F1 surface.
@@ -54,6 +56,14 @@ import ticketsRouter from "./tickets";
  * **o que compõe o que aquele ativo recebe** e o que fica de fora, com o
  * motivo escrito.
  *
+ * `coverage` é Cobertura de dados: o que já temos versus o que deveríamos ter.
+ * Fica separada de `imports` de propósito, e a fronteira é a que o produto
+ * inteiro respeita — Importações responde "o que entrou", com arquivos, linhas
+ * e estados; Cobertura responde "quanto do universo esperado nós possuímos",
+ * consolidando **todas** as importações e sem nunca usar arquivo como unidade
+ * de medida. Nenhuma rota daqui calcula: todas chamam `@workspace/coverage`,
+ * que é a autoridade única do cálculo e da classificação.
+ *
  * `dre` é a DRE: o resultado por unidade econômica — cavalo, carreta ou
  * conjunto. Também não tem tabela própria: reorganiza em seções contábeis o que
  * a Composição já apura, acrescenta a normalização de periodicidade e a métrica
@@ -71,6 +81,12 @@ import ticketsRouter from "./tickets";
  * remuneração muda. Fica separada de `changes` de propósito: um chamado não é
  * uma diferença apurada entre duas vigências, e o impacto de um nunca é somado
  * ao do outro. Duas contas, duas réguas, lado a lado e nunca adicionadas.
+ *
+ * `impacto` é a terceira aba da mesma tela, e a única que não parte da
+ * alteração: ela lê o valor de cada ativo em cada quinzena e deixa a alteração
+ * aparecer como a diferença entre duas colunas. É o que permite ver o ativo que
+ * **não** mudou — que não existe em lista de alteração nenhuma e sem o qual o
+ * total da coluna não fecha com o que foi pago.
  */
 const router: IRouter = Router();
 
@@ -87,7 +103,9 @@ router.use(bookRouter);
 router.use(assistantRouter);
 router.use(balanceRouter);
 router.use(compositionRouter);
+router.use(coverageRouter);
 router.use(dreRouter);
 router.use(ticketsRouter);
+router.use(impactoRouter);
 
 export default router;
