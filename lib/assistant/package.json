@@ -13,6 +13,7 @@
     "aceitacao": "tsx src/cli/aceitacao.ts"
   },
   "dependencies": {
+    "@workspace/availability": "workspace:*",
     "@anthropic-ai/sdk": "catalog:",
     "@workspace/balance": "workspace:*",
     "@workspace/comparison": "workspace:*",

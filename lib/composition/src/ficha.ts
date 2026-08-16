@@ -23,6 +23,7 @@ import {
   type ChangeRow,
   type SeriesContext,
 } from "@workspace/comparison";
+import { filtroDeVigenciaDisponivel } from "@workspace/availability";
 import {
   calcularVariacao,
   comporDeFatos,
@@ -111,7 +112,7 @@ async function lerHistorico(
       JOIN attribute a ON a.id = f.attribute_id
       JOIN snapshot s  ON s.id = f.snapshot_id
      WHERE f.entity_id = ${entityId}::uuid
-       AND s.status <> 'SUPERSEDED'
+       AND ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
      ORDER BY s.effective_date, a.code
   `);
@@ -306,7 +307,7 @@ async function snapshotsDaSerie(
   }>(sql`
     SELECT s.id::text, s.effective_date::text AS effective_date, s.source_label
       FROM snapshot s
-     WHERE s.status <> 'SUPERSEDED'
+     WHERE ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
        AND ${entityType} = ANY(string_to_array(s.entity_type_set, '+'))
      ORDER BY s.effective_date
@@ -505,7 +506,7 @@ async function lerFatosSimples(
       JOIN snapshot s  ON s.id = f.snapshot_id
      WHERE f.entity_id = ${entityId}::uuid
        AND s.effective_date = ${effectiveDate}::date
-       AND s.status <> 'SUPERSEDED'
+       AND ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
   `);
   return rows;
@@ -559,7 +560,7 @@ export async function getVinculoDoCavalo(
     WITH alvo AS (
       SELECT max(s.effective_date) AS d
         FROM snapshot s
-       WHERE s.status <> 'SUPERSEDED'
+       WHERE ${filtroDeVigenciaDisponivel("s")}
          AND ${contextFilter("s", context)}
          AND (${opcoes.period ?? null}::date IS NULL
               OR s.effective_date = ${opcoes.period ?? null}::date)

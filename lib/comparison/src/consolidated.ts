@@ -1,5 +1,8 @@
 import { sql } from "drizzle-orm";
-import { chaveDeSerieSql } from "@workspace/availability";
+import {
+  chaveDeSerieSql,
+  filtroDeVigenciaDisponivel,
+} from "@workspace/availability";
 import type { Database } from "@workspace/db";
 import { snapshotTable } from "@workspace/db";
 import {
@@ -104,7 +107,7 @@ export async function listPeriods(db: Database, context?: SeriesContext) {
            array_agg(DISTINCT t ORDER BY t) AS series
       FROM snapshot s,
            unnest(string_to_array(s.entity_type_set, '+')) t
-     WHERE s.status <> 'SUPERSEDED'
+     WHERE ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", resolved)}
      GROUP BY s.effective_date
      ORDER BY s.effective_date DESC
@@ -132,7 +135,7 @@ export async function knownSeries(
     SELECT DISTINCT t AS entity_type_set
       FROM snapshot s,
            unnest(string_to_array(s.entity_type_set, '+')) t
-     WHERE s.status <> 'SUPERSEDED'
+     WHERE ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", resolved)}
      ORDER BY t
   `);
@@ -170,7 +173,7 @@ export async function computeMissingChangeSets(
       effectiveDate: snapshotTable.effectiveDate,
     })
     .from(snapshotTable)
-    .where(sql`${snapshotTable.status} <> 'SUPERSEDED'`)
+    .where(filtroDeVigenciaDisponivel("snapshot"))
     .orderBy(snapshotTable.effectiveDate);
 
   /*
@@ -238,7 +241,7 @@ export async function getConsolidated(
            s.source_label    AS "sourceLabel"
       FROM snapshot s
      WHERE s.effective_date::text = ${target.effective_date}
-       AND s.status <> 'SUPERSEDED'
+       AND ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
      ORDER BY s.entity_type_set
   `);

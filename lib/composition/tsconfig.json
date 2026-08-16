@@ -9,5 +9,6 @@
     "types": ["node"]
   },
   "include": ["src"],
-  "references": [{ "path": "../db" }, { "path": "../comparison" }]
+  "references": [
+    { "path": "../availability" },{ "path": "../db" }, { "path": "../comparison" }]
 }

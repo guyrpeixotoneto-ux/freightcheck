@@ -20,6 +20,7 @@ import {
   resolveContext,
   type SeriesContext,
 } from "@workspace/comparison";
+import { filtroDeVigenciaDisponivel } from "@workspace/availability";
 import {
   calcularVariacao,
   comporDeFatos,
@@ -143,7 +144,7 @@ async function serieFoiEntregue(
     SELECT s.entity_type_set
       FROM snapshot s
      WHERE s.effective_date = ${effectiveDate}::date
-       AND s.status <> 'SUPERSEDED'
+       AND ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
   `);
   return rows.some((r) => r.entity_type_set.split("+").includes(entityType));

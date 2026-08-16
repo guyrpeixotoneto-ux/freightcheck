@@ -617,6 +617,7 @@ resultados idênticos aos de hoje.* O que muda é o que o produto passa a enxerg
 | Desativar ingestão de `overview.ts` | nenhum | tudo | **operacional baixo** — o código era inalcançável, mas inalcançável não é o mesmo que sem dependências | teste: só um handler registra `POST /imports` |
 | Autoridade central de escrita | nenhum no caminho feliz; escrita fora de autoridade passa a ser recusada | números do export real | **operacional baixo** — a recusa é nova, e um escritor legítimo não declarado falharia em runtime | o pipeline real roda por conexão sem concessão (`autoridade-do-pipeline.test.ts`) |
 | Preservar o Book | nenhum | tudo | nenhum | `fronteira-do-book.test.ts` (já existe) |
+| Disponibilidade com dono único | leituras deixam de aceitar `DRAFT` | números do export real inalterados | **operacional baixo** — `<> 'SUPERSEDED'` incluía `DRAFT`, e `= 'CLOSED'` não. `DRAFT` só existe dentro da transação da promoção (medido: promoção recusada deixa zero linhas), então o conjunto é o mesmo; o que muda é que uma promoção interrompida deixaria de aparecer em tela em vez de aparecer pela metade | `fronteira-da-disponibilidade.test.ts`: varredura com caso de controle, e prova negativa (recopiar o predicado em `dre/apuracao.ts` faz o teste falhar nomeando arquivo e linha) |
 | Mapear Fleet Analysis | nenhum — é documento | tudo | nenhum | teste de caracterização do formato de resposta atual |
 | Criar a autoridade sem consumidor | nenhum | tudo | nenhum | testes próprios da autoridade |
 | Canal pela coluna | contextos deixam de se partir por caixa do rótulo | números do export real | **baixo** | `it.fails` de D2 inverte; export real idêntico |
@@ -671,7 +672,7 @@ de toda a sequência.
 | PR | O quê |
 |---|---|
 | **PR-10** | **Cobertura** passa a usar a autoridade, encerrando a dívida do §A.6 — **feito**. Os outros consumidores daquela linha (Vigências, Comparar, Composição, DRE, Parâmetros, Assistente) saem do PR-10 e viram o **PR-10b**: sete módulos num diff só contrariam a regra de responsabilidade única, e o que tinha prazo marcado era a Cobertura |
-| **PR-10b** | Vigências, Comparar, Composição, DRE, Parâmetros e Assistente passam a usar a autoridade |
+| **PR-10b** | Vigências, Comparar, Composição, DRE, Parâmetros e Assistente passam a usar a autoridade. O que restava neles era **uma** coisa — `status <> 'SUPERSEDED'` copiado à mão —, porque o contexto canônico já lhes chegava por `contextFilter` desde o PR-7. As 46 cópias de leitura viram `filtroDeVigenciaDisponivel`, e um teste de fronteira recusa a quadragésima sétima — **feito** |
 | **PR-11** | ~~`/changes/latest`~~ (feito no PR-9) e `valoresVigentes` (chamados) passam a usar a chave de série / `vigenciaAnterior` |
 | **PR-12** | `janelaDosAtributos` passa a exigir recorte |
 | **PR-13** | `getOverview` filtra vivas e contexto |

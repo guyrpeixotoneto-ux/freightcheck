@@ -1,5 +1,9 @@
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
-import { chaveDeEscopoSql, chaveDeSerieSql } from "@workspace/availability";
+import {
+  chaveDeEscopoSql,
+  chaveDeSerieSql,
+  filtroDeVigenciaDisponivel,
+} from "@workspace/availability";
 import type { Database } from "@workspace/db";
 import { changeSetTable, changeTable, snapshotTable } from "@workspace/db";
 import { periodLabel } from "./labels";
@@ -469,7 +473,7 @@ export async function listComparableSnapshots(db: Database) {
       factCount: snapshotTable.factCount,
     })
     .from(snapshotTable)
-    .where(sql`${snapshotTable.status} <> 'SUPERSEDED'`)
+    .where(filtroDeVigenciaDisponivel("snapshot"))
     .orderBy(snapshotTable.effectiveDate);
 }
 
@@ -483,7 +487,8 @@ export async function listComparableSnapshots(db: Database) {
 export async function getOverview(db: Database) {
   const { rows } = await db.execute<Record<string, unknown>>(sql`
     SELECT
-      (SELECT count(*) FROM snapshot WHERE status <> 'SUPERSEDED')          AS vigencias,
+      (SELECT count(*) FROM snapshot
+        WHERE ${filtroDeVigenciaDisponivel("snapshot")})                     AS vigencias,
       (SELECT min(effective_date) FROM snapshot)                            AS primeira_vigencia,
       (SELECT max(effective_date) FROM snapshot)                            AS ultima_vigencia,
       (SELECT count(*) FROM entity)                                         AS ativos,

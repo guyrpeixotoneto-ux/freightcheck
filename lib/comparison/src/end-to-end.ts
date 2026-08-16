@@ -1,5 +1,8 @@
 import { sql } from "drizzle-orm";
-import { chaveDeSerieSql } from "@workspace/availability";
+import {
+  chaveDeSerieSql,
+  filtroDeVigenciaDisponivel,
+} from "@workspace/availability";
 import type { Database } from "@workspace/db";
 import { loadAttributeClassificationsAt } from "./classification";
 import { indexChangedAttributesByEntity, isCoveredByParts } from "./composition";
@@ -222,7 +225,7 @@ export async function getEndToEndAnalysis(
            ${chaveDeSerieSql("s")} AS serie
       FROM snapshot s
      WHERE s.effective_date IN (${inicio}::date, ${fim}::date)
-       AND s.status <> 'SUPERSEDED'
+       AND ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
   `);
 
@@ -437,7 +440,7 @@ export async function getEndToEndAnalysis(
       JOIN snapshot sb   ON sb.id = cs.snapshot_b_id
      WHERE sb.effective_date > ${inicio}::date
        AND sb.effective_date <= ${fim}::date
-       AND sb.status <> 'SUPERSEDED'
+       AND ${filtroDeVigenciaDisponivel("sb")}
        AND c.change_type = 'VALUE_CHANGED'
        AND c.entity_id IS NOT NULL
        AND c.attribute_code IS NOT NULL

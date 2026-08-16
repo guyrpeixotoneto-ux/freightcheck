@@ -10,6 +10,7 @@ import {
   snapshotTable,
   taxonomyNodeTable,
 } from "@workspace/db";
+import { filtroDeVigenciaDisponivel } from "@workspace/availability";
 import {
   detectPeriodicityConflicts,
   proposeSemantics,
@@ -35,7 +36,7 @@ async function latestSnapshotId(db: Database): Promise<string | null> {
   const [snapshot] = await db
     .select({ id: snapshotTable.id })
     .from(snapshotTable)
-    .where(sql`${snapshotTable.status} <> 'SUPERSEDED'`)
+    .where(filtroDeVigenciaDisponivel("snapshot"))
     .orderBy(desc(snapshotTable.effectiveDate))
     .limit(1);
   return snapshot?.id ?? null;

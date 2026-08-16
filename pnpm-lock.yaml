@@ -667,6 +667,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: 'catalog:'
         version: 0.116.0(zod@3.25.76)
+      '@workspace/availability':
+        specifier: workspace:*
+        version: link:../availability
       '@workspace/balance':
         specifier: workspace:*
         version: link:../balance
@@ -797,6 +800,9 @@ importers:
 
   lib/composition:
     dependencies:
+      '@workspace/availability':
+        specifier: workspace:*
+        version: link:../availability
       '@workspace/comparison':
         specifier: workspace:*
         version: link:../comparison
@@ -859,6 +865,9 @@ importers:
 
   lib/curation:
     dependencies:
+      '@workspace/availability':
+        specifier: workspace:*
+        version: link:../availability
       '@workspace/db':
         specifier: workspace:*
         version: link:../db
@@ -912,6 +921,9 @@ importers:
 
   lib/dre:
     dependencies:
+      '@workspace/availability':
+        specifier: workspace:*
+        version: link:../availability
       '@workspace/comparison':
         specifier: workspace:*
         version: link:../comparison

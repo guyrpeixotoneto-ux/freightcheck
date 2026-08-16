@@ -32,6 +32,7 @@ import {
   type FatoDoAtivo,
   type ValorAprovado,
 } from "@workspace/composition";
+import { filtroDeVigenciaDisponivel } from "@workspace/availability";
 import { montarDRE, type ApuracaoDaDRE, type LadoDaApuracao } from "./motor";
 import type { CompetenciaDaDRE } from "./normalizacao";
 import { TODOS_OS_ESCOPOS, type EscopoApuravel, type EscopoDeAlocacao } from "./plano";
@@ -143,7 +144,7 @@ async function lerFatosDaVigencia(
       JOIN attribute a ON a.id = f.attribute_id
       JOIN snapshot s  ON s.id = f.snapshot_id
      WHERE s.effective_date = ${effectiveDate}::date
-       AND s.status <> 'SUPERSEDED'
+       AND ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
   `);
 

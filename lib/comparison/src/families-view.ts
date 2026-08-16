@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
+import { filtroDeVigenciaDisponivel } from "@workspace/availability";
 import { indexChangedAttributesByEntity, isCoveredByParts } from "./composition";
 import {
   FAMILIES,
@@ -437,7 +438,7 @@ export async function getRangeAnalysis(
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
      WHERE sb.effective_date > ${inicio}::date
        AND sb.effective_date <= ${fim}::date
-       AND sb.status <> 'SUPERSEDED'
+       AND ${filtroDeVigenciaDisponivel("sb")}
        AND ${contextFilter("sb", context)}
      ORDER BY sb.effective_date DESC, sb.entity_type_set
   `);

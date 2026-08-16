@@ -29,6 +29,7 @@ import {
   type ContextInfo,
   type SeriesContext,
 } from "@workspace/comparison";
+import { filtroDeVigenciaDisponivel } from "@workspace/availability";
 import {
   BASE_QUE_FALTA,
   composicaoDoTotal,
@@ -259,7 +260,7 @@ async function lerFatos(
       LEFT JOIN raw_sheet sh ON sh.id = r.raw_sheet_id
      WHERE f.entity_id = ${entityId}::uuid
        AND s.effective_date = ${effectiveDate}::date
-       AND s.status <> 'SUPERSEDED'
+       AND ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
      ORDER BY a.code
   `);
@@ -275,7 +276,7 @@ export async function listarVigencias(
     SELECT s.effective_date::text AS effective_date,
            array_agg(DISTINCT s.source_label ORDER BY s.source_label) AS labels
       FROM snapshot s
-     WHERE s.status <> 'SUPERSEDED'
+     WHERE ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
      GROUP BY 1
      ORDER BY 1
@@ -549,7 +550,7 @@ async function lerVigencia(
       JOIN entity e    ON e.id = f.entity_id
      WHERE e.entity_type = ${entityType}
        AND s.effective_date = ${effectiveDate}::date
-       AND s.status <> 'SUPERSEDED'
+       AND ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
   `);
 

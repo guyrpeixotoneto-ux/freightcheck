@@ -1,6 +1,7 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { excelSerialToDate, isPlausibleDateSerial } from "@workspace/ingest";
+import { filtroDeVigenciaDisponivel } from "@workspace/availability";
 import { attributeLabel, equipmentLabel } from "./labels";
 import {
   contextFilter,
@@ -285,7 +286,7 @@ export async function listImpactEntityTypes(
     SELECT DISTINCT t
       FROM snapshot s,
            unnest(string_to_array(s.entity_type_set, '+')) t
-     WHERE s.status <> 'SUPERSEDED'
+     WHERE ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
      ORDER BY 1
   `);
@@ -407,7 +408,7 @@ export async function getQuinzenaMatrix(
            string_agg(DISTINCT s.source_label, ' · ') AS source_label,
            bool_or(${entityType} = ANY (string_to_array(s.entity_type_set, '+'))) AS delivered
       FROM snapshot s
-     WHERE s.status <> 'SUPERSEDED'
+     WHERE ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
      GROUP BY 1
      ORDER BY 1
@@ -435,7 +436,7 @@ export async function getQuinzenaMatrix(
       JOIN snapshot s ON s.id = f.snapshot_id
       JOIN entity e   ON e.id = f.entity_id
      WHERE e.entity_type = ${entityType}
-       AND s.status <> 'SUPERSEDED'
+       AND ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
      GROUP BY 1, 2
   `);
@@ -455,7 +456,7 @@ export async function getQuinzenaMatrix(
       JOIN snapshot s   ON s.id = f.snapshot_id
       JOIN attribute a  ON a.id = f.attribute_id
      WHERE a.code = ${escolhido.code}
-       AND s.status <> 'SUPERSEDED'
+       AND ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
   `);
 
@@ -489,7 +490,7 @@ export async function getQuinzenaMatrix(
       JOIN attribute a ON a.id = f.attribute_id
      WHERE a.code = ${groupCode}
        AND NOT f.is_null
-       AND s.status <> 'SUPERSEDED'
+       AND ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
      ORDER BY f.entity_id, s.effective_date DESC
   `);

@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
+import { filtroDeVigenciaDisponivel } from "@workspace/availability";
 import { attributeLabel, equipmentLabel } from "./labels";
 import {
   COMPOSITIONS,
@@ -266,7 +267,7 @@ export async function getPanoramaDeAlteracoes(
            array_agg(DISTINCT t) AS entity_types
       FROM snapshot s,
            unnest(string_to_array(s.entity_type_set, '+')) t
-     WHERE s.status <> 'SUPERSEDED'
+     WHERE ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
      GROUP BY 1
      ORDER BY 1
@@ -317,7 +318,7 @@ export async function getPanoramaDeAlteracoes(
     WITH vig AS (
       SELECT s.id, s.effective_date
         FROM snapshot s
-       WHERE s.status <> 'SUPERSEDED'
+       WHERE ${filtroDeVigenciaDisponivel("s")}
          AND ${contextFilter("s", context)}
     ),
     serie AS (
@@ -399,7 +400,7 @@ export async function getPanoramaDeAlteracoes(
      WHERE a.data_type = 'NUMERIC'
        AND NOT f.is_null
        AND f.value_numeric IS NOT NULL
-       AND s.status <> 'SUPERSEDED'
+       AND ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
      GROUP BY 1, 2
   `);
@@ -417,7 +418,7 @@ export async function getPanoramaDeAlteracoes(
       FROM entity e
       JOIN fact f     ON f.entity_id = e.id
       JOIN snapshot s ON s.id = f.snapshot_id
-     WHERE s.status <> 'SUPERSEDED'
+     WHERE ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", context)}
      GROUP BY 1
   `);
@@ -449,7 +450,7 @@ export async function getPanoramaDeAlteracoes(
      WHERE a.data_type = 'NUMERIC'
        AND NOT f.is_null
        AND f.value_numeric IS NOT NULL
-       AND s.status <> 'SUPERSEDED'
+       AND ${filtroDeVigenciaDisponivel("s")}
        AND s.effective_date::text = ANY (${listaDeTexto(datasDePonta)})
        AND a.code = ANY (${listaDeTexto([...alterados])})
        AND ${contextFilter("s", context)}
@@ -754,7 +755,7 @@ async function medirReconciliacoes(
        WHERE a.code = ANY (${listaDeTexto(envolvidos)})
          AND NOT f.is_null
          AND f.value_numeric IS NOT NULL
-         AND s.status <> 'SUPERSEDED'
+         AND ${filtroDeVigenciaDisponivel("s")}
          AND ${contextFilter("s", context)}
     ),
     linha AS (

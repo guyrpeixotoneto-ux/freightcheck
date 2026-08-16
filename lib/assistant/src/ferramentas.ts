@@ -22,6 +22,7 @@
 
 import { and, desc, eq, sql } from "drizzle-orm";
 import { bookEntryTable, type Database } from "@workspace/db";
+import { filtroDeVigenciaDisponivel } from "@workspace/availability";
 import {
   buildCockpit,
   contextFilter,
@@ -226,7 +227,7 @@ export async function panoramaDoContexto(
     WITH vig AS (
       SELECT s.id, s.effective_date
         FROM snapshot s
-       WHERE s.status <> 'SUPERSEDED' AND ${filtro}
+       WHERE ${filtroDeVigenciaDisponivel("s")} AND ${filtro}
     ),
     cs AS (
       SELECT c.id

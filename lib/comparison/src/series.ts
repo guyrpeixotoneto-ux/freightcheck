@@ -1,5 +1,8 @@
 import { sql } from "drizzle-orm";
-import { chaveDeEscopoSql } from "@workspace/availability";
+import {
+  chaveDeEscopoSql,
+  filtroDeVigenciaDisponivel,
+} from "@workspace/availability";
 import type { Database } from "@workspace/db";
 
 /**
@@ -133,7 +136,7 @@ export async function listContexts(db: Database): Promise<ContextInfo[]> {
            count(DISTINCT s.effective_date)::int AS periods,
            array_agg(DISTINCT s.scope_hash) AS legados
       FROM snapshot s
-     WHERE s.status <> 'SUPERSEDED'
+     WHERE ${filtroDeVigenciaDisponivel("s")}
      GROUP BY 1, 2
      ORDER BY max(s.effective_date) DESC, 1, 2 NULLS LAST
   `);
@@ -151,7 +154,7 @@ export async function listContexts(db: Database): Promise<ContextInfo[]> {
       FROM snapshot s
       JOIN snapshot_scope ss ON ss.snapshot_id = s.id
       JOIN scope sc          ON sc.id = ss.scope_id
-     WHERE s.status <> 'SUPERSEDED'
+     WHERE ${filtroDeVigenciaDisponivel("s")}
      ORDER BY 1, 2 NULLS LAST, sc.scope_type, sc.code
   `);
 

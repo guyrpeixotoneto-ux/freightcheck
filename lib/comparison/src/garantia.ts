@@ -32,6 +32,7 @@
 
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
+import { filtroDeVigenciaDisponivel } from "@workspace/availability";
 import { computeChangeSet, findPreviousSnapshot } from "./engine";
 import { contextFilter } from "./series";
 import type { SeriesContext } from "./series";
@@ -79,7 +80,7 @@ export async function garantirComparacoes(
   const { rows: snapshots } = await db.execute<LinhaDeSnapshot>(sql`
     SELECT s.id, s.effective_date::text AS effective_date
       FROM snapshot s
-     WHERE s.status <> 'SUPERSEDED'
+     WHERE ${filtroDeVigenciaDisponivel("s")}
        AND ${contextFilter("s", contexto)}
        ${periodo ? sql`AND s.effective_date = ${periodo}::date` : sql``}
      ORDER BY s.effective_date
