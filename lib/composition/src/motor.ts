@@ -17,6 +17,7 @@
  */
 
 import { sql } from "drizzle-orm";
+import { baseQueFalta, podeSomar } from "@workspace/curation";
 import type { Database } from "@workspace/db";
 import {
   attributeLabel,
@@ -30,7 +31,6 @@ import {
   type SeriesContext,
 } from "@workspace/comparison";
 import {
-  BASE_QUE_FALTA,
   composicaoDoTotal,
   gavetaDe,
   regraDe,
@@ -364,8 +364,10 @@ function motivoDeExclusao(
   const semantica = classificacao?.semanticsStatus ?? "UNKNOWN";
   if (semantica !== "CONFIRMED") return "SEMANTICA_NAO_CONFIRMADA";
 
-  const somavel = classificacao!.aggregation === "SUM";
-  if (!somavel && classificacao!.unit !== null && classificacao!.unit in BASE_QUE_FALTA) {
+  // A mesma `podeSomar` que o cockpit e o impacto consultam. A ordem das
+  // perguntas continua sendo a deste módulo; o que saiu daqui foi a definição.
+  const somavel = podeSomar(classificacao!).ok;
+  if (!somavel && baseQueFalta(classificacao!) !== null) {
     return "BASE_AUSENTE";
   }
 
@@ -439,7 +441,7 @@ function explicar(
         `Descreve o equipamento; não é parte do que ele recebe.`
       );
     case "NAO_SOMAVEL": {
-      const base = classificacao?.unit ? BASE_QUE_FALTA[classificacao.unit] : undefined;
+      const base = classificacao ? (baseQueFalta(classificacao) ?? undefined) : undefined;
       return base
         ? `${nome} é uma razão em ${classificacao?.unit}. Vira dinheiro quando houver ${base}, ` +
             `que este export não traz. Multiplicar por uma quantidade estimada seria inventar o número.`
@@ -462,7 +464,7 @@ function explicar(
     case "ESCOPO_DE_CONJUNTO":
       return contexto.evidenciaDeEscopo ?? `${nome} remunera o conjunto, não este equipamento.`;
     case "BASE_AUSENTE": {
-      const base = classificacao?.unit ? BASE_QUE_FALTA[classificacao.unit] : undefined;
+      const base = classificacao ? (baseQueFalta(classificacao) ?? undefined) : undefined;
       return (
         `${nome} é uma razão em ${classificacao?.unit}, e não um montante. Vira dinheiro ` +
         `quando houver ${base ?? "a base a que ela se aplica"} — que este export não traz. ` +
@@ -786,7 +788,7 @@ export function comporDeFatos(
         contidoEm,
         evidenciaDeEscopo: escopo?.evidencia ?? null,
       }),
-      baseQueFalta: classificacao?.unit ? (BASE_QUE_FALTA[classificacao.unit] ?? null) : null,
+      baseQueFalta: classificacao ? baseQueFalta(classificacao) : null,
       contidoEm,
       monetarioPotencial: ehMonetarioPotencial(classificacao, motivo),
     });

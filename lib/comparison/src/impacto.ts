@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { viraDinheiro } from "@workspace/curation";
 import type { Database } from "@workspace/db";
 import { excelSerialToDate, isPlausibleDateSerial } from "@workspace/ingest";
 import { attributeLabel, equipmentLabel } from "./labels";
@@ -127,6 +128,14 @@ export interface ImpactoParametro {
    * em vez de esconder a coluna e deixar quem procura sem resposta.
    */
   somavel: boolean;
+  /**
+   * Por que não passa, na redação da autoridade. Vazio quando passa.
+   *
+   * Vai no payload porque a tela precisava da frase e a estava reescrevendo:
+   * era a sexta definição da mesma régua, e a única fora do alcance de um
+   * import — o frontend não depende de `@workspace/curation`.
+   */
+  motivo: string;
 }
 
 /**
@@ -334,10 +343,15 @@ export async function listImpactParameters(
       aggregation: r.aggregation,
       isMonetary: r.is_monetary,
       semanticsStatus: r.semantics_status,
-      somavel:
-        r.semantics_status === "CONFIRMED" &&
-        r.is_monetary === true &&
-        r.aggregation === "SUM",
+      // A mesma decisão do impacto por alteração e do panorama: uma função só.
+      ...(({ ok, motivo }) => ({ somavel: ok, motivo }))(
+        viraDinheiro({
+          unit: r.unit,
+          aggregation: r.aggregation,
+          isMonetary: r.is_monetary,
+          semanticsStatus: r.semantics_status,
+        }),
+      ),
     }))
     .sort((a, b) => {
       // Os que sustentam dinheiro primeiro: é o que a tela abre, e o resto

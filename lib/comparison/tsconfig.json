@@ -9,5 +9,5 @@
     "types": ["node"]
   },
   "include": ["src"],
-  "references": [{ "path": "../db" }, { "path": "../knowledge" }]
+  "references": [{ "path": "../curation" }, { "path": "../db" }, { "path": "../knowledge" }]
 }

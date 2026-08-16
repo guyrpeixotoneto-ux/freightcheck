@@ -9,8 +9,10 @@ import {
   detalheDaLacuna,
   historicoDoAtributo,
   provenienciaDoFato,
+  refazerAgregado,
   registrarDecisao,
   semearContrato,
+  vigenciasSemAgregado,
   visaoDaCobertura,
   type Criticidade,
 } from "@workspace/coverage";
@@ -244,6 +246,38 @@ router.post("/coverage/decisions", async (req, res): Promise<void> => {
       return;
     }
     req.log.error({ err }, "Error recording coverage decision");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * Refaz o agregado por equipamento das vigências que o perderam.
+ *
+ * `POST` pelo mesmo motivo de `/coverage/contract/seed`: escreve. E é a única
+ * saída de um estado em que a tela ficava presa — vigências inteiras no banco,
+ * matriz vazia, e nenhum caminho no produto capaz de recontar o que já está em
+ * `fact`. Ver `lib/coverage/src/agregado.ts` para como a tabela se esvazia sem
+ * que nenhum dado se perca.
+ *
+ * Idempotente e nunca destrutiva: escreve só onde não há linha nenhuma. Chamar
+ * duas vezes devolve `vigencias: 0` na segunda, que é a resposta certa para
+ * "não havia mais nada a refazer".
+ */
+router.post("/coverage/aggregate/rebuild", async (req, res): Promise<void> => {
+  try {
+    res.json(await refazerAgregado(db));
+  } catch (err) {
+    req.log.error({ err }, "Error rebuilding coverage aggregate");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/** Quais vigências estão sem agregado — a leitura que o `POST` acima repara. */
+router.get("/coverage/aggregate/missing", async (req, res): Promise<void> => {
+  try {
+    res.json(await vigenciasSemAgregado(db));
+  } catch (err) {
+    req.log.error({ err }, "Error listing snapshots without coverage aggregate");
     res.status(500).json({ error: "Internal server error" });
   }
 });

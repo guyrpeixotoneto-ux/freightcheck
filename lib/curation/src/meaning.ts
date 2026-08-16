@@ -138,10 +138,19 @@ export async function saveMeaning(
     // thing the IPVA case proved changes over time. Without a version there is
     // nowhere honest to put it, and saying so beats returning a value that was
     // never stored.
-    if (calculationBasis !== undefined && !current) {
+    //
+    // Only *text* is refused. A blank basis on an attribute with no version is
+    // asking to clear something that was never stored — a no-op — and refusing
+    // it took the whole call down with it: the screen sends the three fields
+    // together, so an untouched basis box made naming a column fail with a
+    // message about backfills. Nobody who wants to write "Consumo de
+    // combustível" over `combustivelVidaCavalo` can act on that, and the name
+    // is precisely the field that needs nothing from the version.
+    if (calculationBasis && !current) {
       throw new Error(
-        `"${input.code}" ainda não tem semântica versionada, e a base de cálculo pertence à ` +
-          `versão — rode o backfill antes. O significado pode ser gravado desde já.`,
+        `Ainda não dá para gravar "fórmula de cálculo" de "${input.code}": esse campo ` +
+          `pertence à versão da semântica, que este atributo ainda não tem — rode o ` +
+          `backfill antes. O nome gerencial e o significado podem ser salvos normalmente.`,
       );
     }
 

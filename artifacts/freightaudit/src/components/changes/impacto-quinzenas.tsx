@@ -94,6 +94,8 @@ interface ImpactoParametro {
   isMonetary: boolean | null;
   semanticsStatus: string;
   somavel: boolean;
+  /** Por que não passa na régua, na redação da autoridade. Vazio quando passa. */
+  motivo: string;
 }
 
 interface PontaAPonta {
@@ -343,9 +345,9 @@ function MatrizDeQuinzenas({
       {!data.attribute.somavel && (
         <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
           <strong>{data.attribute.title}</strong> ainda não passa na régua do
-          impacto — {motivoDaRessalva(data.attribute)}. Os valores abaixo são os
-          do arquivo, e as somas são aritmética sobre eles; não são impacto
-          financeiro apurado.
+          impacto. {data.attribute.motivo} Os valores abaixo são os do arquivo,
+          e as somas são aritmética sobre eles; não são impacto financeiro
+          apurado.
         </p>
       )}
 
@@ -414,19 +416,6 @@ function MatrizDeQuinzenas({
   );
 }
 
-/** Por que um parâmetro não sustenta soma de dinheiro, na ordem em que a régua pergunta. */
-function motivoDaRessalva(p: ImpactoParametro): string {
-  if (p.semanticsStatus !== "CONFIRMED") {
-    return p.semanticsStatus === "PRESUMED"
-      ? "o significado da coluna ainda é presumido, não confirmado na curadoria"
-      : "o significado da coluna ainda é desconhecido";
-  }
-  if (p.isMonetary !== true) return "a coluna não é um montante financeiro";
-  if (p.aggregation !== "SUM") {
-    return `a agregação declarada é ${(p.aggregation ?? "indefinida").toLowerCase()}, e não soma`;
-  }
-  return "falta pelo menos uma confirmação da curadoria";
-}
 
 /**
  * A variação entre as duas pontas, dividida em preço e frota.

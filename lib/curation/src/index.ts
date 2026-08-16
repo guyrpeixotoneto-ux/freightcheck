@@ -1,3 +1,4 @@
+export * from "./agregacao";
 export * from "./semantics";
 export * from "./taxonomy";
 export * from "./engine";

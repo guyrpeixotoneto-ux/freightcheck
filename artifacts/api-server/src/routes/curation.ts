@@ -6,6 +6,7 @@ import {
   type Response,
 } from "express";
 import { db, erroDoPostgres } from "@workspace/db";
+import { interpretarFormula } from "@workspace/assistant";
 import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
 import {
   confirmAttribute,
@@ -267,6 +268,62 @@ router.patch("/curation/attributes/:code/meaning", async (req, res, next): Promi
     res.status(422).json({ error: message });
   }
 });
+
+/**
+ * Ler a fórmula de cálculo em voz alta. Não grava nada.
+ *
+ * POST, e não GET, porque a fórmula vai no corpo: a tela pede a leitura do que
+ * está digitado **agora**, antes de salvar. Exigir o salvamento primeiro faria
+ * a leitura depender de um ato que ela não deveria custar — e, num atributo sem
+ * semântica versionada, a base de cálculo nem chega a poder ser gravada.
+ *
+ * O corpo é opcional: sem ele, lê-se o que está guardado. É o caminho de quem
+ * abre um atributo que outra pessoa preencheu.
+ */
+router.post(
+  "/curation/attributes/:code/formula/leitura",
+  async (req, res, next): Promise<void> => {
+    try {
+      const detail = await getAttributeDetail(db, req.params.code);
+      if (!detail) {
+        res.status(404).json({ error: "Atributo não encontrado" });
+        return;
+      }
+
+      const formula =
+        typeof req.body?.calculationBasis === "string"
+          ? req.body.calculationBasis
+          : (detail.calculationBasis ?? "");
+
+      res.json(
+        await interpretarFormula({
+          formula,
+          // O nome de leitura, pelas mesmas regras das telas: apelido quando
+          // existe, literal da planilha quando não.
+          nome: detail.displayName ?? detail.sourceName,
+          definicao: detail.definition,
+          unidade: detail.unit,
+          periodicidade: detail.periodicity,
+        }),
+      );
+    } catch (err) {
+      /*
+        `interpretarFormula` não lança — o que cair aqui é falha de banco, e
+        não uma regra de negócio para o curador ler. Segue pelo mesmo caminho
+        das outras: esta rota lê o atributo pelo `getAttributeDetail`, que
+        passa pela fila e portanto pela `attribute.definition` — é uma das que
+        morrem primeiro num banco divergente.
+      */
+      await responderFalha(
+        req,
+        res,
+        next,
+        err,
+        "A fórmula deste atributo não pôde ser lida neste banco.",
+      );
+    }
+  },
+);
 
 router.get("/curation/taxonomy", async (req, res, next): Promise<void> => {
   try {

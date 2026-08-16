@@ -58,7 +58,16 @@ import {
   historicoDaSemantica,
   importacoesRecentes,
 } from "./governanca";
-import { reconhecerAssunto, type AssuntoReconhecido } from "./assunto";
+import { reconhecerAssunto, vocabularioDoProduto, type AssuntoReconhecido } from "./assunto";
+import {
+  conferirCorrespondencia,
+  desambiguacaoDe,
+  explicarFalta,
+  identidadeDoTrecho,
+  placasNomeadas,
+  tokensDeConteudo,
+  unidadesNomeadas,
+} from "./correspondencia";
 import { planejar, type Necessidade, type Plano as PlanoDeInvestigacao } from "./plano";
 import {
   INTENCOES_COM_PARAMETRO,
@@ -73,7 +82,7 @@ import {
 } from "./interpretacao";
 import { normalizar, termos } from "./normalizar";
 import { resolverParametro, type Alvo, type Resolucao } from "./parametros";
-import { garantirComparacoes, listPeriods } from "@workspace/comparison";
+import { garantirComparacoes, listContexts, listPeriods } from "@workspace/comparison";
 import { rotuloDoPeriodo } from "./formato";
 import type { EstadoDaConversa } from "./conversa";
 
@@ -248,11 +257,36 @@ async function resolverPeriodo(
  */
 const PALAVRAS_DE_VALOR = new Set([
   "preco", "precos", "custo", "custos", "custa", "custam", "tarifa", "tarifas",
+  /*
+    "Valor" faltava, e a falta aparecia na frase.
+
+    Ela é a palavra mais comum com que se pede dinheiro neste produto — "qual o
+    valor de X?" — e, fora desta lista, era tratada como um qualificador comum:
+    a lacuna saía dizendo que nenhuma coluna da gaveta trata de "valor", numa
+    gaveta que tem coluna monetária. É o mesmo defeito que a lista inteira
+    existe para evitar, numa palavra que escapou dela.
+  */
+  "valor", "valores",
 ]);
 
 function lacunaDoQualificador(termoPerguntado: string, alvo: Alvo): Lacuna | null {
   const palavrasDoAlvo = new Set(termos(alvo.parametro));
-  const qualificadores = termos(termoPerguntado).filter(
+  /*
+    O qualificador é o que **nomeia** — e data, ano, número e verbo de pedido
+    não nomeiam coluna nenhuma.
+
+    Sem este filtro, `Qual o valor de Manutenção cavalo em agosto/2026?` produzia
+    a frase "o arquivo que o FreightCheck recebe hoje traz … — não traz valor,
+    **2026**", e mais adiante "daria para fechar a conta completa de valor,
+    **2026** por equipamento": o assistente afirmando, com todas as letras, que
+    falta uma coluna chamada 2026. A lacuna era montada com o resíduo da frase,
+    e todo número escrito na pergunta virava coluna ausente inventada.
+
+    `tokensDeConteudo` é a autoridade única dessa conta, e é a mesma que o portão
+    de correspondência usa — as duas perguntam a mesma coisa ("o que, nesta
+    frase, nomeia alguma coisa?") e não podem responder diferente.
+  */
+  const qualificadores = tokensDeConteudo(termoPerguntado).filter(
     (p) => !palavrasDoAlvo.has(p) && p.length > 3,
   );
   if (qualificadores.length === 0) return null;
@@ -1168,6 +1202,80 @@ export async function orquestrar(
   trechos.length = 0;
   trechos.push(...semRepetir);
 
+  /*
+    ---- 6c. o portão de correspondência --------------------------------------
+
+    A última pergunta antes de escrever: **o que voltou é o que foi pedido?**
+
+    Toda a recuperação acima é por semelhança — o índice do Book ranqueia por
+    pontuação, o catálogo casa por vocabulário, o resolvedor aceita o mais
+    próximo. Semelhança acha; ela não conclui. Sem este portão, uma placa que
+    não existe recebia a regra genérica de IPVA, uma unidade que não existe
+    recebia o cartão "Parâmetros operação", e `QLP ADMINISTRATIVO DE FROTA`
+    recebia o conteúdo de `DESCONTO QLP ADM` — os três com `lacunas` vazia e
+    `desambiguacao` nula, isto é, sem nada dizendo que houve troca.
+
+    Ele roda aqui, depois da colheita e antes das lacunas, porque só aqui existe
+    ao mesmo tempo o que foi nomeado e tudo o que a busca trouxe.
+
+    **Quando não corresponde, o material sai do dossiê.** Não basta acrescentar
+    a ressalva: enquanto o vizinho continuar entre as evidências, ele é o que a
+    redação — determinística ou do modelo — tem para escrever, e a resposta volta
+    a ser sobre ele. O vizinho passa a viver só em `desambiguacao`, que é uma
+    pergunta a quem perguntou, e não uma resposta.
+  */
+  const placasCitadas = placasNomeadas(pergunta);
+  const placasDesconhecidas =
+    placasCitadas.length > 0 && !(await placaCitada(db, pergunta).catch(() => null))
+      ? placasCitadas
+      : [];
+
+  const unidadesCitadas =
+    intencao === "SAUDACAO" ? [] : unidadesNomeadas(pergunta, vocabularioDoProduto());
+  const unidadesDesconhecidas: { citada: string; existentes: string[] }[] = [];
+  if (unidadesCitadas.length > 0) {
+    const contextos = await listContexts(db).catch(() => []);
+    const existentes = [
+      ...new Set(
+        contextos
+          .flatMap((c) => c.scopes.map((s) => s.name))
+          .filter((n): n is string => typeof n === "string" && n.trim() !== ""),
+      ),
+    ];
+    const conhecida = new Set(existentes.map((n) => normalizar(n)));
+    for (const citada of unidadesCitadas) {
+      if (!conhecida.has(normalizar(citada))) unidadesDesconhecidas.push({ citada, existentes });
+    }
+  }
+
+  const semCorrespondencia = conferirCorrespondencia({
+    termoNomeado: termoDoAssunto,
+    placasDesconhecidas,
+    unidadesDesconhecidas,
+    material: {
+      /*
+        A identidade é o **nome** do que voltou, nunca o corpo do texto: um bloco
+        que menciona IPVA numa cláusula não passa a se chamar IPVA.
+      */
+      identidades: [
+        ...documentos.map((d) => identidadeDoTrecho(d.trecho.bloco, d.trecho.secao)),
+        ...trechos.map((t) => t.trecho.titulo),
+        ...(alvo ? [alvo.parametro] : []),
+      ],
+      vizinhos: [...new Set(documentos.map((d) => d.trecho.bloco))],
+    },
+  });
+
+  const houveTroca = semCorrespondencia.length > 0;
+  if (houveTroca) {
+    documentos.length = 0;
+    trechos.length = 0;
+    evidencias.length = 0;
+    anexos.length = 0;
+    desambiguacao = desambiguacaoDe(semCorrespondencia);
+    lacunas.push({ tipo: "NAO_ENCONTREI", explicacao: explicarFalta(semCorrespondencia) });
+  }
+
   // ---- 7. lacunas ----------------------------------------------------------
   /*
     O qualificador só é lacuna quando a pergunta espera uma coluna.
@@ -1177,7 +1285,7 @@ export async function orquestrar(
     aqui produzia a nota "nenhuma coluna da gaveta Pneu trata de regra, bloco",
     verdadeira e sem nenhuma relação com o que foi perguntado.
   */
-  if (termoDoAssunto && alvo && intencao !== "BOOK") {
+  if (termoDoAssunto && alvo && intencao !== "BOOK" && !houveTroca) {
     const lacuna = lacunaDoQualificador(termoDoAssunto, alvo);
     if (lacuna) lacunas.push(lacuna);
   }
@@ -1207,7 +1315,11 @@ export async function orquestrar(
     (e) => !e.ferramenta.toLowerCase().includes("book"),
   );
   const precisavaDeNumero = INTENCOES_COM_RECORTE.has(intencao);
-  if (alvoPerdido && (precisavaDeNumero ? evidenciasDeDado.length === 0 : trechos.length === 0)) {
+  if (
+    alvoPerdido &&
+    !houveTroca &&
+    (precisavaDeNumero ? evidenciasDeDado.length === 0 : trechos.length === 0)
+  ) {
     /*
       Distinguir "o produto não conhece isto" de "o produto conhece e o export
       não traz" é o que separa duas conversas muito diferentes: a primeira
@@ -1255,6 +1367,7 @@ export async function orquestrar(
   */
   if (
     intencao !== "SAUDACAO" &&
+    !houveTroca &&
     evidencias.length === 0 &&
     documentos.length === 0 &&
     trechos.length === 0 &&

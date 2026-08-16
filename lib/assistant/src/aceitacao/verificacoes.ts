@@ -165,7 +165,25 @@ export function verificar(
     categórica do material, e virava o assunto. Um terço do texto é o limite
     razoável para a ressalva de uma pergunta que tem resposta parcial.
   */
-  if (resposta.lacunas.length > 0 && texto.length > 0) {
+  /*
+    A pré-condição estava no comentário e não no código: **uma pergunta que tem
+    resposta parcial.**
+
+    Quando não há resposta nenhuma — nenhuma evidência recuperada — a ressalva
+    ocupar 100% do texto não é a lacuna sequestrando a resposta: é a resposta.
+    "Qual foi a inflação do último trimestre?" deve ser recusada por inteiro, e
+    o portão de correspondência acrescentou três casos da mesma natureza — placa,
+    unidade e bloco inexistentes. Sem esta guarda, a bateria reprovava
+    exatamente as recusas que ela existe para exigir, e a métrica ficava parada
+    enquanto o comportamento melhorava: uma reprovação real saía e uma falsa
+    entrava no lugar.
+
+    `fontes` vazio é o sinal, e é o certo: ele quer dizer que nada foi
+    recuperado, então não havia o que responder antes de dizer o que falta.
+  */
+  const semNadaAResponder = resposta.fontes.length === 0;
+
+  if (resposta.lacunas.length > 0 && texto.length > 0 && !semNadaAResponder) {
     const tamanhoDasLacunas = resposta.lacunas.reduce((n, l) => n + l.explicacao.length, 0);
     if (tamanhoDasLacunas / texto.length > 0.34 && texto.length < 900) {
       falhas.push({
@@ -175,7 +193,16 @@ export function verificar(
     }
   }
 
-  if (ABERTURA_RUIM.test(texto)) {
+  /*
+    Numa recusa, anunciar onde se procurou **é** a resposta.
+
+    A regra vale para quem tem o que dizer: gastar a primeira frase com o
+    processo em vez do fato. Quem não achou nada não tem outro fato — "procurei
+    nos três lugares que este produto tem e não encontrei" é a informação, e
+    reprová-la por começar com "procurei" é cobrar uma abertura que só existe
+    quando existe resposta.
+  */
+  if (ABERTURA_RUIM.test(texto) && !semNadaAResponder) {
     falhas.push({
       regra: "abre-respondendo",
       detalhe: `abre com "${texto.slice(0, 60).replace(/\n/g, " ")}…"`,
