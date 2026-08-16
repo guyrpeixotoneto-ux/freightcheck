@@ -1,4 +1,42 @@
 
+# O gerenciador de pacotes não fica no caminho do build
+# ============================================================================
+#
+# `packageManager` no package.json declara pnpm@10.33.0, e o contêiner do
+# Replit traz o pnpm dele — que é outro. Diante dessa diferença o pnpm tenta se
+# reinstalar antes de fazer qualquer outra coisa, rodando internamente
+#
+#     pnpm add pnpm@10.33.0 --loglevel=error --allow-build=@pnpm/exe …
+#
+# com o diretório de trabalho dentro desta raiz. Foi esse comando que derrubou o
+# Publish com `exit 1`, e não o nosso build: quando ele falha, nenhuma das
+# etapas seguintes chega a rodar, e o que aparece na tela é a etapa errada.
+#
+# `managePackageManagerVersions: false` desliga essa troca: o contêiner passa a
+# usar o pnpm que ele já tem. O `packageManager` continua declarado porque é
+# dele que o CI tira a versão — `pnpm/action-setup` falha sem essa declaração.
+#
+# A chave vale para o pnpm 10. O pnpm 11 a removeu, e lá a troca volta a
+# acontecer — mas ela termina no 10.33.0 que o `packageManager` declara, que é
+# o que queremos. Existe `pmOnFail: ignore` para desligá-la também no 11, e ele
+# **não** está aqui de propósito: impedir a troca faz o próprio pnpm 11 instalar,
+# e ele recusa o build do esbuild mesmo com o `onlyBuiltDependencies` abaixo. A
+# única saída seria `dangerouslyAllowAllBuilds`, que derruba a defesa de
+# supply-chain que este arquivo monta mais adiante. Trocar um Publish quebrado
+# por um workspace sem allowlist não é conserto.
+#
+# Medido nas três versões (10.33.0, 10.34.5, 11.22.0): `pnpm --version`
+# responde na hora, nenhum `pnpm add pnpm@…` recursivo aparece, e install
+# limpo, build da API, build da Web e `store prune` passam nas três.
+managePackageManagerVersions: false
+
+# Um `node_modules` criado por outro major do pnpm precisa ser purgado, e sem
+# TTY o install aborta em vez de perguntar — `ERR_PNPM_ABORTED_REMOVE_MODULES_
+# DIR_NO_TTY`. É o que acontece quando o Replit troca a versão do contêiner
+# sobre um cache existente. Sem esta linha as três versões falham o install
+# nesse estado; com ela, as três passam. Reconhecida por 10 e por 11.
+confirmModulesPurge: false
+
 packages:
   - artifacts/*
   - lib/*
