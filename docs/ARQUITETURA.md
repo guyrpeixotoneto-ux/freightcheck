@@ -222,7 +222,7 @@ ordem de 100 milhões de linhas em `fact`. Mitigação: particionar `fact` por
 sempre entre duas partições. `raw_cell` vai para armazenamento frio após 12
 meses — sem nunca ser apagado.
 
-### Cobertura de dados (`0020`)
+### Cobertura de dados (`0021`)
 
 Duas tabelas, e o que decide as duas é uma medição: **`fact` é densa.** No
 export real são 144 entidades × 138 atributos × 9 vigências = 124.632 fatos, com

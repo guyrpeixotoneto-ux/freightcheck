@@ -4,7 +4,14 @@ import { ChevronDown, ChevronRight, HelpCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Paginacao } from "@/components/ui/paginacao";
 import { getApiUrl } from "@/lib/api";
+import {
+  TAMANHOS_DE_PAGINA,
+  aplicarJanela,
+  primeiraPagina,
+  type Janela,
+} from "@/lib/paginacao";
 import { cn } from "@/lib/utils";
 
 /**
@@ -68,12 +75,16 @@ export const emptyFilters: Filters = {
   minAbsImpact: "",
 };
 
-export function toQuery(filters: Filters, extra: Record<string, string> = {}) {
+export function toQuery(
+  filters: Filters,
+  extra: Record<string, string> = {},
+  janela: Janela = primeiraPagina,
+) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries({ ...filters, ...extra })) {
     if (value) params.set(key, value);
   }
-  params.set("limit", "300");
+  aplicarJanela(params, janela);
   return params.toString();
 }
 
@@ -177,7 +188,18 @@ function natureLabel(nature: string | null) {
   return NATURE_LABELS[nature ?? ""] ?? nature ?? "";
 }
 
-export function ChangeTable({ rows, total }: { rows: ChangeRow[]; total: number }) {
+export function ChangeTable({
+  rows,
+  total,
+  janela,
+  onJanela,
+}: {
+  rows: ChangeRow[];
+  total: number;
+  /** Sem estes dois a tabela é a página única de antes — usada por quem a embute. */
+  janela?: Janela;
+  onJanela?: (janela: Janela) => void;
+}) {
   const [expanded, setExpanded] = useState<number | null>(null);
 
   if (rows.length === 0) {
@@ -294,11 +316,26 @@ export function ChangeTable({ rows, total }: { rows: ChangeRow[]; total: number 
           ))}
         </tbody>
       </table>
-      {total > rows.length && (
-        <p className="px-4 py-3 text-xs text-muted-foreground border-t">
-          Mostrando {rows.length} de {total}. Use os filtros para chegar ao
-          restante — nada foi descartado.
-        </p>
+      {janela && onJanela ? (
+        <Paginacao
+          total={total}
+          pagina={janela.pagina}
+          porPagina={janela.porPagina}
+          onPagina={(pagina) => onJanela({ ...janela, pagina })}
+          // Trocar o tamanho da página volta para a primeira: a linha que
+          // estava no alto da página 4 de 300 em 300 não está na página 4 de
+          // 50 em 50, e fingir que está é perder o lugar sem avisar.
+          onPorPagina={(porPagina) => onJanela({ porPagina, pagina: 1 })}
+          tamanhos={TAMANHOS_DE_PAGINA}
+          unidade="alterações"
+        />
+      ) : (
+        total > rows.length && (
+          <p className="px-4 py-3 text-xs text-muted-foreground border-t">
+            Mostrando {rows.length} de {total}. Use os filtros para chegar ao
+            restante — nada foi descartado.
+          </p>
+        )
       )}
     </div>
   );

@@ -1,21 +1,41 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearch } from "wouter";
 import {
   Activity,
   AlertTriangle,
+  ArrowDown,
   ArrowRight,
+  ArrowUp,
+  BarChart3,
+  ChevronRight,
+  Clock,
   Columns3,
+  DollarSign,
   FileSpreadsheet,
+  Folder,
   Headset,
+  Loader2,
   Lock,
+  SlidersHorizontal,
+  Trash2,
+  TrendingDown,
   Upload,
+  Zap,
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Layout } from "@/components/layout/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { erroDaResposta, fetchJson, getApiUrl, readJson } from "@/lib/api";
+import { primeiraPagina, type Janela } from "@/lib/paginacao";
 import { cn } from "@/lib/utils";
 import {
   ChangeTable,
@@ -29,6 +49,7 @@ import {
 import {
   TicketChangeTable,
   TicketFilterBar,
+  TicketQuickFilters,
   emptyTicketFilters,
   toTicketQuery,
   type TicketChangeRow,
@@ -220,21 +241,31 @@ function AbaPlanilha() {
   });
   /** null = visão consolidada da frota; caso contrário, uma série. */
   const [series, setSeries] = useState<string | null>(null);
+  const [janela, setJanela] = useState<Janela>(primeiraPagina);
+
+  /*
+    Filtrar ou trocar de série encurta a lista, e a página em que se estava
+    pode deixar de existir — a tabela ficaria vazia com o rodapé afirmando que
+    há resultados. Voltar para a primeira é o que não mente.
+  */
+  useEffect(() => {
+    setJanela((atual) => (atual.pagina === 1 ? atual : { ...atual, pagina: 1 }));
+  }, [filters, series]);
 
   const consolidated = useQuery({
-    queryKey: ["changes", "consolidated", filters],
+    queryKey: ["changes", "consolidated", filters, janela],
     queryFn: () =>
       fetchJson<ConsolidatedResponse>(
-        `/changes/consolidated?${toQuery(filters)}`,
+        `/changes/consolidated?${toQuery(filters, {}, janela)}`,
       ),
     enabled: series === null,
   });
 
   const single = useQuery({
-    queryKey: ["changes", "latest", filters, series],
+    queryKey: ["changes", "latest", filters, series, janela],
     queryFn: () =>
       fetchJson<LatestResponse>(
-        `/changes/latest?${toQuery(filters)}&entityTypeSet=${series}`,
+        `/changes/latest?${toQuery(filters, {}, janela)}&entityTypeSet=${series}`,
       ),
     enabled: series !== null,
   });
@@ -413,7 +444,12 @@ function AbaPlanilha() {
               <p className="p-6 text-sm text-muted-foreground">Comparando…</p>
             )}
             {rows && total !== undefined && (
-              <ChangeTable rows={rows} total={total} />
+              <ChangeTable
+                rows={rows}
+                total={total}
+                janela={janela}
+                onJanela={setJanela}
+              />
             )}
           </CardContent>
         </Card>
@@ -439,6 +475,27 @@ interface TicketImportSummary {
   parameterColumns: string[];
   columnMapping: Record<string, { header: string; match: string; reason: string }>;
   failureReason: string | null;
+}
+
+/** Quanta coisa uma exclusão tira — a mesma conta que a API faz antes e depois. */
+interface TicketImportDeletionCounts {
+  tickets: number;
+  ticketChanges: number;
+  duplicateAttempts: number;
+  storedFile: number;
+}
+
+interface TicketImportDeletionPlan {
+  ticketImportId: string;
+  filename: string;
+  status: string;
+  /** Por que não dá para excluir agora — null quando dá. */
+  refusal: string | null;
+  removes: TicketImportDeletionCounts;
+}
+
+interface TicketImportDeletionResult extends TicketImportDeletionPlan {
+  removed: TicketImportDeletionCounts;
 }
 
 interface TicketsResponse {
@@ -483,6 +540,15 @@ const NOMES_DE_CAMPO: Record<string, string> = {
  * tela marca qual dos dois. E o impacto só é afirmado depois de o chamado ser
  * atendido — antes disso existe variação, não dinheiro que mudou de mãos.
  */
+/**
+ * Qual disclosure está aberta abaixo da fileira de avisos.
+ *
+ * Um só de cada vez, e nenhuma por padrão: os avisos dizem o tamanho do
+ * problema em uma linha, e o detalhe — que é longo — só ocupa a tela de quem
+ * pediu para vê-lo.
+ */
+type Painel = "falhas" | "colunas" | "ignoradas" | null;
+
 function AbaChamados() {
   const [filters, setFilters] = useState<TicketFilterState>(emptyTicketFilters);
   const [envio, setEnvio] = useState<string | null>(null);
@@ -490,14 +556,31 @@ function AbaChamados() {
   // `code` para separar "o arquivo não serve" de "o banco deste ambiente ainda
   // não tem as tabelas".
   const [erroUpload, setErroUpload] = useState<unknown>(null);
+  const [painel, setPainel] = useState<Painel>(null);
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [janela, setJanela] = useState<Janela>(primeiraPagina);
+  /** O envio que a caixa de confirmação está prestes a apagar. */
+  const [excluindo, setExcluindo] = useState<TicketImportSummary | null>(null);
+  const [excluido, setExcluido] = useState<string | null>(null);
+  const [erroExclusao, setErroExclusao] = useState<unknown>(null);
   const fileInput = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
+  // Filtrar, ou trocar de envio, muda o tamanho da lista — e a página em que se
+  // estava pode não existir mais do outro lado da troca.
+  useEffect(() => {
+    setJanela((atual) => (atual.pagina === 1 ? atual : { ...atual, pagina: 1 }));
+  }, [filters, envio]);
+
   const query = useQuery({
-    queryKey: ["tickets", filters, envio],
+    queryKey: ["tickets", filters, envio, janela],
     queryFn: () =>
       fetchJson<TicketsResponse>(
-        `/tickets?${toTicketQuery(filters, envio ? { ticketImportId: envio } : {})}`,
+        `/tickets?${toTicketQuery(
+          filters,
+          envio ? { ticketImportId: envio } : {},
+          janela,
+        )}`,
       ),
     /**
      * A leitura roda fora da requisição que recebeu o arquivo, então quem
@@ -552,11 +635,88 @@ function AbaChamados() {
     onError: (err: unknown) => setErroUpload(err),
   });
 
+  /**
+   * Excluir apaga de verdade — e o que sai daqui não sai de mais lugar nenhum.
+   *
+   * `invalidateQueries` só de `["tickets"]`, e não sem chave como na tela de
+   * Importações: um envio de chamados não escreve fato canônico nem vigência,
+   * então nada em Dados, Início ou na aba Planilha muda por causa desta
+   * exclusão. Invalidar a tela inteira daria a impressão contrária.
+   */
+  const excluir = useMutation({
+    mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
+      const response = await fetch(getApiUrl(`/ticket-imports/${id}`), {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reason }),
+      });
+      const body = await readJson(response);
+      if (!response.ok) throw erroDaResposta(response, body);
+      return body as unknown as TicketImportDeletionResult;
+    },
+    onSuccess: (result) => {
+      setErroExclusao(null);
+      setExcluindo(null);
+      setPainel(null);
+      // O envio escolhido à mão pode ser justamente o que acabou de sair; sem
+      // isto a tela pediria um envio que não existe mais e mostraria o vazio
+      // como se não houvesse chamado nenhum.
+      setEnvio((atual) => (atual === result.ticketImportId ? null : atual));
+      setExcluido(
+        `"${result.filename}" foi excluído: ${result.removed.ticketChanges} ` +
+          `alteraç${result.removed.ticketChanges === 1 ? "ão" : "ões"} em ` +
+          `${result.removed.tickets} chamado${result.removed.tickets === 1 ? "" : "s"} ` +
+          `saíram do sistema.` +
+          (result.removed.storedFile > 0
+            ? " Este arquivo pode ser enviado de novo."
+            : ""),
+      );
+      queryClient.invalidateQueries({ queryKey: ["tickets"] });
+    },
+    /*
+      O erro fica **na caixa**, e não na faixa da tela: a recusa mais comum aqui
+      — "este envio ainda está sendo lido" — chega quando a caixa está aberta e
+      cobrindo a página. Escrevê-la atrás do modal seria o mesmo que não
+      escrever, e quem clicou veria só o botão voltar ao normal.
+    */
+    onError: (err: unknown) => {
+      setExcluido(null);
+      setErroExclusao(err);
+    },
+  });
+
   const data = query.data;
   const run = data?.import ?? null;
   const totals = data?.totals ?? null;
 
   const escolherArquivo = () => fileInput.current?.click();
+
+  const falhas = data?.imports.filter((i) => i.status === "FAILED") ?? [];
+  const emLeitura =
+    data?.imports.filter((i) => i.status === "PENDING" || i.status === "READING") ??
+    [];
+  const naoMapeadas = run?.unmappedColumns ?? [];
+  const ignoradas = run?.ignoredRowCount ?? 0;
+  const temAviso =
+    falhas.length > 0 || emLeitura.length > 0 || naoMapeadas.length > 0 || ignoradas > 0;
+
+  /*
+    O dinheiro pinta os dois cartões que falam dele. "Com impacto" é uma
+    contagem, mas é a contagem das linhas que custaram — e mostrá-la em preto
+    ao lado de um total vermelho faria o olho procurar duas vezes onde está o
+    problema.
+  */
+  const tomDoDinheiro =
+    totals && totals.calculated > 0
+      ? totals.impactSum < 0
+        ? "bad"
+        : totals.impactSum > 0
+          ? "good"
+          : "muted"
+      : "muted";
+
+  const abrirPainel = (alvo: Painel) =>
+    setPainel((atual) => (atual === alvo ? null : alvo));
 
   return (
     <>
@@ -572,7 +732,9 @@ function AbaChamados() {
         }}
       />
 
-      <header className="border-b bg-card px-8 py-6">
+      <div className="p-8 space-y-5">
+        {/* De que arquivo saiu tudo o que está abaixo. Fica numa linha, e não
+            num cartão: é a procedência da tela, não um número dela. */}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-sm text-muted-foreground">
             {run ? (
@@ -587,6 +749,20 @@ function AbaChamados() {
           </p>
 
           <div className="flex items-center gap-2">
+            {run && Object.keys(run.columnMapping).length > 0 && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => abrirPainel("colunas")}
+                aria-expanded={painel === "colunas"}
+                className={cn(
+                  painel === "colunas" ? "text-blue-700" : "text-muted-foreground",
+                )}
+              >
+                <Columns3 className="w-4 h-4 mr-1.5" />
+                Mapeamento de colunas
+              </Button>
+            )}
             {data && data.imports.length > 1 && (
               <select
                 value={envio ?? run?.id ?? ""}
@@ -602,6 +778,25 @@ function AbaChamados() {
                   ))}
               </select>
             )}
+            {/*
+              Excluir fica ao lado de Importar, e não escondido atrás de um
+              menu: mandar o arquivo errado é banal — o export de teste, a fila
+              com o filtro trocado — e esconder o desfazer é o que faz alguém
+              conviver com o erro. O que protege não é a dificuldade de achar o
+              botão, e sim a caixa seguinte, que diz quantos chamados saem antes
+              de perguntar.
+            */}
+            {run && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setExcluindo(run)}
+                className="text-red-700 hover:text-red-800 hover:bg-red-50"
+              >
+                <Trash2 className="w-4 h-4 mr-1.5" />
+                Excluir
+              </Button>
+            )}
             <Button
               size="sm"
               variant="outline"
@@ -614,52 +809,12 @@ function AbaChamados() {
           </div>
         </div>
 
-        {totals && (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6">
-            <Tile
-              label="Parâmetros alterados"
-              value={totals.changes}
-              hint={`em ${totals.tickets} chamado${totals.tickets === 1 ? "" : "s"}`}
-            />
-            <Tile
-              label="Chamados em aberto"
-              value={totals.stillOpen}
-              tone={totals.stillOpen > 0 ? "warn" : "muted"}
-            />
-            <Tile
-              label="Alterações com valor"
-              value={totals.divergent}
-              hint={(() => {
-                // Sem esta frase, um export em que 85% das linhas são troca de
-                // fórmula parece uma tela que perdeu os números.
-                const formula = totals.byChangeKind.find(
-                  (k) => k.changeKind === "FORM_THIS",
-                )?.count;
-                return formula
-                  ? `${formula} são troca de fórmula, sem valor`
-                  : "agora diferente de antes";
-              })()}
-              tone={totals.divergent > 0 ? "bad" : "muted"}
-            />
-            <TicketImpactTile totals={totals} />
-            <Tile
-              label="Tempo médio de atendimento"
-              value={
-                totals.averageDaysToClose === null
-                  ? "—"
-                  : `${totals.averageDaysToClose} d`
-              }
-              hint={
-                totals.averageDaysToClose === null
-                  ? "sem chamado fechado com as duas datas"
-                  : "só os que já fecharam"
-              }
-            />
-          </div>
+        {excluido && (
+          <p className="text-sm text-emerald-900 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+            {excluido}
+          </p>
         )}
-      </header>
 
-      <div className="p-8 space-y-6">
         {/*
           O upload falha por dois motivos muito diferentes — o arquivo não
           serve, ou o banco deste ambiente não tem onde guardar — e a frase do
@@ -680,35 +835,256 @@ function AbaChamados() {
           />
         )}
 
-        {/* Envios que falharam ou estão em leitura: quem mandou o arquivo
-            precisa ver o que aconteceu com ele sem trocar de tela. */}
-        {data?.imports
-          .filter((i) => i.status === "FAILED" || i.status === "READING" || i.status === "PENDING")
-          .slice(0, 3)
-          .map((i) => (
-            <div
-              key={i.id}
-              className={cn(
-                "flex gap-3 rounded-md border px-4 py-3 text-sm",
-                i.status === "FAILED"
-                  ? "border-red-300 bg-red-50 text-red-900"
-                  : "border-sky-300 bg-sky-50 text-sky-900",
+        {totals && (
+          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-5">
+            <MetricCard
+              tone="blue"
+              icon={<SlidersHorizontal className="w-6 h-6" />}
+              label="Parâmetros alterados"
+              value={totals.changes.toLocaleString("pt-BR")}
+              hint={`em ${totals.tickets.toLocaleString("pt-BR")} chamado${totals.tickets === 1 ? "" : "s"}`}
+            />
+            <MetricCard
+              tone="green"
+              icon={<Folder className="w-6 h-6" />}
+              label="Em aberto"
+              value={totals.stillOpen.toLocaleString("pt-BR")}
+              hint="chamados sem data de fechamento"
+              valueTone={totals.stillOpen > 0 ? "warn" : "muted"}
+            />
+            <MetricCard
+              tone="orange"
+              icon={<Zap className="w-6 h-6" />}
+              label="Com impacto"
+              value={totals.calculated.toLocaleString("pt-BR")}
+              hint={`${totals.notCalculable.toLocaleString("pt-BR")} sem impacto apurado`}
+              valueTone={tomDoDinheiro}
+            />
+            {/*
+              Impacto dos chamados — uma soma só, e por que ela é diferente da
+              outra. Aqui não há periodicidade a separar: `aplicado − pedido` é
+              uma diferença entre duas quantias declaradas na mesma unidade pelo
+              próprio arquivo. É por isso que este número **não** entra no
+              cartão da aba Planilha: lá a régua é outra.
+            */}
+            <MetricCard
+              tone="red"
+              icon={<TrendingDown className="w-6 h-6" />}
+              label="Impacto"
+              value={
+                totals.calculated === 0
+                  ? "não calculável"
+                  : `${totals.impactSum > 0 ? "+" : ""}${brl0(totals.impactSum)}`
+              }
+              hint={`${totals.notCalculable.toLocaleString("pt-BR")} alterações fora desta soma`}
+              valueTone={totals.calculated === 0 ? "muted" : tomDoDinheiro}
+            />
+            <MetricCard
+              tone="purple"
+              icon={<Clock className="w-6 h-6" />}
+              label="TMA"
+              value={
+                totals.averageDaysToClose === null
+                  ? "—"
+                  : `${totals.averageDaysToClose} d`
+              }
+              hint={
+                totals.averageDaysToClose === null
+                  ? "sem chamado fechado com as duas datas"
+                  : "tempo médio, só os que já fecharam"
+              }
+            />
+          </div>
+        )}
+
+        {/* Os avisos do arquivo, em uma linha cada: o tamanho do problema à
+            vista, e o detalhe atrás de um clique. Nenhum deles some quando é
+            inconveniente — some quando não existe. */}
+        {/* O cartão também aparece sem aviso nenhum quando alguém pede o
+            mapeamento de colunas pelo botão do topo: o painel aberto precisa de
+            onde morar, e um arquivo perfeito não tem faixa vermelha. */}
+        {(temAviso || painel !== null) && (
+          <Card className="rounded-2xl p-5 space-y-4">
+            <div className={cn("gap-4 md:grid-cols-2", temAviso ? "grid" : "hidden")}>
+              {falhas.length > 0 && (
+                <Aviso
+                  tone="red"
+                  titulo={`${falhas.length} arquivo${falhas.length === 1 ? "" : "s"} com problema`}
+                  detalhe={falhas[0].failureReason ?? "O arquivo não pôde ser lido."}
+                  acao="Revisar"
+                  aberto={painel === "falhas"}
+                  onClick={() => abrirPainel("falhas")}
+                />
               )}
-            >
-              <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-              <p>
-                <strong className="font-mono">{i.filename}</strong>{" "}
-                {i.status === "FAILED" ? (
-                  <>não pôde ser lido. {i.failureReason}</>
-                ) : (
-                  <>está sendo lido agora.</>
-                )}
-              </p>
+              {naoMapeadas.length > 0 && (
+                <Aviso
+                  tone="amber"
+                  icone={<Columns3 className="w-6 h-6" />}
+                  titulo={`${naoMapeadas.length} colunas não mapeadas`}
+                  detalhe="Dados preservados no arquivo original"
+                  acao="Ver detalhes"
+                  aberto={painel === "colunas"}
+                  onClick={() => abrirPainel("colunas")}
+                />
+              )}
+              {ignoradas > 0 && run && (
+                <Aviso
+                  tone="amber"
+                  titulo={`${ignoradas.toLocaleString("pt-BR")} linhas fora da leitura`}
+                  detalhe="Sem número de chamado — e a conta fecha"
+                  acao="Ver detalhes"
+                  aberto={painel === "ignoradas"}
+                  onClick={() => abrirPainel("ignoradas")}
+                />
+              )}
+              {emLeitura.length > 0 && (
+                <Aviso
+                  tone="sky"
+                  icone={<Loader2 className="w-6 h-6 animate-spin" />}
+                  titulo={`${emLeitura.length} envio${emLeitura.length === 1 ? "" : "s"} em leitura`}
+                  detalhe={emLeitura.map((i) => i.filename).join(", ")}
+                />
+              )}
             </div>
-          ))}
+
+            {painel === "falhas" && (
+              <div className="rounded-xl border bg-muted/30 p-4 space-y-2 text-sm">
+                {falhas.map((i) => (
+                  <div key={i.id} className="flex flex-wrap items-baseline gap-x-2">
+                    <span className="font-mono font-medium">{i.filename}</span>
+                    <span className="text-muted-foreground">
+                      · {new Date(i.receivedAt).toLocaleDateString("pt-BR")}
+                      {i.receivedBy && ` · ${i.receivedBy}`}
+                    </span>
+                    {/*
+                      Um envio que falhou não aparece no seletor do topo — ele
+                      lista só os lidos —, então este é o único lugar de onde
+                      ele pode sair. Sem o botão aqui, o aviso do arquivo que
+                      não serviu ficaria na tela para sempre.
+                    */}
+                    <button
+                      onClick={() => setExcluindo(i)}
+                      className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-red-700 underline underline-offset-2 hover:no-underline"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Excluir
+                    </button>
+                    <p className="w-full text-muted-foreground">
+                      {i.failureReason ?? "Sem motivo registrado."}
+                    </p>
+                  </div>
+                ))}
+                <p className="text-xs text-muted-foreground pt-1">
+                  Nada deste envio foi gravado — o arquivo continua inteiro onde
+                  estava, e reenviá-lo corrigido não duplica nada.
+                </p>
+              </div>
+            )}
+
+            {painel === "colunas" && run && (
+              <div className="rounded-xl border bg-muted/30 p-4 space-y-4 text-sm">
+                {naoMapeadas.length > 0 && (
+                  <div>
+                    <div className="font-medium">
+                      {naoMapeadas.length} colunas do arquivo não têm campo
+                      correspondente aqui
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {naoMapeadas.map((coluna) => (
+                        <span
+                          key={coluna}
+                          className="rounded border bg-background px-2 py-0.5 font-mono text-xs text-muted-foreground"
+                        >
+                          {coluna}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Elas continuam inteiras na linha de origem — abra qualquer
+                      chamado para vê-las.
+                    </p>
+                  </div>
+                )}
+
+                {/* A conta que protege o modo de falha desta leitura: um
+                    mapeamento errado não estoura, só produz menos alterações —
+                    e "menos" é indistinguível de "o chamado mexeu em pouca
+                    coisa" a olho nu. */}
+                {run.parameterColumns.length > 0 && totals && (
+                  <div>
+                    <div className="font-medium">
+                      {run.parameterColumns.length} colunas de parâmetro
+                      reconhecidas, com {totals.changes.toLocaleString("pt-BR")}{" "}
+                      células preenchidas em{" "}
+                      {totals.tickets.toLocaleString("pt-BR")} chamados
+                    </div>
+                    <div className="mt-2 flex flex-wrap gap-1.5">
+                      {run.parameterColumns.map((coluna) => (
+                        <span
+                          key={coluna}
+                          className="rounded border bg-background px-2 py-0.5 font-mono text-xs text-muted-foreground"
+                        >
+                          {coluna}
+                        </span>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      Uma célula vazia quer dizer que aquele chamado não mexeu
+                      naquele parâmetro — é o normal, e por isso nenhuma
+                      alteração é criada para ela. As colunas com{" "}
+                      <span className="font-mono">↔</span> são pares
+                      antes/depois que o próprio arquivo trouxe.
+                    </p>
+                  </div>
+                )}
+
+                {Object.keys(run.columnMapping).length > 0 && (
+                  <div>
+                    <div className="font-medium">
+                      De que coluna do arquivo saiu cada campo
+                    </div>
+                    <div className="mt-2 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5">
+                      {Object.entries(run.columnMapping).map(([campo, ligacao]) => (
+                        <div key={campo} className="flex items-baseline gap-2 min-w-0">
+                          <span className="text-muted-foreground shrink-0">
+                            {NOMES_DE_CAMPO[campo] ?? campo}:
+                          </span>
+                          <span className="font-mono text-xs truncate">
+                            {ligacao.header}
+                          </span>
+                          {ligacao.match === "aproximado" && (
+                            <span
+                              className="text-xs text-amber-700 shrink-0"
+                              title={ligacao.reason}
+                            >
+                              por aproximação
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {painel === "ignoradas" && run && (
+              <div className="rounded-xl border bg-muted/30 p-4 text-sm">
+                O arquivo trazia{" "}
+                <strong>{run.rowCount.toLocaleString("pt-BR")}</strong> linhas de
+                dados;{" "}
+                <strong>{run.ticketCount.toLocaleString("pt-BR")}</strong>{" "}
+                viraram chamado e{" "}
+                <strong>{run.ignoredRowCount.toLocaleString("pt-BR")}</strong>{" "}
+                ficaram de fora por não terem número de chamado. A conta fecha, e
+                nada foi descartado em silêncio.
+              </div>
+            )}
+          </Card>
+        )}
 
         {!run && !query.isLoading && (
-          <Card>
+          <Card className="rounded-2xl">
             <CardContent className="p-10 text-center space-y-3">
               <Headset className="w-8 h-8 text-muted-foreground mx-auto" />
               <p className="text-sm text-muted-foreground max-w-lg mx-auto">
@@ -729,222 +1105,574 @@ function AbaChamados() {
           </Card>
         )}
 
-        {run && run.ignoredRowCount > 0 && (
-          <div className="flex gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-            <p>
-              O arquivo trazia <strong>{run.rowCount}</strong> linhas de dados;{" "}
-              <strong>{run.ticketCount}</strong> viraram chamado e{" "}
-              <strong>{run.ignoredRowCount}</strong> ficaram de fora por não
-              terem número de chamado. A conta fecha, e nada foi descartado em
-              silêncio.
-            </p>
-          </div>
+        {run && (
+          <Card className="rounded-2xl p-4 space-y-4">
+            <TicketQuickFilters
+              filters={filters}
+              onChange={setFilters}
+              totals={totals ?? undefined}
+              avancadoAberto={filtrosAbertos}
+              onToggleAvancado={() => setFiltrosAbertos((v) => !v)}
+            />
+            {filtrosAbertos && (
+              <TicketFilterBar
+                filters={filters}
+                onChange={setFilters}
+                totals={totals ?? undefined}
+              />
+            )}
+          </Card>
         )}
-
-        {/* A conta que protege o modo de falha desta leitura: um mapeamento
-            errado não estoura, só produz menos alterações — e "menos" é
-            indistinguível de "o chamado mexeu em pouca coisa" a olho nu. */}
-        {run && run.parameterColumns.length > 0 && totals && (
-          <details className="rounded-md border bg-card px-4 py-3 text-sm">
-            <summary className="cursor-pointer text-muted-foreground">
-              <span className="text-foreground font-medium">
-                {run.parameterColumns.length} colunas de parâmetro
-              </span>{" "}
-              reconhecidas no arquivo, com {totals.changes} células preenchidas
-              em {totals.tickets} chamados
-            </summary>
-            <div className="mt-3 flex flex-wrap gap-1.5">
-              {run.parameterColumns.map((coluna) => (
-                <span
-                  key={coluna}
-                  className="rounded border bg-background px-2 py-0.5 font-mono text-xs text-muted-foreground"
-                >
-                  {coluna}
-                </span>
-              ))}
-            </div>
-            <p className="mt-3 text-xs text-muted-foreground">
-              Uma célula vazia quer dizer que aquele chamado não mexeu naquele
-              parâmetro — é o normal, e por isso nenhuma alteração é criada para
-              ela. As colunas com <span className="font-mono">↔</span> são pares
-              antes/depois que o próprio arquivo trouxe.
-            </p>
-          </details>
-        )}
-
-        {run && run.unmappedColumns.length > 0 && (
-          <div className="flex gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            <Columns3 className="w-4 h-4 mt-0.5 shrink-0" />
-            <p>
-              <strong>{run.unmappedColumns.length}</strong> colunas do arquivo
-              não têm campo correspondente aqui:{" "}
-              <span className="font-mono text-xs">
-                {run.unmappedColumns.join(", ")}
-              </span>
-              . Elas continuam inteiras na linha de origem — abra qualquer
-              chamado para vê-las.
-            </p>
-          </div>
-        )}
-
-        {run && Object.keys(run.columnMapping).length > 0 && (
-          <details className="rounded-md border bg-card px-4 py-3 text-sm">
-            <summary className="cursor-pointer text-muted-foreground">
-              De que coluna do arquivo saiu cada campo
-            </summary>
-            <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-1.5">
-              {Object.entries(run.columnMapping).map(([campo, ligacao]) => (
-                <div key={campo} className="flex items-baseline gap-2 min-w-0">
-                  <span className="text-muted-foreground shrink-0">
-                    {NOMES_DE_CAMPO[campo] ?? campo}:
-                  </span>
-                  <span className="font-mono text-xs truncate">
-                    {ligacao.header}
-                  </span>
-                  {ligacao.match === "aproximado" && (
-                    <span
-                      className="text-xs text-amber-700 shrink-0"
-                      title={ligacao.reason}
-                    >
-                      por aproximação
-                    </span>
-                  )}
-                </div>
-              ))}
-            </div>
-          </details>
-        )}
-
-        {run && <TicketFilterBar filters={filters} onChange={setFilters} totals={totals ?? undefined} />}
 
         {data && data.byParameter.length > 0 && (
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">Parâmetros mais pedidos</CardTitle>
-              <p className="text-xs text-muted-foreground">
-                Onde os chamados se concentram. Um parâmetro que aparece aqui{" "}
-                <em>e</em> na aba Planilha é a mesma história contada dos dois
-                lados.
-              </p>
-            </CardHeader>
-            <CardContent className="flex flex-wrap gap-2">
-              {data.byParameter.map((p) => (
-                <button
-                  key={`${p.parameterLabel}-${p.attributeCode}`}
-                  onClick={() =>
-                    setFilters({
-                      ...filters,
-                      parameterLabel:
-                        filters.parameterLabel === p.parameterLabel
-                          ? ""
-                          : p.parameterLabel,
-                    })
-                  }
-                  className={cn(
-                    "rounded-md border px-3 py-1.5 text-xs transition-colors",
-                    filters.parameterLabel === p.parameterLabel
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-background hover:bg-muted",
-                  )}
-                >
-                  <span className="font-medium">{p.parameterLabel}</span>
-                  <span className="ml-1.5 tabular-nums opacity-70">
-                    {p.count}
-                  </span>
-                  {p.impactSum !== null && p.impactSum !== 0 && (
-                    <span
-                      className={cn(
-                        "ml-1.5 tabular-nums font-mono",
-                        filters.parameterLabel === p.parameterLabel
-                          ? ""
-                          : p.impactSum < 0
-                            ? "text-red-700"
-                            : "text-emerald-700",
-                      )}
-                    >
-                      {p.impactSum > 0 ? "+" : ""}
-                      {p.impactSum.toLocaleString("pt-BR", {
-                        style: "currency",
-                        currency: "BRL",
-                        maximumFractionDigits: 0,
-                      })}
-                    </span>
-                  )}
-                </button>
-              ))}
-            </CardContent>
+          <Card className="rounded-2xl">
+            <div className="grid md:grid-cols-2 md:divide-x">
+              <ParametrosMaisPedidos
+                itens={data.byParameter}
+                selecionado={filters.parameterLabel}
+                onSelecionar={(parameterLabel) =>
+                  setFilters({
+                    ...filters,
+                    parameterLabel:
+                      filters.parameterLabel === parameterLabel ? "" : parameterLabel,
+                  })
+                }
+              />
+              <ImpactosRelevantes
+                itens={data.byParameter}
+                selecionado={filters.parameterLabel}
+                naoApuradas={totals?.notCalculable ?? 0}
+                onSelecionar={(parameterLabel) =>
+                  setFilters({
+                    ...filters,
+                    parameterLabel:
+                      filters.parameterLabel === parameterLabel ? "" : parameterLabel,
+                  })
+                }
+              />
+            </div>
           </Card>
         )}
 
         {run && (
-          <Card>
-            <CardHeader className="pb-3">
-              <CardTitle className="text-base">
-                {data ? `${data.total} alterações de chamado` : "Alterações de chamado"}
+          <Card className="rounded-2xl overflow-hidden">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-3 border-b">
+              <CardTitle className="text-sm font-semibold">
+                {data
+                  ? `${data.total.toLocaleString("pt-BR")} alterações de chamado`
+                  : "Alterações de chamado"}
               </CardTitle>
-              <p className="text-xs text-muted-foreground">
-                Uma linha por parâmetro que um chamado mexeu — um chamado que
-                altera oito parâmetros aparece em oito linhas. Ordenadas por
-                materialidade: primeiro o que tem impacto apurado, depois pelo
-                tamanho da variação. Nada é omitido por ser pequeno.
+              <p
+                className="text-xs text-muted-foreground"
+                title="Um chamado que altera oito parâmetros aparece em oito linhas. Nada é omitido por ser pequeno."
+              >
+                Uma linha por parâmetro que um chamado mexeu · sem ordenação
+                pedida, vêm por materialidade
               </p>
-            </CardHeader>
-            <CardContent className="p-0">
-              {query.isLoading && (
-                <p className="p-6 text-sm text-muted-foreground">Lendo…</p>
-              )}
-              {data && (
-                <TicketChangeTable rows={data.rows} total={data.total} />
-              )}
-            </CardContent>
+            </div>
+            {query.isLoading && (
+              <p className="p-6 text-sm text-muted-foreground">Lendo…</p>
+            )}
+            {data && (
+              <TicketChangeTable
+                rows={data.rows}
+                total={data.total}
+                janela={janela}
+                onJanela={setJanela}
+              />
+            )}
           </Card>
         )}
       </div>
+
+      <ExcluirEnvioDialog
+        envio={excluindo}
+        erro={erroExclusao}
+        onClose={() => {
+          setExcluindo(null);
+          setErroExclusao(null);
+        }}
+        onConfirm={(reason) =>
+          excluindo && excluir.mutate({ id: excluindo.id, reason })
+        }
+        excluindo={excluir.isPending}
+      />
     </>
   );
 }
 
 /**
- * Impacto dos chamados — uma soma só, e por que ela é diferente da outra.
+ * A caixa que transforma "tem certeza?" numa decisão.
  *
- * Aqui não há periodicidade a separar: `aplicado − pedido` é uma diferença
- * entre duas quantias declaradas na mesma unidade pelo próprio arquivo. É
- * exatamente por isso que este número **não** entra no cartão da aba Planilha:
- * lá a régua é outra, e as duas somas medem coisas diferentes.
+ * Ela pergunta ao servidor o que sairia **antes** de perguntar à pessoa, porque
+ * quem está na tela não tem como saber que aquele arquivo sustenta 1.218
+ * alterações em 1.218 chamados. "Isto apaga 1.218 alterações" é uma frase sobre
+ * a qual dá para decidir; "tem certeza?" não é.
+ *
+ * A prévia também é onde a recusa aparece: um envio ainda em leitura não pode
+ * ser apagado por baixo de quem o lê, e o motivo chega escrito em vez de virar
+ * um botão que não funciona.
  */
-function TicketImpactTile({ totals }: { totals: TicketTotals }) {
+function ExcluirEnvioDialog({
+  envio,
+  erro,
+  onClose,
+  onConfirm,
+  excluindo,
+}: {
+  envio: TicketImportSummary | null;
+  /** A recusa do servidor, quando o botão já foi apertado. */
+  erro: unknown;
+  onClose: () => void;
+  onConfirm: (reason: string) => void;
+  excluindo: boolean;
+}) {
+  const [reason, setReason] = useState("");
+
+  const { data: plano, error } = useQuery({
+    queryKey: ["ticket-imports", envio?.id, "deletion"],
+    queryFn: () =>
+      fetchJson<TicketImportDeletionPlan>(
+        `/ticket-imports/${envio!.id}/deletion`,
+      ),
+    enabled: envio !== null,
+    // O que sai depende do resto do banco — outro envio do mesmo arquivo no
+    // meio-tempo muda a conta. Sem cache: esta prévia é lida uma vez e agida
+    // em seguida.
+    staleTime: 0,
+    gcTime: 0,
+  });
+
+  const linhas: [string, number][] = plano
+    ? (
+        [
+          ["Chamados", plano.removes.tickets],
+          ["Alterações de parâmetro", plano.removes.ticketChanges],
+          ["Tentativas recusadas como duplicata", plano.removes.duplicateAttempts],
+        ] as [string, number][]
+      ).filter(([, valor]) => valor > 0)
+    : [];
+
   return (
-    <div className="rounded-lg border bg-card px-4 py-3">
-      <div className="text-xs font-medium text-muted-foreground">
-        Impacto apurado
+    <Dialog open={envio !== null} onOpenChange={(open) => !open && onClose()}>
+      {envio && (
+        <>
+          <DialogHeader>
+            <DialogTitle>Excluir "{envio.filename}"?</DialogTitle>
+            <DialogDescription>
+              Isto apaga o envio e os chamados que só ele trouxe. Não há
+              desfazer: fica o registro de que foi excluído — quem, quando e o
+              que saiu —, não os dados. A aba Planilha não é tocada.
+            </DialogDescription>
+          </DialogHeader>
+
+          {error && (
+            <p className="text-sm text-red-900 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+              Não foi possível calcular o que sairia: {(error as Error).message}
+            </p>
+          )}
+
+          {!plano && !error && (
+            <p className="text-sm text-muted-foreground">
+              Calculando o que sairia…
+            </p>
+          )}
+
+          {plano?.refusal && (
+            <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+              {plano.refusal}
+            </p>
+          )}
+
+          {plano && !plano.refusal && (
+            <div className="space-y-4">
+              {linhas.length > 0 ? (
+                <dl className="rounded-xl border divide-y overflow-hidden text-sm">
+                  {linhas.map(([label, valor]) => (
+                    <div
+                      key={label}
+                      className="flex items-center justify-between gap-4 px-4 py-2 bg-muted/30"
+                    >
+                      <dt className="text-muted-foreground">{label}</dt>
+                      <dd className="font-semibold tabular-nums">
+                        {valor.toLocaleString("pt-BR")}
+                      </dd>
+                    </div>
+                  ))}
+                </dl>
+              ) : (
+                <p className="text-sm text-muted-foreground">
+                  Este envio não chegou a produzir chamado nenhum — sai só o
+                  registro dele.
+                </p>
+              )}
+
+              {plano.removes.storedFile > 0 && (
+                <p className="text-sm text-muted-foreground">
+                  O arquivo sai do registro de recebidos, então o mesmo conteúdo
+                  poderá ser enviado de novo — hoje ele é recusado como
+                  duplicata pelo SHA-256.
+                </p>
+              )}
+
+              <label className="block space-y-1.5">
+                <span className="text-xs uppercase tracking-wider text-muted-foreground">
+                  Motivo (opcional)
+                </span>
+                <input
+                  value={reason}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="ex.: export de teste enviado por engano"
+                  className="w-full rounded-lg border px-3 py-2 text-sm bg-background"
+                />
+                <span className="text-xs text-muted-foreground">
+                  Vai para o registro da exclusão, ao lado do seu nome.
+                </span>
+              </label>
+            </div>
+          )}
+
+          {erro != null && (
+            <div className="mt-4">
+              <ApiErrorNotice
+                error={erro}
+                what="O envio de chamados não pôde ser excluído."
+              />
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={onClose}>
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              disabled={!plano || plano.refusal !== null || excluindo}
+              onClick={() => onConfirm(reason)}
+              className="bg-red-600 hover:bg-red-700 text-white"
+            >
+              <Trash2 className="w-3.5 h-3.5 mr-1.5" />
+              {excluindo ? "Excluindo…" : "Excluir envio"}
+            </Button>
+          </DialogFooter>
+        </>
+      )}
+    </Dialog>
+  );
+}
+
+/** Reais sem centavos — a régua dos cartões, onde o centavo não decide nada. */
+const brl0 = (valor: number) =>
+  valor.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    maximumFractionDigits: 0,
+  });
+
+const LADRILHO: Record<string, string> = {
+  blue: "bg-blue-50 text-blue-600",
+  green: "bg-emerald-50 text-emerald-600",
+  orange: "bg-orange-50 text-orange-600",
+  red: "bg-red-50 text-red-600",
+  purple: "bg-violet-50 text-violet-600",
+};
+
+/**
+ * Um número do topo: o ícone que o identifica, o nome, o valor, e a ressalva.
+ *
+ * A ressalva é a linha pequena, e ela não é enfeite: um total de impacto sem
+ * "quantas alterações ficaram de fora desta soma" é um número que parece cobrir
+ * o arquivo inteiro quando cobre uma parte dele. Toda soma desta tela carrega o
+ * seu complemento junto.
+ */
+function MetricCard({
+  icon,
+  tone,
+  label,
+  value,
+  hint,
+  valueTone = "muted",
+}: {
+  icon: React.ReactNode;
+  tone: keyof typeof LADRILHO;
+  label: string;
+  value: string;
+  hint?: string;
+  valueTone?: "good" | "bad" | "warn" | "muted";
+}) {
+  return (
+    <div className="rounded-2xl border bg-card shadow-sm px-5 py-5 flex items-center gap-4">
+      <div
+        className={cn(
+          "h-14 w-14 rounded-2xl grid place-content-center shrink-0",
+          LADRILHO[tone],
+        )}
+      >
+        {icon}
       </div>
-      {totals.calculated === 0 ? (
-        <div className="text-xl font-bold tabular-nums mt-1 text-muted-foreground">
-          não calculável
-        </div>
-      ) : (
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-muted-foreground">{label}</div>
         <div
           className={cn(
-            "text-xl font-bold tabular-nums mt-1",
-            totals.impactSum < 0
-              ? "text-red-700"
-              : totals.impactSum > 0
-                ? "text-emerald-700"
-                : "",
+            "text-3xl font-bold tracking-tight tabular-nums mt-1 truncate",
+            valueTone === "good" && "text-emerald-700",
+            valueTone === "bad" && "text-red-600",
+            valueTone === "warn" && "text-amber-600",
           )}
         >
-          {totals.impactSum > 0 ? "+" : ""}
-          {totals.impactSum.toLocaleString("pt-BR", {
-            style: "currency",
-            currency: "BRL",
-            maximumFractionDigits: 0,
+          {value}
+        </div>
+        {hint && (
+          <div className="text-xs text-muted-foreground mt-1">{hint}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+const AVISO: Record<string, { caixa: string; bolha: string; titulo: string }> = {
+  red: {
+    caixa: "border-red-100 bg-red-50",
+    bolha: "bg-red-600 text-white",
+    titulo: "text-red-600",
+  },
+  amber: {
+    caixa: "border-amber-100 bg-amber-50",
+    bolha: "bg-amber-500 text-white",
+    titulo: "text-amber-700",
+  },
+  sky: {
+    caixa: "border-sky-100 bg-sky-50",
+    bolha: "bg-sky-500 text-white",
+    titulo: "text-sky-700",
+  },
+};
+
+/** Um problema do arquivo em uma linha: o quê, o quanto, e por onde ver. */
+function Aviso({
+  tone,
+  icone,
+  titulo,
+  detalhe,
+  acao,
+  aberto,
+  onClick,
+}: {
+  tone: keyof typeof AVISO;
+  icone?: React.ReactNode;
+  titulo: string;
+  detalhe: string;
+  acao?: string;
+  aberto?: boolean;
+  onClick?: () => void;
+}) {
+  const estilo = AVISO[tone];
+  return (
+    <div
+      className={cn(
+        "flex items-center gap-4 rounded-xl border px-5 py-4",
+        estilo.caixa,
+      )}
+    >
+      <div
+        className={cn(
+          "h-12 w-12 rounded-full grid place-content-center shrink-0",
+          estilo.bolha,
+        )}
+      >
+        {icone ?? <AlertTriangle className="w-6 h-6" />}
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className={cn("font-bold", estilo.titulo)}>{titulo}</div>
+        <div className="text-sm text-muted-foreground line-clamp-1" title={detalhe}>
+          {detalhe}
+        </div>
+      </div>
+      {acao && onClick && (
+        <button
+          onClick={onClick}
+          aria-expanded={aberto}
+          className={cn(
+            "inline-flex items-center gap-1 text-sm font-medium shrink-0 hover:underline",
+            estilo.titulo,
+          )}
+        >
+          {acao}
+          <ChevronRight
+            className={cn("w-4 h-4 transition-transform", aberto && "rotate-90")}
+          />
+        </button>
+      )}
+    </div>
+  );
+}
+
+function TituloDePainel({
+  icone,
+  children,
+}: {
+  icone: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center gap-3">
+      <div className="h-10 w-10 rounded-xl bg-blue-50 text-blue-600 grid place-content-center shrink-0">
+        {icone}
+      </div>
+      <h3 className="text-lg font-bold tracking-tight">{children}</h3>
+    </div>
+  );
+}
+
+type ParametroRollup = {
+  parameterLabel: string;
+  attributeCode: string | null;
+  count: number;
+  impactSum: number | null;
+};
+
+/**
+ * Onde os chamados se concentram.
+ *
+ * Contagem, e só contagem: é a pergunta "o que mais se pede", que não tem nada
+ * a ver com "o que mais custa" — o painel ao lado responde essa, e os dois
+ * quase nunca têm o mesmo primeiro colocado.
+ */
+function ParametrosMaisPedidos({
+  itens,
+  selecionado,
+  onSelecionar,
+}: {
+  itens: ParametroRollup[];
+  selecionado: string;
+  onSelecionar: (parameterLabel: string) => void;
+}) {
+  const topo = itens.slice(0, 5);
+  return (
+    <div className="p-6">
+      <TituloDePainel icone={<BarChart3 className="w-5 h-5" />}>
+        Parâmetros mais pedidos
+      </TituloDePainel>
+
+      <div className="mt-4">
+        {topo.map((p, i) => (
+          <button
+            key={`${p.parameterLabel}-${p.attributeCode}`}
+            onClick={() => onSelecionar(p.parameterLabel)}
+            title={`filtrar a lista por ${p.parameterLabel}`}
+            className={cn(
+              "w-full flex items-center gap-4 px-2 py-3 text-left border-b last:border-b-0 rounded-md transition-colors",
+              selecionado === p.parameterLabel
+                ? "bg-blue-50 text-blue-800"
+                : "hover:bg-muted/50",
+            )}
+          >
+            <span className="w-4 shrink-0 text-blue-600 font-semibold tabular-nums">
+              {i + 1}
+            </span>
+            <span className="flex-1 truncate">{p.parameterLabel}</span>
+            <span className="font-bold tabular-nums shrink-0">
+              {p.count.toLocaleString("pt-BR")}
+            </span>
+          </button>
+        ))}
+      </div>
+
+      <p className="mt-3 text-xs text-muted-foreground">
+        Um parâmetro que aparece aqui <em>e</em> na aba Planilha é a mesma
+        história contada dos dois lados.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * O que os chamados custaram, por parâmetro.
+ *
+ * Só entra aqui o que tem impacto apurado — e a linha do rodapé diz quantas
+ * alterações ficaram de fora por não terem. Uma lista de "impactos relevantes"
+ * que cala o tamanho do que não sabe medir é a que faz alguém concluir que o
+ * resto é zero.
+ */
+function ImpactosRelevantes({
+  itens,
+  selecionado,
+  naoApuradas,
+  onSelecionar,
+}: {
+  itens: ParametroRollup[];
+  selecionado: string;
+  naoApuradas: number;
+  onSelecionar: (parameterLabel: string) => void;
+}) {
+  const comImpacto = itens
+    .filter((p) => p.impactSum !== null && p.impactSum !== 0)
+    .sort((a, b) => Math.abs(b.impactSum ?? 0) - Math.abs(a.impactSum ?? 0))
+    .slice(0, 5);
+
+  return (
+    <div className="p-6">
+      <TituloDePainel icone={<DollarSign className="w-5 h-5" />}>
+        Impactos relevantes
+      </TituloDePainel>
+
+      {comImpacto.length === 0 ? (
+        <p className="mt-4 text-sm text-muted-foreground">
+          Nenhum parâmetro deste envio tem impacto apurado. Não quer dizer que
+          os chamados não custaram nada — quer dizer que o valor pedido e o
+          aplicado não permitiram apurar a diferença.
+        </p>
+      ) : (
+        <div className="mt-4 space-y-2">
+          {comImpacto.map((p) => {
+            const soma = p.impactSum ?? 0;
+            const perda = soma < 0;
+            return (
+              <button
+                key={`${p.parameterLabel}-${p.attributeCode}`}
+                onClick={() => onSelecionar(p.parameterLabel)}
+                title={`filtrar a lista por ${p.parameterLabel}`}
+                className={cn(
+                  "w-full flex items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors",
+                  perda ? "bg-red-50 hover:bg-red-100" : "bg-emerald-50 hover:bg-emerald-100",
+                  selecionado === p.parameterLabel &&
+                    (perda ? "ring-1 ring-red-300" : "ring-1 ring-emerald-300"),
+                )}
+              >
+                <span
+                  className={cn(
+                    "h-8 w-8 rounded-full grid place-content-center shrink-0 bg-card border",
+                    perda ? "text-red-600 border-red-200" : "text-emerald-600 border-emerald-200",
+                  )}
+                >
+                  {perda ? (
+                    <ArrowDown className="w-4 h-4" />
+                  ) : (
+                    <ArrowUp className="w-4 h-4" />
+                  )}
+                </span>
+                <span className="flex-1 truncate">{p.parameterLabel}</span>
+                <span
+                  className={cn(
+                    "font-bold tabular-nums shrink-0",
+                    perda ? "text-red-600" : "text-emerald-700",
+                  )}
+                >
+                  {soma > 0 ? "+" : ""}
+                  {brl0(soma)}
+                </span>
+              </button>
+            );
           })}
         </div>
       )}
-      <div className="text-xs text-muted-foreground mt-0.5">
-        {totals.notCalculable} alterações fora deste valor
-      </div>
+
+      {naoApuradas > 0 && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          {naoApuradas.toLocaleString("pt-BR")} alterações não têm impacto
+          apurado e não entram nesta lista.
+        </p>
+      )}
     </div>
   );
 }

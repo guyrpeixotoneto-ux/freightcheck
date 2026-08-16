@@ -1,6 +1,6 @@
 {
-  "id": "6bf40dec-c71d-4dce-a011-fb570da78e71",
-  "prevId": "01ea8a5d-7a79-4657-a6e7-af28b07bb557",
+  "id": "373525c2-03bd-4270-9daa-c79362a46672",
+  "prevId": "6bf40dec-c71d-4dce-a011-fb570da78e71",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4118,6 +4118,326 @@
           "tableTo": "fact",
           "columnsFrom": [
             "fact_b_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.coverage_expectation": {
+      "name": "coverage_expectation",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "source_system": {
+          "name": "source_system",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'FREIGHTEC'"
+        },
+        "dataset_family": {
+          "name": "dataset_family",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "canal": {
+          "name": "canal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scope_key": {
+          "name": "scope_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "attribute_code": {
+          "name": "attribute_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "criticality": {
+          "name": "criticality",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'RELEVANTE'"
+        },
+        "effective_from": {
+          "name": "effective_from",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "effective_until": {
+          "name": "effective_until",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "succeeded_by_attribute_code": {
+          "name": "succeeded_by_attribute_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rationale": {
+          "name": "rationale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "evidence": {
+          "name": "evidence",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "actor": {
+          "name": "actor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "coverage_expectation_lookup_idx": {
+          "name": "coverage_expectation_lookup_idx",
+          "columns": [
+            {
+              "expression": "dataset_family",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "attribute_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "coverage_expectation_attribute_idx": {
+          "name": "coverage_expectation_attribute_idx",
+          "columns": [
+            {
+              "expression": "attribute_code",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "coverage_expectation_uq": {
+          "name": "coverage_expectation_uq",
+          "nullsNotDistinct": true,
+          "columns": [
+            "source_system",
+            "dataset_family",
+            "canal",
+            "scope_key",
+            "entity_type",
+            "attribute_code",
+            "effective_from"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "coverage_expectation_origin_ck": {
+          "name": "coverage_expectation_origin_ck",
+          "value": "\"coverage_expectation\".\"origin\" IN ('CONTRATO', 'CURADORIA')"
+        },
+        "coverage_expectation_status_ck": {
+          "name": "coverage_expectation_status_ck",
+          "value": "\"coverage_expectation\".\"status\" IN ('CONFIRMADO', 'DISPENSADO')"
+        },
+        "coverage_expectation_criticality_ck": {
+          "name": "coverage_expectation_criticality_ck",
+          "value": "\"coverage_expectation\".\"criticality\" IN ('CRITICO', 'RELEVANTE', 'INFORMATIVO')"
+        },
+        "coverage_expectation_rationale_ck": {
+          "name": "coverage_expectation_rationale_ck",
+          "value": "btrim(\"coverage_expectation\".\"rationale\") <> ''"
+        },
+        "coverage_expectation_actor_ck": {
+          "name": "coverage_expectation_actor_ck",
+          "value": "btrim(\"coverage_expectation\".\"actor\") <> ''"
+        },
+        "coverage_expectation_sucessor_ck": {
+          "name": "coverage_expectation_sucessor_ck",
+          "value": "\"coverage_expectation\".\"succeeded_by_attribute_code\" IS NULL OR \"coverage_expectation\".\"effective_until\" IS NOT NULL"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.snapshot_entity_type": {
+      "name": "snapshot_entity_type",
+      "schema": "",
+      "columns": {
+        "snapshot_id": {
+          "name": "snapshot_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_count": {
+          "name": "entity_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "attribute_count": {
+          "name": "attribute_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "fact_count": {
+          "name": "fact_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "value_count": {
+          "name": "value_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "null_count": {
+          "name": "null_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "inherited_fact_count": {
+          "name": "inherited_fact_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {
+        "snapshot_entity_type_uq": {
+          "name": "snapshot_entity_type_uq",
+          "columns": [
+            {
+              "expression": "snapshot_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "snapshot_entity_type_type_idx": {
+          "name": "snapshot_entity_type_type_idx",
+          "columns": [
+            {
+              "expression": "entity_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "snapshot_entity_type_snapshot_id_snapshot_id_fk": {
+          "name": "snapshot_entity_type_snapshot_id_snapshot_id_fk",
+          "tableFrom": "snapshot_entity_type",
+          "tableTo": "snapshot",
+          "columnsFrom": [
+            "snapshot_id"
           ],
           "columnsTo": [
             "id"

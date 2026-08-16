@@ -22,6 +22,7 @@ import {
   type ChangeRow,
   type Filters,
 } from "@/components/changes/change-table";
+import { primeiraPagina, type Janela } from "@/lib/paginacao";
 
 /**
  * Comparar Vigências — duas quaisquer, escolhidas por você.
@@ -58,6 +59,12 @@ export default function Comparar() {
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [set, setSet] = useState<ChangeSet | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [janela, setJanela] = useState<Janela>(primeiraPagina);
+
+  // Filtrar encurta a lista; a página em que se estava pode não existir mais.
+  useEffect(() => {
+    setJanela((atual) => (atual.pagina === 1 ? atual : { ...atual, pagina: 1 }));
+  }, [filters, set?.id]);
 
   const { data: snapshots = [], error: snapshotsError } = useQuery({
     queryKey: ["snapshots"],
@@ -109,13 +116,13 @@ export default function Comparar() {
   });
 
   const { data: changes } = useQuery({
-    queryKey: ["change-set", set?.id, filters],
+    queryKey: ["change-set", set?.id, filters, janela],
     queryFn: () =>
       fetchJson<{
         breakdown: Breakdown;
         total: number;
         rows: ChangeRow[];
-      }>(`/change-sets/${set!.id}/changes?${toQuery(filters)}`),
+      }>(`/change-sets/${set!.id}/changes?${toQuery(filters, {}, janela)}`),
     enabled: set !== null,
   });
 
@@ -240,7 +247,12 @@ export default function Comparar() {
               </CardHeader>
               <CardContent className="p-0">
                 {changes && (
-                  <ChangeTable rows={changes.rows} total={changes.total} />
+                  <ChangeTable
+                    rows={changes.rows}
+                    total={changes.total}
+                    janela={janela}
+                    onJanela={setJanela}
+                  />
                 )}
               </CardContent>
             </Card>
