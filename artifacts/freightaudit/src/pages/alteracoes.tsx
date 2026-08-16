@@ -19,6 +19,7 @@ import {
   DollarSign,
   FileSpreadsheet,
   Folder,
+  Handshake,
   Headset,
   HelpCircle,
   Layers,
@@ -67,6 +68,8 @@ import {
 } from "@/components/changes/ticket-table";
 import { TicketClassification } from "@/components/changes/ticket-classification";
 import { ImpactoQuinzenas } from "@/components/changes/impacto-quinzenas";
+import { ClienteRecomendacoes } from "@/components/changes/cliente-recomendacoes";
+import type { JanelaDeVigencias } from "@/components/changes/janela-vigencias";
 
 /**
  * Alterações — o que mudou, pelos caminhos por onde a mudança chega, e quanto
@@ -91,11 +94,20 @@ import { ImpactoQuinzenas } from "@/components/changes/impacto-quinzenas";
  * não conseguem mostrar o ativo que **não** mudou — ele não está em lista de
  * alteração nenhuma — e sem ele o total da coluna não fecha com o que a Ambev
  * pagou. Ela também não soma com as outras: é o estado, não o movimento.
+ *
+ * **Cliente** é a quarta, e é a única que não responde "o que mudou": ela
+ * responde *o que fazer a respeito*. A cadeia é `Impacto identifica → semântica
+ * interpreta → Cliente recomenda`, e a aba mostra o subconjunto das alterações
+ * em que o movimento vai contra nós **e** existe algo objetivo a pedir ou a
+ * perguntar. Ela não recalcula nada: o dinheiro é o mesmo que o Impacto apurou,
+ * e o que ela acrescenta é a leitura econômica — porque o sinal matemático da
+ * variação não é o sinal econômico dela. Uma taxa que cai reduz o que
+ * recebemos; uma idade que sobe não é premissa que alguém mexeu.
  */
 
-type Aba = "planilha" | "chamados" | "impacto";
+type Aba = "planilha" | "chamados" | "impacto" | "cliente";
 
-const ABAS: Aba[] = ["planilha", "chamados", "impacto"];
+const ABAS: Aba[] = ["planilha", "chamados", "impacto", "cliente"];
 
 const abaValida = (valor: string | null): valor is Aba =>
   valor !== null && (ABAS as string[]).includes(valor);
@@ -119,6 +131,29 @@ export default function Alteracoes({
 } = {}) {
   const pedida = new URLSearchParams(useSearch()).get("aba");
   const [aba, setAba] = useState<Aba>(abaValida(pedida) ? pedida : abaInicial);
+  /*
+    O parâmetro que a aba Cliente mandou abrir no Impacto.
+
+    Mora aqui porque a travessia é entre abas: "ver por placa e vigência" leva a
+    pessoa da recomendação à tabela do segundo nível, e guardar isso dentro de
+    uma das duas faria a escolha morrer na troca. Zera ao voltar para Cliente
+    para que a próxima entrada em Impacto abra no panorama, como sempre.
+  */
+  const [doCliente, setDoCliente] = useState<{
+    entityType: string;
+    code: string;
+  } | null>(null);
+  /*
+    O recorte De/Até, compartilhado por Impacto e Cliente.
+
+    Mora aqui pelo mesmo motivo que a travessia acima: as duas abas respondem
+    sobre o mesmo período, e perder o recorte ao trocar de aba faria "quanto
+    isso custou" e "o que pedir ao cliente" falarem de meses diferentes com a
+    mesma cara. As abas Planilha e Chamados não o recebem — elas não leem a
+    série, leem comparações gravadas e chamados, e um "de/até" ali seria um
+    filtro que promete um corte que aquelas contas não fazem.
+  */
+  const [janela, setJanela] = useState<JanelaDeVigencias>({});
 
   // Só a contagem, para a aba dizer o tamanho do assunto antes de ser aberta.
   // `limit=1` porque a lista em si é da aba; o que interessa aqui é o total.
@@ -159,10 +194,23 @@ export default function Alteracoes({
           />
           <AbaBotao
             active={aba === "impacto"}
-            onClick={() => setAba("impacto")}
+            onClick={() => {
+              setDoCliente(null);
+              setAba("impacto");
+            }}
             icon={<DollarSign className="w-4 h-4" />}
             label="Impacto"
             hint="quanto cada ativo custa em cada quinzena"
+          />
+          <AbaBotao
+            active={aba === "cliente"}
+            onClick={() => {
+              setDoCliente(null);
+              setAba("cliente");
+            }}
+            icon={<Handshake className="w-4 h-4" />}
+            label="Cliente"
+            hint="o que propor, o que investigar, e o que não levar"
           />
         </nav>
       </div>
@@ -171,7 +219,24 @@ export default function Alteracoes({
       {aba === "chamados" && <AbaChamados />}
       {aba === "impacto" && (
         <div className="p-8">
-          <ImpactoQuinzenas />
+          <ImpactoQuinzenas
+            escolhaInicial={doCliente}
+            janela={janela}
+            onJanela={setJanela}
+            key={doCliente ? `${doCliente.entityType}:${doCliente.code}` : "panorama"}
+          />
+        </div>
+      )}
+      {aba === "cliente" && (
+        <div className="p-8">
+          <ClienteRecomendacoes
+            janela={janela}
+            onJanela={setJanela}
+            onAbrirImpacto={(escolha) => {
+              setDoCliente(escolha);
+              setAba("impacto");
+            }}
+          />
         </div>
       )}
     </Layout>

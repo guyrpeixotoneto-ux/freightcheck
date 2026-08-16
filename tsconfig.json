@@ -37,6 +37,9 @@
       "path": "./lib/coverage"
     },
     {
+      "path": "./lib/advisory"
+    },
+    {
       "path": "./lib/api-client-react"
     },
     {

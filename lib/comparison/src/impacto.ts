@@ -7,6 +7,7 @@ import {
   contextFilter,
   resolveContext,
   type ContextInfo,
+  type RequestedContext,
   type SeriesContext,
 } from "./series";
 
@@ -185,7 +186,7 @@ export interface QuinzenaOptions {
   attributeCode?: string;
   /** A coluna que agrupa as linhas. Sem pedido, a data de entrada do ativo. */
   groupBy?: string;
-  context?: Partial<SeriesContext>;
+  context?: RequestedContext;
 }
 
 /**

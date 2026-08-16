@@ -44,10 +44,47 @@ export function channelSql(labelColumn: string) {
 
 export { channelOf };
 
+/**
+ * O recorte temporal de uma leitura: **de qual vigência até qual**.
+ *
+ * As duas pontas são inclusivas e são datas de vigências que o contexto de fato
+ * entregou — nunca um intervalo arbitrário de calendário. A diferença importa:
+ * "de 01/03 a 31/05" seria uma pergunta sobre dias, e este produto não tem
+ * dias; ele tem vigências, e a janela é um par delas.
+ */
+export interface JanelaDeVigencias {
+  de: string;
+  ate: string;
+}
+
 export interface SeriesContext {
   scopeHash: string;
   /** Null quando o rótulo da vigência não declara canal. */
   channel: string | null;
+  /**
+   * O recorte temporal, quando pedido. Ausente ou nulo é a série inteira.
+   *
+   * Mora aqui, e não num parâmetro à parte de cada leitura, porque
+   * {@link contextFilter} é o único predicado que todas as consultas de leitura
+   * usam: pendurando a janela no contexto, toda tela que já respeita unidade e
+   * canal passa a respeitar o recorte sem uma linha nova — e nenhuma delas pode
+   * reconstruir a disponibilidade por conta própria, que é como duas telas
+   * passam a discordar sobre o mesmo mês.
+   */
+  janela?: JanelaDeVigencias | null;
+}
+
+/**
+ * O contexto pedido por quem chama, antes de ser resolvido.
+ *
+ * Separado de `Partial<SeriesContext>` só por causa da janela: quem pede pode
+ * mandar uma ponta só — "de março para cá" —, e a outra é preenchida com o
+ * extremo da série. O `SeriesContext` resolvido nunca tem meia janela.
+ */
+export interface RequestedContext {
+  scopeHash?: string;
+  channel?: string | null;
+  janela?: { de?: string; ate?: string } | null;
 }
 
 export interface ContextInfo extends SeriesContext {
@@ -56,19 +93,56 @@ export interface ContextInfo extends SeriesContext {
   scopes: { scopeType: string; code: string; name: string | null }[];
   /** A vigência mais recente deste contexto. */
   latestPeriod: string;
-  /** Quantas vigências este contexto tem. */
+  /**
+   * Quantas vigências este contexto tem — **todas**, sem o recorte.
+   *
+   * Deliberadamente não muda com a janela: é o tamanho do histórico, e a frase
+   * "N vigências no histórico" que várias telas mostram deixaria de ser
+   * verdadeira se ela encolhesse ao filtrar. Quantas caem dentro do recorte é
+   * {@link ContextInfo.periodosNaJanela}.
+   */
   periods: number;
+  /**
+   * Todas as vigências do contexto, da mais antiga à mais recente.
+   *
+   * Vem junto para que a tela monte os dois seletores de "De" e "Até" sem uma
+   * segunda consulta — e, mais importante, sem inventar as opções: as pontas
+   * escolhíveis são exatamente as que este contexto entregou.
+   */
+  periodosDisponiveis: string[];
+  /** Quantas vigências caem dentro do recorte. Igual a `periods` sem janela. */
+  periodosNaJanela: number;
 }
 
 /** Erro de recusa: o contexto pedido não existe. Rota traduz em 404. */
 export class ContextNotFoundError extends Error {
-  constructor(requested: Partial<SeriesContext>, available: ContextInfo[]) {
+  constructor(requested: RequestedContext, available: ContextInfo[]) {
     const asked = [requested.scopeHash, requested.channel].filter(Boolean).join(" · ");
     super(
       `Nenhuma vigência importada para o contexto pedido (${asked || "sem identificação"}). ` +
         `Disponíveis: ${available.map((c) => c.label).join(", ") || "nenhum"}.`,
     );
     this.name = "ContextNotFoundError";
+  }
+}
+
+/**
+ * Erro de recusa: o recorte pedido não existe. Rota traduz em 400.
+ *
+ * 400 e não 404 de propósito — o contexto existe, o pedido é que está errado, e
+ * a diferença é o que separa "importe alguma coisa" de "escolha outra ponta".
+ *
+ * Recusar em vez de aparar é a mesma decisão que `resolveContext` já toma com o
+ * contexto: uma ponta inexistente aparada em silêncio faria a tela responder
+ * sobre um período diferente do pedido, e o número apareceria certo sob um
+ * título errado.
+ */
+export class JanelaInvalidaError extends Error {
+  constructor(motivo: string, disponiveis: string[]) {
+    super(
+      `${motivo} Vigências deste contexto: ${disponiveis.join(", ") || "nenhuma"}.`,
+    );
+    this.name = "JanelaInvalidaError";
   }
 }
 
@@ -86,11 +160,14 @@ export async function listContexts(db: Database): Promise<ContextInfo[]> {
     channel: string | null;
     latest_period: string;
     periods: number;
+    all_periods: string[];
   }>(sql`
     SELECT s.scope_hash,
            ${channelSql("s.source_label")} AS channel,
            max(s.effective_date)::text     AS latest_period,
-           count(DISTINCT s.effective_date)::int AS periods
+           count(DISTINCT s.effective_date)::int AS periods,
+           array_agg(DISTINCT s.effective_date::text ORDER BY s.effective_date::text)
+             AS all_periods
       FROM snapshot s
      WHERE s.status <> 'SUPERSEDED'
      GROUP BY 1, 2
@@ -132,6 +209,11 @@ export async function listContexts(db: Database): Promise<ContextInfo[]> {
       scopes,
       latestPeriod: row.latest_period,
       periods: Number(row.periods),
+      periodosDisponiveis: row.all_periods ?? [],
+      // Sem janela pedida, o recorte é a série inteira — e dizer isso com o
+      // mesmo número evita que a tela tenha de saber se houve filtro.
+      periodosNaJanela: Number(row.periods),
+      janela: null,
     };
   });
 }
@@ -162,7 +244,7 @@ function contextLabel(
  */
 export async function resolveContext(
   db: Database,
-  requested?: Partial<SeriesContext>,
+  requested?: RequestedContext,
   /** Lista já carregada, para quem vai precisar dela inteira de todo jeito. */
   preloaded?: ContextInfo[],
 ): Promise<ContextInfo | null> {
@@ -171,15 +253,72 @@ export async function resolveContext(
 
   const wantsScope = requested?.scopeHash !== undefined && requested.scopeHash !== null;
   const wantsChannel = requested?.channel !== undefined;
-  if (!wantsScope && !wantsChannel) return contexts[0];
 
-  const found = contexts.find(
-    (c) =>
-      (!wantsScope || c.scopeHash === requested!.scopeHash) &&
-      (!wantsChannel || c.channel === requested!.channel),
-  );
-  if (!found) throw new ContextNotFoundError(requested!, contexts);
-  return found;
+  const base = !wantsScope && !wantsChannel
+    ? contexts[0]
+    : contexts.find(
+        (c) =>
+          (!wantsScope || c.scopeHash === requested!.scopeHash) &&
+          (!wantsChannel || c.channel === requested!.channel),
+      );
+  if (!base) throw new ContextNotFoundError(requested!, contexts);
+
+  return aplicarJanela(base, requested?.janela ?? null);
+}
+
+/**
+ * O recorte, conferido contra as vigências que o contexto de fato entregou.
+ *
+ * Uma ponta só é aceita quando ela **é** uma vigência daqui. Aparar em silêncio
+ * para a mais próxima faria a tela responder sobre um período diferente do
+ * pedido — o número certo sob o título errado, que é a categoria de erro que
+ * este produto inteiro evita.
+ *
+ * Meia janela é completada com o extremo da série: "de março para cá" é um
+ * pedido legítimo, e obrigar as duas pontas transformaria um filtro útil num
+ * formulário.
+ */
+export function aplicarJanela(
+  context: ContextInfo,
+  pedida: { de?: string; ate?: string } | null,
+): ContextInfo {
+  const disponiveis = context.periodosDisponiveis;
+  if (!pedida || (pedida.de === undefined && pedida.ate === undefined)) {
+    return { ...context, janela: null, periodosNaJanela: context.periods };
+  }
+  if (disponiveis.length === 0) {
+    throw new JanelaInvalidaError(
+      "O contexto não tem vigência nenhuma para recortar.",
+      disponiveis,
+    );
+  }
+
+  const de = pedida.de ?? disponiveis[0];
+  const ate = pedida.ate ?? disponiveis[disponiveis.length - 1];
+
+  for (const [rotulo, valor] of [
+    ["De", de],
+    ["Até", ate],
+  ] as const) {
+    if (!disponiveis.includes(valor)) {
+      throw new JanelaInvalidaError(
+        `"${valor}" não é uma vigência deste contexto (${rotulo}).`,
+        disponiveis,
+      );
+    }
+  }
+  if (de > ate) {
+    throw new JanelaInvalidaError(
+      `O início do recorte (${de}) é posterior ao fim (${ate}).`,
+      disponiveis,
+    );
+  }
+
+  return {
+    ...context,
+    janela: { de, ate },
+    periodosNaJanela: disponiveis.filter((d) => d >= de && d <= ate).length,
+  };
 }
 
 /**
@@ -188,11 +327,24 @@ export async function resolveContext(
  * `IS NOT DISTINCT FROM` porque o canal pode ser NULL dos dois lados, e `=`
  * devolveria NULL — que numa cláusula WHERE quer dizer "não passa". Seria a
  * forma silenciosa de a leitura de um banco sem canal legível devolver vazio.
+ *
+ * **A janela entra aqui, e é por isso que ela é do contexto.** Toda consulta de
+ * leitura do produto passa por este predicado; pendurando o recorte no contexto
+ * resolvido, o Impacto, o panorama, a matriz por quinzena e as recomendações ao
+ * cliente respeitam o mesmo "de/até" sem que nenhum deles precise saber que ele
+ * existe. Uma leitura que montasse o recorte por conta própria seria a segunda
+ * régua de disponibilidade que este módulo existe para não ter.
  */
 export function contextFilter(snapshotAlias: string, context: SeriesContext) {
+  const alias = sql.raw(`${snapshotAlias}.effective_date`);
+  const janela = context.janela
+    ? sql` AND ${alias} >= ${context.janela.de}::date
+           AND ${alias} <= ${context.janela.ate}::date`
+    : sql``;
+
   return sql`${sql.raw(`${snapshotAlias}.scope_hash`)} = ${context.scopeHash}
              AND ${channelSql(`${snapshotAlias}.source_label`)}
-                 IS NOT DISTINCT FROM ${context.channel}::text`;
+                 IS NOT DISTINCT FROM ${context.channel}::text${janela}`;
 }
 
 /** A chave da série: contexto + cobertura de equipamento. */
