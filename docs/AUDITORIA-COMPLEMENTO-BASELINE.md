@@ -297,6 +297,90 @@ já usa.
 
 ## Parte E — O contrato da autoridade central
 
+> **Implementada no PR-5**, em `lib/availability` (`@workspace/availability`).
+> Nenhum consumidor migrou. O que segue é o contrato como ele ficou, com as
+> decisões que o desenho tomou e o que ainda calcula disponibilidade por conta
+> própria.
+
+### E.0 A fonte de verdade, determinada e registrada
+
+> **Uma vigência está disponível quando existe uma linha em `snapshot` com
+> `status = 'CLOSED'`.**
+
+Não é escolha de conveniência de tela; sai do modelo, e cada alternativa foi
+medida antes de ser descartada.
+
+| Alternativa | Por que não |
+|---|---|
+| RAW / staging | a separação já é **estrutural**: `raw_cell` e `staged_fact` são outras tabelas, e `snapshot` só ganha linha dentro da transação de promoção. Medido num arquivo lido e conferido mas não promovido: 112 células RAW, 52 fatos em staging, `import_run` em `PREVIEWED`, **zero** linhas em `snapshot` |
+| presença de fatos | uma vigência que entregou uma coluna inteira vazia continua entregue. Definir por `fact` faria "veio tudo vazio" e "não veio nada" darem a mesma resposta. Medido: 11.962 fatos declaram ausência e 17.717 são zero econômico |
+| cobertura registrada | `@workspace/coverage` responde **quanto** do esperado nós temos — é medição *sobre* o disponível, e usá-la para defini-lo seria circular |
+| combinação | disponibilidade é uma pergunta binária sobre existência. Misturar conteúdo nela é o que produz "não há dados" quando há |
+
+**`DRAFT` não é observável.** Ele existe apenas dentro da transação da promoção
+— ou vira `CLOSED` no mesmo commit, ou a transação volta atrás inteira. Medido:
+uma promoção recusada por escopo ausente deixa zero linhas em `snapshot`. Por
+isso `= 'CLOSED'` e `<> 'SUPERSEDED'` dão o mesmo conjunto, e a forma afirmativa
+foi escolhida por dizer a regra em vez de listar exceções.
+
+### E.0.1 O papel de cada tabela, verificado
+
+| Pergunta | Autoridade | Verificado |
+|---|---|---|
+| a vigência existe? | `snapshot.status = 'CLOSED'` | 9 vivas / 9 substituídas no export real |
+| de quem ela é? | `snapshot.canonical_scope` — **não** `scope_hash` | todas as 9 com escopo canônico não vazio |
+| de que canal? | `snapshot.canal` — **não** o regex sobre o rótulo | — |
+| que equipamentos entregou? | `snapshot_entity_type` — **não** `entity_type_set` | todas as 9 com agregado gravado |
+| que colunas trouxe? | `snapshot_attribute.present_in_layout` | 1.809 pares, 0 fora do layout |
+| como se chama a unidade? | `snapshot_scope` → `scope` | todas as 9 com escopo ligado |
+| o valor de uma célula | `fact` — **conteúdo**, não existência | `fact_count` bate com `count(*)` |
+| e `entity`? | **nenhum papel.** Entidade é global: as 144 do export estão nas nove vigências. Presença numa vigência é ter fato nela, e quem conta isso é `snapshot_entity_type` | 144 entidades, 144 em mais de uma vigência |
+
+### E.0.2 O veredito, que é a razão de o módulo existir
+
+```ts
+type VeredictoDeDisponibilidade =
+  | { estado: "DISPONIVEL";      vigencias: VigenciaDisponivel[] }
+  | { estado: "VAZIO_GLOBAL" }                                  // o único "não há dados"
+  | { estado: "VAZIO_NO_RECORTE"; existemEm: ContextoDisponivel[]; motivo: string }
+```
+
+Um módulo que recebe `VAZIO_NO_RECORTE` e escreve "não há dados" está mentindo,
+e agora ele tem como saber disso — porque a resposta **diz onde o dado está**.
+É o que transforma uma tela vazia numa tela que explica.
+
+### E.0.3 Os cinco estados de uma célula
+
+`VALOR` · `ZERO` · `NULO` · `NAO_ENTREGUE` · `INEXISTENTE` · `NAO_APLICAVEL`.
+Seis, e não os quatro pedidos: o modelo canônico distingue "a coluna não veio no
+layout" (`snapshot_attribute.present_in_layout`) de "a coluna veio e este ativo
+não tem linha", e são as duas que os módulos mais colapsam. **Nenhum estado de
+ausência devolve `0`** — há prova disso.
+
+### E.0.4 Renomeação em relação ao esboço
+
+`filtroDeVigenciaViva` → **`filtroDeVigenciaDisponivel`**. "Viva" era palavra
+minha; "disponível" é a palavra que este PR define, e o predicado deve carregar
+o nome da regra que ele aplica.
+
+### E.0.5 Quem ainda calcula disponibilidade por conta própria
+
+Nenhum consumidor migrou neste PR — por desenho. O inventário do que resta:
+
+| Onde | O que reconstrói | Migra em |
+|---|---|---|
+| `comparison/series.ts` (`listContexts`, `contextFilter`, `seriesKey`) | contexto por `scope_hash` + canal por regex | PR-6, PR-7 |
+| `comparison/engine.ts` (`findPreviousSnapshot`, guardas de `computeChangeSet`) | série com `entity_type_set` | PR-8, PR-9 |
+| `routes/changes.ts` (`/changes/latest`) | série sem canal | PR-11 |
+| `ingest/chamados.ts` (`valoresVigentes`) | "a mais recente" sem canal | PR-11 |
+| `coverage/{observado,esperado,matriz}.ts` | recorte por `scope_hash` | PR-10 |
+| `coverage/descoberta.ts` | janela sem escopo e sem canal | PR-12 |
+| `comparison/query.ts` (`getOverview`) | contadores sem filtro de vigência | PR-13 |
+| ~60 consultas com `status <> 'SUPERSEDED'` à mão | o predicado | PR-10 a PR-16 |
+| `routes/fleet-analysis.ts` | lê `.xlsx` do disco | PR-15 |
+
+
+
 Nome proposto: **`lib/availability`** (`@workspace/availability`), ou
 `comparison/src/disponibilidade.ts` promovendo `series.ts`. A escolha entre as
 duas é do PR-4; o contrato é o mesmo.
@@ -552,7 +636,7 @@ de toda a sequência.
 
 | PR | O quê | Inverte |
 |---|---|---|
-| **PR-5** | Criar a autoridade de **disponibilidade** com o contrato da Parte E e testes próprios. **Nenhum consumidor migra** | — |
+| **PR-5** | Criar a autoridade de **disponibilidade** com o contrato da Parte E e testes próprios. **Nenhum consumidor migra** — **feito** | — |
 | **PR-6** | Canal passa a ser lido de `snapshot.canal` em `listContexts`/`contextFilter`/`findPreviousSnapshot`. Corrigir os comentários vencidos de `series.ts` e `vigencia.ts` | `it.fails` de **D2** |
 | **PR-7** | Contexto passa a ser `(canonical_scope, canal)`; identificador de contexto novo, com o antigo aceito por compatibilidade | `it.fails` de **D1** |
 | **PR-8** | `vigenciaAnterior` na autoridade; `findPreviousSnapshot` delega. Motivo nomeado no `null`. **Guarda de `entity_type_set` ainda de pé** | — |
