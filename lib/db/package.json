@@ -15,6 +15,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "migrate:adotar": "tsx ./src/migrate-cli.ts --adotar-existentes",
+    "conferir-schema": "tsx ./src/conferir-schema-cli.ts",
     "bridge:down": "tsx ./src/bridge-cli.ts down",
     "bridge:up": "tsx ./src/bridge-cli.ts up"
   },
