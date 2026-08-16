@@ -80,8 +80,24 @@ export async function encerrarPoolDoProcesso(): Promise<void> {
 }
 
 /**
- * O SQLSTATE de um erro do Postgres — procurado também dentro do que o
- * embrulhou.
+ * O erro do Postgres, com os campos que o protocolo carrega além do SQLSTATE.
+ *
+ * Só os que alguém lê. `routine` é o menos óbvio e o mais útil: é o nome da
+ * função do fonte do Postgres que levantou o erro (campo `R` da resposta), e
+ * ele **não é traduzido** — o que o torna a única forma não-textual de separar
+ * dois erros que compartilham o mesmo SQLSTATE. Ver `faltaSchema`, que precisa
+ * exatamente disso para o `42P10`.
+ */
+export interface ErroDoPostgres {
+  code: string;
+  routine?: string;
+  constraint?: string;
+  position?: string;
+  message?: string;
+}
+
+/**
+ * O erro do Postgres dentro do que o embrulhou.
  *
  * O drizzle não deixa o erro do `pg` subir cru: ele o envolve num
  * `DrizzleQueryError` com a consulta e os parâmetros, e põe o original em
@@ -93,15 +109,20 @@ export async function encerrarPoolDoProcesso(): Promise<void> {
  * A cadeia é percorrida com um limite: `cause` é campo livre, e um ciclo nele
  * não pode virar laço infinito dentro de um `catch`.
  */
-export function codigoDoPostgres(err: unknown): string | undefined {
+export function erroDoPostgres(err: unknown): ErroDoPostgres | undefined {
   let atual: unknown = err;
   for (let nivel = 0; nivel < 5; nivel++) {
     if (typeof atual !== "object" || atual === null) return undefined;
     const code = (atual as { code?: unknown }).code;
-    if (typeof code === "string") return code;
+    if (typeof code === "string") return atual as ErroDoPostgres;
     atual = (atual as { cause?: unknown }).cause;
   }
   return undefined;
+}
+
+/** O SQLSTATE, quando só ele importa. */
+export function codigoDoPostgres(err: unknown): string | undefined {
+  return erroDoPostgres(err)?.code;
 }
 
 export * from "./schema";
