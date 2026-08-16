@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
@@ -130,10 +130,30 @@ export const emptyTicketFilters: TicketFilters = {
   onlyDivergent: false,
 };
 
+/**
+ * A régua de ordenação que o cabeçalho oferece — e a que vale quando ninguém
+ * clicou em nada.
+ *
+ * Sem clique, a ordem é a que o servidor devolveu: materialidade, primeiro o
+ * que tem impacto apurado e depois pelo tamanho da variação. Cada coluna
+ * oferece a sua régua, e o terceiro clique na mesma coluna devolve a de casa —
+ * porque uma lista ordenada por data já não responde "o que é grande", e
+ * voltar não pode custar recarregar a tela.
+ *
+ * A ordenação viaja com a página para o servidor, e não é feita aqui, porque a
+ * lista agora vem paginada: ordenar em JavaScript o que chegou reordenaria cem
+ * linhas de mil e duzentas, e o cabeçalho "Impacto ↓" passaria a significar
+ * "o maior desta página" — uma frase parecida com a verdadeira o bastante para
+ * ninguém desconfiar dela. Era o preço escondido de paginar a lista sem mexer
+ * na ordenação: quanto menor a página, mais estreita a verdade do cabeçalho.
+ */
+export type OrdemChamados = { key: SortKey; dir: SortDir } | null;
+
 export function toTicketQuery(
   filters: TicketFilters,
   extra: Record<string, string> = {},
   janela: Janela = primeiraPagina,
+  ordem: OrdemChamados = null,
 ) {
   const params = new URLSearchParams();
   if (filters.statusBucket) params.set("statusBucket", filters.statusBucket);
@@ -149,6 +169,10 @@ export function toTicketQuery(
   if (filters.onlyDivergent) params.set("onlyDivergent", "true");
   for (const [key, value] of Object.entries(extra)) {
     if (value) params.set(key, value);
+  }
+  if (ordem) {
+    params.set("sort", ordem.key);
+    params.set("dir", ordem.dir);
   }
   aplicarJanela(params, janela);
   return params.toString();
@@ -345,9 +369,8 @@ function TicketImpactCell({ row }: { row: TicketChangeRow }) {
  * porque uma lista ordenada por data já não responde "o que é grande", e
  * voltar não pode custar recarregar a tela.
  */
-type SortKey = "chamado" | "tipo" | "impacto" | "situacao" | "data";
-type SortDir = "asc" | "desc";
-type SortState = { key: SortKey; dir: SortDir } | null;
+export type SortKey = "chamado" | "tipo" | "impacto" | "situacao" | "data";
+export type SortDir = "asc" | "desc";
 
 /** O primeiro clique de cada coluna abre pelo lado que interessa. */
 const PRIMEIRO_SENTIDO: Record<SortKey, SortDir> = {
@@ -360,41 +383,24 @@ const PRIMEIRO_SENTIDO: Record<SortKey, SortDir> = {
   data: "desc",
 };
 
-/** A ordem do ciclo de vida, para a coluna Situação não ordenar por alfabeto. */
-const ORDEM_SITUACAO = [
-  "ABERTO",
-  "EM_ANDAMENTO",
-  "ATENDIDO",
-  "RECUSADO",
-  "CANCELADO",
-  "DESCONHECIDO",
-];
-
-function chaveDeOrdenacao(
-  row: TicketChangeRow,
-  key: SortKey,
-): string | number | null {
-  switch (key) {
-    case "chamado":
-      // O ` ` mantém a segunda régua dentro da primeira: o mesmo chamado
-      // aparece com os seus parâmetros em ordem, e não espalhado.
-      return `${row.externalId} ${row.parameterLabel}`;
-    case "tipo":
-      return row.changeKind ? changeKindLabel(row.changeKind) : null;
-    case "impacto":
-      // "Não calculável" não é zero: fica fora da régua, nos dois sentidos.
-      return row.impactConfidence === "CALCULATED" ? row.impactAmount : null;
-    case "situacao": {
-      const posicao = ORDEM_SITUACAO.indexOf(row.statusBucket);
-      return posicao === -1 ? ORDEM_SITUACAO.length : posicao;
-    }
-    case "data": {
-      const iso = row.closedAt ?? row.openedAt;
-      if (!iso) return null;
-      const tempo = new Date(iso).getTime();
-      return Number.isNaN(tempo) ? null : tempo;
-    }
+/**
+ * O próximo estado do cabeçalho: sentido de estreia, inverso, e de volta.
+ *
+ * A régua em si — que ordem tem "situação", onde cai o que não tem impacto
+ * apurado — mora no servidor, junto do `ORDER BY` que a aplica. Aqui fica só o
+ * ciclo do clique, que é o que a tabela de fato decide.
+ */
+export function proximaOrdem(
+  atual: OrdemChamados,
+  chave: SortKey,
+): OrdemChamados {
+  if (!atual || atual.key !== chave) {
+    return { key: chave, dir: PRIMEIRO_SENTIDO[chave] };
   }
+  if (atual.dir === PRIMEIRO_SENTIDO[chave]) {
+    return { key: chave, dir: atual.dir === "asc" ? "desc" : "asc" };
+  }
+  return null;
 }
 
 /**
@@ -416,7 +422,7 @@ function SortHeader({
 }: {
   label: string;
   chave: SortKey;
-  sort: SortState;
+  sort: OrdemChamados;
   onSort: (key: SortKey) => void;
   className?: string;
 }) {
@@ -453,56 +459,56 @@ export function TicketChangeTable({
   total,
   janela,
   onJanela,
+  ordem = null,
+  onOrdem,
 }: {
   rows: TicketChangeRow[];
   total: number;
   /** Sem estes dois a tabela é a página única de antes. */
   janela?: Janela;
   onJanela?: (janela: Janela) => void;
+  /** A ordem pedida ao servidor. Sem `onOrdem`, o cabeçalho não ordena. */
+  ordem?: OrdemChamados;
+  onOrdem?: (ordem: OrdemChamados) => void;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
-  const [sort, setSort] = useState<SortState>(null);
-  const [selecionadas, setSelecionadas] = useState<Set<string>>(new Set());
-
-  const ordenadas = useMemo(() => {
-    if (!sort) return rows;
-    const sentido = sort.dir === "asc" ? 1 : -1;
-    return [...rows].sort((a, b) => {
-      const va = chaveDeOrdenacao(a, sort.key);
-      const vb = chaveDeOrdenacao(b, sort.key);
-      // Sem valor não é o menor valor: essas linhas ficam no fim dos dois
-      // sentidos, em vez de fingirem um zero que ninguém apurou.
-      if (va === null && vb === null) return 0;
-      if (va === null) return 1;
-      if (vb === null) return -1;
-      if (typeof va === "string" && typeof vb === "string") {
-        return va.localeCompare(vb, "pt-BR") * sentido;
-      }
-      return ((va as number) - (vb as number)) * sentido;
-    });
-  }, [rows, sort]);
+  /*
+    A seleção guarda a linha inteira, e não só o id, porque ela atravessa a
+    paginação: quem marca três linhas na página 1 e duas na página 4 quer a
+    soma das cinco. Guardando só o id, as três primeiras sairiam da conta ao
+    virar a página — e sairiam caladas, que é o pior jeito de uma soma
+    encolher.
+  */
+  const [selecionadas, setSelecionadas] = useState<Map<string, TicketChangeRow>>(
+    new Map(),
+  );
 
   const alternarOrdem = (chave: SortKey) =>
-    setSort((atual) => {
-      if (!atual || atual.key !== chave) {
-        return { key: chave, dir: PRIMEIRO_SENTIDO[chave] };
-      }
-      if (atual.dir === PRIMEIRO_SENTIDO[chave]) {
-        return { key: chave, dir: atual.dir === "asc" ? "desc" : "asc" };
-      }
-      return null;
+    onOrdem?.(proximaOrdem(ordem, chave));
+
+  const alternarLinha = (row: TicketChangeRow) =>
+    setSelecionadas((atual) => {
+      const proxima = new Map(atual);
+      if (proxima.has(row.id)) proxima.delete(row.id);
+      else proxima.set(row.id, row);
+      return proxima;
     });
 
-  const alternarLinha = (id: string) =>
+  const marcarPagina = (marcado: boolean) =>
     setSelecionadas((atual) => {
-      const proxima = new Set(atual);
-      if (proxima.has(id)) proxima.delete(id);
-      else proxima.add(id);
+      const proxima = new Map(atual);
+      // Desmarcar o cabeçalho limpa esta página, e não a seleção inteira: as
+      // linhas marcadas em outras páginas não estão à vista para serem
+      // desmarcadas por engano.
+      for (const row of rows) {
+        if (marcado) proxima.set(row.id, row);
+        else proxima.delete(row.id);
+      }
       return proxima;
     });
 
   const todasSelecionadas =
-    ordenadas.length > 0 && ordenadas.every((r) => selecionadas.has(r.id));
+    rows.length > 0 && rows.every((r) => selecionadas.has(r.id));
 
   if (rows.length === 0) {
     return (
@@ -516,8 +522,9 @@ export function TicketChangeTable({
     <div>
       {selecionadas.size > 0 && (
         <SelectionBar
-          rows={ordenadas.filter((r) => selecionadas.has(r.id))}
-          onClear={() => setSelecionadas(new Set())}
+          rows={[...selecionadas.values()]}
+          nestaPagina={rows.filter((r) => selecionadas.has(r.id)).length}
+          onClear={() => setSelecionadas(new Map())}
         />
       )}
 
@@ -529,48 +536,42 @@ export function TicketChangeTable({
                 <Checkbox
                   className={ESTILO_CAIXA}
                   checked={todasSelecionadas}
-                  onCheckedChange={(marcado) =>
-                    setSelecionadas(
-                      marcado === true
-                        ? new Set(ordenadas.map((r) => r.id))
-                        : new Set(),
-                    )
-                  }
+                  onCheckedChange={(marcado) => marcarPagina(marcado === true)}
                   aria-label="selecionar todas as linhas visíveis"
                 />
               </th>
               <SortHeader
                 label="Chamado / Parâmetro"
                 chave="chamado"
-                sort={sort}
+                sort={ordem}
                 onSort={alternarOrdem}
                 className="text-left"
               />
               <SortHeader
                 label="Tipo"
                 chave="tipo"
-                sort={sort}
+                sort={ordem}
                 onSort={alternarOrdem}
                 className="text-left"
               />
               <SortHeader
                 label="Impacto"
                 chave="impacto"
-                sort={sort}
+                sort={ordem}
                 onSort={alternarOrdem}
                 className="text-right"
               />
               <SortHeader
                 label="Situação"
                 chave="situacao"
-                sort={sort}
+                sort={ordem}
                 onSort={alternarOrdem}
                 className="text-left"
               />
               <SortHeader
                 label="Alterado em"
                 chave="data"
-                sort={sort}
+                sort={ordem}
                 onSort={alternarOrdem}
                 className="text-left"
               />
@@ -578,7 +579,7 @@ export function TicketChangeTable({
             </tr>
           </thead>
           <tbody>
-            {ordenadas.map((row) => (
+            {rows.map((row) => (
               <Fragment key={row.id}>
                 <tr
                   className={cn(
@@ -599,7 +600,7 @@ export function TicketChangeTable({
                     <Checkbox
                       className={ESTILO_CAIXA}
                       checked={selecionadas.has(row.id)}
-                      onCheckedChange={() => alternarLinha(row.id)}
+                      onCheckedChange={() => alternarLinha(row)}
                       aria-label={`selecionar ${row.externalId} · ${row.parameterLabel}`}
                     />
                   </td>
@@ -755,9 +756,12 @@ export function TicketChangeTable({
  */
 function SelectionBar({
   rows,
+  nestaPagina,
   onClear,
 }: {
+  /** Todas as linhas marcadas, inclusive as de outras páginas. */
   rows: TicketChangeRow[];
+  nestaPagina: number;
   onClear: () => void;
 }) {
   const apuradas = rows.filter(
@@ -793,6 +797,14 @@ function SelectionBar({
       {fora > 0 && apuradas.length > 0 && (
         <span className="text-xs text-muted-foreground">
           {fora} fora desta soma, por não ter impacto apurado
+        </span>
+      )}
+      {/* A seleção atravessa a paginação, então a barra diz quantas das
+          marcadas não estão à vista. Sem essa linha, a soma seria maior do que
+          tudo o que a tela mostra, e quem lê procuraria o erro na conta. */}
+      {rows.length > nestaPagina && (
+        <span className="text-xs text-muted-foreground">
+          {rows.length - nestaPagina} fora desta página
         </span>
       )}
       <Button variant="ghost" size="sm" className="ml-auto" onClick={onClear}>

@@ -166,6 +166,11 @@ export async function listChanges(
       sql`abs(${changeTable.deltaPercent}) DESC NULLS LAST`,
       changeTable.attributeCode,
       changeTable.entityLabel,
+      // The last tiebreaker is not decoration: with the list paginated, two
+      // rows the order above cannot separate may come back on page 2 and again
+      // on page 3 while a third never comes back at all. An audit missing a row
+      // is worse than an audit with no paging.
+      changeTable.id,
     )
     .limit(filters.limit ?? 200)
     .offset(filters.offset ?? 0);
