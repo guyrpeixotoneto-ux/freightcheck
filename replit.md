@@ -159,6 +159,16 @@ e-mail, e exclusão de conta.
   origem e o índice do Book, que eram da interface e agora são compartilhados,
   porque o assistente e as telas precisam da mesma verdade sobre o que o
   Freightech publica.
+- **Alterações → Chamados** tem duas visões. *Resumo* é a lista por
+  materialidade; *Por tipo* dobra as mesmas alterações nos componentes da
+  remuneração — valor fixo, valor variável, variável diesel — e desce em
+  `classe → parâmetro → assunto → as alterações`. A tabela que diz em que valor
+  cada parâmetro mexe é `lib/knowledge/src/classificacao.ts`, e é lá que se
+  acrescenta o que aparecer em "Não classificado" na tela. A dobra roda em
+  `classificarAlteracoes` (`lib/comparison/src/chamados.ts`), servida por
+  `GET /api/tickets/classification`. **As classes não somam o total**: um
+  parâmetro pode mexer em dois valores (`cavaloEmpurrada` mexe no fixo e no
+  variável), e a tela escreve a diferença em vez de escondê-la.
 - `docs/ARQUITETURA.md` — as decisões estruturais em prosa
 - `docs/PROPOSTA-NAVEGACAO-FREIGHTECH.md` — o mapeamento Freightech → FreightCheck
 

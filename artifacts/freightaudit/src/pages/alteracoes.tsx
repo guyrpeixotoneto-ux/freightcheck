@@ -15,6 +15,7 @@ import {
   FileSpreadsheet,
   Folder,
   Headset,
+  Layers,
   Loader2,
   Lock,
   SlidersHorizontal,
@@ -47,6 +48,7 @@ import {
   type TicketFilters as TicketFilterState,
   type TicketTotals,
 } from "@/components/changes/ticket-table";
+import { TicketClassification } from "@/components/changes/ticket-classification";
 
 /**
  * Alterações — o que mudou, pelos dois caminhos por onde a mudança chega.
@@ -504,8 +506,23 @@ const NOMES_DE_CAMPO: Record<string, string> = {
  */
 type Painel = "falhas" | "colunas" | "ignoradas" | null;
 
+/**
+ * As duas visões da aba, e a divisão de trabalho entre elas.
+ *
+ * **Resumo** é a lista: o que mudou, ordenado por materialidade, com filtro,
+ * busca e a linha de cada alteração. **Por tipo** é a mesma população dobrada
+ * pelos componentes da remuneração — fixo, variável, variável diesel —, que é a
+ * pergunta que vem antes: *o mês mexeu em quê?*
+ *
+ * São visões e não abas novas de propósito: o arquivo é o mesmo, os avisos de
+ * leitura são os mesmos, e a procedência no topo é a mesma. O que muda é por
+ * onde se entra nos números.
+ */
+type Visao = "resumo" | "tipos";
+
 function AbaChamados() {
   const [filters, setFilters] = useState<TicketFilterState>(emptyTicketFilters);
+  const [visao, setVisao] = useState<Visao>("resumo");
   const [envio, setEnvio] = useState<string | null>(null);
   // O erro inteiro, e não a frase dele: `ApiErrorNotice` precisa do status e do
   // `code` para separar "o arquivo não serve" de "o banco deste ambiente ainda
@@ -680,6 +697,31 @@ function AbaChamados() {
           </div>
         </div>
 
+        {/* As duas visões do mesmo arquivo. Fica logo abaixo da procedência
+            porque é a primeira escolha de quem chega: ver a lista, ou ver em
+            que valor da remuneração o mês mexeu. */}
+        {run && (
+          <div
+            role="tablist"
+            aria-label="visão dos chamados"
+            className="inline-flex rounded-xl border bg-muted/50 p-1"
+          >
+            <VisaoBotao
+              active={visao === "resumo"}
+              onClick={() => setVisao("resumo")}
+              label="Resumo"
+              hint="a lista das alterações, ordenada por materialidade"
+            />
+            <VisaoBotao
+              active={visao === "tipos"}
+              onClick={() => setVisao("tipos")}
+              label="Por tipo"
+              hint="as mesmas alterações dobradas por valor fixo, variável e diesel"
+              icon={<Layers className="w-4 h-4" />}
+            />
+          </div>
+        )}
+
         {/*
           O upload falha por dois motivos muito diferentes — o arquivo não
           serve, ou o banco deste ambiente não tem onde guardar — e a frase do
@@ -700,7 +742,7 @@ function AbaChamados() {
           />
         )}
 
-        {totals && (
+        {totals && visao === "resumo" && (
           <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-5">
             <MetricCard
               tone="blue"
@@ -957,7 +999,11 @@ function AbaChamados() {
           </Card>
         )}
 
-        {run && (
+        {run && visao === "tipos" && (
+          <TicketClassification envio={envio ?? run.id} />
+        )}
+
+        {run && visao === "resumo" && (
           <Card className="rounded-2xl p-4 space-y-4">
             <TicketQuickFilters
               filters={filters}
@@ -976,7 +1022,7 @@ function AbaChamados() {
           </Card>
         )}
 
-        {data && data.byParameter.length > 0 && (
+        {data && data.byParameter.length > 0 && visao === "resumo" && (
           <Card className="rounded-2xl">
             <div className="grid md:grid-cols-2 md:divide-x">
               <ParametrosMaisPedidos
@@ -1006,7 +1052,7 @@ function AbaChamados() {
           </Card>
         )}
 
-        {run && (
+        {run && visao === "resumo" && (
           <Card className="rounded-2xl overflow-hidden">
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-3 border-b">
               <CardTitle className="text-sm font-semibold">
@@ -1030,6 +1076,46 @@ function AbaChamados() {
         )}
       </div>
     </>
+  );
+}
+
+/**
+ * Um dos dois botões de visão.
+ *
+ * Controle segmentado, e não uma segunda fileira de abas: as abas de cima
+ * separam duas fontes de dado que nunca somam uma com a outra, e repetir a
+ * mesma forma aqui sugeriria que Resumo e Por tipo também são populações
+ * diferentes. São a mesma, vista de dois jeitos.
+ */
+function VisaoBotao({
+  active,
+  onClick,
+  label,
+  hint,
+  icon,
+}: {
+  active: boolean;
+  onClick: () => void;
+  label: string;
+  hint: string;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <button
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      title={hint}
+      className={cn(
+        "flex items-center gap-2 rounded-lg px-4 py-1.5 text-sm font-medium transition-colors",
+        active
+          ? "bg-card text-foreground shadow-sm"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
 
