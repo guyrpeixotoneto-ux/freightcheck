@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { chaveDeEscopoSql } from "@workspace/availability";
 import type { Database } from "@workspace/db";
 import { snapshotTable } from "@workspace/db";
 import { computeChangeSet, findPreviousSnapshot } from "./engine";
@@ -160,7 +161,7 @@ export async function computeMissingChangeSets(
   const all = await db
     .select({
       id: snapshotTable.id,
-      scopeHash: snapshotTable.scopeHash,
+      scopeHash: sql<string>`${chaveDeEscopoSql("snapshot")}`,
       canal: snapshotTable.canal,
       sourceLabel: snapshotTable.sourceLabel,
       entityTypeSet: snapshotTable.entityTypeSet,

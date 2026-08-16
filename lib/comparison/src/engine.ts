@@ -1,4 +1,5 @@
 import { and, desc, eq, sql } from "drizzle-orm";
+import { chaveDeEscopoSql } from "@workspace/availability";
 import type { Database } from "@workspace/db";
 import {
   changeSetTable,
@@ -87,7 +88,17 @@ export async function findPreviousSnapshot(
     .where(
       and(
         eq(snapshotTable.sourceSystem, target.sourceSystem),
-        eq(snapshotTable.scopeHash, target.scopeHash),
+        /*
+          Escopo canônico, e não `scope_hash`.
+
+          O hash cru é dos códigos como vieram, de modo que a mesma unidade com
+          o CNPJ mascarado num arquivo e sem máscara no outro não encontraria a
+          própria anterior — e a tela responderia "não há anterior" para uma
+          vigência que tem anterior no banco.
+        */
+        sql`${chaveDeEscopoSql("snapshot")} = (
+              SELECT ${chaveDeEscopoSql("alvo")} FROM snapshot alvo WHERE alvo.id = ${snapshotId}::uuid
+            )`,
         eq(snapshotTable.entityTypeSet, target.entityTypeSet),
         eq(snapshotTable.canal, target.canal),
         sql`${snapshotTable.status} <> 'SUPERSEDED'`,
@@ -128,6 +139,18 @@ interface PairedFact extends Record<string, unknown> {
  * twin — the same vigência re-imported as a new revision — yields zero
  * changes, which is the property that keeps a re-import from inventing news.
  */
+/**
+ * O escopo canônico de uma vigência, serializado para comparação em memória.
+ *
+ * Espelha `freightcheck_serialize_scope`: a coluna já está normalizada e
+ * ordenada pelo `CHECK` do banco, de modo que serializá-la aqui é juntar o que
+ * já veio pronto. Não é uma segunda normalização — é a leitura de uma.
+ */
+function escopoCanonicoDe(snapshot: { canonicalScope: unknown }): string {
+  const escopo = snapshot.canonicalScope as { scopeType: string; code: string }[];
+  return escopo.map((e) => `${e.scopeType}\u001e${e.code}`).join("\u001d");
+}
+
 export async function computeChangeSet(
   db: Database,
   snapshotAId: string,
@@ -143,7 +166,10 @@ export async function computeChangeSet(
   // Comparing across different scopes or different equipment coverage would
   // produce differences that mean nothing — every asset would look added or
   // removed. Refuse rather than emit noise.
-  if (a.scopeHash !== b.scopeHash) {
+  // A comparação é do escopo **canônico**: `scope_hash` recusaria como
+  // "unidades distintas" duas entregas da mesma unidade cujo CNPJ chegou
+  // escrito de outro jeito.
+  if (escopoCanonicoDe(a) !== escopoCanonicoDe(b)) {
     throw new Error(
       `Escopos diferentes: "${a.sourceLabel}" e "${b.sourceLabel}" cobrem unidades/operadores distintos e não são comparáveis.`,
     );

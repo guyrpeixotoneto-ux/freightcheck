@@ -1,4 +1,5 @@
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
+import { chaveDeEscopoSql } from "@workspace/availability";
 import type { Database } from "@workspace/db";
 import { changeSetTable, changeTable, snapshotTable } from "@workspace/db";
 import { periodLabel } from "./labels";
@@ -450,7 +451,7 @@ export async function listComparableSnapshots(db: Database) {
       sourceLabel: snapshotTable.sourceLabel,
       effectiveDate: snapshotTable.effectiveDate,
       entityTypeSet: snapshotTable.entityTypeSet,
-      scopeHash: snapshotTable.scopeHash,
+      scopeHash: sql<string>`${chaveDeEscopoSql("snapshot")}`,
       canal: snapshotTable.canal,
       revision: snapshotTable.revision,
       status: snapshotTable.status,

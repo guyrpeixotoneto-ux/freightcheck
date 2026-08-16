@@ -12,6 +12,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@workspace/availability": "workspace:*",
     "@workspace/db": "workspace:*",
     "@workspace/ingest": "workspace:*",
     "@workspace/knowledge": "workspace:*",

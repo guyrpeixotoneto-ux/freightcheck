@@ -19,6 +19,7 @@ import {
   getQuinzenaMatrix,
   listComparableSnapshots,
   listContexts,
+  resolveContext,
 } from "@workspace/comparison";
 import { vigenciasObservadas } from "@workspace/coverage";
 import { encerrarPoolDoProcesso, type Database } from "@workspace/db";
@@ -47,10 +48,10 @@ import { encerrarPoolDoProcesso, type Database } from "@workspace/db";
  * permaneceria pulado depois da correção, e a divergência voltaria a ficar sem
  * dono. Ver `docs/AUDITORIA-INGESTAO-PROPAGACAO.md`, Parte 3.
  *
- * **Estado.** A divergência do canal foi corrigida no PR-6, e os `it.fails`
- * dela viraram provas normais — com o corpo intacto, que é a regra do
- * protocolo. As divergências do escopo (`scope_hash`) e de `entity_type_set`
- * seguem marcadas, e são o PR-7 e o PR-9.
+ * **Estado.** As divergências do canal (PR-6) e do escopo (PR-7) foram
+ * corrigidas, e os `it.fails` delas viraram provas normais — com o corpo
+ * intacto, que é a regra do protocolo. A de `entity_type_set` segue marcada, e
+ * é o PR-9.
  */
 
 const COLUNAS_FIXAS = [
@@ -277,28 +278,48 @@ describe("divergência 2 — o CNPJ mascarado parte o contexto em dois", () => {
     expect((await vigenciasObservadas(ctx.db)).length).toBe(2);
   }, 300_000);
 
-  it.fails(
-    "o seletor de contexto deveria mostrar uma unidade — hoje mostra duas com o mesmo nome",
-    async () => {
-      const contextos = await listContexts(ctx.db);
-      // Correção esperada: o contexto se chaveia pelo escopo canônico (ou pela
-      // chave canônica sem a data), nunca pelo `scope_hash`.
-      expect(contextos.length).toBe(1);
-    },
-    300_000,
-  );
+  /*
+    Corrigido no PR-7. Os dois `it.fails` viraram provas normais, com o corpo
+    intacto: o contexto passou a ser chaveado pelo escopo **canônico**, que é o
+    que a identidade da vigência já usava, e não pelo `scope_hash` — hash dos
+    códigos como vieram, que o próprio schema tinha aposentado.
+  */
+  it("o seletor de contexto mostra uma unidade, e não duas com o mesmo nome", async () => {
+    const contextos = await listContexts(ctx.db);
+    expect(contextos.length).toBe(1);
+  }, 300_000);
 
-  it.fails(
-    "Impacto deveria abrir com as duas vigências da unidade — hoje mostra uma coluna só",
-    async () => {
-      const matriz = await getQuinzenaMatrix(ctx.db, {});
-      expect(matriz!.periods.map((p) => p.effectiveDate)).toEqual([
-        "2026-03-01",
-        "2026-04-01",
-      ]);
-    },
-    300_000,
-  );
+  it("Impacto abre com as duas vigências da unidade", async () => {
+    const matriz = await getQuinzenaMatrix(ctx.db, {});
+    expect(matriz!.periods.map((p) => p.effectiveDate)).toEqual([
+      "2026-03-01",
+      "2026-04-01",
+    ]);
+  }, 300_000);
+
+  it("o link antigo continua funcionando: os dois `scope_hash` levam ao mesmo contexto", async () => {
+    /*
+      A metade da correção que não aparece na tela.
+
+      Antes do PR-7 existiam dois contextos, e quem tivesse guardado um link ou
+      um favorito carrega o `scope_hash` cru de um deles. Recusá-lo agora
+      transformaria a correção em página quebrada — e os dois têm de levar ao
+      **mesmo** contexto, que é o que o link antigo não conseguia mostrar
+      inteiro.
+    */
+    const vigencias = await vivas(ctx.db);
+    const hashesCrus = [...new Set(vigencias.map((v) => v.scopeHash))];
+    expect(hashesCrus).toHaveLength(2);
+
+    const [contexto] = await listContexts(ctx.db);
+    for (const legado of hashesCrus) {
+      const resolvido = await resolveContext(ctx.db, { scopeHash: legado });
+      expect(resolvido?.scopeHash, `o hash antigo ${legado.slice(0, 8)} não resolveu`).toBe(
+        contexto.scopeHash,
+      );
+    }
+    expect([...contexto.scopeHashesLegados].sort()).toEqual([...hashesCrus].sort());
+  }, 300_000);
 });
 
 // ---------------------------------------------------------------------------

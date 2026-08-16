@@ -57,6 +57,20 @@ function serializacaoDoContexto(alias: string): SQL {
   return sql`${a("canal")} || chr(31) || freightcheck_serialize_scope(${a("canonical_scope")})`;
 }
 
+/**
+ * A chave do **escopo**: hash estável do escopo canônico, sem o canal.
+ *
+ * Existe separada porque a leitura ainda modela o contexto como um par
+ * (escopo, canal) em vez de uma chave só, e trocar isso é maior do que trocar
+ * o que identifica o escopo. Enquanto o par existir, é esta a metade que
+ * substitui `snapshot.scope_hash` — que é hash dos códigos **como vieram** e
+ * por isso parte a mesma unidade em duas quando o CNPJ chega mascarado.
+ */
+export function chaveDeEscopoSql(alias = "s"): SQL {
+  return sql`encode(sha256(convert_to(
+    freightcheck_serialize_scope(${sql.raw(`${alias}.canonical_scope`)}), 'UTF8')), 'hex')`;
+}
+
 /** A chave de contexto: hash estável da serialização acima. */
 export function chaveDeContextoSql(alias = "s"): SQL {
   return sql`encode(sha256(convert_to(${serializacaoDoContexto(alias)}, 'UTF8')), 'hex')`;

@@ -37,6 +37,19 @@ let ctx: TestDb;
 const UNIDADE_A = "scope-unidade-a";
 const UNIDADE_B = "scope-unidade-b";
 
+/**
+ * O contexto, resolvido a partir do `scope_hash` que o fixture gravou.
+ *
+ * Os fixtures escrevem `snapshot.scope_hash` com o valor literal que recebem, e
+ * desde o PR-7 o identificador de contexto é o hash do **escopo canônico** —
+ * outro valor. Passar pelo `resolveContext` é o que traduz um no outro, e não é
+ * concessão: é exatamente o caminho que um link colado antes da mudança
+ * percorre. Cada uso aqui é uma prova a mais de que a compatibilidade funciona.
+ */
+async function contextoDe(db: TestDb["db"], scopeHash: string, channel: string) {
+  return (await resolveContext(db, { scopeHash, channel }))!;
+}
+
 const CUSTO: AttributeSpec[] = [
   {
     code: "carreta.custo_fixo",
@@ -163,16 +176,11 @@ describe("o canal vem da coluna, e de mais lugar nenhum", () => {
       { entityType: "CARRETA", scopeHash: "scope-sem-rotulo", canal: "TRANSFERENCIA" },
     );
 
-    const contexto = (await listContexts(local.db)).find(
-      (c) => c.scopeHash === "scope-sem-rotulo",
-    )!;
+    const contexto = await contextoDe(local.db, "scope-sem-rotulo", "TRANSFERENCIA");
     // A derivação por rótulo daria NULL aqui. A coluna diz TRANSFERENCIA.
     expect(contexto.channel).toBe("TRANSFERENCIA");
 
-    const periodos = await listPeriods(local.db, {
-      scopeHash: "scope-sem-rotulo",
-      channel: "TRANSFERENCIA",
-    });
+    const periodos = await listPeriods(local.db, contexto);
     expect(periodos.map((p) => p.effective_date)).toEqual(["2026-05-02"]);
   });
 
@@ -196,8 +204,8 @@ describe("o canal vem da coluna, e de mais lugar nenhum", () => {
       );
     }
 
-    const contextos = (await listContexts(local.db)).filter(
-      (c) => c.scopeHash === "scope-caixa",
+    const contextos = (await listContexts(local.db)).filter((c) =>
+      c.scopeHashesLegados.includes("scope-caixa"),
     );
     expect(contextos).toHaveLength(1);
     expect(contextos[0].periods).toBe(2);
@@ -209,7 +217,12 @@ describe("duas unidades na mesma data", () => {
     const contexts = await listContexts(ctx.db);
     // Unidade A tem dois canais; unidade B tem um.
     expect(contexts).toHaveLength(3);
-    expect(contexts.map((c) => `${c.scopeHash}|${c.channel}`).sort()).toEqual([
+    // O identificador é o hash do escopo canônico; o `scope_hash` que o fixture
+    // gravou fica ao lado, como legado, e é por ele que a asserção nomeia quem
+    // é quem sem depender de reproduzir o hash aqui.
+    expect(
+      contexts.map((c) => `${c.scopeHashesLegados.join(",")}|${c.channel}`).sort(),
+    ).toEqual([
       `${UNIDADE_A}|EMPURRADA`,
       `${UNIDADE_A}|ROTA`,
       `${UNIDADE_B}|EMPURRADA`,
@@ -217,8 +230,8 @@ describe("duas unidades na mesma data", () => {
   });
 
   it("cada uma vê só as suas vigências", async () => {
-    const a = await listPeriods(ctx.db, { scopeHash: UNIDADE_A, channel: "EMPURRADA" });
-    const rota = await listPeriods(ctx.db, { scopeHash: UNIDADE_A, channel: "ROTA" });
+    const a = await listPeriods(ctx.db, await contextoDe(ctx.db, UNIDADE_A, "EMPURRADA"));
+    const rota = await listPeriods(ctx.db, await contextoDe(ctx.db, UNIDADE_A, "ROTA"));
     expect(a.map((p) => p.effective_date)).toEqual(["2026-02-02", "2026-01-02"]);
     expect(rota.map((p) => p.effective_date)).toEqual(["2026-02-02"]);
   });

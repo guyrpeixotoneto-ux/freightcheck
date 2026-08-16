@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { chaveDeEscopoSql } from "@workspace/availability";
 import type { Database } from "@workspace/db";
 import {
   detectFormatAnomaly,
@@ -1596,7 +1597,7 @@ async function findElsewhere(
     source_label: string;
   }>(sql`
     SELECT t              AS entity_type,
-           s.scope_hash,
+           ${chaveDeEscopoSql("s")} AS scope_hash,
            s.canal AS channel,
            s.effective_date::text AS effective_date,
            s.source_label

@@ -369,7 +369,7 @@ Nenhum consumidor migrou neste PR — por desenho. O inventário do que resta:
 
 | Onde | O que reconstrói | Migra em |
 |---|---|---|
-| `comparison/series.ts` (`listContexts`, `contextFilter`, `seriesKey`) | contexto por `scope_hash` — o canal **já saiu** para a coluna no PR-6 | PR-7 |
+| ~~`comparison/series.ts`~~ | **migrado**: canal pela coluna (PR-6) e escopo pelo canônico (PR-7), este último via `@workspace/availability` | — |
 | `comparison/engine.ts` (`findPreviousSnapshot`, guardas de `computeChangeSet`) | série com `entity_type_set` | PR-8, PR-9 |
 | `routes/changes.ts` (`/changes/latest`) | série sem canal | PR-11 |
 | `ingest/chamados.ts` (`valoresVigentes`) | "a mais recente" sem canal | PR-11 |
@@ -638,7 +638,7 @@ de toda a sequência.
 |---|---|---|
 | **PR-5** | Criar a autoridade de **disponibilidade** com o contrato da Parte E e testes próprios. **Nenhum consumidor migra** — **feito** | — |
 | **PR-6** | Canal passa a ser lido de `snapshot.canal` em `listContexts`/`contextFilter`/`findPreviousSnapshot`/`seriesKey`. Comentários vencidos de `series.ts` e `vigencia.ts` corrigidos — **feito** | `it.fails` de **D2** ✔ invertido |
-| **PR-7** | Contexto passa a ser `(canonical_scope, canal)`; identificador de contexto novo, com o antigo aceito por compatibilidade | `it.fails` de **D1** |
+| **PR-7** | Contexto passa a ser `(canonical_scope, canal)`; identificador novo, com o `scope_hash` antigo aceito por `resolveContext` — **feito** | `it.fails` de **D1** ✔ invertido |
 | **PR-8** | `vigenciaAnterior` na autoridade; `findPreviousSnapshot` delega. Motivo nomeado no `null`. **Guarda de `entity_type_set` ainda de pé** | — |
 | **PR-9** | `entity_type_set` sai da série **e** comparação por componente com `NAO_ENTREGUE` — as duas metades juntas, nunca separadas | `it.fails` de **D3** |
 

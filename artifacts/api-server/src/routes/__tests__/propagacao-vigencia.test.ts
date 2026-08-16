@@ -25,6 +25,7 @@ import {
 } from "@workspace/curation";
 import {
   computeChangeSet,
+  contextFilter,
   findPreviousSnapshot,
   getQuinzenaMatrix,
   getTicketTotals,
@@ -212,11 +213,21 @@ describe("porta 1 — a vigência importada chega a todo módulo que a consome",
     const contexto = await resolveContext(ctx.db);
     expect(contexto).not.toBeNull();
 
+    /*
+      O recorte vem de `contextFilter`, e não de um `WHERE` escrito aqui.
+
+      Escrevê-lo à mão era o que esta prova fazia, e foi ela que quebrou quando
+      o contexto deixou de ser chaveado por `scope_hash` — pela razão certa: um
+      teste que remonta a definição de contexto por conta própria é mais um
+      módulo discordando dos outros, que é o defeito que a suíte existe para
+      pegar. Perguntar à autoridade é o que o produto tem de fazer, e portanto é
+      o que a prova tem de fazer.
+    */
     const { rows } = await ctx.db.execute<{ d: string }>(sql`
       SELECT DISTINCT s.effective_date::text AS d
         FROM snapshot s
        WHERE s.status <> 'SUPERSEDED'
-         AND s.scope_hash = ${contexto!.scopeHash}
+         AND ${contextFilter("s", contexto!)}
        ORDER BY 1
     `);
 
@@ -378,7 +389,7 @@ describe("porta 2 — o chamado importado chega onde chamado tem significado", (
       SELECT count(DISTINCT s.effective_date)::int AS n
         FROM snapshot s
        WHERE s.status <> 'SUPERSEDED'
-         AND s.scope_hash = ${contexto!.scopeHash}
+         AND ${contextFilter("s", contexto!)}
     `);
     const matriz = await getQuinzenaMatrix(ctx.db, {});
     expect(matriz!.periods.length).toBe(Number(rows[0].n));
