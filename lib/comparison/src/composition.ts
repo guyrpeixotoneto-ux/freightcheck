@@ -84,6 +84,95 @@ export const COMPOSITIONS: Composition[] = [
   },
 ];
 
+/**
+ * Um atributo que aparece na linha de um equipamento e remunera o **conjunto**.
+ *
+ * Mora aqui, ao lado de `COMPOSITIONS`, porque é a mesma pergunta vista de fora:
+ * uma composição diz "este total já contém aquelas parcelas"; um escopo de
+ * conjunto diz "este total já contém o *outro equipamento*". As duas existem
+ * para a mesma finalidade — impedir que o mesmo real seja contado duas vezes —
+ * e separá-las em pacotes diferentes fazia com que só quem passasse por
+ * `@workspace/composition` enxergasse a segunda.
+ *
+ * `@workspace/composition` continua sendo quem aplica a regra na composição da
+ * remuneração; ele importa esta lista em vez de manter uma cópia, pela mesma
+ * razão que já importa `COMPOSITIONS`.
+ */
+export interface EscopoDeConjunto {
+  code: string;
+  /** O equipamento em cuja linha a coluna aparece. */
+  entityType: string;
+  /** O código do equipamento cujo valor está embutido neste total. */
+  contem: string;
+  /** A medição que sustenta a exclusão. Sem ela, isto seria um palpite. */
+  evidence: string;
+}
+
+/**
+ * As colunas da carreta que carregam o cavalo junto.
+ *
+ * Todas medidas cruzando cada carreta com o cavalo que a aponta em
+ * `cavalo.placa_carreta`, nas 9 vigências do export real.
+ */
+export const ESCOPOS_DE_CONJUNTO: EscopoDeConjunto[] = [
+  {
+    code: "carreta.finame",
+    entityType: "CARRETA",
+    contem: "cavalo.finame_cavalo",
+    evidence:
+      "Medido em 14/08/2026: finame − finameImplemento é igual ao finameCavalo do cavalo " +
+      "vinculado em 558 de 558 linhas (tolerância R$ 0,01, zero exceções). Nas 99 linhas de " +
+      "carreta sem cavalo vinculado a diferença é exatamente zero, que é o que se espera " +
+      "quando não há cavalo para somar. A coluna carrega o financiamento do cavalo somado " +
+      "ao do implemento — é do conjunto, e somá-la aqui contaria o cavalo duas vezes.",
+  },
+  {
+    code: "carreta.custo_fixo",
+    entityType: "CARRETA",
+    contem: "cavalo.finame_cavalo",
+    evidence:
+      "custoFixo = finame + lucroFixomodeloNovoCiclo em 657 de 657 linhas, e finame contém o " +
+      "cavalo. Logo custoFixo é o custo fixo do conjunto cavalo + carreta — o número certo " +
+      "para a visão de CONJUNTO e o número errado para a linha de uma carreta.",
+  },
+  {
+    /*
+      Achado em 16/08/2026, pela busca exaustiva de identidades que reproduziu
+      as duas relações acima sem as conhecer. É a terceira coluna de conjunto, e
+      a única que ainda não estava registrada.
+
+      A ressalva é real e fica escrita: nas 99 linhas de carreta sem cavalo
+      vinculado o resto **não** é zero — ao contrário do `finame`, onde é zero
+      nas 99. Ou seja, uma carreta sem cavalo neste export ainda tem lucro
+      variável previsto acima do que a parcela dela explica. Isso não enfraquece
+      a identidade onde ela é verificável (558 de 558), mas impede afirmar que a
+      decomposição é exaustiva — e é por isso que a frase está aqui em vez de um
+      arredondamento para "fecha sempre".
+    */
+    code: "carreta.lucro_variavel_previsto",
+    entityType: "CARRETA",
+    contem: "cavalo.lucro_variavel_previsto_cavalo",
+    evidence:
+      "Medido em 16/08/2026: lucroVariavelPrevisto − lucroVariavelPrevistoCarreta é igual ao " +
+      "lucroVariavelPrevistoCavalo do cavalo vinculado em 558 de 558 linhas (tolerância " +
+      "R$ 0,01, zero exceções). A coluna é do conjunto: o lucro variável do cavalo já está " +
+      "dentro dela, e somá-la à frota de cavalos contaria cada cavalo duas vezes. Ressalva: " +
+      "nas 99 linhas sem cavalo vinculado o resto não é zero, então a decomposição é " +
+      "comprovada onde há par, e não exaustiva.",
+  },
+];
+
+const ESCOPO_POR_CODIGO = new Map(ESCOPOS_DE_CONJUNTO.map((e) => [e.code, e]));
+
+/** Se este atributo já embute o valor do outro equipamento do conjunto. */
+export function escopoDeConjunto(
+  attributeCode: string | null,
+): EscopoDeConjunto | null {
+  return attributeCode === null
+    ? null
+    : (ESCOPO_POR_CODIGO.get(attributeCode) ?? null);
+}
+
 /** Índice `total -> parcelas`, para consulta em O(1). */
 const PARTS_BY_TOTAL = new Map<string, Set<string>>(
   COMPOSITIONS.map((c) => [c.total, new Set(c.parts)]),

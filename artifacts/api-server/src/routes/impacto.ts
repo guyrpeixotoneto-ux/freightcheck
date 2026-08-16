@@ -2,6 +2,7 @@ import { Router, type IRouter, type Response } from "express";
 import { db } from "@workspace/db";
 import {
   ContextNotFoundError,
+  getPanoramaDeAlteracoes,
   getQuinzenaMatrix,
   type SeriesContext,
 } from "@workspace/comparison";
@@ -96,6 +97,37 @@ router.get("/impacto/quinzenas", async (req, res): Promise<void> => {
   } catch (err) {
     if (sendContextError(res, err)) return;
     req.log.error({ err }, "Error building impact matrix");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * Panorama — o primeiro nível da aba: tudo que mudou, antes de escolher o quê.
+ *
+ * Não recebe `entityType` de propósito. A pergunta "o que mudou?" não é por
+ * equipamento — e a árvore econômica atravessa os dois: `carreta.finame` contém
+ * `cavalo.finame_cavalo`, e um panorama por equipamento mostraria os dois como
+ * duas alterações independentes, que é a dupla contagem que a leitura existe
+ * para evitar.
+ *
+ * A resposta vem inteira, como a da matriz e pela mesma razão: são algumas
+ * dezenas de parâmetros, e um "há mais" no rodapé transformaria "tudo que
+ * mudou" numa afirmação falsa.
+ */
+router.get("/impacto/panorama", async (req, res): Promise<void> => {
+  try {
+    const panorama = await getPanoramaDeAlteracoes(db, {
+      context: parseContext(req.query as Record<string, unknown>),
+    });
+
+    if (!panorama) {
+      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+      return;
+    }
+    res.json(panorama);
+  } catch (err) {
+    if (sendContextError(res, err)) return;
+    req.log.error({ err }, "Error building change panorama");
     res.status(500).json({ error: "Internal server error" });
   }
 });
