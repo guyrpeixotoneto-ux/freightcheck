@@ -463,7 +463,7 @@ describe("a invariante final: schema e registro andam juntos", () => {
     await referencia0018.pool.end();
   }, 600_000);
 
-  it("o fluxo completo termina com 20/20 dos dois lados e diff zero", async () => {
+  it("o fluxo completo termina com a fila inteira dos dois lados e diff zero", async () => {
     const referencia = await bancoNovo();
     expect((await runMigrations(referencia.url)).failure).toBeUndefined();
 
@@ -493,10 +493,14 @@ describe("a invariante final: schema e registro andam juntos", () => {
     expect((await bridgeUp(dev.url)).falha).toBeUndefined();
     expect(await registradas(dev.pool)).toBe(19);
 
-    // ---- E só então a fila leva Development à 0019 -----------------------
+    // ---- E só então a fila leva Development ao fim ----------------------
     const rDev = await runMigrations(dev.url);
     expect(rDev.failure).toBeUndefined();
-    expect(rDev.applied).toEqual(["0019_assistant_feedback"]);
+    expect(rDev.applied).toEqual(
+      readMigrations()
+        .slice(19)
+        .map((m) => m.tag),
+    );
     expect(rDev.adopted).toEqual([]);
     expect(await registradas(dev.pool)).toBe(readMigrations().length);
 

@@ -5,6 +5,7 @@ export * from "./staging";
 export * from "./curation";
 export * from "./deletion";
 export * from "./comparison";
+export * from "./coverage";
 export * from "./semantics";
 export * from "./auth";
 export * from "./book";

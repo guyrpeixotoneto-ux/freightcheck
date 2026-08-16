@@ -100,7 +100,39 @@ export const ALLOWLIST: { tabela: string; coluna: string; tipo: string }[] = [
 ];
 
 /** Tabelas que o `down` remove. Todas têm de estar vazias — é pré-condição. */
-const TABELAS_REMOVIDAS = ["ticket_change", "snapshot_merge", "import_decision"];
+const TABELAS_REMOVIDAS = [
+  "ticket_change",
+  "snapshot_merge",
+  "import_decision",
+  /*
+    `coverage_expectation` entra aqui, e não entre as derivadas abaixo, porque o
+    que ela guarda é decisão humana: um curador que dispensou uma ausência ou
+    confirmou uma renomeação escreveu ali algo que nenhuma consulta reconstrói.
+    A pré-condição de vazia é o que impede o bridge de apagá-la em silêncio — e
+    se ela tiver linha, abortar é o desfecho certo, não um transtorno.
+  */
+  "coverage_expectation",
+];
+
+/**
+ * Tabelas **derivadas** que o `down` remove mesmo com linhas.
+ *
+ * A pré-condição de vazia existe para que o bridge nunca descarte dado que só
+ * existe naquela tabela. `snapshot_entity_type` não é esse caso: cada linha
+ * dela é o resultado de uma contagem sobre `fact`, e a consulta que a produz
+ * está escrita na migration que a criou. Descartá-la não perde nada; exigi-la
+ * vazia travaria todo deploy de um Development com dado, que é o normal.
+ *
+ * O `up` a reconstrói com **aquele mesmo statement**, levantado do disco — não
+ * com uma cópia reescrita aqui, que poderia divergir sem ninguém ver.
+ */
+const TABELAS_DERIVADAS: { nome: string; migration: string; marca: RegExp }[] = [
+  {
+    nome: "snapshot_entity_type",
+    migration: "0020_cobertura",
+    marca: /INSERT INTO "snapshot_entity_type"/,
+  },
+];
 
 /** Colunas que o `down` remove de tabelas que ficam. */
 const COLUNAS_REMOVIDAS: [string, string][] = [
@@ -124,6 +156,7 @@ const INDICES_REMOVIDOS = [
   "snapshot_canonical_key_idx",
   "fact_inherited_idx",
   "ticket_vigencia_idx",
+  "fact_nao_aplicavel_idx",
 ];
 
 /**
@@ -443,10 +476,15 @@ export async function bridgeDown(
     // -----------------------------------------------------------------------
     const previstos = new Set<string>([
       ...TABELAS_REMOVIDAS,
+      ...TABELAS_DERIVADAS.map((t) => t.nome),
       ...INDICES_REMOVIDOS,
       ...VIEWS_REMOVIDAS,
     ]);
-    for (const alvo of [...TABELAS_REMOVIDAS, "snapshot"]) {
+    for (const alvo of [
+      ...TABELAS_REMOVIDAS,
+      ...TABELAS_DERIVADAS.map((t) => t.nome),
+      "snapshot",
+    ]) {
       if (!(await existeTabela(c, alvo))) continue;
       const dependentes =
         alvo === "snapshot"
@@ -483,7 +521,7 @@ export async function bridgeDown(
         await exec(`ALTER TABLE "${t}" DROP COLUMN "${col}" RESTRICT`);
       }
     }
-    for (const t of TABELAS_REMOVIDAS) {
+    for (const t of [...TABELAS_REMOVIDAS, ...TABELAS_DERIVADAS.map((d) => d.nome)]) {
       if (await existeTabela(c, t)) await exec(`DROP TABLE "${t}" RESTRICT`);
     }
     // Depois da coluna gerada e das views, nada mais depende delas. `RESTRICT`
@@ -526,7 +564,7 @@ export async function bridgeDown(
       );
     }
 
-    for (const t of TABELAS_REMOVIDAS) {
+    for (const t of [...TABELAS_REMOVIDAS, ...TABELAS_DERIVADAS.map((d) => d.nome)]) {
       conferir(`${t} removida`, !(await existeTabela(c, t)), "ainda existe");
     }
     for (const [t, col] of COLUNAS_REMOVIDAS) {
@@ -636,6 +674,42 @@ export interface PassoUp {
   sql: string;
   /** A migration dona do objeto. O `up` só o restaura se ela estiver registrada. */
   migration: string;
+  /**
+   * O passo repovoa uma tabela derivada, e por isso escreve linhas.
+   *
+   * É a única exceção à regra "o `up` só restaura estrutura", e ela é estreita
+   * de propósito: vale apenas para as tabelas de `TABELAS_DERIVADAS`, cujo
+   * conteúdo inteiro é uma consulta sobre o canônico, e o statement é levantado
+   * da migration proprietária em vez de reescrito aqui. Marcar em vez de
+   * esconder é o que permite ao relatório dizer quantos passos escrevem.
+   */
+  reconstroiDados?: true;
+}
+
+/**
+ * O statement que repovoa uma tabela derivada, levantado do disco.
+ *
+ * Gêmeo de `levantar`, com a condição invertida: aqui o statement **tem** de
+ * mexer em dados, senão não é reconstrução e a lista está errada. A conferência
+ * existe para que trocar o `INSERT` da migration por outra coisa quebre este
+ * caminho em vez de deixar a tabela silenciosamente vazia depois do `up`.
+ */
+function reconstruir(tag: string, marca: RegExp): string {
+  const m = readMigrations().find((x) => x.tag === tag);
+  if (!m) throw new BridgeAbortou(`migration ${tag} não encontrada`);
+  const achados = m.statements.filter((s) => marca.test(s));
+  if (achados.length !== 1) {
+    throw new BridgeAbortou(
+      `esperava 1 statement casando ${marca} em ${tag}, achei ${achados.length}`,
+    );
+  }
+  const sql = achados[0]!;
+  if (!mexeEmDados([sql])) {
+    throw new BridgeAbortou(
+      `o statement de ${tag} casado por ${marca} não repovoa nada; uma tabela derivada sem reconstrução ficaria vazia depois do up`,
+    );
+  }
+  return sql;
 }
 
 function planoUp(): PassoUp[] {
@@ -712,6 +786,27 @@ function planoUp(): PassoUp[] {
   add(M19, "assistant_message_feedback_ck", levantar(M19, /DROP CONSTRAINT IF EXISTS "assistant_message_feedback_ck"/));
   add(M19, "assistant_message_feedback_ck", levantar(M19, /ADD CONSTRAINT\s+"assistant_message_feedback_ck"/));
 
+  // A `0020` — as duas tabelas da cobertura. `snapshot_entity_type` volta
+  // estrutura primeiro e conteúdo depois, com o próprio backfill da migration:
+  // é a única escrita de linha do plano, e ela é marcada como tal.
+  const M20 = "0020_cobertura";
+  add(M20, "coverage_expectation", levantar(M20, /CREATE TABLE IF NOT EXISTS "coverage_expectation"/));
+  for (const i of ["coverage_expectation_lookup_idx", "coverage_expectation_attribute_idx"]) {
+    add(M20, `índice ${i}`, levantar(M20, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
+  add(M20, "índice fact_nao_aplicavel_idx", levantar(M20, /INDEX IF NOT EXISTS "fact_nao_aplicavel_idx"/));
+  add(M20, "snapshot_entity_type", levantar(M20, /CREATE TABLE IF NOT EXISTS "snapshot_entity_type"/));
+  add(M20, "FK de snapshot_entity_type", levantar(M20, /snapshot_entity_type_snapshot_id_snapshot_id_fk/));
+  for (const i of ["snapshot_entity_type_uq", "snapshot_entity_type_type_idx"]) {
+    add(M20, `índice ${i}`, levantar(M20, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
+  p.push({
+    migration: M20,
+    objeto: "snapshot_entity_type (reconstrução)",
+    sql: reconstruir(M20, /INSERT INTO "snapshot_entity_type"/),
+    reconstroiDados: true,
+  });
+
   // 5. Obrigatoriedade e constraints.
   //    Os valores nunca saíram: o `down` só afrouxou o NOT NULL.
   for (const [t, col] of NULLABLE_TEMPORARIO) {
@@ -763,10 +858,15 @@ export async function bridgeUp(connectionString: string): Promise<BridgeReport> 
       ...new Set(plano.filter((p) => !aFazer.includes(p)).map((p) => p.migration)),
     ];
 
+    const reconstroem = aFazer.filter((p) => p.reconstroiDados).length;
     rel.precondicoes.push({
       nome: "plano estrutural",
       ok: true,
-      detalhe: `${aFazer.length} de ${plano.length} objetos, nenhum statement mexe em dados`,
+      detalhe:
+        `${aFazer.length} de ${plano.length} objetos, ` +
+        (reconstroem === 0
+          ? "nenhum statement mexe em dados"
+          : `${reconstroem} repovoa(m) tabela derivada e nenhum outro mexe em dados`),
     });
     if (adiadas.length > 0) {
       rel.precondicoes.push({

@@ -222,6 +222,76 @@ ordem de 100 milhões de linhas em `fact`. Mitigação: particionar `fact` por
 sempre entre duas partições. `raw_cell` vai para armazenamento frio após 12
 meses — sem nunca ser apagado.
 
+### Cobertura de dados (`0020`)
+
+Duas tabelas, e o que decide as duas é uma medição: **`fact` é densa.** No
+export real são 144 entidades × 138 atributos × 9 vigências = 124.632 fatos, com
+`entidades × atributos = fatos` exatamente — toda célula entregue vira fato,
+inclusive as vazias (9.360 `EMPTY`, 2.602 `VALUE_MISSING`). Isso torna os três
+estados que a cobertura precisa distinguir legíveis sem nenhuma estrutura nova:
+
+```
+presente com valor   → fact.is_null = false
+entregue e vazio     → fact.is_null = true  + null_reason
+nunca entregue       → sem linha em snapshot_attribute
+```
+
+E `snapshot_attribute` — escrita na promoção, com `value_count` e `null_count`
+por coluna — **já é o agregado de cobertura**: 1.809 linhas para aqueles 124.632
+fatos, e ela cresce com (vigências × colunas), não com entidades.
+
+O que não existia:
+
+```
+snapshot_entity_type              -- o denominador da matriz
+  snapshot_id       → snapshot
+  entity_type       text          -- CAVALO | CARRETA | …
+  entity_count      int           -- entidades distintas do tipo na vigência
+  attribute_count   int
+  fact_count        int
+  value_count       int           -- o numerador da cobertura observada
+  null_count        int
+  inherited_fact_count int         -- os que vieram da revisão anterior
+  UNIQUE (snapshot_id, entity_type)
+
+coverage_expectation              -- o esperado que alguém afirmou
+  dataset_family, canal, scope_key, entity_type, attribute_code
+  origin            text          -- CONTRATO | CURADORIA  (nunca inferência)
+  status            text          -- CONFIRMADO | DISPENSADO
+  criticality       text          -- CRITICO | RELEVANTE | INFORMATIVO
+  effective_from/until date       -- alinhadas a snapshot.effective_date
+  succeeded_by_attribute_code     -- renomeação confirmada
+  rationale, evidence, actor      -- CHECK: motivo e ator nunca vazios
+  UNIQUE NULLS NOT DISTINCT (identidade + effective_from)
+```
+
+**`snapshot_entity_type` é tabela e não coluna em `snapshot`** porque o gatilho
+`snapshot_immutable` da `0001` congela a vigência quando ela fecha: o backfill
+de uma coluna nova esbarraria nele para toda vigência já fechada, e desligá-lo
+trocaria a garantia central do produto por uma leitura mais curta.
+
+**`coverage_expectation` não tem valor `INFERIDO`, e isso é decisão de
+projeto.** Um atributo presente nas oito vigências anteriores para as mesmas 144
+entidades é evidência forte, e evidência forte não é declaração. O esperado
+inferido é recalculado a cada leitura sobre o histórico de `snapshot_attribute`
+e chega à tela marcado como inferência. Gravá-lo o tornaria, em uma migration ou
+duas, indistinguível de contrato — que é como uma estatística vira verdade sem
+que ninguém tenha decidido.
+
+**A criticidade não é uma segunda lista.** Ela sai de `lib/dre/src/plano.ts`,
+onde cada componente já declara as suas `fontes`, se é `essencial` e a
+`evidencia` medida que sustenta a entrada. Um atributo é crítico na cobertura se
+e somente se alimenta um componente essencial da DRE — o que impede a regra de
+se espalhar pela aplicação e faz mudar a DRE mudar a cobertura crítica no mesmo
+commit.
+
+**Caminho de leitura.** Resumo e matriz saem de `snapshot_entity_type` +
+`snapshot_attribute` + `coverage_expectation`, sem tocar em `fact`. A única
+descida ao fato é a contagem de `NOT_APPLICABLE`, por um índice parcial
+(`fact_nao_aplicavel_idx`) que só indexa as linhas com esse motivo — zero delas
+no export real. `fact` só é lida no drill-down até a placa, por
+`(snapshot_id, attribute_id)`, que é o começo de `fact_snapshot_attribute_idx`.
+
 ---
 
 ## 6. Motor de comparação

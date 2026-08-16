@@ -11,6 +11,7 @@ import {
   rawRowTable,
   rawSheetTable,
   snapshotAttributeTable,
+  snapshotEntityTypeTable,
   snapshotTable,
   sourceFileTable,
   taxonomyNodeTable,
@@ -243,6 +244,8 @@ export async function buildFixture(
     snapshotIds[spec.label] = snapshot.id;
 
     const presentAttributes = new Set<string>();
+    const contagemPorAtributo = new Map<string, { comValor: number; vazios: number }>();
+    let fatosDaVigencia = 0;
     let physicalRow = 1;
 
     for (const [plate, cells] of Object.entries(spec.data)) {
@@ -299,9 +302,23 @@ export async function buildFixture(
           nullReason: isNull ? (value as { missing: string }).missing : null,
           rawCellId: cell.id,
         });
+
+        fatosDaVigencia++;
+        const contagem = contagemPorAtributo.get(code) ?? { comValor: 0, vazios: 0 };
+        if (isNull) contagem.vazios++;
+        else contagem.comValor++;
+        contagemPorAtributo.set(code, contagem);
       }
     }
 
+    /*
+      As contagens do layout são escritas, e não deixadas no zero do default.
+
+      `snapshot_attribute.value_count` e `.null_count` deixaram de ser
+      estatística decorativa quando a Cobertura de dados passou a lê-los como o
+      observado: uma fixture que os deixasse zerados produziria 0% de cobertura
+      com todos os fatos no lugar, e o teste estaria medindo a fixture.
+    */
     for (const code of presentAttributes) {
       await db.insert(snapshotAttributeTable).values({
         snapshotId: snapshot.id,
@@ -309,8 +326,22 @@ export async function buildFixture(
         sourceSheet: "carretas",
         columnIndex: 1,
         presentInLayout: true,
+        valueCount: contagemPorAtributo.get(code)?.comValor ?? 0,
+        nullCount: contagemPorAtributo.get(code)?.vazios ?? 0,
       });
     }
+
+    /* O mesmo agregado que `promote` grava — ver `snapshot_entity_type`. */
+    await db.insert(snapshotEntityTypeTable).values({
+      snapshotId: snapshot.id,
+      entityType,
+      entityCount: Object.keys(spec.data).length,
+      attributeCount: presentAttributes.size,
+      factCount: fatosDaVigencia,
+      valueCount: [...contagemPorAtributo.values()].reduce((s, c) => s + c.comValor, 0),
+      nullCount: [...contagemPorAtributo.values()].reduce((s, c) => s + c.vazios, 0),
+      inheritedFactCount: 0,
+    });
 
     await db
       .update(snapshotTable)
@@ -318,7 +349,7 @@ export async function buildFixture(
         status: "CLOSED",
         closedAt: new Date(),
         entityCount: Object.keys(spec.data).length,
-        factCount: 0,
+        factCount: fatosDaVigencia,
       })
       .where(eq(snapshotTable.id, snapshot.id));
   }
