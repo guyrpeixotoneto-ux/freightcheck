@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { BookOpen, ChevronLeft, ChevronRight, Info, Search } from "lucide-react";
+import { BookOpen, Info, Search } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
 import { BlocoCard } from "@/components/book/bloco-card";
 import { BlocoPainel } from "@/components/book/bloco-painel";
+import { Paginacao } from "@/components/ui/paginacao";
 import type { BookEntryCurrent } from "@/components/book/types";
 import { fetchJson } from "@/lib/api";
 import { useFavoritos } from "@/lib/favoritos";
@@ -286,14 +287,13 @@ export default function BookOperador() {
         )}
 
         <Paginacao
-          primeiro={filtrados.length === 0 ? 0 : inicio + 1}
-          ultimo={inicio + visiveis.length}
           total={filtrados.length}
           pagina={paginaAtual}
-          totalPaginas={totalPaginas}
           porPagina={porPagina}
           onPagina={setPagina}
           onPorPagina={setPorPagina}
+          tamanhos={TAMANHOS_DE_PAGINA}
+          className="px-0 pb-0"
         />
       </div>
 
@@ -358,155 +358,4 @@ function FiltroCategoria({
       {rotulo}
     </button>
   );
-}
-
-/**
- * O rodapé de paginação do Freightech: a contagem à esquerda, as páginas no
- * meio, o tamanho à direita.
- */
-function Paginacao({
-  primeiro,
-  ultimo,
-  total,
-  pagina,
-  totalPaginas,
-  porPagina,
-  onPagina,
-  onPorPagina,
-}: {
-  primeiro: number;
-  ultimo: number;
-  total: number;
-  pagina: number;
-  totalPaginas: number;
-  porPagina: number;
-  onPagina: (pagina: number) => void;
-  onPorPagina: (porPagina: number) => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-center justify-between gap-4 border-t pt-4">
-      <p className="text-sm text-muted-foreground">
-        {total === 0
-          ? "Nenhum resultado"
-          : `Mostrando ${primeiro} - ${ultimo} de ${total} resultados`}
-      </p>
-
-      <nav className="flex items-center gap-1" aria-label="Paginação">
-        <BotaoPagina
-          onClick={() => onPagina(pagina - 1)}
-          desabilitado={pagina <= 1}
-          rotuloAcessivel="Página anterior"
-        >
-          <ChevronLeft className="w-4 h-4" />
-        </BotaoPagina>
-
-        {numerosDePagina(pagina, totalPaginas).map((numero, indice) =>
-          numero === null ? (
-            <span
-              key={`reticencia-${indice}`}
-              className="px-2 text-muted-foreground"
-            >
-              …
-            </span>
-          ) : (
-            <BotaoPagina
-              key={numero}
-              onClick={() => onPagina(numero)}
-              ativo={numero === pagina}
-              rotuloAcessivel={`Página ${numero}`}
-            >
-              {numero}
-            </BotaoPagina>
-          ),
-        )}
-
-        <BotaoPagina
-          onClick={() => onPagina(pagina + 1)}
-          desabilitado={pagina >= totalPaginas}
-          rotuloAcessivel="Próxima página"
-        >
-          <ChevronRight className="w-4 h-4" />
-        </BotaoPagina>
-      </nav>
-
-      <label className="text-sm text-muted-foreground flex items-center gap-2">
-        Por página
-        <select
-          value={porPagina}
-          onChange={(evento) => onPorPagina(Number(evento.target.value))}
-          className="border border-input rounded-sm h-9 px-2 bg-card text-foreground outline-none focus:border-brand"
-        >
-          {TAMANHOS_DE_PAGINA.map((tamanho) => (
-            <option key={tamanho} value={tamanho}>
-              {tamanho}
-            </option>
-          ))}
-        </select>
-      </label>
-    </div>
-  );
-}
-
-function BotaoPagina({
-  children,
-  onClick,
-  ativo,
-  desabilitado,
-  rotuloAcessivel,
-}: {
-  children: React.ReactNode;
-  onClick: () => void;
-  ativo?: boolean;
-  desabilitado?: boolean;
-  rotuloAcessivel: string;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={desabilitado}
-      aria-label={rotuloAcessivel}
-      aria-current={ativo ? "page" : undefined}
-      className={cn(
-        "min-w-9 h-9 px-2 rounded-sm text-sm font-medium inline-flex items-center justify-center transition-colors",
-        ativo
-          ? "bg-brand text-brand-foreground"
-          : "text-muted-foreground hover:bg-muted",
-        desabilitado && "opacity-40 pointer-events-none",
-      )}
-    >
-      {children}
-    </button>
-  );
-}
-
-/**
- * As páginas visíveis no rodapé — `1 … 7 8 9 [10] 11`.
- *
- * `null` é a reticência. A primeira e a última estão sempre presentes, e ao
- * redor da atual ficam duas de cada lado: é a forma do Freightech, e ela
- * mantém o rodapé do mesmo tamanho com 11 páginas ou com 40.
- */
-export function numerosDePagina(
-  atual: number,
-  total: number,
-): (number | null)[] {
-  if (total <= 7) {
-    return Array.from({ length: total }, (_, indice) => indice + 1);
-  }
-
-  const paginas = new Set<number>([1, total]);
-  for (let numero = atual - 2; numero <= atual + 2; numero++) {
-    if (numero >= 1 && numero <= total) paginas.add(numero);
-  }
-
-  const ordenadas = [...paginas].sort((a, b) => a - b);
-  const resultado: (number | null)[] = [];
-  let anterior: number | null = null;
-  for (const numero of ordenadas) {
-    if (anterior !== null && numero - anterior > 1) resultado.push(null);
-    resultado.push(numero);
-    anterior = numero;
-  }
-  return resultado;
 }

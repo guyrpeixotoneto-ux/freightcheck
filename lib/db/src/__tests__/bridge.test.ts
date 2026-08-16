@@ -493,10 +493,17 @@ describe("a invariante final: schema e registro andam juntos", () => {
     expect((await bridgeUp(dev.url)).falha).toBeUndefined();
     expect(await registradas(dev.pool)).toBe(19);
 
-    // ---- E só então a fila leva Development à 0019 -----------------------
+    // ---- E só então a fila leva Development ao fim da fila ---------------
     const rDev = await runMigrations(dev.url);
     expect(rDev.failure).toBeUndefined();
-    expect(rDev.applied).toEqual(["0019_assistant_feedback"]);
+    // As pendentes deste banco são as que o registro dele não tem — da 0019 em
+    // diante. Lista, e não contagem: o que importa é que a fila aplique
+    // exatamente o que faltava, na ordem.
+    expect(rDev.applied).toEqual(
+      readMigrations()
+        .map((m) => m.tag)
+        .filter((tag) => tag > "0018_identidade_forte"),
+    );
     expect(rDev.adopted).toEqual([]);
     expect(await registradas(dev.pool)).toBe(readMigrations().length);
 

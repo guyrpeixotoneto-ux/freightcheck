@@ -5,8 +5,12 @@ import { Router, type IRouter, type Response } from "express";
 import { codigoDoPostgres, db } from "@workspace/db";
 import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
 import {
+  TicketImportDeletionRefused,
+  deleteTicketImport,
   ensureImportStorageDir,
+  listTicketImportDeletions,
   markTicketImportFailed,
+  planTicketImportDeletion,
   readTicketImport,
   receiveTicketFile,
 } from "@workspace/ingest";
@@ -265,6 +269,80 @@ router.get("/ticket-imports/:id", async (req, res): Promise<void> => {
     res.json(run);
   } catch (err) {
     req.log.error({ err }, "Error loading ticket import");
+    await responderFalha(res, err);
+  }
+});
+
+/**
+ * O que a exclusão tiraria, antes de tirar.
+ *
+ * A pergunta "tem certeza?" não é responsável por si só: quem está na tela não
+ * tem como saber que aquele arquivo sustenta 1.218 chamados. Esta rota é o que
+ * transforma a confirmação numa decisão — e é a mesma conta que a exclusão vai
+ * fazer, escrita uma vez só em `planTicketImportDeletion`.
+ */
+router.get("/ticket-imports/:id/deletion", async (req, res): Promise<void> => {
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de envio inválido." });
+    return;
+  }
+  try {
+    const plan = await planTicketImportDeletion(db, req.params.id);
+    if (!plan) {
+      res.status(404).json({ error: "Envio de chamados não encontrado." });
+      return;
+    }
+    res.json(plan);
+  } catch (err) {
+    req.log.error({ err }, "Error planning ticket import deletion");
+    await responderFalha(res, err);
+  }
+});
+
+/**
+ * Excluir um envio de chamados.
+ *
+ * Quem exclui é quem está logado, e o nome vai para `ticket_import_deletion`
+ * junto com o que saiu — o registro sobrevive ao dado, que é a única forma de
+ * "isto foi apagado" continuar sendo uma afirmação verificável depois.
+ *
+ * A recusa — um envio ainda sendo lido — volta como 409 com a frase inteira.
+ * Não é erro do servidor: é a ordem em que as coisas podem ser desfeitas.
+ */
+router.delete("/ticket-imports/:id", async (req, res): Promise<void> => {
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de envio inválido." });
+    return;
+  }
+  try {
+    const motivo =
+      typeof req.body?.reason === "string" && req.body.reason.trim() !== ""
+        ? req.body.reason.trim()
+        : null;
+
+    const result = await deleteTicketImport(db, req.params.id, {
+      deletedBy: req.user?.email ?? DEFAULT_ACTOR,
+      reason: motivo,
+    });
+    res.json(result);
+  } catch (err) {
+    if (err instanceof TicketImportDeletionRefused) {
+      const naoEncontrado = err.message.includes("não encontrado");
+      req.log.warn({ err, ticketImportId: req.params.id }, "Deletion refused");
+      res.status(naoEncontrado ? 404 : 409).json({ error: err.message });
+      return;
+    }
+    req.log.error({ err }, "Error deleting ticket import");
+    await responderFalha(res, err);
+  }
+});
+
+/** O histórico das exclusões — o que já não está mais aqui, e por ordem de quem. */
+router.get("/ticket-import-deletions", async (req, res): Promise<void> => {
+  try {
+    res.json(await listTicketImportDeletions(db));
+  } catch (err) {
+    req.log.error({ err }, "Error listing ticket import deletions");
     await responderFalha(res, err);
   }
 });

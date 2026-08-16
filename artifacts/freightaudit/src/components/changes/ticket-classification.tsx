@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { fetchJson } from "@/lib/api";
+import { primeiraPagina, type Janela } from "@/lib/paginacao";
 import { cn } from "@/lib/utils";
 import {
   TicketChangeTable,
@@ -568,6 +569,11 @@ interface TicketsResponse {
  *
  * Só busca quando a folha abre — uma árvore com cinquenta folhas não pode
  * carregar cinquenta listas para mostrar uma.
+ *
+ * Paginada como a lista do Resumo, e pela mesma razão: uma folha real deste
+ * export tem 1.041 alterações, e mostrar as cem primeiras com um aviso de que
+ * há mais deixaria as outras 941 alcançáveis só por filtro — dentro de uma
+ * visão que existe justamente para não obrigar ninguém a montar filtro.
  */
 function AlteracoesDaFolha({
   parameterLabel,
@@ -578,6 +584,8 @@ function AlteracoesDaFolha({
   subject: string | null;
   envio: string | null;
 }) {
+  const [janela, setJanela] = useState<Janela>(primeiraPagina);
+
   const filtros = {
     ...emptyTicketFilters,
     parameterLabel,
@@ -586,10 +594,10 @@ function AlteracoesDaFolha({
   };
 
   const query = useQuery({
-    queryKey: ["tickets", "folha", envio, parameterLabel, subject],
+    queryKey: ["tickets", "folha", envio, parameterLabel, subject, janela],
     queryFn: () =>
       fetchJson<TicketsResponse>(
-        `/tickets?${toTicketQuery(filtros, envio ? { ticketImportId: envio } : {})}`,
+        `/tickets?${toTicketQuery(filtros, envio ? { ticketImportId: envio } : {}, janela)}`,
       ),
   });
 
@@ -605,6 +613,11 @@ function AlteracoesDaFolha({
   }
 
   return (
-    <TicketChangeTable rows={query.data.rows} total={query.data.total} />
+    <TicketChangeTable
+      rows={query.data.rows}
+      total={query.data.total}
+      janela={janela}
+      onJanela={setJanela}
+    />
   );
 }
