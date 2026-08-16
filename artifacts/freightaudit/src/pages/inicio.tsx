@@ -92,17 +92,18 @@ import type { BalancoResumo } from "@/components/balanco/tipos";
 /**
  * O cartão desta tela.
  *
- * Canto arredondado e sombra baixa, contra o cartão quase reto que o resto do
- * produto usa (`--radius: 0.25rem`). A diferença é deliberada e local: a Visão
- * geral é a única tela feita de blocos que se leem em paralelo — cinco números,
- * uma faixa, quatro painéis —, e a borda arredondada é o que separa um bloco do
- * outro sobre o cinza da página sem precisar de mais linha. Nas telas de tabela,
- * onde a régua reta alinha coluna com coluna, o canto continua o do Freightech.
+ * Ele existia porque o resto do produto era quase reto (`--radius: 0.25rem`) e
+ * esta tela — a única feita de blocos que se leem em paralelo — precisava do
+ * canto arredondado para separar um bloco do outro sobre o cinza da página sem
+ * gastar mais uma linha. O canto era a exceção, e o `rounded-2xl` escrito à mão
+ * era como ela se dizia.
  *
- * Vale como uma decisão só, escrita num lugar só: se um dia a casca inteira for
- * arredondada, é esta constante que some.
+ * A casca inteira foi arredondada, e a exceção acabou: `rounded-xl` é o mesmo
+ * raio que `Card` dá a qualquer cartão do produto. A constante fica pelo que
+ * sobrou dela — fundo, borda e sombra numa string só, repetida em nove seções
+ * desta página —, e agora ela segue `--radius` junto com o resto.
  */
-const CARTAO = "bg-card border rounded-2xl shadow-sm";
+const CARTAO = "bg-card border rounded-xl shadow-sm";
 export default function Inicio() {
   const search = useSearch();
   const [, navegar] = useLocation();
@@ -237,7 +238,7 @@ export default function Inicio() {
             />
 
             {!view.complete && (
-              <div className="flex gap-3 rounded-2xl border border-amber-400 bg-amber-50 px-5 py-4 text-sm text-amber-900">
+              <div className="flex gap-3 rounded-xl border border-amber-400 bg-amber-50 px-5 py-4 text-sm text-amber-900">
                 <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
                 <p>
                   <strong>Visão parcial.</strong> Nesta vigência chegou apenas{" "}

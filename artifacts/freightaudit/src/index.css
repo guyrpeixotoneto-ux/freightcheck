@@ -174,11 +174,20 @@
   --topbar: 211 65% 17%;
   --topbar-foreground: 0 0% 100%;
   /*
-   * O azul claro que só existe sobre a faixa: a segunda metade do logotipo e o
-   * símbolo. Sobre `--topbar` ele mede 4,8:1 — o `--brand` de 29% mediria 1,5:1
-   * ali, que é o motivo de este token existir em vez de reaproveitar aquele.
+   * O azul da marca — o "Check" do logotipo, e só ele.
+   *
+   * Ele existe como token, e não como constante dentro do componente, porque a
+   * marca aparece sobre a faixa marinho e sobre o branco do login, e nos dois
+   * casos é este azul. `--brand` não serve: os 29% de luz dele medem 1,5:1
+   * sobre a faixa e sumiriam ali.
+   *
+   * Sobre `--topbar` este azul mede 3,9:1, abaixo dos 4,5:1 de AA — e fica.
+   * A WCAG dispensa logotipo e nome de marca da exigência de contraste (1.4.3),
+   * e é justamente por ser uma cor de marca que ela não pode ser escurecida até
+   * passar na conta. **O token é do logotipo.** Texto que precise ser lido sobre
+   * a faixa usa `--topbar-foreground`, que é branco em 15:1.
    */
-  --topbar-accent: 209 70% 59%;
+  --topbar-accent: 208 79% 51%;
 
   /*
    * O marinho do realce, escurecido — e o vermelho e o verde que sobrevivem a
@@ -244,8 +253,27 @@
 
   --app-font-sans: 'Montserrat', sans-serif;
   --app-font-mono: 'JetBrains Mono', monospace;
-  /* Cartão do Freightech é quase reto. */
-  --radius: 0.25rem;
+
+  /*
+   * O raio da casca inteira, num número só.
+   *
+   * Era `0.25rem` — o cartão quase reto do Freightech. A 15px de raiz isso dava
+   * 3,75px no cartão e **-0,25px** em `--radius-sm`, que o navegador lê como
+   * zero: a escala inteira estava espremida contra o canto reto, e as telas que
+   * queriam respirar escapavam para `rounded-2xl` escrito à mão, uma por uma.
+   *
+   * A 0.75rem a escala volta a ter os quatro degraus que a fórmula acima
+   * pressupõe — 7,25px, 9,25px, 11,25px e 15,25px. O de cima é o cartão
+   * (`Card` usa `rounded-xl`), e ele cai onde as telas já haviam chegado à mão
+   * com `rounded-2xl`: 15,25px contra 15px. Foi por isso que este valor, e não
+   * outro — subir o token não redesenha as telas que já estavam arredondadas,
+   * alcança as que não estavam.
+   *
+   * O que **não** segue esta alavanca é o `rounded` sem sufixo, que o Tailwind
+   * fixa em 0,25rem. Ele ficou de propósito nos chips, nos botões de ícone e
+   * nos esqueletos: raio grande em elemento de 20px vira pílula.
+   */
+  --radius: 0.75rem;
 }
 
 /*

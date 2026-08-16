@@ -9,6 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/auth";
+import { Logotipo } from "./logotipo";
 
 /**
  * A faixa marinho do topo.
@@ -54,7 +55,7 @@ export function Topbar({
         <Menu className="w-6 h-6" />
       </button>
 
-      <Link href="/" className="flex items-center gap-2 shrink-0">
+      <Link href="/" className="shrink-0">
         <Logotipo />
       </Link>
 
@@ -87,27 +88,5 @@ export function Topbar({
         </DropdownMenu>
       )}
     </header>
-  );
-}
-
-/**
- * A marca: um símbolo à esquerda e o nome em duas espessuras.
- *
- * As duas metades do nome não são só duas espessuras — são duas cores. "Freight"
- * é o branco da faixa e "check" é `--topbar-accent`, o azul claro; é o que faz o
- * nome se ler como uma palavra composta e não como uma palavra só, à distância
- * em que a espessura sozinha já não se distingue.
- */
-function Logotipo() {
-  return (
-    <>
-      <span className="w-9 h-9 rounded-sm bg-white text-topbar flex items-center justify-center font-extrabold text-xl italic shrink-0">
-        F
-      </span>
-      <span className="text-2xl leading-none tracking-tight">
-        <span className="font-extrabold italic">Freight</span>
-        <span className="font-light text-topbar-accent">check</span>
-      </span>
-    </>
   );
 }
