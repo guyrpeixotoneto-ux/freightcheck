@@ -631,28 +631,45 @@ function levantar(tag: string, marca: RegExp): string {
  * definição que a sua migration proprietária lhe dá. Nenhum backfill, nenhuma
  * fusão, nenhuma validação de dado histórico é reaplicada.
  */
-function planoUp(): { objeto: string; sql: string }[] {
-  const p: { objeto: string; sql: string }[] = [];
-  const add = (objeto: string, sql: string) => p.push({ objeto, sql });
+export interface PassoUp {
+  objeto: string;
+  sql: string;
+  /** A migration dona do objeto. O `up` só o restaura se ela estiver registrada. */
+  migration: string;
+}
 
-  // 1. Desfaz o estado legado que o `down` recriou.
+function planoUp(): PassoUp[] {
+  const p: PassoUp[] = [];
+  const add = (migration: string, objeto: string, sql: string) =>
+    p.push({ objeto, sql, migration });
+
+  const M13 = "0013_chamados_por_parametro";
+  const M14 = "0014_chamados_formato_real";
+  const M15 = "0015_canonical_identity";
+  const M16 = "0016_canonical_identity_enforcement";
+  const M17 = "0017_fato_herdado";
+  const M18 = "0018_identidade_forte";
+  const M19 = "0019_assistant_feedback";
+
+  // 1. Desfaz o estado legado que o `down` recriou. Quem o desfaz é a `0013`.
   for (const col of COLUNAS_LEGADAS_TICKET) {
-    add(`ticket.${col.nome}`, `ALTER TABLE "ticket" DROP COLUMN IF EXISTS "${col.nome}" RESTRICT`);
+    add(M13, `ticket.${col.nome}`, `ALTER TABLE "ticket" DROP COLUMN IF EXISTS "${col.nome}" RESTRICT`);
   }
-  for (const i of INDICES_LEGADOS) {
-    add(`índice ${i.nome}`, `DROP INDEX IF EXISTS "${i.nome}" RESTRICT`);
+  add(M13, "índice ticket_attribute_idx", `DROP INDEX IF EXISTS "ticket_attribute_idx" RESTRICT`);
+  for (const i of ["snapshot_business_key_uq", "snapshot_business_key_live_uq"]) {
+    add(M16, `índice ${i}`, `DROP INDEX IF EXISTS "${i}" RESTRICT`);
   }
 
   // 2. Colunas, com a definição da migration proprietária.
-  add("ticket.changed_parameter_count", levantar("0013_chamados_por_parametro", /ADD COLUMN IF NOT EXISTS "changed_parameter_count"/));
-  add("ticket_import.parameter_columns", levantar("0013_chamados_por_parametro", /ADD COLUMN IF NOT EXISTS "parameter_columns"/));
-  add("ticket.vigencia_label", levantar("0014_chamados_formato_real", /ADD COLUMN IF NOT EXISTS "vigencia_label"/));
-  add("ticket.entity_description", levantar("0014_chamados_formato_real", /ADD COLUMN IF NOT EXISTS "entity_description"/));
-  add("fact.inherited_from_snapshot_id", levantar("0017_fato_herdado", /ADD COLUMN IF NOT EXISTS "inherited_from_snapshot_id"/));
+  add(M13, "ticket.changed_parameter_count", levantar(M13, /ADD COLUMN IF NOT EXISTS "changed_parameter_count"/));
+  add(M13, "ticket_import.parameter_columns", levantar(M13, /ADD COLUMN IF NOT EXISTS "parameter_columns"/));
+  add(M14, "ticket.vigencia_label", levantar(M14, /ADD COLUMN IF NOT EXISTS "vigencia_label"/));
+  add(M14, "ticket.entity_description", levantar(M14, /ADD COLUMN IF NOT EXISTS "entity_description"/));
+  add(M17, "fact.inherited_from_snapshot_id", levantar(M17, /ADD COLUMN IF NOT EXISTS "inherited_from_snapshot_id"/));
 
   // 3. Tabelas e o que vem com elas.
-  add("ticket_change", levantar("0013_chamados_por_parametro", /CREATE TABLE IF NOT EXISTS "ticket_change"/));
-  add("FKs de ticket_change", levantar("0013_chamados_por_parametro", /ticket_change_ticket_id_ticket_id_fk/));
+  add(M13, "ticket_change", levantar(M13, /CREATE TABLE IF NOT EXISTS "ticket_change"/));
+  add(M13, "FKs de ticket_change", levantar(M13, /ticket_change_ticket_id_ticket_id_fk/));
   for (const i of [
     "ticket_change_grain_uq",
     "ticket_change_import_idx",
@@ -660,47 +677,47 @@ function planoUp(): { objeto: string; sql: string }[] {
     "ticket_change_attribute_idx",
     "ticket_change_parameter_idx",
   ]) {
-    add(`índice ${i}`, levantar("0013_chamados_por_parametro", new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+    add(M13, `índice ${i}`, levantar(M13, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
   }
-  add("ticket_change.change_kind", levantar("0014_chamados_formato_real", /ADD COLUMN IF NOT EXISTS "change_kind"/));
-  add("índice ticket_change_kind_idx", levantar("0014_chamados_formato_real", /INDEX IF NOT EXISTS "ticket_change_kind_idx"/));
-  add("índice ticket_vigencia_idx", levantar("0014_chamados_formato_real", /INDEX IF NOT EXISTS "ticket_vigencia_idx"/));
-  add("índice fact_inherited_idx", levantar("0017_fato_herdado", /INDEX IF NOT EXISTS "fact_inherited_idx"/));
-  add("snapshot_merge", levantar("0016_canonical_identity_enforcement", /CREATE TABLE IF NOT EXISTS "snapshot_merge"/));
-  add("import_decision", levantar("0016_canonical_identity_enforcement", /CREATE TABLE IF NOT EXISTS "import_decision"/));
+  add(M14, "ticket_change.change_kind", levantar(M14, /ADD COLUMN IF NOT EXISTS "change_kind"/));
+  add(M14, "índice ticket_change_kind_idx", levantar(M14, /INDEX IF NOT EXISTS "ticket_change_kind_idx"/));
+  add(M14, "índice ticket_vigencia_idx", levantar(M14, /INDEX IF NOT EXISTS "ticket_vigencia_idx"/));
+  add(M17, "índice fact_inherited_idx", levantar(M17, /INDEX IF NOT EXISTS "fact_inherited_idx"/));
+  add(M16, "snapshot_merge", levantar(M16, /CREATE TABLE IF NOT EXISTS "snapshot_merge"/));
+  add(M16, "import_decision", levantar(M16, /CREATE TABLE IF NOT EXISTS "import_decision"/));
   for (const i of ["import_decision_run_idx", "import_decision_key_idx", "import_decision_sha_idx"]) {
-    add(`índice ${i}`, levantar("0016_canonical_identity_enforcement", new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+    add(M16, `índice ${i}`, levantar(M16, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
   }
 
   // 4. A identidade canônica. As funções vêm primeiro: a coluna gerada e as
   //    views as chamam, e `CREATE OR REPLACE FUNCTION` é idempotente.
   for (const f of FUNCOES_REMOVIDAS) {
-    add(`função ${f}`, levantar("0015_canonical_identity", new RegExp(`CREATE OR REPLACE FUNCTION ${f}\\(`)));
+    add(M15, `função ${f}`, levantar(M15, new RegExp(`CREATE OR REPLACE FUNCTION ${f}\\(`)));
   }
-  add("snapshot.canonical_snapshot_key", levantar("0015_canonical_identity", /ADD COLUMN "canonical_snapshot_key" text/));
-  add("índice snapshot_canonical_key_idx", levantar("0015_canonical_identity", /snapshot_canonical_key_idx/));
-  add("índices únicos da identidade", levantar("0016_canonical_identity_enforcement", /snapshot_canonical_live_uq/));
+  add(M15, "snapshot.canonical_snapshot_key", levantar(M15, /ADD COLUMN "canonical_snapshot_key" text/));
+  add(M15, "índice snapshot_canonical_key_idx", levantar(M15, /snapshot_canonical_key_idx/));
+  add(M16, "índices únicos da identidade", levantar(M16, /snapshot_canonical_live_uq/));
   for (const v of VIEWS_REMOVIDAS) {
     // O `DROP` antes do `CREATE` é o que torna o `up` repetível: a `0015` tem
     // os dois como statements separados, e levantar só o `CREATE` faria a
     // segunda execução morrer em `relation already exists`.
-    add(`view ${v}`, `DROP VIEW IF EXISTS "${v}" RESTRICT`);
-    add(`view ${v}`, levantar("0015_canonical_identity", new RegExp(`CREATE VIEW "${v}"`)));
+    add(M15, `view ${v}`, `DROP VIEW IF EXISTS "${v}" RESTRICT`);
+    add(M15, `view ${v}`, levantar(M15, new RegExp(`CREATE VIEW "${v}"`)));
   }
 
   // A `0019` — presente só em bancos que chegaram até ela.
   for (const col of ["feedback", "feedback_note", "feedback_at"]) {
-    add(`assistant_message.${col}`, levantar("0019_assistant_feedback", new RegExp(`ADD COLUMN IF NOT EXISTS "${col}"`)));
+    add(M19, `assistant_message.${col}`, levantar(M19, new RegExp(`ADD COLUMN IF NOT EXISTS "${col}"`)));
   }
-  add("assistant_message_feedback_ck", levantar("0019_assistant_feedback", /DROP CONSTRAINT IF EXISTS "assistant_message_feedback_ck"/));
-  add("assistant_message_feedback_ck", levantar("0019_assistant_feedback", /ADD CONSTRAINT\s+"assistant_message_feedback_ck"/));
+  add(M19, "assistant_message_feedback_ck", levantar(M19, /DROP CONSTRAINT IF EXISTS "assistant_message_feedback_ck"/));
+  add(M19, "assistant_message_feedback_ck", levantar(M19, /ADD CONSTRAINT\s+"assistant_message_feedback_ck"/));
 
   // 5. Obrigatoriedade e constraints.
   //    Os valores nunca saíram: o `down` só afrouxou o NOT NULL.
   for (const [t, col] of NULLABLE_TEMPORARIO) {
-    add(`${t}.${col} NOT NULL`, `ALTER TABLE "${t}" ALTER COLUMN "${col}" SET NOT NULL`);
+    add(M15, `${t}.${col} NOT NULL`, `ALTER TABLE "${t}" ALTER COLUMN "${col}" SET NOT NULL`);
   }
-  add("constraints da identidade", levantar("0018_identidade_forte", /snapshot_canonical_scope_nao_vazio_ck/));
+  add(M18, "constraints da identidade", levantar(M18, /snapshot_canonical_scope_nao_vazio_ck/));
 
   return p;
 }
@@ -717,15 +734,50 @@ export async function bridgeUp(connectionString: string): Promise<BridgeReport> 
   };
 
   try {
+    /*
+      O `up` restaura **o que o `down` removeu**, e nada além disso.
+
+      A diferença não é acadêmica. Development real tem dezenove carimbos, o
+      último da `0018`: a `0019` está no disco e não no banco. Um `up` que
+      aplicasse o plano inteiro criaria as colunas de feedback e o CHECK dela, e
+      Development terminaria com schema de `0019` e registro de `0018` — um
+      estado que nenhuma das duas autoridades reconhece, e exatamente o tipo de
+      divergência que este trabalho existe para fechar.
+
+      Por isso cada passo carrega a migration que o possui, e só entra se ela
+      estiver registrada. O que ficou de fora não se perde: é a fila que o
+      aplica, por `runMigrations()`, que é quem tem autoridade para isso — e aí
+      schema e registro avançam juntos.
+    */
+    const { rows: carimbos } = await c.query<{ created_at: string }>(
+      `SELECT created_at FROM "drizzle"."__drizzle_migrations"`,
+    );
+    const aplicadas = new Set(carimbos.map((r) => Number(r.created_at)));
+    const registrada = new Map(
+      readMigrations().map((m) => [m.tag, aplicadas.has(m.when)]),
+    );
+
     const plano = planoUp();
+    const aFazer = plano.filter((p) => registrada.get(p.migration) === true);
+    const adiadas = [
+      ...new Set(plano.filter((p) => !aFazer.includes(p)).map((p) => p.migration)),
+    ];
+
     rel.precondicoes.push({
       nome: "plano estrutural",
       ok: true,
-      detalhe: `${plano.length} objetos, nenhum statement mexe em dados`,
+      detalhe: `${aFazer.length} de ${plano.length} objetos, nenhum statement mexe em dados`,
     });
+    if (adiadas.length > 0) {
+      rel.precondicoes.push({
+        nome: "adiado para a fila",
+        ok: true,
+        detalhe: `${adiadas.join(", ")} não está registrada — quem a aplica é runMigrations()`,
+      });
+    }
 
     await c.query("BEGIN");
-    for (const passo of plano) {
+    for (const passo of aFazer) {
       rel.ddl.push(`-- ${passo.objeto}`);
       await c.query(passo.sql);
     }
@@ -736,27 +788,30 @@ export async function bridgeUp(connectionString: string): Promise<BridgeReport> 
       reaplicação do backfill da `0013`: é o valor canônico da coluna que o
       `down` removeu, devolvido junto com ela. Com `ticket` vazio, é no-op.
     */
-    await c.query(
-      `UPDATE "ticket" t SET "changed_parameter_count" =
-         (SELECT count(*) FROM "ticket_change" tc WHERE tc."ticket_id" = t."id")
-        WHERE t."changed_parameter_count" IS NULL`,
-    );
-    await c.query(
-      `UPDATE "ticket_import" SET "parameter_columns" = '[]'::jsonb WHERE "parameter_columns" IS NULL`,
-    );
-    for (const [t, col, def] of [
-      ["ticket", "changed_parameter_count", "0"],
-      ["ticket_import", "parameter_columns", "'[]'::jsonb"],
-    ] as const) {
-      await c.query(`ALTER TABLE "${t}" ALTER COLUMN "${col}" SET DEFAULT ${def}`);
-      await c.query(`ALTER TABLE "${t}" ALTER COLUMN "${col}" SET NOT NULL`);
+    if (await existeColuna(c, "ticket", "changed_parameter_count")) {
+      await c.query(
+        `UPDATE "ticket" t SET "changed_parameter_count" =
+           (SELECT count(*) FROM "ticket_change" tc WHERE tc."ticket_id" = t."id")
+          WHERE t."changed_parameter_count" IS NULL`,
+      );
+      await c.query(`ALTER TABLE "ticket" ALTER COLUMN "changed_parameter_count" SET DEFAULT 0`);
+      await c.query(`ALTER TABLE "ticket" ALTER COLUMN "changed_parameter_count" SET NOT NULL`);
+    }
+    if (await existeColuna(c, "ticket_import", "parameter_columns")) {
+      await c.query(
+        `UPDATE "ticket_import" SET "parameter_columns" = '[]'::jsonb WHERE "parameter_columns" IS NULL`,
+      );
+      await c.query(`ALTER TABLE "ticket_import" ALTER COLUMN "parameter_columns" SET DEFAULT '[]'::jsonb`);
+      await c.query(`ALTER TABLE "ticket_import" ALTER COLUMN "parameter_columns" SET NOT NULL`);
     }
 
     await c.query("COMMIT");
     rel.verificacao.push({
       nome: "restauração aplicada",
       ok: true,
-      detalhe: `${plano.length} objetos`,
+      detalhe: `${aFazer.length} objetos restaurados${
+        adiadas.length > 0 ? `, ${adiadas.length} migration(s) adiada(s) para a fila` : ""
+      }`,
     });
     return rel;
   } catch (err) {

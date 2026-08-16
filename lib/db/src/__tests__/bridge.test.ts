@@ -396,6 +396,133 @@ describe("bridge-up: o estado canônico volta inteiro", () => {
   }, 600_000);
 });
 
+/**
+ * O estado final obrigatório, e o caminho inteiro até ele.
+ *
+ * Development real tem **dezenove** carimbos, o último da `0018`: a `0019` está
+ * no disco e não no banco. Um `bridge-up` que restaurasse o plano inteiro
+ * deixaria schema de `0019` com registro de `0018` — divergência que nenhuma
+ * das duas autoridades reconhece, e que seria o mesmo defeito que este trabalho
+ * existe para fechar, só que fabricado por nós.
+ *
+ * O `up` restaura o que o `down` removeu, e nada além. O que sobra é da fila.
+ */
+describe("a invariante final: schema e registro andam juntos", () => {
+  /** Development como ele é hoje: fila até a `0018`, com registro. */
+  async function developmentNa0018(): Promise<{ url: string; pool: pg.Pool }> {
+    const b = await bancoNovo();
+    // O registro é criado por `runMigrations`, não pelo SQL das migrations.
+    await b.pool.query(`CREATE SCHEMA IF NOT EXISTS "drizzle"`);
+    await b.pool.query(
+      `CREATE TABLE IF NOT EXISTS "drizzle"."__drizzle_migrations" (
+         id SERIAL PRIMARY KEY, hash text NOT NULL, created_at bigint)`,
+    );
+    for (const m of readMigrations()) {
+      await b.pool.query("BEGIN");
+      for (const comando of m.statements) await b.pool.query(comando);
+      await b.pool.query(
+        `INSERT INTO "drizzle"."__drizzle_migrations" ("hash","created_at") VALUES ($1,$2)`,
+        [m.hash, m.when],
+      );
+      await b.pool.query("COMMIT");
+      if (m.tag === "0018_identidade_forte") return b;
+    }
+    throw new Error("0018 não encontrada");
+  }
+
+  const registradas = async (pool: pg.Pool) => {
+    const { rows } = await pool.query<{ n: string }>(
+      `SELECT count(*) AS n FROM "drizzle"."__drizzle_migrations"`,
+    );
+    return Number(rows[0]!.n);
+  };
+
+  it("o up não adianta a 0019 — quem a aplica é a fila", async () => {
+    const dev = await developmentNa0018();
+    expect(await registradas(dev.pool)).toBe(19);
+
+    expect((await bridgeDown(dev.url)).falha).toBeUndefined();
+    const rel = await bridgeUp(dev.url);
+    expect(rel.falha).toBeUndefined();
+    expect(rel.precondicoes.some((p) => /adiado para a fila/.test(p.nome))).toBe(true);
+
+    // Registro intacto, e o schema **não** foi adiantado para a 0019.
+    expect(await registradas(dev.pool)).toBe(19);
+    const { rows } = await dev.pool.query<{ e: boolean }>(
+      `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                       WHERE table_schema='public' AND table_name='assistant_message'
+                         AND column_name='feedback') AS e`,
+    );
+    expect(rows[0]!.e).toBe(false);
+
+    // E o schema bate com o de um banco que parou na 0018, não com o final.
+    const referencia0018 = await developmentNa0018();
+    expect(await estruturaDe(dev.pool)).toEqual(await estruturaDe(referencia0018.pool));
+
+    await dev.pool.end();
+    await referencia0018.pool.end();
+  }, 600_000);
+
+  it("o fluxo completo termina com 20/20 dos dois lados e diff zero", async () => {
+    const referencia = await bancoNovo();
+    expect((await runMigrations(referencia.url)).failure).toBeUndefined();
+
+    const dev = await developmentNa0018();
+    const prod = await production();
+    await noveVigenciasReais(prod.pool);
+
+    // ---- Fase A: o bridge desmonta o diff perigoso ----------------------
+    expect((await bridgeDown(dev.url)).falha).toBeUndefined();
+    const diffNoDeploy = await diffDoPublishing(dev.pool, prod.pool);
+    expect(diffNoDeploy.drop).toEqual([]);
+    expect(diffNoDeploy.addColumn.sort()).toEqual(
+      ALLOWLIST.map((a) => `${a.tabela}.${a.coluna}`).sort(),
+    );
+
+    // ---- O Publishing aplica a allowlist em Production -------------------
+    for (const a of ALLOWLIST) {
+      await prod.pool.query(`ALTER TABLE "${a.tabela}" ADD COLUMN "${a.coluna}" ${a.tipo}`);
+    }
+
+    // ---- Fase B: Production migra primeiro -------------------------------
+    const rProd = await runMigrations(prod.url);
+    expect(rProd.failure).toBeUndefined();
+    expect(await registradas(prod.pool)).toBe(readMigrations().length);
+
+    // ---- Development volta ao estado que o registro dele descreve --------
+    expect((await bridgeUp(dev.url)).falha).toBeUndefined();
+    expect(await registradas(dev.pool)).toBe(19);
+
+    // ---- E só então a fila leva Development à 0019 -----------------------
+    const rDev = await runMigrations(dev.url);
+    expect(rDev.failure).toBeUndefined();
+    expect(rDev.applied).toEqual(["0019_assistant_feedback"]);
+    expect(rDev.adopted).toEqual([]);
+    expect(await registradas(dev.pool)).toBe(readMigrations().length);
+
+    // ---- O estado final obrigatório --------------------------------------
+    const canonico = await estruturaDe(referencia.pool);
+    expect(await estruturaDe(dev.pool)).toEqual(canonico);
+    expect(await estruturaDe(prod.pool)).toEqual(canonico);
+
+    // E a próxima publicação não tem o que propor: diff zero em tudo.
+    const diffDepois = await diffDoPublishing(dev.pool, prod.pool);
+    expect(diffDepois.drop).toEqual([]);
+    expect(diffDepois.addTable).toEqual([]);
+    expect(diffDepois.addColumn).toEqual([]);
+    expect(diffDepois.addIndex).toEqual([]);
+    expect(diffDepois.addConstraint).toEqual([]);
+    expect(diffDepois.addView).toEqual([]);
+    expect(diffDepois.addFunction).toEqual([]);
+    expect(diffDepois.addGenerated).toEqual([]);
+    expect(diffDepois.alter).toEqual([]);
+
+    await dev.pool.end();
+    await prod.pool.end();
+    await referencia.pool.end();
+  }, 900_000);
+});
+
 describe("a Fase B sobre Production", () => {
   it("a fila atravessa o que o Publishing criou e chega ao schema final", async () => {
     const referencia = await bancoNovo();
