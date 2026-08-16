@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest";
 import { blocosDoTexto } from "../documento";
 import { interpretar } from "../interpretacao";
 import { ranquear, trechosDosBlocos, type TrechoDoBook } from "../indice-book";
-import { emFrases, sanear, numerosSemLastro, type Dossie } from "../orquestrador";
+import {
+  emFrases,
+  sanear,
+  numerosSemLastro,
+  type Dossie,
+} from "../orquestrador";
 import { portaoDeLastro } from "../resposta";
 import type { Evidencia } from "../ferramentas";
 
@@ -19,13 +24,22 @@ const EVIDENCIA: Evidencia = {
   ferramenta: "resumoDaVigencia",
   titulo: "O que mudou em agosto/2026",
   fatos: [
-    { rotulo: "Alterações", valor: "267", detalhe: "7% do que mudou tem impacto calculável (19 de 267)" },
+    {
+      rotulo: "Alterações",
+      valor: "267",
+      detalhe: "7% do que mudou tem impacto calculável (19 de 267)",
+    },
     { rotulo: "Impacto apurado", valor: "+R$ 28.511,24/mês" },
     { rotulo: "Revisão vigente", valor: "1", interno: true },
   ],
   numeros: [267, 77, 19, 28511.24],
   origem: "getFamiliesView · agosto/2026",
-  recorte: { unidade: "CAMAÇARI", canal: "EMPURRADA", contexto: "CAMAÇARI · EMPURRADA", vigencia: "agosto/2026" },
+  recorte: {
+    unidade: "CAMAÇARI",
+    canal: "EMPURRADA",
+    contexto: "CAMAÇARI · EMPURRADA",
+    vigencia: "agosto/2026",
+  },
 };
 
 const DOSSIE = {
@@ -51,7 +65,10 @@ const DOSSIE = {
   lacunas: [],
   etapas: [],
   desambiguacao: null,
-  diagnostico: { book: { candidatos: 0, selecionados: 0, melhorPontuacao: 0 }, ms: 0 },
+  diagnostico: {
+    book: { candidatos: 0, selecionados: 0, melhorPontuacao: 0 },
+    ms: 0,
+  },
 } satisfies Dossie;
 
 describe("P0.4 — a trava reconhece o que é conferível", () => {
@@ -63,7 +80,9 @@ describe("P0.4 — a trava reconhece o que é conferível", () => {
   });
 
   it("o arredondamento declarado bate com o valor cheio", () => {
-    expect(passa("O impacto foi de cerca de R$ 28,5 mil por mês [1].")).toBe(true);
+    expect(passa("O impacto foi de cerca de R$ 28,5 mil por mês [1].")).toBe(
+      true,
+    );
     expect(passa("O impacto ficou perto de R$ 29 mil [1].")).toBe(true);
   });
 
@@ -98,12 +117,14 @@ describe("P0.4 — o descarte passou a ser da frase", () => {
   });
 
   it("quando a poda passa de um terço, a resposta inteira cai", () => {
-    const texto = "Foram 412 alterações [1]. O impacto foi de R$ 90.000,00 [1]. Sobrou pouco [1].";
+    const texto =
+      "Foram 412 alterações [1]. O impacto foi de R$ 90.000,00 [1]. Sobrou pouco [1].";
     expect(sanear(texto, DOSSIE).irrecuperavel).toBe(true);
   });
 
   it("texto inteiro sustentado não é tocado", () => {
-    const texto = "Em agosto houve 267 alterações [1]. A apuração cobre 19 delas [1].";
+    const texto =
+      "Em agosto houve 267 alterações [1]. A apuração cobre 19 delas [1].";
     const r = sanear(texto, DOSSIE);
     expect(r.removidas).toBe(0);
     expect(r.texto).toBe(texto);
@@ -142,11 +163,23 @@ describe("P1.2 — o nome da fonte não é assunto", () => {
 
   const INDICE: TrechoDoBook[] = [
     ...trechosDosBlocos(
-      [{ tipo: "PARAGRAFO", texto: "A remuneração de pneu considera o custo por quilômetro rodado." }],
+      [
+        {
+          tipo: "PARAGRAFO",
+          texto:
+            "A remuneração de pneu considera o custo por quilômetro rodado.",
+        },
+      ],
       meta("PNEU"),
     ),
     ...trechosDosBlocos(
-      [{ tipo: "PARAGRAFO", texto: "O vale pedágio é repassado por reembolso e não sofre reajuste." }],
+      [
+        {
+          tipo: "PARAGRAFO",
+          texto:
+            "O vale pedágio é repassado por reembolso e não sofre reajuste.",
+        },
+      ],
       meta("BOOK VALE PEDÁGIO"),
     ),
   ];
@@ -156,11 +189,15 @@ describe("P1.2 — o nome da fonte não é assunto", () => {
     **onde** procurar encontrando o bloco que a tem no título.
   */
   it("perguntar 'o que o Book diz sobre pneu' traz pneu, não o bloco chamado BOOK", () => {
-    expect(ranquear(INDICE, "O que o Book diz sobre pneu?")[0]!.trecho.bloco).toBe("PNEU");
+    expect(
+      ranquear(INDICE, "O que o Book diz sobre pneu?")[0]!.trecho.bloco,
+    ).toBe("PNEU");
   });
 
   it("e quem procura o bloco pelo nome continua achando", () => {
-    expect(ranquear(INDICE, "vale pedágio")[0]!.trecho.bloco).toBe("BOOK VALE PEDÁGIO");
+    expect(ranquear(INDICE, "vale pedágio")[0]!.trecho.bloco).toBe(
+      "BOOK VALE PEDÁGIO",
+    );
   });
 });
 

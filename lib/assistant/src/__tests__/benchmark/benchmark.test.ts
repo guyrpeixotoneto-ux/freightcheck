@@ -24,8 +24,10 @@ import { BENCHMARK, type Fonte } from "./perguntas";
  * o export promovido e os conjuntos de alteração calculados.
  */
 
-const URL_DO_BANCO = process.env.ASSISTANT_EVAL_DATABASE_URL ?? process.env.DATABASE_URL;
-const rodar = URL_DO_BANCO ? describe : describe.skip;
+import {
+  comBancoDeAvaliacao as rodar,
+  URL_DO_BANCO_DE_AVALIACAO as URL_DO_BANCO,
+} from "../banco-de-avaliacao";
 
 /**
  * O piso por categoria. Subir é progresso; cair é regressão.
@@ -45,17 +47,32 @@ const rodar = URL_DO_BANCO ? describe : describe.skip;
  * acrescentar perguntas novas mede o que elas dão antes de travar.
  */
 const PISO: Record<string, number> = {
-  alteracoes: 15, parametros: 11, impacto: 10, equipamentos: 8, combustivel: 8,
-  book: 13, comparacao: 6, cruzada: 6, informal: 10, executiva: 7, impossivel: 9,
+  alteracoes: 15,
+  parametros: 11,
+  impacto: 10,
+  equipamentos: 8,
+  combustivel: 8,
+  book: 13,
+  comparacao: 6,
+  cruzada: 6,
+  informal: 10,
+  executiva: 7,
+  impossivel: 9,
 };
 
 rodar("benchmark do assistente", () => {
   let db: Database;
-  const porCategoria = new Map<string, { ok: number; total: number; falhas: string[] }>();
+  const porCategoria = new Map<
+    string,
+    { ok: number; total: number; falhas: string[] }
+  >();
 
   beforeAll(async () => {
     ({ db } = createDb(URL_DO_BANCO!));
-    expect(await resolveContext(db), "o benchmark precisa de um banco promovido").toBeTruthy();
+    expect(
+      await resolveContext(db),
+      "o benchmark precisa de um banco promovido",
+    ).toBeTruthy();
     await semearBookDeTeste(db);
 
     for (const caso of BENCHMARK) {
@@ -71,14 +88,22 @@ rodar("benchmark do assistente", () => {
       const passou =
         caso.intencao.includes(d.plano.intencao) &&
         caso.fontes.some((f) => fontes.includes(f)) &&
-        (!caso.ferramentas || caso.ferramentas.some((f) => ferramentas.includes(f))) &&
+        (!caso.ferramentas ||
+          caso.ferramentas.some((f) => ferramentas.includes(f))) &&
         (!caso.exigeEvidencia || d.evidencias.length > 0) &&
         (!caso.lacuna || d.lacunas.some((l) => l.tipo === caso.lacuna));
 
-      const acc = porCategoria.get(caso.categoria) ?? { ok: 0, total: 0, falhas: [] };
+      const acc = porCategoria.get(caso.categoria) ?? {
+        ok: 0,
+        total: 0,
+        falhas: [],
+      };
       acc.total += 1;
       if (passou) acc.ok += 1;
-      else acc.falhas.push(`"${caso.pergunta}" → ${d.plano.intencao} / ${fontes.join("+")}`);
+      else
+        acc.falhas.push(
+          `"${caso.pergunta}" → ${d.plano.intencao} / ${fontes.join("+")}`,
+        );
       porCategoria.set(caso.categoria, acc);
     }
   });

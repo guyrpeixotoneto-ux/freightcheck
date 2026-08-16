@@ -1,7 +1,11 @@
 import { beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { createDb, type Database } from "@workspace/db";
-import { getFamiliesView, listPeriods, resolveContext } from "@workspace/comparison";
+import {
+  getFamiliesView,
+  listPeriods,
+  resolveContext,
+} from "@workspace/comparison";
 import {
   citacoesSemFonte,
   itensCitaveis,
@@ -9,7 +13,11 @@ import {
   orquestrar,
 } from "../orquestrador";
 import { responder } from "../resposta";
-import { avancarEstado, ESTADO_VAZIO, type EstadoDaConversa } from "../conversa";
+import {
+  avancarEstado,
+  ESTADO_VAZIO,
+  type EstadoDaConversa,
+} from "../conversa";
 import { resolverParametro } from "../parametros";
 import { CASOS, CONVERSAS } from "./bateria";
 import { semearBookDeTeste } from "./fixtures/book";
@@ -32,9 +40,10 @@ import { semearBookDeTeste } from "./fixtures/book";
  * o mesmo que apagá-la.
  */
 
-const URL_DO_BANCO = process.env.ASSISTANT_EVAL_DATABASE_URL ?? process.env.DATABASE_URL;
-const rodar = URL_DO_BANCO ? describe : describe.skip;
-
+import {
+  comBancoDeAvaliacao as rodar,
+  URL_DO_BANCO_DE_AVALIACAO as URL_DO_BANCO,
+} from "./banco-de-avaliacao";
 
 rodar("bateria do assistente", () => {
   let db: Database;
@@ -42,7 +51,10 @@ rodar("bateria do assistente", () => {
   beforeAll(async () => {
     ({ db } = createDb(URL_DO_BANCO!));
     const contexto = await resolveContext(db);
-    expect(contexto, "a bateria precisa de um banco com vigência promovida").toBeTruthy();
+    expect(
+      contexto,
+      "a bateria precisa de um banco com vigência promovida",
+    ).toBeTruthy();
     await semearBookDeTeste(db);
   });
 
@@ -50,7 +62,9 @@ rodar("bateria do assistente", () => {
     it.each(CASOS)("$pergunta", async (caso) => {
       const dossie = await orquestrar(db, caso.pergunta);
 
-      expect(dossie.plano.intencao, `intenção de "${caso.pergunta}"`).toBe(caso.intencao);
+      expect(dossie.plano.intencao, `intenção de "${caso.pergunta}"`).toBe(
+        caso.intencao,
+      );
 
       if (caso.ferramentas) {
         const usadas = dossie.evidencias.map((e) => e.ferramenta);
@@ -75,7 +89,10 @@ rodar("bateria do assistente", () => {
       }
 
       if (caso.desambigua) {
-        expect(dossie.desambiguacao, `"${caso.pergunta}" precisa perguntar de volta`).toBeTruthy();
+        expect(
+          dossie.desambiguacao,
+          `"${caso.pergunta}" precisa perguntar de volta`,
+        ).toBeTruthy();
         expect(dossie.desambiguacao!.opcoes.length).toBeGreaterThan(1);
       }
 
@@ -87,7 +104,9 @@ rodar("bateria do assistente", () => {
         vigência pode entrar numa resposta conceitual.
       */
       if (caso.semRecorte) {
-        const comVigencia = dossie.evidencias.filter((e) => e.recorte?.vigencia);
+        const comVigencia = dossie.evidencias.filter(
+          (e) => e.recorte?.vigencia,
+        );
         expect(
           comVigencia.map((e) => e.titulo),
           "resposta conceitual não carrega vigência",
@@ -112,7 +131,9 @@ rodar("bateria do assistente", () => {
       const visao = await getFamiliesView(db, undefined, contexto!);
       expect(visao).toBeTruthy();
 
-      const resposta = await responder(db, "O que mudou na última vigência?", { semIa: true });
+      const resposta = await responder(db, "O que mudou na última vigência?", {
+        semIa: true,
+      });
 
       const alteracoes = visao!.summary.changes.toLocaleString("pt-BR");
       const veiculos = visao!.summary.vehiclesTouched.toLocaleString("pt-BR");
@@ -126,9 +147,14 @@ rodar("bateria do assistente", () => {
       const gaveta = visao!.families
         .flatMap((f) => f.parameters)
         .find((p) => p.changes > 0);
-      expect(gaveta, "o banco precisa ter alguma gaveta que mudou").toBeTruthy();
+      expect(
+        gaveta,
+        "o banco precisa ter alguma gaveta que mudou",
+      ).toBeTruthy();
 
-      const resposta = await responder(db, `quanto mudou ${gaveta!.name}?`, { semIa: true });
+      const resposta = await responder(db, `quanto mudou ${gaveta!.name}?`, {
+        semIa: true,
+      });
       expect(resposta.texto).toContain(gaveta!.changes.toLocaleString("pt-BR"));
     });
 
@@ -156,7 +182,9 @@ rodar("bateria do assistente", () => {
         "Qual a regra do bloco PNEU?",
       ]) {
         const resposta = await responder(db, pergunta, { semIa: true });
-        const citadas = [...resposta.texto.matchAll(/\[(\d{1,2})\]/g)].map((m) => Number(m[1]));
+        const citadas = [...resposta.texto.matchAll(/\[(\d{1,2})\]/g)].map(
+          (m) => Number(m[1]),
+        );
         for (const n of citadas) {
           expect(
             resposta.fontes.some((f) => f.id === String(n)),
@@ -172,10 +200,12 @@ rodar("bateria do assistente", () => {
       // este teste refazia a soma à mão e passaria a divergir dela em silêncio.
       const quantas = itensCitaveis(dossie).length;
 
-      expect(citacoesSemFonte(`Mudou bastante [${quantas}].`, dossie)).toEqual([]);
-      expect(citacoesSemFonte(`Mudou bastante [${quantas + 1}].`, dossie)).toEqual([
-        `[${quantas + 1}]`,
-      ]);
+      expect(citacoesSemFonte(`Mudou bastante [${quantas}].`, dossie)).toEqual(
+        [],
+      );
+      expect(
+        citacoesSemFonte(`Mudou bastante [${quantas + 1}].`, dossie),
+      ).toEqual([`[${quantas + 1}]`]);
     });
 
     it("o marcador de citação não conta como número sem lastro", async () => {
@@ -185,8 +215,12 @@ rodar("bateria do assistente", () => {
         décima fonte — e são as respostas mais ricas que chegam lá.
       */
       const dossie = await orquestrar(db, "O que mudou em agosto?");
-      expect(numerosSemLastro("Houve alteração no período [10].", dossie)).toEqual([]);
-      expect(numerosSemLastro("Houve 9999 alterações no período.", dossie)).toContain("9999");
+      expect(
+        numerosSemLastro("Houve alteração no período [10].", dossie),
+      ).toEqual([]);
+      expect(
+        numerosSemLastro("Houve 9999 alterações no período.", dossie),
+      ).toContain("9999");
     });
   });
 
@@ -251,16 +285,23 @@ rodar("bateria do assistente", () => {
         sem leitura — e aí a ressalva do registro tem de dizer isso. Nos demais,
         o texto do documento é o que responde.
       */
-      const registro = dossie.evidencias.find((e) => e.ferramenta === "regraDoBook");
+      const registro = dossie.evidencias.find(
+        (e) => e.ferramenta === "regraDoBook",
+      );
       if (dossie.documentos.length === 0) {
         expect(registro?.nota ?? "").toMatch(/não pôde ser lido/i);
         return;
       }
 
       const primeiro = dossie.documentos[0].trecho;
-      expect(primeiro.texto.length, "o trecho traz conteúdo, não metadado").toBeGreaterThan(20);
+      expect(
+        primeiro.texto.length,
+        "o trecho traz conteúdo, não metadado",
+      ).toBeGreaterThan(20);
       expect(primeiro.bloco).toBeTruthy();
-      expect(registro?.nota ?? "", "documento lido não carrega ressalva").toBe("");
+      expect(registro?.nota ?? "", "documento lido não carrega ressalva").toBe(
+        "",
+      );
     });
 
     /*
@@ -274,11 +315,16 @@ rodar("bateria do assistente", () => {
       if (!titulo) return;
 
       const dossie = await orquestrar(db, `qual a regra de ${titulo}?`);
-      const numeros = (dossie.documentos[0]?.trecho.texto ?? "").match(/\d[\d.,]*/g) ?? [];
-      const comDoisDigitos = numeros.find((n) => n.replace(/\D/g, "").length > 1);
+      const numeros =
+        (dossie.documentos[0]?.trecho.texto ?? "").match(/\d[\d.,]*/g) ?? [];
+      const comDoisDigitos = numeros.find(
+        (n) => n.replace(/\D/g, "").length > 1,
+      );
       if (!comDoisDigitos) return;
 
-      expect(numerosSemLastro(`O documento diz ${comDoisDigitos} [1].`, dossie)).toEqual([]);
+      expect(
+        numerosSemLastro(`O documento diz ${comDoisDigitos} [1].`, dossie),
+      ).toEqual([]);
     });
 
     it("nomear o bloco basta, mesmo quando a pergunta não parece do Book", async () => {
@@ -301,17 +347,31 @@ rodar("bateria do assistente", () => {
       intenção escolhia uma e a outra não era nem consultada.
     */
     it("uma pergunta pode combinar Book e dado na mesma resposta", async () => {
-      const dossie = await orquestrar(db, "o que o Book diz sobre pneu e quanto ele mudou?");
-      expect(dossie.documentos.length + dossie.trechos.length).toBeGreaterThan(0);
+      const dossie = await orquestrar(
+        db,
+        "o que o Book diz sobre pneu e quanto ele mudou?",
+      );
+      expect(dossie.documentos.length + dossie.trechos.length).toBeGreaterThan(
+        0,
+      );
     });
 
     it("a resposta não mostra a mecânica do Book a quem perguntou", async () => {
       const titulo = await blocoComDocumento();
       if (!titulo) return;
 
-      const resposta = await responder(db, `o que é ${titulo}?`, { semIa: true });
-      for (const proibido of ["Revisão vigente", "revisão guardada", "documento anexado"]) {
-        expect(resposta.texto, `"${proibido}" não pertence a uma resposta`).not.toContain(proibido);
+      const resposta = await responder(db, `o que é ${titulo}?`, {
+        semIa: true,
+      });
+      for (const proibido of [
+        "Revisão vigente",
+        "revisão guardada",
+        "documento anexado",
+      ]) {
+        expect(
+          resposta.texto,
+          `"${proibido}" não pertence a uma resposta`,
+        ).not.toContain(proibido);
       }
     });
 
@@ -327,9 +387,10 @@ rodar("bateria do assistente", () => {
           .map((p) => p.replace(/\s*\[\d{1,2}\]\s*$/, "").trim())
           // Linha curta pode repetir sem ser repetição: um rótulo, um "—".
           .filter((p) => p.length > 40);
-        expect(new Set(paragrafos).size, `"${pergunta}" repetiu um parágrafo`).toBe(
-          paragrafos.length,
-        );
+        expect(
+          new Set(paragrafos).size,
+          `"${pergunta}" repetiu um parágrafo`,
+        ).toBe(paragrafos.length);
       }
     });
   });
@@ -356,12 +417,18 @@ rodar("bateria do assistente", () => {
     });
 
     it("uma resposta nunca mistura dois contextos", async () => {
-      for (const pergunta of ["O que mudou em agosto?", "O que temos importado?"]) {
+      for (const pergunta of [
+        "O que mudou em agosto?",
+        "O que temos importado?",
+      ]) {
         const dossie = await orquestrar(db, pergunta);
         const contextos = new Set(
           dossie.evidencias.map((e) => e.recorte?.contexto).filter(Boolean),
         );
-        expect(contextos.size, `${pergunta} citou ${[...contextos]}`).toBeLessThanOrEqual(1);
+        expect(
+          contextos.size,
+          `${pergunta} citou ${[...contextos]}`,
+        ).toBeLessThanOrEqual(1);
       }
     });
 
@@ -370,7 +437,9 @@ rodar("bateria do assistente", () => {
       const periodos = await listPeriods(db, contexto!);
 
       const dossie = await orquestrar(db, "o que temos importado?");
-      const panorama = dossie.evidencias.find((e) => e.ferramenta === "panoramaDoContexto");
+      const panorama = dossie.evidencias.find(
+        (e) => e.ferramenta === "panoramaDoContexto",
+      );
       expect(panorama, "o panorama precisa ter rodado").toBeTruthy();
 
       const vigencias = panorama!.fatos.find((f) => f.rotulo === "Vigências");
@@ -382,9 +451,13 @@ rodar("bateria do assistente", () => {
 
   describe("continuidade da conversa", () => {
     it('"E julho?" mantém o assunto e troca o período', async () => {
-      const primeira = await responder(db, "Quanto mudou o IPVA desde dezembro?", {
-        semIa: true,
-      });
+      const primeira = await responder(
+        db,
+        "Quanto mudou o IPVA desde dezembro?",
+        {
+          semIa: true,
+        },
+      );
       expect(primeira.intencao).toBe("EVOLUCAO");
 
       const segunda = await responder(db, "E julho?", {
@@ -394,11 +467,15 @@ rodar("bateria do assistente", () => {
 
       expect(segunda.tecnico.herdado).toContain("assunto");
       expect(segunda.recorte, "a resposta descreve julho").toMatch(/julho/i);
-      expect(segunda.intencao, "a intenção passa a ser sobre aquele mês").toBe("VALOR");
+      expect(segunda.intencao, "a intenção passa a ser sobre aquele mês").toBe(
+        "VALOR",
+      );
     });
 
     it('"Por quê?" herda o assunto e desce até a origem', async () => {
-      const primeira = await responder(db, "Quanto mudou o IPVA em agosto?", { semIa: true });
+      const primeira = await responder(db, "Quanto mudou o IPVA em agosto?", {
+        semIa: true,
+      });
       const segunda = await responder(db, "Por quê?", {
         semIa: true,
         estado: primeira.estado,
@@ -406,11 +483,16 @@ rodar("bateria do assistente", () => {
 
       expect(segunda.intencao).toBe("PROCEDENCIA");
       expect(segunda.tecnico.herdado.length).toBeGreaterThan(0);
-      expect(segunda.tecnico.ferramentas.length, "precisa consultar de novo").toBeGreaterThan(0);
+      expect(
+        segunda.tecnico.ferramentas.length,
+        "precisa consultar de novo",
+      ).toBeGreaterThan(0);
     });
 
     it("uma pergunta nova troca o assunto em vez de herdar", async () => {
-      const primeira = await responder(db, "Quanto mudou o IPVA em agosto?", { semIa: true });
+      const primeira = await responder(db, "Quanto mudou o IPVA em agosto?", {
+        semIa: true,
+      });
       const segunda = await responder(db, "E o pneu?", {
         semIa: true,
         estado: primeira.estado,
@@ -419,19 +501,28 @@ rodar("bateria do assistente", () => {
     });
 
     it('"E na vigência anterior?" troca só o recorte', async () => {
-      const primeira = await responder(db, "O que mudou na última vigência?", { semIa: true });
+      const primeira = await responder(db, "O que mudou na última vigência?", {
+        semIa: true,
+      });
       const segunda = await responder(db, "E na vigência anterior?", {
         semIa: true,
         estado: primeira.estado,
       });
 
-      expect(segunda.tecnico.herdado.length, "precisa herdar o assunto").toBeGreaterThan(0);
-      expect(segunda.recorte, "a resposta descreve outra vigência").not.toBe(primeira.recorte);
+      expect(
+        segunda.tecnico.herdado.length,
+        "precisa herdar o assunto",
+      ).toBeGreaterThan(0);
+      expect(segunda.recorte, "a resposta descreve outra vigência").not.toBe(
+        primeira.recorte,
+      );
       expect(segunda.tecnico.ferramentas.length).toBeGreaterThan(0);
     });
 
     it('"Compare as duas." completa a outra ponta pelo estado', async () => {
-      const primeira = await responder(db, "O que mudou em julho?", { semIa: true });
+      const primeira = await responder(db, "O que mudou em julho?", {
+        semIa: true,
+      });
       const segunda = await responder(db, "Compare as duas.", {
         semIa: true,
         estado: primeira.estado,
@@ -442,9 +533,13 @@ rodar("bateria do assistente", () => {
     });
 
     it("uma continuação nunca sai do recorte da conversa", async () => {
-      const primeira = await responder(db, "Quanto mudou o IPVA desde dezembro?", {
-        semIa: true,
-      });
+      const primeira = await responder(
+        db,
+        "Quanto mudou o IPVA desde dezembro?",
+        {
+          semIa: true,
+        },
+      );
       const contexto = primeira.estado.contexto;
       expect(contexto).toBeTruthy();
 
@@ -452,7 +547,9 @@ rodar("bateria do assistente", () => {
       for (const seguinte of ["E julho?", "Por quê?", "E o pneu?"]) {
         const r = await responder(db, seguinte, { semIa: true, estado });
         estado = r.estado;
-        expect(estado.contexto, `"${seguinte}" mudou de unidade/canal`).toBe(contexto);
+        expect(estado.contexto, `"${seguinte}" mudou de unidade/canal`).toBe(
+          contexto,
+        );
       }
     });
 
@@ -467,10 +564,15 @@ rodar("bateria do assistente", () => {
 
         expect(r.intencao, `"${passo.pergunta}"`).toBe(passo.intencao);
         if (passo.herda) {
-          expect(r.tecnico.herdado.length, `"${passo.pergunta}" precisa herdar`).toBeGreaterThan(0);
+          expect(
+            r.tecnico.herdado.length,
+            `"${passo.pergunta}" precisa herdar`,
+          ).toBeGreaterThan(0);
         }
         if (passo.recorte) {
-          expect(r.recorte ?? "", `recorte de "${passo.pergunta}"`).toMatch(passo.recorte);
+          expect(r.recorte ?? "", `recorte de "${passo.pergunta}"`).toMatch(
+            passo.recorte,
+          );
         }
         if (passo.ferramentas) {
           expect(
@@ -485,15 +587,22 @@ rodar("bateria do assistente", () => {
           ).toBeGreaterThan(0);
         }
         if (passo.semRecorte) {
-          expect(r.recorte, `"${passo.pergunta}" não deve carregar vigência`).toBeNull();
+          expect(
+            r.recorte,
+            `"${passo.pergunta}" não deve carregar vigência`,
+          ).toBeNull();
         }
       }
     });
 
     it("o estado sobrevive a ida e volta em JSON", async () => {
-      const primeira = await responder(db, "Quanto mudou o IPVA desde dezembro?", {
-        semIa: true,
-      });
+      const primeira = await responder(
+        db,
+        "Quanto mudou o IPVA desde dezembro?",
+        {
+          semIa: true,
+        },
+      );
       const estado = primeira.estado;
       expect(estado.assunto).toBe("ipva");
       expect(estado.contexto).toBeTruthy();
@@ -517,13 +626,18 @@ rodar("bateria do assistente", () => {
       ["Como funciona preço de combustível?", /^Combustível$/],
       // O título curto com uma palavra comum vencia o artigo que se chama
       // exatamente como a pergunta.
-      ["por que o impacto é acumulado por periodicidade?", /total único de impacto/i],
+      [
+        "por que o impacto é acumulado por periodicidade?",
+        /total único de impacto/i,
+      ],
       ["O que significa semântica UNKNOWN?", /Curadoria/i],
     ];
 
     it.each(PARES)("%s", async (pergunta, esperado) => {
       const dossie = await orquestrar(db, pergunta);
-      expect(dossie.trechos[0]?.trecho.titulo ?? "", pergunta).toMatch(esperado);
+      expect(dossie.trechos[0]?.trecho.titulo ?? "", pergunta).toMatch(
+        esperado,
+      );
     });
   });
 

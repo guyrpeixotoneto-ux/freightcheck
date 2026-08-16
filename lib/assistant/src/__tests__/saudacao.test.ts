@@ -60,7 +60,10 @@ describe("o que continua sendo pergunta", () => {
     ["olá, o que é o Book do Operador?", "BOOK"],
     ["obrigado, mas quanto mudou o pneu?", "EVOLUCAO"],
   ])("%j continua sendo %s", (frase, intencao) => {
-    expect(ehSaudacao(frase), `"${frase}" não pode ser lida como saudação`).toBe(false);
+    expect(
+      ehSaudacao(frase),
+      `"${frase}" não pode ser lida como saudação`,
+    ).toBe(false);
     expect(interpretar(frase).intencao).toBe(intencao);
   });
 
@@ -108,7 +111,9 @@ describe("a resposta a um cumprimento", () => {
 
     expect(r.sugestoes.length).toBe(3);
     for (const sugestao of r.sugestoes) {
-      expect(r.texto, "o exemplo vive na sugestão, não no texto").not.toContain(sugestao);
+      expect(r.texto, "o exemplo vive na sugestão, não no texto").not.toContain(
+        sugestao,
+      );
     }
   });
 
@@ -149,7 +154,9 @@ describe("a saudação não carrega entidade nem herança", () => {
 
     const depois = avancarEstado(anterior, dossie);
 
-    expect(depois.intencao, "o fio continua no que se investigava").toBe("EVOLUCAO");
+    expect(depois.intencao, "o fio continua no que se investigava").toBe(
+      "EVOLUCAO",
+    );
     expect(depois.assunto).toBe("ipva");
   });
 });

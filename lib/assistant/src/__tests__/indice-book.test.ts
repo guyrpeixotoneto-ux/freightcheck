@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { LIMIAR_DO_BOOK, ranquear, trechosDosBlocos, type TrechoDoBook } from "../indice-book";
+import {
+  LIMIAR_DO_BOOK,
+  ranquear,
+  trechosDosBlocos,
+  type TrechoDoBook,
+} from "../indice-book";
 import type { BlocoDeDocumento } from "../documento";
 
 /**
@@ -29,7 +34,10 @@ const QLP: BlocoDeDocumento[] = [
       "A auditoria confere se a estrutura administrativa remunerada existe e está aderente ao padrão da operação.",
   },
   { tipo: "TITULO", nivel: 2, texto: "Frequência" },
-  { tipo: "PARAGRAFO", texto: "A conferência é bimestral em todas as operações." },
+  {
+    tipo: "PARAGRAFO",
+    texto: "A conferência é bimestral em todas as operações.",
+  },
   { tipo: "TITULO", nivel: 2, texto: "Critérios" },
   {
     tipo: "TABELA",
@@ -45,7 +53,8 @@ const PNEU: BlocoDeDocumento[] = [
   { tipo: "TITULO", nivel: 1, texto: "PNEU" },
   {
     tipo: "PARAGRAFO",
-    texto: "A remuneração de pneus é composta por vida útil, sulco e valor de reposição.",
+    texto:
+      "A remuneração de pneus é composta por vida útil, sulco e valor de reposição.",
   },
   { tipo: "PARAGRAFO", texto: "A conferência de sulco é mensal." },
 ];
@@ -78,7 +87,9 @@ describe("chunking", () => {
     const comTabela = trechos.find((t) => t.temTabela)!;
     expect(comTabela.texto).toContain("## Critérios");
     expect(comTabela.texto).toContain("| Item | Evidência | Consequência |");
-    expect(comTabela.texto).toContain("| Folha de pagamento | Relatório do mês | Questionamento |");
+    expect(comTabela.texto).toContain(
+      "| Folha de pagamento | Relatório do mês | Questionamento |",
+    );
   });
 
   it("uma tabela grande demais vira fatias que repetem o cabeçalho", () => {
@@ -94,7 +105,8 @@ describe("chunking", () => {
     ];
     const fatias = trechosDosBlocos(gigante, meta("INVENTÁRIO"));
     expect(fatias.length).toBeGreaterThan(1);
-    for (const fatia of fatias) expect(fatia.texto).toContain("| Placa | Observação |");
+    for (const fatia of fatias)
+      expect(fatia.texto).toContain("| Placa | Observação |");
   });
 });
 
@@ -113,11 +125,16 @@ describe("ranqueamento", () => {
   */
   it("a continuidade fica dentro do bloco de que a conversa falava", () => {
     const solta = ranquear(INDICE, "qual a frequência?");
-    const comFio = ranquear(INDICE, "qual a frequência?", { blocoPreferido: "QLP ADM" });
+    const comFio = ranquear(INDICE, "qual a frequência?", {
+      blocoPreferido: "QLP ADM",
+    });
 
     expect(comFio[0]?.trecho.bloco).toBe("QLP ADM");
     expect(comFio[0]?.trecho.secao).toContain("Frequência");
-    expect(solta.length, "sem o fio, a busca continua acontecendo").toBeGreaterThan(0);
+    expect(
+      solta.length,
+      "sem o fio, a busca continua acontecendo",
+    ).toBeGreaterThan(0);
   });
 
   /*
@@ -135,7 +152,10 @@ describe("ranqueamento", () => {
       meta("DESCONTO QLP ADM"),
     );
 
-    expect(ranquear(comSinonimo, "qual a frequência?"), "sem fio, não há como saber").toEqual([]);
+    expect(
+      ranquear(comSinonimo, "qual a frequência?"),
+      "sem fio, não há como saber",
+    ).toEqual([]);
 
     const comFio = ranquear(comSinonimo, "qual a frequência?", {
       blocoPreferido: "DESCONTO QLP ADM",
@@ -144,7 +164,10 @@ describe("ranqueamento", () => {
   });
 
   it("acha a regra pela tabela, e não só pelo parágrafo", () => {
-    const achados = ranquear(INDICE, "qual a evidência exigida no organograma?");
+    const achados = ranquear(
+      INDICE,
+      "qual a evidência exigida no organograma?",
+    );
     expect(achados[0]?.trecho.temTabela).toBe(true);
     expect(achados[0]?.trecho.texto).toContain("Documento assinado");
   });
@@ -174,15 +197,30 @@ describe("ranqueamento", () => {
   it("palavra que está em quase tudo não recupera nada", () => {
     const comuns = [
       ...trechosDosBlocos(
-        [{ tipo: "PARAGRAFO", texto: "Detalhamento da composição do modelo de remuneração." }],
+        [
+          {
+            tipo: "PARAGRAFO",
+            texto: "Detalhamento da composição do modelo de remuneração.",
+          },
+        ],
         meta("CUSTO FIXO DE EQUIPAMENTOS", "Equipamentos"),
       ),
       ...trechosDosBlocos(
-        [{ tipo: "PARAGRAFO", texto: "Detalhamento do modelo de remuneração da equipe." }],
+        [
+          {
+            tipo: "PARAGRAFO",
+            texto: "Detalhamento do modelo de remuneração da equipe.",
+          },
+        ],
         meta("EQUIPE ARMAZÉM"),
       ),
       ...trechosDosBlocos(
-        [{ tipo: "PARAGRAFO", texto: "Detalhamento da remuneração de pneus por eixo." }],
+        [
+          {
+            tipo: "PARAGRAFO",
+            texto: "Detalhamento da remuneração de pneus por eixo.",
+          },
+        ],
         meta("PNEU", "Equipamentos"),
       ),
     ];
@@ -201,9 +239,9 @@ describe("ranqueamento", () => {
     expect(comPneu[0]!.trecho.bloco).toBe("PNEU");
 
     // E a pergunta legítima sobre o mesmo assunto continua achando.
-    expect(ranquear(comuns, "o que o Book diz sobre remuneração?")[0]!.pontos).toBeGreaterThan(
-      LIMIAR_DO_BOOK,
-    );
+    expect(
+      ranquear(comuns, "o que o Book diz sobre remuneração?")[0]!.pontos,
+    ).toBeGreaterThan(LIMIAR_DO_BOOK);
   });
 
   it("não deixa um documento só ocupar a resposta inteira", () => {
@@ -217,8 +255,12 @@ describe("ranqueamento", () => {
         meta("DESCONTO QLP ADM"),
       ),
     ];
-    const achados = ranquear(muitos, "auditoria da estrutura administrativa", { limite: 6 });
-    const doMesmo = achados.filter((a) => a.trecho.bloco === "DESCONTO QLP ADM");
+    const achados = ranquear(muitos, "auditoria da estrutura administrativa", {
+      limite: 6,
+    });
+    const doMesmo = achados.filter(
+      (a) => a.trecho.bloco === "DESCONTO QLP ADM",
+    );
     expect(doMesmo.length).toBeLessThanOrEqual(3);
     expect(new Set(achados.map((a) => a.trecho.bloco)).size).toBeGreaterThan(1);
   });

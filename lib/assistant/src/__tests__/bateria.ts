@@ -64,18 +64,21 @@ export const CASOS: Caso[] = [
   {
     pergunta: "O Book fala alguma coisa sobre combustível?",
     intencao: "BOOK",
-    esperado: "Consultar o Book do Operador e responder pelo que está escrito nele.",
+    esperado:
+      "Consultar o Book do Operador e responder pelo que está escrito nele.",
   },
   {
     pergunta: "Como funciona IPVA?",
     intencao: "CONCEITUAL",
     semRecorte: true,
-    esperado: "O conceito de IPVA no produto, sem arrastar o resumo de uma vigência.",
+    esperado:
+      "O conceito de IPVA no produto, sem arrastar o resumo de uma vigência.",
   },
   {
     pergunta: "O que o Book diz sobre IPVA?",
     intencao: "BOOK",
-    esperado: "O que o Book do Operador registra sobre IPVA, não o que o banco calculou.",
+    esperado:
+      "O que o Book do Operador registra sobre IPVA, não o que o banco calculou.",
   },
 
   // ── dado: vigência, valor, série ──────────────────────────────────────────
@@ -83,25 +86,33 @@ export const CASOS: Caso[] = [
     pergunta: "O que mudou em agosto?",
     intencao: "MOVIMENTO",
     ferramentas: ["resumoDaVigencia"],
-    esperado: "O movimento da vigência de agosto no recorte corrente, com o impacto por periodicidade.",
+    esperado:
+      "O movimento da vigência de agosto no recorte corrente, com o impacto por periodicidade.",
   },
   {
     pergunta: "Qual o valor do IPVA?",
     intencao: "VALOR",
-    ferramentas: ["movimentoDaParametro", "movimentoDoParametro", "serieDoParametro"],
-    esperado: "O valor corrente da gaveta IPVA e licenciamento no recorte, com a coluna que o sustenta.",
+    ferramentas: [
+      "movimentoDaParametro",
+      "movimentoDoParametro",
+      "serieDoParametro",
+    ],
+    esperado:
+      "O valor corrente da gaveta IPVA e licenciamento no recorte, com a coluna que o sustenta.",
   },
   {
     pergunta: "Quanto mudou o IPVA desde dezembro?",
     intencao: "EVOLUCAO",
     ferramentas: ["serieDoParametro", "compararIntervalo"],
-    esperado: "A série de dezembro até a vigência corrente e o saldo do intervalo.",
+    esperado:
+      "A série de dezembro até a vigência corrente e o saldo do intervalo.",
   },
   {
     pergunta: "Compare julho com agosto.",
     intencao: "COMPARACAO",
     ferramentas: ["compararIntervalo"],
-    esperado: "As duas leituras do intervalo — movimentos do período e ponta a ponta — e por que divergem.",
+    esperado:
+      "As duas leituras do intervalo — movimentos do período e ponta a ponta — e por que divergem.",
   },
 
   // ── análise ────────────────────────────────────────────────────────────────
@@ -109,7 +120,8 @@ export const CASOS: Caso[] = [
     pergunta: "Onde perdemos mais dinheiro?",
     intencao: "RANKING_PERDA",
     ferramentas: ["rankingDeImpacto"],
-    esperado: "O ranking de parâmetros por impacto negativo, dentro de uma periodicidade.",
+    esperado:
+      "O ranking de parâmetros por impacto negativo, dentro de uma periodicidade.",
   },
   {
     pergunta: "Onde ganhamos mais dinheiro?",
@@ -130,10 +142,12 @@ export const CASOS: Caso[] = [
     esperado: "Os ativos mais afetados na vigência, por placa.",
   },
   {
-    pergunta: "Quais parâmetros não têm preço suficiente para calcular impacto?",
+    pergunta:
+      "Quais parâmetros não têm preço suficiente para calcular impacto?",
     intencao: "SEM_PRECO",
     ferramentas: ["semParaPrecificar"],
-    esperado: "As colunas cuja semântica ainda não foi confirmada — e por isso não viram dinheiro.",
+    esperado:
+      "As colunas cuja semântica ainda não foi confirmada — e por isso não viram dinheiro.",
   },
 
   // ── panorama e contexto ───────────────────────────────────────────────────
@@ -141,7 +155,8 @@ export const CASOS: Caso[] = [
     pergunta: "O que temos importado?",
     intencao: "PANORAMA",
     ferramentas: ["panoramaDoContexto"],
-    esperado: "O panorama do recorte corrente — e só dele, nunca do banco inteiro.",
+    esperado:
+      "O panorama do recorte corrente — e só dele, nunca do banco inteiro.",
   },
   {
     pergunta: "Quais vigências existem?",
@@ -155,7 +170,8 @@ export const CASOS: Caso[] = [
     pergunta: "onde tivemos maior perda?",
     intencao: "RANKING_PERDA",
     ferramentas: ["rankingDeImpacto"],
-    esperado: "O ranking de perda — a variação informal tem de cair no mesmo lugar.",
+    esperado:
+      "O ranking de perda — a variação informal tem de cair no mesmo lugar.",
   },
   {
     pergunta: "quais placas sofreram mais alterações",
@@ -202,7 +218,8 @@ export const CASOS: Caso[] = [
     pergunta: "Como o FreightCheck calcula o impacto?",
     intencao: "CONCEITUAL",
     semRecorte: true,
-    esperado: "A regra de apuração, do conhecimento do produto. Sem consultar vigência.",
+    esperado:
+      "A regra de apuração, do conhecimento do produto. Sem consultar vigência.",
   },
   {
     pergunta: "por que o impacto é acumulado por periodicidade?",
@@ -217,7 +234,8 @@ export const CASOS: Caso[] = [
     pergunta: "O que significa semântica UNKNOWN?",
     intencao: "CONCEITUAL",
     semRecorte: true,
-    esperado: "O artigo de Curadoria: UNKNOWN é resposta aceitável, certeza fabricada não é.",
+    esperado:
+      "O artigo de Curadoria: UNKNOWN é resposta aceitável, certeza fabricada não é.",
   },
   {
     pergunta: "O que é o Book do Operador?",
@@ -246,7 +264,8 @@ export const CASOS: Caso[] = [
     intencao: "EVOLUCAO",
     ferramentas: ["movimentoDoParametro", "serieDoParametro"],
     lacuna: "DADO_SEM_PRECO",
-    esperado: "O movimento de Combustível — e o aviso de que o impacto não é apurável sem preço.",
+    esperado:
+      "O movimento de Combustível — e o aviso de que o impacto não é apurável sem preço.",
   },
   {
     pergunta: "me mostra a evolução do financiamento",
@@ -424,13 +443,15 @@ export const CONVERSAS: { nome: string; passos: Passo[] }[] = [
         intencao: "VALOR",
         herda: true,
         recorte: /julho/i,
-        esperado: "O IPVA **em julho** — herda o assunto, troca o período. Não repete a série.",
+        esperado:
+          "O IPVA **em julho** — herda o assunto, troca o período. Não repete a série.",
       },
       {
         pergunta: "Por quê?",
         intencao: "PROCEDENCIA",
         herda: true,
-        esperado: "Refaz a consulta e desce até as linhas que mudaram. Não reexibe número guardado.",
+        esperado:
+          "Refaz a consulta e desce até as linhas que mudaram. Não reexibe número guardado.",
       },
       {
         /*
@@ -443,7 +464,8 @@ export const CONVERSAS: { nome: string; passos: Passo[] }[] = [
         pergunta: "E o pneu?",
         intencao: "PROCEDENCIA",
         herda: true,
-        esperado: "Troca o assunto para Pneu, mantendo a pergunta e o recorte da conversa.",
+        esperado:
+          "Troca o assunto para Pneu, mantendo a pergunta e o recorte da conversa.",
       },
     ],
   },

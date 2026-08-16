@@ -54,7 +54,9 @@ describe("R1 — o valor tem mais de um nome", () => {
   /* E continua sem roubar a pergunta de quem pede a regra ou o conceito. */
   it("mas não rouba a pergunta de definição nem a de regra", () => {
     expect(plano("O que é preço de combustível?").principal).toBe("CONCEITUAL");
-    expect(plano("O que o Book diz sobre preço de combustível?").principal).toBe("BOOK");
+    expect(
+      plano("O que o Book diz sobre preço de combustível?").principal,
+    ).toBe("BOOK");
   });
 });
 
@@ -126,7 +128,9 @@ describe("R3 — quem escreve com pressa continua sendo entendido", () => {
   */
   it("o assunto sobrevive à abreviação", () => {
     // `qnt` expandido cai na classe fechada e sai do candidato, como `mudou`.
-    expect(interpretar("qnt mudou o pneu?").entidades.assuntoCandidato).toBe("pneu");
+    expect(interpretar("qnt mudou o pneu?").entidades.assuntoCandidato).toBe(
+      "pneu",
+    );
   });
 
   /* A expansão é de palavra inteira: ela não pode comer o meio de outra. */
@@ -152,7 +156,9 @@ describe("R4 — perguntar de que a remuneração é feita é perguntar a compos
       "Quais componentes fazem parte da remuneração?",
     ]) {
       const p = plano(pergunta);
-      expect([p.principal, ...p.necessidades], pergunta).toContain("COMPOSICAO");
+      expect([p.principal, ...p.necessidades], pergunta).toContain(
+        "COMPOSICAO",
+      );
     }
   });
 });
@@ -183,7 +189,9 @@ describe("R5 — a fonte nomeada nomeia a resposta", () => {
     a ganhar de tudo só por estar na lista.
   */
   it("e quem não nomeia continua com a necessidade da frase", () => {
-    expect(plano("Quais foram as principais alterações de agosto?").principal).toBe("MOVIMENTO");
+    expect(
+      plano("Quais foram as principais alterações de agosto?").principal,
+    ).toBe("MOVIMENTO");
     expect(plano("O que mudou em agosto?").principal).toBe("MOVIMENTO");
     expect(plano("Compare julho com agosto.").principal).toBe("COMPARACAO");
   });
@@ -199,9 +207,9 @@ describe("R6 — o que o produto não tem não ganha contexto de consolação", 
     derivacional faz outra palavra.
   */
   it("motorista não é motor", () => {
-    const titulos = buscarTrechos("Me dá o CPF do motorista da placa ABC1D23").map(
-      (t) => t.trecho.titulo,
-    );
+    const titulos = buscarTrechos(
+      "Me dá o CPF do motorista da placa ABC1D23",
+    ).map((t) => t.trecho.titulo);
     expect(titulos, `voltou: ${titulos.join(" | ")}`).not.toContain("Motor");
   });
 
@@ -212,26 +220,35 @@ describe("R6 — o que o produto não tem não ganha contexto de consolação", 
   });
 
   it("uma pergunta fora do domínio não recebe conceito nenhum", () => {
-    expect(buscarTrechos("Me dá o CPF do motorista da placa ABC1D23")).toEqual([]);
+    expect(buscarTrechos("Me dá o CPF do motorista da placa ABC1D23")).toEqual(
+      [],
+    );
     expect(buscarTrechos("Qual o telefone do fornecedor?")).toEqual([]);
   });
 });
 
 /* ---- R7, sem banco ------------------------------------------------------- */
 
-const URL_DO_BANCO = process.env.ASSISTANT_EVAL_DATABASE_URL ?? process.env.DATABASE_URL;
-const rodar = URL_DO_BANCO ? describe : describe.skip;
+import {
+  comBancoDeAvaliacao as rodar,
+  URL_DO_BANCO_DE_AVALIACAO as URL_DO_BANCO,
+} from "./banco-de-avaliacao";
 
-rodar("R7 — o assunto também se reconhece pelo conteúdo, não só pelo título", () => {
-  let db: Database;
+rodar(
+  "R7 — o assunto também se reconhece pelo conteúdo, não só pelo título",
+  () => {
+    let db: Database;
 
-  beforeAll(async () => {
-    ({ db } = createDb(URL_DO_BANCO!));
-    expect(await resolveContext(db), "esta suíte precisa de um banco promovido").toBeTruthy();
-    await semearBookDeTeste(db);
-  });
+    beforeAll(async () => {
+      ({ db } = createDb(URL_DO_BANCO!));
+      expect(
+        await resolveContext(db),
+        "esta suíte precisa de um banco promovido",
+      ).toBeTruthy();
+      await semearBookDeTeste(db);
+    });
 
-  /*
+    /*
     O vocabulário do produto era só de **títulos**: títulos de bloco do Book,
     nomes de cartão do catálogo, rótulos de parâmetro. `recapagem` não é o
     título de nada — é uma palavra que só existe dentro do texto do bloco PNEU,
@@ -244,19 +261,22 @@ rodar("R7 — o assunto também se reconhece pelo conteúdo, não só pelo títu
     sabe de que fala cada trecho, e que se atualiza sozinho quando um bloco novo
     é anexado.
   */
-  it("uma palavra que só existe dentro do texto do Book chega à gaveta", async () => {
-    for (const pergunta of ["Quanto mudou a recapagem?", "O que mudou no sucateamento?"]) {
-      const dossie = await orquestrar(db, pergunta);
-      expect(
-        dossie.plano.alvo?.parametro,
-        `${pergunta}: lacunas ${dossie.lacunas.map((l) => l.tipo).join(",")}`,
-      ).toBe("Pneu");
-      expect(dossie.plano.comoReconheceu, pergunta).toBe("CONTEUDO_DO_BOOK");
-      expect(dossie.evidencias.length, pergunta).toBeGreaterThan(0);
-    }
-  });
+    it("uma palavra que só existe dentro do texto do Book chega à gaveta", async () => {
+      for (const pergunta of [
+        "Quanto mudou a recapagem?",
+        "O que mudou no sucateamento?",
+      ]) {
+        const dossie = await orquestrar(db, pergunta);
+        expect(
+          dossie.plano.alvo?.parametro,
+          `${pergunta}: lacunas ${dossie.lacunas.map((l) => l.tipo).join(",")}`,
+        ).toBe("Pneu");
+        expect(dossie.plano.comoReconheceu, pergunta).toBe("CONTEUDO_DO_BOOK");
+        expect(dossie.evidencias.length, pergunta).toBeGreaterThan(0);
+      }
+    });
 
-  /*
+    /*
     E as duas guardas continuam de pé, cada uma pelo seu motivo.
 
     `preventiva` acha MANUTENÇÃO com folga e nenhuma coluna se chama assim de
@@ -265,16 +285,19 @@ rodar("R7 — o assunto também se reconhece pelo conteúdo, não só pelo títu
     do bloco tem de resolver para uma gaveta) é o que impede o conteúdo do Book
     de inventar uma resposta.
   */
-  it("e o que o Book descreve sem o produto medir continua sendo lacuna", async () => {
-    const dossie = await orquestrar(db, "Quanto mudou o pedágio?");
-    expect(dossie.lacunas.length, "a ausência tem de ser declarada").toBeGreaterThan(0);
-    expect(
-      dossie.evidencias.some((e) => e.ferramenta === "resumoDaVigencia"),
-      "o agregado do recorte não pode ser apresentado como resposta sobre pedágio",
-    ).toBe(false);
-  });
+    it("e o que o Book descreve sem o produto medir continua sendo lacuna", async () => {
+      const dossie = await orquestrar(db, "Quanto mudou o pedágio?");
+      expect(
+        dossie.lacunas.length,
+        "a ausência tem de ser declarada",
+      ).toBeGreaterThan(0);
+      expect(
+        dossie.evidencias.some((e) => e.ferramenta === "resumoDaVigencia"),
+        "o agregado do recorte não pode ser apresentado como resposta sobre pedágio",
+      ).toBe(false);
+    });
 
-  /*
+    /*
     `diesel` é o caso que mostra onde a ponte **não** deve chegar, e por isso
     ficou aqui.
 
@@ -286,10 +309,16 @@ rodar("R7 — o assunto também se reconhece pelo conteúdo, não só pelo títu
     portão existe para impedir. A resposta correta é a regra do Book mais a
     declaração de que a coluna não veio.
   */
-  it("e diesel recebe a regra e a lacuna, não o número de outra coluna", async () => {
-    const dossie = await orquestrar(db, "O que mudou no diesel?");
-    expect(dossie.documentos.length, "a regra do Book responde o que dá").toBeGreaterThan(0);
-    expect(dossie.lacunas.map((l) => l.tipo)).toContain("CONCEITO_SEM_DADO");
-    expect(dossie.evidencias.some((e) => e.ferramenta === "resumoDaVigencia")).toBe(false);
-  });
-});
+    it("e diesel recebe a regra e a lacuna, não o número de outra coluna", async () => {
+      const dossie = await orquestrar(db, "O que mudou no diesel?");
+      expect(
+        dossie.documentos.length,
+        "a regra do Book responde o que dá",
+      ).toBeGreaterThan(0);
+      expect(dossie.lacunas.map((l) => l.tipo)).toContain("CONCEITO_SEM_DADO");
+      expect(
+        dossie.evidencias.some((e) => e.ferramenta === "resumoDaVigencia"),
+      ).toBe(false);
+    });
+  },
+);

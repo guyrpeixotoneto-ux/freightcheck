@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { redacaoDeterministica } from "../resposta";
-import { citacoesSemFonte, itensCitaveis, numerosSemLastro, type Dossie } from "../orquestrador";
+import {
+  citacoesSemFonte,
+  itensCitaveis,
+  numerosSemLastro,
+  type Dossie,
+} from "../orquestrador";
 import { trechosDosBlocos } from "../indice-book";
 import { interpretar } from "../interpretacao";
 
@@ -29,7 +34,10 @@ const trechosDoQlp = trechosDosBlocos(
         "A auditoria confere se a estrutura administrativa remunerada existe e está aderente ao padrão.",
     },
     { tipo: "TITULO", nivel: 2, texto: "Frequência" },
-    { tipo: "PARAGRAFO", texto: "A conferência é bimestral, em todas as operações." },
+    {
+      tipo: "PARAGRAFO",
+      texto: "A conferência é bimestral, em todas as operações.",
+    },
   ],
   {
     blockKey: "Gente::QLP ADM",
@@ -65,12 +73,19 @@ function dossie(parcial: Partial<Dossie> = {}): Dossie {
     lacunas: [],
     etapas: [],
     desambiguacao: null,
-    diagnostico: { book: { candidatos: 0, selecionados: 0, melhorPontuacao: 0 }, ms: 0 },
+    diagnostico: {
+      book: { candidatos: 0, selecionados: 0, melhorPontuacao: 0 },
+      ms: 0,
+    },
     ...parcial,
   };
 }
 
-const doBook = trechosDoQlp.map((trecho) => ({ trecho, pontos: 1, porque: [] }));
+const doBook = trechosDoQlp.map((trecho) => ({
+  trecho,
+  pontos: 1,
+  porque: [],
+}));
 
 /** O registro do bloco, como `regraDoBook` o devolve: tudo interno. */
 const registro = {
@@ -78,8 +93,18 @@ const registro = {
   titulo: "Book · QLP ADM",
   fatos: [
     { rotulo: "Bloco", valor: "QLP ADM", detalhe: "Gente", interno: true },
-    { rotulo: "Revisão vigente", valor: "1", detalhe: "1 revisão guardada", interno: true },
-    { rotulo: "Tipo", valor: "documento anexado", detalhe: "QLP ADM.docx", interno: true },
+    {
+      rotulo: "Revisão vigente",
+      valor: "1",
+      detalhe: "1 revisão guardada",
+      interno: true,
+    },
+    {
+      rotulo: "Tipo",
+      valor: "documento anexado",
+      detalhe: "QLP ADM.docx",
+      interno: true,
+    },
   ],
   numeros: [1, 1],
   origem: 'book_entry · bloco "Gente::QLP ADM" · revisão 1',
@@ -114,7 +139,9 @@ describe("a redação em código", () => {
       "extração",
       "trecho recuperado",
     ]) {
-      expect(texto, `"${proibido}" não pertence a uma resposta`).not.toContain(proibido);
+      expect(texto, `"${proibido}" não pertence a uma resposta`).not.toContain(
+        proibido,
+      );
     }
   });
 
@@ -151,7 +178,9 @@ describe("a redação em código", () => {
     };
 
     const texto = redacaoDeterministica(dossie({ trechos: [conceito] }));
-    const paragrafos = texto.split("\n\n").map((p) => p.replace(/\s*\[\d+\]\s*$/, "").trim());
+    const paragrafos = texto
+      .split("\n\n")
+      .map((p) => p.replace(/\s*\[\d+\]\s*$/, "").trim());
     expect(new Set(paragrafos).size).toBe(paragrafos.length);
   });
 
@@ -186,7 +215,12 @@ describe("a trava de lastro, com o Book no dossiê", () => {
   */
   it("um número escrito no documento tem lastro", () => {
     const comNumero = trechosDosBlocos(
-      [{ tipo: "PARAGRAFO", texto: "O prazo de resposta ao questionamento é de 15 dias." }],
+      [
+        {
+          tipo: "PARAGRAFO",
+          texto: "O prazo de resposta ao questionamento é de 15 dias.",
+        },
+      ],
       {
         blockKey: "Gente::QLP ADM",
         bloco: "QLP ADM",
@@ -204,6 +238,8 @@ describe("a trava de lastro, com o Book no dossiê", () => {
 
   it("um número que não está em lugar nenhum continua sendo recusado", () => {
     const d = dossie({ documentos: doBook });
-    expect(numerosSemLastro("A auditoria custou R$ 39.936 [1].", d)).toContain("39.936");
+    expect(numerosSemLastro("A auditoria custou R$ 39.936 [1].", d)).toContain(
+      "39.936",
+    );
   });
 });

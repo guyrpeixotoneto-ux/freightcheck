@@ -36,7 +36,10 @@ const casos: { pergunta: string; intencao: Intencao }[] = [
   // ---- evolução -------------------------------------------------------------
   { pergunta: "Quanto mudou o IPVA desde dezembro?", intencao: "EVOLUCAO" },
   { pergunta: "qual foi a evolução do IPVA", intencao: "EVOLUCAO" },
-  { pergunta: "quanto o pneu variou ao longo das vigências", intencao: "EVOLUCAO" },
+  {
+    pergunta: "quanto o pneu variou ao longo das vigências",
+    intencao: "EVOLUCAO",
+  },
   { pergunta: "quanto mudou combustível", intencao: "EVOLUCAO" },
 
   // ---- comparação -----------------------------------------------------------
@@ -46,12 +49,18 @@ const casos: { pergunta: string; intencao: Intencao }[] = [
 
   // ---- movimento ------------------------------------------------------------
   { pergunta: "O que mudou em agosto?", intencao: "MOVIMENTO" },
-  { pergunta: "quais foram as alterações da última vigência", intencao: "MOVIMENTO" },
+  {
+    pergunta: "quais foram as alterações da última vigência",
+    intencao: "MOVIMENTO",
+  },
 
   // ---- rankings -------------------------------------------------------------
   { pergunta: "Onde perdemos mais dinheiro?", intencao: "RANKING_PERDA" },
   { pergunta: "Qual parâmetro mais piorou?", intencao: "RANKING_PERDA" },
-  { pergunta: "qual parâmetro mais prejudicou a remuneração", intencao: "RANKING_PERDA" },
+  {
+    pergunta: "qual parâmetro mais prejudicou a remuneração",
+    intencao: "RANKING_PERDA",
+  },
   { pergunta: "Onde ganhamos mais dinheiro?", intencao: "RANKING_GANHO" },
   { pergunta: "o que melhorou na remuneração", intencao: "RANKING_GANHO" },
 
@@ -61,7 +70,8 @@ const casos: { pergunta: string; intencao: Intencao }[] = [
 
   // ---- sem preço --------------------------------------------------------------
   {
-    pergunta: "Quais parâmetros não têm preço suficiente para calcular impacto?",
+    pergunta:
+      "Quais parâmetros não têm preço suficiente para calcular impacto?",
     intencao: "SEM_PRECO",
   },
   { pergunta: "o que ficou sem valoração", intencao: "SEM_PRECO" },
@@ -78,7 +88,10 @@ const casos: { pergunta: string; intencao: Intencao }[] = [
     caíam em DESCONHECIDA e recebiam de volta o índice — o mesmo parágrafo, sem
     o arquivo que elas nomeiam.
   */
-  { pergunta: "você não consegue ler o que tem no documento QLP ADM?", intencao: "BOOK" },
+  {
+    pergunta: "você não consegue ler o que tem no documento QLP ADM?",
+    intencao: "BOOK",
+  },
   { pergunta: "me diz o que está no documento de pneu", intencao: "BOOK" },
   { pergunta: "abre o anexo de QLP ADM", intencao: "BOOK" },
 
@@ -128,24 +141,38 @@ describe("classificação de intenção", () => {
     impede a mudança de ordem de virar uma regressão silenciosa.
   */
   it("não rouba as perguntas de ranking e de veículos afetados", () => {
-    expect(interpretar("onde perdemos mais dinheiro?").intencao).toBe("RANKING_PERDA");
-    expect(interpretar("qual parâmetro mais prejudicou a remuneração").intencao).toBe(
+    expect(interpretar("onde perdemos mais dinheiro?").intencao).toBe(
       "RANKING_PERDA",
     );
-    expect(interpretar("quais veículos foram mais impactados?").intencao).toBe("VEICULOS");
+    expect(
+      interpretar("qual parâmetro mais prejudicou a remuneração").intencao,
+    ).toBe("RANKING_PERDA");
+    expect(interpretar("quais veículos foram mais impactados?").intencao).toBe(
+      "VEICULOS",
+    );
     expect(interpretar("quais placas mudaram?").intencao).toBe("VEICULOS");
   });
 
   it("separa a composição do resultado", () => {
-    expect(interpretar("como se compõe a remuneração do cavalo").intencao).toBe("COMPOSICAO");
-    expect(interpretar("visão de frota dos cavalos").intencao).toBe("COMPOSICAO");
-    expect(interpretar("quanto sobra do cavalo depois dos custos").intencao).toBe("DRE");
+    expect(interpretar("como se compõe a remuneração do cavalo").intencao).toBe(
+      "COMPOSICAO",
+    );
+    expect(interpretar("visão de frota dos cavalos").intencao).toBe(
+      "COMPOSICAO",
+    );
+    expect(
+      interpretar("quanto sobra do cavalo depois dos custos").intencao,
+    ).toBe("DRE");
     expect(interpretar("o que é DRE?").intencao).toBe("CONCEITUAL");
   });
 
   it("variações da mesma pergunta caem na mesma intenção", () => {
     const grupos: string[][] = [
-      ["onde perdemos mais dinheiro?", "onde tivemos maior perda?", "o que mais prejudicou?"],
+      [
+        "onde perdemos mais dinheiro?",
+        "onde tivemos maior perda?",
+        "o que mais prejudicou?",
+      ],
       ["o que é IPVA?", "que é IPVA", "o que significa IPVA"],
       ["compare julho com agosto", "compare julho e agosto", "julho x agosto"],
       /*
@@ -168,34 +195,52 @@ describe("classificação de intenção", () => {
 
 describe("entidades", () => {
   it("lê o mês e o intervalo", () => {
-    expect(interpretar("o que mudou em agosto?").entidades.periodo).toEqual({ mes: "agosto" });
-    expect(interpretar("quanto mudou desde dezembro?").entidades.intervalo).toEqual({
+    expect(interpretar("o que mudou em agosto?").entidades.periodo).toEqual({
+      mes: "agosto",
+    });
+    expect(
+      interpretar("quanto mudou desde dezembro?").entidades.intervalo,
+    ).toEqual({
       de: { mes: "dezembro" },
       ate: null,
     });
-    expect(interpretar("compare julho com agosto").entidades.intervalo).toEqual({
-      de: { mes: "julho" },
-      ate: { mes: "agosto" },
-    });
+    expect(interpretar("compare julho com agosto").entidades.intervalo).toEqual(
+      {
+        de: { mes: "julho" },
+        ate: { mes: "agosto" },
+      },
+    );
   });
 
   it("lê o ano quando declarado", () => {
-    expect(interpretar("o que mudou em agosto/2026?").entidades.periodo).toEqual({
+    expect(
+      interpretar("o que mudou em agosto/2026?").entidades.periodo,
+    ).toEqual({
       mes: "agosto",
       ano: 2026,
     });
   });
 
   it("lê o relativo", () => {
-    expect(interpretar("o que mudou na última vigência?").entidades.periodo).toEqual({
+    expect(
+      interpretar("o que mudou na última vigência?").entidades.periodo,
+    ).toEqual({
       relativo: "ULTIMA",
     });
   });
 
   it("extrai o assunto e descarta a operação", () => {
-    expect(interpretar("quanto mudou o IPVA desde dezembro?").entidades.assuntoCandidato).toBe("ipva");
-    expect(interpretar("onde perdemos mais dinheiro?").entidades.assuntoCandidato).toBeNull();
-    expect(interpretar("quais veículos foram mais impactados?").entidades.assuntoCandidato).toBeNull();
+    expect(
+      interpretar("quanto mudou o IPVA desde dezembro?").entidades
+        .assuntoCandidato,
+    ).toBe("ipva");
+    expect(
+      interpretar("onde perdemos mais dinheiro?").entidades.assuntoCandidato,
+    ).toBeNull();
+    expect(
+      interpretar("quais veículos foram mais impactados?").entidades
+        .assuntoCandidato,
+    ).toBeNull();
   });
 
   /*
@@ -207,21 +252,30 @@ describe("entidades", () => {
   */
   it("descarta o vocabulário de quem pede um documento", () => {
     expect(
-      interpretar("você não consegue ler o que tem no documento QLP ADM?").entidades
-        .assuntoCandidato,
+      interpretar("você não consegue ler o que tem no documento QLP ADM?")
+        .entidades.assuntoCandidato,
     ).toBe("qlp adm");
-    expect(interpretar("abre o anexo de pneu").entidades.assuntoCandidato).toBe("pneu");
+    expect(interpretar("abre o anexo de pneu").entidades.assuntoCandidato).toBe(
+      "pneu",
+    );
   });
 
   it("lê o equipamento", () => {
-    expect(interpretar("quanto mudou no cavalo?").entidades.equipamento).toBe("CAVALO");
+    expect(interpretar("quanto mudou no cavalo?").entidades.equipamento).toBe(
+      "CAVALO",
+    );
     expect(interpretar("e na carreta?").entidades.equipamento).toBe("CARRETA");
   });
 });
 
 describe("continuação", () => {
   it("reconhece a frase sem assunto próprio", () => {
-    for (const p of ["E julho?", "Por quê?", "compare os dois", "e a vigência anterior?"]) {
+    for (const p of [
+      "E julho?",
+      "Por quê?",
+      "compare os dois",
+      "e a vigência anterior?",
+    ]) {
       expect(ehContinuacao(p), p).toBe(true);
       expect(interpretar(p).continuacao, p).toBe(true);
     }

@@ -24,12 +24,13 @@ const p = (texto: string, extra = "") =>
   `<w:p>${extra}<w:r><w:t>${texto}</w:t></w:r></w:p>`;
 
 const celula = (texto: string) => `<w:tc>${p(texto)}</w:tc>`;
-const linha = (...textos: string[]) => `<w:tr>${textos.map(celula).join("")}</w:tr>`;
+const linha = (...textos: string[]) =>
+  `<w:tr>${textos.map(celula).join("")}</w:tr>`;
 
 const DOCUMENTO = `<w:document><w:body>
   ${p("Auditoria QLP ADM", '<w:pPr><w:pStyle w:val="Heading1"/></w:pPr>')}
   ${p("A auditoria confere a estrutura administrativa remunerada.")}
-  ${p("Conferir o organograma", "<w:pPr><w:numPr><w:ilvl w:val=\"0\"/></w:numPr></w:pPr>")}
+  ${p("Conferir o organograma", '<w:pPr><w:numPr><w:ilvl w:val="0"/></w:numPr></w:pPr>')}
   <w:tbl>
     ${linha("Item", "Frequência")}
     ${linha("Auditoria de estrutura", "Bimestral")}
@@ -40,7 +41,13 @@ const DOCUMENTO = `<w:document><w:body>
 describe("varredura de XML", () => {
   it("devolve só os elementos de primeiro nível, na ordem", () => {
     const achados = elementosDeTopo(DOCUMENTO, ["w:p", "w:tbl"]);
-    expect(achados.map((e) => e.tag)).toEqual(["w:p", "w:p", "w:p", "w:tbl", "w:p"]);
+    expect(achados.map((e) => e.tag)).toEqual([
+      "w:p",
+      "w:p",
+      "w:p",
+      "w:tbl",
+      "w:p",
+    ]);
   });
 
   /*
@@ -103,7 +110,8 @@ describe("Word em blocos", () => {
   });
 
   it("não confunde parágrafo longo em negrito com título", () => {
-    const longo = "Esta é uma frase longa o bastante para não ser título de coisa nenhuma, e termina com ponto.";
+    const longo =
+      "Esta é uma frase longa o bastante para não ser título de coisa nenhuma, e termina com ponto.";
     const xml = `<w:body>${p(longo, "<w:pPr><w:rPr><w:b/></w:rPr></w:pPr>")}</w:body>`;
     expect(blocosDoWord(xml)[0].tipo).toBe("PARAGRAFO");
   });
@@ -129,8 +137,15 @@ describe("markdown", () => {
 
 describe("texto escrito à mão", () => {
   it("reconhece o markdown que quem escreve regra já usa", () => {
-    const blocos = blocosDoTexto("# Regra\ntexto solto\n- primeiro\n2) segundo");
-    expect(blocos.map((b) => b.tipo)).toEqual(["TITULO", "PARAGRAFO", "ITEM", "ITEM"]);
+    const blocos = blocosDoTexto(
+      "# Regra\ntexto solto\n- primeiro\n2) segundo",
+    );
+    expect(blocos.map((b) => b.tipo)).toEqual([
+      "TITULO",
+      "PARAGRAFO",
+      "ITEM",
+      "ITEM",
+    ]);
     expect(blocos[3]).toMatchObject({ texto: "segundo" });
   });
 });
