@@ -14,6 +14,7 @@ import balanceRouter from "./balance";
 import compositionRouter from "./composition";
 import dreRouter from "./dre";
 import ticketsRouter from "./tickets";
+import impactoRouter from "./impacto";
 
 /**
  * F0/F1 surface.
@@ -71,6 +72,12 @@ import ticketsRouter from "./tickets";
  * remuneração muda. Fica separada de `changes` de propósito: um chamado não é
  * uma diferença apurada entre duas vigências, e o impacto de um nunca é somado
  * ao do outro. Duas contas, duas réguas, lado a lado e nunca adicionadas.
+ *
+ * `impacto` é a terceira aba da mesma tela, e a única que não parte da
+ * alteração: ela lê o valor de cada ativo em cada quinzena e deixa a alteração
+ * aparecer como a diferença entre duas colunas. É o que permite ver o ativo que
+ * **não** mudou — que não existe em lista de alteração nenhuma e sem o qual o
+ * total da coluna não fecha com o que foi pago.
  */
 const router: IRouter = Router();
 
@@ -89,5 +96,6 @@ router.use(balanceRouter);
 router.use(compositionRouter);
 router.use(dreRouter);
 router.use(ticketsRouter);
+router.use(impactoRouter);
 
 export default router;
