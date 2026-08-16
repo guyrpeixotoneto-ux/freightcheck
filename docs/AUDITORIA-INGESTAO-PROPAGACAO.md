@@ -13,16 +13,22 @@
 
 ## Sumário executivo
 
-O produto **tem** as duas portas que deveria ter, e elas funcionam: o pipeline
-de vigência (`POST /imports` → `POST /imports/:id/promote`) e o de chamados
-(`POST /ticket-imports`). O `fact` — o grão do sistema — é escrito por um único
-arquivo, `lib/ingest/src/pipeline.ts`, e por nenhum outro. Isso foi verificado
-exaustivamente e é a boa notícia desta auditoria: **não existe gravação
-clandestina no canônico**.
+O produto **tem** as duas portas de dado que deveria ter, e elas funcionam: o
+pipeline de vigência (`POST /imports` → `POST /imports/:id/promote`) e o de
+chamados (`POST /ticket-imports`). O `fact` — o grão do sistema — é escrito por
+um único arquivo, `lib/ingest/src/pipeline.ts`, e por nenhum outro. Isso foi
+verificado exaustivamente e é a boa notícia desta auditoria: **não existe
+gravação clandestina no canônico**.
+
+Ao lado delas há uma terceira entrada, `BOOK` (`POST /book/entries`), que
+**continua existindo por decisão** e não é defeito: ela recebe *regra* —
+contrato, manual, planilha de apoio — e nunca escreve fato canônico. A regra do
+produto, na forma exata, é **dado que vira número entra por duas portas; regra
+que sustenta número entra pelo Book** (Parte 1.3).
 
 O que existe é outra coisa, e é pior de detectar:
 
-1. **Uma terceira porta de leitura, no menu, servindo dado que nunca foi
+1. **Uma porta de leitura não declarada, no menu, servindo dado que nunca foi
    importado** — `Análise de frota` lê um `.xlsx` do disco do servidor. Hoje ela
    devolve **tela vazia** com 124 mil fatos no banco.
 2. **Uma porta-sombra completa** — `routes/overview.ts` reimplementa
@@ -54,7 +60,7 @@ percorriam. Cada uma delas dispara na primeira entrega que saia desse caminho.
 | `GET /fleet-analysis/*` (`routes/fleet-analysis.ts`) | **Análise de frota** (menu, 1ª seção) | planilha lida **do disco**, `attached_assets/*.xlsx` | nenhum — serve direto à tela | **Não** | **`INDEVIDA`** |
 | `POST /imports` (`routes/overview.ts`) | nenhuma | `.xlsx` de vigência | `source_file` → `raw_*` → `staged_fact` | **Não** | **`INDEVIDA`** (sombra) |
 | `POST /imports/:id/promote` (`routes/overview.ts`) | nenhuma | promoção | canônico | **Não** | **`INDEVIDA`** (sombra) |
-| `POST /book/entries` (`routes/book.ts`) | Book do Operador | documento (PDF/DOCX/XLSX/imagem) ou texto | `book_entry` (blob no banco) | **Decisão pendente** | **terceira porta documental** |
+| `POST /book/entries` (`routes/book.ts`) | Book do Operador | documento (PDF/DOCX/XLSX/imagem) ou texto | `book_entry` (blob no banco) | **Sim** | **`BOOK`** — terceira porta, documental e declarada |
 | `pnpm dev:seed` (`lib/curation/src/cli/dev-seed.ts`) | CLI | `.xlsx` de `attached_assets` | canônico, **pelo mesmo pipeline** | Sim (dev) | `IMPORTACOES` |
 | `POST /coverage/decisions` | Cobertura | decisão de curadoria sobre expectativa | `coverage_expectation` | Sim | derivado / decisão |
 | `POST /coverage/contract/seed` | Cobertura (e a promoção) | contrato derivado de `lib/dre/src/plano.ts` | `coverage_expectation` | Sim | derivado de código |
@@ -135,15 +141,47 @@ silêncio, com validação mais fraca e sem rastro de autor.
 `GET /imports/:id/status`, com formatos de resposta **diferentes** dos de
 `imports.ts`. Só a Visão geral (`GET /overview`) deste arquivo é usada.
 
-#### A terceira porta documental — Book do Operador
+#### `BOOK` — a terceira porta, documental e declarada
 
 `POST /book/entries` aceita arquivo (PDF, DOCX, XLSX, imagem) e guarda o blob no
-banco. Não escreve fato canônico nenhum, e o que ela recebe é **regra**, não
-dado operacional: o contrato, o manual, a planilha de apoio. É defensável — mas
-não cabe em nenhuma das duas portas declaradas, e a regra do produto diz que só
-há duas. **É uma decisão de contrato, não um defeito**: ou o Book vira uma
-terceira porta declarada (documental, sem efeito no canônico), ou entra sob
-Importações. Não decidir deixa a regra "só duas portas" falsa por omissão.
+banco. **Ela fica como está, e importar arquivo por ali continua sendo o
+comportamento correto** — decidido em 16/08/2026, e registrado aqui porque uma
+regra de arquitetura que tem exceção não escrita é uma regra que alguém vai
+"consertar" um dia sem saber que estava consertando o que funcionava.
+
+O que a separa das outras duas não é o tamanho nem a importância: é a
+**natureza do que entra**. As portas `IMPORTACOES` e `CHAMADOS` recebem
+*medida* — o que o ativo custa, o que foi pedido, o que voltou aplicado — e o
+que elas gravam alimenta número na tela. A porta `BOOK` recebe **regra**: o
+contrato, o manual, a planilha de apoio, o texto escrito à mão no cartão do
+bloco. É o que o export do Freightec não traz, e é o que responde "em que isso
+se apoia?" quando alguém aponta para uma linha de remuneração.
+
+Por isso ela não conflita com a regra das duas portas, e a formulação exata da
+regra passa a ser esta:
+
+> **Dado que vira número entra por duas portas — Importações e Chamados. Regra
+> que sustenta número entra pelo Book. Nenhum documento do Book escreve fato
+> canônico, e nenhum número do produto sai dele.**
+
+As três invariantes que mantêm essa fronteira verdadeira, e que hoje o código
+já cumpre:
+
+1. `book_entry` **não é lida** por nenhum motor de cálculo — nem
+   `@workspace/comparison`, nem `@workspace/coverage`, nem `@workspace/composition`,
+   nem `@workspace/dre`. Seus únicos leitores são a tela do Book e o índice do
+   Assistente (`lib/knowledge`, `lib/assistant/src/indice-book.ts`), que a citam
+   como **fonte de regra**, com link para o documento — nunca como parcela de
+   uma soma.
+2. A porta não escreve em `fact`, `snapshot`, `entity` nem `attribute`. Isso
+   está coberto pela verificação da Parte 1.2: `pipeline.ts` é o único escritor
+   do canônico.
+3. `POST` sempre cria a revisão seguinte e **não existe `DELETE`** nesta
+   superfície — uma auditoria de seis meses atrás precisa da regra que valia
+   naquele dia.
+
+Nenhuma correção proposta nesta auditoria toca o Book, e nenhuma deve tocar. Se
+alguma vez ele aparecer numa lista de "portas a fechar", esta seção é a resposta.
 
 ---
 
@@ -713,6 +751,20 @@ pulado depois da correção, e a divergência voltaria a ficar sem dono. O
 mecanismo foi verificado: com a invariante satisfeita, o Vitest responde
 `Error: Expect test to fail`.
 
+**`artifacts/api-server/src/routes/__tests__/fronteira-do-book.test.ts`** —
+12 provas, sem banco, todas verdes. Trancam a decisão da Parte 1.3 pelos **dois
+lados**, que é o que uma fronteira exige:
+
+- que o Book **continue recebendo arquivo** — PDF, XLSX, DOCX e a regra escrita
+  à mão. É a metade que impede a porta de ser fechada por engano junto com as
+  duas indevidas, com que ela se parece só na superfície ("também recebe base64");
+- que **nenhum motor de cálculo leia `book_entry`** — varredura de código-fonte
+  sobre `comparison`, `coverage`, `composition`, `dre`, `balance`, `simulation`,
+  `curation` e `ingest`. É a única forma de provar uma ausência, e por isso vem
+  com um caso de controle: `lib/knowledge` **cita** o Book, a varredura o
+  encontra, e uma asserção de ausência que não sabe achar presença não provaria
+  nada. Verificado plantando uma referência num motor: a prova acusa.
+
 ### 7.2 O que falta escrever
 
 | Prova | Depende de |
@@ -740,9 +792,12 @@ o **único** escritor do canônico.
 `GET /fleet-analysis/*` — lê `.xlsx` do disco do servidor, está no menu e hoje
 devolve tela vazia. `POST /imports` e `POST /imports/:id/promote` em
 `routes/overview.ts` — pipeline-sombra completo, com validação mais fraca,
-inalcançável apenas por ordem de montagem do router. E uma decisão pendente:
-`POST /book/entries` é uma terceira porta documental que o contrato "só duas
-portas" não prevê.
+inalcançável apenas por ordem de montagem do router.
+
+`POST /book/entries` **não** entra nesta lista: é a porta `BOOK`, documental e
+declarada, e importar arquivo por ela continua sendo o comportamento correto
+(Parte 1.3). Duas portas para dado que vira número; uma terceira para a regra
+que o sustenta.
 
 **3. Mapa de módulos consumidores.** Parte 2.1 — dezoito módulos, com tabelas,
 filtros, estados aceitos e condição de vazio de cada um.
@@ -771,8 +826,9 @@ com `contextosDisponiveis`, `vigenciasDisponiveis`, `serieDe`,
 `equipamentosDisponiveis`, `atributosDisponiveis`, `filtroDeVigenciaViva`, e três
 regras de uso que já estão escritas no repositório e não são cumpridas.
 
-**9. Testes necessários.** Parte 7 — 22 provas implementadas, 8 especificadas
-para acompanhar cada correção.
+**9. Testes necessários.** Parte 7 — 34 provas implementadas (13 de propagação
+sobre o export real, 9 de divergência com dado sintético, 12 na fronteira do
+Book), 8 especificadas para acompanhar cada correção.
 
 **10. Lista priorizada de correções.**
 
@@ -792,7 +848,7 @@ para acompanhar cada correção.
 | **P3** | `attribute_alias` no índice de chamados | D10 | chamado por alias liga ao dicionário | baixo | não |
 | **P3** | Tirar colunas de escopo da pontuação de identidade | D11 | equipamento novo não é absorvido | baixo | **não retroage** — vale para importações futuras |
 | **P4** | Contrato de elegibilidade explícito em Composição/DRE | D12 | "não se aplica" deixa de parecer "sem dado" | baixo | não |
-| **P4** | Decidir o estatuto do Book do Operador | — | o contrato "duas portas" volta a ser verdadeiro | — | não |
+| ~~P4~~ **feito** | Fronteira do Book presa por teste, pelos dois lados | — | a porta documental fica explícita e protegida | — | não |
 
 **Nenhuma correção desta lista altera dado histórico nem a semântica do
 canônico.** Todas as de P1 e P2 são mudanças de *leitura*: o que muda é quem o
