@@ -235,7 +235,7 @@ function MatrizDeQuinzenas({
   const data = query.data;
   if (!data) {
     return (
-      <Card className="rounded-2xl p-6">
+      <Card className="p-6">
         <p className="text-sm text-muted-foreground">Lendo as vigências…</p>
       </Card>
     );
@@ -343,7 +343,7 @@ function MatrizDeQuinzenas({
         <CartoesDeVariacao ponta={data.pontaAPonta} brl={brl} />
       )}
 
-      <Card className="rounded-2xl overflow-hidden">
+      <Card className="overflow-hidden">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b px-4 py-3">
           <div>
             <h3 className="text-sm font-semibold">
@@ -510,10 +510,10 @@ function Tile({
   valueTone?: "good" | "bad" | "muted";
 }) {
   return (
-    <div className="rounded-2xl border bg-card shadow-sm px-5 py-5 flex items-center gap-4">
+    <div className="rounded-xl border bg-card shadow-sm px-5 py-5 flex items-center gap-4">
       <div
         className={cn(
-          "h-12 w-12 rounded-2xl grid place-content-center shrink-0",
+          "h-12 w-12 rounded-xl grid place-content-center shrink-0",
           LADRILHO[tone],
         )}
       >

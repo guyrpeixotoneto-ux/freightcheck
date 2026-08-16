@@ -128,7 +128,7 @@ export default function Composicao() {
               className={cn(
                 "px-5 py-2.5 text-sm font-semibold uppercase tracking-wide border-b-2 transition-colors",
                 tipo.entityType === entityType
-                  ? "border-brand-red text-brand-red"
+                  ? "border-brand text-brand"
                   : "border-transparent text-muted-foreground hover:text-foreground",
               )}
             >
@@ -358,7 +358,7 @@ function BarraDeFiltros({
           className={cn(
             "px-3 py-2 text-sm rounded-md border transition-colors",
             filtros[chave]
-              ? "border-brand-red bg-brand-red/[0.07] text-brand-red font-medium"
+              ? "border-brand bg-accent text-brand font-medium"
               : "border-border text-muted-foreground hover:text-foreground",
           )}
         >
@@ -419,7 +419,7 @@ function Tabela({ view }: { view: VisaoDeFrota }) {
               <td className="px-2 py-3">
                 <Link
                   href={`/composicao/${linha.entityId}?period=${linha.effectiveDate}`}
-                  className="font-semibold font-mono tracking-wide hover:text-brand-red transition-colors"
+                  className="font-semibold font-mono tracking-wide hover:text-brand transition-colors"
                 >
                   {linha.placa ?? "sem placa"}
                 </Link>

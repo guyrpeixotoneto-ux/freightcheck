@@ -47,8 +47,7 @@ import { primeiraPagina, type Janela } from "@/lib/paginacao";
 import { cn } from "@/lib/utils";
 import {
   ChangeTable,
-  FilterBar,
-  QuickFilters,
+  ChangeFilterPanel,
   type AttributeRollup,
   type ChangeRow,
   type Breakdown,
@@ -315,7 +314,6 @@ function AbaPlanilha() {
   /** null = visão consolidada da frota; caso contrário, uma série. */
   const [series, setSeries] = useState<string | null>(null);
   const [janela, setJanela] = useState<Janela>(primeiraPagina);
-  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [painel, setPainel] = useState<PainelPlanilha>(null);
 
   /*
@@ -506,7 +504,7 @@ function AbaPlanilha() {
           vista, e o detalhe atrás de um clique. Nenhum deles some quando é
           inconveniente — some quando não existe. */}
       {(temAviso || painel !== null) && (
-        <Card className="rounded-2xl p-5 space-y-4">
+        <Card className="p-5 space-y-4">
           <div className={cn("gap-4 md:grid-cols-2", temAviso ? "grid" : "hidden")}>
             {parcial && cv && (
               <Aviso
@@ -553,26 +551,16 @@ function AbaPlanilha() {
         </Card>
       )}
 
-      <Card className="rounded-2xl p-4 space-y-4">
-        <QuickFilters
+      <Card className="p-4 space-y-4">
+        <ChangeFilterPanel
           filters={filters}
           onChange={setFilters}
           breakdown={breakdown}
-          avancadoAberto={filtrosAbertos}
-          onToggleAvancado={() => setFiltrosAbertos((v) => !v)}
         />
-        {filtrosAbertos && (
-          <FilterBar
-            avancada
-            filters={filters}
-            onChange={setFilters}
-            breakdown={breakdown}
-          />
-        )}
       </Card>
 
       {breakdown && breakdown.byAttribute.length > 0 && (
-        <Card className="rounded-2xl">
+        <Card>
           <div className="grid md:grid-cols-2 md:divide-x">
             <AtributosMaisAlterados
               itens={breakdown.byAttribute}
@@ -589,7 +577,7 @@ function AbaPlanilha() {
         </Card>
       )}
 
-      <Card className="rounded-2xl overflow-hidden">
+      <Card className="overflow-hidden">
         <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-3 border-b">
           <CardTitle className="text-sm font-semibold">
             {total !== undefined
@@ -1146,7 +1134,7 @@ function AbaChamados() {
             mapeamento de colunas pelo botão do topo: o painel aberto precisa de
             onde morar, e um arquivo perfeito não tem faixa vermelha. */}
         {(temAviso || painel !== null) && (
-          <Card className="rounded-2xl p-5 space-y-4">
+          <Card className="p-5 space-y-4">
             <div className={cn("gap-4 md:grid-cols-2", temAviso ? "grid" : "hidden")}>
               {falhas.length > 0 && (
                 <Aviso
@@ -1326,7 +1314,7 @@ function AbaChamados() {
         )}
 
         {!run && !query.isLoading && (
-          <Card className="rounded-2xl">
+          <Card>
             <CardContent className="p-10 text-center space-y-3">
               <Headset className="w-8 h-8 text-muted-foreground mx-auto" />
               <p className="text-sm text-muted-foreground max-w-lg mx-auto">
@@ -1352,7 +1340,7 @@ function AbaChamados() {
         )}
 
         {run && visao === "resumo" && (
-          <Card className="rounded-2xl p-4 space-y-4">
+          <Card className="p-4 space-y-4">
             <TicketFilterPanel
               filters={filters}
               onChange={setFilters}
@@ -1362,7 +1350,7 @@ function AbaChamados() {
         )}
 
         {data && data.byParameter.length > 0 && visao === "resumo" && (
-          <Card className="rounded-2xl">
+          <Card>
             <div className="grid md:grid-cols-2 md:divide-x">
               <ParametrosMaisPedidos
                 itens={data.byParameter}
@@ -1392,7 +1380,7 @@ function AbaChamados() {
         )}
 
         {run && visao === "resumo" && (
-          <Card className="rounded-2xl overflow-hidden">
+          <Card className="overflow-hidden">
             <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-3 border-b">
               <CardTitle className="text-sm font-semibold">
                 {data
@@ -1693,10 +1681,10 @@ function MetricCard({
   valueTone?: "good" | "bad" | "warn" | "muted";
 }) {
   return (
-    <div className="rounded-2xl border bg-card shadow-sm px-5 py-5 flex items-center gap-4">
+    <div className="rounded-xl border bg-card shadow-sm px-5 py-5 flex items-center gap-4">
       <div
         className={cn(
-          "h-14 w-14 rounded-2xl grid place-content-center shrink-0",
+          "h-14 w-14 rounded-xl grid place-content-center shrink-0",
           LADRILHO[tone],
         )}
       >

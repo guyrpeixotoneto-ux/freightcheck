@@ -362,7 +362,7 @@ export default function Importacoes() {
           <p className="text-sm text-muted-foreground">Carregando…</p>
         )}
         {!isLoading && listError && (
-          <div className="rounded-2xl border border-red-200 bg-red-50 px-6 py-5 text-sm text-red-900">
+          <div className="rounded-xl border border-red-200 bg-red-50 px-6 py-5 text-sm text-red-900">
             Não foi possível ler o histórico de importações:{" "}
             {(listError as Error).message} Esta lista pode não estar vazia — o
             que falhou foi perguntar.
@@ -371,7 +371,7 @@ export default function Importacoes() {
         {/* "Nenhuma importação ainda" ao lado de um arquivo sendo lido é falso
             de um jeito que confunde: o que falta é aprovar, não enviar. */}
         {!isLoading && !listError && runs.length === 0 && esperandoDecisao.length === 0 && (
-          <div className="rounded-2xl border bg-card px-8 py-10 text-center text-sm text-muted-foreground shadow-sm">
+          <div className="rounded-xl border bg-card px-8 py-10 text-center text-sm text-muted-foreground shadow-sm">
             Nenhuma importação ainda. Use{" "}
             <strong className="text-foreground">Escolher planilhas</strong> acima
             para enviar o export do Freightec.
@@ -394,7 +394,7 @@ export default function Importacoes() {
           />
         ))}
 
-        <div className="rounded-2xl border bg-card px-6 py-5 shadow-sm flex items-start gap-3">
+        <div className="rounded-xl border bg-card px-6 py-5 shadow-sm flex items-start gap-3">
           <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
             <ShieldCheck className="w-5 h-5 text-primary" />
           </div>
@@ -465,7 +465,7 @@ function Dropzone({
         if (files.length > 0) onFiles(files);
       }}
       className={cn(
-        "w-full text-left rounded-2xl border-2 border-dashed px-6 py-5",
+        "w-full text-left rounded-xl border-2 border-dashed px-6 py-5",
         "flex items-center gap-4 transition-colors",
         "disabled:cursor-progress",
         over
@@ -504,7 +504,7 @@ function RunCard({
   onDelete: () => void;
 }) {
   return (
-    <div className="rounded-2xl border bg-card px-6 py-5 shadow-sm space-y-5">
+    <div className="rounded-xl border bg-card px-6 py-5 shadow-sm space-y-5">
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3 min-w-0">
           <div className="w-11 h-11 rounded-xl bg-emerald-50 border border-emerald-100 flex items-center justify-center shrink-0">
@@ -1003,7 +1003,7 @@ function PendingRun({
   return (
     <div
       className={cn(
-        "rounded-2xl border px-6 py-5 space-y-4",
+        "rounded-xl border px-6 py-5 space-y-4",
         failed ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50",
       )}
     >

@@ -1264,7 +1264,7 @@ export function TicketFilterPanel({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <FilterGroup label="Tipo">
+        <GrupoRapido label="Tipo">
           <QuickChip
             active={!filters.changeKind}
             onClick={() => onChange({ ...filters, changeKind: "" })}
@@ -1287,12 +1287,12 @@ export function TicketFilterPanel({
               <Contagem n={contarOperacao(kind)} />
             </QuickChip>
           ))}
-        </FilterGroup>
+        </GrupoRapido>
 
         {/* A divisória é o que diz que daqui para a frente é outra pergunta. */}
         <span className="hidden h-7 w-px bg-border sm:block" aria-hidden />
 
-        <FilterGroup label="Impacto">
+        <GrupoRapido label="Impacto">
           <QuickChip
             active={filters.impactConfidence === "CALCULATED"}
             onClick={() =>
@@ -1321,9 +1321,16 @@ export function TicketFilterPanel({
             Sem impacto
             <Contagem n={totals?.notCalculable} />
           </QuickChip>
-        </FilterGroup>
+        </GrupoRapido>
 
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        {/*
+          `flex-1` e não `ml-auto`: empurrado para a direita, o grupo mantinha
+          essa margem ao quebrar de linha, e a segunda fileira nascia com um
+          rombo à esquerda e a busca encolhida contra a borda. Esticando, ele
+          preenche a folga da linha em que estiver — na mesma da fileira, quando
+          cabe, e sozinho na de baixo, quando não cabe.
+        */}
+        <div className="flex min-w-[18rem] flex-1 flex-wrap items-center gap-2">
           <CampoDeBusca
             valor={filters.search}
             onChange={(search) => onChange({ ...filters, search })}
@@ -1390,7 +1397,7 @@ function CampoDeBusca({
   };
 
   return (
-    <div className="relative w-full sm:w-80">
+    <div className="relative min-w-[14rem] flex-1">
       <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
       <Input
         value={rascunho}
@@ -1616,6 +1623,34 @@ function CampoDeVariacao({
   );
 }
 
+/**
+ * Os dois grupos da fileira da frente, sem rótulo pintado.
+ *
+ * O rótulo existia para dizer que ali começa outra pergunta, e dizia — mas
+ * custava a fileira: com ele e as contagens, a barra não cabia numa linha e a
+ * busca descia sozinha para a de baixo. Quem separa é a divisória, e as
+ * palavras dos próprios chips fazem o resto — "Custo fixo" e "Com impacto" não
+ * se confundem. O `aria-label` fica, porque quem ouve a tela não vê divisória
+ * nenhuma.
+ */
+function GrupoRapido({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="flex flex-wrap items-center gap-1.5"
+    >
+      {children}
+    </div>
+  );
+}
+
 function FilterGroup({
   label,
   children,
@@ -1653,7 +1688,7 @@ function QuickChip({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        "inline-flex h-11 items-center rounded-full border px-4 text-sm font-medium transition-colors",
+        "inline-flex h-11 items-center rounded-full border px-3.5 text-sm font-medium transition-colors",
         active
           ? "bg-blue-600 border-blue-600 text-white shadow-sm"
           : "bg-background border-input text-foreground hover:bg-muted",
