@@ -52,6 +52,8 @@ import {
   type Etapa,
   type Lacuna,
 } from "./orquestrador";
+import { agenteLigado, evidenciasDaInvestigacao, investigar, type Investigacao } from "./agente";
+import { registroPadrao } from "./ferramentas/registro";
 import { SUGESTOES } from "./conhecimento";
 import { termos } from "./normalizar";
 import {
@@ -676,6 +678,141 @@ export interface PerguntaOptions {
 }
 
 /**
+ * A resposta do agente, montada sobre o mesmo contrato da outra.
+ *
+ * Ela sai por aqui e não pelo caminho de baixo por uma razão de honestidade: a
+ * numeração das citações, as fontes da tela e as sugestões são todas derivadas
+ * do dossiê da orquestração, e no caminho do agente o material veio de outro
+ * lugar. Misturar os dois produziria uma tela em que a fonte [3] aponta para
+ * uma consulta que não participou da resposta.
+ *
+ * O que **não** muda: a trava de lastro é a mesma função, com a mesma regra de
+ * um terço. O que muda é a lista de números que ela aceita — agora a das
+ * ferramentas que o modelo chamou.
+ */
+function montarComAgente(
+  dossie: Dossie,
+  investigacao: Investigacao,
+  opcoes: PerguntaOptions,
+  pergunta: string,
+): Resposta {
+  const daFerramenta = evidenciasDaInvestigacao(investigacao);
+  /*
+    O dossiê que a trava confere é o do agente: as evidências das ferramentas,
+    e não as da orquestração. Somar as duas listas deixaria o modelo citar um
+    número de uma consulta que ele não pediu — que é lastro emprestado, e lastro
+    emprestado não é lastro.
+  */
+  const paraConferir: Dossie = { ...dossie, evidencias: daFerramenta, trechos: [], documentos: [], anexos: [] };
+
+  let texto = redacaoDeterministica(dossie);
+  let redacao: Resposta["redacao"] = "DETERMINISTICA";
+  let causa: CausaDaRedacao =
+    investigacao.parou === "RECUSA" ? "RECUSA" : investigacao.parou === "RESPONDEU" ? "IA_OK" : "ERRO";
+  let numerosRecusados: string[] = [];
+  let frasesPodadas = 0;
+  let frasesTotais = 0;
+
+  if (investigacao.texto) {
+    const saneamento = sanear(investigacao.texto, paraConferir);
+    numerosRecusados = saneamento.recusados;
+    frasesPodadas = saneamento.removidas;
+    frasesTotais = saneamento.total;
+
+    if (saneamento.recusados.length === 0) {
+      texto = investigacao.texto;
+      redacao = "IA";
+      causa = "IA_OK";
+    } else if (!saneamento.irrecuperavel) {
+      texto = saneamento.texto;
+      redacao = "IA";
+      causa = "IA_PODADA";
+    } else {
+      causa = "DESCARTADA";
+    }
+  }
+
+  const evento = registrar({
+    modelo: investigacao.medicao.modelo,
+    esforco: investigacao.medicao.esforco,
+    fluxo: false,
+    latenciaMs: investigacao.medicao.latenciaMs,
+    tokensEntrada: investigacao.medicao.tokensEntrada,
+    tokensSaida: investigacao.medicao.tokensSaida,
+    origemDosTokens: investigacao.medicao.origemDosTokens,
+    turnosNoHistorico: Math.min((opcoes.historico ?? []).length, 8),
+    intencao: dossie.plano.intencao,
+    desfecho:
+      causa === "IA_OK" ? "IA" : causa === "IA_PODADA" ? "PODADA" : causa === "DESCARTADA" ? "DESCARTADA" : investigacao.medicao.desfecho,
+    erro: investigacao.medicao.erro,
+  });
+
+  /*
+    As fontes da tela passam a ser as consultas que o agente fez, na ordem em
+    que ele as fez. É o rastro que responde "o que ele olhou antes de dizer
+    isso?" — e é a mesma lista que a trava usou.
+  */
+  const fontes: Fonte[] = daFerramenta.map((e, i) => ({
+    id: String(i + 1),
+    tipo: e.ferramenta.toLowerCase().includes("book") ? "BOOK" : "DADO",
+    titulo: e.titulo,
+    origem: e.origem,
+    ...(e.recorte
+      ? { detalhe: [e.recorte.contexto, e.recorte.vigencia].filter(Boolean).join(" · ") }
+      : {}),
+    ...(e.tela ? { tela: e.tela } : {}),
+  }));
+
+  return {
+    pergunta,
+    texto,
+    redacao,
+    modelo: redacao === "IA" ? modeloConfigurado() : null,
+    intencao: dossie.plano.intencao,
+    recorte: recorteDoDossie(dossie),
+    fontes,
+    etapas: dossie.etapas,
+    lacunas: dossie.lacunas,
+    sugestoes: sugerir(dossie),
+    desambiguacao: dossie.desambiguacao,
+    estado: avancarEstado(opcoes.estado ?? ESTADO_VAZIO, dossie),
+    tecnico: {
+      intencao: dossie.plano.intencao,
+      porque: dossie.plano.porque,
+      herdado: dossie.plano.herdado,
+      /* O log completo: nome e desfecho de cada consulta, na ordem. */
+      ferramentas: investigacao.chamadas.map((c) => `${c.nome}${c.ok ? "" : " (falhou)"}`),
+      numerosRecusados,
+      motor: explicarRedacao({ codigo: causa, frasesPodadas, frasesTotais, numerosRecusados, erro: investigacao.medicao.erro }),
+      contexto: contextoParaOModelo(paraConferir, {
+        ...(opcoes.historico ? { historico: opcoes.historico } : {}),
+        ...(opcoes.diagnostico ? { incluirTexto: true } : {}),
+      }),
+      ia: {
+        desfecho: evento.desfecho,
+        modelo: evento.modelo,
+        latenciaMs: evento.latenciaMs,
+        erro: evento.erro,
+        tokensEntrada: evento.tokensEntrada,
+        tokensSaida: evento.tokensSaida,
+        origemDosTokens: evento.origemDosTokens,
+        custoUsd: evento.custoUsd,
+      },
+      rastro: {
+        assunto: dossie.plano.assunto,
+        comoReconheceu: dossie.plano.comoReconheceu,
+        necessidades: dossie.plano.necessidades,
+        book: dossie.diagnostico.book,
+        etapas: dossie.etapas.map((e) => ({ nome: e.nome, ms: e.ms })),
+        orquestracaoMs: dossie.diagnostico.ms,
+        frasesPodadas,
+        frasesTotais,
+      },
+    },
+  };
+}
+
+/**
  * Responde uma pergunta sobre o FreightCheck.
  *
  * O contrato: o texto nunca afirma número que não esteja nas evidências, e as
@@ -721,6 +858,46 @@ export async function responder(
       confere frase a frase. Sem ele, é a chamada única de sempre, e as evals
       (que não transmitem nada) seguem exercitando exatamente o caminho antigo.
     */
+    /*
+      ---- o caminho do agente, atrás da flag ---------------------------------
+
+      Com `ASSISTENTE_AGENTE=1` o modelo passa a escolher o que consultar. Tudo
+      o mais continua: a orquestração roda antes (o dossiê ainda é montado, e é
+      ele que a comparação "antes × depois" usa como referência), a trava
+      confere o texto, e a redação em código continua sendo o destino de uma
+      resposta que não se sustente.
+
+      **As evidências das ferramentas entram no lastro desde já.** Seria
+      possível deixar para o PR 3 e ligar a flag num estado em que toda resposta
+      do agente é descartada — falharia fechado, que é seguro, e seria um flag
+      impossível de avaliar. Rastreabilidade é requisito do desenho, não etapa
+      da migração: um número só chega à tela se tiver voltado de uma consulta,
+      e agora "consulta" inclui as que o modelo escolheu.
+    */
+    if (agenteLigado()) {
+      const investigacao = await investigar({
+        pergunta,
+        registro: registroPadrao(),
+        ferramentas: {
+          db,
+          recorte: {
+            ...(opcoes.recorte?.scopeHash ? { scopeHash: opcoes.recorte.scopeHash } : {}),
+            ...(opcoes.recorte?.channel !== undefined ? { channel: opcoes.recorte.channel } : {}),
+          },
+          ...(dossie.plano.periodo ? { periodo: dossie.plano.periodo } : {}),
+        },
+        ...(opcoes.historico?.length ? { historico: opcoes.historico } : {}),
+        ...(opcoes.aoAvancar
+          ? {
+              aoConsultar: (nome: string) =>
+                opcoes.aoAvancar!({ nome: "ferramenta", rotulo: `Consultando ${nome}`, ms: 0 }),
+            }
+          : {}),
+      });
+
+      return montarComAgente(dossie, investigacao, opcoes, pergunta);
+    }
+
     const portao = opcoes.aoTexto ? portaoDeLastro(dossie, opcoes.aoTexto) : null;
     const { texto: doModelo, medicao } = portao
       ? await redigirEmFluxo(pedido, (pedaco) => portao.receber(pedaco))

@@ -209,21 +209,32 @@ describe("rastreabilidade — só o que uma chamada devolveu pode ser citado", (
   });
 });
 
-describe("o registro padrão continua desligado", () => {
-  it("existe, mas não é chamado pelo caminho de produção", async () => {
-    /*
-      A prova de que o PR 1 não muda comportamento: nenhum arquivo fora de
-      `ferramentas/` e dos testes importa o registro. No dia em que o PR 2
-      ligar o laço, este teste é o que precisa ser atualizado — de propósito.
-    */
-    const { readFileSync, readdirSync } = await import("node:fs");
-    const { join } = await import("node:path");
+describe("a flag do agente", () => {
+  /*
+    Este bloco substitui o do PR 1, que exigia que **nenhum** arquivo importasse
+    o registro. O PR 2 ligou a importação de propósito, e a garantia mudou de
+    forma: não é mais "o registro não é referenciado", é "com a flag desligada,
+    o registro não é usado". A segunda é a que interessa a partir daqui, e é a
+    que continua valendo depois de a flag existir.
+  */
+  it("está desligada por padrão — nenhum ambiente entra no agente sem pedir", async () => {
+    const { agenteLigado } = await import("../agente");
+    const antes = process.env.ASSISTENTE_AGENTE;
+    delete process.env.ASSISTENTE_AGENTE;
 
-    const raiz = new URL("..", import.meta.url).pathname;
-    const suspeitos = readdirSync(raiz)
-      .filter((f) => f.endsWith(".ts"))
-      .filter((f) => readFileSync(join(raiz, f), "utf8").includes("ferramentas/registro"));
+    expect(agenteLigado()).toBe(false);
 
-    expect(suspeitos).toEqual([]);
+    for (const valor of ["0", "", "true", "sim", "on"]) {
+      process.env.ASSISTENTE_AGENTE = valor;
+      // Só o literal "1" liga. Um `true` numa variável de ambiente é o jeito
+      // mais fácil de o agente entrar em produção sem ninguém ter decidido.
+      expect(agenteLigado(), `ASSISTENTE_AGENTE=${valor}`).toBe(false);
+    }
+
+    process.env.ASSISTENTE_AGENTE = "1";
+    expect(agenteLigado()).toBe(true);
+
+    if (antes === undefined) delete process.env.ASSISTENTE_AGENTE;
+    else process.env.ASSISTENTE_AGENTE = antes;
   });
 });
