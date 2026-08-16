@@ -1,6 +1,7 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
+  attributeSemanticsTable,
   attributeTable,
   curationEventTable,
   factTable,
@@ -407,6 +408,10 @@ export interface QueueItem {
   isMonetary: boolean | null;
   semanticsStatus: string;
   semanticsRationale: string | null;
+  /** What a curator wrote this column is. Independent of `semanticsStatus`. */
+  definition: string | null;
+  /** How the source produces it, from the version in force. */
+  calculationBasis: string | null;
   taxonomyPath: string | null;
   taxonomyName: string | null;
   costClass: string | null;
@@ -444,6 +449,8 @@ export async function getCurationQueue(
       isMonetary: attributeTable.isMonetary,
       semanticsStatus: attributeTable.semanticsStatus,
       semanticsRationale: attributeTable.semanticsRationale,
+      definition: attributeTable.definition,
+      calculationBasis: attributeSemanticsTable.calculationBasis,
       taxonomyPath: taxonomyNodeTable.path,
       taxonomyName: taxonomyNodeTable.name,
       costClass: taxonomyNodeTable.costClass,
@@ -452,6 +459,17 @@ export async function getCurationQueue(
     .leftJoin(
       taxonomyNodeTable,
       eq(attributeTable.taxonomyNodeId, taxonomyNodeTable.id),
+    )
+    // The version in force, for its `calculation_basis`. Left-joined and
+    // filtered on `effective_until IS NULL` inside the join: an attribute with
+    // no version yet must still appear in the queue — it is precisely the one
+    // nobody has looked at.
+    .leftJoin(
+      attributeSemanticsTable,
+      and(
+        eq(attributeSemanticsTable.attributeId, attributeTable.id),
+        isNull(attributeSemanticsTable.effectiveUntil),
+      ),
     )
     .where(
       options.includeConfirmed

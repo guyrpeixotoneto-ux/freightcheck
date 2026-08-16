@@ -36,6 +36,7 @@ export interface SemanticsVersion {
   isMonetary: boolean | null;
   taxonomyNodeId: string | null;
   calculationBasis: string | null;
+  definition: string | null;
   semanticsStatus: string;
   confirmedBy: string | null;
   rationale: string | null;
@@ -96,6 +97,10 @@ export async function backfillSemantics(db: Database): Promise<BackfillResult> {
       isMonetary: attribute.isMonetary,
       taxonomyNodeId: attribute.taxonomyNodeId,
       calculationBasis: null,
+      // Carries whatever a curator has already written. Without this, running
+      // the backfill on a database that already holds definitions would erase
+      // them on the first projection of the version just created.
+      definition: attribute.definition,
       semanticsStatus: attribute.semanticsStatus,
       confirmedBy: attribute.confirmedBy,
       confirmedAt: attribute.confirmedAt,
@@ -199,6 +204,7 @@ export interface SemanticsFields {
   isMonetary?: boolean | null;
   taxonomyCode?: string | null;
   calculationBasis?: string | null;
+  definition?: string | null;
 }
 
 async function resolveTaxonomyNodeId(
@@ -237,6 +243,7 @@ async function projectCurrentVersion(db: Database, attributeId: string) {
       aggregation: current.aggregation as never,
       isMonetary: current.isMonetary,
       taxonomyNodeId: current.taxonomyNodeId,
+      definition: current.definition,
       semanticsStatus: current.semanticsStatus as never,
       semanticsRationale: current.rationale,
       confirmedBy: current.confirmedBy,
@@ -339,6 +346,18 @@ export async function recordSourceSemanticsChange(
           input.calculationBasis !== undefined
             ? input.calculationBasis
             : current.calculationBasis,
+        /**
+         * Carried forward unless the caller supplies a new one.
+         *
+         * A source change usually alters *how* the number is produced, not what
+         * the column is about — `ipvaLicenciamento` stayed the vehicle's IPVA
+         * through all three of its calculation bases. Defaulting to null would
+         * blank the definition on the new version and, one projection later, on
+         * `attribute` too: a change in the source would silently destroy the
+         * curator's own words.
+         */
+        definition:
+          input.definition !== undefined ? input.definition : current.definition,
         semanticsStatus: status,
         confirmedBy: status === "CONFIRMED" ? input.actor : null,
         confirmedAt: status === "CONFIRMED" ? new Date() : null,
@@ -446,6 +465,9 @@ export async function correctSemantics(
     record("aggregation", target.aggregation, aggregation);
     record("is_monetary", target.isMonetary, isMonetary);
     record("calculation_basis", target.calculationBasis, input.calculationBasis);
+    if (input.definition !== undefined) {
+      record("definition", target.definition, input.definition);
+    }
     record("semantics_status", target.semanticsStatus, status);
 
     const [updated] = await tx
@@ -464,6 +486,8 @@ export async function correctSemantics(
           input.calculationBasis !== undefined
             ? input.calculationBasis
             : target.calculationBasis,
+        definition:
+          input.definition !== undefined ? input.definition : target.definition,
         semanticsStatus: status,
         confirmedBy: status === "CONFIRMED" ? input.actor : target.confirmedBy,
         confirmedAt: status === "CONFIRMED" ? new Date() : target.confirmedAt,
