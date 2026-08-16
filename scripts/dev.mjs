@@ -139,43 +139,37 @@ async function startApi() {
   const supervisor = createApiSupervisor({
     port: API_PORT,
     /**
-     * Instalar antes de construir, sempre.
+     * Instalar dependência **não** é efeito colateral de subir o servidor.
      *
-     * Um merge que só adiciona uma dependência entre pacotes do workspace não
-     * muda nada visível no repositório, mas muda o que precisa existir dentro
-     * de `node_modules`: o esbuild resolve `@workspace/*` pelos symlinks que o
+     * Aqui era: `pnpm install --frozen-lockfile` foi por muito tempo a primeira
+     * coisa que `start()` fazia, e havia uma boa razão. Um merge que só
+     * acrescenta uma dependência entre pacotes do workspace não muda nada
+     * visível no repositório, mas muda o que precisa existir dentro de
+     * `node_modules`: o esbuild resolve `@workspace/*` pelos symlinks que o
      * install cria, e sem eles o build para com
-     * `Could not resolve "@workspace/..."` — uma mensagem que aponta para o
-     * `import` e não para a causa. Foi assim que o Assistente de IA chegou
-     * quebrado num workspace onde o código estava inteiro e correto.
+     * `Could not resolve "@workspace/..."`, que aponta para o `import` e não
+     * para a causa. Foi assim que o Assistente de IA chegou quebrado num
+     * workspace onde o código estava inteiro.
      *
-     * O `[postMerge]` do `.replit` já roda o install, mas ele depende de um
-     * merge ter acontecido naquele workspace, e de caber na janela dele. O Run
-     * não pode depender disso: quem aperta Run está pedindo um ambiente de pé.
-     * Quando não há nada a fazer, o install custa ~2s e não diz nada.
+     * A razão continua verdadeira; o remédio é que estava no lugar errado.
+     * Instalar antes de abrir a porta põe o gerenciador de pacotes **entre o
+     * workflow e a porta**. Num contêiner onde o pnpm não sobe — o bootstrap do
+     * Replit em laço no `pnpm add pnpm@10.33.0`, que foi o que derrubou o build
+     * da publicação — este passo não falha rápido: fica pendurado. E enquanto
+     * pendura, ninguém escuta na 8080. Web e API ficaram mudos ao mesmo tempo,
+     * e o que chega a quem opera é "o workflow não abriu a porta em 90
+     * segundos" — que não se parece nem um pouco com "o pnpm não existe".
      *
-     * `--frozen-lockfile` porque este script também roda em CI, e um bootstrap
-     * de desenvolvimento não é lugar para reescrever o lockfile em silêncio. Se
-     * o lockfile estiver mesmo desatualizado, o install falha dizendo isso, e o
-     * explicador leva a frase até a tela.
+     * A ordem certa é a inversa: **a porta abre primeiro**, e quem não
+     * conseguir subir explica o motivo por ela — que é o que o explicador do
+     * supervisor faz, e o que um 502 nunca fez.
+     *
+     * `node_modules` incompleto continua sendo um problema real, e agora
+     * aparece onde dá para lê-lo: o build falha, o explicador ocupa a porta com
+     * a mensagem, e o conserto é um comando — `pnpm install --frozen-lockfile`.
+     * O `[postMerge]` do `.replit` continua rodando o install depois de cada
+     * merge.
      */
-    /*
-      Instalar dependência **não** é efeito colateral de subir o servidor, pelo
-      mesmo motivo que migrar não é — e aqui o custo apareceu inteiro.
-
-      Este passo era a primeira coisa que `start()` fazia, antes de qualquer
-      porta ser aberta. Num contêiner onde o `pnpm` não sobe — o bootstrap do
-      Replit entrando em laço no `pnpm add pnpm@10.33.0`, que foi o que
-      derrubou o build da publicação —, ele não falha rápido: fica pendurado.
-      E enquanto ele pendura, ninguém escuta na 8080. O sintoma que chega a
-      quem opera é "o workflow não abriu a porta em 90 segundos", que não se
-      parece nem um pouco com "o gerenciador de pacotes não existe".
-
-      A ordem certa é a inversa: a porta abre, e quem não conseguir subir
-      explica o motivo por ela. É o que o explicador do supervisor faz.
-
-      Instalar continua sendo ato explícito: `pnpm install --frozen-lockfile`.
-    */
     runInstall: null,
     /*
       Migrar o banco de desenvolvimento **não** é efeito colateral de subir o
