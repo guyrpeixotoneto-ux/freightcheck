@@ -318,3 +318,47 @@ describe("GET /coverage/contract", () => {
     expect(res.body.some((c: any) => c.criticidade === "CRITICO")).toBe(true);
   });
 });
+
+/*
+  Por último, porque apaga o agregado: o contrato de superfície do reparo, que é
+  a saída de um estado em que a tela ficava presa. Ver `lib/coverage/src/
+  agregado.ts` para como uma vigência inteira perde a medição sem perder dado.
+*/
+describe("o agregado de cobertura, perdido e refeito pela rota", () => {
+  it("`/coverage` não anuncia banco vazio quando o que falta é a medição", async () => {
+    await ctx.db.execute(sql`DELETE FROM snapshot_entity_type`);
+
+    const res = await get("/coverage?vigencias=9");
+    expect(res.status).toBe(200);
+    expect(res.body.linhas).toEqual([]);
+    expect(res.body.incompleto.length).toBeGreaterThan(0);
+    /* A frase que a tela imprime não pode mandar importar o que já está lá. */
+    expect(res.body.resumo.veredito.frase).not.toMatch(/[Nn]enhuma vigência importada/);
+  });
+
+  it("lista as vigências sem agregado antes de tocar em qualquer coisa", async () => {
+    const res = await get("/coverage/aggregate/missing");
+    expect(res.status).toBe(200);
+    expect(res.body.length).toBeGreaterThan(0);
+    expect(res.body.every((v: any) => v.fatos > 0 && v.sourceLabel)).toBe(true);
+  });
+
+  it("o POST refaz a medição e a matriz volta", async () => {
+    const reparo = await post("/coverage/aggregate/rebuild", {});
+    expect(reparo.status).toBe(200);
+    expect(reparo.body.vigencias).toBeGreaterThan(0);
+    expect(reparo.body.rotulos.length).toBeGreaterThan(0);
+
+    const res = await get("/coverage?vigencias=9");
+    expect(res.body.linhas.length).toBeGreaterThan(0);
+    expect(res.body.incompleto).toEqual([]);
+    expect(res.body.resumo.geral.percentual).toBeGreaterThan(0);
+  });
+
+  it("chamado de novo, não tem o que fazer", async () => {
+    const reparo = await post("/coverage/aggregate/rebuild", {});
+    expect(reparo.status).toBe(200);
+    expect(reparo.body).toEqual({ vigencias: 0, linhas: 0, rotulos: [] });
+    expect((await get("/coverage/aggregate/missing")).body).toEqual([]);
+  });
+});
