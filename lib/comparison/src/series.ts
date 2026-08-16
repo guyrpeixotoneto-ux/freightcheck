@@ -1,6 +1,5 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
-import { channelOf } from "@workspace/ingest";
 
 /**
  * O contexto de uma leitura: **unidade e canal**.
@@ -17,36 +16,49 @@ import { channelOf } from "@workspace/ingest";
  * comparado. Nenhuma consulta de leitura deve montar esse predicado por conta
  * própria.
  *
- * **O canal não é coluna.** `snapshot` é congelado por trigger quando fecha, de
- * modo que uma coluna nova não poderia ser preenchida nas vigências já
- * importadas — e o produto ainda só viu um canal, então não há o que uma coluna
- * distinguisse hoje. O canal é derivado do rótulo, aqui em SQL e em
- * `lib/ingest/src/vigencia.ts` em TypeScript; os dois são obrigados a
- * concordar por um teste que roda os dois lados sobre os mesmos rótulos. No dia
- * em que existir um segundo canal no banco, persistir a derivação passa a valer
- * a migration — e o teste continua sendo o que prova a equivalência.
+ * **O canal é a coluna `snapshot.canal`, e mais nada.**
+ *
+ * Não foi sempre assim, e a história importa porque ela é o defeito. Este
+ * arquivo derivava o canal do rótulo por uma expressão regular, com um
+ * comentário afirmando que "o canal não é coluna" — verdadeiro quando foi
+ * escrito e falso desde a `0015`, que criou `snapshot.canal` como `NOT NULL`
+ * com `CHECK` de não vazio, preenchida na promoção por `normalizeChannel`.
+ *
+ * O comentário venceu e ninguém o releu, de modo que o produto passou a ter
+ * **duas** autoridades sobre o mesmo campo: a Cobertura lia a coluna, e
+ * Alterações, Impacto, Composição e DRE liam o regex. As duas discordam sempre
+ * que o rótulo chega escrito de outro jeito — `Transferencia_1_6_2026` dá
+ * `Transferencia` no regex e `TRANSFERENCIA` na coluna —, e o efeito medido era
+ * o pior possível: o mesmo canal virava dois contextos, e o Impacto abria
+ * mostrando uma coluna em vez do histórico inteiro, sem dizer que havia mais.
+ *
+ * A derivação por rótulo continua existindo, e só onde ela pertence: na
+ * importação (`lib/ingest/src/vigencia.ts`), que é onde o canal nasce. Ler é
+ * ler a coluna.
  */
 
 /**
- * Espelho, em POSIX, do `LABEL_PATTERN` de `lib/ingest/src/vigencia.ts`.
+ * O canal de uma vigência: a coluna, para um alias de `snapshot`.
  *
- * `substring(… from …)` devolve o grupo capturado, ou NULL quando o rótulo não
- * tem a forma — que é exatamente o que `channelOf` devolve do lado do
- * TypeScript. NULL é uma partição como outra qualquer: rótulos sem canal
- * legível ficam todos juntos, em vez de cada um virar uma série sozinha.
+ * `canalDe("sb")` → `sb.canal`. Uma função de uma linha existe para que a
+ * leitura do canal tenha **um** lugar — o que a expressão regular que morava
+ * aqui não tinha, porque cada consulta a reescrevia sobre a coluna de rótulo
+ * que tivesse à mão.
  */
-export const CHANNEL_PATTERN = "^([A-Za-z][A-Za-z0-9_]*)_[0-9]{1,2}_[0-9]{1,2}_[0-9]{4}$";
-
-/** `channelSql("sb.source_label")` → o canal daquela coluna, ou NULL. */
-export function channelSql(labelColumn: string) {
-  return sql.raw(`substring(${labelColumn} from '${CHANNEL_PATTERN}')`);
+export function canalDe(snapshotAlias: string) {
+  return sql.raw(`${snapshotAlias}.canal`);
 }
-
-export { channelOf };
 
 export interface SeriesContext {
   scopeHash: string;
-  /** Null quando o rótulo da vigência não declara canal. */
+  /**
+   * O canal, como `snapshot.canal` o guarda.
+   *
+   * Continua aceitando `null` no **pedido**, e não na resposta: a coluna é
+   * `NOT NULL` com `CHECK` de não vazio, de modo que nenhum contexto tem canal
+   * nulo. Um pedido com `null` simplesmente não casa com nada — que é a
+   * resposta certa, e não um erro.
+   */
   channel: string | null;
 }
 
@@ -88,7 +100,7 @@ export async function listContexts(db: Database): Promise<ContextInfo[]> {
     periods: number;
   }>(sql`
     SELECT s.scope_hash,
-           ${channelSql("s.source_label")} AS channel,
+           s.canal                         AS channel,
            max(s.effective_date)::text     AS latest_period,
            count(DISTINCT s.effective_date)::int AS periods
       FROM snapshot s
@@ -105,7 +117,7 @@ export async function listContexts(db: Database): Promise<ContextInfo[]> {
     name: string | null;
   }>(sql`
     SELECT DISTINCT s.scope_hash,
-           ${channelSql("s.source_label")} AS channel,
+           s.canal AS channel,
            sc.scope_type, sc.code, sc.name
       FROM snapshot s
       JOIN snapshot_scope ss ON ss.snapshot_id = s.id
@@ -185,21 +197,32 @@ export async function resolveContext(
 /**
  * O predicado SQL do contexto, para um alias de `snapshot`.
  *
- * `IS NOT DISTINCT FROM` porque o canal pode ser NULL dos dois lados, e `=`
- * devolveria NULL — que numa cláusula WHERE quer dizer "não passa". Seria a
- * forma silenciosa de a leitura de um banco sem canal legível devolver vazio.
+ * `=` e não `IS NOT DISTINCT FROM`: a coluna `canal` é `NOT NULL`, de modo que
+ * não há o que o segundo resolvesse. Um pedido com canal nulo produz `NULL` na
+ * cláusula, que não passa — e não passar é o certo, porque contexto com canal
+ * nulo não existe.
+ *
+ * `scope_hash` continua aqui e está errado: a mesma unidade com o CNPJ
+ * mascarado num arquivo e sem máscara no outro tem hashes diferentes, e vira
+ * dois contextos. É o PR seguinte, e não este.
  */
 export function contextFilter(snapshotAlias: string, context: SeriesContext) {
   return sql`${sql.raw(`${snapshotAlias}.scope_hash`)} = ${context.scopeHash}
-             AND ${channelSql(`${snapshotAlias}.source_label`)}
-                 IS NOT DISTINCT FROM ${context.channel}::text`;
+             AND ${canalDe(snapshotAlias)} = ${context.channel}::text`;
 }
 
-/** A chave da série: contexto + cobertura de equipamento. */
+/**
+ * A chave da série: contexto + cobertura de equipamento.
+ *
+ * O canal entra pela coluna, e não mais pelo rótulo. `entity_type_set` continua
+ * aqui e está errado — ele cresce com entrega parcial e parte a série —, mas
+ * tirá-lo exige a comparação por componente, e as duas metades andam juntas no
+ * PR-9. Ver `docs/AUDITORIA-COMPLEMENTO-BASELINE.md`, Parte D.3.
+ */
 export function seriesKey(
   scopeHash: string,
-  sourceLabel: string,
+  canal: string,
   entityTypeSet: string,
 ): string {
-  return `${scopeHash}|${channelOf(sourceLabel) ?? ""}|${entityTypeSet}`;
+  return `${scopeHash}|${canal}|${entityTypeSet}`;
 }

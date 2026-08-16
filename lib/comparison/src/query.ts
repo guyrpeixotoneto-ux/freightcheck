@@ -451,6 +451,7 @@ export async function listComparableSnapshots(db: Database) {
       effectiveDate: snapshotTable.effectiveDate,
       entityTypeSet: snapshotTable.entityTypeSet,
       scopeHash: snapshotTable.scopeHash,
+      canal: snapshotTable.canal,
       revision: snapshotTable.revision,
       status: snapshotTable.status,
       entityCount: snapshotTable.entityCount,

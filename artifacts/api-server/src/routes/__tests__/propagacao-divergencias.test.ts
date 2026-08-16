@@ -46,6 +46,11 @@ import { encerrarPoolDoProcesso, type Database } from "@workspace/db";
  * `it.fails` e não `it.skip` porque um teste pulado não avisa nada: ele
  * permaneceria pulado depois da correção, e a divergência voltaria a ficar sem
  * dono. Ver `docs/AUDITORIA-INGESTAO-PROPAGACAO.md`, Parte 3.
+ *
+ * **Estado.** A divergência do canal foi corrigida no PR-6, e os `it.fails`
+ * dela viraram provas normais — com o corpo intacto, que é a regra do
+ * protocolo. As divergências do escopo (`scope_hash`) e de `entity_type_set`
+ * seguem marcadas, e são o PR-7 e o PR-9.
  */
 
 const COLUNAS_FIXAS = [
@@ -345,41 +350,42 @@ describe("divergência 3 — a caixa do rótulo parte o canal em dois", () => {
     expect(observadas.length).toBe(2);
   }, 300_000);
 
-  it.fails(
-    "o canal derivado do rótulo deveria ser o canal gravado — hoje difere na caixa",
-    async () => {
-      const vigencias = await vivas(ctx.db);
-      for (const v of vigencias) {
-        // Correção esperada: quem quiser o canal lê `snapshot.canal`. Enquanto
-        // houver uma segunda derivação, ela tem de dar o mesmo resultado.
-        expect(channelOf(v.sourceLabel)).toBe(v.canal);
-        // A normalização já concorda — o que falta é aplicá-la dos dois lados.
-        expect(normalizeChannel(channelOf(v.sourceLabel))).toBe(v.canal);
-      }
-    },
-    300_000,
-  );
+  /*
+    Corrigido no PR-6. Os dois `it.fails` desta divergência viraram provas
+    normais, e o corpo deles não mudou: a afirmação sempre foi a certa, e o que
+    faltava era o produto cumpri-la.
 
-  it.fails(
-    "o seletor de contexto deveria mostrar um canal — hoje mostra dois",
-    async () => {
-      const contextos = await listContexts(ctx.db);
-      expect(contextos.length).toBe(1);
-    },
-    300_000,
-  );
+    O terceiro foi **aposentado**, e a aposentadoria é a correção. Ele exigia
+    que as duas derivações do canal concordassem, e a premissa dele era o
+    defeito: duas autoridades sobre o mesmo campo. `channelOf` continua
+    existindo e continua certo onde ele pertence — a importação, onde o canal
+    nasce. O que deixou de existir é uma segunda *leitura*, e é isso que a prova
+    no lugar dele afirma.
+  */
+  it("a leitura do canal não passa mais pelo rótulo", async () => {
+    const vigencias = await vivas(ctx.db);
+    const derivados = vigencias.map((v) => channelOf(v.sourceLabel));
+    const gravados = vigencias.map((v) => v.canal);
 
-  it.fails(
-    "Impacto deveria abrir com as duas vigências do canal — hoje mostra uma coluna só",
-    async () => {
-      const matriz = await getQuinzenaMatrix(ctx.db, {});
-      expect(matriz!.periods.map((p) => p.effectiveDate)).toEqual([
-        "2026-05-01",
-        "2026-06-01",
-      ]);
-    },
-    300_000,
-  );
+    // Os dois rótulos deste cenário derivam canais diferentes...
+    expect(new Set(derivados).size).toBe(2);
+    // ...e a coluna guarda um só, porque a importação normaliza ao gravar.
+    expect(new Set(gravados).size).toBe(1);
+    expect(gravados[0]).toBe(normalizeChannel(derivados[0]));
+  }, 300_000);
+
+  it("o seletor de contexto mostra um canal, e não dois", async () => {
+    const contextos = await listContexts(ctx.db);
+    expect(contextos.length).toBe(1);
+  }, 300_000);
+
+  it("Impacto abre com as duas vigências do canal", async () => {
+    const matriz = await getQuinzenaMatrix(ctx.db, {});
+    expect(matriz!.periods.map((p) => p.effectiveDate)).toEqual([
+      "2026-05-01",
+      "2026-06-01",
+    ]);
+  }, 300_000);
 });
 
 afterAll(async () => {

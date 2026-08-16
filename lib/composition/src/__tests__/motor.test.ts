@@ -188,7 +188,7 @@ beforeAll(async () => {
         },
       },
     ],
-    { entityType: "CAVALO", scopeHash: "escopo-motor" },
+    { entityType: "CAVALO", scopeHash: "escopo-motor", canal: "EMPURRADA" },
   );
   snapshots = built.snapshotIds;
   expect(Object.keys(snapshots)).toHaveLength(2);

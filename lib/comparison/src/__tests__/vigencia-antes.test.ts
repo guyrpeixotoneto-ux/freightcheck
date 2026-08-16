@@ -31,6 +31,8 @@ import { buildFixture, type AttributeSpec } from "./fixtures";
 
 let ctx: TestDb;
 const SCOPE = "scope-vigencia-antes";
+/** Um canal só: cavalo e carreta são duas entregas do mesmo contexto. */
+const CANAL = "EMPURRADA";
 
 const CAVALO: AttributeSpec[] = [
   {
@@ -71,7 +73,15 @@ beforeAll(async () => {
       { label: "CAV_AGO", effectiveDate: "2026-08-01", data: { RPG1B56: { "cavalo.custo_fixo": 1100 } } },
       { label: "CAV_OUT", effectiveDate: "2026-10-01", data: { RPG1B56: { "cavalo.custo_fixo": 1200 } } },
     ],
-    { entityType: "CAVALO", scopeHash: SCOPE },
+    /*
+      Mesmo escopo e mesmo canal das carretas, e família própria.
+
+      É o que permite as duas entregas dividirem o **contexto** — que é o que
+      esta suíte precisa: uma visão que mostre cavalo e carreta lado a lado, cada
+      um com a sua própria vigência anterior. Sem a família, as duas colidiriam
+      na identidade canônica, porque escopo, canal e data seriam os mesmos.
+    */
+    { entityType: "CAVALO", scopeHash: SCOPE, canal: CANAL, datasetFamily: "REMUNERACAO_CAVALO" },
   );
 
   // Carretas: agosto, setembro e outubro — a série completa.
@@ -83,7 +93,7 @@ beforeAll(async () => {
       { label: "CAR_SET", effectiveDate: "2026-09-01", data: { QQQ7X70: { "carreta.custo_fixo": 540 } } },
       { label: "CAR_OUT", effectiveDate: "2026-10-01", data: { QQQ7X70: { "carreta.custo_fixo": 560 } } },
     ],
-    { entityType: "CARRETA", scopeHash: SCOPE },
+    { entityType: "CARRETA", scopeHash: SCOPE, canal: CANAL, datasetFamily: "REMUNERACAO_CARRETA" },
   );
 
   await computeMissingChangeSets(ctx.db, "test:vigencia-antes");
@@ -99,14 +109,14 @@ const veiculos = (period: string, attributeCode: string, entityType: string) =>
     attributeCode,
     entityType,
     scopeHash: SCOPE,
-    channel: null,
+    channel: CANAL,
   });
 
 describe("mês consecutivo", () => {
   it("o Antes de agosto é julho, na série e na linha", async () => {
     const view = (await getGroupedView(ctx.db, "2026-08-01", {
       scopeHash: SCOPE,
-      channel: null,
+      channel: CANAL,
     }))!;
     const cavalo = view.series.find((s) => s.entityTypeSet === "CAVALO")!;
     expect(cavalo.previousPeriod).toBe("2026-07-01");
@@ -126,7 +136,7 @@ describe("salto de vigência", () => {
   it("o Antes de outubro é agosto, e não o setembro que a série não entregou", async () => {
     const view = (await getGroupedView(ctx.db, "2026-10-01", {
       scopeHash: SCOPE,
-      channel: null,
+      channel: CANAL,
     }))!;
     const cavalo = view.series.find((s) => s.entityTypeSet === "CAVALO")!;
     expect(cavalo.previousPeriod).toBe("2026-08-01");
@@ -155,7 +165,7 @@ describe("cavalo e carreta na mesma vigência", () => {
   it("cada série leva a sua própria vigência anterior", async () => {
     const view = (await getGroupedView(ctx.db, "2026-10-01", {
       scopeHash: SCOPE,
-      channel: null,
+      channel: CANAL,
     }))!;
     const porEquipamento = new Map(
       view.series.map((s) => [s.entityTypeSet, s.previousPeriodLabel]),
@@ -199,7 +209,7 @@ describe("primeira vigência de uma série", () => {
     // Agosto é a primeira entrega da carreta: não há com que comparar.
     const view = (await getGroupedView(ctx.db, "2026-08-01", {
       scopeHash: SCOPE,
-      channel: null,
+      channel: CANAL,
     }))!;
     const carreta = view.series.find((s) => s.entityTypeSet === "CARRETA")!;
     expect(carreta.previousPeriod).toBeNull();

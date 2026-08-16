@@ -29,7 +29,7 @@ try {
   for (const snapshot of all) {
     const key = seriesKey(
       snapshot.scopeHash,
-      snapshot.sourceLabel,
+      snapshot.canal,
       snapshot.entityTypeSet,
     );
     if (!series.has(key)) series.set(key, []);

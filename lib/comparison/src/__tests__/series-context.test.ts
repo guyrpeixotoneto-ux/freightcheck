@@ -1,13 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
-import { channelOf } from "@workspace/ingest";
 import { seedTaxonomy } from "@workspace/curation";
 import { computeChangeSet, findPreviousSnapshot } from "../engine";
 import { computeMissingChangeSets, getConsolidated, listPeriods } from "../consolidated";
 import { getAccumulatedImpact, getAttributeSeries, getGroupedView } from "../grouped";
 import {
-  CHANNEL_PATTERN,
   ContextNotFoundError,
   listContexts,
   resolveContext,
@@ -72,7 +70,7 @@ beforeAll(async () => {
         data: { AAA1A11: { "carreta.custo_fixo": 1200 } },
       },
     ],
-    { entityType: "CARRETA", scopeHash: UNIDADE_A },
+    { entityType: "CARRETA", scopeHash: UNIDADE_A, canal: "EMPURRADA" },
   );
 
   // Unidade B, mesmo canal, **mesmas datas**: 5000 -> 4000 (−1000/mês).
@@ -91,7 +89,7 @@ beforeAll(async () => {
         data: { BBB2B22: { "carreta.custo_fixo": 4000 } },
       },
     ],
-    { entityType: "CARRETA", scopeHash: UNIDADE_B },
+    { entityType: "CARRETA", scopeHash: UNIDADE_B, canal: "EMPURRADA" },
   );
 
   // Unidade A de novo, agora no canal ROTA, na mesma data de fevereiro.
@@ -105,7 +103,7 @@ beforeAll(async () => {
         data: { CCC3C33: { "carreta.custo_fixo": 7000 } },
       },
     ],
-    { entityType: "CARRETA", scopeHash: UNIDADE_A },
+    { entityType: "CARRETA", scopeHash: UNIDADE_A, canal: "ROTA" },
   );
 
   await computeMissingChangeSets(ctx.db, "test");
@@ -116,31 +114,93 @@ afterAll(async () => {
 });
 
 /**
- * O canal é derivado em dois lugares — TypeScript na ingestão, SQL na leitura —
- * porque `snapshot` é congelado por trigger e uma coluna nova não poderia ser
- * preenchida nas vigências já importadas. Duas derivações é uma a mais do que o
- * ideal; este teste é o preço que as mantém iguais.
+ * O canal tem **uma** autoridade: a coluna `snapshot.canal`.
+ *
+ * Este bloco substitui o que existia aqui, e a substituição é a correção. O
+ * teste antigo provava que duas derivações do canal — a do TypeScript na
+ * ingestão e a de uma expressão regular no SQL da leitura — davam o mesmo
+ * resultado. Ele passava, e não bastava: as duas derivações eram aplicadas a
+ * *entradas* diferentes. A da leitura corria sobre o rótulo como ele veio
+ * escrito; a da escrita normalizava antes de gravar. Para `Transferencia_1_6_2026`
+ * a coluna guarda `TRANSFERENCIA` e o regex devolvia `Transferencia`, e o mesmo
+ * canal virava dois contextos.
+ *
+ * A prova certa não é que as duas concordam: é que só existe uma. O que se
+ * afirma agora é que a leitura devolve o que está gravado, **inclusive quando o
+ * rótulo não permitiria derivá-lo** — que é o caso em que a derivação antiga
+ * respondia NULL e juntava numa partição só vigências de canais diferentes.
  */
-describe("a derivação do canal, nos dois lados", () => {
-  it("SQL e TypeScript concordam em cada rótulo", async () => {
-    const labels = [
-      "EMPURRADA_2_12_2025",
-      "EMPURRADA_1_8_2026",
-      "ROTA_1_8_2026",
-      "ROTA_SECA_1_8_2026",
-      "R2_1_8_2026",
-      "CAR_JAN",
-      "EMPURRADA",
-      "1_8_2026",
-      "vigencia-1",
-    ];
+describe("o canal vem da coluna, e de mais lugar nenhum", () => {
+  /*
+    Banco próprio, e não o compartilhado do arquivo.
 
-    for (const label of labels) {
-      const { rows } = await ctx.db.execute<{ channel: string | null }>(sql`
-        SELECT substring(${label} from ${CHANNEL_PATTERN}) AS channel
-      `);
-      expect(rows[0].channel ?? null, `rótulo ${label}`).toBe(channelOf(label));
+    Os fixtures daqui acrescentam contextos, e o bloco seguinte conta contextos
+    do banco inteiro. Enfraquecer aquelas asserções para caber estas seria
+    trocar cobertura por conveniência — quem chegou depois paga o isolamento.
+  */
+  let local: TestDb;
+
+  beforeAll(async () => {
+    local = await createTestDatabase("series_canal_coluna");
+    await seedTaxonomy(local.db, "test");
+  }, 180_000);
+
+  afterAll(async () => {
+    await local?.drop().catch(() => {});
+  });
+
+  it("a leitura devolve o canal gravado mesmo com rótulo que não o declara", async () => {
+    await buildFixture(
+      local.db,
+      CUSTO,
+      [
+        {
+          label: "planilha-sem-forma-de-rotulo",
+          effectiveDate: "2026-05-02",
+          data: { DDD4D44: { "carreta.custo_fixo": 900 } },
+        },
+      ],
+      { entityType: "CARRETA", scopeHash: "scope-sem-rotulo", canal: "TRANSFERENCIA" },
+    );
+
+    const contexto = (await listContexts(local.db)).find(
+      (c) => c.scopeHash === "scope-sem-rotulo",
+    )!;
+    // A derivação por rótulo daria NULL aqui. A coluna diz TRANSFERENCIA.
+    expect(contexto.channel).toBe("TRANSFERENCIA");
+
+    const periodos = await listPeriods(local.db, {
+      scopeHash: "scope-sem-rotulo",
+      channel: "TRANSFERENCIA",
+    });
+    expect(periodos.map((p) => p.effective_date)).toEqual(["2026-05-02"]);
+  });
+
+  it("dois rótulos escritos em caixas diferentes ficam no mesmo canal", async () => {
+    // O caso medido na auditoria: `EMPURRADA_…` e `Empurrada_…` são o mesmo
+    // canal, e a normalização da importação já os unifica na coluna. Pela
+    // derivação antiga eles davam `EMPURRADA` e `Empurrada` — dois contextos,
+    // e o Impacto abrindo com metade do histórico sem dizer que havia mais.
+    for (const [i, label] of ["EMPURRADA_1_6_2026", "Empurrada_1_7_2026"].entries()) {
+      await buildFixture(
+        local.db,
+        CUSTO,
+        [
+          {
+            label,
+            effectiveDate: `2026-0${6 + i}-01`,
+            data: { [`EEE${i}E${i}${i}`]: { "carreta.custo_fixo": 800 + i } },
+          },
+        ],
+        { entityType: "CARRETA", scopeHash: "scope-caixa", canal: "EMPURRADA" },
+      );
     }
+
+    const contextos = (await listContexts(local.db)).filter(
+      (c) => c.scopeHash === "scope-caixa",
+    );
+    expect(contextos).toHaveLength(1);
+    expect(contextos[0].periods).toBe(2);
   });
 });
 

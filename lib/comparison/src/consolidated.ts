@@ -161,6 +161,7 @@ export async function computeMissingChangeSets(
     .select({
       id: snapshotTable.id,
       scopeHash: snapshotTable.scopeHash,
+      canal: snapshotTable.canal,
       sourceLabel: snapshotTable.sourceLabel,
       entityTypeSet: snapshotTable.entityTypeSet,
       effectiveDate: snapshotTable.effectiveDate,
@@ -176,7 +177,7 @@ export async function computeMissingChangeSets(
   for (const snapshot of all) {
     const key = seriesKey(
       snapshot.scopeHash,
-      snapshot.sourceLabel,
+      snapshot.canal,
       snapshot.entityTypeSet,
     );
     if (!series.has(key)) series.set(key, []);

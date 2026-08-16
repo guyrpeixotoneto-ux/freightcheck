@@ -11,7 +11,7 @@ import {
   type AttributeClassification,
 } from "./classification";
 import { assessImpact } from "./impact";
-import { channelOf, channelSql } from "./series";
+
 
 /**
  * The comparison engine.
@@ -66,6 +66,10 @@ export interface ChangeSetSummary {
  * `EMPURRADA`. Without it, the first vigência of a second channel would pick
  * the other channel's previous vigência as its baseline — same unit, same
  * coverage, a different remuneration — and every asset would look changed.
+ *
+ * O canal vem de `snapshot.canal`. Vinha de uma expressão regular sobre o
+ * rótulo, e as duas discordam quando o rótulo chega escrito de outro jeito —
+ * ver `series.ts`.
  */
 export async function findPreviousSnapshot(
   db: Database,
@@ -85,7 +89,7 @@ export async function findPreviousSnapshot(
         eq(snapshotTable.sourceSystem, target.sourceSystem),
         eq(snapshotTable.scopeHash, target.scopeHash),
         eq(snapshotTable.entityTypeSet, target.entityTypeSet),
-        sql`${channelSql("snapshot.source_label")} IS NOT DISTINCT FROM ${channelOf(target.sourceLabel)}::text`,
+        eq(snapshotTable.canal, target.canal),
         sql`${snapshotTable.status} <> 'SUPERSEDED'`,
         sql`${snapshotTable.effectiveDate} < ${target.effectiveDate}`,
       ),
@@ -149,15 +153,14 @@ export async function computeChangeSet(
       `Coberturas diferentes: "${a.sourceLabel}" cobre ${a.entityTypeSet} e "${b.sourceLabel}" cobre ${b.entityTypeSet}.`,
     );
   }
-  // O canal é parte do rótulo da vigência, não do escopo: duas vigências da
-  // mesma unidade podem vir de canais diferentes e descrever remunerações que
-  // não se sucedem. Comparar as duas produziria uma diferença sem significado.
-  const channelA = channelOf(a.sourceLabel);
-  const channelB = channelOf(b.sourceLabel);
-  if (channelA !== channelB) {
+  // O canal é componente da identidade da vigência, e não do escopo: duas
+  // vigências da mesma unidade podem vir de canais diferentes e descrever
+  // remunerações que não se sucedem. Comparar as duas produziria uma diferença
+  // sem significado. Quem responde qual é o canal é a coluna, não o rótulo.
+  if (a.canal !== b.canal) {
     throw new Error(
-      `Canais diferentes: "${a.sourceLabel}" é do canal ${channelA ?? "não identificado"} e ` +
-        `"${b.sourceLabel}" é do canal ${channelB ?? "não identificado"}. ` +
+      `Canais diferentes: "${a.sourceLabel}" é do canal ${a.canal} e ` +
+        `"${b.sourceLabel}" é do canal ${b.canal}. ` +
         `Uma vigência só se compara com outra do mesmo canal.`,
     );
   }

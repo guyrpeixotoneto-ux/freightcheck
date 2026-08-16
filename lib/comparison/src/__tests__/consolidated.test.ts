@@ -15,6 +15,7 @@ import { buildFixture, type AttributeSpec } from "./fixtures";
 
 let ctx: TestDb;
 const SCOPE = "scope-consolidado";
+const CANAL = "EMPURRADA";
 
 const CARRETA: AttributeSpec[] = [
   {
@@ -65,7 +66,7 @@ beforeAll(async () => {
       { label: "CAR_FEV", effectiveDate: "2026-02-01", data: { AAA1A11: { "carreta.custo_fixo": 1300 } } },
       { label: "CAR_MAR", effectiveDate: "2026-03-01", data: { AAA1A11: { "carreta.custo_fixo": 1350 } } },
     ],
-    { entityType: "CARRETA", scopeHash: SCOPE },
+    { entityType: "CARRETA", scopeHash: SCOPE, canal: CANAL, datasetFamily: "REMUNERACAO_CARRETA" },
   );
 
   // Cavalos deliver January and March — February never arrived.
@@ -84,7 +85,8 @@ beforeAll(async () => {
         data: { BBB2B22: { "cavalo.custo_fixo": 5500, "cavalo.ipva": 9000 } },
       },
     ],
-    { entityType: "CAVALO", scopeHash: SCOPE },
+    /* Mesmo contexto das carretas — ver `vigencia-antes.test.ts`, mesma razão. */
+    { entityType: "CAVALO", scopeHash: SCOPE, canal: CANAL, datasetFamily: "REMUNERACAO_CAVALO" },
   );
 }, 120_000);
 

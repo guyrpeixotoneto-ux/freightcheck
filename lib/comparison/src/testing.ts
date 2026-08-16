@@ -81,6 +81,19 @@ export interface FixtureOptions {
    * consolidação junta as séries.
    */
   canal?: string;
+  /**
+   * A família do dataset. Existe para que **duas chamadas possam compartilhar
+   * escopo, canal e data** sem colidir na identidade canônica.
+   *
+   * O produto de verdade não precisa disso: cavalo e carreta na mesma data e
+   * na mesma unidade são *um* snapshot, com `entity_type_set = CARRETA+CAVALO`.
+   * O fixture monta os dois separados para poder variar um sem o outro, e antes
+   * mantinha-os distintos dando a cada chamada um canal próprio — o que deixou
+   * de servir quando a leitura do canal passou a ser a coluna: dois canais são
+   * dois contextos, e um teste que precisa dos dois numa visão só não os
+   * encontraria. A família separa a identidade sem separar o contexto.
+   */
+  datasetFamily?: string;
 }
 
 let sequence = 0;
@@ -96,6 +109,7 @@ export async function buildFixture(
   const entityType = options.entityType ?? "CARRETA";
   const scopeHash = options.scopeHash ?? `scope-${suffix}`;
   const canal = (options.canal ?? suffix).toUpperCase().replace(/[^A-Z0-9]+/g, "_");
+  const datasetFamily = options.datasetFamily ?? "REMUNERACAO_EQUIPAMENTO";
   // O escopo canônico tem de sair já normalizado, senão o CHECK do banco recusa
   // a linha. Um CNPJ de 14 dígitos derivado do `scopeHash` faz duas chamadas que
   // compartilham escopo compartilharem também a identidade de escopo.
@@ -235,7 +249,7 @@ export async function buildFixture(
         effectiveDate: spec.effectiveDate,
         scopeHash,
         entityTypeSet: entityType,
-        datasetFamily: "REMUNERACAO_EQUIPAMENTO",
+        datasetFamily,
         canal,
         canonicalScope,
         status: "DRAFT",

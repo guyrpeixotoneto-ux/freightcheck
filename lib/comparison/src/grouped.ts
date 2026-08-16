@@ -20,7 +20,6 @@ import {
 import { buildCockpit, type CockpitView } from "./cockpit";
 import { listPeriods } from "./consolidated";
 import {
-  channelSql,
   contextFilter,
   listContexts,
   resolveContext,
@@ -1598,7 +1597,7 @@ async function findElsewhere(
   }>(sql`
     SELECT t              AS entity_type,
            s.scope_hash,
-           ${channelSql("s.source_label")} AS channel,
+           s.canal AS channel,
            s.effective_date::text AS effective_date,
            s.source_label
       FROM snapshot s

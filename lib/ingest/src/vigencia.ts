@@ -14,12 +14,19 @@
  * the first word was. Widening it is strictly additive: every label accepted
  * before is still accepted, and still yields the same date.
  *
- * The channel is **not** persisted. `snapshot` is frozen by trigger once
- * CLOSED, so a new column could not be backfilled into the vigências already
- * imported; and with a single channel on record there is nothing yet for a
- * column to distinguish. Callers that need to keep two channels apart derive
- * it from the label — see `lib/comparison/src/series.ts`, which mirrors this
- * pattern in SQL and is held to it by a test.
+ * **O canal é persistido, e este arquivo é onde ele nasce.** A promoção grava
+ * `snapshot.canal` com `normalizeChannel(channel ?? label)`, e a coluna é
+ * `NOT NULL` com `CHECK` de não vazio desde a `0015`.
+ *
+ * O parágrafo que estava aqui dizia o contrário — que o canal não era coluna e
+ * que quem precisasse dele o derivasse do rótulo. Era verdade quando foi
+ * escrito, deixou de ser com a identidade canônica, e ninguém o releu: o
+ * produto passou a ter duas autoridades sobre o mesmo campo, que discordam
+ * sempre que o rótulo chega escrito de outro jeito. A leitura passou a ser
+ * sempre pela coluna; ver `lib/comparison/src/series.ts`.
+ *
+ * Derivar o canal do rótulo continua sendo trabalho **desta** camada, e só
+ * dela: é aqui que a origem o declara.
  */
 
 /**
