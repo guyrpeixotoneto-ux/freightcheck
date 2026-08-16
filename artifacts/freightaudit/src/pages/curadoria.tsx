@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { fetchJson, getApiUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { estaDescrito } from "@/lib/curadoria";
 import { cn } from "@/lib/utils";
 
 /**
@@ -254,7 +255,8 @@ export default function Curadoria() {
             <CardTitle className="text-base">Fila de curadoria</CardTitle>
             <p className="text-xs text-muted-foreground">
               Ordenada por materialidade. A soma exibida é bruta e não auditada —
-              serve para priorizar, não é resultado.
+              serve para priorizar, não é resultado. Em verde, o que já tem nome,
+              descrição e fórmula escritos — descrever não é confirmar.
             </p>
             <div className="flex gap-2 pt-2">
               <Input
@@ -277,40 +279,62 @@ export default function Curadoria() {
             {isLoading && (
               <p className="text-sm text-muted-foreground p-4">Carregando…</p>
             )}
-            {visible.map((item) => (
-              <button
-                key={item.code}
-                onClick={() => setSelected(item.code)}
-                className={cn(
-                  "w-full text-left px-4 py-3 border-b hover:bg-muted/60 transition-colors",
-                  selected === item.code && "bg-muted",
-                )}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="font-mono text-xs text-muted-foreground truncate">
-                      {item.displayName ? `${item.sourceName} · ` : ""}
-                      {item.code}
-                    </div>
-                    <div className="font-medium text-sm truncate">
-                      {item.displayName ?? item.sourceName}
-                    </div>
-                  </div>
-                  <StatusBadge status={item.semanticsStatus} />
-                </div>
-                <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                  <span className="font-mono">{item.unit ?? "sem unidade"}</span>
-                  <span>·</span>
-                  <span className="font-mono">{item.aggregation ?? "sem agregação"}</span>
-                  {item.magnitude !== null && item.magnitude !== 0 && (
-                    <>
-                      <span>·</span>
-                      <span className="font-mono tabular-nums">{brl(item.magnitude)}</span>
-                    </>
+            {visible.map((item) => {
+              const descrito = estaDescrito(item);
+              return (
+                <button
+                  key={item.code}
+                  onClick={() => setSelected(item.code)}
+                  /* A faixa da esquerda existe em todo card, transparente
+                     quando não há o que marcar: assim o verde acende sem
+                     empurrar o texto 4px para o lado. */
+                  className={cn(
+                    "w-full text-left px-4 py-3 border-b border-l-4 border-l-transparent transition-colors",
+                    descrito
+                      ? "border-l-emerald-500 bg-emerald-50/70 hover:bg-emerald-100/70"
+                      : "hover:bg-muted/60",
+                    selected === item.code &&
+                      (descrito ? "bg-emerald-100" : "bg-muted"),
                   )}
-                </div>
-              </button>
-            ))}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-mono text-xs text-muted-foreground truncate">
+                        {item.displayName ? `${item.sourceName} · ` : ""}
+                        {item.code}
+                      </div>
+                      <div className="font-medium text-sm truncate">
+                        {item.displayName ?? item.sourceName}
+                      </div>
+                    </div>
+                    <StatusBadge status={item.semanticsStatus} />
+                  </div>
+                  <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                    <span className="font-mono">{item.unit ?? "sem unidade"}</span>
+                    <span>·</span>
+                    <span className="font-mono">{item.aggregation ?? "sem agregação"}</span>
+                    {item.magnitude !== null && item.magnitude !== 0 && (
+                      <>
+                        <span>·</span>
+                        <span className="font-mono tabular-nums">{brl(item.magnitude)}</span>
+                      </>
+                    )}
+                    {/* O verde sozinho não diz do que é o verde — e neste
+                        card, ao lado de um selo de status, seria lido como
+                        "confirmado". A palavra impede a leitura errada. */}
+                    {descrito && (
+                      <>
+                        <span>·</span>
+                        <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
+                          <CheckCircle2 className="w-3 h-3" />
+                          descrito
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
             {!isLoading && visible.length === 0 && (
               <p className="text-sm text-muted-foreground p-4">
                 Nada pendente com esse filtro.
