@@ -121,14 +121,23 @@ export default function Vigencia() {
             {data && (
               <p className="text-base text-muted-foreground mt-1">{data.context.label}</p>
             )}
+            {/*
+              A vigência de cada lado vem antes do nome do arquivo.
+              `CAV_JUL → CAV_AGO` identifica as entregas e não diz de quando
+              elas são; e o "de quando" do lado esquerdo não é dedutível do
+              título da página, porque cada série compara contra a última
+              entrega **dela** — uma que pulou um mês tem um "antes" mais velho
+              que o da outra, na mesma vigência.
+            */}
             {data && (
               <p className="text-muted-foreground text-xs mt-1.5">
                 {data.series.map((s, i) => (
                   <span key={s.entityTypeSet}>
                     {i > 0 && " · "}
                     {s.equipment.toLowerCase()}:{" "}
+                    {s.previousPeriodLabel ?? "sem vigência anterior"} → {data.periodLabel}{" "}
                     <span className="font-mono">
-                      {s.previousLabel ?? "—"} → {s.snapshotLabel}
+                      ({s.previousLabel ?? "—"} → {s.snapshotLabel})
                     </span>
                   </span>
                 ))}
