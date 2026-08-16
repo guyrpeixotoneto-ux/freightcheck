@@ -1,4 +1,4 @@
-import { Fragment, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
@@ -9,6 +9,7 @@ import {
   HelpCircle,
   Search,
   SlidersHorizontal,
+  X,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -111,19 +112,54 @@ export const emptyTicketFilters: TicketFilters = {
   onlyDivergent: false,
 };
 
+/**
+ * O número que alguém digitou, à brasileira ou à americana.
+ *
+ * A rota faz `Number(valor)` e descarta o que der `NaN` — sem dizer nada. Quem
+ * escreve `1,5`, que é como se escreve um decimal em português, via o filtro
+ * simplesmente não acontecer: a lista continuava inteira e nenhum aviso
+ * explicava por quê. A conversão é feita aqui, de um lado só: com vírgula, o
+ * ponto é separador de milhar; sem vírgula, o ponto é o decimal.
+ */
+export function numeroDigitado(texto: string): number | null {
+  const bruto = texto.trim().replace(/\s/g, "");
+  if (bruto === "") return null;
+  const normalizado = bruto.includes(",")
+    ? bruto.replace(/\./g, "").replace(",", ".")
+    : bruto;
+  const valor = Number(normalizado);
+  // O corte é por tamanho da variação, e não por sinal: um parâmetro que caiu
+  // 300 é tão material quanto um que subiu 300.
+  return Number.isFinite(valor) ? Math.abs(valor) : null;
+}
+
+/**
+ * O corte de materialidade que está de fato ligado.
+ *
+ * `0` não é um corte — deixa tudo passar —, e texto que não é número também
+ * não. Nos dois casos o filtro não vai ao servidor e não se anuncia como
+ * ativo, para o painel não afirmar um recorte que ninguém aplicou.
+ */
+export function variacaoMinima(filters: TicketFilters): number | null {
+  const valor = numeroDigitado(filters.minAbsImpact);
+  return valor !== null && valor > 0 ? valor : null;
+}
+
 export function toTicketQuery(
   filters: TicketFilters,
   extra: Record<string, string> = {},
 ) {
   const params = new URLSearchParams();
+  const busca = filters.search.trim();
+  const minimo = variacaoMinima(filters);
   if (filters.statusBucket) params.set("statusBucket", filters.statusBucket);
   if (filters.impactConfidence)
     params.set("impactConfidence", filters.impactConfidence);
   if (filters.beforeSource) params.set("beforeSource", filters.beforeSource);
   if (filters.changeKind) params.set("changeKind", filters.changeKind);
   if (filters.parameterLabel) params.set("parameterLabel", filters.parameterLabel);
-  if (filters.search) params.set("search", filters.search);
-  if (filters.minAbsImpact) params.set("minAbsImpact", filters.minAbsImpact);
+  if (busca) params.set("search", busca);
+  if (minimo !== null) params.set("minAbsImpact", String(minimo));
   if (filters.onlyDivergent) params.set("onlyDivergent", "true");
   for (const [key, value] of Object.entries(extra)) {
     if (value) params.set(key, value);
@@ -338,7 +374,12 @@ const PRIMEIRO_SENTIDO: Record<SortKey, SortDir> = {
   data: "desc",
 };
 
-/** A ordem do ciclo de vida, para a coluna Situação não ordenar por alfabeto. */
+/**
+ * A ordem do ciclo de vida, e não a do alfabeto nem a da contagem.
+ *
+ * Vale para a coluna Situação e para os chips de Situação do filtro: quem lê
+ * procura "os recusados", nunca "o terceiro maior grupo".
+ */
 const ORDEM_SITUACAO = [
   "ABERTO",
   "EM_ANDAMENTO",
@@ -946,161 +987,395 @@ function Field({ label, value }: { label: string; value: string }) {
 const capitalizar = (texto: string) =>
   texto.charAt(0).toUpperCase() + texto.slice(1);
 
+/* ------------------------------------------------------------------ *
+ * O filtro da aba Chamados
+ * ------------------------------------------------------------------ */
+
 /**
- * A fileira da frente: o tipo da alteração, se ela tem preço, e a busca.
+ * O que o chamado fez com o parâmetro, na ordem do assunto.
  *
- * São os três cortes que quem abre esta aba faz antes de qualquer outro — e a
- * ordem dos chips é a do assunto, não a da contagem: num export real `fórmula`
- * é 85% das linhas, e deixá-la em primeiro por ser a maior empurraria para o
- * fim justamente `valor`, que é onde estão os números.
- *
- * O resto dos filtros — situação, procedência do "antes", variação mínima —
- * continua existindo inteiro atrás do botão Filtros. Não sumiu: saiu da frente,
- * porque cinco grupos de chips abertos de uma vez são uma tela que se lê antes
- * de se usar.
+ * Não é a ordem da contagem: num export real `fórmula` é 85% das linhas, e
+ * pô-la em primeiro por ser a maior empurraria para o fim justamente `valor`,
+ * que é onde estão os números.
  */
 const ORDEM_OPERACAO = ["FORM_THIS", "SET", "ADD", "REMOVE"];
 
-export function TicketQuickFilters({
+/** De onde veio o valor anterior — do mais provado para o menos. */
+const ORDEM_PROCEDENCIA = ["ARQUIVO", "VIGENCIA", "AUSENTE"];
+
+const IMPACTO_LABELS: Record<string, string> = {
+  CALCULATED: "com impacto",
+  NOT_CALCULABLE: "sem impacto",
+};
+
+/**
+ * Um recorte ligado, em palavras — o suficiente para ser lido e desfeito.
+ *
+ * `avancado` separa os que vivem atrás do botão Filtros dos que se leem na
+ * própria fileira da frente. Só os primeiros precisam ser repetidos quando o
+ * painel está fechado; repetir os outros seria dizer duas vezes a mesma coisa.
+ */
+export interface FiltroAtivo {
+  id: string;
+  grupo: string;
+  valor: string;
+  avancado: boolean;
+  /** O que zerar para tirar só este, sem levar os outros junto. */
+  patch: Partial<TicketFilters>;
+}
+
+export function filtrosAtivos(filters: TicketFilters): FiltroAtivo[] {
+  const lista: FiltroAtivo[] = [];
+
+  if (filters.changeKind) {
+    lista.push({
+      id: "changeKind",
+      grupo: "tipo",
+      valor: changeKindLabel(filters.changeKind),
+      avancado: false,
+      patch: { changeKind: "" },
+    });
+  }
+  if (filters.impactConfidence) {
+    lista.push({
+      id: "impactConfidence",
+      grupo: "impacto",
+      valor:
+        IMPACTO_LABELS[filters.impactConfidence] ?? filters.impactConfidence,
+      avancado: false,
+      patch: { impactConfidence: "" },
+    });
+  }
+  if (filters.search.trim()) {
+    lista.push({
+      id: "search",
+      grupo: "busca",
+      valor: `“${filters.search.trim()}”`,
+      avancado: false,
+      patch: { search: "" },
+    });
+  }
+  if (filters.statusBucket) {
+    lista.push({
+      id: "statusBucket",
+      grupo: "situação",
+      valor: STATUS_LABELS[filters.statusBucket] ?? filters.statusBucket,
+      avancado: true,
+      patch: { statusBucket: "" },
+    });
+  }
+  if (filters.beforeSource) {
+    lista.push({
+      id: "beforeSource",
+      grupo: "valor anterior",
+      valor: BEFORE_SOURCE_LABELS[filters.beforeSource] ?? filters.beforeSource,
+      avancado: true,
+      patch: { beforeSource: "" },
+    });
+  }
+  if (filters.onlyDivergent) {
+    lista.push({
+      id: "onlyDivergent",
+      grupo: "atendimento",
+      valor: "só o que variou",
+      avancado: true,
+      patch: { onlyDivergent: false },
+    });
+  }
+  const minimo = variacaoMinima(filters);
+  if (minimo !== null) {
+    lista.push({
+      id: "minAbsImpact",
+      grupo: "variação de pelo menos",
+      valor: decimal(minimo),
+      avancado: true,
+      patch: { minAbsImpact: "" },
+    });
+  }
+  if (filters.parameterLabel) {
+    lista.push({
+      id: "parameterLabel",
+      grupo: "parâmetro",
+      valor: filters.parameterLabel,
+      avancado: true,
+      patch: { parameterLabel: "" },
+    });
+  }
+
+  return lista;
+}
+
+/**
+ * Um campo de texto que só vira filtro quando quem digita faz uma pausa.
+ *
+ * `filters` é a chave da consulta, então cada tecla era uma ida ao servidor:
+ * escrever "bomba" pedia a lista cinco vezes e mostrava quatro resultados que
+ * ninguém pediu. O rascunho fica aqui e só sobe depois da pausa.
+ *
+ * O `useEffect` de cima é o caminho de volta: quando o filtro muda por fora —
+ * um chip removido, "limpar tudo" — o campo acompanha em vez de continuar
+ * exibindo o que já não está valendo.
+ */
+function useCampoAdiado(
+  valorExterno: string,
+  aplicar: (valor: string) => void,
+  atraso = 300,
+) {
+  const [rascunho, setRascunho] = useState(valorExterno);
+  const aplicarRef = useRef(aplicar);
+  aplicarRef.current = aplicar;
+
+  useEffect(() => {
+    setRascunho(valorExterno);
+  }, [valorExterno]);
+
+  useEffect(() => {
+    if (rascunho === valorExterno) return;
+    const id = setTimeout(() => aplicarRef.current(rascunho), atraso);
+    return () => clearTimeout(id);
+  }, [rascunho, valorExterno, atraso]);
+
+  /**
+   * Manda agora o que estiver escrito, sem esperar a pausa.
+   *
+   * É o que o `onBlur` chama. Sem isto, digitar um número e fechar o painel no
+   * mesmo movimento perdia o número: o campo desmonta, o `clearTimeout` da
+   * limpeza cancela o envio, e nada na tela diz que o corte não foi aplicado.
+   */
+  const aplicarAgora = () => {
+    if (rascunho !== valorExterno) aplicarRef.current(rascunho);
+  };
+
+  return [rascunho, setRascunho, aplicarAgora] as const;
+}
+
+/**
+ * Os filtros da aba, em três faixas.
+ *
+ * **A da frente** tem os dois cortes que se fazem antes de qualquer outro, e
+ * tem-nos separados: o *tipo* da alteração e se ela tem *impacto* apurado são
+ * duas perguntas independentes que se combinam — `fórmula` **e** `com
+ * impacto` é um recorte legítimo. Desenhados como uma fileira só de pastilhas
+ * iguais, como estavam, liam-se como abas mutuamente exclusivas, e quem lia
+ * concluía que escolher uma desfazia a outra.
+ *
+ * **A do meio** só aparece quando há recorte escondido: repete em palavras o
+ * que o painel fechado está filtrando, com um × em cada. Sem ela, fechar o
+ * botão Filtros escondia a razão de a lista estar curta atrás de um número.
+ *
+ * **A de baixo** é o painel inteiro — situação, procedência do "antes",
+ * atendimento e materialidade —, que continua fechado por padrão porque cinco
+ * grupos de chips abertos de uma vez são uma tela que se lê antes de se usar.
+ */
+export function TicketFilterPanel({
   filters,
   onChange,
   totals,
-  avancadoAberto,
-  onToggleAvancado,
 }: {
   filters: TicketFilters;
   onChange: (f: TicketFilters) => void;
   totals?: TicketTotals;
-  avancadoAberto: boolean;
-  onToggleAvancado: () => void;
 }) {
+  const [avancadoAberto, setAvancadoAberto] = useState(false);
+
+  const ativos = filtrosAtivos(filters);
+  const avancados = ativos.filter((f) => f.avancado);
+
   const operacoes = ORDEM_OPERACAO.filter((kind) =>
     totals?.byChangeKind.some((k) => k.changeKind === kind),
   );
 
-  const semCorte = !filters.changeKind && !filters.impactConfidence;
-
-  /** Quantos filtros vivem atrás do botão — para ele dizer que estão ligados. */
-  const avancadosAtivos = [
-    filters.statusBucket,
-    filters.beforeSource,
-    filters.parameterLabel,
-    filters.minAbsImpact,
-    filters.onlyDivergent ? "sim" : "",
-  ].filter(Boolean).length;
+  const contarOperacao = (kind: string) =>
+    totals?.byChangeKind.find((k) => k.changeKind === kind)?.count;
 
   return (
-    <div className="flex flex-wrap items-center gap-2">
-      <QuickChip
-        active={semCorte}
-        onClick={() =>
-          onChange({ ...filters, changeKind: "", impactConfidence: "" })
-        }
-      >
-        Todos
-      </QuickChip>
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <FilterGroup label="Tipo">
+          <QuickChip
+            active={!filters.changeKind}
+            onClick={() => onChange({ ...filters, changeKind: "" })}
+          >
+            Todos
+            <Contagem n={totals?.changes} />
+          </QuickChip>
+          {operacoes.map((kind) => (
+            <QuickChip
+              key={kind}
+              active={filters.changeKind === kind}
+              onClick={() =>
+                onChange({
+                  ...filters,
+                  changeKind: filters.changeKind === kind ? "" : kind,
+                })
+              }
+            >
+              {capitalizar(changeKindLabel(kind))}
+              <Contagem n={contarOperacao(kind)} />
+            </QuickChip>
+          ))}
+        </FilterGroup>
 
-      {operacoes.map((kind) => (
-        <QuickChip
-          key={kind}
-          active={filters.changeKind === kind}
-          onClick={() =>
-            onChange({
-              ...filters,
-              changeKind: filters.changeKind === kind ? "" : kind,
-            })
-          }
-        >
-          {capitalizar(changeKindLabel(kind))}
-        </QuickChip>
-      ))}
+        {/* A divisória é o que diz que daqui para a frente é outra pergunta. */}
+        <span className="hidden h-7 w-px bg-border sm:block" aria-hidden />
 
-      <QuickChip
-        active={filters.impactConfidence === "CALCULATED"}
-        onClick={() =>
-          onChange({
-            ...filters,
-            impactConfidence:
-              filters.impactConfidence === "CALCULATED" ? "" : "CALCULATED",
-          })
-        }
-      >
-        Com impacto
-      </QuickChip>
-      <QuickChip
-        active={filters.impactConfidence === "NOT_CALCULABLE"}
-        onClick={() =>
-          onChange({
-            ...filters,
-            impactConfidence:
-              filters.impactConfidence === "NOT_CALCULABLE"
-                ? ""
-                : "NOT_CALCULABLE",
-          })
-        }
-      >
-        Sem impacto
-      </QuickChip>
+        <FilterGroup label="Impacto">
+          <QuickChip
+            active={filters.impactConfidence === "CALCULATED"}
+            onClick={() =>
+              onChange({
+                ...filters,
+                impactConfidence:
+                  filters.impactConfidence === "CALCULATED" ? "" : "CALCULATED",
+              })
+            }
+          >
+            Com impacto
+            <Contagem n={totals?.calculated} />
+          </QuickChip>
+          <QuickChip
+            active={filters.impactConfidence === "NOT_CALCULABLE"}
+            onClick={() =>
+              onChange({
+                ...filters,
+                impactConfidence:
+                  filters.impactConfidence === "NOT_CALCULABLE"
+                    ? ""
+                    : "NOT_CALCULABLE",
+              })
+            }
+          >
+            Sem impacto
+            <Contagem n={totals?.notCalculable} />
+          </QuickChip>
+        </FilterGroup>
 
-      <div className="flex items-center gap-2 ml-auto">
-        <div className="relative w-full sm:w-80">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
-          <Input
-            value={filters.search}
-            onChange={(e) => onChange({ ...filters, search: e.target.value })}
-            placeholder="Buscar chamado ou parâmetro"
-            title="a busca também encontra pela placa do equipamento"
-            className="h-11 pl-9 rounded-xl bg-background"
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          <CampoDeBusca
+            valor={filters.search}
+            onChange={(search) => onChange({ ...filters, search })}
           />
+          <Button
+            variant="outline"
+            onClick={() => setAvancadoAberto((v) => !v)}
+            aria-expanded={avancadoAberto}
+            className={cn(
+              "h-11 rounded-xl gap-2",
+              (avancadoAberto || avancados.length > 0) &&
+                "border-blue-600 text-blue-700",
+            )}
+          >
+            Filtros
+            {avancados.length > 0 && (
+              <span className="rounded-full bg-blue-600 px-1.5 text-xs tabular-nums text-white">
+                {avancados.length}
+              </span>
+            )}
+            <SlidersHorizontal className="w-4 h-4" />
+          </Button>
+          {ativos.length > 0 && (
+            <Button
+              variant="ghost"
+              onClick={() => onChange(emptyTicketFilters)}
+              className="h-11 rounded-xl text-muted-foreground"
+            >
+              limpar tudo
+            </Button>
+          )}
         </div>
-        <Button
-          variant="outline"
-          onClick={onToggleAvancado}
-          aria-expanded={avancadoAberto}
-          className={cn(
-            "h-11 rounded-xl gap-2",
-            (avancadoAberto || avancadosAtivos > 0) && "border-blue-600 text-blue-700",
-          )}
-        >
-          Filtros
-          {avancadosAtivos > 0 && (
-            <span className="rounded-full bg-blue-600 px-1.5 text-xs tabular-nums text-white">
-              {avancadosAtivos}
-            </span>
-          )}
-          <SlidersHorizontal className="w-4 h-4" />
-        </Button>
       </div>
+
+      {!avancadoAberto && avancados.length > 0 && (
+        <ResumoDeFiltros
+          itens={avancados}
+          onRemover={(item) => onChange({ ...filters, ...item.patch })}
+        />
+      )}
+
+      {avancadoAberto && (
+        <PainelAvancado filters={filters} onChange={onChange} totals={totals} />
+      )}
     </div>
   );
 }
 
-function QuickChip({
-  active,
-  onClick,
-  children,
+/** A busca, com o × que a desfaz sem ter de apagar letra a letra. */
+function CampoDeBusca({
+  valor,
+  onChange,
 }: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
+  valor: string;
+  onChange: (valor: string) => void;
 }) {
+  const [rascunho, setRascunho, aplicarAgora] = useCampoAdiado(valor, onChange);
+
+  const limpar = () => {
+    // Os dois juntos de propósito: o × é uma decisão pronta, e esperar a pausa
+    // do `useCampoAdiado` para uma decisão pronta é só atraso.
+    setRascunho("");
+    onChange("");
+  };
+
   return (
-    <button
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "h-11 rounded-full border px-5 text-sm font-medium transition-colors",
-        active
-          ? "bg-blue-600 border-blue-600 text-white shadow-sm"
-          : "bg-background border-input text-foreground hover:bg-muted",
+    <div className="relative w-full sm:w-80">
+      <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+      <Input
+        value={rascunho}
+        onChange={(e) => setRascunho(e.target.value)}
+        onBlur={aplicarAgora}
+        placeholder="Buscar chamado ou parâmetro"
+        aria-label="buscar chamado ou parâmetro"
+        title="encontra também pela placa do equipamento, pelo código do atributo, pelo solicitante e pelo assunto do chamado"
+        className="h-11 pl-9 pr-9 rounded-xl bg-background"
+      />
+      {rascunho !== "" && (
+        <button
+          type="button"
+          onClick={limpar}
+          // Sem o `preventDefault` o campo perde o foco antes do clique, o
+          // `onBlur` manda a busca que o × veio justamente desfazer, e a lista
+          // é pedida duas vezes para acabar no mesmo lugar.
+          onMouseDown={(e) => e.preventDefault()}
+          aria-label="limpar a busca"
+          className="absolute right-2 top-1/2 -translate-y-1/2 rounded-full p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+        >
+          <X className="w-4 h-4" />
+        </button>
       )}
-    >
-      {children}
-    </button>
+    </div>
   );
 }
 
-export function TicketFilterBar({
+/** O que o painel fechado está filtrando, em palavras e com um × em cada. */
+function ResumoDeFiltros({
+  itens,
+  onRemover,
+}: {
+  itens: FiltroAtivo[];
+  onRemover: (item: FiltroAtivo) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs">
+      <span className="text-muted-foreground">Filtrando também por</span>
+      {itens.map((item) => (
+        <button
+          key={item.id}
+          type="button"
+          onClick={() => onRemover(item)}
+          aria-label={`remover o filtro ${item.grupo} ${item.valor}`}
+          className="inline-flex max-w-full items-center gap-1 rounded-full border border-blue-200 bg-blue-50 py-1 pl-2.5 pr-1.5 text-blue-900 transition-colors hover:bg-blue-100"
+        >
+          <span className="text-blue-700/70">{item.grupo}</span>
+          <span className="truncate font-medium">{item.valor}</span>
+          <X className="w-3 h-3 shrink-0" />
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Os filtros que não cabem na fileira da frente sem a encher. */
+function PainelAvancado({
   filters,
   onChange,
   totals,
@@ -1115,116 +1390,154 @@ export function TicketFilterBar({
       [key]: filters[key] === value ? emptyTicketFilters[key] : value,
     });
 
-  const active =
-    Boolean(filters.statusBucket) ||
-    Boolean(filters.impactConfidence) ||
-    Boolean(filters.beforeSource) ||
-    Boolean(filters.changeKind) ||
-    Boolean(filters.parameterLabel) ||
-    Boolean(filters.search) ||
-    Boolean(filters.minAbsImpact) ||
-    filters.onlyDivergent;
-
-  // A ordem é a do ciclo de vida, e não a da contagem: quem lê procura "os
-  // recusados", não "o terceiro maior grupo".
-  const ORDER = ["ABERTO", "EM_ANDAMENTO", "ATENDIDO", "RECUSADO", "CANCELADO", "DESCONHECIDO"];
-  const present = ORDER.filter((bucket) =>
-    totals?.byStatus.some((s) => s.statusBucket === bucket),
-  );
+  // Só as situações que este envio tem. Enquanto os totais não chegam, a régua
+  // inteira — nunca um pedaço arbitrário dela.
+  const situacoes = totals
+    ? ORDEM_SITUACAO.filter((bucket) =>
+        totals.byStatus.some((s) => s.statusBucket === bucket),
+      )
+    : ORDEM_SITUACAO;
 
   return (
     <div className="rounded-xl border bg-muted/30 p-4 space-y-3">
-      <div className="flex flex-wrap items-center gap-2">
+      <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
         <FilterGroup label="Situação">
-          {(present.length > 0 ? present : ORDER.slice(0, 4)).map((bucket) => (
+          {situacoes.map((bucket) => (
             <Chip
               key={bucket}
               active={filters.statusBucket === bucket}
               onClick={() => set("statusBucket", bucket)}
             >
               {STATUS_LABELS[bucket]}
-              {totals && (
-                <Count
-                  n={totals.byStatus.find((s) => s.statusBucket === bucket)?.count}
-                />
-              )}
+              <Contagem
+                n={totals?.byStatus.find((s) => s.statusBucket === bucket)?.count}
+              />
             </Chip>
           ))}
         </FilterGroup>
 
         <FilterGroup label="Valor anterior">
-          {["ARQUIVO", "VIGENCIA", "AUSENTE"].map((source) => (
+          {ORDEM_PROCEDENCIA.map((source) => (
             <Chip
               key={source}
               active={filters.beforeSource === source}
               onClick={() => set("beforeSource", source)}
             >
               {BEFORE_SOURCE_LABELS[source]}
-              {totals && (
-                <Count
-                  n={
-                    totals.byBeforeSource.find((s) => s.beforeSource === source)
-                      ?.count
-                  }
-                />
-              )}
+              <Contagem
+                n={
+                  totals?.byBeforeSource.find((s) => s.beforeSource === source)
+                    ?.count
+                }
+              />
             </Chip>
           ))}
         </FilterGroup>
-      </div>
 
-      <div className="flex flex-wrap items-center gap-2">
         <FilterGroup label="Atendimento">
           <Chip
             active={filters.onlyDivergent}
-            onClick={() => set("onlyDivergent", !filters.onlyDivergent)}
+            onClick={() =>
+              onChange({ ...filters, onlyDivergent: !filters.onlyDivergent })
+            }
           >
             só o que variou
-            {totals && <Count n={totals.divergent} />}
+            <Contagem n={totals?.divergent} />
           </Chip>
         </FilterGroup>
-
-        <div className="flex items-center gap-2 ml-auto">
-          <Input
-            placeholder="Variação mínima"
-            value={filters.minAbsImpact}
-            onChange={(e) => onChange({ ...filters, minAbsImpact: e.target.value })}
-            className="h-9 w-40"
-            inputMode="numeric"
-          />
-          {active && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => onChange(emptyTicketFilters)}
-            >
-              limpar tudo
-            </Button>
-          )}
-        </div>
       </div>
 
+      <CampoDeVariacao filters={filters} onChange={onChange} />
+
       {filters.parameterLabel && (
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          filtrando pelo parâmetro
-          <span className="font-medium text-foreground">
-            {filters.parameterLabel}
-          </span>
-          <button
-            className="underline"
+        <FilterGroup label="Parâmetro">
+          <Chip
+            active
             onClick={() => onChange({ ...filters, parameterLabel: "" })}
           >
-            remover
-          </button>
-        </div>
+            {filters.parameterLabel}
+            <X className="ml-1 inline w-3 h-3 align-[-1px]" />
+          </Chip>
+        </FilterGroup>
       )}
     </div>
   );
 }
 
-function FilterGroup({ label, children }: { label: string; children: React.ReactNode }) {
+/**
+ * O corte de materialidade.
+ *
+ * O rótulo diz "variação" e não "impacto" porque é o que o servidor compara:
+ * a diferença entre o antes e o agora **do próprio parâmetro**, na unidade
+ * dele. Um campo sem rótulo, encostado à direita de um grupo de chips com que
+ * nada tinha a ver, deixava quem lê supor reais — e um filtro que se supõe em
+ * reais e corta em coeficientes esconde linhas sem avisar.
+ */
+function CampoDeVariacao({
+  filters,
+  onChange,
+}: {
+  filters: TicketFilters;
+  onChange: (f: TicketFilters) => void;
+}) {
+  const [rascunho, setRascunho, aplicarAgora] = useCampoAdiado(
+    filters.minAbsImpact,
+    (minAbsImpact) => onChange({ ...filters, minAbsImpact }),
+  );
+
+  const digitado = rascunho.trim() !== "";
+  const naoEhNumero = digitado && numeroDigitado(rascunho) === null;
+
   return (
-    <div className="flex items-center gap-1.5 flex-wrap">
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <label
+        htmlFor="variacao-minima"
+        className="text-xs uppercase tracking-wide text-muted-foreground mr-1"
+      >
+        Variação mínima
+      </label>
+      <Input
+        id="variacao-minima"
+        value={rascunho}
+        onChange={(e) => setRascunho(e.target.value)}
+        onBlur={aplicarAgora}
+        placeholder="0"
+        inputMode="decimal"
+        aria-describedby="variacao-minima-ajuda"
+        aria-invalid={naoEhNumero}
+        className={cn(
+          "h-9 w-28 tabular-nums",
+          naoEhNumero && "border-amber-500 focus-visible:ring-amber-500",
+        )}
+      />
+      <p
+        id="variacao-minima-ajuda"
+        className={cn(
+          "text-xs",
+          naoEhNumero ? "text-amber-700" : "text-muted-foreground",
+        )}
+      >
+        {naoEhNumero
+          ? `“${rascunho.trim()}” não é um número — nada está sendo cortado.`
+          : "esconde o que variou menos que isto, na unidade do próprio parâmetro — não em reais."}
+      </p>
+    </div>
+  );
+}
+
+function FilterGroup({
+  label,
+  children,
+}: {
+  label: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="flex items-center gap-1.5 flex-wrap"
+    >
       <span className="text-xs uppercase tracking-wide text-muted-foreground mr-1">
         {label}
       </span>
@@ -1233,6 +1546,34 @@ function FilterGroup({ label, children }: { label: string; children: React.React
   );
 }
 
+/** A pastilha grande da fileira da frente. */
+function QuickChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "inline-flex h-11 items-center rounded-full border px-4 text-sm font-medium transition-colors",
+        active
+          ? "bg-blue-600 border-blue-600 text-white shadow-sm"
+          : "bg-background border-input text-foreground hover:bg-muted",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** A pastilha pequena do painel. */
 function Chip({
   active,
   onClick,
@@ -1244,7 +1585,9 @@ function Chip({
 }) {
   return (
     <button
+      type="button"
       onClick={onClick}
+      aria-pressed={active}
       className={cn(
         "text-xs px-2.5 py-1 rounded-full border transition-colors",
         active
@@ -1257,7 +1600,22 @@ function Chip({
   );
 }
 
-function Count({ n }: { n?: number }) {
+/**
+ * Quantas linhas existem daquele lado — no envio inteiro, e não no que sobrou.
+ *
+ * É o que o servidor devolve, de propósito: uma contagem que encolhe a cada
+ * clique deixa de dizer "quanto existe" e passa a dizer "quanto sobrou", que é
+ * a pergunta que o cabeçalho da lista já responde. O `title` diz isso, porque
+ * um número ao lado de um filtro é lido como previsão do resultado.
+ */
+function Contagem({ n }: { n?: number }) {
   if (n === undefined) return null;
-  return <span className="ml-1 opacity-60 tabular-nums">{n}</span>;
+  return (
+    <span
+      className="ml-1.5 opacity-60 tabular-nums"
+      title="quantas existem no envio inteiro — os outros filtros não mexem nesta conta"
+    >
+      {n.toLocaleString("pt-BR")}
+    </span>
+  );
 }

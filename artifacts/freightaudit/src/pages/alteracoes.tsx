@@ -39,8 +39,7 @@ import {
 } from "@/components/changes/change-table";
 import {
   TicketChangeTable,
-  TicketFilterBar,
-  TicketQuickFilters,
+  TicketFilterPanel,
   emptyTicketFilters,
   toTicketQuery,
   type TicketChangeRow,
@@ -512,7 +511,6 @@ function AbaChamados() {
   // não tem as tabelas".
   const [erroUpload, setErroUpload] = useState<unknown>(null);
   const [painel, setPainel] = useState<Painel>(null);
-  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
@@ -959,20 +957,11 @@ function AbaChamados() {
 
         {run && (
           <Card className="rounded-2xl p-4 space-y-4">
-            <TicketQuickFilters
+            <TicketFilterPanel
               filters={filters}
               onChange={setFilters}
               totals={totals ?? undefined}
-              avancadoAberto={filtrosAbertos}
-              onToggleAvancado={() => setFiltrosAbertos((v) => !v)}
             />
-            {filtrosAbertos && (
-              <TicketFilterBar
-                filters={filters}
-                onChange={setFilters}
-                totals={totals ?? undefined}
-              />
-            )}
           </Card>
         )}
 

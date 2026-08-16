@@ -98,6 +98,7 @@ export interface TicketTotals {
   changes: number;
   /** Chamados no envio. Um chamado costuma trazer várias alterações. */
   tickets: number;
+  /** Alterações por situação do chamado que as trouxe — a régua do filtro. */
   byStatus: { statusBucket: string; count: number }[];
   /** De onde veio o valor anterior de cada alteração. */
   byBeforeSource: { beforeSource: string; count: number }[];
@@ -430,13 +431,25 @@ export async function getTicketTotals(
     .from(ticketTable)
     .where(escopoTickets);
 
+  /*
+    Alterações por situação, e não chamados por situação.
+
+    Estes números são os que a tela põe ao lado dos chips de Situação, e um
+    número ao lado de um filtro é lido como "é isto que sobra se eu clicar".
+    O filtro `statusBucket` recorta alterações — um chamado atendido que mexeu
+    em oito parâmetros tira oito linhas da lista, não uma —, então contar
+    chamados aqui prometia um resultado e entregava outro, ao lado de dois
+    grupos de chips que já contavam alterações. `tickets` e `stillOpen`
+    continuam contando chamados: aqueles são cartões, e falam de chamados.
+  */
   const byStatus = await db
     .select({
       statusBucket: ticketTable.statusBucket,
       count: sql<number>`count(*)`.mapWith(Number),
     })
-    .from(ticketTable)
-    .where(escopoTickets)
+    .from(ticketChangeTable)
+    .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
+    .where(escopoChanges)
     .groupBy(ticketTable.statusBucket)
     .orderBy(desc(sql`count(*)`));
 
