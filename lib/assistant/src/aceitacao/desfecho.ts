@@ -94,6 +94,15 @@ const CAPACIDADE_DE: Record<string, Capacidade> = {
   "alteracoes:total": "MOVIMENTO_AGREGADO",
   "alteracoes:grupos": "ALTERACOES_DETALHADAS",
   "alteracoes:linhas": "ALTERACOES_DETALHADAS",
+  recortes: "CATALOGO",
+  parametros: "GOVERNANCA",
+  serie: "MOVIMENTO_AGREGADO",
+  comparar: "COMPARACAO",
+  ordenacao: "ORDENACAO",
+  veiculos: "VEICULOS",
+  resultado: "RESULTADO",
+  documentos: "BOOK",
+  estado_do_dado: "GOVERNANCA",
 };
 
 /** As capacidades que esta resposta exerceu, seja qual for o caminho. */

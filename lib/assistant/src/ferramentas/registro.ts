@@ -44,6 +44,7 @@
 import type { Database } from "@workspace/db";
 import type { Evidencia } from "../ferramentas";
 import { alteracoes } from "./alteracoes";
+import { CATALOGO } from "./catalogo";
 
 // ── O esquema dos argumentos ────────────────────────────────────────────────
 
@@ -380,14 +381,20 @@ export function evidenciasDe(chamadas: ChamadaDeFerramenta[]): Evidencia[] {
 // ── O registro do produto ───────────────────────────────────────────────────
 
 /**
- * As ferramentas que existem hoje.
+ * As dez capacidades que o modelo pode chamar.
  *
- * Uma só, e de propósito: este PR entrega o contrato e prova que ele se
- * sustenta contra o banco real. As outras oito entram no PR 5, cada uma no seu,
- * depois de o laço do PR 2 e a trava do PR 3 estarem de pé. Um registro que
- * nascesse com nove ferramentas e nenhum consumidor seria nove vezes o mesmo
- * risco não medido.
+ * Dez, e não vinte, e o critério foi um só: cada uma é um **eixo de consulta**
+ * com argumentos que compõem, nunca uma resposta a uma pergunta. Perda e ganho
+ * não são duas ferramentas — são `ordenacao` com `sentido`. Curadoria,
+ * importação e balanço não são três — são `estado_do_dado` com `aspecto`. Vinte
+ * ferramentas seriam o `switch` do orquestrador com outro nome, e a promessa de
+ * responder pergunta nova sem código novo morreria junto.
+ *
+ * `alteracoes` vem primeiro por ser a mais usada, e a ordem daqui é a que o
+ * modelo lê na lista de ferramentas.
  */
 export function registroPadrao(): Registro {
-  return new Registro().registrar(alteracoes);
+  const registro = new Registro().registrar(alteracoes);
+  for (const ferramenta of CATALOGO) registro.registrar(ferramenta);
+  return registro;
 }
