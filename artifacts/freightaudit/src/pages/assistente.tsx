@@ -232,6 +232,31 @@ export default function Assistente() {
 
           <div className="flex-1 overflow-y-auto">
             <div className="max-w-4xl mx-auto px-8 py-6 space-y-6">
+              {/*
+                A saudação é escrita aqui dentro, e por isso ela não prova nada
+                sobre o servidor.
+
+                `Abertura` e as quatro sugestões iniciais são constantes deste
+                arquivo: a tela abre igual com a API de pé e com a API fora. As
+                duas chamadas que **poderiam** denunciar a diferença —
+                capacidades e a lista de conversas — falhavam em silêncio, uma
+                caindo em `?? []` e a outra num `&&` que só olha `data`. O
+                resultado é o pior estado de diagnóstico possível: tudo parece
+                normal até alguém perguntar, e aí a única falha visível é a da
+                pergunta — que manda procurar o defeito no Assistente quando ele
+                está na camada que serve `/api`.
+
+                Mostrar isto aqui não é enfeite: é a diferença entre "o
+                Assistente falhou" e "esta tela não está falando com o
+                servidor", que apontam para lugares opostos.
+              */}
+              {capacidades.error && (
+                <ApiErrorNotice
+                  error={capacidades.error}
+                  what="Esta tela não está conseguindo falar com o servidor."
+                />
+              )}
+
               {vazia && <Abertura aoEscolher={enviar} />}
 
               {turnos.map((turno, i) => (
