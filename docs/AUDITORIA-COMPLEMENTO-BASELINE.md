@@ -83,6 +83,10 @@ Registro da decisão, para que ela pare de depender de quem lembra dela:
 
 ### A.4 Fleet Analysis — o que preservar, ao migrar
 
+> O mapa completo saiu daqui e virou ADR: **`docs/ADR-FLEET-ANALYSIS-CANONICO.md`**,
+> com o de-para campo a campo, os quatro pontos onde a migração pode errar e o
+> critério de aceitação. O resumo abaixo fica como índice.
+
 A tela responde quatro perguntas que nenhuma outra responde. O contrato de saída
 que a migração precisa reproduzir:
 
@@ -537,7 +541,7 @@ uma versão, mapeado para o novo, para não quebrar link colado.
 | **PR-1** | Remover de `routes/overview.ts` os dois `POST` e as três leituras duplicadas; deixar só `GET /overview`. Enforcement em três alturas: rota, superfície e tabela | **feito** | não — o código era inalcançável |
 | **PR-2** | **A autoridade central de escrita.** `fact`, `snapshot`, `entity`, `scope`, `entity_identifier` e `snapshot_*` só aceitam escrita sob autoridade declarada, conferida no driver. `CURADORIA` modelada à parte, para o dicionário. Formalização do Book (Parte A.3) | **feito** | sim, no caminho de recusa |
 | **PR-3** | *(sem código)* O Book fica como está — a decisão está registrada na Parte A.3 e presa por `fronteira-do-book.test.ts`. Incorporado ao PR-2 | **feito** | não |
-| **PR-4** | **Mapa** da migração de Fleet Analysis: ADR + teste de caracterização do formato de resposta atual + o de-para da Parte A.4. **Sem trocar a fonte** | — | não |
+| **PR-4** | **Mapa** da migração de Fleet Analysis: `docs/ADR-FLEET-ANALYSIS-CANONICO.md` + `fleet-analysis-contrato.test.ts`, onde o de-para mora e é conferido. **Sem trocar a fonte** | **feito** | não |
 
 A autoridade central subiu de P1 para P0 por decisão de 16/08/2026: a varredura
 de código do PR-1 é uma boa rede e não pode ser a garantia arquitetural
