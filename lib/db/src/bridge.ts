@@ -64,6 +64,11 @@
  */
 import pg from "pg";
 import { readMigrations, mexeEmDados } from "./migrate";
+import {
+  CRIAR_MARCADOR,
+  LIMPAR_MARCADOR,
+  MARCAR_DESCIDA,
+} from "./bridge-marcador";
 
 // ---------------------------------------------------------------------------
 // O que o bridge move, nominalmente
@@ -653,6 +658,21 @@ export async function bridgeDown(
       `sobrou: ${fns.map((f) => f.nome).join(", ")}`,
     );
 
+    /*
+      O marcador entra **com** o bridge, e não depois dele.
+
+      O `down` inteiro é uma transação — ou entra tudo, ou nada. O marcador vai
+      junto: um `down` que aborta não deixa marcador, e um `down` que entra não
+      tem como deixar de deixá-lo. Escrevê-lo depois do `COMMIT` criaria uma
+      segunda verdade sobre o mesmo fato, capaz de discordar da primeira
+      exatamente na janela em que alguém precisaria dela.
+
+      Em `dryRun` ele é escrito e desfeito junto com o resto, que é o que faz o
+      ensaio ensaiar também esta parte.
+    */
+    for (const comando of CRIAR_MARCADOR) await c.query(comando);
+    await c.query(MARCAR_DESCIDA, [JSON.stringify(rel.ddl)]);
+
     if (dryRun) await c.query("ROLLBACK");
     else await c.query("COMMIT");
     return rel;
@@ -974,6 +994,13 @@ export async function bridgeUp(connectionString: string): Promise<BridgeReport> 
       await c.query(`ALTER TABLE "ticket_import" ALTER COLUMN "parameter_columns" SET DEFAULT '[]'::jsonb`);
       await c.query(`ALTER TABLE "ticket_import" ALTER COLUMN "parameter_columns" SET NOT NULL`);
     }
+
+    /*
+      O `up` concluiu: não há mais bridge pendente. Some junto com a restauração
+      e pela mesma razão do `down` — se o `up` abortar, o marcador continua lá,
+      que é a resposta certa para um bridge que ainda não terminou.
+    */
+    await c.query(LIMPAR_MARCADOR);
 
     await c.query("COMMIT");
     rel.verificacao.push({

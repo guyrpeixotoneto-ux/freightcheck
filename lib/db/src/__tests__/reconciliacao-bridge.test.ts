@@ -30,7 +30,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { runMigrations, readMigrations } from "../migrate";
-import { COLUNAS_REMOVIDAS, INDICES_REMOVIDOS } from "../bridge";
+import {
+  COLUNAS_REMOVIDAS,
+  INDICES_REMOVIDOS,
+  bridgeDown,
+  bridgeUp,
+} from "../bridge";
+import { bridgePendente } from "../bridge-marcador";
 import { compararSchema, tabelasDeclaradas } from "../conferir-schema";
 
 const ADMIN =
@@ -301,4 +307,86 @@ describe("C. toda entrada do bridge está de um dos dois lados da fronteira", ()
       ).toBe(true);
     }
   });
+});
+
+// ---------------------------------------------------------------------------
+// D — o marcador: um bridge pela metade deixa de ser invisível
+// ---------------------------------------------------------------------------
+
+/**
+ * A `0023` conserta os bancos que já estão divergentes, e conserta uma vez: ela
+ * entra no registro, e o próximo `down` sem `up` volta a ser irrecuperável pela
+ * fila. O que fecha isso para o futuro não é outra migration — é o banco saber
+ * que está no meio de um bridge.
+ *
+ * Sem o marcador, um bridge pela metade é indistinguível de um banco saudável
+ * por qualquer coisa que se pergunte de fora, e a primeira notícia é uma tela
+ * em 500 — em 16/08/2026, semanas depois.
+ */
+describe("D. o bridge declara que desceu, e só o up limpa", () => {
+  it("um banco que nunca viu bridge responde 'sem pendência' sem quebrar", async () => {
+    // A tabela do marcador não existe aqui. Perguntar por ela não pode
+    // levantar erro: quem pergunta é o /healthz, a rota que existe para dizer
+    // se o banco está de pé.
+    const banco = await bancoNovo();
+    abertos.push(banco.pool);
+    expect((await runMigrations(banco.url)).failure).toBeUndefined();
+
+    const estado = await bridgePendente(async (texto) => {
+      const r = await banco.pool.query(texto);
+      return { rows: r.rows as Record<string, unknown>[] };
+    });
+
+    expect(estado.pendente).toBe(false);
+  }, 120_000);
+
+  it("o down deixa o marcador, o up o limpa, e migrate não mexe nele", async () => {
+    const banco = await bancoNovo();
+    abertos.push(banco.pool);
+    expect((await runMigrations(banco.url)).failure).toBeUndefined();
+
+    const ler = () =>
+      bridgePendente(async (texto) => {
+        const r = await banco.pool.query(texto);
+        return { rows: r.rows as Record<string, unknown>[] };
+      });
+
+    const descida = await bridgeDown(banco.url);
+    expect(descida.falha).toBeUndefined();
+
+    const depoisDoDown = await ler();
+    expect(depoisDoDown.pendente).toBe(true);
+    expect(depoisDoDown.desde).toBeDefined();
+
+    /*
+      O passo que prova o ponto: no deploy real, `migrate` roda entre o `down` e
+      o `up`. Se ele limpasse o marcador, o estado voltaria a ser invisível
+      justamente na janela em que ele importa.
+    */
+    expect((await runMigrations(banco.url)).failure).toBeUndefined();
+    expect((await ler()).pendente).toBe(true);
+
+    const subida = await bridgeUp(banco.url);
+    expect(subida.falha).toBeUndefined();
+    expect((await ler()).pendente).toBe(false);
+  }, 300_000);
+
+  it("um down que aborta não deixa marcador — ele entra com a transação", async () => {
+    // `dryRun` percorre tudo e dá ROLLBACK. O marcador é escrito dentro da
+    // mesma transação, então some junto: um ensaio não pode deixar o banco
+    // dizendo que está no meio de um bridge.
+    const banco = await bancoNovo();
+    abertos.push(banco.pool);
+    expect((await runMigrations(banco.url)).failure).toBeUndefined();
+
+    const ensaio = await bridgeDown(banco.url, { dryRun: true });
+    expect(ensaio.falha).toBeUndefined();
+    expect(ensaio.dryRun).toBe(true);
+
+    const estado = await bridgePendente(async (texto) => {
+      const r = await banco.pool.query(texto);
+      return { rows: r.rows as Record<string, unknown>[] };
+    });
+    expect(estado.pendente).toBe(false);
+  }, 300_000);
 });

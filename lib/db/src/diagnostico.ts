@@ -74,6 +74,21 @@ export type EstadoDoBanco =
    * sozinho, o par contraditório que o resto deste módulo elimina.
    */
   | "SCHEMA_DIVERGENTE"
+  /**
+   * Um `bridge:down` entrou neste banco e o `bridge:up` correspondente não.
+   *
+   * É a **causa** mais comum de `SCHEMA_DIVERGENTE`, e é a única que o banco
+   * consegue declarar em vez de deixar deduzir: o `down` grava um marcador
+   * dentro da própria transação, e o `up` o limpa. Enquanto ele estiver lá,
+   * faltam no schema objetos que as migrations criam — e a fila não os repõe,
+   * porque o registro já as dá por aplicadas.
+   *
+   * Separado de `SCHEMA_DIVERGENTE` porque a pergunta seguinte é outra e a
+   * resposta é melhor: lá é "compare o schema e descubra o que houve", aqui é
+   * "rode `bridge:up`". Colapsá-los mandaria alguém investigar um estado que o
+   * banco sabe nomear.
+   */
+  | "BRIDGE_PENDENTE"
   /** Não dá para saber: a variável não chegou, ou o banco não respondeu. */
   | "INDISPONIVEL";
 
@@ -90,6 +105,7 @@ export type CodigoDeAcao =
   | "ADOTAR_MIGRATIONS"
   | "INVESTIGAR_FALHA"
   | "CONFERIR_SCHEMA"
+  | "CONCLUIR_BRIDGE"
   | "CONFIGURAR_DATABASE_URL"
   | "RESTABELECER_BANCO";
 
@@ -197,6 +213,15 @@ export interface EstadoObservado {
    * única evidência possível de que o registro e o banco divergiram.
    */
   objetoAusenteAgora?: boolean;
+  /**
+   * O banco declara um `bridge:down` sem o `up` correspondente.
+   *
+   * É o único sinal desta lista que não é dedução nem sintoma: quem o escreve é
+   * o próprio `bridgeDown`, dentro da transação dele, e quem o apaga é o
+   * `bridgeUp`. Por isso ele decide antes de todos os outros — quando existe,
+   * não há o que inferir.
+   */
+  bridgePendente?: { desde?: string };
 }
 
 /**
@@ -318,6 +343,45 @@ export function diagnosticar(estado: EstadoObservado): Diagnostico {
       },
       ...(estado.codigoDeConexao
         ? { evidencia: `Código da falha de conexão: ${estado.codigoDeConexao}.` }
+        : {}),
+    };
+  }
+
+  /*
+    O bridge decide antes de todo o resto, e não por gravidade: por ser o único
+    sinal desta função que **não** é dedução. Os outros leem sintomas — uma
+    contagem que não fecha, uma consulta que morreu — e concluem. Este é uma
+    declaração que o `bridgeDown` deixou no banco, dentro da própria transação,
+    e que só o `bridgeUp` apaga.
+
+    Quando ele existe, a explicação de um objeto ausente já está dada, e mandar
+    conferir o schema (ou pior, rodar migrations, que não repõem nada do que o
+    bridge tirou) seria mandar investigar o que o banco acabou de dizer.
+  */
+  if (estado.bridgePendente) {
+    return {
+      estado: "BRIDGE_PENDENTE",
+      resumo:
+        "Este banco está no meio de um bridge de deploy: o `bridge:down` " +
+        "entrou e o `bridge:up` correspondente não. Enquanto isso, faltam " +
+        "objetos que as migrations criam — e rodar as migrations não os repõe, " +
+        "porque o registro já as dá por aplicadas.",
+      risco: {
+        emRisco: false,
+        texto:
+          "Nenhum dado foi perdido: o bridge remove estrutura, nunca linha de " +
+          "fato, e o que ele tira está inteiro nas migrations que o devolvem.",
+      },
+      acao: {
+        codigo: "CONCLUIR_BRIDGE",
+        texto:
+          "Concluir o bridge, que é o que devolve os objetos removidos e " +
+          "limpa este estado.",
+        comando: "pnpm --filter @workspace/db run bridge:up",
+        quem: "operador",
+      },
+      ...(estado.bridgePendente.desde
+        ? { evidencia: `O bridge desceu em ${estado.bridgePendente.desde}.` }
         : {}),
     };
   }
