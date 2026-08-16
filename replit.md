@@ -70,6 +70,13 @@ botão Excluir que apaga o que ela produziu — fatos, vigências, comparações
 evidência RAW —, mostrando antes a conta do que sai e liberando o arquivo para
 ser reenviado. O registro da exclusão fica (`import_deletion`); os dados não.
 
+O mesmo vale para o export de chamados, em Alterações › Chamados: importar e
+excluir são os dois pela tela, e a exclusão leva os chamados e as alterações que
+só aquele envio trouxe, com a conta à frente e o arquivo liberado para reenvio.
+Ela é mais simples que a da planilha porque um envio de chamados não escreve
+fato canônico nem vigência — a aba Planilha não é tocada —, e o rastro fica em
+`ticket_import_deletion`, append-only como o outro.
+
 ## Acesso
 
 **Nada do produto aparece sem login.** Toda rota da API exige sessão, com cinco

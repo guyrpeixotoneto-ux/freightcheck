@@ -63,3 +63,45 @@ export const importDeletionTable = pgTable(
     index("import_deletion_sha256_idx").on(t.contentSha256),
   ],
 );
+
+/**
+ * O mesmo registro, para o outro caminho por onde arquivo entra: os chamados.
+ *
+ * Uma tabela à parte, e não linhas com um tipo dentro de `import_deletion`,
+ * pela mesma razão que `ticket_import` não é `import_run`: o que sai de uma
+ * exclusão de vigência são fatos e vigências, e o que sai daqui são chamados e
+ * alterações declaradas. Somá-los numa coluna `removed` comum obrigaria quem lê
+ * a auditoria a saber, por fora, qual das duas contagens aquela linha está
+ * usando — e é justamente essa confusão que as duas abas de Alterações existem
+ * para não cometer.
+ *
+ * O que ela promete é o mesmo: um envio excluído leva junto os chamados e as
+ * alterações que só ele sustentava, e esta linha é o que resta para distinguir
+ * "este export nunca foi lido" de "este export foi lido e retirado, por fulano,
+ * no dia tal". Append-only pela mesma trigger em espírito — ver a `0020`.
+ */
+export const ticketImportDeletionTable = pgTable(
+  "ticket_import_deletion",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Sem FK: o envio que este id nomeia foi apagado nesta mesma transação. */
+    ticketImportId: uuid("ticket_import_id").notNull(),
+    filename: text("filename").notNull(),
+    contentSha256: text("content_sha256").notNull(),
+    /** O estado em que o envio estava — READ, FAILED, SKIPPED_DUPLICATE… */
+    importStatus: text("import_status").notNull(),
+    receivedAt: timestamp("received_at", { withTimezone: true }),
+    /** Quanta coisa saiu, por tabela — os mesmos números que a tela mostrou. */
+    removed: jsonb("removed").$type<Record<string, number>>().notNull().default({}),
+    /** Nunca nulo: uma exclusão sem autor não é auditável. */
+    deletedBy: text("deleted_by").notNull(),
+    reason: text("reason"),
+    deletedAt: timestamp("deleted_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("ticket_import_deletion_deleted_at_idx").on(t.deletedAt),
+    index("ticket_import_deletion_sha256_idx").on(t.contentSha256),
+  ],
+);
