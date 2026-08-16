@@ -47,8 +47,7 @@ import { primeiraPagina, type Janela } from "@/lib/paginacao";
 import { cn } from "@/lib/utils";
 import {
   ChangeTable,
-  FilterBar,
-  QuickFilters,
+  ChangeFilterPanel,
   type AttributeRollup,
   type ChangeRow,
   type Breakdown,
@@ -315,7 +314,6 @@ function AbaPlanilha() {
   /** null = visão consolidada da frota; caso contrário, uma série. */
   const [series, setSeries] = useState<string | null>(null);
   const [janela, setJanela] = useState<Janela>(primeiraPagina);
-  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [painel, setPainel] = useState<PainelPlanilha>(null);
 
   /*
@@ -554,21 +552,11 @@ function AbaPlanilha() {
       )}
 
       <Card className="rounded-2xl p-4 space-y-4">
-        <QuickFilters
+        <ChangeFilterPanel
           filters={filters}
           onChange={setFilters}
           breakdown={breakdown}
-          avancadoAberto={filtrosAbertos}
-          onToggleAvancado={() => setFiltrosAbertos((v) => !v)}
         />
-        {filtrosAbertos && (
-          <FilterBar
-            avancada
-            filters={filters}
-            onChange={setFilters}
-            breakdown={breakdown}
-          />
-        )}
       </Card>
 
       {breakdown && breakdown.byAttribute.length > 0 && (
