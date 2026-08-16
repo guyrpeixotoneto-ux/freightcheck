@@ -89,7 +89,7 @@ const TERMOS_ABRANGENTES: ReadonlySet<string> = new Set([
  */
 let vocabularioEstatico: Set<string> | null = null;
 
-function vocabularioDoProduto(): Set<string> {
+export function vocabularioDoProduto(): Set<string> {
   if (vocabularioEstatico) return vocabularioEstatico;
 
   const palavras = new Set<string>();
