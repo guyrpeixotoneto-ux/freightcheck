@@ -14,7 +14,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Paginacao } from "@/components/ui/paginacao";
 import { getApiUrl } from "@/lib/api";
+import {
+  TAMANHOS_DE_PAGINA,
+  aplicarJanela,
+  primeiraPagina,
+  type Janela,
+} from "@/lib/paginacao";
 import { cn } from "@/lib/utils";
 
 /**
@@ -114,6 +121,7 @@ export const emptyTicketFilters: TicketFilters = {
 export function toTicketQuery(
   filters: TicketFilters,
   extra: Record<string, string> = {},
+  janela: Janela = primeiraPagina,
 ) {
   const params = new URLSearchParams();
   if (filters.statusBucket) params.set("statusBucket", filters.statusBucket);
@@ -128,7 +136,7 @@ export function toTicketQuery(
   for (const [key, value] of Object.entries(extra)) {
     if (value) params.set(key, value);
   }
-  params.set("limit", "300");
+  aplicarJanela(params, janela);
   return params.toString();
 }
 
@@ -429,9 +437,14 @@ function SortHeader({
 export function TicketChangeTable({
   rows,
   total,
+  janela,
+  onJanela,
 }: {
   rows: TicketChangeRow[];
   total: number;
+  /** Sem estes dois a tabela é a página única de antes. */
+  janela?: Janela;
+  onJanela?: (janela: Janela) => void;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sort, setSort] = useState<SortState>(null);
@@ -694,11 +707,23 @@ export function TicketChangeTable({
         </table>
       </div>
 
-      {total > rows.length && (
-        <p className="px-4 py-3 text-xs text-muted-foreground border-t">
-          Mostrando {rows.length} de {total}. Use os filtros para chegar ao
-          restante — nada foi descartado.
-        </p>
+      {janela && onJanela ? (
+        <Paginacao
+          total={total}
+          pagina={janela.pagina}
+          porPagina={janela.porPagina}
+          onPagina={(pagina) => onJanela({ ...janela, pagina })}
+          onPorPagina={(porPagina) => onJanela({ porPagina, pagina: 1 })}
+          tamanhos={TAMANHOS_DE_PAGINA}
+          unidade="alterações"
+        />
+      ) : (
+        total > rows.length && (
+          <p className="px-4 py-3 text-xs text-muted-foreground border-t">
+            Mostrando {rows.length} de {total}. Use os filtros para chegar ao
+            restante — nada foi descartado.
+          </p>
+        )
       )}
     </div>
   );

@@ -40,7 +40,7 @@
  * nomeando a diferença se alguma chegar errada. Nenhuma tabela, nenhum índice,
  * nenhuma constraint, nenhum DROP.
  *
- * Depois do deploy, `runMigrations()` leva Production de `0000` a `0019` — a
+ * Depois do deploy, `runMigrations()` leva Production de `0000` ao fim da fila — a
  * fila é reentrante, então atravessa o que o Publishing tiver criado —, e
  * `bridgeUp` devolve Development ao estado canônico.
  *
@@ -99,8 +99,22 @@ export const ALLOWLIST: { tabela: string; coluna: string; tipo: string }[] = [
   { tabela: "entity_identifier", coluna: "identifier_value_raw", tipo: "text" },
 ];
 
-/** Tabelas que o `down` remove. Todas têm de estar vazias — é pré-condição. */
-const TABELAS_REMOVIDAS = ["ticket_change", "snapshot_merge", "import_decision"];
+/**
+ * Tabelas que o `down` remove. Todas têm de estar vazias — é pré-condição.
+ *
+ * `ticket_import_deletion` é da `0020`, e a pré-condição de vazia vale para ela
+ * com um sentido a mais: é o registro das exclusões de envios de chamados, e
+ * ele é append-only justamente para não se perder. Um bridge que a derrubasse
+ * com linhas dentro apagaria em silêncio a única prova de que aqueles envios
+ * existiram — então ele para e diz o que encontrou, que é o que este projeto
+ * faz com descarte.
+ */
+const TABELAS_REMOVIDAS = [
+  "ticket_change",
+  "snapshot_merge",
+  "import_decision",
+  "ticket_import_deletion",
+];
 
 /** Colunas que o `down` remove de tabelas que ficam. */
 const COLUNAS_REMOVIDAS: [string, string][] = [
@@ -168,6 +182,18 @@ const FUNCOES_REMOVIDAS = [
   "freightcheck_serialize_scope",
   "freightcheck_iso_date",
   "freightcheck_snapshot_key",
+];
+
+/**
+ * A função de gatilho da `0020`, que Production não tem.
+ *
+ * Sai pelo mesmo critério das onze acima — o estado pós-`down` precisa ser
+ * comparável a Production em **todas** as categorias, e função é uma delas. O
+ * gatilho que a chama já saiu junto com a tabela; a ordem no `down` garante
+ * isso, e o `RESTRICT` continua sendo quem decide se algo mais dependia dela.
+ */
+const FUNCOES_REMOVIDAS_CHAMADOS = [
+  "freightcheck_ticket_import_deletion_is_immutable",
 ];
 
 const CHECKS_REMOVIDOS: [string, string][] = [
@@ -488,7 +514,7 @@ export async function bridgeDown(
     }
     // Depois da coluna gerada e das views, nada mais depende delas. `RESTRICT`
     // continua sendo quem decide: se algo depender, o bridge cai aqui.
-    for (const f of FUNCOES_REMOVIDAS) {
+    for (const f of [...FUNCOES_REMOVIDAS, ...FUNCOES_REMOVIDAS_CHAMADOS]) {
       const { rows } = await c.query<{ assinatura: string }>(
         `SELECT p.oid::regprocedure::text AS assinatura FROM pg_proc p
           WHERE p.pronamespace='public'::regnamespace AND p.proname=$1`,
@@ -650,6 +676,7 @@ function planoUp(): PassoUp[] {
   const M17 = "0017_fato_herdado";
   const M18 = "0018_identidade_forte";
   const M19 = "0019_assistant_feedback";
+  const M20 = "0020_chamados_exclusao";
 
   // 1. Desfaz o estado legado que o `down` recriou. Quem o desfaz é a `0013`.
   for (const col of COLUNAS_LEGADAS_TICKET) {
@@ -704,6 +731,25 @@ function planoUp(): PassoUp[] {
     add(M15, `view ${v}`, `DROP VIEW IF EXISTS "${v}" RESTRICT`);
     add(M15, `view ${v}`, levantar(M15, new RegExp(`CREATE VIEW "${v}"`)));
   }
+
+  // A `0020` — a função antes do gatilho que a chama, e a tabela antes dos dois.
+  add(
+    M20,
+    "função freightcheck_ticket_import_deletion_is_immutable",
+    levantar(M20, /CREATE OR REPLACE FUNCTION freightcheck_ticket_import_deletion_is_immutable\(/),
+  );
+  add(M20, "ticket_import_deletion", levantar(M20, /CREATE TABLE IF NOT EXISTS "ticket_import_deletion"/));
+  for (const i of [
+    "ticket_import_deletion_deleted_at_idx",
+    "ticket_import_deletion_sha256_idx",
+  ]) {
+    add(M20, `índice ${i}`, levantar(M20, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
+  add(
+    M20,
+    "gatilho ticket_import_deletion_immutable",
+    levantar(M20, /CREATE TRIGGER ticket_import_deletion_immutable/),
+  );
 
   // A `0019` — presente só em bancos que chegaram até ela.
   for (const col of ["feedback", "feedback_note", "feedback_at"]) {

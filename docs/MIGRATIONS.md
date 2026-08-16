@@ -112,7 +112,7 @@ Acontece: `drizzle.__drizzle_migrations` vazio num banco inteiro de pé. Foi o
 estado de produção em 15/08/2026 — `/api/healthz` respondendo `applied: 0` com
 todas as telas funcionando.
 
-Isso **não trava mais a fila**. Toda migration, da `0000` à `0019`, atravessa um
+Isso **não trava mais a fila**. Toda migration, da `0000` à `0020`, atravessa um
 banco que já a contém: tipo, tabela, índice, coluna, constraint e gatilho são
 procurados antes de criados, e o que já está lá é deixado como está. Rodar a
 fila sobre um banco existente é trabalho repetido, não erro — o servidor faz
