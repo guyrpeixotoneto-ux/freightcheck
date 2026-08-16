@@ -14,6 +14,7 @@ import {
   attributeLabel,
   equipmentLabel,
   natureLabel,
+  periodLabel,
   semanticsLabel,
 } from "./labels";
 import { buildCockpit, type CockpitView } from "./cockpit";
@@ -199,6 +200,22 @@ export interface GroupedSeries {
   equipment: string;
   snapshotLabel: string;
   previousLabel: string | null;
+  /**
+   * A vigência do snapshot com que esta série foi comparada — a data, não o
+   * rótulo do arquivo.
+   *
+   * `previousLabel` responde *de qual entrega* veio o lado "Antes", e serve
+   * para rastrear o arquivo; não responde *de quando*. A tabela de veículos
+   * precisa da segunda pergunta para escrever "Antes · julho/2026" no
+   * cabeçalho, e ela não pode ser deduzida subtraindo um mês:
+   * `findPreviousSnapshot` pega a última entrega **daquela série**, que pula
+   * junto com ela. Cavalo e carreta chegam em snapshots separados e podem ter
+   * anteriores diferentes na mesma vigência — por isso é um campo por série, e
+   * não um do cabeçalho.
+   */
+  previousPeriod: string | null;
+  /** `previousPeriod` escrito para leitura: `julho/2026`. */
+  previousPeriodLabel: string | null;
   fleet: number;
   changeSetId: string | null;
   reason: string | null;
@@ -717,18 +734,6 @@ const BADGE_ORDER: Badge[] = [
 // Entrada pública
 // ---------------------------------------------------------------------------
 
-const MONTHS = [
-  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-];
-
-/** `2026-08-01` → `agosto/2026`. Sem `Date`, para não depender de fuso. */
-export function periodLabel(date: string): string {
-  const [year, month] = date.split("-");
-  const index = Number(month) - 1;
-  return index >= 0 && index < 12 ? `${MONTHS[index]}/${year}` : date;
-}
-
 /**
  * A visão da vigência escolhida, agrupada.
  *
@@ -804,12 +809,19 @@ export async function getGroupedView(
     entity_type: string;
     snapshot_label: string;
     previous_label: string | null;
+    previous_date: string | null;
     fleet: number;
   }>(sql`
     SELECT cs.id AS change_set_id,
            t AS entity_type,
            sb.source_label AS snapshot_label,
            sa.source_label AS previous_label,
+           -- A vigência do outro lado da comparação. Vem daqui, e não de uma
+           -- conta sobre a data desta, porque findPreviousSnapshot compara
+           -- cada série com a última entrega *dela* — uma série que pulou
+           -- setembro compara outubro contra agosto, e subtrair um mês
+           -- escreveria "setembro" num lado que ninguém entregou.
+           sa.effective_date::text AS previous_date,
            (
              SELECT count(DISTINCT f.entity_id)::int
                FROM fact f
@@ -856,6 +868,8 @@ export async function getGroupedView(
       equipment: equipmentLabel(s.entity_type),
       snapshotLabel: s.snapshot_label,
       previousLabel: s.previous_label,
+      previousPeriod: s.previous_date,
+      previousPeriodLabel: s.previous_date ? periodLabel(s.previous_date) : null,
       fleet: s.fleet,
       changeSetId: s.change_set_id,
       reason: null,
@@ -867,6 +881,8 @@ export async function getGroupedView(
         equipment: equipmentLabel(s.entity_type_set),
         snapshotLabel: s.source_label,
         previousLabel: null,
+        previousPeriod: null,
+        previousPeriodLabel: null,
         fleet: s.fleet,
         changeSetId: null,
         reason:
@@ -1023,6 +1039,22 @@ export interface GroupVehicle {
   excludedFromTotal: boolean;
   inconclusiveReason: string | null;
   anomaly: Anomaly | null;
+  /**
+   * As duas vigências desta linha — de onde saiu o "Antes" e de onde saiu o
+   * "Agora".
+   *
+   * Vem por linha, e não uma vez por resposta, porque a comparação é da
+   * **série**: a comparação do cavalo e a da carreta terminam na mesma
+   * vigência e podem começar em vigências diferentes, e uma série que pulou um
+   * mês compara contra o que entregou por último. Cada linha carrega o
+   * `change_set` a que pertence, então carrega também as duas pontas dele — e
+   * o cabeçalho da tabela deixa de ser um palpite sobre o calendário.
+   */
+  periodBefore: string;
+  periodAfter: string;
+  /** As mesmas duas datas escritas para leitura: `julho/2026`, `agosto/2026`. */
+  periodBeforeLabel: string;
+  periodAfterLabel: string;
 }
 
 export interface GroupSelector {
@@ -1048,14 +1080,27 @@ export async function getGroupVehicles(
   });
   if (!context) return [];
 
-  const { rows: sets } = await db.execute<{ id: string }>(sql`
-    SELECT cs.id FROM change_set cs
+  const { rows: sets } = await db.execute<{
+    id: string;
+    period_before: string;
+    period_after: string;
+  }>(sql`
+    SELECT cs.id,
+           -- As duas pontas da comparação, uma por change_set. Uma vigência
+           -- pode ter mais de uma comparação terminando nela (cavalo e carreta
+           -- chegam em snapshots separados), e cada uma tem o seu próprio
+           -- começo.
+           sa.effective_date::text AS period_before,
+           sb.effective_date::text AS period_after
+      FROM change_set cs
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+      JOIN snapshot sa ON sa.id = cs.snapshot_a_id
      WHERE sb.effective_date = ${selector.period}::date
        AND sb.status <> 'SUPERSEDED'
        AND ${contextFilter("sb", context)}
   `);
   const ids = sets.map((s) => s.id);
+  const vigencias = new Map(sets.map((s) => [s.id, s]));
   const all = await loadChanges(db, ids);
   const changedByEntity = indexChangedAttributesByEntity(
     all.map((r) => ({ entityId: r.entity_id, attributeCode: r.attribute_code })),
@@ -1071,24 +1116,35 @@ export async function getGroupVehicles(
   );
 
   return rows
-    .map((r) => ({
-      changeId: r.id,
-      plate: r.entity_label,
-      valueBefore: r.value_before,
-      valueAfter: r.value_after,
-      numericBefore: num(r.numeric_before),
-      numericAfter: num(r.numeric_after),
-      deltaPercent: num(r.delta_percent),
-      impactAmount: num(r.impact_amount),
-      impactPeriodicity: r.impact_periodicity,
-      impactConfidence: r.impact_confidence,
-      excludedFromTotal: isCoveredByParts(r.attribute_code, r.entity_id, changedByEntity),
-      inconclusiveReason: r.inconclusive_reason,
-      anomaly: detectFormatAnomaly(
-        { numeric: num(r.numeric_before), text: r.value_before, date: null, display: r.value_before },
-        { numeric: num(r.numeric_after), text: r.value_after, date: null, display: r.value_after },
-      ),
-    }))
+    .map((r) => {
+      // `loadChanges` só recebeu os ids de `sets`, então toda linha tem o seu
+      // par aqui. O `??` existe para o tipo, não para um caso conhecido.
+      const vigencia = vigencias.get(r.change_set_id);
+      const antes = vigencia?.period_before ?? selector.period;
+      const agora = vigencia?.period_after ?? selector.period;
+      return {
+        changeId: r.id,
+        plate: r.entity_label,
+        valueBefore: r.value_before,
+        valueAfter: r.value_after,
+        numericBefore: num(r.numeric_before),
+        numericAfter: num(r.numeric_after),
+        deltaPercent: num(r.delta_percent),
+        impactAmount: num(r.impact_amount),
+        impactPeriodicity: r.impact_periodicity,
+        impactConfidence: r.impact_confidence,
+        excludedFromTotal: isCoveredByParts(r.attribute_code, r.entity_id, changedByEntity),
+        inconclusiveReason: r.inconclusive_reason,
+        anomaly: detectFormatAnomaly(
+          { numeric: num(r.numeric_before), text: r.value_before, date: null, display: r.value_before },
+          { numeric: num(r.numeric_after), text: r.value_after, date: null, display: r.value_after },
+        ),
+        periodBefore: antes,
+        periodAfter: agora,
+        periodBeforeLabel: periodLabel(antes),
+        periodAfterLabel: periodLabel(agora),
+      };
+    })
     .sort((a, b) => {
       const impact = Math.abs(b.impactAmount ?? 0) - Math.abs(a.impactAmount ?? 0);
       if (impact !== 0) return impact;
