@@ -52,10 +52,15 @@ const UNITS: [code: string, meaning: string][] = [
   ["QTD", "quantidade"],
 ];
 const PERIODICITIES = ["MENSAL", "ANUAL", "PONTUAL"];
+/*
+  Sem WEIGHTED_AVG: o valor prometia ponderação e o cálculo por trás era
+  `total ÷ veículos`. Enquanto o peso não for campo do modelo, o banco recusa
+  gravá-lo (0023) e a tela não o oferece — oferecer o que será recusado é pior
+  do que não ter a opção.
+*/
 const AGGREGATIONS: [code: string, meaning: string][] = [
   ["SUM", "soma na frota"],
   ["AVG", "média simples"],
-  ["WEIGHTED_AVG", "média ponderada"],
   ["NONE", "não agrega"],
 ];
 

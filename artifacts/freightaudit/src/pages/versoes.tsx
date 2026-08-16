@@ -36,7 +36,8 @@ import { cn } from "@/lib/utils";
 
 const UNITS = ["BRL", "BRL_KM", "KM_L", "PERCENT", "KM", "LITROS", "MESES", "ANO", "QTD"];
 const PERIODICITIES = ["MENSAL", "ANUAL", "PONTUAL"];
-const AGGREGATIONS = ["SUM", "AVG", "WEIGHTED_AVG", "NONE"];
+/* WEIGHTED_AVG saiu: ver a nota em curadoria.tsx e a constraint da 0023. */
+const AGGREGATIONS = ["SUM", "AVG", "NONE"];
 
 interface VersionedAttribute {
   code: string;
