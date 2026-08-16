@@ -15,18 +15,20 @@ import {
   FileSpreadsheet,
   Folder,
   Headset,
+  HelpCircle,
   Loader2,
   Lock,
   SlidersHorizontal,
   Trash2,
   TrendingDown,
+  Truck,
   Upload,
   Zap,
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Layout } from "@/components/layout/layout";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import {
   Dialog,
   DialogDescription,
@@ -40,6 +42,8 @@ import { cn } from "@/lib/utils";
 import {
   ChangeTable,
   FilterBar,
+  QuickFilters,
+  type AttributeRollup,
   type ChangeRow,
   type Breakdown,
   type Filters,
@@ -222,9 +226,26 @@ interface LatestResponse {
 }
 
 /**
+ * Qual disclosure da aba Planilha está aberta abaixo da fileira de avisos.
+ *
+ * Mesma regra da aba Chamados: um só de cada vez, nenhuma por padrão. O aviso
+ * diz o tamanho do problema em uma linha; o detalhe — que é longo — só ocupa a
+ * tela de quem pediu para vê-lo.
+ */
+type PainelPlanilha = "parcial" | "semPreco" | null;
+
+/**
  * A tela responde, em ordem: o que mudou, de quanto para quanto, quanto isso
  * vale, em que parte da remuneração, e de onde veio. Materialidade ordena a
  * lista; nunca a filtra por conta própria.
+ *
+ * A forma é a da aba Chamados — cartões grandes, avisos em fileira, filtros
+ * rápidos com o resto atrás de um botão, os dois painéis de concentração, e a
+ * lista por último. Duas telas que respondem à mesma pergunta por caminhos
+ * diferentes não deviam obrigar a reaprender onde ficam as coisas. O que
+ * continua diferente é o único lugar onde a diferença é real: as réguas. Lá o
+ * impacto é uma soma só; aqui é uma linha por periodicidade, porque R$/mês e
+ * R$/ano não somam.
  */
 function AbaPlanilha() {
   /*
@@ -242,6 +263,8 @@ function AbaPlanilha() {
   /** null = visão consolidada da frota; caso contrário, uma série. */
   const [series, setSeries] = useState<string | null>(null);
   const [janela, setJanela] = useState<Janela>(primeiraPagina);
+  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
+  const [painel, setPainel] = useState<PainelPlanilha>(null);
 
   /*
     Filtrar ou trocar de série encurta a lista, e a página em que se estava
@@ -302,11 +325,28 @@ function AbaPlanilha() {
       ? (cv?.impactByPeriodicity ?? {})
       : (data?.set.calculatedImpactByPeriodicity ?? {});
 
+  const parcial = series === null && cv !== undefined && !cv.complete;
+  const semPreco = totals?.impactNotCalculable ?? 0;
+  const temAviso = parcial || semPreco > 0;
+
+  const abrirPainel = (alvo: PainelPlanilha) =>
+    setPainel((atual) => (atual === alvo ? null : alvo));
+
+  const filtrarPorAtributo = (attributeCode: string) =>
+    setFilters({
+      ...filters,
+      attributeCode:
+        filters.attributeCode === attributeCode ? "" : attributeCode,
+    });
+
   return (
-    <>
-      <header className="border-b bg-card px-8 py-6">
-        <div className="flex flex-wrap items-center gap-3">
-          <p className="text-muted-foreground flex items-center gap-2 text-sm">
+    <div className="p-8 space-y-5">
+      {/* De onde saiu tudo o que está abaixo, e sobre que recorte da frota.
+          Fica numa linha, e não num cartão: é a procedência da tela, não um
+          número dela. */}
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0 space-y-1">
+          <p className="text-sm text-muted-foreground flex flex-wrap items-center gap-2">
             {series === null ? (
               cv && <span className="font-mono">período {cv.period}</span>
             ) : (
@@ -320,141 +360,237 @@ function AbaPlanilha() {
             )}
           </p>
 
-          {/* Consolidado é agrupamento de tela e API: soma as séries que
-              entregaram no período. Nenhuma vigência é fundida no banco. */}
-          {known.length > 1 && (
-            <div className="flex items-center gap-1.5">
-              <button
-                onClick={() => setSeries(null)}
-                className={cn(
-                  "text-xs px-2.5 py-1 rounded-full border transition-colors",
-                  series === null
-                    ? "bg-primary text-primary-foreground border-primary"
-                    : "bg-background hover:bg-muted border-input text-muted-foreground",
-                )}
-              >
-                frota
-              </button>
-              {known.map((s) => (
-                <button
-                  key={s}
-                  onClick={() => setSeries(s)}
-                  className={cn(
-                    "text-xs px-2.5 py-1 rounded-full border transition-colors",
-                    series === s
-                      ? "bg-primary text-primary-foreground border-primary"
-                      : "bg-background hover:bg-muted border-input text-muted-foreground",
-                  )}
-                >
-                  {s.replace("+", " · ").toLowerCase()}
-                </button>
-              ))}
-            </div>
+          {series === null && cv && cv.present.length > 0 && (
+            <p className="text-xs text-muted-foreground">
+              Consolidado de{" "}
+              {cv.present
+                .map((p) =>
+                  p.previousLabel
+                    ? `${p.entityTypeSet.toLowerCase()} (${p.previousLabel} → ${p.sourceLabel})`
+                    : `${p.entityTypeSet.toLowerCase()} (${p.reason})`,
+                )
+                .join(" · ")}
+              . Cada série é comparada com a anterior dela mesma; nada é fundido.
+            </p>
           )}
         </div>
 
-        {totals && (
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mt-6">
-            <Tile label="Valores alterados" value={totals.valueChanges} />
-            <Tile
-              label="Ativos entraram / saíram"
-              value={`+${totals.entitiesAdded} / −${totals.entitiesRemoved}`}
-            />
-            <Tile
-              label="Colunas novas / removidas"
-              value={`+${totals.attributesAdded} / −${totals.attributesRemoved}`}
-            />
-            <ImpactTile buckets={impact} outside={totals.impactNotCalculable} />
-            <Tile
-              label="Inconclusivas"
-              value={totals.inconclusive}
-              hint="listadas, não escondidas"
-              tone={totals.inconclusive > 0 ? "warn" : "muted"}
-            />
+        {/* Consolidado é agrupamento de tela e API: soma as séries que
+            entregaram no período. Nenhuma vigência é fundida no banco. */}
+        {known.length > 1 && (
+          <div className="flex flex-wrap items-center gap-1.5">
+            <SerieChip active={series === null} onClick={() => setSeries(null)}>
+              frota
+            </SerieChip>
+            {known.map((s) => (
+              <SerieChip
+                key={s}
+                active={series === s}
+                onClick={() => setSeries(s)}
+              >
+                {s.replace("+", " · ").toLowerCase()}
+              </SerieChip>
+            ))}
           </div>
         )}
-      </header>
+      </div>
 
-      <div className="p-8 space-y-6">
-        {series === null && cv && !cv.complete && (
-          <div className="flex gap-3 rounded-md border border-amber-400 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-            <p>
-              <strong>Visão consolidada parcial.</strong> Para o período{" "}
-              <span className="font-mono">{cv.period}</span> chegou apenas{" "}
+      {error && (
+        <ApiErrorNotice
+          error={error}
+          what="As alterações da planilha não puderam ser carregadas."
+        />
+      )}
+
+      {totals && (
+        <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-5">
+          <MetricCard
+            tone="blue"
+            icon={<SlidersHorizontal className="w-6 h-6" />}
+            label="Valores alterados"
+            value={totals.valueChanges.toLocaleString("pt-BR")}
+            hint="célula a célula, entre as vigências"
+          />
+          <MetricCard
+            tone="green"
+            icon={<Truck className="w-6 h-6" />}
+            label="Ativos entraram / saíram"
+            value={`+${totals.entitiesAdded} / −${totals.entitiesRemoved}`}
+            hint="entradas e saídas da frota"
+          />
+          <MetricCard
+            tone="purple"
+            icon={<Columns3 className="w-6 h-6" />}
+            label="Colunas novas / removidas"
+            value={`+${totals.attributesAdded} / −${totals.attributesRemoved}`}
+            hint="mudanças no layout do arquivo"
+          />
+          {/*
+            Impacto da planilha — uma linha por periodicidade, e nunca um número
+            só: R$/mês e R$/ano são grandezas diferentes, e somá-las seria
+            exatamente o erro que este produto existe para pegar. É também por
+            isso que este cartão **não** soma com o de Impacto da aba Chamados:
+            lá a régua é a distância entre um pedido e uma resposta.
+          */}
+          <MetricCard
+            tone="red"
+            icon={<TrendingDown className="w-6 h-6" />}
+            label="Impacto apurado"
+            value={<ImpactoPorPeriodicidade buckets={impact} />}
+            hint={`${semPreco.toLocaleString("pt-BR")} alterações fora destes valores`}
+          />
+          <MetricCard
+            tone="orange"
+            icon={<HelpCircle className="w-6 h-6" />}
+            label="Inconclusivas"
+            value={totals.inconclusive.toLocaleString("pt-BR")}
+            hint="listadas, não escondidas"
+            valueTone={totals.inconclusive > 0 ? "warn" : "muted"}
+          />
+        </div>
+      )}
+
+      {/* Os avisos da comparação, em uma linha cada: o tamanho do problema à
+          vista, e o detalhe atrás de um clique. Nenhum deles some quando é
+          inconveniente — some quando não existe. */}
+      {(temAviso || painel !== null) && (
+        <Card className="rounded-2xl p-5 space-y-4">
+          <div className={cn("gap-4 md:grid-cols-2", temAviso ? "grid" : "hidden")}>
+            {parcial && cv && (
+              <Aviso
+                tone="red"
+                titulo="Visão consolidada parcial"
+                detalhe={`Falta ${cv.missing.join(", ").toLowerCase()} no período ${cv.period}`}
+                acao="Revisar"
+                aberto={painel === "parcial"}
+                onClick={() => abrirPainel("parcial")}
+              />
+            )}
+            {semPreco > 0 && (
+              <Aviso
+                tone="amber"
+                icone={<Lock className="w-6 h-6" />}
+                titulo={`${semPreco.toLocaleString("pt-BR")} alterações fora da soma de impacto`}
+                detalhe="Continuam na lista — o que falta é o preço, não o fato"
+                acao="Ver detalhes"
+                aberto={painel === "semPreco"}
+                onClick={() => abrirPainel("semPreco")}
+              />
+            )}
+          </div>
+
+          {painel === "parcial" && cv && (
+            <div className="rounded-xl border bg-muted/30 p-4 text-sm">
+              Para o período <span className="font-mono">{cv.period}</span>{" "}
+              chegou apenas{" "}
               {cv.present.map((p) => p.entityTypeSet.toLowerCase()).join(", ")}.
               Falta <strong>{cv.missing.join(", ").toLowerCase()}</strong> — os
-              números abaixo cobrem só o que foi entregue, e a série ausente não
+              números acima cobrem só o que foi entregue, e a série ausente não
               está contada como zero.
-            </p>
-          </div>
-        )}
+            </div>
+          )}
 
-        {series === null && cv && cv.present.length > 0 && (
-          <p className="text-xs text-muted-foreground">
-            Consolidado de{" "}
-            {cv.present
-              .map((p) =>
-                p.previousLabel
-                  ? `${p.entityTypeSet.toLowerCase()} (${p.previousLabel} → ${p.sourceLabel})`
-                  : `${p.entityTypeSet.toLowerCase()} (${p.reason})`,
-              )
-              .join(" · ")}
-            . Cada série é comparada com a anterior dela mesma; nada é fundido.
-          </p>
-        )}
-
-        {totals && totals.impactNotCalculable > 0 && (
-          <div className="flex gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            <Lock className="w-4 h-4 mt-0.5 shrink-0" />
-            <p>
-              <strong>{totals.impactNotCalculable}</strong> alterações estão
-              fora da soma de impacto porque a semântica do atributo ainda não
-              foi confirmada, ou porque ele não é um montante somável. Elas
+          {painel === "semPreco" && (
+            <div className="rounded-xl border bg-muted/30 p-4 text-sm">
+              <strong>{semPreco.toLocaleString("pt-BR")}</strong> alterações
+              estão fora da soma de impacto porque a semântica do atributo ainda
+              não foi confirmada, ou porque ele não é um montante somável. Elas
               continuam na lista — o que falta é o preço, não o fato.
-            </p>
-          </div>
-        )}
+            </div>
+          )}
+        </Card>
+      )}
 
-        <FilterBar
+      <Card className="rounded-2xl p-4 space-y-4">
+        <QuickFilters
           filters={filters}
           onChange={setFilters}
           breakdown={breakdown}
+          avancadoAberto={filtrosAbertos}
+          onToggleAvancado={() => setFiltrosAbertos((v) => !v)}
         />
-
-        {error && (
-          <ApiErrorNotice
-            error={error}
-            what="As alterações da planilha não puderam ser carregadas."
+        {filtrosAbertos && (
+          <FilterBar
+            avancada
+            filters={filters}
+            onChange={setFilters}
+            breakdown={breakdown}
           />
         )}
+      </Card>
 
-        <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">
-              {total !== undefined ? `${total} alterações` : "Alterações"}
-            </CardTitle>
-            <p className="text-xs text-muted-foreground">
-              Ordenadas por materialidade: primeiro o que tem impacto apurado,
-              depois pelo tamanho da variação. Nada é omitido por ser pequeno.
-            </p>
-          </CardHeader>
-          <CardContent className="p-0">
-            {isLoading && (
-              <p className="p-6 text-sm text-muted-foreground">Comparando…</p>
-            )}
-            {rows && total !== undefined && (
-              <ChangeTable
-                rows={rows}
-                total={total}
-                janela={janela}
-                onJanela={setJanela}
-              />
-            )}
-          </CardContent>
+      {breakdown && breakdown.byAttribute.length > 0 && (
+        <Card className="rounded-2xl">
+          <div className="grid md:grid-cols-2 md:divide-x">
+            <AtributosMaisAlterados
+              itens={breakdown.byAttribute}
+              selecionado={filters.attributeCode}
+              onSelecionar={filtrarPorAtributo}
+            />
+            <ImpactosPorAtributo
+              itens={breakdown.byAttribute}
+              selecionado={filters.attributeCode}
+              naoApuradas={semPreco}
+              onSelecionar={filtrarPorAtributo}
+            />
+          </div>
         </Card>
-      </div>
-    </>
+      )}
+
+      <Card className="rounded-2xl overflow-hidden">
+        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 px-4 py-3 border-b">
+          <CardTitle className="text-sm font-semibold">
+            {total !== undefined
+              ? `${total.toLocaleString("pt-BR")} alterações`
+              : "Alterações"}
+          </CardTitle>
+          <p
+            className="text-xs text-muted-foreground"
+            title="Materialidade ordena a lista; nunca a filtra por conta própria."
+          >
+            Ordenadas por materialidade: primeiro o que tem impacto apurado,
+            depois pelo tamanho da variação · nada é omitido por ser pequeno
+          </p>
+        </div>
+        {isLoading && (
+          <p className="p-6 text-sm text-muted-foreground">Comparando…</p>
+        )}
+        {rows && total !== undefined && (
+          <ChangeTable
+            rows={rows}
+            total={total}
+            janela={janela}
+            onJanela={setJanela}
+          />
+        )}
+      </Card>
+    </div>
+  );
+}
+
+/** O recorte da frota — a pílula que troca o assunto da tela inteira. */
+function SerieChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "h-9 rounded-full border px-4 text-sm font-medium transition-colors",
+        active
+          ? "bg-blue-600 border-blue-600 text-white shadow-sm"
+          : "bg-background border-input text-muted-foreground hover:bg-muted",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 
@@ -1396,7 +1532,13 @@ function MetricCard({
   icon: React.ReactNode;
   tone: keyof typeof LADRILHO;
   label: string;
-  value: string;
+  /**
+   * Um número, ou o que não cabe em um. O impacto da planilha é uma linha por
+   * periodicidade, e um cartão que só aceitasse texto obrigaria a escolher uma
+   * delas para caber — que é a decisão que este produto não deixa ninguém tomar
+   * por descuido.
+   */
+  value: React.ReactNode;
   hint?: string;
   valueTone?: "good" | "bad" | "warn" | "muted";
 }) {
@@ -1414,18 +1556,70 @@ function MetricCard({
         <div className="text-sm font-medium text-muted-foreground">{label}</div>
         <div
           className={cn(
-            "text-3xl font-bold tracking-tight tabular-nums mt-1 truncate",
+            "text-3xl font-bold tracking-tight tabular-nums mt-1 min-w-0",
             valueTone === "good" && "text-emerald-700",
             valueTone === "bad" && "text-red-600",
             valueTone === "warn" && "text-amber-600",
           )}
         >
-          {value}
+          {/* Texto continua cortando com reticências; o que vem montado cuida
+              da própria altura. */}
+          {typeof value === "string" ? (
+            <span className="block truncate">{value}</span>
+          ) : (
+            value
+          )}
         </div>
         {hint && (
           <div className="text-xs text-muted-foreground mt-1">{hint}</div>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Impacto apurado, uma linha por periodicidade.
+ *
+ * Nunca um número só: R$/mês e R$/ano são grandezas diferentes, e somá-las
+ * seria exatamente o erro que este produto existe para pegar. Anualizar as duas
+ * numa figura comparável é trabalho de F4, com regras próprias.
+ */
+function ImpactoPorPeriodicidade({
+  buckets,
+}: {
+  buckets: Record<string, number>;
+}) {
+  const entries = Object.entries(buckets);
+  if (entries.length === 0) {
+    return <span className="block truncate text-muted-foreground">não calculável</span>;
+  }
+  return (
+    /*
+      `whitespace-nowrap` não é estética. Um sinal de menos que cai sozinho na
+      linha de cima transforma "-R$ 594" em algo que se lê como número positivo,
+      e este é o cartão em que essa leitura custa dinheiro. É a mesma razão pela
+      qual `ImpactCell` o carrega na tabela.
+
+      O tamanho cede antes da quebra: com duas periodicidades cabem duas linhas
+      no lugar de uma, e o texto encolhe para que nenhuma delas quebre no meio.
+    */
+    <div
+      className={cn(
+        "leading-tight",
+        entries.length > 1 ? "text-lg space-y-0.5" : "text-2xl",
+      )}
+    >
+      {entries.map(([periodicity, amount]) => (
+        <div key={periodicity} className="flex items-baseline gap-1 whitespace-nowrap">
+          <span className={amount < 0 ? "text-red-600" : "text-emerald-700"}>
+            {brl0(amount)}
+          </span>
+          <span className="text-xs font-medium text-muted-foreground">
+            /{periodicity.toLowerCase()}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -1678,86 +1872,161 @@ function ImpactosRelevantes({
 }
 
 /**
- * Impacto apurado, uma linha por periodicidade.
+ * Onde as alterações da planilha se concentram.
  *
- * Nunca um número só: R$/mês e R$/ano são grandezas diferentes, e somá-las
- * seria exatamente o erro que este produto existe para pegar. Anualizar as
- * duas numa figura comparável é trabalho de F4, com regras próprias.
+ * Contagem, e só contagem: é a pergunta "o que mais mexeram", que não tem nada
+ * a ver com "o que mais custou" — o painel ao lado responde essa, e os dois
+ * quase nunca têm o mesmo primeiro colocado. É o mesmo par de leituras da aba
+ * Chamados, sobre a mesma frota, por um caminho diferente.
  */
-function ImpactTile({
-  buckets,
-  outside,
+function AtributosMaisAlterados({
+  itens,
+  selecionado,
+  onSelecionar,
 }: {
-  buckets: Record<string, number>;
-  outside: number;
+  itens: AttributeRollup[];
+  selecionado: string;
+  onSelecionar: (attributeCode: string) => void;
 }) {
-  const entries = Object.entries(buckets);
-  const brl = (v: number) =>
-    v.toLocaleString("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-      maximumFractionDigits: 0,
-    });
+  const topo = [...itens].sort((a, b) => b.count - a.count).slice(0, 5);
+
   return (
-    <div className="rounded-lg border bg-card px-4 py-3">
-      <div className="text-xs font-medium text-muted-foreground">
-        Impacto apurado
+    <div className="p-6">
+      <TituloDePainel icone={<BarChart3 className="w-5 h-5" />}>
+        Atributos mais alterados
+      </TituloDePainel>
+
+      <div className="mt-4">
+        {topo.map((a, i) => (
+          <button
+            key={a.attributeCode}
+            onClick={() => onSelecionar(a.attributeCode)}
+            title={`filtrar a lista por ${a.attributeCode}`}
+            className={cn(
+              "w-full flex items-center gap-4 px-2 py-3 text-left border-b last:border-b-0 rounded-md transition-colors",
+              selecionado === a.attributeCode
+                ? "bg-blue-50 text-blue-800"
+                : "hover:bg-muted/50",
+            )}
+          >
+            <span className="w-4 shrink-0 text-blue-600 font-semibold tabular-nums">
+              {i + 1}
+            </span>
+            <span className="flex-1 truncate">
+              {a.attributeName ?? a.attributeCode}
+            </span>
+            <span className="font-bold tabular-nums shrink-0">
+              {a.count.toLocaleString("pt-BR")}
+            </span>
+          </button>
+        ))}
       </div>
-      {entries.length === 0 ? (
-        <div className="text-xl font-bold tabular-nums mt-1 text-muted-foreground">
-          não calculável
-        </div>
-      ) : (
-        <div className="mt-1 space-y-0.5">
-          {entries.map(([periodicity, amount]) => (
-            <div key={periodicity} className="flex items-baseline gap-1.5">
-              <span
-                className={cn(
-                  "text-lg font-bold tabular-nums",
-                  amount < 0 ? "text-red-700" : "text-emerald-700",
-                )}
-              >
-                {brl(amount)}
-              </span>
-              <span className="text-xs text-muted-foreground">
-                /{periodicity.toLowerCase()}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-      <div className="text-xs text-muted-foreground mt-0.5">
-        {outside} alterações fora destes valores
-      </div>
+
+      <p className="mt-3 text-xs text-muted-foreground">
+        Um atributo que aparece aqui <em>e</em> na aba Chamados é a mesma
+        história contada dos dois lados.
+      </p>
     </div>
   );
 }
 
-function Tile({
-  label,
-  value,
-  hint,
-  tone = "muted",
+/**
+ * O que a vigência custou, por atributo.
+ *
+ * Uma linha por atributo **e periodicidade**, e não por atributo: um mesmo
+ * atributo com impacto mensal e anual são duas quantias que não se somam, e
+ * fundi-las para caber numa linha só produziria o número que este produto
+ * existe para não deixar passar.
+ *
+ * Só entra aqui o que tem preço apurado — e o rodapé diz quantas alterações
+ * ficaram de fora por não terem. Uma lista de "impactos relevantes" que cala o
+ * tamanho do que não sabe medir é a que faz alguém concluir que o resto é zero.
+ */
+function ImpactosPorAtributo({
+  itens,
+  selecionado,
+  naoApuradas,
+  onSelecionar,
 }: {
-  label: string;
-  value: string | number;
-  hint?: string;
-  tone?: "good" | "bad" | "warn" | "muted";
+  itens: AttributeRollup[];
+  selecionado: string;
+  naoApuradas: number;
+  onSelecionar: (attributeCode: string) => void;
 }) {
+  const comImpacto = itens
+    .flatMap((a) => a.impact.map((i) => ({ atributo: a, ...i })))
+    .filter((linha) => linha.amount !== 0)
+    .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+    .slice(0, 5);
+
   return (
-    <div className="rounded-lg border bg-card px-4 py-3">
-      <div className="text-xs font-medium text-muted-foreground">{label}</div>
-      <div
-        className={cn(
-          "text-xl font-bold tabular-nums mt-1",
-          tone === "good" && "text-emerald-700",
-          tone === "bad" && "text-red-700",
-          tone === "warn" && "text-amber-700",
-        )}
-      >
-        {value}
-      </div>
-      {hint && <div className="text-xs text-muted-foreground mt-0.5">{hint}</div>}
+    <div className="p-6">
+      <TituloDePainel icone={<DollarSign className="w-5 h-5" />}>
+        Impactos relevantes
+      </TituloDePainel>
+
+      {comImpacto.length === 0 ? (
+        <p className="mt-4 text-sm text-muted-foreground">
+          Nenhum atributo desta comparação tem impacto apurado. Não quer dizer
+          que a vigência não custou nada — quer dizer que a semântica dos
+          atributos que mudaram ainda não permite pôr preço na diferença.
+        </p>
+      ) : (
+        <div className="mt-4 space-y-2">
+          {comImpacto.map((linha) => {
+            const perda = linha.amount < 0;
+            const { atributo } = linha;
+            return (
+              <button
+                key={`${atributo.attributeCode}-${linha.periodicity}`}
+                onClick={() => onSelecionar(atributo.attributeCode)}
+                title={`filtrar a lista por ${atributo.attributeCode}`}
+                className={cn(
+                  "w-full flex items-center gap-3 rounded-xl px-4 py-3 text-left transition-colors",
+                  perda ? "bg-red-50 hover:bg-red-100" : "bg-emerald-50 hover:bg-emerald-100",
+                  selecionado === atributo.attributeCode &&
+                    (perda ? "ring-1 ring-red-300" : "ring-1 ring-emerald-300"),
+                )}
+              >
+                <span
+                  className={cn(
+                    "h-8 w-8 rounded-full grid place-content-center shrink-0 bg-card border",
+                    perda ? "text-red-600 border-red-200" : "text-emerald-600 border-emerald-200",
+                  )}
+                >
+                  {perda ? (
+                    <ArrowDown className="w-4 h-4" />
+                  ) : (
+                    <ArrowUp className="w-4 h-4" />
+                  )}
+                </span>
+                <span className="flex-1 truncate">
+                  {atributo.attributeName ?? atributo.attributeCode}
+                </span>
+                <span
+                  className={cn(
+                    "font-bold tabular-nums shrink-0",
+                    perda ? "text-red-600" : "text-emerald-700",
+                  )}
+                >
+                  {linha.amount > 0 ? "+" : ""}
+                  {brl0(linha.amount)}
+                  <span className="ml-1 text-xs font-medium text-muted-foreground">
+                    /{linha.periodicity.toLowerCase()}
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+
+      {naoApuradas > 0 && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          {naoApuradas.toLocaleString("pt-BR")} alterações não têm impacto
+          apurado e não entram nesta lista.
+        </p>
+      )}
     </div>
   );
 }

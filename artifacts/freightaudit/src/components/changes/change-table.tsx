@@ -1,6 +1,12 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ChevronDown, ChevronRight, HelpCircle } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  HelpCircle,
+  Search,
+  SlidersHorizontal,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -49,10 +55,24 @@ export interface ChangeRow {
   semanticsEffectiveFrom: string | null;
 }
 
+/**
+ * Um atributo e as duas perguntas que se fazem sobre ele: quantas vezes mudou,
+ * e quanto isso custou. `impact` é uma lista por periodicidade porque R$/mês e
+ * R$/ano não somam — ver `AttributeRollup` em `lib/comparison/src/query.ts`.
+ */
+export interface AttributeRollup {
+  attributeCode: string;
+  attributeName: string | null;
+  count: number;
+  calculated: number;
+  impact: { periodicity: string; amount: number }[];
+}
+
 export interface Breakdown {
   byCostClass: { costClass: string; count: number; impact: number | null }[];
   byType: { changeType: string; count: number }[];
   bySemantics: { semanticsStatus: string; count: number }[];
+  byAttribute: AttributeRollup[];
 }
 
 export interface Filters {
@@ -61,6 +81,7 @@ export interface Filters {
   semanticsStatus: string;
   comparability: string;
   impactConfidence: string;
+  attributeCode: string;
   search: string;
   minAbsImpact: string;
 }
@@ -71,6 +92,7 @@ export const emptyFilters: Filters = {
   semanticsStatus: "",
   comparability: "",
   impactConfidence: "",
+  attributeCode: "",
   search: "",
   minAbsImpact: "",
 };
@@ -472,14 +494,169 @@ function ProvenanceSide({
   );
 }
 
-export function FilterBar({
+/**
+ * A fileira da frente: a classe do custo, se a alteração tem preço, e a busca.
+ *
+ * São os três cortes que quem abre esta aba faz antes de qualquer outro. O
+ * resto — tipo, semântica, comparação, materialidade mínima — continua
+ * existindo inteiro atrás do botão Filtros: não sumiu, saiu da frente, porque
+ * quatro grupos de chips abertos de uma vez são uma tela que se lê antes de se
+ * usar.
+ *
+ * A contagem fica nos chips mesmo em pílula grande. "Sem classe" sozinho não
+ * diz se é o caso de três linhas ou o de duzentas, e essa diferença é o motivo
+ * de alguém clicar.
+ */
+export function QuickFilters({
   filters,
   onChange,
   breakdown,
+  avancadoAberto,
+  onToggleAvancado,
 }: {
   filters: Filters;
   onChange: (f: Filters) => void;
   breakdown?: Breakdown;
+  avancadoAberto: boolean;
+  onToggleAvancado: () => void;
+}) {
+  const semCorte = !filters.costClass && !filters.impactConfidence;
+
+  const alterna = (key: "costClass" | "impactConfidence", value: string) =>
+    onChange({ ...filters, [key]: filters[key] === value ? "" : value });
+
+  /** Quantos filtros vivem atrás do botão — para ele dizer que estão ligados. */
+  const avancadosAtivos = [
+    filters.changeType,
+    filters.semanticsStatus,
+    filters.comparability,
+    filters.attributeCode,
+    filters.minAbsImpact,
+  ].filter(Boolean).length;
+
+  const naClasse = (costClass: string) =>
+    breakdown?.byCostClass.find((c) => c.costClass === costClass)?.count;
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <QuickChip
+        active={semCorte}
+        onClick={() => onChange({ ...filters, costClass: "", impactConfidence: "" })}
+      >
+        Todos
+      </QuickChip>
+
+      <QuickChip
+        active={filters.costClass === "FIXO"}
+        onClick={() => alterna("costClass", "FIXO")}
+      >
+        Custo fixo
+        <Count n={naClasse("FIXO")} />
+      </QuickChip>
+      <QuickChip
+        active={filters.costClass === "VARIAVEL"}
+        onClick={() => alterna("costClass", "VARIAVEL")}
+      >
+        Custo variável
+        <Count n={naClasse("VARIAVEL")} />
+      </QuickChip>
+      <QuickChip
+        active={filters.costClass === "SEM_CLASSE"}
+        onClick={() => alterna("costClass", "SEM_CLASSE")}
+      >
+        Sem classe
+        <Count n={naClasse("SEM_CLASSE")} />
+      </QuickChip>
+
+      <QuickChip
+        active={filters.impactConfidence === "CALCULATED"}
+        onClick={() => alterna("impactConfidence", "CALCULATED")}
+      >
+        Com impacto
+      </QuickChip>
+      <QuickChip
+        active={filters.impactConfidence === "NOT_CALCULABLE"}
+        onClick={() => alterna("impactConfidence", "NOT_CALCULABLE")}
+      >
+        Sem impacto
+      </QuickChip>
+
+      <div className="flex items-center gap-2 ml-auto">
+        <div className="relative w-full sm:w-80">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground pointer-events-none" />
+          <Input
+            value={filters.search}
+            onChange={(e) => onChange({ ...filters, search: e.target.value })}
+            placeholder="Buscar atributo ou placa"
+            title="a busca também encontra pelo código do atributo"
+            className="h-11 pl-9 rounded-xl bg-background"
+          />
+        </div>
+        <Button
+          variant="outline"
+          onClick={onToggleAvancado}
+          aria-expanded={avancadoAberto}
+          className={cn(
+            "h-11 rounded-xl gap-2",
+            (avancadoAberto || avancadosAtivos > 0) && "border-blue-600 text-blue-700",
+          )}
+        >
+          Filtros
+          {avancadosAtivos > 0 && (
+            <span className="rounded-full bg-blue-600 px-1.5 text-xs tabular-nums text-white">
+              {avancadosAtivos}
+            </span>
+          )}
+          <SlidersHorizontal className="w-4 h-4" />
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function QuickChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      aria-pressed={active}
+      className={cn(
+        "h-11 rounded-full border px-5 text-sm font-medium transition-colors",
+        active
+          ? "bg-blue-600 border-blue-600 text-white shadow-sm"
+          : "bg-background border-input text-foreground hover:bg-muted",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+/**
+ * Todos os filtros, ou só os que a fileira da frente não cobre.
+ *
+ * `avancada` é o modo de Alterações, onde `QuickFilters` já mostra classe,
+ * impacto e busca — repeti-los aqui daria dois campos de busca na mesma tela.
+ * Sem ela é a barra inteira, que é o que Comparar usa: lá não há fileira da
+ * frente, e esconder metade dos cortes atrás de nada seria perdê-los.
+ */
+export function FilterBar({
+  filters,
+  onChange,
+  breakdown,
+  avancada = false,
+}: {
+  filters: Filters;
+  onChange: (f: Filters) => void;
+  breakdown?: Breakdown;
+  avancada?: boolean;
 }) {
   const set = (key: keyof Filters, value: string) =>
     onChange({ ...filters, [key]: filters[key] === value ? "" : value });
@@ -487,22 +664,31 @@ export function FilterBar({
   const active = Object.values(filters).some(Boolean);
 
   return (
-    <div className="rounded-lg border bg-card p-4 space-y-3">
+    <div
+      className={cn(
+        "p-4 space-y-3",
+        avancada
+          ? "rounded-xl border bg-muted/30"
+          : "rounded-lg border bg-card",
+      )}
+    >
       <div className="flex flex-wrap items-center gap-2">
-        <FilterGroup label="Classe">
-          <Chip active={filters.costClass === "FIXO"} onClick={() => set("costClass", "FIXO")}>
-            Custo fixo
-            {breakdown && <Count n={breakdown.byCostClass.find((c) => c.costClass === "FIXO")?.count} />}
-          </Chip>
-          <Chip active={filters.costClass === "VARIAVEL"} onClick={() => set("costClass", "VARIAVEL")}>
-            Custo variável
-            {breakdown && <Count n={breakdown.byCostClass.find((c) => c.costClass === "VARIAVEL")?.count} />}
-          </Chip>
-          <Chip active={filters.costClass === "SEM_CLASSE"} onClick={() => set("costClass", "SEM_CLASSE")}>
-            Sem classe
-            {breakdown && <Count n={breakdown.byCostClass.find((c) => c.costClass === "SEM_CLASSE")?.count} />}
-          </Chip>
-        </FilterGroup>
+        {!avancada && (
+          <FilterGroup label="Classe">
+            <Chip active={filters.costClass === "FIXO"} onClick={() => set("costClass", "FIXO")}>
+              Custo fixo
+              {breakdown && <Count n={breakdown.byCostClass.find((c) => c.costClass === "FIXO")?.count} />}
+            </Chip>
+            <Chip active={filters.costClass === "VARIAVEL"} onClick={() => set("costClass", "VARIAVEL")}>
+              Custo variável
+              {breakdown && <Count n={breakdown.byCostClass.find((c) => c.costClass === "VARIAVEL")?.count} />}
+            </Chip>
+            <Chip active={filters.costClass === "SEM_CLASSE"} onClick={() => set("costClass", "SEM_CLASSE")}>
+              Sem classe
+              {breakdown && <Count n={breakdown.byCostClass.find((c) => c.costClass === "SEM_CLASSE")?.count} />}
+            </Chip>
+          </FilterGroup>
+        )}
 
         <FilterGroup label="Tipo">
           {[
@@ -550,12 +736,14 @@ export function FilterBar({
           >
             só inconclusivas
           </Chip>
-          <Chip
-            active={filters.impactConfidence === "CALCULATED"}
-            onClick={() => set("impactConfidence", "CALCULATED")}
-          >
-            só com impacto apurado
-          </Chip>
+          {!avancada && (
+            <Chip
+              active={filters.impactConfidence === "CALCULATED"}
+              onClick={() => set("impactConfidence", "CALCULATED")}
+            >
+              só com impacto apurado
+            </Chip>
+          )}
         </FilterGroup>
 
         <div className="flex items-center gap-2 ml-auto">
@@ -566,19 +754,38 @@ export function FilterBar({
             className="h-9 w-48"
             inputMode="numeric"
           />
-          <Input
-            placeholder="Buscar atributo ou placa…"
-            value={filters.search}
-            onChange={(e) => onChange({ ...filters, search: e.target.value })}
-            className="h-9 w-56"
-          />
+          {!avancada && (
+            <Input
+              placeholder="Buscar atributo ou placa…"
+              value={filters.search}
+              onChange={(e) => onChange({ ...filters, search: e.target.value })}
+              className="h-9 w-56"
+            />
+          )}
           {active && (
             <Button variant="ghost" size="sm" onClick={() => onChange(emptyFilters)}>
-              limpar
+              {avancada ? "limpar tudo" : "limpar"}
             </Button>
           )}
         </div>
       </div>
+
+      {/* O corte que veio de um clique no painel, e não de um chip daqui: sem
+          esta linha ele seria um filtro sem controle visível na tela. */}
+      {filters.attributeCode && (
+        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          filtrando pelo atributo
+          <span className="font-mono font-medium text-foreground">
+            {filters.attributeCode}
+          </span>
+          <button
+            className="underline"
+            onClick={() => onChange({ ...filters, attributeCode: "" })}
+          >
+            remover
+          </button>
+        </div>
+      )}
     </div>
   );
 }
