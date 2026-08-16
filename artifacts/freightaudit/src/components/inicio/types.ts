@@ -127,6 +127,9 @@ export interface GroupedView {
     equipment: string;
     snapshotLabel: string;
     previousLabel: string | null;
+    /** A vigência com que esta série foi comparada — a data, não o arquivo. */
+    previousPeriod: string | null;
+    previousPeriodLabel: string | null;
     fleet: number;
     changeSetId: string | null;
     reason: string | null;
@@ -326,6 +329,16 @@ export interface GroupVehicle {
   excludedFromTotal: boolean;
   inconclusiveReason: string | null;
   anomaly: Omit<Anomaly, "vehicles"> | null;
+  /**
+   * De qual vigência veio cada lado desta linha.
+   *
+   * Por linha porque a comparação é da série: cavalo e carreta terminam na
+   * mesma vigência e podem ter começado em vigências diferentes.
+   */
+  periodBefore: string;
+  periodAfter: string;
+  periodBeforeLabel: string;
+  periodAfterLabel: string;
 }
 
 export interface AttributeSeries {

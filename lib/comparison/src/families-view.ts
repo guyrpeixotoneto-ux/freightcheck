@@ -7,13 +7,13 @@ import {
   placementOf,
   type FamilyCode,
 } from "./families";
+import { periodLabel } from "./labels";
 import {
   buildGroup,
   compareGroups,
   getGroupedView,
   groupKey,
   loadChanges,
-  periodLabel,
   summariseImpact,
   type Badge,
   type ChangeGroup,

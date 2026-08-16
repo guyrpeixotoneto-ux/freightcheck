@@ -1,0 +1,103 @@
+import { Router, type IRouter, type Response } from "express";
+import { db } from "@workspace/db";
+import {
+  ContextNotFoundError,
+  getQuinzenaMatrix,
+  type SeriesContext,
+} from "@workspace/comparison";
+
+/**
+ * Impacto — a terceira aba de Alterações.
+ *
+ * As outras duas partem da alteração e chegam ao dinheiro: a Planilha compara
+ * duas vigências, o Chamado compara o pedido com o que voltou. Esta parte do
+ * dinheiro e deixa a alteração aparecer como a diferença entre duas colunas —
+ * **quanto cada ativo custa em cada quinzena**, que é a pergunta de quem
+ * confere o mês e a única que nenhuma lista de alterações responde: o ativo que
+ * não mexeu não está em lista nenhuma, e sem ele o total da coluna não fecha.
+ *
+ * Rota própria, e não mais um endpoint em `changes.ts`, pela mesma razão que
+ * separa `tickets.ts`: a leitura é outra. Aqui não há `change_set`, não há
+ * comparação gravada e não há impacto apurado — há o fato de cada vigência,
+ * lido como ele foi importado. Nada nesta rota soma nada com as outras duas.
+ */
+const router: IRouter = Router();
+
+/**
+ * O contexto pedido na query, quando pedido.
+ *
+ * Mesma leitura de `changes.ts`, e de propósito: as três abas têm de enxergar a
+ * mesma unidade e o mesmo canal quando a pessoa troca de aba. `?canal=` vazio
+ * quer dizer "as vigências sem canal legível no rótulo", que é uma partição
+ * real e não a ausência de filtro.
+ */
+function parseContext(
+  query: Record<string, unknown>,
+): Partial<SeriesContext> | undefined {
+  const scopeHash =
+    typeof query.scopeHash === "string" && query.scopeHash !== ""
+      ? query.scopeHash
+      : undefined;
+  const hasCanal = typeof query.canal === "string";
+  if (scopeHash === undefined && !hasCanal) return undefined;
+  return {
+    ...(scopeHash !== undefined ? { scopeHash } : {}),
+    ...(hasCanal
+      ? { channel: (query.canal as string) === "" ? null : (query.canal as string) }
+      : {}),
+  };
+}
+
+/** Recusa escrita vira 404 com a frase; o resto continua sendo 500. */
+function sendContextError(res: Response, err: unknown): boolean {
+  if (err instanceof ContextNotFoundError) {
+    res.status(404).json({ error: err.message });
+    return true;
+  }
+  return false;
+}
+
+/**
+ * A tabela do impacto: um parâmetro, todos os ativos, todas as vigências.
+ *
+ * `entityType` e `attributeCode` chegam da tela e são conferidos lá dentro
+ * contra o que o banco tem — um equipamento que este contexto nunca entregou, ou
+ * um parâmetro que não existe, cai no padrão em vez de virar erro. A aba abre
+ * antes de alguém escolher qualquer coisa, e a resposta **diz** o que escolheu:
+ * `entityType`, `attribute` e `entityTypes` voltam junto para que o padrão nunca
+ * seja uma escolha silenciosa.
+ *
+ * A resposta carrega a tabela inteira, sem paginar. É deliberado: uma frota real
+ * deste export são 64 cavalos ou 80 carretas em nove colunas, e o total da
+ * coluna só fecha com o que a Ambev pagou se todas as linhas estiverem lá. Uma
+ * página de cem linhas com um rodapé dizendo "há mais" transformaria o subtotal
+ * numa afirmação falsa.
+ */
+router.get("/impacto/quinzenas", async (req, res): Promise<void> => {
+  try {
+    const query = req.query as Record<string, unknown>;
+    const str = (key: string) =>
+      typeof query[key] === "string" && query[key] !== ""
+        ? (query[key] as string)
+        : undefined;
+
+    const matriz = await getQuinzenaMatrix(db, {
+      entityType: str("entityType"),
+      attributeCode: str("attributeCode"),
+      groupBy: str("groupBy"),
+      context: parseContext(query),
+    });
+
+    if (!matriz) {
+      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+      return;
+    }
+    res.json(matriz);
+  } catch (err) {
+    if (sendContextError(res, err)) return;
+    req.log.error({ err }, "Error building impact matrix");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+export default router;

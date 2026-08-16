@@ -1,7 +1,6 @@
 import {
   BadgeCheck,
   ChartColumn,
-  CircleDollarSign,
   ClipboardCheck,
   Container,
   Database,
@@ -56,30 +55,18 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
   // -------------------------------------------------------------------------
   // Auditoria
   // -------------------------------------------------------------------------
-  {
-    href: "/impacto-financeiro",
-    label: "Impacto financeiro",
-    icon: CircleDollarSign,
-    cor: "text-nav-auditoria",
-    pergunta:
-      "Quanto a mudança de vigência custa em reais, por unidade e por rubrica — não a variação do parâmetro, mas o dinheiro que ela move.",
-    depende: [
-      "O volume realizado por equipamento no período. O banco guarda o que a tabela manda pagar; sem quantas viagens, toneladas ou quilômetros cada ativo fez, a variação de um parâmetro não vira valor.",
-      "A regra de conversão de cada rubrica em reais, versionada junto da vigência — a mesma fórmula que a Composição já monta para um equipamento, aplicada à frota inteira.",
-    ],
-    hoje: [
-      {
-        href: "/alteracoes",
-        label: "Alterações",
-        porque: "O delta de cada parâmetro entre a vigência anterior e a atual, item a item.",
-      },
-      {
-        href: "/composicao",
-        label: "Composição",
-        porque: "Como o valor de um equipamento é montado, rubrica por rubrica, até a célula de origem.",
-      },
-    ],
-  },
+  /*
+    `/impacto-financeiro` saiu deste catálogo: a rota abre Alterações › Impacto,
+    que responde a pergunta pelo caminho que o dado sustenta hoje — quanto cada
+    ativo custa em cada quinzena, pelo valor que a própria tabela declara.
+
+    O que aquela entrada dizia faltar continua faltando, e não é pouco: o volume
+    realizado por equipamento, que é o que transformaria a variação de um
+    parâmetro no dinheiro que ela **move**. Sem ele, esta tela mostra o preço
+    contratado e a variação dele, nunca o custo de uma operação. A distinção
+    está escrita na própria tela, e é dela que sai a próxima versão desta
+    resposta — não de uma linha de volta aqui.
+  */
   {
     href: "/anomalias",
     label: "Anomalias",

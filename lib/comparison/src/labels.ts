@@ -125,6 +125,26 @@ export function equipmentPlural(entityType: string | null, count: number): strin
   return `${count} ${count === 1 ? pair[0] : pair[1]}`;
 }
 
+const MONTHS = [
+  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+];
+
+/**
+ * `2026-08-01` → `agosto/2026`. Sem `Date`, para não depender de fuso.
+ *
+ * Morava em `grouped.ts`, e mudou de casa quando a proveniência passou a
+ * precisar dela: `query.ts` não pode importar `grouped.ts` sem fechar o ciclo
+ * `grouped → consolidated → query`. Aqui, ao lado dos outros rótulos de
+ * leitura, ela é do módulo que já é a resposta para "como isto se escreve na
+ * tela" — e continua exportada pelo pacote no mesmo nome de sempre.
+ */
+export function periodLabel(date: string): string {
+  const [year, month] = date.split("-");
+  const index = Number(month) - 1;
+  return index >= 0 && index < 12 ? `${MONTHS[index]}/${year}` : date;
+}
+
 /** Como a periodicidade aparece ao lado de um valor: "/mês", "/ano". */
 export function periodicitySuffix(periodicity: string | null): string {
   const map: Record<string, string> = {

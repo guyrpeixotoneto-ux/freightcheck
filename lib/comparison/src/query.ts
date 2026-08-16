@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { changeSetTable, changeTable, snapshotTable } from "@workspace/db";
+import { periodLabel } from "./labels";
 
 /**
  * Reading a change set.
@@ -186,8 +187,17 @@ export async function listChanges(
   };
 }
 
-/** Full provenance for one change: both sides, down to the cell. */
-export async function getChangeProvenance(db: Database, changeId: number) {
+/**
+ * Full provenance for one change: both sides, down to the cell.
+ *
+ * O tipo de retorno é declarado, e não inferido: espalhar a linha num literal
+ * apaga a assinatura de índice que ela tinha, e quem lê `origem.snapshot_before`
+ * — a rota e os testes — passaria a não compilar por causa de dois campos novos.
+ */
+export async function getChangeProvenance(
+  db: Database,
+  changeId: number,
+): Promise<Record<string, unknown> | null> {
   const { rows } = await db.execute<Record<string, unknown>>(sql`
     SELECT c.id,
            c.attribute_code,
@@ -196,6 +206,12 @@ export async function getChangeProvenance(db: Database, changeId: number) {
            c.value_after,
            sa.source_label AS snapshot_before,
            sb.source_label AS snapshot_after,
+           -- A vigência de cada lado, ao lado do rótulo da entrega. O rótulo
+           -- diz *de qual arquivo* veio a célula; sozinho, ele nunca disse *de
+           -- quando* — e é o "de quando" que separa uma troca de valor de uma
+           -- linha que só mudou de mês.
+           sa.effective_date::text AS period_before,
+           sb.effective_date::text AS period_after,
            sha.sheet_name  AS sheet_before,
            rra.row_index   AS row_before,
            rca.column_letter AS column_before,
@@ -222,7 +238,17 @@ export async function getChangeProvenance(db: Database, changeId: number) {
       LEFT JOIN raw_sheet shb ON shb.id = rrb.raw_sheet_id
      WHERE c.id = ${changeId}
   `);
-  return rows[0] ?? null;
+  const row = rows[0];
+  if (!row) return null;
+  // O rótulo de leitura sai daqui, e não do SQL: o mês em português é
+  // vocabulário de tela, e `periodLabel` é onde ele está escrito uma vez só.
+  return {
+    ...row,
+    period_before_label:
+      typeof row.period_before === "string" ? periodLabel(row.period_before) : null,
+    period_after_label:
+      typeof row.period_after === "string" ? periodLabel(row.period_after) : null,
+  };
 }
 
 /**
@@ -255,7 +281,13 @@ export async function getChangeSetBreakdown(
 ) {
   const ids = Array.isArray(changeSetId) ? changeSetId : [changeSetId];
   if (ids.length === 0) {
-    return { byCostClass: [], byType: [], bySemantics: [], byAttribute: [] };
+    return {
+      byCostClass: [],
+      byType: [],
+      byImpactConfidence: [],
+      bySemantics: [],
+      byAttribute: [],
+    };
   }
   const scope = inArray(changeTable.changeSetId, ids);
   const byCostClass = await db
@@ -288,6 +320,25 @@ export async function getChangeSetBreakdown(
     .where(scope)
     .groupBy(changeTable.semanticsStatus)
     .orderBy(changeTable.semanticsStatus);
+
+  /*
+    Quantas têm preço apurado, e quantas não têm.
+
+    Os dois chips que perguntam isso são os únicos da fileira da frente sem
+    contagem ao lado, e a falta não é neutra: ao lado de três chips de classe
+    que dizem o seu tamanho, dois que não dizem leem-se como "não há o que
+    contar aqui". A conta é a mesma dos outros agrupamentos, e sai da mesma
+    varredura.
+  */
+  const byImpactConfidence = await db
+    .select({
+      impactConfidence: changeTable.impactConfidence,
+      count: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(changeTable)
+    .where(scope)
+    .groupBy(changeTable.impactConfidence)
+    .orderBy(changeTable.impactConfidence);
 
   /*
     Sem teto: o universo aqui é o de colunas da planilha — dezenas —, e não o de
@@ -353,6 +404,7 @@ export async function getChangeSetBreakdown(
       impact: r.impact === null ? null : Number(r.impact),
     })),
     byType,
+    byImpactConfidence,
     bySemantics: bySemantics.map((r) => ({
       semanticsStatus: r.semanticsStatus ?? "(sem atributo)",
       count: r.count,

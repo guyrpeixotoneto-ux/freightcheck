@@ -183,6 +183,29 @@ e-mail, e exclusão de conta.
   `GET /api/tickets/classification`. **As classes não somam o total**: um
   parâmetro pode mexer em dois valores (`cavaloEmpurrada` mexe no fixo e no
   variável), e a tela escreve a diferença em vez de escondê-la.
+- **Alterações → Impacto** é a terceira aba e a única que **não parte da
+  alteração**: uma linha por ativo, uma coluna por vigência, e a alteração
+  aparecendo como a diferença entre duas colunas. `lib/comparison/src/impacto.ts`
+  (`getQuinzenaMatrix`), servida por `GET /api/impacto/quinzenas`, tela em
+  `artifacts/freightaudit/src/components/changes/impacto-quinzenas.tsx`. É
+  também o que o menu **Auditoria → Impacto financeiro** abre: `/impacto-financeiro`
+  é a mesma tela montada na aba Impacto, e por isso saiu de `TELAS_EM_PREPARO`.
+  O que aquela entrada dizia faltar continua faltando — o volume realizado por
+  equipamento, sem o qual a variação de um parâmetro não vira o dinheiro que ela
+  *move* —, e a tela mostra o preço contratado e a variação dele, nunca o custo
+  de uma operação. Existe
+  porque as outras duas, por construção, não conseguem mostrar o ativo que *não*
+  mudou — ele não está em lista de alteração nenhuma —, e sem ele o total da
+  coluna não fecha com o que foi pago. É a tabela dinâmica que o cliente monta no
+  Excel (`Soma de finameCavalo`, dobrada pela data de entrada), com três regras
+  que a dele não tem: **ausência não é zero** (ativo fora da vigência tem célula
+  vazia, nunca R$ 0,00), **vigência que não entregou o equipamento não é frota
+  vazia**, e **entrada/saída de ativo fica fora do dinheiro** — a variação entre
+  as pontas é decomposta em preço, entrada e saída, e as três somam exatamente a
+  ela. O agrupamento por data de entrada arredonda o instante **para o segundo**
+  antes de tomar o dia: a fonte grava `12:00:00`, `23:59:59.000` e
+  `23:59:59.999` no mesmo campo, e nem truncar nem arredondar para a meia-noite
+  reproduz os grupos das duas tabelas do cliente — ver `diaDoInstante`.
 - `docs/ARQUITETURA.md` — as decisões estruturais em prosa
 - `docs/PROPOSTA-NAVEGACAO-FREIGHTECH.md` — o mapeamento Freightech → FreightCheck
 

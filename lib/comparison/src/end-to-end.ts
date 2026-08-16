@@ -3,14 +3,13 @@ import type { Database } from "@workspace/db";
 import { loadAttributeClassificationsAt } from "./classification";
 import { indexChangedAttributesByEntity, isCoveredByParts } from "./composition";
 import { diffSnapshots, type ComputedChange } from "./engine";
-import { attributeLabel, equipmentLabel } from "./labels";
+import { attributeLabel, equipmentLabel, periodLabel } from "./labels";
 import { FAMILIES, placementOf, type FamilyCode } from "./families";
 import type { ParameterRollup } from "./families-view";
 import {
   buildGroup,
   compareGroups,
   groupKey,
-  periodLabel,
   summariseImpact,
   type ChangeGroup,
   type ImpactSummary,
