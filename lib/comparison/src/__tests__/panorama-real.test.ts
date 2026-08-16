@@ -11,6 +11,7 @@ import {
   runProposalPass,
   seedTaxonomy,
 } from "@workspace/curation";
+import { loadAttributeClassifications } from "../classification";
 import { getPanoramaDeAlteracoes, type ParametroAlterado } from "../panorama";
 
 /**
@@ -328,6 +329,70 @@ describe("fixo e variável se leem separados", () => {
     expect(odometro.grupoDeCusto).toBe("Especificação técnica");
   });
 
+  /**
+   * A correção de curadoria de 16/08/2026 chega aqui sozinha.
+   *
+   * Nada neste arquivo nem em `panorama.ts` sabe o que é um tacógrafo. A coluna
+   * mudou de caixa porque `guessTaxonomyCode` passou a colocá-la em
+   * `cf_outros`, e a classe desce pela mesma herança que todo mundo lê — este
+   * teste é a prova de que corrigir a taxonomia basta, e de que nenhum módulo
+   * precisou de exceção própria.
+   */
+  it("herda a colocação corrigida na taxonomia, sem lógica no panorama", async () => {
+    const panorama = (await getPanoramaDeAlteracoes(ctx.db))!;
+
+    const tacografo = de(panorama, "carreta.tacografo")!;
+    expect(tacografo.classeDeCusto).toBe("FIXO");
+    expect(tacografo.grupoDeCusto).toBe("Outros custos fixos");
+
+    // E ele sai do recorte sem classe junto — não fica nos dois.
+    const semClasse = panorama.recortes.find((r) => r.classe === "SEM_CLASSE")!;
+    expect(semClasse.maisAlterados).not.toContain("carreta.tacografo");
+    const fixo = panorama.recortes.find((r) => r.classe === "FIXO")!;
+    expect(fixo.maisAlterados).toContain("carreta.tacografo");
+  });
+
+  /**
+   * O mesmo, pelo leitor que Composição e DRE usam.
+   *
+   * `loadAttributeClassifications` é a porta por onde `@workspace/composition` e
+   * `@workspace/dre` perguntam a classe, e ela resolve a herança pela mesma
+   * junção do panorama. Provar a correção nos dois lugares é o que sustenta a
+   * afirmação de que existe **uma** resposta para "fixo ou variável" — se um
+   * dia ela precisar de exceção num módulo, este teste é o que cai primeiro.
+   */
+  it("entrega a mesma classe ao leitor de Composição e DRE", async () => {
+    const porId = await loadAttributeClassifications(ctx.db);
+    const porCodigo = new Map([...porId.values()].map((c) => [c.attributeCode, c]));
+
+    /*
+      A capacidade saiu de Combustível (variável) para Especificação técnica.
+      Ela não mudou de valor em vigência nenhuma, então não aparece no panorama
+      — e é justamente por isso que a prova dela mora aqui.
+    */
+    const capacidade = porCodigo.get("cavalo.combustivel_capacidade")!;
+    expect(capacidade.costClass).toBeNull();
+    expect(capacidade.taxonomyName).toBe("Especificação técnica");
+
+    // Os quatro itens do implemento, incluindo os três que não mudaram e por
+    // isso nunca chegariam ao panorama.
+    for (const code of [
+      "carreta.faixa_reflexiva",
+      "carreta.revestimento",
+      "carreta.tacografo",
+      "carreta.rastreador",
+    ]) {
+      expect(porCodigo.get(code)?.costClass).toBe("FIXO");
+      expect(porCodigo.get(code)?.taxonomyName).toBe("Outros custos fixos");
+    }
+
+    // E o que move o fixo sem ser o fixo continua fora dele.
+    for (const code of ["carreta.carencia", "cavalo.carencia"]) {
+      expect(porCodigo.get(code)?.costClass).toBeNull();
+      expect(porCodigo.get(code)?.taxonomyName).toBe("Contrato e vigência");
+    }
+  });
+
   it("os três recortes reconstroem o todo, parâmetro a parâmetro", async () => {
     const panorama = (await getPanoramaDeAlteracoes(ctx.db))!;
     const recorte = (classe: string) =>
@@ -336,10 +401,10 @@ describe("fixo e variável se leem separados", () => {
     const somaDe = (campo: keyof (typeof panorama)["totais"]) =>
       panorama.recortes.reduce((s, r) => s + r.totais[campo], 0);
 
-    // Medido: 12 linhas econômicas de custo fixo, 10 de variável, 5 sem classe.
-    expect(recorte("FIXO").totais.linhasEconomicas).toBe(12);
+    // Medido: 13 linhas econômicas de custo fixo, 10 de variável, 4 sem classe.
+    expect(recorte("FIXO").totais.linhasEconomicas).toBe(13);
     expect(recorte("VARIAVEL").totais.linhasEconomicas).toBe(10);
-    expect(recorte("SEM_CLASSE").totais.linhasEconomicas).toBe(5);
+    expect(recorte("SEM_CLASSE").totais.linhasEconomicas).toBe(4);
     expect(somaDe("linhasEconomicas")).toBe(panorama.totais.linhasEconomicas);
 
     expect(somaDe("parametrosAlterados")).toBe(panorama.totais.parametrosAlterados);
