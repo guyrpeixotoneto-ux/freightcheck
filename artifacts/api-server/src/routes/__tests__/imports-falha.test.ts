@@ -66,9 +66,15 @@ const RUN = "1f10e1af-ac9b-4beb-86f4-17f941419318";
  *
  * `DrizzleQueryError` compõe `message` a partir da consulta e dos parâmetros —
  * é dela que sai o `Failed query: … params: …`. Passar o erro do `pg` como
- * `cause` é o que o driver faz de verdade, e é onde mora o SQLSTATE.
+ * `cause` é o que o driver faz de verdade, e é onde moram o SQLSTATE e a
+ * `routine` — o nome da função em C que levantou o erro, que é o que separa os
+ * quatro caminhos do `42P10`.
  */
-function erroDoDrizzle(code: string, texto: string): DrizzleQueryError {
+function erroDoDrizzle(
+  code: string,
+  texto: string,
+  extra: Record<string, string> = {},
+): DrizzleQueryError {
   return new DrizzleQueryError(
     'INSERT INTO "snapshot_entity_type" ( snapshot_id, entity_type, ' +
       "entity_count ) SELECT $1::uuid, e.entity_type, count(*)::int FROM " +
@@ -76,9 +82,12 @@ function erroDoDrizzle(code: string, texto: string): DrizzleQueryError {
       "$2::uuid GROUP BY e.entity_type ON CONFLICT (snapshot_id, entity_type) " +
       "DO NOTHING",
     [RUN, RUN],
-    Object.assign(new Error(texto), { code }),
+    Object.assign(new Error(texto), { code, ...extra }),
   );
 }
+
+/** O `42P10` que é banco atrasado: o Postgres não achou o índice do arbitro. */
+const SEM_INDICE = { routine: "infer_arbiter_indexes" };
 
 /** Tudo o que nunca pode sair desta API para o browser. */
 const PROIBIDO: [RegExp, string][] = [
@@ -239,6 +248,7 @@ describe("42P10 — o ON CONFLICT sem índice que o case", () => {
       erroDoDrizzle(
         "42P10",
         "there is no unique or exclusion constraint matching the ON CONFLICT specification",
+        SEM_INDICE,
       ),
     );
 
@@ -247,6 +257,27 @@ describe("42P10 — o ON CONFLICT sem índice que o case", () => {
     expect(status).toBe(503);
     expect(status).not.toBe(422);
     expect((body as Record<string, unknown>)["code"]).toBe("SCHEMA_AUSENTE");
+    exigirRespostaLimpa(body);
+  });
+
+  /**
+   * O mesmo SQLSTATE por outro caminho: um `ORDER BY 5` fora da lista de
+   * seleção. Isso é defeito nosso, e mandar rodar migrations por causa dele
+   * seria mascarar um bug — que é o oposto do que este arquivo existe para
+   * fazer. A separação é pela `routine`, que o Postgres manda sem traduzir.
+   */
+  it("um 42P10 de consulta mal escrita é 500, e não diagnóstico de schema", async () => {
+    promote.mockRejectedValue(
+      erroDoDrizzle("42P10", "ORDER BY position 5 is not in select list", {
+        routine: "findTargetlistEntrySQL92",
+      }),
+    );
+
+    const { status, body } = await aprovar();
+
+    expect(status).toBe(500);
+    expect((body as Record<string, unknown>)["code"]).toBeUndefined();
+    expect(JSON.stringify(body)).not.toMatch(/migration/i);
     exigirRespostaLimpa(body);
   });
 
@@ -382,7 +413,14 @@ describe("nenhuma saída deste fluxo carrega SQL", () => {
   /** Cada forma que uma falha de banco toma antes de chegar a um `catch`. */
   const FALHAS: [string, () => unknown][] = [
     ["42P01 embrulhado pelo drizzle", () => erroDoDrizzle("42P01", "no table")],
-    ["42P10 embrulhado pelo drizzle", () => erroDoDrizzle("42P10", "no index")],
+    ["42P10 sem índice", () => erroDoDrizzle("42P10", "no index", SEM_INDICE)],
+    [
+      "42P10 de consulta mal escrita",
+      () =>
+        erroDoDrizzle("42P10", "ORDER BY position 5", {
+          routine: "findTargetlistEntrySQL92",
+        }),
+    ],
     ["23505 embrulhado pelo drizzle", () => erroDoDrizzle("23505", "dup key")],
     [
       "um erro cuja própria frase é a consulta",
@@ -457,12 +495,22 @@ describe("classificarFalhaDeImportacao", () => {
     expect(classificarFalhaDeImportacao(erroDoDrizzle("42P01", "x"))).toEqual({
       tipo: "SCHEMA",
     });
-    expect(classificarFalhaDeImportacao(erroDoDrizzle("42P10", "x"))).toEqual({
-      tipo: "SCHEMA",
-    });
+    expect(
+      classificarFalhaDeImportacao(erroDoDrizzle("42P10", "x", SEM_INDICE)),
+    ).toEqual({ tipo: "SCHEMA" });
     expect(classificarFalhaDeImportacao(erroDoDrizzle("23505", "x"))).toEqual({
       tipo: "INESPERADO",
     });
+  });
+
+  it("o 42P10 que é defeito de código não vira schema", () => {
+    // Sem a rotina do árbitro, 42P10 é consulta mal escrita — e um bug não se
+    // conserta rodando migrations.
+    expect(
+      classificarFalhaDeImportacao(
+        erroDoDrizzle("42P10", "x", { routine: "transformDistinctOnClause" }),
+      ),
+    ).toEqual({ tipo: "INESPERADO" });
   });
 
   it("uma frase escrita em português é recusa, e sobrevive inteira", () => {

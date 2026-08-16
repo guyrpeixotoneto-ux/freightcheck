@@ -64,18 +64,37 @@ describe("faltaSchema", () => {
   });
 
   /**
-   * **A regressão do caso vivido.** O `ON CONFLICT (snapshot_id, entity_type)`
-   * da promoção aponta para `snapshot_entity_type_uq`, que a `0021_cobertura`
-   * cria. Sem o índice, o Postgres responde 42P10 — e a rota respondia 422,
-   * mandando corrigir uma planilha que estava certa.
+   * **42P10 não decide sozinho.**
+   *
+   * O Postgres 16 o levanta por quatro caminhos, e só um é schema. Os valores de
+   * `routine` abaixo foram medidos contra um Postgres de verdade, não deduzidos:
+   * é o nome da função em C que levantou o erro, e ele vem no protocolo sem
+   * tradução. Sem essa separação, um `ORDER BY 5` mal escrito mandaria alguém
+   * rodar migrations.
    */
-  it("reconhece o ON CONFLICT sem índice que o case", () => {
-    expect(faltaSchema({ code: "42P10" })).toBe(true);
+  it("o ON CONFLICT sem índice é schema — pela rotina, não pelo SQLSTATE", () => {
+    expect(
+      faltaSchema({ code: "42P10", routine: "infer_arbiter_indexes" }),
+    ).toBe(true);
   });
 
-  it("acha o código dentro do que o drizzle embrulhou", () => {
+  it("os outros três 42P10 são defeito de código, e não viram schema ausente", () => {
+    // ORDER BY / GROUP BY por posição fora da lista de seleção.
+    expect(
+      faltaSchema({ code: "42P10", routine: "findTargetlistEntrySQL92" }),
+    ).toBe(false);
+    // DISTINCT ON divergindo do ORDER BY.
+    expect(
+      faltaSchema({ code: "42P10", routine: "transformDistinctOnClause" }),
+    ).toBe(false);
+    // E o 42P10 sem rotina nenhuma: na dúvida, não é migration faltando.
+    expect(faltaSchema({ code: "42P10" })).toBe(false);
+  });
+
+  it("acha o erro do pg dentro do que o drizzle embrulhou, com os campos", () => {
     // É assim que ele chega: o wrapper por fora, com a consulta e os
-    // parâmetros, e o erro do `pg` — o que tem o SQLSTATE — em `cause`.
+    // parâmetros, e o erro do `pg` — o que tem o SQLSTATE e a rotina — em
+    // `cause`. Olhar só a superfície não acharia nem um nem outra.
     const embrulhado = Object.assign(
       new Error('Failed query: INSERT INTO "snapshot_entity_type" …'),
       {
@@ -83,7 +102,7 @@ describe("faltaSchema", () => {
           new Error(
             "there is no unique or exclusion constraint matching the ON CONFLICT specification",
           ),
-          { code: "42P10" },
+          { code: "42P10", routine: "infer_arbiter_indexes" },
         ),
       },
     );
