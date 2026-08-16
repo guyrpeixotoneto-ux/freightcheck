@@ -21,3 +21,4 @@
 
 export * from "./catalogo";
 export * from "./book";
+export * from "./classificacao";
