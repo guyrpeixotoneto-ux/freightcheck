@@ -499,18 +499,18 @@ function NomeDoParametro({ p }: { p: ParametroAlterado }) {
       <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
         <span>{p.equipment.toLowerCase()}</span>
         {p.papel === "TOTAL" && (
-          <Etiqueta tone="slate">
+          <Etiqueta tone="neutro">
             total de {p.parcelas.length} parcelas
           </Etiqueta>
         )}
         {p.papel === "CONJUNTO" && (
-          <Etiqueta tone="violet" title={p.evidencia ?? undefined}>
+          <Etiqueta tone="conjunto" title={p.evidencia ?? undefined}>
             já contém o outro equipamento
           </Etiqueta>
         )}
-        {p.papel === "PARCELA" && <Etiqueta tone="slate">parcela</Etiqueta>}
+        {p.papel === "PARCELA" && <Etiqueta tone="neutro">parcela</Etiqueta>}
         {p.semanticsStatus !== "CONFIRMED" && (
-          <Etiqueta tone="amber">
+          <Etiqueta tone="atencao">
             {p.semanticsStatus === "PRESUMED" ? "presumido" : "sem semântica"}
           </Etiqueta>
         )}
@@ -519,10 +519,18 @@ function NomeDoParametro({ p }: { p: ParametroAlterado }) {
   );
 }
 
+/**
+ * As etiquetas saem dos tokens, e não de uma cor escolhida à mão.
+ *
+ * A paleta do produto virou marinho, branco e laranja; um roxo inventado aqui
+ * ficaria fora dela na primeira tela que alguém abrisse. `brand` e `warning`
+ * acompanham o tema — inclusive o escuro, onde uma cor fixa da paleta do
+ * Tailwind não acompanha nada.
+ */
 const ETIQUETA = {
-  slate: "bg-slate-100 text-slate-700",
-  amber: "bg-amber-100 text-amber-800",
-  violet: "bg-violet-100 text-violet-800",
+  neutro: "bg-muted text-muted-foreground",
+  atencao: "bg-warning/15 text-warning-foreground",
+  conjunto: "bg-brand/10 text-brand",
 } as const;
 
 function Etiqueta({
