@@ -93,6 +93,25 @@ export default function DRE() {
     queryFn: () => fetchJson<HistoricoDaDRE>(`/dre/history?escopo=${escopo}`),
   });
 
+  /**
+   * O endereço da DRE de uma unidade, com o recorte inteiro.
+   *
+   * Mora num lugar só porque as duas saídas desta tela — o ranking e a fila de
+   * atenção — levam ao mesmo destino, e estavam divergindo: o ranking mandava a
+   * vigência, o alerta não, e clicar num alerta de julho abria a DRE mais
+   * recente daquele veículo. A unidade e o canal faltavam nos dois, e a tela de
+   * destino sabe recebê-los (`/dre/unit/:id` lê `scopeHash` e `canal`).
+   */
+  const linkDaUnidade = (entityId: string) => {
+    const q = new URLSearchParams({ escopo });
+    if (period) q.set("period", period);
+    const scopeHash = params.get("scopeHash");
+    if (scopeHash) q.set("scopeHash", scopeHash);
+    const canal = params.get("canal");
+    if (canal !== null) q.set("canal", canal);
+    return `/dre/${entityId}?${q}`;
+  };
+
   const irPara = (mudancas: Record<string, string>) => {
     const next = new URLSearchParams(search);
     for (const [chave, valor] of Object.entries(mudancas)) {
@@ -183,7 +202,7 @@ export default function DRE() {
                 )}
               </div>
 
-              <PrecisamDeAtencao alertas={data.atencao} escopo={escopo} />
+              <PrecisamDeAtencao alertas={data.atencao} linkDaUnidade={linkDaUnidade} />
             </div>
 
             {data.consolidado.aguardandoCuradoria.length > 0 && (
@@ -200,7 +219,7 @@ export default function DRE() {
                 </h2>
                 <BarraDeFiltros filtros={filtros} onMudar={setFiltros} />
               </div>
-              <Ranking linhas={data.ranking} escopo={escopo} period={period} />
+              <Ranking linhas={data.ranking} linkDaUnidade={linkDaUnidade} />
             </section>
           </>
         )}
@@ -323,12 +342,10 @@ function Alternador({
  */
 function Ranking({
   linhas,
-  escopo,
-  period,
+  linkDaUnidade,
 }: {
   linhas: LinhaDoRanking[];
-  escopo: EscopoApuravel;
-  period: string;
+  linkDaUnidade: (entityId: string) => string;
 }) {
   if (linhas.length === 0) {
     return (
@@ -360,7 +377,7 @@ function Ranking({
             <tr key={l.id} className="border-b last:border-b-0 hover:bg-muted/40 transition-colors">
               <td className="px-4 py-2.5">
                 <Link
-                  href={`/dre/${l.entityIds[0]}?escopo=${escopo}${period ? `&period=${period}` : ""}`}
+                  href={linkDaUnidade(l.entityIds[0])}
                   className="font-medium hover:underline"
                 >
                   {l.rotulo}
@@ -412,7 +429,13 @@ function ouTraco(valor: number | null): string {
 }
 
 /** Precisam de atenção (§15) — regra sobre número, texto montado a partir dele. */
-function PrecisamDeAtencao({ alertas, escopo }: { alertas: Alerta[]; escopo: EscopoApuravel }) {
+function PrecisamDeAtencao({
+  alertas,
+  linkDaUnidade,
+}: {
+  alertas: Alerta[];
+  linkDaUnidade: (entityId: string) => string;
+}) {
   if (alertas.length === 0) {
     return (
       <aside className="border rounded-lg bg-card px-5 py-4">
@@ -434,7 +457,7 @@ function PrecisamDeAtencao({ alertas, escopo }: { alertas: Alerta[]; escopo: Esc
         {alertas.map((a, i) => (
           <li key={`${a.id}-${a.motivo}-${i}`} className="border-b last:border-b-0">
             <Link
-              href={`/dre/${a.entityIds[0]}?escopo=${escopo}`}
+              href={linkDaUnidade(a.entityIds[0])}
               className="block px-5 py-3 hover:bg-muted/40 transition-colors"
             >
               <div className="flex items-baseline gap-2">
@@ -478,20 +501,31 @@ function AguardandoCuradoria({
           confirmação traria para a DRE
         </span>
       </h2>
+      {/*
+        Cada item abre o seu próprio atributo na Curadoria.
+
+        A frase de rodapé mandava para a fila inteira: quem lia "falta confirmar
+        o IPVA" chegava numa lista de mais de cem itens e tinha de procurar o
+        nome que acabara de ler. O código já está aqui — é a chave que o servidor
+        usou para montar a lista —, e é ele que vai no endereço.
+      */}
       <div className="border rounded-lg bg-card divide-y">
         {itens.map((i) => (
-          <div key={i.code} className="px-5 py-3">
-            <div className="text-sm font-medium">{i.titulo}</div>
+          <Link
+            key={i.code}
+            href={`/curadoria?atributo=${encodeURIComponent(i.code)}`}
+            className="group block px-5 py-3 hover:bg-muted/40 transition-colors"
+          >
+            <div className="text-sm font-medium group-hover:text-brand transition-colors">
+              {i.titulo}
+            </div>
             <p className="text-xs text-muted-foreground mt-1 max-w-4xl">{i.oQueFalta}</p>
-          </div>
+          </Link>
         ))}
       </div>
       <p className="text-xs text-muted-foreground mt-2">
-        Confirmá-los na{" "}
-        <Link href="/curadoria" className="underline">
-          Curadoria
-        </Link>{" "}
-        os traz para a demonstração sem nenhuma outra mudança.
+        Confirmá-los na Curadoria os traz para a demonstração sem nenhuma outra
+        mudança.
       </p>
     </section>
   );

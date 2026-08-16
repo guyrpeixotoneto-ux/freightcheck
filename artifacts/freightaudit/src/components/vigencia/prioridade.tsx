@@ -13,6 +13,7 @@ import {
 import { getApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatBrl, formatValue, periodicitySuffix } from "@/lib/format";
+import { lerRecorte, linkDeAlteracoes } from "@/lib/recorte";
 import {
   HistoricoAtributo,
   TabelaVeiculos,
@@ -311,7 +312,26 @@ function Investigacao({
           Comparar vigências
         </LinkAcao>
         {group.attributeCode && (
-          <LinkAcao href={`/alteracoes?search=${encodeURIComponent(group.attributeCode)}`}>
+          /*
+            `attributeCode` e não `search`, e a vigência junto.
+
+            `search` é `ILIKE %termo%` sobre código, nome e placa — mandar
+            `carreta.ipva_licenciamento` por lá trazia também
+            `carreta.ipva_licenciamento_mensal`, que a curadoria já apontou como
+            outra medida (`DISTINCT_BASES`): 147 linhas onde este ponto tem 71,
+            sob um botão que promete "linha a linha" **deste** ponto. E sem o
+            recorte a lista abria na vigência mais recente, que pode não ser a
+            que está sendo investigada aqui.
+          */
+          <LinkAcao
+            href={linkDeAlteracoes({
+              recorte: { ...lerRecorte(contexto), period },
+              filtros: {
+                attributeCode: group.attributeCode,
+                ...(group.entityType ? { entityType: group.entityType } : {}),
+              },
+            })}
+          >
             <ListFilter className="w-3.5 h-3.5" />
             Ver linha a linha
           </LinkAcao>

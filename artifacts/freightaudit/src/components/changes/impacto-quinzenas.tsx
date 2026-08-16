@@ -205,10 +205,18 @@ const FUNDO_GRUPO =
  * cara.
  */
 export function ImpactoQuinzenas({
+  contexto,
   escolhaInicial = null,
   janela = {},
   onJanela,
 }: {
+  /**
+   * A unidade e o canal abertos, quando alguém chegou aqui com eles escolhidos.
+   *
+   * Atravessa os dois níveis: o panorama e a matriz respondem pela mesma
+   * unidade, ou a volta ("Tudo que mudou") trocaria de assunto sem avisar.
+   */
+  contexto?: URLSearchParams;
   escolhaInicial?: EscolhaDeParametro | null;
   janela?: JanelaDeVigencias;
   onJanela?: (j: JanelaDeVigencias) => void;
@@ -228,6 +236,7 @@ export function ImpactoQuinzenas({
         onEscolher={setEscolha}
         corte={corte}
         onCorte={setCorte}
+        contexto={contexto}
         janela={janela}
         onJanela={onJanela}
       />
@@ -237,6 +246,7 @@ export function ImpactoQuinzenas({
     <MatrizDeQuinzenas
       inicial={escolha}
       onVoltar={() => setEscolha(null)}
+      contexto={contexto}
       janela={janela}
       onJanela={onJanela}
       key={`${escolha.entityType}:${escolha.code}`}
@@ -247,11 +257,13 @@ export function ImpactoQuinzenas({
 function MatrizDeQuinzenas({
   inicial,
   onVoltar,
+  contexto,
   janela,
   onJanela,
 }: {
   inicial: EscolhaDeParametro;
   onVoltar: () => void;
+  contexto?: URLSearchParams;
   janela: JanelaDeVigencias;
   onJanela?: (j: JanelaDeVigencias) => void;
 }) {
@@ -261,10 +273,19 @@ function MatrizDeQuinzenas({
   const [fechados, setFechados] = useState<Set<string>>(new Set());
   const [soComMovimento, setSoComMovimento] = useState(false);
 
+  const consultaDoContexto = contexto?.toString() ?? "";
   const query = useQuery({
-    queryKey: ["impacto", "quinzenas", entityType, attributeCode, janela.de, janela.ate],
+    queryKey: [
+      "impacto",
+      "quinzenas",
+      entityType,
+      attributeCode,
+      consultaDoContexto,
+      janela.de,
+      janela.ate,
+    ],
     queryFn: () => {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams(consultaDoContexto);
       if (entityType) params.set("entityType", entityType);
       if (attributeCode) params.set("attributeCode", attributeCode);
       if (janela.de) params.set("de", janela.de);

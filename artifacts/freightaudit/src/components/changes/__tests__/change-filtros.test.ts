@@ -99,6 +99,15 @@ describe("toQuery", () => {
     expect(query.get("impactConfidence")).toBe("NOT_CALCULABLE");
   });
 
+  it("manda o equipamento como filtro de linha", () => {
+    // `entityType` recorta as linhas do período lido; `entityTypeSet`, que é
+    // outro parâmetro, trocaria a comparação inteira. Mandar um no lugar do
+    // outro devolveria a vigência errada com aparência de filtro aplicado.
+    const query = parametros(com({ entityType: "CAVALO" }));
+    expect(query.get("entityType")).toBe("CAVALO");
+    expect(query.has("entityTypeSet")).toBe(false);
+  });
+
   it("sem filtro nenhum, nenhum recorte pega carona", () => {
     const janela = new Set(["limit", "offset"]);
     const chaves = [...parametros(emptyFilters).keys()].filter(
@@ -148,6 +157,17 @@ describe("filtrosAtivos", () => {
     const [atributo] = filtrosAtivos(com({ attributeCode: "FRETE_PESO" }));
     expect(atributo.grupo).toBe("atributo");
     expect(atributo.avancado).toBe(true);
+  });
+
+  it("o equipamento se anuncia, mesmo tendo chegado por link", () => {
+    // `entityType` não tem chip nenhum nesta tela: ele vem da Visão geral, num
+    // endereço. Um recorte que ninguém ligou aqui é o que mais precisa estar
+    // escrito aqui — com o × ao lado, ou a lista fica curta sem explicação.
+    const [equipamento] = filtrosAtivos(com({ entityType: "CAVALO" }));
+    expect(equipamento.grupo).toBe("equipamento");
+    expect(equipamento.valor).toBe("cavalo");
+    expect(equipamento.avancado).toBe(true);
+    expect({ ...com({ entityType: "CAVALO" }), ...equipamento.patch }.entityType).toBe("");
   });
 
   it("cada um se desfaz sozinho, sem levar os outros", () => {

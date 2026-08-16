@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useSearch } from "wouter";
 import {
   AlertTriangle,
   CalendarClock,
@@ -138,7 +139,32 @@ interface RunStatus {
  * least names the status.
  */
 export default function Importacoes() {
-  const [expanded, setExpanded] = useState<string | null>(null);
+  const search = useSearch();
+  const [, navegar] = useLocation();
+
+  /*
+    Qual execução está aberta mora no endereço.
+
+    O Balanço de massa nomeia a importação que não fechou — arquivo, células,
+    resíduo — e a explicação de *por quê* está aqui: o mapeamento de colunas, os
+    avisos de leitura, o que foi ignorado. Sem endereço, o Balanço só podia
+    mandar para a lista, e quem chegava tinha de reencontrar entre dezenas de
+    envios o que acabara de ler o nome. `?run=` fecha essa ponta, e de quebra
+    torna o cartão aberto compartilhável.
+
+    `replace` ao abrir e fechar: expandir um cartão não é uma tela nova, e voltar
+    tem de sair de Importações em vez de percorrer os cartões já abertos.
+  */
+  const expanded = new URLSearchParams(search).get("run");
+  const setExpanded = (importRunId: string | null) => {
+    const params = new URLSearchParams(search);
+    if (importRunId) params.set("run", importRunId);
+    else params.delete("run");
+    navegar(params.toString() ? `/importacoes?${params}` : "/importacoes", {
+      replace: true,
+    });
+  };
+
   const [detailOf, setDetailOf] = useState<ImportRun | null>(null);
   const [deleteOf, setDeleteOf] = useState<ImportRun | null>(null);
   const [pendingIds, setPendingIds] = useState<string[]>([]);
