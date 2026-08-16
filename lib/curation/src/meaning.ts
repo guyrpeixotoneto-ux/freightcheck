@@ -148,7 +148,7 @@ export async function saveMeaning(
     // is precisely the field that needs nothing from the version.
     if (calculationBasis && !current) {
       throw new Error(
-        `Ainda não dá para gravar "como a fonte calcula" de "${input.code}": esse campo ` +
+        `Ainda não dá para gravar "fórmula de cálculo" de "${input.code}": esse campo ` +
           `pertence à versão da semântica, que este atributo ainda não tem — rode o ` +
           `backfill antes. O nome gerencial e o significado podem ser salvos normalmente.`,
       );

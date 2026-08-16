@@ -7,6 +7,7 @@ import {
   FileSearch,
   Lock,
   ShieldCheck,
+  Sparkles,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -801,7 +802,7 @@ function MeaningCard({
         </Field>
 
         <Field
-          label="Como a fonte calcula"
+          label="Fórmula de cálculo"
           hint="Quando se sabe. É o campo que faltava no caso do IPVA, que trocou de base de cálculo duas vezes sem mudar de unidade."
         >
           <Textarea
@@ -813,6 +814,7 @@ function MeaningCard({
             placeholder="Ex.: 1,000% do valor da nota de compra."
             rows={2}
           />
+          <FormulaEmPortugues detail={detail} formula={basis} />
         </Field>
 
         {error && (
@@ -843,6 +845,126 @@ function MeaningCard({
     </Card>
   );
 }
+
+/**
+ * "O que essa fórmula quer dizer?", respondido em português.
+ *
+ * O campo acima guarda a regra como a fonte a explicou — "1,000% do valor da
+ * nota", "menor entre o preço da ANP e o da operadora". Quem escreveu entende;
+ * quem lê meses depois, muitas vezes não. O botão pede ao modelo uma leitura
+ * daquele texto, e é só isso que ele faz.
+ *
+ * Três decisões que a tela precisa deixar claras, porque nenhuma delas é óbvia
+ * olhando um botão:
+ *
+ * - **Lê o que está digitado, não o que está salvo.** A fórmula sobe no corpo
+ *   do pedido. Pedir para salvar antes faria a leitura custar um ato que ela
+ *   não deveria custar — e num atributo sem semântica versionada a base de
+ *   cálculo nem pode ser gravada ainda.
+ * - **Não grava e não confere.** Não há onde guardar o resultado e não deve
+ *   haver: é paráfrase do que uma pessoa digitou, não apuração. O rodapé diz
+ *   isso na tela, e não só aqui.
+ * - **Envelhece à vista.** Se o texto muda depois da leitura, a leitura passa a
+ *   falar de outra fórmula. Ela continua visível — apagá-la sozinha pareceria
+ *   defeito — mas avisando sobre o quê ela foi feita.
+ */
+function FormulaEmPortugues({
+  detail,
+  formula,
+}: {
+  detail: AttributeDetail;
+  formula: string;
+}) {
+  const [leitura, setLeitura] = useState<{
+    texto: string | null;
+    motivo: string;
+    sobre: string;
+  } | null>(null);
+
+  const ler = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(
+        getApiUrl(`/curation/attributes/${detail.code}/formula/leitura`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ calculationBasis: formula }),
+        },
+      );
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Falha ao ler a fórmula");
+      return body as { texto: string | null; motivo: string };
+    },
+    onSuccess: (body) => setLeitura({ ...body, sobre: formula.trim() }),
+  });
+
+  const vazia = !formula.trim();
+  const desatualizada = leitura !== null && leitura.sobre !== formula.trim();
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-3">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => ler.mutate()}
+          disabled={vazia || ler.isPending}
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          {ler.isPending ? "Lendo…" : "Explicar esta fórmula"}
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          {vazia
+            ? "Escreva a fórmula acima para pedir a leitura."
+            : "Uma leitura em português do texto acima. Não grava nada."}
+        </p>
+      </div>
+
+      {ler.isError && (
+        <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+          {ler.error.message}
+        </p>
+      )}
+
+      {leitura && (
+        <div className="rounded-md border bg-muted/40 px-3 py-2 space-y-1.5">
+          {leitura.texto ? (
+            <p className="text-sm whitespace-pre-line">{leitura.texto}</p>
+          ) : (
+            <p className="text-sm text-muted-foreground">
+              {MOTIVO_SEM_LEITURA[leitura.motivo] ?? MOTIVO_SEM_LEITURA.ERRO}
+            </p>
+          )}
+          {desatualizada && (
+            <p className="text-xs text-amber-700">
+              O texto mudou depois desta leitura — ela fala da versão anterior.
+            </p>
+          )}
+          {leitura.texto && (
+            <p className="text-xs text-muted-foreground">
+              Escrito por IA a partir do texto acima. É uma leitura, não uma
+              conferência: não diz se a fórmula está certa e não confirma nada.
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Por que não houve leitura, dito para quem está curando a coluna.
+ *
+ * Nenhuma destas frases é um erro do curador, e nenhuma pede ação dele sobre a
+ * fórmula — por isso saem em texto normal, e não em vermelho de erro.
+ */
+const MOTIVO_SEM_LEITURA: Record<string, string> = {
+  VAZIO: "Não há fórmula escrita para ler.",
+  SEM_CHAVE:
+    "A leitura por IA não está configurada neste ambiente. O campo continua funcionando normalmente.",
+  RECUSA: "O modelo não quis ler este texto. O campo segue salvo do mesmo jeito.",
+  ERRO: "Não consegui ler agora. Tente de novo em alguns instantes.",
+};
 
 function Field({
   label,

@@ -346,7 +346,7 @@ describe("o nome gerencial é apelido, e não renomeação da fonte", () => {
 describe("dar um nome legível não espera pelo backfill", () => {
   /*
     O caso que veio da tela. O card "Significado" mandava os três campos em toda
-    gravação, e "como a fonte calcula" é o único que exige semântica versionada.
+    gravação, e "fórmula de cálculo" é o único que exige semântica versionada.
     Num banco onde o backfill ainda não rodou, escrever "Consumo de combustível"
     por cima de `combustivelVidaCavalo` falhava com uma recusa sobre backfill —
     por causa de uma caixa vazia em que ninguém tinha tocado. Batizar uma coluna
@@ -387,7 +387,7 @@ describe("dar um nome legível não espera pelo backfill", () => {
         calculationBasis: "1,000% do valor da NF.",
         actor: "guy@operalog",
       }),
-    ).rejects.toThrow(/como a fonte calcula/i);
+    ).rejects.toThrow(/fórmula de cálculo/i);
   });
 
   it("a recusa da base não leva junto o nome escrito na mesma tela", async () => {
