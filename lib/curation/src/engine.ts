@@ -1,6 +1,7 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
+  attributeSemanticsTable,
   attributeTable,
   curationEventTable,
   factTable,
@@ -291,12 +292,13 @@ export interface ConfirmInput {
   aggregation?: Aggregation | null;
   isMonetary?: boolean | null;
   taxonomyCode?: string;
-  /**
-   * Nome gerencial. Convive com `source_name`, nunca o substitui: a importação
-   * continua casando pela coluna do Freightec. Passar string vazia apaga o
-   * apelido; omitir o campo preserva o que já estava lá.
-   */
-  displayName?: string | null;
+  /*
+    Não há `displayName` aqui de propósito. O nome de leitura é descrição, e
+    descrição se grava por `saveMeaning` — sem justificativa e sem mexer no
+    status. Deixar a confirmação também escrever nele daria duas portas com
+    regras diferentes para a mesma coluna, que é exatamente a solda que o card
+    "Significado" veio desfazer.
+  */
   actor: string;
   reason: string;
 }
@@ -334,15 +336,6 @@ export async function confirmAttribute(
     input.aggregation !== undefined ? input.aggregation : attribute.aggregation;
   const isMonetary =
     input.isMonetary !== undefined ? input.isMonetary : attribute.isMonetary;
-  /**
-   * Apagar o apelido devolve NULL, e não string vazia: as leituras fazem
-   * `coalesce(display_name, source_name)`, então um "" gravado apareceria como
-   * rótulo em branco em toda tela em vez de cair no nome de origem.
-   */
-  const displayName =
-    input.displayName === undefined
-      ? attribute.displayName
-      : input.displayName?.trim() || null;
 
   if (isMonetary === true && (!unit || !periodicity || !aggregation)) {
     throw new Error(
@@ -372,7 +365,6 @@ export async function confirmAttribute(
   record("aggregation", attribute.aggregation, aggregation);
   record("is_monetary", attribute.isMonetary, isMonetary);
   record("taxonomy_node_id", attribute.taxonomyNodeId, taxonomyNodeId);
-  record("display_name", attribute.displayName, displayName);
   record("semantics_status", attribute.semanticsStatus, "CONFIRMED");
 
   await db.transaction(async (tx) => {
@@ -384,7 +376,6 @@ export async function confirmAttribute(
         aggregation,
         isMonetary,
         taxonomyNodeId,
-        displayName,
         semanticsStatus: "CONFIRMED",
         semanticsRationale: input.reason,
         confirmedBy: input.actor,
@@ -409,64 +400,6 @@ export async function confirmAttribute(
   });
 }
 
-export interface RenameInput {
-  code: string;
-  /** O apelido novo. Vazio remove o apelido e devolve a tela ao nome de origem. */
-  displayName: string | null;
-  actor: string;
-  reason: string;
-}
-
-/**
- * Trocar o nome de leitura de um atributo, sem afirmar nada sobre o que ele é.
- *
- * Batizar não é confirmar. Quem está lendo a tela e reconhece a coluna consegue
- * dar a ela um nome que a diretoria entende muito antes de saber se aquilo é
- * mensal ou anual — e obrigá-lo a decidir a semântica para poder escrever
- * "Vida útil do combustível" só produziria confirmações apressadas, que é
- * exatamente o que este módulo existe para evitar. Por isso aqui nada toca
- * `semantics_status`: o atributo continua UNKNOWN ou PRESUMED, continua fora de
- * toda soma financeira, e só passa a se chamar de outro jeito.
- *
- * O que não muda: a edição exige responsável e justificativa, e vira
- * CURATION_CHANGE no histórico como qualquer outra.
- */
-export async function renameAttribute(db: Database, input: RenameInput): Promise<void> {
-  if (!input.actor?.trim()) {
-    throw new Error("Renomear exige um responsável identificado.");
-  }
-  if (!input.reason?.trim()) {
-    throw new Error("Renomear exige uma justificativa — o histórico guarda o porquê.");
-  }
-
-  const [attribute] = await db
-    .select()
-    .from(attributeTable)
-    .where(eq(attributeTable.code, input.code));
-  if (!attribute) throw new Error(`Atributo "${input.code}" não encontrado.`);
-
-  const displayName = input.displayName?.trim() || null;
-  if (displayName === attribute.displayName) return;
-
-  await db.transaction(async (tx) => {
-    await tx
-      .update(attributeTable)
-      .set({ displayName })
-      .where(eq(attributeTable.id, attribute.id));
-
-    await tx.insert(curationEventTable).values({
-      targetKind: "ATTRIBUTE",
-      targetId: attribute.id,
-      targetLabel: attribute.code,
-      field: "display_name",
-      valueBefore: attribute.displayName,
-      valueAfter: displayName,
-      actor: input.actor,
-      reason: input.reason,
-    });
-  });
-}
-
 export interface QueueItem {
   code: string;
   sourceName: string;
@@ -479,6 +412,10 @@ export interface QueueItem {
   isMonetary: boolean | null;
   semanticsStatus: string;
   semanticsRationale: string | null;
+  /** What a curator wrote this column is. Independent of `semanticsStatus`. */
+  definition: string | null;
+  /** How the source produces it, from the version in force. */
+  calculationBasis: string | null;
   taxonomyPath: string | null;
   taxonomyName: string | null;
   costClass: string | null;
@@ -516,6 +453,8 @@ export async function getCurationQueue(
       isMonetary: attributeTable.isMonetary,
       semanticsStatus: attributeTable.semanticsStatus,
       semanticsRationale: attributeTable.semanticsRationale,
+      definition: attributeTable.definition,
+      calculationBasis: attributeSemanticsTable.calculationBasis,
       taxonomyPath: taxonomyNodeTable.path,
       taxonomyName: taxonomyNodeTable.name,
       costClass: taxonomyNodeTable.costClass,
@@ -524,6 +463,17 @@ export async function getCurationQueue(
     .leftJoin(
       taxonomyNodeTable,
       eq(attributeTable.taxonomyNodeId, taxonomyNodeTable.id),
+    )
+    // The version in force, for its `calculation_basis`. Left-joined and
+    // filtered on `effective_until IS NULL` inside the join: an attribute with
+    // no version yet must still appear in the queue — it is precisely the one
+    // nobody has looked at.
+    .leftJoin(
+      attributeSemanticsTable,
+      and(
+        eq(attributeSemanticsTable.attributeId, attributeTable.id),
+        isNull(attributeSemanticsTable.effectiveUntil),
+      ),
     )
     .where(
       options.includeConfirmed

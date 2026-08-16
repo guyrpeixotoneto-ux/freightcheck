@@ -8,7 +8,6 @@ import {
   gatherEvidence,
   gatherPairRatios,
   getCurationQueue,
-  renameAttribute,
   runProposalPass,
 } from "../engine";
 import { detectPeriodicityConflicts } from "../semantics";
@@ -235,128 +234,6 @@ describe("confirmation is a human act, enforced by the database", () => {
     expect(confirmation).toBeDefined();
     expect(confirmation!.actor).toBe("guy@operalog");
     expect(confirmation!.reason).toMatch(/apólice/);
-  });
-});
-
-describe("o nome gerencial é um apelido, não uma renomeação da fonte", () => {
-  const CODE = "cavalo.combustivel_vida_cavalo";
-
-  const attribute = async () => {
-    const [row] = await ctx.db
-      .select()
-      .from(attributeTable)
-      .where(eq(attributeTable.code, CODE));
-    return row;
-  };
-
-  it("guarda o apelido sem tocar no nome que veio da planilha", async () => {
-    const before = await attribute();
-
-    await confirmAttribute(ctx.db, {
-      code: CODE,
-      unit: "MESES",
-      periodicity: "PONTUAL",
-      aggregation: "AVG",
-      isMonetary: false,
-      displayName: "Vida útil do combustível (cavalo)",
-      actor: "guy@operalog",
-      reason: "Nome de coluna ilegível na reunião; apelido acordado com a operação.",
-    });
-
-    const after = await attribute();
-    expect(after.displayName).toBe("Vida útil do combustível (cavalo)");
-    // O casamento da importação continua sendo pelo literal do Freightec.
-    expect(after.sourceName).toBe(before.sourceName);
-  });
-
-  it("registra a troca de apelido no histórico, com autor e motivo", async () => {
-    const events = await ctx.db
-      .select()
-      .from(curationEventTable)
-      .where(
-        and(
-          eq(curationEventTable.targetLabel, CODE),
-          eq(curationEventTable.field, "display_name"),
-        ),
-      );
-    const rename = events.find(
-      (e) => e.valueAfter === "Vida útil do combustível (cavalo)",
-    );
-    expect(rename).toBeDefined();
-    expect(rename!.actor).toBe("guy@operalog");
-    expect(rename!.reason).toMatch(/apelido/);
-  });
-
-  it("preserva o apelido quando a confirmação seguinte não fala dele", async () => {
-    await confirmAttribute(ctx.db, {
-      code: CODE,
-      periodicity: "MENSAL",
-      actor: "guy@operalog",
-      reason: "Corrigindo só a periodicidade.",
-    });
-
-    expect((await attribute()).displayName).toBe("Vida útil do combustível (cavalo)");
-  });
-
-  it("renomear não confirma: o atributo é batizado e continua fora das somas", async () => {
-    const alvo = "cavalo.combustivel_percentual_perda_vida";
-    const antes = await ctx.db
-      .select()
-      .from(attributeTable)
-      .where(eq(attributeTable.code, alvo));
-
-    await renameAttribute(ctx.db, {
-      code: alvo,
-      displayName: "Perda de vida do combustível",
-      actor: "guy@operalog",
-      reason: "Nome da coluna não diz nada em reunião.",
-    });
-
-    const [depois] = await ctx.db
-      .select()
-      .from(attributeTable)
-      .where(eq(attributeTable.code, alvo));
-    expect(depois.displayName).toBe("Perda de vida do combustível");
-    // O ponto do endpoint separado: batizar não é afirmar o que o número é.
-    expect(depois.semanticsStatus).toBe(antes[0].semanticsStatus);
-    expect(depois.confirmedBy).toBe(antes[0].confirmedBy);
-    expect(depois.unit).toBe(antes[0].unit);
-
-    const [evento] = await ctx.db
-      .select()
-      .from(curationEventTable)
-      .where(
-        and(
-          eq(curationEventTable.targetLabel, alvo),
-          eq(curationEventTable.field, "display_name"),
-        ),
-      );
-    expect(evento.actor).toBe("guy@operalog");
-    expect(evento.valueAfter).toBe("Perda de vida do combustível");
-  });
-
-  it("renomear sem justificativa é recusado, como qualquer edição de curadoria", async () => {
-    await expect(
-      renameAttribute(ctx.db, {
-        code: CODE,
-        displayName: "Qualquer coisa",
-        actor: "guy@operalog",
-        reason: "  ",
-      }),
-    ).rejects.toThrow(/justificativa/);
-  });
-
-  it("apagar o apelido devolve NULL, para as telas caírem no nome de origem", async () => {
-    await confirmAttribute(ctx.db, {
-      code: CODE,
-      displayName: "   ",
-      actor: "guy@operalog",
-      reason: "Apelido não pegou; volta a aparecer como veio da planilha.",
-    });
-
-    // NULL, e não "": `coalesce(display_name, source_name)` está em todas as
-    // leituras, e string vazia viraria um rótulo em branco na tela.
-    expect((await attribute()).displayName).toBeNull();
   });
 });
 

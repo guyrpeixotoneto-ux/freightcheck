@@ -71,6 +71,8 @@ interface QueueItem {
   isMonetary: boolean | null;
   semanticsStatus: string;
   semanticsRationale: string | null;
+  definition: string | null;
+  calculationBasis: string | null;
   taxonomyPath: string | null;
   taxonomyName: string | null;
   costClass: string | null;
@@ -312,9 +314,10 @@ export default function Curadoria() {
         </Card>
 
         {detail ? (
+          /* Chaveado pelo código: sem isto o painel é a mesma instância ao
+             trocar de atributo, e os campos — que nascem de `useState(detail…)`
+             — continuariam mostrando as respostas do atributo anterior. */
           <AttributePanel
-            // Troca de atributo remonta o painel: sem isto, um rascunho de nome
-            // gerencial poderia sobreviver à seleção seguinte.
             key={detail.code}
             detail={detail}
             taxonomy={taxonomy}
@@ -380,7 +383,6 @@ function AttributePanel({
     taxonomy.find((n) => n.path === detail.taxonomyPath)?.code ?? "",
   );
   const [isMonetary, setIsMonetary] = useState(detail.isMonetary === true);
-  const [displayName, setDisplayName] = useState(detail.displayName ?? "");
   const [reason, setReason] = useState("");
   /** Quem assina esta confirmação. Vem da sessão; a tela só o exibe. */
   const signedInAs = useAuth().user?.email ?? "quem está logado";
@@ -399,9 +401,6 @@ function AttributePanel({
             aggregation: aggregation || null,
             isMonetary,
             taxonomyCode: taxonomyCode || undefined,
-            // Sempre enviado, inclusive vazio: apagar o campo é como se tira um
-            // apelido que ficou ruim, e o servidor devolve o nome de origem.
-            displayName,
             // `actor` não vai daqui: quem assina é a sessão, e o servidor o lê
             // de lá. Um nome digitado na tela nunca provou nada.
             reason,
@@ -419,34 +418,7 @@ function AttributePanel({
     onError: (err: Error) => setError(err.message),
   });
 
-  /**
-   * Renomear sem confirmar. O nome é uma escolha de vocabulário; a semântica é
-   * uma afirmação sobre o dado. Quem só quer a primeira não precisa arriscar a
-   * segunda — mas continua assinando e justificando a troca.
-   */
-  const rename = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(
-        getApiUrl(`/curation/attributes/${detail.code}/rename`),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ displayName, reason }),
-        },
-      );
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Falha ao renomear");
-      return body;
-    },
-    onSuccess: () => {
-      setError(null);
-      onConfirmed();
-    },
-    onError: (err: Error) => setError(err.message),
-  });
-
   const conflicted = detail.semanticsRationale?.startsWith("CONFLITO");
-  const renamed = displayName.trim() !== (detail.displayName ?? "");
   const blocked = isMonetary && (!unit || !periodicity || !aggregation);
 
   return (
@@ -478,8 +450,18 @@ function AttributePanel({
                   : "bg-muted border-primary",
               )}
             >
+              {/* Depois de confirmar, `semanticsRationale` deixa de ser a
+                  proposta do motor: a confirmação a sobrescreve com a
+                  justificativa de quem assinou. Chamar as duas de "proposta do
+                  sistema" atribuía ao motor uma frase escrita por uma pessoa —
+                  e é justamente a confusão entre os campos em prosa que o card
+                  "Significado" existe para desfazer. */}
               <div className="font-semibold text-xs uppercase tracking-wide mb-1">
-                {conflicted ? "Conflito detectado" : "Proposta do sistema"}
+                {conflicted
+                  ? "Conflito detectado"
+                  : detail.semanticsStatus === "CONFIRMED"
+                    ? "Justificativa da confirmação"
+                    : "Proposta do sistema"}
               </div>
               {detail.semanticsRationale}
             </div>
@@ -542,6 +524,8 @@ function AttributePanel({
         </CardContent>
       </Card>
 
+      <MeaningCard detail={detail} onSaved={onConfirmed} />
+
       <Card>
         <CardHeader className="pb-3">
           <CardTitle className="text-base">Confirmar semântica</CardTitle>
@@ -551,17 +535,6 @@ function AttributePanel({
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
-          <Field
-            label="Nome gerencial"
-            hint={`Como este atributo aparece nas telas. A importação continua casando por ${detail.sourceName}, que é o nome exibido enquanto este campo estiver vazio.`}
-          >
-            <Input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder={detail.sourceName}
-            />
-          </Field>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Field label="Unidade">
               <Select value={unit} onValueChange={setUnit}>
@@ -656,27 +629,12 @@ function AttributePanel({
             </p>
           )}
 
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              onClick={() => confirm.mutate()}
-              disabled={confirm.isPending || !reason.trim() || blocked}
-            >
-              {confirm.isPending ? "Confirmando…" : "Confirmar semântica"}
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => rename.mutate()}
-              disabled={rename.isPending || !reason.trim() || !renamed}
-            >
-              {rename.isPending ? "Salvando…" : "Salvar só o nome"}
-            </Button>
-          </div>
-          {renamed && (
-            <p className="text-xs text-muted-foreground">
-              “Salvar só o nome” grava o nome gerencial e deixa a semântica como
-              está — o atributo continua fora de qualquer soma até ser confirmado.
-            </p>
-          )}
+          <Button
+            onClick={() => confirm.mutate()}
+            disabled={confirm.isPending || !reason.trim() || blocked}
+          >
+            {confirm.isPending ? "Confirmando…" : "Confirmar semântica"}
+          </Button>
         </CardContent>
       </Card>
 
@@ -705,6 +663,156 @@ function AttributePanel({
         </Card>
       )}
     </div>
+  );
+}
+
+/**
+ * Como a coluna se chama e o que ela significa — o passo barato da curadoria.
+ *
+ * Fica **acima** de "Confirmar semântica" porque são as perguntas que se
+ * respondem primeiro: dizer "vidaCombustivel é a vida útil considerada em
+ * contrato" não exige ter decidido se o número é mensal, e nem chamá-la de
+ * "Vida útil do combustível". O card abaixo continua exigindo, como deve — a
+ * diferença é que agora não é preciso passar por ele para registrar o que se
+ * sabe.
+ *
+ * O nome mora aqui, e não no card de baixo, pela mesma razão: batizar é
+ * vocabulário, não é afirmação sobre aritmética. `sourceName` nunca é
+ * substituído — é por ele que a importação casa a coluna, e ele continua à
+ * vista ao lado do apelido em toda tela.
+ *
+ * Salvar aqui não confirma nada e não destrava cálculo nenhum. O texto ao pé do
+ * botão diz isso na tela, e não só aqui, porque um campo que parece destravar
+ * dinheiro e não destrava é pior do que campo nenhum.
+ */
+function MeaningCard({
+  detail,
+  onSaved,
+}: {
+  detail: AttributeDetail;
+  onSaved: () => void;
+}) {
+  const [displayName, setDisplayName] = useState(detail.displayName ?? "");
+  const [definition, setDefinition] = useState(detail.definition ?? "");
+  const [basis, setBasis] = useState(detail.calculationBasis ?? "");
+  const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+
+  const dirty =
+    displayName.trim() !== (detail.displayName ?? "").trim() ||
+    definition.trim() !== (detail.definition ?? "").trim() ||
+    basis.trim() !== (detail.calculationBasis ?? "").trim();
+
+  const save = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(
+        getApiUrl(`/curation/attributes/${detail.code}/meaning`),
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            displayName,
+            definition,
+            calculationBasis: basis,
+          }),
+        },
+      );
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Falha ao salvar");
+      return body;
+    },
+    onSuccess: () => {
+      setError(null);
+      setSaved(true);
+      onSaved();
+    },
+    onError: (err: Error) => {
+      setSaved(false);
+      setError(err.message);
+    },
+  });
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">Significado</CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Como esta coluna se chama e o que ela é, nas suas palavras. Pode ser
+          escrito antes de saber a unidade ou a periodicidade — e é independente
+          da confirmação.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <Field
+          label="Nome gerencial"
+          hint={`Como o atributo aparece nas telas. A importação continua casando por ${detail.sourceName}, que é o nome exibido enquanto este campo estiver vazio.`}
+        >
+          <Input
+            value={displayName}
+            onChange={(e) => {
+              setDisplayName(e.target.value);
+              setSaved(false);
+            }}
+            placeholder={detail.sourceName}
+          />
+        </Field>
+
+        <Field
+          label="O que é"
+          hint="A descrição que você daria a alguém que nunca viu esta planilha."
+        >
+          <Textarea
+            value={definition}
+            onChange={(e) => {
+              setDefinition(e.target.value);
+              setSaved(false);
+            }}
+            placeholder="Ex.: vida útil, em meses, considerada em contrato para o pneu."
+            rows={3}
+          />
+        </Field>
+
+        <Field
+          label="Como a fonte calcula"
+          hint="Quando se sabe. É o campo que faltava no caso do IPVA, que trocou de base de cálculo duas vezes sem mudar de unidade."
+        >
+          <Textarea
+            value={basis}
+            onChange={(e) => {
+              setBasis(e.target.value);
+              setSaved(false);
+            }}
+            placeholder="Ex.: 1,000% do valor da nota de compra."
+            rows={2}
+          />
+        </Field>
+
+        {error && (
+          <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+            {error}
+          </p>
+        )}
+
+        <div className="flex items-center gap-3">
+          <Button
+            variant="outline"
+            onClick={() => save.mutate()}
+            disabled={save.isPending || !dirty}
+          >
+            {save.isPending ? "Salvando…" : "Salvar nome e significado"}
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            {saved && !dirty ? (
+              <span className="text-emerald-700 font-medium">
+                Salvo. O status não mudou — isto não é uma confirmação.
+              </span>
+            ) : (
+              <>Não confirma nem destrava cálculo financeiro.</>
+            )}
+          </p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
