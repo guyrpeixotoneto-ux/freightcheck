@@ -1,8 +1,9 @@
-import { readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createDb, type Database } from "@workspace/db";
-import { runMigrations } from "@workspace/db/migrate";
+import { MIGRATIONS_FOLDER, runMigrations } from "@workspace/db/migrate";
 
 /**
  * Each test file gets a scratch database created from the versioned
@@ -37,6 +38,207 @@ export async function createTestDatabase(name: string): Promise<TestDb> {
   const url = urlFor(dbName);
   await runMigrations(url);
 
+  const { db, pool } = createDb(url);
+  return {
+    db,
+    pool,
+    url,
+    drop: async () => {
+      await pool.end();
+      const cleanup = createDb(ADMIN_URL);
+      await cleanup.pool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
+      await cleanup.pool.end();
+    },
+  };
+}
+
+/**
+ * Um banco descartável **clonado** de um preparo caro que já foi feito uma vez.
+ *
+ * O problema que isto resolve é a maior conta da suíte. Dezesseis arquivos
+ * começam com o mesmo `beforeAll` — migrations, importar os workbooks reais,
+ * semear a taxonomia, propor e aplicar semânticas — e cada um o refazia do
+ * zero. Medido: 25.958 ms por arquivo, 63% do passo de testes, e em `cockpit`,
+ * `families`, `grouped` e `range-real` esse preparo é **100% do tempo do
+ * arquivo** — as asserções custam zero.
+ *
+ * A saída é do Postgres, e não nossa: `CREATE DATABASE x TEMPLATE y` copia os
+ * arquivos de `y` no nível do sistema de arquivos. Medido no mesmo banco de
+ * 105 MB: **269 ms**, contra 25.958 ms para refazer. 96,7× mais barato, e sem
+ * serializar — quatro clones concorrentes custaram 313 ms cada, 9% acima do
+ * clone solitário.
+ *
+ * **O que continua valendo, e é o que importa.** Cada arquivo recebe um banco
+ * **físico próprio**: dois arquivos não enxergam a escrita um do outro, como
+ * antes. As migrations versionadas continuam sendo executadas de verdade — uma
+ * vez, no template —, e uma migration quebrada continua impedindo a suíte de
+ * rodar. Nenhum teste passou a falar com dado inventado: o template nasce do
+ * mesmo pipeline de importação que o produto usa.
+ *
+ * **O que muda.** O preparo roda uma vez por processo de CI em vez de dezesseis.
+ * Quem precisa observar o preparo acontecendo — as suítes de `lib/ingest`, cujo
+ * objeto **é** a importação — continua usando `createTestDatabase`.
+ *
+ * **Por que não `pg_dump`/`pg_restore`.** Foi medido e reprovou: o restore
+ * falha com `function freightcheck_norm_canal(text) does not exist`, porque o
+ * schema tem coluna gerada que depende de função própria e o ordenador de
+ * dependências do `pg_restore` não resolve isso. Um restore parcial daria um
+ * banco que passa alguns testes e falha outros pelo motivo errado.
+ */
+
+/** Constrói o conteúdo do template. Roda uma vez, contra um banco já migrado. */
+export type FixtureBuilder = (db: Database) => Promise<void>;
+
+/**
+ * A identidade do template é o **conteúdo** que ele terá.
+ *
+ * Entram no hash as migrations, o código do próprio construtor, o código deste
+ * módulo — que é onde mora o `importFixture` que os construtores chamam — e os
+ * workbooks lidos do disco. Mudar qualquer um deles muda o nome do template, e
+ * o próximo processo constrói um novo em vez de clonar um desatualizado. É o
+ * que impede a otimização de virar cache mentiroso.
+ *
+ * **O que o hash não alcança**: um construtor que chame função de outro pacote
+ * (a curadoria, o motor de comparação) não vê aquele código mudar. No CI isso
+ * não existe — o banco nasce vazio a cada job e o template é sempre construído
+ * do zero. Na máquina de quem desenvolve, existe: se você mudar o motor e um
+ * teste de fixture insistir num número velho, derrube os templates com
+ * `psql -c "DROP DATABASE fc_tpl_..."` ou `pnpm run test:limpar-templates`.
+ */
+function digestDoTemplate(chave: string, builder: FixtureBuilder): string {
+  const h = createHash("sha256");
+  h.update(chave);
+  h.update(builder.toString());
+  h.update(readFileSync(fileURLToPath(import.meta.url)));
+
+  const migrations = MIGRATIONS_FOLDER;
+  for (const arquivo of readdirSync(migrations).sort()) {
+    if (!arquivo.endsWith(".sql")) continue;
+    h.update(arquivo);
+    h.update(readFileSync(path.join(migrations, arquivo)));
+  }
+
+  const assets = assetsDir();
+  for (const arquivo of readdirSync(assets).sort()) {
+    if (!arquivo.endsWith(".xlsx")) continue;
+    h.update(arquivo);
+    h.update(readFileSync(path.join(assets, arquivo)));
+  }
+
+  return h.digest("hex").slice(0, 12);
+}
+
+/**
+ * Chave do lock consultivo que serializa a construção.
+ *
+ * Vários workers do vitest chegam aqui ao mesmo tempo no primeiro arquivo que
+ * pede a fixture. Sem o lock, todos constroem — que é exatamente o desperdício
+ * que este módulo existe para eliminar. O lock é por banco no Postgres, e a
+ * conexão é a de administração, então um número derivado do nome basta.
+ */
+function chaveDoLock(nome: string): number {
+  const h = createHash("sha256").update(nome).digest();
+  // 31 bits: cabe com folga no `int` que `pg_advisory_lock` aceita.
+  return h.readUInt32BE(0) & 0x7fff_ffff;
+}
+
+async function garantirTemplate(
+  nomeDoTemplate: string,
+  builder: FixtureBuilder,
+): Promise<void> {
+  const admin = createDb(ADMIN_URL);
+  /*
+    Uma conexão **reservada** para a seção inteira, e não `pool.query`.
+
+    O lock consultivo pertence à sessão, e o `pg.Pool` devolve a conexão ao
+    ocioso assim que a consulta termina. Enquanto o construtor trabalha — 26
+    segundos, em outro pool —, essa conexão fica parada; passados os 10 s do
+    `idleTimeoutMillis` padrão o driver a fecha, e **o lock morre com ela**. Foi
+    exatamente o que aconteceu: três workers entraram juntos na seção crítica e
+    a suíte reprovou com `database "..._parcial" is being accessed by other
+    users` e `... does not exist`. Reservar o cliente prende a sessão.
+  */
+  const client = await admin.pool.connect();
+  try {
+    const existe = async () =>
+      (
+        await client.query(`SELECT 1 FROM pg_database WHERE datname = $1`, [
+          nomeDoTemplate,
+        ])
+      ).rowCount === 1;
+
+    if (await existe()) return;
+
+    const lock = chaveDoLock(nomeDoTemplate);
+    await client.query(`SELECT pg_advisory_lock($1)`, [lock]);
+    try {
+      // Outro worker pode tê-lo construído enquanto esperávamos o lock.
+      if (await existe()) return;
+
+      /*
+        Constrói sob um nome provisório e só então renomeia. Se o processo
+        morrer no meio — e neste ambiente o Postgres já foi derrubado no meio de
+        uma medição —, o que sobra é um `..._parcial` que ninguém clona, e não
+        um template pela metade que passaria por pronto.
+      */
+      const provisorio = `${nomeDoTemplate}_parcial`;
+      await client.query(`DROP DATABASE IF EXISTS "${provisorio}"`);
+      await client.query(`CREATE DATABASE "${provisorio}"`);
+
+      const url = urlFor(provisorio);
+      const relatorio = await runMigrations(url);
+      if (relatorio.failure) {
+        throw new Error(
+          `migration ${relatorio.failure.tag} falhou ao preparar a fixture "${nomeDoTemplate}": ${relatorio.failure.message}`,
+        );
+      }
+
+      const { db, pool } = createDb(url);
+      try {
+        await builder(db);
+      } finally {
+        // Um template com sessão aberta não pode ser clonado.
+        await pool.end();
+      }
+
+      await client.query(
+        `ALTER DATABASE "${provisorio}" RENAME TO "${nomeDoTemplate}"`,
+      );
+    } finally {
+      await client.query(`SELECT pg_advisory_unlock($1)`, [lock]);
+    }
+  } finally {
+    client.release();
+    await admin.pool.end();
+  }
+}
+
+/**
+ * O banco de um arquivo de teste, clonado da fixture `chave`.
+ *
+ * `builder` roda no máximo uma vez por conteúdo — ver `digestDoTemplate`. Toda
+ * chamada seguinte é um `CREATE DATABASE ... TEMPLATE`.
+ */
+export async function createTestDatabaseFrom(
+  chave: string,
+  builder: FixtureBuilder,
+  name: string,
+): Promise<TestDb> {
+  const nomeDoTemplate = `fc_tpl_${chave}_${digestDoTemplate(chave, builder)}`;
+  await garantirTemplate(nomeDoTemplate, builder);
+
+  const dbName = `fc_test_${name}_${process.pid}`;
+  const admin = createDb(ADMIN_URL);
+  try {
+    await admin.pool.query(`DROP DATABASE IF EXISTS "${dbName}"`);
+    await admin.pool.query(
+      `CREATE DATABASE "${dbName}" TEMPLATE "${nomeDoTemplate}"`,
+    );
+  } finally {
+    await admin.pool.end();
+  }
+
+  const url = urlFor(dbName);
   const { db, pool } = createDb(url);
   return {
     db,
@@ -125,4 +327,60 @@ export async function importFixture(
     importRunId: received.importRunId,
     pendingIdentities: report.pendingIdentities,
   };
+}
+
+/**
+ * O export combinado, importado e **promovido** — e nada além disso.
+ *
+ * O corte é deliberado. Cinco arquivos de quatro pacotes começam com esta mesma
+ * importação e depois divergem: cada um semeia a taxonomia e propõe semânticas
+ * com o **seu** rótulo, e alguns aplicam confirmações e outros não. Pôr a
+ * curadoria dentro do template unificaria esses rótulos e mudaria, sem avisar,
+ * o estado que cada suíte afirma observar.
+ *
+ * A importação é 24 s dos 26 s; a curadoria que fica de fora custa cerca de um
+ * segundo. Compartilhar só a parte cara mantém cada arquivo dizendo exatamente
+ * o que dizia.
+ *
+ * `promote` vai sem `confirmNewEntityTypes` porque, para este arquivo num banco
+ * novo, `preview` devolve `pendingIdentities: []` — medido. Passar a lista
+ * vazia e não passar nada são a mesma chamada, e é por isso que `dre-real`,
+ * que passava a lista, pode usar este mesmo template.
+ */
+export async function criarBancoComExportRealPromovido(
+  name: string,
+): Promise<TestDb> {
+  return createTestDatabaseFrom(
+    "export_real_promovido",
+    async (db) => {
+      const { captureRaw, preview, promote, receiveFile, stage } =
+        await import("./pipeline");
+      const received = await receiveFile(db, { filePath: realExportPath() });
+      await captureRaw(db, received.importRunId);
+      await stage(db, received.importRunId);
+      await preview(db, received.importRunId);
+      await promote(db, received.importRunId);
+    },
+    name,
+  );
+}
+
+/**
+ * Os dois arquivos por equipamento, importados e promovidos — sem curadoria.
+ *
+ * Mesmo corte do anterior, para quem parte do par `Modelo_Carreta` /
+ * `Modelo_Cavalo` em vez do export combinado.
+ */
+export async function criarBancoComModelosPromovidos(
+  name: string,
+): Promise<TestDb> {
+  return createTestDatabaseFrom(
+    "modelos_promovidos",
+    async (db) => {
+      const { carreta, cavalo } = modelExportPaths();
+      for (const filePath of [carreta, cavalo])
+        await importFixture(db, filePath);
+    },
+    name,
+  );
 }

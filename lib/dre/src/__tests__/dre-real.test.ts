@@ -1,6 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { captureRaw, preview, promote, receiveFile, stage } from "@workspace/ingest";
-import { createTestDatabase, realExportPath, type TestDb } from "@workspace/ingest/testing";
+import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest/testing";
 import { applyConfirmations, runProposalPass, seedTaxonomy } from "@workspace/curation";
 import { getDREDaFrota, type DREDaFrota } from "../frota";
 import { getDREDoVeiculo } from "../apuracao";
@@ -30,14 +29,14 @@ let carretas: DREDaFrota;
 const AGOSTO = "2026-08-01";
 
 beforeAll(async () => {
-  ctx = await createTestDatabase("dre_real");
-  const received = await receiveFile(ctx.db, { filePath: realExportPath() });
-  await captureRaw(ctx.db, received.importRunId);
-  await stage(ctx.db, received.importRunId);
-  const report = await preview(ctx.db, received.importRunId);
-  await promote(ctx.db, received.importRunId, {
-    confirmNewEntityTypes: report.pendingIdentities,
-  });
+  /*
+    A declaração de equipamento novo saiu junto com a importação, e sem
+    perda: `preview` devolve `pendingIdentities: []` para este arquivo num
+    banco novo — medido —, então passar a lista vazia e não passar nada eram
+    a mesma chamada. O portão continua provado de frente em
+    `identidade-por-conteudo.test.ts`.
+  */
+  ctx = await criarBancoComExportRealPromovido("dre_real");
   await seedTaxonomy(ctx.db, "test");
   await runProposalPass(ctx.db, "test:proposal");
   await applyConfirmations(ctx.db);

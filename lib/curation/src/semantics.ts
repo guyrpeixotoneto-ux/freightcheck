@@ -222,6 +222,13 @@ function guessAggregation(unit: Unit | null, dataType: string): {
   }
 }
 
+/** Onde o atributo cai na árvore, e a frase que sustenta a escolha. */
+export interface TaxonomyGuess {
+  code: string;
+  /** Vai para a justificativa gravada no evento de curadoria. */
+  reason: string;
+}
+
 /**
  * Name-based placement in the tree. A proposal, like everything else here.
  *
@@ -235,34 +242,95 @@ function guessAggregation(unit: Unit | null, dataType: string): {
  * A descriptive word appearing inside a cost column's name is common; the
  * reverse — a cost word inside a genuinely descriptive column — is not. So
  * money wins the tie.
+ *
+ * **Palavra de assunto não é palavra de dinheiro, e não ganha a mesma
+ * desempate.** A reordenação acima levou junto `combustivelCapacidade`, que não
+ * tem palavra de dinheiro nenhuma: "combustivel" é o assunto do bloco em que a
+ * coluna está, e capacidade continua sendo especificação do ativo. O teste que
+ * travava a colocação anterior citava a mesma auditoria dos cinco — e ela nunca
+ * tratou deste caso. Corrigido em 16/08/2026, com a evidência abaixo.
+ *
+ * **E o nome não vê o valor.** Quatro colunas do implemento não têm palavra de
+ * custo alguma e mesmo assim são montante: a planilha de classificação do time
+ * — a leitura de quem opera, e a fonte de maior força de prova deste
+ * repositório — põe as quatro no valor fixo, e os valores no export real são
+ * R$ com dois decimais. Uma regra que só lê nome não tem como saber disso, e é
+ * por isso que elas entram nomeadas.
  */
-export function guessTaxonomyCode(code: string, entityType: string): string {
+export function guessTaxonomyCode(code: string, entityType: string): TaxonomyGuess {
   const n = code.split(".").slice(1).join(".");
+  const em = (code: string, reason: string): TaxonomyGuess => ({ code, reason });
 
   if (n === "custo_fixo")
-    return entityType === "CAVALO" ? "cf_frota_cavalo" : "cf_frota_carreta";
-  if (has(n, "amortizacao")) return "cf_depreciacao";
+    return em(
+      entityType === "CAVALO" ? "cf_frota_cavalo" : "cf_frota_carreta",
+      "É o custo fixo do próprio equipamento.",
+    );
+  if (has(n, "amortizacao")) return em("cf_depreciacao", "Nome indica amortização.");
   if (has(n, "finame", "juros", "spread", "tjlp", "taxa", "financiamento", "percentual_entrada"))
-    return "cf_financiamento";
-  if (has(n, "ipva", "licenciamento", "seguro", "icms", "pis_cofins")) return "cf_seguros_tributos";
-  if (has(n, "lucro_fixo")) return "cf_remuneracao_capital";
-  if (has(n, "lucro_variavel")) return "cv_lucro_variavel";
-  if (has(n, "combustivel", "consumo")) return "cv_combustivel";
-  if (has(n, "manutencao", "free_maintenance")) return "cv_manutencao";
-  if (has(n, "pneu")) return "cv_pneus";
-  if (has(n, "custo_variavel", "reais_km")) return "cv_outros";
-  if (has(n, "custo_aluguel", "valor_nf_compra")) return "cf_outros";
+    return em("cf_financiamento", "Nome indica financiamento, juros ou taxa.");
+  if (has(n, "ipva", "licenciamento", "seguro", "icms", "pis_cofins"))
+    return em("cf_seguros_tributos", "Nome indica seguro ou tributo.");
+  if (has(n, "lucro_fixo")) return em("cf_remuneracao_capital", "Nome indica lucro fixo.");
+  if (has(n, "lucro_variavel")) return em("cv_lucro_variavel", "Nome indica lucro variável.");
+
+  /*
+    A capacidade é lida antes do assunto, e depois do dinheiro.
+
+    `combustivelCapacidade` vale 28 e 42 no export real, e a coluna
+    `capacidadeEmpurrada` da carreta escreve "Pallets: 28" ao lado — é a
+    capacidade de carga do conjunto, e não litros de tanque. Seja qual for a
+    grandeza, capacidade é especificação: não é consumo, e a tabela de
+    classificação do time diz o mesmo com todas as letras ("é especificação do
+    veículo, não consumo — não mexe em valor nenhum da remuneração").
+
+    Fica **depois** das regras de dinheiro de propósito: o desempate que a
+    auditoria estabeleceu é dinheiro sobre descritivo, e este não o afrouxa.
+  */
+  if (has(n, "capacidade"))
+    return em(
+      "cad_especificacao",
+      "Capacidade é especificação do ativo — a palavra do assunto no nome não a torna consumo.",
+    );
+
+  if (has(n, "combustivel", "consumo")) return em("cv_combustivel", "Nome indica combustível ou consumo.");
+  if (has(n, "manutencao", "free_maintenance")) return em("cv_manutencao", "Nome indica manutenção.");
+  if (has(n, "pneu")) return em("cv_pneus", "Nome indica pneu.");
+  if (has(n, "custo_variavel", "reais_km")) return em("cv_outros", "Nome indica custo variável.");
+  if (has(n, "custo_aluguel", "valor_nf_compra"))
+    return em("cf_outros", "Nome indica valor de aquisição ou aluguel do ativo.");
+
+  /*
+    Os itens do implemento, nomeados um a um.
+
+    `faixa_reflexiva`, `revestimento`, `tacografo` e `rastreador` são as quatro
+    colunas que a planilha do time classifica como valor fixo e que nenhuma
+    palavra do nome delas denuncia como dinheiro. Os valores confirmam: R$ 15,94,
+    R$ 277,94, R$ 21,03 e R$ 0,00, constantes por implemento e com dois decimais
+    — um descritivo seria inteiro ou categoria. `rastreador` vem zerado neste
+    export inteiro, então para ele a evidência é só a planilha; entra junto por
+    ser a mesma família de colunas.
+
+    `faixa_reflexiva` é nomeada inteira, e não por "faixa": `faixaKm` é a faixa
+    de quilometragem do cavalo, e mandá-la para custo fixo seria trocar um erro
+    por outro.
+  */
+  if (has(n, "faixa_reflexiva", "revestimento", "tacografo", "rastreador"))
+    return em(
+      "cf_outros",
+      "Item do implemento que a planilha de classificação do time põe no valor fixo, com valores em R$ no export.",
+    );
 
   if (has(n, "unidade", "operador", "organizacao", "regiao", "prazo_pagamento"))
-    return "cad_escopo";
+    return em("cad_escopo", "Nome indica escopo organizacional.");
   if (has(n, "chassi", "placa", "modelo", "montadora", "empresa_locadora") || n === "id" || n === "ano")
-    return "cad_identificacao";
+    return em("cad_identificacao", "Nome identifica o ativo.");
   if (has(n, "data", "vigencia", "carencia", "periodo", "mes_de_entrada", "ciclo", "contrato", "bid"))
-    return "cad_contrato";
-  if (has(n, "eixo", "cambio", "padrao", "capacidade", "medida", "double_deck", "revestimento", "tacografo", "rastreador", "faixa", "carroceria", "implemento", "frota_emprestada", "ativo", "odometro"))
-    return "cad_especificacao";
+    return em("cad_contrato", "Nome indica contrato ou vigência.");
+  if (has(n, "eixo", "cambio", "padrao", "medida", "double_deck", "faixa", "carroceria", "implemento", "frota_emprestada", "ativo", "odometro"))
+    return em("cad_especificacao", "Nome descreve a especificação técnica do ativo.");
 
-  return "nao_classificado";
+  return em("nao_classificado", "Nenhum padrão de nome reconhecido.");
 }
 
 /**
@@ -277,9 +345,18 @@ export function guessTaxonomyCode(code: string, entityType: string): string {
 export function proposeSemantics(evidence: AttributeEvidence): SemanticsProposal {
   const unitGuess = guessUnit(evidence);
   const aggGuess = guessAggregation(unitGuess.unit, evidence.dataType);
-  const taxonomyCode = guessTaxonomyCode(evidence.code, evidence.entityType);
+  const taxonomy = guessTaxonomyCode(evidence.code, evidence.entityType);
 
-  const parts = [unitGuess.reason, aggGuess.reason];
+  /*
+    O porquê da classe entra na justificativa, e não só o nó escolhido.
+
+    A colocação na árvore é o que responde "custo fixo ou variável?" nas telas,
+    e o evento de curadoria gravava a mudança de `taxonomy_node_id` com a
+    justificativa da *unidade* ao lado — quem fosse auditar por que uma coluna
+    virou custo variável lia uma frase sobre km/l. A razão da classe passa a
+    viajar junto com ela.
+  */
+  const parts = [unitGuess.reason, aggGuess.reason, `Classe: ${taxonomy.reason}`];
   if (unitGuess.monetary) {
     parts.push(
       "Periodicidade NÃO proposta: os nomes de coluna deste export não são confiáveis para distinguir mensal de anual. Precisa de confirmação humana.",
@@ -294,7 +371,7 @@ export function proposeSemantics(evidence: AttributeEvidence): SemanticsProposal
     periodicity: null,
     aggregation: aggGuess.aggregation,
     isMonetary: unitGuess.unit === null ? null : unitGuess.monetary,
-    taxonomyCode,
+    taxonomyCode: taxonomy.code,
     rationale: parts.join(" "),
     status,
   };

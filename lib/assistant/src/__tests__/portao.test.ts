@@ -16,7 +16,11 @@ import type { Dossie } from "../orquestrador";
  */
 
 /** Um dossiê mínimo — só o que as duas conferências leem. */
-function dossieCom(opcoes: { numeros?: number[]; fatos?: string[]; fontes?: number }): Dossie {
+function dossieCom(opcoes: {
+  numeros?: number[];
+  fatos?: string[];
+  fontes?: number;
+}): Dossie {
   const fontes = opcoes.fontes ?? 1;
   const evidencias = Array.from({ length: fontes }, (_, i) => ({
     ferramenta: `ferramenta-${i}`,
@@ -30,19 +34,27 @@ function dossieCom(opcoes: { numeros?: number[]; fatos?: string[]; fontes?: numb
     leitura: {} as Dossie["leitura"],
     plano: {} as Dossie["plano"],
     trechos: [],
-  documentos: [],
+    documentos: [],
     evidencias: evidencias as unknown as Dossie["evidencias"],
     anexos: [],
     lacunas: [],
     etapas: [],
     desambiguacao: null,
-    diagnostico: { book: { candidatos: 0, selecionados: 0, melhorPontuacao: 0 }, ms: 0 },
+    diagnostico: {
+      book: { candidatos: 0, selecionados: 0, melhorPontuacao: 0 },
+      ms: 0,
+    },
   };
 }
 
 /** Entrega o texto em pedaços de `n` caracteres, como o fluxo faria. */
-function transmitir(portao: { receber(p: string): void }, texto: string, n: number): void {
-  for (let i = 0; i < texto.length; i += n) portao.receber(texto.slice(i, i + n));
+function transmitir(
+  portao: { receber(p: string): void },
+  texto: string,
+  n: number,
+): void {
+  for (let i = 0; i < texto.length; i += n)
+    portao.receber(texto.slice(i, i + n));
 }
 
 describe("portão de lastro", () => {
@@ -59,9 +71,8 @@ describe("portão de lastro", () => {
 
   it("deixa passar o número que a evidência autoriza, partido no meio", () => {
     const saida: string[] = [];
-    const portao = portaoDeLastro(
-      dossieCom({ fatos: ["28.511,24"] }),
-      (p) => saida.push(p),
+    const portao = portaoDeLastro(dossieCom({ fatos: ["28.511,24"] }), (p) =>
+      saida.push(p),
     );
 
     // Pedaços de 3 caracteres partem "28.511,24" em vários deltas — e o ponto
@@ -74,16 +85,21 @@ describe("portão de lastro", () => {
 
   it("fecha na frase que traz número sem lastro, e não libera nada depois", () => {
     const saida: string[] = [];
-    const portao = portaoDeLastro(
-      dossieCom({ fatos: ["267"] }),
-      (p) => saida.push(p),
+    const portao = portaoDeLastro(dossieCom({ fatos: ["267"] }), (p) =>
+      saida.push(p),
     );
 
-    transmitir(portao, "Houve 267 alterações. O total foi 99.999,00. E mais uma frase aqui.", 5);
+    transmitir(
+      portao,
+      "Houve 267 alterações. O total foi 99.999,00. E mais uma frase aqui.",
+      5,
+    );
 
     const texto = saida.join("");
     expect(texto, "a frase conferida sai").toContain("267 alterações.");
-    expect(texto, "a frase com número inventado não sai").not.toContain("99.999,00");
+    expect(texto, "a frase com número inventado não sai").not.toContain(
+      "99.999,00",
+    );
     expect(texto, "nada depois dela sai").not.toContain("E mais uma frase");
   });
 
@@ -94,11 +110,17 @@ describe("portão de lastro", () => {
       (p) => saida.push(p),
     );
 
-    transmitir(portao, "Foram 267 alterações [2]. Confira também [7]. E o resto.", 4);
+    transmitir(
+      portao,
+      "Foram 267 alterações [2]. Confira também [7]. E o resto.",
+      4,
+    );
 
     const texto = saida.join("");
     expect(texto, "citação dentro do dossiê passa").toContain("[2]");
-    expect(texto, "citação para fonte que não existe não passa").not.toContain("[7]");
+    expect(texto, "citação para fonte que não existe não passa").not.toContain(
+      "[7]",
+    );
   });
 
   it("não libera a última frase quando ela não fecha", () => {
@@ -155,33 +177,54 @@ describe("números que vêm de um anexo", () => {
   // Uma evidência + um anexo: a evidência é [1], o anexo é [2].
   it("aceita número sem lastro na frase que cita o anexo", () => {
     const saida: string[] = [];
-    const portao = portaoDeLastro(dossieComAnexo(["267"]), (p) => saida.push(p));
+    const portao = portaoDeLastro(dossieComAnexo(["267"]), (p) =>
+      saida.push(p),
+    );
 
-    transmitir(portao, "O contrato fixa o reajuste em 7,5% ao ano [2]. Fim.", 6);
+    transmitir(
+      portao,
+      "O contrato fixa o reajuste em 7,5% ao ano [2]. Fim.",
+      6,
+    );
 
-    expect(saida.join(""), "o que o modelo leu no PDF sai, com a fonte ao lado").toContain("7,5%");
+    expect(
+      saida.join(""),
+      "o que o modelo leu no PDF sai, com a fonte ao lado",
+    ).toContain("7,5%");
   });
 
   it("continua recusando número sem lastro na frase que não cita o anexo", () => {
     const saida: string[] = [];
-    const portao = portaoDeLastro(dossieComAnexo(["267"]), (p) => saida.push(p));
+    const portao = portaoDeLastro(dossieComAnexo(["267"]), (p) =>
+      saida.push(p),
+    );
 
-    transmitir(portao, "Houve 267 alterações [1]. O total foi 99.999,00. E o resto.", 5);
+    transmitir(
+      portao,
+      "Houve 267 alterações [1]. O total foi 99.999,00. E o resto.",
+      5,
+    );
 
     const texto = saida.join("");
     expect(texto, "a frase com evidência passa").toContain("267 alterações");
-    expect(texto, "sem citação, o número segue sem lastro").not.toContain("99.999,00");
+    expect(texto, "sem citação, o número segue sem lastro").not.toContain(
+      "99.999,00",
+    );
   });
 
   it("conta o anexo como fonte válida para citar", () => {
     const saida: string[] = [];
-    const portao = portaoDeLastro(dossieComAnexo(["267"]), (p) => saida.push(p));
+    const portao = portaoDeLastro(dossieComAnexo(["267"]), (p) =>
+      saida.push(p),
+    );
 
     // Com uma evidência e um anexo há duas fontes: [2] existe, [3] não.
     transmitir(portao, "Está no contrato [2]. Veja também [3]. Fim.", 4);
 
     const texto = saida.join("");
     expect(texto).toContain("[2]");
-    expect(texto, "citação além do anexo continua sem fonte").not.toContain("[3]");
+    expect(texto, "citação além do anexo continua sem fonte").not.toContain(
+      "[3]",
+    );
   });
 });
