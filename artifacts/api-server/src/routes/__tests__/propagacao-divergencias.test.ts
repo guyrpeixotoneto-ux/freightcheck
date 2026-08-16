@@ -380,6 +380,33 @@ describe("divergência 2 — o CNPJ mascarado parte o contexto em dois", () => {
     }
     expect([...contexto.scopeHashesLegados].sort()).toEqual([...hashesCrus].sort());
   }, 300_000);
+
+  it("Cobertura também vê uma unidade só — e o recorte dela é o mesmo", async () => {
+    /*
+      A metade que ficou de fora do PR-7 e é o PR-10.
+
+      Cobertura recortava por `scope_hash` cru enquanto Alterações e Impacto já
+      recortavam pelo escopo canônico. Nos bancos com o CNPJ escrito de uma
+      forma só — todos os que existem hoje — os dois davam o mesmo recorte, e
+      neste, que é o caso misto, davam dois. Era dívida com prazo, e o prazo é
+      este PR.
+    */
+    const observadas = await vigenciasObservadas(ctx.db);
+    expect(observadas).toHaveLength(2);
+
+    // Uma chave de escopo e uma série, do lado da Cobertura...
+    const [escopo, ...outros] = [...new Set(observadas.map((v) => v.scopeHash))];
+    expect(outros).toHaveLength(0);
+    expect(new Set(observadas.map((v) => v.serie)).size).toBe(1);
+
+    // ...e é **a mesma** que Alterações usa. Dois módulos, um recorte.
+    const [contexto] = await listContexts(ctx.db);
+    expect(escopo).toBe(contexto.scopeHash);
+
+    // Recortar por ela devolve as duas vigências, e não uma.
+    const recortadas = await vigenciasObservadas(ctx.db, { scopeHash: escopo });
+    expect(recortadas.map((v) => v.effectiveDate)).toEqual(["2026-03-01", "2026-04-01"]);
+  }, 300_000);
 });
 
 // ---------------------------------------------------------------------------

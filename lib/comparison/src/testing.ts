@@ -94,6 +94,17 @@ export interface FixtureOptions {
    * encontraria. A família separa a identidade sem separar o contexto.
    */
   datasetFamily?: string;
+  /**
+   * O escopo canônico, quando o teste precisa **descolá-lo** do `scopeHash`.
+   *
+   * Por padrão ele é derivado do `scopeHash`, de modo que duas chamadas com a
+   * mesma semente compartilham as duas chaves. É o que serve quase sempre, e é
+   * exatamente o que **não** serve para provar o defeito que o escopo canônico
+   * existe para resolver: a mesma unidade cujo CNPJ chegou mascarado num
+   * arquivo e sem máscara noutro tem dois `scope_hash` e um escopo canônico só.
+   * Passando este campo, o teste monta esse par.
+   */
+  canonicalScope?: { scopeType: string; code: string }[];
 }
 
 let sequence = 0;
@@ -113,7 +124,7 @@ export async function buildFixture(
   // O escopo canônico tem de sair já normalizado, senão o CHECK do banco recusa
   // a linha. Um CNPJ de 14 dígitos derivado do `scopeHash` faz duas chamadas que
   // compartilham escopo compartilharem também a identidade de escopo.
-  const canonicalScope = [
+  const canonicalScope = options.canonicalScope ?? [
     {
       scopeType: "UNIDADE",
       code: createHash("sha256")

@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { chaveDeEscopoSql } from "@workspace/availability";
 import type { Database } from "@workspace/db";
 
 /**
@@ -101,7 +102,10 @@ export async function provenienciaDoFato(
              (SELECT string_agg(coalesce(sc.name, sc.code), ' · ' ORDER BY sc.scope_type)
                 FROM snapshot_scope ss JOIN scope sc ON sc.id = ss.scope_id
                WHERE ss.snapshot_id = s.id AND sc.scope_type = 'UNIDADE'),
-             left(s.scope_hash, 8)
+             -- O mesmo recuo de observado.ts: sem UNIDADE nomeada, o rótulo
+             -- é o começo da chave canônica. Com scope_hash, duas grafias do
+             -- mesmo CNPJ davam dois rótulos para a mesma unidade.
+             left(${chaveDeEscopoSql("s")}, 8)
            )                                                 AS scope_label,
            h.id::text                                        AS herdado_id,
            h.source_label                                    AS herdado_label,

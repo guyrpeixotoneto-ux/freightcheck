@@ -1,4 +1,9 @@
 import { sql } from "drizzle-orm";
+import {
+  chaveDeEscopoSql,
+  chaveDeSerieSql,
+  filtroDeVigenciaDisponivel,
+} from "@workspace/availability";
 import type { Database } from "@workspace/db";
 
 /**
@@ -29,7 +34,22 @@ export interface VigenciaObservada {
   sourceSystem: string;
   datasetFamily: string;
   canal: string;
+  /**
+   * A chave de escopo **canônica**, vinda de `chaveDeEscopoSql`.
+   *
+   * Era `snapshot.scope_hash`, que é hash dos códigos **como vieram**: a mesma
+   * unidade com o CNPJ mascarado num arquivo e sem máscara noutro virava duas,
+   * e a Cobertura media duas unidades onde há uma. O nome continua sendo
+   * `scopeHash` — é um hash —, e o que mudou é **de que** ele é hash.
+   */
   scopeHash: string;
+  /**
+   * A chave de **série** da autoridade: sistema, família e contexto.
+   *
+   * A matriz agrupava as vigências por `${datasetFamily}|${scopeHash}|${canal}`,
+   * remontando à mão a chave que o banco já sabe calcular. Ela vem pronta.
+   */
+  serie: string;
   /** O escopo canônico serializado — a chave de recorte por unidade. */
   scopeKey: string;
   scopeLabel: string;
@@ -51,9 +71,12 @@ export interface VigenciaObservada {
 /**
  * Todas as vigências ativas, com os agregados prontos.
  *
- * `status <> 'SUPERSEDED'` é o filtro que faz a cobertura falar da realidade
- * vigente: uma revisão substituída continua no banco (e o histórico de uma
- * lacuna a consulta), mas ela não é o que o FreightCheck tem hoje.
+ * Quem diz o que é "vigência disponível" é `filtroDeVigenciaDisponivel`, da
+ * autoridade. Aqui estava escrito `status <> 'SUPERSEDED'` — que responde à
+ * mesma pergunta e não é a mesma frase: ela inclui `DRAFT`, que é a vigência
+ * ainda sendo montada dentro de uma transação. Nos bancos que existem hoje as
+ * duas dão o mesmo conjunto; a diferença é que agora só há uma definição, e
+ * mudá-la muda todos os módulos de uma vez.
  *
  * Duas consultas e um `Map`, em vez de um join com agregação: a lista de
  * vigências é pequena — dezenas hoje, milhares no horizonte — e juntar em
@@ -70,6 +93,7 @@ export async function vigenciasObservadas(
     dataset_family: string;
     canal: string;
     scope_hash: string;
+    serie: string;
     scope_key: string;
     scope_label: string;
     effective_date: string;
@@ -81,22 +105,27 @@ export async function vigenciasObservadas(
            s.source_system,
            s.dataset_family,
            s.canal,
-           s.scope_hash,
+           ${chaveDeEscopoSql("s")}                    AS scope_hash,
+           ${chaveDeSerieSql("s")}                     AS serie,
            s.canonical_scope::text                     AS scope_key,
            coalesce(
              (SELECT string_agg(coalesce(sc.name, sc.code), ' · ' ORDER BY sc.scope_type)
                 FROM snapshot_scope ss JOIN scope sc ON sc.id = ss.scope_id
                WHERE ss.snapshot_id = s.id AND sc.scope_type = 'UNIDADE'),
-             left(s.scope_hash, 8)
+             -- Sem UNIDADE nomeada, o rótulo é o começo da chave canônica.
+             -- Era o começo do scope_hash, e ali duas grafias do mesmo CNPJ
+             -- davam dois rótulos diferentes para a mesma unidade.
+             left(${chaveDeEscopoSql("s")}, 8)
            )                                           AS scope_label,
            s.effective_date::text,
            s.source_label,
            s.revision,
            s.import_run_id
       FROM snapshot s
-     WHERE s.status <> 'SUPERSEDED'
+     WHERE ${filtroDeVigenciaDisponivel("s")}
        AND (${filtro.datasetFamily ?? null}::text IS NULL OR s.dataset_family = ${filtro.datasetFamily ?? null})
-       AND (${filtro.scopeHash ?? null}::text IS NULL OR s.scope_hash = ${filtro.scopeHash ?? null})
+       AND (${filtro.scopeHash ?? null}::text IS NULL
+            OR ${chaveDeEscopoSql("s")} = ${filtro.scopeHash ?? null})
        AND (${filtro.canal === undefined ? null : filtro.canal}::text IS NULL
             OR s.canal = ${filtro.canal === undefined ? null : filtro.canal})
      ORDER BY s.effective_date, s.dataset_family, s.canal
@@ -146,6 +175,7 @@ export async function vigenciasObservadas(
     datasetFamily: r.dataset_family,
     canal: r.canal,
     scopeHash: r.scope_hash,
+    serie: r.serie,
     scopeKey: r.scope_key,
     scopeLabel: r.scope_label,
     effectiveDate: r.effective_date,

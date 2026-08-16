@@ -166,7 +166,7 @@ sequência está carregando, com o PR que as encerra:
 
 | Dívida | Desde | Encerra em | Por que é aceitável até lá |
 |---|---|---|---|
-| **`coverage` recorta por `scope_hash` cru** | PR-7 | **PR-10** | O contexto de Alterações/Impacto passou ao escopo canônico e o da Cobertura não. Num banco com o CNPJ escrito de uma forma só — todos os que existem hoje — os dois dão o mesmo recorte; num banco misto, a Cobertura enxerga duas unidades onde há uma. **Nenhuma solução intermediária deve ser criada**: nada de traduzir `scope_hash` dentro de `coverage`, nada de aceitar as duas chaves lá. A correção é migrar o pacote para a autoridade, de uma vez, no PR-10 |
+| ~~**`coverage` recorta por `scope_hash` cru**~~ | PR-7 | **PR-10 — encerrada** | Migrada de uma vez, sem solução intermediária: o pacote passou a depender de `@workspace/availability`, o recorte é `chaveDeEscopoSql`, a inferência recorta por `filtroDeSerie` e a disponibilidade por `filtroDeVigenciaDisponivel`. Nenhuma tradução de `scope_hash` foi criada dentro de `coverage` |
 | ~~**`entity_type_set` na identidade da série**~~ | — | **PR-9 — encerrada** | Saiu da série no PR-9, junto com a comparação por componente. A cobertura de equipamento recorta o que duas vigências comparam entre si, e o que ficou de fora volta nomeado no resultado |
 | **`scope_hash` legado aceito em `resolveContext`** | PR-7 | **PR-14** | Links e favoritos anteriores à mudança carregam o hash cru. Sai quando o front-end passar a usar o identificador novo explicitamente |
 
@@ -184,7 +184,7 @@ sequência está carregando, com o PR que as encerra:
 | **B4** | `comparison/engine.ts` → guardas de `computeChangeSet` | recusa comparar pares "incomparáveis" | `scope_hash` igual, `entity_type_set` igual, `channelOf` igual | qualquer chamada a `computeChangeSet` | **D3**: recusa um par legítimo quando a cobertura de equipamento cresceu | guarda passa a ser `serieDe(a) === serieDe(b)`; equipamento presente só de um lado vira **componente não entregue**, não frota que mudou |
 | **B5** | `routes/changes.ts:139` (`/changes/latest`) | agrupa snapshots em séries para escolher "a mais recente" | `scope_hash`, `entity_type_set` — **sem canal** | Alterações (aba Planilha), na abertura da tela | com dois canais na mesma unidade, agrupa canais diferentes e pode escolher a série errada | delegar a `serieDe()` |
 | **B6** | `ingest/chamados.ts:1544` → `valoresVigentes` | "a vigência mais recente da série", p/ dar o *antes* a um chamado | `DISTINCT ON (scope_hash, entity_type_set) … ORDER BY effective_date DESC` — **sem canal** | Chamados: `before_source = 'VIGENCIA'`, `before_reference`, impacto | busca o *antes* numa vigência de **outro canal**, e grava a procedência como se fosse a certa · com `entity_type_set` misto, elege **duas** "mais recentes" e uma delas é velha | `previousSnapshot()`/`latestOfSeries()` da autoridade, respeitando o canal |
-| **B7** | `coverage/{observado,esperado,matriz}.ts` | "recorte" da medição | `dataset_family`, `scope_hash`, `canal` (**coluna**) | Cobertura de dados (a tela inteira) | discorda de B1–B6 **no canal**: aqui a coluna, lá o regex. Cobertura vê a vigência; Impacto não | mesmo recorte, com `canonical_scope` no lugar de `scope_hash` |
+| **B7** | ~~`coverage/{observado,esperado,matriz}.ts`~~ | "recorte" da medição | `dataset_family`, `scope_hash`, `canal` (**coluna**) | Cobertura de dados (a tela inteira) | discordava de B1–B6 **no escopo**: aqui o hash cru, lá o canônico. O canal já era a coluna nos dois lados desde o PR-6 | **migrado no PR-10.** `chaveDeEscopoSql` no recorte, `filtroDeSerie` na inferência de esperado — que passou a receber a chave pronta em vez de remontá-la — e `filtroDeVigenciaDisponivel` no lugar de `status <> 'SUPERSEDED'` |
 | **B8** | `coverage/descoberta.ts` → `janelaDosAtributos` | janela de aparição de cada atributo | `DISTINCT ON (dataset_family, effective_date)` e `lead() PARTITION BY dataset_family` — **sem escopo e sem canal** | `/coverage/discoveries`; **e o drill-down da célula** (`detalhe.ts:111`, que passa só `datasetFamily`) | com duas unidades, colapsa as duas na mesma data e sugere renomeação cruzando unidades | recorte **obrigatório**: `(dataset_family, canonical_scope, canal)` |
 | **B9** | *(escrita)* `snapshot.canonical_snapshot_key` | identidade da **vigência**, coluna gerada pelo banco | `source_system`, `dataset_family`, `canal`, `effective_date`, `canonical_scope` | `pipeline.ts::promote` e os índices únicos | **nenhuma** — é a definição correta | **é ela.** A série é ela **sem** `effective_date` |
 | **B11** | `comparison/end-to-end.ts` → `naPonta` | pareia as duas pontas do intervalo, "série com série" | `entity_type_set` como chave do `Map` de cada data | leitura ponta a ponta (Acompanhamento, cartão de intervalo) | **D3**, por outro caminho: abril com carretas e agosto com carretas e cavalos viram duas séries sem ponta do outro lado, e a tela diz "não há ponta inicial com que comparar" sobre um par que se compara | **encontrada durante o PR-9**, e corrigida nele: a chave passa a ser `chaveDeSerieSql`, e o que ficou de fora vem de `diff.componentes` |
@@ -584,7 +584,7 @@ está errado, ou ele deve `NOT_APPLICABLE`. Não há terceira saída.
 | **Alterações · Planilha** | ~~série própria em `routes/changes.ts`~~ — **migrado no PR-9**; `resolveContext`, `contextFilter`, `findPreviousSnapshot` já delegam | `resolverContexto`, `filtroDeContexto`, `vigenciaAnterior`, `chaveDeSerieSql` | PR-5→9 |
 | **Alterações · Impacto** | `resolveContext`, `contextFilter`, `entity_type_set` p/ equipamentos | idem + `equipamentosDisponiveis`, `atributosDisponiveis` | PR-5→7, PR-9 |
 | **Alterações · Chamados** | `DISTINCT ON (scope_hash, entity_type_set)` próprio | `vigenciaAnterior` / `latestOfSeries` | PR-10 |
-| **Cobertura** | recorte próprio `(dataset_family, scope_hash, canal)` | `filtroDeSerie` + `vigenciasDisponiveis` | PR-9 |
+| ~~**Cobertura**~~ | recorte próprio `(dataset_family, scope_hash, canal)` | `filtroDeSerie` + `chaveDeEscopoSql` + `filtroDeVigenciaDisponivel` | **PR-10 — feito** |
 | **Cobertura · descobertas** | `janelaDosAtributos` sem recorte | recorte obrigatório | PR-11 |
 | **Vigências** | `listComparableSnapshots` (sem recorte) | `vigenciasDisponiveis()` — sem contexto continua sendo o censo inteiro, **por escolha declarada** | PR-9 |
 | **Comparar** | `listComparableSnapshots` + `computeChangeSet` | idem + guarda por `serieDe` | PR-8, PR-9 |
@@ -623,7 +623,7 @@ resultados idênticos aos de hoje.* O que muda é o que o produto passa a enxerg
 | Escopo por `canonical_scope` | unidades deixam de se partir por máscara de CNPJ | números do export real | **médio** — `scopeHash` está na URL e na resposta de `/contexts`; precisa de chave estável nova | `it.fails` de D1 inverte; export real idêntico |
 | `entity_type_set` fora da série | entrega parcial deixa de quebrar a série | números do export real | **médio** — exige a metade 2 (Parte D.3), senão frota vira preço | `it.fails` de D3 inverte; **e** prova de que equipamento novo entra como `NAO_ENTREGUE`, não `ENTITY_ADDED` |
 | `vigenciaAnterior` única | `/changes/latest` e chamados param de poder cruzar canal | números do export real | baixo | prova de que o *antes* de um chamado vem do mesmo canal |
-| Cobertura pela autoridade | Cobertura e Impacto passam a ver o mesmo censo | percentuais do export real | baixo | prova de censo comum entre módulos |
+| Cobertura pela autoridade | Cobertura e Impacto passam a ver o mesmo censo | percentuais do export real inalterados | **operacional baixo** — o recorte por escopo muda de chave, e a tela nunca envia `escopo` para `/coverage`; quem envia é a própria matriz, com a chave que acabou de ler | prova de censo comum entre módulos, no caso misto de CNPJ, medida nos dois lados |
 | `janelaDosAtributos` com recorte | sugestão de renomeação para de cruzar unidades | com uma unidade, nada | baixo | prova de isolamento de escopo (já existe uma para `descobertas`) |
 | `getOverview` filtrado | Painel para de divergir da Cobertura | export sem revisão: nada | baixo | prova: painel == cobertura |
 | `ContextBar` montado | a segunda unidade fica alcançável | com uma unidade, nada | baixo | prova de tela |
@@ -670,8 +670,9 @@ de toda a sequência.
 
 | PR | O quê |
 |---|---|
-| **PR-10** | Cobertura, Vigências, Comparar, Composição, DRE, Parâmetros, Assistente passam a usar a autoridade |
-| **PR-11** | `/changes/latest` e `valoresVigentes` (chamados) passam a usar `serieDe`/`vigenciaAnterior` |
+| **PR-10** | **Cobertura** passa a usar a autoridade, encerrando a dívida do §A.6 — **feito**. Os outros consumidores daquela linha (Vigências, Comparar, Composição, DRE, Parâmetros, Assistente) saem do PR-10 e viram o **PR-10b**: sete módulos num diff só contrariam a regra de responsabilidade única, e o que tinha prazo marcado era a Cobertura |
+| **PR-10b** | Vigências, Comparar, Composição, DRE, Parâmetros e Assistente passam a usar a autoridade |
+| **PR-11** | ~~`/changes/latest`~~ (feito no PR-9) e `valoresVigentes` (chamados) passam a usar a chave de série / `vigenciaAnterior` |
 | **PR-12** | `janelaDosAtributos` passa a exigir recorte |
 | **PR-13** | `getOverview` filtra vivas e contexto |
 | **PR-14** | `ContextBar` montado nas telas que recortam por contexto |

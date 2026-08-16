@@ -1,4 +1,8 @@
 import { sql } from "drizzle-orm";
+import {
+  chaveDeEscopoSql,
+  filtroDeVigenciaDisponivel,
+} from "@workspace/availability";
 import type { Database } from "@workspace/db";
 import { esperadoDaVigencia, type PresencaNaVigencia } from "./esperado";
 import { candidatoPara, janelaDosAtributos } from "./descoberta";
@@ -300,8 +304,9 @@ export async function historicoDoAtributo(
         ON agg.snapshot_id = s.id AND agg.entity_type = (SELECT entity_type FROM alvo)
       LEFT JOIN snapshot_attribute sa
         ON sa.snapshot_id = s.id AND sa.attribute_id = (SELECT id FROM alvo)
-     WHERE s.status <> 'SUPERSEDED'
-       AND (${filtro.scopeHash ?? null}::text IS NULL OR s.scope_hash = ${filtro.scopeHash ?? null})
+     WHERE ${filtroDeVigenciaDisponivel("s")}
+       AND (${filtro.scopeHash ?? null}::text IS NULL
+            OR ${chaveDeEscopoSql("s")} = ${filtro.scopeHash ?? null})
        AND (${filtro.canal === undefined ? null : filtro.canal}::text IS NULL
             OR s.canal = ${filtro.canal === undefined ? null : filtro.canal})
        AND agg.entity_type IS NOT NULL

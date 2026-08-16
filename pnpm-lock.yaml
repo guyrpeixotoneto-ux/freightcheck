@@ -825,6 +825,9 @@ importers:
 
   lib/coverage:
     dependencies:
+      '@workspace/availability':
+        specifier: workspace:*
+        version: link:../availability
       '@workspace/comparison':
         specifier: workspace:*
         version: link:../comparison

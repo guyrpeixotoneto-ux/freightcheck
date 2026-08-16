@@ -40,6 +40,22 @@ const placas = (prefixo: string, quantidade: number, atributos: Record<string, n
   return dados;
 };
 
+/**
+ * A chave de escopo de uma fixture — **perguntada ao banco**, pelo canal dela.
+ *
+ * A fixture recebe uma semente de escopo ("complementares") e o banco deriva
+ * dela o `canonical_scope`. Desde o PR-10 o recorte da Cobertura é pela chave
+ * canônica, e é ela que estes testes têm de passar. Derivá-la aqui em
+ * TypeScript — repetindo o sha256 do escopo serializado — seria escrever mais
+ * uma definição de escopo dentro do próprio teste que prova que só existe uma.
+ * Cada cenário tem o seu canal, e é por ele que a chave é encontrada.
+ */
+async function escopoDoCanal(canal: string): Promise<string> {
+  const [vigencia] = await vigenciasObservadas(ctx.db, { canal });
+  if (!vigencia) throw new Error(`Nenhuma vigência disponível no canal ${canal}.`);
+  return vigencia.scopeHash;
+}
+
 describe("1. arquivos complementares: A + B + C = uma cobertura", () => {
   /*
     O cenário do pedido, montado à mão:
@@ -63,7 +79,8 @@ describe("1. arquivos complementares: A + B + C = uma cobertura", () => {
     mínimo que torna a pergunta respondível, e é por isso que o cenário tem
     quatro vigências para três arquivos.
   */
-  const ESCOPO = "complementares";
+  const SEMENTE = "complementares";
+  let ESCOPO: string;
   let ids: Record<string, string>;
 
   beforeAll(async () => {
@@ -92,9 +109,10 @@ describe("1. arquivos complementares: A + B + C = uma cobertura", () => {
           },
         },
       ],
-      { entityType: "CARRETA", scopeHash: ESCOPO, canal: "COMPL" },
+      { entityType: "CARRETA", scopeHash: SEMENTE, canal: "COMPL" },
     );
     ids = r.snapshotIds;
+    ESCOPO = await escopoDoCanal("COMPL");
   }, 600_000);
 
   it("a vigência que reúne tudo cobre 144 entidades e 6 atributos", async () => {
@@ -163,6 +181,9 @@ describe("1. arquivos complementares: A + B + C = uma cobertura", () => {
 });
 
 describe("14. escopos diferentes não se misturam", () => {
+  let UMA: string;
+  let OUTRA: string;
+
   beforeAll(async () => {
     /*
       Duas unidades, o mesmo atributo, e só uma delas o entrega na segunda
@@ -219,17 +240,22 @@ describe("14. escopos diferentes não se misturam", () => {
       ],
       { entityType: "CARRETA", scopeHash: "unidade-dois", canal: "DOIS" },
     );
+
+    UMA = await escopoDoCanal("UM");
+    OUTRA = await escopoDoCanal("DOIS");
+    // O cenário só significa alguma coisa se as duas unidades forem duas.
+    expect(UMA).not.toBe(OUTRA);
   }, 600_000);
 
   it("a unidade que sempre entregou cobra a lacuna", async () => {
-    const visao = await visaoDaCobertura(ctx.db, { scopeHash: "unidade-um", vigencias: 3 });
+    const visao = await visaoDaCobertura(ctx.db, { scopeHash: UMA, vigencias: 3 });
     const lacunas = visao.lacunas.filter((l) => l.effectiveDate === "2026-03-01");
     expect(lacunas.map((l) => l.attributeCode)).toEqual(["carreta.so_da_um"]);
     expect(lacunas[0]!.entidadesFaltando).toBe(10);
   });
 
   it("a unidade que nunca entregou aquele atributo não é cobrada por ele", async () => {
-    const visao = await visaoDaCobertura(ctx.db, { scopeHash: "unidade-dois", vigencias: 3 });
+    const visao = await visaoDaCobertura(ctx.db, { scopeHash: OUTRA, vigencias: 3 });
     expect(visao.lacunas.map((l) => l.attributeCode)).not.toContain("carreta.so_da_um");
     const linha = visao.linhas[0]!;
     expect(linha.celulas["2026-03-01"]!.estado).toBe("COMPLETO");
@@ -237,7 +263,8 @@ describe("14. escopos diferentes não se misturam", () => {
 });
 
 describe("7 e 12. dispensa, conflito e decisão humana", () => {
-  const ESCOPO = "decisoes";
+  const SEMENTE = "decisoes";
+  let ESCOPO: string;
 
   beforeAll(async () => {
     await buildFixture(
@@ -269,8 +296,9 @@ describe("7 e 12. dispensa, conflito e decisão humana", () => {
           data: placas("DEC", 20, { "carreta.sempre": 2 }),
         },
       ],
-      { entityType: "CARRETA", scopeHash: ESCOPO, canal: "DEC" },
+      { entityType: "CARRETA", scopeHash: SEMENTE, canal: "DEC" },
     );
+    ESCOPO = await escopoDoCanal("DEC");
   }, 600_000);
 
   it("antes da decisão, a ausência é lacuna", async () => {
@@ -386,7 +414,7 @@ describe("7 e 12. dispensa, conflito e decisão humana", () => {
 });
 
 describe("15. recomputação depois de nova importação atualiza só o necessário", () => {
-  const ESCOPO = "recomputacao";
+  const SEMENTE = "recomputacao";
 
   it("uma vigência nova não reescreve o agregado das anteriores", async () => {
     await buildFixture(
@@ -399,13 +427,13 @@ describe("15. recomputação depois de nova importação atualiza só o necessá
           data: placas("REC", 5, { "carreta.rec": 1 }),
         },
       ],
-      { entityType: "CARRETA", scopeHash: ESCOPO, canal: "REC" },
+      { entityType: "CARRETA", scopeHash: SEMENTE, canal: "REC" },
     );
 
     const antes = await ctx.db.execute<{ snapshot_id: string; entity_count: number }>(sql`
       SELECT a.snapshot_id::text, a.entity_count
         FROM snapshot_entity_type a JOIN snapshot s ON s.id = a.snapshot_id
-       WHERE s.scope_hash = ${ESCOPO}
+       WHERE s.scope_hash = ${SEMENTE}
     `);
     expect(antes.rows).toHaveLength(1);
 
@@ -419,13 +447,13 @@ describe("15. recomputação depois de nova importação atualiza só o necessá
           data: placas("REC", 8, { "carreta.rec": 1 }),
         },
       ],
-      { entityType: "CARRETA", scopeHash: ESCOPO, canal: "REC" },
+      { entityType: "CARRETA", scopeHash: SEMENTE, canal: "REC" },
     );
 
     const depois = await ctx.db.execute<{ snapshot_id: string; entity_count: number }>(sql`
       SELECT a.snapshot_id::text, a.entity_count
         FROM snapshot_entity_type a JOIN snapshot s ON s.id = a.snapshot_id
-       WHERE s.scope_hash = ${ESCOPO}
+       WHERE s.scope_hash = ${SEMENTE}
        ORDER BY s.effective_date
     `);
 
@@ -474,4 +502,138 @@ describe("o drill-down concorda com a matriz em qualquer célula", () => {
       }
     }
   }, 600_000);
+});
+
+// ---------------------------------------------------------------------------
+// A migração para a autoridade (PR-10)
+// ---------------------------------------------------------------------------
+
+describe("a mesma unidade escrita de dois jeitos é uma unidade só", () => {
+  /*
+    A dívida do §A.6, encerrada.
+
+    A Cobertura recortava por `snapshot.scope_hash`, que é hash dos códigos
+    **como vieram**. A mesma unidade cujo CNPJ chegou mascarado em janeiro e sem
+    máscara em fevereiro tinha dois hashes — e a Cobertura media duas unidades
+    onde há uma: duas séries de uma vigência cada, cada uma sem histórico com
+    que inferir o esperado, e nenhuma lacuna cobrada de ninguém.
+
+    O escopo canônico é o mesmo nas duas entregas — é isso que o banco normaliza
+    —, e é por ele que o recorte passa desde este PR. A fixture desamarra as
+    duas chaves de propósito: é o único jeito de montar aqui o par que o mundo
+    real produz.
+  */
+  const CNPJ = [{ scopeType: "UNIDADE", code: "11222333000144" }];
+  let ESCOPO: string;
+
+  beforeAll(async () => {
+    const atributos = [
+      { code: "carreta.mascarado_a", dataType: "NUMERIC" as const },
+      { code: "carreta.mascarado_b", dataType: "NUMERIC" as const },
+    ];
+
+    // Janeiro: CNPJ com máscara no arquivo. Traz as duas colunas.
+    await buildFixture(
+      ctx.db,
+      atributos,
+      [
+        {
+          label: "MASC_1_1_2026",
+          effectiveDate: "2026-01-01",
+          data: placas("MSK", 10, {
+            "carreta.mascarado_a": 1,
+            "carreta.mascarado_b": 2,
+          }),
+        },
+        {
+          label: "MASC_1_2_2026",
+          effectiveDate: "2026-02-01",
+          data: placas("MSK", 10, {
+            "carreta.mascarado_a": 1,
+            "carreta.mascarado_b": 2,
+          }),
+        },
+      ],
+      {
+        entityType: "CARRETA",
+        scopeHash: "com-mascara",
+        canal: "MASCARA",
+        datasetFamily: "REMUNERACAO_MASCARA",
+        canonicalScope: CNPJ,
+      },
+    );
+
+    // Março: o mesmo CNPJ, agora sem máscara — outro `scope_hash`, o mesmo
+    // escopo canônico. E uma das colunas não veio.
+    await buildFixture(
+      ctx.db,
+      atributos,
+      [
+        {
+          label: "MASC_1_3_2026",
+          effectiveDate: "2026-03-01",
+          data: placas("MSK", 10, { "carreta.mascarado_a": 1 }),
+        },
+      ],
+      {
+        entityType: "CARRETA",
+        scopeHash: "sem-mascara",
+        canal: "MASCARA",
+        datasetFamily: "REMUNERACAO_MASCARA",
+        canonicalScope: CNPJ,
+      },
+    );
+
+    ESCOPO = await escopoDoCanal("MASCARA");
+  }, 600_000);
+
+  it("as três vigências caem no mesmo recorte", async () => {
+    /*
+      Primeiro a montagem, medida no banco: **dois** `scope_hash` crus e **um**
+      escopo canônico. Sem isto o resto do describe passaria por não estar
+      testando nada — é a diferença entre provar a correção e afirmar que ela
+      existe.
+    */
+    const { rows: crus } = await ctx.db.execute<{ hashes: number; escopos: number }>(sql`
+      SELECT count(DISTINCT s.scope_hash)::int      AS hashes,
+             count(DISTINCT s.canonical_scope::text)::int AS escopos
+        FROM snapshot s
+       WHERE s.canal = 'MASCARA'
+    `);
+    expect(Number(crus[0].hashes)).toBe(2);
+    expect(Number(crus[0].escopos)).toBe(1);
+
+    const vigencias = await vigenciasObservadas(ctx.db, { scopeHash: ESCOPO });
+
+    expect(vigencias.map((v) => v.sourceLabel).sort()).toEqual([
+      "MASC_1_1_2026",
+      "MASC_1_2_2026",
+      "MASC_1_3_2026",
+    ]);
+    // Uma chave de escopo, uma série: a grafia do CNPJ não abre a segunda.
+    expect(new Set(vigencias.map((v) => v.scopeHash)).size).toBe(1);
+    expect(new Set(vigencias.map((v) => v.serie)).size).toBe(1);
+  });
+
+  it("o histórico atravessa a mudança de grafia, e a lacuna é cobrada", async () => {
+    /*
+      A prova que importa, e a que o recorte cru não passava: em março falta uma
+      coluna que as duas entregas anteriores trouxeram. Cobrá-la exige que
+      janeiro e fevereiro sejam **história de março** — e eram, com outra
+      grafia de CNPJ. Antes deste PR, março começava do zero e não faltava nada.
+    */
+    const visao = await visaoDaCobertura(ctx.db, { scopeHash: ESCOPO, vigencias: 3 });
+    const lacunas = visao.lacunas.filter((l) => l.effectiveDate === "2026-03-01");
+
+    expect(lacunas.map((l) => l.attributeCode)).toEqual(["carreta.mascarado_b"]);
+    expect(lacunas[0]!.entidadesFaltando).toBe(10);
+  });
+
+  it("a matriz mostra uma linha de unidade, e não duas", async () => {
+    const visao = await visaoDaCobertura(ctx.db, { scopeHash: ESCOPO, vigencias: 3 });
+    const celulas = visao.linhas.flatMap((l) => Object.values(l.celulas));
+
+    expect(new Set(celulas.map((c) => c.scopeHash)).size).toBe(1);
+    expect(new Set(celulas.map((c) => c.scopeLabel)).size).toBe(1);
+  });
 });

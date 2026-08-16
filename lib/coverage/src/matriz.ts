@@ -205,9 +205,18 @@ export async function visaoDaCobertura(
     O custo é uma consulta por recorte sobre `snapshot_attribute` — a tabela
     pequena —, e não sobre `fact`.
   */
+  /*
+    Um recorte por série, e a chave da série vem da autoridade.
+
+    Aqui se escrevia `${v.datasetFamily}|${v.scopeHash}|${v.canal}` — a chave de
+    série remontada à mão, com o escopo cru. Duas grafias do mesmo CNPJ abriam
+    dois recortes, e cada um media a "novidade" contra metade do histórico da
+    unidade. Os três campos continuam sendo passados a `descobertas`, que
+    recorta por eles; o que mudou é quem decide que dois deles são o mesmo.
+  */
   const recortes = new Map<string, { datasetFamily: string; scopeHash: string; canal: string }>();
   for (const v of vigencias) {
-    recortes.set(`${v.datasetFamily}|${v.scopeHash}|${v.canal}`, {
+    recortes.set(v.serie, {
       datasetFamily: v.datasetFamily,
       scopeHash: v.scopeHash,
       canal: v.canal,

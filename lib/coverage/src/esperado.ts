@@ -1,4 +1,9 @@
 import { sql } from "drizzle-orm";
+import {
+  filtroDeSerie,
+  filtroDeVigenciaDisponivel,
+  type ChaveDeSerie,
+} from "@workspace/availability";
 import type { Database } from "@workspace/db";
 import { esperadoDeclarado, type EsperadoDeclarado } from "./contrato";
 import type { Criticidade, Esperado, Justificativa } from "./modelo";
@@ -79,19 +84,23 @@ export interface HistoricoDoAtributo {
 }
 
 /**
- * Quanto cada atributo apareceu antes de uma vigência, no mesmo recorte.
+ * Quanto cada atributo apareceu antes de uma vigência, na mesma **série**.
  *
- * Lê apenas `snapshot_attribute` e `snapshot`. O recorte é (família, canal,
- * escopo) — sem ele, a série de uma unidade contaminaria a inferência de outra,
- * e o produto passaria a cobrar de Camaçari um dado que só a outra unidade
- * entrega.
+ * Lê apenas `snapshot_attribute` e `snapshot`. O recorte não pode faltar: sem
+ * ele, a série de uma unidade contaminaria a inferência de outra, e o produto
+ * passaria a cobrar de Camaçari um dado que só a outra unidade entrega.
+ *
+ * O recorte era `(dataset_family, canal, scope_hash)` — a chave de série
+ * remontada à mão, com o escopo cru no lugar do canônico. Agora é a chave da
+ * autoridade, recebida pronta: `filtroDeSerie`. Ela inclui `source_system`, que
+ * o recorte anterior não tinha; duas origens diferentes descrevendo a mesma
+ * unidade nunca deveriam ter compartilhado histórico de inferência.
  */
 export async function historicoDosAtributos(
   db: Database,
   recorte: {
-    datasetFamily: string;
-    canal: string;
-    scopeHash: string;
+    /** A chave de `chaveDeSerieSql`, como `vigenciasObservadas` a devolve. */
+    serie: ChaveDeSerie;
     /** Exclusivo: a vigência que está sendo avaliada não entra no próprio histórico. */
     antesDe: string;
   },
@@ -109,10 +118,8 @@ export async function historicoDosAtributos(
     WITH anteriores AS (
       SELECT s.id, s.effective_date
         FROM snapshot s
-       WHERE s.status <> 'SUPERSEDED'
-         AND s.dataset_family = ${recorte.datasetFamily}
-         AND s.canal = ${recorte.canal}
-         AND s.scope_hash = ${recorte.scopeHash}
+       WHERE ${filtroDeVigenciaDisponivel("s")}
+         AND ${filtroDeSerie(recorte.serie, "s")}
          AND s.effective_date < ${recorte.antesDe}::date
     ),
     presenca AS (
@@ -142,10 +149,8 @@ export async function historicoDosAtributos(
   const { rows: totalRows } = await db.execute<{ n: number }>(sql`
     SELECT count(*)::int AS n
       FROM snapshot s
-     WHERE s.status <> 'SUPERSEDED'
-       AND s.dataset_family = ${recorte.datasetFamily}
-       AND s.canal = ${recorte.canal}
-       AND s.scope_hash = ${recorte.scopeHash}
+     WHERE ${filtroDeVigenciaDisponivel("s")}
+       AND ${filtroDeSerie(recorte.serie, "s")}
        AND s.effective_date < ${recorte.antesDe}::date
   `);
   const avaliadas = Number(totalRows[0]?.n ?? 0);
@@ -313,7 +318,7 @@ export async function esperadoDaVigencia(
   vigencia: {
     datasetFamily: string;
     canal: string;
-    scopeHash: string;
+    serie: ChaveDeSerie;
     scopeKey: string;
     effectiveDate: string;
   },
@@ -328,9 +333,7 @@ export async function esperadoDaVigencia(
       effectiveDate: vigencia.effectiveDate,
     }),
     historicoDosAtributos(db, {
-      datasetFamily: vigencia.datasetFamily,
-      canal: vigencia.canal,
-      scopeHash: vigencia.scopeHash,
+      serie: vigencia.serie,
       antesDe: vigencia.effectiveDate,
     }),
   ]);

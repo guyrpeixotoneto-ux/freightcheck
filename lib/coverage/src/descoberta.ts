@@ -1,4 +1,8 @@
 import { sql } from "drizzle-orm";
+import {
+  chaveDeEscopoSql,
+  filtroDeVigenciaDisponivel,
+} from "@workspace/availability";
 import type { Database } from "@workspace/db";
 
 /**
@@ -239,11 +243,11 @@ export async function janelaDosAtributos(
         FROM (SELECT DISTINCT ON (dataset_family, effective_date)
                      id, effective_date, dataset_family
                 FROM snapshot
-               WHERE status <> 'SUPERSEDED'
+               WHERE ${filtroDeVigenciaDisponivel("snapshot")}
                  AND (${recorte.datasetFamily ?? null}::text IS NULL
                       OR dataset_family = ${recorte.datasetFamily ?? null})
                  AND (${recorte.scopeHash ?? null}::text IS NULL
-                      OR scope_hash = ${recorte.scopeHash ?? null})
+                      OR ${chaveDeEscopoSql("snapshot")} = ${recorte.scopeHash ?? null})
                  AND (${recorte.canal === undefined ? null : recorte.canal}::text IS NULL
                       OR canal = ${recorte.canal === undefined ? null : recorte.canal})
                ORDER BY dataset_family, effective_date, revision DESC) s
@@ -284,11 +288,11 @@ async function ultimaVigencia(
   const { rows } = await db.execute<{ ultima: string | null }>(sql`
     SELECT max(effective_date)::text AS ultima
       FROM snapshot
-     WHERE status <> 'SUPERSEDED'
+     WHERE ${filtroDeVigenciaDisponivel("snapshot")}
        AND (${recorte.datasetFamily ?? null}::text IS NULL
             OR dataset_family = ${recorte.datasetFamily ?? null})
        AND (${recorte.scopeHash ?? null}::text IS NULL
-            OR scope_hash = ${recorte.scopeHash ?? null})
+            OR ${chaveDeEscopoSql("snapshot")} = ${recorte.scopeHash ?? null})
        AND (${recorte.canal === undefined ? null : recorte.canal}::text IS NULL
             OR canal = ${recorte.canal === undefined ? null : recorte.canal})
   `);
@@ -352,12 +356,12 @@ export async function descobertas(
            coalesce((
              SELECT sum(sa.value_count + sa.null_count)
                FROM snapshot_attribute sa
-               JOIN snapshot s ON s.id = sa.snapshot_id AND s.status <> 'SUPERSEDED'
+               JOIN snapshot s ON s.id = sa.snapshot_id AND ${filtroDeVigenciaDisponivel("s")}
               WHERE sa.attribute_id = a.id
            ), 0)::int                                           AS entidades,
            (SELECT s.source_label
               FROM snapshot_attribute sa
-              JOIN snapshot s ON s.id = sa.snapshot_id AND s.status <> 'SUPERSEDED'
+              JOIN snapshot s ON s.id = sa.snapshot_id AND ${filtroDeVigenciaDisponivel("s")}
              WHERE sa.attribute_id = a.id
              ORDER BY s.effective_date LIMIT 1)                  AS primeiro_rotulo,
            EXISTS (
