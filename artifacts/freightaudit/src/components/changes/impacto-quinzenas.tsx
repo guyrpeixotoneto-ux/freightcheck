@@ -181,7 +181,17 @@ const FUNDO_GRUPO =
  * continua existindo no segundo nível, como navegação lateral — o que ele
  * deixou de ser é a única porta para descobrir o que mudou.
  */
-export function ImpactoQuinzenas() {
+export function ImpactoQuinzenas({
+  contexto,
+}: {
+  /**
+   * A unidade e o canal abertos, quando alguém chegou aqui com eles escolhidos.
+   *
+   * Atravessa os dois níveis: o panorama e a matriz respondem pela mesma
+   * unidade, ou a volta ("Tudo que mudou") trocaria de assunto sem avisar.
+   */
+  contexto?: URLSearchParams;
+} = {}) {
   const [escolha, setEscolha] = useState<EscolhaDeParametro | null>(null);
   /*
     O corte de custo do panorama mora aqui, e não lá dentro, para sobreviver à
@@ -193,13 +203,19 @@ export function ImpactoQuinzenas() {
 
   if (escolha === null) {
     return (
-      <ImpactoPanorama onEscolher={setEscolha} corte={corte} onCorte={setCorte} />
+      <ImpactoPanorama
+        onEscolher={setEscolha}
+        corte={corte}
+        onCorte={setCorte}
+        contexto={contexto}
+      />
     );
   }
   return (
     <MatrizDeQuinzenas
       inicial={escolha}
       onVoltar={() => setEscolha(null)}
+      contexto={contexto}
       key={`${escolha.entityType}:${escolha.code}`}
     />
   );
@@ -208,9 +224,11 @@ export function ImpactoQuinzenas() {
 function MatrizDeQuinzenas({
   inicial,
   onVoltar,
+  contexto,
 }: {
   inicial: EscolhaDeParametro;
   onVoltar: () => void;
+  contexto?: URLSearchParams;
 }) {
   const [entityType, setEntityType] = useState<string | null>(inicial.entityType);
   const [attributeCode, setAttributeCode] = useState<string | null>(inicial.code);
@@ -218,10 +236,17 @@ function MatrizDeQuinzenas({
   const [fechados, setFechados] = useState<Set<string>>(new Set());
   const [soComMovimento, setSoComMovimento] = useState(false);
 
+  const consultaDoContexto = contexto?.toString() ?? "";
   const query = useQuery({
-    queryKey: ["impacto", "quinzenas", entityType, attributeCode],
+    queryKey: [
+      "impacto",
+      "quinzenas",
+      entityType,
+      attributeCode,
+      consultaDoContexto,
+    ],
     queryFn: () => {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams(consultaDoContexto);
       if (entityType) params.set("entityType", entityType);
       if (attributeCode) params.set("attributeCode", attributeCode);
       const qs = params.toString();

@@ -85,6 +85,16 @@ export interface Filters {
   comparability: string;
   impactConfidence: string;
   attributeCode: string;
+  /**
+   * `CAVALO` | `CARRETA` — o equipamento da linha, dentro da vigência lida.
+   *
+   * Não é o mesmo que trocar de série nas pastilhas acima da lista: lá se
+   * escolhe **qual comparação** ler, e a comparação de uma série é sempre a
+   * mais recente dela; aqui se escolhe **quais linhas** de uma leitura já feita
+   * ficam à vista. Com a vigência fixada — quem chegou da Visão geral —, só o
+   * segundo responde "o que mudou no cavalo *neste* mês".
+   */
+  entityType: string;
   search: string;
   minAbsImpact: string;
 }
@@ -96,6 +106,7 @@ export const emptyFilters: Filters = {
   comparability: "",
   impactConfidence: "",
   attributeCode: "",
+  entityType: "",
   search: "",
   minAbsImpact: "",
 };
@@ -567,6 +578,12 @@ const IMPACTO_LABELS: Record<string, string> = {
   NOT_CALCULABLE: "sem impacto",
 };
 
+/** Espelha `equipmentLabel` do servidor — o mesmo nome que a Visão geral usa. */
+const EQUIPAMENTO_LABELS: Record<string, string> = {
+  CAVALO: "Cavalo",
+  CARRETA: "Carreta",
+};
+
 /**
  * Um recorte ligado, em palavras — o suficiente para ser lido e desfeito.
  *
@@ -660,6 +677,18 @@ export function filtrosAtivos(filters: Filters): FiltroAtivo[] {
       valor: filters.attributeCode,
       avancado: true,
       patch: { attributeCode: "" },
+    });
+  }
+  // O equipamento não tem chip na barra: ele chega por link, da Visão geral. É
+  // por isso que aparece aqui — um recorte que ninguém ligou nesta tela é o que
+  // mais precisa estar escrito nela, com o × ao lado.
+  if (filters.entityType) {
+    lista.push({
+      id: "entityType",
+      grupo: "equipamento",
+      valor: (EQUIPAMENTO_LABELS[filters.entityType] ?? filters.entityType).toLowerCase(),
+      avancado: true,
+      patch: { entityType: "" },
     });
   }
 

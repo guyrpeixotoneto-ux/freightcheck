@@ -7,6 +7,12 @@ import type {
 } from "@/components/inicio/types";
 import { juntarPrioridades } from "@/lib/cockpit";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
+import {
+  linkDeAlteracoes,
+  RECORTE_VAZIO,
+  type FiltrosDeLinha,
+  type Recorte,
+} from "@/lib/recorte";
 
 /**
  * A aritmética da Visão geral, fora do JSX.
@@ -27,6 +33,13 @@ import { formatBrlShort, periodicitySuffix } from "@/lib/format";
  *    o ranking de impacto acontece *dentro* de uma periodicidade — nunca entre
  *    elas. É a mesma recusa do Acompanhamento e dos Parâmetros; se ela cair
  *    aqui, cai no lugar mais visível do produto.
+ * 3. **Número que se abre leva o recorte junto.** Cada endereço que sai daqui
+ *    carrega a unidade e a vigência que produziram o número, e o filtro que
+ *    reproduz exatamente a população contada. Um "244 alterações sem preço" que
+ *    abrisse uma lista de 1.100 na vigência errada não seria um atalho: seria
+ *    uma contradição entre duas telas do mesmo produto, e quem visse as duas não
+ *    teria como saber qual acreditar. A gramática desses endereços mora em
+ *    `lib/recorte.ts`; o que cada número tem a dizer nela, aqui.
  *
  * Nada neste arquivo lê a rede. As entradas são exatamente os JSON que as rotas
  * devolvem, o que deixa cada conta legível ao lado do contrato que a alimenta.
@@ -408,8 +421,10 @@ export function pontosDeAtencao(
   view: FamiliesView,
   ranking: RankingDeImpacto | null,
   integridadeDosDados: Integridade | null,
+  recorte: Recorte = RECORTE_VAZIO,
 ): PontoDeAtencao[] {
   const pontos: PontoDeAtencao[] = [];
+  const daVigencia: Recorte = { ...recorte, period: view.period };
 
   const negativos = (ranking?.linhas ?? []).filter((l) => l.amount < 0);
   const maior = negativos[0] ?? ranking?.linhas[0];
@@ -424,6 +439,16 @@ export function pontosDeAtencao(
     });
   }
 
+  /*
+    "Sem preço" leva às alterações, e não mais à Curadoria.
+
+    O ponto conta **alterações** — "244 alterações requerem análise" —, e um
+    número de alterações que abre uma tela de atributos obriga quem clicou a
+    refazer sozinho a ligação entre as duas contagens. As 244 estão listadas em
+    Alterações, filtradas por este mesmo `NOT_CALCULABLE`, e a Curadoria continua
+    a um clique de lá: é ela que aparece dentro do painel "sem preço", que é
+    onde a pergunta seguinte — *como isto ganha preço?* — de fato nasce.
+  */
   const semPreco = view.impact.notCalculable;
   pontos.push({
     chave: "sem-preco",
@@ -434,7 +459,13 @@ export function pontosDeAtencao(
         ? `${inteiro(semPreco)} ${semPreco === 1 ? "alteração requer" : "alterações requerem"} análise`
         : "Nenhuma alteração ficou sem valor apurado",
     valor: null,
-    href: "/curadoria",
+    href:
+      semPreco > 0
+        ? linkDeAlteracoes({
+            recorte: daVigencia,
+            filtros: { impactConfidence: "NOT_CALCULABLE" },
+          })
+        : "/curadoria",
   });
 
   const equipamento = equipamentoMaisTocado(view);
@@ -447,7 +478,16 @@ export function pontosDeAtencao(
         equipamento.mudancas === 1 ? "mudança detectada" : "mudanças detectadas"
       }`,
       valor: null,
-      href: "/alteracoes",
+      /*
+        `entityType` e não a pastilha de série: a pastilha troca a comparação
+        por "a mais recente do cavalo", que pode ser outro mês. Este ponto fala
+        das mudanças **desta** vigência, e é dentro dela que o equipamento
+        precisa recortar.
+      */
+      href: linkDeAlteracoes({
+        recorte: daVigencia,
+        filtros: equipamento.entityType ? { entityType: equipamento.entityType } : {},
+      }),
     });
   }
 
@@ -476,14 +516,21 @@ export function pontosDeAtencao(
  */
 export function equipamentoMaisTocado(
   view: GroupedView,
-): { nome: string; mudancas: number } | null {
+): { nome: string; entityType: string | null; mudancas: number } | null {
   const baldes = view.cockpit.panorama.byEquipment.filter((b) => b.changes > 0);
   if (baldes.length === 0) return null;
 
   const maior = [...baldes].sort(
     (a, b) => b.changes - a.changes || a.equipment.localeCompare(b.equipment, "pt-BR"),
   )[0];
-  return { nome: maior.equipment, mudancas: maior.changes };
+  // `entityType` sai junto com o nome porque é ele que viaja no link: "Cavalo" é
+  // como se lê, `CAVALO` é como o servidor filtra, e traduzir um no outro na
+  // tela seria uma terceira tabela de nomes para manter igual às outras duas.
+  return {
+    nome: maior.equipment,
+    entityType: maior.entityType,
+    mudancas: maior.changes,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -498,6 +545,17 @@ export interface LinhaDeAlteracao {
   titulo: string;
   detalhe: string;
   direita: string;
+  /**
+   * A lista de Alterações recortada nesta linha — a vigência, o parâmetro e o
+   * equipamento de que ela fala.
+   *
+   * Existe porque um item de destaque que não abre nada é um beco: a tela diz
+   * "combustivelConsumoBenchmark mudou em 10 ativos" e deixa quem quer ver os 10
+   * refazer o filtro à mão do outro lado. Sai daqui, e não do JSX, para que o
+   * endereço seja testável — `recorte.ts` guarda a gramática; este arquivo diz o
+   * que cada linha tem a dizer nela.
+   */
+  href: string;
 }
 
 /**
@@ -517,7 +575,11 @@ export interface LinhaDeAlteracao {
  * verdadeiro para pôr à direita é o tamanho do fato: em quantos ativos ele
  * aconteceu.
  */
-export function ultimasAlteracoes(view: GroupedView, limite = 4): LinhaDeAlteracao[] {
+export function ultimasAlteracoes(
+  view: GroupedView,
+  limite = 4,
+  recorte: Recorte = RECORTE_VAZIO,
+): LinhaDeAlteracao[] {
   const fila = juntarPrioridades(view);
   /*
     A fila vazia com grupos na mão não deveria acontecer — as duas listas nascem
@@ -526,6 +588,7 @@ export function ultimasAlteracoes(view: GroupedView, limite = 4): LinhaDeAlterac
     as alterações da vigência.
   */
   const grupos = fila.length > 0 ? fila.map((entrada) => entrada.group) : view.groups;
+  const daVigencia: Recorte = { ...recorte, period: view.period };
 
   return grupos.slice(0, limite).map((grupo) => ({
     chave: grupo.key,
@@ -533,7 +596,24 @@ export function ultimasAlteracoes(view: GroupedView, limite = 4): LinhaDeAlterac
     titulo: tituloDaLinha(grupo),
     detalhe: detalheDaLinha(grupo),
     direita: `${inteiro(grupo.vehicles)} ${grupo.vehicles === 1 ? "ativo" : "ativos"}`,
+    href: linkDaAlteracao(grupo, daVigencia),
   }));
+}
+
+/**
+ * O endereço das linhas de um grupo.
+ *
+ * O recorte é o mais estreito que o grupo sustenta, e nem um passo além. Grupo
+ * sem `attributeCode` — um ativo que entrou, uma coluna que sumiu — não vira um
+ * `attributeCode=null` na URL: ele leva à vigência inteira, e a lista ordenada
+ * por materialidade põe o assunto por perto. Um filtro inventado devolveria zero
+ * linhas, e zero linhas depois de um clique se lê como defeito da tela.
+ */
+function linkDaAlteracao(grupo: ChangeGroup, recorte: Recorte): string {
+  const filtros: FiltrosDeLinha = {};
+  if (grupo.attributeCode) filtros.attributeCode = grupo.attributeCode;
+  if (grupo.entityType) filtros.entityType = grupo.entityType;
+  return linkDeAlteracoes({ recorte, filtros });
 }
 
 function tipoDaLinha(grupo: ChangeGroup): TipoDeLinha {

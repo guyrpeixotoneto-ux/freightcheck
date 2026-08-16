@@ -8,6 +8,7 @@ import {
   integridade,
   maioresImpactos,
   participacao,
+  pontosDeAtencao,
   qualidadeDaCobertura,
   tempoRelativo,
   ultimaImportacao,
@@ -20,6 +21,7 @@ import type {
   ChangeGroup,
   CockpitView,
   ExecutiveSummary,
+  FamiliesView,
   GroupedView,
   PriorityItem,
 } from "@/components/inicio/types";
@@ -414,7 +416,13 @@ describe("o que o cockpit já respondeu", () => {
   });
 
   it("conta mudanças por equipamento, e não ativos", () => {
-    expect(equipamentoMaisTocado(vigencia())).toEqual({ nome: "Cavalo", mudancas: 244 });
+    expect(equipamentoMaisTocado(vigencia())).toEqual({
+      nome: "Cavalo",
+      // O código sai junto do nome porque é ele que viaja no link para
+      // Alterações: "Cavalo" é como se lê, `CAVALO` é como o servidor filtra.
+      entityType: "CAVALO",
+      mudancas: 244,
+    });
   });
 
   it("sem equipamento com mudança, não elege nenhum", () => {
@@ -500,5 +508,111 @@ describe("o que o cockpit já respondeu", () => {
     expect(linhas[1].titulo).toBe("Valor aumentado em Manutenção — Cavalo");
     expect(linhas[2].titulo).toBe("Mudança sem preço — Seguro — Cavalo");
     expect(linhas[2].detalhe).toBe("preço não localizado");
+  });
+});
+
+/**
+ * Para onde cada número desta tela leva.
+ *
+ * O defeito que estes casos impedem não é um link quebrado — é o link que abre
+ * uma população **diferente da que foi clicada**. Quem lê 62 alterações sem
+ * preço em julho e cai numa lista de agosto com outro total não conclui que
+ * errou de link: conclui que uma das duas telas está mentindo, e não tem como
+ * saber qual.
+ */
+describe("o caminho até as Alterações", () => {
+  const recorte = { period: "2026-07-01", scopeHash: "h", canal: "EMPURRADA" };
+
+  const consulta = (href: string) =>
+    new URLSearchParams(href.split("?")[1] ?? "");
+
+  const familias = (view = vigencia()): FamiliesView => ({
+    ...view,
+    summary: {
+      impact: view.impact,
+      lossesByPeriodicity: {},
+      gainsByPeriodicity: {},
+      changes: 0,
+      groups: 0,
+      critical: 0,
+      locked: 0,
+      notCalculable: view.impact.notCalculable,
+      vehiclesTouched: 0,
+      topParameters: [],
+      topVehicles: [],
+    },
+    families: [],
+    freightechSemDado: [],
+  });
+
+  it("as mudanças sem preço abrem as próprias linhas, filtradas", () => {
+    const ponto = pontosDeAtencao(familias(), null, null, recorte).find(
+      (p) => p.chave === "sem-preco",
+    )!;
+    expect(ponto.href.startsWith("/alteracoes?")).toBe(true);
+    expect(consulta(ponto.href).get("impactConfidence")).toBe("NOT_CALCULABLE");
+  });
+
+  it("o equipamento mais tocado recorta dentro da vigência, e não troca de série", () => {
+    // `entityType` filtra as linhas do período aberto; `serie` trocaria a
+    // comparação por "a mais recente do cavalo", que pode ser outro mês.
+    const ponto = pontosDeAtencao(familias(), null, null, recorte).find(
+      (p) => p.chave === "equipamento",
+    )!;
+    expect(consulta(ponto.href).get("entityType")).toBe("CAVALO");
+    expect(consulta(ponto.href).has("serie")).toBe(false);
+  });
+
+  it("a vigência que viaja é a que o servidor respondeu, não a que a URL pediu", () => {
+    // Quem abre a Visão geral sem escolher nada está lendo uma vigência mesmo
+    // assim. Mandar o recorte vazio faria o outro lado escolher de novo, por
+    // conta própria, e possivelmente outra.
+    const ponto = pontosDeAtencao(familias(), null, null)[0];
+    expect(consulta(ponto.href).get("period")).toBe("2026-08-01");
+  });
+
+  it("sem alteração sem preço, o ponto deixa de ser uma lista e vira a Curadoria", () => {
+    const view = familias(
+      vigencia({
+        impact: {
+          byPeriodicity: {},
+          excludedByPeriodicity: {},
+          excludedChanges: 0,
+          notCalculable: 0,
+          calculatedChanges: 0,
+        },
+      }),
+    );
+    const ponto = pontosDeAtencao(view, null, null, recorte).find(
+      (p) => p.chave === "sem-preco",
+    )!;
+    // Filtrar por "sem impacto" uma vigência sem nenhuma devolveria zero linhas,
+    // e zero linhas depois de um clique lê-se como defeito da tela.
+    expect(ponto.href).toBe("/curadoria");
+  });
+
+  it("cada alteração em destaque leva o seu próprio recorte", () => {
+    const view = vigencia({
+      groups: [grupo({ key: "a", attributeCode: "cavalo.ipva", entityType: "CAVALO" })],
+      cockpit: cockpit({ priorities: [] }),
+    });
+    const [linha] = ultimasAlteracoes(view, 4, recorte);
+    expect(consulta(linha.href).get("attributeCode")).toBe("cavalo.ipva");
+    expect(consulta(linha.href).get("entityType")).toBe("CAVALO");
+    expect(consulta(linha.href).get("period")).toBe("2026-08-01");
+    expect(consulta(linha.href).get("scopeHash")).toBe("h");
+  });
+
+  it("grupo sem atributo não inventa filtro", () => {
+    // Um ativo que entrou ou uma coluna que sumiu não têm `attributeCode`.
+    // `attributeCode=null` no endereço devolveria zero linhas.
+    const view = vigencia({
+      groups: [grupo({ key: "a", attributeCode: null, entityType: null })],
+      cockpit: cockpit({ priorities: [] }),
+    });
+    const [linha] = ultimasAlteracoes(view, 4, recorte);
+    expect(consulta(linha.href).has("attributeCode")).toBe(false);
+    expect(consulta(linha.href).has("entityType")).toBe(false);
+    expect(consulta(linha.href).get("period")).toBe("2026-08-01");
   });
 });

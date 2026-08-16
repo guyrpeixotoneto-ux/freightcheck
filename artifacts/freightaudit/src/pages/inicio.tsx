@@ -58,6 +58,12 @@ import {
   type PontoDeAtencao,
   type Tom,
 } from "@/lib/visao-geral";
+import {
+  lerRecorte,
+  linkDeAlteracoes,
+  nomeDaUnidade,
+  type Recorte,
+} from "@/lib/recorte";
 import type { FamiliesView, GroupedView, SeriesContext } from "@/components/inicio/types";
 import type { BalancoResumo } from "@/components/balanco/tipos";
 
@@ -195,6 +201,18 @@ export default function Inicio() {
   const ultima = useMemo(() => ultimaImportacao(importacoes.data), [importacoes.data]);
   const ranking = useMemo(() => maioresImpactos(view?.summary), [view]);
 
+  /*
+    O recorte que sai daqui rumo às Alterações.
+
+    Sai do endereço, e não do estado da tela, porque é o mesmo que os cartões de
+    troca escrevem lá em cima — o link herda a unidade e a vigência que estão à
+    vista. A vigência é reposta com a que o servidor de fato respondeu (dentro de
+    `pontosDeAtencao` e `ultimasAlteracoes`): quem abriu sem escolher nada tem a
+    URL vazia e mesmo assim está lendo uma vigência, e mandá-la vazia faria o
+    outro lado escolher de novo, por conta própria, e possivelmente outra.
+  */
+  const recorte = lerRecorte(search);
+
   const trocarPara = (mudancas: Record<string, string | null>) => {
     const proxima = new URLSearchParams(search);
     for (const [chave, valor] of Object.entries(mudancas)) {
@@ -231,10 +249,11 @@ export default function Inicio() {
               view={view}
               anterior={comparacao.data ?? null}
               cobertura={coberturaAuditada}
+              recorte={recorte}
             />
 
             <Atencao
-              pontos={pontosDeAtencao(view, ranking, integridadeDosDados)}
+              pontos={pontosDeAtencao(view, ranking, integridadeDosDados, recorte)}
             />
 
             {!view.complete && (
@@ -252,7 +271,7 @@ export default function Inicio() {
 
             <div className="grid gap-5 lg:grid-cols-2">
               <MaioresImpactos ranking={ranking} period={view.period} />
-              <UltimasAlteracoes view={view} />
+              <UltimasAlteracoes view={view} recorte={recorte} />
             </div>
 
             <div className="grid gap-5 lg:grid-cols-2">
@@ -405,12 +424,6 @@ const BOTAO_DE_TROCA =
   "flex items-center gap-2 rounded-lg border border-brand bg-card px-4 py-2.5 " +
   "text-sm font-bold text-brand hover:bg-accent transition-colors";
 
-/** O nome da unidade; sem escopo cadastrado sobra o rótulo que o servidor montou. */
-function nomeDaUnidade(contexto: SeriesContext): string {
-  const unidade = contexto.scopes.find((s) => s.scopeType === "UNIDADE");
-  return unidade?.name ?? unidade?.code ?? contexto.label;
-}
-
 // ---------------------------------------------------------------------------
 // Os cinco números
 // ---------------------------------------------------------------------------
@@ -423,15 +436,31 @@ function nomeDaUnidade(contexto: SeriesContext): string {
  * a auditoria cobre. O quarto existe para que o primeiro não seja lido como a
  * conta fechada — impacto apurado sem o número do que ficou de fora é meia
  * verdade contada com autoridade de total.
+ *
+ * **Quatro deles abrem**, e cada um na tela que mostra exatamente a população
+ * que ele contou:
+ *
+ * - *Impacto líquido* → as linhas com valor apurado (`impactConfidence=CALCULATED`);
+ * - *Alterações detectadas* → a vigência inteira, sem filtro;
+ * - *Veículos afetados* → a Análise de frota, que é onde se lê ativo por ativo;
+ * - *Sem impacto calculável* → as mesmas alterações, filtradas em `NOT_CALCULABLE`.
+ *
+ * *Cobertura auditada* leva ao Balanço de massa, que é de onde a conta dela sai.
+ * Nenhum destes destinos foi escolhido por parecer relacionado: em cada um, o
+ * número do cartão é o número que a tela de destino mostra. Um atalho que abre
+ * um total diferente do que foi clicado gasta mais confiança do que economiza
+ * cliques.
  */
 function Indicadores({
   view,
   anterior,
   cobertura: coberturaAuditada,
+  recorte,
 }: {
   view: FamiliesView;
   anterior: GroupedView | null;
   cobertura: ReturnType<typeof cobertura>;
+  recorte: Recorte;
 }) {
   const impactos = impactosDaVigencia(view);
   const frota = frotaTotal(view);
@@ -440,12 +469,31 @@ function Indicadores({
   const variacaoDeMudancas = variacao(view.totals.changes, anterior?.totals.changes);
   const qualidade = coberturaAuditada ? qualidadeDaCobertura(coberturaAuditada.percentual) : null;
 
+  // A vigência que o servidor respondeu, e não a que a URL pediu: quem não
+  // escolheu nada está lendo uma vigência mesmo assim, e é ela que precisa
+  // atravessar para o outro lado.
+  const daVigencia: Recorte = { ...recorte, period: view.period };
+
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
       <Indicador
         icone={ReceiptText}
         titulo="Impacto líquido"
         ajuda="A diferença de remuneração apurada nesta vigência, por periodicidade. R$/mês e R$/ano nunca são somados: são grandezas diferentes."
+        /*
+          Sem impacto apurado não há lista para abrir: o link levaria a uma tela
+          filtrada em "com impacto" que responderia com zero linhas, que é o
+          mesmo que um beco com aparência de erro.
+        */
+        href={
+          impactos.length === 0
+            ? undefined
+            : linkDeAlteracoes({
+                recorte: daVigencia,
+                filtros: { impactConfidence: "CALCULATED" },
+              })
+        }
+        abrir="ver as alterações que somam este valor"
       >
         {impactos.length === 0 ? (
           <>
@@ -511,6 +559,8 @@ function Indicadores({
         icone={FileText}
         titulo="Alterações detectadas"
         ajuda="Cada valor que mudou entre a vigência anterior e esta, contado uma vez por ativo e por parâmetro."
+        href={linkDeAlteracoes({ recorte: daVigencia })}
+        abrir="ver a lista completa das alterações"
       >
         <ValorGrande texto={view.totals.changes.toLocaleString("pt-BR")} />
         {variacaoDeMudancas !== null && (
@@ -535,6 +585,14 @@ function Indicadores({
         icone={Truck}
         titulo="Veículos afetados"
         ajuda="Ativos com pelo menos uma alteração nesta vigência, sobre a frota que a vigência entregou."
+        /*
+          O único dos cinco que **não** abre em Alterações, e é por honestidade
+          de contagem: lá o grão é a alteração, e uma lista de 244 linhas não é a
+          resposta para um cartão que diz 62 ativos. A Análise de frota conta
+          ativos, que é o que este número conta.
+        */
+        href="/analise-equipamentos"
+        abrir="ver a frota, ativo por ativo"
       >
         <ValorGrande texto={view.totals.vehiclesTouched.toLocaleString("pt-BR")} />
         {veiculos !== null && (
@@ -548,6 +606,15 @@ function Indicadores({
         icone={CircleHelp}
         titulo="Sem impacto calculável"
         ajuda="Alterações reais que o sistema não sabe valorar — falta semântica confirmada ou preço. Elas não entram no impacto acima, e nenhuma delas foi arredondada para zero."
+        href={
+          view.impact.notCalculable === 0
+            ? undefined
+            : linkDeAlteracoes({
+                recorte: daVigencia,
+                filtros: { impactConfidence: "NOT_CALCULABLE" },
+              })
+        }
+        abrir="ver quais alterações ficaram sem preço"
       >
         <ValorGrande texto={view.impact.notCalculable.toLocaleString("pt-BR")} />
         {semPreco !== null && <Nota texto={`${escreverPercentual(semPreco)} das alterações`} />}
@@ -558,6 +625,8 @@ function Indicadores({
         titulo="Cobertura auditada"
         ajuda="Das células que as planilhas trouxeram, quanto a auditoria alcança: tudo menos a perda declarada e o resíduo sem destino. É percentual de célula, não de dinheiro."
         tom="ok"
+        href={coberturaAuditada === null ? undefined : "/balanco-massa"}
+        abrir="ver a conservação célula a célula"
       >
         {coberturaAuditada === null ? (
           <>
@@ -593,16 +662,22 @@ function Indicador({
   titulo,
   ajuda,
   tom,
+  href,
+  abrir,
   children,
 }: {
   icone: LucideIcon;
   titulo: string;
   ajuda: string;
   tom?: "marca" | "ok";
+  /** Para onde o número leva. Sem destino, o cartão continua só cartão. */
+  href?: string;
+  /** O que a pessoa vai encontrar lá — o rodapé do cartão, e o rótulo do link. */
+  abrir?: string;
   children: React.ReactNode;
 }) {
-  return (
-    <section className={cn(CARTAO, "p-5 flex flex-col")}>
+  const conteudo = (
+    <>
       <div className="flex items-start gap-2.5">
         <span
           className={cn(
@@ -616,9 +691,39 @@ function Indicador({
           />
         </span>
         <h2 className="text-[0.8125rem] font-bold min-w-0 flex-1 leading-tight pt-1.5">{titulo}</h2>
+        {/*
+          O ⓘ fica fora do link, e não dentro dele.
+
+          São duas ações diferentes na mesma linha: ler a definição do número e
+          abrir a lista que o produziu. Aninhadas, um toque no ⓘ navegaria — e a
+          definição, que é a defesa contra citar o número errado, viraria a coisa
+          mais fácil de disparar por engano.
+        */}
         <Ajuda texto={ajuda} />
       </div>
       <div className="mt-5">{children}</div>
+    </>
+  );
+
+  if (!href) {
+    return <section className={cn(CARTAO, "p-5 flex flex-col")}>{conteudo}</section>;
+  }
+
+  return (
+    <section className={cn(CARTAO, "flex flex-col relative group focus-within:border-brand hover:border-brand transition-colors")}>
+      <div className="p-5 flex flex-col flex-1">{conteudo}</div>
+      {/*
+        O link cobre o cartão inteiro (`absolute inset-0`) em vez de embrulhá-lo:
+        assim o alvo do clique é o cartão todo — que é o que o olho vê como um
+        botão — sem que o ⓘ e o texto do número virem filhos de uma âncora.
+        O rótulo acessível é a frase do rodapé, e não "saiba mais": quem navega
+        por leitor de tela ouve cinco links e precisa distinguir os cinco.
+      */}
+      <span className="px-5 pb-4 pt-3 mt-auto flex items-center gap-1 text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground group-hover:text-brand transition-colors">
+        {abrir ?? "abrir"}
+        <ChevronRight className="w-3.5 h-3.5" />
+      </span>
+      <Link href={href} aria-label={`${titulo}: ${abrir ?? "abrir"}`} className="absolute inset-0 rounded-xl" />
     </section>
   );
 }
@@ -637,7 +742,12 @@ function Ajuda({ texto }: { texto: string }) {
         <button
           type="button"
           aria-label={texto}
-          className="shrink-0 text-muted-foreground hover:text-foreground transition-colors"
+          /*
+            `relative z-10`: nos cartões que abrem uma tela, um link cobre o
+            cartão inteiro e passaria por cima deste botão. Sem a camada, tocar
+            no ⓘ navegaria em vez de mostrar a definição do número.
+          */
+          className="relative z-10 shrink-0 text-muted-foreground hover:text-foreground transition-colors"
         >
           <Info className="w-4 h-4" />
         </button>
@@ -1001,16 +1111,27 @@ const COR_DA_LINHA: Record<LinhaDeAlteracao["tipo"], string> = {
  * — inventariam uma cronologia que o dado não tem. O que é verdadeiro pôr à
  * direita é o tamanho do fato: em quantos ativos ele aconteceu.
  */
-function UltimasAlteracoes({ view }: { view: FamiliesView }) {
-  const linhas = ultimasAlteracoes(view);
+function UltimasAlteracoes({
+  view,
+  recorte,
+}: {
+  view: FamiliesView;
+  recorte: Recorte;
+}) {
+  const linhas = ultimasAlteracoes(view, 4, recorte);
 
   return (
     <section className={cn(CARTAO, "px-6 py-5 flex flex-col")}>
       <div className="flex items-center gap-2">
         <h2 className="text-base font-bold">Alterações em destaque</h2>
         <Ajuda texto="As alterações mais relevantes da vigência aberta, na mesma ordem do Acompanhamento: dinheiro primeiro, ruído por último." />
+        {/*
+          "Ver todas" leva a vigência junto. Sem ela, o link abria a comparação
+          mais recente da unidade padrão — e quem estava lendo julho de CAMAÇARI
+          via a lista de agosto sem uma palavra dizendo que o assunto mudou.
+        */}
         <Link
-          href="/alteracoes"
+          href={linkDeAlteracoes({ recorte: { ...recorte, period: view.period } })}
           className="ml-auto text-[0.8125rem] font-bold text-brand hover:underline shrink-0"
         >
           Ver todas
@@ -1026,39 +1147,122 @@ function UltimasAlteracoes({ view }: { view: FamiliesView }) {
           {linhas.map((linha, indice) => {
             const Icone = ICONE_DA_LINHA[linha.tipo];
             return (
-              <li key={linha.chave} className="flex items-start gap-3 py-3.5">
-                <span
-                  className={cn(
-                    "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
-                    COR_DA_LINHA[linha.tipo],
-                  )}
-                >
-                  <Icone className="w-4 h-4" />
-                </span>
+              <li key={linha.chave}>
                 {/*
-                  A ordem numerada, e não bolinha de lista: esta fila é a do
-                  cockpit, e o "1." afirma que existe um primeiro — quem lê
-                  precisa saber que a lista está ordenada por relevância e não
-                  pela ordem em que os dados chegaram.
+                  A linha inteira é o link, e o destino é o recorte dela: a
+                  vigência aberta, o parâmetro e o equipamento de que ela fala.
+                  Era o beco mais visível desta tela — quatro alterações
+                  anunciadas por nome, e nenhuma delas abria as suas linhas.
                 */}
-                <span className="text-sm font-bold text-muted-foreground tabular-nums shrink-0 pt-1">
-                  {indice + 1}.
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-sm font-semibold leading-snug">{linha.titulo}</span>
-                  <span className="block text-xs text-muted-foreground mt-1 leading-snug">
-                    {linha.detalhe}
+                <Link
+                  href={linha.href}
+                  className="group flex items-start gap-3 py-3.5 -mx-2 px-2 rounded-lg hover:bg-accent/40 transition-colors"
+                >
+                  <span
+                    className={cn(
+                      "w-8 h-8 rounded-full flex items-center justify-center shrink-0",
+                      COR_DA_LINHA[linha.tipo],
+                    )}
+                  >
+                    <Icone className="w-4 h-4" />
                   </span>
-                </span>
-                <span className="shrink-0 rounded-lg border px-2.5 py-1.5 text-xs text-muted-foreground tabular-nums">
-                  {linha.direita}
-                </span>
+                  {/*
+                    A ordem numerada, e não bolinha de lista: esta fila é a do
+                    cockpit, e o "1." afirma que existe um primeiro — quem lê
+                    precisa saber que a lista está ordenada por relevância e não
+                    pela ordem em que os dados chegaram.
+                  */}
+                  <span className="text-sm font-bold text-muted-foreground tabular-nums shrink-0 pt-1">
+                    {indice + 1}.
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold leading-snug group-hover:text-brand transition-colors">
+                      {linha.titulo}
+                    </span>
+                    <span className="block text-xs text-muted-foreground mt-1 leading-snug">
+                      {linha.detalhe}
+                    </span>
+                  </span>
+                  <span className="shrink-0 rounded-lg border px-2.5 py-1.5 text-xs text-muted-foreground tabular-nums">
+                    {linha.direita}
+                  </span>
+                </Link>
               </li>
             );
           })}
         </ol>
       )}
+
+      <LeiturasDeAlteracoes view={view} recorte={recorte} />
     </section>
+  );
+}
+
+/**
+ * As três leituras de Alterações, nomeadas onde a pergunta por elas nasce.
+ *
+ * A tela contava alterações e oferecia uma porta só — "Ver todas" —, que abre a
+ * Planilha. As outras duas abas existiam sem que nada aqui dissesse que existem:
+ * quem quisesse saber o que **nós** pedimos por chamado, ou quanto cada ativo
+ * custa em cada quinzena, tinha de descobrir por conta própria que a resposta
+ * mora atrás de uma aba de outra tela.
+ *
+ * Cada uma leva o que sabe honrar, e é `linkDeAlteracoes` quem faz esse corte:
+ * a Planilha vai recortada na vigência aberta; o Impacto leva a unidade mas não
+ * a vigência, porque ele põe todas as quinzenas lado a lado; Chamados não leva
+ * nada, porque o export de chamados é uma população própria, sem unidade nem
+ * vigência. As frases por baixo são as mesmas que rotulam as abas do outro lado
+ * — o nome do lugar não pode mudar no caminho até ele.
+ */
+function LeiturasDeAlteracoes({
+  view,
+  recorte,
+}: {
+  view: FamiliesView;
+  recorte: Recorte;
+}) {
+  const leituras: { href: string; titulo: string; frase: string }[] = [
+    {
+      href: linkDeAlteracoes({ recorte: { ...recorte, period: view.period } }),
+      titulo: "Planilha",
+      frase: "o que a Ambev mexeu nesta vigência",
+    },
+    {
+      href: linkDeAlteracoes({ aba: "chamados" }),
+      titulo: "Chamados",
+      frase: "o que pedimos e o que voltou aplicado",
+    },
+    {
+      href: linkDeAlteracoes({ aba: "impacto", recorte }),
+      titulo: "Impacto",
+      frase: "quanto cada ativo custa em cada quinzena",
+    },
+  ];
+
+  return (
+    <div className="mt-auto pt-4 border-t">
+      <p className="text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
+        Três leituras da mesma remuneração — os números de uma nunca somam com os
+        da outra
+      </p>
+      <div className="grid sm:grid-cols-3 gap-2 mt-2.5">
+        {leituras.map((leitura) => (
+          <Link
+            key={leitura.titulo}
+            href={leitura.href}
+            className="group rounded-lg border px-3 py-2 hover:border-brand hover:bg-accent/40 transition-colors"
+          >
+            <span className="flex items-center gap-1 text-[0.8125rem] font-bold group-hover:text-brand transition-colors">
+              {leitura.titulo}
+              <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+            </span>
+            <span className="block text-xs text-muted-foreground leading-snug mt-0.5">
+              {leitura.frase}
+            </span>
+          </Link>
+        ))}
+      </div>
+    </div>
   );
 }
 

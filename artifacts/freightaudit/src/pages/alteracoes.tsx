@@ -1,15 +1,16 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   keepPreviousData,
   useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query";
-import { useSearch } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 import {
   Activity,
   AlertTriangle,
   ArrowDown,
+  ArrowLeft,
   ArrowRight,
   ArrowUp,
   BarChart3,
@@ -44,6 +45,19 @@ import {
 } from "@/components/ui/dialog";
 import { erroDaResposta, fetchJson, getApiUrl, readJson } from "@/lib/api";
 import { primeiraPagina, type Janela } from "@/lib/paginacao";
+import {
+  abaValida,
+  FILTROS_NA_URL,
+  lerFiltros,
+  lerRecorte,
+  linkDaVisaoGeral,
+  nomeDaUnidade,
+  paramsDeAlteracoes,
+  paramsDoRecorte,
+  temRecorte,
+  type AbaDeAlteracoes,
+  type Recorte,
+} from "@/lib/recorte";
 import { cn } from "@/lib/utils";
 import {
   ChangeTable,
@@ -67,6 +81,7 @@ import {
 } from "@/components/changes/ticket-table";
 import { TicketClassification } from "@/components/changes/ticket-classification";
 import { ImpactoQuinzenas } from "@/components/changes/impacto-quinzenas";
+import type { SeriesContext } from "@/components/inicio/types";
 
 /**
  * Alterações — o que mudou, pelos caminhos por onde a mudança chega, e quanto
@@ -93,13 +108,6 @@ import { ImpactoQuinzenas } from "@/components/changes/impacto-quinzenas";
  * pagou. Ela também não soma com as outras: é o estado, não o movimento.
  */
 
-type Aba = "planilha" | "chamados" | "impacto";
-
-const ABAS: Aba[] = ["planilha", "chamados", "impacto"];
-
-const abaValida = (valor: string | null): valor is Aba =>
-  valor !== null && (ABAS as string[]).includes(valor);
-
 /**
  * Em qual aba a tela abre.
  *
@@ -108,17 +116,44 @@ const abaValida = (valor: string | null): valor is Aba =>
  * custou" tem entrada própria no menu, e não podia depender de alguém saber que
  * a resposta mora numa aba de Alterações.
  *
- * `?aba=` vence os dois, e existe para que um link colado no chat leve ao mesmo
- * lugar de quem o mandou. É estado inicial, não trava: clicar nas abas continua
- * mandando daí em diante.
+ * `?aba=` vence, e agora **manda**: clicar numa aba reescreve o endereço em vez
+ * de mexer num estado invisível. Foi o que faltava para a Visão geral conversar
+ * com esta tela — quem manda um link manda a aba junto, o botão de voltar do
+ * navegador desfaz a troca, e a barra de endereços descreve o que está à vista.
+ * O caminho não muda no caminho: quem entrou por `/impacto-financeiro` continua
+ * lá, com o menu aceso no item que abriu, e só a aba se move.
  */
 export default function Alteracoes({
   abaInicial = "planilha",
 }: {
-  abaInicial?: Aba;
+  abaInicial?: AbaDeAlteracoes;
 } = {}) {
-  const pedida = new URLSearchParams(useSearch()).get("aba");
-  const [aba, setAba] = useState<Aba>(abaValida(pedida) ? pedida : abaInicial);
+  const search = useSearch();
+  const [caminho, navegar] = useLocation();
+  const pedida = new URLSearchParams(search).get("aba");
+  const aba: AbaDeAlteracoes = abaValida(pedida) ? pedida : abaInicial;
+
+  const trocarAba = (proxima: AbaDeAlteracoes) => {
+    /*
+      O recorte de linha fica na aba que o aplica.
+
+      Ir da Planilha filtrada em "sem impacto" para o Impacto levaria um
+      `impactConfidence` que aquela aba não aplica — o endereço afirmaria um
+      corte que a matriz não faz. Vigência e unidade também saem do endereço na
+      aba que não as honra, pela mesma razão; `paramsDeAlteracoes` é quem sabe o
+      que cada aba sustenta, e é dele que sai a resposta aqui.
+    */
+    const params = paramsDeAlteracoes({
+      aba: proxima,
+      recorte: lerRecorte(search),
+      filtros: lerFiltros(search),
+      serie: new URLSearchParams(search).get("serie"),
+    });
+    // Escrito mesmo quando é o padrão: aqui houve escolha, e o endereço de quem
+    // escolheu a Planilha não pode ser indistinguível do de quem nunca clicou.
+    params.set("aba", proxima);
+    navegar(`${caminho}?${params}`);
+  };
 
   // Só a contagem, para a aba dizer o tamanho do assunto antes de ser aberta.
   // `limit=1` porque a lista em si é da aba; o que interessa aqui é o total.
@@ -144,14 +179,14 @@ export default function Alteracoes({
         <nav className="flex items-center gap-1 mt-4" role="tablist">
           <AbaBotao
             active={aba === "planilha"}
-            onClick={() => setAba("planilha")}
+            onClick={() => trocarAba("planilha")}
             icon={<FileSpreadsheet className="w-4 h-4" />}
             label="Planilha"
             hint="o que a Ambev mexeu entre duas vigências"
           />
           <AbaBotao
             active={aba === "chamados"}
-            onClick={() => setAba("chamados")}
+            onClick={() => trocarAba("chamados")}
             icon={<Headset className="w-4 h-4" />}
             label="Chamados"
             hint="o que pedimos e o que voltou aplicado"
@@ -159,7 +194,7 @@ export default function Alteracoes({
           />
           <AbaBotao
             active={aba === "impacto"}
-            onClick={() => setAba("impacto")}
+            onClick={() => trocarAba("impacto")}
             icon={<DollarSign className="w-4 h-4" />}
             label="Impacto"
             hint="quanto cada ativo custa em cada quinzena"
@@ -171,7 +206,15 @@ export default function Alteracoes({
       {aba === "chamados" && <AbaChamados />}
       {aba === "impacto" && (
         <div className="p-8">
-          <ImpactoQuinzenas />
+          {/*
+            A unidade atravessa, a vigência não.
+
+            A matriz põe todas as quinzenas lado a lado — é a série inteira, e
+            recortá-la na vigência aberta na Visão geral deixaria uma coluna só.
+            Já a unidade é o assunto: sem ela, quem trocou para CAMAÇARI e veio
+            para cá leria os números de outra unidade sem nada dizendo isso.
+          */}
+          <ImpactoQuinzenas contexto={paramsDoRecorte(lerRecorte(search), { comPeriodo: false })} />
         </div>
       )}
     </Layout>
@@ -228,7 +271,18 @@ function AbaBotao({
 
 interface ConsolidatedResponse {
   view: {
+    /**
+     * De quem é o período — a unidade e o canal que o servidor **escolheu**.
+     *
+     * Vem na resposta e não do pedido de propósito: quem abre sem escolher nada
+     * recebe o contexto mais recente, e a tela precisa poder dizer qual foi. Ler
+     * do endereço mostraria "nada escolhido" onde o servidor escolheu por conta
+     * própria.
+     */
+    context: SeriesContext;
     period: string;
+    /** `agosto/2026` — o mesmo rótulo que a Visão geral mostra no cabeçalho. */
+    periodLabel: string;
     present: {
       entityTypeSet: string;
       sourceLabel: string;
@@ -299,20 +353,60 @@ type PainelPlanilha = "parcial" | "semPreco" | null;
  * R$/ano não somam.
  */
 function AbaPlanilha() {
+  const search = useSearch();
+  const [caminho, navegar] = useLocation();
+
   /*
-    `?search=` chega preenchido quando alguém vem do Acompanhamento pedindo a
-    lista de um parâmetro específico. É estado inicial, não filtro fixo: a
-    barra de filtros continua mandando daí em diante, e limpar o campo devolve
-    a lista inteira. O termo cobre código, nome do atributo e placa — ver
+    O endereço é o estado da tela — todo ele.
+
+    Unidade, canal, vigência, série e filtros moram na URL, e não há uma segunda
+    cópia em `useState`. A tentação era guardar os filtros à parte, "porque o
+    endereço só semeia": bastava então limpar um filtro na barra para a barra de
+    endereços passar a descrever uma tela que não existe mais — e o próximo clique
+    numa pastilha de série a levaria de volta para dentro da consulta,
+    ressuscitando um recorte que a pessoa tinha acabado de desfazer.
+
+    Uma fonte só, e as três coisas que ela dá de graça: o link chega inteiro do
+    outro lado, voltar desfaz de verdade, e o que está escrito é o que está à
+    vista. Filtrar troca o endereço **sem empilhar histórico** (`replace`) — o
+    botão de voltar continua significando "a tela anterior", e não "o filtro
+    anterior".
+
+    Os filtros chegam da Visão geral: `impactConfidence=NOT_CALCULABLE` de "Sem
+    impacto calculável", `entityType` do equipamento mais tocado, `attributeCode`
+    de uma alteração em destaque. E `search=` continua chegando do Acompanhamento,
+    como sempre chegou — o termo cobre código, nome do atributo e placa, ver
     `buildWhere` em `lib/comparison/src/query.ts`.
   */
-  const buscaInicial = new URLSearchParams(useSearch()).get("search") ?? "";
-  const [filters, setFilters] = useState<Filters>({
-    ...emptyFilters,
-    search: buscaInicial,
-  });
+  const recorte = lerRecorte(search);
+  const contexto = paramsDoRecorte(recorte);
   /** null = visão consolidada da frota; caso contrário, uma série. */
-  const [series, setSeries] = useState<string | null>(null);
+  const series = new URLSearchParams(search).get("serie");
+
+  /*
+    Identidade estável, presa à string do endereço: `filters` entra na chave da
+    consulta e na dependência do efeito abaixo, e um objeto novo a cada render
+    faria a lista voltar para a página 1 sozinha — nunca se chegaria à página 2.
+  */
+  const filters = useMemo<Filters>(
+    () => ({ ...emptyFilters, ...lerFiltros(search) }),
+    [search],
+  );
+
+  const setFilters = (proximos: Filters) => {
+    const params = new URLSearchParams(search);
+    for (const chave of FILTROS_NA_URL) {
+      const valor = proximos[chave].trim();
+      if (valor) params.set(chave, valor);
+      else params.delete(chave);
+    }
+    // Partindo do endereço atual, e não montado do zero: `aba` e `serie` andam
+    // aqui também, e reconstruir a consulta pelos filtros os deixaria cair —
+    // filtrar dentro de `/impacto-financeiro?aba=planilha` devolveria a pessoa
+    // para a aba Impacto no meio da frase.
+    navegar(params.toString() ? `${caminho}?${params}` : caminho, { replace: true });
+  };
+
   const [janela, setJanela] = useState<Janela>(primeiraPagina);
   const [painel, setPainel] = useState<PainelPlanilha>(null);
 
@@ -325,12 +419,47 @@ function AbaPlanilha() {
     setJanela((atual) => (atual.pagina === 1 ? atual : { ...atual, pagina: 1 }));
   }, [filters, series]);
 
+  /**
+   * Trocar de série é trocar de comparação, e a vigência escolhida não vem
+   * junto.
+   *
+   * `/changes/latest` responde pela comparação **mais recente** de uma série, e
+   * é a única resposta que ela tem: cavalo e carreta terminam em vigências
+   * próprias, e não existe "o cavalo de julho" como leitura isolada enquanto a
+   * rota não souber recebê-la. Então a vigência sai do endereço no mesmo
+   * movimento, em vez de ficar escrita ali afirmando um recorte que a resposta
+   * não aplicou. A procedência logo abaixo passa a mostrar quais duas vigências
+   * estão sendo comparadas de fato.
+   */
+  const trocarSerie = (proxima: string | null) => {
+    const params = paramsDeAlteracoes({
+      aba: "planilha",
+      recorte: proxima === null ? recorte : { ...recorte, period: null },
+      filtros: lerFiltros(search),
+      serie: proxima,
+    });
+    // O `aba` explícito sobrevive à troca: quem entrou por
+    // `/impacto-financeiro?aba=planilha` continua na Planilha depois de escolher
+    // uma série.
+    const abaAtual = new URLSearchParams(search).get("aba");
+    if (abaAtual !== null) params.set("aba", abaAtual);
+    navegar(params.toString() ? `${caminho}?${params}` : caminho);
+  };
+
   const consolidated = useQuery({
-    queryKey: ["changes", "consolidated", filters, janela],
-    queryFn: () =>
-      fetchJson<ConsolidatedResponse>(
-        `/changes/consolidated?${toQuery(filters, {}, janela)}`,
-      ),
+    queryKey: ["changes", "consolidated", contexto.toString(), filters, janela],
+    queryFn: () => {
+      /*
+        O contexto entra depois, e não por `toQuery`: aquela função descarta
+        valor vazio, e `canal=` vazio **é** um valor — quer dizer "as vigências
+        sem canal legível no rótulo", que é uma partição real da base. Passado
+        por lá, o canal vazio sumiria e a tela responderia pela unidade inteira
+        achando que respondia por uma fatia dela.
+      */
+      const consulta = new URLSearchParams(toQuery(filters, {}, janela));
+      for (const [chave, valor] of contexto) consulta.set(chave, valor);
+      return fetchJson<ConsolidatedResponse>(`/changes/consolidated?${consulta}`);
+    },
     enabled: series === null,
   });
 
@@ -391,6 +520,24 @@ function AbaPlanilha() {
 
   return (
     <div className="p-8 space-y-5">
+      {/*
+        Quem mandou esta tela abrir assim, e como se desfaz.
+
+        Só aparece quando o endereço traz recorte — quem abriu Alterações pelo
+        menu não precisa de uma faixa dizendo que não filtrou nada. O que ela
+        mostra sai da **resposta**, e não da URL: é o servidor quem diz de que
+        unidade e de que vigência são as linhas abaixo, e uma faixa que repetisse
+        o pedido em vez do atendido continuaria anunciando julho depois de o
+        servidor ter respondido por agosto.
+      */}
+      {temRecorte(recorte) && (
+        <VindoDaVisaoGeral
+          recorte={recorte}
+          unidade={cv ? nomeDaUnidade(cv.context) : null}
+          vigencia={series === null ? (cv?.periodLabel ?? null) : null}
+        />
+      )}
+
       {/* De onde saiu tudo o que está abaixo, e sobre que recorte da frota.
           Fica numa linha, e não num cartão: é a procedência da tela, não um
           número dela. */}
@@ -429,14 +576,19 @@ function AbaPlanilha() {
             entregaram no período. Nenhuma vigência é fundida no banco. */}
         {known.length > 1 && (
           <div className="flex flex-wrap items-center gap-1.5">
-            <SerieChip active={series === null} onClick={() => setSeries(null)}>
+            <SerieChip active={series === null} onClick={() => trocarSerie(null)}>
               frota
             </SerieChip>
             {known.map((s) => (
               <SerieChip
                 key={s}
                 active={series === s}
-                onClick={() => setSeries(s)}
+                onClick={() => trocarSerie(s)}
+                hint={
+                  recorte.period !== null
+                    ? "a comparação de uma série é sempre a mais recente dela — a vigência escolhida sai do recorte"
+                    : undefined
+                }
               >
                 {s.replace("+", " · ").toLowerCase()}
               </SerieChip>
@@ -541,11 +693,39 @@ function AbaPlanilha() {
           )}
 
           {painel === "semPreco" && (
-            <div className="rounded-xl border bg-muted/30 p-4 text-sm">
-              <strong>{semPreco.toLocaleString("pt-BR")}</strong> alterações
-              estão fora da soma de impacto porque a semântica do atributo ainda
-              não foi confirmada, ou porque ele não é um montante somável. Elas
-              continuam na lista — o que falta é o preço, não o fato.
+            <div className="rounded-xl border bg-muted/30 p-4 text-sm space-y-3">
+              <p>
+                <strong>{semPreco.toLocaleString("pt-BR")}</strong> alterações
+                estão fora da soma de impacto porque a semântica do atributo
+                ainda não foi confirmada, ou porque ele não é um montante
+                somável. Elas continuam na lista — o que falta é o preço, não o
+                fato.
+              </p>
+              {/*
+                A ponta que faltava da corrente. A Visão geral manda para cá quem
+                clicou em "Sem impacto calculável", e aqui se vê quais são; o
+                preço, porém, não nasce nesta tela — nasce na Curadoria, quando
+                alguém confirma o que a coluna significa. Sem este link, a
+                pergunta chega ao fim da lista e para.
+              */}
+              <p className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setFilters({ ...filters, impactConfidence: "NOT_CALCULABLE" })
+                  }
+                  className="text-[0.8125rem] font-bold text-brand hover:underline"
+                >
+                  ver só estas na lista
+                </button>
+                <Link
+                  href="/curadoria"
+                  className="inline-flex items-center gap-1 text-[0.8125rem] font-bold text-brand hover:underline"
+                >
+                  confirmar a semântica na Curadoria
+                  <ChevronRight className="w-4 h-4" />
+                </Link>
+              </p>
             </div>
           )}
         </Card>
@@ -608,20 +788,80 @@ function AbaPlanilha() {
   );
 }
 
+/**
+ * A faixa do recorte — o outro lado da conversa com a Visão geral.
+ *
+ * Ela responde às três perguntas de quem chegou aqui por um número clicado lá:
+ * *de que unidade e de que vigência são estas linhas*, *como volto para o
+ * número de onde vim*, e *como vejo tudo sem o recorte*. Sem as duas últimas, um
+ * link que filtra vira uma armadilha: a tela mostra 244 de 1.100 e a única saída
+ * é adivinhar que existe um botão de limpar em algum lugar mais abaixo.
+ *
+ * A vigência é omitida quando uma série está escolhida — ali o que manda é a
+ * comparação mais recente daquela série, que a procedência logo abaixo nomeia.
+ * Repetir a vigência aqui seria afirmar um recorte que não foi aplicado.
+ *
+ * Os **filtros** não entram nesta faixa de propósito: quem os escreve é
+ * `ChangeFilterPanel`, junto do × que desfaz cada um. Dois lugares dizendo quais
+ * filtros estão ligados é um lugar a mais para eles discordarem.
+ */
+function VindoDaVisaoGeral({
+  recorte,
+  unidade,
+  vigencia,
+}: {
+  recorte: Recorte;
+  unidade: string | null;
+  vigencia: string | null;
+}) {
+  const partes = [unidade, vigencia].filter((p): p is string => p !== null);
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-brand/40 bg-accent/40 px-4 py-3">
+      <Link
+        href={linkDaVisaoGeral(recorte)}
+        className="inline-flex items-center gap-1.5 text-sm font-bold text-brand hover:underline shrink-0"
+      >
+        <ArrowLeft className="w-4 h-4" />
+        Visão geral
+      </Link>
+      <p className="min-w-0 flex-1 text-sm text-muted-foreground">
+        {partes.length > 0 ? (
+          <>
+            Recorte aberto: <strong className="text-foreground">{partes.join(" · ")}</strong>
+          </>
+        ) : (
+          "Recorte aberto — lendo a vigência pedida."
+        )}
+      </p>
+      <Link
+        href="/alteracoes"
+        className="text-[0.8125rem] font-bold text-brand hover:underline shrink-0"
+      >
+        ver a vigência mais recente
+      </Link>
+    </div>
+  );
+}
+
 /** O recorte da frota — a pílula que troca o assunto da tela inteira. */
 function SerieChip({
   active,
   onClick,
+  hint,
   children,
 }: {
   active: boolean;
   onClick: () => void;
+  /** O que a troca leva junto, quando ela leva algo — ver `trocarSerie`. */
+  hint?: string;
   children: React.ReactNode;
 }) {
   return (
     <button
       onClick={onClick}
       aria-pressed={active}
+      title={hint}
       className={cn(
         "h-9 rounded-full border px-4 text-sm font-medium transition-colors",
         active

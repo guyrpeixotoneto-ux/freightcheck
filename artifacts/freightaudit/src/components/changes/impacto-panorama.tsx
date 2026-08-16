@@ -196,14 +196,26 @@ export function ImpactoPanorama({
   onEscolher,
   corte,
   onCorte,
+  contexto,
 }: {
   onEscolher: (escolha: EscolhaDeParametro) => void;
   corte: Corte;
   onCorte: (c: Corte) => void;
+  /**
+   * A unidade e o canal abertos — `scopeHash` e `canal`, vazio quando não há.
+   *
+   * A rota sempre soube receber contexto; esta tela é que não mandava, e por
+   * isso respondia pela unidade mais recente do banco mesmo para quem tinha
+   * acabado de trocar de unidade na Visão geral. Sem período: a leitura é a
+   * série inteira de quinzenas, e recortá-la numa vigência deixaria uma coluna.
+   */
+  contexto?: URLSearchParams;
 }) {
+  const consulta = contexto?.toString() ?? "";
   const query = useQuery({
-    queryKey: ["impacto", "panorama"],
-    queryFn: () => fetchJson<Panorama>("/impacto/panorama"),
+    queryKey: ["impacto", "panorama", consulta],
+    queryFn: () =>
+      fetchJson<Panorama>(`/impacto/panorama${consulta ? `?${consulta}` : ""}`),
   });
 
   if (query.error) {

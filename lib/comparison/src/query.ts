@@ -26,6 +26,18 @@ export interface ChangeFilters {
   /** CALCULATED | ESTIMATED | NOT_CALCULABLE */
   impactConfidence?: string;
   attributeCode?: string;
+  /**
+   * CAVALO | CARRETA — o equipamento da linha.
+   *
+   * Recorte de **linha**, e não de comparação: `entityTypeSet` escolhe qual
+   * comparação ler (a série tem vigências próprias), enquanto este diz quais
+   * linhas de uma leitura já feita ficam à vista. A diferença importa quando a
+   * vigência está fixada: filtrar por equipamento dentro do período pedido
+   * responde "o que mudou no cavalo em agosto"; trocar de série responderia "o
+   * que mudou no cavalo na última vigência dele", que é outra pergunta e pode
+   * ser outro mês.
+   */
+  entityType?: string;
   entityLabel?: string;
   /** Absolute impact floor, for narrowing a long list — never a default. */
   minAbsImpact?: number;
@@ -88,6 +100,7 @@ function buildWhere(changeSetId: string | string[], f: ChangeFilters): SQL {
   if (f.impactConfidence)
     parts.push(eq(changeTable.impactConfidence, f.impactConfidence));
   if (f.attributeCode) parts.push(eq(changeTable.attributeCode, f.attributeCode));
+  if (f.entityType) parts.push(eq(changeTable.entityType, f.entityType));
   if (f.entityLabel) parts.push(eq(changeTable.entityLabel, f.entityLabel));
   if (f.minAbsImpact !== undefined) {
     parts.push(sql`abs(${changeTable.impactAmount}) >= ${f.minAbsImpact}`);
