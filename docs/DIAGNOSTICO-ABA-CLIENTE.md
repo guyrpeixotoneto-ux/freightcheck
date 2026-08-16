@@ -412,12 +412,12 @@ investigações entram intercaladas por impacto, não num bloco no fim: uma
 investigação de R$ 731 mil vale mais atenção do que uma proposta de R$ 300.
 
 **Filtros** — os mesmos de Impacto, pela mesma autoridade: unidade e canal por
-`resolveContext`, e o corte por equipamento vindo de `listImpactEntityTypes`.
-*De/Até vigência não existe em Impacto hoje* — a leitura é sempre a série
-inteira do contexto, com as pontas decompostas. Construir esse filtro só na
-aba Cliente criaria a segunda régua de disponibilidade que o item 11 do
-enunciado proíbe; ele deve ser adicionado em Impacto e herdado aqui, e por isso
-fica fora desta entrega, registrado como próximo passo.
+`resolveContext`, o corte por equipamento vindo de `listImpactEntityTypes`, e o
+recorte **De/Até vigência** pendurado no próprio contexto (`SeriesContext.janela`,
+aplicado em `contextFilter`). Ele foi acrescentado em Impacto e é herdado aqui
+pelo mesmo caminho — o estado vive uma vez só em `alteracoes.tsx` e as duas abas
+o compartilham, de modo que trocar de aba não troca o período debaixo dos
+números. Ver §12.
 
 ---
 
@@ -605,3 +605,72 @@ As quatro primeiras linhas da tela, na ordem em que ela as mostra:
 nove vigências disponíveis, tudo que se move ou nos favorece, ou é mecanismo
 próprio do contrato, ou ainda não tem base para virar pedido. O que ela produz
 são quatorze perguntas específicas — e a primeira delas vale R$ 731 mil por ano.
+
+---
+
+## 12. O recorte De/Até de vigências
+
+Acrescentado em Impacto e herdado por Cliente, como o §8 previa. Três decisões
+o definem, e nenhuma é de tela.
+
+### Onde ele mora
+
+**No contexto, não no filtro de cada leitura.** `SeriesContext` ganhou uma
+`janela` opcional e `contextFilter` a aplica. Como aquele predicado é por onde
+toda consulta de leitura do produto passa, o panorama, a matriz por quinzena e
+as recomendações ao cliente respeitam o mesmo corte sem que nenhum dos três
+tenha uma linha nova. É o oposto de construir um `de`/`ate` em cada rota, que é
+exatamente a segunda régua de disponibilidade que o enunciado proíbe.
+
+Consequência que vale dizer: Composição, DRE e Assistente continuam sem janela
+porque nunca pedem uma — `janela` ausente é a série inteira, e nenhum deles
+mudou de comportamento.
+
+### O que ele recusa
+
+As pontas são **inclusivas** e precisam ser vigências que o contexto entregou.
+Uma data qualquer é recusada com a lista das que existem — `JanelaInvalidaError`,
+400 na rota, separado do 404 de "não há contexto". Aparar em silêncio para a
+vigência mais próxima produziria o número certo sob o título errado, que é a
+categoria de erro que este produto inteiro evita. Intervalo invertido também é
+recusa, e a tela nem o oferece: o "Até" desabilita as datas anteriores ao "De".
+
+Meia janela é aceita: "de março para cá" completa a outra ponta com o extremo da
+série.
+
+### O que ele não muda
+
+`context.periods` continua sendo o tamanho do histórico. Se ele encolhesse ao
+filtrar, a frase "N vigências no histórico" que várias telas mostram deixaria de
+ser verdadeira sem ninguém perceber. Quem responde "quantas caem no recorte" é
+`periodosNaJanela` — e é ele que permite à tela separar dois estados que de fora
+são idênticos e por dentro são opostos:
+
+- **"Nada mudou neste recorte"** — houve comparação e ela não achou nada.
+- **"Uma vigência só — não há par para comparar"** — não houve comparação.
+
+### Medido sobre o export real
+
+O mesmo motor, quatro recortes:
+
+| Recorte | Vigências | Linhas econômicas | Propor / Investigar | Maior impacto |
+|---|--:|--:|---|---|
+| série inteira | 9 | 27 | 0 / 14 | IPVA −R$ 731.586,01/ano |
+| mai → ago/2026 | 4 | 21 | 0 / 11 | IPVA −R$ 144.874,50/ano |
+| jul → ago/2026 | 2 | 11 | 0 / 5 | sem linha anual |
+| ago/2026 | 1 | 0 | 0 / 0 | não há par |
+
+Três coisas que a tabela confirma:
+
+1. **A janela recorta a comparação, não só a exibição.** No recorte de dois
+   meses o IPVA some da conta anual — a transição dele foi em julho, e a
+   primeira vigência da janela não tem predecessora. É o comportamento certo:
+   uma janela que arrastasse valores de antes da borda mostraria uma alteração
+   que não aconteceu dentro do período pedido.
+2. **Menos evidência produz mais cautela, e não mais certeza.** No recorte de
+   quatro meses o FINAME do cavalo deixa de ser "mecanismo próprio" e vira
+   INVESTIGAR: dentro daquela janela ele tem 8 de 9 transições com zero e placas
+   que voltam, ou seja, a assinatura de coluna intermitente. A aba diz isso em
+   vez de propor recompor R$ 29 mil.
+3. **Uma vigência não vira zero.** O recorte de um mês devolve lista vazia com a
+   frase certa, e não "nada mudou".

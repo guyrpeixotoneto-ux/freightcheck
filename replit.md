@@ -216,6 +216,24 @@ e-mail, e exclusão de conta.
   antes de tomar o dia: a fonte grava `12:00:00`, `23:59:59.000` e
   `23:59:59.999` no mesmo campo, e nem truncar nem arredondar para a meia-noite
   reproduz os grupos das duas tabelas do cliente — ver `diaDoInstante`.
+- **O recorte De/Até de vigências é do contexto, não da tela.** `SeriesContext`
+  ganhou uma `janela` opcional e `contextFilter` a aplica — e como aquele
+  predicado é por onde **toda** consulta de leitura passa, o panorama, a matriz
+  por quinzena e as recomendações ao cliente respeitam o mesmo corte sem que
+  nenhum dos três saiba que ele existe. As pontas são inclusivas e precisam
+  **ser** vigências do contexto: uma data qualquer é recusada com a lista das
+  que existem (`JanelaInvalidaError`, 400 na rota), porque aparar em silêncio
+  para a vigência mais próxima daria o número certo sob o título errado. Meia
+  janela é aceita — "de março para cá" completa a outra ponta com o extremo da
+  série. `context.periods` continua sendo o tamanho do histórico e não encolhe
+  ao filtrar; quem responde "quantas caem no recorte" é `periodosNaJanela`, e é
+  ele que deixa a tela distinguir **"nada mudou"** de **"uma vigência só, não há
+  par para comparar"** — dois estados idênticos por fora e opostos por dentro.
+  O seletor é um componente só (`janela-vigencias.tsx`) e o estado mora em
+  `alteracoes.tsx`, de modo que trocar entre Impacto e Cliente não troca o
+  período debaixo dos números. Planilha e Chamados **não** o recebem: elas leem
+  comparações gravadas e chamados, não a série, e um De/Até ali prometeria um
+  corte que aquelas contas não fazem.
 - **A aba Impacto abre no panorama**, e não na tabela de um parâmetro: abrir num
   parâmetro afirmava, sem dizer, que tinha sido aquele que mudou.
   `getPanoramaDeAlteracoes` (`lib/comparison/src/panorama.ts`), servida por

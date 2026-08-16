@@ -1,7 +1,7 @@
-import { Router, type IRouter, type Response } from "express";
+import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { ContextNotFoundError, type SeriesContext } from "@workspace/comparison";
 import { getRecomendacoesAoCliente } from "@workspace/advisory";
+import { parseContext, sendContextError } from "../lib/contexto";
 
 /**
  * Cliente — a quarta aba de Alterações.
@@ -25,41 +25,11 @@ import { getRecomendacoesAoCliente } from "@workspace/advisory";
 const router: IRouter = Router();
 
 /**
- * O contexto pedido na query, quando pedido.
- *
- * Cópia deliberada da leitura de `impacto.ts` e `changes.ts`: as quatro abas
- * têm de enxergar a mesma unidade e o mesmo canal quando a pessoa troca de
- * aba. `?canal=` vazio quer dizer "as vigências sem canal legível no rótulo",
- * que é uma partição real e não a ausência de filtro.
- */
-function parseContext(
-  query: Record<string, unknown>,
-): Partial<SeriesContext> | undefined {
-  const scopeHash =
-    typeof query.scopeHash === "string" && query.scopeHash !== ""
-      ? query.scopeHash
-      : undefined;
-  const hasCanal = typeof query.canal === "string";
-  if (scopeHash === undefined && !hasCanal) return undefined;
-  return {
-    ...(scopeHash !== undefined ? { scopeHash } : {}),
-    ...(hasCanal
-      ? { channel: (query.canal as string) === "" ? null : (query.canal as string) }
-      : {}),
-  };
-}
-
-/** Recusa escrita vira 404 com a frase; o resto continua sendo 500. */
-function sendContextError(res: Response, err: unknown): boolean {
-  if (err instanceof ContextNotFoundError) {
-    res.status(404).json({ error: err.message });
-    return true;
-  }
-  return false;
-}
-
-/**
  * O que recomendamos discutir com o cliente.
+ *
+ * O contexto — unidade, canal e o recorte `de`/`ate` — é lido pelo mesmo
+ * `parseContext` que a rota de Impacto usa, e resolvido pela mesma autoridade.
+ * É o que garante que trocar de aba não troque o período debaixo dos números.
  *
  * `entityType` chega da tela e é conferido lá dentro contra o que o contexto
  * entregou — um equipamento que nunca veio cai na leitura da frota inteira em

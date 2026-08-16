@@ -11,6 +11,7 @@ import {
   contextFilter,
   resolveContext,
   type ContextInfo,
+  type RequestedContext,
   type SeriesContext,
 } from "./series";
 
@@ -239,7 +240,7 @@ export interface PanoramaDeAlteracoes extends LeituraDeAlteracoes {
 }
 
 export interface PanoramaOptions {
-  context?: Partial<SeriesContext>;
+  context?: RequestedContext;
 }
 
 /**

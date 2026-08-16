@@ -69,6 +69,7 @@ import {
 import { TicketClassification } from "@/components/changes/ticket-classification";
 import { ImpactoQuinzenas } from "@/components/changes/impacto-quinzenas";
 import { ClienteRecomendacoes } from "@/components/changes/cliente-recomendacoes";
+import type { JanelaDeVigencias } from "@/components/changes/janela-vigencias";
 
 /**
  * Alterações — o que mudou, pelos caminhos por onde a mudança chega, e quanto
@@ -142,6 +143,17 @@ export default function Alteracoes({
     entityType: string;
     code: string;
   } | null>(null);
+  /*
+    O recorte De/Até, compartilhado por Impacto e Cliente.
+
+    Mora aqui pelo mesmo motivo que a travessia acima: as duas abas respondem
+    sobre o mesmo período, e perder o recorte ao trocar de aba faria "quanto
+    isso custou" e "o que pedir ao cliente" falarem de meses diferentes com a
+    mesma cara. As abas Planilha e Chamados não o recebem — elas não leem a
+    série, leem comparações gravadas e chamados, e um "de/até" ali seria um
+    filtro que promete um corte que aquelas contas não fazem.
+  */
+  const [janela, setJanela] = useState<JanelaDeVigencias>({});
 
   // Só a contagem, para a aba dizer o tamanho do assunto antes de ser aberta.
   // `limit=1` porque a lista em si é da aba; o que interessa aqui é o total.
@@ -209,6 +221,8 @@ export default function Alteracoes({
         <div className="p-8">
           <ImpactoQuinzenas
             escolhaInicial={doCliente}
+            janela={janela}
+            onJanela={setJanela}
             key={doCliente ? `${doCliente.entityType}:${doCliente.code}` : "panorama"}
           />
         </div>
@@ -216,6 +230,8 @@ export default function Alteracoes({
       {aba === "cliente" && (
         <div className="p-8">
           <ClienteRecomendacoes
+            janela={janela}
+            onJanela={setJanela}
             onAbrirImpacto={(escolha) => {
               setDoCliente(escolha);
               setAba("impacto");

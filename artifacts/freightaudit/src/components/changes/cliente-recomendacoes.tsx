@@ -12,6 +12,11 @@ import {
   Truck,
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
+import {
+  SeletorDeJanela,
+  janelaParaQuery,
+  type JanelaDeVigencias,
+} from "@/components/changes/janela-vigencias";
 import { Card } from "@/components/ui/card";
 import { fetchJson } from "@/lib/api";
 import { formatBrl, formatBrlShort, formatNumber, formatValue } from "@/lib/format";
@@ -108,7 +113,12 @@ interface TotalPorPeriodicidade {
 }
 
 interface Resposta {
-  context: { label: string };
+  context: {
+    label: string;
+    periodosDisponiveis: string[];
+    periodosNaJanela: number;
+    janela: { de: string; ate: string } | null;
+  };
   periods: { effectiveDate: string; sourceLabel: string; entityTypes: string[] }[];
   entityTypes: string[];
   entityType: string | null;
@@ -203,16 +213,29 @@ const SENTIDO: Record<string, string> = {
 
 export function ClienteRecomendacoes({
   onAbrirImpacto,
+  janela = {},
+  onJanela,
 }: {
   onAbrirImpacto?: (escolha: { entityType: string; code: string }) => void;
+  /**
+   * O mesmo recorte De/Até da aba Impacto, vindo de cima.
+   *
+   * Não é uma cópia do filtro de lá: é o mesmo estado, e é o que garante que
+   * "quanto isso custou" e "o que pedir ao cliente" respondam sobre o mesmo
+   * período. Duas telas com recortes independentes dariam dois números certos e
+   * uma comparação errada.
+   */
+  janela?: JanelaDeVigencias;
+  onJanela?: (j: JanelaDeVigencias) => void;
 }) {
   const [entityType, setEntityType] = useState<string | null>(null);
 
   const query = useQuery({
-    queryKey: ["cliente", "recomendacoes", entityType],
+    queryKey: ["cliente", "recomendacoes", entityType, janela.de, janela.ate],
     queryFn: () =>
       fetchJson<Resposta>(
-        `/cliente/recomendacoes${entityType ? `?entityType=${entityType}` : ""}`,
+        `/cliente/recomendacoes?${entityType ? `entityType=${entityType}` : ""}` +
+          janelaParaQuery(janela),
       ),
   });
 
@@ -261,11 +284,23 @@ export function ClienteRecomendacoes({
       </div>
 
       {/*
-        O recorte por equipamento é o mesmo da aba Impacto e vem da mesma
-        autoridade: `listImpactEntityTypes` decide quais existem, e a resposta
-        diz qual foi escolhido. Reconstruir a lista aqui faria a aba oferecer um
-        equipamento que a série nunca entregou.
+        Os dois recortes vêm da mesma autoridade da aba Impacto: as vigências
+        escolhíveis são as que o contexto entregou, e os equipamentos são os que
+        `listImpactEntityTypes` conhece. Reconstruir qualquer um dos dois aqui
+        faria a aba oferecer um período ou um equipamento que a série nunca teve.
       */}
+      {onJanela && (
+        <SeletorDeJanela
+          disponiveis={data.context.periodosDisponiveis}
+          rotulos={Object.fromEntries(
+            data.periods.map((p) => [p.effectiveDate, p.sourceLabel]),
+          )}
+          janela={janela}
+          onJanela={onJanela}
+          noRecorte={data.context.periodosNaJanela}
+        />
+      )}
+
       {data.entityTypes.length > 1 && (
         <div className="flex items-center gap-2">
           <Pilula ativo={entityType === null} onClick={() => setEntityType(null)}>
@@ -347,16 +382,36 @@ export function ClienteRecomendacoes({
       {/* ---- as prioritárias ------------------------------------------- */}
       {prioritarias.length === 0 ? (
         <Card className="p-6">
-          <p className="text-sm">
-            <strong>Nada a propor nem a investigar nesta série.</strong>
-          </p>
-          <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-            As {formatNumber(totais.analisadas, 0)} linhas econômicas que mudaram
-            estão abaixo, cada uma com a razão de não virar assunto: favoráveis a
-            nós, neutras, cadastrais ou consequência de mecanismo próprio. Zero
-            recomendações é um resultado — uma proposta errada custa mais do que
-            nenhuma.
-          </p>
+          {/*
+            Recorte de uma vigência só e recorte em que nada mudou parecem a
+            mesma coisa de fora, e são respostas opostas: um não comparou nada,
+            o outro comparou e não achou. A tela diz qual dos dois é.
+          */}
+          {data.context.periodosNaJanela < 2 ? (
+            <>
+              <p className="text-sm">
+                <strong>Este recorte tem uma vigência só.</strong>
+              </p>
+              <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
+                Não há par para comparar, e portanto nada a recomendar — o que
+                não é o mesmo que “nada mudou”. Abra o recorte para incluir pelo
+                menos duas vigências.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm">
+                <strong>Nada a propor nem a investigar neste recorte.</strong>
+              </p>
+              <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
+                As {formatNumber(totais.analisadas, 0)} linhas econômicas que
+                mudaram estão abaixo, cada uma com a razão de não virar assunto:
+                favoráveis a nós, neutras, cadastrais ou consequência de
+                mecanismo próprio. Zero recomendações é um resultado — uma
+                proposta errada custa mais do que nenhuma.
+              </p>
+            </>
+          )}
         </Card>
       ) : (
         <div className="space-y-4">

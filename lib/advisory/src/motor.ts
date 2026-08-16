@@ -4,7 +4,7 @@ import {
   equipmentLabel,
   type ContextInfo,
   type ParametroAlterado,
-  type SeriesContext,
+  type RequestedContext,
 } from "@workspace/comparison";
 import { comportamentoDe } from "@workspace/knowledge";
 import {
@@ -86,7 +86,12 @@ export interface RecomendacoesAoCliente {
 }
 
 export interface OpcoesDoCliente {
-  context?: Partial<SeriesContext>;
+  /**
+   * Unidade, canal e o recorte de vigências — os mesmos de Impacto, e pela
+   * mesma autoridade. A janela viaja dentro do contexto resolvido e chega às
+   * consultas por `contextFilter`; nada aqui a reconstrói.
+   */
+  context?: RequestedContext;
   /** Recorta por equipamento, como a aba Impacto. */
   entityType?: string;
 }

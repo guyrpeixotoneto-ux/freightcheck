@@ -16,6 +16,10 @@ import {
   type Corte,
   type EscolhaDeParametro,
 } from "@/components/changes/impacto-panorama";
+import {
+  SeletorDeJanela,
+  type JanelaDeVigencias,
+} from "@/components/changes/janela-vigencias";
 import { Card } from "@/components/ui/card";
 import { fetchJson } from "@/lib/api";
 import { formatBrlShort, formatNumber, formatValue } from "@/lib/format";
@@ -110,6 +114,15 @@ interface PontaAPonta {
 }
 
 interface QuinzenaMatrix {
+  /**
+   * O contexto resolvido. Vem para que a tela ofereça o recorte a partir das
+   * vigências que este contexto de fato entregou — e não de um calendário.
+   */
+  context: {
+    periodosDisponiveis: string[];
+    periodosNaJanela: number;
+    janela: { de: string; ate: string } | null;
+  };
   entityType: string;
   equipment: string;
   entityTypes: string[];
@@ -182,11 +195,21 @@ const FUNDO_GRUPO =
  * `escolhaInicial` é de quem chegou de outra aba com o parâmetro já em mente —
  * a aba Cliente manda para cá quando alguém pede "ver por placa e vigência". É
  * estado inicial, não trava: o botão de voltar leva ao panorama como sempre.
+ *
+ * `janela` é o recorte De/Até, e ele vem de cima em vez de morar aqui pelo
+ * mesmo motivo que a escolha inicial: quem recortou três vigências e vai à aba
+ * Cliente está a meio caminho de uma pergunta, e perder o recorte na troca de
+ * aba faria as duas telas responderem sobre períodos diferentes com a mesma
+ * cara.
  */
 export function ImpactoQuinzenas({
   escolhaInicial = null,
+  janela = {},
+  onJanela,
 }: {
   escolhaInicial?: EscolhaDeParametro | null;
+  janela?: JanelaDeVigencias;
+  onJanela?: (j: JanelaDeVigencias) => void;
 } = {}) {
   const [escolha, setEscolha] = useState<EscolhaDeParametro | null>(escolhaInicial);
   /*
@@ -199,13 +222,21 @@ export function ImpactoQuinzenas({
 
   if (escolha === null) {
     return (
-      <ImpactoPanorama onEscolher={setEscolha} corte={corte} onCorte={setCorte} />
+      <ImpactoPanorama
+        onEscolher={setEscolha}
+        corte={corte}
+        onCorte={setCorte}
+        janela={janela}
+        onJanela={onJanela}
+      />
     );
   }
   return (
     <MatrizDeQuinzenas
       inicial={escolha}
       onVoltar={() => setEscolha(null)}
+      janela={janela}
+      onJanela={onJanela}
       key={`${escolha.entityType}:${escolha.code}`}
     />
   );
@@ -214,9 +245,13 @@ export function ImpactoQuinzenas({
 function MatrizDeQuinzenas({
   inicial,
   onVoltar,
+  janela,
+  onJanela,
 }: {
   inicial: EscolhaDeParametro;
   onVoltar: () => void;
+  janela: JanelaDeVigencias;
+  onJanela?: (j: JanelaDeVigencias) => void;
 }) {
   const [entityType, setEntityType] = useState<string | null>(inicial.entityType);
   const [attributeCode, setAttributeCode] = useState<string | null>(inicial.code);
@@ -225,11 +260,13 @@ function MatrizDeQuinzenas({
   const [soComMovimento, setSoComMovimento] = useState(false);
 
   const query = useQuery({
-    queryKey: ["impacto", "quinzenas", entityType, attributeCode],
+    queryKey: ["impacto", "quinzenas", entityType, attributeCode, janela.de, janela.ate],
     queryFn: () => {
       const params = new URLSearchParams();
       if (entityType) params.set("entityType", entityType);
       if (attributeCode) params.set("attributeCode", attributeCode);
+      if (janela.de) params.set("de", janela.de);
+      if (janela.ate) params.set("ate", janela.ate);
       const qs = params.toString();
       return fetchJson<QuinzenaMatrix>(
         `/impacto/quinzenas${qs ? `?${qs}` : ""}`,
@@ -261,6 +298,11 @@ function MatrizDeQuinzenas({
 
   const unidade = data.attribute.unit;
   const brl = unidade === "BRL";
+  // Os rótulos saem das próprias colunas da tabela: é o nome que a pessoa já
+  // está lendo no cabeçalho, e não uma segunda forma de escrever a mesma data.
+  const rotulos = Object.fromEntries(
+    data.periods.map((p) => [p.effectiveDate, p.sourceLabel]),
+  );
 
   return (
     <div className={cn("space-y-5", query.isPlaceholderData && "opacity-60")}>
@@ -269,13 +311,25 @@ function MatrizDeQuinzenas({
         aqui clicando numa linha do panorama está a meio caminho de uma
         pergunta, e o caminho de volta faz parte da resposta.
       */}
-      <button
-        onClick={onVoltar}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Tudo que mudou
-      </button>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <button
+          onClick={onVoltar}
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Tudo que mudou
+        </button>
+
+        {onJanela && (
+          <SeletorDeJanela
+            disponiveis={data.context.periodosDisponiveis}
+            rotulos={rotulos}
+            janela={janela}
+            onJanela={onJanela}
+            noRecorte={data.context.periodosNaJanela}
+          />
+        )}
+      </div>
 
       {/* O que a tabela está mostrando, e as duas escolhas que a mudam. */}
       <div className="flex flex-wrap items-end justify-between gap-4">
