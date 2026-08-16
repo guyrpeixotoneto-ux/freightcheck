@@ -47,3 +47,10 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Relatórios das baterias, escritos localmente.
+lib/assistant/aceitacao-*.md
+lib/assistant/aceitacao-*.json
+lib/assistant/desfecho*.md
+lib/assistant/desfecho*.json
+lib/assistant/trajetoria*.md
