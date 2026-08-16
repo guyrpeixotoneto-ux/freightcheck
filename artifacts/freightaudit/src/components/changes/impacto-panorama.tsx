@@ -11,6 +11,10 @@ import {
   Warehouse,
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
+import {
+  SeletorDeJanela,
+  type JanelaDeVigencias,
+} from "@/components/changes/janela-vigencias";
 import { Card } from "@/components/ui/card";
 import { fetchJson } from "@/lib/api";
 import { formatBrlShort, formatNumber } from "@/lib/format";
@@ -148,6 +152,19 @@ interface RecorteDeCusto extends LeituraDeAlteracoes {
 }
 
 interface Panorama extends LeituraDeAlteracoes {
+  /**
+   * O contexto resolvido, com as vigências que ele entregou.
+   *
+   * É daqui que sai a lista do seletor De/Até — a mesma autoridade que resolve
+   * unidade e canal —, e não de uma varredura de `periods`: `periods` já vem
+   * recortado, e montar as opções a partir dele deixaria o filtro se estreitar
+   * a cada uso até sobrar uma vigência só.
+   */
+  context: {
+    periodosDisponiveis: string[];
+    periodosNaJanela: number;
+    janela: { de: string; ate: string } | null;
+  };
   periods: PanoramaPeriodo[];
   parametros: ParametroAlterado[];
   recortes: RecorteDeCusto[];
@@ -196,14 +213,24 @@ export function ImpactoPanorama({
   onEscolher,
   corte,
   onCorte,
+  janela = {},
+  onJanela,
 }: {
   onEscolher: (escolha: EscolhaDeParametro) => void;
   corte: Corte;
   onCorte: (c: Corte) => void;
+  janela?: JanelaDeVigencias;
+  onJanela?: (j: JanelaDeVigencias) => void;
 }) {
   const query = useQuery({
-    queryKey: ["impacto", "panorama"],
-    queryFn: () => fetchJson<Panorama>("/impacto/panorama"),
+    queryKey: ["impacto", "panorama", janela.de, janela.ate],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (janela.de) params.set("de", janela.de);
+      if (janela.ate) params.set("ate", janela.ate);
+      const qs = params.toString();
+      return fetchJson<Panorama>(`/impacto/panorama${qs ? `?${qs}` : ""}`);
+    },
   });
 
   if (query.error) {
@@ -242,14 +269,38 @@ export function ImpactoPanorama({
   const primeira = data.periods[0];
   const ultima = data.periods[data.periods.length - 1];
 
+  /*
+    O recorte fica **fora** do `if` de lista vazia, e isso não é organização de
+    código: um recorte de duas vigências em que nada mudou é o caso em que a
+    pessoa mais precisa do seletor, e escondê-lo junto com a lista a deixaria
+    sem caminho de volta a não ser recarregar a tela.
+  */
+  const seletorDeJanela = onJanela ? (
+    <SeletorDeJanela
+      disponiveis={data.context.periodosDisponiveis}
+      rotulos={Object.fromEntries(
+        data.periods.map((p) => [p.effectiveDate, p.sourceLabel]),
+      )}
+      janela={janela}
+      onJanela={onJanela}
+      noRecorte={data.context.periodosNaJanela}
+    />
+  ) : null;
+
   if (data.parametros.length === 0) {
     return (
-      <Card className="p-6">
-        <p className="text-sm text-muted-foreground">
-          Nenhum parâmetro mudou de valor entre as {data.periods.length}{" "}
-          vigências desta série.
-        </p>
-      </Card>
+      <div className="space-y-4">
+        {seletorDeJanela}
+        <Card className="p-6">
+          <p className="text-sm text-muted-foreground">
+            {data.context.periodosNaJanela < 2
+              ? // Uma vigência só não tem par: "nada mudou" seria a resposta
+                // errada, porque não houve comparação nenhuma.
+                "Este recorte tem uma vigência só — não há par para comparar. Abra o recorte para incluir pelo menos duas."
+              : `Nenhum parâmetro mudou de valor entre as ${data.periods.length} vigências deste recorte.`}
+          </p>
+        </Card>
+      </div>
     );
   }
 
@@ -263,6 +314,8 @@ export function ImpactoPanorama({
           vigências. Clique numa linha para abrir a tabela por placa e vigência.
         </p>
       </div>
+
+      {seletorDeJanela}
 
       <SeletorDeClasse
         recortes={data.recortes}

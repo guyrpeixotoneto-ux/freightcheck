@@ -6,6 +6,7 @@ import { sql } from "drizzle-orm";
 import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest/testing";
 import {
   applyConfirmations,
+  AGREGACOES,
   runProposalPass,
   seedTaxonomy,
   viraDinheiro,
@@ -131,15 +132,34 @@ describe("as leituras que passam por SQL obedecem à mesma decisão", () => {
   beforeAll(async () => {
     /*
       O estado que a auditoria provou gravável, forçado direto no banco: km/l
-      confirmado como montante mensal somável. Nenhuma constraint impede hoje —
-      é a PR-2 que vai fechar isso. Enquanto não fecha, o que impede o número
-      absurdo de aparecer na tela é a autoridade, e é isso que se mede aqui.
+      confirmado como montante mensal somável.
+
+      A trava da 0023 recusa exatamente isto, e por isso ela é suspensa aqui e
+      reposta logo abaixo. O teste não perde o sentido com a constraint no ar —
+      ganha: as duas guardas são independentes de propósito, e o que se mede
+      neste bloco é que **a de código sozinha basta**. Se um dia a constraint
+      for afrouxada, adiada num ambiente, ou o estado chegar por um caminho que
+      não passa por ela, as telas continuam recusando o número absurdo.
     */
+    await ctx.db.execute(
+      sql`ALTER TABLE attribute DROP CONSTRAINT attribute_semantica_coerente`,
+    );
     await ctx.db.execute(sql`
       UPDATE attribute
          SET unit='KM_L', aggregation='SUM', is_monetary=true, periodicity='MENSAL',
              semantics_status='CONFIRMED', confirmed_by='teste@autoridade', confirmed_at=now()
        WHERE code=${RAZAO}
+    `);
+    // Reposta imediatamente, com NOT VALID: a linha absurda já está gravada e é
+    // o objeto do teste, mas nenhuma escrita seguinte volta a produzir outra.
+    await ctx.db.execute(sql`
+      ALTER TABLE attribute ADD CONSTRAINT attribute_semantica_coerente CHECK (
+        ("aggregation" IS NULL OR "aggregation" IN ('SUM', 'AVG', 'NONE'))
+        AND NOT ("data_type" IN ('TEXT', 'BOOLEAN', 'DATE', 'MIXED', 'UNKNOWN')
+                 AND "aggregation" IS NOT NULL AND "aggregation" <> 'NONE')
+        AND NOT ("unit" IN ('KM_L', 'BRL_KM', 'PERCENT') AND "aggregation" = 'SUM')
+        AND NOT ("is_monetary" IS TRUE AND "unit" IS NOT NULL AND "unit" <> 'BRL')
+      ) NOT VALID
     `);
   });
 
@@ -243,6 +263,25 @@ describe("nenhum consumidor reescreve a regra", () => {
       expect(fonte).toMatch(/from "@workspace\/curation"/);
     },
   );
+
+  it("as telas oferecem exatamente as agregações que o banco aceita", () => {
+    /*
+      A lista da tela e a da autoridade são a mesma lista, e a constraint da
+      0023 é a terceira cópia — só que inescapável. Oferecer no formulário um
+      valor que o banco recusa transforma uma regra em erro 422 na cara do
+      curador, que foi o que aconteceria se WEIGHTED_AVG tivesse ficado.
+    */
+    for (const arquivo of [
+      "artifacts/freightaudit/src/pages/curadoria.tsx",
+      "artifacts/freightaudit/src/pages/versoes.tsx",
+    ]) {
+      const fonte = readFileSync(path.join(raiz, arquivo), "utf8");
+      const inicio = fonte.indexOf("const AGGREGATIONS");
+      const bloco = fonte.slice(inicio, fonte.indexOf("];", inicio));
+      const oferecidas = [...bloco.matchAll(/"([A-Z_]+)"/g)].map((m) => m[1]);
+      expect(oferecidas.sort()).toEqual([...AGREGACOES].sort());
+    }
+  });
 
   it("a tela do impacto não reescreve a régua: recebe o motivo pronto", () => {
     const fonte = readFileSync(

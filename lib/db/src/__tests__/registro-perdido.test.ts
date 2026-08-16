@@ -97,12 +97,17 @@ describe("registro de migrations perdido", () => {
       Então ela não é adotada: é rodada. E rodar é o desfecho certo aqui, porque
       ela é idempotente por construção — adota a constraint que já existe, cria a
       que falta, e para se o dado não sustentar a identidade.
+
+      A `0023` entra na mesma caixa e pelo mesmo motivo: ela só acrescenta os
+      dois CHECKs da coerência semântica, e normaliza antes as linhas que os
+      violariam. `DROP CONSTRAINT IF EXISTS` antes do `ADD` é o que a torna
+      idempotente — rodá-la duas vezes deixa o banco no mesmo lugar.
     */
-    const soConstraints = "0018_identidade_forte";
+    const soConstraints = ["0018_identidade_forte", "0023_semantica_coerente"];
     expect(segunda.adopted).toEqual(
-      primeira.applied.filter((tag) => tag !== soConstraints),
+      primeira.applied.filter((tag) => !soConstraints.includes(tag)),
     );
-    expect(segunda.applied).toEqual([soConstraints]);
+    expect(segunda.applied).toEqual(soConstraints);
 
     /*
       As que mexem em dados saem nomeadas: o schema não prova que o backfill

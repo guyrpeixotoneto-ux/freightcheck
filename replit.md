@@ -136,6 +136,9 @@ e-mail, e exclusão de conta.
 - `lib/ingest` — recebimento do arquivo, RAW, staging, promoção
 - `lib/curation` — semântica dos atributos, taxonomia, confirmações humanas
 - `lib/comparison` — motor de alterações, visão consolidada
+- `lib/advisory` — a aba Cliente: das alterações apuradas, o que propor, o que
+  investigar e o que não levar. Não calcula dinheiro — compõe o panorama de
+  `lib/comparison` com o comportamento econômico de `lib/knowledge`
 - `lib/balance` — o balanço de massa da importação: os destinos declarados de
   cada célula (`destinos.ts`) e a conta que os confere (`balanco.ts`)
 - `artifacts/api-server` — HTTP; autenticação em `src/lib/auth.ts` (as
@@ -172,7 +175,14 @@ e-mail, e exclusão de conta.
 - **Conhecimento do Freightech** — `lib/knowledge`: o catálogo das telas de
   origem e o índice do Book, que eram da interface e agora são compartilhados,
   porque o assistente e as telas precisam da mesma verdade sobre o que o
-  Freightech publica.
+  Freightech publica. Também mora aqui o **comportamento econômico** de cada
+  parâmetro (`economia.ts`): papel, sentido, quem pode mudá-lo e de onde sairia
+  um valor a propor. Fica ao lado do catálogo pelo mesmo critério — é o mapa do
+  modelo de remuneração, não uma projeção dos nossos fatos, e precisa existir
+  com o banco vazio. Os dois efeitos (`efeitoQuandoAumenta` /
+  `efeitoQuandoDiminui`) são **derivados** de um `sentido` declarado, e não
+  campos separados: dois campos independentes poderiam se contradizer, e a tela
+  passaria a dizer que o parâmetro só melhora.
 - **Alterações → Chamados** tem duas visões. *Resumo* é a lista por
   materialidade; *Por tipo* dobra as mesmas alterações nos componentes da
   remuneração — valor fixo, valor variável, variável diesel — e desce em
@@ -206,6 +216,24 @@ e-mail, e exclusão de conta.
   antes de tomar o dia: a fonte grava `12:00:00`, `23:59:59.000` e
   `23:59:59.999` no mesmo campo, e nem truncar nem arredondar para a meia-noite
   reproduz os grupos das duas tabelas do cliente — ver `diaDoInstante`.
+- **O recorte De/Até de vigências é do contexto, não da tela.** `SeriesContext`
+  ganhou uma `janela` opcional e `contextFilter` a aplica — e como aquele
+  predicado é por onde **toda** consulta de leitura passa, o panorama, a matriz
+  por quinzena e as recomendações ao cliente respeitam o mesmo corte sem que
+  nenhum dos três saiba que ele existe. As pontas são inclusivas e precisam
+  **ser** vigências do contexto: uma data qualquer é recusada com a lista das
+  que existem (`JanelaInvalidaError`, 400 na rota), porque aparar em silêncio
+  para a vigência mais próxima daria o número certo sob o título errado. Meia
+  janela é aceita — "de março para cá" completa a outra ponta com o extremo da
+  série. `context.periods` continua sendo o tamanho do histórico e não encolhe
+  ao filtrar; quem responde "quantas caem no recorte" é `periodosNaJanela`, e é
+  ele que deixa a tela distinguir **"nada mudou"** de **"uma vigência só, não há
+  par para comparar"** — dois estados idênticos por fora e opostos por dentro.
+  O seletor é um componente só (`janela-vigencias.tsx`) e o estado mora em
+  `alteracoes.tsx`, de modo que trocar entre Impacto e Cliente não troca o
+  período debaixo dos números. Planilha e Chamados **não** o recebem: elas leem
+  comparações gravadas e chamados, não a série, e um De/Até ali prometeria um
+  corte que aquelas contas não fazem.
 - **A aba Impacto abre no panorama**, e não na tabela de um parâmetro: abrir num
   parâmetro afirmava, sem dizer, que tinha sido aquele que mudou.
   `getPanoramaDeAlteracoes` (`lib/comparison/src/panorama.ts`), servida por
@@ -222,7 +250,37 @@ e-mail, e exclusão de conta.
   que o corte deixa à vista: **2.155 das 2.931 alterações são de custo variável
   e nenhuma tem impacto apurável**, enquanto as quatro apuráveis são todas de
   custo fixo.
+- **Alterações → Cliente** é a quarta aba, e a única que não responde "o que
+  mudou": responde *o que fazer a respeito*. A cadeia é `Impacto identifica →
+  semântica interpreta → Cliente recomenda`, e cada elo é um pacote —
+  `getPanoramaDeAlteracoes` (`lib/comparison`), `COMPORTAMENTO_ECONOMICO`
+  (`lib/knowledge/src/economia.ts`) e `getRecomendacoesAoCliente`
+  (`lib/advisory`), servido por `GET /api/cliente/recomendacoes`, tela em
+  `artifacts/freightaudit/src/components/changes/cliente-recomendacoes.tsx`.
+  **Nenhum número financeiro nasce aqui**: o impacto é o `variacao.preco` que o
+  panorama apurou, e a projeção mensal/anual passa por `convertPeriodicity`.
+  A regra que a aba inteira sustenta: **o sinal matemático da variação não é o
+  sinal econômico dela** — a TJLP caindo 0,44 ponto derrubou os juros que
+  recebemos em R$ 85,15/mês por cavalo, e `combustivelVidaCavalo` subindo é o
+  calendário (494 de 494 transições para cima, +0,083 por vigência, igual a
+  `manutencaoVidaMeses ÷ 12,17` — é a **idade do cavalo em anos**, e não km/l).
+  Cada alteração cai em `PROPOR_AJUSTE`, `INVESTIGAR`, `NAO_PROPOR` ou
+  `NAO_CALCULAVEL`, e duas travas impedem a recomendação errada, as duas
+  descobertas rodando o motor sobre o export real: **um número só se propõe
+  quando ele é a premissa** (não quando é resultado de outra coluna, nem quando
+  o par dominante cobre menos de 60% dos ativos — foi assim que o IPVA quase
+  virou "revisar de R$ 7.210 para R$ 21.259,89", número errado para 32 das 62
+  placas), e **coluna intermitente não é queda de preço** (a assinatura é o
+  ativo que *volta* depois de zerar, não a proporção de zeros: o
+  `lucroVariavelPrevistoCavalo` tem 30 placas voltando e os −R$ 23.466,25 dele
+  não são perda nenhuma, enquanto o tacógrafo tem 8 de 8 transições com zero e
+  **nenhuma** placa voltando, porque é um item que passou a ser cadastrado).
+  Sobre este export o resultado é **0 propostas, 14 investigações e 13 fora** —
+  e zero proposta é um resultado, não uma falha. Ver
+  `docs/DIAGNOSTICO-ABA-CLIENTE.md`.
 - `docs/ARQUITETURA.md` — as decisões estruturais em prosa
+- `docs/DIAGNOSTICO-ABA-CLIENTE.md` — o comportamento econômico de cada
+  parâmetro, medido, e por que quase nada vira proposta
 - `docs/PROPOSTA-NAVEGACAO-FREIGHTECH.md` — o mapeamento Freightech → FreightCheck
 
 ## Assistente de IA

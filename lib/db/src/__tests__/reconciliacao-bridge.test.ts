@@ -108,7 +108,7 @@ async function temColuna(
   return rows[0]!.existe;
 }
 
-const TAG_RECONCILIACAO = "0023_reconciliar_bridge";
+const TAG_RECONCILIACAO = "0024_reconciliar_bridge";
 
 // ---------------------------------------------------------------------------
 // A — banco novo, zero divergência

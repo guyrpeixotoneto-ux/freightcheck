@@ -9,7 +9,7 @@
  * migration já registrada. Some-se: depois de um `down`, só o `up` devolve
  * aqueles objetos — a fila estruturalmente não consegue.
  *
- * A `0023_reconciliar_bridge` conserta os bancos que já estão nesse estado, e
+ * A `0024_reconciliar_bridge` conserta os bancos que já estão nesse estado, e
  * conserta uma vez: ela tem um `when`, entra no registro, e o próximo `down`
  * sem `up` volta a ser irrecuperável pela fila. O que faltava não era mais uma
  * migration — era o banco **saber** que está no meio de um bridge.
