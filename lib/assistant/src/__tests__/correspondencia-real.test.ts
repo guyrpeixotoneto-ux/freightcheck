@@ -12,17 +12,21 @@
  * redação o escrevia como resposta, e nenhuma das duas achava que estava
  * trocando nada.
  *
- * Sem `ASSISTANT_EVAL_DATABASE_URL` (ou `DATABASE_URL`) a suíte se pula: as três
+ * Sem `ASSISTANT_EVAL_DATABASE_URL` (ou `DATABASE_URL`) esta suíte não roda: as
  * perguntas precisam de um banco com o export promovido, senão elas passariam
  * por falta de dado em vez de por causa do portão — que é o falso verde mais
- * caro que este arquivo poderia produzir.
+ * caro que este arquivo poderia produzir. Quem decide o que fazer com a
+ * ausência é `comBancoDeAvaliacao`: na máquina de quem desenvolve, pula e diz
+ * por quê; no CI, reprova, porque lá um `skip` silencioso é o verde valendo
+ * menos do que diz.
  */
 import { beforeAll, describe, expect, it } from "vitest";
 import { createDb, type Database } from "@workspace/db";
 import { responder, type Resposta } from "../resposta";
-
-const URL_DO_BANCO = process.env.ASSISTANT_EVAL_DATABASE_URL ?? process.env.DATABASE_URL;
-const rodar = URL_DO_BANCO ? describe : describe.skip;
+import {
+  comBancoDeAvaliacao as rodar,
+  URL_DO_BANCO_DE_AVALIACAO as URL_DO_BANCO,
+} from "./banco-de-avaliacao";
 
 let db: Database;
 
