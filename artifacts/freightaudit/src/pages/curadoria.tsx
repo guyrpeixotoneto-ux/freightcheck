@@ -36,9 +36,28 @@ import { cn } from "@/lib/utils";
  * qualquer tentativa de confirmar sem responsável e justificativa.
  */
 
-const UNITS = ["BRL", "BRL_KM", "KM_L", "PERCENT", "KM", "LITROS", "MESES", "ANO", "QTD"];
+/**
+ * Os códigos são o que o banco guarda; o texto ao lado é o que evita confirmar
+ * a unidade errada por não saber o que a sigla queria dizer.
+ */
+const UNITS: [code: string, meaning: string][] = [
+  ["BRL", "reais"],
+  ["BRL_KM", "reais por quilômetro"],
+  ["KM_L", "quilômetros por litro"],
+  ["PERCENT", "percentual"],
+  ["KM", "quilômetros"],
+  ["LITROS", "litros"],
+  ["MESES", "meses"],
+  ["ANO", "ano de calendário"],
+  ["QTD", "quantidade"],
+];
 const PERIODICITIES = ["MENSAL", "ANUAL", "PONTUAL"];
-const AGGREGATIONS = ["SUM", "AVG", "WEIGHTED_AVG", "NONE"];
+const AGGREGATIONS: [code: string, meaning: string][] = [
+  ["SUM", "soma na frota"],
+  ["AVG", "média simples"],
+  ["WEIGHTED_AVG", "média ponderada"],
+  ["NONE", "não agrega"],
+];
 
 interface QueueItem {
   code: string;
@@ -156,7 +175,8 @@ export default function Curadoria() {
     return queue.filter(
       (item) =>
         item.code.toLowerCase().includes(needle) ||
-        item.sourceName.toLowerCase().includes(needle),
+        item.sourceName.toLowerCase().includes(needle) ||
+        (item.displayName?.toLowerCase().includes(needle) ?? false),
     );
   }, [queue, filter]);
 
@@ -261,9 +281,12 @@ export default function Curadoria() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-mono text-xs text-muted-foreground truncate">
+                      {item.displayName ? `${item.sourceName} · ` : ""}
                       {item.code}
                     </div>
-                    <div className="font-medium text-sm truncate">{item.sourceName}</div>
+                    <div className="font-medium text-sm truncate">
+                      {item.displayName ?? item.sourceName}
+                    </div>
                   </div>
                   <StatusBadge status={item.semanticsStatus} />
                 </div>
@@ -290,6 +313,9 @@ export default function Curadoria() {
 
         {detail ? (
           <AttributePanel
+            // Troca de atributo remonta o painel: sem isto, um rascunho de nome
+            // gerencial poderia sobreviver à seleção seguinte.
+            key={detail.code}
             detail={detail}
             taxonomy={taxonomy}
             onConfirmed={() => {
@@ -354,6 +380,7 @@ function AttributePanel({
     taxonomy.find((n) => n.path === detail.taxonomyPath)?.code ?? "",
   );
   const [isMonetary, setIsMonetary] = useState(detail.isMonetary === true);
+  const [displayName, setDisplayName] = useState(detail.displayName ?? "");
   const [reason, setReason] = useState("");
   /** Quem assina esta confirmação. Vem da sessão; a tela só o exibe. */
   const signedInAs = useAuth().user?.email ?? "quem está logado";
@@ -372,6 +399,9 @@ function AttributePanel({
             aggregation: aggregation || null,
             isMonetary,
             taxonomyCode: taxonomyCode || undefined,
+            // Sempre enviado, inclusive vazio: apagar o campo é como se tira um
+            // apelido que ficou ruim, e o servidor devolve o nome de origem.
+            displayName,
             // `actor` não vai daqui: quem assina é a sessão, e o servidor o lê
             // de lá. Um nome digitado na tela nunca provou nada.
             reason,
@@ -389,7 +419,34 @@ function AttributePanel({
     onError: (err: Error) => setError(err.message),
   });
 
+  /**
+   * Renomear sem confirmar. O nome é uma escolha de vocabulário; a semântica é
+   * uma afirmação sobre o dado. Quem só quer a primeira não precisa arriscar a
+   * segunda — mas continua assinando e justificando a troca.
+   */
+  const rename = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(
+        getApiUrl(`/curation/attributes/${detail.code}/rename`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ displayName, reason }),
+        },
+      );
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Falha ao renomear");
+      return body;
+    },
+    onSuccess: () => {
+      setError(null);
+      onConfirmed();
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
   const conflicted = detail.semanticsRationale?.startsWith("CONFLITO");
+  const renamed = displayName.trim() !== (detail.displayName ?? "");
   const blocked = isMonetary && (!unit || !periodicity || !aggregation);
 
   return (
@@ -398,8 +455,13 @@ function AttributePanel({
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <CardTitle className="font-mono text-lg">{detail.sourceName}</CardTitle>
+              {/* O nome gerencial manda no título quando existe; o de origem
+                  nunca some, porque é por ele que se acha a coluna no export. */}
+              <CardTitle className={cn("text-lg", !detail.displayName && "font-mono")}>
+                {detail.displayName ?? detail.sourceName}
+              </CardTitle>
               <p className="font-mono text-xs text-muted-foreground mt-1">
+                {detail.displayName && <>{detail.sourceName} · </>}
                 {detail.code} · {detail.entityType} · tipo {detail.dataType}
               </p>
             </div>
@@ -489,13 +551,27 @@ function AttributePanel({
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
+          <Field
+            label="Nome gerencial"
+            hint={`Como este atributo aparece nas telas. A importação continua casando por ${detail.sourceName}, que é o nome exibido enquanto este campo estiver vazio.`}
+          >
+            <Input
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              placeholder={detail.sourceName}
+            />
+          </Field>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Field label="Unidade">
               <Select value={unit} onValueChange={setUnit}>
                 <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
                 <SelectContent>
-                  {UNITS.map((u) => (
-                    <SelectItem key={u} value={u}>{u}</SelectItem>
+                  {UNITS.map(([code, meaning]) => (
+                    <SelectItem key={code} value={code}>
+                      <span className="font-mono">{code}</span>
+                      <span className="text-muted-foreground"> · {meaning}</span>
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -519,8 +595,11 @@ function AttributePanel({
               <Select value={aggregation} onValueChange={setAggregation}>
                 <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
                 <SelectContent>
-                  {AGGREGATIONS.map((a) => (
-                    <SelectItem key={a} value={a}>{a}</SelectItem>
+                  {AGGREGATIONS.map(([code, meaning]) => (
+                    <SelectItem key={code} value={code}>
+                      <span className="font-mono">{code}</span>
+                      <span className="text-muted-foreground"> · {meaning}</span>
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -577,12 +656,27 @@ function AttributePanel({
             </p>
           )}
 
-          <Button
-            onClick={() => confirm.mutate()}
-            disabled={confirm.isPending || !reason.trim() || blocked}
-          >
-            {confirm.isPending ? "Confirmando…" : "Confirmar semântica"}
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              onClick={() => confirm.mutate()}
+              disabled={confirm.isPending || !reason.trim() || blocked}
+            >
+              {confirm.isPending ? "Confirmando…" : "Confirmar semântica"}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => rename.mutate()}
+              disabled={rename.isPending || !reason.trim() || !renamed}
+            >
+              {rename.isPending ? "Salvando…" : "Salvar só o nome"}
+            </Button>
+          </div>
+          {renamed && (
+            <p className="text-xs text-muted-foreground">
+              “Salvar só o nome” grava o nome gerencial e deixa a semântica como
+              está — o atributo continua fora de qualquer soma até ser confirmado.
+            </p>
+          )}
         </CardContent>
       </Card>
 

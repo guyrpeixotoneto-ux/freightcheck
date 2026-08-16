@@ -7,6 +7,7 @@ import {
   getCurationSummary,
   getTaxonomyTree,
   listTaxonomyNodes,
+  renameAttribute,
   runProposalPass,
   seedTaxonomy,
 } from "@workspace/curation";
@@ -91,6 +92,34 @@ router.post("/curation/attributes/:code/confirm", async (req, res): Promise<void
     // curator, so it is surfaced rather than swallowed into a 500.
     const message = err instanceof Error ? err.message : "Erro desconhecido";
     req.log.warn({ err }, "Curation confirmation refused");
+    res.status(422).json({ error: message });
+  }
+});
+
+/**
+ * Só o nome de leitura. Separado do confirm porque batizar um atributo não diz
+ * nada sobre a semântica dele — e quem ainda não sabe se aquilo é mensal não
+ * deveria precisar afirmar que sabe para poder dar um nome legível à coluna.
+ */
+router.post("/curation/attributes/:code/rename", async (req, res): Promise<void> => {
+  try {
+    const { displayName, reason } = req.body ?? {};
+
+    if (!reason) {
+      res.status(400).json({ error: "Renomear exige uma justificativa (reason)." });
+      return;
+    }
+
+    await renameAttribute(db, {
+      code: req.params.code,
+      displayName: displayName ?? null,
+      actor: req.user!.email,
+      reason,
+    });
+    res.json(await getAttributeDetail(db, req.params.code));
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Erro desconhecido";
+    req.log.warn({ err }, "Curation rename refused");
     res.status(422).json({ error: message });
   }
 });

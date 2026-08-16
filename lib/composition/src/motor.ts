@@ -205,6 +205,7 @@ interface FatoDoAtivo extends Record<string, unknown> {
   attribute_id: string;
   code: string;
   source_name: string;
+  display_name: string | null;
   data_type: string;
   value_numeric: string | null;
   value_text: string | null;
@@ -238,6 +239,7 @@ async function lerFatos(
     SELECT a.id::text        AS attribute_id,
            a.code,
            a.source_name,
+           a.display_name,
            a.data_type,
            f.value_numeric::text AS value_numeric,
            f.value_text,
@@ -419,7 +421,7 @@ function explicar(
   classificacao: AttributeClassification | undefined,
   contexto: { contidoEm: string | null; evidenciaDeEscopo: string | null },
 ): string {
-  const nome = attributeLabel(fato.code, fato.source_name);
+  const nome = attributeLabel(fato.code, fato.source_name, fato.display_name);
   switch (motivo) {
     case "SEMANTICA_NAO_CONFIRMADA": {
       const estado = classificacao?.semanticsStatus === "PRESUMED" ? "presumida" : "desconhecida";
@@ -530,6 +532,7 @@ async function lerVigencia(
            a.id::text        AS attribute_id,
            a.code,
            a.source_name,
+           a.display_name,
            a.data_type,
            f.value_numeric::text AS value_numeric,
            f.value_text,
@@ -631,7 +634,7 @@ export function comporDeFatos(
 
     aprovados.set(fato.code, {
       code: fato.code,
-      titulo: attributeLabel(fato.code, fato.source_name),
+      titulo: attributeLabel(fato.code, fato.source_name, fato.display_name),
       valor: numeroDe(fato)!,
       classificacao: classificacao!,
       fato,
@@ -657,7 +660,7 @@ export function comporDeFatos(
     const classificacao = classificacoes.get(fato.attribute_id)!;
     const gaveta = gavetaDe(classificacao.periodicity)!;
     const valor = numeroDe(fato)!;
-    const titulo = attributeLabel(code, fato.source_name);
+    const titulo = attributeLabel(code, fato.source_name, fato.display_name);
     const colocacao = placementOf(code);
 
     const composicao = composicaoDoTotal(code);
@@ -677,7 +680,11 @@ export function comporDeFatos(
         }
         parcelas.push({
           code: parteCode,
-          titulo: attributeLabel(parteCode, parteFato?.source_name ?? parteCode),
+          titulo: attributeLabel(
+            parteCode,
+            parteFato?.source_name ?? parteCode,
+            parteFato?.display_name,
+          ),
           valor: parteValor,
           ausencia:
             parteValor !== null
@@ -762,7 +769,7 @@ export function comporDeFatos(
 
     naoApurados.push({
       code: fato.code,
-      titulo: attributeLabel(fato.code, fato.source_name),
+      titulo: attributeLabel(fato.code, fato.source_name, fato.display_name),
       sourceName: fato.source_name,
       valorExibido: exibicaoDe(fato),
       valorNumerico: numeroDe(fato),
