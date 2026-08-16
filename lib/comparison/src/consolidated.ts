@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { snapshotTable } from "@workspace/db";
 import { computeChangeSet, findPreviousSnapshot } from "./engine";
+import { periodLabel } from "./labels";
 import { getChangeSetForPair } from "./query";
 import {
   contextFilter,
@@ -49,6 +50,15 @@ export interface ConsolidatedView {
    */
   context: ContextInfo;
   period: string;
+  /**
+   * `agosto/2026` — a vigência dita como as outras telas a dizem.
+   *
+   * Vem do servidor, e da mesma função que `GroupedView.periodLabel`, para que
+   * a Visão geral e as Alterações não escrevam o mesmo mês de dois jeitos.
+   * Formatar a data no navegador seria uma segunda regra de rótulo, e duas
+   * regras é uma a mais do que se consegue manter iguais.
+   */
+  periodLabel: string;
   /** Series that delivered a vigência for this period. */
   present: SeriesAtPeriod[];
   /**
@@ -322,6 +332,7 @@ export async function getConsolidated(
   return {
     context,
     period: target.effective_date,
+    periodLabel: periodLabel(target.effective_date),
     present,
     missing,
     complete: missing.length === 0,

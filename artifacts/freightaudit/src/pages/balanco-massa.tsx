@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { Link } from "wouter";
 import { AlertTriangle, Check, FileSpreadsheet, Scale } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -289,6 +290,7 @@ function ListaDeImportacoes({
               </th>
               <th className="text-right px-4 py-2 font-medium">Sem destino</th>
               <th className="text-left px-4 py-2 font-medium">Balanço</th>
+              <th className="w-px" />
             </tr>
           </thead>
           <tbody>
@@ -334,6 +336,27 @@ function ListaDeImportacoes({
                       <AlertTriangle className="w-3.5 h-3.5" /> não fecha
                     </span>
                   )}
+                </td>
+                {/*
+                  A ponta que faltava: esta tela diz **que** uma importação não
+                  fecha; o porquê — mapeamento de colunas, avisos de leitura, o
+                  que foi ignorado — mora no envio, em Importações. Sem endereço
+                  por execução, o único caminho era a lista inteira, e quem
+                  chegava tinha de reencontrar entre dezenas de envios o nome que
+                  acabara de ler aqui.
+
+                  `stopPropagation` porque a linha inteira já tem um clique
+                  próprio, que abre o detalhe **desta** tela: são dois destinos
+                  diferentes, e o de dentro não pode disparar o de fora.
+                */}
+                <td className="px-4 py-2.5 whitespace-nowrap">
+                  <Link
+                    href={`/importacoes?run=${encodeURIComponent(b.importRunId)}`}
+                    onClick={(e) => e.stopPropagation()}
+                    className="text-xs font-semibold text-brand hover:underline"
+                  >
+                    ver o envio
+                  </Link>
                 </td>
               </tr>
             ))}

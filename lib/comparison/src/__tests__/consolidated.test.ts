@@ -185,6 +185,79 @@ describe("primeira vigência de uma série", () => {
   });
 });
 
+/**
+ * O recorte por equipamento **dentro** do período.
+ *
+ * É o que a Visão geral pede quando alguém clica no equipamento mais tocado.
+ * A alternativa — trocar de série — responde outra pergunta: a comparação de uma
+ * série é sempre a mais recente dela, e num período parcial como fevereiro isso
+ * daria a comparação de março do cavalo sob o rótulo de fevereiro.
+ */
+describe("recorte por equipamento dentro do período", () => {
+  it("lista só as linhas do equipamento pedido, sem trocar de vigência", async () => {
+    const view = (await getConsolidated(ctx.db, "2026-03-01"))!;
+
+    const cavalo = await listChanges(ctx.db, view.changeSetIds, {
+      entityType: "CAVALO",
+    });
+    expect(cavalo.total).toBe(2);
+    expect(cavalo.rows.map((r) => r.attributeCode).sort()).toEqual([
+      "cavalo.custo_fixo",
+      "cavalo.ipva",
+    ]);
+
+    const carreta = await listChanges(ctx.db, view.changeSetIds, {
+      entityType: "CARRETA",
+    });
+    expect(carreta.total).toBe(1);
+    expect(carreta.rows[0].attributeCode).toBe("carreta.custo_fixo");
+  });
+
+  it("é filtro de linha, e o total sem ele continua o do período inteiro", async () => {
+    const view = (await getConsolidated(ctx.db, "2026-03-01"))!;
+    const tudo = await listChanges(ctx.db, view.changeSetIds);
+    expect(tudo.total).toBe(3);
+    // As duas fatias fecham o total: nenhuma linha fica de fora nem é contada
+    // duas vezes.
+    const cavalo = await listChanges(ctx.db, view.changeSetIds, { entityType: "CAVALO" });
+    const carreta = await listChanges(ctx.db, view.changeSetIds, { entityType: "CARRETA" });
+    expect(cavalo.total + carreta.total).toBe(tudo.total);
+  });
+
+  it("combina com os outros filtros em vez de substituí-los", async () => {
+    const view = (await getConsolidated(ctx.db, "2026-03-01"))!;
+    // "cavalo, e só o que tem impacto apurado" é o recorte de quem chegou pela
+    // faixa de atenção da Visão geral.
+    const { total } = await listChanges(ctx.db, view.changeSetIds, {
+      entityType: "CAVALO",
+      impactConfidence: "CALCULATED",
+    });
+    expect(total).toBe(2);
+
+    const nenhuma = await listChanges(ctx.db, view.changeSetIds, {
+      entityType: "CAVALO",
+      attributeCode: "carreta.custo_fixo",
+    });
+    expect(nenhuma.total).toBe(0);
+  });
+});
+
+/**
+ * O rótulo do período vem do servidor.
+ *
+ * A Visão geral escreve "março de 2026" no cabeçalho a partir de
+ * `GroupedView.periodLabel`; as Alterações precisam escrever a mesma coisa na
+ * faixa de recorte. Formatar a data no navegador seria uma segunda regra de
+ * rótulo, e duas regras é uma a mais do que se consegue manter iguais.
+ */
+describe("o período dito por extenso", () => {
+  it("acompanha a data, com a mesma regra das outras telas", async () => {
+    const view = (await getConsolidated(ctx.db, "2026-03-01"))!;
+    expect(view.period).toBe("2026-03-01");
+    expect(view.periodLabel).toBe("março/2026");
+  });
+});
+
 describe("o consolidado é projeção, não entidade", () => {
   it("não cria snapshot nem altera os existentes", async () => {
     const before = await listPeriods(ctx.db);

@@ -213,19 +213,33 @@ export function ImpactoPanorama({
   onEscolher,
   corte,
   onCorte,
+  contexto,
   janela = {},
   onJanela,
 }: {
   onEscolher: (escolha: EscolhaDeParametro) => void;
   corte: Corte;
   onCorte: (c: Corte) => void;
+  /**
+   * A unidade e o canal abertos — `scopeHash` e `canal`, vazio quando não há.
+   *
+   * A rota sempre soube receber contexto; esta tela é que não mandava, e por
+   * isso respondia pela unidade mais recente do banco mesmo para quem tinha
+   * acabado de trocar de unidade na Visão geral. Sem período: a leitura é a
+   * série inteira de quinzenas, e o De/Até abaixo é quem a estreita.
+   */
+  contexto?: URLSearchParams;
   janela?: JanelaDeVigencias;
   onJanela?: (j: JanelaDeVigencias) => void;
 }) {
+  const consulta = contexto?.toString() ?? "";
   const query = useQuery({
-    queryKey: ["impacto", "panorama", janela.de, janela.ate],
+    queryKey: ["impacto", "panorama", consulta, janela.de, janela.ate],
     queryFn: () => {
-      const params = new URLSearchParams();
+      // Os dois recortes convivem e não se confundem: o contexto diz **de quem**
+      // é a série, o De/Até diz **que pedaço** dela. Um chega de fora, pela URL;
+      // o outro é escolhido aqui.
+      const params = new URLSearchParams(consulta);
       if (janela.de) params.set("de", janela.de);
       if (janela.ate) params.set("ate", janela.ate);
       const qs = params.toString();

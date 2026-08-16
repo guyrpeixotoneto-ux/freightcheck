@@ -21,6 +21,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { getApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
+import { lerRecorte, linkDeAlteracoes } from "@/lib/recorte";
 import { FaixaResumo, ResumoExecutivo } from "@/components/vigencia/resumo";
 import { Panorama } from "@/components/vigencia/panorama";
 import { LinhaPrioridade } from "@/components/vigencia/prioridade";
@@ -72,7 +73,21 @@ import type { ChangeGroup, GroupedView } from "@/components/inicio/types";
  */
 export default function Vigencia() {
   const search = useSearch();
-  const [period, setPeriod] = useState<string | undefined>(undefined);
+  /*
+    A vigência começa na URL, como a unidade e o canal já começavam.
+
+    Ela era só estado: `?period=` chegava e o Acompanhamento respondia pela mais
+    recente, calado. Ninguém apontava para cá com vigência, então nada quebrava
+    — mas esta tela é a que mais nomeia vigências no produto, e as duas saídas
+    dela para Alterações (a fila e o rodapé) passaram a levar a que está à vista.
+    Sem ler a que chega, o par ficava capenga de um lado: dá para sair daqui com
+    a vigência, e não dava para entrar com ela.
+
+    O seletor continua mandando daí em diante — é estado inicial, não trava.
+  */
+  const [period, setPeriod] = useState<string | undefined>(
+    () => new URLSearchParams(search).get("period") ?? undefined,
+  );
   const [filtro, setFiltro] = useState<FiltroCockpit>(FILTRO_VAZIO);
 
   /*
@@ -284,7 +299,7 @@ export default function Vigencia() {
               </>
             )}
 
-            <Rodape data={data} />
+            <Rodape data={data} contexto={contexto} />
           </>
         )}
       </div>
@@ -585,7 +600,7 @@ function Chip({
  * tempo o número que mais enganava no produto. Com uma comparação só, ele nem
  * aparece — repetir o valor da vigência sob outro nome não é histórico.
  */
-function Rodape({ data }: { data: GroupedView }) {
+function Rodape({ data, contexto }: { data: GroupedView; contexto: URLSearchParams }) {
   const historico = data.cockpit.history;
 
   return (
@@ -600,7 +615,18 @@ function Rodape({ data }: { data: GroupedView }) {
             frota: +{data.totals.entitiesAdded} / −{data.totals.entitiesRemoved} ativos
           </span>
         )}
-        <Link href="/alteracoes" className="text-primary hover:underline">
+        {/*
+          A vigência e a unidade vão junto. Sem elas o link abria a comparação
+          mais recente do contexto padrão, e "a lista completa" passava a ser a
+          de outro mês — logo abaixo de um rodapé que acabara de contar os
+          valores **desta**.
+        */}
+        <Link
+          href={linkDeAlteracoes({
+            recorte: { ...lerRecorte(contexto), period: data.period },
+          })}
+          className="text-primary hover:underline"
+        >
           ver a lista completa, linha a linha
         </Link>
         <Link href="/curadoria" className="text-primary hover:underline">
