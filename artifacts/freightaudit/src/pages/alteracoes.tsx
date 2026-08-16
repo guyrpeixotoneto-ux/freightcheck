@@ -47,8 +47,7 @@ import { primeiraPagina, type Janela } from "@/lib/paginacao";
 import { cn } from "@/lib/utils";
 import {
   ChangeTable,
-  FilterBar,
-  QuickFilters,
+  ChangeFilterPanel,
   type AttributeRollup,
   type ChangeRow,
   type Breakdown,
@@ -58,8 +57,7 @@ import {
 } from "@/components/changes/change-table";
 import {
   TicketChangeTable,
-  TicketFilterBar,
-  TicketQuickFilters,
+  TicketFilterPanel,
   emptyTicketFilters,
   toTicketQuery,
   type OrdemChamados,
@@ -68,28 +66,59 @@ import {
   type TicketTotals,
 } from "@/components/changes/ticket-table";
 import { TicketClassification } from "@/components/changes/ticket-classification";
+import { ImpactoQuinzenas } from "@/components/changes/impacto-quinzenas";
 
 /**
- * Alterações — o que mudou, pelos dois caminhos por onde a mudança chega.
+ * Alterações — o que mudou, pelos caminhos por onde a mudança chega, e quanto
+ * cada ativo custa em cada vigência.
  *
  * **Planilha** é a comparação entre vigências: o que a Ambev mexeu no cadastro
  * entre um export e o seguinte, apurado célula a célula. **Chamados** é o
  * outro lado da mesma história — o que nós pedimos pelo Freightech e o que
  * voltou aplicado.
  *
- * As duas abas nunca somam nada uma com a outra, e isso é a decisão de projeto
+ * As duas nunca somam nada uma com a outra, e isso é a decisão de projeto
  * central desta tela. O impacto da planilha é uma diferença apurada entre dois
  * estados fechados; o do chamado é a distância entre um pedido e uma resposta,
  * ambos declarados pela própria fonte. Adicioná-los daria um número que não se
  * sustenta em lugar nenhum — e contaria em dobro toda mudança que foi pedida
  * por chamado e depois apareceu na planilha. Duas contas, duas réguas, lado a
  * lado.
+ *
+ * **Impacto** é a terceira, e é a única que não parte da alteração. Ela mostra
+ * o valor de cada ativo em cada quinzena e deixa a alteração aparecer como a
+ * diferença entre duas colunas. Existe porque as outras duas, por construção,
+ * não conseguem mostrar o ativo que **não** mudou — ele não está em lista de
+ * alteração nenhuma — e sem ele o total da coluna não fecha com o que a Ambev
+ * pagou. Ela também não soma com as outras: é o estado, não o movimento.
  */
 
-type Aba = "planilha" | "chamados";
+type Aba = "planilha" | "chamados" | "impacto";
 
-export default function Alteracoes() {
-  const [aba, setAba] = useState<Aba>("planilha");
+const ABAS: Aba[] = ["planilha", "chamados", "impacto"];
+
+const abaValida = (valor: string | null): valor is Aba =>
+  valor !== null && (ABAS as string[]).includes(valor);
+
+/**
+ * Em qual aba a tela abre.
+ *
+ * `abaInicial` é de quem entrou por outro endereço: `/impacto-financeiro`, no
+ * menu de Auditoria, é a mesma tela aberta no Impacto — a pergunta "quanto isso
+ * custou" tem entrada própria no menu, e não podia depender de alguém saber que
+ * a resposta mora numa aba de Alterações.
+ *
+ * `?aba=` vence os dois, e existe para que um link colado no chat leve ao mesmo
+ * lugar de quem o mandou. É estado inicial, não trava: clicar nas abas continua
+ * mandando daí em diante.
+ */
+export default function Alteracoes({
+  abaInicial = "planilha",
+}: {
+  abaInicial?: Aba;
+} = {}) {
+  const pedida = new URLSearchParams(useSearch()).get("aba");
+  const [aba, setAba] = useState<Aba>(abaValida(pedida) ? pedida : abaInicial);
 
   // Só a contagem, para a aba dizer o tamanho do assunto antes de ser aberta.
   // `limit=1` porque a lista em si é da aba; o que interessa aqui é o total.
@@ -108,7 +137,8 @@ export default function Alteracoes() {
         </h1>
         <p className="text-muted-foreground text-sm mt-1 max-w-3xl">
           A remuneração muda por dois caminhos, e cada um se confere de um
-          jeito. Os números de uma aba nunca somam com os da outra.
+          jeito — os números de uma aba nunca somam com os da outra. Impacto é a
+          terceira leitura: quanto cada ativo custa em cada quinzena.
         </p>
 
         <nav className="flex items-center gap-1 mt-4" role="tablist">
@@ -127,10 +157,23 @@ export default function Alteracoes() {
             hint="o que pedimos e o que voltou aplicado"
             count={resumoChamados.data?.totals?.changes}
           />
+          <AbaBotao
+            active={aba === "impacto"}
+            onClick={() => setAba("impacto")}
+            icon={<DollarSign className="w-4 h-4" />}
+            label="Impacto"
+            hint="quanto cada ativo custa em cada quinzena"
+          />
         </nav>
       </div>
 
-      {aba === "planilha" ? <AbaPlanilha /> : <AbaChamados />}
+      {aba === "planilha" && <AbaPlanilha />}
+      {aba === "chamados" && <AbaChamados />}
+      {aba === "impacto" && (
+        <div className="p-8">
+          <ImpactoQuinzenas />
+        </div>
+      )}
     </Layout>
   );
 }
@@ -271,7 +314,6 @@ function AbaPlanilha() {
   /** null = visão consolidada da frota; caso contrário, uma série. */
   const [series, setSeries] = useState<string | null>(null);
   const [janela, setJanela] = useState<Janela>(primeiraPagina);
-  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [painel, setPainel] = useState<PainelPlanilha>(null);
 
   /*
@@ -510,21 +552,11 @@ function AbaPlanilha() {
       )}
 
       <Card className="rounded-2xl p-4 space-y-4">
-        <QuickFilters
+        <ChangeFilterPanel
           filters={filters}
           onChange={setFilters}
           breakdown={breakdown}
-          avancadoAberto={filtrosAbertos}
-          onToggleAvancado={() => setFiltrosAbertos((v) => !v)}
         />
-        {filtrosAbertos && (
-          <FilterBar
-            avancada
-            filters={filters}
-            onChange={setFilters}
-            breakdown={breakdown}
-          />
-        )}
       </Card>
 
       {breakdown && breakdown.byAttribute.length > 0 && (
@@ -716,7 +748,6 @@ function AbaChamados() {
   // não tem as tabelas".
   const [erroUpload, setErroUpload] = useState<unknown>(null);
   const [painel, setPainel] = useState<Painel>(null);
-  const [filtrosAbertos, setFiltrosAbertos] = useState(false);
   const [janela, setJanela] = useState<Janela>(primeiraPagina);
   /*
     A ordem pedida no cabeçalho da tabela vive aqui, e não lá dentro, porque
@@ -1310,20 +1341,11 @@ function AbaChamados() {
 
         {run && visao === "resumo" && (
           <Card className="rounded-2xl p-4 space-y-4">
-            <TicketQuickFilters
+            <TicketFilterPanel
               filters={filters}
               onChange={setFilters}
               totals={totals ?? undefined}
-              avancadoAberto={filtrosAbertos}
-              onToggleAvancado={() => setFiltrosAbertos((v) => !v)}
             />
-            {filtrosAbertos && (
-              <TicketFilterBar
-                filters={filters}
-                onChange={setFilters}
-                totals={totals ?? undefined}
-              />
-            )}
           </Card>
         )}
 
