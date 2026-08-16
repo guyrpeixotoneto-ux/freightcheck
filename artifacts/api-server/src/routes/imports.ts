@@ -22,6 +22,7 @@ import {
   receiveFile,
   stage,
 } from "@workspace/ingest";
+import { semearContrato } from "@workspace/coverage";
 
 /**
  * Importações (F1) — receber um arquivo, contar o que saiu dele, e só então
@@ -306,6 +307,26 @@ router.post("/imports/:id/promote", async (req, res): Promise<void> => {
       promotedBy: req.user?.email ?? DEFAULT_ACTOR,
       confirmNewEntityTypes,
     });
+
+    /*
+      O contrato de cobertura acompanha o dicionário.
+
+      Uma promoção pode criar atributos que o dicionário não tinha, e o contrato
+      declara expectativas por código de atributo. Semear aqui é idempotente
+      (`ON CONFLICT DO NOTHING`) e nunca sobrescreve decisão de curadoria; sem
+      isto, uma coluna nova ficaria fora da cobertura crítica até alguém chamar
+      a rota de semeadura à mão.
+
+      Fora do `try` da promoção não dá — ela já respondeu. Dentro dele, uma
+      falha aqui não pode derrubar uma promoção que deu certo: o dado está
+      gravado, e a expectativa é derivada e refazível.
+    */
+    try {
+      await semearContrato(db);
+    } catch (err) {
+      req.log.warn({ err }, "Contrato de cobertura não semeado após a promoção");
+    }
+
     res.json(result);
   } catch (err) {
     // Recusas de regra são escritas para quem opera e chegam inteiras à tela,
