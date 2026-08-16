@@ -102,8 +102,25 @@ describe("toTicketQuery", () => {
     expect(query.get("impactConfidence")).toBe("CALCULATED");
   });
 
-  it("sem filtro nenhum, só o limite", () => {
-    expect(toTicketQuery(emptyTicketFilters)).toBe("limit=300");
+  it("sem filtro nenhum, nenhum recorte pega carona", () => {
+    // `limit`/`offset` são a janela de paginação, e o tamanho dela é assunto de
+    // `lib/paginacao` — amarrá-lo aqui faria este teste reprovar quando alguém
+    // mudasse a página padrão, que não é o que ele existe para vigiar.
+    const janela = new Set(["limit", "offset"]);
+    const chaves = [...parametros(emptyTicketFilters).keys()].filter(
+      (chave) => !janela.has(chave),
+    );
+    expect(chaves).toEqual([]);
+  });
+
+  it("o assunto da visão por tipos chega inteiro", () => {
+    expect(parametros(com({ subject: "Reajuste 2026" })).get("subject")).toBe(
+      "Reajuste 2026",
+    );
+    // "sem assunto" é uma folha de verdade da árvore, e não a ausência de corte.
+    const semAssunto = parametros(com({ subjectMissing: true }));
+    expect(semAssunto.get("subjectMissing")).toBe("true");
+    expect(semAssunto.has("subject")).toBe(false);
   });
 });
 
@@ -136,10 +153,25 @@ describe("filtrosAtivos", () => {
         onlyDivergent: true,
         minAbsImpact: "10",
         parameterLabel: "Frete peso",
+        subject: "Reajuste 2026",
       }),
     );
     expect(atras.every((f) => f.avancado)).toBe(true);
-    expect(atras).toHaveLength(5);
+    expect(atras).toHaveLength(6);
+  });
+
+  it("o assunto se anuncia, venha ele de qual folha vier", () => {
+    // Nem `subject` nem `subjectMissing` têm chip nesta barra — são escolhidos
+    // na visão por tipos. É por isso que precisam aparecer no resumo: são os
+    // recortes com mais chance de ficarem ligados sem ninguém perceber.
+    const [porAssunto] = filtrosAtivos(com({ subject: "Reajuste 2026" }));
+    expect(porAssunto.valor).toBe("Reajuste 2026");
+
+    const [semAssunto] = filtrosAtivos(com({ subjectMissing: true }));
+    expect(semAssunto.valor).toBe("chamados sem assunto");
+    expect({ ...emptyTicketFilters, ...semAssunto.patch }.subjectMissing).toBe(
+      false,
+    );
   });
 
   it("cada um se desfaz sozinho, sem levar os outros", () => {

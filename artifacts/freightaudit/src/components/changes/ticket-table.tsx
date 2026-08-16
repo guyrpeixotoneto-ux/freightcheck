@@ -15,7 +15,14 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
+import { Paginacao } from "@/components/ui/paginacao";
 import { getApiUrl } from "@/lib/api";
+import {
+  TAMANHOS_DE_PAGINA,
+  aplicarJanela,
+  primeiraPagina,
+  type Janela,
+} from "@/lib/paginacao";
 import { cn } from "@/lib/utils";
 
 /**
@@ -96,6 +103,16 @@ export interface TicketFilters {
   beforeSource: string;
   changeKind: string;
   parameterLabel: string;
+  /** O assunto do chamado, exato. É por onde a visão por tipo abre uma folha. */
+  subject: string;
+  /**
+   * Só os chamados sem assunto.
+   *
+   * Separado de `subject` porque vazio já quer dizer "sem filtro" em todo o
+   * resto desta interface — e o grupo dos sem assunto é uma folha de verdade da
+   * árvore por tipo, que sem isto seria a única que não abriria.
+   */
+  subjectMissing: boolean;
   search: string;
   minAbsImpact: string;
   onlyDivergent: boolean;
@@ -107,6 +124,8 @@ export const emptyTicketFilters: TicketFilters = {
   beforeSource: "",
   changeKind: "",
   parameterLabel: "",
+  subject: "",
+  subjectMissing: false,
   search: "",
   minAbsImpact: "",
   onlyDivergent: false,
@@ -148,6 +167,7 @@ export function variacaoMinima(filters: TicketFilters): number | null {
 export function toTicketQuery(
   filters: TicketFilters,
   extra: Record<string, string> = {},
+  janela: Janela = primeiraPagina,
 ) {
   const params = new URLSearchParams();
   const busca = filters.search.trim();
@@ -158,13 +178,15 @@ export function toTicketQuery(
   if (filters.beforeSource) params.set("beforeSource", filters.beforeSource);
   if (filters.changeKind) params.set("changeKind", filters.changeKind);
   if (filters.parameterLabel) params.set("parameterLabel", filters.parameterLabel);
+  if (filters.subjectMissing) params.set("subjectMissing", "true");
+  else if (filters.subject) params.set("subject", filters.subject);
   if (busca) params.set("search", busca);
   if (minimo !== null) params.set("minAbsImpact", String(minimo));
   if (filters.onlyDivergent) params.set("onlyDivergent", "true");
   for (const [key, value] of Object.entries(extra)) {
     if (value) params.set(key, value);
   }
-  params.set("limit", "300");
+  aplicarJanela(params, janela);
   return params.toString();
 }
 
@@ -470,9 +492,14 @@ function SortHeader({
 export function TicketChangeTable({
   rows,
   total,
+  janela,
+  onJanela,
 }: {
   rows: TicketChangeRow[];
   total: number;
+  /** Sem estes dois a tabela é a página única de antes. */
+  janela?: Janela;
+  onJanela?: (janela: Janela) => void;
 }) {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [sort, setSort] = useState<SortState>(null);
@@ -735,11 +762,23 @@ export function TicketChangeTable({
         </table>
       </div>
 
-      {total > rows.length && (
-        <p className="px-4 py-3 text-xs text-muted-foreground border-t">
-          Mostrando {rows.length} de {total}. Use os filtros para chegar ao
-          restante — nada foi descartado.
-        </p>
+      {janela && onJanela ? (
+        <Paginacao
+          total={total}
+          pagina={janela.pagina}
+          porPagina={janela.porPagina}
+          onPagina={(pagina) => onJanela({ ...janela, pagina })}
+          onPorPagina={(porPagina) => onJanela({ porPagina, pagina: 1 })}
+          tamanhos={TAMANHOS_DE_PAGINA}
+          unidade="alterações"
+        />
+      ) : (
+        total > rows.length && (
+          <p className="px-4 py-3 text-xs text-muted-foreground border-t">
+            Mostrando {rows.length} de {total}. Use os filtros para chegar ao
+            restante — nada foi descartado.
+          </p>
+        )
       )}
     </div>
   );
@@ -1101,6 +1140,17 @@ export function filtrosAtivos(filters: TicketFilters): FiltroAtivo[] {
       patch: { parameterLabel: "" },
     });
   }
+  // O assunto vem da visão por tipos, e não de nenhum chip desta barra — o que
+  // faz dele o recorte mais fácil de esquecer que está ligado.
+  if (filters.subjectMissing || filters.subject) {
+    lista.push({
+      id: "subject",
+      grupo: "assunto",
+      valor: filters.subjectMissing ? "chamados sem assunto" : filters.subject,
+      avancado: true,
+      patch: { subject: "", subjectMissing: false },
+    });
+  }
 
   return lista;
 }
@@ -1456,6 +1506,24 @@ function PainelAvancado({
             onClick={() => onChange({ ...filters, parameterLabel: "" })}
           >
             {filters.parameterLabel}
+            <X className="ml-1 inline w-3 h-3 align-[-1px]" />
+          </Chip>
+        </FilterGroup>
+      )}
+
+      {/* O corte que a visão por tipo deixa para trás quando alguém volta ao
+          Resumo por uma folha da árvore. Sem ele aqui, a lista viria recortada
+          por um filtro que não aparece em chip nenhum — e com o painel fechado
+          é a fileira do resumo, logo acima, que o diz. */}
+      {(filters.subject || filters.subjectMissing) && (
+        <FilterGroup label="Assunto">
+          <Chip
+            active
+            onClick={() =>
+              onChange({ ...filters, subject: "", subjectMissing: false })
+            }
+          >
+            {filters.subjectMissing ? "chamados sem assunto" : filters.subject}
             <X className="ml-1 inline w-3 h-3 align-[-1px]" />
           </Chip>
         </FilterGroup>

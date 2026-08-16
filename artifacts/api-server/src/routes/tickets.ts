@@ -5,13 +5,18 @@ import { Router, type IRouter, type Response } from "express";
 import { codigoDoPostgres, db } from "@workspace/db";
 import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
 import {
+  TicketImportDeletionRefused,
+  deleteTicketImport,
   ensureImportStorageDir,
+  listTicketImportDeletions,
   markTicketImportFailed,
+  planTicketImportDeletion,
   readTicketImport,
   receiveTicketFile,
 } from "@workspace/ingest";
 import {
   getTicket,
+  getTicketClassification,
   getTicketImport,
   getTicketTotals,
   getTicketsByParameter,
@@ -160,6 +165,8 @@ function parseTicketFilters(query: Record<string, unknown>): TicketFilters {
     parameterLabel: str("parameterLabel"),
     beforeSource: str("beforeSource"),
     changeKind: str("changeKind"),
+    subject: str("subject"),
+    subjectMissing: str("subjectMissing") === "true",
     search: str("search"),
     onlyDivergent: str("onlyDivergent") === "true",
     minAbsImpact: num("minAbsImpact"),
@@ -267,6 +274,80 @@ router.get("/ticket-imports/:id", async (req, res): Promise<void> => {
 });
 
 /**
+ * O que a exclusão tiraria, antes de tirar.
+ *
+ * A pergunta "tem certeza?" não é responsável por si só: quem está na tela não
+ * tem como saber que aquele arquivo sustenta 1.218 chamados. Esta rota é o que
+ * transforma a confirmação numa decisão — e é a mesma conta que a exclusão vai
+ * fazer, escrita uma vez só em `planTicketImportDeletion`.
+ */
+router.get("/ticket-imports/:id/deletion", async (req, res): Promise<void> => {
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de envio inválido." });
+    return;
+  }
+  try {
+    const plan = await planTicketImportDeletion(db, req.params.id);
+    if (!plan) {
+      res.status(404).json({ error: "Envio de chamados não encontrado." });
+      return;
+    }
+    res.json(plan);
+  } catch (err) {
+    req.log.error({ err }, "Error planning ticket import deletion");
+    await responderFalha(res, err);
+  }
+});
+
+/**
+ * Excluir um envio de chamados.
+ *
+ * Quem exclui é quem está logado, e o nome vai para `ticket_import_deletion`
+ * junto com o que saiu — o registro sobrevive ao dado, que é a única forma de
+ * "isto foi apagado" continuar sendo uma afirmação verificável depois.
+ *
+ * A recusa — um envio ainda sendo lido — volta como 409 com a frase inteira.
+ * Não é erro do servidor: é a ordem em que as coisas podem ser desfeitas.
+ */
+router.delete("/ticket-imports/:id", async (req, res): Promise<void> => {
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de envio inválido." });
+    return;
+  }
+  try {
+    const motivo =
+      typeof req.body?.reason === "string" && req.body.reason.trim() !== ""
+        ? req.body.reason.trim()
+        : null;
+
+    const result = await deleteTicketImport(db, req.params.id, {
+      deletedBy: req.user?.email ?? DEFAULT_ACTOR,
+      reason: motivo,
+    });
+    res.json(result);
+  } catch (err) {
+    if (err instanceof TicketImportDeletionRefused) {
+      const naoEncontrado = err.message.includes("não encontrado");
+      req.log.warn({ err, ticketImportId: req.params.id }, "Deletion refused");
+      res.status(naoEncontrado ? 404 : 409).json({ error: err.message });
+      return;
+    }
+    req.log.error({ err }, "Error deleting ticket import");
+    await responderFalha(res, err);
+  }
+});
+
+/** O histórico das exclusões — o que já não está mais aqui, e por ordem de quem. */
+router.get("/ticket-import-deletions", async (req, res): Promise<void> => {
+  try {
+    res.json(await listTicketImportDeletions(db));
+  } catch (err) {
+    req.log.error({ err }, "Error listing ticket import deletions");
+    await responderFalha(res, err);
+  }
+});
+
+/**
  * Os chamados do envio pedido — ou do último lido, quando nenhum é pedido.
  *
  * Sem envio nenhum a resposta é 200 com `import: null` e lista vazia, e não
@@ -311,6 +392,53 @@ router.get("/tickets", async (req, res): Promise<void> => {
     res.json({ import: run, imports, totals, byParameter, ...changes });
   } catch (err) {
     req.log.error({ err }, "Error listing tickets");
+    await responderFalha(res, err);
+  }
+});
+
+/**
+ * As alterações do envio dobradas por tipo de valor.
+ *
+ * Rota própria, e não mais um campo em `/tickets`: a visão por tipo é a segunda
+ * das duas da aba, e quem fica no Resumo não deve pagar por uma agregação que
+ * não vai ver. Sem filtro nenhum, de propósito — é a árvore do envio inteiro, e
+ * quem quiser recortar clica numa folha, que devolve para `/tickets` com o
+ * parâmetro e o assunto daquela folha.
+ *
+ * **Precisa vir antes de `/tickets/:id`.** O Express casa na ordem de registro,
+ * e `classification` cairia no `:id`, que responderia 400 por não ser UUID.
+ */
+router.get("/tickets/classification", async (req, res): Promise<void> => {
+  try {
+    const requested =
+      typeof req.query.ticketImportId === "string"
+        ? req.query.ticketImportId
+        : undefined;
+    if (requested !== undefined && !UUID.test(requested)) {
+      res.status(400).json({ error: "Identificador de envio inválido." });
+      return;
+    }
+
+    const run = requested
+      ? await getTicketImport(db, requested)
+      : await latestTicketImport(db);
+
+    // Mesma escolha de `/tickets`: sem envio é 200 com nada dentro, e não 404.
+    // A aba abre antes de existir arquivo, e isso é um estado, não um erro.
+    if (!run) {
+      res.json({
+        import: null,
+        classes: [],
+        changes: 0,
+        overlap: 0,
+        unclassified: 0,
+      });
+      return;
+    }
+
+    res.json({ import: run, ...(await getTicketClassification(db, run.id)) });
+  } catch (err) {
+    req.log.error({ err }, "Error classifying tickets");
     await responderFalha(res, err);
   }
 });
