@@ -296,6 +296,7 @@ interface RawChange extends Record<string, unknown> {
   entity_type: string | null;
   attribute_code: string | null;
   attribute_source_name: string | null;
+  attribute_display_name: string | null;
   value_before: string | null;
   value_after: string | null;
   numeric_before: string | null;
@@ -333,6 +334,7 @@ export async function loadChanges(
     SELECT c.id, c.change_set_id, c.category, c.change_type, c.nature,
            c.entity_id::text AS entity_id, c.entity_label, c.entity_type,
            c.attribute_code, a.source_name AS attribute_source_name,
+           a.display_name AS attribute_display_name,
            c.value_before, c.value_after,
            c.numeric_before::text AS numeric_before,
            c.numeric_after::text  AS numeric_after,
@@ -591,7 +593,11 @@ export function buildGroup(
   return {
     key: groupKey(first),
     attributeCode: first.attribute_code,
-    title: attributeLabel(first.attribute_code, first.attribute_source_name),
+    title: attributeLabel(
+      first.attribute_code,
+      first.attribute_source_name,
+      first.attribute_display_name,
+    ),
     entityType: first.entity_type,
     equipment: equipmentLabel(first.entity_type),
     changeType: first.change_type,
@@ -1218,12 +1224,13 @@ export async function getAttributeSeries(
   const { rows: meta } = await db.execute<{
     code: string;
     source_name: string;
+    display_name: string | null;
     aggregation: string | null;
     unit: string | null;
     periodicity: string | null;
     semantics_status: string;
   }>(sql`
-    SELECT code, source_name, aggregation, unit, periodicity,
+    SELECT code, source_name, display_name, aggregation, unit, periodicity,
            semantics_status::text AS semantics_status
       FROM attribute WHERE code = ${attributeCode}
   `);
@@ -1261,7 +1268,7 @@ export async function getAttributeSeries(
 
   return {
     attributeCode,
-    title: attributeLabel(attribute.code, attribute.source_name),
+    title: attributeLabel(attribute.code, attribute.source_name, attribute.display_name),
     aggregation: attribute.aggregation,
     summable,
     averageable,
@@ -1354,8 +1361,12 @@ export async function getAttributeDomain(
   const context = await resolveContext(db, requestedContext);
   if (!context) return null;
 
-  const { rows: meta } = await db.execute<{ code: string; source_name: string }>(sql`
-    SELECT code, source_name FROM attribute WHERE code = ${attributeCode}
+  const { rows: meta } = await db.execute<{
+    code: string;
+    source_name: string;
+    display_name: string | null;
+  }>(sql`
+    SELECT code, source_name, display_name FROM attribute WHERE code = ${attributeCode}
   `);
   if (meta.length === 0) return null;
 
@@ -1414,7 +1425,7 @@ export async function getAttributeDomain(
 
   return {
     attributeCode,
-    title: attributeLabel(meta[0].code, meta[0].source_name),
+    title: attributeLabel(meta[0].code, meta[0].source_name, meta[0].display_name),
     effectiveDate,
     periodLabel: periodLabel(effectiveDate),
     sourceLabels: [...rotulos].sort(),
@@ -1708,10 +1719,14 @@ export async function getEntityTable(
     sql`, `,
   );
 
-  const { rows: meta } = await db.execute<{ code: string; source_name: string }>(sql`
-    SELECT code, source_name FROM attribute WHERE code IN (${lista})
+  const { rows: meta } = await db.execute<{
+    code: string;
+    source_name: string;
+    display_name: string | null;
+  }>(sql`
+    SELECT code, source_name, display_name FROM attribute WHERE code IN (${lista})
   `);
-  const conhecidos = new Map(meta.map((m) => [m.code, m.source_name]));
+  const conhecidos = new Map(meta.map((m) => [m.code, m]));
 
   const { rows: fatos } = await db.execute<{
     entity_id: string;
@@ -1812,7 +1827,14 @@ export async function getEntityTable(
     sourceLabels: [...rotulos].sort(),
     columns: attributeCodes
       .filter((code) => conhecidos.has(code))
-      .map((code) => ({ code, title: attributeLabel(code, conhecidos.get(code) ?? code) })),
+      .map((code) => ({
+        code,
+        title: attributeLabel(
+          code,
+          conhecidos.get(code)?.source_name ?? code,
+          conhecidos.get(code)?.display_name,
+        ),
+      })),
     missingColumns: attributeCodes.filter((code) => !conhecidos.has(code)),
     rows,
   };

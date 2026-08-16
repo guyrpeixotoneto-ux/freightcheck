@@ -44,7 +44,14 @@ export interface AttributeClassification {
   calculationBasis?: string | null;
   attributeId: string;
   attributeCode: string;
+  /** O nome de leitura: apelido gerencial quando existe, literal da planilha quando não. */
   attributeName: string;
+  /**
+   * Só o apelido, sem o literal por trás. Separado de `attributeName` porque
+   * `attributeLabel` precisa saber se houve curadoria: um apelido confirmado
+   * ganha do vocabulário fixo, um nome de coluna não.
+   */
+  attributeDisplayName: string | null;
   entityType: string;
   dataType: string;
   unit: string | null;
@@ -170,6 +177,7 @@ export async function loadAttributeClassifications(
       attributeId: row.id,
       attributeCode: row.code,
       attributeName: row.display_name ?? row.source_name,
+      attributeDisplayName: row.display_name,
       entityType: row.entity_type,
       dataType: row.data_type,
       unit: row.unit,

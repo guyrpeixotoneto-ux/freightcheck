@@ -94,6 +94,7 @@ async function lerHistorico(
            a.id::text        AS attribute_id,
            a.code,
            a.source_name,
+           a.display_name,
            a.data_type,
            f.value_numeric::text AS value_numeric,
            f.value_text,
@@ -215,7 +216,7 @@ export async function getHistorico(
     const classificacao = classificacoesAgora.get(exemplo.attribute_id);
     return {
       code,
-      titulo: attributeLabel(code, exemplo.source_name),
+      titulo: attributeLabel(code, exemplo.source_name, exemplo.display_name),
       unit: classificacao?.unit ?? null,
       periodicity: classificacao?.periodicity ?? null,
       financeiro: calculaveisAgora.has(code),
@@ -413,6 +414,12 @@ export async function getAlteracoesDoEquipamento(
 
   const noTotal = new Set(agora.linhas.map((l) => l.code));
   const motivoPorCodigo = new Map(agora.naoApurados.map((n) => [n.code, n]));
+  /* O apelido gerencial por código: `change.attribute_name` é o que a
+     comparação denormalizou na época, e um nome dado depois não chegaria aqui
+     sem esta consulta ao estado atual do atributo. */
+  const apelidoPorCodigo = new Map(
+    [...classificacoes.values()].map((c) => [c.attributeCode, c.attributeDisplayName]),
+  );
 
   const alteracoes: AlteracaoDoEquipamento[] = rows.map((row) => {
     const excluido = row.attributeCode ? motivoPorCodigo.get(row.attributeCode) : undefined;
@@ -429,7 +436,11 @@ export async function getAlteracoesDoEquipamento(
         impressão de serem duas colunas diferentes. O literal não se perde — ele
         continua na proveniência, que é onde ele serve.
       */
-      attributeName: attributeLabel(row.attributeCode, row.attributeName),
+      attributeName: attributeLabel(
+        row.attributeCode,
+        row.attributeName,
+        row.attributeCode ? apelidoPorCodigo.get(row.attributeCode) : null,
+      ),
       entraNoTotal: row.attributeCode !== null && noTotal.has(row.attributeCode),
       motivo: excluido?.motivo ?? null,
       motivoRotulo: excluido ? ROTULO_DO_MOTIVO[excluido.motivo] : null,
@@ -491,7 +502,7 @@ async function lerFatosSimples(
 ): Promise<FatoDoAtivo[]> {
   const { rows } = await db.execute<FatoDoAtivo>(sql`
     SELECT a.id::text AS attribute_id,
-           a.code, a.source_name, a.data_type,
+           a.code, a.source_name, a.display_name, a.data_type,
            f.value_numeric::text AS value_numeric,
            f.value_text, f.value_boolean,
            f.value_date::text AS value_date,

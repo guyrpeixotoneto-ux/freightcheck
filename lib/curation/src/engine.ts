@@ -292,7 +292,13 @@ export interface ConfirmInput {
   aggregation?: Aggregation | null;
   isMonetary?: boolean | null;
   taxonomyCode?: string;
-  displayName?: string;
+  /*
+    Não há `displayName` aqui de propósito. O nome de leitura é descrição, e
+    descrição se grava por `saveMeaning` — sem justificativa e sem mexer no
+    status. Deixar a confirmação também escrever nele daria duas portas com
+    regras diferentes para a mesma coluna, que é exatamente a solda que o card
+    "Significado" veio desfazer.
+  */
   actor: string;
   reason: string;
 }
@@ -359,7 +365,6 @@ export async function confirmAttribute(
   record("aggregation", attribute.aggregation, aggregation);
   record("is_monetary", attribute.isMonetary, isMonetary);
   record("taxonomy_node_id", attribute.taxonomyNodeId, taxonomyNodeId);
-  record("display_name", attribute.displayName, input.displayName ?? attribute.displayName);
   record("semantics_status", attribute.semanticsStatus, "CONFIRMED");
 
   await db.transaction(async (tx) => {
@@ -371,7 +376,6 @@ export async function confirmAttribute(
         aggregation,
         isMonetary,
         taxonomyNodeId,
-        displayName: input.displayName ?? attribute.displayName,
         semanticsStatus: "CONFIRMED",
         semanticsRationale: input.reason,
         confirmedBy: input.actor,

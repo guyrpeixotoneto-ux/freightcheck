@@ -234,6 +234,115 @@ describe("o significado é versionado como o resto da semântica", () => {
   });
 });
 
+describe("o nome gerencial é apelido, e não renomeação da fonte", () => {
+  /** Não monetário e ilegível em reunião: o caso que motivou o campo. */
+  const APELIDAVEL = "cavalo.combustivel_vida_cavalo";
+
+  const linha = async (code: string) => {
+    const [row] = await ctx.db
+      .select()
+      .from(attributeTable)
+      .where(eq(attributeTable.code, code));
+    return row;
+  };
+
+  it("grava o apelido sem tocar no nome que veio da planilha", async () => {
+    const antes = await linha(APELIDAVEL);
+
+    const resultado = await saveMeaning(ctx.db, {
+      code: APELIDAVEL,
+      displayName: "Vida útil do combustível",
+      actor: "guy@operalog",
+    });
+
+    expect(resultado.displayName).toBe("Vida útil do combustível");
+    expect(resultado.changed).toContain("display_name");
+
+    const depois = await linha(APELIDAVEL);
+    expect(depois.displayName).toBe("Vida útil do combustível");
+    // O literal do Freightec é por onde a importação casa a coluna.
+    expect(depois.sourceName).toBe(antes.sourceName);
+  });
+
+  it("batizar não confirma: o atributo continua fora de qualquer soma", async () => {
+    const antes = await linha(CODE);
+
+    const resultado = await saveMeaning(ctx.db, {
+      code: CODE,
+      displayName: "Valor da nota de compra",
+      actor: "guy@operalog",
+    });
+
+    // O mesmo contrato da definição: prosa não destrava dinheiro.
+    expect(resultado.semanticsStatus).toBe(antes.semanticsStatus);
+
+    const depois = await linha(CODE);
+    expect(depois.semanticsStatus).toBe(antes.semanticsStatus);
+    expect(depois.confirmedBy).toBe(antes.confirmedBy);
+    expect(depois.unit).toBe(antes.unit);
+  });
+
+  it("registra a troca no histórico, com autor e sem justificativa", async () => {
+    const [evento] = await ctx.db
+      .select()
+      .from(curationEventTable)
+      .where(
+        and(
+          eq(curationEventTable.targetLabel, APELIDAVEL),
+          eq(curationEventTable.field, "display_name"),
+        ),
+      );
+
+    expect(evento.actor).toBe("guy@operalog");
+    expect(evento.valueAfter).toBe("Vida útil do combustível");
+    expect(evento.reason).toBeNull();
+  });
+
+  it("apagar o apelido devolve NULL, para as telas caírem no nome de origem", async () => {
+    // NULL, e não "": as leituras fazem `coalesce(display_name, source_name)`,
+    // e string vazia viraria rótulo em branco em vez do nome da planilha.
+    const resultado = await saveMeaning(ctx.db, {
+      code: APELIDAVEL,
+      displayName: "   ",
+      actor: "guy@operalog",
+    });
+
+    expect(resultado.displayName).toBeNull();
+    expect((await linha(APELIDAVEL)).displayName).toBeNull();
+  });
+
+  it("não versiona o apelido: um nome melhor é melhor também no passado", async () => {
+    await saveMeaning(ctx.db, {
+      code: APELIDAVEL,
+      displayName: "Vida útil do combustível",
+      actor: "guy@operalog",
+    });
+
+    const alvo = await linha(APELIDAVEL);
+    const [versao] = await ctx.db
+      .select()
+      .from(attributeSemanticsTable)
+      .where(
+        and(
+          eq(attributeSemanticsTable.attributeId, alvo.id),
+          isNull(attributeSemanticsTable.effectiveUntil),
+        ),
+      );
+
+    // A definição é versionada porque o que a coluna carrega pode mudar; o nome
+    // não é, porque a mesma coluna com dois nomes em duas vigências da mesma
+    // tela seria pior do que o nome ruim.
+    expect(versao).toBeDefined();
+    expect(Object.keys(versao)).not.toContain("displayName");
+  });
+
+  it("recusa uma chamada que não traz nada para gravar", async () => {
+    await expect(
+      saveMeaning(ctx.db, { code: APELIDAVEL, actor: "guy@operalog" }),
+    ).rejects.toThrow(/Nada a gravar/);
+  });
+});
+
 describe("a fila carrega o significado", () => {
   it("entrega definição e base de cálculo junto com o resto", async () => {
     const fila = await getCurationQueue(ctx.db, { includeConfirmed: true });

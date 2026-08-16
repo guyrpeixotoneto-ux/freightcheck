@@ -18,7 +18,8 @@ import {
  * The only endpoint that can confirm semantics is POST /curation/attributes/
  * :code/confirm, and it requires an actor and a reason.
  *
- * PATCH /curation/attributes/:code/meaning writes prose and nothing else. It is
+ * PATCH /curation/attributes/:code/meaning writes what a column is called and
+ * what it means, and nothing else. It is
  * deliberately cheaper — no reason, no required fields, no status change — and
  * that asymmetry is the feature: describing a column and vouching for its
  * arithmetic are different acts, and welding them together is why the curation
@@ -61,7 +62,7 @@ router.get("/curation/attributes/:code", async (req, res): Promise<void> => {
 
 router.post("/curation/attributes/:code/confirm", async (req, res): Promise<void> => {
   try {
-    const { unit, periodicity, aggregation, isMonetary, taxonomyCode, displayName, reason } =
+    const { unit, periodicity, aggregation, isMonetary, taxonomyCode, reason } =
       req.body ?? {};
 
     /**
@@ -87,7 +88,6 @@ router.post("/curation/attributes/:code/confirm", async (req, res): Promise<void
       aggregation,
       isMonetary,
       taxonomyCode,
-      displayName,
       actor,
       reason,
     });
@@ -104,7 +104,7 @@ router.post("/curation/attributes/:code/confirm", async (req, res): Promise<void
 
 router.patch("/curation/attributes/:code/meaning", async (req, res): Promise<void> => {
   try {
-    const { definition, calculationBasis } = req.body ?? {};
+    const { definition, calculationBasis, displayName } = req.body ?? {};
 
     // Same rule as the confirmation: the signature comes from the session, not
     // from the body. A name typed into a form never proved anything.
@@ -112,6 +112,7 @@ router.patch("/curation/attributes/:code/meaning", async (req, res): Promise<voi
       code: req.params.code,
       definition,
       calculationBasis,
+      displayName,
       actor: req.user!.email,
     });
     res.json(result);

@@ -36,9 +36,28 @@ import { cn } from "@/lib/utils";
  * qualquer tentativa de confirmar sem responsável e justificativa.
  */
 
-const UNITS = ["BRL", "BRL_KM", "KM_L", "PERCENT", "KM", "LITROS", "MESES", "ANO", "QTD"];
+/**
+ * Os códigos são o que o banco guarda; o texto ao lado é o que evita confirmar
+ * a unidade errada por não saber o que a sigla queria dizer.
+ */
+const UNITS: [code: string, meaning: string][] = [
+  ["BRL", "reais"],
+  ["BRL_KM", "reais por quilômetro"],
+  ["KM_L", "quilômetros por litro"],
+  ["PERCENT", "percentual"],
+  ["KM", "quilômetros"],
+  ["LITROS", "litros"],
+  ["MESES", "meses"],
+  ["ANO", "ano de calendário"],
+  ["QTD", "quantidade"],
+];
 const PERIODICITIES = ["MENSAL", "ANUAL", "PONTUAL"];
-const AGGREGATIONS = ["SUM", "AVG", "WEIGHTED_AVG", "NONE"];
+const AGGREGATIONS: [code: string, meaning: string][] = [
+  ["SUM", "soma na frota"],
+  ["AVG", "média simples"],
+  ["WEIGHTED_AVG", "média ponderada"],
+  ["NONE", "não agrega"],
+];
 
 interface QueueItem {
   code: string;
@@ -158,7 +177,8 @@ export default function Curadoria() {
     return queue.filter(
       (item) =>
         item.code.toLowerCase().includes(needle) ||
-        item.sourceName.toLowerCase().includes(needle),
+        item.sourceName.toLowerCase().includes(needle) ||
+        (item.displayName?.toLowerCase().includes(needle) ?? false),
     );
   }, [queue, filter]);
 
@@ -263,9 +283,12 @@ export default function Curadoria() {
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
                     <div className="font-mono text-xs text-muted-foreground truncate">
+                      {item.displayName ? `${item.sourceName} · ` : ""}
                       {item.code}
                     </div>
-                    <div className="font-medium text-sm truncate">{item.sourceName}</div>
+                    <div className="font-medium text-sm truncate">
+                      {item.displayName ?? item.sourceName}
+                    </div>
                   </div>
                   <StatusBadge status={item.semanticsStatus} />
                 </div>
@@ -404,8 +427,13 @@ function AttributePanel({
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <CardTitle className="font-mono text-lg">{detail.sourceName}</CardTitle>
+              {/* O nome gerencial manda no título quando existe; o de origem
+                  nunca some, porque é por ele que se acha a coluna no export. */}
+              <CardTitle className={cn("text-lg", !detail.displayName && "font-mono")}>
+                {detail.displayName ?? detail.sourceName}
+              </CardTitle>
               <p className="font-mono text-xs text-muted-foreground mt-1">
+                {detail.displayName && <>{detail.sourceName} · </>}
                 {detail.code} · {detail.entityType} · tipo {detail.dataType}
               </p>
             </div>
@@ -512,8 +540,11 @@ function AttributePanel({
               <Select value={unit} onValueChange={setUnit}>
                 <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
                 <SelectContent>
-                  {UNITS.map((u) => (
-                    <SelectItem key={u} value={u}>{u}</SelectItem>
+                  {UNITS.map(([code, meaning]) => (
+                    <SelectItem key={code} value={code}>
+                      <span className="font-mono">{code}</span>
+                      <span className="text-muted-foreground"> · {meaning}</span>
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -537,8 +568,11 @@ function AttributePanel({
               <Select value={aggregation} onValueChange={setAggregation}>
                 <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
                 <SelectContent>
-                  {AGGREGATIONS.map((a) => (
-                    <SelectItem key={a} value={a}>{a}</SelectItem>
+                  {AGGREGATIONS.map(([code, meaning]) => (
+                    <SelectItem key={code} value={code}>
+                      <span className="font-mono">{code}</span>
+                      <span className="text-muted-foreground"> · {meaning}</span>
+                    </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
@@ -633,13 +667,19 @@ function AttributePanel({
 }
 
 /**
- * O que a coluna significa — o passo barato da curadoria.
+ * Como a coluna se chama e o que ela significa — o passo barato da curadoria.
  *
- * Fica **acima** de "Confirmar semântica" porque é a pergunta que se responde
- * primeiro: dizer "vidaCombustivel é a vida útil considerada em contrato" não
- * exige ter decidido se o número é mensal. O card abaixo continua exigindo,
- * como deve — a diferença é que agora não é preciso passar por ele para
- * registrar o que se sabe.
+ * Fica **acima** de "Confirmar semântica" porque são as perguntas que se
+ * respondem primeiro: dizer "vidaCombustivel é a vida útil considerada em
+ * contrato" não exige ter decidido se o número é mensal, e nem chamá-la de
+ * "Vida útil do combustível". O card abaixo continua exigindo, como deve — a
+ * diferença é que agora não é preciso passar por ele para registrar o que se
+ * sabe.
+ *
+ * O nome mora aqui, e não no card de baixo, pela mesma razão: batizar é
+ * vocabulário, não é afirmação sobre aritmética. `sourceName` nunca é
+ * substituído — é por ele que a importação casa a coluna, e ele continua à
+ * vista ao lado do apelido em toda tela.
  *
  * Salvar aqui não confirma nada e não destrava cálculo nenhum. O texto ao pé do
  * botão diz isso na tela, e não só aqui, porque um campo que parece destravar
@@ -652,12 +692,14 @@ function MeaningCard({
   detail: AttributeDetail;
   onSaved: () => void;
 }) {
+  const [displayName, setDisplayName] = useState(detail.displayName ?? "");
   const [definition, setDefinition] = useState(detail.definition ?? "");
   const [basis, setBasis] = useState(detail.calculationBasis ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   const dirty =
+    displayName.trim() !== (detail.displayName ?? "").trim() ||
     definition.trim() !== (detail.definition ?? "").trim() ||
     basis.trim() !== (detail.calculationBasis ?? "").trim();
 
@@ -668,7 +710,11 @@ function MeaningCard({
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ definition, calculationBasis: basis }),
+          body: JSON.stringify({
+            displayName,
+            definition,
+            calculationBasis: basis,
+          }),
         },
       );
       const body = await response.json();
@@ -691,11 +737,26 @@ function MeaningCard({
       <CardHeader className="pb-3">
         <CardTitle className="text-base">Significado</CardTitle>
         <p className="text-xs text-muted-foreground">
-          O que esta coluna é, nas suas palavras. Pode ser escrito antes de
-          saber a unidade ou a periodicidade — e é independente da confirmação.
+          Como esta coluna se chama e o que ela é, nas suas palavras. Pode ser
+          escrito antes de saber a unidade ou a periodicidade — e é independente
+          da confirmação.
         </p>
       </CardHeader>
       <CardContent className="space-y-4">
+        <Field
+          label="Nome gerencial"
+          hint={`Como o atributo aparece nas telas. A importação continua casando por ${detail.sourceName}, que é o nome exibido enquanto este campo estiver vazio.`}
+        >
+          <Input
+            value={displayName}
+            onChange={(e) => {
+              setDisplayName(e.target.value);
+              setSaved(false);
+            }}
+            placeholder={detail.sourceName}
+          />
+        </Field>
+
         <Field
           label="O que é"
           hint="A descrição que você daria a alguém que nunca viu esta planilha."
@@ -738,7 +799,7 @@ function MeaningCard({
             onClick={() => save.mutate()}
             disabled={save.isPending || !dirty}
           >
-            {save.isPending ? "Salvando…" : "Salvar significado"}
+            {save.isPending ? "Salvando…" : "Salvar nome e significado"}
           </Button>
           <p className="text-xs text-muted-foreground">
             {saved && !dirty ? (

@@ -30,6 +30,11 @@ import {
  * - **An actor is still required.** Attribution is not the expensive part, and
  *   an anonymous edit to the record of what the client's data means would be
  *   worth less than no edit.
+ *
+ * The reading name lives here for the same reason. Calling a column
+ * "Vida útil do combustível" instead of `combustivelVidaCavalo` is a vocabulary
+ * choice, not a claim about arithmetic, and the person who can make it is
+ * usually the one who has not yet decided whether the number is monthly.
  */
 
 export interface MeaningInput {
@@ -43,6 +48,16 @@ export interface MeaningInput {
   definition?: string | null;
   /** How the source produces the number, when that is known. Same convention. */
   calculationBasis?: string | null;
+  /**
+   * What the column should be called on screen. Same convention.
+   *
+   * Naming belongs here for the reason the definition does: `combustivelVidaCavalo`
+   * is unreadable in a meeting long before anyone knows whether it is monthly,
+   * and charging a confirmation for the fix would keep the bad name. The literal
+   * from the spreadsheet is never touched — `source_name` is how the import
+   * matches the column, and it stays visible beside the alias on every screen.
+   */
+  displayName?: string | null;
   actor: string;
 }
 
@@ -50,6 +65,7 @@ export interface MeaningResult {
   code: string;
   definition: string | null;
   calculationBasis: string | null;
+  displayName: string | null;
   /** Untouched by this operation. Returned so a caller can prove that. */
   semanticsStatus: string;
   /** Fields that actually changed. Empty means the write was a no-op. */
@@ -88,9 +104,16 @@ export async function saveMeaning(
 
   const definition = normalise(input.definition);
   const calculationBasis = normalise(input.calculationBasis);
+  const displayName = normalise(input.displayName);
 
-  if (definition === undefined && calculationBasis === undefined) {
-    throw new Error("Nada a gravar: informe o significado ou a base de cálculo.");
+  if (
+    definition === undefined &&
+    calculationBasis === undefined &&
+    displayName === undefined
+  ) {
+    throw new Error(
+      "Nada a gravar: informe o nome gerencial, o significado ou a base de cálculo.",
+    );
   }
 
   const [attribute] = await db
@@ -128,6 +151,15 @@ export async function saveMeaning(
       calculationBasis !== undefined
         ? calculationBasis
         : (current?.calculationBasis ?? null);
+    /*
+      O apelido não é versionado, e a diferença com a definição é deliberada:
+      quando a fonte muda o que a coluna carrega, a definição anterior continua
+      verdadeira para as vigências dela — mas um nome melhor é melhor para
+      sempre, inclusive olhando o passado. Versioná-lo faria a mesma coluna
+      aparecer com dois nomes em duas vigências da mesma tela.
+    */
+    const nextDisplayName =
+      displayName !== undefined ? displayName : attribute.displayName;
 
     const changed: { field: string; before: string | null; after: string | null }[] =
       [];
@@ -149,11 +181,18 @@ export async function saveMeaning(
         after: calculationBasis,
       });
     }
+    if (displayName !== undefined && displayName !== attribute.displayName) {
+      changed.push({
+        field: "display_name",
+        before: attribute.displayName,
+        after: displayName,
+      });
+    }
 
     if (changed.length > 0) {
       await tx
         .update(attributeTable)
-        .set({ definition: nextDefinition })
+        .set({ definition: nextDefinition, displayName: nextDisplayName })
         .where(eq(attributeTable.id, attribute.id));
 
       if (current) {
@@ -183,6 +222,7 @@ export async function saveMeaning(
       code: attribute.code,
       definition: nextDefinition,
       calculationBasis: nextBasis,
+      displayName: nextDisplayName,
       // Read back rather than echoed: the guarantee this function makes is that
       // it did not move, and asserting it from the row proves it.
       semanticsStatus: attribute.semanticsStatus,

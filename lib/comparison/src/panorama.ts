@@ -470,6 +470,7 @@ export async function getPanoramaDeAlteracoes(
   const { rows: atributos } = await db.execute<{
     code: string;
     source_name: string;
+    display_name: string | null;
     entity_type: string;
     unit: string | null;
     periodicity: string | null;
@@ -479,7 +480,7 @@ export async function getPanoramaDeAlteracoes(
     cost_class: string | null;
     taxonomy_name: string | null;
   }>(sql`
-    SELECT a.code, a.source_name, a.entity_type, a.unit, a.periodicity,
+    SELECT a.code, a.source_name, a.display_name, a.entity_type, a.unit, a.periodicity,
            a.aggregation, a.is_monetary,
            a.semantics_status::text AS semantics_status,
            inherited.cost_class,
@@ -622,7 +623,7 @@ export async function getPanoramaDeAlteracoes(
 
     parametros.push({
       code: m.code,
-      title: attributeLabel(m.code, regua.source_name),
+      title: attributeLabel(m.code, regua.source_name, regua.display_name),
       entityType: regua.entity_type,
       equipment: equipmentLabel(regua.entity_type),
       changes: m.changes,
