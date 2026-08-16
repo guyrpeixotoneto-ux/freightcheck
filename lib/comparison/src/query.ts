@@ -255,7 +255,13 @@ export async function getChangeSetBreakdown(
 ) {
   const ids = Array.isArray(changeSetId) ? changeSetId : [changeSetId];
   if (ids.length === 0) {
-    return { byCostClass: [], byType: [], bySemantics: [], byAttribute: [] };
+    return {
+      byCostClass: [],
+      byType: [],
+      byImpactConfidence: [],
+      bySemantics: [],
+      byAttribute: [],
+    };
   }
   const scope = inArray(changeTable.changeSetId, ids);
   const byCostClass = await db
@@ -288,6 +294,25 @@ export async function getChangeSetBreakdown(
     .where(scope)
     .groupBy(changeTable.semanticsStatus)
     .orderBy(changeTable.semanticsStatus);
+
+  /*
+    Quantas têm preço apurado, e quantas não têm.
+
+    Os dois chips que perguntam isso são os únicos da fileira da frente sem
+    contagem ao lado, e a falta não é neutra: ao lado de três chips de classe
+    que dizem o seu tamanho, dois que não dizem leem-se como "não há o que
+    contar aqui". A conta é a mesma dos outros agrupamentos, e sai da mesma
+    varredura.
+  */
+  const byImpactConfidence = await db
+    .select({
+      impactConfidence: changeTable.impactConfidence,
+      count: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(changeTable)
+    .where(scope)
+    .groupBy(changeTable.impactConfidence)
+    .orderBy(changeTable.impactConfidence);
 
   /*
     Sem teto: o universo aqui é o de colunas da planilha — dezenas —, e não o de
@@ -353,6 +378,7 @@ export async function getChangeSetBreakdown(
       impact: r.impact === null ? null : Number(r.impact),
     })),
     byType,
+    byImpactConfidence,
     bySemantics: bySemantics.map((r) => ({
       semanticsStatus: r.semanticsStatus ?? "(sem atributo)",
       count: r.count,

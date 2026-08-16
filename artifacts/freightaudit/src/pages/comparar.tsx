@@ -228,6 +228,7 @@ export default function Comparar() {
             </div>
 
             <FilterBar
+              comClasse
               filters={filters}
               onChange={setFilters}
               breakdown={changes?.breakdown}
