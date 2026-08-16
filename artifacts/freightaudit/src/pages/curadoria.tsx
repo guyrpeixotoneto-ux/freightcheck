@@ -698,10 +698,30 @@ function MeaningCard({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const dirty =
-    displayName.trim() !== (detail.displayName ?? "").trim() ||
-    definition.trim() !== (detail.definition ?? "").trim() ||
-    basis.trim() !== (detail.calculationBasis ?? "").trim();
+  /*
+    Só sobe o que a pessoa mexeu. Mandar os três campos em toda gravação fazia
+    uma caixa vazia em que ninguém tocou chegar ao servidor como "apague isto",
+    e a base de cálculo é o único dos três que exige semântica versionada — era
+    por aí que dar um nome legível a uma coluna terminava numa recusa sobre
+    backfill, um assunto que não é o de quem está batizando a coluna.
+
+    `undefined` some no JSON.stringify, e é exatamente o que o servidor lê como
+    "não mexa neste campo". Limpar continua possível: campo apagado difere do
+    guardado e sobe como "", que vira NULL do outro lado.
+  */
+  const edits: {
+    displayName?: string;
+    definition?: string;
+    calculationBasis?: string;
+  } = {};
+  if (displayName.trim() !== (detail.displayName ?? "").trim())
+    edits.displayName = displayName;
+  if (definition.trim() !== (detail.definition ?? "").trim())
+    edits.definition = definition;
+  if (basis.trim() !== (detail.calculationBasis ?? "").trim())
+    edits.calculationBasis = basis;
+
+  const dirty = Object.keys(edits).length > 0;
 
   const save = useMutation({
     mutationFn: async () => {
@@ -710,11 +730,7 @@ function MeaningCard({
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            displayName,
-            definition,
-            calculationBasis: basis,
-          }),
+          body: JSON.stringify(edits),
         },
       );
       const body = await response.json();
@@ -745,7 +761,7 @@ function MeaningCard({
       <CardContent className="space-y-4">
         <Field
           label="Nome gerencial"
-          hint={`Como o atributo aparece nas telas. A importação continua casando por ${detail.sourceName}, que é o nome exibido enquanto este campo estiver vazio.`}
+          hint={`Um apelido de leitura, e só isso. A coluna importada continua sendo ${detail.sourceName} — é por ela que a importação encontra o dado, e ela nunca é renomeada nem sai das telas. Em branco, aparece o nome de origem.`}
         >
           <Input
             value={displayName}
@@ -755,6 +771,18 @@ function MeaningCard({
             }}
             placeholder={detail.sourceName}
           />
+          {/* O apelido ao lado da origem, como a tela mostra de verdade: dizer
+              "o nome importado continua vinculado" convence menos do que ver o
+              par enquanto se digita. */}
+          <p className="text-xs text-muted-foreground">
+            Nas telas:{" "}
+            <span className="font-medium text-foreground">
+              {displayName.trim() || detail.sourceName}
+            </span>
+            {displayName.trim() && (
+              <span className="font-mono"> · {detail.sourceName}</span>
+            )}
+          </p>
         </Field>
 
         <Field
