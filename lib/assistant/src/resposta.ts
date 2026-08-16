@@ -54,6 +54,13 @@ import {
 } from "./orquestrador";
 import { SUGESTOES } from "./conhecimento";
 import { termos } from "./normalizar";
+import {
+  contextoParaOModelo,
+  explicarRedacao,
+  type CausaDaRedacao,
+  type ContextoParaOModelo,
+  type MotorDaResposta,
+} from "./medicao";
 
 export interface Fonte {
   /** "1", "2" — o número da citação. */
@@ -116,6 +123,26 @@ export interface Resposta {
       frasesTotais: number;
     };
     /**
+     * Quem escreveu este texto, e por quê — **sempre preenchido**.
+     *
+     * `ia` abaixo continua sendo a medição da chamada, e por isso continua
+     * `null` quando não houve chamada. O que faltava era justamente o caso em
+     * que não houve: `ia: null` dizia a mesma coisa para "não há chave" e para
+     * "quem chamou pediu sem modelo", e nenhuma das duas se lia da resposta.
+     * Aqui a causa é dita por extenso, em toda resposta, com os números que a
+     * sustentam.
+     */
+    motor: MotorDaResposta;
+    /**
+     * O que foi entregue ao modelo — ou o que teria sido, quando não houve
+     * chamada.
+     *
+     * É a pergunta que a tela não sabia responder: uma resposta pobre veio de
+     * modelo ruim ou de dossiê magro? Sem isto, as duas hipóteses custam a
+     * mesma investigação manual, e só uma delas tem conserto no prompt.
+     */
+    contexto: ContextoParaOModelo;
+    /**
      * O que aconteceu com a chamada ao modelo — `null` quando não houve uma.
      *
      * Sem isto, `redacao: "DETERMINISTICA"` é ambíguo de um jeito caro: não se
@@ -129,6 +156,11 @@ export interface Resposta {
       modelo: string;
       latenciaMs: number;
       erro: string | null;
+      /** O custo da chamada, para a bateria poder somá-lo. */
+      tokensEntrada: number;
+      tokensSaida: number;
+      origemDosTokens: "usage" | "estimativa";
+      custoUsd: number;
     } | null;
   };
 }
@@ -633,6 +665,14 @@ export interface PerguntaOptions {
    * chamador deve usar no lugar do que transmitiu.
    */
   aoTexto?: (pedaco: string) => void;
+  /**
+   * Junta o dossiê inteiro, como texto, em `tecnico.contexto.dossie`.
+   *
+   * A contagem do contexto sai sempre; o texto integral só aqui, porque ele é
+   * grande e é material interno. Quem liga isto é a bateria de aceitação, que
+   * precisa mostrar **com o quê** o modelo teria respondido cada pergunta.
+   */
+  diagnostico?: boolean;
 }
 
 /**
@@ -660,6 +700,14 @@ export async function responder(
   let ia: Resposta["tecnico"]["ia"] = null;
   let frasesPodadas = 0;
   let frasesTotais = 0;
+  /*
+    A causa começa no caso em que não houve chamada, e é corrigida se houver.
+
+    Escrever assim — em vez de deduzir a causa no fim a partir de `ia === null`
+    — é o que torna as duas situações distinguíveis: `disponivel()` e `semIa`
+    são perguntas diferentes, e só aqui as duas ainda estão à mão.
+  */
+  let causa: CausaDaRedacao = opcoes.semIa ? "IA_DESLIGADA" : "SEM_CHAVE";
 
   if (!opcoes.semIa && disponivel()) {
     const pedido: PedidoDeRedacao = {
@@ -702,13 +750,23 @@ export async function responder(
       if (saneamento.recusados.length === 0) {
         texto = doModelo;
         redacao = "IA";
+        causa = "IA_OK";
       } else if (!saneamento.irrecuperavel) {
         texto = saneamento.texto;
         redacao = "IA";
         desfecho = "PODADA";
+        causa = "IA_PODADA";
       } else {
         desfecho = "DESCARTADA";
+        causa = "DESCARTADA";
       }
+    } else {
+      /*
+        Sem texto do modelo: ou ele recusou, ou a chamada quebrou. `medicao`
+        distingue as duas, e nenhuma delas é "sem chave" — o `disponivel()`
+        acima já garantiu que havia chave para tentar.
+      */
+      causa = medicao.desfecho === "RECUSA" ? "RECUSA" : "ERRO";
     }
 
     const evento = registrar({ ...medicao, intencao: dossie.plano.intencao, desfecho });
@@ -724,6 +782,10 @@ export async function responder(
       modelo: evento.modelo,
       latenciaMs: evento.latenciaMs,
       erro: evento.erro,
+      tokensEntrada: evento.tokensEntrada,
+      tokensSaida: evento.tokensSaida,
+      origemDosTokens: evento.origemDosTokens,
+      custoUsd: evento.custoUsd,
     };
   }
 
@@ -748,6 +810,17 @@ export async function responder(
       herdado: dossie.plano.herdado,
       ferramentas: dossie.evidencias.map((e: Evidencia) => e.ferramenta),
       numerosRecusados,
+      motor: explicarRedacao({
+        codigo: causa,
+        frasesPodadas,
+        frasesTotais,
+        numerosRecusados,
+        erro: ia?.erro ?? null,
+      }),
+      contexto: contextoParaOModelo(dossie, {
+        ...(opcoes.historico ? { historico: opcoes.historico } : {}),
+        ...(opcoes.diagnostico ? { incluirTexto: true } : {}),
+      }),
       ia,
       rastro: {
         assunto: dossie.plano.assunto,
