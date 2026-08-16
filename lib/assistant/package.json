@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "aceitacao": "tsx src/cli/aceitacao.ts",
     "trajetoria": "tsx src/cli/trajetoria.ts",
-    "desfecho": "tsx src/cli/desfecho.ts"
+    "desfecho": "tsx src/cli/desfecho.ts",
+    "comparar": "tsx src/cli/comparar.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "catalog:",

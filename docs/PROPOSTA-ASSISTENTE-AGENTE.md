@@ -371,3 +371,86 @@ determinística — que era o argumento explícito no cabeçalho de
 perde-se o "mesma pergunta, mesmo caminho, sempre". O que **não** se perde é a
 auditabilidade do número, porque a trava e as citações continuam. Essa decisão
 merece ficar registrada no `replit.md` junto com a mudança.
+
+---
+
+## 7. A virada de chave — o procedimento
+
+Os PRs 0 a 6 e o 8 estão feitos e a flag continua desligada. O que falta é uma
+decisão, e ela é medida — não é código.
+
+**O agente nunca executou contra o modelo real.** Todo o caminho foi construído
+e testado sem chave: o laço é exercitado com um cliente simulado, as dez
+ferramentas rodam contra o banco, e a bateria por desfecho mede o planejador.
+O que nenhum desses prova é a única coisa que o agente existe para fazer —
+**o modelo escolher as ferramentas certas**. Virar a chave antes dessa medida
+seria trocar o caminho que está em produção por um que nunca rodou.
+
+### Os três comandos
+
+```bash
+pnpm --filter @workspace/assistant run desfecho -- --saida=antes
+ASSISTENTE_AGENTE=1 pnpm --filter @workspace/assistant run desfecho -- --saida=depois
+pnpm --filter @workspace/assistant run comparar -- antes.json depois.json
+```
+
+E, para ver a trajetória com os argumentos que o modelo escolheu:
+
+```bash
+ASSISTENTE_AGENTE=1 pnpm --filter @workspace/assistant run trajetoria
+```
+
+### O critério, e por que ele é assimétrico
+
+`comparar` aplica três transições e ignora todo o resto — o texto muda a cada
+rodada de um modelo, e comparar texto mediria ruído:
+
+| transição | significado |
+| --- | --- |
+| `PASSOU → REPROVOU` | regressão — **bloqueia sozinha** |
+| `DEFEITO_CONHECIDO → PASSOU` | correção — é o que justifica a virada |
+| caso que sumiu | conta como regressão |
+
+Uma regressão bloqueia por si, e nenhuma quantidade de correção a compensa. É a
+mesma regra que este produto aplica a número sem lastro: exibir uma resposta
+pior do que a de ontem não se paga com duas melhores noutras perguntas, porque
+quem faz a pergunta que regrediu não vê as outras duas.
+
+Um caso que sumiu conta como regressão porque a forma mais fácil de uma migração
+parecer boa é o caso difícil deixar de ser executado.
+
+O comando sai com código 1 quando reprova, então serve de último passo de um
+script de promoção.
+
+### O baseline de hoje
+
+| medida | planejador |
+| --- | ---: |
+| casos verdes | 1 de 9 |
+| defeitos conhecidos | 8 |
+| respostas distintas | 6 de 9 |
+| trajetórias distintas | 2 de 9 |
+
+### Se aprovar
+
+1. `ASSISTENTE_AGENTE=1` no ambiente — **só isso**. A virada não tem migração,
+   não tem deploy de schema e não perde conversa: os dois caminhos gravam o
+   mesmo `EstadoDaConversa`, e uma conversa aberta atravessa a virada nos dois
+   sentidos (exercitado em `__tests__/reversibilidade.test.ts`).
+2. Apagar a linha `defeitoConhecido` dos casos que passaram a verde, na mesma
+   mudança — senão a bateria passa a exigir que eles voltem a falhar.
+3. Observar `GET /api/assistant/usage` e o painel técnico. Descarte subindo é
+   sinal de dossiê pobre chegando ao modelo, não de modelo pior.
+4. Só então apagar o planejador: `plano.ts`, o `switch` do orquestrador, os
+   conjuntos `INTENCOES_*` e a herança em código. **Esta é a única etapa
+   irreversível**, e ela não precisa acontecer no mesmo dia da virada — deixar o
+   caminho antigo de pé por uma semana custa código morto e compra a volta por
+   variável de ambiente.
+
+### Se reprovar
+
+O relatório nomeia cada regressão com a pergunta, as falhas e as consultas que o
+agente fez. O padrão mais comum não se corrige no prompt: é o modelo chamar o
+nível certo e esquecer o filtro, e isso se conserta na **descrição do argumento**
+da ferramenta, que é o texto pelo qual ele decide. Corrija, rode de novo, compare
+de novo. A flag continua desligada o tempo todo.
