@@ -454,3 +454,41 @@ agente fez. O padrão mais comum não se corrige no prompt: é o modelo chamar o
 nível certo e esquecer o filtro, e isso se conserta na **descrição do argumento**
 da ferramenta, que é o texto pelo qual ele decide. Corrija, rode de novo, compare
 de novo. A flag continua desligada o tempo todo.
+
+
+### A rodada, num comando
+
+```bash
+DATABASE_URL=… ANTHROPIC_API_KEY=… node scripts/pr7.mjs
+```
+
+Ele faz os quatro passos na ordem, escreve tudo em `relatorios-pr7/`, e roda a
+bateria exploratória **só se o portão aprovar** — medir como o agente conversa
+sobre um agente que regrediu produz sete turnos de leitura agradável sobre algo
+que não vai entrar, e é assim que uma decisão ruim ganha material de apoio.
+
+A variável do agente é posta por processo filho, não no ambiente: é o que
+garante que o passo 1 mediu o planejador de verdade e não um ambiente já
+contaminado por uma tentativa anterior. O script **não vira a chave** — ele
+escreve o veredito e para.
+
+### A bateria exploratória
+
+`run exploratoria` roda uma conversa de sete turnos com estado e histórico
+atravessando, e mede nove sinais por turno: consultou, encadeou, continuou,
+exerceu capacidade nova, reconheceu o que falta, não inventou número, citou
+evidência, distinguiu inferência. Um sinal é `—` quando o turno não o exige —
+"não exigido" e "exigido e falhou" são leituras opostas.
+
+Baseline do planejador, medido:
+
+| turno | falha |
+| --- | --- |
+| `por quê?` | não encadeou — uma consulta só, sem descer abaixo do agregado |
+| `e julho?` | não continuou — repetiu o turno anterior |
+| `o que você ainda não consegue concluir?` | não reconheceu a falta |
+| todos | nenhum marcador de inferência (a redação em código não hesita — ela é template) |
+
+`distingueInferencia` é **indício**, não veredito: ele acha por marcador
+linguístico, e marcador não prova que a distinção foi feita. Serve para achar o
+turno que merece leitura humana.
