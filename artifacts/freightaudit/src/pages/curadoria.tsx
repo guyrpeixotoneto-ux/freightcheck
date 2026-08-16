@@ -9,6 +9,7 @@ import {
   Lock,
   ShieldCheck,
   Sparkles,
+  Undo2,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -872,6 +873,16 @@ function MeaningCard({
             placeholder="Ex.: vida útil, em meses, considerada em contrato para o pneu."
             rows={3}
           />
+          <DefinicaoPeloNome
+            detail={detail}
+            nome={displayName}
+            formula={basis}
+            definicao={definition}
+            onEscrever={(texto) => {
+              setDefinition(texto);
+              setSaved(false);
+            }}
+          />
         </Field>
 
         <Field
@@ -918,6 +929,151 @@ function MeaningCard({
     </Card>
   );
 }
+
+/**
+ * "Escreva isso por mim", a partir do nome que a pessoa acabou de dar.
+ *
+ * Quem escreve "Vida útil do pneu em contrato" no campo de cima já sabe o que a
+ * coluna é — só ainda não escreveu a frase. O campo "O que é" ficava em branco
+ * por isso: redigir a mesma coisa uma segunda vez, com sujeito e verbo, é
+ * digitação, não curadoria. Este botão faz a digitação.
+ *
+ * Três decisões que a tela precisa deixar claras:
+ *
+ * - **Escreve no campo, não numa caixa ao lado.** O resultado é rascunho de
+ *   quem clicou: entra no textarea aberto, dá para cortar, corrigir e reescrever
+ *   antes de salvar. Uma sugestão em caixa separada, com botão "usar", seria um
+ *   passo a mais para chegar ao mesmo lugar.
+ * - **O que havia antes volta com um clique.** Um botão que apaga texto alheio
+ *   sem volta não é ajuda. `Desfazer` fica à vista enquanto o texto for o que a
+ *   IA escreveu, e some assim que a pessoa mexe nele — a partir daí restaurar
+ *   apagaria o trabalho dela, não o da IA.
+ * - **Lê o nome digitado, não o salvo.** O nome sobe no corpo do pedido. Pedir
+ *   para salvar antes faria o rascunho custar o ato que ele existe para
+ *   adiantar.
+ *
+ * Nada aqui grava: o campo continua precisando de "Salvar nome e significado",
+ * e salvar continua não confirmando semântica nenhuma.
+ */
+function DefinicaoPeloNome({
+  detail,
+  nome,
+  formula,
+  definicao,
+  onEscrever,
+}: {
+  detail: AttributeDetail;
+  nome: string;
+  formula: string;
+  definicao: string;
+  onEscrever: (texto: string) => void;
+}) {
+  /** O que estava escrito antes do rascunho, e o rascunho que o substituiu. */
+  const [troca, setTroca] = useState<{ antes: string; depois: string } | null>(null);
+  const [motivo, setMotivo] = useState<string | null>(null);
+
+  const rascunhar = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(
+        getApiUrl(`/curation/attributes/${detail.code}/definicao/rascunho`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ displayName: nome, calculationBasis: formula }),
+        },
+      );
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Falha ao escrever o rascunho");
+      return body as { texto: string | null; motivo: string };
+    },
+    onSuccess: (body) => {
+      if (!body.texto) {
+        setMotivo(body.motivo);
+        return;
+      }
+      setMotivo(null);
+      setTroca({ antes: definicao, depois: body.texto });
+      onEscrever(body.texto);
+    },
+  });
+
+  const semNome = !nome.trim();
+  // O `Desfazer` só vale enquanto o campo ainda contém o que a IA escreveu:
+  // depois de a pessoa mexer, restaurar apagaria o texto dela.
+  const podeDesfazer = troca !== null && definicao === troca.depois;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-3">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => rascunhar.mutate()}
+          disabled={semNome || rascunhar.isPending}
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          {rascunhar.isPending ? "Escrevendo…" : "Escrever a partir do nome"}
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          {semNome
+            ? "Dê o nome gerencial acima para a IA escrever esta descrição."
+            : definicao.trim()
+              ? "Reescreve o campo acima a partir do nome. Dá para desfazer."
+              : "Preenche o campo acima a partir do nome. Nada é gravado."}
+        </p>
+      </div>
+
+      {rascunhar.isError && (
+        <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+          {rascunhar.error.message}
+        </p>
+      )}
+
+      {motivo && (
+        <p className="text-sm text-muted-foreground bg-muted/40 border rounded-md px-3 py-2">
+          {MOTIVO_SEM_RASCUNHO[motivo] ?? MOTIVO_SEM_RASCUNHO.ERRO}
+        </p>
+      )}
+
+      {podeDesfazer && (
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={() => {
+              onEscrever(troca.antes);
+              setTroca(null);
+            }}
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+            Desfazer
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            {troca.antes.trim()
+              ? "Rascunho de IA, escrito por cima do texto anterior. Revise antes de salvar."
+              : "Rascunho de IA a partir do nome acima. É um texto seu — corrija o que não estiver certo."}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Por que não houve rascunho, dito para quem está curando a coluna.
+ *
+ * `SEM_NOME` não deveria chegar pela tela — o botão fica desligado sem nome —,
+ * mas a rota também é chamável com o nome guardado em branco, e uma frase é
+ * mais barata do que descobrir por que a caixa não apareceu.
+ */
+const MOTIVO_SEM_RASCUNHO: Record<string, string> = {
+  SEM_NOME: "Sem nome gerencial escrito, não há do que partir.",
+  SEM_CHAVE:
+    "A escrita por IA não está configurada neste ambiente. O campo continua funcionando normalmente.",
+  RECUSA: "O modelo não quis escrever sobre este nome. Escreva a descrição à mão.",
+  ERRO: "Não consegui escrever agora. Tente de novo em alguns instantes.",
+};
 
 /**
  * "O que essa fórmula quer dizer?", respondido em português.
