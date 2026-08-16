@@ -4,6 +4,7 @@ import cors from "cors";
 import pinoHttp from "pino-http";
 import router from "./routes";
 import { requireSession } from "./middlewares/require-session";
+import { erroEmJson, rotaDesconhecida } from "./middlewares/contrato-json";
 import { logger } from "./lib/logger";
 
 const app: Express = express();
@@ -57,5 +58,22 @@ app.use(cookieParser());
  */
 app.use("/api", requireSession);
 app.use("/api", router);
+
+/**
+ * Depois das rotas, e nesta ordem: o que não casou, e o que quebrou.
+ *
+ * Estas duas linhas são o que transforma "toda resposta desta API é JSON" de
+ * promessa escrita nos comentários em propriedade do servidor. Sem elas quem
+ * responde é o `finalhandler` do Express, em `text/html` — e um corpo em HTML
+ * faz a interface concluir que a requisição não chegou à API, mandando
+ * procurar um processo derrubado quando o defeito está numa linha de código.
+ * O porquê inteiro está em `middlewares/contrato-json.ts`.
+ *
+ * A ordem importa e não é estética: o handler de erro tem quatro parâmetros e
+ * o Express só o reconhece como tal se ele for registrado depois de tudo o que
+ * pode falhar — inclusive depois do 404.
+ */
+app.use(rotaDesconhecida);
+app.use(erroEmJson);
 
 export default app;
