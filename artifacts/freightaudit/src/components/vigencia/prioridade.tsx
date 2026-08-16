@@ -218,7 +218,7 @@ export function LinhaPrioridade({
           <button
             onClick={() => setAberto(!aberto)}
             aria-expanded={aberto}
-            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md bg-brand-red text-brand-red-foreground hover:opacity-90 transition-opacity whitespace-nowrap"
+            className="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-1.5 rounded-md bg-brand text-brand-foreground hover:opacity-90 transition-opacity whitespace-nowrap"
           >
             {aberto ? (
               <ChevronDown className="w-3.5 h-3.5" />

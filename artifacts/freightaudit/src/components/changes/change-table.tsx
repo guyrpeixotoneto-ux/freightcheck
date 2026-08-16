@@ -820,12 +820,12 @@ export function ChangeFilterPanel({
             className={cn(
               "h-11 rounded-xl gap-2",
               (avancadoAberto || avancados.length > 0) &&
-                "border-blue-600 text-blue-700",
+                "border-brand text-brand",
             )}
           >
             Filtros
             {avancados.length > 0 && (
-              <span className="rounded-full bg-blue-600 px-1.5 text-xs tabular-nums text-white">
+              <span className="rounded-full bg-brand px-1.5 text-xs tabular-nums text-brand-foreground">
                 {avancados.length}
               </span>
             )}
@@ -921,9 +921,9 @@ function ResumoDeFiltros({
           type="button"
           onClick={() => onRemover(item)}
           aria-label={`remover o filtro ${item.grupo} ${item.valor}`}
-          className="inline-flex max-w-full items-center gap-1 rounded-full border border-blue-200 bg-blue-50 py-1 pl-2.5 pr-1.5 text-blue-900 transition-colors hover:bg-blue-100"
+          className="inline-flex max-w-full items-center gap-1 rounded-full border border-brand/30 bg-brand/[0.07] py-1 pl-2.5 pr-1.5 text-brand transition-colors hover:bg-brand/[0.12]"
         >
-          <span className="text-blue-700/70">{item.grupo}</span>
+          <span className="text-brand/70">{item.grupo}</span>
           <span className="truncate font-medium">{item.valor}</span>
           <X className="w-3 h-3 shrink-0" />
         </button>
@@ -1236,7 +1236,7 @@ function QuickChip({
       className={cn(
         "inline-flex h-11 items-center rounded-full border px-3.5 text-sm font-medium transition-colors",
         active
-          ? "bg-blue-600 border-blue-600 text-white shadow-sm"
+          ? "bg-brand border-brand text-brand-foreground shadow-sm"
           : "bg-background border-input text-foreground hover:bg-muted",
       )}
     >

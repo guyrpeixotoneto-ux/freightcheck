@@ -95,7 +95,7 @@ import { useSecoesRecolhidas } from "./preferencias";
  *    esse recurso de conforto em necessidade. A escolha vale para o navegador,
  *    não para a página — ver `useSecoesRecolhidas` —, e recolher esconde a
  *    lista, nunca a informação: a seção fechada que contém a tela aberta leva a
- *    barra vermelha, e a que esconde fila de trabalho traz a soma no cabeçalho.
+ *    barra marinho, e a que esconde fila de trabalho traz a soma no cabeçalho.
  *
  * A regra antiga continua acima de tudo, com o alcance dito por extenso:
  * **nenhum item daqui leva a lugar nenhum, e nenhum leva a um número
@@ -368,10 +368,10 @@ export function Sidebar({ open }: { open: boolean }) {
                     grupo.cor,
                     /*
                       Seção fechada com a tela aberta dentro dela leva a barra
-                      vermelha: fechar uma seção é escolher não ver a lista, e
+                      marinho: fechar uma seção é escolher não ver a lista, e
                       nunca deixar de saber onde se está.
                     */
-                    !aberto && contemAtivo ? "border-brand-red" : "border-transparent",
+                    !aberto && contemAtivo ? "border-brand" : "border-transparent",
                   )}
                 >
                   <grupo.icon className="w-4 h-4 shrink-0" strokeWidth={2.25} />
@@ -506,8 +506,8 @@ function IconeDaFaixa({
         className={cn(
           "relative flex items-center justify-center h-11 border-l-[3px] transition-colors",
           ativo
-            ? "border-brand-red bg-brand-red/[0.07] text-brand-red"
-            : "border-transparent text-muted-foreground hover:bg-sidebar-accent",
+            ? "border-brand bg-sidebar-accent text-brand"
+            : "border-transparent text-muted-foreground hover:bg-muted",
         )}
       >
         <item.icon className="w-[1.125rem] h-[1.125rem]" />
@@ -516,8 +516,8 @@ function IconeDaFaixa({
             className={cn(
               "absolute top-1.5 right-2 min-w-4 h-4 px-1 rounded-full text-[0.5625rem] font-bold flex items-center justify-center tabular-nums",
               item.contador === "alteracoes"
-                ? "bg-brand-red text-brand-red-foreground"
-                : "bg-brand text-brand-foreground",
+                ? "bg-brand text-brand-foreground"
+                : "bg-warning text-warning-foreground",
             )}
           >
             {contagem > 99 ? "99+" : contagem}
@@ -554,7 +554,7 @@ function UnidadeNaFaixa() {
         }
       >
         <div className="w-11 h-11 mx-auto rounded-lg border border-sidebar-border flex items-center justify-center">
-          <MapPin className="w-4 h-4 text-brand-red" />
+          <MapPin className="w-4 h-4 text-brand" />
         </div>
       </Rotulo>
     </div>
@@ -564,9 +564,10 @@ function UnidadeNaFaixa() {
 /**
  * O nome que o ícone perdeu, de volta ao passar o mouse ou ao chegar pelo Tab.
  *
- * O fundo é o cinza do texto, e não o laranja do componente: na faixa o rótulo é
- * a única forma de ler o nome do item, e branco sobre o laranja da marca fica em
- * 2,2:1 — abaixo de qualquer limite de legibilidade.
+ * O fundo é o marinho quase preto do texto, e não o `--brand`: na faixa o rótulo
+ * é a única forma de ler o nome do item, e um tooltip com a cor de ação se lê
+ * como algo clicável, que ele não é. `--foreground` deixa branco em 15:1 e não
+ * promete clique nenhum.
  */
 function Rotulo({ texto, children }: { texto: string; children: React.ReactNode }) {
   return (
@@ -624,8 +625,8 @@ function ItemDoMenu({
         */
         "flex items-center gap-3 border-l-[3px] pl-[calc(1rem-3px)] pr-3 py-2 text-sm transition-colors",
         ativo
-          ? "border-brand-red bg-brand-red/[0.07] text-brand-red font-semibold"
-          : "border-transparent text-sidebar-foreground hover:bg-sidebar-accent",
+          ? "border-brand bg-sidebar-accent text-brand font-semibold"
+          : "border-transparent text-sidebar-foreground hover:bg-muted",
       )}
     >
       <item.icon
@@ -661,10 +662,16 @@ function ItemDoMenu({
 /**
  * A bolinha do número.
  *
- * Vermelha em Alterações, laranja em Importações e Curadoria — e a diferença
+ * Marinho em Alterações, laranja em Importações e Curadoria — e a diferença
  * não é enfeite: alteração é fato consumado da vigência aberta, e as outras
  * duas são fila de trabalho de quem está olhando. Cores iguais fariam as três
  * pedirem a mesma coisa.
+ *
+ * A distinção é a mesma de antes; o que mudou foi passar a dizê-la com as duas
+ * cores que o resto da interface já usa nesse sentido. Fila de trabalho é
+ * exatamente o que `--warning` marca em toda parte — algo aqui espera por você
+ * —, e fato consumado é conteúdo do produto, que é o marinho. Antes o par era
+ * vermelho e laranja, e vermelho aqui competia com o vermelho de prejuízo.
  */
 function Contador({ valor, tipo }: { valor: number; tipo: NonNullable<NavItem["contador"]> }) {
   return (
@@ -672,8 +679,8 @@ function Contador({ valor, tipo }: { valor: number; tipo: NonNullable<NavItem["c
       className={cn(
         "min-w-6 h-6 px-1.5 rounded-full text-[0.6875rem] font-bold flex items-center justify-center tabular-nums shrink-0",
         tipo === "alteracoes"
-          ? "bg-brand-red text-brand-red-foreground"
-          : "bg-brand text-brand-foreground",
+          ? "bg-brand text-brand-foreground"
+          : "bg-warning text-warning-foreground",
       )}
     >
       {valor > 99 ? "99+" : valor}
@@ -801,7 +808,7 @@ function CaixaDaUnidade({
         !semMoldura && "rounded-lg border border-sidebar-border px-3 py-2.5",
       )}
     >
-      <MapPin className="w-4 h-4 shrink-0 text-brand-red" />
+      <MapPin className="w-4 h-4 shrink-0 text-brand" />
       <span className="min-w-0 flex-1">
         <span className="block text-sm font-bold truncate">{titulo}</span>
         {/*
