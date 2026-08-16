@@ -46,7 +46,7 @@ import { perguntaTecnica } from "./interpretacao";
  * um deploy de código; o padrão é o mais capaz porque o custo aqui é uma
  * resposta por pergunta digitada, não um laço.
  */
-const MODELO = process.env.ASSISTENTE_MODELO?.trim() || "claude-opus-5";
+export const MODELO = process.env.ASSISTENTE_MODELO?.trim() || "claude-opus-5";
 
 /**
  * Esforço médio: a tarefa é redigir sobre material fechado, não descobrir nada.
@@ -590,7 +590,12 @@ export function modeloConfigurado(): string | null {
 
 let cliente: Anthropic | null = null;
 
-function obterCliente(): Anthropic {
+/**
+ * Exportado para as outras chamadas de linguagem do pacote — hoje a leitura da
+ * fórmula, em `formula.ts`. É o pool de conexões, e ele não se duplica por
+ * função: dois clientes refariam o handshake por pedido, e a chave é a mesma.
+ */
+export function obterCliente(): Anthropic {
   // O cliente é criado uma vez: ele carrega o pool de conexões HTTP, e um por
   // requisição desperdiçaria o handshake em toda pergunta digitada.
   cliente ??= new Anthropic();

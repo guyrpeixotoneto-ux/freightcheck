@@ -343,6 +343,68 @@ describe("o nome gerencial é apelido, e não renomeação da fonte", () => {
   });
 });
 
+describe("dar um nome legível não espera pelo backfill", () => {
+  /*
+    O caso que veio da tela. O card "Significado" mandava os três campos em toda
+    gravação, e "fórmula de cálculo" é o único que exige semântica versionada.
+    Num banco onde o backfill ainda não rodou, escrever "Consumo de combustível"
+    por cima de `combustivelVidaCavalo` falhava com uma recusa sobre backfill —
+    por causa de uma caixa vazia em que ninguém tinha tocado. Batizar uma coluna
+    não depende de versão nenhuma: o apelido mora em `attribute`.
+  */
+  const JA_USADOS = [CODE, "cavalo.ipva_licenciamento", "cavalo.combustivel_vida_cavalo"];
+  let semVersao: string;
+
+  beforeAll(async () => {
+    const todos = await ctx.db.select().from(attributeTable);
+    const alvo = todos.find((a) => !JA_USADOS.includes(a.code))!;
+    semVersao = alvo.code;
+    await ctx.db
+      .delete(attributeSemanticsTable)
+      .where(eq(attributeSemanticsTable.attributeId, alvo.id));
+  });
+
+  it("grava o apelido mesmo sem semântica versionada", async () => {
+    const resultado = await saveMeaning(ctx.db, {
+      code: semVersao,
+      displayName: "Consumo de combustível",
+      // "" é o que a tela manda por uma caixa que a pessoa não preencheu.
+      calculationBasis: "",
+      actor: "guy@operalog",
+    });
+
+    expect(resultado.displayName).toBe("Consumo de combustível");
+    expect(resultado.changed).toContain("display_name");
+    expect((await attribute(semVersao)).displayName).toBe("Consumo de combustível");
+  });
+
+  it("continua recusando uma base de cálculo que não teria onde morar", async () => {
+    // O campo é mesmo da versão, e prometer que foi guardado seria pior do que
+    // recusar. O que mudou é que a recusa agora só aparece para quem escreveu.
+    await expect(
+      saveMeaning(ctx.db, {
+        code: semVersao,
+        calculationBasis: "1,000% do valor da NF.",
+        actor: "guy@operalog",
+      }),
+    ).rejects.toThrow(/fórmula de cálculo/i);
+  });
+
+  it("a recusa da base não leva junto o nome escrito na mesma tela", async () => {
+    await expect(
+      saveMeaning(ctx.db, {
+        code: semVersao,
+        displayName: "Outro nome qualquer",
+        calculationBasis: "1,000% do valor da NF.",
+        actor: "guy@operalog",
+      }),
+    ).rejects.toThrow();
+
+    // Nada gravado pela metade: a transação inteira volta atrás.
+    expect((await attribute(semVersao)).displayName).toBe("Consumo de combustível");
+  });
+});
+
 describe("a fila carrega o significado", () => {
   it("entrega definição e base de cálculo junto com o resto", async () => {
     const fila = await getCurationQueue(ctx.db, { includeConfirmed: true });
