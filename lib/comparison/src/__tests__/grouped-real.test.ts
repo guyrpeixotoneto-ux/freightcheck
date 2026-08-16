@@ -1,17 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import {
-  createTestDatabase,
-  importFixture,
-  modelExportPaths,
-  type TestDb,
-} from "@workspace/ingest/testing";
-import {
-  applyConfirmations,
-  backfillSemantics,
-  runProposalPass,
-  seedTaxonomy,
-} from "@workspace/curation";
-import { computeMissingChangeSets } from "../consolidated";
+import type { TestDb } from "@workspace/ingest/testing";
+import { criarBancoComModelosCurados } from "../testing";
 import { getAttributeSeries, getGroupedView, getGroupVehicles } from "../grouped";
 
 /**
@@ -31,16 +20,7 @@ const MARCO = "2026-03-02";
 let ctx: TestDb;
 
 beforeAll(async () => {
-  ctx = await createTestDatabase("grouped_real");
-  const { carreta, cavalo } = modelExportPaths();
-  for (const filePath of [carreta, cavalo]) {
-    await importFixture(ctx.db, filePath);
-  }
-  await seedTaxonomy(ctx.db, "test");
-  await runProposalPass(ctx.db, "test");
-  await applyConfirmations(ctx.db);
-  await backfillSemantics(ctx.db);
-  await computeMissingChangeSets(ctx.db, "test:grouped");
+  ctx = await criarBancoComModelosCurados("grouped_real");
 }, 600_000);
 
 afterAll(async () => {

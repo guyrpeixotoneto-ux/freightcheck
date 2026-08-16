@@ -1,18 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
-import {
-  createTestDatabase,
-  importFixture,
-  modelExportPaths,
-  type TestDb,
-} from "@workspace/ingest/testing";
-import {
-  applyConfirmations,
-  backfillSemantics,
-  runProposalPass,
-  seedTaxonomy,
-} from "@workspace/curation";
-import { computeMissingChangeSets, listPeriods } from "../consolidated";
+import type { TestDb } from "@workspace/ingest/testing";
+import { criarBancoComModelosCurados } from "../testing";
+import { listPeriods } from "../consolidated";
 import { getFamiliesView, getRangeAnalysis } from "../families-view";
 import { getEndToEndAnalysis } from "../end-to-end";
 
@@ -38,16 +28,7 @@ import { getEndToEndAnalysis } from "../end-to-end";
 let ctx: TestDb;
 
 beforeAll(async () => {
-  ctx = await createTestDatabase("range_real");
-  const { carreta, cavalo } = modelExportPaths();
-  for (const filePath of [carreta, cavalo]) {
-    await importFixture(ctx.db, filePath);
-  }
-  await seedTaxonomy(ctx.db, "test");
-  await runProposalPass(ctx.db, "test");
-  await applyConfirmations(ctx.db);
-  await backfillSemantics(ctx.db);
-  await computeMissingChangeSets(ctx.db, "test:range");
+  ctx = await criarBancoComModelosCurados("range_real");
 }, 600_000);
 
 afterAll(async () => {
