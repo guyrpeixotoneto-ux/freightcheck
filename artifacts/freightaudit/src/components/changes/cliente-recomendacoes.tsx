@@ -2,14 +2,18 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
+  Ban,
   ChevronDown,
-  CircleCheck,
-  CircleHelp,
+  CircleAlert,
+  CircleDollarSign,
+  ClipboardCheck,
+  FileText,
   Handshake,
+  Info,
   Search,
-  Target,
   TrendingDown,
   Truck,
+  Users,
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
 import {
@@ -19,7 +23,14 @@ import {
 } from "@/components/changes/janela-vigencias";
 import { Card } from "@/components/ui/card";
 import { fetchJson } from "@/lib/api";
-import { formatBrl, formatBrlShort, formatNumber, formatValue } from "@/lib/format";
+import {
+  formatBrl,
+  formatBrlCompacto,
+  formatBrlShort,
+  formatNumber,
+  formatValue,
+  periodicitySuffix,
+} from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
@@ -30,16 +41,27 @@ import { cn } from "@/lib/utils";
  * lista muito menor, e é esse o ponto. Uma tela que listasse tudo que caiu
  * proporia recompor financiamentos quitados e reduzir a idade dos caminhões.
  *
- * Três decisões de tela seguem daí, e nenhuma é estética:
+ * A tela é uma **pauta**, e não uma fila de trabalho técnico: quem a abre está
+ * montando a reunião com a Freightec, e a pergunta dele é o que entra nela.
+ * Daí a forma — quatro números no topo, os itens da pauta em cartões lado a
+ * lado, e as duas listas que fecham a preparação: o que não se leva, e o que
+ * ainda precisa ser validado antes de virar proposta.
  *
- * **Propostas e investigações se intercalam.** Uma investigação de R$ 731 mil
- * vale mais atenção do que uma proposta de R$ 300, e separá-las em blocos
- * enterraria a maior pergunta do mês embaixo da menor proposta. A ordem é o
- * dinheiro; a etiqueta diz o que fazer com cada linha.
+ * Quatro decisões de tela seguem daí, e nenhuma é estética:
+ *
+ * **Propostas e investigações se intercalam na pauta.** Uma investigação de
+ * R$ 731 mil vale mais atenção do que uma proposta de R$ 300, e separá-las em
+ * blocos enterraria a maior pergunta do mês embaixo da menor proposta. A ordem
+ * é o dinheiro; a etiqueta de prioridade diz o que fazer com cada cartão.
  *
  * **O que não vira proposta continua visível, com o motivo.** Quem confere a
  * planilha vai encontrar o `custoFixo` da carreta e o `lucroVariavelPrevisto`, e
- * precisa achar por que não estão na lista. Some da lista, não da tela.
+ * precisa achar por que não estão na pauta. O painel “O que não propor” resume
+ * por categoria e a lista inteira continua abaixo. Some da pauta, não da tela.
+ *
+ * **As categorias dos dois painéis particionam a população.** Cada item cai em
+ * exatamente uma linha, e a soma das linhas é o total do painel — é o que
+ * permite ler “2 pendências” no ladrilho e achar as duas embaixo.
  *
  * **Mensal e anual nunca ocupam o mesmo número.** R$ 731 mil por ano e R$ 52
  * mil por mês não somam, e o ladrilho do topo mostra as duas linhas separadas em
@@ -75,7 +97,7 @@ interface OQueAconteceu {
   cobertura: number;
 }
 
-interface Recomendacao {
+export interface Recomendacao {
   code: string;
   title: string;
   entityType: string;
@@ -143,29 +165,6 @@ const POR_PERIODO: Record<string, string> = {
   PONTUAL: "valor único",
 };
 
-const SITUACAO = {
-  PROPOR_AJUSTE: {
-    rotulo: "Propor ajuste",
-    classe: "bg-brand/10 text-brand border-brand/30",
-    icone: <Handshake className="w-3.5 h-3.5" />,
-  },
-  INVESTIGAR: {
-    rotulo: "Investigar",
-    classe: "bg-warning/15 text-warning-foreground border-warning/30",
-    icone: <Search className="w-3.5 h-3.5" />,
-  },
-  NAO_PROPOR: {
-    rotulo: "Não propor",
-    classe: "bg-muted text-muted-foreground border-border",
-    icone: <CircleCheck className="w-3.5 h-3.5" />,
-  },
-  NAO_CALCULAVEL: {
-    rotulo: "Não calculável",
-    classe: "bg-muted text-muted-foreground border-border",
-    icone: <CircleHelp className="w-3.5 h-3.5" />,
-  },
-} as const;
-
 const CONFIANCA: Record<Confianca, string> = {
   ALTA: "confiança alta",
   MEDIA: "confiança média",
@@ -210,6 +209,177 @@ const SENTIDO: Record<string, string> = {
   DEPENDE_DE_FORMULA: "o efeito depende da fórmula da fonte",
   DESCONHECIDO: "efeito ainda não levantado",
 };
+
+// ---------------------------------------------------------------------------
+// A leitura de pauta — funções puras, e é onde a tela decide o que diz
+// ---------------------------------------------------------------------------
+
+export type Prioridade = "ALTA" | "MEDIA" | "ATENCAO";
+
+/**
+ * A etiqueta do cartão.
+ *
+ * Prioridade aqui **não** é o tamanho do número: é o que se pode fazer com a
+ * linha. Uma proposta com valor apurado e confiança alta é a única coisa que se
+ * leva pronta para a mesa; uma proposta de confiança média entra com a ressalva
+ * junto; e uma investigação nunca vira “prioridade”, por maior que seja o
+ * dinheiro — ela é atenção, porque o que ela pede é uma pergunta, não um
+ * pedido. O dinheiro já ordena a lista; misturá-lo à etiqueta faria a tela
+ * mandar propor o que ainda não se sabe.
+ */
+export function prioridadeDaPauta(r: Recomendacao): Prioridade {
+  if (r.situacao !== "PROPOR_AJUSTE") return "ATENCAO";
+  return r.confianca === "ALTA" ? "ALTA" : "MEDIA";
+}
+
+const PRIORIDADE: Record<Prioridade, { rotulo: string; classe: string }> = {
+  ALTA: {
+    rotulo: "Alta prioridade",
+    classe: "bg-destructive/10 text-destructive border-destructive/30",
+  },
+  /*
+    Âmbar literal, e não `text-warning-foreground`: aquele token é o marinho que
+    se escreve **sobre** o laranja cheio, e sobre um véu de 15% ele sumia no
+    escuro. `dark:text-amber-500` é a mesma convenção do DRE.
+  */
+  MEDIA: {
+    rotulo: "Média prioridade",
+    classe:
+      "bg-amber-500/15 text-amber-700 dark:text-amber-500 border-amber-500/30",
+  },
+  ATENCAO: {
+    rotulo: "Atenção",
+    classe: "bg-brand/10 text-brand border-brand/30",
+  },
+};
+
+/** Uma linha dos painéis do rodapé: o rótulo, e quantos itens ele cobre. */
+export interface Categoria {
+  chave: string;
+  rotulo: string;
+  quantidade: number;
+}
+
+/**
+ * Classifica por **primeira regra que casa**, e é isso que faz a soma fechar.
+ *
+ * Categorias que se sobrepõem produziriam um painel cujas linhas somam mais do
+ * que a população — e o ladrilho do topo passaria a discordar do painel logo
+ * abaixo dele. O resto que não casar com nenhuma regra cai numa linha própria
+ * em vez de sumir: uma categoria a mais é um incômodo, um item invisível é um
+ * erro.
+ */
+export function classificar<T>(
+  itens: T[],
+  regras: { chave: string; rotulo: string; quando: (item: T) => boolean }[],
+  restante: { chave: string; rotulo: string },
+): Categoria[] {
+  const contagem = new Map(regras.map((r) => [r.chave, 0]));
+  let sobra = 0;
+
+  for (const item of itens) {
+    const regra = regras.find((r) => r.quando(item));
+    if (regra) contagem.set(regra.chave, contagem.get(regra.chave)! + 1);
+    else sobra += 1;
+  }
+
+  const categorias = regras.map((r) => ({
+    chave: r.chave,
+    rotulo: r.rotulo,
+    quantidade: contagem.get(r.chave)!,
+  }));
+  if (sobra > 0) categorias.push({ ...restante, quantidade: sobra });
+
+  return categorias.filter((c) => c.quantidade > 0);
+}
+
+/** O que mudou e não é assunto de cliente, pelo motivo de não ser. */
+export function categoriasNaoPropor(recs: Recomendacao[]): Categoria[] {
+  return classificar(
+    recs,
+    [
+      {
+        chave: "AUMENTA",
+        rotulo: "Mudanças que aumentaram a nossa remuneração",
+        quando: (r) => r.efeito === "AUMENTA",
+      },
+      {
+        chave: "SEM_EFEITO",
+        rotulo: "Variações sem efeito sobre a remuneração",
+        quando: (r) => r.efeito === "SEM_EFEITO",
+      },
+      {
+        chave: "MECANISMO",
+        rotulo:
+          "Quedas por mecanismo próprio — financiamento encerrado, cadastro, calendário",
+        quando: (r) => r.efeito === "REDUZ",
+      },
+    ],
+    { chave: "OUTROS", rotulo: "Outros casos sem pedido a fazer" },
+  );
+}
+
+/**
+ * O que precisa acontecer antes de qualquer uma destas linhas virar proposta.
+ *
+ * A população é a mesma do ladrilho de pendências — investigações e o que ainda
+ * não tem leitura econômica —, e as categorias a particionam. O que separa uma
+ * frente da outra é o **tipo de trabalho**: confirmar semântica é curadoria,
+ * separar direções opostas é leitura ativo a ativo, e fechar o impacto é obter
+ * uma régua financeira que hoje não existe.
+ */
+export function categoriasPendentes(recs: Recomendacao[]): Categoria[] {
+  return classificar(
+    recs,
+    [
+      {
+        chave: "SEMANTICA",
+        rotulo: "Validar a semântica de parâmetros ainda não confirmados",
+        quando: (r) => r.situacao === "NAO_CALCULAVEL",
+      },
+      {
+        chave: "DIRECOES",
+        rotulo: "Separar os casos com ativos em direções opostas",
+        quando: (r) => r.direcoesMistas,
+      },
+      {
+        chave: "IMPACTO",
+        rotulo: "Fechar o impacto financeiro dos itens inconclusivos",
+        quando: (r) => r.impacto === null,
+      },
+      {
+        chave: "REFERENCIA",
+        rotulo: "Obter a referência que sustente o valor a pedir",
+        quando: () => true,
+      },
+    ],
+    { chave: "OUTROS", rotulo: "Outras pendências" },
+  );
+}
+
+/**
+ * O racional de apoio do cartão — a abrangência, na língua da reunião.
+ *
+ * Diz quantos ativos a linha alcança dentro do total da série, porque “64
+ * veículos” sem denominador é uma afirmação que não se confere. Quando há
+ * ativos em direções opostas, eles vêm junto: é a informação que impede alguém
+ * de levar o líquido como se fosse o caso de todo mundo.
+ */
+export function racionalDeApoio(r: Recomendacao): string {
+  const equipamento = r.equipment.toLowerCase();
+  const base =
+    r.veiculosNaSerie > 0
+      ? `${formatNumber(r.veiculosAfetados, 0)} de ${formatNumber(r.veiculosNaSerie, 0)} ${equipamento}s afetados`
+      : `${formatNumber(r.veiculosAfetados, 0)} ${equipamento}s afetados`;
+  const opostos = r.oQueAconteceu?.entidadesEmSentidoOposto ?? 0;
+  return opostos > 0
+    ? `${base} · ${formatNumber(opostos, 0)} para o lado contrário`
+    : base;
+}
+
+// ---------------------------------------------------------------------------
+// A tela
+// ---------------------------------------------------------------------------
 
 export function ClienteRecomendacoes({
   onAbrirImpacto,
@@ -258,28 +428,35 @@ export function ClienteRecomendacoes({
   }
 
   const { totais } = data;
-  const prioritarias = data.recomendacoes.filter(
+  const pauta = data.recomendacoes.filter(
     (r) => r.situacao === "PROPOR_AJUSTE" || r.situacao === "INVESTIGAR",
   );
   const naoPropor = data.recomendacoes.filter((r) => r.situacao === "NAO_PROPOR");
   const naoCalculavel = data.recomendacoes.filter(
     (r) => r.situacao === "NAO_CALCULAVEL",
   );
-  const primeira = data.periods[0];
-  const ultima = data.periods[data.periods.length - 1];
+  /*
+    A pendência é tudo que ainda não pode virar pedido: a investigação, que tem
+    a pergunta mas não a resposta, e o que sequer tem leitura econômica. As duas
+    populações viajam juntas porque o trabalho que falta é o mesmo tipo de
+    trabalho — descobrir algo antes da reunião, e não decidir na reunião.
+  */
+  const pendentes = [
+    ...data.recomendacoes.filter((r) => r.situacao === "INVESTIGAR"),
+    ...naoCalculavel,
+  ];
+  const recuperavel = totais.porPeriodicidade.filter((p) => p.recuperavel > 0);
 
   return (
     <div className="space-y-6">
       <div>
         <h2 className="text-lg font-semibold tracking-tight">
-          O que recomendamos discutir com o cliente
+          O que levar para a Freightec
         </h2>
-        <p className="text-sm text-muted-foreground max-w-3xl">
-          De tudo que mudou entre <strong>{primeira?.sourceLabel}</strong> e{" "}
-          <strong>{ultima?.sourceLabel}</strong>, este é o subconjunto em que o
-          movimento vai contra nós <em>e</em> existe algo objetivo a pedir ou a
-          perguntar. O que ficou de fora continua abaixo, com o motivo — inclusive
-          o que nos favorece.
+        <p className="text-sm text-muted-foreground max-w-3xl mt-1">
+          Esta aba resume apenas o que vale a pena propor, o que não deve ser
+          levado e o que ainda precisa de validação antes da conversa com o
+          cliente.
         </p>
       </div>
 
@@ -320,112 +497,136 @@ export function ClienteRecomendacoes({
 
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
         <Ladrilho
-          tone="slate"
-          icon={<TrendingDown className="w-6 h-6" />}
-          label="Impacto identificado"
-          linhas={totais.porPeriodicidade.map((p) => ({
-            valor: formatBrlShort(p.identificado),
-            nota: POR_PERIODO[p.periodicity ?? ""] ?? "sem periodicidade",
-          }))}
-          hint="em módulo — o que está em jogo, ganhando ou perdendo"
+          tone="green"
+          icon={<ClipboardCheck className="w-6 h-6" />}
+          label="Propostas recomendadas"
+          linhas={[{ valor: formatNumber(totais.propor, 0), unidade: "" }]}
+          hint="Itens com argumento sólido e impacto apurado"
         />
+        {/*
+          O único ladrilho que pode ter mais de uma linha, e é de propósito:
+          R$ 731 mil por ano e R$ 52 mil por mês não somam, e escolher um dos
+          dois para caber esconderia metade do que está em jogo.
+        */}
         <Ladrilho
           tone="blue"
-          icon={<Target className="w-6 h-6" />}
-          label="Potencialmente recuperável"
+          icon={<CircleDollarSign className="w-6 h-6" />}
+          label="Impacto potencial recuperável"
           linhas={
-            totais.porPeriodicidade.some((p) => p.recuperavel > 0)
-              ? totais.porPeriodicidade
-                  .filter((p) => p.recuperavel > 0)
-                  .map((p) => ({
-                    valor: formatBrlShort(p.recuperavel),
-                    nota: POR_PERIODO[p.periodicity ?? ""] ?? "sem periodicidade",
-                  }))
-              : [{ valor: "—", nota: "nenhuma proposta com valor apurado" }]
+            recuperavel.length > 0
+              ? recuperavel.map((p) => ({
+                  valor: formatBrlCompacto(p.recuperavel),
+                  unidade: periodicitySuffix(p.periodicity),
+                }))
+              : [{ valor: "—", unidade: "" }]
           }
-          hint="só o que está em “propor ajuste”"
+          hint={
+            recuperavel.length > 0
+              ? "Soma do impacto estimado das propostas recomendadas"
+              : "Nenhuma proposta com valor apurado neste recorte"
+          }
+        />
+        <Ladrilho
+          tone="purple"
+          icon={<Truck className="w-6 h-6" />}
+          label="Veículos afetados"
+          linhas={[{ valor: formatNumber(totais.veiculosAlcancados, 0), unidade: "" }]}
+          hint="Maior alcance entre os itens da pauta — as placas se repetem entre linhas, e somá-las contaria o mesmo veículo duas vezes"
         />
         <Ladrilho
           tone="amber"
-          icon={<Search className="w-6 h-6" />}
-          label="Para levar ao cliente"
-          linhas={[
-            { valor: formatNumber(totais.propor, 0), nota: "a propor" },
-            { valor: formatNumber(totais.investigar, 0), nota: "a investigar" },
-          ]}
-          hint={`de ${formatNumber(totais.analisadas, 0)} linhas econômicas analisadas`}
-        />
-        <Ladrilho
-          tone="green"
-          icon={<Truck className="w-6 h-6" />}
-          label="Impacto explicado"
+          icon={<CircleAlert className="w-6 h-6" />}
+          label="Pendências para validar"
           linhas={[
             {
-              valor:
-                totais.percentualExplicado === null
-                  ? "—"
-                  : `${formatNumber(totais.percentualExplicado, 1)}%`,
-              nota:
-                totais.percentualExplicado === null
-                  ? "nenhum dinheiro apurado nesta série"
-                  : "do dinheiro apurado tem leitura econômica",
+              valor: formatNumber(totais.investigar + totais.naoCalculavel, 0),
+              unidade: "",
             },
           ]}
-          hint={
-            totais.veiculosAlcancados > 0
-              ? `até ${totais.veiculosAlcancados} veículos numa mesma linha`
-              : undefined
-          }
+          hint="Pontos que exigem validação antes de virar proposta"
         />
       </div>
 
-      {/* ---- as prioritárias ------------------------------------------- */}
-      {prioritarias.length === 0 ? (
-        <Card className="p-6">
-          {/*
-            Recorte de uma vigência só e recorte em que nada mudou parecem a
-            mesma coisa de fora, e são respostas opostas: um não comparou nada,
-            o outro comparou e não achou. A tela diz qual dos dois é.
-          */}
-          {data.context.periodosNaJanela < 2 ? (
-            <>
-              <p className="text-sm">
-                <strong>Este recorte tem uma vigência só.</strong>
-              </p>
-              <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-                Não há par para comparar, e portanto nada a recomendar — o que
-                não é o mesmo que “nada mudou”. Abra o recorte para incluir pelo
-                menos duas vigências.
-              </p>
-            </>
-          ) : (
-            <>
-              <p className="text-sm">
-                <strong>Nada a propor nem a investigar neste recorte.</strong>
-              </p>
-              <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-                As {formatNumber(totais.analisadas, 0)} linhas econômicas que
-                mudaram estão abaixo, cada uma com a razão de não virar assunto:
-                favoráveis a nós, neutras, cadastrais ou consequência de
-                mecanismo próprio. Zero recomendações é um resultado — uma
-                proposta errada custa mais do que nenhuma.
-              </p>
-            </>
-          )}
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {prioritarias.map((r) => (
-            <CartaoDeRecomendacao
-              key={r.code}
-              r={r}
-              onAbrirImpacto={onAbrirImpacto}
-            />
-          ))}
-        </div>
-      )}
+      {/* ---- a pauta ---------------------------------------------------- */}
+      <div>
+        <h3 className="text-base font-semibold tracking-tight mb-3">
+          Pauta recomendada
+        </h3>
 
-      {/* ---- o que ficou de fora --------------------------------------- */}
+        {pauta.length === 0 ? (
+          <Card className="p-6">
+            {/*
+              Recorte de uma vigência só e recorte em que nada mudou parecem a
+              mesma coisa de fora, e são respostas opostas: um não comparou nada,
+              o outro comparou e não achou. A tela diz qual dos dois é.
+            */}
+            {data.context.periodosNaJanela < 2 ? (
+              <>
+                <p className="text-sm">
+                  <strong>Este recorte tem uma vigência só.</strong>
+                </p>
+                <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
+                  Não há par para comparar, e portanto nada a recomendar — o que
+                  não é o mesmo que “nada mudou”. Abra o recorte para incluir pelo
+                  menos duas vigências.
+                </p>
+              </>
+            ) : (
+              <>
+                <p className="text-sm">
+                  <strong>Nada a propor nem a investigar neste recorte.</strong>
+                </p>
+                <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
+                  As {formatNumber(totais.analisadas, 0)} linhas econômicas que
+                  mudaram estão abaixo, cada uma com a razão de não virar assunto:
+                  favoráveis a nós, neutras, cadastrais ou consequência de
+                  mecanismo próprio. Zero recomendações é um resultado — uma
+                  proposta errada custa mais do que nenhuma.
+                </p>
+              </>
+            )}
+          </Card>
+        ) : (
+          /*
+            `items-start`, e não a esticada natural da grade: abrir o detalhe
+            técnico de um cartão cresce a linha inteira, e com os irmãos
+            esticados o crescimento vira um vazio de meia tela dentro deles. Com
+            cada cartão na sua altura, quem cresce é só o que foi aberto.
+          */
+          <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 items-start">
+            {pauta.map((r, i) => (
+              <CartaoDePauta
+                key={r.code}
+                r={r}
+                posicao={i + 1}
+                onAbrirImpacto={onAbrirImpacto}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ---- o que não se leva, e o que ainda falta --------------------- */}
+      <div className="grid gap-4 grid-cols-1 lg:grid-cols-2 items-start">
+        <Painel
+          tone="red"
+          icon={<Ban className="w-5 h-5" />}
+          titulo="O que não propor"
+          categorias={categoriasNaoPropor(naoPropor)}
+          vazio="Tudo que mudou neste recorte virou pauta ou pendência."
+          rodape="Cada linha é uma categoria fechada: um item cai em uma só, e a soma é o total que a lista abaixo detalha."
+        />
+        <Painel
+          tone="blue"
+          icon={<Info className="w-5 h-5" />}
+          titulo="Antes de levar ao cliente"
+          categorias={categoriasPendentes(pendentes)}
+          vazio="Nenhuma pendência aberta neste recorte."
+          rodape="É o trabalho que precede a reunião — o que sai daqui vira proposta na próxima leitura, ou sai da conversa com o motivo escrito."
+        />
+      </div>
+
+      {/* ---- as listas inteiras, para quem confere ---------------------- */}
       <Dobra
         titulo="Não propor"
         contagem={naoPropor.length}
@@ -459,81 +660,87 @@ export function ClienteRecomendacoes({
         ))}
       </Dobra>
 
-      <p className="text-xs text-muted-foreground max-w-3xl">
-        <strong>Por que esta lista é menor do que a de Impacto.</strong> Lá está
-        o universo do que mudou. Aqui, só o que passou por três portas: existe
-        leitura econômica do parâmetro, o movimento vai contra nós, e há algo
-        objetivo a pedir ou a perguntar. O sinal do número não decide nada — o
-        que decide é o comportamento declarado do parâmetro, porque uma taxa que
-        cai reduz o que recebemos e uma idade que sobe não é premissa nenhuma.
-        {" "}
-        <strong>E o contexto é o mesmo das outras abas</strong> —{" "}
-        {data.context.label}, {data.periods.length} vigências —, resolvido pela
-        mesma autoridade, e não reconstruído aqui.
-      </p>
+      <ResumoExecutivo
+        contexto={data.context.label}
+        vigencias={data.periods.length}
+        analisadas={totais.analisadas}
+      />
     </div>
   );
 }
 
 /**
- * Um cartão de recomendação.
+ * Um item da pauta.
  *
- * A ordem dos blocos é a ordem da conversa: o que aconteceu, por que isso nos
- * prejudica, quanto vale, e o que pedir. O detalhe técnico fica atrás de um
- * clique — quem está montando a pauta não precisa dele, e quem vai defender o
- * número precisa dele inteiro.
+ * A ordem dos blocos é a ordem da conversa: a etiqueta do que fazer, o assunto,
+ * por que ele nos prejudica, e o rodapé com as três coisas que a reunião
+ * pergunta — quanto vale, o que pedir, e em cima de quantos ativos. O detalhe
+ * técnico fica atrás de um clique: quem está montando a pauta não precisa dele,
+ * e quem vai defender o número precisa dele inteiro.
+ *
+ * Enquanto fechado, o cartão limita as duas frases longas a três linhas — é o
+ * que mantém os cartões da mesma fileira comparáveis a olho. Abrir o detalhe
+ * solta as duas: o texto é cortado na exibição, nunca na fonte.
  */
-function CartaoDeRecomendacao({
+function CartaoDePauta({
   r,
+  posicao,
   onAbrirImpacto,
 }: {
   r: Recomendacao;
+  posicao: number;
   onAbrirImpacto?: (escolha: { entityType: string; code: string }) => void;
 }) {
   const [aberto, setAberto] = useState(false);
-  const s = SITUACAO[r.situacao];
+  const prioridade = PRIORIDADE[prioridadeDaPauta(r)];
 
   return (
-    <Card className="overflow-hidden">
-      <div className="px-5 py-4">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+    <Card className="overflow-hidden flex flex-col">
+      <div className="px-5 pt-4 pb-3 flex-1">
+        <div className="flex items-center justify-between gap-3">
           <span
             className={cn(
               "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
-              s.classe,
+              prioridade.classe,
             )}
           >
-            {s.icone}
-            {s.rotulo}
+            {r.situacao === "PROPOR_AJUSTE" ? (
+              <Handshake className="w-3.5 h-3.5" />
+            ) : (
+              <Search className="w-3.5 h-3.5" />
+            )}
+            {prioridade.rotulo}
           </span>
-          <span className="text-xs text-muted-foreground">
-            {CONFIANCA[r.confianca]}
+          <span className="text-xs tabular-nums text-muted-foreground shrink-0">
+            #{posicao}
           </span>
-          <span className="text-xs text-muted-foreground" aria-hidden>
-            ·
-          </span>
-          <span className="text-xs text-muted-foreground">
-            {formatNumber(r.veiculosAfetados, 0)} de{" "}
-            {formatNumber(r.veiculosNaSerie, 0)} {r.equipment.toLowerCase()}s
-          </span>
-          {r.direcoesMistas && (
-            <span className="text-xs rounded bg-warning/15 text-warning-foreground px-1.5 py-0.5">
-              ativos em direções opostas
-            </span>
-          )}
         </div>
 
-        <h3 className="text-base font-semibold tracking-tight mt-2.5">{r.title}</h3>
+        <h4 className="text-base font-semibold tracking-tight mt-2.5">
+          {r.title}
+          <span className="text-xs text-muted-foreground font-normal ml-2">
+            {r.equipment.toLowerCase()} · {CONFIANCA[r.confianca]}
+          </span>
+        </h4>
+
+        <p
+          className={cn(
+            "text-sm text-muted-foreground mt-1 leading-relaxed",
+            !aberto && "line-clamp-3",
+          )}
+        >
+          {r.porque}
+        </p>
 
         {/*
-          O par antes → depois é o padrão predominante, e a tela precisa dizer
+          O par antes → depois é o padrão predominante, e o cartão precisa dizer
           quando ele é só isso. Uma premissa compartilhada move a frota inteira
           do mesmo valor para o mesmo valor; um montante por ativo tem dezenas
           de pares, e mostrar um deles sem a ressalva faria o cartão parecer um
           resumo quando é uma ilustração.
         */}
         {r.oQueAconteceu && (
-          <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm tabular-nums">
+          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm tabular-nums">
             <span className="text-muted-foreground">
               {formatValue(r.oQueAconteceu.antes, r.oQueAconteceu.unidade)}
             </span>
@@ -542,16 +749,7 @@ function CartaoDeRecomendacao({
               {formatValue(r.oQueAconteceu.depois, r.oQueAconteceu.unidade)}
             </span>
             <span className="text-xs text-muted-foreground">
-              em {r.oQueAconteceu.sourceLabel}, em{" "}
-              {formatNumber(r.oQueAconteceu.entidades, 0)}{" "}
-              {r.oQueAconteceu.entidades === 1 ? "veículo" : "veículos"}
-              {r.oQueAconteceu.entidadesEmSentidoOposto > 0 && (
-                <>
-                  {" "}
-                  · {formatNumber(r.oQueAconteceu.entidadesEmSentidoOposto, 0)}{" "}
-                  para o lado contrário
-                </>
-              )}
+              em {r.oQueAconteceu.sourceLabel}
             </span>
             {r.oQueAconteceu.padroes > 1 && (
               <span className="text-xs rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
@@ -560,81 +758,50 @@ function CartaoDeRecomendacao({
             )}
           </div>
         )}
-
-        <div className="mt-3 grid gap-4 md:grid-cols-3">
-          <div className="md:col-span-2">
-            <Rotulo>
-              {r.situacao === "NAO_PROPOR"
-                ? "Por que não é assunto"
-                : "Por que isso nos prejudica"}
-            </Rotulo>
-            <p className="text-sm mt-1 leading-relaxed">{r.porque}</p>
-
-            {r.oQuePerguntar && (
-              <>
-                <Rotulo className="mt-3">
-                  {r.situacao === "PROPOR_AJUSTE"
-                    ? "O que recomendamos"
-                    : "O que perguntar"}
-                </Rotulo>
-                <p className="text-sm mt-1 leading-relaxed">{r.oQuePerguntar}</p>
-              </>
-            )}
-          </div>
-
-          <div className="space-y-3">
-            <div>
-              <Rotulo>Impacto estimado</Rotulo>
-              {r.impacto ? (
-                <div className="mt-1 space-y-0.5">
-                  <div
-                    className={cn(
-                      "text-xl font-bold tabular-nums",
-                      r.impacto.valor < 0 ? "text-destructive" : "text-emerald-600",
-                    )}
-                  >
-                    {formatBrl(r.impacto.valor)}
-                    <span className="text-xs font-normal text-muted-foreground ml-1">
-                      {POR_PERIODO[r.impacto.periodicidade ?? ""] ?? ""}
-                    </span>
-                  </div>
-                  {r.impacto.periodicidade === "MENSAL" && r.impacto.anual !== null && (
-                    <div className="text-xs text-muted-foreground tabular-nums">
-                      {formatBrlShort(r.impacto.anual)} por ano
-                      {r.impacto.projetado && " — projeção linear"}
-                    </div>
-                  )}
-                  {r.impacto.periodicidade === "ANUAL" && r.impacto.mensal !== null && (
-                    <div className="text-xs text-muted-foreground tabular-nums">
-                      {formatBrlShort(r.impacto.mensal)} por mês
-                      {r.impacto.projetado && " — projeção linear"}
-                    </div>
-                  )}
-                </div>
-              ) : (
-                <p className="text-sm text-muted-foreground mt-1">
-                  Não calculável — {r.impactoMotivo || "sem régua financeira"}.
-                </p>
-              )}
-            </div>
-
-            {r.valorRecomendado !== null && (
-              <dl className="text-sm space-y-1">
-                <Campo termo="Valor atual">
-                  {formatValue(r.valorAtual, r.oQueAconteceu?.unidade ?? null)}
-                </Campo>
-                <Campo termo="Valor recomendado">
-                  {formatValue(r.valorRecomendado, r.oQueAconteceu?.unidade ?? null)}
-                </Campo>
-                <Campo termo="Diferença">
-                  {formatValue(r.diferenca, r.oQueAconteceu?.unidade ?? null)}
-                </Campo>
-                <Campo termo="Fonte">{FONTE[r.fonte ?? ""] ?? "—"}</Campo>
-              </dl>
-            )}
-          </div>
-        </div>
       </div>
+
+      {/*
+        Uma grade de duas colunas, e não três linhas independentes: os três
+        termos são de larguras parecidas, e sem a coluna comum os valores
+        começariam em três `x` diferentes dentro do mesmo cartão.
+      */}
+      <dl className="border-t px-5 py-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-2.5">
+        <LinhaDoCartao
+          icon={<TrendingDown className="w-4 h-4" />}
+          termo="Impacto estimado"
+          alinhamento="direita"
+        >
+          {r.impacto ? (
+            <span
+              className={cn(
+                "font-semibold tabular-nums",
+                r.impacto.valor < 0 ? "text-destructive" : "text-emerald-600",
+              )}
+              title={`${formatBrl(r.impacto.valor)} ${POR_PERIODO[r.impacto.periodicidade ?? ""] ?? ""}`.trim()}
+            >
+              {formatBrlCompacto(r.impacto.valor)}
+              {periodicitySuffix(r.impacto.periodicidade)}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">
+              não apurado — {r.impactoMotivo || "sem régua financeira"}
+            </span>
+          )}
+        </LinhaDoCartao>
+
+        <LinhaDoCartao
+          icon={<Handshake className="w-4 h-4" />}
+          termo={r.situacao === "PROPOR_AJUSTE" ? "Pedido sugerido" : "O que perguntar"}
+        >
+          <span className={cn("block", !aberto && "line-clamp-3")}>
+            {r.oQuePerguntar ?? "—"}
+          </span>
+        </LinhaDoCartao>
+
+        <LinhaDoCartao icon={<Users className="w-4 h-4" />} termo="Racional de apoio">
+          {racionalDeApoio(r)}
+        </LinhaDoCartao>
+      </dl>
 
       <div className="border-t bg-muted/20 px-5 py-2 flex items-center gap-4">
         <button
@@ -663,6 +830,45 @@ function CartaoDeRecomendacao({
 }
 
 /**
+ * Uma das três linhas do rodapé do cartão — o par termo/valor da grade.
+ *
+ * Devolve `dt` e `dd` soltos, e não um `div` em volta: eles precisam ser filhos
+ * diretos da grade do cartão para dividirem a mesma coluna de termos. Um
+ * invólucro por linha devolveria cada valor ao seu próprio alinhamento.
+ *
+ * O dinheiro alinha à direita e o texto à esquerda de propósito: número se
+ * compara pela unidade, e frase se lê pelo começo.
+ */
+function LinhaDoCartao({
+  icon,
+  termo,
+  alinhamento = "esquerda",
+  children,
+}: {
+  icon: React.ReactNode;
+  termo: string;
+  alinhamento?: "esquerda" | "direita";
+  children: React.ReactNode;
+}) {
+  return (
+    <>
+      <dt className="flex items-center gap-1.5 text-sm text-muted-foreground">
+        <span className="text-muted-foreground/70">{icon}</span>
+        {termo}
+      </dt>
+      <dd
+        className={cn(
+          "text-sm min-w-0",
+          alinhamento === "direita" ? "text-right" : "text-left",
+        )}
+      >
+        {children}
+      </dd>
+    </>
+  );
+}
+
+/**
  * O detalhe técnico.
  *
  * Existe para uma pessoa só: quem vai defender o número na frente do cliente e
@@ -673,7 +879,12 @@ function CartaoDeRecomendacao({
 function DetalheTecnico({ r }: { r: Recomendacao }) {
   return (
     <div className="border-t px-5 py-4 bg-muted/10 text-sm space-y-3">
-      <dl className="grid gap-x-6 gap-y-1.5 sm:grid-cols-2">
+      {/*
+        Uma coluna só: o detalhe abre dentro de um cartão de um terço de tela, e
+        duas colunas ali quebram “aumenta o parâmetro, aumenta a remuneração” em
+        quatro linhas de duas palavras.
+      */}
+      <dl className="grid gap-x-6 gap-y-1.5">
         <Campo termo="Coluna">
           <code className="text-xs">{r.code}</code>
         </Campo>
@@ -692,6 +903,50 @@ function DetalheTecnico({ r }: { r: Recomendacao }) {
           <Campo termo="Depende de">{r.dependeDe.join(", ")}</Campo>
         )}
       </dl>
+
+      {/*
+        As duas periodicidades do impacto vivem aqui, e não no rodapé do cartão:
+        lá o número é o da periodicidade declarada, e a projeção — que passa por
+        uma premissa — precisa da frase que a sustenta ao lado.
+      */}
+      {r.impacto && (
+        <div className="text-sm tabular-nums">
+          <Rotulo>Impacto na periodicidade declarada</Rotulo>
+          <p className="mt-0.5">
+            {formatBrl(r.impacto.valor)}{" "}
+            {POR_PERIODO[r.impacto.periodicidade ?? ""] ?? "sem periodicidade"}
+            {r.impacto.periodicidade === "MENSAL" && r.impacto.anual !== null && (
+              <span className="text-muted-foreground">
+                {" "}
+                · {formatBrlShort(r.impacto.anual)} por ano
+                {r.impacto.projetado && " — projeção linear"}
+              </span>
+            )}
+            {r.impacto.periodicidade === "ANUAL" && r.impacto.mensal !== null && (
+              <span className="text-muted-foreground">
+                {" "}
+                · {formatBrlShort(r.impacto.mensal)} por mês
+                {r.impacto.projetado && " — projeção linear"}
+              </span>
+            )}
+          </p>
+        </div>
+      )}
+
+      {r.valorRecomendado !== null && (
+        <dl className="grid gap-x-6 gap-y-1.5">
+          <Campo termo="Valor atual">
+            {formatValue(r.valorAtual, r.oQueAconteceu?.unidade ?? null)}
+          </Campo>
+          <Campo termo="Valor recomendado">
+            {formatValue(r.valorRecomendado, r.oQueAconteceu?.unidade ?? null)}
+          </Campo>
+          <Campo termo="Diferença">
+            {formatValue(r.diferenca, r.oQueAconteceu?.unidade ?? null)}
+          </Campo>
+          <Campo termo="Fonte">{FONTE[r.fonte ?? ""] ?? "—"}</Campo>
+        </dl>
+      )}
 
       {r.mecanismo && (
         <div>
@@ -718,6 +973,130 @@ function DetalheTecnico({ r }: { r: Recomendacao }) {
         </div>
       )}
     </div>
+  );
+}
+
+const PAINEL = {
+  red: {
+    caixa: "bg-destructive/10 text-destructive",
+    marcador: "bg-destructive",
+  },
+  blue: {
+    caixa: "bg-brand/10 text-brand",
+    marcador: "bg-brand",
+  },
+} as const;
+
+/**
+ * Um dos dois painéis que fecham a preparação.
+ *
+ * Eles resumem por categoria o que a pauta deixou de fora — o que não se leva e
+ * o que ainda não pode ser levado. A contagem fica à direita de cada linha
+ * porque é ela que dá a escala: “mudanças que nos favoreceram” muda de sentido
+ * entre uma e trinta.
+ */
+function Painel({
+  tone,
+  icon,
+  titulo,
+  categorias,
+  vazio,
+  rodape,
+}: {
+  tone: keyof typeof PAINEL;
+  icon: React.ReactNode;
+  titulo: string;
+  categorias: Categoria[];
+  vazio: string;
+  rodape: string;
+}) {
+  const cores = PAINEL[tone];
+
+  return (
+    <Card className="p-5">
+      <div className="flex items-center gap-2.5">
+        <span
+          className={cn(
+            "h-8 w-8 rounded-lg grid place-content-center shrink-0",
+            cores.caixa,
+          )}
+        >
+          {icon}
+        </span>
+        <h3 className="text-base font-semibold tracking-tight">{titulo}</h3>
+      </div>
+
+      {categorias.length === 0 ? (
+        <p className="text-sm text-muted-foreground mt-3">{vazio}</p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {categorias.map((c) => (
+            <li key={c.chave} className="flex items-start justify-between gap-3">
+              <span className="flex items-start gap-2.5 text-sm min-w-0">
+                <span
+                  className={cn(
+                    "mt-1.5 h-1.5 w-1.5 rounded-full shrink-0",
+                    cores.marcador,
+                  )}
+                  aria-hidden
+                />
+                {c.rotulo}
+              </span>
+              <span className="text-sm tabular-nums text-muted-foreground shrink-0">
+                {formatNumber(c.quantidade, 0)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <p className="text-xs text-muted-foreground mt-3 pt-3 border-t">{rodape}</p>
+    </Card>
+  );
+}
+
+/**
+ * A faixa do rodapé — o que esta aba é, para quem chegou nela por engano.
+ *
+ * Ela também é o lugar da procedência: o contexto e o número de vigências vêm
+ * da mesma autoridade das outras abas, e dizê-lo aqui é o que impede alguém de
+ * comparar esta pauta com um Impacto de outro período.
+ */
+function ResumoExecutivo({
+  contexto,
+  vigencias,
+  analisadas,
+}: {
+  contexto: string;
+  vigencias: number;
+  analisadas: number;
+}) {
+  return (
+    <Card className="px-5 py-4 flex items-start gap-3">
+      <span className="h-8 w-8 rounded-lg grid place-content-center shrink-0 bg-brand/10 text-brand">
+        <FileText className="w-5 h-5" />
+      </span>
+      <div className="text-sm text-muted-foreground leading-relaxed">
+        <strong className="text-foreground">Resumo executivo</strong>
+        <span className="mx-2 text-border" aria-hidden>
+          |
+        </span>
+        Esta aba não é uma fila de investigação técnica. Ela sintetiza propostas
+        de negociação, exceções que não devem ser levadas e pendências que
+        precisam de validação antes da conversa com o cliente. Das{" "}
+        {formatNumber(analisadas, 0)} linhas econômicas que mudaram, entra na
+        pauta só o que passou por três portas: existe leitura econômica do
+        parâmetro, o movimento vai contra nós, e há algo objetivo a pedir ou a
+        perguntar. O sinal do número não decide nada — quem decide é o
+        comportamento declarado do parâmetro, porque uma taxa que cai reduz o que
+        recebemos e uma idade que sobe não é premissa nenhuma.{" "}
+        <strong className="text-foreground">
+          O contexto é o mesmo das outras abas
+        </strong>{" "}
+        — {contexto}, {formatNumber(vigencias, 0)} vigências —, resolvido pela
+        mesma autoridade, e não reconstruído aqui.
+      </div>
+    </Card>
   );
 }
 
@@ -826,9 +1205,11 @@ function Rotulo({
 
 function Campo({ termo, children }: { termo: string; children: React.ReactNode }) {
   return (
-    <div className="flex items-baseline justify-between gap-3 sm:justify-start">
+    <div className="flex items-baseline justify-between gap-3">
       <dt className="text-xs text-muted-foreground shrink-0">{termo}</dt>
-      <dd className="text-sm tabular-nums text-right sm:text-left">{children}</dd>
+      <dd className="text-sm tabular-nums text-right min-w-0 break-words">
+        {children}
+      </dd>
     </div>
   );
 }
@@ -862,6 +1243,7 @@ const LADRILHO = {
   blue: "bg-brand/10 text-brand",
   green: "bg-emerald-50 text-emerald-600",
   amber: "bg-amber-50 text-amber-600",
+  purple: "bg-violet-50 text-violet-600",
   slate: "bg-slate-100 text-slate-600",
 } as const;
 
@@ -883,7 +1265,7 @@ function Ladrilho({
   icon: React.ReactNode;
   tone: keyof typeof LADRILHO;
   label: string;
-  linhas: { valor: string; nota: string }[];
+  linhas: { valor: string; unidade: string }[];
   hint?: string;
 }) {
   return (
@@ -904,11 +1286,15 @@ function Ladrilho({
           </div>
         ) : (
           linhas.map((l) => (
-            <div key={l.nota} className="mt-0.5">
+            <div key={`${l.valor}${l.unidade}`} className="mt-0.5">
               <span className="text-2xl font-bold tracking-tight tabular-nums">
                 {l.valor}
               </span>
-              <span className="text-xs text-muted-foreground ml-1.5">{l.nota}</span>
+              {l.unidade && (
+                <span className="text-xs text-muted-foreground ml-1.5">
+                  {l.unidade}
+                </span>
+              )}
             </div>
           ))
         )}
