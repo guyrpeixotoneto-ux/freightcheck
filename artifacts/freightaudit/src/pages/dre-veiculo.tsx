@@ -44,6 +44,20 @@ export default function DREVeiculo() {
   if (canal !== null) query.set("canal", canal);
   const qs = query.toString();
 
+  /*
+    O recorte sem o `escopo`, para levar à Composição.
+
+    `escopo` é vocabulário da DRE — CONJUNTO, CAVALO, CARRETA são regras de
+    alocação —, e a Composição não o conhece. Já vigência, unidade e canal ela
+    lê (`/composition/equipment/:id`), e não os recebia: sair da DRE de julho
+    abria a composição mais recente do mesmo equipamento, com outros números e
+    nada dizendo por quê.
+  */
+  const recorteDaComposicao = new URLSearchParams();
+  if (period) recorteDaComposicao.set("period", period);
+  if (scopeHash) recorteDaComposicao.set("scopeHash", scopeHash);
+  if (canal !== null) recorteDaComposicao.set("canal", canal);
+
   const { data, isLoading, error } = useQuery({
     queryKey: ["dre", "unit", entityId, qs],
     queryFn: () => fetchJson<DREDoVeiculo>(`/dre/unit/${entityId}?${qs}`),
@@ -87,7 +101,9 @@ export default function DREVeiculo() {
               {data.unidade.lados.map((lado) => (
                 <Link
                   key={lado.entityId}
-                  href={`/composicao/${lado.entityId}`}
+                  href={`/composicao/${lado.entityId}${
+                    recorteDaComposicao.toString() ? `?${recorteDaComposicao}` : ""
+                  }`}
                   className="group"
                   title="Ver a composição da remuneração deste equipamento"
                 >
@@ -289,12 +305,19 @@ function AguardandoCuradoria({
   return (
     <section>
       <h2 className="text-sm font-semibold mb-3">Aguardando curadoria</h2>
+      {/* Cada item abre o seu atributo na Curadoria — ver o irmão em `dre.tsx`. */}
       <div className="border rounded-lg bg-card divide-y">
         {itens.map((i) => (
-          <div key={i.code} className="px-5 py-3">
-            <div className="text-sm font-medium">{i.titulo}</div>
+          <Link
+            key={i.code}
+            href={`/curadoria?atributo=${encodeURIComponent(i.code)}`}
+            className="group block px-5 py-3 hover:bg-muted/40 transition-colors"
+          >
+            <div className="text-sm font-medium group-hover:text-brand transition-colors">
+              {i.titulo}
+            </div>
             <p className="text-xs text-muted-foreground mt-1 max-w-4xl">{i.oQueFalta}</p>
-          </div>
+          </Link>
         ))}
       </div>
       <p className="text-xs text-muted-foreground mt-2">

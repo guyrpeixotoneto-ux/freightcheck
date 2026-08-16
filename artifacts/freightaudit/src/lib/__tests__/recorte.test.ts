@@ -106,20 +106,27 @@ describe("cada aba recebe só o que sabe honrar", () => {
     expect(query(link).has("period")).toBe(false);
   });
 
-  it("o Impacto só recebe os dois recortes que ele aplica", () => {
+  it("o Impacto não recebe filtro nenhum — nem o parâmetro", () => {
+    /*
+      Abrir a matriz já num parâmetro afirmaria que foi aquele o assunto da
+      quinzena, que é a porta fechada em 16/08/2026; e mandar o parâmetro para a
+      Planilha trocaria uma contagem de nove vigências por uma de uma só. O que
+      sustenta o número do panorama é a matriz, e clicar na linha já leva até
+      ela.
+    */
     const link = linkDeAlteracoes({
       aba: "impacto",
+      recorte: recorte({ scopeHash: "abc" }),
       filtros: {
         attributeCode: "cavalo.finame",
         entityType: "CAVALO",
         impactConfidence: "CALCULATED",
-        costClass: "FIXO",
       },
     });
-    expect(query(link).get("attributeCode")).toBe("cavalo.finame");
-    expect(query(link).get("entityType")).toBe("CAVALO");
+    expect(query(link).get("scopeHash")).toBe("abc");
+    expect(query(link).has("attributeCode")).toBe(false);
+    expect(query(link).has("entityType")).toBe(false);
     expect(query(link).has("impactConfidence")).toBe(false);
-    expect(query(link).has("costClass")).toBe(false);
   });
 
   it("Chamados não recebe recorte nenhum", () => {

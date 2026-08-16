@@ -170,9 +170,23 @@ export interface DestinoDeAlteracoes {
  * Cada aba leva só o que sabe honrar, e o corte é feito aqui:
  *
  * - **Planilha** honra tudo: é a lista das linhas da vigência.
- * - **Impacto** não recebe `period` (mostra todas as quinzenas) nem filtro de
- *   linha que ela não aplica — sobram unidade, canal e, quando faz sentido, o
- *   equipamento e o parâmetro, que são as duas escolhas da própria aba.
+ * - **Impacto** recebe unidade e canal, e nada mais. Nem `period` — ela põe
+ *   todas as quinzenas lado a lado —, nem filtro de linha, **nem o parâmetro**.
+ *   Os dois últimos merecem explicação, porque a primeira versão deste arquivo
+ *   deixava o parâmetro passar:
+ *
+ *   Abrir a matriz já num parâmetro afirma, sem dizer, que foi *aquele* o
+ *   assunto da quinzena — e essa porta foi fechada de propósito em 16/08/2026
+ *   (ver o cabeçalho de `ImpactoQuinzenas`: o FINAME é o décimo em número de
+ *   alterações, e abrir nele fazia parecer que era o primeiro). Sair da aba
+ *   pela outra ponta também não serve: o "N alterações" do panorama conta
+ *   transições nas **nove** vigências da série, e mandá-lo para a Planilha, que
+ *   é de uma vigência só, mostraria um número menor sob o mesmo rótulo.
+ *
+ *   O que sustenta o número do panorama é a matriz de nove colunas, e clicar na
+ *   linha já leva até ela. A cadeia fecha dentro da aba; o que não existe é um
+ *   endereço para o meio dela, e inventá-lo custaria uma das duas mentiras
+ *   acima.
  * - **Chamados** não recebe nada: os chamados não são recortados por unidade
  *   nem por vigência em lugar nenhum do produto, e fingir que são seria pior do
  *   que não filtrar.
@@ -212,17 +226,12 @@ export function paramsDeAlteracoes({
     }
   }
 
-  if (aba === "planilha" || aba === "impacto") {
+  // Filtro de linha é assunto da Planilha, e só dela — a razão de o Impacto
+  // ficar de fora está no cabeçalho, e não é de implementação.
+  if (aba === "planilha") {
     for (const chave of FILTROS_NA_URL) {
       const valor = filtros[chave];
-      if (!valor) continue;
-      // A aba Impacto escolhe um parâmetro e um equipamento, e mais nada. Um
-      // `impactConfidence` mandado para lá não filtraria a matriz — ficaria no
-      // endereço parecendo um recorte aplicado.
-      if (aba === "impacto" && chave !== "attributeCode" && chave !== "entityType") {
-        continue;
-      }
-      params.set(chave, valor);
+      if (valor) params.set(chave, valor);
     }
   }
 

@@ -437,15 +437,27 @@ const BOTAO_DE_TROCA =
  * conta fechada — impacto apurado sem o número do que ficou de fora é meia
  * verdade contada com autoridade de total.
  *
- * **Quatro deles abrem**, e cada um na tela que mostra exatamente a população
- * que ele contou:
+ * **Três deles abrem**, e cada um na tela que mostra exatamente a população que
+ * ele contou:
  *
  * - *Impacto líquido* → as linhas com valor apurado (`impactConfidence=CALCULATED`);
  * - *Alterações detectadas* → a vigência inteira, sem filtro;
- * - *Veículos afetados* → a Análise de frota, que é onde se lê ativo por ativo;
  * - *Sem impacto calculável* → as mesmas alterações, filtradas em `NOT_CALCULABLE`.
  *
  * *Cobertura auditada* leva ao Balanço de massa, que é de onde a conta dela sai.
+ *
+ * **Veículos afetados não abre nada, e é a decisão mais deliberada das cinco.**
+ * Ele chegou a apontar para a Análise de frota — "é lá que se lê ativo por
+ * ativo", o que é verdade e não basta: `routes/fleet-analysis.ts` lê um `.xlsx`
+ * do disco, fora do Postgres, e não conhece vigência, unidade nem canal (ver
+ * `docs/ARQUITETURA.md` §"absorver"). O número deste cartão é canônico e conta
+ * os ativos **desta** vigência; mandá-lo para uma tela que responde por outra
+ * fonte é exatamente o defeito que os outros quatro links existem para eliminar,
+ * cometido no cartão do meio. Nenhum destino de hoje lista "os ativos tocados
+ * desta vigência" a partir do canônico, e enquanto não listar o cartão fica
+ * sendo só o número — que é honesto. Quando a dívida do `fleet-analysis` for
+ * absorvida, o link volta.
+ *
  * Nenhum destes destinos foi escolhido por parecer relacionado: em cada um, o
  * número do cartão é o número que a tela de destino mostra. Um atalho que abre
  * um total diferente do que foi clicado gasta mais confiança do que economiza
@@ -585,14 +597,7 @@ function Indicadores({
         icone={Truck}
         titulo="Veículos afetados"
         ajuda="Ativos com pelo menos uma alteração nesta vigência, sobre a frota que a vigência entregou."
-        /*
-          O único dos cinco que **não** abre em Alterações, e é por honestidade
-          de contagem: lá o grão é a alteração, e uma lista de 244 linhas não é a
-          resposta para um cartão que diz 62 ativos. A Análise de frota conta
-          ativos, que é o que este número conta.
-        */
-        href="/analise-equipamentos"
-        abrir="ver a frota, ativo por ativo"
+        /* Sem `href` de propósito — a razão está no cabeçalho de `Indicadores`. */
       >
         <ValorGrande texto={view.totals.vehiclesTouched.toLocaleString("pt-BR")} />
         {veiculos !== null && (

@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useSearch } from "wouter";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -145,7 +146,35 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function Curadoria() {
   const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<string | null>(null);
+  const search = useSearch();
+  const [, navegar] = useLocation();
+
+  /*
+    O atributo aberto mora no endereço; o recorte da fila, no estado.
+
+    A divisão é a mesma da aba Planilha, e pela mesma razão. **Qual atributo se
+    está lendo** é o que as outras telas apontam: seis lugares do produto dizem
+    "falta confirmar isto" e mandavam para cá sem dizer o quê — a pessoa chegava
+    numa fila de 121 itens e tinha de procurar o nome que acabara de ler. Agora
+    o endereço carrega o código, e a mesma URL leva outra pessoa ao mesmo lugar.
+
+    **Como a fila é encurtada** — o texto do filtro e o botão Pendentes/Todos —
+    continua em `useState`: ninguém aponta para "a fila filtrada por 'ipva'", e
+    reescrever o endereço a cada tecla encheria o histórico sem que nada tivesse
+    sido lido.
+  */
+  const selected = new URLSearchParams(search).get("atributo");
+  const setSelected = (code: string | null) => {
+    const params = new URLSearchParams(search);
+    if (code) params.set("atributo", code);
+    else params.delete("atributo");
+    // `replace`: escolher outro item da fila não é uma tela nova, e voltar tem
+    // de sair da Curadoria em vez de percorrer os atributos já abertos.
+    navegar(params.toString() ? `/curadoria?${params}` : "/curadoria", {
+      replace: true,
+    });
+  };
+
   const [filter, setFilter] = useState("");
   const [showConfirmed, setShowConfirmed] = useState(false);
 
@@ -181,6 +210,21 @@ export default function Curadoria() {
         (item.displayName?.toLowerCase().includes(needle) ?? false),
     );
   }, [queue, filter]);
+
+  /*
+    Quem chegou por link a um atributo já confirmado precisa vê-lo na fila.
+
+    A fila abre em "Pendentes", e um atributo confirmado não está nela: o painel
+    da direita mostrava o atributo pedido enquanto a lista da esquerda não o
+    continha, e a tela se contradizia em silêncio. O botão vira "Todos" uma vez,
+    só quando o endereço pediu alguém que a fila atual não tem — trocá-lo por
+    conta própria em qualquer outra situação seria desfazer uma escolha de quem
+    está lendo.
+  */
+  useEffect(() => {
+    if (selected === null || showConfirmed || queue.length === 0) return;
+    if (!queue.some((item) => item.code === selected)) setShowConfirmed(true);
+  }, [selected, queue, showConfirmed]);
 
   // Aggregate across every non-confirmed status rather than picking one row:
   // the summary is grouped, not ordered, so "the first pending row" is
