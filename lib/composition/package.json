@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@workspace/comparison": "workspace:*",
+    "@workspace/curation": "workspace:*",
     "@workspace/db": "workspace:*",
     "drizzle-orm": "catalog:"
   },

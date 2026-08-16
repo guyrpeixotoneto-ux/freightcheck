@@ -482,7 +482,7 @@ export const PLANO_DA_DRE: ComponenteDaDRE[] = [
     },
     evidencia:
       "manutencaoReaisKm e manutencaoBid são BRL_KM, agregação NONE. É exatamente o " +
-      "caso que BASE_QUE_FALTA já descreve em lib/composition/src/regras.ts.",
+      "caso que baseQueFalta já descreve em lib/curation/src/agregacao.ts.",
     essencial: true,
   },
   {

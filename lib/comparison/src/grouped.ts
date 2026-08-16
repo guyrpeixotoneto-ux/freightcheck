@@ -1,4 +1,5 @@
 import { sql } from "drizzle-orm";
+import { podeSomar, podeTirarMedia, viraDinheiro } from "@workspace/curation";
 import type { Database } from "@workspace/db";
 import {
   detectFormatAnomaly,
@@ -472,7 +473,16 @@ export function buildGroup(
       : null;
 
   // ---- agregado ----------------------------------------------------------
-  const summable = first.aggregation === "SUM";
+  // `podeSomar` e não `aggregation === "SUM"`: a pergunta é a mesma do impacto
+  // e da composição, e a diferença deste cartão é só *qual* pergunta ele faz —
+  // aritmética sobre o arquivo, sem exigir confirmação. A tarja TRAVADO abaixo
+  // é quem avisa que a semântica ainda é proposta.
+  const summable = podeSomar({
+    unit: first.unit,
+    aggregation: first.aggregation,
+    isMonetary: first.is_monetary,
+    semanticsStatus: first.semantics_status,
+  }).ok;
   let totalBefore: number | null = null;
   let totalAfter: number | null = null;
   let rowsInTotal = 0;
@@ -712,7 +722,15 @@ function pickBadge(input: {
       : Math.max(Math.abs(aggregate.minPercent ?? 0), Math.abs(aggregate.maxPercent ?? 0));
   if (movement >= 20) return "MOVIMENTO";
 
-  if (first.is_monetary === true && first.aggregation === "SUM" && first.semantics_status !== "CONFIRMED") {
+  // Somaria, é dinheiro, e só falta a confirmação: a diferença exata entre as
+  // duas perguntas da autoridade.
+  const semantica = {
+    unit: first.unit,
+    aggregation: first.aggregation,
+    isMonetary: first.is_monetary,
+    semanticsStatus: first.semantics_status,
+  };
+  if (first.is_monetary === true && podeSomar(semantica).ok && !viraDinheiro(semantica).ok) {
     return "TRAVADO";
   }
   return "SEM_SINAL";
@@ -1237,8 +1255,17 @@ export async function getAttributeSeries(
   if (meta.length === 0) return null;
   const attribute = meta[0];
 
-  const summable = attribute.aggregation === "SUM";
-  const averageable = summable || attribute.aggregation === "AVG" || attribute.aggregation === "WEIGHTED_AVG";
+  // A série tinha a sua própria terceira definição, e era a única que aceitava
+  // WEIGHTED_AVG — publicando `total ÷ veículos` sob o nome de média ponderada.
+  // `podeTirarMedia` recusa isso enquanto o peso não existir no modelo.
+  const semantica = {
+    unit: attribute.unit,
+    aggregation: attribute.aggregation,
+    isMonetary: null,
+    semanticsStatus: attribute.semantics_status,
+  };
+  const summable = podeSomar(semantica).ok;
+  const averageable = podeTirarMedia(semantica).ok;
 
   const { rows: points } = await db.execute<{
     effective_date: string;

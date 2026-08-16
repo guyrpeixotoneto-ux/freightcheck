@@ -65,20 +65,12 @@ export const ROTULO_DO_MOTIVO: Record<MotivoDeExclusao, string> = {
   VALOR_NAO_NUMERICO: "Valor não numérico",
 };
 
-/**
- * A base que faltaria para transformar uma razão em dinheiro.
- *
- * `Custo Variável Simulado = 3,66 R$/km` é o caso que a arquitetura chama de
- * D5: o número existe, a unidade existe, e o impacto financeiro não existe
- * porque a quilometragem do período não vem neste export. Dizer *o que
- * destravaria* é mais útil do que dizer que não dá — é uma pergunta para a
- * Ambev, e não um beco sem saída.
- */
-export const BASE_QUE_FALTA: Record<string, string> = {
-  BRL_KM: "quilometragem rodada por ativo no período",
-  KM_L: "quilometragem rodada e preço do litro no período",
-  PERCENT: "o montante sobre o qual o percentual incide",
-};
+/*
+  A base que faltaria para transformar uma razão em dinheiro mudou de casa: está
+  em `baseQueFalta`, no `@workspace/curation`, ao lado das outras respostas sobre
+  agregação. A pergunta é sobre a semântica do atributo, e não sobre a composição
+  da remuneração — a curadoria e o cockpit querem a mesma frase que este módulo.
+*/
 
 // ---------------------------------------------------------------------------
 // O que não é do equipamento
