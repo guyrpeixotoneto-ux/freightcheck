@@ -180,7 +180,13 @@ e-mail, e exclusão de conta.
   alteração**: uma linha por ativo, uma coluna por vigência, e a alteração
   aparecendo como a diferença entre duas colunas. `lib/comparison/src/impacto.ts`
   (`getQuinzenaMatrix`), servida por `GET /api/impacto/quinzenas`, tela em
-  `artifacts/freightaudit/src/components/changes/impacto-quinzenas.tsx`. Existe
+  `artifacts/freightaudit/src/components/changes/impacto-quinzenas.tsx`. É
+  também o que o menu **Auditoria → Impacto financeiro** abre: `/impacto-financeiro`
+  é a mesma tela montada na aba Impacto, e por isso saiu de `TELAS_EM_PREPARO`.
+  O que aquela entrada dizia faltar continua faltando — o volume realizado por
+  equipamento, sem o qual a variação de um parâmetro não vira o dinheiro que ela
+  *move* —, e a tela mostra o preço contratado e a variação dele, nunca o custo
+  de uma operação. Existe
   porque as outras duas, por construção, não conseguem mostrar o ativo que *não*
   mudou — ele não está em lista de alteração nenhuma —, e sem ele o total da
   coluna não fecha com o que foi pago. É a tabela dinâmica que o cliente monta no

@@ -93,8 +93,30 @@ import { ImpactoQuinzenas } from "@/components/changes/impacto-quinzenas";
 
 type Aba = "planilha" | "chamados" | "impacto";
 
-export default function Alteracoes() {
-  const [aba, setAba] = useState<Aba>("planilha");
+const ABAS: Aba[] = ["planilha", "chamados", "impacto"];
+
+const abaValida = (valor: string | null): valor is Aba =>
+  valor !== null && (ABAS as string[]).includes(valor);
+
+/**
+ * Em qual aba a tela abre.
+ *
+ * `abaInicial` é de quem entrou por outro endereço: `/impacto-financeiro`, no
+ * menu de Auditoria, é a mesma tela aberta no Impacto — a pergunta "quanto isso
+ * custou" tem entrada própria no menu, e não podia depender de alguém saber que
+ * a resposta mora numa aba de Alterações.
+ *
+ * `?aba=` vence os dois, e existe para que um link colado no chat leve ao mesmo
+ * lugar de quem o mandou. É estado inicial, não trava: clicar nas abas continua
+ * mandando daí em diante.
+ */
+export default function Alteracoes({
+  abaInicial = "planilha",
+}: {
+  abaInicial?: Aba;
+} = {}) {
+  const pedida = new URLSearchParams(useSearch()).get("aba");
+  const [aba, setAba] = useState<Aba>(abaValida(pedida) ? pedida : abaInicial);
 
   // Só a contagem, para a aba dizer o tamanho do assunto antes de ser aberta.
   // `limit=1` porque a lista em si é da aba; o que interessa aqui é o total.
