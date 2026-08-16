@@ -10,7 +10,7 @@
     "typecheck": "pnpm run typecheck:libs && pnpm -r --filter \"./artifacts/**\" --filter \"./scripts\" --if-present run typecheck",
     "dev": "node scripts/dev.mjs",
     "dev:seed": "pnpm --filter @workspace/curation exec tsx src/cli/dev-seed.ts",
-    "test": "pnpm -r --if-present run test",
+    "test": "pnpm -r --if-present --no-sort run test",
     "test:limpar-templates": "pnpm --filter @workspace/db exec tsx ./src/limpar-templates-cli.ts"
   },
   "private": true,
