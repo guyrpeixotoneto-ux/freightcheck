@@ -84,7 +84,34 @@ function Router() {
       <Route path="/parametros" component={Parametros} />
       <Route path="/book-operador" component={BookOperador} />
       <Route path="/assistente" component={Assistente} />
-      <Route path="/alteracoes" component={Alteracoes} />
+      {/*
+        Nas duas rotas abaixo a tela entra como filha, e não por `component`:
+        ela recebe em que aba abrir, e `component` só passa os parâmetros da
+        rota.
+
+        As `key` não são enfeite. As duas rotas rendem o mesmo componente na
+        mesma posição da árvore, e sem elas o React reaproveita a instância ao
+        trocar de rota — a aba é estado, `abaInicial` só vale na montagem, e ir
+        de Alterações para Impacto financeiro deixava a tela na aba anterior.
+        Chaves diferentes dizem que são duas telas, e cada entrada abre na sua.
+      */}
+      <Route path="/alteracoes">
+        <Alteracoes key="alteracoes" />
+      </Route>
+      {/*
+        Impacto financeiro é a mesma tela, aberta na aba que responde a pergunta
+        dele. O item saiu de `TELAS_EM_PREPARO` e o menu não mudou uma vírgula —
+        é o passo final descrito lá: some do catálogo, e a rota passa a apontar
+        para a tela de verdade.
+
+        Rota própria, e não um redirecionamento para `/alteracoes?aba=impacto`:
+        o endereço do menu é o que a barra lateral marca como ativo, e trocá-lo
+        no caminho acenderia "Alterações" para quem clicou em "Impacto
+        financeiro".
+      */}
+      <Route path="/impacto-financeiro">
+        <Alteracoes key="impacto-financeiro" abaInicial="impacto" />
+      </Route>
       <Route path="/comparar" component={Comparar} />
       <Route path="/importacoes" component={Importacoes} />
       <Route path="/composicao" component={Composicao} />

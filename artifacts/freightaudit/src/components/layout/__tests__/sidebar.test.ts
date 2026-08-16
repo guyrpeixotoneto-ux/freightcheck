@@ -94,11 +94,20 @@ describe("o catálogo de telas em preparo", () => {
     expect(atalhos.filter((href) => emPreparo.has(href))).toEqual([]);
   });
 
+  /*
+    O número cai quando uma tela fica pronta, e é isso que ele mede.
+
+    Eram dezoito; `/impacto-financeiro` saiu ao virar Alterações › Impacto, e a
+    rota dele passou a ser um `<Route>` de verdade em `App.tsx` — o teste acima,
+    o dos órfãos, é o que garante que o item do menu não ficou apontando para o
+    vazio na troca. Baixá-lo aqui é o último passo de entregar uma tela; subi-lo
+    sem acrescentar `pergunta` e `depende` é o que este caso recusa.
+  */
   it("descreve, para cada tela, o que falta antes de ela mostrar um número", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(18);
+    expect(telas).toBe(17);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });
