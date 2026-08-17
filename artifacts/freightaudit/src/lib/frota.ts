@@ -194,6 +194,20 @@ export function pluralEmMaiuscula(entityType: string | null): string {
   return plural.charAt(0).toUpperCase() + plural.slice(1);
 }
 
+/**
+ * `CAVALO` → `Cavalo`. O singular em maiúscula, para as abas da Curadoria.
+ *
+ * Singular porque lá a aba não recorta uma frota, e sim as **colunas** daquele
+ * tipo: "Cavalo 68" são 68 atributos de um cavalo qualquer, não 68 cavalos.
+ * Mesma regra do plural para o tipo desconhecido — ele volta como veio, porque
+ * numa fileira que já tem Cavalo e Carreta o rótulo é a única nomeação.
+ */
+export function singularEmMaiuscula(entityType: string | null): string {
+  if (entityType !== null && !equipamentoValido(entityType)) return entityType;
+  const singular = palavrasDoTipo(entityType).singular;
+  return singular.charAt(0).toUpperCase() + singular.slice(1);
+}
+
 /*
   A concordância, e por que ela é código e não texto solto.
 
