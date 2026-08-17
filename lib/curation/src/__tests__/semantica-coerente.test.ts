@@ -19,15 +19,27 @@ import { AGREGACOES, coerenciaDaSemantica } from "../agregacao";
  * **O teste de equivalência** é o que impede o pior: SQL e TypeScript
  * escrevendo a mesma regra e divergindo em silêncio. Ele não repete a
  * expressão — lê a definição da constraint do catálogo do Postgres com
- * `pg_get_constraintdef`, aplica-a a todas as 1.080 combinações de unidade ×
- * agregação × tipo × monetário dentro do próprio banco, e compara linha a linha
- * com `coerenciaDaSemantica`. Divergiu em uma combinação, o teste aponta qual.
+ * `pg_get_constraintdef`, aplica-a ao produto cartesiano de unidade × agregação
+ * × tipo × monetário dentro do próprio banco, e compara linha a linha com
+ * `coerenciaDaSemantica`. Divergiu em uma combinação, o teste aponta qual.
  */
 
 let ctx: TestDb;
 
+/*
+  As nove de sempre, mais duas de razão que a autoridade semântica passou a
+  produzir e uma que ela ainda não produziu.
+
+  `BRL_LITRO` e `BRL_VIAGEM` vêm do catálogo de significados; `BRL_PALLET` é a
+  base que uma operação cadastra amanhã e que ninguém previu. As três entram
+  aqui porque o que a 0026 trocou foi a *forma* da invariante — de uma lista de
+  três unidades para o prefixo `BRL_` —, e uma lista de teste que só citasse as
+  três antigas continuaria verde sobre uma regra que passou a valer para
+  infinitas unidades.
+*/
 const UNIDADES = [
-  "BRL", "BRL_KM", "KM_L", "PERCENT", "KM", "LITROS", "MESES", "ANO", "QTD", null,
+  "BRL", "BRL_KM", "BRL_LITRO", "BRL_VIAGEM", "BRL_PALLET",
+  "KM_L", "PERCENT", "KM", "LITROS", "MESES", "ANO", "QTD", null,
 ];
 /** As três executáveis, a que foi retirada, uma inventada e a ausência. */
 const AGREGACOES_TESTADAS = [...AGREGACOES, "WEIGHTED_AVG", "MEDIANA", null];
@@ -69,8 +81,8 @@ describe("as invariantes recusam, uma a uma", () => {
     ).rejects.toThrow(/attribute_semantica_coerente/);
   });
 
-  it("nenhuma das três razões escapa", async () => {
-    for (const unit of ["KM_L", "BRL_KM", "PERCENT"]) {
+  it("nenhuma razão escapa — nem as três antigas, nem as que o cadastro cria", async () => {
+    for (const unit of ["KM_L", "BRL_KM", "PERCENT", "BRL_LITRO", "BRL_PALLET"]) {
       await expect(recusa(`unit='${unit}', aggregation='SUM'`)).rejects.toThrow(
         /attribute_semantica_coerente/,
       );
@@ -213,7 +225,7 @@ describe("o SQL e a autoridade dizem a mesma coisa, combinação por combinaçã
     return rows;
   }
 
-  it("attribute: as 1.080 combinações recebem o mesmo veredito", async () => {
+  it("attribute: cada combinação de unidade × agregação × tipo × monetário recebe o mesmo veredito", async () => {
     const definicao = await definicaoDa("attribute_semantica_coerente");
     const linhas = await avaliar(definicao, true);
     expect(linhas).toHaveLength(

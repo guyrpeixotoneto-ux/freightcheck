@@ -52,12 +52,15 @@ import { cn } from "@/lib/utils";
  * cartão em cima de uma lista de 340.
  *
  * **A placa é o segundo nível, e ela não recorta as quatro abas do mesmo jeito.**
- * Planilha, Chamados e Impacto descem ao ativo — as três sabem quem é a placa,
- * e a matriz por quinzena passa a ter uma linha só, com o rodapé dela. Cliente
- * não desce, e a tela diz isso onde a pergunta seria feita: a recomendação é
- * sobre o *parâmetro*, e "caiu em 41 veículos" é o que sustenta o pedido —
- * recortada num ativo, a mesma linha diria "caiu em 1", que é a mesma alteração
- * com o argumento desmontado.
+ * Planilha, Chamados e Impacto descem ao ativo inteiras — as três sabem quem é a
+ * placa, e a matriz por quinzena passa a ter uma linha só, com o rodapé dela.
+ * Cliente desce pela metade, e a metade é a decisão: a placa escolhe **quais
+ * parâmetros entram na pauta** — os que se moveram naquele cavalo —, e os
+ * números de cada item continuam sendo os da frota. A razão está escrita na
+ * própria aba, onde a pergunta seria feita: a recomendação é sobre o
+ * *parâmetro*, e "caiu em 41 veículos" é o que sustenta o pedido — o mesmo
+ * alcance recortado num ativo diria "caiu em 1", que é a mesma alteração com o
+ * argumento desmontado.
  *
  * **A regra central de Alterações continua valendo, e é a razão de ela ter sido
  * repetida aqui:** os números de uma aba nunca somam com os da outra. Recortar

@@ -203,6 +203,12 @@ describe("B. o banco divergente volta sozinho, só rodando migrate", () => {
       );
     }
     /*
+      A tabela da `0028` sai junto, e ela não é coluna: o `down` a remove, e é
+      dela que pendem as duas chaves estrangeiras das colunas derrubadas acima.
+      Sem removê-la, o bloco mediria uma reconciliação pela metade.
+    */
+    await banco.pool.query(`DROP TABLE IF EXISTS "semantic_meaning" CASCADE`);
+    /*
       Todas as reconciliações são desmarcadas, e não só a primeira: o cenário
       que este bloco monta é "o down levou as colunas e o up não rodou", e a
       reposição está repartida entre elas — a `0024` cobre o que existia até

@@ -4,6 +4,8 @@ import {
   categoriasPendentes,
   classificar,
   divisaoDeAtivos,
+  equipamentoSingular,
+  leituraDoAtivo,
   prioridadeDaPauta,
   racionalDeApoio,
   type Recomendacao,
@@ -50,7 +52,17 @@ const rec = (patch: Partial<Recomendacao>): Recomendacao => ({
   alimenta: [],
   dependeDe: [],
   evidencia: "",
+  noAtivo: null,
   ...patch,
+});
+
+/** O par do próprio ativo, como o motor o entrega sob escopo de placa. */
+const noAtivo = (antes: number, depois: number, effectiveDate = "2026-03-01") => ({
+  placa: "QYP3G72",
+  antes,
+  depois,
+  effectiveDate,
+  sourceLabel: `EMPURRADA_${effectiveDate}`,
 });
 
 const impacto = (valor: number) => ({
@@ -313,6 +325,107 @@ describe("divisaoDeAtivos", () => {
     );
     expect(d!.oposto.quantidade).toBe(0);
     expect(d!.restantes).toBe(35);
+  });
+});
+
+/**
+ * A camada do ativo — a linha "neste cavalo" do cartão.
+ *
+ * O cartão dizia "29 favorecidos · 7 prejudicados" e não dizia de que lado o
+ * cavalo aberto caiu. É a primeira pergunta de quem entra por `Cavalo 360°`, e
+ * a única que a leitura de frota não responde por construção.
+ *
+ * O que estes testes protegem é que a resposta use **a mesma régua** da divisão
+ * da frota. Duas cópias da regra dariam, dentro do mesmo cartão, um cavalo
+ * "favorecido" desenhado dentro de um grupo de prejudicados — e nenhum dos dois
+ * números pareceria errado sozinho.
+ */
+describe("leituraDoAtivo", () => {
+  it("sem placa aberta não há camada de ativo", () => {
+    expect(leituraDoAtivo(rec({ noAtivo: null }))).toBeNull();
+  });
+
+  it("num parâmetro direto, cair é ser prejudicado", () => {
+    const l = leituraDoAtivo(rec({ sentido: "DIRETO", noAtivo: noAtivo(7.7, 7.26) }));
+    expect(l!.rotulo).toBe("prejudicado");
+    expect(l!.tom).toBe("PERDA");
+  });
+
+  it("num parâmetro inverso, a mesma queda é ganho", () => {
+    const l = leituraDoAtivo(rec({ sentido: "INVERSO", noAtivo: noAtivo(7.7, 7.26) }));
+    expect(l!.rotulo).toBe("favorecido");
+    expect(l!.tom).toBe("GANHO");
+  });
+
+  it("sem sentido declarado, o cavalo mudou — e nada além disso", () => {
+    /*
+      O palpite com cara de conta que a aba inteira existe para não dar: chamar
+      de prejudicado quem talvez tenha ganhado, porque o número caiu.
+    */
+    const l = leituraDoAtivo(rec({ sentido: null, noAtivo: noAtivo(21_259, 7_210) }));
+    expect(l!.rotulo).toBe("mudou");
+    expect(l!.tom).toBe("NEUTRO");
+  });
+
+  it("o cavalo e o grupo em que ele cai são pintados pela mesma regra", () => {
+    /*
+      A frota foi de 3,11 para 3,71 num parâmetro direto — subiu, então o padrão
+      predominante é o dos favorecidos. O cavalo que fez a mesma transição tem
+      de sair favorecido também.
+    */
+    const r = rec({
+      sentido: "DIRETO",
+      oQueAconteceu: {
+        antes: 3.11,
+        depois: 3.71,
+        unidade: null,
+        effectiveDate: "2026-03-02",
+        sourceLabel: "EMPURRADA_2_3_2026",
+        entidades: 29,
+        entidadesEmSentidoOposto: 7,
+        padroes: 79,
+        cobertura: 0.45,
+      },
+      veiculosAfetados: 64,
+      noAtivo: noAtivo(3.11, 3.71, "2026-03-02"),
+    });
+
+    expect(divisaoDeAtivos(r)!.predominante.tom).toBe("GANHO");
+    expect(leituraDoAtivo(r)!.tom).toBe("GANHO");
+  });
+
+  it("marca quando o cavalo mexeu em outra vigência que a da evidência", () => {
+    const base = {
+      antes: 3.11,
+      depois: 3.71,
+      unidade: null,
+      effectiveDate: "2026-03-02",
+      sourceLabel: "EMPURRADA_2_3_2026",
+      entidades: 29,
+      entidadesEmSentidoOposto: 7,
+      padroes: 79,
+      cobertura: 0.45,
+    };
+
+    expect(
+      leituraDoAtivo(rec({ oQueAconteceu: base, noAtivo: noAtivo(3.11, 3.71, "2026-03-02") }))!
+        .outraVigencia,
+    ).toBe(false);
+    expect(
+      leituraDoAtivo(rec({ oQueAconteceu: base, noAtivo: noAtivo(2.9, 3.11, "2026-01-02") }))!
+        .outraVigencia,
+    ).toBe(true);
+  });
+});
+
+describe("equipamentoSingular", () => {
+  it("nomeia o ativo para as frases da tela", () => {
+    expect(equipamentoSingular("CAVALO")).toBe("cavalo");
+    expect(equipamentoSingular("CARRETA")).toBe("carreta");
+    // Um equipamento que este produto ainda não nomeia não vira "ativo": vira
+    // ele mesmo, que é sempre melhor do que um rótulo genérico.
+    expect(equipamentoSingular("REBOQUE")).toBe("reboque");
+    expect(equipamentoSingular(null)).toBe("ativo");
   });
 });
 

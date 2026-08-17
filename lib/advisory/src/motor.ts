@@ -2,6 +2,8 @@ import type { Database } from "@workspace/db";
 import {
   getPanoramaDeAlteracoes,
   equipmentLabel,
+  medirAlteracoesDoAtivo,
+  type AlteracoesDoAtivo,
   type ContextInfo,
   type ParametroAlterado,
   type RequestedContext,
@@ -10,6 +12,7 @@ import { comportamentoDe } from "@workspace/knowledge";
 import {
   avaliarParametro,
   ordenarPorPrioridade,
+  type MovimentoDoAtivo,
   type Recomendacao,
   type SituacaoDaRecomendacao,
 } from "./recomendacao";
@@ -35,6 +38,14 @@ import { medirTransicoes } from "./transicoes";
  * **Os totais separam mensal de anual e nunca os somam.** R$ 731 mil por ano de
  * IPVA e R$ 52 mil por mês de FINAME não cabem no mesmo número, e juntá-los
  * seria o erro que este produto existe para pegar.
+ *
+ * **Os dois recortes desta leitura não são a mesma coisa.** O equipamento
+ * escolhe de que população se fala; a placa escolhe apenas *quais parâmetros são
+ * assunto* — os que se moveram naquele ativo —, e deixa intactos o alcance, o
+ * impacto e a evidência de cada um, que continuam sendo os da frota. É o que
+ * permite a uma tela `Cavalo 360° · QYP3G72` listar só o que mexeu naquele
+ * cavalo sem transformar "caiu em 41 veículos" em "caiu em 1" — ver
+ * {@link medirAlteracoesDoAtivo}.
  */
 
 /** Um total por periodicidade — a única forma honesta de somar aqui. */
@@ -75,6 +86,16 @@ export interface RecomendacoesAoCliente {
   /** O equipamento em foco, ou `null` quando a leitura é da frota inteira. */
   entityType: string | null;
   equipment: string | null;
+  /**
+   * A placa que estreitou a lista, ou `null` quando a pauta é do equipamento
+   * inteiro — inclusive quando veio uma placa que este recorte não tem.
+   *
+   * Volta nomeada porque a diferença muda o que a tela pode afirmar: "estes são
+   * os parâmetros que mudaram no QYP3G72" e "esta é a pauta dos cavalos" são
+   * duas frases, e mostrar a segunda com a cara da primeira é o erro que a tela
+   * 360° existe para não cometer.
+   */
+  placa: string | null;
   recomendacoes: Recomendacao[];
   totais: TotaisDoCliente;
   /**
@@ -94,9 +115,52 @@ export interface OpcoesDoCliente {
   context?: RequestedContext;
   /** Recorta por equipamento, como a aba Impacto. */
   entityType?: string;
+  /**
+   * A placa da tela 360°, quando ela desceu a um ativo.
+   *
+   * Estreita **quais** parâmetros entram na lista — os que se moveram naquele
+   * ativo —, e nada além disso: o alcance, o impacto e a evidência de cada item
+   * continuam sendo os da frota, porque é a abrangência que sustenta o pedido.
+   * Ver {@link medirAlteracoesDoAtivo}, onde a separação está argumentada.
+   */
+  placa?: string;
 }
 
 const round2 = (v: number) => Math.round(v * 100) / 100;
+
+/**
+ * O par do próprio ativo, escolhido contra a evidência que o cartão já mostra.
+ *
+ * O cavalo pode ter mexido no parâmetro mais de uma vez dentro do recorte, e o
+ * cartão mostra **uma** vigência — a do padrão predominante da frota. Casar as
+ * duas é o que permite ler "a frota foi de 3,11 para 3,71 nesta vigência, e
+ * este cavalo também". Sem casamento — o cavalo mexeu em outra vigência —, vale
+ * o movimento mais recente dele, que continua sendo um fato sobre este ativo,
+ * com a própria vigência escrita ao lado para que ninguém leia as duas como se
+ * fossem a mesma.
+ */
+function movimentoDoAtivo(
+  ativo: AlteracoesDoAtivo | null,
+  r: Recomendacao,
+): MovimentoDoAtivo | null {
+  if (ativo === null || ativo.placa === null) return null;
+
+  const doCodigo = ativo.transicoes.get(r.code);
+  if (doCodigo === undefined || doCodigo.length === 0) return null;
+
+  const daEvidencia = r.oQueAconteceu
+    ? doCodigo.find((t) => t.effectiveDate === r.oQueAconteceu!.effectiveDate)
+    : undefined;
+  const escolhida = daEvidencia ?? doCodigo[doCodigo.length - 1];
+
+  return {
+    placa: ativo.placa,
+    antes: escolhida.antes,
+    depois: escolhida.depois,
+    effectiveDate: escolhida.effectiveDate,
+    sourceLabel: escolhida.sourceLabel,
+  };
+}
 
 /**
  * As recomendações do contexto.
@@ -128,10 +192,25 @@ export async function getRecomendacoesAoCliente(
       ? options.entityType
       : null;
 
+  /*
+    O recorte por ativo, que é de outra natureza: ele não troca a leitura de
+    nenhum item, só decide quais itens são assunto desta tela. Uma placa que
+    este recorte não tem devolve `placa: null` e a pauta segue a do equipamento
+    — a mesma recusa a transformar escolha inválida em erro que o `entityType`
+    pratica logo acima, e a resposta diz qual dos dois casos é.
+  */
+  const ativo =
+    options.placa === undefined || options.placa.trim() === ""
+      ? null
+      : await medirAlteracoesDoAtivo(db, panorama.context, options.placa);
+  const noAtivo = (code: string) =>
+    ativo === null || ativo.placa === null || ativo.codigos.has(code);
+
   const linhas: ParametroAlterado[] = panorama.maisAlterados
     .map((code) => porCodigo.get(code))
     .filter((p): p is ParametroAlterado => p !== undefined)
-    .filter((p) => foco === null || p.entityType === foco);
+    .filter((p) => foco === null || p.entityType === foco)
+    .filter((p) => noAtivo(p.code));
 
   const transicoes = await medirTransicoes(
     db,
@@ -147,12 +226,13 @@ export async function getRecomendacoesAoCliente(
         transicoes: transicoes.get(parametro.code) ?? null,
       }),
     ),
-  );
+  ).map((r) => ({ ...r, noAtivo: movimentoDoAtivo(ativo, r) }));
 
   const foraDaConta = panorama.visaoDeConjunto
     .map((code) => porCodigo.get(code))
     .filter((p): p is ParametroAlterado => p !== undefined)
     .filter((p) => foco === null || p.entityType === foco)
+    .filter((p) => noAtivo(p.code))
     .map((p) => ({
       code: p.code,
       title: p.title,
@@ -169,6 +249,7 @@ export async function getRecomendacoesAoCliente(
     entityTypes,
     entityType: foco,
     equipment: foco === null ? null : equipmentLabel(foco),
+    placa: ativo?.placa ?? null,
     recomendacoes,
     totais: totalizar(recomendacoes),
     foraDaConta,

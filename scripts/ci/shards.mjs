@@ -62,9 +62,10 @@ export const SHARDS = {
   // caminho crítico eram 111.1s contra 3.4s deste, a divisão mais desequilibrada
   // possível entre os cinco. `coverage` (38.9s) não usa template, então não tem
   // localidade a preservar e cabe onde sobra espaço.
-  // `advisory` entra aqui pelo mesmo motivo que `knowledge` e `simulation`: a
-  // bateria dele é de função pura — decide sobre linhas que já vêm apuradas, e
-  // não consulta banco nenhum. 1,6s medidos.
+  // `advisory` entrou aqui quando a bateria dele era só de função pura, e fica
+  // pelo mesmo critério de peso agora que ela não é mais: o recorte da pauta num
+  // ativo (`pauta-do-ativo.test.ts`) monta um banco sintético descartável, sem
+  // template e sem seed — 2,5s medidos com ele dentro.
   unit: [
     "@workspace/knowledge",
     "@workspace/advisory",

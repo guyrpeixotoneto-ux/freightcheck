@@ -1,7 +1,18 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { getPanoramaDeAlteracoes, getQuinzenaMatrix } from "@workspace/comparison";
+import {
+  getExportacaoDeImpacto,
+  getPanoramaDeAlteracoes,
+  getQuinzenaMatrix,
+  type CorteDaExportacao,
+} from "@workspace/comparison";
 import { parseContext, sendContextError } from "../lib/contexto";
+import {
+  agoraEmBrasilia,
+  montarPlanilhaDeImpacto,
+  nomeDoArquivo,
+} from "../lib/planilha-impacto";
+import { contentDisposition } from "./book";
 
 /**
  * Impacto — a terceira aba de Alterações.
@@ -95,6 +106,76 @@ router.get("/impacto/panorama", async (req, res): Promise<void> => {
   } catch (err) {
     if (sendContextError(res, err)) return;
     req.log.error({ err }, "Error building change panorama");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * O corte de classe pedido, conferido contra os três que existem.
+ *
+ * Um valor desconhecido cai em "tudo" em vez de virar erro: a mesma recusa a
+ * transformar escolha inválida em 400 que `entityType` e `placa` já praticam na
+ * matriz — e aqui o custo de errar seria pior, porque o arquivo já baixou.
+ */
+export function parseCorte(valor: unknown): CorteDaExportacao {
+  if (valor === "FIXO" || valor === "VARIAVEL" || valor === "SEM_CLASSE") return valor;
+  return "TUDO";
+}
+
+/**
+ * A aba inteira em Excel: um índice e uma aba por parâmetro que mudou.
+ *
+ * É a mesma leitura das duas rotas acima, montada de uma vez: o panorama decide
+ * quais parâmetros entram — com o recorte De/Até e o corte de classe da tela —, e
+ * cada um vira a matriz por placa e vigência que o segundo nível mostra. Existe
+ * porque a alternativa, para quem confere o mês fora do produto, é abrir trinta e
+ * cinco parâmetros um a um e copiar cada tabela à mão.
+ *
+ * **A única rota desta API que não responde JSON no caminho de sucesso.** O
+ * contrato de `middlewares/contrato-json.ts` continua valendo para tudo o que dá
+ * errado — 400, 404 e 500 saem como JSON, e é assim que a tela consegue mostrar
+ * o motivo em vez de baixar um arquivo com uma mensagem de erro dentro.
+ */
+router.get("/impacto/exportacao.xlsx", async (req, res): Promise<void> => {
+  try {
+    const query = req.query as Record<string, unknown>;
+    const exportacao = await getExportacaoDeImpacto(db, {
+      classe: parseCorte(query.classe),
+      context: parseContext(query),
+    });
+
+    if (!exportacao) {
+      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+      return;
+    }
+    /*
+      Nada mudou no recorte é uma resposta, e ela não pode virar um arquivo com
+      um índice vazio: quem baixasse teria de conferir aba por aba para descobrir
+      que não havia nenhuma. A tela já sabe dizer isso em uma linha.
+    */
+    if (exportacao.abas.length === 0) {
+      res.status(404).json({
+        error:
+          "Nenhum parâmetro mudou de valor neste recorte — não há aba para exportar.",
+      });
+      return;
+    }
+
+    const bytes = await montarPlanilhaDeImpacto(
+      exportacao,
+      agoraEmBrasilia(new Date()),
+    );
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader("Content-Length", String(bytes.length));
+    res.setHeader("Content-Disposition", contentDisposition(nomeDoArquivo(exportacao)));
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.send(bytes);
+  } catch (err) {
+    if (sendContextError(res, err)) return;
+    req.log.error({ err }, "Error building impact workbook");
     res.status(500).json({ error: "Internal server error" });
   }
 });

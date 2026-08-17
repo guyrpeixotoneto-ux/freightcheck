@@ -153,6 +153,88 @@ export async function fetchJson<T>(path: string, init?: RequestInit): Promise<T>
 }
 
 /**
+ * O nome que o servidor deu ao anexo, lido do `Content-Disposition`.
+ *
+ * O `filename*` da RFC 5987 vem primeiro porque é o que carrega acento: o
+ * `filename` simples é a reserva ASCII que o servidor manda junto, com os
+ * caracteres altos já trocados por `_` (ver `contentDisposition` em
+ * `routes/book.ts`). Preferir a reserva daria a quem baixa
+ * "Impacto - CAMA_ARI.xlsx" quando o nome inteiro estava ali ao lado.
+ *
+ * Devolve `null` quando não há cabeçalho ou ele não traz nome — e aí quem chama
+ * usa o padrão dele, em vez de salvar um arquivo chamado "download".
+ */
+export function nomeDoAnexo(cabecalho: string | null): string | null {
+  if (!cabecalho) return null;
+
+  const estendido = /filename\*\s*=\s*UTF-8''([^;]+)/i.exec(cabecalho);
+  if (estendido) {
+    try {
+      return decodeURIComponent(estendido[1].trim());
+    } catch {
+      // Percent-encoding quebrado é do servidor; cair na reserva ASCII abaixo é
+      // melhor do que subir um erro por causa do nome de um arquivo que veio.
+    }
+  }
+
+  /*
+    As aspas saem depois de casar, e não dentro do padrão: com dois ramos — um
+    para o nome entre aspas e outro sem — um `filename=""` não casa o primeiro,
+    cai no segundo e volta como o nome de dois caracteres `""`, que é um arquivo
+    chamado "aspas aspas" no computador de quem baixou.
+  */
+  const simples = /filename\s*=\s*([^;]+)/i.exec(cabecalho);
+  const nome = simples?.[1]
+    .trim()
+    .replace(/^"(.*)"$/, "$1")
+    .trim();
+  return nome ? nome : null;
+}
+
+/**
+ * GET numa rota que responde **arquivo** no sucesso e JSON no erro.
+ *
+ * É o par de `fetchJson` para o único caminho desta API em que o corpo de
+ * sucesso não é JSON: a exportação em Excel. A assimetria é deliberada e é o que
+ * mantém a promessa de `lib/transporte.ts` de pé — um 404 "nada mudou neste
+ * recorte" precisa chegar como frase legível, e não como um `.xlsx` de 40 bytes
+ * com uma mensagem de erro dentro, que é o que acontece quando se baixa por
+ * `window.location` e se deixa o navegador cuidar do resultado.
+ */
+export async function fetchArquivo(
+  path: string,
+  init?: RequestInit,
+): Promise<{ blob: Blob; filename: string | null }> {
+  const response = await fetch(getApiUrl(path), init);
+  if (!response.ok) {
+    const body = await readJson(response);
+    throw erroDaResposta(response, body);
+  }
+  return {
+    blob: await response.blob(),
+    filename: nomeDoAnexo(response.headers.get("Content-Disposition")),
+  };
+}
+
+/**
+ * Entregar ao navegador um arquivo que já está na memória.
+ *
+ * O `revokeObjectURL` não é higiene opcional: sem ele o blob fica preso até a
+ * aba ser fechada, e uma planilha de trinta e cinco abas exportada cinco vezes
+ * numa tarde são cinco cópias vivas de alguns megabytes cada.
+ */
+export function salvarArquivo(blob: Blob, filename: string): void {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+/**
  * GET numa rota que responde 404 quando ainda não existe o que mostrar.
  *
  * Várias telas leem rotas em que "nenhuma vigência importada ainda" chega como

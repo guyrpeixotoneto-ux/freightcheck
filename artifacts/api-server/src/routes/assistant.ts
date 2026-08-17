@@ -14,6 +14,7 @@ import {
   tituloDe,
 } from "../lib/conversas";
 import {
+  agenteParaUsuario,
   desserializarEstado,
   eventosRecentes,
   iaDisponivel,
@@ -70,10 +71,20 @@ function falhou(
 
 // ── Capacidades e sugestões ─────────────────────────────────────────────────
 
-router.get("/assistant/capabilities", (_req, res) => {
+router.get("/assistant/capabilities", (req, res) => {
   res.json({
     ia: iaDisponivel(),
     modelo: modeloConfigurado(),
+    /*
+      Qual cérebro responde **a quem está perguntando**.
+
+      Sem isto, quem testa não tem como saber se está avaliando o agente ou o
+      planejador: as duas respostas chegam pela mesma rota, com a mesma cara, e
+      a diferença mora numa variável de ambiente do servidor. Uma avaliação de
+      experiência feita sobre o caminho errado é pior do que nenhuma — ela
+      produz opinião confiante sobre a coisa que não estava em teste.
+    */
+    cerebro: agenteParaUsuario(req.user?.id) ? "AGENTE" : "PLANEJADOR",
     trechos: TRECHOS.length,
     corpora: {
       catalogo: TRECHOS.filter((t) => t.corpus === "CATALOGO").length,
@@ -287,6 +298,15 @@ router.post("/assistant/ask", async (req, res): Promise<void> => {
     };
 
     const resposta = await responder(db, pergunta, {
+      /*
+        A flag por usuário, e não só a global.
+
+        Avaliar a experiência exige usar o produto; usar o produto com a flag
+        global desligada é usar o assistente antigo. `agenteParaUsuario` deixa
+        ligar para quem está testando sem trocar o que todo mundo vê — e o
+        rollback é tirar o id da lista, valendo no pedido seguinte.
+      */
+      agente: agenteParaUsuario(req.user?.id),
       recorte: {
         ...(typeof scopeHash === "string" ? { scopeHash } : {}),
         ...(typeof canal === "string" ? { channel: canal } : {}),

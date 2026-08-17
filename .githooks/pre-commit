@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+#
+# Nenhum commit neste repositório sem `pnpm run typecheck` verde imediatamente
+# antes dele.
+#
+# Existe porque a regra foi cara: um merge no `main` ficou vermelho por um erro
+# de tipo num arquivo de teste que o vitest não confere — o typecheck havia
+# rodado na sessão, mas *antes* daquele arquivo ser escrito. "Rodei o typecheck
+# hoje" não é garantia nenhuma; o que vale é o typecheck do estado que está
+# entrando no commit, e é ele que roda aqui.
+#
+# Este hook é a trava de baixo: quem o executa é o **git**, então ele pega todo
+# commit local — o meu, o seu, o de um script, e o de um comando escrito de um
+# jeito que nenhum filtro de texto reconheceria (`git -C . commit`, um alias
+# `git ci`, um `$EDITOR` que comita por dentro). A trava de cima é o hook
+# `PreToolUse` em `.claude/settings.json`, que recusa o commit **antes** de o git
+# começar e é a única que também barra `--no-verify`. As duas juntas cobrem o que
+# nenhuma cobre sozinha.
+#
+# Para valer no seu clone, uma vez:
+#
+#     git config core.hooksPath .githooks
+#
+# Não há como um repositório ativar hooks sozinho — o git não executa hook
+# versionado sem essa linha, de propósito: clonar um repositório não pode passar
+# a executar código da árvore.
+#
+# Para pular deliberadamente numa emergência: `git commit --no-verify`. Isso é
+# uma decisão consciente de quem digita, e não o caminho padrão.
+set -uo pipefail
+
+raiz=$(git rev-parse --show-toplevel)
+cd "$raiz" || exit 1
+
+echo "pre-commit: conferindo os tipos com pnpm run typecheck…" >&2
+
+if saida=$(pnpm run typecheck 2>&1); then
+  echo "pre-commit: typecheck verde — commit liberado." >&2
+  exit 0
+fi
+
+{
+  echo
+  echo "pre-commit: o typecheck REPROVOU — commit bloqueado. Nada foi gravado."
+  echo
+  printf '%s\n' "$saida" | grep -E 'error TS|ERR_PNPM|Failed' | head -20
+  echo
+  echo "Conserte os erros acima e comite de novo."
+} >&2
+exit 1

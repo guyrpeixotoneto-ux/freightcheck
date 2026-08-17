@@ -77,6 +77,7 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@workspace/curation": "workspace:*",
     "@workspace/knowledge": "workspace:*"
   }
 }

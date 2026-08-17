@@ -23,6 +23,7 @@ import { createDb } from "@workspace/db";
 import { runMigrations } from "@workspace/db/migrate";
 import { captureRaw, preview, promote, receiveFile, stage } from "@workspace/ingest";
 import { seedTaxonomy } from "../taxonomy";
+import { seedSignificados } from "../catalogo";
 import { getCurationSummary, runProposalPass } from "../engine";
 import { applyConfirmations } from "../confirmations";
 import { backfillSemantics } from "../versioning";
@@ -100,11 +101,21 @@ try {
     );
   }
 
-  console.log("[3/4] Semeando a taxonomia e propondo semânticas…");
+  console.log(
+    "[3/4] Semeando a taxonomia, o catálogo de significados e propondo semânticas…",
+  );
   const seeded = await seedTaxonomy(db, "dev:seed");
+  /*
+    A `0026` já grava o catálogo, então num banco migrado isto não cria nada.
+    Continua aqui pelo mesmo motivo que `backfillSemantics` continua: um banco
+    de trabalho montado a partir de um dump anterior à migration existe, e o
+    seed é o lugar em que ele se acerta sem que ninguém precise saber disso.
+  */
+  const significados = await seedSignificados(db, "dev:seed");
   const pass = await runProposalPass(db, "engine:proposal-pass");
   console.log(
-    `      ${seeded.created} nós criados · ${pass.proposed} propostos · ${pass.leftUnknown} sem proposta`,
+    `      ${seeded.created} nós criados · ${significados.criados} significados criados · ` +
+      `${pass.proposed} propostos · ${pass.leftUnknown} sem proposta`,
   );
   for (const conflict of pass.conflicts) {
     console.log(`      [${conflict.verdict}] ${conflict.message}`);

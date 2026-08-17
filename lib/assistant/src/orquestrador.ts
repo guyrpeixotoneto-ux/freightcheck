@@ -1460,9 +1460,35 @@ export function itensCitaveis(dossie: Dossie): ItemCitavel[] {
 
 // ── Validação ───────────────────────────────────────────────────────────────
 
-/** Todo token numérico do texto. */
+/**
+ * Todo token numérico do texto — **sem a pontuação que encerra a frase**.
+ *
+ * `\d[\d.,]*` é ganancioso à direita, então numa lista como "19, 44 e 56" ele
+ * produz `19,` e `44` — o primeiro com a vírgula da enumeração grudada. Esse
+ * token não existe em evidência nenhuma, porque ninguém guarda um número com a
+ * pontuação da frase em que ele foi escrito, e a conferência o recusava como
+ * se fosse invenção.
+ *
+ * **Medido, e não suposto.** Na bateria agente × planejador, 42 dos 54 números
+ * recusados terminavam em vírgula ou ponto. E o efeito não era só do agente: o
+ * caminho determinístico perdeu duas respostas limpas entre duas execuções sem
+ * uma linha de código mudada, com `2026,` — o ano da vigência seguido de
+ * vírgula — entre os tokens recusados. O defeito estava a degradar o produto em
+ * produção.
+ *
+ * **Isto não afrouxa a trava.** O que sai é pontuação, nunca algarismo: `19,`
+ * vira `19` e continua tendo de estar autorizado; `4.145` continua sendo
+ * recusado quando o valor é `4.145,26`. Não há número que passe a ser aceito
+ * sem lastro — há um token que deixa de ser inventado pelo extrator.
+ *
+ * De quebra fecha a numeração de lista: `1.` vira `1`, que o filtro de
+ * algarismo isolado já descarta por ser ordinal e não afirmação.
+ *
+ * A mesma função serve os dois lados da conferência — o texto redigido e o que
+ * as evidências autorizam —, então a simetria é automática.
+ */
 function numerosDoTexto(texto: string): string[] {
-  return texto.match(/\d[\d.,]*/g) ?? [];
+  return (texto.match(/\d[\d.,]*/g) ?? []).map((t) => t.replace(/[.,]+$/, ""));
 }
 
 /**

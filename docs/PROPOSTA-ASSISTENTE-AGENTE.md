@@ -953,3 +953,73 @@ A conclusão prática, para o que resta desta migração: **fundir a `main` cedo
 com frequência**, e rodar o monorepo inteiro a cada fusão. O trabalho do
 assistente não toca em migrations, e ainda assim foi a fila de migrations que
 consumiu a maior parte de duas sessões.
+
+---
+
+## 14. O comparativo, e a virada para uma pessoa só
+
+### Rodada e consulta são duas medidas
+
+Uma **rodada** é um turno do modelo. Uma rodada pode pedir várias ferramentas de
+uma vez — está no laço, em `agente.ts`: *"as consultas de uma rodada partem
+juntas; o modelo pede duas ou três quando elas são independentes, e enfileirá-las
+somaria latência que não precisa ser somada."*
+
+Daí um teto de **6 rodadas** comportar **11 consultas** sem violar nada. As duas
+medem coisas diferentes, e somá-las apagaria a única diferença que interessa:
+
+- 6 rodadas / 6 consultas → investigação **funda e estreita**
+- 2 rodadas / 11 consultas → varredura **larga e rasa**
+
+`Resposta.tecnico.agente` passa a expor `rodadas`, `consultas`, `parou` e o
+rastro de cada chamada. `null` no caminho determinístico, que não investiga.
+
+### Encadeamento: o que separa investigar de consultar muito
+
+Contar consultas premiaria dez buscas independentes disparadas de uma vez. O que
+prova investigação é uma consulta cujo **argumento saiu do resultado de outra** —
+"achei o grupo mais crítico, agora abro ele". É uma decisão tomada depois de ver
+o dado, e é a única forma de encadeamento verificável sem perguntar ao modelo o
+que ele quis dizer.
+
+`derivaDe` guarda, para cada chamada, o índice da anterior de cujo conteúdo veio
+um dos seus argumentos. O comparativo decide a dimensão "investigação" por
+encadeamento primeiro, e declara **`indeciso`** — não "agente" — quando ele só
+fez mais chamadas sem encadear.
+
+### O que o comparativo decide, e o que ele recusa decidir
+
+`comparativo.ts` roda os dois caminhos **no mesmo processo, sobre o mesmo banco,
+alternando por `PerguntaOptions.agente`**. Isso elimina a classe de erro que a
+rodada anterior quase produziu: duas execuções em momentos diferentes,
+comparadas como se fossem simultâneas.
+
+Ele calcula cinco dimensões objetivas — desfecho, lastro, reconhecimento de
+limites, encadeamento e custo — e **não** calcula correção e utilidade. Um
+número inventado para essa dimensão seria a aparência de objetividade sobre um
+julgamento que ninguém fez. As duas respostas inteiras vão no relatório, lado a
+lado, e a linha correspondente diz `exige leitura humana`.
+
+Sem chave, ele recusa rodar: os dois lados cairiam na redação em código e o
+relatório mostraria um empate sem significado.
+
+### A virada para um usuário só
+
+`agenteParaUsuario(id)` liga o agente para uma lista, sem trocar o que a base vê.
+
+```
+ASSISTENTE_AGENTE_USUARIOS=<id-do-usuário>
+```
+
+- A flag global vence quando ligada: `ASSISTENTE_AGENTE=1` continua sendo
+  "todos", sem lista.
+- **Lista vazia, ausente ou malformada é ninguém — nunca todos.** Um erro de
+  digitação no Secret deixa o produto como está, em vez de virar a chave que
+  esta migração passou inteira adiando.
+- O rollback é tirar o id da lista, e vale no pedido seguinte: sem migração, sem
+  deploy, sem conversa perdida — os dois caminhos gravam o mesmo estado.
+- `GET /api/assistant/capabilities` passa a responder `cerebro:
+  "AGENTE" | "PLANEJADOR"` **para quem pergunta**, porque uma avaliação de
+  experiência feita sobre o caminho errado é pior do que nenhuma.
+
+O planejador segue intacto como fallback. `plano.ts` não foi tocado.

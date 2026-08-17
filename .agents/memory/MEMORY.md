@@ -1,1 +1,2 @@
 - [Workspace package esbuild resolution](workspace-package-build-pattern.md) — every @workspace/* used by api-server must be a direct dep there, not just transitive; esbuild can't find transitive workspace symlinks.
+- [Deploy health probe hits service root](deploy-health-probe-root.md) — Replit's promote probe hits GET /api itself; the API root must answer 200 without auth or publishing fails.

@@ -167,6 +167,27 @@ export interface Recomendacao {
   dependeDe: string[];
   /** A medição que sustenta a leitura, para o detalhe técnico. */
   evidencia: string;
+  /**
+   * O que aconteceu **neste ativo**, quando a leitura é de uma placa só.
+   *
+   * `null` na leitura de frota, e a diferença importa: a aba lê os dois níveis,
+   * e um objeto vazio faria a tela mostrar a camada do ativo sem ter ativo.
+   *
+   * A avaliação **não** usa este campo — situação, confiança, impacto e pedido
+   * continuam saindo do comportamento do parâmetro sobre a série inteira. Ele é
+   * leitura, e existe porque o cartão dizia "7 prejudicados" sem dizer se este
+   * cavalo era um deles, que é a primeira pergunta de quem abre a tela do ativo.
+   */
+  noAtivo: MovimentoDoAtivo | null;
+}
+
+/** O par do próprio ativo, na vigência em que ele se moveu. */
+export interface MovimentoDoAtivo {
+  placa: string;
+  antes: number;
+  depois: number;
+  effectiveDate: string;
+  sourceLabel: string;
 }
 
 /**
@@ -400,6 +421,13 @@ export function avaliarParametro(entrada: EntradaDaAvaliacao): Recomendacao {
     alimenta: c?.alimenta ?? [],
     dependeDe: c?.dependeDe ?? [],
     evidencia: c?.evidencia ?? "",
+    /*
+      A camada do ativo é anexada pelo motor, depois da avaliação, e é de
+      propósito: quem decide entre propor, investigar e não propor não pode ver
+      a placa aberta na tela — a mesma linha tem de decidir igual lida da frota
+      ou lida de dentro de um cavalo.
+    */
+    noAtivo: null as MovimentoDoAtivo | null,
   };
 
   // ---- porta 1: existe leitura econômica? ---------------------------------

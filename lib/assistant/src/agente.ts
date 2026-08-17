@@ -47,6 +47,39 @@ export function agenteLigado(): boolean {
 }
 
 /**
+ * O agente ligado **para uma pessoa só** — a virada antes da virada.
+ *
+ * **Por que existe.** Avaliar experiência exige usar o produto, e usar o
+ * produto com a flag global desligada é usar o assistente antigo. Mas ligar
+ * para todos antes do veredito trocaria o que todo mundo vê por algo que ainda
+ * não foi provado melhor. O meio-termo honesto é uma lista: quem está nela
+ * investiga, quem não está segue no caminho de sempre.
+ *
+ * **A precedência.** A flag global vence quando ligada — `ASSISTENTE_AGENTE=1`
+ * continua significando "todos", sem exceção e sem lista. A lista só decide
+ * quando a global está desligada, que é o estado em que o produto está.
+ *
+ * **O rollback é tirar o nome da lista**, e vale no próximo pedido: não há
+ * migração, não há deploy, não há conversa perdida. Quem sai da lista volta ao
+ * planejador com o mesmo histórico, porque os dois caminhos gravam o mesmo
+ * estado de conversa.
+ *
+ * Vazio, ou variável ausente, é ninguém — nunca "todos". Um erro de digitação
+ * aqui deixa o produto como está, e não liga o agente para a base inteira.
+ */
+export function agenteParaUsuario(usuarioId: string | null | undefined): boolean {
+  if (agenteLigado()) return true;
+
+  const lista = (process.env.ASSISTENTE_AGENTE_USUARIOS ?? "")
+    .split(",")
+    .map((x) => x.trim())
+    .filter((x) => x.length > 0);
+
+  if (lista.length === 0 || !usuarioId) return false;
+  return lista.includes(usuarioId);
+}
+
+/**
  * Quantas vezes o modelo pode voltar a consultar.
  *
  * Seis cobre a investigação mais funda que estas ferramentas permitem — ver o

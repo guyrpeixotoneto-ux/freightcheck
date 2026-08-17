@@ -15,6 +15,8 @@ export * from "./families-view";
 export * from "./end-to-end";
 export * from "./impacto";
 export * from "./panorama";
+export * from "./exportacao";
 export * from "./chamados";
 export * from "./escopo";
 export * from "./ativos";
+export * from "./alteracoes-do-ativo";

@@ -224,6 +224,16 @@ export interface SemanticaConfirmada {
   periodicity: string | null;
   aggregation: string | null;
   isMonetary: boolean | null;
+  /**
+   * O significado do cadastro que sustenta os quatro campos acima.
+   *
+   * Quem o **decide** é a curadoria: o caminho da tela o resolve com
+   * `significadoPara` + `acharSignificado`, que vivem lá porque dependem do
+   * catálogo. Esta função só o grava — nos três destinos, como tudo o mais.
+   * Omitir o campo aqui faria a confirmação feita na tela perder o ponteiro
+   * assim que a escrita passou a ser uma só.
+   */
+  meaningId?: string | null;
   taxonomyNodeId: string | null;
 }
 
@@ -264,6 +274,8 @@ export async function gravarSemanticaConfirmada(
     periodicity: semantica.periodicity,
     aggregation: semantica.aggregation,
     isMonetary: semantica.isMonetary,
+    // Quem não tem opinião sobre o significado preserva o que já estava lá.
+    meaningId: semantica.meaningId !== undefined ? semantica.meaningId : (antes?.meaningId ?? null),
     taxonomyNodeId: semantica.taxonomyNodeId,
     semanticsStatus: "CONFIRMED" as const,
     confirmedBy: autoria.actor,
@@ -293,6 +305,9 @@ export async function gravarSemanticaConfirmada(
   comparar("periodicity", antes?.periodicity, alvo.periodicity);
   comparar("aggregation", antes?.aggregation, alvo.aggregation);
   comparar("is_monetary", antes?.isMonetary, alvo.isMonetary);
+  // O significado entra no histórico como qualquer outro campo: é a afirmação
+  // que passou a sustentar os quatro acima, e um revisor vai querer vê-la.
+  comparar("meaning_id", antes?.meaningId, alvo.meaningId);
   comparar("taxonomy_node_id", antes?.taxonomyNodeId, alvo.taxonomyNodeId);
   comparar("semantics_status", antes?.semanticsStatus, alvo.semanticsStatus);
 
@@ -308,6 +323,7 @@ export async function gravarSemanticaConfirmada(
       periodicity: alvo.periodicity,
       aggregation: alvo.aggregation,
       isMonetary: alvo.isMonetary,
+      meaningId: alvo.meaningId,
       taxonomyNodeId: alvo.taxonomyNodeId,
       semanticsStatus: alvo.semanticsStatus,
       rationale: autoria.reason,
