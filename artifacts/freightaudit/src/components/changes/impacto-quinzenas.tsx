@@ -26,6 +26,7 @@ import { fetchJson } from "@/lib/api";
 import {
   TELA_DO_EQUIPAMENTO,
   equipamentoValido,
+  pluralEmMaiuscula,
   type EscopoDeFrota,
 } from "@/lib/frota";
 import { formatBrlShort, formatNumber, formatValue } from "@/lib/format";
@@ -240,20 +241,16 @@ interface QuinzenaMatrix {
   pontaAPonta: PontaAPonta | null;
 }
 
-const EQUIPAMENTO: Record<string, string> = {
-  CAVALO: "Cavalos",
-  CARRETA: "Carretas",
-};
-
 /**
  * O cavalo primeiro, e não em ordem alfabética.
  *
  * É o equipamento em que a tela abre — o custo fixo dele é o maior da frota — e
- * o botão selecionado não pode ser o segundo da fileira. O que não estiver
- * nomeado aqui vem depois, em ordem, para que um terceiro tipo de ativo apareça
+ * o botão selecionado não pode ser o segundo da fileira. Depois dele vem a
+ * carreta, que fecha o fixo, e então o trecho, que é o variável. O que não
+ * estiver nomeado aqui vem por último, em ordem, para que um tipo novo apareça
  * sozinho sem precisar de mudança nenhuma.
  */
-const ORDEM_DOS_EQUIPAMENTOS = ["CAVALO", "CARRETA"];
+const ORDEM_DOS_EQUIPAMENTOS = ["CAVALO", "CARRETA", "TRECHO"];
 
 const ordemDe = (tipo: string) => {
   const i = ORDEM_DOS_EQUIPAMENTOS.indexOf(tipo);
@@ -560,7 +557,7 @@ function MatrizDeQuinzenas({
                 )}
               >
                 <Truck className="w-4 h-4" />
-                {EQUIPAMENTO[tipo] ?? tipo.toLowerCase()}
+                {pluralEmMaiuscula(tipo)}
               </button>
             ))}
         </div>

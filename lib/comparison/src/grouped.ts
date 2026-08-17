@@ -14,6 +14,7 @@ import {
 import {
   attributeLabel,
   equipmentLabel,
+  equipmentPluralNoun,
   natureLabel,
   periodLabel,
   semanticsLabel,
@@ -702,7 +703,7 @@ function coverageLabel(
   fleet: number,
   entityType: string | null,
 ): string {
-  const noun = entityType === "CAVALO" ? "cavalos" : entityType === "CARRETA" ? "carretas" : "ativos";
+  const noun = equipmentPluralNoun(entityType);
   if (coverage === "TOTAL") return `Toda a frota · ${vehicles} de ${fleet} ${noun}`;
   if (coverage === "MAIORIA") return `Maioria da frota · ${vehicles} de ${fleet} ${noun}`;
   return `${vehicles} de ${fleet} ${noun}`;

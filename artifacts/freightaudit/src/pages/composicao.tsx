@@ -35,7 +35,16 @@ import {
  * desligada com o motivo escrito, em vez de não existir. Ver `MotivoDosConjuntos`.
  */
 
-/** As abas. A terceira está declarada e desativada — ver o rodapé da barra. */
+/**
+ * As abas. A terceira está declarada e desativada — ver o rodapé da barra.
+ *
+ * `TRECHO` entrou em `TIPOS_COM_REGRA` com a tela Trecho 360°, e **não** entra
+ * aqui: esta tela responde "quanto a frota recebe por mês", e a remuneração do
+ * trecho é por viagem. Uma aba de trechos ao lado das de cavalo e carreta
+ * ofereceria somar as três, que é a mistura de periodicidades que o resto do
+ * módulo recusa célula a célula. Quando houver gaveta para o que se paga por
+ * viagem, ela entra — com a gaveta, não antes dela.
+ */
 const TIPOS = [
   { entityType: "CAVALO", rotulo: "Cavalos" },
   { entityType: "CARRETA", rotulo: "Carretas" },

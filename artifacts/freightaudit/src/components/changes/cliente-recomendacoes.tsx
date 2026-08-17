@@ -28,7 +28,12 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { fetchJson } from "@/lib/api";
-import type { EscopoDeFrota } from "@/lib/frota";
+import {
+  palavrasDoTipo,
+  pluralComArtigo,
+  pluralEmMaiuscula,
+  type EscopoDeFrota,
+} from "@/lib/frota";
 import {
   formatBrl,
   formatBrlCompacto,
@@ -778,28 +783,39 @@ export function ClienteRecomendacoes({
         ter a mesma cara.
       */}
       {escopo?.placa &&
-        (data.placa !== null ? (
-          <p className="rounded-xl border border-brand/25 bg-brand/5 px-4 py-3 text-sm">
-            Esta pauta traz os parâmetros que mudaram{" "}
-            {escopo.entityType === "CAVALO" ? "neste cavalo" : "nesta carreta"} —{" "}
-            <strong className="font-mono">{data.placa}</strong> — dentro do
-            recorte. <strong>Os números de cada item são da frota</strong>, e não
-            do ativo: é a abrangência que sustenta o pedido ao cliente, e um
-            alcance recortado na placa diria sempre “1 veículo” — a mesma
-            alteração com o argumento desmontado. Quais placas cada item alcança
-            está na aba Impacto, ao lado.
-          </p>
-        ) : (
-          <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-            A placa <strong className="font-mono">{escopo.placa}</strong> não
-            aparece neste recorte de vigências, então a pauta abaixo é a dos{" "}
-            <strong>
-              {escopo.entityType === "CAVALO" ? "cavalos" : "carretas"}
-            </strong>
-            , e não a dela. Abra o recorte para incluir uma vigência em que este
-            ativo exista.
-          </p>
-        ))}
+        (() => {
+          /*
+            O vocabulário do tipo, e não "placa" escrita à mão.
+
+            Estas duas frases falavam de "placa" e de "cavalo ou carreta" porque
+            eram os dois únicos tipos com tela. Sobre um trecho, "A placa
+            SP-CAMACARI não aparece" nomeia como placa o que não é placa — e é
+            justamente na faixa que existe para explicar um recorte que uma
+            palavra errada custa mais caro.
+          */
+          const tipo = palavrasDoTipo(escopo.entityType);
+          const dele = tipo.artigo === "a" ? "dela" : "dele";
+          return data.placa !== null ? (
+            <p className="rounded-xl border border-brand/25 bg-brand/5 px-4 py-3 text-sm">
+              Esta pauta traz os parâmetros que mudaram n{tipo.este}{" "}
+              {tipo.singular} — <strong className="font-mono">{data.placa}</strong>{" "}
+              — dentro do recorte.{" "}
+              <strong>Os números de cada item são da frota</strong>, e não do
+              ativo: é a abrangência que sustenta o pedido ao cliente, e um
+              alcance recortado n{tipo.artigo} {tipo.singular} diria sempre “1
+              veículo” — a mesma alteração com o argumento desmontado. Quais
+              ativos cada item alcança está na aba Impacto, ao lado.
+            </p>
+          ) : (
+            <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+              {tipo.identificador}{" "}
+              <strong className="font-mono">{escopo.placa}</strong> não aparece
+              neste recorte de vigências, então a pauta abaixo é a d
+              {pluralComArtigo(tipo)}, e não a {dele}. Abra o recorte para
+              incluir uma vigência em que este ativo exista.
+            </p>
+          );
+        })()}
 
       {escopo === undefined && data.entityTypes.length > 1 && (
         <div className="flex items-center gap-2">
@@ -812,7 +828,7 @@ export function ClienteRecomendacoes({
               ativo={entityType === tipo}
               onClick={() => setEntityType(tipo)}
             >
-              {tipo === "CAVALO" ? "Cavalos" : tipo === "CARRETA" ? "Carretas" : tipo}
+              {pluralEmMaiuscula(tipo)}
             </Pilula>
           ))}
         </div>
@@ -962,7 +978,7 @@ export function ClienteRecomendacoes({
                   As {formatNumber(data.periods.length, 0)} vigências foram
                   comparadas e este ativo atravessou todas com os mesmos valores —
                   não há o que propor nem o que investigar por ele. A pauta{" "}
-                  {data.entityType === "CAVALO" ? "dos cavalos" : "das carretas"}{" "}
+                  d{pluralComArtigo(palavrasDoTipo(data.entityType))}{" "}
                   continua existindo: volte aos cards para lê-la sem a placa.
                 </p>
               </>

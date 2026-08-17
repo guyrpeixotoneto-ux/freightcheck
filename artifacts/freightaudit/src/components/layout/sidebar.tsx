@@ -32,6 +32,7 @@ import {
   MapPin,
   Plug,
   RefreshCcwDot,
+  Route,
   Scale,
   ScanSearch,
   Settings2,
@@ -224,6 +225,14 @@ const NAV_GROUPS: NavGroup[] = [
     itens: [
       { href: "/cavalo-360", label: "Cavalo 360°", icon: Tractor },
       { href: "/carreta-360", label: "Carreta 360°", icon: Container },
+      /*
+        O trecho fecha a fileira, e fecha por ser o outro lado da conta: cavalo
+        e carreta carregam o fixo — o que se paga por o ativo existir —, e o
+        trecho carrega o variável, o que se paga por ele rodar. O ícone não é
+        veículo de propósito; três caminhões seguidos fariam a terceira entrada
+        parecer um terceiro equipamento.
+      */
+      { href: "/trecho-360", label: "Trecho 360°", icon: Route },
       { href: "/dre-veiculo", label: "DRE do veículo", icon: FileSpreadsheet },
       { href: "/benchmark-unidades", label: "Benchmark de unidades", icon: ChartColumn },
     ],

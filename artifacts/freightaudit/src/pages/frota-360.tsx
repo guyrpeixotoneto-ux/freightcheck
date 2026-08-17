@@ -7,6 +7,7 @@ import {
   FileSpreadsheet,
   Handshake,
   Headset,
+  Route,
   Search,
   Tractor,
   X,
@@ -23,8 +24,11 @@ import type { JanelaDeVigencias } from "@/components/changes/janela-vigencias";
 import type { TicketTotals } from "@/components/changes/ticket-table";
 import { fetchJson } from "@/lib/api";
 import {
+  aoPlural,
   frasesDoEscopo,
   lerPlaca,
+  outrasTelas,
+  todosOsPlural,
   TELA_DO_EQUIPAMENTO,
   type Equipamento,
   type EscopoDeFrota,
@@ -34,13 +38,23 @@ import { lerRecorte, paramsDoRecorte } from "@/lib/recorte";
 import { cn } from "@/lib/utils";
 
 /**
- * Cavalo 360° e Carreta 360° — as mesmas quatro perguntas, sobre uma frota
- * recortada.
+ * Cavalo 360°, Carreta 360° e Trecho 360° — as mesmas quatro perguntas, sobre
+ * uma frota recortada.
  *
- * A tela é uma só, parametrizada pelo equipamento, e isso não é economia de
- * código: as duas respondem exatamente às mesmas perguntas, e mantê-las como
- * dois arquivos garantiria que um dia respondessem de dois jeitos. O que muda
- * entre elas é o nome, o ícone e o `entityType` — e nada mais deveria mudar.
+ * A tela é uma só, parametrizada pelo tipo, e isso não é economia de código: as
+ * três respondem exatamente às mesmas perguntas, e mantê-las como três arquivos
+ * garantiria que um dia respondessem de três jeitos. O que muda entre elas é o
+ * nome, o ícone e o `entityType` — e nada mais deveria mudar.
+ *
+ * **O trecho entrou por essa porta, e ele é o teste da afirmação acima.** Ele
+ * não é equipamento: é a perna da rota, por onde passa o lado *variável* da
+ * remuneração — a que a planilha do time classifica em `trechoEmpurrada`,
+ * `kmIda`, `kmVolta`, pedágio e tempo interno de origem e destino, enquanto
+ * cavalo e carreta carregam o fixo. As quatro perguntas, porém, são as mesmas
+ * palavra por palavra, e por isso ele é um terceiro valor de `equipamento` e
+ * não uma quarta tela. O que a chegada dele custou foi trocar os ternários
+ * `CAVALO ? … : …` por vocabulário em `lib/frota.ts` — cada um deles era uma
+ * frase que ficaria errada aqui.
  *
  * **O que ela acrescenta a Alterações é o escopo, e escopo não é filtro.** Lá,
  * o `entityType` é um recorte de exibição sobre uma comparação anunciada: a
@@ -77,10 +91,13 @@ import { cn } from "@/lib/utils";
  *    `cards-da-frota.tsx`: quem abre uma tela chamada Cavalo 360° quer ver os
  *    cavalos, e "o que mudou em todos eles" é a pergunta de auditoria, não a de
  *    quem chega.
- * 2. **O ativo** (`?placa=`) — as quatro abas recortadas num cavalo.
+ * 2. **O ativo** (`?placa=`) — as quatro abas recortadas num cavalo. O
+ *    parâmetro se chama `placa` também na tela do trecho, onde o que ele
+ *    carrega não é placa nenhuma: ele sempre foi a chave de grão da linha, e a
+ *    razão de não renomeá-lo está em `lib/frota.ts`, no `lerPlaca`.
  * 3. **A frota inteira** (`?visao=frota`) — as mesmas quatro abas sobre todos
- *    os ativos do equipamento. Continua alcançável por um link do nível 1: é a
- *    outra metade do módulo, e é ela que responde ao mês fechado.
+ *    os ativos do tipo. Continua alcançável por um link do nível 1: é a outra
+ *    metade do módulo, e é ela que responde ao mês fechado.
  *
  * Os três moram no endereço, e não em estado: um card aberto é um link que se
  * manda, e o botão de voltar significa "o card anterior" — que é o que se
@@ -97,6 +114,9 @@ const abaValida = (valor: string | null): valor is AbaDaFrota =>
 const ICONE: Record<Equipamento, typeof Tractor> = {
   CAVALO: Tractor,
   CARRETA: Container,
+  // O trecho é caminho, e não veículo: o ícone precisa dizer isso à distância,
+  // senão a terceira entrada do menu vira o terceiro caminhão da fileira.
+  TRECHO: Route,
 };
 
 /** Um ativo do seletor, como `/frota/ativos` o entrega. */
@@ -221,7 +241,7 @@ export default function Frota360({ equipamento }: { equipamento: Equipamento }) 
         <p className="text-muted-foreground text-sm mt-1 max-w-3xl">{subtitulo}</p>
 
         {/*
-          Na grade, o cabeçalho para aqui: o seletor de placa e as abas
+          Na grade, o cabeçalho para aqui: o seletor do ativo e as abas
           pertencem a uma leitura que ainda não foi escolhida. Mostrá-los sobre
           os cards ofereceria duas portas para o mesmo lugar — e uma fileira de
           abas sem assunto definido é a que faz alguém clicar em "Planilha"
@@ -230,7 +250,7 @@ export default function Frota360({ equipamento }: { equipamento: Equipamento }) 
         {!naGrade && (
           <>
             <div className="mt-4">
-              <SeletorDePlaca
+              <SeletorDoAtivo
                 equipamento={equipamento}
                 placa={placa}
                 recorte={paramsDoRecorte(recorte, { comPeriodo: false })}
@@ -323,15 +343,22 @@ export default function Frota360({ equipamento }: { equipamento: Equipamento }) 
  * cavalos e 80 carretas, e quem procura uma placa a **sabe** — digitar três
  * caracteres é mais rápido do que rolar oitenta linhas. O campo aceita o que
  * não está na lista sem reclamar, e a resposta de cada aba diz o que aplicou;
- * uma placa que este contexto não tem volta à frota inteira, com a aba Impacto
+ * um ativo que este contexto não tem volta à frota inteira, com a aba Impacto
  * escrevendo que voltou.
  *
  * A lista sai de `/frota/ativos`, e não das alterações: uma frota montada a
  * partir do que mudou esconderia justamente o ativo parado — que existe, é
  * remunerado, e é sobre ele que a pergunta "por que este cavalo não mudou?"
  * costuma ser feita.
+ *
+ * **O rótulo do campo é do tipo, e o parâmetro não.** Em Trecho 360° ele diz
+ * "Trecho", porque pedir uma "Placa" numa tela de rotas é pedir um dado que a
+ * linha não tem; o endereço continua escrevendo `?placa=`, que é a chave de
+ * grão que o pipeline promove a identificador em qualquer aba. O nome de dentro
+ * é do mecanismo, o de fora é de quem lê — e é o de fora que precisa ser
+ * verdade.
  */
-function SeletorDePlaca({
+function SeletorDoAtivo({
   equipamento,
   placa,
   recorte,
@@ -383,7 +410,7 @@ function SeletorDePlaca({
       <div className="flex flex-wrap items-center gap-3">
         <label className="flex items-center gap-2 text-sm">
           <Search className="w-4 h-4 text-muted-foreground" />
-          <span className="text-muted-foreground">Placa</span>
+          <span className="text-muted-foreground">{tela.identificador}</span>
           <input
             list="frota-360-placas"
             value={rascunho}
@@ -393,7 +420,7 @@ function SeletorDePlaca({
               if (e.key === "Enter") aplicar(rascunho, placa, onEscolher);
               if (e.key === "Escape") setRascunho(placa ?? "");
             }}
-            placeholder={`todos os ${tela.plural}`}
+            placeholder={todosOsPlural(tela)}
             className="h-9 w-48 rounded-lg border border-input bg-background px-3 font-mono text-sm"
           />
           <datalist id="frota-360-placas">
@@ -422,22 +449,33 @@ function SeletorDePlaca({
           className="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline"
         >
           <X className="w-4 h-4" />
-          voltar aos {tela.plural}
+          voltar {aoPlural(tela)}
         </button>
 
-        {/* A outra tela 360°, a um clique. O conjunto é que é remunerado, e
-            quem está conferindo um cavalo costuma querer a carreta em seguida. */}
-        <Link
-          href={
-            TELA_DO_EQUIPAMENTO[equipamento === "CAVALO" ? "CARRETA" : "CAVALO"].href
-          }
-          className={cn(
-            "ml-auto text-sm text-muted-foreground hover:text-foreground",
-            "underline-offset-2 hover:underline",
-          )}
-        >
-          ver {equipamento === "CAVALO" ? "carretas" : "cavalos"}
-        </Link>
+        {/*
+          As outras telas 360°, a um clique. O conjunto é que é remunerado, e
+          quem está conferindo um cavalo costuma querer a carreta em seguida —
+          e quem confere os dois costuma querer o trecho que eles rodam, porque
+          é lá que mora a outra metade do que se paga.
+
+          Eram um `Link` e um ternário enquanto eram duas telas. O ternário não
+          sobrevive à terceira: ele escolheria uma das outras duas e esconderia
+          a outra sem dizer.
+        */}
+        <div className="ml-auto flex items-center gap-3">
+          {outrasTelas(equipamento).map((outra) => (
+            <Link
+              key={outra}
+              href={TELA_DO_EQUIPAMENTO[outra].href}
+              className={cn(
+                "text-sm text-muted-foreground hover:text-foreground",
+                "underline-offset-2 hover:underline",
+              )}
+            >
+              ver {TELA_DO_EQUIPAMENTO[outra].plural}
+            </Link>
+          ))}
+        </div>
       </div>
 
       <p className="text-xs text-muted-foreground">
