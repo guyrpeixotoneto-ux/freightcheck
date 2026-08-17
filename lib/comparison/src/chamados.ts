@@ -1092,6 +1092,57 @@ export async function getTicketClassification(
 }
 
 /**
+ * Quantos chamados cada ativo teve — o terceiro número do card de Cavalo 360°.
+ *
+ * Duas contagens por placa, e elas não são a mesma: um chamado que mexeu em
+ * oito parâmetros é **um** chamado e **oito** alterações. O card mostra as
+ * duas porque as duas respondem a perguntas diferentes — "quantas vezes
+ * pedimos algo para este cavalo" e "quantos parâmetros isso moveu" —, e usar
+ * uma pela outra é o erro que `chamados-totais.test.ts` já protege do outro
+ * lado.
+ *
+ * A chave é a placa, e não o `entity_id`: o chamado nunca resolveu o ativo
+ * canônico. É a mesma decisão de `escopo.ts`, e é o que permite ao card juntar
+ * esta contagem com a da planilha sem uma junção que não existe.
+ */
+export interface ChamadosDoAtivo {
+  chamados: number;
+  alteracoes: number;
+}
+
+export async function chamadosPorAtivo(
+  db: Database,
+  ticketImportId: string,
+  frota: EscopoDeFrota = {},
+): Promise<Map<string, ChamadosDoAtivo>> {
+  const rows = await db
+    .select({
+      entityLabel: ticketChangeTable.entityLabel,
+      alteracoes: sql<number>`count(*)`.mapWith(Number),
+      chamados: sql<number>`count(DISTINCT ${ticketChangeTable.ticketId})`.mapWith(Number),
+    })
+    .from(ticketChangeTable)
+    .where(
+      and(
+        eq(ticketChangeTable.ticketImportId, ticketImportId),
+        isNotNull(ticketChangeTable.entityLabel),
+        ...escopoNasAlteracoes(frota),
+      ),
+    )
+    .groupBy(ticketChangeTable.entityLabel);
+
+  const porPlaca = new Map<string, ChamadosDoAtivo>();
+  for (const linha of rows) {
+    if (linha.entityLabel === null) continue;
+    porPlaca.set(linha.entityLabel, {
+      chamados: linha.chamados,
+      alteracoes: linha.alteracoes,
+    });
+  }
+  return porPlaca;
+}
+
+/**
  * Os parâmetros que os chamados mais mexeram.
  *
  * É o que liga as duas abas: um parâmetro que aparece em vinte chamados **e**

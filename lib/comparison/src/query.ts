@@ -624,6 +624,123 @@ export async function totaisDoEscopo(
   return { ...agregado, impactByPeriodicity };
 }
 
+/**
+ * O que mudou para cada ativo, ativo a ativo — o card de Cavalo 360°.
+ *
+ * A contagem e a maior alteração de cada placa, numa varredura de cada. O grão
+ * é o que separa esta leitura de `listChanges`: lá cada linha é uma alteração e
+ * a lista é do período; aqui cada linha é um **ativo**, e o que se lê é o
+ * resumo dele.
+ *
+ * `maior` é a alteração que a régua de materialidade põe em primeiro para
+ * aquele ativo — a mesma ordem de `listChanges`, e é de propósito: o card diz
+ * "o FINAME caiu de X para Y" e o clique leva à lista onde aquela linha está no
+ * topo. Duas réguas fariam o card apontar para uma lista que abre em outra
+ * coisa.
+ *
+ * `DISTINCT ON` e não uma junção com `max()`: o critério de materialidade é uma
+ * ordem de três colunas com desempates, e não um máximo de uma delas.
+ */
+export interface AlteracaoDoAtivo {
+  attributeCode: string | null;
+  attributeName: string | null;
+  valueBefore: string | null;
+  valueAfter: string | null;
+  deltaAbsolute: number | null;
+  deltaPercent: number | null;
+  impactAmount: number | null;
+  impactPeriodicity: string | null;
+}
+
+export interface SituacaoDoAtivo {
+  /** Quantas alterações da comparação são deste ativo. */
+  alteracoes: number;
+  /** A mais material delas. Null quando o ativo não mudou. */
+  maior: AlteracaoDoAtivo | null;
+}
+
+export async function situacaoPorAtivo(
+  db: Database,
+  changeSetId: string | string[],
+  escopo: EscopoDeFrota = {},
+): Promise<Map<string, SituacaoDoAtivo>> {
+  const ids = Array.isArray(changeSetId) ? changeSetId : [changeSetId];
+  const situacao = new Map<string, SituacaoDoAtivo>();
+  if (ids.length === 0) return situacao;
+
+  const scope = and(
+    inArray(changeTable.changeSetId, ids),
+    sql`${changeTable.entityLabel} IS NOT NULL`,
+    ...escopoDeFrota(escopo),
+  )!;
+
+  const contagens = await db
+    .select({
+      entityLabel: changeTable.entityLabel,
+      alteracoes: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(changeTable)
+    .where(scope)
+    .groupBy(changeTable.entityLabel);
+
+  for (const linha of contagens) {
+    if (linha.entityLabel === null) continue;
+    situacao.set(linha.entityLabel, { alteracoes: linha.alteracoes, maior: null });
+  }
+
+  const maiores = await db
+    .selectDistinctOn([changeTable.entityLabel], {
+      entityLabel: changeTable.entityLabel,
+      attributeCode: changeTable.attributeCode,
+      attributeName: changeTable.attributeName,
+      attributeSourceName: attributeTable.sourceName,
+      attributeDisplayName: attributeTable.displayName,
+      valueBefore: changeTable.valueBefore,
+      valueAfter: changeTable.valueAfter,
+      deltaAbsolute: changeTable.deltaAbsolute,
+      deltaPercent: changeTable.deltaPercent,
+      impactAmount: changeTable.impactAmount,
+      impactPeriodicity: changeTable.impactPeriodicity,
+    })
+    .from(changeTable)
+    .leftJoin(attributeTable, ATRIBUTO_ATUAL)
+    .where(scope)
+    .orderBy(
+      changeTable.entityLabel,
+      sql`abs(${changeTable.impactAmount}) DESC NULLS LAST`,
+      sql`abs(${changeTable.deltaAbsolute}) DESC NULLS LAST`,
+      sql`abs(${changeTable.deltaPercent}) DESC NULLS LAST`,
+      changeTable.attributeCode,
+      changeTable.id,
+    );
+
+  for (const linha of maiores) {
+    if (linha.entityLabel === null) continue;
+    const atual = situacao.get(linha.entityLabel);
+    if (!atual) continue;
+    atual.maior = {
+      attributeCode: linha.attributeCode,
+      // O nome de leitura de hoje, pela mesma regra da lista: um apelido dado
+      // na Curadoria depois da comparação precisa aparecer nos dois lugares.
+      attributeName: nomeDeLeitura(
+        linha.attributeCode,
+        linha.attributeName,
+        linha.attributeSourceName,
+        linha.attributeDisplayName,
+      ),
+      valueBefore: linha.valueBefore,
+      valueAfter: linha.valueAfter,
+      deltaAbsolute:
+        linha.deltaAbsolute === null ? null : Number(linha.deltaAbsolute),
+      deltaPercent: linha.deltaPercent === null ? null : Number(linha.deltaPercent),
+      impactAmount: linha.impactAmount === null ? null : Number(linha.impactAmount),
+      impactPeriodicity: linha.impactPeriodicity,
+    };
+  }
+
+  return situacao;
+}
+
 /** Every comparison on record, newest first. */
 export async function listChangeSets(db: Database) {
   const sa = sql`sa`;

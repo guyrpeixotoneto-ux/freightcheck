@@ -18,6 +18,7 @@ import { AbaPlanilha } from "@/components/changes/aba-planilha";
 import { AbaChamados } from "@/components/changes/aba-chamados";
 import { ImpactoQuinzenas } from "@/components/changes/impacto-quinzenas";
 import { ClienteRecomendacoes } from "@/components/changes/cliente-recomendacoes";
+import { CardsDaFrota } from "@/components/frota/cards-da-frota";
 import type { JanelaDeVigencias } from "@/components/changes/janela-vigencias";
 import type { TicketTotals } from "@/components/changes/ticket-table";
 import { fetchJson } from "@/lib/api";
@@ -27,6 +28,7 @@ import {
   TELA_DO_EQUIPAMENTO,
   type Equipamento,
   type EscopoDeFrota,
+  type NivelDaTela,
 } from "@/lib/frota";
 import { lerRecorte, paramsDoRecorte } from "@/lib/recorte";
 import { cn } from "@/lib/utils";
@@ -62,6 +64,24 @@ import { cn } from "@/lib/utils";
  * a frota não muda nada disso — o impacto da planilha continua sendo uma
  * diferença entre dois estados fechados, e o do chamado a distância entre um
  * pedido e uma resposta, agora ambos sobre um cavalo.
+ *
+ * ---
+ *
+ * **Três níveis, e a porta é o primeiro.**
+ *
+ * 1. **A frota em cards** — um por ativo, com quanto ele custa, o que mudou
+ *    nele e o que pedimos por chamado. É onde a tela abre, e a razão está em
+ *    `cards-da-frota.tsx`: quem abre uma tela chamada Cavalo 360° quer ver os
+ *    cavalos, e "o que mudou em todos eles" é a pergunta de auditoria, não a de
+ *    quem chega.
+ * 2. **O ativo** (`?placa=`) — as quatro abas recortadas num cavalo.
+ * 3. **A frota inteira** (`?visao=frota`) — as mesmas quatro abas sobre todos
+ *    os ativos do equipamento. Continua alcançável por um link do nível 1: é a
+ *    outra metade do módulo, e é ela que responde ao mês fechado.
+ *
+ * Os três moram no endereço, e não em estado: um card aberto é um link que se
+ * manda, e o botão de voltar significa "o card anterior" — que é o que se
+ * espera de uma grade que se navega clicando.
  */
 
 type AbaDaFrota = "planilha" | "chamados" | "impacto" | "cliente";
@@ -102,9 +122,21 @@ export default function Frota360({ equipamento }: { equipamento: Equipamento }) 
   const pedida = params.get("aba");
   const aba: AbaDaFrota = abaValida(pedida) ? pedida : "planilha";
   const placa = lerPlaca(search);
+  /*
+    Em que nível a tela está.
+
+    A grade é o padrão, e a leitura de frota exige `?visao=frota` escrito — o
+    inverso do que era antes desta versão. Escolher uma placa também sai da
+    grade, e por isso a presença de `placa` vence: um link para um ativo abre no
+    ativo, mesmo que o `visao` tenha ficado para trás no endereço de quem o
+    copiou.
+  */
+  const naFrotaInteira = params.get("visao") === "frota";
+  const naGrade = placa === null && !naFrotaInteira;
 
   const escopo: EscopoDeFrota = { entityType: equipamento, placa };
-  const { titulo, subtitulo } = frasesDoEscopo(escopo);
+  const nivel: NivelDaTela = naGrade ? "grade" : placa !== null ? "ativo" : "frota";
+  const { titulo, subtitulo } = frasesDoEscopo(escopo, nivel);
   const Icone = ICONE[equipamento];
 
   /*
@@ -138,13 +170,20 @@ export default function Frota360({ equipamento }: { equipamento: Equipamento }) 
   const irPara = (proxima: {
     aba?: AbaDaFrota;
     placa?: string | null;
+    /** `true` leva às quatro abas da frota; `false` volta à grade de cards. */
+    frotaInteira?: boolean;
   }) => {
     const destino = new URLSearchParams();
     const abaFinal = proxima.aba ?? aba;
     const placaFinal = proxima.placa === undefined ? placa : proxima.placa;
+    const frotaFinal = proxima.frotaInteira ?? naFrotaInteira;
 
     if (abaFinal !== "planilha") destino.set("aba", abaFinal);
     if (placaFinal !== null) destino.set("placa", placaFinal);
+    // A leitura de frota só se escreve quando não há placa: as duas são níveis
+    // diferentes, e um endereço com as duas afirmaria estar nos dois ao mesmo
+    // tempo. Escolher uma placa é sair da frota — e o inverso também.
+    if (placaFinal === null && frotaFinal) destino.set("visao", "frota");
     // O recorte de unidade e canal sobrevive à troca; a vigência acompanha
     // apenas a aba que a honra, que é a mesma regra de Alterações.
     for (const [chave, valor] of paramsDoRecorte(recorte, {
@@ -178,16 +217,26 @@ export default function Frota360({ equipamento }: { equipamento: Equipamento }) 
         </h1>
         <p className="text-muted-foreground text-sm mt-1 max-w-3xl">{subtitulo}</p>
 
-        <div className="mt-4">
-          <SeletorDePlaca
-            equipamento={equipamento}
-            placa={placa}
-            recorte={paramsDoRecorte(recorte, { comPeriodo: false })}
-            onEscolher={(proxima) => irPara({ placa: proxima })}
-          />
-        </div>
+        {/*
+          Na grade, o cabeçalho para aqui: o seletor de placa e as abas
+          pertencem a uma leitura que ainda não foi escolhida. Mostrá-los sobre
+          os cards ofereceria duas portas para o mesmo lugar — e uma fileira de
+          abas sem assunto definido é a que faz alguém clicar em "Planilha"
+          esperando o cavalo e receber a frota.
+        */}
+        {!naGrade && (
+          <>
+            <div className="mt-4">
+              <SeletorDePlaca
+                equipamento={equipamento}
+                placa={placa}
+                recorte={paramsDoRecorte(recorte, { comPeriodo: false })}
+                onEscolher={(proxima) => irPara({ placa: proxima })}
+                onVoltarAosCards={() => irPara({ placa: null, frotaInteira: false })}
+              />
+            </div>
 
-        <nav className="flex items-center gap-1 mt-4" role="tablist">
+            <nav className="flex items-center gap-1 mt-4" role="tablist">
           <AbaBotao
             active={aba === "planilha"}
             onClick={() => irPara({ aba: "planilha" })}
@@ -215,14 +264,29 @@ export default function Frota360({ equipamento }: { equipamento: Equipamento }) 
             onClick={() => irPara({ aba: "cliente" })}
             icon={<Handshake className="w-4 h-4" />}
             label="Cliente"
-            hint="o que propor, o que investigar, e o que não levar"
-          />
-        </nav>
+              hint="o que propor, o que investigar, e o que não levar"
+            />
+            </nav>
+          </>
+        )}
       </div>
 
-      {aba === "planilha" && <AbaPlanilha escopo={escopo} />}
-      {aba === "chamados" && <AbaChamados escopo={escopo} />}
-      {aba === "impacto" && (
+      {naGrade && (
+        <div className="p-8">
+          <CardsDaFrota
+            equipamento={equipamento}
+            contexto={paramsDoRecorte(recorte, { comPeriodo: false })}
+            onAbrir={(proxima) => irPara({ placa: proxima, aba: "planilha" })}
+            onVerFrotaInteira={() =>
+              irPara({ frotaInteira: true, aba: "planilha" })
+            }
+          />
+        </div>
+      )}
+
+      {!naGrade && aba === "planilha" && <AbaPlanilha escopo={escopo} />}
+      {!naGrade && aba === "chamados" && <AbaChamados escopo={escopo} />}
+      {!naGrade && aba === "impacto" && (
         <div className="p-8">
           <ImpactoQuinzenas
             contexto={paramsDoRecorte(recorte, { comPeriodo: false })}
@@ -236,7 +300,7 @@ export default function Frota360({ equipamento }: { equipamento: Equipamento }) 
           />
         </div>
       )}
-      {aba === "cliente" && (
+      {!naGrade && aba === "cliente" && (
         <div className="p-8">
           <ClienteRecomendacoes
             janela={janela}
@@ -269,11 +333,14 @@ function SeletorDePlaca({
   placa,
   recorte,
   onEscolher,
+  onVoltarAosCards,
 }: {
   equipamento: Equipamento;
   placa: string | null;
   recorte: URLSearchParams;
   onEscolher: (placa: string | null) => void;
+  /** A volta para a grade — o nível de onde se chegou aqui. */
+  onVoltarAosCards: () => void;
 }) {
   const [rascunho, setRascunho] = useState(placa ?? "");
   const tela = TELA_DO_EQUIPAMENTO[equipamento];
@@ -339,18 +406,21 @@ function SeletorDePlaca({
           </datalist>
         </label>
 
-        {placa !== null && (
-          <button
-            onClick={() => {
-              setRascunho("");
-              onEscolher(null);
-            }}
-            className="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline"
-          >
-            <X className="w-4 h-4" />
-            ver todos os {tela.plural}
-          </button>
-        )}
+        {/*
+          A volta é sempre para a grade, e não para a leitura de frota: foi de
+          um card que se chegou aqui, e devolver alguém à lista de alterações de
+          todos os ativos seria trocar a tela em vez de subir um nível.
+        */}
+        <button
+          onClick={() => {
+            setRascunho("");
+            onVoltarAosCards();
+          }}
+          className="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline"
+        >
+          <X className="w-4 h-4" />
+          voltar aos {tela.plural}
+        </button>
 
         {/* A outra tela 360°, a um clique. O conjunto é que é remunerado, e
             quem está conferindo um cavalo costuma querer a carreta em seguida. */}
