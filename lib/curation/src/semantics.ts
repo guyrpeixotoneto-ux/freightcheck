@@ -8,21 +8,17 @@
  * guess into a number.
  */
 
+import type { Aggregation, Periodicity, Unit } from "@workspace/db";
 import { ehTipoNumerico } from "./agregacao";
 
-export type Unit =
-  | "BRL"
-  | "BRL_KM"
-  | "KM_L"
-  | "PERCENT"
-  | "KM"
-  | "LITROS"
-  | "MESES"
-  | "ANO"
-  | "QTD";
-
-export type Aggregation = "SUM" | "AVG" | "WEIGHTED_AVG" | "NONE";
-export type Periodicity = "MENSAL" | "ANUAL" | "PONTUAL";
+/*
+  O vocabulário das três colunas mora ao lado delas, em `@workspace/db`, desde
+  que o registro das confirmações canônicas passou a ser aplicado também pela
+  importação: as duas pontas precisam do mesmo `Unit`, e nenhuma das duas pode
+  importar a outra. Continua exportado daqui — é por este nome que o produto
+  inteiro o conhece.
+*/
+export type { Aggregation, Periodicity, Unit };
 
 export interface AttributeEvidence {
   code: string;

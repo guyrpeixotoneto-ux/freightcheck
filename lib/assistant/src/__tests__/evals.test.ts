@@ -222,6 +222,54 @@ rodar("bateria do assistente", () => {
         numerosSemLastro("Houve 9999 alterações no período.", dossie),
       ).toContain("9999");
     });
+
+    /**
+     * A pontuação da frase não faz parte do número.
+     *
+     * `\d[\d.,]*` é ganancioso à direita: numa enumeração — "19, 44 e 56" — ele
+     * produzia `19,`, um token que não existe em evidência nenhuma porque
+     * ninguém guarda um número com a vírgula da frase em que foi escrito. A
+     * conferência o tratava como invenção.
+     *
+     * **Medido na bateria real:** 42 dos 54 números recusados terminavam em
+     * vírgula ou ponto, e o caminho determinístico perdia respostas por isso
+     * tanto quanto o agente — `2026,`, o ano da vigência, entre eles. Não era
+     * defeito de um caminho: era o extrator, e estava em produção.
+     */
+    it("um número seguido de vírgula ou ponto continua sendo o mesmo número", async () => {
+      const dossie = await orquestrar(db, "O que mudou em agosto?");
+      const total = dossie.evidencias
+        .flatMap((e) => e.numeros)
+        .find((n) => Number.isInteger(n) && n > 10);
+      expect(total, "esta suíte precisa de um inteiro autorizado").toBeDefined();
+
+      // O mesmo número, em três posições de frase que antes o condenavam.
+      expect(numerosSemLastro(`Foram ${total} alterações.`, dossie)).toEqual([]);
+      expect(numerosSemLastro(`Foram ${total}, e não mais.`, dossie)).toEqual([]);
+      expect(
+        numerosSemLastro(`Os grupos: ${total}, ${total} e ${total}.`, dossie),
+      ).toEqual([]);
+    });
+
+    /**
+     * E o conserto acima **não** é uma porta: o que sai é pontuação, nunca
+     * algarismo. Sem este caso, alguém poderia "consertar" o extrator tirando
+     * dígitos e a suíte não acusaria.
+     */
+    it("tirar a pontuação não deixa passar número sem lastro", async () => {
+      const dossie = await orquestrar(db, "O que mudou em agosto?");
+
+      for (const frase of [
+        "Foram 9999, e não mais.",
+        "Os valores: 9999, 8888 e 7777.",
+        "O total é 9999.",
+      ]) {
+        expect(
+          numerosSemLastro(frase, dossie),
+          `"${frase}" contém número que nenhuma consulta devolveu`,
+        ).not.toEqual([]);
+      }
+    });
   });
 
   // ── etapas ─────────────────────────────────────────────────────────────────

@@ -35,6 +35,7 @@ import { Farolete, VariacaoMensal } from "@/components/composicao/farol";
 import {
   NOTA_DA_GAVETA,
   ROTULO_DA_GAVETA,
+  ROTULO_DA_NAO_APURACAO,
   SUFIXO_DA_GAVETA,
   type Alteracoes,
   type Composicao,
@@ -903,7 +904,11 @@ function AbaHistorico({
                     <td className="px-4 py-2 text-right tabular-nums">
                       {ponto.mensal === null ? (
                         <span className="text-muted-foreground text-xs">
-                          {ponto.presente ? "não apurado" : "fora da frota"}
+                          {!ponto.presente
+                            ? "fora da frota"
+                            : ponto.naoApuradoPor
+                              ? ROTULO_DA_NAO_APURACAO[ponto.naoApuradoPor]
+                              : "não apurado"}
                         </span>
                       ) : (
                         formatBrl(ponto.mensal)

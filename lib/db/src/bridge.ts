@@ -145,6 +145,22 @@ const TABELAS_DERIVADAS: { nome: string; migration: string; marca: RegExp }[] = 
     migration: "0021_cobertura",
     marca: /INSERT INTO "snapshot_entity_type"/,
   },
+  /*
+    O catálogo de significados econômicos entra aqui, e não em
+    `TABELAS_REMOVIDAS`, porque ele **nasce cheio**: as quinze linhas iniciais
+    são um `INSERT` da própria `0028`, e o `up` as repõe levantando aquele
+    statement do disco. Exigi-la vazia travaria todo deploy.
+
+    O que ela pode guardar e nenhuma consulta reconstrói é o significado que a
+    operação cadastrou na tela — `is_seed = false`. Esse caso tem pré-condição
+    própria no `down`, e ela aborta, exatamente como `coverage_expectation`:
+    decisão de gente não se descarta para encolher um diff.
+  */
+  {
+    nome: "semantic_meaning",
+    migration: "0028_significado_economico",
+    marca: /INSERT INTO "semantic_meaning"/,
+  },
 ];
 
 /**
@@ -185,6 +201,13 @@ export const COLUNAS_REMOVIDAS: [string, string][] = [
   ["attribute", "economic_effect"],
   ["attribute_semantics", "economic_direction"],
   ["attribute_semantics", "economic_effect"],
+  // A `0028`, pelo mesmo motivo. As três são nullable e sem default, e as duas
+  // primeiras carregam a chave estrangeira para `semantic_meaning` — que o
+  // `down` derruba logo abaixo. A ordem do DDL já é essa: coluna primeiro,
+  // tabela depois, e o `RESTRICT` continua sendo quem decide.
+  ["attribute", "meaning_id"],
+  ["attribute_semantics", "meaning_id"],
+  ["taxonomy_node", "created_by"],
 ];
 
 /** Índices que o `down` remove. Exportada pelo motivo de `COLUNAS_REMOVIDAS`. */
@@ -487,6 +510,25 @@ export async function bridgeDown(
       );
     }
 
+    if (await existeTabela(c, "semantic_meaning")) {
+      /*
+        As quinze linhas do catálogo inicial voltam do disco; as que a operação
+        cadastrou, não. Um `R$ por pallet` criado por alguém na tela de
+        confirmação é decisão humana, e pode estar apontado por atributos já
+        confirmados — descartá-lo para encolher um diff é a mesma coisa que
+        `coverage_expectation` proíbe.
+      */
+      const { rows } = await c.query<{ n: string }>(
+        `SELECT count(*) AS n FROM "semantic_meaning" WHERE NOT "is_seed"`,
+      );
+      exigir(
+        "nenhum significado cadastrado na tela",
+        Number(rows[0]!.n) === 0,
+        `${rows[0]!.n} significado(s) fora do catálogo inicial — o bridge remove ` +
+          `esta tabela e só o catálogo volta do disco`,
+      );
+    }
+
     if (await existeColuna(c, "ticket_import", "parameter_columns")) {
       const { rows } = await c.query<{ n: string }>(
         `SELECT count(*) AS n FROM "ticket_import"
@@ -535,20 +577,37 @@ export async function bridgeDown(
       ...INDICES_REMOVIDOS,
       ...VIEWS_REMOVIDAS,
     ]);
+    /*
+      Quem depende de um alvo **porque o bridge também remove a coluna que
+      depende**.
+
+      `attribute.meaning_id` e `attribute_semantics.meaning_id` apontam para
+      `semantic_meaning`, e as duas saem em `COLUNAS_REMOVIDAS`, antes da tabela,
+      na seção de DDL. A varredura de dependências roda antes de qualquer DDL —
+      é o desenho deste módulo — e veria as duas FKs como surpresa.
+
+      Por alvo, e não no conjunto global: pôr "attribute" em `previstos` calaria
+      a varredura para todos os outros alvos também, e é justamente ela que
+      impede uma dependência nova de passar despercebida.
+    */
+    const previstosPorAlvo: Record<string, string[]> = {
+      semantic_meaning: ["attribute", "attribute_semantics"],
+    };
     for (const alvo of [
       ...TABELAS_REMOVIDAS,
       ...TABELAS_DERIVADAS.map((t) => t.nome),
       "snapshot",
     ]) {
       if (!(await existeTabela(c, alvo))) continue;
+      const doAlvo = new Set([...previstos, ...(previstosPorAlvo[alvo] ?? [])]);
       const dependentes =
         alvo === "snapshot"
-          ? (await dependentesInesperados(c, alvo, previstos)).filter((d) =>
+          ? (await dependentesInesperados(c, alvo, doAlvo)).filter((d) =>
               // De `snapshot` só interessa quem depende da coluna gerada; as
               // duas views são previstas, o resto tem de aparecer.
               VIEWS_REMOVIDAS.every((v) => !d.endsWith(v)),
             )
-          : await dependentesInesperados(c, alvo, previstos);
+          : await dependentesInesperados(c, alvo, doAlvo);
       rel.dependencias.push({ objeto: alvo, dependentes });
       if (alvo !== "snapshot" && dependentes.length > 0) {
         throw new BridgeAbortou(
@@ -954,6 +1013,71 @@ function planoUp(): PassoUp[] {
         levantar(M26, new RegExp(`ALTER TABLE "${t}" ADD COLUMN IF NOT EXISTS "${col}"`)),
       );
     }
+  }
+  /*
+    A `0028` — o cadastro de significados econômicos e o ponteiro para ele.
+
+    A ordem aqui é a da própria migration, e ela importa: tabela, índices,
+    colunas, chaves estrangeiras, catálogo, constraints e só então o backfill.
+    O backfill é a leitura de volta — ele deduz `meaning_id` dos quatro campos
+    técnicos que nunca saíram do banco —, e é por isso que derrubar a coluna no
+    `down` não perde informação: o `up` a reconstrói da mesma fonte de que ela
+    saiu.
+
+    As duas constraints da `0023` são reescritas aqui, depois de o bloco da
+    `0023` acima tê-las reposto: a `0028` troca a lista fechada de três razões
+    pelo prefixo `BRL_`, e a versão que tem de sobrar é a última.
+  */
+  const M28 = "0028_significado_economico";
+  add(M28, "semantic_meaning", levantar(M28, /CREATE TABLE IF NOT EXISTS "semantic_meaning"/));
+  for (const i of [
+    "semantic_meaning_code_uq",
+    "semantic_meaning_label_uq",
+    "semantic_meaning_scope_idx",
+  ]) {
+    add(M28, `índice ${i}`, levantar(M28, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
+  for (const [t, col] of [
+    ["attribute", "meaning_id"],
+    ["attribute_semantics", "meaning_id"],
+    ["taxonomy_node", "created_by"],
+  ] as const) {
+    add(
+      M28,
+      `${t}.${col}`,
+      levantar(M28, new RegExp(`ALTER TABLE "${t}" ADD COLUMN IF NOT EXISTS "${col}"`)),
+    );
+  }
+  add(M28, "FK attribute.meaning_id", levantar(M28, /attribute_meaning_id_semantic_meaning_id_fk/));
+  add(
+    M28,
+    "FK attribute_semantics.meaning_id",
+    levantar(M28, /attribute_semantics_meaning_id_semantic_meaning_id_fk/),
+  );
+  p.push({
+    migration: M28,
+    objeto: "catálogo inicial de significados",
+    sql: reconstruir(M28, /INSERT INTO "semantic_meaning"/),
+    reconstroiDados: true,
+  });
+  for (const [t, nome] of [
+    ["attribute", "attribute_semantica_coerente"],
+    ["attribute_semantics", "attribute_semantics_semantica_coerente"],
+    ["semantic_meaning", "semantic_meaning_semantica_coerente"],
+  ] as const) {
+    add(M28, `${nome} (drop)`, levantar(M28, new RegExp(`ALTER TABLE "${t}" DROP CONSTRAINT IF EXISTS "${nome}"`)));
+    add(M28, nome, levantar(M28, new RegExp(`ALTER TABLE "${t}" ADD CONSTRAINT "${nome}"`)));
+  }
+  for (const [objeto, marca] of [
+    ["attribute.meaning_id (leitura de volta)", /UPDATE "attribute" a/],
+    ["attribute_semantics.meaning_id (leitura de volta)", /UPDATE "attribute_semantics" v/],
+  ] as const) {
+    p.push({
+      migration: M28,
+      objeto,
+      sql: reconstruir(M28, marca),
+      reconstroiDados: true,
+    });
   }
 
   // 5. Obrigatoriedade e constraints.

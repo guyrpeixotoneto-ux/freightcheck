@@ -19,13 +19,26 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { ComboboxCriavel } from "@/components/ui/combobox-criavel";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  classeDaCategoria,
+  leituraDe,
+  oQueFalta,
+  podeConfirmar,
+  precisaDoPeriodo,
+  previaDaCriacao,
+  resumo,
+  significadoAtual,
+  vigenciaDoDado,
+  type CampoEmConfirmacao,
+  type Escolhas,
+  type OpcaoDeCategoria,
+  type OpcaoDeSignificado,
+} from "@/lib/interpretacao";
+import {
+  PERIODOS_EM_ABERTO,
+  significadoPara,
+} from "@workspace/curation/significado";
 import { fetchJson, getApiUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { estaDescrito } from "@/lib/curadoria";
@@ -39,34 +52,6 @@ import { cn } from "@/lib/utils";
  * mudança mas não entra em nenhuma soma financeira — e o banco recusa
  * qualquer tentativa de confirmar sem responsável e justificativa.
  */
-
-/**
- * Os códigos são o que o banco guarda; o texto ao lado é o que evita confirmar
- * a unidade errada por não saber o que a sigla queria dizer.
- */
-const UNITS: [code: string, meaning: string][] = [
-  ["BRL", "reais"],
-  ["BRL_KM", "reais por quilômetro"],
-  ["KM_L", "quilômetros por litro"],
-  ["PERCENT", "percentual"],
-  ["KM", "quilômetros"],
-  ["LITROS", "litros"],
-  ["MESES", "meses"],
-  ["ANO", "ano de calendário"],
-  ["QTD", "quantidade"],
-];
-const PERIODICITIES = ["MENSAL", "ANUAL", "PONTUAL"];
-/*
-  Sem WEIGHTED_AVG: o valor prometia ponderação e o cálculo por trás era
-  `total ÷ veículos`. Enquanto o peso não for campo do modelo, o banco recusa
-  gravá-lo (0023) e a tela não o oferece — oferecer o que será recusado é pior
-  do que não ter a opção.
-*/
-const AGGREGATIONS: [code: string, meaning: string][] = [
-  ["SUM", "soma na frota"],
-  ["AVG", "média simples"],
-  ["NONE", "não agrega"],
-];
 
 interface QueueItem {
   code: string;
@@ -82,6 +67,9 @@ interface QueueItem {
   semanticsRationale: string | null;
   definition: string | null;
   calculationBasis: string | null;
+  meaningCode: string | null;
+  meaningLabel: string | null;
+  taxonomyCode: string | null;
   taxonomyPath: string | null;
   taxonomyName: string | null;
   costClass: string | null;
@@ -113,15 +101,6 @@ interface AttributeDetail extends QueueItem {
     reason: string | null;
     createdAt: string;
   }[];
-}
-
-interface TaxonomyNode {
-  id: string;
-  code: string;
-  name: string;
-  costClass: string | null;
-  depth: number;
-  path: string;
 }
 
 const brl = (value: number) =>
@@ -198,11 +177,6 @@ export default function Curadoria() {
     queryKey: ["curation", "queue", showConfirmed],
     queryFn: () =>
       fetchJson<QueueItem[]>(`/curation/queue?includeConfirmed=${showConfirmed}`),
-  });
-
-  const { data: taxonomy = [] } = useQuery({
-    queryKey: ["curation", "taxonomy"],
-    queryFn: () => fetchJson<TaxonomyNode[]>("/curation/taxonomy?flat=true"),
   });
 
   const { data: detail } = useQuery({
@@ -398,7 +372,6 @@ export default function Curadoria() {
           <AttributePanel
             key={detail.code}
             detail={detail}
-            taxonomy={taxonomy}
             onConfirmed={() => {
               queryClient.invalidateQueries({ queryKey: ["curation"] });
             }}
@@ -447,11 +420,9 @@ function SummaryTile({
 
 function AttributePanel({
   detail,
-  taxonomy,
   onConfirmed,
 }: {
   detail: AttributeDetail;
-  taxonomy: TaxonomyNode[];
   onConfirmed: () => void;
 }) {
   const conflicted = detail.semanticsRationale?.startsWith("CONFLITO");
@@ -505,10 +476,7 @@ function AttributePanel({
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
             <Metric label="Valores" value={detail.valueCount.toLocaleString("pt-BR")} />
             <Metric label="Ausentes" value={detail.nullCount.toLocaleString("pt-BR")} />
-            <Metric
-              label="Taxonomia"
-              value={detail.taxonomyName ?? "—"}
-            />
+            <Metric label="Categoria" value={detail.taxonomyName ?? "—"} />
             <Metric label="Classe" value={detail.costClass ?? "—"} />
           </div>
         </CardContent>
@@ -561,11 +529,7 @@ function AttributePanel({
 
       <MeaningCard detail={detail} onSaved={onConfirmed} />
 
-      <ConfirmarSemantica
-        detail={detail}
-        taxonomy={taxonomy}
-        onConfirmed={onConfirmed}
-      />
+      <ConfirmarInterpretacao detail={detail} onConfirmed={onConfirmed} />
 
       {detail.events.length > 0 && (
         <Card>
@@ -596,101 +560,118 @@ function AttributePanel({
 }
 
 /**
- * O ato que destrava dinheiro — e o único campo desta tela que ninguém preenche
- * por você.
+ * Confirmar interpretação do campo — o ato que destrava dinheiro.
  *
- * O card inteiro mora aqui, e não dentro do painel, porque a sugestão da IA
- * precisa mexer nos quatro selects: eles nascem de `useState(detail…)`, e um
- * botão que os preenche tem de estar no mesmo componente que os declara. Chaveado
- * pelo código lá em cima, como o painel — trocar de atributo recomeça daqui.
+ * ---------------------------------------------------------------------------
+ * O que este card deixou de perguntar, e por quê
+ * ---------------------------------------------------------------------------
+ * Ele pedia quatro respostas técnicas: unidade, periodicidade, agregação e
+ * "é um montante financeiro (entra em somas)". Só a primeira era uma pergunta
+ * de verdade — e nem essa, do jeito que estava escrita. Quem sabe que
+ * `manutencaoReaisKm` vale R$ 0,38 por quilômetro rodado já disse, com isso,
+ * que a unidade é uma razão monetária, que não há periodicidade, que a soma
+ * entre veículos não produz grandeza nenhuma e que aquilo não é montante. As
+ * outras três eram pedir à pessoa que derivasse à mão o que o sistema deriva —
+ * e quatro campos independentes são quatro portas para a contradição entrar.
+ *
+ * Agora são duas perguntas, e as duas são de negócio:
+ *
+ * - **O que este valor representa?** — o significado econômico, do cadastro.
+ * - **Categoria** — onde ele entra na conta.
+ *
+ * A derivação é de `@workspace/curation/significado`, **a mesma função que a
+ * API usa para gravar**. A tela não tem uma cópia da regra: se tivesse, ela
+ * seria a primeira a sair de sincronia, mostrando uma coisa enquanto o banco
+ * grava outra.
+ *
+ * ---------------------------------------------------------------------------
+ * A terceira pergunta, que aparece uma vez em muitas
+ * ---------------------------------------------------------------------------
+ * `R$ por veículo` é dinheiro, é somável na frota, e não diz de que período —
+ * e o período decide em qual dos três totais da composição ele cai. Escolher um
+ * por conta própria seria inventar; recusar o significado empurraria a pessoa a
+ * mentir num rótulo mais específico. Então a tela pergunta, em português, só
+ * nesse caso. É estritamente menos do que antes, quando a periodicidade era
+ * perguntada para **todas** as colunas.
  */
-function ConfirmarSemantica({
+function ConfirmarInterpretacao({
   detail,
-  taxonomy,
   onConfirmed,
 }: {
   detail: AttributeDetail;
-  taxonomy: TaxonomyNode[];
   onConfirmed: () => void;
 }) {
-  const [unit, setUnit] = useState(detail.unit ?? "");
-  const [periodicity, setPeriodicity] = useState(detail.periodicity ?? "");
-  const [aggregation, setAggregation] = useState(detail.aggregation ?? "");
-  const [taxonomyCode, setTaxonomyCode] = useState(
-    taxonomy.find((n) => n.path === detail.taxonomyPath)?.code ?? "",
-  );
-  const [isMonetary, setIsMonetary] = useState(detail.isMonetary === true);
-  const [reason, setReason] = useState("");
-  /** Quem assina esta confirmação. Vem da sessão; a tela só o exibe. */
+  const queryClient = useQueryClient();
   const signedInAs = useAuth().user?.email ?? "quem está logado";
-  const [error, setError] = useState<string | null>(null);
 
-  const confirm = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(
-        getApiUrl(`/curation/attributes/${detail.code}/confirm`),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            unit: unit || null,
-            periodicity: periodicity || null,
-            aggregation: aggregation || null,
-            isMonetary,
-            taxonomyCode: taxonomyCode || undefined,
-            // `actor` não vai daqui: quem assina é a sessão, e o servidor o lê
-            // de lá. Um nome digitado na tela nunca provou nada.
-            reason,
-          }),
-        },
-      );
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Falha ao confirmar");
-      return body;
-    },
-    onSuccess: () => {
-      setError(null);
-      onConfirmed();
-    },
-    onError: (err: Error) => setError(err.message),
+  const { data: catalogo = [] } = useQuery({
+    queryKey: ["curation", "significados"],
+    queryFn: () => fetchJson<OpcaoDeSignificado[]>("/curation/significados"),
+  });
+  const { data: categorias = [] } = useQuery({
+    queryKey: ["curation", "categorias"],
+    queryFn: () => fetchJson<OpcaoDeCategoria[]>("/curation/categorias"),
   });
 
-  const blocked = isMonetary && (!unit || !periodicity || !aggregation);
-
-  /**
-   * O que os campos diziam antes da sugestão, e o que a sugestão pôs neles.
-   *
-   * Guardar os dois é o que torna o `Desfazer` honesto: ele só aparece enquanto
-   * os campos ainda contêm exatamente o que a IA escreveu, e some no instante em
-   * que a pessoa mexe em qualquer um — dali em diante restaurar apagaria a
-   * escolha dela, não a do modelo.
-   */
-  const [sugestao, setSugestao] = useState<SugestaoDeSemantica | null>(null);
-  const [motivoSemSugestao, setMotivoSemSugestao] = useState<string | null>(null);
-  const [antes, setAntes] = useState<CamposDaSemantica | null>(null);
-
-  const atual: CamposDaSemantica = { unit, periodicity, aggregation, isMonetary };
-
-  const aplicar = (campos: CamposDaSemantica) => {
-    setUnit(campos.unit);
-    setPeriodicity(campos.periodicity);
-    setAggregation(campos.aggregation);
-    setIsMonetary(campos.isMonetary);
+  const campo: CampoEmConfirmacao = {
+    meaningCode: detail.meaningCode,
+    unit: detail.unit,
+    periodicity: detail.periodicity,
+    aggregation: detail.aggregation,
+    isMonetary: detail.isMonetary,
+    taxonomyCode: detail.taxonomyCode,
+    semanticsStatus: detail.semanticsStatus,
+    dataType: detail.dataType,
+    history: detail.history,
   };
 
-  const sugerir = useMutation({
+  /*
+    O significado abre preenchido com o que já se sabe — gravado, ou lido de
+    volta dos quatro campos técnicos de quem foi curado antes desta tela
+    existir. É o que impede a mudança de interface de parecer, para quem opera,
+    perda da curadoria de 10/08/2026.
+  */
+  const jaSabido = significadoAtual(campo, catalogo);
+  const [meaningCode, setMeaningCode] = useState<string | null>(
+    detail.meaningCode ?? null,
+  );
+  const [taxonomyCode, setTaxonomyCode] = useState<string | null>(
+    detail.taxonomyCode ?? null,
+  );
+  const [periodicity, setPeriodicity] = useState<string | null>(detail.periodicity);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [erroDoCadastro, setErroDoCadastro] = useState<string | null>(null);
+  const [verAnalise, setVerAnalise] = useState(false);
+
+  /*
+    A leitura por IA continua existindo — o que mudou é onde ela cai.
+
+    Antes ela preenchia quatro selects técnicos. Agora ela responde nos mesmos
+    quatro campos (é o vocabulário do modelo, e trocá-lo é outra entrega), e é a
+    **autoridade** que traduz a resposta em significado: `significadoPara` é a
+    mesma função que o servidor usa para reler semântica antiga. O modelo não
+    ganhou voto sobre unidade nem agregação; ele opina sobre o campo, e a
+    tradução é uma só.
+
+    Categoria e justificativa continuam fora do alcance dela, e por motivos
+    diferentes: a categoria não se lê no número, e a justificativa é o que vai
+    assinado.
+  */
+  const [sugestao, setSugestao] = useState<SugestaoDeSemantica | null>(null);
+  const [motivoSemSugestao, setMotivoSemSugestao] = useState<string | null>(null);
+  const [antes, setAntes] = useState<{
+    meaningCode: string | null;
+    periodicity: string | null;
+  } | null>(null);
+
+  const sugerirComIA = useMutation({
     mutationFn: async () => {
       const response = await fetch(
         getApiUrl(`/curation/attributes/${detail.code}/semantica/sugestao`),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          /*
-            Corpo vazio: o servidor lê o nome e a fórmula guardados. O card
-            "Significado" fica acima e às vezes está digitado e não salvo, mas o
-            texto dele mora em outro componente — e a evidência que decide aqui
-            não é ele, são os valores importados, que só o servidor tem.
-          */
           body: JSON.stringify({}),
         },
       );
@@ -706,222 +687,448 @@ function ConfirmarSemantica({
         return;
       }
       setMotivoSemSugestao(null);
-      setAntes(atual);
+      setAntes({ meaningCode, periodicity });
       setSugestao(body.sugestao);
-      /*
-        Campo indefinido não é preenchido — nem apagado. O modelo responder
-        "não sei" sobre periodicidade é o desfecho mais comum e mais correto que
-        existe aqui, e sobrescrever com vazio o que a pessoa já tinha escolhido
-        transformaria a franqueza dele em perda de trabalho dela.
-      */
-      aplicar({
-        unit: body.sugestao.unidade ?? unit,
-        periodicity: body.sugestao.periodicidade ?? periodicity,
-        aggregation: body.sugestao.agregacao ?? aggregation,
-        isMonetary: body.sugestao.ehMonetario ?? isMonetary,
+
+      const lido = significadoPara({
+        unit: body.sugestao.unidade,
+        periodicity: body.sugestao.periodicidade,
+        aggregation: body.sugestao.agregacao,
+        isMonetary: body.sugestao.ehMonetario,
       });
+      // Campo que o modelo não soube não apaga o que a pessoa já escolheu — a
+      // franqueza dele não pode custar o trabalho dela.
+      if (lido) setMeaningCode(lido.code);
+      if (body.sugestao.periodicidade) setPeriodicity(body.sugestao.periodicidade);
     },
   });
 
   /*
-    O que a sugestão deixou nos campos, para saber se ela ainda está lá. É
-    recalculado com o mesmo critério do `aplicar` acima — inclusive o "campo
-    indefinido não mexe", que é o que impede o `Desfazer` de sumir só porque o
-    modelo não opinou sobre um dos quatro.
+    A pré-seleção pela leitura de volta espera o catálogo chegar — e só age
+    enquanto ninguém escolheu nada. Sobrescrever depois apagaria a escolha de
+    quem está na tela por causa de uma resposta de rede que chegou tarde.
   */
-  const comoASugestaoDeixou: CamposDaSemantica | null =
-    sugestao && antes
-      ? {
-          unit: sugestao.unidade ?? antes.unit,
-          periodicity: sugestao.periodicidade ?? antes.periodicity,
-          aggregation: sugestao.agregacao ?? antes.aggregation,
-          isMonetary: sugestao.ehMonetario ?? antes.isMonetary,
-        }
-      : null;
-  const podeDesfazer =
-    comoASugestaoDeixou !== null &&
-    comoASugestaoDeixou.unit === unit &&
-    comoASugestaoDeixou.periodicity === periodicity &&
-    comoASugestaoDeixou.aggregation === aggregation &&
-    comoASugestaoDeixou.isMonetary === isMonetary;
+  useEffect(() => {
+    if (meaningCode === null && jaSabido) setMeaningCode(jaSabido.code);
+  }, [jaSabido, meaningCode]);
+
+  const escolhas: Escolhas = {
+    meaningCode,
+    taxonomyCode,
+    periodicity,
+    justificativa: reason,
+  };
+  const escolhido = catalogo.find((o) => o.code === meaningCode) ?? null;
+  const categoriaEscolhida = categorias.find((c) => c.code === taxonomyCode) ?? null;
+  const quadro = resumo(campo, escolhas, catalogo);
+  const falta = oQueFalta(escolhas, catalogo);
+  const pedePeriodo = precisaDoPeriodo(escolhas, catalogo);
+
+  const confirm = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(
+        getApiUrl(`/curation/attributes/${detail.code}/confirm`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          /*
+            Só o significado, a categoria e — quando o significado deixa o
+            período em aberto — o período. Unidade, agregação e natureza
+            monetária não sobem: elas são derivadas no servidor, e mandá-las
+            daqui reabriria pela API a porta que esta tela fechou.
+
+            `actor` continua não indo: quem assina é a sessão.
+          */
+          body: JSON.stringify({
+            meaningCode,
+            periodicity: pedePeriodo ? periodicity : undefined,
+            taxonomyCode: taxonomyCode ?? undefined,
+            reason,
+          }),
+        },
+      );
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Falha ao confirmar");
+      return body;
+    },
+    onSuccess: () => {
+      setError(null);
+      onConfirmed();
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  /** Cadastrar um significado sem sair daqui. Ver `ComboboxCriavel`. */
+  const criarSignificadoInline = async (
+    label: string,
+  ): Promise<OpcaoDeSignificado | null> => {
+    setErroDoCadastro(null);
+    const response = await fetch(getApiUrl("/curation/significados"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label }),
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      setErroDoCadastro(body.error ?? "Não consegui cadastrar este significado.");
+      return null;
+    }
+    // `JA_EXISTE` não é erro: quem clicou queria aquilo escolhido no campo, e é
+    // o que acontece. A frase explica por que o rótulo mudou de "R$/litro" para
+    // "R$ por litro" debaixo do dedo dela.
+    if (body.desfecho === "JA_EXISTE") setErroDoCadastro(body.mensagem);
+    await queryClient.invalidateQueries({ queryKey: ["curation", "significados"] });
+    return body.item as OpcaoDeSignificado | null;
+  };
+
+  const criarCategoriaInline = async (
+    name: string,
+  ): Promise<OpcaoDeCategoria | null> => {
+    setErroDoCadastro(null);
+    const response = await fetch(getApiUrl("/curation/categorias"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      setErroDoCadastro(body.error ?? "Não consegui cadastrar esta categoria.");
+      return null;
+    }
+    if (body.desfecho === "JA_EXISTE") setErroDoCadastro(body.mensagem);
+    await queryClient.invalidateQueries({ queryKey: ["curation", "categorias"] });
+    return body.item as OpcaoDeCategoria | null;
+  };
+
+  const vigencia = vigenciaDoDado(detail.history);
 
   return (
     <Card>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
-            <CardTitle className="text-base">Confirmar semântica</CardTitle>
+            <CardTitle className="text-base">
+              Confirmar interpretação do campo
+            </CardTitle>
             <p className="text-xs text-muted-foreground">
-              Uma confirmação é um ato seu, com nome e justificativa. O banco
-              recusa qualquer outra coisa. No canto, a IA lê os valores
-              importados e preenche um palpite — que você revisa, corrige ou
-              desfaz.
+              A IA analisou os dados e preencheu o que conseguiu. Revise os itens
+              abaixo antes de confirmar.
             </p>
           </div>
-          {/* O ícone fica no canto porque é o que ele é: um atalho para o
-              trabalho de olhar a tabela de valores, e não o caminho principal
-              desta tela. */}
           <Button
             variant="outline"
             size="icon"
             className="shrink-0"
-            onClick={() => sugerir.mutate()}
-            disabled={sugerir.isPending}
-            aria-label="Sugerir a semântica com IA, a partir dos valores importados"
-            title="Sugerir com IA, a partir dos valores importados"
+            onClick={() => sugerirComIA.mutate()}
+            disabled={sugerirComIA.isPending}
+            aria-label="Reler os valores importados com IA"
+            title="Reler os valores importados com IA"
           >
-            <Sparkles className={cn("h-4 w-4", sugerir.isPending && "animate-pulse")} />
+            <Sparkles
+              className={cn("h-4 w-4", sugerirComIA.isPending && "animate-pulse")}
+            />
           </Button>
         </div>
       </CardHeader>
-      <CardContent className="space-y-4">
-        {sugerir.isError && (
-          <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-            {sugerir.error.message}
-          </p>
-        )}
 
-        {motivoSemSugestao && (
-          <p className="text-sm text-muted-foreground bg-muted/40 border rounded-md px-3 py-2">
-            {MOTIVO_SEM_SUGESTAO[motivoSemSugestao] ?? MOTIVO_SEM_SUGESTAO.ERRO}
-          </p>
-        )}
+      <CardContent className="space-y-6">
+        {/* 1. Resumo — o que já se sabe de um lado, o que falta do outro. Uma
+            lista única faria a pessoa ler tudo para descobrir onde ela entra. */}
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+          <Resumo
+            titulo="IA identificou"
+            itens={quadro.identificado}
+            tone="good"
+            vazio="Nada foi identificado a partir dos valores."
+          />
+          <Resumo
+            titulo="Falta confirmar"
+            itens={quadro.faltaConfirmar}
+            tone="warn"
+            vazio="Nada — está tudo preenchido."
+          />
+        </div>
 
-        {sugestao && <LeituraDaIA sugestao={sugestao} />}
-
-        {podeDesfazer && antes && (
-          <div className="flex items-center gap-3">
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              onClick={() => {
-                aplicar(antes);
-                setSugestao(null);
-                setAntes(null);
-              }}
-            >
-              <Undo2 className="h-3.5 w-3.5" />
-              Desfazer
-            </Button>
-            <p className="text-xs text-muted-foreground">
-              Os campos abaixo estão como a IA os deixou. Revise antes de
-              confirmar.
-            </p>
+        {/* 2. O que a IA entendeu. Curto, e com o textão recolhido atrás de uma
+            ação secundária: a análise completa é útil e não pode dominar a
+            tela que existe para receber duas respostas. */}
+        {detail.semanticsRationale && (
+          <div className="rounded-md border bg-muted/40 px-3 py-3 space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              O que a IA entendeu
+            </div>
+            <p className="text-sm">{entendimentoCurto(detail, jaSabido)}</p>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs"
+                onClick={() => setVerAnalise((v) => !v)}
+              >
+                {verAnalise ? "Ocultar análise completa" : "Ver análise completa da IA"}
+              </Button>
+              {/* O `Desfazer` só existe enquanto os campos ainda contêm o que a
+                  IA deixou. Depois de a pessoa mexer, restaurar apagaria a
+                  escolha dela, e não a do modelo. */}
+              {antes &&
+                sugestao &&
+                (antes.meaningCode !== meaningCode ||
+                  antes.periodicity !== periodicity) && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => {
+                      setMeaningCode(antes.meaningCode);
+                      setPeriodicity(antes.periodicity);
+                      setSugestao(null);
+                      setAntes(null);
+                    }}
+                  >
+                    <Undo2 className="h-3.5 w-3.5" />
+                    Desfazer a leitura da IA
+                  </Button>
+                )}
+            </div>
+            {verAnalise && (
+              <p className="whitespace-pre-line border-t pt-2 text-sm text-muted-foreground">
+                {detail.semanticsRationale}
+              </p>
+            )}
+            {sugerirComIA.isError && (
+              <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {sugerirComIA.error.message}
+              </p>
+            )}
+            {motivoSemSugestao && (
+              <p className="text-sm text-muted-foreground">
+                {MOTIVO_SEM_SUGESTAO[motivoSemSugestao] ?? MOTIVO_SEM_SUGESTAO.ERRO}
+              </p>
+            )}
+            {sugestao && <LeituraDaIA sugestao={sugestao} />}
           </div>
         )}
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <Field label="Unidade">
-            <Select value={unit} onValueChange={setUnit}>
-              <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
-              <SelectContent>
-                {UNITS.map(([code, meaning]) => (
-                  <SelectItem key={code} value={code}>
-                    <span className="font-mono">{code}</span>
-                    <span className="text-muted-foreground"> · {meaning}</span>
-                  </SelectItem>
+        {/* 3. Confirmado pela IA — só o que já se sabe. "Pode ser somado entre
+            veículos?" saiu daqui de propósito: a agregação é consequência da
+            semântica, e não uma pergunta nem uma resposta a exibir. */}
+        <div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Confirmado pela IA
+          </div>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Metric label="Vigência do dado" value={vigencia ?? "—"} />
+            <Metric
+              label="Natureza do campo"
+              value={
+                jaSabido?.isMonetary === true || jaSabido?.unit?.startsWith("BRL")
+                  ? "Valor financeiro"
+                  : jaSabido
+                    ? leituraDe(jaSabido).natureza
+                    : "—"
+              }
+            />
+          </div>
+        </div>
+
+        {/* 4. As duas perguntas. */}
+        <div className="space-y-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Precisa da sua confirmação
+          </div>
+
+          <Field
+            label="O que este valor representa?"
+            hint="Escolha a interpretação econômica do valor. O FreightCheck deriva os campos técnicos automaticamente."
+          >
+            <ComboboxCriavel
+              itens={catalogo}
+              valor={escolhido}
+              aoEscolher={(item) => {
+                setMeaningCode(item.code);
+                setErroDoCadastro(null);
+              }}
+              aoCriar={criarSignificadoInline}
+              rotuloDe={(item) => item.label}
+              chaveDe={(item) => item.code}
+              detalheDe={(item) => leituraDe(item).natureza}
+              previaDe={(texto) =>
+                previaDaCriacao(texto)?.natureza ??
+                "Não consegui entender esse formato — tente “R$ por hora”, “Percentual” ou “Quantidade”."
+              }
+              placeholder="Pesquisar ou cadastrar…"
+              erro={erroDoCadastro}
+            />
+            {escolhido && (
+              // A consequência da escolha, dita antes de confirmar. É onde a
+              // regra de agregação aparece — como leitura, nunca como campo.
+              <p className="text-xs text-muted-foreground">
+                {leituraDe(escolhido).agregacao}
+              </p>
+            )}
+          </Field>
+
+          {pedePeriodo && (
+            <Field
+              label="De quanto em quanto tempo este valor é pago?"
+              hint="Este significado é dinheiro que se acumula, e não diz de que período. Sem isso não há em que total colocá-lo."
+            >
+              <div className="space-y-1.5">
+                {PERIODOS_EM_ABERTO.map((opcao) => (
+                  <label
+                    key={opcao.periodicity}
+                    className="flex cursor-pointer items-start gap-2 rounded-md border px-3 py-2 text-sm hover:bg-muted/50"
+                  >
+                    <input
+                      type="radio"
+                      name="periodo"
+                      className="mt-1"
+                      checked={periodicity === opcao.periodicity}
+                      onChange={() => setPeriodicity(opcao.periodicity)}
+                    />
+                    <span>
+                      <span className="font-medium">{opcao.rotulo}</span>
+                      <span className="block text-xs text-muted-foreground">
+                        {opcao.ajuda}
+                      </span>
+                    </span>
+                  </label>
                 ))}
-              </SelectContent>
-            </Select>
+              </div>
+            </Field>
+          )}
+
+          <Field
+            label="Categoria"
+            hint="Onde este valor entra na conta. Pesquise ou cadastre uma nova."
+          >
+            <ComboboxCriavel
+              itens={categorias}
+              valor={categoriaEscolhida}
+              aoEscolher={(item) => {
+                setTaxonomyCode(item.code);
+                setErroDoCadastro(null);
+              }}
+              aoCriar={criarCategoriaInline}
+              rotuloDe={(item) => item.caminho}
+              detalheDe={(item) => classeDaCategoria(item)}
+              previaDe={() =>
+                "Entra como categoria nova, ainda sem classe de custo — ela não se lê no nome. " +
+                "Você decide isso em Categorias, e até lá as colunas dela ficam fora dos totais de custo fixo e variável."
+              }
+              rotuloDeCriacao={(texto) => `Criar categoria “${texto}”`}
+              placeholder="Pesquisar ou cadastrar…"
+              erro={erroDoCadastro}
+            />
           </Field>
 
           <Field
-            label="Periodicidade"
-            hint="A passada automática nunca propõe: ela lê o nome da coluna, e os nomes deste export não são confiáveis. A sugestão do canto lê os valores, e ainda assim costuma responder que não sabe — periodicidade quase nunca se lê num número."
+            label="Por que você está confirmando isso?"
+            hint={`Essa justificativa ficará registrada no histórico com sua assinatura (${signedInAs}).`}
           >
-            <Select value={periodicity} onValueChange={setPeriodicity}>
-              <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
-              <SelectContent>
-                {PERIODICITIES.map((p) => (
-                  <SelectItem key={p} value={p}>{p}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-
-          <Field label="Agregação">
-            <Select value={aggregation} onValueChange={setAggregation}>
-              <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
-              <SelectContent>
-                {AGGREGATIONS.map(([code, meaning]) => (
-                  <SelectItem key={code} value={code}>
-                    <span className="font-mono">{code}</span>
-                    <span className="text-muted-foreground"> · {meaning}</span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-
-          <Field label="Nó da taxonomia">
-            <Select value={taxonomyCode} onValueChange={setTaxonomyCode}>
-              <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
-              <SelectContent>
-                {taxonomy
-                  .filter((n) => n.depth > 0)
-                  .map((n) => (
-                    <SelectItem key={n.code} value={n.code}>
-                      {"— ".repeat(Math.max(0, n.depth - 1))}
-                      {n.name}
-                    </SelectItem>
-                  ))}
-              </SelectContent>
-            </Select>
+            <Textarea
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="Ex.: Conforme a tabela de remuneração enviada, este valor representa R$ por litro e pertence à categoria combustível."
+              rows={2}
+            />
           </Field>
         </div>
 
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={isMonetary}
-            onChange={(e) => setIsMonetary(e.target.checked)}
-            className="rounded border-input"
-          />
-          É um montante financeiro (entra em somas)
-        </label>
-
-        <Field
-          label="Justificativa"
-          hint={`Vai para o histórico assinada por ${signedInAs}. É o único campo que a IA não preenche: o que ela escreveu fica na caixa acima, e o que vai assinado é o que você escrever aqui.`}
-        >
-          <Textarea
-            value={reason}
-            onChange={(e) => setReason(e.target.value)}
-            placeholder="Com base em quê você está confirmando isso?"
-            rows={2}
-          />
-        </Field>
-
-        {blocked && (
-          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-            Atributo monetário exige unidade, periodicidade e agregação. Sem
-            os três, somar isso é adivinhação.
+        {/* 8. Estado incompleto — dito por extenso, e não por um botão cinza
+            que não explica o que falta. */}
+        {falta && (
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+            {falta}
           </p>
         )}
         {error && (
-          <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+          <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
             {error}
           </p>
         )}
 
         <Button
           onClick={() => confirm.mutate()}
-          disabled={confirm.isPending || !reason.trim() || blocked}
+          disabled={confirm.isPending || !podeConfirmar(escolhas, catalogo)}
         >
-          {confirm.isPending ? "Confirmando…" : "Confirmar semântica"}
+          {confirm.isPending ? "Confirmando…" : "Confirmar interpretação"}
         </Button>
       </CardContent>
     </Card>
   );
 }
 
-/** Os quatro campos que a sugestão pode mexer — e que o `Desfazer` restaura. */
-interface CamposDaSemantica {
-  unit: string;
-  periodicity: string;
-  aggregation: string;
-  isMonetary: boolean;
+/** Uma coluna do quadro-resumo. Sem item, diz que não há — nunca fica vazia. */
+function Resumo({
+  titulo,
+  itens,
+  tone,
+  vazio,
+}: {
+  titulo: string;
+  itens: string[];
+  tone: "good" | "warn";
+  vazio: string;
+}) {
+  return (
+    <div className="rounded-md border px-3 py-2">
+      <div
+        className={cn(
+          "text-xs font-semibold uppercase tracking-wide",
+          tone === "good" ? "text-emerald-700" : "text-amber-700",
+        )}
+      >
+        {titulo}
+      </div>
+      {itens.length === 0 ? (
+        <p className="mt-1 text-sm text-muted-foreground">{vazio}</p>
+      ) : (
+        <ul className="mt-1 space-y-0.5 text-sm">
+          {itens.map((item, indice) => (
+            <li key={indice} className="flex items-start gap-1.5">
+              <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-current opacity-40" />
+              {item}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * "O que a IA entendeu", em duas frases.
+ *
+ * Escrito daqui, e não copiado de `semanticsRationale`: aquele texto é a
+ * justificativa técnica do motor — cita unidade, agregação e classe da
+ * taxonomia — e é exatamente o vocabulário que esta tela deixou de expor. Ele
+ * continua inteiro, atrás de "Ver análise completa".
+ *
+ * A segunda frase é a mais importante da tela e é uma confissão: dizer o que a
+ * IA **não** conseguiu decidir é o que evita a confirmação por inércia de um
+ * palpite plausível.
+ */
+function entendimentoCurto(
+  detail: AttributeDetail,
+  significado: OpcaoDeSignificado | null,
+): string {
+  const nome = detail.displayName ?? detail.sourceName;
+  const entidade = detail.entityType.toLowerCase();
+
+  const primeira = significado
+    ? `Este campo parece representar ${leituraDe(significado).natureza.toLowerCase().replace(/\.$/, "")} por ${entidade}.`
+    : `Não foi possível ler, a partir dos valores, que grandeza "${nome}" mede.`;
+
+  if (detail.semanticsStatus === "CONFIRMED") {
+    return `${primeira} A interpretação já foi confirmada; alterá-la exige uma nova justificativa assinada.`;
+  }
+
+  return (
+    `${primeira} Não foi possível identificar o significado econômico exato do valor — por exemplo, se ` +
+    `representa R$ por litro, R$ por km, R$ por mês, um valor total ou outro formato — nem a qual ` +
+    `categoria ele pertence.`
+  );
 }
 
 interface SugestaoDeSemantica {

@@ -24,6 +24,7 @@ import DREVeiculo from '@/pages/dre-veiculo';
 import ApresentacaoVideo from '@/components/video/ApresentacaoVideo';
 import AnaliseEquipamentos from '@/pages/analise-equipamentos';
 import Curadoria from '@/pages/curadoria';
+import Categorias from '@/pages/categorias';
 import BookOperador from '@/pages/book-operador';
 import Assistente from '@/pages/assistente';
 import Vigencias from '@/pages/vigencias';
@@ -141,6 +142,7 @@ function Router() {
       <Route path="/balanco-massa" component={BalancoMassa} />
       <Route path="/analise-equipamentos" component={AnaliseEquipamentos} />
       <Route path="/curadoria" component={Curadoria} />
+      <Route path="/categorias" component={Categorias} />
       <Route path="/vigencias" component={Vigencias} />
       <Route path="/versoes" component={Versoes} />
       <Route path="/unidades" component={Unidades} />

@@ -232,6 +232,7 @@ export async function getVisaoDeFrota(
         variacao: calcularVariacao(mensal, mensalAnterior),
         integridade: composicao.integridade,
         anteriorPresente,
+        naoApurados: composicao.naoApurados,
       }),
     });
   }

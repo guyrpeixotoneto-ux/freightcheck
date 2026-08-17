@@ -27,7 +27,7 @@ Nada aqui é modelagem financeira nova. O módulo é uma leitura do canônico.
 | `attributeLabel` / `equipmentLabel` | `lib/comparison/labels` | O vocabulário de leitura, um só no produto inteiro. |
 | `placementOf` (famílias Freightech) | `lib/comparison/families` | Agrupamento alternativo na aba Parâmetros. |
 | `computeChangeSet` / `listChanges` | `lib/comparison/engine`, `query` | A aba Alterações **lê** o motor de comparação; não o reimplementa. |
-| `CONFIRMED_SEMANTICS` | `lib/curation/confirmations` | O portão: só CONFIRMADA entra em total. |
+| `CONFIRMED_SEMANTICS` | `lib/db/semantica-confirmada` (reexportado por `lib/curation/confirmations`) | O portão: só CONFIRMADA entra em total. Aplicado pela **promoção**, na mesma transação de `garantirSemanticaInicial` — antes só a curadoria o aplicava, e uma planilha importada pela tela chegava aqui sem significado nenhum. |
 | Taxonomia, `raw_cell`, proveniência | F0/F1 | Categoria e rastreabilidade célula a célula. |
 
 **Uma tabela nova: nenhuma. Uma migration nova: nenhuma.**

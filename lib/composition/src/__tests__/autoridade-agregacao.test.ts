@@ -157,7 +157,8 @@ describe("as leituras que passam por SQL obedecem à mesma decisão", () => {
         ("aggregation" IS NULL OR "aggregation" IN ('SUM', 'AVG', 'NONE'))
         AND NOT ("data_type" IN ('TEXT', 'BOOLEAN', 'DATE', 'MIXED', 'UNKNOWN')
                  AND "aggregation" IS NOT NULL AND "aggregation" <> 'NONE')
-        AND NOT ("unit" IN ('KM_L', 'BRL_KM', 'PERCENT') AND "aggregation" = 'SUM')
+        AND NOT (("unit" = 'KM_L' OR "unit" = 'PERCENT' OR "unit" LIKE 'BRL\\_%')
+                 AND "aggregation" = 'SUM')
         AND NOT ("is_monetary" IS TRUE AND "unit" IS NOT NULL AND "unit" <> 'BRL')
       ) NOT VALID
     `);
@@ -264,23 +265,61 @@ describe("nenhum consumidor reescreve a regra", () => {
     },
   );
 
-  it("as telas oferecem exatamente as agregações que o banco aceita", () => {
+  it("a tela que ainda oferece agregação oferece exatamente as que o banco aceita", () => {
     /*
       A lista da tela e a da autoridade são a mesma lista, e a constraint da
       0023 é a terceira cópia — só que inescapável. Oferecer no formulário um
       valor que o banco recusa transforma uma regra em erro 422 na cara do
       curador, que foi o que aconteceria se WEIGHTED_AVG tivesse ficado.
+
+      Sobrou uma tela: `versoes.tsx`, que corrige uma versão passada ou registra
+      que a fonte mudou a regra. Ali o campo técnico é o objeto do ato, e não um
+      detalhe que alguém tenha de derivar de cabeça.
     */
-    for (const arquivo of [
-      "artifacts/freightaudit/src/pages/curadoria.tsx",
-      "artifacts/freightaudit/src/pages/versoes.tsx",
-    ]) {
-      const fonte = readFileSync(path.join(raiz, arquivo), "utf8");
-      const inicio = fonte.indexOf("const AGGREGATIONS");
-      const bloco = fonte.slice(inicio, fonte.indexOf("];", inicio));
-      const oferecidas = [...bloco.matchAll(/"([A-Z_]+)"/g)].map((m) => m[1]);
-      expect(oferecidas.sort()).toEqual([...AGREGACOES].sort());
+    const fonte = readFileSync(
+      path.join(raiz, "artifacts/freightaudit/src/pages/versoes.tsx"),
+      "utf8",
+    );
+    const inicio = fonte.indexOf("const AGGREGATIONS");
+    const bloco = fonte.slice(inicio, fonte.indexOf("];", inicio));
+    const oferecidas = [...bloco.matchAll(/"([A-Z_]+)"/g)].map((m) => m[1]);
+    expect(oferecidas.sort()).toEqual([...AGREGACOES].sort());
+  });
+
+  /**
+   * A tela de confirmação não oferece agregação nenhuma — e isso é a regra, não
+   * uma omissão.
+   *
+   * A agregação passou a ser **consequência** do significado econômico: quem diz
+   * "R$ por litro" já disse que aquilo não soma entre veículos, e quem diz
+   * "R$ por mês" já disse que soma. Reabrir o campo no formulário devolveria à
+   * pessoa a chance de contradizer o que ela acabou de afirmar — que é a porta
+   * por onde `KM_L + SUM + is_monetary` entrou da primeira vez.
+   *
+   * A guarda é por ausência do vocabulário técnico na tela: nem lista de
+   * agregações, nem lista de periodicidades, nem lista de unidades. O que ela
+   * manda ao servidor é `meaningCode`, e a derivação é do servidor.
+   */
+  it("a tela de confirmação não oferece agregação, unidade nem periodicidade", () => {
+    const fonte = readFileSync(
+      path.join(raiz, "artifacts/freightaudit/src/pages/curadoria.tsx"),
+      "utf8",
+    );
+    const semComentarios = fonte
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+
+    expect(semComentarios).not.toMatch(/const AGGREGATIONS/);
+    expect(semComentarios).not.toMatch(/const UNITS/);
+    expect(semComentarios).not.toMatch(/const PERIODICITIES/);
+    for (const literal of ["SUM", "AVG", "NONE", "BRL_KM", "KM_L"]) {
+      expect(
+        semComentarios,
+        `a tela de confirmação voltou a citar "${literal}" — a derivação é do servidor`,
+      ).not.toMatch(new RegExp(`["']${literal}["']`));
     }
+    // E o que ela manda é o significado.
+    expect(semComentarios).toMatch(/meaningCode/);
   });
 
   it("a tela do impacto não reescreve a régua: recebe o motivo pronto", () => {

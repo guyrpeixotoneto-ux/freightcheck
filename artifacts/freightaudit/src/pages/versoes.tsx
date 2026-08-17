@@ -34,7 +34,18 @@ import { cn } from "@/lib/utils";
  * correction has none — it applies to the whole stretch.
  */
 
-const UNITS = ["BRL", "BRL_KM", "KM_L", "PERCENT", "KM", "LITROS", "MESES", "ANO", "QTD"];
+/**
+ * As unidades que o modelo sempre teve.
+ *
+ * Esta tela edita campo técnico de propósito — ela corrige uma versão passada
+ * ou registra que a fonte mudou a regra, e nas duas o que se escreve é o estado
+ * daquele trecho da série. Mas a lista deixou de ser toda a verdade desde que a
+ * unidade passa a ser derivada do significado econômico: `R$ por litro` produz
+ * `BRL_LITRO`, e a operação cadastra a base que ela usa. Por isso a lista é
+ * unida com as unidades que o cadastro de significados já produziu — sem isso,
+ * uma versão em `BRL_LITRO` seria impossível de corrigir por esta tela.
+ */
+const UNITS_BASE = ["BRL", "BRL_KM", "KM_L", "PERCENT", "KM", "LITROS", "MESES", "ANO", "QTD"];
 const PERIODICITIES = ["MENSAL", "ANUAL", "PONTUAL"];
 /* WEIGHTED_AVG saiu: ver a nota em curadoria.tsx e a constraint da 0023. */
 const AGGREGATIONS = ["SUM", "AVG", "NONE"];
@@ -356,13 +367,32 @@ function useSemanticsFields(current: SemanticsVersion) {
 }
 
 function SemanticsFields({ f }: { f: ReturnType<typeof useSemanticsFields> }) {
+  /*
+    O cadastro de significados é consultado só pelas unidades que ele produziu.
+    Falha de rede não derruba a tela: sem resposta, sobra a lista de sempre, que
+    é o que esta tela sempre ofereceu.
+  */
+  const { data: significados = [] } = useQuery({
+    queryKey: ["curation", "significados"],
+    queryFn: () => fetchJson<{ unit: string | null }[]>("/curation/significados"),
+  });
+  const units = [
+    ...new Set([
+      ...UNITS_BASE,
+      ...significados.map((s) => s.unit).filter((u): u is string => Boolean(u)),
+      // A unidade que já está gravada nesta versão entra sempre: uma opção que
+      // some do select apagaria o valor atual no primeiro salvamento.
+      ...(f.unit ? [f.unit] : []),
+    ]),
+  ];
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
       <Field label="Unidade">
         <Select value={f.unit} onValueChange={f.setUnit}>
           <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
           <SelectContent>
-            {UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+            {units.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
           </SelectContent>
         </Select>
       </Field>

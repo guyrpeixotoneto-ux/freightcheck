@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "c=$(jq -r '.tool_input.command // \"\"'); printf '%s' \"$c\" | grep -qE 'git[^|;&]*(commit|merge|rebase|revert|cherry-pick|[[:space:]]am([[:space:]]|$))' || exit 0; cd \"${CLAUDE_PROJECT_DIR:-$PWD}\" || exit 0; if out=$(pnpm run typecheck 2>&1); then exit 0; fi; { echo 'O typecheck reprovou, então este commit foi bloqueado antes de o git rodar. Conserte os erros abaixo e comite de novo — não reaproveite um typecheck anterior da sessão.'; printf '%s\\n' \"$out\" | grep -E 'error TS|ERR_PNPM|Failed' | head -20; } >&2; exit 2",
+            "command": "c=$(jq -r '.tool_input.command // \"\"'); printf '%s' \"$c\" | grep -qE -- '--abort|--quit' && exit 0; printf '%s' \"$c\" | grep -qE 'git[^|;&]*(commit|merge|rebase|revert|cherry-pick|[[:space:]]am([[:space:]]|$))' || exit 0; cd \"${CLAUDE_PROJECT_DIR:-$PWD}\" || exit 0; if out=$(pnpm run typecheck 2>&1); then exit 0; fi; { echo 'O typecheck reprovou, então este commit foi bloqueado antes de o git rodar. Conserte os erros abaixo e comite de novo — não reaproveite um typecheck anterior da sessão.'; printf '%s\\n' \"$out\" | grep -E 'error TS|ERR_PNPM|Failed' | head -20; } >&2; exit 2",
             "timeout": 300,
             "statusMessage": "Conferindo os tipos antes do commit…"
           }

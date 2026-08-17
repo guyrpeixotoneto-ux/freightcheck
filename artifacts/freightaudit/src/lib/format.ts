@@ -70,6 +70,20 @@ export function formatBrlCompacto(value: number): string {
 export function formatValue(value: number | null, unit: string | null): string {
   if (value === null) return "—";
   if (unit === "BRL") return formatBrl(value);
+  /*
+    As unidades de taxa são derivadas do significado econômico, então a lista
+    acima não pode ser fechada: `R$ por litro` produz `BRL_LITRO`, `R$ por
+    viagem` produz `BRL_VIAGEM`, e amanhã a operação cadastra `R$ por pallet`.
+    Sem esta regra, `BRL_LITRO` sairia na tela como "3,66 brl_litro" — o
+    fallback genérico —, que é pior do que não formatar.
+
+    `BRL_KM` continua nomeado acima porque a abreviação dele é a que se usa;
+    a regra abaixo cobre todas as outras com a mesma forma.
+  */
+  if (unit !== null && unit.startsWith("BRL_")) {
+    const base = unit.slice("BRL_".length).toLowerCase().replace(/_/g, " ");
+    return `${formatNumber(value)} R$/${base}`;
+  }
   const suffix = unit === null ? "" : (UNIT_SUFFIX[unit] ?? ` ${unit.toLowerCase()}`);
   return `${formatNumber(value)}${suffix}`;
 }

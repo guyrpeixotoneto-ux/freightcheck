@@ -966,6 +966,7 @@ export async function montarComposicao(
       variacao: variacaoMensal,
       integridade,
       anteriorPresente: anteriorResumo?.presente ?? null,
+      naoApurados,
     }),
   };
 }

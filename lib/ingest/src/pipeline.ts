@@ -3,6 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
+  aplicarConfirmacoesCanonicas,
   garantirSemanticaInicial,
   attributeAliasTable,
   attributeTable,
@@ -1208,6 +1209,22 @@ export interface PromoteResult {
   entitiesCreated: number;
   attributesCreated: number;
   factsInserted: number;
+  /**
+   * O que o registro canônico de semânticas deixou aplicado nesta promoção.
+   *
+   * Sai na resposta da promoção porque uma aplicação silenciosa é
+   * indistinguível de nenhuma aplicação — foi assim que a ausência dela passou
+   * despercebida até a frota inteira aparecer sem remuneração apurada. Quem
+   * promove recebe quantas colunas entraram confirmadas e, nomeadamente, o que
+   * **não** entrou: o que diverge de uma confirmação humana e o que o tipo de
+   * dado deste arquivo contradiz. Ver `aplicarConfirmacoesCanonicas`.
+   */
+  semanticasConfirmadas: {
+    aplicadas: number;
+    jaConfirmadas: number;
+    divergentes: string[];
+    incoerentes: string[];
+  };
 }
 
 /**
@@ -1924,6 +1941,34 @@ export async function promote(
       */
       await garantirSemanticaInicial(tx as unknown as Database);
 
+      /*
+        E o significado que já é conhecido, na mesma transação.
+
+        A versão 1 nasce aqui desde a correção acima — e nascia dizendo "não
+        sei" sobre colunas cujo significado já estava decidido e escrito. O
+        registro de `CONFIRMED_SEMANTICS` existe desde 10/08/2026, com a
+        medição de cada entrada ao lado; o que não existia era um caminho de
+        produção que o aplicasse. Ele era chamado pelo `dev-seed`, pelo
+        `curate-report` e pelos testes — nenhum dos três é por onde um arquivo
+        da Ambev entra. Medido contra o export de agosto/2026: 62 cavalos com o
+        FINAME no banco e 62 cards lendo "não apurado", porque o portão do
+        motor exige semântica CONFIRMADA e ninguém a havia carimbado.
+
+        Aqui, e não numa rota nem num script, pelo mesmo argumento que trouxe
+        `garantirSemanticaInicial`: promover é o único ponto por onde todo
+        arquivo passa. Aplicar depois, fora da transação, deixaria uma janela em
+        que a frota inteira lê "não apurado" — e uma falha no meio deixaria a
+        base com metade da verdade, que é o estado que este bloco existe para
+        não produzir.
+
+        Isto **não decide semântica nenhuma**: replica decisões que uma pessoa
+        já tomou, e recusa-se a tocar em atributo que alguém confirmou de outro
+        jeito. O que ela deixa de fora volta no resultado, nomeado.
+      */
+      const confirmacoes = await aplicarConfirmacoesCanonicas(
+        tx as unknown as Database,
+      );
+
       // Um run em que **toda** vigência já existia idêntica não é uma promoção
       // vazia: é uma duplicata de dados, e o estado diz isso.
       const nadaEntrou = result.length === 0 && duplicadasPorDados.length > 0;
@@ -1945,6 +1990,12 @@ export async function promote(
         entitiesCreated,
         attributesCreated,
         factsInserted,
+        semanticasConfirmadas: {
+          aplicadas: confirmacoes.applied.length,
+          jaConfirmadas: confirmacoes.unchanged.length,
+          divergentes: confirmacoes.divergentes,
+          incoerentes: confirmacoes.incoerentes,
+        },
       };
     });
   } catch (err) {
