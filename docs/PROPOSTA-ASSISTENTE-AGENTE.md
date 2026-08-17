@@ -922,3 +922,34 @@ número que não responde à pergunta que foi feita. O desenho fica registrado; 
 implementação é o primeiro passo **depois** do veredito, e ela tem bateria
 própria — porque o que ela pode piorar (chamar `calcular` no lugar de consultar)
 não aparece na contagem de aprovações.
+
+---
+
+## 13. O custo de um branch longo, medido
+
+Duas vezes, a mesma migration colidiu com a `main`: nasceu `0023` e a `main`
+avançou com `0023_semantica_coerente`; virou `0025` e a `main` avançou com
+`0025_semantica_inicial`. Um branch que vive semanas colide com o próximo número
+livre toda vez que a fila anda — não é azar, é a taxa.
+
+O que interessa não é a colisão, que se resolve renumerando. É **o que a
+renumeração cobra em lugares que ninguém liga a ela**, e que só apareceu porque
+a suíte inteira foi rodada:
+
+| onde | como falhava | quem pega agora |
+| --- | --- | --- |
+| `_journal.json` | duas entradas no mesmo índice; o runner declara a fila em dia e pula uma em silêncio | `fila-de-migrations` (desde a 1ª vez) |
+| `meta/*_snapshot.json` | `id` duplicado, elo partido; `drizzle-kit generate` diferencia contra o estado errado | 2 casos novos |
+| `bridge.ts` | migration citada por nome numa string; plano de restauração inteiro falha, 11 casos, mensagem que não fala em renumeração | 1 caso novo |
+| `0024_reconciliar_bridge` | coluna criada **depois** da reconciliação vira buraco permanente após um `down` sem `up` | invariante generalizada + `0027` |
+| `canonical-identity-migration` | lista fixa de migrations aplicadas | atualizada |
+
+Os três últimos já estavam quebrados no branch **antes** desta fusão. Não foram
+causados por ela: foram revelados por rodar `pnpm -r run test`, que eu não havia
+feito desde a fusão anterior. Rodar a suíte do pacote em que se mexeu não é
+rodar a suíte.
+
+A conclusão prática, para o que resta desta migração: **fundir a `main` cedo e
+com frequência**, e rodar o monorepo inteiro a cada fusão. O trabalho do
+assistente não toca em migrations, e ainda assim foi a fila de migrations que
+consumiu a maior parte de duas sessões.
