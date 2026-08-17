@@ -570,7 +570,20 @@ export async function confirmAttribute(
       tx as unknown as Database,
       { id: attribute.id, code: attribute.code },
       { unit, periodicity, aggregation, isMonetary, meaningId, taxonomyNodeId },
-      { actor: input.actor, reason: input.reason },
+      /*
+        Confirmar é um ato: deixa rastro mesmo quando a importação já havia
+        replicado a mesma decisão e nenhum campo muda. Os campos são os que a
+        pessoa afirmou — o significado, quando ela confirmou por ele, e sempre o
+        estado, que é o que a palavra "confirmar" quer dizer.
+      */
+      {
+        actor: input.actor,
+        reason: input.reason,
+        camposDoAto:
+          input.meaningCode != null
+            ? ["semantics_status", "meaning_id"]
+            : ["semantics_status"],
+      },
     );
   });
 }

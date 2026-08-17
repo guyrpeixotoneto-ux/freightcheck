@@ -4,6 +4,7 @@ import {
   attributeSemanticsTable,
   attributeTable,
   curationEventTable,
+  semanticMeaningTable,
   taxonomyNodeTable,
 } from "./schema";
 
@@ -67,6 +68,22 @@ export interface ConfirmedSemantics {
   periodicity: Periodicity | null;
   aggregation: Aggregation;
   isMonetary: boolean;
+  /**
+   * O significado econômico que a decisão afirma — `montante_mes`,
+   * `proporcao`…
+   *
+   * **Declarado, e não deduzido.** A curadoria deriva os quatro campos acima a
+   * partir do significado escolhido na tela; aqui o caminho é o inverso, porque
+   * estas entradas foram escritas antes de o cadastro existir. Declará-lo
+   * mantém a decisão inteira num lugar só e evita que a importação precise da
+   * regra de derivação, que vive em `@workspace/curation` — deduzi-lo aqui
+   * seria uma segunda cópia dessa regra.
+   *
+   * Cada código tem de existir no cadastro (`semantic_meaning`), e o que ele
+   * declara sobre unidade e periodicidade tem de bater com os campos acima —
+   * `confirmations.test.ts` confere as duas coisas.
+   */
+  meaningCode?: string;
   taxonomyCode?: string;
   /** A pessoa que decidiu. Nunca um identificador de sistema. */
   confirmedBy: string;
@@ -81,6 +98,7 @@ export const CONFIRMED_SEMANTICS: ConfirmedSemantics[] = [
     periodicity: "MENSAL",
     aggregation: "SUM",
     isMonetary: true,
+    meaningCode: "montante_mes",
     taxonomyCode: "cf_frota_carreta",
     confirmedBy: "guyrpeixoto.neto@gmail.com",
     basis:
@@ -93,6 +111,7 @@ export const CONFIRMED_SEMANTICS: ConfirmedSemantics[] = [
     periodicity: null,
     aggregation: "NONE",
     isMonetary: false,
+    meaningCode: "proporcao",
     taxonomyCode: "cf_seguros_tributos",
     confirmedBy: "guyrpeixoto.neto@gmail.com",
     basis:
@@ -105,6 +124,7 @@ export const CONFIRMED_SEMANTICS: ConfirmedSemantics[] = [
     periodicity: null,
     aggregation: "NONE",
     isMonetary: false,
+    meaningCode: "proporcao",
     taxonomyCode: "cf_seguros_tributos",
     confirmedBy: "guyrpeixoto.neto@gmail.com",
     basis:
@@ -129,6 +149,7 @@ export const CONFIRMED_SEMANTICS: ConfirmedSemantics[] = [
     periodicity: "MENSAL" as const,
     aggregation: "SUM" as const,
     isMonetary: true,
+    meaningCode: "montante_mes",
     taxonomyCode,
     confirmedBy: "guyrpeixoto.neto@gmail.com",
     basis:
@@ -154,6 +175,7 @@ export const CONFIRMED_SEMANTICS: ConfirmedSemantics[] = [
     periodicity: "MENSAL" as const,
     aggregation: "SUM" as const,
     isMonetary: true,
+    meaningCode: "montante_mes",
     taxonomyCode,
     confirmedBy: "guyrpeixoto.neto@gmail.com",
     basis:
@@ -171,6 +193,7 @@ export const CONFIRMED_SEMANTICS: ConfirmedSemantics[] = [
     periodicity: "ANUAL",
     aggregation: "SUM",
     isMonetary: true,
+    meaningCode: "montante_ano",
     taxonomyCode: "cf_seguros_tributos",
     confirmedBy: "guyrpeixoto.neto@gmail.com",
     basis:
@@ -191,6 +214,7 @@ export const CONFIRMED_SEMANTICS: ConfirmedSemantics[] = [
     periodicity: "PONTUAL" as const,
     aggregation: "SUM" as const,
     isMonetary: true,
+    meaningCode: "montante_aquisicao",
     taxonomyCode,
     confirmedBy: "guyrpeixoto.neto@gmail.com",
     basis:
@@ -207,6 +231,7 @@ export const CONFIRMED_SEMANTICS: ConfirmedSemantics[] = [
     periodicity: "PONTUAL" as const,
     aggregation: "SUM" as const,
     isMonetary: true,
+    meaningCode: "montante_aquisicao",
     taxonomyCode,
     confirmedBy: "guyrpeixoto.neto@gmail.com",
     basis:
@@ -261,7 +286,30 @@ export async function gravarSemanticaConfirmada(
   db: Database,
   atributo: { id: string; code: string },
   semantica: SemanticaConfirmada,
-  autoria: { actor: string; reason: string; confirmedAt?: Date },
+  autoria: {
+    actor: string;
+    reason: string;
+    confirmedAt?: Date;
+    /**
+     * Sob que campos registrar o ato quando nenhum valor muda.
+     *
+     * A confirmação humana é um **ato**, e não um diff: alguém olhou a coluna e
+     * assinou embaixo. Quando a importação já havia replicado a mesma decisão
+     * canônica, os campos não mudam — e sem isto o ato não deixaria rastro
+     * nenhum, o que quebra a auditoria justamente no caso em que ela mais
+     * importa: quem foi a pessoa, e quando.
+     *
+     * Quem chama diz **quais** campos a pessoa afirmou, porque só ele sabe: a
+     * tela que confirma pelo significado afirma o significado; a confirmação
+     * campo a campo afirma o estado. O evento sai com antes e depois iguais, de
+     * propósito.
+     *
+     * A replicação do registro canônico deixa isto vazio: ela roda a cada
+     * importação, e um evento por arquivo recebido seria ruído afogando os atos
+     * de gente.
+     */
+    camposDoAto?: string[];
+  },
 ): Promise<{ camposAlterados: string[] }> {
   const [antes] = await db
     .select()
@@ -336,6 +384,30 @@ export async function gravarSemanticaConfirmada(
         isNull(attributeSemanticsTable.effectiveUntil),
       ),
     );
+
+  if (eventos.length === 0) {
+    const valorDe: Record<string, string | null> = {
+      semantics_status: alvo.semanticsStatus,
+      meaning_id: alvo.meaningId ?? null,
+      taxonomy_node_id: alvo.taxonomyNodeId,
+      unit: alvo.unit,
+      periodicity: alvo.periodicity,
+      aggregation: alvo.aggregation,
+    };
+    for (const campo of autoria.camposDoAto ?? []) {
+      const valor = valorDe[campo] ?? null;
+      eventos.push({
+        targetKind: "ATTRIBUTE",
+        targetId: atributo.id,
+        targetLabel: atributo.code,
+        field: campo,
+        valueBefore: valor,
+        valueAfter: valor,
+        actor: autoria.actor,
+        reason: autoria.reason,
+      });
+    }
+  }
 
   if (eventos.length > 0) await db.insert(curationEventTable).values(eventos);
 
@@ -413,6 +485,27 @@ export async function aplicarConfirmacoesCanonicas(
       continue;
     }
 
+    /*
+      O significado declarado, resolvido como o nó da taxonomia: por código, no
+      escopo global do cadastro. Numa base cuja migration ainda não semeou o
+      catálogo o código não existe, e aí o ponteiro fica como estava — a
+      semântica é aplicada do mesmo jeito, e a passada seguinte o completa.
+    */
+    let meaningId = attribute.meaningId;
+    if (entry.meaningCode) {
+      const [significado] = await db
+        .select({ id: semanticMeaningTable.id })
+        .from(semanticMeaningTable)
+        .where(
+          and(
+            eq(semanticMeaningTable.scopeType, "GLOBAL"),
+            eq(semanticMeaningTable.scopeCode, "*"),
+            eq(semanticMeaningTable.code, entry.meaningCode),
+          ),
+        );
+      if (significado) meaningId = significado.id;
+    }
+
     let taxonomyNodeId = attribute.taxonomyNodeId;
     if (entry.taxonomyCode) {
       const [node] = await db
@@ -430,7 +523,12 @@ export async function aplicarConfirmacoesCanonicas(
       attribute.aggregation === entry.aggregation &&
       attribute.isMonetary === entry.isMonetary;
 
-    if (jaConfirmado && mesmaSemantica && attribute.taxonomyNodeId === taxonomyNodeId) {
+    if (
+      jaConfirmado &&
+      mesmaSemantica &&
+      attribute.meaningId === meaningId &&
+      attribute.taxonomyNodeId === taxonomyNodeId
+    ) {
       unchanged.push(entry.code);
       continue;
     }
@@ -470,6 +568,7 @@ export async function aplicarConfirmacoesCanonicas(
         periodicity: entry.periodicity,
         aggregation: entry.aggregation,
         isMonetary: entry.isMonetary,
+        meaningId,
         taxonomyNodeId,
       },
       autoria,
