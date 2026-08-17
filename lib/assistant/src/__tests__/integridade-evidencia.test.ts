@@ -121,7 +121,44 @@ function semLastro(chamada: ChamadaDeFerramenta): string[] {
     }
     if (typeof v === "string") {
       // Datas em AAAA-MM-DD são referência de tempo; a trava as trata à parte.
-      vistos.push(...numerosDe(v.replace(/\b\d{4}-\d{2}-\d{2}\b/g, " ")));
+      const tokens = numerosDe(v.replace(/\b\d{4}-\d{2}-\d{2}\b/g, " "));
+      vistos.push(...tokens);
+      /*
+        ---- e a forma em que uma pessoa escreveria cada decimal --------------
+
+        Aqui morava o buraco que fez esta auditoria dar 20/20 sobre um defeito
+        que quebrou sete das nove perguntas da bateria real.
+
+        Um decimal dentro de uma string chega cru do banco: `"2.19 → 0"`. A
+        auditoria extraía `2.19`, encontrava `2.19` autorizado, e aprovava. Mas
+        a trava não confere o conteúdo — confere o **texto redigido**, e o texto
+        é em português: o modelo escreve `2,19`. As duas medições nunca se
+        encontravam, e a que valia era a que ninguém estava rodando.
+
+        **Só decimais crus, e a precisão importa.** A primeira tentativa aqui
+        converteu todo token, lendo-o como pt-BR — e produziu fantasmas: `2.19`
+        virou `219,00` e o ano `2026` virou `2.026,00`, números que ninguém
+        jamais escreveria. Um medidor que inventa o que acusa é o defeito que
+        este arquivo já cometeu duas vezes.
+
+        `\d+\.\d{1,2}` é a forma inequívoca: ponto seguido de uma ou duas casas
+        é decimal cru do banco, nunca separador de milhar. Inteiros ficam de
+        fora porque são escritos como estão, e tokens que já trazem vírgula
+        ficam de fora porque já estão em português.
+
+        Conferir isto não afrouxa nada — o número continua tendo de estar
+        autorizado. O que muda é a auditoria perguntar o que a trava pergunta,
+        em vez de uma versão mais fácil da mesma pergunta.
+      */
+      for (const t of tokens) {
+        if (!/^\d+\.\d{1,2}$/.test(t)) continue;
+        const n = Number(t);
+        if (!Number.isFinite(n)) continue;
+        vistos.push(
+          n.toLocaleString("pt-BR"),
+          n.toLocaleString("pt-BR", { minimumFractionDigits: 2 }),
+        );
+      }
       return;
     }
     if (Array.isArray(v)) {

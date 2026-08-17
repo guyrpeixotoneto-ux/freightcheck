@@ -46,6 +46,29 @@ export interface AlteracoesDoAtivo {
   placa: string | null;
   /** Os códigos que mudaram de valor neste ativo dentro do recorte. */
   codigos: Set<string>;
+  /**
+   * O movimento do próprio ativo, por código, da vigência mais antiga à mais
+   * recente.
+   *
+   * É o dado que faltava para a tela de um cavalo só. O cartão da pauta dizia
+   * "29 favorecidos · 7 prejudicados" e não dizia de que lado **este** cavalo
+   * caiu — a pergunta que quem abre `Cavalo 360°` faz primeiro, e a única que a
+   * leitura de frota não pode responder por construção.
+   *
+   * Vem a série inteira, e não um par só: o cartão escolhe a vigência que casa
+   * com a evidência que ele já mostra, e cai na última quando não há casamento.
+   * Escolher aqui obrigaria esta consulta a conhecer a evidência do cartão.
+   */
+  transicoes: Map<string, TransicaoDoAtivo[]>;
+}
+
+/** Um movimento do ativo: de quanto para quanto, e em qual vigência. */
+export interface TransicaoDoAtivo {
+  code: string;
+  effectiveDate: string;
+  sourceLabel: string;
+  antes: number;
+  depois: number;
 }
 
 export async function medirAlteracoesDoAtivo(
@@ -53,8 +76,14 @@ export async function medirAlteracoesDoAtivo(
   context: SeriesContext,
   placa: string,
 ): Promise<AlteracoesDoAtivo> {
+  const vazio = (): AlteracoesDoAtivo => ({
+    placa: null,
+    codigos: new Set(),
+    transicoes: new Map(),
+  });
+
   const pedida = placa.trim().toUpperCase();
-  if (pedida === "") return { placa: null, codigos: new Set() };
+  if (pedida === "") return vazio();
 
   /*
     A placa chega de um endereço que alguém pode ter digitado ou colado, e o
@@ -75,11 +104,23 @@ export async function medirAlteracoesDoAtivo(
   `);
 
   const ativo = ativos[0];
-  if (!ativo) return { placa: null, codigos: new Set() };
+  if (!ativo) return vazio();
 
-  const { rows } = await db.execute<{ code: string }>(sql`
+  /*
+    O `source_label` sai de um `string_agg` porque a mesma data pode ter vindo em
+    mais de um arquivo — é o mesmo tratamento de `medirTransicoes`, e o motivo é
+    o mesmo: o nome da fonte é o que se procura na planilha depois da reunião.
+  */
+  const { rows } = await db.execute<{
+    code: string;
+    effective_date: string;
+    source_label: string;
+    antes: string;
+    depois: string;
+  }>(sql`
     WITH serie AS (
       SELECT a.code,
+             s.effective_date,
              CASE WHEN f.is_null THEN NULL ELSE f.value_numeric END AS valor,
              LAG(CASE WHEN f.is_null THEN NULL ELSE f.value_numeric END) OVER (
                PARTITION BY f.attribute_id
@@ -93,15 +134,38 @@ export async function medirAlteracoesDoAtivo(
          AND s.status <> 'SUPERSEDED'
          AND ${contextFilter("s", context)}
     )
-    SELECT DISTINCT code
+    SELECT serie.code,
+           serie.effective_date::text AS effective_date,
+           string_agg(DISTINCT s.source_label, ' · ') AS source_label,
+           serie.anterior::text AS antes,
+           serie.valor::text    AS depois
       FROM serie
-     WHERE anterior IS NOT NULL
-       AND valor IS NOT NULL
-       AND valor <> anterior
+      JOIN snapshot s ON s.effective_date = serie.effective_date
+                     AND s.status <> 'SUPERSEDED'
+                     AND ${contextFilter("s", context)}
+     WHERE serie.anterior IS NOT NULL
+       AND serie.valor IS NOT NULL
+       AND serie.valor <> serie.anterior
+     GROUP BY 1, 2, 4, 5
+     ORDER BY 1, 2
   `);
+
+  const transicoes = new Map<string, TransicaoDoAtivo[]>();
+  for (const r of rows) {
+    const lista = transicoes.get(r.code) ?? [];
+    lista.push({
+      code: r.code,
+      effectiveDate: r.effective_date,
+      sourceLabel: r.source_label,
+      antes: Number(r.antes),
+      depois: Number(r.depois),
+    });
+    transicoes.set(r.code, lista);
+  }
 
   return {
     placa: ativo.identifier_value,
-    codigos: new Set(rows.map((r) => r.code)),
+    codigos: new Set(transicoes.keys()),
+    transicoes,
   };
 }
