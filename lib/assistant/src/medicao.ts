@@ -212,3 +212,42 @@ export function contextoParaOModelo(
     dossie: opcoes.incluirTexto ? texto : null,
   };
 }
+
+// ── Quantas investigações diferentes aconteceram ────────────────────────────
+
+/**
+ * A trajetória de um caso, como assinatura comparável.
+ *
+ * **A ordem é a informação.** `recortes → alteracoes` é descobrir que vigências
+ * existem e então olhar uma; `alteracoes → recortes` é olhar o que mudou e
+ * então perguntar de quando isso é. São duas investigações, e a segunda só
+ * acontece quando o modelo percebeu que precisava situar o que já tinha visto.
+ *
+ * **A repetição também.** Uma consulta feita duas vezes com argumentos
+ * diferentes — `alteracoes(grupos)` e depois `alteracoes(linhas)` — é o gesto
+ * que separa "listou" de "investigou". Colapsá-la apaga exatamente o
+ * comportamento que a métrica existe para enxergar.
+ *
+ * A versão anterior fazia `consultas.slice().sort().join(",")`, e as duas
+ * perdas aconteciam de uma vez. O efeito não foi contar um pouco menos: foi
+ * **inverter o diagnóstico**. A métrica relatou trajetórias caindo de 2 para 1
+ * numa rodada em que o relatório de trajetórias, ao lado, mostrava nove
+ * caminhos distintos com até onze chamadas encadeadas. Lida sozinha, ela dizia
+ * que o agente havia convergido para uma consulta só — a conclusão oposta à
+ * verdade, sobre a única pergunta que a bateria existe para responder.
+ */
+export function assinaturaDeTrajetoria(consultas: readonly string[]): string {
+  return consultas.join(" → ");
+}
+
+/**
+ * Quantas trajetórias distintas houve num conjunto de casos.
+ *
+ * É a medida de "perguntas diferentes produzem investigações diferentes" — a
+ * tese inteira do caminho do agente. Um caminho determinístico tende ao número
+ * de intenções que ele sabe distinguir; um agente que investiga tende ao número
+ * de perguntas.
+ */
+export function trajetoriasDistintas(casos: readonly (readonly string[])[]): number {
+  return new Set(casos.map(assinaturaDeTrajetoria)).size;
+}

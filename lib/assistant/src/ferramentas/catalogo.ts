@@ -85,6 +85,49 @@ async function contexto(ctx: ContextoDaFerramenta): Promise<ContextoResolvido> {
   return resolvido;
 }
 
+/**
+ * Um texto lido num corpus, dito como evidência.
+ *
+ * **O que ela resolve.** Uma ferramenta que devolve prosa devolve números
+ * junto — a periodicidade de uma cláusula, o valor de uma tabela, o "S10" de um
+ * combustível. A trava confere cada token do que o modelo escreve contra o que
+ * as evidências autorizam, e um trecho de documento sem evidência autoriza
+ * nada: o agente lê o contrato e não pode citá-lo. É o mesmo texto que o
+ * caminho determinístico já registra como lastro; o que faltava era dizê-lo na
+ * forma que a trava lê.
+ *
+ * **Por que `interno`.** O conteúdo do documento sustenta a afirmação, e não é
+ * a afirmação. Marcado assim, ele fica no dossiê, aparece no painel de fontes,
+ * dá lastro — e nunca vira frase por conta própria numa redação determinística
+ * que percorre fatos.
+ *
+ * `numeros` fica vazio de propósito: os números deste material estão escritos
+ * no texto, e é de lá que a trava os tira. Duplicá-los numa lista seria criar
+ * uma segunda verdade sobre o que o documento diz.
+ */
+function lidoNoCorpus(
+  ferramenta: string,
+  titulo: string,
+  origem: string,
+  trechos: { rotulo: string; texto: string }[],
+): Evidencia {
+  return {
+    ferramenta,
+    titulo,
+    fatos: trechos.map((t) => ({ rotulo: t.rotulo, valor: t.texto, interno: true })),
+    numeros: [],
+    origem,
+    /*
+      Só o Book tem tela. O catálogo do Freightech é material do produto, não
+      um documento que a operação guarda — mandar quem lê para /book-operador
+      atrás dele seria oferecer um lugar de conferência onde ele não está.
+    */
+    ...(ferramenta.endsWith(":book")
+      ? { tela: { label: "Book do Operador", href: "/book-operador" } }
+      : {}),
+  };
+}
+
 /** Uma evidência (ou nenhuma) virando saída de ferramenta. */
 function de(evidencia: Evidencia | null, vazio: string): SaidaDaFerramenta {
   if (!evidencia) return { conteudo: { vazio }, evidencias: [] };
@@ -487,7 +530,15 @@ export const documentos: Ferramenta = {
               bloco: inteiro[0]!.bloco,
               secoes: inteiro.map((t) => ({ secao: t.secao, texto: t.texto })),
             },
-            evidencias: registro ? [registro] : [],
+            evidencias: [
+              ...(registro ? [registro] : []),
+              lidoNoCorpus(
+                "documentos:book",
+                `Book · ${inteiro[0]!.bloco}`,
+                `book_entry · bloco "${chave}"`,
+                inteiro.map((t) => ({ rotulo: t.secao ?? inteiro[0]!.bloco, texto: t.texto })),
+              ),
+            ],
           };
         }
       }
@@ -536,7 +587,49 @@ export const documentos: Ferramenta = {
           "O Book é o que a operação contratou; o catálogo descreve o que o produto publica. " +
           "Não afirme como regra contratual o que só o catálogo diz.",
       },
-      evidencias: [],
+      /*
+        Os dois corpora entram como evidência, separados — e antes não entrava
+        nenhum.
+
+        Esta ferramenta devolvia prosa ao modelo com `evidencias: []`: todo
+        número escrito num documento — uma periodicidade, um valor contratado,
+        um "DIESEL S10" — chegava a ele sem lastro nenhum. O caminho
+        determinístico nunca teve esse buraco, porque lá o texto do Book e o do
+        catálogo entram no dossiê e são registrados como lastro
+        (`orquestrador.ts`, `dossie.trechos` e `dossie.documentos`). O caminho
+        do agente perdeu essa parte na tradução para ferramenta, e o efeito era
+        um agente que pode ler o contrato e não pode citá-lo.
+
+        Não é evidência artificial: é o mesmo texto, do mesmo corpus, com a
+        mesma origem — dito no lugar onde a trava sabe procurar. Os dois ficam
+        separados pela mesma razão que já os separava no conteúdo: uma regra
+        contratual e uma descrição de tela não sustentam a mesma afirmação.
+      */
+      evidencias: [
+        ...(doBook.selecionados.length > 0
+          ? [
+              lidoNoCorpus(
+                "documentos:book",
+                `Book do Operador · "${busca}"`,
+                `book_entry · busca "${busca}" entre ${doBook.candidatos} candidato(s)`,
+                doBook.selecionados.map((s) => ({
+                  rotulo: [s.trecho.bloco, s.trecho.secao].filter(Boolean).join(" › "),
+                  texto: s.trecho.texto,
+                })),
+              ),
+            ]
+          : []),
+        ...(doCatalogo.length > 0
+          ? [
+              lidoNoCorpus(
+                "documentos:catalogo",
+                `Catálogo do Freightech · "${busca}"`,
+                `catálogo do Freightech · busca "${busca}"`,
+                doCatalogo.map((t) => ({ rotulo: t.trecho.titulo, texto: t.trecho.texto })),
+              ),
+            ]
+          : []),
+      ],
     };
   },
 };

@@ -22,8 +22,9 @@
  * roda a cada commit.
  */
 
-import { beforeAll, describe, expect, it } from "vitest";
-import { createDb, type Database } from "@workspace/db";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { Database } from "@workspace/db";
+import { getGroupedView } from "@workspace/comparison";
 import { executar, registroPadrao } from "../ferramentas/registro";
 import type { ChamadaDeFerramenta, ContextoDaFerramenta } from "../ferramentas/registro";
 
@@ -96,11 +97,26 @@ function semLastro(chamada: ChamadaDeFerramenta): string[] {
     defeito do medidor. A trava roda sobre texto redigido, onde vírgula é
     decimal; aqui a fonte é uma árvore, e ela precisa ser percorrida como tal.
   */
+  /*
+    E o número é lido pela mesma expressão, e não pela sua serialização.
+
+    `String(-7700.16)` é `"-7700.16"`, e a trava jamais produz esse token: a
+    expressão dela começa em `\d`, então o que ela vê num texto redigido é
+    `7700.16`. Empurrar a forma com sinal para a comparação acusava de órfão
+    exatamente os impactos negativos que a evidência já autorizava — e quase
+    fez remendar quatro ferramentas sadias.
+
+    A regra vale para os dois lados da conferência: só entra como token o que a
+    expressão da trava consegue extrair.
+  */
   const vistos: string[] = [];
   const andar = (v: unknown): void => {
     if (v === null || v === undefined) return;
     if (typeof v === "number") {
-      vistos.push(String(v), Math.abs(v).toLocaleString("pt-BR"));
+      vistos.push(
+        ...numerosDe(String(v)),
+        ...numerosDe(Math.abs(v).toLocaleString("pt-BR")),
+      );
       return;
     }
     if (typeof v === "string") {
@@ -139,6 +155,7 @@ const CHAMADAS: [string, Record<string, unknown>][] = [
   ["alteracoes", { nivel: "grupos", limite: 5 }],
   ["alteracoes", { nivel: "grupos", ordenarPor: "impacto", limite: 5 }],
   ["alteracoes", { nivel: "grupos", equipamento: "CAVALO", limite: 5 }],
+  ["alteracoes", { nivel: "linhas", atributo: "cavalo.manutencao_reais_km", limite: 5 }],
   ["recortes", {}],
   ["parametros", { busca: "ipva", limite: 5 }],
   ["comparar", {}],
@@ -147,6 +164,7 @@ const CHAMADAS: [string, Record<string, unknown>][] = [
   ["veiculos", {}],
   ["resultado", {}],
   ["documentos", { busca: "combustível" }],
+  ["documentos", { busca: "combustível", bloco: "combustível" }],
   ["estado_do_dado", { aspecto: "curadoria" }],
   ["estado_do_dado", { aspecto: "panorama" }],
   ["estado_do_dado", { aspecto: "sem_preco" }],
@@ -156,11 +174,58 @@ const CHAMADAS: [string, Record<string, unknown>][] = [
 
 comBanco("integridade Tool → Evidência", () => {
   let ctx: ContextoDaFerramenta;
+  let banco: Awaited<
+    ReturnType<typeof import("@workspace/comparison/testing").criarBancoComModelosCurados>
+  >;
   const registro = registroPadrao();
 
-  beforeAll(() => {
-    const db: Database = createDb(url!).db;
+  /**
+   * A auditoria tem **banco próprio**, e a razão não é higiene.
+   *
+   * Esta suíte já deu verde falso uma vez, e não por falta de asserção: rodou
+   * num banco cujas comparações derivadas nunca haviam sido materializadas,
+   * `alteracoes` devolveu `{gruposNoTotal: 0, grupos: []}` com `erro: null` —
+   * sucesso legítimo, conteúdo vazio — e os quatro casos que mais importam
+   * passaram sem conferir nada. O relatório disse "16 de 18". Com o dado no
+   * lugar, eram 12.
+   *
+   * O banco compartilhado não conserta isso, porque o problema não é o estado
+   * inicial: é o estado **mudar durante a medição**. A suíte `fase1` apaga
+   * `change` e `change_set` de propósito, para provar outra coisa, e os
+   * arquivos rodam em paralelo. Medida assim, esta auditoria oscila entre 20 de
+   * 20 e falhas em ferramentas sadias — já aconteceu, com um `2026` de rótulo
+   * de vigência acusado de órfão porque a vigência lida deixou de ser a mesma
+   * no meio do caso.
+   *
+   * Um instrumento cuja leitura depende de quem mais está no laboratório não
+   * mede o que diz medir. Este clona a base curada e responde só por ela.
+   */
+  beforeAll(async () => {
+    const { criarBancoComModelosCurados } = await import("@workspace/comparison/testing");
+    banco = await criarBancoComModelosCurados("integridade_evidencia");
+    const db: Database = banco.db;
     ctx = { db, recorte: {} };
+
+    /*
+      E a pré-condição conferida, não suposta. Se a fixture mudar e deixar de
+      produzir comparação, a suíte inteira falha aqui — em vez de vinte casos
+      passarem sobre o nada, que é como o defeito se apresentou da primeira vez.
+    */
+    const visao = await getGroupedView(db, undefined, {});
+    expect(visao, "a fixture precisa de um recorte com vigência").not.toBeNull();
+    expect(
+      visao!.naoComparada,
+      "a vigência da fixture não foi comparada — a auditoria não tem conteúdo para " +
+        "medir, e passar aqui seria dizer «aprovado» sobre o vazio",
+    ).toBe(false);
+    expect(
+      visao!.totals.changes,
+      "a vigência comparada não tem alteração nenhuma; não há o que auditar",
+    ).toBeGreaterThan(0);
+  }, 300_000);
+
+  afterAll(async () => {
+    await banco?.drop();
   });
 
   it.each(CHAMADAS)("%s %j — tudo que mostra, autoriza", async (nome, args) => {

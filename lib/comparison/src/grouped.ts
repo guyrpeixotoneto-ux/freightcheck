@@ -238,6 +238,33 @@ export interface GroupedView {
   series: GroupedSeries[];
   missingSeries: string[];
   complete: boolean;
+  /**
+   * **Esta vigência nunca foi comparada** — que não é o mesmo que "não mudou".
+   *
+   * Sem este campo, as duas condições opostas saem daqui como a mesma leitura:
+   * `changes: 0`. E elas pedem ações contrárias — uma diz "siga em frente", a
+   * outra diz "falta rodar a comparação".
+   *
+   * O estrago já aconteceu três vezes, e nas três a resposta errada era fluente
+   * e vinha com a fonte ao lado:
+   *
+   * 1. O assistente respondeu "0 alterações — sem alterações neste recorte"
+   *    num banco com 124 mil fatos e nove vigências.
+   * 2. O caminho do agente repetiu o mesmo, meses depois, porque a garantia
+   *    tinha sido pendurada no orquestrador do outro caminho.
+   * 3. A auditoria de integridade Tool→Evidência rodou inteira sobre conteúdo
+   *    vazio e reportou 16 de 18 ferramentas aprovadas. Eram 12.
+   *
+   * **Por que declarar e não calcular aqui.** A decisão registrada acima —
+   * comparar é ato de importação, ler não dispara trabalho pesado — continua
+   * valendo, e é ela que garante que dois usuários vejam o mesmo número
+   * independentemente de quem abriu a tela primeiro. O defeito nunca foi a
+   * função se recusar a calcular; foi ela não dizer que não havia o que ler.
+   *
+   * Quem precisa do dado materializado chama `garantirComparacoes` **antes**, de
+   * propósito e num lugar só. Quem só lê recebe a verdade sobre o que leu.
+   */
+  naoComparada: boolean;
   totals: {
     changes: number;
     /**
@@ -961,6 +988,17 @@ export async function getGroupedView(
     series,
     missingSeries,
     complete: missingSeries.length === 0,
+    /*
+      Nenhuma comparação termina aqui, **e** existe vigência anterior para
+      comparar. As duas metades importam: a primeira entrega de uma série não
+      tem com que se comparar, e isso é condição normal do domínio, não estado
+      derivado faltando. Marcá-la como "não comparada" faria o aviso aparecer
+      para sempre no começo de todo histórico, e um aviso que sempre aparece
+      deixa de ser lido.
+    */
+    naoComparada:
+      sets.length === 0 &&
+      periods.some((p) => p.effective_date < target.effective_date),
     totals: {
       changes: rows.length,
       formatOnlyChanges: groups

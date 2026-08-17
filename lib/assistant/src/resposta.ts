@@ -29,7 +29,8 @@ import {
   avancarEstado,
   type EstadoDaConversa,
 } from "./conversa";
-import type { Evidencia, Fato } from "./ferramentas";
+import { resolverContexto, type Evidencia, type Fato } from "./ferramentas";
+import { garantirComparacoes } from "@workspace/comparison";
 import {
   disponivel,
   modeloConfigurado,
@@ -47,6 +48,7 @@ import {
   numerosSemLastro,
   orquestrar,
   sanear,
+  recorteDaConversa,
   recorteDoDossie,
   type Dossie,
   type Etapa,
@@ -826,6 +828,53 @@ function montarComAgente(
 }
 
 /**
+ * As comparações que esta conversa vai precisar, materializadas — uma vez.
+ *
+ * **A pergunta que isto responde é de quem é a pré-condição.** `change` e
+ * `change_set` são estado derivado: eles nascem de `computeChangeSet` e, até
+ * este ponto, seis lugares os criavam por conta própria — a promoção de uma
+ * importação, dois endpoints de tela, a ficha de composição, a série
+ * consolidada, um CLI — e um sétimo, a orquestração do planejador, criava-os
+ * por pergunta. Sete iniciativas, nenhum dono; quem esquecesse lia zero e não
+ * tinha como saber que era zero por falta de cálculo.
+ *
+ * **Por que aqui e não em cada ferramenta.** Uma ferramenta que garante a
+ * própria pré-condição vira escrita disfarçada de leitura, e seriam N delas —
+ * `alteracoes`, `ordenacao`, `comparar`, `resultado`, `veiculos` — cada uma com
+ * a chance de esquecer. Seria trocar sete donos por doze.
+ *
+ * **Por que aqui e não no orquestrador, onde estava.** Porque o orquestrador é
+ * o caminho que esta migração aposenta. Enquanto a garantia morasse lá, o
+ * agente a recebia de carona — `responder` orquestra antes de investigar — e o
+ * dia em que o planejador saísse levaria a pré-condição junto, num diff que não
+ * fala de comparações. Esta função é o único ponto por onde os dois caminhos
+ * passam **e** que sobrevive à remoção de um deles.
+ *
+ * **Por que não deixar a leitura calcular.** `getGroupedView` recusa-se a
+ * calcular de propósito, e a decisão é boa: abrir uma tela não deve disparar
+ * trabalho pesado nem produzir números diferentes conforme quem abriu primeiro.
+ * O que faltava lá não era o cálculo — era dizer que não havia o que ler, e é
+ * o que `naoComparada` agora diz. Repara-se num lugar; lê-se com honestidade em
+ * todos.
+ *
+ * Falha em silêncio de propósito: um par que não se compara — escopo, canal ou
+ * cobertura diferentes — é condição legítima do domínio, e derrubar a pergunta
+ * por causa dele trocaria resposta incompleta por resposta nenhuma. O que
+ * sobra, quem lê declara.
+ */
+async function garantirRecorte(db: Database, opcoes: PerguntaOptions): Promise<void> {
+  const recorte = recorteDaConversa(opcoes.recorte, opcoes.estado ?? null);
+  const resolvido = await resolverContexto(db, recorte).catch(() => null);
+  if (!resolvido) return;
+  opcoes.aoAvancar?.({
+    nome: "garantirComparacoes",
+    rotulo: "Conferindo as comparações da vigência",
+    ms: 0,
+  });
+  await garantirComparacoes(db, resolvido.contexto).catch(() => null);
+}
+
+/**
  * Responde uma pergunta sobre o FreightCheck.
  *
  * O contrato: o texto nunca afirma número que não esteja nas evidências, e as
@@ -837,6 +886,12 @@ export async function responder(
   pergunta: string,
   opcoes: PerguntaOptions = {},
 ): Promise<Resposta> {
+  /*
+    Antes de orquestrar e antes de investigar, e por isso vale para os dois.
+    Ver `garantirRecorte` acima para por que a pré-condição mora aqui.
+  */
+  await garantirRecorte(db, opcoes);
+
   const dossie = await orquestrar(db, pergunta.trim(), {
     ...(opcoes.recorte ? { recorte: opcoes.recorte } : {}),
     estado: opcoes.estado ?? null,

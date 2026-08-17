@@ -54,6 +54,37 @@ export function numerosDoImpacto(impacto: ImpactSummary): number[] {
   return Object.values(impacto.byPeriodicity).filter((v) => v !== 0);
 }
 
+/**
+ * O resumo de impacto **inteiro** — e não só a soma que entra no total.
+ *
+ * Existem os dois porque servem a duas perguntas. `numerosDoImpacto` responde
+ * "o que este recorte custou", que é o que a redação determinística escreve, e
+ * por isso ele traz só `byPeriodicity`. Esta responde "o que a ferramenta
+ * mostrou", que é a pergunta da trava — e a ferramenta mostra o resumo todo:
+ * o que ficou de fora da soma por já estar contado nas parcelas, quantas
+ * alterações ficaram sem preço, quantas foram apuradas.
+ *
+ * A distinção não é acadêmica. `excludedByPeriodicity` é justamente o valor que
+ * o modelo precisa poder dizer para explicar por que a soma não bate com a
+ * lista — "R$ 11.425,04 não entram porque já estão nas parcelas". Mostrado e
+ * não autorizado, ele produz o pior resultado dos três possíveis: o modelo lê,
+ * conclui a partir dele, escreve a frase certa, e a trava a poda.
+ *
+ * Alargar `numerosDoImpacto` faria o mesmo serviço em menos linhas e mexeria no
+ * lastro do caminho determinístico, que é a linha de base contra a qual o
+ * agente está sendo medido. Uma medição cujo "antes" se move junto com o
+ * "depois" não mede nada.
+ */
+export function numerosDoResumoDeImpacto(impacto: ImpactSummary): number[] {
+  return [
+    ...Object.values(impacto.byPeriodicity),
+    ...Object.values(impacto.excludedByPeriodicity),
+    impacto.excludedChanges,
+    impacto.notCalculable,
+    impacto.calculatedChanges,
+  ].filter((v) => typeof v === "number");
+}
+
 export function cobertura(calculadas: number, total: number): string {
   if (total === 0) return "sem alterações neste recorte";
   const pct = Math.round((calculadas / total) * 100);

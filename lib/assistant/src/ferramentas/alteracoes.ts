@@ -32,7 +32,7 @@
  */
 
 import { buildCockpit, getGroupVehicles, getGroupedView } from "@workspace/comparison";
-import { impactoEmTexto, numerosDoImpacto, rotuloDoPeriodo } from "../formato";
+import { impactoEmTexto, numerosDoResumoDeImpacto, rotuloDoPeriodo } from "../formato";
 import type { Evidencia } from "../ferramentas";
 import type { ContextoDaFerramenta, Ferramenta, SaidaDaFerramenta } from "./registro";
 
@@ -132,6 +132,32 @@ export const alteracoes: Ferramenta = {
     }
 
     /*
+      "Nunca comparada" sai como falha declarada, e não como zero.
+
+      Devolver `{changes: 0, grupos: []}` aqui daria ao modelo material para
+      escrever "nada mudou nesta vigência" — uma frase fluente, com fonte ao
+      lado, sobre uma comparação que não existe. É o defeito que o caminho
+      determinístico já cometeu uma vez e que o do agente herdou por outro
+      caminho; a diferença entre os dois estados é a diferença entre "siga em
+      frente" e "falta rodar o cálculo", e nenhuma redação recupera o que a
+      consulta não distinguiu.
+    */
+    if (visao.naoComparada) {
+      return {
+        conteudo: {
+          erro:
+            `A vigência ${visao.periodLabel} ainda não foi comparada com a anterior neste ` +
+            "recorte — o estado derivado não está materializado. Isto **não** significa que " +
+            "nada mudou: significa que ninguém calculou. Não conclua ausência de alteração a " +
+            "partir desta resposta; diga que a comparação está pendente.",
+          vigencia: visao.periodLabel,
+          contexto: visao.context.label,
+        },
+        evidencias: [],
+      };
+    }
+
+    /*
       O recorte sai na evidência e no conteúdo, com unidade e canal por extenso.
 
       Não é enfeite: é a fronteira de isolamento aparecendo no material que o
@@ -162,11 +188,26 @@ export const alteracoes: Ferramenta = {
             detalhe: `${visao.impact.notCalculable} alteração(ões) sem preço`,
           },
         ],
+        /*
+          Tudo o que o conteúdo abaixo mostra, e nada além disso.
+
+          A lista era um subconjunto do que a ferramenta exibe, e a diferença
+          eram justamente os dois blocos que mais precisam ser ditos: o que
+          ficou fora da soma, e o acumulado. O modelo lia os dois, e a trava
+          podava a frase em que ele os usasse — um resultado correto punido
+          como se fosse invenção.
+
+          O acumulado entra com todos os seus campos porque ele vai ao conteúdo
+          com todos eles. Dá-lo ao modelo sem autorizá-lo é a pior das três
+          opções: ele pode se confundir com o mês e não pode corrigir-se em voz
+          alta. Ou sai do conteúdo, ou entra no lastro.
+        */
         numeros: [
           t.changes, t.groups, t.vehiclesTouched, t.formatOnlyChanges,
           t.entitiesAdded, t.entitiesRemoved, t.unchanged, t.inconclusive,
-          visao.impact.notCalculable, visao.impact.calculatedChanges,
-          ...numerosDoImpacto(visao.impact),
+          ...numerosDoResumoDeImpacto(visao.impact),
+          ...numerosDoResumoDeImpacto(visao.accumulated),
+          visao.accumulated.comparisons,
         ],
         origem: `getGroupedView · ${visao.periodLabel} · ${visao.context.label}`,
         recorte,
@@ -265,13 +306,30 @@ export const alteracoes: Ferramenta = {
               ? ` · ${g.impact.amount} ${g.impact.periodicity}`
               : " · sem preço"),
         })),
-        numeros: pagina.flatMap((g) =>
-          [
-            g.changes, g.vehicles, g.fleet, g.patterns,
-            g.impact.amount, g.aggregate.totalBefore, g.aggregate.totalAfter,
-            g.aggregate.deltaPercent, g.aggregate.minPercent, g.aggregate.maxPercent,
-          ].filter((n): n is number => typeof n === "number"),
-        ),
+        /*
+          O tamanho do conjunto e o corte entram no lastro, e não só na lista.
+
+          `gruposNoTotal` existe no conteúdo para o modelo poder avisar que a
+          lista foi cortada — e sem ele aqui, dizer "são 20 grupos, mostro os
+          cinco maiores" era exatamente a frase que a trava derrubava. Autorizar
+          o aviso é a condição para ele ser dado.
+
+          `posicaoNaFila` pela mesma razão: é a ordem da fila de investigação, o
+          motivo pelo qual `ordenarPor: "criticidade"` existe, e responder "este
+          é o primeiro da fila" sem lastro para o "primeiro" é uma frase podada.
+        */
+        numeros: [
+          grupos.length,
+          pagina.length,
+          ...pagina.flatMap((g) =>
+            [
+              g.changes, g.vehicles, g.fleet, g.patterns,
+              g.impact.amount, g.aggregate.totalBefore, g.aggregate.totalAfter,
+              g.aggregate.deltaPercent, g.aggregate.minPercent, g.aggregate.maxPercent,
+              criticidade.get(g.key) ?? null,
+            ].filter((n): n is number => typeof n === "number"),
+          ),
+        ],
         origem: `getGroupedView.groups · ${visao.periodLabel} · ${visao.context.label}`,
         recorte,
         tela: { label: "Alterações", href: "/alteracoes" },
@@ -347,11 +405,21 @@ export const alteracoes: Ferramenta = {
             ? `${v.impactAmount} ${v.impactPeriodicity}`
             : "sem preço",
       })),
-      numeros: veiculos.flatMap((v) =>
-        [v.numericBefore, v.numericAfter, v.impactAmount].filter(
-          (n): n is number => typeof n === "number",
+      /*
+        O mesmo que no nível acima: o corte é dito, então o corte é lastreado.
+        `variacaoPercentual` entra porque ela vai ao conteúdo linha a linha —
+        ela sai do motor de comparação, não desta ferramenta, e é a resposta
+        direta a "quanto caiu neste veículo".
+      */
+      numeros: [
+        veiculos.length,
+        pagina.length,
+        ...veiculos.flatMap((v) =>
+          [v.numericBefore, v.numericAfter, v.impactAmount, v.deltaPercent].filter(
+            (n): n is number => typeof n === "number",
+          ),
         ),
-      ),
+      ],
       origem: `getGroupVehicles(${atributo}, ${grupo.entityType}) · ${rotuloDoPeriodo(visao.period)}`,
       recorte,
       tela: { label: "Alterações", href: "/alteracoes" },

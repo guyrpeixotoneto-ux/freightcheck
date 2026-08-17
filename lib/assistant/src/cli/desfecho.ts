@@ -22,6 +22,7 @@ import { agenteLigado } from "../agente";
 import { disponivel, modeloConfigurado } from "../llm";
 import { responder, type Resposta } from "../resposta";
 import { CASOS_DE_DESFECHO, capacidadesDe, conferirDesfecho } from "../aceitacao/desfecho";
+import { trajetoriasDistintas } from "../medicao";
 
 async function principal() {
   const url = process.env.ASSISTANT_EVAL_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -79,7 +80,7 @@ async function principal() {
   });
 
   const distintas = new Set(linhas.map((l) => l.texto.trim())).size;
-  const trajetorias = new Set(linhas.map((l) => l.consultas.slice().sort().join(","))).size;
+  const trajetorias = trajetoriasDistintas(linhas.map((l) => l.consultas));
   const resumo = {
     caminho: agenteLigado() ? "AGENTE" : "PLANEJADOR",
     modelo: modeloConfigurado(),
