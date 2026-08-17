@@ -675,6 +675,19 @@ export interface PerguntaOptions {
    * precisa mostrar **com o quê** o modelo teria respondido cada pergunta.
    */
   diagnostico?: boolean;
+  /**
+   * Liga ou desliga o agente **nesta chamada**, ignorando a variável.
+   *
+   * A flag continua sendo de ambiente para produção; isto existe para quem
+   * precisa exercitar os dois caminhos no mesmo processo. O teste de
+   * reversibilidade fazia isso mutando `process.env`, e a mutação vazava: o
+   * vitest reaproveita worker entre arquivos, e um benchmark que rodasse na
+   * janela em que a flag estava ligada media o agente achando que media o
+   * planejador — falhava na suíte e passava isolado.
+   *
+   * Um parâmetro não tem janela.
+   */
+  agente?: boolean;
 }
 
 /**
@@ -874,7 +887,7 @@ export async function responder(
       da migração: um número só chega à tela se tiver voltado de uma consulta,
       e agora "consulta" inclui as que o modelo escolheu.
     */
-    if (agenteLigado()) {
+    if (opcoes.agente ?? agenteLigado()) {
       const investigacao = await investigar({
         pergunta,
         registro: registroPadrao(),

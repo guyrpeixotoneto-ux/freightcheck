@@ -16,7 +16,7 @@
  * Este arquivo exercita a travessia nos dois sentidos.
  */
 
-import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
 import { createDb, type Database } from "@workspace/db";
 import { desserializarEstado, serializarEstado } from "../conversa";
 import { responder } from "../resposta";
@@ -32,21 +32,17 @@ comBanco("a virada é reversível", () => {
   });
 
   /*
-    `vi.stubEnv` e não `process.env` direto.
+    Nenhuma variável de ambiente é tocada aqui.
 
-    Escrever na variável de verdade vazou para outro arquivo da suíte: o vitest
-    reaproveita worker entre arquivos, e um `evals.test.ts` que rodasse na
-    janela em que esta variável estava ligada mediria o agente achando que
-    media o planejador. O stub é desfeito pelo runner, e não pela disciplina de
-    quem escreve o `afterEach`.
+    `vi.stubEnv` foi a primeira tentativa e ainda vazava: ele muta
+    `process.env` de verdade e desfaz depois, e o vitest reaproveita worker
+    entre arquivos — um benchmark que rodasse na janela media o agente achando
+    que media o planejador. Falhava na suíte e passava isolado, que é o pior
+    formato de defeito. `opcoes.agente` não tem janela.
   */
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
 
   it("o estado que um caminho grava é o que o outro espera ler", async () => {
-    vi.stubEnv("ASSISTENTE_AGENTE", "");
-    const primeiro = await responder(db, "o que mudou no IPVA?");
+    const primeiro = await responder(db, "o que mudou no IPVA?", { agente: false });
 
     /*
       A ida e a volta pelo banco, como a rota faz. Uma diferença de forma que só
@@ -60,8 +56,7 @@ comBanco("a virada é reversível", () => {
     expect(Object.keys(persistido).sort()).toEqual(Object.keys(primeiro.estado).sort());
 
     // E o turno seguinte, com a flag no outro estado, aceita o que foi gravado.
-    vi.stubEnv("ASSISTENTE_AGENTE", "1");
-    const segundo = await responder(db, "e julho?", { estado: persistido });
+    const segundo = await responder(db, "e julho?", { estado: persistido, agente: true });
 
     expect(segundo.estado).toBeDefined();
     expect(Object.keys(segundo.estado).sort()).toEqual(Object.keys(primeiro.estado).sort());
@@ -74,14 +69,11 @@ comBanco("a virada é reversível", () => {
       mesmo texto. Se o caminho do agente escrevesse em algum lugar que o outro
       lê, isto divergiria.
     */
-    vi.stubEnv("ASSISTENTE_AGENTE", "");
-    const antesDaVirada = await responder(db, "o que mudou?", { semIa: true });
+    const antesDaVirada = await responder(db, "o que mudou?", { semIa: true, agente: false });
 
-    vi.stubEnv("ASSISTENTE_AGENTE", "1");
-    await responder(db, "o que mudou?", { semIa: true }).catch(() => null);
+    await responder(db, "o que mudou?", { semIa: true, agente: true }).catch(() => null);
 
-    vi.stubEnv("ASSISTENTE_AGENTE", "");
-    const depoisDaVolta = await responder(db, "o que mudou?", { semIa: true });
+    const depoisDaVolta = await responder(db, "o que mudou?", { semIa: true, agente: false });
 
     expect(depoisDaVolta.texto).toBe(antesDaVirada.texto);
     expect(depoisDaVolta.tecnico.ferramentas).toEqual(antesDaVirada.tecnico.ferramentas);
@@ -94,8 +86,7 @@ comBanco("a virada é reversível", () => {
       cima disso, a coluna "antes" do relatório de virada estaria medindo o
       agente contra ele mesmo.
     */
-    vi.stubEnv("ASSISTENTE_AGENTE", "1");
-    const r = await responder(db, "o que mudou?", { semIa: true });
+    const r = await responder(db, "o que mudou?", { semIa: true, agente: true });
 
     expect(r.tecnico.motor.codigo).toBe("IA_DESLIGADA");
     expect(r.tecnico.motor.houveChamada).toBe(false);
