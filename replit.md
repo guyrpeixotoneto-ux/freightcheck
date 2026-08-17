@@ -262,11 +262,20 @@ e-mail, e exclusão de conta.
   `getQuinzenaMatrix` para ter dois leitores, porque uma segunda redação de
   "ausência não é zero" divergiria da tela no primeiro ajuste; **as três
   ausências têm três marcas e nenhuma é número** (`—` fora da frota, `·` sem
-  valor, célula vazia para a vigência que não trouxe o equipamento), de modo que
-  `SOMA()` sobre a coluna não inclua o que não estava lá; e **o banco é lido por
-  equipamento, não por parâmetro** — presenças, placas e dobra são as mesmas para
-  todos os parâmetros de um equipamento, e os valores vêm numa consulta só, o que
-  põe 36 abas do export real em ~1,3 s. As parcelas e as colunas de conjunto
+  valor, célula vazia hachurada para a vigência que não trouxe o equipamento), de
+  modo que `SOMA()` sobre a coluna não inclua o que não estava lá; e **o banco é
+  lido por equipamento, não por parâmetro** — presenças, placas e dobra são as
+  mesmas para todos os parâmetros de um equipamento, e os valores vêm numa
+  consulta só, o que põe 36 abas do export real em ~1,3 s.
+  **As cores são as da tela, e não são enfeite.** Verde no que subiu, vermelho no
+  que caiu, os mesmos hexadecimais das classes de `impacto-quinzenas.tsx` — quem
+  pinta é o `movimento` que o servidor apurou, nunca uma comparação refeita no
+  escritor, e o que ficou igual continua sem cor. A seta ↗/↘ vai no **formato do
+  número** (`"↗ "#,##0.00`) em vez de virar texto: a célula continua somável, e
+  quem não distingue as duas cores — ou imprime em preto e branco — não perde a
+  informação. O escritor é o `exceljs`, e essa é a única razão da troca: a edição
+  community do `xlsx` lê estilo e não grava. O `xlsx` continua onde sempre
+  esteve, na importação. As parcelas e as colunas de conjunto
   **entram** no arquivo, ao contrário dos rankings da tela: elas mudaram e alguém
   vai procurá-las, e a coluna *Papel* do índice é o que impede alguém de somar
   duas abas que contêm o mesmo real. É a única rota desta API cujo **sucesso não

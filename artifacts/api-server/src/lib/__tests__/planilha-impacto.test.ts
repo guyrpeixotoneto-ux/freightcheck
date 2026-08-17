@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import * as XLSX from "xlsx";
+import { beforeAll, describe, expect, it } from "vitest";
+import ExcelJS from "exceljs";
 import type {
   AbaDeImpacto,
   ExportacaoDeImpacto,
@@ -35,7 +35,12 @@ import {
 const celula = (
   state: QuinzenaCell["state"],
   value: number | null = null,
-): QuinzenaCell => ({ value, state, delta: null, movimento: null });
+  movimento: QuinzenaCell["movimento"] = null,
+): QuinzenaCell => ({ value, state, delta: null, movimento });
+
+/** Só os valores de uma linha — o tom é conferido nos casos que falam de cor. */
+const valores = (linha: { valor: string | number | null }[]) =>
+  linha.map((c) => c.valor);
 
 function aba(over: Partial<AbaDeImpacto> = {}): AbaDeImpacto {
   const periods = [
@@ -95,7 +100,7 @@ function aba(over: Partial<AbaDeImpacto> = {}): AbaDeImpacto {
           {
             entityId: "e1",
             plate: "QYQ6A80",
-            cells: [celula("VALOR", 4.92), celula("VALOR", 5)],
+            cells: [celula("VALOR", 4.92), celula("VALOR", 5, "SUBIU")],
             total: 9.92,
             first: 4.92,
             last: 5,
@@ -105,7 +110,7 @@ function aba(over: Partial<AbaDeImpacto> = {}): AbaDeImpacto {
           {
             entityId: "e2",
             plate: "QYQ6B30",
-            cells: [celula("VALOR", 4.91), celula("FORA_DA_FROTA")],
+            cells: [celula("VALOR", 4.91), celula("FORA_DA_FROTA", null, "SAIU")],
             total: 4.91,
             first: 4.91,
             last: 4.91,
@@ -160,20 +165,20 @@ describe("celulaDaMatriz", () => {
   it("mantém o zero como número — ele é um valor, não uma ausência", () => {
     // O caso que a planilha do cliente não consegue distinguir: passou a custar
     // nada é diferente de não estar mais na frota.
-    expect(celulaDaMatriz(celula("VALOR", 0))).toBe(0);
+    expect(celulaDaMatriz(celula("VALOR", 0)).valor).toBe(0);
   });
 
   it("nunca devolve número para ausência nenhuma", () => {
     for (const estado of ["SEM_VALOR", "FORA_DA_FROTA", "NAO_ENTREGUE"] as const) {
-      expect(typeof celulaDaMatriz(celula(estado))).not.toBe("number");
+      expect(typeof celulaDaMatriz(celula(estado)).valor).not.toBe("number");
     }
   });
 
   it("dá três aparências às três ausências", () => {
-    expect(celulaDaMatriz(celula("FORA_DA_FROTA"))).toBe(FORA_DA_FROTA);
-    expect(celulaDaMatriz(celula("SEM_VALOR"))).toBe(SEM_VALOR);
+    expect(celulaDaMatriz(celula("FORA_DA_FROTA")).valor).toBe(FORA_DA_FROTA);
+    expect(celulaDaMatriz(celula("SEM_VALOR")).valor).toBe(SEM_VALOR);
     // Vigência que não trouxe o equipamento não é afirmação sobre o ativo.
-    expect(celulaDaMatriz(celula("NAO_ENTREGUE"))).toBeNull();
+    expect(celulaDaMatriz(celula("NAO_ENTREGUE")).valor).toBeNull();
   });
 });
 
@@ -214,10 +219,10 @@ describe("nomeDeAba", () => {
 
 describe("linhasDaAba", () => {
   const linhas = linhasDaAba(aba());
-  const cabecalho = linhas.findIndex((l) => l[1] === "placa");
+  const cabecalho = linhas.findIndex((l) => l[1]?.valor === "placa");
 
   it("põe uma coluna por vigência, entre a identificação e os totais", () => {
-    expect(linhas[cabecalho]).toEqual([
+    expect(valores(linhas[cabecalho])).toEqual([
       "Data",
       "placa",
       "EMPURRADA_2_12_2025",
@@ -228,25 +233,29 @@ describe("linhasDaAba", () => {
   });
 
   it("repete o grupo em cada linha de ativo, para a planilha ser dinamizável", () => {
-    const doAtivo = linhas.filter((l) => l[1] === "QYQ6A80" || l[1] === "QYQ6B30");
+    const doAtivo = linhas.filter(
+      (l) => l[1]?.valor === "QYQ6A80" || l[1]?.valor === "QYQ6B30",
+    );
     expect(doAtivo).toHaveLength(2);
-    expect(doAtivo.every((l) => l[0] === "01/01/21")).toBe(true);
+    expect(doAtivo.every((l) => l[0].valor === "01/01/21")).toBe(true);
   });
 
   it("marca o subtotal na coluna da placa, para ninguém somá-lo com os ativos", () => {
-    const subtotal = linhas.find((l) => String(l[1] ?? "").startsWith("subtotal"));
-    expect(subtotal?.[0]).toBe("01/01/21");
-    expect(subtotal?.slice(2)).toEqual([9.83, 5, 14.83, null]);
+    const subtotal = linhas.find((l) =>
+      String(l[1]?.valor ?? "").startsWith("subtotal"),
+    );
+    expect(subtotal?.[0].valor).toBe("01/01/21");
+    expect(valores(subtotal!.slice(2))).toEqual([9.83, 5, 14.83, null]);
   });
 
   it("escreve a legenda das ausências e o aviso do total antes da tabela", () => {
-    const antes = linhas.slice(0, cabecalho).flat().join(" ");
+    const antes = linhas.slice(0, cabecalho).flat().map((c) => c.valor).join(" ");
     expect(antes).toContain("Nenhuma das três é zero");
     expect(antes).toContain("não é o custo de um período");
   });
 
   it("diz que não há leitura financeira quando não há, com o motivo", () => {
-    const antes = linhas.slice(0, cabecalho).flat().join(" ");
+    const antes = linhas.slice(0, cabecalho).flat().map((c) => c.valor).join(" ");
     expect(antes).toContain("Sem leitura financeira apurada");
     expect(antes).toContain("Semântica desconhecida");
   });
@@ -260,15 +269,18 @@ describe("linhasDaAba", () => {
         contem: "cavalo.custo_fixo",
       },
     });
-    const antes = linhasDaAba(conjunto).flat().join(" ");
+    const antes = linhasDaAba(conjunto)
+      .flat()
+      .map((c) => c.valor)
+      .join(" ");
     expect(antes).toContain("já contém o outro equipamento");
     expect(antes).toContain("duas vezes");
   });
 
   it("fecha com o Total Geral da frota", () => {
     const ultima = linhas[linhas.length - 1];
-    expect(ultima[0]).toBe("Total Geral");
-    expect(ultima.slice(2)).toEqual([9.83, 5, 14.83, null]);
+    expect(ultima[0].valor).toBe("Total Geral");
+    expect(valores(ultima.slice(2))).toEqual([9.83, 5, 14.83, null]);
   });
 });
 
@@ -276,13 +288,14 @@ describe("linhasDoIndice", () => {
   it("liga o nome curto da aba ao nome inteiro do parâmetro", () => {
     const nomes = new Map([["cavalo.consumo_combustivel", "CAV Consumo de Combu"]]);
     const linhas = linhasDoIndice(exportacao(), nomes, "17/08/2026 14:32");
-    const linha = linhas.find((l) => l[0] === "CAV Consumo de Combu");
-    expect(linha?.[1]).toBe("Consumo de Combustível");
+    const linha = linhas.find((l) => l[0]?.valor === "CAV Consumo de Combu");
+    expect(linha?.[1].valor).toBe("Consumo de Combustível");
   });
 
   it("repete os totais do panorama, para o arquivo dizer de onde veio", () => {
     const texto = linhasDoIndice(exportacao(), new Map(), "17/08/2026 14:32")
       .flat()
+      .map((c) => c.valor)
       .join(" ");
     expect(texto).toContain("CAMAÇARI · EMPURRADA");
     expect(texto).toContain("16 linhas econômicas");
@@ -307,6 +320,87 @@ describe("nomeDoArquivo", () => {
 });
 
 /**
+ * A cor, que é informação e não enfeite.
+ *
+ * Na tela, verde e vermelho são o que faz a alteração aparecer sem ninguém
+ * comparar duas colunas de cabeça. No arquivo elas são a **única** pista que
+ * sobra: não há `title` para explicar uma célula. Por isso a cor sai do
+ * `movimento` que o servidor apurou, e estes casos protegem exatamente isso —
+ * que ela não seja recalculada aqui, e que o que não se moveu fique sem cor.
+ */
+describe("as cores repetem as da tela", () => {
+  const linhas = linhasDaAba(aba());
+  const doAtivo = (placa: string) => linhas.find((l) => l[1]?.valor === placa)!;
+
+  it("pinta de verde o que subiu e de vermelho o que caiu", () => {
+    const subiu = doAtivo("QYQ6A80");
+    // A primeira vigência não tem anterior com que comparar: sem movimento,
+    // sem cor — como na tela.
+    expect(subiu[2].tom).toBeUndefined();
+    expect(subiu[3].tom).toBe("SUBIU");
+
+    const caiu = linhasDaAba(
+      aba({
+        groups: [
+          {
+            ...aba().groups[0],
+            rows: [
+              {
+                ...aba().groups[0].rows[0],
+                cells: [celula("VALOR", 5), celula("VALOR", 4.9, "CAIU")],
+              },
+            ],
+          },
+        ],
+      }),
+    ).find((l) => l[1]?.valor === "QYQ6A80")!;
+    expect(caiu[3].tom).toBe("CAIU");
+  });
+
+  it("não pinta o que ficou igual", () => {
+    const igual = linhasDaAba(
+      aba({
+        groups: [
+          {
+            ...aba().groups[0],
+            rows: [
+              {
+                ...aba().groups[0].rows[0],
+                cells: [celula("VALOR", 5), celula("VALOR", 5, "IGUAL")],
+              },
+            ],
+          },
+        ],
+      }),
+    ).find((l) => l[1]?.valor === "QYQ6A80")!;
+    expect(igual[3].tom).toBeUndefined();
+  });
+
+  it("distingue a saída de frota da ausência sem movimento", () => {
+    expect(doAtivo("QYQ6B30")[3].tom).toBe("SAIU");
+    expect(celulaDaMatriz(celula("FORA_DA_FROTA")).tom).toBeUndefined();
+    expect(celulaDaMatriz(celula("NAO_ENTREGUE")).tom).toBe("NAO_ENTREGUE");
+    expect(celulaDaMatriz(celula("SEM_VALOR")).tom).toBe("SEM_VALOR");
+  });
+
+  it("dá ao Δ da linha a cor do sinal, e nenhuma cor ao zero", () => {
+    expect(doAtivo("QYQ6A80").at(-1)!.tom).toBe("SUBIU");
+    // QYQ6B30 tem delta 0 — não subiu nem caiu.
+    expect(doAtivo("QYQ6B30").at(-1)!.tom).toBeUndefined();
+  });
+
+  it("marca cabeçalho, subtotal e total como estrutura, não como movimento", () => {
+    const cab = linhas.find((l) => l[1]?.valor === "placa")!;
+    expect(cab.every((c) => c.tom === "CABECALHO")).toBe(true);
+    const subtotal = linhas.find((l) =>
+      String(l[1]?.valor ?? "").startsWith("subtotal"),
+    )!;
+    expect(subtotal.every((c) => c.tom === "GRUPO")).toBe(true);
+    expect(linhas.at(-1)!.every((c) => c.tom === "CABECALHO")).toBe(true);
+  });
+});
+
+/**
  * O arquivo, escrito e lido de volta.
  *
  * Um `.xlsx` que não abre é o pior desfecho possível desta rota — o defeito
@@ -315,33 +409,95 @@ describe("nomeDoArquivo", () => {
  * sobreviveram à serialização.
  */
 describe("montarPlanilhaDeImpacto", () => {
-  const bytes = montarPlanilhaDeImpacto(exportacao(), "17/08/2026 14:32");
-  // `cellNF` é o que traz o formato de volta na leitura; sem ele o `z` não é
-  // lido de novo e o caso do formato testaria o leitor, não o escritor.
-  const lido = XLSX.read(bytes, { type: "buffer", cellNF: true });
+  let lido: ExcelJS.Workbook;
+
+  beforeAll(async () => {
+    const bytes = await montarPlanilhaDeImpacto(exportacao(), "17/08/2026 14:32");
+    lido = new ExcelJS.Workbook();
+    await lido.xlsx.load(bytes as unknown as Parameters<typeof lido.xlsx.load>[0]);
+  });
 
   it("abre, com o índice na frente e uma aba por parâmetro", () => {
-    expect(lido.SheetNames).toEqual(["Índice", "CAV Consumo de Combustível"]);
+    expect(lido.worksheets.map((w) => w.name)).toEqual([
+      "Índice",
+      "CAV Consumo de Combustível",
+    ]);
   });
 
   it("guarda valor como número e ausência como texto", () => {
-    const ws = lido.Sheets["CAV Consumo de Combustível"];
-    const celulas = Object.values(ws)
-      .filter((c): c is XLSX.CellObject => typeof c === "object" && c !== null && "t" in c)
-      .filter((c) => c.v === 4.92 || c.v === FORA_DA_FROTA);
-    expect(celulas.find((c) => c.v === 4.92)?.t).toBe("n");
-    expect(celulas.find((c) => c.v === FORA_DA_FROTA)?.t).toBe("s");
+    const ws = lido.getWorksheet("CAV Consumo de Combustível")!;
+    const numerica = ws.getCell(linhaDaPlaca(ws, "QYQ6A80"), 3);
+    expect(numerica.value).toBe(4.92);
+    expect(numerica.type).toBe(ExcelJS.ValueType.Number);
+    expect(celulaComValor(ws, FORA_DA_FROTA).type).toBe(ExcelJS.ValueType.String);
+  });
+
+  it("leva a cor até o arquivo: verde no que subiu, vermelho no que caiu", () => {
+    const ws = lido.getWorksheet("CAV Consumo de Combustível")!;
+    // Ancorado na linha da placa, e não no primeiro 5 que aparecer: o subtotal
+    // do grupo tem o mesmo valor e o tom da estrutura, não do movimento.
+    const subiu = ws.getCell(linhaDaPlaca(ws, "QYQ6A80"), 4);
+    expect((subiu.fill as ExcelJS.FillPattern).fgColor?.argb).toBe("FFECFDF5");
+    expect((subiu.font?.color as { argb?: string })?.argb).toBe("FF065F46");
+    // A seta vai no formato do número, para a célula continuar somável.
+    expect(subiu.numFmt).toBe('"↗ "#,##0.00');
+    expect(subiu.type).toBe(ExcelJS.ValueType.Number);
+  });
+
+  it("hachura a vigência que não trouxe o equipamento", async () => {
+    const comLacuna = aba({
+      groups: [
+        {
+          ...aba().groups[0],
+          rows: [
+            {
+              ...aba().groups[0].rows[0],
+              cells: [celula("VALOR", 4.92), celula("NAO_ENTREGUE")],
+            },
+          ],
+        },
+      ],
+    });
+    const bytes = await montarPlanilhaDeImpacto(
+      exportacao({ abas: [comLacuna] }),
+      "17/08/2026 14:32",
+    );
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(bytes as unknown as Parameters<typeof wb.xlsx.load>[0]);
+    const ws = wb.getWorksheet("CAV Consumo de Combustível")!;
+    const linha = linhaDaPlaca(ws, "QYQ6A80");
+    const celulaVazia = ws.getCell(linha, 4);
+    expect(celulaVazia.value).toBeNull();
+    expect((celulaVazia.fill as ExcelJS.FillPattern).pattern).toBe("lightUp");
   });
 
   it("formata os números com duas casas, sem repetir a unidade em cada célula", () => {
-    const ws = lido.Sheets["CAV Consumo de Combustível"];
-    const numerica = Object.values(ws).find(
-      (c): c is XLSX.CellObject =>
-        typeof c === "object" && c !== null && "t" in c && c.t === "n",
-    );
-    expect(numerica?.z).toBe("#,##0.00");
+    const ws = lido.getWorksheet("CAV Consumo de Combustível")!;
+    expect(ws.getCell(linhaDaPlaca(ws, "QYQ6A80"), 3).numFmt).toBe("#,##0.00");
   });
 });
+
+/** A primeira célula da aba com este valor — a busca que os casos acima fazem. */
+function celulaComValor(ws: ExcelJS.Worksheet, valor: string | number): ExcelJS.Cell {
+  let achada: ExcelJS.Cell | undefined;
+  ws.eachRow((row) =>
+    row.eachCell((c) => {
+      if (achada === undefined && c.value === valor) achada = c;
+    }),
+  );
+  expect(achada, `nenhuma célula com ${valor}`).toBeDefined();
+  return achada!;
+}
+
+/** O número da linha em que a placa aparece. */
+function linhaDaPlaca(ws: ExcelJS.Worksheet, placa: string): number {
+  let numero = 0;
+  ws.eachRow((row, i) => {
+    if (numero === 0 && row.getCell(2).value === placa) numero = i;
+  });
+  expect(numero, `placa ${placa} não está na aba`).toBeGreaterThan(0);
+  return numero;
+}
 
 describe("agoraEmBrasilia", () => {
   it("escreve no fuso de quem lê o arquivo, não em UTC", () => {
