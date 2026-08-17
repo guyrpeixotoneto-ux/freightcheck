@@ -2,7 +2,6 @@ import {
   BadgeCheck,
   ChartColumn,
   ClipboardCheck,
-  Container,
   Database,
   FileSpreadsheet,
   Gavel,
@@ -14,7 +13,6 @@ import {
   ShieldCheck,
   SquareActivity,
   SquareTerminal,
-  Tractor,
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
@@ -175,49 +173,23 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
   // -------------------------------------------------------------------------
   // Frota
   // -------------------------------------------------------------------------
-  {
-    href: "/cavalo-360",
-    label: "Cavalo 360°",
-    icon: Tractor,
-    cor: "text-nav-frota",
-    pergunta:
-      "Tudo o que a base sabe sobre um cavalo mecânico numa tela só: como ele é remunerado, o que mudou para ele e como se compara aos iguais.",
-    depende: [
-      "A chave de frota — placa ou número de ativo — ligando a vigência ao equipamento físico. A planilha traz categoria e configuração; o veículo individual só aparece quando essa chave entra.",
-      "O cadastro de frota da unidade, para que a tela saiba quais cavalos existem antes de saber o que cada um recebe.",
-    ],
-    hoje: [
-      {
-        href: "/analise-equipamentos",
-        label: "Análise de frota",
-        porque: "O comportamento da frota por categoria, que é o nível que a base sustenta hoje.",
-      },
-      {
-        href: "/composicao",
-        label: "Composição",
-        porque: "O drill-down por equipamento: por que aquela configuração recebe o que recebe.",
-      },
-    ],
-  },
-  {
-    href: "/carreta-360",
-    label: "Carreta 360°",
-    icon: Container,
-    cor: "text-nav-frota",
-    pergunta:
-      "O mesmo retrato completo para o implemento: como a carreta entra na remuneração do conjunto e o que muda quando ela troca de cavalo.",
-    depende: [
-      "A chave de frota do implemento, e o vínculo cavalo–carreta ao longo do tempo: o conjunto é que é remunerado, e ele se desfaz e refaz.",
-      "O histórico de composição do conjunto, sem o qual a tela mostra a foto de hoje como se valesse para o período inteiro.",
-    ],
-    hoje: [
-      {
-        href: "/composicao",
-        label: "Composição",
-        porque: "Como o conjunto é montado a partir das suas partes, com a origem de cada parcela.",
-      },
-    ],
-  },
+  /*
+    `/cavalo-360` e `/carreta-360` saíram deste catálogo: as duas telas existem,
+    e respondem pelo caminho que o dado sustenta hoje — as quatro leituras de
+    Alterações recortadas no equipamento, com a placa como segundo nível.
+
+    O que a entrada do cavalo dizia faltar era "a chave de frota ligando a
+    vigência ao equipamento físico", e ela existe: `entity_identifier` do tipo
+    `PLACA`, que a comparação já denormaliza em `change.entity_label` e a
+    matriz por quinzena já usa como rótulo de linha.
+
+    O que a entrada da carreta dizia faltar **continua faltando**, e não é
+    pouco: o vínculo cavalo–carreta ao longo do tempo. Sem ele, Carreta 360°
+    responde pela carreta — o que ela recebe, o que mudou nela, quanto custou —
+    e não responde "o que muda quando ela troca de cavalo". A distinção está
+    escrita na própria tela, e é dela que sai a próxima versão desta resposta,
+    não de uma linha de volta aqui.
+  */
   {
     href: "/dre-veiculo",
     label: "DRE do veículo",

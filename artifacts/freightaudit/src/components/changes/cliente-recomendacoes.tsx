@@ -27,6 +27,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { fetchJson } from "@/lib/api";
+import type { EscopoDeFrota } from "@/lib/frota";
 import {
   formatBrl,
   formatBrlCompacto,
@@ -543,6 +544,7 @@ export function ClienteRecomendacoes({
   onAbrirImpacto,
   janela = {},
   onJanela,
+  escopo,
 }: {
   onAbrirImpacto?: (escolha: { entityType: string; code: string }) => void;
   /**
@@ -555,8 +557,30 @@ export function ClienteRecomendacoes({
    */
   janela?: JanelaDeVigencias;
   onJanela?: (j: JanelaDeVigencias) => void;
+  /**
+   * O escopo de frota das telas 360°, quando esta aba é lida de lá.
+   *
+   * Ele trava o equipamento — que esta aba já sabia recortar, e pela mesma
+   * autoridade. A **placa não estreita nada aqui**, e essa é a única aba das
+   * quatro em que isso acontece; a razão está escrita na tela, no lugar em que
+   * a pessoa faria a pergunta.
+   *
+   * Em uma frase: a recomendação é sobre o *parâmetro*, não sobre o ativo. "O
+   * FINAME do cavalo caiu em 41 veículos e vale pedir revisão" é uma pauta de
+   * reunião; a mesma frase recortada num ativo viraria "caiu em 1 veículo", que
+   * é a mesma alteração com o argumento desmontado. E recalcular o panorama por
+   * placa traria de volta as parcelas cujo total está no outro equipamento —
+   * ver `motor.ts` em `@workspace/advisory`, que recusa a segunda leitura pelo
+   * mesmo motivo ao recortar por equipamento.
+   */
+  escopo?: EscopoDeFrota;
 }) {
-  const [entityType, setEntityType] = useState<string | null>(null);
+  /*
+    Sob escopo o equipamento vem de fora e não se troca aqui: a tela já o
+    decidiu, e um seletor faria de novo a pergunta que o menu respondeu.
+  */
+  const [escolhido, setEntityType] = useState<string | null>(null);
+  const entityType = escopo?.entityType ?? escolhido;
   /**
    * Qual cartão da pauta está com o detalhe técnico aberto — um só de cada vez.
    *
@@ -644,7 +668,25 @@ export function ClienteRecomendacoes({
         />
       )}
 
-      {data.entityTypes.length > 1 && (
+      {/*
+        A placa não estreita esta aba, e calar isso seria pior do que a limitação.
+        Quem escolheu uma placa no cabeçalho vê as outras três abas responderem
+        por ela; sem esta linha, concluiria que estas recomendações também são —
+        e levaria à reunião um argumento de frota como se fosse de um ativo.
+      */}
+      {escopo?.placa && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          A pauta abaixo é dos{" "}
+          <strong>{escopo.entityType === "CAVALO" ? "cavalos" : "carretas"}</strong>,
+          e não da placa <strong className="font-mono">{escopo.placa}</strong>. A
+          recomendação é sobre o parâmetro: "caiu em 41 veículos" é o que
+          sustenta o pedido, e a mesma linha recortada num ativo diria "caiu em
+          1" — a mesma alteração com o argumento desmontado. O que a placa mostra
+          está na aba Impacto, ao lado.
+        </p>
+      )}
+
+      {escopo === undefined && data.entityTypes.length > 1 && (
         <div className="flex items-center gap-2">
           <Pilula ativo={entityType === null} onClick={() => setEntityType(null)}>
             Frota inteira

@@ -30,6 +30,7 @@ import Vigencias from '@/pages/vigencias';
 import Versoes from '@/pages/versoes';
 import Unidades from '@/pages/unidades';
 import Configuracoes from '@/pages/configuracoes';
+import Frota360 from '@/pages/frota-360';
 import { EmPreparo } from '@/pages/em-preparo';
 import { TELAS_EM_PREPARO } from '@/pages/telas-em-preparo';
 
@@ -113,6 +114,23 @@ function Router() {
       */}
       <Route path="/impacto-financeiro">
         <Alteracoes key="impacto-financeiro" abaInicial="impacto" />
+      </Route>
+      {/*
+        As duas telas 360° são a mesma tela, parametrizada pelo equipamento — e
+        chaves diferentes pela mesma razão que separa `/alteracoes` de
+        `/impacto-financeiro`: a placa e o De/Até são estado, e atravessar de
+        cavalo para carreta com a placa do outro equipamento na barra abriria a
+        tela num ativo que não é dela.
+
+        As duas saíram de `TELAS_EM_PREPARO` neste mesmo passo, e o menu não
+        mudou uma vírgula — os itens já estavam lá, no lugar certo, com o nome
+        certo.
+      */}
+      <Route path="/cavalo-360">
+        <Frota360 key="cavalo-360" equipamento="CAVALO" />
+      </Route>
+      <Route path="/carreta-360">
+        <Frota360 key="carreta-360" equipamento="CARRETA" />
       </Route>
       <Route path="/comparar" component={Comparar} />
       <Route path="/importacoes" component={Importacoes} />
