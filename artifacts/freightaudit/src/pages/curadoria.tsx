@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
+import { PlanilhaDeAtributos } from "@/components/curadoria/planilha-de-atributos";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -333,15 +334,45 @@ export default function Curadoria() {
   return (
     <Layout>
       <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <FileSearch className="w-6 h-6 text-primary" />
-          Curadoria de Atributos
-        </h1>
-        <p className="text-muted-foreground mt-1 max-w-3xl">
-          O Freightec não diz o que cada variável significa. Enquanto você não
-          confirmar aqui, o atributo aparece nas telas de mudança mas{" "}
-          <strong>não entra em nenhum cálculo financeiro</strong>.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+              <FileSearch className="w-6 h-6 text-primary" />
+              Curadoria de Atributos
+            </h1>
+            <p className="text-muted-foreground mt-1 max-w-3xl">
+              O Freightec não diz o que cada variável significa. Enquanto você não
+              confirmar aqui, o atributo aparece nas telas de mudança mas{" "}
+              <strong>não entra em nenhum cálculo financeiro</strong>.
+            </p>
+          </div>
+          {/* A planilha fica no topo, ao lado do título, e não dentro da fila:
+              ela descreve a base inteira de uma vez, e não o atributo aberto. */}
+          <PlanilhaDeAtributos />
+        </div>
+
+        {/* As abas vêm antes dos quadros porque mandam neles: primeiro se
+            escolhe de que equipamento se está falando, depois se lê quanto
+            falta nele. Na ordem inversa, os números apareceriam antes de a
+            tela dizer sobre o que eles são. */}
+        <Tabs
+          value={equipamento ?? TODOS}
+          onValueChange={(valor) =>
+            setEquipamento(valor === TODOS ? null : valor)
+          }
+          className="mt-5"
+        >
+          <TabsList>
+            {abas.map((aba) => (
+              <TabsTrigger key={aba.tipo ?? TODOS} value={aba.tipo ?? TODOS}>
+                {aba.rotulo}
+                <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
+                  {aba.total}
+                </span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
 
         {/* As abas vêm antes dos quadros porque mandam neles: primeiro se
             escolhe de que equipamento se está falando, depois se lê quanto
@@ -662,7 +693,7 @@ function AttributePanel({
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
             <Metric label="Valores" value={detail.valueCount.toLocaleString("pt-BR")} />
             <Metric label="Ausentes" value={detail.nullCount.toLocaleString("pt-BR")} />
-            <Metric label="Categoria" value={detail.taxonomyName ?? "—"} />
+            <Metric label="Categoria DRE" value={detail.taxonomyName ?? "—"} />
             <Metric label="Classe" value={detail.costClass ?? "—"} />
           </div>
         </CardContent>
@@ -1184,8 +1215,13 @@ function ConfirmarInterpretacao({
             </Field>
           )}
 
+          {/* "Categoria DRE", e não "Categoria": é o mesmo campo que a coluna
+              de mesmo nome da planilha de atributos preenche, e dois nomes para
+              o mesmo campo fazem quem preenche a planilha procurar na tela um
+              campo que não existe. O nome também diz o que a escolha decide —
+              em que linha da DRE a coluna cai. */}
           <Field
-            label="Categoria"
+            label="Categoria DRE"
             hint="Onde este valor entra na conta. Pesquise ou cadastre uma nova."
           >
             <ComboboxCriavel

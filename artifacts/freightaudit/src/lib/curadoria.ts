@@ -38,17 +38,20 @@ export function estaDescrito(atributo: CamposDeSignificado): boolean {
 }
 
 /**
- * As abas fixas da curadoria, na ordem em que o produto fala delas.
+ * As abas fixas da curadoria: os mesmos três tipos que o resto do produto
+ * conhece, na mesma ordem, lidos de `lib/frota.ts`.
  *
- * Elas aparecem mesmo sem nenhum atributo importado do tipo — é o que faz a
- * curadoria dizer "não há coluna de trecho nesta base" em vez de simplesmente
- * não ter onde procurar por ela. Um tipo vazio custa uma aba com zero e uma
- * frase; um tipo que só existe quando há dado custa a dúvida de saber se a base
- * não tem a coluna ou se a tela não sabe mostrá-la.
+ * A lista mora lá, e não aqui, porque duas listas dos mesmos três tipos
+ * concordam hoje e discordam no dia do quarto: a Curadoria mostraria uma aba
+ * que o 360° não tem, ou o contrário, e a divergência só apareceria quando
+ * alguém procurasse a aba que falta. Aqui fica o que é da Curadoria — **que
+ * elas aparecem mesmo vazias.**
  *
- * `TRECHO` está na lista antes de existir na base pela mesma razão: o tipo de
- * entidade nasce do nome da aba da planilha importada (`Trecho` → `TRECHO`), e
- * a curadoria precisa estar pronta para recebê-lo sem mudança de código.
+
+ * Isso é o que faz a tela dizer "não há coluna de trecho nesta base" em vez de
+ * simplesmente não ter onde procurar por ela. Um tipo vazio custa uma aba com
+ * zero e uma frase; um tipo que só existe quando há dado custa a dúvida de
+ * saber se a base não tem a coluna ou se a tela não sabe mostrá-la.
  *
  * **A lista não é escrita aqui.** Ela era, com as mesmas três strings e os
  * mesmos três rótulos que `lib/frota.ts` já mantinha para as telas 360°, e as
