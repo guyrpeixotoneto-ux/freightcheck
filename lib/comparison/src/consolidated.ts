@@ -9,6 +9,8 @@ import {
   resolveContext,
   seriesKey,
   type ContextInfo,
+  type JanelaDeVigencias,
+  type RequestedContext,
   type SeriesContext,
 } from "./series";
 
@@ -32,6 +34,14 @@ import {
 
 export interface SeriesAtPeriod {
   entityTypeSet: string;
+  /**
+   * A vigência a que esta entrada se refere.
+   *
+   * Existe desde que a leitura passou a poder cobrir mais de uma: sem ela, uma
+   * lista com oito transições da mesma série seria oito entradas indistinguíveis,
+   * e a tela não teria como dizer qual é qual.
+   */
+  effectiveDate: string;
   snapshotId: string;
   sourceLabel: string;
   /** The comparison against this series' own previous vigência. */
@@ -49,6 +59,13 @@ export interface ConsolidatedView {
    * resposta diz de quem é o período que ela está descrevendo.
    */
   context: ContextInfo;
+  /**
+   * A vigência mais recente da leitura.
+   *
+   * Sem recorte é *a* vigência — a leitura é de uma só. Com recorte é a ponta
+   * de cima dele, e quem escreve a procedência na tela precisa de
+   * {@link ConsolidatedView.periodos} para dizer a frase inteira.
+   */
   period: string;
   /**
    * `agosto/2026` — a vigência dita como as outras telas a dizem.
@@ -81,6 +98,41 @@ export interface ConsolidatedView {
   impactByPeriodicity: Record<string, number>;
   /** The change sets behind the numbers, for the listing to read. */
   changeSetIds: string[];
+  /**
+   * O recorte De/Até aplicado, quando houve. Null é a leitura de uma vigência.
+   *
+   * Vem do contexto resolvido, e não do pedido: quem manda meia janela — "de
+   * março para cá" — recebe aqui as duas pontas de fato usadas.
+   */
+  janela: JanelaDeVigencias | null;
+  /**
+   * As vigências que a leitura cobre, da mais antiga à mais recente.
+   *
+   * Sem recorte é uma só. Existe porque a tela precisa dizer *quantas* e
+   * *quais* — e uma faixa que dissesse só as pontas esconderia que a série tem
+   * buracos no meio do intervalo.
+   */
+  periodos: string[];
+  /**
+   * Quantas transições entraram na soma.
+   *
+   * **Não é `periodos.length`, e a diferença é o ponto.** Uma transição precisa
+   * das duas pontas dentro do recorte: a vigência mais antiga do intervalo não
+   * tem par aqui dentro, e a comparação dela com a de fora pertence ao
+   * intervalo anterior. Somá-la aqui contaria a mesma alteração duas vezes para
+   * quem lê dois recortes vizinhos.
+   */
+  transicoes: number;
+  /**
+   * `2025-12-02` → `EMPURRADA_2_12_2025`, para **todas** as vigências do
+   * contexto — não só as do recorte.
+   *
+   * Deliberadamente sem o recorte: quem monta os seletores de De e Até precisa
+   * nomear as opções que estão fora do intervalo atual, que são justamente as
+   * que a pessoa vai escolher em seguida. Uma opção sem nome apareceria como
+   * uma data solta ao lado de oito rótulos da fonte.
+   */
+  rotulos: Record<string, string>;
 }
 
 /**
@@ -116,6 +168,36 @@ export async function listPeriods(db: Database, context?: SeriesContext) {
      ORDER BY s.effective_date DESC
   `);
   return rows;
+}
+
+/**
+ * O nome de cada vigência do contexto — **sem o recorte**.
+ *
+ * `listPeriods` passa pelo `contextFilter`, e portanto some com as vigências
+ * fora da janela. É o que se quer de uma leitura; é o oposto do que se quer de
+ * um seletor, que existe justamente para escolher uma das que estão de fora.
+ * Por isso esta consulta larga a janela de propósito, e é a única do módulo que
+ * o faz.
+ *
+ * Uma data pode ter mais de um snapshot (cavalo e carreta), e nada obriga os
+ * rótulos a serem iguais. `min` escolhe um de forma determinística: o rótulo é
+ * legenda de uma data, e uma legenda que mudasse de render em render seria pior
+ * do que a menos bonita das duas.
+ */
+export async function listPeriodLabels(
+  db: Database,
+  context: SeriesContext,
+): Promise<Record<string, string>> {
+  const { rows } = await db.execute<{ effective_date: string; label: string }>(sql`
+    SELECT s.effective_date::text AS effective_date,
+           min(s.source_label)    AS label
+      FROM snapshot s
+     WHERE s.status <> 'SUPERSEDED'
+       AND ${contextFilter("s", { ...context, janela: null })}
+     GROUP BY s.effective_date
+     ORDER BY s.effective_date
+  `);
+  return Object.fromEntries(rows.map((r) => [r.effective_date, r.label]));
 }
 
 /**
@@ -210,36 +292,71 @@ export async function computeMissingChangeSets(
   return { computed, existing, series: series.size };
 }
 
+/**
+ * A vigência, ou o intervalo delas, somando as séries que entregaram.
+ *
+ * São duas leituras na mesma função, e a segunda nasceu quando o recorte De/Até
+ * — que já existia no Impacto — passou a valer também para a lista da planilha:
+ *
+ * - **Sem recorte**, é o que sempre foi: *uma* vigência (a pedida, ou a mais
+ *   recente), comparada com a anterior de cada série. A anterior pode ser de
+ *   qualquer data — é a série que manda —, e é isso que faz a leitura de um mês
+ *   fechar sozinha.
+ * - **Com recorte**, é o intervalo inteiro: toda transição cujas **duas** pontas
+ *   caem dentro dele. A regra das duas pontas é o que impede a dupla contagem —
+ *   a comparação que atravessa a borda pertence ao intervalo de baixo, e contá-la
+ *   nos dois faria a mesma alteração aparecer em duas leituras vizinhas.
+ *
+ * A consequência é que a vigência mais antiga do recorte não traz transição
+ * nenhuma, e a resposta diz isso em {@link ConsolidatedView.transicoes} em vez
+ * de deixar quem lê subtrair um de `periodos.length` na cabeça.
+ */
 export async function getConsolidated(
   db: Database,
   period?: string,
-  requestedContext?: Partial<SeriesContext>,
+  requestedContext?: RequestedContext,
 ): Promise<ConsolidatedView | null> {
   const context = await resolveContext(db, requestedContext);
   if (!context) return null;
 
+  // Já recortado pela janela — `contextFilter` a aplica —, e da mais recente
+  // para a mais antiga.
   const periods = await listPeriods(db, context);
   if (periods.length === 0) return null;
 
-  const target = period
-    ? periods.find((p) => p.effective_date === period)
-    : periods[0];
-  if (!target) return null;
+  /*
+    Com recorte, a vigência pedida não manda: o intervalo é a leitura, e honrar
+    um `period` dentro dele encolheria a resposta a uma coluna com o seletor
+    dizendo nove. Os dois nunca chegam juntos pela tela — trocar de modo apaga o
+    outro —, e a precedência escrita aqui é o que garante isso também para um
+    endereço colado à mão.
+  */
+  const alvos = context.janela
+    ? periods.map((p) => p.effective_date).reverse() // da mais antiga à mais recente
+    : [(period ? periods.find((p) => p.effective_date === period) : periods[0])
+        ?.effective_date];
+  if (alvos[0] === undefined) return null;
+  const datas = alvos as string[];
 
   const all = await knownSeries(db, context);
   const { rows: snapshots } = await db.execute<{
     id: string;
+    effectiveDate: string;
     entityTypeSet: string;
     sourceLabel: string;
   }>(sql`
     SELECT s.id::text AS id,
+           s.effective_date::text AS "effectiveDate",
            s.entity_type_set AS "entityTypeSet",
            s.source_label    AS "sourceLabel"
       FROM snapshot s
-     WHERE s.effective_date::text = ${target.effective_date}
+     WHERE s.effective_date::text IN (${sql.join(
+       datas.map((d) => sql`${d}`),
+       sql`, `,
+     )})
        AND s.status <> 'SUPERSEDED'
        AND ${contextFilter("s", context)}
-     ORDER BY s.entity_type_set
+     ORDER BY s.effective_date, s.entity_type_set
   `);
 
   const present: SeriesAtPeriod[] = [];
@@ -269,18 +386,50 @@ export async function getConsolidated(
       .filter((t) => t !== "")
       .sort();
 
-    const previousId = await findPreviousSnapshot(db, snapshot.id);
-    if (!previousId) {
+    const semPar = (reason: string) => {
       for (const componente of componentes) {
         present.push({
           entityTypeSet: componente,
+          effectiveDate: snapshot.effectiveDate,
           snapshotId: snapshot.id,
           sourceLabel: snapshot.sourceLabel,
           changeSetId: null,
           previousLabel: null,
-          reason: "Primeira vigência desta série; não há anterior com que comparar.",
+          reason,
         });
       }
+    };
+
+    const previousId = await findPreviousSnapshot(db, snapshot.id);
+    if (!previousId) {
+      semPar("Primeira vigência desta série; não há anterior com que comparar.");
+      continue;
+    }
+
+    const [previous] = await db
+      .select({
+        sourceLabel: snapshotTable.sourceLabel,
+        effectiveDate: snapshotTable.effectiveDate,
+      })
+      .from(snapshotTable)
+      .where(sql`${snapshotTable.id} = ${previousId}`);
+
+    /*
+      A borda de baixo do recorte.
+
+      `findPreviousSnapshot` não conhece a janela — é a série que ela lê, e é
+      isso que a torna a resposta certa para a leitura de uma vigência só. Aqui,
+      porém, ela devolve uma vigência de fora do intervalo, e somar essa
+      transição faria o recorte responder por uma alteração que aconteceu antes
+      dele. É a regra das duas pontas, e é o que mantém dois recortes vizinhos
+      somando cada alteração uma vez.
+    */
+    const de = context.janela?.de;
+    if (de !== undefined && (previous?.effectiveDate ?? "") < de) {
+      semPar(
+        "A vigência anterior desta série está fora do recorte; a transição " +
+          "pertence ao intervalo anterior.",
+      );
       continue;
     }
 
@@ -292,14 +441,10 @@ export async function getConsolidated(
       }).then(() => getChangeSetForPair(db, previousId, snapshot.id)));
     if (!set) continue;
 
-    const [previous] = await db
-      .select({ sourceLabel: snapshotTable.sourceLabel })
-      .from(snapshotTable)
-      .where(sql`${snapshotTable.id} = ${previousId}`);
-
     for (const componente of componentes) {
       present.push({
         entityTypeSet: componente,
+        effectiveDate: snapshot.effectiveDate,
         snapshotId: snapshot.id,
         sourceLabel: snapshot.sourceLabel,
         changeSetId: set.id,
@@ -329,10 +474,14 @@ export async function getConsolidated(
   const presentTypes = new Set(present.map((p) => p.entityTypeSet));
   const missing = all.filter((s) => !presentTypes.has(s));
 
+  // A ponta de cima da leitura: a vigência pedida quando é uma só, e o fim do
+  // intervalo quando é um recorte.
+  const ultima = datas[datas.length - 1];
+
   return {
     context,
-    period: target.effective_date,
-    periodLabel: periodLabel(target.effective_date),
+    period: ultima,
+    periodLabel: periodLabel(ultima),
     present,
     missing,
     complete: missing.length === 0,
@@ -341,5 +490,9 @@ export async function getConsolidated(
       Object.entries(impactByPeriodicity).map(([k, v]) => [k, Number(v.toFixed(6))]),
     ),
     changeSetIds,
+    janela: context.janela ?? null,
+    periodos: datas,
+    transicoes: changeSetIds.length,
+    rotulos: await listPeriodLabels(db, context),
   };
 }

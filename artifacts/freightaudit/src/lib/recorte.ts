@@ -22,6 +22,10 @@
  *   recusas ficam escritas aqui, e não em cada `<Link>`, porque um endereço
  *   montado à mão numa tela é exatamente onde a promessa vazia nasce.
  *
+ * O recorte De/Até é outra coisa, e por isso não está neste arquivo: ele não
+ * viaja em endereço nenhum, é escolhido dentro da tela e vale nas quatro abas —
+ * cada uma sobre o eixo de vigências que a sua conta sustenta.
+ *
  * Nada aqui lê a rede nem o React. São strings entrando e strings saindo, o que
  * deixa a regra testável sem montar tela nenhuma.
  */
@@ -189,17 +193,19 @@ export interface DestinoDeAlteracoes {
  *   endereço para o meio dela, e inventá-lo custaria uma das duas mentiras
  *   acima.
  * - **Cliente** recebe o mesmo que o Impacto, e pela mesma razão: ela lê a série
- *   inteira, com o recorte De/Até que as duas partilham, e a unidade é o assunto.
+ *   inteira, com o recorte De/Até que as abas partilham, e a unidade é o assunto.
  *   Vigência única e filtro de linha ficam de fora — o que ela mostra é o
  *   subconjunto acionável do que o Impacto apurou, não uma lista de alterações.
- * - **Chamados** não recebe nada: os chamados não são recortados por unidade
- *   nem por vigência em lugar nenhum do produto, e fingir que são seria pior do
- *   que não filtrar.
+ * - **Chamados** não recebe nada: o export de chamados é uma população própria,
+ *   sem unidade e sem canal, e fingir que tem seria pior do que não filtrar. A
+ *   vigência única também não vale ali — a aba recorta por intervalo, e pelo
+ *   eixo que os próprios chamados declaram (`Vig. Abertura`), que não é o mesmo
+ *   que o das vigências importadas.
  *
  * O De/Até não entra em endereço nenhum, e é decisão e não esquecimento: ele
- * mora na tela porque atravessa Impacto e Cliente durante uma pergunta só, e
- * quem chega de fora chega no começo dela — com a série inteira à vista, que é
- * onde a pergunta começa.
+ * mora na tela porque atravessa as quatro abas durante uma pergunta só, e quem
+ * chega de fora chega no começo dela — com a série inteira à vista, que é onde
+ * a pergunta começa.
  *
  * A aba `planilha` não é escrita no endereço por ser o padrão de quem abre
  * `/alteracoes` — um `?aba=planilha` a mais em todo link do produto é ruído que

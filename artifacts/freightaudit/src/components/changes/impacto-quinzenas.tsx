@@ -17,6 +17,7 @@ import {
   type EscolhaDeParametro,
 } from "@/components/changes/impacto-panorama";
 import {
+  RecusaDoRecorte,
   SeletorDeJanela,
   type JanelaDeVigencias,
 } from "@/components/changes/janela-vigencias";
@@ -350,10 +351,12 @@ function MatrizDeQuinzenas({
 
   if (query.error) {
     return (
-      <ApiErrorNotice
-        error={query.error}
-        what="A tabela de impacto não pôde ser carregada."
-      />
+      <RecusaDoRecorte janela={janela} onJanela={onJanela}>
+        <ApiErrorNotice
+          error={query.error}
+          what="A tabela de impacto não pôde ser carregada."
+        />
+      </RecusaDoRecorte>
     );
   }
 

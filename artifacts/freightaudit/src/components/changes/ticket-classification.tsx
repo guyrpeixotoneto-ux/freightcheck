@@ -20,6 +20,7 @@ import {
   toTicketQuery,
   type TicketChangeRow,
 } from "@/components/changes/ticket-table";
+import type { JanelaDeVigencias } from "@/components/changes/janela-vigencias";
 
 /**
  * Chamados por tipo de valor — a segunda visão da aba.
@@ -135,19 +136,26 @@ const aparenciaDe = (classe: string) =>
   APARENCIA[classe] ?? APARENCIA.NAO_CLASSIFICADO;
 
 /**
- * `escopo` recorta a árvore, e não só a leitura.
+ * `escopo` e `vigencias` recortam a árvore, e não só a leitura.
  *
  * Sem filtro nenhum, como sempre — é a árvore do envio inteiro. Com escopo, é a
  * árvore do equipamento ou do ativo: a população da tela é outra, e uma árvore
  * da frota inteira dentro de Cavalo 360° contaria em cada folha o que a tela
- * afirma não estar mostrando.
+ * afirma não estar mostrando. Com recorte De/Até, é a do intervalo, pela mesma
+ * razão: as duas visões da aba são do mesmo arquivo, e uma árvore somando o
+ * envio inteiro ao lado de uma lista recortada faria a aba discordar de si
+ * mesma sobre de que período ela está falando.
+ *
+ * Os dois descem a árvore inteira, até a folha que carrega as alterações.
  */
 export function TicketClassification({
   envio,
   escopo,
+  vigencias = {},
 }: {
   envio: string | null;
   escopo?: EscopoDeFrota;
+  vigencias?: JanelaDeVigencias;
 }) {
   const [aberta, setAberta] = useState<string | null>(null);
 
@@ -155,6 +163,12 @@ export function TicketClassification({
   if (envio) consulta.set("ticketImportId", envio);
   for (const [chave, valor] of escopo ? paramsDoEscopo(escopo) : []) {
     consulta.set(chave, valor);
+  }
+  // O recorte De/Até entra na mesma consulta, e por isso na mesma chave de
+  // cache: mudar uma ponta é pedir outra árvore, não redesenhar a mesma.
+  if (vigencias.de) consulta.set("de", vigencias.de);
+  if (vigencias.ate) {
+    consulta.set("ate", vigencias.ate);
   }
 
   const query = useQuery({
@@ -217,6 +231,7 @@ export function TicketClassification({
           key={c.classe}
           classe={c}
           envio={envio}
+          vigencias={vigencias}
           aberto={aberta === null || aberta === c.classe}
         />
       ))}
@@ -367,10 +382,12 @@ function Conciliacao({
 function BlocoDeClasse({
   classe,
   envio,
+  vigencias,
   aberto,
 }: {
   classe: TicketClassRollup;
   envio: string | null;
+  vigencias: JanelaDeVigencias;
   aberto: boolean;
 }) {
   if (!aberto) return null;
@@ -414,6 +431,7 @@ function BlocoDeClasse({
               classe={classe.classe}
               maior={classe.parameters[0]?.changes ?? p.changes}
               envio={envio}
+              vigencias={vigencias}
             />
           ))}
         </ul>
@@ -428,11 +446,13 @@ function LinhaDeParametro({
   classe,
   maior,
   envio,
+  vigencias,
 }: {
   parametro: TicketParameterInClass;
   classe: string;
   maior: number;
   envio: string | null;
+  vigencias: JanelaDeVigencias;
 }) {
   const [aberto, setAberto] = useState(false);
   const aparencia = aparenciaDe(classe);
@@ -505,6 +525,7 @@ function LinhaDeParametro({
               assunto={s}
               parameterLabel={parametro.parameterLabel}
               envio={envio}
+              vigencias={vigencias}
             />
           ))}
         </ul>
@@ -533,10 +554,12 @@ function LinhaDeAssunto({
   assunto,
   parameterLabel,
   envio,
+  vigencias,
 }: {
   assunto: TicketSubjectRollup;
   parameterLabel: string;
   envio: string | null;
+  vigencias: JanelaDeVigencias;
 }) {
   const [aberto, setAberto] = useState(false);
 
@@ -574,6 +597,7 @@ function LinhaDeAssunto({
             parameterLabel={parameterLabel}
             subject={assunto.subject}
             envio={envio}
+            vigencias={vigencias}
           />
         </div>
       )}
@@ -605,10 +629,12 @@ function AlteracoesDaFolha({
   parameterLabel,
   subject,
   envio,
+  vigencias,
 }: {
   parameterLabel: string;
   subject: string | null;
   envio: string | null;
+  vigencias: JanelaDeVigencias;
 }) {
   const [janela, setJanela] = useState<Janela>(primeiraPagina);
 
@@ -620,10 +646,27 @@ function AlteracoesDaFolha({
   };
 
   const query = useQuery({
-    queryKey: ["tickets", "folha", envio, parameterLabel, subject, janela],
+    queryKey: [
+      "tickets",
+      "folha",
+      envio,
+      parameterLabel,
+      subject,
+      janela,
+      vigencias.de,
+      vigencias.ate,
+    ],
     queryFn: () =>
       fetchJson<TicketsResponse>(
-        `/tickets?${toTicketQuery(filtros, envio ? { ticketImportId: envio } : {}, janela)}`,
+        `/tickets?${toTicketQuery(
+          filtros,
+          {
+            ...(envio ? { ticketImportId: envio } : {}),
+            ...(vigencias.de ? { de: vigencias.de } : {}),
+            ...(vigencias.ate ? { ate: vigencias.ate } : {}),
+          },
+          janela,
+        )}`,
       ),
   });
 

@@ -1,5 +1,6 @@
-import { Router, type IRouter, type Response } from "express";
+import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
+import { parseContext, sendContextError } from "../lib/contexto";
 import {
   computeChangeSet,
   findPreviousSnapshot,
@@ -23,10 +24,8 @@ import {
   listPeriods,
   lerEscopo,
   totaisDoEscopo,
-  ContextNotFoundError,
   type ChangeFilters,
   type EscopoDeFrota,
-  type SeriesContext,
 } from "@workspace/comparison";
 
 /**
@@ -107,35 +106,22 @@ function comEscopo(filters: ChangeFilters, escopo: EscopoDeFrota): ChangeFilters
   };
 }
 
-/**
- * O contexto pedido na query, quando pedido.
- *
- * `scopeHash` sozinho basta; `canal` é aceito junto para quando a mesma unidade
- * entregar em mais de um canal. Nada pedido significa "o mais recente", e a
- * resposta diz qual foi — ver `GroupedView.context`.
- */
-function parseContext(query: Record<string, unknown>): Partial<SeriesContext> | undefined {
-  const scopeHash = typeof query.scopeHash === "string" && query.scopeHash !== ""
-    ? query.scopeHash
-    : undefined;
-  const hasCanal = typeof query.canal === "string";
-  if (scopeHash === undefined && !hasCanal) return undefined;
-  return {
-    ...(scopeHash !== undefined ? { scopeHash } : {}),
-    // `?canal=` vazio quer dizer "as vigências sem canal legível no rótulo",
-    // que é uma partição real e não a ausência de filtro.
-    ...(hasCanal ? { channel: (query.canal as string) === "" ? null : (query.canal as string) } : {}),
-  };
-}
+/*
+  O contexto e as recusas dele vêm de `../lib/contexto` — a cópia que existia
+  aqui foi apagada.
 
-/** Recusa escrita vira 404 com a frase; o resto continua sendo 500. */
-function sendContextError(res: Response, err: unknown): boolean {
-  if (err instanceof ContextNotFoundError) {
-    res.status(404).json({ error: err.message });
-    return true;
-  }
-  return false;
-}
+  Ela era a mais antiga das três, e era inofensiva enquanto o contexto fosse só
+  unidade e canal: as duas versões liam as mesmas duas chaves da mesma forma.
+  Deixou de ser no dia em que o recorte De/Até entrou no contexto e a aba
+  Planilha passou a oferecê-lo. Esta cópia não lia `de` nem `ate`, então o
+  servidor respondia pela série inteira enquanto o seletor da tela dizia três
+  vigências — dois números certos e a comparação errada, que é precisamente o
+  defeito que o módulo compartilhado foi escrito para não ter.
+
+  `sendContextError` vem junto porque é o outro lado do mesmo pedido: com a
+  janela, existe uma recusa a mais — a ponta que este contexto não tem —, e ela
+  é 400 com a lista das vigências que existem, não 500.
+*/
 
 /** As unidades e canais que já entregaram vigência — o seletor de contexto. */
 router.get("/contexts", async (req, res): Promise<void> => {

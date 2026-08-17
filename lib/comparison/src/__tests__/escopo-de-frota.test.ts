@@ -445,7 +445,9 @@ describe("a frota", () => {
 describe("os chamados", () => {
   it("recortam os cartões, e não só a lista", async () => {
     const tudo = await getTicketTotals(ctx.db, envioId);
-    const cavalo = await getTicketTotals(ctx.db, envioId, {
+    // `null` no lugar do recorte de vigências: o escopo de frota é o terceiro
+    // eixo da assinatura, e este caso mede só ele.
+    const cavalo = await getTicketTotals(ctx.db, envioId, null, {
       entityType: "CAVALO",
     });
 
@@ -460,7 +462,7 @@ describe("os chamados", () => {
 
   it("mantêm o cartão e a lista dizendo o mesmo número", async () => {
     const escopo = { entityType: "CAVALO" as const };
-    const totals = await getTicketTotals(ctx.db, envioId, escopo);
+    const totals = await getTicketTotals(ctx.db, envioId, null, escopo);
     const lista = await listTicketChanges(ctx.db, envioId, {}, escopo);
 
     // A promessa que um número ao lado de um filtro faz: é isto que sobra.
@@ -470,7 +472,7 @@ describe("os chamados", () => {
 
   it("descem até a placa", async () => {
     const escopo = { entityType: "CAVALO", plate: "BBB1B11" };
-    const totals = await getTicketTotals(ctx.db, envioId, escopo);
+    const totals = await getTicketTotals(ctx.db, envioId, null, escopo);
     const lista = await listTicketChanges(ctx.db, envioId, {}, escopo);
 
     expect(totals.changes).toBe(2);
@@ -483,8 +485,8 @@ describe("os chamados", () => {
 
   it("recortam também os painéis e a árvore por tipo", async () => {
     const escopo = { entityType: "CAVALO", plate: "BBB1B11" };
-    const porParametro = await getTicketsByParameter(ctx.db, envioId, 15, escopo);
-    const arvore = await getTicketClassification(ctx.db, envioId, escopo);
+    const porParametro = await getTicketsByParameter(ctx.db, envioId, null, 15, escopo);
+    const arvore = await getTicketClassification(ctx.db, envioId, null, escopo);
 
     expect(porParametro.map((p) => p.parameterLabel).sort()).toEqual([
       "Frete peso",
