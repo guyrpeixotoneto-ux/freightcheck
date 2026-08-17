@@ -197,29 +197,182 @@ export async function divergenciasDaProjecao(
   }));
 }
 
-export interface IntegridadeSemantica {
-  semSemanticaAplicavel: AtributoSemSemanticaAplicavel[];
-  divergencias: DivergenciaDeProjecao[];
-  /** Quantos atributos foram conferidos — o denominador do "está em dia". */
-  atributos: number;
+/** Qual das duas invariantes um atributo violou. */
+export type Invariante =
+  /** Tem versão, em vigor, começando antes da série. */
+  | "SEMANTICA_APLICAVEL"
+  /** `attribute` diz o mesmo que a versão em vigor. */
+  | "PROJECAO_CONCORDA";
+
+export type FalhaDeIntegridade =
+  | {
+      invariante: "SEMANTICA_APLICAVEL";
+      motivo: MotivoSemSemantica;
+      detalhe: string;
+    }
+  | {
+      invariante: "PROJECAO_CONCORDA";
+      campo: string;
+      naProjecao: string | null;
+      naVersao: string | null;
+      detalhe: string;
+    };
+
+export interface AtributoComprometido {
+  code: string;
+  /** Tudo o que há contra este atributo. Nunca vazio. */
+  falhas: FalhaDeIntegridade[];
 }
 
-/** As duas perguntas, feitas de uma vez. */
-export async function conferirIntegridadeSemantica(
+/**
+ * O veredito, em três estados.
+ *
+ * - `OK` — nenhum atributo comprometido. Toda conclusão pode ser tirada.
+ * - `DEGRADED` — há atributos comprometidos e há atributos sãos. Dá para
+ *   concluir **sobre os sãos**, desde que a limitação seja declarada e os
+ *   comprometidos fiquem de fora nominalmente.
+ * - `INVALID` — todos os atributos estão comprometidos. Não sobra base: excluir
+ *   os afetados não deixa nada sobre o que concluir.
+ *
+ * O corte entre `DEGRADED` e `INVALID` é de **cobertura**, e não de gravidade,
+ * e isso é deliberado. Gravidade é juízo do consumidor: um total de DRE a que
+ * falte a parcela titular pode ser inaceitável enquanto o mesmo buraco numa
+ * lista de cobertura é irrelevante. O que esta autoridade garante é o insumo
+ * dessa decisão — **quais** atributos não sustentam conclusão — e não a
+ * decisão. Quem quiser recusar por gravidade tem os nomes para isso.
+ */
+export type EstadoDaIntegridade = "OK" | "DEGRADED" | "INVALID";
+
+export interface LaudoDeIntegridade {
+  estado: EstadoDaIntegridade;
+  /** Quantos atributos foram conferidos — o denominador de tudo aqui. */
+  atributos: number;
+  /** Um por atributo, ordenado por código, com todas as suas falhas. */
+  comprometidos: AtributoComprometido[];
+  /**
+   * A frase que um consumidor que continuar assim mesmo **precisa** mostrar.
+   * `null` quando não há o que declarar, isto é, quando o estado é `OK`.
+   *
+   * Mora aqui, e não em cada consumidor, pelo motivo de todo este módulo: a
+   * regra escrita duas vezes diverge, e a redação de uma limitação é parte da
+   * regra — uma tela que diga "alguns dados podem estar incompletos" não
+   * declarou limitação nenhuma.
+   */
+  limitacao: string | null;
+}
+
+/**
+ * A autoridade: uma pergunta, um veredito, os nomes de tudo o que falhou.
+ *
+ * É o único ponto de entrada. O comando `conferir-schema` chama isto, os testes
+ * chamam isto, e o que vier a barrar comparação ou resposta do assistente
+ * chamará isto — nenhum deles reimplementa a pergunta, e por isso nenhum deles
+ * pode discordar dos outros sobre o que é um banco íntegro.
+ *
+ * O laudo é **dado puro**: serializa em JSON sem perder nada, o que é o que
+ * permite atravessar uma rota HTTP e chegar à tela com os mesmos nomes. Quem
+ * precisa perguntar por um atributo só usa {@link estaComprometido} ou
+ * {@link comprometidosEntre}, que são funções sobre o laudo — não outra
+ * consulta ao banco, e não outra regra.
+ */
+export async function avaliarIntegridadeSemantica(
   db: Database,
-): Promise<IntegridadeSemantica> {
+): Promise<LaudoDeIntegridade> {
   const { rows } = await db.execute<{ total: number }>(
     sql`SELECT count(*)::int AS total FROM attribute`,
   );
-  return {
-    semSemanticaAplicavel: await atributosSemSemanticaAplicavel(db),
-    divergencias: await divergenciasDaProjecao(db),
-    atributos: rows[0]?.total ?? 0,
+  const atributos = rows[0]?.total ?? 0;
+
+  const semVersao = await atributosSemSemanticaAplicavel(db);
+  const divergencias = await divergenciasDaProjecao(db);
+
+  const porAtributo = new Map<string, FalhaDeIntegridade[]>();
+  const acrescentar = (code: string, falha: FalhaDeIntegridade) => {
+    const atual = porAtributo.get(code);
+    if (atual) atual.push(falha);
+    else porAtributo.set(code, [falha]);
   };
+
+  for (const a of semVersao) {
+    acrescentar(a.code, {
+      invariante: "SEMANTICA_APLICAVEL",
+      motivo: a.motivo,
+      detalhe: a.detalhe,
+    });
+  }
+  for (const d of divergencias) {
+    acrescentar(d.code, {
+      invariante: "PROJECAO_CONCORDA",
+      campo: d.campo,
+      naProjecao: d.naProjecao,
+      naVersao: d.naVersao,
+      detalhe:
+        `${d.campo}: a projeção diz ${valor(d.naProjecao)} e a versão em vigor ` +
+        `diz ${valor(d.naVersao)}`,
+    });
+  }
+
+  const comprometidos: AtributoComprometido[] = [...porAtributo.entries()]
+    .map(([code, falhas]) => ({ code, falhas }))
+    .sort((a, b) => a.code.localeCompare(b.code));
+
+  const estado: EstadoDaIntegridade =
+    comprometidos.length === 0
+      ? "OK"
+      : comprometidos.length >= atributos
+        ? "INVALID"
+        : "DEGRADED";
+
+  return { estado, atributos, comprometidos, limitacao: limitacaoDe(estado, comprometidos, atributos) };
 }
 
-export function integridadeEmDia(r: IntegridadeSemantica): boolean {
-  return r.semSemanticaAplicavel.length === 0 && r.divergencias.length === 0;
+/** A frase da limitação, escrita uma vez para todos os consumidores. */
+function limitacaoDe(
+  estado: EstadoDaIntegridade,
+  comprometidos: AtributoComprometido[],
+  atributos: number,
+): string | null {
+  if (estado === "OK") return null;
+  if (estado === "INVALID") {
+    return (
+      `Nenhum dos ${atributos} atributos tem semântica íntegra: unidade, ` +
+      `periodicidade e agregação não podem ser afirmadas para nenhuma coluna, ` +
+      `e nada apurado a partir delas se sustenta.`
+    );
+  }
+  const nomes = comprometidos.map((c) => c.code);
+  const mostrados = nomes.slice(0, 5).join(", ");
+  return (
+    `${nomes.length} de ${atributos} atributos ficaram de fora por semântica ` +
+    `inconsistente (${mostrados}${nomes.length > 5 ? `, e mais ${nomes.length - 5}` : ""}). ` +
+    `O que está apurado aqui não os inclui.`
+  );
+}
+
+/** Este atributo sustenta conclusão? */
+export function estaComprometido(
+  laudo: LaudoDeIntegridade,
+  code: string,
+): boolean {
+  return laudo.comprometidos.some((c) => c.code === code);
+}
+
+/**
+ * Quais destes atributos não sustentam conclusão.
+ *
+ * A pergunta que um portão faz: não "o banco está íntegro?", e sim "os
+ * atributos que **esta** apuração usa estão íntegros?". Um banco DEGRADED por
+ * causa de três colunas de cadastro não tem por que barrar uma comparação que
+ * não olha para nenhuma delas.
+ */
+export function comprometidosEntre(
+  laudo: LaudoDeIntegridade,
+  codes: Iterable<string>,
+): string[] {
+  const alvo = new Set(codes);
+  return laudo.comprometidos
+    .filter((c) => alvo.has(c.code))
+    .map((c) => c.code);
 }
 
 /**
@@ -231,23 +384,35 @@ export function integridadeEmDia(r: IntegridadeSemantica): boolean {
  * valores — quem lê precisa decidir **qual** dos dois está certo, e não dá para
  * decidir isso sem ver os dois.
  */
-export function relatarIntegridadeSemantica(r: IntegridadeSemantica): string[] {
-  if (integridadeEmDia(r)) {
+export function relatarIntegridadeSemantica(laudo: LaudoDeIntegridade): string[] {
+  if (laudo.estado === "OK") {
     return [
-      `Integridade da semântica em dia: os ${r.atributos} atributos têm versão ` +
-        `aplicável, e a projeção concorda com ela em todos os campos.`,
+      `Integridade da semântica: OK — os ${laudo.atributos} atributos têm ` +
+        `versão aplicável, e a projeção concorda com ela em todos os campos.`,
     ];
   }
 
-  const linhas: string[] = [];
+  const semVersao = laudo.comprometidos.flatMap((c) =>
+    c.falhas
+      .filter((f) => f.invariante === "SEMANTICA_APLICAVEL")
+      .map((f) => ({ code: c.code, falha: f as Extract<FalhaDeIntegridade, { invariante: "SEMANTICA_APLICAVEL" }> })),
+  );
+  const divergentes = laudo.comprometidos.flatMap((c) =>
+    c.falhas
+      .filter((f) => f.invariante === "PROJECAO_CONCORDA")
+      .map((f) => ({ code: c.code, falha: f as Extract<FalhaDeIntegridade, { invariante: "PROJECAO_CONCORDA" }> })),
+  );
 
-  if (r.semSemanticaAplicavel.length > 0) {
-    linhas.push(
-      `\nAtributos sem versão de semântica aplicável ` +
-        `(${r.semSemanticaAplicavel.length} de ${r.atributos}):`,
-    );
-    for (const a of r.semSemanticaAplicavel) {
-      linhas.push(`  ${a.code} — ${a.detalhe} [${a.motivo}]`);
+  const linhas: string[] = [
+    `\nIntegridade da semântica: ${laudo.estado} — ` +
+      `${laudo.comprometidos.length} de ${laudo.atributos} atributos não ` +
+      `sustentam conclusão.`,
+  ];
+
+  if (semVersao.length > 0) {
+    linhas.push(`\nSem versão de semântica aplicável (${semVersao.length}):`);
+    for (const { code, falha } of semVersao) {
+      linhas.push(`  ${code} — ${falha.detalhe} [${falha.motivo}]`);
     }
     linhas.push(
       `\n  A versão 1 de cada atributo é criada pela migration ` +
@@ -257,16 +422,16 @@ export function relatarIntegridadeSemantica(r: IntegridadeSemantica): string[] {
     );
   }
 
-  if (r.divergencias.length > 0) {
-    const atributos = new Set(r.divergencias.map((d) => d.code)).size;
+  if (divergentes.length > 0) {
+    const quantos = new Set(divergentes.map((d) => d.code)).size;
     linhas.push(
       `\nCampos em que attribute e a versão em vigor se contradizem ` +
-        `(${r.divergencias.length} em ${atributos} atributo(s)):`,
+        `(${divergentes.length} em ${quantos} atributo(s)):`,
     );
-    for (const d of r.divergencias) {
+    for (const { code, falha } of divergentes) {
       linhas.push(
-        `  ${d.code}.${d.campo}: projeção=${valor(d.naProjecao)} ` +
-          `versão=${valor(d.naVersao)}`,
+        `  ${code}.${falha.campo}: projeção=${valor(falha.naProjecao)} ` +
+          `versão=${valor(falha.naVersao)}`,
       );
     }
     linhas.push(
@@ -278,6 +443,8 @@ export function relatarIntegridadeSemantica(r: IntegridadeSemantica): string[] {
         `pede justificativa e deixa registro.`,
     );
   }
+
+  if (laudo.limitacao) linhas.push(`\n${laudo.limitacao}`);
 
   // O fecho é curto e vale para os dois casos. A instrução de cada um fica no
   // bloco dele: um conselho sobre divergência embaixo de uma lista de versões

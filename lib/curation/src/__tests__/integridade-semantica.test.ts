@@ -4,11 +4,14 @@ import {
   atributosSemSemanticaAplicavel,
   attributeSemanticsTable,
   attributeTable,
-  conferirIntegridadeSemantica,
+  avaliarIntegridadeSemantica,
   divergenciasDaProjecao,
-  integridadeEmDia,
 } from "@workspace/db";
-import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest/testing";
+import {
+  criarBancoComExportRealPromovido,
+  createTestDatabase,
+  type TestDb,
+} from "@workspace/ingest/testing";
 import { confirmAttribute, runProposalPass } from "../engine";
 import { saveMeaning } from "../meaning";
 import { correctSemantics, recordSourceSemanticsChange } from "../versioning";
@@ -51,12 +54,12 @@ async function idDe(code: string): Promise<string> {
 
 describe("um banco recém-importado passa nas duas", () => {
   it("todo atributo tem versão aplicável, e a projeção concorda com ela", async () => {
-    const integridade = await conferirIntegridadeSemantica(ctx.db);
+    const laudo = await avaliarIntegridadeSemantica(ctx.db);
 
-    expect(integridade.semSemanticaAplicavel).toEqual([]);
-    expect(integridade.divergencias).toEqual([]);
-    expect(integridade.atributos).toBeGreaterThan(100);
-    expect(integridadeEmDia(integridade)).toBe(true);
+    expect(laudo.estado).toBe("OK");
+    expect(laudo.comprometidos).toEqual([]);
+    expect(laudo.limitacao).toBeNull();
+    expect(laudo.atributos).toBeGreaterThan(100);
   });
 
   it("continua passando depois de curar, confirmar e escrever significado", async () => {
@@ -124,8 +127,23 @@ describe("invariante 1 — semântica aplicável", () => {
         detalhe: "não tem nenhuma linha em attribute_semantics",
       },
     ]);
-    // E o comando inteiro reprova por causa disso.
-    expect(integridadeEmDia(await conferirIntegridadeSemantica(ctx.db))).toBe(false);
+    // Um atributo entre 138: dá para concluir sobre o resto, declarando.
+    const laudo = await avaliarIntegridadeSemantica(ctx.db);
+    expect(laudo.estado).toBe("DEGRADED");
+    expect(laudo.comprometidos).toEqual([
+      {
+        code: "carreta.ano",
+        falhas: [
+          {
+            invariante: "SEMANTICA_APLICAVEL",
+            motivo: "SEM_VERSAO",
+            detalhe: "não tem nenhuma linha em attribute_semantics",
+          },
+        ],
+      },
+    ]);
+    expect(laudo.limitacao).toContain("carreta.ano");
+    expect(laudo.limitacao).toContain(`1 de ${laudo.atributos}`);
   });
 
   it("acusa o atributo cujo histórico existe mas não descreve o presente", async () => {
@@ -212,7 +230,7 @@ describe("invariante 2 — a projeção e a versão em vigor", () => {
         naVersao: null,
       },
     ]);
-    expect(integridadeEmDia(await conferirIntegridadeSemantica(ctx.db))).toBe(false);
+    expect((await avaliarIntegridadeSemantica(ctx.db)).estado).toBe("DEGRADED");
   });
 
   it("acusa também a metade contrária: versão escrita sem projetar", async () => {
@@ -259,4 +277,68 @@ describe("invariante 2 — a projeção e a versão em vigor", () => {
     expect(codes).not.toContain("carreta.ano");
     expect(codes).not.toContain("carreta.chassi");
   });
+
+  it("junta num atributo só as falhas das duas invariantes", async () => {
+    /*
+      Um atributo pode falhar nas duas ao mesmo tempo, e o laudo é por atributo:
+      quem decide se continua precisa ver tudo o que há contra a coluna de uma
+      vez, e não a mesma coluna aparecendo em duas listas como se fossem dois
+      problemas independentes.
+    */
+    const id = await idDe("cavalo.valor_nf_compra");
+    await ctx.db
+      .update(attributeSemanticsTable)
+      .set({ effectiveFrom: "2026-07-01" })
+      .where(eq(attributeSemanticsTable.attributeId, id));
+
+    const laudo = await avaliarIntegridadeSemantica(ctx.db);
+    const alvo = laudo.comprometidos.find(
+      (c) => c.code === "cavalo.valor_nf_compra",
+    )!;
+    const invariantes = alvo.falhas.map((f) => f.invariante);
+    expect(invariantes).toContain("SEMANTICA_APLICAVEL");
+    expect(invariantes).toContain("PROJECAO_CONCORDA");
+    // E ele conta uma vez só no denominador.
+    expect(
+      laudo.comprometidos.filter((c) => c.code === "cavalo.valor_nf_compra"),
+    ).toHaveLength(1);
+  });
+});
+
+describe("o veredito de três estados", () => {
+  it("é INVALID quando não sobra atributo são", async () => {
+    /*
+      O estado real da produção antes da 0025: a tabela versionada vazia. Não é
+      "degradado" — excluir os afetados não deixa nada sobre o que concluir, e
+      um consumidor que continuasse aqui não teria o que apurar.
+    */
+    const banco = await criarBancoComExportRealPromovido("integridade_invalida");
+    try {
+      await banco.db.execute(sql`DELETE FROM attribute_semantics`);
+
+      const laudo = await avaliarIntegridadeSemantica(banco.db);
+      expect(laudo.estado).toBe("INVALID");
+      expect(laudo.comprometidos).toHaveLength(laudo.atributos);
+      expect(laudo.limitacao).toContain("Nenhum dos");
+      expect(laudo.limitacao).toContain("nada apurado a partir delas se sustenta");
+      // Todos nomeados, e não só contados: o portão precisa dos códigos.
+      expect(laudo.comprometidos.every((c) => c.falhas.length > 0)).toBe(true);
+    } finally {
+      await banco.drop();
+    }
+  }, 300_000);
+
+  it("é OK num banco sem atributo nenhum — não há o que estar errado", async () => {
+    // Banco migrado e vazio: nada foi importado, e portanto não há coluna sobre
+    // a qual afirmar nada. Vazio não é degradado.
+    const banco = await createTestDatabase("integridade_vazia");
+    try {
+      const laudo = await avaliarIntegridadeSemantica(banco.db);
+      expect(laudo.estado).toBe("OK");
+      expect(laudo.atributos).toBe(0);
+      expect(laudo.limitacao).toBeNull();
+    } finally {
+      await banco.drop();
+    }
+  }, 300_000);
 });

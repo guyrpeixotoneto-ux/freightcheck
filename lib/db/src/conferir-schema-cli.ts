@@ -5,8 +5,7 @@ import {
   tabelasDeclaradas,
 } from "./conferir-schema";
 import {
-  conferirIntegridadeSemantica,
-  integridadeEmDia,
+  avaliarIntegridadeSemantica,
   relatarIntegridadeSemantica,
 } from "./integridade-semantica";
 
@@ -66,10 +65,11 @@ async function conferirConteudo(
     return false;
   }
 
-  const integridade = await conferirIntegridadeSemantica(db);
-  const linhas = relatarIntegridadeSemantica(integridade);
-  const ok = integridadeEmDia(integridade);
-  for (const linha of linhas) (ok ? console.log : console.error)(linha);
+  const laudo = await avaliarIntegridadeSemantica(db);
+  const ok = laudo.estado === "OK";
+  for (const linha of relatarIntegridadeSemantica(laudo)) {
+    (ok ? console.log : console.error)(linha);
+  }
   return ok;
 }
 

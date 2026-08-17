@@ -78,7 +78,7 @@ describe("conferir-schema confere o conteúdo, e não só a forma", () => {
 
     expect(code).toBe(0);
     expect(saida).toContain("Schema em dia");
-    expect(saida).toMatch(/Integridade da semântica em dia/);
+    expect(saida).toContain("Integridade da semântica: OK");
   }, 120_000);
 
   it("reprova o atributo sem versão, com o schema em dia", async () => {
