@@ -13,8 +13,10 @@ import {
 } from "@workspace/assistant";
 import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
 import {
+  aplicarPreenchimento,
   classificarCategoria,
   confirmAttribute,
+  conferirPreenchimento,
   criarCategoria,
   criarSignificado,
   getAttributeDetail,
@@ -24,11 +26,21 @@ import {
   listarCategorias,
   listarSignificados,
   listTaxonomyNodes,
+  montarLinhas,
   runProposalPass,
   saveMeaning,
   seedSignificados,
   seedTaxonomy,
+  type AtributoDoModelo,
+  type ConferenciaDoModelo,
 } from "@workspace/curation";
+import { contentDisposition } from "./book";
+import { agoraEmBrasilia } from "../lib/planilha-impacto";
+import {
+  lerModeloDeAtributos,
+  montarModeloDeAtributos,
+} from "../lib/planilha-de-atributos";
+import { decodeUpload } from "./imports";
 
 /**
  * Curation API (F2).
@@ -154,6 +166,154 @@ router.get("/curation/queue", async (req, res, next): Promise<void> => {
       next,
       err,
       "A fila de curadoria não pôde ser lida neste banco.",
+    );
+  }
+});
+
+/**
+ * A planilha de atributos — as três rotas do round-trip.
+ *
+ * `modelo.xlsx` sai preenchida com o que a base já sabe, `previa` diz o que
+ * mudaria e `aplicar` grava. A prévia é obrigatória por costume da tela, não
+ * por regra do servidor: `aplicar` **relê e reconfere o arquivo**, e não aceita
+ * um diff calculado pelo cliente. Um cliente que mandasse a lista de mudanças
+ * pronta poderia gravar o que quisesse em qualquer atributo sem passar pela
+ * conferência — e a conferência é onde mora a recusa a criar coluna.
+ */
+async function atributosDoModelo(): Promise<AtributoDoModelo[]> {
+  const fila = await getCurationQueue(db, { includeConfirmed: true });
+  return fila.map((item) => ({
+    code: item.code,
+    sourceName: item.sourceName,
+    entityType: item.entityType,
+    semanticsStatus: item.semanticsStatus,
+    valueCount: item.valueCount,
+    displayName: item.displayName,
+    definition: item.definition,
+    calculationBasis: item.calculationBasis,
+    meaningCode: item.meaningCode,
+    taxonomyCode: item.taxonomyCode,
+  }));
+}
+
+/** O catálogo como as duas colunas de escolha o leem. */
+async function catalogosDoModelo() {
+  const [significados, categorias] = await Promise.all([
+    listarSignificados(db),
+    listarCategorias(db),
+  ]);
+  return {
+    significados: significados.map((s) => ({ code: s.code, label: s.label })),
+    categorias: categorias.map((c) => ({ code: c.code, caminho: c.caminho })),
+  };
+}
+
+/** Ler o upload e conferi-lo contra a base. Não grava nada. */
+async function conferirUpload(
+  body: unknown,
+): Promise<
+  { ok: true; conferencia: ConferenciaDoModelo } | { ok: false; erro: string }
+> {
+  const upload = decodeUpload(body);
+  if (!upload.ok) return { ok: false, erro: upload.error };
+
+  const leitura = lerModeloDeAtributos(upload.value.bytes);
+  if (!leitura.ok) return { ok: false, erro: leitura.erro };
+
+  const [atributos, catalogos] = await Promise.all([
+    atributosDoModelo(),
+    catalogosDoModelo(),
+  ]);
+
+  return {
+    ok: true,
+    conferencia: conferirPreenchimento(leitura.linhas, atributos, catalogos),
+  };
+}
+
+router.get("/curation/atributos/modelo.xlsx", async (req, res, next): Promise<void> => {
+  try {
+    const [atributos, catalogos] = await Promise.all([
+      atributosDoModelo(),
+      catalogosDoModelo(),
+    ]);
+
+    if (atributos.length === 0) {
+      res.status(404).json({
+        error:
+          "Nenhum atributo importado ainda — não há o que descrever. Importe a planilha do Freightec primeiro.",
+      });
+      return;
+    }
+
+    const bytes = await montarModeloDeAtributos({
+      linhas: montarLinhas(atributos, catalogos),
+      ...catalogos,
+      geradoPor: req.user!.email,
+      geradoEm: agoraEmBrasilia(new Date()),
+    });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    );
+    res.setHeader("Content-Length", String(bytes.length));
+    res.setHeader("Content-Disposition", contentDisposition("curadoria-atributos.xlsx"));
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.send(bytes);
+  } catch (err) {
+    await responderFalha(
+      req,
+      res,
+      next,
+      err,
+      "O modelo de atributos não pôde ser montado neste banco.",
+    );
+  }
+});
+
+router.post("/curation/atributos/modelo/previa", async (req, res, next): Promise<void> => {
+  try {
+    const conferido = await conferirUpload(req.body);
+    if (!conferido.ok) {
+      res.status(400).json({ error: conferido.erro });
+      return;
+    }
+    res.json(conferido.conferencia);
+  } catch (err) {
+    await responderFalha(
+      req,
+      res,
+      next,
+      err,
+      "A planilha de atributos não pôde ser conferida neste banco.",
+    );
+  }
+});
+
+router.post("/curation/atributos/modelo/aplicar", async (req, res, next): Promise<void> => {
+  try {
+    const conferido = await conferirUpload(req.body);
+    if (!conferido.ok) {
+      res.status(400).json({ error: conferido.erro });
+      return;
+    }
+
+    // Quem assina é a sessão, como em toda escrita de curadoria. Aqui isso
+    // importa mais do que de costume: o arquivo passou por gente que não tem
+    // login, e o histórico tem de registrar quem o trouxe para dentro.
+    const resultado = await aplicarPreenchimento(db, {
+      linhas: conferido.conferencia.linhas,
+      actor: req.user!.email,
+    });
+    res.json({ ...resultado, conferencia: conferido.conferencia.resumo });
+  } catch (err) {
+    await responderFalha(
+      req,
+      res,
+      next,
+      err,
+      "A planilha de atributos não pôde ser aplicada neste banco.",
     );
   }
 });

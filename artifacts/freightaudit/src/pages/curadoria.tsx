@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
+import { PlanilhaDeAtributos } from "@/components/curadoria/planilha-de-atributos";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -333,15 +334,22 @@ export default function Curadoria() {
   return (
     <Layout>
       <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
-          <FileSearch className="w-6 h-6 text-primary" />
-          Curadoria de Atributos
-        </h1>
-        <p className="text-muted-foreground mt-1 max-w-3xl">
-          O Freightec não diz o que cada variável significa. Enquanto você não
-          confirmar aqui, o atributo aparece nas telas de mudança mas{" "}
-          <strong>não entra em nenhum cálculo financeiro</strong>.
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+              <FileSearch className="w-6 h-6 text-primary" />
+              Curadoria de Atributos
+            </h1>
+            <p className="text-muted-foreground mt-1 max-w-3xl">
+              O Freightec não diz o que cada variável significa. Enquanto você não
+              confirmar aqui, o atributo aparece nas telas de mudança mas{" "}
+              <strong>não entra em nenhum cálculo financeiro</strong>.
+            </p>
+          </div>
+          {/* A planilha fica no topo, ao lado do título, e não dentro da fila:
+              ela descreve a base inteira de uma vez, e não o atributo aberto. */}
+          <PlanilhaDeAtributos />
+        </div>
 
         {/* As abas vêm antes dos quadros porque mandam neles: primeiro se
             escolhe de que equipamento se está falando, depois se lê quanto
