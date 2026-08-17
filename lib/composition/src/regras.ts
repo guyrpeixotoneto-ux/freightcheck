@@ -194,6 +194,48 @@ export const REGRAS: RegraDeEquipamento[] = [
     foraDoEscopo: CARRETA_FORA_DO_ESCOPO,
     totalDoConjunto: "carreta.custo_fixo",
   },
+  /**
+   * O trecho — a perna da rota, e o lado variável da remuneração.
+   *
+   * Ele entra nesta lista quando ganha a tela Trecho 360°, e é preciso ser
+   * exato sobre **o que esta entrada afirma e o que ela não afirma**.
+   *
+   * `foraDoEscopo: []` aqui não quer dizer "tudo o que vier do trecho entra na
+   * soma". Quer dizer o que está literalmente escrito: **nenhuma coluna de
+   * trecho foi medida como escopo de conjunto.** É a afirmação mais fraca
+   * possível, e é a única que este repositório sustenta hoje — o export que
+   * temos traz `Modelo_Cavalo` e `Modelo_Carreta`, e nenhuma coluna de trecho
+   * chegou a ser importada. Uma relação entre colunas do trecho, quando existir,
+   * se mede e se escreve aqui com a medição junto, como a identidade do FINAME
+   * acima; não se deduz de nome de coluna, que é a regra do arquivo.
+   *
+   * O que a entrada faz de fato é **opt-in**: `TIPOS_COM_REGRA` é a lista que
+   * `/frota/panorama` e `/composition/fleet` aceitam, e sem ela a grade de
+   * Trecho 360° responderia 400 dizendo que o tipo não tem regra declarada.
+   * `regraDe("TRECHO")` já devolvia exatamente este objeto pelo padrão
+   * permissivo — o que muda é a porta, não o cálculo.
+   *
+   * **E o cálculo continua fechado.** Quem decide o que entra num total é o
+   * portão de `motor.ts` — semântica CONFIRMADA na data da vigência, monetário,
+   * somável, com periodicidade —, e nenhum atributo de trecho passou por ele
+   * porque nenhum existe. A grade abre honestamente vazia, dizendo que a
+   * vigência não entregou trechos, em vez de recusar-se a abrir com um erro
+   * sobre regra faltando — que é uma frase sobre o nosso código onde a verdade
+   * é sobre o arquivo do cliente.
+   *
+   * **Um aviso para quem trouxer o primeiro export de trecho.** A remuneração
+   * do trecho é por viagem, não por mês. `Gaveta` só conhece MENSAL, ANUAL e
+   * AQUISICAO, e uma periodicidade por viagem não é nenhuma das três: ela
+   * precisa de gaveta própria antes de qualquer soma, pela mesmíssima razão que
+   * mensal e anual não se somam. Enquanto ela não existir, o portão mantém
+   * esses componentes fora — o que é o comportamento certo, e não uma lacuna a
+   * contornar.
+   */
+  {
+    entityType: "TRECHO",
+    rotulo: "Trecho",
+    foraDoEscopo: [],
+  },
 ];
 
 const REGRA_POR_TIPO = new Map(REGRAS.map((r) => [r.entityType, r]));

@@ -118,23 +118,50 @@ export function attributeLabel(
   return humanise(attributeCode.split(".").slice(1).join(".") || attributeCode);
 }
 
+/**
+ * O nome de leitura de cada `entity_type`, no singular e no plural.
+ *
+ * `TRECHO` está aqui pela mesma razão que tem tela 360°: ele é um tipo de linha
+ * que a fonte entrega, e uma contagem que diga "3 TRECHO" ou "3 ativos" onde
+ * cabia "3 trechos" é a tela desistindo de nomear o que está mostrando. O que
+ * não estiver nomeado continua caindo no neutro — a tabela é vocabulário de
+ * produto, não uma enumeração que o banco tenha de respeitar.
+ */
+const NOMES: Record<string, { singular: string; plural: string }> = {
+  CAVALO: { singular: "Cavalo", plural: "cavalos" },
+  CARRETA: { singular: "Carreta", plural: "carretas" },
+  TRECHO: { singular: "Trecho", plural: "trechos" },
+};
+
 /** `CAVALO` → `Cavalo`; `CARRETA+CAVALO` → `Cavalos e carretas`. */
 export function equipmentLabel(entityType: string | null): string {
   if (!entityType) return "Sem equipamento";
-  const map: Record<string, string> = { CAVALO: "Cavalo", CARRETA: "Carreta" };
-  const parts = entityType.split("+").map((p) => map[p] ?? p.toLowerCase());
+  const parts = entityType
+    .split("+")
+    .map((p) => NOMES[p]?.singular ?? p.toLowerCase());
   if (parts.length === 1) return parts[0];
   return parts.join(" e ");
 }
 
 /** Plural para as contagens de frota: "62 cavalos", "71 carretas". */
 export function equipmentPlural(entityType: string | null, count: number): string {
-  const map: Record<string, [string, string]> = {
-    CAVALO: ["cavalo", "cavalos"],
-    CARRETA: ["carreta", "carretas"],
-  };
-  const pair = map[entityType ?? ""] ?? ["ativo", "ativos"];
+  const nomes = NOMES[entityType ?? ""];
+  const pair: [string, string] = nomes
+    ? [nomes.singular.toLowerCase(), nomes.plural]
+    : ["ativo", "ativos"];
   return `${count} ${count === 1 ? pair[0] : pair[1]}`;
+}
+
+/**
+ * O plural de um tipo, sem contagem — para as frases que já têm o número.
+ *
+ * Existe porque `coverageLabel` escrevia o seu próprio ternário
+ * `CAVALO ? "cavalos" : CARRETA ? "carretas" : "ativos"`, e um ternário entre
+ * dois é a forma de o terceiro tipo aparecer como "ativos" numa tela que sabe
+ * perfeitamente que está falando de trechos.
+ */
+export function equipmentPluralNoun(entityType: string | null): string {
+  return NOMES[entityType ?? ""]?.plural ?? "ativos";
 }
 
 const MONTHS = [

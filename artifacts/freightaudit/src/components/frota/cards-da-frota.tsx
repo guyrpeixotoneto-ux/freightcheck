@@ -19,11 +19,16 @@ import {
 } from "@/components/composicao/tipos";
 import { fetchJson } from "@/lib/api";
 import { formatBrl, formatBrlShort } from "@/lib/format";
-import { TELA_DO_EQUIPAMENTO, type Equipamento } from "@/lib/frota";
+import {
+  pluralComArtigo,
+  TELA_DO_EQUIPAMENTO,
+  type Equipamento,
+  type PalavrasDoTipo,
+} from "@/lib/frota";
 import { cn } from "@/lib/utils";
 
 /**
- * A frota em cards — a porta de Cavalo 360° e Carreta 360°.
+ * A frota em cards — a porta de Cavalo 360°, Carreta 360° e Trecho 360°.
  *
  * O módulo abria na lista de alterações de todos os cavalos, e essa é a
  * pergunta errada para quem chega: "o que mudou nos cavalos" é uma leitura de
@@ -97,10 +102,15 @@ export interface PanoramaDaFrota {
  */
 type Ordem = "movimento" | "valor" | "placa";
 
-const ORDENS: { chave: Ordem; rotulo: string }[] = [
+/**
+ * A terceira ordem chama-se pelo nome que o tipo dá ao seu identificador:
+ * "Placa" no cavalo e na carreta, "Trecho" na tela dos trechos. A chave
+ * continua `placa` — é a mesma coluna, e trocá-la só renomearia um `switch`.
+ */
+const ordens = (identificador: string): { chave: Ordem; rotulo: string }[] => [
   { chave: "movimento", rotulo: "O que mais mudou" },
   { chave: "valor", rotulo: "O que mais custa" },
-  { chave: "placa", rotulo: "Placa" },
+  { chave: "placa", rotulo: identificador },
 ];
 
 /** Os recortes rápidos. Cada um responde a uma das leituras do card. */
@@ -224,9 +234,26 @@ export function CardsDaFrota({
         ordem={ordem}
         onOrdem={setOrdem}
         resultado={`${ativos.length} de ${data.resumo.equipamentos}`}
+        tela={tela}
       />
 
-      {ativos.length === 0 ? (
+      {/*
+        Vazio por filtro e vazio por arquivo não podem ter a mesma cara.
+
+        "Nenhum trecho com os filtros aplicados. A frota tem 0" manda quem lê
+        procurar o filtro que não existe, e o problema é outro: esta vigência
+        não entregou este tipo. É a mesma distinção que o seletor do cabeçalho
+        já fazia e a que a aba Impacto protege célula a célula — arquivo que não
+        chegou não é frota que sumiu, e a grade era o único lugar do módulo em
+        que as duas ainda se pareciam.
+      */}
+      {!data.serieEntregue && data.resumo.equipamentos === 0 ? (
+        <p className="text-sm text-muted-foreground py-8 text-center border rounded-md bg-card">
+          A vigência {data.periodLabel} não entregou {tela.plural}. A grade está
+          vazia porque o arquivo não trouxe {pluralComArtigo(tela)} — não porque
+          eles saíram da operação.
+        </p>
+      ) : ativos.length === 0 ? (
         <p className="text-sm text-muted-foreground py-8 text-center border rounded-md bg-card">
           Nenhum {tela.singular} nesta vigência com os filtros aplicados. A frota
           tem {data.resumo.equipamentos.toLocaleString("pt-BR")}.
@@ -239,6 +266,7 @@ export function CardsDaFrota({
               ativo={ativo}
               anterior={data.anterior?.periodLabel ?? null}
               onAbrir={onAbrir}
+              tela={tela}
             />
           ))}
         </div>
@@ -388,6 +416,7 @@ function BarraDeFiltros({
   ordem,
   onOrdem,
   resultado,
+  tela,
 }: {
   busca: string;
   onBusca: (v: string) => void;
@@ -398,6 +427,8 @@ function BarraDeFiltros({
   ordem: Ordem;
   onOrdem: (o: Ordem) => void;
   resultado: string;
+  /** O vocabulário do tipo — o que a barra chama de identificador e de ativo. */
+  tela: PalavrasDoTipo;
 }) {
   return (
     <div className="flex flex-wrap items-center gap-3">
@@ -406,7 +437,7 @@ function BarraDeFiltros({
         <Input
           value={busca}
           onChange={(e) => onBusca(e.target.value)}
-          placeholder="Placa ou chassi"
+          placeholder={tela.buscaPor}
           className="pl-9 w-64"
         />
       </div>
@@ -449,7 +480,7 @@ function BarraDeFiltros({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {ORDENS.map((o) => (
+          {ordens(tela.identificador).map((o) => (
             <SelectItem key={o.chave} value={o.chave}>
               {o.rotulo}
             </SelectItem>
@@ -458,7 +489,7 @@ function BarraDeFiltros({
       </Select>
 
       <span className="text-xs text-muted-foreground ml-auto tabular-nums">
-        {resultado} equipamentos
+        {resultado} {tela.plural}
       </span>
     </div>
   );
@@ -490,16 +521,20 @@ function CardDoAtivo({
   ativo,
   anterior,
   onAbrir,
+  tela,
 }: {
   ativo: AtivoDoPanorama;
   /** O rótulo da vigência com que a variação compara. */
   anterior: string | null;
   onAbrir: (placa: string) => void;
+  /** O vocabulário do tipo — como este card chama o que ele não tem. */
+  tela: PalavrasDoTipo;
 }) {
   /*
-    Sem placa não há para onde ir: o nível 2 recorta por placa, e ela é a chave
-    das quatro leituras. O card continua na grade — tirá-lo faria a contagem não
-    fechar com a da frota —, e diz o que falta em vez de virar um clique morto.
+    Sem identificador não há para onde ir: o nível 2 recorta pela chave de grão,
+    e ela é a chave das quatro leituras. O card continua na grade — tirá-lo faria
+    a contagem não fechar com a da frota —, e diz o que falta em vez de virar um
+    clique morto.
   */
   const abrivel = ativo.placa !== null;
 
@@ -518,7 +553,7 @@ function CardDoAtivo({
       title={
         abrivel
           ? `abrir a situação de ${ativo.placa}`
-          : "sem placa corrente — não há por onde abrir o ativo"
+          : `sem ${tela.identificador.toLowerCase()} corrente — não há por onde abrir ${tela.artigo} ${tela.singular}`
       }
       className={cn(
         "bg-card border rounded-md flex flex-col transition-colors",
@@ -536,7 +571,7 @@ function CardDoAtivo({
             }
           />
           <span className="font-semibold font-mono tracking-wide truncate">
-            {ativo.placa ?? "sem placa"}
+            {ativo.placa ?? `sem ${tela.identificador.toLowerCase()}`}
           </span>
         </div>
         <div className="text-[0.6875rem] text-muted-foreground font-mono truncate">
