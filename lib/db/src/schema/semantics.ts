@@ -11,6 +11,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { attributeTable, snapshotTable, taxonomyNodeTable } from "./canonical";
+import { semanticMeaningTable } from "./significado";
 
 /**
  * Semantics with a history.
@@ -54,6 +55,15 @@ export const attributeSemanticsTable = pgTable(
     periodicity: text("periodicity"),
     aggregation: text("aggregation"),
     isMonetary: boolean("is_monetary"),
+    /**
+     * O significado econômico que valeu neste trecho da série.
+     *
+     * Versionado junto do resto pela mesma razão que `calculation_basis` é: a
+     * fonte pode trocar o que a coluna mede — e o dia em que `manutencaoBid`
+     * deixar de ser R$/km para virar R$/mês, a versão antiga tem de continuar
+     * dizendo o que ela era, ao lado dos números que ela descrevia.
+     */
+    meaningId: uuid("meaning_id").references(() => semanticMeaningTable.id),
     taxonomyNodeId: uuid("taxonomy_node_id").references(() => taxonomyNodeTable.id),
 
     /**

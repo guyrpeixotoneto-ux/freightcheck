@@ -8,10 +8,18 @@ import {
   rawCellTable,
   rawRowTable,
   rawSheetTable,
+  semanticMeaningTable,
   snapshotTable,
   taxonomyNodeTable,
 } from "@workspace/db";
 import { coerenciaDaSemantica } from "./agregacao";
+import {
+  acharSignificado,
+  ESCOPO_GLOBAL,
+  listarSignificados,
+  type Escopo,
+} from "./catalogo";
+import { derivarSemantica, significadoPara } from "./significado";
 import {
   detectPeriodicityConflicts,
   proposeSemantics,
@@ -60,6 +68,7 @@ async function espelharNaVersaoEmVigor(
     periodicity: string | null;
     aggregation: string | null;
     isMonetary: boolean | null;
+    meaningId?: string | null;
     taxonomyNodeId: string | null;
     semanticsStatus: string;
     rationale: string | null;
@@ -243,6 +252,9 @@ export async function runProposalPass(
   const nodes = await db.select().from(taxonomyNodeTable);
   const nodeByCode = new Map(nodes.map((n) => [n.code, n]));
 
+  const significados = await listarSignificados(db);
+  const significadosPorCodigo = new Map(significados.map((s) => [s.code, s.id]));
+
   const attributes = await db
     .select()
     .from(attributeTable)
@@ -291,6 +303,24 @@ export async function runProposalPass(
       continue;
     }
 
+    /*
+      O significado que corresponde à proposta, lido de volta pela autoridade.
+
+      Não é uma afirmação a mais: são os mesmos campos que a proposta acabou de
+      escrever, ditos na língua da tela. Escrevê-lo aqui é o que faz a tela nova
+      abrir já mostrando "a IA leu isto como R$ por km" em vez de dois campos
+      vazios — e o status continua PRESUMED, que é quem diz que ninguém
+      confirmou nada.
+    */
+    const significadoProposto = conflict
+      ? null
+      : significadoPara({
+          unit: proposal.unit,
+          periodicity: attribute.periodicity,
+          aggregation: proposal.aggregation,
+          isMonetary: proposal.isMonetary,
+        });
+
     const proposto = {
       unit: conflict ? null : proposal.unit,
       // Periodicity is never proposed. It is the one field only a human can
@@ -298,6 +328,9 @@ export async function runProposalPass(
       periodicity: attribute.periodicity,
       aggregation: conflict ? null : proposal.aggregation,
       isMonetary: conflict ? null : proposal.isMonetary,
+      meaningId: significadoProposto
+        ? (significadosPorCodigo.get(significadoProposto.code) ?? attribute.meaningId)
+        : attribute.meaningId,
       taxonomyNodeId: node?.id ?? null,
       semanticsStatus: nextStatus,
     };
@@ -341,6 +374,21 @@ export async function runProposalPass(
 
 export interface ConfirmInput {
   code: string;
+  /**
+   * O significado econômico afirmado por quem confirma — o caminho novo, e o
+   * único que a tela usa.
+   *
+   * Quando ele vem, `unit`, `aggregation` e `isMonetary` **não são lidos do
+   * pedido**: a autoridade os deriva, e aceitar os quatro juntos seria abrir de
+   * novo a porta que este desenho fechou (alguém mandando `R$ por litro` com
+   * `aggregation: SUM` e o servidor obedecendo).
+   *
+   * `periodicity` é a exceção, e só para o significado que deixa o período em
+   * aberto — `R$ por veículo`. Ver `periodoEmAberto`.
+   */
+  meaningCode?: string | null;
+  /** O escopo do cadastro de significados. Global enquanto houver um cliente. */
+  escopo?: Escopo;
   unit?: Unit | null;
   periodicity?: Periodicity | null;
   aggregation?: Aggregation | null;
@@ -383,18 +431,72 @@ export async function confirmAttribute(
     .where(eq(attributeTable.code, input.code));
   if (!attribute) throw new Error(`Atributo "${input.code}" não encontrado.`);
 
-  const unit = input.unit !== undefined ? input.unit : attribute.unit;
-  const periodicity =
-    input.periodicity !== undefined ? input.periodicity : attribute.periodicity;
-  const aggregation =
-    input.aggregation !== undefined ? input.aggregation : attribute.aggregation;
-  const isMonetary =
-    input.isMonetary !== undefined ? input.isMonetary : attribute.isMonetary;
+  /*
+    Dois caminhos, e a diferença entre eles é de quem é a caneta.
+
+    **Com significado** é o caminho da tela. A pessoa afirma o que o valor
+    representa e a autoridade deriva unidade, agregação e natureza monetária —
+    o pedido não tem voto sobre os três, e é por isso que eles não são lidos
+    aqui. Aceitar `meaningCode: "taxa_litro"` junto de `aggregation: "SUM"` e
+    obedecer ao segundo seria reabrir, pela API, exatamente a porta que a tela
+    fechou.
+
+    **Sem significado** é o caminho histórico: o registro de confirmações
+    (`CONFIRMED_SEMANTICS`), a CLI, as correções de versão. Ele continua
+    funcionando campo a campo, sem uma linha alterada nos chamadores — e ainda
+    assim passa a gravar o significado, pela leitura de volta lá embaixo. É o
+    que faz uma confirmação de 10/08/2026 aparecer na tela nova como
+    "R$ por mês" sem que ninguém tenha reescrito nada.
+  */
+  const escopo = input.escopo ?? ESCOPO_GLOBAL;
+  const significado =
+    input.meaningCode != null
+      ? await acharSignificado(db, input.meaningCode, escopo)
+      : null;
+  if (input.meaningCode != null && !significado) {
+    throw new Error(
+      `O significado "${input.meaningCode}" não está no cadastro. ` +
+        `Escolha um da lista ou cadastre-o antes de confirmar.`,
+    );
+  }
+
+  const derivada = significado ? derivarSemantica(significado) : null;
+
+  const unit = derivada
+    ? derivada.unit
+    : input.unit !== undefined
+      ? input.unit
+      : attribute.unit;
+  /*
+    A periodicidade derivada manda quando existe. Quando o significado a deixa
+    em aberto — `R$ por veículo`, que é dinheiro somável sem período declarado —
+    ela vem do pedido, que é a única pergunta que a tela ainda faz além das
+    duas. E quando nem uma nem outra respondem, a exigência abaixo recusa.
+  */
+  const periodicity = derivada
+    ? (derivada.periodicity ??
+      (input.periodicity !== undefined ? input.periodicity : attribute.periodicity))
+    : input.periodicity !== undefined
+      ? input.periodicity
+      : attribute.periodicity;
+  const aggregation = derivada
+    ? derivada.aggregation
+    : input.aggregation !== undefined
+      ? input.aggregation
+      : attribute.aggregation;
+  const isMonetary = derivada
+    ? derivada.isMonetary
+    : input.isMonetary !== undefined
+      ? input.isMonetary
+      : attribute.isMonetary;
 
   if (isMonetary === true && (!unit || !periodicity || !aggregation)) {
     throw new Error(
-      `"${input.code}" é monetário: unidade, periodicidade e forma de agregação precisam estar definidas antes de confirmar. ` +
-        `Sem isso, somar este atributo é adivinhação.`,
+      significado
+        ? `"${input.code}": "${significado.label}" é dinheiro que se acumula, e não diz de que período. ` +
+            `Diga se o valor é de cada mês, de cada ano ou único da aquisição — sem isso não há em que total colocá-lo.`
+        : `"${input.code}" é monetário: unidade, periodicidade e forma de agregação precisam estar definidas antes de confirmar. ` +
+            `Sem isso, somar este atributo é adivinhação.`,
     );
   }
 
@@ -413,6 +515,24 @@ export async function confirmAttribute(
     dataType: attribute.dataType,
   });
   if (!coerente.ok) throw new Error(`"${input.code}": ${coerente.motivo}`);
+
+  /*
+    O ponteiro para o significado, resolvido nos dois caminhos.
+
+    Pelo caminho histórico ele vem da leitura de volta — `significadoPara` sobre
+    os campos que acabaram de ser resolvidos —, e ela não afirma nada de novo:
+    deduz de valores que já estavam ali. Quando a combinação não corresponde a
+    significado nenhum do cadastro, fica nulo, que é honesto. O que estava
+    gravado antes nunca é apagado por essa via.
+  */
+  let meaningId = significado?.id ?? attribute.meaningId ?? null;
+  if (!significado) {
+    const lido = significadoPara({ unit, periodicity, aggregation, isMonetary });
+    if (lido) {
+      const doCadastro = await acharSignificado(db, lido.code, escopo);
+      if (doCadastro) meaningId = doCadastro.id;
+    }
+  }
 
   let taxonomyNodeId = attribute.taxonomyNodeId;
   if (input.taxonomyCode) {
@@ -434,6 +554,9 @@ export async function confirmAttribute(
   record("periodicity", attribute.periodicity, periodicity);
   record("aggregation", attribute.aggregation, aggregation);
   record("is_monetary", attribute.isMonetary, isMonetary);
+  // O significado entra no histórico como qualquer outro campo: é a afirmação
+  // que passou a sustentar os quatro acima, e um revisor vai querer vê-la.
+  record("meaning_id", attribute.meaningId, meaningId);
   record("taxonomy_node_id", attribute.taxonomyNodeId, taxonomyNodeId);
   record("semantics_status", attribute.semanticsStatus, "CONFIRMED");
 
@@ -444,6 +567,7 @@ export async function confirmAttribute(
       periodicity,
       aggregation,
       isMonetary,
+      meaningId,
       taxonomyNodeId,
       semanticsStatus: "CONFIRMED",
       confirmedBy: input.actor,
@@ -499,6 +623,15 @@ export interface QueueItem {
   definition: string | null;
   /** How the source produces it, from the version in force. */
   calculationBasis: string | null;
+  /**
+   * O significado econômico gravado, quando há um. `null` em tudo que foi
+   * curado antes da autoridade semântica — e a tela o resolve de volta pelos
+   * quatro campos técnicos, que continuam sendo a verdade nesses casos.
+   */
+  meaningCode: string | null;
+  meaningLabel: string | null;
+  /** O código da categoria, para a tela pré-selecionar sem casar por caminho. */
+  taxonomyCode: string | null;
   taxonomyPath: string | null;
   taxonomyName: string | null;
   costClass: string | null;
@@ -538,6 +671,9 @@ export async function getCurationQueue(
       semanticsRationale: attributeTable.semanticsRationale,
       definition: attributeTable.definition,
       calculationBasis: attributeSemanticsTable.calculationBasis,
+      meaningCode: semanticMeaningTable.code,
+      meaningLabel: semanticMeaningTable.label,
+      taxonomyCode: taxonomyNodeTable.code,
       taxonomyPath: taxonomyNodeTable.path,
       taxonomyName: taxonomyNodeTable.name,
       costClass: taxonomyNodeTable.costClass,
@@ -546,6 +682,12 @@ export async function getCurationQueue(
     .leftJoin(
       taxonomyNodeTable,
       eq(attributeTable.taxonomyNodeId, taxonomyNodeTable.id),
+    )
+    // Left join pelo mesmo motivo do de cima: um atributo sem significado
+    // gravado é precisamente o que a fila existe para mostrar.
+    .leftJoin(
+      semanticMeaningTable,
+      eq(attributeTable.meaningId, semanticMeaningTable.id),
     )
     // The version in force, for its `calculation_basis`. Left-joined and
     // filtered on `effective_until IS NULL` inside the join: an attribute with

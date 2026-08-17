@@ -1,4 +1,6 @@
 export * from "./agregacao";
+export * from "./significado";
+export * from "./catalogo";
 export * from "./semantics";
 export * from "./taxonomy";
 export * from "./engine";
