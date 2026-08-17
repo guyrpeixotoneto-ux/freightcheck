@@ -12,6 +12,7 @@ export * from "./orquestrador";
 export * from "./parametros";
 export * from "./resposta";
 export * from "./semantica";
+export { agenteLigado, agenteParaUsuario } from "./agente";
 export {
   disponivel as iaDisponivel,
   modeloConfigurado,

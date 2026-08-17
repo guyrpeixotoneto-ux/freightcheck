@@ -101,6 +101,35 @@ export interface Resposta {
     ferramentas: string[];
     numerosRecusados: string[];
     /**
+     * A investigação do agente — `null` no caminho determinístico.
+     *
+     * **Rodadas e consultas são medidas separadas, e é deliberado.** Uma rodada
+     * é um turno do modelo; ela pode pedir várias ferramentas de uma vez,
+     * porque consultas independentes partem juntas. Daí um teto de seis rodadas
+     * comportar onze consultas sem violar nada — e daí somar as duas num número
+     * só apagar justamente a diferença que interessa: seis rodadas com seis
+     * consultas é uma investigação funda e estreita; duas rodadas com onze é uma
+     * varredura larga e rasa.
+     *
+     * Foi uma métrica agregada que já descreveu uma rodada ao contrário nesta
+     * migração. Esta expõe as duas contagens e o rastro de cada chamada, para
+     * que ninguém precise inferir a segunda a partir da primeira.
+     */
+    agente: {
+      rodadas: number;
+      consultas: number;
+      parou: Investigacao["parou"];
+      chamadas: {
+        nome: string;
+        argumentos: Record<string, unknown>;
+        ok: boolean;
+        erro: string | null;
+        evidencias: number;
+        /** Índice da consulta anterior de cujo resultado esta saiu. */
+        derivaDe: number | null;
+      }[];
+    } | null;
+    /**
      * O rastro que explica esta resposta **depois** que ela aconteceu.
      *
      * Sem ele, investigar uma resposta ruim é reproduzir a pergunta à mão e
@@ -705,6 +734,37 @@ export interface PerguntaOptions {
  * um terço. O que muda é a lista de números que ela aceita — agora a das
  * ferramentas que o modelo chamou.
  */
+/**
+ * De qual consulta anterior cada consulta saiu — o encadeamento, medido.
+ *
+ * **A pergunta que isto responde.** "O agente investiga mais" não pode ser
+ * provado contando consultas: dez buscas independentes disparadas de uma vez
+ * são largura, não profundidade. O que separa investigar de consultar muito é
+ * uma consulta cujo **argumento veio do resultado de outra** — "achei o grupo
+ * mais crítico, agora abro ele". Essa é uma decisão tomada depois de ver o
+ * dado, e é a única forma de encadeamento que se pode verificar sem perguntar
+ * ao modelo o que ele quis dizer.
+ *
+ * Devolve, para cada chamada, o índice da anterior cujo conteúdo continha um
+ * dos argumentos dela — ou `null`. Valores curtos ficam de fora: um `5` de
+ * `limite` casaria com qualquer resultado e transformaria a medida em ruído.
+ */
+function encadeamentoDe(chamadas: Investigacao["chamadas"]): (number | null)[] {
+  const textos = chamadas.map((c) => JSON.stringify(c.conteudo ?? null));
+
+  return chamadas.map((c, i) => {
+    const valores = Object.values(c.argumentos ?? {})
+      .filter((v): v is string | number => typeof v === "string" || typeof v === "number")
+      .map(String)
+      .filter((v) => v.length >= 4);
+
+    for (let j = i - 1; j >= 0; j--) {
+      if (valores.some((v) => textos[j]!.includes(v))) return j;
+    }
+    return null;
+  });
+}
+
 function montarComAgente(
   dossie: Dossie,
   investigacao: Investigacao,
@@ -712,6 +772,7 @@ function montarComAgente(
   pergunta: string,
 ): Resposta {
   const daFerramenta = evidenciasDaInvestigacao(investigacao);
+  const encadeamento = encadeamentoDe(investigacao.chamadas);
   /*
     O dossiê que a trava confere é o do agente: as evidências das ferramentas,
     e não as da orquestração. Somar as duas listas deixaria o modelo citar um
@@ -798,6 +859,28 @@ function montarComAgente(
       /* O log completo: nome e desfecho de cada consulta, na ordem. */
       ferramentas: investigacao.chamadas.map((c) => `${c.nome}${c.ok ? "" : " (falhou)"}`),
       numerosRecusados,
+      agente: {
+        rodadas: investigacao.rodadas,
+        consultas: investigacao.chamadas.length,
+        parou: investigacao.parou,
+        chamadas: investigacao.chamadas.map((c, i) => ({
+          nome: c.nome,
+          argumentos: (c.argumentos ?? {}) as Record<string, unknown>,
+          ok: c.ok,
+          erro: c.erro,
+          evidencias: c.evidencias.length,
+          /*
+            A referência que prova encadeamento.
+
+            É o que separa investigar de consultar muito: uma chamada cujo
+            argumento saiu do resultado de outra é uma decisão tomada **depois**
+            de ver o dado — "achei o grupo mais crítico, agora abro ele". Contar
+            só o número de consultas trataria isso igual a disparar dez buscas
+            independentes de uma vez, que é o oposto.
+          */
+          derivaDe: encadeamento[i] ?? null,
+        })),
+      },
       motor: explicarRedacao({ codigo: causa, frasesPodadas, frasesTotais, numerosRecusados, erro: investigacao.medicao.erro }),
       contexto: contextoParaOModelo(paraConferir, {
         ...(opcoes.historico ? { historico: opcoes.historico } : {}),
@@ -1055,6 +1138,8 @@ export async function responder(
       herdado: dossie.plano.herdado,
       ferramentas: dossie.evidencias.map((e: Evidencia) => e.ferramenta),
       numerosRecusados,
+      // O caminho determinístico não investiga: não há rodadas a relatar.
+      agente: null,
       motor: explicarRedacao({
         codigo: causa,
         frasesPodadas,
