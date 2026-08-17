@@ -588,3 +588,48 @@ Nada acima depende dele.
 prompt. Um prompt que compensa falta de dado produz uma resposta que parece
 melhor e não é — e este produto inteiro existe para não fazer isso com número
 de frete.
+
+---
+
+## 9. O norte
+
+Não é um chatbot do FreightCheck. É um **agente especialista em remuneração
+Freightec**.
+
+Diante de uma pergunta nova, que ninguém previu no código, ele precisa: entender
+a intenção; decompor o problema; escolher sozinho as ferramentas; investigar em
+várias etapas; consultar fatos, séries, parâmetros, documentos e chamados;
+compreender a semântica econômica de cada variável; calcular impactos; executar
+simulações contrafactuais; distinguir fato, cálculo, inferência e opinião; citar
+a evidência de cada conclusão relevante; reconhecer quando os dados não permitem
+concluir; e manter o contexto entre turnos.
+
+**O Claude é o motor de raciocínio.** O código fornece ferramentas, contexto,
+semântica, permissões, evidências e guardrails — e não reproduz o raciocínio do
+modelo em regra escrita, nem em prompt nem em `if/else`.
+
+### A pergunta que todo PR tem de responder
+
+> Estamos aumentando a inteligência disponível ao agente, ou estamos codificando
+> antecipadamente uma resposta que ele deveria conseguir descobrir sozinho?
+
+Ela é útil porque reprova coisas que parecem certas. Aplicada ao que já existe
+aqui, ela aprova `alteracoes` com `nivel` — é um eixo, e o agente compõe — e
+reprova as quatro `Lacuna` como parágrafos prontos em `orquestrador.ts`, que
+continuam sendo raciocínio escrito em código.
+
+### O que os instrumentos deste repositório provam, e o que não provam
+
+A bateria por desfecho e a exploratória são **listas de perguntas decodificadas**.
+Elas são rede de regressão — dizem que o que funcionava continua funcionando — e
+por construção **não podem demonstrar o norte**, porque toda pergunta que elas
+contêm foi prevista por quem as escreveu.
+
+O teste final é outro: uma pergunta econômica nova sobre dados reais, em que o
+agente investiga, encontra o que precisa, raciocina, faz as contas, explica o
+significado para o negócio e diz o que investigar ou negociar — sem inventar
+fato. Isso não se verifica por igualdade; verifica-se por julgamento, sobre
+perguntas que nenhum autor de ferramenta escreveu.
+
+Registrar isso importa porque a tentação é a oposta: quando a bateria fica
+verde, é fácil declarar pronto. Verde ali significa que não regrediu.
