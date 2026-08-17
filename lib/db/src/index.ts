@@ -140,3 +140,9 @@ export * from "./integridade-semantica";
   `semantica-confirmada.ts`.
 */
 export * from "./semantica-confirmada";
+/*
+  E a árvore da taxonomia, pelo mesmo motivo e no mesmo lugar: são os mesmos
+  22 nós em toda base, a importação precisa deles para vincular o que confirma
+  e a curadoria precisa deles para que exista o que escolher na tela.
+*/
+export * from "./taxonomia-canonica";

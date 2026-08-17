@@ -660,6 +660,19 @@ número.
   decidir nada por conta própria: replica a decisão de quem assinou, recusa-se a
   sobrescrever quem confirmou diferente na tela, e deixa UNKNOWN tudo o que
   ninguém decidiu.
+- **A promoção garante estrutura, não inferência.** Na mesma transação e nesta
+  ordem: semântica inicial (`garantirSemanticaInicial`), os 22 nós da taxonomia
+  (`garantirTaxonomiaCanonica`) e as confirmações canônicas — as três em
+  `lib/db`, porque a importação e a curadoria precisam das mesmas e não podem se
+  importar. `runProposalPass` fica **fora**: propor significado é inferência do
+  motor, e continua sendo ato de curadoria. A fronteira é prendida por
+  `lib/ingest/src/__tests__/fronteira.test.ts`.
+- **Duas rotas com o mesmo caminho: a segunda não existe.** `overview.ts`
+  declarava um `POST /imports/:id/promote` que semeava taxonomia e curadoria, e
+  o Express nunca o alcançava — `importsRouter` é montado antes. Um caminho
+  aparente esconde a ausência do caminho real; foi o que deixou a base de
+  produção sem taxonomia nenhuma. Ao registrar uma rota, confira se o caminho já
+  existe em outro router.
 
 ## Gotchas
 

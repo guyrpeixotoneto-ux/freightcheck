@@ -205,7 +205,37 @@ describe("escopo de conjunto", () => {
     const desconhecido = regraDe("EMPILHADEIRA");
     expect(desconhecido.foraDoEscopo).toHaveLength(0);
     expect(desconhecido.rotulo).toBe("EMPILHADEIRA");
-    expect(TIPOS_COM_REGRA).toEqual(["CAVALO", "CARRETA"]);
+    expect(TIPOS_COM_REGRA).toEqual(["CAVALO", "CARRETA", "TRECHO"]);
+  });
+
+  /*
+    O trecho está declarado, e o que isso afirma é o mínimo.
+
+    `TIPOS_COM_REGRA` é a lista que `/frota/panorama` e `/composition/fleet`
+    aceitam: sem a entrada, a grade de Trecho 360° responderia 400 falando de
+    regra faltando — uma frase sobre o nosso código onde a verdade é sobre o
+    arquivo do cliente, que ainda não trouxe coluna de trecho nenhuma.
+
+    O que a entrada **não** afirma é que alguma coisa do trecho entra numa soma.
+    `foraDoEscopo` vazio quer dizer "nenhuma coluna de trecho foi medida como
+    escopo de conjunto" — a afirmação mais fraca possível, e a única que este
+    repositório sustenta. Quem decide o que entra continua sendo o portão de
+    `motor.ts`, e é lá que a periodicidade por viagem vai ter de ganhar gaveta
+    antes de qualquer total.
+  */
+  it("o trecho entra pela porta, e não pela soma", () => {
+    const trecho = regraDe("TRECHO");
+    expect(trecho.rotulo).toBe("Trecho");
+    expect(trecho.foraDoEscopo).toHaveLength(0);
+    // Nenhum total de conjunto: o trecho não é metade de um par como a carreta.
+    expect(trecho.totalDoConjunto).toBeUndefined();
+    // Nenhuma composição declarada fala de trecho — nada a absorver, e nada
+    // que uma refatoração possa promover a raiz por engano. As composições não
+    // carregam `entityType`: quem diz de quem é o código é o prefixo dele.
+    const doTrecho = COMPOSITIONS.filter((c) =>
+      [c.total, ...c.parts].some((code) => code.startsWith("trecho.")),
+    );
+    expect(doTrecho).toEqual([]);
   });
 });
 

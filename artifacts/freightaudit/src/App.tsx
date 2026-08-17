@@ -117,21 +117,26 @@ function Router() {
         <Alteracoes key="impacto-financeiro" abaInicial="impacto" />
       </Route>
       {/*
-        As duas telas 360° são a mesma tela, parametrizada pelo equipamento — e
-        chaves diferentes pela mesma razão que separa `/alteracoes` de
+        As três telas 360° são a mesma tela, parametrizada pelo tipo — e chaves
+        diferentes pela mesma razão que separa `/alteracoes` de
         `/impacto-financeiro`: a placa e o De/Até são estado, e atravessar de
-        cavalo para carreta com a placa do outro equipamento na barra abriria a
-        tela num ativo que não é dela.
+        cavalo para carreta com a placa do outro tipo na barra abriria a tela num
+        ativo que não é dela.
 
-        As duas saíram de `TELAS_EM_PREPARO` neste mesmo passo, e o menu não
-        mudou uma vírgula — os itens já estavam lá, no lugar certo, com o nome
-        certo.
+        Cavalo e carreta saíram de `TELAS_EM_PREPARO` quando nasceram, e o menu
+        não mudou uma vírgula — os itens já estavam lá, no lugar certo, com o
+        nome certo. `/trecho-360` é a entrada nova: o trecho não é equipamento,
+        é a perna da rota, e o que o traz para cá é o fato de as quatro
+        perguntas serem exatamente as mesmas sobre ele.
       */}
       <Route path="/cavalo-360">
         <Frota360 key="cavalo-360" equipamento="CAVALO" />
       </Route>
       <Route path="/carreta-360">
         <Frota360 key="carreta-360" equipamento="CARRETA" />
+      </Route>
+      <Route path="/trecho-360">
+        <Frota360 key="trecho-360" equipamento="TRECHO" />
       </Route>
       <Route path="/comparar" component={Comparar} />
       <Route path="/importacoes" component={Importacoes} />

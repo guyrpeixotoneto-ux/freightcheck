@@ -98,18 +98,67 @@ export type FixtureBuilder = (db: Database) => Promise<void>;
  * o próximo processo constrói um novo em vez de clonar um desatualizado. É o
  * que impede a otimização de virar cache mentiroso.
  *
- * **O que o hash não alcança**: um construtor que chame função de outro pacote
- * (a curadoria, o motor de comparação) não vê aquele código mudar. No CI isso
- * não existe — o banco nasce vazio a cada job e o template é sempre construído
- * do zero. Na máquina de quem desenvolve, existe: se você mudar o motor e um
- * teste de fixture insistir num número velho, derrube os templates com
- * `psql -c "DROP DATABASE fc_tpl_..."` ou `pnpm run test:limpar-templates`.
+ * **O pipeline entra no hash, e entrou pagando o preço de não estar.** Os
+ * construtores chamam `./pipeline`, e o que a promoção faz mudou: ela passou a
+ * garantir a semântica inicial, a árvore da taxonomia e as confirmações
+ * canônicas dentro da própria transação. Com o hash cego a esse código, uma
+ * máquina de desenvolvimento clonava um template construído *antes* da mudança
+ * e a suíte inteira passava — enquanto o CI, que constrói do zero a cada job,
+ * reprovava. Foi exatamente o que aconteceu em 17/08/2026: verde aqui,
+ * vermelho lá, e a diferença era o template.
+ *
+ * Por isso o digest cobre agora `lib/ingest/src` inteiro e os módulos de
+ * `@workspace/db` que a promoção executa. Custa uma leitura de alguns milhares
+ * de linhas por processo, uma vez, e compra a única coisa que importa num
+ * cache: que ele não minta.
+ *
+ * **O que o hash ainda não alcança**: um teste que, *depois* de clonar,
+ * chame função de outro pacote (a curadoria, o motor de comparação) não vê
+ * aquele código mudar — mas isso também não afeta o conteúdo do template, que
+ * é o que ele identifica. Na dúvida, `pnpm run test:limpar-templates`.
  */
+function hashDoDiretorio(h: ReturnType<typeof createHash>, dir: string): void {
+  for (const entrada of readdirSync(dir, { withFileTypes: true }).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  )) {
+    // Os testes do próprio pacote não constroem template nenhum.
+    if (entrada.name === "__tests__") continue;
+    const alvo = path.join(dir, entrada.name);
+    if (entrada.isDirectory()) {
+      hashDoDiretorio(h, alvo);
+    } else if (entrada.name.endsWith(".ts")) {
+      h.update(entrada.name);
+      h.update(readFileSync(alvo));
+    }
+  }
+}
+
 function digestDoTemplate(chave: string, builder: FixtureBuilder): string {
   const h = createHash("sha256");
   h.update(chave);
   h.update(builder.toString());
   h.update(readFileSync(fileURLToPath(import.meta.url)));
+
+  // O pipeline que os construtores executam.
+  hashDoDiretorio(h, path.dirname(fileURLToPath(import.meta.url)));
+
+  /*
+    E o que a promoção chama do `@workspace/db`: a semântica inicial, a árvore
+    da taxonomia e o registro de confirmações. São três arquivos, e não o pacote
+    inteiro, porque é este o código que decide o **conteúdo** do template.
+  */
+  const dbSrc = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../db/src",
+  );
+  for (const arquivo of [
+    "semantica-inicial.ts",
+    "taxonomia-canonica.ts",
+    "semantica-confirmada.ts",
+  ]) {
+    h.update(arquivo);
+    h.update(readFileSync(path.join(dbSrc, arquivo)));
+  }
 
   const migrations = MIGRATIONS_FOLDER;
   for (const arquivo of readdirSync(migrations).sort()) {

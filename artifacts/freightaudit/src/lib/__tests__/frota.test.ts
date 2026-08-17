@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
 import {
+  aoPlural,
   EQUIPAMENTOS,
   equipamentoValido,
   frasesDoEscopo,
   lerPlaca,
   linkDaFrota,
+  outrasTelas,
+  palavrasDoTipo,
   paramsDaTela,
   paramsDoEscopo,
+  pluralEmMaiuscula,
   TELA_DO_EQUIPAMENTO,
+  todosOsPlural,
   type EscopoDeFrota,
 } from "../frota";
 import { RECORTE_VAZIO, type Recorte } from "../recorte";
@@ -46,11 +51,12 @@ const recorte = (patch: Partial<Recorte> = {}): Recorte => ({
 });
 
 describe("os equipamentos", () => {
-  it("são os dois que têm tela, e nada além", () => {
-    expect(EQUIPAMENTOS).toEqual(["CAVALO", "CARRETA"]);
+  it("são os três que têm tela, e nada além", () => {
+    expect(EQUIPAMENTOS).toEqual(["CAVALO", "CARRETA", "TRECHO"]);
     expect(equipamentoValido("CAVALO")).toBe(true);
     expect(equipamentoValido("CARRETA")).toBe(true);
-    // Um terceiro tipo vindo do Freightech aparece nas outras telas sozinho —
+    expect(equipamentoValido("TRECHO")).toBe(true);
+    // Um quarto tipo vindo do Freightech aparece nas outras telas sozinho —
     // `entity_type` é texto livre no banco. Ganhar uma tela 360° é decisão de
     // produto, com entrada de menu e nome.
     expect(equipamentoValido("REBOQUE")).toBe(false);
@@ -60,6 +66,63 @@ describe("os equipamentos", () => {
   it("cada um sabe onde mora", () => {
     expect(TELA_DO_EQUIPAMENTO.CAVALO.href).toBe("/cavalo-360");
     expect(TELA_DO_EQUIPAMENTO.CARRETA.href).toBe("/carreta-360");
+    expect(TELA_DO_EQUIPAMENTO.TRECHO.href).toBe("/trecho-360");
+  });
+
+  /*
+    O trecho não se escolhe por placa, e é a única coisa que o distingue das
+    outras duas telas do lado de fora. O rótulo do campo é dele; o parâmetro do
+    endereço continua sendo `?placa=` para os três, porque do lado de dentro ele
+    sempre foi a chave de grão da linha — trocá-lo quebraria todo link já
+    mandado em troca de nada.
+  */
+  it("chama o identificador pelo nome que o tipo tem", () => {
+    expect(TELA_DO_EQUIPAMENTO.CAVALO.identificador).toBe("Placa");
+    expect(TELA_DO_EQUIPAMENTO.CARRETA.identificador).toBe("Placa");
+    expect(TELA_DO_EQUIPAMENTO.TRECHO.identificador).toBe("Trecho");
+
+    expect(linkDaFrota("TRECHO", { placa: "SP-CAMACARI" })).toBe(
+      "/trecho-360?placa=SP-CAMACARI",
+    );
+    expect(lerPlaca("placa=SP-CAMACARI")).toBe("SP-CAMACARI");
+  });
+
+  /*
+    "todos os carretas" e "voltar aos carretas" estavam escritos à mão no
+    seletor, e o defeito é o mesmo que fez `pronome` e `este` existirem. Um
+    terceiro tipo não o cria — só torna impossível continuar ignorando.
+  */
+  it("concorda em gênero no plural, artigo e crase inclusos", () => {
+    expect(todosOsPlural(TELA_DO_EQUIPAMENTO.CAVALO)).toBe("todos os cavalos");
+    expect(todosOsPlural(TELA_DO_EQUIPAMENTO.CARRETA)).toBe("todas as carretas");
+    expect(todosOsPlural(TELA_DO_EQUIPAMENTO.TRECHO)).toBe("todos os trechos");
+
+    expect(aoPlural(TELA_DO_EQUIPAMENTO.CAVALO)).toBe("aos cavalos");
+    expect(aoPlural(TELA_DO_EQUIPAMENTO.CARRETA)).toBe("às carretas");
+  });
+
+  /*
+    As abas de Alterações recebem o tipo como texto livre, e precisam escrever
+    frases sobre ele sem um ternário que fique errado no dia em que chega um
+    `DOLLY`. Na frase corrida o desconhecido vira "ativo"; num rótulo, onde ele
+    é a única nomeação, ele volta como veio — "Ativos" numa fileira que já tem
+    Cavalos e Carretas some dentro das outras duas.
+  */
+  it("dá palavras a um tipo que não tem tela, sem inventar um nome", () => {
+    expect(palavrasDoTipo("DOLLY").singular).toBe("ativo");
+    expect(palavrasDoTipo(null).plural).toBe("ativos");
+    expect(pluralEmMaiuscula("DOLLY")).toBe("DOLLY");
+    expect(pluralEmMaiuscula("TRECHO")).toBe("Trechos");
+  });
+
+  /*
+    O link para "a outra tela" era um ternário entre duas, e um ternário é
+    exatamente o que não sobrevive à terceira: ele escolheria uma das outras e
+    esconderia a outra sem dizer.
+  */
+  it("oferece todas as outras telas, e nunca a própria", () => {
+    expect(outrasTelas("CAVALO")).toEqual(["CARRETA", "TRECHO"]);
+    expect(outrasTelas("TRECHO")).toEqual(["CAVALO", "CARRETA"]);
   });
 });
 
@@ -146,6 +209,28 @@ describe("o que a tela promete", () => {
     const { titulo, subtitulo } = frasesDoEscopo(escopo({ placa: "QYW2D78" }));
     expect(titulo).toBe("Cavalo 360° · QYW2D78");
     expect(subtitulo).toContain("este cavalo");
+  });
+
+  /*
+    A frase que o trecho não pode herdar.
+
+    Cavalo e carreta recebem por mês: o custo fixo é do calendário, e é isso que
+    a Composição apura. O trecho é pago **por viagem** — é a perna rodada que
+    dispara o pagamento. Reaproveitar "quanto ele custa por mês" aqui daria
+    periodicidade mensal a um número que não a tem, que é exatamente o erro que
+    `change_set.calculated_impact_by_periodicity` existe para não repetir, agora
+    escrito no subtítulo em vez de na coluna.
+  */
+  it("não promete mês na tela do trecho, porque trecho se paga por viagem", () => {
+    const grade = frasesDoEscopo({ entityType: "TRECHO", placa: null });
+    expect(grade.titulo).toBe("Trecho 360°");
+    expect(grade.subtitulo).toContain("cada trecho da operação");
+    expect(grade.subtitulo).toContain("quanto ele paga por viagem");
+    expect(grade.subtitulo).not.toContain("por mês");
+
+    const ativo = frasesDoEscopo({ entityType: "TRECHO", placa: "SP-CAMACARI" });
+    expect(ativo.titulo).toBe("Trecho 360° · SP-CAMACARI");
+    expect(ativo.subtitulo).toContain("este trecho");
   });
 
   it("fala de carreta na tela da carreta, e no gênero certo", () => {

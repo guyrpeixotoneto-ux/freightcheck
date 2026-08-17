@@ -53,20 +53,39 @@ describe("the registry only records real decisions", () => {
 });
 
 describe("applying the registry", () => {
-  it("confirms exactly the listed attributes and nothing else", async () => {
+  /**
+   * A base já chega com o registro aplicado — e reaplicá-lo não faz nada.
+   *
+   * Este teste pedia `applied` com os 17 códigos, o que era verdade enquanto a
+   * curadoria era a **primeira** a aplicá-los. Depois que a promoção passou a
+   * garantir a árvore da taxonomia e as confirmações na própria transação, a
+   * lista já está aplicada — com o nó vinculado — quando o `beforeAll` acima
+   * termina de importar.
+   *
+   * `unchanged` com os 17 é a afirmação mais forte, e não a mais fraca: ela diz
+   * que a importação deixou a base **exatamente** no estado que o registro
+   * descreve, sem sobrar nada para uma segunda mão fazer. O que este arquivo
+   * continua prendendo é o outro lado — que nada além do registro ficou
+   * confirmado.
+   */
+  it("já vem aplicado pela importação, e reaplicar é um no-op", async () => {
+    const codigos = CONFIRMED_SEMANTICS.map((e) => e.code).sort();
+
     const result = await applyConfirmations(ctx.db);
     expect(result.missing).toEqual([]);
-    expect(result.applied.sort()).toEqual(
-      CONFIRMED_SEMANTICS.map((e) => e.code).sort(),
-    );
+    expect(result.divergentes).toEqual([]);
+    expect(result.incoerentes).toEqual([]);
+    expect(result.applied).toEqual([]);
+    expect(result.unchanged.sort()).toEqual(codigos);
 
     const confirmed = await ctx.db
       .select()
       .from(attributeTable)
       .where(eq(attributeTable.semanticsStatus, "CONFIRMED"));
-    expect(confirmed.map((a) => a.code).sort()).toEqual(
-      CONFIRMED_SEMANTICS.map((e) => e.code).sort(),
-    );
+    expect(confirmed.map((a) => a.code).sort()).toEqual(codigos);
+    // E cada um com o nó da taxonomia já vinculado, que é o que a promoção
+    // passou a garantir antes de confirmar.
+    expect(confirmed.filter((a) => a.taxonomyNodeId === null)).toEqual([]);
   });
 
   it("records the person and the basis, not the tooling", async () => {

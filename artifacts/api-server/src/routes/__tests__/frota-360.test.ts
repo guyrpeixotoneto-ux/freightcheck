@@ -324,4 +324,38 @@ describe("GET /frota/panorama", () => {
     expect(semRegra.status).toBe(400);
     expect(semRegra.body.error).toContain("regra de remuneração");
   });
+
+  /*
+    Trecho 360° abre, e abre vazia — que é a resposta certa.
+
+    O export deste teste é o real, e ele traz `Modelo_Cavalo` e
+    `Modelo_Carreta`: nenhuma coluna de trecho chegou. O que a tela precisa é
+    conseguir dizer isso, e as duas maneiras de errar aqui são simétricas. Um
+    400 falaria de regra faltando — uma frase sobre o nosso código onde a
+    verdade é sobre o arquivo do cliente. Um 200 com `serieEntregue: true` e
+    zero ativos deixaria a grade escrever "nenhum trecho com os filtros
+    aplicados", mandando quem lê caçar um filtro que não existe.
+
+    A resposta certa é a terceira: 200, frota vazia, e `serieEntregue: false`
+    dizendo que **esta vigência não entregou este tipo**. É a mesma distinção
+    que o seletor do cabeçalho já fazia e que a aba Impacto protege célula a
+    célula — arquivo que não chegou não é frota que sumiu.
+  */
+  it("abre o trecho vazio, dizendo que a vigência não o entregou", async () => {
+    const trecho = await get("/frota/panorama?entityType=TRECHO");
+
+    expect(trecho.status).toBe(200);
+    expect(trecho.body.entityType).toBe("TRECHO");
+    expect(trecho.body.ativos).toEqual([]);
+    expect(trecho.body.resumo.equipamentos).toBe(0);
+    expect(trecho.body.serieEntregue).toBe(false);
+
+    // E o seletor do cabeçalho responde a mesma coisa pela outra rota: o tipo
+    // não está entre os que a vigência entregou, que é o que faz a tela
+    // escrever "o arquivo não chegou" em vez de "a frota sumiu".
+    const ativos = await get("/frota/ativos?entityType=TRECHO");
+    expect(ativos.status).toBe(200);
+    expect(ativos.body.ativos).toEqual([]);
+    expect(ativos.body.entityTypes).not.toContain("TRECHO");
+  });
 });

@@ -12,17 +12,10 @@ import {
   getImportRunSnapshots,
   listImportRuns,
   preview,
-  promote,
   receiveFile,
   stage,
 } from "@workspace/ingest";
-import {
-  applyConfirmations,
-  backfillSemantics,
-  runProposalPass,
-  seedTaxonomy,
-} from "@workspace/curation";
-import { computeMissingChangeSets, getOverview } from "@workspace/comparison";
+import { getOverview } from "@workspace/comparison";
 
 /**
  * Read-only views over what the system already holds: the panel, the import
@@ -196,36 +189,24 @@ router.get("/imports/:id/status", async (req, res): Promise<void> => {
   }
 });
 
-/**
- * Promote a previewed run, then bring curation up to date with it.
- *
- * A new file can carry columns nobody has classified yet, so the taxonomy and
- * the proposal pass run right after — otherwise the first thing the user would
- * see is a screen full of unclassified attributes.
- */
-router.post("/imports/:id/promote", async (req, res): Promise<void> => {
-  try {
-    const result = await promote(db, req.params.id, {
-      onExistingSnapshot: req.body?.onExistingSnapshot ?? "REJECT",
-    });
+/*
+  Havia aqui um segundo `POST /imports/:id/promote`.
 
-    await seedTaxonomy(db, "upload");
-    const proposal = await runProposalPass(db, "engine:proposal-pass");
-    const confirmations = await applyConfirmations(db);
-    const versions = await backfillSemantics(db);
-    // Comparing every consecutive pair takes a while, so it runs detached and
-    // the screens pick it up as it lands. Without this nobody would ever
-    // compute the older transitions, and the Painel would report the impact of
-    // whichever one a person happened to open.
-    void computeMissingChangeSets(db).catch(() => {});
+  Ele promovia e então semeava a taxonomia, rodava a passada de proposta,
+  aplicava as confirmações e disparava as comparações que faltavam — tudo o que
+  faz uma base recém-importada ficar utilizável. E **nunca rodava**:
+  `routes/index.ts` monta `importsRouter` antes de `overviewRouter`, e o Express
+  serve a primeira rota que casa. Medido em 17/08/2026, chamando a rota pelo
+  router real: a resposta é a de `imports.ts`, e a taxonomia fica com zero nós.
 
-    res.json({ ...result, proposal, confirmations, versions });
-  } catch (err) {
-    const message = err instanceof Error ? err.message : "Erro desconhecido";
-    req.log.warn({ err }, "Promotion refused");
-    res.status(422).json({ error: message });
-  }
-});
+  Um caminho aparente é pior que caminho nenhum — quem lesse este arquivo
+  concluiria que a curadoria é atualizada a cada promoção, e foi essa leitura
+  que deixou o defeito passar. O que ele prometia agora é verdade, e é feito
+  onde se pode garantir: dentro da transação de `promote`, em
+  `lib/ingest/src/pipeline.ts` — semântica inicial, árvore da taxonomia e
+  confirmações canônicas, nessa ordem. A passada de proposta continua fora, por
+  ser inferência e não estrutura.
+*/
 
 /** Vigência labels a run has staged, for the preview card. */
 async function getImportRunSnapshotLabels(
