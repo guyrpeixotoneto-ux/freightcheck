@@ -1,10 +1,10 @@
-import { and, asc, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
+  garantirSemanticaInicial,
   attributeSemanticsTable,
   attributeTable,
   curationEventTable,
-  snapshotTable,
   taxonomyNodeTable,
 } from "@workspace/db";
 
@@ -44,17 +44,6 @@ export interface SemanticsVersion {
   supersedeReason: string | null;
 }
 
-/** The earliest vigência on record — where version 1 of everything begins. */
-async function seriesStart(db: Database): Promise<string> {
-  const [row] = await db
-    .select({ date: snapshotTable.effectiveDate })
-    .from(snapshotTable)
-    .orderBy(asc(snapshotTable.effectiveDate))
-    .limit(1);
-  // No vigências yet: any date works as long as it precedes everything.
-  return row?.date ?? "1970-01-01";
-}
-
 export interface BackfillResult {
   created: number;
   existing: number;
@@ -67,50 +56,24 @@ export interface BackfillResult {
  * Idempotent, and the reason existing comparisons keep their numbers: with one
  * version per attribute both sides of any comparison resolve to it, nothing is
  * flagged incompatible, and no SEMANTICS_CHANGE is emitted.
+ *
+ * A regra em si não mora mais aqui. Ela é a mesma que a promoção aplica ao
+ * criar um atributo, e duas cópias dela — uma na importação, outra na curadoria
+ * — divergiriam no primeiro ajuste. `garantirSemanticaInicial`, em
+ * `@workspace/db`, é a única definição; esta função continua existindo porque
+ * "rodar o backfill" é um ato que o `dev-seed` e os testes praticam, e porque
+ * numa base que vem de antes da correção ela ainda tem o que criar.
  */
 export async function backfillSemantics(db: Database): Promise<BackfillResult> {
-  const from = await seriesStart(db);
-  const attributes = await db.select().from(attributeTable);
+  const [{ total }] = await db
+    .select({ total: sql<number>`count(*)`.mapWith(Number) })
+    .from(attributeTable);
 
-  let created = 0;
-  let existing = 0;
+  const { criadas, inicio } = await garantirSemanticaInicial(db);
 
-  for (const attribute of attributes) {
-    const [already] = await db
-      .select({ id: attributeSemanticsTable.id })
-      .from(attributeSemanticsTable)
-      .where(eq(attributeSemanticsTable.attributeId, attribute.id))
-      .limit(1);
-    if (already) {
-      existing++;
-      continue;
-    }
-
-    await db.insert(attributeSemanticsTable).values({
-      attributeId: attribute.id,
-      version: 1,
-      effectiveFrom: from,
-      effectiveUntil: null,
-      unit: attribute.unit,
-      periodicity: attribute.periodicity,
-      aggregation: attribute.aggregation,
-      isMonetary: attribute.isMonetary,
-      taxonomyNodeId: attribute.taxonomyNodeId,
-      calculationBasis: null,
-      // Carries whatever a curator has already written. Without this, running
-      // the backfill on a database that already holds definitions would erase
-      // them on the first projection of the version just created.
-      definition: attribute.definition,
-      semanticsStatus: attribute.semanticsStatus,
-      confirmedBy: attribute.confirmedBy,
-      confirmedAt: attribute.confirmedAt,
-      rationale: attribute.semanticsRationale,
-      changeOrigin: "INITIAL",
-    });
-    created++;
-  }
-
-  return { created, existing, from };
+  // `existing` conta o que já tinha versão antes desta passada, que é o que o
+  // número sempre significou: o complemento de `created` sobre o total.
+  return { created: criadas, existing: total - criadas, from: inicio };
 }
 
 /**
@@ -293,7 +256,8 @@ export async function recordSourceSemanticsChange(
       );
     if (!current) {
       throw new Error(
-        `"${input.code}" ainda não tem semântica registrada; rode o backfill antes.`,
+        `"${input.code}" não tem semântica registrada. Desde a migration 0025 toda ` +
+          `coluna nasce com a versão 1 dela, então isto é banco com migration pendente.`,
       );
     }
     if (input.effectiveFrom <= current.effectiveFrom) {

@@ -112,8 +112,9 @@ function recusaDaBase(code: string, gravados: string[]): string {
 
   return (
     `A "fórmula de cálculo" de "${code}" ainda não foi gravada: esse campo ` +
-    `pertence à versão da semântica, que este atributo ainda não tem — rode o ` +
-    `backfill antes.${salvo}`
+    `pertence à versão da semântica, e este atributo não tem nenhuma. Desde a ` +
+    `migration 0025 toda coluna nasce com a sua, então isto é banco com ` +
+    `migration pendente — não é nada que se resolva por esta tela.${salvo}`
   );
 }
 
@@ -198,8 +199,9 @@ export async function saveMeaning(
     if (basisRefused && definition === undefined && displayName === undefined) {
       throw new Error(
         `Ainda não dá para gravar "fórmula de cálculo" de "${input.code}": esse campo ` +
-          `pertence à versão da semântica, que este atributo ainda não tem — rode o ` +
-          `backfill antes. O nome gerencial e o significado podem ser salvos normalmente.`,
+          `pertence à versão da semântica, e este atributo não tem nenhuma. Desde a ` +
+          `migration 0025 toda coluna nasce com a sua, então isto é banco com migration ` +
+          `pendente. O nome gerencial e o significado podem ser salvos normalmente.`,
       );
     }
 

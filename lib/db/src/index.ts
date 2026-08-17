@@ -126,3 +126,9 @@ export function codigoDoPostgres(err: unknown): string | undefined {
 }
 
 export * from "./schema";
+/*
+  A invariante mora aqui, e não na curadoria, porque quem a precisa são dois
+  pacotes que não podem se importar: a importação cria o atributo, a curadoria
+  lê e escreve a versão dele. Foi essa fronteira que deixou a versão 1 órfã.
+*/
+export * from "./semantica-inicial";
