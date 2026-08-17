@@ -267,6 +267,9 @@ importers:
 
   artifacts/freightaudit:
     dependencies:
+      '@workspace/curation':
+        specifier: workspace:*
+        version: link:../../lib/curation
       '@workspace/knowledge':
         specifier: workspace:*
         version: link:../../lib/knowledge

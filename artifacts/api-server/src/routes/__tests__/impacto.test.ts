@@ -311,6 +311,9 @@ describe("GET /impacto/exportacao.xlsx", () => {
   it("um escopo que não existe para em 404 com JSON, e não num arquivo vazio", async () => {
     const { status, body } = await baixar("/impacto/exportacao.xlsx?scopeHash=naoexiste");
     expect(status).toBe(404);
-    expect(body.error).toBeTruthy();
+    // `res.json()` responde `unknown`, e o `baixar` devolve `null` no caminho
+    // feliz — a união das duas não tem `.error` para ler. O que este caso
+    // afirma é o contrato do 404: JSON com motivo, e não um arquivo vazio.
+    expect((body as { error?: string } | null)?.error).toBeTruthy();
   });
 });

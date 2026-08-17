@@ -18,6 +18,7 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { semanticsStatus, snapshotStatus } from "./enums";
 import { importRunTable, rawCellTable, sourceFileTable } from "./raw";
+import { semanticMeaningTable } from "./significado";
 
 /**
  * CANONICAL layer — the source of truth. Comparable, versioned, traceable.
@@ -316,6 +317,21 @@ export const taxonomyNodeTable = pgTable(
     depth: integer("depth").notNull(),
     sortOrder: integer("sort_order").notNull().default(0),
     isActive: boolean("is_active").notNull().default(true),
+    /**
+     * Quem criou o nó, quando alguém o criou.
+     *
+     * Nulo para a árvore inicial e para os nós anteriores a esta coluna — que é
+     * uma resposta, e não uma lacuna: aquela árvore veio com o produto e está
+     * em `DEFAULT_TAXONOMY`, revisável num pull request. Uma categoria criada
+     * na tela de confirmação tem autor, e tem de ter: ela passa a classificar
+     * dinheiro nas telas de custo fixo e variável, e uma classificação que
+     * ninguém assinou é a mesma coisa que uma confirmação sem responsável.
+     *
+     * O evento em `curation_event` também registra a criação. Os dois convivem
+     * pelo mesmo motivo que `attribute.confirmed_by` convive com o histórico:
+     * ler quem criou uma categoria não pode custar uma varredura do log.
+     */
+    createdBy: text("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -355,6 +371,23 @@ export const attributeTable = pgTable(
       .notNull()
       .default("UNKNOWN"),
     isMonetary: boolean("is_monetary"),
+
+    /**
+     * O significado econômico confirmado — a afirmação de que os quatro campos
+     * acima são derivação.
+     *
+     * Nulo em tudo que foi curado antes da autoridade semântica existir, e isso
+     * é deliberado: os quatro campos técnicos continuam válidos e continuam
+     * sendo o que o motor lê, então nenhum número muda por esta coluna estar
+     * vazia. A tela resolve o significado de volta a partir deles
+     * (`significadoPara`), de modo que uma coluna confirmada em 10/08/2026
+     * aparece na tela nova como "R$ por mês" sem que nada tenha sido reescrito.
+     *
+     * Preenchê-la é o caminho de mão única: daqui para a frente toda
+     * confirmação grava o significado **e** a derivação dele, e a derivação
+     * deixa de ser digitável.
+     */
+    meaningId: uuid("meaning_id").references(() => semanticMeaningTable.id),
 
     /** Position in the remuneration hierarchy. Set by curation, never by import. */
     taxonomyNodeId: uuid("taxonomy_node_id").references(
