@@ -3,6 +3,7 @@ import {
   categoriasNaoPropor,
   categoriasPendentes,
   classificar,
+  divisaoDeAtivos,
   prioridadeDaPauta,
   racionalDeApoio,
   type Recomendacao,
@@ -12,12 +13,13 @@ import { formatBrlCompacto } from "@/lib/format";
 /**
  * O que a aba Cliente decide antes de desenhar a pauta.
  *
- * Três coisas, e as três já erraram em produtos parecidos: a etiqueta de
+ * Quatro coisas, e as quatro já erraram em produtos parecidos: a etiqueta de
  * prioridade — que não pode virar "quanto é o número", senão a tela manda
  * propor o que ainda é pergunta —, a partição dos painéis do rodapé — que
  * precisa somar exatamente a população, senão o ladrilho do topo discorda da
- * lista logo abaixo dele — e o racional de apoio, que sem denominador vira uma
- * afirmação que ninguém confere.
+ * lista logo abaixo dele —, o racional de apoio, que sem denominador vira uma
+ * afirmação que ninguém confere, e a divisão entre prejudicados e favorecidos,
+ * que é a única coisa do cartão que declara perda no nome.
  */
 
 const rec = (patch: Partial<Recomendacao>): Recomendacao => ({
@@ -197,6 +199,120 @@ describe("racionalDeApoio", () => {
         }),
       ),
     ).toBe("12 de 62 cavalos afetados · 4 para o lado contrário");
+  });
+});
+
+describe("divisaoDeAtivos", () => {
+  const caso = (patch: Partial<Recomendacao["oQueAconteceu"] & {}> = {}) => ({
+    antes: 3.11,
+    depois: 3.71,
+    unidade: null,
+    effectiveDate: "2026-03-02",
+    sourceLabel: "EMPURRADA_2_3_2026",
+    entidades: 29,
+    entidadesEmSentidoOposto: 7,
+    padroes: 79,
+    cobertura: 0.45,
+    ...patch,
+  });
+
+  it("sem o par antes → depois não há divisão a mostrar", () => {
+    expect(divisaoDeAtivos(rec({ oQueAconteceu: null }))).toBeNull();
+  });
+
+  it("num parâmetro de sentido inverso, subir é perder", () => {
+    const d = divisaoDeAtivos(
+      rec({ sentido: "INVERSO", oQueAconteceu: caso(), veiculosAfetados: 64 }),
+    );
+    expect(d!.predominante).toEqual({
+      quantidade: 29,
+      rotulo: "prejudicados",
+      tom: "PERDA",
+    });
+    expect(d!.oposto).toEqual({
+      quantidade: 7,
+      rotulo: "favorecidos",
+      tom: "GANHO",
+    });
+  });
+
+  it("no sentido direto a mesma subida é ganho, e quem desceu é que perdeu", () => {
+    const d = divisaoDeAtivos(
+      rec({ sentido: "DIRETO", oQueAconteceu: caso(), veiculosAfetados: 64 }),
+    );
+    expect(d!.predominante.tom).toBe("GANHO");
+    expect(d!.oposto.tom).toBe("PERDA");
+  });
+
+  /*
+    A regra que este arquivo inteiro defende, aplicada ao cartão: sem sentido
+    declarado o movimento é um fato medido e mais nada. Chamar de prejudicado
+    quem talvez tenha ganhado é o palpite com aparência de conta.
+  */
+  it("sem sentido declarado, ninguém é chamado de prejudicado", () => {
+    for (const sentido of [null, "DESCONHECIDO", "NAO_MONOTONICO", "DEPENDE_DE_FORMULA"]) {
+      const d = divisaoDeAtivos(rec({ sentido, oQueAconteceu: caso() }));
+      expect(d!.predominante).toEqual({
+        quantidade: 29,
+        rotulo: "no padrão principal",
+        tom: "NEUTRO",
+      });
+      expect(d!.oposto.rotulo).toBe("em sentido oposto");
+    }
+  });
+
+  it("um par que não se moveu não vira queda", () => {
+    const d = divisaoDeAtivos(
+      rec({ sentido: "DIRETO", oQueAconteceu: caso({ antes: 3.11, depois: 3.11 }) }),
+    );
+    expect(d!.predominante.tom).toBe("NEUTRO");
+  });
+
+  it("conta quantos afetados sobraram fora dos dois grupos", () => {
+    const d = divisaoDeAtivos(
+      rec({ sentido: "INVERSO", oQueAconteceu: caso(), veiculosAfetados: 64 }),
+    );
+    expect(d!.restantes).toBe(28);
+  });
+
+  it("não inventa sobra quando os dois grupos já cobrem os afetados", () => {
+    const d = divisaoDeAtivos(
+      rec({
+        sentido: "INVERSO",
+        oQueAconteceu: caso({ entidades: 57, entidadesEmSentidoOposto: 7 }),
+        veiculosAfetados: 64,
+      }),
+    );
+    expect(d!.restantes).toBe(0);
+  });
+
+  /*
+    O cartão que não tem divisão a mostrar não pode ganhar três ladrilhos: eles
+    diriam "62 · 62 · 0", e o leitor gastaria a atenção procurando a diferença
+    entre dois números iguais.
+  */
+  it("frota inteira na mesma transição não é divisão nenhuma", () => {
+    expect(
+      divisaoDeAtivos(
+        rec({
+          sentido: "DIRETO",
+          oQueAconteceu: caso({ entidades: 62, entidadesEmSentidoOposto: 0, padroes: 1 }),
+          veiculosAfetados: 62,
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("ninguém no sentido oposto ainda é divisão, se sobraram afetados fora do par", () => {
+    const d = divisaoDeAtivos(
+      rec({
+        sentido: "DIRETO",
+        oQueAconteceu: caso({ entidades: 29, entidadesEmSentidoOposto: 0 }),
+        veiculosAfetados: 64,
+      }),
+    );
+    expect(d!.oposto.quantidade).toBe(0);
+    expect(d!.restantes).toBe(35);
   });
 });
 

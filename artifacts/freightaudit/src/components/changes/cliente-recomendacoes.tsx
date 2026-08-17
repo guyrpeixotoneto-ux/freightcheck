@@ -1,18 +1,22 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  ArrowDown,
   ArrowRight,
   ArrowRightLeft,
+  ArrowUp,
   ChevronDown,
   CircleAlert,
+  CircleCheck,
   CircleDollarSign,
   CircleX,
   ClipboardCheck,
   FileText,
   Info,
-  MessageSquare,
+  TrendingUp,
+  TriangleAlert,
   Truck,
-  Users,
+  type LucideIcon,
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
 import {
@@ -20,6 +24,7 @@ import {
   janelaParaQuery,
   type JanelaDeVigencias,
 } from "@/components/changes/janela-vigencias";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { fetchJson } from "@/lib/api";
 import {
@@ -232,7 +237,20 @@ export function prioridadeDaPauta(r: Recomendacao): Prioridade {
 }
 
 /**
- * O tom de cada prioridade — a etiqueta e os ícones das linhas do cartão.
+ * O que a etiqueta **diz**, e o tom com que ela diz.
+ *
+ * O rótulo é uma instrução, e não um adjetivo: "Alta prioridade" descrevia o
+ * cartão, e quem monta a pauta não precisa saber que ele é importante — precisa
+ * saber se leva ou não leva. `selo` é a instrução curta que vai para o topo, e
+ * `veredito` é a mesma frase inteira, na faixa logo abaixo do título, onde o
+ * texto do `porque` a sustenta.
+ *
+ * As três cores seguem a regra da paleta em vez de graduar urgência. Verde e
+ * vermelho são leitura de dado, então o verde só aparece onde a leitura é
+ * "isto está pronto"; o marinho é a cor de ação, e fica com o caso que se leva
+ * com ressalva; e o âmbar é a única cor de atenção, reservada ao que **não**
+ * pode ser levado ainda. O vermelho de prioridade alta saiu junto com o rótulo
+ * que ele pintava: um item pronto para virar dinheiro não é um alarme.
  *
  * Âmbar entra literal, e não por `text-warning-foreground`: aquele token é o
  * marinho que se escreve **sobre** o laranja cheio, e sobre um véu de 15% ele
@@ -245,23 +263,53 @@ export function prioridadeDaPauta(r: Recomendacao): Prioridade {
  */
 const PRIORIDADE: Record<
   Prioridade,
-  { rotulo: string; etiqueta: string; icone: string }
+  {
+    selo: string;
+    veredito: string;
+    Icone: LucideIcon;
+    etiqueta: string;
+    caixa: string;
+    icone: string;
+  }
 > = {
   ALTA: {
-    rotulo: "Alta prioridade",
-    etiqueta: "bg-destructive/10 text-destructive",
-    icone: "bg-destructive/10 text-destructive",
+    selo: "Pronto para propor",
+    veredito: "Este item pode ser levado ao cliente como proposta.",
+    Icone: CircleCheck,
+    etiqueta: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-500",
+    caixa: "border-emerald-500/30 bg-emerald-500/10",
+    icone: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-500",
   },
   MEDIA: {
-    rotulo: "Média prioridade",
-    etiqueta: "bg-amber-500/15 text-amber-700 dark:text-amber-500",
-    icone: "bg-amber-500/15 text-amber-700 dark:text-amber-500",
-  },
-  ATENCAO: {
-    rotulo: "Atenção",
+    selo: "Propor com ressalva",
+    veredito: "Pode ser levado ao cliente, com a ressalva junto.",
+    Icone: CircleAlert,
     etiqueta: "bg-brand/10 text-brand",
+    caixa: "border-brand/25 bg-brand/5",
     icone: "bg-brand/10 text-brand",
   },
+  ATENCAO: {
+    selo: "Validar antes de propor",
+    veredito: "Não recomendamos levar este item ao cliente ainda.",
+    Icone: TriangleAlert,
+    etiqueta: "bg-amber-500/15 text-amber-700 dark:text-amber-500",
+    caixa: "border-amber-500/30 bg-amber-500/10",
+    icone: "bg-amber-500/15 text-amber-700 dark:text-amber-500",
+  },
+};
+
+/**
+ * O passo seguinte, para quem sai do cartão sem poder fazer nada com ele.
+ *
+ * Só a investigação ganha essa linha, e é por falta que ela existe: o cartão de
+ * proposta termina no pedido, que já é o que se faz com ele, enquanto o de
+ * investigação termina numa pendência — e sem dizer o que vem **depois** da
+ * pendência ele parece uma tarefa sem destino. A frase não promete que haverá
+ * proposta; ela diz sob qual condição haveria.
+ */
+const PROXIMO_PASSO: Partial<Record<Prioridade, string>> = {
+  ATENCAO:
+    "Depois disso: se houver perda comprovada, transformar em proposta para o cliente.",
 };
 
 /** Uma linha dos painéis do rodapé: o rótulo, e quantos itens ele cobre. */
@@ -386,6 +434,105 @@ export function racionalDeApoio(r: Recomendacao): string {
   return opostos > 0
     ? `${base} · ${formatNumber(opostos, 0)} para o lado contrário`
     : base;
+}
+
+export type TomDoGrupo = "PERDA" | "GANHO" | "NEUTRO";
+
+/** Um dos dois lados da mesma virada — quantos ativos, e o que aconteceu com eles. */
+export interface GrupoDeAtivos {
+  quantidade: number;
+  rotulo: string;
+  tom: TomDoGrupo;
+}
+
+export interface DivisaoDeAtivos {
+  /** Os ativos do par (antes → depois) que o cartão mostra. */
+  predominante: GrupoDeAtivos;
+  /** Os que se moveram para o outro lado na mesma vigência. */
+  oposto: GrupoDeAtivos;
+  /**
+   * Afetados que não estão em nenhum dos dois grupos.
+   *
+   * Existem sempre que a coluna tem mais de dois pares de valor na vigência, e
+   * o cartão precisa dizê-lo: sem isso, "64 afetados" ao lado de "29" e "7"
+   * parece uma conta que não fecha — e o leitor conclui que um dos três números
+   * está errado, quando os três estão certos e medem coisas diferentes.
+   */
+  restantes: number;
+}
+
+/**
+ * Quem perdeu e quem ganhou dentro da mesma alteração.
+ *
+ * O cartão antigo dizia "7 para o lado contrário" e deixava a pergunta cara sem
+ * resposta: o lado contrário de quem, e para melhor ou para pior? A resposta
+ * não está no sinal do delta — `TJLP` caindo derruba o que recebemos e uma
+ * idade subindo não é premissa nenhuma —, então ela sai do cruzamento do
+ * movimento do par com o **sentido declarado** do parâmetro, que é a mesma
+ * regra que o motor usa para decidir a situação da linha.
+ *
+ * Quando o sentido não é declarado — ou é `NAO_MONOTONICO`, ou depende da
+ * fórmula da fonte —, os dois grupos saem sem juízo econômico: "no padrão
+ * principal" e "em sentido oposto" continuam sendo fatos medidos, e chamar de
+ * prejudicado quem talvez tenha ganhado seria exatamente o palpite com
+ * aparência de conta que esta aba existe para não dar.
+ *
+ * Um delta zero cai no mesmo lugar: um par que não se moveu não pinta de
+ * vermelho ninguém.
+ *
+ * **E não há divisão quando não houve divisão.** Se todos os afetados fizeram a
+ * mesma transição, os três ladrilhos diriam "62 afetados · 62 prejudicados · 0
+ * favorecidos" — o mesmo número duas vezes e um zero que não informa nada. A
+ * função devolve `null` nesse caso, e o cartão fica com o total sozinho: quem
+ * perdeu já está dito na faixa do veredito, e repeti-lo em corpo de número faz
+ * o leitor procurar a diferença entre dois números iguais.
+ */
+export function divisaoDeAtivos(r: Recomendacao): DivisaoDeAtivos | null {
+  const caso = r.oQueAconteceu;
+  if (!caso) return null;
+
+  const restantes = Math.max(
+    0,
+    r.veiculosAfetados - caso.entidades - caso.entidadesEmSentidoOposto,
+  );
+  if (caso.entidadesEmSentidoOposto === 0 && restantes === 0) return null;
+
+  const delta = caso.depois - caso.antes;
+  const predominantePerde =
+    delta === 0
+      ? null
+      : r.sentido === "DIRETO"
+        ? delta < 0
+        : r.sentido === "INVERSO"
+          ? delta > 0
+          : null;
+
+  if (predominantePerde === null) {
+    return {
+      predominante: {
+        quantidade: caso.entidades,
+        rotulo: "no padrão principal",
+        tom: "NEUTRO",
+      },
+      oposto: {
+        quantidade: caso.entidadesEmSentidoOposto,
+        rotulo: "em sentido oposto",
+        tom: "NEUTRO",
+      },
+      restantes,
+    };
+  }
+
+  const lado = (quantidade: number, perde: boolean): GrupoDeAtivos =>
+    perde
+      ? { quantidade, rotulo: "prejudicados", tom: "PERDA" }
+      : { quantidade, rotulo: "favorecidos", tom: "GANHO" };
+
+  return {
+    predominante: lado(caso.entidades, predominantePerde),
+    oposto: lado(caso.entidadesEmSentidoOposto, !predominantePerde),
+    restantes,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -615,11 +762,21 @@ export function ClienteRecomendacoes({
           </Card>
         ) : (
           /*
+            Dois cartões por fileira, e não três.
+
+            A terceira coluna cabia quando o cartão era uma ficha de três linhas
+            de texto. Ela não cabe mais: os três ladrilhos de abrangência e as
+            duas linhas de leitura têm um número **e** a frase que o qualifica
+            lado a lado, e a um terço de tela cada uma dessas duas colunas fica
+            com pouco mais de cem pixels — que é onde "Ainda não calculável"
+            quebra em três linhas de uma palavra. Um cartão a menos por fileira
+            custa rolagem; um cartão ilegível custa a leitura inteira.
+
             O alinhamento da grade muda com o detalhe técnico, e é a única
             forma de ter as duas coisas.
 
             Fechados, os cartões esticam para a mesma altura: é o que deixa os
-            três rodapés na mesma linha e a fileira comparável a olho. Aberto um
+            rodapés na mesma linha e a fileira comparável a olho. Aberto um
             deles, a linha inteira cresce — e com os irmãos ainda esticados o
             crescimento vira meia tela de vazio dentro de cartões que não têm o
             que mostrar ali. Enquanto houver um aberto, cada cartão volta para a
@@ -627,7 +784,7 @@ export function ClienteRecomendacoes({
           */
           <div
             className={cn(
-              "grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3",
+              "grid gap-4 grid-cols-1 xl:grid-cols-2",
               aberto !== null && "items-start",
             )}
           >
@@ -713,15 +870,34 @@ export function ClienteRecomendacoes({
 /**
  * Um item da pauta.
  *
- * A ordem dos blocos é a ordem da conversa: a etiqueta do que fazer, o assunto,
- * por que ele nos prejudica, e o rodapé com as três coisas que a reunião
- * pergunta — quanto vale, o que pedir, e em cima de quantos ativos. O detalhe
- * técnico fica atrás de um clique: quem está montando a pauta não precisa dele,
- * e quem vai defender o número precisa dele inteiro.
+ * A ordem dos blocos é a ordem da decisão, e ela mudou de eixo: o cartão antigo
+ * abria por um adjetivo — "Alta prioridade" — e fechava com três linhas de
+ * termo e valor alinhadas à direita, que é a forma de uma ficha técnica. Quem
+ * abre esta tela não está conferindo uma ficha; está decidindo o que entra na
+ * reunião. Então o cartão agora **responde primeiro**: o selo diz o que fazer,
+ * a faixa logo abaixo do título diz por que essa é a resposta, e só depois vêm
+ * a evidência, a abrangência e o dinheiro que a sustentam.
  *
- * Enquanto fechado, o cartão limita as duas frases longas a três linhas — é o
- * que mantém os cartões da mesma fileira comparáveis a olho. Abrir o detalhe
- * solta as duas: o texto é cortado na exibição, nunca na fonte.
+ * Três coisas que a forma nova resolve e a antiga não resolvia:
+ *
+ * **O veredito não se deduz mais da etiqueta.** "Atenção" obrigava o leitor a
+ * saber que atenção significa não levar. A faixa escreve a frase inteira.
+ *
+ * **Quem perdeu aparece separado de quem ganhou.** "7 para o lado contrário",
+ * escondido no fim de uma linha de racional, era a informação mais importante
+ * do cartão de direções mistas — é ela que impede alguém de levar o líquido
+ * como se fosse o caso de todo mundo. Agora são dois números do mesmo tamanho,
+ * lado a lado, com {@link divisaoDeAtivos} decidindo qual dos dois é a perda.
+ *
+ * **A travessia para as placas virou o botão do cartão.** Num caso que só se
+ * resolve ativo a ativo, "ver por placa e vigência" não é um link auxiliar: é a
+ * única coisa que se pode fazer com o cartão agora.
+ *
+ * O detalhe técnico continua atrás de um clique — quem está montando a pauta
+ * não precisa dele, e quem vai defender o número precisa dele inteiro. E,
+ * enquanto fechado, o cartão limita as frases longas a três linhas: é o que
+ * mantém os cartões da mesma fileira comparáveis a olho. Abrir o detalhe solta
+ * todas; o texto é cortado na exibição, nunca na fonte.
  */
 function CartaoDePauta({
   r,
@@ -736,7 +912,10 @@ function CartaoDePauta({
   onAbrir: () => void;
   onAbrirImpacto?: (escolha: { entityType: string; code: string }) => void;
 }) {
-  const prioridade = PRIORIDADE[prioridadeDaPauta(r)];
+  const prioridade = prioridadeDaPauta(r);
+  const tom = PRIORIDADE[prioridade];
+  const divisao = divisaoDeAtivos(r);
+  const proximoPasso = PROXIMO_PASSO[prioridade];
 
   /*
     Sem `h-full` no cartão: ele **é** o item da grade, e o `stretch` padrão já o
@@ -746,150 +925,198 @@ function CartaoDePauta({
   */
   return (
     <Card className="overflow-hidden flex flex-col">
-      <div className="px-5 pt-4 pb-3 flex-1">
-        <div className="flex items-center justify-between gap-3">
+      <div className="px-5 pt-5 pb-4 flex-1 space-y-4">
+        <div className="flex items-start justify-between gap-3">
           <span
             className={cn(
-              "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
-              prioridade.etiqueta,
+              "inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-semibold",
+              tom.etiqueta,
             )}
           >
-            {prioridade.rotulo}
+            <tom.Icone className="w-4 h-4 shrink-0" aria-hidden />
+            {tom.selo}
           </span>
-          <span className="rounded-md border px-1.5 py-0.5 text-xs tabular-nums text-muted-foreground shrink-0">
+          <span className="rounded-md border px-2 py-1 text-xs tabular-nums text-muted-foreground shrink-0">
             #{posicao}
           </span>
         </div>
 
-        <h4 className="text-base font-semibold tracking-tight mt-3">
+        <h4 className="text-lg font-semibold tracking-tight">
           {r.title}
-          <span className="text-xs text-muted-foreground font-normal ml-2">
+          <span className="text-sm text-muted-foreground font-normal ml-2">
             {r.equipment.toLowerCase()} · {CONFIANCA[r.confianca]}
           </span>
         </h4>
 
-        <p
+        {/*
+          A faixa do veredito. A frase de cima vem da prioridade — ela é a
+          decisão da tela, e é curta de propósito; a de baixo é o `porque` que o
+          motor escreveu, e é ela que sustenta a primeira. Trocar a ordem faria
+          o cartão argumentar antes de concluir.
+        */}
+        <div
           className={cn(
-            "text-sm text-muted-foreground mt-1.5 leading-relaxed",
-            !aberto && "line-clamp-3",
+            "rounded-xl border px-4 py-3 flex items-start gap-3",
+            tom.caixa,
           )}
         >
-          {r.porque}
-        </p>
+          <span
+            className={cn(
+              "h-9 w-9 rounded-full grid place-content-center shrink-0",
+              tom.icone,
+            )}
+          >
+            <tom.Icone className="w-5 h-5" aria-hidden />
+          </span>
+          <div className="min-w-0">
+            <p className="text-sm font-semibold leading-snug">{tom.veredito}</p>
+            <p
+              className={cn(
+                "text-sm text-muted-foreground mt-1 leading-relaxed",
+                !aberto && "line-clamp-3",
+              )}
+            >
+              {r.porque}
+            </p>
+          </div>
+        </div>
+
+        {r.oQueAconteceu && <Evidencia caso={r.oQueAconteceu} />}
 
         {/*
-          O par antes → depois é o padrão predominante, e o cartão precisa dizer
-          quando ele é só isso. Uma premissa compartilhada move a frota inteira
-          do mesmo valor para o mesmo valor; um montante por ativo tem dezenas
-          de pares, e mostrar um deles sem a ressalva faria o cartão parecer um
-          resumo quando é uma ilustração.
+          A abrangência em números, e não mais em frase.
+
+          `racionalDeApoio` continua sendo o rótulo do grupo porque ela é a
+          leitura corrida dos mesmos números — é o que um leitor de tela ouve
+          antes dos ladrilhos, e é a frase que os testes fixam.
         */}
-        {r.oQueAconteceu && (
-          <div className="mt-3 rounded-lg bg-muted/50 px-3 py-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm tabular-nums">
-            <ArrowRightLeft className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
-            <span className="text-muted-foreground">
-              {formatValue(r.oQueAconteceu.antes, r.oQueAconteceu.unidade)}
-            </span>
-            <ArrowRight className="w-3.5 h-3.5 text-muted-foreground" />
-            <span className="font-medium">
-              {formatValue(r.oQueAconteceu.depois, r.oQueAconteceu.unidade)}
-            </span>
-            <span className="text-xs text-muted-foreground">
-              em {r.oQueAconteceu.sourceLabel}
-            </span>
-            {r.oQueAconteceu.padroes > 1 && (
-              <span className="text-xs rounded bg-background border px-1.5 py-0.5 text-muted-foreground">
-                padrão predominante de {formatNumber(r.oQueAconteceu.padroes, 0)}
-              </span>
+        <div>
+          {/*
+            Os três ladrilhos empilham no telefone. Lado a lado numa largura de
+            336px eles ficam com 100px cada, e "veículos afetados de 64 na
+            série" quebra em uma palavra por linha — um ladrilho de sete linhas
+            de altura para dizer um número de dois dígitos.
+          */}
+          <div
+            role="group"
+            aria-label={racionalDeApoio(r)}
+            className={cn(
+              "grid gap-2",
+              divisao ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-1",
             )}
+          >
+            <Estatistica
+              Icone={Truck}
+              circulo="bg-brand/10 text-brand"
+              numero="text-foreground"
+              quantidade={r.veiculosAfetados}
+              rotulo="veículos afetados"
+              nota={
+                r.veiculosNaSerie > 0
+                  ? `de ${formatNumber(r.veiculosNaSerie, 0)} na série`
+                  : undefined
+              }
+            />
+            {divisao && (
+              <>
+                <Estatistica grupo={divisao.predominante} />
+                <Estatistica grupo={divisao.oposto} />
+              </>
+            )}
+          </div>
+          {divisao && divisao.restantes > 0 && (
+            <p className="text-xs text-muted-foreground mt-2">
+              Os outros {formatNumber(divisao.restantes, 0)} ativos afetados
+              seguem outros pares de valor na mesma vigência.
+            </p>
+          )}
+        </div>
+
+        <dl className="space-y-2">
+          <LinhaDoCartao
+            Icone={CircleDollarSign}
+            tomDoIcone={tom.icone}
+            termo="Impacto financeiro"
+            valor={
+              r.impacto ? (
+                <span
+                  className={cn(
+                    "tabular-nums",
+                    r.impacto.valor < 0
+                      ? "text-destructive"
+                      : "text-emerald-600 dark:text-emerald-500",
+                  )}
+                  title={`${formatBrl(r.impacto.valor)} ${POR_PERIODO[r.impacto.periodicidade ?? ""] ?? ""}`.trim()}
+                >
+                  {formatBrlCompacto(r.impacto.valor)}
+                  {periodicitySuffix(r.impacto.periodicidade)}
+                </span>
+              ) : (
+                /*
+                  "Ainda não calculável", e não "não apurado": o primeiro diz
+                  que falta trabalho, o segundo soa como se alguém tivesse
+                  esquecido de somar. O motivo vai para a coluna da direita, que
+                  é onde cabe uma frase de três orações sem ocupar o lugar de um
+                  número em corpo de número.
+                */
+                <span className="text-brand">Ainda não calculável</span>
+              )
+            }
+          >
+            {r.impacto
+              ? (outraPeriodicidade(r.impacto) ??
+                "Sem outra periodicidade declarada — o valor não é projetado para mês nem para ano.")
+              : (r.impactoMotivo || "").trim() ||
+                "A leitura econômica deste parâmetro ainda não permite transformar a variação em reais."}
+          </LinhaDoCartao>
+
+          <LinhaDoCartao
+            Icone={ClipboardCheck}
+            tomDoIcone={tom.icone}
+            termo={
+              r.situacao === "PROPOR_AJUSTE"
+                ? "Pedido sugerido"
+                : "O que falta para propor"
+            }
+          >
+            <span className={cn("block", !aberto && "line-clamp-3")}>
+              {r.oQuePerguntar ?? "—"}
+            </span>
+          </LinhaDoCartao>
+        </dl>
+
+        {proximoPasso && (
+          <div className="rounded-lg border border-border/60 bg-muted/40 px-3.5 py-2.5 flex items-start gap-2.5">
+            <Info
+              className="w-4 h-4 mt-0.5 shrink-0 text-muted-foreground"
+              aria-hidden
+            />
+            <p className="text-xs text-muted-foreground leading-relaxed">
+              {proximoPasso}
+            </p>
           </div>
         )}
       </div>
 
-      {/*
-        Uma grade de duas colunas, e não três linhas independentes: os três
-        termos são de larguras parecidas, e sem a coluna comum os valores
-        começariam em três `x` diferentes dentro do mesmo cartão.
-      */}
-      <dl className="border-t px-5 py-4 grid grid-cols-[auto_1fr] gap-x-3 gap-y-3">
-        <LinhaDoCartao
-          icon={<CircleDollarSign className="w-3.5 h-3.5" />}
-          tomDoIcone={prioridade.icone}
-          termo="Impacto estimado"
-        >
-          {r.impacto ? (
-            <span
-              className={cn(
-                "font-semibold tabular-nums",
-                r.impacto.valor < 0 ? "text-destructive" : "text-emerald-600",
-              )}
-              title={`${formatBrl(r.impacto.valor)} ${POR_PERIODO[r.impacto.periodicidade ?? ""] ?? ""}`.trim()}
-            >
-              {formatBrlCompacto(r.impacto.valor)}
-              {periodicitySuffix(r.impacto.periodicidade)}
-            </span>
-          ) : (
-            /*
-              O motivo desce para uma segunda linha, menor. Ele é uma frase de
-              três orações — "a semântica ainda não foi confirmada na curadoria,
-              então somar sua variação seria adivinhação" — e no lugar do valor
-              ela ocupava metade do cartão dizendo, em corpo de número, algo que
-              não é número nenhum.
-            */
-            <>
-              <span className="font-medium text-muted-foreground">
-                não apurado
-              </span>
-              {(r.impactoMotivo || "").trim() !== "" && (
-                <span
-                  className="block text-xs text-muted-foreground/80 line-clamp-2"
-                  title={r.impactoMotivo}
-                >
-                  {r.impactoMotivo}
-                </span>
-              )}
-            </>
-          )}
-        </LinhaDoCartao>
-
-        <LinhaDoCartao
-          icon={<MessageSquare className="w-3.5 h-3.5" />}
-          tomDoIcone={prioridade.icone}
-          termo={r.situacao === "PROPOR_AJUSTE" ? "Pedido sugerido" : "O que perguntar"}
-        >
-          <span className={cn("block", !aberto && "line-clamp-3")}>
-            {r.oQuePerguntar ?? "—"}
-          </span>
-        </LinhaDoCartao>
-
-        <LinhaDoCartao
-          icon={<Users className="w-3.5 h-3.5" />}
-          tomDoIcone={prioridade.icone}
-          termo="Racional de apoio"
-        >
-          <span className="font-medium">{racionalDeApoio(r)}</span>
-        </LinhaDoCartao>
-      </dl>
-
-      <div className="border-t bg-muted/20 px-5 py-2 flex items-center gap-4">
+      <div className="border-t bg-muted/20 px-5 py-3 flex flex-wrap items-center justify-between gap-3">
         <button
           onClick={onAbrir}
           aria-expanded={aberto}
-          className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
+          className="text-sm text-muted-foreground hover:text-foreground inline-flex items-center gap-1.5"
         >
+          Detalhe técnico
           <ChevronDown
-            className={cn("w-3.5 h-3.5 transition-transform", aberto && "rotate-180")}
+            className={cn("w-4 h-4 transition-transform", aberto && "rotate-180")}
           />
-          detalhe técnico
         </button>
         {onAbrirImpacto && (
-          <button
+          <Button
             onClick={() => onAbrirImpacto({ entityType: r.entityType, code: r.code })}
-            className="text-xs text-brand hover:underline inline-flex items-center gap-1"
+            className="gap-2"
           >
-            ver por placa e vigência
-            <ArrowRight className="w-3.5 h-3.5" />
-          </button>
+            Ver placas afetadas
+            <ArrowRight className="w-4 h-4" aria-hidden />
+          </Button>
         )}
       </div>
 
@@ -899,43 +1126,208 @@ function CartaoDePauta({
 }
 
 /**
- * Uma das três linhas do rodapé do cartão — o par termo/valor da grade.
+ * O que aconteceu, no bloco que a reunião lê primeiro.
  *
- * Devolve `dt` e `dd` soltos, e não um `div` em volta: eles precisam ser filhos
- * diretos da grade do cartão para dividirem a mesma coluna de termos. Um
- * invólucro por linha devolveria cada valor ao seu próprio alinhamento.
+ * O par antes → depois é o padrão predominante, e o bloco precisa dizer quando
+ * ele é só isso. Uma premissa compartilhada move a frota inteira do mesmo valor
+ * para o mesmo valor; um montante por ativo tem dezenas de pares, e mostrar um
+ * deles sem a ressalva faria o cartão parecer um resumo quando é uma
+ * ilustração — daí a etiqueta "padrão predominante de N".
  *
- * Tudo alinha à direita, inclusive as frases: a coluna da direita é estreita e
- * de larguras irregulares, e três valores encostados em bordas diferentes
- * fariam o cartão parecer torto. O ícone leva o tom da prioridade — é o que dá
- * ao cartão uma cor sem pintar o número com ela.
+ * A vigência vem escrita por extenso, e não como "em EMPURRADA_2_3_2026" colado
+ * ao número: o nome da fonte é o que se procura na planilha depois da reunião,
+ * e ele merece o próprio rótulo.
+ */
+function Evidencia({ caso }: { caso: OQueAconteceu }) {
+  return (
+    <div className="rounded-xl border bg-muted/30 px-4 py-3">
+      <div className="flex items-center gap-2.5">
+        <span className="h-8 w-8 rounded-lg grid place-content-center shrink-0 bg-brand text-brand-foreground">
+          <TrendingUp className="w-4 h-4" aria-hidden />
+        </span>
+        <span className="text-sm font-semibold">Evidência</span>
+      </div>
+
+      <div className="mt-2.5 flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="flex items-center gap-2.5 tabular-nums min-w-0">
+          <span className="text-2xl text-muted-foreground">
+            {formatValue(caso.antes, caso.unidade)}
+          </span>
+          <ArrowRight className="w-5 h-5 text-muted-foreground shrink-0" aria-hidden />
+          <span className="text-2xl font-semibold text-brand">
+            {formatValue(caso.depois, caso.unidade)}
+          </span>
+        </div>
+        <div className="min-w-0 sm:text-right">
+          <div className="text-xs text-muted-foreground">
+            Vigência:{" "}
+            <span className="font-medium text-foreground">{caso.sourceLabel}</span>
+          </div>
+          {caso.padroes > 1 && (
+            <span className="inline-block mt-1 rounded-md border bg-background px-2 py-0.5 text-xs text-muted-foreground">
+              padrão predominante de {formatNumber(caso.padroes, 0)}
+            </span>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/*
+  O tom de cada grupo — e o vermelho e o verde aqui são leitura de dado, não
+  urgência. É a mesma regra do resto da tela: quem perdeu é vermelho em qualquer
+  prioridade, e um grupo sem juízo econômico não ganha cor nenhuma.
+*/
+const TOM_DO_GRUPO: Record<
+  TomDoGrupo,
+  { circulo: string; numero: string; Icone: LucideIcon }
+> = {
+  PERDA: {
+    circulo: "bg-destructive/10 text-destructive",
+    numero: "text-destructive",
+    Icone: ArrowDown,
+  },
+  GANHO: {
+    circulo: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-500",
+    numero: "text-emerald-600 dark:text-emerald-500",
+    Icone: ArrowUp,
+  },
+  NEUTRO: {
+    circulo: "bg-muted text-muted-foreground",
+    numero: "text-foreground",
+    Icone: ArrowRightLeft,
+  },
+};
+
+/**
+ * Um dos ladrilhos de abrangência do cartão.
+ *
+ * Aceita as duas formas porque os três ladrilhos não são a mesma coisa: o de
+ * veículos afetados é um total, e leva a série no rodapé como denominador; os
+ * dois de direção saem prontos de {@link divisaoDeAtivos}, com o tom já
+ * decidido lá — decidir cor de perda dentro de um componente de apresentação
+ * seria repetir aqui a regra econômica que mora na função pura.
+ */
+function Estatistica(
+  props:
+    | { grupo: GrupoDeAtivos }
+    | {
+        Icone: LucideIcon;
+        circulo: string;
+        numero: string;
+        quantidade: number;
+        rotulo: string;
+        nota?: string;
+      },
+) {
+  const { Icone, circulo, numero, quantidade, rotulo, nota } =
+    "grupo" in props
+      ? {
+          ...TOM_DO_GRUPO[props.grupo.tom],
+          quantidade: props.grupo.quantidade,
+          rotulo: props.grupo.rotulo,
+          nota: undefined,
+        }
+      : props;
+
+  return (
+    <div className="rounded-xl border bg-muted/20 px-3 py-3 flex items-center gap-2.5 min-w-0">
+      <span
+        className={cn(
+          "h-9 w-9 rounded-full grid place-content-center shrink-0",
+          circulo,
+        )}
+      >
+        <Icone className="w-4 h-4" aria-hidden />
+      </span>
+      <div className="min-w-0">
+        <div className={cn("text-2xl font-bold tabular-nums leading-none", numero)}>
+          {formatNumber(quantidade, 0)}
+        </div>
+        <div className="text-xs text-muted-foreground mt-1 leading-snug">{rotulo}</div>
+        {nota && (
+          <div className="text-xs text-muted-foreground/80 leading-snug">{nota}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A outra periodicidade do impacto, quando a conversão é permitida.
+ *
+ * Ela sobe do detalhe técnico para o cartão porque é a pergunta imediata de
+ * quem ouve "R$ 52 mil por mês" numa reunião. O que **não** sobe é a premissa
+ * por extenso: aqui basta marcar que houve projeção, e a frase que a sustenta
+ * continua embaixo, junto do valor em precisão cheia.
+ *
+ * A escala é a compacta, e não `formatBrlShort`, por causa do sinal. O cifrão
+ * do `toLocaleString` vem com hífen — "-R$ 628.800" — e o valor ao lado dele na
+ * mesma linha usa o menos tipográfico. Duas formas do mesmo sinal encostadas
+ * fazem uma delas parecer um traço decorativo, e é a perda que se lê como
+ * ganho.
+ */
+function outraPeriodicidade(i: ImpactoEstimado): string | null {
+  const projecao = i.projetado ? " — projeção linear" : "";
+  if (i.periodicidade === "MENSAL" && i.anual !== null)
+    return `${formatBrlCompacto(i.anual)} por ano${projecao}`;
+  if (i.periodicidade === "ANUAL" && i.mensal !== null)
+    return `${formatBrlCompacto(i.mensal)} por mês${projecao}`;
+  return null;
+}
+
+/**
+ * Uma das duas linhas de leitura do cartão — o termo com o valor de um lado, e
+ * a qualificação do outro.
+ *
+ * As duas colunas existem para separar o que se lê do que se confere: à
+ * esquerda o número ou o veredito curto, à direita a frase que diz sob qual
+ * condição ele vale. Empilhadas — que é o que acontece abaixo de `sm`, onde o
+ * cartão ocupa a largura do telefone —, o traço divisor sai junto: uma borda
+ * lateral entre dois blocos que já não estão lado a lado é ruído.
+ *
+ * O invólucro é um `div` dentro do `dl`, e não `dt`/`dd` soltos: cada linha
+ * agora tem moldura própria, e sem o `div` a borda teria que ser desenhada duas
+ * vezes, uma em cada metade.
  */
 function LinhaDoCartao({
-  icon,
+  Icone,
   tomDoIcone,
   termo,
+  valor,
   children,
 }: {
-  icon: React.ReactNode;
+  Icone: LucideIcon;
   tomDoIcone: string;
   termo: string;
+  valor?: React.ReactNode;
   children: React.ReactNode;
 }) {
   return (
-    <>
-      <dt className="flex items-center gap-2 text-sm text-muted-foreground">
+    <div className="rounded-xl border bg-muted/20 px-4 py-3 flex flex-col sm:flex-row sm:items-center gap-x-4 gap-y-2">
+      <dt className="flex items-start gap-2.5 min-w-0 sm:basis-1/2 sm:shrink-0">
         <span
           className={cn(
-            "h-6 w-6 rounded-full grid place-content-center shrink-0",
+            "h-8 w-8 rounded-lg grid place-content-center shrink-0",
             tomDoIcone,
           )}
         >
-          {icon}
+          <Icone className="w-4 h-4" aria-hidden />
         </span>
-        {termo}:
+        <span className="min-w-0">
+          <span className="block text-sm font-semibold leading-snug">{termo}</span>
+          {valor !== undefined && (
+            <span className="block text-base font-semibold leading-snug mt-0.5">
+              {valor}
+            </span>
+          )}
+        </span>
       </dt>
-      <dd className="text-sm min-w-0 text-right self-center">{children}</dd>
-    </>
+      <dd className="text-sm text-muted-foreground min-w-0 leading-relaxed sm:flex-1 sm:border-l sm:pl-4">
+        {children}
+      </dd>
+    </div>
   );
 }
 
@@ -1026,9 +1418,16 @@ function DetalheTecnico({ r }: { r: Recomendacao }) {
         </div>
       )}
 
+      {/*
+        "Medição de apoio", e não "Evidência": o bloco de cima do cartão passou
+        a se chamar Evidência, e ele mostra outra coisa — o par antes → depois
+        deste recorte. Este aqui é a medição da série que sustenta o
+        comportamento econômico declarado. Dois blocos com o mesmo nome dentro
+        do mesmo cartão fariam quem defende o número citar o errado.
+      */}
       {r.evidencia && (
         <div>
-          <Rotulo>Evidência</Rotulo>
+          <Rotulo>Medição de apoio</Rotulo>
           <p className="text-sm mt-0.5 leading-relaxed text-muted-foreground">
             {r.evidencia}
           </p>
