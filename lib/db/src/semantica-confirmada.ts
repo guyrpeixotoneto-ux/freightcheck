@@ -385,7 +385,19 @@ export async function gravarSemanticaConfirmada(
       ),
     );
 
-  if (eventos.length === 0) {
+  {
+    /*
+      O ato, campo a campo — e **não** só quando nada mudou.
+      
+      A primeira versão disto só registrava o ato num diff vazio, e isso
+      escondia o caso mais comum: a pessoa confirma, um campo muda (o nó da
+      taxonomia, digamos) e os que ela de fato afirmou — o significado, o
+      estado — continuam iguais. O evento do nó não diz que alguém confirmou o
+      significado; só um evento sob aquele campo diz.
+      
+      Por isso a regra é por campo: quem já tem evento de mudança não ganha
+      outro, e quem não tem ganha o registro do ato, com antes e depois iguais.
+    */
     const valorDe: Record<string, string | null> = {
       semantics_status: alvo.semanticsStatus,
       meaning_id: alvo.meaningId ?? null,
@@ -395,6 +407,7 @@ export async function gravarSemanticaConfirmada(
       aggregation: alvo.aggregation,
     };
     for (const campo of autoria.camposDoAto ?? []) {
+      if (camposAlterados.includes(campo)) continue;
       const valor = valorDe[campo] ?? null;
       eventos.push({
         targetKind: "ATTRIBUTE",

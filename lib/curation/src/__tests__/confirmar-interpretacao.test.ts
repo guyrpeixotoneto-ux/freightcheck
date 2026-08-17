@@ -3,6 +3,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import {
   attributeSemanticsTable,
   attributeTable,
+  CONFIRMED_SEMANTICS,
   curationEventTable,
 } from "@workspace/db";
 import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest/testing";
@@ -348,9 +349,18 @@ describe("o que já estava confirmado continua legível", () => {
       o que completar.
     */
     const resultado = await applyConfirmations(ctx.db);
-    expect(resultado.applied).toEqual([]);
-    expect(resultado.unchanged.length).toBeGreaterThan(0);
     expect(resultado.divergentes).toEqual([]);
+    expect(resultado.missing).toEqual([]);
+    /*
+      Aplicado ou já em dia — o que não pode é sobrar entrada. Quanto cai de
+      cada lado depende do que a promoção já tinha como garantir naquele banco:
+      onde a árvore da taxonomia nasce com a importação, tudo volta como "já em
+      dia"; onde ela é semeada depois, esta chamada é quem completa o nó. Fixar
+      um dos dois números seria fixar o ambiente, e não o contrato.
+    */
+    expect(resultado.applied.length + resultado.unchanged.length).toBe(
+      CONFIRMED_SEMANTICS.length,
+    );
 
     const { attribute } = await estadoDe("carreta.custo_fixo");
     expect(attribute).toMatchObject({
