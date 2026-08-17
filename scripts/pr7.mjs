@@ -19,7 +19,7 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, rmSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -181,7 +181,22 @@ function exigir(titulo, script, args, env = {}) {
 }
 
 await conferirAmbiente();
-if (!existsSync(PASTA)) mkdirSync(PASTA, { recursive: true });
+
+/*
+  A pasta começa vazia, e isso não é higiene — é correção.
+
+  Sem apagar, os arquivos de uma rodada anterior convivem com os desta, e
+  distingui-los depende de alguém olhar o horário de modificação. Aconteceu:
+  uma rodada quebrada deixou `comparacao.md` e `depois.json` para trás, a
+  rodada seguinte reescreveu só o `antes.json` antes de ainda estar no passo 2,
+  e o `cat comparacao.md` devolveu um veredito de duas horas antes — com a
+  aparência exata de um veredito recém-produzido.
+
+  Um relatório que sobrevive à rodada que o gerou é pior do que relatório
+  nenhum: ele responde com confiança sobre uma medição que não existe mais.
+*/
+if (existsSync(PASTA)) rmSync(PASTA, { recursive: true, force: true });
+mkdirSync(PASTA, { recursive: true });
 
 /*
   As duas medições. A segunda com a variável ligada **só para este processo
