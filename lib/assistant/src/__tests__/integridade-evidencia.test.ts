@@ -86,13 +86,39 @@ function autorizados(chamada: ChamadaDeFerramenta): Set<string> {
  */
 function semLastro(chamada: ChamadaDeFerramenta): string[] {
   const permitidos = autorizados(chamada);
-  const bruto = JSON.stringify(chamada.conteudo ?? {}).replace(
-    /\b\d{4}-\d{2}-\d{2}\b/g,
-    " ",
-  );
+
+  /*
+    A extração percorre os **valores**, e não a serialização.
+
+    Rodar a expressão sobre `JSON.stringify` parecia equivalente e não é: em
+    `{"impacto":0,"grupos":20}` o `[\d.,]*` engole a vírgula estrutural e produz
+    o token `0,`, que não existe em lugar nenhum e reprova a ferramenta por um
+    defeito do medidor. A trava roda sobre texto redigido, onde vírgula é
+    decimal; aqui a fonte é uma árvore, e ela precisa ser percorrida como tal.
+  */
+  const vistos: string[] = [];
+  const andar = (v: unknown): void => {
+    if (v === null || v === undefined) return;
+    if (typeof v === "number") {
+      vistos.push(String(v), Math.abs(v).toLocaleString("pt-BR"));
+      return;
+    }
+    if (typeof v === "string") {
+      // Datas em AAAA-MM-DD são referência de tempo; a trava as trata à parte.
+      vistos.push(...numerosDe(v.replace(/\b\d{4}-\d{2}-\d{2}\b/g, " ")));
+      return;
+    }
+    if (Array.isArray(v)) {
+      for (const i of v) andar(i);
+      return;
+    }
+    if (typeof v === "object") for (const i of Object.values(v)) andar(i);
+  };
+  andar(chamada.conteudo);
+
   return [
     ...new Set(
-      numerosDe(bruto).filter(
+      vistos.filter(
         (t) => t.length > 1 && !permitidos.has(t) && !permitidos.has(t.replace(/\./g, "")),
       ),
     ),
