@@ -214,7 +214,12 @@ describe("GET /impacto/exportacao.xlsx", () => {
   async function baixar(caminho: string) {
     const res = await fetch(`${base}${caminho}`);
     if (!res.ok) {
-      return { status: res.status, body: await res.json(), wb: null, nome: null };
+      // `res.json()` devolve `unknown`, e sem anotação o corpo do erro chega
+      // ilegível em quem o lê por chave. `any` é o que o helper `get` no topo
+      // deste arquivo já faz, pela mesma razão: o formato do erro é o que a
+      // rota promete, e redescrevê-lo aqui seria dizer duas vezes.
+      const body: any = await res.json();
+      return { status: res.status, body, wb: null, nome: null };
     }
     const wb = XLSX.read(Buffer.from(await res.arrayBuffer()), { type: "buffer" });
     return {
