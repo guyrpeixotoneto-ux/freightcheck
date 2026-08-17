@@ -6,6 +6,7 @@ import {
   getQuinzenaMatrix,
   type SeriesContext,
 } from "@workspace/comparison";
+import { corpoDoVazio, statusDoVazio } from "@workspace/availability";
 
 /**
  * Impacto — a terceira aba de Alterações.
@@ -89,11 +90,26 @@ router.get("/impacto/quinzenas", async (req, res): Promise<void> => {
       context: parseContext(query),
     });
 
-    if (!matriz) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    if (!matriz.ok) {
+      /*
+        Quatro causas, quatro frases — a divergência D6.
+
+        Aqui estava `404 "Nenhuma vigência importada ainda."` para as quatro, e
+        a frase era verdadeira numa. Nas outras três ela mandava importar
+        planilha quando o problema era curadoria, ou recorte, ou agregado que
+        faltou gravar — e quem seguia a instrução reimportava o mesmo arquivo
+        sem que nada mudasse.
+
+        O código continua 404 de propósito: para quem chama, "a matriz deste
+        recorte" não existe em nenhum dos quatro, e mudar o número quebraria as
+        telas sem melhorar a resposta. O que muda é o corpo, e `error` — o campo
+        que a tela já lê — passa a trazer a frase certa sem que ela mude uma
+        linha. `estado` vai ao lado para quem quiser tratar os casos diferente.
+      */
+      res.status(statusDoVazio(matriz.vazio)).json(corpoDoVazio(matriz.vazio));
       return;
     }
-    res.json(matriz);
+    res.json(matriz.valor);
   } catch (err) {
     if (sendContextError(res, err)) return;
     req.log.error({ err }, "Error building impact matrix");

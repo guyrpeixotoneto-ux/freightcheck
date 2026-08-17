@@ -71,7 +71,7 @@ frota), `freightaudit` 141.
 | **Feitos** | 16 (PR-1, 2, 4, 5, 6, 7, 8, 9, 10, 10b, 11, 12, 13, 14, 15, 17) |
 | **Absorvidos** | 1 (PR-16, cumprido pelo PR-10b) |
 | **Não existiu** | 1 (PR-3, dobrado no PR-4 — ver nota) |
-| **Faltam** | **3**: PR-18, 19, 20 |
+| **Faltam** | **3**: PR-18 (aguardando suíte), 19, 20 |
 
 > **Nota sobre PR-3.** O plano original tinha um PR-3 de caracterização da
 > Análise de frota, separado do PR-4 que a mapeava. Os dois foram entregues como
@@ -112,7 +112,7 @@ frota), `freightaudit` 141.
 
 | PR | Objetivo | Status | Commit | Testes | Evidência |
 |---|---|---|---|---|---|
-| **PR-18** | Separar as quatro causas de vazio do Impacto | **a fazer** | — | — | — |
+| **PR-18** | Vocabulário comum do vazio, e as quatro causas do Impacto | **aguardando suíte** | — | `vazio-do-impacto.test.ts` (5) | `Vazio` em `@workspace/availability`: `NAO_EXISTE`, `NAO_SE_APLICA`, `NAO_CALCULAVEL`, `FORA_DO_RECORTE` — a máquina de estados da Parte F, com a regra de ouro presa por asserção. `getQuinzenaMatrix` devolvia `null` nas quatro e a rota traduzia em `404 "Nenhuma vigência importada ainda."`. **Prova negativa**: com a frase única reinstalada, três casos falham, inclusive a regra de ouro |
 | **PR-19** | `NOT_APPLICABLE` explícito em Composição e DRE | **a fazer** | — | — | — |
 | **PR-20** | `import_decision` em Importações; `snapshot_merge` em Vigências | **a fazer** | — | — | — |
 

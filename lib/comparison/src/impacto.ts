@@ -1,7 +1,16 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { excelSerialToDate, isPlausibleDateSerial } from "@workspace/ingest";
-import { filtroDeVigenciaDisponivel } from "@workspace/availability";
+import {
+  comValor,
+  contextosDisponiveis,
+  filtroDeVigenciaDisponivel,
+  foraDoRecorte,
+  naoCalculavel,
+  naoExiste,
+  naoSeAplica,
+  type ComVazio,
+} from "@workspace/availability";
 import { attributeLabel, equipmentLabel } from "./labels";
 import {
   contextFilter,
@@ -350,18 +359,50 @@ export async function listImpactParameters(
 /**
  * A tabela do impacto: um parâmetro, todos os ativos, todas as vigências.
  *
- * Devolve `null` quando o contexto não tem vigência nenhuma — a rota traduz em
- * 404, e a tela mostra o convite a importar em vez de uma tabela vazia.
+ * ---------------------------------------------------------------------------
+ * Quatro causas de vazio, e uma frase só — a divergência D6
+ * ---------------------------------------------------------------------------
+ *
+ * Esta função devolvia `null` em quatro situações estruturalmente distintas, e
+ * a rota traduzia as quatro em `404 "Nenhuma vigência importada ainda."`. As
+ * quatro têm conserto oposto:
+ *
+ * | Causa | O que é de verdade | O que a frase mandava fazer |
+ * |---|---|---|
+ * | sem contexto resolvível | não há vigência nenhuma | importar — **certo** |
+ * | nenhuma vigência declara equipamento | há vigência, e ela não diz de que equipamento é | importar — errado |
+ * | equipamento sem coluna numérica | há vigência e há fato; o dicionário não tem parâmetro | importar — **errado, e é o caso desta auditoria** |
+ * | contexto sem vigência | o dado está noutro recorte | importar — errado |
+ *
+ * O terceiro é o defeito em forma pura: dado importado, promovido, visível em
+ * Cobertura e em Vigências, e o Impacto respondendo "nenhuma vigência importada
+ * ainda". Alguém reimporta o mesmo arquivo e nada muda, porque o que falta é
+ * curadoria — não planilha.
+ *
+ * Agora cada uma tem nome, e o nome vem do vocabulário comum
+ * (`@workspace/availability`, `vazio.ts`). A regra que ele impõe é a que esta
+ * função violava: **só `NAO_EXISTE` pode virar "não há dados"**.
  */
 export async function getQuinzenaMatrix(
   db: Database,
   options: QuinzenaOptions = {},
-): Promise<QuinzenaMatrix | null> {
+): Promise<ComVazio<QuinzenaMatrix>> {
   const context = await resolveContext(db, options.context);
-  if (!context) return null;
+  if (!context) {
+    // A única das quatro em que a frase antiga era verdadeira.
+    return naoExiste(
+      "Nenhuma vigência importada ainda. Envie a primeira planilha em Importações.",
+    );
+  }
 
   const entityTypes = await listImpactEntityTypes(db, context);
-  if (entityTypes.length === 0) return null;
+  if (entityTypes.length === 0) {
+    return naoCalculavel(
+      "Há vigência neste contexto, e nenhuma delas declara equipamento. " +
+        "O Impacto é por equipamento, então não há eixo para montar a tabela.",
+      "Conferir em Cobertura se as vigências têm agregado por equipamento gravado.",
+    );
+  }
 
   /*
     Um equipamento sem coluna numérica no dicionário não sustenta tabela
@@ -384,7 +425,18 @@ export async function getQuinzenaMatrix(
     entityType = tipo;
     parameters = await listImpactParameters(db, tipo);
   }
-  if (parameters.length === 0) return null;
+  if (parameters.length === 0) {
+    /*
+      O caso desta auditoria. O dado está lá — vigência promovida, fato gravado,
+      equipamento declarado — e o dicionário não tem nenhuma coluna numérica
+      para este equipamento. É `NAO_SE_APLICA`, e nunca ausência de dado.
+    */
+    return naoSeAplica(
+      `O dicionário não tem parâmetro numérico para ${candidatos.join(" nem ")}. ` +
+        `As vigências estão importadas e visíveis em Cobertura; o que falta é a ` +
+        `curadoria confirmar o que cada coluna mede.`,
+    );
+  }
 
   const escolhido =
     parameters.find((p) => p.code === options.attributeCode) ??
@@ -413,7 +465,12 @@ export async function getQuinzenaMatrix(
      GROUP BY 1
      ORDER BY 1
   `);
-  if (periodRows.length === 0) return null;
+  if (periodRows.length === 0) {
+    return foraDoRecorte(
+      "Há vigência no sistema, e nenhuma neste contexto.",
+      await contextosDisponiveis(db),
+    );
+  }
 
   const indiceDoPeriodo = new Map(
     periodRows.map((p, i) => [p.effective_date, i] as const),
@@ -650,7 +707,7 @@ export async function getQuinzenaMatrix(
     total: totals[i],
   }));
 
-  return {
+  return comValor({
     context,
     entityType,
     equipment: equipmentLabel(entityType),
@@ -667,7 +724,7 @@ export async function getQuinzenaMatrix(
     grandTotal: somaTotal(totals),
     entities: todasAsLinhas.length,
     pontaAPonta: decomporPontaAPonta(periods, todasAsLinhas),
-  };
+  });
 }
 
 /**

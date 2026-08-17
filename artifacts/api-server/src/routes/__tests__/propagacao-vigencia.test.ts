@@ -28,6 +28,7 @@ import {
   contextFilter,
   findPreviousSnapshot,
   getQuinzenaMatrix,
+  type QuinzenaMatrix,
   getTicketTotals,
   listChanges,
   listComparableSnapshots,
@@ -38,6 +39,22 @@ import {
 } from "@workspace/comparison";
 import { vigenciasObservadas, visaoDaCobertura } from "@workspace/coverage";
 import { encerrarPoolDoProcesso } from "@workspace/db";
+
+/**
+ * A matriz do Impacto, desembrulhada — e o vazio nomeado quando não há matriz.
+ *
+ * Desde o PR-18 `getQuinzenaMatrix` devolve `ComVazio<...>`: quatro causas de
+ * vazio com nome, em vez de um `null` que servia para as quatro. Estes testes
+ * esperam matriz; quando ela não vem, a falha diz **qual** dos quatro estados
+ * apareceu, que é a diferença entre "quebrou" e "quebrou aqui".
+ */
+async function matrizDoImpacto(
+  ...args: Parameters<typeof getQuinzenaMatrix>
+): Promise<QuinzenaMatrix> {
+  const r = await getQuinzenaMatrix(...args);
+  if (!r.ok) throw new Error(`Impacto sem matriz — ${r.vazio.estado}: ${r.vazio.frase}`);
+  return r.valor;
+}
 
 /**
  * Propagação — o dado que entrou por uma das duas portas chega a todo módulo
@@ -235,20 +252,19 @@ describe("porta 1 — a vigência importada chega a todo módulo que a consome",
        ORDER BY 1
     `);
 
-    const matriz = await getQuinzenaMatrix(ctx.db, {});
-    expect(matriz).not.toBeNull();
-    expect(matriz!.periods.map((p) => p.effectiveDate)).toEqual(rows.map((r) => r.d));
+    const matriz = await matrizDoImpacto(ctx.db, {});
+    expect(matriz.periods.map((p) => p.effectiveDate)).toEqual(rows.map((r) => r.d));
   }, 300_000);
 
   it("todo equipamento com fato é escolhível em Impacto, e tem parâmetro", async () => {
     const equipamentos = await equipamentosComFato();
-    const matriz = await getQuinzenaMatrix(ctx.db, {});
-    expect(matriz).not.toBeNull();
-    expect([...matriz!.entityTypes].sort()).toEqual(equipamentos);
+    const matriz = await matrizDoImpacto(ctx.db, {});
+    expect([...matriz.entityTypes].sort()).toEqual(equipamentos);
 
-    // Um equipamento sem parâmetro numérico faz `getQuinzenaMatrix` devolver
-    // `null`, e a rota traduz isso em "Nenhuma vigência importada ainda." — a
-    // frase errada para o estado errado. Ver a Parte 6 da auditoria.
+    // Um equipamento sem parâmetro numérico fazia `getQuinzenaMatrix` devolver
+    // `null`, e a rota traduzia isso em "Nenhuma vigência importada ainda." — a
+    // frase errada para o estado errado. Desde o PR-18 aquele caso é
+    // `NAO_SE_APLICA`, com a frase que manda conferir a curadoria.
     for (const tipo of equipamentos) {
       const parametros = await listImpactParameters(ctx.db, tipo);
       expect(parametros.length, `sem parâmetro numérico para ${tipo}`).toBeGreaterThan(0);
@@ -395,7 +411,7 @@ describe("porta 2 — o chamado importado chega onde chamado tem significado", (
        WHERE s.status <> 'SUPERSEDED'
          AND ${contextFilter("s", contexto!)}
     `);
-    const matriz = await getQuinzenaMatrix(ctx.db, {});
+    const matriz = await matrizDoImpacto(ctx.db, {});
     expect(matriz!.periods.length).toBe(Number(rows[0].n));
   }, 300_000);
 });

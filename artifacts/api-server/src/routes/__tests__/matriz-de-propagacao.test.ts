@@ -426,14 +426,29 @@ const CONSUMIDORES_DA_VIGENCIA: Consumidor[] = [
     elo: "getQuinzenaMatrix",
     async perguntar({ db, contexto, censo }) {
       const matriz = await getQuinzenaMatrix(db, { context: contexto });
-      if (!matriz) return { estado: "AUSENTE_COM_CAUSA", causa: "getQuinzenaMatrix devolveu null" };
-      if (matriz.periods.length !== censo.length) {
+      if (!matriz.ok) {
+        /*
+          Desde o PR-18, o vazio do Impacto chega nomeado. `NAO_SE_APLICA` é um
+          veredito legítimo desta matriz — quer dizer que o dado está lá e o
+          módulo não fala dele —, e os outros três são ausência com causa. Antes
+          os quatro chegavam como `null`, e esta linha só sabia dizer
+          "devolveu null", que é a mesma frase única que o PR-18 desfez.
+        */
+        if (matriz.vazio.estado === "NAO_SE_APLICA") {
+          return naoAplicavel(matriz.vazio.frase);
+        }
         return {
           estado: "AUSENTE_COM_CAUSA",
-          causa: `${matriz.periods.length} colunas para ${censo.length} vigências`,
+          causa: `${matriz.vazio.estado}: ${matriz.vazio.frase}`,
         };
       }
-      return recebeu(`${matriz.periods.length} colunas, uma por vigência`);
+      if (matriz.valor.periods.length !== censo.length) {
+        return {
+          estado: "AUSENTE_COM_CAUSA",
+          causa: `${matriz.valor.periods.length} colunas para ${censo.length} vigências`,
+        };
+      }
+      return recebeu(`${matriz.valor.periods.length} colunas, uma por vigência`);
     },
   },
   {

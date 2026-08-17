@@ -20,12 +20,29 @@ import {
   findPreviousSnapshot,
   getGroupedView,
   getQuinzenaMatrix,
+  type QuinzenaMatrix,
   listComparableSnapshots,
   listContexts,
   resolveContext,
 } from "@workspace/comparison";
 import { vigenciasObservadas } from "@workspace/coverage";
 import { encerrarPoolDoProcesso, type Database } from "@workspace/db";
+
+/**
+ * A matriz do Impacto, desembrulhada — e o vazio nomeado quando não há matriz.
+ *
+ * Desde o PR-18 `getQuinzenaMatrix` devolve `ComVazio<...>`: quatro causas de
+ * vazio com nome, em vez de um `null` que servia para as quatro. Estes testes
+ * esperam matriz; quando ela não vem, a falha diz **qual** dos quatro estados
+ * apareceu, que é a diferença entre "quebrou" e "quebrou aqui".
+ */
+async function matrizDoImpacto(
+  ...args: Parameters<typeof getQuinzenaMatrix>
+): Promise<QuinzenaMatrix> {
+  const r = await getQuinzenaMatrix(...args);
+  if (!r.ok) throw new Error(`Impacto sem matriz — ${r.vazio.estado}: ${r.vazio.frase}`);
+  return r.valor;
+}
 
 /**
  * As divergências provadas — onde o dado existe e um módulo não o enxerga.
@@ -215,7 +232,9 @@ describe("divergência 1 — a entrega parcial partia a série de Alterações",
 
     expect((await listComparableSnapshots(ctx.db)).length).toBe(2);
     expect((await vigenciasObservadas(ctx.db)).length).toBe(2);
-    expect((await getQuinzenaMatrix(ctx.db, {}))!.periods.length).toBe(2);
+    const doImpacto = await getQuinzenaMatrix(ctx.db, {});
+    expect(doImpacto.ok, doImpacto.ok ? "" : doImpacto.vazio.frase).toBe(true);
+    if (doImpacto.ok) expect(doImpacto.valor.periods.length).toBe(2);
   }, 300_000);
 
   it("Alterações acha a vigência anterior de fevereiro", async () => {
@@ -351,7 +370,13 @@ describe("divergência 2 — o CNPJ mascarado parte o contexto em dois", () => {
 
   it("Impacto abre com as duas vigências da unidade", async () => {
     const matriz = await getQuinzenaMatrix(ctx.db, {});
-    expect(matriz!.periods.map((p) => p.effectiveDate)).toEqual([
+    // Falha dizendo **qual** vazio, e não só que não veio matriz — é o que o
+    // PR-18 acrescentou, e é o que torna esta falha diagnosticável.
+    expect(matriz.ok, matriz.ok ? "" : `${matriz.vazio.estado}: ${matriz.vazio.frase}`).toBe(
+      true,
+    );
+    if (!matriz.ok) return;
+    expect(matriz.valor.periods.map((p) => p.effectiveDate)).toEqual([
       "2026-03-01",
       "2026-04-01",
     ]);
@@ -488,7 +513,7 @@ describe("divergência 3 — a caixa do rótulo parte o canal em dois", () => {
   }, 300_000);
 
   it("Impacto abre com as duas vigências do canal", async () => {
-    const matriz = await getQuinzenaMatrix(ctx.db, {});
+    const matriz = await matrizDoImpacto(ctx.db, {});
     expect(matriz!.periods.map((p) => p.effectiveDate)).toEqual([
       "2026-05-01",
       "2026-06-01",

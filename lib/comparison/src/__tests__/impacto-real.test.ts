@@ -11,7 +11,30 @@ import {
   runProposalPass,
   seedTaxonomy,
 } from "@workspace/curation";
-import { getQuinzenaMatrix, listImpactParameters } from "../impacto";
+import {
+  getQuinzenaMatrix,
+  listImpactParameters,
+  type QuinzenaMatrix,
+} from "../impacto";
+
+/**
+ * A matriz, desembrulhada — e o vazio nomeado quando não há matriz.
+ *
+ * `getQuinzenaMatrix` devolvia `QuinzenaMatrix | null`, e estes testes usavam
+ * `!` para dizer "aqui tem". Desde o PR-18 ela devolve `ComVazio<...>`, com o
+ * motivo do vazio nomeado. A ajuda mantém os testes legíveis e, quando o vazio
+ * acontecer onde não devia, falha **dizendo qual dos quatro estados foi** — que
+ * é justamente o que o `!` não dizia.
+ */
+async function aMatriz(
+  ...args: Parameters<typeof getQuinzenaMatrix>
+): Promise<QuinzenaMatrix> {
+  const r = await getQuinzenaMatrix(...args);
+  if (!r.ok) {
+    throw new Error(`esperava matriz e veio ${r.vazio.estado}: ${r.vazio.frase}`);
+  }
+  return r.valor;
+}
 
 /**
  * A tabela do Impacto, sobre o export real.
@@ -64,38 +87,36 @@ const COLUNAS = [
   "EMPURRADA_1_8_2026",
 ];
 
-const linhaDe = (
-  matriz: Awaited<ReturnType<typeof getQuinzenaMatrix>>,
-  placa: string,
-) => matriz!.groups.flatMap((g) => g.rows).find((l) => l.plate === placa);
+const linhaDe = (matriz: QuinzenaMatrix, placa: string) =>
+  matriz.groups.flatMap((g) => g.rows).find((l) => l.plate === placa);
 
 describe("o eixo das colunas", () => {
   it("é uma coluna por vigência, na ordem do calendário", async () => {
-    const matriz = (await getQuinzenaMatrix(ctx.db, { entityType: "CAVALO" }))!;
+    const matriz = await aMatriz(ctx.db, { entityType: "CAVALO" });
     expect(matriz.periods.map((p) => p.sourceLabel)).toEqual(COLUNAS);
     expect(matriz.periods.every((p) => p.delivered)).toBe(true);
   });
 
   it("abre no parâmetro que o cliente confere, e ele sustenta dinheiro", async () => {
-    const cavalo = (await getQuinzenaMatrix(ctx.db, { entityType: "CAVALO" }))!;
+    const cavalo = await aMatriz(ctx.db, { entityType: "CAVALO" });
     expect(cavalo.attribute.code).toBe("cavalo.finame_cavalo");
     expect(cavalo.attribute.somavel).toBe(true);
     expect(cavalo.attribute.periodicity).toBe("MENSAL");
 
-    const carreta = (await getQuinzenaMatrix(ctx.db, { entityType: "CARRETA" }))!;
+    const carreta = await aMatriz(ctx.db, { entityType: "CARRETA" });
     expect(carreta.attribute.code).toBe("carreta.finame_implemento");
     expect(carreta.attribute.somavel).toBe(true);
   });
 
   it("oferece os dois equipamentos que o export entrega", async () => {
-    const matriz = (await getQuinzenaMatrix(ctx.db))!;
+    const matriz = await aMatriz(ctx.db);
     expect(matriz.entityTypes).toEqual(["CARRETA", "CAVALO"]);
   });
 });
 
 describe("os números da tabela dinâmica", () => {
   it("reproduz a linha do QYQ6A80, célula a célula", async () => {
-    const matriz = (await getQuinzenaMatrix(ctx.db, { entityType: "CAVALO" }))!;
+    const matriz = await aMatriz(ctx.db, { entityType: "CAVALO" });
     const linha = linhaDe(matriz, "QYQ6A80")!;
 
     // 7.937,22 na primeira, três quinzenas zeradas, e 3.318,01 daí em diante.
@@ -109,7 +130,7 @@ describe("os números da tabela dinâmica", () => {
   });
 
   it("dobra as linhas pela data de entrada, com o total do grupo fechando", async () => {
-    const matriz = (await getQuinzenaMatrix(ctx.db, { entityType: "CAVALO" }))!;
+    const matriz = await aMatriz(ctx.db, { entityType: "CAVALO" });
     expect(matriz.groupedBy?.code).toBe("cavalo.data");
 
     const grupo = matriz.groups.find((g) => g.label === "01/01/21")!;
@@ -132,13 +153,13 @@ describe("os números da tabela dinâmica", () => {
    * Só arredondar para o segundo põe os dois onde a planilha do cliente os põe.
    */
   it("põe cada ativo no dia em que o arquivo diz que ele entrou", async () => {
-    const cavalo = (await getQuinzenaMatrix(ctx.db, { entityType: "CAVALO" }))!;
+    const cavalo = await aMatriz(ctx.db, { entityType: "CAVALO" });
     expect(
       cavalo.groups.find((g) => g.label === "01/06/21")?.rows.map((l) => l.plate),
     ).toEqual(["QYW2D78", "QYW2F98"]);
     expect(cavalo.groups.some((g) => g.label === "31/05/21")).toBe(false);
 
-    const carreta = (await getQuinzenaMatrix(ctx.db, { entityType: "CARRETA" }))!;
+    const carreta = await aMatriz(ctx.db, { entityType: "CARRETA" });
     expect(
       carreta.groups.find((g) => g.label === "18/11/20")?.rows.map((l) => l.plate),
     ).toEqual(["QYP0H21", "QYP1E41"]);
@@ -146,7 +167,7 @@ describe("os números da tabela dinâmica", () => {
   });
 
   it("faz o mesmo pela carreta, que tem parâmetro próprio", async () => {
-    const matriz = (await getQuinzenaMatrix(ctx.db, { entityType: "CARRETA" }))!;
+    const matriz = await aMatriz(ctx.db, { entityType: "CARRETA" });
     expect(matriz.groupedBy?.code).toBe("carreta.data");
 
     const linha = linhaDe(matriz, "QYO6D17")!;
@@ -155,7 +176,7 @@ describe("os números da tabela dinâmica", () => {
   });
 
   it("soma cada coluna a partir das linhas, e o total geral a partir das colunas", async () => {
-    const matriz = (await getQuinzenaMatrix(ctx.db, { entityType: "CAVALO" }))!;
+    const matriz = await aMatriz(ctx.db, { entityType: "CAVALO" });
     const linhas = matriz.groups.flatMap((g) => g.rows);
 
     matriz.periods.forEach((periodo, i) => {
@@ -175,7 +196,7 @@ describe("os números da tabela dinâmica", () => {
 
 describe("ausência não é zero", () => {
   it("deixa vazia a célula do ativo que não está na vigência", async () => {
-    const matriz = (await getQuinzenaMatrix(ctx.db, { entityType: "CAVALO" }))!;
+    const matriz = await aMatriz(ctx.db, { entityType: "CAVALO" });
     const foraEmAlguma = matriz.groups
       .flatMap((g) => g.rows)
       .filter((l) => l.cells.some((c) => c.state === "FORA_DA_FROTA"));
@@ -191,7 +212,7 @@ describe("ausência não é zero", () => {
   });
 
   it("separa quem saiu da frota de quem passou a custar zero", async () => {
-    const matriz = (await getQuinzenaMatrix(ctx.db, { entityType: "CAVALO" }))!;
+    const matriz = await aMatriz(ctx.db, { entityType: "CAVALO" });
     const linha = linhaDe(matriz, "QYQ6A80")!;
 
     // O QYQ6A80 zerou e voltou: é queda de preço, não saída de frota.
@@ -204,7 +225,7 @@ describe("ausência não é zero", () => {
   });
 
   it("não inventa movimento na primeira coluna", async () => {
-    const matriz = (await getQuinzenaMatrix(ctx.db, { entityType: "CAVALO" }))!;
+    const matriz = await aMatriz(ctx.db, { entityType: "CAVALO" });
     const primeira = matriz.groups.flatMap((g) => g.rows).map((l) => l.cells[0]);
     expect(primeira.every((c) => c.movimento === null && c.delta === null)).toBe(true);
   });
@@ -213,7 +234,7 @@ describe("ausência não é zero", () => {
 describe("a variação ponta a ponta", () => {
   it("se decompõe em preço, entrada e saída — e as três somam a diferença", async () => {
     for (const entityType of ["CAVALO", "CARRETA"]) {
-      const matriz = (await getQuinzenaMatrix(ctx.db, { entityType }))!;
+      const matriz = await aMatriz(ctx.db, { entityType });
       const p = matriz.pontaAPonta!;
 
       expect(p.fromLabel).toBe("EMPURRADA_2_12_2025");
@@ -237,7 +258,7 @@ describe("a variação ponta a ponta", () => {
    * junto, e não um aumento.
    */
   it("reencontra os números que a leitura ponta a ponta já documentava", async () => {
-    const matriz = (await getQuinzenaMatrix(ctx.db, { entityType: "CAVALO" }))!;
+    const matriz = await aMatriz(ctx.db, { entityType: "CAVALO" });
     const p = matriz.pontaAPonta!;
 
     expect(p.totalFrom).toBe(887408.65);
@@ -262,10 +283,10 @@ describe("o seletor de parâmetros", () => {
   });
 
   it("aceita trocar o parâmetro sem trocar a forma da tabela", async () => {
-    const matriz = (await getQuinzenaMatrix(ctx.db, {
+    const matriz = await aMatriz(ctx.db, {
       entityType: "CAVALO",
       attributeCode: "cavalo.amortizacao_cavalo",
-    }))!;
+    });
     expect(matriz.attribute.code).toBe("cavalo.amortizacao_cavalo");
     expect(matriz.periods.map((p) => p.sourceLabel)).toEqual(COLUNAS);
     expect(matriz.groups.length).toBeGreaterThan(0);
