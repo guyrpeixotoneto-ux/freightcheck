@@ -17,6 +17,28 @@
 
 ---
 
+## Última execução limpa
+
+Depois do PR-12 (`2232b1c`). Uma suíte por vez, árvore parada.
+
+| Pacote | Arquivos | Testes |
+|---|---|---|
+| `@workspace/db` | 8 | 83 |
+| `@workspace/availability` | 3 | 32 |
+| `@workspace/ingest` | 16 | 292 |
+| `@workspace/curation` | 3 | 45 |
+| `@workspace/comparison` | 20 | 284 |
+| `@workspace/composition` | 3 | 64 |
+| `@workspace/coverage` | 3 | 73 |
+| `@workspace/dre` | 6 | 75 |
+| `@workspace/balance` | 2 | 16 |
+| `api-server` | 20 | 279 |
+| **Total** | **84** | **1.043** |
+
+`pnpm run typecheck` do monorepo inteiro também passa.
+
+---
+
 ## Contagem
 
 | | |
@@ -24,7 +46,7 @@
 | **Feitos** | 12 (PR-1, 2, 4, 5, 6, 7, 8, 9, 10, 10b, 11, 12) |
 | **Absorvidos** | 1 (PR-16, cumprido pelo PR-10b) |
 | **Não existiu** | 1 (PR-3, dobrado no PR-4 — ver nota) |
-| **Faltam** | **7**: PR-13, 14, 15, 17, 18, 19, 20 |
+| **Faltam** | **7**: PR-13 (aguardando suíte), 14, 15, 17, 18, 19, 20 |
 
 > **Nota sobre PR-3.** O plano original tinha um PR-3 de caracterização da
 > Análise de frota, separado do PR-4 que a mapeava. Os dois foram entregues como
@@ -55,7 +77,7 @@
 | **PR-10b** | "Vigência disponível" passa a ter dono | **feito** | `e5f8dc7` | `fronteira-da-disponibilidade.test.ts` (3) | 46 cópias de `status <> 'SUPERSEDED'` viram uma definição. **Prova negativa**: recopiar em `dre/apuracao.ts` faz a varredura apontar arquivo e linha |
 | **PR-11** | O *antes* de um chamado vem da autoridade | **feito** | `d20014e` | `propagacao-chamados.test.ts` (5) | **Prova negativa**: com a consulta antiga, o chamado sobre placa de dois canais recebe `VIGENCIA` onde deve receber `AUSENTE`. Ressalva medida: o caso de cobertura **não** falha na versão antiga — lá o defeito era não-determinismo, e está dito no teste |
 | **PR-12** | `janelaDosAtributos` exige o recorte, por assinatura | **feito** | `2232b1c` | `coverage/cenarios.test.ts` (73) | **Prova negativa**: com a janela antiga, os cinco casos falham vazando atributos de outros cenários |
-| **PR-13** | `getOverview` filtra vivas e recorta por contexto | **a fazer** | — | — | A auditoria mediu: cinco contadores do Painel somam revisões substituídas |
+| **PR-13** | `getOverview` filtra vivas e recorta por contexto | **aguardando suíte** | — | `painel.test.ts` (9) | Nove dos doze contadores liam o banco inteiro. **Prova negativa**: com os contadores antigos, três casos falham — 104 fatos contra 52 (o dobro exato, a revisão substituída), 3 vigências onde há 2 no recorte, e a data de janeiro de outra unidade vazando para Juiz de Fora. Mudança de significado declarada: os três contadores de dicionário passam a descrever as colunas **entregues** no recorte |
 | **PR-14** | `ContextBar` nas telas que recortam por contexto | **a fazer** | — | — | Encerra a dívida do `scope_hash` legado em `resolveContext` |
 | **PR-15** | Fleet Analysis passa a ler o canônico | **a fazer** | — | — | Executa o mapa do PR-4. **Regra**: toda diferença numérica classificada como bug antigo, diferença de modelagem ou decisão de negócio pendente — nunca resolvida em silêncio |
 | ~~**PR-16**~~ | Teste que impede `status <> 'SUPERSEDED'` à mão | **absorvido pelo PR-10b** | `e5f8dc7` | `fronteira-da-disponibilidade.test.ts` | Restou só a varredura por consultas paralelas remanescentes, que entra no PR-17 |

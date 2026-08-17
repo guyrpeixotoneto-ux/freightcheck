@@ -1,6 +1,10 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { getOverview } from "@workspace/comparison";
+import {
+  ContextNotFoundError,
+  getOverview,
+  type SeriesContext,
+} from "@workspace/comparison";
 
 /**
  * A Visão geral — o que o sistema já sabe, num número por pergunta.
@@ -56,10 +60,41 @@ import { getOverview } from "@workspace/comparison";
  */
 const router: IRouter = Router();
 
+/**
+ * O contexto pedido na query, quando pedido.
+ *
+ * Nada pedido é o **censo** — todas as unidades, todos os canais —, e não "a
+ * unidade mais recente". As duas coisas são respostas legítimas a perguntas
+ * diferentes, e o Painel faz a primeira.
+ */
+function parseContext(query: Record<string, unknown>): Partial<SeriesContext> | undefined {
+  const scopeHash =
+    typeof query.scopeHash === "string" && query.scopeHash !== ""
+      ? query.scopeHash
+      : undefined;
+  const hasCanal = typeof query.canal === "string";
+  if (scopeHash === undefined && !hasCanal) return undefined;
+  return {
+    ...(scopeHash !== undefined ? { scopeHash } : {}),
+    // `?canal=` vazio quer dizer "as vigências sem canal legível", que é uma
+    // partição real e não a ausência de filtro.
+    ...(hasCanal
+      ? { channel: (query.canal as string) === "" ? null : (query.canal as string) }
+      : {}),
+  };
+}
+
 router.get("/overview", async (req, res): Promise<void> => {
   try {
-    res.json(await getOverview(db));
+    const contexto = parseContext(req.query as Record<string, unknown>);
+    res.json(await getOverview(db, contexto));
   } catch (err) {
+    // Contexto pedido que não existe é 404 com a frase, e não 500: o pedido
+    // está errado, o servidor não.
+    if (err instanceof ContextNotFoundError) {
+      res.status(404).json({ error: err.message });
+      return;
+    }
     req.log.error({ err }, "Error building overview");
     res.status(500).json({ error: "Internal server error" });
   }

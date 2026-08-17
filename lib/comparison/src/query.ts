@@ -7,6 +7,7 @@ import {
 import type { Database } from "@workspace/db";
 import { changeSetTable, changeTable, snapshotTable } from "@workspace/db";
 import { periodLabel } from "./labels";
+import { contextFilter, resolveContext, type SeriesContext } from "./series";
 
 /**
  * Reading a change set.
@@ -483,24 +484,109 @@ export async function listComparableSnapshots(db: Database) {
  * No forecast, no annualisation, no aggregate that mixes periodicities: the
  * page shows what the system currently knows, and says plainly how much of the
  * remuneration it still cannot price.
+ *
+ * ---------------------------------------------------------------------------
+ * O que este arquivo contava, e por que parou
+ * ---------------------------------------------------------------------------
+ *
+ * **Doze contadores, e nove liam o banco inteiro.** `count(*) FROM fact` conta
+ * os fatos de revisões substituídas; `count(*) FROM entity` conta todo ativo
+ * que já passou por aqui, de qualquer unidade e de qualquer era; as
+ * comparações e as alterações somam pares cujas vigências já saíram de cena. É
+ * o defeito que a auditoria mediu — e é pior do que um número grande demais:
+ * o Painel é a primeira tela que alguém abre, e ela discordava da Cobertura
+ * sobre quantas vigências existem.
+ *
+ * Agora **toda** contagem passa pela vigência disponível, e todas aceitam o
+ * mesmo recorte de contexto que o resto do produto usa.
+ *
+ * **Uma mudança de significado, declarada.** Os três contadores de dicionário
+ * — atributos, confirmados, monetários pendentes — descreviam o dicionário
+ * inteiro, que é global por construção. Continuar assim seria coerente hoje e
+ * errado no dia em que a segunda unidade chegar: a tela recortada por Camaçari
+ * mostraria as colunas de Manaus na conta. Eles passam a descrever **as
+ * colunas entregues no recorte**, o que mantém `confirmados ≤ atributos`
+ * verdadeiro e responde à pergunta que a tela faz. O número muda quando o
+ * dicionário tem colunas que nenhuma vigência viva entregou.
+ *
+ * **O que continua sem recorte, por escolha.** Sem contexto pedido, o Painel é
+ * o censo do banco — todas as unidades, todos os canais. Isso não é omissão: é
+ * a resposta certa para "o que o sistema sabe". O que mudou é que o censo
+ * agora é das vigências **vivas**, e que pedir um contexto passa a funcionar.
  */
-export async function getOverview(db: Database) {
+export async function getOverview(
+  db: Database,
+  contextoPedido?: Partial<SeriesContext>,
+) {
+  /*
+    O recorte, uma vez, aplicado a tudo.
+
+    Resolver só quando **pedido** é deliberado: `resolveContext(db, undefined)`
+    devolve o contexto mais recente, e o Painel sem recorte não é "a unidade
+    mais recente" — é o censo. Pedir um contexto que não existe é erro, e
+    `resolveContext` já o transforma em `ContextNotFoundError`, que a rota
+    traduz em 404. Silenciar isso faria a tela mostrar o banco inteiro sob o
+    título de uma unidade.
+
+    `contextFilter` é o mesmo predicado que Alterações, Impacto, Composição e
+    DRE usam — é assim que o Painel para de ser a única tela com a sua própria
+    ideia de "quais vigências contam".
+  */
+  const contexto = contextoPedido
+    ? await resolveContext(db, contextoPedido)
+    : null;
+  const recorte = contexto ? contextFilter("s", contexto) : sql`true`;
+  const vivas = sql`(SELECT s.id FROM snapshot s
+                      WHERE ${filtroDeVigenciaDisponivel("s")} AND ${recorte})`;
+
   const { rows } = await db.execute<Record<string, unknown>>(sql`
+    WITH vivas AS (
+      SELECT s.id, s.effective_date
+        FROM snapshot s
+       WHERE ${filtroDeVigenciaDisponivel("s")}
+         AND ${recorte}
+    ),
+    /*
+      Os atributos **entregues** — não os do dicionário. É a mudança de
+      significado descrita no cabeçalho: snapshot_attribute diz que colunas
+      cada vigência trouxe, e é só sobre elas que a tela fala.
+    */
+    entregues AS (
+      SELECT DISTINCT sa.attribute_id
+        FROM snapshot_attribute sa
+        JOIN vivas v ON v.id = sa.snapshot_id
+    ),
+    /*
+      As comparações que terminam numa vigência viva do recorte. Um change_set
+      cujo lado B foi substituído descreve um mundo que não existe mais;
+      contá-lo é somar a história com o presente.
+    */
+    comparacoes AS (
+      SELECT cs.id
+        FROM change_set cs
+        JOIN vivas v ON v.id = cs.snapshot_b_id
+    )
     SELECT
-      (SELECT count(*) FROM snapshot
-        WHERE ${filtroDeVigenciaDisponivel("snapshot")})                     AS vigencias,
-      (SELECT min(effective_date) FROM snapshot)                            AS primeira_vigencia,
-      (SELECT max(effective_date) FROM snapshot)                            AS ultima_vigencia,
-      (SELECT count(*) FROM entity)                                         AS ativos,
-      (SELECT count(*) FROM fact)                                           AS fatos,
-      (SELECT count(*) FROM attribute)                                      AS atributos,
-      (SELECT count(*) FROM attribute WHERE semantics_status = 'CONFIRMED') AS atributos_confirmados,
-      (SELECT count(*) FROM attribute
-        WHERE is_monetary IS TRUE AND semantics_status <> 'CONFIRMED')      AS monetarios_pendentes,
-      (SELECT count(*) FROM change_set)                                     AS comparacoes,
-      (SELECT count(*) FROM "change" WHERE change_type = 'VALUE_CHANGED')   AS alteracoes,
-      (SELECT count(*) FROM "change" WHERE impact_confidence = 'CALCULATED') AS com_impacto,
-      (SELECT count(*) FROM "change" WHERE comparability = 'INCONCLUSIVE')  AS inconclusivas
+      (SELECT count(*) FROM vivas)                    AS vigencias,
+      (SELECT min(effective_date) FROM vivas)         AS primeira_vigencia,
+      (SELECT max(effective_date) FROM vivas)         AS ultima_vigencia,
+      (SELECT count(DISTINCT f.entity_id)
+         FROM fact f JOIN vivas v ON v.id = f.snapshot_id)  AS ativos,
+      (SELECT count(*)
+         FROM fact f JOIN vivas v ON v.id = f.snapshot_id)  AS fatos,
+      (SELECT count(*) FROM entregues)                AS atributos,
+      (SELECT count(*) FROM entregues e JOIN attribute a ON a.id = e.attribute_id
+        WHERE a.semantics_status = 'CONFIRMED')       AS atributos_confirmados,
+      (SELECT count(*) FROM entregues e JOIN attribute a ON a.id = e.attribute_id
+        WHERE a.is_monetary IS TRUE
+          AND a.semantics_status <> 'CONFIRMED')      AS monetarios_pendentes,
+      (SELECT count(*) FROM comparacoes)              AS comparacoes,
+      (SELECT count(*) FROM "change" ch JOIN comparacoes c ON c.id = ch.change_set_id
+        WHERE ch.change_type = 'VALUE_CHANGED')       AS alteracoes,
+      (SELECT count(*) FROM "change" ch JOIN comparacoes c ON c.id = ch.change_set_id
+        WHERE ch.impact_confidence = 'CALCULATED')    AS com_impacto,
+      (SELECT count(*) FROM "change" ch JOIN comparacoes c ON c.id = ch.change_set_id
+        WHERE ch.comparability = 'INCONCLUSIVE')      AS inconclusivas
   `);
   const totals = rows[0] ?? {};
 
@@ -533,15 +619,24 @@ export async function getOverview(db: Database) {
       FROM change_set cs
       JOIN snapshot sa ON sa.id = cs.snapshot_a_id
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
-     WHERE sb.effective_date = (
-       SELECT max(s.effective_date)
-         FROM change_set c JOIN snapshot s ON s.id = c.snapshot_b_id
-     )
+     WHERE sb.id IN ${vivas}
+       AND sb.effective_date = (
+         SELECT max(s.effective_date)
+           FROM change_set c JOIN snapshot s ON s.id = c.snapshot_b_id
+          WHERE s.id IN ${vivas}
+       )
      ORDER BY sb.entity_type_set
   `);
 
-  // Impact per periodicity across every comparison on record. Kept apart,
-  // never totalled — see change_set.calculated_impact_by_periodicity.
+  /*
+    Impacto por periodicidade, sobre as comparações que terminam numa vigência
+    viva do recorte. Separado por periodicidade, nunca somado — ver
+    `change_set.calculated_impact_by_periodicity`.
+
+    O `WHERE` era só `impact_confidence = 'CALCULATED'`, sobre a tabela inteira:
+    o impacto de uma revisão substituída entrava no acumulado do Painel, e o de
+    outra unidade também.
+  */
   const impactByPeriodicity = await db
     .select({
       periodicity: changeTable.impactPeriodicity,
@@ -549,11 +644,25 @@ export async function getOverview(db: Database) {
       total: sql<string>`sum(${changeTable.impactAmount})`,
     })
     .from(changeTable)
-    .where(eq(changeTable.impactConfidence, "CALCULATED"))
+    .where(
+      and(
+        eq(changeTable.impactConfidence, "CALCULATED"),
+        sql`${changeTable.changeSetId} IN (
+              SELECT cs.id FROM change_set cs WHERE cs.snapshot_b_id IN ${vivas})`,
+      ),
+    )
     .groupBy(changeTable.impactPeriodicity)
     .orderBy(changeTable.impactPeriodicity);
 
   return {
+    /**
+     * O recorte que produziu estes números, ou `null` quando é o censo.
+     *
+     * Vai na resposta porque um número sem recorte à vista é um número que a
+     * tela pode legendar errado — e foi assim que o Painel passou a discordar
+     * da Cobertura sem que ninguém visse a discordância.
+     */
+    contexto,
     totals,
     /** Kept for callers that still read one series; it is now the first by name. */
     latest: latest[0] ?? null,
