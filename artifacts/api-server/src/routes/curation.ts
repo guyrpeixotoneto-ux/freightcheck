@@ -6,7 +6,7 @@ import {
   type Response,
 } from "express";
 import { db, erroDoPostgres } from "@workspace/db";
-import { interpretarFormula } from "@workspace/assistant";
+import { interpretarFormula, rascunharDefinicao } from "@workspace/assistant";
 import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
 import {
   confirmAttribute,
@@ -320,6 +320,78 @@ router.post(
         next,
         err,
         "A fórmula deste atributo não pôde ser lida neste banco.",
+      );
+    }
+  },
+);
+
+/**
+ * Escrever o rascunho de "O que é" a partir do nome gerencial. Não grava nada.
+ *
+ * POST pelo mesmo motivo da leitura da fórmula: o nome vai no corpo, porque a
+ * tela pede o rascunho do que está digitado **agora**. Quem acabou de batizar a
+ * coluna ainda não salvou — e é justamente nesse instante que o rascunho vale,
+ * enquanto a pessoa tem o significado na cabeça e só falta escrevê-lo.
+ *
+ * O corpo é opcional: sem ele, rascunha-se a partir do nome guardado. É o
+ * caminho de quem abre um atributo que outra pessoa batizou.
+ */
+router.post(
+  "/curation/attributes/:code/definicao/rascunho",
+  async (req, res, next): Promise<void> => {
+    try {
+      const detail = await getAttributeDetail(db, req.params.code);
+      if (!detail) {
+        res.status(404).json({ error: "Atributo não encontrado" });
+        return;
+      }
+
+      const nome =
+        typeof req.body?.displayName === "string"
+          ? req.body.displayName
+          : (detail.displayName ?? "");
+      const formula =
+        typeof req.body?.calculationBasis === "string"
+          ? req.body.calculationBasis
+          : (detail.calculationBasis ?? "");
+
+      res.json(
+        await rascunharDefinicao({
+          nome,
+          nomeDeOrigem: detail.sourceName,
+          formula,
+          unidade: detail.unit,
+          periodicidade: detail.periodicity,
+          entidade: detail.entityType,
+          tipoDeDado: detail.dataType,
+          taxonomia: detail.taxonomyName,
+          // O cabeçalho da planilha é outra pista do que a coluna é, e ele
+          // costuma diferir do código: `Vida_Comb` na primeira linha, `
+          // vidaCombustivel` no código gerado pela importação.
+          cabecalho: detail.samples.find((s) => s.columnHeader)?.columnHeader ?? null,
+          /*
+            Só o formato dos valores, e só dos que existem. Amostra nula não
+            diz nada sobre a natureza da coluna e ocuparia uma das seis vagas
+            com a palavra "ausente".
+          */
+          exemplos: detail.samples
+            .filter((s) => !s.isNull && s.value !== null)
+            .map((s) => String(s.value)),
+        }),
+      );
+    } catch (err) {
+      /*
+        `rascunharDefinicao` não lança — o que cair aqui é falha de banco, e não
+        uma regra de negócio para o curador ler. Mesmo caminho da leitura da
+        fórmula: esta rota lê o atributo pelo `getAttributeDetail`, que passa
+        pela fila e portanto pela `attribute.definition`.
+      */
+      await responderFalha(
+        req,
+        res,
+        next,
+        err,
+        "O rascunho deste atributo não pôde ser escrito neste banco.",
       );
     }
   },

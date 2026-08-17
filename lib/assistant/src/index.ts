@@ -1,6 +1,7 @@
 export * from "./conhecimento";
 export * from "./conversa";
 export * from "./corpus";
+export * from "./definicao";
 export * from "./ferramentas";
 export * from "./formato";
 export * from "./formula";
