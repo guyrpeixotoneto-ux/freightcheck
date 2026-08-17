@@ -182,6 +182,9 @@ importers:
       '@workspace/assistant':
         specifier: workspace:*
         version: link:../../lib/assistant
+      '@workspace/availability':
+        specifier: workspace:*
+        version: link:../../lib/availability
       '@workspace/balance':
         specifier: workspace:*
         version: link:../../lib/balance

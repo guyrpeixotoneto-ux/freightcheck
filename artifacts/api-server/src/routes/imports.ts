@@ -23,6 +23,7 @@ import {
   stage,
 } from "@workspace/ingest";
 import { semearContrato } from "@workspace/coverage";
+import { computeMissingChangeSets } from "@workspace/comparison";
 import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
 
 /**
@@ -550,6 +551,36 @@ router.post("/imports/:id/promote", async (req, res): Promise<void> => {
       req.log.warn(
         { err },
         "Contrato de cobertura não semeado após a promoção",
+      );
+    }
+
+    /*
+      Comparar é ato de importação — e não era ato de ninguém.
+
+      `computeMissingChangeSets` existe desde sempre, a documentação dele diz
+      que roda "após toda promoção" e o `computedBy` padrão dele é
+      `api:after-import`. Nenhum lugar do produto o chamava. O efeito foi
+      encontrado pela matriz de propagação: `getGroupedView` — a aba Planilha
+      de Alterações — apenas **lê** os `change_set` que existem, e depois de
+      uma importação não existia nenhum. A tela abria com "comparação ainda
+      não calculada" em todas as séries, que é o dado tendo entrado e o módulo
+      aparecendo vazio.
+
+      Consolidado e `/changes/latest` calculavam sob demanda e mascaravam isso:
+      quem abrisse aquelas telas primeiro fazia a Planilha funcionar. A
+      propagação não pode depender da ordem em que alguém navega.
+
+      Idempotente por construção — só calcula o par que falta —, e no mesmo
+      `try` isolado do contrato, pelo mesmo motivo: a promoção já deu certo, e
+      uma comparação que falha não pode desfazê-la. O que ela deixa é um
+      `change_set` a menos, que a próxima leitura sob demanda refaz.
+    */
+    try {
+      await computeMissingChangeSets(db);
+    } catch (err) {
+      req.log.warn(
+        { err },
+        "Comparações não calculadas após a promoção",
       );
     }
 

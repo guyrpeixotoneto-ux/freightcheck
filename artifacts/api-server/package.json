@@ -12,6 +12,7 @@
     "create-user": "tsx ./src/cli/create-user.ts"
   },
   "dependencies": {
+    "@workspace/availability": "workspace:*",
     "@workspace/api-zod": "workspace:*",
     "@workspace/assistant": "workspace:*",
     "@workspace/balance": "workspace:*",
