@@ -42,7 +42,6 @@ const JARGAO_INTERNO = [
   "export de equipamento",
   "coluna do export",
   "colunas do export",
-  "scope_hash",
   "entity_type",
   "effective_date",
   "atributo monetário",

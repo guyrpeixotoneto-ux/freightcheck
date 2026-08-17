@@ -3,6 +3,7 @@ import { sql } from "drizzle-orm";
 import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import { buildFixture } from "@workspace/comparison/testing";
 import { seedTaxonomy } from "@workspace/curation";
+import { chaveDeEscopoSql } from "@workspace/availability";
 import { DecisaoRecusada, registrarDecisao } from "../contrato";
 import { detalheDaCelula } from "../detalhe";
 import { descobertas, descobertasDaSerie, janelaDosAtributos } from "../descoberta";
@@ -110,7 +111,7 @@ describe("1. arquivos complementares: A + B + C = uma cobertura", () => {
           },
         },
       ],
-      { entityType: "CARRETA", scopeHash: SEMENTE, canal: "COMPL" },
+      { entityType: "CARRETA", unidade: SEMENTE, canal: "COMPL" },
     );
     ids = r.snapshotIds;
     ESCOPO = await escopoDoCanal("COMPL");
@@ -216,7 +217,7 @@ describe("14. escopos diferentes não se misturam", () => {
           data: placas("UM", 10, { "carreta.compartilhado": 1 }),
         },
       ],
-      { entityType: "CARRETA", scopeHash: "unidade-um", canal: "UM" },
+      { entityType: "CARRETA", unidade: "um", canal: "UM" },
     );
 
     await buildFixture(
@@ -239,7 +240,7 @@ describe("14. escopos diferentes não se misturam", () => {
           data: placas("DOIS", 10, { "carreta.compartilhado": 1 }),
         },
       ],
-      { entityType: "CARRETA", scopeHash: "unidade-dois", canal: "DOIS" },
+      { entityType: "CARRETA", unidade: "dois", canal: "DOIS" },
     );
 
     UMA = await escopoDoCanal("UM");
@@ -297,7 +298,7 @@ describe("7 e 12. dispensa, conflito e decisão humana", () => {
           data: placas("DEC", 20, { "carreta.sempre": 2 }),
         },
       ],
-      { entityType: "CARRETA", scopeHash: SEMENTE, canal: "DEC" },
+      { entityType: "CARRETA", unidade: SEMENTE, canal: "DEC" },
     );
     ESCOPO = await escopoDoCanal("DEC");
   }, 600_000);
@@ -388,10 +389,10 @@ describe("7 e 12. dispensa, conflito e decisão humana", () => {
     await expect(
       ctx.db.execute(sql`
         INSERT INTO snapshot (source_file_id, import_run_id, source_label, effective_date,
-                              scope_hash, entity_type_set, dataset_family, canal,
+                              entity_type_set, dataset_family, canal,
                               canonical_scope, status, revision)
         SELECT source_file_id, import_run_id, source_label, effective_date,
-               scope_hash, entity_type_set, dataset_family, canal,
+               entity_type_set, dataset_family, canal,
                canonical_scope, 'CLOSED', 99
           FROM snapshot WHERE id = ${alvo.snapshotId}::uuid
       `),
@@ -428,13 +429,13 @@ describe("15. recomputação depois de nova importação atualiza só o necessá
           data: placas("REC", 5, { "carreta.rec": 1 }),
         },
       ],
-      { entityType: "CARRETA", scopeHash: SEMENTE, canal: "REC" },
+      { entityType: "CARRETA", unidade: SEMENTE, canal: "REC" },
     );
 
     const antes = await ctx.db.execute<{ snapshot_id: string; entity_count: number }>(sql`
       SELECT a.snapshot_id::text, a.entity_count
         FROM snapshot_entity_type a JOIN snapshot s ON s.id = a.snapshot_id
-       WHERE s.scope_hash = ${SEMENTE}
+       WHERE ${chaveDeEscopoSql("s")} = ${await escopoDoCanal("REC")}
     `);
     expect(antes.rows).toHaveLength(1);
 
@@ -448,13 +449,13 @@ describe("15. recomputação depois de nova importação atualiza só o necessá
           data: placas("REC", 8, { "carreta.rec": 1 }),
         },
       ],
-      { entityType: "CARRETA", scopeHash: SEMENTE, canal: "REC" },
+      { entityType: "CARRETA", unidade: SEMENTE, canal: "REC" },
     );
 
     const depois = await ctx.db.execute<{ snapshot_id: string; entity_count: number }>(sql`
       SELECT a.snapshot_id::text, a.entity_count
         FROM snapshot_entity_type a JOIN snapshot s ON s.id = a.snapshot_id
-       WHERE s.scope_hash = ${SEMENTE}
+       WHERE ${chaveDeEscopoSql("s")} = ${await escopoDoCanal("REC")}
        ORDER BY s.effective_date
     `);
 
@@ -513,7 +514,7 @@ describe("a mesma unidade escrita de dois jeitos é uma unidade só", () => {
   /*
     A dívida do §A.6, encerrada.
 
-    A Cobertura recortava por `snapshot.scope_hash`, que é hash dos códigos
+    A Cobertura recortava por `snapshot.scope_hash`, que era hash dos códigos
     **como vieram**. A mesma unidade cujo CNPJ chegou mascarado em janeiro e sem
     máscara em fevereiro tinha dois hashes — e a Cobertura media duas unidades
     onde há uma: duas séries de uma vigência cada, cada uma sem histórico com
@@ -524,7 +525,17 @@ describe("a mesma unidade escrita de dois jeitos é uma unidade só", () => {
     duas chaves de propósito: é o único jeito de montar aqui o par que o mundo
     real produz.
   */
-  const CNPJ = [{ scopeType: "UNIDADE", code: "11222333000144" }];
+  /*
+    O **mesmo** CNPJ, escrito das duas formas que o Excel entrega.
+
+    Antes as duas entregas recebiam este mesmo escopo já normalizado e eram
+    diferenciadas por dois `scope_hash` — o que não era o caso real, e sim a
+    coluna morta fingindo a divergência. Agora cada entrega traz a grafia que o
+    arquivo traria, e quem as junta é `freightcheck_canonical_scope`, a mesma
+    normalização da ingestão.
+  */
+  const COM_MASCARA = [{ scopeType: "UNIDADE", code: "11.222.333/0001-44" }];
+  const SEM_MASCARA = [{ scopeType: "UNIDADE", code: "11222333000144" }];
   let ESCOPO: string;
 
   beforeAll(async () => {
@@ -557,15 +568,14 @@ describe("a mesma unidade escrita de dois jeitos é uma unidade só", () => {
       ],
       {
         entityType: "CARRETA",
-        scopeHash: "com-mascara",
         canal: "MASCARA",
         datasetFamily: "REMUNERACAO_MASCARA",
-        canonicalScope: CNPJ,
+        canonicalScope: COM_MASCARA,
       },
     );
 
-    // Março: o mesmo CNPJ, agora sem máscara — outro `scope_hash`, o mesmo
-    // escopo canônico. E uma das colunas não veio.
+    // Março: o mesmo CNPJ, agora sem máscara — outra grafia, o mesmo escopo
+    // canônico depois da normalização. E uma das colunas não veio.
     await buildFixture(
       ctx.db,
       atributos,
@@ -578,10 +588,9 @@ describe("a mesma unidade escrita de dois jeitos é uma unidade só", () => {
       ],
       {
         entityType: "CARRETA",
-        scopeHash: "sem-mascara",
         canal: "MASCARA",
         datasetFamily: "REMUNERACAO_MASCARA",
-        canonicalScope: CNPJ,
+        canonicalScope: SEM_MASCARA,
       },
     );
 
@@ -590,18 +599,22 @@ describe("a mesma unidade escrita de dois jeitos é uma unidade só", () => {
 
   it("as três vigências caem no mesmo recorte", async () => {
     /*
-      Primeiro a montagem, medida no banco: **dois** `scope_hash` crus e **um**
-      escopo canônico. Sem isto o resto do describe passaria por não estar
-      testando nada — é a diferença entre provar a correção e afirmar que ela
-      existe.
+      Primeiro a montagem, medida no banco: **duas** grafias distintas do CNPJ
+      no que o teste escreveu, e **um** escopo canônico no que o banco gravou.
+      Sem isto o resto do describe passaria por não estar testando nada — é a
+      diferença entre provar a correção e afirmar que ela existe.
     */
-    const { rows: crus } = await ctx.db.execute<{ hashes: number; escopos: number }>(sql`
-      SELECT count(DISTINCT s.scope_hash)::int      AS hashes,
-             count(DISTINCT s.canonical_scope::text)::int AS escopos
+    expect(COM_MASCARA[0].code).not.toBe(SEM_MASCARA[0].code);
+    const { rows: crus } = await ctx.db.execute<{ escopos: number; junta: boolean }>(sql`
+      SELECT count(DISTINCT s.canonical_scope::text)::int AS escopos,
+             freightcheck_canonical_scope(${JSON.stringify(COM_MASCARA)}::jsonb)
+               = freightcheck_canonical_scope(${JSON.stringify(SEM_MASCARA)}::jsonb) AS junta
         FROM snapshot s
        WHERE s.canal = 'MASCARA'
     `);
-    expect(Number(crus[0].hashes)).toBe(2);
+    expect(crus[0].junta, "as duas grafias precisam normalizar para o mesmo escopo").toBe(
+      true,
+    );
     expect(Number(crus[0].escopos)).toBe(1);
 
     const vigencias = await vigenciasObservadas(ctx.db, { scopeHash: ESCOPO });
@@ -686,7 +699,7 @@ describe("a novidade de uma unidade não é novidade da outra", () => {
           data: placas("B8A", 5, { "carreta.comum_b8": 1, "carreta.so_da_a": 2 }),
         },
       ],
-      { entityType: "CARRETA", scopeHash: "b8-unidade-a", canal: "B8" },
+      { entityType: "CARRETA", unidade: "b8-a", canal: "B8" },
     );
 
     // Unidade B: entrega nas mesmas datas e nunca ouviu falar de `so_da_a`.
@@ -705,7 +718,7 @@ describe("a novidade de uma unidade não é novidade da outra", () => {
           data: placas("B8B", 5, { "carreta.comum_b8": 1, "carreta.so_da_b": 3 }),
         },
       ],
-      { entityType: "CARRETA", scopeHash: "b8-unidade-b", canal: "B8" },
+      { entityType: "CARRETA", unidade: "b8-b", canal: "B8" },
     );
 
     const vigencias = await vigenciasObservadas(ctx.db, { canal: "B8" });

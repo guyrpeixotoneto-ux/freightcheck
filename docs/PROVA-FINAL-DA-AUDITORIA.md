@@ -17,8 +17,8 @@
 > diferente dos outros módulos."* As sete perguntas existem para verificar se
 > isso foi alcançado, e não para declarar que foi.
 
-Medições desta página feitas em 17/08/2026, sobre `92d1744`, com Postgres 16
-local e a suíte inteira verde: **1.432 testes em 102 arquivos**, mais os 209
+Medições desta página feitas em 17/08/2026, sobre `cbf859d`..`0022`, com Postgres 16
+local e a suíte inteira verde: **1.441 testes em 103 arquivos**, mais os 209
 do `assistant` (com 119 que se auto-pulam por falta de chave de API do modelo).
 
 Esta página é conferida por `artifacts/api-server/src/__tests__/prova-final.test.ts`
@@ -250,9 +250,9 @@ espera.
 
 | Conceito | Resolvido por | O que ele deliberadamente **não** é |
 |---|---|---|
-| **Unidade / escopo** | `canonical_scope` → `freightcheck_serialize_scope` → sha256 (`chaveDeEscopoSql`) | não é `scope_hash`, que é hash dos códigos **como vieram** e parte a mesma unidade em duas quando o CNPJ chega mascarado |
+| **Unidade / escopo** | `canonical_scope` → `freightcheck_serialize_scope` → sha256 (`chaveDeEscopoSql`) | não é `scope_hash`, que era hash dos códigos **como vieram** e partia a mesma unidade em duas quando o CNPJ chegava mascarado. A coluna **não existe mais** (`0022`) |
 | **Canal** | a coluna `snapshot.canal`, normalizada por `freightcheck_norm_canal` | não é derivado do rótulo do arquivo (divergência **D2**, corrigida no PR-6) |
-| **Contexto** | o par (chave de escopo, canal), resolvido **uma vez por leitura** por `resolveContext`; o predicado é `contextFilter` | não é `scope_hash` sozinho (divergência **D1**, PR-7); não é traduzido em cada consulta, que é como uma tradução viraria oito |
+| **Contexto** | o par (chave de escopo, canal), resolvido **uma vez por leitura** por `resolveContext`; o predicado é `contextFilter` | não é `scope_hash` sozinho (divergência **D1**, PR-7); não aceita mais a grafia antiga ao lado da canônica (`0022`); não é traduzido em cada consulta, que é como uma tradução viraria oito |
 | **Vigência** | `effective_date`, que é a **ordem dentro da série** e não a identidade dela; disponível = `status = 'CLOSED'` | não é o rótulo escrito no arquivo |
 | **Série** | `chaveDeSerieSql` = sha256(`source_system` ⟂ `dataset_family` ⟂ canal ⟂ escopo canônico) — a identidade canônica **sem a data** | não inclui `entity_type_set` (cresce com entrega parcial — **D3**, PR-9), nem `scope_hash`, nem `source_label` |
 | **Vigência anterior** | `vigenciaAnterior`, na autoridade; `findPreviousSnapshot` delega | não é "a de data menor" decidida por quem compara (PR-8) |
@@ -279,12 +279,29 @@ invertido), `propagacao-vigencia.test.ts` (**13**),
 `components/contexto/__tests__/fronteira-do-contexto.test.ts` (**4**),
 `lib/coverage/src/__tests__/cenarios.test.ts` (**26**).
 
-**Limite da prova.** `resolveContext` ainda **aceita um `scope_hash` legado** —
-compatibilidade de mão única para links colados e estado de tela guardado antes
-da mudança. É dívida declarada, remarcada no PR-14 de "um PR" para uma janela de
-calendário que **ainda não foi nomeada**. Enquanto ela existir, há duas grafias
-aceitas para a mesma pergunta, e é exatamente o tipo de coisa que esta auditoria
-existe para não deixar virar permanente.
+**A dívida do `scope_hash` está encerrada.** Entre o PR-7 e a `0022`,
+`resolveContext` aceitou a grafia antiga ao lado da canônica — compatibilidade
+de mão única para links colados. Enquanto ela existiu, "qual é o escopo desta
+vigência?" teve **duas respostas certas**, que é a forma exata do defeito que
+esta auditoria desfez em toda parte menos aqui.
+
+A `0022` fechou os três lados: traduziu o recorte que as conversas do assistente
+guardavam em banco, tirou a aceitação de `resolveContext` e **derrubou a coluna**
+`snapshot.scope_hash`. Não sobrou coluna morta nem compatibilidade permanente: o
+endereço antigo agora recebe `ContextNotFoundError`, que nomeia os contextos que
+existem e que a rota traduz em 404 — recusa escrita, e não tela vazia.
+
+A prova é `lib/db/src/__tests__/fronteira-da-identidade-de-escopo.test.ts`
+(**9**), em três alturas: a coluna não existe no schema, **nenhuma função
+instalada a cita** e nenhum código de produção volta a usá-la. Os testes
+sintéticos deixaram de reproduzir o conceito eliminado — o fixture nascia de uma
+semente que virava chave, e agora nasce de uma unidade cujo CNPJ o banco
+normaliza, como na produção.
+
+**Limite da prova.** A altura 3 é varredura de fonte e reconhece o texto
+`scope_hash`; uma segunda definição de identidade escrita com outro nome
+passaria. Quem cobre isso é a altura 2, que pergunta ao banco — mas só sobre
+esta coluna, e não sobre a ideia.
 
 ---
 
@@ -393,8 +410,14 @@ diagnóstico seria o passo natural seguinte, e não foi feito nesta sequência.
 Registrado aqui porque uma prova final que só lista vitórias é a peça mais fácil
 de citar fora de contexto.
 
-1. **A dívida do `scope_hash` legado está aberta.** `resolveContext` aceita as
-   duas grafias, e a janela de calendário para fechá-la não foi nomeada.
+1. **Varredura de fonte não vê PL/pgSQL, e isso já custou.** O levantamento que
+   precedeu a `0022` leu TypeScript e concluiu que `snapshot.scope_hash` tinha um
+   leitor. Duas funções do próprio banco a citavam, e `DROP COLUMN ... RESTRICT`
+   não avisa — o Postgres não rastreia dependência de coluna dentro de corpo de
+   função. O erro só apareceria em runtime, no gatilho que roda em toda promoção.
+   A `fronteira-da-identidade-de-escopo` passou a perguntar ao `pg_proc` por
+   causa disso, **para esta coluna**. Nenhuma outra varredura deste repositório
+   olha corpo de função.
 2. **Não há varredura que obrigue um módulo novo a usar o vocabulário do vazio.**
    Um `return null` novo continua possível.
 3. **A varredura de escrita é textual.** A prisão em runtime cobre a diferença,

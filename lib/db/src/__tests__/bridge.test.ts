@@ -90,8 +90,25 @@ async function noveVigenciasReais(pool: pg.Pool): Promise<void> {
                        AND column_name='dataset_family') AS e`,
   );
   const comIdentidade = rows[0]!.e;
-  const colunas = comIdentidade
-    ? `,"dataset_family","canal","canonical_scope"`
+  /*
+    `scope_hash` só existe do lado de Production.
+
+    A `0022` a derruba, então em Development a coluna não está lá; no banco que
+    imita Production — parado antes da `0012` — ela está, e é `NOT NULL`. A
+    mesma semeadura serve os dois porque a coluna entra ou sai da lista aqui, e
+    é por isso que a conferência é pela existência e não por uma bandeira nova.
+  */
+  const { rows: legada } = await pool.query<{ e: boolean }>(
+    `SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                     WHERE table_schema='public' AND table_name='snapshot'
+                       AND column_name='scope_hash') AS e`,
+  );
+  const comScopeHash = legada[0]!.e;
+  const colunas =
+    (comScopeHash ? `,"scope_hash"` : "") +
+    (comIdentidade ? `,"dataset_family","canal","canonical_scope"` : "");
+  const valoresLegados = comScopeHash
+    ? `, 'ae920348d2d5d627b24b48c337fe3961f18a8e29ca3cff11e4f862715f937662'`
     : "";
   const valores = comIdentidade
     ? `, freightcheck_dataset_family('CAVALO'),
@@ -108,9 +125,9 @@ async function noveVigenciasReais(pool: pg.Pool): Promise<void> {
     INSERT INTO "scope" ("scope_type","code") VALUES
       ('OPERADOR','20618821000799'), ('REGIONAL','Geo NE'), ('UNIDADE','07526557001505_CERV');
     INSERT INTO "snapshot" ("source_file_id","import_run_id","source_label","effective_date",
-                            "scope_hash","entity_type_set","status","revision"${colunas})
+                            "entity_type_set","status","revision"${colunas})
     SELECT sf.id, ir.id, v.rotulo, v.data::date,
-           'ae920348d2d5d627b24b48c337fe3961f18a8e29ca3cff11e4f862715f937662','CAVALO','CLOSED',1${valores}
+           'CAVALO','CLOSED',1${valoresLegados}${valores}
       FROM "source_file" sf, "import_run" ir, (VALUES
         ('EMPURRADA_2_12_2025','2025-12-02'), ('EMPURRADA_2_1_2026','2026-01-02'),
         ('EMPURRADA_2_2_2026','2026-02-02'),  ('EMPURRADA_2_3_2026','2026-03-02'),

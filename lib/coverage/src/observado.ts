@@ -92,7 +92,7 @@ export async function vigenciasObservadas(
     source_system: string;
     dataset_family: string;
     canal: string;
-    scope_hash: string;
+    chave_de_escopo: string;
     serie: string;
     scope_key: string;
     scope_label: string;
@@ -105,7 +105,7 @@ export async function vigenciasObservadas(
            s.source_system,
            s.dataset_family,
            s.canal,
-           ${chaveDeEscopoSql("s")}                    AS scope_hash,
+           ${chaveDeEscopoSql("s")}                    AS chave_de_escopo,
            ${chaveDeSerieSql("s")}                     AS serie,
            s.canonical_scope::text                     AS scope_key,
            coalesce(
@@ -174,7 +174,7 @@ export async function vigenciasObservadas(
     sourceSystem: r.source_system,
     datasetFamily: r.dataset_family,
     canal: r.canal,
-    scopeHash: r.scope_hash,
+    scopeHash: r.chave_de_escopo,
     serie: r.serie,
     scopeKey: r.scope_key,
     scopeLabel: r.scope_label,

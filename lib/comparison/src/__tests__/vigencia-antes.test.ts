@@ -4,7 +4,7 @@ import { seedTaxonomy } from "@workspace/curation";
 import { computeMissingChangeSets } from "../consolidated";
 import { getGroupedView, getGroupVehicles } from "../grouped";
 import { getChangeProvenance } from "../query";
-import { buildFixture, type AttributeSpec } from "./fixtures";
+import { buildFixture, contextoDaUnidade, type AttributeSpec } from "./fixtures";
 
 /**
  * De qual vigência é o lado "Antes".
@@ -30,9 +30,17 @@ import { buildFixture, type AttributeSpec } from "./fixtures";
  */
 
 let ctx: TestDb;
-const SCOPE = "scope-vigencia-antes";
+const UNIDADE = "vigencia-antes";
 /** Um canal só: cavalo e carreta são duas entregas do mesmo contexto. */
 const CANAL = "EMPURRADA";
+/**
+ * A chave do escopo, lida do banco depois que os fixtures entram.
+ *
+ * Não é um literal porque não é um literal na produção: quem calcula a chave é
+ * o banco, a partir do escopo canônico. Escrevê-la aqui à mão seria uma segunda
+ * definição de identidade morando num arquivo de teste.
+ */
+let escopo: string;
 
 const CAVALO: AttributeSpec[] = [
   {
@@ -81,7 +89,7 @@ beforeAll(async () => {
       um com a sua própria vigência anterior. Sem a família, as duas colidiriam
       na identidade canônica, porque escopo, canal e data seriam os mesmos.
     */
-    { entityType: "CAVALO", scopeHash: SCOPE, canal: CANAL, datasetFamily: "REMUNERACAO_CAVALO" },
+    { entityType: "CAVALO", unidade: UNIDADE, canal: CANAL, datasetFamily: "REMUNERACAO_CAVALO" },
   );
 
   // Carretas: agosto, setembro e outubro — a série completa.
@@ -93,8 +101,10 @@ beforeAll(async () => {
       { label: "CAR_SET", effectiveDate: "2026-09-01", data: { QQQ7X70: { "carreta.custo_fixo": 540 } } },
       { label: "CAR_OUT", effectiveDate: "2026-10-01", data: { QQQ7X70: { "carreta.custo_fixo": 560 } } },
     ],
-    { entityType: "CARRETA", scopeHash: SCOPE, canal: CANAL, datasetFamily: "REMUNERACAO_CARRETA" },
+    { entityType: "CARRETA", unidade: UNIDADE, canal: CANAL, datasetFamily: "REMUNERACAO_CARRETA" },
   );
+
+  escopo = (await contextoDaUnidade(ctx.db, UNIDADE, CANAL)).scopeHash;
 
   await computeMissingChangeSets(ctx.db, "test:vigencia-antes");
 }, 120_000);
@@ -108,14 +118,14 @@ const veiculos = (period: string, attributeCode: string, entityType: string) =>
     period,
     attributeCode,
     entityType,
-    scopeHash: SCOPE,
+    scopeHash: escopo,
     channel: CANAL,
   });
 
 describe("mês consecutivo", () => {
   it("o Antes de agosto é julho, na série e na linha", async () => {
     const view = (await getGroupedView(ctx.db, "2026-08-01", {
-      scopeHash: SCOPE,
+      scopeHash: escopo,
       channel: CANAL,
     }))!;
     const cavalo = view.series.find((s) => s.entityTypeSet === "CAVALO")!;
@@ -135,7 +145,7 @@ describe("mês consecutivo", () => {
 describe("salto de vigência", () => {
   it("o Antes de outubro é agosto, e não o setembro que a série não entregou", async () => {
     const view = (await getGroupedView(ctx.db, "2026-10-01", {
-      scopeHash: SCOPE,
+      scopeHash: escopo,
       channel: CANAL,
     }))!;
     const cavalo = view.series.find((s) => s.entityTypeSet === "CAVALO")!;
@@ -164,7 +174,7 @@ describe("salto de vigência", () => {
 describe("cavalo e carreta na mesma vigência", () => {
   it("cada série leva a sua própria vigência anterior", async () => {
     const view = (await getGroupedView(ctx.db, "2026-10-01", {
-      scopeHash: SCOPE,
+      scopeHash: escopo,
       channel: CANAL,
     }))!;
     const porEquipamento = new Map(
@@ -208,7 +218,7 @@ describe("primeira vigência de uma série", () => {
   it("não tem anterior, e diz isso em vez de supor uma", async () => {
     // Agosto é a primeira entrega da carreta: não há com que comparar.
     const view = (await getGroupedView(ctx.db, "2026-08-01", {
-      scopeHash: SCOPE,
+      scopeHash: escopo,
       channel: CANAL,
     }))!;
     const carreta = view.series.find((s) => s.entityTypeSet === "CARRETA")!;

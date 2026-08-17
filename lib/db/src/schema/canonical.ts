@@ -141,15 +141,21 @@ export const snapshotTable = pgTable(
     sourceLabel: text("source_label").notNull(),
     /** Derived from the label by an explicit, tested rule. Kept separate. */
     effectiveDate: date("effective_date", { mode: "string" }).notNull(),
-    /**
-     * Hash do conjunto de escopos como ele veio, sem normalizar.
-     *
-     * Não faz mais parte da identidade — um CNPJ mascarado num arquivo e sem
-     * máscara no outro mudava este hash e abria uma segunda vigência ativa.
-     * Continua gravado porque é o que os snapshots antigos usavam e porque diz
-     * o que o arquivo trazia; quem identifica agora é `canonicalScope`.
-     */
-    scopeHash: text("scope_hash").notNull(),
+    /*
+      `scope_hash` não existe mais (`0022`).
+
+      Era o hash do conjunto de escopos **como ele veio**, sem normalizar — um
+      CNPJ mascarado num arquivo e sem máscara no outro mudava o hash e abria
+      uma segunda vigência ativa para a mesma unidade. A `0015` o substituiu por
+      `canonicalScope`, a `0016` derrubou os dois índices que o usavam, e o que
+      restou foi uma coluna escrita em toda promoção e lida por uma consulta só:
+      a que alimentava a lista de grafias legadas que `resolveContext` aceitava.
+
+      Duas grafias aceitas para a mesma pergunta são duas respostas certas para
+      "qual é o escopo desta vigência?", e é assim que um módulo volta a
+      discordar dos outros sobre o que existe. Quem identifica o escopo é
+      `canonicalScope`, e a chave que se lê dele é `chaveDeEscopoSql`.
+    */
     /**
      * Conjunto de tipos cobertos, ordenado e unido por '+', p.ex.
      * "CARRETA+CAVALO".

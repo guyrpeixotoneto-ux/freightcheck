@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { createHash } from "node:crypto";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -17,6 +18,7 @@ import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import {
   componentesDaComparacao,
   computeChangeSet,
+  ContextNotFoundError,
   findPreviousSnapshot,
   getGroupedView,
   getQuinzenaMatrix,
@@ -149,7 +151,6 @@ interface Vigencia {
   sourceLabel: string;
   canal: string;
   entityTypeSet: string;
-  scopeHash: string;
   canonicalScope: string;
 }
 
@@ -160,11 +161,10 @@ async function vivas(db: Database): Promise<Vigencia[]> {
     label: string;
     canal: string;
     ets: string;
-    sh: string;
     cs: string;
   }>(sql`
     SELECT id::text, effective_date::text AS d, source_label AS label, canal,
-           entity_type_set AS ets, scope_hash AS sh, canonical_scope::text AS cs
+           entity_type_set AS ets, canonical_scope::text AS cs
       FROM snapshot
      WHERE status <> 'SUPERSEDED'
      ORDER BY effective_date
@@ -175,7 +175,6 @@ async function vivas(db: Database): Promise<Vigencia[]> {
     sourceLabel: r.label,
     canal: r.canal,
     entityTypeSet: r.ets,
-    scopeHash: r.sh,
     canonicalScope: r.cs,
   }));
 }
@@ -225,7 +224,7 @@ describe("divergência 1 — a entrega parcial partia a série de Alterações",
     const vigencias = await vivas(ctx.db);
     expect(vigencias.map((v) => v.effectiveDate)).toEqual(["2026-01-01", "2026-02-01"]);
     // Mesma unidade, mesmo canal — nada aqui separa as duas como negócio.
-    expect(new Set(vigencias.map((v) => v.scopeHash)).size).toBe(1);
+    expect(new Set(vigencias.map((v) => v.canonicalScope)).size).toBe(1);
     expect(new Set(vigencias.map((v) => v.canal)).size).toBe(1);
     // O que mudou foi só a cobertura de equipamento da segunda entrega.
     expect(vigencias.map((v) => v.entityTypeSet)).toEqual(["CARRETA", "CARRETA+CAVALO"]);
@@ -314,10 +313,11 @@ describe("divergência 2 — o CNPJ mascarado parte o contexto em dois", () => {
     A mesma unidade, com o CNPJ escrito das duas formas que o Excel produz.
 
     `canonical_scope` normaliza o documento e enxerga uma unidade só — é o que
-    a identidade canônica promete. `scope_hash` é o hash dos códigos **como
-    vieram**, e o próprio schema diz que ele deixou de identificar. Só que é por
-    ele que `series.ts` reparte o mundo em contextos, e é o contexto que
-    Alterações, Impacto, Composição e DRE usam para escolher o que mostrar.
+    a identidade canônica promete. `scope_hash` era o hash dos códigos **como
+    vieram**, e era por ele que `series.ts` repartia o mundo em contextos — o
+    contexto que Alterações, Impacto, Composição e DRE usam para escolher o que
+    mostrar. A coluna saiu na `0022`; o cenário fica, porque é ele que prova que
+    as duas grafias continuam caindo numa unidade só.
   */
   let ctx: TestDb;
 
@@ -350,8 +350,27 @@ describe("divergência 2 — o CNPJ mascarado parte o contexto em dois", () => {
     expect(vigencias.map((v) => v.effectiveDate)).toEqual(["2026-03-01", "2026-04-01"]);
     // A identidade canônica reconhece uma unidade só — é o que ela existe para fazer.
     expect(new Set(vigencias.map((v) => v.canonicalScope)).size).toBe(1);
-    // E o hash antigo, que não identifica mais nada, mesmo assim difere.
-    expect(new Set(vigencias.map((v) => v.scopeHash)).size).toBe(2);
+
+    /*
+      E as duas grafias chegaram mesmo diferentes — senão o cenário não estaria
+      exercitando nada.
+
+      Antes esta asserção contava dois `scope_hash` distintos. A coluna saiu, e
+      o que resta é o dado de que ela era derivada: o CNPJ como cada arquivo o
+      escreveu, guardado em `entity_identifier`/`raw_cell`. A prova é a
+      **origem** da divergência, e não o subproduto dela.
+    */
+    const { rows: grafias } = await ctx.db.execute<{ n: number; quais: string[] }>(sql`
+      SELECT count(DISTINCT rc.raw_value)::int              AS n,
+             array_agg(DISTINCT rc.raw_value)               AS quais
+        FROM raw_cell rc
+       WHERE rc.column_header ILIKE '%CNPJ%'
+         AND rc.raw_value LIKE '%526%557%'
+    `);
+    expect(
+      Number(grafias[0].n),
+      `as duas grafias do CNPJ precisam ter chegado — vieram ${JSON.stringify(grafias[0].quais)}`,
+    ).toBe(2);
 
     expect((await listComparableSnapshots(ctx.db)).length).toBe(2);
     expect((await vigenciasObservadas(ctx.db)).length).toBe(2);
@@ -382,28 +401,42 @@ describe("divergência 2 — o CNPJ mascarado parte o contexto em dois", () => {
     ]);
   }, 300_000);
 
-  it("o link antigo continua funcionando: os dois `scope_hash` levam ao mesmo contexto", async () => {
+  it("o link antigo é recusado por escrito, e a recusa nomeia o que existe", async () => {
     /*
-      A metade da correção que não aparece na tela.
+      A compatibilidade acabou, e este teste é o que mede o preço dela.
 
-      Antes do PR-7 existiam dois contextos, e quem tivesse guardado um link ou
-      um favorito carrega o `scope_hash` cru de um deles. Recusá-lo agora
-      transformaria a correção em página quebrada — e os dois têm de levar ao
-      **mesmo** contexto, que é o que o link antigo não conseguia mostrar
-      inteiro.
+      Entre o PR-7 e a `0022`, um link guardado antes da correção carregava o
+      `scope_hash` cru e `resolveContext` o aceitava ao lado da chave canônica.
+      Enquanto isso valeu, "qual é o escopo desta vigência?" teve duas respostas
+      certas — e uma pergunta com duas respostas certas é exatamente como um
+      módulo volta a discordar dos outros sobre o que existe.
+
+      O que o endereço antigo recebe agora **não** é uma tela vazia: é
+      `ContextNotFoundError`, que nomeia os contextos que existem e que a rota
+      traduz em 404. Recusa escrita é o desfecho certo para um endereço que
+      deixou de existir — e o consumidor que guardava esse hash em banco, o
+      estado das conversas do assistente, foi traduzido pela `0022` em vez de
+      recusado.
     */
-    const vigencias = await vivas(ctx.db);
-    const hashesCrus = [...new Set(vigencias.map((v) => v.scopeHash))];
-    expect(hashesCrus).toHaveLength(2);
-
     const [contexto] = await listContexts(ctx.db);
-    for (const legado of hashesCrus) {
-      const resolvido = await resolveContext(ctx.db, { scopeHash: legado });
-      expect(resolvido?.scopeHash, `o hash antigo ${legado.slice(0, 8)} não resolveu`).toBe(
-        contexto.scopeHash,
-      );
-    }
-    expect([...contexto.scopeHashesLegados].sort()).toEqual([...hashesCrus].sort());
+
+    // O hash cru daquela unidade, calculado como a coluna morta o calculava:
+    // sha256 dos códigos como vieram, ordenados e unidos por `|`.
+    const legado = createHash("sha256")
+      .update("UNIDADE:07.526.557/0015-05")
+      .digest("hex");
+    expect(legado, "o hash legado não pode coincidir com a chave canônica").not.toBe(
+      contexto.scopeHash,
+    );
+
+    await expect(resolveContext(ctx.db, { scopeHash: legado })).rejects.toThrow(
+      ContextNotFoundError,
+    );
+
+    // E a chave canônica, essa resolve — o controle sem o qual a recusa acima
+    // provaria apenas que `resolveContext` recusa tudo.
+    const resolvido = await resolveContext(ctx.db, { scopeHash: contexto.scopeHash });
+    expect(resolvido?.scopeHash).toBe(contexto.scopeHash);
   }, 300_000);
 
   it("Cobertura também vê uma unidade só — e o recorte dela é o mesmo", async () => {
@@ -476,7 +509,7 @@ describe("divergência 3 — a caixa do rótulo parte o canal em dois", () => {
     const vigencias = await vivas(ctx.db);
     expect(vigencias.map((v) => v.effectiveDate)).toEqual(["2026-05-01", "2026-06-01"]);
     expect(vigencias.map((v) => v.canal)).toEqual(["TRANSFERENCIA", "TRANSFERENCIA"]);
-    expect(new Set(vigencias.map((v) => v.scopeHash)).size).toBe(1);
+    expect(new Set(vigencias.map((v) => v.canonicalScope)).size).toBe(1);
 
     const observadas = await vigenciasObservadas(ctx.db);
     expect(new Set(observadas.map((v) => v.canal)).size).toBe(1);

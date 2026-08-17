@@ -155,6 +155,13 @@
       "when": 1786846020000,
       "tag": "0021_cobertura",
       "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "7",
+      "when": 1786846080000,
+      "tag": "0022_identidade_de_escopo_unica",
+      "breakpoints": true
     }
   ]
 }

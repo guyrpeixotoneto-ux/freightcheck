@@ -4,9 +4,11 @@ import { seedTaxonomy } from "@workspace/curation";
 import {
   absent,
   buildFixture,
+  contextoDaUnidade,
   date,
   type AttributeSpec,
 } from "@workspace/comparison/testing";
+import type { SeriesContext } from "@workspace/comparison";
 import { getVisaoDeFrota } from "../frota";
 import { getAlteracoesDoEquipamento, getHistorico } from "../ficha";
 import { montarComposicao } from "../motor";
@@ -188,9 +190,10 @@ beforeAll(async () => {
         },
       },
     ],
-    { entityType: "CAVALO", scopeHash: "escopo-motor", canal: "EMPURRADA" },
+    { entityType: "CAVALO", unidade: "motor", canal: "EMPURRADA" },
   );
   snapshots = built.snapshotIds;
+  contexto = await contextoDaUnidade(ctx.db, "motor", "EMPURRADA");
   expect(Object.keys(snapshots)).toHaveLength(2);
 }, 300_000);
 
@@ -198,7 +201,15 @@ afterAll(async () => {
   await ctx?.drop();
 });
 
-const contexto = { scopeHash: "escopo-motor", channel: "EMPURRADA" };
+/**
+ * O contexto vem do banco, e não de um literal.
+ *
+ * Antes era `{ scopeHash: "escopo-motor", … }` — a semente do fixture usada
+ * como chave —, e funcionava porque `resolveContext` ainda aceitava a coluna
+ * `snapshot.scope_hash` como grafia legada. Era o teste passando pela ponte de
+ * compatibilidade, e não pela identidade que ele afirma exercitar.
+ */
+let contexto: SeriesContext;
 
 async function composicaoDe(placa: string, period = "2026-08-01") {
   const frota = await getVisaoDeFrota(ctx.db, "CAVALO", { period, context: contexto });

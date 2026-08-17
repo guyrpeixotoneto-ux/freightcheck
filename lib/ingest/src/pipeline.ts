@@ -1477,7 +1477,6 @@ async function promoverSobAutoridade(
 
         // --- escopo -------------------------------------------------------
         const scopeIds = await resolveScopes(tx, facts, scopeCache);
-        const scopeHash = hashScopeSet(scopeIds.descriptors);
         const canonicalScope = canonicalScopeOf(scopeIds.entries);
 
         const faltando = missingRequiredScopeTypes(canonicalScope);
@@ -1614,7 +1613,6 @@ async function promoverSobAutoridade(
             sourceSystem: "FREIGHTEC",
             sourceLabel: label,
             effectiveDate,
-            scopeHash,
             entityTypeSet: tiposDaVigencia.join("+"),
             datasetFamily,
             canal,
@@ -2160,14 +2158,19 @@ async function resolveScopes(
   return { ids, descriptors, entries };
 }
 
-/**
- * Deterministic fingerprint of a snapshot's scope set. Part of the business
- * key, so a Camaçari export can never collide with a Recife one.
- */
-export function hashScopeSet(descriptors: string[]): string {
-  const canonical = [...descriptors].sort().join("|");
-  return createHash("sha256").update(canonical).digest("hex");
-}
+/*
+  `hashScopeSet` não existe mais (`0022`).
+
+  Era a impressão digital do conjunto de escopos **como ele veio** — os códigos
+  ordenados, unidos por `|` e passados por sha256 —, e por isso o CNPJ escrito
+  de duas formas produzia duas impressões digitais para a mesma unidade. Ela
+  saiu da identidade na `0015` e continuou sendo calculada e gravada por mais
+  duas migrations, sem que nada além de uma consulta a lesse.
+
+  Quem identifica o escopo é `canonicalScopeOf`, cujo resultado o banco
+  normaliza e serializa pelas mesmas funções que a identidade da vigência usa.
+
+*/
 
 /**
  * Attach CHASSI as a second identifier of the same permanent entity.

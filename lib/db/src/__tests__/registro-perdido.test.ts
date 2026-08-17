@@ -98,11 +98,24 @@ describe("registro de migrations perdido", () => {
       ela é idempotente por construção — adota a constraint que já existe, cria a
       que falta, e para se o dado não sustentar a identidade.
     */
-    const soConstraints = "0018_identidade_forte";
+    const semObjetoNovo = [
+      "0018_identidade_forte",
+      /*
+        A `0022` está aqui pela mesma razão, e não por uma nova.
+
+        Ela **remove**: derruba `snapshot.scope_hash`, traduz o recorte gravado
+        nas conversas e redefine duas funções. Nenhuma inspeção da forma do
+        schema prova que ela rodou — o que ela cria é uma ausência —, então ela
+        é rodada em vez de adotada. E rodar é o desfecho certo, porque ela é
+        idempotente por construção: a tradução é condicionada à existência da
+        coluna, o `DROP` é `IF EXISTS` e as funções são `CREATE OR REPLACE`.
+      */
+      "0022_identidade_de_escopo_unica",
+    ];
     expect(segunda.adopted).toEqual(
-      primeira.applied.filter((tag) => tag !== soConstraints),
+      primeira.applied.filter((tag) => !semObjetoNovo.includes(tag)),
     );
-    expect(segunda.applied).toEqual([soConstraints]);
+    expect(segunda.applied).toEqual(semObjetoNovo);
 
     /*
       As que mexem em dados saem nomeadas: o schema não prova que o backfill

@@ -718,11 +718,11 @@ describe("a garantia é do banco, não do TypeScript", () => {
         ctx.db.execute(sql`
         INSERT INTO snapshot (
           source_file_id, import_run_id, source_system, source_label, effective_date,
-          scope_hash, entity_type_set, dataset_family, canal, canonical_scope, revision, status
+          entity_type_set, dataset_family, canal, canonical_scope, revision, status
         ) VALUES (
           ${vivo.sourceFileId}::uuid, ${vivo.importRunId}::uuid, ${vivo.sourceSystem},
           ${vivo.sourceLabel || "CLONE"}, ${vivo.effectiveDate}::date,
-          ${vivo.scopeHash}, ${vivo.entityTypeSet}, ${vivo.datasetFamily}, ${vivo.canal},
+          ${vivo.entityTypeSet}, ${vivo.datasetFamily}, ${vivo.canal},
           ${JSON.stringify(vivo.canonicalScope)}::jsonb, 9999, 'CLOSED'
         )
         `),
@@ -742,11 +742,11 @@ describe("a garantia é do banco, não do TypeScript", () => {
         ctx.db.execute(sql`
         INSERT INTO snapshot (
           source_file_id, import_run_id, source_system, source_label, effective_date,
-          scope_hash, entity_type_set, dataset_family, canal, canonical_scope, revision, status
+          entity_type_set, dataset_family, canal, canonical_scope, revision, status
         ) VALUES (
           ${vivo.sourceFileId}::uuid, ${vivo.importRunId}::uuid, ${vivo.sourceSystem},
           ${vivo.sourceLabel || "CLONE"}, ${vivo.effectiveDate}::date,
-          ${vivo.scopeHash}, ${vivo.entityTypeSet}, ${vivo.datasetFamily}, ${vivo.canal},
+          ${vivo.entityTypeSet}, ${vivo.datasetFamily}, ${vivo.canal},
           ${JSON.stringify(vivo.canonicalScope)}::jsonb, ${vivo.revision}, 'SUPERSEDED'
         )
         `),
@@ -775,10 +775,10 @@ describe("a garantia é do banco, não do TypeScript", () => {
         ctx.db.execute(sql`
         INSERT INTO snapshot (
           source_file_id, import_run_id, source_system, source_label, effective_date,
-          scope_hash, entity_type_set, dataset_family, canal, canonical_scope, revision, status
+          entity_type_set, dataset_family, canal, canonical_scope, revision, status
         ) VALUES (
           ${vivo.sourceFileId}::uuid, ${vivo.importRunId}::uuid, 'FREIGHTEC',
-          'FORA_DE_FORMA', '2099-01-01'::date, 'x', 'CAVALO', 'REMUNERACAO_EQUIPAMENTO', 'EMPURRADA',
+          'FORA_DE_FORMA', '2099-01-01'::date, 'CAVALO', 'REMUNERACAO_EQUIPAMENTO', 'EMPURRADA',
           '[{"scopeType":"UNIDADE","code":"07.526.557/0015-05"}]'::jsonb, 1, 'CLOSED'
         )
         `),

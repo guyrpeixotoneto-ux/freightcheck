@@ -9,8 +9,15 @@ import {
   ContextNotFoundError,
   listContexts,
   resolveContext,
+  type SeriesContext,
 } from "../series";
-import { buildFixture, type AttributeSpec } from "./fixtures";
+import { chaveDeEscopoSql } from "@workspace/availability";
+import {
+  buildFixture,
+  cnpjDe,
+  contextoDaUnidade,
+  type AttributeSpec,
+} from "./fixtures";
 
 /**
  * O contexto de uma leitura: unidade e canal.
@@ -34,20 +41,34 @@ import { buildFixture, type AttributeSpec } from "./fixtures";
 let ctx: TestDb;
 
 /** Duas unidades distintas, com placas próprias para não disputarem identidade. */
-const UNIDADE_A = "scope-unidade-a";
-const UNIDADE_B = "scope-unidade-b";
+const UNIDADE_A = "unidade-a";
+const UNIDADE_B = "unidade-b";
 
 /**
- * O contexto, resolvido a partir do `scope_hash` que o fixture gravou.
+ * Os contextos das duas unidades, resolvidos depois que os fixtures entram.
  *
- * Os fixtures escrevem `snapshot.scope_hash` com o valor literal que recebem, e
- * desde o PR-7 o identificador de contexto é o hash do **escopo canônico** —
- * outro valor. Passar pelo `resolveContext` é o que traduz um no outro, e não é
- * concessão: é exatamente o caminho que um link colado antes da mudança
- * percorre. Cada uso aqui é uma prova a mais de que a compatibilidade funciona.
+ * Antes bastava passar o nome — `{ scopeHash: UNIDADE_A }` — porque o fixture
+ * o gravava em `snapshot.scope_hash` e `resolveContext` aceitava a coluna como
+ * grafia legada. Com a `0022`, o nome é nome e a chave é chave.
  */
-async function contextoDe(db: TestDb["db"], scopeHash: string, channel: string) {
-  return (await resolveContext(db, { scopeHash, channel }))!;
+let CTX_A: SeriesContext;
+let CTX_B: SeriesContext;
+
+/**
+ * O contexto de uma unidade, perguntado ao banco.
+ *
+ * Isto era `resolveContext(db, { scopeHash: <a semente do fixture> })`, e
+ * funcionava porque o fixture gravava a semente em `snapshot.scope_hash` e
+ * `resolveContext` a aceitava como grafia legada. Cada uso era, nas palavras do
+ * comentário antigo, "uma prova a mais de que a compatibilidade funciona" — o
+ * que descreve exatamente o problema: o teste exercitava a ponte, não a
+ * identidade.
+ *
+ * A `0022` derrubou a coluna e a aceitação. Agora a pergunta é de negócio — de
+ * que unidade é esta entrega — e quem responde é a autoridade.
+ */
+async function contextoDe(db: TestDb["db"], unidade: string, channel: string) {
+  return contextoDaUnidade(db, unidade, channel);
 }
 
 const CUSTO: AttributeSpec[] = [
@@ -83,7 +104,7 @@ beforeAll(async () => {
         data: { AAA1A11: { "carreta.custo_fixo": 1200 } },
       },
     ],
-    { entityType: "CARRETA", scopeHash: UNIDADE_A, canal: "EMPURRADA" },
+    { entityType: "CARRETA", unidade: UNIDADE_A, canal: "EMPURRADA" },
   );
 
   // Unidade B, mesmo canal, **mesmas datas**: 5000 -> 4000 (−1000/mês).
@@ -102,7 +123,7 @@ beforeAll(async () => {
         data: { BBB2B22: { "carreta.custo_fixo": 4000 } },
       },
     ],
-    { entityType: "CARRETA", scopeHash: UNIDADE_B, canal: "EMPURRADA" },
+    { entityType: "CARRETA", unidade: UNIDADE_B, canal: "EMPURRADA" },
   );
 
   // Unidade A de novo, agora no canal ROTA, na mesma data de fevereiro.
@@ -116,8 +137,11 @@ beforeAll(async () => {
         data: { CCC3C33: { "carreta.custo_fixo": 7000 } },
       },
     ],
-    { entityType: "CARRETA", scopeHash: UNIDADE_A, canal: "ROTA" },
+    { entityType: "CARRETA", unidade: UNIDADE_A, canal: "ROTA" },
   );
+
+  CTX_A = await contextoDaUnidade(ctx.db, UNIDADE_A, "EMPURRADA");
+  CTX_B = await contextoDaUnidade(ctx.db, UNIDADE_B, "EMPURRADA");
 
   await computeMissingChangeSets(ctx.db, "test");
 }, 180_000);
@@ -173,10 +197,10 @@ describe("o canal vem da coluna, e de mais lugar nenhum", () => {
           data: { DDD4D44: { "carreta.custo_fixo": 900 } },
         },
       ],
-      { entityType: "CARRETA", scopeHash: "scope-sem-rotulo", canal: "TRANSFERENCIA" },
+      { entityType: "CARRETA", unidade: "sem-rotulo", canal: "TRANSFERENCIA" },
     );
 
-    const contexto = await contextoDe(local.db, "scope-sem-rotulo", "TRANSFERENCIA");
+    const contexto = await contextoDe(local.db, "sem-rotulo", "TRANSFERENCIA");
     // A derivação por rótulo daria NULL aqui. A coluna diz TRANSFERENCIA.
     expect(contexto.channel).toBe("TRANSFERENCIA");
 
@@ -200,12 +224,14 @@ describe("o canal vem da coluna, e de mais lugar nenhum", () => {
             data: { [`EEE${i}E${i}${i}`]: { "carreta.custo_fixo": 800 + i } },
           },
         ],
-        { entityType: "CARRETA", scopeHash: "scope-caixa", canal: "EMPURRADA" },
+        { entityType: "CARRETA", unidade: "caixa", canal: "EMPURRADA" },
       );
     }
 
+    // Quem identifica a unidade é o CNPJ que o fixture escreveu, e não uma
+    // chave que o teste montou: é o mesmo caminho da tela.
     const contextos = (await listContexts(local.db)).filter((c) =>
-      c.scopeHashesLegados.includes("scope-caixa"),
+      c.scopes.some((e) => e.code === cnpjDe("caixa")),
     );
     expect(contextos).toHaveLength(1);
     expect(contextos[0].periods).toBe(2);
@@ -217,16 +243,24 @@ describe("duas unidades na mesma data", () => {
     const contexts = await listContexts(ctx.db);
     // Unidade A tem dois canais; unidade B tem um.
     expect(contexts).toHaveLength(3);
-    // O identificador é o hash do escopo canônico; o `scope_hash` que o fixture
-    // gravou fica ao lado, como legado, e é por ele que a asserção nomeia quem
-    // é quem sem depender de reproduzir o hash aqui.
+    /*
+      A asserção nomeia quem é quem pelo **CNPJ**, e não pela chave.
+
+      Antes ela lia `scopeHashesLegados` — a lista de grafias cruas — porque era
+      o único jeito de dizer "este contexto é o da unidade A" sem reproduzir o
+      hash no teste. O CNPJ faz o mesmo e é melhor: é o dado que o arquivo
+      traz, o mesmo que a tela mostra, e não depende de nenhuma coluna que a
+      identidade canônica já aposentou.
+    */
     expect(
-      contexts.map((c) => `${c.scopeHashesLegados.join(",")}|${c.channel}`).sort(),
-    ).toEqual([
-      `${UNIDADE_A}|EMPURRADA`,
-      `${UNIDADE_A}|ROTA`,
-      `${UNIDADE_B}|EMPURRADA`,
-    ]);
+      contexts.map((c) => `${c.scopes.map((e) => e.code).join(",")}|${c.channel}`).sort(),
+    ).toEqual(
+      [
+        `${cnpjDe(UNIDADE_A)}|EMPURRADA`,
+        `${cnpjDe(UNIDADE_A)}|ROTA`,
+        `${cnpjDe(UNIDADE_B)}|EMPURRADA`,
+      ].sort(),
+    );
   });
 
   it("cada uma vê só as suas vigências", async () => {
@@ -237,14 +271,8 @@ describe("duas unidades na mesma data", () => {
   });
 
   it("o impacto de fevereiro é o da unidade pedida, nunca a soma das duas", async () => {
-    const a = (await getGroupedView(ctx.db, "2026-02-02", {
-      scopeHash: UNIDADE_A,
-      channel: "EMPURRADA",
-    }))!;
-    const b = (await getGroupedView(ctx.db, "2026-02-02", {
-      scopeHash: UNIDADE_B,
-      channel: "EMPURRADA",
-    }))!;
+    const a = (await getGroupedView(ctx.db, "2026-02-02", CTX_A))!;
+    const b = (await getGroupedView(ctx.db, "2026-02-02", CTX_B))!;
 
     expect(a.impact.byPeriodicity).toEqual({ MENSAL: 200 });
     expect(b.impact.byPeriodicity).toEqual({ MENSAL: -1000 });
@@ -255,8 +283,8 @@ describe("duas unidades na mesma data", () => {
   });
 
   it("o consolidado também é por contexto", async () => {
-    const a = (await getConsolidated(ctx.db, "2026-02-02", { scopeHash: UNIDADE_A, channel: "EMPURRADA" }))!;
-    const b = (await getConsolidated(ctx.db, "2026-02-02", { scopeHash: UNIDADE_B, channel: "EMPURRADA" }))!;
+    const a = (await getConsolidated(ctx.db, "2026-02-02", CTX_A))!;
+    const b = (await getConsolidated(ctx.db, "2026-02-02", CTX_B))!;
     expect(a.impactByPeriodicity).toEqual({ MENSAL: 200 });
     expect(b.impactByPeriodicity).toEqual({ MENSAL: -1000 });
     expect(a.totals.valueChanges).toBe(1);
@@ -264,10 +292,7 @@ describe("duas unidades na mesma data", () => {
   });
 
   it("a série de um atributo não junta as frotas das duas unidades", async () => {
-    const a = (await getAttributeSeries(ctx.db, "carreta.custo_fixo", {
-      scopeHash: UNIDADE_A,
-      channel: "EMPURRADA",
-    }))!;
+    const a = (await getAttributeSeries(ctx.db, "carreta.custo_fixo", CTX_A))!;
     const fevereiro = a.points.find((p) => p.effectiveDate === "2026-02-02")!;
     // Um veículo, R$ 1.200 — e não dois veículos somando R$ 5.200, que faria a
     // média por veículo descrever um universo que não existe.
@@ -277,8 +302,8 @@ describe("duas unidades na mesma data", () => {
   });
 
   it("o acumulado é o da unidade, não o de todas", async () => {
-    const a = await getAccumulatedImpact(ctx.db, { scopeHash: UNIDADE_A, channel: "EMPURRADA" });
-    const b = await getAccumulatedImpact(ctx.db, { scopeHash: UNIDADE_B, channel: "EMPURRADA" });
+    const a = await getAccumulatedImpact(ctx.db, CTX_A);
+    const b = await getAccumulatedImpact(ctx.db, CTX_B);
     expect(a.byPeriodicity).toEqual({ MENSAL: 200 });
     expect(b.byPeriodicity).toEqual({ MENSAL: -1000 });
     expect(a.comparisons).toBe(1);
@@ -301,7 +326,9 @@ describe("duas unidades na mesma data", () => {
 describe("dois canais na mesma unidade", () => {
   it("a vigência de um canal não tem a do outro como anterior", async () => {
     const { rows } = await ctx.db.execute<{ id: string; source_label: string }>(sql`
-      SELECT id::text, source_label FROM snapshot WHERE scope_hash = ${UNIDADE_A}
+      SELECT s.id::text, s.source_label
+        FROM snapshot s
+       WHERE ${chaveDeEscopoSql("s")} = ${(await contextoDe(ctx.db, UNIDADE_A, "EMPURRADA")).scopeHash}
     `);
     const rota = rows.find((r) => r.source_label === "ROTA_2_2_2026")!;
     const empurradaFev = rows.find((r) => r.source_label === "EMPURRADA_2_2_2026")!;
@@ -323,7 +350,9 @@ describe("dois canais na mesma unidade", () => {
 
   it("comparar canais diferentes é recusado por escrito", async () => {
     const { rows } = await ctx.db.execute<{ id: string; source_label: string }>(sql`
-      SELECT id::text, source_label FROM snapshot WHERE scope_hash = ${UNIDADE_A}
+      SELECT s.id::text, s.source_label
+        FROM snapshot s
+       WHERE ${chaveDeEscopoSql("s")} = ${(await contextoDe(ctx.db, UNIDADE_A, "EMPURRADA")).scopeHash}
     `);
     const rota = rows.find((r) => r.source_label === "ROTA_2_2_2026")!;
     const empurrada = rows.find((r) => r.source_label === "EMPURRADA_2_2_2026")!;

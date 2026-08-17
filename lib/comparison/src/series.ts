@@ -42,20 +42,23 @@ import type { Database } from "@workspace/db";
  *
  * **O escopo é o escopo canônico, e não `snapshot.scope_hash`.**
  *
- * `scope_hash` é o SHA-256 dos códigos de escopo **como vieram escritos**. O
+ * `scope_hash` era o SHA-256 dos códigos de escopo **como vieram escritos**. O
  * Excel entrega CNPJ ora mascarado, ora como número sem o zero da frente, e os
- * dois dão hashes diferentes para a mesma empresa. A identidade canônica
- * normaliza — é o que `canonical_scope` guarda, com `CHECK` no banco —, e o
- * comentário de `schema/canonical.ts` diz com todas as letras que `scope_hash`
- * "não faz mais parte da identidade". Este arquivo continuava repartindo o
- * mundo por ele: a mesma unidade virava dois contextos com o mesmo rótulo na
- * tela, e o Impacto abria mostrando metade das vigências.
+ * dois davam hashes diferentes para a mesma empresa. A identidade canônica
+ * normaliza — é o que `canonical_scope` guarda, com `CHECK` no banco —, e este
+ * arquivo continuava repartindo o mundo pelo hash cru: a mesma unidade virava
+ * dois contextos com o mesmo rótulo na tela, e o Impacto abria mostrando
+ * metade das vigências.
+ *
+ * A coluna **não existe mais** (`0022`), e com ela saiu a última coisa que
+ * ainda a lia: a lista de grafias legadas que `resolveContext` aceitava ao lado
+ * da chave canônica. Enquanto as duas foram aceitas, "qual é o escopo desta
+ * vigência?" teve duas respostas certas.
  *
  * `scopeHash` continua sendo o nome do campo, e continua sendo verdade — é o
  * hash do escopo. O que mudou é **de qual escopo**: o canônico, pela mesma
- * função que a identidade da vigência usa (`freightcheck_serialize_scope`).
- * Os valores antigos continuam sendo aceitos no pedido, para que um link
- * colado não morra; ver `resolveContext`.
+ * função que a identidade da vigência usa (`freightcheck_serialize_scope`). É
+ * uma chave só, e é esta.
  */
 
 /**
@@ -86,15 +89,6 @@ export interface SeriesContext {
 export interface ContextInfo extends SeriesContext {
   /** "CAMAÇARI · EMPURRADA" — o que a tela mostra. */
   label: string;
-  /**
-   * Os `snapshot.scope_hash` crus que este contexto já teve.
-   *
-   * Existem para compatibilidade e para mais nada: um link colado antes desta
-   * mudança carrega um deles, e recusá-lo seria transformar uma correção em
-   * página quebrada. Podem ser mais de um — é justamente o defeito que a
-   * mudança fecha.
-   */
-  scopeHashesLegados: string[];
   scopes: { scopeType: string; code: string; name: string | null }[];
   /** A vigência mais recente deste contexto. */
   latestPeriod: string;
@@ -117,24 +111,22 @@ export class ContextNotFoundError extends Error {
 /**
  * Todo par (unidade, canal) que já entregou vigência.
  *
- * Ordenado pela vigência mais recente primeiro, com desempate por `scope_hash`
+ * Ordenado pela vigência mais recente primeiro, com desempate pela chave de escopo
  * e canal — determinístico de propósito. Deixar a ordem por conta do Postgres
  * é como o Painel antigo passou a exibir a série de menor impacto e a omitir a
  * maior, sem dizer que omitia.
  */
 export async function listContexts(db: Database): Promise<ContextInfo[]> {
   const { rows } = await db.execute<{
-    scope_hash: string;
+    chave_de_escopo: string;
     channel: string | null;
     latest_period: string;
     periods: number;
-    legados: string[];
   }>(sql`
-    SELECT ${chaveDeEscopoSql("s")}        AS scope_hash,
+    SELECT ${chaveDeEscopoSql("s")}        AS chave_de_escopo,
            s.canal                         AS channel,
            max(s.effective_date)::text     AS latest_period,
-           count(DISTINCT s.effective_date)::int AS periods,
-           array_agg(DISTINCT s.scope_hash) AS legados
+           count(DISTINCT s.effective_date)::int AS periods
       FROM snapshot s
      WHERE ${filtroDeVigenciaDisponivel("s")}
      GROUP BY 1, 2
@@ -142,13 +134,13 @@ export async function listContexts(db: Database): Promise<ContextInfo[]> {
   `);
 
   const { rows: scopeRows } = await db.execute<{
-    scope_hash: string;
+    chave_de_escopo: string;
     channel: string | null;
     scope_type: string;
     code: string;
     name: string | null;
   }>(sql`
-    SELECT DISTINCT ${chaveDeEscopoSql("s")} AS scope_hash,
+    SELECT DISTINCT ${chaveDeEscopoSql("s")} AS chave_de_escopo,
            s.canal AS channel,
            sc.scope_type, sc.code, sc.name
       FROM snapshot s
@@ -161,19 +153,18 @@ export async function listContexts(db: Database): Promise<ContextInfo[]> {
   const key = (scopeHash: string, channel: string | null) => `${scopeHash}|${channel ?? ""}`;
   const scopesByKey = new Map<string, ContextInfo["scopes"]>();
   for (const row of scopeRows) {
-    const k = key(row.scope_hash, row.channel);
+    const k = key(row.chave_de_escopo, row.channel);
     const list = scopesByKey.get(k) ?? [];
     list.push({ scopeType: row.scope_type, code: row.code, name: row.name });
     scopesByKey.set(k, list);
   }
 
   return rows.map((row) => {
-    const scopes = scopesByKey.get(key(row.scope_hash, row.channel)) ?? [];
+    const scopes = scopesByKey.get(key(row.chave_de_escopo, row.channel)) ?? [];
     return {
-      scopeHash: row.scope_hash,
-      scopeHashesLegados: [...new Set(row.legados ?? [])].sort(),
+      scopeHash: row.chave_de_escopo,
       channel: row.channel,
-      label: contextLabel(scopes, row.channel, row.scope_hash),
+      label: contextLabel(scopes, row.channel, row.chave_de_escopo),
       scopes,
       latestPeriod: row.latest_period,
       periods: Number(row.periods),
@@ -219,24 +210,24 @@ export async function resolveContext(
   if (!wantsScope && !wantsChannel) return contexts[0];
 
   /*
-    O escopo pedido casa pela chave canônica **ou** por um `scope_hash` antigo.
+    Uma comparação, contra uma chave.
 
-    A compatibilidade é de mão única e temporária: links colados, favoritos e
-    estado de tela guardados antes desta mudança carregam o hash cru. Recusá-los
-    transformaria uma correção em página quebrada, e o custo de aceitá-los é uma
-    comparação a mais numa lista de dezenas.
+    Havia duas: a chave canônica **e** o `snapshot.scope_hash` antigo, aceito
+    por compatibilidade com links colados. A compatibilidade custava mais do que
+    parecia — enquanto ela existiu, "qual é o escopo desta vigência?" teve duas
+    respostas certas, e uma pergunta com duas respostas certas é exatamente como
+    um módulo volta a discordar dos outros sobre o que existe.
 
-    Quando dois contextos antigos se fundem num só — o caso do CNPJ mascarado —,
-    os dois hashes legados apontam para o mesmo contexto. É o resultado certo: o
-    link antigo levava a metade da história e passa a levar à história inteira.
+    Um endereço antigo agora não casa, e o que ele recebe não é uma tela vazia:
+    é `ContextNotFoundError`, que nomeia os contextos que existem e que a rota
+    traduz em 404. Recusa escrita é o desfecho certo para um endereço que
+    deixou de existir — e as conversas do assistente, que guardavam o hash cru
+    em banco, foram traduzidas pela `0022` em vez de recusadas.
   */
-  const casaEscopo = (c: ContextInfo) =>
-    !wantsScope ||
-    c.scopeHash === requested!.scopeHash ||
-    c.scopeHashesLegados.includes(requested!.scopeHash!);
-
   const found = contexts.find(
-    (c) => casaEscopo(c) && (!wantsChannel || c.channel === requested!.channel),
+    (c) =>
+      (!wantsScope || c.scopeHash === requested!.scopeHash) &&
+      (!wantsChannel || c.channel === requested!.channel),
   );
   if (!found) throw new ContextNotFoundError(requested!, contexts);
   return found;

@@ -621,8 +621,29 @@ CREATE UNIQUE INDEX IF NOT EXISTS "snapshot_attribute_uq" ON "snapshot_attribute
 CREATE INDEX IF NOT EXISTS "snapshot_attribute_snapshot_idx" ON "snapshot_attribute" USING btree ("snapshot_id");--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "snapshot_scope_uq" ON "snapshot_scope" USING btree ("snapshot_id","scope_id");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "snapshot_scope_snapshot_idx" ON "snapshot_scope" USING btree ("snapshot_id");--> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "snapshot_business_key_uq" ON "snapshot" USING btree ("source_system","source_label","scope_hash","entity_type_set","revision");--> statement-breakpoint
-CREATE UNIQUE INDEX IF NOT EXISTS "snapshot_business_key_live_uq" ON "snapshot" USING btree ("source_system","source_label","scope_hash","entity_type_set") WHERE "snapshot"."status" <> 'SUPERSEDED';--> statement-breakpoint
+-- Os dois índices da chave de negócio antiga, criados **só se a coluna que eles
+-- indexam ainda existir**.
+--
+-- A `0016` derruba os dois e a `0022` derruba a `scope_hash`. A fila é
+-- reentrante por projeto — é o que destrava um banco cujo registro se perdeu, e
+-- é o que `registro-perdido.test.ts` prova —, então esta migration precisa
+-- atravessar um banco que já foi até o fim. Com a coluna fora, o
+-- `IF NOT EXISTS` não basta: ele confere o **índice**, que de fato não existe
+-- mais, e a criação então falha em `42703` na coluna, levando a fila junto.
+--
+-- Conferir a coluna é o mesmo princípio que o resto do arquivo aplica — cada
+-- migration confere antes de criar —, um nível mais fundo. Num banco novo os
+-- dois índices nascem normalmente e a `0016` os derruba na sequência.
+DO $reentrante$
+BEGIN
+  IF EXISTS (SELECT 1 FROM information_schema.columns
+              WHERE table_schema = 'public'
+                AND table_name   = 'snapshot'
+                AND column_name  = 'scope_hash') THEN
+    CREATE UNIQUE INDEX IF NOT EXISTS "snapshot_business_key_uq" ON "snapshot" USING btree ("source_system","source_label","scope_hash","entity_type_set","revision");
+    CREATE UNIQUE INDEX IF NOT EXISTS "snapshot_business_key_live_uq" ON "snapshot" USING btree ("source_system","source_label","scope_hash","entity_type_set") WHERE "snapshot"."status" <> 'SUPERSEDED';
+  END IF;
+END $reentrante$;--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "snapshot_effective_date_idx" ON "snapshot" USING btree ("effective_date");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "snapshot_import_run_idx" ON "snapshot" USING btree ("import_run_id");--> statement-breakpoint
 CREATE UNIQUE INDEX IF NOT EXISTS "column_mapping_sheet_column_uq" ON "column_mapping" USING btree ("raw_sheet_id","column_index");--> statement-breakpoint

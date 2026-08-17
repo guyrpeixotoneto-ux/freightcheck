@@ -406,10 +406,10 @@ describe("a chave canônica inteira", () => {
        )
        INSERT INTO "snapshot" (
          "source_file_id", "import_run_id", "source_system", "source_label",
-         "effective_date", "scope_hash", "entity_type_set",
+         "effective_date", "entity_type_set",
          "dataset_family", "canal", "canonical_scope")
        SELECT c."source_file_id", c."id", 'FREIGHTEC', 'EMPURRADA_1_8_2026',
-              '2026-08-01', 'x', 'CARRETA',
+              '2026-08-01', 'CARRETA',
               'REMUNERACAO_EQUIPAMENTO', 'EMPURRADA',
               '[{"scopeType":"UNIDADE","code":"12345678000199"}]'::jsonb
          FROM corrida c

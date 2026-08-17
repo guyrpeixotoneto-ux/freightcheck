@@ -1609,13 +1609,13 @@ async function findElsewhere(
   */
   const { rows: entregas } = await db.execute<{
     entity_type: string;
-    scope_hash: string;
+    chave_de_escopo: string;
     channel: string | null;
     effective_date: string;
     source_label: string;
   }>(sql`
     SELECT t              AS entity_type,
-           ${chaveDeEscopoSql("s")} AS scope_hash,
+           ${chaveDeEscopoSql("s")} AS chave_de_escopo,
            s.canal AS channel,
            s.effective_date::text AS effective_date,
            s.source_label
@@ -1677,18 +1677,19 @@ async function findElsewhere(
         (e) =>
           !(
             e.entity_type === entityType &&
-            e.scope_hash === context.scopeHash &&
+            e.chave_de_escopo === context.scopeHash &&
             e.channel === context.channel &&
             e.effective_date === effectiveDate
           ),
       )
       .map((e) => ({
         entityType: e.entity_type,
-        contextLabel: rotuloDe(e.scope_hash, e.channel),
+        contextLabel: rotuloDe(e.chave_de_escopo, e.channel),
         effectiveDate: e.effective_date,
         periodLabel: periodLabel(e.effective_date),
         sourceLabel: e.source_label,
-        sameContext: e.scope_hash === context.scopeHash && e.channel === context.channel,
+        sameContext:
+          e.chave_de_escopo === context.scopeHash && e.channel === context.channel,
       })),
     receivedNotPromoted: recebidos.map((r) => ({
       filename: r.filename,

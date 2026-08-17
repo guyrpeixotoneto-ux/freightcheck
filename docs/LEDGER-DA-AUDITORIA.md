@@ -82,6 +82,11 @@ Depois do PR-20, a suíte **inteira**, um pacote por vez e árvore parada:
 | `freightaudit` | 12 | 141 |
 | **Total** | **102** | **1.432** |
 
+Depois do PR-21 (a `0022`): `db` **92** (os 9 da fronteira da identidade de
+escopo), e os outros dez pacotes idênticos — **1.441 em 103 arquivos**. Que só
+`db` se mova é o esperado: a remoção não muda cálculo nenhum, muda quais
+endereços de escopo são aceitos.
+
 Só `api-server` se moveu — 317 → 321 no PR-20 (os 4 de `decisao-e-fusao`) e
 321 → **327** com a guarda da prova final (os 6 de `prova-final.test.ts`). Os
 outros dez pacotes ficaram idênticos ao fechamento do PR-19, que é o esperado
@@ -106,6 +111,7 @@ monorepo inteiro passa.
 | **Não existiu** | 1 (PR-3, dobrado no PR-4 — ver nota) |
 | **Faltam** | **nenhum PR**. Resta a dívida do `scope_hash` legado, remarcada no PR-14 para uma janela de calendário que ainda não foi nomeada |
 | **Prova final** | entregue — `docs/PROVA-FINAL-DA-AUDITORIA.md`, guardada por `prova-final.test.ts` (6) |
+| **Dívida estrutural** | **encerrada** — `0022_identidade_de_escopo_unica`, ver P4 |
 
 > **Nota sobre PR-3.** O plano original tinha um PR-3 de caracterização da
 > Análise de frota, separado do PR-4 que a mapeava. Os dois foram entregues como
@@ -149,6 +155,24 @@ monorepo inteiro passa.
 | **PR-18** | Vocabulário comum do vazio, e as quatro causas do Impacto | **feito** | `86d28da` | `vazio-do-impacto.test.ts` (5) | `Vazio` em `@workspace/availability`: `NAO_EXISTE`, `NAO_SE_APLICA`, `NAO_CALCULAVEL`, `FORA_DO_RECORTE` — a máquina de estados da Parte F, com a regra de ouro presa por asserção. `getQuinzenaMatrix` devolvia `null` nas quatro e a rota traduzia em `404 "Nenhuma vigência importada ainda."`. **Prova negativa**: com a frase única reinstalada, três casos falham, inclusive a regra de ouro |
 | **PR-19** | O terceiro equipamento deixa de ser invisível | **feito** | `1ec312d` | `terceiro-equipamento.test.ts` (6) | Composição e DRE declaravam o que sabem apurar, e **ninguém cruzava com o canônico**: as telas tinham as abas escritas à mão, `/composition/equipment-types` e `/dre/plano` não eram chamados por tela nenhuma. Um terceiro equipamento ficava invisível — sem aba, sem aviso, sem erro. `equipamentosElegiveis` cruza censo × regra e devolve `NAO_SE_APLICA` nomeado; Composição vira aba desabilitada, DRE vira aviso (lá as abas são escopos, e `CONJUNTO` não é equipamento) |
 | **PR-20** | `import_decision` em Importações; `snapshot_merge` em Vigências | **feito** | `92d1744` | `decisao-e-fusao.test.ts` (4) | Duas tabelas escritas pelo pipeline em toda decisão e toda fusão, e **lidas por ninguém**. Importações dizia "dados já registrados" sem dizer contra qual vigência o conteúdo bateu nem que revisão estava lá; Vigências mostrava a que sobrou de uma fusão e a outra sumia da lista, como se a importação dela tivesse falhado. **Achou um defeito no próprio PR**: a correlação `m.snapshot_id = ${snapshotTable.id}` era emitida pelo drizzle sem qualificar num select de uma tabela só, e `snapshot_merge` também tem coluna `id` — o predicado virava `m.snapshot_id = m.id`, casava com nada, e o campo vinha `null` em toda vigência sem erro nenhum. A mesma forma de ausência silenciosa que o PR existe para acabar, dentro do PR. Corrigido nos dois lados (`query.ts` e, preventivamente, `history.ts`) |
+
+---
+
+## P4 — a dívida estrutural, encerrada
+
+| PR | Objetivo | Status | Commit | Testes | Evidência |
+|---|---|---|---|---|---|
+| **PR-21** | Uma identidade de escopo, e não duas | **feito** | `PR21SHA` | `fronteira-da-identidade-de-escopo.test.ts` (9) | A `0022` fecha os três lados da dívida: traduz o recorte gravado em `assistant_conversation.state`, tira a aceitação da grafia antiga de `resolveContext` e derruba `snapshot.scope_hash`. **Medição que definiu o risco**: no export real, 9 vigências, 1 hash cru, 1 escopo canônico — nenhuma fusão a preservar, e as duas grafias sendo strings diferentes. **Consumidor que o levantamento não achou**: duas funções PL/pgSQL citavam a coluna, e `DROP COLUMN ... RESTRICT` não avisa; sem a correção, o gatilho de imutabilidade quebraria toda promoção de revisão nova. **Prova negativa** em três alturas, com casos de controle exercitados nas duas direções |
+
+> **Duas consequências estruturais, registradas.** A remoção quebrou a
+> reentrância da fila — a `0000` recria dois índices sobre a coluna —, e a `0000`
+> foi editada para conferir a existência da coluna antes de criá-los, no mesmo
+> idioma `DO $reentrante$` que a `0001` já usa. Editar migration aplicada é
+> exceção declarada em `registro-e-hash.test.ts`: o runner decide por carimbo e
+> não por hash, então ela não roda de novo — o preço é o hash gravado divergir do
+> arquivo. E o `bridge` passou a restaurar a coluna no `down` e derrubá-la no
+> `up`, nominalmente, porque Production é anterior à `0022` e os dois índices
+> legados que ele recria a citam.
 
 ---
 

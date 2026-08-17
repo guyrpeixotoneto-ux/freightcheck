@@ -85,6 +85,48 @@ export const COLUNAS_LEGADAS_TICKET: { nome: string; ddl: string }[] = [
 ];
 
 /**
+ * A coluna que a `0022` remove de `snapshot`, com o tipo original da `0000`.
+ *
+ * Production ainda a tem, e os dois índices legados que o `down` recria a
+ * citam — sem ela, `snapshot_business_key_uq` não existe e o bridge cai.
+ *
+ * **O preenchimento é `id::text`, e é de propósito.** A coluna vai ser
+ * derrubada de novo pelo `up`, e nada lê o conteúdo dela; o que importa é que
+ * ele não invente colisão. Um literal igual em toda linha — `''` — faria duas
+ * vigências que só diferiam por este hash passarem a colidir em
+ * `snapshot_business_key_uq`, criando aqui um conflito que o banco real não
+ * tem. O `id` é distinto por construção, e é visivelmente um andaime: ninguém
+ * o confunde com o hash que a coluna guardava.
+ */
+export const COLUNA_LEGADA_SNAPSHOT = {
+  nome: "scope_hash",
+  /*
+    Nullable, backfill, `NOT NULL` — a mesma ordem que a `0015` usa, e pela
+    mesma razão: em Production a coluna é `NOT NULL` **sem default**, e
+    recriá-la nullable (ou com default) deixaria um ALTER de comportamento no
+    diff residual, que é justamente o que este módulo existe para não deixar.
+  */
+  passos: [
+    `ALTER TABLE "snapshot" ADD COLUMN IF NOT EXISTS "scope_hash" text`,
+    /*
+      O gatilho de imutabilidade sai de cena durante o preenchimento, e volta
+      logo depois.
+
+      Ele recusa qualquer UPDATE numa vigência CLOSED, que é o que este
+      preenchimento é — e recusar é o comportamento certo dele: o bridge está
+      remontando uma coluna que a `0022` derrubou, não editando uma vigência
+      fechada. `freightcheck_correct_entity_type` faz o mesmo pela mesma razão.
+      Tudo isto roda dentro da transação do bridge, de modo que o gatilho nunca
+      fica desligado para ninguém de fora.
+    */
+    `ALTER TABLE "snapshot" DISABLE TRIGGER "snapshot_immutable"`,
+    `UPDATE "snapshot" SET "scope_hash" = "id"::text WHERE "scope_hash" IS NULL`,
+    `ALTER TABLE "snapshot" ENABLE TRIGGER "snapshot_immutable"`,
+    `ALTER TABLE "snapshot" ALTER COLUMN "scope_hash" SET NOT NULL`,
+  ],
+};
+
+/**
  * A allowlist: o que o Publishing ainda cria em Production depois do `down`.
  *
  * Todas nullable, sem default, sem generated, em tabela que já existe — e todas
@@ -559,6 +601,8 @@ export async function bridgeDown(
         `ALTER TABLE "ticket" ADD COLUMN IF NOT EXISTS "${col.nome}" ${col.ddl}`,
       );
     }
+    // A coluna vem antes dos índices, porque dois deles a citam.
+    for (const passo of COLUNA_LEGADA_SNAPSHOT.passos) await exec(passo);
     for (const i of INDICES_LEGADOS) await exec(i.ddl);
 
     // -----------------------------------------------------------------------
@@ -597,6 +641,11 @@ export async function bridgeDown(
         "ausente",
       );
     }
+    conferir(
+      `snapshot.${COLUNA_LEGADA_SNAPSHOT.nome} restaurada`,
+      await existeColuna(c, "snapshot", COLUNA_LEGADA_SNAPSHOT.nome),
+      "ausente",
+    );
     const { rows: idx } = await c.query<{ nome: string }>(
       `SELECT indexname AS nome FROM pg_indexes WHERE schemaname='public'`,
     );
@@ -745,6 +794,7 @@ function planoUp(): PassoUp[] {
   const M18 = "0018_identidade_forte";
   const M19 = "0019_assistant_feedback";
   const M20 = "0020_chamados_exclusao";
+  const M22 = "0022_identidade_de_escopo_unica";
 
   // 1. Desfaz o estado legado que o `down` recriou. Quem o desfaz é a `0013`.
   for (const col of COLUNAS_LEGADAS_TICKET) {
@@ -754,6 +804,13 @@ function planoUp(): PassoUp[] {
   for (const i of ["snapshot_business_key_uq", "snapshot_business_key_live_uq"]) {
     add(M16, `índice ${i}`, `DROP INDEX IF EXISTS "${i}" RESTRICT`);
   }
+  // Depois dos índices que a citavam, e não antes: `RESTRICT` tem de encontrar
+  // a coluna já sem dependentes.
+  add(
+    M22,
+    `snapshot.${COLUNA_LEGADA_SNAPSHOT.nome}`,
+    `ALTER TABLE "snapshot" DROP COLUMN IF EXISTS "${COLUNA_LEGADA_SNAPSHOT.nome}" RESTRICT`,
+  );
 
   // 2. Colunas, com a definição da migration proprietária.
   add(M13, "ticket.changed_parameter_count", levantar(M13, /ADD COLUMN IF NOT EXISTS "changed_parameter_count"/));
