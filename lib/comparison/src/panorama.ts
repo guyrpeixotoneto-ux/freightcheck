@@ -293,7 +293,7 @@ const CENTAVO = 0.01;
  * o mesmo caminho que `@workspace/coverage` já usa, e o cast garante o tipo
  * quando a lista chega vazia.
  */
-const listaDeTexto = (valores: string[]) =>
+export const listaDeTexto = (valores: string[]) =>
   sql`ARRAY[${sql.join(
     valores.map((v) => sql`${v}`),
     sql`, `,
