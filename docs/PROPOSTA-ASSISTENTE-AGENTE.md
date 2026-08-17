@@ -684,3 +684,103 @@ A regra prática: uma mudança motivada por um caso da camada 2 só entra se
 melhorar **também** o comportamento em perguntas que ninguém previu. Se não
 melhorar, o que se achou foi um caso especial, e caso especial em ferramenta é
 `if/else` com outro nome.
+
+---
+
+## 11. De quem é a pré-condição — a decisão
+
+Esta seção existe porque a pergunta é de arquitetura e a resposta precisa
+sobreviver a quem a implementou.
+
+### O estado
+
+`change` e `change_set` são **estado derivado**: nascem de `computeChangeSet`.
+Um banco pode ter snapshots válidos, 124 mil fatos e semântica confirmada, e
+nenhuma comparação materializada. Lido assim, ele devolve zero — e zero é
+indistinguível de "esta vigência não mudou nada".
+
+Sete lugares criavam esse estado por iniciativa própria: a promoção de uma
+importação, dois endpoints da tela de Alterações, a ficha de composição, a série
+consolidada, um CLI, e a orquestração do planejador. Sete iniciativas, **nenhum
+dono**. Quem esquecesse lia zero sem ter como saber que era zero por falta de
+cálculo.
+
+O estrago já aconteceu três vezes, e nas três a resposta errada era fluente e
+vinha com a fonte ao lado — a pior classe de erro que uma aplicação de auditoria
+pode produzir, porque é indistinguível de uma certa:
+
+1. O assistente respondeu "0 alterações — sem alterações neste recorte" num banco
+   com 124 mil fatos e nove vigências.
+2. O caminho do agente repetiu o mesmo defeito, por outro caminho.
+3. A auditoria de integridade Tool→Evidência rodou inteira sobre conteúdo vazio e
+   reportou 16 de 18 ferramentas íntegras. Eram 12.
+
+### O que estava escondido
+
+O agente **nunca garantiu nada**. Ele recebia a garantia de carona, porque
+`responder` orquestra antes de investigar, e a garantia morava na orquestração —
+o caminho do planejador. Enquanto ficasse ali, tudo funcionava; no dia em que o
+planejador saísse, que é o destino desta migração, o agente perderia a
+pré-condição num diff que não fala de comparações.
+
+Não é hipótese. A auditoria chama as ferramentas direto, sem passar por
+`responder`, e viveu esse futuro antes da hora.
+
+### As três alternativas
+
+**1. Cada capacidade garante a própria pré-condição.** Menor diff imediato, e
+errado: transforma leitura em escrita disfarçada, precisa ser repetida em
+`alteracoes`, `ordenacao`, `comparar`, `resultado` e `veiculos`, e cada uma
+carrega a chance de esquecer. Troca sete donos por doze.
+
+**2. Uma camada comum abaixo do planejador e do agente.** A instanciação certa é
+`responder` — o único ponto por onde os dois caminhos passam **e** que sobrevive
+à remoção de um deles. Um dono, uma chamada, por pergunta.
+
+**3. Materializar noutra etapa, com consultas puramente read-only.** É a decisão
+*já registrada* em `getGroupedView`: «comparar é ato de importação; abrir uma tela
+não deve disparar trabalho pesado nem produzir números diferentes conforme quem
+abriu primeiro». A decisão é boa e continua valendo. O que faltava nela não era o
+cálculo — era **dizer que não havia o que ler**. E `computeMissingChangeSets`, o
+mecanismo que a sustentaria, roda como `void ... .catch(() => {})` na promoção:
+solto, sem retomada, e ausente de todo banco que chegue por seed ou restore.
+
+### A escolha
+
+**As duas metades de (2) e (3), porque são metades de coisas diferentes.**
+
+- **Reparar tem um dono:** `garantirRecorte`, em `responder`. Acima dos dois
+  caminhos, sobrevive à remoção do planejador, roda uma vez por pergunta.
+- **Ler diz a verdade:** `GroupedView.naoComparada` distingue «nunca comparada»
+  de «não mudou». A leitura continua read-only, como a decisão registrada manda,
+  e todo caminho que não reparou antes — CLI, teste, auditoria, tela — é avisado
+  em vez de receber zeros.
+
+`alteracoes` recusa-se a devolver esse zero com cara de resposta: devolve falha
+declarada, com a instrução explícita de não concluir ausência de alteração.
+
+Junto veio `recorteDaConversa`, porque os dois caminhos montavam o recorte por
+conta própria e **já divergiam**: a orquestração herda o `scopeHash` da conversa
+quando a tela não manda um, e o contexto entregue ao agente não herdava — uma
+segunda pergunta podia ser respondida sobre outra unidade que a primeira.
+
+### O que este desenho não resolve
+
+`resumoDaVigencia` lê por `getFamiliesView`, que envolve `getGroupedView` sem
+propagar `naoComparada`. Chamado direto, fora de `responder`, ele ainda relata
+zero sem declarar. Em produção não acontece — `responder` repara antes —, mas é
+a mesma fragilidade num segundo lugar, e propagar o campo pela `FamiliesView` é
+o próximo passo pequeno.
+
+E a autoridade de (3) segue frouxa: enquanto a materialização na importação for
+`void`, ela é melhor esforço. Torná-la retomável e observável é trabalho
+separado, maior, e é o que permitiria um dia `responder` não precisar reparar
+nada.
+
+### A prova
+
+`lib/assistant/src/__tests__/precondicao-comparacoes.test.ts`: banco curado de
+verdade, `change` e `change_set` apagados, e nenhuma divergência semântica que
+venha só da porta de entrada. Verificado nas duas direções — o teste falha se
+`naoComparada` for neutralizado, e falha noutro caso se o dono da reparação for
+removido de `responder`.
