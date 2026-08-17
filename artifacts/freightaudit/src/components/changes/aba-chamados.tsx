@@ -23,6 +23,11 @@ import {
   Zap,
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
+import {
+  LimparRecorte,
+  SeletorDeJanela,
+  type JanelaDeVigencias,
+} from "@/components/changes/janela-vigencias";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardTitle } from "@/components/ui/card";
 import {
@@ -100,6 +105,23 @@ interface TicketsResponse {
     count: number;
     impactSum: number | null;
   }[];
+  /**
+   * As vigências que os chamados deste envio nomeiam — o eixo do recorte.
+   *
+   * Sai do próprio envio, e não do contexto de vigências: chamado não tem
+   * unidade nem canal em lugar nenhum deste produto, e montar as opções a partir
+   * de uma unidade escolhida por padrão faria a aba recortar por algo que
+   * ninguém pediu. O que o chamado tem é a coluna `Vig. Abertura`.
+   */
+  vigencias: {
+    disponiveis: string[];
+    rotulos: Record<string, string>;
+    /** Alterações sem vigência legível — fora de qualquer recorte, por construção. */
+    semVigencia: number;
+  };
+  janela: { de?: string; ate?: string } | null;
+  /** Quantas vigências o recorte de fato alcançou neste envio. */
+  vigenciasNoRecorte: number;
   total: number;
   rows: TicketChangeRow[];
 }
@@ -171,7 +193,17 @@ type Visao = "resumo" | "tipos";
  * existe do outro lado — o envio é indivisível —, e a caixa de confirmação
  * continua dizendo quantos chamados saem, do arquivo todo.
  */
-export function AbaChamados({ escopo }: { escopo?: EscopoDeFrota } = {}) {
+export function AbaChamados({
+  escopo,
+  vigencias = {},
+  onVigencias,
+}: {
+  escopo?: EscopoDeFrota;
+  /** O recorte De/Até, partilhado com as outras abas de Alterações. */
+  vigencias?: JanelaDeVigencias;
+  /** Ausente nas telas 360°, que não oferecem o recorte. */
+  onVigencias?: (j: JanelaDeVigencias) => void;
+} = {}) {
   const [filters, setFilters] = useState<TicketFilterState>(emptyTicketFilters);
   const [visao, setVisao] = useState<Visao>("resumo");
   const [envio, setEnvio] = useState<string | null>(null);
@@ -194,12 +226,14 @@ export function AbaChamados({ escopo }: { escopo?: EscopoDeFrota } = {}) {
   const fileInput = useRef<HTMLInputElement>(null);
   const queryClient = useQueryClient();
 
-  // Filtrar, trocar de envio ou trocar a régua de ordenação muda o tamanho ou a
-  // sequência da lista — e a página em que se estava pode não existir mais, ou
-  // já não conter o que continha do outro lado da troca.
+  const recortado = vigencias.de !== undefined || vigencias.ate !== undefined;
+
+  // Filtrar, recortar, trocar de envio ou trocar a régua de ordenação muda o
+  // tamanho ou a sequência da lista — e a página em que se estava pode não
+  // existir mais, ou já não conter o que continha do outro lado da troca.
   useEffect(() => {
     setJanela((atual) => (atual.pagina === 1 ? atual : { ...atual, pagina: 1 }));
-  }, [filters, envio, ordem]);
+  }, [filters, envio, ordem, vigencias.de, vigencias.ate]);
 
   /** O escopo como a API o recebe. Vazio fora das telas 360°. */
   const escopoNaConsulta = escopo ? paramsDoEscopo(escopo) : null;
@@ -212,10 +246,23 @@ export function AbaChamados({ escopo }: { escopo?: EscopoDeFrota } = {}) {
       janela,
       ordem,
       escopoNaConsulta?.toString() ?? null,
+      vigencias.de,
+      vigencias.ate,
     ],
     queryFn: () => {
       const consulta = new URLSearchParams(
-        toTicketQuery(filters, envio ? { ticketImportId: envio } : {}, janela, ordem),
+        toTicketQuery(
+          filters,
+          {
+            ...(envio ? { ticketImportId: envio } : {}),
+            // O mesmo `de`/`ate` das outras abas. Aqui ele vira a lista de
+            // rótulos que os chamados declaram — ver `rotulosNaJanela`.
+            ...(vigencias.de ? { de: vigencias.de } : {}),
+            ...(vigencias.ate ? { ate: vigencias.ate } : {}),
+          },
+          janela,
+          ordem,
+        ),
       );
       for (const [chave, valor] of escopoNaConsulta ?? []) consulta.set(chave, valor);
       return fetchJson<TicketsResponse>(`/tickets?${consulta}`);
@@ -466,6 +513,52 @@ export function AbaChamados({ escopo }: { escopo?: EscopoDeFrota } = {}) {
           </div>
         </div>
 
+        {/*
+          O recorte De/Até — o mesmo das outras três abas, sobre outro eixo.
+
+          Aqui a vigência não vem do contexto: vem do que **o chamado declara**
+          (`Vig. Abertura`), que é a mesma string de `snapshot.source_label` e é
+          o que a importação já usa para achar o valor anterior de um parâmetro.
+          É o único recorte temporal que esta população sustenta sem ser
+          inventado — chamado não tem unidade nem canal, e datar pela abertura
+          responderia por quando alguém abriu o chamado, não por que vigência ele
+          mexeu.
+
+          Fora das telas 360°, que não passam `onVigencias`: lá a tela já tem um
+          recorte por assunto, e um segundo eixo de escolha ao lado dele diria
+          que a página responde por duas coisas ao mesmo tempo.
+        */}
+        {run && data && onVigencias && (
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <SeletorDeJanela
+              disponiveis={data.vigencias.disponiveis}
+              rotulos={data.vigencias.rotulos}
+              janela={vigencias}
+              onJanela={onVigencias}
+              noRecorte={data.vigenciasNoRecorte}
+              // Aqui uma vigência só é um recorte legítimo: o chamado não é uma
+              // comparação entre duas, é um pedido e uma resposta dentro de uma.
+              precisaDePar={false}
+            />
+            {/*
+              O que nenhum recorte alcança, dito antes de alguém procurar.
+
+              Um chamado sem `Vig. Abertura` legível não tem onde ser posto num
+              eixo de vigências, e some da lista assim que se recorta. Some por
+              construção, e não por defeito — mas a diferença entre as duas
+              coisas não aparece numa lista que encolheu. Só quando há recorte:
+              sem ele nada está sendo escondido, e a frase seria ruído.
+            */}
+            {recortado && data.vigencias.semVigencia > 0 && (
+              <span className="text-xs text-warning-foreground">
+                {data.vigencias.semVigencia.toLocaleString("pt-BR")} alteraç
+                {data.vigencias.semVigencia === 1 ? "ão" : "ões"} sem vigência
+                declarada ficam fora de qualquer recorte
+              </span>
+            )}
+          </div>
+        )}
+
         {/* As duas visões do mesmo arquivo. Fica logo abaixo da procedência
             porque é a primeira escolha de quem chega: ver a lista, ou ver em
             que valor da remuneração o mês mexeu. */}
@@ -511,10 +604,15 @@ export function AbaChamados({ escopo }: { escopo?: EscopoDeFrota } = {}) {
         )}
 
         {query.error && (
-          <ApiErrorNotice
-            error={query.error}
-            what="Os chamados não puderam ser carregados."
-          />
+          <div className="space-y-2">
+            <ApiErrorNotice
+              error={query.error}
+              what="Os chamados não puderam ser carregados."
+            />
+            {recortado && onVigencias && (
+              <LimparRecorte onLimpar={() => onVigencias({})} />
+            )}
+          </div>
         )}
 
         {totals && visao === "resumo" && (
@@ -788,7 +886,11 @@ export function AbaChamados({ escopo }: { escopo?: EscopoDeFrota } = {}) {
         )}
 
         {run && visao === "tipos" && (
-          <TicketClassification envio={envio ?? run.id} escopo={escopo} />
+          <TicketClassification
+            envio={envio ?? run.id}
+            escopo={escopo}
+            vigencias={vigencias}
+          />
         )}
 
         {run && visao === "resumo" && (

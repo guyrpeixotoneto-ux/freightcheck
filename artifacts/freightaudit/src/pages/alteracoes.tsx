@@ -104,14 +104,31 @@ export default function Alteracoes({
     code: string;
   } | null>(null);
   /*
-    O recorte De/Até, compartilhado por Impacto e Cliente.
+    O recorte De/Até, compartilhado pelas quatro abas.
 
-    Mora aqui pelo mesmo motivo que a travessia acima: as duas abas respondem
-    sobre o mesmo período, e perder o recorte ao trocar de aba faria "quanto
-    isso custou" e "o que pedir ao cliente" falarem de meses diferentes com a
-    mesma cara. As abas Planilha e Chamados não o recebem — elas não leem a
-    série, leem comparações gravadas e chamados, e um "de/até" ali seria um
-    filtro que promete um corte que aquelas contas não fazem.
+    Mora aqui pelo mesmo motivo que a travessia acima: as abas respondem sobre o
+    mesmo período, e perder o recorte ao trocar de aba faria "quanto isso
+    custou" e "o que pedir ao cliente" falarem de meses diferentes com a mesma
+    cara.
+
+    Nasceu só para Impacto e Cliente, com a nota de que Planilha e Chamados
+    "não leem a série, leem comparações gravadas e chamados, e um de/até ali
+    seria um filtro que promete um corte que aquelas contas não fazem". A nota
+    estava certa sobre a implementação e errada sobre a pergunta: quem tem nove
+    vigências à vista numa aba quer o mesmo intervalo nas outras, e a resposta
+    foi ensinar as duas contas a recortar de verdade, e não pendurar um seletor
+    decorativo em cima delas.
+
+    O que cada aba passou a fazer com o recorte é diferente, porque as contas
+    são diferentes, e as duas leituras estão escritas onde acontecem:
+
+    - **Planilha** soma as transições cujas duas pontas caem no intervalo (ver
+      `getConsolidated`). A vigência mais antiga do recorte não traz transição,
+      e a tela diz quantas há em vez de deixar quem lê subtrair.
+    - **Chamados** recorta pela vigência que o próprio chamado declara
+      (`Vig. Abertura`), que é a mesma string de `snapshot.source_label`. O que
+      não declara vigência legível fica de fora de qualquer recorte, e a aba diz
+      quantos são.
   */
   const [janela, setJanela] = useState<JanelaDeVigencias>({});
 
@@ -203,8 +220,12 @@ export default function Alteracoes({
         </nav>
       </div>
 
-      {aba === "planilha" && <AbaPlanilha />}
-      {aba === "chamados" && <AbaChamados />}
+      {aba === "planilha" && (
+        <AbaPlanilha vigencias={janela} onVigencias={setJanela} />
+      )}
+      {aba === "chamados" && (
+        <AbaChamados vigencias={janela} onVigencias={setJanela} />
+      )}
       {aba === "impacto" && (
         <div className="p-8">
           {/*

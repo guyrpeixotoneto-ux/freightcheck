@@ -26,6 +26,7 @@ import {
   listContexts,
   resolveContext,
   type ContextInfo,
+  type RequestedContext,
   type SeriesContext,
 } from "./series";
 
@@ -823,7 +824,7 @@ const BADGE_ORDER: Badge[] = [
 export async function getGroupedView(
   db: Database,
   period?: string,
-  requestedContext?: Partial<SeriesContext>,
+  requestedContext?: RequestedContext,
 ): Promise<GroupedView | null> {
   const contexts = await listContexts(db);
   const context = await resolveContext(db, requestedContext, contexts);
@@ -1071,7 +1072,7 @@ export function compareGroups(a: ChangeGroup, b: ChangeGroup): number {
  */
 export async function getAccumulatedImpact(
   db: Database,
-  requestedContext?: Partial<SeriesContext>,
+  requestedContext?: RequestedContext,
 ): Promise<ImpactSummary & { comparisons: number; from: string | null; to: string | null }> {
   const context = await resolveContext(db, requestedContext);
   if (!context) {
@@ -1302,7 +1303,7 @@ export interface AttributeSeries {
 export async function getAttributeSeries(
   db: Database,
   attributeCode: string,
-  requestedContext?: Partial<SeriesContext>,
+  requestedContext?: RequestedContext,
 ): Promise<AttributeSeries | null> {
   // A série é de uma unidade e de um canal. Sem o filtro, duas unidades com a
   // mesma vigência produziriam um ponto só, com a soma das duas frotas — e a
@@ -1453,7 +1454,7 @@ export interface AttributeDomain {
 export async function getAttributeDomain(
   db: Database,
   attributeCode: string,
-  requestedContext?: Partial<SeriesContext>,
+  requestedContext?: RequestedContext,
   period?: string,
 ): Promise<AttributeDomain | null> {
   const context = await resolveContext(db, requestedContext);
@@ -1796,7 +1797,7 @@ export async function getEntityTable(
   db: Database,
   entityType: string,
   attributeCodes: string[],
-  requestedContext?: Partial<SeriesContext>,
+  requestedContext?: RequestedContext,
   period?: string,
 ): Promise<EntityTable | null> {
   const context = await resolveContext(db, requestedContext);

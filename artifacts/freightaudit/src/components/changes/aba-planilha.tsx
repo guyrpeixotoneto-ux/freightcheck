@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import {
   ArrowDown,
@@ -17,6 +17,11 @@ import {
   Truck,
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
+import {
+  LimparRecorte,
+  SeletorDeJanela,
+  type JanelaDeVigencias,
+} from "@/components/changes/janela-vigencias";
 import { Card, CardTitle } from "@/components/ui/card";
 import {
   Aviso,
@@ -62,12 +67,22 @@ interface ConsolidatedResponse {
      * do endereço mostraria "nada escolhido" onde o servidor escolheu por conta
      * própria.
      */
-    context: SeriesContext;
+    context: SeriesContext & {
+      /**
+       * **Todas** as vigências do contexto, sem o recorte — é delas que o
+       * seletor De/Até se monta. Um seletor que só oferecesse as de dentro do
+       * intervalo atual não teria como sair dele.
+       */
+      periodosDisponiveis: string[];
+      periodosNaJanela: number;
+    };
+    /** A vigência da leitura; com recorte, a ponta de cima dele. */
     period: string;
     /** `agosto/2026` — o mesmo rótulo que a Visão geral mostra no cabeçalho. */
     periodLabel: string;
     present: {
       entityTypeSet: string;
+      effectiveDate: string;
       sourceLabel: string;
       previousLabel: string | null;
       reason: string | null;
@@ -84,6 +99,14 @@ interface ConsolidatedResponse {
       impactNotCalculable: number;
     };
     impactByPeriodicity: Record<string, number>;
+    /** O recorte aplicado; null é a leitura de uma vigência só. */
+    janela: { de: string; ate: string } | null;
+    /** As vigências que a leitura cobre, da mais antiga à mais recente. */
+    periodos: string[];
+    /** Quantas transições entraram na soma — **não** é `periodos.length`. */
+    transicoes: number;
+    /** `2025-12-02` → `EMPURRADA_2_12_2025`, para todas as do contexto. */
+    rotulos: Record<string, string>;
   };
   breakdown: Breakdown;
   periods: { effective_date: string; series: string[] }[];
@@ -163,7 +186,17 @@ type PainelPlanilha = "parcial" | "semPreco" | null;
  * lugar em que acontecem: os cartões passam a ler `totais` em vez da `view`, o
  * seletor de série some, e a faixa da Visão geral não aparece.
  */
-export function AbaPlanilha({ escopo }: { escopo?: EscopoDeFrota } = {}) {
+export function AbaPlanilha({
+  escopo,
+  vigencias = {},
+  onVigencias,
+}: {
+  escopo?: EscopoDeFrota;
+  /** O recorte De/Até, partilhado com as outras abas de Alterações. */
+  vigencias?: JanelaDeVigencias;
+  /** Ausente nas telas 360°, que não oferecem o recorte. */
+  onVigencias?: (j: JanelaDeVigencias) => void;
+} = {}) {
   const search = useSearch();
   const [caminho, navegar] = useLocation();
 
@@ -229,14 +262,46 @@ export function AbaPlanilha({ escopo }: { escopo?: EscopoDeFrota } = {}) {
   const [janela, setJanela] = useState<Janela>(primeiraPagina);
   const [painel, setPainel] = useState<PainelPlanilha>(null);
 
+  const recortado = vigencias.de !== undefined || vigencias.ate !== undefined;
+
   /*
-    Filtrar ou trocar de série encurta a lista, e a página em que se estava
-    pode deixar de existir — a tabela ficaria vazia com o rodapé afirmando que
-    há resultados. Voltar para a primeira é o que não mente.
+    Filtrar, recortar ou trocar de série encurta a lista, e a página em que se
+    estava pode deixar de existir — a tabela ficaria vazia com o rodapé
+    afirmando que há resultados. Voltar para a primeira é o que não mente.
   */
   useEffect(() => {
     setJanela((atual) => (atual.pagina === 1 ? atual : { ...atual, pagina: 1 }));
-  }, [filters, series]);
+  }, [filters, series, vigencias.de, vigencias.ate]);
+
+  /*
+    Uma série escolhida e um recorte aceso não podem coexistir.
+
+    `trocarSerie` já apaga o recorte de quem troca por aqui, e este efeito cobre
+    quem chega com a série já escolhida — o recorte vem de outra aba, e nesta
+    leitura ele não é aplicado nem tem seletor onde aparecer. Um recorte que só
+    existe na memória do componente é o começo de dois números discordando.
+  */
+  useEffect(() => {
+    if (series !== null && recortado) onVigencias?.({});
+  }, [series, recortado, onVigencias]);
+
+  /**
+   * Recortar apaga a vigência única do endereço — as duas são o mesmo eixo.
+   *
+   * `?period=` é o que a Visão geral manda: *esta* vigência, comparada com a
+   * anterior dela. O recorte é a outra pergunta do mesmo eixo: *este intervalo*,
+   * e as transições de dentro dele. Deixar as duas escritas ao mesmo tempo faria
+   * a barra de endereços afirmar uma vigência que a resposta não aplicou — o
+   * servidor dá precedência ao recorte, e é ele que vale.
+   */
+  const trocarVigencias = (proxima: JanelaDeVigencias) => {
+    onVigencias?.(proxima);
+    const pediuRecorte = proxima.de !== undefined || proxima.ate !== undefined;
+    if (!pediuRecorte || recorte.period === null) return;
+    const params = new URLSearchParams(search);
+    params.delete("period");
+    navegar(params.toString() ? `${caminho}?${params}` : caminho, { replace: true });
+  };
 
   /**
    * Trocar de série é trocar de comparação, e a vigência escolhida não vem
@@ -251,6 +316,13 @@ export function AbaPlanilha({ escopo }: { escopo?: EscopoDeFrota } = {}) {
    * estão sendo comparadas de fato.
    */
   const trocarSerie = (proxima: string | null) => {
+    /*
+      O recorte também não atravessa. `/changes/latest` responde pela comparação
+      mais recente de uma série e não sabe receber um intervalo; mantê-lo aceso
+      na tela deixaria um seletor dizendo "3 de 9 vigências" sobre uma resposta
+      que leu duas. Ele volta a valer assim que se volta para a frota.
+    */
+    if (proxima !== null && recortado) onVigencias?.({});
     const params = paramsDeAlteracoes({
       aba: "planilha",
       recorte: proxima === null ? recorte : { ...recorte, period: null },
@@ -276,6 +348,8 @@ export function AbaPlanilha({ escopo }: { escopo?: EscopoDeFrota } = {}) {
       escopoNaConsulta?.toString() ?? null,
       filters,
       janela,
+      vigencias.de,
+      vigencias.ate,
     ],
     queryFn: () => {
       /*
@@ -294,9 +368,17 @@ export function AbaPlanilha({ escopo }: { escopo?: EscopoDeFrota } = {}) {
         porque alguém colou um endereço antigo.
       */
       for (const [chave, valor] of escopoNaConsulta ?? []) consulta.set(chave, valor);
+      // O recorte vai pelos mesmos `de`/`ate` das outras abas — é o contexto
+      // que o carrega do lado do servidor, e não um parâmetro desta rota.
+      if (vigencias.de) consulta.set("de", vigencias.de);
+      if (vigencias.ate) consulta.set("ate", vigencias.ate);
       return fetchJson<ConsolidatedResponse>(`/changes/consolidated?${consulta}`);
     },
     enabled: series === null,
+    // Virar a página ou mexer numa ponta do recorte não pode apagar a tabela: a
+    // lista pisca em branco a cada clique, e quem está comparando dois recortes
+    // perde a referência do que estava lendo.
+    placeholderData: keepPreviousData,
   });
 
   const single = useQuery({
@@ -391,7 +473,32 @@ export function AbaPlanilha({ escopo }: { escopo?: EscopoDeFrota } = {}) {
         <VindoDaVisaoGeral
           recorte={recorte}
           unidade={cv ? nomeDaUnidade(cv.context) : null}
-          vigencia={series === null ? (cv?.periodLabel ?? null) : null}
+          // Com recorte De/Até a vigência única não vale mais: quem a
+          // anunciasse estaria nomeando uma coluna de um intervalo de nove.
+          vigencia={
+            series === null && !recortado ? (cv?.periodLabel ?? null) : null
+          }
+        />
+      )}
+
+      {/*
+        O recorte De/Até — o mesmo das abas Impacto e Cliente.
+
+        Fica acima da procedência porque é ela que ele muda: as vigências
+        escolhidas aqui são as que a linha de baixo passa a nomear. Só na
+        leitura da frota — `/changes/latest`, que responde por uma série, é
+        sempre a comparação mais recente dela e não sabe receber um intervalo —
+        e só fora das telas 360°, que não passam `onVigencias`: lá a tela já tem
+        um recorte por assunto, e um segundo eixo de escolha ao lado dele diria
+        que a página responde por duas coisas ao mesmo tempo.
+      */}
+      {series === null && cv && onVigencias && (
+        <SeletorDeJanela
+          disponiveis={cv.context.periodosDisponiveis}
+          rotulos={cv.rotulos}
+          janela={vigencias}
+          onJanela={trocarVigencias}
+          noRecorte={cv.context.periodosNaJanela}
         />
       )}
 
@@ -402,7 +509,33 @@ export function AbaPlanilha({ escopo }: { escopo?: EscopoDeFrota } = {}) {
         <div className="min-w-0 space-y-1">
           <p className="text-sm text-muted-foreground flex flex-wrap items-center gap-2">
             {series === null ? (
-              cv && <span className="font-mono">período {cv.period}</span>
+              cv &&
+              (cv.janela === null ? (
+                <span className="font-mono">período {cv.period}</span>
+              ) : (
+                /*
+                  Com recorte, a procedência é o intervalo — e o número de
+                  transições vem junto, porque ele **não** é o de vigências.
+                  A mais antiga do intervalo não tem par aqui dentro: a
+                  comparação dela atravessa a borda e pertence ao recorte
+                  anterior. Escrever os dois números é o que impede alguém de
+                  ler "9 vigências" como "9 comparações".
+                */
+                <>
+                  <span className="font-mono">
+                    {cv.rotulos[cv.janela.de] ?? cv.janela.de}
+                  </span>
+                  <ArrowRight className="w-4 h-4" />
+                  <span className="font-mono">
+                    {cv.rotulos[cv.janela.ate] ?? cv.janela.ate}
+                  </span>
+                  <span>
+                    · {cv.periodos.length} vigência
+                    {cv.periodos.length === 1 ? "" : "s"}, {cv.transicoes}{" "}
+                    comparaç{cv.transicoes === 1 ? "ão" : "ões"}
+                  </span>
+                </>
+              ))
             ) : (
               data && (
                 <>
@@ -420,18 +553,13 @@ export function AbaPlanilha({ escopo }: { escopo?: EscopoDeFrota } = {}) {
                   listar a entrega da carreta numa tela de cavalos descreveria
                   um arquivo que não produziu nenhuma linha do que está abaixo. */}
               {escopo ? "Comparação de " : "Consolidado de "}
-              {cv.present
-                .filter(
+              {procedenciaDasSeries(
+                cv.present.filter(
                   (p) =>
                     escopo === undefined ||
                     p.entityTypeSet.split("+").includes(escopo.entityType),
-                )
-                .map((p) =>
-                  p.previousLabel
-                    ? `${p.entityTypeSet.toLowerCase()} (${p.previousLabel} → ${p.sourceLabel})`
-                    : `${p.entityTypeSet.toLowerCase()} (${p.reason})`,
-                )
-                .join(" · ")}
+                ),
+              )}
               . Cada série é comparada com a anterior dela mesma; nada é fundido.
             </p>
           )}
@@ -454,8 +582,8 @@ export function AbaPlanilha({ escopo }: { escopo?: EscopoDeFrota } = {}) {
                 active={series === s}
                 onClick={() => trocarSerie(s)}
                 hint={
-                  recorte.period !== null
-                    ? "a comparação de uma série é sempre a mais recente dela — a vigência escolhida sai do recorte"
+                  recorte.period !== null || recortado
+                    ? "a comparação de uma série é sempre a mais recente dela — a vigência escolhida e o recorte De/Até saem junto"
                     : undefined
                 }
               >
@@ -467,10 +595,19 @@ export function AbaPlanilha({ escopo }: { escopo?: EscopoDeFrota } = {}) {
       </div>
 
       {error && (
-        <ApiErrorNotice
-          error={error}
-          what="As alterações da planilha não puderam ser carregadas."
-        />
+        <div className="space-y-2">
+          <ApiErrorNotice
+            error={error}
+            what="As alterações da planilha não puderam ser carregadas."
+          />
+          {/* A recusa mais provável aqui é o recorte: uma ponta que este
+              contexto não tem volta como 400 com a lista das que ele tem. Sem
+              este botão o recorte fica aceso com o seletor escondido, e só
+              recarregar a página desfaz. */}
+          {recortado && onVigencias && (
+            <LimparRecorte onLimpar={() => onVigencias({})} />
+          )}
+        </div>
       )}
 
       {totals && (
@@ -531,7 +668,11 @@ export function AbaPlanilha({ escopo }: { escopo?: EscopoDeFrota } = {}) {
               <Aviso
                 tone="red"
                 titulo="Visão consolidada parcial"
-                detalhe={`Falta ${cv.missing.join(", ").toLowerCase()} no período ${cv.period}`}
+                detalhe={`Falta ${cv.missing.join(", ").toLowerCase()} ${
+                  cv.janela === null
+                    ? `no período ${cv.period}`
+                    : "no intervalo escolhido"
+                }`}
                 acao="Revisar"
                 aberto={painel === "parcial"}
                 onClick={() => abrirPainel("parcial")}
@@ -552,9 +693,28 @@ export function AbaPlanilha({ escopo }: { escopo?: EscopoDeFrota } = {}) {
 
           {painel === "parcial" && cv && (
             <div className="rounded-xl border bg-muted/30 p-4 text-sm">
-              Para o período <span className="font-mono">{cv.period}</span>{" "}
-              chegou apenas{" "}
-              {cv.present.map((p) => p.entityTypeSet.toLowerCase()).join(", ")}.
+              {cv.janela === null ? (
+                <>
+                  Para o período <span className="font-mono">{cv.period}</span>{" "}
+                  chegou apenas{" "}
+                </>
+              ) : (
+                <>
+                  No intervalo{" "}
+                  <span className="font-mono">
+                    {cv.rotulos[cv.janela.de] ?? cv.janela.de}
+                  </span>{" "}
+                  —{" "}
+                  <span className="font-mono">
+                    {cv.rotulos[cv.janela.ate] ?? cv.janela.ate}
+                  </span>{" "}
+                  chegou apenas{" "}
+                </>
+              )}
+              {[
+                ...new Set(cv.present.map((p) => p.entityTypeSet.toLowerCase())),
+              ].join(", ")}
+              .
               Falta <strong>{cv.missing.join(", ").toLowerCase()}</strong> — os
               números acima cobrem só o que foi entregue, e a série ausente não
               está contada como zero.
@@ -655,6 +815,52 @@ export function AbaPlanilha({ escopo }: { escopo?: EscopoDeFrota } = {}) {
       </Card>
     </div>
   );
+}
+
+/**
+ * De onde saiu cada série, numa frase — de uma vigência ou de um intervalo.
+ *
+ * Sem recorte há uma entrada por série, e a frase é a de sempre:
+ * `cavalo (V7 → V8) · carreta (V7 → V8)`. Com recorte há uma por série **e por
+ * vigência**, e repetir todas produziria dezoito parênteses numa linha que
+ * ninguém leria — e que, pior, teria de ser lida para se descobrir quantas
+ * comparações cada série trouxe.
+ *
+ * Então cada série vira uma frase só: quantas comparações ela tem, e entre que
+ * pontas. As pontas saem das próprias entradas — a mais antiga que tem par e a
+ * mais recente —, e não do intervalo pedido, porque uma série que não entregou
+ * na borda do recorte começa depois dela. Uma série sem par nenhum diz o motivo,
+ * em vez de sumir da frase deixando parecer que não entregou nada.
+ */
+function procedenciaDasSeries(
+  present: ConsolidatedResponse["view"]["present"],
+): string {
+  const porSerie = new Map<string, typeof present>();
+  for (const p of present) {
+    const lista = porSerie.get(p.entityTypeSet) ?? [];
+    lista.push(p);
+    porSerie.set(p.entityTypeSet, lista);
+  }
+
+  return [...porSerie.entries()]
+    .map(([serie, entradas]) => {
+      const nome = serie.toLowerCase();
+      // Em ordem de vigência, que é a ordem em que o servidor as devolveu.
+      const comparadas = entradas.filter((e) => e.previousLabel !== null);
+      if (comparadas.length === 0) {
+        return `${nome} (${entradas[0]?.reason ?? "sem comparação"})`;
+      }
+      const primeira = comparadas[0];
+      const ultima = comparadas[comparadas.length - 1];
+      if (comparadas.length === 1) {
+        return `${nome} (${primeira.previousLabel} → ${primeira.sourceLabel})`;
+      }
+      return (
+        `${nome} (${comparadas.length} comparações, ` +
+        `${primeira.previousLabel} → ${ultima.sourceLabel})`
+      );
+    })
+    .join(" · ");
 }
 
 /**

@@ -1,10 +1,24 @@
-import { and, asc, desc, eq, gte, ilike, isNotNull, isNull, or, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import {
   type Database,
   ticketChangeTable,
   ticketImportTable,
   ticketTable,
 } from "@workspace/db";
+import { parseVigenciaLabel } from "@workspace/ingest";
 import {
   CLASSES_DE_VALOR,
   NAO_CLASSIFICADO,
@@ -103,8 +117,120 @@ export interface TicketFilters {
   sort?: string;
   /** asc | desc. Só faz sentido acompanhado de `sort`. */
   dir?: string;
+  /**
+   * O recorte De/Até, já resolvido nos rótulos que ele cobre.
+   *
+   * `undefined` (ou `null`) é o envio inteiro. Uma **lista vazia** é um recorte
+   * legítimo que nenhuma vigência atende, e não se confunde com o anterior: ela
+   * não devolve nada, em vez de devolver tudo. Confundir os dois faria a tela
+   * mostrar 1.218 alterações sob um título que promete três vigências.
+   *
+   * Vem em rótulos e não em datas porque é o rótulo que o chamado declara —
+   * `EMPURRADA_2_12_2025`, a mesma string de `snapshot.source_label`. Quem
+   * traduz a data escolhida na tela para esta lista é {@link rotulosNaJanela},
+   * uma vez só, sobre o eixo que o próprio envio sustenta.
+   */
+  vigenciaLabels?: string[] | null;
   limit?: number;
   offset?: number;
+}
+
+// ---------------------------------------------------------------------------
+// O eixo de vigências dos chamados
+// ---------------------------------------------------------------------------
+
+/**
+ * As vigências que os chamados de um envio nomeiam, em ordem.
+ *
+ * **Sai do próprio envio, e não do contexto de vigências.** Chamado não tem
+ * unidade nem canal em lugar nenhum deste produto — é uma população à parte, e
+ * derivar as opções de um contexto escolhido por padrão faria a aba recortar
+ * por uma unidade que ninguém pediu. O que o chamado tem é a coluna
+ * `Vig. Abertura`, que é a vigência contra a qual ele foi aberto e casa
+ * exatamente com `snapshot.source_label` — a mesma igualdade que a importação
+ * já usa para achar o valor anterior de um parâmetro.
+ *
+ * A data vem do rótulo, pelo mesmo parser da importação. Rótulo que não tem
+ * forma de vigência não vira data nenhuma e não entra no eixo: ele é contado em
+ * {@link EixoDeVigencias.semVigencia}, para que a tela possa dizer quantas
+ * alterações **nenhum** recorte alcança em vez de deixá-las sumir em silêncio.
+ */
+export interface EixoDeVigencias {
+  /** As datas das vigências nomeadas, da mais antiga à mais recente. */
+  disponiveis: string[];
+  /**
+   * `2025-12-02` → os rótulos daquele dia, em ordem.
+   *
+   * É uma lista e não uma string porque o eixo é de **datas** e a fonte escreve
+   * **rótulos**: `EMPURRADA_2_12_2025` e `EMPURRADA_02_12_2025` são o mesmo dia
+   * escrito de dois jeitos, e o recorte tem de alcançar os dois. Guardar um só
+   * deixaria de fora, em silêncio, os chamados que usaram a outra grafia. Quem
+   * precisa de uma legenda usa o primeiro; quem precisa filtrar usa todos.
+   */
+  rotulos: Record<string, string[]>;
+  /**
+   * Alterações cujo chamado não nomeia vigência legível.
+   *
+   * Ficam fora de qualquer recorte por construção — não há onde as pôr — e o
+   * número existe para que isso seja dito, e não descoberto por subtração.
+   */
+  semVigencia: number;
+}
+
+export async function getTicketVigencias(
+  db: Database,
+  ticketImportId: string,
+): Promise<EixoDeVigencias> {
+  const rows = await db
+    .select({
+      vigenciaLabel: ticketTable.vigenciaLabel,
+      changes: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(ticketChangeTable)
+    .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
+    .where(eq(ticketChangeTable.ticketImportId, ticketImportId))
+    .groupBy(ticketTable.vigenciaLabel);
+
+  const rotulos: Record<string, string[]> = {};
+  let semVigencia = 0;
+  for (const row of rows) {
+    const rotulo = row.vigenciaLabel;
+    const data = rotulo === null ? null : parseVigenciaLabel(rotulo).effectiveDate;
+    if (data === null || rotulo === null) {
+      semVigencia += row.changes;
+      continue;
+    }
+    (rotulos[data] ??= []).push(rotulo);
+  }
+  for (const lista of Object.values(rotulos)) lista.sort();
+
+  return { disponiveis: Object.keys(rotulos).sort(), rotulos, semVigencia };
+}
+
+/**
+ * O recorte, traduzido para os rótulos que ele cobre.
+ *
+ * `null` quando não há recorte — e é o valor que faz as consultas responderem
+ * pelo envio inteiro. Meia janela é completada com o extremo do eixo, pela
+ * mesma razão que em `aplicarJanela`: "de março para cá" é um pedido legítimo.
+ *
+ * Uma ponta que não é vigência deste envio **não** é aparada para a mais
+ * próxima: ela recorta o que houver entre as duas datas, e se não houver nada a
+ * lista sai vazia. É a diferença entre responder pouco e responder por outro
+ * período com o título do pedido.
+ */
+export function rotulosNaJanela(
+  eixo: EixoDeVigencias,
+  janela: { de?: string; ate?: string } | null | undefined,
+): string[] | null {
+  if (!janela || (janela.de === undefined && janela.ate === undefined)) return null;
+
+  const de = janela.de ?? eixo.disponiveis[0] ?? "";
+  const ate = janela.ate ?? eixo.disponiveis[eixo.disponiveis.length - 1] ?? "";
+
+  return eixo.disponiveis
+    .filter((d) => d >= de && d <= ate)
+    .flatMap((d) => eixo.rotulos[d] ?? []);
 }
 
 export interface TicketImportSummary {
@@ -207,6 +333,27 @@ function toSummary(row: typeof ticketImportTable.$inferSelect): TicketImportSumm
 const DIVERGENT = sql`${ticketChangeTable.deltaAbsolute} IS NOT NULL AND ${ticketChangeTable.deltaAbsolute} <> 0`;
 
 /**
+ * O recorte por vigência, como predicado sobre o chamado.
+ *
+ * Exige que `ticket` esteja no `FROM` de quem o usa — é sempre o caso, porque
+ * a vigência é do chamado e não da alteração.
+ *
+ * Uma lista vazia vira `false` em vez de sumir. Apagar um recorte que não
+ * alcança nada faria a consulta responder pelo envio inteiro debaixo do título
+ * do recorte, que é a forma mais silenciosa de mentir que esta tela tem.
+ *
+ * Mora ao lado do escopo de frota, e as duas coisas se acumulam sem se
+ * confundir: o escopo diz *de que ativos* a tela fala, o recorte diz *de que
+ * período*. Nenhum dos dois é filtro de linha — os dois atravessam também os
+ * cartões e a árvore, e é isso que os separa de tudo em `TicketFilters`.
+ */
+function noRecorteDeVigencia(labels: string[] | null | undefined): SQL | undefined {
+  if (labels === null || labels === undefined) return undefined;
+  if (labels.length === 0) return sql`false`;
+  return inArray(ticketTable.vigenciaLabel, labels);
+}
+
+/**
  * O escopo de frota sobre as alterações de chamado.
  *
  * Separado dos filtros, e não mais um campo em `TicketFilters`, pela razão que
@@ -241,6 +388,7 @@ function buildWhere(
 ): SQL | undefined {
   const parts: (SQL | undefined)[] = [
     eq(ticketChangeTable.ticketImportId, ticketImportId),
+    noRecorteDeVigencia(filters.vigenciaLabels),
     ...escopoNasAlteracoes(frota),
   ];
 
@@ -575,24 +723,41 @@ export async function getTicket(
 }
 
 /**
- * Os totais do envio inteiro — sem filtro nenhum.
+ * Os totais do envio — sem filtro de linha, mas **dentro do recorte**.
  *
- * De propósito: os cartões do topo dizem o tamanho do assunto, e um cartão que
- * encolhe ao se clicar num chip deixa de responder "quantas alterações
- * existem" para responder "quantas sobraram", que é a pergunta que a contagem
- * da tabela já responde logo abaixo.
+ * A ausência de filtro é de propósito: os cartões do topo dizem o tamanho do
+ * assunto, e um cartão que encolhe ao se clicar num chip deixa de responder
+ * "quantas alterações existem" para responder "quantas sobraram", que é a
+ * pergunta que a contagem da tabela já responde logo abaixo.
+ *
+ * O recorte de vigências é a exceção, e não uma inconsistência: ele não é um
+ * filtro de linha, é **de que período a tela está falando** — a mesma natureza
+ * da unidade nas outras abas. Um cartão dizendo 1.218 ao lado de um seletor
+ * dizendo "3 de 9 vigências" não seria um total abrangente, seria um total de
+ * outro assunto.
  */
 export async function getTicketTotals(
   db: Database,
   ticketImportId: string,
+  /** Os rótulos do recorte de vigências; `null` (ou ausente) é o envio inteiro. */
+  vigenciaLabels?: string[] | null,
   frota: EscopoDeFrota = {},
 ): Promise<TicketTotals> {
+  const recorte = noRecorteDeVigencia(vigenciaLabels);
+  /*
+    O `innerJoin` com `ticket` entra sempre, e não só quando há recorte: toda
+    alteração tem um chamado (a coluna é NOT NULL com chave estrangeira), então
+    ele não muda contagem nenhuma — e uma consulta que mudasse de forma conforme
+    o recorte seria duas consultas se fingindo de uma.
+  */
   const escopoChanges = and(
     eq(ticketChangeTable.ticketImportId, ticketImportId),
+    recorte,
     ...escopoNasAlteracoes(frota),
   )!;
   const escopoTickets = and(
     eq(ticketTable.ticketImportId, ticketImportId),
+    recorte,
     ...escopoNosChamados(frota),
   )!;
 
@@ -605,6 +770,7 @@ export async function getTicketTotals(
       divergent: sql<number>`count(*) filter (where ${DIVERGENT})`.mapWith(Number),
     })
     .from(ticketChangeTable)
+    .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
     .where(escopoChanges);
 
   const [chamados] = await db
@@ -644,6 +810,7 @@ export async function getTicketTotals(
       count: sql<number>`count(*)`.mapWith(Number),
     })
     .from(ticketChangeTable)
+    .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
     .where(escopoChanges)
     .groupBy(ticketChangeTable.beforeSource)
     .orderBy(desc(sql`count(*)`));
@@ -654,6 +821,7 @@ export async function getTicketTotals(
       count: sql<number>`count(*)`.mapWith(Number),
     })
     .from(ticketChangeTable)
+    .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
     .where(escopoChanges)
     .groupBy(ticketChangeTable.changeKind)
     .orderBy(desc(sql`count(*)`));
@@ -883,6 +1051,8 @@ function somarApurados(itens: { impactSum: number | null }[]): number | null {
 export async function getTicketClassification(
   db: Database,
   ticketImportId: string,
+  /** Os rótulos do recorte de vigências; `null` (ou ausente) é o envio inteiro. */
+  vigenciaLabels?: string[] | null,
   frota: EscopoDeFrota = {},
 ): Promise<TicketClassificationView> {
   const rows = await db
@@ -899,6 +1069,7 @@ export async function getTicketClassification(
     .where(
       and(
         eq(ticketChangeTable.ticketImportId, ticketImportId),
+        noRecorteDeVigencia(vigenciaLabels),
         ...escopoNasAlteracoes(frota),
       ),
     )
@@ -931,6 +1102,8 @@ export async function getTicketClassification(
 export async function getTicketsByParameter(
   db: Database,
   ticketImportId: string,
+  /** Os rótulos do recorte; `null` (ou ausente) é o envio inteiro. */
+  vigenciaLabels?: string[] | null,
   limit = 15,
   frota: EscopoDeFrota = {},
 ): Promise<
@@ -949,10 +1122,12 @@ export async function getTicketsByParameter(
       impactSum: sql<string | null>`sum(${ticketChangeTable.impactAmount}) filter (where ${ticketChangeTable.impactConfidence} = 'CALCULATED')`,
     })
     .from(ticketChangeTable)
+    .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
     .where(
       and(
         eq(ticketChangeTable.ticketImportId, ticketImportId),
         isNotNull(ticketChangeTable.parameterLabel),
+        noRecorteDeVigencia(vigenciaLabels),
         ...escopoNasAlteracoes(frota),
       ),
     )
