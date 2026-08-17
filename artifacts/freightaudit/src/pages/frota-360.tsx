@@ -1,0 +1,412 @@
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Link, useLocation, useSearch } from "wouter";
+import {
+  Container,
+  DollarSign,
+  FileSpreadsheet,
+  Handshake,
+  Headset,
+  Search,
+  Tractor,
+  X,
+} from "lucide-react";
+import { ApiErrorNotice } from "@/components/api-error";
+import { Layout } from "@/components/layout/layout";
+import { AbaBotao } from "@/components/changes/cartoes";
+import { AbaPlanilha } from "@/components/changes/aba-planilha";
+import { AbaChamados } from "@/components/changes/aba-chamados";
+import { ImpactoQuinzenas } from "@/components/changes/impacto-quinzenas";
+import { ClienteRecomendacoes } from "@/components/changes/cliente-recomendacoes";
+import type { JanelaDeVigencias } from "@/components/changes/janela-vigencias";
+import type { TicketTotals } from "@/components/changes/ticket-table";
+import { fetchJson } from "@/lib/api";
+import {
+  frasesDoEscopo,
+  lerPlaca,
+  TELA_DO_EQUIPAMENTO,
+  type Equipamento,
+  type EscopoDeFrota,
+} from "@/lib/frota";
+import { lerRecorte, paramsDoRecorte } from "@/lib/recorte";
+import { cn } from "@/lib/utils";
+
+/**
+ * Cavalo 360° e Carreta 360° — as mesmas quatro perguntas, sobre uma frota
+ * recortada.
+ *
+ * A tela é uma só, parametrizada pelo equipamento, e isso não é economia de
+ * código: as duas respondem exatamente às mesmas perguntas, e mantê-las como
+ * dois arquivos garantiria que um dia respondessem de dois jeitos. O que muda
+ * entre elas é o nome, o ícone e o `entityType` — e nada mais deveria mudar.
+ *
+ * **O que ela acrescenta a Alterações é o escopo, e escopo não é filtro.** Lá,
+ * o `entityType` é um recorte de exibição sobre uma comparação anunciada: a
+ * lista encolhe, os cartões continuam sendo os da frota, e o painel de filtros
+ * escreve o recorte com o × que o desfaz. Aqui ele é o assunto — os cartões, os
+ * painéis, as árvores e as somas são todos recontados dentro dele. A distinção
+ * está inteira em `lib/frota.ts` e em `lib/comparison/src/escopo.ts`, e é ela
+ * que impede a mentira mais fácil de escrever nesta tela: 1.218 chamados no
+ * cartão em cima de uma lista de 340.
+ *
+ * **A placa é o segundo nível, e ela não recorta as quatro abas do mesmo jeito.**
+ * Planilha, Chamados e Impacto descem ao ativo — as três sabem quem é a placa,
+ * e a matriz por quinzena passa a ter uma linha só, com o rodapé dela. Cliente
+ * não desce, e a tela diz isso onde a pergunta seria feita: a recomendação é
+ * sobre o *parâmetro*, e "caiu em 41 veículos" é o que sustenta o pedido —
+ * recortada num ativo, a mesma linha diria "caiu em 1", que é a mesma alteração
+ * com o argumento desmontado.
+ *
+ * **A regra central de Alterações continua valendo, e é a razão de ela ter sido
+ * repetida aqui:** os números de uma aba nunca somam com os da outra. Recortar
+ * a frota não muda nada disso — o impacto da planilha continua sendo uma
+ * diferença entre dois estados fechados, e o do chamado a distância entre um
+ * pedido e uma resposta, agora ambos sobre um cavalo.
+ */
+
+type AbaDaFrota = "planilha" | "chamados" | "impacto" | "cliente";
+
+const ABAS: AbaDaFrota[] = ["planilha", "chamados", "impacto", "cliente"];
+
+const abaValida = (valor: string | null): valor is AbaDaFrota =>
+  valor !== null && (ABAS as string[]).includes(valor);
+
+const ICONE: Record<Equipamento, typeof Tractor> = {
+  CAVALO: Tractor,
+  CARRETA: Container,
+};
+
+/** Um ativo do seletor, como `/frota/ativos` o entrega. */
+interface AtivoDaFrota {
+  entityId: string;
+  plate: string | null;
+  chassi: string | null;
+  periods: number;
+  firstLabel: string;
+  lastLabel: string;
+  current: boolean;
+}
+
+interface FrotaResponse {
+  entityType: string;
+  equipment: string;
+  entityTypes: string[];
+  latestLabel: string | null;
+  ativos: AtivoDaFrota[];
+}
+
+export default function Frota360({ equipamento }: { equipamento: Equipamento }) {
+  const search = useSearch();
+  const [caminho, navegar] = useLocation();
+  const params = new URLSearchParams(search);
+  const pedida = params.get("aba");
+  const aba: AbaDaFrota = abaValida(pedida) ? pedida : "planilha";
+  const placa = lerPlaca(search);
+
+  const escopo: EscopoDeFrota = { entityType: equipamento, placa };
+  const { titulo, subtitulo } = frasesDoEscopo(escopo);
+  const Icone = ICONE[equipamento];
+
+  /*
+    O recorte de unidade e canal atravessa, como atravessa em Alterações: é a
+    mesma base, e trocar de unidade na Visão geral não pode deixar de valer
+    porque a pergunta agora é por equipamento. A vigência não atravessa as abas
+    que leem a série inteira — a regra é a de `paramsDeAlteracoes`, e ela vale
+    igual aqui.
+  */
+  const recorte = lerRecorte(search);
+
+  /**
+   * O De/Até, partilhado por Impacto e Cliente.
+   *
+   * Mora aqui pela mesma razão que mora em Alterações: as duas abas respondem
+   * sobre o mesmo período, e perder o recorte ao trocar de aba faria "quanto
+   * isso custou" e "o que pedir ao cliente" falarem de meses diferentes com a
+   * mesma cara.
+   */
+  const [janela, setJanela] = useState<JanelaDeVigencias>({});
+
+  /**
+   * Trocar de aba ou de placa reescreve o endereço.
+   *
+   * As duas coisas são o assunto da tela, e por isso viajam na barra: quem
+   * manda o link do QYW2D78 na aba Impacto manda as duas escolhas junto, e o
+   * botão de voltar desfaz a última. O De/Até não vai — ele é o meio de uma
+   * pergunta que começa com a série inteira à vista, e é onde quem chega de
+   * fora chega.
+   */
+  const irPara = (proxima: {
+    aba?: AbaDaFrota;
+    placa?: string | null;
+  }) => {
+    const destino = new URLSearchParams();
+    const abaFinal = proxima.aba ?? aba;
+    const placaFinal = proxima.placa === undefined ? placa : proxima.placa;
+
+    if (abaFinal !== "planilha") destino.set("aba", abaFinal);
+    if (placaFinal !== null) destino.set("placa", placaFinal);
+    // O recorte de unidade e canal sobrevive à troca; a vigência acompanha
+    // apenas a aba que a honra, que é a mesma regra de Alterações.
+    for (const [chave, valor] of paramsDoRecorte(recorte, {
+      comPeriodo: abaFinal === "planilha",
+    })) {
+      destino.set(chave, valor);
+    }
+    navegar(destino.toString() ? `${caminho}?${destino}` : caminho);
+  };
+
+  // Só a contagem, para a aba dizer o tamanho do assunto antes de ser aberta —
+  // e já dentro do escopo, senão ela anunciaria o arquivo inteiro.
+  const resumoChamados = useQuery({
+    queryKey: ["tickets", "resumo", equipamento, placa],
+    queryFn: () => {
+      const consulta = new URLSearchParams({
+        limit: "1",
+        entityType: equipamento,
+      });
+      if (placa !== null) consulta.set("placa", placa);
+      return fetchJson<{ totals: TicketTotals | null }>(`/tickets?${consulta}`);
+    },
+  });
+
+  return (
+    <Layout>
+      <div className="border-b bg-card px-8 pt-6">
+        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+          <Icone className="w-6 h-6 text-primary" />
+          {titulo}
+        </h1>
+        <p className="text-muted-foreground text-sm mt-1 max-w-3xl">{subtitulo}</p>
+
+        <div className="mt-4">
+          <SeletorDePlaca
+            equipamento={equipamento}
+            placa={placa}
+            recorte={paramsDoRecorte(recorte, { comPeriodo: false })}
+            onEscolher={(proxima) => irPara({ placa: proxima })}
+          />
+        </div>
+
+        <nav className="flex items-center gap-1 mt-4" role="tablist">
+          <AbaBotao
+            active={aba === "planilha"}
+            onClick={() => irPara({ aba: "planilha" })}
+            icon={<FileSpreadsheet className="w-4 h-4" />}
+            label="Planilha"
+            hint="o que a Ambev mexeu entre duas vigências"
+          />
+          <AbaBotao
+            active={aba === "chamados"}
+            onClick={() => irPara({ aba: "chamados" })}
+            icon={<Headset className="w-4 h-4" />}
+            label="Chamados"
+            hint="o que pedimos e o que voltou aplicado"
+            count={resumoChamados.data?.totals?.changes}
+          />
+          <AbaBotao
+            active={aba === "impacto"}
+            onClick={() => irPara({ aba: "impacto" })}
+            icon={<DollarSign className="w-4 h-4" />}
+            label="Impacto"
+            hint="quanto custa em cada quinzena"
+          />
+          <AbaBotao
+            active={aba === "cliente"}
+            onClick={() => irPara({ aba: "cliente" })}
+            icon={<Handshake className="w-4 h-4" />}
+            label="Cliente"
+            hint="o que propor, o que investigar, e o que não levar"
+          />
+        </nav>
+      </div>
+
+      {aba === "planilha" && <AbaPlanilha escopo={escopo} />}
+      {aba === "chamados" && <AbaChamados escopo={escopo} />}
+      {aba === "impacto" && (
+        <div className="p-8">
+          <ImpactoQuinzenas
+            contexto={paramsDoRecorte(recorte, { comPeriodo: false })}
+            janela={janela}
+            onJanela={setJanela}
+            escopo={escopo}
+            // A matriz é montada por ativo: trocar de placa é trocar a
+            // população, e remontar é mais honesto do que reaproveitar o
+            // estado interno de uma tabela que era de outro veículo.
+            key={placa ?? "frota"}
+          />
+        </div>
+      )}
+      {aba === "cliente" && (
+        <div className="p-8">
+          <ClienteRecomendacoes
+            janela={janela}
+            onJanela={setJanela}
+            escopo={escopo}
+          />
+        </div>
+      )}
+    </Layout>
+  );
+}
+
+/**
+ * A escolha do ativo — o segundo nível da tela.
+ *
+ * Um `datalist` sobre um campo de texto, e não um `select`: a frota real tem 64
+ * cavalos e 80 carretas, e quem procura uma placa a **sabe** — digitar três
+ * caracteres é mais rápido do que rolar oitenta linhas. O campo aceita o que
+ * não está na lista sem reclamar, e a resposta de cada aba diz o que aplicou;
+ * uma placa que este contexto não tem volta à frota inteira, com a aba Impacto
+ * escrevendo que voltou.
+ *
+ * A lista sai de `/frota/ativos`, e não das alterações: uma frota montada a
+ * partir do que mudou esconderia justamente o ativo parado — que existe, é
+ * remunerado, e é sobre ele que a pergunta "por que este cavalo não mudou?"
+ * costuma ser feita.
+ */
+function SeletorDePlaca({
+  equipamento,
+  placa,
+  recorte,
+  onEscolher,
+}: {
+  equipamento: Equipamento;
+  placa: string | null;
+  recorte: URLSearchParams;
+  onEscolher: (placa: string | null) => void;
+}) {
+  const [rascunho, setRascunho] = useState(placa ?? "");
+  const tela = TELA_DO_EQUIPAMENTO[equipamento];
+
+  const query = useQuery({
+    queryKey: ["frota", "ativos", equipamento, recorte.toString()],
+    queryFn: () => {
+      const consulta = new URLSearchParams(recorte);
+      consulta.set("entityType", equipamento);
+      return fetchJson<FrotaResponse>(`/frota/ativos?${consulta}`);
+    },
+  });
+
+  const ativos = query.data?.ativos ?? [];
+  const naFrota = ativos.filter((a) => a.current).length;
+
+  /*
+    O equipamento existe neste contexto? Um export que só trouxe carretas abre
+    Cavalo 360° com tudo vazio, e sem esta frase a tela se leria como "a frota
+    de cavalos acabou". A diferença entre arquivo que não chegou e frota que
+    sumiu é a mesma que a aba Impacto protege célula a célula.
+  */
+  const semEquipamento =
+    query.data !== undefined && !query.data.entityTypes.includes(equipamento);
+
+  if (query.error) {
+    return (
+      <ApiErrorNotice
+        error={query.error}
+        what={`A frota de ${tela.plural} não pôde ser carregada.`}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <label className="flex items-center gap-2 text-sm">
+          <Search className="w-4 h-4 text-muted-foreground" />
+          <span className="text-muted-foreground">Placa</span>
+          <input
+            list="frota-360-placas"
+            value={rascunho}
+            onChange={(e) => setRascunho(e.target.value.toUpperCase())}
+            onBlur={() => aplicar(rascunho, placa, onEscolher)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") aplicar(rascunho, placa, onEscolher);
+              if (e.key === "Escape") setRascunho(placa ?? "");
+            }}
+            placeholder={`todos os ${tela.plural}`}
+            className="h-9 w-48 rounded-lg border border-input bg-background px-3 font-mono text-sm"
+          />
+          <datalist id="frota-360-placas">
+            {ativos.map((a) =>
+              a.plate === null ? null : (
+                <option key={a.entityId} value={a.plate}>
+                  {a.current
+                    ? `${a.periods} vigências`
+                    : `saiu da frota em ${a.lastLabel}`}
+                </option>
+              ),
+            )}
+          </datalist>
+        </label>
+
+        {placa !== null && (
+          <button
+            onClick={() => {
+              setRascunho("");
+              onEscolher(null);
+            }}
+            className="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline"
+          >
+            <X className="w-4 h-4" />
+            ver todos os {tela.plural}
+          </button>
+        )}
+
+        {/* A outra tela 360°, a um clique. O conjunto é que é remunerado, e
+            quem está conferindo um cavalo costuma querer a carreta em seguida. */}
+        <Link
+          href={
+            TELA_DO_EQUIPAMENTO[equipamento === "CAVALO" ? "CARRETA" : "CAVALO"].href
+          }
+          className={cn(
+            "ml-auto text-sm text-muted-foreground hover:text-foreground",
+            "underline-offset-2 hover:underline",
+          )}
+        >
+          ver {equipamento === "CAVALO" ? "carretas" : "cavalos"}
+        </Link>
+      </div>
+
+      <p className="text-xs text-muted-foreground">
+        {semEquipamento ? (
+          <>
+            Nenhuma vigência deste recorte entregou {tela.plural}. A tela está
+            vazia porque o arquivo não chegou — não porque a frota sumiu.
+          </>
+        ) : query.data ? (
+          <>
+            {naFrota.toLocaleString("pt-BR")} {tela.plural} na vigência{" "}
+            {query.data.latestLabel ?? "mais recente"}
+            {ativos.length > naFrota && (
+              <>
+                {" "}
+                · {(ativos.length - naFrota).toLocaleString("pt-BR")} que já
+                saíram continuam pesquisáveis
+              </>
+            )}
+          </>
+        ) : (
+          "Lendo a frota…"
+        )}
+      </p>
+    </div>
+  );
+}
+
+/**
+ * O que fazer com o que foi digitado.
+ *
+ * Vazio é a frota, e não "nada": quem apagou a placa pediu para subir um nível.
+ * Igual ao que já estava não navega — sem isto, sair do campo empilharia uma
+ * entrada de histórico idêntica à anterior, e o botão de voltar deixaria de
+ * significar "a placa anterior".
+ */
+function aplicar(
+  rascunho: string,
+  atual: string | null,
+  onEscolher: (placa: string | null) => void,
+): void {
+  const limpo = rascunho.trim().toUpperCase();
+  const proxima = limpo === "" ? null : limpo;
+  if (proxima !== atual) onEscolher(proxima);
+}

@@ -166,6 +166,15 @@ export interface QuinzenaMatrix {
   context: ContextInfo;
   entityType: string;
   equipment: string;
+  /**
+   * A placa a que a tabela inteira se refere, quando há uma.
+   *
+   * Null é a frota do equipamento. Vem na resposta — e não é eco do pedido — pela
+   * mesma razão que `entityType`: uma placa que este contexto nunca teve cai na
+   * frota inteira, e a tela precisa poder dizer que foi isso que aconteceu em
+   * vez de mostrar 64 linhas sob o nome de um ativo.
+   */
+  plate: string | null;
   /** Os equipamentos que este contexto já entregou — os botões da tela. */
   entityTypes: string[];
   attribute: ImpactoParametro;
@@ -186,6 +195,20 @@ export interface QuinzenaOptions {
   attributeCode?: string;
   /** A coluna que agrupa as linhas. Sem pedido, a data de entrada do ativo. */
   groupBy?: string;
+  /**
+   * A placa de um ativo, quando a leitura é de um só — as telas 360°.
+   *
+   * Recorta a **população**, e não a exibição: as somas de coluna, a
+   * decomposição ponta a ponta e a contagem de ativos passam todas a ser
+   * daquele ativo. Filtrar as linhas depois de somadas deixaria a tabela com uma
+   * linha e o rodapé com o total da frota, que é a leitura errada do jeito mais
+   * convincente possível.
+   *
+   * Uma placa que este contexto não tem devolve a frota inteira, como o
+   * `entityType` já faz — e a resposta **diz** o que aplicou em
+   * {@link QuinzenaMatrix.plate}, para que o padrão nunca seja silencioso.
+   */
+  plate?: string;
   context?: RequestedContext;
 }
 
@@ -486,6 +509,26 @@ export async function getQuinzenaMatrix(
   `);
   const placaDe = new Map(placas.map((p) => [p.entity_id, p.valor]));
 
+  /*
+    A placa pedida, resolvida contra o que este equipamento de fato tem.
+
+    Comparada em caixa alta e sem espaço porque ela chega de um endereço que uma
+    pessoa pode ter digitado ou colado — e o identificador é gravado
+    normalizado, ver `entity_identifier` em `canonical.ts`. Não encontrada, a
+    leitura segue pela frota inteira: é a mesma recusa a transformar escolha
+    inválida em erro que o `entityType` já pratica, e `plate` no retorno é o que
+    impede o silêncio.
+  */
+  const placaPedida = options.plate?.trim().toUpperCase();
+  const ativoPedido =
+    placaPedida === undefined || placaPedida === ""
+      ? null
+      : (placas.find((p) => p.valor.toUpperCase() === placaPedida)?.entity_id ?? null);
+  const plate = ativoPedido === null ? null : (placaDe.get(ativoPedido) ?? null);
+  /** Se este ativo entra na tabela. Sem placa escolhida, entram todos. */
+  const noEscopo = (entityId: string) =>
+    ativoPedido === null || entityId === ativoPedido;
+
   const groupCode = options.groupBy ?? `${entityType.toLowerCase()}.data`;
   const { rows: agrupador } = await db.execute<{
     entity_id: string;
@@ -532,7 +575,7 @@ export async function getQuinzenaMatrix(
 
   for (const p of presencas) {
     const i = indiceDoPeriodo.get(p.effective_date);
-    if (i === undefined) continue;
+    if (i === undefined || !noEscopo(p.entity_id)) continue;
     const linha = linhaDe(p.entity_id);
     // Uma vigência que não declarou o equipamento mas trouxe fatos dele é uma
     // contradição do próprio arquivo; o fato manda, porque ele é o dado.
@@ -543,7 +586,7 @@ export async function getQuinzenaMatrix(
 
   for (const v of valores) {
     const i = indiceDoPeriodo.get(v.effective_date);
-    if (i === undefined) continue;
+    if (i === undefined || !noEscopo(v.entity_id)) continue;
     const linha = linhaDe(v.entity_id);
     const valor = v.is_null ? null : num(v.value_numeric);
     linha[i] =
@@ -670,6 +713,7 @@ export async function getQuinzenaMatrix(
     context,
     entityType,
     equipment: equipmentLabel(entityType),
+    plate,
     entityTypes,
     attribute: escolhido,
     parameters,

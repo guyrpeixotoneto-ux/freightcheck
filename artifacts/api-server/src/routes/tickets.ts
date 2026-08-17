@@ -24,8 +24,11 @@ import {
   latestTicketImport,
   listTicketImports,
   listTicketChanges,
+  lerEscopo,
   rotulosNaJanela,
+  temEscopo,
   type EixoDeVigencias,
+  type EscopoDeFrota,
   type TicketFilters,
 } from "@workspace/comparison";
 
@@ -158,6 +161,19 @@ export function decodeTicketUpload(body: unknown): DecodeTicketResult {
  * consulta volta para a ordem de casa — materialidade.
  */
 const ORDENACOES = ["chamado", "tipo", "impacto", "situacao", "data"];
+
+/**
+ * O escopo de frota das telas 360°, quando elas pedem.
+ *
+ * Não precisa de chave de opt-in como a rota de Alterações: `entityType` nunca
+ * foi filtro de chamado, e `placa` também não — o recorte por placa existia só
+ * dentro do `search` livre, que casa com meio texto do chamado. Aqui os dois
+ * nomes chegam sem ambiguidade, e o que eles recortam é a população: os cartões
+ * do topo mudam com eles, o que nenhum filtro desta rota faz.
+ */
+function parseEscopoDeFrota(query: Record<string, unknown>): EscopoDeFrota {
+  return lerEscopo({ entityType: query.entityType, plate: query.placa });
+}
 
 function parseTicketFilters(query: Record<string, unknown>): TicketFilters {
   const str = (key: string) =>
@@ -456,33 +472,40 @@ router.get("/tickets", async (req, res): Promise<void> => {
     }
 
     /*
-      O recorte é resolvido antes de tudo e atravessa as quatro leituras.
+      Os dois recortes da população são resolvidos antes de tudo e atravessam as
+      quatro leituras — nenhum dos dois é filtro de linha.
 
-      Não é um filtro de linha: é de que período a aba está falando. Passá-lo
-      só para a lista deixaria os cartões do topo respondendo pelo envio inteiro
-      ao lado de um seletor dizendo "3 de 9 vigências" — dois números certos e a
-      leitura errada, que é o defeito que este produto existe para pegar.
+      O **escopo de frota** diz de que ativos a tela fala; o **recorte De/Até**
+      diz de que período. Passar qualquer um deles só para a lista deixaria os
+      cartões do topo respondendo pelo envio inteiro ao lado de um seletor
+      dizendo "3 de 9 vigências" — dois números certos e a leitura errada, que é
+      o defeito que este produto existe para pegar.
     */
     const eixo = await getTicketVigencias(db, run.id);
     const janela = parseJanela(req.query as Record<string, unknown>);
     const vigenciaLabels = rotulosNaJanela(eixo, janela);
+    const escopo = parseEscopoDeFrota(req.query as Record<string, unknown>);
 
     const filters = {
       ...parseTicketFilters(req.query as Record<string, unknown>),
       vigenciaLabels,
     };
     const [changes, totals, byParameter, imports] = await Promise.all([
-      listTicketChanges(db, run.id, filters),
-      getTicketTotals(db, run.id, vigenciaLabels),
-      getTicketsByParameter(db, run.id, vigenciaLabels),
+      listTicketChanges(db, run.id, filters, escopo),
+      getTicketTotals(db, run.id, vigenciaLabels, escopo),
+      getTicketsByParameter(db, run.id, vigenciaLabels, 15, escopo),
       listTicketImports(db),
     ]);
 
+    // `escopo` volta na resposta pelo mesmo motivo que `entityType` volta em
+    // Impacto: a tela precisa poder dizer que os 340 chamados abaixo são os do
+    // cavalo, e não os 1.218 do arquivo.
     res.json({
       import: run,
       imports,
       totals,
       byParameter,
+      ...(temEscopo(escopo) ? { escopo } : {}),
       vigencias: eixoParaTela(eixo),
       janela,
       vigenciasNoRecorte: contarVigenciasNoRecorte(eixo, vigenciaLabels),
@@ -534,9 +557,17 @@ router.get("/tickets/classification", async (req, res): Promise<void> => {
       return;
     }
 
-    // O mesmo recorte da lista: as duas visões são do mesmo arquivo, e uma
-    // árvore que somasse o envio inteiro ao lado de uma lista recortada faria
-    // as duas visões da mesma aba discordarem sobre o próprio assunto.
+    /*
+      Sem filtro, como o cabeçalho diz — mas **com** escopo e **com** recorte,
+      que são outra coisa. A árvore é do envio inteiro para quem abre por
+      Alterações, e é a do equipamento para quem abre por Cavalo 360°: lá a
+      população da tela é outra, e uma árvore da frota inteira dentro dela
+      contaria o que a tela afirma não estar mostrando. O recorte De/Até é o
+      mesmo da lista pela mesma razão — as duas visões são do mesmo arquivo, e
+      uma árvore que somasse o envio inteiro ao lado de uma lista recortada
+      faria as duas visões da mesma aba discordarem sobre o próprio assunto.
+    */
+    const escopo = parseEscopoDeFrota(req.query as Record<string, unknown>);
     const eixo = await getTicketVigencias(db, run.id);
     const vigenciaLabels = rotulosNaJanela(
       eixo,
@@ -545,7 +576,8 @@ router.get("/tickets/classification", async (req, res): Promise<void> => {
 
     res.json({
       import: run,
-      ...(await getTicketClassification(db, run.id, vigenciaLabels)),
+      ...(temEscopo(escopo) ? { escopo } : {}),
+      ...(await getTicketClassification(db, run.id, vigenciaLabels, escopo)),
     });
   } catch (err) {
     req.log.error({ err }, "Error classifying tickets");

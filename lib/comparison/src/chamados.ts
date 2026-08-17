@@ -25,6 +25,7 @@ import {
   classificarParametro,
   type ClasseNaTela,
 } from "@workspace/knowledge";
+import type { EscopoDeFrota } from "./escopo";
 
 /**
  * Chamados, do lado da leitura.
@@ -340,6 +341,11 @@ const DIVERGENT = sql`${ticketChangeTable.deltaAbsolute} IS NOT NULL AND ${ticke
  * Uma lista vazia vira `false` em vez de sumir. Apagar um recorte que não
  * alcança nada faria a consulta responder pelo envio inteiro debaixo do título
  * do recorte, que é a forma mais silenciosa de mentir que esta tela tem.
+ *
+ * Mora ao lado do escopo de frota, e as duas coisas se acumulam sem se
+ * confundir: o escopo diz *de que ativos* a tela fala, o recorte diz *de que
+ * período*. Nenhum dos dois é filtro de linha — os dois atravessam também os
+ * cartões e a árvore, e é isso que os separa de tudo em `TicketFilters`.
  */
 function noRecorteDeVigencia(labels: string[] | null | undefined): SQL | undefined {
   if (labels === null || labels === undefined) return undefined;
@@ -347,10 +353,43 @@ function noRecorteDeVigencia(labels: string[] | null | undefined): SQL | undefin
   return inArray(ticketTable.vigenciaLabel, labels);
 }
 
-function buildWhere(ticketImportId: string, filters: TicketFilters): SQL | undefined {
+/**
+ * O escopo de frota sobre as alterações de chamado.
+ *
+ * Separado dos filtros, e não mais um campo em `TicketFilters`, pela razão que
+ * `escopo.ts` explica: o filtro estreita a lista, o escopo troca a população — e
+ * é por isso que ele também entra em `getTicketTotals` e em
+ * `getTicketsByParameter`, que nenhum filtro atravessa. Uma tela de cavalos com
+ * o cartão de 1.218 chamados da frota inteira em cima de uma lista de cavalos
+ * seria a mentira mais visível que este produto pode contar.
+ *
+ * `entity_label` é a placa, copiada do chamado para a alteração justamente para
+ * que filtrar por placa não exija junção — ver o schema em `tickets.ts`.
+ */
+function escopoNasAlteracoes(escopo: EscopoDeFrota): SQL[] {
+  const parts: SQL[] = [];
+  if (escopo.entityType) parts.push(eq(ticketChangeTable.entityType, escopo.entityType));
+  if (escopo.plate) parts.push(eq(ticketChangeTable.entityLabel, escopo.plate));
+  return parts;
+}
+
+/** O mesmo escopo sobre o chamado — os cartões que contam chamados, e não linhas. */
+function escopoNosChamados(escopo: EscopoDeFrota): SQL[] {
+  const parts: SQL[] = [];
+  if (escopo.entityType) parts.push(eq(ticketTable.entityType, escopo.entityType));
+  if (escopo.plate) parts.push(eq(ticketTable.entityLabel, escopo.plate));
+  return parts;
+}
+
+function buildWhere(
+  ticketImportId: string,
+  filters: TicketFilters,
+  frota: EscopoDeFrota = {},
+): SQL | undefined {
   const parts: (SQL | undefined)[] = [
     eq(ticketChangeTable.ticketImportId, ticketImportId),
     noRecorteDeVigencia(filters.vigenciaLabels),
+    ...escopoNasAlteracoes(frota),
   ];
 
   if (filters.statusBucket) {
@@ -534,8 +573,9 @@ export async function listTicketChanges(
   db: Database,
   ticketImportId: string,
   filters: TicketFilters = {},
+  frota: EscopoDeFrota = {},
 ): Promise<{ total: number; rows: TicketChangeRow[] }> {
-  const where = buildWhere(ticketImportId, filters);
+  const where = buildWhere(ticketImportId, filters, frota);
 
   const [count] = await db
     .select({ total: sql<number>`count(*)`.mapWith(Number) })
@@ -699,8 +739,9 @@ export async function getTicket(
 export async function getTicketTotals(
   db: Database,
   ticketImportId: string,
-  /** Os rótulos do recorte; `null` (ou ausente) é o envio inteiro. */
+  /** Os rótulos do recorte de vigências; `null` (ou ausente) é o envio inteiro. */
   vigenciaLabels?: string[] | null,
+  frota: EscopoDeFrota = {},
 ): Promise<TicketTotals> {
   const recorte = noRecorteDeVigencia(vigenciaLabels);
   /*
@@ -712,11 +753,13 @@ export async function getTicketTotals(
   const escopoChanges = and(
     eq(ticketChangeTable.ticketImportId, ticketImportId),
     recorte,
-  );
+    ...escopoNasAlteracoes(frota),
+  )!;
   const escopoTickets = and(
     eq(ticketTable.ticketImportId, ticketImportId),
     recorte,
-  );
+    ...escopoNosChamados(frota),
+  )!;
 
   const [agg] = await db
     .select({
@@ -1008,8 +1051,9 @@ function somarApurados(itens: { impactSum: number | null }[]): number | null {
 export async function getTicketClassification(
   db: Database,
   ticketImportId: string,
-  /** Os rótulos do recorte; `null` (ou ausente) é o envio inteiro. */
+  /** Os rótulos do recorte de vigências; `null` (ou ausente) é o envio inteiro. */
   vigenciaLabels?: string[] | null,
+  frota: EscopoDeFrota = {},
 ): Promise<TicketClassificationView> {
   const rows = await db
     .select({
@@ -1026,6 +1070,7 @@ export async function getTicketClassification(
       and(
         eq(ticketChangeTable.ticketImportId, ticketImportId),
         noRecorteDeVigencia(vigenciaLabels),
+        ...escopoNasAlteracoes(frota),
       ),
     )
     .groupBy(
@@ -1060,6 +1105,7 @@ export async function getTicketsByParameter(
   /** Os rótulos do recorte; `null` (ou ausente) é o envio inteiro. */
   vigenciaLabels?: string[] | null,
   limit = 15,
+  frota: EscopoDeFrota = {},
 ): Promise<
   {
     parameterLabel: string;
@@ -1082,6 +1128,7 @@ export async function getTicketsByParameter(
         eq(ticketChangeTable.ticketImportId, ticketImportId),
         isNotNull(ticketChangeTable.parameterLabel),
         noRecorteDeVigencia(vigenciaLabels),
+        ...escopoNasAlteracoes(frota),
       ),
     )
     .groupBy(ticketChangeTable.parameterLabel, ticketChangeTable.attributeCode)

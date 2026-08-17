@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { fetchJson } from "@/lib/api";
+import { paramsDoEscopo, type EscopoDeFrota } from "@/lib/frota";
 import { primeiraPagina, type Janela } from "@/lib/paginacao";
 import { cn } from "@/lib/utils";
 import {
@@ -134,34 +135,48 @@ const APARENCIA: Record<
 const aparenciaDe = (classe: string) =>
   APARENCIA[classe] ?? APARENCIA.NAO_CLASSIFICADO;
 
+/**
+ * `escopo` e `vigencias` recortam a árvore, e não só a leitura.
+ *
+ * Sem filtro nenhum, como sempre — é a árvore do envio inteiro. Com escopo, é a
+ * árvore do equipamento ou do ativo: a população da tela é outra, e uma árvore
+ * da frota inteira dentro de Cavalo 360° contaria em cada folha o que a tela
+ * afirma não estar mostrando. Com recorte De/Até, é a do intervalo, pela mesma
+ * razão: as duas visões da aba são do mesmo arquivo, e uma árvore somando o
+ * envio inteiro ao lado de uma lista recortada faria a aba discordar de si
+ * mesma sobre de que período ela está falando.
+ *
+ * Os dois descem a árvore inteira, até a folha que carrega as alterações.
+ */
 export function TicketClassification({
   envio,
-  /*
-    O mesmo recorte da lista, e por isso ele desce a árvore inteira.
-
-    As duas visões da aba são do mesmo arquivo: uma árvore somando o envio
-    inteiro ao lado de uma lista recortada faria a aba discordar de si mesma
-    sobre de que período ela está falando.
-  */
+  escopo,
   vigencias = {},
 }: {
   envio: string | null;
+  escopo?: EscopoDeFrota;
   vigencias?: JanelaDeVigencias;
 }) {
   const [aberta, setAberta] = useState<string | null>(null);
 
+  const consulta = new URLSearchParams();
+  if (envio) consulta.set("ticketImportId", envio);
+  for (const [chave, valor] of escopo ? paramsDoEscopo(escopo) : []) {
+    consulta.set(chave, valor);
+  }
+  // O recorte De/Até entra na mesma consulta, e por isso na mesma chave de
+  // cache: mudar uma ponta é pedir outra árvore, não redesenhar a mesma.
+  if (vigencias.de) consulta.set("de", vigencias.de);
+  if (vigencias.ate) {
+    consulta.set("ate", vigencias.ate);
+  }
+
   const query = useQuery({
-    queryKey: ["tickets", "classificacao", envio, vigencias.de, vigencias.ate],
-    queryFn: () => {
-      const params = new URLSearchParams();
-      if (envio) params.set("ticketImportId", envio);
-      if (vigencias.de) params.set("de", vigencias.de);
-      if (vigencias.ate) params.set("ate", vigencias.ate);
-      const consulta = params.toString();
-      return fetchJson<TicketClassificationResponse>(
-        `/tickets/classification${consulta ? `?${consulta}` : ""}`,
-      );
-    },
+    queryKey: ["tickets", "classificacao", envio, consulta.toString()],
+    queryFn: () =>
+      fetchJson<TicketClassificationResponse>(
+        `/tickets/classification${consulta.toString() ? `?${consulta}` : ""}`,
+      ),
   });
 
   const data = query.data;
@@ -178,7 +193,12 @@ export function TicketClassification({
     return (
       <Card className="p-6">
         <p className="text-sm text-muted-foreground">
-          Nenhuma alteração de chamado para classificar neste envio.
+          {/* Sob escopo, "não há" quer dizer outra coisa: o arquivo tem
+              chamados, e nenhum deles é deste recorte. Repetir a frase do envio
+              vazio faria parecer que o export não trouxe nada. */}
+          {escopo
+            ? "Nenhum chamado deste envio mexeu neste recorte da frota."
+            : "Nenhuma alteração de chamado para classificar neste envio."}
         </p>
       </Card>
     );

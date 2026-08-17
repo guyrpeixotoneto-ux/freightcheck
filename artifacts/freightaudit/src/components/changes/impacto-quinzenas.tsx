@@ -23,6 +23,7 @@ import {
 } from "@/components/changes/janela-vigencias";
 import { Card } from "@/components/ui/card";
 import { fetchJson } from "@/lib/api";
+import type { EscopoDeFrota } from "@/lib/frota";
 import { formatBrlShort, formatNumber, formatValue } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -128,6 +129,8 @@ interface QuinzenaMatrix {
   };
   entityType: string;
   equipment: string;
+  /** A placa a que a tabela se refere; null é a frota do equipamento. */
+  plate: string | null;
   entityTypes: string[];
   attribute: ImpactoParametro;
   parameters: ImpactoParametro[];
@@ -210,6 +213,7 @@ export function ImpactoQuinzenas({
   escolhaInicial = null,
   janela = {},
   onJanela,
+  escopo,
 }: {
   /**
    * A unidade e o canal abertos, quando alguém chegou aqui com eles escolhidos.
@@ -221,6 +225,17 @@ export function ImpactoQuinzenas({
   escolhaInicial?: EscolhaDeParametro | null;
   janela?: JanelaDeVigencias;
   onJanela?: (j: JanelaDeVigencias) => void;
+  /**
+   * O escopo de frota das telas 360°, quando esta aba é lida de lá.
+   *
+   * Ele trava o equipamento e — quando há placa — reduz a matriz a um ativo.
+   * O panorama continua **sem** ele, e a omissão é deliberada: a árvore
+   * econômica atravessa os dois equipamentos (`carreta.finame` contém o cavalo
+   * inteiro), e um panorama por equipamento mostraria os dois como duas
+   * alterações independentes — a dupla contagem que esta leitura existe para
+   * evitar. O corte por equipamento acontece onde ele é honesto: na matriz.
+   */
+  escopo?: EscopoDeFrota;
 } = {}) {
   const [escolha, setEscolha] = useState<EscolhaDeParametro | null>(escolhaInicial);
   /*
@@ -231,7 +246,26 @@ export function ImpactoQuinzenas({
   */
   const [corte, setCorte] = useState<Corte>("TUDO");
 
-  if (escolha === null) {
+  /*
+    Sob escopo, a aba abre **na matriz**, e não no panorama.
+
+    O panorama responde "o que mudou" sobre a frota inteira, e é assim de
+    propósito: a árvore econômica atravessa os equipamentos — `carreta.finame`
+    contém o cavalo inteiro —, e recortá-lo por equipamento mostraria os dois
+    como duas alterações independentes, que é a dupla contagem que ele existe
+    para evitar. Dentro de Cavalo 360° essa lista responderia por carretas
+    também, e clicar numa linha de carreta abriria a matriz das carretas: a tela
+    trocaria de assunto sem sair do lugar.
+
+    A pergunta que sobra é a que a matriz responde — *quanto este ativo custa em
+    cada quinzena* —, e ela é a razão de a aba existir. "O que mudou", recortado
+    de verdade, é a aba Planilha ao lado, que sabe fazê-lo sem desmontar a
+    árvore. `code: ""` deixa o servidor escolher o parâmetro de abertura do
+    equipamento (`PARAMETRO_INICIAL`), como faz para quem chega sem pedir nada.
+  */
+  const escolhida = escolha ?? (escopo ? { entityType: escopo.entityType, code: "" } : null);
+
+  if (escolhida === null) {
     return (
       <ImpactoPanorama
         onEscolher={setEscolha}
@@ -245,12 +279,16 @@ export function ImpactoQuinzenas({
   }
   return (
     <MatrizDeQuinzenas
-      inicial={escolha}
-      onVoltar={() => setEscolha(null)}
+      inicial={escolhida}
+      // Sem escopo, a volta é o panorama. Com escopo não há panorama para onde
+      // voltar, e um botão "Tudo que mudou" que levasse à frota inteira sairia
+      // da tela sem dizer — a aba Planilha é quem responde isso aqui.
+      onVoltar={escopo ? null : () => setEscolha(null)}
       contexto={contexto}
       janela={janela}
       onJanela={onJanela}
-      key={`${escolha.entityType}:${escolha.code}`}
+      escopo={escopo}
+      key={`${escolhida.entityType}:${escolhida.code}`}
     />
   );
 }
@@ -261,15 +299,18 @@ function MatrizDeQuinzenas({
   contexto,
   janela,
   onJanela,
+  escopo,
 }: {
   inicial: EscolhaDeParametro;
-  onVoltar: () => void;
+  /** Null quando não há para onde voltar — ver o escopo em `ImpactoQuinzenas`. */
+  onVoltar: (() => void) | null;
   contexto?: URLSearchParams;
   janela: JanelaDeVigencias;
   onJanela?: (j: JanelaDeVigencias) => void;
+  escopo?: EscopoDeFrota;
 }) {
   const [entityType, setEntityType] = useState<string | null>(inicial.entityType);
-  const [attributeCode, setAttributeCode] = useState<string | null>(inicial.code);
+  const [attributeCode, setAttributeCode] = useState<string | null>(inicial.code || null);
   /** Grupos fechados. Nenhum por padrão: a tabela abre inteira, como a do Excel. */
   const [fechados, setFechados] = useState<Set<string>>(new Set());
   const [soComMovimento, setSoComMovimento] = useState(false);
@@ -284,6 +325,7 @@ function MatrizDeQuinzenas({
       consultaDoContexto,
       janela.de,
       janela.ate,
+      escopo?.placa ?? null,
     ],
     queryFn: () => {
       const params = new URLSearchParams(consultaDoContexto);
@@ -291,6 +333,11 @@ function MatrizDeQuinzenas({
       if (attributeCode) params.set("attributeCode", attributeCode);
       if (janela.de) params.set("de", janela.de);
       if (janela.ate) params.set("ate", janela.ate);
+      // A placa recorta a população, e não a exibição: as somas de coluna e a
+      // decomposição ponta a ponta voltam já apuradas para o ativo. Filtrar as
+      // linhas aqui deixaria o rodapé com o total da frota debaixo de uma linha
+      // só — a leitura errada do jeito mais convincente possível.
+      if (escopo?.placa) params.set("placa", escopo.placa);
       const qs = params.toString();
       return fetchJson<QuinzenaMatrix>(
         `/impacto/quinzenas${qs ? `?${qs}` : ""}`,
@@ -338,13 +385,17 @@ function MatrizDeQuinzenas({
         pergunta, e o caminho de volta faz parte da resposta.
       */}
       <div className="flex flex-wrap items-center justify-between gap-4">
-        <button
-          onClick={onVoltar}
-          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Tudo que mudou
-        </button>
+        {onVoltar ? (
+          <button
+            onClick={onVoltar}
+            className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft className="w-4 h-4" />
+            Tudo que mudou
+          </button>
+        ) : (
+          <span />
+        )}
 
         {onJanela && (
           <SeletorDeJanela
@@ -359,6 +410,32 @@ function MatrizDeQuinzenas({
 
       {/* O que a tabela está mostrando, e as duas escolhas que a mudam. */}
       <div className="flex flex-wrap items-end justify-between gap-4">
+        {/*
+          O equipamento é escolha da tela, e some quando a tela já o decidiu:
+          dentro de Cavalo 360° este seletor faria de novo a pergunta que o menu
+          respondeu, e clicar em "carreta" trocaria o assunto sem trocar o
+          título. No lugar dele fica o que a matriz está mostrando, escrito.
+        */}
+        {escopo ? (
+          <p className="text-sm text-muted-foreground">
+            {data.equipment}
+            {data.plate && (
+              <>
+                {" · "}
+                <strong className="font-mono text-foreground">{data.plate}</strong>
+              </>
+            )}
+            {escopo.placa !== null && data.plate === null && (
+              <>
+                {" · "}
+                <span className="text-amber-700">
+                  a placa {escopo.placa} não aparece neste equipamento; a tabela
+                  é da frota
+                </span>
+              </>
+            )}
+          </p>
+        ) : (
         <div
           role="tablist"
           aria-label="equipamento"
@@ -390,6 +467,7 @@ function MatrizDeQuinzenas({
               </button>
             ))}
         </div>
+        )}
 
         <label className="flex items-center gap-2 text-sm">
           <span className="text-muted-foreground">Parâmetro</span>
