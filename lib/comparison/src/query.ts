@@ -472,6 +472,39 @@ export async function listComparableSnapshots(db: Database) {
       status: snapshotTable.status,
       entityCount: snapshotTable.entityCount,
       factCount: snapshotTable.factCount,
+      /*
+        Que vigências foram fundidas nesta — e por quê.
+
+        `snapshot_merge` era escrita pelo `promote` a cada fusão e **lida por
+        ninguém**. Ela existe para responder "onde foram parar os dados da
+        vigência X" quando uma entrega parcial funde duas ativas em uma, e a
+        resposta ficava gravada e inalcançável: a tela de Vigências mostrava a
+        que sobrou e a outra simplesmente sumia da lista.
+
+        É a forma mais confusa de ausência que este produto produz, porque o
+        dado **não sumiu** — ele está dentro da que ficou, com a revisão
+        renumerada. Quem procurava a vigência antiga concluía que a importação
+        dela tinha falhado.
+
+        A correlação é escrita qualificada — `"snapshot"."id"`, e não
+        `${snapshotTable.id}` — de propósito. Num select de uma tabela só, o
+        drizzle emite a coluna **sem qualificar**, e `snapshot_merge` também
+        tem uma coluna `id`: dentro da subconsulta o `"id"` nu resolve para o
+        `id` da própria `m`, e o predicado vira `m.snapshot_id = m.id`. Não é
+        erro de sintaxe, não é erro em tempo de execução — é uma junção que
+        nunca casa e devolve `null` em toda linha, exatamente a forma de
+        ausência silenciosa que esta auditoria existe para caçar.
+      */
+      fusao: sql<{ motivo: string; revisoesOriginais: number[] } | null>`
+        (SELECT jsonb_build_object(
+                  'motivo',             m.motivo,
+                  'revisoesOriginais',  m.revisoes_originais,
+                  'quantas',            array_length(m.merged_from, 1),
+                  'quando',             m.created_at::text)
+           FROM snapshot_merge m
+          WHERE m.snapshot_id = "snapshot"."id"
+          ORDER BY m.created_at DESC
+          LIMIT 1)`,
     })
     .from(snapshotTable)
     .where(filtroDeVigenciaDisponivel("snapshot"))

@@ -23,6 +23,21 @@ interface Snapshot {
   status: string;
   entityCount: number;
   factCount: number;
+  /**
+   * Que vigências foram fundidas nesta, quando alguma foi.
+   *
+   * `snapshot_merge` era gravada pelo `promote` a cada fusão e lida por
+   * ninguém. Quem procurasse a vigência que saiu de cena não a encontrava aqui
+   * e concluía que a importação dela tinha falhado — quando o dado está dentro
+   * desta, com a revisão renumerada. É a forma mais confusa de ausência que
+   * este produto produz, porque o dado **não sumiu**.
+   */
+  fusao: {
+    motivo: string;
+    revisoesOriginais: number[];
+    quantas: number;
+    quando: string;
+  } | null;
 }
 
 export default function Vigencias() {
@@ -90,6 +105,15 @@ export default function Vigencias() {
                           revisão {s.revision}
                         </Badge>
                       )}
+                      {s.fusao && (
+                        <Badge
+                          variant="outline"
+                          className="ml-2 border-amber-300 text-amber-900"
+                          title={s.fusao.motivo}
+                        >
+                          reúne {s.fusao.quantas} vigências
+                        </Badge>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-right tabular-nums">
                       {s.entityCount}
@@ -123,6 +147,27 @@ export default function Vigencias() {
                 ))}
               </tbody>
             </table>
+
+            {/*
+              A fusão explicada por extenso, e não só num selo.
+
+              Quem chega a esta tela procurando uma vigência que não está aqui
+              precisa da frase inteira — o selo diz que houve fusão, e isto diz
+              quais revisões entraram e por quê. Só aparece quando há fusão.
+            */}
+            {snapshots.some((s) => s.fusao) && (
+              <div className="border-t bg-muted/30 px-4 py-3 space-y-2">
+                {snapshots
+                  .filter((s) => s.fusao)
+                  .map((s) => (
+                    <p key={s.id} className="text-xs text-muted-foreground">
+                      <span className="font-mono">{s.sourceLabel}</span> reúne as
+                      revisões {s.fusao!.revisoesOriginais.join(", ")} —{" "}
+                      {s.fusao!.motivo}
+                    </p>
+                  ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 

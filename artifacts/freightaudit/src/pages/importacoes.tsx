@@ -35,6 +35,25 @@ import { cn } from "@/lib/utils";
  * arquivo já entrou" em fato verificável, e não em opinião.
  */
 
+/**
+ * Uma decisão do pipeline, como quem opera precisa lê-la.
+ *
+ * `import_decision` era gravada a cada decisão e não chegava a tela nenhuma. O
+ * cartão mostrava o status — "dados já registrados" — sem dizer **contra qual
+ * vigência** o conteúdo bateu nem que revisão já estava lá. É a recusa mais
+ * silenciosa do produto: nada muda no canônico, nenhum erro aparece, e o
+ * operador só vê que o número dele não apareceu.
+ */
+interface DecisaoDaImportacao {
+  decisao: string;
+  motivo: string;
+  sourceLabel: string | null;
+  effectiveDate: string | null;
+  revisionEncontrada: number | null;
+  revisionCriada: number | null;
+  createdAt: string;
+}
+
 interface ImportRun {
   importRunId: string;
   status: string;
@@ -53,6 +72,8 @@ interface ImportRun {
   snapshots: number;
   errors: number;
   warnings: number;
+  /** As decisões do pipeline sobre este arquivo. Ver `DecisaoDaImportacao`. */
+  decisoes?: DecisaoDaImportacao[];
   labels: string[];
   /** Equipamentos que esta importação criaria e o dicionário não conhece. */
   pendingIdentities: string[];
@@ -546,6 +567,8 @@ function RunCard({
         </p>
       )}
 
+      <DecisoesDoPipeline decisoes={run.decisoes ?? []} />
+
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
         <Metric icon={Table2} accent="indigo" label="Abas" value={n(run.sheets)} />
         <Metric
@@ -675,6 +698,60 @@ const TONS = {
 
 export function estadoDaImportacao(status: string) {
   return ESTADOS[status] ?? { rotulo: status.toLowerCase(), tom: "espera" as const };
+}
+
+/**
+ * O que o pipeline decidiu sobre este arquivo, e por quê.
+ *
+ * A pergunta que esta lista responde é "por que esse arquivo não entrou?", e
+ * até o PR-20 ela não tinha resposta na tela: `import_decision` era gravada em
+ * toda decisão e lida por ninguém. O cartão dizia "dados já registrados" e
+ * parava aí — sem dizer contra qual vigência o conteúdo bateu, nem que revisão
+ * já estava lá, nem quando.
+ *
+ * Some quando não há decisão registrada: uma importação anterior à tabela não
+ * ganha uma seção vazia dizendo que não sabe.
+ */
+function DecisoesDoPipeline({ decisoes }: { decisoes: DecisaoDaImportacao[] }) {
+  if (decisoes.length === 0) return null;
+
+  return (
+    <div className="border rounded-xl overflow-hidden">
+      <div className="px-4 py-2.5 bg-muted/40 text-xs uppercase tracking-wide text-muted-foreground">
+        O que o pipeline decidiu
+      </div>
+      <ul className="divide-y">
+        {decisoes.map((d, i) => (
+          <li key={`${d.createdAt}-${i}`} className="px-4 py-3 space-y-1">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+              <span className="text-xs font-mono uppercase tracking-wide text-muted-foreground">
+                {d.decisao.replaceAll("_", " ").toLowerCase()}
+              </span>
+              {d.sourceLabel && (
+                <span className="text-sm font-semibold">{d.sourceLabel}</span>
+              )}
+              {/*
+                A revisão é o que transforma "dados já registrados" numa frase
+                acionável: saber que a revisão 2 já estava lá é o que diz a
+                quem opera que o arquivo dele não é mais novo que o do banco.
+              */}
+              {d.revisionEncontrada !== null && (
+                <span className="text-xs text-muted-foreground">
+                  revisão {d.revisionEncontrada} já estava ativa
+                </span>
+              )}
+              {d.revisionCriada !== null && (
+                <span className="text-xs text-muted-foreground">
+                  criou a revisão {d.revisionCriada}
+                </span>
+              )}
+            </div>
+            <p className="text-sm text-muted-foreground">{d.motivo}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
 }
 
 function StatusPill({ status }: { status: string }) {

@@ -44,6 +44,34 @@ export interface ImportRunSummary {
   warnings: number;
   /** Vigências this run produced, oldest first. */
   labels: string[];
+  /**
+   * As decisões que o pipeline tomou sobre este arquivo, na ordem.
+   *
+   * `import_decision` era escrita em toda decisão e **lida por ninguém**. Ela
+   * existe exatamente para responder "por que esse arquivo não entrou?", e a
+   * resposta ficava gravada e inalcançável: a tela mostrava o status do run —
+   * `SKIPPED_DUPLICATE_DATA`, por exemplo — sem dizer contra qual vigência o
+   * conteúdo bateu, nem que revisão já estava lá.
+   *
+   * A recusa por duplicata é o caso que mais precisa disto, e é o mais
+   * silencioso: nada muda no canônico, nenhum erro aparece, e o operador só vê
+   * que o número dele não apareceu.
+   */
+  decisoes: DecisaoDaImportacao[];
+}
+
+/** Uma decisão do pipeline, como quem opera precisa lê-la. */
+export interface DecisaoDaImportacao {
+  decisao: string;
+  /** A frase escrita para quem opera. Nunca um código sozinho. */
+  motivo: string;
+  sourceLabel: string | null;
+  effectiveDate: string | null;
+  /** A revisão que já existia, quando a decisão foi sobre uma que existia. */
+  revisionEncontrada: number | null;
+  /** A revisão que esta importação criou, quando criou. */
+  revisionCriada: number | null;
+  createdAt: string;
 }
 
 /**
@@ -82,6 +110,37 @@ function selectRunSummary(db: Database) {
              ORDER BY s.effective_date
           ),
           '{}'
+        )`,
+      /*
+        As decisões vêm na mesma projeção que o resto, e não numa segunda
+        consulta que a tela precisasse lembrar de fazer. Uma listagem de
+        importações em que o motivo da recusa é opcional é uma listagem em que
+        o motivo não aparece: quem escreve a tela mostra o que já está na mão.
+
+        A correlação é escrita qualificada — `"import_run"."id"` — e não como
+        `${importRunTable.id}`. O drizzle só qualifica a coluna quando o select
+        tem mais de uma tabela; aqui tem, por causa do join com `source_file`,
+        e por isso a forma interpolada funcionaria **hoje**. Ela deixaria de
+        funcionar no dia em que alguém removesse o join: `import_decision`
+        também tem uma coluna `id`, o predicado viraria `d.import_run_id =
+        d.id`, e o campo voltaria vazio em toda linha sem erro nenhum. Foi
+        exatamente isso que aconteceu com `snapshot_merge` neste mesmo PR.
+      */
+      decisoes: sql<DecisaoDaImportacao[]>`
+        coalesce(
+          (SELECT jsonb_agg(
+                    jsonb_build_object(
+                      'decisao',            d.decisao,
+                      'motivo',             d.motivo,
+                      'sourceLabel',        d.source_label,
+                      'effectiveDate',      d.effective_date::text,
+                      'revisionEncontrada', d.revision_encontrada,
+                      'revisionCriada',     d.revision_criada,
+                      'createdAt',          d.created_at::text
+                    ) ORDER BY d.created_at)
+             FROM import_decision d
+            WHERE d.import_run_id = "import_run"."id"),
+          '[]'::jsonb
         )`,
     })
     .from(importRunTable)

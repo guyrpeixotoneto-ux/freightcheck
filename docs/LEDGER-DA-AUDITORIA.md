@@ -60,6 +60,33 @@ Depois do PR-18 (`86d28da`): `comparison` 284, `availability` 32,
 `ComVazio` em quinze pontos de teste não alterou nenhuma asserção de
 comportamento.
 
+Depois do PR-19 (`1ec312d`): `composition` 64, `dre` 75, `availability` 32,
+`api-server` **317** (os 6 do terceiro equipamento), `freightaudit` 141 — sem
+mudança apesar das duas telas alteradas, porque os testes de front-end são de
+função pura e varredura, e nenhum contrato mudou.
+
+Depois do PR-20, a suíte **inteira**, um pacote por vez e árvore parada:
+
+| Pacote | Arquivos | Testes |
+|---|---|---|
+| `@workspace/db` | 8 | 83 |
+| `@workspace/availability` | 3 | 32 |
+| `@workspace/ingest` | 16 | 292 |
+| `@workspace/curation` | 3 | 45 |
+| `@workspace/comparison` | 20 | 284 |
+| `@workspace/composition` | 3 | 64 |
+| `@workspace/coverage` | 3 | 73 |
+| `@workspace/dre` | 6 | 75 |
+| `@workspace/balance` | 2 | 16 |
+| `api-server` | 25 | **321** |
+| `freightaudit` | 12 | 141 |
+| **Total** | **101** | **1.426** |
+
+Só `api-server` se moveu — 317 → 321, os 4 de `decisao-e-fusao.test.ts`. Os
+outros dez pacotes ficaram idênticos ao fechamento do PR-19, que é o esperado
+num PR que só faz duas tabelas gravadas serem lidas. `pnpm run typecheck` do
+monorepo inteiro passa.
+
 > **Os 119 pulados do `assistant` não são regressão desta sequência.** São
 > `evals`, `fase1` e os dois de benchmark, que dependem de chave de API do
 > modelo e se auto-pulam sem ela. Ficam registrados porque `assistant` entrou
@@ -73,10 +100,10 @@ comportamento.
 
 | | |
 |---|---|
-| **Feitos** | 17 (PR-1, 2, 4, 5, 6, 7, 8, 9, 10, 10b, 11, 12, 13, 14, 15, 17, 18) |
+| **Feitos** | 19 (PR-1, 2, 4, 5, 6, 7, 8, 9, 10, 10b, 11, 12, 13, 14, 15, 17, 18, 19, 20) |
 | **Absorvidos** | 1 (PR-16, cumprido pelo PR-10b) |
 | **Não existiu** | 1 (PR-3, dobrado no PR-4 — ver nota) |
-| **Faltam** | **2**: PR-19 (aguardando suíte), 20 |
+| **Faltam** | **nenhum PR**. Resta a prova final consolidada, e a dívida do `scope_hash` legado, remarcada no PR-14 para uma janela de calendário que ainda não foi nomeada |
 
 > **Nota sobre PR-3.** O plano original tinha um PR-3 de caracterização da
 > Análise de frota, separado do PR-4 que a mapeava. Os dois foram entregues como
@@ -118,8 +145,8 @@ comportamento.
 | PR | Objetivo | Status | Commit | Testes | Evidência |
 |---|---|---|---|---|---|
 | **PR-18** | Vocabulário comum do vazio, e as quatro causas do Impacto | **feito** | `86d28da` | `vazio-do-impacto.test.ts` (5) | `Vazio` em `@workspace/availability`: `NAO_EXISTE`, `NAO_SE_APLICA`, `NAO_CALCULAVEL`, `FORA_DO_RECORTE` — a máquina de estados da Parte F, com a regra de ouro presa por asserção. `getQuinzenaMatrix` devolvia `null` nas quatro e a rota traduzia em `404 "Nenhuma vigência importada ainda."`. **Prova negativa**: com a frase única reinstalada, três casos falham, inclusive a regra de ouro |
-| **PR-19** | O terceiro equipamento deixa de ser invisível | **aguardando suíte** | — | `terceiro-equipamento.test.ts` (6) | Composição e DRE declaravam o que sabem apurar, e **ninguém cruzava com o canônico**: as telas tinham as abas escritas à mão, `/composition/equipment-types` e `/dre/plano` não eram chamados por tela nenhuma. Um terceiro equipamento ficava invisível — sem aba, sem aviso, sem erro. `equipamentosElegiveis` cruza censo × regra e devolve `NAO_SE_APLICA` nomeado; Composição vira aba desabilitada, DRE vira aviso (lá as abas são escopos, e `CONJUNTO` não é equipamento) |
-| **PR-20** | `import_decision` em Importações; `snapshot_merge` em Vigências | **a fazer** | — | — | — |
+| **PR-19** | O terceiro equipamento deixa de ser invisível | **feito** | `1ec312d` | `terceiro-equipamento.test.ts` (6) | Composição e DRE declaravam o que sabem apurar, e **ninguém cruzava com o canônico**: as telas tinham as abas escritas à mão, `/composition/equipment-types` e `/dre/plano` não eram chamados por tela nenhuma. Um terceiro equipamento ficava invisível — sem aba, sem aviso, sem erro. `equipamentosElegiveis` cruza censo × regra e devolve `NAO_SE_APLICA` nomeado; Composição vira aba desabilitada, DRE vira aviso (lá as abas são escopos, e `CONJUNTO` não é equipamento) |
+| **PR-20** | `import_decision` em Importações; `snapshot_merge` em Vigências | **feito** | `PR20SHA` | `decisao-e-fusao.test.ts` (4) | Duas tabelas escritas pelo pipeline em toda decisão e toda fusão, e **lidas por ninguém**. Importações dizia "dados já registrados" sem dizer contra qual vigência o conteúdo bateu nem que revisão estava lá; Vigências mostrava a que sobrou de uma fusão e a outra sumia da lista, como se a importação dela tivesse falhado. **Achou um defeito no próprio PR**: a correlação `m.snapshot_id = ${snapshotTable.id}` era emitida pelo drizzle sem qualificar num select de uma tabela só, e `snapshot_merge` também tem coluna `id` — o predicado virava `m.snapshot_id = m.id`, casava com nada, e o campo vinha `null` em toda vigência sem erro nenhum. A mesma forma de ausência silenciosa que o PR existe para acabar, dentro do PR. Corrigido nos dois lados (`query.ts` e, preventivamente, `history.ts`) |
 
 ---
 
