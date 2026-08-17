@@ -17,6 +17,7 @@ import dreRouter from "./dre";
 import ticketsRouter from "./tickets";
 import impactoRouter from "./impacto";
 import clienteRouter from "./cliente";
+import frotaRouter from "./frota";
 
 /**
  * F0/F1 surface.
@@ -96,6 +97,12 @@ import clienteRouter from "./cliente";
  * comportamento econômico declarado em `@workspace/knowledge`. A regra que a
  * separa da aba Impacto: lá está o universo do que mudou; aqui, o subconjunto
  * em que o movimento nos prejudica **e** existe algo objetivo a pedir.
+ *
+ * `frota` é o cabeçalho de Cavalo 360° e Carreta 360°: quem existe, antes de
+ * perguntar o que mudou. É a única leitura daquelas telas que não sai das
+ * quatro abas de Alterações — e existe porque nenhuma delas conhece o ativo que
+ * não mudou, que é justamente o que um seletor de placa não pode deixar de
+ * oferecer.
  */
 const router: IRouter = Router();
 
@@ -117,5 +124,6 @@ router.use(dreRouter);
 router.use(ticketsRouter);
 router.use(impactoRouter);
 router.use(clienteRouter);
+router.use(frotaRouter);
 
 export default router;

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { fetchJson } from "@/lib/api";
+import { paramsDoEscopo, type EscopoDeFrota } from "@/lib/frota";
 import { primeiraPagina, type Janela } from "@/lib/paginacao";
 import { cn } from "@/lib/utils";
 import {
@@ -133,14 +134,34 @@ const APARENCIA: Record<
 const aparenciaDe = (classe: string) =>
   APARENCIA[classe] ?? APARENCIA.NAO_CLASSIFICADO;
 
-export function TicketClassification({ envio }: { envio: string | null }) {
+/**
+ * `escopo` recorta a árvore, e não só a leitura.
+ *
+ * Sem filtro nenhum, como sempre — é a árvore do envio inteiro. Com escopo, é a
+ * árvore do equipamento ou do ativo: a população da tela é outra, e uma árvore
+ * da frota inteira dentro de Cavalo 360° contaria em cada folha o que a tela
+ * afirma não estar mostrando.
+ */
+export function TicketClassification({
+  envio,
+  escopo,
+}: {
+  envio: string | null;
+  escopo?: EscopoDeFrota;
+}) {
   const [aberta, setAberta] = useState<string | null>(null);
 
+  const consulta = new URLSearchParams();
+  if (envio) consulta.set("ticketImportId", envio);
+  for (const [chave, valor] of escopo ? paramsDoEscopo(escopo) : []) {
+    consulta.set(chave, valor);
+  }
+
   const query = useQuery({
-    queryKey: ["tickets", "classificacao", envio],
+    queryKey: ["tickets", "classificacao", envio, consulta.toString()],
     queryFn: () =>
       fetchJson<TicketClassificationResponse>(
-        `/tickets/classification${envio ? `?ticketImportId=${envio}` : ""}`,
+        `/tickets/classification${consulta.toString() ? `?${consulta}` : ""}`,
       ),
   });
 
@@ -158,7 +179,12 @@ export function TicketClassification({ envio }: { envio: string | null }) {
     return (
       <Card className="p-6">
         <p className="text-sm text-muted-foreground">
-          Nenhuma alteração de chamado para classificar neste envio.
+          {/* Sob escopo, "não há" quer dizer outra coisa: o arquivo tem
+              chamados, e nenhum deles é deste recorte. Repetir a frase do envio
+              vazio faria parecer que o export não trouxe nada. */}
+          {escopo
+            ? "Nenhum chamado deste envio mexeu neste recorte da frota."
+            : "Nenhuma alteração de chamado para classificar neste envio."}
         </p>
       </Card>
     );
