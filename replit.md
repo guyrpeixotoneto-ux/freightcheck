@@ -250,6 +250,28 @@ e-mail, e exclusão de conta.
   que o corte deixa à vista: **2.155 das 2.931 alterações são de custo variável
   e nenhuma tem impacto apurável**, enquanto as quatro apuráveis são todas de
   custo fixo.
+- **A aba Impacto exporta em Excel**, e o arquivo é a navegação inteira feita de
+  uma vez: um índice e **uma aba por parâmetro que mudou**, cada uma com a matriz
+  daquele parâmetro — uma linha por ativo, uma coluna por vigência.
+  `getExportacaoDeImpacto` (`lib/comparison/src/exportacao.ts`) decide quem entra
+  pelo **mesmo panorama da tela**, com o recorte De/Até e o corte de classe na
+  query; a planilha é montada em `artifacts/api-server/src/lib/planilha-impacto.ts`
+  e servida por `GET /api/impacto/exportacao.xlsx`, com o botão em
+  `impacto-panorama.tsx`. Três decisões sustentam o arquivo:
+  **as matrizes saem da função da tela** — `montarMatriz`, extraída de
+  `getQuinzenaMatrix` para ter dois leitores, porque uma segunda redação de
+  "ausência não é zero" divergiria da tela no primeiro ajuste; **as três
+  ausências têm três marcas e nenhuma é número** (`—` fora da frota, `·` sem
+  valor, célula vazia para a vigência que não trouxe o equipamento), de modo que
+  `SOMA()` sobre a coluna não inclua o que não estava lá; e **o banco é lido por
+  equipamento, não por parâmetro** — presenças, placas e dobra são as mesmas para
+  todos os parâmetros de um equipamento, e os valores vêm numa consulta só, o que
+  põe 36 abas do export real em ~1,3 s. As parcelas e as colunas de conjunto
+  **entram** no arquivo, ao contrário dos rankings da tela: elas mudaram e alguém
+  vai procurá-las, e a coluna *Papel* do índice é o que impede alguém de somar
+  duas abas que contêm o mesmo real. É a única rota desta API cujo **sucesso não
+  é JSON**; o erro continua sendo, e é por isso que o 404 de "nada mudou neste
+  recorte" chega como frase na tela em vez de um `.xlsx` com uma mensagem dentro.
 - **Alterações → Cliente** é a quarta aba, e a única que não responde "o que
   mudou": responde *o que fazer a respeito*. A cadeia é `Impacto identifica →
   semântica interpreta → Cliente recomenda`, e cada elo é um pacote —
