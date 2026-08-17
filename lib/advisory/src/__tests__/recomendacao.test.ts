@@ -67,6 +67,22 @@ const variacao = (preco: number) => ({
   comparados: 60,
 });
 
+/** Um padrão numa vigência escolhida — para os casos que cruzam vigências. */
+function padrao(
+  effectiveDate: string,
+  antes: number,
+  depois: number,
+  entidades: number,
+) {
+  return {
+    effectiveDate,
+    sourceLabel: `EMPURRADA_${effectiveDate}`,
+    antes,
+    depois,
+    entidades,
+  };
+}
+
 function transicoes(
   padroes: { antes: number; depois: number; entidades: number }[],
   vigencia = "EMPURRADA_2_2_2026",
@@ -156,6 +172,68 @@ describe("o sinal matemático não é o sinal econômico", () => {
     expect(r.efeito).toBe("INDETERMINADO");
     expect(r.situacao).toBe("INVESTIGAR");
     expect(r.porque).toMatch(/direções opostas/i);
+  });
+
+  it("quem foi para o lado contrário é contado na vigência, não na série", () => {
+    /*
+      O mesmo ativo se move em várias vigências, e somar os padrões da série
+      inteira o contava uma vez por vigência. No export real isto saiu na tela
+      como "64 de 64 cavalos afetados · 236 para o lado contrário" — um contra
+      número que estoura a frota e que ninguém consegue conferir.
+
+      Dentro de uma vigência a soma é segura: um ativo tem um par de valores por
+      vigência, então cada placa entra no máximo uma vez.
+    */
+    const r = avaliarParametro({
+      parametro: parametro({ code: "cavalo.tjlp", unit: "PERCENT", entities: 10 }),
+      comportamento: comportamentoDe("cavalo.tjlp"),
+      transicoes: {
+        code: "cavalo.tjlp",
+        total: 30,
+        comZero: 0,
+        ativosQueOscilam: 0,
+        padroes: [
+          // a virada que representa o caso — 6 descem, 4 sobem
+          padrao("2026-02-01", 7.7, 7.26, 6),
+          padrao("2026-02-01", 6.19, 7.68, 4),
+          // outras vigências, com os mesmos ativos subindo de novo: somados à
+          // série inteira dariam 4 + 5 + 5 = 14 contra uma frota de 10
+          padrao("2026-03-01", 7.26, 7.9, 5),
+          padrao("2026-04-01", 7.4, 7.9, 5),
+        ],
+      },
+    });
+
+    expect(r.oQueAconteceu!.entidades).toBe(6);
+    expect(r.oQueAconteceu!.entidadesEmSentidoOposto).toBe(4);
+    expect(r.oQueAconteceu!.entidadesEmSentidoOposto).toBeLessThanOrEqual(
+      r.veiculosAfetados,
+    );
+  });
+
+  it("subir numa vigência e descer noutra não é ativo discordando de ativo", () => {
+    /*
+      A frota inteira sobe em fevereiro e a frota inteira desce em março. Isso é
+      a série andando no tempo — não há ninguém para separar ativo a ativo, e
+      marcar direções mistas aqui mandaria investigar um movimento uniforme.
+    */
+    const r = avaliarParametro({
+      parametro: parametro({ code: "cavalo.tjlp", unit: "PERCENT", entities: 10 }),
+      comportamento: comportamentoDe("cavalo.tjlp"),
+      transicoes: {
+        code: "cavalo.tjlp",
+        total: 20,
+        comZero: 0,
+        ativosQueOscilam: 0,
+        padroes: [
+          padrao("2026-02-01", 7.2, 7.7, 10),
+          padrao("2026-03-01", 7.7, 7.2, 10),
+        ],
+      },
+    });
+
+    expect(r.direcoesMistas).toBe(false);
+    expect(r.oQueAconteceu!.entidadesEmSentidoOposto).toBe(0);
   });
 });
 
