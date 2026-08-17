@@ -1,191 +1,178 @@
-import { Router } from "express";
-import * as XLSX from "xlsx";
-import * as fs from "fs";
-import * as path from "path";
+import { Router, type IRouter } from "express";
+import { db } from "@workspace/db";
+import {
+  ContextNotFoundError,
+  analiseDeFrota,
+  linhasDeEquipamento,
+  type SeriesContext,
+} from "@workspace/comparison";
 
-const router = Router();
+/**
+ * Análise de frota — a tela que mostrava zero, e por quê.
+ *
+ * ---------------------------------------------------------------------------
+ * O que saiu daqui
+ * ---------------------------------------------------------------------------
+ *
+ * Esta rota lia um `.xlsx` de `attached_assets` em runtime. `findExcelFile`
+ * pegava o **primeiro** arquivo em ordem alfabética — `Modelo_Carreta.xlsx` —,
+ * e procurava dentro dele as abas `carretas` e `cavalos`. Aquele arquivo tem
+ * uma aba só, chamada `Modelo_Carreta`.
+ *
+ * `XLSX.utils.sheet_to_json(undefined)` devolve `[]` sem reclamar. A tela ficava
+ * com zero linhas, todo campo do resumo em zero, e 657 linhas esperando no
+ * arquivo. Nenhum erro em log, nenhuma tela de falha: a resposta era um sucesso
+ * vazio. Foi o caso literal que abriu esta auditoria — o dado existe e o módulo
+ * diz que não há dados.
+ *
+ * Era também a **fonte paralela de leitura** que a Parte A do baseline nomeia:
+ * um número na tela que não vinha do canônico, não passava por curadoria, não
+ * tinha vigência nem escopo, e não era rastreável até célula nenhuma. Duas
+ * portas de entrada, e esta rota lia por uma terceira.
+ *
+ * ---------------------------------------------------------------------------
+ * O que entrou no lugar
+ * ---------------------------------------------------------------------------
+ *
+ * `analiseDeFrota` e `linhasDeEquipamento`, em `@workspace/comparison`. A rota
+ * **não calcula**: ela chama a autoridade e traduz o formato para o que a tela
+ * lê, como `routes/coverage.ts` já faz. A forma da resposta é a mesma que o ADR
+ * registra e que `fleet-analysis-contrato.test.ts` prende — a tela não muda uma
+ * linha.
+ *
+ * Duas coisas na resposta são novas, e nenhuma delas quebra a tela:
+ * `manutencaoCavalos` pode vir `null` com o motivo em `naoCalculavel`, porque
+ * dividir por doze sem saber a periodicidade era palpite; e `ausencias` conta,
+ * por campo, quantas entidades tinham a coluna entregue e sem valor — a soma
+ * passou a ser do que existe, e o que faltou vem dito em vez de virar zero.
+ *
+ * Ver `docs/ADR-FLEET-ANALYSIS-CANONICO.md`.
+ */
+const router: IRouter = Router();
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Helpers
-// ──────────────────────────────────────────────────────────────────────────────
+/**
+ * O de-para de coluna: código canônico → o nome que a tela espera.
+ *
+ * A tela lê `custoFixo`; o canônico guarda `carreta.custo_fixo`. A tradução
+ * mora aqui, e não na biblioteca, porque é ela que conhece o formato da tela —
+ * a biblioteca fala em código de atributo, que é a linguagem do dado.
+ */
+const COLUNAS_DA_CARRETA: Record<string, string> = {
+  "carreta.implemento": "implemento",
+  "carreta.modelo": "modelo",
+  "carreta.ano": "ano",
+  "carreta.custo_fixo": "custoFixo",
+  "carreta.finame_implemento": "finameImplemento",
+  "carreta.seguro": "seguro",
+  "carreta.ipva_licenciamento": "ipvaLicenciamento",
+  "carreta.valor_nf_compra": "valorNfCompra",
+  "carreta.status_financiamento": "statusFinanciamento",
+};
 
-function findExcelFile(): string | null {
-  // Search up from __dirname for an attached_assets directory
-  const candidates = [
-    path.resolve(process.cwd(), "../../attached_assets"),
-    path.resolve(process.cwd(), "../attached_assets"),
-    path.resolve(process.cwd(), "attached_assets"),
-  ];
-  for (const dir of candidates) {
-    if (!fs.existsSync(dir)) continue;
-    const files = fs.readdirSync(dir);
-    const xlsx = files.find((f) => f.endsWith(".xlsx"));
-    if (xlsx) return path.join(dir, xlsx);
-  }
-  return null;
-}
+const COLUNAS_DO_CAVALO: Record<string, string> = {
+  "cavalo.placa_carreta": "Placa Carreta",
+  "cavalo.montadora": "montadora",
+  "cavalo.ano_bid": "anoBid",
+  "cavalo.ativo": "ativo",
+  "cavalo.faixa_km": "faixaKm",
+  "cavalo.finame_cavalo": "finameCavalo",
+  "cavalo.manutencao_ano": "manutencaoAno",
+  "cavalo.reaiskm": "reaiskm",
+  "cavalo.valor_nf_compra": "valorNfCompra",
+};
 
-/** Parse "EMPURRADA_D_M_YYYY" → Date */
-function parseVigencia(v: string): Date {
-  const m = v.match(/EMPURRADA_(\d+)_(\d+)_(\d+)/);
-  if (!m) return new Date(0);
-  return new Date(+m[3], +m[2] - 1, +m[1]);
-}
-
-/** "EMPURRADA_2_12_2025" → "Dez/2025" */
-const MONTHS = ["Jan","Fev","Mar","Abr","Mai","Jun","Jul","Ago","Set","Out","Nov","Dez"];
-function vigenciaLabel(v: string): string {
-  const m = v.match(/EMPURRADA_(\d+)_(\d+)_(\d+)/);
-  if (!m) return v;
-  return `${MONTHS[+m[2] - 1]}/${m[3]}`;
-}
-
-type Row = Record<string, unknown>;
-
-function sumField(arr: Row[], field: string): number {
-  return arr.reduce((s, r) => s + (Number(r[field]) || 0), 0);
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Cache
-// ──────────────────────────────────────────────────────────────────────────────
-
-interface FleetData {
-  vigencias: string[];
-  summary: Record<string, unknown>[];
-  financiamentoByVigencia: Record<string, unknown>[];
-  modelosByVigencia: Record<string, unknown>[];
-  ativoStatusByVigencia: Record<string, unknown>[];
-  carretas: Row[];
-  cavalos: Row[];
-}
-
-let _cache: FleetData | null = null;
-
-function getFleetData(): FleetData {
-  if (_cache) return _cache;
-
-  const filePath = findExcelFile();
-  if (!filePath) throw new Error("Arquivo de frota (.xlsx) não encontrado em attached_assets");
-
-  const wb = XLSX.readFile(filePath);
-
-  const carretasRaw = XLSX.utils.sheet_to_json<Row>(wb.Sheets["carretas"], { defval: null });
-  const cavalosRaw  = XLSX.utils.sheet_to_json<Row>(wb.Sheets["cavalos"],  { defval: null });
-
-  // Unique vigências, chronologically sorted
-  const vigenciasSet = new Set<string>([
-    ...carretasRaw.map((r) => String(r["Vigencia"] ?? "")),
-    ...cavalosRaw.map((r) => String(r["Vigencia"] ?? "")),
-  ]);
-  const vigencias = [...vigenciasSet]
-    .filter(Boolean)
-    .sort((a, b) => parseVigencia(a).getTime() - parseVigencia(b).getTime());
-
-  // Per-vigência summary
-  const summary = vigencias.map((v) => {
-    const cr = carretasRaw.filter((r) => r["Vigencia"] === v);
-    const cv = cavalosRaw.filter((r) => r["Vigencia"] === v);
-    return {
-      vigencia: v,
-      label: vigenciaLabel(v),
-      totalCarretas: cr.length,
-      totalCavalos: cv.length,
-      custoFixoCarretas: sumField(cr, "custoFixo"),
-      finameCarretas: sumField(cr, "finameImplemento"),
-      finameCavalos: sumField(cv, "finameCavalo"),
-      ipvaCarretas: sumField(cr, "ipvaLicenciamento"),
-      seguroCarretas: sumField(cr, "seguro"),
-      lucroFixoCarretas: sumField(cr, "lucroFixomodeloNovoCicloCarreta"),
-      lucroVariavelCarretas: sumField(cr, "lucroVariavelPrevistoCarreta"),
-      manutencaoCavalos: sumField(cv, "manutencaoAno") / 12,
-      valorFrotaCarretas: sumField(cr, "valorNfCompra"),
-      valorFrotaCavalos: sumField(cv, "valorNfCompra"),
-    };
-  });
-
-  // Financing status breakdown per vigência (carretas)
-  const financiamentoByVigencia = vigencias.map((v) => {
-    const cr = carretasRaw.filter((r) => r["Vigencia"] === v);
-    const counts: Record<string, number | string> = { vigencia: v, label: vigenciaLabel(v) };
-    cr.forEach((r) => {
-      const s = (r["statusFinanciamento"] ?? "N/A") as string;
-      const clean = s.replace("Descrição: ", "");
-      counts[clean] = ((counts[clean] as number) || 0) + 1;
-    });
-    return counts;
-  });
-
-  // Modelo breakdown per vigência (carretas)
-  const modelosByVigencia = vigencias.map((v) => {
-    const cr = carretasRaw.filter((r) => r["Vigencia"] === v);
-    const counts: Record<string, number | string> = { vigencia: v, label: vigenciaLabel(v) };
-    cr.forEach((r) => {
-      const m = (r["modelo"] ?? "N/A") as string;
-      counts[m] = ((counts[m] as number) || 0) + 1;
-    });
-    return counts;
-  });
-
-  // Ativo status breakdown per vigência (cavalos)
-  const ativoStatusByVigencia = vigencias.map((v) => {
-    const cv = cavalosRaw.filter((r) => r["Vigencia"] === v);
-    const counts: Record<string, number | string> = { vigencia: v, label: vigenciaLabel(v) };
-    cv.forEach((r) => {
-      const s = (r["ativo"] ?? "N/A") as string;
-      counts[String(s)] = ((counts[String(s)] as number) || 0) + 1;
-    });
-    return counts;
-  });
-
-  _cache = {
-    vigencias,
-    summary,
-    financiamentoByVigencia,
-    modelosByVigencia,
-    ativoStatusByVigencia,
-    carretas: carretasRaw,
-    cavalos: cavalosRaw,
+/** O contexto pedido, quando pedido. Nada pedido é o censo, como no Painel. */
+function parseContext(query: Record<string, unknown>): Partial<SeriesContext> | undefined {
+  const scopeHash =
+    typeof query.scopeHash === "string" && query.scopeHash !== ""
+      ? query.scopeHash
+      : undefined;
+  const hasCanal = typeof query.canal === "string";
+  if (scopeHash === undefined && !hasCanal) return undefined;
+  return {
+    ...(scopeHash !== undefined ? { scopeHash } : {}),
+    ...(hasCanal
+      ? { channel: (query.canal as string) === "" ? null : (query.canal as string) }
+      : {}),
   };
-
-  return _cache;
 }
 
-// ──────────────────────────────────────────────────────────────────────────────
-// Routes
-// ──────────────────────────────────────────────────────────────────────────────
+/**
+ * Traduz uma linha canônica para o formato da tela.
+ *
+ * O que **não** é traduzido: `Placa`, `Operador - Nome` e `Vigencia` já vêm com
+ * o nome da tela, porque não são fato — são identidade, escopo e a vigência que
+ * os produziu. A descoberta de que duas colunas da tabela não estão em `fact`
+ * foi a que mais mudou esta migração; uma versão que as procurasse lá concluiria
+ * que o dado sumiu.
+ */
+function traduzir(
+  linha: Record<string, unknown>,
+  colunas: Record<string, string>,
+): Record<string, unknown> {
+  const saida: Record<string, unknown> = {
+    Placa: linha.Placa ?? null,
+    "Operador - Nome": linha["Operador - Nome"] ?? null,
+    Vigencia: linha.Vigencia ?? null,
+  };
+  for (const [code, nome] of Object.entries(colunas)) {
+    const bruto = linha[code];
+    // Número continua número: a tela formata moeda e ordena por valor, e uma
+    // string ali viraria ordenação alfabética silenciosa.
+    const numero = bruto === null || bruto === undefined ? null : Number(bruto);
+    saida[nome] =
+      numero !== null && !Number.isNaN(numero) ? numero : ((bruto as string) ?? null);
+  }
+  return saida;
+}
 
-router.get("/fleet-analysis/summary", (_req, res) => {
-  const data = getFleetData();
-  res.json({
-    vigencias: data.vigencias,
-    vigenciaLabels: data.vigencias.reduce<Record<string, string>>((m, v) => {
-      m[v] = vigenciaLabel(v);
-      return m;
-    }, {}),
-    summary: data.summary,
-    financiamentoByVigencia: data.financiamentoByVigencia,
-    modelosByVigencia: data.modelosByVigencia,
-    ativoStatusByVigencia: data.ativoStatusByVigencia,
-  });
+function responderErro(res: Parameters<Parameters<IRouter["get"]>[1]>[1], err: unknown) {
+  if (err instanceof ContextNotFoundError) {
+    res.status(404).json({ error: err.message });
+    return true;
+  }
+  return false;
+}
+
+router.get("/fleet-analysis/summary", async (req, res): Promise<void> => {
+  try {
+    const analise = await analiseDeFrota(db, parseContext(req.query as Record<string, unknown>));
+    res.json(analise);
+  } catch (err) {
+    if (responderErro(res, err)) return;
+    req.log.error({ err }, "Error building fleet analysis summary");
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
-router.get("/fleet-analysis/carretas", (req, res) => {
-  const { vigencia } = req.query as Record<string, string>;
-  const data = getFleetData();
-  const rows = vigencia
-    ? data.carretas.filter((r) => r["Vigencia"] === vigencia)
-    : data.carretas;
-  res.json(rows);
+router.get("/fleet-analysis/carretas", async (req, res): Promise<void> => {
+  try {
+    const q = req.query as Record<string, unknown>;
+    const linhas = await linhasDeEquipamento(db, "CARRETA", Object.keys(COLUNAS_DA_CARRETA), {
+      vigencia: typeof q.vigencia === "string" && q.vigencia !== "" ? q.vigencia : undefined,
+      contexto: parseContext(q),
+    });
+    res.json(linhas.map((l) => traduzir(l, COLUNAS_DA_CARRETA)));
+  } catch (err) {
+    if (responderErro(res, err)) return;
+    req.log.error({ err }, "Error listing fleet carretas");
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
-router.get("/fleet-analysis/cavalos", (req, res) => {
-  const { vigencia } = req.query as Record<string, string>;
-  const data = getFleetData();
-  const rows = vigencia
-    ? data.cavalos.filter((r) => r["Vigencia"] === vigencia)
-    : data.cavalos;
-  res.json(rows);
+router.get("/fleet-analysis/cavalos", async (req, res): Promise<void> => {
+  try {
+    const q = req.query as Record<string, unknown>;
+    const linhas = await linhasDeEquipamento(db, "CAVALO", Object.keys(COLUNAS_DO_CAVALO), {
+      vigencia: typeof q.vigencia === "string" && q.vigencia !== "" ? q.vigencia : undefined,
+      contexto: parseContext(q),
+    });
+    res.json(linhas.map((l) => traduzir(l, COLUNAS_DO_CAVALO)));
+  } catch (err) {
+    if (responderErro(res, err)) return;
+    req.log.error({ err }, "Error listing fleet cavalos");
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 export default router;

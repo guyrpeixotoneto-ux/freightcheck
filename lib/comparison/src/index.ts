@@ -1,3 +1,4 @@
+export * from "./analise-de-frota";
 export * from "./series";
 export * from "./classification";
 export * from "./impact";

@@ -192,6 +192,56 @@ autoridade, como `routes/coverage.ts` já faz.
 
 ---
 
+## 6-bis. O que a migração de fato produziu (PR-15)
+
+**A medição que mudou a avaliação de risco.** Antes de migrar, mediu-se o que a
+rota devolvia: `findExcelFile` escolhe o primeiro `.xlsx` em ordem alfabética —
+`Modelo_Carreta.xlsx` —, cuja única aba se chama `Modelo_Carreta`; o código
+procura `carretas` e `cavalos`; `sheet_to_json(undefined)` devolve `[]`. Zero
+linhas, com 657 no arquivo. **Não havia número a preservar**, e por isso todo
+valor novo é correção de defeito comprovado — categoria (a) — e não diferença a
+justificar. As exceções são os quatro pontos abaixo.
+
+| Campo | Antes | Depois (agosto/2026, export real) |
+|---|---|---|
+| vigências | 0 | 9 |
+| `totalCarretas` / `totalCavalos` | 0 / 0 | 71 / 62 |
+| `custoFixoCarretas` | 0 | 1.204.664,11 |
+| `finameCarretas` | 0 | 254.748,52 |
+| `finameCavalos` | 0 | 867.860,23 |
+| `ipvaCarretas` | 0 | 10.875,69 |
+| `seguroCarretas` | 0 | 36.568,99 |
+| `lucroFixoCarretas` | 0 | 47.261,41 |
+| `lucroVariavelCarretas` | 0 | 100.373,34 |
+| `manutencaoCavalos` | 0 | **`null`, com motivo** |
+| `valorFrotaCarretas` | 0 | 17.127.809,07 |
+| `valorFrotaCavalos` | 0 | 41.382.628,64 |
+
+**4.1 — decidido, e ativo.** `cavalo.manutencao_ano` **não** tem periodicidade
+confirmada no export real. O campo vem `null` com a frase, em vez de dividido
+por doze. Não é hipótese: é o estado de hoje, e a saída é a curadoria confirmar
+o que aquele número mede.
+
+**4.2 — feito, e sem efeito hoje.** Com uma unidade no banco, censo e recorte
+dão o mesmo, e o teste prova a igualdade. A prova de isolamento com duas
+unidades está em `painel.test.ts`; aqui prova-se que pedir contexto inexistente
+é 404, e não o censo sob outro nome.
+
+**4.3 — preservado.** `valor_nf_compra` continua em campo próprio, e o teste
+prende a separação por ordem de grandeza: 17,1 milhões de valor de frota contra
+1,2 milhão de custo fixo. Somá-los seria visível.
+
+**4.4 — armado, e não exercitado.** `ausencias` veio vazio: no export real, todo
+fato somado tem valor. A proteção existe e está testada contra o banco (a soma
+bate com o não-nulo e a contagem bate com o nulo), mas o dado de hoje não a
+exercita. Dizer que ela "corrigiu números" seria falso.
+
+**Uma mudança de contrato, aditiva e declarada.** A resposta ganhou `contexto` —
+o recorte que produziu os números, `null` no censo —, pelo mesmo motivo do
+PR-13. São sete blocos, não seis, e o teste de forma foi atualizado com a razão.
+
+---
+
 ## 6. Ordem e critério de aceitação
 
 O PR-15 executa esta migração, **depois** do P1, pelo motivo de §4.2.

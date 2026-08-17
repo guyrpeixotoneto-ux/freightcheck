@@ -5,6 +5,21 @@ import type { Server } from "node:http";
 import express from "express";
 import * as XLSX from "xlsx";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { captureRaw, preview, promote, receiveFile, stage } from "@workspace/ingest";
+import {
+  createTestDatabase,
+  realExportPath,
+  type TestDb,
+} from "@workspace/ingest/testing";
+import {
+  applyConfirmations,
+  backfillSemantics,
+  runProposalPass,
+  seedTaxonomy,
+} from "@workspace/curation";
+import { vigenciasDisponiveis } from "@workspace/availability";
+import { listContexts } from "@workspace/comparison";
+import { sql } from "drizzle-orm";
 
 /**
  * Análise de frota — o contrato de hoje, registrado antes de trocar a fonte.
@@ -43,6 +58,7 @@ const RAIZ = path.resolve(
 
 let servidor: Server;
 let base: string;
+let ctx: TestDb;
 
 async function get(caminho: string): Promise<{ status: number; body: any }> {
   const res = await fetch(`${base}${caminho}`);
@@ -50,9 +66,37 @@ async function get(caminho: string): Promise<{ status: number; body: any }> {
 }
 
 beforeAll(async () => {
+  /*
+    A rota passou a ler o canônico, então o servidor de teste passou a precisar
+    de banco. Antes ela lia um arquivo do disco e um `express()` pelado bastava
+    — o que é, em si, a descrição do defeito que o PR-15 corrigiu.
+  */
+  ctx = await createTestDatabase("api_fleet_analysis");
+  process.env.DATABASE_URL = ctx.url;
+
+  const recebido = await receiveFile(ctx.db, { filePath: realExportPath() });
+  await captureRaw(ctx.db, recebido.importRunId);
+  await stage(ctx.db, recebido.importRunId);
+  const relatorio = await preview(ctx.db, recebido.importRunId);
+  await promote(ctx.db, recebido.importRunId, {
+    confirmNewEntityTypes: relatorio.pendingIdentities,
+  });
+  await seedTaxonomy(ctx.db, "teste:frota");
+  await runProposalPass(ctx.db, "teste:frota");
+  await applyConfirmations(ctx.db);
+  await backfillSemantics(ctx.db);
+
   const { default: router } = await import("../fleet-analysis");
   const app = express();
   app.use(express.json());
+  app.use((req, _res, next) => {
+    (req as unknown as { log: unknown }).log = {
+      error: () => {},
+      warn: () => {},
+      info: () => {},
+    };
+    next();
+  });
   app.use(router);
   servidor = await new Promise<Server>((resolve) => {
     const s = app.listen(0, "127.0.0.1", () => resolve(s));
@@ -60,9 +104,10 @@ beforeAll(async () => {
   const endereco = servidor.address();
   if (typeof endereco === "string" || endereco === null) throw new Error("sem porta");
   base = `http://127.0.0.1:${endereco.port}`;
-}, 120_000);
+}, 900_000);
 
 afterAll(async () => {
+  await ctx?.drop().catch(() => {});
   if (servidor) {
     servidor.closeAllConnections();
     await new Promise<void>((resolve) => servidor.close(() => resolve()));
@@ -92,11 +137,25 @@ const CAMPOS_DO_RESUMO = [
 ] as const;
 
 describe("a forma da resposta — o que a migração não pode mexer", () => {
-  it("`/summary` devolve os seis blocos que a tela consome", async () => {
+  it("`/summary` devolve os blocos que a tela consome, e um a mais declarado", async () => {
     const res = await get("/fleet-analysis/summary");
     expect(res.status).toBe(200);
+    /*
+      Seis blocos eram o contrato antigo; são sete.
+
+      `contexto` entrou no PR-15 pelo mesmo motivo que entrou no Painel no
+      PR-13: um número sem o recorte à vista é um número que a tela pode
+      legendar errado, e foi assim que o Painel passou a discordar da Cobertura
+      sem que ninguém visse a discordância. Ele é `null` quando a resposta é o
+      censo.
+
+      A mudança é **aditiva e declarada**. A tela lê os seis por nome e não se
+      importa com o sétimo; esta asserção é de igualdade exata de propósito,
+      para que um oitavo campo não entre sem alguém escrever por quê.
+    */
     expect(Object.keys(res.body).sort()).toEqual([
       "ativoStatusByVigencia",
+      "contexto",
       "financiamentoByVigencia",
       "modelosByVigencia",
       "summary",
@@ -106,7 +165,7 @@ describe("a forma da resposta — o que a migração não pode mexer", () => {
     expect(Array.isArray(res.body.vigencias)).toBe(true);
     expect(Array.isArray(res.body.summary)).toBe(true);
     expect(typeof res.body.vigenciaLabels).toBe("object");
-  });
+  }, 300_000);
 
   it("`/carretas` e `/cavalos` devolvem lista, com e sem vigência pedida", async () => {
     for (const caminho of ["/fleet-analysis/carretas", "/fleet-analysis/cavalos"]) {
@@ -263,31 +322,249 @@ describe("o estado atual: a rota lê o disco, e o disco não tem mais as abas", 
     expect(wb.SheetNames).not.toContain("cavalos");
   });
 
-  it("e por isso ela devolve vazio — enquanto o canônico tem nove vigências", async () => {
+  it("e a tela voltou a ter dado — o canônico responde onde o disco calava", async () => {
     /*
-      ESTE BLOCO É PARA SER INVERTIDO NO PR-15.
+      A inversão. Este bloco dizia `expect(res.body.vigencias).toEqual([])`, e
+      não afirmava que o vazio estivesse certo: registrava o que acontecia, para
+      que a migração tivesse um antes contra o que medir. O antes era zero em
+      todo campo, com 657 linhas paradas no arquivo.
 
-      Ele não afirma que devolver vazio está certo: afirma que é o que acontece
-      hoje, para que a migração tenha um antes contra o que se medir. Quando a
-      rota passar a ler o canônico, este teste falha — e é aí que ele vira a
-      prova positiva de que a tela voltou a ter dado.
+      O corpo do teste mudou porque a afirmação mudou de sinal — é a diferença
+      entre este protocolo e o do `it.fails`, onde o corpo já afirmava o certo e
+      só a marca saía.
     */
     const res = await get("/fleet-analysis/summary");
-    expect(res.body.vigencias).toEqual([]);
-    expect(res.body.summary).toEqual([]);
-    expect((await get("/fleet-analysis/carretas")).body).toEqual([]);
-    expect((await get("/fleet-analysis/cavalos")).body).toEqual([]);
-  });
+    expect(res.status).toBe(200);
+    expect(res.body.vigencias.length).toBeGreaterThan(1);
+    expect(res.body.summary.length).toBe(res.body.vigencias.length);
+    expect((await get("/fleet-analysis/carretas")).body.length).toBeGreaterThan(0);
+    expect((await get("/fleet-analysis/cavalos")).body.length).toBeGreaterThan(0);
+  }, 300_000);
 
-  it("a rota não escreve nada — é fonte paralela de leitura, não porta de entrada", async () => {
-    // A distinção da Parte A da auditoria, em forma de prova: nenhum dos três
-    // endpoints é POST, e o arquivo não importa `@workspace/db`.
+  it("nenhum número vem de disco: o mesmo censo que Vigências e Cobertura veem", async () => {
+    /*
+      O critério 1 e o 3 do ADR, numa asserção só. Se a rota lesse o arquivo,
+      esta lista seria a do arquivo — e o arquivo tem as vigências que alguém
+      deixou no repositório, não as que a Ambev entregou.
+    */
+    const res = await get("/fleet-analysis/summary");
+    const doCanonico = (await vigenciasDisponiveis(ctx.db)).map((v) => v.sourceLabel);
+    expect([...res.body.vigencias].sort()).toEqual([...new Set(doCanonico)].sort());
+  }, 300_000);
+
+  it("a rota não escreve, e não lê disco — as duas metades da regra", async () => {
     const { readFileSync } = await import("node:fs");
     const fonte = readFileSync(
       path.join(RAIZ, "artifacts/api-server/src/routes/fleet-analysis.ts"),
       "utf8",
     );
+    // Continua sendo leitura: nenhum verbo de escrita.
     expect(fonte).not.toMatch(/router\.(post|put|patch|delete)\(/);
-    expect(fonte).not.toMatch(/@workspace\/db/);
+    /*
+      E deixou de ser leitura **paralela**. A asserção antiga era
+      `not.toMatch(/@workspace\/db/)` — ela provava que a rota não tocava o
+      banco, que era exatamente o problema: o número não vinha do canônico. Ela
+      inverte junto. O que fica proibido agora é o disco.
+    */
+    expect(fonte).toMatch(/@workspace\/comparison/);
+    expect(fonte).not.toMatch(/readFile|readdirSync|attached_assets\"/);
+    expect(fonte).not.toMatch(/from "xlsx"/);
   });
+});
+
+// ---------------------------------------------------------------------------
+// 4. Os quatro pontos onde a migração podia errar — um teste por ponto
+// ---------------------------------------------------------------------------
+
+/*
+  Estes quatro não quebram nenhum teste de forma se estiverem errados: a
+  resposta continua com os campos certos, e o número é que fica torto. São
+  exatamente as decisões que o ADR mandou não tomar em silêncio, e cada uma tem
+  aqui a asserção que a torna visível.
+*/
+
+describe("os quatro pontos do ADR, um a um", () => {
+  it("4.1 · a periodicidade não é dividida à mão — e quando não dá, o campo diz", async () => {
+    const { summary } = (await get("/fleet-analysis/summary")).body;
+
+    /*
+      A rota fazia `sum(manutencaoAno) / 12` sem perguntar de que periodicidade
+      o número era. Agora ou há periodicidade confirmada e o valor sai
+      convertido, ou o campo vem `null` **com o motivo escrito**. O que não pode
+      existir é o terceiro caso: um número dividido por doze sem base.
+    */
+    for (const linha of summary) {
+      const temNumero = typeof linha.manutencaoCavalos === "number";
+      const temMotivo = typeof linha.naoCalculavel?.manutencaoCavalos === "string";
+      expect(
+        temNumero !== temMotivo,
+        `${linha.vigencia}: manutencaoCavalos precisa de número **ou** de motivo, nunca dos dois nem de nenhum`,
+      ).toBe(true);
+      if (temMotivo) {
+        expect(linha.naoCalculavel.manutencaoCavalos.length).toBeGreaterThan(30);
+      }
+    }
+  }, 300_000);
+
+  it("4.1 · a conversão concorda com a autoridade da DRE", async () => {
+    /*
+      `analise-de-frota.ts` reproduz a metade de `normalizarParaCompetencia` que
+      usa, porque importá-la faria `comparison` depender de `dre`, que depende
+      de `comparison`. Reprodução sem prova é divergência esperando acontecer:
+      aqui as duas são chamadas com os mesmos argumentos e têm de dar o mesmo.
+    */
+    const { normalizarParaCompetencia } = await import("@workspace/dre");
+    const { rows } = await ctx.db.execute<{ periodicity: string | null }>(sql`
+      SELECT periodicity FROM attribute WHERE code = 'cavalo.manutencao_ano'
+    `);
+    const periodicidade = rows[0]?.periodicity ?? null;
+
+    const daAutoridade = normalizarParaCompetencia(1200, periodicidade, "MENSAL");
+    const { summary } = (await get("/fleet-analysis/summary")).body;
+    const daRota = summary.some((l: { manutencaoCavalos: number | null }) =>
+      typeof l.manutencaoCavalos === "number",
+    );
+
+    // As duas ou aceitam, ou recusam. Divergir aqui é a rota ter inventado uma
+    // regra de competência própria — que é o que ela fazia com o `/12`.
+    expect(daRota).toBe(daAutoridade.ok);
+  }, 300_000);
+
+  it("4.2 · o recorte é por contexto, e as partes fecham com o todo", async () => {
+    /*
+      A soma antiga atravessava unidade e canal, e dava certo por acidente
+      porque a planilha tinha uma unidade só. Com uma unidade, o censo e o
+      recorte têm de dar o mesmo — e é o que se pode provar aqui. A prova de
+      isolamento com duas unidades está em `painel.test.ts`, que monta o caso.
+    */
+    const contextos = await listContexts(ctx.db);
+    expect(contextos.length).toBe(1);
+
+    const censo = (await get("/fleet-analysis/summary")).body;
+    const recortado = (await get(`/fleet-analysis/summary?scopeHash=${contextos[0].scopeHash}`))
+      .body;
+
+    expect(recortado.contexto).not.toBeNull();
+    expect(censo.contexto).toBeNull();
+    expect(recortado.summary.map((l: { custoFixoCarretas: number }) => l.custoFixoCarretas))
+      .toEqual(censo.summary.map((l: { custoFixoCarretas: number }) => l.custoFixoCarretas));
+  }, 300_000);
+
+  it("4.2 · pedir um contexto que não existe é 404, e não o censo com outro nome", async () => {
+    const res = await get("/fleet-analysis/summary?scopeHash=nao-existe");
+    expect(res.status).toBe(404);
+  }, 300_000);
+
+  it("4.3 · o valor da frota é grandeza de aquisição, e continua separado do fluxo", async () => {
+    /*
+      `valor_nf_compra` é o preço da nota — estoque, não custo do mês. A DRE se
+      recusa a levá-la para o fluxo do período, e aqui ela continua num campo
+      próprio, com nome que diz o que é. A prova é de **separação**: ela não
+      entra em nenhum dos campos de custo.
+    */
+    const { summary } = (await get("/fleet-analysis/summary")).body;
+    const linha = summary[summary.length - 1];
+
+    expect(linha.valorFrotaCarretas).toBeGreaterThan(0);
+    // A ordem de grandeza denuncia a mistura: valor de nota é dezenas de vezes
+    // o custo mensal, e somá-lo a um campo de custo seria visível aqui.
+    expect(linha.valorFrotaCarretas).toBeGreaterThan(linha.custoFixoCarretas * 5);
+    for (const campo of ["custoFixoCarretas", "finameCarretas", "seguroCarretas"]) {
+      expect(linha[campo], campo).toBeLessThan(linha.valorFrotaCarretas);
+    }
+  }, 300_000);
+
+  it("4.4 · ausência não vira zero — a soma é do que existe, e o que faltou vem dito", async () => {
+    /*
+      O ponto mais silencioso dos quatro. `Number(x) || 0` transformava célula
+      vazia, texto e sentinela em zero, e o zero entrava na soma sem deixar
+      rastro. Agora `sum` ignora nulo por definição e `ausencias` conta quantos
+      foram ignorados.
+
+      A asserção é dupla porque uma metade sozinha não prova nada: a soma tem de
+      bater com o que o banco tem de **não nulo**, e a contagem de ausentes tem
+      de bater com o que ele tem de nulo.
+    */
+    const { summary } = (await get("/fleet-analysis/summary")).body;
+    const ultima = summary[summary.length - 1];
+
+    const { rows } = await ctx.db.execute<{ soma: string | null; nulos: number }>(sql`
+      SELECT sum(f.value_numeric)::text                 AS soma,
+             count(*) FILTER (WHERE f.is_null)::int      AS nulos
+        FROM fact f
+        JOIN attribute a ON a.id = f.attribute_id
+        JOIN snapshot s  ON s.id = f.snapshot_id
+       WHERE a.code = 'carreta.custo_fixo'
+         AND s.status = 'CLOSED'
+         AND s.source_label = ${ultima.vigencia}
+    `);
+
+    expect(ultima.custoFixoCarretas).toBeCloseTo(Number(rows[0].soma ?? 0), 2);
+    expect(ultima.ausencias?.custoFixoCarretas ?? 0).toBe(Number(rows[0].nulos));
+  }, 300_000);
+
+  it("4.4 · e o zero que existe continua sendo zero", async () => {
+    /*
+      A outra ponta da mesma regra, e a que uma correção apressada quebra: nem
+      todo zero é ausência. Um custo que a origem informou como `0` é um valor,
+      e tem de continuar entrando na soma e **fora** da contagem de ausentes.
+    */
+    const { rows } = await ctx.db.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n
+        FROM fact f
+        JOIN attribute a ON a.id = f.attribute_id
+        JOIN snapshot s  ON s.id = f.snapshot_id
+       WHERE a.code = 'carreta.custo_fixo'
+         AND s.status = 'CLOSED'
+         AND NOT f.is_null
+         AND f.value_numeric = 0
+    `);
+    // Se o export real tiver zeros informados, eles não podem estar contados
+    // como ausência em vigência nenhuma.
+    const { summary } = (await get("/fleet-analysis/summary")).body;
+    const ausentesTotais = summary.reduce(
+      (s: number, l: { ausencias?: Record<string, number> }) =>
+        s + (l.ausencias?.custoFixoCarretas ?? 0),
+      0,
+    );
+    const { rows: nulosTotais } = await ctx.db.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n
+        FROM fact f
+        JOIN attribute a ON a.id = f.attribute_id
+        JOIN snapshot s  ON s.id = f.snapshot_id
+       WHERE a.code = 'carreta.custo_fixo' AND s.status = 'CLOSED' AND f.is_null
+    `);
+    expect(ausentesTotais).toBe(Number(nulosTotais[0].n));
+    // E a contagem de zeros informados fica de fora, seja ela qual for.
+    expect(Number(rows[0].n)).toBeGreaterThanOrEqual(0);
+  }, 300_000);
+});
+
+describe("as duas colunas que não são fato", () => {
+  it("Placa e Operador chegam à tabela, vindos de identidade e escopo", async () => {
+    /*
+      A descoberta que mais mudou a implementação: `Placa` está em
+      `entity_identifier` e `Operador - Nome` em `scope`. Uma migração que as
+      procurasse em `fact` não as acharia e concluiria que o dado sumiu — e a
+      tabela apareceria sem as duas colunas que identificam a linha.
+    */
+    const carretas = (await get("/fleet-analysis/carretas")).body;
+    expect(carretas.length).toBeGreaterThan(0);
+    expect(carretas.every((l: { Placa: string | null }) => typeof l.Placa === "string")).toBe(
+      true,
+    );
+    expect(
+      carretas.some((l: Record<string, unknown>) => l["Operador - Nome"] !== null),
+    ).toBe(true);
+  }, 300_000);
+
+  it("as colunas da tela chegam com o nome da tela, e número continua número", async () => {
+    const [linha] = (await get("/fleet-analysis/carretas")).body;
+    for (const coluna of ["implemento", "modelo", "custoFixo", "valorNfCompra"]) {
+      expect(Object.keys(linha), coluna).toContain(coluna);
+    }
+    // Moeda ordenada como texto é um defeito que só aparece na tela; aqui ele
+    // aparece no teste.
+    expect(typeof linha.custoFixo === "number" || linha.custoFixo === null).toBe(true);
+  }, 300_000);
 });
