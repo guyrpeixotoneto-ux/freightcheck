@@ -80,9 +80,17 @@ async function daBase(): Promise<AtributoDoModelo[]> {
   }));
 }
 
+/** O mesmo recorte que a rota entrega ao modelo — nem um campo a mais. */
 async function catalogos() {
   const categorias = await listarCategorias(ctx.db);
-  return { categorias: categorias.map((c) => ({ code: c.code, caminho: c.caminho })) };
+  return {
+    categorias: categorias.map((c) => ({
+      code: c.code,
+      caminho: c.caminho,
+      sintetico: c.sintetico,
+      analitico: c.analitico,
+    })),
+  };
 }
 
 describe("a planilha de atributos descreve, e só", () => {

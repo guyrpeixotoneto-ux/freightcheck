@@ -62,10 +62,17 @@ interface Aplicacao {
   recusadas: { code: string; motivo: string }[];
 }
 
+/*
+  A categoria ocupa duas colunas no arquivo e continua sendo **uma** mudança
+  aqui: o que se grava é o nó em que o caminho termina, e a prévia mostra o
+  caminho inteiro — "Custo Variável › Manutenção" —, que já é o par sintético ›
+  analítico. Duas linhas de prévia para a mesma gravação fariam a pessoa conferir
+  duas vezes a troca que fez uma vez.
+*/
 const ROTULO_DO_CAMPO: Record<string, string> = {
   displayName: "Nome Gerencial",
   definition: "O que é",
-  categoria: "Categoria DRE",
+  categoria: "Categoria DRE (sintético › analítico)",
 };
 
 /** O arquivo em base64 dentro de JSON — o mesmo caminho da tela de importações. */

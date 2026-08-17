@@ -52,14 +52,25 @@ const base: AtributoDoModelo[] = [
   },
 ];
 
+/**
+ * Uma categoria como o servidor a entrega: o caminho, e ele já partido nos dois
+ * níveis. Parte aqui do caminho pela mesma razão que `listarCategorias` parte da
+ * árvore — sintético e analítico são duas alturas de uma coisa só, e escrevê-los
+ * à mão nos testes deixaria passar um par que a produção nunca produz.
+ */
+const categoria = (code: string, caminho: string) => {
+  const [sintetico, ...resto] = caminho.split("›").map((parte) => parte.trim());
+  return { code, caminho, sintetico, analitico: resto.join(" › ") };
+};
+
 const catalogos = {
   categorias: [
-    { code: "cf_seguros", caminho: "Custo Fixo › Seguros e tributos" },
-    { code: "cv_pneus", caminho: "Custo Variável › Pneus" },
+    categoria("cf_seguros", "Custo Fixo › Seguros e tributos"),
+    categoria("cv_pneus", "Custo Variável › Pneus"),
     // O nome da classe na base tem parênteses, e isso não é detalhe: é o que
     // volta escrito no arquivo exportado.
-    { code: "cad_escopo", caminho: "Cadastral (não remuneratório) › Escopo organizacional" },
-    { code: "cad_contrato", caminho: "Cadastral (não remuneratório) › Contrato e vigência" },
+    categoria("cad_escopo", "Cadastral (não remuneratório) › Escopo organizacional"),
+    categoria("cad_contrato", "Cadastral (não remuneratório) › Contrato e vigência"),
   ],
 };
 
@@ -78,17 +89,20 @@ describe("montarLinhas", () => {
       entityType: "CAVALO",
       displayName: "Seguro do cavalo",
       definition: "",
-      categoria: "",
+      categoriaSintetica: "",
+      categoriaAnalitica: "",
     });
     expect(carreta).toMatchObject({
       definition: "Seguro contratado para o implemento.",
-      categoria: "Custo Fixo › Seguros e tributos",
+      categoriaSintetica: "Custo Fixo",
+      categoriaAnalitica: "Seguros e tributos",
     });
   });
 
   it("escreve a categoria em nome de negócio, e não no caminho técnico", () => {
     const [, carreta] = montarLinhas(base, catalogos);
-    expect(carreta.categoria).not.toContain("cf_seguros");
+    expect(carreta.categoriaSintetica).not.toContain("cf_seguros");
+    expect(carreta.categoriaAnalitica).not.toContain("cf_seguros");
   });
 });
 
@@ -226,7 +240,7 @@ describe("conferirPreenchimento", () => {
       catalogos,
     );
     expect(linhas[0].mudancas).toEqual([]);
-    expect(linhas[0].problemas[0]).toMatch(/é uma classe inteira/);
+    expect(linhas[0].problemas[0]).toMatch(/é o mesmo que não classificar/);
     expect(linhas[0].problemas[0]).toMatch(/Escopo organizacional/);
     expect(linhas[0].problemas[0]).toMatch(/Contrato e vigência/);
   });
@@ -259,11 +273,152 @@ describe("conferirPreenchimento", () => {
   it("não adivinha entre duas folhas de mesmo nome", () => {
     const { linhas } = conferirPreenchimento([linha({ categoria: "Seguros" })], base, {
       categorias: [
-        { code: "cf_seguros", caminho: "Custo Fixo › Seguros" },
-        { code: "cv_seguros", caminho: "Custo Variável › Seguros" },
+        categoria("cf_seguros", "Custo Fixo › Seguros"),
+        categoria("cv_seguros", "Custo Variável › Seguros"),
       ],
     });
     expect(linhas[0].problemas[0]).toMatch(/mais de uma categoria/);
+  });
+
+  /*
+    Os dois níveis, e por que a coluna do sintético existe.
+
+    Sozinho, "Seguros" em dois galhos é uma pergunta de verdade, e a planilha de
+    uma coluna só respondia "escreva o caminho inteiro" — cobrando uma sintaxe
+    com `›` que ninguém digita. Com a classe ao lado, a mesma pergunta é
+    respondida por duas listas suspensas.
+  */
+  describe("sintético e analítico", () => {
+    const homonimas = {
+      categorias: [
+        categoria("cf_seguros", "Custo Fixo › Seguros"),
+        categoria("cv_seguros", "Custo Variável › Seguros"),
+      ],
+    };
+
+    it("desambigua pelo sintético o que sozinho seria ambíguo", () => {
+      const { linhas } = conferirPreenchimento(
+        [
+          linha({
+            categoriaSintetica: "Custo Variável",
+            categoriaAnalitica: "Seguros",
+          }),
+        ],
+        base,
+        homonimas,
+      );
+      expect(linhas[0].problemas).toEqual([]);
+      expect(linhas[0].mudancas[0]).toMatchObject({
+        campo: "categoria",
+        codigo: "cv_seguros",
+        para: "Custo Variável › Seguros",
+      });
+    });
+
+    it("grava uma mudança só, e ela vale pelo caminho inteiro", () => {
+      const { linhas, resumo } = conferirPreenchimento(
+        [
+          linha({
+            categoriaSintetica: "Custo Variável",
+            categoriaAnalitica: "Pneus",
+          }),
+        ],
+        base,
+        catalogos,
+      );
+      // Duas colunas no arquivo, um campo gravado: o que se guarda é o nó em
+      // que o caminho termina.
+      expect(linhas[0].mudancas).toHaveLength(1);
+      expect(resumo).toMatchObject({ mudam: 1, campos: 1 });
+    });
+
+    it("recusa o par que não existe, e diz onde o analítico mora de verdade", () => {
+      const { linhas } = conferirPreenchimento(
+        [
+          linha({
+            categoriaSintetica: "Custo Fixo",
+            categoriaAnalitica: "Pneus",
+          }),
+        ],
+        base,
+        catalogos,
+      );
+      expect(linhas[0].mudancas).toEqual([]);
+      expect(linhas[0].problemas[0]).toMatch(/não fica em "Custo Fixo"/);
+      expect(linhas[0].problemas[0]).toMatch(/Custo Variável › Pneus/);
+    });
+
+    /*
+      Aceitar o analítico e ignorar em silêncio um sintético que ninguém
+      entendeu seria gravar metade de uma resposta — e a metade ignorada é
+      justamente a que nomeia a linha da DRE.
+    */
+    it("recusa sintético fora da lista mesmo quando o analítico resolveria", () => {
+      const { linhas } = conferirPreenchimento(
+        [
+          linha({
+            categoriaSintetica: "Resultado financeiro",
+            categoriaAnalitica: "Pneus",
+          }),
+        ],
+        base,
+        catalogos,
+      );
+      expect(linhas[0].mudancas).toEqual([]);
+      expect(linhas[0].problemas[0]).toMatch(/não é uma das linhas da DRE/);
+      expect(linhas[0].problemas[0]).toMatch(/Custo Fixo/);
+    });
+
+    it("sintético sozinho não classifica, e devolve o que existe dentro dele", () => {
+      const { linhas } = conferirPreenchimento(
+        [linha({ categoriaSintetica: "Custo Variável" })],
+        base,
+        catalogos,
+      );
+      expect(linhas[0].mudancas).toEqual([]);
+      expect(linhas[0].problemas[0]).toMatch(/é o mesmo que não classificar/);
+      expect(linhas[0].problemas[0]).toMatch(/Pneus/);
+    });
+
+    it("aceita o analítico sozinho quando ele é único", () => {
+      const { linhas } = conferirPreenchimento(
+        [linha({ categoriaAnalitica: "Pneus" })],
+        base,
+        catalogos,
+      );
+      expect(linhas[0].problemas).toEqual([]);
+      expect(linhas[0].mudancas[0]).toMatchObject({ codigo: "cv_pneus" });
+    });
+
+    /*
+      O modelo de uma coluna só saiu por e-mail antes desta mudança. Um arquivo
+      daqueles que volta preenchido é trabalho feito, e recusá-lo pelo cabeçalho
+      seria jogá-lo fora.
+    */
+    it("ainda lê o arquivo antigo, de uma coluna só", () => {
+      const { linhas } = conferirPreenchimento(
+        [linha({ categoria: "Custo Variável › Pneus" })],
+        base,
+        catalogos,
+      );
+      expect(linhas[0].problemas).toEqual([]);
+      expect(linhas[0].mudancas[0]).toMatchObject({ codigo: "cv_pneus" });
+    });
+
+    it("a coluna nova ganha da antiga quando as duas vêm no mesmo arquivo", () => {
+      const { linhas } = conferirPreenchimento(
+        [
+          linha({
+            categoriaSintetica: "Custo Variável",
+            categoriaAnalitica: "Pneus",
+            categoria: "Custo Fixo › Seguros e tributos",
+          }),
+        ],
+        base,
+        catalogos,
+      );
+      expect(linhas[0].mudancas[0]).toMatchObject({ codigo: "cv_pneus" });
+    });
   });
 
   /*

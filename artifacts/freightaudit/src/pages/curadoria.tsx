@@ -23,6 +23,13 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ComboboxCriavel } from "@/components/ui/combobox-criavel";
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
   classeDaCategoria,
   leituraDe,
   oQueFalta,
@@ -855,6 +862,15 @@ function ConfirmarInterpretacao({
   const [taxonomyCode, setTaxonomyCode] = useState<string | null>(
     detail.taxonomyCode ?? null,
   );
+  /**
+   * A linha da DRE escolhida **antes** de haver categoria — e só isso.
+   *
+   * Quando `taxonomyCode` existe, a classe sai dele; este estado só vale no
+   * intervalo entre escolher o sintético e escolher o analítico. É por isso que
+   * ele não entra em `Escolhas` nem sobe na confirmação: não é uma resposta, é
+   * o filtro da segunda lista enquanto a resposta não existe.
+   */
+  const [sinteticoPendente, setSinteticoPendente] = useState<string | null>(null);
   const [periodicity, setPeriodicity] = useState<string | null>(detail.periodicity);
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -937,6 +953,32 @@ function ConfirmarInterpretacao({
   };
   const escolhido = catalogo.find((o) => o.code === meaningCode) ?? null;
   const categoriaEscolhida = categorias.find((c) => c.code === taxonomyCode) ?? null;
+
+  /*
+    Os dois níveis da Categoria DRE — e **uma** escolha por baixo deles.
+
+    O que se grava continua sendo `taxonomyCode`, o nó em que o caminho termina.
+    O sintético não é um segundo campo guardado: é a classe daquele nó, e a única
+    razão de ele existir na tela é filtrar a segunda lista. Guardá-lo em separado
+    criaria o dia em que os dois discordam, e aí nenhum dos dois responde em que
+    linha da DRE o valor cai.
+
+    `sinteticoPendente` cobre o instante entre escolher a linha da DRE e escolher
+    o detalhe dentro dela — enquanto nada foi classificado, não há nó de onde
+    derivar a classe.
+  */
+  const sinteticoAtivo = categoriaEscolhida?.sintetico ?? sinteticoPendente;
+  const sinteticos = useMemo(
+    () => [...new Set(categorias.map((c) => c.sintetico))].filter(Boolean),
+    [categorias],
+  );
+  const analiticasVisiveis = useMemo(
+    () =>
+      sinteticoAtivo === null
+        ? categorias
+        : categorias.filter((c) => c.sintetico === sinteticoAtivo),
+    [categorias, sinteticoAtivo],
+  );
   const quadro = resumo(campo, escolhas, catalogo);
   const falta = oQueFalta(escolhas, catalogo);
   const pedePeriodo = precisaDoPeriodo(escolhas, catalogo);
@@ -1215,25 +1257,74 @@ function ConfirmarInterpretacao({
             </Field>
           )}
 
-          {/* "Categoria DRE", e não "Categoria": é o mesmo campo que a coluna
-              de mesmo nome da planilha de atributos preenche, e dois nomes para
-              o mesmo campo fazem quem preenche a planilha procurar na tela um
-              campo que não existe. O nome também diz o que a escolha decide —
-              em que linha da DRE a coluna cai. */}
+          {/* "Categoria DRE", e não "Categoria": são os mesmos campos que as
+              colunas de mesmo nome da planilha de atributos preenchem, e dois
+              nomes para o mesmo campo fazem quem preenche a planilha procurar
+              na tela um campo que não existe. O nome também diz o que a escolha
+              decide — em que linha da DRE a coluna cai. */}
           <Field
-            label="Categoria DRE"
-            hint="Onde este valor entra na conta. Pesquise ou cadastre uma nova."
+            label="Categoria DRE - Sintético"
+            hint="A linha da DRE que totaliza. Sozinha ela não classifica: escolher aqui filtra a lista do analítico."
+          >
+            <Select
+              value={sinteticoAtivo ?? ""}
+              onValueChange={(valor) => {
+                setSinteticoPendente(valor);
+                /*
+                  Trocar a linha da DRE derruba o analítico que pertencia à
+                  anterior. É a diferença que importa: sem isto a tela ficaria
+                  mostrando "Custo Fixo" com "Combustível" embaixo, e o par que
+                  a confirmação gravaria seria o antigo — o sintético é derivado
+                  do nó, e é o nó que manda.
+                */
+                if (categoriaEscolhida && categoriaEscolhida.sintetico !== valor) {
+                  setTaxonomyCode(null);
+                }
+                setErroDoCadastro(null);
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Escolher a linha da DRE…" />
+              </SelectTrigger>
+              <SelectContent>
+                {sinteticos.map((nome) => (
+                  <SelectItem key={nome} value={nome}>
+                    {nome}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field
+            label="Categoria DRE - Analítico"
+            hint={
+              sinteticoAtivo === null
+                ? "Onde este valor entra na conta. Pesquise ou cadastre uma nova — escolher aqui preenche o sintético sozinho."
+                : `O detalhe dentro de ${sinteticoAtivo}. Pesquise ou cadastre uma nova.`
+            }
           >
             <ComboboxCriavel
-              itens={categorias}
+              /*
+                Filtrada pelo sintético, e a lista inteira enquanto nenhum foi
+                escolhido: quem já sabe o nome do analítico não deve ser obrigado
+                a responder a classe antes para poder digitá-lo. Escolher pela
+                lista cheia preenche o sintético sozinho, porque ele é derivado.
+              */
+              itens={analiticasVisiveis}
               valor={categoriaEscolhida}
               aoEscolher={(item) => {
                 setTaxonomyCode(item.code);
+                setSinteticoPendente(item.sintetico);
                 setErroDoCadastro(null);
               }}
               aoCriar={criarCategoriaInline}
-              rotuloDe={(item) => item.caminho}
-              detalheDe={(item) => classeDaCategoria(item)}
+              rotuloDe={(item) => item.analitico || item.caminho}
+              detalheDe={(item) =>
+                sinteticoAtivo === null
+                  ? `${item.sintetico} · ${classeDaCategoria(item)}`
+                  : classeDaCategoria(item)
+              }
               previaDe={() =>
                 "Entra como categoria nova, ainda sem classe de custo — ela não se lê no nome. " +
                 "Você decide isso em Categorias, e até lá as colunas dela ficam fora dos totais de custo fixo e variável."

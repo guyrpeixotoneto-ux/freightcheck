@@ -21,10 +21,16 @@ import {
  * pela posição seria ler o que calhar de estar lá.
  */
 
+/** O caminho já partido nos dois níveis, como `listarCategorias` o entrega. */
+const categoria = (code: string, caminho: string) => {
+  const [sintetico, ...resto] = caminho.split("›").map((parte) => parte.trim());
+  return { code, caminho, sintetico, analitico: resto.join(" › ") };
+};
+
 const catalogos = {
   categorias: [
-    { code: "cf_seguros", caminho: "Custo Fixo › Seguros" },
-    { code: "cv_pneus", caminho: "Custo Variável › Pneus" },
+    categoria("cf_seguros", "Custo Fixo › Seguros"),
+    categoria("cv_pneus", "Custo Variável › Pneus"),
   ],
 };
 
@@ -78,9 +84,56 @@ describe("o modelo de atributos", () => {
     // A aba é metade da chave: é ela que diz de que equipamento é a coluna.
     expect(pneu.aba).toBe("Carreta");
     expect(pneu.definition).toBe("Preço unitário do pneu.");
-    // O que estava gravado sai escrito no arquivo: é o que faz a volta ser um
-    // diff e não um preenchimento do zero.
-    expect(pneu.categoria).toBe("Custo Variável › Pneus");
+    // O que estava gravado sai escrito no arquivo — nas duas colunas —, e é o
+    // que faz a volta ser um diff e não um preenchimento do zero.
+    expect(pneu.categoriaSintetica).toBe("Custo Variável");
+    expect(pneu.categoriaAnalitica).toBe("Pneus");
+  });
+
+  /*
+    O modelo de uma coluna só saiu por e-mail antes da separação em dois níveis.
+    Ler o cabeçalho antigo é o que impede um arquivo preenchido de ser descartado
+    em silêncio por causa do nome de uma coluna.
+  */
+  it("ainda reconhece o cabeçalho antigo, de uma coluna de categoria só", () => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([
+        ["Atributo", "Categoria DRE"],
+        ["seguro", "Custo Variável › Pneus"],
+      ]),
+      "Cavalo",
+    );
+    const bytes = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+    const leitura = lerModeloDeAtributos(bytes);
+    if (!leitura.ok) throw new Error(leitura.erro);
+    expect(leitura.linhas[0].categoria).toBe("Custo Variável › Pneus");
+  });
+
+  /*
+    "Análitico" é como o time escreve, "Analítico" é como o modelo exporta.
+    `dobrar` tira os acentos antes de casar, e é por isso que os dois entram.
+  */
+  it("aceita o cabeçalho do analítico com o acento no lugar errado", () => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(
+      workbook,
+      XLSX.utils.aoa_to_sheet([
+        ["Atributo", "Categoria DRE - Sintético", "Categoria DRE - Análitico"],
+        ["seguro", "Custo Variável", "Pneus"],
+      ]),
+      "Cavalo",
+    );
+    const bytes = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
+
+    const leitura = lerModeloDeAtributos(bytes);
+    if (!leitura.ok) throw new Error(leitura.erro);
+    expect(leitura.linhas[0]).toMatchObject({
+      categoriaSintetica: "Custo Variável",
+      categoriaAnalitica: "Pneus",
+    });
   });
 
   it("a aba de instruções não vira linha — ela não tem coluna Atributo", async () => {

@@ -193,10 +193,17 @@ async function atributosDoModelo(): Promise<AtributoDoModelo[]> {
   }));
 }
 
-/** O catálogo como a coluna Categoria DRE o lê. */
+/** O catálogo como as duas colunas de Categoria DRE o leem. */
 async function catalogosDoModelo() {
   const categorias = await listarCategorias(db);
-  return { categorias: categorias.map((c) => ({ code: c.code, caminho: c.caminho })) };
+  return {
+    categorias: categorias.map((c) => ({
+      code: c.code,
+      caminho: c.caminho,
+      sintetico: c.sintetico,
+      analitico: c.analitico,
+    })),
+  };
 }
 
 /** Ler o upload e conferi-lo contra a base. Não grava nada. */
