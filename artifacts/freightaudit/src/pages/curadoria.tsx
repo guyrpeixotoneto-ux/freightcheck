@@ -374,29 +374,6 @@ export default function Curadoria() {
           </TabsList>
         </Tabs>
 
-        {/* As abas vêm antes dos quadros porque mandam neles: primeiro se
-            escolhe de que equipamento se está falando, depois se lê quanto
-            falta nele. Na ordem inversa, os números apareceriam antes de a
-            tela dizer sobre o que eles são. */}
-        <Tabs
-          value={equipamento ?? TODOS}
-          onValueChange={(valor) =>
-            setEquipamento(valor === TODOS ? null : valor)
-          }
-          className="mt-5"
-        >
-          <TabsList>
-            {abas.map((aba) => (
-              <TabsTrigger key={aba.tipo ?? TODOS} value={aba.tipo ?? TODOS}>
-                {aba.rotulo}
-                <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
-                  {aba.total}
-                </span>
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
-
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
           <SummaryTile
             label="Confirmados"
