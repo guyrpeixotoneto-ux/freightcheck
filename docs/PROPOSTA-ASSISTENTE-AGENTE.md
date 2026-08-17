@@ -784,3 +784,141 @@ verdade, `change` e `change_set` apagados, e nenhuma divergência semântica que
 venha só da porta de entrada. Verificado nas duas direções — o teste falha se
 `naoComparada` for neutralizado, e falha noutro caso se o dono da reparação for
 removido de `responder`.
+
+---
+
+## 12. Cálculo derivado auditável — o menor desenho
+
+### O que o `43%` revelou
+
+Na rodada real do PR 7 o agente escreveu «43% do que mudou tem impacto
+calculável». O número estava certo: `19 / (19 + 248)` sobre valores que as
+ferramentas haviam devolvido. A trava o recusou, e recusou com razão — `43` não
+estava em evidência nenhuma, e a trava não tem como saber se ele veio de uma
+divisão correta ou de uma impressão.
+
+O diagnóstico anterior parou em «cálculo derivado é recusado, e é o correto».
+Está incompleto. O correto é recusar **aritmética não rastreável**; recusar
+*todo* cálculo é uma lacuna de capacidade, e ela custa caro num produto de
+auditoria — proporção, variação e diferença são metade do que um analista diz.
+
+A ordem certa é a que o produto já usa em todo lugar: **o número não nasce no
+texto e depois pede licença. Ele nasce de uma consulta, e a consulta autoriza.**
+
+### O erro que este desenho evita
+
+A saída preguiçosa seria uma ferramenta `calcular(expressao: string)` que aceita
+`"19 / 267 * 100"`. Ela resolve o `43%` e destrói a garantia: o modelo pode
+digitar quaisquer operandos, inclusive inventados, e receber de volta um número
+**autorizado**. Seria a trava com uma porta dos fundos — pior do que não ter
+trava, porque o número sairia carimbado.
+
+A diferença entre as duas está inteira numa decisão: **os operandos são
+escolhidos de um catálogo de números já evidenciados, ou digitados?**
+
+### O desenho
+
+Uma ferramenta, `calcular`, com três restrições e nenhuma flexibilidade além
+delas.
+
+**1. Operando é referência, não literal.** A ferramenta não aceita números. Ela
+aceita ponteiros para números que já voltaram de consulta nesta investigação:
+
+```ts
+type Operando = { fonte: number; campo: string };   // [3].impacto.notCalculable
+```
+
+`fonte` é o número da fonte que o agente já cita hoje — a mesma numeração que a
+trava confere. `campo` é o caminho dentro do conteúdo daquela chamada. O
+executor resolve o ponteiro contra o que a ferramenta realmente devolveu. Um
+ponteiro que não resolve é falha declarada, não zero.
+
+Esta é a restrição que carrega o desenho inteiro: **não existe entrada por onde
+um número inventado passe.**
+
+**2. Operação é enum, não expressão.** Cinco, cobrindo o que foi pedido:
+
+```ts
+type Operacao =
+  | "diferenca"          // a − b
+  | "soma"               // a + b + …
+  | "percentual"         // parte / todo × 100
+  | "variacao_percentual" // (depois − antes) / |antes| × 100
+  | "proporcao";         // a / b
+```
+
+Sem parser, sem precedência, sem parênteses, sem composição. Uma chamada é uma
+operação. Encadear duas contas custa duas chamadas — e é bom que custe: cada
+passo fica no rastro, e o segundo passo aponta para a fonte do primeiro.
+
+**3. O resultado é uma evidência como qualquer outra.** Ela entra em
+`evidencias`, autoriza o número novo pelo mesmo mecanismo de sempre, e **não**
+abre exceção na trava — a trava continua conferindo contra `numeros`, sem saber
+que esta evidência nasceu de uma conta.
+
+```ts
+{
+  ferramenta: "calcular:percentual",
+  titulo: "43% — parte sobre o todo",
+  fatos: [
+    { rotulo: "Resultado",  valor: "43%" },
+    { rotulo: "Fórmula",    valor: "parte / todo × 100" },
+    { rotulo: "parte",      valor: "19",  detalhe: "[3] impacto.calculatedChanges" },
+    { rotulo: "todo",       valor: "267", detalhe: "[3] totais.changes" },
+  ],
+  numeros: [43, 19, 267],
+  origem: "calcular · percentual · operandos de [3]",
+}
+```
+
+Os operandos entram em `numeros` de propósito: quem lê a frase «43% (19 de 267)»
+precisa poder conferir os três, e os dois de origem já estavam autorizados de
+qualquer forma.
+
+### Os casos de recusa, que são o que dá valor à ferramenta
+
+- **Ponteiro que não resolve** — fonte inexistente, campo ausente, valor não
+  numérico. Falha declarada.
+- **Somar entre periodicidades.** O motor de impacto nunca soma MENSAL com
+  ANUAL, e a ferramenta não pode ser o buraco por onde essa regra escapa: se os
+  operandos carregam periodicidades diferentes, ela recusa e diz por quê.
+- **Média sobre o que a semântica não autoriza.** Mesma razão, mesma fonte de
+  verdade (`podeTirarMedia`, `podeSomar` em `@workspace/curation`).
+- **Divisão por zero** e **variação a partir de zero** — «subiu ∞%» não é
+  informação; a recusa devolve a instrução de relatar «saiu de zero».
+
+Sem essas quatro, a ferramenta seria uma calculadora que atravessa regras de
+negócio que o resto do produto respeita. É por isso que ela mora no assistente e
+consulta a curadoria, em vez de ser aritmética pura.
+
+### O que fica de fora agora, e por quê
+
+Composição de expressões, funções estatísticas, agregação sobre listas,
+operandos vindos do histórico da conversa. Nada disso é necessário para o `43%`
+nem para os quatro casos irmãos, e cada um deles reabre a pergunta «de onde veio
+este número». A extensão natural, quando fizer falta, é permitir que um operando
+aponte para o resultado de um `calcular` anterior — o que mantém a cadeia
+inteira rastreável até uma consulta.
+
+### Custo e risco
+
+Uma ferramenta nova no catálogo, um resolvedor de ponteiro no executor (que já
+guarda cada `ChamadaDeFerramenta` com nome, argumentos, conteúdo e evidências),
+e as quatro recusas. Nenhuma mudança na trava, nenhuma no `Evidencia`, nenhuma
+no prompt além da descrição da própria ferramenta.
+
+O risco real não é técnico: é o agente passar a calcular quando deveria
+consultar — derivar `19/267` à mão em vez de pedir `cobertura`, que já existe e
+já vem redigida. A descrição da ferramenta precisa dizer isso, e a bateria
+precisa vigiar: uma trajetória que chama `calcular` para obter algo que uma
+consulta devolve pronta é uma regressão de comportamento, ainda que o número
+saia certo.
+
+### Por que não foi implementado antes do veredito
+
+Ligar esta ferramenta muda o catálogo do agente, e o veredito do PR 7 compara
+agente e planejador. Um catálogo que muda entre a medição e o veredito produz um
+número que não responde à pergunta que foi feita. O desenho fica registrado; a
+implementação é o primeiro passo **depois** do veredito, e ela tem bateria
+própria — porque o que ela pode piorar (chamar `calcular` no lugar de consultar)
+não aparece na contagem de aprovações.

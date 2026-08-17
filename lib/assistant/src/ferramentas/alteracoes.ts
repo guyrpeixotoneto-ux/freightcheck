@@ -142,7 +142,7 @@ export const alteracoes: Ferramenta = {
       frente" e "falta rodar o cálculo", e nenhuma redação recupera o que a
       consulta não distinguiu.
     */
-    if (visao.naoComparada) {
+    if (visao.comparacao === "NAO_MATERIALIZADA") {
       return {
         conteudo: {
           erro:

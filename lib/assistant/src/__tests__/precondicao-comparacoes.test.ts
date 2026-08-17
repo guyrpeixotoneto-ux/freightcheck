@@ -33,6 +33,7 @@ import { sql } from "drizzle-orm";
 import { getGroupedView, listContexts } from "@workspace/comparison";
 import type { Database } from "@workspace/db";
 import { alteracoes } from "../ferramentas/alteracoes";
+import { resolverContexto, resumoDaVigencia } from "../ferramentas";
 import { responder } from "../resposta";
 
 const url = process.env.ASSISTANT_EVAL_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -108,24 +109,11 @@ comBanco("a pré-condição das comparações tem um dono só", () => {
     expect(visao, "o recorte existe; a visão não deveria ser nula").not.toBeNull();
     expect(visao!.totals.changes, "sem comparação materializada, não há alteração lida").toBe(0);
     expect(
-      visao!.naoComparada,
+      visao!.comparacao,
       "zero alterações e nenhuma comparação são estados opostos, e a leitura tem de " +
         "dizer qual dos dois é — foi por não dizer que o assistente respondeu «sem " +
         "alterações neste recorte» num banco com 124 mil fatos",
-    ).toBe(true);
-  });
-
-  /**
-   * A primeira vigência de uma série não tem anterior. Isso é condição normal
-   * do domínio, e marcá-la como pendente faria o aviso aparecer para sempre no
-   * começo de todo histórico — um aviso que sempre aparece deixa de ser lido.
-   */
-  it("a primeira vigência da série não é «não comparada»", async () => {
-    const { rows } = await db.execute<{ d: string }>(sql`
-      SELECT min(effective_date)::text AS d FROM snapshot WHERE status <> 'SUPERSEDED'
-    `);
-    const visao = await getGroupedView(db, rows[0]!.d, recorte);
-    expect(visao!.naoComparada).toBe(false);
+    ).toBe("NAO_MATERIALIZADA");
   });
 
   /**
@@ -144,6 +132,71 @@ comBanco("a pré-condição das comparações tem um dono só", () => {
     ).toBe(true);
     expect(String(c.erro)).toMatch(/não foi comparada|não significa que nada mudou/i);
     expect(r.evidencias, "uma falha declarada não autoriza citar número nenhum").toEqual([]);
+  });
+
+  /**
+   * **`resumoDaVigencia`, nomeadamente** — e não por cobertura indireta.
+   *
+   * Esta é a função do caminho determinístico que responde "o que mudou nesta
+   * vigência?", e era a última leitura silenciosa de estado derivado. O campo
+   * `comparacao` sempre esteve disponível para ela: `FamiliesView extends
+   * GroupedView` e `getFamiliesView` devolve `{...view}`. Propagava e ninguém
+   * lia — que é o que acontece quando a condição excepcional mora num campo
+   * opcional, e a sétima função é escrita copiando a sexta.
+   *
+   * O que se exige aqui é o oposto exato do defeito: sobre um banco sem
+   * comparação materializada, a função **não pode** devolver o fato
+   * "Alterações: 0". Ou ela declara a pendência, ou ela mente com a fonte ao
+   * lado — não há terceira saída, e é por isso que este caso não se contenta
+   * com "não retornou null".
+   */
+  it("`resumoDaVigencia` declara a pendência em vez de relatar «Alterações: 0»", async () => {
+    const ctx = await resolverContexto(db, recorte);
+    expect(ctx, "o recorte precisa resolver para a função ser exercitada").toBeTruthy();
+
+    const e = await resumoDaVigencia(db, ctx!);
+
+    expect(
+      e,
+      "devolver `null` seria silêncio: quem chama não distingue «não há recorte» de " +
+        "«a comparação não foi calculada», e o dossiê segue sem dizer nada a ninguém",
+    ).not.toBeNull();
+
+    const alteracoes = e!.fatos.find((f) => f.rotulo === "Alterações");
+    expect(
+      alteracoes,
+      "este é o defeito, escrito por extenso: um fato «Alterações: 0» sobre uma " +
+        "comparação que nunca aconteceu é a pior resposta que este produto pode dar — " +
+        "errada, fluente e indistinguível de uma certa",
+    ).toBeUndefined();
+
+    const estado = e!.fatos.find((f) => f.rotulo === "Estado da comparação");
+    expect(estado?.valor, "a pendência tem de estar dita no fato").toMatch(/não calculada/i);
+    expect(e!.numeros, "não há número a citar sobre uma comparação que não existe").toEqual([]);
+    expect(e!.nota, "e a instrução de não concluir ausência precisa chegar a quem redige")
+      .toMatch(/não conclua que nada mudou/i);
+  });
+
+  /**
+   * O outro lado do mesmo campo: comparação **existente** com zero alterações é
+   * uma resposta legítima, e não pode ser confundida com a pendência.
+   *
+   * Sem este caso, a correção poderia ter sido "declarar pendência sempre que
+   * `changes === 0`" — que troca um erro por outro e faz o assistente recusar-se
+   * a dizer "nada mudou" justamente quando nada mudou.
+   */
+  it("comparação existente com zero alterações continua sendo resposta, não pendência", async () => {
+    const { rows } = await db.execute<{ d: string }>(sql`
+      SELECT min(effective_date)::text AS d FROM snapshot WHERE status <> 'SUPERSEDED'
+    `);
+    const visao = await getGroupedView(db, rows[0]!.d, recorte);
+
+    expect(visao!.totals.changes, "a primeira vigência não tem movimento a relatar").toBe(0);
+    expect(
+      visao!.comparacao,
+      "ela não tem anterior com que comparar; nada está pendente, e chamar isto de " +
+        "pendência faria o aviso aparecer para sempre no começo de todo histórico",
+    ).toBe("SEM_ALTERACOES");
   });
 
   /**
@@ -176,9 +229,9 @@ comBanco("a pré-condição das comparações tem um dono só", () => {
 
     const comparadoAgora = await getGroupedView(db, vigencia, recorte);
     expect(
-      comparadoAgora!.naoComparada,
+      comparadoAgora!.comparacao,
       "quem chama reparou o banco — é esse o dono da pré-condição",
-    ).toBe(false);
+    ).toBe("COM_ALTERACOES");
     expect(comparadoAgora!.totals.changes).toBeGreaterThan(0);
 
     /*

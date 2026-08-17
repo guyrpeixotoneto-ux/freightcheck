@@ -214,10 +214,10 @@ comBanco("integridade Tool → Evidência", () => {
     const visao = await getGroupedView(db, undefined, {});
     expect(visao, "a fixture precisa de um recorte com vigência").not.toBeNull();
     expect(
-      visao!.naoComparada,
+      visao!.comparacao,
       "a vigência da fixture não foi comparada — a auditoria não tem conteúdo para " +
         "medir, e passar aqui seria dizer «aprovado» sobre o vazio",
-    ).toBe(false);
+    ).toBe("COM_ALTERACOES");
     expect(
       visao!.totals.changes,
       "a vigência comparada não tem alteração nenhuma; não há o que auditar",

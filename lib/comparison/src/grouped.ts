@@ -222,6 +222,27 @@ export interface GroupedSeries {
   reason: string | null;
 }
 
+/**
+ * Os três estados em que a comparação de uma vigência pode estar.
+ *
+ * `NAO_MATERIALIZADA` e `SEM_ALTERACOES` produzem os mesmos zeros e pedem
+ * ações opostas — "falta rodar o cálculo" e "siga em frente". Enquanto os dois
+ * saíam da leitura como `changes: 0`, o assistente respondeu "0 alterações —
+ * sem alterações neste recorte" num banco com 124 mil fatos, com a fonte ao
+ * lado, indistinguível de uma resposta certa.
+ *
+ * São três e não dois porque o terceiro estado também precisa de nome. Um
+ * booleano deixaria "comparada, e nada mudou" existindo só como dedução
+ * (`!naoComparada && changes === 0`), refeita — ou esquecida — por cada leitor.
+ */
+export type EstadoDaComparacao =
+  /** Ninguém calculou. Não se pode concluir nada sobre movimento. */
+  | "NAO_MATERIALIZADA"
+  /** Calculada, e a vigência não mudou nada. É uma resposta legítima. */
+  | "SEM_ALTERACOES"
+  /** Calculada, e há alterações para ler. */
+  | "COM_ALTERACOES";
+
 export interface GroupedView {
   /**
    * A unidade e o canal desta leitura.
@@ -239,11 +260,17 @@ export interface GroupedView {
   missingSeries: string[];
   complete: boolean;
   /**
-   * **Esta vigência nunca foi comparada** — que não é o mesmo que "não mudou".
+   * Em que estado está a comparação desta vigência — **três, e não dois**.
    *
-   * Sem este campo, as duas condições opostas saem daqui como a mesma leitura:
+   * Sem este campo, duas condições opostas saíam daqui como a mesma leitura:
    * `changes: 0`. E elas pedem ações contrárias — uma diz "siga em frente", a
    * outra diz "falta rodar a comparação".
+   *
+   * Um booleano `naoComparada` cobria o par pelo avesso e deixava o terceiro
+   * estado sem nome: "comparada, e nada mudou" só existia como `!naoComparada
+   * && changes === 0`, uma dedução que cada leitor refazia por conta própria —
+   * ou esquecia de refazer. Os três estados nomeados tiram a dedução do
+   * caminho: quem lê escolhe entre três palavras, e o compilador cobra as três.
    *
    * O estrago já aconteceu três vezes, e nas três a resposta errada era fluente
    * e vinha com a fonte ao lado:
@@ -264,7 +291,7 @@ export interface GroupedView {
    * Quem precisa do dado materializado chama `garantirComparacoes` **antes**, de
    * propósito e num lugar só. Quem só lê recebe a verdade sobre o que leu.
    */
-  naoComparada: boolean;
+  comparacao: EstadoDaComparacao;
   totals: {
     changes: number;
     /**
@@ -975,6 +1002,22 @@ export async function getGroupedView(
     rows.map((r) => r.entity_id).filter((v): v is string => v !== null),
   ).size;
 
+  /*
+    `NAO_MATERIALIZADA` exige as duas metades: nenhuma comparação termina nesta
+    vigência **e** existe anterior com que comparar. A primeira entrega de uma
+    série não tem anterior, e isso é condição normal do domínio, não estado
+    derivado faltando — marcá-la como pendente faria o aviso aparecer para
+    sempre no começo de todo histórico, e um aviso que sempre aparece deixa de
+    ser lido. Ela cai em `SEM_ALTERACOES`, que é o que ela é: não há movimento a
+    relatar, e não há cálculo faltando.
+  */
+  const comparacao: EstadoDaComparacao =
+    sets.length === 0 && periods.some((p) => p.effective_date < target.effective_date)
+      ? "NAO_MATERIALIZADA"
+      : rows.length > 0
+        ? "COM_ALTERACOES"
+        : "SEM_ALTERACOES";
+
   const base = {
     context,
     otherContexts,
@@ -988,17 +1031,7 @@ export async function getGroupedView(
     series,
     missingSeries,
     complete: missingSeries.length === 0,
-    /*
-      Nenhuma comparação termina aqui, **e** existe vigência anterior para
-      comparar. As duas metades importam: a primeira entrega de uma série não
-      tem com que se comparar, e isso é condição normal do domínio, não estado
-      derivado faltando. Marcá-la como "não comparada" faria o aviso aparecer
-      para sempre no começo de todo histórico, e um aviso que sempre aparece
-      deixa de ser lido.
-    */
-    naoComparada:
-      sets.length === 0 &&
-      periods.some((p) => p.effective_date < target.effective_date),
+    comparacao,
     totals: {
       changes: rows.length,
       formatOnlyChanges: groups
