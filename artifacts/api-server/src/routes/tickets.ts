@@ -19,10 +19,13 @@ import {
   getTicketClassification,
   getTicketImport,
   getTicketTotals,
+  getTicketVigencias,
   getTicketsByParameter,
   latestTicketImport,
   listTicketImports,
   listTicketChanges,
+  rotulosNaJanela,
+  type EixoDeVigencias,
   type TicketFilters,
 } from "@workspace/comparison";
 
@@ -184,6 +187,63 @@ function parseTicketFilters(query: Record<string, unknown>): TicketFilters {
     limit: num("limit"),
     offset: num("offset"),
   };
+}
+
+/**
+ * O recorte De/Até que a query pede, sem resolver nada ainda.
+ *
+ * Escrito à parte de `parseTicketFilters` porque não é um filtro de linha: as
+ * duas pontas são datas de vigência, e traduzi-las nos rótulos que o envio
+ * contém depende do envio — o que só se sabe depois de escolhê-lo. É a mesma
+ * separação que `parseContext` faz do outro lado, pela mesma razão.
+ */
+export function parseJanela(
+  query: Record<string, unknown>,
+): { de?: string; ate?: string } | null {
+  const str = (chave: string) =>
+    typeof query[chave] === "string" && query[chave] !== ""
+      ? (query[chave] as string)
+      : undefined;
+  const de = str("de");
+  const ate = str("ate");
+  return de === undefined && ate === undefined ? null : { de, ate };
+}
+
+/**
+ * O eixo como a tela o recebe: uma legenda por data, e não a lista de grafias.
+ *
+ * A lista inteira serve para filtrar (ver `EixoDeVigencias.rotulos`); o seletor
+ * mostra um nome por opção, e mostrar dois faria uma diferença de escrita
+ * parecer uma diferença de período.
+ */
+export function eixoParaTela(eixo: EixoDeVigencias) {
+  return {
+    disponiveis: eixo.disponiveis,
+    rotulos: Object.fromEntries(
+      eixo.disponiveis.map((d) => [d, eixo.rotulos[d]?.[0] ?? d]),
+    ),
+    semVigencia: eixo.semVigencia,
+  };
+}
+
+/**
+ * Quantas vigências o recorte de fato alcançou neste envio.
+ *
+ * Contado aqui e não na tela: quem recorta por um intervalo que este envio não
+ * nomeia recebe zero, e uma tela que contasse por conta própria diria o tamanho
+ * do intervalo escolhido em vez do que ele encontrou. Sem recorte, é o eixo
+ * inteiro — o mesmo número dos dois lados, para que a tela não tenha de saber
+ * se houve filtro.
+ */
+export function contarVigenciasNoRecorte(
+  eixo: EixoDeVigencias,
+  vigenciaLabels: string[] | null,
+): number {
+  if (vigenciaLabels === null) return eixo.disponiveis.length;
+  const alcancados = new Set(vigenciaLabels);
+  return eixo.disponiveis.filter((d) =>
+    (eixo.rotulos[d] ?? []).some((r) => alcancados.has(r)),
+  ).length;
 }
 
 /**
@@ -386,21 +446,48 @@ router.get("/tickets", async (req, res): Promise<void> => {
         imports: await listTicketImports(db),
         totals: null,
         byParameter: [],
+        vigencias: { disponiveis: [], rotulos: {}, semVigencia: 0 },
+        janela: null,
+        vigenciasNoRecorte: 0,
         total: 0,
         rows: [],
       });
       return;
     }
 
-    const filters = parseTicketFilters(req.query as Record<string, unknown>);
+    /*
+      O recorte é resolvido antes de tudo e atravessa as quatro leituras.
+
+      Não é um filtro de linha: é de que período a aba está falando. Passá-lo
+      só para a lista deixaria os cartões do topo respondendo pelo envio inteiro
+      ao lado de um seletor dizendo "3 de 9 vigências" — dois números certos e a
+      leitura errada, que é o defeito que este produto existe para pegar.
+    */
+    const eixo = await getTicketVigencias(db, run.id);
+    const janela = parseJanela(req.query as Record<string, unknown>);
+    const vigenciaLabels = rotulosNaJanela(eixo, janela);
+
+    const filters = {
+      ...parseTicketFilters(req.query as Record<string, unknown>),
+      vigenciaLabels,
+    };
     const [changes, totals, byParameter, imports] = await Promise.all([
       listTicketChanges(db, run.id, filters),
-      getTicketTotals(db, run.id),
-      getTicketsByParameter(db, run.id),
+      getTicketTotals(db, run.id, vigenciaLabels),
+      getTicketsByParameter(db, run.id, vigenciaLabels),
       listTicketImports(db),
     ]);
 
-    res.json({ import: run, imports, totals, byParameter, ...changes });
+    res.json({
+      import: run,
+      imports,
+      totals,
+      byParameter,
+      vigencias: eixoParaTela(eixo),
+      janela,
+      vigenciasNoRecorte: contarVigenciasNoRecorte(eixo, vigenciaLabels),
+      ...changes,
+    });
   } catch (err) {
     req.log.error({ err }, "Error listing tickets");
     await responderFalha(res, err);
@@ -447,7 +534,19 @@ router.get("/tickets/classification", async (req, res): Promise<void> => {
       return;
     }
 
-    res.json({ import: run, ...(await getTicketClassification(db, run.id)) });
+    // O mesmo recorte da lista: as duas visões são do mesmo arquivo, e uma
+    // árvore que somasse o envio inteiro ao lado de uma lista recortada faria
+    // as duas visões da mesma aba discordarem sobre o próprio assunto.
+    const eixo = await getTicketVigencias(db, run.id);
+    const vigenciaLabels = rotulosNaJanela(
+      eixo,
+      parseJanela(req.query as Record<string, unknown>),
+    );
+
+    res.json({
+      import: run,
+      ...(await getTicketClassification(db, run.id, vigenciaLabels)),
+    });
   } catch (err) {
     req.log.error({ err }, "Error classifying tickets");
     await responderFalha(res, err);

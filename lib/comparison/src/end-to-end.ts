@@ -20,6 +20,7 @@ import {
   listContexts,
   resolveContext,
   type ContextInfo,
+  type RequestedContext,
   type SeriesContext,
 } from "./series";
 
@@ -179,7 +180,7 @@ export async function getEndToEndAnalysis(
   db: Database,
   from?: string,
   to?: string,
-  requestedContext?: Partial<SeriesContext>,
+  requestedContext?: RequestedContext,
   /** Recorte do cartão: só estes parâmetros. Vazio = tudo. */
   parameterKeys?: string[],
 ): Promise<EndToEndAnalysis | null> {

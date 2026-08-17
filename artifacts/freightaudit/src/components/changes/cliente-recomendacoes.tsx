@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
 import {
+  RecusaDoRecorte,
   SeletorDeJanela,
   janelaParaQuery,
   type JanelaDeVigencias,
@@ -577,10 +578,12 @@ export function ClienteRecomendacoes({
 
   if (query.error) {
     return (
-      <ApiErrorNotice
-        error={query.error}
-        what="As recomendações ao cliente não puderam ser carregadas."
-      />
+      <RecusaDoRecorte janela={janela} onJanela={onJanela}>
+        <ApiErrorNotice
+          error={query.error}
+          what="As recomendações ao cliente não puderam ser carregadas."
+        />
+      </RecusaDoRecorte>
     );
   }
 

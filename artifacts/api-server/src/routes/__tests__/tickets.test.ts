@@ -9,7 +9,13 @@
  * ninguém.
  */
 import { describe, expect, it } from "vitest";
-import { decodeTicketUpload, faltaOSchemaDeChamados } from "../tickets";
+import {
+  contarVigenciasNoRecorte,
+  decodeTicketUpload,
+  eixoParaTela,
+  faltaOSchemaDeChamados,
+  parseJanela,
+} from "../tickets";
 
 /**
  * Banco desatualizado não é defeito do pedido.
@@ -136,5 +142,71 @@ describe("decodeTicketUpload", () => {
   it("recusa corpo que não é objeto, sem estourar", () => {
     expect(decodeTicketUpload(null).ok).toBe(false);
     expect(decodeTicketUpload("fila.csv").ok).toBe(false);
+  });
+});
+
+/**
+ * O recorte De/Até da aba Chamados, do lado da rota.
+ *
+ * Três decisões deste arquivo, e nenhuma delas mora na biblioteca: como a query
+ * vira pedido, como o eixo vira seletor, e o que a tela lê como "N de M".
+ */
+describe("parseJanela", () => {
+  it("sem pontas, não há recorte — e null é o envio inteiro", () => {
+    expect(parseJanela({})).toBeNull();
+    // Vazio não é valor: `?de=` sem nada viraria um recorte que a tela anuncia
+    // e o servidor descarta.
+    expect(parseJanela({ de: "", ate: "" })).toBeNull();
+  });
+
+  it("aceita meia janela, que é um pedido legítimo", () => {
+    expect(parseJanela({ de: "2026-02-01" })).toEqual({
+      de: "2026-02-01",
+      ate: undefined,
+    });
+    expect(parseJanela({ ate: "2026-02-01" })).toEqual({
+      de: undefined,
+      ate: "2026-02-01",
+    });
+  });
+
+  it("ignora o que não é texto, em vez de deixar chegar ao SQL", () => {
+    expect(parseJanela({ de: 20260201, ate: ["2026-03-01"] })).toBeNull();
+  });
+});
+
+describe("eixoParaTela", () => {
+  const eixo = {
+    disponiveis: ["2026-01-01", "2026-02-01"],
+    rotulos: {
+      "2026-01-01": ["EMPURRADA_1_1_2026"],
+      // O mesmo dia escrito de duas formas: filtrar usa as duas, o seletor
+      // mostra uma — dois nomes numa opção fariam uma diferença de escrita
+      // parecer uma diferença de período.
+      "2026-02-01": ["EMPURRADA_01_2_2026", "EMPURRADA_1_2_2026"],
+    },
+    semVigencia: 3,
+  };
+
+  it("dá uma legenda por data, e leva o contador do que fica de fora", () => {
+    expect(eixoParaTela(eixo)).toEqual({
+      disponiveis: ["2026-01-01", "2026-02-01"],
+      rotulos: {
+        "2026-01-01": "EMPURRADA_1_1_2026",
+        "2026-02-01": "EMPURRADA_01_2_2026",
+      },
+      semVigencia: 3,
+    });
+  });
+
+  it("conta as vigências que o recorte alcançou, e zero quando não alcança nada", () => {
+    expect(contarVigenciasNoRecorte(eixo, null)).toBe(2);
+    expect(contarVigenciasNoRecorte(eixo, ["EMPURRADA_1_1_2026"])).toBe(1);
+    // Uma data conta uma vez, mesmo entrando pelas duas grafias.
+    expect(
+      contarVigenciasNoRecorte(eixo, ["EMPURRADA_01_2_2026", "EMPURRADA_1_2_2026"]),
+    ).toBe(1);
+    // Recorte que nenhuma vigência atende: zero, e não o eixo inteiro.
+    expect(contarVigenciasNoRecorte(eixo, [])).toBe(0);
   });
 });

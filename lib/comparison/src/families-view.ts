@@ -26,6 +26,7 @@ import {
   listContexts,
   resolveContext,
   type ContextInfo,
+  type RequestedContext,
   type SeriesContext,
 } from "./series";
 
@@ -163,7 +164,7 @@ async function parametersWithData(
 export async function getFamiliesView(
   db: Database,
   period?: string,
-  requestedContext?: Partial<SeriesContext>,
+  requestedContext?: RequestedContext,
 ): Promise<FamiliesView | null> {
   const view = await getGroupedView(db, period, requestedContext);
   if (!view) return null;
@@ -381,7 +382,7 @@ export async function getRangeAnalysis(
   db: Database,
   from?: string,
   to?: string,
-  requestedContext?: Partial<SeriesContext>,
+  requestedContext?: RequestedContext,
   /**
    * Recorte do cartão: só estes parâmetros.
    *

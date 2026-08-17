@@ -19,6 +19,7 @@ import {
   toTicketQuery,
   type TicketChangeRow,
 } from "@/components/changes/ticket-table";
+import type { JanelaDeVigencias } from "@/components/changes/janela-vigencias";
 
 /**
  * Chamados por tipo de valor — a segunda visão da aba.
@@ -133,15 +134,34 @@ const APARENCIA: Record<
 const aparenciaDe = (classe: string) =>
   APARENCIA[classe] ?? APARENCIA.NAO_CLASSIFICADO;
 
-export function TicketClassification({ envio }: { envio: string | null }) {
+export function TicketClassification({
+  envio,
+  /*
+    O mesmo recorte da lista, e por isso ele desce a árvore inteira.
+
+    As duas visões da aba são do mesmo arquivo: uma árvore somando o envio
+    inteiro ao lado de uma lista recortada faria a aba discordar de si mesma
+    sobre de que período ela está falando.
+  */
+  vigencias = {},
+}: {
+  envio: string | null;
+  vigencias?: JanelaDeVigencias;
+}) {
   const [aberta, setAberta] = useState<string | null>(null);
 
   const query = useQuery({
-    queryKey: ["tickets", "classificacao", envio],
-    queryFn: () =>
-      fetchJson<TicketClassificationResponse>(
-        `/tickets/classification${envio ? `?ticketImportId=${envio}` : ""}`,
-      ),
+    queryKey: ["tickets", "classificacao", envio, vigencias.de, vigencias.ate],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (envio) params.set("ticketImportId", envio);
+      if (vigencias.de) params.set("de", vigencias.de);
+      if (vigencias.ate) params.set("ate", vigencias.ate);
+      const consulta = params.toString();
+      return fetchJson<TicketClassificationResponse>(
+        `/tickets/classification${consulta ? `?${consulta}` : ""}`,
+      );
+    },
   });
 
   const data = query.data;
@@ -191,6 +211,7 @@ export function TicketClassification({ envio }: { envio: string | null }) {
           key={c.classe}
           classe={c}
           envio={envio}
+          vigencias={vigencias}
           aberto={aberta === null || aberta === c.classe}
         />
       ))}
@@ -341,10 +362,12 @@ function Conciliacao({
 function BlocoDeClasse({
   classe,
   envio,
+  vigencias,
   aberto,
 }: {
   classe: TicketClassRollup;
   envio: string | null;
+  vigencias: JanelaDeVigencias;
   aberto: boolean;
 }) {
   if (!aberto) return null;
@@ -388,6 +411,7 @@ function BlocoDeClasse({
               classe={classe.classe}
               maior={classe.parameters[0]?.changes ?? p.changes}
               envio={envio}
+              vigencias={vigencias}
             />
           ))}
         </ul>
@@ -402,11 +426,13 @@ function LinhaDeParametro({
   classe,
   maior,
   envio,
+  vigencias,
 }: {
   parametro: TicketParameterInClass;
   classe: string;
   maior: number;
   envio: string | null;
+  vigencias: JanelaDeVigencias;
 }) {
   const [aberto, setAberto] = useState(false);
   const aparencia = aparenciaDe(classe);
@@ -479,6 +505,7 @@ function LinhaDeParametro({
               assunto={s}
               parameterLabel={parametro.parameterLabel}
               envio={envio}
+              vigencias={vigencias}
             />
           ))}
         </ul>
@@ -507,10 +534,12 @@ function LinhaDeAssunto({
   assunto,
   parameterLabel,
   envio,
+  vigencias,
 }: {
   assunto: TicketSubjectRollup;
   parameterLabel: string;
   envio: string | null;
+  vigencias: JanelaDeVigencias;
 }) {
   const [aberto, setAberto] = useState(false);
 
@@ -548,6 +577,7 @@ function LinhaDeAssunto({
             parameterLabel={parameterLabel}
             subject={assunto.subject}
             envio={envio}
+            vigencias={vigencias}
           />
         </div>
       )}
@@ -579,10 +609,12 @@ function AlteracoesDaFolha({
   parameterLabel,
   subject,
   envio,
+  vigencias,
 }: {
   parameterLabel: string;
   subject: string | null;
   envio: string | null;
+  vigencias: JanelaDeVigencias;
 }) {
   const [janela, setJanela] = useState<Janela>(primeiraPagina);
 
@@ -594,10 +626,27 @@ function AlteracoesDaFolha({
   };
 
   const query = useQuery({
-    queryKey: ["tickets", "folha", envio, parameterLabel, subject, janela],
+    queryKey: [
+      "tickets",
+      "folha",
+      envio,
+      parameterLabel,
+      subject,
+      janela,
+      vigencias.de,
+      vigencias.ate,
+    ],
     queryFn: () =>
       fetchJson<TicketsResponse>(
-        `/tickets?${toTicketQuery(filtros, envio ? { ticketImportId: envio } : {}, janela)}`,
+        `/tickets?${toTicketQuery(
+          filtros,
+          {
+            ...(envio ? { ticketImportId: envio } : {}),
+            ...(vigencias.de ? { de: vigencias.de } : {}),
+            ...(vigencias.ate ? { ate: vigencias.ate } : {}),
+          },
+          janela,
+        )}`,
       ),
   });
 

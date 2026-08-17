@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { ApiErrorNotice } from "@/components/api-error";
 import {
+  RecusaDoRecorte,
   SeletorDeJanela,
   type JanelaDeVigencias,
 } from "@/components/changes/janela-vigencias";
@@ -249,10 +250,12 @@ export function ImpactoPanorama({
 
   if (query.error) {
     return (
-      <ApiErrorNotice
-        error={query.error}
-        what="O panorama de alterações não pôde ser carregado."
-      />
+      <RecusaDoRecorte janela={janela} onJanela={onJanela}>
+        <ApiErrorNotice
+          error={query.error}
+          what="O panorama de alterações não pôde ser carregado."
+        />
+      </RecusaDoRecorte>
     );
   }
 
