@@ -19,6 +19,8 @@
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@workspace/curation": "workspace:*",
+    "@workspace/ingest": "workspace:*",
     "tsx": "catalog:",
     "vitest": "^3.2.4"
   }
