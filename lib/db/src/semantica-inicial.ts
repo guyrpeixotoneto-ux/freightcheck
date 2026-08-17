@@ -129,21 +129,9 @@ export async function garantirSemanticaInicial(
   return { criadas: criadas ?? 0, ajustadas: ajustadas ?? 0, inicio };
 }
 
-/**
- * Os atributos que ainda não têm versão nenhuma.
- *
- * A invariante dita em forma de pergunta, para quem precisa **conferir** em vez
- * de corrigir: o diagnóstico do banco, um teste, uma tela de saúde. Lista vazia
- * é o estado correto.
- */
-export async function atributosSemSemantica(db: Database): Promise<string[]> {
-  const { rows } = await db.execute<{ code: string }>(sql`
-    SELECT a.code
-      FROM attribute a
-     WHERE NOT EXISTS (
-             SELECT 1 FROM attribute_semantics v WHERE v.attribute_id = a.id
-           )
-     ORDER BY a.code
-  `);
-  return rows.map((r) => r.code);
-}
+/*
+  Conferir se a invariante vale é o assunto de `integridade-semantica.ts`, e
+  mora lá justamente porque não é o mesmo assunto: este módulo escreve, aquele
+  só pergunta — e o comando que pergunta não pode ter à mão a função que
+  conserta, ou a próxima pessoa apressada as junta.
+*/

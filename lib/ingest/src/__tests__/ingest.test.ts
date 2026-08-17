@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 import {
-  atributosSemSemantica,
+  atributosSemSemanticaAplicavel,
   attributeSemanticsTable,
   attributeTable,
   entityIdentifierTable,
@@ -223,7 +223,7 @@ describe("semântica versionada", () => {
     ninguém notar.
   */
   it("dá a todo atributo a sua versão 1, sem precisar de backfill depois", async () => {
-    expect(await atributosSemSemantica(ctx.db)).toEqual([]);
+    expect(await atributosSemSemanticaAplicavel(ctx.db)).toEqual([]);
 
     const [{ versoes }] = await ctx.db
       .select({ versoes: sql<number>`count(*)`.mapWith(Number) })

@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import {
-  atributosSemSemantica,
+  atributosSemSemanticaAplicavel,
   attributeSemanticsTable,
   attributeTable,
   garantirSemanticaInicial,
@@ -64,7 +64,7 @@ async function inicioDaSerie(): Promise<string> {
 
 describe("depois da importação, e antes de qualquer curadoria", () => {
   it("nenhum atributo ficou sem semântica", async () => {
-    expect(await atributosSemSemantica(ctx.db)).toEqual([]);
+    expect(await atributosSemSemanticaAplicavel(ctx.db)).toEqual([]);
   });
 
   it("grava nome, significado e fórmula na primeira tentativa", async () => {

@@ -132,3 +132,4 @@ export * from "./schema";
   lê e escreve a versão dele. Foi essa fronteira que deixou a versão 1 órfã.
 */
 export * from "./semantica-inicial";
+export * from "./integridade-semantica";
