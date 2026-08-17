@@ -22,13 +22,13 @@ import {
  * descrever as de um equipamento. Numa aba só, com 121 linhas e uma coluna
  * "Equipamento", a primeira coisa que a pessoa faria seria filtrar.
  *
- * **Lista suspensa no significado e na categoria.** São os dois campos que
- * casam contra catálogo, e texto livre neles vira linha recusada na volta —
- * depois de a pessoa ter preenchido cento e poucas células. A lista transforma
- * um erro que só aparece no fim num que não chega a acontecer.
+ * **Lista suspensa na categoria.** É o único campo que casa contra catálogo, e
+ * texto livre nele vira célula recusada na volta — depois de a pessoa ter
+ * preenchido cento e poucas linhas. A lista transforma um erro que só aparece
+ * no fim num que não chega a acontecer.
  *
- * **As colunas de identificação saem travadas.** `Código` é a chave da volta.
- * A proteção da aba é sem senha, de propósito: ela existe para impedir o
+ * **A coluna `Atributo` sai travada.** Ela é metade da chave da volta (a outra
+ * metade é a aba). A proteção é sem senha, de propósito: existe para impedir o
  * acidente — arrastar uma célula e deslocar a coluna inteira —, não para
  * impedir quem quiser mesmo editar.
  */
@@ -42,7 +42,6 @@ const CABECALHO = "FF1D3557";
 
 export interface ModeloDeAtributos {
   linhas: LinhaDoModelo[];
-  significados: { code: string; label: string }[];
   categorias: { code: string; caminho: string }[];
   /** Só para a aba de instruções: quem gerou e quando. */
   geradoPor: string;
@@ -68,13 +67,9 @@ export async function montarModeloDeAtributos(
 
   const listas = workbook.addWorksheet(ABA_DAS_LISTAS);
   listas.state = "veryHidden";
-  listas.getCell("A1").value = "Significados";
-  modelo.significados.forEach((s, i) => {
-    listas.getCell(`A${i + 2}`).value = s.label;
-  });
-  listas.getCell("B1").value = "Categorias";
+  listas.getCell("A1").value = "Categorias";
   modelo.categorias.forEach((c, i) => {
-    listas.getCell(`B${i + 2}`).value = c.caminho;
+    listas.getCell(`A${i + 2}`).value = c.caminho;
   });
 
   const porEquipamento = new Map<string, LinhaDoModelo[]>();
@@ -133,25 +128,28 @@ export async function montarModeloDeAtributos(
         to: { row: ultima, column: COLUNAS_DO_MODELO.length },
       };
 
-      const lista = (chave: "significado" | "categoria", coluna: string, total: number) => {
-        for (let linha = 2; linha <= ultima; linha++) {
-          aba.getCell(`${letra(colunaDe(chave))}${linha}`).dataValidation = {
-            type: "list",
-            allowBlank: true,
-            formulae: [`=${ABA_DAS_LISTAS}!$${coluna}$2:$${coluna}$${total + 1}`],
-            showErrorMessage: true,
-            errorTitle: "Fora do catálogo",
-            error:
-              "Escolha um item da lista. Para usar um valor novo, cadastre-o na tela de Curadoria primeiro.",
-          };
-        }
-      };
-      lista("significado", "A", modelo.significados.length);
-      lista("categoria", "B", modelo.categorias.length);
+      /*
+        A validação é `allowBlank` e **não** bloqueia o que for digitado por
+        fora: `showErrorMessage` avisa, e a conferência do servidor é quem
+        decide. Travar a célula faria a planilha recusar uma categoria que
+        alguém acabou de cadastrar na tela — o arquivo é de ontem, o catálogo é
+        de hoje.
+      */
+      for (let linha = 2; linha <= ultima; linha++) {
+        aba.getCell(`${letra(colunaDe("categoria"))}${linha}`).dataValidation = {
+          type: "list",
+          allowBlank: true,
+          formulae: [`=${ABA_DAS_LISTAS}!$A$2:$A$${modelo.categorias.length + 1}`],
+          showErrorMessage: true,
+          errorTitle: "Fora do catálogo",
+          error:
+            "Escolha um item da lista. Para usar uma categoria nova, cadastre-a na tela de Curadoria primeiro.",
+        };
+      }
     }
 
     // Sem senha: ver o comentário do topo. `selectLockedCells` continua ligado
-    // para que dê para copiar o código de uma linha.
+    // para que dê para copiar o nome de uma coluna.
     await aba.protect("", {
       selectLockedCells: true,
       selectUnlockedCells: true,
@@ -170,8 +168,9 @@ export async function montarModeloDeAtributos(
  * Ela existe por causa do caminho que o arquivo faz: sai daqui, vai por e-mail,
  * volta três dias depois preenchido por alguém que nunca abriu a tela. As duas
  * frases que essa pessoa precisa ler são "célula em branco não apaga nada" e
- * "isto não confirma nada" — a segunda porque preencher "o que este valor
- * representa" **parece** confirmar, e não é.
+ * "isto não confirma nada" — a segunda porque preencher a Categoria DRE
+ * **parece** decidir onde o número entra na conta, e não decide: até alguém
+ * confirmar na tela, a coluna continua fora de todo cálculo financeiro.
  */
 function instrucoes(workbook: ExcelJS.Workbook, modelo: ModeloDeAtributos): void {
   const aba = workbook.addWorksheet("Instruções");
@@ -187,10 +186,10 @@ function instrucoes(workbook: ExcelJS.Workbook, modelo: ModeloDeAtributos): void
     "Uma aba por equipamento. Cada linha é uma coluna importada do Freightec, e as células em amarelo são as que você preenche.",
     "",
     "1. Célula em branco não apaga nada. O que você deixar vazio fica como está no sistema — só o que for escrito é gravado. Para limpar um campo, use a tela de Curadoria.",
-    "2. Não edite a coluna Código: é por ela que o preenchimento volta para o atributo certo. Código que não existir no sistema aparece na prévia como linha ignorada.",
-    "3. Isto não confirma nada. Nem mesmo \"O que este valor representa\" e \"Categoria\": elas entram como proposta, aparecem prontas na tela, e o atributo continua fora dos cálculos financeiros até alguém confirmar com justificativa assinada.",
-    "4. Significado e Categoria têm lista suspensa. Se faltar um item, cadastre-o na tela de Curadoria antes de reenviar.",
-    "5. \"Também existe em\" avisa que o mesmo nome de coluna existe em outro equipamento. São atributos separados, com valores próprios: preencher aqui não preenche lá.",
+    "2. Não edite a coluna Atributo, e não mude a linha de aba: é o par aba + atributo que devolve o preenchimento ao lugar certo. O mesmo nome de coluna pode existir em dois equipamentos — são atributos separados, com valores próprios.",
+    "3. Isto não confirma nada. Nem mesmo a Categoria DRE: ela entra como proposta, aparece pronta na tela, e o atributo continua fora dos cálculos financeiros até alguém confirmar com justificativa assinada.",
+    "4. Categoria DRE tem lista suspensa. Se faltar um item, cadastre-o na tela de Curadoria antes de reenviar. Escrever só a classe (\"Cadastral\", \"Custo Fixo\") não classifica: a prévia devolve as opções daquele galho.",
+    "5. Só aparece aqui o que virou atributo na importação. Colunas de chave — vigência e placa — identificam a linha em vez de medir algo, e por isso não têm o que descrever.",
     "",
     "Para aplicar: Curadoria › Planilha de atributos › Enviar preenchida. O sistema mostra o que vai mudar antes de gravar.",
   ];
@@ -228,9 +227,9 @@ function dobrar(texto: string): string {
  *
  * O casamento das colunas é pelo **rótulo do cabeçalho**, e não pela posição:
  * uma planilha que passou por três pessoas tem coluna escondida, movida e
- * duplicada, e ler a quinta célula da linha seria ler o que calhar de estar
- * lá. Aba sem a coluna "Código" é ignorada em silêncio — é a aba de instruções,
- * e reclamar dela seria reclamar do arquivo certo.
+ * duplicada, e ler a quarta célula da linha seria ler o que calhar de estar lá.
+ * Aba sem a coluna "Atributo" é ignorada em silêncio — é a aba de instruções, e
+ * reclamar dela seria reclamar do arquivo certo.
  */
 export function lerModeloDeAtributos(bytes: Buffer): LeituraDoModelo {
   let workbook: XLSX.WorkBook;
@@ -268,7 +267,7 @@ export function lerModeloDeAtributos(bytes: Buffer): LeituraDoModelo {
       const chave = rotulos.get(rotulo);
       if (chave && !posicao.has(chave)) posicao.set(chave, indice);
     });
-    if (!posicao.has("code")) continue;
+    if (!posicao.has("atributo")) continue;
     achouAlgumaAba = true;
 
     for (let i = 1; i < grade.length; i++) {
@@ -280,24 +279,22 @@ export function lerModeloDeAtributos(bytes: Buffer): LeituraDoModelo {
         return valor === undefined || valor === null ? undefined : String(valor);
       };
 
-      const code = (ler("code") ?? "").trim();
-      const preenchidos = ["displayName", "definition", "calculationBasis", "significado", "categoria"]
+      const atributo = (ler("atributo") ?? "").trim();
+      const preenchidos = ["displayName", "definition", "categoria"]
         .map(ler)
         .filter((v) => (v ?? "").trim() !== "");
-      // Linha sem código e sem preenchimento nenhum é a linha em branco que todo
-      // arquivo tem no fim. Sem código mas com texto é erro de quem preencheu, e
-      // a conferência precisa vê-la para poder dizer isso.
-      if (code === "" && preenchidos.length === 0) continue;
+      // Linha sem atributo e sem preenchimento nenhum é a linha em branco que
+      // todo arquivo tem no fim. Sem atributo mas com texto é erro de quem
+      // preencheu, e a conferência precisa vê-la para poder dizer isso.
+      if (atributo === "" && preenchidos.length === 0) continue;
 
       linhas.push({
         aba: nome,
         // +1 porque o Excel conta a partir de 1 e a primeira linha é o cabeçalho.
         linha: i + 1,
-        code,
+        atributo,
         displayName: ler("displayName"),
         definition: ler("definition"),
-        calculationBasis: ler("calculationBasis"),
-        significado: ler("significado"),
         categoria: ler("categoria"),
       });
     }
@@ -307,7 +304,7 @@ export function lerModeloDeAtributos(bytes: Buffer): LeituraDoModelo {
     return {
       ok: false,
       erro:
-        'Nenhuma aba deste arquivo tem a coluna "Código". Reenvie o modelo baixado em Curadoria › Planilha de atributos, mantendo a linha de cabeçalho.',
+        'Nenhuma aba deste arquivo tem a coluna "Atributo". Reenvie o modelo baixado em Curadoria › Planilha de atributos, mantendo a linha de cabeçalho.',
     };
   }
 

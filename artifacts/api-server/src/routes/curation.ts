@@ -187,25 +187,16 @@ async function atributosDoModelo(): Promise<AtributoDoModelo[]> {
     sourceName: item.sourceName,
     entityType: item.entityType,
     semanticsStatus: item.semanticsStatus,
-    valueCount: item.valueCount,
     displayName: item.displayName,
     definition: item.definition,
-    calculationBasis: item.calculationBasis,
-    meaningCode: item.meaningCode,
     taxonomyCode: item.taxonomyCode,
   }));
 }
 
-/** O catálogo como as duas colunas de escolha o leem. */
+/** O catálogo como a coluna Categoria DRE o lê. */
 async function catalogosDoModelo() {
-  const [significados, categorias] = await Promise.all([
-    listarSignificados(db),
-    listarCategorias(db),
-  ]);
-  return {
-    significados: significados.map((s) => ({ code: s.code, label: s.label })),
-    categorias: categorias.map((c) => ({ code: c.code, caminho: c.caminho })),
-  };
+  const categorias = await listarCategorias(db);
+  return { categorias: categorias.map((c) => ({ code: c.code, caminho: c.caminho })) };
 }
 
 /** Ler o upload e conferi-lo contra a base. Não grava nada. */

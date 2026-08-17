@@ -38,8 +38,9 @@ interface MudancaDeCampo {
 interface LinhaConferida {
   aba: string;
   linha: number;
-  code: string;
-  desfecho: "MUDA" | "IGUAL" | "SEM_CODIGO" | "SEM_ATRIBUTO";
+  atributo: string;
+  code: string | null;
+  desfecho: "MUDA" | "IGUAL" | "SEM_ATRIBUTO_NA_LINHA" | "SEM_ATRIBUTO" | "AMBIGUO";
   mudancas: MudancaDeCampo[];
   problemas: string[];
 }
@@ -62,11 +63,9 @@ interface Aplicacao {
 }
 
 const ROTULO_DO_CAMPO: Record<string, string> = {
-  displayName: "Nome gerencial",
+  displayName: "Nome Gerencial",
   definition: "O que é",
-  calculationBasis: "Fórmula de cálculo",
-  significado: "O que este valor representa",
-  categoria: "Categoria",
+  categoria: "Categoria DRE",
 };
 
 /** O arquivo em base64 dentro de JSON — o mesmo caminho da tela de importações. */
@@ -196,9 +195,10 @@ export function PlanilhaDeAtributos() {
             Planilha de atributos
           </DialogTitle>
           <DialogDescription>
-            Grava nome gerencial, descrição, fórmula, significado e categoria. Não
-            confirma atributo nenhum e não destrava cálculo financeiro — isso
-            continua sendo um ato de tela, com justificativa assinada.
+            Grava nome gerencial, descrição e categoria das colunas que já foram
+            importadas. Não confirma atributo nenhum e não destrava cálculo
+            financeiro — isso continua sendo um ato de tela, com justificativa
+            assinada.
           </DialogDescription>
         </DialogHeader>
 
@@ -261,7 +261,9 @@ export function PlanilhaDeAtributos() {
                   <div className="max-h-64 overflow-y-auto">
                     {mudancas.map((linha) => (
                       <div key={`${linha.aba}-${linha.linha}`} className="border-b px-3 py-2 last:border-0">
-                        <div className="font-mono text-xs">{linha.code}</div>
+                        <div className="font-mono text-xs">
+                          {linha.aba} · {linha.atributo}
+                        </div>
                         {linha.mudancas.map((mudanca, i) => (
                           <div key={i} className="text-xs text-muted-foreground">
                             <span className="font-medium text-foreground">
@@ -294,7 +296,7 @@ export function PlanilhaDeAtributos() {
                       >
                         <span className="font-mono">
                           {linha.aba} · linha {linha.linha}
-                          {linha.code && ` · ${linha.code}`}
+                          {linha.atributo && ` · ${linha.atributo}`}
                         </span>
                         {linha.problemas.map((problema, i) => (
                           <div key={i}>{problema}</div>

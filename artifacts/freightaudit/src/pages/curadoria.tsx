@@ -693,7 +693,7 @@ function AttributePanel({
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
             <Metric label="Valores" value={detail.valueCount.toLocaleString("pt-BR")} />
             <Metric label="Ausentes" value={detail.nullCount.toLocaleString("pt-BR")} />
-            <Metric label="Categoria" value={detail.taxonomyName ?? "—"} />
+            <Metric label="Categoria DRE" value={detail.taxonomyName ?? "—"} />
             <Metric label="Classe" value={detail.costClass ?? "—"} />
           </div>
         </CardContent>
@@ -1215,8 +1215,13 @@ function ConfirmarInterpretacao({
             </Field>
           )}
 
+          {/* "Categoria DRE", e não "Categoria": é o mesmo campo que a coluna
+              de mesmo nome da planilha de atributos preenche, e dois nomes para
+              o mesmo campo fazem quem preenche a planilha procurar na tela um
+              campo que não existe. O nome também diz o que a escolha decide —
+              em que linha da DRE a coluna cai. */}
           <Field
-            label="Categoria"
+            label="Categoria DRE"
             hint="Onde este valor entra na conta. Pesquise ou cadastre uma nova."
           >
             <ComboboxCriavel

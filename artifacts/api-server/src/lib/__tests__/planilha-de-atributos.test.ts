@@ -22,10 +22,6 @@ import {
  */
 
 const catalogos = {
-  significados: [
-    { code: "brl_mes", label: "R$ por mês" },
-    { code: "brl_km", label: "R$ por km" },
-  ],
   categorias: [
     { code: "cf_seguros", caminho: "Custo Fixo › Seguros" },
     { code: "cv_pneus", caminho: "Custo Variável › Pneus" },
@@ -38,23 +34,17 @@ const base: AtributoDoModelo[] = [
     sourceName: "seguro",
     entityType: "CAVALO",
     semanticsStatus: "PRESUMED",
-    valueCount: 558,
     displayName: "Seguro do cavalo",
     definition: null,
-    calculationBasis: null,
-    meaningCode: null,
     taxonomyCode: null,
   },
   {
     code: "carreta.valor_pneu",
     sourceName: "valorPneu",
     entityType: "CARRETA",
-    semanticsStatus: "CONFIRMED",
-    valueCount: 720,
+    semanticsStatus: "PRESUMED",
     displayName: null,
     definition: "Preço unitário do pneu.",
-    calculationBasis: null,
-    meaningCode: "brl_mes",
     taxonomyCode: "cv_pneus",
   },
 ];
@@ -80,20 +70,20 @@ describe("o modelo de atributos", () => {
     const leitura = lerModeloDeAtributos(await arquivo());
     if (!leitura.ok) throw new Error(leitura.erro);
 
-    expect(leitura.linhas.map((l) => l.code).sort()).toEqual([
-      "carreta.valor_pneu",
-      "cavalo.seguro",
+    expect(leitura.linhas.map((l) => l.atributo).sort()).toEqual([
+      "seguro",
+      "valorPneu",
     ]);
-    const pneu = leitura.linhas.find((l) => l.code === "carreta.valor_pneu")!;
+    const pneu = leitura.linhas.find((l) => l.atributo === "valorPneu")!;
+    // A aba é metade da chave: é ela que diz de que equipamento é a coluna.
     expect(pneu.aba).toBe("Carreta");
     expect(pneu.definition).toBe("Preço unitário do pneu.");
     // O que estava gravado sai escrito no arquivo: é o que faz a volta ser um
     // diff e não um preenchimento do zero.
-    expect(pneu.significado).toBe("R$ por mês");
     expect(pneu.categoria).toBe("Custo Variável › Pneus");
   });
 
-  it("a aba de instruções não vira linha — ela não tem coluna Código", async () => {
+  it("a aba de instruções não vira linha — ela não tem coluna Atributo", async () => {
     const leitura = lerModeloDeAtributos(await arquivo());
     if (!leitura.ok) throw new Error(leitura.erro);
     expect(leitura.linhas.every((l) => l.aba !== "Instruções")).toBe(true);
@@ -102,8 +92,8 @@ describe("o modelo de atributos", () => {
   it("lê pelo rótulo do cabeçalho, e não pela posição da coluna", () => {
     const workbook = XLSX.utils.book_new();
     const aba = XLSX.utils.aoa_to_sheet([
-      ["O que é", "Código", "Nome gerencial"],
-      ["Seguro contratado.", "cavalo.seguro", "Seguro"],
+      ["O que é", "Atributo", "Nome Gerencial"],
+      ["Seguro contratado.", "seguro", "Seguro"],
     ]);
     XLSX.utils.book_append_sheet(workbook, aba, "Cavalo");
     const bytes = XLSX.write(workbook, { type: "buffer", bookType: "xlsx" }) as Buffer;
@@ -111,7 +101,7 @@ describe("o modelo de atributos", () => {
     const leitura = lerModeloDeAtributos(bytes);
     if (!leitura.ok) throw new Error(leitura.erro);
     expect(leitura.linhas[0]).toMatchObject({
-      code: "cavalo.seguro",
+      atributo: "seguro",
       definition: "Seguro contratado.",
       displayName: "Seguro",
     });
@@ -128,7 +118,7 @@ describe("o modelo de atributos", () => {
 
     const leitura = lerModeloDeAtributos(bytes);
     expect(leitura.ok).toBe(false);
-    if (!leitura.ok) expect(leitura.erro).toMatch(/coluna "Código"/);
+    if (!leitura.ok) expect(leitura.erro).toMatch(/coluna "Atributo"/);
   });
 
   it("recusa bytes que não são planilha", () => {
@@ -136,15 +126,15 @@ describe("o modelo de atributos", () => {
     expect(leitura.ok).toBe(false);
   });
 
-  it("ignora a linha em branco do fim, e não a linha preenchida sem código", () => {
+  it("ignora a linha em branco do fim, e não a linha preenchida sem atributo", () => {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(
       workbook,
       XLSX.utils.aoa_to_sheet([
-        ["Código", "O que é"],
-        ["cavalo.seguro", "Seguro contratado."],
+        ["Atributo", "O que é"],
+        ["seguro", "Seguro contratado."],
         ["", ""],
-        ["", "Descrição órfã, sem código."],
+        ["", "Descrição órfã, sem atributo."],
       ]),
       "Cavalo",
     );
@@ -154,8 +144,8 @@ describe("o modelo de atributos", () => {
     if (!leitura.ok) throw new Error(leitura.erro);
     expect(leitura.linhas).toHaveLength(2);
     expect(leitura.linhas[1]).toMatchObject({
-      code: "",
-      definition: "Descrição órfã, sem código.",
+      atributo: "",
+      definition: "Descrição órfã, sem atributo.",
     });
   });
 });
