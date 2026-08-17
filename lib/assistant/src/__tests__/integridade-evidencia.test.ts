@@ -39,7 +39,7 @@ const comBanco = url ? describe : describe.skip;
  * signifique passar na trava.
  */
 function numerosDe(texto: string): string[] {
-  return texto.match(/\d[\d.,]*/g) ?? [];
+  return (texto.match(/\d[\d.,]*/g) ?? []).map((t) => t.replace(/[.,]+$/, ""));
 }
 
 /** Tudo o que a evidência de uma chamada autoriza citar. */
