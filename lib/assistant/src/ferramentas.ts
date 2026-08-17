@@ -1453,15 +1453,42 @@ export async function resultadoDaFrota(
   }
 
   if (resultado.valorParcial !== null) {
+    /*
+      A margem é calculada aqui, então é aqui que ela é autorizada.
+
+      `toFixed(1)` escrevia `9.1` — ponto decimal, forma da máquina — dentro de
+      uma frase em português. A trava autorizava o token literal `9.1`, e o
+      modelo, escrevendo `9,1% da receita` como se escreve em português, era
+      recusado. É o mesmo defeito do par antes→depois em `alteracoes`, e a
+      auditoria reforçada o encontrou nesta ferramenta no primeiro exame.
+
+      Pôr o valor em `numeros` resolve porque quem entra ali ganha as variantes
+      pt-BR pelo mecanismo que já existe. E não abre porta para cálculo do
+      modelo: quem calculou foi a ferramenta, deterministicamente, sobre dois
+      números que ela mesma consultou.
+    */
+    const margem =
+      receita.valorParcial !== null && receita.valorParcial !== 0
+        ? ((resultado.valorParcial / receita.valorParcial) * 100).toFixed(1)
+        : null;
+
+    /*
+      O texto sai **idêntico** ao de antes, e isso é requisito, não estilo: o
+      planejador é a linha de base contra a qual o agente está sendo medido, e
+      uma medição cujo "antes" se move junto com o "depois" não mede nada.
+      `${margem}` reproduz o `toFixed(1)` original byte a byte — inclusive o
+      `10.0` que um `Number()` teria encurtado para `10`.
+
+      O que muda é só o lastro: a grandeza entra em `numeros`, onde ganha as
+      variantes pt-BR. Autorização é acrescentada, nunca retirada.
+    */
     fatos.push({
       rotulo: "Resultado apurado",
       valor: dinheiro(resultado.valorParcial, "MENSAL"),
-      detalhe:
-        receita.valorParcial !== null && receita.valorParcial !== 0
-          ? `${((resultado.valorParcial / receita.valorParcial) * 100).toFixed(1)}% da receita`
-          : undefined,
+      detalhe: margem !== null ? `${margem}% da receita` : undefined,
     });
     numeros.push(resultado.valorParcial);
+    if (margem !== null) numeros.push(Number(margem));
   }
 
   /*

@@ -49,6 +49,39 @@ function comoMudou(grupo: {
   return grupo.patterns > 1 ? `${par} (em ${p.vehicles} ativos; ${grupo.patterns} pares distintos)` : par;
 }
 
+/**
+ * Os dois lados do par, como **número** — e não só dentro da frase.
+ *
+ * **O defeito que isto fecha.** `comoMudou` devolve `"2.19 → 0"`, texto cru do
+ * banco, e esse texto ia para `fatos[].valor`. A trava registra o que encontra
+ * numa string exatamente como está escrito: autorizava `2.19` e nada mais. O
+ * modelo, escrevendo para um leitor brasileiro, escreve `2,19` — e era recusado.
+ *
+ * Medido na bateria real: sete das nove perguntas perderam grounding por isto, e
+ * três respostas certas foram descartadas inteiras. Nenhuma delas continha
+ * invenção; continham o mesmo número que a ferramenta havia mostrado, escrito
+ * como uma pessoa o escreve.
+ *
+ * **Por que aqui e não na trava.** Um número em `numeros[]` já ganha as
+ * variantes pt-BR pelo mecanismo que existe desde sempre — `toLocaleString` com
+ * e sem casas decimais. O que faltava não era a trava reconhecer formato: era o
+ * par antes→depois nunca ter entrado em `numeros[]`, porque ele nascia frase.
+ * O conserto é pôr o número onde os outros números já estão.
+ *
+ * `Number()` recusa o que não é numérico sem reclamar — um par que trocou de
+ * formato (`"1.234"` → `"texto"`) simplesmente não contribui, que é o correto:
+ * não há grandeza ali para autorizar.
+ */
+function numerosDoPar(grupo: {
+  dominantPattern: { before: string | null; after: string | null } | null;
+}): number[] {
+  const p = grupo.dominantPattern;
+  if (!p) return [];
+  return [p.before, p.after]
+    .map((v) => (v === null || v.trim() === "" ? Number.NaN : Number(v)))
+    .filter((n) => Number.isFinite(n));
+}
+
 export const alteracoes: Ferramenta = {
   nome: "alteracoes",
   descricao:
@@ -327,6 +360,10 @@ export const alteracoes: Ferramenta = {
               g.impact.amount, g.aggregate.totalBefore, g.aggregate.totalAfter,
               g.aggregate.deltaPercent, g.aggregate.minPercent, g.aggregate.maxPercent,
               criticidade.get(g.key) ?? null,
+              // O par antes→depois — ver `numerosDoPar`. Ele já ia no texto do
+              // fato; aqui ele passa a ir como grandeza, que é o que autoriza a
+              // forma em que uma pessoa o escreve.
+              ...numerosDoPar(g),
             ].filter((n): n is number => typeof n === "number"),
           ),
         ],
