@@ -53,6 +53,13 @@ export interface OpcaoDeCategoria {
   name: string;
   /** "Custo Variável › Manutenção" — hierarquia sem jargão de taxonomia. */
   caminho: string;
+  /**
+   * O caminho partido nos dois níveis em que a DRE se lê: "Custo Variável" e
+   * "Manutenção". Derivados do mesmo nó — a classificação continua sendo uma
+   * só, e estes são as duas alturas de onde se olha para ela.
+   */
+  sintetico: string;
+  analitico: string;
   costClass: string | null;
   /** `custo_fixo` | `custo_variavel` | `cadastral` | `nao_classificado`. */
   classeCode: string | null;

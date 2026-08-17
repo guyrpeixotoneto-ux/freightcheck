@@ -40,12 +40,32 @@ import { saveMeaning } from "./meaning";
  * ---------------------------------------------------------------------------
  * A coluna que não é prosa
  * ---------------------------------------------------------------------------
- * "Categoria DRE" é uma das perguntas do card de confirmação — o mesmo campo,
- * com o mesmo nome nos dois lugares —, e ela entra aqui como **proposta**:
- * grava `taxonomy_node_id` e para aí. É o que `runProposalPass` já faz quando o
- * motor lê os valores; a diferença é que agora a proposta é de uma pessoa, o
- * que a torna melhor, não mais poderosa. Quem abrir o atributo na tela encontra
- * a resposta pronta e uma justificativa a escrever.
+ * "Categoria DRE" é uma das perguntas do card de confirmação — os mesmos
+ * campos, com os mesmos nomes nos dois lugares —, e ela entra aqui como
+ * **proposta**: grava `taxonomy_node_id` e para aí. É o que `runProposalPass`
+ * já faz quando o motor lê os valores; a diferença é que agora a proposta é de
+ * uma pessoa, o que a torna melhor, não mais poderosa. Quem abrir o atributo na
+ * tela encontra a resposta pronta e uma justificativa a escrever.
+ *
+ * ---------------------------------------------------------------------------
+ * Duas colunas, uma classificação
+ * ---------------------------------------------------------------------------
+ * A categoria sai e volta em **duas** colunas — "Categoria DRE - Sintético" e
+ * "Categoria DRE - Analítico" —, e mesmo assim o que se grava continua sendo um
+ * nó só. As duas são as duas alturas do mesmo caminho: `Custo Variável ›
+ * Manutenção` é o sintético "Custo Variável" e o analítico "Manutenção".
+ * Guardá-las em separado criaria o dia em que uma discorda da outra.
+ *
+ * A coluna de sintético não é decoração de leitura: ela é o que **desambigua**.
+ * "Outros" existe dentro de custo fixo e dentro de custo variável, e a planilha
+ * de uma coluna só recusava a célula dizendo "há mais de uma categoria com este
+ * nome, escreva o caminho inteiro" — cobrando de quem preenche uma sintaxe com
+ * `›` que ninguém digita. Com o sintético ao lado, a mesma resposta vira uma
+ * escolha em duas listas suspensas.
+ *
+ * Arquivos antigos, com a coluna única "Categoria DRE", continuam sendo lidos:
+ * o modelo saiu por e-mail antes desta mudança, e recusar a volta deles seria
+ * jogar fora trabalho já feito.
  *
  * Num atributo **já confirmado** ela é recusada, e só ela: trocar a categoria
  * de quem já foi assinado muda em que linha da DRE o número cai, e desfazer uma
@@ -65,11 +85,25 @@ import { saveMeaning } from "./meaning";
 // O formato
 // ---------------------------------------------------------------------------
 
-/** Os campos que a planilha devolve preenchidos. */
+/**
+ * Os campos que a planilha **grava**.
+ *
+ * `categoria` é um só apesar de a planilha ter duas colunas para ela: sintético
+ * e analítico são duas alturas de um caminho, e o que se grava é o nó em que
+ * esse caminho termina. Uma mudança de categoria vale pelo caminho inteiro.
+ */
 export type CampoDoModelo = "displayName" | "definition" | "categoria";
 
+/** As colunas do arquivo — que não são os campos: a categoria ocupa duas. */
+export type ChaveDeColuna =
+  | "atributo"
+  | "displayName"
+  | "definition"
+  | "categoriaSintetica"
+  | "categoriaAnalitica";
+
 export interface ColunaDoModelo {
-  chave: CampoDoModelo | "atributo";
+  chave: ChaveDeColuna;
   rotulo: string;
   largura: number;
   /** Falso na coluna de identificação: ela sai preenchida e é lida. */
@@ -78,7 +112,7 @@ export interface ColunaDoModelo {
 }
 
 /**
- * Quatro colunas, e a primeira é a chave.
+ * Cinco colunas, e a primeira é a chave.
  *
  * O modelo tinha nove — código, coluna de origem, status, valores, "também
  * existe em", nome, o que é, fórmula e significado — e o que se descobriu
@@ -118,14 +152,25 @@ export const COLUNAS_DO_MODELO: ColunaDoModelo[] = [
     ajuda: "A descrição que você daria a alguém que nunca viu esta planilha.",
   },
   {
-    chave: "categoria",
-    rotulo: "Categoria DRE",
-    largura: 38,
+    chave: "categoriaSintetica",
+    rotulo: "Categoria DRE - Sintético",
+    largura: 30,
     preenchivel: true,
     ajuda:
-      "Onde a coluna entra na conta. Escolha da lista — entra como proposta e não confirma o atributo.",
+      "A linha da DRE que totaliza — Custo Variável, Custo Fixo, Cadastral. Sozinha ela não classifica: é o par com o analítico ao lado que diz onde a coluna entra na conta.",
+  },
+  {
+    chave: "categoriaAnalitica",
+    rotulo: "Categoria DRE - Analítico",
+    largura: 34,
+    preenchivel: true,
+    ajuda:
+      "O detalhe dentro do sintético — Manutenção, Pneus, Combustível. É o que de fato classifica a coluna, e entra como proposta: não confirma o atributo.",
   },
 ];
+
+/** O rótulo antigo, quando a categoria cabia numa coluna só. Ainda é lido. */
+export const ROTULO_DA_COLUNA_ANTIGA = "Categoria DRE";
 
 /** Uma linha do modelo, como o servidor a escreve no arquivo. */
 export interface LinhaDoModelo {
@@ -133,7 +178,8 @@ export interface LinhaDoModelo {
   entityType: string;
   displayName: string;
   definition: string;
-  categoria: string;
+  categoriaSintetica: string;
+  categoriaAnalitica: string;
 }
 
 /** O atributo como a base o tem, para o modelo e para a conferência. */
@@ -171,18 +217,22 @@ export function montarLinhas(
 ): LinhaDoModelo[] {
   // O texto que a célula mostra sai do catálogo, que é de onde a lista suspensa
   // também sai: o arquivo abre com a opção já selecionada, e não com um texto
-  // parecido com uma das opções.
-  const categoriaPorCodigo = new Map(
-    catalogos.categorias.map((c) => [c.code, c.caminho]),
-  );
+  // parecido com uma das opções. Vale para as duas colunas — uma categoria já
+  // classificada volta com o par completo, e quem só quiser mudar o analítico
+  // não precisa reescrever o sintético.
+  const porCodigo = new Map(catalogos.categorias.map((c) => [c.code, c]));
 
-  return atributos.map((a) => ({
-    atributo: a.sourceName,
-    entityType: a.entityType,
-    displayName: a.displayName ?? "",
-    definition: a.definition ?? "",
-    categoria: (a.taxonomyCode && categoriaPorCodigo.get(a.taxonomyCode)) || "",
-  }));
+  return atributos.map((a) => {
+    const categoria = a.taxonomyCode ? porCodigo.get(a.taxonomyCode) : undefined;
+    return {
+      atributo: a.sourceName,
+      entityType: a.entityType,
+      displayName: a.displayName ?? "",
+      definition: a.definition ?? "",
+      categoriaSintetica: categoria?.sintetico ?? "",
+      categoriaAnalitica: categoria?.analitico ?? "",
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -198,11 +248,24 @@ export interface LinhaPreenchida {
   atributo: string;
   displayName?: string;
   definition?: string;
+  categoriaSintetica?: string;
+  categoriaAnalitica?: string;
+  /** A coluna única dos arquivos gerados antes da separação em dois níveis. */
   categoria?: string;
 }
 
+export interface CategoriaDoCatalogo {
+  code: string;
+  /** "Custo Variável › Manutenção" — os dois níveis juntos. */
+  caminho: string;
+  /** "Custo Variável" — a linha que totaliza. */
+  sintetico: string;
+  /** "Manutenção" — o que de fato classifica. */
+  analitico: string;
+}
+
 export interface CatalogosDoModelo {
-  categorias: { code: string; caminho: string }[];
+  categorias: CategoriaDoCatalogo[];
 }
 
 export interface MudancaDeCampo {
@@ -298,78 +361,171 @@ function preenchido(valor: string | undefined): string | null {
  */
 function caminhoDe(
   codigo: string | null,
-  categorias: { code: string; caminho: string }[],
+  categorias: CategoriaDoCatalogo[],
 ): string | null {
   if (codigo === null) return null;
   return categorias.find((c) => c.code === codigo)?.caminho ?? codigo;
 }
 
-/** A classe de um caminho — o primeiro segmento de "Custo Fixo › Seguros". */
-function classeDoCaminho(caminho: string): string {
-  return caminho.split("›")[0].trim();
-}
-
 type Achado =
   | { tipo: "ACHADA"; code: string; caminho: string }
-  | { tipo: "CLASSE"; opcoes: string[] }
-  | { tipo: "AMBIGUA" }
+  /** Só o sintético veio, e ele sozinho não classifica. */
+  | { tipo: "SO_SINTETICO"; opcoes: string[] }
+  /** O analítico existe em mais de um sintético, e nenhum foi dito. */
+  | { tipo: "AMBIGUA"; opcoes: string[] }
+  /** O sintético escrito não é nenhuma das linhas que totalizam. */
+  | { tipo: "SINTETICO_DESCONHECIDO"; opcoes: string[] }
+  /** Os dois existem, e não são o mesmo caminho. */
+  | { tipo: "INCOMPATIVEL"; caminhoReal: string }
   | { tipo: "NENHUMA" };
 
-/**
- * A categoria pelo caminho inteiro, pela folha, ou — quando o que veio é uma
- * classe — pela lista do que existe dentro dela.
- *
- * Os três casos vêm de como as pessoas escrevem. `Custo Variável › Manutenção`
- * é o que a lista oferece e o que volta de uma célula com validação;
- * "Manutenção" é o que se digita, e é aceito quando a folha é única — duas
- * categorias de mesmo nome em galhos diferentes são uma pergunta de verdade, e
- * adivinhar classificaria a coluna no lugar errado sem ninguém perceber.
- *
- * "Cadastral (não entra na DRE)" é o terceiro caso, e é uma classe, não uma
- * categoria. Classificar em "Cadastral" é o mesmo que não classificar — por
- * isso a árvore não oferece as classes como escolha —, mas responder "não está
- * no catálogo" a quem escreveu o nome de um galho que existe é inútil. A recusa
- * devolve as opções daquele galho.
- */
-function acharCategoria(
-  texto: string,
-  categorias: { code: string; caminho: string }[],
-): Achado {
-  /*
-    O texto como veio primeiro, e só depois sem os parênteses.
+/** Os sintéticos do catálogo, sem repetir, na ordem em que a árvore os traz. */
+export function sinteticosDoCatalogo(categorias: CategoriaDoCatalogo[]): string[] {
+  return [...new Set(categorias.map((c) => c.sintetico))].filter((s) => s !== "");
+}
 
-    A ordem é a correção de um defeito que apareceu rodando o ciclo contra a
-    base real: a classe **se chama** "Cadastral (não remuneratório)", parênteses
-    inclusos, e o caminho que o próprio arquivo exporta é "Cadastral (não
-    remuneratório) › Contrato e vigência". Limpando antes de comparar, a
-    planilha recusava 68 categorias que ela mesma tinha escrito. O corte de
-    parênteses continua existindo — é o que faz "Cadastral (não entra na DRE)",
-    escrito à mão, ser reconhecido —, mas como segunda tentativa.
+/**
+ * Se um texto escrito à mão nomeia este sintético.
+ *
+ * As duas formas, com e sem parênteses, porque quem escreve "Cadastral", quem
+ * copia "Cadastral (não remuneratório)" da lista e quem escreve "Cadastral (não
+ * entra na DRE)" da planilha do time querem a mesma linha da DRE.
+ */
+function ehEsteSintetico(texto: string, sintetico: string): boolean {
+  /*
+    Os parênteses caem dos **dois** lados, e não só do nome cadastrado.
+
+    A classe se chama "Cadastral (não remuneratório)" e a planilha do time
+    escreve "Cadastral (não entra na DRE)": cortando só de um lado, as duas
+    formas continuam diferentes e a célula é recusada como se o galho não
+    existisse. Cortando dos dois, sobra "Cadastral" nas duas — que é o que as
+    duas queriam dizer.
   */
+  const escritos = [dobrar(texto), dobrar(semParenteses(texto))].filter(
+    (t) => t !== "",
+  );
+  const cadastrados = [dobrar(sintetico), dobrar(semParenteses(sintetico))];
+  return escritos.some((escrito) => cadastrados.includes(escrito));
+}
+
+/** As categorias que vivem sob um sintético escrito à mão. */
+function daqueleSintetico(
+  texto: string,
+  categorias: CategoriaDoCatalogo[],
+): CategoriaDoCatalogo[] {
+  return categorias.filter((c) => ehEsteSintetico(texto, c.sintetico));
+}
+
+/**
+ * O analítico dentro de um conjunto de candidatas, pelo caminho inteiro, pelo
+ * analítico ou pela folha.
+ *
+ * Os três porque é assim que as pessoas escrevem. `Custo Variável › Manutenção`
+ * é o que a lista de uma coluna só oferecia e o que ainda volta de arquivo
+ * antigo; "Manutenção" é o que a lista nova oferece e o que se digita.
+ */
+function acharAnalitico(
+  texto: string,
+  candidatas: CategoriaDoCatalogo[],
+): CategoriaDoCatalogo[] {
+  const folha = (caminho: string) => caminho.split("›").at(-1)?.trim() ?? caminho;
   for (const candidato of [texto, semParenteses(texto)]) {
     const alvo = dobrar(candidato);
     if (alvo === "") continue;
-
-    const porCaminho = categorias.find((c) => dobrar(c.caminho) === alvo);
-    if (porCaminho) return { tipo: "ACHADA", ...porCaminho };
-
-    const folha = (caminho: string) => dobrar(caminho.split("›").at(-1) ?? caminho);
-    const porFolha = categorias.filter((c) => folha(c.caminho) === alvo);
-    if (porFolha.length === 1) return { tipo: "ACHADA", ...porFolha[0] };
-    if (porFolha.length > 1) return { tipo: "AMBIGUA" };
-
-    /*
-      A classe pelo nome inteiro ou sem os parênteses — as duas, porque quem
-      escreve "Cadastral" e quem copia "Cadastral (não remuneratório)" querem a
-      mesma coisa, e nenhum dos dois está classificando.
-    */
-    const daClasse = categorias.filter((c) => {
-      const classe = classeDoCaminho(c.caminho);
-      return dobrar(classe) === alvo || dobrar(semParenteses(classe)) === alvo;
-    });
-    if (daClasse.length > 0) {
-      return { tipo: "CLASSE", opcoes: daClasse.map((c) => c.caminho) };
+    for (const campo of [
+      (c: CategoriaDoCatalogo) => c.caminho,
+      (c: CategoriaDoCatalogo) => c.analitico,
+      (c: CategoriaDoCatalogo) => folha(c.analitico || c.caminho),
+    ]) {
+      const achadas = candidatas.filter((c) => dobrar(campo(c)) === alvo);
+      if (achadas.length > 0) return achadas;
     }
+  }
+  return [];
+}
+
+/**
+ * A categoria a partir das duas células.
+ *
+ * O sintético estreita, o analítico decide. É a razão de a coluna sintética
+ * existir: "Outros" mora em custo fixo e em custo variável, e com a classe ao
+ * lado a resposta deixa de ser "escreva o caminho inteiro com ›" e passa a ser
+ * duas escolhas de lista.
+ *
+ * Um sintético sozinho não classifica — é uma classe, e a árvore não oferece
+ * classes como escolha —, mas responder "não está no catálogo" a quem escreveu
+ * o nome de um galho que existe é inútil: a recusa devolve as opções do galho.
+ *
+ * Quando os dois vêm e discordam, o analítico ganha e a linha é recusada com o
+ * caminho real à vista. Adivinhar qual dos dois a pessoa quis dizer é o tipo de
+ * escolha que classifica a coluna no lugar errado sem ninguém perceber.
+ */
+function acharCategoria(
+  sintetico: string | null,
+  analitico: string | null,
+  categorias: CategoriaDoCatalogo[],
+): Achado {
+  const doSintetico = sintetico ? daqueleSintetico(sintetico, categorias) : null;
+
+  /*
+    Sintético escrito e não reconhecido é recusa, mesmo quando o analítico ao
+    lado resolveria sozinho.
+
+    A tentação é deixar passar — o analítico decide, afinal. Mas a célula que
+    não foi entendida é justamente a que nomeia a linha da DRE em que o valor
+    cai, e aceitá-la em silêncio é gravar uma classificação enquanto se ignora a
+    metade da resposta que discordaria dela. Quem escreveu algo ali quis dizer
+    alguma coisa, e a planilha devolve as opções em vez de escolher sozinha.
+  */
+  if (doSintetico !== null && doSintetico.length === 0) {
+    return {
+      tipo: "SINTETICO_DESCONHECIDO",
+      opcoes: sinteticosDoCatalogo(categorias),
+    };
+  }
+
+  if (analitico === null) {
+    return {
+      tipo: "SO_SINTETICO",
+      opcoes: (doSintetico ?? []).map((c) => c.analitico),
+    };
+  }
+
+  // A partir daqui `doSintetico` é nulo (célula vazia) ou uma lista não vazia:
+  // o caso do sintético desconhecido já saiu acima.
+  const candidatas = doSintetico ?? categorias;
+  const achadas = acharAnalitico(analitico, candidatas);
+
+  if (achadas.length === 1) {
+    const [achada] = achadas;
+    // O sintético existia, tinha categorias, e a busca caiu fora dele: só
+    // acontece quando o analítico veio como caminho inteiro de outro galho.
+    if (doSintetico && !doSintetico.includes(achada)) {
+      return { tipo: "INCOMPATIVEL", caminhoReal: achada.caminho };
+    }
+    return { tipo: "ACHADA", code: achada.code, caminho: achada.caminho };
+  }
+  if (achadas.length > 1) {
+    return { tipo: "AMBIGUA", opcoes: achadas.map((c) => c.caminho) };
+  }
+
+  // Nada no galho pedido. Se o analítico existe em outro, o problema é o par —
+  // e dizer isso vale mais do que dizer "não está no catálogo".
+  if (doSintetico) {
+    const foraDoGalho = acharAnalitico(analitico, categorias);
+    if (foraDoGalho.length > 0) {
+      return { tipo: "INCOMPATIVEL", caminhoReal: foraDoGalho[0].caminho };
+    }
+  }
+
+  // O analítico não casou com nada, e o que veio na célula pode ser uma classe
+  // — alguém que escreveu "Cadastral" na coluna do analítico.
+  const comoSintetico = daqueleSintetico(analitico, categorias);
+  if (comoSintetico.length > 0) {
+    return {
+      tipo: "SO_SINTETICO",
+      opcoes: comoSintetico.map((c) => c.analitico),
+    };
   }
 
   return { tipo: "NENHUMA" };
@@ -471,25 +627,47 @@ export function conferirPreenchimento(
     texto("displayName");
     texto("definition");
 
-    const categoria = preenchido(linha.categoria);
-    if (categoria !== null) {
-      const achada = acharCategoria(categoria, catalogos.categorias);
+    /*
+      A coluna antiga, de um arquivo gerado antes da separação, entra como
+      analítico: ela guardava o caminho inteiro, e `acharAnalitico` casa por
+      caminho antes de casar por folha.
+    */
+    const sintetico = preenchido(linha.categoriaSintetica);
+    const analitico =
+      preenchido(linha.categoriaAnalitica) ?? preenchido(linha.categoria);
+
+    if (sintetico !== null || analitico !== null) {
+      const escrito = [sintetico, analitico].filter((t) => t !== null).join(" › ");
+      const achada = acharCategoria(sintetico, analitico, catalogos.categorias);
       if (achada.tipo === "NENHUMA") {
         problemas.push(
-          `"Categoria DRE": "${categoria}" não está no catálogo. Escolha um item da lista da ` +
-            "célula, ou cadastre a categoria nova na tela de Curadoria antes de reenviar. O resto " +
+          `"Categoria DRE": "${escrito}" não está no catálogo. Escolha um item das listas das ` +
+            "células, ou cadastre a categoria nova na tela de Curadoria antes de reenviar. O resto " +
             "desta linha entra normalmente.",
+        );
+      } else if (achada.tipo === "SINTETICO_DESCONHECIDO") {
+        problemas.push(
+          `"Categoria DRE - Sintético": "${sintetico}" não é uma das linhas da DRE. Escolha uma ` +
+            `destas: ${achada.opcoes.join(", ")}. O resto desta linha entra normalmente.`,
         );
       } else if (achada.tipo === "AMBIGUA") {
         problemas.push(
-          `"Categoria DRE": há mais de uma categoria chamada "${categoria}". Escreva o caminho ` +
-            "inteiro, como aparece na lista. O resto desta linha entra normalmente.",
+          `"Categoria DRE - Analítico": há mais de uma categoria chamada "${analitico}" ` +
+            `(${achada.opcoes.join(", ")}). Preencha o sintético ao lado para dizer qual. O resto ` +
+            "desta linha entra normalmente.",
         );
-      } else if (achada.tipo === "CLASSE") {
+      } else if (achada.tipo === "SO_SINTETICO") {
         problemas.push(
-          `"Categoria DRE": "${categoria}" é uma classe inteira, e classificar nela é o mesmo que ` +
-            `não classificar. Escolha uma destas: ${achada.opcoes.join(", ")}. O resto desta linha ` +
-            "entra normalmente.",
+          `"Categoria DRE": "${escrito}" é uma linha inteira da DRE, e classificar nela é o mesmo ` +
+            `que não classificar. Preencha o analítico com uma destas: ${achada.opcoes.join(", ")}. ` +
+            "O resto desta linha entra normalmente.",
+        );
+      } else if (achada.tipo === "INCOMPATIVEL") {
+        problemas.push(
+          `"Categoria DRE": "${analitico}" não fica em "${sintetico}" — o lugar dela é ` +
+            `"${achada.caminhoReal}". Corrija uma das duas células; não escolho por você, porque ` +
+            "cada uma manda o valor para uma linha diferente da DRE. O resto desta linha entra " +
+            "normalmente.",
         );
       } else if (achada.code !== atributo.taxonomyCode) {
         /*

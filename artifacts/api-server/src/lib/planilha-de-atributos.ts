@@ -2,6 +2,9 @@ import ExcelJS from "exceljs";
 import * as XLSX from "xlsx";
 import {
   COLUNAS_DO_MODELO,
+  ROTULO_DA_COLUNA_ANTIGA,
+  sinteticosDoCatalogo,
+  type CategoriaDoCatalogo,
   type LinhaDoModelo,
   type LinhaPreenchida,
 } from "@workspace/curation";
@@ -22,10 +25,18 @@ import {
  * descrever as de um equipamento. Numa aba só, com 121 linhas e uma coluna
  * "Equipamento", a primeira coisa que a pessoa faria seria filtrar.
  *
- * **Lista suspensa na categoria.** É o único campo que casa contra catálogo, e
- * texto livre nele vira célula recusada na volta — depois de a pessoa ter
- * preenchido cento e poucas linhas. A lista transforma um erro que só aparece
- * no fim num que não chega a acontecer.
+ * **Lista suspensa nas duas colunas de categoria.** São os únicos campos que
+ * casam contra catálogo, e texto livre neles vira célula recusada na volta —
+ * depois de a pessoa ter preenchido cento e poucas linhas. A lista transforma
+ * um erro que só aparece no fim num que não chega a acontecer.
+ *
+ * As duas listas são **planas**, e não em cascata: a do sintético traz as
+ * linhas da DRE, a do analítico traz todos os detalhes de todas elas. Uma
+ * cascata de verdade se faz com `INDIRECT` e nomes definidos, e é exatamente o
+ * que o Google Sheets e o LibreOffice perdem ao reabrir e salvar o arquivo —
+ * que é o caminho que este modelo faz. Com listas planas dá para escolher um
+ * par que não existe, e quem recusa isso é a conferência do servidor, dizendo
+ * qual é o caminho real da categoria escolhida.
  *
  * **A coluna `Atributo` sai travada.** Ela é metade da chave da volta (a outra
  * metade é a aba). A proteção é sem senha, de propósito: existe para impedir o
@@ -42,7 +53,7 @@ const CABECALHO = "FF1D3557";
 
 export interface ModeloDeAtributos {
   linhas: LinhaDoModelo[];
-  categorias: { code: string; caminho: string }[];
+  categorias: CategoriaDoCatalogo[];
   /** Só para a aba de instruções: quem gerou e quando. */
   geradoPor: string;
   geradoEm: string;
@@ -65,11 +76,28 @@ export async function montarModeloDeAtributos(
 
   instrucoes(workbook, modelo);
 
+  /*
+    Duas colunas de lista, e a do analítico traz o texto **sem repetir**.
+
+    Repetir importa: "Outros" existe em custo fixo e em custo variável, e uma
+    lista com o mesmo texto duas vezes faz quem escolhe pensar que errou o
+    clique. Aparece uma vez, e o que separa as duas é a coluna do sintético ao
+    lado — que é a razão de ela existir.
+  */
+  const sinteticos = sinteticosDoCatalogo(modelo.categorias);
+  const analiticos = [
+    ...new Set(modelo.categorias.map((c) => c.analitico).filter((a) => a !== "")),
+  ];
+
   const listas = workbook.addWorksheet(ABA_DAS_LISTAS);
   listas.state = "veryHidden";
-  listas.getCell("A1").value = "Categorias";
-  modelo.categorias.forEach((c, i) => {
-    listas.getCell(`A${i + 2}`).value = c.caminho;
+  listas.getCell("A1").value = "Sintético";
+  sinteticos.forEach((texto, i) => {
+    listas.getCell(`A${i + 2}`).value = texto;
+  });
+  listas.getCell("B1").value = "Analítico";
+  analiticos.forEach((texto, i) => {
+    listas.getCell(`B${i + 2}`).value = texto;
   });
 
   const porEquipamento = new Map<string, LinhaDoModelo[]>();
@@ -135,16 +163,37 @@ export async function montarModeloDeAtributos(
         alguém acabou de cadastrar na tela — o arquivo é de ontem, o catálogo é
         de hoje.
       */
-      for (let linha = 2; linha <= ultima; linha++) {
-        aba.getCell(`${letra(colunaDe("categoria"))}${linha}`).dataValidation = {
-          type: "list",
-          allowBlank: true,
-          formulae: [`=${ABA_DAS_LISTAS}!$A$2:$A$${modelo.categorias.length + 1}`],
-          showErrorMessage: true,
-          errorTitle: "Fora do catálogo",
+      const validacoes: {
+        chave: string;
+        intervalo: string;
+        error: string;
+      }[] = [
+        {
+          chave: "categoriaSintetica",
+          intervalo: `$A$2:$A$${sinteticos.length + 1}`,
+          error:
+            "Escolha uma das linhas da DRE. Ela sozinha não classifica: preencha também o analítico ao lado.",
+        },
+        {
+          chave: "categoriaAnalitica",
+          intervalo: `$B$2:$B$${analiticos.length + 1}`,
           error:
             "Escolha um item da lista. Para usar uma categoria nova, cadastre-a na tela de Curadoria primeiro.",
-        };
+        },
+      ];
+
+      for (const validacao of validacoes) {
+        const coluna = letra(colunaDe(validacao.chave));
+        for (let linha = 2; linha <= ultima; linha++) {
+          aba.getCell(`${coluna}${linha}`).dataValidation = {
+            type: "list",
+            allowBlank: true,
+            formulae: [`=${ABA_DAS_LISTAS}!${validacao.intervalo}`],
+            showErrorMessage: true,
+            errorTitle: "Fora do catálogo",
+            error: validacao.error,
+          };
+        }
       }
     }
 
@@ -188,8 +237,9 @@ function instrucoes(workbook: ExcelJS.Workbook, modelo: ModeloDeAtributos): void
     "1. Célula em branco não apaga nada. O que você deixar vazio fica como está no sistema — só o que for escrito é gravado. Para limpar um campo, use a tela de Curadoria.",
     "2. Não edite a coluna Atributo, e não mude a linha de aba: é o par aba + atributo que devolve o preenchimento ao lugar certo. O mesmo nome de coluna pode existir em dois equipamentos — são atributos separados, com valores próprios.",
     "3. Isto não confirma nada. Nem mesmo a Categoria DRE: ela entra como proposta, aparece pronta na tela, e o atributo continua fora dos cálculos financeiros até alguém confirmar com justificativa assinada.",
-    "4. Categoria DRE tem lista suspensa. Se faltar um item, cadastre-o na tela de Curadoria antes de reenviar. Escrever só a classe (\"Cadastral\", \"Custo Fixo\") não classifica: a prévia devolve as opções daquele galho.",
-    "5. Só aparece aqui o que virou atributo na importação. Colunas de chave — vigência e placa — identificam a linha em vez de medir algo, e por isso não têm o que descrever.",
+    "4. A Categoria DRE são duas colunas, e as duas têm lista suspensa. Sintético é a linha da DRE que totaliza (Custo Variável, Custo Fixo, Cadastral); Analítico é o detalhe dentro dela (Manutenção, Pneus, Combustível). Preencha as duas: o sintético sozinho não classifica, e o analítico sozinho fica ambíguo quando o mesmo nome existe em mais de uma linha — \"Outros\" é assim.",
+    "5. As duas listas são independentes, então dá para escolher um par que não existe. Se isso acontecer, a prévia diz qual é o caminho real daquele analítico e não grava nada até você corrigir. Se faltar um item, cadastre-o na tela de Curadoria antes de reenviar.",
+    "6. Só aparece aqui o que virou atributo na importação. Colunas de chave — vigência e placa — identificam a linha em vez de medir algo, e por isso não têm o que descrever.",
     "",
     "Para aplicar: Curadoria › Planilha de atributos › Enviar preenchida. O sistema mostra o que vai mudar antes de gravar.",
   ];
@@ -243,9 +293,24 @@ export function lerModeloDeAtributos(bytes: Buffer): LeituraDoModelo {
     };
   }
 
-  const rotulos = new Map(
-    COLUNAS_DO_MODELO.map((coluna) => [dobrar(coluna.rotulo), coluna.chave]),
-  );
+  /*
+    O rótulo antigo entra no índice junto dos novos.
+
+    O modelo de uma coluna só saiu por e-mail antes desta mudança, e um arquivo
+    daqueles que volta preenchido é trabalho feito: ignorá-lo porque o cabeçalho
+    diz "Categoria DRE" em vez de "Categoria DRE - Analítico" seria descartá-lo
+    em silêncio. A conferência lê a coluna antiga como analítico — ela guardava
+    o caminho inteiro, que é a primeira forma que o casamento tenta.
+
+    `dobrar` tira os acentos, então "Análitico" — como o time escreve — e
+    "Analítico" caem no mesmo rótulo.
+  */
+  const rotulos = new Map<string, string>([
+    ...COLUNAS_DO_MODELO.map(
+      (coluna) => [dobrar(coluna.rotulo), coluna.chave] as [string, string],
+    ),
+    [dobrar(ROTULO_DA_COLUNA_ANTIGA), "categoria"],
+  ]);
 
   const linhas: LinhaPreenchida[] = [];
   let achouAlgumaAba = false;
@@ -280,7 +345,13 @@ export function lerModeloDeAtributos(bytes: Buffer): LeituraDoModelo {
       };
 
       const atributo = (ler("atributo") ?? "").trim();
-      const preenchidos = ["displayName", "definition", "categoria"]
+      const preenchidos = [
+        "displayName",
+        "definition",
+        "categoriaSintetica",
+        "categoriaAnalitica",
+        "categoria",
+      ]
         .map(ler)
         .filter((v) => (v ?? "").trim() !== "");
       // Linha sem atributo e sem preenchimento nenhum é a linha em branco que
@@ -295,6 +366,8 @@ export function lerModeloDeAtributos(bytes: Buffer): LeituraDoModelo {
         atributo,
         displayName: ler("displayName"),
         definition: ler("definition"),
+        categoriaSintetica: ler("categoriaSintetica"),
+        categoriaAnalitica: ler("categoriaAnalitica"),
         categoria: ler("categoria"),
       });
     }

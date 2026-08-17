@@ -303,6 +303,24 @@ export interface CategoriaCadastrada {
   name: string;
   /** "Custo Variável › Manutenção" — a hierarquia dita, sem falar em taxonomia. */
   caminho: string;
+  /**
+   * O caminho partido nos dois níveis em que a DRE se lê.
+   *
+   * `sintetico` é a classe — a linha que totaliza, "Custo Variável". `analitico`
+   * é o que vem abaixo dela, "Manutenção", e é o que de fato se escolhe: a
+   * árvore não oferece classes, porque classificar em "Custo Variável" é o mesmo
+   * que não classificar.
+   *
+   * Os dois são derivados do mesmo nó, e não campos guardados. Um atributo tem
+   * **uma** classificação; sintético e analítico são as duas alturas de onde se
+   * olha para ela, e guardá-las em separado criaria o dia em que uma discorda da
+   * outra. Numa árvore mais funda que dois níveis, `analitico` fica com todos os
+   * degraus abaixo da classe — "Frota — Cavalo › Depreciação" —, porque cortar
+   * no primeiro perderia a diferença entre dois nós de mesmo nome em galhos
+   * diferentes.
+   */
+  sintetico: string;
+  analitico: string;
   costClass: string | null;
   depth: number;
   isSeed: boolean;
@@ -389,33 +407,43 @@ export async function listarCategorias(db: Database): Promise<CategoriaCadastrad
     }
     return atual?.depth === 1 ? atual.code : null;
   };
-  const caminhoDe = (node: (typeof nodes)[number]): string => {
+  /**
+   * Os nomes do nó até a classe, sem a raiz.
+   *
+   * A raiz fica de fora: `Remuneração › Custo Fixo › Pneus` gasta uma palavra
+   * dizendo que estamos no produto de remuneração. O primeiro elemento é sempre
+   * a classe (profundidade 1), e é dele que sai o sintético.
+   */
+  const degrausDe = (node: (typeof nodes)[number]): string[] => {
     const partes: string[] = [];
     let atual: (typeof nodes)[number] | undefined = node;
     while (atual) {
-      // A raiz fica de fora: `Remuneração › Custo Fixo › Pneus` gasta uma
-      // palavra dizendo que estamos no produto de remuneração.
       if (atual.depth > 0) partes.unshift(atual.name);
       atual = atual.parentId ? porId.get(atual.parentId) : undefined;
     }
-    return partes.join(" › ");
+    return partes;
   };
 
   return nodes
     // Nem a raiz nem as classes são escolhíveis: uma coluna pertence a um grupo
     // ("Pneus"), e classificá-la em "Custo Fixo" seria não classificá-la.
     .filter((n) => n.depth > 1)
-    .map((n) => ({
-      id: n.id,
-      code: n.code,
-      name: n.name,
-      caminho: caminhoDe(n),
-      costClass: classeDe(n),
-      depth: n.depth,
-      isSeed: n.createdBy === null,
-      atributos: atributosPorNo.get(n.id) ?? 0,
-      classeCode: classeCodeDe(n),
-    }));
+    .map((n) => {
+      const degraus = degrausDe(n);
+      return {
+        id: n.id,
+        code: n.code,
+        name: n.name,
+        caminho: degraus.join(" › "),
+        sintetico: degraus[0] ?? "",
+        analitico: degraus.slice(1).join(" › "),
+        costClass: classeDe(n),
+        depth: n.depth,
+        isSeed: n.createdBy === null,
+        atributos: atributosPorNo.get(n.id) ?? 0,
+        classeCode: classeCodeDe(n),
+      };
+    });
 }
 
 /**
