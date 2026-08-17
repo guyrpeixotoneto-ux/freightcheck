@@ -930,21 +930,28 @@ function planoUp(): PassoUp[] {
   }
 
 
-  // A `0025` — a leitura econômica. Mesma forma da `0022`: quatro colunas de
+  // A `0026` — a leitura econômica. Mesma forma da `0022`: quatro colunas de
   // texto, sem índice, sem constraint, sem backfill. A tabela **e** a coluna
   // entram na marca porque as quatro linhas só diferem nesses dois pontos, e
   // `levantar` exige casar exatamente um statement.
   //
-  // Ela nasceu `0023` e colidiu: a `main` avançou com outra `0023` enquanto
-  // este branch existia, e o runner — que segue o carimbo do journal — deu a
-  // fila por aplicada e pulou esta em silêncio. O número aqui é o que vale.
-  const M25 = "0025_direcao_economica";
+  // Ela já foi renumerada duas vezes, e as duas pela mesma causa: nasceu `0023`
+  // e a `main` avançou com `0023_semantica_coerente`; virou `0025` e a `main`
+  // avançou com `0025_semantica_inicial`. Um branch longo colide com o próximo
+  // número livre toda vez que a fila anda.
+  //
+  // Da segunda vez o `_journal.json` ficou impecável e este literal continuou
+  // apontando para o número velho: `levantar` procura a migration pelo nome,
+  // não a encontra, e o plano de restauração inteiro falha — onze casos do
+  // `bridge` de uma vez, com uma mensagem que não diz "renumeração". A fila
+  // conhece os índices; ela não conhece quem escreveu o nome numa string.
+  const M26 = "0026_direcao_economica";
   for (const t of ["attribute", "attribute_semantics"]) {
     for (const col of ["economic_direction", "economic_effect"]) {
       add(
-        M25,
+        M26,
         `${t}.${col}`,
-        levantar(M25, new RegExp(`ALTER TABLE "${t}" ADD COLUMN IF NOT EXISTS "${col}"`)),
+        levantar(M26, new RegExp(`ALTER TABLE "${t}" ADD COLUMN IF NOT EXISTS "${col}"`)),
       );
     }
   }

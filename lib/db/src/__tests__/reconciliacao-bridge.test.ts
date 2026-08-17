@@ -108,7 +108,24 @@ async function temColuna(
   return rows[0]!.existe;
 }
 
-const TAG_RECONCILIACAO = "0024_reconciliar_bridge";
+/**
+ * As migrations de reconciliação — **todas**, e não uma tag fixa.
+ *
+ * A `0024` foi a primeira, e a regra que ela estabeleceu é mais forte do que o
+ * nome dela: *depois de um `bridge:down` sem `up`, quem devolve o objeto é uma
+ * migration que o registro ainda não contém*. Isso obriga a reconciliação a
+ * estar sempre **no fim da fila**, e faz de toda coluna criada depois dela um
+ * buraco novo.
+ *
+ * Foi o que aconteceu com a `0026_direcao_economica`: quatro colunas que o
+ * `down` remove, criadas depois da reconciliação, e portanto irrecuperáveis
+ * pela fila. A `0027` as repõe.
+ *
+ * Fixar a tag faria este teste medir uma migration em vez de medir a regra —
+ * e a terceira reconciliação, quando fizer falta, passaria despercebida
+ * exatamente como esta passou. A união é o que mantém o caso vivo.
+ */
+const TAGS_DE_RECONCILIACAO = /_reconciliar_/;
 
 // ---------------------------------------------------------------------------
 // A — banco novo, zero divergência
@@ -125,7 +142,10 @@ describe("A. o banco que a fila constrói do zero", () => {
   }, 120_000);
 
   it("aplica a reconciliação junto com o resto da fila", () => {
-    expect(readMigrations().map((m) => m.tag)).toContain(TAG_RECONCILIACAO);
+    expect(
+      readMigrations().filter((m) => TAGS_DE_RECONCILIACAO.test(m.tag)).map((m) => m.tag),
+      "sem nenhuma migration de reconciliação, um `down` sem `up` é definitivo",
+    ).not.toEqual([]);
   });
 
   it("não tem divergência nenhuma contra o schema declarado", async () => {
@@ -146,7 +166,7 @@ describe("A. o banco que a fila constrói do zero", () => {
   it("a reconciliação é no-op num banco saudável — roda duas vezes sem mudar nada", async () => {
     const antes = await colunasReais(banco.pool);
     for (const m of readMigrations()) {
-      if (m.tag !== TAG_RECONCILIACAO) continue;
+      if (!TAGS_DE_RECONCILIACAO.test(m.tag)) continue;
       for (const comando of m.statements) await banco.pool.query(comando);
     }
     const depois = await colunasReais(banco.pool);
@@ -182,13 +202,18 @@ describe("B. o banco divergente volta sozinho, só rodando migrate", () => {
         `ALTER TABLE "${tabela}" DROP COLUMN IF EXISTS "${coluna}" CASCADE`,
       );
     }
-    const reconciliacao = readMigrations().find(
-      (m) => m.tag === TAG_RECONCILIACAO,
-    )!;
-    await banco.pool.query(
-      `DELETE FROM "drizzle"."__drizzle_migrations" WHERE created_at = $1`,
-      [reconciliacao.when],
-    );
+    /*
+      Todas as reconciliações são desmarcadas, e não só a primeira: o cenário
+      que este bloco monta é "o down levou as colunas e o up não rodou", e a
+      reposição está repartida entre elas — a `0024` cobre o que existia até
+      ela, a `0027` cobre o que veio depois.
+    */
+    for (const m of readMigrations().filter((m) => TAGS_DE_RECONCILIACAO.test(m.tag))) {
+      await banco.pool.query(
+        `DELETE FROM "drizzle"."__drizzle_migrations" WHERE created_at = $1`,
+        [m.when],
+      );
+    }
   }, 120_000);
 
   it("parte do estado divergente: a coluna da 0022 não está lá", async () => {
@@ -210,7 +235,7 @@ describe("B. o banco divergente volta sozinho, só rodando migrate", () => {
     const r = await runMigrations(banco.url);
 
     expect(r.failure).toBeUndefined();
-    expect(r.applied).toContain(TAG_RECONCILIACAO);
+    expect(r.applied.some((t) => TAGS_DE_RECONCILIACAO.test(t))).toBe(true);
     expect(await temColuna(banco.pool, "attribute", "definition")).toBe(true);
     expect(await temColuna(banco.pool, "attribute_semantics", "definition")).toBe(
       true,
@@ -260,8 +285,9 @@ const FORA_DO_ALCANCE_INDICES = new Set([
 
 describe("C. toda entrada do bridge está de um dos dois lados da fronteira", () => {
   const sqlDaReconciliacao = readMigrations()
-    .find((m) => m.tag === TAG_RECONCILIACAO)!
-    .statements.join("\n");
+    .filter((m) => TAGS_DE_RECONCILIACAO.test(m.tag))
+    .flatMap((m) => m.statements)
+    .join("\n");
 
   it("toda coluna que o `down` remove é reconciliada ou declarada fora do alcance", () => {
     for (const [tabela, coluna] of COLUNAS_REMOVIDAS) {
@@ -272,10 +298,11 @@ describe("C. toda entrada do bridge está de um dos dois lados da fronteira", ()
           `ALTER TABLE "${tabela}" ADD COLUMN IF NOT EXISTS "${coluna}"`,
           "i",
         ).test(sqlDaReconciliacao),
-        `${chave} sai no bridge:down e a ${TAG_RECONCILIACAO} não a repõe. ` +
+        `${chave} sai no bridge:down e nenhuma migration de reconciliação a repõe. ` +
           `Depois de um down sem up, nada mais devolve esta coluna: o registro ` +
-          `já dá por aplicada a migration que a cria. Reconcilie-a numa ` +
-          `migration nova, ou declare-a em FORA_DO_ALCANCE_COLUNAS com o motivo.`,
+          `já dá por aplicada a migration que a cria. A reconciliação tem de ser a ` +
+          `última da fila, então uma coluna criada depois dela precisa de uma ` +
+          `reconciliação nova — ou de estar em FORA_DO_ALCANCE_COLUNAS com o motivo.`,
       ).toBe(true);
     }
   });
@@ -287,8 +314,8 @@ describe("C. toda entrada do bridge está de um dos dois lados da fronteira", ()
         new RegExp(`CREATE INDEX IF NOT EXISTS "${indice}"`, "i").test(
           sqlDaReconciliacao,
         ),
-        `o índice ${indice} sai no bridge:down e a ${TAG_RECONCILIACAO} não o ` +
-          `recria. Reconcilie-o, ou declare-o em FORA_DO_ALCANCE_INDICES.`,
+        `o índice ${indice} sai no bridge:down e nenhuma reconciliação o recria. ` +
+          `Reconcilie-o, ou declare-o em FORA_DO_ALCANCE_INDICES.`,
       ).toBe(true);
     }
   });

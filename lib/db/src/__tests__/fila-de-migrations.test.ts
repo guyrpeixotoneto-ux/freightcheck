@@ -107,6 +107,47 @@ describe("a fila de migrations", () => {
     Foi encontrado à mão, conferindo ids um a um. Uma vez é investigação; duas
     seria desperdício.
   */
+  /*
+    ---- quem cita migration pelo nome ----------------------------------------
+
+    O journal conhece os índices; ele não conhece quem escreveu o nome de uma
+    migration dentro de uma string. `bridge.ts` escreve — o plano de restauração
+    do Publishing é montado procurando statements dentro de migrations
+    específicas, e a busca é por nome.
+
+    Na segunda renumeração de `direcao_economica` o journal ficou impecável e
+    esse literal continuou em `0025_direcao_economica`. O efeito foram onze
+    casos do `bridge` falhando de uma vez com "o plano de restauração não pôde
+    ser construído" — mensagem que descreve o sintoma e não nomeia a causa, num
+    arquivo que ninguém liga a uma renumeração.
+
+    Este caso é a ponte que faltava entre as duas verdades.
+  */
+  it("toda migration citada por nome no código existe na fila", () => {
+    const fonte = path.join(import.meta.dirname, "..");
+    const arquivosTs = readdirSync(fonte)
+      .filter((f) => f.endsWith(".ts"))
+      .map((f) => ({ nome: f, texto: readFileSync(path.join(fonte, f), "utf8") }));
+
+    const tags = new Set(journal.entries.map((e) => e.tag));
+    const orfas: string[] = [];
+
+    for (const { nome, texto } of arquivosTs) {
+      // Só o que está entre aspas: comentários citam números antigos de propósito.
+      for (const [, citada] of texto.matchAll(/["'`](\d{4}_[a-z0-9_]+)["'`]/g)) {
+        if (!tags.has(citada)) orfas.push(`${nome}: "${citada}"`);
+      }
+    }
+
+    expect(
+      [...new Set(orfas)],
+      "migration citada em código e ausente da fila. Costuma ser sequela de " +
+        "renumeração: o journal é corrigido, a string fica para trás, e a falha " +
+        "aparece longe daqui — em `bridge.ts` ela derruba o plano de restauração " +
+        "inteiro com uma mensagem que não fala em renumeração.",
+    ).toEqual([]);
+  });
+
   describe("a cadeia de snapshots do drizzle", () => {
     const snapshots = journal.entries.map((e) => {
       const arquivo = `${String(e.idx).padStart(4, "0")}_snapshot.json`;
