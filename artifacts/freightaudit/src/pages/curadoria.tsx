@@ -144,8 +144,11 @@ function StatusBadge({ status }: { status: string }) {
       </Badge>
     );
   }
+  /* Vermelho, e não o cinza de antes: a falta de semântica é o que trava a
+     fila, e um selo neutro fazia dela um detalhe do card em vez do motivo
+     de ele estar ali. Verde quando confirma, acima. */
   return (
-    <Badge variant="outline" className="text-muted-foreground">
+    <Badge className="bg-red-100 text-red-800 border-red-300 hover:bg-red-100">
       <AlertTriangle className="w-3 h-3 mr-1" />
       Desconhecido
     </Badge>
