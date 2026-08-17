@@ -21,10 +21,48 @@
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
 
+/**
+ * A chave que importa é a do **processo da API**, não a do shell.
+ *
+ * As duas podem divergir, e no Replit divergem com facilidade: o Secret é
+ * injetado no processo do servidor, e um `export` feito no Shell vale só para
+ * o shell. Um script que confira apenas o próprio ambiente diria "tudo certo" e
+ * mediria um agente que a aplicação não consegue usar — ou o contrário,
+ * recusaria rodar num ambiente em que a API está perfeitamente configurada.
+ *
+ * `GET /api/assistant/capabilities` é a resposta da própria API sobre si mesma.
+ * Ela é opcional de propósito: nem toda rodada tem servidor de pé, e a bateria
+ * não precisa dele — mas quando ele existe, é ele quem tem a palavra.
+ */
+async function capabilities() {
+  const candidatos = [
+    process.env.FREIGHTCHECK_URL,
+    "http://127.0.0.1:8080",
+    "http://127.0.0.1:5000",
+    "http://127.0.0.1:3000",
+  ].filter(Boolean);
+
+  for (const base of candidatos) {
+    try {
+      const res = await fetch(`${base.replace(/\/$/, "")}/api/assistant/capabilities`, {
+        signal: AbortSignal.timeout(4000),
+        ...(process.env.COOKIE_DE_SESSAO ? { headers: { cookie: process.env.COOKIE_DE_SESSAO } } : {}),
+      });
+      if (res.status === 401) return { base, status: 401 };
+      if (!res.ok) continue;
+      const corpo = await res.json();
+      return { base, status: res.status, ia: corpo.ia === true, modelo: corpo.modelo ?? null };
+    } catch {
+      /* servidor ausente neste candidato: tenta o próximo */
+    }
+  }
+  return null;
+}
+
 const PASTA = process.env.PR7_SAIDA ?? "relatorios-pr7";
 const filtro = ["--filter", "@workspace/assistant"];
 
-function conferirAmbiente() {
+async function conferirAmbiente() {
   const faltando = [];
   if (!process.env.DATABASE_URL && !process.env.ASSISTANT_EVAL_DATABASE_URL) {
     faltando.push(
@@ -37,6 +75,45 @@ function conferirAmbiente() {
         "planejador contra ele mesmo",
     );
   }
+  /*
+    O veredito da API vem antes do veredito do shell, quando existe. Uma API que
+    responde `ia: true` prova o que interessa; um shell sem a variável, ao lado
+    dela, é só um shell sem a variável.
+  */
+  const cap = await capabilities();
+  if (cap) {
+    if (cap.status === 401) {
+      console.log(`\n  · API em ${cap.base} respondeu 401 — sessão exigida.`);
+      console.log("    Passe COOKIE_DE_SESSAO=… (cookie `freightcheck_session` do navegador)");
+      console.log("    para que este script possa conferir `capabilities`.\n");
+    } else {
+      console.log(`\n  · API em ${cap.base}: ia=${cap.ia}${cap.modelo ? ` · ${cap.modelo}` : ""}`);
+      if (cap.ia === false) {
+        console.error(
+          "\n  O processo da API NÃO enxerga a chave, ainda que este shell a tenha.\n" +
+            "  No Replit, o Secret precisa estar no ambiente do serviço, e o serviço\n" +
+            "  precisa ter sido reiniciado depois de o Secret ser criado.\n",
+        );
+        process.exit(1);
+      }
+      /*
+        API com chave e shell sem ela: a bateria roda neste processo, então é a
+        variável **daqui** que ela usa. Dizer isso evita a confusão mais cara —
+        um relatório inteiro de "planejador vs planejador" gerado num ambiente
+        em que a aplicação estava certa o tempo todo.
+      */
+      if (cap.ia === true && faltando.some((f) => f.startsWith("ANTHROPIC_API_KEY"))) {
+        console.error(
+          "\n  A API tem a chave; este shell não. A bateria roda **neste** processo,\n" +
+            "  então ela precisa da variável aqui também. No Replit:\n\n" +
+            "      export ANTHROPIC_API_KEY=\"$ANTHROPIC_API_KEY\"\n\n" +
+            "  ou rode a partir do mesmo ambiente que injeta os Secrets.\n",
+        );
+        process.exit(1);
+      }
+    }
+  }
+
   if (faltando.length === 0) return;
 
   console.error("\nEsta rodada não pode acontecer neste ambiente. Falta:\n");
@@ -62,7 +139,7 @@ function passo(titulo, script, args, env = {}) {
   }
 }
 
-conferirAmbiente();
+await conferirAmbiente();
 if (!existsSync(PASTA)) mkdirSync(PASTA, { recursive: true });
 
 /*
