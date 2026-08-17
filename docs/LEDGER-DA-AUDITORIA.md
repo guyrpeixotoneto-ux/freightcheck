@@ -78,11 +78,12 @@ Depois do PR-20, a suíte **inteira**, um pacote por vez e árvore parada:
 | `@workspace/coverage` | 3 | 73 |
 | `@workspace/dre` | 6 | 75 |
 | `@workspace/balance` | 2 | 16 |
-| `api-server` | 25 | **321** |
+| `api-server` | 26 | **327** |
 | `freightaudit` | 12 | 141 |
-| **Total** | **101** | **1.426** |
+| **Total** | **102** | **1.432** |
 
-Só `api-server` se moveu — 317 → 321, os 4 de `decisao-e-fusao.test.ts`. Os
+Só `api-server` se moveu — 317 → 321 no PR-20 (os 4 de `decisao-e-fusao`) e
+321 → **327** com a guarda da prova final (os 6 de `prova-final.test.ts`). Os
 outros dez pacotes ficaram idênticos ao fechamento do PR-19, que é o esperado
 num PR que só faz duas tabelas gravadas serem lidas. `pnpm run typecheck` do
 monorepo inteiro passa.
@@ -103,7 +104,8 @@ monorepo inteiro passa.
 | **Feitos** | 19 (PR-1, 2, 4, 5, 6, 7, 8, 9, 10, 10b, 11, 12, 13, 14, 15, 17, 18, 19, 20) |
 | **Absorvidos** | 1 (PR-16, cumprido pelo PR-10b) |
 | **Não existiu** | 1 (PR-3, dobrado no PR-4 — ver nota) |
-| **Faltam** | **nenhum PR**. Resta a prova final consolidada, e a dívida do `scope_hash` legado, remarcada no PR-14 para uma janela de calendário que ainda não foi nomeada |
+| **Faltam** | **nenhum PR**. Resta a dívida do `scope_hash` legado, remarcada no PR-14 para uma janela de calendário que ainda não foi nomeada |
+| **Prova final** | entregue — `docs/PROVA-FINAL-DA-AUDITORIA.md`, guardada por `prova-final.test.ts` (6) |
 
 > **Nota sobre PR-3.** O plano original tinha um PR-3 de caracterização da
 > Análise de frota, separado do PR-4 que a mapeava. Os dois foram entregues como
@@ -130,10 +132,10 @@ monorepo inteiro passa.
 
 | PR | Objetivo | Status | Commit | Testes | Evidência |
 |---|---|---|---|---|---|
-| **PR-10** | Cobertura recorta pelo escopo canônico — dívida do §A.6 | **feito** | `1616b0f` | `coverage/cenarios.test.ts` (68) | Prova positiva: mesma unidade com CNPJ de duas grafias cai num recorte só. **Prova negativa**: com o recorte antigo, dois testes falham |
+| **PR-10** | Cobertura recorta pelo escopo canônico — dívida do §A.6 | **feito** | `1616b0f` | `coverage` (68 no pacote, à época) | Prova positiva: mesma unidade com CNPJ de duas grafias cai num recorte só. **Prova negativa**: com o recorte antigo, dois testes falham |
 | **PR-10b** | "Vigência disponível" passa a ter dono | **feito** | `e5f8dc7` | `fronteira-da-disponibilidade.test.ts` (3) | 46 cópias de `status <> 'SUPERSEDED'` viram uma definição. **Prova negativa**: recopiar em `dre/apuracao.ts` faz a varredura apontar arquivo e linha |
 | **PR-11** | O *antes* de um chamado vem da autoridade | **feito** | `d20014e` | `propagacao-chamados.test.ts` (5) | **Prova negativa**: com a consulta antiga, o chamado sobre placa de dois canais recebe `VIGENCIA` onde deve receber `AUSENTE`. Ressalva medida: o caso de cobertura **não** falha na versão antiga — lá o defeito era não-determinismo, e está dito no teste |
-| **PR-12** | `janelaDosAtributos` exige o recorte, por assinatura | **feito** | `2232b1c` | `coverage/cenarios.test.ts` (73) | **Prova negativa**: com a janela antiga, os cinco casos falham vazando atributos de outros cenários |
+| **PR-12** | `janelaDosAtributos` exige o recorte, por assinatura | **feito** | `2232b1c` | `coverage` (73 no pacote; `cenarios.test.ts` tem 26) | **Prova negativa**: com a janela antiga, os cinco casos falham vazando atributos de outros cenários |
 | **PR-13** | `getOverview` filtra vivas e recorta por contexto | **feito** | `61f3a2d` | `painel.test.ts` (9) | Nove dos doze contadores liam o banco inteiro. **Prova negativa**: com os contadores antigos, três casos falham — 104 fatos contra 52 (o dobro exato, a revisão substituída), 3 vigências onde há 2 no recorte, e a data de janeiro de outra unidade vazando para Juiz de Fora. Mudança de significado declarada: os três contadores de dicionário passam a descrever as colunas **entregues** no recorte |
 | **PR-14** | Um seletor de contexto na interface, e não quatro | **feito** | `74fa562` | `contexto.test.ts` (8), `fronteira-do-contexto.test.ts` (4) | A interface tinha **três** definições de contexto: `ContextBar` escrita e montada em lugar nenhum, o dropdown de Início e a barra de filtro de Parâmetros. Só Início sabia que trocar de unidade apaga a vigência. A regra virou função pura provada, a barra virou uma só, e uma varredura recusa a quarta. Três telas **não** montam a barra, com o motivo declarado no teste. A dívida do `scope_hash` legado foi **remarcada** para uma janela de calendário, não fechada |
 | **PR-15** | Análise de frota passa a ler o canônico | **feito** | `c15db11` | `fleet-analysis-contrato.test.ts` (18) | A rota lia disco e devolvia **zero** — 657 linhas paradas no arquivo, medido antes de migrar. Não havia número a preservar, então tudo é bug comprovado, categoria (a); os quatro pontos do ADR têm um teste cada. **4.1 está ativo**: `cavalo.manutencao_ano` não tem periodicidade confirmada, e o campo vem `null` com motivo em vez de dividido por 12. **4.4 está armado e não exercitado**: `ausencias` veio vazio no export real. Ver ADR §6-bis |
@@ -175,6 +177,25 @@ Cavalo aparece vazia.
 ---
 
 ## A prova final consolidada
+
+**Entregue** em `docs/PROVA-FINAL-DA-AUDITORIA.md` (`92d1744`..), com as sete
+respostas medidas em 17/08/2026. Cada uma traz resposta, prova e **limite da
+prova** — o que aquela evidência não cobre —, e o documento fecha com sete
+garantias que a auditoria **não** dá.
+
+Ele é conferido por `artifacts/api-server/src/__tests__/prova-final.test.ts`
+(6 testes), porque um documento que descreve garantias e não é conferido por
+nada é a forma mais educada de "não há dados": responde à pergunta sem
+responder pelo conteúdo. A guarda confere o que tem referente no código — os
+testes citados existem, as nove tabelas do núcleo e as três do dicionário são
+as que a autoridade protege, os quatro estados do vazio são os que `vazio.ts`
+declara, a contagem de consumidores é a que a matriz exercita, os seis elos do
+diagnóstico são os que o documento tabela, e a regra de ouro está escrita
+literal. Os seis casos de controle foram exercitados: cada asserção falha
+quando o documento diverge. Ela **não** confere a prosa, e isso está dito
+dentro dela.
+
+As sete perguntas, para referência:
 
 Ao fim da sequência, um documento que responda objetivamente, com teste ou
 medição ao lado de cada resposta:
