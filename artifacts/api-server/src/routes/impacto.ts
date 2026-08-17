@@ -161,7 +161,10 @@ router.get("/impacto/exportacao.xlsx", async (req, res): Promise<void> => {
       return;
     }
 
-    const bytes = montarPlanilhaDeImpacto(exportacao, agoraEmBrasilia(new Date()));
+    const bytes = await montarPlanilhaDeImpacto(
+      exportacao,
+      agoraEmBrasilia(new Date()),
+    );
     res.setHeader(
       "Content-Type",
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",

@@ -1,4 +1,4 @@
-import * as XLSX from "xlsx";
+import ExcelJS from "exceljs";
 import type {
   AbaDeImpacto,
   ExportacaoDeImpacto,
@@ -15,7 +15,7 @@ import type {
  * mesma tabela levada de volta para onde ela nasceu — só que agora para **todos**
  * os parâmetros que mudaram, de uma vez, em vez de trinta e cinco cliques.
  *
- * Duas regras mandam no formato, e as duas vêm do fato de que uma planilha é
+ * Três regras mandam no formato, e as três vêm do fato de que uma planilha é
  * lida longe de quem a gerou:
  *
  * **Ausência nunca é zero, e no Excel isso é mais grave que na tela.** Lá uma
@@ -27,10 +27,103 @@ import type {
  * repetido em novecentas células e sem conversão de periodicidade: um valor
  * mensal continua mensal, e a coluna "Total Geral" — que soma nove quinzenas —
  * carrega, escrito no topo, que ela não é o custo de nenhum mês.
+ *
+ * **A cor é a mesma da tela, e ela não é decoração.** Verde e vermelho dizem em
+ * que vigência o valor de cada ativo se moveu — na tela isso é o que faz a
+ * alteração aparecer sem que ninguém compare duas colunas na cabeça, e no arquivo
+ * é a única pista que sobrevive à ausência dos `title`. Quem pinta é o servidor,
+ * a partir do `movimento` que ele mesmo apurou: nenhuma célula é colorida por
+ * comparação feita aqui.
+ *
+ * O escritor é o `exceljs`, e não o `xlsx` que o resto do repositório usa para
+ * **ler** planilha. O motivo é só um: a edição community do SheetJS lê estilo e
+ * não grava — pintar por lá exigiria a versão paga. O `xlsx` continua onde
+ * sempre esteve, na importação.
  */
 
-/** O que uma célula pode ser no arquivo. `null` sai como célula vazia. */
-type CelulaDaPlanilha = string | number | null;
+/**
+ * O tom de uma célula — o que ela é, e não que cor ela tem.
+ *
+ * A cor mora num lugar só ({@link PALETA}), e o resto do arquivo fala em tom.
+ * É a mesma razão pela qual a tela usa tokens em vez de hexadecimal: quando o
+ * verde do produto mudar, ele muda numa linha.
+ */
+export type Tom =
+  /** Subiu em relação à vigência anterior. */
+  | "SUBIU"
+  /** Caiu em relação à vigência anterior. */
+  | "CAIU"
+  /** Entrou na frota nesta vigência — frota maior não é preço maior. */
+  | "ENTROU"
+  /** Saiu da frota nesta vigência. */
+  | "SAIU"
+  /** A vigência não trouxe este equipamento. Hachurado, como na tela. */
+  | "NAO_ENTREGUE"
+  /** O ativo estava na vigência e a coluna veio vazia. */
+  | "SEM_VALOR"
+  /** Cabeçalho da tabela e linha de Total Geral. */
+  | "CABECALHO"
+  /** Linha de subtotal de um grupo. */
+  | "GRUPO"
+  /** O título da aba. */
+  | "TITULO";
+
+/**
+ * Uma célula do arquivo: o valor, e o tom quando ele diz alguma coisa.
+ *
+ * O tom viaja **junto** com o valor, e não numa segunda matriz paralela: duas
+ * estruturas alinhadas por índice divergem na primeira linha que alguém
+ * acrescentar, e o defeito apareceria como uma cor na célula errada — que é
+ * pior do que cor nenhuma, porque parece informação.
+ */
+export interface CelulaDaPlanilha {
+  valor: string | number | null;
+  tom?: Tom;
+}
+
+/** Valor sem tom — a maioria das células. */
+const cel = (valor: string | number | null): CelulaDaPlanilha => ({ valor });
+
+/**
+ * As cores, uma vez, em hexadecimal — as mesmas classes que a tela usa.
+ *
+ * `fundo` e `texto` saem do Tailwind que `impacto-quinzenas.tsx` aplica:
+ * `bg-emerald-50`/`text-emerald-800` no que subiu, `bg-red-50`/`text-red-700` no
+ * que caiu, `bg-emerald-50/60` no ativo que entrou, `bg-red-50/60` no que saiu, e
+ * o fundo `muted` do cabeçalho e dos subtotais. A transparência das duas com
+ * `/60` foi resolvida contra branco, porque no Excel não há alfa: é a mesma
+ * decisão que a tela toma com `color-mix` nas células presas.
+ */
+const PALETA: Record<Tom, { fundo?: string; texto?: string; negrito?: boolean }> = {
+  SUBIU: { fundo: "FFECFDF5", texto: "FF065F46" },
+  CAIU: { fundo: "FFFEF2F2", texto: "FFB91C1C" },
+  ENTROU: { fundo: "FFF4FDF8", texto: "FF065F46" },
+  SAIU: { fundo: "FFFEF7F7", texto: "FF94A3B8" },
+  NAO_ENTREGUE: {},
+  SEM_VALOR: { texto: "FF94A3B8" },
+  CABECALHO: { fundo: "FFF1F5F9", negrito: true },
+  GRUPO: { fundo: "FFF8FAFC", negrito: true },
+  TITULO: { negrito: true },
+};
+
+/**
+ * O tom da célula de valor, a partir do movimento que o servidor apurou.
+ *
+ * `IGUAL` não tem cor, e isso é deliberado: a tela também não pinta o que não se
+ * moveu. Pintar "igual" de cinza faria a ausência de movimento parecer um
+ * terceiro estado, quando ela é o fundo contra o qual os outros dois se leem.
+ */
+function tomDoMovimento(celula: QuinzenaCell): Tom | undefined {
+  if (celula.state === "NAO_ENTREGUE") return "NAO_ENTREGUE";
+  if (celula.state === "SEM_VALOR") return "SEM_VALOR";
+  if (celula.state === "FORA_DA_FROTA") {
+    return celula.movimento === "SAIU" ? "SAIU" : undefined;
+  }
+  if (celula.movimento === "SUBIU") return "SUBIU";
+  if (celula.movimento === "CAIU") return "CAIU";
+  if (celula.movimento === "ENTROU") return "ENTROU";
+  return undefined;
+}
 
 /**
  * O ativo não estava na frota nesta vigência.
@@ -157,10 +250,14 @@ export function nomeDeAba(
  * é uma afirmação sobre o ativo, é a falta de um arquivo.
  */
 export function celulaDaMatriz(celula: QuinzenaCell): CelulaDaPlanilha {
-  if (celula.state === "VALOR") return celula.value;
-  if (celula.state === "SEM_VALOR") return SEM_VALOR;
-  if (celula.state === "FORA_DA_FROTA") return FORA_DA_FROTA;
-  return null;
+  const tom = tomDoMovimento(celula);
+  const comTom = (valor: string | number | null): CelulaDaPlanilha =>
+    tom === undefined ? { valor } : { valor, tom };
+
+  if (celula.state === "VALOR") return comTom(celula.value);
+  if (celula.state === "SEM_VALOR") return comTom(SEM_VALOR);
+  if (celula.state === "FORA_DA_FROTA") return comTom(FORA_DA_FROTA);
+  return comTom(null);
 }
 
 /**
@@ -178,24 +275,24 @@ export function linhasDaAba(aba: AbaDeImpacto): CelulaDaPlanilha[][] {
   const p = aba.parametro;
   const linhas: CelulaDaPlanilha[][] = [];
 
-  linhas.push([p.title]);
+  linhas.push([{ valor: p.title, tom: "TITULO" }]);
   linhas.push([
-    [
+    cel([
       p.equipment.toLowerCase(),
       CLASSE_EM_PALAVRAS[p.classeDeCusto] ?? p.classeDeCusto,
       p.grupoDeCusto ?? "sem grupo na taxonomia",
       `${contagem(p.changes)} alterações de valor em ${contagem(p.entities)} de ${contagem(p.entitiesNaSerie)} ativos`,
-    ].join(" · "),
+    ].join(" · ")),
   ]);
   linhas.push([
-    [
+    cel([
       `valores em ${unidadeEscrita(p.unit)}`,
       ...(p.periodicity
         ? [POR_PERIODO[p.periodicity] ?? `por ${p.periodicity.toLowerCase()}`]
         : []),
       `${ativos(aba.ativos)} em ${contagem(aba.periods.length)} vigências`,
       ...(aba.groupedBy ? [`agrupados por ${aba.groupedBy.title.toLowerCase()}`] : []),
-    ].join(" · "),
+    ].join(" · ")),
   ]);
 
   /*
@@ -209,16 +306,16 @@ export function linhasDaAba(aba: AbaDeImpacto): CelulaDaPlanilha[][] {
   const ponta = aba.pontaAPonta;
   if (p.impactoCalculavel && p.variacao && ponta) {
     linhas.push([
-      `Impacto apurável entre ${ponta.fromLabel} e ${ponta.toLabel}: ` +
+      cel(`Impacto apurável entre ${ponta.fromLabel} e ${ponta.toLabel}: ` +
         `${comSinal(p.variacao.total)} no total, dos quais ${comSinal(p.variacao.preco)} ` +
         `de preço (${p.variacao.comparados} ativos nas duas pontas) e ` +
         `${comSinal(p.variacao.frota)} de frota ` +
-        `(${p.variacao.entraram.entities} entraram, ${p.variacao.sairam.entities} saíram — não é preço).`,
+        `(${p.variacao.entraram.entities} entraram, ${p.variacao.sairam.entities} saíram — não é preço).`),
     ]);
   } else {
     linhas.push([
-      `Sem leitura financeira apurada. ${p.impactoMotivo} ` +
-        "Os valores abaixo são os do arquivo, e as somas são aritmética sobre eles.",
+      cel(`Sem leitura financeira apurada. ${p.impactoMotivo} ` +
+        "Os valores abaixo são os do arquivo, e as somas são aritmética sobre eles."),
     ]);
   }
 
@@ -229,53 +326,78 @@ export function linhasDaAba(aba: AbaDeImpacto): CelulaDaPlanilha[][] {
   */
   if (!aba.linhaEconomica) {
     linhas.push([
-      p.papel === "CONJUNTO"
+      cel(p.papel === "CONJUNTO"
         ? "Esta coluna já contém o outro equipamento dentro dela" +
           (p.contem ? ` (${p.contem})` : "") +
           " — somá-la às abas daquele equipamento contaria o mesmo valor duas vezes."
         : `Este parâmetro é parcela de ${p.dentroDe ?? "um total"}, que também mudou — ` +
-          "a alteração já está contada na aba daquele total.",
+          "a alteração já está contada na aba daquele total."),
     ]);
   }
 
-  linhas.push([LEGENDA_DAS_AUSENCIAS]);
-  linhas.push([AVISO_DO_TOTAL]);
+  linhas.push([cel(LEGENDA_DAS_AUSENCIAS)]);
+  linhas.push([cel(AVISO_DO_TOTAL)]);
   linhas.push([]);
 
-  linhas.push([
-    aba.groupedBy ? aba.groupedBy.title : "grupo",
-    "placa",
-    ...aba.periods.map((v) => v.sourceLabel),
-    "Total Geral",
-    "Δ",
-  ]);
+  /*
+    O cabeçalho e as linhas de total recebem o mesmo fundo `muted` da tela, e as
+    de subtotal o fundo mais claro do grupo. Não é enfeite: numa tabela de nove
+    colunas de vigência é o que separa, de relance, o ativo do total que o
+    contém — na tela isso é `bg-muted/40` contra `bg-muted/20`.
+  */
+  const estrutural = (valores: (string | number | null)[], tom: Tom) =>
+    valores.map((valor) => ({ valor, tom }));
+
+  linhas.push(
+    estrutural(
+      [
+        aba.groupedBy ? aba.groupedBy.title : "grupo",
+        "placa",
+        ...aba.periods.map((v) => v.sourceLabel),
+        "Total Geral",
+        "Δ",
+      ],
+      "CABECALHO",
+    ),
+  );
 
   for (const grupo of aba.groups) {
-    linhas.push([
-      grupo.label,
-      `subtotal · ${ativos(grupo.rows.length)}`,
-      ...grupo.totals,
-      grupo.total,
-      null,
-    ]);
+    linhas.push(
+      estrutural(
+        [
+          grupo.label,
+          `subtotal · ${ativos(grupo.rows.length)}`,
+          ...grupo.totals,
+          grupo.total,
+          null,
+        ],
+        "GRUPO",
+      ),
+    );
     for (const linha of grupo.rows) {
       linhas.push([
-        grupo.label,
-        linha.plate ?? "sem placa",
+        cel(grupo.label),
+        cel(linha.plate ?? "sem placa"),
         ...linha.cells.map(celulaDaMatriz),
-        linha.total,
-        linha.delta,
+        cel(linha.total),
+        // O Δ da linha ganha a cor do sinal, como na tela: vermelho quando o
+        // ativo ficou mais barato ponta a ponta, verde quando ficou mais caro.
+        {
+          valor: linha.delta,
+          ...(linha.delta !== null && linha.delta !== 0
+            ? { tom: linha.delta > 0 ? ("SUBIU" as const) : ("CAIU" as const) }
+            : {}),
+        },
       ]);
     }
   }
 
-  linhas.push([
-    "Total Geral",
-    ativos(aba.ativos),
-    ...aba.totals,
-    aba.grandTotal,
-    null,
-  ]);
+  linhas.push(
+    estrutural(
+      ["Total Geral", ativos(aba.ativos), ...aba.totals, aba.grandTotal, null],
+      "CABECALHO",
+    ),
+  );
 
   return linhas;
 }
@@ -298,28 +420,37 @@ export function linhasDoIndice(
   const t = exportacao.totais;
 
   const linhas: CelulaDaPlanilha[][] = [
-    ["Impacto — tudo que mudou"],
+    [{ valor: "Impacto — tudo que mudou", tom: "TITULO" }],
     [
-      [
-        exportacao.context.label,
-        exportacao.corteNome ?? "Tudo (fixo, variável e sem classe)",
-      ].join(" · "),
+      cel(
+        [
+          exportacao.context.label,
+          exportacao.corteNome ?? "Tudo (fixo, variável e sem classe)",
+        ].join(" · "),
+      ),
     ],
     [
-      primeira && ultima
-        ? `Entre ${primeira.sourceLabel} e ${ultima.sourceLabel} — ${exportacao.periodos.length} vigências.`
-        : "Sem vigências no recorte.",
+      cel(
+        primeira && ultima
+          ? `Entre ${primeira.sourceLabel} e ${ultima.sourceLabel} — ${exportacao.periodos.length} vigências.`
+          : "Sem vigências no recorte.",
+      ),
     ],
     [
-      `${contagem(t.linhasEconomicas)} linhas econômicas · ` +
-        `${contagem(t.alteracoes)} alterações de valor em até ${ativos(t.ativosAfetados)} · ` +
-        `${contagem(t.comImpacto)} com impacto apurável · ` +
-        `${contagem(t.semImpacto)} sem leitura financeira`,
+      cel(
+        `${contagem(t.linhasEconomicas)} linhas econômicas · ` +
+          `${contagem(t.alteracoes)} alterações de valor em até ${ativos(t.ativosAfetados)} · ` +
+          `${contagem(t.comImpacto)} com impacto apurável · ` +
+          `${contagem(t.semImpacto)} sem leitura financeira`,
+      ),
     ],
-    [`Gerado em ${geradoEm}.`],
+    [cel(`Gerado em ${geradoEm}.`)],
     [
-      "Uma aba por parâmetro que mudou. Em cada uma: uma linha por ativo, uma coluna por vigência. " +
-        "As abas marcadas fora das linhas econômicas não somam com as outras — a coluna Papel diz por quê.",
+      cel(
+        "Uma aba por parâmetro que mudou. Em cada uma: uma linha por ativo, uma coluna por vigência. " +
+          "As abas marcadas fora das linhas econômicas não somam com as outras — a coluna Papel diz por quê. " +
+          "As cores das abas são as mesmas da tela: verde subiu, vermelho caiu.",
+      ),
     ],
     [],
     [
@@ -335,29 +466,31 @@ export function linhasDoIndice(
       "Ativos alterados",
       "Ativos na aba",
       "Impacto financeiro",
-    ],
+    ].map((valor) => ({ valor, tom: "CABECALHO" as const })),
   ];
 
   for (const aba of exportacao.abas) {
     const p = aba.parametro;
-    linhas.push([
-      nomes.get(p.code) ?? "",
-      p.title,
-      p.equipment.toLowerCase(),
-      CLASSE_EM_PALAVRAS[p.classeDeCusto] ?? p.classeDeCusto,
-      p.grupoDeCusto ?? "sem grupo na taxonomia",
-      papelEscrito(aba),
-      unidadeEscrita(p.unit),
-      p.periodicity
-        ? (POR_PERIODO[p.periodicity] ?? p.periodicity.toLowerCase())
-        : "—",
-      p.changes,
-      p.entities,
-      aba.ativos,
-      p.impactoCalculavel && p.variacao
-        ? `preço ${comSinal(p.variacao.preco)} · frota ${comSinal(p.variacao.frota)}`
-        : p.impactoMotivo,
-    ]);
+    linhas.push(
+      [
+        nomes.get(p.code) ?? "",
+        p.title,
+        p.equipment.toLowerCase(),
+        CLASSE_EM_PALAVRAS[p.classeDeCusto] ?? p.classeDeCusto,
+        p.grupoDeCusto ?? "sem grupo na taxonomia",
+        papelEscrito(aba),
+        unidadeEscrita(p.unit),
+        p.periodicity
+          ? (POR_PERIODO[p.periodicity] ?? p.periodicity.toLowerCase())
+          : "—",
+        p.changes,
+        p.entities,
+        aba.ativos,
+        p.impactoCalculavel && p.variacao
+          ? `preço ${comSinal(p.variacao.preco)} · frota ${comSinal(p.variacao.frota)}`
+          : p.impactoMotivo,
+      ].map(cel),
+    );
   }
 
   return linhas;
@@ -399,39 +532,84 @@ export function nomeDoArquivo(exportacao: ExportacaoDeImpacto): string {
   return `${pedacos.join(" - ").replace(PROIBIDOS_NO_ARQUIVO, "-")}.xlsx`;
 }
 
+/** A largura das colunas do índice, na ordem em que `linhasDoIndice` as escreve. */
+const LARGURAS_DO_INDICE = [32, 34, 12, 18, 24, 30, 10, 14, 12, 16, 14, 60];
+
 /**
  * A largura de cada coluna, para o arquivo abrir legível.
  *
  * Sem isto, `EMPURRADA_2_12_2025` sai como `####` na largura padrão do Excel, e
  * a primeira coisa que quem abre o arquivo faz é arrastar nove colunas.
  */
-function colunasDaAba(aba: AbaDeImpacto): XLSX.ColInfo[] {
+function largurasDaAba(aba: AbaDeImpacto): number[] {
   return [
-    { wch: 18 },
-    { wch: 16 },
-    ...aba.periods.map((v) => ({ wch: Math.max(12, v.sourceLabel.length + 2) })),
-    { wch: 14 },
-    { wch: 12 },
+    18,
+    16,
+    ...aba.periods.map((v) => Math.max(12, v.sourceLabel.length + 2)),
+    14,
+    12,
   ];
 }
 
 /**
- * O formato numérico em toda célula que é número.
+ * A seta dentro da célula, sem tirar dela a condição de número.
  *
- * Aplicado depois de montar a aba, e a toda ela: cada número deste arquivo está
- * na unidade declarada no cabeçalho, então não há duas famílias de formato a
- * distinguir. As marcas de ausência são texto e passam por aqui intocadas — que
- * é exatamente por que elas são texto.
+ * A tela põe ↗ e ↘ nas células que se moveram, e a cor sozinha não basta: quem
+ * não distingue verde de vermelho perderia a informação inteira, e uma planilha
+ * impressa em preto e branco também. Escrever a seta no **formato** do número —
+ * `"↗ "#,##0.00` — mantém a célula numérica: `SOMA()` continua somando, o Excel
+ * continua ordenando, e a seta aparece do lado do valor como na tela.
  */
-function formatarNumeros(ws: XLSX.WorkSheet): void {
-  const ref = ws["!ref"];
-  if (!ref) return;
-  const range = XLSX.utils.decode_range(ref);
-  for (let r = range.s.r; r <= range.e.r; r++) {
-    for (let c = range.s.c; c <= range.e.c; c++) {
-      const celula = ws[XLSX.utils.encode_cell({ r, c })] as XLSX.CellObject | undefined;
-      if (celula?.t === "n") celula.z = FORMATO_NUMERICO;
-    }
+const FORMATO_POR_TOM: Partial<Record<Tom, string>> = {
+  SUBIU: `"↗ "${FORMATO_NUMERICO}`,
+  CAIU: `"↘ "${FORMATO_NUMERICO}`,
+};
+
+/**
+ * Escreve uma célula: valor, formato e a cor do tom dela.
+ *
+ * O `NAO_ENTREGUE` é o único caso sem valor **e** com pintura: um hachurado
+ * claro, que é o que a tela desenha com listras diagonais. Sem ele a vigência
+ * que não trouxe o equipamento ficaria idêntica a uma célula vazia qualquer, e
+ * essa é justamente a distinção que a leitura inteira existe para preservar.
+ */
+function escreverCelula(
+  destino: ExcelJS.Cell,
+  celula: CelulaDaPlanilha,
+  numerica: boolean,
+): void {
+  const tom = celula.tom;
+  const estilo = tom ? PALETA[tom] : undefined;
+
+  if (celula.valor !== null) destino.value = celula.valor;
+
+  if (typeof celula.valor === "number") {
+    destino.numFmt = (tom && FORMATO_POR_TOM[tom]) ?? FORMATO_NUMERICO;
+  }
+  if (numerica) destino.alignment = { horizontal: "right" };
+
+  if (tom === "NAO_ENTREGUE") {
+    destino.fill = {
+      type: "pattern",
+      pattern: "lightUp",
+      fgColor: { argb: "FFCBD5E1" },
+      bgColor: { argb: "FFFFFFFF" },
+    };
+    return;
+  }
+
+  if (estilo?.fundo) {
+    destino.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: estilo.fundo },
+    };
+  }
+  if (estilo?.texto || estilo?.negrito) {
+    destino.font = {
+      ...(estilo.texto ? { color: { argb: estilo.texto } } : {}),
+      ...(estilo.negrito ? { bold: true } : {}),
+    };
   }
 }
 
@@ -442,12 +620,16 @@ function formatarNumeros(ws: XLSX.WorkSheet): void {
  * pelo módulo da variação de preço, e depois o que mudou muito e ainda não
  * sabemos ler. A primeira aba de uma planilha é lida como a resposta, e por isso
  * ela não pode ser a primeira em ordem alfabética.
+ *
+ * Assíncrona porque o `exceljs` serializa o zip em stream. É a única diferença
+ * de assinatura que a troca de escritor trouxe.
  */
-export function montarPlanilhaDeImpacto(
+export async function montarPlanilhaDeImpacto(
   exportacao: ExportacaoDeImpacto,
   geradoEm: string,
-): Buffer {
-  const wb = XLSX.utils.book_new();
+): Promise<Buffer> {
+  const wb = new ExcelJS.Workbook();
+  wb.creator = "FreightCheck";
 
   /*
     Os nomes saem antes do índice porque o índice os cita: ele é a única página
@@ -462,31 +644,42 @@ export function montarPlanilhaDeImpacto(
     );
   }
 
-  const indice = XLSX.utils.aoa_to_sheet(linhasDoIndice(exportacao, nomes, geradoEm));
-  indice["!cols"] = [
-    { wch: 32 },
-    { wch: 34 },
-    { wch: 12 },
-    { wch: 18 },
-    { wch: 24 },
-    { wch: 30 },
-    { wch: 10 },
-    { wch: 14 },
-    { wch: 12 },
-    { wch: 16 },
-    { wch: 14 },
-    { wch: 60 },
-  ];
-  XLSX.utils.book_append_sheet(wb, indice, "Índice");
+  const preencher = (
+    ws: ExcelJS.Worksheet,
+    linhas: CelulaDaPlanilha[][],
+    larguras: number[],
+    primeiraColunaNumerica: number,
+  ) => {
+    ws.columns = larguras.map((width) => ({ width }));
+    linhas.forEach((linha, i) => {
+      const destino = ws.getRow(i + 1);
+      linha.forEach((celula, j) => {
+        escreverCelula(
+          destino.getCell(j + 1),
+          celula,
+          j + 1 >= primeiraColunaNumerica,
+        );
+      });
+    });
+  };
+
+  const indice = wb.addWorksheet("Índice");
+  // As duas primeiras colunas do índice são nomes; da terceira em diante é
+  // classificação, e as contagens ficam à direita como em qualquer planilha.
+  preencher(
+    indice,
+    linhasDoIndice(exportacao, nomes, geradoEm),
+    LARGURAS_DO_INDICE,
+    LARGURAS_DO_INDICE.length + 1,
+  );
 
   for (const aba of exportacao.abas) {
-    const ws = XLSX.utils.aoa_to_sheet(linhasDaAba(aba));
-    ws["!cols"] = colunasDaAba(aba);
-    formatarNumeros(ws);
-    XLSX.utils.book_append_sheet(wb, ws, nomes.get(aba.parametro.code));
+    const ws = wb.addWorksheet(nomes.get(aba.parametro.code));
+    // Grupo e placa à esquerda; vigências, Total Geral e Δ à direita.
+    preencher(ws, linhasDaAba(aba), largurasDaAba(aba), 3);
   }
 
-  return XLSX.write(wb, { type: "buffer", bookType: "xlsx" }) as Buffer;
+  return Buffer.from(await wb.xlsx.writeBuffer());
 }
 
 /**
