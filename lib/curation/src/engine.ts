@@ -831,31 +831,74 @@ export async function getAttributeDetail(
   };
 }
 
-/** Counts for the curation dashboard header. */
+/**
+ * Counts for the curation dashboard header — as a whole and per equipment.
+ *
+ * The per-equipment cut exists because the screen is read one equipment at a
+ * time: the queue has tabs for CAVALO, CARRETA and whatever else was imported,
+ * and header tiles that kept counting the whole base while the list below
+ * showed a single tab would contradict the list — 73 pending over a list of
+ * 41. Counting here rather than in the browser is what keeps the confirmed
+ * tally right while the queue is showing only the pending ones.
+ *
+ * `byStatus` and `unclassified` stay exactly as they were: they are the totals
+ * of every equipment, which is what the "Todos" tab and the sidebar counter
+ * read.
+ */
 export async function getCurationSummary(db: Database) {
   const rows = await db
     .select({
+      entityType: attributeTable.entityType,
       status: attributeTable.semanticsStatus,
       count: sql<number>`count(*)`.mapWith(Number),
       monetary: sql<number>`count(*) FILTER (WHERE ${attributeTable.isMonetary})`.mapWith(Number),
     })
     .from(attributeTable)
-    .groupBy(attributeTable.semanticsStatus)
+    .groupBy(attributeTable.entityType, attributeTable.semanticsStatus)
     // Deterministic order: a grouped result has none by default, and a caller
     // that reads "the first row" would otherwise get a different answer per
     // request.
-    .orderBy(attributeTable.semanticsStatus);
+    .orderBy(attributeTable.entityType, attributeTable.semanticsStatus);
 
-  const [unclassified] = await db
-    .select({ count: sql<number>`count(*)`.mapWith(Number) })
+  const unclassifiedRows = await db
+    .select({
+      entityType: attributeTable.entityType,
+      count: sql<number>`count(*)`.mapWith(Number),
+    })
     .from(attributeTable)
     .leftJoin(taxonomyNodeTable, eq(attributeTable.taxonomyNodeId, taxonomyNodeTable.id))
     .where(
       sql`${taxonomyNodeTable.id} IS NULL OR ${taxonomyNodeTable.code} = 'nao_classificado'`,
-    );
+    )
+    .groupBy(attributeTable.entityType)
+    .orderBy(attributeTable.entityType);
+
+  const byEntity = [...new Set(rows.map((r) => r.entityType))].map((entityType) => ({
+    entityType,
+    byStatus: rows
+      .filter((r) => r.entityType === entityType)
+      .map(({ status, count, monetary }) => ({ status, count, monetary })),
+    unclassified:
+      unclassifiedRows.find((r) => r.entityType === entityType)?.count ?? 0,
+  }));
+
+  // Somado das linhas já lidas, e não numa segunda consulta: dois `count(*)`
+  // sobre a mesma tabela em transações diferentes podem discordar, e a soma das
+  // abas tem de bater com o total exibido ao lado delas.
+  const byStatus = [...new Set(rows.map((r) => r.status))]
+    .sort()
+    .map((status) => {
+      const doStatus = rows.filter((r) => r.status === status);
+      return {
+        status,
+        count: doStatus.reduce((sum, r) => sum + r.count, 0),
+        monetary: doStatus.reduce((sum, r) => sum + r.monetary, 0),
+      };
+    });
 
   return {
-    byStatus: rows,
-    unclassified: unclassified?.count ?? 0,
+    byStatus,
+    unclassified: unclassifiedRows.reduce((sum, r) => sum + r.count, 0),
+    byEntity,
   };
 }
