@@ -128,6 +128,14 @@ export interface Recomendacao {
   veiculosAfetados: number;
   veiculosNaSerie: number;
   alteracoes: number;
+  /** O par do próprio ativo, quando a aba é lida de dentro de uma placa. */
+  noAtivo: {
+    placa: string;
+    antes: number;
+    depois: number;
+    effectiveDate: string;
+    sourceLabel: string;
+  } | null;
   alimenta: string[];
   dependeDe: string[];
   evidencia: string;
@@ -440,6 +448,19 @@ export function racionalDeApoio(r: Recomendacao): string {
     : base;
 }
 
+/**
+ * "cavalo" | "carreta" — o nome do ativo, para as frases da tela.
+ *
+ * Um terceiro equipamento vindo do Freightech cai no próprio código em caixa
+ * baixa: uma frase levemente torta é melhor do que um rótulo que não diz de que
+ * ativo se fala.
+ */
+export function equipamentoSingular(entityType: string | null): string {
+  if (entityType === "CAVALO") return "cavalo";
+  if (entityType === "CARRETA") return "carreta";
+  return entityType === null ? "ativo" : entityType.toLowerCase();
+}
+
 export type TomDoGrupo = "PERDA" | "GANHO" | "NEUTRO";
 
 /** Um dos dois lados da mesma virada — quantos ativos, e o que aconteceu com eles. */
@@ -491,6 +512,76 @@ export interface DivisaoDeAtivos {
  * perdeu já está dito na faixa do veredito, e repeti-lo em corpo de número faz
  * o leitor procurar a diferença entre dois números iguais.
  */
+/**
+ * Um movimento perde ou ganha? — a regra, num lugar só.
+ *
+ * `true` é perda, `false` é ganho, e `null` é **não se sabe**: o sinal do delta
+ * não decide nada sozinho, porque a TJLP caindo derruba o que recebemos e uma
+ * idade subindo não é premissa de preço. Quem decide é o cruzamento do movimento
+ * com o sentido declarado do parâmetro.
+ *
+ * Extraída porque agora há dois leitores — a divisão da frota e a linha do
+ * ativo aberto. Duas cópias da mesma regra dariam, no mesmo cartão, um cavalo
+ * "favorecido" dentro de um grupo de prejudicados.
+ */
+export function ladoDoMovimento(
+  delta: number,
+  sentido: string | null,
+): boolean | null {
+  if (delta === 0) return null;
+  if (sentido === "DIRETO") return delta < 0;
+  if (sentido === "INVERSO") return delta > 0;
+  return null;
+}
+
+/** O movimento do ativo aberto, já com o juízo econômico e o tom da cor. */
+export interface LeituraDoAtivo {
+  placa: string;
+  antes: number;
+  depois: number;
+  sourceLabel: string;
+  /** `favorecido` | `prejudicado` | `mudou` — o último quando não há juízo. */
+  rotulo: string;
+  tom: TomDoGrupo;
+  /** A vigência do ativo é outra que a da evidência da frota? */
+  outraVigencia: boolean;
+}
+
+/**
+ * O que aconteceu com **este** cavalo, na linguagem do cartão.
+ *
+ * É a primeira coisa que o cartão diz desde que a aba passou a ser lida de
+ * dentro de `Cavalo 360°`, e a razão é a ordem da pergunta: quem abriu a tela de
+ * um ativo quer saber o que mudou nele; a abrangência na frota é o que
+ * dimensiona o pedido depois, não antes.
+ *
+ * O tom segue a mesma regra da divisão da frota — inclusive o cinza de quando
+ * não há juízo. Um cavalo pintado de verde dentro de um parâmetro cujo sentido
+ * ninguém declarou seria um palpite com cara de conta.
+ */
+export function leituraDoAtivo(r: Recomendacao): LeituraDoAtivo | null {
+  const m = r.noAtivo;
+  if (!m) return null;
+
+  const perde = ladoDoMovimento(m.depois - m.antes, r.sentido);
+  return {
+    placa: m.placa,
+    antes: m.antes,
+    depois: m.depois,
+    sourceLabel: m.sourceLabel,
+    rotulo: perde === null ? "mudou" : perde ? "prejudicado" : "favorecido",
+    tom: perde === null ? "NEUTRO" : perde ? "PERDA" : "GANHO",
+    /*
+      O cavalo pode ter mexido numa vigência diferente da que o cartão ilustra.
+      Dizer isso é o que impede a leitura de somar dois fatos de períodos
+      distintos como se fossem o mesmo evento.
+    */
+    outraVigencia:
+      r.oQueAconteceu !== null &&
+      r.oQueAconteceu.effectiveDate !== m.effectiveDate,
+  };
+}
+
 export function divisaoDeAtivos(r: Recomendacao): DivisaoDeAtivos | null {
   const caso = r.oQueAconteceu;
   if (!caso) return null;
@@ -501,15 +592,7 @@ export function divisaoDeAtivos(r: Recomendacao): DivisaoDeAtivos | null {
   );
   if (caso.entidadesEmSentidoOposto === 0 && restantes === 0) return null;
 
-  const delta = caso.depois - caso.antes;
-  const predominantePerde =
-    delta === 0
-      ? null
-      : r.sentido === "DIRETO"
-        ? delta < 0
-        : r.sentido === "INVERSO"
-          ? delta > 0
-          : null;
+  const predominantePerde = ladoDoMovimento(caso.depois - caso.antes, r.sentido);
 
   if (predominantePerde === null) {
     return {
@@ -735,7 +818,45 @@ export function ClienteRecomendacoes({
         </div>
       )}
 
+      {/*
+        O topo, e as duas versões dele.
+
+        Na leitura de frota ele responde "quanto está em jogo nesta população", e
+        o alcance em veículos é um dos números da resposta.
+
+        Sob uma placa, esse mesmo ladrilho é a frase mais perigosa da tela: "64
+        veículos afetados" em corpo de número, no topo de uma tela chamada
+        `Cavalo 360° · QYP3G72`, é lido como sendo do cavalo — e nenhuma ressalva
+        embaixo desfaz o que um número grande já afirmou. Então ele não fica com
+        uma ressalva: ele sai. O topo passa a ser **inteiro do ativo**, e a
+        abrangência na frota desce para dentro do cartão, onde vem rotulada e ao
+        lado do movimento do próprio cavalo.
+
+        O que sobrevive aos dois modos são as contagens — elas já eram do
+        recorte, e sob placa o recorte é o cavalo.
+      */}
       <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
+        {data.placa !== null && (
+          <Ladrilho
+            tone="purple"
+            icon={<Truck className="w-6 h-6" />}
+            label={`Alterações neste ${equipamentoSingular(data.entityType)}`}
+            linhas={[{ valor: formatNumber(totais.analisadas, 0), unidade: "" }]}
+            hint={`Linhas econômicas que mudaram em ${data.placa} no recorte`}
+          />
+        )}
+        <Ladrilho
+          tone="amber"
+          icon={<CircleAlert className="w-6 h-6" />}
+          label="Itens para avaliar"
+          linhas={[
+            {
+              valor: formatNumber(totais.investigar + totais.naoCalculavel, 0),
+              unidade: "",
+            },
+          ]}
+          hint="Pontos que exigem validação antes de virar proposta"
+        />
         <Ladrilho
           tone="green"
           icon={<ClipboardCheck className="w-6 h-6" />}
@@ -747,11 +868,21 @@ export function ClienteRecomendacoes({
           O único ladrilho que pode ter mais de uma linha, e é de propósito:
           R$ 731 mil por ano e R$ 52 mil por mês não somam, e escolher um dos
           dois para caber esconderia metade do que está em jogo.
+
+          Sob placa ele muda de **rótulo**, e não de conta: o dinheiro continua
+          sendo o da frota, porque é lá que ele é apurado, e o rótulo é o que
+          impede um valor de frota de passar por valor do cavalo. Recalculá-lo
+          por ativo criaria a segunda verdade financeira que este produto existe
+          para não ter.
         */}
         <Ladrilho
           tone="blue"
           icon={<CircleDollarSign className="w-6 h-6" />}
-          label="Impacto potencial recuperável"
+          label={
+            data.placa !== null
+              ? "Impacto estimado na frota"
+              : "Impacto potencial recuperável"
+          }
           linhas={
             recuperavel.length > 0
               ? recuperavel.map((p) => ({
@@ -761,38 +892,32 @@ export function ClienteRecomendacoes({
               : [{ valor: "—", unidade: "" }]
           }
           hint={
-            recuperavel.length > 0
-              ? "Soma do impacto estimado das propostas recomendadas"
-              : "Nenhuma proposta com valor apurado neste recorte"
+            recuperavel.length === 0
+              ? "Nenhuma proposta com valor apurado neste recorte"
+              : data.placa !== null
+                ? `Valor apurado na frota para os itens desta pauta — não é o custo de ${data.placa}`
+                : "Soma do impacto estimado das propostas recomendadas"
           }
         />
-        <Ladrilho
-          tone="purple"
-          icon={<Truck className="w-6 h-6" />}
-          label="Veículos afetados"
-          linhas={[{ valor: formatNumber(totais.veiculosAlcancados, 0), unidade: "" }]}
-          hint="Maior alcance entre os itens da pauta"
-          /*
-            A ressalva vira título, e não quarta linha do ladrilho: ela é longa,
-            e escrita por extenso empurrava os quatro ladrilhos para o dobro da
-            altura por causa de um só. O que ela não pode é sumir — sem ela o
-            número parece uma soma, e somar as placas de várias linhas contaria
-            o mesmo veículo duas vezes.
-          */
-          detalhe="As placas se repetem entre as linhas da pauta, então este número é o maior alcance de uma delas, e não a soma."
-        />
-        <Ladrilho
-          tone="amber"
-          icon={<CircleAlert className="w-6 h-6" />}
-          label="Pendências para validar"
-          linhas={[
-            {
-              valor: formatNumber(totais.investigar + totais.naoCalculavel, 0),
-              unidade: "",
-            },
-          ]}
-          hint="Pontos que exigem validação antes de virar proposta"
-        />
+        {data.placa === null && (
+          <Ladrilho
+            tone="purple"
+            icon={<Truck className="w-6 h-6" />}
+            label="Veículos afetados"
+            linhas={[
+              { valor: formatNumber(totais.veiculosAlcancados, 0), unidade: "" },
+            ]}
+            hint="Maior alcance entre os itens da pauta"
+            /*
+              A ressalva vira título, e não quarta linha do ladrilho: ela é longa,
+              e escrita por extenso empurrava os quatro ladrilhos para o dobro da
+              altura por causa de um só. O que ela não pode é sumir — sem ela o
+              número parece uma soma, e somar as placas de várias linhas contaria
+              o mesmo veículo duas vezes.
+            */
+            detalhe="As placas se repetem entre as linhas da pauta, então este número é o maior alcance de uma delas, e não a soma."
+          />
+        )}
       </div>
 
       {/* ---- a pauta ---------------------------------------------------- */}
@@ -1011,6 +1136,7 @@ function CartaoDePauta({
   const prioridade = prioridadeDaPauta(r);
   const tom = PRIORIDADE[prioridade];
   const divisao = divisaoDeAtivos(r);
+  const leitura = leituraDoAtivo(r);
   const proximoPasso = PROXIMO_PASSO[prioridade];
 
   /*
@@ -1077,6 +1203,39 @@ function CartaoDePauta({
           </div>
         </div>
 
+        {/*
+          A camada do ativo, e ela vem **antes** de tudo que é da frota.
+
+          A ordem é a da pergunta: quem abriu `Cavalo 360° · QYP3G72` quer saber
+          o que mudou naquele cavalo e para que lado; o alcance na frota é o que
+          dimensiona o pedido depois. Invertida, a tela responde a pergunta certa
+          em terceiro lugar, embaixo de dois números maiores que não são do
+          ativo — que é exatamente como esta aba era lida antes.
+        */}
+        {leitura && (
+          <NesteAtivo
+            leitura={leitura}
+            unidade={r.oQueAconteceu?.unidade ?? null}
+            equipamento={equipamentoSingular(r.entityType)}
+          />
+        )}
+
+        {/*
+          Daqui para baixo, tudo é da frota — e o cabeçalho existe para dizer
+          isso uma vez, em vez de repetir "na frota" em cada número. Sem placa
+          aberta ele não aparece: não há duas camadas a separar, e um rótulo
+          "Na frota" sozinho numa tela de frota é ruído.
+        */}
+        {leitura && (
+          <div className="flex items-center gap-2 pt-1">
+            <Truck className="w-4 h-4 text-muted-foreground shrink-0" aria-hidden />
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Na frota
+            </span>
+            <span className="h-px flex-1 bg-border" />
+          </div>
+        )}
+
         {r.oQueAconteceu && <Evidencia caso={r.oQueAconteceu} />}
 
         {/*
@@ -1132,7 +1291,15 @@ function CartaoDePauta({
           <LinhaDoCartao
             Icone={CircleDollarSign}
             tomDoIcone={tom.icone}
-            termo="Impacto financeiro"
+            /*
+              Sob placa o termo diz "na frota", e não é redundância com o
+              cabeçalho: este é o único número em reais do cartão, e um valor
+              financeiro é a coisa mais fácil de atribuir ao ativo que dá nome à
+              tela. O rótulo viaja junto do número, não do bloco.
+            */
+            termo={
+              leitura ? "Impacto estimado na frota" : "Impacto financeiro"
+            }
             valor={
               r.impacto ? (
                 <span
@@ -1218,6 +1385,86 @@ function CartaoDePauta({
 
       {aberto && <DetalheTecnico r={r} />}
     </Card>
+  );
+}
+
+/*
+  As cores da linha do ativo, na mesma regra do resto da tela: vermelho e verde
+  são leitura de dado, e o cinza é o que sobra quando não há juízo econômico a
+  fazer. Vem de `TOM_DO_GRUPO` para que o cavalo e o grupo em que ele cai nunca
+  apareçam pintados de cores diferentes dentro do mesmo cartão.
+*/
+const CAIXA_DO_TOM: Record<TomDoGrupo, string> = {
+  PERDA: "border-destructive/30 bg-destructive/5",
+  GANHO: "border-emerald-500/30 bg-emerald-500/5",
+  NEUTRO: "border-border bg-muted/30",
+};
+
+/**
+ * **Neste cavalo** — o que mudou no ativo aberto, e para que lado.
+ *
+ * O bloco mais destacado do cartão, e é uma escolha de hierarquia, não de
+ * estilo: dentro de `Cavalo 360°` o cartão inteiro existe por causa deste
+ * cavalo, e todo o resto — quantos mais mudaram, quanto isso vale na frota — é
+ * o que dimensiona o pedido. O par vem em corpo de número porque é o dado; o
+ * veredito de lado vem em etiqueta ao lado dele porque é a leitura do dado.
+ *
+ * A vigência só é escrita quando é **outra** que a da evidência da frota. Igual,
+ * ela repetiria três linhas abaixo a mesma string; diferente, calá-la deixaria
+ * duas medições de períodos distintos encostadas como se fossem o mesmo evento.
+ */
+function NesteAtivo({
+  leitura,
+  unidade,
+  equipamento,
+}: {
+  leitura: LeituraDoAtivo;
+  unidade: string | null;
+  /** "cavalo" | "carreta" — o cartão fala do ativo pelo nome dele. */
+  equipamento: string;
+}) {
+  const tom = TOM_DO_GRUPO[leitura.tom];
+
+  return (
+    <div className={cn("rounded-xl border px-4 py-3", CAIXA_DO_TOM[leitura.tom])}>
+      <div className="flex items-center gap-2">
+        <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Neste {equipamento}
+        </span>
+        <span className="font-mono text-xs font-semibold">{leitura.placa}</span>
+      </div>
+
+      <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+        <div className="flex items-center gap-2.5 tabular-nums min-w-0">
+          <span className="text-2xl text-muted-foreground">
+            {formatValue(leitura.antes, unidade)}
+          </span>
+          <ArrowRight
+            className="w-5 h-5 text-muted-foreground shrink-0"
+            aria-hidden
+          />
+          <span className={cn("text-2xl font-bold", tom.numero)}>
+            {formatValue(leitura.depois, unidade)}
+          </span>
+        </div>
+        <span
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-semibold",
+            tom.circulo,
+          )}
+        >
+          <tom.Icone className="w-4 h-4 shrink-0" aria-hidden />
+          {leitura.rotulo}
+        </span>
+      </div>
+
+      {leitura.outraVigencia && (
+        <p className="text-xs text-muted-foreground mt-2">
+          Este movimento é da vigência {leitura.sourceLabel} — outra que a da
+          evidência da frota, abaixo.
+        </p>
+      )}
+    </div>
   );
 }
 

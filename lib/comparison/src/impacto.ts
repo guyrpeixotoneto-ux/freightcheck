@@ -239,6 +239,42 @@ const PARAMETRO_INICIAL: Record<string, string> = {
   CARRETA: "carreta.finame_implemento",
 };
 
+/**
+ * Uma vigência, do ponto de vista do eixo das colunas.
+ *
+ * `delivered` é por equipamento e é o que separa "a frota inteira sumiu" de
+ * "esta quinzena veio só com carretas" — ver a regra 2 no topo do arquivo.
+ */
+export interface VigenciaDaMatriz {
+  effectiveDate: string;
+  sourceLabel: string;
+  delivered: boolean;
+}
+
+/** A presença de um ativo numa vigência: ter **qualquer** fato nela. */
+export interface PresencaNaMatriz {
+  effectiveDate: string;
+  entityId: string;
+}
+
+/** O valor do parâmetro num ativo numa vigência, como o banco o entrega. */
+export interface ValorDaMatriz {
+  effectiveDate: string;
+  entityId: string;
+  valueNumeric: string | null;
+  isNull: boolean;
+}
+
+/** O corpo da matriz: as linhas, as somas e a decomposição das pontas. */
+export interface CorpoDaMatriz {
+  periods: QuinzenaPeriod[];
+  groups: QuinzenaGroup[];
+  totals: (number | null)[];
+  grandTotal: number | null;
+  entities: number;
+  pontaAPonta: PontaAPonta | null;
+}
+
 /** Duas casas: o centavo existe no fato, e a soma de 560 ativos não pode deslizar. */
 const round2 = (valor: number) => Math.round(valor * 100) / 100;
 
@@ -439,6 +475,201 @@ export function ordenarPeloAtivo(
 }
 
 /**
+ * A caixa do que não pôde ser dobrado.
+ *
+ * Ordena por último — `￿` é o último ponto de código da BMP — porque ela não
+ * pode abrir a tabela como se fosse o começo do histórico.
+ */
+const SEM_GRUPO = {
+  key: "__sem_data__",
+  label: "sem data de entrada",
+  order: "￿",
+};
+
+/**
+ * A matriz montada a partir dos fatos: células, movimento, grupos e somas.
+ *
+ * Está fora de {@link getQuinzenaMatrix} porque tem **dois** leitores, e o
+ * segundo é a exportação em Excel — que precisa de dezenas de matrizes de uma
+ * vez e por isso lê o banco por equipamento, não por parâmetro. Uma segunda
+ * redação das mesmas regras é o que não pode existir: "ausência não é zero", a
+ * vigência não entregue que não devolve frota, e a comparação que pula as
+ * colunas não entregues são as três garantias desta leitura, e um arquivo que
+ * as reimplementasse iria divergir da tela no primeiro ajuste.
+ *
+ * Nada aqui toca o banco. O que entra são os fatos já lidos, e o que sai é a
+ * tabela — o que também torna as regras conferíveis sem um Postgres à mão.
+ */
+export function montarMatriz(dados: {
+  periodos: VigenciaDaMatriz[];
+  presencas: PresencaNaMatriz[];
+  valores: ValorDaMatriz[];
+  placaDe: Map<string, string>;
+  /** A dobra de cada ativo. Quem não está aqui cai em "sem data de entrada". */
+  grupoDe: Map<string, { key: string; label: string; order: string }>;
+  /** Recorta a população — a placa das telas 360°. Sem ele, entram todos. */
+  noEscopo?: (entityId: string) => boolean;
+}): CorpoDaMatriz {
+  const { periodos, placaDe, grupoDe } = dados;
+  const noEscopo = dados.noEscopo ?? (() => true);
+  const indiceDoPeriodo = new Map(
+    periodos.map((p, i) => [p.effectiveDate, i] as const),
+  );
+
+  const vazio = (): QuinzenaCell[] =>
+    periodos.map((p) => ({
+      value: null,
+      state: p.delivered ? ("FORA_DA_FROTA" as const) : ("NAO_ENTREGUE" as const),
+      delta: null,
+      movimento: null,
+    }));
+
+  const celulas = new Map<string, QuinzenaCell[]>();
+  const linhaDe = (entityId: string) => {
+    let atual = celulas.get(entityId);
+    if (!atual) {
+      atual = vazio();
+      celulas.set(entityId, atual);
+    }
+    return atual;
+  };
+
+  for (const p of dados.presencas) {
+    const i = indiceDoPeriodo.get(p.effectiveDate);
+    if (i === undefined || !noEscopo(p.entityId)) continue;
+    const linha = linhaDe(p.entityId);
+    // Uma vigência que não declarou o equipamento mas trouxe fatos dele é uma
+    // contradição do próprio arquivo; o fato manda, porque ele é o dado.
+    if (linha[i].state === "FORA_DA_FROTA" || linha[i].state === "NAO_ENTREGUE") {
+      linha[i] = { ...linha[i], state: "SEM_VALOR" };
+    }
+  }
+
+  for (const v of dados.valores) {
+    const i = indiceDoPeriodo.get(v.effectiveDate);
+    if (i === undefined || !noEscopo(v.entityId)) continue;
+    const linha = linhaDe(v.entityId);
+    const valor = v.isNull ? null : num(v.valueNumeric);
+    linha[i] =
+      valor === null
+        ? { value: null, state: "SEM_VALOR", delta: null, movimento: null }
+        : { value: valor, state: "VALOR", delta: null, movimento: null };
+  }
+
+  // ---- o movimento de cada célula ------------------------------------------
+  /*
+    A comparação pula as vigências não entregues: a quinzena que veio sem
+    cavalos não é um intervalo em que o cavalo esteve fora, e tratá-la como tal
+    produziria um SAIU seguido de um ENTROU para a frota inteira, duas vezes por
+    entrega parcial.
+  */
+  for (const linha of celulas.values()) {
+    let anterior: QuinzenaCell | null = null;
+    for (let i = 0; i < linha.length; i++) {
+      const celula = linha[i];
+      if (celula.state === "NAO_ENTREGUE") continue;
+
+      if (celula.state === "VALOR") {
+        if (anterior?.state === "VALOR" && anterior.value !== null) {
+          const delta = round2(celula.value! - anterior.value);
+          linha[i] = {
+            ...celula,
+            delta,
+            movimento: delta > 0 ? "SUBIU" : delta < 0 ? "CAIU" : "IGUAL",
+          };
+        } else if (anterior?.state === "FORA_DA_FROTA") {
+          linha[i] = { ...celula, movimento: "ENTROU" };
+        }
+      } else if (celula.state === "FORA_DA_FROTA" && anterior?.state === "VALOR") {
+        linha[i] = { ...celula, movimento: "SAIU" };
+      }
+
+      anterior = linha[i];
+    }
+  }
+
+  // ---- dobra pelo agrupador ------------------------------------------------
+  const porGrupo = new Map<
+    string,
+    { rotulo: string; ordem: string; linhas: QuinzenaRow[] }
+  >();
+  for (const [entityId, cells] of celulas) {
+    const valoresDaLinha = cells.filter((c) => c.state === "VALOR" && c.value !== null);
+    const total =
+      valoresDaLinha.length === 0
+        ? null
+        : round2(valoresDaLinha.reduce((soma, c) => soma + (c.value ?? 0), 0));
+    const first = valoresDaLinha[0]?.value ?? null;
+    const last = valoresDaLinha[valoresDaLinha.length - 1]?.value ?? null;
+
+    const linha: QuinzenaRow = {
+      entityId,
+      plate: placaDe.get(entityId) ?? null,
+      cells,
+      total,
+      first,
+      last,
+      delta: first !== null && last !== null ? round2(last - first) : null,
+      periods: cells.filter((c) => c.state === "VALOR" || c.state === "SEM_VALOR").length,
+    };
+
+    const grupo = grupoDe.get(entityId) ?? SEM_GRUPO;
+    let balde = porGrupo.get(grupo.key);
+    if (!balde) {
+      balde = { rotulo: grupo.label, ordem: grupo.order, linhas: [] };
+      porGrupo.set(grupo.key, balde);
+    }
+    balde.linhas.push(linha);
+  }
+
+  const somaPorPeriodo = (linhas: QuinzenaRow[]): (number | null)[] =>
+    periodos.map((_, i) => {
+      const comValor = linhas.filter((l) => l.cells[i].state === "VALOR");
+      if (comValor.length === 0) return null;
+      return round2(comValor.reduce((soma, l) => soma + (l.cells[i].value ?? 0), 0));
+    });
+
+  const somaTotal = (totais: (number | null)[]): number | null => {
+    const presentes = totais.filter((t): t is number => t !== null);
+    return presentes.length === 0 ? null : round2(presentes.reduce((a, b) => a + b, 0));
+  };
+
+  const groups: QuinzenaGroup[] = [...porGrupo.entries()]
+    .sort((a, b) => a[1].ordem.localeCompare(b[1].ordem))
+    .map(([key, balde]) => {
+      const rows = balde.linhas.sort((a, b) =>
+        (a.plate ?? "").localeCompare(b.plate ?? "", "pt-BR", { numeric: true }),
+      );
+      const totals = somaPorPeriodo(rows);
+      return { key, label: balde.rotulo, rows, totals, total: somaTotal(totals) };
+    });
+
+  const todasAsLinhas = groups.flatMap((g) => g.rows);
+  const totals = somaPorPeriodo(todasAsLinhas);
+
+  const periods: QuinzenaPeriod[] = periodos.map((p, i) => ({
+    effectiveDate: p.effectiveDate,
+    sourceLabel: p.sourceLabel,
+    delivered: p.delivered,
+    entities: todasAsLinhas.filter(
+      (l) =>
+        l.cells[i].state !== "FORA_DA_FROTA" && l.cells[i].state !== "NAO_ENTREGUE",
+    ).length,
+    withValue: todasAsLinhas.filter((l) => l.cells[i].state === "VALOR").length,
+    total: totals[i],
+  }));
+
+  return {
+    periods,
+    groups,
+    totals,
+    grandTotal: somaTotal(totals),
+    entities: todasAsLinhas.length,
+    pontaAPonta: decomporPontaAPonta(periods, todasAsLinhas),
+  };
+}
+
+/**
  * A tabela do impacto: um parâmetro, todos os ativos, todas as vigências.
  *
  * Devolve `null` quando o contexto não tem vigência nenhuma — a rota traduz em
@@ -505,10 +736,6 @@ export async function getQuinzenaMatrix(
      ORDER BY 1
   `);
   if (periodRows.length === 0) return null;
-
-  const indiceDoPeriodo = new Map(
-    periodRows.map((p, i) => [p.effective_date, i] as const),
-  );
 
   // ---- quem estava na frota em cada vigência --------------------------------
   /*
@@ -624,79 +851,6 @@ export async function getQuinzenaMatrix(
   `);
 
   // ---- monta as linhas ------------------------------------------------------
-  const vazio = (): QuinzenaCell[] =>
-    periodRows.map((p) => ({
-      value: null,
-      state: p.delivered ? ("FORA_DA_FROTA" as const) : ("NAO_ENTREGUE" as const),
-      delta: null,
-      movimento: null,
-    }));
-
-  const celulas = new Map<string, QuinzenaCell[]>();
-  const linhaDe = (entityId: string) => {
-    let atual = celulas.get(entityId);
-    if (!atual) {
-      atual = vazio();
-      celulas.set(entityId, atual);
-    }
-    return atual;
-  };
-
-  for (const p of presencas) {
-    const i = indiceDoPeriodo.get(p.effective_date);
-    if (i === undefined || !noEscopo(p.entity_id)) continue;
-    const linha = linhaDe(p.entity_id);
-    // Uma vigência que não declarou o equipamento mas trouxe fatos dele é uma
-    // contradição do próprio arquivo; o fato manda, porque ele é o dado.
-    if (linha[i].state === "FORA_DA_FROTA" || linha[i].state === "NAO_ENTREGUE") {
-      linha[i] = { ...linha[i], state: "SEM_VALOR" };
-    }
-  }
-
-  for (const v of valores) {
-    const i = indiceDoPeriodo.get(v.effective_date);
-    if (i === undefined || !noEscopo(v.entity_id)) continue;
-    const linha = linhaDe(v.entity_id);
-    const valor = v.is_null ? null : num(v.value_numeric);
-    linha[i] =
-      valor === null
-        ? { value: null, state: "SEM_VALOR", delta: null, movimento: null }
-        : { value: valor, state: "VALOR", delta: null, movimento: null };
-  }
-
-  // ---- o movimento de cada célula ------------------------------------------
-  /*
-    A comparação pula as vigências não entregues: a quinzena que veio sem
-    cavalos não é um intervalo em que o cavalo esteve fora, e tratá-la como tal
-    produziria um SAIU seguido de um ENTROU para a frota inteira, duas vezes por
-    entrega parcial.
-  */
-  for (const linha of celulas.values()) {
-    let anterior: QuinzenaCell | null = null;
-    for (let i = 0; i < linha.length; i++) {
-      const celula = linha[i];
-      if (celula.state === "NAO_ENTREGUE") continue;
-
-      if (celula.state === "VALOR") {
-        if (anterior?.state === "VALOR" && anterior.value !== null) {
-          const delta = round2(celula.value! - anterior.value);
-          linha[i] = {
-            ...celula,
-            delta,
-            movimento: delta > 0 ? "SUBIU" : delta < 0 ? "CAIU" : "IGUAL",
-          };
-        } else if (anterior?.state === "FORA_DA_FROTA") {
-          linha[i] = { ...celula, movimento: "ENTROU" };
-        }
-      } else if (celula.state === "FORA_DA_FROTA" && anterior?.state === "VALOR") {
-        linha[i] = { ...celula, movimento: "SAIU" };
-      }
-
-      anterior = linha[i];
-    }
-  }
-
-  // ---- dobra por data de entrada -------------------------------------------
   const grupoDe = new Map<string, { key: string; label: string; order: string }>();
   for (const g of agrupador) {
     const chave = chaveDeAgrupamento({
@@ -706,77 +860,27 @@ export async function getQuinzenaMatrix(
     });
     if (chave) grupoDe.set(g.entity_id, chave);
   }
-  const SEM_GRUPO = {
-    key: "__sem_data__",
-    label: "sem data de entrada",
-    // Ordena por último: é a caixa do que não pôde ser dobrado, e ela não pode
-    // abrir a tabela como se fosse o começo do histórico.
-    order: "￿",
-  };
 
-  const porGrupo = new Map<string, { rotulo: string; ordem: string; linhas: QuinzenaRow[] }>();
-  for (const [entityId, cells] of celulas) {
-    const valoresDaLinha = cells.filter((c) => c.state === "VALOR" && c.value !== null);
-    const total =
-      valoresDaLinha.length === 0
-        ? null
-        : round2(valoresDaLinha.reduce((soma, c) => soma + (c.value ?? 0), 0));
-    const first = valoresDaLinha[0]?.value ?? null;
-    const last = valoresDaLinha[valoresDaLinha.length - 1]?.value ?? null;
-
-    const linha: QuinzenaRow = {
-      entityId,
-      plate: placaDe.get(entityId) ?? null,
-      cells,
-      total,
-      first,
-      last,
-      delta: first !== null && last !== null ? round2(last - first) : null,
-      periods: cells.filter((c) => c.state === "VALOR" || c.state === "SEM_VALOR").length,
-    };
-
-    const grupo = grupoDe.get(entityId) ?? SEM_GRUPO;
-    let balde = porGrupo.get(grupo.key);
-    if (!balde) {
-      balde = { rotulo: grupo.label, ordem: grupo.order, linhas: [] };
-      porGrupo.set(grupo.key, balde);
-    }
-    balde.linhas.push(linha);
-  }
-
-  const somaPorPeriodo = (linhas: QuinzenaRow[]): (number | null)[] =>
-    periodRows.map((_, i) => {
-      const comValor = linhas.filter((l) => l.cells[i].state === "VALOR");
-      if (comValor.length === 0) return null;
-      return round2(comValor.reduce((soma, l) => soma + (l.cells[i].value ?? 0), 0));
-    });
-
-  const somaTotal = (totais: (number | null)[]): number | null => {
-    const presentes = totais.filter((t): t is number => t !== null);
-    return presentes.length === 0 ? null : round2(presentes.reduce((a, b) => a + b, 0));
-  };
-
-  const groups: QuinzenaGroup[] = [...porGrupo.entries()]
-    .sort((a, b) => a[1].ordem.localeCompare(b[1].ordem))
-    .map(([key, balde]) => {
-      const rows = balde.linhas.sort((a, b) =>
-        (a.plate ?? "").localeCompare(b.plate ?? "", "pt-BR", { numeric: true }),
-      );
-      const totals = somaPorPeriodo(rows);
-      return { key, label: balde.rotulo, rows, totals, total: somaTotal(totals) };
-    });
-
-  const todasAsLinhas = groups.flatMap((g) => g.rows);
-  const totals = somaPorPeriodo(todasAsLinhas);
-
-  const periods: QuinzenaPeriod[] = periodRows.map((p, i) => ({
-    effectiveDate: p.effective_date,
-    sourceLabel: p.source_label,
-    delivered: p.delivered,
-    entities: todasAsLinhas.filter((l) => l.cells[i].state !== "FORA_DA_FROTA" && l.cells[i].state !== "NAO_ENTREGUE").length,
-    withValue: todasAsLinhas.filter((l) => l.cells[i].state === "VALOR").length,
-    total: totals[i],
-  }));
+  const corpo = montarMatriz({
+    periodos: periodRows.map((p) => ({
+      effectiveDate: p.effective_date,
+      sourceLabel: p.source_label,
+      delivered: p.delivered,
+    })),
+    presencas: presencas.map((p) => ({
+      effectiveDate: p.effective_date,
+      entityId: p.entity_id,
+    })),
+    valores: valores.map((v) => ({
+      effectiveDate: v.effective_date,
+      entityId: v.entity_id,
+      valueNumeric: v.value_numeric,
+      isNull: v.is_null,
+    })),
+    placaDe,
+    grupoDe,
+    noEscopo,
+  });
 
   return {
     context,
@@ -797,12 +901,7 @@ export async function getQuinzenaMatrix(
             ),
           }
         : null,
-    periods,
-    groups,
-    totals,
-    grandTotal: somaTotal(totals),
-    entities: todasAsLinhas.length,
-    pontaAPonta: decomporPontaAPonta(periods, todasAsLinhas),
+    ...corpo,
   };
 }
 
