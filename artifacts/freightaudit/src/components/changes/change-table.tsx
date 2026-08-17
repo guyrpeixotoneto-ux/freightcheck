@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  CalendarRange,
   ChevronDown,
   ChevronRight,
   HelpCircle,
@@ -252,6 +253,48 @@ function NatureBadge({ row }: { row: ChangeRow }) {
   );
 }
 
+/**
+ * A travessia de uma linha desta lista para a matriz por quinzena.
+ *
+ * A placa vai junto e **não** é recorte: a matriz continua sendo a da frota
+ * inteira, e a placa é só onde a leitura começa — ver `placaEmFoco` em
+ * `impacto-quinzenas.tsx`. Reduzi-la ao ativo responderia outra pergunta: o
+ * total da coluna deixaria de fechar com o que a Ambev pagou, que é a razão de
+ * a matriz existir.
+ */
+export interface TravessiaParaQuinzenas {
+  entityType: string;
+  code: string;
+  /** O ativo de onde se partiu; `null` quando a alteração não é de um ativo. */
+  placa: string | null;
+}
+
+/**
+ * Se esta alteração tem para onde abrir, e com o quê.
+ *
+ * Precisa das duas coisas que a matriz recebe — o parâmetro e o equipamento — e
+ * quem não tem as duas não ganha o botão: uma coluna que entrou ou saiu do
+ * layout chega aqui sem `attributeCode`, e um link que abrisse a matriz no
+ * parâmetro que o servidor escolheria por padrão levaria a pessoa a uma tabela
+ * de outro assunto sem nada dizendo isso.
+ *
+ * **Uma mudança de significado atravessa**, e não é descuido: o parâmetro existe
+ * e a série dele também, e ver os nove valores lado a lado é justamente o que
+ * mostra o degrau que a troca de régua produziu. Um parâmetro sem série numérica
+ * nesta leitura não é filtrado aqui — quem sabe disso é o servidor, e a matriz
+ * diz, ao abrir, que abriu em outro.
+ */
+export function travessiaDaAlteracao(
+  row: ChangeRow,
+): TravessiaParaQuinzenas | null {
+  if (!row.attributeCode || !row.entityType) return null;
+  return {
+    entityType: row.entityType,
+    code: row.attributeCode,
+    placa: row.entityLabel,
+  };
+}
+
 const NATURE_LABELS: Record<string, string> = {
   UNIT: "unidade",
   PERIODICITY: "periodicidade",
@@ -269,12 +312,23 @@ export function ChangeTable({
   total,
   janela,
   onJanela,
+  onVerQuinzenas,
 }: {
   rows: ChangeRow[];
   total: number;
   /** Sem estes dois a tabela é a página única de antes — usada por quem a embute. */
   janela?: Janela;
   onJanela?: (janela: Janela) => void;
+  /**
+   * Abrir o parâmetro da linha na matriz por placa e vigência.
+   *
+   * Opcional porque quem embute esta tabela pode não ter para onde levar: em
+   * Comparar não há aba Impacto ao lado, e um botão que não leva a lugar nenhum
+   * é pior do que a sua ausência. Onde existe, é o mesmo destino a que uma linha
+   * do panorama leva — a alteração é a diferença entre duas colunas, e esta é a
+   * tela que mostra as duas.
+   */
+  onVerQuinzenas?: (travessia: TravessiaParaQuinzenas) => void;
 }) {
   const [expanded, setExpanded] = useState<number | null>(null);
 
@@ -302,10 +356,12 @@ export function ChangeTable({
           </tr>
         </thead>
         <tbody>
+          {/* Fragment com key: cada alteração rende duas famílias de linhas — a
+              dela e a do detalhe —, e um fragmento sem key numa lista deixa o
+              React reconciliando pela posição. */}
           {rows.map((row) => (
-            <>
+            <Fragment key={row.id}>
               <tr
-                key={row.id}
                 className={cn(
                   "border-b hover:bg-muted/40 cursor-pointer",
                   row.comparability === "INCONCLUSIVE" && "bg-amber-50/50",
@@ -327,7 +383,7 @@ export function ChangeTable({
                   <div className="font-mono text-xs text-muted-foreground">
                     {row.attributeCode ?? "—"}
                   </div>
-                  <div className="font-medium">{row.attributeName ?? "—"}</div>
+                  <NomeDoAtributo row={row} onVerQuinzenas={onVerQuinzenas} />
                   {row.category === "SEMANTICS_CHANGE" && (
                     <div className="text-xs text-violet-800 mt-0.5">
                       {natureLabel(row.nature)}
@@ -381,14 +437,14 @@ export function ChangeTable({
                 </td>
               </tr>
               {expanded === row.id && (
-                <tr key={`${row.id}-detail`} className="border-b bg-muted/30">
+                <tr className="border-b bg-muted/30">
                   <td />
                   <td colSpan={7} className="px-4 py-4">
                     <ChangeDetail row={row} />
                   </td>
                 </tr>
               )}
-            </>
+            </Fragment>
           ))}
         </tbody>
       </table>
@@ -414,6 +470,59 @@ export function ChangeTable({
         )
       )}
     </div>
+  );
+}
+
+/**
+ * O nome do atributo — e a porta para as nove vigências dele.
+ *
+ * A linha inteira continua abrindo o detalhe de procedência: é a pergunta "de
+ * onde saiu este número", e ela era a única que esta tabela respondia. O nome do
+ * atributo passa a responder a outra, que é a que se faz depois de ler a
+ * variação: *isso vinha acontecendo, ou foi agora?* Uma linha com duas colunas —
+ * antes e agora — não tem como responder isso, e a matriz por quinzena tem: são
+ * as mesmas nove colunas que sustentam o número do panorama.
+ *
+ * As duas convivem porque são dois destinos, e o clique é de quem escolhe: o
+ * `stopPropagation` é o que impede que abrir a matriz abra também o detalhe da
+ * linha por baixo dela, deixando o expandido aceso numa tela que já mudou.
+ */
+function NomeDoAtributo({
+  row,
+  onVerQuinzenas,
+}: {
+  row: ChangeRow;
+  onVerQuinzenas?: (travessia: TravessiaParaQuinzenas) => void;
+}) {
+  const travessia = travessiaDaAlteracao(row);
+
+  if (!onVerQuinzenas || travessia === null) {
+    return <div className="font-medium">{row.attributeName ?? "—"}</div>;
+  }
+
+  /*
+    Sem nome de exibição, o botão é o código — que a linha de cima já mostra em
+    cinza. A repetição é preferível a um travessão clicável: o alvo do clique
+    precisa dizer o que se vai abrir.
+  */
+  const nome = row.attributeName ?? travessia.code;
+
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onVerQuinzenas(travessia);
+      }}
+      title={`ver ${nome} em todas as vigências, por placa`}
+      className="group inline-flex items-start gap-1.5 text-left font-medium text-brand hover:underline"
+    >
+      <span>{nome}</span>
+      <CalendarRange
+        className="mt-0.5 w-3.5 h-3.5 shrink-0 opacity-50 transition-opacity group-hover:opacity-100"
+        aria-hidden
+      />
+    </button>
   );
 }
 
