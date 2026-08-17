@@ -287,7 +287,7 @@ function UserRow({ user }: { user: ManagedUser }) {
           <div className="text-sm text-muted-foreground font-mono truncate">
             {user.email}
           </div>
-          <AccountId id={user.id} />
+          {isMe && <AccountId id={user.id} />}
           <div className="text-xs text-muted-foreground mt-1">
             {user.lastLoginAt
               ? `Último acesso em ${dateTime(user.lastLoginAt)}`
@@ -407,9 +407,13 @@ function UserRow({ user }: { user: ManagedUser }) {
  * sessões. São dois nomes para a mesma pessoa, e até aqui só um deles era
  * visível — quem precisava do outro tinha que abrir o banco.
  *
- * Fica em segundo plano de propósito: menor, mais claro, atrás de um rótulo.
- * Não é segredo — esta tela já exige sessão, e o id não abre nada por si —, mas
- * também não é o que se lê primeiro numa linha desta lista.
+ * Aparece **apenas na própria linha**. O id de outra pessoa não é segredo — esta
+ * tela já exige sessão, e ele não abre nada por si — mas também não é assunto de
+ * quem olha a lista: as ações sobre as outras contas já são botões aqui, e
+ * nenhuma delas pede que se leia um uuid. Quem procura um id procura o seu.
+ *
+ * Fica em segundo plano de propósito: menor, atrás de um rótulo. Não é o que se
+ * lê primeiro numa linha desta lista.
  */
 function AccountId({ id }: { id: string }) {
   const [copied, setCopied] = useState(false);
