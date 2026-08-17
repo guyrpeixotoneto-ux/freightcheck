@@ -312,7 +312,7 @@ function capitalizar(texto: string): string {
 }
 
 /** Quantos pontos a fila abre mostrando, antes de alguém pedir o resto. */
-const PONTOS_VISIVEIS = 3;
+const PONTOS_VISIVEIS = 15;
 
 /**
  * A fila, em tabela.
