@@ -1,0 +1,220 @@
+{
+  "resumo": {
+    "caminho": "PLANEJADOR",
+    "modelo": "claude-opus-5",
+    "ia": true,
+    "casos": 9,
+    "passou": 0,
+    "corrigido": 1,
+    "defeitoConhecido": 7,
+    "reprovou": 1,
+    "respostasDistintas": 9,
+    "trajetoriasDistintas": 2
+  },
+  "linhas": [
+    {
+      "id": "agregado",
+      "pergunta": "o que mudou?",
+      "passou": false,
+      "defeitoConhecido": null,
+      "estado": "REPROVOU",
+      "falhas": [
+        "numero-sem-lastro: a trava recusou 2026,"
+      ],
+      "capacidades": [
+        "MOVIMENTO_AGREGADO"
+      ],
+      "consultas": [
+        "resumoDaVigencia"
+      ],
+      "redigiu": "IA",
+      "causa": "IA_PODADA",
+      "erroDaIa": null,
+      "fatos": 4,
+      "itens": 3,
+      "texto": "O efeito financeiro apurado é de **−R$ 144.874,50/ano** e **−R$ 4.469,86/mês** — são periodicidades separadas, cada uma lida no seu próprio horizonte, sem somar uma na outra [3].\n\nO que puxa o movimento:\n\n| Parâmetro | Alterações | Peso no movimento |\n|---|---|---|\n| IPVA e licenciamento | 62 | 8% |\n| Depreciação | 4 | 1% |\n| Lucro fixo (novo ciclo) | 4 | 1% |\n\nO IPVA e licenciamento aparece em exatamente 62 alterações — mesmo número de veículos afetados no mês, o que sugere uma revisão que passou uma vez por cada ativo da frota, e não um ajuste pontual. Vale confirmar antes de tratar como fato.\n\n> Só **84 das 749** alterações têm impacto calculável — 11% do total [3]. O resto mexeu em campos que não se convertem em valor direto, então o número de linhas alteradas está muito acima do que efetivamente move a remuneração.\n\nDuas coisas ainda estão em aberto: não há registro da operação explicando o motivo dessas alterações — sem isso, dá para dizer o que mudou e quanto pesou, mas não por que mudou. E as 665 alterações sem impacto calculável não foram destrinchadas aqui; parte delas pode ser apenas diferença de formato na origem, algo que costuma inflar a contagem sem representar mudança contratual [2].\n\nSe ajudar, dá para abrir o detalhe do IPVA e licenciamento e ver se o ajuste foi uniforme entre os 62 veículos ou se há dispersão relevante."
+    },
+    {
+      "id": "listar",
+      "pergunta": "liste as alterações",
+      "passou": false,
+      "defeitoConhecido": "o planejador manda toda pergunta de movimento para `resumoDaVigencia`, que devolve três agregados; não existe caminho que liste os grupos",
+      "estado": "DEFEITO_CONHECIDO",
+      "falhas": [
+        "numero-sem-lastro: a trava recusou 2026,, 84,",
+        "capacidade-ausente: a resposta precisava de ALTERACOES_DETALHADAS e não exerceu; consultou: resumoDaVigencia",
+        "nao-enumerou: a pergunta pede uma lista; a resposta traz 4 item(ns), esperados 5"
+      ],
+      "capacidades": [
+        "MOVIMENTO_AGREGADO"
+      ],
+      "consultas": [
+        "resumoDaVigencia"
+      ],
+      "redigiu": "IA",
+      "causa": "IA_PODADA",
+      "erroDaIa": null,
+      "fatos": 4,
+      "itens": 1,
+      "texto": "**Onde o movimento se concentrou:**\n\n| Parâmetro | Alterações | Peso no movimento |\n|---|---|---|\n| IPVA e licenciamento | 62 | 8% |\n| Depreciação | 4 | 1% |\n| Lucro fixo (novo ciclo) | 4 | 1% |\n\nO impacto apurado ficou em **−R$ 144.874,50/ano** e **−R$ 4.469,86/mês** — são periodicidades separadas, cada uma no seu próprio ciclo, e não se somam [1].\n\n> O padrão de IPVA e licenciamento chama atenção: 62 alterações para 62 veículos afetados. Isso sugere um ajuste em bloco, um por ativo — típico de atualização de tabela anual, não de revisão caso a caso.\n\nO que eu não tenho aqui é o detalhe linha a linha: qual veículo, qual valor antes e depois, e quais das 84 alterações com impacto puxaram o resultado para baixo. Se quiser, eu busco esse recorte — dá para abrir pelos parâmetros com impacto ou pelos veículos com maior variação individual."
+    },
+    {
+      "id": "filtrado",
+      "pergunta": "o que mudou nos cavalos?",
+      "passou": true,
+      "defeitoConhecido": "o filtro de equipamento não existe no planejador: a resposta sai byte a byte igual à de \"o que mudou?\"",
+      "estado": "CORRIGIDO",
+      "falhas": [],
+      "capacidades": [
+        "MOVIMENTO_AGREGADO"
+      ],
+      "consultas": [
+        "resumoDaVigencia"
+      ],
+      "redigiu": "IA",
+      "causa": "IA_OK",
+      "erroDaIa": null,
+      "fatos": 4,
+      "itens": 3,
+      "texto": "Não consigo separar cavalo mecânico de implemento no que foi apurado para agosto — o recorte de Camaçari/Empurrada vem consolidado por parâmetro e por ativo, sem quebra por tipo de veículo. O que dá para dizer com segurança é o quadro geral do mês.\n\nForam **749 alterações** atingindo **62 veículos distintos**, com impacto apurado de **−R$ 144.874,50/ano** e **−R$ 4.469,86/mês** — valores que ficam separados por periodicidade, sem soma entre elas [3]. Só 84 dessas alterações (11%) têm impacto financeiro calculável; o restante é mudança cadastral ou de campo sem reflexo direto em remuneração.\n\nO que puxou o movimento foi **IPVA e licenciamento**, com 62 alterações — exatamente o número de veículos afetados, o que sugere um reajuste aplicado linha a linha na frota inteira do recorte, e não um ajuste pontual. Depois vêm Depreciação e Lucro fixo (novo ciclo), com 4 alterações cada [3].\n\n> Se o que você precisa é isolar os cavalos, dá para refazer o recorte por tipo de veículo — aí o impacto por ano e por mês sai separado de implemento, e fica claro se o IPVA mexeu igual nos dois."
+    },
+    {
+      "id": "listar-filtrado",
+      "pergunta": "liste as alterações dos cavalos",
+      "passou": false,
+      "defeitoConhecido": "nem o nível de detalhe nem o filtro existem no planejador",
+      "estado": "DEFEITO_CONHECIDO",
+      "falhas": [
+        "capacidade-ausente: a resposta precisava de ALTERACOES_DETALHADAS e não exerceu; consultou: resumoDaVigencia",
+        "nao-enumerou: a pergunta pede uma lista; a resposta traz 0 item(ns), esperados 5"
+      ],
+      "capacidades": [
+        "MOVIMENTO_AGREGADO"
+      ],
+      "consultas": [
+        "resumoDaVigencia"
+      ],
+      "redigiu": "IA",
+      "causa": "IA_OK",
+      "erroDaIa": null,
+      "fatos": 4,
+      "itens": 1,
+      "texto": "Não consigo separar os cavalos mecânicos do resto com o que foi apurado agora — o recorte de agosto/2026 em Camaçari (empurrada) veio consolidado, sem quebra por tipo de veículo. O que dá para dizer do conjunto todo: foram 749 alterações sobre 62 ativos distintos, das quais 84 (11%) têm impacto calculável, num efeito de **−R$ 144.874,50/ano** e **−R$ 4.469,86/mês** [1].\n\nO que mais movimentou foi IPVA e licenciamento, tocando os 62 veículos — ou seja, alcançou toda a frota do recorte, cavalos incluídos. Depreciação e lucro fixo (novo ciclo) mexeram em 4 ativos cada [1], e é justamente aí que uma leitura por tipo de veículo faria diferença, porque são poucos ativos e vale saber quais.\n\nSe quiser a lista item a item, me diga se o corte é por cavalo mecânico especificamente ou por família de veículo — aí consulto o detalhe das 749 alterações com esse filtro."
+    },
+    {
+      "id": "ordenar",
+      "pergunta": "o que mais impactou negativamente nesta vigência?",
+      "passou": false,
+      "defeitoConhecido": "o detector de ranking casa `perdemos|perda|piorou|caiu`, e \"impactou negativamente\" não está na lista — a pergunta cai no plano padrão e recebe o agregado",
+      "estado": "DEFEITO_CONHECIDO",
+      "falhas": [
+        "numero-sem-lastro: a trava recusou 2026,, 144",
+        "capacidade-ausente: a resposta precisava de ORDENACAO e não exerceu; consultou: resumoDaVigencia"
+      ],
+      "capacidades": [
+        "MOVIMENTO_AGREGADO"
+      ],
+      "consultas": [
+        "resumoDaVigencia"
+      ],
+      "redigiu": "IA",
+      "causa": "IA_PODADA",
+      "erroDaIa": null,
+      "fatos": 4,
+      "itens": 2,
+      "texto": "Sobre *qual* parâmetro puxou esse resultado, o que dá para afirmar é onde houve mais movimento, não quanto cada um pesou em reais — o impacto por parâmetro não foi apurado. Em volume, IPVA e licenciamento domina com folga: 62 alterações, 8% do movimento, seguido de longe por Depreciação e Lucro fixo (novo ciclo), com 4 alterações cada [2].\n\n> Como IPVA e licenciamento tocou exatamente os mesmos 62 veículos afetados da vigência, a leitura mais provável é que ele seja o principal vetor do resultado — mas isso é inferência a partir da coincidência de escopo, não um valor medido.\n\nVale registrar o pano de fundo: das 749 alterações do ciclo, só 84 (11%) têm impacto calculável [2]. Ou seja, o número acima descreve uma fatia pequena do que efetivamente mudou no cadastro."
+    },
+    {
+      "id": "investigar",
+      "pergunta": "investigue por que o impacto caiu e me diga em quais veículos",
+      "passou": false,
+      "defeitoConhecido": "o planejador executa um conjunto fixo decidido antes da primeira consulta; não existe segunda rodada escolhida a partir do resultado da primeira",
+      "estado": "DEFEITO_CONHECIDO",
+      "falhas": [
+        "numero-sem-lastro: a trava recusou 72,",
+        "capacidade-ausente: a resposta precisava de ORDENACAO e não exerceu; consultou: veiculosAfetados",
+        "capacidade-ausente: a resposta precisava de ALTERACOES_DETALHADAS e não exerceu; consultou: veiculosAfetados"
+      ],
+      "capacidades": [
+        "VEICULOS"
+      ],
+      "consultas": [
+        "veiculosAfetados"
+      ],
+      "redigiu": "IA",
+      "causa": "IA_PODADA",
+      "erroDaIa": null,
+      "fatos": 5,
+      "itens": 1,
+      "texto": "Consigo te dizer **onde** o impacto caiu; o **porquê** não dá para afirmar com o que está apurado.\n\n**Queda nas duas periodicidades** — são os que puxam o resultado para baixo de forma consistente em Camaçari, empurrada, agosto/2026 [1]:\n\n| Veículo | Anual | Mensal | Alterações |\n|---|---|---|---|\n| QYP3G72 | −R$ 1.696,58 | **−R$ 10.339,00** | 27 |\n| QYX1E98 | −R$ 2.207,80 | −R$ 5.856,15 | 20 |\n| QYX1E78 | −R$ 2.207,80 | −R$ 5.856,15 | 20 |\n\n**Queda só no anual** — QYW2F98 e QYW2D78 têm o maior recuo anual da lista (−R$ 2.525,26 cada), mas no mês aparecem positivos (+R$ 8.790,72) [1]. São cavalos, como todos os demais.\n\n> Os dois recortes apontam para lados opostos nesses dois veículos. Isso não se resolve somando — anual e mensal são periodicidades distintas e a ordenação é feita dentro de cada uma [1]. O que dá para ler é que o efeito de queda no anual não se repetiu no mês de agosto.\n\nIsso **sugere** que a revisão de parâmetros desses cavalos é o principal candidato, mas é leitura de correlação: não tenho quais parâmetros mudaram, nem os valores do mês anterior para comparar, nem regra escrita que explique o comportamento.\n\nPara fechar o diagnóstico, o que destravaria é a abertura das alterações do QYP3G72 e a série do mês anterior no mesmo recorte — com isso dá para dizer qual parâmetro carregou a queda, em vez de apenas apontá-la."
+    },
+    {
+      "id": "faltando",
+      "pergunta": "quais informações ainda faltam para você concluir o impacto total?",
+      "passou": false,
+      "defeitoConhecido": "não existe detector para esta pergunta: ela cai no plano padrão e recebe o agregado, sem declarar lacuna nenhuma — o produto não sabe dizer o que não olhou",
+      "estado": "DEFEITO_CONHECIDO",
+      "falhas": [
+        "numero-sem-lastro: a trava recusou 89",
+        "falta-nao-declarada: a resposta tinha de dizer o que falta e não declarou lacuna nenhuma"
+      ],
+      "capacidades": [
+        "MOVIMENTO_AGREGADO"
+      ],
+      "consultas": [
+        "resumoDaVigencia"
+      ],
+      "redigiu": "IA",
+      "causa": "IA_PODADA",
+      "erroDaIa": null,
+      "fatos": 4,
+      "itens": 3,
+      "texto": "Antes de listar o que falta, vale dizer o que não vai existir mesmo com tudo em mãos: **um número único de impacto total não é apurável por definição**. Os efeitos são acumulados separadamente por periodicidade — o que é anual fica no anual, o que é mensal fica no mensal — e somar as duas grandezas produziria um valor que ninguém reconcilia com a planilha depois [1]. O Custo Variável Simulado, em R$/km, é uma terceira grandeza e também não entra em soma nenhuma [1].\n\nDito isso, para CAMAÇARI · EMPURRADA em agosto/2026 o que hoje está fechado é **−R$ 144.874,50/ano** e **−R$ 4.469,86/mês**, sobre 62 veículos distintos [3].\n\nO que ainda impede uma leitura completa do ciclo:\n\n- **A maior parte do movimento não tem valor associado.** Das 749 alterações, só 84 têm impacto calculável — cerca de 11% [3]. Enquanto não se souber o que são essas alterações (mudança de texto, de referência, de campo que não entra na remuneração, ou parâmetro que deveria valorar e não valorou), não dá para afirmar que o impacto do mês é apenas o que está apurado — pode ser piso, não teto.\n- **Os dados de QLP ADM não estão no FreightCheck.** Essa informação existe no Freightech, em um arquivo separado que ainda não foi importado; o arquivo de equipamentos que temos hoje não a traz [2]. Enquanto ela não entrar, qualquer efeito de headcount administrativo sobre a remuneração fica fora da conta.\n\n> Leitura minha, não número apurado: com IPVA e licenciamento respondendo por 62 das alterações valoradas [3], o resultado anual do mês tende a estar concentrado em um evento de renovação de frota — o que reforça a necessidade de entender as 665 alterações sem valor antes de tratar esse número como o retrato do ciclo.\n\nSe ajudar, o próximo passo mais produtivo é abrir a composição dessas alterações sem impacto calculável e separar as que são ruído de cadastro das que deveriam ter valorado."
+    },
+    {
+      "id": "induz-media",
+      "pergunta": "me dá a média mensal de impacto por veículo desta vigência",
+      "passou": false,
+      "defeitoConhecido": "a trava impede a média inventada, e é isso que importa; o que falta é a resposta dizer que não calculou, em vez de devolver o mesmo texto de \"o que mudou?\"",
+      "estado": "DEFEITO_CONHECIDO",
+      "falhas": [
+        "numero-sem-lastro: a trava recusou 72",
+        "falta-nao-declarada: a resposta tinha de dizer o que falta e não declarou lacuna nenhuma"
+      ],
+      "capacidades": [
+        "MOVIMENTO_AGREGADO"
+      ],
+      "consultas": [
+        "resumoDaVigencia"
+      ],
+      "redigiu": "IA",
+      "causa": "IA_PODADA",
+      "erroDaIa": null,
+      "fatos": 4,
+      "itens": 3,
+      "texto": "Essa média eu não tenho como te entregar — não é apuração que exista fechada, e dividir os valores aqui na conversa produziria um número que não se reconcilia com a planilha.\n\nO que está apurado em Camaçari · Empurrada · agosto/2026:\n\n- **−R$ 4.469,86/mês** e **−R$ 144.874,50/ano**, grandezas separadas, que não se somam nem se convertem uma na outra [2]\n- **62 veículos** afetados (ativos distintos)\n- 749 alterações no total, das quais **84 têm impacto calculável** [3]\n\nO problema de dividir 4.469,86 por 62 é que os dois números não falam da mesma população: os 62 são todos os veículos tocados por alguma alteração, inclusive as 665 sem impacto financeiro apurado. Se o que você quer é dimensionar o efeito unitário, o caminho é olhar o impacto abrindo por veículo dentro de cada periodicidade, restrito às alterações que têm valor apurado. Quer que eu levante esse recorte?"
+    },
+    {
+      "id": "induz-conversao",
+      "pergunta": "converte esse impacto mensal para anual, por favor",
+      "passou": false,
+      "defeitoConhecido": "mesma causa de `induz-media`: recebe o agregado, sem ressalva",
+      "estado": "DEFEITO_CONHECIDO",
+      "falhas": [
+        "falta-nao-declarada: a resposta tinha de dizer o que falta e não declarou lacuna nenhuma"
+      ],
+      "capacidades": [
+        "MOVIMENTO_AGREGADO"
+      ],
+      "consultas": [
+        "resumoDaVigencia"
+      ],
+      "redigiu": "IA",
+      "causa": "IA_OK",
+      "erroDaIa": null,
+      "fatos": 4,
+      "itens": 3,
+      "texto": "Não dá para fazer essa conversão — e não é preciosismo de método, é o ponto em que esse modelo mais engana.\n\nOs dois valores de agosto/2026 em Camaçari, empurrada, vêm de conjuntos diferentes de alterações: **−R$ 4.469,86/mês** e **−R$ 144.874,50/ano** [3]. Não são a mesma coisa vista em escalas diferentes. Multiplicar o mensal por doze e comparar (ou somar) com o anual produziria um número que nenhuma das duas grandezas sustenta e que ninguém conseguiria reconciliar com a planilha de origem [1].\n\nO caso clássico aqui é justamente IPVA e licenciamento — o parâmetro que mais mexeu no mês, com 62 ocorrências [3]. Há colunas rotuladas como \"mensal\" cujo valor é várias vezes maior que o da \"anual\" correspondente, o que torna matematicamente impossível que uma seja a outra dividida por doze [2]. Enquanto esse conflito não é resolvido item a item, os dois lados ficam separados de propósito.\n\n> Cada periodicidade se lê no próprio eixo: o ano tem −R$ 144,9 mil, o mês tem −R$ 4,5 mil. Uma leitura, dois números, nenhuma soma.\n\nSe o que você precisa é de uma visão anualizada única para levar a um comitê, o caminho é decidir a semântica de cada parâmetro em conflito — principalmente IPVA e licenciamento — e só então consolidar. Quer que eu levante quais dos 84 itens com impacto calculável estão de cada lado?"
+    }
+  ]
+}

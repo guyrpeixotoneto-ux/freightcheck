@@ -1,0 +1,175 @@
+{
+  "resumo": {
+    "caminho": "AGENTE",
+    "modelo": "claude-opus-5",
+    "ia": true,
+    "casos": 9,
+    "passou": 0,
+    "corrigido": 0,
+    "defeitoConhecido": 8,
+    "reprovou": 1,
+    "respostasDistintas": 6,
+    "trajetoriasDistintas": 1
+  },
+  "linhas": [
+    {
+      "id": "agregado",
+      "pergunta": "o que mudou?",
+      "passou": false,
+      "defeitoConhecido": null,
+      "estado": "REPROVOU",
+      "falhas": [
+        "capacidade-ausente: a resposta precisava de MOVIMENTO_AGREGADO e não exerceu; consultou: nada"
+      ],
+      "capacidades": [],
+      "consultas": [],
+      "redigiu": "DETERMINISTICA",
+      "causa": "ERRO",
+      "fatos": 0,
+      "itens": 0,
+      "texto": "Alterações em agosto/2026: 749 — 11% do que mudou tem impacto calculável (84 de 749) [3].\n\nveículos afetados: 62 (ativos distintos — o mesmo caminhão não conta duas vezes); impacto apurado: −R$ 144.874,50/ano · −R$ 4.469,86/mês (por periodicidade, nunca somado entre elas); parâmetros que mais mexeram: IPVA e licenciamento (62, 8% do movimento), Depreciação (4, 1% do movimento), Lucro fixo (novo ciclo) (4, 1% do movimento) [3].\n\n**Parâmetros** responde \"o que mudou, em quantos veículos, e quanto vale\". Vem do export do Freightec, que é o cadastro remunerado da frota congelado por vigência.\n\n**Book do Operador** responde \"qual é a regra\". Vem de fora do export, registrado por quem opera.\n\nOs dois se completam e nenhum substitui o outro. O Book não traz valores por placa; Parâmetros não traz regra. Quando uma alteração aparece em Parâmetros e ninguém entende por que ela aconteceu, o Book é onde a explicação deveria estar — e se não estiver, o bloco vazio diz isso. [1]"
+    },
+    {
+      "id": "listar",
+      "pergunta": "liste as alterações",
+      "passou": false,
+      "defeitoConhecido": "o planejador manda toda pergunta de movimento para `resumoDaVigencia`, que devolve três agregados; não existe caminho que liste os grupos",
+      "estado": "DEFEITO_CONHECIDO",
+      "falhas": [
+        "capacidade-ausente: a resposta precisava de ALTERACOES_DETALHADAS e não exerceu; consultou: nada",
+        "nao-enumerou: a pergunta pede uma lista; a resposta traz 0 item(ns), esperados 5"
+      ],
+      "capacidades": [],
+      "consultas": [],
+      "redigiu": "DETERMINISTICA",
+      "causa": "ERRO",
+      "fatos": 0,
+      "itens": 0,
+      "texto": "Alterações em agosto/2026: 749 — 11% do que mudou tem impacto calculável (84 de 749) [1].\n\nveículos afetados: 62 (ativos distintos — o mesmo caminhão não conta duas vezes); impacto apurado: −R$ 144.874,50/ano · −R$ 4.469,86/mês (por periodicidade, nunca somado entre elas); parâmetros que mais mexeram: IPVA e licenciamento (62, 8% do movimento), Depreciação (4, 1% do movimento), Lucro fixo (novo ciclo) (4, 1% do movimento) [1]."
+    },
+    {
+      "id": "filtrado",
+      "pergunta": "o que mudou nos cavalos?",
+      "passou": false,
+      "defeitoConhecido": "o filtro de equipamento não existe no planejador: a resposta sai byte a byte igual à de \"o que mudou?\"",
+      "estado": "DEFEITO_CONHECIDO",
+      "falhas": [
+        "nao-restringiu: a pergunta nomeia \"cavalo\" e nem a resposta nem o material consultado o mencionam",
+        "resposta-identica: texto byte a byte igual ao de \"agregado\" — duas perguntas diferentes, uma resposta"
+      ],
+      "capacidades": [],
+      "consultas": [],
+      "redigiu": "DETERMINISTICA",
+      "causa": "ERRO",
+      "fatos": 0,
+      "itens": 0,
+      "texto": "Alterações em agosto/2026: 749 — 11% do que mudou tem impacto calculável (84 de 749) [3].\n\nveículos afetados: 62 (ativos distintos — o mesmo caminhão não conta duas vezes); impacto apurado: −R$ 144.874,50/ano · −R$ 4.469,86/mês (por periodicidade, nunca somado entre elas); parâmetros que mais mexeram: IPVA e licenciamento (62, 8% do movimento), Depreciação (4, 1% do movimento), Lucro fixo (novo ciclo) (4, 1% do movimento) [3].\n\n**Parâmetros** responde \"o que mudou, em quantos veículos, e quanto vale\". Vem do export do Freightec, que é o cadastro remunerado da frota congelado por vigência.\n\n**Book do Operador** responde \"qual é a regra\". Vem de fora do export, registrado por quem opera.\n\nOs dois se completam e nenhum substitui o outro. O Book não traz valores por placa; Parâmetros não traz regra. Quando uma alteração aparece em Parâmetros e ninguém entende por que ela aconteceu, o Book é onde a explicação deveria estar — e se não estiver, o bloco vazio diz isso. [1]"
+    },
+    {
+      "id": "listar-filtrado",
+      "pergunta": "liste as alterações dos cavalos",
+      "passou": false,
+      "defeitoConhecido": "nem o nível de detalhe nem o filtro existem no planejador",
+      "estado": "DEFEITO_CONHECIDO",
+      "falhas": [
+        "capacidade-ausente: a resposta precisava de ALTERACOES_DETALHADAS e não exerceu; consultou: nada",
+        "nao-enumerou: a pergunta pede uma lista; a resposta traz 0 item(ns), esperados 5",
+        "nao-restringiu: a pergunta nomeia \"cavalo\" e nem a resposta nem o material consultado o mencionam",
+        "resposta-identica: texto byte a byte igual ao de \"listar\" — duas perguntas diferentes, uma resposta"
+      ],
+      "capacidades": [],
+      "consultas": [],
+      "redigiu": "DETERMINISTICA",
+      "causa": "ERRO",
+      "fatos": 0,
+      "itens": 0,
+      "texto": "Alterações em agosto/2026: 749 — 11% do que mudou tem impacto calculável (84 de 749) [1].\n\nveículos afetados: 62 (ativos distintos — o mesmo caminhão não conta duas vezes); impacto apurado: −R$ 144.874,50/ano · −R$ 4.469,86/mês (por periodicidade, nunca somado entre elas); parâmetros que mais mexeram: IPVA e licenciamento (62, 8% do movimento), Depreciação (4, 1% do movimento), Lucro fixo (novo ciclo) (4, 1% do movimento) [1]."
+    },
+    {
+      "id": "ordenar",
+      "pergunta": "o que mais impactou negativamente nesta vigência?",
+      "passou": false,
+      "defeitoConhecido": "o detector de ranking casa `perdemos|perda|piorou|caiu`, e \"impactou negativamente\" não está na lista — a pergunta cai no plano padrão e recebe o agregado",
+      "estado": "DEFEITO_CONHECIDO",
+      "falhas": [
+        "capacidade-ausente: a resposta precisava de ORDENACAO e não exerceu; consultou: nada"
+      ],
+      "capacidades": [],
+      "consultas": [],
+      "redigiu": "DETERMINISTICA",
+      "causa": "ERRO",
+      "fatos": 0,
+      "itens": 0,
+      "texto": "Alterações em agosto/2026: 749 — 11% do que mudou tem impacto calculável (84 de 749) [2].\n\nveículos afetados: 62 (ativos distintos — o mesmo caminhão não conta duas vezes); impacto apurado: −R$ 144.874,50/ano · −R$ 4.469,86/mês (por periodicidade, nunca somado entre elas); parâmetros que mais mexeram: IPVA e licenciamento (62, 8% do movimento), Depreciação (4, 1% do movimento), Lucro fixo (novo ciclo) (4, 1% do movimento) [2].\n\nUma vigência é uma foto do cadastro remunerado numa data, dentro de um contexto `(unidade, canal)`. Ela nasce de uma planilha importada e só passa a valer depois de **promovida** — e entre a importação e a promoção existe uma decisão humana, de propósito.\n\nDepois de fechada, a vigência é congelada por trigger no banco: não se edita uma vigência já promovida. Corrigir a fonte é reimportar; corrigir a nossa interpretação é outra ação, e vive na Curadoria. [1]"
+    },
+    {
+      "id": "investigar",
+      "pergunta": "investigue por que o impacto caiu e me diga em quais veículos",
+      "passou": false,
+      "defeitoConhecido": "o planejador executa um conjunto fixo decidido antes da primeira consulta; não existe segunda rodada escolhida a partir do resultado da primeira",
+      "estado": "DEFEITO_CONHECIDO",
+      "falhas": [
+        "capacidade-ausente: a resposta precisava de ORDENACAO e não exerceu; consultou: nada",
+        "capacidade-ausente: a resposta precisava de ALTERACOES_DETALHADAS e não exerceu; consultou: nada"
+      ],
+      "capacidades": [],
+      "consultas": [],
+      "redigiu": "DETERMINISTICA",
+      "causa": "ERRO",
+      "fatos": 0,
+      "itens": 0,
+      "texto": "QYP3G72 em agosto/2026: −R$ 1.696,58/ano · −R$ 10.339,00/mês — 27 alterações · cavalo [1].\n\nVeículos mais impactados em agosto/2026 [1]:\n\n- **QYW2F98:** −R$ 2.525,26/ano · +R$ 8.790,72/mês — 12 alterações · cavalo\n- **QYW2D78:** −R$ 2.525,26/ano · +R$ 8.790,72/mês — 12 alterações · cavalo\n- **QYX1E98:** −R$ 2.207,80/ano · −R$ 5.856,15/mês — 20 alterações · cavalo\n- **QYX1E78:** −R$ 2.207,80/ano · −R$ 5.856,15/mês — 20 alterações · cavalo\n\nOrdenado pelo maior valor absoluto dentro de uma periodicidade, nunca pela soma entre elas."
+    },
+    {
+      "id": "faltando",
+      "pergunta": "quais informações ainda faltam para você concluir o impacto total?",
+      "passou": false,
+      "defeitoConhecido": "não existe detector para esta pergunta: ela cai no plano padrão e recebe o agregado, sem declarar lacuna nenhuma — o produto não sabe dizer o que não olhou",
+      "estado": "DEFEITO_CONHECIDO",
+      "falhas": [
+        "falta-nao-declarada: a resposta tinha de dizer o que falta e não declarou lacuna nenhuma"
+      ],
+      "capacidades": [],
+      "consultas": [],
+      "redigiu": "DETERMINISTICA",
+      "causa": "ERRO",
+      "fatos": 0,
+      "itens": 0,
+      "texto": "Alterações em agosto/2026: 749 — 11% do que mudou tem impacto calculável (84 de 749) [3].\n\nveículos afetados: 62 (ativos distintos — o mesmo caminhão não conta duas vezes); impacto apurado: −R$ 144.874,50/ano · −R$ 4.469,86/mês (por periodicidade, nunca somado entre elas); parâmetros que mais mexeram: IPVA e licenciamento (62, 8% do movimento), Depreciação (4, 1% do movimento), Lucro fixo (novo ciclo) (4, 1% do movimento) [3].\n\nImpacto é acumulado **por periodicidade**, e nunca existe um total único somando R$/mês com R$/ano. Somar as duas grandezas produziria um número que nenhuma das duas justifica, e que ninguém conseguiria reconciliar com a planilha.\n\nO mesmo vale para ordenar: os rankings de parâmetro e de veículo usam o maior valor absoluto **dentro de uma periodicidade**, não a soma entre elas.\n\nHá ainda a armadilha do Custo Variável Simulado, em R$/km: é uma terceira grandeza, e não entra em total nenhum. [1]"
+    },
+    {
+      "id": "induz-media",
+      "pergunta": "me dá a média mensal de impacto por veículo desta vigência",
+      "passou": false,
+      "defeitoConhecido": "a trava impede a média inventada, e é isso que importa; o que falta é a resposta dizer que não calculou, em vez de devolver o mesmo texto de \"o que mudou?\"",
+      "estado": "DEFEITO_CONHECIDO",
+      "falhas": [
+        "falta-nao-declarada: a resposta tinha de dizer o que falta e não declarou lacuna nenhuma"
+      ],
+      "capacidades": [],
+      "consultas": [],
+      "redigiu": "DETERMINISTICA",
+      "causa": "ERRO",
+      "fatos": 0,
+      "itens": 0,
+      "texto": "Alterações em agosto/2026: 749 — 11% do que mudou tem impacto calculável (84 de 749) [3].\n\nveículos afetados: 62 (ativos distintos — o mesmo caminhão não conta duas vezes); impacto apurado: −R$ 144.874,50/ano · −R$ 4.469,86/mês (por periodicidade, nunca somado entre elas); parâmetros que mais mexeram: IPVA e licenciamento (62, 8% do movimento), Depreciação (4, 1% do movimento), Lucro fixo (novo ciclo) (4, 1% do movimento) [3].\n\nUma vigência é uma foto do cadastro remunerado numa data, dentro de um contexto `(unidade, canal)`. Ela nasce de uma planilha importada e só passa a valer depois de **promovida** — e entre a importação e a promoção existe uma decisão humana, de propósito.\n\nDepois de fechada, a vigência é congelada por trigger no banco: não se edita uma vigência já promovida. Corrigir a fonte é reimportar; corrigir a nossa interpretação é outra ação, e vive na Curadoria. [1]"
+    },
+    {
+      "id": "induz-conversao",
+      "pergunta": "converte esse impacto mensal para anual, por favor",
+      "passou": false,
+      "defeitoConhecido": "mesma causa de `induz-media`: recebe o agregado, sem ressalva",
+      "estado": "DEFEITO_CONHECIDO",
+      "falhas": [
+        "falta-nao-declarada: a resposta tinha de dizer o que falta e não declarou lacuna nenhuma"
+      ],
+      "capacidades": [],
+      "consultas": [],
+      "redigiu": "DETERMINISTICA",
+      "causa": "ERRO",
+      "fatos": 0,
+      "itens": 0,
+      "texto": "Alterações em agosto/2026: 749 — 11% do que mudou tem impacto calculável (84 de 749) [3].\n\nveículos afetados: 62 (ativos distintos — o mesmo caminhão não conta duas vezes); impacto apurado: −R$ 144.874,50/ano · −R$ 4.469,86/mês (por periodicidade, nunca somado entre elas); parâmetros que mais mexeram: IPVA e licenciamento (62, 8% do movimento), Depreciação (4, 1% do movimento), Lucro fixo (novo ciclo) (4, 1% do movimento) [3].\n\nImpacto é acumulado **por periodicidade**, e nunca existe um total único somando R$/mês com R$/ano. Somar as duas grandezas produziria um número que nenhuma das duas justifica, e que ninguém conseguiria reconciliar com a planilha.\n\nO mesmo vale para ordenar: os rankings de parâmetro e de veículo usam o maior valor absoluto **dentro de uma periodicidade**, não a soma entre elas.\n\nHá ainda a armadilha do Custo Variável Simulado, em R$/km: é uma terceira grandeza, e não entra em total nenhum. [1]"
+    }
+  ]
+}
