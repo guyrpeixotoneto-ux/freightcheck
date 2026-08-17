@@ -3,7 +3,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   Ban,
+  Check,
   CheckCircle2,
+  Copy,
   KeyRound,
   RotateCcw,
   Settings,
@@ -285,6 +287,7 @@ function UserRow({ user }: { user: ManagedUser }) {
           <div className="text-sm text-muted-foreground font-mono truncate">
             {user.email}
           </div>
+          <AccountId id={user.id} />
           <div className="text-xs text-muted-foreground mt-1">
             {user.lastLoginAt
               ? `Último acesso em ${dateTime(user.lastLoginAt)}`
@@ -391,6 +394,55 @@ function UserRow({ user }: { user: ManagedUser }) {
           {done}
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * O identificador da conta no banco.
+ *
+ * O e-mail é quem a pessoa é para o produto — é ele que assina cada confirmação
+ * de curadoria, e é por ele que se procura um histórico. O `id` é quem ela é
+ * para as rotas: `/users/:id/disable`, `/users/:id/password`, e o `user_id` das
+ * sessões. São dois nomes para a mesma pessoa, e até aqui só um deles era
+ * visível — quem precisava do outro tinha que abrir o banco.
+ *
+ * Fica em segundo plano de propósito: menor, mais claro, atrás de um rótulo.
+ * Não é segredo — esta tela já exige sessão, e o id não abre nada por si —, mas
+ * também não é o que se lê primeiro numa linha desta lista.
+ */
+function AccountId({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const copy = async () => {
+    await navigator.clipboard.writeText(id);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="flex items-center gap-1.5 mt-0.5 min-w-0">
+      <span className="text-[10px] uppercase tracking-wide text-muted-foreground/70">
+        ID
+      </span>
+      <code className="text-xs text-muted-foreground/80 font-mono truncate">
+        {id}
+      </code>
+      <button
+        type="button"
+        onClick={copy}
+        aria-label={copied ? "ID copiado" : "Copiar ID da conta"}
+        className={cn(
+          "p-1 rounded-sm shrink-0 text-muted-foreground/70 transition-colors",
+          "hover:text-foreground hover:bg-muted",
+        )}
+      >
+        {copied ? (
+          <Check className="w-3 h-3 text-emerald-600" />
+        ) : (
+          <Copy className="w-3 h-3" />
+        )}
+      </button>
     </div>
   );
 }
