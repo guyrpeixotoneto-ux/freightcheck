@@ -54,6 +54,13 @@ import { paramsDoRecorte, type Recorte } from "@/lib/recorte";
  * custou em cada quinzena" e "o que propor ao cliente" são as mesmas quatro
  * sobre um trecho, e uma segunda tela para fazê-las de novo garantiria apenas
  * que um dia elas fossem respondidas de dois jeitos.
+ *
+ * **Esta é a lista, e não uma delas.** A Curadoria mantinha a sua própria —
+ * as mesmas três strings e os mesmos três rótulos, escritos noutro arquivo por
+ * outra razão — e duas listas dos mesmos tipos concordam no dia em que são
+ * escritas e discordam no dia do quarto. Ela lê daqui desde então, e o que ela
+ * acrescenta continua sendo dela: a ordem das abas, a contagem por fila, e a
+ * decisão de mostrar a aba vazia em vez de escondê-la.
  */
 export type Equipamento = "CAVALO" | "CARRETA" | "TRECHO";
 
@@ -179,19 +186,38 @@ export function palavrasDoTipo(entityType: string | null): PalavrasDoTipo {
   return NEUTRO;
 }
 
+/*
+  Os rótulos — e a regra que os dois compartilham.
+
+  **Um tipo desconhecido volta como veio**, e não como "Ativo": numa fileira de
+  abas que já tem Cavalo e Carreta, a terceira dizendo "Ativo" some dentro das
+  outras duas, enquanto `FROTA_PROPRIA` diz exatamente o que é — e é o nome que
+  a pessoa vai reconhecer da aba da planilha que importou. Inventar
+  capitalização para o desconhecido erraria em toda sigla.
+
+  O neutro de `palavrasDoTipo` serve à frase corrida, onde o tipo já foi nomeado
+  antes; aqui o rótulo **é** a única nomeação, e por isso a regra é outra.
+*/
+const emMaiuscula = (palavra: string): string =>
+  palavra.charAt(0).toUpperCase() + palavra.slice(1);
+
 /**
- * `CAVALO` → `Cavalos`. O plural em maiúscula, para os botões e as pílulas.
+ * `CAVALO` → `Cavalo`. O nome do tipo no singular, para títulos e abas.
  *
- * Um tipo desconhecido volta **como veio**, e não como "Ativos": numa fileira
- * de pílulas que já tem Cavalos e Carretas, a terceira dizendo "Ativos" some
- * dentro das outras duas, enquanto `DOLLY` diz exatamente o que é. O neutro
- * serve à frase corrida, onde o tipo já foi nomeado antes; aqui o rótulo **é**
- * a única nomeação.
+ * É o rótulo que a Curadoria põe nas abas da fila e no título da tela. Ele mora
+ * aqui, e não lá, porque é o mesmo nome que estas telas usam: duas listas dos
+ * mesmos três tipos concordam no dia em que são escritas e discordam no dia do
+ * quarto.
  */
+export function rotuloDoTipo(entityType: string | null): string {
+  if (entityType !== null && !equipamentoValido(entityType)) return entityType;
+  return emMaiuscula(palavrasDoTipo(entityType).singular);
+}
+
+/** `CAVALO` → `Cavalos`. O plural em maiúscula, para os botões e as pílulas. */
 export function pluralEmMaiuscula(entityType: string | null): string {
   if (entityType !== null && !equipamentoValido(entityType)) return entityType;
-  const plural = palavrasDoTipo(entityType).plural;
-  return plural.charAt(0).toUpperCase() + plural.slice(1);
+  return emMaiuscula(palavrasDoTipo(entityType).plural);
 }
 
 /*

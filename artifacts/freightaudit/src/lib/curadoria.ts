@@ -1,3 +1,5 @@
+import { EQUIPAMENTOS, rotuloDoTipo } from "@/lib/frota";
+
 /**
  * As duas perguntas da fila de curadoria que não são desenho: "esta coluna já
  * está descrita?" e "de que equipamento ela é?".
@@ -47,25 +49,15 @@ export function estaDescrito(atributo: CamposDeSignificado): boolean {
  * `TRECHO` está na lista antes de existir na base pela mesma razão: o tipo de
  * entidade nasce do nome da aba da planilha importada (`Trecho` → `TRECHO`), e
  * a curadoria precisa estar pronta para recebê-lo sem mudança de código.
- */
-export const EQUIPAMENTOS_DA_CURADORIA = ["CAVALO", "CARRETA", "TRECHO"] as const;
-
-const ROTULOS: Record<string, string> = {
-  CAVALO: "Cavalo",
-  CARRETA: "Carreta",
-  TRECHO: "Trecho",
-};
-
-/**
- * "CAVALO" → "Cavalo". Um tipo que não conhecemos sai como veio.
  *
- * Inventar capitalização para o desconhecido erraria em `FROTA_PROPRIA` e em
- * qualquer sigla; o nome cru é feio e é verdade, e é o que a pessoa vai
- * reconhecer da aba da planilha que importou.
+ * **A lista não é escrita aqui.** Ela era, com as mesmas três strings e os
+ * mesmos três rótulos que `lib/frota.ts` já mantinha para as telas 360°, e as
+ * duas cópias nasceram no mesmo dia por caminhos diferentes — que é exatamente
+ * como uma discordância futura começa. Os tipos que o produto nomeia são um
+ * conjunto só; o que continua sendo desta tela é o que ela faz com eles: a
+ * ordem, a contagem, e a decisão de mostrar a aba vazia.
  */
-export function rotuloDoEquipamento(tipo: string): string {
-  return ROTULOS[tipo] ?? tipo;
-}
+export const EQUIPAMENTOS_DA_CURADORIA: readonly string[] = EQUIPAMENTOS;
 
 /** O mínimo de que as abas precisam de cada item da fila. */
 export interface ItemComEquipamento {
@@ -112,7 +104,7 @@ export function abasDeEquipamento(
     { tipo: null, rotulo: "Todos", total: itens.length },
     ...[...fixas, ...extras].map((tipo) => ({
       tipo,
-      rotulo: rotuloDoEquipamento(tipo),
+      rotulo: rotuloDoTipo(tipo),
       total: contagem.get(tipo) ?? 0,
     })),
   ];

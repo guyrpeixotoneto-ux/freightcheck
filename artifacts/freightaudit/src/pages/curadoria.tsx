@@ -47,8 +47,8 @@ import {
   estaDescrito,
   filtrarPorEquipamento,
   normalizarEquipamento,
-  rotuloDoEquipamento,
 } from "@/lib/curadoria";
+import { rotuloDoTipo } from "@/lib/frota";
 import { cn } from "@/lib/utils";
 
 /**
@@ -411,7 +411,7 @@ export default function Curadoria() {
                   quem rolou a página até aqui já não vê as abas lá em cima. */}
               {equipamento === null
                 ? "Fila de curadoria"
-                : `Fila de curadoria · ${rotuloDoEquipamento(equipamento)}`}
+                : `Fila de curadoria · ${rotuloDoTipo(equipamento)}`}
             </CardTitle>
             <p className="text-xs text-muted-foreground">
               Ordenada por materialidade. A soma exibida é bruta e não auditada —
@@ -551,7 +551,7 @@ function FilaVazia({
   mostrandoConfirmados: boolean;
   colunasNaBase: number | null;
 }) {
-  const rotulo = equipamento === null ? null : rotuloDoEquipamento(equipamento);
+  const rotulo = equipamento === null ? null : rotuloDoTipo(equipamento);
 
   const texto = filtrando
     ? rotulo

@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   abasDeEquipamento,
+  EQUIPAMENTOS_DA_CURADORIA,
   estaDescrito,
   filtrarPorEquipamento,
   normalizarEquipamento,
-  rotuloDoEquipamento,
 } from "../curadoria";
+import { EQUIPAMENTOS, rotuloDoTipo } from "../frota";
 
 /**
  * O verde da fila de curadoria promete uma coisa só: **os três campos do card
@@ -147,14 +148,29 @@ describe("normalizarEquipamento", () => {
   });
 });
 
-describe("rotuloDoEquipamento", () => {
+describe("o rótulo do tipo", () => {
   it("escreve os três conhecidos como o produto fala deles", () => {
-    expect(rotuloDoEquipamento("CAVALO")).toBe("Cavalo");
-    expect(rotuloDoEquipamento("CARRETA")).toBe("Carreta");
-    expect(rotuloDoEquipamento("TRECHO")).toBe("Trecho");
+    expect(rotuloDoTipo("CAVALO")).toBe("Cavalo");
+    expect(rotuloDoTipo("CARRETA")).toBe("Carreta");
+    expect(rotuloDoTipo("TRECHO")).toBe("Trecho");
   });
 
   it("não inventa capitalização para o tipo que não conhece", () => {
-    expect(rotuloDoEquipamento("FROTA_PROPRIA")).toBe("FROTA_PROPRIA");
+    expect(rotuloDoTipo("FROTA_PROPRIA")).toBe("FROTA_PROPRIA");
+  });
+
+  /*
+    A curadoria e as telas 360° mantinham, cada uma, a sua lista dos mesmos três
+    tipos e o seu mapa dos mesmos três rótulos. As duas nasceram no mesmo dia,
+    por caminhos diferentes, e concordavam — que é o estado em que uma
+    duplicação sempre começa e o único em que ela é barata de desfazer.
+
+    Este caso não confere que as duas listas são iguais: confere que **é a mesma
+    lista**. Se alguém voltar a escrever uma cópia aqui, ele continua passando
+    enquanto as duas concordarem, e é por isso que a asserção é de identidade da
+    referência, e não do conteúdo.
+  */
+  it("sai de uma lista só, e não de duas que combinam", () => {
+    expect(EQUIPAMENTOS_DA_CURADORIA).toBe(EQUIPAMENTOS);
   });
 });
