@@ -13,6 +13,7 @@ import {
 } from "@workspace/assistant";
 import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
 import {
+  classificarCategoria,
   confirmAttribute,
   criarCategoria,
   criarSignificado,
@@ -625,6 +626,61 @@ router.post("/curation/categorias", async (req, res, next): Promise<void> => {
     res.status(422).json({ error: message });
   }
 });
+
+/**
+ * Classificar uma categoria em custo fixo, variável ou "não é custo".
+ *
+ * PATCH e não POST: o recurso já existe, e o que muda é onde ele mora. E é o
+ * verbo que deixa claro que a chamada não cria categoria nenhuma — quem cria é
+ * `POST /curation/categorias`, e misturar os dois numa rota só faria um erro de
+ * digitação no código virar categoria nova em vez de recusa.
+ *
+ * A justificativa vai no corpo e é obrigatória; o responsável vem da sessão,
+ * como em toda decisão deste produto que mexe em dinheiro.
+ */
+router.patch(
+  "/curation/categorias/:code/classe",
+  async (req, res, next): Promise<void> => {
+    try {
+      const { classe, reason } = req.body ?? {};
+      if (!classe) {
+        res.status(400).json({ error: "Informe a classe (classe)." });
+        return;
+      }
+      if (!reason) {
+        res.status(400).json({
+          error: "Classificar exige uma justificativa (reason).",
+        });
+        return;
+      }
+
+      res.json(
+        await classificarCategoria(db, {
+          code: req.params.code,
+          classe,
+          actor: req.user!.email,
+          reason,
+        }),
+      );
+    } catch (err) {
+      if (faltaOSchemaDaCuradoria(err)) {
+        await responderFalha(
+          req,
+          res,
+          next,
+          err,
+          "A classe desta categoria não pôde ser gravada neste banco.",
+        );
+        return;
+      }
+      // Recusas de regra de negócio — classe inexistente, nó que é uma classe,
+      // justificativa em branco — com a frase escrita para quem está na tela.
+      const message = err instanceof Error ? err.message : "Erro desconhecido";
+      req.log.warn({ err }, "Category classification refused");
+      res.status(422).json({ error: message });
+    }
+  },
+);
 
 router.get("/curation/taxonomy", async (req, res, next): Promise<void> => {
   try {

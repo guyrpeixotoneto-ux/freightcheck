@@ -1,6 +1,7 @@
 import { and, asc, eq, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
+  attributeTable,
   curationEventTable,
   semanticMeaningTable,
   taxonomyNodeTable,
@@ -305,6 +306,27 @@ export interface CategoriaCadastrada {
   costClass: string | null;
   depth: number;
   isSeed: boolean;
+  /**
+   * Quantas colunas estão nesta categoria hoje.
+   *
+   * É a materialidade da decisão de classe, e por isso viaja junto: uma
+   * categoria com dezoito colunas dentro decide de que lado da conta cai
+   * dezoito colunas, e uma vazia não decide nada ainda. A tela de classificação
+   * ordena por isto, pela mesma razão que a fila de curadoria ordena por
+   * magnitude — o tempo de quem cura vale mais onde há mais em jogo.
+   */
+  atributos: number;
+  /**
+   * O código da classe em que a categoria mora: `custo_fixo`, `custo_variavel`,
+   * `cadastral` ou `nao_classificado`.
+   *
+   * `costClass` sozinha não responde "esta categoria já foi classificada?", e a
+   * diferença não é sutil: `cadastral` **também** devolve `null`, e de
+   * propósito — cadastro não é custo, e carimbá-lo FIXO o poria num total. Sem
+   * este campo, a tela de classificação cobraria uma decisão de quem já a
+   * tomou, para sempre.
+   */
+  classeCode: string | null;
 }
 
 /**
@@ -335,6 +357,21 @@ export async function listarCategorias(db: Database): Promise<CategoriaCadastrad
     .where(eq(taxonomyNodeTable.isActive, true))
     .orderBy(asc(taxonomyNodeTable.depth), asc(taxonomyNodeTable.sortOrder));
 
+  const contagem = await db
+    .select({
+      taxonomyNodeId: attributeTable.taxonomyNodeId,
+      total: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(attributeTable)
+    .groupBy(attributeTable.taxonomyNodeId);
+  const atributosPorNo = new Map(
+    contagem
+      .filter((c): c is { taxonomyNodeId: string; total: number } =>
+        c.taxonomyNodeId !== null,
+      )
+      .map((c) => [c.taxonomyNodeId, c.total]),
+  );
+
   const porId = new Map(nodes.map((n) => [n.id, n]));
   const classeDe = (node: (typeof nodes)[number]): string | null => {
     let atual: (typeof nodes)[number] | undefined = node;
@@ -343,6 +380,14 @@ export async function listarCategorias(db: Database): Promise<CategoriaCadastrad
       atual = atual.parentId ? porId.get(atual.parentId) : undefined;
     }
     return null;
+  };
+  /** O ancestral de profundidade 1 — a classe em que o nó mora. */
+  const classeCodeDe = (node: (typeof nodes)[number]): string | null => {
+    let atual: (typeof nodes)[number] | undefined = node;
+    while (atual && atual.depth > 1) {
+      atual = atual.parentId ? porId.get(atual.parentId) : undefined;
+    }
+    return atual?.depth === 1 ? atual.code : null;
   };
   const caminhoDe = (node: (typeof nodes)[number]): string => {
     const partes: string[] = [];
@@ -368,6 +413,8 @@ export async function listarCategorias(db: Database): Promise<CategoriaCadastrad
       costClass: classeDe(n),
       depth: n.depth,
       isSeed: n.createdBy === null,
+      atributos: atributosPorNo.get(n.id) ?? 0,
+      classeCode: classeCodeDe(n),
     }));
 }
 
@@ -502,4 +549,206 @@ export async function acharSignificado(
 export function codigoDoRotulo(rotulo: string): string | null {
   const lido = interpretarRotulo(rotulo);
   return lido ? codigoDe(lido.forma, lido.base) : null;
+}
+
+// ---------------------------------------------------------------------------
+// Classificar uma categoria em custo fixo, variável ou "não é custo"
+// ---------------------------------------------------------------------------
+
+/**
+ * As três casas em que uma categoria pode morar, ditas como quem opera as diz.
+ *
+ * São exatamente as três classes que `DEFAULT_TAXONOMY` declara abaixo da raiz,
+ * e não uma lista paralela: `custo_fixo` e `custo_variavel` declaram
+ * `cost_class`, `cadastral` não declara nenhum de propósito — chassi, placa e
+ * ano descrevem o ativo e não remuneram nada. "Não classificado" fica de fora
+ * porque não é destino: é de onde se sai.
+ */
+export const CLASSES_DE_CATEGORIA = [
+  {
+    classe: "FIXO" as const,
+    no: "custo_fixo",
+    rotulo: "Custo fixo",
+    ajuda: "O que se paga por ter o ativo, rode ele ou não: financiamento, depreciação, seguros, tributos, remuneração de capital.",
+  },
+  {
+    classe: "VARIAVEL" as const,
+    no: "custo_variavel",
+    rotulo: "Custo variável",
+    ajuda: "O que se paga por rodar: combustível, manutenção, pneus, pedágio, e o lucro variável previsto.",
+  },
+  {
+    classe: "NAO_E_CUSTO" as const,
+    no: "cadastral",
+    rotulo: "Não é custo",
+    ajuda: "Descreve o equipamento e não entra em conta nenhuma: identificação, especificação técnica, contrato, escopo.",
+  },
+];
+
+export type ClasseDeCategoria = (typeof CLASSES_DE_CATEGORIA)[number]["classe"];
+
+export interface ClassificacaoResult {
+  /** MOVIDA quando a árvore mudou; JA_ESTAVA quando o pedido era o estado atual. */
+  desfecho: "MOVIDA" | "JA_ESTAVA";
+  categoria: CategoriaCadastrada;
+  /** O caminho de antes, para a tela dizer o que mudou. */
+  caminhoAnterior: string;
+  /** Quantos nós tiveram o caminho reescrito — a categoria e os filhos dela. */
+  nosMovidos: number;
+}
+
+/**
+ * Classificar uma categoria — que é **movê-la** na árvore, e não carimbá-la.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que mover, e não gravar `cost_class` no próprio nó
+ * ---------------------------------------------------------------------------
+ * A coluna existe e seria mais curto escrevê-la direto. Não é o que o modelo
+ * diz, e a diferença aparece na hora de explicar um número: `cost_class` é
+ * declarada nas **classes** e herdada por tudo abaixo, e é por isso que quem
+ * pergunta "por que combustível é variável?" segue de `cv_combustivel` até
+ * `custo_variavel` e lê a resposta na árvore. Um nó pendurado em
+ * "Não classificado" carimbado como FIXO responderia "porque alguém escreveu
+ * FIXO nele" — a mesma informação sem nenhuma explicação em volta, e uma árvore
+ * cuja estrutura deixa de significar o que ela significa em todo o resto.
+ *
+ * Mover mantém as duas verdades sendo uma só: o caminho **é** a classificação,
+ * e `INHERITED_COST_CLASS_JOIN` continua achando a resposta pelo ancestral mais
+ * próximo, sem saber que houve curadoria.
+ *
+ * ---------------------------------------------------------------------------
+ * O que isto muda e o que não muda
+ * ---------------------------------------------------------------------------
+ * **Muda** de que lado da conta as colunas daquela categoria caem, nas telas
+ * que leem a classe: o panorama de alterações, os recortes de custo, a DRE.
+ *
+ * **Não muda** comparação já calculada. `change.cost_class` é materializada
+ * quando a comparação roda, e reescrevê-la aqui seria a curadoria editando um
+ * resultado apurado — exatamente o que este produto não faz. As comparações
+ * existentes seguem com a classe que tinham quando foram calculadas, e passam a
+ * refletir a nova quando forem recalculadas. A tela diz isso.
+ *
+ * **Não mexe em fato nenhum**, como nada em `curation_event` mexe.
+ *
+ * ---------------------------------------------------------------------------
+ * A justificativa é obrigatória
+ * ---------------------------------------------------------------------------
+ * Mesma régua da confirmação de semântica, e pelo mesmo motivo: isto decide
+ * dinheiro. Dizer que pedágio é custo variável é uma afirmação sobre o contrato
+ * que alguém vai querer auditar, e um `parent_id` que mudou sem autor e sem
+ * razão não sustenta a auditoria.
+ */
+export async function classificarCategoria(
+  db: Database,
+  entrada: {
+    code: string;
+    classe: ClasseDeCategoria;
+    actor: string;
+    reason: string;
+  },
+): Promise<ClassificacaoResult> {
+  if (!entrada.actor?.trim()) {
+    throw new Error("Classificar uma categoria exige um responsável identificado.");
+  }
+  if (!entrada.reason?.trim()) {
+    throw new Error(
+      "Classificar uma categoria exige uma justificativa — é o que um revisor vai querer ler depois.",
+    );
+  }
+
+  const destino = CLASSES_DE_CATEGORIA.find((c) => c.classe === entrada.classe);
+  if (!destino) {
+    throw new Error(
+      `Classe "${entrada.classe}" não existe. As três são ${CLASSES_DE_CATEGORIA.map((c) => c.classe).join(", ")}.`,
+    );
+  }
+
+  const [no] = await db
+    .select()
+    .from(taxonomyNodeTable)
+    .where(eq(taxonomyNodeTable.code, entrada.code));
+  if (!no) throw new Error(`Categoria "${entrada.code}" não encontrada.`);
+
+  /*
+    A raiz e as classes não se classificam: elas **são** a classificação.
+    Mover "Custo Fixo" para dentro de "Custo Variável" não é uma correção
+    concebível, é a árvore deixando de significar alguma coisa — e o `depth`
+    é o que separa os dois casos sem precisar de uma lista de códigos.
+  */
+  if (no.depth <= 1) {
+    throw new Error(
+      `"${no.name}" é uma das classes da árvore, e não uma categoria dentro delas. ` +
+        `Classificar move uma categoria para dentro de uma classe; a classe não vai para dentro de si mesma.`,
+    );
+  }
+
+  const [paiNovo] = await db
+    .select()
+    .from(taxonomyNodeTable)
+    .where(eq(taxonomyNodeTable.code, destino.no));
+  if (!paiNovo) {
+    throw new Error(
+      `A árvore de categorias ainda não foi semeada neste banco: falta o nó "${destino.no}".`,
+    );
+  }
+
+  const caminhoAnterior = (await listarCategorias(db)).find((c) => c.code === no.code)
+    ?.caminho ?? no.path;
+
+  if (no.parentId === paiNovo.id) {
+    const categoria = (await listarCategorias(db)).find((c) => c.code === no.code)!;
+    return { desfecho: "JA_ESTAVA", categoria, caminhoAnterior, nosMovidos: 0 };
+  }
+
+  const caminhoNovo = `${paiNovo.path}/${no.code}`;
+  const deslocamento = paiNovo.depth + 1 - no.depth;
+
+  const nosMovidos = await db.transaction(async (tx) => {
+    /*
+      A subárvore inteira, e não só o nó.
+
+      Hoje as categorias criadas na tela são folhas, e seria cômodo tratar só
+      elas. Mas `path` é ancestralidade materializada: deixar um filho com o
+      caminho antigo o desliga do pai e o esconde de toda consulta por prefixo —
+      inclusive da que resolve a classe de custo. O `||` com o prefixo antigo é
+      o mesmo recorte que `INHERITED_COST_CLASS_JOIN` usa para achar ancestral,
+      escrito ao contrário.
+
+      **O `::int` não é enfeite.** `substring(texto from …)` tem duas
+      sobrecargas em Postgres — por posição e por expressão regular POSIX — e um
+      parâmetro sem tipo declarado faz o planejador escolher a segunda: o corte
+      vira a regex "37", não casa caminho nenhum, e o `substring` devolve NULL.
+      Concatenar com NULL dá NULL, e o caminho da categoria seria apagado. A
+      coluna é NOT NULL, então o banco recusa — mas o motivo fica a três saltos
+      de distância de quem lê o erro.
+    */
+    const { rowCount } = await tx.execute(sql`
+      UPDATE taxonomy_node
+         SET path = ${caminhoNovo} || substring(path from ${no.path.length + 1}::int),
+             depth = depth + ${deslocamento}::int
+       WHERE path = ${no.path} OR path LIKE ${no.path + "/%"}
+    `);
+
+    await tx
+      .update(taxonomyNodeTable)
+      .set({ parentId: paiNovo.id })
+      .where(eq(taxonomyNodeTable.id, no.id));
+
+    await tx.insert(curationEventTable).values({
+      targetKind: "TAXONOMY_NODE",
+      targetId: no.id,
+      targetLabel: no.code,
+      field: "parent_id",
+      valueBefore: no.path,
+      valueAfter: caminhoNovo,
+      actor: entrada.actor,
+      reason: entrada.reason,
+      detail: { changeKind: "COST_CLASS", classe: entrada.classe },
+    });
+
+    return rowCount ?? 0;
+  });
+
+  const categoria = (await listarCategorias(db)).find((c) => c.code === no.code)!;
+  return { desfecho: "MOVIDA", categoria, caminhoAnterior, nosMovidos };
 }
