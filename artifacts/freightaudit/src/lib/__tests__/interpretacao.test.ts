@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   avisoDeParecido,
+  classeDaCategoria,
   leituraDe,
   oQueFalta,
   podeConfirmar,
@@ -53,6 +54,7 @@ const CATEGORIAS: OpcaoDeCategoria[] = [
     name: "Combustível",
     caminho: "Custo Variável › Combustível",
     costClass: "VARIAVEL",
+    classeCode: "custo_variavel",
   },
   {
     id: "2",
@@ -60,6 +62,7 @@ const CATEGORIAS: OpcaoDeCategoria[] = [
     name: "Manutenção",
     caminho: "Custo Variável › Manutenção",
     costClass: "VARIAVEL",
+    classeCode: "custo_variavel",
   },
   {
     id: "3",
@@ -67,6 +70,7 @@ const CATEGORIAS: OpcaoDeCategoria[] = [
     name: "Pneus",
     caminho: "Custo Fixo › Pneus",
     costClass: "FIXO",
+    classeCode: "custo_fixo",
   },
 ];
 
@@ -310,6 +314,40 @@ describe("o combobox pesquisável", () => {
   it("sem parecido, não inventa aviso", () => {
     const s = sugerir("Lavagem de tanque", CATEGORIAS, (c) => c.name);
     expect(avisoDeParecido(s.parecidos, (c) => c.name)).toBeNull();
+  });
+});
+
+describe("a classe da categoria, dita para quem escolhe", () => {
+  it("nomeia as três casas", () => {
+    expect(classeDaCategoria(CATEGORIAS[0])).toBe("Custo variável");
+    expect(classeDaCategoria(CATEGORIAS[2])).toBe("Custo fixo");
+  });
+
+  it("'Não é custo' não é 'sem classe' — e é o erro caro deste campo", () => {
+    // Uma categoria cadastral tem `costClass` nula por decisão. Chamá-la de
+    // "ainda sem classe" mandaria a pessoa classificar de novo o que já está
+    // classificado, para sempre.
+    const cadastral: OpcaoDeCategoria = {
+      id: "9",
+      code: "cad_identificacao",
+      name: "Identificação do ativo",
+      caminho: "Cadastral (não remuneratório) › Identificação do ativo",
+      costClass: null,
+      classeCode: "cadastral",
+    };
+    expect(classeDaCategoria(cadastral)).toBe("Não é custo");
+  });
+
+  it("só quem mora em Não classificado é anunciado como sem classe", () => {
+    const nova: OpcaoDeCategoria = {
+      id: "8",
+      code: "pedagio",
+      name: "Pedágio",
+      caminho: "Não classificado › Pedágio",
+      costClass: null,
+      classeCode: "nao_classificado",
+    };
+    expect(classeDaCategoria(nova)).toBe("Ainda sem classe de custo");
   });
 });
 

@@ -20,6 +20,7 @@ import {
   Container,
   Database,
   FileSearch,
+  FolderTree,
   FileSpreadsheet,
   FileText,
   Gavel,
@@ -250,6 +251,7 @@ const NAV_GROUPS: NavGroup[] = [
       */
       { href: "/balanco-massa", label: "Balanço de massa", icon: Scale },
       { href: "/curadoria", label: "Curadoria", icon: FileSearch, contador: "curadoria" },
+      { href: "/categorias", label: "Categorias", icon: FolderTree },
       /*
         Cobertura de dados não estava no desenho do menu, e entrou aqui porque a
         tela existe e funciona: tirá-la da lista não a apagaria, apenas a

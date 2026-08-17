@@ -54,6 +54,24 @@ export interface OpcaoDeCategoria {
   /** "Custo Variável › Manutenção" — hierarquia sem jargão de taxonomia. */
   caminho: string;
   costClass: string | null;
+  /** `custo_fixo` | `custo_variavel` | `cadastral` | `nao_classificado`. */
+  classeCode: string | null;
+}
+
+/**
+ * A classe de custo dita para quem escolhe categoria.
+ *
+ * `costClass` sozinha não serve, e o erro seria caro na direção mais silenciosa
+ * possível: uma categoria cadastral tem `costClass` nula **por decisão** —
+ * cadastro não é custo —, e chamá-la de "ainda sem classe" mandaria a pessoa
+ * classificar de novo o que já está classificado. Só `classeCode` separa a
+ * decisão tomada da decisão adiada.
+ */
+export function classeDaCategoria(categoria: OpcaoDeCategoria): string {
+  if (categoria.classeCode === "custo_fixo") return "Custo fixo";
+  if (categoria.classeCode === "custo_variavel") return "Custo variável";
+  if (categoria.classeCode === "cadastral") return "Não é custo";
+  return "Ainda sem classe de custo";
 }
 
 /** O que a tela sabe do atributo, reduzido ao que estas funções perguntam. */

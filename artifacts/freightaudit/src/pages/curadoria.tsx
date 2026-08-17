@@ -21,6 +21,7 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { ComboboxCriavel } from "@/components/ui/combobox-criavel";
 import {
+  classeDaCategoria,
   leituraDe,
   oQueFalta,
   podeConfirmar,
@@ -1010,15 +1011,10 @@ function ConfirmarInterpretacao({
               }}
               aoCriar={criarCategoriaInline}
               rotuloDe={(item) => item.caminho}
-              detalheDe={(item) =>
-                item.costClass === "FIXO"
-                  ? "Custo fixo"
-                  : item.costClass === "VARIAVEL"
-                    ? "Custo variável"
-                    : "Ainda sem classe de custo"
-              }
+              detalheDe={(item) => classeDaCategoria(item)}
               previaDe={() =>
-                "Entra como categoria nova, ainda sem classe de custo (fixo ou variável) — ela não se lê no nome."
+                "Entra como categoria nova, ainda sem classe de custo — ela não se lê no nome. " +
+                "Você decide isso em Categorias, e até lá as colunas dela ficam fora dos totais de custo fixo e variável."
               }
               rotuloDeCriacao={(texto) => `Criar categoria “${texto}”`}
               placeholder="Pesquisar ou cadastrar…"
