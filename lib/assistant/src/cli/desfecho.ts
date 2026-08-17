@@ -63,6 +63,15 @@ async function principal() {
       consultas: r.tecnico.ferramentas,
       redigiu: r.tecnico.motor.redigiu,
       causa: r.tecnico.motor.codigo,
+      /*
+        A mensagem, e não só o código.
+
+        `causa: "ERRO"` em nove casos diz que algo quebrou e não diz o quê — e
+        foi preciso um comando à mão, numa sessão à parte, para descobrir que
+        era a API recusando toda chamada. O texto do erro custa uma linha aqui
+        e economiza a investigação inteira.
+      */
+      erroDaIa: r.tecnico.ia?.erro ?? null,
       fatos: r.tecnico.contexto.fatos,
       itens: r.tecnico.contexto.itens.total,
       texto: r.texto,

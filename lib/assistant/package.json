@@ -15,7 +15,8 @@
     "desfecho": "tsx src/cli/desfecho.ts",
     "comparar": "tsx src/cli/comparar.ts",
     "exploratoria": "tsx src/cli/exploratoria.ts",
-    "pr7": "node ../../scripts/pr7.mjs"
+    "pr7": "node ../../scripts/pr7.mjs",
+    "erro-da-ia": "tsx src/cli/erro-da-ia.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "catalog:",

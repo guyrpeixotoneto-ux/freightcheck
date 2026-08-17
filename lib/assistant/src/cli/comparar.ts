@@ -28,6 +28,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 interface Linha {
   id: string;
+  erroDaIa?: string | null;
   pergunta: string;
   estado: "PASSOU" | "CORRIGIDO" | "DEFEITO_CONHECIDO" | "REPROVOU";
   capacidades: string[];
@@ -69,6 +70,48 @@ if (!arqAntes || !arqDepois || resto.length > 0) {
 
 const antes = ler(arqAntes);
 const depois = ler(arqDepois);
+
+/*
+  ---- a recusa que precede qualquer comparação ------------------------------
+
+  Um lado cuja maioria das chamadas errou não mediu nada, e comparar dois lados
+  assim produz um veredito sobre o vazio. Foi o que este próprio script fez na
+  primeira rodada real: os dois caminhos com a API recusando toda chamada, e a
+  saída dizendo "NÃO PODE VIRAR · 1 regressão" — a regressão era artefato, e o
+  agente nunca chegou a ser medido.
+
+  A assimetria dos dois caminhos é o que torna isso enganoso: a orquestração do
+  planejador roda **antes** do modelo, então ele ainda consulta e ainda passa
+  casos; o agente consulta **através** do modelo, então ele perde tudo. Com a
+  API fora, o planejador parece melhor por construção.
+*/
+function quebrado(r: Rodada): { erro: string; quantos: number } | null {
+  const comErro = r.linhas.filter((l) => l.causa === "ERRO");
+  if (comErro.length * 2 <= r.linhas.length) return null;
+  return {
+    erro: comErro.find((l) => l.erroDaIa)?.erroDaIa ?? "sem mensagem registrada",
+    quantos: comErro.length,
+  };
+}
+
+for (const [rotulo, rodada, arquivo] of [
+  ["antes", antes, arqAntes],
+  ["depois", depois, arqDepois],
+] as const) {
+  const falha = quebrado(rodada);
+  if (!falha) continue;
+  console.error(
+    `\nNão há o que comparar: em \`${arquivo}\` (${rotulo}), ${falha.quantos} de ` +
+      `${rodada.linhas.length} casos terminaram em erro de chamada ao modelo.\n\n` +
+      `  ${falha.erro}\n\n` +
+      "Uma rodada assim não mediu o assistente — mediu a API fora do ar. Comparar\n" +
+      "dois lados nessas condições produz veredito sobre o vazio, e a leitura sai\n" +
+      "enviesada a favor do planejador: a orquestração dele roda antes do modelo e\n" +
+      "ainda consulta, enquanto o agente consulta através dele e perde tudo.\n\n" +
+      "Conserte a chamada e rode de novo. Nenhum veredito foi emitido.\n",
+  );
+  process.exit(3);
+}
 
 const porId = new Map(antes.linhas.map((l) => [l.id, l]));
 const regressoes: { linha: Linha; de: string }[] = [];
