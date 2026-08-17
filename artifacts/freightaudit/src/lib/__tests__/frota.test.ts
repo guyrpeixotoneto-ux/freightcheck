@@ -123,9 +123,21 @@ describe("o endereço da tela", () => {
 });
 
 describe("o que a tela promete", () => {
-  it("promete a frota quando é a frota", () => {
+  /*
+    Três níveis, três promessas — e a que mais custa confundir é a do meio: um
+    número da frota lido como se fosse de um ativo parece pequeno e vai para uma
+    reunião.
+  */
+  it("promete a situação de cada ativo na grade, que é a porta", () => {
     const { titulo, subtitulo } = frasesDoEscopo(escopo());
     expect(titulo).toBe("Cavalo 360°");
+    expect(subtitulo).toContain("cada cavalo da operação");
+    expect(subtitulo).toContain("Clique num card");
+  });
+
+  it("promete a leitura da frota quando é a frota inteira", () => {
+    const { titulo, subtitulo } = frasesDoEscopo(escopo(), "frota");
+    expect(titulo).toBe("Cavalo 360° · todos");
     expect(subtitulo).toContain("cavalos");
     expect(subtitulo).toContain("nunca somam");
   });
@@ -136,12 +148,19 @@ describe("o que a tela promete", () => {
     expect(subtitulo).toContain("este cavalo");
   });
 
-  it("fala de carreta na tela da carreta", () => {
-    const { titulo, subtitulo } = frasesDoEscopo({
-      entityType: "CARRETA",
-      placa: null,
-    });
-    expect(titulo).toBe("Carreta 360°");
-    expect(subtitulo).toContain("carretas");
+  it("fala de carreta na tela da carreta, e no gênero certo", () => {
+    const frota = frasesDoEscopo({ entityType: "CARRETA", placa: null }, "frota");
+    expect(frota.titulo).toBe("Carreta 360° · todos");
+    expect(frota.subtitulo).toContain("carretas");
+
+    // "cada carreta … quanto **ele** custa" é o que sai de um texto montado no
+    // masculino e reaproveitado. O gênero é dado do equipamento.
+    const grade = frasesDoEscopo({ entityType: "CARRETA", placa: null });
+    expect(grade.subtitulo).toContain("quanto ela custa");
+    expect(grade.subtitulo).toContain("mudou nela");
+
+    const ativo = frasesDoEscopo({ entityType: "CARRETA", placa: "QYW4C69" });
+    expect(ativo.subtitulo).toContain("esta carreta");
+    expect(ativo.subtitulo).toContain("quanto ela custou");
   });
 });

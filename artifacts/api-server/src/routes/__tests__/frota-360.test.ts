@@ -66,6 +66,7 @@ beforeAll(async () => {
   const { default: frotaRouter } = await import("../frota");
   const { default: changesRouter } = await import("../changes");
   const { default: impactoRouter } = await import("../impacto");
+  const { default: composicaoRouter } = await import("../composition");
   const app = express();
   app.use((req, _res, next) => {
     (req as unknown as { log: unknown }).log = {
@@ -78,6 +79,7 @@ beforeAll(async () => {
   app.use(frotaRouter);
   app.use(changesRouter);
   app.use(impactoRouter);
+  app.use(composicaoRouter);
 
   servidor = await new Promise<Server>((resolve) => {
     const s = app.listen(0, "127.0.0.1", () => resolve(s));
@@ -249,5 +251,77 @@ describe("a placa em /impacto/quinzenas", () => {
     // mostrando o ativo pedido, em vez de exibir a frota sob o nome dele.
     expect(res.body.plate).toBeNull();
     expect(res.body.entities).toBeGreaterThan(1);
+  });
+});
+
+/**
+ * O panorama — a porta das telas 360°, e o único lugar onde três autoridades se
+ * encontram.
+ *
+ * A rota junta por placa o que a Composição apura, o que a comparação contou e
+ * o que os chamados pediram. O que estes casos protegem é que ela continue
+ * **juntando** e não passe a calcular: o valor de cada card tem de ser byte a
+ * byte o mesmo que `/composition/fleet` devolve para a mesma placa. No dia em
+ * que os dois divergirem, a tela de Composição e a de Cavalo 360° passam a
+ * mostrar duas remunerações para o mesmo cavalo — e nada na tela dirá qual é a
+ * certa.
+ */
+describe("GET /frota/panorama", () => {
+  it("traz um card por ativo, com as três leituras", async () => {
+    const res = await get("/frota/panorama?entityType=CAVALO");
+    expect(res.status).toBe(200);
+    expect(res.body.ativos.length).toBeGreaterThan(0);
+    expect(res.body.resumo.equipamentos).toBe(res.body.ativos.length);
+
+    const comAlteracao = res.body.ativos.filter((a: any) => a.alteracoes > 0);
+    expect(comAlteracao.length).toBeGreaterThan(0);
+    // A história do ativo: o card diz o que mudou, não só quantas vezes.
+    expect(comAlteracao[0].maiorAlteracao).not.toBeNull();
+    expect(comAlteracao[0].maiorAlteracao.attributeCode).toMatch(/^cavalo\./);
+  });
+
+  it("dá a mesma remuneração que a Composição, placa a placa", async () => {
+    const [panorama, composicao] = await Promise.all([
+      get("/frota/panorama?entityType=CAVALO"),
+      get("/composition/fleet?entityType=CAVALO"),
+    ]);
+
+    const daComposicao = new Map<string, number | null>(
+      composicao.body.linhas.map((l: any) => [l.placa, l.mensal]),
+    );
+    expect(daComposicao.size).toBeGreaterThan(0);
+
+    for (const ativo of panorama.body.ativos) {
+      expect(daComposicao.get(ativo.placa)).toBe(ativo.mensal);
+    }
+    expect(panorama.body.resumo.mensalTotal).toBe(composicao.body.resumo.mensalTotal);
+  });
+
+  it("conta as alterações do mesmo período que a remuneração descreve", async () => {
+    const panorama = await get("/frota/panorama?entityType=CAVALO");
+    // O card diz "R$ X em agosto" e "N alterações": as duas frases têm de ser do
+    // mesmo mês, ou o card mistura dois períodos sem dizer.
+    expect(panorama.body.procedencia.comparacao.period).toBe(
+      panorama.body.effectiveDate,
+    );
+
+    const escopado = await get("/changes/consolidated?escopo=1&entityType=CAVALO");
+    const soma = panorama.body.ativos.reduce(
+      (s: number, a: any) => s + a.alteracoes,
+      0,
+    );
+    // A soma dos cards é a da comparação escopada, menos o que não tem placa —
+    // então nunca a ultrapassa, e não é zero numa base que mudou.
+    expect(soma).toBeGreaterThan(0);
+    expect(soma).toBeLessThanOrEqual(escopado.body.totais.valueChanges);
+  });
+
+  it("recusa equipamento sem regra de remuneração em vez de mostrar cards vazios", async () => {
+    const semTipo = await get("/frota/panorama");
+    expect(semTipo.status).toBe(400);
+
+    const semRegra = await get("/frota/panorama?entityType=REBOQUE");
+    expect(semRegra.status).toBe(400);
+    expect(semRegra.body.error).toContain("regra de remuneração");
   });
 });
