@@ -112,9 +112,15 @@ export async function detalheDaCelula(
   /* Só agora, e só para as lacunas ausentes, o candidato a renomeação. */
   const ausentes = medida.lacunas.filter((l) => l.estado === "AUSENTE");
   if (ausentes.length > 0) {
-    const janelas = await janelaDosAtributos(db, {
-      datasetFamily: vigencia.datasetFamily,
-    });
+    /*
+      A série da vigência, e não só a família dela.
+
+      Passar `{ datasetFamily }` era a divergência B8 no seu consumidor mais
+      silencioso: a janela vinha do banco inteiro, e o candidato a renomeação
+      desta célula podia ser um campo que sumiu em **outra unidade**. A série
+      chega pronta em `vigencia`, lida da autoridade.
+    */
+    const janelas = await janelaDosAtributos(db, vigencia.serie);
     const novosDaVigencia = janelas.filter(
       (j) => j.primeiraVigencia === vigencia.effectiveDate,
     );

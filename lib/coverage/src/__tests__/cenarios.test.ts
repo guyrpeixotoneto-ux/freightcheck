@@ -5,6 +5,7 @@ import { buildFixture } from "@workspace/comparison/testing";
 import { seedTaxonomy } from "@workspace/curation";
 import { DecisaoRecusada, registrarDecisao } from "../contrato";
 import { detalheDaCelula } from "../detalhe";
+import { descobertas, descobertasDaSerie, janelaDosAtributos } from "../descoberta";
 import { visaoDaCobertura } from "../matriz";
 import { vigenciasObservadas } from "../observado";
 
@@ -635,5 +636,145 @@ describe("a mesma unidade escrita de dois jeitos é uma unidade só", () => {
 
     expect(new Set(celulas.map((c) => c.scopeHash)).size).toBe(1);
     expect(new Set(celulas.map((c) => c.scopeLabel)).size).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A janela de descoberta com recorte obrigatório (PR-12)
+// ---------------------------------------------------------------------------
+
+describe("a novidade de uma unidade não é novidade da outra", () => {
+  /*
+    A divergência B8, e o consumidor que a sofria em silêncio.
+
+    `janelaDosAtributos` aceitava recorte opcional e particionava por
+    `dataset_family` só. Sem escopo e sem canal, a janela de um atributo era
+    calculada sobre o banco inteiro: um campo que a unidade A estreou em março
+    tinha `primeiraVigencia = março`, e a matriz da unidade B — que nunca o
+    entregou — marcava março como vigência de novidade. Pior, o candidato a
+    renomeação do drill-down de B podia ser um campo que sumiu em A.
+
+    Aqui a montagem é a mínima que expõe isso: duas unidades no mesmo canal e
+    na mesma família, cada uma estreando um atributo próprio numa data em que a
+    outra também entregou.
+  */
+  let UMA: string;
+  let OUTRA: string;
+  let SERIE_UMA: string;
+  let SERIE_OUTRA: string;
+
+  beforeAll(async () => {
+    const atributos = [
+      { code: "carreta.comum_b8", dataType: "NUMERIC" as const },
+      { code: "carreta.so_da_a", dataType: "NUMERIC" as const },
+      { code: "carreta.so_da_b", dataType: "NUMERIC" as const },
+    ];
+
+    // Unidade A: em fevereiro estreia `so_da_a`.
+    await buildFixture(
+      ctx.db,
+      atributos,
+      [
+        {
+          label: "B8A_1_1_2026",
+          effectiveDate: "2026-01-01",
+          data: placas("B8A", 5, { "carreta.comum_b8": 1 }),
+        },
+        {
+          label: "B8A_1_2_2026",
+          effectiveDate: "2026-02-01",
+          data: placas("B8A", 5, { "carreta.comum_b8": 1, "carreta.so_da_a": 2 }),
+        },
+      ],
+      { entityType: "CARRETA", scopeHash: "b8-unidade-a", canal: "B8" },
+    );
+
+    // Unidade B: entrega nas mesmas datas e nunca ouviu falar de `so_da_a`.
+    await buildFixture(
+      ctx.db,
+      atributos,
+      [
+        {
+          label: "B8B_1_1_2026",
+          effectiveDate: "2026-01-01",
+          data: placas("B8B", 5, { "carreta.comum_b8": 1 }),
+        },
+        {
+          label: "B8B_1_2_2026",
+          effectiveDate: "2026-02-01",
+          data: placas("B8B", 5, { "carreta.comum_b8": 1, "carreta.so_da_b": 3 }),
+        },
+      ],
+      { entityType: "CARRETA", scopeHash: "b8-unidade-b", canal: "B8" },
+    );
+
+    const vigencias = await vigenciasObservadas(ctx.db, { canal: "B8" });
+    const deA = vigencias.find((v) => v.sourceLabel.startsWith("B8A"))!;
+    const deB = vigencias.find((v) => v.sourceLabel.startsWith("B8B"))!;
+    UMA = deA.scopeHash;
+    OUTRA = deB.scopeHash;
+    SERIE_UMA = deA.serie;
+    SERIE_OUTRA = deB.serie;
+    expect(SERIE_UMA).not.toBe(SERIE_OUTRA);
+  }, 600_000);
+
+  it("a janela de cada série só enxerga os atributos dela", async () => {
+    const daA = await janelaDosAtributos(ctx.db, SERIE_UMA);
+    const daB = await janelaDosAtributos(ctx.db, SERIE_OUTRA);
+
+    const codigos = (js: { attributeCode: string }[]) =>
+      js.map((j) => j.attributeCode).sort();
+
+    expect(codigos(daA)).toEqual(["carreta.comum_b8", "carreta.so_da_a"]);
+    expect(codigos(daB)).toEqual(["carreta.comum_b8", "carreta.so_da_b"]);
+  });
+
+  it("cada série tem as suas descobertas, e só as suas", async () => {
+    const daA = await descobertasDaSerie(ctx.db, SERIE_UMA);
+    const daB = await descobertasDaSerie(ctx.db, SERIE_OUTRA);
+
+    expect(daA.map((d) => d.attributeCode)).toEqual(["carreta.so_da_a"]);
+    expect(daB.map((d) => d.attributeCode)).toEqual(["carreta.so_da_b"]);
+  });
+
+  it("as entidades afetadas por uma descoberta são as da série, não as do banco", async () => {
+    /*
+      As duas unidades têm cinco placas cada. Antes, a contagem de entidades
+      afetadas somava `snapshot_attribute` de todas as vigências disponíveis —
+      e uma novidade de A relatava a frota de B junto quando o atributo fosse
+      comum. Aqui o atributo é exclusivo, então o número certo é o de A.
+    */
+    const [novidade] = await descobertasDaSerie(ctx.db, SERIE_UMA);
+    expect(novidade.attributeCode).toBe("carreta.so_da_a");
+    expect(novidade.entidadesAfetadas).toBe(5);
+    expect(novidade.primeiroRotulo).toBe("B8A_1_2_2026");
+  });
+
+  it("a matriz de cada unidade conta só as novidades dela", async () => {
+    const visaoA = await visaoDaCobertura(ctx.db, { scopeHash: UMA, vigencias: 2 });
+    const visaoB = await visaoDaCobertura(ctx.db, { scopeHash: OUTRA, vigencias: 2 });
+
+    expect(visaoA.descobertas.map((d) => d.attributeCode)).toEqual(["carreta.so_da_a"]);
+    expect(visaoB.descobertas.map((d) => d.attributeCode)).toEqual(["carreta.so_da_b"]);
+
+    // E a célula de fevereiro de cada uma conta uma novidade, não duas.
+    const novosEm = (visao: Awaited<ReturnType<typeof visaoDaCobertura>>) =>
+      visao.linhas[0]!.celulas["2026-02-01"]!.novos;
+    expect(novosEm(visaoA)).toBe(1);
+    expect(novosEm(visaoB)).toBe(1);
+  });
+
+  it("o filtro sem recorte mede uma série de cada vez, em vez de somá-las", async () => {
+    /*
+      `descobertas` é o único ponto que ainda aceita um recorte incompleto, e é
+      onde a resolução acontece: ele não mede sobre a união das séries, ele mede
+      cada uma e junta o resultado. A diferença aparece aqui — as duas
+      novidades vêm, cada uma datada na série dela, e nenhuma contamina a outra.
+    */
+    const todas = await descobertas(ctx.db, { canal: "B8" });
+    expect(todas.map((d) => d.attributeCode).sort()).toEqual([
+      "carreta.so_da_a",
+      "carreta.so_da_b",
+    ]);
   });
 });

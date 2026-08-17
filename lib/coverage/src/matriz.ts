@@ -1,6 +1,6 @@
 import type { Database } from "@workspace/db";
 import { esperadoDaVigencia, type PresencaNaVigencia } from "./esperado";
-import { descobertas, type Descoberta } from "./descoberta";
+import { descobertasDaSerie, type Descoberta } from "./descoberta";
 import {
   atributosObservados,
   vigenciasObservadas,
@@ -211,8 +211,8 @@ export async function visaoDaCobertura(
     Aqui se escrevia `${v.datasetFamily}|${v.scopeHash}|${v.canal}` — a chave de
     série remontada à mão, com o escopo cru. Duas grafias do mesmo CNPJ abriam
     dois recortes, e cada um media a "novidade" contra metade do histórico da
-    unidade. Os três campos continuam sendo passados a `descobertas`, que
-    recorta por eles; o que mudou é quem decide que dois deles são o mesmo.
+    unidade. Os três campos continuam guardados porque a chave de `novosPorCelula`
+    é montada com eles; a medição, essa, é pedida pela chave da série.
   */
   const recortes = new Map<string, { datasetFamily: string; scopeHash: string; canal: string }>();
   for (const v of vigencias) {
@@ -225,10 +225,13 @@ export async function visaoDaCobertura(
 
   const achados: Descoberta[] = [];
   const novosPorCelula = new Map<string, number>();
-  for (const recorte of recortes.values()) {
-    const doRecorte = await descobertas(db, recorte);
-    achados.push(...doRecorte);
-    for (const d of doRecorte) {
+  for (const [serie, recorte] of recortes) {
+    // A chave da série em mãos, a medição é pedida por ela. `descobertas` — a
+    // variante que aceita filtro — resolveria a mesma lista de novo, indo ao
+    // banco para descobrir o que este laço já sabe.
+    const daSerie = await descobertasDaSerie(db, serie);
+    achados.push(...daSerie);
+    for (const d of daSerie) {
       const chave = `${recorte.scopeHash}|${recorte.canal}|${d.entityType}|${d.primeiraVigencia}`;
       novosPorCelula.set(chave, (novosPorCelula.get(chave) ?? 0) + 1);
     }

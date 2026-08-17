@@ -1,9 +1,11 @@
 import { sql } from "drizzle-orm";
 import {
-  chaveDeEscopoSql,
+  filtroDeSerie,
   filtroDeVigenciaDisponivel,
+  type ChaveDeSerie,
 } from "@workspace/availability";
 import type { Database } from "@workspace/db";
+import { vigenciasObservadas } from "./observado";
 
 /**
  * O que apareceu de novo — e o que provavelmente não é novo, só mudou de nome.
@@ -201,31 +203,37 @@ export function candidatoPara(
 }
 
 /**
- * O recorte em que uma descoberta é uma descoberta.
+ * O filtro por onde uma tela pede descobertas — e que **não** é o recorte.
  *
- * **O escopo não é opcional por elegância — é correção.** Sem ele, um atributo
- * que a unidade A passou a entregar em março marcaria como "novidade de março"
- * também a unidade B, que nunca ouviu falar dele. A cobertura de B ficaria
- * `NOVO` por causa de um dado que não é dela, e o operador de B abriria a seção
- * de novidades para encontrar uma lista de coisas de outra unidade. Foi um
- * teste de isolamento de escopo que encontrou isso.
+ * Os três campos podem casar com mais de uma série, e é por isso que quem os
+ * recebe (`descobertas`) resolve a lista antes de medir qualquer coisa: uma
+ * medição por série, nunca uma medição sobre a união delas.
  */
-export interface RecorteDaDescoberta {
+export interface FiltroDeDescoberta {
   datasetFamily?: string;
   scopeHash?: string;
   canal?: string | null;
 }
 
 /**
- * Os atributos com a sua janela de aparição, lidos do layout.
+ * Os atributos com a sua janela de aparição, lidos do layout **de uma série**.
  *
  * `desapareceuEm` é a vigência seguinte à última em que a coluna apareceu — e é
  * nula quando ela apareceu na última vigência da série, porque aí ela não
  * desapareceu: ela ainda está lá.
+ *
+ * **A série é obrigatória, e é a divergência B8 da auditoria.** Aqui o recorte
+ * era opcional, e a consulta particionava por `dataset_family` — sem escopo e
+ * sem canal. Um atributo que a unidade A passou a entregar em março virava
+ * "novidade de março" também para a unidade B, que nunca ouviu falar dele: a
+ * cobertura de B ficava `NOVO` por causa de um dado que não é dela, e a
+ * sugestão de renomeação cruzava unidades. O chamador que não sabia disso —
+ * `detalhe.ts`, passando só a família — não tinha como errar de propósito;
+ * agora não tem como errar por omissão.
  */
 export async function janelaDosAtributos(
   db: Database,
-  recorte: RecorteDaDescoberta = {},
+  serie: ChaveDeSerie,
 ): Promise<AtributoParaComparar[]> {
   const { rows } = await db.execute<{
     code: string;
@@ -237,20 +245,21 @@ export async function janelaDosAtributos(
     desapareceu_em: string | null;
   }>(sql`
     WITH vigencias AS (
+      /*
+        Uma linha por vigência da série, em ordem, com a data da seguinte.
+
+        O DISTINCT ON e o PARTITION BY eram por dataset_family só — o que
+        colapsava duas unidades na mesma data e fazia a janela de um atributo
+        contar aparições que não eram da série. Agora o recorte é a série
+        inteira, aplicada no WHERE, e dentro dela effective_date já é único
+        por construção: o índice de identidade canônica não admite duas
+        vigências ativas da mesma série na mesma data.
+      */
       SELECT s.id, s.effective_date, s.dataset_family,
-             lead(s.effective_date) OVER (PARTITION BY s.dataset_family ORDER BY s.effective_date)
-               AS proxima
-        FROM (SELECT DISTINCT ON (dataset_family, effective_date)
-                     id, effective_date, dataset_family
-                FROM snapshot
-               WHERE ${filtroDeVigenciaDisponivel("snapshot")}
-                 AND (${recorte.datasetFamily ?? null}::text IS NULL
-                      OR dataset_family = ${recorte.datasetFamily ?? null})
-                 AND (${recorte.scopeHash ?? null}::text IS NULL
-                      OR ${chaveDeEscopoSql("snapshot")} = ${recorte.scopeHash ?? null})
-                 AND (${recorte.canal === undefined ? null : recorte.canal}::text IS NULL
-                      OR canal = ${recorte.canal === undefined ? null : recorte.canal})
-               ORDER BY dataset_family, effective_date, revision DESC) s
+             lead(s.effective_date) OVER (ORDER BY s.effective_date) AS proxima
+        FROM snapshot s
+       WHERE ${filtroDeVigenciaDisponivel("s")}
+         AND ${filtroDeSerie(serie, "s")}
     ),
     presenca AS (
       SELECT a.code, a.entity_type, a.data_type, v.dataset_family,
@@ -280,37 +289,39 @@ export async function janelaDosAtributos(
   }));
 }
 
-/** A vigência mais recente de um recorte, ou null se ele não tem nenhuma. */
+/** A vigência mais recente de uma série, ou null se ela não tem nenhuma. */
 async function ultimaVigencia(
   db: Database,
-  recorte: RecorteDaDescoberta,
+  serie: ChaveDeSerie,
 ): Promise<string | null> {
   const { rows } = await db.execute<{ ultima: string | null }>(sql`
-    SELECT max(effective_date)::text AS ultima
-      FROM snapshot
-     WHERE ${filtroDeVigenciaDisponivel("snapshot")}
-       AND (${recorte.datasetFamily ?? null}::text IS NULL
-            OR dataset_family = ${recorte.datasetFamily ?? null})
-       AND (${recorte.scopeHash ?? null}::text IS NULL
-            OR ${chaveDeEscopoSql("snapshot")} = ${recorte.scopeHash ?? null})
-       AND (${recorte.canal === undefined ? null : recorte.canal}::text IS NULL
-            OR canal = ${recorte.canal === undefined ? null : recorte.canal})
+    SELECT max(s.effective_date)::text AS ultima
+      FROM snapshot s
+     WHERE ${filtroDeVigenciaDisponivel("s")}
+       AND ${filtroDeSerie(serie, "s")}
   `);
   return rows[0]?.ultima ?? null;
 }
 
+export interface OpcoesDeDescoberta {
+  /** O corte do "recentemente". O padrão é a última vigência da série. */
+  desdeVigencia?: string;
+  limite?: number;
+}
+
 /**
- * Os atributos descobertos recentemente, com proveniência e candidato.
+ * As descobertas de **uma** série, com proveniência e candidato a renomeação.
  *
  * "Recentemente" é definido por `desdeVigencia` — sem ele, tudo o que existe é
  * uma descoberta, o que é verdade no primeiro dia e ruído depois. O padrão é a
  * vigência mais recente da série.
  */
-export async function descobertas(
+export async function descobertasDaSerie(
   db: Database,
-  opcoes: RecorteDaDescoberta & { desdeVigencia?: string; limite?: number } = {},
+  serie: ChaveDeSerie,
+  opcoes: OpcoesDeDescoberta = {},
 ): Promise<Descoberta[]> {
-  const janelas = await janelaDosAtributos(db, opcoes);
+  const janelas = await janelaDosAtributos(db, serie);
   if (janelas.length === 0) return [];
 
   /*
@@ -322,7 +333,7 @@ export async function descobertas(
     uma "descoberta recente" — 138 novidades num export que não mudou nada. O
     corte tem de ser a fronteira do tempo, não a do dicionário.
   */
-  const corte = opcoes.desdeVigencia ?? (await ultimaVigencia(db, opcoes));
+  const corte = opcoes.desdeVigencia ?? (await ultimaVigencia(db, serie));
   if (corte === null) return [];
 
   const novos = janelas.filter((j) => j.primeiraVigencia >= corte);
@@ -353,15 +364,25 @@ export async function descobertas(
            a.source_name,
            a.first_seen_import_run_id::text                     AS import_run_id,
            sf.filename,
+           /*
+             As duas subconsultas abaixo também eram sem recorte, e é o mesmo
+             defeito visto de outro ângulo: a descoberta era da série, e as
+             entidades afetadas e o rótulo da estreia vinham do banco inteiro.
+             Uma novidade de Camaçari relatava a frota de Manaus junto.
+           */
            coalesce((
              SELECT sum(sa.value_count + sa.null_count)
                FROM snapshot_attribute sa
-               JOIN snapshot s ON s.id = sa.snapshot_id AND ${filtroDeVigenciaDisponivel("s")}
+               JOIN snapshot s ON s.id = sa.snapshot_id
+                              AND ${filtroDeVigenciaDisponivel("s")}
+                              AND ${filtroDeSerie(serie, "s")}
               WHERE sa.attribute_id = a.id
            ), 0)::int                                           AS entidades,
            (SELECT s.source_label
               FROM snapshot_attribute sa
-              JOIN snapshot s ON s.id = sa.snapshot_id AND ${filtroDeVigenciaDisponivel("s")}
+              JOIN snapshot s ON s.id = sa.snapshot_id
+                             AND ${filtroDeVigenciaDisponivel("s")}
+                             AND ${filtroDeSerie(serie, "s")}
              WHERE sa.attribute_id = a.id
              ORDER BY s.effective_date LIMIT 1)                  AS primeiro_rotulo,
            EXISTS (
@@ -407,4 +428,30 @@ export async function descobertas(
         a.attributeCode.localeCompare(b.attributeCode),
     )
     .slice(0, opcoes.limite ?? 100);
+}
+
+/**
+ * As descobertas de um filtro — **uma medição por série**, nunca sobre a união.
+ *
+ * Este é o único lugar do módulo que aceita um recorte incompleto, e ele o
+ * aceita resolvendo: o filtro vira uma lista de séries e cada uma é medida
+ * sozinha. Sem essa separação, "todas as descobertas" seria uma consulta sobre
+ * o banco inteiro, e uma novidade da unidade A apareceria datada na série da
+ * unidade B — que é a divergência B8.
+ *
+ * `limite` é aplicado **por série**, e não ao total: cortar o total faria a
+ * segunda unidade sumir da lista quando a primeira tivesse novidades demais.
+ */
+export async function descobertas(
+  db: Database,
+  filtro: FiltroDeDescoberta & OpcoesDeDescoberta = {},
+): Promise<Descoberta[]> {
+  const { datasetFamily, scopeHash, canal, ...opcoes } = filtro;
+  const vigencias = await vigenciasObservadas(db, { datasetFamily, scopeHash, canal });
+  const series = [...new Set(vigencias.map((v) => v.serie))];
+
+  const porSerie = await Promise.all(
+    series.map((serie) => descobertasDaSerie(db, serie, opcoes)),
+  );
+  return porSerie.flat();
 }
