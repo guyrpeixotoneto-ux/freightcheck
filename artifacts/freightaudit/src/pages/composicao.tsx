@@ -35,11 +35,28 @@ import {
  * desligada com o motivo escrito, em vez de não existir. Ver `MotivoDosConjuntos`.
  */
 
-/** As abas. A terceira está declarada e desativada — ver o rodapé da barra. */
-const TIPOS = [
-  { entityType: "CAVALO", rotulo: "Cavalos" },
-  { entityType: "CARRETA", rotulo: "Carretas" },
-] as const;
+/**
+ * O rótulo de cada equipamento. **Não** é a lista de abas.
+ *
+ * A lista de abas vinha daqui, escrita à mão com dois itens, e era o defeito:
+ * um terceiro equipamento importado ficava invisível — sem aba, sem aviso, sem
+ * erro. Agora ela vem de `/composition/equipment-types`, que cruza o que o
+ * canônico tem com o que a Composição sabe apurar. Isto aqui só traduz o
+ * código para uma palavra em português, e o `??` cobre o equipamento novo com
+ * o próprio código enquanto ninguém escreve o nome dele.
+ */
+const ROTULO: Record<string, string> = {
+  CAVALO: "Cavalos",
+  CARRETA: "Carretas",
+};
+
+interface EquipamentoElegivel {
+  entityType: string;
+  vigencias: number;
+  entidades: number;
+  apuravel: boolean;
+  vazio: { estado: string; frase: string } | null;
+}
 
 interface Filtros {
   busca: string;
@@ -86,6 +103,20 @@ export default function Composicao() {
     queryFn: () => fetchJson<VisaoDeFrota>(`/composition/fleet?${query}`),
   });
 
+  /*
+    Os equipamentos que existem, com o veredito da Composição sobre cada um.
+
+    Vem do servidor, e não de uma lista aqui, porque a pergunta é sobre o banco:
+    "que equipamento foi importado?" só o canônico responde. Enquanto não
+    chega, as abas ficam vazias — o que é melhor do que mostrar duas e depois
+    trocar por três.
+  */
+  const { data: equipamentos = [] } = useQuery({
+    queryKey: ["composition", "equipment-types"],
+    queryFn: () => fetchJson<EquipamentoElegivel[]>("/composition/equipment-types"),
+    staleTime: 5 * 60 * 1000,
+  });
+
   const irPara = (mudancas: Record<string, string>) => {
     const next = new URLSearchParams(search);
     for (const [chave, valor] of Object.entries(mudancas)) {
@@ -122,23 +153,50 @@ export default function Composicao() {
         </div>
 
         <nav className="flex items-end gap-1 mt-5 -mb-px" aria-label="Tipo de equipamento">
-          {TIPOS.map((tipo) => (
+          {equipamentos.map((tipo) => (
             <button
               key={tipo.entityType}
               type="button"
+              /*
+                O equipamento sem regra vira aba **desabilitada**, e não some.
+                Sumir é o que ele fazia: ninguém tinha como saber que ele
+                existe, e o silêncio é a única forma de ausência que não dá para
+                estranhar. Desabilitado com o motivo no `title` diz as duas
+                coisas de uma vez — o dado chegou, e a Composição não sabe
+                compô-lo.
+              */
+              disabled={!tipo.apuravel}
+              title={tipo.vazio?.frase}
               onClick={() => irPara({ tipo: tipo.entityType })}
               className={cn(
                 "px-5 py-2.5 text-sm font-semibold uppercase tracking-wide border-b-2 transition-colors",
-                tipo.entityType === entityType
-                  ? "border-brand text-brand"
-                  : "border-transparent text-muted-foreground hover:text-foreground",
+                !tipo.apuravel
+                  ? "border-transparent text-muted-foreground/50 cursor-not-allowed"
+                  : tipo.entityType === entityType
+                    ? "border-brand text-brand"
+                    : "border-transparent text-muted-foreground hover:text-foreground",
               )}
             >
-              {tipo.rotulo}
+              {ROTULO[tipo.entityType] ?? tipo.entityType}
+              {!tipo.apuravel && " · sem regra"}
             </button>
           ))}
           <MotivoDosConjuntos />
         </nav>
+
+        {/*
+          E o aviso por extenso, para quem não passa o mouse. Só aparece quando
+          há de fato um equipamento sem regra — com os dois de sempre, a linha
+          não existe.
+        */}
+        {equipamentos.some((t) => !t.apuravel) && (
+          <p className="text-xs text-muted-foreground mt-3 max-w-4xl">
+            {equipamentos
+              .filter((t) => !t.apuravel)
+              .map((t) => t.vazio?.frase)
+              .join(" ")}
+          </p>
+        )}
       </header>
 
       <div className="px-8 py-6 space-y-6">

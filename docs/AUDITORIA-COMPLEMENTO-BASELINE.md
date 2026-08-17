@@ -568,7 +568,7 @@ está errado, ou ele deve `NOT_APPLICABLE`. Não há terceira saída.
 |---|---|---|
 | Equipamento sem atributo numérico, em Impacto | `404 "Nenhuma vigência importada ainda."` | **feito no PR-18**: `NAO_SE_APLICA`, com a frase que manda conferir a curadoria e não mandar importar |
 | Primeira vigência da série, em Alterações | `409 "não há anterior"` | `EXISTS` + `PRIMEIRA_DA_SERIE` — **feito no PR-9**: a frase e o motivo vêm da autoridade, e o gatilho passou a ser só a primeira da série |
-| Terceiro equipamento, em Composição/DRE | tela simplesmente não o mostra | `NOT_APPLICABLE` — "não há regra de composição declarada para este equipamento" |
+| Terceiro equipamento, em Composição/DRE | tela simplesmente não o mostra | **feito no PR-19**: `NAO_SE_APLICA` com a frase que manda declarar a regra, e não importar de novo |
 | Chamado aberto, sem impacto | `NOT_CALCULABLE` com motivo | **já correto** |
 | Atributo `PRESUMED` em Impacto financeiro | `somavel: false`, escolhível | **já correto** |
 | Segunda unidade, em Alterações | invisível e silenciosa | `EXISTS` + "você está vendo um contexto; existem outros" |
@@ -686,7 +686,7 @@ de toda a sequência.
 | PR | O quê |
 |---|---|
 | **PR-18** | Separar as quatro causas de vazio do Impacto; vocabulário comum de vazio — **feito**. O vocabulário mora na autoridade de disponibilidade, porque o primeiro dos quatro estados é dela: só ela responde se o dado existe. A rota mantém 404 nos quatro — o recurso não existe em nenhum — e o que muda é o corpo: `error` traz a frase certa, e `estado` vai ao lado para quem quiser tratar diferente |
-| **PR-19** | `NOT_APPLICABLE` explícito em Composição e DRE para equipamento sem regra |
+| **PR-19** | `NOT_APPLICABLE` explícito em Composição e DRE para equipamento sem regra — **feito**. O defeito era mais silencioso do que a linha sugeria: as listas declaradas estavam certas, e ninguém as cruzava com o canônico. Não havia tela vazia para estranhar; havia silêncio |
 | **PR-20** | `import_decision` na tela de Importações; `snapshot_merge` em Vigências |
 
 **Regra de sequência:** PR-5 antes de qualquer consumidor. PR-6 e PR-7 antes de

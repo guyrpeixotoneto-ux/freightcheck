@@ -55,6 +55,11 @@ Depois do PR-15 (`c15db11`): `comparison` 284, `coverage` 73, `dre` 75,
 `composition` 64, `balance` 16, `api-server` **306** (os 18 do contrato da
 frota), `freightaudit` 141.
 
+Depois do PR-18 (`86d28da`): `comparison` 284, `availability` 32,
+`api-server` **311** (os 5 de `vazio-do-impacto`). A troca de `null` por
+`ComVazio` em quinze pontos de teste não alterou nenhuma asserção de
+comportamento.
+
 > **Os 119 pulados do `assistant` não são regressão desta sequência.** São
 > `evals`, `fase1` e os dois de benchmark, que dependem de chave de API do
 > modelo e se auto-pulam sem ela. Ficam registrados porque `assistant` entrou
@@ -68,10 +73,10 @@ frota), `freightaudit` 141.
 
 | | |
 |---|---|
-| **Feitos** | 16 (PR-1, 2, 4, 5, 6, 7, 8, 9, 10, 10b, 11, 12, 13, 14, 15, 17) |
+| **Feitos** | 17 (PR-1, 2, 4, 5, 6, 7, 8, 9, 10, 10b, 11, 12, 13, 14, 15, 17, 18) |
 | **Absorvidos** | 1 (PR-16, cumprido pelo PR-10b) |
 | **Não existiu** | 1 (PR-3, dobrado no PR-4 — ver nota) |
-| **Faltam** | **3**: PR-18 (aguardando suíte), 19, 20 |
+| **Faltam** | **2**: PR-19 (aguardando suíte), 20 |
 
 > **Nota sobre PR-3.** O plano original tinha um PR-3 de caracterização da
 > Análise de frota, separado do PR-4 que a mapeava. Os dois foram entregues como
@@ -112,8 +117,8 @@ frota), `freightaudit` 141.
 
 | PR | Objetivo | Status | Commit | Testes | Evidência |
 |---|---|---|---|---|---|
-| **PR-18** | Vocabulário comum do vazio, e as quatro causas do Impacto | **aguardando suíte** | — | `vazio-do-impacto.test.ts` (5) | `Vazio` em `@workspace/availability`: `NAO_EXISTE`, `NAO_SE_APLICA`, `NAO_CALCULAVEL`, `FORA_DO_RECORTE` — a máquina de estados da Parte F, com a regra de ouro presa por asserção. `getQuinzenaMatrix` devolvia `null` nas quatro e a rota traduzia em `404 "Nenhuma vigência importada ainda."`. **Prova negativa**: com a frase única reinstalada, três casos falham, inclusive a regra de ouro |
-| **PR-19** | `NOT_APPLICABLE` explícito em Composição e DRE | **a fazer** | — | — | — |
+| **PR-18** | Vocabulário comum do vazio, e as quatro causas do Impacto | **feito** | `86d28da` | `vazio-do-impacto.test.ts` (5) | `Vazio` em `@workspace/availability`: `NAO_EXISTE`, `NAO_SE_APLICA`, `NAO_CALCULAVEL`, `FORA_DO_RECORTE` — a máquina de estados da Parte F, com a regra de ouro presa por asserção. `getQuinzenaMatrix` devolvia `null` nas quatro e a rota traduzia em `404 "Nenhuma vigência importada ainda."`. **Prova negativa**: com a frase única reinstalada, três casos falham, inclusive a regra de ouro |
+| **PR-19** | O terceiro equipamento deixa de ser invisível | **aguardando suíte** | — | `terceiro-equipamento.test.ts` (6) | Composição e DRE declaravam o que sabem apurar, e **ninguém cruzava com o canônico**: as telas tinham as abas escritas à mão, `/composition/equipment-types` e `/dre/plano` não eram chamados por tela nenhuma. Um terceiro equipamento ficava invisível — sem aba, sem aviso, sem erro. `equipamentosElegiveis` cruza censo × regra e devolve `NAO_SE_APLICA` nomeado; Composição vira aba desabilitada, DRE vira aviso (lá as abas são escopos, e `CONJUNTO` não é equipamento) |
 | **PR-20** | `import_decision` em Importações; `snapshot_merge` em Vigências | **a fazer** | — | — | — |
 
 ---

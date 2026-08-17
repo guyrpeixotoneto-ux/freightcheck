@@ -10,6 +10,7 @@ import {
   TIPOS_COM_REGRA,
   type FiltrosDeFrota,
 } from "@workspace/composition";
+import { equipamentosElegiveis } from "@workspace/availability";
 
 /**
  * Composição — a memória de cálculo da remuneração, por equipamento.
@@ -76,9 +77,36 @@ function sendContextError(res: Response, err: unknown): boolean {
   return false;
 }
 
-/** Os tipos que a tela pode abrir como aba. */
-router.get("/composition/equipment-types", (_req, res): void => {
-  res.json(TIPOS_COM_REGRA);
+/**
+ * Os equipamentos que o **canônico tem**, com o veredito da Composição sobre
+ * cada um.
+ *
+ * Isto devolvia `TIPOS_COM_REGRA` — a lista declarada, sem olhar o banco — e
+ * não era chamado por tela nenhuma: `composicao.tsx` tinha as duas abas
+ * escritas à mão. Um terceiro equipamento importado ficava invisível: sem aba,
+ * sem aviso, sem erro. Não havia tela vazia para alguém estranhar; havia uma
+ * ausência que ninguém tinha como notar.
+ *
+ * Agora a resposta é o cruzamento: um item por equipamento **que existe**, com
+ * `apuravel` e, quando não, o vazio nomeado. A tela monta as abas a partir
+ * daqui, e mostra o que não sabe compor em vez de omiti-lo.
+ */
+router.get("/composition/equipment-types", async (req, res): Promise<void> => {
+  try {
+    res.json(
+      await equipamentosElegiveis(db, {
+        apuraveis: TIPOS_COM_REGRA,
+        comoOModuloChama: (tipo) =>
+          `Este equipamento está importado e a Composição não tem regra de ` +
+          `remuneração declarada para "${tipo}". Compor sem regra somaria colunas ` +
+          `que ninguém disse que se somam — a saída é declarar a regra, não ` +
+          `importar de novo.`,
+      }),
+    );
+  } catch (err) {
+    req.log.error({ err }, "Error listing composition equipment types");
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 router.get("/composition/fleet", async (req, res): Promise<void> => {

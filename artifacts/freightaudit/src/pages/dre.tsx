@@ -44,6 +44,14 @@ import {
 
 const ESCOPOS: EscopoApuravel[] = ["CONJUNTO", "CAVALO", "CARRETA"];
 
+interface PlanoDaDRE {
+  equipamentos: {
+    entityType: string;
+    apuravel: boolean;
+    vazio: { estado: string; frase: string } | null;
+  }[];
+}
+
 interface Filtros {
   busca: string;
   soNegativos: boolean;
@@ -88,6 +96,21 @@ export default function DRE() {
     queryKey: ["dre", "fleet", query],
     queryFn: () => fetchJson<DREDaFrota>(`/dre/fleet?${query}`),
   });
+
+  /*
+    O plano da DRE, e — o que interessa aqui — os equipamentos que o canônico
+    tem com o veredito da DRE sobre cada um.
+
+    A chamada é nova: `/dre/plano` existia e não era consumido por tela
+    nenhuma. Sem ela, a tela não tinha como saber que existe equipamento que
+    ela não apura.
+  */
+  const { data: plano } = useQuery({
+    queryKey: ["dre", "plano"],
+    queryFn: () => fetchJson<PlanoDaDRE>("/dre/plano"),
+    staleTime: 5 * 60 * 1000,
+  });
+  const semPlano = (plano?.equipamentos ?? []).filter((e) => !e.apuravel);
 
   const historico = useQuery({
     queryKey: ["dre", "history", escopo, params.get("scopeHash"), params.get("canal")],
@@ -155,6 +178,25 @@ export default function DRE() {
             </button>
           ))}
         </nav>
+
+        {/*
+          O equipamento que a DRE não apura — dito, e não omitido.
+
+          As abas aqui são **escopos**, não equipamentos: `CONJUNTO` é o par
+          cavalo+carreta apurado junto, e não existe em `snapshot_entity_type`.
+          Por isso um equipamento sem plano não vira aba desabilitada como em
+          Composição, onde as abas são os equipamentos — vira esta linha. O
+          tratamento difere porque o eixo difere, e não por descuido.
+
+          Antes não havia nem a linha: um terceiro equipamento importado ficava
+          invisível, porque as abas eram os escopos declarados e ninguém
+          perguntava o que o banco tinha.
+        */}
+        {semPlano.length > 0 && (
+          <p className="text-xs text-muted-foreground mt-3 max-w-4xl">
+            {semPlano.map((e) => e.vazio?.frase).join(" ")}
+          </p>
+        )}
       </header>
 
       <div className="px-8 py-6 space-y-6">

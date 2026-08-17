@@ -15,6 +15,7 @@ import {
   type EscopoApuravel,
   type FiltrosDaFrota,
 } from "@workspace/dre";
+import { equipamentosElegiveis } from "@workspace/availability";
 
 /**
  * DRE — o resultado por unidade econômica.
@@ -101,13 +102,42 @@ function sendContextError(res: Response, err: unknown): boolean {
  * Uma cópia do plano no frontend divergiria no primeiro componente novo, e as
  * duas versões seriam usadas para dizer o que a demonstração contém.
  */
-router.get("/dre/plano", (_req, res): void => {
-  res.json({
-    componentes: PLANO_DA_DRE,
-    escopos: ESCOPOS_APURAVEIS,
-    criterios: CRITERIOS,
-    aviso: AVISO_DE_CIRCULARIDADE,
-  });
+router.get("/dre/plano", async (req, res): Promise<void> => {
+  try {
+    /*
+      `equipamentos` é novo, e é o cruzamento que faltava.
+
+      `escopos` continua sendo a lista **declarada** — e deve continuar: o que a
+      DRE sabe apurar é conhecimento de negócio, não algo que se descubra numa
+      consulta. O que não existia era alguém cruzá-la com o canônico: um
+      terceiro equipamento importado ficava invisível na tela, sem aba e sem
+      aviso, porque as abas eram os escopos declarados e ninguém perguntava o
+      que o banco tinha.
+
+      `CONJUNTO` fica de fora do cruzamento de propósito: ele não é um
+      equipamento, é o par cavalo+carreta apurado junto. Procurá-lo em
+      `snapshot_entity_type` não acharia nada, e a linha diria "não se aplica"
+      sobre o escopo que a DRE mais usa.
+    */
+    const equipamentos = await equipamentosElegiveis(db, {
+      apuraveis: ESCOPOS_APURAVEIS.filter((e) => e !== "CONJUNTO"),
+      comoOModuloChama: (tipo) =>
+        `Este equipamento está importado e a DRE não tem plano de apuração para ` +
+        `"${tipo}". Apurar sem plano somaria componentes que ninguém declarou — a ` +
+        `saída é declarar o plano em lib/dre/src/plano.ts, não importar de novo.`,
+    });
+
+    res.json({
+      componentes: PLANO_DA_DRE,
+      escopos: ESCOPOS_APURAVEIS,
+      equipamentos,
+      criterios: CRITERIOS,
+      aviso: AVISO_DE_CIRCULARIDADE,
+    });
+  } catch (err) {
+    req.log.error({ err }, "Error building DRE plan");
+    res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 router.get("/dre/fleet", async (req, res): Promise<void> => {
