@@ -51,21 +51,41 @@ export const EQUIPAMENTOS: Equipamento[] = ["CAVALO", "CARRETA"];
 export const equipamentoValido = (valor: string | null): valor is Equipamento =>
   valor !== null && (EQUIPAMENTOS as string[]).includes(valor);
 
-/** Como cada equipamento se chama e onde mora a tela dele. */
+/**
+ * Como cada equipamento se chama e onde mora a tela dele.
+ *
+ * `pronome` e `este` existem porque o português não deixa a frase ser neutra:
+ * "cada carreta da operação: quanto **ele** custa" é o que sai de um texto
+ * montado no masculino e reaproveitado. O gênero é dado do equipamento, e mora
+ * aqui junto com o nome — não numa condicional espalhada por cada frase.
+ */
 export const TELA_DO_EQUIPAMENTO: Record<
   Equipamento,
-  { titulo: string; singular: string; plural: string; href: string }
+  {
+    titulo: string;
+    singular: string;
+    plural: string;
+    /** `ele` | `ela` */
+    pronome: string;
+    /** `este` | `esta` */
+    este: string;
+    href: string;
+  }
 > = {
   CAVALO: {
     titulo: "Cavalo 360°",
     singular: "cavalo",
     plural: "cavalos",
+    pronome: "ele",
+    este: "este",
     href: "/cavalo-360",
   },
   CARRETA: {
     titulo: "Carreta 360°",
     singular: "carreta",
     plural: "carretas",
+    pronome: "ela",
+    este: "esta",
     href: "/carreta-360",
   },
 };
@@ -152,31 +172,56 @@ export function linkDaFrota(
 }
 
 /**
+ * Em que nível a tela está — e cada um promete uma coisa diferente.
+ *
+ * `grade` é a frota como cards, um por ativo, e é a porta do módulo. `ativo` é
+ * um cavalo. `frota` são as quatro leituras sobre todos eles, que é a pergunta
+ * de quem confere o mês fechado e não a de quem chega.
+ */
+export type NivelDaTela = "grade" | "ativo" | "frota";
+
+/**
  * Como a tela se apresenta em uma frase — o subtítulo do cabeçalho.
  *
- * Muda com a placa porque a promessa muda com ela: na frota, a tela responde
- * "tudo o que mudou nos cavalos"; num ativo, "tudo o que aconteceu com este
- * cavalo". Dizer a primeira frase mostrando a segunda é o começo de toda
- * leitura errada desta tela.
+ * Muda com o nível porque a promessa muda com ele: a grade mostra a situação de
+ * cada ativo, a leitura de frota responde "o que mudou nos cavalos", e o ativo
+ * responde "o que aconteceu com este cavalo". Dizer uma dessas frases mostrando
+ * outra é o começo de toda leitura errada desta tela — e a mais cara é a do
+ * meio, porque um número de frota lido como se fosse de um ativo é um número
+ * que parece pequeno e vai para uma reunião.
  */
-export function frasesDoEscopo(escopo: EscopoDeFrota): {
-  titulo: string;
-  subtitulo: string;
-} {
+export function frasesDoEscopo(
+  escopo: EscopoDeFrota,
+  nivel: NivelDaTela = escopo.placa === null ? "grade" : "ativo",
+): { titulo: string; subtitulo: string } {
   const tela = TELA_DO_EQUIPAMENTO[escopo.entityType];
-  if (escopo.placa === null) {
+
+  if (escopo.placa !== null || nivel === "ativo") {
     return {
-      titulo: tela.titulo,
+      titulo: escopo.placa === null ? tela.titulo : `${tela.titulo} · ${escopo.placa}`,
+      subtitulo:
+        `Tudo o que a base sabe sobre ${tela.este} ${tela.singular}: o que a ` +
+        `planilha mexeu, o que pedimos por chamado, e quanto ${tela.pronome} ` +
+        `custou em cada quinzena.`,
+    };
+  }
+
+  if (nivel === "frota") {
+    return {
+      titulo: `${tela.titulo} · todos`,
       subtitulo:
         `Tudo o que mudou para os ${tela.plural}, pelos quatro caminhos por ` +
         `onde a mudança chega. Os números de uma aba nunca somam com os da ` +
-        `outra — escolha uma placa para descer a um ativo só.`,
+        `outra — volte aos cards para descer a um ativo só.`,
     };
   }
+
   return {
-    titulo: `${tela.titulo} · ${escopo.placa}`,
+    titulo: tela.titulo,
     subtitulo:
-      `Tudo o que a base sabe sobre este ${tela.singular}: o que a planilha ` +
-      `mexeu, o que pedimos por chamado, e quanto ele custou em cada quinzena.`,
+      `A situação de cada ${tela.singular} da operação: quanto ${tela.pronome} ` +
+      `custa por mês, o que mudou ${tela.pronome === "ele" ? "nele" : "nela"} na ` +
+      `vigência e o que pedimos por chamado. Clique num card para ver a ` +
+      `remuneração inteira do ativo.`,
   };
 }

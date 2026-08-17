@@ -9,6 +9,7 @@ import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import { buildFixture, type AttributeSpec } from "./fixtures";
 import { listarFrota } from "../ativos";
 import {
+  chamadosPorAtivo,
   getTicketClassification,
   getTicketTotals,
   getTicketsByParameter,
@@ -17,7 +18,7 @@ import {
 import { getConsolidated } from "../consolidated";
 import { lerEscopo, temEscopo } from "../escopo";
 import { getQuinzenaMatrix } from "../impacto";
-import { getChangeSetBreakdown, totaisDoEscopo } from "../query";
+import { getChangeSetBreakdown, situacaoPorAtivo, totaisDoEscopo } from "../query";
 
 /**
  * O escopo de frota — o que Cavalo 360° e Carreta 360° pedem às mesmas leituras
@@ -499,5 +500,65 @@ describe("os chamados", () => {
   it("sem escopo, continuam sendo o arquivo inteiro", async () => {
     const arvore = await getTicketClassification(ctx.db, envioId);
     expect(arvore.changes).toBe(4);
+  });
+});
+
+/**
+ * O card de Cavalo 360° — a situação de cada ativo, ativo a ativo.
+ *
+ * O grão é o que estes casos protegem. As leituras acima respondem por uma
+ * população; estas respondem **por ativo**, e o erro que elas impedem é o mais
+ * banal de escrever: contar chamados onde se queria contar alterações. Um
+ * chamado que mexeu em oito parâmetros é um chamado e oito alterações, e usar um
+ * pelo outro dá um número que existe, parece certo e responde outra pergunta.
+ */
+describe("a situação de cada ativo", () => {
+  it("conta as alterações de cada placa, e a soma fecha com o escopo", async () => {
+    const ids = await idsDoPeriodo();
+    const porAtivo = await situacaoPorAtivo(ctx.db, ids, { entityType: "CAVALO" });
+    const totais = await totaisDoEscopo(ctx.db, ids, { entityType: "CAVALO" });
+
+    expect(porAtivo.get("BBB1B11")?.alteracoes).toBe(2);
+    // O ativo que não mudou não tem entrada: ele não existe em alteração
+    // nenhuma. É a `listarFrota` que o conhece, e é por isso que o card sai da
+    // frota e recebe as contagens, e não o contrário.
+    expect(porAtivo.has("BBB2B22")).toBe(false);
+
+    const soma = [...porAtivo.values()].reduce((s, a) => s + a.alteracoes, 0);
+    expect(soma).toBe(totais.valueChanges);
+  });
+
+  it("escolhe a alteração mais material como a história do ativo", async () => {
+    const ids = await idsDoPeriodo();
+    const porAtivo = await situacaoPorAtivo(ctx.db, ids, { entityType: "CAVALO" });
+    const maior = porAtivo.get("BBB1B11")?.maior;
+
+    // O IPVA move R$ 3.000 e o custo fixo R$ 500: a régua é a materialidade, a
+    // mesma da lista para onde o card leva. Duas réguas fariam o card apontar
+    // para uma lista que abre em outra linha.
+    expect(maior?.attributeCode).toBe("cavalo.ipva");
+    expect(maior?.valueBefore).toBe("12000");
+    expect(maior?.valueAfter).toBe("9000");
+    expect(maior?.impactAmount).toBe(-3000);
+    expect(maior?.impactPeriodicity).toBe("ANUAL");
+  });
+
+  it("não deixa a placa de um equipamento aparecer na leitura do outro", async () => {
+    const ids = await idsDoPeriodo();
+    const cavalos = await situacaoPorAtivo(ctx.db, ids, { entityType: "CAVALO" });
+    const carretas = await situacaoPorAtivo(ctx.db, ids, { entityType: "CARRETA" });
+
+    expect([...cavalos.keys()]).toEqual(["BBB1B11"]);
+    expect([...carretas.keys()]).toEqual(["AAA1A11"]);
+  });
+
+  it("conta chamados e alterações de chamado como coisas diferentes", async () => {
+    const porAtivo = await chamadosPorAtivo(ctx.db, envioId, { entityType: "CAVALO" });
+
+    // Um chamado, dois parâmetros mexidos. Se estes dois números fossem um só,
+    // o card diria "2 chamados" para um ativo que teve um.
+    expect(porAtivo.get("BBB1B11")).toEqual({ chamados: 1, alteracoes: 2 });
+    expect(porAtivo.get("BBB2B22")).toEqual({ chamados: 1, alteracoes: 1 });
+    expect(porAtivo.has("AAA1A11")).toBe(false);
   });
 });
