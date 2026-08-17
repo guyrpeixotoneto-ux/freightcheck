@@ -54,10 +54,16 @@ export const equipamentoValido = (valor: string | null): valor is Equipamento =>
 /**
  * Como cada equipamento se chama e onde mora a tela dele.
  *
- * `pronome` e `este` existem porque o português não deixa a frase ser neutra:
- * "cada carreta da operação: quanto **ele** custa" é o que sai de um texto
- * montado no masculino e reaproveitado. O gênero é dado do equipamento, e mora
- * aqui junto com o nome — não numa condicional espalhada por cada frase.
+ * `genero` existe porque o português não deixa a frase ser neutra, e a tela é a
+ * mesma para os dois equipamentos: "cada carreta da operação: quanto **ele**
+ * custa" e "ver as alterações de todos **os** carretas" são o que sai de textos
+ * montados no masculino e reaproveitados. Os dois estiveram no ar.
+ *
+ * É **um** campo, e não seis, porque gênero é um fato só sobre a palavra — as
+ * flexões saem dele em {@link flexoesDe}. Guardar `pronome`, `este`, `todos`,
+ * `aos` e `nenhum` lado a lado convidaria o próximo a acrescentar o sexto e
+ * esquecer de preencher um dos dois equipamentos, que é exatamente o defeito
+ * que este campo existe para fechar.
  */
 export const TELA_DO_EQUIPAMENTO: Record<
   Equipamento,
@@ -65,10 +71,7 @@ export const TELA_DO_EQUIPAMENTO: Record<
     titulo: string;
     singular: string;
     plural: string;
-    /** `ele` | `ela` */
-    pronome: string;
-    /** `este` | `esta` */
-    este: string;
+    genero: "m" | "f";
     href: string;
   }
 > = {
@@ -76,19 +79,52 @@ export const TELA_DO_EQUIPAMENTO: Record<
     titulo: "Cavalo 360°",
     singular: "cavalo",
     plural: "cavalos",
-    pronome: "ele",
-    este: "este",
+    genero: "m",
     href: "/cavalo-360",
   },
   CARRETA: {
     titulo: "Carreta 360°",
     singular: "carreta",
     plural: "carretas",
-    pronome: "ela",
-    este: "esta",
+    genero: "f",
     href: "/carreta-360",
   },
 };
+
+/**
+ * As flexões que as frases da tela precisam, derivadas do gênero.
+ *
+ * Todas as que aparecem no produto, e nenhuma a mais: acrescentar uma é
+ * acrescentar aqui, num lugar em que os dois gêneros são escritos na mesma
+ * linha e a falta de um salta aos olhos.
+ */
+export function flexoesDe(equipamento: Equipamento): {
+  /** `ele` | `ela` */
+  pronome: string;
+  /** `nele` | `nela` */
+  nele: string;
+  /** `este` | `esta` */
+  este: string;
+  /** `os` | `as` */
+  os: string;
+  /** `todos os` | `todas as` */
+  todos: string;
+  /** `aos` | `às` — para "voltar aos cavalos" e "voltar às carretas". */
+  aos: string;
+  /** `Nenhum` | `Nenhuma` */
+  nenhum: string;
+} {
+  const masculino = TELA_DO_EQUIPAMENTO[equipamento].genero === "m";
+  return {
+    pronome: masculino ? "ele" : "ela",
+    nele: masculino ? "nele" : "nela",
+    este: masculino ? "este" : "esta",
+    os: masculino ? "os" : "as",
+    todos: masculino ? "todos os" : "todas as",
+    aos: masculino ? "aos" : "às",
+    nenhum: masculino ? "Nenhum" : "Nenhuma",
+  };
+}
 
 // ---------------------------------------------------------------------------
 // O escopo
@@ -195,13 +231,14 @@ export function frasesDoEscopo(
   nivel: NivelDaTela = escopo.placa === null ? "grade" : "ativo",
 ): { titulo: string; subtitulo: string } {
   const tela = TELA_DO_EQUIPAMENTO[escopo.entityType];
+  const f = flexoesDe(escopo.entityType);
 
   if (escopo.placa !== null || nivel === "ativo") {
     return {
       titulo: escopo.placa === null ? tela.titulo : `${tela.titulo} · ${escopo.placa}`,
       subtitulo:
-        `Tudo o que a base sabe sobre ${tela.este} ${tela.singular}: o que a ` +
-        `planilha mexeu, o que pedimos por chamado, e quanto ${tela.pronome} ` +
+        `Tudo o que a base sabe sobre ${f.este} ${tela.singular}: o que a ` +
+        `planilha mexeu, o que pedimos por chamado, e quanto ${f.pronome} ` +
         `custou em cada quinzena.`,
     };
   }
@@ -210,8 +247,8 @@ export function frasesDoEscopo(
     return {
       titulo: `${tela.titulo} · todos`,
       subtitulo:
-        `Tudo o que mudou para os ${tela.plural}, pelos quatro caminhos por ` +
-        `onde a mudança chega. Os números de uma aba nunca somam com os da ` +
+        `Tudo o que mudou para ${f.os} ${tela.plural}, pelos quatro caminhos ` +
+        `por onde a mudança chega. Os números de uma aba nunca somam com os da ` +
         `outra — volte aos cards para descer a um ativo só.`,
     };
   }
@@ -219,9 +256,8 @@ export function frasesDoEscopo(
   return {
     titulo: tela.titulo,
     subtitulo:
-      `A situação de cada ${tela.singular} da operação: quanto ${tela.pronome} ` +
-      `custa por mês, o que mudou ${tela.pronome === "ele" ? "nele" : "nela"} na ` +
-      `vigência e o que pedimos por chamado. Clique num card para ver a ` +
-      `remuneração inteira do ativo.`,
+      `A situação de cada ${tela.singular} da operação: quanto ${f.pronome} ` +
+      `custa por mês, o que mudou ${f.nele} na vigência e o que pedimos por ` +
+      `chamado. Clique num card para ver a remuneração inteira do ativo.`,
   };
 }

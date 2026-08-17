@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   EQUIPAMENTOS,
   equipamentoValido,
+  flexoesDe,
   frasesDoEscopo,
   lerPlaca,
   linkDaFrota,
@@ -146,6 +147,46 @@ describe("o que a tela promete", () => {
     const { titulo, subtitulo } = frasesDoEscopo(escopo({ placa: "QYW2D78" }));
     expect(titulo).toBe("Cavalo 360° · QYW2D78");
     expect(subtitulo).toContain("este cavalo");
+  });
+
+  it("flexiona tudo o que a tela escreve, nos dois gêneros", () => {
+    /*
+      As duas telas são o mesmo componente, então toda frase montada no
+      masculino vaza para a carreta. Estiveram no ar: "cada carreta … quanto
+      **ele** custa" e "ver as alterações de todos **os** carretas".
+
+      O caso compara os dois lados campo a campo em vez de conferir um só: uma
+      flexão nova acrescentada para o cavalo e esquecida para a carreta é
+      exatamente o defeito que se repetiu, e ele passa despercebido num teste
+      que olha um gênero de cada vez.
+    */
+    const m = flexoesDe("CAVALO");
+    const f = flexoesDe("CARRETA");
+
+    expect(m).toEqual({
+      pronome: "ele",
+      nele: "nele",
+      este: "este",
+      os: "os",
+      todos: "todos os",
+      aos: "aos",
+      nenhum: "Nenhum",
+    });
+    expect(f).toEqual({
+      pronome: "ela",
+      nele: "nela",
+      este: "esta",
+      os: "as",
+      todos: "todas as",
+      aos: "às",
+      nenhum: "Nenhuma",
+    });
+
+    // Nenhuma flexão pode ser igual nos dois: uma que fosse já não seria flexão,
+    // e estaria ali só esperando alguém escrevê-la à mão de novo.
+    for (const chave of Object.keys(m) as (keyof typeof m)[]) {
+      expect(m[chave], chave).not.toBe(f[chave]);
+    }
   });
 
   it("fala de carreta na tela da carreta, e no gênero certo", () => {

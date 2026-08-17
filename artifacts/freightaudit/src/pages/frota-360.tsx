@@ -23,6 +23,7 @@ import type { JanelaDeVigencias } from "@/components/changes/janela-vigencias";
 import type { TicketTotals } from "@/components/changes/ticket-table";
 import { fetchJson } from "@/lib/api";
 import {
+  flexoesDe,
   frasesDoEscopo,
   lerPlaca,
   TELA_DO_EQUIPAMENTO,
@@ -344,6 +345,7 @@ function SeletorDePlaca({
 }) {
   const [rascunho, setRascunho] = useState(placa ?? "");
   const tela = TELA_DO_EQUIPAMENTO[equipamento];
+  const flexao = flexoesDe(equipamento);
 
   const query = useQuery({
     queryKey: ["frota", "ativos", equipamento, recorte.toString()],
@@ -390,7 +392,7 @@ function SeletorDePlaca({
               if (e.key === "Enter") aplicar(rascunho, placa, onEscolher);
               if (e.key === "Escape") setRascunho(placa ?? "");
             }}
-            placeholder={`todos os ${tela.plural}`}
+            placeholder={`${flexao.todos} ${tela.plural}`}
             className="h-9 w-48 rounded-lg border border-input bg-background px-3 font-mono text-sm"
           />
           <datalist id="frota-360-placas">
@@ -419,7 +421,7 @@ function SeletorDePlaca({
           className="inline-flex items-center gap-1 text-sm font-medium text-brand hover:underline"
         >
           <X className="w-4 h-4" />
-          voltar aos {tela.plural}
+          voltar {flexao.aos} {tela.plural}
         </button>
 
         {/* A outra tela 360°, a um clique. O conjunto é que é remunerado, e
