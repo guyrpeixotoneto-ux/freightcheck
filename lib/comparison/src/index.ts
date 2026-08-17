@@ -2,6 +2,7 @@ export * from "./analise-de-frota";
 export * from "./series";
 export * from "./classification";
 export * from "./impact";
+export * from "./reprecificacao";
 export * from "./engine";
 /*
   O resultado da vigência anterior é o tipo da **autoridade**, e é reexportado

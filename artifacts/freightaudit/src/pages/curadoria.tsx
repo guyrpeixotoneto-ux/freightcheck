@@ -130,7 +130,25 @@ export default function Curadoria() {
 
   const { data: summary } = useQuery({
     queryKey: ["curation", "summary"],
-    queryFn: () => fetchJson<{ byStatus: { status: string; count: number; monetary: number }[]; unclassified: number }>("/curation/summary"),
+    queryFn: () =>
+      fetchJson<{
+        byStatus: { status: string; count: number; monetary: number }[];
+        unclassified: number;
+        /**
+         * Alterações que o produto sabe que aconteceram e não sabe quanto
+         * valem. É o número que dá sentido a esta tela: as outras três contam
+         * colunas, e esta conta o que a curadoria ainda não destravou.
+         */
+        aguardandoPreco: {
+          total: number;
+          porAtributo: {
+            attributeCode: string;
+            attributeName: string;
+            alteracoes: number;
+            motivo: string;
+          }[];
+        };
+      }>("/curation/summary"),
   });
 
   const { data: queue = [], isLoading, error } = useQuery({
@@ -209,6 +227,33 @@ export default function Curadoria() {
             icon={<AlertTriangle className="w-4 h-4" />}
           />
         </div>
+
+        {/*
+          O que ainda espera preço, por extenso.
+
+          Os quatro contadores acima falam de colunas; este fala de dinheiro. O
+          impacto de uma alteração era calculado no instante da comparação e
+          nunca revisto, de modo que confirmar um atributo depois não
+          reprecificava nada — e a tela mostrava alterações sem valor como se
+          nada tivesse mudado em dinheiro. Agora a confirmação reprecifica na
+          mesma operação, e este bloco diz quanto falta.
+        */}
+        {(summary?.aguardandoPreco.total ?? 0) > 0 && (
+          <div className="mt-4 rounded-xl border border-amber-300/60 bg-amber-50/60 px-4 py-3">
+            <p className="text-sm font-semibold text-amber-900">
+              {summary!.aguardandoPreco.total.toLocaleString("pt-BR")} alterações
+              aguardam precificação
+            </p>
+            <ul className="mt-1.5 space-y-1">
+              {summary!.aguardandoPreco.porAtributo.slice(0, 3).map((a) => (
+                <li key={a.attributeCode} className="text-xs text-amber-900/80">
+                  <span className="font-mono">{a.attributeCode}</span> ·{" "}
+                  {a.alteracoes.toLocaleString("pt-BR")} — {a.motivo}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </header>
 
       {error && (
@@ -380,7 +425,14 @@ function AttributePanel({
       );
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Falha ao confirmar");
-      return body;
+      return body as {
+        reprecificacao: {
+          avaliadas: number;
+          passaramACalcular: number;
+          deixaramDeCalcular: number;
+          continuamSemPreco: number;
+        };
+      };
     },
     onSuccess: () => {
       setError(null);
@@ -570,6 +622,38 @@ function AttributePanel({
               Atributo monetário exige unidade, periodicidade e agregação. Sem
               os três, somar isso é adivinhação.
             </p>
+          )}
+
+          {/*
+            O que a confirmação destravou, dito na hora.
+
+            Confirmar um atributo passou a reprecificar as alterações dele na
+            mesma operação, e quem acabou de decidir precisa ver o efeito da
+            decisão sem trocar de tela. Um `0` aqui também é resposta — e é uma
+            resposta útil: significa que a semântica entrou e que o que trava o
+            preço daquelas alterações é outra coisa.
+          */}
+          {confirm.data && (
+            <div className="text-sm rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-900">
+              <p className="font-semibold">
+                {confirm.data.reprecificacao.passaramACalcular.toLocaleString("pt-BR")} de{" "}
+                {confirm.data.reprecificacao.avaliadas.toLocaleString("pt-BR")} alterações
+                passaram a ter preço
+              </p>
+              {confirm.data.reprecificacao.continuamSemPreco > 0 && (
+                <p className="text-xs mt-0.5 text-emerald-900/80">
+                  {confirm.data.reprecificacao.continuamSemPreco.toLocaleString("pt-BR")}{" "}
+                  continuam sem preço — cada uma com o motivo registrado.
+                </p>
+              )}
+              {confirm.data.reprecificacao.deixaramDeCalcular > 0 && (
+                <p className="text-xs mt-0.5 text-amber-900">
+                  {confirm.data.reprecificacao.deixaramDeCalcular.toLocaleString("pt-BR")}{" "}
+                  deixaram de ter preço: a semântica nova não sustenta o valor que
+                  estava lá.
+                </p>
+              )}
+            </div>
           )}
           {error && (
             <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md px-3 py-2">

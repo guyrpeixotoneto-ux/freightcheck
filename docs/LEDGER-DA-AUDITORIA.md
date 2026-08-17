@@ -83,7 +83,9 @@ Depois do PR-20, a suíte **inteira**, um pacote por vez e árvore parada:
 | **Total** | **102** | **1.432** |
 
 Depois do PR-21 (a `0022`): `db` **92** (os 9 da fronteira da identidade de
-escopo), e os outros dez pacotes idênticos — **1.441 em 103 arquivos**. Que só
+escopo), e os outros dez pacotes idênticos — **1.441 em 103 arquivos**.
+Depois do PR-22: `comparison` **289** (os 5 da reprecificação) — **1.446 em 104
+arquivos**, com os outros dez pacotes inalterados. Que só
 `db` se mova é o esperado: a remoção não muda cálculo nenhum, muda quais
 endereços de escopo são aceitos.
 
@@ -173,6 +175,31 @@ monorepo inteiro passa.
 > arquivo. E o `bridge` passou a restaurar a coluna no `down` e derrubá-la no
 > `up`, nominalmente, porque Production é anterior à `0022` e os dois índices
 > legados que ele recria a citam.
+
+---
+
+## P5 — o fluxo de valor
+
+> Fase nova, e propósito diferente das anteriores. A auditoria fechou a camada
+> estrutural de dados; esta trata da cadeia que transforma dado em decisão:
+> **dado confiável → comparação → impacto econômico → investigação da IA →
+> resposta útil**.
+
+| PR | Objetivo | Status | Commit | Testes | Evidência |
+|---|---|---|---|---|---|
+| **PR-22** | Reprecificar na confirmação — o impacto deixa de ser congelado | **feito** | `PR22SHA` | `reprecificacao-real.test.ts` (5) | Medido contra o export real: o produto comparava 124.632 fatos e achava 3.224 alterações com **zero** precificadas. A causa não era falta de dado nem de curadoria — era que o impacto se calculava uma vez, no instante da comparação, e nunca mais. Com o mesmo dado e a mesma curadoria, refazer as comparações revelava **345 alterações e R$ 1.530.515,54** de movimento invisível. `confirmAttribute` passa a reprecificar na mesma operação, e a **prova de convergência** mostra que reprecificar isoladamente chega ao mesmo conjunto e aos mesmos valores que recomparar — valor a valor, sem recriar uma linha de `change`. Idempotência provada por `atualizadas = 0` na segunda passada |
+
+> **A regra arquitetural que este PR instala.** Mudou uma autoridade semântica
+> que altera o cálculo econômico, todos os derivados afetados são atualizados na
+> mesma operação. Comparação e preço continuam derivados **separados**:
+> comparação responde o que mudou, reprecificação responde quanto aquilo vale.
+
+**Achado ainda aberto, para o PR-23.** `runProposalPass` tem rota e nada no
+pipeline a chama — mesmo formato do defeito que o PR-17 corrigiu em
+`computeMissingChangeSets`. São 112 de 138 colunas que ganhariam proposta
+automática e ficam em `UNKNOWN`. Não é a causa da cadeia quebrada (o passe
+sozinho não precifica, porque periodicidade é decisão humana por construção),
+mas é trabalho manual que ninguém precisa fazer.
 
 ---
 

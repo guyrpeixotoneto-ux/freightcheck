@@ -18,7 +18,7 @@
 > isso foi alcançado, e não para declarar que foi.
 
 Medições desta página feitas em 17/08/2026, sobre `cbf859d`..`0022`, com Postgres 16
-local e a suíte inteira verde: **1.441 testes em 103 arquivos**, mais os 209
+local e a suíte inteira verde: **1.446 testes em 104 arquivos**, mais os 209
 do `assistant` (com 119 que se auto-pulam por falta de chave de API do modelo).
 
 Esta página é conferida por `artifacts/api-server/src/__tests__/prova-final.test.ts`

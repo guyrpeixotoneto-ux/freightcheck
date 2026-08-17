@@ -871,6 +871,9 @@ importers:
       '@workspace/availability':
         specifier: workspace:*
         version: link:../availability
+      '@workspace/comparison':
+        specifier: workspace:*
+        version: link:../comparison
       '@workspace/db':
         specifier: workspace:*
         version: link:../db

@@ -73,7 +73,14 @@ router.post("/curation/attributes/:code/confirm", async (req, res): Promise<void
       return;
     }
 
-    await confirmAttribute(db, {
+    /*
+      A confirmação devolve o efeito dela sobre o dinheiro, e a rota devolve os
+      dois: o atributo como ficou e o que a decisão destravou.
+
+      Separar em duas chamadas deixaria a tela livre para mostrar só a primeira
+      — que é exatamente o que acontecia quando a reprecificação não existia.
+    */
+    const efeito = await confirmAttribute(db, {
       code: req.params.code,
       unit,
       periodicity,
@@ -84,7 +91,11 @@ router.post("/curation/attributes/:code/confirm", async (req, res): Promise<void
       actor,
       reason,
     });
-    res.json(await getAttributeDetail(db, req.params.code));
+    res.json({
+      ...(await getAttributeDetail(db, req.params.code)),
+      reprecificacao: efeito.reprecificacao,
+      aguardandoPreco: efeito.pendente,
+    });
   } catch (err) {
     // These are business-rule refusals — a missing periodicity on a monetary
     // attribute, for instance — and the message is written to be read by the

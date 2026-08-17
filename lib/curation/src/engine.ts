@@ -12,6 +12,11 @@ import {
 } from "@workspace/db";
 import { filtroDeVigenciaDisponivel } from "@workspace/availability";
 import {
+  aguardandoPreco,
+  reprecificar,
+  type ResultadoDaReprecificacao,
+} from "@workspace/comparison";
+import {
   detectPeriodicityConflicts,
   proposeSemantics,
   type Aggregation,
@@ -319,10 +324,51 @@ export interface ConfirmInput {
  * duplicated as a database constraint — this function produces a readable
  * error, the constraint makes the rule unavoidable.
  */
+/**
+ * O que a confirmação devolve — a decisão e o efeito dela sobre o dinheiro.
+ *
+ * Antes ela devolvia `void`, e era coerente com o que fazia: escrevia o
+ * dicionário e ia embora. A regra que este PR instala é outra —
+ *
+ *   > mudou uma autoridade semântica que altera o cálculo econômico, todos os
+ *   > derivados afetados são atualizados na mesma operação
+ *
+ * — e uma operação que atualiza derivados e não diz quais atualizou obriga
+ * quem curou a ir procurar noutra tela se valeu de alguma coisa.
+ */
+export interface ResultadoDaConfirmacao {
+  /** As alterações daquele atributo, reavaliadas pela autoridade econômica. */
+  reprecificacao: ResultadoDaReprecificacao;
+  /** Quanto ainda falta precificar no banco inteiro, e por qual atributo. */
+  pendente: Awaited<ReturnType<typeof aguardandoPreco>>;
+}
+
+/**
+ * Confirma a semântica de um atributo **e** reprecifica o que ela destrava.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que as duas coisas são uma operação só
+ * ---------------------------------------------------------------------------
+ *
+ * O impacto de uma alteração era calculado uma vez, no instante da comparação,
+ * lendo a semântica que existia então — e nunca mais revisto. Confirmar um
+ * atributo depois não reprecificava nada, e o custo disso foi medido contra o
+ * export real: 3.224 alterações sem preço, R$ 1.530.515,54 de movimento
+ * invisível, que apareciam inteiros se as comparações fossem refeitas.
+ *
+ * Deixar a reprecificação para um segundo passo — um botão, uma rota, uma
+ * rotina — seria repetir o defeito com outro nome: `computeMissingChangeSets`
+ * também existia e também não era chamado por ninguém (PR-17). Um derivado que
+ * depende de alguém lembrar não é um derivado, é uma dívida.
+ *
+ * **Não é recomparar.** Comparação responde o que mudou; reprecificação
+ * responde quanto aquilo vale. São derivados diferentes, e continuam separados:
+ * nenhuma linha de `change` é recriada aqui, só reavaliada.
+ */
 export function confirmAttribute(
   db: Database,
   input: ConfirmInput,
-): Promise<void> {
+): Promise<ResultadoDaConfirmacao> {
   /*
     A curadoria é autoridade própria, e não alcança o núcleo canônico.
 
@@ -331,7 +377,20 @@ export function confirmAttribute(
     segundo dono — ninguém decide um fato depois que ele foi lido —, e é por
     isso que `CURADORIA` escreve o dicionário e nunca `fact`.
   */
-  return comoAutoridade("CURADORIA", () => confirmarSobAutoridade(db, input));
+  return comoAutoridade("CURADORIA", async () => {
+    await confirmarSobAutoridade(db, input);
+
+    /*
+      A reprecificação vem depois da confirmação, e não dentro dela.
+
+      A ordem é a única possível: reprecificar lê a semântica vigente, de modo
+      que fazê-lo antes leria a semântica antiga e não mudaria nada. E `change`
+      não é tabela protegida — a autoridade `CURADORIA` guarda o dicionário —,
+      então escrever aqui não abre exceção nenhuma na regra das duas portas.
+    */
+    const reprecificacao = await reprecificar(db, input.code);
+    return { reprecificacao, pendente: await aguardandoPreco(db) };
+  });
 }
 
 async function confirmarSobAutoridade(
@@ -660,5 +719,15 @@ export async function getCurationSummary(db: Database) {
   return {
     byStatus: rows,
     unclassified: unclassified?.count ?? 0,
+    /*
+      Quanto ainda espera preço — a metade visível da regra.
+
+      Reprecificar na confirmação resolve o atributo que acabou de ser
+      confirmado; este número responde quanto falta. Sem ele, a tela de
+      curadoria diria quantas colunas faltam classificar e ficaria muda sobre a
+      única coisa que a curadoria existe para destravar: alterações que o
+      produto sabe que aconteceram e não sabe quanto valem.
+    */
+    aguardandoPreco: await aguardandoPreco(db),
   };
 }
