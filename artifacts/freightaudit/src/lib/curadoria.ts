@@ -1,4 +1,4 @@
-import { EQUIPAMENTOS, singularEmMaiuscula } from "./frota";
+import { EQUIPAMENTOS, rotuloDoTipo } from "@/lib/frota";
 
 /**
  * As duas perguntas da fila de curadoria que não são desenho: "esta coluna já
@@ -47,24 +47,20 @@ export function estaDescrito(atributo: CamposDeSignificado): boolean {
  * alguém procurasse a aba que falta. Aqui fica o que é da Curadoria — **que
  * elas aparecem mesmo vazias.**
  *
+
  * Isso é o que faz a tela dizer "não há coluna de trecho nesta base" em vez de
  * simplesmente não ter onde procurar por ela. Um tipo vazio custa uma aba com
  * zero e uma frase; um tipo que só existe quando há dado custa a dúvida de
  * saber se a base não tem a coluna ou se a tela não sabe mostrá-la.
+ *
+ * **A lista não é escrita aqui.** Ela era, com as mesmas três strings e os
+ * mesmos três rótulos que `lib/frota.ts` já mantinha para as telas 360°, e as
+ * duas cópias nasceram no mesmo dia por caminhos diferentes — que é exatamente
+ * como uma discordância futura começa. Os tipos que o produto nomeia são um
+ * conjunto só; o que continua sendo desta tela é o que ela faz com eles: a
+ * ordem, a contagem, e a decisão de mostrar a aba vazia.
  */
 export const EQUIPAMENTOS_DA_CURADORIA: readonly string[] = EQUIPAMENTOS;
-
-/**
- * "CAVALO" → "Cavalo". Um tipo que não conhecemos sai como veio.
- *
- * O vocabulário é o de `lib/frota.ts`, pela razão da lista acima. Inventar
- * capitalização para o desconhecido erraria em `FROTA_PROPRIA` e em qualquer
- * sigla; o nome cru é feio e é verdade, e é o que a pessoa vai reconhecer da
- * aba da planilha que importou.
- */
-export function rotuloDoEquipamento(tipo: string): string {
-  return singularEmMaiuscula(tipo);
-}
 
 /** O mínimo de que as abas precisam de cada item da fila. */
 export interface ItemComEquipamento {
@@ -111,7 +107,7 @@ export function abasDeEquipamento(
     { tipo: null, rotulo: "Todos", total: itens.length },
     ...[...fixas, ...extras].map((tipo) => ({
       tipo,
-      rotulo: rotuloDoEquipamento(tipo),
+      rotulo: rotuloDoTipo(tipo),
       total: contagem.get(tipo) ?? 0,
     })),
   ];

@@ -327,6 +327,15 @@ export interface BridgeReport {
   /** A conferência do estado residual, depois dos DDLs. */
   verificacao: { nome: string; ok: boolean; detalhe: string }[];
   dryRun: boolean;
+  /**
+   * O que o operador precisa saber e nenhuma conferência reprovou.
+   *
+   * Hoje há um só: a conferência contra a Production real não roda sem a URL
+   * dela, e um bridge que passou sem essa medição passou sobre uma suposição —
+   * a de que Production continua atrás. Calar isso faria o `✓` final dizer mais
+   * do que ele sabe.
+   */
+  avisos: string[];
   /** Preenchido quando o bridge abortou. Nada foi aplicado. */
   falha?: string;
 }
@@ -391,6 +400,113 @@ export async function estruturaDe(
 }
 
 // ---------------------------------------------------------------------------
+// A proposta do Publishing, medida contra a Production real
+// ---------------------------------------------------------------------------
+
+/**
+ * O que o Publishing faria com Production, se publicassem agora.
+ *
+ * ---------------------------------------------------------------------------
+ * A suposição que este módulo carregava sem medir
+ * ---------------------------------------------------------------------------
+ * O bridge inteiro está escrito para um mundo em que **Production está atrás de
+ * Development**: nesse mundo, encolher Development encolhe o diff, e o que
+ * sobra são seis `ADD COLUMN`. `bridge.test.ts` prova isso — contra uma réplica
+ * de Production reconstruída da fila até a `0012`, que era onde ela estava em
+ * 15/08/2026.
+ *
+ * A suposição tem prazo, e ele venceu. Todo deploy que dá certo termina com o
+ * servidor de Production rodando `runMigrations()` na partida, e depois disso
+ * Production está **à frente** de um Development que perdeu a fila — por um
+ * bridge que desceu e não subiu, ou por ninguém ter rodado `migrate` lá, que é
+ * a política deste repositório. No dia em que isso acontece, a mesma operação
+ * que protegia o deploy passa a produzir o oposto: o Publishing compara os dois
+ * bancos, encontra em Production o que Development não tem, e propõe
+ * **remover** de lá o que a fila criou.
+ *
+ * Foi o que apareceu em 17/08/2026, no `Provision`:
+ *
+ *     ALTER TABLE "attribute" DROP CONSTRAINT "attribute_meaning_id_semantic_meaning_id_fk";
+ *     constraint "attribute_meaning_id_semantic_meaning_id_fk" of relation "attribute" does not exist
+ *
+ * A falha é ordem interna do gerador — a proposta derruba `semantic_meaning`
+ * antes, e a FK cai junto com a tabela —, e é o menor dos problemas dela: a
+ * mesma proposta levava `coverage_expectation`, `ticket_change` e
+ * `ticket_import_deletion`, que são decisão de gente e registro append-only.
+ *
+ * ---------------------------------------------------------------------------
+ * O que esta função mede
+ * ---------------------------------------------------------------------------
+ * A mesma comparação que o Publishing faz — introspecção dos dois bancos —,
+ * pelo mesmo critério de `estruturaDe`: coluna, índice, constraint, gatilho,
+ * função, view e enum. Uma linha que só Production tem é um objeto que a
+ * proposta removeria de lá; uma que só Development tem é um objeto que ela
+ * criaria. Nada é escrito em nenhum dos dois lados.
+ *
+ * Contra a réplica histórica de Production, `removeria` é vazia depois do
+ * `down` — medido, não argumentado: é o que a suíte prende. Qualquer linha ali
+ * é DDL destrutivo entrando em produção fora da fila.
+ */
+export interface PropostaDoPublishing {
+  /** Só Production tem: o que a proposta **removeria** de lá. */
+  removeria: string[];
+  /** Só Development tem: o que a proposta **criaria** em Production. */
+  criaria: string[];
+}
+
+export async function propostaDoPublishing(
+  development: pg.PoolClient | pg.Pool,
+  producao: pg.PoolClient | pg.Pool,
+): Promise<PropostaDoPublishing> {
+  const doDev = await estruturaDe(development);
+  const daProd = await estruturaDe(producao);
+  const emDev = new Set(doDev);
+  const emProd = new Set(daProd);
+  return {
+    removeria: daProd.filter((linha) => !emDev.has(linha)),
+    criaria: doDev.filter((linha) => !emProd.has(linha)),
+  };
+}
+
+/**
+ * A mesma medição pela URL dos dois bancos, sem abrir transação em nenhum.
+ *
+ * É o que o `bridge-cli conferir` roda antes de alguém apertar Publish, e é
+ * somente leitura dos dois lados — inclusive de Production, que é o único banco
+ * deste projeto onde uma ferramenta não escreve nunca.
+ */
+export async function conferirProposta(
+  developmentUrl: string,
+  producaoUrl: string,
+): Promise<PropostaDoPublishing> {
+  const dev = new pg.Pool({ connectionString: developmentUrl });
+  const prod = new pg.Pool({ connectionString: producaoUrl });
+  try {
+    return await propostaDoPublishing(dev, prod);
+  } finally {
+    await dev.end();
+    await prod.end();
+  }
+}
+
+/**
+ * O texto do aborto, quando Production tem o que Development perdeu.
+ *
+ * Escrito uma vez porque sai por dois caminhos — o `down` que recusa e o
+ * `conferir` que reprova — e as duas têm de dizer a mesma coisa, com a mesma
+ * lista, para que quem lê uma reconheça a outra.
+ */
+export function textoDaProposta(removeria: string[]): string {
+  return (
+    `Production tem ${removeria.length} objeto(s) que Development não tem. ` +
+    `Publicar assim faz a proposta do Publishing **removê-los de lá** — é DDL ` +
+    `destrutivo em produção, fora da fila. Development é que está atrás: ` +
+    `conclua o bridge (bridge:up) e rode a fila (migrate) antes de publicar.\n` +
+    removeria.map((l) => `    ${l}`).join("\n")
+  );
+}
+
+// ---------------------------------------------------------------------------
 // Dependências — a alternativa ao CASCADE
 // ---------------------------------------------------------------------------
 
@@ -436,6 +552,16 @@ async function dependentesInesperados(
 
 export interface DownOptions {
   dryRun?: boolean;
+  /**
+   * A Production real, somente leitura, para a conferência final.
+   *
+   * Sem ela o `down` continua rodando — e continua supondo que Production está
+   * atrás, que é a suposição que venceu (ver `propostaDoPublishing`). Com ela, o
+   * bridge mede a proposta que o Publishing montaria e **recusa a descer** se
+   * ela remover qualquer coisa de lá. A transação é uma só, então recusar é
+   * devolver Development ao estado em que ele estava.
+   */
+  producaoUrl?: string;
 }
 
 export async function bridgeDown(
@@ -450,6 +576,7 @@ export async function bridgeDown(
     dependencias: [],
     ddl: [],
     verificacao: [],
+    avisos: [],
     dryRun,
   };
 
@@ -729,6 +856,47 @@ export async function bridgeDown(
       fns.length === 0,
       `sobrou: ${fns.map((f) => f.nome).join(", ")}`,
     );
+
+    /*
+      A última conferência é a única que não olha para Development.
+
+      Todas as de cima medem o estado residual contra a lista que este módulo
+      declara — e passariam iguais no dia em que Production tiver andado, porque
+      nenhuma delas pergunta nada a Production. É essa a conferência que faltava
+      quando o `Provision` de 17/08/2026 propôs derrubar `semantic_meaning`.
+
+      Ela roda **dentro da transação do `down`**, sobre o estado já reduzido: o
+      que se quer saber não é se os dois bancos concordam agora, é se vão
+      concordar no instante em que o Publishing os comparar — que é depois do
+      `down`, com Development já encolhido. Reprovar aqui desfaz o bridge
+      inteiro, que é o desfecho certo: um Development encolhido é justamente o
+      que transforma "Production está à frente" em DDL destrutivo.
+    */
+    if (options.producaoUrl) {
+      const producao = new pg.Pool({ connectionString: options.producaoUrl });
+      try {
+        const proposta = await propostaDoPublishing(c, producao);
+        conferir(
+          "Production não tem nada que Development perdeu",
+          proposta.removeria.length === 0,
+          textoDaProposta(proposta.removeria),
+        );
+        rel.verificacao.push({
+          nome: "a proposta do Publishing é só aditiva",
+          ok: true,
+          detalhe: `${proposta.criaria.length} objeto(s) a criar em Production`,
+        });
+      } finally {
+        await producao.end();
+      }
+    } else {
+      rel.avisos.push(
+        "a conferência contra a Production real não rodou: sem " +
+          "PRODUCTION_DATABASE_URL (ou --producao=), o bridge supõe que " +
+          "Production continua atrás de Development. Depois de qualquer deploy " +
+          "que tenha dado certo, ela não está.",
+      );
+    }
 
     /*
       O marcador entra **com** o bridge, e não depois dele.
@@ -1098,6 +1266,7 @@ export async function bridgeUp(connectionString: string): Promise<BridgeReport> 
     dependencias: [],
     ddl: [],
     verificacao: [],
+    avisos: [],
     dryRun: false,
   };
 

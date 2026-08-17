@@ -1,7 +1,15 @@
 import { afterAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { runMigrations, readMigrations } from "../migrate";
-import { ALLOWLIST, bridgeDown, bridgeUp, estruturaDe } from "../bridge";
+import {
+  ALLOWLIST,
+  bridgeDown,
+  bridgeUp,
+  conferirProposta,
+  estruturaDe,
+  propostaDoPublishing,
+  textoDaProposta,
+} from "../bridge";
 
 /**
  * O bridge deploy, contra PostgreSQL de verdade.
@@ -643,6 +651,130 @@ describe("a Fase B sobre Production", () => {
          FROM "ticket" t`,
     );
     expect(rows[0]!.n).toBe(Number(rows[0]!.c));
+    await prod.pool.end();
+  }, 600_000);
+});
+
+/**
+ * O dia em que Production deixa de estar atrás.
+ *
+ * ---------------------------------------------------------------------------
+ * O que estes três prendem
+ * ---------------------------------------------------------------------------
+ * Todo o resto desta suíte mede o bridge contra a Production de 15/08/2026 —
+ * schema pós-`0012`, atrás de Development em tudo. Naquele mundo encolher
+ * Development encolhe o diff, e é isso que o primeiro `describe` prova.
+ *
+ * Esse mundo tem prazo. Todo deploy que dá certo termina com o servidor de
+ * Production rodando a fila na partida; depois disso, Production está **à
+ * frente** de um Development que perdeu objetos — por um bridge que desceu e não
+ * subiu, ou por ninguém ter rodado `migrate` lá, que é a política deste
+ * repositório. E aí a mesma operação inverte de sinal: o Publishing encontra em
+ * Production o que Development não tem e propõe **remover**.
+ *
+ * Foi o `Provision` de 17/08/2026:
+ *
+ *     ALTER TABLE "attribute" DROP CONSTRAINT "attribute_meaning_id_semantic_meaning_id_fk";
+ *     constraint "..." of relation "attribute" does not exist
+ *
+ * — a FK já tinha caído junto com `semantic_meaning`, que a mesma proposta
+ * derrubava três linhas antes. Nenhuma conferência do `down` podia acusar isso:
+ * todas elas mediam Development contra a lista deste módulo, e nenhuma
+ * perguntava nada a Production.
+ */
+describe("quando Production está à frente", () => {
+  it("o down recusa descer, e nomeia o que seria removido de lá", async () => {
+    const dev = await development();
+    // Production depois de um deploy que deu certo: a fila inteira, aplicada
+    // pelo servidor na partida.
+    const prod = await bancoNovo();
+    expect((await runMigrations(prod.url)).failure).toBeUndefined();
+
+    const antes = await estruturaDe(dev.pool);
+    const rel = await bridgeDown(dev.url, { producaoUrl: prod.url });
+
+    expect(rel.falha).toBeDefined();
+    expect(rel.falha).toContain("Production não tem nada que Development perdeu");
+    // O objeto do erro real aparece pelo nome, e não só a contagem.
+    expect(rel.falha).toContain("attribute_meaning_id_semantic_meaning_id_fk");
+    // A transação inteira voltou atrás: Development está como estava.
+    expect(await estruturaDe(dev.pool)).toEqual(antes);
+    const { rows } = await dev.pool.query<{ e: boolean }>(
+      `SELECT to_regclass('drizzle.bridge_estado') IS NOT NULL AS e`,
+    );
+    expect(rows[0]!.e).toBe(false);
+
+    await dev.pool.end();
+    await prod.pool.end();
+  }, 600_000);
+
+  it("contra a Production que está atrás, a mesma conferência passa", async () => {
+    const dev = await development();
+    const prod = await production();
+    await noveVigenciasReais(prod.pool);
+
+    const rel = await bridgeDown(dev.url, { producaoUrl: prod.url });
+    expect(rel.falha).toBeUndefined();
+    expect(rel.verificacao).toContainEqual(
+      expect.objectContaining({
+        nome: "Production não tem nada que Development perdeu",
+        ok: true,
+      }),
+    );
+    /*
+      E o que sobra para o Publishing criar continua sendo a allowlist —
+      medida agora pelo critério de `estruturaDe`, que enxerga o que o diff por
+      categoria do primeiro `describe` não enxergava: **rótulo de enum**. As duas
+      linhas de `import_run_status` que aparecem aqui vêm da `0015`, entram por
+      `ALTER TYPE ... ADD VALUE IF NOT EXISTS` e são aditivas nos dois lados —
+      não são DDL destrutivo, e por isso não reprovam. Estão nomeadas em vez de
+      filtradas em silêncio: um objeto novo nesta categoria tem de aparecer.
+    */
+    const p = await propostaDoPublishing(dev.pool, prod.pool);
+    expect(p.removeria).toEqual([]);
+    expect(p.criaria.filter((l) => l.startsWith("COL ")).sort()).toEqual(
+      ALLOWLIST.map(
+        (a) => `COL  ${a.tabela}.${a.coluna} ${a.tipo} null=YES gen= def=-`,
+      ).sort(),
+    );
+    expect(p.criaria.filter((l) => !/^(COL|ENUM) /.test(l))).toEqual([]);
+    expect(p.criaria.filter((l) => l.startsWith("ENUM "))).toEqual([
+      "ENUM import_run_status SKIPPED_DUPLICATE_DATA",
+      "ENUM import_run_status VALIDATION_ERROR",
+    ]);
+
+    await dev.pool.end();
+    await prod.pool.end();
+  }, 600_000);
+
+  it("sem a URL de Production o down passa, e diz que não conferiu", async () => {
+    const dev = await development();
+    const rel = await bridgeDown(dev.url, { dryRun: true });
+    expect(rel.falha).toBeUndefined();
+    expect(rel.avisos.join("\n")).toContain("PRODUCTION_DATABASE_URL");
+    await dev.pool.end();
+  }, 600_000);
+});
+
+describe("conferir a proposta sem tocar em nada", () => {
+  it("nomeia o que seria removido e não escreve em nenhum dos dois bancos", async () => {
+    const dev = await development();
+    const prod = await bancoNovo();
+    expect((await runMigrations(prod.url)).failure).toBeUndefined();
+    expect((await bridgeDown(dev.url)).falha).toBeUndefined();
+
+    const antesDev = await estruturaDe(dev.pool);
+    const antesProd = await estruturaDe(prod.pool);
+
+    const p = await conferirProposta(dev.url, prod.url);
+    expect(p.removeria.some((l) => l.includes("semantic_meaning"))).toBe(true);
+    expect(p.removeria.some((l) => l.includes("coverage_expectation"))).toBe(true);
+    expect(textoDaProposta(p.removeria)).toContain("bridge:up");
+
+    expect(await estruturaDe(dev.pool)).toEqual(antesDev);
+    expect(await estruturaDe(prod.pool)).toEqual(antesProd);
+
+    await dev.pool.end();
     await prod.pool.end();
   }, 600_000);
 });

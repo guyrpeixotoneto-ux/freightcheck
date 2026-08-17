@@ -155,6 +155,75 @@ De fora, sem credencial, `/api/healthz` responde o mesmo em `database.migrations
 publicação estiver atrás de um gate de autenticação, o `curl` leva 307 e o
 navegador logado não.
 
+## O bridge, e o dia em que ele inverte de sinal
+
+Recusar a proposta nem sempre bastou. Enquanto produção estava muito atrás, a
+proposta trazia DDL que **não tinha como rodar** — a coluna gerada
+`snapshot.canonical_snapshot_key` chamando uma função que o Publishing não cria
+—, e a fase `Provision` morria antes de o servidor novo existir. Para isso
+existe `lib/db/src/bridge.ts`: o `bridge:down` deixa Development temporariamente
+parecido com Production nos pontos que geram DDL destrutivo ou impossível, e o
+que sobra para a proposta são seis `ADD COLUMN` nullable. Depois do deploy, o
+servidor aplica a fila em Production e o `bridge:up` devolve Development ao
+estado canônico. A justificativa inteira, objeto por objeto, está no cabeçalho
+daquele arquivo.
+
+**A operação tem um pressuposto, e ele vence.** O bridge encolhe o diff *porque
+Production está atrás*. Todo deploy que dá certo termina com a fila aplicada em
+Production — e a partir daí é Development quem fica atrás, se o `bridge:up` não
+rodou ou se ninguém rodou `migrate` lá (que é a política deste repositório:
+Development não migra sozinho). Nesse dia a mesma operação faz o oposto do que
+ela existe para fazer: o Publishing encontra em Production o que Development não
+tem e propõe **remover** de lá.
+
+Foi o `Provision` de 17/08/2026:
+
+```
+Failed to run database migration statement
+ALTER TABLE "attribute" DROP CONSTRAINT "attribute_meaning_id_semantic_meaning_id_fk";
+constraint "attribute_meaning_id_semantic_meaning_id_fk" of relation "attribute" does not exist
+```
+
+O erro é ordem interna do gerador — a FK já tinha caído junto com
+`semantic_meaning`, que a mesma proposta derrubava antes — e é o menor dos
+problemas dela: aquela proposta levava também `coverage_expectation`,
+`ticket_change` e `ticket_import_deletion`, que são decisão de gente e registro
+append-only. **A tela só oferece cancelar ou copiar Development por cima de
+Production; das duas, a única que não perde dado é cancelar.**
+
+### Conferir antes de publicar
+
+A pergunta "a proposta que aquela tela vai montar é segura?" agora tem resposta
+observável, somente leitura dos dois lados:
+
+```bash
+DATABASE_URL=<development> PRODUCTION_DATABASE_URL=<production> \
+  pnpm --filter @workspace/db run publicar:conferir
+```
+
+Ele imprime o que a proposta criaria em Production e o que ela removeria, linha
+por linha, e reprova se houver qualquer remoção. Nenhum dos dois bancos é
+escrito — Production, em particular, não é escrita por ferramenta nenhuma deste
+repositório.
+
+A mesma conferência entrou no `bridge:down`, com a mesma variável: com ela
+definida, o `down` mede a proposta **dentro da própria transação** e recusa
+descer se Production tiver algo que Development perderia; sem ela, o bridge roda
+como antes e avisa, no fim, que passou sobre uma suposição.
+
+### Quando a proposta quer remover
+
+É Development que está atrás. Na ordem:
+
+1. **Cancele o deploy.** Nunca a outra opção.
+2. Conclua o bridge, se houver um pendente:
+   `pnpm --filter @workspace/db run bridge:up`. `/api/healthz` do ambiente de
+   desenvolvimento responde `BRIDGE_PENDENTE` quando é o caso.
+3. Ponha Development na fila: `pnpm --filter @workspace/db run migrate`.
+4. Rode `publicar:conferir` de novo. Com os dois bancos na mesma fila, a
+   proposta fica vazia — e um deploy sem proposta de schema é o deploy normal
+   deste projeto.
+
 ## Um banco que tem o schema e não tem o registro
 
 Acontece: `drizzle.__drizzle_migrations` vazio num banco inteiro de pé. Foi o
