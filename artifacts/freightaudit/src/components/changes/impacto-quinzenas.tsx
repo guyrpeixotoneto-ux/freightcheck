@@ -23,7 +23,11 @@ import {
 } from "@/components/changes/janela-vigencias";
 import { Card } from "@/components/ui/card";
 import { fetchJson } from "@/lib/api";
-import type { EscopoDeFrota } from "@/lib/frota";
+import {
+  TELA_DO_EQUIPAMENTO,
+  equipamentoValido,
+  type EscopoDeFrota,
+} from "@/lib/frota";
 import { formatBrlShort, formatNumber, formatValue } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -102,6 +106,99 @@ interface ImpactoParametro {
   somavel: boolean;
   /** Por que não passa na régua, na redação da autoridade. Vazio quando passa. */
   motivo: string;
+  /** Mexeu no ativo aberto? `null` quando a leitura é da frota — ver `impacto.ts`. */
+  alterado: boolean | null;
+}
+
+/** Um bloco do seletor de parâmetro: o rótulo, e o que cai debaixo dele. */
+export interface GrupoDoSeletor {
+  rotulo: string;
+  itens: { code: string; title: string }[];
+}
+
+/** O que o agrupamento precisa saber de cada parâmetro, e nada além disso. */
+type ParametroDoSeletor = Pick<
+  ImpactoParametro,
+  "code" | "title" | "somavel" | "alterado"
+>;
+
+/**
+ * Como o seletor de parâmetro se divide — e a divisão muda com o nível da tela.
+ *
+ * Na leitura de frota, a pergunta de quem abre o seletor é *este parâmetro
+ * sustenta dinheiro?*, e os dois blocos respondem isso. Com um ativo aberto, a
+ * pergunta vira outra e mais urgente: *o que mexeu neste cavalo?* — porque a
+ * lista tem dezenas de colunas e o cavalo mexeu em três. O eixo de dinheiro não
+ * some; ele desce a critério de desempate dentro de cada bloco, que é onde o
+ * servidor já o deixou (`ordenarPeloAtivo`).
+ *
+ * **Nenhum bloco esconde nada.** A lista é a mesma nos dois casos, e o que muda
+ * é por onde ela começa: quem abre um parâmetro para conferir que ele não mudou
+ * continua achando-o embaixo, sob um rótulo que diz por que ele está ali.
+ *
+ * Um bloco vazio não é escrito — um `optgroup` sem opção é um rótulo prometendo
+ * o que não está ali.
+ */
+export function gruposDoSeletor(
+  parametros: ParametroDoSeletor[],
+  entityType: string,
+): GrupoDoSeletor[] {
+  /*
+    "neste cavalo" e "nesta carreta" — o gênero é dado do equipamento, e mora em
+    `TELA_DO_EQUIPAMENTO` junto com o nome. Um terceiro tipo vindo do Freightech
+    cai no masculino com o próprio código por nome: uma frase levemente torta é
+    melhor do que um rótulo que não diz de que ativo se fala.
+  */
+  const tela = equipamentoValido(entityType)
+    ? TELA_DO_EQUIPAMENTO[entityType]
+    : { singular: entityType.toLowerCase(), este: "este" };
+  const naquele = `n${tela.este} ${tela.singular}`;
+
+  /*
+    `alterado` é `null` na leitura de frota, e a checagem é essa — e não a
+    presença de uma placa vinda de outro lugar. É o servidor que sabe se mediu
+    alguma coisa, e ler o campo que ele preencheu evita que a tela agrupe por
+    uma medição que não foi feita.
+  */
+  const medido = parametros.some((p) => p.alterado !== null);
+
+  const blocos = medido
+    ? [
+        {
+          rotulo: `mudaram ${naquele}`,
+          de: (p: ParametroDoSeletor) => p.alterado === true,
+          contar: true,
+        },
+        {
+          rotulo: "sem alteração no recorte",
+          de: (p: ParametroDoSeletor) => p.alterado !== true,
+          contar: false,
+        },
+      ]
+    : [
+        {
+          rotulo: "sustentam soma de dinheiro",
+          de: (p: ParametroDoSeletor) => p.somavel,
+          contar: false,
+        },
+        {
+          rotulo: "ainda sem semântica confirmada",
+          de: (p: ParametroDoSeletor) => !p.somavel,
+          contar: false,
+        },
+      ];
+
+  return blocos
+    .map(({ rotulo, de, contar }) => {
+      const itens = parametros
+        .filter(de)
+        .map((p) => ({ code: p.code, title: p.title }));
+      return {
+        rotulo: contar ? `${rotulo} (${itens.length})` : rotulo,
+        itens,
+      };
+    })
+    .filter((g) => g.itens.length > 0);
 }
 
 interface PontaAPonta {
@@ -476,26 +573,15 @@ function MatrizDeQuinzenas({
             onChange={(e) => setAttributeCode(e.target.value)}
             className="h-9 min-w-[18rem] rounded-lg border border-input bg-background px-2 text-sm"
           >
-            {/* Os dois grupos só existem quando têm alguém: um `optgroup` vazio
-                é um rótulo prometendo opções que não estão ali. */}
-            {[
-              { label: "sustentam soma de dinheiro", somavel: true },
-              { label: "ainda sem semântica confirmada", somavel: false },
-            ].map(({ label, somavel }) => {
-              const doGrupo = data.parameters.filter(
-                (p) => p.somavel === somavel,
-              );
-              if (doGrupo.length === 0) return null;
-              return (
-                <optgroup key={label} label={label}>
-                  {doGrupo.map((p) => (
-                    <option key={p.code} value={p.code}>
-                      {p.title}
-                    </option>
-                  ))}
-                </optgroup>
-              );
-            })}
+            {gruposDoSeletor(data.parameters, data.entityType).map((grupo) => (
+              <optgroup key={grupo.rotulo} label={grupo.rotulo}>
+                {grupo.itens.map((p) => (
+                  <option key={p.code} value={p.code}>
+                    {p.title}
+                  </option>
+                ))}
+              </optgroup>
+            ))}
           </select>
         </label>
       </div>
