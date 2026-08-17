@@ -58,6 +58,10 @@ em `/api` — que é o aceite desta configuração.
   proposta de schema que o Publishing oferece ao publicar **se recusa**: ela
   copia estrutura sem backfill, sem as funções da identidade canônica e sem a
   fusão da `0016`. Ver `docs/MIGRATIONS.md`.
+- `pnpm --filter @workspace/db run publicar:conferir` — o que aquela proposta
+  faria com Production, medido antes de apertar Publish. Somente leitura dos
+  dois bancos (`DATABASE_URL` e `PRODUCTION_DATABASE_URL`); reprova se ela
+  remover qualquer coisa de lá, que é o estado em que Development está atrás.
 - Única env obrigatória: `DATABASE_URL`
 - Opcional: `ANTHROPIC_API_KEY` liga a redação por modelo no Assistente de IA.
   Sem ela o assistente **continua respondendo**, com a redação montada em código
