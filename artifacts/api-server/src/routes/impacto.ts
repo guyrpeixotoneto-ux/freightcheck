@@ -48,6 +48,11 @@ router.get("/impacto/quinzenas", async (req, res): Promise<void> => {
       entityType: str("entityType"),
       attributeCode: str("attributeCode"),
       groupBy: str("groupBy"),
+      // A placa das telas 360°. Conferida lá dentro contra a frota do
+      // equipamento, e ecoada em `plate` na resposta — uma placa que este
+      // contexto não tem cai na frota inteira em vez de virar erro, e a tela
+      // precisa saber que foi isso que aconteceu.
+      plate: str("placa"),
       context: parseContext(query),
     });
 

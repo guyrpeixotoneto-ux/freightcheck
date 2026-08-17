@@ -21,8 +21,11 @@ import {
   getConsolidated,
   listContexts,
   listPeriods,
+  lerEscopo,
+  totaisDoEscopo,
   ContextNotFoundError,
   type ChangeFilters,
+  type EscopoDeFrota,
   type SeriesContext,
 } from "@workspace/comparison";
 
@@ -61,6 +64,46 @@ function parseFilters(query: Record<string, unknown>): ChangeFilters {
     minAbsImpact: num("minAbsImpact"),
     limit: num("limit"),
     offset: num("offset"),
+  };
+}
+
+/**
+ * O escopo de frota que a tela 360° pede, quando pede.
+ *
+ * `entityType` chega pelos dois nomes de propósito: ele já era **filtro de
+ * linha** em Alterações — recorte de exibição sobre uma comparação anunciada —
+ * e agora é também **escopo** em Cavalo/Carreta 360°, onde a tela inteira fala
+ * daquele equipamento. `escopo=1` é o que separa as duas leituras do mesmo
+ * parâmetro: sem ele, a rota responde como sempre respondeu, e os totais
+ * continuam sendo os da comparação inteira.
+ *
+ * Sem essa chave, uma tela que passasse `entityType` de repente veria os
+ * cartões mudarem de significado — e toda a Visão geral manda `entityType` para
+ * cá desde que existe.
+ */
+function pediuEscopo(query: Record<string, unknown>): boolean {
+  return query.escopo === "1" || query.escopo === "true";
+}
+
+function parseEscopo(query: Record<string, unknown>): EscopoDeFrota {
+  if (!pediuEscopo(query)) return {};
+  return lerEscopo({ entityType: query.entityType, plate: query.placa });
+}
+
+/**
+ * Os filtros com o escopo já dentro — uma consulta só para lista, painéis e
+ * totais.
+ *
+ * O escopo é aplicado aqui, e não pela tela mandando `entityLabel` junto: as
+ * três leituras da resposta têm de concordar, e três lugares aplicando o mesmo
+ * recorte é o número de lugares em que eles podem discordar. A tela manda o
+ * escopo uma vez; a rota o espalha.
+ */
+function comEscopo(filters: ChangeFilters, escopo: EscopoDeFrota): ChangeFilters {
+  return {
+    ...filters,
+    ...(escopo.entityType ? { entityType: escopo.entityType } : {}),
+    ...(escopo.plate ? { entityLabel: escopo.plate } : {}),
   };
 }
 
@@ -176,14 +219,25 @@ router.get("/changes/latest", async (req, res): Promise<void> => {
     const set = await computeChangeSet(db, previousId, latest.id, {
       computedBy: "api:latest",
     });
-    const filters = parseFilters(req.query as Record<string, unknown>);
-    const [changes, breakdown] = await Promise.all([
+    const escopo = parseEscopo(req.query as Record<string, unknown>);
+    const filters = comEscopo(
+      parseFilters(req.query as Record<string, unknown>),
+      escopo,
+    );
+    const [changes, breakdown, totais] = await Promise.all([
       listChanges(db, set.id, filters),
-      getChangeSetBreakdown(db, set.id),
+      getChangeSetBreakdown(db, set.id, escopo),
+      pediuEscopo(req.query as Record<string, unknown>)
+        ? totaisDoEscopo(db, set.id, escopo)
+        : null,
     ]);
     res.json({
       set,
       breakdown,
+      // `set` continua sendo a comparação inteira — é ela que a tela de
+      // Alterações lê, e mexer nos agregados dela mudaria o que aquela tela
+      // afirma. O escopo vem ao lado, recontado, e só quando foi pedido.
+      ...(totais ? { escopo, totais } : {}),
       // So the screen can offer the other series instead of pretending this is
       // the whole fleet.
       series: series.map((s) => ({
@@ -217,14 +271,25 @@ router.get("/changes/consolidated", async (req, res): Promise<void> => {
       return;
     }
 
-    const filters = parseFilters(req.query as Record<string, unknown>);
-    const [changes, breakdown] = await Promise.all([
+    const escopo = parseEscopo(req.query as Record<string, unknown>);
+    const filters = comEscopo(
+      parseFilters(req.query as Record<string, unknown>),
+      escopo,
+    );
+    const [changes, breakdown, totais] = await Promise.all([
       listChanges(db, view.changeSetIds, filters),
-      getChangeSetBreakdown(db, view.changeSetIds),
+      getChangeSetBreakdown(db, view.changeSetIds, escopo),
+      pediuEscopo(req.query as Record<string, unknown>)
+        ? totaisDoEscopo(db, view.changeSetIds, escopo)
+        : null,
     ]);
     res.json({
       view,
       breakdown,
+      // A `view` continua descrevendo o período inteiro — quais séries chegaram,
+      // qual faltou, o total da frota. O escopo não a reescreve: ele vem ao
+      // lado, recontado sobre as linhas, e a tela 360° lê daqui.
+      ...(totais ? { escopo, totais } : {}),
       // Os períodos são os do mesmo contexto da view — listar os de outra
       // unidade num seletor que muda esta tela seria oferecer uma escolha que
       // troca de assunto sem avisar.

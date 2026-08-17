@@ -23,6 +23,9 @@ import {
   latestTicketImport,
   listTicketImports,
   listTicketChanges,
+  lerEscopo,
+  temEscopo,
+  type EscopoDeFrota,
   type TicketFilters,
 } from "@workspace/comparison";
 
@@ -155,6 +158,19 @@ export function decodeTicketUpload(body: unknown): DecodeTicketResult {
  * consulta volta para a ordem de casa — materialidade.
  */
 const ORDENACOES = ["chamado", "tipo", "impacto", "situacao", "data"];
+
+/**
+ * O escopo de frota das telas 360°, quando elas pedem.
+ *
+ * Não precisa de chave de opt-in como a rota de Alterações: `entityType` nunca
+ * foi filtro de chamado, e `placa` também não — o recorte por placa existia só
+ * dentro do `search` livre, que casa com meio texto do chamado. Aqui os dois
+ * nomes chegam sem ambiguidade, e o que eles recortam é a população: os cartões
+ * do topo mudam com eles, o que nenhum filtro desta rota faz.
+ */
+function parseEscopoDeFrota(query: Record<string, unknown>): EscopoDeFrota {
+  return lerEscopo({ entityType: query.entityType, plate: query.placa });
+}
 
 function parseTicketFilters(query: Record<string, unknown>): TicketFilters {
   const str = (key: string) =>
@@ -393,14 +409,25 @@ router.get("/tickets", async (req, res): Promise<void> => {
     }
 
     const filters = parseTicketFilters(req.query as Record<string, unknown>);
+    const escopo = parseEscopoDeFrota(req.query as Record<string, unknown>);
     const [changes, totals, byParameter, imports] = await Promise.all([
-      listTicketChanges(db, run.id, filters),
-      getTicketTotals(db, run.id),
-      getTicketsByParameter(db, run.id),
+      listTicketChanges(db, run.id, filters, escopo),
+      getTicketTotals(db, run.id, escopo),
+      getTicketsByParameter(db, run.id, 15, escopo),
       listTicketImports(db),
     ]);
 
-    res.json({ import: run, imports, totals, byParameter, ...changes });
+    // `escopo` volta na resposta pelo mesmo motivo que `entityType` volta em
+    // Impacto: a tela precisa poder dizer que os 340 chamados abaixo são os do
+    // cavalo, e não os 1.218 do arquivo.
+    res.json({
+      import: run,
+      imports,
+      totals,
+      byParameter,
+      ...(temEscopo(escopo) ? { escopo } : {}),
+      ...changes,
+    });
   } catch (err) {
     req.log.error({ err }, "Error listing tickets");
     await responderFalha(res, err);
@@ -447,7 +474,19 @@ router.get("/tickets/classification", async (req, res): Promise<void> => {
       return;
     }
 
-    res.json({ import: run, ...(await getTicketClassification(db, run.id)) });
+    /*
+      Sem filtro, como o cabeçalho diz — mas **com** escopo, que é outra coisa.
+      A árvore é do envio inteiro para quem abre por Alterações, e é a do
+      equipamento para quem abre por Cavalo 360°: lá a população da tela é
+      outra, e uma árvore da frota inteira dentro dela contaria o que a tela
+      afirma não estar mostrando.
+    */
+    const escopo = parseEscopoDeFrota(req.query as Record<string, unknown>);
+    res.json({
+      import: run,
+      ...(temEscopo(escopo) ? { escopo } : {}),
+      ...(await getTicketClassification(db, run.id, escopo)),
+    });
   } catch (err) {
     req.log.error({ err }, "Error classifying tickets");
     await responderFalha(res, err);
