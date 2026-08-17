@@ -18,7 +18,7 @@ import {
 } from "@/components/composicao/tipos";
 import { fetchJson } from "@/lib/api";
 import { formatBrl, formatBrlShort } from "@/lib/format";
-import { TELA_DO_EQUIPAMENTO, type Equipamento } from "@/lib/frota";
+import { flexoesDe, TELA_DO_EQUIPAMENTO, type Equipamento } from "@/lib/frota";
 import { cn } from "@/lib/utils";
 
 /**
@@ -126,6 +126,7 @@ export function CardsDaFrota({
   onVerFrotaInteira: () => void;
 }) {
   const tela = TELA_DO_EQUIPAMENTO[equipamento];
+  const flexao = flexoesDe(equipamento);
   const [busca, setBusca] = useState("");
   const [status, setStatus] = useState<Farol | "">("");
   const [recortes, setRecortes] = useState<Record<Recorte, boolean>>({
@@ -227,8 +228,9 @@ export function CardsDaFrota({
 
       {ativos.length === 0 ? (
         <p className="text-sm text-muted-foreground py-8 text-center border rounded-md bg-card">
-          Nenhum {tela.singular} nesta vigência com os filtros aplicados. A frota
-          tem {data.resumo.equipamentos.toLocaleString("pt-BR")}.
+          {flexao.nenhum} {tela.singular} nesta vigência com os filtros
+          aplicados. A frota tem{" "}
+          {data.resumo.equipamentos.toLocaleString("pt-BR")}.
         </p>
       ) : (
         <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
@@ -292,6 +294,7 @@ function Resumo({
   onVerFrotaInteira: () => void;
 }) {
   const tela = TELA_DO_EQUIPAMENTO[equipamento];
+  const flexao = flexoesDe(equipamento);
   const { resumo } = panorama;
 
   return (
@@ -359,7 +362,7 @@ function Resumo({
             onClick={onVerFrotaInteira}
             className="mt-auto pt-3 inline-flex items-center gap-1.5 text-xs font-bold text-brand hover:underline self-start"
           >
-            ver as alterações de todos os {tela.plural}
+            ver as alterações de {flexao.todos} {tela.plural}
             <ArrowRight className="w-3.5 h-3.5" />
           </button>
         </div>
