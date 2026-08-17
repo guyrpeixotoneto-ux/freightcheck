@@ -1,11 +1,14 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowRight,
   CircleHelp,
   Coins,
+  FileSpreadsheet,
   Layers,
   ListTree,
+  Loader2,
   Route,
   TriangleAlert,
   Warehouse,
@@ -17,7 +20,8 @@ import {
   type JanelaDeVigencias,
 } from "@/components/changes/janela-vigencias";
 import { Card } from "@/components/ui/card";
-import { fetchJson } from "@/lib/api";
+import { fetchArquivo, fetchJson, salvarArquivo } from "@/lib/api";
+import { apresentar } from "@/lib/apresentar-erro";
 import { formatBrlShort, formatNumber } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -323,13 +327,27 @@ export function ImpactoPanorama({
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-lg font-semibold tracking-tight">Tudo que mudou</h2>
-        <p className="text-sm text-muted-foreground">
-          Entre <strong>{primeira?.sourceLabel}</strong> e{" "}
-          <strong>{ultima?.sourceLabel}</strong> — {data.periods.length}{" "}
-          vigências. Clique numa linha para abrir a tabela por placa e vigência.
-        </p>
+      {/*
+        O título e a exportação na mesma linha, e não o botão no rodapé: quem
+        abre esta aba para fechar o mês decide nos primeiros segundos se vai
+        conferir aqui ou na planilha, e um botão embaixo de três tabelas chega
+        depois da decisão.
+      */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-lg font-semibold tracking-tight">Tudo que mudou</h2>
+          <p className="text-sm text-muted-foreground">
+            Entre <strong>{primeira?.sourceLabel}</strong> e{" "}
+            <strong>{ultima?.sourceLabel}</strong> — {data.periods.length}{" "}
+            vigências. Clique numa linha para abrir a tabela por placa e vigência.
+          </p>
+        </div>
+        <ExportarEmExcel
+          contexto={contexto}
+          janela={janela}
+          corte={corte}
+          parametros={leitura.totais.parametrosAlterados}
+        />
       </div>
 
       {seletorDeJanela}
@@ -464,6 +482,98 @@ export function ImpactoPanorama({
           </>
         )}
       </p>
+    </div>
+  );
+}
+
+/**
+ * Exportar em Excel — a aba inteira num arquivo, uma aba por parâmetro.
+ *
+ * A tela responde em dois níveis, e o segundo é uma tabela por parâmetro. Quem
+ * fecha o mês precisa de todas: hoje isso é clicar em cada linha, esperar a
+ * tabela e copiá-la, trinta e cinco vezes. O arquivo é essa navegação feita de
+ * uma vez, e o que ele exporta é **exatamente o que a tela está mostrando** — o
+ * recorte De/Até e o corte de classe vão na mesma query da leitura. Um botão que
+ * ignorasse os dois entregaria a série inteira a quem tinha três vigências na
+ * tela, com todos os números certos e a resposta errada.
+ *
+ * O erro aparece aqui, do lado do botão, e não como um arquivo baixado.
+ * `fetchArquivo` só devolve bytes quando a resposta é o arquivo; o 404 de "nada
+ * mudou neste recorte" chega como frase e é dita em uma linha, pela mesma função
+ * que escolhe a orientação de qualquer outra falha desta interface.
+ */
+function ExportarEmExcel({
+  contexto,
+  janela,
+  corte,
+  parametros,
+}: {
+  contexto?: URLSearchParams;
+  janela: JanelaDeVigencias;
+  corte: Corte;
+  /** Quantos parâmetros mudaram no corte — quantas abas o arquivo terá. */
+  parametros: number;
+}) {
+  const [baixando, setBaixando] = useState(false);
+  const [erro, setErro] = useState<unknown>(null);
+
+  const baixar = async () => {
+    setBaixando(true);
+    setErro(null);
+    try {
+      const params = new URLSearchParams(contexto?.toString() ?? "");
+      if (janela.de) params.set("de", janela.de);
+      if (janela.ate) params.set("ate", janela.ate);
+      // "Tudo" não vai na query: o padrão da rota é o panorama inteiro, e mandar
+      // `classe=TUDO` seria inventar um quarto valor para o que é a ausência de
+      // corte.
+      if (corte !== "TUDO") params.set("classe", corte);
+      const qs = params.toString();
+
+      const { blob, filename } = await fetchArquivo(
+        `/impacto/exportacao.xlsx${qs ? `?${qs}` : ""}`,
+      );
+      // O nome vem do servidor, que sabe o contexto e as pontas do recorte. O
+      // padrão daqui é a reserva para uma resposta sem `Content-Disposition`.
+      salvarArquivo(blob, filename ?? "impacto.xlsx");
+    } catch (err) {
+      setErro(err);
+    } finally {
+      setBaixando(false);
+    }
+  };
+
+  const aviso = erro === null ? null : apresentar(erro);
+
+  return (
+    <div className="flex flex-col items-start gap-1 sm:items-end">
+      <button
+        onClick={baixar}
+        disabled={baixando}
+        className={cn(
+          "inline-flex items-center gap-2 rounded-lg border bg-card px-3 py-2 text-sm font-medium shadow-sm transition-colors",
+          baixando
+            ? "cursor-progress text-muted-foreground"
+            : "hover:bg-muted/60 hover:text-foreground",
+        )}
+      >
+        {baixando ? (
+          <Loader2 className="w-4 h-4 animate-spin" />
+        ) : (
+          <FileSpreadsheet className="w-4 h-4" />
+        )}
+        {baixando ? "Montando a planilha…" : "Exportar em Excel"}
+      </button>
+      <p className="max-w-xs text-xs text-muted-foreground sm:text-right">
+        Uma aba por parâmetro alterado ({formatNumber(parametros, 0)}), com uma
+        coluna por vigência e uma linha por placa — o recorte e o corte desta
+        tela.
+      </p>
+      {aviso && (
+        <p className="max-w-xs text-xs text-red-600 sm:text-right">
+          {aviso.orientacao?.resumo ?? aviso.mensagemCrua}
+        </p>
+      )}
     </div>
   );
 }
