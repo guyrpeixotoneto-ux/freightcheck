@@ -614,6 +614,28 @@ function escreverCelula(
 }
 
 /**
+ * Quantas colunas identificam a linha antes de começarem as vigências.
+ *
+ * Grupo e placa. São elas que ficam presas na rolagem horizontal, pela mesma
+ * razão que a tela prende a coluna da placa: em nove colunas de vigência, quem
+ * rola até agosto precisa continuar sabendo de qual ativo é a linha.
+ */
+const COLUNAS_DE_IDENTIFICACAO = 2;
+
+/**
+ * Em que linha está o cabeçalho da tabela — a última que fica presa no topo.
+ *
+ * Achado pelo **tom**, e não pela contagem das linhas do bloco de texto acima
+ * dele: aquele bloco tem uma linha a mais nas abas que não são linha econômica,
+ * e um número fixo aqui congelaria o lugar errado justamente nelas. `CABECALHO`
+ * também marca o rodapé de Total Geral, e por isso vale a **primeira**
+ * ocorrência.
+ */
+export function linhaDoCabecalho(linhas: CelulaDaPlanilha[][]): number {
+  return linhas.findIndex((l) => l[0]?.tom === "CABECALHO") + 1;
+}
+
+/**
  * O arquivo inteiro, pronto para descer pelo `res.send`.
  *
  * A ordem das abas é a da leitura, que é a da tela: dinheiro apurado primeiro,
@@ -675,8 +697,16 @@ export async function montarPlanilhaDeImpacto(
 
   for (const aba of exportacao.abas) {
     const ws = wb.addWorksheet(nomes.get(aba.parametro.code));
+    const linhas = linhasDaAba(aba);
     // Grupo e placa à esquerda; vigências, Total Geral e Δ à direita.
-    preencher(ws, linhasDaAba(aba), largurasDaAba(aba), 3);
+    preencher(ws, linhas, largurasDaAba(aba), 3);
+    ws.views = [
+      {
+        state: "frozen",
+        xSplit: COLUNAS_DE_IDENTIFICACAO,
+        ySplit: linhaDoCabecalho(linhas),
+      },
+    ];
   }
 
   return Buffer.from(await wb.xlsx.writeBuffer());
