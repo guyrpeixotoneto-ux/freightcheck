@@ -492,3 +492,99 @@ Baseline do planejador, medido:
 `distingueInferencia` é **indício**, não veredito: ele acha por marcador
 linguístico, e marcador não prova que a distinção foi feita. Serve para achar o
 turno que merece leitura humana.
+
+---
+
+## 8. O critério de pronto, revisado
+
+O critério anterior — "o agente escolhe as próprias consultas" — media capacidade
+de investigação e parava aí. O que se quer é outra coisa: **um assistente que
+interpreta economicamente o FreightCheck**. Escolher consulta é meio; entender o
+que o número significa para quem opera é o fim.
+
+Ligar o agente em definitivo exige que ele, diante de uma pergunta não prevista:
+decida sozinho o que investigar, consulte os dados certos, **entenda o sentido
+econômico das variáveis**, calcule ou simule quando necessário, cite de onde
+tirou cada conclusão, e declare explicitamente o que não consegue provar.
+
+A ordem abaixo é de prioridade, e ela vale depois do veredito do PR 7.
+
+### 8.1 A causa da poda — sem afrouxar a trava
+
+Dois terços das respostas do caminho atual (6 de 9, medido) têm frase removida
+por citar número sem lastro. A leitura fácil é "o modelo alucina"; a leitura que
+os dados sustentam é outra: ele tenta usar informação que a pergunta pede e o
+dossiê não traz.
+
+O que se quer saber, por caso: **qual número ele tentou usar, e por que ele não
+estava disponível.** A resposta a isso é uma lista de capacidades a enriquecer,
+não um limiar a relaxar. Afrouxar a trava trocaria um problema visível — a
+frase some — por um invisível — o número errado fica.
+
+### 8.2 Uma autoridade só para semântica econômica
+
+Hoje há duas, e a culpa é deste trabalho: `economic_direction` no banco (PR 6) e
+`lib/knowledge/src/economia.ts` na `main`. Elas respondem a mesma pergunta.
+
+**A modelagem que sobrevive não pode derivar direção do sinal matemático.**
+Aumentar `combustivel_vida_cavalo` é ganho de eficiência e **reduz** o litro
+remunerado; reduzir a taxa FINAME reduz o custo financeiro e **reduz** a
+remuneração. Nos dois casos, o movimento "bom" no sentido comum empurra a
+remuneração para baixo. Uma coluna `HIGHER_IS_BETTER` no atributo não alcança
+isso, porque a direção não é propriedade da variável — é propriedade do **par
+(variável, fórmula em que ela entra)**.
+
+É o que `PapelEconomico`, em `economia.ts`, já separa e o meu desenho não. A
+convergência tem de preservar essa distinção, e o lugar dela é o banco: uma
+tabela de 31 parâmetros em código não alcança os 138 e exige deploy para mudar.
+
+Cada variável precisa carregar: se aumentar é favorável, desfavorável ou depende
+do contexto; **por quê**; unidade e periodicidade; e como isso chega à
+remuneração.
+
+### 8.3 `simular` é núcleo, não melhoria
+
+As perguntas que ele existe para responder são contrafactuais sobre fato
+existente — "e se FINAME cair?", "e se eu voltar esta variável para a vigência
+anterior?", "quanto eu recuperaria?" —, e isso restringe o desenho de um jeito
+que ajuda: **a entrada não é um valor arbitrário, é uma substituição.** O valor
+alternativo quase sempre vem de outra vigência do mesmo atributo, que o banco já
+tem.
+
+Com isso, `simular` não precisa calcular nada: ela alimenta o motor de impacto
+que já existe com um valor substituído e devolve o que ele apurar. A regra de
+que cálculo oficial é do sistema continua intacta — o que a ferramenta
+acrescenta é a substituição, não a conta.
+
+O desenho vem antes da implementação.
+
+### 8.4 `chamados` sem virar terceira fonte canônica
+
+O assistente precisa ligar uma anomalia nos dados a chamados que existam sobre
+ela. O que ele não pode fazer é tomar o valor de um chamado como fato: o fato
+mora em `change` e `fact`, e um chamado é **evidência sobre o processo** — que
+alguém pediu, quando, e o que a tratativa dizia.
+
+A ferramenta relaciona por parâmetro e período e devolve contexto; o número
+continua vindo de onde sempre veio.
+
+### 8.5 A régua tem de exigir proveniência
+
+`restritaA` aceita hoje o termo aparecer **no texto**. Sem modelo isso era duro;
+com modelo ficou frouxo, porque o modelo sempre menciona o que a pergunta
+nomeou — e "cavalo" escrito sobre dados da frota inteira passa.
+
+A versão dura confere a **origem**: a evidência que sustenta a resposta veio de
+uma chamada cujos argumentos continham o filtro? O rastro já carrega os
+argumentos de cada chamada; falta a checagem os usar.
+
+### 8.6 Streaming, depois
+
+Nada acima depende dele.
+
+---
+
+**A regra que atravessa os seis.** Nenhum destes se resolve escrevendo no
+prompt. Um prompt que compensa falta de dado produz uma resposta que parece
+melhor e não é — e este produto inteiro existe para não fazer isso com número
+de frete.
