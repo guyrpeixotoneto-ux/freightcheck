@@ -2,16 +2,15 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
-  Ban,
+  ArrowRightLeft,
   ChevronDown,
   CircleAlert,
   CircleDollarSign,
+  CircleX,
   ClipboardCheck,
   FileText,
-  Handshake,
   Info,
-  Search,
-  TrendingDown,
+  MessageSquare,
   Truck,
   Users,
 } from "lucide-react";
@@ -232,24 +231,36 @@ export function prioridadeDaPauta(r: Recomendacao): Prioridade {
   return r.confianca === "ALTA" ? "ALTA" : "MEDIA";
 }
 
-const PRIORIDADE: Record<Prioridade, { rotulo: string; classe: string }> = {
+/**
+ * O tom de cada prioridade — a etiqueta e os ícones das linhas do cartão.
+ *
+ * Âmbar entra literal, e não por `text-warning-foreground`: aquele token é o
+ * marinho que se escreve **sobre** o laranja cheio, e sobre um véu de 15% ele
+ * sumia no tema escuro. `dark:text-amber-500` é a mesma convenção do DRE.
+ *
+ * O que este tom **não** pinta é o dinheiro. O valor continua vermelho quando é
+ * perda e verde quando é ganho, em qualquer prioridade: cor de número é sinal,
+ * e um valor âmbar ao lado de um vermelho faria parecer que um deles custa
+ * menos por ser menos urgente.
+ */
+const PRIORIDADE: Record<
+  Prioridade,
+  { rotulo: string; etiqueta: string; icone: string }
+> = {
   ALTA: {
     rotulo: "Alta prioridade",
-    classe: "bg-destructive/10 text-destructive border-destructive/30",
+    etiqueta: "bg-destructive/10 text-destructive",
+    icone: "bg-destructive/10 text-destructive",
   },
-  /*
-    Âmbar literal, e não `text-warning-foreground`: aquele token é o marinho que
-    se escreve **sobre** o laranja cheio, e sobre um véu de 15% ele sumia no
-    escuro. `dark:text-amber-500` é a mesma convenção do DRE.
-  */
   MEDIA: {
     rotulo: "Média prioridade",
-    classe:
-      "bg-amber-500/15 text-amber-700 dark:text-amber-500 border-amber-500/30",
+    etiqueta: "bg-amber-500/15 text-amber-700 dark:text-amber-500",
+    icone: "bg-amber-500/15 text-amber-700 dark:text-amber-500",
   },
   ATENCAO: {
     rotulo: "Atenção",
-    classe: "bg-brand/10 text-brand border-brand/30",
+    etiqueta: "bg-brand/10 text-brand",
+    icone: "bg-brand/10 text-brand",
   },
 };
 
@@ -399,6 +410,14 @@ export function ClienteRecomendacoes({
   onJanela?: (j: JanelaDeVigencias) => void;
 }) {
   const [entityType, setEntityType] = useState<string | null>(null);
+  /**
+   * Qual cartão da pauta está com o detalhe técnico aberto — um só de cada vez.
+   *
+   * Mora aqui, e não dentro do cartão, porque quem precisa saber é a **grade**:
+   * é ela que decide entre esticar os cartões para a mesma altura e deixar cada
+   * um na sua. Um `useState` por cartão daria a informação a quem não a usa.
+   */
+  const [aberto, setAberto] = useState<string | null>(null);
 
   const query = useQuery({
     queryKey: ["cliente", "recomendacoes", entityType, janela.de, janela.ate],
@@ -531,7 +550,15 @@ export function ClienteRecomendacoes({
           icon={<Truck className="w-6 h-6" />}
           label="Veículos afetados"
           linhas={[{ valor: formatNumber(totais.veiculosAlcancados, 0), unidade: "" }]}
-          hint="Maior alcance entre os itens da pauta — as placas se repetem entre linhas, e somá-las contaria o mesmo veículo duas vezes"
+          hint="Maior alcance entre os itens da pauta"
+          /*
+            A ressalva vira título, e não quarta linha do ladrilho: ela é longa,
+            e escrita por extenso empurrava os quatro ladrilhos para o dobro da
+            altura por causa de um só. O que ela não pode é sumir — sem ela o
+            número parece uma soma, e somar as placas de várias linhas contaria
+            o mesmo veículo duas vezes.
+          */
+          detalhe="As placas se repetem entre as linhas da pauta, então este número é o maior alcance de uma delas, e não a soma."
         />
         <Ladrilho
           tone="amber"
@@ -588,17 +615,31 @@ export function ClienteRecomendacoes({
           </Card>
         ) : (
           /*
-            `items-start`, e não a esticada natural da grade: abrir o detalhe
-            técnico de um cartão cresce a linha inteira, e com os irmãos
-            esticados o crescimento vira um vazio de meia tela dentro deles. Com
-            cada cartão na sua altura, quem cresce é só o que foi aberto.
+            O alinhamento da grade muda com o detalhe técnico, e é a única
+            forma de ter as duas coisas.
+
+            Fechados, os cartões esticam para a mesma altura: é o que deixa os
+            três rodapés na mesma linha e a fileira comparável a olho. Aberto um
+            deles, a linha inteira cresce — e com os irmãos ainda esticados o
+            crescimento vira meia tela de vazio dentro de cartões que não têm o
+            que mostrar ali. Enquanto houver um aberto, cada cartão volta para a
+            sua própria altura e só cresce quem foi aberto.
           */
-          <div className="grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3 items-start">
+          <div
+            className={cn(
+              "grid gap-4 grid-cols-1 md:grid-cols-2 xl:grid-cols-3",
+              aberto !== null && "items-start",
+            )}
+          >
             {pauta.map((r, i) => (
               <CartaoDePauta
                 key={r.code}
                 r={r}
                 posicao={i + 1}
+                aberto={aberto === r.code}
+                onAbrir={() =>
+                  setAberto((atual) => (atual === r.code ? null : r.code))
+                }
                 onAbrirImpacto={onAbrirImpacto}
               />
             ))}
@@ -610,7 +651,7 @@ export function ClienteRecomendacoes({
       <div className="grid gap-4 grid-cols-1 lg:grid-cols-2 items-start">
         <Painel
           tone="red"
-          icon={<Ban className="w-5 h-5" />}
+          icon={<CircleX className="w-5 h-5" />}
           titulo="O que não propor"
           categorias={categoriasNaoPropor(naoPropor)}
           vazio="Tudo que mudou neste recorte virou pauta ou pendência."
@@ -685,38 +726,42 @@ export function ClienteRecomendacoes({
 function CartaoDePauta({
   r,
   posicao,
+  aberto,
+  onAbrir,
   onAbrirImpacto,
 }: {
   r: Recomendacao;
   posicao: number;
+  aberto: boolean;
+  onAbrir: () => void;
   onAbrirImpacto?: (escolha: { entityType: string; code: string }) => void;
 }) {
-  const [aberto, setAberto] = useState(false);
   const prioridade = PRIORIDADE[prioridadeDaPauta(r)];
 
+  /*
+    Sem `h-full` no cartão: ele **é** o item da grade, e o `stretch` padrão já o
+    estica até a altura da fileira. Com `h-full` ele continuaria esticando mesmo
+    sob `items-start`, porque `height: 100%` resolve contra a área da grade — e
+    o alinhamento condicional da grade não teria efeito nenhum.
+  */
   return (
     <Card className="overflow-hidden flex flex-col">
       <div className="px-5 pt-4 pb-3 flex-1">
         <div className="flex items-center justify-between gap-3">
           <span
             className={cn(
-              "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium",
-              prioridade.classe,
+              "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium",
+              prioridade.etiqueta,
             )}
           >
-            {r.situacao === "PROPOR_AJUSTE" ? (
-              <Handshake className="w-3.5 h-3.5" />
-            ) : (
-              <Search className="w-3.5 h-3.5" />
-            )}
             {prioridade.rotulo}
           </span>
-          <span className="text-xs tabular-nums text-muted-foreground shrink-0">
+          <span className="rounded-md border px-1.5 py-0.5 text-xs tabular-nums text-muted-foreground shrink-0">
             #{posicao}
           </span>
         </div>
 
-        <h4 className="text-base font-semibold tracking-tight mt-2.5">
+        <h4 className="text-base font-semibold tracking-tight mt-3">
           {r.title}
           <span className="text-xs text-muted-foreground font-normal ml-2">
             {r.equipment.toLowerCase()} · {CONFIANCA[r.confianca]}
@@ -725,7 +770,7 @@ function CartaoDePauta({
 
         <p
           className={cn(
-            "text-sm text-muted-foreground mt-1 leading-relaxed",
+            "text-sm text-muted-foreground mt-1.5 leading-relaxed",
             !aberto && "line-clamp-3",
           )}
         >
@@ -740,7 +785,8 @@ function CartaoDePauta({
           resumo quando é uma ilustração.
         */}
         {r.oQueAconteceu && (
-          <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm tabular-nums">
+          <div className="mt-3 rounded-lg bg-muted/50 px-3 py-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm tabular-nums">
+            <ArrowRightLeft className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
             <span className="text-muted-foreground">
               {formatValue(r.oQueAconteceu.antes, r.oQueAconteceu.unidade)}
             </span>
@@ -752,7 +798,7 @@ function CartaoDePauta({
               em {r.oQueAconteceu.sourceLabel}
             </span>
             {r.oQueAconteceu.padroes > 1 && (
-              <span className="text-xs rounded bg-muted px-1.5 py-0.5 text-muted-foreground">
+              <span className="text-xs rounded bg-background border px-1.5 py-0.5 text-muted-foreground">
                 padrão predominante de {formatNumber(r.oQueAconteceu.padroes, 0)}
               </span>
             )}
@@ -765,11 +811,11 @@ function CartaoDePauta({
         termos são de larguras parecidas, e sem a coluna comum os valores
         começariam em três `x` diferentes dentro do mesmo cartão.
       */}
-      <dl className="border-t px-5 py-3 grid grid-cols-[auto_1fr] gap-x-3 gap-y-2.5">
+      <dl className="border-t px-5 py-4 grid grid-cols-[auto_1fr] gap-x-3 gap-y-3">
         <LinhaDoCartao
-          icon={<TrendingDown className="w-4 h-4" />}
+          icon={<CircleDollarSign className="w-3.5 h-3.5" />}
+          tomDoIcone={prioridade.icone}
           termo="Impacto estimado"
-          alinhamento="direita"
         >
           {r.impacto ? (
             <span
@@ -783,14 +829,32 @@ function CartaoDePauta({
               {periodicitySuffix(r.impacto.periodicidade)}
             </span>
           ) : (
-            <span className="text-muted-foreground">
-              não apurado — {r.impactoMotivo || "sem régua financeira"}
-            </span>
+            /*
+              O motivo desce para uma segunda linha, menor. Ele é uma frase de
+              três orações — "a semântica ainda não foi confirmada na curadoria,
+              então somar sua variação seria adivinhação" — e no lugar do valor
+              ela ocupava metade do cartão dizendo, em corpo de número, algo que
+              não é número nenhum.
+            */
+            <>
+              <span className="font-medium text-muted-foreground">
+                não apurado
+              </span>
+              {(r.impactoMotivo || "").trim() !== "" && (
+                <span
+                  className="block text-xs text-muted-foreground/80 line-clamp-2"
+                  title={r.impactoMotivo}
+                >
+                  {r.impactoMotivo}
+                </span>
+              )}
+            </>
           )}
         </LinhaDoCartao>
 
         <LinhaDoCartao
-          icon={<Handshake className="w-4 h-4" />}
+          icon={<MessageSquare className="w-3.5 h-3.5" />}
+          tomDoIcone={prioridade.icone}
           termo={r.situacao === "PROPOR_AJUSTE" ? "Pedido sugerido" : "O que perguntar"}
         >
           <span className={cn("block", !aberto && "line-clamp-3")}>
@@ -798,14 +862,19 @@ function CartaoDePauta({
           </span>
         </LinhaDoCartao>
 
-        <LinhaDoCartao icon={<Users className="w-4 h-4" />} termo="Racional de apoio">
-          {racionalDeApoio(r)}
+        <LinhaDoCartao
+          icon={<Users className="w-3.5 h-3.5" />}
+          tomDoIcone={prioridade.icone}
+          termo="Racional de apoio"
+        >
+          <span className="font-medium">{racionalDeApoio(r)}</span>
         </LinhaDoCartao>
       </dl>
 
       <div className="border-t bg-muted/20 px-5 py-2 flex items-center gap-4">
         <button
-          onClick={() => setAberto((v) => !v)}
+          onClick={onAbrir}
+          aria-expanded={aberto}
           className="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
         >
           <ChevronDown
@@ -836,34 +905,36 @@ function CartaoDePauta({
  * diretos da grade do cartão para dividirem a mesma coluna de termos. Um
  * invólucro por linha devolveria cada valor ao seu próprio alinhamento.
  *
- * O dinheiro alinha à direita e o texto à esquerda de propósito: número se
- * compara pela unidade, e frase se lê pelo começo.
+ * Tudo alinha à direita, inclusive as frases: a coluna da direita é estreita e
+ * de larguras irregulares, e três valores encostados em bordas diferentes
+ * fariam o cartão parecer torto. O ícone leva o tom da prioridade — é o que dá
+ * ao cartão uma cor sem pintar o número com ela.
  */
 function LinhaDoCartao({
   icon,
+  tomDoIcone,
   termo,
-  alinhamento = "esquerda",
   children,
 }: {
   icon: React.ReactNode;
+  tomDoIcone: string;
   termo: string;
-  alinhamento?: "esquerda" | "direita";
   children: React.ReactNode;
 }) {
   return (
     <>
-      <dt className="flex items-center gap-1.5 text-sm text-muted-foreground">
-        <span className="text-muted-foreground/70">{icon}</span>
-        {termo}
+      <dt className="flex items-center gap-2 text-sm text-muted-foreground">
+        <span
+          className={cn(
+            "h-6 w-6 rounded-full grid place-content-center shrink-0",
+            tomDoIcone,
+          )}
+        >
+          {icon}
+        </span>
+        {termo}:
       </dt>
-      <dd
-        className={cn(
-          "text-sm min-w-0",
-          alinhamento === "direita" ? "text-right" : "text-left",
-        )}
-      >
-        {children}
-      </dd>
+      <dd className="text-sm min-w-0 text-right self-center">{children}</dd>
     </>
   );
 }
@@ -976,13 +1047,23 @@ function DetalheTecnico({ r }: { r: Recomendacao }) {
   );
 }
 
+/*
+  Os tons vêm dos tokens, e não de `bg-red-50`/`bg-blue-50`.
+
+  Um `red-50` literal é um retângulo claro fixo: no tema escuro ele vira um
+  bloco aceso no meio da página, e é justamente nos dois painéis — que ocupam
+  uma faixa inteira — que isso apareceria primeiro. Com `destructive/5` o véu
+  acompanha o fundo dos dois temas.
+*/
 const PAINEL = {
   red: {
-    caixa: "bg-destructive/10 text-destructive",
+    fundo: "bg-destructive/5 border-destructive/20",
+    caixa: "bg-destructive text-destructive-foreground",
     marcador: "bg-destructive",
   },
   blue: {
-    caixa: "bg-brand/10 text-brand",
+    fundo: "bg-brand/5 border-brand/20",
+    caixa: "bg-brand text-brand-foreground",
     marcador: "bg-brand",
   },
 } as const;
@@ -1013,11 +1094,11 @@ function Painel({
   const cores = PAINEL[tone];
 
   return (
-    <Card className="p-5">
+    <Card className={cn("p-5", cores.fundo)}>
       <div className="flex items-center gap-2.5">
         <span
           className={cn(
-            "h-8 w-8 rounded-lg grid place-content-center shrink-0",
+            "h-8 w-8 rounded-full grid place-content-center shrink-0",
             cores.caixa,
           )}
         >
@@ -1050,7 +1131,9 @@ function Painel({
         </ul>
       )}
 
-      <p className="text-xs text-muted-foreground mt-3 pt-3 border-t">{rodape}</p>
+      <p className="text-xs text-muted-foreground mt-3 pt-3 border-t border-border/60">
+        {rodape}
+      </p>
     </Card>
   );
 }
@@ -1072,12 +1155,12 @@ function ResumoExecutivo({
   analisadas: number;
 }) {
   return (
-    <Card className="px-5 py-4 flex items-start gap-3">
+    <Card className="px-5 py-4 flex items-start gap-3 bg-brand/5 border-brand/20">
       <span className="h-8 w-8 rounded-lg grid place-content-center shrink-0 bg-brand/10 text-brand">
         <FileText className="w-5 h-5" />
       </span>
       <div className="text-sm text-muted-foreground leading-relaxed">
-        <strong className="text-foreground">Resumo executivo</strong>
+        <strong className="text-brand">Resumo executivo</strong>
         <span className="mx-2 text-border" aria-hidden>
           |
         </span>
@@ -1261,15 +1344,21 @@ function Ladrilho({
   label,
   linhas,
   hint,
+  detalhe,
 }: {
   icon: React.ReactNode;
   tone: keyof typeof LADRILHO;
   label: string;
   linhas: { valor: string; unidade: string }[];
   hint?: string;
+  /** A ressalva que o número exige e que não cabe na dica. Vira `title`. */
+  detalhe?: string;
 }) {
   return (
-    <div className="rounded-xl border bg-card shadow-sm px-5 py-5 flex items-start gap-4">
+    <div
+      className="rounded-xl border bg-card shadow-sm px-5 py-5 flex items-start gap-4"
+      title={detalhe}
+    >
       <div
         className={cn(
           "h-12 w-12 rounded-xl grid place-content-center shrink-0",

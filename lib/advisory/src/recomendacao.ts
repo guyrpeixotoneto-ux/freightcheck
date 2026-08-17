@@ -292,9 +292,41 @@ function representante(
   const principal = ordenados[0];
   const direcao = Math.sign(principal.depois - principal.antes);
 
+  /*
+    Os que foram para o lado contrário **na mesma vigência**, e não na série
+    inteira.
+
+    A soma sobre todos os padrões contava o mesmo ativo uma vez por vigência em
+    que ele se moveu, e o número estourava a frota: no export real o
+    `combustivelConsumoNeg` aparecia como "64 de 64 cavalos afetados · 236 para
+    o lado contrário", que é uma frase que não se confere em lugar nenhum. Um
+    ativo tem um par de valores por vigência, então dentro de uma vigência a
+    soma dos padrões conta cada placa no máximo uma vez — e é essa a leitura que
+    a frase do cartão promete.
+  */
   const opostos = ordenados
+    .filter((p) => p.effectiveDate === principal.effectiveDate)
     .filter((p) => Math.sign(p.depois - p.antes) === -direcao)
     .reduce((soma, p) => soma + p.entidades, 0);
+
+  /*
+    A detecção de direções mistas, essa continua olhando a série inteira — mas
+    **vigência a vigência**, e não no bolo. Subir numa vigência e descer noutra
+    é a série andando no tempo, não ativos discordando entre si; o que interessa
+    é uma virada em que uns sobem enquanto outros descem, porque é ali que o
+    líquido esconde quem perdeu.
+  */
+  const sentidosPorVigencia = new Map<string, Set<number>>();
+  for (const p of ordenados) {
+    const sentido = Math.sign(p.depois - p.antes);
+    if (sentido === 0) continue;
+    const sentidos = sentidosPorVigencia.get(p.effectiveDate) ?? new Set();
+    sentidos.add(sentido);
+    sentidosPorVigencia.set(p.effectiveDate, sentidos);
+  }
+  const mistas = [...sentidosPorVigencia.values()].some(
+    (s) => s.has(1) && s.has(-1),
+  );
 
   return {
     caso: {
@@ -311,7 +343,7 @@ function representante(
           ? Math.min(1, principal.entidades / ativosAfetados)
           : 0,
     },
-    mistas: opostos > 0,
+    mistas,
   };
 }
 

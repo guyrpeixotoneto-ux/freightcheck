@@ -84,7 +84,7 @@ export function SeletorDeJanela({
       </span>
 
       <Select value={de} onValueChange={(v) => onJanela({ ...janela, de: v })}>
-        <SelectTrigger className="h-8 w-44 text-sm">
+        <SelectTrigger className="h-8 w-56 text-sm">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
@@ -99,7 +99,7 @@ export function SeletorDeJanela({
       <span className="text-xs text-muted-foreground">até</span>
 
       <Select value={ate} onValueChange={(v) => onJanela({ ...janela, ate: v })}>
-        <SelectTrigger className="h-8 w-44 text-sm">
+        <SelectTrigger className="h-8 w-56 text-sm">
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
