@@ -68,6 +68,7 @@ import {
   CRIAR_MARCADOR,
   LIMPAR_MARCADOR,
   MARCAR_DESCIDA,
+  bridgePendente,
 } from "./bridge-marcador";
 
 // ---------------------------------------------------------------------------
@@ -1351,8 +1352,20 @@ export async function bridgeUp(connectionString: string): Promise<BridgeReport> 
       O `up` concluiu: não há mais bridge pendente. Some junto com a restauração
       e pela mesma razão do `down` — se o `up` abortar, o marcador continua lá,
       que é a resposta certa para um bridge que ainda não terminou.
+
+      Quando não havia nenhum, isso é dito. O `up` é idempotente justamente para
+      poder ser rodado por quem está na dúvida, e "restaurei 87 objetos" sem
+      mais nada deixa quem leu achando que havia um bridge para concluir.
     */
+    const marcador = await bridgePendente((sql) => c.query(sql));
     await c.query(LIMPAR_MARCADOR);
+    if (!marcador.pendente) {
+      rel.avisos.push(
+        "não havia bridge pendente neste banco — o `up` repôs a lista nominal " +
+          "mesmo assim, que é no-op onde os objetos já estão. Se o que falta " +
+          "em Development são migrations, quem as aplica é `migrate`.",
+      );
+    }
 
     await c.query("COMMIT");
     rel.verificacao.push({

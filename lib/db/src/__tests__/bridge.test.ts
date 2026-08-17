@@ -778,3 +778,37 @@ describe("conferir a proposta sem tocar em nada", () => {
     await prod.pool.end();
   }, 600_000);
 });
+
+/**
+ * O `up` num banco que nunca viu um bridge.
+ *
+ * O `up` é idempotente de propósito — é o que permite rodá-lo por via das
+ * dúvidas, sem saber se há bridge pendente. Só que o último passo dele apagava
+ * o marcador com um `DELETE` cru, e num banco onde nenhum `down` jamais rodou a
+ * tabela não existe: `relation "drizzle.bridge_estado" does not exist`, dentro
+ * da transação, derrubando junto os 87 objetos que ele acabara de repor.
+ * Observado em 17/08/2026, no Development real.
+ *
+ * A suíte não pegava porque o caso só existe onde nenhum `down` rodou: depois
+ * de um `down` a tabela fica de pé — o `DELETE` tira a linha, não a tabela —, e
+ * é por isso que "rodar o `up` duas vezes" passava.
+ */
+describe("bridge-up sem bridge nenhum", () => {
+  it("conclui em vez de abortar, e diz que não havia o que concluir", async () => {
+    const banco = await development();
+    const { rows } = await banco.pool.query<{ e: boolean }>(
+      `SELECT to_regclass('drizzle.bridge_estado') IS NOT NULL AS e`,
+    );
+    expect(rows[0]!.e).toBe(false);
+
+    const antes = await estruturaDe(banco.pool);
+    const rel = await bridgeUp(banco.url);
+
+    expect(rel.falha).toBeUndefined();
+    expect(rel.avisos.join("\n")).toContain("não havia bridge pendente");
+    // Um banco canônico continua canônico: o `up` é no-op onde nada falta.
+    expect(await estruturaDe(banco.pool)).toEqual(antes);
+
+    await banco.pool.end();
+  }, 600_000);
+});

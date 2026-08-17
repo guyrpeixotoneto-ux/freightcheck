@@ -66,8 +66,28 @@ export const MARCAR_DESCIDA = `
   ON CONFLICT (id) DO UPDATE
           SET descido_em = now(), itens = EXCLUDED.itens`;
 
-/** O `up` limpa. Não é histórico: é "há um bridge pendente agora". */
-export const LIMPAR_MARCADOR = `DELETE FROM "drizzle"."bridge_estado"`;
+/**
+ * O `up` limpa. Não é histórico: é "há um bridge pendente agora".
+ *
+ * **Apagar segue a mesma regra de ler: nunca quebra.** Num banco que nunca viu
+ * um bridge a tabela não existe, e um `DELETE` cru ali levanta
+ * `relation "drizzle.bridge_estado" does not exist` — no último passo do `up`,
+ * depois de ele ter montado a restauração inteira, e dentro da transação dele,
+ * o que derruba junto tudo o que ele acabou de restaurar. O `up` é idempotente
+ * de propósito, para poder ser rodado por quem está na dúvida se há bridge
+ * pendente; abortar justamente na resposta "não há" é o oposto disso.
+ *
+ * A suíte não pegava porque o caso só aparece onde nenhum `down` jamais rodou:
+ * depois de um `down` a tabela fica de pé (o `DELETE` tira a linha, não a
+ * tabela), e é por isso que "rodar o `up` duas vezes" passava.
+ */
+export const LIMPAR_MARCADOR = `
+  DO $limpar$
+  BEGIN
+    IF to_regclass('drizzle.bridge_estado') IS NOT NULL THEN
+      DELETE FROM "drizzle"."bridge_estado";
+    END IF;
+  END $limpar$`;
 
 /** Há um bridge pendente neste banco, e desde quando. */
 export interface BridgePendente {
