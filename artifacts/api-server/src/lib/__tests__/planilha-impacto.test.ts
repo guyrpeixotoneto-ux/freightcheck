@@ -11,6 +11,7 @@ import {
   agoraEmBrasilia,
   celulaDaMatriz,
   linhasDaAba,
+  linhaDoCabecalho,
   linhasDoIndice,
   montarPlanilhaDeImpacto,
   nomeDeAba,
@@ -469,6 +470,31 @@ describe("montarPlanilhaDeImpacto", () => {
     const celulaVazia = ws.getCell(linha, 4);
     expect(celulaVazia.value).toBeNull();
     expect((celulaVazia.fill as ExcelJS.FillPattern).pattern).toBe("lightUp");
+  });
+
+  it("congela o cabeçalho e as duas colunas que identificam o ativo", () => {
+    const ws = lido.getWorksheet("CAV Consumo de Combustível")!;
+    const vista = ws.views[0] as {
+      state?: string;
+      xSplit?: number;
+      ySplit?: number;
+    };
+    expect(vista.state).toBe("frozen");
+    // Grupo e placa presas à esquerda, como a coluna de placa na tela.
+    expect(vista.xSplit).toBe(2);
+    // E o cabeçalho preso no topo, na linha em que ele de fato está.
+    expect(vista.ySplit).toBe(linhaDoCabecalho(linhasDaAba(aba())));
+    expect(ws.getRow(vista.ySplit!).getCell(2).value).toBe("placa");
+  });
+
+  it("acompanha o cabeçalho quando o bloco de texto acima dele cresce", () => {
+    // A aba que não é linha econômica ganha uma linha de aviso a mais; um
+    // número fixo congelaria o lugar errado justamente nela.
+    const comAviso = linhasDaAba(aba({ linhaEconomica: false }));
+    expect(linhaDoCabecalho(comAviso)).toBe(
+      linhaDoCabecalho(linhasDaAba(aba())) + 1,
+    );
+    expect(comAviso[linhaDoCabecalho(comAviso) - 1][1].valor).toBe("placa");
   });
 
   it("formata os números com duas casas, sem repetir a unidade em cada célula", () => {

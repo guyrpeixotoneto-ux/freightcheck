@@ -275,7 +275,10 @@ e-mail, e exclusão de conta.
   quem não distingue as duas cores — ou imprime em preto e branco — não perde a
   informação. O escritor é o `exceljs`, e essa é a única razão da troca: a edição
   community do `xlsx` lê estilo e não grava. O `xlsx` continua onde sempre
-  esteve, na importação. As parcelas e as colunas de conjunto
+  esteve, na importação. O cabeçalho e as duas colunas de identificação ficam
+  **congelados**, como a coluna de placa presa da tela — e a linha do cabeçalho é
+  achada pelo tom (`linhaDoCabecalho`), não contada à mão: o bloco de texto acima
+  dela tem uma linha a mais nas abas que não são linha econômica. As parcelas e as colunas de conjunto
   **entram** no arquivo, ao contrário dos rankings da tela: elas mudaram e alguém
   vai procurá-las, e a coluna *Papel* do índice é o que impede alguém de somar
   duas abas que contêm o mesmo real. É a única rota desta API cujo **sucesso não
