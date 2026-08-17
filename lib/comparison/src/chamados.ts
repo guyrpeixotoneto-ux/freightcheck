@@ -11,6 +11,7 @@ import {
   classificarParametro,
   type ClasseNaTela,
 } from "@workspace/knowledge";
+import type { EscopoDeFrota } from "./escopo";
 
 /**
  * Chamados, do lado da leitura.
@@ -205,9 +206,42 @@ function toSummary(row: typeof ticketImportTable.$inferSelect): TicketImportSumm
  */
 const DIVERGENT = sql`${ticketChangeTable.deltaAbsolute} IS NOT NULL AND ${ticketChangeTable.deltaAbsolute} <> 0`;
 
-function buildWhere(ticketImportId: string, filters: TicketFilters): SQL | undefined {
+/**
+ * O escopo de frota sobre as alterações de chamado.
+ *
+ * Separado dos filtros, e não mais um campo em `TicketFilters`, pela razão que
+ * `escopo.ts` explica: o filtro estreita a lista, o escopo troca a população — e
+ * é por isso que ele também entra em `getTicketTotals` e em
+ * `getTicketsByParameter`, que nenhum filtro atravessa. Uma tela de cavalos com
+ * o cartão de 1.218 chamados da frota inteira em cima de uma lista de cavalos
+ * seria a mentira mais visível que este produto pode contar.
+ *
+ * `entity_label` é a placa, copiada do chamado para a alteração justamente para
+ * que filtrar por placa não exija junção — ver o schema em `tickets.ts`.
+ */
+function escopoNasAlteracoes(escopo: EscopoDeFrota): SQL[] {
+  const parts: SQL[] = [];
+  if (escopo.entityType) parts.push(eq(ticketChangeTable.entityType, escopo.entityType));
+  if (escopo.plate) parts.push(eq(ticketChangeTable.entityLabel, escopo.plate));
+  return parts;
+}
+
+/** O mesmo escopo sobre o chamado — os cartões que contam chamados, e não linhas. */
+function escopoNosChamados(escopo: EscopoDeFrota): SQL[] {
+  const parts: SQL[] = [];
+  if (escopo.entityType) parts.push(eq(ticketTable.entityType, escopo.entityType));
+  if (escopo.plate) parts.push(eq(ticketTable.entityLabel, escopo.plate));
+  return parts;
+}
+
+function buildWhere(
+  ticketImportId: string,
+  filters: TicketFilters,
+  frota: EscopoDeFrota = {},
+): SQL | undefined {
   const parts: (SQL | undefined)[] = [
     eq(ticketChangeTable.ticketImportId, ticketImportId),
+    ...escopoNasAlteracoes(frota),
   ];
 
   if (filters.statusBucket) {
@@ -391,8 +425,9 @@ export async function listTicketChanges(
   db: Database,
   ticketImportId: string,
   filters: TicketFilters = {},
+  frota: EscopoDeFrota = {},
 ): Promise<{ total: number; rows: TicketChangeRow[] }> {
-  const where = buildWhere(ticketImportId, filters);
+  const where = buildWhere(ticketImportId, filters, frota);
 
   const [count] = await db
     .select({ total: sql<number>`count(*)`.mapWith(Number) })
@@ -550,9 +585,16 @@ export async function getTicket(
 export async function getTicketTotals(
   db: Database,
   ticketImportId: string,
+  frota: EscopoDeFrota = {},
 ): Promise<TicketTotals> {
-  const escopoChanges = eq(ticketChangeTable.ticketImportId, ticketImportId);
-  const escopoTickets = eq(ticketTable.ticketImportId, ticketImportId);
+  const escopoChanges = and(
+    eq(ticketChangeTable.ticketImportId, ticketImportId),
+    ...escopoNasAlteracoes(frota),
+  )!;
+  const escopoTickets = and(
+    eq(ticketTable.ticketImportId, ticketImportId),
+    ...escopoNosChamados(frota),
+  )!;
 
   const [agg] = await db
     .select({
@@ -841,6 +883,7 @@ function somarApurados(itens: { impactSum: number | null }[]): number | null {
 export async function getTicketClassification(
   db: Database,
   ticketImportId: string,
+  frota: EscopoDeFrota = {},
 ): Promise<TicketClassificationView> {
   const rows = await db
     .select({
@@ -853,7 +896,12 @@ export async function getTicketClassification(
     })
     .from(ticketChangeTable)
     .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
-    .where(eq(ticketChangeTable.ticketImportId, ticketImportId))
+    .where(
+      and(
+        eq(ticketChangeTable.ticketImportId, ticketImportId),
+        ...escopoNasAlteracoes(frota),
+      ),
+    )
     .groupBy(
       ticketChangeTable.parameterLabel,
       ticketChangeTable.attributeCode,
@@ -884,6 +932,7 @@ export async function getTicketsByParameter(
   db: Database,
   ticketImportId: string,
   limit = 15,
+  frota: EscopoDeFrota = {},
 ): Promise<
   {
     parameterLabel: string;
@@ -904,6 +953,7 @@ export async function getTicketsByParameter(
       and(
         eq(ticketChangeTable.ticketImportId, ticketImportId),
         isNotNull(ticketChangeTable.parameterLabel),
+        ...escopoNasAlteracoes(frota),
       ),
     )
     .groupBy(ticketChangeTable.parameterLabel, ticketChangeTable.attributeCode)

@@ -102,12 +102,23 @@ describe("registro de migrations perdido", () => {
       dois CHECKs da coerência semântica, e normaliza antes as linhas que os
       violariam. `DROP CONSTRAINT IF EXISTS` antes do `ADD` é o que a torna
       idempotente — rodá-la duas vezes deixa o banco no mesmo lugar.
+
+      A `0025` entra por um terceiro motivo, mais forte: ela não cria objeto
+      nenhum porque só escreve **dado** — a versão 1 de semântica que cada
+      atributo precisava ter. Adotá-la seria o pior desfecho possível: o
+      registro afirmaria que os atributos ganharam versão, sem que nenhum
+      tivesse ganhado. Rodar é o certo, e é barato: o `WHERE NOT EXISTS` faz
+      dela um no-op em banco já em dia.
     */
-    const soConstraints = ["0018_identidade_forte", "0023_semantica_coerente"];
+    const semObjetoNovo = [
+      "0018_identidade_forte",
+      "0023_semantica_coerente",
+      "0025_semantica_inicial",
+    ];
     expect(segunda.adopted).toEqual(
-      primeira.applied.filter((tag) => !soConstraints.includes(tag)),
+      primeira.applied.filter((tag) => !semObjetoNovo.includes(tag)),
     );
-    expect(segunda.applied).toEqual(soConstraints);
+    expect(segunda.applied).toEqual(semObjetoNovo);
 
     /*
       As que mexem em dados saem nomeadas: o schema não prova que o backfill

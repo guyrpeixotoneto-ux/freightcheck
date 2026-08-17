@@ -88,4 +88,60 @@ describe("a fila de migrations", () => {
     const tags = journal.entries.map((e) => e.tag);
     expect(tags.length).toBe(new Set(tags).size);
   });
+
+  /*
+    ---- a cadeia de snapshots ------------------------------------------------
+
+    Os casos acima cuidam do journal, e não bastam: a colisão de índice se
+    resolve renumerando, e renumerar mexe nos snapshots do drizzle, que são uma
+    lista encadeada — cada um traz o `id` do seu e o `prevId` do anterior.
+
+    Aconteceu no merge seguinte, exatamente como o primeiro: a `main` trouxe
+    `0025_semantica_inicial`, o branch trazia `0025_direcao_economica`, e a
+    renumeração para `0026` deixou o snapshot novo com o **mesmo `id`** do
+    `0024`. O journal ficava impecável; a cadeia, partida. `drizzle-kit generate`
+    lê essa cadeia para saber o que já existe, e uma cadeia partida produz o
+    próximo diff em cima do estado errado — DDL que refaz o que já foi feito, ou
+    que não vê o que falta.
+
+    Foi encontrado à mão, conferindo ids um a um. Uma vez é investigação; duas
+    seria desperdício.
+  */
+  describe("a cadeia de snapshots do drizzle", () => {
+    const snapshots = journal.entries.map((e) => {
+      const arquivo = `${String(e.idx).padStart(4, "0")}_snapshot.json`;
+      const s = JSON.parse(readFileSync(path.join(PASTA, "meta", arquivo), "utf8")) as {
+        id: string;
+        prevId: string;
+      };
+      return { ...e, arquivo, id: s.id, prevId: s.prevId };
+    });
+
+    it("cada snapshot tem id próprio", () => {
+      const porId = new Map<string, string[]>();
+      for (const s of snapshots) porId.set(s.id, [...(porId.get(s.id) ?? []), s.tag]);
+
+      expect(
+        [...porId.entries()].filter(([, tags]) => tags.length > 1).map(([id, tags]) => `${id}: ${tags.join(" × ")}`),
+        "dois snapshots com o mesmo `id`. O drizzle percorre a cadeia por id, e " +
+          "uma repetição a fecha num laço ou a corta antes do fim — o próximo " +
+          "`generate` passa a diferenciar contra o estado errado. Gere um id novo " +
+          "para o mais recente.",
+      ).toEqual([]);
+    });
+
+    it("cada snapshot aponta para o anterior", () => {
+      const quebras = snapshots
+        .slice(1)
+        .filter((s, i) => s.prevId !== snapshots[i]!.id)
+        .map((s) => `${s.tag} aponta para ${s.prevId}`);
+
+      expect(
+        quebras,
+        "elo partido: o `prevId` não é o `id` do snapshot anterior. Costuma ser " +
+          "sequela de renumeração — ao mover uma migration para o fim da fila, o " +
+          "`prevId` dela tem de passar a ser o `id` de quem virou seu antecessor.",
+      ).toEqual([]);
+    });
+  });
 });

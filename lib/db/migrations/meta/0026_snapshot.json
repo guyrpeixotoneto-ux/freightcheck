@@ -1,6 +1,6 @@
 {
-  "id": "0f257794-f028-45f0-b74a-b64b0c4d08e3",
-  "prevId": "0dd537e0-45dc-4280-8e9b-7f7fca09a9cd",
+  "id": "4631b77f-b9ff-4e24-95c8-d4613ed47f77",
+  "prevId": "0f257794-f028-45f0-b74a-b64b0c4d08e3",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -958,6 +958,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "economic_direction": {
+          "name": "economic_direction",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "economic_effect": {
+          "name": "economic_effect",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {
@@ -4585,6 +4597,18 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
+        },
+        "economic_direction": {
+          "name": "economic_direction",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "economic_effect": {
+          "name": "economic_effect",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         }
       },
       "indexes": {

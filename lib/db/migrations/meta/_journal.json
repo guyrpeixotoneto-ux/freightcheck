@@ -180,8 +180,15 @@
     {
       "idx": 25,
       "version": "7",
+      "when": 1786932600000,
+      "tag": "0025_semantica_inicial",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
       "when": 1787018880000,
-      "tag": "0025_direcao_economica",
+      "tag": "0026_direcao_economica",
       "breakpoints": true
     }
   ]

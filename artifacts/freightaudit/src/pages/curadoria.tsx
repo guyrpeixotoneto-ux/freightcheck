@@ -451,50 +451,7 @@ function AttributePanel({
   taxonomy: TaxonomyNode[];
   onConfirmed: () => void;
 }) {
-  const [unit, setUnit] = useState(detail.unit ?? "");
-  const [periodicity, setPeriodicity] = useState(detail.periodicity ?? "");
-  const [aggregation, setAggregation] = useState(detail.aggregation ?? "");
-  const [taxonomyCode, setTaxonomyCode] = useState(
-    taxonomy.find((n) => n.path === detail.taxonomyPath)?.code ?? "",
-  );
-  const [isMonetary, setIsMonetary] = useState(detail.isMonetary === true);
-  const [reason, setReason] = useState("");
-  /** Quem assina esta confirmação. Vem da sessão; a tela só o exibe. */
-  const signedInAs = useAuth().user?.email ?? "quem está logado";
-  const [error, setError] = useState<string | null>(null);
-
-  const confirm = useMutation({
-    mutationFn: async () => {
-      const response = await fetch(
-        getApiUrl(`/curation/attributes/${detail.code}/confirm`),
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            unit: unit || null,
-            periodicity: periodicity || null,
-            aggregation: aggregation || null,
-            isMonetary,
-            taxonomyCode: taxonomyCode || undefined,
-            // `actor` não vai daqui: quem assina é a sessão, e o servidor o lê
-            // de lá. Um nome digitado na tela nunca provou nada.
-            reason,
-          }),
-        },
-      );
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Falha ao confirmar");
-      return body;
-    },
-    onSuccess: () => {
-      setError(null);
-      onConfirmed();
-    },
-    onError: (err: Error) => setError(err.message),
-  });
-
   const conflicted = detail.semanticsRationale?.startsWith("CONFLITO");
-  const blocked = isMonetary && (!unit || !periodicity || !aggregation);
 
   return (
     <div className="space-y-6">
@@ -601,117 +558,11 @@ function AttributePanel({
 
       <MeaningCard detail={detail} onSaved={onConfirmed} />
 
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="text-base">Confirmar semântica</CardTitle>
-          <p className="text-xs text-muted-foreground">
-            Uma confirmação é um ato seu, com nome e justificativa. O banco
-            recusa qualquer outra coisa.
-          </p>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <Field label="Unidade">
-              <Select value={unit} onValueChange={setUnit}>
-                <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
-                <SelectContent>
-                  {UNITS.map(([code, meaning]) => (
-                    <SelectItem key={code} value={code}>
-                      <span className="font-mono">{code}</span>
-                      <span className="text-muted-foreground"> · {meaning}</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-
-            <Field
-              label="Periodicidade"
-              hint="O sistema nunca propõe: os nomes de coluna deste export não são confiáveis."
-            >
-              <Select value={periodicity} onValueChange={setPeriodicity}>
-                <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
-                <SelectContent>
-                  {PERIODICITIES.map((p) => (
-                    <SelectItem key={p} value={p}>{p}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-
-            <Field label="Agregação">
-              <Select value={aggregation} onValueChange={setAggregation}>
-                <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
-                <SelectContent>
-                  {AGGREGATIONS.map(([code, meaning]) => (
-                    <SelectItem key={code} value={code}>
-                      <span className="font-mono">{code}</span>
-                      <span className="text-muted-foreground"> · {meaning}</span>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-
-            <Field label="Nó da taxonomia">
-              <Select value={taxonomyCode} onValueChange={setTaxonomyCode}>
-                <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
-                <SelectContent>
-                  {taxonomy
-                    .filter((n) => n.depth > 0)
-                    .map((n) => (
-                      <SelectItem key={n.code} value={n.code}>
-                        {"— ".repeat(Math.max(0, n.depth - 1))}
-                        {n.name}
-                      </SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          </div>
-
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={isMonetary}
-              onChange={(e) => setIsMonetary(e.target.checked)}
-              className="rounded border-input"
-            />
-            É um montante financeiro (entra em somas)
-          </label>
-
-          <Field
-            label="Justificativa"
-            hint={`Vai para o histórico assinada por ${signedInAs}.`}
-          >
-            <Textarea
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Com base em quê você está confirmando isso?"
-              rows={2}
-            />
-          </Field>
-
-          {blocked && (
-            <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
-              Atributo monetário exige unidade, periodicidade e agregação. Sem
-              os três, somar isso é adivinhação.
-            </p>
-          )}
-          {error && (
-            <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-              {error}
-            </p>
-          )}
-
-          <Button
-            onClick={() => confirm.mutate()}
-            disabled={confirm.isPending || !reason.trim() || blocked}
-          >
-            {confirm.isPending ? "Confirmando…" : "Confirmar semântica"}
-          </Button>
-        </CardContent>
-      </Card>
+      <ConfirmarSemantica
+        detail={detail}
+        taxonomy={taxonomy}
+        onConfirmed={onConfirmed}
+      />
 
       {detail.events.length > 0 && (
         <Card>
@@ -740,6 +591,415 @@ function AttributePanel({
     </div>
   );
 }
+
+/**
+ * O ato que destrava dinheiro — e o único campo desta tela que ninguém preenche
+ * por você.
+ *
+ * O card inteiro mora aqui, e não dentro do painel, porque a sugestão da IA
+ * precisa mexer nos quatro selects: eles nascem de `useState(detail…)`, e um
+ * botão que os preenche tem de estar no mesmo componente que os declara. Chaveado
+ * pelo código lá em cima, como o painel — trocar de atributo recomeça daqui.
+ */
+function ConfirmarSemantica({
+  detail,
+  taxonomy,
+  onConfirmed,
+}: {
+  detail: AttributeDetail;
+  taxonomy: TaxonomyNode[];
+  onConfirmed: () => void;
+}) {
+  const [unit, setUnit] = useState(detail.unit ?? "");
+  const [periodicity, setPeriodicity] = useState(detail.periodicity ?? "");
+  const [aggregation, setAggregation] = useState(detail.aggregation ?? "");
+  const [taxonomyCode, setTaxonomyCode] = useState(
+    taxonomy.find((n) => n.path === detail.taxonomyPath)?.code ?? "",
+  );
+  const [isMonetary, setIsMonetary] = useState(detail.isMonetary === true);
+  const [reason, setReason] = useState("");
+  /** Quem assina esta confirmação. Vem da sessão; a tela só o exibe. */
+  const signedInAs = useAuth().user?.email ?? "quem está logado";
+  const [error, setError] = useState<string | null>(null);
+
+  const confirm = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(
+        getApiUrl(`/curation/attributes/${detail.code}/confirm`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            unit: unit || null,
+            periodicity: periodicity || null,
+            aggregation: aggregation || null,
+            isMonetary,
+            taxonomyCode: taxonomyCode || undefined,
+            // `actor` não vai daqui: quem assina é a sessão, e o servidor o lê
+            // de lá. Um nome digitado na tela nunca provou nada.
+            reason,
+          }),
+        },
+      );
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Falha ao confirmar");
+      return body;
+    },
+    onSuccess: () => {
+      setError(null);
+      onConfirmed();
+    },
+    onError: (err: Error) => setError(err.message),
+  });
+
+  const blocked = isMonetary && (!unit || !periodicity || !aggregation);
+
+  /**
+   * O que os campos diziam antes da sugestão, e o que a sugestão pôs neles.
+   *
+   * Guardar os dois é o que torna o `Desfazer` honesto: ele só aparece enquanto
+   * os campos ainda contêm exatamente o que a IA escreveu, e some no instante em
+   * que a pessoa mexe em qualquer um — dali em diante restaurar apagaria a
+   * escolha dela, não a do modelo.
+   */
+  const [sugestao, setSugestao] = useState<SugestaoDeSemantica | null>(null);
+  const [motivoSemSugestao, setMotivoSemSugestao] = useState<string | null>(null);
+  const [antes, setAntes] = useState<CamposDaSemantica | null>(null);
+
+  const atual: CamposDaSemantica = { unit, periodicity, aggregation, isMonetary };
+
+  const aplicar = (campos: CamposDaSemantica) => {
+    setUnit(campos.unit);
+    setPeriodicity(campos.periodicity);
+    setAggregation(campos.aggregation);
+    setIsMonetary(campos.isMonetary);
+  };
+
+  const sugerir = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(
+        getApiUrl(`/curation/attributes/${detail.code}/semantica/sugestao`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          /*
+            Corpo vazio: o servidor lê o nome e a fórmula guardados. O card
+            "Significado" fica acima e às vezes está digitado e não salvo, mas o
+            texto dele mora em outro componente — e a evidência que decide aqui
+            não é ele, são os valores importados, que só o servidor tem.
+          */
+          body: JSON.stringify({}),
+        },
+      );
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Falha ao sugerir");
+      return body as { sugestao: SugestaoDeSemantica | null; motivo: string };
+    },
+    onSuccess: (body) => {
+      if (!body.sugestao) {
+        setSugestao(null);
+        setAntes(null);
+        setMotivoSemSugestao(body.motivo);
+        return;
+      }
+      setMotivoSemSugestao(null);
+      setAntes(atual);
+      setSugestao(body.sugestao);
+      /*
+        Campo indefinido não é preenchido — nem apagado. O modelo responder
+        "não sei" sobre periodicidade é o desfecho mais comum e mais correto que
+        existe aqui, e sobrescrever com vazio o que a pessoa já tinha escolhido
+        transformaria a franqueza dele em perda de trabalho dela.
+      */
+      aplicar({
+        unit: body.sugestao.unidade ?? unit,
+        periodicity: body.sugestao.periodicidade ?? periodicity,
+        aggregation: body.sugestao.agregacao ?? aggregation,
+        isMonetary: body.sugestao.ehMonetario ?? isMonetary,
+      });
+    },
+  });
+
+  /*
+    O que a sugestão deixou nos campos, para saber se ela ainda está lá. É
+    recalculado com o mesmo critério do `aplicar` acima — inclusive o "campo
+    indefinido não mexe", que é o que impede o `Desfazer` de sumir só porque o
+    modelo não opinou sobre um dos quatro.
+  */
+  const comoASugestaoDeixou: CamposDaSemantica | null =
+    sugestao && antes
+      ? {
+          unit: sugestao.unidade ?? antes.unit,
+          periodicity: sugestao.periodicidade ?? antes.periodicity,
+          aggregation: sugestao.agregacao ?? antes.aggregation,
+          isMonetary: sugestao.ehMonetario ?? antes.isMonetary,
+        }
+      : null;
+  const podeDesfazer =
+    comoASugestaoDeixou !== null &&
+    comoASugestaoDeixou.unit === unit &&
+    comoASugestaoDeixou.periodicity === periodicity &&
+    comoASugestaoDeixou.aggregation === aggregation &&
+    comoASugestaoDeixou.isMonetary === isMonetary;
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <CardTitle className="text-base">Confirmar semântica</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Uma confirmação é um ato seu, com nome e justificativa. O banco
+              recusa qualquer outra coisa. No canto, a IA lê os valores
+              importados e preenche um palpite — que você revisa, corrige ou
+              desfaz.
+            </p>
+          </div>
+          {/* O ícone fica no canto porque é o que ele é: um atalho para o
+              trabalho de olhar a tabela de valores, e não o caminho principal
+              desta tela. */}
+          <Button
+            variant="outline"
+            size="icon"
+            className="shrink-0"
+            onClick={() => sugerir.mutate()}
+            disabled={sugerir.isPending}
+            aria-label="Sugerir a semântica com IA, a partir dos valores importados"
+            title="Sugerir com IA, a partir dos valores importados"
+          >
+            <Sparkles className={cn("h-4 w-4", sugerir.isPending && "animate-pulse")} />
+          </Button>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {sugerir.isError && (
+          <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+            {sugerir.error.message}
+          </p>
+        )}
+
+        {motivoSemSugestao && (
+          <p className="text-sm text-muted-foreground bg-muted/40 border rounded-md px-3 py-2">
+            {MOTIVO_SEM_SUGESTAO[motivoSemSugestao] ?? MOTIVO_SEM_SUGESTAO.ERRO}
+          </p>
+        )}
+
+        {sugestao && <LeituraDaIA sugestao={sugestao} />}
+
+        {podeDesfazer && antes && (
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={() => {
+                aplicar(antes);
+                setSugestao(null);
+                setAntes(null);
+              }}
+            >
+              <Undo2 className="h-3.5 w-3.5" />
+              Desfazer
+            </Button>
+            <p className="text-xs text-muted-foreground">
+              Os campos abaixo estão como a IA os deixou. Revise antes de
+              confirmar.
+            </p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Field label="Unidade">
+            <Select value={unit} onValueChange={setUnit}>
+              <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
+              <SelectContent>
+                {UNITS.map(([code, meaning]) => (
+                  <SelectItem key={code} value={code}>
+                    <span className="font-mono">{code}</span>
+                    <span className="text-muted-foreground"> · {meaning}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field
+            label="Periodicidade"
+            hint="A passada automática nunca propõe: ela lê o nome da coluna, e os nomes deste export não são confiáveis. A sugestão do canto lê os valores, e ainda assim costuma responder que não sabe — periodicidade quase nunca se lê num número."
+          >
+            <Select value={periodicity} onValueChange={setPeriodicity}>
+              <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
+              <SelectContent>
+                {PERIODICITIES.map((p) => (
+                  <SelectItem key={p} value={p}>{p}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field label="Agregação">
+            <Select value={aggregation} onValueChange={setAggregation}>
+              <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
+              <SelectContent>
+                {AGGREGATIONS.map(([code, meaning]) => (
+                  <SelectItem key={code} value={code}>
+                    <span className="font-mono">{code}</span>
+                    <span className="text-muted-foreground"> · {meaning}</span>
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+
+          <Field label="Nó da taxonomia">
+            <Select value={taxonomyCode} onValueChange={setTaxonomyCode}>
+              <SelectTrigger><SelectValue placeholder="Selecionar…" /></SelectTrigger>
+              <SelectContent>
+                {taxonomy
+                  .filter((n) => n.depth > 0)
+                  .map((n) => (
+                    <SelectItem key={n.code} value={n.code}>
+                      {"— ".repeat(Math.max(0, n.depth - 1))}
+                      {n.name}
+                    </SelectItem>
+                  ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        </div>
+
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={isMonetary}
+            onChange={(e) => setIsMonetary(e.target.checked)}
+            className="rounded border-input"
+          />
+          É um montante financeiro (entra em somas)
+        </label>
+
+        <Field
+          label="Justificativa"
+          hint={`Vai para o histórico assinada por ${signedInAs}. É o único campo que a IA não preenche: o que ela escreveu fica na caixa acima, e o que vai assinado é o que você escrever aqui.`}
+        >
+          <Textarea
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="Com base em quê você está confirmando isso?"
+            rows={2}
+          />
+        </Field>
+
+        {blocked && (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+            Atributo monetário exige unidade, periodicidade e agregação. Sem
+            os três, somar isso é adivinhação.
+          </p>
+        )}
+        {error && (
+          <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+            {error}
+          </p>
+        )}
+
+        <Button
+          onClick={() => confirm.mutate()}
+          disabled={confirm.isPending || !reason.trim() || blocked}
+        >
+          {confirm.isPending ? "Confirmando…" : "Confirmar semântica"}
+        </Button>
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Os quatro campos que a sugestão pode mexer — e que o `Desfazer` restaura. */
+interface CamposDaSemantica {
+  unit: string;
+  periodicity: string;
+  aggregation: string;
+  isMonetary: boolean;
+}
+
+interface SugestaoDeSemantica {
+  unidade: string | null;
+  periodicidade: string | null;
+  agregacao: string | null;
+  ehMonetario: boolean | null;
+  confianca: "ALTA" | "MEDIA" | "BAIXA";
+  justificativa: string;
+  duvidas: string[];
+}
+
+/**
+ * O que a IA leu, dito por extenso — ao lado dos campos, nunca dentro deles.
+ *
+ * Três coisas precisam aparecer aqui, e nenhuma delas cabe num select:
+ *
+ * - **A confiança**, porque um palpite de confiança baixa preenchido do mesmo
+ *   jeito que um de confiança alta é uma armadilha. Ela sai em cor, que é o que
+ *   se lê antes de ler.
+ * - **O que sustentou o palpite**, para dar o que conferir contra a tabela de
+ *   valores logo acima nesta mesma tela.
+ * - **O que ela não soube**, com o que resolveria. É a parte mais útil da
+ *   resposta e a que um formulário preenchido esconderia: um campo em branco não
+ *   diz se ninguém olhou ou se ninguém conseguiu decidir.
+ */
+function LeituraDaIA({ sugestao }: { sugestao: SugestaoDeSemantica }) {
+  return (
+    <div className="rounded-md border bg-muted/40 px-3 py-2 space-y-1.5">
+      <div className="flex items-center gap-2">
+        <Sparkles className="h-3.5 w-3.5 text-muted-foreground" />
+        <span className="text-xs uppercase tracking-wide text-muted-foreground font-semibold">
+          Leitura da IA
+        </span>
+        <span
+          className={cn(
+            "text-xs font-medium",
+            sugestao.confianca === "ALTA" && "text-emerald-700",
+            sugestao.confianca === "MEDIA" && "text-amber-700",
+            sugestao.confianca === "BAIXA" && "text-red-700",
+          )}
+        >
+          confiança {sugestao.confianca.toLowerCase()}
+        </span>
+      </div>
+
+      <p className="text-sm whitespace-pre-line">{sugestao.justificativa}</p>
+
+      {sugestao.duvidas.length > 0 && (
+        <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-0.5">
+          {sugestao.duvidas.map((duvida, index) => (
+            <li key={index}>{duvida}</li>
+          ))}
+        </ul>
+      )}
+
+      <p className="text-xs text-muted-foreground">
+        Escrita por IA a partir dos valores importados. É um palpite, não uma
+        apuração: não confirma nada, não destrava cálculo e não entra na
+        justificativa assinada.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Por que não houve sugestão, dito para quem está curando a coluna.
+ *
+ * Nenhuma destas frases é erro do curador, e nenhuma pede ação dele sobre os
+ * campos — por isso saem em texto normal, e não em vermelho de erro.
+ */
+const MOTIVO_SEM_SUGESTAO: Record<string, string> = {
+  SEM_DADOS:
+    "Este atributo não tem nenhum valor importado. Sem dado, sugerir semântica seria adivinhar pelo nome da coluna — que é justamente o que esta tela existe para não fazer.",
+  SEM_CHAVE:
+    "A sugestão por IA não está configurada neste ambiente. Os campos continuam funcionando normalmente.",
+  RECUSA:
+    "O modelo não quis opinar sobre esta coluna. Preencha os campos à mão, olhando os valores acima.",
+  ERRO: "Não consegui ler agora. Tente de novo em alguns instantes.",
+};
+
 
 /**
  * Como a coluna se chama e o que ela significa — o passo barato da curadoria.
@@ -772,6 +1032,14 @@ function MeaningCard({
   const [basis, setBasis] = useState(detail.calculationBasis ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  /*
+    O que o servidor gravou pela metade, e por quê. Hoje é um caso só: a fórmula
+    de cálculo num atributo sem semântica versionada. Não sai em vermelho porque
+    não é recusa do que a pessoa fez — o nome e o significado do mesmo clique
+    foram salvos, e o texto da fórmula continua na caixa acima, à espera do
+    backfill.
+  */
+  const [pendente, setPendente] = useState<string | null>(null);
 
   /*
     Só sobe o que a pessoa mexeu. Mandar os três campos em toda gravação fazia
@@ -810,15 +1078,17 @@ function MeaningCard({
       );
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Falha ao salvar");
-      return body;
+      return body as { notWritten: { message: string } | null };
     },
-    onSuccess: () => {
+    onSuccess: (body) => {
       setError(null);
       setSaved(true);
+      setPendente(body.notWritten?.message ?? null);
       onSaved();
     },
     onError: (err: Error) => {
       setSaved(false);
+      setPendente(null);
       setError(err.message);
     },
   });
@@ -904,6 +1174,12 @@ function MeaningCard({
         {error && (
           <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md px-3 py-2">
             {error}
+          </p>
+        )}
+
+        {pendente && !error && (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+            {pendente} O texto da fórmula continua na caixa acima.
           </p>
         )}
 
@@ -1128,7 +1404,16 @@ function FormulaEmPortugues({
   });
 
   const vazia = !formula.trim();
-  const desatualizada = leitura !== null && leitura.sobre !== formula.trim();
+  /*
+    Só uma leitura de verdade envelhece. Quando não houve texto — o modelo não
+    respondeu, não está configurado, recusou —, não existe paráfrase que possa
+    "falar da versão anterior", e o aviso aparecia mesmo assim: embaixo de "Não
+    consegui ler agora" a tela dizia que a leitura era de outra fórmula, o que
+    inventa uma leitura que nunca houve. O motivo em si continua valendo para
+    qualquer texto, e por isso continua visível.
+  */
+  const desatualizada =
+    leitura !== null && leitura.texto !== null && leitura.sobre !== formula.trim();
 
   return (
     <div className="space-y-2">

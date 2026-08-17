@@ -1,6 +1,7 @@
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { attributeTable, changeSetTable, changeTable, snapshotTable } from "@workspace/db";
+import type { EscopoDeFrota } from "./escopo";
 import { attributeLabel, periodLabel } from "./labels";
 
 /**
@@ -345,10 +346,30 @@ export interface AttributeRollup {
   impact: { periodicity: string; amount: number }[];
 }
 
+/**
+ * O escopo de frota como predicado sobre `change`.
+ *
+ * Fica ao lado de `buildWhere` e não dentro dele porque as duas coisas não são
+ * a mesma — ver o cabeçalho de `escopo.ts`. O filtro estreita a lista dentro de
+ * uma população anunciada; o escopo troca a população, e por isso ele precisa
+ * alcançar também o breakdown e os totais, que nenhum filtro alcança.
+ *
+ * A placa é comparada com `entity_label`, a cópia denormalizada do
+ * identificador corrente: é o mesmo texto que a aba Chamados carrega, e é o que
+ * permite ao mesmo escopo atravessar as duas leituras.
+ */
+function escopoDeFrota(escopo: EscopoDeFrota): SQL[] {
+  const parts: SQL[] = [];
+  if (escopo.entityType) parts.push(eq(changeTable.entityType, escopo.entityType));
+  if (escopo.plate) parts.push(eq(changeTable.entityLabel, escopo.plate));
+  return parts;
+}
+
 /** Breakdown for the header of the Alterações screen. */
 export async function getChangeSetBreakdown(
   db: Database,
   changeSetId: string | string[],
+  escopo: EscopoDeFrota = {},
 ) {
   const ids = Array.isArray(changeSetId) ? changeSetId : [changeSetId];
   if (ids.length === 0) {
@@ -360,7 +381,7 @@ export async function getChangeSetBreakdown(
       byAttribute: [],
     };
   }
-  const scope = inArray(changeTable.changeSetId, ids);
+  const scope = and(inArray(changeTable.changeSetId, ids), ...escopoDeFrota(escopo))!;
   const byCostClass = await db
     .select({
       costClass: changeTable.costClass,
@@ -508,6 +529,99 @@ export async function getChangeSetBreakdown(
           ],
     ),
   };
+}
+
+/**
+ * Os totais de uma comparação **dentro de um escopo de frota**.
+ *
+ * Os mesmos sete números que `change_set` guarda somados, e a mesma soma de
+ * impacto por periodicidade — recontados sobre as linhas em vez de lidos das
+ * colunas agregadas. A recontagem existe por uma razão só: aquelas colunas são
+ * da comparação inteira, e uma tela que fala de cavalos não pode mostrar o
+ * cartão da frota ao lado de uma lista de cavalos. Seria a mesma mentira que
+ * `escopo.ts` descreve, escrita no lugar mais visível da tela.
+ *
+ * Com escopo vazio ela devolve exatamente o que `change_set` tem gravado —
+ * `totais-escopo.test.ts` prova essa identidade contra o motor, e é ela que
+ * garante que a recontagem não seja uma segunda verdade financeira.
+ *
+ * `inconclusive` conta pela `comparability` gravada em cada linha, que é a mesma
+ * régua que o motor usa ao incrementar o contador; `impactNotCalculable` conta o
+ * complemento exato de quem entrou na soma, para que as duas leituras do mesmo
+ * conjunto nunca deixem uma alteração fora das duas.
+ */
+export interface TotaisDoEscopo {
+  valueChanges: number;
+  entitiesAdded: number;
+  entitiesRemoved: number;
+  attributesAdded: number;
+  attributesRemoved: number;
+  inconclusive: number;
+  impactNotCalculable: number;
+  /** Uma entrada por periodicidade. Nunca somadas entre si. */
+  impactByPeriodicity: Record<string, number>;
+}
+
+export const TOTAIS_VAZIOS: TotaisDoEscopo = {
+  valueChanges: 0,
+  entitiesAdded: 0,
+  entitiesRemoved: 0,
+  attributesAdded: 0,
+  attributesRemoved: 0,
+  inconclusive: 0,
+  impactNotCalculable: 0,
+  impactByPeriodicity: {},
+};
+
+export async function totaisDoEscopo(
+  db: Database,
+  changeSetId: string | string[],
+  escopo: EscopoDeFrota = {},
+): Promise<TotaisDoEscopo> {
+  const ids = Array.isArray(changeSetId) ? changeSetId : [changeSetId];
+  if (ids.length === 0) return { ...TOTAIS_VAZIOS };
+
+  const scope = and(inArray(changeTable.changeSetId, ids), ...escopoDeFrota(escopo))!;
+  const conta = (condicao: SQL) =>
+    sql<number>`count(*) FILTER (WHERE ${condicao})`.mapWith(Number);
+
+  // O apurado é o que entrou na soma; o resto é o complemento, e não uma
+  // segunda contagem que poderia divergir dela.
+  const apurado = and(
+    eq(changeTable.impactConfidence, "CALCULATED"),
+    sql`${changeTable.impactAmount} IS NOT NULL`,
+  )!;
+
+  const [agregado] = await db
+    .select({
+      valueChanges: conta(eq(changeTable.category, "SOURCE_CHANGE")),
+      entitiesAdded: conta(eq(changeTable.changeType, "ENTITY_ADDED")),
+      entitiesRemoved: conta(eq(changeTable.changeType, "ENTITY_REMOVED")),
+      attributesAdded: conta(eq(changeTable.changeType, "ATTRIBUTE_ADDED")),
+      attributesRemoved: conta(eq(changeTable.changeType, "ATTRIBUTE_REMOVED")),
+      inconclusive: conta(eq(changeTable.comparability, "INCONCLUSIVE")),
+      impactNotCalculable: conta(sql`NOT (${apurado})`),
+    })
+    .from(changeTable)
+    .where(scope);
+
+  const bucket = sql<string>`coalesce(${changeTable.impactPeriodicity}, 'SEM_PERIODICIDADE')`;
+  const baldes = await db
+    .select({ periodicity: bucket, amount: sql<string | null>`sum(${changeTable.impactAmount})` })
+    .from(changeTable)
+    .where(and(scope, apurado))
+    .groupBy(bucket)
+    .orderBy(bucket);
+
+  const impactByPeriodicity: Record<string, number> = {};
+  for (const balde of baldes) {
+    if (balde.amount === null) continue;
+    // Seis casas, como `roundBuckets` no motor: a soma vem de `numeric`, e
+    // arredondar diferente aqui faria os dois números divergirem no centavo.
+    impactByPeriodicity[balde.periodicity] = Number(Number(balde.amount).toFixed(6));
+  }
+
+  return { ...agregado, impactByPeriodicity };
 }
 
 /** Every comparison on record, newest first. */

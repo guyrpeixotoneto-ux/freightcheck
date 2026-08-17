@@ -6,7 +6,11 @@ import {
   type Response,
 } from "express";
 import { db, erroDoPostgres } from "@workspace/db";
-import { interpretarFormula, rascunharDefinicao } from "@workspace/assistant";
+import {
+  interpretarFormula,
+  rascunharDefinicao,
+  sugerirSemantica,
+} from "@workspace/assistant";
 import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
 import {
   confirmAttribute,
@@ -392,6 +396,90 @@ router.post(
         next,
         err,
         "O rascunho deste atributo não pôde ser escrito neste banco.",
+      );
+    }
+  },
+);
+
+/**
+ * Propor unidade, periodicidade, agregação e montante a partir dos valores
+ * importados. Não grava nada.
+ *
+ * POST, e não GET, pela mesma razão das outras duas rotas de IA desta tela: o
+ * pedido parte do que a pessoa está vendo. Aqui o corpo é opcional e serve para
+ * um caso só — quem já digitou nome ou fórmula no card "Significado" e ainda não
+ * salvou, e cujo texto é justamente a melhor pista que existe sobre a coluna.
+ *
+ * A evidência principal não vem do corpo e não poderia vir: são os valores
+ * importados, o texto original das células e o comportamento da soma entre
+ * vigências. Isso o servidor lê do banco, e é a única coisa nesta tela que a
+ * pessoa não digitou.
+ */
+router.post(
+  "/curation/attributes/:code/semantica/sugestao",
+  async (req, res, next): Promise<void> => {
+    try {
+      const detail = await getAttributeDetail(db, req.params.code);
+      if (!detail) {
+        res.status(404).json({ error: "Atributo não encontrado" });
+        return;
+      }
+
+      const nome =
+        typeof req.body?.displayName === "string"
+          ? req.body.displayName
+          : (detail.displayName ?? "");
+      const formula =
+        typeof req.body?.calculationBasis === "string"
+          ? req.body.calculationBasis
+          : (detail.calculationBasis ?? "");
+      const definicao =
+        typeof req.body?.definition === "string"
+          ? req.body.definition
+          : (detail.definition ?? "");
+
+      res.json(
+        await sugerirSemantica({
+          codigo: detail.code,
+          nomeDeOrigem: detail.sourceName,
+          nome,
+          // O cabeçalho da planilha é outra pista do que a coluna é, e ele
+          // costuma diferir do código: `Vida_Comb` na primeira linha,
+          // `vidaCombustivel` no código gerado pela importação.
+          cabecalho: detail.samples.find((s) => s.columnHeader)?.columnHeader ?? null,
+          entidade: detail.entityType,
+          tipoDeDado: detail.dataType,
+          definicao,
+          formula,
+          taxonomia: detail.taxonomyName,
+          valores: detail.valueCount,
+          ausentes: detail.nullCount,
+          amostras: detail.samples.map((s) => ({
+            vigencia: s.snapshotLabel,
+            valor: s.isNull ? null : (s.value ?? null),
+            original: s.originalValue,
+            tipoDeOrigem: s.originalType,
+          })),
+          historico: detail.history.map((h) => ({
+            vigencia: h.snapshotLabel,
+            soma: h.sum,
+            quantidade: h.count,
+          })),
+        }),
+      );
+    } catch (err) {
+      /*
+        `sugerirSemantica` não lança — o que cair aqui é falha de banco, e não
+        uma regra de negócio para o curador ler. Mesmo caminho das outras duas
+        rotas de IA: esta lê o atributo pelo `getAttributeDetail`, que passa pela
+        fila e portanto pela `attribute.definition`.
+      */
+      await responderFalha(
+        req,
+        res,
+        next,
+        err,
+        "A semântica deste atributo não pôde ser sugerida neste banco.",
       );
     }
   },

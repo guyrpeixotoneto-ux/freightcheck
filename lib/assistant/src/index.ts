@@ -11,6 +11,7 @@ export * from "./observabilidade";
 export * from "./orquestrador";
 export * from "./parametros";
 export * from "./resposta";
+export * from "./semantica";
 export {
   disponivel as iaDisponivel,
   modeloConfigurado,

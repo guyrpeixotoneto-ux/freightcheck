@@ -3,6 +3,7 @@ import { readFileSync, statSync } from "node:fs";
 import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
+  garantirSemanticaInicial,
   attributeAliasTable,
   attributeTable,
   columnMappingTable,
@@ -1902,6 +1903,26 @@ export async function promote(
           factCount: contagem.fatos,
         });
       }
+
+      /*
+        A versão 1 nasce junto do atributo, na mesma transação que o criou.
+
+        Antes disto a semântica versionada de um atributo só existia se alguém
+        rodasse `backfillSemantics` — um lote da curadoria que o `dev-seed` e os
+        testes chamam, e que nenhum caminho de produção chama nunca. Medido num
+        banco com o export real promovido: 138 atributos, 138 sem versão. A
+        importação criava metade da verdade e a outra metade ficava esperando
+        uma mão que não vinha.
+
+        Aqui, e não junto do `INSERT` de cada atributo, por causa da data: a
+        versão inicial cobre a série inteira, e o início da série só está
+        completo depois que todas as vigências deste run entraram. Uma chamada
+        por promoção também normaliza o começo quando o arquivo é retroativo.
+
+        Não inventa semântica nenhuma: a versão copia o atributo, que acabou de
+        nascer `UNKNOWN` e com tudo nulo. Ver `garantirSemanticaInicial`.
+      */
+      await garantirSemanticaInicial(tx as unknown as Database);
 
       // Um run em que **toda** vigência já existia idêntica não é uma promoção
       // vazia: é uma duplicata de dados, e o estado diz isso.

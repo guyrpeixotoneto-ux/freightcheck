@@ -70,6 +70,16 @@ export interface MeaningResult {
   semanticsStatus: string;
   /** Fields that actually changed. Empty means the write was a no-op. */
   changed: string[];
+  /**
+   * O campo que esta chamada trouxe e não teve onde guardar, com a frase que
+   * explica isso a quem está na tela. `null` quando tudo o que veio foi gravado.
+   *
+   * Existe um caso só, e é o da base de cálculo num atributo sem semântica
+   * versionada. Ele não é erro do pedido — o nome e a definição do mesmo envio
+   * são gravados —, e por isso não sai como exceção: quem chama precisa poder
+   * dizer "salvei o nome, a fórmula ainda não" na mesma tela.
+   */
+  notWritten: { field: string; message: string } | null;
 }
 
 /** Blank is not a value: a cleared textarea means "I have nothing to say here". */
@@ -78,6 +88,34 @@ function normalise(value: string | null | undefined): string | null | undefined 
   if (value === null) return null;
   const trimmed = value.trim();
   return trimmed === "" ? null : trimmed;
+}
+
+/**
+ * A frase da base de cálculo que ficou de fora, dita para quem está na tela.
+ *
+ * Ela nomeia o que *foi* gravado, e não por educação: o mesmo botão salvou duas
+ * coisas e deixou uma terceira para depois, e um aviso que só falasse da que
+ * faltou faria a pessoa reescrever o nome que já está no banco.
+ */
+function recusaDaBase(code: string, gravados: string[]): string {
+  const nomes = [
+    gravados.includes("display_name") ? "o nome gerencial" : null,
+    gravados.includes("definition") ? "o significado" : null,
+  ].filter((n): n is string => n !== null);
+
+  const salvo =
+    nomes.length === 0
+      ? "" // Nada mais mudou nesta chamada; não há o que anunciar como salvo.
+      : ` ${nomes.join(" e ").replace(/^o/, "O")} ${
+          nomes.length === 1 ? "foi salvo" : "foram salvos"
+        } normalmente.`;
+
+  return (
+    `A "fórmula de cálculo" de "${code}" ainda não foi gravada: esse campo ` +
+    `pertence à versão da semântica, e este atributo não tem nenhuma. Desde a ` +
+    `migration 0025 toda coluna nasce com a sua, então isto é banco com ` +
+    `migration pendente — não é nada que se resolva por esta tela.${salvo}`
+  );
 }
 
 /**
@@ -133,31 +171,44 @@ export async function saveMeaning(
         ),
       );
 
-    // The basis lives only on the versioned row — there is no column for it on
-    // `attribute`, because "how the source calculates this" is exactly the
-    // thing the IPVA case proved changes over time. Without a version there is
-    // nowhere honest to put it, and saying so beats returning a value that was
-    // never stored.
-    //
-    // Only *text* is refused. A blank basis on an attribute with no version is
-    // asking to clear something that was never stored — a no-op — and refusing
-    // it took the whole call down with it: the screen sends the three fields
-    // together, so an untouched basis box made naming a column fail with a
-    // message about backfills. Nobody who wants to write "Consumo de
-    // combustível" over `combustivelVidaCavalo` can act on that, and the name
-    // is precisely the field that needs nothing from the version.
-    if (calculationBasis && !current) {
+    /*
+      The basis lives only on the versioned row — there is no column for it on
+      `attribute`, because "how the source calculates this" is exactly the
+      thing the IPVA case proved changes over time. Without a version there is
+      nowhere honest to put it, and saying so beats returning a value that was
+      never stored.
+
+      Only *text* is held back. A blank basis on an attribute with no version is
+      asking to clear something that was never stored — a no-op.
+
+      And holding it back is all that happens: the refusal used to be an
+      exception, which took the rest of the same call down with it. The screen
+      sends the three fields together, so someone who wrote a name, a definition
+      *and* a formula got a message about backfills promising that "o nome
+      gerencial e o significado podem ser salvos normalmente" — while having
+      saved neither. The only way to obey that sentence was to erase the formula
+      they had just written. The promise is now kept by the code that makes it:
+      the two unversioned fields are written, and the basis comes back in
+      `notWritten` for the screen to say so.
+    */
+    const basisRefused = Boolean(calculationBasis) && !current;
+
+    // Still an exception when the basis is the whole call: there is nothing
+    // else to save, and answering "gravado" to a write that stored nothing
+    // would be the same lie in the other direction.
+    if (basisRefused && definition === undefined && displayName === undefined) {
       throw new Error(
         `Ainda não dá para gravar "fórmula de cálculo" de "${input.code}": esse campo ` +
-          `pertence à versão da semântica, que este atributo ainda não tem — rode o ` +
-          `backfill antes. O nome gerencial e o significado podem ser salvos normalmente.`,
+          `pertence à versão da semântica, e este atributo não tem nenhuma. Desde a ` +
+          `migration 0025 toda coluna nasce com a sua, então isto é banco com migration ` +
+          `pendente. O nome gerencial e o significado podem ser salvos normalmente.`,
       );
     }
 
     const nextDefinition =
       definition !== undefined ? definition : attribute.definition;
     const nextBasis =
-      calculationBasis !== undefined
+      calculationBasis !== undefined && !basisRefused
         ? calculationBasis
         : (current?.calculationBasis ?? null);
     /*
@@ -181,6 +232,7 @@ export async function saveMeaning(
     }
     if (
       calculationBasis !== undefined &&
+      !basisRefused &&
       current &&
       calculationBasis !== current.calculationBasis
     ) {
@@ -230,12 +282,20 @@ export async function saveMeaning(
     return {
       code: attribute.code,
       definition: nextDefinition,
+      // Nunca o texto recusado: devolver o que a pessoa digitou faria a tela
+      // mostrar como guardada uma fórmula que não está em lugar nenhum.
       calculationBasis: nextBasis,
       displayName: nextDisplayName,
       // Read back rather than echoed: the guarantee this function makes is that
       // it did not move, and asserting it from the row proves it.
       semanticsStatus: attribute.semanticsStatus,
       changed: changed.map((c) => c.field),
+      notWritten: basisRefused
+        ? {
+            field: "calculation_basis",
+            message: recusaDaBase(input.code, changed.map((c) => c.field)),
+          }
+        : null,
     };
   });
 }
