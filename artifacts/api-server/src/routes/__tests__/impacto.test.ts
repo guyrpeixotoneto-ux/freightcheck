@@ -214,13 +214,12 @@ describe("GET /impacto/exportacao.xlsx", () => {
   async function baixar(caminho: string) {
     const res = await fetch(`${base}${caminho}`);
     if (!res.ok) {
-      /*
-        `res.json()` devolve `unknown`, e sem o tipo aqui o `body.error` do caso
-        de 404 não compila. O corpo de erro desta rota é `{ error }` — dizer isso
-        uma vez, no lugar que o produz, evita repetir a asserção em cada caso.
-      */
-      const erro = (await res.json()) as { error?: string };
-      return { status: res.status, body: erro, wb: null, nome: null };
+      // `res.json()` devolve `unknown`, e sem anotação o corpo do erro chega
+      // ilegível em quem o lê por chave. `any` é o que o helper `get` no topo
+      // deste arquivo já faz, pela mesma razão: o formato do erro é o que a
+      // rota promete, e redescrevê-lo aqui seria dizer duas vezes.
+      const body: any = await res.json();
+      return { status: res.status, body, wb: null, nome: null };
     }
     const wb = XLSX.read(Buffer.from(await res.arrayBuffer()), { type: "buffer" });
     return {
@@ -312,6 +311,6 @@ describe("GET /impacto/exportacao.xlsx", () => {
   it("um escopo que não existe para em 404 com JSON, e não num arquivo vazio", async () => {
     const { status, body } = await baixar("/impacto/exportacao.xlsx?scopeHash=naoexiste");
     expect(status).toBe(404);
-    expect(body?.error).toBeTruthy();
+    expect(body.error).toBeTruthy();
   });
 });
