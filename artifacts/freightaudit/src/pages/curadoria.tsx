@@ -355,7 +355,7 @@ export default function Curadoria() {
           </div>
           {/* A planilha fica no topo, ao lado do título, e não dentro da fila:
               ela descreve a base inteira de uma vez, e não o atributo aberto. */}
-          <PlanilhaDeAtributos />
+          <PlanilhaDeAtributos equipamento={equipamento} />
         </div>
 
         {/* As abas vêm antes dos quadros porque mandam neles: primeiro se

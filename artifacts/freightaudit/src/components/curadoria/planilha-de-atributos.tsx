@@ -10,6 +10,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { getApiUrl } from "@/lib/api";
+import { rotuloDoTipo } from "@/lib/frota";
 import { cn } from "@/lib/utils";
 
 /**
@@ -86,7 +87,19 @@ async function paraBase64(file: File): Promise<string> {
   return btoa(binario);
 }
 
-export function PlanilhaDeAtributos() {
+interface PlanilhaDeAtributosProps {
+  /**
+   * A aba de equipamento aberta na tela — `null` em "Todos".
+   *
+   * O modelo baixado sai no mesmo recorte. Baixar a frota inteira estando na
+   * aba da carreta dava um arquivo com abas que quem clicou não pediu, e o
+   * trabalho de achar a certa entre elas; e como a volta é conferida contra a
+   * base inteira, o recorte não custa nada ao reenvio.
+   */
+  equipamento: string | null;
+}
+
+export function PlanilhaDeAtributos({ equipamento }: PlanilhaDeAtributosProps) {
   const queryClient = useQueryClient();
   const entrada = useRef<HTMLInputElement>(null);
   const [aberto, setAberto] = useState(false);
@@ -175,11 +188,21 @@ export function PlanilhaDeAtributos() {
           size="sm"
           className="gap-1.5"
           onClick={() =>
-            window.location.assign(getApiUrl("/curation/atributos/modelo.xlsx"))
+            window.location.assign(
+              getApiUrl(
+                `/curation/atributos/modelo.xlsx${
+                  equipamento === null
+                    ? ""
+                    : `?equipamento=${encodeURIComponent(equipamento)}`
+                }`,
+              ),
+            )
           }
         >
           <Download className="h-4 w-4" />
-          Baixar modelo (.xlsx)
+          {equipamento === null
+            ? "Baixar modelo (.xlsx)"
+            : `Baixar modelo de ${rotuloDoTipo(equipamento).toLowerCase()} (.xlsx)`}
         </Button>
         <Button
           variant="outline"
