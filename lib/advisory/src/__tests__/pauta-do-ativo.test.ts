@@ -164,6 +164,59 @@ describe("a pauta recortada num ativo", () => {
   });
 });
 
+/**
+ * A camada do ativo dentro do item — "neste cavalo, de 5000 para 5500".
+ *
+ * O item traz os dois níveis ao mesmo tempo, e o que estes testes fixam é que
+ * eles não se contaminam: `noAtivo` é do cavalo, e `veiculosAfetados`,
+ * `impacto` e `oQueAconteceu` continuam sendo da frota, no mesmo objeto.
+ *
+ * A regra que mais importa está no último teste: a **avaliação não vê o ativo**.
+ * Situação, confiança e pedido têm de sair iguais lidos da frota ou lidos de
+ * dentro de um cavalo — se a placa aberta mudasse a decisão, duas pessoas com a
+ * mesma base levariam propostas diferentes à mesma reunião.
+ */
+describe("o movimento do próprio ativo", () => {
+  it("traz o par do cavalo, e não o da frota", async () => {
+    const resposta = await getRecomendacoesAoCliente(ctx.db, { placa: "AAA1A11" });
+    const finame = resposta!.recomendacoes.find((r) => r.code === "cavalo.finame")!;
+
+    // O AAA1A11 foi de 5000 para 5500; o BBB2B22, de 4000 para 4400.
+    expect(finame.noAtivo).toMatchObject({
+      placa: "AAA1A11",
+      antes: 5000,
+      depois: 5500,
+    });
+    // E o alcance ao lado continua sendo o dos dois.
+    expect(finame.veiculosAfetados).toBe(2);
+  });
+
+  it("cada placa lê o seu próprio par no mesmo item", async () => {
+    const doOutro = await getRecomendacoesAoCliente(ctx.db, { placa: "BBB2B22" });
+    const finame = doOutro!.recomendacoes.find((r) => r.code === "cavalo.finame")!;
+
+    expect(finame.noAtivo).toMatchObject({ antes: 4000, depois: 4400 });
+  });
+
+  it("sem placa aberta, a camada do ativo não existe", async () => {
+    const daFrota = await getRecomendacoesAoCliente(ctx.db, {});
+    expect(daFrota!.recomendacoes.every((r) => r.noAtivo === null)).toBe(true);
+  });
+
+  it("a placa aberta não muda a avaliação do item", async () => {
+    const daFrota = await getRecomendacoesAoCliente(ctx.db, {});
+    const doAtivo = await getRecomendacoesAoCliente(ctx.db, { placa: "AAA1A11" });
+
+    const naFrota = daFrota!.recomendacoes.find((r) => r.code === "cavalo.finame")!;
+    const noAtivo = doAtivo!.recomendacoes.find((r) => r.code === "cavalo.finame")!;
+
+    expect(noAtivo.situacao).toBe(naFrota.situacao);
+    expect(noAtivo.confianca).toBe(naFrota.confianca);
+    expect(noAtivo.porque).toBe(naFrota.porque);
+    expect(noAtivo.oQuePerguntar).toBe(naFrota.oQuePerguntar);
+  });
+});
+
 describe("medirAlteracoesDoAtivo", () => {
   it("devolve os códigos que mudaram naquele ativo", async () => {
     const { db } = ctx;

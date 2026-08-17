@@ -3,6 +3,7 @@ import {
   getPanoramaDeAlteracoes,
   equipmentLabel,
   medirAlteracoesDoAtivo,
+  type AlteracoesDoAtivo,
   type ContextInfo,
   type ParametroAlterado,
   type RequestedContext,
@@ -11,6 +12,7 @@ import { comportamentoDe } from "@workspace/knowledge";
 import {
   avaliarParametro,
   ordenarPorPrioridade,
+  type MovimentoDoAtivo,
   type Recomendacao,
   type SituacaoDaRecomendacao,
 } from "./recomendacao";
@@ -127,6 +129,40 @@ export interface OpcoesDoCliente {
 const round2 = (v: number) => Math.round(v * 100) / 100;
 
 /**
+ * O par do próprio ativo, escolhido contra a evidência que o cartão já mostra.
+ *
+ * O cavalo pode ter mexido no parâmetro mais de uma vez dentro do recorte, e o
+ * cartão mostra **uma** vigência — a do padrão predominante da frota. Casar as
+ * duas é o que permite ler "a frota foi de 3,11 para 3,71 nesta vigência, e
+ * este cavalo também". Sem casamento — o cavalo mexeu em outra vigência —, vale
+ * o movimento mais recente dele, que continua sendo um fato sobre este ativo,
+ * com a própria vigência escrita ao lado para que ninguém leia as duas como se
+ * fossem a mesma.
+ */
+function movimentoDoAtivo(
+  ativo: AlteracoesDoAtivo | null,
+  r: Recomendacao,
+): MovimentoDoAtivo | null {
+  if (ativo === null || ativo.placa === null) return null;
+
+  const doCodigo = ativo.transicoes.get(r.code);
+  if (doCodigo === undefined || doCodigo.length === 0) return null;
+
+  const daEvidencia = r.oQueAconteceu
+    ? doCodigo.find((t) => t.effectiveDate === r.oQueAconteceu!.effectiveDate)
+    : undefined;
+  const escolhida = daEvidencia ?? doCodigo[doCodigo.length - 1];
+
+  return {
+    placa: ativo.placa,
+    antes: escolhida.antes,
+    depois: escolhida.depois,
+    effectiveDate: escolhida.effectiveDate,
+    sourceLabel: escolhida.sourceLabel,
+  };
+}
+
+/**
  * As recomendações do contexto.
  *
  * Devolve `null` quando não há vigência nenhuma — a rota traduz em 404 e a tela
@@ -190,7 +226,7 @@ export async function getRecomendacoesAoCliente(
         transicoes: transicoes.get(parametro.code) ?? null,
       }),
     ),
-  );
+  ).map((r) => ({ ...r, noAtivo: movimentoDoAtivo(ativo, r) }));
 
   const foraDaConta = panorama.visaoDeConjunto
     .map((code) => porCodigo.get(code))
