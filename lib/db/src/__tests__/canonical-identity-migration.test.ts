@@ -217,6 +217,8 @@ describe("0015 sobre um banco parado na 0014", () => {
       "0025_semantica_inicial",
       "0026_direcao_economica",
       "0027_reconciliar_direcao_economica",
+      "0028_significado_economico",
+      "0029_reconciliar_significado",
     ]);
 
     const linhas = await retrato(pool);

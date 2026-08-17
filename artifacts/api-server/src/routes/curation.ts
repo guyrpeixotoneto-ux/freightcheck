@@ -14,13 +14,18 @@ import {
 import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
 import {
   confirmAttribute,
+  criarCategoria,
+  criarSignificado,
   getAttributeDetail,
   getCurationQueue,
   getCurationSummary,
   getTaxonomyTree,
+  listarCategorias,
+  listarSignificados,
   listTaxonomyNodes,
   runProposalPass,
   saveMeaning,
+  seedSignificados,
   seedTaxonomy,
 } from "@workspace/curation";
 
@@ -55,7 +60,8 @@ const router: IRouter = Router();
  * a forma mais cara de esconder uma divergência de schema.
  */
 const SCHEMA_DA_CURADORIA =
-  "0002_curation_layer, 0005_versioned_semantics e 0022_significado";
+  "0002_curation_layer, 0005_versioned_semantics, 0022_significado e " +
+  "0028_significado_economico";
 
 /**
  * O erro é "falta schema", e não defeito do pedido?
@@ -172,8 +178,15 @@ router.get("/curation/attributes/:code", async (req, res, next): Promise<void> =
 
 router.post("/curation/attributes/:code/confirm", async (req, res, next): Promise<void> => {
   try {
-    const { unit, periodicity, aggregation, isMonetary, taxonomyCode, reason } =
-      req.body ?? {};
+    const {
+      meaningCode,
+      unit,
+      periodicity,
+      aggregation,
+      isMonetary,
+      taxonomyCode,
+      reason,
+    } = req.body ?? {};
 
     /**
      * O responsável é quem está logado, e não o que o corpo do pedido diz.
@@ -191,12 +204,21 @@ router.post("/curation/attributes/:code/confirm", async (req, res, next): Promis
       return;
     }
 
+    /*
+      `meaningCode` é o caminho da tela, e quando ele vem os campos técnicos do
+      corpo não são repassados. Não é economia de digitação: `confirmAttribute`
+      já ignora os três quando há significado, e mandá-los mesmo assim deixaria
+      no código a aparência de que o cliente tem voto sobre eles. A rota diz o
+      que a autoridade decide.
+
+      `periodicity` continua indo junto, e só ela: é a resposta à pergunta que a
+      tela faz quando o significado deixa o período em aberto.
+    */
     await confirmAttribute(db, {
       code: req.params.code,
-      unit,
-      periodicity,
-      aggregation,
-      isMonetary,
+      ...(meaningCode
+        ? { meaningCode, periodicity }
+        : { unit, periodicity, aggregation, isMonetary }),
       taxonomyCode,
       actor,
       reason,
@@ -485,6 +507,125 @@ router.post(
   },
 );
 
+/**
+ * O cadastro de significados econômicos, e a criação inline.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que a criação é POST e não um efeito de digitar
+ * ---------------------------------------------------------------------------
+ * O combobox da tela busca localmente enquanto a pessoa escreve e só chama esta
+ * rota quando ela clica em `+ Criar "…"`. É o item 5.7 do pedido, e o desenho
+ * da API o sustenta em vez de confiar na tela: não existe endpoint que crie
+ * como efeito de uma busca.
+ *
+ * ---------------------------------------------------------------------------
+ * "Já existe" não é erro
+ * ---------------------------------------------------------------------------
+ * Pedir para criar algo que já está cadastrado responde **200** com o que
+ * existe, e não 409. A tela seleciona o encontrado e segue; quem clicou queria
+ * ter aquilo escolhido no campo, e essa é a intenção que a resposta atende. Um
+ * 409 obrigaria a tela a fazer uma segunda chamada para descobrir o quê.
+ *
+ * Rótulo que a autoridade não traduz responde **422**, que é o que ele é: o
+ * pedido não pode ser atendido como veio, e a mensagem ensina o formato.
+ */
+router.get("/curation/significados", async (req, res, next): Promise<void> => {
+  try {
+    res.json(await listarSignificados(db));
+  } catch (err) {
+    await responderFalha(
+      req,
+      res,
+      next,
+      err,
+      "O cadastro de significados não pôde ser lido neste banco.",
+    );
+  }
+});
+
+router.post("/curation/significados", async (req, res, next): Promise<void> => {
+  try {
+    const label = typeof req.body?.label === "string" ? req.body.label : "";
+    if (!label.trim()) {
+      res.status(400).json({ error: "Informe o significado a cadastrar (label)." });
+      return;
+    }
+
+    // Mesma regra da confirmação: quem assina é a sessão. Um cadastro que passa
+    // a decidir se uma coluna vira dinheiro não pode ter autor digitado.
+    const resultado = await criarSignificado(db, { label, actor: req.user!.email });
+    if (resultado.desfecho === "NAO_ENTENDIDO") {
+      res.status(422).json({ error: resultado.mensagem, proximos: resultado.proximos });
+      return;
+    }
+    res.status(resultado.desfecho === "CRIADO" ? 201 : 200).json(resultado);
+  } catch (err) {
+    if (faltaOSchemaDaCuradoria(err)) {
+      await responderFalha(
+        req,
+        res,
+        next,
+        err,
+        "O significado não pôde ser cadastrado neste banco.",
+      );
+      return;
+    }
+    const message = err instanceof Error ? err.message : "Erro desconhecido";
+    req.log.warn({ err }, "Meaning creation refused");
+    res.status(422).json({ error: message });
+  }
+});
+
+/**
+ * As categorias em linguagem de negócio — e a criação inline delas.
+ *
+ * Separada de `/curation/taxonomy` de propósito, e não por duplicação: aquela
+ * devolve a árvore com `kind`, `path` e `depth`, que é o que a tela de
+ * taxonomia mostra. Esta devolve `Custo Variável › Manutenção` e a classe de
+ * custo, que é o que a tela de confirmação precisa — e nada mais, porque
+ * qualquer campo a mais nesta resposta é jargão reaparecendo na tela que o
+ * pedido mandou tirar.
+ */
+router.get("/curation/categorias", async (req, res, next): Promise<void> => {
+  try {
+    res.json(await listarCategorias(db));
+  } catch (err) {
+    await responderFalha(
+      req,
+      res,
+      next,
+      err,
+      "As categorias não puderam ser lidas neste banco.",
+    );
+  }
+});
+
+router.post("/curation/categorias", async (req, res, next): Promise<void> => {
+  try {
+    const name = typeof req.body?.name === "string" ? req.body.name : "";
+    if (!name.trim()) {
+      res.status(400).json({ error: "Informe o nome da categoria (name)." });
+      return;
+    }
+    const resultado = await criarCategoria(db, { name, actor: req.user!.email });
+    res.status(resultado.desfecho === "CRIADO" ? 201 : 200).json(resultado);
+  } catch (err) {
+    if (faltaOSchemaDaCuradoria(err)) {
+      await responderFalha(
+        req,
+        res,
+        next,
+        err,
+        "A categoria não pôde ser cadastrada neste banco.",
+      );
+      return;
+    }
+    const message = err instanceof Error ? err.message : "Erro desconhecido";
+    req.log.warn({ err }, "Category creation refused");
+    res.status(422).json({ error: message });
+  }
+});
+
 router.get("/curation/taxonomy", async (req, res, next): Promise<void> => {
   try {
     const flat = req.query.flat === "true";
@@ -504,6 +645,9 @@ router.post("/curation/proposal-pass", async (req, res, next): Promise<void> => 
   try {
     const actor = req.user?.email ?? "api:proposal-pass";
     await seedTaxonomy(db, actor);
+    // A migration já grava o catálogo no escopo global; esta chamada é a
+    // idempotente que cobre um banco vindo de antes dela e um escopo novo.
+    await seedSignificados(db, actor);
     res.json(await runProposalPass(db, actor));
   } catch (err) {
     await responderFalha(

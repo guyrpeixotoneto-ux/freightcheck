@@ -63,13 +63,26 @@ const SIM: Veredito = { ok: true, motivo: "" };
 const nao = (motivo: string): Veredito => ({ ok: false, motivo });
 
 /**
- * Unidades que são razão entre duas grandezas.
+ * A unidade é uma razão entre duas grandezas?
  *
  * Somar km/l de 62 cavalos dá um número sem referente, e a média simples deles
  * também não é o km/l da frota — essa é `Σkm / Σlitros`, e o denominador não
  * vem neste export.
+ *
+ * **Era uma lista de três e virou uma regra**, e a diferença importa desde que
+ * a autoridade semântica passou a derivar a unidade do significado econômico:
+ * `R$ por litro` produz `BRL_LITRO`, `R$ por viagem` produz `BRL_VIAGEM`, e a
+ * operação cadastra a base que ela usa. Uma lista fechada aceitaria como
+ * somável toda taxa cuja base ninguém tinha previsto — e "somável" aqui quer
+ * dizer `R$ 0,42/litro × 100 cavalos = R$ 42/litro` chegando a uma tela.
+ *
+ * `BRL` sozinho não entra: ele é o montante, e é justamente o que se soma. O
+ * prefixo `BRL_` é o que marca "reais **por** alguma coisa".
  */
-const RAZOES = new Set(["KM_L", "BRL_KM", "PERCENT"]);
+export function ehRazao(unit: string | null | undefined): boolean {
+  if (!unit) return false;
+  return unit === "KM_L" || unit === "PERCENT" || unit.startsWith("BRL_");
+}
 
 /**
  * Tipos que não admitem aritmética nenhuma.
@@ -113,9 +126,22 @@ export const BASE_QUE_FALTA: Record<string, string> = {
  * O que faltaria para este atributo virar dinheiro, quando o que falta é dado.
  *
  * `null` quando a unidade não é razão — aí o que falta não é dado da fonte.
+ *
+ * As três frases acima continuam escritas à mão porque são as três que este
+ * export produz e elas dizem *exatamente* qual dado destravaria cada uma. Para
+ * uma taxa cuja base a operação cadastrou depois — `BRL_VIAGEM`, `BRL_PALLET` —
+ * a frase é montada da própria base: dizer "a quantidade de viagens do período,
+ * por ativo" é menos preciso do que as três, e é infinitamente mais útil do que
+ * `null`, que faria a composição classificar a lacuna como "não é montante" e
+ * esconder que existe uma pergunta a fazer à transportadora.
  */
 export function baseQueFalta(attr: SemanticaDoAtributo): string | null {
-  return attr.unit ? (BASE_QUE_FALTA[attr.unit] ?? null) : null;
+  if (!attr.unit) return null;
+  const conhecida = BASE_QUE_FALTA[attr.unit];
+  if (conhecida) return conhecida;
+  if (!attr.unit.startsWith("BRL_")) return null;
+  const base = attr.unit.slice("BRL_".length).toLowerCase().replace(/_/g, " ");
+  return `a quantidade de ${base} do período, por ativo`;
 }
 
 /** As três formas de agregar que o produto sabe executar. */
@@ -160,11 +186,11 @@ export function coerenciaDaSemantica(attr: SemanticaDoAtributo): Veredito {
       );
     }
   }
-  if (attr.unit && RAZOES.has(attr.unit)) {
+  if (ehRazao(attr.unit)) {
     if (attr.aggregation === "SUM") {
       return nao(
         `${attr.unit} é uma razão e não pode ser declarada somável: o total da frota ` +
-          `exigiria ${BASE_QUE_FALTA[attr.unit]}, e somar as razões dos ativos não é isso.`,
+          `exigiria ${baseQueFalta(attr)}, e somar as razões dos ativos não é isso.`,
       );
     }
   }
@@ -191,8 +217,8 @@ export function podeSomar(attr: SemanticaDoAtributo): Veredito {
   if (attr.dataType && TIPOS_NAO_NUMERICOS.has(attr.dataType)) {
     return nao(`Valor ${attr.dataType === "TEXT" ? "textual" : "não numérico"} — não há o que somar.`);
   }
-  if (attr.unit && RAZOES.has(attr.unit)) {
-    const base = BASE_QUE_FALTA[attr.unit];
+  if (ehRazao(attr.unit)) {
+    const base = baseQueFalta(attr);
     return nao(
       `${attr.unit} é uma razão: somar entre ativos não produz grandeza nenhuma. ` +
         `O total da frota exigiria ${base}.`,
@@ -225,10 +251,10 @@ export function podeTirarMedia(attr: SemanticaDoAtributo): VereditoDeMedia {
   if (attr.dataType && TIPOS_NAO_NUMERICOS.has(attr.dataType)) {
     return nao("Valor não numérico — não há média a tirar.");
   }
-  if (attr.unit && RAZOES.has(attr.unit)) {
+  if (ehRazao(attr.unit)) {
     return nao(
       `${attr.unit} é uma razão: a média das razões de cada ativo não é a razão da frota. ` +
-        `A leitura correta exigiria ${BASE_QUE_FALTA[attr.unit]}.`,
+        `A leitura correta exigiria ${baseQueFalta(attr)}.`,
     );
   }
   if (attr.aggregation === "WEIGHTED_AVG") {
