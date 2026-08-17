@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   conferirPreenchimento,
   montarLinhas,
+  normalizarEquipamento,
   type AtributoDoModelo,
   type LinhaPreenchida,
 } from "../planilha-de-atributos";
@@ -498,5 +499,30 @@ describe("conferirPreenchimento", () => {
       linha: 47,
       desfecho: "SEM_ATRIBUTO",
     });
+  });
+});
+
+/**
+ * O normalizador do recorte, agora que ele atravessa a rede.
+ *
+ * A tela põe a aba aberta em `?equipamento=` e o servidor decide por ela que
+ * abas escrever no arquivo. As duas pontas leem esta função — é o que impede um
+ * arquivo vazio de significar "a tela e o servidor discordam sobre o que é
+ * `cavalo`" em vez de "não há atributo de cavalo".
+ */
+describe("normalizarEquipamento", () => {
+  it("lê o tipo como a base o guarda, venha como vier do endereço", () => {
+    expect(normalizarEquipamento("cavalo")).toBe("CAVALO");
+    expect(normalizarEquipamento(" Carreta ")).toBe("CARRETA");
+    expect(normalizarEquipamento("TRECHO")).toBe("TRECHO");
+  });
+
+  it('trata ausência e vazio como "todos", e não como um tipo inexistente', () => {
+    // Um endereço truncado baixa o arquivo inteiro. A alternativa seria um 404
+    // dizendo que não há atributo de "" nesta base.
+    expect(normalizarEquipamento(null)).toBeNull();
+    expect(normalizarEquipamento(undefined)).toBeNull();
+    expect(normalizarEquipamento("")).toBeNull();
+    expect(normalizarEquipamento("   ")).toBeNull();
   });
 });

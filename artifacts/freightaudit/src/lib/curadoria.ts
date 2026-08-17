@@ -1,3 +1,5 @@
+import { normalizarEquipamento } from "@workspace/curation";
+
 import { EQUIPAMENTOS, rotuloDoTipo } from "@/lib/frota";
 
 /**
@@ -120,11 +122,14 @@ export function abasDeEquipamento(
  * `?equipamento=cavalo` tem de abrir a mesma aba que o clique. Texto vazio vira
  * `null`, que é a aba "Todos" — um endereço truncado abre a tela inteira, e não
  * uma fila vazia de um equipamento que não existe.
+ *
+ * **A regra não é escrita aqui.** Ela era, e passou a ter um segundo leitor no
+ * dia em que o download do modelo virou o recorte da aba: a tela põe
+ * `?equipamento=` no endereço e o servidor decide por ele que abas escrever no
+ * arquivo. Com duas cópias, o dia em que uma aprendesse a tirar acento seria o
+ * dia em que a tela mostraria 41 atributos e o arquivo sairia vazio.
  */
-export function normalizarEquipamento(valor: string | null): string | null {
-  const limpo = valor?.trim().toUpperCase() ?? "";
-  return limpo === "" ? null : limpo;
-}
+export { normalizarEquipamento };
 
 /** A fila da aba. Em "Todos" (`null`), a fila inteira. */
 export function filtrarPorEquipamento<T extends ItemComEquipamento>(
