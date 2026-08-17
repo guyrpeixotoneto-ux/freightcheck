@@ -16,6 +16,10 @@ import {
   type Corte,
   type EscolhaDeParametro,
 } from "@/components/changes/impacto-panorama";
+import {
+  SeletorDeJanela,
+  type JanelaDeVigencias,
+} from "@/components/changes/janela-vigencias";
 import { Card } from "@/components/ui/card";
 import { fetchJson } from "@/lib/api";
 import { formatBrlShort, formatNumber, formatValue } from "@/lib/format";
@@ -112,6 +116,15 @@ interface PontaAPonta {
 }
 
 interface QuinzenaMatrix {
+  /**
+   * O contexto resolvido. Vem para que a tela ofereça o recorte a partir das
+   * vigências que este contexto de fato entregou — e não de um calendário.
+   */
+  context: {
+    periodosDisponiveis: string[];
+    periodosNaJanela: number;
+    janela: { de: string; ate: string } | null;
+  };
   entityType: string;
   equipment: string;
   entityTypes: string[];
@@ -180,9 +193,35 @@ const FUNDO_GRUPO =
  * os três maiores nem sustentam soma de dinheiro. O seletor de parâmetro
  * continua existindo no segundo nível, como navegação lateral — o que ele
  * deixou de ser é a única porta para descobrir o que mudou.
+ *
+ * `escolhaInicial` é de quem chegou de outra aba com o parâmetro já em mente —
+ * a aba Cliente manda para cá quando alguém pede "ver por placa e vigência". É
+ * estado inicial, não trava: o botão de voltar leva ao panorama como sempre.
+ *
+ * `janela` é o recorte De/Até, e ele vem de cima em vez de morar aqui pelo
+ * mesmo motivo que a escolha inicial: quem recortou três vigências e vai à aba
+ * Cliente está a meio caminho de uma pergunta, e perder o recorte na troca de
+ * aba faria as duas telas responderem sobre períodos diferentes com a mesma
+ * cara.
  */
-export function ImpactoQuinzenas() {
-  const [escolha, setEscolha] = useState<EscolhaDeParametro | null>(null);
+export function ImpactoQuinzenas({
+  contexto,
+  escolhaInicial = null,
+  janela = {},
+  onJanela,
+}: {
+  /**
+   * A unidade e o canal abertos, quando alguém chegou aqui com eles escolhidos.
+   *
+   * Atravessa os dois níveis: o panorama e a matriz respondem pela mesma
+   * unidade, ou a volta ("Tudo que mudou") trocaria de assunto sem avisar.
+   */
+  contexto?: URLSearchParams;
+  escolhaInicial?: EscolhaDeParametro | null;
+  janela?: JanelaDeVigencias;
+  onJanela?: (j: JanelaDeVigencias) => void;
+} = {}) {
+  const [escolha, setEscolha] = useState<EscolhaDeParametro | null>(escolhaInicial);
   /*
     O corte de custo do panorama mora aqui, e não lá dentro, para sobreviver à
     ida e à volta: quem filtrou por custo variável e abriu um parâmetro está a
@@ -193,13 +232,23 @@ export function ImpactoQuinzenas() {
 
   if (escolha === null) {
     return (
-      <ImpactoPanorama onEscolher={setEscolha} corte={corte} onCorte={setCorte} />
+      <ImpactoPanorama
+        onEscolher={setEscolha}
+        corte={corte}
+        onCorte={setCorte}
+        contexto={contexto}
+        janela={janela}
+        onJanela={onJanela}
+      />
     );
   }
   return (
     <MatrizDeQuinzenas
       inicial={escolha}
       onVoltar={() => setEscolha(null)}
+      contexto={contexto}
+      janela={janela}
+      onJanela={onJanela}
       key={`${escolha.entityType}:${escolha.code}`}
     />
   );
@@ -208,9 +257,15 @@ export function ImpactoQuinzenas() {
 function MatrizDeQuinzenas({
   inicial,
   onVoltar,
+  contexto,
+  janela,
+  onJanela,
 }: {
   inicial: EscolhaDeParametro;
   onVoltar: () => void;
+  contexto?: URLSearchParams;
+  janela: JanelaDeVigencias;
+  onJanela?: (j: JanelaDeVigencias) => void;
 }) {
   const [entityType, setEntityType] = useState<string | null>(inicial.entityType);
   const [attributeCode, setAttributeCode] = useState<string | null>(inicial.code);
@@ -218,12 +273,23 @@ function MatrizDeQuinzenas({
   const [fechados, setFechados] = useState<Set<string>>(new Set());
   const [soComMovimento, setSoComMovimento] = useState(false);
 
+  const consultaDoContexto = contexto?.toString() ?? "";
   const query = useQuery({
-    queryKey: ["impacto", "quinzenas", entityType, attributeCode],
+    queryKey: [
+      "impacto",
+      "quinzenas",
+      entityType,
+      attributeCode,
+      consultaDoContexto,
+      janela.de,
+      janela.ate,
+    ],
     queryFn: () => {
-      const params = new URLSearchParams();
+      const params = new URLSearchParams(consultaDoContexto);
       if (entityType) params.set("entityType", entityType);
       if (attributeCode) params.set("attributeCode", attributeCode);
+      if (janela.de) params.set("de", janela.de);
+      if (janela.ate) params.set("ate", janela.ate);
       const qs = params.toString();
       return fetchJson<QuinzenaMatrix>(
         `/impacto/quinzenas${qs ? `?${qs}` : ""}`,
@@ -255,6 +321,11 @@ function MatrizDeQuinzenas({
 
   const unidade = data.attribute.unit;
   const brl = unidade === "BRL";
+  // Os rótulos saem das próprias colunas da tabela: é o nome que a pessoa já
+  // está lendo no cabeçalho, e não uma segunda forma de escrever a mesma data.
+  const rotulos = Object.fromEntries(
+    data.periods.map((p) => [p.effectiveDate, p.sourceLabel]),
+  );
 
   return (
     <div className={cn("space-y-5", query.isPlaceholderData && "opacity-60")}>
@@ -263,13 +334,25 @@ function MatrizDeQuinzenas({
         aqui clicando numa linha do panorama está a meio caminho de uma
         pergunta, e o caminho de volta faz parte da resposta.
       */}
-      <button
-        onClick={onVoltar}
-        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ArrowLeft className="w-4 h-4" />
-        Tudo que mudou
-      </button>
+      <div className="flex flex-wrap items-center justify-between gap-4">
+        <button
+          onClick={onVoltar}
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          Tudo que mudou
+        </button>
+
+        {onJanela && (
+          <SeletorDeJanela
+            disponiveis={data.context.periodosDisponiveis}
+            rotulos={rotulos}
+            janela={janela}
+            onJanela={onJanela}
+            noRecorte={data.context.periodosNaJanela}
+          />
+        )}
+      </div>
 
       {/* O que a tabela está mostrando, e as duas escolhas que a mudam. */}
       <div className="flex flex-wrap items-end justify-between gap-4">

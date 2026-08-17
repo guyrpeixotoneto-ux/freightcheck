@@ -81,6 +81,17 @@ const RAZOES = new Set(["KM_L", "BRL_KM", "PERCENT"]);
 const TIPOS_NAO_NUMERICOS = new Set(["TEXT", "BOOLEAN", "DATE", "MIXED", "UNKNOWN"]);
 
 /**
+ * O tipo admite aritmética?
+ *
+ * Exportado porque o motor de proposta precisava da mesma resposta e mantinha a
+ * sua própria lista — que esquecia `UNKNOWN`, e por isso propôs média simples
+ * para uma coluna sem tipo. Uma lista só, e é esta.
+ */
+export function ehTipoNumerico(dataType: string | null | undefined): boolean {
+  return !dataType || !TIPOS_NAO_NUMERICOS.has(dataType);
+}
+
+/**
  * A base que faltaria para transformar uma razão em dinheiro.
  *
  * `Custo Variável Simulado = 3,66 R$/km` é o caso: o número existe, a unidade
@@ -105,6 +116,67 @@ export const BASE_QUE_FALTA: Record<string, string> = {
  */
 export function baseQueFalta(attr: SemanticaDoAtributo): string | null {
   return attr.unit ? (BASE_QUE_FALTA[attr.unit] ?? null) : null;
+}
+
+/** As três formas de agregar que o produto sabe executar. */
+export const AGREGACOES = ["SUM", "AVG", "NONE"] as const;
+
+/**
+ * Um estado que o banco pode guardar — ou que ele recusa.
+ *
+ * A diferença para as funções acima: elas respondem "o que dá para fazer com
+ * este atributo", e uma resposta negativa é rotina — um percentual com `NONE`
+ * não soma, e está certo assim. Esta responde "este estado é possível", e uma
+ * resposta negativa significa que alguém gravou uma contradição.
+ *
+ * A auditoria mostrou por que a distinção importa: `KM_L + SUM + is_monetary`
+ * não é um atributo que não soma, é um atributo que *afirma* somar quilômetros
+ * por litro em reais. Nenhuma tela precisava recusá-lo porque nenhuma o
+ * produzia — e o banco o aceitava.
+ *
+ * As quatro invariantes abaixo são a fonte da constraint `attribute_semantica_
+ * coerente` (migration 0023). Elas moram aqui, e não lá, porque o SQL é a
+ * cópia: um teste de arquitetura lê a definição da constraint do catálogo do
+ * Postgres e a confere contra esta função, combinação por combinação, para que
+ * as duas não possam divergir em silêncio.
+ */
+export function coerenciaDaSemantica(attr: SemanticaDoAtributo): Veredito {
+  if (attr.aggregation !== null && attr.aggregation !== undefined) {
+    if (!(AGREGACOES as readonly string[]).includes(attr.aggregation)) {
+      // WEIGHTED_AVG cai aqui. O valor existia no enum, a tela o oferecia, e o
+      // cálculo por trás era `total ÷ veículos` — média simples com nome de
+      // ponderada. Enquanto o peso não for campo do modelo, o estado não existe.
+      return nao(
+        `Agregação "${attr.aggregation}" não é executável: as formas que o produto ` +
+          `sabe calcular são ${AGREGACOES.join(", ")}.`,
+      );
+    }
+  }
+  if (attr.dataType && TIPOS_NAO_NUMERICOS.has(attr.dataType)) {
+    if (attr.aggregation && attr.aggregation !== "NONE") {
+      return nao(
+        `Tipo ${attr.dataType} não admite agregação nenhuma além de NONE — ` +
+          `"${attr.aggregation}" afirma uma aritmética que não existe sobre este valor.`,
+      );
+    }
+  }
+  if (attr.unit && RAZOES.has(attr.unit)) {
+    if (attr.aggregation === "SUM") {
+      return nao(
+        `${attr.unit} é uma razão e não pode ser declarada somável: o total da frota ` +
+          `exigiria ${BASE_QUE_FALTA[attr.unit]}, e somar as razões dos ativos não é isso.`,
+      );
+    }
+  }
+  if (attr.isMonetary === true && attr.unit !== null && attr.unit !== undefined) {
+    if (attr.unit !== "BRL") {
+      return nao(
+        `Um montante financeiro é medido em reais; "${attr.unit}" não é montante. ` +
+          `A unidade e a marca de monetário se contradizem.`,
+      );
+    }
+  }
+  return SIM;
 }
 
 /**

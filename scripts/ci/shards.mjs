@@ -62,8 +62,12 @@ export const SHARDS = {
   // caminho crítico eram 111.1s contra 3.4s deste, a divisão mais desequilibrada
   // possível entre os cinco. `coverage` (38.9s) não usa template, então não tem
   // localidade a preservar e cabe onde sobra espaço.
+  // `advisory` entra aqui pelo mesmo motivo que `knowledge` e `simulation`: a
+  // bateria dele é de função pura — decide sobre linhas que já vêm apuradas, e
+  // não consulta banco nenhum. 1,6s medidos.
   unit: [
     "@workspace/knowledge",
+    "@workspace/advisory",
     "@workspace/simulation",
     "@workspace/scripts",
     "@workspace/freightaudit",

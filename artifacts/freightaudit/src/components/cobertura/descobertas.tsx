@@ -98,7 +98,10 @@ export function Descobertas({ descobertas }: { descobertas: Descoberta[] }) {
                 <p className="mt-1.5">
                   Nada foi remapeado e o campo anterior continua contando como lacuna até que uma
                   pessoa decida.{" "}
-                  <Link href="/curadoria" className="text-brand font-semibold hover:underline">
+                  <Link
+                    href={`/curadoria?atributo=${encodeURIComponent(d.attributeCode)}`}
+                    className="text-brand font-semibold hover:underline"
+                  >
                     Levar para a Curadoria
                   </Link>
                   .

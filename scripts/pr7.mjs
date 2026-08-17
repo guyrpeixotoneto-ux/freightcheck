@@ -139,6 +139,33 @@ function passo(titulo, script, args, env = {}) {
   }
 }
 
+/**
+ * Um passo que falha aborta a rodada — e nunca vira veredito.
+ *
+ * A primeira versão deste script ignorava o desfecho dos passos de medição e
+ * só olhava o do portão. Numa rodada real isso produziu o pior resultado
+ * possível: as três medições quebraram por schema desatualizado, o `comparar`
+ * não achou os arquivos, saiu com código 2, e o script imprimiu **"O portão
+ * reprovou — não vire a chave"**. Um veredito sobre uma rodada que não
+ * aconteceu, escrito com a mesma confiança de um veredito de verdade.
+ *
+ * "Não medi" e "medi e reprovou" pedem ações opostas — a primeira é consertar o
+ * ambiente, a segunda é consertar o agente — e é exatamente a distinção que
+ * este produto inteiro existe para não borrar.
+ */
+function exigir(titulo, script, args, env = {}) {
+  const codigo = passo(titulo, script, args, env);
+  if (codigo === 0) return;
+  console.error(
+    `\n\x1b[31m✗ "${titulo}" falhou (código ${codigo}).\x1b[0m\n\n` +
+      "  A rodada parou aqui e **nenhum veredito foi emitido** — não medir não é\n" +
+      "  o mesmo que medir e reprovar. Olhe o erro acima: quando ele é de coluna\n" +
+      "  inexistente, a fila de migrations do banco está atrás do código, e o\n" +
+      "  conserto é `pnpm --filter @workspace/db run migrate`.\n",
+  );
+  process.exit(2);
+}
+
 await conferirAmbiente();
 if (!existsSync(PASTA)) mkdirSync(PASTA, { recursive: true });
 
@@ -147,13 +174,13 @@ if (!existsSync(PASTA)) mkdirSync(PASTA, { recursive: true });
   filho** — o que garante que a primeira mediu o planejador de verdade, e não um
   ambiente já contaminado por uma tentativa anterior.
 */
-passo("1/4 · baseline do planejador", "desfecho", [`--saida=${PASTA}/antes`], {
+exigir("1/4 · baseline do planejador", "desfecho", [`--saida=${PASTA}/antes`], {
   ASSISTENTE_AGENTE: "",
 });
-passo("2/4 · rodada do agente", "desfecho", [`--saida=${PASTA}/depois`], {
+exigir("2/4 · rodada do agente", "desfecho", [`--saida=${PASTA}/depois`], {
   ASSISTENTE_AGENTE: "1",
 });
-passo("3/4 · trajetória do agente", "trajetoria", [`--saida=${PASTA}/trajetoria.md`], {
+exigir("3/4 · trajetória do agente", "trajetoria", [`--saida=${PASTA}/trajetoria.md`], {
   ASSISTENTE_AGENTE: "1",
 });
 

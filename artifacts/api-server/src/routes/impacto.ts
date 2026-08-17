@@ -1,11 +1,7 @@
-import { Router, type IRouter, type Response } from "express";
+import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import {
-  ContextNotFoundError,
-  getPanoramaDeAlteracoes,
-  getQuinzenaMatrix,
-  type SeriesContext,
-} from "@workspace/comparison";
+import { getPanoramaDeAlteracoes, getQuinzenaMatrix } from "@workspace/comparison";
+import { parseContext, sendContextError } from "../lib/contexto";
 
 /**
  * Impacto — a terceira aba de Alterações.
@@ -23,40 +19,6 @@ import {
  * lido como ele foi importado. Nada nesta rota soma nada com as outras duas.
  */
 const router: IRouter = Router();
-
-/**
- * O contexto pedido na query, quando pedido.
- *
- * Mesma leitura de `changes.ts`, e de propósito: as três abas têm de enxergar a
- * mesma unidade e o mesmo canal quando a pessoa troca de aba. `?canal=` vazio
- * quer dizer "as vigências sem canal legível no rótulo", que é uma partição
- * real e não a ausência de filtro.
- */
-function parseContext(
-  query: Record<string, unknown>,
-): Partial<SeriesContext> | undefined {
-  const scopeHash =
-    typeof query.scopeHash === "string" && query.scopeHash !== ""
-      ? query.scopeHash
-      : undefined;
-  const hasCanal = typeof query.canal === "string";
-  if (scopeHash === undefined && !hasCanal) return undefined;
-  return {
-    ...(scopeHash !== undefined ? { scopeHash } : {}),
-    ...(hasCanal
-      ? { channel: (query.canal as string) === "" ? null : (query.canal as string) }
-      : {}),
-  };
-}
-
-/** Recusa escrita vira 404 com a frase; o resto continua sendo 500. */
-function sendContextError(res: Response, err: unknown): boolean {
-  if (err instanceof ContextNotFoundError) {
-    res.status(404).json({ error: err.message });
-    return true;
-  }
-  return false;
-}
 
 /**
  * A tabela do impacto: um parâmetro, todos os ativos, todas as vigências.

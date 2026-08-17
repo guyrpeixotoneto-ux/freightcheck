@@ -91,9 +91,11 @@ function Router() {
 
         As `key` não são enfeite. As duas rotas rendem o mesmo componente na
         mesma posição da árvore, e sem elas o React reaproveita a instância ao
-        trocar de rota — a aba é estado, `abaInicial` só vale na montagem, e ir
-        de Alterações para Impacto financeiro deixava a tela na aba anterior.
-        Chaves diferentes dizem que são duas telas, e cada entrada abre na sua.
+        trocar de rota — os filtros da lista, que nascem do endereço uma vez e
+        depois são estado da tela, atravessariam de uma entrada para a outra.
+        Chaves diferentes dizem que são duas telas, e cada entrada abre limpa.
+        (A aba em si já não depende disto: ela mora no endereço, e `abaInicial`
+        só responde quando ninguém a escreveu.)
       */}
       <Route path="/alteracoes">
         <Alteracoes key="alteracoes" />

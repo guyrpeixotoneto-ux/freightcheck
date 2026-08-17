@@ -272,3 +272,67 @@ describe("diagnosticar", () => {
     }
   });
 });
+
+/**
+ * O bridge pela metade — o estado que não precisa de sintoma para aparecer.
+ *
+ * Todos os outros ramos desta função leem sintoma e concluem: uma contagem que
+ * não fecha, uma consulta que morreu. Este lê uma **declaração** que o
+ * `bridgeDown` deixou no banco dentro da própria transação, e que só o
+ * `bridgeUp` apaga. É por isso que ele decide antes de todos — quando existe,
+ * não há o que inferir.
+ *
+ * O que ele impede, concretamente: em 16/08/2026 um bridge sem `up` deixou
+ * `attribute.definition` fora do banco, e a primeira notícia disso foi uma tela
+ * em 500. Entre uma coisa e outra, `/healthz` respondeu SAUDAVEL o tempo todo.
+ */
+describe("BRIDGE_PENDENTE", () => {
+  it("nomeia o estado em vez de deixar deduzir por schema ausente", () => {
+    const d = diagnosticar(observado({ bridgePendente: {} }));
+
+    expect(d.estado).toBe("BRIDGE_PENDENTE");
+    expect(d.acao?.codigo).toBe("CONCLUIR_BRIDGE");
+    expect(d.acao?.comando).toContain("bridge:up");
+  });
+
+  it("aparece sem que nenhuma consulta tenha falhado — é o ponto todo", () => {
+    // Nada pendente, nada quebrado: exatamente o que o /healthz via como
+    // SAUDAVEL enquanto faltavam colunas no banco.
+    const d = diagnosticar(observado({ pendentes: [], objetoAusenteAgora: false }));
+    expect(d.estado).toBe("SAUDAVEL");
+
+    const comBridge = diagnosticar(observado({ bridgePendente: { desde: "2026-08-16T18:00:00.000Z" } }));
+    expect(comBridge.estado).toBe("BRIDGE_PENDENTE");
+    expect(comBridge.evidencia).toContain("2026-08-16");
+  });
+
+  it("explica o objeto ausente em vez de mandar conferir o schema", () => {
+    // Sem o marcador este mesmo estado é SCHEMA_DIVERGENTE, cuja ação é
+    // "compare o schema". Com ele, a causa está dada e a ação é específica.
+    const semMarcador = diagnosticar(observado({ objetoAusenteAgora: true }));
+    expect(semMarcador.estado).toBe("SCHEMA_DIVERGENTE");
+    expect(semMarcador.acao?.codigo).toBe("CONFERIR_SCHEMA");
+
+    const comMarcador = diagnosticar(
+      observado({ objetoAusenteAgora: true, bridgePendente: {} }),
+    );
+    expect(comMarcador.estado).toBe("BRIDGE_PENDENTE");
+    expect(comMarcador.acao?.codigo).toBe("CONCLUIR_BRIDGE");
+  });
+
+  it("não manda rodar migrations, que não repõem nada do que o bridge tirou", () => {
+    const d = diagnosticar(
+      observado({ aplicadas: 16, pendentes: ["0022_x"], bridgePendente: {} }),
+    );
+
+    expect(d.estado).toBe("BRIDGE_PENDENTE");
+    expect(d.acao?.comando).not.toContain("migrate");
+  });
+
+  it("diz que nenhum dado se perdeu: o bridge tira estrutura, não fato", () => {
+    const d = diagnosticar(observado({ bridgePendente: {} }));
+
+    expect(d.risco.emRisco).toBe(false);
+    expect(textoDoDiagnostico(d)).toMatch(/bridge:up/);
+  });
+});

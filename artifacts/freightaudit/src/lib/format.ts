@@ -41,6 +41,29 @@ export function formatNumber(value: number, digits = 2): string {
 }
 
 /**
+ * Dinheiro na escala de quem lê de longe — `R$ 38,4 mil`, `R$ 1,2 mi`.
+ *
+ * Existe para os ladrilhos e para os cartões de pauta, onde o número compete
+ * com o rótulo pelo mesmo espaço e `R$ 38.412` gasta a largura inteira dizendo
+ * uma precisão que ninguém leva para a reunião. Abaixo de mil sai por extenso,
+ * porque `R$ 0,8 mil` seria pior do que o número que ele resume.
+ *
+ * O sinal é o menos tipográfico (−), o mesmo que o resto da tela usa: o hífen
+ * some ao lado do cifrão em corpo grande, e uma perda lida como ganho é o erro
+ * mais caro que uma formatação pode produzir.
+ */
+export function formatBrlCompacto(value: number): string {
+  const abs = Math.abs(value);
+  const sinal = value < 0 ? "−" : "";
+  if (abs >= 1_000_000) return `${sinal}R$ ${formatNumber(abs / 1_000_000, 1)} mi`;
+  if (abs >= 1_000) return `${sinal}R$ ${formatNumber(abs / 1_000, 1)} mil`;
+  // Montado à mão como os dois acima, e não por `formatBrlShort`: o cifrão do
+  // `toLocaleString` vem com espaço fino, e a mistura das duas larguras num
+  // ladrilho com várias linhas aparece como desalinhamento sem causa visível.
+  return `${sinal}R$ ${formatNumber(abs, 0)}`;
+}
+
+/**
  * Um valor com a sua unidade. Sem unidade declarada, sai como número puro —
  * que é a resposta honesta quando não se sabe o que a coluna mede.
  */

@@ -52,6 +52,10 @@ function parseFilters(query: Record<string, unknown>): ChangeFilters {
     comparability: str("comparability"),
     impactConfidence: str("impactConfidence"),
     attributeCode: str("attributeCode"),
+    // Recorte por equipamento **dentro** da leitura pedida — ver `entityType`
+    // em `ChangeFilters`. Não confundir com `entityTypeSet`, que em
+    // `/changes/latest` escolhe outra comparação.
+    entityType: str("entityType"),
     entityLabel: str("entityLabel"),
     search: str("search"),
     minAbsImpact: num("minAbsImpact"),

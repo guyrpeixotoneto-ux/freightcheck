@@ -8,6 +8,8 @@
  * guess into a number.
  */
 
+import { ehTipoNumerico } from "./agregacao";
+
 export type Unit =
   | "BRL"
   | "BRL_KM"
@@ -193,7 +195,27 @@ function guessAggregation(unit: Unit | null, dataType: string): {
   aggregation: Aggregation | null;
   reason: string;
 } {
-  if (dataType === "TEXT" || dataType === "BOOLEAN" || dataType === "DATE" || dataType === "MIXED") {
+  /*
+    "Tipo desconhecido" e "tipo que não agrega" não são a mesma resposta.
+
+    A lista de tipos morava aqui, escrita à mão, e esquecia `UNKNOWN` — foi o
+    que fez `prazoPagamento`, uma coluna sem tipo e sem uma única linha
+    preenchida, receber "média simples". A pergunta passou a ser da autoridade,
+    que é a mesma que a constraint do banco espelha.
+
+    Mas devolver `NONE` para `UNKNOWN` trocaria um erro por um exagero: `NONE`
+    é uma constatação — "este valor não admite aritmética" —, e sobre uma coluna
+    que o import nunca viu preenchida não há constatação nenhuma a fazer. Ela
+    fica sem proposta, que é o que mantém as oito colunas vazias do export em
+    UNKNOWN em vez de promovê-las a "presumido" sem uma linha de evidência.
+  */
+  if (dataType === "UNKNOWN") {
+    return {
+      aggregation: null,
+      reason: "O import não observou nenhum valor: sem tipo, não há agregação a propor.",
+    };
+  }
+  if (!ehTipoNumerico(dataType)) {
     return { aggregation: "NONE", reason: "Não numérico — não agrega." };
   }
   switch (unit) {

@@ -1,7 +1,7 @@
 import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 import type { Database } from "@workspace/db";
-import { changeSetTable, changeTable, snapshotTable } from "@workspace/db";
-import { periodLabel } from "./labels";
+import { attributeTable, changeSetTable, changeTable, snapshotTable } from "@workspace/db";
+import { attributeLabel, periodLabel } from "./labels";
 
 /**
  * Reading a change set.
@@ -26,6 +26,18 @@ export interface ChangeFilters {
   /** CALCULATED | ESTIMATED | NOT_CALCULABLE */
   impactConfidence?: string;
   attributeCode?: string;
+  /**
+   * CAVALO | CARRETA — o equipamento da linha.
+   *
+   * Recorte de **linha**, e não de comparação: `entityTypeSet` escolhe qual
+   * comparação ler (a série tem vigências próprias), enquanto este diz quais
+   * linhas de uma leitura já feita ficam à vista. A diferença importa quando a
+   * vigência está fixada: filtrar por equipamento dentro do período pedido
+   * responde "o que mudou no cavalo em agosto"; trocar de série responderia "o
+   * que mudou no cavalo na última vigência dele", que é outra pergunta e pode
+   * ser outro mês.
+   */
+  entityType?: string;
   entityLabel?: string;
   /** Absolute impact floor, for narrowing a long list — never a default. */
   minAbsImpact?: number;
@@ -66,6 +78,10 @@ export interface ChangeRow {
   semanticsEffectiveFrom: string | null;
 }
 
+/**
+ * Pressupõe a junção `ATRIBUTO_ATUAL`: a busca por texto olha também o nome
+ * gerencial, que vive em `attribute` e não na cópia denormalizada.
+ */
 function buildWhere(changeSetId: string | string[], f: ChangeFilters): SQL {
   // An array is how the consolidated view reads several series at once. It is
   // still a plain listing of changes — no aggregation happens here.
@@ -88,6 +104,7 @@ function buildWhere(changeSetId: string | string[], f: ChangeFilters): SQL {
   if (f.impactConfidence)
     parts.push(eq(changeTable.impactConfidence, f.impactConfidence));
   if (f.attributeCode) parts.push(eq(changeTable.attributeCode, f.attributeCode));
+  if (f.entityType) parts.push(eq(changeTable.entityType, f.entityType));
   if (f.entityLabel) parts.push(eq(changeTable.entityLabel, f.entityLabel));
   if (f.minAbsImpact !== undefined) {
     parts.push(sql`abs(${changeTable.impactAmount}) >= ${f.minAbsImpact}`);
@@ -97,11 +114,25 @@ function buildWhere(changeSetId: string | string[], f: ChangeFilters): SQL {
     parts.push(
       sql`(${changeTable.attributeCode} ILIKE ${like}
         OR ${changeTable.attributeName} ILIKE ${like}
+        -- O nome gerencial de hoje também procura: quem batizou a coluna
+        -- procura pelo nome que deu, e a cópia denormalizada acima só conhece
+        -- o nome que valia quando a comparação rodou.
+        OR ${attributeTable.displayName} ILIKE ${like}
         OR ${changeTable.entityLabel} ILIKE ${like})`,
     );
   }
   return and(...parts)!;
 }
+
+/**
+ * O atributo como ele está hoje, ao lado da alteração que o cita.
+ *
+ * Por `code`, e não por `attribute_id`: o código é a identidade que esta tela
+ * agrupa e filtra, e é ele que sobrevive a uma correção de identidade que
+ * refaça a linha de `attribute`. Por chave única dos dois lados, então a junção
+ * nunca multiplica linha nenhuma — o `count(*)` continua contando alterações.
+ */
+const ATRIBUTO_ATUAL = eq(attributeTable.code, changeTable.attributeCode);
 
 export async function listChanges(
   db: Database,
@@ -116,6 +147,7 @@ export async function listChanges(
   const [count] = await db
     .select({ total: sql<number>`count(*)`.mapWith(Number) })
     .from(changeTable)
+    .leftJoin(attributeTable, ATRIBUTO_ATUAL)
     .where(where);
 
   const rows = await db
@@ -126,6 +158,10 @@ export async function listChanges(
       nature: changeTable.nature,
       attributeCode: changeTable.attributeCode,
       attributeName: changeTable.attributeName,
+      /* O nome de leitura não sai da cópia denormalizada — ver o `map` no fim
+         desta função. */
+      attributeSourceName: attributeTable.sourceName,
+      attributeDisplayName: attributeTable.displayName,
       entityLabel: changeTable.entityLabel,
       entityType: changeTable.entityType,
       valueBefore: changeTable.valueBefore,
@@ -157,6 +193,7 @@ export async function listChanges(
       )`,
     })
     .from(changeTable)
+    .leftJoin(attributeTable, ATRIBUTO_ATUAL)
     .where(where)
     // Materiality first: changes whose worth we actually know, by size. Then
     // everything else by the size of its variation, so a large movement we
@@ -178,13 +215,47 @@ export async function listChanges(
 
   return {
     total: count.total,
-    rows: rows.map((r) => ({
+    rows: rows.map(({ attributeSourceName, attributeDisplayName, ...r }) => ({
       ...r,
+      attributeName: nomeDeLeitura(
+        r.attributeCode,
+        r.attributeName,
+        attributeSourceName,
+        attributeDisplayName,
+      ),
       deltaAbsolute: r.deltaAbsolute === null ? null : Number(r.deltaAbsolute),
       deltaPercent: r.deltaPercent === null ? null : Number(r.deltaPercent),
       impactAmount: r.impactAmount === null ? null : Number(r.impactAmount),
     })),
   };
+}
+
+/**
+ * O nome com que a alteração se apresenta na tela.
+ *
+ * `change.attribute_name` é o que a comparação denormalizou no dia em que
+ * rodou. Servido cru, um nome gerencial dado depois não aparece em lugar
+ * nenhum desta tela — o painel "Atributos mais alterados" continuava dizendo
+ * `combustivelVidaCavalo` enquanto a curadoria, a Composição e os Chamados já
+ * diziam o apelido, e as duas telas pareciam falar de colunas diferentes.
+ *
+ * Então o nome sai do estado atual do atributo, pela mesma `attributeLabel` que
+ * o resto do produto usa: apelido da curadoria, vocabulário de `labels.ts`, e
+ * por fim o literal da planilha. Nada se perde — o código continua ao lado do
+ * nome na lista, e o literal continua na proveniência.
+ *
+ * Quando não há atributo (uma entrada ou saída de frota), não há nome a
+ * resolver: devolve o que estava gravado, inclusive `null`, que a tela já sabe
+ * mostrar como "—".
+ */
+function nomeDeLeitura(
+  attributeCode: string | null,
+  denormalizado: string | null,
+  sourceName: string | null,
+  displayName: string | null,
+): string | null {
+  if (attributeCode === null) return denormalizado;
+  return attributeLabel(attributeCode, sourceName ?? denormalizado, displayName);
 }
 
 /**
@@ -348,12 +419,20 @@ export async function getChangeSetBreakdown(
     `attributeName` sai por `max()` porque o agrupamento é pelo código: o nome é
     rótulo do mesmo atributo, e agrupar pelos dois partiria uma linha em duas na
     vigência em que o cabeçalho foi reescrito.
+
+    O nome de leitura, esse, vem do atributo como ele está hoje — `max()` sobre
+    uma junção por chave única é o próprio valor da linha, e não uma escolha
+    entre vários. Sem isso, um nome gerencial dado depois da comparação não
+    chegaria a este painel: era o que fazia a lista dizer `combustivelVidaCavalo`
+    do atributo que a curadoria já tinha batizado.
   */
   const temAtributo = sql`${changeTable.attributeCode} IS NOT NULL`;
   const byAttribute = await db
     .select({
       attributeCode: changeTable.attributeCode,
       attributeName: sql<string | null>`max(${changeTable.attributeName})`,
+      attributeSourceName: sql<string | null>`max(${attributeTable.sourceName})`,
+      attributeDisplayName: sql<string | null>`max(${attributeTable.displayName})`,
       count: sql<number>`count(*)`.mapWith(Number),
       calculated: sql<number>`count(*) FILTER (
         WHERE ${changeTable.impactConfidence} = 'CALCULATED'
@@ -361,6 +440,7 @@ export async function getChangeSetBreakdown(
       )`.mapWith(Number),
     })
     .from(changeTable)
+    .leftJoin(attributeTable, ATRIBUTO_ATUAL)
     .where(and(scope, temAtributo))
     .groupBy(changeTable.attributeCode)
     .orderBy(sql`count(*) DESC`, changeTable.attributeCode);
@@ -415,7 +495,12 @@ export async function getChangeSetBreakdown(
         : [
             {
               attributeCode: r.attributeCode,
-              attributeName: r.attributeName,
+              attributeName: nomeDeLeitura(
+                r.attributeCode,
+                r.attributeName,
+                r.attributeSourceName,
+                r.attributeDisplayName,
+              ),
               count: r.count,
               calculated: r.calculated,
               impact: impactoPorAtributo.get(r.attributeCode) ?? [],

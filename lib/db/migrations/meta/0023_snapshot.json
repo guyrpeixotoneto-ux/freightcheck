@@ -1,5 +1,5 @@
 {
-  "id": "0023-direcao-economica",
+  "id": "82eb9e00-8482-d1d9-d946-3771c81257a0",
   "prevId": "6c9d4d0e-d4a7-4f4a-9edf-e491048e5f75",
   "version": "7",
   "dialect": "postgresql",
@@ -958,18 +958,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "economic_direction": {
-          "name": "economic_direction",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "economic_effect": {
-          "name": "economic_effect",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -4597,18 +4585,6 @@
           "primaryKey": false,
           "notNull": true,
           "default": "now()"
-        },
-        "economic_direction": {
-          "name": "economic_direction",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "economic_effect": {
-          "name": "economic_effect",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {

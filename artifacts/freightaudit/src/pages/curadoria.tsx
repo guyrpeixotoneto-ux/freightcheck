@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation, useSearch } from "wouter";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -8,6 +9,7 @@ import {
   Lock,
   ShieldCheck,
   Sparkles,
+  Undo2,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -26,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { fetchJson, getApiUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
+import { estaDescrito } from "@/lib/curadoria";
 import { cn } from "@/lib/utils";
 
 /**
@@ -53,10 +56,15 @@ const UNITS: [code: string, meaning: string][] = [
   ["QTD", "quantidade"],
 ];
 const PERIODICITIES = ["MENSAL", "ANUAL", "PONTUAL"];
+/*
+  Sem WEIGHTED_AVG: o valor prometia ponderação e o cálculo por trás era
+  `total ÷ veículos`. Enquanto o peso não for campo do modelo, o banco recusa
+  gravá-lo (0023) e a tela não o oferece — oferecer o que será recusado é pior
+  do que não ter a opção.
+*/
 const AGGREGATIONS: [code: string, meaning: string][] = [
   ["SUM", "soma na frota"],
   ["AVG", "média simples"],
-  ["WEIGHTED_AVG", "média ponderada"],
   ["NONE", "não agrega"],
 ];
 
@@ -146,7 +154,35 @@ function StatusBadge({ status }: { status: string }) {
 
 export default function Curadoria() {
   const queryClient = useQueryClient();
-  const [selected, setSelected] = useState<string | null>(null);
+  const search = useSearch();
+  const [, navegar] = useLocation();
+
+  /*
+    O atributo aberto mora no endereço; o recorte da fila, no estado.
+
+    A divisão é a mesma da aba Planilha, e pela mesma razão. **Qual atributo se
+    está lendo** é o que as outras telas apontam: seis lugares do produto dizem
+    "falta confirmar isto" e mandavam para cá sem dizer o quê — a pessoa chegava
+    numa fila de 121 itens e tinha de procurar o nome que acabara de ler. Agora
+    o endereço carrega o código, e a mesma URL leva outra pessoa ao mesmo lugar.
+
+    **Como a fila é encurtada** — o texto do filtro e o botão Pendentes/Todos —
+    continua em `useState`: ninguém aponta para "a fila filtrada por 'ipva'", e
+    reescrever o endereço a cada tecla encheria o histórico sem que nada tivesse
+    sido lido.
+  */
+  const selected = new URLSearchParams(search).get("atributo");
+  const setSelected = (code: string | null) => {
+    const params = new URLSearchParams(search);
+    if (code) params.set("atributo", code);
+    else params.delete("atributo");
+    // `replace`: escolher outro item da fila não é uma tela nova, e voltar tem
+    // de sair da Curadoria em vez de percorrer os atributos já abertos.
+    navegar(params.toString() ? `/curadoria?${params}` : "/curadoria", {
+      replace: true,
+    });
+  };
+
   const [filter, setFilter] = useState("");
   const [showConfirmed, setShowConfirmed] = useState(false);
 
@@ -182,6 +218,21 @@ export default function Curadoria() {
         (item.displayName?.toLowerCase().includes(needle) ?? false),
     );
   }, [queue, filter]);
+
+  /*
+    Quem chegou por link a um atributo já confirmado precisa vê-lo na fila.
+
+    A fila abre em "Pendentes", e um atributo confirmado não está nela: o painel
+    da direita mostrava o atributo pedido enquanto a lista da esquerda não o
+    continha, e a tela se contradizia em silêncio. O botão vira "Todos" uma vez,
+    só quando o endereço pediu alguém que a fila atual não tem — trocá-lo por
+    conta própria em qualquer outra situação seria desfazer uma escolha de quem
+    está lendo.
+  */
+  useEffect(() => {
+    if (selected === null || showConfirmed || queue.length === 0) return;
+    if (!queue.some((item) => item.code === selected)) setShowConfirmed(true);
+  }, [selected, queue, showConfirmed]);
 
   // Aggregate across every non-confirmed status rather than picking one row:
   // the summary is grouped, not ordered, so "the first pending row" is
@@ -249,7 +300,8 @@ export default function Curadoria() {
             <CardTitle className="text-base">Fila de curadoria</CardTitle>
             <p className="text-xs text-muted-foreground">
               Ordenada por materialidade. A soma exibida é bruta e não auditada —
-              serve para priorizar, não é resultado.
+              serve para priorizar, não é resultado. Em verde, o que já tem nome,
+              descrição e fórmula escritos — descrever não é confirmar.
             </p>
             <div className="flex gap-2 pt-2">
               <Input
@@ -272,40 +324,62 @@ export default function Curadoria() {
             {isLoading && (
               <p className="text-sm text-muted-foreground p-4">Carregando…</p>
             )}
-            {visible.map((item) => (
-              <button
-                key={item.code}
-                onClick={() => setSelected(item.code)}
-                className={cn(
-                  "w-full text-left px-4 py-3 border-b hover:bg-muted/60 transition-colors",
-                  selected === item.code && "bg-muted",
-                )}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="font-mono text-xs text-muted-foreground truncate">
-                      {item.displayName ? `${item.sourceName} · ` : ""}
-                      {item.code}
-                    </div>
-                    <div className="font-medium text-sm truncate">
-                      {item.displayName ?? item.sourceName}
-                    </div>
-                  </div>
-                  <StatusBadge status={item.semanticsStatus} />
-                </div>
-                <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
-                  <span className="font-mono">{item.unit ?? "sem unidade"}</span>
-                  <span>·</span>
-                  <span className="font-mono">{item.aggregation ?? "sem agregação"}</span>
-                  {item.magnitude !== null && item.magnitude !== 0 && (
-                    <>
-                      <span>·</span>
-                      <span className="font-mono tabular-nums">{brl(item.magnitude)}</span>
-                    </>
+            {visible.map((item) => {
+              const descrito = estaDescrito(item);
+              return (
+                <button
+                  key={item.code}
+                  onClick={() => setSelected(item.code)}
+                  /* A faixa da esquerda existe em todo card, transparente
+                     quando não há o que marcar: assim o verde acende sem
+                     empurrar o texto 4px para o lado. */
+                  className={cn(
+                    "w-full text-left px-4 py-3 border-b border-l-4 border-l-transparent transition-colors",
+                    descrito
+                      ? "border-l-emerald-500 bg-emerald-50/70 hover:bg-emerald-100/70"
+                      : "hover:bg-muted/60",
+                    selected === item.code &&
+                      (descrito ? "bg-emerald-100" : "bg-muted"),
                   )}
-                </div>
-              </button>
-            ))}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="font-mono text-xs text-muted-foreground truncate">
+                        {item.displayName ? `${item.sourceName} · ` : ""}
+                        {item.code}
+                      </div>
+                      <div className="font-medium text-sm truncate">
+                        {item.displayName ?? item.sourceName}
+                      </div>
+                    </div>
+                    <StatusBadge status={item.semanticsStatus} />
+                  </div>
+                  <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
+                    <span className="font-mono">{item.unit ?? "sem unidade"}</span>
+                    <span>·</span>
+                    <span className="font-mono">{item.aggregation ?? "sem agregação"}</span>
+                    {item.magnitude !== null && item.magnitude !== 0 && (
+                      <>
+                        <span>·</span>
+                        <span className="font-mono tabular-nums">{brl(item.magnitude)}</span>
+                      </>
+                    )}
+                    {/* O verde sozinho não diz do que é o verde — e neste
+                        card, ao lado de um selo de status, seria lido como
+                        "confirmado". A palavra impede a leitura errada. */}
+                    {descrito && (
+                      <>
+                        <span>·</span>
+                        <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
+                          <CheckCircle2 className="w-3 h-3" />
+                          descrito
+                        </span>
+                      </>
+                    )}
+                  </div>
+                </button>
+              );
+            })}
             {!isLoading && visible.length === 0 && (
               <p className="text-sm text-muted-foreground p-4">
                 Nada pendente com esse filtro.
@@ -799,6 +873,16 @@ function MeaningCard({
             placeholder="Ex.: vida útil, em meses, considerada em contrato para o pneu."
             rows={3}
           />
+          <DefinicaoPeloNome
+            detail={detail}
+            nome={displayName}
+            formula={basis}
+            definicao={definition}
+            onEscrever={(texto) => {
+              setDefinition(texto);
+              setSaved(false);
+            }}
+          />
         </Field>
 
         <Field
@@ -845,6 +929,151 @@ function MeaningCard({
     </Card>
   );
 }
+
+/**
+ * "Escreva isso por mim", a partir do nome que a pessoa acabou de dar.
+ *
+ * Quem escreve "Vida útil do pneu em contrato" no campo de cima já sabe o que a
+ * coluna é — só ainda não escreveu a frase. O campo "O que é" ficava em branco
+ * por isso: redigir a mesma coisa uma segunda vez, com sujeito e verbo, é
+ * digitação, não curadoria. Este botão faz a digitação.
+ *
+ * Três decisões que a tela precisa deixar claras:
+ *
+ * - **Escreve no campo, não numa caixa ao lado.** O resultado é rascunho de
+ *   quem clicou: entra no textarea aberto, dá para cortar, corrigir e reescrever
+ *   antes de salvar. Uma sugestão em caixa separada, com botão "usar", seria um
+ *   passo a mais para chegar ao mesmo lugar.
+ * - **O que havia antes volta com um clique.** Um botão que apaga texto alheio
+ *   sem volta não é ajuda. `Desfazer` fica à vista enquanto o texto for o que a
+ *   IA escreveu, e some assim que a pessoa mexe nele — a partir daí restaurar
+ *   apagaria o trabalho dela, não o da IA.
+ * - **Lê o nome digitado, não o salvo.** O nome sobe no corpo do pedido. Pedir
+ *   para salvar antes faria o rascunho custar o ato que ele existe para
+ *   adiantar.
+ *
+ * Nada aqui grava: o campo continua precisando de "Salvar nome e significado",
+ * e salvar continua não confirmando semântica nenhuma.
+ */
+function DefinicaoPeloNome({
+  detail,
+  nome,
+  formula,
+  definicao,
+  onEscrever,
+}: {
+  detail: AttributeDetail;
+  nome: string;
+  formula: string;
+  definicao: string;
+  onEscrever: (texto: string) => void;
+}) {
+  /** O que estava escrito antes do rascunho, e o rascunho que o substituiu. */
+  const [troca, setTroca] = useState<{ antes: string; depois: string } | null>(null);
+  const [motivo, setMotivo] = useState<string | null>(null);
+
+  const rascunhar = useMutation({
+    mutationFn: async () => {
+      const response = await fetch(
+        getApiUrl(`/curation/attributes/${detail.code}/definicao/rascunho`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ displayName: nome, calculationBasis: formula }),
+        },
+      );
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error ?? "Falha ao escrever o rascunho");
+      return body as { texto: string | null; motivo: string };
+    },
+    onSuccess: (body) => {
+      if (!body.texto) {
+        setMotivo(body.motivo);
+        return;
+      }
+      setMotivo(null);
+      setTroca({ antes: definicao, depois: body.texto });
+      onEscrever(body.texto);
+    },
+  });
+
+  const semNome = !nome.trim();
+  // O `Desfazer` só vale enquanto o campo ainda contém o que a IA escreveu:
+  // depois de a pessoa mexer, restaurar apagaria o texto dela.
+  const podeDesfazer = troca !== null && definicao === troca.depois;
+
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center gap-3">
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => rascunhar.mutate()}
+          disabled={semNome || rascunhar.isPending}
+        >
+          <Sparkles className="h-3.5 w-3.5" />
+          {rascunhar.isPending ? "Escrevendo…" : "Escrever a partir do nome"}
+        </Button>
+        <p className="text-xs text-muted-foreground">
+          {semNome
+            ? "Dê o nome gerencial acima para a IA escrever esta descrição."
+            : definicao.trim()
+              ? "Reescreve o campo acima a partir do nome. Dá para desfazer."
+              : "Preenche o campo acima a partir do nome. Nada é gravado."}
+        </p>
+      </div>
+
+      {rascunhar.isError && (
+        <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+          {rascunhar.error.message}
+        </p>
+      )}
+
+      {motivo && (
+        <p className="text-sm text-muted-foreground bg-muted/40 border rounded-md px-3 py-2">
+          {MOTIVO_SEM_RASCUNHO[motivo] ?? MOTIVO_SEM_RASCUNHO.ERRO}
+        </p>
+      )}
+
+      {podeDesfazer && (
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={() => {
+              onEscrever(troca.antes);
+              setTroca(null);
+            }}
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+            Desfazer
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            {troca.antes.trim()
+              ? "Rascunho de IA, escrito por cima do texto anterior. Revise antes de salvar."
+              : "Rascunho de IA a partir do nome acima. É um texto seu — corrija o que não estiver certo."}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Por que não houve rascunho, dito para quem está curando a coluna.
+ *
+ * `SEM_NOME` não deveria chegar pela tela — o botão fica desligado sem nome —,
+ * mas a rota também é chamável com o nome guardado em branco, e uma frase é
+ * mais barata do que descobrir por que a caixa não apareceu.
+ */
+const MOTIVO_SEM_RASCUNHO: Record<string, string> = {
+  SEM_NOME: "Sem nome gerencial escrito, não há do que partir.",
+  SEM_CHAVE:
+    "A escrita por IA não está configurada neste ambiente. O campo continua funcionando normalmente.",
+  RECUSA: "O modelo não quis escrever sobre este nome. Escreva a descrição à mão.",
+  ERRO: "Não consegui escrever agora. Tente de novo em alguns instantes.",
+};
 
 /**
  * "O que essa fórmula quer dizer?", respondido em português.

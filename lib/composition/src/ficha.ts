@@ -414,33 +414,19 @@ export async function getAlteracoesDoEquipamento(
 
   const noTotal = new Set(agora.linhas.map((l) => l.code));
   const motivoPorCodigo = new Map(agora.naoApurados.map((n) => [n.code, n]));
-  /* O apelido gerencial por código: `change.attribute_name` é o que a
-     comparação denormalizou na época, e um nome dado depois não chegaria aqui
-     sem esta consulta ao estado atual do atributo. */
-  const apelidoPorCodigo = new Map(
-    [...classificacoes.values()].map((c) => [c.attributeCode, c.attributeDisplayName]),
-  );
-
+  /*
+    `attributeName` já vem resolvido de `listChanges` — o mesmo nome de leitura
+    que a aba Composição usa, tirado do estado atual do atributo e não da cópia
+    que a comparação denormalizou na época. Enquanto a resolução morava só aqui,
+    a aba Alterações chamava de "finameCavalo" o que a aba ao lado chama de
+    "Custo fixo do cavalo"; agora ela mora em `query.ts`, de onde serve também os
+    painéis da tela de Alterações, que sofriam do mesmo.
+  */
   const alteracoes: AlteracaoDoEquipamento[] = rows.map((row) => {
     const excluido = row.attributeCode ? motivoPorCodigo.get(row.attributeCode) : undefined;
     const colocacao = placementOf(row.attributeCode);
     return {
       ...row,
-      /*
-        O mesmo nome de leitura que a aba Composição usa.
-
-        `change.attribute_name` guarda o que a comparação denormalizou —
-        `display_name` ou, na falta dele, o literal da planilha. Servido assim, a
-        aba Alterações chamava de "finameCavalo" o que a aba ao lado chama de
-        "Custo fixo do cavalo": duas abas da mesma ficha, dois vocabulários, e a
-        impressão de serem duas colunas diferentes. O literal não se perde — ele
-        continua na proveniência, que é onde ele serve.
-      */
-      attributeName: attributeLabel(
-        row.attributeCode,
-        row.attributeName,
-        row.attributeCode ? apelidoPorCodigo.get(row.attributeCode) : null,
-      ),
       entraNoTotal: row.attributeCode !== null && noTotal.has(row.attributeCode),
       motivo: excluido?.motivo ?? null,
       motivoRotulo: excluido ? ROTULO_DO_MOTIVO[excluido.motivo] : null,

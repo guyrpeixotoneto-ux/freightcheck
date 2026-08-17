@@ -7,7 +7,8 @@
     ".": "./src/index.ts",
     "./schema": "./src/schema/index.ts",
     "./migrate": "./src/migrate.ts",
-    "./diagnostico": "./src/diagnostico.ts"
+    "./diagnostico": "./src/diagnostico.ts",
+    "./bridge-marcador": "./src/bridge-marcador.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate --config ./drizzle-kit.config.ts",
@@ -15,6 +16,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "migrate:adotar": "tsx ./src/migrate-cli.ts --adotar-existentes",
+    "conferir-schema": "tsx ./src/conferir-schema-cli.ts",
     "bridge:down": "tsx ./src/bridge-cli.ts down",
     "bridge:up": "tsx ./src/bridge-cli.ts up"
   },
