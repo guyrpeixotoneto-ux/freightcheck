@@ -300,6 +300,97 @@ export async function panoramaDoContexto(
   };
 }
 
+// ── A leitura de comparação, com o estado pendente inescapável ──────────────
+
+/**
+ * O resultado de ler uma visão de comparação: ou a visão, ou a pendência dita.
+ *
+ * **Por que uma união e não um campo a mais.** O campo já existia e já
+ * propagava — `FamiliesView extends GroupedView`, e `getFamiliesView` devolve
+ * `{...view}` — e ainda assim seis funções deste arquivo liam a visão sem
+ * jamais consultá-lo. Não é descuido de quem escreveu: é o que acontece quando
+ * a condição excepcional mora num campo opcional de leitura. Quem escreve a
+ * sétima função copia a sexta, e a sexta não olha.
+ *
+ * Com a união, `visao` não existe sem estreitar o tipo. Uma função nova que
+ * esqueça a pendência não compila — e é essa a diferença entre uma regra e um
+ * lembrete.
+ */
+export type LeituraDeComparacao<V> =
+  | { pendente: false; visao: V }
+  | { pendente: true; evidencia: Evidencia };
+
+/**
+ * A evidência que **declara** a pendência, em vez de devolver zeros.
+ *
+ * Ela é uma evidência de verdade — vai ao dossiê, sustenta a fonte, aparece no
+ * painel técnico — e não autoriza número nenhum: `numeros: []`. É exatamente o
+ * que se quer, porque não há número a citar. O que ela carrega é a instrução de
+ * não concluir ausência de movimento, escrita onde quem redige vai lê-la.
+ */
+function comparacaoPendente(
+  ctx: ContextoResolvido,
+  periodLabel: string,
+  ferramenta: string,
+): Evidencia {
+  return {
+    ferramenta,
+    titulo: `Comparação pendente em ${periodLabel}`,
+    fatos: [
+      {
+        rotulo: "Estado da comparação",
+        valor: "ainda não calculada",
+        detalhe:
+          "A vigência tem dados importados e nunca foi comparada com a anterior neste " +
+          "recorte. Isto não é «nada mudou» — é «ninguém calculou».",
+      },
+    ],
+    numeros: [],
+    origem: `change_set ausente para ${periodLabel} · ${ctx.info.label}`,
+    recorte: recorteDe(ctx.info, { vigencia: periodLabel }),
+    tela: { label: "Alterações", href: "/alteracoes" },
+    nota:
+      "Não conclua que nada mudou a partir desta consulta, e não relate zero: o que há " +
+      "é uma comparação pendente. Diga isso a quem perguntou.",
+  };
+}
+
+/**
+ * A visão por famílias, ou a pendência — nunca zeros silenciosos.
+ *
+ * Todo caminho deste arquivo capaz de responder sobre comparação passa por
+ * aqui. `getFamiliesView` continua sendo quem lê; o que esta função acrescenta
+ * é obrigar quem a chama a decidir o que fazer com o terceiro estado.
+ */
+async function lerFamilias(
+  db: Database,
+  ctx: ContextoResolvido,
+  periodo: string | undefined,
+  ferramenta: string,
+): Promise<LeituraDeComparacao<NonNullable<Awaited<ReturnType<typeof getFamiliesView>>>> | null> {
+  const visao = await getFamiliesView(db, periodo, ctx.contexto);
+  if (!visao) return null;
+  if (visao.comparacao === "NAO_MATERIALIZADA") {
+    return { pendente: true, evidencia: comparacaoPendente(ctx, visao.periodLabel, ferramenta) };
+  }
+  return { pendente: false, visao };
+}
+
+/** A mesma regra sobre a visão agrupada — ver {@link lerFamilias}. */
+async function lerAgrupada(
+  db: Database,
+  ctx: ContextoResolvido,
+  periodo: string | undefined,
+  ferramenta: string,
+): Promise<LeituraDeComparacao<NonNullable<Awaited<ReturnType<typeof getGroupedView>>>> | null> {
+  const visao = await getGroupedView(db, periodo, ctx.contexto);
+  if (!visao) return null;
+  if (visao.comparacao === "NAO_MATERIALIZADA") {
+    return { pendente: true, evidencia: comparacaoPendente(ctx, visao.periodLabel, ferramenta) };
+  }
+  return { pendente: false, visao };
+}
+
 // ── Movimento de uma vigência ───────────────────────────────────────────────
 
 export async function resumoDaVigencia(
@@ -307,8 +398,10 @@ export async function resumoDaVigencia(
   ctx: ContextoResolvido,
   periodo?: string,
 ): Promise<Evidencia | null> {
-  const visao = await getFamiliesView(db, periodo, ctx.contexto);
-  if (!visao) return null;
+  const leitura = await lerFamilias(db, ctx, periodo, "resumoDaVigencia");
+  if (!leitura) return null;
+  if (leitura.pendente) return leitura.evidencia;
+  const visao = leitura.visao;
   const r = visao.summary;
   const impacto = impactoEmTexto(r.impact);
 
@@ -415,8 +508,10 @@ export async function filaDeInvestigacao(
   ctx: ContextoResolvido,
   periodo?: string,
 ): Promise<Evidencia | null> {
-  const visao = await getGroupedView(db, periodo, ctx.contexto);
-  if (!visao) return null;
+  const leitura = await lerAgrupada(db, ctx, periodo, "filaDeInvestigacao");
+  if (!leitura) return null;
+  if (leitura.pendente) return leitura.evidencia;
+  const visao = leitura.visao;
 
   const cockpit = buildCockpit(visao);
   const fila = cockpit.priorities.slice(0, 5);
@@ -475,8 +570,10 @@ export async function movimentoDoParametro(
   alvo: Alvo,
   periodo?: string,
 ): Promise<Evidencia | null> {
-  const visao = await getFamiliesView(db, periodo, ctx.contexto);
-  if (!visao) return null;
+  const leitura = await lerFamilias(db, ctx, periodo, "movimentoDoParametro");
+  if (!leitura) return null;
+  if (leitura.pendente) return leitura.evidencia;
+  const visao = leitura.visao;
 
   for (const familia of visao.families) {
     for (const p of familia.parameters) {
@@ -694,8 +791,10 @@ export async function rankingDeImpacto(
   lado: "PERDA" | "GANHO",
   periodo?: string,
 ): Promise<Evidencia | null> {
-  const visao = await getFamiliesView(db, periodo, ctx.contexto);
-  if (!visao) return null;
+  const leitura = await lerFamilias(db, ctx, periodo, "rankingDeImpacto");
+  if (!leitura) return null;
+  if (leitura.pendente) return leitura.evidencia;
+  const visao = leitura.visao;
   const r = visao.summary;
 
   const porPeriodicidade = lado === "PERDA" ? r.lossesByPeriodicity : r.gainsByPeriodicity;
@@ -765,8 +864,10 @@ export async function veiculosAfetados(
   periodo?: string,
   limite = 8,
 ): Promise<Evidencia | null> {
-  const visao = await getFamiliesView(db, periodo, ctx.contexto);
-  if (!visao) return null;
+  const leitura = await lerFamilias(db, ctx, periodo, "veiculosAfetados");
+  if (!leitura) return null;
+  if (leitura.pendente) return leitura.evidencia;
+  const visao = leitura.visao;
   const top = visao.summary.topVehicles.slice(0, limite);
 
   if (top.length === 0) {
@@ -814,8 +915,10 @@ export async function semParaPrecificar(
   ctx: ContextoResolvido,
   periodo?: string,
 ): Promise<Evidencia | null> {
-  const visao = await getFamiliesView(db, periodo, ctx.contexto);
-  if (!visao) return null;
+  const leitura = await lerFamilias(db, ctx, periodo, "semParaPrecificar");
+  if (!leitura) return null;
+  if (leitura.pendente) return leitura.evidencia;
+  const visao = leitura.visao;
   const r = visao.summary;
 
   const travados = visao.families

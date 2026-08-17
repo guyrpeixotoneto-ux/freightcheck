@@ -29,7 +29,8 @@ import {
   avancarEstado,
   type EstadoDaConversa,
 } from "./conversa";
-import type { Evidencia, Fato } from "./ferramentas";
+import { resolverContexto, type Evidencia, type Fato } from "./ferramentas";
+import { garantirComparacoes } from "@workspace/comparison";
 import {
   disponivel,
   modeloConfigurado,
@@ -47,13 +48,23 @@ import {
   numerosSemLastro,
   orquestrar,
   sanear,
+  recorteDaConversa,
   recorteDoDossie,
   type Dossie,
   type Etapa,
   type Lacuna,
 } from "./orquestrador";
+import { agenteLigado, evidenciasDaInvestigacao, investigar, type Investigacao } from "./agente";
+import { registroPadrao } from "./ferramentas/registro";
 import { SUGESTOES } from "./conhecimento";
 import { termos } from "./normalizar";
+import {
+  contextoParaOModelo,
+  explicarRedacao,
+  type CausaDaRedacao,
+  type ContextoParaOModelo,
+  type MotorDaResposta,
+} from "./medicao";
 
 export interface Fonte {
   /** "1", "2" — o número da citação. */
@@ -90,6 +101,35 @@ export interface Resposta {
     ferramentas: string[];
     numerosRecusados: string[];
     /**
+     * A investigação do agente — `null` no caminho determinístico.
+     *
+     * **Rodadas e consultas são medidas separadas, e é deliberado.** Uma rodada
+     * é um turno do modelo; ela pode pedir várias ferramentas de uma vez,
+     * porque consultas independentes partem juntas. Daí um teto de seis rodadas
+     * comportar onze consultas sem violar nada — e daí somar as duas num número
+     * só apagar justamente a diferença que interessa: seis rodadas com seis
+     * consultas é uma investigação funda e estreita; duas rodadas com onze é uma
+     * varredura larga e rasa.
+     *
+     * Foi uma métrica agregada que já descreveu uma rodada ao contrário nesta
+     * migração. Esta expõe as duas contagens e o rastro de cada chamada, para
+     * que ninguém precise inferir a segunda a partir da primeira.
+     */
+    agente: {
+      rodadas: number;
+      consultas: number;
+      parou: Investigacao["parou"];
+      chamadas: {
+        nome: string;
+        argumentos: Record<string, unknown>;
+        ok: boolean;
+        erro: string | null;
+        evidencias: number;
+        /** Índice da consulta anterior de cujo resultado esta saiu. */
+        derivaDe: number | null;
+      }[];
+    } | null;
+    /**
      * O rastro que explica esta resposta **depois** que ela aconteceu.
      *
      * Sem ele, investigar uma resposta ruim é reproduzir a pergunta à mão e
@@ -116,6 +156,26 @@ export interface Resposta {
       frasesTotais: number;
     };
     /**
+     * Quem escreveu este texto, e por quê — **sempre preenchido**.
+     *
+     * `ia` abaixo continua sendo a medição da chamada, e por isso continua
+     * `null` quando não houve chamada. O que faltava era justamente o caso em
+     * que não houve: `ia: null` dizia a mesma coisa para "não há chave" e para
+     * "quem chamou pediu sem modelo", e nenhuma das duas se lia da resposta.
+     * Aqui a causa é dita por extenso, em toda resposta, com os números que a
+     * sustentam.
+     */
+    motor: MotorDaResposta;
+    /**
+     * O que foi entregue ao modelo — ou o que teria sido, quando não houve
+     * chamada.
+     *
+     * É a pergunta que a tela não sabia responder: uma resposta pobre veio de
+     * modelo ruim ou de dossiê magro? Sem isto, as duas hipóteses custam a
+     * mesma investigação manual, e só uma delas tem conserto no prompt.
+     */
+    contexto: ContextoParaOModelo;
+    /**
      * O que aconteceu com a chamada ao modelo — `null` quando não houve uma.
      *
      * Sem isto, `redacao: "DETERMINISTICA"` é ambíguo de um jeito caro: não se
@@ -129,6 +189,11 @@ export interface Resposta {
       modelo: string;
       latenciaMs: number;
       erro: string | null;
+      /** O custo da chamada, para a bateria poder somá-lo. */
+      tokensEntrada: number;
+      tokensSaida: number;
+      origemDosTokens: "usage" | "estimativa";
+      custoUsd: number;
     } | null;
   };
 }
@@ -633,6 +698,263 @@ export interface PerguntaOptions {
    * chamador deve usar no lugar do que transmitiu.
    */
   aoTexto?: (pedaco: string) => void;
+  /**
+   * Junta o dossiê inteiro, como texto, em `tecnico.contexto.dossie`.
+   *
+   * A contagem do contexto sai sempre; o texto integral só aqui, porque ele é
+   * grande e é material interno. Quem liga isto é a bateria de aceitação, que
+   * precisa mostrar **com o quê** o modelo teria respondido cada pergunta.
+   */
+  diagnostico?: boolean;
+  /**
+   * Liga ou desliga o agente **nesta chamada**, ignorando a variável.
+   *
+   * A flag continua sendo de ambiente para produção; isto existe para quem
+   * precisa exercitar os dois caminhos no mesmo processo. O teste de
+   * reversibilidade fazia isso mutando `process.env`, e a mutação vazava: o
+   * vitest reaproveita worker entre arquivos, e um benchmark que rodasse na
+   * janela em que a flag estava ligada media o agente achando que media o
+   * planejador — falhava na suíte e passava isolado.
+   *
+   * Um parâmetro não tem janela.
+   */
+  agente?: boolean;
+}
+
+/**
+ * A resposta do agente, montada sobre o mesmo contrato da outra.
+ *
+ * Ela sai por aqui e não pelo caminho de baixo por uma razão de honestidade: a
+ * numeração das citações, as fontes da tela e as sugestões são todas derivadas
+ * do dossiê da orquestração, e no caminho do agente o material veio de outro
+ * lugar. Misturar os dois produziria uma tela em que a fonte [3] aponta para
+ * uma consulta que não participou da resposta.
+ *
+ * O que **não** muda: a trava de lastro é a mesma função, com a mesma regra de
+ * um terço. O que muda é a lista de números que ela aceita — agora a das
+ * ferramentas que o modelo chamou.
+ */
+/**
+ * De qual consulta anterior cada consulta saiu — o encadeamento, medido.
+ *
+ * **A pergunta que isto responde.** "O agente investiga mais" não pode ser
+ * provado contando consultas: dez buscas independentes disparadas de uma vez
+ * são largura, não profundidade. O que separa investigar de consultar muito é
+ * uma consulta cujo **argumento veio do resultado de outra** — "achei o grupo
+ * mais crítico, agora abro ele". Essa é uma decisão tomada depois de ver o
+ * dado, e é a única forma de encadeamento que se pode verificar sem perguntar
+ * ao modelo o que ele quis dizer.
+ *
+ * Devolve, para cada chamada, o índice da anterior cujo conteúdo continha um
+ * dos argumentos dela — ou `null`. Valores curtos ficam de fora: um `5` de
+ * `limite` casaria com qualquer resultado e transformaria a medida em ruído.
+ */
+function encadeamentoDe(chamadas: Investigacao["chamadas"]): (number | null)[] {
+  const textos = chamadas.map((c) => JSON.stringify(c.conteudo ?? null));
+
+  return chamadas.map((c, i) => {
+    const valores = Object.values(c.argumentos ?? {})
+      .filter((v): v is string | number => typeof v === "string" || typeof v === "number")
+      .map(String)
+      .filter((v) => v.length >= 4);
+
+    for (let j = i - 1; j >= 0; j--) {
+      if (valores.some((v) => textos[j]!.includes(v))) return j;
+    }
+    return null;
+  });
+}
+
+function montarComAgente(
+  dossie: Dossie,
+  investigacao: Investigacao,
+  opcoes: PerguntaOptions,
+  pergunta: string,
+): Resposta {
+  const daFerramenta = evidenciasDaInvestigacao(investigacao);
+  const encadeamento = encadeamentoDe(investigacao.chamadas);
+  /*
+    O dossiê que a trava confere é o do agente: as evidências das ferramentas,
+    e não as da orquestração. Somar as duas listas deixaria o modelo citar um
+    número de uma consulta que ele não pediu — que é lastro emprestado, e lastro
+    emprestado não é lastro.
+  */
+  const paraConferir: Dossie = { ...dossie, evidencias: daFerramenta, trechos: [], documentos: [], anexos: [] };
+
+  let texto = redacaoDeterministica(dossie);
+  let redacao: Resposta["redacao"] = "DETERMINISTICA";
+  let causa: CausaDaRedacao =
+    investigacao.parou === "RECUSA" ? "RECUSA" : investigacao.parou === "RESPONDEU" ? "IA_OK" : "ERRO";
+  let numerosRecusados: string[] = [];
+  let frasesPodadas = 0;
+  let frasesTotais = 0;
+
+  if (investigacao.texto) {
+    const saneamento = sanear(investigacao.texto, paraConferir);
+    numerosRecusados = saneamento.recusados;
+    frasesPodadas = saneamento.removidas;
+    frasesTotais = saneamento.total;
+
+    if (saneamento.recusados.length === 0) {
+      texto = investigacao.texto;
+      redacao = "IA";
+      causa = "IA_OK";
+    } else if (!saneamento.irrecuperavel) {
+      texto = saneamento.texto;
+      redacao = "IA";
+      causa = "IA_PODADA";
+    } else {
+      causa = "DESCARTADA";
+    }
+  }
+
+  const evento = registrar({
+    modelo: investigacao.medicao.modelo,
+    esforco: investigacao.medicao.esforco,
+    fluxo: false,
+    latenciaMs: investigacao.medicao.latenciaMs,
+    tokensEntrada: investigacao.medicao.tokensEntrada,
+    tokensSaida: investigacao.medicao.tokensSaida,
+    origemDosTokens: investigacao.medicao.origemDosTokens,
+    turnosNoHistorico: Math.min((opcoes.historico ?? []).length, 8),
+    intencao: dossie.plano.intencao,
+    desfecho:
+      causa === "IA_OK" ? "IA" : causa === "IA_PODADA" ? "PODADA" : causa === "DESCARTADA" ? "DESCARTADA" : investigacao.medicao.desfecho,
+    erro: investigacao.medicao.erro,
+  });
+
+  /*
+    As fontes da tela passam a ser as consultas que o agente fez, na ordem em
+    que ele as fez. É o rastro que responde "o que ele olhou antes de dizer
+    isso?" — e é a mesma lista que a trava usou.
+  */
+  const fontes: Fonte[] = daFerramenta.map((e, i) => ({
+    id: String(i + 1),
+    tipo: e.ferramenta.toLowerCase().includes("book") ? "BOOK" : "DADO",
+    titulo: e.titulo,
+    origem: e.origem,
+    ...(e.recorte
+      ? { detalhe: [e.recorte.contexto, e.recorte.vigencia].filter(Boolean).join(" · ") }
+      : {}),
+    ...(e.tela ? { tela: e.tela } : {}),
+  }));
+
+  return {
+    pergunta,
+    texto,
+    redacao,
+    modelo: redacao === "IA" ? modeloConfigurado() : null,
+    intencao: dossie.plano.intencao,
+    recorte: recorteDoDossie(dossie),
+    fontes,
+    etapas: dossie.etapas,
+    lacunas: dossie.lacunas,
+    sugestoes: sugerir(dossie),
+    desambiguacao: dossie.desambiguacao,
+    estado: avancarEstado(opcoes.estado ?? ESTADO_VAZIO, dossie),
+    tecnico: {
+      intencao: dossie.plano.intencao,
+      porque: dossie.plano.porque,
+      herdado: dossie.plano.herdado,
+      /* O log completo: nome e desfecho de cada consulta, na ordem. */
+      ferramentas: investigacao.chamadas.map((c) => `${c.nome}${c.ok ? "" : " (falhou)"}`),
+      numerosRecusados,
+      agente: {
+        rodadas: investigacao.rodadas,
+        consultas: investigacao.chamadas.length,
+        parou: investigacao.parou,
+        chamadas: investigacao.chamadas.map((c, i) => ({
+          nome: c.nome,
+          argumentos: (c.argumentos ?? {}) as Record<string, unknown>,
+          ok: c.ok,
+          erro: c.erro,
+          evidencias: c.evidencias.length,
+          /*
+            A referência que prova encadeamento.
+
+            É o que separa investigar de consultar muito: uma chamada cujo
+            argumento saiu do resultado de outra é uma decisão tomada **depois**
+            de ver o dado — "achei o grupo mais crítico, agora abro ele". Contar
+            só o número de consultas trataria isso igual a disparar dez buscas
+            independentes de uma vez, que é o oposto.
+          */
+          derivaDe: encadeamento[i] ?? null,
+        })),
+      },
+      motor: explicarRedacao({ codigo: causa, frasesPodadas, frasesTotais, numerosRecusados, erro: investigacao.medicao.erro }),
+      contexto: contextoParaOModelo(paraConferir, {
+        ...(opcoes.historico ? { historico: opcoes.historico } : {}),
+        ...(opcoes.diagnostico ? { incluirTexto: true } : {}),
+      }),
+      ia: {
+        desfecho: evento.desfecho,
+        modelo: evento.modelo,
+        latenciaMs: evento.latenciaMs,
+        erro: evento.erro,
+        tokensEntrada: evento.tokensEntrada,
+        tokensSaida: evento.tokensSaida,
+        origemDosTokens: evento.origemDosTokens,
+        custoUsd: evento.custoUsd,
+      },
+      rastro: {
+        assunto: dossie.plano.assunto,
+        comoReconheceu: dossie.plano.comoReconheceu,
+        necessidades: dossie.plano.necessidades,
+        book: dossie.diagnostico.book,
+        etapas: dossie.etapas.map((e) => ({ nome: e.nome, ms: e.ms })),
+        orquestracaoMs: dossie.diagnostico.ms,
+        frasesPodadas,
+        frasesTotais,
+      },
+    },
+  };
+}
+
+/**
+ * As comparações que esta conversa vai precisar, materializadas — uma vez.
+ *
+ * **A pergunta que isto responde é de quem é a pré-condição.** `change` e
+ * `change_set` são estado derivado: eles nascem de `computeChangeSet` e, até
+ * este ponto, seis lugares os criavam por conta própria — a promoção de uma
+ * importação, dois endpoints de tela, a ficha de composição, a série
+ * consolidada, um CLI — e um sétimo, a orquestração do planejador, criava-os
+ * por pergunta. Sete iniciativas, nenhum dono; quem esquecesse lia zero e não
+ * tinha como saber que era zero por falta de cálculo.
+ *
+ * **Por que aqui e não em cada ferramenta.** Uma ferramenta que garante a
+ * própria pré-condição vira escrita disfarçada de leitura, e seriam N delas —
+ * `alteracoes`, `ordenacao`, `comparar`, `resultado`, `veiculos` — cada uma com
+ * a chance de esquecer. Seria trocar sete donos por doze.
+ *
+ * **Por que aqui e não no orquestrador, onde estava.** Porque o orquestrador é
+ * o caminho que esta migração aposenta. Enquanto a garantia morasse lá, o
+ * agente a recebia de carona — `responder` orquestra antes de investigar — e o
+ * dia em que o planejador saísse levaria a pré-condição junto, num diff que não
+ * fala de comparações. Esta função é o único ponto por onde os dois caminhos
+ * passam **e** que sobrevive à remoção de um deles.
+ *
+ * **Por que não deixar a leitura calcular.** `getGroupedView` recusa-se a
+ * calcular de propósito, e a decisão é boa: abrir uma tela não deve disparar
+ * trabalho pesado nem produzir números diferentes conforme quem abriu primeiro.
+ * O que faltava lá não era o cálculo — era dizer que não havia o que ler, e é
+ * o que `naoComparada` agora diz. Repara-se num lugar; lê-se com honestidade em
+ * todos.
+ *
+ * Falha em silêncio de propósito: um par que não se compara — escopo, canal ou
+ * cobertura diferentes — é condição legítima do domínio, e derrubar a pergunta
+ * por causa dele trocaria resposta incompleta por resposta nenhuma. O que
+ * sobra, quem lê declara.
+ */
+async function garantirRecorte(db: Database, opcoes: PerguntaOptions): Promise<void> {
+  const recorte = recorteDaConversa(opcoes.recorte, opcoes.estado ?? null);
+  const resolvido = await resolverContexto(db, recorte).catch(() => null);
+  if (!resolvido) return;
+  opcoes.aoAvancar?.({
+    nome: "garantirComparacoes",
+    rotulo: "Conferindo as comparações da vigência",
+    ms: 0,
+  });
+  await garantirComparacoes(db, resolvido.contexto).catch(() => null);
 }
 
 /**
@@ -647,6 +969,12 @@ export async function responder(
   pergunta: string,
   opcoes: PerguntaOptions = {},
 ): Promise<Resposta> {
+  /*
+    Antes de orquestrar e antes de investigar, e por isso vale para os dois.
+    Ver `garantirRecorte` acima para por que a pré-condição mora aqui.
+  */
+  await garantirRecorte(db, opcoes);
+
   const dossie = await orquestrar(db, pergunta.trim(), {
     ...(opcoes.recorte ? { recorte: opcoes.recorte } : {}),
     estado: opcoes.estado ?? null,
@@ -660,6 +988,14 @@ export async function responder(
   let ia: Resposta["tecnico"]["ia"] = null;
   let frasesPodadas = 0;
   let frasesTotais = 0;
+  /*
+    A causa começa no caso em que não houve chamada, e é corrigida se houver.
+
+    Escrever assim — em vez de deduzir a causa no fim a partir de `ia === null`
+    — é o que torna as duas situações distinguíveis: `disponivel()` e `semIa`
+    são perguntas diferentes, e só aqui as duas ainda estão à mão.
+  */
+  let causa: CausaDaRedacao = opcoes.semIa ? "IA_DESLIGADA" : "SEM_CHAVE";
 
   if (!opcoes.semIa && disponivel()) {
     const pedido: PedidoDeRedacao = {
@@ -673,6 +1009,46 @@ export async function responder(
       confere frase a frase. Sem ele, é a chamada única de sempre, e as evals
       (que não transmitem nada) seguem exercitando exatamente o caminho antigo.
     */
+    /*
+      ---- o caminho do agente, atrás da flag ---------------------------------
+
+      Com `ASSISTENTE_AGENTE=1` o modelo passa a escolher o que consultar. Tudo
+      o mais continua: a orquestração roda antes (o dossiê ainda é montado, e é
+      ele que a comparação "antes × depois" usa como referência), a trava
+      confere o texto, e a redação em código continua sendo o destino de uma
+      resposta que não se sustente.
+
+      **As evidências das ferramentas entram no lastro desde já.** Seria
+      possível deixar para o PR 3 e ligar a flag num estado em que toda resposta
+      do agente é descartada — falharia fechado, que é seguro, e seria um flag
+      impossível de avaliar. Rastreabilidade é requisito do desenho, não etapa
+      da migração: um número só chega à tela se tiver voltado de uma consulta,
+      e agora "consulta" inclui as que o modelo escolheu.
+    */
+    if (opcoes.agente ?? agenteLigado()) {
+      const investigacao = await investigar({
+        pergunta,
+        registro: registroPadrao(),
+        ferramentas: {
+          db,
+          recorte: {
+            ...(opcoes.recorte?.scopeHash ? { scopeHash: opcoes.recorte.scopeHash } : {}),
+            ...(opcoes.recorte?.channel !== undefined ? { channel: opcoes.recorte.channel } : {}),
+          },
+          ...(dossie.plano.periodo ? { periodo: dossie.plano.periodo } : {}),
+        },
+        ...(opcoes.historico?.length ? { historico: opcoes.historico } : {}),
+        ...(opcoes.aoAvancar
+          ? {
+              aoConsultar: (nome: string) =>
+                opcoes.aoAvancar!({ nome: "ferramenta", rotulo: `Consultando ${nome}`, ms: 0 }),
+            }
+          : {}),
+      });
+
+      return montarComAgente(dossie, investigacao, opcoes, pergunta);
+    }
+
     const portao = opcoes.aoTexto ? portaoDeLastro(dossie, opcoes.aoTexto) : null;
     const { texto: doModelo, medicao } = portao
       ? await redigirEmFluxo(pedido, (pedaco) => portao.receber(pedaco))
@@ -702,13 +1078,23 @@ export async function responder(
       if (saneamento.recusados.length === 0) {
         texto = doModelo;
         redacao = "IA";
+        causa = "IA_OK";
       } else if (!saneamento.irrecuperavel) {
         texto = saneamento.texto;
         redacao = "IA";
         desfecho = "PODADA";
+        causa = "IA_PODADA";
       } else {
         desfecho = "DESCARTADA";
+        causa = "DESCARTADA";
       }
+    } else {
+      /*
+        Sem texto do modelo: ou ele recusou, ou a chamada quebrou. `medicao`
+        distingue as duas, e nenhuma delas é "sem chave" — o `disponivel()`
+        acima já garantiu que havia chave para tentar.
+      */
+      causa = medicao.desfecho === "RECUSA" ? "RECUSA" : "ERRO";
     }
 
     const evento = registrar({ ...medicao, intencao: dossie.plano.intencao, desfecho });
@@ -724,6 +1110,10 @@ export async function responder(
       modelo: evento.modelo,
       latenciaMs: evento.latenciaMs,
       erro: evento.erro,
+      tokensEntrada: evento.tokensEntrada,
+      tokensSaida: evento.tokensSaida,
+      origemDosTokens: evento.origemDosTokens,
+      custoUsd: evento.custoUsd,
     };
   }
 
@@ -748,6 +1138,19 @@ export async function responder(
       herdado: dossie.plano.herdado,
       ferramentas: dossie.evidencias.map((e: Evidencia) => e.ferramenta),
       numerosRecusados,
+      // O caminho determinístico não investiga: não há rodadas a relatar.
+      agente: null,
+      motor: explicarRedacao({
+        codigo: causa,
+        frasesPodadas,
+        frasesTotais,
+        numerosRecusados,
+        erro: ia?.erro ?? null,
+      }),
+      contexto: contextoParaOModelo(dossie, {
+        ...(opcoes.historico ? { historico: opcoes.historico } : {}),
+        ...(opcoes.diagnostico ? { incluirTexto: true } : {}),
+      }),
       ia,
       rastro: {
         assunto: dossie.plano.assunto,

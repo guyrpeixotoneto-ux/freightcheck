@@ -82,7 +82,7 @@ import {
 } from "./interpretacao";
 import { normalizar, termos } from "./normalizar";
 import { resolverParametro, type Alvo, type Resolucao } from "./parametros";
-import { garantirComparacoes, listContexts, listPeriods } from "@workspace/comparison";
+import { listContexts, listPeriods, type SeriesContext } from "@workspace/comparison";
 import { rotuloDoPeriodo } from "./formato";
 import type { EstadoDaConversa } from "./conversa";
 
@@ -346,6 +346,30 @@ export interface OpcoesDeOrquestracao {
 }
 
 /**
+ * De que unidade e canal esta conversa fala — a expressão, escrita uma vez.
+ *
+ * Os dois caminhos precisam da mesma resposta, e enquanto cada um a montava por
+ * conta própria eles já divergiam em silêncio: a orquestração herda o
+ * `scopeHash` da conversa quando a tela não manda um, e o contexto que
+ * `responder` entrega ao agente não herdava. O efeito seria uma segunda
+ * pergunta respondida sobre outra unidade que a primeira — a classe de erro que
+ * a fronteira de isolamento existe para tornar impossível.
+ *
+ * Exportada porque quem garante as comparações precisa saber sobre qual recorte
+ * garanti-las, e essa decisão não pode ser tomada duas vezes.
+ */
+export function recorteDaConversa(
+  pedido: OpcoesDeOrquestracao["recorte"],
+  estado: EstadoDaConversa | null | undefined,
+): Partial<SeriesContext> {
+  return {
+    ...(pedido?.scopeHash ? { scopeHash: pedido.scopeHash } : {}),
+    ...(pedido?.channel !== undefined ? { channel: pedido.channel } : {}),
+    ...(estado?.scopeHash && !pedido?.scopeHash ? { scopeHash: estado.scopeHash } : {}),
+  };
+}
+
+/**
  * Da pergunta ao dossiê — sem escrever uma frase.
  *
  * O que sai daqui é material fechado: os trechos que sustentam o conceito, as
@@ -596,31 +620,26 @@ export async function orquestrar(
     investigacao.necessidades.includes("CATALOGO_DE_CONTEXTO");
   if (querContexto) {
     marcar("resolverContexto", "Resolvendo unidade e canal");
-    contexto = await resolverContexto(db, {
-      ...(opcoes.recorte?.scopeHash ? { scopeHash: opcoes.recorte.scopeHash } : {}),
-      ...(opcoes.recorte?.channel !== undefined ? { channel: opcoes.recorte.channel } : {}),
-      ...(estado?.scopeHash && !opcoes.recorte?.scopeHash ? { scopeHash: estado.scopeHash } : {}),
-    });
+    contexto = await resolverContexto(db, recorteDaConversa(opcoes.recorte, estado));
   }
 
   /*
-    ---- as comparações que este recorte precisa, garantidas -------------------
+    ---- a garantia das comparações **não mora mais aqui** ---------------------
 
-    `change` e `change_set` são estado derivado, e até aqui só existiam quando
-    alguém abria a tela de Alterações. Ler a ausência deles como ausência de
-    movimento fazia esta função responder "0 alterações" num banco com 124 mil
-    fatos — com a fonte ao lado, indistinguível de uma consulta legítima.
+    Ela subiu para `responder`, e a razão é que este arquivo é o caminho do
+    planejador — que esta migração existe para aposentar. Enquanto a garantia
+    estivesse aqui, o agente a recebia de graça, porque `responder` roda a
+    orquestração antes de investigar; no dia em que o planejador saísse, o
+    agente perderia a pré-condição junto, sem que nada no diff falasse de
+    comparações.
 
-    A garantia é idempotente e barata quando já está feita: uma consulta
-    descobre o que falta, e numa base em dia nada é calculado. O custo real
-    aparece uma vez, na primeira pergunta depois de uma importação — que é
-    exatamente quando ele deve aparecer.
+    Não é hipótese: a auditoria de integridade chama as ferramentas direto,
+    sem passar por aqui, e viveu esse futuro — dezessete casos aprovados sobre
+    conteúdo vazio, num banco cujo estado derivado nunca havia sido
+    materializado. Foi o defeito de amanhã acontecendo hoje, num instrumento.
+
+    Ver `garantirRecorte` em `resposta.ts`: um dono só, acima dos dois caminhos.
   */
-  if (contexto && precisaRecorte) {
-    marcar("garantirComparacoes", "Conferindo as comparações da vigência");
-    await garantirComparacoes(db, contexto.contexto).catch(() => null);
-  }
-
   const periodo = contexto ? await resolverPeriodo(db, contexto, periodoPedido) : null;
   const intervalo = contexto && intervaloPedido
     ? {

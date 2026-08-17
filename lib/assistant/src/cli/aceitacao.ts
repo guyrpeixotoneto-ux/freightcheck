@@ -163,6 +163,88 @@ function resumoDaResposta(r: Resposta) {
   };
 }
 
+/**
+ * A linha da tabela de medição — o que se compara entre duas rodadas.
+ *
+ * Ela é o baseline da migração ao agente: rodada com a flag desligada, é o
+ * "antes"; rodada com ela ligada, é o "depois". Por isso sai também em JSON, e
+ * por isso nenhum campo aqui é derivado de julgamento — todos vêm da resposta.
+ */
+interface LinhaDeMedicao {
+  id: string;
+  categoria: string;
+  pergunta: string;
+  redigiu: "IA" | "DETERMINISTICA" | "PULADO";
+  houveChamada: boolean;
+  codigo: string;
+  causa: string;
+  /** As consultas que a orquestração decidiu fazer. */
+  ferramentas: string[];
+  /** O material que o modelo recebeu (ou teria recebido). */
+  itens: number;
+  fatos: number;
+  secoes: string[];
+  dossieChars: number;
+  historicoChars: number;
+  turnos: number;
+  lacunas: string[];
+  latenciaModeloMs: number | null;
+  tokensEntrada: number | null;
+  tokensSaida: number | null;
+  custoUsd: number | null;
+  frasesPodadas: number;
+  frasesTotais: number;
+  numerosRecusados: string[];
+  msTotal: number;
+}
+
+function medir(r: Resultado): LinhaDeMedicao {
+  const base = {
+    id: r.id,
+    categoria: String(r.categoria),
+    pergunta: r.pergunta,
+    msTotal: r.msDecorridos,
+  };
+
+  if (!r.resposta) {
+    return {
+      ...base,
+      redigiu: "PULADO",
+      houveChamada: false,
+      codigo: "PULADO",
+      causa: r.pulado ?? "pulado",
+      ferramentas: [], itens: 0, fatos: 0, secoes: [], dossieChars: 0,
+      historicoChars: 0, turnos: 0, lacunas: [],
+      latenciaModeloMs: null, tokensEntrada: null, tokensSaida: null, custoUsd: null,
+      frasesPodadas: 0, frasesTotais: 0, numerosRecusados: [],
+    };
+  }
+
+  const t = r.resposta.tecnico;
+  return {
+    ...base,
+    redigiu: t.motor.redigiu,
+    houveChamada: t.motor.houveChamada,
+    codigo: t.motor.codigo,
+    causa: t.motor.causa,
+    ferramentas: t.ferramentas,
+    itens: t.contexto.itens.total,
+    fatos: t.contexto.fatos,
+    secoes: t.contexto.secoes,
+    dossieChars: t.contexto.caracteres.dossie,
+    historicoChars: t.contexto.caracteres.historico,
+    turnos: t.contexto.turnos,
+    lacunas: t.contexto.lacunas,
+    latenciaModeloMs: t.ia?.latenciaMs ?? null,
+    tokensEntrada: t.ia?.tokensEntrada ?? null,
+    tokensSaida: t.ia?.tokensSaida ?? null,
+    custoUsd: t.ia?.custoUsd ?? null,
+    frasesPodadas: t.rastro.frasesPodadas,
+    frasesTotais: t.rastro.frasesTotais,
+    numerosRecusados: t.numerosRecusados,
+  };
+}
+
 async function rodar(db: Database, marcadores: Marcadores, so: Set<string> | null) {
   const resultados: Resultado[] = [];
 
@@ -185,7 +267,7 @@ async function rodar(db: Database, marcadores: Marcadores, so: Set<string> | nul
     }
 
     const inicio = Date.now();
-    const resposta = await responder(db, pergunta);
+    const resposta = await responder(db, pergunta, { diagnostico: true });
     const msDecorridos = Date.now() - inicio;
 
     resultados.push({
@@ -241,7 +323,11 @@ async function rodarConversas(db: Database, marcadores: Marcadores) {
       const id = `${sequencia.id}#${i + 1}`;
 
       const inicio = Date.now();
-      const resposta = await responder(db, pergunta, { estado, historico: [...historico] });
+      const resposta = await responder(db, pergunta, {
+        estado,
+        historico: [...historico],
+        diagnostico: true,
+      });
       const msDecorridos = Date.now() - inicio;
 
       const falhas = verificar(resposta, passo.espera ?? {}, perguntaTecnica(pergunta));
@@ -336,6 +422,116 @@ function relatorio(ambiente: Ambiente, marcadores: Marcadores, resultados: Resul
   }
   p();
 
+  /*
+    ---- B2. quem escreveu, e por quê ----------------------------------------
+
+    Esta é a tabela que faltava, e a falta era cara: `redacao: DETERMINISTICA`
+    aparecia sozinha, e ela cobre cinco situações que pedem ações opostas. Aqui
+    cada linha diz se houve chamada, o que a impediu quando não houve, e — para
+    o caso em que houve e o texto foi descartado — quantas frases caíram e por
+    causa de que número.
+
+    As três colunas de contexto (itens, fatos, dossiê) respondem a outra
+    pergunta, e é a que decide se vale mexer no prompt: **o modelo tinha com que
+    responder?** Uma linha com 1 item e 3 fatos não melhora com instrução
+    nenhuma.
+  */
+  const medicoes = resultados.map(medir);
+  const executadas = medicoes.filter((m) => m.redigiu !== "PULADO");
+  const porCodigo = new Map<string, number>();
+  for (const m of executadas) porCodigo.set(m.codigo, (porCodigo.get(m.codigo) ?? 0) + 1);
+
+  p("## B2. Quem escreveu cada resposta — e por quê");
+  p();
+  p(`- respostas executadas: **${executadas.length}**`);
+  p(`- escritas pelo modelo: **${executadas.filter((m) => m.redigiu === "IA").length}**`);
+  p(`- escritas em código: **${executadas.filter((m) => m.redigiu === "DETERMINISTICA").length}**`);
+  p(`- houve chamada real à Anthropic em: **${executadas.filter((m) => m.houveChamada).length}**`);
+  p();
+  p("Por causa:");
+  p();
+  for (const [codigo, n] of [...porCodigo].sort((a, b) => b[1] - a[1])) {
+    p(`- \`${codigo}\` — ${n} caso(s)`);
+  }
+  p();
+
+  const somaTokens = executadas.reduce(
+    (acc, m) => ({
+      entrada: acc.entrada + (m.tokensEntrada ?? 0),
+      saida: acc.saida + (m.tokensSaida ?? 0),
+      custo: acc.custo + (m.custoUsd ?? 0),
+    }),
+    { entrada: 0, saida: 0, custo: 0 },
+  );
+  const comChamada = executadas.filter((m) => m.houveChamada);
+  if (comChamada.length > 0) {
+    const latencias = comChamada.map((m) => m.latenciaModeloMs ?? 0).sort((a, b) => a - b);
+    p(
+      `Custo do modelo nesta rodada: **${somaTokens.entrada.toLocaleString("pt-BR")}** tokens de ` +
+        `entrada, **${somaTokens.saida.toLocaleString("pt-BR")}** de saída, ` +
+        `**US$ ${somaTokens.custo.toFixed(4)}**. Latência mediana: ` +
+        `**${latencias[Math.floor(latencias.length / 2)]} ms**.`,
+    );
+  } else {
+    p(
+      "> **Nenhuma chamada ao modelo nesta rodada.** As colunas de token, custo e latência " +
+        "estão vazias por isso, e não por falta de instrumentação. O que esta rodada mede é " +
+        "o caminho determinístico e — na coluna `itens`/`fatos`/`dossiê` — exatamente o " +
+        "material que o modelo teria recebido em cada pergunta.",
+    );
+  }
+  p();
+  p("| # | redigiu | chamada | causa | ferramentas | itens | fatos | dossiê | podadas | tok. ent | tok. saí | modelo ms |");
+  p("| --- | --- | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |");
+  for (const m of medicoes) {
+    const num = (v: number | null) => (v === null ? "—" : String(v));
+    p(
+      `| ${m.id} | ${m.redigiu} | ${m.houveChamada ? "sim" : "não"} | \`${m.codigo}\` | ` +
+        `${m.ferramentas.length > 0 ? m.ferramentas.join(", ") : "—"} | ` +
+        `${m.itens} | ${m.fatos} | ${m.dossieChars} | ` +
+        `${m.frasesTotais > 0 ? `${m.frasesPodadas}/${m.frasesTotais}` : "—"} | ` +
+        `${num(m.tokensEntrada)} | ${num(m.tokensSaida)} | ${num(m.latenciaModeloMs)} |`,
+    );
+  }
+  p();
+  p(
+    "_`itens` = fontes citáveis entregues ao modelo · `fatos` = linhas de resultado visíveis " +
+      "nas evidências · `dossiê` = caracteres do material desta pergunta · `podadas` = frases " +
+      "removidas pela trava de lastro, sobre o total._",
+  );
+  p();
+
+  /*
+    Os dossiês magros, em primeiro plano.
+
+    Uma linha com um item e poucos fatos é uma pergunta que o produto recebeu e
+    não foi buscar material para responder. Nenhum modelo conserta isso, e é o
+    achado que decide a arquitetura — por isso ele sai destacado, e não
+    escondido no meio de sessenta linhas de tabela.
+  */
+  const magras = executadas
+    .filter((m) => m.fatos <= 3 && m.itens <= 2)
+    .sort((a, b) => a.fatos - b.fatos);
+  if (magras.length > 0) {
+    p("### Perguntas cujo dossiê chegou magro ao modelo");
+    p();
+    p(
+      `**${magras.length} de ${executadas.length}** perguntas foram para a redação com no ` +
+        "máximo 2 fontes e 3 fatos. Nestas, a qualidade da resposta é um teto imposto pelo " +
+        "material, não pelo redator.",
+    );
+    p();
+    p("| # | pergunta | itens | fatos | ferramentas |");
+    p("| --- | --- | ---: | ---: | --- |");
+    for (const m of magras) {
+      p(
+        `| ${m.id} | ${m.pergunta.replace(/\|/g, "\\|").slice(0, 70)} | ${m.itens} | ` +
+          `${m.fatos} | ${m.ferramentas.join(", ") || "—"} |`,
+      );
+    }
+    p();
+  }
+
   p("## C. Falhas por regra");
   p();
   const porRegra = new Map<string, Resultado[]>();
@@ -377,6 +573,41 @@ function relatorio(ambiente: Ambiente, marcadores: Marcadores, resultados: Resul
     if (s.lacunas.length > 0) p(`**Lacunas.** ${s.lacunas.join(", ")}`);
     if (s.numerosRecusados.length > 0) p(`**Recusado pela trava.** ${s.numerosRecusados.join(", ")}`);
     p();
+
+    /*
+      O material exato, e não um resumo dele.
+
+      Esta é a pergunta que nenhuma investigação de resposta ruim conseguia
+      responder sem instrumentar o código à mão: **com o que o modelo tinha
+      para trabalhar?** Sem ela, "a resposta ficou pobre" é indistinguível de
+      "o dossiê chegou pobre", e as duas hipóteses custam a mesma investigação.
+    */
+    const ctx = r.resposta.tecnico.contexto;
+    p(
+      `**Quem redigiu.** \`${r.resposta.tecnico.motor.redigiu}\` — ` +
+        `${r.resposta.tecnico.motor.causa}`,
+    );
+    p();
+    p(
+      `**Contexto entregue ao modelo.** ${ctx.itens.total} fonte(s) ` +
+        `(conceito ${ctx.itens.conceito} · Book ${ctx.itens.book} · dado ${ctx.itens.dado} · ` +
+        `arquivo ${ctx.itens.arquivo}) · ${ctx.fatos} fato(s) visível(is) · ` +
+        `${ctx.caracteres.dossie} caracteres de dossiê · ${ctx.turnos} turno(s) de histórico ` +
+        `(${ctx.caracteres.historico} caracteres) · instrução do sistema ` +
+        `${ctx.caracteres.instrucao} caracteres` +
+        (ctx.secoes.length > 0 ? ` · seções: ${ctx.secoes.join(", ")}` : " · **dossiê vazio**"),
+    );
+    p();
+    if (ctx.dossie) {
+      p("<details><summary>O dossiê inteiro, como o modelo o recebe</summary>");
+      p();
+      p("```markdown");
+      p(ctx.dossie);
+      p("```");
+      p();
+      p("</details>");
+      p();
+    }
     p("**Resposta.**");
     p();
     p("> " + r.resposta.texto.split("\n").join("\n> "));
@@ -422,7 +653,28 @@ async function principal() {
   */
   const faltando: string[] = [];
   if (!urlDoBanco) faltando.push("DATABASE_URL (ou ASSISTANT_EVAL_DATABASE_URL) apontando para o banco com os dados importados");
-  if (!disponivel() && !semIa) faltando.push("ANTHROPIC_API_KEY — sem ela só roda o caminho determinístico (use --sem-ia para medir só ele, de propósito)");
+  /*
+    Faltar chave deixou de ser motivo para não medir — passou a ser o que se mede.
+
+    A recusa fazia sentido quando o relatório só sabia dizer "redação
+    determinística": um relatório inteiro assim media a ausência da chave e
+    parecia medir o assistente. Com a seção B2, uma rodada sem chave responde
+    duas perguntas reais e as responde bem — qual é o texto que o produto
+    entrega hoje sem modelo, e **com que material** cada pergunta teria chegado
+    ao modelo. As duas valem como baseline; o que não vale é confundi-las com
+    uma medição do modelo, e disso o relatório avisa em letra grande.
+  */
+  const semChaveNoProcesso = !disponivel() && !semIa;
+
+  if (semChaveNoProcesso) {
+    console.warn(
+      "\n⚠  Não há ANTHROPIC_API_KEY neste processo.\n" +
+        "   A bateria roda assim mesmo e mede o caminho determinístico — mas as colunas\n" +
+        "   de token, custo e latência ficam vazias, e nenhuma linha desta rodada diz\n" +
+        "   nada sobre a qualidade do modelo. Para medir a metade do modelo, rode no\n" +
+        "   ambiente onde a chave existe.\n",
+    );
+  }
 
   if (faltando.length > 0) {
     console.error("A bateria de aceitação não roda neste ambiente. Falta:\n");
@@ -472,9 +724,38 @@ async function principal() {
   console.log("\nConversas:");
   const dasConversas = filtro ? [] : await rodarConversas(db, marcadores);
 
-  const texto = relatorio(ambiente, marcadores, [...doCatalogo, ...dasConversas]);
+  const todos = [...doCatalogo, ...dasConversas];
+  const texto = relatorio(ambiente, marcadores, todos);
   writeFileSync(saida, texto, "utf8");
+
+  /*
+    O mesmo resultado em JSON, ao lado do markdown.
+
+    O markdown é para ler; este é para **comparar**. Quando o agente entrar
+    atrás da flag, a pergunta que decide se ele pode virar padrão é "que
+    perguntas mudaram de desfecho, e para melhor ou pior?" — e essa pergunta se
+    responde com um diff entre dois destes arquivos, não relendo sessenta
+    respostas à mão.
+  */
+  const json = saida.replace(/\.md$/, "") + ".json";
+  writeFileSync(
+    json,
+    JSON.stringify(
+      {
+        em: new Date().toISOString(),
+        agente: process.env.ASSISTENTE_AGENTE === "1",
+        ambiente: { ...ambiente, urlDoBanco: ambiente.urlDoBanco.replace(/:[^:@/]+@/, ":***@") },
+        marcadores,
+        medicoes: todos.map(medir),
+      },
+      null,
+      2,
+    ),
+    "utf8",
+  );
+
   console.log(`\nRelatório escrito em ${saida}`);
+  console.log(`Medição comparável em ${json}`);
   process.exit(0);
 }
 

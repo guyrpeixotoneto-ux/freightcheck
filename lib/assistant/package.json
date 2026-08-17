@@ -10,7 +10,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "aceitacao": "tsx src/cli/aceitacao.ts"
+    "aceitacao": "tsx src/cli/aceitacao.ts",
+    "trajetoria": "tsx src/cli/trajetoria.ts",
+    "desfecho": "tsx src/cli/desfecho.ts",
+    "comparar": "tsx src/cli/comparar.ts",
+    "comparativo": "tsx src/cli/comparativo.ts",
+    "exploratoria": "tsx src/cli/exploratoria.ts",
+    "pr7": "node ../../scripts/pr7.mjs",
+    "erro-da-ia": "tsx src/cli/erro-da-ia.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "catalog:",

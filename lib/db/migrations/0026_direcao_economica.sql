@@ -1,0 +1,63 @@
+-- Direção econômica: o que falta para "isso é bom ou ruim para mim?" ser
+-- respondível a partir do dado.
+--
+-- O banco já sabe muito sobre cada coluna: unidade, periodicidade, agregação,
+-- se é monetária, onde ela cai na taxonomia, o que ela significa
+-- (`definition`), como a fonte a produz (`calculation_basis`) e se a semântica
+-- está confirmada. Com tudo isso, ainda não há como responder se um consumo
+-- que subiu é bom ou ruim para a transportadora — porque nada aqui diz para
+-- que lado o dinheiro anda quando o número anda.
+--
+-- Sem estas duas colunas só restam duas saídas, e as duas são ruins: o
+-- assistente chuta a partir do que um modelo sabe de logística — proibido,
+-- porque é exatamente o tipo de afirmação que este produto existe para não
+-- fazer sem lastro —, ou alguém escreve uma frase por variável dentro do
+-- prompt, que é a dependência de código por pergunta reaparecendo noutro
+-- lugar. Semântica é dado; o lugar dela é aqui.
+--
+--   1. `economic_direction` — enum em texto livre, do ponto de vista da
+--      **transportadora**. O ponto de vista é metade da informação: consumo
+--      negociado maior reduz o litro remunerado, o que é pior para quem
+--      transporta e melhor para quem contrata. Guardar a direção sem dizer de
+--      quem ela é produziria leituras invertidas conforme quem lê.
+--
+--      HIGHER_IS_BETTER      — subir aumenta a remuneração ou reduz o custo.
+--      HIGHER_IS_WORSE       — subir reduz a remuneração ou aumenta o custo.
+--      NEUTRAL               — é cadastro, não grandeza econômica.
+--      DEPENDS_ON_FORMULA    — depende de que conta a usa; a fórmula decide.
+--
+--      Texto e não `CHECK`, pela mesma razão de `calculation_basis`: o
+--      vocabulário de comportamento econômico é da operação, não nosso, e uma
+--      quinta categoria não deve custar uma migration.
+--
+--   2. `economic_effect` — uma frase de quem cura, no mesmo espírito de
+--      `definition`: *"mais km por litro reconhecido reduz o litro remunerado
+--      para a mesma distância"*. É o que transforma a direção numa explicação
+--      que alguém entende, e é o que o assistente lê para poder dizer o
+--      **porquê** em vez de só o sinal.
+--
+-- As duas em `attribute` (a projeção) e em `attribute_semantics` (a verdade
+-- versionada), pelo motivo de sempre nesta tabela: quando a Ambev muda o que
+-- uma coluna carrega, a leitura econômica anterior continua verdadeira para as
+-- vigências dela e precisa sobreviver ao lado dos números que descreveu. Uma
+-- direção não versionada faria a leitura de dezembro ser reescrita pela
+-- curadoria de agosto, em silêncio.
+--
+-- O que esta migration deliberadamente NÃO faz: mexer em `semantics_status`.
+-- Dizer para que lado o dinheiro anda não é confirmar unidade, periodicidade e
+-- agregação — e é essa confirmação, e só ela, que destrava soma de dinheiro. Os
+-- portões continuam exatamente onde estavam.
+--
+-- Ambas anuláveis, sem default, nenhum dado tocado: `NULL` quer dizer "ninguém
+-- curou ainda", que é o estado de todas as 138 colunas hoje e é diferente de
+-- `NEUTRAL`, que é uma afirmação. O assistente tem de saber distinguir "não
+-- sabemos" de "não tem efeito".
+--
+-- `IF NOT EXISTS` porque a fila é reentrante: `runMigrations()` atravessa um
+-- banco em que o Publishing já criou a coluna, e o `bridge-up` levanta estes
+-- statements do disco para restaurar Development.
+
+ALTER TABLE "attribute" ADD COLUMN IF NOT EXISTS "economic_direction" text;--> statement-breakpoint
+ALTER TABLE "attribute" ADD COLUMN IF NOT EXISTS "economic_effect" text;--> statement-breakpoint
+ALTER TABLE "attribute_semantics" ADD COLUMN IF NOT EXISTS "economic_direction" text;--> statement-breakpoint
+ALTER TABLE "attribute_semantics" ADD COLUMN IF NOT EXISTS "economic_effect" text;

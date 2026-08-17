@@ -706,14 +706,35 @@ function PainelTecnico({ resposta }: { resposta: Resposta }) {
         dossiê, a terceira esperando a API voltar — e quem olhava a tela não
         tinha como saber em qual delas estava.
       */}
-      {t.ia && (
-        <p className={t.ia.desfecho === "IA" ? undefined : "text-destructive"}>
-          <span className="text-muted-foreground">modelo:</span>{" "}
-          {MOTIVO_DA_REDACAO[t.ia.desfecho]} · {t.ia.modelo} ·{" "}
-          {(t.ia.latenciaMs / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} s
-          {t.ia.erro ? ` · ${t.ia.erro}` : ""}
-        </p>
-      )}
+      {/*
+        E o caso que continuava invisível: quando **não houve chamada**.
+
+        Este bloco dependia de `t.ia`, que é nulo justamente aí — então a tela
+        ficava muda nas duas situações mais comuns de uma resposta em código.
+        `t.motor` existe em toda resposta e diz qual das cinco causas foi.
+      */}
+      <p className={t.motor.redigiu === "IA" ? undefined : "text-destructive"}>
+        <span className="text-muted-foreground">modelo:</span>{" "}
+        {t.ia ? MOTIVO_DA_REDACAO[t.ia.desfecho] : t.motor.causa}
+        {t.ia
+          ? ` · ${t.ia.modelo} · ${(t.ia.latenciaMs / 1000).toLocaleString("pt-BR", { maximumFractionDigits: 1 })} s` +
+            ` · ${(t.ia.tokensEntrada + t.ia.tokensSaida).toLocaleString("pt-BR")} tokens`
+          : ""}
+        {t.ia?.erro ? ` · ${t.ia.erro}` : ""}
+      </p>
+      {/*
+        Com que material o modelo trabalhou.
+
+        É a pergunta que separa "o modelo respondeu mal" de "o dossiê chegou
+        magro", e as duas se consertam em lugares opostos. Sem esta linha, a
+        primeira hipótese é a única visível — e é a errada na maioria das vezes.
+      */}
+      <p>
+        <span className="text-muted-foreground">material:</span>{" "}
+        {t.contexto.itens.total} fonte(s) · {t.contexto.fatos} fato(s) ·{" "}
+        {t.contexto.caracteres.dossie.toLocaleString("pt-BR")} caracteres
+        {t.contexto.turnos > 0 ? ` · ${t.contexto.turnos} turno(s) de histórico` : ""}
+      </p>
       {t.numerosRecusados.length > 0 && (
         <p className="text-destructive">
           o que a trava recusou: {t.numerosRecusados.join(", ")}

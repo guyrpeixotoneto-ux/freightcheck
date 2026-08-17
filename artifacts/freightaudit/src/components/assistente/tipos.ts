@@ -48,12 +48,37 @@ export interface Resposta {
       frasesPodadas: number;
       frasesTotais: number;
     };
+    /** Quem escreveu o texto e por quê — sempre presente, inclusive sem chamada. */
+    motor: {
+      redigiu: "IA" | "DETERMINISTICA";
+      houveChamada: boolean;
+      codigo:
+        | "IA_OK" | "IA_PODADA" | "DESCARTADA"
+        | "RECUSA" | "ERRO" | "SEM_CHAVE" | "IA_DESLIGADA";
+      causa: string;
+    };
+    /** O material que foi entregue ao modelo — ou que teria sido. */
+    contexto: {
+      itens: { conceito: number; book: number; dado: number; arquivo: number; total: number };
+      fatos: number;
+      secoes: string[];
+      caracteres: { instrucao: number; dossie: number; historico: number };
+      turnos: number;
+      anexos: number;
+      lacunas: string[];
+      /** Só vem preenchido quando a chamada pediu diagnóstico. */
+      dossie: string | null;
+    };
     /** O que aconteceu com a chamada ao modelo — `null` quando não houve uma. */
     ia: {
       desfecho: "IA" | "PODADA" | "DESCARTADA" | "RECUSA" | "ERRO" | "SEM_CHAVE";
       modelo: string;
       latenciaMs: number;
       erro: string | null;
+      tokensEntrada: number;
+      tokensSaida: number;
+      origemDosTokens: "usage" | "estimativa";
+      custoUsd: number;
     } | null;
   };
   conversationId: string;

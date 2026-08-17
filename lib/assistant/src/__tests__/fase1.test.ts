@@ -1,4 +1,4 @@
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
 import { createDb, type Database } from "@workspace/db";
 import { resolveContext } from "@workspace/comparison";
@@ -50,29 +50,76 @@ rodar("Fase 1 — confiabilidade e perda da pergunta", () => {
     defeito em produção: um banco recém-promovido em que ninguém abriu a tela.
   */
   describe("P0.1 — o conjunto de alteração é garantido antes de responder", () => {
+    /*
+      ---- este bloco tem banco próprio ---------------------------------------
+
+      Ele apaga `change` e `change_set` de propósito, e o banco de avaliação é
+      compartilhado com os outros arquivos, que rodam em paralelo. Quem lesse na
+      janela entre o DELETE e o reparo mediria um banco sem movimento e falharia
+      por um defeito que não é dele — foi o que passou a acontecer com o
+      benchmark e com a auditoria de integridade, de forma intermitente.
+
+      Antes isto passava despercebido porque `orquestrar` reparava sozinho a
+      cada chamada: qualquer leitor concorrente consertava o estrago sem saber.
+      Com a garantia num dono só, o efeito colateral que escondia a poluição
+      deixou de existir — e o que ele escondia apareceu.
+    */
+    let db: Database;
+    let banco: Awaited<
+      ReturnType<typeof import("@workspace/comparison/testing").criarBancoComModelosCurados>
+    >;
+
+    beforeAll(async () => {
+      const { criarBancoComModelosCurados } = await import("@workspace/comparison/testing");
+      banco = await criarBancoComModelosCurados("fase1_p01");
+      db = banco.db;
+      await semearBookDeTeste(db);
+    }, 300_000);
+
+    afterAll(async () => {
+      await banco?.drop();
+    });
+
+    /*
+      A pergunta é feita por `responder`, e não por `orquestrar`.
+
+      O que este caso protege é o comportamento do produto — "perguntar não
+      devolve 0 sobre um banco cheio" —, e esse comportamento mudou de dono. A
+      garantia morava na orquestração, que é o caminho do planejador; enquanto
+      estivesse lá, o agente a recebia de carona e a perderia no dia em que o
+      planejador saísse, sem que nada no diff falasse de comparações. Ela subiu
+      para `responder`, o único ponto por onde os dois caminhos passam e que
+      sobrevive à remoção de um deles.
+
+      Perguntar aqui pelo mesmo lugar por onde a aplicação pergunta é o que
+      mantém este caso medindo o defeito, e não a localização do conserto. Que
+      os dois caminhos enxerguem a mesma coisa está provado à parte, em
+      `precondicao-comparacoes.test.ts`.
+    */
     it("responde o movimento real num banco sem nenhum change set calculado", async () => {
       await db.execute(sql`DELETE FROM change`);
       await db.execute(sql`DELETE FROM change_set`);
 
-      const dossie = await orquestrar(db, "Teve alteração na remuneração?");
-      const resumo = dossie.evidencias.find(
-        (e) => e.ferramenta === "resumoDaVigencia",
-      );
+      // Uma pergunta, pela porta da aplicação. É ela que precisa bastar.
+      await responder(db, "Teve alteração na remuneração?", { semIa: true });
 
-      expect(
-        resumo,
-        "a pergunta tinha de consultar o resumo da vigência",
-      ).toBeTruthy();
+      /*
+        E a conferência pelo dossiê, que é onde o número mora. `orquestrar` não
+        repara mais nada: se a chamada acima não tivesse garantido as
+        comparações, o que se lê aqui seria zero — que é precisamente o defeito
+        que este caso existe para não deixar voltar.
+      */
+      const dossie = await orquestrar(db, "Teve alteração na remuneração?");
+      const resumo = dossie.evidencias.find((e) => e.ferramenta === "resumoDaVigencia");
+
+      expect(resumo, "a pergunta tinha de consultar o resumo da vigência").toBeTruthy();
 
       const alteracoes = resumo!.fatos.find((f) => f.rotulo === "Alterações");
       expect(
         alteracoes?.valor,
         "sem o change set garantido, esta pergunta responde 0 e parece uma consulta legítima",
       ).not.toBe("0");
-      expect(
-        resumo!.numeros.some((n) => n > 0),
-        "nenhum número maior que zero",
-      ).toBe(true);
+      expect(resumo!.numeros.some((n) => n > 0), "nenhum número maior que zero").toBe(true);
     });
 
     it("é idempotente: perguntar de novo não recalcula nem muda o número", async () => {
