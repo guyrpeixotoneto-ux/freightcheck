@@ -3,6 +3,10 @@ import { readFileSync, statSync } from "node:fs";
 import * as XLSX from "xlsx";
 import { eq, and, sql } from "drizzle-orm";
 import {
+  chaveDeSerieSql,
+  filtroDeVigenciaDisponivel,
+} from "@workspace/availability";
+import {
   type Database,
   attributeTable,
   ticketChangeTable,
@@ -1485,7 +1489,7 @@ function narrowChanges(
 }
 
 /**
- * O valor em vigor de cada (placa, parâmetro), na vigência mais recente.
+ * O valor em vigor de cada (placa, parâmetro), na vigência mais recente **dela**.
  *
  * É o que dá um "antes" ao chamado que só trouxe o valor novo — o caso comum.
  * A procedência é gravada em `before_source = 'VIGENCIA'` e o rótulo da
@@ -1493,9 +1497,28 @@ function narrowChanges(
  * de um declarado pelo próprio chamado: ele é o nosso melhor conhecimento do
  * estado anterior, e a tela precisa poder dizer isso.
  *
- * Uma vigência por série: quando carreta e cavalo chegam em arquivos
- * separados, cada uma tem a sua mais recente, e tomar "a mais recente de
- * todas" leria a frota inteira pela data de uma delas.
+ * **Quem é "a mais recente" mudou, e é a divergência B6 da auditoria.** Aqui
+ * estava escrito `DISTINCT ON (scope_hash, entity_type_set)`, que é uma
+ * definição de série com os três defeitos que a auditoria mediu, de uma vez:
+ * `scope_hash` cru parte a unidade em duas quando o CNPJ muda de grafia;
+ * `entity_type_set` elege **duas** "mais recentes" quando uma entrega passa a
+ * trazer outro equipamento, e uma delas é velha; e **o canal não entrava**, de
+ * modo que o "antes" de um chamado podia ser buscado numa vigência de outra
+ * remuneração — e gravado em `before_reference` como se fosse o certo.
+ *
+ * A pergunta certa não é "qual é a última de cada série": é **"qual foi o
+ * último valor desta placa"**. A chave de leitura sempre foi `(placa,
+ * parâmetro)`, e a placa pertence a uma entidade só; ranquear por ela dispensa
+ * decidir a série por fora e resolve a colisão que a chave antiga escondia —
+ * duas séries com a mesma placa sobrescreviam uma à outra, em ordem de
+ * chegada.
+ *
+ * **Quando a placa vive em mais de uma série, não há "antes".** O chamado
+ * nomeia placa e parâmetro, nunca o canal: se o mesmo reboque é remunerado por
+ * duas remunerações, "o valor anterior" tem duas respostas certas e o arquivo
+ * não diz qual. O chamado fica com `before_source = 'AUSENTE'`, que é o estado
+ * que o produto já sabe mostrar — e o chamado que **nomeia** a vigência
+ * continua sendo respondido por ela, que é a saída correta e já existia.
  */
 interface ValorVigente {
   value: string | null;
@@ -1505,7 +1528,7 @@ interface ValorVigente {
 interface ValoresVigentes {
   /** `vigência|placa|código` — o valor naquela vigência nomeada. */
   porVigencia: Map<string, ValorVigente>;
-  /** `placa|código` — o valor na vigência mais recente da série. */
+  /** `placa|código` — o último valor daquela placa, quando ele é um só. */
   maisRecente: Map<string, ValorVigente>;
 }
 
@@ -1538,50 +1561,82 @@ async function valoresVigentes(
     code: string;
     valor: string | null;
     label: string;
+    nomeada: boolean;
     recente: boolean;
   }>(sql`
-    WITH recentes AS (
-      SELECT DISTINCT ON (s.scope_hash, s.entity_type_set) s.id
-        FROM snapshot s
-       WHERE s.status <> 'SUPERSEDED'
-       ORDER BY s.scope_hash, s.entity_type_set, s.effective_date DESC
-    ),
-    alvo AS (
+    WITH disponiveis AS (
+      -- Quem diz o que é uma vigência disponível é a autoridade, e não este
+      -- arquivo. A chave de série também vem dela: aqui ela serve só para
+      -- reconhecer o empate ambíguo, mais abaixo.
       SELECT s.id,
              s.source_label,
-             (r.id IS NOT NULL) AS recente
+             s.effective_date,
+             ${chaveDeSerieSql("s")} AS serie
         FROM snapshot s
-        LEFT JOIN recentes r ON r.id = s.id
-       WHERE s.status <> 'SUPERSEDED'
-         AND (r.id IS NOT NULL OR s.source_label IN (${listaVigencias}))
+       WHERE ${filtroDeVigenciaDisponivel("s")}
+    ),
+    valores AS (
+      SELECT ei.identifier_value AS placa,
+             a.code              AS code,
+             CASE WHEN f.is_null THEN NULL
+                  ELSE coalesce(
+                    f.value_text,
+                    f.value_numeric::text,
+                    f.value_boolean::text,
+                    f.value_date::text
+                  )
+             END                 AS valor,
+             d.source_label      AS label,
+             d.effective_date,
+             d.serie
+        FROM fact f
+        JOIN disponiveis d       ON d.id = f.snapshot_id
+        JOIN attribute a         ON a.id = f.attribute_id
+        JOIN entity_identifier ei ON ei.entity_id = f.entity_id
+                                AND ei.is_current
+                                AND ei.identifier_type = 'PLACA'
+       WHERE ei.identifier_value IN (${listaPlacas})
+         AND a.code IN (${listaCodes})
+    ),
+    /*
+      Em quantas séries esta placa e este parâmetro aparecem.
+
+      Mais de uma é ambiguidade, e não empate a desempatar: o chamado nomeia
+      placa e parâmetro, nunca o canal. Se o mesmo reboque é remunerado por
+      duas remunerações, "o valor anterior" tem duas respostas certas e o
+      arquivo não diz qual. Pegar a mais nova seria escolher pela data uma
+      pergunta que não é sobre data — e foi exatamente assim que o "antes" de
+      um chamado passou a vir de outro canal, gravado como se fosse o certo.
+    */
+    series_da_placa AS (
+      SELECT placa, code, count(DISTINCT serie) AS series
+        FROM valores
+       GROUP BY placa, code
+    ),
+    ranqueados AS (
+      SELECT v.*,
+             sp.series,
+             row_number() OVER (
+               PARTITION BY v.placa, v.code ORDER BY v.effective_date DESC
+             ) AS posicao
+        FROM valores v
+        JOIN series_da_placa sp ON sp.placa = v.placa AND sp.code = v.code
     )
-    SELECT ei.identifier_value AS placa,
-           a.code              AS code,
-           CASE WHEN f.is_null THEN NULL
-                ELSE coalesce(
-                  f.value_text,
-                  f.value_numeric::text,
-                  f.value_boolean::text,
-                  f.value_date::text
-                )
-           END                 AS valor,
-           t.source_label      AS label,
-           t.recente           AS recente
-      FROM fact f
-      JOIN alvo t              ON t.id = f.snapshot_id
-      JOIN attribute a         ON a.id = f.attribute_id
-      JOIN entity_identifier ei ON ei.entity_id = f.entity_id
-                              AND ei.is_current
-                              AND ei.identifier_type = 'PLACA'
-     WHERE ei.identifier_value IN (${listaPlacas})
-       AND a.code IN (${listaCodes})
+    SELECT placa,
+           code,
+           valor,
+           label,
+           (label IN (${listaVigencias}))     AS nomeada,
+           (posicao = 1 AND series = 1)       AS recente
+      FROM ranqueados
+     WHERE posicao = 1 OR label IN (${listaVigencias})
   `);
 
   const porVigencia = new Map<string, ValorVigente>();
   const maisRecente = new Map<string, ValorVigente>();
   for (const r of rows) {
     const valor = { value: r.valor, label: r.label };
-    porVigencia.set(`${r.label}|${r.placa}|${r.code}`, valor);
+    if (r.nomeada) porVigencia.set(`${r.label}|${r.placa}|${r.code}`, valor);
     if (r.recente) maisRecente.set(`${r.placa}|${r.code}`, valor);
   }
   return { porVigencia, maisRecente };

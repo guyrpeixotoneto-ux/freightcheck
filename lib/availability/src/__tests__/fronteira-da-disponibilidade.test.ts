@@ -57,12 +57,13 @@ const ONDE_A_AUTORIDADE_NAO_ALCANCA = [
     prefixo: "lib/db/src/",
   },
   {
-    // O caminho de escrita. Durante o `promote`, a vigência nova é DRAFT e a
-    // busca pela viva que ela substitui precisa enxergar os dois estados:
-    // `= 'CLOSED'` ali mudaria a promoção, não a leitura. É o único lugar do
-    // produto em que `<> 'SUPERSEDED'` e `= 'CLOSED'` **não** são a mesma
-    // pergunta.
-    prefixo: "lib/ingest/src/",
+    // A promoção, e só ela. Ao procurar a vigência ativa que a nova substitui,
+    // a consulta tem de casar com o predicado do **índice parcial** que
+    // garante "uma ativa por identidade" — que é `<> 'SUPERSEDED'`, e por isso
+    // inclui a DRAFT que a própria transação acabou de criar. É o único lugar
+    // do produto em que as duas formas não são a mesma pergunta, e trocá-la
+    // mudaria a promoção, não uma leitura.
+    prefixo: "lib/ingest/src/pipeline.ts",
   },
   {
     // A própria autoridade, que explica a diferença entre as duas formas.
@@ -147,7 +148,7 @@ describe("a fronteira da disponibilidade", () => {
       predicado de propósito, e é ele que prova que a rede tem malha.
     */
     const encontrados = fontesDoWorkspace()
-      .filter((c) => path.relative(RAIZ, c).startsWith("lib/ingest/src/"))
+      .filter((c) => path.relative(RAIZ, c).startsWith("lib/ingest/src/pipeline.ts"))
       .flatMap((c) => linhasComOPredicado(c));
 
     expect(encontrados.length).toBeGreaterThan(0);

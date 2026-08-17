@@ -958,6 +958,9 @@ importers:
 
   lib/ingest:
     dependencies:
+      '@workspace/availability':
+        specifier: workspace:*
+        version: link:../availability
       '@workspace/db':
         specifier: workspace:*
         version: link:../db
