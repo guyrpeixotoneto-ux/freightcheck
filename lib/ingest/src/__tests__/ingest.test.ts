@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
 import {
+  atributosSemSemanticaAplicavel,
+  attributeSemanticsTable,
   attributeTable,
   entityIdentifierTable,
   entityTable,
@@ -203,6 +205,77 @@ describe("entities", () => {
       .from(entityIdentifierTable)
       .where(eq(entityIdentifierTable.identifierType, "CHASSI"));
     expect(row.count).toBeGreaterThan(0);
+  });
+});
+
+describe("semântica versionada", () => {
+  /*
+    A promoção cria o atributo **e** a versão 1 dele, na mesma transação.
+
+    Enquanto não criava, a segunda metade dependia de alguém rodar
+    `backfillSemantics` — um lote da curadoria que só o `dev-seed` e os testes
+    chamam. Medido nesta mesma base antes da correção: 138 atributos, 138 sem
+    versão. A tela de Curadoria recusava gravar "fórmula de cálculo" pedindo um
+    backfill que ninguém tinha como rodar por ali, e a comparação, sem nenhuma
+    linha para resolver, deixava de enxergar mudança de semântica da fonte.
+
+    Este bloco é o que impede a garantia de sair de dentro da importação sem
+    ninguém notar.
+  */
+  it("dá a todo atributo a sua versão 1, sem precisar de backfill depois", async () => {
+    expect(await atributosSemSemanticaAplicavel(ctx.db)).toEqual([]);
+
+    const [{ versoes }] = await ctx.db
+      .select({ versoes: sql<number>`count(*)`.mapWith(Number) })
+      .from(attributeSemanticsTable);
+    const [{ atributos }] = await ctx.db
+      .select({ atributos: sql<number>`count(*)`.mapWith(Number) })
+      .from(attributeTable);
+    expect(versoes).toBe(atributos);
+  });
+
+  it("faz a versão inicial cobrir a série inteira", async () => {
+    const [{ inicio }] = await ctx.db
+      .select({ inicio: sql<string>`min(${snapshotTable.effectiveDate})::text` })
+      .from(snapshotTable);
+
+    const versoes = await ctx.db.select().from(attributeSemanticsTable);
+    for (const v of versoes) {
+      expect(v.effectiveFrom).toBe(inicio);
+      // Em vigor, e única: a versão 1 não fecha até a fonte mudar de ideia.
+      expect(v.effectiveUntil).toBeNull();
+      expect(v.version).toBe(1);
+    }
+  });
+
+  it("não inventa significado nenhum ao criá-la", async () => {
+    /*
+      A versão copia o atributo, que a importação acabou de criar sem saber
+      nada sobre ele. Se um dia esta asserção falhar com valores preenchidos, o
+      que quebrou não é o teste: é a importação tendo passado a afirmar
+      semântica que ninguém conferiu.
+    */
+    const [attribute] = await ctx.db
+      .select()
+      .from(attributeTable)
+      .where(eq(attributeTable.code, "cavalo.combustivel_vida_cavalo"));
+    const [versao] = await ctx.db
+      .select()
+      .from(attributeSemanticsTable)
+      .where(eq(attributeSemanticsTable.attributeId, attribute.id));
+
+    expect(versao.unit).toBeNull();
+    expect(versao.periodicity).toBeNull();
+    expect(versao.aggregation).toBeNull();
+    expect(versao.isMonetary).toBeNull();
+    expect(versao.definition).toBeNull();
+    // Não existe em `attribute`, ninguém a escreveu, e um palpite aqui seria a
+    // invenção que a importação não pode cometer.
+    expect(versao.calculationBasis).toBeNull();
+    expect(versao.semanticsStatus).toBe("UNKNOWN");
+    expect(versao.confirmedBy).toBeNull();
+    // `INITIAL` é o que impede a linha de virar notícia de mudança da fonte.
+    expect(versao.changeOrigin).toBe("INITIAL");
   });
 });
 

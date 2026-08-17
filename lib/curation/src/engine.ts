@@ -32,6 +32,52 @@ import {
  * rejects a CONFIRMED row that carries no human confirmer.
  */
 
+/**
+ * A mesma semântica, também na versão em vigor.
+ *
+ * `attribute` é a **projeção** da versão em vigor — está escrito assim no
+ * schema, e a comparação leva a sério: ela resolve unidade, periodicidade e
+ * agregação lendo `attribute_semantics` na data de cada vigência. Quem escreve
+ * só a projeção cria duas verdades, e a que vale para o dinheiro é a que
+ * ninguém escreveu.
+ *
+ * Isso ficou invisível enquanto a tabela versionada estava **vazia** em
+ * produção: sem linha nenhuma, a comparação caía na projeção e acertava. No
+ * momento em que todo atributo passou a nascer com a sua versão 1, uma
+ * confirmação que só tocasse `attribute` viraria um atributo confirmado cuja
+ * versão em vigor continua dizendo "não sei" — e o número sumiria da soma sem
+ * uma linha de erro.
+ *
+ * Escreve na versão aberta (`effective_until IS NULL`), que é a única que
+ * descreve o presente. As fechadas são o passado e não se corrigem por aqui:
+ * para isso existe `correctSemantics`, que pede versão e justificativa.
+ */
+async function espelharNaVersaoEmVigor(
+  tx: Database,
+  attributeId: string,
+  campos: {
+    unit: string | null;
+    periodicity: string | null;
+    aggregation: string | null;
+    isMonetary: boolean | null;
+    taxonomyNodeId: string | null;
+    semanticsStatus: string;
+    rationale: string | null;
+    confirmedBy?: string | null;
+    confirmedAt?: Date | null;
+  },
+): Promise<void> {
+  await tx
+    .update(attributeSemanticsTable)
+    .set(campos)
+    .where(
+      and(
+        eq(attributeSemanticsTable.attributeId, attributeId),
+        isNull(attributeSemanticsTable.effectiveUntil),
+      ),
+    );
+}
+
 /** Snapshot used for the magnitude figures. The most recent live one. */
 async function latestSnapshotId(db: Database): Promise<string | null> {
   const [snapshot] = await db
@@ -245,20 +291,27 @@ export async function runProposalPass(
       continue;
     }
 
+    const proposto = {
+      unit: conflict ? null : proposal.unit,
+      // Periodicity is never proposed. It is the one field only a human can
+      // fill, and the one the export's naming actively misleads about.
+      periodicity: attribute.periodicity,
+      aggregation: conflict ? null : proposal.aggregation,
+      isMonetary: conflict ? null : proposal.isMonetary,
+      taxonomyNodeId: node?.id ?? null,
+      semanticsStatus: nextStatus,
+    };
+
     await db
       .update(attributeTable)
-      .set({
-        unit: conflict ? null : proposal.unit,
-        // Periodicity is never proposed. It is the one field only a human can
-        // fill, and the one the export's naming actively misleads about.
-        periodicity: attribute.periodicity,
-        aggregation: conflict ? null : proposal.aggregation,
-        isMonetary: conflict ? null : proposal.isMonetary,
-        taxonomyNodeId: node?.id ?? null,
-        semanticsStatus: nextStatus,
-        semanticsRationale: rationale,
-      })
+      .set({ ...proposto, semanticsRationale: rationale } as never)
       .where(eq(attributeTable.id, attribute.id));
+
+    // A proposta vale para o presente, e o presente é a versão em vigor.
+    await espelharNaVersaoEmVigor(db, attribute.id, {
+      ...proposto,
+      rationale,
+    });
 
     await db.insert(curationEventTable).values(
       changes.map((c) => ({
@@ -385,20 +438,33 @@ export async function confirmAttribute(
   record("semantics_status", attribute.semanticsStatus, "CONFIRMED");
 
   await db.transaction(async (tx) => {
+    const confirmadoEm = new Date();
+    const confirmado = {
+      unit,
+      periodicity,
+      aggregation,
+      isMonetary,
+      taxonomyNodeId,
+      semanticsStatus: "CONFIRMED",
+      confirmedBy: input.actor,
+      confirmedAt: confirmadoEm,
+    };
+
     await tx
       .update(attributeTable)
-      .set({
-        unit,
-        periodicity,
-        aggregation,
-        isMonetary,
-        taxonomyNodeId,
-        semanticsStatus: "CONFIRMED",
-        semanticsRationale: input.reason,
-        confirmedBy: input.actor,
-        confirmedAt: new Date(),
-      })
+      .set({ ...confirmado, semanticsRationale: input.reason } as never)
       .where(eq(attributeTable.id, attribute.id));
+
+    /*
+      A confirmação vale para a vigência em curso, que é a versão aberta. Um
+      atributo com duas versões — porque a fonte mudou a regra em junho — tem a
+      de junho confirmada e a anterior intocada: ela foi verdade no trecho dela,
+      e confirmar hoje não é afirmar nada sobre o passado.
+    */
+    await espelharNaVersaoEmVigor(tx as unknown as Database, attribute.id, {
+      ...confirmado,
+      rationale: input.reason,
+    });
 
     if (changes.length > 0) {
       await tx.insert(curationEventTable).values(

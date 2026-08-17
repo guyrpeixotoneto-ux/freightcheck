@@ -380,7 +380,9 @@ describe("dar um nome legível não espera pelo backfill", () => {
 
   it("continua recusando uma base de cálculo que não teria onde morar", async () => {
     // O campo é mesmo da versão, e prometer que foi guardado seria pior do que
-    // recusar. O que mudou é que a recusa agora só aparece para quem escreveu.
+    // recusar. Sozinha, a base não tem o que salvar junto: a chamada inteira
+    // não gravaria nada, e responder "gravado" seria a mesma mentira ao
+    // contrário.
     await expect(
       saveMeaning(ctx.db, {
         code: semVersao,
@@ -391,17 +393,66 @@ describe("dar um nome legível não espera pelo backfill", () => {
   });
 
   it("a recusa da base não leva junto o nome escrito na mesma tela", async () => {
-    await expect(
-      saveMeaning(ctx.db, {
-        code: semVersao,
-        displayName: "Outro nome qualquer",
-        calculationBasis: "1,000% do valor da NF.",
-        actor: "guy@operalog",
-      }),
-    ).rejects.toThrow();
+    /*
+      A tela mandava os três campos e recebia de volta uma recusa que dizia "o
+      nome gerencial e o significado podem ser salvos normalmente" — sem ter
+      salvo nenhum dos dois. Para obedecer àquela frase era preciso apagar a
+      fórmula recém-escrita. Agora a frase é verdade: o que não depende de
+      versão é gravado, e a fórmula volta em `notWritten`.
+    */
+    const resultado = await saveMeaning(ctx.db, {
+      code: semVersao,
+      displayName: "Outro nome qualquer",
+      definition: "O que esta coluna é, escrito antes do backfill.",
+      calculationBasis: "1,000% do valor da NF.",
+      actor: "guy@operalog",
+    });
 
-    // Nada gravado pela metade: a transação inteira volta atrás.
-    expect((await attribute(semVersao)).displayName).toBe("Consumo de combustível");
+    expect(resultado.changed).toEqual(
+      expect.arrayContaining(["display_name", "definition"]),
+    );
+    expect(resultado.notWritten?.field).toBe("calculation_basis");
+    expect(resultado.notWritten?.message).toMatch(/fórmula de cálculo/i);
+    // O aviso nomeia o que ficou salvo, para ninguém reescrever o que já está lá.
+    expect(resultado.notWritten?.message).toMatch(/nome gerencial e o significado/i);
+
+    const depois = await attribute(semVersao);
+    expect(depois.displayName).toBe("Outro nome qualquer");
+    expect(depois.definition).toBe("O que esta coluna é, escrito antes do backfill.");
+  });
+
+  it("não devolve como guardada a fórmula que não foi guardada", async () => {
+    // Ecoar o texto digitado faria a tela mostrar como salva uma fórmula que
+    // não está em lugar nenhum — e o `changed` não pode listá-la.
+    const resultado = await saveMeaning(ctx.db, {
+      code: semVersao,
+      displayName: "Consumo de combustível",
+      calculationBasis: "Litros = Quilometragem ÷ Consumo (km/L).",
+      actor: "guy@operalog",
+    });
+
+    expect(resultado.calculationBasis).toBeNull();
+    expect(resultado.changed).not.toContain("calculation_basis");
+
+    const eventos = await ctx.db
+      .select()
+      .from(curationEventTable)
+      .where(
+        and(
+          eq(curationEventTable.targetLabel, semVersao),
+          eq(curationEventTable.field, "calculation_basis"),
+        ),
+      );
+    expect(eventos).toHaveLength(0);
+  });
+
+  it("não avisa nada quando a base tinha onde morar", async () => {
+    const resultado = await saveMeaning(ctx.db, {
+      code: "cavalo.ipva_licenciamento",
+      calculationBasis: "0,651% do valor da NF.",
+      actor: "guy@operalog",
+    });
+    expect(resultado.notWritten).toBeNull();
   });
 });
 

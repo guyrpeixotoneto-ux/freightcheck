@@ -772,6 +772,14 @@ function MeaningCard({
   const [basis, setBasis] = useState(detail.calculationBasis ?? "");
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  /*
+    O que o servidor gravou pela metade, e por quê. Hoje é um caso só: a fórmula
+    de cálculo num atributo sem semântica versionada. Não sai em vermelho porque
+    não é recusa do que a pessoa fez — o nome e o significado do mesmo clique
+    foram salvos, e o texto da fórmula continua na caixa acima, à espera do
+    backfill.
+  */
+  const [pendente, setPendente] = useState<string | null>(null);
 
   /*
     Só sobe o que a pessoa mexeu. Mandar os três campos em toda gravação fazia
@@ -810,15 +818,17 @@ function MeaningCard({
       );
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Falha ao salvar");
-      return body;
+      return body as { notWritten: { message: string } | null };
     },
-    onSuccess: () => {
+    onSuccess: (body) => {
       setError(null);
       setSaved(true);
+      setPendente(body.notWritten?.message ?? null);
       onSaved();
     },
     onError: (err: Error) => {
       setSaved(false);
+      setPendente(null);
       setError(err.message);
     },
   });
@@ -904,6 +914,12 @@ function MeaningCard({
         {error && (
           <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md px-3 py-2">
             {error}
+          </p>
+        )}
+
+        {pendente && !error && (
+          <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+            {pendente} O texto da fórmula continua na caixa acima.
           </p>
         )}
 
@@ -1128,7 +1144,16 @@ function FormulaEmPortugues({
   });
 
   const vazia = !formula.trim();
-  const desatualizada = leitura !== null && leitura.sobre !== formula.trim();
+  /*
+    Só uma leitura de verdade envelhece. Quando não houve texto — o modelo não
+    respondeu, não está configurado, recusou —, não existe paráfrase que possa
+    "falar da versão anterior", e o aviso aparecia mesmo assim: embaixo de "Não
+    consegui ler agora" a tela dizia que a leitura era de outra fórmula, o que
+    inventa uma leitura que nunca houve. O motivo em si continua valendo para
+    qualquer texto, e por isso continua visível.
+  */
+  const desatualizada =
+    leitura !== null && leitura.texto !== null && leitura.sobre !== formula.trim();
 
   return (
     <div className="space-y-2">

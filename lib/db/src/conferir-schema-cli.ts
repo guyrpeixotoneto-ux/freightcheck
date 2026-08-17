@@ -4,6 +4,10 @@ import {
   compararSchema,
   tabelasDeclaradas,
 } from "./conferir-schema";
+import {
+  avaliarIntegridadeSemantica,
+  relatarIntegridadeSemantica,
+} from "./integridade-semantica";
 
 /**
  * Conferir o schema pela linha de comando.
@@ -19,6 +23,13 @@ import {
  * banco. Mesma razão pela qual `--adotar-existentes` é bandeira no
  * `migrate-cli`, e não comportamento de partida.
  *
+ * **Duas perguntas, não uma.** Depois da forma vem o conteúdo: as invariantes
+ * de `integridade-semantica.ts` — todo atributo com versão aplicável, e a
+ * projeção concordando com a versão em vigor. Um banco pode ter todas as
+ * tabelas e todas as colunas e ainda assim somar dinheiro por uma semântica
+ * que nenhuma tela mostra. `--aplicar` **não** as toca, e não existe bandeira
+ * que as toque: escolher entre duas verdades é decisão de quem conhece o dado.
+ *
  *   pnpm --filter @workspace/db run conferir-schema
  *   pnpm --filter @workspace/db run conferir-schema -- --aplicar
  */
@@ -31,8 +42,39 @@ if (!url) {
 
 const aplicar = process.argv.includes("--aplicar");
 
+/**
+ * A segunda pergunta, feita em toda passada — inclusive quando a forma está em
+ * dia, que é justamente o caso em que ninguém suspeitaria.
+ *
+ * Só depende de as duas tabelas existirem. Faltando qualquer uma, dizer
+ * "integridade em dia" seria mentir sobre o que não foi conferido, e é isso que
+ * a mensagem evita.
+ */
+async function conferirConteudo(
+  db: ReturnType<typeof createDb>["db"],
+  tabelasAusentes: string[],
+): Promise<boolean> {
+  const faltando = ["attribute", "attribute_semantics"].filter((t) =>
+    tabelasAusentes.includes(t),
+  );
+  if (faltando.length > 0) {
+    console.error(
+      `\nIntegridade da semântica: não conferida — ${faltando.join(" e ")} não ` +
+        `existe(m) neste banco.`,
+    );
+    return false;
+  }
+
+  const laudo = await avaliarIntegridadeSemantica(db);
+  const ok = laudo.estado === "OK";
+  for (const linha of relatarIntegridadeSemantica(laudo)) {
+    (ok ? console.log : console.error)(linha);
+  }
+  return ok;
+}
+
 async function main(): Promise<void> {
-  const { pool } = createDb(url!);
+  const { db, pool } = createDb(url!);
 
   const { rows } = await pool.query<{ table_name: string; column_name: string }>(
     `select table_name, column_name
@@ -54,7 +96,12 @@ async function main(): Promise<void> {
       `Schema em dia: as ${divergencia.tabelasDeclaradas} tabelas que este ` +
         `build declara estão neste banco, com todas as suas colunas.`,
     );
+    // A forma estar em dia é metade da resposta, e é a metade que engana: foi
+    // com 23 de 23 migrations registradas e nenhuma coluna faltando que a
+    // tabela versionada passou o produto inteiro vazia.
+    const integro = await conferirConteudo(db, tabelasAusentes);
     await pool.end();
+    if (!integro) process.exit(1);
     return;
   }
 
@@ -85,6 +132,10 @@ async function main(): Promise<void> {
         `própria migration traz:\n\n  pnpm --filter @workspace/db run ` +
         `conferir-schema -- --aplicar\n`,
     );
+    // Mesmo com a forma quebrada, o conteúdo é conferido e relatado: quem vai
+    // consertar precisa da lista inteira de uma vez, e não de uma rodada por
+    // classe de defeito.
+    await conferirConteudo(db, tabelasAusentes);
     await pool.end();
     process.exit(1);
   }
@@ -116,8 +167,19 @@ async function main(): Promise<void> {
     );
   }
 
+  /*
+    Depois de repor coluna, conferir de novo — e continuar não consertando.
+    Repor `attribute_semantics.definition` faz a linha versionada voltar a
+    existir vazia enquanto a projeção continua com o texto: a divergência que
+    aparece aqui é consequência direta do que este comando acabou de fazer, e
+    quem a lê precisa saber disso na mesma passada.
+  */
+  const integro = await conferirConteudo(db, tabelasAusentes);
+
   await pool.end();
-  if (semComando.length > 0 || tabelasAusentes.length > 0) process.exit(1);
+  if (semComando.length > 0 || tabelasAusentes.length > 0 || !integro) {
+    process.exit(1);
+  }
 }
 
 main().catch((err) => {

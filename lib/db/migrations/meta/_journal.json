@@ -176,6 +176,13 @@
       "when": 1786932540000,
       "tag": "0024_reconciliar_bridge",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786932600000,
+      "tag": "0025_semantica_inicial",
+      "breakpoints": true
     }
   ]
 }
