@@ -12,6 +12,7 @@ import {
   gatherEvidence,
   gatherPairRatios,
   getCurationQueue,
+  getCurationSummary,
   runProposalPass,
 } from "../engine";
 import { detectPeriodicityConflicts } from "../semantics";
@@ -331,5 +332,52 @@ describe("taxonomy", () => {
     const again = await seedTaxonomy(ctx.db, "test:bootstrap-again");
     expect(again.created).toBe(0);
     expect(again.existing).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * O resumo do topo da tela, recortado por equipamento.
+ *
+ * A tela lê os dois: `byStatus` na aba "Todos" e `byEntity` nas abas Cavalo,
+ * Carreta e o que mais a base trouxer. O que se guarda aqui é que **os dois
+ * contam a mesma base** — abas cuja soma não bate com o total ao lado delas
+ * transformam o quadro de "quanto falta" numa conta que quem lê tem de
+ * refazer para saber em qual dos dois números acreditar.
+ */
+describe("curation summary", () => {
+  it("splits every status by equipment without losing a single attribute", async () => {
+    const summary = await getCurationSummary(ctx.db);
+
+    expect(summary.byEntity.map((e) => e.entityType).sort()).toEqual([
+      "CARRETA",
+      "CAVALO",
+    ]);
+
+    for (const { status, count, monetary } of summary.byStatus) {
+      const nasAbas = summary.byEntity.flatMap((e) =>
+        e.byStatus.filter((s) => s.status === status),
+      );
+      expect(nasAbas.reduce((sum, s) => sum + s.count, 0), status).toBe(count);
+      expect(nasAbas.reduce((sum, s) => sum + s.monetary, 0), status).toBe(monetary);
+    }
+
+    expect(
+      summary.byEntity.reduce((sum, e) => sum + e.unclassified, 0),
+    ).toBe(summary.unclassified);
+  });
+
+  it("counts each equipment's own attributes, and only those", async () => {
+    const summary = await getCurationSummary(ctx.db);
+
+    for (const entity of summary.byEntity) {
+      const [{ count }] = await ctx.db
+        .select({ count: sql<number>`count(*)`.mapWith(Number) })
+        .from(attributeTable)
+        .where(eq(attributeTable.entityType, entity.entityType));
+      expect(
+        entity.byStatus.reduce((sum, s) => sum + s.count, 0),
+        entity.entityType,
+      ).toBe(count);
+    }
   });
 });

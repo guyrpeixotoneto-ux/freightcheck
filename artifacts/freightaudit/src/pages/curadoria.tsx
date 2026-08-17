@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { ComboboxCriavel } from "@/components/ui/combobox-criavel";
 import {
@@ -41,7 +42,13 @@ import {
 } from "@workspace/curation/significado";
 import { fetchJson, getApiUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
-import { estaDescrito } from "@/lib/curadoria";
+import {
+  abasDeEquipamento,
+  estaDescrito,
+  filtrarPorEquipamento,
+  normalizarEquipamento,
+  rotuloDoEquipamento,
+} from "@/lib/curadoria";
 import { cn } from "@/lib/utils";
 
 /**
@@ -103,6 +110,28 @@ interface AttributeDetail extends QueueItem {
   }[];
 }
 
+interface StatusCount {
+  status: string;
+  count: number;
+  monetary: number;
+}
+
+interface CurationSummary {
+  byStatus: StatusCount[];
+  unclassified: number;
+  /** O mesmo recorte, por equipamento — é o que as abas leem. */
+  byEntity: { entityType: string; byStatus: StatusCount[]; unclassified: number }[];
+}
+
+/**
+ * O valor da aba "Todos" dentro do `Tabs`, que não aceita string vazia.
+ *
+ * Fora do componente ele é `null` — "sem recorte" —, e é `null` que some do
+ * endereço. Traduzir na fronteira do componente é mais barato do que deixar a
+ * palavra "TODOS" virar um tipo de equipamento que não existe.
+ */
+const TODOS = "__todos__";
+
 const brl = (value: number) =>
   value.toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 
@@ -154,10 +183,21 @@ export default function Curadoria() {
     sido lido.
   */
   const selected = new URLSearchParams(search).get("atributo");
-  const setSelected = (code: string | null) => {
+  /*
+    O equipamento também mora no endereço, e pelo primeiro dos dois motivos: é
+    para uma aba que se manda alguém. "Confira as colunas da carreta" vira um
+    link, e o mesmo link abre a mesma fila amanhã.
+  */
+  const equipamento = normalizarEquipamento(
+    new URLSearchParams(search).get("equipamento"),
+  );
+
+  const irPara = (patch: Record<string, string | null>) => {
     const params = new URLSearchParams(search);
-    if (code) params.set("atributo", code);
-    else params.delete("atributo");
+    for (const [chave, valor] of Object.entries(patch)) {
+      if (valor) params.set(chave, valor);
+      else params.delete(chave);
+    }
     // `replace`: escolher outro item da fila não é uma tela nova, e voltar tem
     // de sair da Curadoria em vez de percorrer os atributos já abertos.
     navegar(params.toString() ? `/curadoria?${params}` : "/curadoria", {
@@ -165,12 +205,15 @@ export default function Curadoria() {
     });
   };
 
+  const setSelected = (code: string | null) => irPara({ atributo: code });
+  const setEquipamento = (tipo: string | null) => irPara({ equipamento: tipo });
+
   const [filter, setFilter] = useState("");
   const [showConfirmed, setShowConfirmed] = useState(false);
 
   const { data: summary } = useQuery({
     queryKey: ["curation", "summary"],
-    queryFn: () => fetchJson<{ byStatus: { status: string; count: number; monetary: number }[]; unclassified: number }>("/curation/summary"),
+    queryFn: () => fetchJson<CurationSummary>("/curation/summary"),
   });
 
   const { data: queue = [], isLoading, error } = useQuery({
@@ -185,7 +228,15 @@ export default function Curadoria() {
     enabled: selected !== null,
   });
 
-  const visible = useMemo(() => {
+  /*
+    O texto primeiro, o equipamento depois.
+
+    A ordem decide o que os números das abas prometem. Contadas sobre a fila já
+    filtrada por texto, elas dizem quantos cards **este** clique abre; contadas
+    sobre a fila inteira, uma aba escrita `Carreta 41` abriria três resultados
+    porque o filtro "ipva" continuava valendo, e o número viraria decoração.
+  */
+  const filtradosPorTexto = useMemo(() => {
     const needle = filter.trim().toLowerCase();
     if (!needle) return queue;
     return queue.filter(
@@ -195,6 +246,12 @@ export default function Curadoria() {
         (item.displayName?.toLowerCase().includes(needle) ?? false),
     );
   }, [queue, filter]);
+
+  const abas = useMemo(() => abasDeEquipamento(filtradosPorTexto), [filtradosPorTexto]);
+  const visible = useMemo(
+    () => filtrarPorEquipamento(filtradosPorTexto, equipamento),
+    [filtradosPorTexto, equipamento],
+  );
 
   /*
     Quem chegou por link a um atributo já confirmado precisa vê-lo na fila.
@@ -211,15 +268,67 @@ export default function Curadoria() {
     if (!queue.some((item) => item.code === selected)) setShowConfirmed(true);
   }, [selected, queue, showConfirmed]);
 
+  /*
+    E a aba segue o atributo, pela mesma razão e com o mesmo limite.
+
+    Um link para `cavalo.ipva` aberto com a aba `Carreta` no endereço mostrava o
+    painel de um atributo que a lista ao lado não continha — a contradição que o
+    efeito acima já resolvia para o botão Pendentes. A aba anda uma vez, só
+    quando o atributo pedido é de outro equipamento; clicar numa aba com um
+    atributo aberto continua sendo escolha de quem clicou, e ela não se desfaz
+    sozinha.
+  */
+  useEffect(() => {
+    if (selected === null || equipamento === null) return;
+    const item = queue.find((i) => i.code === selected);
+    const tipo = item ? normalizarEquipamento(item.entityType) : null;
+    if (tipo !== null && tipo !== equipamento) setEquipamento(tipo);
+    /* `setEquipamento` fica fora das dependências de propósito: ele nasce a
+       cada render, porque lê o endereço. O que este efeito observa é o
+       endereço, que é o que ele escreve. */
+  }, [selected, equipamento, queue]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /*
+    Os números do topo falam da aba aberta.
+
+    Contá-los sempre sobre a base inteira era a contradição óbvia: "73
+    aguardando confirmação" acima de uma lista de 41 colunas de carreta. O
+    recorte por equipamento vem do servidor, e não da fila da tela, porque a
+    fila em "Pendentes" não tem os confirmados — contar daqui zeraria o primeiro
+    quadro justamente na aba de quem mais curou.
+  */
+  const recorte: { byStatus: StatusCount[]; unclassified: number } | undefined =
+    summary === undefined
+      ? undefined
+      : equipamento === null
+        ? summary
+        : // Equipamento sem nenhuma linha no resumo é zero de verdade, e não
+          // ausência de resposta: o resumo chegou e não o listou.
+          (summary.byEntity.find((e) => e.entityType === equipamento) ?? {
+            byStatus: [],
+            unclassified: 0,
+          });
+
+  /*
+    Quantas colunas o recorte tem na base, de qualquer status — o número que
+    separa "este equipamento não existe aqui" de "as colunas dele já estão
+    todas confirmadas". `null` enquanto o resumo não chegou: as duas frases
+    afirmam coisas sobre a base, e nenhuma pode ser dita por falta de resposta.
+  */
+  const colunasNaBase =
+    recorte === undefined
+      ? null
+      : recorte.byStatus.reduce((sum, s) => sum + s.count, 0);
+
   // Aggregate across every non-confirmed status rather than picking one row:
   // the summary is grouped, not ordered, so "the first pending row" is
   // whichever the database happened to return — and PRESUMED and UNKNOWN both
   // count as pending.
-  const notConfirmed = summary?.byStatus.filter((s) => s.status !== "CONFIRMED") ?? [];
+  const notConfirmed = recorte?.byStatus.filter((s) => s.status !== "CONFIRMED") ?? [];
   const pendingCount = notConfirmed.reduce((sum, s) => sum + s.count, 0);
   const pendingMonetary = notConfirmed.reduce((sum, s) => sum + s.monetary, 0);
   const confirmedCount =
-    summary?.byStatus.find((s) => s.status === "CONFIRMED")?.count ?? 0;
+    recorte?.byStatus.find((s) => s.status === "CONFIRMED")?.count ?? 0;
 
   return (
     <Layout>
@@ -233,6 +342,29 @@ export default function Curadoria() {
           confirmar aqui, o atributo aparece nas telas de mudança mas{" "}
           <strong>não entra em nenhum cálculo financeiro</strong>.
         </p>
+
+        {/* As abas vêm antes dos quadros porque mandam neles: primeiro se
+            escolhe de que equipamento se está falando, depois se lê quanto
+            falta nele. Na ordem inversa, os números apareceriam antes de a
+            tela dizer sobre o que eles são. */}
+        <Tabs
+          value={equipamento ?? TODOS}
+          onValueChange={(valor) =>
+            setEquipamento(valor === TODOS ? null : valor)
+          }
+          className="mt-5"
+        >
+          <TabsList>
+            {abas.map((aba) => (
+              <TabsTrigger key={aba.tipo ?? TODOS} value={aba.tipo ?? TODOS}>
+                {aba.rotulo}
+                <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
+                  {aba.total}
+                </span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
 
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
           <SummaryTile
@@ -255,7 +387,7 @@ export default function Curadoria() {
           />
           <SummaryTile
             label="Fora da taxonomia"
-            value={summary?.unclassified ?? 0}
+            value={recorte?.unclassified ?? 0}
             tone="neutral"
             icon={<AlertTriangle className="w-4 h-4" />}
           />
@@ -274,7 +406,13 @@ export default function Curadoria() {
       <div className="flex-1 grid grid-cols-1 xl:grid-cols-[minmax(0,420px)_minmax(0,1fr)] gap-6 p-8 items-start">
         <Card className="overflow-hidden">
           <CardHeader className="pb-3">
-            <CardTitle className="text-base">Fila de curadoria</CardTitle>
+            <CardTitle className="text-base">
+              {/* O título repete a aba porque a lista é o que ela recorta, e
+                  quem rolou a página até aqui já não vê as abas lá em cima. */}
+              {equipamento === null
+                ? "Fila de curadoria"
+                : `Fila de curadoria · ${rotuloDoEquipamento(equipamento)}`}
+            </CardTitle>
             <p className="text-xs text-muted-foreground">
               Ordenada por materialidade. A soma exibida é bruta e não auditada —
               serve para priorizar, não é resultado. Em verde, o que já tem nome,
@@ -358,9 +496,12 @@ export default function Curadoria() {
               );
             })}
             {!isLoading && visible.length === 0 && (
-              <p className="text-sm text-muted-foreground p-4">
-                Nada pendente com esse filtro.
-              </p>
+              <FilaVazia
+                equipamento={equipamento}
+                filtrando={filter.trim() !== ""}
+                mostrandoConfirmados={showConfirmed}
+                colunasNaBase={colunasNaBase}
+              />
             )}
           </CardContent>
         </Card>
@@ -387,6 +528,51 @@ export default function Curadoria() {
       </div>
     </Layout>
   );
+}
+
+/**
+ * A fila vazia, dita pelo motivo de estar vazia.
+ *
+ * Eram quatro situações debaixo de uma frase só — "Nada pendente com esse
+ * filtro" —, e as abas acrescentaram a mais confusa delas: a aba `Trecho` numa
+ * base que só tem cavalo e carreta abria vazia, e a frase sobre o filtro
+ * mandava conferir um campo de busca que estava em branco. Cada motivo diz o
+ * que fazer em seguida, e o de equipamento inexistente diz de onde o tipo vem —
+ * é a única resposta que não está na tela.
+ */
+function FilaVazia({
+  equipamento,
+  filtrando,
+  mostrandoConfirmados,
+  colunasNaBase,
+}: {
+  equipamento: string | null;
+  filtrando: boolean;
+  mostrandoConfirmados: boolean;
+  colunasNaBase: number | null;
+}) {
+  const rotulo = equipamento === null ? null : rotuloDoEquipamento(equipamento);
+
+  const texto = filtrando
+    ? rotulo
+      ? `Nenhuma coluna de ${rotulo} com esse filtro.`
+      : "Nada pendente com esse filtro."
+    : rotulo === null
+      ? mostrandoConfirmados
+        ? "Nenhum atributo importado nesta base."
+        : "Nada aguardando confirmação — a fila está limpa."
+      : colunasNaBase === 0
+        ? `Nenhuma coluna de ${rotulo} foi importada nesta base. O tipo de ` +
+          `equipamento vem do nome da aba da planilha: uma aba "${rotulo}" na ` +
+          `próxima importação abre esta fila sozinha.`
+        : mostrandoConfirmados
+          ? `Nenhuma coluna de ${rotulo} nesta base.`
+          : `Nada aguardando confirmação em ${rotulo}` +
+            (colunasNaBase === null
+              ? "."
+              : ` — as ${colunasNaBase} colunas deste equipamento já estão confirmadas.`);
+
+  return <p className="text-sm text-muted-foreground p-4">{texto}</p>;
 }
 
 function SummaryTile({
