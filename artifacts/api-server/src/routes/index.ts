@@ -106,6 +106,16 @@ import frotaRouter from "./frota";
  */
 const router: IRouter = Router();
 
+/**
+ * A raiz do serviço responde 200 sem sessão porque o deployer do Replit a
+ * sonda (`GET /api`) antes de promover o build — um 401 aqui derruba a
+ * publicação. Nada de dado atravessa: só a confirmação de que o processo está
+ * de pé; a saúde de verdade continua em `/healthz`.
+ */
+router.get("/", (_req, res) => {
+  res.status(200).json({ ok: true, service: "freightcheck-api" });
+});
+
 router.use(authRouter);
 router.use(usersRouter);
 router.use(healthRouter);

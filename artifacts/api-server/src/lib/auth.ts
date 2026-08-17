@@ -164,6 +164,11 @@ const PUBLIC_PATHS = new Set([
   // O roteador do Replit usa /healthz como health check do deployment: exigir
   // sessão aqui faria o serviço nunca ficar de pé.
   "/healthz",
+  // O deployer do Replit também sonda a raiz do serviço (`GET /api`) antes de
+  // promover o build. Uma raiz que responde 401 derruba a publicação inteira —
+  // foi exatamente o que aconteceu. Ela responde 200 sem dizer nada além de
+  // "estou de pé"; nenhum dado atravessa sem sessão.
+  "/",
   "/build",
   // A tela de login precisa poder perguntar "existe sessão?" antes de haver
   // qualquer sessão.
