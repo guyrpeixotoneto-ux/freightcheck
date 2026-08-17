@@ -633,3 +633,54 @@ perguntas que nenhum autor de ferramenta escreveu.
 
 Registrar isso importa porque a tentação é a oposta: quando a bateria fica
 verde, é fácil declarar pronto. Verde ali significa que não regrediu.
+
+---
+
+## 10. Composição, e as três camadas de avaliação
+
+**A regra que governa o desenho de ferramenta.** Elas expõem **capacidades
+atômicas e fatos**; nunca perguntas humanas viradas função. Quem decide quais
+usar, em que ordem, quando aprofundar, quando cruzar evidências e quando admitir
+que não conclui é o agente.
+
+### A prova de composição
+
+Ao critério de aceitação soma-se uma prova que nenhuma das outras dá:
+
+> O agente responde corretamente perguntas novas cuja solução exige **compor
+> várias ferramentas**, sem existir ferramenta ou fluxo codificado para aquela
+> pergunta.
+
+Ela é parcialmente mecanizável, e é isso que a torna útil: a **composição** se lê
+do rastro — quantas ferramentas distintas sustentaram a resposta, e se alguma
+delas sozinha poderia tê-la produzido. Uma resposta cuja evidência veio de uma
+ferramenta só não compôs nada, por melhor que esteja escrita. A **correção**
+continua sendo julgamento; a composição, não.
+
+Isso dá um sinal que não decodifica a pergunta — mede a forma da investigação,
+e não o conteúdo esperado dela.
+
+### As três camadas, e por que elas não se substituem
+
+| camada | o que prova | onde está |
+| --- | --- | --- |
+| **1. Corretude determinística** | a conta oficial está certa | testes de `comparison`, `dre`, `simulation`, `curation` — a parte mais forte deste repositório, e anterior a todo este trabalho |
+| **2. Regressão comportamental** | o que funcionava continua funcionando | `desfecho` e `exploratoria` — perguntas conhecidas, escritas por quem construiu as ferramentas |
+| **3. Avaliação cega** | a capacidade geral subiu | **não existe ainda** |
+
+A camada 3 tem uma condição de desenho sem a qual ela vira camada 2 com passos a
+mais: **quem escreve as perguntas não pode ser quem constrói as ferramentas.**
+Uma pergunta escrita por quem conhece o registro é uma pergunta que as
+ferramentas já cobrem.
+
+### Não otimizar para o verde
+
+A camada 2 é rede, não alvo. No instante em que uma descrição de ferramenta é
+ajustada para fazer o caso `X` passar, ela deixa de medir — o número sobe e a
+capacidade não. O sinal de que isso aconteceu é sempre o mesmo: a correção não
+generaliza, e nenhuma pergunta fora da bateria melhora junto.
+
+A regra prática: uma mudança motivada por um caso da camada 2 só entra se
+melhorar **também** o comportamento em perguntas que ninguém previu. Se não
+melhorar, o que se achou foi um caso especial, e caso especial em ferramenta é
+`if/else` com outro nome.
