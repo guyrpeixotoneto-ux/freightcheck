@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { seedTaxonomy } from "@workspace/curation";
+import { medirAlteracoesDoAtivo } from "@workspace/comparison";
 import { buildFixture, type AttributeSpec } from "@workspace/comparison/testing";
 import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
-import { medirAlteracoesDoAtivo } from "../ativo";
 import { getRecomendacoesAoCliente } from "../motor";
 
 /**

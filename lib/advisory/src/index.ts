@@ -18,7 +18,6 @@
  * Nenhum número financeiro nasce aqui.
  */
 
-export * from "./ativo";
 export * from "./recomendacao";
 export * from "./transicoes";
 export * from "./motor";

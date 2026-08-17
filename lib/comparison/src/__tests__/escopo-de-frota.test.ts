@@ -413,6 +413,63 @@ describe("a matriz por quinzena", () => {
   });
 });
 
+/**
+ * O seletor de parâmetro, quando a tela desceu a um ativo.
+ *
+ * A lista sempre trouxe todos os parâmetros numéricos do equipamento, e continua
+ * trazendo — o que muda é por onde ela começa. Dentro de uma tela de um cavalo
+ * só, achar a coluna que mexeu naquele cavalo custava abrir uma a uma, e é isso
+ * que `alterado` resolve.
+ *
+ * As duas asserções que importam: a marcação existe **e** a lista não encolhe.
+ * Filtrar seria a implementação óbvia e a errada — quem abre um parâmetro para
+ * conferir que ele não mudou está fazendo uma pergunta legítima.
+ */
+describe("os parâmetros marcados pelo ativo", () => {
+  it("marca os que mudaram no ativo aberto", async () => {
+    const matriz = (await getQuinzenaMatrix(ctx.db, {
+      entityType: "CAVALO",
+      plate: "BBB1B11",
+    }))!;
+
+    // O BBB1B11 mexeu nos dois: custo fixo (5000 → 5500) e IPVA (12000 → 9000).
+    expect(matriz.parameters.map((p) => p.alterado)).toEqual([true, true]);
+  });
+
+  it("um ativo que não mexeu em nada não perde a lista", async () => {
+    const matriz = (await getQuinzenaMatrix(ctx.db, {
+      entityType: "CAVALO",
+      plate: "BBB2B22",
+    }))!;
+
+    expect(matriz.plate).toBe("BBB2B22");
+    expect(matriz.parameters).toHaveLength(2);
+    expect(matriz.parameters.every((p) => p.alterado === false)).toBe(true);
+  });
+
+  it("sem ativo aberto, `alterado` é null — e não `false`", async () => {
+    /*
+      A distinção é o ponto: `false` afirmaria que nenhum daqueles parâmetros
+      mudou, sobre uma pergunta que ninguém fez. `null` diz que não se mediu.
+    */
+    const matriz = (await getQuinzenaMatrix(ctx.db, { entityType: "CAVALO" }))!;
+    expect(matriz.parameters.every((p) => p.alterado === null)).toBe(true);
+  });
+
+  it("os que mexeram vêm primeiro, e o parâmetro aberto acompanha a marcação", async () => {
+    const matriz = (await getQuinzenaMatrix(ctx.db, {
+      entityType: "CAVALO",
+      attributeCode: "cavalo.ipva",
+      plate: "BBB1B11",
+    }))!;
+
+    const alterados = matriz.parameters.filter((p) => p.alterado);
+    expect(matriz.parameters.slice(0, alterados.length)).toEqual(alterados);
+    // `attribute` é o item da lista marcada, e não uma cópia anterior a ela.
+    expect(matriz.attribute.alterado).toBe(true);
+  });
+});
+
 describe("a frota", () => {
   it("conhece o ativo que nunca mudou", async () => {
     const frota = (await listarFrota(ctx.db, { entityType: "CAVALO" }))!;

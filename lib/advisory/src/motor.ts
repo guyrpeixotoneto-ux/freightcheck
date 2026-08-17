@@ -2,12 +2,12 @@ import type { Database } from "@workspace/db";
 import {
   getPanoramaDeAlteracoes,
   equipmentLabel,
+  medirAlteracoesDoAtivo,
   type ContextInfo,
   type ParametroAlterado,
   type RequestedContext,
 } from "@workspace/comparison";
 import { comportamentoDe } from "@workspace/knowledge";
-import { medirAlteracoesDoAtivo } from "./ativo";
 import {
   avaliarParametro,
   ordenarPorPrioridade,

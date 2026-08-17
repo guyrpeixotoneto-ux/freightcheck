@@ -1,28 +1,33 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
-import { contextFilter, type SeriesContext } from "@workspace/comparison";
+import { contextFilter } from "./series";
+import type { SeriesContext } from "./series";
 
 /**
- * O que mudou **neste ativo** — a ponte entre a pauta e a tela de um cavalo só.
+ * O que mudou **neste ativo** — quais colunas se moveram numa placa.
  *
- * A aba Cliente é a única das quatro de Alterações que fala de parâmetros, e
- * não de ativos: a recomendação é sobre a coluna, e o que sustenta o pedido é a
- * abrangência dela — "o FINAME caiu em 41 cavalos" é pauta de reunião, e a mesma
- * linha recortada num ativo diria "caiu em 1", que é a mesma alteração com o
- * argumento desmontado.
+ * Uma pergunta pequena, e duas telas a fazem por motivos diferentes.
  *
- * Isso justifica manter os **números** em nível de frota. Não justifica listar,
- * dentro de uma tela chamada `Cavalo 360° · QYP3G72`, uma pauta em que aquela
- * placa pode nem aparecer entre os afetados. As duas coisas são separáveis, e
- * esta consulta é a separação: ela responde *quais códigos se moveram nesta
- * placa*, e o motor usa isso para escolher **o que entra na lista** — cada item
- * continua trazendo o alcance, o impacto e a evidência da frota inteira.
+ * **A aba Cliente** fala de parâmetros, e não de ativos: a recomendação é sobre
+ * a coluna, e o que sustenta o pedido é a abrangência dela — "o FINAME caiu em
+ * 41 cavalos" é pauta de reunião, e a mesma linha recortada num ativo diria
+ * "caiu em 1", que é a mesma alteração com o argumento desmontado. Isso
+ * justifica manter os **números** em nível de frota; não justifica listar, numa
+ * tela chamada `Cavalo 360° · QYP3G72`, uma pauta em que aquela placa pode nem
+ * aparecer entre os afetados. Esta consulta é a separação entre as duas coisas:
+ * ela decide **o que entra na lista**, e cada item continua trazendo o alcance,
+ * o impacto e a evidência da frota inteira.
+ *
+ * **A aba Impacto** já lista todos os parâmetros do equipamento no seletor — o
+ * que ela não sabia dizer é quais deles mexeram no ativo aberto, e sem isso
+ * achar a coluna que mudou custa abrir uma por uma. Aqui a resposta não estreita
+ * nada: ela ordena, e o resto da lista continua a um rolar de distância.
  *
  * **Não recorta o panorama, e é de propósito.** Refazer a leitura financeira por
  * placa traria de volta as parcelas cujo total está no outro equipamento — a
- * mesma recusa que `motor.ts` já pratica ao filtrar por equipamento em vez de
- * reconsultar. Aqui não há dinheiro nenhum sendo somado: entra uma placa, sai um
- * conjunto de códigos.
+ * mesma recusa que o motor da aba Cliente pratica ao filtrar por equipamento em
+ * vez de reconsultar. Aqui não há dinheiro nenhum sendo somado: entra uma placa,
+ * sai um conjunto de códigos.
  *
  * O grão é o mesmo de `medirTransicoes`: `NUMERIC`, célula vazia quebrando a
  * cadeia — sair de um valor para uma célula vazia é ausência, não mudança — e o
