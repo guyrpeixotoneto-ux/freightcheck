@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import { viraDinheiro } from "@workspace/curation";
 import type { Database } from "@workspace/db";
 import { excelSerialToDate, isPlausibleDateSerial } from "@workspace/ingest";
+import { medirAlteracoesDoAtivo } from "./alteracoes-do-ativo";
 import { attributeLabel, equipmentLabel } from "./labels";
 import {
   contextFilter,
@@ -137,6 +138,19 @@ export interface ImpactoParametro {
    * import — o frontend não depende de `@workspace/curation`.
    */
   motivo: string;
+  /**
+   * Se este parâmetro se moveu **no ativo aberto**, dentro do recorte.
+   *
+   * `null` quando não há placa em foco, e a diferença entre `null` e `false` é a
+   * que evita a mentira: sem ativo escolhido nada foi medido, e devolver `false`
+   * para a lista inteira diria "nenhum destes mudou" sobre uma pergunta que
+   * ninguém fez.
+   *
+   * Serve para **ordenar**, e não para filtrar. O seletor continua listando
+   * todos os parâmetros do equipamento — inclusive os que este cavalo nunca
+   * mexeu, que é o que alguém abre para conferir que de fato não mexeram.
+   */
+  alterado: boolean | null;
 }
 
 /**
@@ -367,6 +381,13 @@ export async function listImpactParameters(
       aggregation: r.aggregation,
       isMonetary: r.is_monetary,
       semanticsStatus: r.semantics_status,
+      /*
+        Quem lista sem ativo em foco não mediu ativo nenhum, e `null` é o que
+        diz isso. Quem tem um ativo aberto passa por `ordenarPeloAtivo` logo
+        depois — a marcação não é feita aqui porque esta função é a lista do
+        equipamento, e ela não conhece placa.
+      */
+      alterado: null as boolean | null,
       // A mesma decisão do impacto por alteração e do panorama: uma função só.
       ...(({ ok, motivo }) => ({ somavel: ok, motivo }))(
         viraDinheiro({
@@ -380,6 +401,38 @@ export async function listImpactParameters(
     .sort((a, b) => {
       // Os que sustentam dinheiro primeiro: é o que a tela abre, e o resto
       // continua alcançável logo abaixo.
+      if (a.somavel !== b.somavel) return a.somavel ? -1 : 1;
+      return a.title.localeCompare(b.title, "pt-BR");
+    });
+}
+
+/**
+ * A mesma lista, com os que mexeram no ativo aberto na frente.
+ *
+ * O seletor da aba Impacto sempre trouxe **todos** os parâmetros do equipamento,
+ * e isso continua: dentro de `Cavalo 360° · QYP3G72` o que faltava não era a
+ * lista, era saber por onde começar. Sem esta ordem, achar a coluna que mexeu
+ * naquele cavalo custa abri-las uma a uma — e o `Valor Finame Cavalo` que
+ * atravessa oito vigências no mesmo número parece, de dentro da tela, o assunto
+ * da quinzena.
+ *
+ * **Ordena, não filtra**, e a diferença é o que mantém a tela honesta: quem
+ * abre um parâmetro para conferir que ele *não* mudou está fazendo uma pergunta
+ * legítima, e esconder a coluna responderia "não existe" a quem perguntou "mudou
+ * alguma coisa?".
+ *
+ * O critério de dinheiro continua valendo dentro de cada bloco. Ele não some —
+ * desce a segundo, que é o lugar dele quando há um ativo aberto: primeiro o que
+ * mexeu neste cavalo, e dentro disso o que sustenta soma.
+ */
+export function ordenarPeloAtivo(
+  parametros: ImpactoParametro[],
+  alterados: Set<string>,
+): ImpactoParametro[] {
+  return parametros
+    .map((p) => ({ ...p, alterado: alterados.has(p.code) }))
+    .sort((a, b) => {
+      if (a.alterado !== b.alterado) return a.alterado ? -1 : 1;
       if (a.somavel !== b.somavel) return a.somavel ? -1 : 1;
       return a.title.localeCompare(b.title, "pt-BR");
     });
@@ -528,6 +581,22 @@ export async function getQuinzenaMatrix(
   /** Se este ativo entra na tabela. Sem placa escolhida, entram todos. */
   const noEscopo = (entityId: string) =>
     ativoPedido === null || entityId === ativoPedido;
+
+  /*
+    Com um ativo aberto, o seletor de parâmetro passa a começar pelos que
+    mexeram nele — a lista continua inteira, só muda a ordem. Sem placa, nada é
+    medido e cada parâmetro sai com `alterado: null`, que é diferente de dizer
+    que nenhum mudou.
+  */
+  const parametros =
+    plate === null
+      ? parameters
+      : ordenarPeloAtivo(
+          parameters,
+          (await medirAlteracoesDoAtivo(db, context, plate)).codigos,
+        );
+  const escolhidoNaLista =
+    parametros.find((p) => p.code === escolhido.code) ?? escolhido;
 
   const groupCode = options.groupBy ?? `${entityType.toLowerCase()}.data`;
   const { rows: agrupador } = await db.execute<{
@@ -715,8 +784,8 @@ export async function getQuinzenaMatrix(
     equipment: equipmentLabel(entityType),
     plate,
     entityTypes,
-    attribute: escolhido,
-    parameters,
+    attribute: escolhidoNaLista,
+    parameters: parametros,
     groupedBy:
       agrupador.length > 0
         ? {

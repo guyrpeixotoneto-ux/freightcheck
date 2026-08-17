@@ -668,6 +668,12 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.9.5
+      '@workspace/curation':
+        specifier: workspace:*
+        version: link:../curation
+      '@workspace/ingest':
+        specifier: workspace:*
+        version: link:../ingest
       tsx:
         specifier: 'catalog:'
         version: 4.23.1

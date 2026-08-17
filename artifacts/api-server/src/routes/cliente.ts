@@ -36,6 +36,13 @@ const router: IRouter = Router();
  * vez de virar erro. A resposta **diz** o que escolheu (`entityType`,
  * `entityTypes`) para que o padrão nunca seja uma escolha silenciosa.
  *
+ * `placa` chega das telas 360° e obedece à mesma regra, com um alcance menor de
+ * propósito: ela decide **quais parâmetros entram na lista** — os que se moveram
+ * naquele ativo —, e não recalcula nada. O alcance e o impacto de cada item
+ * continuam sendo os da frota, porque é a abrangência que sustenta o pedido ao
+ * cliente. A resposta devolve `placa` resolvida, ou `null` quando o recorte não
+ * a tem.
+ *
  * Vem inteira, sem paginar, pela mesma razão das outras duas leituras desta
  * tela: são algumas dezenas de linhas, e um "há mais" no rodapé transformaria
  * "isto é o que temos a discutir" numa afirmação falsa.
@@ -43,13 +50,12 @@ const router: IRouter = Router();
 router.get("/cliente/recomendacoes", async (req, res): Promise<void> => {
   try {
     const query = req.query as Record<string, unknown>;
-    const entityType =
-      typeof query.entityType === "string" && query.entityType !== ""
-        ? query.entityType
-        : undefined;
+    const texto = (valor: unknown): string | undefined =>
+      typeof valor === "string" && valor.trim() !== "" ? valor.trim() : undefined;
 
     const recomendacoes = await getRecomendacoesAoCliente(db, {
-      entityType,
+      entityType: texto(query.entityType),
+      placa: texto(query.placa),
       context: parseContext(query),
     });
 

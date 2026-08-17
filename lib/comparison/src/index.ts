@@ -18,3 +18,4 @@ export * from "./panorama";
 export * from "./chamados";
 export * from "./escopo";
 export * from "./ativos";
+export * from "./alteracoes-do-ativo";

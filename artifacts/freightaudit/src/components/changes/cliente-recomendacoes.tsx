@@ -151,6 +151,8 @@ interface Resposta {
   entityTypes: string[];
   entityType: string | null;
   equipment: string | null;
+  /** A placa que estreitou a lista, ou `null` quando a pauta é do equipamento. */
+  placa: string | null;
   recomendacoes: Recomendacao[];
   totais: {
     porPeriodicidade: TotalPorPeriodicidade[];
@@ -562,17 +564,22 @@ export function ClienteRecomendacoes({
    * O escopo de frota das telas 360°, quando esta aba é lida de lá.
    *
    * Ele trava o equipamento — que esta aba já sabia recortar, e pela mesma
-   * autoridade. A **placa não estreita nada aqui**, e essa é a única aba das
-   * quatro em que isso acontece; a razão está escrita na tela, no lugar em que
-   * a pessoa faria a pergunta.
+   * autoridade — e a placa estreita a lista, como nas outras três abas. O que a
+   * placa **não** faz aqui, e é a única diferença que sobra entre esta aba e as
+   * outras, é mexer nos números de cada item.
    *
-   * Em uma frase: a recomendação é sobre o *parâmetro*, não sobre o ativo. "O
-   * FINAME do cavalo caiu em 41 veículos e vale pedir revisão" é uma pauta de
-   * reunião; a mesma frase recortada num ativo viraria "caiu em 1 veículo", que
-   * é a mesma alteração com o argumento desmontado. E recalcular o panorama por
-   * placa traria de volta as parcelas cujo total está no outro equipamento —
-   * ver `motor.ts` em `@workspace/advisory`, que recusa a segunda leitura pelo
-   * mesmo motivo ao recortar por equipamento.
+   * A razão em uma frase: a recomendação é sobre o *parâmetro*, e o que sustenta
+   * o pedido é a abrangência dele. "O FINAME do cavalo caiu em 41 veículos e
+   * vale pedir revisão" é pauta de reunião; a mesma frase com o alcance
+   * recortado no ativo viraria "caiu em 1 veículo", que é a mesma alteração com
+   * o argumento desmontado. E recalcular o panorama por placa traria de volta as
+   * parcelas cujo total está no outro equipamento — ver `motor.ts` em
+   * `@workspace/advisory`, que recusa a segunda leitura pelo mesmo motivo ao
+   * recortar por equipamento.
+   *
+   * Então a divisão é: **a placa escolhe o que entra na lista, e a frota
+   * responde pelo tamanho de cada linha.** A faixa no topo da aba diz isso na
+   * tela, no lugar em que a pessoa faria a pergunta.
    */
   escopo?: EscopoDeFrota;
 }) {
@@ -591,13 +598,18 @@ export function ClienteRecomendacoes({
    */
   const [aberto, setAberto] = useState<string | null>(null);
 
+  const placa = escopo?.placa ?? null;
+
   const query = useQuery({
-    queryKey: ["cliente", "recomendacoes", entityType, janela.de, janela.ate],
-    queryFn: () =>
-      fetchJson<Resposta>(
-        `/cliente/recomendacoes?${entityType ? `entityType=${entityType}` : ""}` +
-          janelaParaQuery(janela),
-      ),
+    queryKey: ["cliente", "recomendacoes", entityType, placa, janela.de, janela.ate],
+    queryFn: () => {
+      const params = new URLSearchParams();
+      if (entityType) params.set("entityType", entityType);
+      if (placa !== null) params.set("placa", placa);
+      return fetchJson<Resposta>(
+        `/cliente/recomendacoes?${params.toString()}${janelaParaQuery(janela)}`,
+      );
+    },
   });
 
   if (query.error) {
@@ -672,22 +684,39 @@ export function ClienteRecomendacoes({
       )}
 
       {/*
-        A placa não estreita esta aba, e calar isso seria pior do que a limitação.
-        Quem escolheu uma placa no cabeçalho vê as outras três abas responderem
-        por ela; sem esta linha, concluiria que estas recomendações também são —
-        e levaria à reunião um argumento de frota como se fosse de um ativo.
+        A placa recorta a lista, e não os números — e a faixa existe porque essa
+        metade de recorte não se adivinha. Quem escolheu uma placa no cabeçalho
+        vê as outras três abas responderem inteiras por ela; sem esta linha,
+        leria "64 veículos afetados" dentro de uma tela de um cavalo só e
+        concluiria que a conta está errada, quando ela é da frota de propósito.
+
+        O caso da placa que o recorte não tem ganha a sua própria frase, em
+        âmbar: ali a lista **não** foi estreitada, e as duas situações não podem
+        ter a mesma cara.
       */}
-      {escopo?.placa && (
-        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          A pauta abaixo é dos{" "}
-          <strong>{escopo.entityType === "CAVALO" ? "cavalos" : "carretas"}</strong>,
-          e não da placa <strong className="font-mono">{escopo.placa}</strong>. A
-          recomendação é sobre o parâmetro: "caiu em 41 veículos" é o que
-          sustenta o pedido, e a mesma linha recortada num ativo diria "caiu em
-          1" — a mesma alteração com o argumento desmontado. O que a placa mostra
-          está na aba Impacto, ao lado.
-        </p>
-      )}
+      {escopo?.placa &&
+        (data.placa !== null ? (
+          <p className="rounded-xl border border-brand/25 bg-brand/5 px-4 py-3 text-sm">
+            Esta pauta traz os parâmetros que mudaram{" "}
+            {escopo.entityType === "CAVALO" ? "neste cavalo" : "nesta carreta"} —{" "}
+            <strong className="font-mono">{data.placa}</strong> — dentro do
+            recorte. <strong>Os números de cada item são da frota</strong>, e não
+            do ativo: é a abrangência que sustenta o pedido ao cliente, e um
+            alcance recortado na placa diria sempre “1 veículo” — a mesma
+            alteração com o argumento desmontado. Quais placas cada item alcança
+            está na aba Impacto, ao lado.
+          </p>
+        ) : (
+          <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            A placa <strong className="font-mono">{escopo.placa}</strong> não
+            aparece neste recorte de vigências, então a pauta abaixo é a dos{" "}
+            <strong>
+              {escopo.entityType === "CAVALO" ? "cavalos" : "carretas"}
+            </strong>
+            , e não a dela. Abra o recorte para incluir uma vigência em que este
+            ativo exista.
+          </p>
+        ))}
 
       {escopo === undefined && data.entityTypes.length > 1 && (
         <div className="flex items-center gap-2">
@@ -788,6 +817,28 @@ export function ClienteRecomendacoes({
                   Não há par para comparar, e portanto nada a recomendar — o que
                   não é o mesmo que “nada mudou”. Abra o recorte para incluir pelo
                   menos duas vigências.
+                </p>
+              </>
+            ) : data.placa !== null && totais.analisadas === 0 ? (
+              /*
+                A terceira resposta, que só existe desde que a placa estreita a
+                lista: comparamos, e nenhum parâmetro deste ativo se moveu. Sem
+                ela a tela cairia no texto de baixo e diria "as 0 linhas
+                econômicas que mudaram estão abaixo", que é uma frase sobre uma
+                lista vazia.
+              */
+              <>
+                <p className="text-sm">
+                  <strong>
+                    Nenhum parâmetro mudou em {data.placa} neste recorte.
+                  </strong>
+                </p>
+                <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
+                  As {formatNumber(data.periods.length, 0)} vigências foram
+                  comparadas e este ativo atravessou todas com os mesmos valores —
+                  não há o que propor nem o que investigar por ele. A pauta{" "}
+                  {data.entityType === "CAVALO" ? "dos cavalos" : "das carretas"}{" "}
+                  continua existindo: volte aos cards para lê-la sem a placa.
                 </p>
               </>
             ) : (
