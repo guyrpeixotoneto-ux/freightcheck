@@ -1,165 +1,51 @@
 import { eq, isNull } from "drizzle-orm";
 import type { Database } from "@workspace/db";
-import { curationEventTable, taxonomyNodeTable } from "@workspace/db";
+import {
+  DEFAULT_TAXONOMY,
+  contarNosCanonicos,
+  garantirTaxonomiaCanonica,
+  taxonomyNodeTable,
+  type SeedTaxonomyResult,
+  type TaxonomySeedNode,
+} from "@workspace/db";
 
 /**
- * The remuneration hierarchy.
+ * A taxonomia, do lado da curadoria: **ler e mostrar**.
  *
- * Depth is free by design: `REMUNERAÇÃO → CUSTO FIXO → Frota — Cavalo →
- * Depreciação` is four levels today and may be six tomorrow without a
- * migration. What a node declares is its cost class; descendants inherit it
- * from the nearest ancestor that does.
+ * A árvore em si — os 22 nós e a função que os garante — mudou de casa para
+ * `@workspace/db`, em `taxonomia-canonica.ts`. O motivo é o mesmo que já havia
+ * levado `garantirSemanticaInicial` e as confirmações canônicas para lá: ela é
+ * estrutura obrigatória do produto, precisa existir no instante em que os
+ * atributos nascem, e quem a garante é a **importação** — um pacote que não
+ * pode importar a curadoria.
+ *
+ * Enquanto morou aqui, nenhum caminho de produção a criava. Medido em
+ * 17/08/2026, num banco vazio, importando pela rota que a tela chama: zero
+ * nós. O `<Select>` "Nó da taxonomia" da Curadoria vem desta tabela — árvore
+ * vazia é lista vazia, e nem a máquina nem uma pessoa conseguiam classificar
+ * coisa alguma.
+ *
+ * O que continua sendo desta casa é a leitura: a árvore com a classe de custo
+ * resolvida por herança, e a listagem plana que a tela usa.
  */
 
-export interface TaxonomySeedNode {
-  code: string;
-  name: string;
-  kind: "ROOT" | "CLASS" | "GROUP" | "SUBGROUP";
-  costClass?: "FIXO" | "VARIAVEL";
-  children?: TaxonomySeedNode[];
-}
+export { DEFAULT_TAXONOMY, contarNosCanonicos };
+export type { TaxonomySeedNode, SeedTaxonomyResult };
 
 /**
- * The starting tree.
+ * Semear a árvore — o mesmo ato, pelo nome que a curadoria sempre usou.
  *
- * Deliberately shallow and generic: it holds the classes and the groups the
- * export's own vocabulary supports (frota, combustível, manutenção, pneus,
- * pessoal...), and stops there. Filling the leaves is curation work, done one
- * attribute at a time with the values in view — not a structure invented up
- * front and then bent to fit.
- */
-export const DEFAULT_TAXONOMY: TaxonomySeedNode = {
-  code: "remuneracao",
-  name: "Remuneração",
-  kind: "ROOT",
-  children: [
-    {
-      code: "custo_fixo",
-      name: "Custo Fixo",
-      kind: "CLASS",
-      costClass: "FIXO",
-      children: [
-        { code: "cf_frota_cavalo", name: "Frota — Cavalo", kind: "GROUP" },
-        { code: "cf_frota_carreta", name: "Frota — Carreta", kind: "GROUP" },
-        { code: "cf_financiamento", name: "Financiamento e juros", kind: "GROUP" },
-        { code: "cf_depreciacao", name: "Depreciação e amortização", kind: "GROUP" },
-        { code: "cf_remuneracao_capital", name: "Remuneração de capital", kind: "GROUP" },
-        { code: "cf_seguros_tributos", name: "Seguros e tributos", kind: "GROUP" },
-        { code: "cf_pessoal", name: "Pessoal e encargos", kind: "GROUP" },
-        { code: "cf_outros", name: "Outros custos fixos", kind: "GROUP" },
-      ],
-    },
-    {
-      code: "custo_variavel",
-      name: "Custo Variável",
-      kind: "CLASS",
-      costClass: "VARIAVEL",
-      children: [
-        { code: "cv_combustivel", name: "Combustível", kind: "GROUP" },
-        { code: "cv_manutencao", name: "Manutenção", kind: "GROUP" },
-        { code: "cv_pneus", name: "Pneus", kind: "GROUP" },
-        { code: "cv_lucro_variavel", name: "Lucro variável", kind: "GROUP" },
-        { code: "cv_outros", name: "Outros custos variáveis", kind: "GROUP" },
-      ],
-    },
-    {
-      /**
-       * Not every column is a cost. Chassis, model, year and the like describe
-       * the asset; they belong in the tree so nothing sits unclassified, but
-       * they carry no cost class and never enter an aggregation.
-       */
-      code: "cadastral",
-      name: "Cadastral (não remuneratório)",
-      kind: "CLASS",
-      children: [
-        { code: "cad_identificacao", name: "Identificação do ativo", kind: "GROUP" },
-        { code: "cad_escopo", name: "Escopo organizacional", kind: "GROUP" },
-        { code: "cad_contrato", name: "Contrato e vigência", kind: "GROUP" },
-        { code: "cad_especificacao", name: "Especificação técnica", kind: "GROUP" },
-      ],
-    },
-    {
-      code: "nao_classificado",
-      name: "Não classificado",
-      kind: "CLASS",
-      children: [],
-    },
-  ],
-};
-
-export interface SeedTaxonomyResult {
-  created: number;
-  existing: number;
-}
-
-/**
- * Create the tree if it is not there yet. Idempotent: re-running adds only
- * what is missing and never rewrites an existing node.
+ * Continua existindo porque as ferramentas de curadoria (`dev-seed`,
+ * `curate-report`, a rota da passada de proposta) o chamam por este nome, e
+ * porque semear à mão uma base antiga continua sendo legítimo. O que ele não é
+ * mais é a **única** forma de a árvore existir.
  */
 export async function seedTaxonomy(
   db: Database,
   actor: string,
   root: TaxonomySeedNode = DEFAULT_TAXONOMY,
 ): Promise<SeedTaxonomyResult> {
-  let created = 0;
-  let existing = 0;
-
-  async function walk(
-    node: TaxonomySeedNode,
-    parentId: string | null,
-    parentPath: string,
-    depth: number,
-    inheritedCostClass: string | null,
-    sortOrder: number,
-  ): Promise<void> {
-    const path = parentPath === "" ? node.code : `${parentPath}/${node.code}`;
-    const costClass = node.costClass ?? inheritedCostClass;
-
-    const [found] = await db
-      .select()
-      .from(taxonomyNodeTable)
-      .where(eq(taxonomyNodeTable.code, node.code));
-
-    let id: string;
-    if (found) {
-      existing++;
-      id = found.id;
-    } else {
-      const [inserted] = await db
-        .insert(taxonomyNodeTable)
-        .values({
-          parentId,
-          code: node.code,
-          name: node.name,
-          kind: node.kind,
-          costClass: node.costClass ?? null,
-          path,
-          depth,
-          sortOrder,
-        })
-        .returning();
-      id = inserted.id;
-      created++;
-      await db.insert(curationEventTable).values({
-        targetKind: "TAXONOMY_NODE",
-        targetId: id,
-        targetLabel: node.code,
-        field: "created",
-        valueBefore: null,
-        valueAfter: path,
-        actor,
-        reason: "Estrutura inicial da taxonomia.",
-      });
-    }
-
-    let childOrder = 0;
-    for (const child of node.children ?? []) {
-      await walk(child, id, path, depth + 1, costClass, childOrder++);
-    }
-  }
-
-  await walk(root, null, "", 0, null, 0);
-  return { created, existing };
+  return garantirTaxonomiaCanonica(db, actor, root);
 }
 
 export interface TaxonomyNodeView {

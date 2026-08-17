@@ -5,6 +5,7 @@ import type { Database } from "@workspace/db";
 import {
   aplicarConfirmacoesCanonicas,
   garantirSemanticaInicial,
+  garantirTaxonomiaCanonica,
   attributeAliasTable,
   attributeTable,
   columnMappingTable,
@@ -1210,6 +1211,13 @@ export interface PromoteResult {
   attributesCreated: number;
   factsInserted: number;
   /**
+   * A árvore da taxonomia depois desta promoção.
+   *
+   * `nosCriados` é zero em toda importação a partir da segunda — a estrutura é
+   * garantida, não recriada —, e é isso que a idempotência significa aqui.
+   */
+  taxonomia: { nosCriados: number; nosExistentes: number };
+  /**
    * O que o registro canônico de semânticas deixou aplicado nesta promoção.
    *
    * Sai na resposta da promoção porque uma aplicação silenciosa é
@@ -1942,6 +1950,34 @@ export async function promote(
       await garantirSemanticaInicial(tx as unknown as Database);
 
       /*
+        A árvore da taxonomia, antes das confirmações — e a ordem é a correção.
+
+        Os 22 nós são estrutura obrigatória: são os mesmos em toda base, e sem
+        eles nada tem onde ser classificado. A confirmação canônica que vem
+        logo abaixo **vincula** o atributo ao nó (`cf_financiamento`,
+        `cf_depreciacao`…), e vincular exige que o nó já exista. Semear depois
+        deixaria os 17 atributos do registro confirmados e sem nó, esperando
+        uma segunda passada — que é exatamente o que se via no `dev-seed`, onde
+        a árvore chega depois e as confirmações precisam ser reaplicadas.
+
+        Medido em 17/08/2026, num banco vazio, importando pela mesma rota que a
+        tela chama: zero nós depois da promoção. O único caminho de produção que
+        semeava a árvore era um segundo handler de `POST /imports/:id/promote`,
+        em `overview.ts`, que o Express nunca alcançava — `importsRouter` é
+        montado antes e serve a rota. Aquele handler foi removido junto desta
+        correção: um caminho aparente é pior que caminho nenhum, porque quem o
+        lê conclui que a curadoria é atualizada a cada promoção.
+
+        `runProposalPass` continua **fora**, e isto é fronteira, não esquecimento:
+        propor semântica é inferência do motor, e a promoção só garante o que é
+        verdade estrutural do produto.
+      */
+      const taxonomia = await garantirTaxonomiaCanonica(
+        tx as unknown as Database,
+        options.promotedBy ?? "import:promocao",
+      );
+
+      /*
         E o significado que já é conhecido, na mesma transação.
 
         A versão 1 nasce aqui desde a correção acima — e nascia dizendo "não
@@ -1990,6 +2026,10 @@ export async function promote(
         entitiesCreated,
         attributesCreated,
         factsInserted,
+        taxonomia: {
+          nosCriados: taxonomia.created,
+          nosExistentes: taxonomia.existing,
+        },
         semanticasConfirmadas: {
           aplicadas: confirmacoes.applied.length,
           jaConfirmadas: confirmacoes.unchanged.length,
