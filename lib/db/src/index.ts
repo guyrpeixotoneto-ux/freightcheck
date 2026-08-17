@@ -133,3 +133,10 @@ export * from "./schema";
 */
 export * from "./semantica-inicial";
 export * from "./integridade-semantica";
+/*
+  E o registro das confirmações canônicas pelo mesmo motivo, um degrau adiante:
+  a versão 1 nascia órfã de *versão*, e nascia órfã de *significado* — a lista
+  de decisões que a destrava era chamada só pela curadoria. Ver
+  `semantica-confirmada.ts`.
+*/
+export * from "./semantica-confirmada";

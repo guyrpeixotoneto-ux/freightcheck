@@ -25,8 +25,15 @@ import { backfillSemantics, recordSourceSemanticsChange } from "../versioning";
 
 let ctx: TestDb;
 
-/** Monetário e sem semântica: o caso em que confirmar é caro. */
-const CODE = "cavalo.valor_nf_compra";
+/**
+ * Monetário e sem semântica: o caso em que confirmar é caro.
+ *
+ * Era `cavalo.valor_nf_compra` até a importação passar a aplicar o registro
+ * canônico — a coluna nasce CONFIRMED desde então, e um arquivo sobre "o passo
+ * barato" precisa de uma coluna que ninguém decidiu ainda. `valorPneu` é
+ * exatamente isso: parece dinheiro, e não há medição que diga o que ele é.
+ */
+const CODE = "cavalo.valor_pneu";
 
 beforeAll(async () => {
   ctx = await createTestDatabase("meaning");
@@ -72,19 +79,17 @@ describe("escrever o significado é o passo barato", () => {
 
     const result = await saveMeaning(ctx.db, {
       code: CODE,
-      definition: "Valor da nota fiscal de compra do cavalo mecânico.",
+      definition: "Valor dos pneus do cavalo mecânico.",
       actor: "curador@teste",
     });
 
     expect(result.definition).toBe(
-      "Valor da nota fiscal de compra do cavalo mecânico.",
+      "Valor dos pneus do cavalo mecânico.",
     );
     expect(result.changed).toEqual(["definition"]);
 
     const depois = await attribute(CODE);
-    expect(depois.definition).toBe(
-      "Valor da nota fiscal de compra do cavalo mecânico.",
-    );
+    expect(depois.definition).toBe("Valor dos pneus do cavalo mecânico.");
   });
 
   it("não move o status — prosa não destrava dinheiro", async () => {

@@ -227,7 +227,10 @@ describe("invariante 2 — a projeção e a versão em vigor", () => {
         code: "cavalo.valor_nf_compra",
         campo: "periodicity",
         naProjecao: "MENSAL",
-        naVersao: null,
+        // PONTUAL vem do registro canônico, aplicado pela própria importação:
+        // é valor de aquisição, e a divergência abaixo é a projeção quebrada
+        // de propósito por este teste.
+        naVersao: "PONTUAL",
       },
     ]);
     expect((await avaliarIntegridadeSemantica(ctx.db)).estado).toBe("DEGRADED");

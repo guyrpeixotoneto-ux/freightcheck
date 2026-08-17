@@ -5,6 +5,7 @@ import {
   attributeTable,
   curationEventTable,
   factTable,
+  gravarSemanticaConfirmada,
   rawCellTable,
   rawRowTable,
   rawSheetTable,
@@ -424,62 +425,33 @@ export async function confirmAttribute(
     taxonomyNodeId = node.id;
   }
 
-  const changes: { field: string; before: string | null; after: string | null }[] = [];
-  const record = (field: string, before: unknown, after: unknown) => {
-    const b = before === null || before === undefined ? null : String(before);
-    const a = after === null || after === undefined ? null : String(after);
-    if (b !== a) changes.push({ field, before: b, after: a });
-  };
-  record("unit", attribute.unit, unit);
-  record("periodicity", attribute.periodicity, periodicity);
-  record("aggregation", attribute.aggregation, aggregation);
-  record("is_monetary", attribute.isMonetary, isMonetary);
-  record("taxonomy_node_id", attribute.taxonomyNodeId, taxonomyNodeId);
-  record("semantics_status", attribute.semanticsStatus, "CONFIRMED");
+  /*
+    Daqui para baixo é escrita, e a escrita não mora mais aqui.
 
+    `gravarSemanticaConfirmada`, em `@workspace/db`, toca os três lugares que
+    uma confirmação toca — a projeção em `attribute`, a versão em vigor em
+    `attribute_semantics`, e um `curation_event` por campo que mudou — e é a
+    mesma função que a importação usa ao replicar o registro canônico. Duas
+    cópias desta escrita divergiriam no primeiro campo novo, e a confirmação
+    feita na tela passaria a produzir um estado diferente da confirmação
+    replicada, sobre o mesmo atributo.
+
+    A confirmação vale para a vigência em curso, que é a versão aberta. Um
+    atributo com duas versões — porque a fonte mudou a regra em junho — tem a
+    de junho confirmada e a anterior intocada: ela foi verdade no trecho dela,
+    e confirmar hoje não é afirmar nada sobre o passado.
+
+    O que continua sendo desta função são as **guardas** acima: ator
+    identificado, justificativa escrita e semântica coerente. É o que separa a
+    confirmação humana da replicação de uma decisão já tomada.
+  */
   await db.transaction(async (tx) => {
-    const confirmadoEm = new Date();
-    const confirmado = {
-      unit,
-      periodicity,
-      aggregation,
-      isMonetary,
-      taxonomyNodeId,
-      semanticsStatus: "CONFIRMED",
-      confirmedBy: input.actor,
-      confirmedAt: confirmadoEm,
-    };
-
-    await tx
-      .update(attributeTable)
-      .set({ ...confirmado, semanticsRationale: input.reason } as never)
-      .where(eq(attributeTable.id, attribute.id));
-
-    /*
-      A confirmação vale para a vigência em curso, que é a versão aberta. Um
-      atributo com duas versões — porque a fonte mudou a regra em junho — tem a
-      de junho confirmada e a anterior intocada: ela foi verdade no trecho dela,
-      e confirmar hoje não é afirmar nada sobre o passado.
-    */
-    await espelharNaVersaoEmVigor(tx as unknown as Database, attribute.id, {
-      ...confirmado,
-      rationale: input.reason,
-    });
-
-    if (changes.length > 0) {
-      await tx.insert(curationEventTable).values(
-        changes.map((c) => ({
-          targetKind: "ATTRIBUTE",
-          targetId: attribute.id,
-          targetLabel: attribute.code,
-          field: c.field,
-          valueBefore: c.before,
-          valueAfter: c.after,
-          actor: input.actor,
-          reason: input.reason,
-        })),
-      );
-    }
+    await gravarSemanticaConfirmada(
+      tx as unknown as Database,
+      { id: attribute.id, code: attribute.code },
+      { unit, periodicity, aggregation, isMonetary, taxonomyNodeId },
+      { actor: input.actor, reason: input.reason },
+    );
   });
 }
 

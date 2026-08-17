@@ -616,6 +616,16 @@ número.
   aceitável; certeza fabricada não é.
 - O caminho oficial é a interface. `bootstrap` e `dev:seed` são ferramentas de
   desenvolvimento e não devem ser apresentados como o fluxo do produto.
+- **Conhecimento que o produto já tem se aplica sozinho no caminho real.** Uma
+  regra que só um script de desenvolvimento executa é uma regra que produção não
+  tem: foi assim que a frota inteira leu "não apurado" em agosto/2026 com os
+  valores intactos no banco, porque `CONFIRMED_SEMANTICS` — decisões humanas,
+  medidas e escritas em código — só era aplicado por `dev:seed`, pelo
+  `curate-report` e pelos testes. Hoje a promoção o aplica na própria transação
+  (`aplicarConfirmacoesCanonicas`, em `lib/db/semantica-confirmada.ts`), sem
+  decidir nada por conta própria: replica a decisão de quem assinou, recusa-se a
+  sobrescrever quem confirmou diferente na tela, e deixa UNKNOWN tudo o que
+  ninguém decidiu.
 
 ## Gotchas
 

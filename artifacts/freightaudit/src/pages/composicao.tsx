@@ -17,6 +17,7 @@ import { formatBrl, formatBrlShort } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Bolinha, VariacaoMensal } from "@/components/composicao/farol";
 import {
+  ROTULO_DA_NAO_APURACAO,
   ROTULO_DO_FAROL,
   type Farol,
   type VisaoDeFrota,
@@ -378,10 +379,13 @@ function BarraDeFiltros({
 /**
  * A tabela.
  *
- * `R$ 0,00` e "não apurado" nunca ocupam a mesma célula: o primeiro é um zero
- * que o produto conferiu, o segundo é a ausência de conta. Um equipamento sem
- * valor apurado mostra a frase, e não o zero — é a regra §5 do briefing e é a
- * diferença entre uma frota de graça e uma frota que não sabemos ler.
+ * `R$ 0,00` e a ausência de conta nunca ocupam a mesma célula: o primeiro é um
+ * zero que o produto conferiu, o segundo é a falta de uma conta. Um equipamento
+ * sem valor apurado mostra a frase, e não o zero — é a regra §5 do briefing e é
+ * a diferença entre uma frota de graça e uma frota que não sabemos ler.
+ *
+ * A frase diz **qual** ausência é: curadoria por fazer, produção não medida ou
+ * célula vazia na vigência. Ver `ROTULO_DA_NAO_APURACAO`.
  */
 function Tabela({ view }: { view: VisaoDeFrota }) {
   if (view.linhas.length === 0) {
@@ -435,7 +439,11 @@ function Tabela({ view }: { view: VisaoDeFrota }) {
               <td className="px-4 py-3 text-right">
                 {linha.mensal === null ? (
                   <span className="text-muted-foreground text-xs">
-                    {linha.presente ? "não apurado" : "fora da vigência"}
+                    {!linha.presente
+                      ? "fora da vigência"
+                      : linha.status.naoApuradoPor
+                        ? ROTULO_DA_NAO_APURACAO[linha.status.naoApuradoPor]
+                        : "não apurado"}
                   </span>
                 ) : (
                   <>

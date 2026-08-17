@@ -22,10 +22,32 @@ export type MotivoDeExclusao =
   | "VALOR_AUSENTE"
   | "VALOR_NAO_NUMERICO";
 
+/**
+ * Por que não há remuneração apurada — o espelho de `MotivoDaNaoApuracao`, em
+ * `@workspace/composition`.
+ *
+ * Três lacunas de donos diferentes que a tela chamava igual: curadoria por
+ * fazer, produção não medida, e célula vazia na vigência.
+ */
+export type MotivoDaNaoApuracao =
+  | "SEMANTICA_NAO_CONFIRMADA"
+  | "PRODUCAO_AUSENTE"
+  | "VALOR_AUSENTE"
+  | "SEM_COMPONENTE_MENSAL";
+
+/** O rótulo curto, onde antes se lia "não apurado". */
+export const ROTULO_DA_NAO_APURACAO: Record<MotivoDaNaoApuracao, string> = {
+  SEMANTICA_NAO_CONFIRMADA: "aguardando curadoria",
+  PRODUCAO_AUSENTE: "aguardando produção",
+  VALOR_AUSENTE: "sem valor na vigência",
+  SEM_COMPONENTE_MENSAL: "nada mensal nesta vigência",
+};
+
 export interface Status {
   farol: Farol;
   motivos: string[];
   alertas: number;
+  naoApuradoPor: MotivoDaNaoApuracao | null;
 }
 
 export interface Variacao {
@@ -197,6 +219,7 @@ export interface Historico {
     semRegraFinanceira: number;
     variacao: Variacao | null;
     componentesAlterados: number;
+    naoApuradoPor: MotivoDaNaoApuracao | null;
   }[];
   componentes: {
     code: string;

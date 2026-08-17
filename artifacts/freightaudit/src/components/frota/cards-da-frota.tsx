@@ -12,6 +12,7 @@ import {
 } from "@/components/ui/select";
 import { Bolinha, VariacaoMensal } from "@/components/composicao/farol";
 import {
+  ROTULO_DA_NAO_APURACAO,
   ROTULO_DO_FAROL,
   type Farol,
   type LinhaDaFrota,
@@ -471,10 +472,16 @@ function BarraDeFiltros({
  * O farol fica ao lado da placa porque ele é uma ressalva sobre os números
  * abaixo — não um número a mais.
  *
- * `R$ 0,00` e "não apurado" nunca ocupam o mesmo lugar: o primeiro é um zero que
- * o produto conferiu, o segundo é a ausência de conta. É a mesma regra da
- * Composição, e é a diferença entre uma frota de graça e uma frota que não
- * sabemos ler.
+ * `R$ 0,00` e a ausência de conta nunca ocupam o mesmo lugar: o primeiro é um
+ * zero que o produto conferiu, o segundo é a falta de uma conta. É a mesma
+ * regra da Composição, e é a diferença entre uma frota de graça e uma frota que
+ * não sabemos ler.
+ *
+ * **E a ausência de conta é dita pelo nome dela.** "Não apurado" servia a três
+ * situações de donos diferentes — coluna sem semântica confirmada, razão em
+ * R$/km sem a produção da placa, célula vazia na vigência — e quem lia o card
+ * não tinha como saber se o próximo passo era a curadoria, a Ambev, ou nada.
+ * O rótulo vem de `status.naoApuradoPor`, e a frase inteira continua no alerta.
  *
  * O card inteiro é o alvo do clique, e não só o link do rodapé: um card cuja
  * área toda leva ao mesmo lugar não obriga ninguém a mirar.
@@ -553,7 +560,11 @@ function CardDoAtivo({
           <div className="mt-0.5">
             {ativo.mensal === null ? (
               <span className="text-muted-foreground text-sm">
-                {ativo.presente ? "não apurado" : "fora da vigência"}
+                {!ativo.presente
+                  ? "fora da vigência"
+                  : ativo.status.naoApuradoPor
+                    ? ROTULO_DA_NAO_APURACAO[ativo.status.naoApuradoPor]
+                    : "não apurado"}
               </span>
             ) : (
               <>
