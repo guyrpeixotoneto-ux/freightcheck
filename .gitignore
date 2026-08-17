@@ -54,3 +54,6 @@ lib/assistant/aceitacao-*.json
 lib/assistant/desfecho*.md
 lib/assistant/desfecho*.json
 lib/assistant/trajetoria*.md
+
+# Relatórios da rodada do PR 7, escritos localmente.
+relatorios-pr7/

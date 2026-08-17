@@ -20,6 +20,7 @@
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync } from "node:fs";
+import path from "node:path";
 
 /**
  * A chave que importa é a do **processo da API**, não a do shell.
@@ -59,7 +60,20 @@ async function capabilities() {
   return null;
 }
 
-const PASTA = process.env.PR7_SAIDA ?? "relatorios-pr7";
+/**
+ * O destino é absoluto, e essa é a única forma de ele funcionar.
+ *
+ * `pnpm --filter` roda o comando **no diretório do pacote** — `lib/assistant`,
+ * e não na raiz. Um caminho relativo é criado aqui e interpretado lá: a pasta
+ * nasce em `~/workspace/relatorios-pr7`, o CLI tenta escrever em
+ * `~/workspace/lib/assistant/relatorios-pr7`, e o que se vê é um `ENOENT` num
+ * script que acabou de criar a pasta com sucesso.
+ *
+ * Resolver aqui, uma vez, é melhor do que ensinar cada CLI a criar o pai do
+ * arquivo que lhe pediram: o dono da decisão de onde os relatórios moram é
+ * quem orquestra a rodada.
+ */
+const PASTA = path.resolve(process.env.PR7_SAIDA ?? "relatorios-pr7");
 const filtro = ["--filter", "@workspace/assistant"];
 
 async function conferirAmbiente() {
