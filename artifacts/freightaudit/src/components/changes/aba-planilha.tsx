@@ -37,6 +37,7 @@ import {
   type ChangeRow,
   type Breakdown,
   type Filters,
+  type TravessiaParaQuinzenas,
   emptyFilters,
   toQuery,
 } from "@/components/changes/change-table";
@@ -190,12 +191,22 @@ export function AbaPlanilha({
   escopo,
   vigencias = {},
   onVigencias,
+  onVerQuinzenas,
 }: {
   escopo?: EscopoDeFrota;
   /** O recorte De/Até, partilhado com as outras abas de Alterações. */
   vigencias?: JanelaDeVigencias;
   /** Ausente nas telas 360°, que não oferecem o recorte. */
   onVigencias?: (j: JanelaDeVigencias) => void;
+  /**
+   * Levar uma alteração à matriz por placa e vigência, na aba Impacto.
+   *
+   * Quem responde por isto é a tela que tem as duas abas — é ela que troca de
+   * aba e guarda a travessia —, e por isso chega de fora. Sem ela a lista segue
+   * como sempre foi: o nome do atributo deixa de ser um botão, em vez de ser um
+   * botão que não leva a nada.
+   */
+  onVerQuinzenas?: (travessia: TravessiaParaQuinzenas) => void;
 } = {}) {
   const search = useSearch();
   const [caminho, navegar] = useLocation();
@@ -799,6 +810,18 @@ export function AbaPlanilha({
           >
             Ordenadas por materialidade: primeiro o que tem impacto apurado,
             depois pelo tamanho da variação · nada é omitido por ser pequeno
+            {/*
+              O caminho fica escrito, e não só no `title` do botão: um nome de
+              atributo clicável parece, de longe, com o filtro que os painéis de
+              cima aplicam — e a diferença entre filtrar esta lista e abrir as
+              nove vigências do parâmetro é a diferença entre as duas perguntas.
+            */}
+            {onVerQuinzenas && (
+              <>
+                {" "}
+                · clique no nome do atributo para ver as variações por quinzena
+              </>
+            )}
           </p>
         </div>
         {isLoading && (
@@ -810,6 +833,7 @@ export function AbaPlanilha({
             total={total}
             janela={janela}
             onJanela={setJanela}
+            onVerQuinzenas={onVerQuinzenas}
           />
         )}
       </Card>

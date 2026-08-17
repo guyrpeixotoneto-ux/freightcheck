@@ -1,4 +1,4 @@
-import { Fragment, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   ArrowDownRight,
@@ -202,6 +202,33 @@ export function gruposDoSeletor(
     .filter((g) => g.itens.length > 0);
 }
 
+/**
+ * Como a matriz é aberta de fora — o parâmetro, e de onde se veio.
+ *
+ * A aba Cliente manda o parâmetro; a aba Planilha manda o parâmetro **e a
+ * placa**, porque lá a pergunta nasceu numa alteração de um ativo. A placa é
+ * ponto de partida e não recorte: ela destaca a linha e leva a rolagem até ela,
+ * e a tabela continua sendo a da frota inteira. Reduzi-la ao ativo trocaria a
+ * resposta — o total da coluna deixaria de fechar com o que a Ambev pagou, que é
+ * a razão de esta leitura existir (o recorte de verdade é o `escopo` das telas
+ * 360°, e ele reconta tudo).
+ */
+export interface AberturaDaMatriz extends EscolhaDeParametro {
+  placa?: string | null;
+}
+
+/**
+ * Se duas placas são a mesma, vindas de lugares diferentes.
+ *
+ * A da alteração vem denormalizada em `change.entity_label`; a da matriz vem de
+ * `entity_identifier`. As duas nascem do mesmo identificador, e comparar sem
+ * normalizar deixaria a linha sem destaque por causa de um espaço.
+ */
+function mesmaPlaca(a: string | null, b: string | null): boolean {
+  if (a === null || b === null) return false;
+  return a.trim().toUpperCase() === b.trim().toUpperCase();
+}
+
 interface PontaAPonta {
   from: string;
   fromLabel: string;
@@ -277,6 +304,9 @@ const FUNDO_CABECALHO =
   "color-mix(in srgb, hsl(var(--muted)) 40%, hsl(var(--card)))";
 const FUNDO_GRUPO =
   "color-mix(in srgb, hsl(var(--muted)) 20%, hsl(var(--card)))";
+/** O da linha destacada — a cor da marca, e opaca pela mesma razão. */
+const FUNDO_FOCO =
+  "color-mix(in srgb, hsl(var(--brand)) 10%, hsl(var(--card)))";
 
 /**
  * A aba, em dois níveis.
@@ -293,7 +323,8 @@ const FUNDO_GRUPO =
  * deixou de ser é a única porta para descobrir o que mudou.
  *
  * `escolhaInicial` é de quem chegou de outra aba com o parâmetro já em mente —
- * a aba Cliente manda para cá quando alguém pede "ver por placa e vigência". É
+ * a aba Cliente manda para cá quando alguém pede "ver por placa e vigência", e a
+ * aba Planilha quando alguém clica no nome do atributo de uma alteração. É
  * estado inicial, não trava: o botão de voltar leva ao panorama como sempre.
  *
  * `janela` é o recorte De/Até, e ele vem de cima em vez de morar aqui pelo
@@ -316,7 +347,7 @@ export function ImpactoQuinzenas({
    * unidade, ou a volta ("Tudo que mudou") trocaria de assunto sem avisar.
    */
   contexto?: URLSearchParams;
-  escolhaInicial?: EscolhaDeParametro | null;
+  escolhaInicial?: AberturaDaMatriz | null;
   janela?: JanelaDeVigencias;
   onJanela?: (j: JanelaDeVigencias) => void;
   /**
@@ -331,7 +362,7 @@ export function ImpactoQuinzenas({
    */
   escopo?: EscopoDeFrota;
 } = {}) {
-  const [escolha, setEscolha] = useState<EscolhaDeParametro | null>(escolhaInicial);
+  const [escolha, setEscolha] = useState<AberturaDaMatriz | null>(escolhaInicial);
   /*
     O corte de custo do panorama mora aqui, e não lá dentro, para sobreviver à
     ida e à volta: quem filtrou por custo variável e abriu um parâmetro está a
@@ -374,6 +405,13 @@ export function ImpactoQuinzenas({
   return (
     <MatrizDeQuinzenas
       inicial={escolhida}
+      /*
+        O ativo de onde se veio, quando se veio de um. Com uma placa no escopo é
+        a própria tela que já reduziu a população, e o destaque apontaria para a
+        única linha da tabela — informação nenhuma. Na leitura de frota de uma
+        tela 360° ele continua valendo: lá a tabela tem os 64 ativos.
+      */
+      placaEmFoco={escopo?.placa ? null : (escolhida.placa ?? null)}
       // Sem escopo, a volta é o panorama. Com escopo não há panorama para onde
       // voltar, e um botão "Tudo que mudou" que levasse à frota inteira sairia
       // da tela sem dizer — a aba Planilha é quem responde isso aqui.
@@ -382,13 +420,14 @@ export function ImpactoQuinzenas({
       janela={janela}
       onJanela={onJanela}
       escopo={escopo}
-      key={`${escolhida.entityType}:${escolhida.code}`}
+      key={`${escolhida.entityType}:${escolhida.code}:${escolhida.placa ?? ""}`}
     />
   );
 }
 
 function MatrizDeQuinzenas({
   inicial,
+  placaEmFoco,
   onVoltar,
   contexto,
   janela,
@@ -396,6 +435,8 @@ function MatrizDeQuinzenas({
   escopo,
 }: {
   inicial: EscolhaDeParametro;
+  /** A placa a destacar; `null` quando a leitura não partiu de um ativo. */
+  placaEmFoco: string | null;
   /** Null quando não há para onde voltar — ver o escopo em `ImpactoQuinzenas`. */
   onVoltar: (() => void) | null;
   contexto?: URLSearchParams;
@@ -465,6 +506,35 @@ function MatrizDeQuinzenas({
 
   const unidade = data.attribute.unit;
   const brl = unidade === "BRL";
+  /*
+    O parâmetro pedido pode não ter série numérica nesta leitura — uma coluna de
+    texto, ou uma que só existe no dicionário de outro equipamento —, e a rota
+    escolhe outro em vez de recusar (ver `getQuinzenaMatrix`). A escolha do
+    servidor não pode ser silenciosa: quem clicou em "Amortização Cavalo" e
+    recebesse o FINAME leria a tabela certa acreditando estar lendo outra.
+  */
+  const trocado =
+    !query.isPlaceholderData &&
+    attributeCode !== null &&
+    data.attribute.code !== attributeCode
+      ? attributeCode
+      : null;
+  /*
+    A placa destacada precisa **existir** na tabela para ser anunciada. Ela chega
+    de uma alteração, e uma alteração pode ser de um ativo que este recorte de
+    vigências não alcança — ou de um equipamento que não é o que abriu.
+  */
+  const focoPresente =
+    placaEmFoco !== null &&
+    data.groups.some((g) => g.rows.some((l) => mesmaPlaca(l.plate, placaEmFoco)));
+  /*
+    Os dois avisos calam enquanto a tabela é a anterior. `keepPreviousData` mantém
+    a tabela do parâmetro que estava à vista durante a troca, e ela responde por
+    outro `attribute.code` e por outra lista de placas — sem esta guarda, trocar
+    de parâmetro no seletor piscaria "não tem série numérica" sobre a escolha que
+    a pessoa acabou de fazer.
+  */
+  const focoAusente = placaEmFoco !== null && !query.isPlaceholderData && !focoPresente;
   // Os rótulos saem das próprias colunas da tabela: é o nome que a pessoa já
   // está lendo no cabeçalho, e não uma segunda forma de escrever a mesma data.
   const rotulos = Object.fromEntries(
@@ -598,6 +668,52 @@ function MatrizDeQuinzenas({
         </p>
       )}
 
+      {/* A escolha que o servidor fez no lugar da que foi pedida. */}
+      {trocado && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <strong className="font-mono">{trocado}</strong> não tem série numérica
+          nesta leitura — a tabela abriu em{" "}
+          <strong>{data.attribute.title}</strong>. O seletor acima lista todos os
+          parâmetros do equipamento.
+        </p>
+      )}
+
+      {/*
+        De onde a leitura partiu, quando partiu de um ativo.
+
+        A frase diz as duas coisas ao mesmo tempo, e a segunda é a que impede a
+        leitura errada: a linha está destacada, **e** a tabela é da frota. Um
+        destaque sem essa ressalva convidaria a ler os subtotais como se fossem
+        do ativo.
+      */}
+      {placaEmFoco !== null && (
+        <p
+          className={cn(
+            "rounded-xl border px-4 py-3 text-sm",
+            focoAusente
+              ? "border-amber-200 bg-amber-50 text-amber-900"
+              : "border-brand/40 bg-accent/40 text-muted-foreground",
+          )}
+        >
+          {!focoAusente ? (
+            <>
+              Vindo de uma alteração de{" "}
+              <strong className="font-mono text-foreground">{placaEmFoco}</strong>
+              , destacada abaixo. A tabela e os totais continuam sendo{" "}
+              {data.plate === null ? "da frota inteira" : "do ativo aberto"} — é
+              essa soma que fecha com o que a Ambev pagou.
+            </>
+          ) : (
+            <>
+              A alteração era de{" "}
+              <strong className="font-mono">{placaEmFoco}</strong>, que não
+              aparece nesta tabela: ou o ativo não é {data.equipment.toLowerCase()}
+              , ou não tem valor deste parâmetro no recorte de vigências aberto.
+            </>
+          )}
+        </p>
+      )}
+
       {data.pontaAPonta && (
         <CartoesDeVariacao ponta={data.pontaAPonta} brl={brl} />
       )}
@@ -639,6 +755,7 @@ function MatrizDeQuinzenas({
         <TabelaQuinzenas
           matriz={data}
           brl={brl}
+          placaEmFoco={placaEmFoco}
           fechados={fechados}
           onAlternar={(key) =>
             setFechados((atual) => {
@@ -794,16 +911,40 @@ function Tile({
 function TabelaQuinzenas({
   matriz,
   brl,
+  placaEmFoco,
   fechados,
   onAlternar,
   soComMovimento,
 }: {
   matriz: QuinzenaMatrix;
   brl: boolean;
+  /** A placa de onde a leitura partiu — destacada, e nunca filtrada. */
+  placaEmFoco: string | null;
   fechados: Set<string>;
   onAlternar: (key: string) => void;
   soComMovimento: boolean;
 }) {
+  /*
+    A rolagem até a linha destacada, uma vez por placa.
+
+    Em 64 ativos agrupados por data de entrada, o destaque sozinho resolveria
+    metade do problema: a linha fica pintada em algum lugar de uma tabela que não
+    cabe na tela. O `ref` é do `<tr>` que casa com a placa, e a guarda é o que
+    impede que virar a página do recorte, ligar o filtro ou trocar de parâmetro
+    arraste a tela de novo para o mesmo lugar — a segunda rolagem já não seria
+    ajuda, seria a tela decidindo por quem está lendo.
+  */
+  const linhaEmFoco = useRef<HTMLTableRowElement | null>(null);
+  const jaRolou = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (placaEmFoco === null || jaRolou.current === placaEmFoco) return;
+    const linha = linhaEmFoco.current;
+    if (!linha) return;
+    jaRolou.current = placaEmFoco;
+    linha.scrollIntoView({ block: "center" });
+  }, [placaEmFoco, matriz]);
+
   const mexeu = (linha: QuinzenaRow) =>
     linha.cells.some(
       (c) =>
@@ -965,48 +1106,65 @@ function TabelaQuinzenas({
                   </tr>
 
                   {aberto &&
-                    grupo.rows.map((linha) => (
-                      <tr
-                        key={linha.entityId}
-                        className="border-b hover:bg-muted/30"
-                      >
-                        <th
-                          scope="row"
-                          className="sticky left-0 z-10 bg-card px-3 py-1.5 text-left font-mono font-normal shadow-[1px_0_0_0_hsl(var(--border))]"
-                        >
-                          {linha.plate ?? "sem placa"}
-                        </th>
-                        {linha.cells.map((celula, i) => (
-                          <Celula
-                            key={i}
-                            celula={celula}
-                            brl={brl}
-                            unidade={matriz.attribute.unit}
-                            periodo={matriz.periods[i]}
-                          />
-                        ))}
-                        <td className="px-3 py-1.5 text-right tabular-nums border-l font-medium">
-                          {linha.total === null
-                            ? "—"
-                            : numero(linha.total, brl, matriz.attribute.unit)}
-                        </td>
-                        <td
+                    grupo.rows.map((linha) => {
+                      const emFoco = mesmaPlaca(linha.plate, placaEmFoco);
+                      return (
+                        <tr
+                          key={linha.entityId}
+                          ref={emFoco ? linhaEmFoco : undefined}
                           className={cn(
-                            "px-3 py-1.5 text-right tabular-nums",
-                            linha.delta !== null &&
-                              linha.delta < 0 &&
-                              "text-red-600",
-                            linha.delta !== null &&
-                              linha.delta > 0 &&
-                              "text-emerald-700",
+                            "border-b hover:bg-muted/30",
+                            emFoco && "outline outline-1 outline-brand/50",
                           )}
                         >
-                          {linha.delta === null
-                            ? "—"
-                            : `${linha.delta > 0 ? "+" : ""}${numero(linha.delta, brl, matriz.attribute.unit)}`}
-                        </td>
-                      </tr>
-                    ))}
+                          <th
+                            scope="row"
+                            // O fundo opaco da célula presa: sob destaque ele
+                            // também precisa ser opaco, ou as nove colunas
+                            // passam por baixo da placa — a razão é a de
+                            // `FUNDO_GRUPO`.
+                            style={emFoco ? { background: FUNDO_FOCO } : undefined}
+                            className={cn(
+                              "sticky left-0 z-10 px-3 py-1.5 text-left font-mono shadow-[1px_0_0_0_hsl(var(--border))]",
+                              emFoco
+                                ? "font-medium text-brand"
+                                : "bg-card font-normal",
+                            )}
+                          >
+                            {linha.plate ?? "sem placa"}
+                          </th>
+                          {linha.cells.map((celula, i) => (
+                            <Celula
+                              key={i}
+                              celula={celula}
+                              brl={brl}
+                              unidade={matriz.attribute.unit}
+                              periodo={matriz.periods[i]}
+                            />
+                          ))}
+                          <td className="px-3 py-1.5 text-right tabular-nums border-l font-medium">
+                            {linha.total === null
+                              ? "—"
+                              : numero(linha.total, brl, matriz.attribute.unit)}
+                          </td>
+                          <td
+                            className={cn(
+                              "px-3 py-1.5 text-right tabular-nums",
+                              linha.delta !== null &&
+                                linha.delta < 0 &&
+                                "text-red-600",
+                              linha.delta !== null &&
+                                linha.delta > 0 &&
+                                "text-emerald-700",
+                            )}
+                          >
+                            {linha.delta === null
+                              ? "—"
+                              : `${linha.delta > 0 ? "+" : ""}${numero(linha.delta, brl, matriz.attribute.unit)}`}
+                          </td>
+                        </tr>
+                      );
+                    })}
                 </Fragment>
               );
             })}

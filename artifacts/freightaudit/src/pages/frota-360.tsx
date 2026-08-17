@@ -17,7 +17,10 @@ import { Layout } from "@/components/layout/layout";
 import { AbaBotao } from "@/components/changes/cartoes";
 import { AbaPlanilha } from "@/components/changes/aba-planilha";
 import { AbaChamados } from "@/components/changes/aba-chamados";
-import { ImpactoQuinzenas } from "@/components/changes/impacto-quinzenas";
+import {
+  ImpactoQuinzenas,
+  type AberturaDaMatriz,
+} from "@/components/changes/impacto-quinzenas";
 import { ClienteRecomendacoes } from "@/components/changes/cliente-recomendacoes";
 import { CardsDaFrota } from "@/components/frota/cards-da-frota";
 import type { JanelaDeVigencias } from "@/components/changes/janela-vigencias";
@@ -182,6 +185,17 @@ export default function Frota360({ equipamento }: { equipamento: Equipamento }) 
   const [janela, setJanela] = useState<JanelaDeVigencias>({});
 
   /**
+   * O parâmetro que a aba Planilha mandou abrir no Impacto.
+   *
+   * Mesma travessia de Alterações, e pelo mesmo motivo: quem lê uma alteração
+   * quer saber se aquilo vinha acontecendo, e a resposta é a matriz de nove
+   * colunas. Fica em estado — não no endereço —, porque é o meio de uma frase que
+   * começou na aba ao lado; a aba e a placa continuam viajando na barra, que é
+   * onde o assunto da tela mora.
+   */
+  const [travessia, setTravessia] = useState<AberturaDaMatriz | null>(null);
+
+  /**
    * Trocar de aba ou de placa reescreve o endereço.
    *
    * As duas coisas são o assunto da tela, e por isso viajam na barra: quem
@@ -195,7 +209,17 @@ export default function Frota360({ equipamento }: { equipamento: Equipamento }) 
     placa?: string | null;
     /** `true` leva às quatro abas da frota; `false` volta à grade de cards. */
     frotaInteira?: boolean;
+    /**
+     * Só a travessia da Planilha usa isto.
+     *
+     * Clicar em "Impacto" na fileira é pedir o começo da leitura, e a escolha
+     * que veio de outra aba morre ali; chegar pelo nome de um atributo é pedir
+     * justamente aquele parâmetro. Trocar de placa também limpa: a escolha era
+     * de uma alteração de outro ativo.
+     */
+    manterTravessia?: boolean;
   }) => {
+    if (!proxima.manterTravessia) setTravessia(null);
     const destino = new URLSearchParams();
     const abaFinal = proxima.aba ?? aba;
     const placaFinal = proxima.placa === undefined ? placa : proxima.placa;
@@ -307,19 +331,30 @@ export default function Frota360({ equipamento }: { equipamento: Equipamento }) 
         </div>
       )}
 
-      {!naGrade && aba === "planilha" && <AbaPlanilha escopo={escopo} />}
+      {!naGrade && aba === "planilha" && (
+        <AbaPlanilha
+          escopo={escopo}
+          onVerQuinzenas={(alvo) => {
+            setTravessia(alvo);
+            irPara({ aba: "impacto", manterTravessia: true });
+          }}
+        />
+      )}
       {!naGrade && aba === "chamados" && <AbaChamados escopo={escopo} />}
       {!naGrade && aba === "impacto" && (
         <div className="p-8">
           <ImpactoQuinzenas
             contexto={paramsDoRecorte(recorte, { comPeriodo: false })}
+            escolhaInicial={travessia}
             janela={janela}
             onJanela={setJanela}
             escopo={escopo}
             // A matriz é montada por ativo: trocar de placa é trocar a
             // população, e remontar é mais honesto do que reaproveitar o
-            // estado interno de uma tabela que era de outro veículo.
-            key={placa ?? "frota"}
+            // estado interno de uma tabela que era de outro veículo. O
+            // parâmetro da travessia entra na chave pela mesma razão — ele é
+            // estado inicial, e um estado inicial só é lido na montagem.
+            key={`${placa ?? "frota"}:${travessia?.code ?? ""}`}
           />
         </div>
       )}

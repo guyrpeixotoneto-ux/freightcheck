@@ -12,7 +12,10 @@ import { Layout } from "@/components/layout/layout";
 import { AbaBotao } from "@/components/changes/cartoes";
 import { AbaPlanilha } from "@/components/changes/aba-planilha";
 import { AbaChamados } from "@/components/changes/aba-chamados";
-import { ImpactoQuinzenas } from "@/components/changes/impacto-quinzenas";
+import {
+  ImpactoQuinzenas,
+  type AberturaDaMatriz,
+} from "@/components/changes/impacto-quinzenas";
 import { ClienteRecomendacoes } from "@/components/changes/cliente-recomendacoes";
 import type { JanelaDeVigencias } from "@/components/changes/janela-vigencias";
 import type { TicketTotals } from "@/components/changes/ticket-table";
@@ -86,23 +89,26 @@ export default function Alteracoes({
   const aba: AbaDeAlteracoes = abaValida(pedida) ? pedida : abaInicial;
 
   /*
-    O parâmetro que a aba Cliente mandou abrir no Impacto.
+    O parâmetro que outra aba mandou abrir no Impacto.
 
     Mora aqui porque a travessia é entre abas: "ver por placa e vigência" leva a
-    pessoa da recomendação à tabela do segundo nível, e guardar isso dentro de
-    uma das duas faria a escolha morrer na troca. Zera ao trocar de aba pela
-    barra para que a próxima entrada em Impacto abra no panorama, como sempre.
+    pessoa da recomendação à tabela do segundo nível, e clicar no nome do
+    atributo de uma alteração leva da Planilha à mesma tabela — guardar isso
+    dentro de uma das abas faria a escolha morrer na troca. Zera ao trocar de aba
+    pela barra para que a próxima entrada em Impacto abra no panorama, como
+    sempre.
 
     Continua em estado, e não no endereço, e a diferença com a aba é real: a aba
     é o assunto — dá para apontar para ela de fora, e a Visão geral aponta. Isto
     é o meio de uma frase que começou na aba ao lado, e um endereço para o meio
     de uma frase abriria a matriz num parâmetro sem que ninguém o tivesse
     escolhido — que é a porta fechada em 16/08/2026.
+
+    A placa só existe quando a travessia vem da Planilha, onde a alteração é de
+    um ativo. Ela destaca a linha na matriz e não recorta nada — a distinção está
+    em `AberturaDaMatriz`.
   */
-  const [doCliente, setDoCliente] = useState<{
-    entityType: string;
-    code: string;
-  } | null>(null);
+  const [travessia, setTravessia] = useState<AberturaDaMatriz | null>(null);
   /*
     O recorte De/Até, compartilhado pelas quatro abas.
 
@@ -144,7 +150,7 @@ export default function Alteracoes({
     proxima: AbaDeAlteracoes,
     { limparTravessia = true }: { limparTravessia?: boolean } = {},
   ) => {
-    if (limparTravessia) setDoCliente(null);
+    if (limparTravessia) setTravessia(null);
     /*
       O recorte de linha fica na aba que o aplica.
 
@@ -221,7 +227,23 @@ export default function Alteracoes({
       </div>
 
       {aba === "planilha" && (
-        <AbaPlanilha vigencias={janela} onVigencias={setJanela} />
+        <AbaPlanilha
+          vigencias={janela}
+          onVigencias={setJanela}
+          /*
+            O caminho da alteração para as nove vigências dela.
+
+            É a mesma travessia da aba Cliente, e existe pela pergunta que a
+            lista não responde: uma linha diz de quanto para quanto foi entre
+            duas vigências, e quem lê quer saber se aquilo vinha acontecendo. O
+            recorte De/Até atravessa junto porque é o mesmo estado das quatro
+            abas — a matriz abre sobre o intervalo que estava à vista aqui.
+          */
+          onVerQuinzenas={(alvo) => {
+            setTravessia(alvo);
+            trocarAba("impacto", { limparTravessia: false });
+          }}
+        />
       )}
       {aba === "chamados" && (
         <AbaChamados vigencias={janela} onVigencias={setJanela} />
@@ -240,10 +262,14 @@ export default function Alteracoes({
           */}
           <ImpactoQuinzenas
             contexto={paramsDoRecorte(lerRecorte(search), { comPeriodo: false })}
-            escolhaInicial={doCliente}
+            escolhaInicial={travessia}
             janela={janela}
             onJanela={setJanela}
-            key={doCliente ? `${doCliente.entityType}:${doCliente.code}` : "panorama"}
+            key={
+              travessia
+                ? `${travessia.entityType}:${travessia.code}:${travessia.placa ?? ""}`
+                : "panorama"
+            }
           />
         </div>
       )}
@@ -253,7 +279,7 @@ export default function Alteracoes({
             janela={janela}
             onJanela={setJanela}
             onAbrirImpacto={(escolha) => {
-              setDoCliente(escolha);
+              setTravessia(escolha);
               // A travessia é dentro da tela, e o endereço acompanha: a aba é o
               // assunto, e ele mudou.
               trocarAba("impacto", { limparTravessia: false });
