@@ -4,6 +4,7 @@ import {
   atributosSemSemanticaAplicavel,
   attributeSemanticsTable,
   attributeTable,
+  CONFIRMED_SEMANTICS,
   entityIdentifierTable,
   entityTable,
   factTable,
@@ -443,14 +444,42 @@ describe("zero, absence and ambiguity", () => {
     expect(counts.text).toBeGreaterThan(0);
   });
 
-  it("leaves every imported attribute with UNKNOWN semantics", async () => {
-    // F1 must not promote anything to CONFIRMED; that is a human act in F2,
-    // and it is what gates financial aggregation later.
-    const [row] = await ctx.db
-      .select({ count: sql<number>`count(*)`.mapWith(Number) })
-      .from(attributeTable)
-      .where(sql`${attributeTable.semanticsStatus} <> 'UNKNOWN'`);
-    expect(row.count).toBe(0);
+  /**
+   * A importação não decide significado — e a diferença entre decidir e
+   * replicar é o objeto deste teste.
+   *
+   * Ele dizia "nenhum atributo sai da importação diferente de UNKNOWN", e essa
+   * régua confundia as duas coisas: enquanto valeu, o registro de decisões
+   * humanas de `CONFIRMED_SEMANTICS` — cada entrada com a pessoa que decidiu e
+   * a medição que a sustenta — só era aplicado por scripts de curadoria, e uma
+   * planilha promovida pela tela produzia uma frota inteira sem remuneração
+   * apurada.
+   *
+   * O que a importação continua sem poder fazer é **inventar**: o que ela
+   * carimba é exatamente o registro, com o nome de quem decidiu, e tudo o que
+   * está fora dele continua UNKNOWN esperando uma pessoa.
+   */
+  it("só carimba o que uma pessoa já decidiu, e deixa o resto UNKNOWN", async () => {
+    const doRegistro = new Set(CONFIRMED_SEMANTICS.map((e) => e.code));
+
+    const atributos = await ctx.db.select().from(attributeTable);
+    const foraDoRegistro = atributos.filter((a) => !doRegistro.has(a.code));
+    expect(foraDoRegistro.length).toBeGreaterThan(0);
+    for (const attribute of foraDoRegistro) {
+      expect(attribute.semanticsStatus, attribute.code).toBe("UNKNOWN");
+    }
+
+    const confirmados = atributos.filter((a) => a.semanticsStatus === "CONFIRMED");
+    expect(confirmados.length).toBeGreaterThan(0);
+    for (const attribute of confirmados) {
+      expect(doRegistro.has(attribute.code), attribute.code).toBe(true);
+      // A assinatura é de gente. A importação replica a decisão; não assina.
+      expect(attribute.confirmedBy, attribute.code).toMatch(/@/);
+      expect(attribute.confirmedBy, attribute.code).not.toMatch(
+        /^(engine|api|cli|import|system):/,
+      );
+      expect(attribute.semanticsRationale, attribute.code).toBeTruthy();
+    }
   });
 });
 

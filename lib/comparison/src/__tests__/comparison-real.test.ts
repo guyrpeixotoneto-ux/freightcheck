@@ -92,8 +92,19 @@ describe("o achado do IPVA aparece no topo do que é comparável", () => {
     expect(Number(qyq.valueAfter)).toBeCloseTo(2513.19, 2);
     expect(qyq.deltaAbsolute).toBeCloseTo(-1583.12, 2);
     expect(qyq.deltaPercent).toBeCloseTo(-38.65, 1);
-    // Semantics still unconfirmed, so no money is claimed.
-    expect(qyq.impactConfidence).toBe("NOT_CALCULABLE");
+    /*
+      O impacto é calculado, e é **anual**.
+
+      Esta linha dizia "semântica ainda não confirmada, logo nenhum dinheiro é
+      afirmado" — verdade enquanto uma base recém-promovida não sabia o que
+      `ipvaLicenciamento` media. A importação passou a aplicar o registro
+      canônico, e o IPVA é entrada dele: BRL, ANUAL, somável, com a medição de
+      1,000% da NF ao lado. O que este teste guarda agora é que a periodicidade
+      viaja junto com o número — um impacto anual não pode chegar à tela como se
+      fosse do mês.
+    */
+    expect(qyq.impactConfidence).toBe("CALCULATED");
+    expect(qyq.impactPeriodicity).toBe("ANUAL");
 
     const provenance = (await getChangeProvenance(ctx.db, qyq.id)) as Record<string, unknown>;
     expect(provenance.sheet_before).toBe("cavalos");
@@ -118,7 +129,9 @@ describe("as 298 alterações destravadas pela curadoria", () => {
       .select({ n: sql<number>`count(*)`.mapWith(Number) })
       .from(changeTable)
       .where(eq(changeTable.impactConfidence, "CALCULATED"));
-    // 47 before the audit, 345 after confirming the high-confidence block.
+    // 345 com o bloco de alta confiança aplicado. Boa parte dele já vem da
+    // importação desde que ela aplica o registro canônico; o que este número
+    // fixa é o total, e não quem chegou primeiro.
     expect(calculated.n).toBe(345);
 
     // And the change count itself is untouched: curation prices changes, it

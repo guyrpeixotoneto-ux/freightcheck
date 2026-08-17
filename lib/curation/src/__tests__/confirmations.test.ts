@@ -3,7 +3,7 @@ import { eq, sql } from "drizzle-orm";
 import { attributeTable, curationEventTable, factTable } from "@workspace/db";
 import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest/testing";
 import { applyConfirmations, CONFIRMED_SEMANTICS } from "../confirmations";
-import { runProposalPass } from "../engine";
+import { confirmAttribute, runProposalPass } from "../engine";
 import { seedTaxonomy } from "../taxonomy";
 
 /**
@@ -141,6 +141,39 @@ describe("applying the registry", () => {
       })
       .from(factTable);
     expect(after.checksum).toBe(before.checksum);
+  });
+
+  /**
+   * A curadoria humana ganha do registro — e é a mesma função que a importação
+   * chama.
+   *
+   * Sem esta regra, a correção que fez a promoção aplicar o registro teria um
+   * efeito colateral cruel: toda planilha nova reverteria, em silêncio, a
+   * decisão que alguém tomou na tela sobre um atributo do registro. Uma vez por
+   * arquivo recebido.
+   */
+  it("não sobrescreve quem confirmou o mesmo atributo de outro jeito", async () => {
+    await confirmAttribute(ctx.db, {
+      code: "cavalo.finame_cavalo",
+      unit: "BRL",
+      periodicity: "ANUAL",
+      aggregation: "SUM",
+      isMonetary: true,
+      actor: "outra.pessoa@empresa.com",
+      reason:
+        "Confirmação de teste, deliberadamente diferente do registro, para exercitar a regra.",
+    });
+
+    const result = await applyConfirmations(ctx.db);
+    expect(result.divergentes).toContain("cavalo.finame_cavalo");
+    expect(result.applied).not.toContain("cavalo.finame_cavalo");
+
+    const [depois] = await ctx.db
+      .select()
+      .from(attributeTable)
+      .where(eq(attributeTable.code, "cavalo.finame_cavalo"));
+    expect(depois.periodicity).toBe("ANUAL");
+    expect(depois.confirmedBy).toBe("outra.pessoa@empresa.com");
   });
 
   it("reports a missing attribute instead of failing silently", async () => {

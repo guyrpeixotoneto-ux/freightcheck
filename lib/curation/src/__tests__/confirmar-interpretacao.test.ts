@@ -3,6 +3,7 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import {
   attributeSemanticsTable,
   attributeTable,
+  CONFIRMED_SEMANTICS,
   curationEventTable,
 } from "@workspace/db";
 import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest/testing";
@@ -265,7 +266,16 @@ describe("as invariantes que não afrouxaram", () => {
         ),
       );
     expect(eventos.length).toBeGreaterThan(0);
-    expect(eventos[0].actor).toBe(ATOR);
+    /*
+      Um evento **da pessoa**, e não o primeiro da lista.
+
+      O primeiro passou a ser da importação: ela replica o registro canônico na
+      transação da promoção, e o significado declarado ali entra no histórico
+      como qualquer outro campo — assinado por quem escreveu a entrada. O que
+      este teste guarda é que a confirmação feita na tela também aparece, e é
+      isso que `some` afirma.
+    */
+    expect(eventos.some((e) => e.actor === ATOR)).toBe(true);
   });
 
   it("um significado que não está no cadastro é recusado", async () => {
@@ -329,8 +339,28 @@ describe("o que já estava confirmado continua legível", () => {
    * dois campos vazios.
    */
   it("o registro de confirmações replica sem alteração, e ganha o significado", async () => {
+    /*
+      Reaplicar não faz mais nada — e é isso que se quer.
+
+      A lista já foi aplicada na transação da promoção, com o significado
+      declarado junto. `applied` vazio e `unchanged` com o registro inteiro é a
+      afirmação mais forte que este teste pode fazer: a base que a importação
+      entrega já está no estado que o registro descreve, e a curadoria não tem
+      o que completar.
+    */
     const resultado = await applyConfirmations(ctx.db);
-    expect(resultado.applied.length).toBeGreaterThan(0);
+    expect(resultado.divergentes).toEqual([]);
+    expect(resultado.missing).toEqual([]);
+    /*
+      Aplicado ou já em dia — o que não pode é sobrar entrada. Quanto cai de
+      cada lado depende do que a promoção já tinha como garantir naquele banco:
+      onde a árvore da taxonomia nasce com a importação, tudo volta como "já em
+      dia"; onde ela é semeada depois, esta chamada é quem completa o nó. Fixar
+      um dos dois números seria fixar o ambiente, e não o contrato.
+    */
+    expect(resultado.applied.length + resultado.unchanged.length).toBe(
+      CONFIRMED_SEMANTICS.length,
+    );
 
     const { attribute } = await estadoDe("carreta.custo_fixo");
     expect(attribute).toMatchObject({

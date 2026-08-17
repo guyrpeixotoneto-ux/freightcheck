@@ -121,12 +121,29 @@ try {
     console.log(`      [${conflict.verdict}] ${conflict.message}`);
   }
 
-  console.log("[4/4] Aplicando as semânticas já confirmadas…");
+  /*
+    A semântica em si a importação já aplicou — ver `aplicarConfirmacoesCanonicas`
+    dentro da transação de `promote`. O que este passo ainda tem a fazer é o que a
+    promoção não tinha como fazer: **a taxonomia**, que é semeada logo acima, depois
+    dos arquivos. Por isso as entradas voltam como "aplicadas" aqui e não como "já
+    em dia" — o que muda nelas é o nó, e não o significado.
+
+    O passo também é o relatório de divergência entre o registro e o que uma pessoa
+    confirmou na tela, que é a razão de ele continuar existindo depois de a
+    importação passar a aplicar o registro sozinha.
+  */
+  console.log("[4/4] Conferindo as semânticas já confirmadas…");
   const confirmations = await applyConfirmations(db);
   console.log(
     `      ${confirmations.applied.length} aplicadas · ${confirmations.unchanged.length} já em dia` +
       (confirmations.missing.length > 0
         ? ` · AUSENTES: ${confirmations.missing.join(", ")}`
+        : "") +
+      (confirmations.divergentes.length > 0
+        ? ` · DIVERGEM DA CURADORIA: ${confirmations.divergentes.join(", ")}`
+        : "") +
+      (confirmations.incoerentes.length > 0
+        ? ` · TIPO INCOMPATÍVEL: ${confirmations.incoerentes.join(", ")}`
         : ""),
   );
 

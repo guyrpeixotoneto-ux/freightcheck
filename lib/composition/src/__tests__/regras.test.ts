@@ -244,6 +244,7 @@ describe("o farol", () => {
     mensal: 10_000,
     integridade: [],
     anteriorPresente: true,
+    naoApurados: [],
   };
 
   it("verde só sem movimento e sem inconsistência", () => {
@@ -289,6 +290,66 @@ describe("o farol", () => {
     expect(
       avaliarStatus({ ...base, presente: false, variacao: null }).farol,
     ).toBe("INCOMPLETO");
+  });
+
+  /**
+   * O alerta de quem não tem valor apurado diz **de quem é a lacuna**.
+   *
+   * Antes eram as mesmas palavras para uma base sem curadoria e para um
+   * caminhão sem quilometragem medida — e quem lê o card decide o que fazer a
+   * seguir a partir dessa frase.
+   */
+  it("classifica a lacuna de quem não tem mensal apurado", () => {
+    const semSemantica = avaliarStatus({
+      ...base,
+      mensal: null,
+      variacao: null,
+      naoApurados: [
+        { motivo: "SEMANTICA_NAO_CONFIRMADA", monetarioPotencial: true },
+        { motivo: "BASE_AUSENTE", monetarioPotencial: true },
+      ],
+    });
+    expect(semSemantica.naoApuradoPor).toBe("SEMANTICA_NAO_CONFIRMADA");
+    expect(semSemantica.motivos[0]).toContain("curadoria");
+
+    const semProducao = avaliarStatus({
+      ...base,
+      mensal: null,
+      variacao: null,
+      naoApurados: [{ motivo: "BASE_AUSENTE", monetarioPotencial: true }],
+    });
+    expect(semProducao.naoApuradoPor).toBe("PRODUCAO_AUSENTE");
+    expect(semProducao.motivos[0]).toContain("produção");
+
+    const semValor = avaliarStatus({
+      ...base,
+      mensal: null,
+      variacao: null,
+      naoApurados: [{ motivo: "VALOR_AUSENTE", monetarioPotencial: true }],
+    });
+    expect(semValor.naoApuradoPor).toBe("VALOR_AUSENTE");
+
+    // Um texto sem semântica não é o motivo de não haver remuneração.
+    const soRuido = avaliarStatus({
+      ...base,
+      mensal: null,
+      variacao: null,
+      naoApurados: [
+        { motivo: "SEMANTICA_NAO_CONFIRMADA", monetarioPotencial: false },
+      ],
+    });
+    expect(soRuido.naoApuradoPor).toBe("SEM_COMPONENTE_MENSAL");
+  });
+
+  it("não classifica lacuna nenhuma quando há valor apurado", () => {
+    const status = avaliarStatus({
+      ...base,
+      variacao: { absoluta: 0, percentual: 0 },
+      naoApurados: [
+        { motivo: "SEMANTICA_NAO_CONFIRMADA", monetarioPotencial: true },
+      ],
+    });
+    expect(status.naoApuradoPor).toBeNull();
   });
 
   it("variação sobre base zero não vira percentual", () => {

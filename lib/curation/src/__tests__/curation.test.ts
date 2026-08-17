@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, sql } from "drizzle-orm";
-import { attributeTable, curationEventTable, factTable } from "@workspace/db";
+import {
+  attributeTable,
+  CONFIRMED_SEMANTICS,
+  curationEventTable,
+  factTable,
+} from "@workspace/db";
 import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest/testing";
 import {
   confirmAttribute,
@@ -32,21 +37,35 @@ afterAll(async () => {
   await ctx?.drop();
 });
 
+/*
+  Os dois primeiros testes deste bloco mediam a base inteira — "nada está
+  CONFIRMED", "nenhuma periodicidade preenchida" — e isso valia enquanto uma
+  promoção deixava a base sem significado nenhum. Desde que a importação aplica
+  o registro canônico, o zero absoluto deixou de ser a régua certa: o que
+  continua sendo verdade, e é o que estes testes existem para prender, é que
+  **o motor de proposta** não confirma e não inventa periodicidade. A régua
+  passa a ser o registro, e qualquer coisa além dele reprova.
+*/
+const CODIGOS_DO_REGISTRO = CONFIRMED_SEMANTICS.map((e) => e.code).sort();
+
 describe("the proposal pass proposes and nothing more", () => {
   it("confirms nothing, ever", async () => {
-    const [row] = await ctx.db
-      .select({ count: sql<number>`count(*)`.mapWith(Number) })
+    const confirmados = await ctx.db
+      .select({ code: attributeTable.code })
       .from(attributeTable)
       .where(eq(attributeTable.semanticsStatus, "CONFIRMED"));
-    expect(row.count).toBe(0);
+    expect(confirmados.map((c) => c.code).sort()).toEqual(CODIGOS_DO_REGISTRO);
   });
 
   it("never fills periodicity on its own", async () => {
-    const [row] = await ctx.db
-      .select({ count: sql<number>`count(*)`.mapWith(Number) })
+    const comPeriodicidade = await ctx.db
+      .select({ code: attributeTable.code })
       .from(attributeTable)
       .where(sql`${attributeTable.periodicity} IS NOT NULL`);
-    expect(row.count).toBe(0);
+    const doRegistro = new Set(
+      CONFIRMED_SEMANTICS.filter((e) => e.periodicity !== null).map((e) => e.code),
+    );
+    expect(comPeriodicidade.filter((a) => !doRegistro.has(a.code))).toEqual([]);
   });
 
   it("writes a rationale for everything it moves to PRESUMED", async () => {
@@ -132,8 +151,16 @@ describe("the ipvaLicenciamento pair, on the real data", () => {
       .select()
       .from(attributeTable)
       .where(eq(attributeTable.code, "cavalo.ipva_licenciamento"));
-    expect(cavalo.semanticsStatus).toBe("PRESUMED");
+    /*
+      O lado do cavalo não tem par, e por isso nada da confusão de homônimos da
+      carreta pode encostar nele. Ele chega aqui CONFIRMED — é entrada do
+      registro canônico, aplicada na importação, e o passe de proposta não toca
+      em quem já está confirmado —, e a justificativa que carrega é a medição
+      que o confirmou, não um aviso de conflito.
+    */
+    expect(cavalo.semanticsStatus).toBe("CONFIRMED");
     expect(cavalo.unit).toBe("BRL");
+    expect(cavalo.periodicity).toBe("ANUAL");
     expect(cavalo.semanticsRationale).not.toMatch(/HOMÔNIMOS|CONFLITO/);
   });
 });
@@ -273,8 +300,17 @@ describe("the queue puts the money first", () => {
     expect(lastMonetary).toBeLessThan(firstNonMonetary);
 
     const monetary = queue.filter((i) => i.isMonetary === true);
-    expect(monetary.length).toBeGreaterThanOrEqual(20);
-    expect(monetary[0].code).toBe("cavalo.valor_nf_compra");
+    expect(monetary.length).toBeGreaterThanOrEqual(10);
+    /*
+      A cabeça da fila era `cavalo.valor_nf_compra`, a maior magnitude da base.
+      Ela saiu da fila por estar confirmada desde a importação — que é o
+      comportamento do teste vizinho, e não uma regressão deste. O que a fila
+      tem de continuar fazendo é ordenar por magnitude o que ainda **falta**
+      curar, e nenhuma entrada do registro pode aparecer nela.
+    */
+    for (const item of queue) {
+      expect(CODIGOS_DO_REGISTRO, item.code).not.toContain(item.code);
+    }
 
     // Descending magnitude within the monetary block.
     for (let i = 1; i < monetary.length; i++) {

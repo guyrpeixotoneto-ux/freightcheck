@@ -34,6 +34,14 @@ try {
   if (confirmations.missing.length > 0) {
     console.log(`  ATRIBUTO AUSENTE ... ${confirmations.missing.join(", ")}`);
   }
+  // Confirmado por uma pessoa com outro significado: o registro não sobrescreve,
+  // e a diferença é notícia para quem cuida dele.
+  if (confirmations.divergentes.length > 0) {
+    console.log(`  DIVERGEM DA TELA ... ${confirmations.divergentes.join(", ")}`);
+  }
+  if (confirmations.incoerentes.length > 0) {
+    console.log(`  TIPO INCOMPATÍVEL .. ${confirmations.incoerentes.join(", ")}`);
+  }
 
   const summary = await getCurationSummary(db);
   console.log(`\nSEMÂNTICA`);

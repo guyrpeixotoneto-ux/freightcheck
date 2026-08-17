@@ -32,6 +32,7 @@ import {
   type Variacao,
 } from "./motor";
 import { gavetaDe, regraDe, ROTULO_DO_MOTIVO, type MotivoDeExclusao } from "./regras";
+import { motivoDaNaoApuracao, type MotivoDaNaoApuracao } from "./status";
 
 // ---------------------------------------------------------------------------
 // Histórico
@@ -48,6 +49,11 @@ export interface PontoDoHistorico {
   variacao: Variacao | null;
   /** Quantos componentes calculáveis mudaram de valor contra a vigência anterior. */
   componentesAlterados: number;
+  /**
+   * Quando não houve remuneração apurada naquela vigência, de que classe é a
+   * lacuna. Nulo quando houve valor — e nulo quando o ativo não estava lá.
+   */
+  naoApuradoPor: MotivoDaNaoApuracao | null;
 }
 
 export interface SerieDeComponente {
@@ -195,6 +201,10 @@ export async function getHistorico(
       semRegraFinanceira: composicao.naoApurados.filter((n) => n.monetarioPotencial).length,
       variacao: calcularVariacao(mensal, anteriorMensal),
       componentesAlterados: alterados,
+      naoApuradoPor:
+        mensal === null && doMes.length > 0
+          ? motivoDaNaoApuracao(composicao.naoApurados)
+          : null,
     });
 
     anteriorMensal = mensal;
