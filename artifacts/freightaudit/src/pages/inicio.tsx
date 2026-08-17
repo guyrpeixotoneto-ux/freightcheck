@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Link, useLocation, useSearch } from "wouter";
+import { Link, useSearch } from "wouter";
 import {
   AlertTriangle,
   ArrowDownRight,
@@ -12,7 +12,6 @@ import {
   CloudDownload,
   Database,
   FileText,
-  GitCompareArrows,
   Info,
   ReceiptText,
   Search,
@@ -24,18 +23,11 @@ import {
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiError, fetchJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { periodicitySuffix } from "@/lib/format";
+import { BarraDeContexto } from "@/components/contexto/barra-de-contexto";
 import {
   cobertura,
   escreverImpacto,
@@ -106,7 +98,6 @@ import type { BalancoResumo } from "@/components/balanco/tipos";
 const CARTAO = "bg-card border rounded-xl shadow-sm";
 export default function Inicio() {
   const search = useSearch();
-  const [, navegar] = useLocation();
   const parametros = new URLSearchParams(search);
 
   /*
@@ -183,36 +174,23 @@ export default function Inicio() {
     staleTime: 60_000,
   });
 
-  const contextos = useQuery({
-    queryKey: ["contexts"],
-    queryFn: () => fetchJson<SeriesContext[]>("/contexts").catch(() => []),
-    retry: false,
-    staleTime: 60_000,
-  });
-
   const coberturaAuditada = useMemo(() => cobertura(balancos.data), [balancos.data]);
   const integridadeDosDados = useMemo(() => integridade(balancos.data), [balancos.data]);
   const ultima = useMemo(() => ultimaImportacao(importacoes.data), [importacoes.data]);
   const ranking = useMemo(() => maioresImpactos(view?.summary), [view]);
 
-  const trocarPara = (mudancas: Record<string, string | null>) => {
-    const proxima = new URLSearchParams(search);
-    for (const [chave, valor] of Object.entries(mudancas)) {
-      if (valor === null) proxima.delete(chave);
-      else proxima.set(chave, valor);
-    }
-    const texto = proxima.toString();
-    navegar(texto ? `/?${texto}` : "/");
-  };
-
   return (
     <Layout>
-      <Cabecalho
-        view={view}
-        ultima={ultima}
-        contextos={contextos.data ?? []}
-        onTrocar={trocarPara}
-      />
+      {view && (
+        <BarraDeContexto
+          rota="/"
+          scopeHash={view.context.scopeHash}
+          canal={view.context.channel}
+          periodos={view.periods}
+          periodoAtual={view.period}
+        />
+      )}
+      <Cabecalho view={view} ultima={ultima} />
 
       <div className="px-8 py-6 space-y-5 max-w-[1600px]">
         {vigencia.isLoading && (
@@ -287,13 +265,9 @@ export default function Inicio() {
 function Cabecalho({
   view,
   ultima,
-  contextos,
-  onTrocar,
 }: {
   view: FamiliesView | null;
   ultima: ReturnType<typeof ultimaImportacao>;
-  contextos: SeriesContext[];
-  onTrocar: (mudancas: Record<string, string | null>) => void;
 }) {
   const unidade = view ? nomeDaUnidade(view.context) : null;
   const partes = [
@@ -323,87 +297,20 @@ function Cabecalho({
         </div>
 
         <div className="flex items-center gap-3 shrink-0">
-          {contextos.length > 1 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger className={BOTAO_DE_TROCA}>
-                <GitCompareArrows className="w-4 h-4" />
-                Trocar unidade
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-72">
-                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                  {contextos.length} unidades com vigência importada
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {contextos.map((contexto) => (
-                  <DropdownMenuItem
-                    key={`${contexto.scopeHash}|${contexto.channel ?? ""}`}
-                    onSelect={() =>
-                      /*
-                        A vigência sai da URL junto com a unidade: a data de uma
-                        unidade não existe necessariamente na outra, e insistir
-                        nela levaria a uma tela vazia com aparência de defeito.
-                      */
-                      onTrocar({
-                        scopeHash: contexto.scopeHash,
-                        canal: contexto.channel,
-                        period: null,
-                      })
-                    }
-                    className="flex flex-col items-start gap-0.5"
-                  >
-                    <span className="font-semibold">{nomeDaUnidade(contexto)}</span>
-                    <span className="text-xs text-muted-foreground">
-                      {contexto.channel ?? "sem canal no rótulo"} · {contexto.periods}{" "}
-                      {contexto.periods === 1 ? "vigência" : "vigências"}
-                    </span>
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
-
-          {view && view.periods.length > 1 && (
-            <DropdownMenu>
-              <DropdownMenuTrigger className={BOTAO_DE_TROCA}>
-                <CalendarDays className="w-4 h-4" />
-                Trocar vigência
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56 max-h-80 overflow-y-auto">
-                <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
-                  {view.periods.length} vigências no histórico
-                </DropdownMenuLabel>
-                <DropdownMenuSeparator />
-                {[...view.periods]
-                  .sort((a, b) => b.date.localeCompare(a.date))
-                  .map((periodo) => (
-                    <DropdownMenuItem
-                      key={periodo.date}
-                      onSelect={() => onTrocar({ period: periodo.date })}
-                      className={cn(periodo.date === view.period && "font-bold text-brand")}
-                    >
-                      {periodo.label}
-                    </DropdownMenuItem>
-                  ))}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          )}
+          {/*
+            "Trocar unidade" e "Trocar vigência" moravam aqui, e eram o segundo
+            seletor de contexto do produto — `ContextBar` existia sem consumidor
+            e Parâmetros tinha o terceiro. Este cabeçalho sabia uma coisa que os
+            outros dois não: trocar de unidade **apaga a vigência**, porque a
+            data de uma pode não existir na outra. A regra virou função
+            (`lib/contexto.ts`), a função virou a barra de todas as telas, e o
+            que resta aqui é o título.
+          */}
         </div>
       </div>
     </header>
   );
 }
-
-/**
- * Os dois botões de troca do cabeçalho, com a mesma casca.
- *
- * Contorno vermelho e fundo branco: são as duas únicas ações desta tela, e o
- * laranja cheio está reservado para a ação que cria trabalho — "Enviar a
- * primeira planilha", no banco vazio. Trocar de unidade e trocar de vigência
- * não mudam nada no banco; mudam o recorte do que se está lendo.
- */
-const BOTAO_DE_TROCA =
-  "flex items-center gap-2 rounded-lg border border-brand bg-card px-4 py-2.5 " +
-  "text-sm font-bold text-brand hover:bg-accent transition-colors";
 
 /** O nome da unidade; sem escopo cadastrado sobra o rótulo que o servidor montou. */
 function nomeDaUnidade(contexto: SeriesContext): string {

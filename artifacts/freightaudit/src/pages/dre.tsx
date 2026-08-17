@@ -18,6 +18,7 @@ import { cn } from "@/lib/utils";
 import { AvisoDeCircularidade, Cascata } from "@/components/dre/cascata";
 import { Cobertura, Indicadores } from "@/components/dre/indicadores";
 import { EvolucaoDoResultado } from "@/components/dre/graficos";
+import { BarraDeContexto } from "@/components/contexto/barra-de-contexto";
 import {
   CRITERIOS,
   ROTULO_DO_ESCOPO,
@@ -104,6 +105,21 @@ export default function DRE() {
 
   return (
     <Layout>
+      {data && (
+        <BarraDeContexto
+          rota="/dre"
+          scopeHash={data.contexto.scopeHash}
+          canal={data.contexto.canal}
+          periodos={data.vigencias.todas.map((v) => ({
+            date: v.effectiveDate,
+            label: v.periodLabel,
+          }))}
+          periodoAtual={data.vigencias.alvo.effectiveDate}
+          compararCom={
+            data.vigencias.anterior ? [data.vigencias.anterior.periodLabel] : []
+          }
+        />
+      )}
       <header className="border-b bg-card px-8 pt-6">
         <div className="flex items-start justify-between gap-8">
           <div>
@@ -113,18 +129,13 @@ export default function DRE() {
               cada número, e o que o produto ainda não consegue apurar com segurança.
             </p>
           </div>
-          {data && (
-            <div className="text-right shrink-0">
-              <div className="text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
-                {data.contexto.label}
-              </div>
-              <VigenciaSelect
-                vigencias={data.vigencias.todas}
-                atual={data.vigencias.alvo.effectiveDate}
-                onEscolher={(v) => irPara({ period: v })}
-              />
-            </div>
-          )}
+          {/*
+            O seletor de vigência que ficava aqui virou campo da barra de
+            contexto — junto de unidade e canal, que é onde a escolha é uma só.
+            Mantê-lo aqui daria duas formas de trocar a mesma coisa na mesma
+            tela, e elas divergiriam no dia em que uma aprendesse a apagar o
+            recorte e a outra não.
+          */}
         </div>
 
         <nav className="flex items-end gap-1 mt-5 -mb-px" aria-label="Escopo da apuração">

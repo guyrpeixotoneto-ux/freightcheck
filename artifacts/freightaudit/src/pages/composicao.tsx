@@ -16,6 +16,7 @@ import { fetchJson } from "@/lib/api";
 import { formatBrl, formatBrlShort } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Bolinha, VariacaoMensal } from "@/components/composicao/farol";
+import { BarraDeContexto } from "@/components/contexto/barra-de-contexto";
 import {
   ROTULO_DO_FAROL,
   type Farol,
@@ -96,6 +97,18 @@ export default function Composicao() {
 
   return (
     <Layout>
+      {data && (
+        <BarraDeContexto
+          rota="/composicao"
+          scopeHash={data.context.scopeHash}
+          canal={data.context.channel}
+          periodos={data.vigencias.map((v) => ({
+            date: v.effectiveDate,
+            label: v.periodLabel,
+          }))}
+          periodoAtual={data.effectiveDate}
+        />
+      )}
       <header className="border-b bg-card px-8 pt-6">
         <div className="flex items-start justify-between gap-8">
           <div>
@@ -105,18 +118,7 @@ export default function Composicao() {
               que o produto ainda não consegue apurar com segurança.
             </p>
           </div>
-          {data && (
-            <div className="text-right shrink-0">
-              <div className="text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
-                {data.context.label}
-              </div>
-              <VigenciaSelect
-                vigencias={data.vigencias}
-                atual={data.effectiveDate}
-                onEscolher={(v) => irPara({ period: v })}
-              />
-            </div>
-          )}
+          {/* O seletor de vigência virou campo da barra de contexto, acima. */}
         </div>
 
         <nav className="flex items-end gap-1 mt-5 -mb-px" aria-label="Tipo de equipamento">

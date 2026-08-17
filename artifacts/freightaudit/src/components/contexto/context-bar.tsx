@@ -6,7 +6,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { GroupedView } from "@/components/inicio/types";
+import type { SeriesContext } from "@/components/inicio/types";
 
 /**
  * A barra de contexto — a mesma seleção que o usuário faz no Freightech.
@@ -26,6 +26,22 @@ import type { GroupedView } from "@/components/inicio/types";
  *
  * O quarto campo é o que o Freightech não tem, e é a razão deste produto
  * existir: **Comparar com**.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que ela recebe o contexto em pedaços, e não uma resposta inteira
+ * ---------------------------------------------------------------------------
+ *
+ * Esta barra nasceu tipada em `GroupedView` — a resposta de uma tela só — e por
+ * isso ficou montada em tela nenhuma: as outras oito que recortam por contexto
+ * têm respostas de formatos diferentes, e nenhuma delas cabia no tipo. Duas
+ * acabaram escrevendo o próprio seletor (Início e Parâmetros), e o produto
+ * passou a ter **três** definições de "escolher unidade" na interface — a nona
+ * definição de contexto desta auditoria, agora em React.
+ *
+ * Os campos abaixo são o mínimo que todo consumidor tem: o contexto atual, os
+ * outros, e a lista de vigências. O que é específico de Alterações — a frota
+ * por série e contra o que cada uma comparou — entra como adorno opcional, e
+ * não como requisito de tipo.
  */
 
 export interface ContextSelection {
@@ -34,46 +50,67 @@ export interface ContextSelection {
   period?: string;
 }
 
-function unidadeOf(context: GroupedView["context"]): string {
+export function unidadeOf(context: SeriesContext): string {
   const unidade = context.scopes.find((s) => s.scopeType === "UNIDADE");
   return unidade?.name ?? unidade?.code ?? context.scopeHash;
 }
 
-function detailOf(context: GroupedView["context"]): string {
+function detailOf(context: SeriesContext): string {
   const parts = context.scopes
     .filter((s) => s.scopeType === "REGIONAL" || s.scopeType === "OPERADOR")
     .map((s) => s.name ?? s.code);
   return parts.join(" · ");
 }
 
-export function ContextBar({
-  view,
-  onChange,
-}: {
-  view: GroupedView;
-  onChange: (selection: ContextSelection) => void;
-}) {
-  const contexts = [view.context, ...view.otherContexts];
-  const unidades = [...new Map(contexts.map((c) => [c.scopeHash, c])).values()];
-  const canais = contexts.filter((c) => c.scopeHash === view.context.scopeHash);
-
+export interface ContextBarProps {
+  /** O contexto que produziu o que está na tela. */
+  contexto: SeriesContext;
+  /** Os outros que existem no banco. Vazio enquanto houver uma unidade só. */
+  outros: SeriesContext[];
+  /** As vigências do contexto atual, em ordem. */
+  periodos: { date: string; label: string }[];
+  periodoAtual: string;
+  /** O rótulo do arquivo da vigência aberta, quando a tela souber qual é. */
+  vigenciaDetalhe?: string | null;
   /**
-   * O que cada série está comparando contra.
+   * Contra o que a tela está comparando, quando ela compara.
    *
    * Carreta e cavalo são séries independentes e cada uma compara contra a sua
    * própria anterior, que pode não ser a mesma vigência. Quando são a mesma, o
    * campo mostra um rótulo; quando não, mostra os dois, porque esconder essa
    * diferença faria o usuário atribuir a uma série o que veio da outra.
+   *
+   * `undefined` esconde o campo: numa tela que não compara, "Comparar com" é
+   * uma promessa que ela não cumpre.
    */
-  const baselines = [...new Set(view.series.map((s) => s.previousLabel).filter(Boolean))];
+  compararCom?: string[];
+  /** A linha de rodapé da tela — frota, contagens. Opcional por desenho. */
+  rodape?: React.ReactNode;
+  onChange: (selection: ContextSelection) => void;
+}
+
+export function ContextBar({
+  contexto,
+  outros,
+  periodos,
+  periodoAtual,
+  vigenciaDetalhe,
+  compararCom,
+  rodape,
+  onChange,
+}: ContextBarProps) {
+  const contexts = [contexto, ...outros];
+  const unidades = [...new Map(contexts.map((c) => [c.scopeHash, c])).values()];
+  const canais = contexts.filter((c) => c.scopeHash === contexto.scopeHash);
+  const baselines = compararCom ?? [];
 
   return (
     <div className="border-b bg-card px-8 py-4">
       <div className="flex flex-wrap items-end gap-x-8 gap-y-4">
-        <Field label="Unidade" detail={detailOf(view.context)}>
+        <Field label="Unidade" detail={detailOf(contexto)}>
           {unidades.length > 1 ? (
             <Select
-              value={view.context.scopeHash}
+              value={contexto.scopeHash}
               onValueChange={(scopeHash) => onChange({ scopeHash, period: undefined })}
             >
               <SelectTrigger className="w-56">
@@ -88,14 +125,14 @@ export function ContextBar({
               </SelectContent>
             </Select>
           ) : (
-            <Fixed value={unidadeOf(view.context)} note="única unidade importada" />
+            <Fixed value={unidadeOf(contexto)} note="única unidade importada" />
           )}
         </Field>
 
         <Field label="Canal/Segmento" detail={null}>
           {canais.length > 1 ? (
             <Select
-              value={view.context.channel ?? ""}
+              value={contexto.channel ?? ""}
               onValueChange={(canal) => onChange({ canal, period: undefined })}
             >
               <SelectTrigger className="w-44">
@@ -111,7 +148,7 @@ export function ContextBar({
             </Select>
           ) : (
             <Fixed
-              value={view.context.channel ?? "sem canal no rótulo"}
+              value={contexto.channel ?? "sem canal no rótulo"}
               note="único canal importado"
             />
           )}
@@ -119,14 +156,14 @@ export function ContextBar({
 
         <Field
           label="Vigência atual"
-          detail={view.series.map((s) => s.snapshotLabel).join(" · ")}
+          detail={vigenciaDetalhe ?? null}
         >
-          <Select value={view.period} onValueChange={(period) => onChange({ period })}>
+          <Select value={periodoAtual} onValueChange={(period) => onChange({ period })}>
             <SelectTrigger className="w-52">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              {view.periods.map((p) => (
+              {periodos.map((p) => (
                 <SelectItem key={p.date} value={p.date}>
                   {p.label}
                 </SelectItem>
@@ -135,6 +172,7 @@ export function ContextBar({
           </Select>
         </Field>
 
+        {compararCom !== undefined && (
         <Field label="Comparar com" detail={baselines.join(" · ") || null}>
           {/*
             Fixo, e por um motivo que vale dizer em voz alta: o produto compara
@@ -158,19 +196,13 @@ export function ContextBar({
             }
           />
         </Field>
+        )}
       </div>
 
       <p className="text-xs text-muted-foreground mt-3">
-        {view.series.map((s, i) => (
-          <span key={s.entityTypeSet}>
-            {i > 0 && " · "}
-            {s.fleet} {s.equipment.toLowerCase()}
-            {s.fleet === 1 ? "" : "s"}
-          </span>
-        ))}
-        {" · "}
-        {view.context.periods} {view.context.periods === 1 ? "vigência" : "vigências"} no
-        histórico
+        {rodape}
+        {rodape ? " · " : ""}
+        {contexto.periods} {contexto.periods === 1 ? "vigência" : "vigências"} no histórico
       </p>
     </div>
   );

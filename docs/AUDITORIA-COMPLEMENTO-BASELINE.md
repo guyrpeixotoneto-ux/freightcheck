@@ -168,7 +168,7 @@ sequência está carregando, com o PR que as encerra:
 |---|---|---|---|
 | ~~**`coverage` recorta por `scope_hash` cru**~~ | PR-7 | **PR-10 — encerrada** | Migrada de uma vez, sem solução intermediária: o pacote passou a depender de `@workspace/availability`, o recorte é `chaveDeEscopoSql`, a inferência recorta por `filtroDeSerie` e a disponibilidade por `filtroDeVigenciaDisponivel`. Nenhuma tradução de `scope_hash` foi criada dentro de `coverage` |
 | ~~**`entity_type_set` na identidade da série**~~ | — | **PR-9 — encerrada** | Saiu da série no PR-9, junto com a comparação por componente. A cobertura de equipamento recorta o que duas vigências comparam entre si, e o que ficou de fora volta nomeado no resultado |
-| **`scope_hash` legado aceito em `resolveContext`** | PR-7 | **PR-14** | Links e favoritos anteriores à mudança carregam o hash cru. Sai quando o front-end passar a usar o identificador novo explicitamente |
+| **`scope_hash` legado aceito em `resolveContext`** | PR-7 | **remarcada no PR-14 — sai numa janela declarada, não num PR** | O front-end passou a escrever sempre a chave canônica (a barra de contexto lê `/contexts`, que já a devolve). O que sobra é o **passado**: links e favoritos salvos antes da mudança carregam o hash cru, e recusá-los agora transformaria a correção em página quebrada para quem guardou um endereço. A compatibilidade não tem mais causa técnica — tem causa de calendário, e o prazo é uma data, não um PR. Enquanto ela viver, `resolveContext` aceita as duas chaves e **só ele**: nenhum outro módulo traduz hash |
 
 ---
 
@@ -676,7 +676,7 @@ de toda a sequência.
 | **PR-11** | ~~`/changes/latest`~~ (feito no PR-9) e `valoresVigentes` (chamados) — **feito**. O *antes* de um chamado passa a ser o último valor **da placa**, com disponibilidade e série vindas da autoridade, e sem palpite quando a placa vive em mais de uma série |
 | **PR-12** | `janelaDosAtributos` passa a exigir recorte — **feito**. A assinatura pede a chave de série, e as duas subconsultas de detalhe (entidades afetadas, rótulo da estreia), que também eram sem recorte, passaram a recortar |
 | **PR-13** | `getOverview` filtra vivas e contexto — **feito**. Nove dos doze contadores liam o banco inteiro, não cinco: além dos fatos que a auditoria mediu, também os ativos (`entity` é global), as datas de primeira e última vigência, as comparações e as três contagens de alteração. Os três contadores de dicionário passaram a descrever as colunas **entregues no recorte** — mudança de significado, declarada |
-| **PR-14** | `ContextBar` montado nas telas que recortam por contexto |
+| **PR-14** | `ContextBar` montado nas telas que recortam por contexto — **feito**, e maior do que a linha sugeria: a interface tinha **três** seletores de contexto (a barra sem consumidor, o dropdown de Início e a barra de filtro de Parâmetros). Os três viraram um. A dívida do `scope_hash` legado foi **remarcada**, não fechada: ver §A.6 |
 | **PR-15** | Fleet Analysis passa a ler o canônico, executando o mapa do PR-4 |
 | **PR-16** | Remover as consultas paralelas que sobraram; teste que impede `status <> 'SUPERSEDED'` escrito à mão fora da autoridade |
 | **PR-17** | **A prova de propagação por porta:** para cada dado que entra, uma prova de que todo módulo elegível o enxerga — o segundo grande objetivo da auditoria |

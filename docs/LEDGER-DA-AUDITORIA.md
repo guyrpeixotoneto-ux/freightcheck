@@ -41,6 +41,12 @@ Depois do PR-13 (`61f3a2d`), sobre os pacotes afetados: `comparison` 284,
 `composition` 64, `coverage` 73, `dre` 75, `balance` 16, `api-server` **288**
 (os 9 de `painel.test.ts`), `assistant` **209 passados e 119 pulados**.
 
+Depois do PR-17 (`d5dbff1`), sobre os pacotes afetados: `comparison` 284,
+`coverage` 73, `dre` 75, `composition` 64, `api-server` **296** (os 8 da
+matriz). A promoção passou a disparar o backfill de comparações e nenhuma
+suíte quebrou — as que promovem e depois leem `change_set` agora encontram o
+estado que a produção terá.
+
 > **Os 119 pulados do `assistant` não são regressão desta sequência.** São
 > `evals`, `fase1` e os dois de benchmark, que dependem de chave de API do
 > modelo e se auto-pulam sem ela. Ficam registrados porque `assistant` entrou
@@ -54,10 +60,10 @@ Depois do PR-13 (`61f3a2d`), sobre os pacotes afetados: `comparison` 284,
 
 | | |
 |---|---|
-| **Feitos** | 13 (PR-1, 2, 4, 5, 6, 7, 8, 9, 10, 10b, 11, 12, 13) |
+| **Feitos** | 14 (PR-1, 2, 4, 5, 6, 7, 8, 9, 10, 10b, 11, 12, 13, 17) |
 | **Absorvidos** | 1 (PR-16, cumprido pelo PR-10b) |
 | **Não existiu** | 1 (PR-3, dobrado no PR-4 — ver nota) |
-| **Faltam** | **6**: PR-14, 15, 17 (aguardando suíte), 18, 19, 20 |
+| **Faltam** | **5**: PR-14 (aguardando suíte), 15, 18, 19, 20 |
 
 > **Nota sobre PR-3.** O plano original tinha um PR-3 de caracterização da
 > Análise de frota, separado do PR-4 que a mapeava. Os dois foram entregues como
@@ -89,10 +95,10 @@ Depois do PR-13 (`61f3a2d`), sobre os pacotes afetados: `comparison` 284,
 | **PR-11** | O *antes* de um chamado vem da autoridade | **feito** | `d20014e` | `propagacao-chamados.test.ts` (5) | **Prova negativa**: com a consulta antiga, o chamado sobre placa de dois canais recebe `VIGENCIA` onde deve receber `AUSENTE`. Ressalva medida: o caso de cobertura **não** falha na versão antiga — lá o defeito era não-determinismo, e está dito no teste |
 | **PR-12** | `janelaDosAtributos` exige o recorte, por assinatura | **feito** | `2232b1c` | `coverage/cenarios.test.ts` (73) | **Prova negativa**: com a janela antiga, os cinco casos falham vazando atributos de outros cenários |
 | **PR-13** | `getOverview` filtra vivas e recorta por contexto | **feito** | `61f3a2d` | `painel.test.ts` (9) | Nove dos doze contadores liam o banco inteiro. **Prova negativa**: com os contadores antigos, três casos falham — 104 fatos contra 52 (o dobro exato, a revisão substituída), 3 vigências onde há 2 no recorte, e a data de janeiro de outra unidade vazando para Juiz de Fora. Mudança de significado declarada: os três contadores de dicionário passam a descrever as colunas **entregues** no recorte |
-| **PR-14** | `ContextBar` nas telas que recortam por contexto | **a fazer** | — | — | Encerra a dívida do `scope_hash` legado em `resolveContext` |
+| **PR-14** | Um seletor de contexto na interface, e não quatro | **aguardando suíte** | — | `contexto.test.ts` (8), `fronteira-do-contexto.test.ts` (4) | A interface tinha **três** definições de contexto: `ContextBar` escrita e montada em lugar nenhum, o dropdown de Início e a barra de filtro de Parâmetros. Só Início sabia que trocar de unidade apaga a vigência. A regra virou função pura provada, a barra virou uma só, e uma varredura recusa a quarta. Três telas **não** montam a barra, com o motivo declarado no teste. A dívida do `scope_hash` legado foi **remarcada** para uma janela de calendário, não fechada |
 | **PR-15** | Fleet Analysis passa a ler o canônico | **a fazer** | — | — | Executa o mapa do PR-4. **Regra**: toda diferença numérica classificada como bug antigo, diferença de modelagem ou decisão de negócio pendente — nunca resolvida em silêncio |
 | ~~**PR-16**~~ | Teste que impede `status <> 'SUPERSEDED'` à mão | **absorvido pelo PR-10b** | `e5f8dc7` | `fronteira-da-disponibilidade.test.ts` | Restou só a varredura por consultas paralelas remanescentes, que entra no PR-17 |
-| **PR-17** | **A matriz de propagação por porta** | **aguardando suíte** | — | `matriz-de-propagacao.test.ts` (8) | 16 consumidores na porta 1 (14 RECEBEU, 2 NAO_APLICAVEL) e 7 na porta 2 (3 RECEBEU, 4 NAO_APLICAVEL). Diagnóstico de 6 elos para a DRE, com três cenários de quebra. **Achou uma quebra real**: `computeMissingChangeSets` nunca era chamado — a promoção não disparava o backfill, e Alterações · Planilha abria com "comparação ainda não calculada" em todas as séries. Corrigido no mesmo PR |
+| **PR-17** | **A matriz de propagação por porta** | **feito** | `d5dbff1` | `matriz-de-propagacao.test.ts` (8) | 16 consumidores na porta 1 (14 RECEBEU, 2 NAO_APLICAVEL) e 7 na porta 2 (3 RECEBEU, 4 NAO_APLICAVEL). Diagnóstico de 6 elos para a DRE, com três cenários de quebra. **Achou uma quebra real**: `computeMissingChangeSets` nunca era chamado — a promoção não disparava o backfill, e Alterações · Planilha abria com "comparação ainda não calculada" em todas as séries. Corrigido no mesmo PR |
 
 ## P3 — semântica de estados vazios
 

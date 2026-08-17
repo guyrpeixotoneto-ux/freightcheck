@@ -38,6 +38,7 @@ import {
   type ItemCockpit,
 } from "@/lib/cockpit";
 import type { ChangeGroup, GroupedView } from "@/components/inicio/types";
+import { BarraDeContexto } from "@/components/contexto/barra-de-contexto";
 
 /**
  * Acompanhamento — o cockpit de auditoria da vigência.
@@ -112,6 +113,30 @@ export default function Vigencia() {
 
   return (
     <Layout>
+      {data && (
+        <BarraDeContexto
+          rota="/vigencia"
+          scopeHash={data.context.scopeHash}
+          canal={data.context.channel}
+          periodos={data.periods}
+          periodoAtual={data.period}
+          vigenciaDetalhe={data.series.map((s) => s.snapshotLabel).join(" · ")}
+          compararCom={[
+            ...new Set(
+              data.series
+                .map((s) => s.previousLabel)
+                .filter((l): l is string => l !== null),
+            ),
+          ]}
+          rodape={data.series.map((s, i) => (
+            <span key={s.entityTypeSet}>
+              {i > 0 && " · "}
+              {s.fleet} {s.equipment.toLowerCase()}
+              {s.fleet === 1 ? "" : "s"}
+            </span>
+          ))}
+        />
+      )}
       <header className="px-8 pt-7 pb-5 max-w-[1600px]">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0">

@@ -20,6 +20,7 @@ import { fetchJsonOrNull } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useFavoritos } from "@/lib/favoritos";
 import { formatBrlShort, impactEntries, periodicitySuffix } from "@/lib/format";
+import { BarraDeContexto } from "@/components/contexto/barra-de-contexto";
 import {
   CATALOGO_FREIGHTECH,
   chaveDoCartao,
@@ -111,33 +112,16 @@ export default function Parametros() {
 
   const secoes = useMemo(() => montarSecoes(data ?? null), [data]);
 
-  /**
-   * Aplicar o filtro **não** fecha o cartão aberto.
-   *
-   * Trocar de unidade ou de vigência é justamente o que se quer fazer *dentro*
-   * de um cartão: "e em Manaus, como ficou o Índice de Reajuste?". Voltar para
-   * a grade a cada FILTRAR obriga a reencontrar o cartão na lista para fazer a
-   * pergunta seguinte, e a pergunta seguinte é quase sempre a mesma sobre outro
-   * recorte.
-   *
-   * O que o cartão não sobrevive é a mudança que o faz deixar de existir — e aí
-   * a tela diz isso em vez de despejar na grade sem explicação. Ver `CartaoAusente`.
-   */
-  const aplicar = (selecao: { scopeHash: string; canal: string | null; period: string }) => {
-    const next = new URLSearchParams();
-    next.set("scopeHash", selecao.scopeHash);
-    if (selecao.canal) next.set("canal", selecao.canal);
-    if (selecao.period) next.set("period", selecao.period);
-    if (cartaoAberto) {
-      next.set("cartao", cartaoAberto);
-      // A aba e o intervalo vão junto: trocar de unidade não é motivo para
-      // voltar da análise para o espelho, nem para reabrir outro recorte.
-      if (aba === "analise") next.set("aba", aba);
-      if (de) next.set("de", de);
-      if (ate) next.set("ate", ate);
-    }
-    navigate(`/parametros?${next}`);
-  };
+  /*
+    O que o cartão aberto sobrevive, e onde isso passou a morar.
+
+    Aqui havia uma função `aplicar` que remontava a URL inteira ao trocar de
+    recorte, preservando à mão o cartão, a aba e o intervalo. Ela era o terceiro
+    seletor de contexto do produto. A troca agora é da barra, e a barra preserva
+    o que já está na URL por construção — `aplicarContexto` parte da query atual
+    em vez de montar uma nova, de modo que cartão, aba e intervalo continuam lá
+    sem que ninguém precise listá-los.
+  */
 
   const abrirCartao = (chave: string | null) => {
     const next = new URLSearchParams(search);
@@ -201,13 +185,17 @@ export default function Parametros() {
         <h1 className="text-3xl font-bold uppercase tracking-tight">Escolha de segmento</h1>
 
         {data && (
-          <BarraFiltro
-            view={data}
-            onFiltrar={aplicar}
-            busca={busca}
-            onBuscar={setBusca}
-            buscaAtiva={!cartao}
+          <BarraDeContexto
+            rota="/parametros"
+            scopeHash={data.context.scopeHash}
+            canal={data.context.channel}
+            periodos={data.periods}
+            periodoAtual={data.period}
           />
+        )}
+
+        {data && (
+          <BuscaDeParametro busca={busca} onBuscar={setBusca} ativa={!cartao} />
         )}
 
         {isLoading && <p className="mt-8 text-sm text-muted-foreground">Carregando…</p>}
@@ -660,169 +648,55 @@ function agregar(parametros: ParameterView[]): {
 }
 
 /* ------------------------------------------------------------------ */
-/* A barra de filtro                                                   */
+/* A busca por parâmetro                                               */
 /* ------------------------------------------------------------------ */
 
 /**
- * Os quatro campos e o botão, na ordem e no formato do Freightech.
+ * O que sobrou da barra de filtro desta tela, e por que só isto sobrou.
  *
- * O botão FILTRAR fica apagado enquanto a seleção na tela for igual à aplicada
- * — é o mesmo comportamento de lá, e ele é honesto: clicar não faria nada. O
- * campo Parâmetro, que lá só habilita depois de filtrar, aqui filtra a grade em
- * tempo real, porque a grade já está na tela e não custa uma viagem ao servidor.
+ * Aqui havia quatro campos e um botão FILTRAR: canal, vigência, unidade e
+ * parâmetro. Os três primeiros eram um **terceiro** seletor de contexto no
+ * produto — Início tinha o dele, `ContextBar` existia e não era montada em
+ * lugar nenhum, e este era o terceiro. Três formas de escolher a mesma unidade
+ * divergem no dia em que uma aprende algo que as outras não: esta, por
+ * exemplo, não apagava a vigência ao trocar de unidade, e levava a data de
+ * Camaçari para Juiz de Fora.
  *
- * Campo com uma opção só aparece preenchido e desabilitado, com a razão escrita
- * embaixo: um seletor de um item é promessa de variedade que o dado não tem.
+ * Os três viraram a barra de contexto, que é a mesma de todas as telas. O
+ * quarto fica: buscar parâmetro pelo nome é filtro **da grade**, não do
+ * recorte, e ele já filtrava em tempo real sem ir ao servidor.
+ *
+ * **O botão FILTRAR sai junto, e isso é uma mudança de comportamento.** Ele
+ * existia porque a seleção de recorte ficava em estado local até alguém
+ * confirmar; sem os três campos de recorte não há o que confirmar. Trocar
+ * contexto passa a recarregar na hora, como nas outras telas.
  */
-function BarraFiltro({
-  view,
-  onFiltrar,
+function BuscaDeParametro({
   busca,
   onBuscar,
-  buscaAtiva,
+  ativa,
 }: {
-  view: FamiliesView;
-  onFiltrar: (selecao: { scopeHash: string; canal: string | null; period: string }) => void;
   busca: string;
   onBuscar: (valor: string) => void;
   /** Com um cartão aberto não há grade para filtrar; o campo desabilita. */
-  buscaAtiva: boolean;
+  ativa: boolean;
 }) {
-  const contextos = [view.context, ...view.otherContexts];
-  const unidades = [...new Map(contextos.map((c) => [c.scopeHash, c])).values()];
-
-  const [scopeHash, setScopeHash] = useState(view.context.scopeHash);
-  const [canal, setCanal] = useState<string | null>(view.context.channel);
-  const [period, setPeriod] = useState(view.period);
-
-  // A resposta manda: trocar de unidade pela URL tem de refletir nos campos.
-  useEffect(() => {
-    setScopeHash(view.context.scopeHash);
-    setCanal(view.context.channel);
-    setPeriod(view.period);
-  }, [view.context.scopeHash, view.context.channel, view.period]);
-
-  const canais = contextos.filter((c) => c.scopeHash === scopeHash);
-  const sujo =
-    scopeHash !== view.context.scopeHash ||
-    canal !== view.context.channel ||
-    period !== view.period;
-
   return (
-    /*
-      Alinhamento pelo topo, não pelo rodapé.
-
-      Com `items-end` os blocos encostavam a base uns nos outros — e como só
-      alguns campos têm nota embaixo ("único canal importado", "3 no
-      histórico"), os que tinham nota subiam e os que não tinham desciam. O
-      resultado era uma fileira em degraus, com o FILTRAR e o Parametro fora da
-      linha dos outros três.
-
-      Agora cada campo é uma coluna de três faixas de altura fixa — rótulo,
-      controle, nota — e a nota vazia continua ocupando o seu lugar. Alinhando
-      pelo topo, os rótulos ficam numa linha e os controles noutra, sempre.
-    */
     <div className="mt-5 flex flex-wrap items-start gap-4">
-      <Campo rotulo="Canal/Segmento" nota={canais.length > 1 ? null : "único canal importado"}>
-        {canais.length > 1 ? (
-          <Select value={canal ?? ""} onValueChange={(valor) => setCanal(valor || null)}>
-            <SelectTrigger className="w-56 h-12 rounded-sm bg-card">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {canais.map((c) => (
-                <SelectItem key={c.channel ?? "sem-canal"} value={c.channel ?? ""}>
-                  {c.channel ?? "sem canal no rótulo"}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <CampoFixo valor={canal ?? "sem canal no rótulo"} largura="w-56" />
-        )}
-      </Campo>
-
-      <Campo rotulo="Vigência" nota={`${view.periods.length} no histórico`}>
-        <Select value={period} onValueChange={setPeriod}>
-          <SelectTrigger className="w-56 h-12 rounded-sm bg-card">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {view.periods.map((p) => (
-              <SelectItem key={p.date} value={p.date}>
-                {p.label}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </Campo>
-
-      <Campo rotulo="Unidade" nota={unidades.length > 1 ? null : "única unidade importada"}>
-        {unidades.length > 1 ? (
-          <Select
-            value={scopeHash}
-            onValueChange={(valor) => {
-              setScopeHash(valor);
-              setCanal(contextos.find((c) => c.scopeHash === valor)?.channel ?? null);
-            }}
-          >
-            <SelectTrigger className="w-56 h-12 rounded-sm bg-card">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {unidades.map((c) => (
-                <SelectItem key={c.scopeHash} value={c.scopeHash}>
-                  {nomeDaUnidade(c)}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        ) : (
-          <CampoFixo valor={nomeDaUnidade(view.context)} largura="w-56" />
-        )}
-      </Campo>
-
-      {/* O botão entra na mesma coluna de três faixas, com o rótulo vazio: é o
-          que o põe na linha dos controles em vez de na do rodapé. */}
-      <Campo rotulo="" nota={null}>
-        <button
-          type="button"
-          disabled={!sujo}
-          onClick={() => onFiltrar({ scopeHash, canal, period })}
-          className={cn(
-            "h-12 px-8 rounded-sm text-[0.8125rem] font-bold uppercase tracking-wide transition-colors",
-            sujo
-              ? "bg-brand text-brand-foreground hover:brightness-95"
-              : "bg-brand/40 text-white cursor-not-allowed",
-          )}
-        >
-          Filtrar
-        </button>
-      </Campo>
-
-      <Campo rotulo="Parametro" nota={null}>
-        <div className="relative">
-          <input
-            value={busca}
-            disabled={!buscaAtiva}
-            onChange={(event) => onBuscar(event.target.value)}
-            aria-label="Buscar parâmetro pelo nome"
-            className="w-60 h-12 rounded-sm border border-input bg-card pl-3 pr-10 text-sm outline-none focus:border-brand disabled:bg-muted/60"
-          />
-          <Search className="w-5 h-5 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-        </div>
+      <Campo rotulo="Parâmetro" nota={ativa ? null : "abra a grade para buscar"}>
+        <input
+          type="text"
+          value={busca}
+          disabled={!ativa}
+          onChange={(e) => onBuscar(e.target.value)}
+          placeholder="buscar pelo nome"
+          className="w-56 h-12 px-3 rounded-sm border bg-card text-sm disabled:opacity-50"
+        />
       </Campo>
     </div>
   );
 }
 
-/**
- * Uma coluna da barra de filtro: rótulo, controle, nota.
- *
- * As três faixas têm altura fixa e a nota vazia continua ocupando a sua. É o
- * que mantém os cinco controles na mesma linha independentemente de qual deles
- * tem explicação embaixo — sem isso a fileira sai em degraus.
- */
 function Campo({
   rotulo,
   nota,
