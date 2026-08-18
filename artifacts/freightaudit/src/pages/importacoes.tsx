@@ -93,36 +93,40 @@ interface ImportRun {
   tiposDoArquivo: string[];
 }
 
-/**
- * A que aba pertence uma importação.
- *
- * Duas respostas, nesta ordem, e a ordem é o desenho: **o que foi declarado**
- * manda, porque é a aba em que a pessoa de fato enviou o arquivo; na falta dela
- * — toda importação anterior à declaração —, vale **a cobertura das vigências**
- * que ela gravou. A cobertura é deliberada aqui: o arquivo de carreta que
- * regrava as vigências preservando os cavalos pertence também ao histórico de
- * Cavalo — ele abriu uma revisão nova dos cavalos, ainda que não os tenha
- * trazido. O cartão diz de qual dos dois jeitos ele pertence; é papel do
- * {@link TipoDaImportacao}, não do recorte.
- *
- * Uma importação sem nem uma nem outra não aparece em aba de tipo nenhuma, e é
- * assim que deve ser: ela não produziu vigência e não declarou tipo, e
- * listá-la sob "Cavalo" seria dizer que ela trouxe cavalos. Ela continua
- * inteira na aba Todas, que existe também por isso.
- */
-const tiposDaImportacao = (run: ImportRun): string[] =>
-  run.declaredType !== null ? [run.declaredType] : run.entityTypes;
-
 /** O rótulo humano de um tipo: "Cavalo", "QLP Administrativo". */
 const rotuloDoTipo = (code: string) =>
   TIPOS_DE_IMPORTACAO.find((t) => t.code === code)?.rotulo ?? code;
 
 /**
- * O que veio no arquivo desta importação, na melhor evidência disponível: a
- * declaração do envio quando existe, senão os fatos que o arquivo produziu.
+ * O que veio no arquivo desta importação — e, por isso, a que aba ela pertence.
+ *
+ * Duas respostas, nesta ordem, e a ordem é o desenho: **o que foi declarado**
+ * manda, porque é a aba em que a pessoa de fato enviou o arquivo; na falta da
+ * declaração — toda importação anterior a ela —, valem **os fatos que o
+ * arquivo produziu**, sem a parte herdada de revisões anteriores. A herança
+ * fica de fora do recorte de propósito: o arquivo de carreta que regrava as
+ * vigências preservando os cavalos não vira um upload de cavalos por isso —
+ * essa metade da história é dita dentro do cartão ({@link TipoDaImportacao}),
+ * não pela aba em que ele aparece.
+ *
+ * Uma importação sem declaração e sem fatos próprios legíveis — a que falhou
+ * antes de promover, ou a anterior ao agregado por tipo que o backfill não
+ * cobriu — não aparece em aba de tipo nenhuma, e é assim que deve ser:
+ * classificá-la por palpite seria dizer que ela trouxe o que ninguém mediu.
+ * Ela continua inteira na aba Todas, que existe também por isso.
+ *
+ * Exportada porque o recorte é um contrato da tela, e o teste dele mora em
+ * `__tests__/importacoes-abas.test.ts`.
  */
-const tiposVindosDoArquivo = (run: ImportRun): string[] =>
+export const tiposVindosDoArquivo = (run: TiposDaImportacao): string[] =>
   run.declaredType !== null ? [run.declaredType] : run.tiposDoArquivo;
+
+/** O pedaço de {@link ImportRun} de que o recorte e as etiquetas dependem. */
+export interface TiposDaImportacao {
+  declaredType: string | null;
+  entityTypes: string[];
+  tiposDoArquivo: string[];
+}
 
 /**
  * O que a vigência resultante cobre além do arquivo — a herança das revisões
@@ -130,7 +134,7 @@ const tiposVindosDoArquivo = (run: ImportRun): string[] =>
  * quando não se sabe o que o arquivo trouxe, porque sem essa leitura apontar
  * herança seria dar nome errado a uma diferença que não dá para calcular.
  */
-const tiposHerdados = (run: ImportRun): string[] => {
+export const tiposHerdados = (run: TiposDaImportacao): string[] => {
   const doArquivo = new Set(tiposVindosDoArquivo(run));
   if (doArquivo.size === 0) return [];
   return run.entityTypes.filter((tipo) => !doArquivo.has(tipo));
@@ -328,7 +332,9 @@ export default function Importacoes() {
     aparece aqui na contagem de cada aba, que conta o que o clique abre.
   */
   const doRecorte =
-    aba === null ? runs : runs.filter((run) => tiposDaImportacao(run).includes(aba));
+    aba === null
+      ? runs
+      : runs.filter((run) => tiposVindosDoArquivo(run).includes(aba));
 
   const esperandoDecisao = [
     ...new Set([
@@ -512,7 +518,7 @@ export default function Importacoes() {
                 <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
                   {n(
                     runs.filter((run) =>
-                      tiposDaImportacao(run).includes(tipo.code),
+                      tiposVindosDoArquivo(run).includes(tipo.code),
                     ).length,
                   )}
                 </span>
