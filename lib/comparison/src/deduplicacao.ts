@@ -560,6 +560,102 @@ export function resumirImpacto(
 }
 
 /**
+ * O que ficou fora do oficial, por periodicidade — a soma dos degraus.
+ *
+ * É o número que a interface escreve ao lado de "já contado em outra linha".
+ * Ele não existe como campo próprio no resumo de propósito: seria a terceira
+ * porta de que o comentário acima fala. Quem precisa dele o deriva daqui, da
+ * mesma escada que o produziu — a interface lia um campo com esse nome que o
+ * servidor deixou de enviar, e a tela caiu inteira; um campo derivado não tem
+ * como divergir do rastro.
+ */
+export function excluidoDaSoma(resumo: ResumoDeImpacto): Record<string, number> {
+  const baldes: Record<string, number> = {};
+  for (const degrau of resumo.rastro.degraus) {
+    for (const [balde, valor] of Object.entries(degrau.removidoByPeriodicity)) {
+      somar(baldes, balde, valor);
+    }
+  }
+  return arredondar(baldes);
+}
+
+/**
+ * Junta resumos já decididos — o cartão que agrega vários parâmetros.
+ *
+ * Somar resumos não re-decide nada: cada linha já passou pelo deduplicador no
+ * recorte em que a decisão vale. O que se soma aqui são os baldes, degrau a
+ * degrau, com os subtotais refeitos por subtração — a mesma conta de
+ * `resumirImpacto`, sobre números já apurados. Mora aqui, e não na interface,
+ * porque uma segunda redação desta soma no front foi exatamente como o campo
+ * `excludedByPeriodicity` sobreviveu oito commits depois de morrer no servidor.
+ */
+export function somarResumos(resumos: ResumoDeImpacto[]): ResumoDeImpacto {
+  const oficial: Record<string, number> = {};
+  const bruto: Record<string, number> = {};
+  const removido: Record<EtapaDaDeducao, Record<string, number>> = {
+    COMPOSICAO: {},
+    ESCOPO_DE_CONJUNTO: {},
+  };
+  const removidas: Record<EtapaDaDeducao, number> = {
+    COMPOSICAO: 0,
+    ESCOPO_DE_CONJUNTO: 0,
+  };
+  let excludedChanges = 0;
+  let calculatedChanges = 0;
+  let notCalculable = 0;
+
+  for (const resumo of resumos) {
+    for (const [balde, valor] of Object.entries(resumo.byPeriodicity)) {
+      somar(oficial, balde, valor);
+    }
+    for (const [balde, valor] of Object.entries(resumo.brutoByPeriodicity)) {
+      somar(bruto, balde, valor);
+    }
+    for (const degrau of resumo.rastro.degraus) {
+      for (const [balde, valor] of Object.entries(degrau.removidoByPeriodicity)) {
+        somar(removido[degrau.etapa], balde, valor);
+      }
+      removidas[degrau.etapa] += degrau.mudancasRemovidas;
+    }
+    excludedChanges += resumo.excludedChanges;
+    calculatedChanges += resumo.calculatedChanges;
+    notCalculable += resumo.notCalculable;
+  }
+
+  const corrente = { ...bruto };
+  const degraus: DegrauDaDeducao[] = ETAPAS.map((etapa) => {
+    for (const [balde, valor] of Object.entries(removido[etapa])) {
+      corrente[balde] = (corrente[balde] ?? 0) - valor;
+    }
+    return {
+      etapa,
+      rotulo: ROTULO_DA_ETAPA[etapa],
+      removidoByPeriodicity: arredondar(removido[etapa]),
+      mudancasRemovidas: removidas[etapa],
+      subtotalByPeriodicity: arredondar(corrente),
+    };
+  });
+
+  return {
+    byPeriodicity: arredondar(oficial),
+    brutoByPeriodicity: arredondar(bruto),
+    rastro: {
+      brutoByPeriodicity: arredondar(bruto),
+      degraus,
+      oficialByPeriodicity: arredondar(oficial),
+    },
+    excludedChanges,
+    calculatedChanges,
+    notCalculable,
+  };
+}
+
+/** O resumo sem linha nenhuma — o ponto neutro de `somarResumos`. */
+export function resumoVazio(): ResumoDeImpacto {
+  return somarResumos([]);
+}
+
+/**
  * A escada em texto, uma periodicidade por vez.
  *
  * Vai para a tela de auditoria e para o `--verbose` do CLI. É a mesma frase que

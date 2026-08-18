@@ -270,6 +270,9 @@ importers:
 
   artifacts/freightaudit:
     dependencies:
+      '@workspace/comparison':
+        specifier: workspace:*
+        version: link:../../lib/comparison
       '@workspace/curation':
         specifier: workspace:*
         version: link:../../lib/curation

@@ -25,6 +25,7 @@ import type {
   ExecutiveSummary,
   FamiliesView,
   GroupedView,
+  ImpactSummary,
   PriorityItem,
 } from "@/components/inicio/types";
 
@@ -43,6 +44,58 @@ import type {
  * 4. Divergir do Acompanhamento sobre a mesma vigência.
  * 5. Anunciar variação contra uma base que não existe.
  */
+
+/**
+ * Um resumo de impacto na forma que o servidor envia — a de `ResumoDeImpacto`.
+ *
+ * Os mocks daqui carregavam um campo (`excludedByPeriodicity`) que a API tinha
+ * deixado de enviar, e a suíte verde escondeu um crash de produção. O construtor
+ * é tipado contra o tipo do servidor: se o contrato mudar de novo, é aqui que o
+ * typecheck e a suíte quebram — antes da tela.
+ */
+function impacto(
+  parcial: {
+    byPeriodicity?: Record<string, number>;
+    excluido?: Record<string, number>;
+    excludedChanges?: number;
+    notCalculable?: number;
+    calculatedChanges?: number;
+  } = {},
+): ImpactSummary {
+  const oficial = parcial.byPeriodicity ?? {};
+  const removido = parcial.excluido ?? {};
+  const bruto: Record<string, number> = { ...oficial };
+  for (const [balde, valor] of Object.entries(removido)) {
+    bruto[balde] = (bruto[balde] ?? 0) + valor;
+  }
+  return {
+    byPeriodicity: oficial,
+    brutoByPeriodicity: bruto,
+    rastro: {
+      brutoByPeriodicity: bruto,
+      degraus: [
+        {
+          etapa: "COMPOSICAO",
+          rotulo: "duplicidades por composição",
+          removidoByPeriodicity: removido,
+          mudancasRemovidas: parcial.excludedChanges ?? 0,
+          subtotalByPeriodicity: oficial,
+        },
+        {
+          etapa: "ESCOPO_DE_CONJUNTO",
+          rotulo: "duplicidades entre escopos cavalo↔carreta",
+          removidoByPeriodicity: {},
+          mudancasRemovidas: 0,
+          subtotalByPeriodicity: oficial,
+        },
+      ],
+      oficialByPeriodicity: oficial,
+    },
+    excludedChanges: parcial.excludedChanges ?? 0,
+    notCalculable: parcial.notCalculable ?? 0,
+    calculatedChanges: parcial.calculatedChanges ?? 0,
+  };
+}
 
 function grupo(overrides: Partial<ChangeGroup> = {}): ChangeGroup {
   return {
@@ -125,13 +178,7 @@ function cockpit(overrides: Partial<CockpitView> = {}): CockpitView {
       attention: 6,
       vehicles: 83,
       fleet: 144,
-      impact: {
-        byPeriodicity: {},
-        excludedByPeriodicity: {},
-        excludedChanges: 0,
-        notCalculable: 62,
-        calculatedChanges: 205,
-      },
+      impact: impacto({ notCalculable: 62, calculatedChanges: 205 }),
       hasImpact: true,
       anomalies: { groups: 0, changes: 0 },
     },
@@ -165,13 +212,11 @@ function cockpit(overrides: Partial<CockpitView> = {}): CockpitView {
 }
 
 function vigencia(overrides: Partial<GroupedView> = {}): GroupedView {
-  const impact = {
+  const impact = impacto({
     byPeriodicity: { MENSAL: -39936.28 },
-    excludedByPeriodicity: {},
-    excludedChanges: 0,
     notCalculable: 62,
     calculatedChanges: 205,
-  };
+  });
   return {
     context: {
       scopeHash: "h",
@@ -230,26 +275,17 @@ function balanco(overrides: Partial<BalancoResumo> = {}): BalancoResumo {
 describe("impacto", () => {
   it("lista uma linha por periodicidade, a maior em módulo primeiro", () => {
     const view = vigencia({
-      impact: {
+      impact: impacto({
         byPeriodicity: { ANUAL: -5000, MENSAL: -39936.28 },
-        excludedByPeriodicity: {},
-        excludedChanges: 0,
-        notCalculable: 0,
         calculatedChanges: 10,
-      },
+      }),
     });
     expect(impactosDaVigencia(view).map((i) => i.periodicity)).toEqual(["MENSAL", "ANUAL"]);
   });
 
   it("não inventa linha quando não há impacto apurado", () => {
     const view = vigencia({
-      impact: {
-        byPeriodicity: {},
-        excludedByPeriodicity: {},
-        excludedChanges: 0,
-        notCalculable: 62,
-        calculatedChanges: 0,
-      },
+      impact: impacto({ notCalculable: 62 }),
     });
     expect(impactosDaVigencia(view)).toEqual([]);
   });
@@ -362,13 +398,7 @@ describe("última importação", () => {
 
 describe("maiores impactos", () => {
   const summary = (parametros: ExecutiveSummary["topParameters"]): ExecutiveSummary => ({
-    impact: {
-      byPeriodicity: {},
-      excludedByPeriodicity: {},
-      excludedChanges: 0,
-      notCalculable: 0,
-      calculatedChanges: 0,
-    },
+    impact: impacto(),
     lossesByPeriodicity: {},
     gainsByPeriodicity: {},
     changes: 0,
@@ -445,13 +475,13 @@ describe("de onde vem um número do pódio", () => {
         parametersChanged: 1,
         changes: 12,
         vehicles: 9,
-        impact: {
+        impact: impacto({
           byPeriodicity: { MENSAL: 26856, ANUAL: -1200 },
-          excludedByPeriodicity: { MENSAL: -400 },
+          excluido: { MENSAL: -400 },
           excludedChanges: 2,
           notCalculable: 3,
           calculatedChanges: 9,
-        },
+        }),
         critical: 1,
         locked: 0,
         parameters: [
@@ -462,13 +492,13 @@ describe("de onde vem um número do pódio", () => {
             pending: null,
             changes: 12,
             vehicles: 9,
-            impact: {
+            impact: impacto({
               byPeriodicity: { MENSAL: 26856, ANUAL: -1200 },
-              excludedByPeriodicity: { MENSAL: -400 },
+              excluido: { MENSAL: -400 },
               excludedChanges: 2,
               notCalculable: 3,
               calculatedChanges: 9,
-            },
+            }),
             groups: [
               grupo({
                 key: "g-pequeno",
@@ -732,13 +762,7 @@ describe("o caminho até as Alterações", () => {
   it("sem alteração sem preço, o ponto deixa de ser uma lista e vira a Curadoria", () => {
     const view = familias(
       vigencia({
-        impact: {
-          byPeriodicity: {},
-          excludedByPeriodicity: {},
-          excludedChanges: 0,
-          notCalculable: 0,
-          calculatedChanges: 0,
-        },
+        impact: impacto(),
       }),
     );
     const ponto = pontosDeAtencao(view, null, null, recorte).find(

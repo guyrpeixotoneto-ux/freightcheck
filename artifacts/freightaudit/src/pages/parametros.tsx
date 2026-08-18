@@ -1,5 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import {
+  excluidoDaSoma,
+  resumoVazio,
+  somarResumos,
+} from "@workspace/comparison/deduplicacao";
 import { useSearch, useLocation } from "wouter";
 import { AlertTriangle, ChevronRight, Info, Search, Star } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
@@ -498,13 +503,7 @@ interface SecaoRender {
   cartoes: CartaoRender[];
 }
 
-const IMPACTO_VAZIO: ImpactSummary = {
-  byPeriodicity: {},
-  excludedByPeriodicity: {},
-  excludedChanges: 0,
-  notCalculable: 0,
-  calculatedChanges: 0,
-};
+const IMPACTO_VAZIO: ImpactSummary = resumoVazio();
 
 /**
  * Casa o catálogo do Freightech com os parâmetros desta vigência.
@@ -628,27 +627,10 @@ function agregar(parametros: ParameterView[]): {
     };
   }
 
-  const impact: ImpactSummary = {
-    byPeriodicity: {},
-    excludedByPeriodicity: {},
-    excludedChanges: 0,
-    notCalculable: 0,
-    calculatedChanges: 0,
-  };
-
-  for (const p of parametros) {
-    for (const [periodicidade, valor] of Object.entries(p.impact.byPeriodicity)) {
-      impact.byPeriodicity[periodicidade] =
-        (impact.byPeriodicity[periodicidade] ?? 0) + valor;
-    }
-    for (const [periodicidade, valor] of Object.entries(p.impact.excludedByPeriodicity)) {
-      impact.excludedByPeriodicity[periodicidade] =
-        (impact.excludedByPeriodicity[periodicidade] ?? 0) + valor;
-    }
-    impact.excludedChanges += p.impact.excludedChanges;
-    impact.notCalculable += p.impact.notCalculable;
-    impact.calculatedChanges += p.impact.calculatedChanges;
-  }
+  // A soma é do servidor (`somarResumos`), não uma segunda redação daqui: foi
+  // uma redação local desta soma que manteve vivo um campo que a API já não
+  // enviava, e a tela caiu no primeiro clique com a suíte verde.
+  const impact = somarResumos(parametros.map((p) => p.impact));
 
   return {
     changes: parametros.reduce((soma, p) => soma + p.changes, 0),
@@ -1845,14 +1827,15 @@ function Resumo({ view }: { view: FamiliesView }) {
         </span>
       </div>
 
-      {impactEntries(summary.impact.excludedByPeriodicity).length > 0 && (
+      {impactEntries(excluidoDaSoma(summary.impact)).length > 0 && (
         <p className="text-xs text-muted-foreground flex gap-2 mt-2 max-w-2xl">
           <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
           <span>
-            {impactEntries(summary.impact.excludedByPeriodicity)
+            {impactEntries(excluidoDaSoma(summary.impact))
               .map((e) => e.label)
               .join(" · ")}{" "}
-            ficaram fora do líquido por já estarem contados nas parcelas —{" "}
+            ficaram fora do líquido por já estarem contados em outra linha —
+            parcelas ou conjunto —{" "}
             {summary.impact.excludedChanges}{" "}
             {summary.impact.excludedChanges === 1 ? "alteração" : "alterações"}.
           </span>
@@ -1905,11 +1888,11 @@ function ImpactoResumido({
     );
   }
 
-  const excluded = impactEntries(impact.excludedByPeriodicity);
+  const excluded = impactEntries(excluidoDaSoma(impact));
   if (excluded.length > 0) {
     return (
       <span className="text-xs text-muted-foreground group-hover:text-white">
-        {excluded.map((e) => e.label).join(" · ")} — já contado nas parcelas
+        {excluded.map((e) => e.label).join(" · ")} — já contado em outra linha
       </span>
     );
   }
