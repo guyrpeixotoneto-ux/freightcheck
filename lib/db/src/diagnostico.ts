@@ -214,6 +214,24 @@ export interface EstadoObservado {
    */
   objetoAusenteAgora?: boolean;
   /**
+   * O que a conferência de schema encontrou faltando — pelo nome.
+   *
+   * `objetoAusenteAgora` diz que **algo** falta; este campo diz **o quê**:
+   * `"attribute.cost_class"`, `"entity_expectation (tabela inteira)"`. Quem o
+   * preenche é o observador que tem como conferir — `observarBanco`, rodando a
+   * mesma comparação do `conferir-schema` — e a semântica dos três valores é
+   * deliberada:
+   *
+   *   - ausente   → ninguém conferiu; nada se conclui por ele;
+   *   - `[]`      → conferido, e o schema bate com o que o build declara;
+   *   - não vazio → conferido, e falta exatamente isto.
+   *
+   * É o campo que tira o `/healthz` da cegueira do caso vivido: com o registro
+   * completo e uma coluna a menos, a contagem respondia SAUDAVEL até alguma
+   * tela morrer na coluna — e a tela que morria não sabia dizer qual era.
+   */
+  objetosAusentes?: string[];
+  /**
    * O banco declara um `bridge:down` sem o `up` correspondente.
    *
    * É o único sinal desta lista que não é dedução nem sintoma: quem o escreve é
@@ -257,6 +275,20 @@ function registroPerdido(estado: EstadoObservado): boolean {
     falha !== undefined &&
     falha.tag === pendentes[0] &&
     JA_EXISTE.has(falha.code ?? "")
+  );
+}
+
+/** A evidência da divergência: nomeada quando se sabe, contada quando não. */
+function nomearAusentes(aplicadas: number, ausentes: string[] | undefined): string {
+  if (ausentes === undefined || ausentes.length === 0) {
+    return `${aplicadas} migrations registradas, e mesmo assim um objeto de schema falta.`;
+  }
+  const MOSTRAR = 5;
+  const nomeados = ausentes.slice(0, MOSTRAR).join(", ");
+  const resto = ausentes.length - MOSTRAR;
+  return (
+    `${aplicadas} migrations registradas, e falta${ausentes.length === 1 ? "" : "m"} ` +
+    `neste banco: ${nomeados}${resto > 0 ? ` — e mais ${resto}` : ""}.`
   );
 }
 
@@ -393,7 +425,8 @@ export function diagnosticar(estado: EstadoObservado): Diagnostico {
       ramo precisa vir antes: sem ele, a resposta seria "nenhuma ação é
       necessária" ao lado de uma consulta que acabou de falhar por schema.
     */
-    if (estado.objetoAusenteAgora) {
+    const conferidos = estado.objetosAusentes;
+    if (estado.objetoAusenteAgora || (conferidos !== undefined && conferidos.length > 0)) {
       return {
         estado: "SCHEMA_DIVERGENTE",
         resumo:
@@ -414,9 +447,23 @@ export function diagnosticar(estado: EstadoObservado): Diagnostico {
             "Comparar o schema deste banco com o que as migrations criam. " +
             "Rodar as migrations não resolve: o registro já as dá por " +
             "aplicadas, e elas não serão tentadas de novo.",
+          /*
+            O comando existia — `conferir-schema` nasceu **para** esta ação — e
+            a ação não o citava: a tela mandava comparar sem dizer com o quê. É
+            leitura por padrão; repor coluna exige a bandeira `--aplicar`, e
+            continua sendo decisão de quem conhece o banco.
+          */
+          comando: "pnpm --filter @workspace/db run conferir-schema",
           quem: "operador",
         },
-        evidencia: `${estado.aplicadas} migrations registradas, e mesmo assim um objeto de schema falta.`,
+        /*
+          A evidência nomeia o que falta quando a conferência rodou. É a
+          diferença entre "um objeto falta" — que manda procurar — e
+          "falta attribute.cost_class" — que encerra a procura. Limitada a
+          cinco: uma divergência com dezenas de objetos é outra conversa, e a
+          lista inteira sai do próprio `conferir-schema`.
+        */
+        evidencia: nomearAusentes(estado.aplicadas, conferidos),
       };
     }
 
@@ -426,7 +473,15 @@ export function diagnosticar(estado: EstadoObservado): Diagnostico {
         "Conectado, com todas as migrations deste build aplicadas neste banco.",
       risco: { emRisco: false, texto: "Nada a conferir." },
       acao: null,
-      evidencia: `${estado.aplicadas} migrations registradas.`,
+      /*
+        `[]` é conferido-e-limpo, e isso é mais do que a contagem sabe dizer:
+        são duas verificações independentes concordando. Sem o campo, a frase
+        continua a de sempre — não se afirma conferência que não houve.
+      */
+      evidencia:
+        conferidos !== undefined
+          ? `${estado.aplicadas} migrations registradas, e o schema confere com o que este build declara.`
+          : `${estado.aplicadas} migrations registradas.`,
     };
   }
 

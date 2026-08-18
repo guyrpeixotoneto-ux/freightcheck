@@ -1,7 +1,12 @@
 import { runMigrations } from "@workspace/db/migrate";
 import app from "./app";
 import { logger } from "./lib/logger";
-import { deveMigrarNaPartida, lembrarRelatorio, migrationsFolder } from "./lib/migrations";
+import {
+  deveMigrarNaPartida,
+  lembrarRelatorio,
+  migrationsFolder,
+  reconvergirNaPartida,
+} from "./lib/migrations";
 
 const rawPort = process.env["PORT"];
 
@@ -99,6 +104,42 @@ async function applyMigrationsInBackground(): Promise<void> {
         ? "Migrations aplicadas."
         : "Nenhuma migration pendente.",
     );
+
+    /*
+      Depois da fila, a reconvergência: se o Provision desta publicação removeu
+      objetos de migrations já registradas — o que ele faz quando Development
+      está atrás, ver `@workspace/db/reconvergencia` —, é aqui que eles voltam,
+      com DDL levantado das próprias migrations. Num deploy limpo o relatório
+      sai vazio e esta linha não aparece.
+    */
+    const reconvergencia = await reconvergirNaPartida(url);
+    if (!reconvergencia.rodou) {
+      logger.info({ motivo: reconvergencia.motivo }, "Reconvergência de schema não rodou.");
+    } else if (reconvergencia.relatorio.aplicados.length > 0) {
+      logger.warn(
+        {
+          repostos: reconvergencia.relatorio.aplicados.map((aplicado) => aplicado.alvo),
+          semComando: reconvergencia.relatorio.semComando,
+          falhas: reconvergencia.relatorio.falhas,
+        },
+        "O schema divergia do que o registro afirma — objetos repostos pela " +
+          "fila na partida. A causa mais provável é o Provision do Publishing " +
+          "ter espelhado um Development atrasado; o conteúdo de coluna " +
+          "removida não volta, e é por isso que `publicar:conferir` antes de " +
+          "todo Publish continua valendo.",
+      );
+    } else if (
+      reconvergencia.relatorio.semComando.length > 0 ||
+      reconvergencia.relatorio.falhas.length > 0
+    ) {
+      logger.error(
+        {
+          semComando: reconvergencia.relatorio.semComando,
+          falhas: reconvergencia.relatorio.falhas,
+        },
+        "Reconvergência incompleta — /api/healthz continua nomeando o que falta.",
+      );
+    }
   } catch (err) {
     logger.error(
       { err },

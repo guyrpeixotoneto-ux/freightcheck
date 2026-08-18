@@ -63,6 +63,7 @@
   --color-nav-executiva: hsl(var(--nav-executiva));
   --color-nav-auditoria: hsl(var(--nav-auditoria));
   --color-nav-recuperacao: hsl(var(--nav-recuperacao));
+  --color-nav-qlp: hsl(var(--nav-qlp));
   --color-nav-frota: hsl(var(--nav-frota));
   --color-nav-inteligencia: hsl(var(--nav-inteligencia));
   --color-nav-dados: hsl(var(--nav-dados));
@@ -223,16 +224,17 @@
    * o título em caixa alta, o ícone da seção e o recolher. O que saiu foi só a
    * cor.
    *
-   * **Os sete tokens ficam.** Cada um é consumido em um lugar diferente do
+   * **Os oito tokens ficam.** Cada um é consumido em um lugar diferente do
    * `sidebar.tsx` — o título da seção, o ícone dele, o contador que a seção
    * recolhida traz e o cartão do assistente — e mantê-los separados é o que
-   * permite devolver a cor a uma seção, ou às sete, mexendo só nestas linhas.
-   * Apontar os sete para o mesmo valor é uma decisão de paleta, e é aqui que
+   * permite devolver a cor a uma seção, ou às oito, mexendo só nestas linhas.
+   * Apontar os oito para o mesmo valor é uma decisão de paleta, e é aqui que
    * essa decisão deve morar.
    */
   --nav-executiva: 212 73% 29%;
   --nav-auditoria: 212 73% 29%;
   --nav-recuperacao: 212 73% 29%;
+  --nav-qlp: 212 73% 29%;
   --nav-frota: 212 73% 29%;
   --nav-inteligencia: 212 73% 29%;
   --nav-dados: 212 73% 29%;
@@ -339,13 +341,14 @@
   --chart-5: 212 60% 45%;
 
   /*
-   * As sete, clareadas. Elas pintam o contador que a seção recolhida traz, e
+   * As oito, clareadas. Elas pintam o contador que a seção recolhida traz, e
    * ele leva `text-sidebar` como cor de texto — quase preto aqui. É o que o
    * mantém legível nos dois temas sem uma regra por tema.
    */
   --nav-executiva: 212 80% 66%;
   --nav-auditoria: 212 80% 66%;
   --nav-recuperacao: 212 80% 66%;
+  --nav-qlp: 212 80% 66%;
   --nav-frota: 212 80% 66%;
   --nav-inteligencia: 212 80% 66%;
   --nav-dados: 212 80% 66%;

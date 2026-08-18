@@ -1,0 +1,404 @@
+import pg from "pg";
+import { readMigrations, type MigrationFile } from "./migrate";
+import {
+  comandoQueRepoe,
+  compararSchema,
+  semComentarioDeAbertura,
+  tabelasDeclaradas,
+} from "./conferir-schema";
+
+/**
+ * Reconvergir o schema de um banco cujo registro está completo — na partida,
+ * pela própria fila.
+ *
+ * ---------------------------------------------------------------------------
+ * O buraco que isto fecha
+ * ---------------------------------------------------------------------------
+ * O Publishing do Replit compara Development com Production no `Provision` e
+ * aplica o diff **antes** de o servidor novo existir. A política deste
+ * repositório deixa Development atrás da fila de propósito (ver
+ * `scripts/post-merge.sh`) — e todo deploy que dá certo termina com Production
+ * à frente, porque `runMigrations()` roda na partida. No deploy seguinte, o
+ * mesmo Provision encontra em Production o que Development não tem e propõe
+ * **removê-lo de lá**: DDL destrutivo, fora da fila, documentado em
+ * `bridge.ts` com a proposta real de 17/08/2026.
+ *
+ * Depois disso o banco fica no estado que nenhuma autoridade reconhece: o
+ * registro diz que as 35 migrations rodaram — e rodaram —, mas objetos que
+ * elas criaram não estão mais lá. `runMigrations()` não repõe nada, porque
+ * decide pelo carimbo e os carimbos estão todos lá. As migrations de
+ * reconciliação (`0024`, `0034`) também não: já constam aplicadas. Era o
+ * ponto sem saída — a tela caía com 42703, o `/healthz` contava migrations e
+ * respondia SAUDAVEL, e a única correção era humana.
+ *
+ * ---------------------------------------------------------------------------
+ * O que isto faz — e o que se recusa a fazer
+ * ---------------------------------------------------------------------------
+ * Compara o schema real com o que o build declara (a mesma conferência do
+ * `conferir-schema`) e repõe o que falta com DDL **levantado verbatim das
+ * migrations** — nunca sintetizado, nunca escrito aqui. É a fila agindo, só
+ * que na direção que ela estruturalmente não alcança: objetos de migrations
+ * já registradas.
+ *
+ *   - tabela ausente   → o `CREATE TABLE` da migration que a criou;
+ *   - coluna ausente   → o `ADD COLUMN` da última migration que a definiu
+ *                        (`comandoQueRepoe`, com tipo, default e GENERATED
+ *                        exatamente como a fila os escreve);
+ *   - índice ausente   → o `CREATE [UNIQUE] INDEX IF NOT EXISTS` da fila;
+ *   - constraint ausente → o `ADD CONSTRAINT` da fila, quando ele é um
+ *                        comando inteiro.
+ *
+ * O que mora em `DO $$` não é levantado — a mesma recusa, pelo mesmo motivo,
+ * de `comandoQueRepoe`: rodar um bloco fora do seu contexto faz mais do que
+ * repor o objeto. A única exceção é estreita e nomeada: o bloco **reentrante
+ * de trigger** que a própria fila escreve (`IF NOT EXISTS (pg_trigger…) THEN
+ * CREATE TRIGGER … END IF` e nada além disso). Ele é, por construção, o
+ * comando idempotente de reposição — um `DROP TABLE … CASCADE` do Provision
+ * leva os triggers da tabela junto, e o `CREATE TABLE` reposto não os traz.
+ * O que não se consegue repor sai em `semComando`, alto, e a conferência do
+ * `/healthz` continua vermelha sobre ele: convergência que não se pode
+ * garantir não vira verde.
+ *
+ * **Dado nenhum é tocado.** Só DDL aditivo. O conteúdo que o Provision
+ * destruiu junto com uma coluna não volta por aqui nem por lugar nenhum — a
+ * estrutura volta, o dado derivado é recomputável pelos caminhos do produto, e
+ * o dado de decisão humana perdido é exatamente o motivo de a prevenção
+ * (`publicar:conferir` antes de todo Publish) continuar valendo.
+ *
+ * ---------------------------------------------------------------------------
+ * Quando rodar
+ * ---------------------------------------------------------------------------
+ * Na partida, depois de `runMigrations()`, sob a mesma política que decide
+ * migrar (`deveMigrarNaPartida`) — Production, portanto. Não roda com
+ * migrations pendentes: pendência explica ausência, e é a fila quem resolve.
+ * O lock serializa instâncias de autoscale que sobem juntas, como no migrate.
+ */
+
+const RECONVERGENCIA_LOCK = 8_675_310;
+
+export interface RelatorioDeReconvergencia {
+  /** O que foi reposto, pelo comando que repôs. */
+  aplicados: { alvo: string; comando: string }[];
+  /** O que falta e não tem comando levantável — sai alto, nunca silencioso. */
+  semComando: string[];
+  /** Comandos que o banco recusou, com o SQLSTATE. Também nunca silencioso. */
+  falhas: { alvo: string; code?: string }[];
+}
+
+export function reconvergiuLimpo(r: RelatorioDeReconvergencia): boolean {
+  return r.semComando.length === 0 && r.falhas.length === 0;
+}
+
+/** O `CREATE TABLE` da migration que criou esta tabela — verbatim. */
+export function comandoQueCriaTabela(
+  tabela: string,
+  migrations: MigrationFile[] = readMigrations(),
+): string | undefined {
+  const padrao = new RegExp(
+    `^create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?"?${tabela}"?\\s*\\(`,
+    "i",
+  );
+  for (let i = migrations.length - 1; i >= 0; i--) {
+    for (const bruto of migrations[i]!.statements) {
+      const comando = semComentarioDeAbertura(bruto);
+      if (padrao.test(comando)) return comando.replace(/;\s*$/, "");
+    }
+  }
+  return undefined;
+}
+
+const CREATE_INDEX =
+  /^create\s+(?:unique\s+)?index\s+(?:if\s+not\s+exists\s+)?"?([a-z_][a-z0-9_]*)"?\s+on\s+(?:only\s+)?"?([a-z_][a-z0-9_]*)"?/i;
+
+const DROP_INDEX = /^drop\s+index\s+(?:if\s+exists\s+)?"?([a-z_][a-z0-9_]*)"?/i;
+
+const ADD_CONSTRAINT =
+  /^alter\s+table\s+(?:only\s+)?"?([a-z_][a-z0-9_]*)"?\s+add\s+constraint\s+"?([a-z_][a-z0-9_]*)"?/i;
+
+const DROP_CONSTRAINT =
+  /^alter\s+table\s+(?:only\s+)?"?([a-z_][a-z0-9_]*)"?\s+drop\s+constraint\s+(?:if\s+exists\s+)?"?([a-z_][a-z0-9_]*)"?/i;
+
+/**
+ * O que a fila deixa de pé ao final — não o que ela criou em algum momento.
+ *
+ * A diferença é o par `snapshot_business_key_*`: criados cedo, removidos pela
+ * `0016` quando a identidade canônica os substituiu. Um levantador que só
+ * lesse os `CREATE` os "reporia" num banco íntegro — reimpondo uma unicidade
+ * que a fila aboliu de propósito, que é pior do que não repor nada. Por isso a
+ * leitura é sequencial: um `DROP` posterior apaga o `CREATE` anterior, e o
+ * mapa final é o estado que a fila declara.
+ */
+export function indicesDaFila(
+  migrations: MigrationFile[] = readMigrations(),
+): Map<string, { tabela: string; comando: string }> {
+  const indices = new Map<string, { tabela: string; comando: string }>();
+  for (const m of migrations) {
+    for (const bruto of m.statements) {
+      const comando = semComentarioDeAbertura(bruto);
+      const criado = CREATE_INDEX.exec(comando);
+      if (criado) {
+        indices.set(criado[1]!, {
+          tabela: criado[2]!,
+          comando: comando.replace(/;\s*$/, ""),
+        });
+        continue;
+      }
+      const removido = DROP_INDEX.exec(comando);
+      if (removido) indices.delete(removido[1]!);
+    }
+  }
+  return indices;
+}
+
+/**
+ * O bloco reentrante de constraint — a outra forma que a fila usa desde a
+ * `0028`: `IF NOT EXISTS (pg_constraint…) THEN ALTER TABLE … ADD CONSTRAINT`.
+ * Mesmo contrato do bloco de trigger: só casa a forma exata.
+ */
+const CONSTRAINT_REENTRANTE =
+  /^do\s+\$[a-z_]*\$\s*begin\s+if\s+not\s+exists\s*\(\s*select\s+1\s+from\s+pg_constraint[\s\S]*?conname\s*=\s*'([a-z_][a-z0-9_]*)'[\s\S]*?\balter\s+table\s+"?([a-z_][a-z0-9_]*)"?\s+add\s+constraint[\s\S]*?end\s+if;\s*end\s+\$[a-z_]*\$;?$/i;
+
+export interface ConstraintDaFila {
+  tabela: string;
+  comando: string;
+  /**
+   * A fila removeu e recriou esta constraint — a definição mudou no caminho.
+   *
+   * É o caso `coverage_expectation_origin_ck`: nasce no `CREATE TABLE` da
+   * `0021` com uma lista e a `0032` a troca por outra. Um banco cuja tabela a
+   * reconvergência acabou de repor volta com a definição **velha**, e a
+   * conferência por nome não enxerga a diferença — por isso as substituídas
+   * são reaplicadas quando a tabela delas foi tocada pelo reparo.
+   */
+  substituida: boolean;
+}
+
+/** Toda constraint que a fila deixa de pé, pelo mesmo critério sequencial. */
+export function constraintsDaFila(
+  migrations: MigrationFile[] = readMigrations(),
+): Map<string, ConstraintDaFila> {
+  const constraints = new Map<string, ConstraintDaFila>();
+  const jaRemovidas = new Set<string>();
+  for (const m of migrations) {
+    for (const bruto of m.statements) {
+      const comando = semComentarioDeAbertura(bruto);
+      let adicionada: { nome: string; tabela: string } | null = null;
+      const inteira = ADD_CONSTRAINT.exec(comando);
+      if (inteira) {
+        adicionada = { tabela: inteira[1]!, nome: inteira[2]! };
+      } else {
+        const reentrante = CONSTRAINT_REENTRANTE.exec(comando);
+        if (reentrante)
+          adicionada = { nome: reentrante[1]!, tabela: reentrante[2]! };
+      }
+      if (adicionada) {
+        constraints.set(adicionada.nome, {
+          tabela: adicionada.tabela,
+          comando: comando.replace(/;\s*$/, ""),
+          substituida: jaRemovidas.has(adicionada.nome),
+        });
+        continue;
+      }
+      const removida = DROP_CONSTRAINT.exec(comando);
+      if (removida) {
+        constraints.delete(removida[2]!);
+        jaRemovidas.add(removida[2]!);
+      }
+    }
+  }
+  return constraints;
+}
+
+/**
+ * O bloco reentrante de trigger, como a fila o escreve desde a `0001`.
+ *
+ * Reconhece só a forma exata — um `DO` cuja substância é a guarda de
+ * `pg_trigger` seguida do `CREATE TRIGGER` — e extrai o nome e a tabela para a
+ * conferência de existência. Qualquer `DO` que faça mais do que isso não casa,
+ * e é assim que a exceção não vira porta.
+ */
+const TRIGGER_REENTRANTE =
+  /^do\s+\$[a-z_]*\$\s*begin\s+if\s+not\s+exists\s*\(\s*select\s+1\s+from\s+pg_trigger[\s\S]*?\bcreate\s+trigger\s+"?([a-z_][a-z0-9_]*)"?[\s\S]*?\bon\s+"?([a-z_][a-z0-9_]*)"?[\s\S]*?end\s+if;\s*end\s+\$[a-z_]*\$;?$/i;
+
+/** Todo trigger que a fila cria pelo bloco reentrante dela. */
+export function triggersDaFila(
+  migrations: MigrationFile[] = readMigrations(),
+): Map<string, { tabela: string; comando: string }> {
+  const triggers = new Map<string, { tabela: string; comando: string }>();
+  for (const m of migrations) {
+    for (const bruto of m.statements) {
+      const comando = semComentarioDeAbertura(bruto);
+      const achado = TRIGGER_REENTRANTE.exec(comando);
+      if (achado) {
+        triggers.set(achado[1]!, { tabela: achado[2]!, comando });
+      }
+    }
+  }
+  return triggers;
+}
+
+type Executor = Pick<pg.Pool, "query">;
+
+async function colunasReais(c: Executor): Promise<Map<string, Set<string>>> {
+  const { rows } = await c.query<{ table_name: string; column_name: string }>(
+    `select table_name, column_name
+       from information_schema.columns
+      where table_schema = 'public'`,
+  );
+  const reais = new Map<string, Set<string>>();
+  for (const linha of rows) {
+    if (!reais.has(linha.table_name)) reais.set(linha.table_name, new Set());
+    reais.get(linha.table_name)!.add(linha.column_name);
+  }
+  return reais;
+}
+
+async function nomesDe(c: Executor, consulta: string): Promise<Set<string>> {
+  const { rows } = await c.query<{ nome: string }>(consulta);
+  return new Set(rows.map((r) => r.nome));
+}
+
+function codigoDe(err: unknown): string | undefined {
+  return typeof err === "object" && err !== null && "code" in err
+    ? String((err as { code: unknown }).code)
+    : undefined;
+}
+
+/**
+ * A reconvergência em si. Idempotente: num banco íntegro não aplica nada, e a
+ * segunda passada num banco reparado devolve o relatório vazio.
+ */
+export async function reconvergirSchema(
+  connectionString: string,
+  migrations: MigrationFile[] = readMigrations(),
+): Promise<RelatorioDeReconvergencia> {
+  const pool = new pg.Pool({ connectionString, max: 1 });
+  const client = await pool.connect();
+  const relatorio: RelatorioDeReconvergencia = {
+    aplicados: [],
+    semComando: [],
+    falhas: [],
+  };
+
+  const aplicar = async (alvo: string, comando: string): Promise<void> => {
+    try {
+      await client.query(comando);
+      relatorio.aplicados.push({ alvo, comando });
+    } catch (err) {
+      relatorio.falhas.push({
+        alvo,
+        ...(codigoDe(err) ? { code: codigoDe(err)! } : {}),
+      });
+    }
+  };
+
+  try {
+    await client.query("SELECT pg_advisory_lock($1)", [RECONVERGENCIA_LOCK]);
+
+    const declaradas = tabelasDeclaradas();
+
+    // 1. Tabelas inteiras primeiro: as colunas acrescentadas depois da criação
+    //    entram na passada seguinte, e os índices e FKs delas nas de baixo.
+    const antes = compararSchema(declaradas, await colunasReais(client));
+    for (const tabela of antes.tabelasAusentes) {
+      const comando = comandoQueCriaTabela(tabela, migrations);
+      if (!comando) {
+        relatorio.semComando.push(`${tabela} (tabela inteira)`);
+        continue;
+      }
+      await aplicar(`tabela ${tabela}`, comando);
+    }
+
+    // 2. Colunas, contra o estado que a passada 1 deixou.
+    const depois = compararSchema(declaradas, await colunasReais(client));
+    for (const coluna of depois.colunasAusentes) {
+      const comando = comandoQueRepoe(coluna, migrations);
+      if (!comando) {
+        relatorio.semComando.push(`${coluna.tabela}.${coluna.coluna}`);
+        continue;
+      }
+      await aplicar(`coluna ${coluna.tabela}.${coluna.coluna}`, comando);
+    }
+
+    /*
+      3. Índices. O `DROP COLUMN` do Provision leva junto, em cascata, todo
+      índice que a citava — repor a coluna não os traz de volta, e um índice
+      único ausente não é lentidão: é o `ON CONFLICT` da importação morrendo
+      com 42P10 e dupla de vigência deixando de ser recusada. Só entram os que
+      a fila cria por comando inteiro, só os que faltam, e só em tabela que
+      existe.
+    */
+    const indicesReais = await nomesDe(
+      client,
+      `select indexname as nome from pg_indexes where schemaname = 'public'`,
+    );
+    const tabelasReais = new Set((await colunasReais(client)).keys());
+    for (const [nome, { tabela, comando }] of indicesDaFila(migrations)) {
+      if (indicesReais.has(nome) || !tabelasReais.has(tabela)) continue;
+      await aplicar(`índice ${nome}`, comando);
+    }
+
+    /*
+      4. Constraints. A existência é conferida pelo nome — e o nome mente num
+      caso: a constraint que a fila **substituiu** (drop + add com definição
+      nova) volta com a definição velha quando o `CREATE TABLE` reposto é o da
+      migration original. Por isso as substituídas são reaplicadas — só nas
+      tabelas que este reparo tocou, para que num boot íntegro nada se mexa.
+    */
+    const tabelasTocadas = new Set(
+      relatorio.aplicados
+        .map(
+          (a) =>
+            /^tabela (\S+)$/.exec(a.alvo)?.[1] ??
+            /^coluna (\S+)\./.exec(a.alvo)?.[1],
+        )
+        .filter((t): t is string => t !== undefined),
+    );
+    const constraintsReais = await nomesDe(
+      client,
+      `select conname as nome from pg_constraint
+        where connamespace = 'public'::regnamespace`,
+    );
+    for (const [nome, { tabela, comando, substituida }] of constraintsDaFila(
+      migrations,
+    )) {
+      if (!tabelasReais.has(tabela)) continue;
+      if (!constraintsReais.has(nome)) {
+        await aplicar(`constraint ${nome}`, comando);
+        continue;
+      }
+      if (substituida && tabelasTocadas.has(tabela)) {
+        await aplicar(
+          `constraint ${nome} (definição da fila reaplicada)`,
+          `ALTER TABLE "${tabela}" DROP CONSTRAINT IF EXISTS "${nome}"; ${comando}`,
+        );
+      }
+    }
+
+    /*
+      5. Triggers, pelo bloco reentrante da própria fila. Um `DROP TABLE …
+      CASCADE` leva os triggers junto, e sem este passo uma tabela
+      imutável-por-design voltaria gravável em silêncio.
+    */
+    const triggersReais = await nomesDe(
+      client,
+      `select t.tgname as nome from pg_trigger t
+        join pg_class c on c.oid = t.tgrelid
+       where not t.tgisinternal and c.relnamespace = 'public'::regnamespace`,
+    );
+    for (const [nome, { tabela, comando }] of triggersDaFila(migrations)) {
+      if (triggersReais.has(nome) || !tabelasReais.has(tabela)) continue;
+      await aplicar(`trigger ${nome}`, comando);
+    }
+
+    return relatorio;
+  } finally {
+    await client
+      .query("SELECT pg_advisory_unlock($1)", [RECONVERGENCIA_LOCK])
+      .catch(() => {
+        /* Se a conexão já caiu, o lock morre com ela. Nada a fazer. */
+      });
+    client.release();
+    await pool.end();
+  }
+}

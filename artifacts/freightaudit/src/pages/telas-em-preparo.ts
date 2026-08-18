@@ -1,11 +1,13 @@
 import {
   BadgeCheck,
+  Briefcase,
   ChartColumn,
   ClipboardCheck,
   Database,
   FileSpreadsheet,
   Gavel,
   Handshake,
+  HardHat,
   History,
   Plug,
   Settings2,
@@ -166,6 +168,69 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
         href: "/analise-equipamentos",
         label: "Análise de frota",
         porque: "Onde a frota se concentra — a exposição que hoje dá para ver sem o valor em reais.",
+      },
+    ],
+  },
+
+  // -------------------------------------------------------------------------
+  // QLP
+  // -------------------------------------------------------------------------
+  /*
+    As duas telas nascem no catálogo pela mesma razão: o Freightech publica o
+    QLP — o quadro de lotação de pessoal que o modelo remunera — mas o export
+    que abastece este banco não traz nenhuma das suas linhas. "QLP ADM" está
+    listado nominalmente em `FREIGHTECH_SEM_DADO` (`lib/comparison/families.ts`),
+    na família Equipe, e os cartões de benchmark de QLP (cargo, quantidade e
+    valor por faixa) estão catalogados em `lib/knowledge/catalogo.ts` sem coluna
+    importada. A regra existe e está escrita no Book; o número, ainda não.
+  */
+  {
+    href: "/qlp-operacional",
+    label: "QLP Operacional",
+    icon: HardHat,
+    cor: "text-nav-qlp",
+    pergunta:
+      "Quantas pessoas o modelo remunera na operação de cada unidade — o quadro por cargo, a quantidade contratada e o valor que ela carrega na quinzena.",
+    depende: [
+      "As linhas de QLP dentro da importação: o Freightech publica cargo, quantidade e valor por faixa (os cartões de QLP benchmark), e o export que chega a este banco não traz nenhuma delas — sem essas linhas, não há quadro para mostrar.",
+      "O vínculo entre o quadro e a unidade e vigência a que ele pertence, sem o qual a tela mostraria um número solto, e não o quadro de uma operação numa quinzena.",
+    ],
+    hoje: [
+      {
+        href: "/book-operador",
+        label: "Book do Operador",
+        porque:
+          "A regra do quadro de gente está escrita nos blocos de Gente — é a metade da resposta que não depende de importação.",
+      },
+      {
+        href: "/assistente",
+        label: "Assistente IA",
+        porque: "Responde o que o Book diz sobre QLP, cargo a cargo, sem esperar a tela.",
+      },
+    ],
+  },
+  {
+    href: "/qlp-administrativo",
+    label: "QLP Administrativo",
+    icon: Briefcase,
+    cor: "text-nav-qlp",
+    pergunta:
+      "O que a estrutura administrativa da transportadora custa no modelo — a composição do QLP ADM e o desconto que a auditoria bimestral dele gera.",
+    depende: [
+      "Os valores do QLP ADM na importação: o parâmetro existe no Freightech e está entre os que o export não traz — nomeado em `FREIGHTECH_SEM_DADO`, família Equipe.",
+      "O registro da auditoria bimestral — o DESCONTO QLP ADM — vinculado à quinzena que ele desconta, sem o qual a tela diria a regra do desconto e nunca o desconto aplicado.",
+    ],
+    hoje: [
+      {
+        href: "/book-operador",
+        label: "Book do Operador",
+        porque:
+          "Os blocos QLP ADM e DESCONTO QLP ADM detalham a composição e a auditoria — a regra inteira, sem o número.",
+      },
+      {
+        href: "/assistente",
+        label: "Assistente IA",
+        porque: "\"O que é QLP ADM?\" já é respondida pelo Book, com a fonte ao lado.",
       },
     ],
   },
