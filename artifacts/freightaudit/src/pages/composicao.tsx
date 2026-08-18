@@ -258,6 +258,20 @@ function Resumo({ view }: { view: VisaoDeFrota }) {
             {resumo.comValorApurado} de {resumo.equipamentos}{" "}
             {view.rotuloDoTipo.toLowerCase()}s com valor apurado
           </div>
+          {/*
+            "62 de 62 com valor apurado" é verdadeiro e foi lido como "100%
+            apurado", que é outra frase. Ter valor apurado é ter **algum**
+            componente somado; estar apurado é não ter sobrado nada por
+            classificar. Enquanto `apuracaoCompleta` for falso, a ressalva anda
+            junto do número — não como nota de rodapé opcional, e sim na mesma
+            caixa em que o total aparece.
+          */}
+          {!resumo.apuracaoCompleta && (
+            <div className="text-xs text-amber-700 dark:text-amber-500 mt-1 font-medium">
+              apuração parcial · {resumo.equipamentosComPendencia} com atributo financeiro
+              sem classificação
+            </div>
+          )}
         </div>
 
         <div className="px-6 py-5">
@@ -295,15 +309,33 @@ function Resumo({ view }: { view: VisaoDeFrota }) {
           </div>
         </div>
 
+        {/*
+          O cartão que já mostrou "0".
+
+          Ele contava apenas os componentes que a curadoria **já** havia
+          classificado como monetários — de modo que uma coluna nunca lida não
+          contava, e a tela exibia zero pendências ao lado de dezenas de números
+          que ninguém tinha olhado. O número que aparece agora é o das colunas
+          numéricas sem classificação, que é o que de fato falta fazer; o dos
+          monetários sem regra vem embaixo, porque continua sendo uma pergunta
+          diferente.
+        */}
         <div className="px-6 py-5">
           <div className="text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
-            Ainda sem regra financeira
+            Ainda sem classificação
           </div>
           <div className="text-3xl font-bold tabular-nums mt-1 tracking-tight">
-            {resumo.componentesSemRegra}
+            {resumo.componentesSemClassificacao}
           </div>
           <div className="text-xs text-muted-foreground mt-1">
-            componentes monetários que a curadoria ainda não confirmou
+            números que a curadoria ainda não leu — nenhum deles foi descartado como
+            dinheiro
+            {resumo.componentesSemRegra > 0 && (
+              <>
+                {" · "}
+                {resumo.componentesSemRegra} monetários sem regra
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -460,9 +492,18 @@ function Tabela({ view }: { view: VisaoDeFrota }) {
                       {formatBrl(linha.mensal)}
                     </span>
                     <span className="text-muted-foreground text-xs">/mês</span>
-                    {linha.semRegraFinanceira > 0 && (
+                    {(linha.semRegraFinanceira > 0 || linha.semClassificacao > 0) && (
                       <div className="text-[0.6875rem] text-muted-foreground">
-                        + {linha.semRegraFinanceira} sem regra financeira
+                        {[
+                          linha.semRegraFinanceira > 0
+                            ? `${linha.semRegraFinanceira} sem regra financeira`
+                            : null,
+                          linha.semClassificacao > 0
+                            ? `${linha.semClassificacao} sem classificação`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
                       </div>
                     )}
                   </>

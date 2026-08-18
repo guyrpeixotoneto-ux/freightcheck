@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { sql } from "drizzle-orm";
 import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest/testing";
 import { applyConfirmations, runProposalPass, seedTaxonomy } from "@workspace/curation";
 import { getDREDaFrota, type DREDaFrota } from "../frota";
@@ -137,17 +138,51 @@ describe("cavalo, carreta e conjunto", () => {
     expect(carretas.consolidado.unidades).toBe(71);
   });
 
-  it("a receita do conjunto é a dos dois lados somados — a menos das órfãs", () => {
-    /*
-      A identidade medida em 558 de 558 pares:
-        (finameImplemento + lucroFixo) + finameCavalo = custoFixo
-      Em frota ela vale para os 62 pares. As 9 carretas órfãs entram nos dois
-      lados da conta (têm custoFixo e têm receita própria), então a diferença
-      entre os dois totais tem de ser zero.
-    */
+  /**
+   * A receita do conjunto **não** é a soma dos dois lados — e a diferença tem
+   * nome, tamanho e um dono a quem perguntar.
+   *
+   * Este teste afirmava a igualdade, e ela valia porque os dois lados liam a
+   * mesma dupla contagem: `custoFixo = finame + lucroFixomodeloNovoCiclo`, com
+   * `finame` contendo `finameCavalo` **e** `lucroFixomodeloNovoCiclo` contendo o
+   * lucro fixo do mesmo cavalo. Nos 51 pares em que o financiamento do cavalo já
+   * acabou, `finameCavalo` é justamente esse lucro — então o `custoFixo` da
+   * fonte soma o mesmo real duas vezes (medido: 51 de 51, zero exceções).
+   *
+   * Desde 18/08/2026 a linha da carreta soma só a parcela própria dela, e a
+   * igualdade quebrou. A quebra é o resultado certo: o que ela revela é uma
+   * pergunta para a Ambev — **o conjunto recebe o `custoFixo` cheio, ou a soma
+   * do que cada equipamento recebe?** A medição responde que os dois números
+   * diferem e por quê; não responde qual deles é pago, e por isso a receita do
+   * conjunto continua sendo a coluna da fonte, com a diferença declarada aqui.
+   */
+  it("a receita do conjunto excede a soma dos lados pelo lucro fixo do cavalo repetido", async () => {
     const conjunto = valorDe(conjuntos, "RECEITA_BRUTA")!;
     const soma = valorDe(cavalos, "RECEITA_BRUTA")! + valorDe(carretas, "RECEITA_BRUTA")!;
-    expect(Math.abs(conjunto - soma)).toBeLessThan(1);
+    expect(conjunto).toBeGreaterThan(soma);
+
+    const repetido = conjunto - soma;
+    /*
+      O tamanho vem da própria fonte, e não de uma constante no teste: é a parte
+      de `lucroFixomodeloNovoCiclo` que não é da carreta — isto é, a do cavalo,
+      pela decomposição medida em 284 de 284 pares.
+    */
+    const { rows } = await ctx.db.execute<{ soma: string }>(sql`
+      SELECT (
+        (SELECT sum(f.value_numeric)
+           FROM fact f JOIN attribute a ON a.id = f.attribute_id
+           JOIN snapshot s ON s.id = f.snapshot_id
+          WHERE a.code = 'carreta.lucro_fixomodelo_novo_ciclo'
+            AND s.effective_date = ${AGOSTO}::date)
+        -
+        (SELECT sum(f.value_numeric)
+           FROM fact f JOIN attribute a ON a.id = f.attribute_id
+           JOIN snapshot s ON s.id = f.snapshot_id
+          WHERE a.code = 'carreta.lucro_fixomodelo_novo_ciclo_carreta'
+            AND s.effective_date = ${AGOSTO}::date)
+      )::text AS soma
+    `);
+    expect(repetido).toBeCloseTo(Number(rows[0].soma), 0);
   });
 
   it("nenhuma carreta recebe a receita do conjunto", () => {

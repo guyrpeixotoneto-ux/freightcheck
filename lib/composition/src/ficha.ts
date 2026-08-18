@@ -46,6 +46,8 @@ export interface PontoDoHistorico {
   mensal: number | null;
   componentes: number;
   semRegraFinanceira: number;
+  /** Números que a curadoria ainda não classificou naquela vigência. */
+  semClassificacao: number;
   variacao: Variacao | null;
   /** Quantos componentes calculáveis mudaram de valor contra a vigência anterior. */
   componentesAlterados: number;
@@ -199,6 +201,7 @@ export async function getHistorico(
       mensal,
       componentes: composicao.totais.find((t) => t.gaveta === "MENSAL")?.componentes ?? 0,
       semRegraFinanceira: composicao.naoApurados.filter((n) => n.monetarioPotencial).length,
+      semClassificacao: composicao.naoApurados.filter((n) => n.semClassificacao).length,
       variacao: calcularVariacao(mensal, anteriorMensal),
       componentesAlterados: alterados,
       naoApuradoPor:

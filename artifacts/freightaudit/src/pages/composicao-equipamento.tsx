@@ -272,10 +272,21 @@ function Cabecalho({ composicao }: { composicao: Composicao }) {
             </span>
           )}
         </div>
-        {composicao.completude.semRegraFinanceira > 0 && (
+        {/*
+          O rótulo acima já diz "parcialmente apurada" quando `parcial` é
+          verdadeiro, e desde 18/08/2026 `parcial` inclui os números sem
+          classificação — que é o que faltava para o título e o rodapé
+          contarem a mesma história. Aqui vai a decomposição da pendência.
+        */}
+        {composicao.completude.parcial && (
           <div className="text-xs text-muted-foreground mt-1">
-            {composicao.completude.calculaveis} componentes apurados ·{" "}
-            {composicao.completude.semRegraFinanceira} ainda sem regra financeira
+            {composicao.completude.calculaveis} componentes apurados
+            {composicao.completude.semRegraFinanceira > 0 && (
+              <> · {composicao.completude.semRegraFinanceira} sem regra financeira</>
+            )}
+            {composicao.completude.semClassificacao > 0 && (
+              <> · {composicao.completude.semClassificacao} sem classificação</>
+            )}
           </div>
         )}
       </div>

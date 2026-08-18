@@ -1230,16 +1230,29 @@ export async function composicaoDaFrota(
       r.semVariacao,
       r.incompletos,
       r.componentesSemRegra,
+      r.componentesSemClassificacao,
       visao.totalSemFiltro,
     ],
     origem: `getVisaoDeFrota(${equipamento}) · ${visao.effectiveDate}`,
     recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
     tela: { label: "Composição", href: "/composicao" },
     destaque: "Total mensal",
+    /*
+      A ressalva de apuração parcial vem antes da de regra financeira, e não
+      depois: o assistente respondia o total sem nenhuma nota sempre que
+      `componentesSemRegra` era zero — o que acontecia justamente quando
+      ninguém tinha classificado coluna nenhuma. Ver `apuracaoCompleta` em
+      `ResumoDaFrota`.
+    */
     nota: !visao.serieEntregue
       ? "Esta vigência não entregou a série deste equipamento — o que aparece vem da vigência anterior."
-      : r.componentesSemRegra > 0
-        ? `${INTEIRO.format(r.componentesSemRegra)} componente(s) monetário(s) sem regra financeira ficaram fora do total.`
+      : !r.apuracaoCompleta
+        ? `Apuração parcial: ${INTEIRO.format(r.componentesSemClassificacao)} número(s) ` +
+          `sem classificação em ${INTEIRO.format(r.equipamentosComPendencia)} equipamento(s)` +
+          (r.componentesSemRegra > 0
+            ? `, e ${INTEIRO.format(r.componentesSemRegra)} componente(s) monetário(s) sem ` +
+              `regra financeira, ficaram fora do total.`
+            : ` ficaram fora do total.`)
         : undefined,
   };
 }

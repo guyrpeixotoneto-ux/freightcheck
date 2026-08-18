@@ -58,12 +58,19 @@ describe("a frota de agosto/2026", () => {
   });
 
   /**
-   * O teste que existe por causa do achado.
+   * O teste que existe por causa do achado — e que mudou de contrato em
+   * 18/08/2026.
    *
-   * `carreta.custo_fixo` soma R$ 1.579.155,13 em agosto/2026, e desse valor
-   * R$ 1.048.665,73 são o `finameCavalo` dos cavalos vinculados — o mesmo
-   * dinheiro que já está na linha de cada cavalo. O total da carreta tem de
-   * ficar **abaixo** da soma de `custoFixo` exatamente por essa diferença.
+   * Ele afirmava que a soma das duas frotas **reproduz** o `custoFixo` da fonte,
+   * e passava. A identidade era verdadeira e a leitura dela era falsa: o
+   * `custoFixo` da fonte conta o lucro fixo do cavalo duas vezes nos pares em
+   * que o financiamento do cavalo já acabou — uma vez dentro de `finame` (que
+   * contém `finameCavalo`) e outra dentro de `lucroFixomodeloNovoCiclo`. Medido:
+   * 51 de 51 pares com `lucroFixomodeloNovoCicloCavalo` não nulo, zero exceções.
+   *
+   * Reproduzir a fonte deixou de ser o alvo. A soma das duas frotas agora fica
+   * **abaixo** do `custoFixo` exatamente pelo valor repetido — e é essa
+   * diferença, e não a igualdade, que este teste guarda.
    */
   it("a carreta não carrega o cavalo dentro do próprio total", async () => {
     const { rows } = await ctx.db.execute<{ custo_fixo: string; finame_cavalo: string }>(sql`
@@ -83,14 +90,36 @@ describe("a frota de agosto/2026", () => {
 
     expect(cavalos.resumo.mensalTotal).toBeCloseTo(cavaloDentro, 2);
     expect(carretas.resumo.mensalTotal).toBeLessThan(custoFixoDaFonte);
+
     /*
-      A conta fecha nos dois sentidos: o que a carreta soma mais o que o cavalo
-      soma dá o custoFixo da fonte, a menos das carretas sem cavalo vinculado —
-      cuja parcela de cavalo é zero. Somar as duas frotas passa a ser legítimo
-      justamente porque nenhuma contém a outra.
+      O que sobra da fonte tem nome: é a parte de `lucroFixomodeloNovoCiclo` que
+      não é da carreta — isto é, o lucro fixo do cavalo vinculado, pela
+      decomposição medida em 284 de 284 pares. É a diferença entre a coluna do
+      conjunto e a parcela própria da carreta, e não a soma bruta da coluna do
+      cavalo: um cavalo cuja carreta não está nesta vigência não tem esse valor
+      repetido em lugar nenhum, e somá-lo aqui inventaria R$ 3.566,00 de
+      diferença que a fonte não tem.
     */
+    const { rows: repetido } = await ctx.db.execute<{ soma: string }>(sql`
+      SELECT (
+        (SELECT sum(f.value_numeric)
+           FROM fact f JOIN attribute a ON a.id = f.attribute_id
+           JOIN snapshot s ON s.id = f.snapshot_id
+          WHERE a.code = 'carreta.lucro_fixomodelo_novo_ciclo'
+            AND s.effective_date = ${AGOSTO}::date)
+        -
+        (SELECT sum(f.value_numeric)
+           FROM fact f JOIN attribute a ON a.id = f.attribute_id
+           JOIN snapshot s ON s.id = f.snapshot_id
+          WHERE a.code = 'carreta.lucro_fixomodelo_novo_ciclo_carreta'
+            AND s.effective_date = ${AGOSTO}::date)
+      )::text AS soma
+    `);
+    const lucroDoCavaloRepetido = Number(repetido[0].soma);
+    expect(lucroDoCavaloRepetido).toBeGreaterThan(0);
+
     expect(carretas.resumo.mensalTotal + cavalos.resumo.mensalTotal).toBeCloseTo(
-      custoFixoDaFonte,
+      custoFixoDaFonte - lucroDoCavaloRepetido,
       0,
     );
   });
@@ -130,7 +159,7 @@ describe("a frota de agosto/2026", () => {
     expect(rows[0].fecha).toBe(558);
   });
 
-  it("as duas colunas de conjunto aparecem na ficha da carreta, e fora do total", async () => {
+  it("as três colunas de conjunto aparecem na ficha da carreta, e fora do total", async () => {
     const alguma = carretas.linhas.find((l) => l.placa === "RZM0C81")!;
     const c = (await montarComposicao(ctx.db, alguma.entityId, { period: AGOSTO }))!;
 
@@ -138,6 +167,7 @@ describe("a frota de agosto/2026", () => {
     expect(conjunto.map((n) => n.code).sort()).toEqual([
       "carreta.custo_fixo",
       "carreta.finame",
+      "carreta.lucro_fixomodelo_novo_ciclo",
     ]);
     expect(c.linhas.some((l) => l.code === "carreta.custo_fixo")).toBe(false);
 
@@ -146,6 +176,82 @@ describe("a frota de agosto/2026", () => {
       23_408.92,
       2,
     );
+  });
+});
+
+/**
+ * As duas correções de 18/08/2026, medidas contra o export real.
+ *
+ * A primeira é dinheiro que saiu de onde não devia estar. A segunda é a frase
+ * que a tela tinha permissão de dizer e não devia ter.
+ */
+describe("a dupla contagem do lucro fixo, e a pendência que a tela escondia", () => {
+  it("o lucro fixo do conjunto sai do total da carreta, e a parcela dela entra", async () => {
+    const alguma = carretas.linhas.find((l) => l.placa === "RZM0C81")!;
+    const c = (await montarComposicao(ctx.db, alguma.entityId, { period: AGOSTO }))!;
+
+    const conjunto = c.naoApurados.find(
+      (n) => n.code === "carreta.lucro_fixomodelo_novo_ciclo",
+    )!;
+    expect(conjunto.motivo).toBe("ESCOPO_DE_CONJUNTO");
+    // O valor continua na tela: quem confere a planilha vai encontrá-lo lá.
+    expect(conjunto.valorNumerico).not.toBeNull();
+
+    /*
+      E a linha própria da carreta ocupou o lugar. Sem esta metade, excluir a
+      coluna de conjunto teria levado embora também o dinheiro do implemento.
+    */
+    expect(
+      c.linhas.some((l) => l.code === "carreta.lucro_fixomodelo_novo_ciclo_carreta"),
+    ).toBe(true);
+  });
+
+  /**
+   * O total da frota de carretas em agosto/2026, com o número antes e depois.
+   *
+   * R$ 336.803,77 era `finameImplemento` + `lucroFixomodeloNovoCiclo`, e os
+   * R$ 34.793,84 de diferença são o lucro fixo dos cavalos vinculados — o mesmo
+   * dinheiro que já está na linha de cada cavalo.
+   */
+  it("a frota de carretas encolhe exatamente o que era do cavalo", () => {
+    expect(carretas.resumo.mensalTotal).toBeCloseTo(302_009.93, 2);
+    expect(cavalos.resumo.mensalTotal).toBeCloseTo(867_860.23, 2);
+  });
+
+  it("nenhuma das duas frotas pode se declarar apurada", () => {
+    for (const frota of [cavalos, carretas]) {
+      /*
+        O ponto do teste é a combinação: **todo** equipamento tem valor apurado
+        e, ao mesmo tempo, nenhum está completo. Era exatamente essa combinação
+        que a tela lia como "100% apurado" — e é ela que `apuracaoCompleta`
+        passa a responder sozinha.
+      */
+      expect(frota.resumo.comValorApurado).toBe(frota.resumo.equipamentos);
+      expect(frota.resumo.componentesSemClassificacao).toBeGreaterThan(0);
+      expect(frota.resumo.equipamentosComPendencia).toBe(frota.resumo.equipamentos);
+      expect(frota.resumo.apuracaoCompleta).toBe(false);
+    }
+  });
+
+  /**
+   * O caso que motivou tudo: R$ 216.173,31 por mês de lucro variável previsto,
+   * fora da conta e fora da contagem.
+   *
+   * Ele continua fora da conta — ninguém mediu a periodicidade dele, e somá-lo
+   * ao mensal seria presumir. O que muda é que ele deixou de ser invisível.
+   */
+  it("o lucro variável previsto do cavalo aparece como pendência declarada", async () => {
+    const linha = cavalos.linhas.find((l) => l.placa === "QYP3G72")!;
+    const c = (await montarComposicao(ctx.db, linha.entityId, { period: AGOSTO }))!;
+
+    const lucro = c.naoApurados.find(
+      (n) => n.code === "cavalo.lucro_variavel_previsto_cavalo",
+    )!;
+    expect(lucro.semClassificacao).toBe(true);
+    expect(lucro.valorNumerico).toBeGreaterThan(0);
+    expect(c.linhas.some((l) => l.code === "cavalo.lucro_variavel_previsto_cavalo")).toBe(false);
+    expect(c.completude.parcial).toBe(true);
+    expect(c.completude.semClassificacao).toBeGreaterThan(0);
   });
 });
 

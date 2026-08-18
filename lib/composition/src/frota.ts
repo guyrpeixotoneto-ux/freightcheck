@@ -61,6 +61,8 @@ export interface LinhaDaFrota {
   componentes: number;
   /** Quantos componentes monetários ficaram de fora por falta de regra. */
   semRegraFinanceira: number;
+  /** Quantos números deste equipamento a curadoria ainda não classificou. */
+  semClassificacao: number;
   variacao: Variacao | null;
   status: StatusDoEquipamento;
 }
@@ -86,6 +88,24 @@ export interface ResumoDaFrota {
   incompletos: number;
   /** Componentes monetários sem regra financeira, somados na frota. */
   componentesSemRegra: number;
+  /**
+   * Números sem classificação, somados na frota — ver
+   * {@link ComponenteNaoApurado.semClassificacao}.
+   */
+  componentesSemClassificacao: number;
+  /** Quantos equipamentos têm ao menos uma das duas pendências. */
+  equipamentosComPendencia: number;
+  /**
+   * A única resposta autorizada à pergunta "a frota está apurada?".
+   *
+   * Falso enquanto houver qualquer pendência — componente monetário sem regra
+   * **ou** número que ninguém classificou. Existe como campo, e não como conta
+   * refeita em cada tela, porque a pergunta é uma só e as telas eram três: a
+   * Composição, a Frota 360° e o assistente chegavam a ela por caminhos
+   * diferentes, e o caminho mais curto ("todo mundo tem valor apurado") dava a
+   * resposta errada com a maior convicção.
+   */
+  apuracaoCompleta: boolean;
   porFarol: Record<Farol, number>;
 }
 
@@ -225,6 +245,7 @@ export async function getVisaoDeFrota(
       mensal,
       componentes: composicao.totais.find((t) => t.gaveta === "MENSAL")?.componentes ?? 0,
       semRegraFinanceira: composicao.naoApurados.filter((n) => n.monetarioPotencial).length,
+      semClassificacao: composicao.naoApurados.filter((n) => n.semClassificacao).length,
       variacao: calcularVariacao(mensal, mensalAnterior),
       status: avaliarStatus({
         presente: fatos.length > 0,
@@ -288,10 +309,16 @@ function resumir(linhas: LinhaDaFrota[]): ResumoDaFrota {
   let comReducao = 0;
   let semVariacao = 0;
   let componentesSemRegra = 0;
+  let componentesSemClassificacao = 0;
+  let equipamentosComPendencia = 0;
 
   for (const linha of linhas) {
     porFarol[linha.status.farol] += 1;
     componentesSemRegra += linha.semRegraFinanceira;
+    componentesSemClassificacao += linha.semClassificacao;
+    if (linha.semRegraFinanceira > 0 || linha.semClassificacao > 0) {
+      equipamentosComPendencia += 1;
+    }
     if (linha.mensal !== null) {
       mensalTotal += linha.mensal;
       comValorApurado += 1;
@@ -314,6 +341,9 @@ function resumir(linhas: LinhaDaFrota[]): ResumoDaFrota {
     semVariacao,
     incompletos: porFarol.INCOMPLETO,
     componentesSemRegra,
+    componentesSemClassificacao,
+    equipamentosComPendencia,
+    apuracaoCompleta: componentesSemRegra === 0 && componentesSemClassificacao === 0,
     porFarol,
   };
 }

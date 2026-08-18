@@ -107,7 +107,15 @@ export function conjuntoDeReferencia() {
       "carreta.amortizacao_implemento": 1800,
       "carreta.juros_finame_implemento": 600,
       "carreta.custo_aluguel": 100,
+      /*
+        A coluna do conjunto e a parcela própria da carreta, nas proporções
+        medidas: lucroFixomodeloNovoCiclo = parcela da carreta + parcela do
+        cavalo (284 de 284 pares). Aqui 500 = 400 + 100, com os 100 do cavalo
+        acima. É essa diferença que faz a receita do conjunto exceder a soma dos
+        dois lados — o mesmo R$ 34.793,84 do export real, em miniatura.
+      */
       "carreta.lucro_fixomodelo_novo_ciclo": 500,
+      "carreta.lucro_fixomodelo_novo_ciclo_carreta": 400,
     }),
   };
 }

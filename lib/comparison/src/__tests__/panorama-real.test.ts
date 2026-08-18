@@ -214,25 +214,34 @@ describe("o total manda e a parcela desce", () => {
   it("a parcela volta a ser raiz quando o total saiu por escopo", async () => {
     const panorama = (await getPanoramaDeAlteracoes(ctx.db))!;
 
-    // `lucro_fixomodelo_novo_ciclo` é parcela de `custo_fixo`, que saiu por
-    // conjunto. Se a saída do total a levasse junto, a carreta perderia uma
-    // linha econômica que é só dela.
-    expect(panorama.maisAlterados).toContain("carreta.lucro_fixomodelo_novo_ciclo");
-    expect(panorama.maiorImpacto).toContain("carreta.lucro_fixomodelo_novo_ciclo");
+    /*
+      A regra é a mesma e o exemplo dela mudou de dono em 18/08/2026.
+      `lucro_fixomodelo_novo_ciclo` era a parcela que voltava a ser raiz quando
+      `custo_fixo` saía por conjunto — até medir-se que ela também é de
+      conjunto: é a soma da parcela da carreta com a do cavalo, 284 de 284
+      pares. Quem volta a ser raiz agora é a parcela própria da carreta, e é ela
+      que a carreta perderia se a saída do total a levasse junto.
+    */
+    expect(panorama.maisAlterados).toContain("carreta.lucro_fixomodelo_novo_ciclo_carreta");
+    expect(panorama.maiorImpacto).toContain("carreta.lucro_fixomodelo_novo_ciclo_carreta");
   });
 
   it("a decomposição da carreta é a mesma que o motor de composição usa", async () => {
     const panorama = (await getPanoramaDeAlteracoes(ctx.db))!;
 
-    // Exaustiva e disjunta: `finame_implemento + lucro_fixomodelo_novo_ciclo`
-    // é o par que `regras.test.ts` fixa do outro lado, e nenhum real do cavalo
-    // entra nele.
+    /*
+      Disjunta de verdade: `finame_implemento + lucro_fixomodelo_novo_ciclo_carreta`
+      é o par que `regras.test.ts` fixa do outro lado, e nenhum real do cavalo
+      entra nele. Com a coluna do conjunto no lugar da parcela — como estava
+      até 18/08/2026 — a lista continuava com dois códigos e o lucro fixo do
+      cavalo vinha dentro de um deles.
+    */
     const daCarreta = panorama.maiorImpacto.filter(
       (c) => de(panorama, c)!.entityType === "CARRETA",
     );
     expect(daCarreta.sort()).toEqual([
       "carreta.finame_implemento",
-      "carreta.lucro_fixomodelo_novo_ciclo",
+      "carreta.lucro_fixomodelo_novo_ciclo_carreta",
     ]);
   });
 });

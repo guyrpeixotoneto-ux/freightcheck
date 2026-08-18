@@ -83,6 +83,10 @@ export interface PanoramaDaFrota {
     semVariacao: number;
     incompletos: number;
     componentesSemRegra: number;
+    componentesSemClassificacao: number;
+    equipamentosComPendencia: number;
+    /** Ver `ResumoDaFrota.apuracaoCompleta` em `@workspace/composition`. */
+    apuracaoCompleta: boolean;
     porFarol: Record<Farol, number>;
   };
   procedencia: {
@@ -336,6 +340,12 @@ function Resumo({
             {resumo.comValorApurado} de {resumo.equipamentos} {tela.plural} com
             valor apurado
           </div>
+          {!resumo.apuracaoCompleta && (
+            <div className="text-xs text-amber-700 dark:text-amber-500 mt-1 font-medium">
+              apuração parcial · {resumo.equipamentosComPendencia} com atributo financeiro
+              sem classificação
+            </div>
+          )}
         </div>
 
         <div className="px-6 py-5">
@@ -371,13 +381,25 @@ function Resumo({
           </div>
         </div>
 
+        {/* Ver a nota do mesmo cartão em `pages/composicao.tsx`: o número que
+            aqui aparecia contava só o que a curadoria já tinha classificado
+            como dinheiro, e por isso exibia zero pendências sobre colunas que
+            ninguém havia lido. As duas telas leem o mesmo `resumo`, e agora
+            dizem a mesma coisa. */}
         <div className="px-6 py-5 flex flex-col">
-          <Rotulo>Ainda sem regra financeira</Rotulo>
+          <Rotulo>Ainda sem classificação</Rotulo>
           <div className="text-3xl font-bold tabular-nums mt-1 tracking-tight">
-            {resumo.componentesSemRegra}
+            {resumo.componentesSemClassificacao}
           </div>
           <div className="text-xs text-muted-foreground mt-1">
-            componentes monetários que a curadoria ainda não confirmou
+            números que a curadoria ainda não leu — nenhum deles foi descartado como
+            dinheiro
+            {resumo.componentesSemRegra > 0 && (
+              <>
+                {" · "}
+                {resumo.componentesSemRegra} monetários sem regra
+              </>
+            )}
           </div>
           {/*
             A saída para a leitura de frota. Fica no resumo, e não escondida no
@@ -610,9 +632,18 @@ function CardDoAtivo({
               </>
             )}
           </div>
-          {ativo.semRegraFinanceira > 0 && (
+          {(ativo.semRegraFinanceira > 0 || ativo.semClassificacao > 0) && (
             <div className="text-[0.6875rem] text-muted-foreground">
-              + {ativo.semRegraFinanceira} sem regra financeira
+              {[
+                ativo.semRegraFinanceira > 0
+                  ? `${ativo.semRegraFinanceira} sem regra financeira`
+                  : null,
+                ativo.semClassificacao > 0
+                  ? `${ativo.semClassificacao} sem classificação`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ")}
             </div>
           )}
         </div>
