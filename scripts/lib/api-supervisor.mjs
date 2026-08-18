@@ -122,12 +122,28 @@ export function createApiSupervisor({
 
   function restartServer() {
     if (server) {
+      /*
+        A hora exata em que o processo anterior foi mandado embora.
+
+        Existe para fechar um diagnóstico: uma chamada que morre no meio chega à
+        tela como `SEM_RESPOSTA`, e as duas causas possíveis — reinício ou tempo
+        — pediam consertos opostos sem que nada no log as separasse. Esta linha
+        é o carimbo do lado de cá; o do lado de lá é a despedida que o próprio
+        servidor escreve (`artifacts/api-server/src/index.ts`), com quantas
+        requisições estavam em voo. Duas linhas no mesmo segundo = reinício.
+      */
+      log(
+        `[api] ${new Date().toISOString()} reiniciando: SIGTERM no processo ` +
+          `anterior (pid ${server.pid}). Requisições em voo agora morrem sem ` +
+          `resposta — é assim que este reinício aparece na tela.`,
+      );
       replacing = true;
       server.kill("SIGTERM");
       server = null;
     }
     const child = spawnServer();
     server = child;
+    log(`[api] ${new Date().toISOString()} processo novo no ar (pid ${child.pid}).`);
     child.on("exit", (code) => {
       if (child !== server) return;
       server = null;
@@ -145,12 +161,16 @@ export function createApiSupervisor({
     return child;
   }
 
-  async function rebuild() {
+  async function rebuild(motivo = "partida") {
     if (building) {
       queued = true;
       return;
     }
     building = true;
+    // O motivo entra no log porque é ele que liga o reinício à sua causa: sem
+    // isso, "o servidor reiniciou" é um fato sem responsável, e a pergunta
+    // "por que a chamada morreu?" volta ao ponto de partida.
+    log(`[api] ${new Date().toISOString()} build iniciado (motivo: ${motivo}).`);
     const { ok, output } = await runBuild();
     building = false;
 
@@ -171,7 +191,7 @@ export function createApiSupervisor({
 
     if (queued) {
       queued = false;
-      await rebuild();
+      await rebuild("mudança enfileirada durante o build anterior");
     }
   }
 

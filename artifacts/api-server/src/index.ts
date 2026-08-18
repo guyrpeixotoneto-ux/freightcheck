@@ -1,6 +1,8 @@
+import { writeSync } from "node:fs";
 import { runMigrations } from "@workspace/db/migrate";
 import app from "./app";
 import { logger } from "./lib/logger";
+import { requisicoesEmVoo, rotasEmVoo } from "./lib/em-voo";
 import { deveMigrarNaPartida, lembrarRelatorio, migrationsFolder } from "./lib/migrations";
 
 const rawPort = process.env["PORT"];
@@ -106,6 +108,63 @@ async function applyMigrationsInBackground(): Promise<void> {
     );
   }
 }
+
+/**
+ * A última linha do processo, quando alguém o manda embora.
+ *
+ * É a metade que faltava para fechar um diagnóstico que este projeto não
+ * conseguiu fechar. Uma chamada que morre no meio aparece na tela como
+ * `SEM_RESPOSTA`, e isso tem duas causas de conserto oposto: **reinício** (o
+ * supervisor de `scripts/dev.mjs` manda `SIGTERM` a cada mudança de arquivo) ou
+ * **corte no caminho** (tempo). O log não separava as duas porque em nenhuma
+ * delas havia linha nenhuma.
+ *
+ * Com esta linha, separam-se por uma comparação de relógio: se houve `SIGTERM`
+ * no mesmo instante do `requisicao encerrada sem resposta` de `lib/em-voo.ts`,
+ * foi reinício — e `emVoo` diz quantas chamadas ficaram sem resposta junto. Se
+ * não houve, o processo estava vivo e quem cortou foi outra camada.
+ *
+ * **Escrita direta em `stderr`, e não pelo `pino`.** O logger deste servidor
+ * usa transport, que roda numa worker thread e escreve de forma assíncrona: o
+ * processo morre antes de a linha sair, e a última mensagem — justamente esta —
+ * é a que mais se perde. `writeSync` no descritor 2 chega sempre.
+ *
+ * **O sinal é reemitido, não trocado por `process.exit`.** Sem `listener`, o
+ * Node encerra por sinal, e é assim que o supervisor lê a saída (`code` nulo,
+ * `signal` preenchido). Sair com `exit(0)` faria o processo *parecer* ter
+ * terminado sozinho e mudaria a mensagem que o supervisor imprime. Instrumento
+ * que altera o que observa não serve: aqui se registra e devolve-se o sinal ao
+ * comportamento padrão.
+ */
+function registrarDespedida(sinal: "SIGTERM" | "SIGINT"): void {
+  process.on(sinal, () => {
+    const emVoo = requisicoesEmVoo();
+    const linha = JSON.stringify({
+      evento: "sinal-de-encerramento",
+      sinal,
+      em: new Date().toISOString(),
+      revision: process.env["BUILD_REVISION"] ?? "desconhecida",
+      builtAt: process.env["BUILD_TIME"] ?? "desconhecido",
+      pid: process.pid,
+      dePeSegundos: Math.round(process.uptime()),
+      emVoo,
+      rotasEmVoo: rotasEmVoo(),
+    });
+    writeSync(
+      2,
+      `[api-server] ${linha}\n` +
+        (emVoo > 0
+          ? `[api-server] ${emVoo} requisicao(oes) ficaram sem resposta neste encerramento.\n`
+          : ""),
+    );
+
+    process.removeAllListeners(sinal);
+    process.kill(process.pid, sinal);
+  });
+}
+
+registrarDespedida("SIGTERM");
+registrarDespedida("SIGINT");
 
 app.listen(port, (err) => {
   if (err) {

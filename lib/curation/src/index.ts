@@ -4,6 +4,7 @@ export * from "./catalogo";
 export * from "./semantics";
 export * from "./taxonomy";
 export * from "./engine";
+export * from "./medir";
 export * from "./meaning";
 export * from "./planilha-de-atributos";
 export * from "./confirmations";

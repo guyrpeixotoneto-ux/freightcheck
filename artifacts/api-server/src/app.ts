@@ -6,6 +6,7 @@ import router from "./routes";
 import { requireSession } from "./middlewares/require-session";
 import { erroEmJson, rotaDesconhecida } from "./middlewares/contrato-json";
 import { logger } from "./lib/logger";
+import { contarEmVoo } from "./lib/em-voo";
 
 const app: Express = express();
 
@@ -37,6 +38,12 @@ app.use(
     },
   }),
 );
+/*
+  Logo depois do `pino-http`, porque depende do `req.log` que ele instala, e
+  antes de tudo o mais, para que uma requisição barrada pela sessão também
+  conte. É observação pura — ver `lib/em-voo.ts` para o que cada linha responde.
+*/
+app.use(contarEmVoo);
 app.use(cors());
 /**
  * The limit exists for one route: uploading a workbook, which arrives as

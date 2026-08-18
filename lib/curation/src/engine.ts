@@ -33,6 +33,7 @@ import {
   type Periodicity,
   type Unit,
 } from "./semantics";
+import { medir, type RegistrarEtapa } from "./medir";
 
 /**
  * The curation engine.
@@ -110,10 +111,16 @@ async function latestSnapshotId(db: Database): Promise<string | null> {
  * magnitude. It is never presented as an audited amount — the semantics that
  * would make it one are exactly what is still missing.
  */
-export async function gatherEvidence(db: Database): Promise<AttributeEvidence[]> {
-  const snapshotId = await latestSnapshotId(db);
+export async function gatherEvidence(
+  db: Database,
+  registrarEtapa?: RegistrarEtapa,
+): Promise<AttributeEvidence[]> {
+  const snapshotId = await medir(registrarEtapa, "evidencia.ultimoSnapshot", () =>
+    latestSnapshotId(db),
+  );
 
-  const rows = await db
+  const rows = await medir(registrarEtapa, "evidencia.agregado", () =>
+    db
     .select({
       code: attributeTable.code,
       sourceName: attributeTable.sourceName,
@@ -138,7 +145,8 @@ export async function gatherEvidence(db: Database): Promise<AttributeEvidence[]>
       attributeTable.sourceName,
       attributeTable.entityType,
       attributeTable.dataType,
-    );
+    ),
+  );
 
   const num = (v: string | null) => (v === null ? null : Number(v));
   return rows.map((r) => ({
@@ -668,12 +676,16 @@ export interface QueueItem {
  */
 export async function getCurationQueue(
   db: Database,
-  options: { includeConfirmed?: boolean } = {},
+  options: { includeConfirmed?: boolean; registrarEtapa?: RegistrarEtapa } = {},
 ): Promise<QueueItem[]> {
-  const evidence = await gatherEvidence(db);
+  const registrarEtapa = options.registrarEtapa;
+  const evidence = await medir(registrarEtapa, "fila.evidencia", () =>
+    gatherEvidence(db, registrarEtapa),
+  );
   const evidenceByCode = new Map(evidence.map((e) => [e.code, e]));
 
-  const rows = await db
+  const rows = await medir(registrarEtapa, "fila.atributos", () =>
+    db
     .select({
       code: attributeTable.code,
       sourceName: attributeTable.sourceName,
@@ -721,7 +733,13 @@ export async function getCurationQueue(
       options.includeConfirmed
         ? sql`true`
         : sql`${attributeTable.semanticsStatus} <> 'CONFIRMED'`,
-    );
+    ),
+  );
+
+  /* A terceira etapa é esta, e ela é medida junto com as duas consultas para
+     que "a fila demorou" possa ser respondido com qual das três demorou. Ver
+     `medir.ts`: sem registrador, nada disto é lido. */
+  const inicioDaMontagem = performance.now();
 
   const items: QueueItem[] = rows.map((r) => {
     const e = evidenceByCode.get(r.code);
@@ -735,12 +753,18 @@ export async function getCurationQueue(
 
   // Monetary first, then by magnitude: the ~20 attributes that carry the money
   // rise to the top, which is where the curator's time is worth most.
-  return items.sort((a, b) => {
+  const ordenados = items.sort((a, b) => {
     const aMoney = a.isMonetary === true ? 1 : 0;
     const bMoney = b.isMonetary === true ? 1 : 0;
     if (aMoney !== bMoney) return bMoney - aMoney;
     return Math.abs(b.magnitude ?? 0) - Math.abs(a.magnitude ?? 0);
   });
+
+  registrarEtapa?.(
+    "fila.montagem",
+    Math.round(performance.now() - inicioDaMontagem),
+  );
+  return ordenados;
 }
 
 export interface AttributeDetail extends QueueItem {

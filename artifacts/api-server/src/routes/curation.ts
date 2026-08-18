@@ -160,10 +160,46 @@ router.get("/curation/summary", async (req, res, next): Promise<void> => {
 });
 
 router.get("/curation/queue", async (req, res, next): Promise<void> => {
+  /*
+    A rota que não pôde ser explicada, instrumentada.
+
+    Ela apareceu na tela como `SEM_RESPOSTA` — nenhuma resposta HTTP chegou — e
+    o log não sabia dizer se o processo tinha sido reiniciado no meio ou se a
+    chamada tinha demorado demais. `lib/em-voo.ts` responde a primeira metade
+    (a requisição chegou? terminou? a conexão morreu?); as etapas abaixo
+    respondem a segunda: **qual** das três coisas que esta rota faz levou o
+    tempo.
+
+    Isto mede e não muda nada. `registrarEtapa` é opcional no motor, e quem não
+    o passa continua rodando exatamente como antes — ver `lib/curation/medir.ts`.
+  */
+  const etapas: Record<string, number> = {};
+  const inicio = performance.now();
   try {
     const includeConfirmed = req.query.includeConfirmed === "true";
-    res.json(await getCurationQueue(db, { includeConfirmed }));
+    const fila = await getCurationQueue(db, {
+      includeConfirmed,
+      registrarEtapa: (etapa, ms) => {
+        etapas[etapa] = ms;
+      },
+    });
+    req.log?.info(
+      {
+        includeConfirmed,
+        itens: fila.length,
+        totalMs: Math.round(performance.now() - inicio),
+        etapas,
+      },
+      "fila de curadoria montada",
+    );
+    res.json(fila);
   } catch (err) {
+    /* A falha também tem duração e etapas: é o caso em que elas mais importam,
+       porque dizem em qual das três a coisa parou. */
+    req.log?.warn(
+      { totalMs: Math.round(performance.now() - inicio), etapas },
+      "fila de curadoria falhou",
+    );
     await responderFalha(
       req,
       res,

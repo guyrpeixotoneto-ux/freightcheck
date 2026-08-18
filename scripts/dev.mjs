@@ -235,10 +235,21 @@ async function startApi() {
   await supervisor.start();
 
   let debounce = null;
+  /*
+    Qual arquivo disparou o rebuild — e, portanto, o `SIGTERM` que derruba as
+    requisições em voo. Sem este nome o log dizia que houve um reinício e não
+    dizia por causa de quê, que é a metade que faltava para explicar uma tela
+    que ficou sem resposta.
+  */
+  let ultimaMudanca = null;
   for (const dir of watchedSourceDirs()) {
-    watch(dir, { recursive: true }, () => {
+    watch(dir, { recursive: true }, (_evento, arquivo) => {
+      ultimaMudanca = arquivo ? path.join(dir, arquivo) : dir;
       clearTimeout(debounce);
-      debounce = setTimeout(() => void supervisor.rebuild(), 250);
+      debounce = setTimeout(() => {
+        const motivo = `mudança em ${path.relative(root, ultimaMudanca)}`;
+        void supervisor.rebuild(motivo);
+      }, 250);
     });
   }
   console.log(`[api] escutando em http://localhost:${API_PORT}/api/healthz`);
