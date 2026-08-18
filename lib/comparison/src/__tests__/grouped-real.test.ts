@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { TestDb } from "@workspace/ingest/testing";
 import { criarBancoComModelosCurados } from "../testing";
 import { getAttributeSeries, getGroupedView, getGroupVehicles } from "../grouped";
+import { explicarRastro } from "../deduplicacao";
 
 /**
  * A visão agrupada contra o export real da Freightec.
@@ -52,33 +53,62 @@ describe("agrupamento — a redução de linhas a conclusões", () => {
   });
 });
 
-describe("dupla contagem — o número em destaque", () => {
-  it("agosto/2026: o impacto sai de R$ 39.936,28 para R$ 28.511,24 por mês", async () => {
+describe("dupla contagem — a verdade financeira única", () => {
+  /*
+    A escada inteira, medida sobre o export real. Estes três números são o
+    contrato: o produto chegou a publicar cada um deles como "impacto líquido
+    de agosto", em telas diferentes, no mesmo dia.
+  */
+  it("agosto/2026: 39.936,28 bruto → 28.511,24 → 16.594,55 oficial", async () => {
     const view = await getGroupedView(ctx.db, AGOSTO);
-    expect(view!.impact.byPeriodicity.MENSAL).toBeCloseTo(28511.24, 2);
-    expect(view!.impact.excludedByPeriodicity.MENSAL).toBeCloseTo(11425.04, 2);
-    expect(view!.impact.excludedChanges).toBe(6);
-    // A soma das duas partes reproduz o total antigo: nada sumiu, foi separado.
+    const i = view!.impact;
+
+    expect(i.brutoByPeriodicity.MENSAL).toBeCloseTo(39936.28, 2);
+    expect(i.byPeriodicity.MENSAL).toBeCloseTo(16594.55, 2);
+
+    const [composicao, escopo] = i.rastro.degraus;
+    expect(composicao.etapa).toBe("COMPOSICAO");
+    expect(composicao.removidoByPeriodicity.MENSAL).toBeCloseTo(11425.04, 2);
+    expect(composicao.subtotalByPeriodicity.MENSAL).toBeCloseTo(28511.24, 2);
+    expect(composicao.mudancasRemovidas).toBe(6);
+
+    expect(escopo.etapa).toBe("ESCOPO_DE_CONJUNTO");
+    expect(escopo.removidoByPeriodicity.MENSAL).toBeCloseTo(11916.69, 2);
+    expect(escopo.subtotalByPeriodicity.MENSAL).toBeCloseTo(16594.55, 2);
+    expect(escopo.mudancasRemovidas).toBe(5);
+
+    // A invariante: nada sumiu, foi separado.
     expect(
-      view!.impact.byPeriodicity.MENSAL + view!.impact.excludedByPeriodicity.MENSAL,
-    ).toBeCloseTo(39936.28, 2);
+      composicao.removidoByPeriodicity.MENSAL + escopo.removidoByPeriodicity.MENSAL,
+    ).toBeCloseTo(i.brutoByPeriodicity.MENSAL - i.byPeriodicity.MENSAL, 2);
   });
 
-  it("o custo fixo da carreta sai inteiro do total, e diz por quê", async () => {
+  it("a escada se escreve sozinha, e é a que a auditoria lê", async () => {
+    const view = await getGroupedView(ctx.db, AGOSTO);
+    expect(explicarRastro(view!.impact.rastro, "MENSAL")).toEqual([
+      "39.936,28 bruto",
+      "− 11.425,04 duplicidades por composição",
+      "= 28.511,24 subtotal técnico",
+      "− 11.916,69 duplicidades entre escopos cavalo↔carreta",
+      "= 16.594,55 impacto oficial",
+    ]);
+  });
+
+  it("cobertura integral: o custo fixo da carreta sai inteiro, e diz por quê", async () => {
     const view = await getGroupedView(ctx.db, AGOSTO);
     const group = view!.groups.find(
       (g) => g.attributeCode === "carreta.custo_fixo" && g.entityType === "CARRETA",
     );
-    expect(group).toBeDefined();
     expect(group!.vehicles).toBe(5);
     expect(group!.impact.excludedVehicles).toBe(5);
     expect(group!.impact.countedVehicles).toBe(0);
     expect(group!.impact.excludedAmount).toBeCloseTo(16594.54, 2);
+    expect(group!.impact.excludedMotivo).toBe("COBERTO_POR_PARCELAS");
     expect(group!.impact.excludedReason).toContain("total de");
     expect(group!.composition?.parts).toContain("carreta.finame");
   });
 
-  it("o custo fixo do cavalo sai em 1 veículo e permanece em 4 — a regra é por ativo", async () => {
+  it("cobertura parcial: o cavalo sai em 1 veículo e permanece em 4 — a regra é por ativo", async () => {
     const view = await getGroupedView(ctx.db, AGOSTO);
     const group = view!.groups.find((g) => g.attributeCode === "cavalo.finame_cavalo");
     expect(group!.vehicles).toBe(5);
@@ -86,13 +116,37 @@ describe("dupla contagem — o número em destaque", () => {
     expect(group!.impact.countedVehicles).toBe(4);
     expect(group!.impact.excludedAmount).toBeCloseTo(-5169.5, 2);
     expect(group!.impact.amount).toBeCloseTo(17086.2, 2);
+    expect(group!.impact.excludedMotivo).toBe("COBERTO_POR_PARCELAS");
   });
 
-  it("as parcelas nunca são excluídas — são elas que sustentam o total", async () => {
+  it("escopo de conjunto: o finame da carreta é o do cavalo, e sai inteiro", async () => {
     const view = await getGroupedView(ctx.db, AGOSTO);
     const finame = view!.groups.find((g) => g.attributeCode === "carreta.finame");
-    expect(finame!.impact.excludedVehicles).toBe(0);
-    expect(finame!.impact.amount).toBeCloseTo(11916.69, 2);
+    expect(finame!.vehicles).toBe(5);
+    expect(finame!.impact.excludedVehicles).toBe(5);
+    expect(finame!.impact.countedVehicles).toBe(0);
+    expect(finame!.impact.excludedAmount).toBeCloseTo(11916.69, 2);
+    expect(finame!.impact.excludedMotivo).toBe("ESCOPO_DE_CONJUNTO");
+    expect(finame!.impact.excludedReason).toContain("cavalo.finame_cavalo");
+  });
+
+  it("as parcelas do cavalo nunca saem — são elas que sustentam o total", async () => {
+    const view = await getGroupedView(ctx.db, AGOSTO);
+    for (const code of [
+      "cavalo.amortizacao_cavalo",
+      "cavalo.juros_finame_cavalo",
+      "cavalo.lucro_fixomodelo_novo_ciclo_cavalo",
+    ]) {
+      const g = view!.groups.find((x) => x.attributeCode === code);
+      expect(g!.impact.excludedVehicles, code).toBe(0);
+    }
+  });
+
+  it("nada sai da lista: as 267 alterações continuam todas listadas", async () => {
+    const view = await getGroupedView(ctx.db, AGOSTO);
+    expect(view!.totals.changes).toBe(267);
+    const grupos = view!.groups.reduce((n, g) => n + g.changes, 0);
+    expect(grupos).toBe(267);
   });
 });
 

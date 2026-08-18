@@ -95,7 +95,15 @@ export interface ConsolidatedView {
     impactNotCalculable: number;
   };
   /** Summed per periodicity, across the series present. Never one number. */
+  /**
+   * O **impacto oficial** do recorte, por periodicidade — a verdade financeira,
+   * já deduplicada. É o que a tela publica.
+   */
   impactByPeriodicity: Record<string, number>;
+  /** O bruto, antes de qualquer dedução. Auditoria técnica; nunca "Impacto apurado". */
+  impactoBrutoByPeriodicity: Record<string, number>;
+  /** Quantas alterações ficaram fora da soma por dupla contagem. */
+  mudancasForaDoTotal: number;
   /** The change sets behind the numbers, for the listing to read. */
   changeSetIds: string[];
   /**
@@ -371,6 +379,9 @@ export async function getConsolidated(
     impactNotCalculable: 0,
   };
   const impactByPeriodicity: Record<string, number> = {};
+  /** Só auditoria técnica. Nenhuma tela o rotula "Impacto apurado". */
+  const impactoBrutoByPeriodicity: Record<string, number> = {};
+  let mudancasForaDoTotal = 0;
   const changeSetIds: string[] = [];
 
   for (const snapshot of snapshots) {
@@ -463,12 +474,33 @@ export async function getConsolidated(
     totals.inconclusive += set.inconclusive;
     totals.impactNotCalculable += set.impactNotCalculable;
 
+    /*
+      O **oficial**, e nunca o bruto. Este laço somava
+      `calculated_impact_by_periodicity` — o total antes de qualquer regra de
+      dupla contagem — e o entregava à aba Planilha, que o publicava como
+      "Impacto apurado": R$ 39.936,28/mês em agosto/2026, onde o dinheiro era
+      R$ 16.594,55/mês. Somar o bruto de várias vigências só multiplicava o
+      erro.
+
+      Somar oficiais de comparações distintas é legítimo porque cada regra de
+      dedução é **interna a uma comparação** — um total e as parcelas dele, um
+      cavalo e a carreta dele, sempre dentro do mesmo par de vigências. Não há
+      dupla contagem que atravesse duas transições e que uma soma de oficiais
+      pudesse reintroduzir.
+    */
     for (const [periodicity, amount] of Object.entries(
-      set.calculatedImpactByPeriodicity ?? {},
+      set.impactoOficialByPeriodicity ?? {},
     )) {
       impactByPeriodicity[periodicity] =
         (impactByPeriodicity[periodicity] ?? 0) + Number(amount);
     }
+    for (const [periodicity, amount] of Object.entries(
+      set.impactoBrutoByPeriodicity ?? {},
+    )) {
+      impactoBrutoByPeriodicity[periodicity] =
+        (impactoBrutoByPeriodicity[periodicity] ?? 0) + Number(amount);
+    }
+    mudancasForaDoTotal += set.mudancasForaDoTotal ?? 0;
   }
 
   const presentTypes = new Set(present.map((p) => p.entityTypeSet));
@@ -489,6 +521,10 @@ export async function getConsolidated(
     impactByPeriodicity: Object.fromEntries(
       Object.entries(impactByPeriodicity).map(([k, v]) => [k, Number(v.toFixed(6))]),
     ),
+    impactoBrutoByPeriodicity: Object.fromEntries(
+      Object.entries(impactoBrutoByPeriodicity).map(([k, v]) => [k, Number(v.toFixed(6))]),
+    ),
+    mudancasForaDoTotal,
     changeSetIds,
     janela: context.janela ?? null,
     periodos: datas,

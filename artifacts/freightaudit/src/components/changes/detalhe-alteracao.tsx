@@ -148,17 +148,25 @@ export function TabelaVeiculos({
                     ) : (
                       <span
                         className={cn(
-                          row.excludedFromTotal && "line-through opacity-60",
+                          row.foraDoTotal && "line-through opacity-60",
                           row.impactAmount < 0 ? "text-red-700" : "text-emerald-700",
                         )}
-                        title={
-                          row.excludedFromTotal
-                            ? "Fora do total: a variação já está contada nas parcelas deste ativo."
-                            : undefined
-                        }
+                        /* A explicação vem da autoridade que tomou a decisão, e
+                           não de uma frase escrita aqui: era assim que a tela
+                           dizia "já está contada nas parcelas" sobre uma linha
+                           que havia saído por escopo de conjunto. */
+                        title={row.foraDoTotal?.explicacao}
                       >
                         {formatBrl(row.impactAmount)}
                       </span>
+                    )}
+                    {row.foraDoTotal && (
+                      <div className="text-[10px] font-sans leading-tight text-amber-700">
+                        Fora do total — impacto já representado{" "}
+                        {row.foraDoTotal.motivo === "COBERTO_POR_PARCELAS"
+                          ? "pelas parcelas"
+                          : "no conjunto"}
+                      </div>
                     )}
                   </td>
                   <td className="px-3 py-1.5 text-right">

@@ -163,7 +163,7 @@ describe("impacto nunca mistura periodicidades", () => {
 
     // This transition carries both: the IPVA drop (annual) and the FINAME
     // family (monthly). A scalar would have reported one misleading total.
-    const buckets = set.calculatedImpactByPeriodicity;
+    const buckets = set.impacto.oficial;
     expect(Object.keys(buckets).sort()).toEqual(["ANUAL", "MENSAL"]);
     expect(buckets.ANUAL).toBeLessThan(-500_000);
     expect(buckets.MENSAL).toBeLessThan(0);

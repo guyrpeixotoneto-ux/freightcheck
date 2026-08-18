@@ -60,7 +60,7 @@ try {
         `+${set.entitiesAdded}/-${set.entitiesRemoved} ativos · ` +
         `+${set.attributesAdded}/-${set.attributesRemoved} colunas · ` +
         `${set.inconclusive} inconclusivas · ` +
-        `impacto ${fmtImpact(set.calculatedImpactByPeriodicity)}`,
+        `impacto ${fmtImpact(set.impacto.oficial)}`,
     );
   }
   }

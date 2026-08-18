@@ -3,6 +3,7 @@ import { viraDinheiro } from "@workspace/curation";
 import type { Database } from "@workspace/db";
 import { attributeLabel, equipmentLabel } from "./labels";
 import { inheritedCostClassJoin } from "./classification";
+import { ehLinhaEconomica } from "./deduplicacao";
 import {
   COMPOSITIONS,
   ESCOPOS_DE_CONJUNTO,
@@ -673,29 +674,24 @@ export async function getPanoramaDeAlteracoes(
   });
 
   /*
-    Duas exclusões, e as duas evitam contar o mesmo real duas vezes.
+    Quem decide é a autoridade, e não este arquivo.
 
-    **A coluna de conjunto sai.** `carreta.custo_fixo` já contém o
-    `cavalo.finame_cavalo` inteiro — listar as duas como linhas econômicas
-    somaria R$ 867 mil de cavalo dentro do número da carreta. É a mesma decisão
-    que `motor.ts` toma ao mandá-las para `naoApurados` com
-    `ESCOPO_DE_CONJUNTO`, e elas continuam alcançáveis: saem do ranking, não da
-    tela.
+    Aqui viviam duas exclusões escritas à mão, e a segunda estava **na direção
+    contrária** à do resto do produto: derrubava a *parcela* cujo total também
+    havia mudado, enquanto `deduplicacao.ts` derruba o *total* cujas parcelas
+    mudaram. As duas evitam contar o mesmo real duas vezes e as duas são
+    defensáveis isoladamente — mas juntas faziam este ranking abrir agosto/2026
+    com `carreta.custo_fixo` como maior linha econômica, um número que a soma
+    oficial já havia tirado por dupla contagem. A tela de entrada do produto
+    destacava o que o total do produto tinha descartado.
 
-    **A parcela cujo total ficou também sai.** As 27 transições de
-    `juros_finame_cavalo` já estão dentro das 37 do `finame_cavalo`.
-
-    A ordem entre as duas importa: quando o total sai por escopo de conjunto, as
-    parcelas dele **voltam a ser raiz** — senão `carreta.lucro_fixomodelo_novo_ciclo`
-    desapareceria junto com o `custo_fixo` que o continha, e a carreta perderia
-    uma linha econômica que é só dela. É a mesma regra que
-    `regras.test.ts` protege do outro lado do produto.
+    `ehLinhaEconomica` é a versão por código da mesma regra, com a mesma
+    direção. Por código porque esta leitura parte de `fact`, e sem ativo não há
+    decisão por ativo — o que ela custa em cobertura parcial está escrito lá, e
+    é por isso que ela responde por ordenação e nunca por dinheiro.
   */
   const ehDeConjunto = (code: string) => ESCOPO_POR_CODIGO.has(code);
-  const totalCobre = (p: ParametroAlterado) =>
-    p.dentroDe !== null && alterados.has(p.dentroDe) && !ehDeConjunto(p.dentroDe);
-  const linhaEconomica = (p: ParametroAlterado) =>
-    !ehDeConjunto(p.code) && !totalCobre(p);
+  const linhaEconomica = (p: ParametroAlterado) => ehLinhaEconomica(p.code, alterados);
 
   /*
     O ranking financeiro é por periodicidade, e não uma lista só.

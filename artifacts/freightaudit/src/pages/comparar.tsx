@@ -49,7 +49,15 @@ interface ChangeSet {
   attributesRemoved: number;
   unchanged: number;
   inconclusive: number;
-  calculatedImpactByPeriodicity: Record<string, number>;
+  /**
+   * O impacto desta comparação. `oficial` é o que a tela publica; `bruto` é
+   * conferência técnica e nunca aparece rotulado "Impacto apurado".
+   */
+  impacto: {
+    oficial: Record<string, number>;
+    bruto: Record<string, number>;
+    mudancasForaDoTotal: number;
+  };
   impactNotCalculable: number;
 }
 
@@ -214,9 +222,9 @@ export default function Comparar() {
               <Tile
                 label="Impacto apurado"
                 value={
-                  Object.keys(set.calculatedImpactByPeriodicity).length === 0
+                  Object.keys(set.impacto.oficial).length === 0
                     ? "não calculável"
-                    : Object.entries(set.calculatedImpactByPeriodicity)
+                    : Object.entries(set.impacto.oficial)
                         .map(
                           ([p, v]) =>
                             `${v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })}/${p.toLowerCase()}`,

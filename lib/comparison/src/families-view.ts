@@ -1,6 +1,11 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
-import { indexChangedAttributesByEntity, isCoveredByParts } from "./composition";
+import {
+  criarDeduplicador,
+  daLinhaDoBanco,
+  type Deduplicador,
+} from "./deduplicacao";
+import { carregarVinculosDeConjunto, snapshotsDosChangeSets } from "./vinculos";
 import {
   FAMILIES,
   FAMILY_ORDER,
@@ -128,10 +133,18 @@ export interface FamiliesView extends GroupedView {
 
 const round = (v: number) => Number(v.toFixed(2));
 
+/**
+ * O impacto de um recorte vazio.
+ *
+ * Vive aqui e não na autoridade porque é resposta de tela — "esta família não
+ * tem nada" —, e não uma leitura de dinheiro. O rastro vem vazio pelo mesmo
+ * motivo: sem linha nenhuma não há degrau a explicar.
+ */
 function emptyImpact(): ImpactSummary {
   return {
     byPeriodicity: {},
-    excludedByPeriodicity: {},
+    brutoByPeriodicity: {},
+    rastro: { brutoByPeriodicity: {}, degraus: [], oficialByPeriodicity: {} },
     excludedChanges: 0,
     notCalculable: 0,
     calculatedChanges: 0,
@@ -175,8 +188,9 @@ export async function getFamiliesView(
   const rows = await loadChanges(db, changeSetIds);
 
   // Sobre o conjunto inteiro, uma vez só. Cada fatia recebe este índice.
-  const changedByEntity = indexChangedAttributesByEntity(
-    rows.map((r) => ({ entityId: r.entity_id, attributeCode: r.attribute_code })),
+  const dedup = criarDeduplicador(
+    rows.map(daLinhaDoBanco),
+    await carregarVinculosDeConjunto(db, await snapshotsDosChangeSets(db, changeSetIds)),
   );
 
   const inventory = await parametersWithData(db);
@@ -225,7 +239,7 @@ export async function getFamiliesView(
           pending: placement.pending,
           changes: parameterRows.length,
           vehicles,
-          impact: summariseImpact(parameterRows, changedByEntity),
+          impact: summariseImpact(parameterRows, dedup),
           groups,
         };
       })
@@ -245,14 +259,14 @@ export async function getFamiliesView(
       vehicles: new Set(
         familyRows.map((r) => r.entity_id).filter((v): v is string => v !== null),
       ).size,
-      impact: familyRows.length > 0 ? summariseImpact(familyRows, changedByEntity) : emptyImpact(),
+      impact: familyRows.length > 0 ? summariseImpact(familyRows, dedup) : emptyImpact(),
       critical: familyGroups.filter((g) => g.badge === "DINHEIRO" || g.badge === "RUPTURA").length,
       locked: familyGroups.filter((g) => g.badge === "TRAVADO").length,
       parameters,
     });
   }
 
-  return { ...view, summary: buildSummary(view, families, rows, changedByEntity), families };
+  return { ...view, summary: buildSummary(view, families, rows, dedup), families };
 }
 
 // ---------------------------------------------------------------------------
@@ -443,7 +457,8 @@ export async function getRangeAnalysis(
      ORDER BY sb.effective_date DESC, sb.entity_type_set
   `);
 
-  const todasAsLinhas = await loadChanges(db, sets.map((s) => s.change_set_id));
+  const changeSetIds = sets.map((s) => s.change_set_id);
+  const todasAsLinhas = await loadChanges(db, changeSetIds);
 
   /*
     O índice de composição é montado sobre **todas** as linhas do intervalo, e
@@ -457,8 +472,9 @@ export async function getRangeAnalysis(
     num mês diferente. Montá-lo por vigência reintroduziria a dupla contagem
     pela porta do intervalo.
   */
-  const changedByEntity = indexChangedAttributesByEntity(
-    todasAsLinhas.map((r) => ({ entityId: r.entity_id, attributeCode: r.attribute_code })),
+  const dedup = criarDeduplicador(
+    todasAsLinhas.map(daLinhaDoBanco),
+    await carregarVinculosDeConjunto(db, await snapshotsDosChangeSets(db, changeSetIds)),
   );
 
   const rows =
@@ -509,7 +525,7 @@ export async function getRangeAnalysis(
         vehicles: new Set(
           linhas.map((r) => r.entity_id).filter((v): v is string => v !== null),
         ).size,
-        impact: summariseImpact(linhas, changedByEntity),
+        impact: summariseImpact(linhas, dedup),
       };
     });
 
@@ -536,7 +552,7 @@ export async function getRangeAnalysis(
 
   const entries: RangeEntry[] = [...baldes.entries()]
     .map(([chave, linhas]) => {
-      const grupo = buildGroup(linhas, fleetByChangeSet, changedByEntity);
+      const grupo = buildGroup(linhas, fleetByChangeSet, dedup);
       const periodo = chave.split("|")[0];
       const placement = placementOf(grupo.attributeCode);
       return {
@@ -586,7 +602,7 @@ export async function getRangeAnalysis(
 
   const byParameter: ParameterRollup[] = [...linhasPorParametro.entries()]
     .map(([chave, linhas]) => {
-      const impact = summariseImpact(linhas, changedByEntity);
+      const impact = summariseImpact(linhas, dedup);
       const family = placementOf(linhas[0]?.attribute_code ?? null).family;
       return {
         parameterKey: chave,
@@ -622,7 +638,7 @@ export async function getRangeAnalysis(
   const gains: Record<string, number> = {};
   for (const row of rows) {
     if (row.impact_confidence !== "CALCULATED" || row.impact_amount === null) continue;
-    if (isCoveredByParts(row.attribute_code, row.entity_id, changedByEntity)) continue;
+    if (dedup.foraDoTotal(daLinhaDoBanco(row)) !== null) continue;
     const balde = row.impact_periodicity ?? "SEM_PERIODICIDADE";
     const valor = Number(row.impact_amount);
     if (valor < 0) losses[balde] = (losses[balde] ?? 0) + valor;
@@ -638,7 +654,7 @@ export async function getRangeAnalysis(
     periods: datas.map((d) => ({ date: d, label: periodLabel(d) })),
     movements,
     gaps,
-    impact: summariseImpact(rows, changedByEntity),
+    impact: summariseImpact(rows, dedup),
     lossesByPeriodicity: Object.fromEntries(
       Object.entries(losses).map(([k, v]) => [k, round(v)]),
     ),
@@ -677,7 +693,7 @@ function buildSummary(
   view: GroupedView,
   families: FamilyView[],
   rows: Rows,
-  changedByEntity: Map<string, Set<string>>,
+  dedup: Deduplicador,
 ): ExecutiveSummary {
   const losses: Record<string, number> = {};
   const gains: Record<string, number> = {};
@@ -702,7 +718,7 @@ function buildSummary(
     if (row.impact_confidence !== "CALCULATED" || row.impact_amount === null) continue;
     // A mesma exclusão da soma da vigência: um total já contado nas parcelas
     // não entra em perdas, em ganhos, nem no ranking de veículos.
-    if (isCoveredByParts(row.attribute_code, row.entity_id, changedByEntity)) continue;
+    if (dedup.foraDoTotal(daLinhaDoBanco(row)) !== null) continue;
 
     const bucket = row.impact_periodicity ?? "SEM_PERIODICIDADE";
     const amount = Number(row.impact_amount);

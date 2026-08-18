@@ -162,15 +162,39 @@ describe("GET /frota/ativos", () => {
 });
 
 describe("o escopo em /changes/consolidated", () => {
-  it("sem `escopo`, responde exatamente como sempre respondeu", async () => {
+  /*
+    O contrato mudou aqui, e a mudança é o assunto.
+
+    Antes, `totais` só existia sob `escopo=1`: um filtro encolhia a lista e
+    **não** tocava nos cartões. Parecia conservador e era a origem de uma
+    leitura falsa — quem chegava do cartão "Impacto líquido", que manda
+    `impactConfidence=CALCULATED`, via "19 com impacto" numa lista embaixo de um
+    cabeçalho que dizia "267 alterações · R$ 39.936". Dois recortes empilhados,
+    e o de cima com cara de total.
+
+    Agora os `totais` acompanham a lista, sempre. O que **não** mudou é a
+    `view`: ela continua descrevendo o período inteiro, porque é ela que diz
+    qual série faltou — e recortá-la apagaria esse aviso de quem mais precisa
+    dele.
+  */
+  it("sem `escopo`, os totais seguem o filtro — e a view não", async () => {
     const semNada = await get("/changes/consolidated");
     const comFiltro = await get("/changes/consolidated?entityType=CAVALO");
 
-    // O filtro encolhe a lista e **não** toca nos cartões: é o contrato antigo,
-    // e é dele que dependem os links da Visão geral.
-    expect(comFiltro.body.totais).toBeUndefined();
+    expect(comFiltro.body.totais).toBeDefined();
+    expect(comFiltro.body.totais.valueChanges).toBe(comFiltro.body.total);
+    expect(comFiltro.body.totais.valueChanges).toBeLessThan(
+      semNada.body.totais.valueChanges,
+    );
     expect(comFiltro.body.view.totals).toEqual(semNada.body.view.totals);
     expect(comFiltro.body.total).toBeLessThan(semNada.body.total);
+  });
+
+  it("sem filtro nenhum, os totais reproduzem a view — nada encolheu", async () => {
+    const semNada = await get("/changes/consolidated");
+    expect(semNada.body.totais.valueChanges).toBe(
+      semNada.body.view.totals.valueChanges,
+    );
   });
 
   it("com `escopo`, reconta os totais ao lado — sem reescrever a view", async () => {

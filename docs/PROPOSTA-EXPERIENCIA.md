@@ -180,6 +180,34 @@ padrão existe no cavalo (`finame_cavalo = amortizacao_cavalo + juros_finame_cav
 Isto não é um detalhe de tela: é o único número financeiro que o produto exibe
 com destaque, e ele soma pai com filho. É o P0 mais urgente desta auditoria.
 
+> **Resolvido — e era maior do que este diagnóstico via.** A dedução virou uma
+> autoridade só (`@workspace/comparison/deduplicacao`), consumida pelo motor,
+> pelas telas, pelos consolidados e pelas exportações. O `change_set` passou a
+> gravar **dois** números: `impacto_bruto_by_periodicity`, que é auditoria
+> técnica, e `impacto_oficial_by_periodicity`, que é a verdade financeira.
+>
+> O diagnóstico acima parava na composição interna e chegava a
+> +R$ 23.341,74/mês. Faltava a segunda dupla contagem, entre equipamentos:
+> `carreta.finame` **contém** o `cavalo.finame_cavalo` do cavalo vinculado
+> (`ESCOPOS_DE_CONJUNTO`, medido em 558 de 558 pares), e em Ago/2026 os cinco
+> cavalos que mudaram são exatamente os pares das cinco carretas que mudaram.
+>
+> ```
+> 39.936,28 bruto
+> − 11.425,04 duplicidades por composição
+> = 28.511,24 subtotal técnico   ← não é um impacto; é um passo da conta
+> − 11.916,69 duplicidades entre escopos cavalo↔carreta
+> = 16.594,55 impacto oficial
+> ```
+>
+> Confirmação independente: a coluna do conjunto, `carreta.custo_fixo`, moveu-se
+> +R$ 16.594,54 na mesma vigência — um centavo de arredondamento de distância da
+> soma bottom-up deduplicada, por duas rotas que não se falam.
+>
+> Nenhuma alteração saiu da lista: as que ficam fora da soma trazem o selo
+> "Fora do total" com o motivo e onde o dinheiro foi contado. Contrato em
+> `lib/comparison/src/__tests__/verdade-unica.test.ts`.
+
 **P4 — Informação técnica que não ajuda a decidir.** O usuário vê
 `cavalo.ipva_licenciamento`, `SEMANTICS_DRIFT`, `PRESUMED`, `SEM_CLASSE`,
 `entityTypeSet`, `CARRETA+CAVALO`. São nomes do schema. O briefing pede
@@ -473,7 +501,7 @@ banco alimentado pelos arquivos reais):
 
 ```
 Custo fixo mensal:  +R$ 23.341,74 /mês      ← soma honesta (só as parcelas)
-                    (+R$ 39.936,28 é o que o sistema mostra hoje, contando
+                    (+R$ 39.936,28 era o que o sistema mostrava antes da dedução única, contando
                      "Custo fixo — Carreta" junto com as suas duas parcelas)
 Sem preço:          248 mudanças
 ```

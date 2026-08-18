@@ -244,6 +244,15 @@ export const COLUNAS_REMOVIDAS: [string, string][] = [
   ["attribute", "meaning_id"],
   ["attribute_semantics", "meaning_id"],
   ["taxonomy_node", "created_by"],
+  /*
+    A `0032`, pelo mesmo motivo das anteriores: três colunas de `change_set` que
+    Production não tem porque está parada na `0012`. São `NOT NULL` com default,
+    forma que a allowlist **não** aceita — e é o desfecho certo, porque elas são
+    dado derivado: recomputar a comparação as reconstrói.
+  */
+  ["change_set", "impacto_oficial_by_periodicity"],
+  ["change_set", "deducao_rastro"],
+  ["change_set", "mudancas_fora_do_total"],
 ];
 
 /** Índices que o `down` remove. Exportada pelo motivo de `COLUNAS_REMOVIDAS`. */
@@ -1310,6 +1319,26 @@ function planoUp(): PassoUp[] {
     "coverage_expectation_origin_ck",
     levantar(M32, /ADD CONSTRAINT "coverage_expectation_origin_ck"/),
   );
+
+  const M33 = "0033_verdade_financeira_unica";
+  /*
+    As três colunas da `0033`. A definição é levantada da própria migration, e
+    não escrita aqui: uma segunda redação do mesmo DDL é a forma mais silenciosa
+    de o `up` devolver uma coluna com default ou nulidade diferente da que a fila
+    cria — e o teste que compara "depois do up" com "banco criado do zero" é
+    justamente quem cobraria isso, tarde.
+  */
+  for (const col of [
+    "impacto_oficial_by_periodicity",
+    "deducao_rastro",
+    "mudancas_fora_do_total",
+  ]) {
+    add(
+      M33,
+      `change_set.${col}`,
+      levantar(M33, new RegExp(`ALTER TABLE "change_set"\\s+ADD COLUMN IF NOT EXISTS "${col}"`)),
+    );
+  }
 
   // 5. Obrigatoriedade e constraints.
   //    Os valores nunca saíram: o `down` só afrouxou o NOT NULL.
