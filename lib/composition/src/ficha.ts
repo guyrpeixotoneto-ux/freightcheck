@@ -522,6 +522,28 @@ async function lerFatosSimples(
 // Conjunto — a arquitetura pronta, a aba ainda não
 // ---------------------------------------------------------------------------
 
+/** O que a ficha do cavalo mostra sobre a carreta que ele puxa. */
+export interface VinculoDoCavalo {
+  placaCarreta: string;
+  carretaEntityId: string | null;
+  /** O total do conjunto declarado pela fonte, quando a carreta existe. */
+  totalDoConjunto: number | null;
+  /**
+   * Preenchido **só** quando o banco contradiz a própria invariante: mais de
+   * uma carreta corrente com a placa que o cavalo aponta.
+   *
+   * Isso não deveria acontecer — `entity_identifier_current_uq` é um índice
+   * único parcial sobre (`identifier_type`, `identifier_value`) `WHERE
+   * is_current`, e é ele que torna "uma placa, um equipamento" uma propriedade
+   * do banco e não uma convenção do código. Se mesmo assim aparecer duas, a
+   * leitura não escolhe: ela devolve o fato, com as duas identidades, para quem
+   * chamou registrar. Escolher a primeira daria um atalho que aponta para a
+   * carreta errada sem que ninguém fique sabendo, que é a categoria de erro
+   * que este módulo existe para não cometer.
+   */
+  ambiguidade: { entityIds: string[] } | null;
+}
+
 /**
  * A carreta que este cavalo puxa nesta vigência, quando a fonte declara uma.
  *
@@ -541,45 +563,59 @@ async function lerFatosSimples(
  *
  * Até lá, o vínculo aparece na ficha do cavalo como um atalho para a carreta, e
  * este é o ponto único onde ele é resolvido.
+ *
+ * @param vigencia A vigência e o contexto **já resolvidos** pela composição que
+ * está na tela. Não são opcionais de propósito: a versão anterior recebia um
+ * `period` opcional e um contexto parcial e os resolvia de novo por dentro —
+ * `max(effective_date)` numa CTE, `resolveContext` outra vez —, de modo que a
+ * ficha e o vínculo dela podiam, em princípio, falar de vigências diferentes.
+ * Quem já sabe qual vigência está mostrando passa a dizer, e some a segunda
+ * régua.
  */
 export async function getVinculoDoCavalo(
   db: Database,
   entityId: string,
-  opcoes: { period?: string; context?: Partial<SeriesContext> } = {},
-): Promise<{
-  placaCarreta: string;
-  carretaEntityId: string | null;
-  /** O total do conjunto declarado pela fonte, quando a carreta existe. */
-  totalDoConjunto: number | null;
-} | null> {
-  const context = await resolveContext(db, opcoes.context);
-  if (!context) return null;
-
+  vigencia: { effectiveDate: string; context: SeriesContext },
+): Promise<VinculoDoCavalo | null> {
+  const { effectiveDate, context } = vigencia;
   const codigoDoVinculo = "cavalo.placa_carreta";
   const totalDoConjunto = regraDe("CARRETA").totalDoConjunto;
 
+  /*
+    Os dois filtros que faltavam aqui, e que todas as outras leituras deste
+    módulo aplicam: `status <> 'SUPERSEDED'` e o `contextFilter`.
+
+    Sem eles a CTE varria também as revisões mortas da mesma data — reimportar
+    uma vigência não apaga a anterior, ela vira SUPERSEDED e os fatos ficam — e
+    os outros escopos e canais daquele dia. O resultado era mais de uma linha
+    onde o `SELECT` de baixo esperava um valor, e o Postgres derrubava a
+    consulta inteira com `21000`. A ficha do equipamento respondia 500; a lista
+    da frota, que não resolve vínculo, seguia abrindo. Ver
+    `__tests__/vinculo-revisoes.test.ts`.
+
+    O `LIMIT 1` que sobrou não é o conserto — é o que impede que uma família de
+    dados nova, que o contexto não separa, volte a transformar uma leitura de
+    atalho num erro de página inteira. O critério é determinístico: a revisão
+    mais alta, e o fato mais recente dentro dela.
+  */
   const { rows } = await db.execute<{
     placa_carreta: string | null;
     carreta_entity_id: string | null;
     total: string | null;
   }>(sql`
-    WITH alvo AS (
-      SELECT max(s.effective_date) AS d
-        FROM snapshot s
-       WHERE s.status <> 'SUPERSEDED'
-         AND ${contextFilter("s", context)}
-         AND (${opcoes.period ?? null}::date IS NULL
-              OR s.effective_date = ${opcoes.period ?? null}::date)
-    ),
-    vinculo AS (
+    WITH vinculo AS (
       SELECT f.value_text AS placa_carreta
         FROM fact f
         JOIN attribute a ON a.id = f.attribute_id
         JOIN snapshot s  ON s.id = f.snapshot_id
        WHERE f.entity_id = ${entityId}::uuid
          AND a.code = ${codigoDoVinculo}
-         AND s.effective_date = (SELECT d FROM alvo)
+         AND s.effective_date = ${effectiveDate}::date
+         AND s.status <> 'SUPERSEDED'
+         AND ${contextFilter("s", context)}
          AND NOT f.is_null
+       ORDER BY s.revision DESC, f.id DESC
+       LIMIT 1
     ),
     carreta AS (
       SELECT ei.entity_id
@@ -590,24 +626,48 @@ export async function getVinculoDoCavalo(
          AND e.entity_type = 'CARRETA'
          AND ei.identifier_value = (SELECT placa_carreta FROM vinculo)
     )
-    SELECT (SELECT placa_carreta FROM vinculo)      AS placa_carreta,
-           (SELECT entity_id::text FROM carreta)    AS carreta_entity_id,
+    /*
+      Uma linha por carreta encontrada, e não um valor por subconsulta. É o que
+      deixa a multiplicidade visível para quem lê o resultado, em vez de
+      transformá-la em erro do banco ou em escolha silenciosa: nenhuma carreta
+      dá uma linha com nulos, e mais de uma dá mais de uma linha.
+    */
+    SELECT v.placa_carreta,
+           c.entity_id::text AS carreta_entity_id,
            (SELECT f.value_numeric::text
               FROM fact f
               JOIN attribute a ON a.id = f.attribute_id
               JOIN snapshot s  ON s.id = f.snapshot_id
-             WHERE f.entity_id = (SELECT entity_id FROM carreta)
+             WHERE f.entity_id = c.entity_id
                AND a.code = ${totalDoConjunto ?? ""}
-               AND s.effective_date = (SELECT d FROM alvo)
+               AND s.effective_date = ${effectiveDate}::date
+               AND s.status <> 'SUPERSEDED'
+               AND ${contextFilter("s", context)}
                AND NOT f.is_null
-             LIMIT 1)                               AS total
+             ORDER BY s.revision DESC, f.id DESC
+             LIMIT 1)        AS total
+      FROM vinculo v
+      LEFT JOIN carreta c ON true
   `);
 
-  const linha = rows[0];
-  if (!linha?.placa_carreta) return null;
+  const placaCarreta = rows[0]?.placa_carreta;
+  if (!placaCarreta) return null;
+
+  const encontradas = rows.filter((r) => r.carreta_entity_id !== null);
+  if (encontradas.length > 1) {
+    return {
+      placaCarreta,
+      carretaEntityId: null,
+      totalDoConjunto: null,
+      ambiguidade: { entityIds: encontradas.map((r) => r.carreta_entity_id!).sort() },
+    };
+  }
+
+  const carreta = encontradas[0];
   return {
-    placaCarreta: linha.placa_carreta,
-    carretaEntityId: linha.carreta_entity_id,
-    totalDoConjunto: linha.total === null ? null : Number(linha.total),
+    placaCarreta,
+    carretaEntityId: carreta?.carreta_entity_id ?? null,
+    totalDoConjunto: carreta?.total == null ? null : Number(carreta.total),
+    ambiguidade: null,
   };
 }

@@ -203,6 +203,13 @@ export interface Composicao {
     placaCarreta: string;
     carretaEntityId: string | null;
     totalDoConjunto: number | null;
+    /**
+     * Mais de uma carreta corrente com esta placa — estado que o banco não
+     * deveria permitir. Quando vem preenchido, `carretaEntityId` é nulo e o
+     * atalho aparece sem destino, que é o que a tela já faz quando a carreta
+     * não existe.
+     */
+    ambiguidade: { entityIds: string[] } | null;
   } | null;
 }
 
