@@ -467,10 +467,18 @@ export async function getRangeAnalysis(
     não veria a parcela mudar, o titular voltaria para dentro da soma, e o
     cartão mostraria o mesmo dinheiro duas vezes.
 
-    Ele também é do intervalo **inteiro**, e não por vigência. É a mesma regra do acumulado: um total cuja parcela mudou em
-    qualquer ponto do intervalo não volta para dentro da soma só porque mudou
-    num mês diferente. Montá-lo por vigência reintroduziria a dupla contagem
-    pela porta do intervalo.
+    O que ele **não** faz é atravessar vigências. Este comentário já disse o
+    contrário — "é do intervalo inteiro, e não por vigência" —, e a afirmação
+    ficou de pé depois de o código mudar: `criarDeduplicador` indexa por
+    (comparação, ativo), então as regras decidem dentro de cada comparação e
+    nunca entre duas.
+
+    A mudança foi deliberada, e o motivo é que a leitura antiga perdia dinheiro:
+    um total que se moveu **sozinho** em junho sairia da soma porque uma parcela
+    dele se moveu em julho — uma dupla contagem que não existe em nenhum dos dois
+    meses, descontada mesmo assim. As duas regras são internas a um par de
+    vigências (um total e as parcelas dele, um cavalo e a carreta dele), e é
+    nesse grão que elas fecham.
   */
   const dedup = criarDeduplicador(
     todasAsLinhas.map(daLinhaDoBanco),
