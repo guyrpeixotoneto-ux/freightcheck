@@ -572,9 +572,28 @@ function FilaVazia({
         ? "Nenhum atributo importado nesta base."
         : "Nada aguardando confirmação — a fila está limpa."
       : colunasNaBase === 0
-        ? `Nenhuma coluna de ${rotulo} foi importada nesta base. O tipo de ` +
-          `equipamento vem do nome da aba da planilha: uma aba "${rotulo}" na ` +
-          `próxima importação abre esta fila sozinha.`
+        ? /*
+             A frase prometia o que o produto não faz.
+        
+             "O tipo de equipamento vem do nome da aba: uma aba Trecho na
+             próxima importação abre esta fila sozinha" era verdade até a
+             identidade passar a ser decidida pelas **colunas** da aba
+             (`lib/ingest/src/identity.ts`), e deixou de ser sem que ninguém
+             reescrevesse aqui. Alguém leu esta frase, montou uma planilha de
+             trecho, importou — e a fila continuou vazia, porque a aba sequer
+             chega a ser lida como fonte: o leitor só reconhece aba com
+             vigência e placa no cabeçalho, e trecho não tem placa.
+        
+             Uma tela que ensina um caminho que não existe é pior do que uma
+             tela que não ensina nada. Enquanto o grão for fixo, o que ela pode
+             dizer com honestidade é o que de fato está faltando.
+           */
+          `Nenhuma coluna de ${rotulo} foi importada nesta base. As colunas ` +
+          `nascem da importação, e o equipamento de cada aba é decidido pelas ` +
+          `colunas dela — não pelo nome. Se uma planilha de ${rotulo.toLowerCase()} ` +
+          `já foi enviada e esta fila continua vazia, o lugar de olhar é a tela ` +
+          `de Importações: a aba pode ter sido descartada na leitura, e o motivo ` +
+          `está escrito lá.`
         : mostrandoConfirmados
           ? `Nenhuma coluna de ${rotulo} nesta base.`
           : `Nada aguardando confirmação em ${rotulo}` +
