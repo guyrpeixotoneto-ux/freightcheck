@@ -87,8 +87,10 @@ interface ImportRun {
   pendingIdentities: string[];
   /** O tipo declarado no envio — a aba por onde o arquivo entrou. */
   declaredType: string | null;
-  /** Os tipos que a importação de fato produziu, lidos das vigências dela. */
+  /** O que as vigências desta importação passaram a cobrir, herança incluída. */
   entityTypes: string[];
+  /** Os tipos que este arquivo trouxe — `entityTypes` sem a parte herdada. */
+  tiposDoArquivo: string[];
 }
 
 /**
@@ -96,8 +98,12 @@ interface ImportRun {
  *
  * Duas respostas, nesta ordem, e a ordem é o desenho: **o que foi declarado**
  * manda, porque é a aba em que a pessoa de fato enviou o arquivo; na falta dela
- * — toda importação anterior à declaração —, vale **o que saiu do arquivo**,
- * que é a única evidência que resta.
+ * — toda importação anterior à declaração —, vale **a cobertura das vigências**
+ * que ela gravou. A cobertura é deliberada aqui: o arquivo de carreta que
+ * regrava as vigências preservando os cavalos pertence também ao histórico de
+ * Cavalo — ele abriu uma revisão nova dos cavalos, ainda que não os tenha
+ * trazido. O cartão diz de qual dos dois jeitos ele pertence; é papel do
+ * {@link TipoDaImportacao}, não do recorte.
  *
  * Uma importação sem nem uma nem outra não aparece em aba de tipo nenhuma, e é
  * assim que deve ser: ela não produziu vigência e não declarou tipo, e
@@ -106,6 +112,29 @@ interface ImportRun {
  */
 const tiposDaImportacao = (run: ImportRun): string[] =>
   run.declaredType !== null ? [run.declaredType] : run.entityTypes;
+
+/** O rótulo humano de um tipo: "Cavalo", "QLP Administrativo". */
+const rotuloDoTipo = (code: string) =>
+  TIPOS_DE_IMPORTACAO.find((t) => t.code === code)?.rotulo ?? code;
+
+/**
+ * O que veio no arquivo desta importação, na melhor evidência disponível: a
+ * declaração do envio quando existe, senão os fatos que o arquivo produziu.
+ */
+const tiposVindosDoArquivo = (run: ImportRun): string[] =>
+  run.declaredType !== null ? [run.declaredType] : run.tiposDoArquivo;
+
+/**
+ * O que a vigência resultante cobre além do arquivo — a herança das revisões
+ * anteriores. Vazio no caso comum, em que a vigência é o arquivo; vazio também
+ * quando não se sabe o que o arquivo trouxe, porque sem essa leitura apontar
+ * herança seria dar nome errado a uma diferença que não dá para calcular.
+ */
+const tiposHerdados = (run: ImportRun): string[] => {
+  const doArquivo = new Set(tiposVindosDoArquivo(run));
+  if (doArquivo.size === 0) return [];
+  return run.entityTypes.filter((tipo) => !doArquivo.has(tipo));
+};
 
 /**
  * Um apontamento do pipeline, como a API o entrega.
@@ -638,37 +667,76 @@ export default function Importacoes() {
 }
 
 /**
- * De que tipo é esta importação, e como a tela sabe disso.
+ * De que tipo é esta importação — em duas afirmações que não se misturam.
  *
- * As duas procedências são ditas com todas as letras porque não são a mesma
- * coisa: **declarado** é o que a pessoa afirmou ao escolher a aba, e o servidor
- * conferiu; **produzido** é o que saiu do arquivo, e é tudo o que existe para
- * as importações anteriores à declaração. Escrever as duas como se fossem uma
- * seria apagar justamente a diferença que este produto existe para mostrar.
+ * **Arquivo** é o que este arquivo trouxe: a declaração do envio quando
+ * existe, senão o que os fatos dele dizem. **Vigência resultante** é o que as
+ * vigências gravadas passaram a cobrir — que pode ser mais que o arquivo,
+ * porque a revisão preserva os tipos que ele não toca: o arquivo de carreta
+ * que entra numa vigência que já tinha cavalos grava uma revisão cobrindo os
+ * dois. As duas moravam na mesma fileira de etiquetas, e foi isso que fez
+ * "Cavalo + Carreta" parecer tipos detectados dentro de um arquivo só de
+ * carretas. A segunda linha só aparece quando diz algo que a primeira não
+ * disse; repetir o mesmo tipo nas duas seria ruído vestido de rigor.
  */
 function TipoDaImportacao({ run }: { run: ImportRun }) {
-  const tipos = tiposDaImportacao(run);
-  if (tipos.length === 0) return null;
+  const doArquivo = tiposVindosDoArquivo(run);
+  const herdados = tiposHerdados(run);
+  if (doArquivo.length === 0 && run.entityTypes.length === 0) return null;
 
-  const rotulo = (code: string) =>
-    TIPOS_DE_IMPORTACAO.find((t) => t.code === code)?.rotulo ?? code;
+  const chip = (tipo: string) => (
+    <span
+      key={tipo}
+      className="text-[0.6875rem] px-2 py-0.5 rounded-lg border bg-muted/40 text-foreground"
+    >
+      {rotuloDoTipo(tipo)}
+    </span>
+  );
+
+  /*
+    Importação antiga, promovida antes de o agregado por tipo existir e fora do
+    backfill: não há como separar arquivo de herança, e inventar a separação
+    seria pior que não fazê-la. Resta a cobertura, dita como cobertura.
+  */
+  if (doArquivo.length === 0) {
+    return (
+      <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        <span className="text-[0.6875rem] text-muted-foreground">
+          Vigências cobrem
+        </span>
+        {run.entityTypes.map(chip)}
+        <span className="text-[0.6875rem] text-muted-foreground">
+          lido das vigências que entraram
+        </span>
+      </p>
+    );
+  }
 
   return (
-    <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
-      {tipos.map((tipo) => (
-        <span
-          key={tipo}
-          className="text-[0.6875rem] px-2 py-0.5 rounded-lg border bg-muted/40 text-foreground"
-        >
-          {rotulo(tipo)}
+    <div className="mt-1.5 space-y-1">
+      <p className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[0.6875rem] text-muted-foreground">Arquivo</span>
+        {doArquivo.map(chip)}
+        <span className="text-[0.6875rem] text-muted-foreground">
+          {run.declaredType !== null
+            ? "declarado no envio"
+            : "lido do conteúdo do arquivo"}
         </span>
-      ))}
-      <span className="text-[0.6875rem] text-muted-foreground">
-        {run.declaredType !== null
-          ? "declarado no envio"
-          : "lido das vigências que entraram"}
-      </span>
-    </p>
+      </p>
+      {herdados.length > 0 && (
+        <p className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[0.6875rem] text-muted-foreground">
+            {run.snapshots === 1 ? "Vigência resultante" : "Vigências resultantes"}
+          </span>
+          {run.entityTypes.map(chip)}
+          <span className="text-[0.6875rem] text-muted-foreground">
+            {herdados.map(rotuloDoTipo).join(" e ")} preservado
+            {herdados.length > 1 ? "s" : ""} de revisões anteriores — não veio
+            {herdados.length > 1 ? "ram" : ""} neste arquivo
+          </span>
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -1022,6 +1090,37 @@ function RunDetailDialog({
               {run.finishedAt ? dateTime(run.finishedAt) : "—"}
             </Field>
             <Field label="Enviado por">{run.triggeredBy ?? "—"}</Field>
+            {/* A mesma distinção do cartão, com as mesmas palavras: o que o
+                arquivo trouxe numa linha, o que a vigência resultante cobre na
+                outra — e a segunda só quando difere da primeira. */}
+            {tiposVindosDoArquivo(run).length > 0 && (
+              <Field label="Arquivo">
+                {tiposVindosDoArquivo(run).map(rotuloDoTipo).join(" + ")}
+                <span className="text-muted-foreground">
+                  {" "}
+                  ·{" "}
+                  {run.declaredType !== null
+                    ? "declarado no envio"
+                    : "lido do conteúdo do arquivo"}
+                </span>
+              </Field>
+            )}
+            {tiposHerdados(run).length > 0 && (
+              <Field
+                label={
+                  run.snapshots === 1
+                    ? "Vigência resultante"
+                    : "Vigências resultantes"
+                }
+              >
+                {run.entityTypes.map(rotuloDoTipo).join(" + ")}
+                <span className="text-muted-foreground">
+                  {" "}
+                  · {tiposHerdados(run).map(rotuloDoTipo).join(" e ")} veio de
+                  revisões anteriores, não deste arquivo
+                </span>
+              </Field>
+            )}
             <Field label="Produziu">
               {plural(run.sheets, "aba", "abas")} ·{" "}
               {plural(run.rawRows, "linha", "linhas")} ·{" "}
