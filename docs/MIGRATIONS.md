@@ -40,6 +40,19 @@ humana apagada não é recuperável por ninguém. `publicar:conferir` antes de t
 Publish continua sendo o que impede a perda, e o boot loga alto quando teve de
 repor qualquer coisa.
 
+A mesma reconvergência existe pela mão de quem opera:
+
+```
+pnpm --filter @workspace/db run conferir-schema             # lê e nomeia o que falta
+pnpm --filter @workspace/db run conferir-schema -- --aplicar  # repõe pela fila
+```
+
+É o caminho para a tela de SCHEMA_DIVERGENTE num ambiente onde a partida não
+reconverge — Development, ou um Production que ainda roda um build sem o passo.
+As recusas são as mesmas da partida (`reconvergirSeCabivel`, em
+`lib/db/src/reconvergencia.ts`): pendência é da fila, bridge é do `bridge:up`,
+e as duas portas não têm como discordar, porque são a mesma função.
+
 ## Quem avança a fila só por ter subido
 
 A regra é uma: **só Production aplica migrations ao iniciar.** Todo o resto
