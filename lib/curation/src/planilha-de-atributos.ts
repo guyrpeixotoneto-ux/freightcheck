@@ -172,6 +172,17 @@ export const COLUNAS_DO_MODELO: ColunaDoModelo[] = [
 /** O rótulo antigo, quando a categoria cabia numa coluna só. Ainda é lido. */
 export const ROTULO_DA_COLUNA_ANTIGA = "Categoria DRE";
 
+/**
+ * O normalizador do tipo de equipamento continua saindo daqui para quem importa
+ * o índice do pacote — o servidor —, mas passou a morar em `./equipamento`.
+ *
+ * A mudança é de endereço, não de regra: este arquivo fala com o banco, e a
+ * tela também precisa da função. Importá-la por aqui obrigava o navegador a
+ * carregar `@workspace/db` junto, e o produto abria em branco. O porquê inteiro
+ * está em `equipamento.ts`.
+ */
+export { normalizarEquipamento } from "./equipamento";
+
 /** Uma linha do modelo, como o servidor a escreve no arquivo. */
 export interface LinhaDoModelo {
   atributo: string;

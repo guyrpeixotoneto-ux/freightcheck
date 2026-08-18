@@ -438,6 +438,257 @@ export async function listarCategorias(db: Database): Promise<CategoriaCadastrad
     });
 }
 
+// ---------------------------------------------------------------------------
+// As famílias — o primeiro nível da árvore
+// ---------------------------------------------------------------------------
+
+/**
+ * A raiz da árvore. Toda família é filha dela.
+ *
+ * Lida de `DEFAULT_TAXONOMY`, e não escrita à mão: ela mudou de `remuneracao`
+ * para `natureza` na migration 0031, e uma constante repetida aqui teria ficado
+ * apontando para um nó que não existe mais — com a falha aparecendo só na hora
+ * de cadastrar uma família, em produção.
+ */
+export const RAIZ_DA_TAXONOMIA = DEFAULT_TAXONOMY.code;
+
+/**
+ * Uma família da árvore — o nível que agrupa, e não o que classifica.
+ *
+ * É o mesmo nó de `taxonomy_node` que `CategoriaCadastrada.sintetico` devolve
+ * como texto; a diferença é que aqui ele vem inteiro, com código e contagem, e
+ * **existe mesmo estando vazio**. Derivar a lista das categorias — que é o que
+ * a tela fazia — esconde exatamente a linha recém-criada: ela ainda não tem
+ * analítico nenhum dentro, e uma linha que some no instante seguinte ao de ser
+ * criada é indistinguível de uma criação que falhou.
+ */
+export interface SinteticoCadastrado {
+  id: string;
+  code: string;
+  /** "Custo Fixo" — o nome como a DRE o imprime. */
+  nome: string;
+  /** Quantos analíticos moram nesta linha hoje, em qualquer profundidade. */
+  categorias: number;
+  isSeed: boolean;
+}
+
+/**
+ * As linhas da DRE, em ordem de leitura.
+ *
+ * Inclui "Não classificado", que é uma linha de verdade — é onde mora o que
+ * ainda não foi decidido, e escondê-la faria a tela mentir sobre onde as
+ * categorias novas caem.
+ */
+export async function listarSinteticos(db: Database): Promise<SinteticoCadastrado[]> {
+  const nodes = await db
+    .select()
+    .from(taxonomyNodeTable)
+    .where(eq(taxonomyNodeTable.isActive, true))
+    .orderBy(asc(taxonomyNodeTable.sortOrder), asc(taxonomyNodeTable.name));
+
+  return nodes
+    .filter((n) => n.depth === 1)
+    .map((n) => ({
+      id: n.id,
+      code: n.code,
+      nome: n.name,
+      // Por prefixo de caminho, e não por `parentId`: uma linha pode ter neta,
+      // e "Frota — Cavalo › Depreciação" conta para "Custo Fixo" tanto quanto
+      // "Pneus" conta.
+      categorias: nodes.filter((f) => f.depth > 1 && f.path.startsWith(`${n.path}/`)).length,
+      isSeed: n.createdBy === null,
+    }));
+}
+
+/**
+ * Cadastrar uma linha da DRE a partir do que a pessoa digitou.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que isto existe ao lado de {@link criarCategoria}
+ * ---------------------------------------------------------------------------
+ * Pelo mesmo motivo que a criação de categoria existe: o vocabulário é da
+ * operação, e um cadastro fechado no primeiro nível obriga quem cura a escolher
+ * a linha *mais parecida* com a que ela queria — que é a aproximação silenciosa
+ * que este produto não aceita em lugar nenhum. Uma DRE que precisa de "Receita
+ * de frete" e só tem custo fixo, custo variável e cadastral não é uma DRE
+ * incompleta: é uma DRE errada, e o erro não aparece em tela nenhuma.
+ *
+ * ---------------------------------------------------------------------------
+ * O que a linha nova **não** ganha
+ * ---------------------------------------------------------------------------
+ * `cost_class`. Ela nasce sem lado da conta, pela mesma razão que uma categoria
+ * nasce sob "Não classificado": de que lado uma linha da DRE cai é uma decisão
+ * do negócio, não se lê no nome dela, e declará-la aqui poria colunas num total
+ * de custo por causa de uma palavra digitada num combobox. Sem `cost_class`
+ * declarada, tudo que morar debaixo dela herda nulo — que é o que
+ * `INHERITED_COST_CLASS_JOIN` já sabe tratar desde o primeiro dia.
+ *
+ * Idempotente sobre o que já existe, como toda criação inline daqui.
+ */
+export async function criarSintetico(
+  db: Database,
+  entrada: { name: string; actor: string },
+): Promise<ResultadoDaCriacao<SinteticoCadastrado>> {
+  if (!entrada.actor?.trim()) {
+    throw new Error("Cadastrar uma linha da DRE exige um responsável identificado.");
+  }
+  const nome = entrada.name.trim().replace(/\s+/g, " ");
+  if (!nome) throw new Error("Uma linha da DRE precisa de um nome.");
+
+  const sinteticos = await listarSinteticos(db);
+  const proximos = procurarProximos(nome, sinteticos, (s) => s.nome);
+  const igual = proximos.find((p) => p.tipo === "IGUAL");
+  if (igual) {
+    return {
+      desfecho: "JA_EXISTE",
+      item: igual.item,
+      mensagem: `"${igual.item.nome}" já é uma linha da DRE. Selecionada.`,
+      proximos,
+    };
+  }
+
+  /*
+    Um nome que já é categoria não vira linha da DRE.
+
+    A checagem não é a mesma da colisão de código logo abaixo, e é por isso que
+    ela existe: "Pneus" está cadastrada como `cv_pneus`, e o código derivado do
+    nome seria `pneus` — passaria sem esbarrar em nada, e a árvore ficaria com
+    "Pneus" totalizando "Pneus". Quem lê a DRE não tem como saber qual dos dois
+    está olhando, e a leitura das duas colunas da planilha de atributos, que
+    casa sintético e analítico **pelo nome**, passaria a ter duas respostas.
+  */
+  const homonima = procurarProximos(nome, await listarCategorias(db), (c) => c.name).find(
+    (p) => p.tipo === "IGUAL",
+  );
+  if (homonima) {
+    return {
+      desfecho: "JA_EXISTE",
+      item: null,
+      mensagem:
+        `"${homonima.item.name}" já existe como categoria, em "${homonima.item.caminho}". ` +
+        "Uma linha da DRE precisa de outro nome — duas coisas com o mesmo nome na árvore não se distinguem em relatório nenhum.",
+      proximos,
+    };
+  }
+
+  const [raiz] = await db
+    .select()
+    .from(taxonomyNodeTable)
+    .where(eq(taxonomyNodeTable.code, RAIZ_DA_TAXONOMIA));
+  if (!raiz) {
+    throw new Error(
+      `A árvore de categorias ainda não foi semeada neste banco: falta a raiz "${RAIZ_DA_TAXONOMIA}".`,
+    );
+  }
+
+  const code = normalizarRotulo(nome).replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  const [colisao] = await db
+    .select()
+    .from(taxonomyNodeTable)
+    .where(eq(taxonomyNodeTable.code, code));
+  if (colisao) {
+    /*
+      O código é único na árvore inteira, e a colisão pode ser com um nó de
+      outro nível — "Combustível" já existe como analítico dentro de "Custo
+      Variável". Devolver `item: null` com o motivo por extenso é o que impede
+      a tela de selecionar, no campo do sintético, uma categoria que não é uma
+      linha da DRE.
+    */
+    const existente = sinteticos.find((s) => s.id === colisao.id) ?? null;
+    return {
+      desfecho: "JA_EXISTE",
+      item: existente,
+      mensagem: existente
+        ? `"${colisao.name}" já é uma linha da DRE. Selecionada.`
+        : `"${colisao.name}" já existe na árvore como categoria, e não como linha da DRE. ` +
+          `Escolha outro nome para a linha, ou use essa categoria no analítico.`,
+      proximos,
+    };
+  }
+
+  const ultima = sinteticos.length;
+  const [inserido] = await db
+    .insert(taxonomyNodeTable)
+    .values({
+      parentId: raiz.id,
+      code,
+      name: nome,
+      kind: "CLASS",
+      path: `${raiz.path}/${code}`,
+      depth: raiz.depth + 1,
+      // Depois das linhas que vieram com o produto, e na ordem em que forem
+      // criadas — a DRE se lê de cima para baixo, e linha nova entra no fim.
+      sortOrder: ultima,
+      createdBy: entrada.actor,
+    })
+    .returning();
+
+  await db.insert(curationEventTable).values({
+    targetKind: "TAXONOMY_NODE",
+    targetId: inserido.id,
+    targetLabel: code,
+    field: "created",
+    valueBefore: null,
+    valueAfter: inserido.path,
+    actor: entrada.actor,
+    reason:
+      "Linha sintética da DRE cadastrada na tela de confirmação. Nasce sem classe de custo — " +
+      "de que lado da conta ela cai não se lê no nome, e nada abaixo dela entra num total até que se decida.",
+  });
+
+  const atualizados = await listarSinteticos(db);
+  return {
+    desfecho: "CRIADO",
+    item: atualizados.find((s) => s.id === inserido.id) ?? null,
+    mensagem: "",
+    proximos: [],
+  };
+}
+
+/**
+ * O nó em que uma categoria criada na tela vai morar.
+ *
+ * Ver a nota sobre `sintetico` em {@link criarCategoria}: a família pedida vale
+ * quando existe e é de profundidade 1; qualquer outra coisa cai em
+ * {@link PAI_DE_CATEGORIA_NOVA}, inclusive um código que não existe mais — uma
+ * tela aberta há uma hora não pode criar categoria fora da árvore.
+ *
+ * A ressalva de "não decide lado da conta" saiu junto com a classe de custo: ela
+ * existia porque pendurar uma categoria em "Custo Variável" era afirmar de que
+ * lado da conta as colunas dela caíam, e nascer ali seria classificar sem autor.
+ * Nenhuma família decide isso mais — a classe é do atributo —, então a categoria
+ * nasce onde quem a criou escolheu.
+ */
+async function paiDaCategoriaNova(
+  db: Database,
+  sintetico: string | null | undefined,
+): Promise<typeof taxonomyNodeTable.$inferSelect> {
+  const pedido = sintetico?.trim();
+  if (pedido) {
+    const [linha] = await db
+      .select()
+      .from(taxonomyNodeTable)
+      .where(
+        and(
+          eq(taxonomyNodeTable.code, pedido),
+          eq(taxonomyNodeTable.isActive, true),
+        ),
+      );
+    if (linha?.depth === 1) return linha;
+  }
+
+  const [padrao] = await db
+    .select()
+    .from(taxonomyNodeTable)
+    .where(eq(taxonomyNodeTable.code, PAI_DE_CATEGORIA_NOVA));
+  if (!padrao) {
+    throw new Error(
+      `A árvore de categorias ainda não foi semeada neste banco: falta o nó "${PAI_DE_CATEGORIA_NOVA}".`,
+    );
+  }
+  return padrao;
+}
+
 /**
  * Cadastrar uma categoria a partir do que a pessoa digitou.
  *
@@ -448,10 +699,25 @@ export async function listarCategorias(db: Database): Promise<CategoriaCadastrad
  * A busca por parecidos continua valendo, e é o caso `combustivel` /
  * `Combustível` do pedido: ela é feita **antes**, e o que ela encontra volta
  * para a tela oferecer em vez de criar.
+ *
+ * ---------------------------------------------------------------------------
+ * Em que linha da DRE a categoria nasce
+ * ---------------------------------------------------------------------------
+ * `sintetico` é o código da linha escolhida na tela, e ele é **um pedido, não
+ * uma ordem**. Ele é atendido quando a linha não decide lado da conta — uma
+ * linha criada por quem opera, ou "Não classificado". Numa das três casas da
+ * classificação (custo fixo, custo variável, cadastral) ele é recusado em
+ * silêncio e a categoria entra sob "Não classificado", porque criar direto lá
+ * dentro seria classificar: afirmar de que lado da conta as colunas caem sem
+ * autor, sem justificativa e sem o evento que {@link classificarCategoria}
+ * grava. A tela diz isso antes do clique, e o `item` devolvido traz o
+ * sintético real — é por ele que o campo se corrige sozinho.
+ *
+ * Sem `sintetico`, o destino é "Não classificado", como sempre foi.
  */
 export async function criarCategoria(
   db: Database,
-  entrada: { name: string; actor: string },
+  entrada: { name: string; actor: string; sintetico?: string | null },
 ): Promise<ResultadoDaCriacao<CategoriaCadastrada>> {
   if (!entrada.actor?.trim()) {
     throw new Error("Cadastrar uma categoria exige um responsável identificado.");
@@ -471,15 +737,24 @@ export async function criarCategoria(
     };
   }
 
-  const [pai] = await db
-    .select()
-    .from(taxonomyNodeTable)
-    .where(eq(taxonomyNodeTable.code, PAI_DE_CATEGORIA_NOVA));
-  if (!pai) {
-    throw new Error(
-      `A árvore de categorias ainda não foi semeada neste banco: falta o nó "${PAI_DE_CATEGORIA_NOVA}".`,
-    );
+  // O simétrico da checagem em `criarSintetico`, e pelo mesmo motivo: uma
+  // categoria com o nome de uma linha da DRE deixa a árvore com dois nós
+  // homônimos em alturas diferentes, e nenhum relatório os separa.
+  const linhaDaDre = procurarProximos(nome, await listarSinteticos(db), (s) => s.nome).find(
+    (p) => p.tipo === "IGUAL",
+  );
+  if (linhaDaDre) {
+    return {
+      desfecho: "JA_EXISTE",
+      item: null,
+      mensagem:
+        `"${linhaDaDre.item.nome}" é uma linha da DRE, e não uma categoria dentro dela. ` +
+        "Escolha essa linha no campo de cima, e cadastre aqui o detalhe que vai dentro.",
+      proximos,
+    };
   }
+
+  const pai = await paiDaCategoriaNova(db, entrada.sintetico);
 
   /*
     O código é derivado do nome normalizado, e é único na árvore inteira — não
@@ -498,7 +773,11 @@ export async function criarCategoria(
     return {
       desfecho: "JA_EXISTE",
       item: existente ?? null,
-      mensagem: `"${colisao.name}" já existe no cadastro. Selecionada.`,
+      // Sem `existente`, o nó que colidiu é a raiz ou uma linha da DRE — nada
+      // foi selecionado, e dizer "Selecionada" seria a tela mentindo.
+      mensagem: existente
+        ? `"${colisao.name}" já existe no cadastro. Selecionada.`
+        : `"${colisao.name}" já existe na árvore, e não como categoria. Escolha outro nome.`,
       proximos,
     };
   }
@@ -526,7 +805,7 @@ export async function criarCategoria(
     valueAfter: inserido.path,
     actor: entrada.actor,
     reason:
-      "Categoria cadastrada na tela de confirmação. Entra sob “Não classificado” — " +
+      `Categoria cadastrada na tela de confirmação. Entra sob “${pai.name}” — ` +
       "a classe de custo (fixo ou variável) não se lê no nome e continua por decidir.",
   });
 

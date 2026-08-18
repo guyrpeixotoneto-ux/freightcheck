@@ -3,6 +3,7 @@ import {
   avisoDeParecido,
   familiaDaCategoria,
   leituraDe,
+  leituraDoSintetico,
   oQueFalta,
   podeConfirmar,
   precisaDoPeriodo,
@@ -15,6 +16,7 @@ import {
   type Escolhas,
   type OpcaoDeCategoria,
   type OpcaoDeSignificado,
+  type OpcaoDeSintetico,
 } from "../interpretacao";
 import {
   derivarSemantica,
@@ -334,6 +336,40 @@ describe("a família da categoria, dita para quem escolhe", () => {
   it("só quem mora em Não classificado é anunciado como sem família", () => {
     const nova = categoria("8", "pedagio", "Não classificado › Pedágio", "nao_classificado");
     expect(familiaDaCategoria(nova)).toBe("Ainda sem família");
+  });
+});
+
+describe("a família, lida no campo do sintético", () => {
+  const linha = (parcial: Partial<OpcaoDeSintetico>): OpcaoDeSintetico => ({
+    id: "1",
+    code: "frota",
+    nome: "Frota e equipamento",
+    categorias: 8,
+    isSeed: true,
+    ...parcial,
+  });
+
+  /*
+    A leitura dizia o lado da conta — "Custo fixo · 8 categorias" —, e não diz
+    mais: nenhuma família decide classe de custo desde que ela virou coluna do
+    atributo. O que sobrou é o que de fato ajuda a escolher: quanto já mora
+    dentro.
+  */
+  it("diz quanto já mora dentro", () => {
+    expect(leituraDoSintetico(linha({}))).toBe("8 categorias");
+    expect(leituraDoSintetico(linha({ categorias: 1 }))).toBe("1 categoria");
+  });
+
+  it("a família recém-criada se anuncia vazia, e não some da lista", () => {
+    // O contrário — derivar as famílias das categorias — esconderia a nova no
+    // instante seguinte ao do clique que a criou.
+    const nova = linha({
+      code: "receita_de_frete",
+      nome: "Receita de frete",
+      categorias: 0,
+      isSeed: false,
+    });
+    expect(leituraDoSintetico(nova)).toBe("nenhuma categoria ainda");
   });
 });
 

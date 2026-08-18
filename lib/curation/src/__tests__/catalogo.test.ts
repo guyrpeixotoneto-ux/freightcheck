@@ -1,11 +1,18 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { curationEventTable, semanticMeaningTable, taxonomyNodeTable } from "@workspace/db";
+import {
+  curationEventTable,
+  DEFAULT_TAXONOMY,
+  semanticMeaningTable,
+  taxonomyNodeTable,
+} from "@workspace/db";
 import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest/testing";
 import {
   criarCategoria,
   criarSignificado,
+  criarSintetico,
   listarCategorias,
+  listarSinteticos,
   listarSignificados,
   procurarSignificado,
   seedSignificados,
@@ -384,6 +391,147 @@ describe("categorias — hierarquia por dentro, linguagem de negócio por fora",
   it("exige responsável identificado", async () => {
     await expect(
       criarCategoria(ctx.db, { name: "Lavagem", actor: "" }),
+    ).rejects.toThrow(/responsável identificado/);
+  });
+});
+
+
+describe("linhas sintéticas — o primeiro nível da DRE, também cadastrável", () => {
+  it("a lista traz as famílias do produto, com o que já mora em cada uma", async () => {
+    const sinteticos = await listarSinteticos(ctx.db);
+    // Eram quatro e eram econômicas. São as famílias semânticas desde que a
+    // classe de custo saiu da árvore.
+    expect(sinteticos.map((s) => s.code)).toEqual(
+      DEFAULT_TAXONOMY.children!.map((c) => c.code),
+    );
+    const operacao = sinteticos.find((s) => s.code === "operacao")!;
+    expect(operacao.nome).toBe("Consumo e operação");
+    expect(operacao.categorias).toBeGreaterThan(0);
+    expect(operacao.isSeed).toBe(true);
+    /*
+      Nenhuma família decide lado da conta.
+
+      Havia três que decidiam — custo fixo, custo variável e cadastral —, e por
+      isso a tela impedia categoria nova de nascer dentro delas: seria
+      classificar sem autor. A classe de custo saiu da árvore e virou coluna do
+      atributo, então a lista é de naturezas e "Não classificado" continua sendo
+      a única de onde só se sai.
+    */
+    expect(sinteticos.map((s) => s.code)).toContain("nao_classificado");
+    expect(sinteticos.every((s) => !("decideClasseDeCusto" in s))).toBe(true);
+  });
+
+  it("cadastra a família nova, com autor", async () => {
+    const r = await criarSintetico(ctx.db, { name: "Receita de frete", actor: ATOR });
+    expect(r.desfecho).toBe("CRIADO");
+    expect(r.item).toMatchObject({
+      code: "receita_de_frete",
+      nome: "Receita de frete",
+      categorias: 0,
+      isSeed: false,
+    });
+
+    const [linha] = await ctx.db
+      .select()
+      .from(taxonomyNodeTable)
+      .where(eq(taxonomyNodeTable.code, "receita_de_frete"));
+    expect(linha.createdBy).toBe(ATOR);
+    expect(linha.depth).toBe(1);
+    expect(linha.path).toBe("natureza/receita_de_frete");
+
+    const eventos = await ctx.db
+      .select()
+      .from(curationEventTable)
+      .where(eq(curationEventTable.targetId, linha.id));
+    expect(eventos[0].actor).toBe(ATOR);
+    expect(eventos[0].reason).toContain("sem classe de custo");
+  });
+
+  /**
+   * O motivo de a lista vir do servidor e não das categorias: vazia, a linha
+   * nova sumiria da tela no instante seguinte ao de ser criada.
+   */
+  it("a linha vazia aparece na lista — e não vira opção de analítico", async () => {
+    const sinteticos = await listarSinteticos(ctx.db);
+    expect(sinteticos.at(-1)).toMatchObject({ code: "receita_de_frete", categorias: 0 });
+    const categorias = await listarCategorias(ctx.db);
+    expect(categorias.map((c) => c.code)).not.toContain("receita_de_frete");
+  });
+
+  it("a categoria criada com a linha nova escolhida nasce dentro dela", async () => {
+    const r = await criarCategoria(ctx.db, {
+      name: "Frete peso",
+      sintetico: "receita_de_frete",
+      actor: ATOR,
+    });
+    expect(r.desfecho).toBe("CRIADO");
+    expect(r.item).toMatchObject({
+      caminho: "Receita de frete › Frete peso",
+      sintetico: "Receita de frete",
+      analitico: "Frete peso",
+    });
+    const receita = (await listarSinteticos(ctx.db)).find(
+      (s) => s.code === "receita_de_frete",
+    );
+    expect(receita?.categorias).toBe(1);
+  });
+
+  /**
+   * O limite da entrega: escolher "Custo Variável" e cadastrar ali seria
+   * afirmar de que lado da conta as colunas caem — e essa afirmação tem dono,
+   * data e justificativa em `classificarCategoria`, não num combobox.
+   */
+  it("com uma das três classes escolhida, a categoria nova continua caindo em 'Não classificado'", async () => {
+    const r = await criarCategoria(ctx.db, {
+      name: "Lavagem",
+      sintetico: "custo_variavel",
+      actor: ATOR,
+    });
+    expect(r.desfecho).toBe("CRIADO");
+    expect(r.item?.caminho).toBe("Não classificado › Lavagem");
+  });
+
+  it("um sintético que não existe mais não cria categoria fora da árvore", async () => {
+    const r = await criarCategoria(ctx.db, {
+      name: "Rastreamento",
+      sintetico: "linha_que_alguem_apagou",
+      actor: ATOR,
+    });
+    expect(r.desfecho).toBe("CRIADO");
+    expect(r.item?.caminho).toBe("Não classificado › Rastreamento");
+  });
+
+  it("criar de novo a mesma linha devolve a que existe, a menos de acento e caixa", async () => {
+    const r = await criarSintetico(ctx.db, { name: "receita de frete", actor: ATOR });
+    expect(r.desfecho).toBe("JA_EXISTE");
+    expect(r.item?.code).toBe("receita_de_frete");
+  });
+
+  /**
+   * "Pneus" está cadastrada como `cv_pneus`: o código derivado do nome não
+   * colidiria com nada, e a árvore ficaria com "Pneus" totalizando "Pneus".
+   */
+  it("um nome que já é categoria não vira linha da DRE", async () => {
+    const r = await criarSintetico(ctx.db, { name: "Pneus", actor: ATOR });
+    expect(r.desfecho).toBe("JA_EXISTE");
+    expect(r.item).toBeNull();
+    expect(r.mensagem).toContain("já existe como categoria");
+    expect((await listarSinteticos(ctx.db)).map((s) => s.code)).not.toContain("pneus");
+  });
+
+  it("e o simétrico: uma família não vira categoria", async () => {
+    const r = await criarCategoria(ctx.db, {
+      name: "Consumo e operação",
+      actor: ATOR,
+    });
+    expect(r.desfecho).toBe("JA_EXISTE");
+    expect(r.item).toBeNull();
+    expect(r.mensagem).toContain("é uma linha da DRE");
+  });
+
+  it("exige responsável identificado", async () => {
+    await expect(
+      criarSintetico(ctx.db, { name: "Despesas administrativas", actor: "" }),
     ).rejects.toThrow(/responsável identificado/);
   });
 });

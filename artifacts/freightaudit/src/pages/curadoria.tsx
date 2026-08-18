@@ -32,6 +32,7 @@ import {
 import {
   familiaDaCategoria,
   leituraDe,
+  leituraDoSintetico,
   oQueFalta,
   podeConfirmar,
   precisaDoPeriodo,
@@ -43,6 +44,7 @@ import {
   type Escolhas,
   type OpcaoDeCategoria,
   type OpcaoDeSignificado,
+  type OpcaoDeSintetico,
 } from "@/lib/interpretacao";
 import {
   PERIODOS_EM_ABERTO,
@@ -355,7 +357,7 @@ export default function Curadoria() {
           </div>
           {/* A planilha fica no topo, ao lado do título, e não dentro da fila:
               ela descreve a base inteira de uma vez, e não o atributo aberto. */}
-          <PlanilhaDeAtributos />
+          <PlanilhaDeAtributos equipamento={equipamento} />
         </div>
 
         {/* As abas vêm antes dos quadros porque mandam neles: primeiro se
@@ -813,6 +815,19 @@ function ConfirmarInterpretacao({
     queryKey: ["curation", "categorias"],
     queryFn: () => fetchJson<OpcaoDeCategoria[]>("/curation/categorias"),
   });
+  /*
+    As linhas da DRE vêm do servidor, e não das categorias.
+
+    Derivá-las das categorias — que era o que esta tela fazia — dá a lista certa
+    enquanto ninguém cria nada, e some com a linha nova exatamente quando ela
+    importa: recém-criada, ela ainda não tem analítico dentro, e uma linha que
+    desaparece no instante seguinte ao do clique é indistinguível de uma criação
+    que falhou.
+  */
+  const { data: sinteticos = [] } = useQuery({
+    queryKey: ["curation", "sinteticos"],
+    queryFn: () => fetchJson<OpcaoDeSintetico[]>("/curation/sinteticos"),
+  });
 
   const campo: CampoEmConfirmacao = {
     meaningCode: detail.meaningCode,
@@ -956,10 +971,17 @@ function ConfirmarInterpretacao({
     derivar a classe.
   */
   const sinteticoAtivo = categoriaEscolhida?.sintetico ?? sinteticoPendente;
-  const sinteticos = useMemo(
-    () => [...new Set(categorias.map((c) => c.sintetico))].filter(Boolean),
-    [categorias],
-  );
+  /*
+    O sintético continua sendo guardado como nome — é o que a categoria devolve
+    em `sintetico`, e é por nome que a lista do analítico é filtrada. O objeto
+    inteiro é achado aqui porque a criação precisa do código da família.
+
+    Não há mais a pergunta "esta linha decide lado da conta?": nenhuma decide. A
+    classe de custo saiu da árvore e virou coluna do atributo, e por isso a
+    categoria nova pode nascer dentro de qualquer família sem classificar nada.
+  */
+  const sinteticoEscolhido =
+    sinteticos.find((s) => s.nome === sinteticoAtivo) ?? null;
   const analiticasVisiveis = useMemo(
     () =>
       sinteticoAtivo === null
@@ -1055,6 +1077,34 @@ function ConfirmarInterpretacao({
     return body.item as OpcaoDeSignificado | null;
   };
 
+  /**
+   * Cadastrar uma linha da DRE sem sair daqui.
+   *
+   * Mesmo motivo da criação de categoria, um nível acima: um primeiro nível
+   * fechado obriga quem cura a pendurar o que ela quer dizer na linha *mais
+   * parecida* que existe, e a DRE passa a somar numa linha que ninguém
+   * escolheu. A linha nasce sem classe de custo — de que lado da conta ela cai
+   * não se lê no nome, e nada abaixo dela entra num total até que se decida.
+   */
+  const criarSinteticoInline = async (
+    name: string,
+  ): Promise<OpcaoDeSintetico | null> => {
+    setErroDoCadastro(null);
+    const response = await fetch(getApiUrl("/curation/sinteticos"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      setErroDoCadastro(body.error ?? "Não consegui cadastrar esta linha da DRE.");
+      return null;
+    }
+    if (body.desfecho === "JA_EXISTE") setErroDoCadastro(body.mensagem);
+    await queryClient.invalidateQueries({ queryKey: ["curation", "sinteticos"] });
+    return body.item as OpcaoDeSintetico | null;
+  };
+
   const criarCategoriaInline = async (
     name: string,
   ): Promise<OpcaoDeCategoria | null> => {
@@ -1062,7 +1112,14 @@ function ConfirmarInterpretacao({
     const response = await fetch(getApiUrl("/curation/categorias"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      /*
+        A linha escolhida vai junto, e o cadastro decide se atende: nas três
+        casas em que classificar decide dinheiro (custo fixo, variável e
+        cadastral) a categoria nova entra sob "Não classificado", porque nascer
+        lá dentro seria classificar sem justificativa. A prévia do combobox diz
+        isso antes do clique, e o item devolvido traz o sintético real.
+      */
+      body: JSON.stringify({ name, sintetico: sinteticoEscolhido?.code ?? null }),
     });
     const body = await response.json();
     if (!response.ok) {
@@ -1070,7 +1127,12 @@ function ConfirmarInterpretacao({
       return null;
     }
     if (body.desfecho === "JA_EXISTE") setErroDoCadastro(body.mensagem);
-    await queryClient.invalidateQueries({ queryKey: ["curation", "categorias"] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["curation", "categorias"] }),
+      // A contagem de cada linha muda com a categoria nova, e é ela que a
+      // segunda linha de cada opção mostra.
+      queryClient.invalidateQueries({ queryKey: ["curation", "sinteticos"] }),
+    ]);
     return body.item as OpcaoDeCategoria | null;
   };
 
@@ -1279,12 +1341,19 @@ function ConfirmarInterpretacao({
               decide — em que linha da DRE a coluna cai. */}
           <Field
             label="Categoria DRE - Sintético"
-            hint="A linha da DRE que totaliza. Sozinha ela não classifica: escolher aqui filtra a lista do analítico."
+            hint="A linha da DRE que totaliza. Sozinha ela não classifica: escolher aqui filtra a lista do analítico. Pesquise ou cadastre uma nova."
           >
-            <Select
-              value={sinteticoAtivo ?? ""}
-              onValueChange={(valor) => {
-                setSinteticoPendente(valor);
+            {/*
+              Criável, como o analítico, e pelo mesmo motivo: um primeiro nível
+              fechado obriga quem cura a pendurar o que ela quer dizer na linha
+              *mais parecida* que existe, e aí a DRE soma numa linha que ninguém
+              escolheu, sem que tela nenhuma acuse.
+            */}
+            <ComboboxCriavel
+              itens={sinteticos}
+              valor={sinteticoEscolhido}
+              aoEscolher={(item) => {
+                setSinteticoPendente(item.nome);
                 /*
                   Trocar a linha da DRE derruba o analítico que pertencia à
                   anterior. É a diferença que importa: sem isto a tela ficaria
@@ -1292,23 +1361,22 @@ function ConfirmarInterpretacao({
                   a confirmação gravaria seria o antigo — o sintético é derivado
                   do nó, e é o nó que manda.
                 */
-                if (categoriaEscolhida && categoriaEscolhida.sintetico !== valor) {
+                if (categoriaEscolhida && categoriaEscolhida.sintetico !== item.nome) {
                   setTaxonomyCode(null);
                 }
                 setErroDoCadastro(null);
               }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Escolher a linha da DRE…" />
-              </SelectTrigger>
-              <SelectContent>
-                {sinteticos.map((nome) => (
-                  <SelectItem key={nome} value={nome}>
-                    {nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              aoCriar={criarSinteticoInline}
+              rotuloDe={(item) => item.nome}
+              detalheDe={(item) => leituraDoSintetico(item)}
+              previaDe={() =>
+                "Entra como linha nova da DRE, ainda sem lado da conta — de que lado ela cai não se lê no nome. " +
+                "Até que se decida, o que estiver dentro dela fica fora dos totais de custo fixo e variável."
+              }
+              rotuloDeCriacao={(texto) => `Criar linha da DRE “${texto}”`}
+              placeholder="Escolher ou cadastrar a linha da DRE…"
+              erro={erroDoCadastro}
+            />
           </Field>
 
           <Field
@@ -1340,9 +1408,19 @@ function ConfirmarInterpretacao({
                   ? `${item.sintetico} · ${familiaDaCategoria(item)}`
                   : familiaDaCategoria(item)
               }
+              /*
+                A prévia diz onde a categoria vai cair de verdade, antes do
+                clique. Eram dois destinos possíveis enquanto três famílias
+                decidiam lado da conta e por isso não recebiam categoria nova; a
+                classe saiu da árvore, e agora a categoria nasce onde quem
+                escolheu mandou — ou no limbo, quando ninguém escolheu.
+              */
               previaDe={() =>
-                "Entra como categoria nova, ainda sem classe de custo — ela não se lê no nome. " +
-                "Você decide isso em Categorias, e até lá as colunas dela ficam fora dos totais de custo fixo e variável."
+                sinteticoEscolhido
+                  ? `Entra em ${sinteticoAtivo}. Dizer o que a coluna é não diz como ela se comporta — ` +
+                    "isso é o campo abaixo, e é por atributo."
+                  : "Entra como categoria nova, sob “Não classificado” — escolha a família acima " +
+                    "para que ela nasça no lugar certo."
               }
               rotuloDeCriacao={(texto) => `Criar categoria “${texto}”`}
               placeholder="Pesquisar ou cadastrar…"

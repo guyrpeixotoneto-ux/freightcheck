@@ -20,14 +20,17 @@ import {
   conferirPreenchimento,
   criarCategoria,
   criarSignificado,
+  criarSintetico,
   getAttributeDetail,
   getCurationQueue,
   getCurationSummary,
   getTaxonomyTree,
   listarCategorias,
   listarSignificados,
+  listarSinteticos,
   listTaxonomyNodes,
   montarLinhas,
+  normalizarEquipamento,
   runProposalPass,
   saveMeaning,
   seedSignificados,
@@ -181,9 +184,15 @@ router.get("/curation/queue", async (req, res, next): Promise<void> => {
  * pronta poderia gravar o que quisesse em qualquer atributo sem passar pela
  * conferência — e a conferência é onde mora a recusa a criar coluna.
  */
-async function atributosDoModelo(): Promise<AtributoDoModelo[]> {
+async function atributosDoModelo(
+  equipamento: string | null = null,
+): Promise<AtributoDoModelo[]> {
   const fila = await getCurationQueue(db, { includeConfirmed: true });
-  return fila.map((item) => ({
+  const doRecorte =
+    equipamento === null
+      ? fila
+      : fila.filter((item) => normalizarEquipamento(item.entityType) === equipamento);
+  return doRecorte.map((item) => ({
     code: item.code,
     sourceName: item.sourceName,
     entityType: item.entityType,
@@ -230,17 +239,66 @@ async function conferirUpload(
   };
 }
 
+/** `CARRETA` → `Carreta`, para caber numa frase em vez de gritar dentro dela. */
+function comoSeEscreve(equipamento: string): string {
+  return equipamento.charAt(0) + equipamento.slice(1).toLowerCase();
+}
+
+/**
+ * O sufixo do nome do arquivo, quando o download é de um equipamento só.
+ *
+ * Sai só com letras e números porque vai dentro de um cabeçalho HTTP, e um tipo
+ * de equipamento com acento ou barra é o tipo de coisa que chega de uma base
+ * futura e não pode derrubar o download.
+ */
+function sufixoDoArquivo(equipamento: string): string {
+  const limpo = equipamento
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+  return limpo === "" ? "" : `-${limpo}`;
+}
+
+/**
+ * O modelo sai no recorte da aba aberta — `?equipamento=CARRETA` escreve só a
+ * aba da carreta.
+ *
+ * O recorte é o do equipamento e **só** o dele: o modelo continua saindo com os
+ * atributos já confirmados e sem o filtro de texto da tela, porque ele é o
+ * arquivo de quem vai revisar a descrição de uma frota inteira no Excel, e não
+ * um retrato da fila que estava na tela no momento do clique. Uma aba que marca
+ * `Trecho 0` porque os de trecho já foram confirmados ainda baixa um arquivo
+ * com eles dentro — e é o que quem clicou quer, senão teria clicado sabendo que
+ * não há nada lá.
+ *
+ * Sem o parâmetro, o arquivo é o de sempre: uma aba por equipamento.
+ */
 router.get("/curation/atributos/modelo.xlsx", async (req, res, next): Promise<void> => {
   try {
+    const equipamento = normalizarEquipamento(
+      typeof req.query.equipamento === "string" ? req.query.equipamento : null,
+    );
+
     const [atributos, catalogos] = await Promise.all([
-      atributosDoModelo(),
+      atributosDoModelo(equipamento),
       catalogosDoModelo(),
     ]);
 
     if (atributos.length === 0) {
+      /*
+        Duas frases porque são dois becos diferentes, e mandar a primeira para
+        quem caiu no segundo manda a pessoa importar uma base que ela já
+        importou. O recorte vazio é o caso comum: a tela mostra a aba mesmo
+        quando ela está zerada, de propósito, então dá para clicar em baixar
+        estando nela.
+      */
       res.status(404).json({
         error:
-          "Nenhum atributo importado ainda — não há o que descrever. Importe a planilha do Freightec primeiro.",
+          equipamento === null
+            ? "Nenhum atributo importado ainda — não há o que descrever. Importe a planilha do Freightec primeiro."
+            : `Nenhum atributo de ${comoSeEscreve(equipamento)} nesta base — não há o que descrever nesta aba. Troque de aba ou baixe por "Todos".`,
       });
       return;
     }
@@ -257,7 +315,17 @@ router.get("/curation/atributos/modelo.xlsx", async (req, res, next): Promise<vo
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     );
     res.setHeader("Content-Length", String(bytes.length));
-    res.setHeader("Content-Disposition", contentDisposition("curadoria-atributos.xlsx"));
+    res.setHeader(
+      "Content-Disposition",
+      /*
+        O nome diz o recorte. Dois arquivos na pasta de downloads chamados
+        `curadoria-atributos.xlsx`, um com a frota inteira e outro só com a
+        carreta, viram `(1)` e uma dúvida na hora de reenviar.
+      */
+      contentDisposition(
+        `curadoria-atributos${equipamento === null ? "" : sufixoDoArquivo(equipamento)}.xlsx`,
+      ),
+    );
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.send(bytes);
   } catch (err) {
@@ -737,6 +805,53 @@ router.post("/curation/significados", async (req, res, next): Promise<void> => {
 });
 
 /**
+ * As linhas sintéticas da DRE — e a criação inline delas.
+ *
+ * Lista própria, e não derivada de `/curation/categorias`: uma linha recém
+ * criada ainda não tem categoria nenhuma dentro, e a tela que a derivasse das
+ * categorias mostraria a criação sumindo no instante seguinte ao do clique.
+ */
+router.get("/curation/sinteticos", async (req, res, next): Promise<void> => {
+  try {
+    res.json(await listarSinteticos(db));
+  } catch (err) {
+    await responderFalha(
+      req,
+      res,
+      next,
+      err,
+      "As linhas da DRE não puderam ser lidas neste banco.",
+    );
+  }
+});
+
+router.post("/curation/sinteticos", async (req, res, next): Promise<void> => {
+  try {
+    const name = typeof req.body?.name === "string" ? req.body.name : "";
+    if (!name.trim()) {
+      res.status(400).json({ error: "Informe o nome da linha da DRE (name)." });
+      return;
+    }
+    const resultado = await criarSintetico(db, { name, actor: req.user!.email });
+    res.status(resultado.desfecho === "CRIADO" ? 201 : 200).json(resultado);
+  } catch (err) {
+    if (faltaOSchemaDaCuradoria(err)) {
+      await responderFalha(
+        req,
+        res,
+        next,
+        err,
+        "A linha da DRE não pôde ser cadastrada neste banco.",
+      );
+      return;
+    }
+    const message = err instanceof Error ? err.message : "Erro desconhecido";
+    req.log.warn({ err }, "Synthetic DRE line creation refused");
+    res.status(422).json({ error: message });
+  }
+});
+
+/**
  * As categorias em linguagem de negócio — e a criação inline delas.
  *
  * Separada de `/curation/taxonomy` de propósito, e não por duplicação: aquela
@@ -767,7 +882,19 @@ router.post("/curation/categorias", async (req, res, next): Promise<void> => {
       res.status(400).json({ error: "Informe o nome da categoria (name)." });
       return;
     }
-    const resultado = await criarCategoria(db, { name, actor: req.user!.email });
+    /*
+      `sintetico` é o código da linha da DRE escolhida na tela, e vai como
+      pedido — o cadastro decide se atende. Ver `criarCategoria`: nas três
+      casas da classificação ele é recusado em silêncio, porque criar lá
+      dentro seria classificar sem autor nem justificativa.
+    */
+    const sintetico =
+      typeof req.body?.sintetico === "string" ? req.body.sintetico : null;
+    const resultado = await criarCategoria(db, {
+      name,
+      sintetico,
+      actor: req.user!.email,
+    });
     res.status(resultado.desfecho === "CRIADO" ? 201 : 200).json(resultado);
   } catch (err) {
     if (faltaOSchemaDaCuradoria(err)) {

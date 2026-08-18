@@ -65,6 +65,36 @@ export interface OpcaoDeCategoria {
 }
 
 /**
+/**
+ * Uma família da árvore, como o campo de cima da Categoria DRE a mostra.
+ *
+ * Vem do servidor, e não da lista de categorias: uma família criada agora ainda
+ * não tem analítico dentro, e derivá-la das categorias a esconderia justamente
+ * no instante em que quem a criou procura por ela.
+ *
+ * Sem `costClass` e sem `decideClasseDeCusto`. As duas existiam enquanto a
+ * árvore declarava a classe de custo e a herdava para baixo — e a tela precisava
+ * avisar que pendurar uma categoria em "Custo Fixo" decidia dinheiro. A classe
+ * saiu da árvore e virou coluna do atributo, então nenhuma família decide mais
+ * de que lado da conta uma coluna cai, e a categoria nova pode nascer dentro de
+ * qualquer uma sem classificar nada.
+ */
+export interface OpcaoDeSintetico {
+  id: string;
+  code: string;
+  nome: string;
+  categorias: number;
+  isSeed: boolean;
+}
+
+/** O que a família já tem dentro, dito na segunda linha da opção. */
+export function leituraDoSintetico(sintetico: OpcaoDeSintetico): string {
+  if (sintetico.categorias === 0) return "nenhuma categoria ainda";
+  if (sintetico.categorias === 1) return "1 categoria";
+  return `${sintetico.categorias} categorias`;
+}
+
+/**
  * A família da categoria, dita para quem escolhe.
  *
  * Isto **era** a classe de custo — "Custo fixo", "Custo variável", "Não é
