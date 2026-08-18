@@ -43,18 +43,42 @@
 
 export type SeveridadeDeApontamento = "ERROR" | "WARNING" | "INFO";
 
-/**
- * O que cada severidade significa para quem opera — o selo do cartão.
- *
- * "ERROR" sozinho não diz que a importação parou; "Erro bloqueante" diz. A
- * distinção importa porque WARNING e INFO **não** impedem promover, e a tela
- * precisa que isso se leia no selo, não na cor apenas.
- */
+/** O nome de cada severidade, sem dizer nada sobre bloqueio — ver o selo. */
 export const ROTULO_DE_SEVERIDADE: Record<SeveridadeDeApontamento, string> = {
-  ERROR: "Erro bloqueante",
+  ERROR: "Erro",
   WARNING: "Aviso",
   INFO: "Informação",
 };
+
+/**
+ * Os códigos cuja presença impede aprovar a importação inteira.
+ *
+ * ERRO e bloqueio são coisas diferentes, e a tela não pode confundi-las: uma
+ * linha sem placa é ERRO e recusa **aquela linha** — o arquivo segue
+ * aprovável; a mesma chave com dois valores é ERRO e segura **o arquivo**,
+ * porque não existe resposta certa para promover. O selo do cartão escreve
+ * essa diferença ("Erro bloqueante" contra "Erro"), e escrever exige saber —
+ * este Set é a lista, aqui porque o pipeline (que recusa por ela) e a tela
+ * (que a anuncia) precisam ler a mesma, e este é o módulo que os dois
+ * alcançam.
+ */
+export const CODIGOS_QUE_BLOQUEIAM_PROMOCAO: ReadonlySet<string> = new Set([
+  "ENTIDADE_DUPLICADA_CONFLITANTE",
+  "TIPO_DIVERGE_DA_DECLARACAO",
+]);
+
+/**
+ * O texto do selo de um apontamento: a severidade com a consequência dentro.
+ *
+ * "ERROR" cru diria menos do que a tela sabe; "Erro bloqueante" em todo ERRO
+ * diria mais do que é verdade. O selo diz exatamente o que o código faz.
+ */
+export function rotuloDoSelo(severity: string, code: string): string {
+  if (severity === "ERROR") {
+    return CODIGOS_QUE_BLOQUEIAM_PROMOCAO.has(code) ? "Erro bloqueante" : "Erro";
+  }
+  return ROTULO_DE_SEVERIDADE[severity as SeveridadeDeApontamento] ?? severity;
+}
 
 /** Onde o problema está, dito como quem abre a planilha procura. */
 export interface OndeDoApontamento {

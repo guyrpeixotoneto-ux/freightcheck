@@ -69,10 +69,11 @@ import {
   type ColunaIdentificadora,
   type DefinicaoDeTipo,
 } from "./tipos";
-import type {
-  ApresentacaoDeApontamento,
-  CampoDeRegistro,
-  OndeDoApontamento,
+import {
+  CODIGOS_QUE_BLOQUEIAM_PROMOCAO,
+  type ApresentacaoDeApontamento,
+  type CampoDeRegistro,
+  type OndeDoApontamento,
 } from "./apontamentos";
 
 /**
@@ -157,13 +158,12 @@ const SUSPECTED_SENTINELS = ["-1"];
  * A lista é curta de propósito. Um ERRO de leitura — linha sem placa, rótulo de
  * vigência ilegível — recusa aquela linha e deixa o resto entrar, que é o
  * comportamento que o produto sempre teve e que mantém um arquivo de 40 mil
- * células útil quando três linhas estão sujas. O que entra aqui é só o que não
- * tem resposta certa possível.
+ * células útil quando três linhas estão sujas. O que entra é só o que não tem
+ * resposta certa possível. A lista mora em `apontamentos.ts` porque a tela
+ * anuncia a mesma diferença no selo ("Erro bloqueante" contra "Erro"), e as
+ * duas leituras não podem divergir.
  */
-const BLOQUEIAM_PROMOCAO = new Set([
-  "ENTIDADE_DUPLICADA_CONFLITANTE",
-  "TIPO_DIVERGE_DA_DECLARACAO",
-]);
+const BLOQUEIAM_PROMOCAO = CODIGOS_QUE_BLOQUEIAM_PROMOCAO;
 
 /**
  * O motivo que fica gravado quando a pré-visualização recusa a promoção.

@@ -19,9 +19,9 @@ import {
 import { TIPOS_DE_IMPORTACAO, type DefinicaoDeTipo } from "@workspace/ingest/tipos";
 import {
   CHAVE_DA_APRESENTACAO,
-  ROTULO_DE_SEVERIDADE,
+  CODIGOS_QUE_BLOQUEIAM_PROMOCAO,
   apresentacaoDoDetalhe,
-  type SeveridadeDeApontamento,
+  rotuloDoSelo,
 } from "@workspace/ingest/apontamentos";
 import { Button } from "@/components/ui/button";
 import { Layout } from "@/components/layout/layout";
@@ -1152,7 +1152,7 @@ function Apontamentos({ importRunId }: { importRunId: string }) {
                 <span className="font-mono text-xs">{grupo.code}</span>
               )}
               <span className="ml-auto flex items-center gap-2 shrink-0">
-                <SeloDeSeveridade severity={grupo.severity} />
+                <SeloDeSeveridade severity={grupo.severity} code={grupo.code} />
                 <span className="tabular-nums text-xs font-semibold">
                   {n(grupo.count)}
                 </span>
@@ -1188,16 +1188,17 @@ function Apontamentos({ importRunId }: { importRunId: string }) {
 }
 
 /**
- * O selo que diz o que a severidade **faz**, não só de que cor ela é.
+ * O selo que diz o que o apontamento **faz**, não só de que cor ele é.
  *
  * A cor do cartão já separa erro de aviso para quem enxerga as três lado a
- * lado; o selo escreve a consequência — "Erro bloqueante" é o que impede
- * aprovar, e os outros dois não impedem nada. É a diferença entre pintar e
- * dizer.
+ * lado; o selo escreve a consequência — e ela depende do código, não só da
+ * severidade: uma linha sem placa é ERRO e recusa aquela linha ("Erro"),
+ * enquanto o conflito de chave segura o arquivo inteiro ("Erro bloqueante").
+ * Chamar de bloqueante o que não bloqueou faria a pessoa procurar um
+ * impedimento que não existe.
  */
-function SeloDeSeveridade({ severity }: { severity: string }) {
-  const rotulo =
-    ROTULO_DE_SEVERIDADE[severity as SeveridadeDeApontamento] ?? severity;
+function SeloDeSeveridade({ severity, code }: { severity: string; code: string }) {
+  const rotulo = rotuloDoSelo(severity, code);
   return (
     <span
       className={cn(
@@ -1275,13 +1276,17 @@ function Apontamento({
   }
 
   /*
-    O encabeçamento do "por quê" segue a consequência: um ERRO bloqueou, e a
-    seção deve dizer isso com todas as letras; aviso e informação não
-    bloquearam nada, e "por que bloqueamos" em cima deles seria mentira.
+    O encabeçamento do "por quê" segue a consequência real do código, não a
+    severidade crua: o conflito de chave segurou o arquivo ("bloqueada"); a
+    linha sem placa foi recusada sozinha e o arquivo seguiu ("recusamos");
+    aviso e informação não seguraram nada. Um encabeçamento maior que o fato
+    mandaria a pessoa procurar um impedimento que não existe.
   */
   const porQue =
     severity === "ERROR"
-      ? "Por que a importação foi bloqueada"
+      ? CODIGOS_QUE_BLOQUEIAM_PROMOCAO.has(code)
+        ? "Por que a importação foi bloqueada"
+        : "Por que recusamos"
       : severity === "WARNING"
         ? "Por que este aviso"
         : "Por que registramos";
