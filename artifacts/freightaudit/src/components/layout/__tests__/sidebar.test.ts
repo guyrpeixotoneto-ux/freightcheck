@@ -23,7 +23,7 @@ const raiz = path.resolve(import.meta.dirname, "../../..");
 const fonte = (relativo: string) =>
   readFileSync(path.join(raiz, relativo), "utf8");
 
-/** Os `href:` da lateral — os itens do menu, sem os atalhos internos das telas. */
+/** Os `href:` da lateral da Auditoria — os itens do menu, sem os atalhos internos. */
 function hrefsDoMenu(): string[] {
   const texto = fonte("components/layout/sidebar.tsx");
   const lista = texto.slice(
@@ -33,27 +33,40 @@ function hrefsDoMenu(): string[] {
   return [...lista.matchAll(/href:\s*"([^"]+)"/g)].map((m) => m[1]);
 }
 
-/** Os `path=` do roteador, mais as rotas que o catálogo de telas em preparo gera. */
+/** Os `href:` da lateral do Fechamento, que vive em arquivo próprio. */
+function hrefsDoMenuDoFechamento(): string[] {
+  const texto = fonte("components/layout/nav-fechamento.ts");
+  return [...texto.matchAll(/href:\s*"([^"]+)"/g)].map((m) => m[1]);
+}
+
+/**
+ * Os `path=` do roteador, mais as rotas que os dois catálogos geram — o de
+ * telas em preparo da Auditoria e o de etapas do Fechamento.
+ */
 function rotasRegistradas(): Set<string> {
   const app = fonte("App.tsx");
   const catalogo = fonte("pages/telas-em-preparo.ts");
+  const etapas = fonte("pages/fechamento/etapas.ts");
 
   return new Set([
     ...[...app.matchAll(/<Route\s+path="([^"]+)"/g)].map((m) => m[1]),
     ...[...catalogo.matchAll(/href:\s*"([^"]+)"/g)].map((m) => m[1]),
+    ...[...etapas.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].map((m) => m[1]),
   ]);
 }
 
 describe("a lateral", () => {
   it("não oferece nenhum item que o roteador não atenda", () => {
     const rotas = rotasRegistradas();
-    const orfaos = hrefsDoMenu().filter((href) => !rotas.has(href));
+    const orfaos = [...hrefsDoMenu(), ...hrefsDoMenuDoFechamento()].filter(
+      (href) => !rotas.has(href),
+    );
 
     expect(orfaos).toEqual([]);
   });
 
   it("não repete um endereço em dois itens", () => {
-    const hrefs = hrefsDoMenu();
+    const hrefs = [...hrefsDoMenu(), ...hrefsDoMenuDoFechamento()];
 
     expect(hrefs).toHaveLength(new Set(hrefs).size);
   });
@@ -75,6 +88,36 @@ describe("a lateral", () => {
       "Dados & governança",
       "Administração",
     ]);
+  });
+
+  /*
+    A lateral do Fechamento segue a ordem do processo — a competência, a
+    apuração dela, a decisão sobre o que foi apurado, o registro do que fechou.
+    O teste guarda a ordem pela mesma razão do teste acima: ela é desenho, não
+    acaso.
+  */
+  it("mantém as quatro seções do Fechamento, na ordem do processo", () => {
+    const texto = fonte("components/layout/nav-fechamento.ts");
+
+    expect([...texto.matchAll(/titulo:\s*"([^"]+)"/g)].map((m) => m[1])).toEqual([
+      "Competência",
+      "Apuração",
+      "Decisão",
+      "Registro",
+    ]);
+  });
+
+  /*
+    Todo item do menu do Fechamento vive sob `/fechamento` — é o prefixo que
+    define o ambiente (`lib/ambiente.ts`). Um item fora dele mudaria de
+    ambiente ao ser clicado, e a lateral trocaria embaixo do clique.
+  */
+  it("não põe, no menu do Fechamento, nenhum endereço fora de /fechamento", () => {
+    const fora = hrefsDoMenuDoFechamento().filter(
+      (href) => href !== "/fechamento" && !href.startsWith("/fechamento/"),
+    );
+
+    expect(fora).toEqual([]);
   });
 });
 
@@ -114,5 +157,35 @@ describe("o catálogo de telas em preparo", () => {
     expect(telas).toBe(17);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
+  });
+});
+
+describe("o catálogo de etapas do Fechamento", () => {
+  /*
+    As mesmas garantias do catálogo da Auditoria, porque a regra é a mesma:
+    tela sem número diz o que falta, e o atalho de "onde olhar hoje" só vale
+    quando leva a uma tela que já responde — nunca a outra tela em preparo,
+    de nenhum dos dois catálogos.
+  */
+  it("só manda, em 'onde olhar hoje', para telas que já funcionam", () => {
+    const etapas = fonte("pages/fechamento/etapas.ts");
+    const catalogo = fonte("pages/telas-em-preparo.ts");
+    const emPreparo = new Set([
+      ...[...etapas.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].map((m) => m[1]),
+      ...[...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].map((m) => m[1]),
+    ]);
+    const atalhos = [...etapas.matchAll(/^\s{8}href:\s*"([^"]+)"/gm)].map((m) => m[1]);
+
+    expect(atalhos.length).toBeGreaterThan(0);
+    expect(atalhos.filter((href) => emPreparo.has(href))).toEqual([]);
+  });
+
+  it("descreve, para cada etapa, o que falta antes de ela mostrar um número", () => {
+    const etapas = fonte("pages/fechamento/etapas.ts");
+    const telas = [...etapas.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
+
+    expect(telas).toBe(8);
+    expect([...etapas.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
+    expect([...etapas.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });
 });

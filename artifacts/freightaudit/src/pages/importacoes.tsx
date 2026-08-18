@@ -28,6 +28,11 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { erroDaResposta, fetchJson, getApiUrl, readJson } from "@/lib/api";
+import {
+  estadoDaImportacao,
+  faceDoCartao,
+  type FaceDoCartao,
+} from "@/lib/importacoes";
 import { cn } from "@/lib/utils";
 
 /**
@@ -1007,29 +1012,11 @@ function RunCard({
   );
 }
 
-/**
- * Como cada estado se chama e o que ele significa, para quem opera.
- *
- * "Duplicata" era uma palavra só, e ela escondia três situações que pedem
- * reações diferentes: o mesmo arquivo de novo (não faça nada), o mesmo dado num
- * arquivo diferente (não faça nada, e saiba que o número não vai mudar) e uma
- * vigência que já existe (decida se é correção). O estado do run distingue as
- * duas primeiras; a terceira chega como recusa da aprovação.
- */
-const ESTADOS: Record<string, { rotulo: string; tom: "ok" | "erro" | "neutro" | "espera" }> = {
-  PROMOTED: { rotulo: "aprovada", tom: "ok" },
-  PREVIEWED: { rotulo: "conferida", tom: "espera" },
-  PENDING: { rotulo: "na fila", tom: "espera" },
-  READING: { rotulo: "lendo", tom: "espera" },
-  STAGED: { rotulo: "preparada", tom: "espera" },
-  PROMOTING: { rotulo: "aprovando", tom: "espera" },
-  FAILED: { rotulo: "falhou", tom: "erro" },
-  ABORTED: { rotulo: "abortada", tom: "erro" },
-  VALIDATION_ERROR: { rotulo: "dado não fecha", tom: "erro" },
-  SKIPPED_DUPLICATE: { rotulo: "arquivo já recebido", tom: "neutro" },
-  SKIPPED_DUPLICATE_DATA: { rotulo: "dados já registrados", tom: "neutro" },
-};
-
+/*
+  Os nomes e tons de cada estado (ESTADOS, estadoDaImportacao) moram em
+  `@/lib/importacoes`, junto com a cara do cartão de upload: é lógica que se
+  testa sem desenhar, e o cartão e a pílula precisam contar a mesma história.
+*/
 const TONS = {
   ok: "bg-emerald-50 text-emerald-700 border-emerald-200",
   erro: "bg-red-50 text-red-800 border-red-200",
@@ -1038,10 +1025,6 @@ const TONS = {
   neutro: "bg-slate-100 text-slate-700 border-slate-300",
   espera: "bg-amber-50 text-amber-800 border-amber-200",
 } as const;
-
-export function estadoDaImportacao(status: string) {
-  return ESTADOS[status] ?? { rotulo: status.toLowerCase(), tom: "espera" as const };
-}
 
 function StatusPill({ status }: { status: string }) {
   const estado = estadoDaImportacao(status);
@@ -1482,11 +1465,64 @@ function Field({
 }
 
 /**
+ * As cores de cada cara do cartão, no mesmo espírito de TONS: a recusa é
+ * vermelha, a duplicata é neutra — pintá-la de vermelho ensina o operador a
+ * procurar culpa onde não há —, e o que espera é âmbar.
+ */
+const CORES_DA_FACE: Record<
+  FaceDoCartao["face"],
+  { cartao: string; selo: string; icone: string; detalhe: string }
+> = {
+  lendo: {
+    cartao: "border-amber-200 bg-amber-50",
+    selo: "bg-amber-100",
+    icone: "text-amber-700",
+    detalhe: "text-amber-900",
+  },
+  conferida: {
+    cartao: "border-amber-200 bg-amber-50",
+    selo: "bg-amber-100",
+    icone: "text-amber-700",
+    detalhe: "text-amber-900",
+  },
+  recusada: {
+    cartao: "border-red-200 bg-red-50",
+    selo: "bg-red-100",
+    icone: "text-red-700",
+    detalhe: "text-red-900",
+  },
+  duplicata: {
+    cartao: "border-slate-300 bg-slate-100",
+    selo: "bg-slate-200",
+    icone: "text-slate-700",
+    detalhe: "text-slate-700",
+  },
+  aprovada: {
+    cartao: "border-emerald-200 bg-emerald-50",
+    selo: "bg-emerald-100",
+    icone: "text-emerald-700",
+    detalhe: "text-emerald-900",
+  },
+};
+
+const ICONE_DA_FACE: Record<FaceDoCartao["face"], typeof Upload> = {
+  lendo: Upload,
+  conferida: CheckCircle2,
+  recusada: AlertTriangle,
+  duplicata: ShieldCheck,
+  aprovada: CheckCircle2,
+};
+
+/**
  * One upload in flight: polls until the pipeline finishes reading it.
  *
  * The card shows what the run has produced so far, then the preview summary
  * and the approval button. Approving stays disabled while there are errors,
  * because an error is fixed at the source, not approved.
+ *
+ * Que cara fazer para cada estado é decisão de `faceDoCartao`, não daqui: o
+ * cartão distinguia três estados à mão e todo o resto — a recusa por validação
+ * inclusive — aparecia como se ainda estivesse lendo, com o enum cru na tela.
  */
 function PendingRun({
   importRunId,
@@ -1502,14 +1538,20 @@ function PendingRun({
   const { data } = useQuery({
     queryKey: ["imports", importRunId, "status"],
     queryFn: () => fetchJson<RunStatus>(`/imports/${importRunId}/status`),
-    // Stops polling once the pipeline has finished or given up.
+    // Para em QUALQUER estado terminal. A lista era escrita à mão — PREVIEWED,
+    // FAILED, PROMOTED — e um run recusado por validação, que não estava nela,
+    // deixava o cartão consultando o servidor a cada 1,2s para sempre.
     refetchInterval: (query) => {
       const s = (query.state.data as RunStatus | undefined)?.status;
-      return s === "PREVIEWED" || s === "FAILED" || s === "PROMOTED" ? false : 1200;
+      return faceDoCartao(s).emAndamento ? 1200 : false;
     },
   });
 
-  const ready = data?.status === "PREVIEWED";
+  const cara = faceDoCartao(data?.status);
+  const cores = CORES_DA_FACE[cara.face];
+  const Icone = ICONE_DA_FACE[cara.face];
+  const ready = cara.face === "conferida";
+  const recusada = cara.face === "recusada";
 
   /*
     A única coisa nesta tela que exige decisão, e não leitura.
@@ -1524,30 +1566,18 @@ function PendingRun({
   const identidadesNovas = data?.pendingIdentities ?? [];
   const [identidadeDeclarada, setIdentidadeDeclarada] = useState(false);
   const travadoPorIdentidade = identidadesNovas.length > 0 && !identidadeDeclarada;
-  const failed = data?.status === "FAILED";
 
   return (
-    <div
-      className={cn(
-        "rounded-xl border px-6 py-5 space-y-4",
-        failed ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50",
-      )}
-    >
+    <div className={cn("rounded-xl border px-6 py-5 space-y-4", cores.cartao)}>
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3 min-w-0">
           <div
             className={cn(
               "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
-              failed ? "bg-red-100" : "bg-amber-100",
+              cores.selo,
             )}
           >
-            {failed ? (
-              <AlertTriangle className="w-5 h-5 text-red-700" />
-            ) : ready ? (
-              <CheckCircle2 className="w-5 h-5 text-amber-700" />
-            ) : (
-              <Upload className="w-5 h-5 text-amber-700" />
-            )}
+            <Icone className={cn("w-5 h-5", cores.icone)} />
           </div>
           <div className="min-w-0">
             {/* O nome vem antes do estado: enviando dois arquivos de uma vez,
@@ -1567,16 +1597,15 @@ function PendingRun({
                 )}
               </p>
             )}
-            <p className="font-semibold text-sm">
-              {ready
-                ? "Conferido, ainda não importado."
-                : failed
-                  ? "Falhou ao ler o arquivo."
-                  : "Lendo o arquivo…"}
-            </p>
-            <p className="text-xs mt-0.5 text-amber-900">
-              {failed ? (
-                <span className="text-red-900">{data?.failureReason}</span>
+            <p className="font-semibold text-sm">{cara.titulo}</p>
+            <p className={cn("text-xs mt-0.5", cores.detalhe)}>
+              {cara.face === "lendo" ? (
+                <>
+                  {/* O rótulo de ESTADOS, nunca o enum cru: "na fila…",
+                      "lendo…", "preparada…" — não "validation_error…". */}
+                  {data ? `${estadoDaImportacao(data.status).rotulo}…` : "recebido…"}{" "}
+                  nada entra sem sua aprovação.
+                </>
               ) : ready ? (
                 data!.errors > 0 ? (
                   <strong>
@@ -1591,10 +1620,9 @@ function PendingRun({
                   </>
                 )
               ) : (
-                <>
-                  {data ? `${data.status.toLowerCase()}…` : "recebido…"} nada entra
-                  sem sua aprovação.
-                </>
+                // O motivo que o pipeline gravou no run — a recusa por
+                // validação diz aqui qual conflito foi, em vez de sumir.
+                (data?.failureReason ?? cara.motivoPadrao)
               )}
             </p>
           </div>
@@ -1662,8 +1690,10 @@ function PendingRun({
           já aprovada: é neste cartão que a decisão acontece, e uma colisão de
           chave que só se pudesse ler depois de aprovar chegaria tarde. Vêm
           fechados por código porque um arquivo normal traz 1.300 avisos de um
-          tipo só, e abrir tudo esconderia os três que importam. */}
-      {(ready || failed) && (
+          tipo só, e abrir tudo esconderia os três que importam. Nas recusas
+          eles são o próprio motivo — a entidade duplicada, o tipo que diverge
+          da declaração — então aparecem também. */}
+      {(ready || recusada) && (
         <div className="rounded-xl border border-amber-200 bg-white/60 p-4">
           <Apontamentos importRunId={importRunId} />
         </div>
