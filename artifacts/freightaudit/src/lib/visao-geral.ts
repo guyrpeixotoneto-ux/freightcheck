@@ -4,11 +4,13 @@ import type {
   ExecutiveSummary,
   FamiliesView,
   GroupedView,
+  PriorityItem,
 } from "@/components/inicio/types";
 import { juntarPrioridades } from "@/lib/cockpit";
 import { formatBrlShort, periodicitySuffix } from "@/lib/format";
 import {
   linkDeAlteracoes,
+  paramsDoRecorte,
   RECORTE_VAZIO,
   type FiltrosDeLinha,
   type Recorte,
@@ -681,17 +683,6 @@ export interface LinhaDeAlteracao {
   titulo: string;
   detalhe: string;
   direita: string;
-  /**
-   * A lista de Alterações recortada nesta linha — a vigência, o parâmetro e o
-   * equipamento de que ela fala.
-   *
-   * Existe porque um item de destaque que não abre nada é um beco: a tela diz
-   * "combustivelConsumoBenchmark mudou em 10 ativos" e deixa quem quer ver os 10
-   * refazer o filtro à mão do outro lado. Sai daqui, e não do JSX, para que o
-   * endereço seja testável — `recorte.ts` guarda a gramática; este arquivo diz o
-   * que cada linha tem a dizer nela.
-   */
-  href: string;
 }
 
 /**
@@ -704,6 +695,12 @@ export interface LinhaDeAlteracao {
  * item da tela seguinte, e não há resposta boa para quem perguntasse qual das
  * duas está certa.
  *
+ * A linha não carrega endereço nenhum, e é decisão e não esquecimento: ela abre
+ * a gaveta de `detalheDaAlteracao`, que é quem sabe montar os endereços deste
+ * item — a Planilha filtrada, a fila do Acompanhamento e a Curadoria da coluna.
+ * Um `href` aqui seria um segundo destino para o mesmo clique, e o primeiro a
+ * divergir seria o que ninguém está olhando.
+ *
  * Sem coluna de relógio, e é decisão de verdade e não de espaço: as alterações
  * desta vigência foram todas apuradas na mesma comparação, no mesmo instante.
  * Uma lista com quatro horários diferentes ao lado — "hoje, 10:32", "hoje,
@@ -711,11 +708,7 @@ export interface LinhaDeAlteracao {
  * verdadeiro para pôr à direita é o tamanho do fato: em quantos ativos ele
  * aconteceu.
  */
-export function ultimasAlteracoes(
-  view: GroupedView,
-  limite = 4,
-  recorte: Recorte = RECORTE_VAZIO,
-): LinhaDeAlteracao[] {
+export function ultimasAlteracoes(view: GroupedView, limite = 4): LinhaDeAlteracao[] {
   const fila = juntarPrioridades(view);
   /*
     A fila vazia com grupos na mão não deveria acontecer — as duas listas nascem
@@ -724,7 +717,6 @@ export function ultimasAlteracoes(
     as alterações da vigência.
   */
   const grupos = fila.length > 0 ? fila.map((entrada) => entrada.group) : view.groups;
-  const daVigencia: Recorte = { ...recorte, period: view.period };
 
   return grupos.slice(0, limite).map((grupo) => ({
     chave: grupo.key,
@@ -732,7 +724,6 @@ export function ultimasAlteracoes(
     titulo: tituloDaLinha(grupo),
     detalhe: detalheDaLinha(grupo),
     direita: `${inteiro(grupo.vehicles)} ${grupo.vehicles === 1 ? "ativo" : "ativos"}`,
-    href: linkDaAlteracao(grupo, daVigencia),
   }));
 }
 
@@ -789,6 +780,162 @@ function detalheDaLinha(grupo: ChangeGroup): string {
     });
   }
   return grupo.impact.reason ?? grupo.inconclusiveReason ?? grupo.badgeLabel;
+}
+
+// ---------------------------------------------------------------------------
+// De onde vem uma alteração em destaque
+// ---------------------------------------------------------------------------
+
+/**
+ * O que sustenta uma linha das Alterações em destaque.
+ *
+ * A lista afirma "Mudança sem preço — lucroVariavelPrevisto — Carreta, 10
+ * ativos" e mandava para fora da tela: o clique trocava a Visão geral pela
+ * Planilha filtrada, e quem só queria saber *por que aquilo está em destaque*
+ * pagava uma navegação inteira — e voltava sem a resposta, porque a Planilha
+ * lista linhas, não explica posições.
+ *
+ * Este detalhe é a mesma gaveta que os Maiores impactos abrem, sobre o mesmo
+ * princípio: o item continua atrás, e o painel é a conta dele. A ordem das
+ * seções é a ordem em que a pergunta chega — *por que está aqui em cima*, *o
+ * que mudou de fato*, *o que falta para isto virar dinheiro*, e só então as
+ * portas para as telas que continuam o assunto.
+ */
+export interface DetalheDeAlteracao {
+  chave: string;
+  tipo: TipoDeLinha;
+  /** O mesmo título da linha da lista — o painel não renomeia o que abriu. */
+  titulo: string;
+  grupo: ChangeGroup;
+  /**
+   * A posição desta alteração na fila do cockpit, e a conta que a produziu.
+   *
+   * `null` quando o grupo não está na fila — não deveria acontecer, já que as
+   * duas listas nascem da mesma resposta, e o painel simplesmente cala a seção
+   * em vez de inventar uma criticidade.
+   */
+  prioridade: PriorityItem | null;
+  /** O impacto escrito, quando o motor apurou preço. `null` quando não apurou. */
+  valor: string | null;
+  /**
+   * Por que não há preço, na frase do motor.
+   *
+   * Sai de `impact.reason` ou de `inconclusiveReason` — as mesmas que a lista
+   * mostra em letra pequena —, e existe só quando não há valor apurado: um
+   * campo com "sem preço" ao lado de um número seria a tela discordando de si.
+   */
+  semPreco: string | null;
+  /** As linhas desta alteração em Alterações, no recorte que ela sustenta. */
+  href: string;
+  /**
+   * A fila de investigação desta vigência, no Acompanhamento.
+   *
+   * Leva a vigência e a unidade, e não o item: a investigação de um ponto abre
+   * por clique dentro da tabela de lá, e não tem endereço próprio. Prometer um
+   * na gaveta faria a tela abrir no lugar certo e no assunto errado.
+   */
+  hrefFila: string;
+  /**
+   * A fila da Curadoria já aberta nesta coluna — só quando falta confirmá-la.
+   *
+   * É a porta que responde à pergunta seguinte de toda mudança sem preço:
+   * *como isto ganha preço?* Sem `attributeCode` não há o que abrir, e com a
+   * semântica já confirmada a Curadoria não tem nada a dizer sobre esta linha.
+   */
+  hrefCuradoria: string | null;
+  /**
+   * As outras alterações da mesma coluna nesta vigência.
+   *
+   * A linha em destaque fala de um equipamento; a mesma coluna costuma ter
+   * mudado no outro. Dizer quantas ficaram de fora — e abrir todas de uma vez —
+   * evita que a gaveta se leia como "foi só isto".
+   */
+  mesmoAtributo: { grupos: number; veiculos: number; href: string } | null;
+}
+
+/**
+ * O detalhe de uma alteração em destaque — o grupo, a sua posição na fila e as
+ * portas que continuam o assunto.
+ *
+ * Sai da mesma resposta que desenhou a lista, e não de um pedido novo: o item
+ * lido na Visão geral e o item lido na gaveta têm de ser o mesmo item, e dois
+ * pedidos a vigências diferentes é exatamente como eles deixariam de ser.
+ *
+ * `null` quando a chave não está nesta vigência — o endereço com `?alteracao=`
+ * continua colável, e um colado depois de trocar a vigência não abre um painel
+ * vazio, do mesmo jeito que `?impacto=` não abre.
+ */
+export function detalheDaAlteracao(
+  view: GroupedView | null | undefined,
+  chave: string | null,
+  recorte: Recorte = RECORTE_VAZIO,
+): DetalheDeAlteracao | null {
+  if (!view || !chave) return null;
+
+  const grupo = view.groups.find((g) => g.key === chave);
+  if (!grupo) return null;
+
+  const daVigencia: Recorte = { ...recorte, period: view.period };
+  const comPreco =
+    grupo.impact.confidence === "CALCULATED" && grupo.impact.amount !== null;
+
+  /*
+    As irmãs desta coluna, e só as desta vigência.
+
+    Grupo sem `attributeCode` — um ativo que entrou, uma coluna que sumiu — não
+    tem irmãs a apontar: agrupar por `null` juntaria coisas que não têm relação
+    nenhuma entre si além de não terem código.
+  */
+  const irmas =
+    grupo.attributeCode === null
+      ? []
+      : view.groups.filter(
+          (g) => g.key !== grupo.key && g.attributeCode === grupo.attributeCode,
+        );
+
+  return {
+    chave: grupo.key,
+    tipo: tipoDaLinha(grupo),
+    titulo: tituloDaLinha(grupo),
+    grupo,
+    prioridade: view.cockpit.priorities.find((p) => p.key === grupo.key) ?? null,
+    valor: comPreco
+      ? escreverImpacto({
+          periodicity: grupo.impact.periodicity,
+          amount: grupo.impact.amount as number,
+        })
+      : null,
+    semPreco: comPreco ? null : (grupo.impact.reason ?? grupo.inconclusiveReason),
+    href: linkDaAlteracao(grupo, daVigencia),
+    hrefFila: `/vigencia?${paramsDoRecorte(daVigencia)}`,
+    hrefCuradoria:
+      grupo.attributeCode !== null && grupo.semanticsStatus !== "CONFIRMED"
+        ? linkDeCuradoria(grupo)
+        : null,
+    mesmoAtributo:
+      irmas.length > 0
+        ? {
+            grupos: irmas.length,
+            veiculos: irmas.reduce((total, g) => total + g.vehicles, 0),
+            /*
+              Sem `entityType`: o que este link promete é a coluna inteira, nos
+              equipamentos todos. Levar o equipamento da linha aberta devolveria
+              a própria linha e nada mais, sob um rótulo que promete o resto.
+            */
+            href: linkDeAlteracoes({
+              recorte: daVigencia,
+              filtros: { attributeCode: grupo.attributeCode as string },
+            }),
+          }
+        : null,
+  };
+}
+
+/** A fila da Curadoria aberta na coluna — e na aba do equipamento dela. */
+function linkDeCuradoria(grupo: ChangeGroup): string {
+  const params = new URLSearchParams({ atributo: grupo.attributeCode as string });
+  if (grupo.entityType !== null) params.set("equipamento", grupo.entityType);
+  return `/curadoria?${params}`;
 }
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cobertura,
+  detalheDaAlteracao,
   detalheDoImpacto,
   equipamentoMaisTocado,
   escreverVariacao,
@@ -748,16 +749,19 @@ describe("o caminho até as Alterações", () => {
     expect(ponto.href).toBe("/curadoria");
   });
 
-  it("cada alteração em destaque leva o seu próprio recorte", () => {
+  it("a gaveta de uma alteração leva o seu próprio recorte para a Planilha", () => {
     const view = vigencia({
       groups: [grupo({ key: "a", attributeCode: "cavalo.ipva", entityType: "CAVALO" })],
       cockpit: cockpit({ priorities: [] }),
     });
-    const [linha] = ultimasAlteracoes(view, 4, recorte);
-    expect(consulta(linha.href).get("attributeCode")).toBe("cavalo.ipva");
-    expect(consulta(linha.href).get("entityType")).toBe("CAVALO");
-    expect(consulta(linha.href).get("period")).toBe("2026-08-01");
-    expect(consulta(linha.href).get("scopeHash")).toBe("h");
+    const detalhe = detalheDaAlteracao(view, "a", recorte)!;
+    expect(consulta(detalhe.href).get("attributeCode")).toBe("cavalo.ipva");
+    expect(consulta(detalhe.href).get("entityType")).toBe("CAVALO");
+    expect(consulta(detalhe.href).get("period")).toBe("2026-08-01");
+    expect(consulta(detalhe.href).get("scopeHash")).toBe("h");
+    // A fila do Acompanhamento leva a vigência aberta, e não a do recorte
+    // colado: é a vigência que o servidor de fato respondeu.
+    expect(consulta(detalhe.hrefFila).get("period")).toBe("2026-08-01");
   });
 
   it("grupo sem atributo não inventa filtro", () => {
@@ -767,9 +771,132 @@ describe("o caminho até as Alterações", () => {
       groups: [grupo({ key: "a", attributeCode: null, entityType: null })],
       cockpit: cockpit({ priorities: [] }),
     });
-    const [linha] = ultimasAlteracoes(view, 4, recorte);
-    expect(consulta(linha.href).has("attributeCode")).toBe(false);
-    expect(consulta(linha.href).has("entityType")).toBe(false);
-    expect(consulta(linha.href).get("period")).toBe("2026-08-01");
+    const detalhe = detalheDaAlteracao(view, "a", recorte)!;
+    expect(consulta(detalhe.href).has("attributeCode")).toBe(false);
+    expect(consulta(detalhe.href).has("entityType")).toBe(false);
+    expect(consulta(detalhe.href).get("period")).toBe("2026-08-01");
+  });
+});
+
+/**
+ * A gaveta que uma alteração em destaque abre.
+ *
+ * O que estes casos impedem é a gaveta afirmar mais do que a vigência sustenta:
+ * um preço onde o motor não apurou nenhum, uma criticidade que a fila do
+ * cockpit não deu, ou uma porta para a Curadoria numa coluna que já está
+ * confirmada — três formas de a Visão geral discordar do Acompanhamento sobre a
+ * mesma linha.
+ */
+describe("de onde vem uma alteração em destaque", () => {
+  const recorte = { period: null, scopeHash: null, canal: null };
+
+  const consulta = (href: string) => new URLSearchParams(href.split("?")[1] ?? "");
+
+  const comPreco = {
+    confidence: "CALCULATED",
+    amount: -18420,
+    periodicity: "MENSAL",
+    reason: null,
+    countedVehicles: 61,
+    excludedVehicles: 0,
+    excludedAmount: null,
+    excludedReason: null,
+  };
+
+  it("devolve o grupo, a sua posição na fila e o valor escrito", () => {
+    const view = vigencia({
+      groups: [grupo({ key: "a", title: "IPVA", impact: comPreco })],
+      cockpit: cockpit({
+        priorities: [prioridade({ key: "a", rank: 2, severity: "ALTO", score: 51 })],
+      }),
+    });
+
+    const detalhe = detalheDaAlteracao(view, "a", recorte)!;
+    expect(detalhe.grupo.title).toBe("IPVA");
+    expect(detalhe.titulo).toBe("Valor reduzido em IPVA — Cavalo");
+    expect(detalhe.tipo).toBe("queda");
+    expect(detalhe.valor).toBe(`${(-18420).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })}/mês`);
+    expect(detalhe.prioridade?.rank).toBe(2);
+    expect(detalhe.semPreco).toBeNull();
+  });
+
+  it("sem preço apurado não vira zero — vira a razão, escrita", () => {
+    const view = vigencia({
+      groups: [
+        grupo({
+          key: "a",
+          semanticsStatus: "PENDING",
+          impact: {
+            confidence: "NOT_CALCULABLE",
+            amount: null,
+            periodicity: null,
+            reason: "Semântica desconhecida: o atributo ainda não foi confirmado.",
+            countedVehicles: 0,
+            excludedVehicles: 0,
+            excludedAmount: null,
+            excludedReason: null,
+          },
+        }),
+      ],
+      cockpit: cockpit({ priorities: [] }),
+    });
+
+    const detalhe = detalheDaAlteracao(view, "a", recorte)!;
+    expect(detalhe.valor).toBeNull();
+    expect(detalhe.semPreco).toBe(
+      "Semântica desconhecida: o atributo ainda não foi confirmado.",
+    );
+    // A Curadoria é a porta que destrava o preço, e ela abre já na coluna.
+    expect(detalhe.hrefCuradoria).toContain("atributo=cavalo.qualquer");
+    expect(detalhe.hrefCuradoria).toContain("equipamento=CAVALO");
+  });
+
+  it("coluna já confirmada não manda ninguém para a Curadoria", () => {
+    const view = vigencia({
+      groups: [grupo({ key: "a", semanticsStatus: "CONFIRMED", impact: comPreco })],
+      cockpit: cockpit({ priorities: [] }),
+    });
+    expect(detalheDaAlteracao(view, "a", recorte)!.hrefCuradoria).toBeNull();
+  });
+
+  it("conta as outras alterações da mesma coluna, e só as da mesma coluna", () => {
+    const view = vigencia({
+      groups: [
+        grupo({ key: "a", attributeCode: "cavalo.ipva", entityType: "CAVALO" }),
+        grupo({
+          key: "b",
+          attributeCode: "cavalo.ipva",
+          entityType: "CARRETA",
+          vehicles: 7,
+        }),
+        grupo({ key: "c", attributeCode: "cavalo.pneu", vehicles: 99 }),
+      ],
+      cockpit: cockpit({ priorities: [] }),
+    });
+
+    const detalhe = detalheDaAlteracao(view, "a", recorte)!;
+    expect(detalhe.mesmoAtributo).toEqual({
+      grupos: 1,
+      veiculos: 7,
+      href: expect.stringContaining("attributeCode=cavalo.ipva"),
+    });
+    // O link é da coluna inteira: levar o equipamento devolveria a própria
+    // linha aberta, sob um rótulo que promete o resto.
+    expect(consulta(detalhe.mesmoAtributo!.href).has("entityType")).toBe(false);
+  });
+
+  it("grupo sem atributo não tem irmãs a apontar", () => {
+    const view = vigencia({
+      groups: [grupo({ key: "a", attributeCode: null }), grupo({ key: "b", attributeCode: null })],
+      cockpit: cockpit({ priorities: [] }),
+    });
+    expect(detalheDaAlteracao(view, "a", recorte)!.mesmoAtributo).toBeNull();
+  });
+
+  it("chave que não está nesta vigência não abre painel nenhum", () => {
+    const view = vigencia({ groups: [grupo({ key: "a" })] });
+    expect(detalheDaAlteracao(view, "outra", recorte)).toBeNull();
+    expect(detalheDaAlteracao(view, null, recorte)).toBeNull();
+    expect(detalheDaAlteracao(null, "a", recorte)).toBeNull();
   });
 });
