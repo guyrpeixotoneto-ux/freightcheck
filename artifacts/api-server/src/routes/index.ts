@@ -18,6 +18,7 @@ import ticketsRouter from "./tickets";
 import impactoRouter from "./impacto";
 import clienteRouter from "./cliente";
 import frotaRouter from "./frota";
+import qlpRouter from "./qlp";
 
 /**
  * F0/F1 surface.
@@ -103,6 +104,15 @@ import frotaRouter from "./frota";
  * quatro abas de Alterações — e existe porque nenhuma delas conhece o ativo que
  * não mudou, que é justamente o que um seletor de placa não pode deixar de
  * oferecer.
+ *
+ * `qlp` é a tela QLP Administrativo: o quadro de pessoal da estrutura
+ * administrativa, lido dos mesmos fatos canônicos — a família de dados é
+ * QUADRO_DE_PESSOAL, o grão é unidade + cargo, e nenhuma tabela nova existe
+ * por causa dela. A superfície responde o quadro de uma vigência, a ficha de
+ * um cargo com a célula de origem, e a série de presença; o que ela
+ * deliberadamente **não** responde é diferença de valor entre vigências, que
+ * continua sendo de `changes` — as vigências de QLP são snapshots como
+ * quaisquer outros e o motor de comparação as compara entre si.
  */
 const router: IRouter = Router();
 
@@ -135,5 +145,6 @@ router.use(ticketsRouter);
 router.use(impactoRouter);
 router.use(clienteRouter);
 router.use(frotaRouter);
+router.use(qlpRouter);
 
 export default router;

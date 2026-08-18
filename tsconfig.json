@@ -37,6 +37,9 @@
       "path": "./lib/coverage"
     },
     {
+      "path": "./lib/qlp"
+    },
+    {
       "path": "./lib/advisory"
     },
     {
