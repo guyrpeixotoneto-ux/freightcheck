@@ -362,9 +362,18 @@ describe("a colisão de chave aparece na pré-visualização", () => {
     )!;
     // Erro vem primeiro na lista: quem abre isto procura o que impede promover.
     expect(grupos[0].code).toBe("ENTIDADE_DUPLICADA_CONFLITANTE");
-    expect(conflito.ocorrencias[0].message).toContain("07526557001505ANALISTA");
-    expect(
-      (conflito.ocorrencias[0].detail as { atributos: string[] }).atributos,
-    ).toContain("qlp_administrativo.custo_fixo");
+    // A chave como está escrita no arquivo — não a forma normalizada emendada,
+    // que ninguém encontra na planilha — e os dois valores em desacordo, com a
+    // linha de cada um: o suficiente para corrigir sem investigar.
+    expect(conflito.ocorrencias[0].message).toContain("07.526.557/0015-05 · ANALISTA");
+    expect(conflito.ocorrencias[0].message).toMatch(/linha 2 traz 100/);
+    expect(conflito.ocorrencias[0].message).toMatch(/linha 3 traz 999/);
+    const detalheConflito = conflito.ocorrencias[0].detail as {
+      entityKey: string;
+      atributos: string[];
+    };
+    // A forma normalizada continua no detalhe, para quem depura identidade.
+    expect(detalheConflito.entityKey).toBe("07526557001505ANALISTA");
+    expect(detalheConflito.atributos).toContain("qlp_administrativo.custo_fixo");
   });
 });

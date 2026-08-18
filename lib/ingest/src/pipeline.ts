@@ -177,7 +177,10 @@ function motivoDoImpedimento(
     if (issue.code === "ENTIDADE_DUPLICADA_CONFLITANTE") {
       return (
         `${issue.count} ${issue.count === 1 ? "conflito impede" : "conflitos impedem"} esta importação: ` +
-        `a mesma entidade aparece mais de uma vez na mesma vigência com valores diferentes. ` +
+        `a mesma entidade aparece mais de uma vez na mesma vigência com valores diferentes, ` +
+        `e não há como saber qual das linhas vale. ` +
+        `Os apontamentos da importação nomeiam ${issue.count === 1 ? "o conflito" : "cada conflito"} — ` +
+        `a chave repetida, as linhas da planilha e os valores que discordam. ` +
         `Corrija a origem e envie o arquivo de novo.`
       );
     }
@@ -190,6 +193,52 @@ function motivoDoImpedimento(
     return issue.sample;
   });
   return frases.join(" ");
+}
+
+/**
+ * O valor de uma linha staged, como a planilha o escreveria.
+ *
+ * A recusa por conflito diz que duas linhas discordam, e dizer **em quê**
+ * exige mostrar os dois valores lado a lado. O staged guarda o valor tipado em
+ * quatro colunas; aqui ele volta a ser uma palavra só, legível na frase.
+ */
+function valorStaged(row: Record<string, unknown>): string {
+  if (row.isNull === true) return "vazio";
+  if (row.valueNumeric != null) {
+    const s = String(row.valueNumeric);
+    return s.includes(".") ? s.replace(/0+$/, "").replace(/\.$/, "") : s;
+  }
+  if (row.valueText != null) return `"${row.valueText}"`;
+  if (row.valueBoolean != null) return row.valueBoolean === true ? "verdadeiro" : "falso";
+  if (row.valueDate != null) return String(row.valueDate);
+  return "vazio";
+}
+
+/** "12", "12 e 87", "12, 87 e 90" — a enumeração como se escreve. */
+function listarComE(itens: string[]): string {
+  if (itens.length <= 1) return itens[0] ?? "";
+  return `${itens.slice(0, -1).join(", ")} e ${itens[itens.length - 1]}`;
+}
+
+/**
+ * Onde as linhas repetidas estão, dito como quem abre a planilha procura:
+ * "nas linhas 12 e 87 da aba \"Planilha1\"". Agrupado por aba porque a colisão
+ * pode atravessar abas — e aí dizer só os números mandaria abrir a errada.
+ */
+function nomearOrigens(origens: { aba: string; linha: number }[]): string {
+  const porAba = new Map<string, number[]>();
+  for (const origem of origens) {
+    const linhas = porAba.get(origem.aba) ?? [];
+    if (!linhas.includes(origem.linha)) linhas.push(origem.linha);
+    porAba.set(origem.aba, linhas);
+  }
+  return [...porAba.entries()]
+    .map(([aba, linhas]) =>
+      linhas.length === 1
+        ? `na linha ${linhas[0]} da aba "${aba}"`
+        : `nas linhas ${listarComE(linhas.map(String))} da aba "${aba}"`,
+    )
+    .join(" e ");
 }
 
 /** Postgres caps a statement at 65535 bound parameters. */
@@ -635,6 +684,20 @@ export async function stage(
 
   const issues: PendingIssue[] = [];
   const stagedRows: Record<string, unknown>[] = [];
+  /*
+    De onde cada fato staged veio — a aba e a linha da planilha.
+
+    A recusa por duplicidade precisa mandar quem opera para um lugar que
+    existe no arquivo dele, e "a chave X colidiu" não é um lugar: "as linhas
+    12 e 87 da aba Planilha1" é. `staged_fact` até aponta a célula via
+    `raw_cell_id`, mas na hora de escrever a mensagem o que se tem na mão é a
+    linha staged, e refazer o caminho até o RAW custaria uma consulta por
+    conflito. O mapa vive só nesta passagem e nunca é gravado.
+  */
+  const origemDoStaged = new WeakMap<
+    Record<string, unknown>,
+    { aba: string; linha: number }
+  >();
   const labels = new Set<string>();
   const identidades: SheetIdentity[] = [];
   let rowsRejected = 0;
@@ -990,7 +1053,7 @@ export async function stage(
           continue;
         }
 
-        stagedRows.push({
+        const staged: Record<string, unknown> = {
           importRunId,
           rawCellId: cell.id,
           snapshotLabel: vigencia.label,
@@ -1006,7 +1069,9 @@ export async function stage(
           isNull: typed.isNull,
           nullReason: typed.nullReason,
           status: typed.warnings.length > 0 ? "WARNING" : "VALID",
-        });
+        };
+        stagedRows.push(staged);
+        origemDoStaged.set(staged, { aba: sheet.sheetName, linha: row.rowIndex });
       }
     }
   }
@@ -1064,7 +1129,17 @@ export async function stage(
   }
 
   const consolidados: Record<string, unknown>[] = [];
-  const conflitos = new Map<string, Set<string>>();
+  /*
+    Os conflitos, com a evidência inteira: por chave, cada campo que discorda
+    guarda as suas ocorrências staged — é delas que a mensagem tira a forma
+    legível da chave, as linhas da planilha e os dois valores em desacordo.
+    Um `Set` de códigos de atributo dizia **onde** havia conflito e não **o
+    quê**, e a recusa chegava à tela mandando corrigir sem mostrar a diferença.
+  */
+  const conflitos = new Map<
+    string,
+    { legivel: string; porAtributo: Map<string, Record<string, unknown>[]> }
+  >();
   /*
     As duplicidades que **concordam**, por chave.
 
@@ -1080,7 +1155,12 @@ export async function stage(
   */
   const consolidacoesPorChave = new Map<
     string,
-    { atributos: Set<string>; linhas: number }
+    {
+      legivel: string;
+      atributos: Set<string>;
+      linhas: number;
+      origens: { aba: string; linha: number }[];
+    }
   >();
   for (const [grao, ocorrencias] of porGrao) {
     if (ocorrencias.length === 1) {
@@ -1108,42 +1188,61 @@ export async function stage(
     if (valores.size === 1) {
       const chave = [label, entityType, entityKey].join("\u001f");
       const registro = consolidacoesPorChave.get(chave) ?? {
+        legivel: (ocorrencias[0].entityKeyRaw as string) || entityKey,
         atributos: new Set<string>(),
         linhas: 0,
+        origens: [] as { aba: string; linha: number }[],
       };
       registro.atributos.add(attributeCode);
       // O maior número de ocorrências de um mesmo atributo é quantas linhas da
       // origem caíram nesta chave: somar por atributo contaria a mesma linha
       // uma vez por coluna.
       registro.linhas = Math.max(registro.linhas, ocorrencias.length);
+      for (const ocorrencia of ocorrencias) {
+        const origem = origemDoStaged.get(ocorrencia);
+        if (
+          origem &&
+          !registro.origens.some((o) => o.aba === origem.aba && o.linha === origem.linha)
+        ) {
+          registro.origens.push(origem);
+        }
+      }
       consolidacoesPorChave.set(chave, registro);
       continue;
     }
     const chave = [label, entityType, entityKey].join("\u001f");
-    let atributos = conflitos.get(chave);
-    if (!atributos) {
-      atributos = new Set();
-      conflitos.set(chave, atributos);
+    let conflito = conflitos.get(chave);
+    if (!conflito) {
+      conflito = {
+        legivel: (ocorrencias[0].entityKeyRaw as string) || entityKey,
+        porAtributo: new Map(),
+      };
+      conflitos.set(chave, conflito);
     }
-    atributos.add(ocorrencias[0].attributeCode as string);
+    conflito.porAtributo.set(attributeCode, ocorrencias);
   }
 
-  for (const [chave, { atributos, linhas }] of consolidacoesPorChave) {
+  for (const [chave, { legivel, atributos, linhas, origens }] of consolidacoesPorChave) {
     const [label, entityType, entityKey] = chave.split("\u001f");
+    const rotulo = tipoDeImportacao(entityType)?.rotulo ?? entityType;
     const campos = [...atributos].sort();
+    const onde = origens.length > 0 ? ` — ${nomearOrigens(origens)} —` : "";
     issues.push({
       importRunId,
       severity: "INFO",
       code: "ENTIDADE_DUPLICADA_CONSOLIDADA",
       message:
-        `${entityType} ${entityKey} aparece em ${linhas} linhas da vigência ${label}, e elas dizem o mesmo em ` +
+        `${rotulo} "${legivel}" aparece em ${linhas} linhas da vigência ${label}${onde}, e elas dizem o mesmo em ` +
         `${campos.length} ${campos.length === 1 ? "campo" : "campos"}; consolidadas numa ocorrência. ` +
         `Nada foi descartado: as linhas continuam inteiras no RAW, e é lá que elas podem ser conferidas uma a uma.`,
       detail: {
         vigencia: label,
+        tipo: rotulo,
+        chave: legivel,
         entityType,
         entityKey,
         linhas,
+        origem: origens.map((o) => `aba "${o.aba}", linha ${o.linha}`),
         // Os campos inteiros, e não uma amostra: é esta lista que diz **o
         // que** as duas linhas tinham em comum, e ela é o material da medição
         // de grão. Truncá-la aqui seria esconder metade da evidência.
@@ -1152,26 +1251,78 @@ export async function stage(
     });
   }
 
-  for (const [chave, atributos] of conflitos) {
+  for (const [chave, conflito] of conflitos) {
     const [label, entityType, entityKey] = chave.split("\u001f");
+    const rotulo = tipoDeImportacao(entityType)?.rotulo ?? entityType;
+    const campos = [...conflito.porAtributo.keys()].sort();
+
+    // As linhas da planilha envolvidas no conflito, sem repetição — a união
+    // entre os campos, porque as mesmas linhas discordam em vários deles.
+    const origens: { aba: string; linha: number }[] = [];
+    for (const ocorrencias of conflito.porAtributo.values()) {
+      for (const ocorrencia of ocorrencias) {
+        const origem = origemDoStaged.get(ocorrencia);
+        if (
+          origem &&
+          !origens.some((o) => o.aba === origem.aba && o.linha === origem.linha)
+        ) {
+          origens.push(origem);
+        }
+      }
+    }
+    origens.sort((a, b) =>
+      a.aba === b.aba ? a.linha - b.linha : a.aba.localeCompare(b.aba),
+    );
+
+    /*
+      A frase mostra a divergência, e não só onde ela está.
+
+      Dizia "com valores diferentes em qlp_administrativo.id" — o código do
+      campo, a chave normalizada emendada e nada dos valores. Quem lia sabia
+      que havia conflito e não sabia qual era, nem em que linha da planilha
+      olhar. Agora a recusa traz a chave como está escrita no arquivo, as
+      linhas que colidiram e os dois valores em desacordo — o suficiente para
+      corrigir sem investigar. O corte em poucos campos evita uma frase de
+      página inteira quando a linha inteira discorda; a lista completa segue
+      em `detail.atributos`.
+    */
+    const MOSTRAR = 3;
+    const divergencias = campos.slice(0, MOSTRAR).map((campo) => {
+      const ocorrencias = conflito.porAtributo.get(campo)!;
+      const versoes = ocorrencias.map((ocorrencia) => {
+        const origem = origemDoStaged.get(ocorrencia);
+        return origem
+          ? `a linha ${origem.linha} traz ${valorStaged(ocorrencia)}`
+          : `uma linha traz ${valorStaged(ocorrencia)}`;
+      });
+      return `${campo} (${listarComE(versoes)})`;
+    });
+    const cortados = campos.length - MOSTRAR;
+    const maisCampos =
+      cortados > 0
+        ? `; e mais ${cortados} ${cortados === 1 ? "campo divergente, listado" : "campos divergentes, listados"} no detalhe`
+        : "";
+
     issues.push({
       importRunId,
       severity: "ERROR",
       code: "ENTIDADE_DUPLICADA_CONFLITANTE",
-      /*
-        A frase dizia "a carreta de placa X" e "o mesmo veículo", e deixou de
-        servir quando o grão parou de ser sempre uma placa: um trecho não tem
-        placa, e uma linha de quadro de pessoal não é veículo nenhum. O que a
-        recusa precisa nomear é a chave que se repetiu, e ela vale para os três.
-      */
       message:
-        `${entityType} ${entityKey} aparece mais de uma vez na vigência ${label} com valores diferentes em ${[...atributos].sort().join(", ")}. ` +
-        `Duas linhas para a mesma chave, discordando, não têm resposta certa: corrija a origem e envie de novo.`,
+        `${rotulo} "${conflito.legivel}" aparece mais de uma vez na vigência ${label}` +
+        (origens.length > 0 ? ` — ${nomearOrigens(origens)} —` : "") +
+        ` com valores diferentes: ${divergencias.join("; ")}${maisCampos}. ` +
+        `Linhas repetidas para a mesma chave, discordando entre si, não têm resposta certa, ` +
+        `e a importação não escolhe uma em silêncio. ` +
+        `Corrija a planilha de origem — deixe uma linha só por chave, ou os mesmos valores nas repetidas — ` +
+        `e envie o arquivo de novo.`,
       detail: {
         vigencia: label,
+        tipo: rotulo,
+        chave: conflito.legivel,
         entityType,
         entityKey,
-        atributos: [...atributos].sort(),
+        linhas: origens.map((o) => `aba "${o.aba}", linha ${o.linha}`),
+        atributos: campos,
       },
     });
   }
