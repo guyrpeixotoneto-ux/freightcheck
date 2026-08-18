@@ -113,10 +113,15 @@ propósito, porque deixava a porta aberta entre o deploy e o primeiro cadastro:
 echo "a-senha" | pnpm --filter @workspace/api-server run create-user "Nome" email@empresa.com
 ```
 
-**Não há papéis.** Quem entra pode tudo, inclusive dar e tirar acesso, e a tela
-diz isso em vez de sugerir uma hierarquia que o servidor não tem. O que fica
-registrado é *quem fez*: `app_user.created_by` e `disabled_by` guardam o e-mail
-de quem deu e de quem tirou o acesso.
+**Dois papéis, e só dois.** `ADMIN` gerencia contas — cria, desativa, redefine
+senha, muda papel — e `OPERADOR` usa o produto. Quem decide é o servidor
+(`somenteAdmin`, em `routes/users.ts`); a tela esconde de quem não pode. A
+separação nasceu de um achado da auditoria comercial: sem papel, qualquer conta
+redefinia a senha de qualquer outra. As contas anteriores à migration `0037`
+viram ADMIN (era o que todas podiam); a criada pelo terminal nasce ADMIN; as
+novas nascem OPERADOR por padrão. Duas recusas protegem o beco: o último ADMIN
+ativo não pode ser desativado nem rebaixado. O que fica registrado continua
+sendo *quem fez*: `app_user.created_by` e `disabled_by`.
 
 **Ninguém é apagado, só desativado.** O `actor` das confirmações já feitas
 aponta para essas linhas; apagar uma transformaria um histórico auditável num
@@ -133,8 +138,16 @@ confirma uma semântica, quem envia uma planilha e quem promove uma vigência é
 lido da sessão, e o servidor ignora o que o corpo do pedido disser. Antes disso
 o histórico sustentava "alguém digitou este nome"; agora sustenta quem fez.
 
-Não existe nesta versão: papéis ou permissões por tela, recuperação de senha por
-e-mail, e exclusão de conta.
+Não existe nesta versão: permissões por tela além dos dois papéis, recuperação
+de senha por e-mail, e exclusão de conta.
+
+**Instância dedicada por cliente é a arquitetura da primeira fase — decisão
+formal, não omissão.** Não há coluna de tenant em tabela nenhuma, e um segundo
+cliente NÃO entra neste banco: cada cliente recebe deployment e banco próprios
+(mesma fila de migrations, mesmo build). É o que o schema já admite em
+`lib/db/src/schema/significado.ts` e o que o contrato comercial deve declarar.
+Multi-tenancy real, se um dia vier, é migração com coluna de tenant e filtro em
+toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
 
 ## Stack
 
