@@ -7,8 +7,8 @@ import {
 } from "express";
 import { db, erroDoPostgres } from "@workspace/db";
 import {
-  interpretarFormula,
   rascunharDefinicao,
+  sugerirFormula,
   sugerirSemantica,
 } from "@workspace/assistant";
 import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
@@ -521,18 +521,21 @@ router.patch("/curation/attributes/:code/meaning", async (req, res, next): Promi
 });
 
 /**
- * Ler a fórmula de cálculo em voz alta. Não grava nada.
+ * Sugerir a fórmula de cálculo a partir do que a coluna é. Não grava nada.
  *
- * POST, e não GET, porque a fórmula vai no corpo: a tela pede a leitura do que
- * está digitado **agora**, antes de salvar. Exigir o salvamento primeiro faria
- * a leitura depender de um ato que ela não deveria custar — e, num atributo sem
- * semântica versionada, a base de cálculo nem chega a poder ser gravada.
+ * POST, e não GET, porque o nome e a descrição vão no corpo: a tela pede a
+ * sugestão a partir do que está digitado **agora**. Quem acabou de batizar e
+ * descrever a coluna ainda não salvou — e é justamente nesse instante que a
+ * sugestão vale, enquanto a pessoa tem o significado na cabeça e só falta
+ * escrever a conta. Exigir o salvamento primeiro faria a sugestão custar o ato
+ * que ela existe para adiantar; e, num atributo sem semântica versionada, a
+ * base de cálculo nem chega a poder ser gravada.
  *
- * O corpo é opcional: sem ele, lê-se o que está guardado. É o caminho de quem
- * abre um atributo que outra pessoa preencheu.
+ * O corpo é opcional: sem ele, sugere-se a partir do nome e da descrição
+ * guardados. É o caminho de quem abre um atributo que outra pessoa preencheu.
  */
 router.post(
-  "/curation/attributes/:code/formula/leitura",
+  "/curation/attributes/:code/formula/sugestao",
   async (req, res, next): Promise<void> => {
     try {
       const detail = await getAttributeDetail(db, req.params.code);
@@ -541,36 +544,54 @@ router.post(
         return;
       }
 
-      const formula =
-        typeof req.body?.calculationBasis === "string"
-          ? req.body.calculationBasis
-          : (detail.calculationBasis ?? "");
+      const nome =
+        typeof req.body?.displayName === "string"
+          ? req.body.displayName
+          : (detail.displayName ?? "");
+      const definicao =
+        typeof req.body?.definition === "string"
+          ? req.body.definition
+          : (detail.definition ?? "");
 
       res.json(
-        await interpretarFormula({
-          formula,
-          // O nome de leitura, pelas mesmas regras das telas: apelido quando
-          // existe, literal da planilha quando não.
-          nome: detail.displayName ?? detail.sourceName,
-          definicao: detail.definition,
+        await sugerirFormula({
+          nome,
+          nomeDeOrigem: detail.sourceName,
+          definicao,
           unidade: detail.unit,
           periodicidade: detail.periodicity,
+          entidade: detail.entityType,
+          tipoDeDado: detail.dataType,
+          taxonomia: detail.taxonomyName,
+          // O cabeçalho da planilha é outra pista do que a coluna é, e ele
+          // costuma diferir do código: `Vida_Comb` na primeira linha, `
+          // vidaCombustivel` no código gerado pela importação.
+          cabecalho: detail.samples.find((s) => s.columnHeader)?.columnHeader ?? null,
+          /*
+            Só o formato dos valores, e só dos que existem. É o que separa
+            "valor fixo de tabela" de "conta que varia por veículo" — e amostra
+            nula não diz nada sobre a conta, ocupando uma das vagas com a
+            palavra "ausente".
+          */
+          exemplos: detail.samples
+            .filter((s) => !s.isNull && s.value !== null)
+            .map((s) => String(s.value)),
         }),
       );
     } catch (err) {
       /*
-        `interpretarFormula` não lança — o que cair aqui é falha de banco, e
-        não uma regra de negócio para o curador ler. Segue pelo mesmo caminho
-        das outras: esta rota lê o atributo pelo `getAttributeDetail`, que
-        passa pela fila e portanto pela `attribute.definition` — é uma das que
-        morrem primeiro num banco divergente.
+        `sugerirFormula` não lança — o que cair aqui é falha de banco, e não uma
+        regra de negócio para o curador ler. Segue pelo mesmo caminho das
+        outras: esta rota lê o atributo pelo `getAttributeDetail`, que passa
+        pela fila e portanto pela `attribute.definition` — é uma das que morrem
+        primeiro num banco divergente.
       */
       await responderFalha(
         req,
         res,
         next,
         err,
-        "A fórmula deste atributo não pôde ser lida neste banco.",
+        "A fórmula deste atributo não pôde ser sugerida neste banco.",
       );
     }
   },
