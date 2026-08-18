@@ -87,6 +87,25 @@ pnpm --filter @workspace/ingest exec tsx src/cli/medir-grao.ts "Modelo Trecho.xl
 Para cada candidata ele imprime preenchimento, chaves distintas, quantas linhas
 repetem, a maior repetição e quanto das chaves reaparece em todas as vigências.
 
+E, para as que passam no teste de chave, a **estabilidade semântica**: o que
+acompanha aquela chave sem mudar ao longo do arquivo. Unicidade e permanência
+são perguntas sobre a chave; esta é sobre o que ela carrega, e é a única das
+três que pega a chave **reaproveitada** — o cadastro aposenta Camaçari→Salvador
+e reusa `CAM-SSA-01` para Camaçari→Feira no mês seguinte. Nas outras duas isso
+passa limpo: não repete, e reaparece em todas as vigências. E é a pior das três
+falhas, porque a comparação atribuiria a variação de preço de uma rota à outra.
+
+- **âncoras** — colunas constantes por chave em todas as vigências. Se a chave
+  não tem nenhuma, ela nomeia uma linha, não uma coisa.
+- **quase-âncoras** — constantes em 90%+ das chaves e discordantes no resto,
+  com o valor divergente impresso. É o rastro exato do reaproveitamento.
+
+No `Modelo_Cavalo.xlsx`, `Placa` traz 46 âncoras (unidade, operador, regional,
+CNPJs) e as quase-âncoras que ela expõe são legítimas: `Placa Carreta` muda em
+7,8% dos cavalos, porque o cavalo troca de implemento. No trecho, a pergunta que
+essa coluna responde é direta — `Origem` e `Destino` são âncoras de
+`chaveTrecho`, ou só quase?
+
 **Validação do instrumento contra o que já se sabe.** Rodado no
 `attached_assets/Modelo_Cavalo.xlsx` de verdade, ele redescobre sozinho a
 resposta conhecida:
@@ -163,7 +182,7 @@ compostas.
 | Lugar | Hoje | Nota |
 |---|---|---|
 | `canonical-identity.ts:334-341` | `VALOR_E_IDENTIDADE`: `placa`, `placa_carreta`, `chassi`, CNPJs | a chave do trecho entra aqui, ou o hash de conteúdo trata `CAM-SSA-01` e `camssa01` como fatos diferentes |
-| `canonical-identity.ts:57-60` | `FAMILY_BY_ENTITY_TYPE` — CAVALO e CARRETA em `REMUNERACAO_EQUIPAMENTO` | **decisão de negócio**: trecho é componente da mesma vigência ou é uma segunda família? Ver 3.10 |
+| `canonical-identity.ts:57-60` | `FAMILY_BY_ENTITY_TYPE` — CAVALO e CARRETA em `REMUNERACAO_EQUIPAMENTO` | **nada**, por decisão — ver 3.11 |
 
 ### 3.4 A promoção
 
@@ -232,13 +251,30 @@ confirmada, monetário, somável e periodicidade. É a seção 4.
 `assistant/ferramentas.ts:1604` (mais `FORMA_DE_PLACA`, o regex que reconhece
 placa em pergunta livre), `ingest/chamados.ts:1575`.
 
-E a decisão de família em `canonical-identity.ts:80` (`datasetFamilyOfSet` lança
-se um run misturar famílias): se trecho virar `REMUNERACAO_TRECHO`, um arquivo
-com cavalo e trecho juntos passa a ser recusado. Se ficar em
-`REMUNERACAO_EQUIPAMENTO`, trecho vira componente da mesma vigência e herda o
-mecanismo de revisão. **Recomendo família própria** — a periodicidade e o escopo
-da tabela de frete são outros —, com a consequência aceita: arquivos separados,
-que é como o cliente já entrega.
+### 3.11 A família de dataset — decidido: nada muda agora
+
+**TRECHO é, antes de tudo, um tipo de entidade.** A família de dataset descreve
+a natureza e a origem do conjunto de dados; o grão da entidade não é razão para
+abrir uma. Decisão de 18/08/2026, e ela derruba a recomendação que este
+documento trazia antes.
+
+Na prática **nada muda**, e é esse o ponto: `datasetFamilyFor`
+(`canonical-identity.ts:73`) já devolve `REMUNERACAO_EQUIPAMENTO` para qualquer
+tipo não mapeado, por um padrão inclusivo deliberado. TRECHO entra nele hoje,
+sem uma linha de código.
+
+O que **não** vai ser feito, e agora está preso por teste
+(`canonical-identity.test.ts`): pôr TRECHO em `FAMILY_BY_ENTITY_TYPE` com valor
+próprio. Isso faria `datasetFamilyOfSet` (`canonical-identity.ts:80`) lançar num
+arquivo que trouxesse cavalo e trecho juntos — uma restrição nova ao que o
+cliente pode entregar, criada de lado, por uma linha num mapa. Os dois testes
+novos prendem a consequência, e não o valor da constante.
+
+A pergunta fica aberta para depois da medição: **existe razão concreta, medida
+no arquivo real, para o conjunto de trecho ser outra família?** Escopo diferente
+do que `SCOPE_COLUMNS` declara, cadência de entrega diferente, ou origem que não
+seja o mesmo Freightec seriam razões. Periodicidade não é — a §4 resolve isso
+sem tocar em família.
 
 ---
 
@@ -318,7 +354,7 @@ devolver `BASE_AUSENTE` quando há vínculo; `UNIDADES_DE_DINHEIRO`
 qualquer forma. `Periodicity`, `Gaveta`, a tabela de conversão e os treze
 arquivos de rótulo **não são tocados**.
 
-### 4.3 Recomendação
+### 4.3 Decidido: caminho B, e ele já está modelado
 
 **Caminho B**, por três razões: é o que o modelo já diz em voz alta
 (`baseQueFalta` já escreve a frase); resolve R$/km e R$/viagem com um mecanismo
@@ -332,10 +368,37 @@ viagem é classificada como o que ela é, entra em total quando a base está
 declarada, e fica de fora com motivo nomeado enquanto não estiver. Nenhuma
 gambiarra mensal em nenhum dos dois estados.
 
-Se você preferir A por razão de negócio — por exemplo, se o time quiser ver
-"total por viagem" como uma gaveta na tela, ao lado de mensal e anual —, a lista
-de 4.2 é o orçamento, e as duas não são excludentes: B produz o montante mensal,
-A produziria a gaveta. Nesse caso a ordem certa ainda é B primeiro.
+Se um dia o time quiser ver "total por viagem" como gaveta na tela, ao lado de
+mensal e anual, a lista de 4.2 é o orçamento — e as duas não são excludentes: B
+produz o montante, A produziria a gaveta.
+
+### 4.4 O que foi construído (18/08/2026)
+
+O modelo, geral e sem acoplamento a `previsaoViagens`:
+
+- **`lib/curation/src/quantidade-da-base.ts`** — a autoridade da conta
+  `R$/base × base/competência = R$/competência`. Nada nele conhece km, viagem,
+  pallet ou eixo: a base é texto vindo do cadastro de significados, e
+  `R$ por entrega` funciona no dia em que a operação o cadastrar. 22 testes,
+  sem banco.
+- **`base_quantity_source`** (migration `0030_quantidade_da_base`) — a
+  declaração: `(entity_type, base, competence) → attribute_code`, com
+  `entity_type = '*'` valendo para todos e o específico ganhando do geral.
+  Assinada, justificada e versionada, no molde de `attribute_semantics`.
+- **`nature: MEDIDA | PREVISTA`** — a decisão de desenho que não estava no
+  pedido e que o dado exige. `previsaoViagens` é previsão: um total montado
+  sobre ela é orçamento, e o montante derivado sai dizendo isso. Trocar a
+  previsão por viagens realizadas é trocar a linha da tabela; nenhuma linha de
+  cálculo muda.
+- **`podeSerQuantidadeDaBase`** — recusa, antes de gravar a declaração, o que
+  produziria número sem referente: coluna monetária (daria R$²), razão ou
+  percentual (base é contagem, não proporção), coluna não numérica.
+
+**A migration não semeia nenhuma declaração e não muda nenhum número.** Com a
+tabela vazia, todo componente hoje excluído por `BASE_AUSENTE` continua excluído,
+com a mesma frase. Falta um passo, e ele é deliberado: ligar a conta ao portão
+financeiro (`composition/motor.ts:369`), que é onde um erro vira número errado —
+e cujas provas são as suítes que precisam de Postgres.
 
 ---
 
@@ -353,7 +416,7 @@ A prova que você escreveu, com o que cada fase entrega dela:
 | **1** | medir a chave no arquivo real e **decidir** com a tabela na mão | pré-requisito de tudo |
 | **2** | grão por tipo de entidade: leitor, staging, `entityKey`, `identifier_type` | → SOURCE → fatos → entidades |
 | **3** | rótulo do ativo deixa de ser "placa" nas 19 consultas e no escopo | → Curadoria, → Trecho 360° |
-| **4** | quantidade da base declarada (caminho B) | → sem gambiarra mensal |
+| **4** | quantidade da base declarada (B) — modelo pronto, falta ligar ao portão | → sem gambiarra mensal |
 
 Fase 2 sem fase 3 já cumpre metade da prova e não quebra nada: as telas de
 cavalo e carreta não mudam de comportamento, e Trecho 360° abre com entidades
@@ -363,8 +426,7 @@ sem rótulo. Fase 3 é o que dá nome aos trechos na tela.
 
 ## 6. O que preciso de você
 
-1. **O `Modelo Trecho.xlsx`** (ou qualquer export real de trecho). É o único
-   bloqueio duro: sem ele a fase 1 não roda e a chave continua sendo hipótese.
-2. **Trecho é família própria de dataset?** (3.10) A resposta muda se um mesmo
-   arquivo pode trazer cavalo e trecho juntos.
-3. **Caminho A ou B** para a remuneração por viagem (4.3). Recomendo B.
+**O `Modelo Trecho.xlsx`** — ou qualquer export real de trecho. É o que sobrou:
+as outras duas perguntas foram respondidas em 18/08/2026 (família: TRECHO é tipo
+de entidade, e nada muda agora; viagem: caminho B, modelado). Sem o arquivo a
+fase 1 não roda, e a chave continua sendo hipótese.

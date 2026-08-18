@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./significado": "./src/significado.ts",
+    "./quantidade-da-base": "./src/quantidade-da-base.ts",
     "./equipamento": "./src/equipamento.ts"
   },
   "scripts": {

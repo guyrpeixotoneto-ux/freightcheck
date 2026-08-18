@@ -1,4 +1,5 @@
 export * from "./agregacao";
+export * from "./quantidade-da-base";
 export * from "./significado";
 export * from "./catalogo";
 export * from "./semantics";

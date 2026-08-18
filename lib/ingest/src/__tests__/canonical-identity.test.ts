@@ -68,6 +68,29 @@ describe("normalizações", () => {
     expect(datasetFamilyOfSet(["CAVALO"])).toBe(datasetFamilyOfSet(["CARRETA", "CAVALO"]));
   });
 
+  /*
+    TRECHO é um tipo de entidade, e não uma família de dataset.
+
+    A distinção é a decisão registrada em 18/08/2026, e este teste é o que a
+    mantém: a família descreve a natureza e a origem do conjunto de dados, e o
+    grão da entidade não é razão para abrir uma. Enquanto ninguém apresentar
+    razão concreta — medida no arquivo real —, TRECHO entra na família que já
+    existe, pelo padrão inclusivo de `datasetFamilyFor`.
+
+    O que este teste protege não é o valor da constante: é a **consequência**.
+    Pôr TRECHO em família própria faria `datasetFamilyOfSet` lançar num arquivo
+    que trouxesse cavalo e trecho juntos — uma restrição nova ao que o cliente
+    pode entregar, criada de lado, por uma linha num mapa.
+  */
+  it("TRECHO entra na família que já existe, e não abre uma nova", () => {
+    expect(datasetFamilyOfSet(["TRECHO"])).toBe(datasetFamilyOfSet(["CAVALO"]));
+  });
+
+  it("um arquivo com cavalo e trecho juntos continua sendo legal", () => {
+    expect(() => datasetFamilyOfSet(["CAVALO", "TRECHO"])).not.toThrow();
+    expect(datasetFamilyOfSet(["CAVALO", "TRECHO"])).toBe(datasetFamilyOfSet(["CAVALO"]));
+  });
+
   it("normaliza número sem confundir ausência com zero", () => {
     expect(normalizeNumber("1.50")).toBe(normalizeNumber(1.5));
     expect(normalizeNumber("1.500")).toBe(normalizeNumber("1.5"));
