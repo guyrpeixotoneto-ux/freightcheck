@@ -290,9 +290,18 @@ describe("a ordem dos degraus não move o dinheiro", () => {
     expect(oficialA).toBeCloseTo(OFICIAL, 2);
     expect(oficialB).toBeCloseTo(OFICIAL, 2);
 
-    // E o que **muda** com a ordem: o primeiro degrau, e portanto o subtotal.
+    /*
+      E o que **muda** com a ordem: o primeiro degrau, e portanto o subtotal.
+
+      O degrau do conjunto era 28.511,23 até 18/08/2026. Ele subiu os mesmos
+      R$ 4.677,85 que saíram do oficial quando
+      `carreta.lucro_fixomodelo_novo_ciclo` passou a escopo de conjunto — ver o
+      comentário do `OFICIAL` no topo. É a mesma linha contada nos dois lugares:
+      o que sai do total tem de aparecer no degrau que o retirou, e é isso que
+      esta dupla de números afirma.
+    */
     expect(soma((l) => l.A)).toBeCloseTo(11425.04, 2);
-    expect(soma((l) => l.B)).toBeCloseTo(28511.23, 2);
+    expect(soma((l) => l.B)).toBeCloseTo(33189.08, 2);
   });
 
   it("as exclusões são uma partição: nada sai duas vezes, nada some", async () => {
@@ -303,8 +312,14 @@ describe("a ordem dos degraus não move o dinheiro", () => {
     expect(fora.length + dentro.length).toBe(linhas.length);
     expect(linhas).toHaveLength(19);
     expect(fora.filter((l) => l.publicada!.motivo === "COBERTO_POR_PARCELAS")).toHaveLength(6);
-    expect(fora.filter((l) => l.publicada!.motivo === "ESCOPO_DE_CONJUNTO")).toHaveLength(5);
-    expect(dentro).toHaveLength(8);
+    /*
+      Seis, e não cinco: a sexta é a linha de `carreta.lucro_fixomodelo_novo_
+      ciclo` que a mudança de 18/08/2026 passou a reconhecer como escopo de
+      conjunto. Ela veio de `dentro`, que por isso cai de oito para sete — a
+      partição continua fechando, com uma linha a mais do lado de fora.
+    */
+    expect(fora.filter((l) => l.publicada!.motivo === "ESCOPO_DE_CONJUNTO")).toHaveLength(6);
+    expect(dentro).toHaveLength(7);
 
     const somar = (ls: typeof linhas) => Number(ls.reduce((s, l) => s + l.valor, 0).toFixed(2));
     expect(somar(dentro)).toBeCloseTo(OFICIAL, 2);
