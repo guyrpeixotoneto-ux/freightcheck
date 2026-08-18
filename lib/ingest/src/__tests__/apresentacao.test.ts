@@ -72,7 +72,17 @@ describe("cada recusa que uma planilha provoca", () => {
     const { importRunId, issues } = await importarEListar(
       escreverPlanilha({
         vigencia: "EMPURRADA_1_9_2026",
-        abas: [{ nome: "cavalos", linhas: [{ placa: "" }, { placa: "OK1A234" }] }],
+        abas: [
+          {
+            nome: "cavalos",
+            linhas: [
+              { placa: "" },
+              // O -1 dispara SUSPECTED_SENTINEL, colocando um aviso de célula
+              // no alcance da varredura lá embaixo.
+              { placa: "OK1A234", valores: { "Custo Fixo": -1 } },
+            ],
+          },
+        ],
       }),
     );
     importRunIds.push(importRunId);
@@ -81,6 +91,15 @@ describe("cada recusa que uma planilha provoca", () => {
     const apresentacao = apresentacaoDoDetalhe(recusa.detail)!;
     expect(apresentacao.onde).toEqual([{ aba: "cavalos", linhas: [2] }]);
     expect(apresentacao.comoCorrigir).toContain("Placa");
+
+    // O aviso de célula aponta a célula — aba, linha e coluna — e tem título
+    // humano; sem ele o grupo estamparia o código cru na tela.
+    const sentinela = apontamento(issues, "SUSPECTED_SENTINEL");
+    const aviso = apresentacaoDoDetalhe(sentinela.detail)!;
+    expect(aviso.onde).toEqual([
+      { aba: "cavalos", linhas: [3], coluna: "Custo Fixo" },
+    ]);
+    expect(aviso.titulo).not.toMatch(/[A-Z]{2,}_/);
   });
 
   it("vigência ilegível mostra o texto que veio e um exemplo do formato", async () => {
