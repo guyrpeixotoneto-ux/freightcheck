@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cobertura,
+  detalheDoImpacto,
   equipamentoMaisTocado,
   escreverVariacao,
   frotaTotal,
@@ -407,6 +408,162 @@ describe("maiores impactos", () => {
   it("sem parâmetro com impacto, não há pódio", () => {
     expect(maioresImpactos(summary([]))).toBeNull();
     expect(maioresImpactos(undefined)).toBeNull();
+  });
+});
+
+describe("de onde vem um número do pódio", () => {
+  /*
+    Um parâmetro com as três coisas que o painel precisa distinguir: o que soma
+    no número (dois grupos MENSAL), o que fica de fora por dupla contagem, e o
+    que ficou sem preço. O terceiro grupo é ANUAL de propósito — é a linha que,
+    se entrasse na soma, faria o painel cometer exatamente a soma entre
+    periodicidades que o pódio existe para recusar.
+  */
+  const comFamilias = (): FamiliesView => ({
+    ...vigencia(),
+    summary: {
+      impact: vigencia().impact,
+      lossesByPeriodicity: {},
+      gainsByPeriodicity: {},
+      changes: 0,
+      groups: 0,
+      critical: 0,
+      locked: 0,
+      notCalculable: 0,
+      vehiclesTouched: 0,
+      topParameters: [],
+      topVehicles: [],
+    },
+    families: [
+      {
+        code: "AQUISICAO",
+        name: "Aquisição e financiamento",
+        origin: "FREIGHTECH",
+        note: "",
+        parametersWithData: 4,
+        parametersChanged: 1,
+        changes: 12,
+        vehicles: 9,
+        impact: {
+          byPeriodicity: { MENSAL: 26856, ANUAL: -1200 },
+          excludedByPeriodicity: { MENSAL: -400 },
+          excludedChanges: 2,
+          notCalculable: 3,
+          calculatedChanges: 9,
+        },
+        critical: 1,
+        locked: 0,
+        parameters: [
+          {
+            key: "AQUISICAO|Financiamento",
+            name: "Financiamento",
+            family: "AQUISICAO",
+            pending: null,
+            changes: 12,
+            vehicles: 9,
+            impact: {
+              byPeriodicity: { MENSAL: 26856, ANUAL: -1200 },
+              excludedByPeriodicity: { MENSAL: -400 },
+              excludedChanges: 2,
+              notCalculable: 3,
+              calculatedChanges: 9,
+            },
+            groups: [
+              grupo({
+                key: "g-pequeno",
+                attributeCode: "cavalo.financiamento",
+                impact: {
+                  confidence: "CALCULATED",
+                  amount: 6856,
+                  periodicity: "MENSAL",
+                  reason: null,
+                  countedVehicles: 2,
+                  excludedVehicles: 0,
+                  excludedAmount: null,
+                  excludedReason: null,
+                },
+              }),
+              grupo({
+                key: "g-grande",
+                attributeCode: "cavalo.financiamento",
+                impact: {
+                  confidence: "CALCULATED",
+                  amount: 20000,
+                  periodicity: "MENSAL",
+                  reason: null,
+                  countedVehicles: 5,
+                  excludedVehicles: 2,
+                  excludedAmount: -400,
+                  excludedReason: "coberto pelas parcelas",
+                },
+              }),
+              grupo({
+                key: "g-anual",
+                attributeCode: "cavalo.financiamento",
+                impact: {
+                  confidence: "CALCULATED",
+                  amount: -1200,
+                  periodicity: "ANUAL",
+                  reason: null,
+                  countedVehicles: 1,
+                  excludedVehicles: 0,
+                  excludedAmount: null,
+                  excludedReason: null,
+                },
+              }),
+            ],
+          },
+        ],
+      },
+    ],
+    freightechSemDado: [],
+  });
+
+  it("os grupos que somam no número são só os da periodicidade pedida", () => {
+    const detalhe = detalheDoImpacto(comFamilias(), "AQUISICAO|Financiamento", "MENSAL")!;
+    expect(detalhe.amount).toBe(26856);
+    expect(detalhe.grupos.map((g) => g.key)).toEqual(["g-grande", "g-pequeno"]);
+    expect(detalhe.veiculosContados).toBe(7);
+    expect(detalhe.resto).toBe(0);
+  });
+
+  it("a outra periodicidade aparece nomeada, e nunca somada", () => {
+    const detalhe = detalheDoImpacto(comFamilias(), "AQUISICAO|Financiamento", "MENSAL")!;
+    expect(detalhe.outras).toEqual([{ periodicity: "ANUAL", amount: -1200 }]);
+  });
+
+  it("o que ficou de fora do número é dito, e não some na diferença", () => {
+    const detalhe = detalheDoImpacto(comFamilias(), "AQUISICAO|Financiamento", "MENSAL")!;
+    expect(detalhe.semPreco).toBe(3);
+    expect(detalhe.excluido).toEqual({ alteracoes: 2, valor: -400 });
+  });
+
+  it("a diferença entre a soma dos grupos e o número publicado fica exposta", () => {
+    const view = comFamilias();
+    view.families[0].parameters[0].impact.byPeriodicity.MENSAL = 27000;
+    const detalhe = detalheDoImpacto(view, "AQUISICAO|Financiamento", "MENSAL")!;
+    expect(detalhe.resto).toBe(144);
+  });
+
+  it("com um código de atributo só, o link leva o filtro; com dois, não leva", () => {
+    expect(
+      detalheDoImpacto(comFamilias(), "AQUISICAO|Financiamento", "MENSAL")!.attributeCode,
+    ).toBe("cavalo.financiamento");
+
+    const view = comFamilias();
+    view.families[0].parameters[0].groups[0].attributeCode = "carreta.financiamento";
+    expect(detalheDoImpacto(view, "AQUISICAO|Financiamento", "MENSAL")!.attributeCode).toBeNull();
+  });
+
+  it("periodicidade que o parâmetro não tem cai na de maior módulo, e não em nada", () => {
+    const detalhe = detalheDoImpacto(comFamilias(), "AQUISICAO|Financiamento", "SEMANAL")!;
+    expect(detalhe.periodicity).toBe("MENSAL");
+  });
+
+  it("parâmetro que não está nesta vigência não abre painel nenhum", () => {
+    expect(detalheDoImpacto(comFamilias(), "AQUISICAO|Inexistente", "MENSAL")).toBeNull();
+    expect(detalheDoImpacto(comFamilias(), null, "MENSAL")).toBeNull();
+    expect(detalheDoImpacto(null, "AQUISICAO|Financiamento", "MENSAL")).toBeNull();
   });
 });
 
