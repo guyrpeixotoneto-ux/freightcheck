@@ -225,6 +225,13 @@
       "when": 1787019180000,
       "tag": "0031_taxonomia_semantica",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1787053077922,
+      "tag": "0032_universo_esperado",
+      "breakpoints": true
     }
   ]
 }

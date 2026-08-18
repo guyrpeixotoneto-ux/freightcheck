@@ -159,6 +159,38 @@ export function DetalheDaCelulaPainel({
               </div>
             )}
 
+            {consulta.data.entidadesAusentes.length > 0 && (
+              <div className="mt-6">
+                <h3 className="text-sm font-bold uppercase tracking-wide">
+                  Equipamentos que não vieram ({consulta.data.entidadesAusentes.length})
+                </h3>
+                <p className="text-xs text-muted-foreground mt-1 max-w-3xl">
+                  Estavam em vigências anteriores deste mesmo recorte e não estão nesta. Contam
+                  como falta em todos os atributos esperados — é o que separa "o arquivo veio com
+                  menos colunas" de "o arquivo veio com menos equipamentos". Se a saída foi
+                  legítima, registrar a baixa em Curadoria encerra a cobrança; enquanto ninguém
+                  registrar, ela continua.
+                </p>
+                <ul className="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2 lg:grid-cols-3 text-xs">
+                  {consulta.data.entidadesAusentes.slice(0, 30).map((e) => (
+                    <li key={e.entityId} className="flex justify-between gap-2">
+                      <span className="truncate font-mono" title={e.entityId}>
+                        {e.rotulo}
+                      </span>
+                      <span className="text-muted-foreground tabular-nums shrink-0">
+                        até {e.ultimaVigencia}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {consulta.data.entidadesAusentes.length > 30 && (
+                  <p className="text-xs text-muted-foreground mt-2">
+                    e mais {consulta.data.entidadesAusentes.length - 30} não listados aqui.
+                  </p>
+                )}
+              </div>
+            )}
+
             <div className="mt-2">
               <Lacunas lacunas={consulta.data.lacunas as Lacuna[]} aoAbrir={aoAbrirLacuna} />
             </div>

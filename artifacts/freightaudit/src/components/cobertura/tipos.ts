@@ -72,7 +72,20 @@ export interface CelulaDaMatriz {
   conta: Contagem;
   contaCritica: Contagem;
   lacunas: { critico: number; relevante: number; informativo: number };
+  entidadesAusentes: EntidadeAusente[];
   novos: number;
+}
+
+/** Um equipamento que era esperado numa vigência e não veio. */
+export interface EntidadeAusente {
+  entityId: string;
+  entityType: string;
+  /** A placa ou chassi corrente. */
+  rotulo: string;
+  /** A última vigência deste recorte em que ela apareceu. */
+  ultimaVigencia: string;
+  /** Em quantas vigências anteriores deste recorte ela apareceu. */
+  vigenciasComDado: number;
 }
 
 export interface LinhaDaMatriz {
@@ -150,6 +163,7 @@ export interface DetalheDaCelula {
   conta: Contagem;
   contaCritica: Contagem;
   lacunas: Lacuna[];
+  entidadesAusentes: EntidadeAusente[];
   contribuintes: {
     importRunId: string;
     arquivo: string;

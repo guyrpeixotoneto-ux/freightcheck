@@ -14,6 +14,7 @@ import {
 } from "@workspace/curation";
 import { refazerAgregado } from "../agregado";
 import { semearContrato } from "../contrato";
+import { BaixaRecusada, registrarBaixa } from "../frota";
 import { descobertas } from "../descoberta";
 import { detalheDaCelula, detalheDaLacuna, historicoDoAtributo } from "../detalhe";
 import { visaoDaCobertura } from "../matriz";
@@ -69,15 +70,41 @@ describe("1. dois arquivos complementares formam uma cobertura consolidada", () 
     }
   });
 
-  it("a matriz tem uma linha por equipamento, e as duas na mesma família", async () => {
+  /*
+    Três linhas, e a terceira é a que este módulo passou a saber desenhar.
+
+    O export real traz cavalo e carreta. O trecho está declarado no catálogo —
+    110 atributos — e nunca chegou em arquivo nenhum. Enquanto a matriz era
+    montada sobre `vigencia.equipamentos`, ele simplesmente não tinha linha, e
+    um tipo sem linha não consegue estar ausente na tela: a cobertura fechava
+    100% ignorando um terço do universo declarado.
+
+    O teste guarda as duas metades disso ao mesmo tempo — que a linha existe, e
+    que ela está `AUSENTE` em todas as vigências. Uma sem a outra seria pior do
+    que nada: uma linha de trecho que aparecesse `COMPLETO` por não ter nada a
+    comparar seria a mentira que a linha veio desfazer.
+  */
+  it("a matriz tem uma linha por equipamento declarado, inclusive o que nunca chegou", async () => {
     const visao = await visaoDaCobertura(ctx.db, { vigencias: 9 });
-    expect(visao.linhas).toHaveLength(2);
-    expect(visao.linhas.map((l) => l.entityType).sort()).toEqual(["CARRETA", "CAVALO"]);
+    expect(visao.linhas.map((l) => l.entityType).sort()).toEqual([
+      "CARRETA",
+      "CAVALO",
+      "TRECHO",
+    ]);
     expect(new Set(visao.linhas.map((l) => l.datasetFamily))).toEqual(
       new Set(["REMUNERACAO_EQUIPAMENTO"]),
     );
     expect(visao.colunas).toHaveLength(9);
     expect(visao.incompleto).toEqual([]);
+
+    const trecho = visao.linhas.find((l) => l.entityType === "TRECHO")!;
+    const celulasDoTrecho = Object.values(trecho.celulas);
+    expect(celulasDoTrecho).toHaveLength(visao.colunas.length);
+    for (const celula of celulasDoTrecho) {
+      expect(celula.estado).toBe("AUSENTE");
+      expect(celula.conta.combinacoesEncontradas).toBe(0);
+      expect(celula.conta.combinacoesEsperadas).toBeGreaterThan(0);
+    }
   });
 
   it("as entidades das duas séries somam o universo, sem dupla contagem", async () => {
@@ -276,14 +303,117 @@ describe("13 e 14. vigências e escopos não contaminam uns aos outros", () => {
         SELECT entity_count AS n FROM snapshot_entity_type
          WHERE snapshot_id = ${celula.vigencia.snapshotId}::uuid AND entity_type = 'CAVALO'
       `);
-      expect(celula.conta.entidadesEsperadas).toBe(Number(rows[0]!.n));
+      /*
+        O **encontrado** é o que a vigência trouxe; o **esperado** já não é.
+
+        Esta asserção comparava `entidadesEsperadas` com `entity_count`, e era
+        a forma escrita do problema: o denominador saía do próprio arquivo, de
+        modo que um cavalo que sumisse saía dos dois lados da fração e o
+        percentual não se mexia. Agora o esperado é o roster — o que chegou mais
+        o que faltou —, e a identidade que sobrevive é a do numerador.
+      */
+      expect(celula.conta.entidadesEncontradas).toBe(Number(rows[0]!.n));
+      expect(celula.conta.entidadesEsperadas).toBe(
+        celula.conta.entidadesEncontradas + celula.entidadesAusentes.length,
+      );
     }
 
     /* As entidades mudam entre vigências — logo, não houve reaproveitamento. */
     const contagens = visao.colunas.map(
-      (c) => cavalo.celulas[c.chave]!.conta.entidadesEsperadas,
+      (c) => cavalo.celulas[c.chave]!.conta.entidadesEncontradas,
     );
     expect(new Set(contagens).size).toBeGreaterThan(1);
+  });
+
+  /*
+    A frota que encolheu no export real, e que a cobertura não via.
+
+    Nove carretas e dois cavalos aparecem até a vigência de 02/04/2026 e não
+    aparecem em nenhuma depois. Enquanto o denominador era o próprio arquivo,
+    isso era literalmente invisível: os 11 sumiam do numerador e do denominador
+    ao mesmo tempo, e a célula seguia no mesmo percentual.
+
+    O teste fixa as duas metades do comportamento novo. Que a ausência é
+    detectada — com placa, com a última vigência em que a entidade apareceu — e
+    que ela **continua** contando nas vigências seguintes, porque ninguém
+    declarou a baixa. A segunda é a que costuma ser confundida com bug: é o
+    mecanismo, e o que o encerra é `registrarBaixa`, não o tempo.
+  */
+  it("acusa os equipamentos que sumiram do export e não voltaram", async () => {
+    const visao = await visaoDaCobertura(ctx.db, { vigencias: 9 });
+    const posteriores = visao.colunas.filter((c) => c.effectiveDate > "2026-04-02");
+    expect(posteriores.length).toBeGreaterThan(0);
+
+    for (const tipo of ["CAVALO", "CARRETA"] as const) {
+      const linha = visao.linhas.find((l) => l.entityType === tipo)!;
+      for (const coluna of posteriores) {
+        const celula = linha.celulas[coluna.chave]!;
+        expect(celula.entidadesAusentes.length).toBeGreaterThan(0);
+        for (const ausente of celula.entidadesAusentes) {
+          expect(ausente.rotulo).toBeTruthy();
+          expect(ausente.ultimaVigencia < coluna.effectiveDate).toBe(true);
+          expect(ausente.vigenciasComDado).toBeGreaterThan(0);
+        }
+      }
+    }
+  });
+
+
+  /*
+    A baixa curada é a única saída, e ela precisa de dono e de motivo.
+
+    A ausência inferida não expira sozinha — de propósito. Se ela expirasse, um
+    caminhão que sumiu por erro de exportação viraria silêncio no mês seguinte,
+    que é exatamente o silêncio que este módulo veio desfazer. O que a encerra é
+    alguém dizer "saiu da frota, e foi por isto", e o teste prova as duas
+    metades: que a decisão apaga a lacuna daquela entidade, e que ela não apaga
+    a das outras.
+  */
+  it("uma baixa registrada tira aquele equipamento da conta, e só aquele", async () => {
+    const antes = await visaoDaCobertura(ctx.db, { vigencias: 9 });
+    const ultima = antes.colunas[antes.colunas.length - 1]!;
+    const linha = antes.linhas.find((l) => l.entityType === "CARRETA")!;
+    const celula = linha.celulas[ultima.chave]!;
+    const alvo = celula.entidadesAusentes[0]!;
+    const quantasAntes = celula.entidadesAusentes.length;
+    expect(quantasAntes).toBeGreaterThan(1);
+
+    await expect(
+      registrarBaixa(ctx.db, {
+        datasetFamily: celula.datasetFamily,
+        entityType: "CARRETA",
+        entityId: alvo.entityId,
+        status: "BAIXA",
+        efetivoDe: "2026-05-01",
+        motivo: "   ",
+        ator: "teste",
+      }),
+    ).rejects.toBeInstanceOf(BaixaRecusada);
+
+    await registrarBaixa(ctx.db, {
+      datasetFamily: celula.datasetFamily,
+      entityType: "CARRETA",
+      entityId: alvo.entityId,
+      status: "BAIXA",
+      efetivoDe: "2026-05-01",
+      motivo: "Implemento devolvido ao locador em 30/04; conferido no contrato.",
+      ator: "teste",
+    });
+
+    const depois = await visaoDaCobertura(ctx.db, { vigencias: 9 });
+    const celulaDepois = depois.linhas.find((l) => l.entityType === "CARRETA")!.celulas[
+      ultima.chave
+    ]!;
+    expect(celulaDepois.entidadesAusentes.map((a) => a.entityId)).not.toContain(alvo.entityId);
+    expect(celulaDepois.entidadesAusentes).toHaveLength(quantasAntes - 1);
+    expect(celulaDepois.conta.entidadesEsperadas).toBe(celula.conta.entidadesEsperadas - 1);
+
+    /* E o evento de curadoria ficou, que é o que torna a decisão auditável. */
+    const { rows } = await ctx.db.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n FROM curation_event
+       WHERE target_kind = 'ENTITY_EXPECTATION' AND target_id = ${alvo.entityId}::uuid
+    `);
+    expect(Number(rows[0]!.n)).toBe(1);
   });
 
   it("o histórico de um atributo é por vigência, e a série tem os nove pontos", async () => {
@@ -308,7 +438,7 @@ describe("13 e 14. vigências e escopos não contaminam uns aos outros", () => {
       datasetFamily: "REMUNERACAO_EQUIPAMENTO",
       vigencias: 9,
     });
-    expect(daFamilia.linhas).toHaveLength(2);
+    expect(daFamilia.linhas).toHaveLength(3);
 
     const inexistente = await visaoDaCobertura(ctx.db, { datasetFamily: "CUSTOS_OPERACAO" });
     expect(inexistente.linhas).toEqual([]);
@@ -416,7 +546,7 @@ describe("o agregado perdido, refeito sobre o dado real", () => {
     expect(await ler()).toEqual(daPromocao);
 
     const restaurada = await visaoDaCobertura(ctx.db, { vigencias: 9 });
-    expect(restaurada.linhas).toHaveLength(2);
+    expect(restaurada.linhas).toHaveLength(3);
     expect(restaurada.incompleto).toEqual([]);
   });
 });
