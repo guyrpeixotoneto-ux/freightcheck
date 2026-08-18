@@ -53,18 +53,34 @@ export interface ImportRunSummary {
    */
   declaredType: string | null;
   /**
-   * Os tipos que esta importação de fato produziu, lidos das vigências dela.
+   * O que as vigências gravadas por esta importação passaram a cobrir.
    *
-   * Não é o mesmo que {@link declaredType}, e a diferença é o ponto: a
-   * declaração é o que se disse antes de ler o arquivo; isto é o que saiu dele.
-   * Uma importação promovida antes de a declaração existir tem só a segunda —
-   * e é por ela que a aba do tipo recorta o histórico antigo.
+   * **Não é** "o que veio neste arquivo" — esse é {@link tiposDoArquivo}. Uma
+   * revisão preserva os fatos dos tipos que o arquivo não toca (o arquivo de
+   * carreta que entra numa vigência que já tinha cavalos grava uma revisão
+   * cobrindo os dois), e o conjunto aqui é o da vigência resultante, herança
+   * incluída. A tela que escrever estes tipos como se fossem o conteúdo do
+   * arquivo estará afirmando uma coisa com o número da outra — foi exatamente
+   * assim que "Cavalo + Carreta" apareceu num arquivo que só trouxe carretas.
    *
    * Vazio quando a importação não produziu vigência nenhuma. Isso não é um
    * detalhe de implementação: é a resposta honesta para o arquivo que entrou e
    * não virou nada, que antes ficava indistinguível de um arquivo cheio.
    */
   entityTypes: string[];
+  /**
+   * Os tipos que **este arquivo** trouxe — a parte de {@link entityTypes} que
+   * não é herança.
+   *
+   * Lido de `snapshot_entity_type`, onde cada tipo de cada vigência carrega
+   * quantos fatos vieram deste arquivo e quantos foram preservados da revisão
+   * anterior: um tipo cujos fatos são todos herdados não veio no arquivo.
+   *
+   * Vazio nas importações que não chegaram a promover vigência (aí só a
+   * declaração, quando existe, diz o tipo) — e nas anteriores ao agregado por
+   * tipo, se o backfill da migration 0021 não as cobriu.
+   */
+  tiposDoArquivo: string[];
 }
 
 /**
@@ -119,6 +135,26 @@ function selectRunSummary(db: Database) {
                    unnest(string_to_array(s.entity_type_set, '+')) AS t
              WHERE s.import_run_id = ${importRunTable.id}
                AND btrim(t) <> ''
+             ORDER BY 1
+          ),
+          '{}'
+        )`,
+      /*
+        O que veio no arquivo sai de `snapshot_entity_type`, que a promoção
+        escreve (e a 0021 preencheu para trás) com a contagem de fatos herdados
+        ao lado da total: um tipo com fato além dos herdados veio deste
+        arquivo; um tipo só de herança está na vigência, não no arquivo. É a
+        mesma razão de custo do campo acima — a alternativa seria um DISTINCT
+        sobre `staged_fact`, dezenas de milhares de linhas por cartão.
+      */
+      tiposDoArquivo: sql<string[]>`
+        coalesce(
+          array(
+            SELECT DISTINCT et.entity_type
+              FROM snapshot s
+              JOIN snapshot_entity_type et ON et.snapshot_id = s.id
+             WHERE s.import_run_id = ${importRunTable.id}
+               AND et.fact_count > et.inherited_fact_count
              ORDER BY 1
           ),
           '{}'
