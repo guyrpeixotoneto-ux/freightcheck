@@ -79,12 +79,25 @@ export function numerosDoResumoDeImpacto(impacto: ImpactSummary): number[] {
   return [
     ...Object.values(impacto.byPeriodicity),
     ...Object.values(impacto.brutoByPeriodicity),
-    // Os degraus também têm lastro: quando o assistente explica por que o
-    // número caiu, ele cita o que cada regra tirou e o subtotal entre elas.
+    /*
+      O rastro **inteiro**, e não só o dinheiro dele.
+
+      Os degraus vão para o conteúdo com todos os seus campos, e `mudancasRemovidas`
+      é um deles: um inteiro, ao lado dos valores. Autorizar só as periodicidades
+      deixava esse número visível ao modelo e fora do lastro — e a trava podava a
+      frase em que ele dissesse "onze alterações saíram por dupla contagem", que é
+      um resultado correto punido como se fosse invenção.
+
+      A regra é a do arquivo: ou sai do conteúdo, ou entra no lastro. Como o rastro
+      existe justamente para ser lido, ele entra inteiro.
+    */
     ...impacto.rastro.degraus.flatMap((d) => [
       ...Object.values(d.removidoByPeriodicity),
       ...Object.values(d.subtotalByPeriodicity),
+      d.mudancasRemovidas,
     ]),
+    ...Object.values(impacto.rastro.brutoByPeriodicity),
+    ...Object.values(impacto.rastro.oficialByPeriodicity),
     impacto.excludedChanges,
     impacto.notCalculable,
     impacto.calculatedChanges,
