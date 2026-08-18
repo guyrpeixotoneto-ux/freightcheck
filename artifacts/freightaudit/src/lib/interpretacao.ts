@@ -66,6 +66,42 @@ export interface OpcaoDeCategoria {
 }
 
 /**
+ * Uma linha sintética da DRE, como o campo de cima da Categoria DRE a mostra.
+ *
+ * Vem do servidor, e não da lista de categorias: uma linha criada agora ainda
+ * não tem analítico dentro, e derivá-la das categorias a esconderia justamente
+ * no instante em que quem a criou procura por ela.
+ */
+export interface OpcaoDeSintetico {
+  id: string;
+  code: string;
+  nome: string;
+  costClass: string | null;
+  /**
+   * `true` em custo fixo, custo variável e cadastral — as três casas em que
+   * pendurar uma categoria é decidir de que lado da conta ela cai. É o que faz
+   * a tela avisar, antes do clique, que a categoria nova não nasce ali dentro.
+   */
+  decideClasseDeCusto: boolean;
+  categorias: number;
+  isSeed: boolean;
+}
+
+/** O que a linha da DRE já tem dentro, dito na segunda linha da opção. */
+export function leituraDoSintetico(sintetico: OpcaoDeSintetico): string {
+  const quantas =
+    sintetico.categorias === 0
+      ? "nenhuma categoria ainda"
+      : sintetico.categorias === 1
+        ? "1 categoria"
+        : `${sintetico.categorias} categorias`;
+  if (sintetico.code === "custo_fixo") return `Custo fixo · ${quantas}`;
+  if (sintetico.code === "custo_variavel") return `Custo variável · ${quantas}`;
+  if (sintetico.code === "cadastral") return `Não é custo · ${quantas}`;
+  return `Sem classe de custo · ${quantas}`;
+}
+
+/**
  * A classe de custo dita para quem escolhe categoria.
  *
  * `costClass` sozinha não serve, e o erro seria caro na direção mais silenciosa

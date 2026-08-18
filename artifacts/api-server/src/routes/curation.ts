@@ -19,12 +19,14 @@ import {
   conferirPreenchimento,
   criarCategoria,
   criarSignificado,
+  criarSintetico,
   getAttributeDetail,
   getCurationQueue,
   getCurationSummary,
   getTaxonomyTree,
   listarCategorias,
   listarSignificados,
+  listarSinteticos,
   listTaxonomyNodes,
   montarLinhas,
   normalizarEquipamento,
@@ -802,6 +804,53 @@ router.post("/curation/significados", async (req, res, next): Promise<void> => {
 });
 
 /**
+ * As linhas sintéticas da DRE — e a criação inline delas.
+ *
+ * Lista própria, e não derivada de `/curation/categorias`: uma linha recém
+ * criada ainda não tem categoria nenhuma dentro, e a tela que a derivasse das
+ * categorias mostraria a criação sumindo no instante seguinte ao do clique.
+ */
+router.get("/curation/sinteticos", async (req, res, next): Promise<void> => {
+  try {
+    res.json(await listarSinteticos(db));
+  } catch (err) {
+    await responderFalha(
+      req,
+      res,
+      next,
+      err,
+      "As linhas da DRE não puderam ser lidas neste banco.",
+    );
+  }
+});
+
+router.post("/curation/sinteticos", async (req, res, next): Promise<void> => {
+  try {
+    const name = typeof req.body?.name === "string" ? req.body.name : "";
+    if (!name.trim()) {
+      res.status(400).json({ error: "Informe o nome da linha da DRE (name)." });
+      return;
+    }
+    const resultado = await criarSintetico(db, { name, actor: req.user!.email });
+    res.status(resultado.desfecho === "CRIADO" ? 201 : 200).json(resultado);
+  } catch (err) {
+    if (faltaOSchemaDaCuradoria(err)) {
+      await responderFalha(
+        req,
+        res,
+        next,
+        err,
+        "A linha da DRE não pôde ser cadastrada neste banco.",
+      );
+      return;
+    }
+    const message = err instanceof Error ? err.message : "Erro desconhecido";
+    req.log.warn({ err }, "Synthetic DRE line creation refused");
+    res.status(422).json({ error: message });
+  }
+});
+
+/**
  * As categorias em linguagem de negócio — e a criação inline delas.
  *
  * Separada de `/curation/taxonomy` de propósito, e não por duplicação: aquela
@@ -832,7 +881,19 @@ router.post("/curation/categorias", async (req, res, next): Promise<void> => {
       res.status(400).json({ error: "Informe o nome da categoria (name)." });
       return;
     }
-    const resultado = await criarCategoria(db, { name, actor: req.user!.email });
+    /*
+      `sintetico` é o código da linha da DRE escolhida na tela, e vai como
+      pedido — o cadastro decide se atende. Ver `criarCategoria`: nas três
+      casas da classificação ele é recusado em silêncio, porque criar lá
+      dentro seria classificar sem autor nem justificativa.
+    */
+    const sintetico =
+      typeof req.body?.sintetico === "string" ? req.body.sintetico : null;
+    const resultado = await criarCategoria(db, {
+      name,
+      sintetico,
+      actor: req.user!.email,
+    });
     res.status(resultado.desfecho === "CRIADO" ? 201 : 200).json(resultado);
   } catch (err) {
     if (faltaOSchemaDaCuradoria(err)) {

@@ -3,6 +3,7 @@ import {
   avisoDeParecido,
   classeDaCategoria,
   leituraDe,
+  leituraDoSintetico,
   oQueFalta,
   podeConfirmar,
   precisaDoPeriodo,
@@ -15,6 +16,7 @@ import {
   type Escolhas,
   type OpcaoDeCategoria,
   type OpcaoDeSignificado,
+  type OpcaoDeSintetico,
 } from "../interpretacao";
 import {
   derivarSemantica,
@@ -348,6 +350,53 @@ describe("a classe da categoria, dita para quem escolhe", () => {
       classeCode: "nao_classificado",
     };
     expect(classeDaCategoria(nova)).toBe("Ainda sem classe de custo");
+  });
+});
+
+describe("a linha da DRE, lida no campo do sintético", () => {
+  const linha = (parcial: Partial<OpcaoDeSintetico>): OpcaoDeSintetico => ({
+    id: "1",
+    code: "custo_fixo",
+    nome: "Custo Fixo",
+    costClass: "FIXO",
+    decideClasseDeCusto: true,
+    categorias: 8,
+    isSeed: true,
+    ...parcial,
+  });
+
+  it("diz o lado da conta e quanto já mora dentro", () => {
+    expect(leituraDoSintetico(linha({}))).toBe("Custo fixo · 8 categorias");
+    expect(
+      leituraDoSintetico(
+        linha({ code: "custo_variavel", nome: "Custo Variável", categorias: 1 }),
+      ),
+    ).toBe("Custo variável · 1 categoria");
+  });
+
+  it("a linha recém-criada se anuncia vazia, e não some da lista", () => {
+    // O contrário — derivar as linhas das categorias — esconderia a linha nova
+    // no instante seguinte ao do clique que a criou.
+    const nova = linha({
+      code: "receita_de_frete",
+      nome: "Receita de frete",
+      costClass: null,
+      decideClasseDeCusto: false,
+      categorias: 0,
+      isSeed: false,
+    });
+    expect(leituraDoSintetico(nova)).toBe("Sem classe de custo · nenhuma categoria ainda");
+  });
+
+  it("'Não classificado' é a linha de onde se sai, e não uma classe", () => {
+    const naoClassificado = linha({
+      code: "nao_classificado",
+      nome: "Não classificado",
+      costClass: null,
+      decideClasseDeCusto: false,
+      categorias: 3,
+    });
+    expect(leituraDoSintetico(naoClassificado)).toBe("Sem classe de custo · 3 categorias");
   });
 });
 
