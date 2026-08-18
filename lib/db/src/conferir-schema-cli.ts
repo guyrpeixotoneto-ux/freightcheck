@@ -4,6 +4,7 @@ import {
   compararSchema,
   tabelasDeclaradas,
 } from "./conferir-schema";
+import { reconvergirSeCabivel } from "./reconvergencia";
 import {
   avaliarIntegridadeSemantica,
   relatarIntegridadeSemantica,
@@ -22,6 +23,14 @@ import {
  * ambiente errado — e as três pedem decisões diferentes de quem conhece o
  * banco. Mesma razão pela qual `--adotar-existentes` é bandeira no
  * `migrate-cli`, e não comportamento de partida.
+ *
+ * **`--aplicar` é a reconvergência, pela mão de quem opera.** O mesmo reparo da
+ * partida de Production (`reconvergencia.ts`): tabela, coluna, índice,
+ * constraint e trigger, com DDL levantado verbatim das migrations, atrás das
+ * mesmas recusas — pendência é da fila, bridge é do `bridge:up`. Este comando
+ * repunha só coluna, e a tela de SCHEMA_DIVERGENTE que o recomenda terminava
+ * num beco: foi com `entity_expectation` inteira ausente, em 18/08/2026, que o
+ * "as tabelas continuam ausentes" deixou de ser resposta.
  *
  * **Duas perguntas, não uma.** Depois da forma vem o conteúdo: as invariantes
  * de `integridade-semantica.ts` — todo atributo com versão aplicável, e a
@@ -73,22 +82,27 @@ async function conferirConteudo(
   return ok;
 }
 
-async function main(): Promise<void> {
-  const { db, pool } = createDb(url!);
-
+/** O schema como o banco o descreve, no formato que `compararSchema` espera. */
+async function lerReais(
+  pool: ReturnType<typeof createDb>["pool"],
+): Promise<Map<string, Set<string>>> {
   const { rows } = await pool.query<{ table_name: string; column_name: string }>(
     `select table_name, column_name
        from information_schema.columns
       where table_schema = 'public'`,
   );
-
   const reais = new Map<string, Set<string>>();
   for (const linha of rows) {
     if (!reais.has(linha.table_name)) reais.set(linha.table_name, new Set());
     reais.get(linha.table_name)!.add(linha.column_name);
   }
+  return reais;
+}
 
-  const divergencia = compararSchema(tabelasDeclaradas(), reais);
+async function main(): Promise<void> {
+  const { db, pool } = createDb(url!);
+
+  const divergencia = compararSchema(tabelasDeclaradas(), await lerReais(pool));
   const { tabelasAusentes, colunasAusentes } = divergencia;
 
   if (tabelasAusentes.length === 0 && colunasAusentes.length === 0) {
@@ -106,8 +120,8 @@ async function main(): Promise<void> {
   }
 
   /*
-    Tabela inteira ausente é outro estado, e sai separado: significa que uma
-    migration não rodou de ponta a ponta, e repor coluna não é a conversa.
+    Tabela inteira ausente é outro estado, e sai separado: some junto tudo o
+    que morava nela, e quem lê precisa saber que a conversa é maior que coluna.
   */
   if (tabelasAusentes.length > 0) {
     console.error(
@@ -128,9 +142,9 @@ async function main(): Promise<void> {
 
   if (!aplicar) {
     console.error(
-      `\nNada foi alterado. Para repor as colunas acima com o comando que a ` +
-        `própria migration traz:\n\n  pnpm --filter @workspace/db run ` +
-        `conferir-schema -- --aplicar\n`,
+      `\nNada foi alterado. Para repor o que falta — tabela, coluna, índice, ` +
+        `constraint e trigger — com o DDL que as próprias migrations trazem:` +
+        `\n\n  pnpm --filter @workspace/db run conferir-schema -- --aplicar\n`,
     );
     // Mesmo com a forma quebrada, o conteúdo é conferido e relatado: quem vai
     // consertar precisa da lista inteira de uma vez, e não de uma rodada por
@@ -140,44 +154,61 @@ async function main(): Promise<void> {
     process.exit(1);
   }
 
-  let repostas = 0;
-  const semComando: string[] = [];
-  for (const alvo of colunasAusentes) {
-    const comando = comandoQueRepoe(alvo);
-    if (!comando) {
-      semComando.push(`${alvo.tabela}.${alvo.coluna}`);
-      continue;
+  const desfecho = await reconvergirSeCabivel(url!);
+
+  if (!desfecho.rodou) {
+    /*
+      A recusa sai com o comando de quem resolve, porque quem chegou aqui veio
+      de uma tela mandando consertar: devolver só o motivo seria trocar um beco
+      por outro.
+    */
+    console.error(`\nNada foi alterado: ${desfecho.motivo}.`);
+    if (desfecho.motivo.includes("fila")) {
+      console.error(`\n  pnpm --filter @workspace/db run migrate\n`);
+    } else if (desfecho.motivo.includes("bridge")) {
+      console.error(`\n  pnpm --filter @workspace/db run bridge:up\n`);
     }
-    await pool.query(comando);
-    console.log(`Reposta: ${alvo.tabela}.${alvo.coluna}`);
-    repostas++;
+    await pool.end();
+    process.exit(1);
   }
 
-  console.log(`\n${repostas} coluna(s) reposta(s).`);
+  const { aplicados, semComando, falhas } = desfecho.relatorio;
+  for (const { alvo } of aplicados) console.log(`Reposto: ${alvo}`);
+  console.log(`\n${aplicados.length} objeto(s) reposto(s).`);
   if (semComando.length > 0) {
     console.error(
-      `\nSem comando no disco, e por isso não tocadas: ${semComando.join(", ")}.` +
-        ` Confira à mão de qual migration elas deveriam vir.`,
+      `\nSem comando levantável nas migrations, e por isso não tocados: ` +
+        `${semComando.join(", ")}. Confira à mão de qual migration deveriam vir.`,
     );
   }
-  if (tabelasAusentes.length > 0) {
+  if (falhas.length > 0) {
     console.error(
-      `\nAs tabelas ausentes continuam ausentes: repor tabela não é o que este ` +
-        `comando faz.`,
+      `\nO banco recusou: ` +
+        falhas
+          .map((f) => `${f.alvo}${f.code ? ` (SQLSTATE ${f.code})` : ""}`)
+          .join(", ") +
+        `.`,
     );
   }
 
   /*
-    Depois de repor coluna, conferir de novo — e continuar não consertando.
+    Depois de repor, conferir de novo — e continuar não consertando conteúdo.
     Repor `attribute_semantics.definition` faz a linha versionada voltar a
     existir vazia enquanto a projeção continua com o texto: a divergência que
     aparece aqui é consequência direta do que este comando acabou de fazer, e
     quem a lê precisa saber disso na mesma passada.
   */
-  const integro = await conferirConteudo(db, tabelasAusentes);
+  const aindaAusentes = compararSchema(tabelasDeclaradas(), await lerReais(pool));
+  const integro = await conferirConteudo(db, aindaAusentes.tabelasAusentes);
 
   await pool.end();
-  if (semComando.length > 0 || tabelasAusentes.length > 0 || !integro) {
+  if (
+    semComando.length > 0 ||
+    falhas.length > 0 ||
+    aindaAusentes.tabelasAusentes.length > 0 ||
+    aindaAusentes.colunasAusentes.length > 0 ||
+    !integro
+  ) {
     process.exit(1);
   }
 }
