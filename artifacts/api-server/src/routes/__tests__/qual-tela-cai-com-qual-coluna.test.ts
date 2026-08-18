@@ -118,7 +118,7 @@ beforeAll(async () => {
     });
     next();
   });
-  for (const nome of ["composition", "changes", "tickets", "dre"]) {
+  for (const nome of ["composition", "changes", "tickets", "dre", "health"]) {
     const { default: router } = await import(`../${nome}.ts`);
     app.use(router);
   }
@@ -134,7 +134,7 @@ afterAll(async () => {
   await new Promise<void>((resolve) => servidor.close(() => resolve()));
   await encerrarPoolDoProcesso();
   await ctx.drop();
-});
+}, 120_000);
 
 describe("com o banco em dia", () => {
   it("as quatro telas respondem", async () => {
@@ -202,6 +202,62 @@ describe("sem a coluna que a 0030 cria em attribute_semantics", () => {
       expect(body["code"]).toBe("SCHEMA_AUSENTE");
       expect(body["contexto"]).toContain("/composition/fleet");
       expect(body["contexto"]).toContain("42703");
+    });
+  });
+});
+
+describe("o /healthz para de responder SAUDAVEL sobre um banco divergente", () => {
+  /*
+   * O terceiro fato dos dois incidentes, e o que os tornava indecifráveis: a
+   * tela caía com 42703 e o `/healthz`, consultado no mesmo minuto, respondia
+   * SAUDAVEL — porque ele contava migrations, e a contagem estava certa. Agora
+   * o `observarBanco` roda a conferência de schema quando a contagem diz "em
+   * dia", e o healthz nomeia a coluna **antes** de qualquer tela morrer.
+   */
+  const REMOVER = 'ALTER TABLE "attribute_semantics" DROP COLUMN IF EXISTS "cost_class"';
+  const RECOLOCAR =
+    'ALTER TABLE "attribute_semantics" ADD COLUMN IF NOT EXISTS "cost_class" text';
+
+  async function saude(): Promise<Record<string, unknown>> {
+    const res = await fetch(`${base}/healthz`);
+    expect(res.status).toBe(200);
+    const corpo = (await res.json()) as { database: Record<string, unknown> };
+    return corpo.database;
+  }
+
+  it("com o banco em dia, diz que conferiu — não só que contou", async () => {
+    const database = await saude();
+    const diagnostico = database["diagnostico"] as { estado: string; evidencia?: string };
+
+    expect(diagnostico.estado).toBe("SAUDAVEL");
+    expect(diagnostico.evidencia).toMatch(/o schema confere/);
+  });
+
+  it("sem a coluna, nomeia attribute_semantics.cost_class — sem nenhuma tela ter caído", async () => {
+    await semAColuna(REMOVER, RECOLOCAR, async () => {
+      const diagnostico = (await saude())["diagnostico"] as {
+        estado: string;
+        evidencia?: string;
+        acao: { comando?: string } | null;
+      };
+
+      expect(diagnostico.estado).toBe("SCHEMA_DIVERGENTE");
+      expect(diagnostico.evidencia).toContain("attribute_semantics.cost_class");
+      expect(diagnostico.acao?.comando).toContain("conferir-schema");
+    });
+
+    /* E recolocada, o estado volta sozinho: nada fica preso em cache. */
+    const depois = (await saude())["diagnostico"] as { estado: string };
+    expect(depois.estado).toBe("SAUDAVEL");
+  });
+
+  it("o 503 da tela caída nomeia a mesma coluna, pela mesma autoridade", async () => {
+    await semAColuna(REMOVER, RECOLOCAR, async () => {
+      const { status, body } = await abrir("composicao");
+      const diagnostico = body["diagnostico"] as { evidencia?: string };
+
+      expect(status).toBe(503);
+      expect(diagnostico.evidencia).toContain("attribute_semantics.cost_class");
     });
   });
 });
