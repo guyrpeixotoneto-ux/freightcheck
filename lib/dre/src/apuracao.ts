@@ -26,10 +26,13 @@ import {
 } from "@workspace/comparison";
 import {
   comporDeFatos,
+  indexarVinculos,
   lerFatos,
   listarVigencias,
+  parearConjuntos,
   unidadeDe,
   type FatoDoAtivo,
+  type IndiceDeVinculos,
   type ValorAprovado,
 } from "@workspace/composition";
 import { montarDRE, type ApuracaoDaDRE, type LadoDaApuracao } from "./motor";
@@ -108,12 +111,16 @@ export interface MaterialDaDRE {
   /** `entityId → aprovados`, para os dois tipos. */
   aprovadosPorAtivo: Map<string, Map<string, ValorAprovado>>;
   identidades: Map<string, IdentidadeDoAtivo>;
-  /** `placa da carreta → entityId do cavalo que a aponta`. */
-  cavaloPorCarreta: Map<string, string>;
-  /** `entityId do cavalo → placa da carreta que ele aponta`. */
-  carretaDoCavalo: Map<string, string>;
-  /** `placa → entityId`, só de carretas. */
-  carretaPorPlaca: Map<string, string>;
+  /**
+   * Quem puxa quem nesta vigência, pela regra única de `@workspace/composition`.
+   *
+   * O índice era montado aqui, à mão, e a aba Conjuntos da Composição precisou
+   * do mesmo. Duas implementações da pergunta "qual carreta é desta placa?" são
+   * duas chances de a DRE e a Composição responderem coisas diferentes sobre a
+   * mesma vigência — e o efeito de discordarem não é cosmético: é uma carreta
+   * contada duas vezes de um lado e nenhuma do outro.
+   */
+  vinculos: IndiceDeVinculos;
 }
 
 async function lerFatosDaVigencia(
@@ -181,27 +188,7 @@ export async function lerMaterial(
   }
 
   /* O vínculo, lido dos próprios fatos da vigência — não do estado de hoje. */
-  const carretaPorPlaca = new Map<string, string>();
-  for (const [entityId, identidade] of carretas) {
-    if (identidade.placa) carretaPorPlaca.set(identidade.placa, entityId);
-  }
-
-  const cavaloPorCarreta = new Map<string, string>();
-  const carretaDoCavalo = new Map<string, string>();
-  for (const [entityId, fatos] of fatosPorAtivo) {
-    if (identidades.get(entityId)?.entityType !== "CAVALO") continue;
-    const vinculo = fatos.find((f) => f.code === "cavalo.placa_carreta");
-    const placa = vinculo && !vinculo.is_null ? vinculo.value_text : null;
-    if (!placa) continue;
-    carretaDoCavalo.set(entityId, placa);
-    /*
-      Primeiro cavalo a apontar a placa fica com ela. Medido: o vínculo é um
-      para um nas 9 vigências, então este desempate nunca é exercido hoje. Ele
-      existe porque um empate faria a mesma carreta entrar em dois conjuntos, e
-      a receita dela seria contada duas vezes na frota.
-    */
-    if (!cavaloPorCarreta.has(placa)) cavaloPorCarreta.set(placa, entityId);
-  }
+  const vinculos = indexarVinculos(identidades.values(), fatosPorAtivo);
 
   return {
     effectiveDate,
@@ -209,9 +196,7 @@ export async function lerMaterial(
     classificacoes,
     aprovadosPorAtivo,
     identidades,
-    cavaloPorCarreta,
-    carretaDoCavalo,
-    carretaPorPlaca,
+    vinculos,
   };
 }
 
@@ -265,36 +250,33 @@ export function unidadesEconomicas(
       .sort((a, b) => a.rotulo.localeCompare(b.rotulo, "pt-BR", { numeric: true }));
   }
 
-  const unidades: UnidadeEconomica[] = [];
-  const carretasUsadas = new Set<string>();
-
-  for (const cavalo of presentes.filter((i) => i.entityType === "CAVALO")) {
-    const placa = material.carretaDoCavalo.get(cavalo.entityId);
-    const carretaId = placa ? material.carretaPorPlaca.get(placa) : undefined;
-    const carreta =
-      carretaId && material.aprovadosPorAtivo.has(carretaId)
-        ? material.identidades.get(carretaId)
-        : undefined;
-    if (carreta) carretasUsadas.add(carreta.entityId);
-    unidades.push({
-      id: cavalo.entityId,
-      escopo: "CONJUNTO",
-      rotulo: carreta ? `${cavalo.placa ?? "—"} + ${carreta.placa ?? "—"}` : (cavalo.placa ?? cavalo.entityId),
-      lados: carreta ? [cavalo, carreta] : [cavalo],
-      orfa: false,
-    });
-  }
-
-  for (const carreta of presentes.filter((i) => i.entityType === "CARRETA")) {
-    if (carretasUsadas.has(carreta.entityId)) continue;
-    unidades.push({
-      id: carreta.entityId,
-      escopo: "CONJUNTO",
-      rotulo: `${carreta.placa ?? carreta.entityId} (sem cavalo)`,
-      lados: [carreta],
-      orfa: true,
-    });
-  }
+  /*
+    O pareamento é o de `@workspace/composition` — a mesma função que a aba
+    Conjuntos usa. O que continua sendo desta casa é o vocabulário: a DRE chama
+    de unidade econômica o que lá é conjunto, e escreve "(sem cavalo)" no rótulo
+    da órfã porque na cascata da DRE a linha aparece sozinha, sem a coluna de
+    natureza que a Composição mostra ao lado.
+  */
+  const unidades: UnidadeEconomica[] = parearConjuntos(material.vinculos, presentes).map(
+    (par) => {
+      const lados = [par.cavalo, par.carreta].filter(
+        (lado): lado is IdentidadeDoAtivo => lado !== null,
+      ) as IdentidadeDoAtivo[];
+      const rotulo =
+        par.cavalo && par.carreta
+          ? `${par.cavalo.placa ?? "—"} + ${par.carreta.placa ?? "—"}`
+          : par.cavalo
+            ? (par.cavalo.placa ?? par.cavalo.entityId)
+            : `${par.carreta?.placa ?? par.id} (sem cavalo)`;
+      return {
+        id: par.id,
+        escopo: "CONJUNTO" as const,
+        rotulo,
+        lados,
+        orfa: par.cavalo === null,
+      };
+    },
+  );
 
   return unidades.sort((a, b) => a.rotulo.localeCompare(b.rotulo, "pt-BR", { numeric: true }));
 }

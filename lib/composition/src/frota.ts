@@ -23,6 +23,7 @@ import {
 import {
   calcularVariacao,
   comporDeFatos,
+  lerIdentidades,
   lerVigencia,
   listarVigencias,
   mensalDe,
@@ -111,29 +112,18 @@ export interface VisaoDeFrota {
   totalSemFiltro: number;
 }
 
-interface Identidade extends Record<string, unknown> {
-  entity_id: string;
-  placa: string | null;
-  chassi: string | null;
-}
-
-async function lerIdentidades(
-  db: Database,
-  entityType: string,
-): Promise<Map<string, Identidade>> {
-  const { rows } = await db.execute<Identidade>(sql`
-    SELECT e.id::text AS entity_id,
-           max(ei.identifier_value) FILTER (WHERE ei.identifier_type = 'PLACA')  AS placa,
-           max(ei.identifier_value) FILTER (WHERE ei.identifier_type = 'CHASSI') AS chassi
-      FROM entity e
-      LEFT JOIN entity_identifier ei ON ei.entity_id = e.id AND ei.is_current
-     WHERE e.entity_type = ${entityType}
-     GROUP BY 1
-  `);
-  return new Map(rows.map((r) => [r.entity_id, r]));
-}
-
-async function serieFoiEntregue(
+/**
+ * Se a vigência **declarou** entregar a série deste tipo de equipamento.
+ *
+ * Lê `snapshot.entity_type_set`, e não a existência de fatos: são perguntas
+ * diferentes, e a que interessa à tela é esta. Uma vigência que entregou a aba
+ * de carretas vazia não é o mesmo que uma vigência que não trouxe carretas —
+ * a primeira é dado, a segunda é a forma do arquivo. Exportada porque a aba
+ * Conjuntos faz a mesma pergunta para os dois lados, e duas definições de
+ * "entregou" nas duas abas da mesma tela seriam duas respostas para a mesma
+ * frase.
+ */
+export async function serieFoiEntregue(
   db: Database,
   entityType: string,
   effectiveDate: string,
@@ -175,7 +165,7 @@ export async function getVisaoDeFrota(
 
   const [material, identidades, serieEntregue] = await Promise.all([
     lerVigencia(db, entityType, alvo.effectiveDate, context),
-    lerIdentidades(db, entityType),
+    lerIdentidades(db, [entityType]),
     serieFoiEntregue(db, entityType, alvo.effectiveDate, context),
   ]);
   const materialAnterior = anterior
