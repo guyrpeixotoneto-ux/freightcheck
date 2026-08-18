@@ -390,6 +390,142 @@ export function maioresImpactos(
 }
 
 // ---------------------------------------------------------------------------
+// De onde vem um número do pódio
+// ---------------------------------------------------------------------------
+
+/**
+ * O que sustenta uma linha dos Maiores impactos.
+ *
+ * O pódio afirma "Financiamento: R$ 26.856/mês" e para aí. Quem lê tem de
+ * acreditar ou sair da tela — e sair da tela custava reencontrar o parâmetro
+ * numa grade de sessenta cartões, com o risco de chegar lá noutro recorte e ver
+ * outro número. Este detalhe é o caminho que faltava: o mesmo número, partido
+ * nos grupos de alteração que o produziram, com o que **não** entrou nele dito
+ * ao lado em vez de omitido.
+ */
+export interface DetalheDeImpacto {
+  key: string;
+  name: string;
+  familyName: string;
+  /** A periodicidade do número — a mesma em que o pódio ranqueou. */
+  periodicity: string;
+  /** O número do pódio, tal como o resumo executivo o publicou. */
+  amount: number;
+  /** Alterações do parâmetro nesta vigência: as com preço e as sem. */
+  changes: number;
+  vehicles: number;
+  /** Os grupos que somam neste número, o maior em módulo primeiro. */
+  grupos: ChangeGroup[];
+  /** Veículos cujo impacto entrou na soma, contados grupo a grupo. */
+  veiculosContados: number;
+  /**
+   * O que a soma dos grupos não explica.
+   *
+   * É zero em vigência sadia — grupo é partição de linha, e a soma dos grupos
+   * de uma periodicidade *é* o número dela. Fica exposto porque um detalhe que
+   * silencia a diferença entre a sua conta e o número que ele explica é pior do
+   * que não ter detalhe: quem somasse as linhas na mão descobriria sozinho, e
+   * sem saber qual dos dois acreditar.
+   */
+  resto: number;
+  /** Alterações do parâmetro que ficaram sem preço. Nunca entram no número. */
+  semPreco: number;
+  /**
+   * O que saiu da soma por já estar contado nas parcelas.
+   *
+   * `custo_fixo` mudou porque `lucro_fixo_novo_ciclo` mudou; somar os dois
+   * contaria o mesmo dinheiro duas vezes. O titular fica de fora, e aqui ele é
+   * dito pelo nome em vez de sumir na diferença entre dois totais.
+   */
+  excluido: { alteracoes: number; valor: number | null };
+  /** As outras periodicidades deste mesmo parâmetro. Em linha própria, sempre. */
+  outras: Impacto[];
+  /**
+   * O código de atributo do parâmetro — `null` quando ele tem mais de um.
+   *
+   * É o que deixa o detalhe abrir em Alterações exatamente a população que ele
+   * acabou de descrever. Com dois códigos no mesmo parâmetro o filtro mostraria
+   * uma fatia e diria o nome do todo, então o link sai sem ele e leva só a
+   * vigência.
+   */
+  attributeCode: string | null;
+}
+
+/**
+ * O detalhe de um parâmetro do pódio — a conta por trás do número.
+ *
+ * Sai da mesma resposta que alimentou o pódio (`/changes/families`), e não de
+ * um pedido novo: o número da tela e o número do detalhe têm de ser o mesmo
+ * número, e dois pedidos a vigências diferentes é justamente como eles
+ * deixariam de ser.
+ *
+ * `null` quando o parâmetro não está nesta vigência ou não tem valor na
+ * periodicidade pedida — o endereço com `?impacto=` continua colável, e um
+ * colado depois de trocar a vigência não inventa um painel vazio.
+ */
+export function detalheDoImpacto(
+  view: FamiliesView | null | undefined,
+  key: string | null,
+  periodicity: string | null = null,
+): DetalheDeImpacto | null {
+  if (!view || !key) return null;
+
+  const familia = view.families.find((f) => f.parameters.some((p) => p.key === key));
+  const parametro = familia?.parameters.find((p) => p.key === key);
+  if (!familia || !parametro) return null;
+
+  /*
+    Qual periodicidade este painel explica.
+
+    A pedida, quando o parâmetro de fato tem valor nela — é a do pódio, e é a
+    que estava escrita ao lado do número que alguém clicou. Quando não tem,
+    vale a mesma régua do pódio, a de maior módulo: um endereço com `?impacto=`
+    colado depois de trocar de vigência ainda cai num parâmetro que existe, e
+    dizer o número que ele tem é melhor do que não abrir nada. O painel escreve
+    a periodicidade em cima do valor, então a troca aparece em vez de passar.
+  */
+  const buckets = parametro.impact.byPeriodicity;
+  const escolhida =
+    periodicity !== null && buckets[periodicity] !== undefined
+      ? periodicity
+      : (Object.entries(buckets).sort((a, b) => Math.abs(b[1]) - Math.abs(a[1]))[0]?.[0] ??
+        null);
+  if (escolhida === null) return null;
+
+  const grupos = parametro.groups
+    .filter((g) => g.impact.periodicity === escolhida && g.impact.amount !== null)
+    .sort((a, b) => Math.abs(b.impact.amount ?? 0) - Math.abs(a.impact.amount ?? 0));
+
+  const soma = grupos.reduce((total, g) => total + (g.impact.amount ?? 0), 0);
+  const codigos = new Set(
+    parametro.groups.map((g) => g.attributeCode).filter((c): c is string => c !== null),
+  );
+
+  return {
+    key: parametro.key,
+    name: parametro.name,
+    familyName: familia.name,
+    periodicity: escolhida,
+    amount: buckets[escolhida],
+    changes: parametro.changes,
+    vehicles: parametro.vehicles,
+    grupos,
+    veiculosContados: grupos.reduce((total, g) => total + g.impact.countedVehicles, 0),
+    resto: Number((buckets[escolhida] - soma).toFixed(2)),
+    semPreco: parametro.impact.notCalculable,
+    excluido: {
+      alteracoes: parametro.impact.excludedChanges,
+      valor: parametro.impact.excludedByPeriodicity[escolhida] ?? null,
+    },
+    outras: Object.entries(buckets)
+      .filter(([p]) => p !== escolhida)
+      .map(([periodicity, amount]) => ({ periodicity, amount }))
+      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount)),
+    attributeCode: codigos.size === 1 ? [...codigos][0] : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // O que merece sua atenção
 // ---------------------------------------------------------------------------
 

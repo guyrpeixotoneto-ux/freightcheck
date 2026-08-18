@@ -36,8 +36,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ApiError, fetchJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { periodicitySuffix } from "@/lib/format";
+import { DetalheDoImpacto } from "@/components/inicio/detalhe-do-impacto";
 import {
   cobertura,
+  detalheDoImpacto,
   escreverImpacto,
   escreverPercentual,
   escreverVariacao,
@@ -202,6 +204,21 @@ export default function Inicio() {
   const ranking = useMemo(() => maioresImpactos(view?.summary), [view]);
 
   /*
+    O parâmetro aberto no detalhe mora na URL, como a unidade e a vigência.
+
+    É o que faz "de onde vem este número" ser uma pergunta que se manda para
+    alguém: o endereço com `?impacto=` abre o mesmo painel, sobre o mesmo
+    recorte, com o mesmo número dentro. O botão de voltar do navegador fecha o
+    painel em vez de sair da tela, que é o que a mão espera de uma gaveta.
+  */
+  const detalhe = useMemo(
+    () => detalheDoImpacto(view, parametros.get("impacto"), ranking?.periodicity ?? null),
+    // `parametros` é derivado de `search`, e `ranking` de `view`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [view, ranking, search],
+  );
+
+  /*
     O recorte que sai daqui rumo às Alterações.
 
     Sai do endereço, e não do estado da tela, porque é o mesmo que os cartões de
@@ -270,7 +287,11 @@ export default function Inicio() {
             )}
 
             <div className="grid gap-5 lg:grid-cols-2">
-              <MaioresImpactos ranking={ranking} period={view.period} />
+              <MaioresImpactos
+                ranking={ranking}
+                period={view.period}
+                onAbrir={(key) => trocarPara({ impacto: key })}
+              />
               <UltimasAlteracoes view={view} recorte={recorte} />
             </div>
 
@@ -282,6 +303,14 @@ export default function Inicio() {
               />
               <Explorar />
             </div>
+
+            <DetalheDoImpacto
+              detalhe={detalhe}
+              period={view.period}
+              periodLabel={view.periodLabel}
+              recorte={recorte}
+              onFechar={() => trocarPara({ impacto: null })}
+            />
           </>
         )}
 
@@ -997,13 +1026,23 @@ const COLUNAS_DA_ATENCAO: Record<number, string> = {
  * que este produto se recusa a fazer no escuro. Por isso o cabeçalho traz a
  * periodicidade escrita, e o rodapé nomeia as que ficaram de fora em vez de
  * deixá-las sumir.
+ *
+ * **Cada linha abre a sua própria conta.** O pódio afirmava três números e não
+ * dava caminho nenhum até eles: quem precisava defender o "R$ 26.856/mês" numa
+ * reunião tinha de sair da tela, reencontrar o parâmetro numa grade de sessenta
+ * cartões e torcer para chegar lá no mesmo recorte. Agora a linha é um botão, e
+ * o painel que ela abre — `DetalheDoImpacto` — mostra os grupos de alteração que
+ * somam no número, o que ficou de fora dele e por quê.
  */
 function MaioresImpactos({
   ranking,
   period,
+  onAbrir,
 }: {
   ranking: ReturnType<typeof maioresImpactos>;
   period: string;
+  /** Abre a conta por trás de uma linha. Ver `DetalheDoImpacto`. */
+  onAbrir: (key: string) => void;
 }) {
   return (
     <section className={cn(CARTAO, "px-6 py-5 flex flex-col")}>
@@ -1015,7 +1054,7 @@ function MaioresImpactos({
             {periodicitySuffix(ranking.periodicity)}
           </span>
         )}
-        <Ajuda texto="Os parâmetros que mais mexeram na remuneração desta vigência. O ranking acontece dentro de uma periodicidade — nunca entre periodicidades diferentes." />
+        <Ajuda texto="Os parâmetros que mais mexeram na remuneração desta vigência. O ranking acontece dentro de uma periodicidade — nunca entre periodicidades diferentes. Clique numa linha para ver de onde vem o número." />
       </div>
 
       {ranking === null ? (
@@ -1024,35 +1063,56 @@ function MaioresImpactos({
         <>
           <ol className="mt-4 space-y-3.5 flex-1">
             {ranking.linhas.map((linha, indice) => (
-              <li key={linha.key} className="flex items-center gap-3">
-                <span className="w-6 h-6 rounded-full border text-[0.6875rem] font-bold flex items-center justify-center shrink-0 text-muted-foreground">
-                  {indice + 1}
-                </span>
-                <span className="w-40 shrink-0 min-w-0">
-                  <span className="block text-sm font-semibold truncate" title={linha.name}>
-                    {linha.name}
+              <li key={linha.key}>
+                {/*
+                  A linha inteira é o botão, e não uma seta no fim dela.
+
+                  O que se quer clicar aqui é o número — é ele que gera a
+                  desconfiança —, e um alvo de 16 pixels na borda direita
+                  obrigaria a mirar para fazer a pergunta mais óbvia da tela.
+                */}
+                <button
+                  type="button"
+                  onClick={() => onAbrir(linha.key)}
+                  title={`De onde vem o impacto de ${linha.name}`}
+                  className="w-full flex items-center gap-3 text-left rounded-lg px-2 -mx-2 py-1.5 -my-1.5 hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand transition-colors group"
+                >
+                  <span className="w-6 h-6 rounded-full border text-[0.6875rem] font-bold flex items-center justify-center shrink-0 text-muted-foreground">
+                    {indice + 1}
                   </span>
-                  <span className="block text-[0.6875rem] text-muted-foreground truncate">
-                    {linha.familyName}
+                  <span className="w-40 shrink-0 min-w-0">
+                    <span
+                      className="block text-sm font-semibold truncate group-hover:underline"
+                      title={linha.name}
+                    >
+                      {linha.name}
+                    </span>
+                    <span className="block text-[0.6875rem] text-muted-foreground truncate">
+                      {linha.familyName}
+                    </span>
                   </span>
-                </span>
-                <span className="flex-1 h-2.5 bg-muted overflow-hidden min-w-8">
+                  <span className="flex-1 h-2.5 bg-muted overflow-hidden min-w-8">
+                    <span
+                      className={cn(
+                        "block h-full",
+                        linha.amount < 0 ? "bg-red-600" : "bg-emerald-600",
+                      )}
+                      style={{ width: `${Math.max(2, linha.proporcao * 100)}%` }}
+                    />
+                  </span>
                   <span
                     className={cn(
-                      "block h-full",
-                      linha.amount < 0 ? "bg-red-600" : "bg-emerald-600",
+                      "text-sm font-bold tabular-nums shrink-0 text-right w-28",
+                      linha.amount < 0 ? "text-red-700" : "text-emerald-700",
                     )}
-                    style={{ width: `${Math.max(2, linha.proporcao * 100)}%` }}
-                  />
-                </span>
-                <span
-                  className={cn(
-                    "text-sm font-bold tabular-nums shrink-0 text-right w-28",
-                    linha.amount < 0 ? "text-red-700" : "text-emerald-700",
-                  )}
-                >
-                  {escreverImpacto({ periodicity: ranking.periodicity, amount: linha.amount })}
-                </span>
+                  >
+                    {escreverImpacto({
+                      periodicity: ranking.periodicity,
+                      amount: linha.amount,
+                    })}
+                  </span>
+                  <ChevronRight className="w-4 h-4 shrink-0 text-muted-foreground opacity-40 group-hover:opacity-100 transition-opacity" />
+                </button>
               </li>
             ))}
           </ol>
