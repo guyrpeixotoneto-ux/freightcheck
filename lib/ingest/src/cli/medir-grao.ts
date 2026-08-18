@@ -117,6 +117,22 @@ interface EstabilidadeSemantica {
 
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
 
+/** Quebra um parágrafo em linhas de terminal, sem cortar palavra. */
+function quebrar(texto: string, largura: number): string[] {
+  const linhas: string[] = [];
+  let atual = "";
+  for (const palavra of texto.split(/\s+/)) {
+    if (atual === "") atual = palavra;
+    else if (atual.length + 1 + palavra.length <= largura) atual += ` ${palavra}`;
+    else {
+      linhas.push(atual);
+      atual = palavra;
+    }
+  }
+  if (atual !== "") linhas.push(atual);
+  return linhas;
+}
+
 /**
  * A partir de quanta constância uma coluna vira "quase âncora".
  *
@@ -486,6 +502,102 @@ function listarDivergencias(
   );
 }
 
+/**
+ * O arquivo tem tamanho para responder o que está sendo perguntado?
+ *
+ * Este bloco nasceu de um resultado errado, e o resultado errado veio de rodar
+ * a ferramenta no `Modelo_Trecho.xlsx` de verdade: 3 linhas, 1 vigência. A
+ * saída anunciou **41 candidatas** que "identificam a linha sem repetir e sem
+ * faltar" — entre elas `freteCtrc`, `kmIda` e `previsaoViagens`. Nenhuma delas
+ * é chave de coisa nenhuma. Com três linhas, qualquer coluna com três valores
+ * distintos "identifica", e uma coluna de dinheiro tem três valores distintos
+ * quase sempre.
+ *
+ * O mesmo vale, e pior, para as outras duas perguntas. Com uma vigência só,
+ * **permanência não existe** — não há segunda quinzena em que a chave pudesse
+ * reaparecer — e **estabilidade semântica é trivialmente perfeita**: toda
+ * coluna é constante por chave quando cada chave aparece uma vez. A saída dizia
+ * "101 âncoras" para todos os candidatos, o que soa como uma prova forte e é o
+ * contrário disso.
+ *
+ * Uma medição que responde com números quando não tem como responder é pior do
+ * que uma que não responde: ela convida a decidir. Então as perguntas que o
+ * arquivo não sustenta passam a sair **recusadas, com o motivo**, exatamente
+ * como o resto deste produto trata dado insuficiente.
+ */
+interface SuficienciaDaEvidencia {
+  linhas: number;
+  vigencias: number;
+  colunas: number;
+  /** Falso com uma vigência só: não há histórico contra o que comparar. */
+  podePermanencia: boolean;
+  /** Idem — a estabilidade semântica é uma pergunta sobre o histórico. */
+  podeSemantica: boolean;
+  /** Falso quando o arquivo é pequeno demais para discriminar candidatas. */
+  unicidadeDiscrimina: boolean;
+  motivos: string[];
+}
+
+/**
+ * Abaixo disto, "não repete" não é evidência de chave: é evidência de que há
+ * poucas linhas. O número é uma fronteira de bom senso e não uma medida — o que
+ * decide de verdade é a taxa de discriminação logo abaixo, que é calculada no
+ * próprio arquivo.
+ */
+const MINIMO_DE_LINHAS = 30;
+
+/**
+ * Quanto do arquivo pode "identificar a linha" antes de a conta perder sentido.
+ *
+ * Num export real de cavalo, 5 colunas de 77 passam no teste — 6%. No modelo de
+ * trecho com três linhas, 41 de 110 passam — 37%. A diferença não é sobre os
+ * dados: é sobre o tamanho da amostra, e é ela que este limiar detecta sem
+ * depender de contagem absoluta de linhas.
+ */
+const TETO_DE_CANDIDATAS = 0.25;
+
+function avaliarEvidencia(entrada: {
+  linhas: number;
+  vigencias: number;
+  colunas: number;
+  candidatasQuePassam: number;
+}): SuficienciaDaEvidencia {
+  const motivos: string[] = [];
+  const podeHistorico = entrada.vigencias >= 2;
+  if (!podeHistorico) {
+    motivos.push(
+      `O arquivo tem ${entrada.vigencias === 1 ? "uma vigência só" : "nenhuma vigência legível"}. ` +
+        `Permanência e estabilidade semântica são perguntas sobre o histórico: ` +
+        `sem uma segunda quinzena, não há o que comparar, e qualquer número que ` +
+        `saísse aqui seria trivialmente perfeito.`,
+    );
+  }
+
+  const taxa = entrada.colunas === 0 ? 0 : entrada.candidatasQuePassam / entrada.colunas;
+  const discrimina =
+    entrada.linhas >= MINIMO_DE_LINHAS && taxa <= TETO_DE_CANDIDATAS;
+  if (!discrimina) {
+    motivos.push(
+      `${entrada.candidatasQuePassam} de ${entrada.colunas} colunas (${(taxa * 100).toFixed(0)}%) ` +
+        `"identificam a linha" em ${entrada.linhas} linhas. Num arquivo pequeno isso é ` +
+        `aritmética, não identidade: com ${entrada.linhas} linhas, qualquer coluna com ` +
+        `${entrada.linhas} valores distintos passa — inclusive as de dinheiro. A unicidade ` +
+        `só vira evidência acima de ~${MINIMO_DE_LINHAS} linhas e com menos de ` +
+        `${TETO_DE_CANDIDATAS * 100}% das colunas passando.`,
+    );
+  }
+
+  return {
+    linhas: entrada.linhas,
+    vigencias: entrada.vigencias,
+    colunas: entrada.colunas,
+    podePermanencia: podeHistorico,
+    podeSemantica: podeHistorico,
+    unicidadeDiscrimina: discrimina,
+    motivos,
+  };
+}
+
 function main(): void {
   const args = process.argv.slice(2);
   const arquivo = args.find((a) => !a.startsWith("--"));
@@ -592,6 +704,20 @@ function main(): void {
       (m) => m.repetidas === 0 && m.preenchimento === 1,
     );
 
+    const evidencia = avaliarEvidencia({
+      linhas: linhas.length,
+      vigencias: vigencias.size,
+      colunas: posicionadas.length,
+      candidatasQuePassam: chaves.length,
+    });
+
+    if (evidencia.motivos.length > 0) {
+      console.log(`\n   ⚠ SUFICIÊNCIA DA EVIDÊNCIA`);
+      for (const motivo of evidencia.motivos) {
+        console.log(`   ${quebrar(motivo, 76).join("\n   ")}`);
+      }
+    }
+
     /*
       A terceira pergunta, só para quem passou nas duas primeiras.
 
@@ -599,7 +725,15 @@ function main(): void {
       chave reaproveitada — a que nomeia uma rota nesta quinzena e outra na
       seguinte. Ver `EstabilidadeSemantica`.
     */
-    const comSemantica = chaves.slice(0, 8);
+    const comSemantica = evidencia.podeSemantica ? chaves.slice(0, 8) : [];
+    if (!evidencia.podeSemantica) {
+      console.log(
+        `\n   ESTABILIDADE SEMÂNTICA — não medida: o arquivo tem ` +
+          `${vigencias.size === 1 ? "uma vigência só" : "nenhuma vigência"}.\n` +
+          `   Com uma vigência, toda coluna é constante por chave, e a resposta seria\n` +
+          `   "todas as colunas são âncoras" — que é verdade e não informa nada.`,
+      );
+    }
     for (const medida of comSemantica) {
       const componentes = medida.colunas.map(
         (header) => posicionadas.find((c) => c.header === header)!,
@@ -678,9 +812,14 @@ function main(): void {
       console.log(
         `\n   CASOS — ${rotuloDaChave} mudando de ${alvo.map((c) => c.header).join("/")}`,
       );
-      if (casos.length === 0) {
+      if (vigencias.size < 2) {
         console.log(
-          `   Nenhum. Em todas as vigências, cada ${rotuloDaChave} manteve ` +
+          `   Não observável: o arquivo tem ${vigencias.size === 1 ? "uma vigência só" : "nenhuma vigência"}, ` +
+            `e uma mudança entre vigências precisa de duas.`,
+        );
+      } else if (casos.length === 0) {
+        console.log(
+          `   Nenhum. Em todas as ${vigencias.size} vigências, cada ${rotuloDaChave} manteve ` +
             `${alvo.length === 1 ? "o mesmo valor" : "os mesmos valores"}.`,
         );
       } else {
@@ -717,16 +856,29 @@ function main(): void {
       aviso impresso logo abaixo dela. Quem identifica mas não permanece cai na
       classificação do dicionário, que é onde ela pertence.
     */
-    const identidades = new Set(
-      chaves
-        .filter(
-          (c) =>
-            c.colunas.length === 1 &&
-            (c.estabilidade === null || c.estabilidade >= LIMIAR_DE_ANCORA),
+    const identidades = evidencia.unicidadeDiscrimina
+      ? new Set(
+          chaves
+            .filter(
+              (c) =>
+                c.colunas.length === 1 &&
+                (c.estabilidade === null || c.estabilidade >= LIMIAR_DE_ANCORA),
+            )
+            .flatMap((c) => c.colunas),
         )
-        .flatMap((c) => c.colunas),
-    );
+      : // Sem evidência de unicidade não há caixa IDENTIDADE: as colunas caem na
+        // classificação do dicionário, que não depende do tamanho da amostra —
+        // "isto entra na DRE" é afirmação do cliente, e vale com três linhas ou
+        // com trinta mil.
+        new Set<string>();
     console.log(`\n   NATUREZA DAS COLUNAS`);
+    if (dicionario && !evidencia.unicidadeDiscrimina) {
+      console.log(
+        "   Sem a caixa IDENTIDADE: ela sai da medição, e a medição deste arquivo\n" +
+          "   não discrimina. As três outras vêm do dicionário do cliente e valem\n" +
+          "   com três linhas ou com trinta mil.",
+      );
+    }
     if (!dicionario) {
       console.log(
         "   Não classificada: passe --dicionario docs/planilha-atributos-<tipo>-dre.xlsx.\n" +
@@ -763,6 +915,12 @@ function main(): void {
       console.log(
         "   Nenhuma candidata identifica a linha sozinha: toda coluna repete ou falta.\n" +
           "   O grão desta aba é composto — meça combinações com --composta.",
+      );
+    } else if (!evidencia.unicidadeDiscrimina) {
+      console.log(
+        `   ${chaves.length} candidatas passam no teste de unicidade, e isso **não** é\n` +
+          `   uma lista de chaves: é o tamanho da amostra falando. Ver a suficiência da\n` +
+          `   evidência acima. Nenhum veredito de identidade sai deste arquivo.`,
       );
     } else {
       console.log(
