@@ -199,6 +199,27 @@ export function resolverEsperado(entrada: {
 
   const entidadesDe = (entityType: string) => entrada.entidadesPorTipo.get(entityType) ?? 0;
 
+  /*
+    O piso de uma entidade, e por que ele precisa existir.
+
+    Um atributo declarado para um tipo do qual **nenhuma entidade chegou** teria
+    denominador zero, e denominador zero sai da conta inteiro: sem lacuna, sem
+    percentual, e a célula classificada como `NAO_APLICAVEL`. Foi assim que 110
+    atributos de trecho conseguiram não existir sem que nenhum número se mexesse
+    — o tipo nunca chegou, então nada era esperado dele, então estava tudo bem.
+
+    O piso é a afirmação mais fraca que resolve isso: **se a fonte deveria mandar
+    esta coluna, deveria existir ao menos uma entidade para carregá-la.** Não
+    inventa frota — dizer "deveriam existir 40 trechos" seria inventar, e o
+    quanto de verdade só se sabe quando houver um roster declarado ou um arquivo.
+    Diz apenas que zero está errado, que é o que a tela precisava poder dizer.
+
+    Para todo tipo que chegou isto é inócuo: `max(1, 76)` é 76. Ele só morde
+    onde a contagem seria zero, e ali ele é a diferença entre uma lacuna visível
+    e um silêncio.
+  */
+  const entidadesEsperadasDe = (entityType: string) => Math.max(1, entidadesDe(entityType));
+
   // 1 e 2. Declaração. Ganha de tudo, e a dispensa é registrada à parte.
   for (const d of entrada.declarado) {
     if (d.status === "DISPENSADO") {
@@ -209,7 +230,7 @@ export function resolverEsperado(entrada: {
       attributeCode: d.attributeCode,
       entityType: d.entityType,
       criticidade: d.criticidade,
-      entidadesEsperadas: entidadesDe(d.entityType),
+      entidadesEsperadas: entidadesEsperadasDe(d.entityType),
       justificativa: {
         origem: d.origem,
         declarado: true,

@@ -12,7 +12,7 @@ import {
   check,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
-import { snapshotTable } from "./canonical";
+import { entityTable, snapshotTable } from "./canonical";
 
 /**
  * COBERTURA — o que **deveria** existir, e o denominador do que existe.
@@ -98,13 +98,22 @@ export const snapshotEntityTypeTable = pgTable(
 /**
  * O esperado — e **só** o esperado que alguém afirmou.
  *
- * Esta tabela guarda duas coisas, e não guarda uma terceira de propósito:
+ * Esta tabela guarda três coisas, e não guarda uma quarta de propósito:
  *
  * - `origin = 'CONTRATO'` — o que o sistema sabe formalmente que deveria
  *   existir. Hoje vem do plano da DRE (`lib/dre/src/plano.ts`), onde cada
  *   componente declara as suas `fontes` e se é `essencial`, com a evidência
  *   medida escrita ao lado. Não é um palpite promovido a regra: é a mesma
  *   declaração que a DRE já usa para se recusar a fechar subtotal.
+ * - `origin = 'CATALOGO'` — o que as planilhas de atributos da curadoria
+ *   declaram que a fonte deveria entregar, em
+ *   `lib/curation/src/catalogo-declarado.ts`. É declaração como o contrato, e
+ *   está separada dele porque carrega autoridade em vez de evidência: o
+ *   contrato cita a linha da DRE e a contagem que a sustenta, o catálogo afirma
+ *   que a coluna deveria vir. É o que permite cobrar um atributo que **nunca**
+ *   chegou — e é por isso que `attribute_code` aqui não tem chave estrangeira
+ *   para `attribute`: a expectativa antecede o dado e tem de poder existir sem
+ *   ele.
  * - `origin = 'CURADORIA'` — a decisão de uma pessoa. Confirmar uma expectativa
  *   inferida, dispensar uma ausência legítima, aceitar que um campo foi
  *   renomeado. Sempre com `actor` e `rationale`, que são `NOT NULL` porque uma
@@ -209,7 +218,7 @@ export const coverageExpectationTable = pgTable(
     index("coverage_expectation_attribute_idx").on(t.attributeCode),
     check(
       "coverage_expectation_origin_ck",
-      sql`${t.origin} IN ('CONTRATO', 'CURADORIA')`,
+      sql`${t.origin} IN ('CONTRATO', 'CATALOGO', 'CURADORIA')`,
     ),
     check(
       "coverage_expectation_status_ck",
@@ -235,5 +244,88 @@ export const coverageExpectationTable = pgTable(
       "coverage_expectation_sucessor_ck",
       sql`${t.succeededByAttributeCode} IS NULL OR ${t.effectiveUntil} IS NOT NULL`,
     ),
+  ],
+);
+
+
+/**
+ * O esperado no grão da entidade — quem deveria estar na vigência.
+ *
+ * A irmã de `coverage_expectation`, e a mesma regra vale inteira: **só
+ * declaração mora aqui.** A continuidade — "apareceu nas vigências anteriores
+ * e sumiu nesta" — é inferência, é recalculada a cada leitura em
+ * `lib/coverage/src/frota.ts` e chega à tela dizendo que é inferência. Gravá-la
+ * a tornaria indistinguível de um cadastro de frota que ninguém mantém.
+ *
+ * **Por que ela precisou existir.** O denominador de entidades saía de
+ * `snapshot_entity_type.entity_count` — quantos chegaram. Um denominador tirado
+ * do próprio arquivo não acusa falta: dez carretas que somem levam numerador e
+ * denominador juntos, e o percentual não se mexe.
+ *
+ * **E por que a inferência sozinha não bastava.** `entity_identifier` tem
+ * janela de validade e a importação nunca a fecha — ela só escreve
+ * `is_current = true`. Sem um lugar para registrar a saída, "todo equipamento
+ * já visto" inclui todo caminhão já vendido, e cada venda viraria lacuna
+ * perpétua. `status = 'BAIXA'` é esse lugar, e é o único jeito de uma ausência
+ * deixar de contar.
+ *
+ * `status = 'ESPERADA'` é o caminho oposto e existe para o conjunto que ainda
+ * não chegou: alguém pode afirmar que uma entidade deveria aparecer numa janela
+ * antes de qualquer arquivo trazê-la.
+ */
+export const entityExpectationTable = pgTable(
+  "entity_expectation",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceSystem: text("source_system").notNull().default("FREIGHTEC"),
+    datasetFamily: text("dataset_family").notNull(),
+    /** Nulo = vale para qualquer canal desta família. */
+    canal: text("canal"),
+    /** Nulo = vale para qualquer unidade. */
+    scopeKey: text("scope_key"),
+    entityType: text("entity_type").notNull(),
+    entityId: uuid("entity_id")
+      .notNull()
+      .references(() => entityTable.id),
+    /** CONTRATO | CURADORIA. */
+    origin: text("origin").notNull(),
+    /**
+     * ESPERADA — deveria aparecer nesta janela, mesmo que nunca tenha aparecido.
+     * BAIXA    — saiu da frota em `effective_from`. A ausência deixa de contar.
+     */
+    status: text("status").notNull(),
+    /** Inclusive, alinhado a `snapshot.effective_date`. */
+    effectiveFrom: date("effective_from", { mode: "string" }).notNull(),
+    /** Exclusivo. Nulo = em vigor. */
+    effectiveUntil: date("effective_until", { mode: "string" }),
+    /** Por que se decidiu isto. Vai para a tela como está. Nunca vazio. */
+    rationale: text("rationale").notNull(),
+    /** A medição que sustenta a linha: vigências, última aparição. */
+    evidence: jsonb("evidence").notNull().default({}),
+    /** Quem decidiu. Nunca nulo. */
+    actor: text("actor").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    unique("entity_expectation_uq")
+      .on(
+        t.sourceSystem,
+        t.datasetFamily,
+        t.canal,
+        t.scopeKey,
+        t.entityType,
+        t.entityId,
+        t.effectiveFrom,
+      )
+      .nullsNotDistinct(),
+    index("entity_expectation_recorte_idx").on(t.datasetFamily, t.entityType, t.effectiveFrom),
+    index("entity_expectation_entity_idx").on(t.entityId),
+    check("entity_expectation_origin_ck", sql`${t.origin} IN ('CONTRATO', 'CURADORIA')`),
+    check("entity_expectation_status_ck", sql`${t.status} IN ('ESPERADA', 'BAIXA')`),
+    /* Motivo em branco satisfaz `NOT NULL` e não explica nada. */
+    check("entity_expectation_rationale_ck", sql`btrim(${t.rationale}) <> ''`),
+    check("entity_expectation_actor_ck", sql`btrim(${t.actor}) <> ''`),
   ],
 );

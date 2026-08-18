@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import {
+  BaixaRecusada,
   CelulaNaoEncontrada,
   DecisaoRecusada,
   contratoDaDRE,
@@ -10,6 +11,7 @@ import {
   historicoDoAtributo,
   provenienciaDoFato,
   refazerAgregado,
+  registrarBaixa,
   registrarDecisao,
   semearContrato,
   vigenciasSemAgregado,
@@ -246,6 +248,66 @@ router.post("/coverage/decisions", async (req, res): Promise<void> => {
       return;
     }
     req.log.error({ err }, "Error recording coverage decision");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+/**
+ * Uma decisão humana sobre a frota.
+ *
+ * A saída do mecanismo de continuidade, e a única que existe. A cobertura passa
+ * a cobrar todo equipamento que apareceu numa vigência anterior e não apareceu
+ * nesta; essa cobrança **não expira sozinha**, de propósito — se expirasse, um
+ * caminhão que sumiu por erro de exportação viraria silêncio no mês seguinte.
+ * O que a encerra é alguém dizer "saiu da frota, e foi por isto".
+ *
+ * `ator` sai de quem está logado, e não do corpo do pedido, pela mesma regra de
+ * `/coverage/decisions`: um campo de texto sustenta "alguém digitou este nome",
+ * nunca "esta pessoa decidiu".
+ */
+router.post("/coverage/fleet-decisions", async (req, res): Promise<void> => {
+  try {
+    const b = (req.body ?? {}) as Record<string, unknown>;
+    const status = b.status === "ESPERADA" ? "ESPERADA" : "BAIXA";
+
+    const datasetFamily = texto(b.datasetFamily);
+    const entityType = texto(b.entityType);
+    const entityId = texto(b.entityId);
+    const efetivoDe = texto(b.efetivoDe);
+    if (!datasetFamily || !entityType || !entityId || !efetivoDe) {
+      res.status(400).json({
+        error:
+          "Uma decisão de frota precisa dizer sobre o que ela é: família, equipamento, qual entidade e a partir de quando vale.",
+      });
+      return;
+    }
+    if (!UUID.test(entityId)) {
+      res.status(400).json({ error: "Identificador de entidade inválido." });
+      return;
+    }
+
+    await registrarBaixa(db, {
+      datasetFamily,
+      canal: b.canal === undefined ? undefined : (texto(b.canal) ?? null),
+      scopeKey: b.scopeKey === undefined ? undefined : (texto(b.scopeKey) ?? null),
+      entityType: entityType.toUpperCase(),
+      entityId,
+      status,
+      efetivoDe,
+      efetivoAte: texto(b.efetivoAte) ?? null,
+      motivo: typeof b.motivo === "string" ? b.motivo : "",
+      evidencia: (b.evidencia as Record<string, unknown>) ?? {},
+      ator: req.user!.email,
+    });
+
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    if (err instanceof BaixaRecusada) {
+      /* Recusa de regra de negócio, escrita para quem opera. Nunca um 500. */
+      res.status(422).json({ error: err.message });
+      return;
+    }
+    req.log.error({ err }, "Error recording fleet decision");
     res.status(500).json({ error: "Internal server error" });
   }
 });

@@ -8,7 +8,8 @@ import {
   type HistoricoDoAtributo,
 } from "../esperado";
 import { candidatoPara, semelhancaDeNome, type AtributoParaComparar } from "../descoberta";
-import { contratoDaDRE } from "../contrato";
+import { atributosDaDRE } from "@workspace/dre";
+import { contratoDaDRE, universoDeclarado } from "../contrato";
 import type { AtributoObservado } from "../observado";
 import type { Esperado } from "../modelo";
 
@@ -531,5 +532,73 @@ describe("a conta e a classificação não se confundem", () => {
     expect(
       classificar(conta, { temNovo: false, temAlterado: false, tudoDispensado: false }),
     ).toBe("AUSENTE");
+  });
+});
+
+describe("o universo declarado", () => {
+  /*
+    O catálogo é o universo; o contrato manda onde fala.
+
+    A fusão acontece em memória, e não por duas semeaduras em sequência, porque
+    ali a ordem das chamadas decidiria a origem, a criticidade e o motivo dos 10
+    atributos em que os dois se sobrepõem. Este teste é o que fixa a regra:
+    onde o plano da DRE fala, é a voz dele que sai.
+  */
+  it("dá precedência ao contrato onde os dois falam do mesmo atributo", () => {
+    const universo = universoDeclarado();
+    const doContrato = contratoDaDRE();
+    expect(doContrato.length).toBeGreaterThan(0);
+
+    for (const contrato of doContrato) {
+      const linha = universo.find((e) => e.attributeCode === contrato.attributeCode);
+      expect(linha).toBeDefined();
+      expect(linha!.origem).toBe("CONTRATO");
+      expect(linha!.criticidade).toBe(contrato.criticidade);
+      expect(linha!.motivo).toBe(contrato.motivo);
+    }
+  });
+
+  it("cobre os três tipos declarados, inclusive o que nunca foi importado", () => {
+    const tipos = new Set(universoDeclarado().map((e) => e.entityType));
+    expect(tipos).toContain("CAVALO");
+    expect(tipos).toContain("CARRETA");
+    expect(tipos).toContain("TRECHO");
+  });
+
+  it("contém todo atributo que o plano da DRE cita", () => {
+    const universo = new Set(universoDeclarado().map((e) => e.attributeCode));
+    const daDRE = atributosDaDRE();
+    expect(daDRE.length).toBeGreaterThan(0);
+    for (const code of daDRE) expect(universo).toContain(code);
+  });
+
+  /*
+    Crescer o universo não pode crescer o alarme.
+
+    O conjunto crítico é o que decide se a DRE fecha, e ele tem um dono só:
+    `plano.ts`, pela regra "alimenta componente essencial". Se o catálogo
+    pudesse promover alguém a `CRITICO`, a criticidade passaria a ter duas
+    fontes — e duas fontes concordam hoje e discordam no dia em que alguém
+    editar uma planilha.
+  */
+  it("não cria atributo crítico fora do plano da DRE", () => {
+    const criticosDaDRE = new Set(
+      contratoDaDRE()
+        .filter((e) => e.criticidade === "CRITICO")
+        .map((e) => e.attributeCode),
+    );
+    for (const linha of universoDeclarado()) {
+      if (linha.criticidade !== "CRITICO") continue;
+      expect(criticosDaDRE).toContain(linha.attributeCode);
+    }
+  });
+
+  it("classifica o cadastral como informativo e o resto como relevante", () => {
+    const doCatalogo = universoDeclarado().filter((e) => e.origem === "CATALOGO");
+    expect(doCatalogo.length).toBeGreaterThan(0);
+    for (const linha of doCatalogo) {
+      const naDRE = linha.evidencia.entraNaDRE as boolean;
+      expect(linha.criticidade).toBe(naDRE ? "RELEVANTE" : "INFORMATIVO");
+    }
   });
 });
