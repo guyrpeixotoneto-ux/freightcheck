@@ -1,0 +1,25 @@
+-- O tipo deixa de ser só deduzido: quem envia declara, e a importação confere.
+--
+-- A identidade da aba saía do conteúdo dela (`lib/ingest/src/identity.ts`), com
+-- o nome do arquivo de desempate. Isso resolve o segundo arquivo de um tipo:
+-- quando o dicionário já conhece CARRETA, uma aba de carreta se reconhece com
+-- folga. O que não se resolve é o **primeiro** — sem dicionário não há
+-- evidência, e sem evidência a decisão vira pendência para um humano confirmar,
+-- ou um equipamento inventado a partir do nome do arquivo.
+--
+-- `declared_type` é o que a pessoa disse ao escolher a aba da tela. Ele não
+-- decide sozinho: a importação continua classificando pelo conteúdo, e as duas
+-- respostas são comparadas. Concordando, a declaração fecha a pendência —
+-- ninguém precisa confirmar um tipo que acabou de escolher. Discordando, a
+-- importação **recusa**, com a conta na mão. Uma planilha de carreta enviada
+-- pela aba do Cavalo não pode entrar como cavalo porque alguém clicou errado.
+--
+-- Nulo é o que sempre foi: importação sem declaração, deduzida do conteúdo.
+-- Toda linha que já existe é assim, e continua válida — a declaração não
+-- reescreve o passado, e uma coluna NOT NULL com um padrão inventado diria que
+-- alguém declarou um tipo que ninguém declarou.
+-- `IF NOT EXISTS` porque a fila tem de ser reentrante: um banco onde a coluna
+-- já existe e o registro se perdeu roda esta migration de novo, e ela precisa
+-- atravessar em vez de parar a fila inteira com 42701. É a mesma escolha de
+-- todas as anteriores, e o que `registro-perdido.test.ts` cobra.
+ALTER TABLE "import_run" ADD COLUMN IF NOT EXISTS "declared_type" text;

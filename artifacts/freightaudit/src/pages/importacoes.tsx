@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { Fragment, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import {
@@ -16,8 +16,10 @@ import {
   Trash2,
   Upload,
 } from "lucide-react";
+import { TIPOS_DE_IMPORTACAO, type DefinicaoDeTipo } from "@workspace/ingest/tipos";
 import { Button } from "@/components/ui/button";
 import { Layout } from "@/components/layout/layout";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Dialog,
   DialogHeader,
@@ -35,6 +37,32 @@ import { cn } from "@/lib/utils";
  * enquanto rodava. O SHA-256 fica à vista porque é ele que transforma "esse
  * arquivo já entrou" em fato verificável, e não em opinião.
  */
+
+/**
+ * O valor da aba "Todas" dentro do `Tabs`, que não aceita string vazia.
+ *
+ * Fora do componente ele é `null` — "sem recorte" —, e é `null` que some do
+ * endereço. A tradução acontece na fronteira, como na Curadoria: deixar a
+ * palavra virar um tipo de importação que não existe sairia caro em toda
+ * comparação daqui para baixo.
+ */
+const TODAS = "__todas__";
+
+/**
+ * Os estados em que a importação ainda não terminou de ser decidida.
+ *
+ * Mora fora do componente porque duas partes da tela precisam dele: a lista dos
+ * que esperam aprovação, e o cartão que só pode dizer "não saiu fato nenhum"
+ * depois que a leitura acabou. Contar isso antes do fim seria alarme sobre um
+ * arquivo que ainda está sendo lido.
+ */
+const ESPERANDO_DECISAO = new Set([
+  "PENDING",
+  "READING",
+  "STAGED",
+  "PREVIEWED",
+  "PROMOTING",
+]);
 
 interface ImportRun {
   importRunId: string;
@@ -57,6 +85,46 @@ interface ImportRun {
   labels: string[];
   /** Equipamentos que esta importação criaria e o dicionário não conhece. */
   pendingIdentities: string[];
+  /** O tipo declarado no envio — a aba por onde o arquivo entrou. */
+  declaredType: string | null;
+  /** Os tipos que a importação de fato produziu, lidos das vigências dela. */
+  entityTypes: string[];
+}
+
+/**
+ * A que aba pertence uma importação.
+ *
+ * Duas respostas, nesta ordem, e a ordem é o desenho: **o que foi declarado**
+ * manda, porque é a aba em que a pessoa de fato enviou o arquivo; na falta dela
+ * — toda importação anterior à declaração —, vale **o que saiu do arquivo**,
+ * que é a única evidência que resta.
+ *
+ * Uma importação sem nem uma nem outra não aparece em aba de tipo nenhuma, e é
+ * assim que deve ser: ela não produziu vigência e não declarou tipo, e
+ * listá-la sob "Cavalo" seria dizer que ela trouxe cavalos. Ela continua
+ * inteira na aba Todas, que existe também por isso.
+ */
+const tiposDaImportacao = (run: ImportRun): string[] =>
+  run.declaredType !== null ? [run.declaredType] : run.entityTypes;
+
+/**
+ * Um apontamento do pipeline, como a API o entrega.
+ *
+ * `detail` é o que o pipeline gravou junto do texto — a chave que colidiu, os
+ * campos envolvidos, a vigência. Ele chega como objeto livre de propósito: cada
+ * código anota o que o seu caso pede, e a tela mostra o que vier em vez de
+ * conhecer um formato por código, que a obrigaria a mudar a cada anotação nova.
+ */
+interface IssueGroup {
+  code: string;
+  severity: string;
+  count: number;
+  ocorrencias: {
+    message: string;
+    detail: Record<string, unknown> | null;
+    sheetName: string | null;
+    rowIndex: number | null;
+  }[];
 }
 
 interface RunDetail {
@@ -127,6 +195,8 @@ interface RunStatus {
   labels: string[];
   /** Equipamentos que esta importação criaria e o dicionário não conhece. */
   pendingIdentities: string[];
+  /** O tipo declarado no envio — a aba por onde este arquivo entrou. */
+  declaredType: string | null;
 }
 
 /**
@@ -156,6 +226,26 @@ export default function Importacoes() {
     tem de sair de Importações em vez de percorrer os cartões já abertos.
   */
   const expanded = new URLSearchParams(search).get("run");
+  /*
+    A aba também mora no endereço, e pelo mesmo motivo do cartão aberto: é para
+    uma aba que se manda alguém. "Manda a planilha de trecho por aqui" vira um
+    link, e o mesmo link abre a mesma aba amanhã.
+
+    Um valor que não é tipo nenhum — endereço antigo, link editado à mão — cai
+    em Todas em vez de deixar a tela numa aba que não existe.
+  */
+  const abaPedida = new URLSearchParams(search).get("tipo");
+  const aba =
+    TIPOS_DE_IMPORTACAO.find((t) => t.code === abaPedida)?.code ?? null;
+  const tipoDaAba = TIPOS_DE_IMPORTACAO.find((t) => t.code === aba) ?? null;
+  const setAba = (code: string | null) => {
+    const params = new URLSearchParams(search);
+    if (code) params.set("tipo", code);
+    else params.delete("tipo");
+    navegar(params.toString() ? `/importacoes?${params}` : "/importacoes", {
+      replace: true,
+    });
+  };
   const setExpanded = (importRunId: string | null) => {
     const params = new URLSearchParams(search);
     if (importRunId) params.set("run", importRunId);
@@ -200,16 +290,42 @@ export default function Importacoes() {
    * sai. Os ids da sessão continuam entrando porque um envio recém-feito ainda
    * não apareceu na listagem.
    */
-  const ESPERANDO = new Set(["PENDING", "READING", "STAGED", "PREVIEWED", "PROMOTING"]);
+  /*
+    O histórico que a aba mostra.
+
+    Recorte, e não filtro: a aba troca a população da lista inteira, e é por
+    isso que o vazio dela diz "nenhuma importação de Trecho nesta base" em vez
+    de "nenhuma importação". A distinção é a mesma de `lib/frota.ts`, e ela
+    aparece aqui na contagem de cada aba, que conta o que o clique abre.
+  */
+  const doRecorte =
+    aba === null ? runs : runs.filter((run) => tiposDaImportacao(run).includes(aba));
+
   const esperandoDecisao = [
     ...new Set([
       ...pendingIds,
-      ...runs.filter((r) => ESPERANDO.has(r.status)).map((r) => r.importRunId),
+      ...runs
+        .filter((r) => ESPERANDO_DECISAO.has(r.status))
+        .map((r) => r.importRunId),
     ]),
   ];
 
+  /*
+    O envio leva o tipo da aba junto.
+
+    `declaredType` não é metadado de conveniência: é o que o servidor confere
+    contra o conteúdo do arquivo antes de deixar qualquer coisa entrar. Enviar
+    uma planilha de carreta pela aba do Cavalo passa a ser uma recusa com a
+    conta escrita, e não uma importação silenciosa sob o tipo errado.
+  */
   const upload = useMutation({
-    mutationFn: async (files: File[]) => {
+    mutationFn: async ({
+      files,
+      declaredType,
+    }: {
+      files: File[];
+      declaredType: string;
+    }) => {
       const ids: string[] = [];
       for (const file of files) {
         // base64 dentro de JSON: é a requisição mais banal da web, e nenhum
@@ -226,6 +342,7 @@ export default function Importacoes() {
           body: JSON.stringify({
             filename: file.name,
             contentBase64: btoa(binary),
+            declaredType,
           }),
         });
         const body = await readJson(response);
@@ -332,6 +449,9 @@ export default function Importacoes() {
             <h1 className="text-3xl font-bold tracking-tight">Importações</h1>
             <p className="text-muted-foreground mt-1 max-w-3xl leading-relaxed">
               Cada arquivo recebido, o que saiu dele e o que o pipeline apontou.
+              <br className="hidden sm:inline" /> Cada aba é um tipo: enviar por
+              ela <em>declara</em> o que o arquivo traz, e a importação confere
+              essa declaração contra o conteúdo antes de deixar entrar.
               <br className="hidden sm:inline" /> O mesmo arquivo reentregue é
               reconhecido pelo SHA-256. O mesmo <em>dado</em>, num arquivo
               diferente, é reconhecido pela identidade da vigência — e nenhum dos
@@ -342,6 +462,36 @@ export default function Importacoes() {
       </header>
 
       <div className="p-8 space-y-5">
+        {/* As abas vêm antes de tudo porque mandam em tudo: primeiro se escolhe
+            de que tipo se está falando, depois se envia e se lê o histórico
+            daquele tipo. Na ordem inversa, o botão de enviar apareceria antes
+            de a tela dizer o que ele vai declarar. */}
+        <Tabs
+          value={aba ?? TODAS}
+          onValueChange={(valor) => setAba(valor === TODAS ? null : valor)}
+        >
+          <TabsList className="flex-wrap h-auto">
+            <TabsTrigger value={TODAS}>
+              Todas
+              <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
+                {n(runs.length)}
+              </span>
+            </TabsTrigger>
+            {TIPOS_DE_IMPORTACAO.map((tipo) => (
+              <TabsTrigger key={tipo.code} value={tipo.code}>
+                {tipo.rotulo}
+                <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
+                  {n(
+                    runs.filter((run) =>
+                      tiposDaImportacao(run).includes(tipo.code),
+                    ).length,
+                  )}
+                </span>
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+
         <input
           ref={fileInput}
           type="file"
@@ -350,15 +500,27 @@ export default function Importacoes() {
           className="hidden"
           onChange={(e) => {
             const files = Array.from(e.target.files ?? []);
-            if (files.length > 0) upload.mutate(files);
+            if (files.length > 0 && tipoDaAba !== null) {
+              upload.mutate({ files, declaredType: tipoDaAba.code });
+            }
             e.target.value = "";
           }}
         />
-        <Dropzone
-          busy={upload.isPending}
-          onFiles={(files) => upload.mutate(files)}
-          onPick={() => fileInput.current?.click()}
-        />
+
+        {/* Em Todas não há envio porque não há tipo declarado — e enviar sem
+            declarar é justamente o que esta tela deixou de fazer. */}
+        {tipoDaAba === null ? (
+          <SemAbaEscolhida />
+        ) : (
+          <Dropzone
+            tipo={tipoDaAba}
+            busy={upload.isPending}
+            onFiles={(files) =>
+              upload.mutate({ files, declaredType: tipoDaAba.code })
+            }
+            onPick={() => fileInput.current?.click()}
+          />
+        )}
 
         {error && (
           <p className="text-sm text-red-900 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
@@ -396,15 +558,35 @@ export default function Importacoes() {
         )}
         {/* "Nenhuma importação ainda" ao lado de um arquivo sendo lido é falso
             de um jeito que confunde: o que falta é aprovar, não enviar. */}
-        {!isLoading && !listError && runs.length === 0 && esperandoDecisao.length === 0 && (
-          <div className="rounded-xl border bg-card px-8 py-10 text-center text-sm text-muted-foreground shadow-sm">
-            Nenhuma importação ainda. Use{" "}
-            <strong className="text-foreground">Escolher planilhas</strong> acima
-            para enviar o export do Freightec.
-          </div>
-        )}
+        {!isLoading &&
+          !listError &&
+          doRecorte.length === 0 &&
+          esperandoDecisao.length === 0 && (
+            <div className="rounded-xl border bg-card px-8 py-10 text-center text-sm text-muted-foreground shadow-sm">
+              {tipoDaAba === null ? (
+                <>
+                  Nenhuma importação ainda. Escolha o tipo acima e use{" "}
+                  <strong className="text-foreground">Escolher planilhas</strong>{" "}
+                  para enviar o export do Freightec.
+                </>
+              ) : (
+                <>
+                  Nenhuma importação de{" "}
+                  <strong className="text-foreground">{tipoDaAba.rotulo}</strong>{" "}
+                  nesta base.
+                  {runs.length > 0 && (
+                    <>
+                      {" "}
+                      Há {plural(runs.length, "importação", "importações")} de
+                      outros tipos — veja em <strong className="text-foreground">Todas</strong>.
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
-        {runs.map((run) => (
+        {doRecorte.map((run) => (
           <RunCard
             key={run.importRunId}
             run={run}
@@ -456,16 +638,82 @@ export default function Importacoes() {
 }
 
 /**
+ * De que tipo é esta importação, e como a tela sabe disso.
+ *
+ * As duas procedências são ditas com todas as letras porque não são a mesma
+ * coisa: **declarado** é o que a pessoa afirmou ao escolher a aba, e o servidor
+ * conferiu; **produzido** é o que saiu do arquivo, e é tudo o que existe para
+ * as importações anteriores à declaração. Escrever as duas como se fossem uma
+ * seria apagar justamente a diferença que este produto existe para mostrar.
+ */
+function TipoDaImportacao({ run }: { run: ImportRun }) {
+  const tipos = tiposDaImportacao(run);
+  if (tipos.length === 0) return null;
+
+  const rotulo = (code: string) =>
+    TIPOS_DE_IMPORTACAO.find((t) => t.code === code)?.rotulo ?? code;
+
+  return (
+    <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
+      {tipos.map((tipo) => (
+        <span
+          key={tipo}
+          className="text-[0.6875rem] px-2 py-0.5 rounded-lg border bg-muted/40 text-foreground"
+        >
+          {rotulo(tipo)}
+        </span>
+      ))}
+      <span className="text-[0.6875rem] text-muted-foreground">
+        {run.declaredType !== null
+          ? "declarado no envio"
+          : "lido das vigências que entraram"}
+      </span>
+    </p>
+  );
+}
+
+/**
+ * A aba Todas não envia — e diz por quê.
+ *
+ * Um botão de enviar aqui teria de escolher um tipo sozinho, e escolher um tipo
+ * sozinho é exatamente o que a declaração veio substituir. O que a tela pode
+ * fazer é a coisa honesta: mostrar o histórico inteiro e apontar para onde o
+ * envio acontece.
+ */
+function SemAbaEscolhida() {
+  return (
+    <div className="rounded-xl border bg-card px-6 py-5 shadow-sm flex items-start gap-4">
+      <div className="w-12 h-12 rounded-xl bg-muted flex items-center justify-center shrink-0">
+        <Layers className="w-5 h-5 text-muted-foreground" />
+      </div>
+      <div className="min-w-0">
+        <p className="font-semibold">Todo o histórico, de todos os tipos</p>
+        <p className="text-sm text-muted-foreground mt-0.5">
+          Para enviar uma planilha, escolha a aba do tipo dela acima. A aba é o
+          que declara o tipo, e é contra essa declaração que a importação
+          confere o que o arquivo traz — por isso não se envia daqui.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
  * The upload target: one dashed area that both clicks and receives a drop.
  *
  * The whole rectangle is the control, not a button inside it — the dashed edge
  * is a promise that dropping there works, and a decorative one would be a lie.
+ *
+ * O rótulo diz o tipo porque o botão **declara** o tipo: quem clica aqui está
+ * afirmando que este arquivo é de cavalo, e a afirmação vai junto com os bytes.
  */
 function Dropzone({
+  tipo,
   busy,
   onFiles,
   onPick,
 }: {
+  tipo: DefinicaoDeTipo;
   busy: boolean;
   onFiles: (files: File[]) => void;
   onPick: () => void;
@@ -504,10 +752,11 @@ function Dropzone({
       </div>
       <div className="min-w-0">
         <p className="font-semibold">
-          {busy ? "Lendo…" : "Escolher planilhas"}
+          {busy ? "Lendo…" : `Escolher planilhas de ${tipo.rotulo}`}
         </p>
         <p className="text-sm text-muted-foreground">
-          Pode enviar os dois de uma vez. O arquivo é lido e conferido, mas
+          {tipo.descricao} Pode enviar mais de uma de uma vez. O arquivo é lido
+          e conferido contra o tipo desta aba, mas
           <strong className="text-foreground"> nada entra</strong> antes de você
           ver o resumo e aprovar.
         </p>
@@ -556,10 +805,27 @@ function RunCard({
                 </>
               )}
             </p>
+            <TipoDaImportacao run={run} />
           </div>
         </div>
         <StatusPill status={run.status} />
       </div>
+
+      {/* O arquivo que entrou e não virou nada.
+
+          Este cartão já mostrava "Fatos 0" ao lado de "aprovada", e os dois
+          são verdade — mas quem lê seis quadros de número não lê um zero como
+          "esta importação não serviu para nada". A frase existe porque foi
+          assim que uma planilha de trecho inteira passou despercebida: 440
+          células gravadas, nenhum fato, nenhum erro, nenhum aviso. */}
+      {run.stagedFacts === 0 && !ESPERANDO_DECISAO.has(run.status) && (
+        <p className="text-sm border border-amber-200 bg-amber-50 text-amber-900 rounded-xl px-4 py-3">
+          Nenhum fato saiu deste arquivo. As células foram gravadas, mas nenhuma
+          aba dele foi reconhecida como fonte de fatos — abra{" "}
+          <strong>Ver abas do arquivo</strong> abaixo para ler, aba por aba, o
+          motivo que o leitor registrou.
+        </p>
+      )}
 
       {run.failureReason && (
         <p
@@ -774,6 +1040,8 @@ function RunDetailDialog({
             )}
           </dl>
 
+          <Apontamentos importRunId={run.importRunId} />
+
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={onClose}>
               Fechar
@@ -782,6 +1050,133 @@ function RunDetailDialog({
         </>
       )}
     </Dialog>
+  );
+}
+
+/**
+ * O que o pipeline anotou, e onde — a evidência que já existia e ninguém lia.
+ *
+ * A tela mostrava a contagem de erros e avisos. Isso responde "deu problema?" e
+ * não responde "qual, em que chave, em que campo", que é o que decide se a
+ * origem está errada ou se a nossa leitura dela está. `validation_issue` sempre
+ * teve a resposta; faltava alcançá-la.
+ *
+ * Três decisões que esta lista sustenta:
+ *
+ * - **A colisão que concorda aparece como as outras.** Duas linhas caindo na
+ *   mesma chave e dizendo o mesmo não é erro nenhum, e é o sintoma mais cedo de
+ *   um grão que não separa a origem. Ela entra como informação, com a chave e
+ *   os campos, e não como um número no fim de um resumo.
+ * - **O `detail` é mostrado como veio.** Cada código anota o que o seu caso
+ *   pede; uma tela que conhecesse um formato por código teria de mudar a cada
+ *   anotação nova, e a que não muda mostra menos do que o pipeline sabe.
+ * - **Nada aqui é ação.** É leitura, e só se abre por dentro do detalhe da
+ *   importação — o botão que promove continua sendo o do cartão.
+ */
+function Apontamentos({ importRunId }: { importRunId: string }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["imports", importRunId, "issues"],
+    queryFn: () => fetchJson<IssueGroup[]>(`/imports/${importRunId}/issues`),
+  });
+
+  const [aberto, setAberto] = useState<string | null>(null);
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Lendo os apontamentos…</p>;
+  }
+  if (error) {
+    return (
+      <p className="text-sm text-red-900 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+        Não foi possível ler os apontamentos: {(error as Error).message} Esta
+        importação pode ter apontamentos — o que falhou foi perguntar.
+      </p>
+    );
+  }
+  if (!data || data.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        O pipeline não anotou nada nesta importação.
+      </p>
+    );
+  }
+
+  const tom = (severity: string) =>
+    severity === "ERROR"
+      ? "border-red-200 bg-red-50 text-red-900"
+      : severity === "WARNING"
+        ? "border-amber-200 bg-amber-50 text-amber-900"
+        : "border-border bg-muted/30 text-foreground";
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">
+        Apontamentos
+      </p>
+      {data.map((grupo) => {
+        const id = `${grupo.severity}:${grupo.code}`;
+        const expandido = aberto === id;
+        return (
+          <div key={id} className={cn("rounded-xl border", tom(grupo.severity))}>
+            <button
+              type="button"
+              onClick={() => setAberto(expandido ? null : id)}
+              className="w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm"
+            >
+              {expandido ? (
+                <ChevronDown className="w-4 h-4 shrink-0" />
+              ) : (
+                <ChevronRight className="w-4 h-4 shrink-0" />
+              )}
+              <span className="font-mono text-xs">{grupo.code}</span>
+              <span className="ml-auto tabular-nums text-xs font-semibold">
+                {n(grupo.count)}
+              </span>
+            </button>
+
+            {expandido && (
+              <ul className="px-4 pb-3 space-y-2.5 text-sm">
+                {grupo.ocorrencias.map((o, i) => (
+                  <li key={i} className="border-t pt-2.5 first:border-t-0 first:pt-0">
+                    <p className="leading-relaxed">{o.message}</p>
+                    {(o.sheetName || o.rowIndex !== null) && (
+                      <p className="text-xs opacity-75 mt-0.5">
+                        {o.sheetName && <>aba {o.sheetName}</>}
+                        {o.sheetName && o.rowIndex !== null && " · "}
+                        {o.rowIndex !== null && <>linha {o.rowIndex}</>}
+                      </p>
+                    )}
+                    {o.detail && Object.keys(o.detail).length > 0 && (
+                      <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                        {Object.entries(o.detail).map(([campo, valor]) => (
+                          <Fragment key={campo}>
+                            <dt className="opacity-70">{campo}</dt>
+                            <dd className="font-mono break-all">
+                              {Array.isArray(valor)
+                                ? valor.join(", ")
+                                : typeof valor === "object" && valor !== null
+                                  ? JSON.stringify(valor)
+                                  : String(valor)}
+                            </dd>
+                          </Fragment>
+                        ))}
+                      </dl>
+                    )}
+                  </li>
+                ))}
+                {/* O corte é do servidor, e é dito: 40 mil células podem
+                    produzir dezenas de milhares de apontamentos, e uma lista
+                    que parasse sem avisar leria como "só tem estes". */}
+                {grupo.count > grupo.ocorrencias.length && (
+                  <li className="text-xs opacity-75 border-t pt-2.5">
+                    Mostrando {n(grupo.ocorrencias.length)} de {n(grupo.count)}.
+                  </li>
+                )}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1053,7 +1448,19 @@ function PendingRun({
             {/* O nome vem antes do estado: enviando dois arquivos de uma vez,
                 dois cartões dizendo "Conferido" não dizem qual é qual. */}
             {data?.filename && (
-              <p className="font-bold text-sm truncate">{data.filename}</p>
+              <p className="font-bold text-sm truncate">
+                {data.filename}
+                {/* O tipo declarado aparece aqui porque é agora que ele ainda
+                    pode ser desfeito: depois de aprovar, corrigir a aba custa
+                    excluir a importação. */}
+                {data.declaredType && (
+                  <span className="ml-2 font-normal text-xs text-amber-900/80">
+                    enviado como{" "}
+                    {TIPOS_DE_IMPORTACAO.find((t) => t.code === data.declaredType)
+                      ?.rotulo ?? data.declaredType}
+                  </span>
+                )}
+              </p>
             )}
             <p className="font-semibold text-sm">
               {ready
@@ -1143,6 +1550,17 @@ function PendingRun({
               {label}
             </span>
           ))}
+        </div>
+      )}
+
+      {/* Os apontamentos ficam **aqui**, e não só no detalhe de uma importação
+          já aprovada: é neste cartão que a decisão acontece, e uma colisão de
+          chave que só se pudesse ler depois de aprovar chegaria tarde. Vêm
+          fechados por código porque um arquivo normal traz 1.300 avisos de um
+          tipo só, e abrir tudo esconderia os três que importam. */}
+      {(ready || failed) && (
+        <div className="rounded-xl border border-amber-200 bg-white/60 p-4">
+          <Apontamentos importRunId={importRunId} />
         </div>
       )}
     </div>

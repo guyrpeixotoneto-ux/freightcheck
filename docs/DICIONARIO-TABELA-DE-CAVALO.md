@@ -1,0 +1,147 @@
+# Dicionário da tabela de cavalo
+
+Os 76 atributos do export de cavalo, com nome gerencial, o que cada um mede e em
+que linha da DRE ele cai.
+
+**Este dicionário tem força de prova diferente do da tabela de frete.** O export
+de cavalo **é** a fonte que este repositório apura, e por isso quase toda linha
+abaixo cita uma medição feita sobre as 9 vigências reais — a periodicidade
+confirmada em `CONFIRMED_SEMANTICS`, a identidade medida em
+`lib/composition/src/regras.ts`, o componente declarado em
+`lib/dre/src/plano.ts`, o comportamento econômico de `lib/knowledge/src/economia.ts`.
+Onde a evidência existe, ela está escrita na descrição. Onde não existe, a
+descrição diz o que o campo é sem afirmar o que ele vale.
+
+**De quem é esta DRE.** A coluna `Categoria DRE` lê o veículo pela ótica de
+`lib/dre/src/plano.ts`: o que a Ambev paga é receita, e as parcelas com que ela
+monta esse preço são as linhas de custo abaixo. Por isso `finameCavalo` é
+**receita bruta** e `amortizacaoCavalo` é **despesa financeira** — os dois, sim,
+do mesmo dinheiro. Isso não é erro de classificação: é a circularidade que o
+`AVISO_DE_CIRCULARIDADE` já registra. Como
+
+```
+custo_fixo = (parcelas de custo) + (lucro fixo)
+```
+
+subtrair as parcelas da receita devolve exatamente as linhas de lucro. O
+resultado apurado é a **margem que o contrato embute neste veículo**, e não o que
+ele deixou depois de gastos reais.
+
+| Categoria | O que reúne |
+| --- | --- |
+| `Receita bruta` | O que a Ambev paga pelo cavalo: `finameCavalo` e a parcela de lucro fixo dentro dele. |
+| `Receita bruta (não confirmada — não soma)` | `lucroVariavelPrevistoCavalo`: há dinheiro na coluna e ninguém confirmou o que ela mede. |
+| `(−) Deduções` | Tributos sobre a prestação e as alíquotas que os produzem. |
+| `(−) Custo variável — …` | Combustível, manutenção, pneus e o custo variável simulado. Nenhum deles é montante hoje: são razões (R$/km, km/l) à espera da quilometragem do período. |
+| `(−) Custo fixo` | Incide independentemente de rodar: IPVA/licenciamento e aluguel do ativo. |
+| `(−) Depreciação e financeiro` | Amortização e juros do FINAME, e os parâmetros que produzem a parcela (taxa, spreads, TJLP, prazo, carência, entrada). É obrigação financeira, **não** depreciação contábil. |
+| `Grandeza de aquisição (não entra na DRE do período)` | `valorNfCompra` e `valorPisCofins`: incidem sobre a compra do ativo, não sobre a prestação do mês. |
+| `Direcionador operacional (não entra na DRE)` | Os relógios — vida do cavalo em anos e em meses. |
+| `Cadastral (não entra na DRE)` | Identificação, escopo, contrato e especificação técnica. |
+
+**Quatro avisos que valem mais que a tabela.**
+
+1. **`finameCavalo` não é a parcela do financiamento.** A hipótese
+   "amortização + juros" foi testada e rejeitada — falha em 30 linhas. O que
+   fecha é "amortização + juros + lucro fixo do novo ciclo", em 532 das 533
+   linhas não nulas. Ele é o custo fixo do cavalo, e quando o FINAME acaba o
+   valor migra para o lucro fixo **dentro do mesmo total**.
+2. **Razão não é montante.** `manutencaoReaisKm`, `manutencaoBid`, `reaiskm`,
+   `valorReajustado`, `Custo Variável Simulado` e os consumos em km/l só viram
+   dinheiro multiplicados pela quilometragem rodada por ativo no período — que
+   este export não traz. Multiplicar por um km estimado é inventar o número.
+3. **`valorPisCofins` não é dedução da prestação.** É 9,250% da nota de compra,
+   desvio zero nos 132 ativos, e nunca varia: tributo de aquisição. A dedução de
+   PIS/COFINS sobre o serviço continua faltando, e é pergunta para a Ambev.
+4. **Zero é ausência, não valor.** `valorIcms` e `valorPneu` vêm zerados nas 558
+   linhas do cavalo, e `combustivelConsumoNeg` em 77 delas. Coluna sem dado não é
+   custo zero — somá-la como zero afirma que o custo não existe.
+
+**Um achado que veio deste dicionário e contradiz o repositório.** O time escreve
+que `combustivelCapacidade` é **capacidade de pallets** para o cálculo de
+combustível. Hoje `guessUnit` em `lib/curation/src/semantics.ts` a deduz como
+`LITROS` ("capacidade de tanque") e a evidência de `variavel.diesel` em
+`lib/dre/src/plano.ts` repete "LITROS, média 28,68" — enquanto o comentário de
+`guessTaxonomyCode` já argumentava o contrário, pelos valores 28 e 42 e pelo
+`Pallets: 28` da carreta ao lado. O rótulo do time desempata: é pallets. Nada
+soma a partir dessa coluna, então o número da DRE não muda — mas a unidade
+declarada está errada em dois arquivos, e vale corrigir.
+
+| Atributo | Nome Gerencial | O que é | Categoria DRE |
+| --- | --- | --- | --- |
+| Vigencia | Quinzena | Quinzena de validade da linha. O mesmo cavalo tem uma linha por vigência, e é a comparação entre elas que mostra o que mudou. | Cadastral (não entra na DRE) |
+| Unidade - CNPJ | CNPJ da Unidade | CNPJ da unidade Ambev a que o veículo está alocado. | Cadastral (não entra na DRE) |
+| Unidade - Nome | Nome da Unidade | Nome da unidade (fábrica ou CDD) onde o cavalo opera. | Cadastral (não entra na DRE) |
+| Unidade SAP | Codigo da unidade | Código da unidade no SAP — chave de conciliação com o razão contábil. | Cadastral (não entra na DRE) |
+| Unidade TMS | Código TMS da Unidade | Código da mesma unidade no TMS. | Cadastral (não entra na DRE) |
+| Unidade - Promax UNB | UNB Promax da Unidade | Código da unidade de negócio no Promax. | Cadastral (não entra na DRE) |
+| Unidade - Regional | Regional da Unidade | Regional a que a unidade pertence — o nível em que a frota é lida agregada. | Cadastral (não entra na DRE) |
+| Operador - CNPJ | CNPJ do Transportador | CNPJ do transportador dono ou operador do cavalo. | Cadastral (não entra na DRE) |
+| Operador - Nome | Nome do Transportador | Razão social do transportador. | Cadastral (não entra na DRE) |
+| Operador - SAP | Codigo do Transportador | Código do transportador como fornecedor no SAP — chave do pagamento da remuneração. | Cadastral (não entra na DRE) |
+| Operador - TMS | Código TMS do Transportador | Código do transportador no TMS. | Cadastral (não entra na DRE) |
+| Operador - Promax | Código Promax do Transportador | Código do transportador no Promax. | Cadastral (não entra na DRE) |
+| Organizacao de Compras | Organização de Compras | Organização de compras (SAP) sob a qual o contrato do equipamento foi firmado. | Cadastral (não entra na DRE) |
+| Prazo Pagamento | Prazo de Pagamento | Condição de pagamento acordada, em dias. Muda o caixa, não o resultado. | Cadastral (não entra na DRE) |
+| Custo Variável Simulado | CUSTO VARIAVEL SIMULADO DO VEICULO | Custo variável simulado do veículo, em R$/km (3,66 no export). É uma terceira grandeza: não entra em total de R$/mês nem de R$/ano, e sem a quilometragem rodada por ativo no período não vira montante. | (−) Custo variável — Outros |
+| Empresa locadora | EMPRESA DE LOCAÇÃO DO VEICULO | Locadora do veículo, quando ele é alugado em vez de financiado. Só faz sentido junto de frotaEmprestada e custoAluguel. | Cadastral (não entra na DRE) |
+| Ganhador BID | GANHADOR DO BID DE COMPRA | Marca se o veículo tem ganhador definido no BID. Chega como número — 1 em 531 cavalos, 0 em 27 — e é o que decide se o R$/km de manutenção vem da matriz do BID ou do contrato. | (−) Custo variável — Manutenção |
+| Padrão | PADRAO DO VEICULO | Padrão de eixos do cavalo: 'Descricao: 6X2' em 522 cavalos e 'Descricao: 6X4' em 36. Cuidado com o falso parente: a palletização do BID escreve 'Palletizacao: 6X2' — mesmo vocabulário, campo diferente. | Cadastral (não entra na DRE) |
+| Placa | PLACA | Placa do cavalo. É a identidade do ativo em toda a série, e a coluna por onde a tela congela a linha. | Cadastral (não entra na DRE) |
+| Placa Carreta | PLACA IMPLEMENTO | Placa do implemento vinculado. É por este campo que o par cavalo–carreta é montado — e foi ele que revelou que carreta.finame já contém o cavalo, em 558 de 558 pares. | Cadastral (não entra na DRE) |
+| Spread BNDES | SPREAD BNDS COMPRA | Spread do BNDES na operação de compra. Componente de Taxa Finame (%). | (−) Depreciação e financeiro |
+| Spread Banco | SPREAD BANCO COMPRA | Spread do banco repassador. Segundo componente de Taxa Finame (%). | (−) Depreciação e financeiro |
+| TJLP | TJLP DA COMPRA MAIS INPC | TJLP da compra somada ao INPC. Terceiro componente da taxa — publicada por terceiro, não é premissa que se negocie. | (−) Depreciação e financeiro |
+| Taxa Finame (%) | SAOMA DOS SPREAD + TJLP | Soma de TJLP + spread BNDES + spread banco: a taxa que produz os juros do FINAME. No Freightech o campo se chama taxaFiname; a planilha escreve 'Taxa Finame (%)' — é a mesma coisa em dois estilos de nome. | (−) Depreciação e financeiro |
+| amortizacaoCavalo | CALCULO DA AMORTIZAÇÃO DO VEICULO ATÉ O 60º MÊS DE FINANCIAMENTO | Amortização do principal do FINAME, mensal. Confirmada MENSAL em 10/08/2026 por base aritmética: amortização ÷ (valor da NF × (1 − entrada%) ÷ periodoFiname) = 1,081 nos cavalos, desvio 0,040 — o prazo está em meses; lida como anual, erraria por um fator de treze. Não é depreciação contábil: é obrigação de financiamento. | (−) Depreciação e financeiro |
+| ano | ANO DA COMPRA DO VEICULO ( TRANSFORMADO EM DATA) | Ano de compra do veículo. É ano de calendário, não quantidade — não soma nem tira média. | Cadastral (não entra na DRE) |
+| anoBid | ANO DO BID | Ano do BID de manutenção. É a linha da matriz do BID em que o veículo cai, junto com palletização e montadora — nas linhas de MÉDIA o valor vem zerado; nas linhas com ano, há valor. | (−) Custo variável — Manutenção |
+| ativo | VEICULO ATIVO OU NÃO ATIVO ( CHECK MENSAL) | Se o veículo está ativo na vigência, conferido todo mês. Um cavalo inativo continua na planilha — é ele que explica série que 'some' sem o ativo sair da frota. | Cadastral (não entra na DRE) |
+| cambio | TIPO DO CAMBIO DO VEICULO | Tipo de câmbio do cavalo. Especificação técnica do ativo. | Cadastral (não entra na DRE) |
+| carencia | CARENCIA DE FINAME | Carência do FINAME: adia o início da amortização e desloca no tempo o valor do custo fixo, sem mudar o total financiado. | (−) Depreciação e financeiro |
+| chassi | CHASSI DO VEICULO | Chassi do veículo — identificação única do ativo, independente da placa. | Cadastral (não entra na DRE) |
+| ciclo | CICLO DO VEICULO | Numera o ciclo do ativo. Muda **porque** o financiamento terminou — é consequência, não causa: as 10 transições de ciclo coincidem com as 10 do lucro fixo do novo ciclo, nas mesmas placas e vigências. | Cadastral (não entra na DRE) |
+| combustivelCapacidade | CAPACIDADE DE PALLETS PARA CALCULO DE COMBUSTIVEL | Capacidade em pallets usada na conta de combustível (28 e 42 no export). É especificação, não consumo — não mexe em valor nenhum da remuneração. Ver a nota no topo: este rótulo corrige o que o repositório registra hoje como litros de tanque. | Cadastral (não entra na DRE) |
+| combustivelConsumoBenchmark | MÉDIA DO VEICULO BENCHMARK | Consumo de referência do veículo, em km/l, já resolvido da matriz capacidade × montadora do Freightech. Sentido inverso: régua maior significa menos litros reconhecidos na remuneração. | (−) Custo variável — Combustível |
+| combustivelConsumoNeg | MÉDIA DE COMBUSTIVEL REVISÃO TRIMESTRAL | Consumo negociado, revisto a cada trimestre. Mediana de 2,03 km/l entre os não nulos; 77 das 558 células vêm zeradas, e zero não é consumo — é ausência escrita como número. | (−) Custo variável — Combustível |
+| combustivelConsumoNegInteiro | CHECK DE MÉDIA CONFORME NEGOCIADA | Conferência do consumo negociado arredondado — valida se a média aplicada é a que foi negociada. | (−) Custo variável — Combustível |
+| combustivelPercentualPerdaVida | CALCULO DE PERDA DE CONSUMO CONFORME VIDA DO VEICULO | Quanto o consumo piora com a idade do cavalo. Foi de −1,5% para −2,0% em 15 cavalos na virada de Dez/2025 para Jan/2026; o efeito no dinheiro depende de a fórmula incidir sobre litros ou sobre km/l, e essa fórmula não vem no export. | (−) Custo variável — Combustível |
+| combustivelVidaCavalo | CALCULO DA VIDA DO VEICULO CONFORME DATA DE COMPRA | Idade do cavalo em anos, contada da compra. Não remunera por si: é o eixo das curvas de perda. 494 transições medidas, todas para cima — é relógio, não premissa que alguém alterou. | Direcionador operacional (não entra na DRE) |
+| custoAluguel | CUSTO DE ALUGUEL CASO VEICULO SEJA LEASING | Aluguel do veículo quando ele é locado em vez de financiado — ocupa na conta o lugar que o FINAME ocuparia. Atenção: a periodicidade não está confirmada (mensal ou anual?), e por isso hoje não soma. | (−) Custo fixo |
+| data | DATA DE ENTRADA DO VEICULO NO FREIGHTECH | Data em que o veículo entrou no Freightech — o começo da série dele. | Cadastral (não entra na DRE) |
+| dataFimContrato | DATA DE PROJEÇÃO DE FIM DE CONTRATO | Projeção do fim do contrato. Não é montante, e mexe em dinheiro assim mesmo: muda a janela em que o financiamento é amortizado, e o custo fixo muda junto. Falso parente: DATACONTRATO, na tela de contrato de manutenção, é outra data. | Cadastral (não entra na DRE) |
+| eixoEmpurrada | TIPO DE EIXOS FROTA | Configuração de eixos do conjunto na empurrada. Especificação técnica. | Cadastral (não entra na DRE) |
+| faixaKm | FAIXA DE KM DO VEICULO | Faixa de odômetro em que o cavalo está — ATE_120000, ATE_240000, ATE_360000, ATE_480000. É ela que escolhe a coluna de R$/km na tabela de manutenção; as faixas batem com as do Freightech, com um sublinhado a mais. | (−) Custo variável — Manutenção |
+| finameCavalo | CALCULO DO FINAME ( AMORTIZAÇÃO + JUROS FINAME) | **O custo fixo do cavalo, e não só a parcela de financiamento.** A hipótese 'amortização + juros' foi testada e rejeitada — falha em 30 linhas; 'amortização + juros + lucro fixo do novo ciclo' fecha em 532 das 533 linhas não nulas. Quando o financiamento se encerra, o valor migra para o lucro fixo dentro do mesmo total. Confirmado MENSAL. É o que a Ambev paga pelo cavalo. | Receita bruta |
+| freeMaintenance | CARENCIA DE MANUTENÇÃO | Carência de manutenção: janela em que o veículo ainda não gera custo de manutenção porque está coberto pela garantia ou pelo contrato inicial. | (−) Custo variável — Manutenção |
+| frotaEmprestada | CHECK SE FROTA É EMPRESTADA | Marca o cavalo que opera nesta unidade sem lhe pertencer. Sem este campo, a frota da unidade parece maior do que é. | Cadastral (não entra na DRE) |
+| ipvaLicenciamento | CALCULO DO IPVA OU LICENCIAMENTO ANUAL( REVISÃO SEMESTRAL) | IPVA e licenciamento, **anual**. Confirmado em 10/08/2026: de Jan a Jun/2026 o valor é exatamente 1,000% de valorNfCompra nas 62 placas, desvio 0,0000. Entra numa DRE mensal dividido por doze, e a divisão fica marcada como projeção — a base mudou duas vezes na série (2,52% médio → 1,000% fixo → 0,651% médio). | (−) Custo fixo |
+| jurosFinameCavalo | JUROS DO FINAME | Juros do FINAME do cavalo, mensais. Mesma cadeia confirmada da amortização — finame = amortização + juros fecha em 37 de 38 casos com ambas as parcelas não nulas. | (−) Depreciação e financeiro |
+| lucroFixomodeloNovoCicloCavalo | CALCULO DO LUCRO FIXO DO VEICULO | Lucro fixo do novo ciclo: a remuneração de capital embutida no custo fixo do cavalo. Confirmado MENSAL, e é a parcela que cresce quando o FINAME se encerra — o total não muda, a composição sim. | Receita bruta |
+| lucroVariavelPrevistoCavalo | CALCULO DO LUCRO VARIAVEL DO VEICULO PREVISTO | Lucro variável **previsto**. É previsão, não realizado, e a série é intermitente: 107 das 107 transições têm zero de um dos lados — a coluna aparece e some, e a variação entre vigências não é preço. Está sem semântica confirmada e por isso não soma na DRE. | Receita bruta (não confirmada — não soma) |
+| manutencaoAno | CALCULO PARA ANO DO BID | Ano usado para localizar a linha do veículo na matriz do BID de manutenção. | (−) Custo variável — Manutenção |
+| manutencaoBid | BUSCA DO VALOR POR ANO CASO VEICULO NÃO TENHA CONTRATO DE MANUTENÇÃO E TENHA COMPRA AUTORIZADA FORA DO BID | R$/km de manutenção vindo da matriz do BID — palletização × montadora × ano × faixa de odômetro —, usado quando não há contrato. Média R$ 0,38/km. É razão, não montante. | (−) Custo variável — Manutenção |
+| manutencaoCompraForaDoBidAutorizada | CHECK DE COMPRA FORA DO BID | Marca a compra autorizada fora do BID. É o check que libera usar o valor do BID por ano no lugar do contrato. | (−) Custo variável — Manutenção |
+| manutencaoContrato | VALOR DO CONTRATO DE MANUTENÇÃO COM VALOR REAJUSTADO ( CRÉDITO DE PIS E COFINS) | Valor do contrato de manutenção, já reajustado e líquido do crédito de PIS/COFINS. | (−) Custo variável — Manutenção |
+| manutencaoFreeMaintenance | CHECK DE CAMPO DE CARENCIA DE MANUTENÇÃO | Conferência do campo de carência: diz se o veículo está dentro da janela em que a manutenção não é cobrada. | (−) Custo variável — Manutenção |
+| manutencaoReaisKm | CALCULO DE R$ DE MANUTENÇÃO CAVALO | R$/km de manutenção do cavalo — média R$ 0,26/km. É razão, não montante: sem a quilometragem rodada por ativo no período não vira dinheiro, e multiplicar por um km estimado seria inventar o número. É o único dos 20 campos das fichas do Freightech que chega no export com o nome exato. | (−) Custo variável — Manutenção |
+| manutencaoReaisKmInteiro | CHECK DE VALIDAÇÃO DE KM INTEIRO PARA MANUTENÇÃO CAVALO | Conferência do R$/km de manutenção arredondado. | (−) Custo variável — Manutenção |
+| manutencaoVidaMeses | CALCULO DE VIDA DO VEICULO PARA MANUTENÇÃO DE CAVALO | Idade do cavalo em meses, para efeito de manutenção. É o mesmo relógio de combustivelVidaCavalo em outra unidade: a razão entre os dois fica entre 12,07 e 12,50, mediana 12,17. | Direcionador operacional (não entra na DRE) |
+| mesDeEntrada | MÊS DE ENTRADA DO VEICULO NO FREIGHTECH | Mês de entrada do veículo no Freightech. | Cadastral (não entra na DRE) |
+| modeloEmpurrada | MODELO DE CAMINHÃO | Modelo do caminhão. Junto com a montadora, é o que liga o veículo às tabelas de consumo e de manutenção. | Cadastral (não entra na DRE) |
+| montadora | MONTADORA DO VEICULO | Montadora do veículo, com o prefixo do cadastro de origem ('Descrição: VOLVO'). Bate letra por letra com as telas de consumo e de BID — é um dos eixos das duas matrizes. | Cadastral (não entra na DRE) |
+| odometroEntrada | KILOMETRAGEM ATUAL DO VEICULO | Hodômetro na entrada. Descreve o ativo: muda uma vez por placa, em 62 de 62, sem mover nenhum valor monetário na mesma transição. | Cadastral (não entra na DRE) |
+| percentualEntrada | CALCULO PARA % DE ENTRADA PARA VEICULOS COMPRADOS APÓS 2018 | Percentual de entrada do financiamento. É 20% em toda a frota — o par de periodoFiname 60 na tabela de entrada por prazo do Freightech. Entrada maior reduz o valor financiado e, com ele, a parcela. | (−) Depreciação e financeiro |
+| percentualIcms | % DE ICMS CONFORME COMPRA DO VEICULO | Alíquota de ICMS conforme a compra do veículo. Alíquota não é montante: o dinheiro correspondente está em valorIcms. | (−) Deduções |
+| percentualReajusteAplicado | CALCULO DE % APLICADO SOBRE A FAIXA DE KM PARA CONTRATO DE MANUTENÇÃO | Reajuste aplicado sobre a faixa de km no contrato de manutenção. Subiu em 4 cavalos (16,85% → 20,56% e 7,03% → 7,48%), sempre para cima. | (−) Custo variável — Manutenção |
+| periodoFiname | PERIODO DE FINAME DO VEICULO | Prazo do FINAME **em meses** — 60 nos 558 cavalos. É o divisor da amortização, e o prazo em meses não é suposição: é o que a razão medida de 1,081 comprova. | (−) Depreciação e financeiro |
+| pneuMedidaEmpurrada | MEDIDA DO PNEU DO CAVALO | Medida do pneu do cavalo. Define qual preço de pneu se aplica ao veículo. | (−) Custo variável — Pneus |
+| reaiskm | R$ KM MANUTENÇÃO CONFORME CONTRATO | R$/km de manutenção pelo contrato — o valor da linha do veículo na tabela de contrato de manutenção, já resolvido para a faixa em que ele está. Mesma família de razão: sem km, não vira montante. | (−) Custo variável — Manutenção |
+| regiaoEmpurrada | REGIÃO DE OPERAÇÃO | Região em que a empurrada opera. Define os parâmetros regionais aplicados ao veículo. | Cadastral (não entra na DRE) |
+| statusFinanciamentoT1Shared | STATUS FINANCIAMENTO | Situação do financiamento do veículo — se ainda amortiza ou já entrou no ciclo em que o valor migra do FINAME para o lucro fixo. | Cadastral (não entra na DRE) |
+| tipoCombustivelEmpurrada | TIPO DE MODELO DE CONSUMO DE COMBUSTIVEL | Qual modelo de consumo/combustível a empurrada usa. Troca a tabela de preço aplicada — diesel, diesel S10, ARLA. | (−) Custo variável — Combustível |
+| valorIcms | CALCULO PARA CRÉDITO DE ICMS SOBRE INSUMOS | Crédito de ICMS sobre insumos, em reais. A coluna existe e vem **zerada nas 558 linhas** do cavalo: é coluna sem dado, não imposto zero — vale perguntar à Ambev se deixou de ser preenchida. | (−) Deduções |
+| valorNfCompra | VALOR DE COMPRA DA NOTA FISCAL | Valor da nota fiscal de compra. Confirmado PONTUAL: nunca varia nas 9 vigências. É a base de três contas — o valor financiado (× (1 − entrada%)), o IPVA (1,000% a.a.) e o PIS/COFINS de aquisição (9,250%). | Grandeza de aquisição (não entra na DRE do período) |
+| valorPisCofins | VALOR DE PIS COFINS SOBRE O VALOR DE NOTA FISCAL DE COMPRA | PIS/COFINS sobre a nota de compra do ativo: exatamente 9,250% de valorNfCompra, desvio 0,0000 nos 132 ativos, e nunca varia na série. É tributo de **aquisição**, não dedução sobre a prestação — e por isso a dedução de PIS/COFINS do serviço continua faltando. | Grandeza de aquisição (não entra na DRE do período) |
+| valorPneu | VALOR DE PNEUS CONFORME COMPRA | Valor de pneus conforme a compra. Existe e é **zero nas 558 linhas** — perguntar à Ambev se o custo de pneu está embutido em outra linha ou se a coluna parou de ser preenchida. | (−) Custo variável — Pneus |
+| valorReajustado | CALCULO DO VALOR REAJUSTADO DE REAIS KM | R$/km já reajustado — o resultado de aplicar percentualReajusteAplicado sobre a faixa. Razão em R$/km: não soma com montantes mensais nem anuais. | (−) Custo variável — Manutenção |

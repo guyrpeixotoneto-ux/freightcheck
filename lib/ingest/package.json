@@ -6,6 +6,7 @@
   "exports": {
     ".": "./src/index.ts",
     "./excel-dates": "./src/excel-dates.ts",
+    "./tipos": "./src/tipos.ts",
     "./testing": "./src/testing.ts",
     "./testing/planilha": "./src/__tests__/planilha-sintetica.ts"
   },

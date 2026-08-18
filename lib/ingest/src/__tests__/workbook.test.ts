@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { deriveEntityType, foldText, readWorkbook, slugifyColumn } from "../workbook";
 import { realExportPath } from "../testing";
+import { escreverPlanilha } from "./planilha-sintetica";
 
 describe("slugifyColumn", () => {
   it("recovers word boundaries from camelCase", () => {
@@ -92,8 +93,14 @@ describe("sheet classification on the real export", () => {
     expect(byName.get("Análise Cavalo")!.role).toBe("PIVOT");
 
     // The reason is recorded so a reviewer can disagree with the classifier.
-    expect(byName.get("Quantidade")!.roleReason).toMatch(/lacks the grain column/);
-    expect(byName.get("cavalos")!.roleReason).toMatch(/vigencia \+ placa/);
+    expect(byName.get("Quantidade")!.roleReason).toMatch(/não traz vigencia/);
+    // A recusa nomeia os conjuntos que serviriam: quem lê precisa saber que uma
+    // aba sem placa ainda pode ser uma de trecho ou de quadro de pessoal.
+    expect(byName.get("Quantidade")!.roleReason).toMatch(/Placa, ou chaveTrecho/);
+    expect(byName.get("Quantidade")!.roleReason).toMatch(/Unidade - CNPJ \+ Cargo/);
+    expect(byName.get("cavalos")!.roleReason).toMatch(/vigencia \+ Placa/);
+    expect(byName.get("cavalos")!.identifierColumns).toEqual(["placa"]);
+    expect(byName.get("Quantidade")!.identifierColumns).toEqual([]);
   });
 
   it("finds no duplicate slug inside either source sheet", () => {
@@ -104,5 +111,56 @@ describe("sheet classification on the real export", () => {
         .map(slugifyColumn);
       expect(new Set(slugs).size).toBe(slugs.length);
     }
+  });
+});
+
+/**
+ * O trecho não tem placa, e isso não pode custar a aba inteira.
+ *
+ * Antes destes testes, uma aba sem `Placa` era rebaixada a PIVOT e não
+ * produzia fato nenhum — em silêncio, com zero erro e zero aviso. A prova de
+ * que a regra mudou é uma aba que só tem a outra chave e ainda assim é fonte.
+ */
+describe("o grão é do tipo, não da placa", () => {
+  const planilhaDeTrecho = () =>
+    escreverPlanilha({
+      vigencia: "EMPURRADA_1_8_2026",
+      abas: [
+        {
+          nome: "trechos",
+          identificador: "chaveTrecho",
+          linhas: [{ placa: "CAMACARI-SALVADOR" }, { placa: "CAMACARI-FEIRA" }],
+        },
+      ],
+    });
+
+  it("aceita como fonte uma aba identificada por chaveTrecho", () => {
+    const { sheets } = readWorkbook(planilhaDeTrecho());
+    const [aba] = sheets;
+
+    expect(aba.role).toBe("SOURCE");
+    expect(aba.identifierColumns).toEqual(["chavetrecho"]);
+    expect(aba.entityType).toBe("TRECHO");
+    expect(aba.roleReason).toMatch(/vigencia \+ chaveTrecho/);
+  });
+
+  it("continua aceitando a aba identificada por placa", () => {
+    const caminho = escreverPlanilha({
+      vigencia: "EMPURRADA_1_8_2026",
+      abas: [{ nome: "cavalos", linhas: [{ placa: "ABC1D23" }] }],
+    });
+    const [aba] = readWorkbook(caminho).sheets;
+
+    expect(aba.role).toBe("SOURCE");
+    expect(aba.identifierColumns).toEqual(["placa"]);
+  });
+
+  it("recusa a aba sem identificador nenhum dizendo quais serviriam", () => {
+    const pivo = readWorkbook(realExportPath()).sheets.find(
+      (s) => s.role === "PIVOT",
+    )!;
+
+    expect(pivo.roleReason).toMatch(/Placa, ou chaveTrecho/);
+    expect(pivo.identifierColumns).toEqual([]);
   });
 });

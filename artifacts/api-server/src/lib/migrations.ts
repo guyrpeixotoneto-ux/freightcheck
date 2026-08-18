@@ -2,7 +2,7 @@ import path from "node:path";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { sql } from "drizzle-orm";
-import { db } from "@workspace/db";
+import { createDb, db } from "@workspace/db";
 import {
   MIGRATIONS_FOLDER,
   appliedMigrations,
@@ -11,6 +11,11 @@ import {
 } from "@workspace/db/migrate";
 import type { EstadoObservado } from "@workspace/db/diagnostico";
 import { bridgePendente } from "@workspace/db/bridge-marcador";
+import { compararSchema, tabelasDeclaradas } from "@workspace/db/conferir-schema";
+import {
+  reconvergirSchema,
+  type RelatorioDeReconvergencia,
+} from "@workspace/db/reconvergencia";
 
 /**
  * O que este processo sabe sobre as migrations: quais ele carrega e o que
@@ -188,12 +193,49 @@ export async function observarBanco(
       return { rows: r.rows };
     });
 
+    /*
+      A conferência de schema — a mesma do `conferir-schema` — roda exatamente
+      quando a contagem diz "em dia", porque é aí que a contagem mente: foi com
+      todas as migrations registradas e uma coluna a menos que o `/healthz`
+      respondeu SAUDAVEL enquanto duas telas caíam com 42703, sem que nada
+      dissesse **qual** coluna. Com pendências, elas já explicam qualquer
+      ausência e a pergunta não acrescenta nada.
+
+      Uma consulta ao `information_schema` por chamada — a mesma ordem de custo
+      das perguntas que esta função já faz. E dentro de um `catch` próprio: a
+      conferência falhar não pode derrubar o diagnóstico que a contém — o campo
+      sai ausente, que é a semântica de "ninguém conferiu".
+    */
+    let objetosAusentes: string[] | undefined;
+    if (temSchema && pendentes.length === 0) {
+      try {
+        const colunas = await db.execute<{ table_name: string; column_name: string }>(
+          sql`select table_name, column_name
+                from information_schema.columns
+               where table_schema = 'public'`,
+        );
+        const reais = new Map<string, Set<string>>();
+        for (const linha of colunas.rows) {
+          if (!reais.has(linha.table_name)) reais.set(linha.table_name, new Set());
+          reais.get(linha.table_name)!.add(linha.column_name);
+        }
+        const divergencia = compararSchema(tabelasDeclaradas(), reais);
+        objetosAusentes = [
+          ...divergencia.tabelasAusentes.map((t) => `${t} (tabela inteira)`),
+          ...divergencia.colunasAusentes.map((c) => `${c.tabela}.${c.coluna}`),
+        ];
+      } catch {
+        /* Não conferido — e dizê-lo é o campo ficar de fora. */
+      }
+    }
+
     return {
       configurada: true,
       alcancavel: true,
       pendentes,
       aplicadas: esperadas.length - pendentes.length,
       temSchema,
+      ...(objetosAusentes !== undefined ? { objetosAusentes } : {}),
       ...(bridge.pendente
         ? {
             bridgePendente: bridge.desde ? { desde: bridge.desde } : {},
@@ -218,4 +260,79 @@ export async function observarBanco(
       aplicadas: 0,
     };
   }
+}
+
+/**
+ * A reconvergência da partida — depois da fila, e só quando ela não explica.
+ *
+ * `runMigrations()` leva o banco até onde o registro permite; o que ele
+ * estruturalmente não alcança é o objeto de migration **já registrada** que o
+ * Provision do Publishing removeu por fora (ver `@workspace/db/reconvergencia`).
+ * Este é o passo que alcança — na mesma partida, pela mesma fila, sob a mesma
+ * política de `deveMigrarNaPartida`.
+ *
+ * As recusas são deliberadas, e cada uma nomeia quem resolve:
+ *
+ *   - **pendências**: com migration pendente, a ausência é explicada e a fila
+ *     é quem resolve — reconvergir aqui criaria objeto fora de ordem;
+ *   - **bridge pendente**: o banco declara um estado intencional no meio de um
+ *     deploy assistido, e repor o que o `down` tirou é papel do `up`.
+ *
+ * Abre a própria conexão pela URL — e não pelo pool global — para que a
+ * pergunta e o reparo caiam garantidamente no mesmo banco, inclusive nos
+ * testes que exercitam vários.
+ */
+export async function reconvergirNaPartida(
+  databaseUrl: string,
+): Promise<
+  | { rodou: true; relatorio: RelatorioDeReconvergencia }
+  | { rodou: false; motivo: string }
+> {
+  const { db: alvo, pool } = createDb(databaseUrl);
+  try {
+    const resultado = await alvo.execute<{ migrated: boolean }>(
+      sql`select to_regclass('public.import_run') is not null as migrated`,
+    );
+    if (!resultado.rows[0]?.migrated) {
+      return { rodou: false, motivo: "schema ainda não existe — a fila resolve" };
+    }
+
+    const temRegistro = await alvo.execute<{ existe: boolean }>(
+      sql`select to_regclass('drizzle.__drizzle_migrations') is not null as existe`,
+    );
+    if (!temRegistro.rows[0]?.existe) {
+      /* Schema sem registro: aos olhos deste build está tudo pendente — e é a
+         fila (ou a adoção, decisão humana) quem resolve, nunca o reparo. */
+      return {
+        rodou: false,
+        motivo: `${expectedMigrations().length} migration(s) pendente(s) — a fila resolve`,
+      };
+    }
+
+    const aplicadas = new Set<number>(await appliedMigrations(alvo));
+    const pendentes = expectedMigrations().filter((m) => !aplicadas.has(m.when));
+    if (pendentes.length > 0) {
+      return {
+        rodou: false,
+        motivo: `${pendentes.length} migration(s) pendente(s) — a fila resolve`,
+      };
+    }
+
+    const bridge = await bridgePendente(async (texto) => {
+      const r = await alvo.execute<Record<string, unknown>>(sql.raw(texto));
+      return { rows: r.rows };
+    });
+    if (bridge.pendente) {
+      return { rodou: false, motivo: "bridge pendente — o bridge:up resolve" };
+    }
+  } catch (err) {
+    return {
+      rodou: false,
+      motivo: `banco inalcançável (${err instanceof Error ? err.message : String(err)})`,
+    };
+  } finally {
+    await pool.end();
+  }
+
+  return { rodou: true, relatorio: await reconvergirSchema(databaseUrl) };
 }

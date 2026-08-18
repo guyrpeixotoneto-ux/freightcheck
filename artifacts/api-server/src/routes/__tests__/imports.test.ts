@@ -104,6 +104,48 @@ describe("decodeUpload", () => {
   });
 });
 
+describe("o tipo declarado no upload", () => {
+  const comTipo = (declaredType: unknown) =>
+    decodeUpload({
+      filename: "Modelo_Cavalo.xlsx",
+      contentBase64: zipBase64,
+      declaredType,
+    });
+
+  it("aceita o envio sem tipo — a dedução por conteúdo continua valendo", () => {
+    const result = decodeUpload({
+      filename: "Modelo_Cavalo.xlsx",
+      contentBase64: zipBase64,
+    });
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.declaredType).toBeNull();
+  });
+
+  it("carrega o tipo declarado até o pipeline", () => {
+    const result = comTipo("CAVALO");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.declaredType).toBe("CAVALO");
+  });
+
+  it("carrega o QLP, que tem grão declarado como qualquer outro tipo", () => {
+    const result = comTipo("QLP_OPERACIONAL");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.declaredType).toBe("QLP_OPERACIONAL");
+  });
+
+  it("recusa um tipo que não existe", () => {
+    const result = comTipo("BITREM");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/não é um tipo de importação conhecido/);
+  });
+
+  it("recusa um tipo que não é texto em vez de o converter", () => {
+    const result = comTipo(42);
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toMatch(/precisa ser texto/);
+  });
+});
+
 describe("whyCannotPromote", () => {
   it("deixa passar só o run já conferido", () => {
     expect(whyCannotPromote("PREVIEWED")).toBeNull();

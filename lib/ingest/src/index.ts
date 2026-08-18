@@ -1,3 +1,4 @@
+export * from "./tipos";
 export * from "./excel-dates";
 export * from "./vigencia";
 export * from "./canonical-identity";

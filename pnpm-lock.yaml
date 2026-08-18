@@ -273,6 +273,9 @@ importers:
       '@workspace/curation':
         specifier: workspace:*
         version: link:../../lib/curation
+      '@workspace/ingest':
+        specifier: workspace:*
+        version: link:../../lib/ingest
       '@workspace/knowledge':
         specifier: workspace:*
         version: link:../../lib/knowledge
