@@ -126,9 +126,9 @@ describe("conferir-schema confere o conteúdo, e não só a forma", () => {
 
   it("não conserta nada, nem com --aplicar", async () => {
     /*
-      `--aplicar` repõe coluna ausente, e é só isso que ele faz. Um dia alguém
-      vai supor que a bandeira "arruma o banco" — este teste é o que responde
-      antes que a suposição vire um UPDATE calado em cima de dado de cliente.
+      `--aplicar` repõe estrutura, e é só isso que ele faz. Um dia alguém vai
+      supor que a bandeira "arruma o banco" — este teste é o que responde antes
+      que a suposição vire um UPDATE calado em cima de dado de cliente.
     */
     const url = await bancoMigrado("fc_integridade_aplicar");
     const banco = new pg.Pool({ connectionString: url });
