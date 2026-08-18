@@ -95,7 +95,7 @@ describe("snapshots idênticos", () => {
     expect(rows).toHaveLength(0);
     // Re-importing the same content must never invent news.
     expect(set.unchanged).toBe(4);
-    expect(set.calculatedImpactByPeriodicity).toEqual({});
+    expect(set.impacto.oficial).toEqual({});
   });
 });
 
@@ -165,7 +165,7 @@ describe("materialidade e impacto", () => {
     // ...but the variation itself is still reported.
     expect(rate.deltaAbsolute).toBeCloseTo(0.5, 6);
 
-    expect(set.calculatedImpactByPeriodicity).toEqual({ MENSAL: 400 });
+    expect(set.impacto.oficial).toEqual({ MENSAL: 400 });
     expect(set.impactNotCalculable).toBe(1);
   });
 
@@ -207,15 +207,15 @@ describe("materialidade e impacto", () => {
       { AAA1A11: { "carreta.custo_fixo": 1100, "carreta.ipva_anual": 4800 } },
     );
 
-    expect(set.calculatedImpactByPeriodicity).toEqual({
+    expect(set.impacto.oficial).toEqual({
       MENSAL: 100,
       ANUAL: -1200,
     });
     // The two must never collapse into the -1100 a scalar would have produced.
-    const buckets = Object.values(set.calculatedImpactByPeriodicity);
+    const buckets = Object.values(set.impacto.oficial);
     expect(buckets).toHaveLength(2);
     expect(buckets.reduce((a, b) => a + b, 0)).not.toBe(
-      set.calculatedImpactByPeriodicity.MENSAL,
+      set.impacto.oficial.MENSAL,
     );
   });
 
@@ -246,7 +246,7 @@ describe("materialidade e impacto", () => {
     // The raw difference, untouched — not -500 (a twelfth) nor -72000 (×12).
     expect(change.impactAmount).toBe(-6000);
     expect(change.impactPeriodicity).toBe("ANUAL");
-    expect(set.calculatedImpactByPeriodicity).toEqual({ ANUAL: -6000 });
+    expect(set.impacto.oficial).toEqual({ ANUAL: -6000 });
   });
 
   it("dá bucket próprio a um impacto sem periodicidade declarada", async () => {
@@ -269,7 +269,7 @@ describe("materialidade e impacto", () => {
       { AAA1A11: { "carreta.custo_fixo": 100, "carreta.valor_aquisicao": 200000 } },
       { AAA1A11: { "carreta.custo_fixo": 150, "carreta.valor_aquisicao": 210000 } },
     );
-    expect(set.calculatedImpactByPeriodicity).toEqual({
+    expect(set.impacto.oficial).toEqual({
       MENSAL: 50,
       PONTUAL: 10000,
     });

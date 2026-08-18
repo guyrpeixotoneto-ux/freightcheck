@@ -82,16 +82,28 @@ export const ORDEM_DA_CRITICIDADE: Record<Criticidade, number> = {
 /**
  * De onde vem a afirmação "isto deveria existir".
  *
- * A separação entre as duas primeiras e as duas últimas é a regra que este
- * módulo mais protege: **contrato e curadoria são declaração; histórico e
- * estrutura são inferência.** As duas primeiras viram linha em
+ * A separação entre as três primeiras e as duas últimas é a regra que este
+ * módulo mais protege: **contrato, catálogo e curadoria são declaração;
+ * histórico e estrutura são inferência.** As três primeiras viram linha em
  * `coverage_expectation`; as duas últimas são recalculadas a cada leitura e
  * chegam à tela dizendo que são inferência. Nada promove uma na outra sem uma
  * pessoa clicar.
  */
 export type OrigemDoEsperado =
-  /** O sistema sabe formalmente. Hoje: o plano da DRE. */
+  /** O sistema sabe formalmente, com evidência medida. Hoje: o plano da DRE. */
   | "CONTRATO"
+  /**
+   * O catálogo declarado — as três planilhas de curadoria, em
+   * `@workspace/curation/catalogo-declarado`.
+   *
+   * É declaração como o contrato, e está separada dele por uma razão que a tela
+   * precisa poder dizer: o contrato cita a linha da DRE que o atributo alimenta
+   * e a contagem que sustenta a citação; o catálogo afirma, mais simplesmente,
+   * que a fonte deveria mandar aquela coluna. As duas são afirmações humanas —
+   * nenhuma é estatística —, mas a primeira carrega evidência e a segunda
+   * carrega autoridade, e quem lê uma lacuna merece saber qual das duas a criou.
+   */
+  | "CATALOGO"
   /** Uma pessoa decidiu, com nome e motivo. */
   | "CURADORIA"
   /** O atributo veio nas vigências anteriores para estas entidades. */
@@ -101,7 +113,7 @@ export type OrigemDoEsperado =
 
 /** Declaração ou inferência — a pergunta que a tela precisa responder sempre. */
 export function ehDeclarado(origem: OrigemDoEsperado): boolean {
-  return origem === "CONTRATO" || origem === "CURADORIA";
+  return origem === "CONTRATO" || origem === "CATALOGO" || origem === "CURADORIA";
 }
 
 /**

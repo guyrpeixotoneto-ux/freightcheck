@@ -1,7 +1,12 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { loadAttributeClassificationsAt } from "./classification";
-import { indexChangedAttributesByEntity, isCoveredByParts } from "./composition";
+import {
+  criarDeduplicador,
+  daLinhaDoBanco,
+  type Deduplicador,
+} from "./deduplicacao";
+import { carregarVinculosDeConjunto } from "./vinculos";
 import { diffSnapshots, type ComputedChange } from "./engine";
 import { attributeLabel, equipmentLabel, periodLabel } from "./labels";
 import { FAMILIES, placementOf, type FamilyCode } from "./families";
@@ -330,8 +335,18 @@ export async function getEndToEndAnalysis(
     a parcela mudar, o titular voltaria para dentro da soma, e o cartão
     mostraria o mesmo dinheiro duas vezes.
   */
-  const changedByEntity = indexChangedAttributesByEntity(
-    linhas.map((l) => ({ entityId: l.entity_id, attributeCode: l.attribute_code })),
+  /*
+    Os vínculos saem das pontas **finais** de cada série: é nelas que a leitura
+    ponta a ponta pergunta quem puxa quem. Esta leitura não tem `change_set` —
+    ela compara duas vigências que não se sucedem, sem gravar nada —, então os
+    snapshots vêm de `deB` em vez de `snapshotsDosChangeSets`.
+  */
+  const dedup = criarDeduplicador(
+    linhas.map(daLinhaDoBanco),
+    await carregarVinculosDeConjunto(
+      db,
+      paresComparaveis.map((serie) => deB.get(serie)!.id),
+    ),
   );
 
   const baldes = new Map<string, LinhaCrua[]>();
@@ -344,7 +359,7 @@ export async function getEndToEndAnalysis(
 
   const entries: EndToEndEntry[] = [...baldes.entries()]
     .map(([chave, bucket]) => {
-      const group = buildGroup(bucket as never, fleetByChangeSet, changedByEntity);
+      const group = buildGroup(bucket as never, fleetByChangeSet, dedup);
       const placement = placementOf(group.attributeCode);
       return {
         key: chave,
@@ -453,7 +468,7 @@ export async function getEndToEndAnalysis(
 
   const byParameter: ParameterRollup[] = [...linhasPorParametro.entries()]
     .map(([chave, linhas]) => {
-      const impact = summariseImpact(linhas as never, changedByEntity);
+      const impact = summariseImpact(linhas as never, dedup);
       const family = placementOf(linhas[0]?.attribute_code ?? null).family;
       return {
         parameterKey: chave,
@@ -485,7 +500,7 @@ export async function getEndToEndAnalysis(
   const gains: Record<string, number> = {};
   for (const linha of doCartao) {
     if (linha.impact_confidence !== "CALCULATED" || linha.impact_amount === null) continue;
-    if (isCoveredByParts(linha.attribute_code, linha.entity_id, changedByEntity)) continue;
+    if (dedup.foraDoTotal(daLinhaDoBanco(linha)) !== null) continue;
     const balde = linha.impact_periodicity ?? "SEM_PERIODICIDADE";
     const valor = Number(linha.impact_amount);
     if (valor < 0) losses[balde] = (losses[balde] ?? 0) + valor;
@@ -511,7 +526,7 @@ export async function getEndToEndAnalysis(
     fleet: { added: entitiesAdded, removed: entitiesRemoved },
     reverted,
     entitiesCompared,
-    impact: summariseImpact(doCartao as never, changedByEntity),
+    impact: summariseImpact(doCartao as never, dedup),
     lossesByPeriodicity: Object.fromEntries(
       Object.entries(losses).map(([k, v]) => [k, round(v)]),
     ),

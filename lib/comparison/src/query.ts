@@ -3,6 +3,8 @@ import type { Database } from "@workspace/db";
 import { attributeTable, changeSetTable, changeTable, snapshotTable } from "@workspace/db";
 import type { EscopoDeFrota } from "./escopo";
 import { attributeLabel, periodLabel } from "./labels";
+import { impactoApurado, linhasApuradas } from "./impacto-apurado";
+import type { RastroDaDeducao } from "./deduplicacao";
 
 /**
  * Reading a change set.
@@ -83,16 +85,16 @@ export interface ChangeRow {
  * Pressupõe a junção `ATRIBUTO_ATUAL`: a busca por texto olha também o nome
  * gerencial, que vive em `attribute` e não na cópia denormalizada.
  */
-function buildWhere(changeSetId: string | string[], f: ChangeFilters): SQL {
-  // An array is how the consolidated view reads several series at once. It is
-  // still a plain listing of changes — no aggregation happens here.
-  const ids = Array.isArray(changeSetId) ? changeSetId : [changeSetId];
-  const parts: SQL[] = [
-    ids.length === 1
-      ? eq(changeTable.changeSetId, ids[0])
-      : inArray(changeTable.changeSetId, ids),
-  ];
-
+/**
+ * As condições de um filtro de Alterações, sem a escolha das comparações.
+ *
+ * Extraídas de `buildWhere` para que **a lista e os totais do cabeçalho usem
+ * exatamente as mesmas**. Enquanto só a lista as aplicava, a tela mostrava
+ * "19 com impacto" embaixo de um cabeçalho que dizia "267 alterações · R$
+ * 39.936" — dois recortes diferentes empilhados, e o de cima com cara de total.
+ */
+export function condicoesDoFiltro(f: ChangeFilters): SQL[] {
+  const parts: SQL[] = [];
   if (f.costClass === "SEM_CLASSE") {
     parts.push(sql`${changeTable.costClass} IS NULL`);
   } else if (f.costClass) {
@@ -122,7 +124,19 @@ function buildWhere(changeSetId: string | string[], f: ChangeFilters): SQL {
         OR ${changeTable.entityLabel} ILIKE ${like})`,
     );
   }
-  return and(...parts)!;
+  return parts;
+}
+
+function buildWhere(changeSetId: string | string[], f: ChangeFilters): SQL {
+  // An array is how the consolidated view reads several series at once. It is
+  // still a plain listing of changes — no aggregation happens here.
+  const ids = Array.isArray(changeSetId) ? changeSetId : [changeSetId];
+  return and(
+    ids.length === 1
+      ? eq(changeTable.changeSetId, ids[0])
+      : inArray(changeTable.changeSetId, ids),
+    ...condicoesDoFiltro(f),
+  )!;
 }
 
 /**
@@ -370,6 +384,7 @@ export async function getChangeSetBreakdown(
   db: Database,
   changeSetId: string | string[],
   escopo: EscopoDeFrota = {},
+  filtros: ChangeFilters = {},
 ) {
   const ids = Array.isArray(changeSetId) ? changeSetId : [changeSetId];
   if (ids.length === 0) {
@@ -381,17 +396,41 @@ export async function getChangeSetBreakdown(
       byAttribute: [],
     };
   }
-  const scope = and(inArray(changeTable.changeSetId, ids), ...escopoDeFrota(escopo))!;
-  const byCostClass = await db
-    .select({
-      costClass: changeTable.costClass,
-      count: sql<number>`count(*)`.mapWith(Number),
-      impact: sql<string | null>`sum(${changeTable.impactAmount})`,
-    })
-    .from(changeTable)
-    .where(scope)
-    .groupBy(changeTable.costClass)
-    .orderBy(changeTable.costClass);
+  const recorte = [...escopoDeFrota(escopo), ...condicoesDoFiltro(filtros)];
+  const scope = and(inArray(changeTable.changeSetId, ids), ...recorte)!;
+
+  /*
+    As decisões de dupla contagem, tomadas uma vez para a comparação inteira e
+    reaproveitadas por todos os agrupamentos abaixo. Cada `GROUP BY` daqui
+    somava `impact_amount` cru: o cabeçalho da tela dizia um número e o cartão
+    dizia outro, sobre exatamente as mesmas linhas.
+  */
+  const decididas = await linhasApuradas(db, ids, recorte);
+  const contam = decididas.filter((l) => l.noRecorte && l.foraDoTotal === null);
+
+  const porClasse = new Map<string, number>();
+  for (const l of contam) {
+    if (l.amount === null) continue;
+    const chave = l.costClass ?? "";
+    porClasse.set(chave, (porClasse.get(chave) ?? 0) + l.amount);
+  }
+
+  const byCostClass = (
+    await db
+      .select({
+        costClass: changeTable.costClass,
+        count: sql<number>`count(*)`.mapWith(Number),
+      })
+      .from(changeTable)
+      .where(scope)
+      .groupBy(changeTable.costClass)
+      .orderBy(changeTable.costClass)
+  ).map((linha) => ({
+    ...linha,
+    impact: porClasse.has(linha.costClass ?? "")
+      ? String(Number(porClasse.get(linha.costClass ?? "")!.toFixed(6)))
+      : null,
+  }));
 
   const byType = await db
     .select({
@@ -471,31 +510,32 @@ export async function getChangeSetBreakdown(
     alteração sem periodicidade declarada ganha o próprio balde em vez de um
     destino silencioso. É o que faz esta lista fechar com `impactByPeriodicity`.
   */
-  const bucket = sql<string>`coalesce(${changeTable.impactPeriodicity}, 'SEM_PERIODICIDADE')`;
-  const impacts = await db
-    .select({
-      attributeCode: changeTable.attributeCode,
-      periodicity: bucket,
-      amount: sql<string | null>`sum(${changeTable.impactAmount})`,
-    })
-    .from(changeTable)
-    .where(
-      and(
-        scope,
-        temAtributo,
-        eq(changeTable.impactConfidence, "CALCULATED"),
-        sql`${changeTable.impactAmount} IS NOT NULL`,
-      ),
-    )
-    .groupBy(changeTable.attributeCode, bucket)
-    .orderBy(changeTable.attributeCode);
+  /*
+    O impacto por atributo sai das linhas já decididas — o mesmo conjunto que
+    alimenta o cartão. Era aqui que "Impactos relevantes" abria agosto/2026 com
+    `custoFixo +R$ 16.595/mês`: um número que a soma oficial já havia tirado
+    inteiro por dupla contagem, em destaque no topo da tela.
+
+    Uma alteração sem periodicidade declarada ganha o próprio balde em vez de um
+    destino silencioso, como em `assessImpact`.
+  */
+  const porAtributo = new Map<string, Map<string, number>>();
+  for (const l of contam) {
+    if (l.attributeCode === null || l.amount === null) continue;
+    let baldes = porAtributo.get(l.attributeCode);
+    if (!baldes) porAtributo.set(l.attributeCode, (baldes = new Map()));
+    baldes.set(l.periodicity, (baldes.get(l.periodicity) ?? 0) + l.amount);
+  }
 
   const impactoPorAtributo = new Map<string, AttributeRollup["impact"]>();
-  for (const linha of impacts) {
-    if (linha.attributeCode === null || linha.amount === null) continue;
-    const lista = impactoPorAtributo.get(linha.attributeCode) ?? [];
-    lista.push({ periodicity: linha.periodicity, amount: Number(linha.amount) });
-    impactoPorAtributo.set(linha.attributeCode, lista);
+  for (const [attributeCode, baldes] of porAtributo) {
+    const lista = [...baldes.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([periodicity, amount]) => ({
+        periodicity,
+        amount: Number(amount.toFixed(6)),
+      }));
+    impactoPorAtributo.set(attributeCode, lista);
   }
 
   return {
@@ -558,8 +598,17 @@ export interface TotaisDoEscopo {
   attributesRemoved: number;
   inconclusive: number;
   impactNotCalculable: number;
-  /** Uma entrada por periodicidade. Nunca somadas entre si. */
+  /**
+   * O impacto **oficial**, uma entrada por periodicidade. Nunca somadas entre
+   * si, e já sem dupla contagem.
+   */
   impactByPeriodicity: Record<string, number>;
+  /** O bruto, antes de qualquer dedução. Auditoria técnica; nunca "Impacto apurado". */
+  impactoBrutoByPeriodicity: Record<string, number>;
+  /** A escada que explica a distância entre os dois. Explicação, não valor. */
+  deducaoRastro: RastroDaDeducao;
+  /** Quantas alterações ficaram fora da soma por dupla contagem. */
+  mudancasForaDoTotal: number;
 }
 
 export const TOTAIS_VAZIOS: TotaisDoEscopo = {
@@ -571,17 +620,31 @@ export const TOTAIS_VAZIOS: TotaisDoEscopo = {
   inconclusive: 0,
   impactNotCalculable: 0,
   impactByPeriodicity: {},
+  impactoBrutoByPeriodicity: {},
+  deducaoRastro: { brutoByPeriodicity: {}, degraus: [], oficialByPeriodicity: {} },
+  mudancasForaDoTotal: 0,
 };
 
+/**
+ * Os totais do cabeçalho — na **mesma população** que a lista.
+ *
+ * `filtros` não é um refinamento opcional: é o que faz os cinco cartões e a
+ * lista responderem pelo mesmo conjunto de linhas. Quem entra na tela por
+ * "ver as alterações que somam este valor" chega com `impactConfidence=CALCULATED`,
+ * e antes disso a lista obedecia e o cabeçalho não — 19 linhas embaixo de um
+ * total de 267.
+ */
 export async function totaisDoEscopo(
   db: Database,
   changeSetId: string | string[],
   escopo: EscopoDeFrota = {},
+  filtros: ChangeFilters = {},
 ): Promise<TotaisDoEscopo> {
   const ids = Array.isArray(changeSetId) ? changeSetId : [changeSetId];
   if (ids.length === 0) return { ...TOTAIS_VAZIOS };
 
-  const scope = and(inArray(changeTable.changeSetId, ids), ...escopoDeFrota(escopo))!;
+  const recorte = [...escopoDeFrota(escopo), ...condicoesDoFiltro(filtros)];
+  const scope = and(inArray(changeTable.changeSetId, ids), ...recorte)!;
   const conta = (condicao: SQL) =>
     sql<number>`count(*) FILTER (WHERE ${condicao})`.mapWith(Number);
 
@@ -605,23 +668,28 @@ export async function totaisDoEscopo(
     .from(changeTable)
     .where(scope);
 
-  const bucket = sql<string>`coalesce(${changeTable.impactPeriodicity}, 'SEM_PERIODICIDADE')`;
-  const baldes = await db
-    .select({ periodicity: bucket, amount: sql<string | null>`sum(${changeTable.impactAmount})` })
-    .from(changeTable)
-    .where(and(scope, apurado))
-    .groupBy(bucket)
-    .orderBy(bucket);
+  /*
+    O dinheiro sai de `impactoApurado`, e não de um `sum()` aqui.
 
-  const impactByPeriodicity: Record<string, number> = {};
-  for (const balde of baldes) {
-    if (balde.amount === null) continue;
-    // Seis casas, como `roundBuckets` no motor: a soma vem de `numeric`, e
-    // arredondar diferente aqui faria os dois números divergirem no centavo.
-    impactByPeriodicity[balde.periodicity] = Number(Number(balde.amount).toFixed(6));
-  }
+    Este bloco era um `sum(impact_amount) GROUP BY periodicidade` — correto
+    como agregação e errado como resposta: somava o total e as parcelas dele,
+    e o cavalo dentro da coluna da carreta. Era este número que a aba Planilha
+    publicava como "Impacto apurado". Uma agregação SQL não tem como aplicar
+    uma regra que é por ativo; a soma mudou de lugar em vez de ganhar um
+    `WHERE` que não existiria.
 
-  return { ...agregado, impactByPeriodicity };
+    As contagens acima continuam em SQL: contar linhas não depende de regra de
+    dupla contagem, e `impactNotCalculable` é o complemento de "tem preço".
+  */
+  const impacto = await impactoApurado(db, ids, recorte);
+
+  return {
+    ...agregado,
+    impactByPeriodicity: impacto.byPeriodicity,
+    impactoBrutoByPeriodicity: impacto.brutoByPeriodicity,
+    deducaoRastro: impacto.rastro,
+    mudancasForaDoTotal: impacto.excludedChanges,
+  };
 }
 
 /**
@@ -828,7 +896,9 @@ export async function getOverview(db: Database) {
            cs.entities_removed,
            cs.inconclusive,
            cs.impact_not_calculable,
-           cs.calculated_impact_by_periodicity
+           cs.impacto_oficial_by_periodicity,
+           cs.impacto_bruto_by_periodicity,
+           cs.mudancas_fora_do_total
       FROM change_set cs
       JOIN snapshot sa ON sa.id = cs.snapshot_a_id
       JOIN snapshot sb ON sb.id = cs.snapshot_b_id
@@ -839,18 +909,37 @@ export async function getOverview(db: Database) {
      ORDER BY sb.entity_type_set
   `);
 
-  // Impact per periodicity across every comparison on record. Kept apart,
-  // never totalled — see change_set.calculated_impact_by_periodicity.
-  const impactByPeriodicity = await db
-    .select({
-      periodicity: changeTable.impactPeriodicity,
-      changes: sql<number>`count(*)`.mapWith(Number),
-      total: sql<string>`sum(${changeTable.impactAmount})`,
-    })
-    .from(changeTable)
-    .where(eq(changeTable.impactConfidence, "CALCULATED"))
-    .groupBy(changeTable.impactPeriodicity)
-    .orderBy(changeTable.impactPeriodicity);
+  /*
+    O acumulado de todas as comparações do registro, por periodicidade —
+    **oficial**, e não a soma crua de `impact_amount`.
+
+    Era um `sum()` sobre a tabela inteira, sem regra de dupla contagem nenhuma,
+    e alimentava o Painel de Impacto. Agora a soma passa pela autoridade: cada
+    comparação decide as suas próprias exclusões — as duas regras são internas a
+    um par de vigências — e os oficiais se somam.
+
+    Continuam apartados por periodicidade e nunca totalizados entre si.
+  */
+  const todosOsSets = await db.select({ id: changeSetTable.id }).from(changeSetTable);
+  const decididas = await linhasApuradas(
+    db,
+    todosOsSets.map((s) => s.id),
+  );
+  const acumulado = new Map<string, { changes: number; total: number }>();
+  for (const linha of decididas) {
+    if (linha.amount === null || linha.foraDoTotal !== null) continue;
+    const balde = acumulado.get(linha.periodicity) ?? { changes: 0, total: 0 };
+    balde.changes++;
+    balde.total += linha.amount;
+    acumulado.set(linha.periodicity, balde);
+  }
+  const impactByPeriodicity = [...acumulado.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([periodicity, v]) => ({
+      periodicity,
+      changes: v.changes,
+      total: Number(v.total.toFixed(6)),
+    }));
 
   return {
     totals,
@@ -864,16 +953,8 @@ export async function getOverview(db: Database) {
      * printed sixteen transitions' worth of impact under a single vigência's
      * heading.
      */
-    accumulatedImpactByPeriodicity: impactByPeriodicity.map((r) => ({
-      periodicity: r.periodicity ?? "SEM_PERIODICIDADE",
-      changes: r.changes,
-      total: r.total === null ? null : Number(r.total),
-    })),
-    impactByPeriodicity: impactByPeriodicity.map((r) => ({
-      periodicity: r.periodicity ?? "SEM_PERIODICIDADE",
-      changes: r.changes,
-      total: r.total === null ? null : Number(r.total),
-    })),
+    accumulatedImpactByPeriodicity: impactByPeriodicity,
+    impactByPeriodicity,
   };
 }
 

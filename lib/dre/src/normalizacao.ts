@@ -4,7 +4,7 @@
  * A DRE é apurada numa competência — hoje sempre mensal — e o export entrega
  * valores mensais, anuais e pontuais na mesma linha do mesmo ativo. Somá-los
  * sem conversão é o erro que este produto já cometeu uma vez:
- * `change_set.calculated_impact_by_periodicity` existe porque um escalar único
+ * `change_set.impacto_oficial_by_periodicity` existe porque um escalar único
  * apresentou "R$ −757.009,57" para um conjunto que era R$ −735 mil por **ano**
  * mais R$ −88 mil por **mês**.
  *

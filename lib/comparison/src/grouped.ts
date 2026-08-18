@@ -6,11 +6,17 @@ import {
   type Anomaly,
   type AnomalySide,
 } from "./anomalies";
+import { compositionOf } from "./composition";
 import {
-  compositionOf,
-  indexChangedAttributesByEntity,
-  isCoveredByParts,
-} from "./composition";
+  criarDeduplicador,
+  daLinhaDoBanco,
+  resumirImpacto,
+  type Deduplicador,
+  type ForaDoTotal,
+  type MotivoForaDoTotal,
+  type ResumoDeImpacto,
+} from "./deduplicacao";
+import { carregarVinculosDeConjunto, snapshotsDosChangeSets } from "./vinculos";
 import {
   attributeLabel,
   equipmentLabel,
@@ -86,7 +92,9 @@ export interface GroupImpact {
   /** Veículos cujo impacto ficou fora por já estar nas parcelas. */
   excludedVehicles: number;
   excludedAmount: number | null;
-  /** Por que a exclusão aconteceu, com a evidência da composição. */
+  /** Qual regra tirou o dinheiro da soma — `null` quando nada saiu. */
+  excludedMotivo: MotivoForaDoTotal | null;
+  /** Por que a exclusão aconteceu, na frase da autoridade. */
   excludedReason: string | null;
 }
 
@@ -187,16 +195,15 @@ export interface ChangeGroup {
   badgeLabel: string;
 }
 
-export interface ImpactSummary {
-  /** Somado dentro de cada periodicidade, já sem dupla contagem. */
-  byPeriodicity: Record<string, number>;
-  /** O que foi deixado de fora por já estar contado nas parcelas. */
-  excludedByPeriodicity: Record<string, number>;
-  excludedChanges: number;
-  /** Alterações sem preço, que continuam listadas. */
-  notCalculable: number;
-  calculatedChanges: number;
-}
+/**
+ * O impacto de um recorte — o tipo da autoridade, sem cópia local.
+ *
+ * Este arquivo mantinha a sua própria interface e o seu próprio laço de soma, e
+ * era uma das seis leituras que divergiram. Agora só reexporta o que
+ * `deduplicacao.ts` define: `byPeriodicity` é o oficial, `brutoByPeriodicity` é
+ * auditoria, e o que os separa está em `rastro`.
+ */
+export type ImpactSummary = ResumoDeImpacto;
 
 export interface GroupedSeries {
   entityTypeSet: string;
@@ -421,52 +428,19 @@ export async function loadChanges(
 export function summariseImpact(
   rows: RawChange[],
   /**
-   * Índice de composição já pronto, quando `rows` é uma **fatia** do conjunto.
+   * O deduplicador da leitura inteira — **obrigatório**, e é por isso que ele é
+   * um parâmetro e não um padrão.
    *
-   * Obrigatório ao somar por família: `carreta.custo_fixo` está em Aquisição e
-   * financiamento, e a sua parcela `lucro_fixomodelo_novo_ciclo` está em
-   * Modelos de remuneração. Um índice construído só com as linhas da primeira
-   * não veria a segunda mudar, o titular voltaria para dentro da soma, e o
-   * total inflaria — o mesmo defeito de 71% que este produto já corrigiu uma
-   * vez, reintroduzido pela porta do agrupamento.
+   * Quando `rows` é uma fatia, um deduplicador construído só com ela não veria
+   * o resto: `carreta.custo_fixo` está em Aquisição e financiamento e a sua
+   * parcela `lucro_fixomodelo_novo_ciclo` está em Modelos de remuneração — um
+   * índice montado só com a primeira devolveria o titular para dentro da soma e
+   * o total inflaria. Foi o defeito de 71% que este produto já corrigiu uma vez.
+   * Um parâmetro opcional com fallback silencioso é o caminho de volta para ele.
    */
-  precomputedIndex?: Map<string, Set<string>>,
+  dedup: Deduplicador,
 ): ImpactSummary {
-  const changedByEntity =
-    precomputedIndex ??
-    indexChangedAttributesByEntity(
-      rows.map((r) => ({ entityId: r.entity_id, attributeCode: r.attribute_code })),
-    );
-
-  const byPeriodicity: Record<string, number> = {};
-  const excludedByPeriodicity: Record<string, number> = {};
-  let excludedChanges = 0;
-  let notCalculable = 0;
-  let calculatedChanges = 0;
-
-  for (const row of rows) {
-    if (row.impact_confidence !== "CALCULATED" || row.impact_amount === null) {
-      notCalculable++;
-      continue;
-    }
-    calculatedChanges++;
-    const bucket = row.impact_periodicity ?? "SEM_PERIODICIDADE";
-    const amount = Number(row.impact_amount);
-    if (isCoveredByParts(row.attribute_code, row.entity_id, changedByEntity)) {
-      excludedByPeriodicity[bucket] = (excludedByPeriodicity[bucket] ?? 0) + amount;
-      excludedChanges++;
-      continue;
-    }
-    byPeriodicity[bucket] = (byPeriodicity[bucket] ?? 0) + amount;
-  }
-
-  return {
-    byPeriodicity: round(byPeriodicity),
-    excludedByPeriodicity: round(excludedByPeriodicity),
-    excludedChanges,
-    notCalculable,
-    calculatedChanges,
-  };
+  return resumirImpacto(rows.map(daLinhaDoBanco), dedup);
 }
 
 function round(buckets: Record<string, number>): Record<string, number> {
@@ -499,7 +473,7 @@ export function groupKey(row: RawChange): string {
 export function buildGroup(
   rows: RawChange[],
   fleetByChangeSet: Map<string, number>,
-  changedByEntity: Map<string, Set<string>>,
+  dedup: Deduplicador,
 ): ChangeGroup {
   const first = rows[0];
   const entities = new Set(rows.map((r) => r.entity_id ?? String(r.id)));
@@ -580,17 +554,28 @@ export function buildGroup(
     maxPercent: percents.length ? Number(Math.max(...percents).toFixed(1)) : null,
   };
 
-  // ---- impacto, com a dupla contagem separada ----------------------------
+  /*
+    ---- impacto, com a dupla contagem separada ----------------------------
+
+    Quem decide é o deduplicador, e a frase da exclusão vem dele. Este bloco
+    reimplementava a regra — só a de parcelas — e montava a sua própria
+    explicação: era a terceira redação da mesma ideia, e a que fazia o grupo
+    `carreta.finame` dizer "5 de 5 contados" enquanto o dinheiro deles já estava
+    na linha do cavalo.
+  */
   let counted = 0;
   let excluded = 0;
   let amount: number | null = null;
   let excludedAmount: number | null = null;
+  let motivoDaExclusao: ForaDoTotal | null = null;
   for (const row of rows) {
     if (row.impact_confidence !== "CALCULATED" || row.impact_amount === null) continue;
     const value = Number(row.impact_amount);
-    if (isCoveredByParts(row.attribute_code, row.entity_id, changedByEntity)) {
+    const fora = dedup.foraDoTotal(daLinhaDoBanco(row));
+    if (fora) {
       excludedAmount = (excludedAmount ?? 0) + value;
       excluded++;
+      motivoDaExclusao ??= fora;
     } else {
       amount = (amount ?? 0) + value;
       counted++;
@@ -605,13 +590,11 @@ export function buildGroup(
     countedVehicles: counted,
     excludedVehicles: excluded,
     excludedAmount: excludedAmount === null ? null : Number(excludedAmount.toFixed(2)),
-    excludedReason:
-      excluded > 0 && composition
-        ? `Este atributo é o total de ${composition.parts.length} parcelas, e em ` +
-          `${excluded} ${excluded === 1 ? "veículo" : "veículos"} a parcela também mudou. ` +
-          `A variação já está contada nelas — somar o total de novo contaria o mesmo ` +
-          `dinheiro duas vezes. A alteração continua na lista e continua rastreável.`
-        : null,
+    excludedMotivo: motivoDaExclusao?.motivo ?? null,
+    excludedReason: motivoDaExclusao
+      ? `${motivoDaExclusao.explicacao} Vale para ${excluded} ` +
+        `${excluded === 1 ? "veículo" : "veículos"} deste grupo.`
+      : null,
   };
 
   // ---- anomalias de formato ----------------------------------------------
@@ -984,8 +967,14 @@ export async function getGroupedView(
   );
   const rows = await loadChanges(db, changeSetIds);
 
-  const changedByEntity = indexChangedAttributesByEntity(
-    rows.map((r) => ({ entityId: r.entity_id, attributeCode: r.attribute_code })),
+  /*
+    Um deduplicador para a leitura inteira, e não um por grupo: as duas regras
+    olham para fora do grupo — a parcela de um total mora noutra família, e o
+    cavalo de uma carreta mora noutra série.
+  */
+  const dedup = criarDeduplicador(
+    rows.map(daLinhaDoBanco),
+    await carregarVinculosDeConjunto(db, await snapshotsDosChangeSets(db, changeSetIds)),
   );
 
   const buckets = new Map<string, RawChange[]>();
@@ -997,7 +986,7 @@ export async function getGroupedView(
   }
 
   const groups = [...buckets.values()]
-    .map((bucket) => buildGroup(bucket, fleetByChangeSet, changedByEntity))
+    .map((bucket) => buildGroup(bucket, fleetByChangeSet, dedup))
     .sort(compareGroups);
 
   const vehiclesTouched = new Set(
@@ -1046,7 +1035,7 @@ export async function getGroupedView(
       unchanged: sets.reduce((s, r) => s + r.unchanged, 0),
       inconclusive: sets.reduce((s, r) => s + r.inconclusive, 0),
     },
-    impact: summariseImpact(rows),
+    impact: summariseImpact(rows, dedup),
     accumulated: await getAccumulatedImpact(db, context),
     groups,
   };
@@ -1079,7 +1068,8 @@ export async function getAccumulatedImpact(
   if (!context) {
     return {
       byPeriodicity: {},
-      excludedByPeriodicity: {},
+      brutoByPeriodicity: {},
+      rastro: { brutoByPeriodicity: {}, degraus: [], oficialByPeriodicity: {} },
       excludedChanges: 0,
       notCalculable: 0,
       calculatedChanges: 0,
@@ -1108,9 +1098,14 @@ export async function getAccumulatedImpact(
       FROM change_set cs JOIN snapshot sb ON sb.id = cs.snapshot_b_id
      WHERE ${contextFilter("sb", context)}
   `);
-  const rows = await loadChanges(db, [...new Set(sets.map((s) => s.id))]);
+  const ids = [...new Set(sets.map((s) => s.id))];
+  const rows = await loadChanges(db, ids);
+  const dedup = criarDeduplicador(
+    rows.map(daLinhaDoBanco),
+    await carregarVinculosDeConjunto(db, await snapshotsDosChangeSets(db, ids)),
+  );
   return {
-    ...summariseImpact(rows),
+    ...summariseImpact(rows, dedup),
     comparisons: sets.length,
     from: span[0]?.from ?? null,
     to: span[0]?.to ?? null,
@@ -1132,8 +1127,14 @@ export interface GroupVehicle {
   impactAmount: number | null;
   impactPeriodicity: string | null;
   impactConfidence: string;
-  /** Se este ativo está fora da soma por já estar contado nas parcelas. */
-  excludedFromTotal: boolean;
+  /**
+   * Por que este ativo ficou fora da soma — `null` quando ele entra.
+   *
+   * Era um booleano, e um booleano não sabe dizer **qual** regra tirou o
+   * dinheiro nem onde ele foi contado. A tela precisa das duas coisas para o
+   * selo "Fora do total" ser uma explicação em vez de um sumiço.
+   */
+  foraDoTotal: ForaDoTotal | null;
   inconclusiveReason: string | null;
   anomaly: Anomaly | null;
   /**
@@ -1199,8 +1200,9 @@ export async function getGroupVehicles(
   const ids = sets.map((s) => s.id);
   const vigencias = new Map(sets.map((s) => [s.id, s]));
   const all = await loadChanges(db, ids);
-  const changedByEntity = indexChangedAttributesByEntity(
-    all.map((r) => ({ entityId: r.entity_id, attributeCode: r.attribute_code })),
+  const dedup = criarDeduplicador(
+    all.map(daLinhaDoBanco),
+    await carregarVinculosDeConjunto(db, await snapshotsDosChangeSets(db, ids)),
   );
 
   const rows = all.filter(
@@ -1230,7 +1232,12 @@ export async function getGroupVehicles(
         impactAmount: num(r.impact_amount),
         impactPeriodicity: r.impact_periodicity,
         impactConfidence: r.impact_confidence,
-        excludedFromTotal: isCoveredByParts(r.attribute_code, r.entity_id, changedByEntity),
+        /*
+          A linha **continua na lista** — sai da soma, não da tela. O motivo e a
+          frase viajam junto para que o selo diga onde o dinheiro está sendo
+          contado, em vez de deixar quem confere procurando um valor que sumiu.
+        */
+        foraDoTotal: dedup.foraDoTotal(daLinhaDoBanco(r)),
         inconclusiveReason: r.inconclusive_reason,
         anomaly: detectFormatAnomaly(
           { numeric: num(r.numeric_before), text: r.value_before, date: null, display: r.value_before },

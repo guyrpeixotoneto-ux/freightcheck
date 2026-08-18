@@ -487,12 +487,19 @@ export const alteracoes: Ferramenta = {
           /*
             Fora da soma não é "sem impacto".
 
-            O ativo cujo valor já está contado nas parcelas de uma composição é
-            excluído do total para não contar duas vezes — e ele continua
-            listado, com o valor. Omitir esta bandeira faria o modelo somar à
-            mão o que o motor deliberadamente não somou.
+            O ativo cujo dinheiro já está contado noutro lugar — nas parcelas de
+            uma composição, ou na linha do equipamento vinculado — sai do total
+            para não contar duas vezes, e continua listado com o valor. Omitir
+            esta bandeira faria o modelo somar à mão o que o motor
+            deliberadamente não somou.
+
+            O motivo vai junto: "fora da soma" sem dizer **onde** o dinheiro foi
+            contado é a mesma frase que fez o produto ter seis respostas para a
+            mesma pergunta.
           */
-          foraDaSoma: v.excludedFromTotal,
+          foraDaSoma: v.foraDoTotal !== null,
+          foraDaSomaMotivo: v.foraDoTotal?.motivo ?? null,
+          foraDaSomaExplicacao: v.foraDoTotal?.explicacao ?? null,
           inconclusivo: v.inconclusiveReason,
         })),
       },

@@ -2,6 +2,12 @@ import { and, eq, isNull, or, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import { coverageExpectationTable, curationEventTable } from "@workspace/db";
 import { PLANO_DA_DRE } from "@workspace/dre";
+import { datasetFamilyFor } from "@workspace/ingest";
+import {
+  CATALOGO_DECLARADO,
+  entraNaDRE,
+  type AtributoDeclarado,
+} from "@workspace/curation/catalogo-declarado";
 import type { Criticidade } from "./modelo";
 
 /**
@@ -55,7 +61,7 @@ export interface EsperadoDeclarado {
   scopeKey: string | null;
   criticidade: Criticidade;
   status: "CONFIRMADO" | "DISPENSADO";
-  origem: "CONTRATO" | "CURADORIA";
+  origem: "CONTRATO" | "CATALOGO" | "CURADORIA";
   efetivoDe: string;
   efetivoAte: string | null;
   sucessor: string | null;
@@ -120,17 +126,121 @@ export function contratoDaDRE(): EsperadoDeclarado[] {
 }
 
 /**
- * Grava o contrato em `coverage_expectation`, sem sobrescrever curadoria.
+ * O universo declarado inteiro: o catálogo, com o contrato da DRE por cima.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que uma lista só, e não duas semeaduras
+ * ---------------------------------------------------------------------------
+ * O catálogo e o contrato falam dos mesmos atributos em 10 pontos — todo código
+ * que o plano da DRE cita também está declarado nas planilhas. Semear os dois
+ * em sequência deixaria o resultado na mão do `ON CONFLICT DO NOTHING`: quem
+ * inserisse primeiro definiria a origem, a criticidade e o motivo daquelas 10
+ * linhas, e a ordem de duas chamadas viraria uma decisão de produto invisível.
+ *
+ * Então a fusão acontece aqui, em memória, com a regra escrita: **onde o
+ * contrato fala, o contrato vale.** Ele é a declaração mais forte que existe —
+ * cita a linha da DRE que o atributo alimenta, diz se aquela linha é essencial
+ * e carrega a contagem medida que sustenta a citação. O catálogo cobre o resto,
+ * que é a maior parte: os atributos que a fonte deveria mandar e sobre os quais
+ * a DRE ainda não tem nada a dizer.
+ *
+ * ---------------------------------------------------------------------------
+ * A criticidade continua tendo um dono só
+ * ---------------------------------------------------------------------------
+ * Nada aqui inventa um atributo crítico. `CRITICO` sai exclusivamente de
+ * `contratoDaDRE()`, pela regra que já existia: alimenta um componente
+ * `essencial`. O catálogo escolhe apenas entre os outros dois, e por uma
+ * pergunta que a própria planilha responde na coluna de seção:
+ *
+ * - entra na DRE     → `RELEVANTE`. Falta dinheiro quando ele falta.
+ * - cadastral        → `INFORMATIVO`. Placa, CNPJ, vigência, modelo. A ausência
+ *   é lacuna de verdade e aparece na lista, mas não derruba a cobertura
+ *   crítica, que é o número que decide se a análise financeira pode rodar.
+ *
+ * Isto é o que impede a mudança de inflar o alarme: o universo esperado cresce
+ * de 10 para 250 atributos, e o conjunto crítico não cresce nem um.
+ *
+ * ---------------------------------------------------------------------------
+ * O que fica de fora da fusão
+ * ---------------------------------------------------------------------------
+ * Um atributo citado pelo plano da DRE que **não** esteja no catálogo entra
+ * mesmo assim, no fim. Não deveria existir — há um teste que prova a inclusão
+ * nos dois sentidos —, mas descartá-lo em silêncio encolheria o universo
+ * esperado, e encolher o universo é como a cobertura sobe sem que nada tenha
+ * melhorado. Se um dia aparecer, aparece como expectativa, não como omissão.
+ */
+export function universoDeclarado(): EsperadoDeclarado[] {
+  const doContrato = new Map(contratoDaDRE().map((e) => [e.attributeCode, e]));
+  const linhas: EsperadoDeclarado[] = [];
+  const vistos = new Set<string>();
+
+  for (const atributo of CATALOGO_DECLARADO) {
+    vistos.add(atributo.code);
+    const contrato = doContrato.get(atributo.code);
+    if (contrato) {
+      linhas.push(contrato);
+      continue;
+    }
+    linhas.push(declaradoDoCatalogo(atributo));
+  }
+
+  for (const [code, contrato] of doContrato) {
+    if (!vistos.has(code)) linhas.push(contrato);
+  }
+
+  return linhas.sort((a, b) => a.attributeCode.localeCompare(b.attributeCode));
+}
+
+/** Uma linha do catálogo virando expectativa. */
+function declaradoDoCatalogo(atributo: AtributoDeclarado): EsperadoDeclarado {
+  const naDRE = entraNaDRE(atributo);
+  return {
+    attributeCode: atributo.code,
+    entityType: atributo.entityType,
+    datasetFamily: datasetFamilyFor(atributo.entityType),
+    canal: null,
+    scopeKey: null,
+    criticidade: naDRE ? "RELEVANTE" : "INFORMATIVO",
+    status: "CONFIRMADO",
+    origem: "CATALOGO",
+    efetivoDe: CONTRATO_DESDE,
+    efetivoAte: null,
+    sucessor: null,
+    motivo: naDRE
+      ? `Esperado por catálogo: a planilha de atributos declara "${atributo.sourceName}" ` +
+        `para ${atributo.entityType.toLowerCase()}, em ${atributo.secaoDaDRE} › ${atributo.categoriaDaDRE}.`
+      : `Esperado por catálogo: a planilha de atributos declara "${atributo.sourceName}" ` +
+        `para ${atributo.entityType.toLowerCase()}. É dado cadastral — não alimenta a DRE, ` +
+        `e por isso a ausência não derruba a cobertura crítica.`,
+    evidencia: {
+      sourceName: atributo.sourceName,
+      nomeGerencial: atributo.nomeGerencial,
+      secaoDaDRE: atributo.secaoDaDRE,
+      categoriaDaDRE: atributo.categoriaDaDRE,
+      entraNaDRE: naDRE,
+    },
+    ator: "catalogo:curadoria",
+  };
+}
+
+/**
+ * Grava o universo declarado em `coverage_expectation`, sem sobrescrever curadoria.
  *
  * Idempotente e não destrutivo: `ON CONFLICT DO NOTHING`. Uma decisão humana
  * sobre o mesmo atributo tem outra `origin` e não colide; se colidisse, o
  * contrato não a apagaria — reescrever por cima do que uma pessoa decidiu é o
  * remapeamento silencioso que este produto existe para não fazer.
  *
+ * **O nome ficou.** Ela semeava só o plano da DRE e passou a semear o universo
+ * inteiro (`universoDeclarado`), mas continua sendo a mesma coisa do ponto de
+ * vista de quem a chama: *o esperado que não depende de ninguém ter clicado*.
+ * Renomeá-la obrigaria a mexer na rota, na CLI e no fim da importação sem que
+ * nenhum dos três passasse a fazer algo diferente.
+ *
  * Chamado na partida do servidor, ao lado de `seedTaxonomy`.
  */
 export async function semearContrato(db: Database): Promise<{ inseridos: number }> {
-  const linhas = contratoDaDRE();
+  const linhas = universoDeclarado();
   if (linhas.length === 0) return { inseridos: 0 };
 
   const resultado = await db
@@ -204,7 +314,7 @@ export async function esperadoDeclarado(
     scopeKey: l.scopeKey,
     criticidade: l.criticality as Criticidade,
     status: l.status as "CONFIRMADO" | "DISPENSADO",
-    origem: l.origin as "CONTRATO" | "CURADORIA",
+    origem: l.origin as "CONTRATO" | "CATALOGO" | "CURADORIA",
     efetivoDe: l.effectiveFrom,
     efetivoAte: l.effectiveUntil,
     sucessor: l.succeededByAttributeCode,

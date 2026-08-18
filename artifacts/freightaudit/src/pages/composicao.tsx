@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { ChevronRight, Info, Layers, Search } from "lucide-react";
+import { ChevronRight, Info, Search } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Input } from "@/components/ui/input";
@@ -20,8 +20,16 @@ import {
   ROTULO_DA_NAO_APURACAO,
   ROTULO_DO_FAROL,
   type Farol,
+  type VisaoDeConjuntos,
   type VisaoDeFrota,
 } from "@/components/composicao/tipos";
+import {
+  BarraDeFiltrosDosConjuntos,
+  ResumoDosConjuntos,
+  SEM_FILTRO_DE_CONJUNTOS,
+  TabelaDeConjuntos,
+  type FiltrosDeConjuntos,
+} from "@/components/composicao/conjuntos";
 
 /**
  * Composição — a frota, por tipo de equipamento.
@@ -31,12 +39,27 @@ import {
  * do topo são o resumo dela, e não cartões decorativos — cada um deles é uma
  * contagem que a própria lista reproduz.
  *
- * Duas abas hoje, CAVALOS e CARRETAS, e a terceira — CONJUNTOS — aparece
- * desligada com o motivo escrito, em vez de não existir. Ver `MotivoDosConjuntos`.
+ * Três abas: CAVALOS, CARRETAS e CONJUNTOS. As duas primeiras respondem "quanto
+ * este equipamento recebe"; a terceira lê o cavalo e a carreta como uma unidade
+ * só e **confere** o total que a fonte declara para o par contra a soma do que
+ * as duas fichas apuram. Ver `components/composicao/conjuntos.tsx`.
  */
 
 /**
- * As abas. A terceira está declarada e desativada — ver o rodapé da barra.
+ * As abas.
+ *
+ * **Por que CONJUNTO está aqui e não é um `entityType`.** Cavalo e carreta são
+ * tipos de equipamento e a rota `/composition/fleet` os valida contra
+ * `TIPOS_COM_REGRA`. Conjunto não é um terceiro tipo — é o par, e tem rota
+ * própria (`/composition/conjuntos`). Tratá-lo como tipo faria a lista de
+ * equipamentos aceitar um valor que não existe em `entity.entity_type`.
+ *
+ * A aba ficou desligada até agora, com o motivo escrito na barra: a remuneração
+ * do conjunto já vem pronta da fonte em `custoFixo`, e uma aba que repetisse
+ * essa coluna não diria nada que a ficha da carreta não diga. O que ela passou a
+ * fazer é outra coisa — confrontar aquele número com a soma que o produto apura
+ * pelo caminho das duas fichas, que é a identidade que autoriza somar a frota de
+ * cavalos com a de carretas e que até então só existia num teste.
  *
  * `TRECHO` entrou em `TIPOS_COM_REGRA` com a tela Trecho 360°, e **não** entra
  * aqui: esta tela responde "quanto a frota recebe por mês", e a remuneração do
@@ -48,7 +71,10 @@ import {
 const TIPOS = [
   { entityType: "CAVALO", rotulo: "Cavalos" },
   { entityType: "CARRETA", rotulo: "Carretas" },
+  { entityType: "CONJUNTO", rotulo: "Conjuntos" },
 ] as const;
+
+type Aba = (typeof TIPOS)[number]["entityType"];
 
 interface Filtros {
   busca: string;
@@ -71,29 +97,67 @@ export default function Composicao() {
   const [, navigate] = useLocation();
   const params = new URLSearchParams(search);
 
-  const entityType = params.get("tipo") === "CARRETA" ? "CARRETA" : "CAVALO";
+  const pedida = params.get("tipo") ?? "";
+  const aba: Aba = TIPOS.some((t) => t.entityType === pedida) ? (pedida as Aba) : "CAVALO";
   const period = params.get("period") ?? "";
   const [filtros, setFiltros] = useState<Filtros>(SEM_FILTRO);
+  const [filtrosDeConjuntos, setFiltrosDeConjuntos] = useState<FiltrosDeConjuntos>(
+    SEM_FILTRO_DE_CONJUNTOS,
+  );
 
-  const query = useMemo(() => {
-    const q = new URLSearchParams({ entityType });
+  /* O contexto e a vigência viajam igual nas duas rotas — é a mesma tela. */
+  const comum = useMemo(() => {
+    const q = new URLSearchParams();
     if (period) q.set("period", period);
+    const scopeHash = params.get("scopeHash");
+    if (scopeHash) q.set("scopeHash", scopeHash);
+    const canal = params.get("canal");
+    if (canal !== null) q.set("canal", canal);
+    return q;
+  }, [period, search]);
+
+  const queryDaFrota = useMemo(() => {
+    const q = new URLSearchParams(comum);
+    q.set("entityType", aba);
     if (filtros.busca) q.set("busca", filtros.busca);
     if (filtros.status) q.set("status", filtros.status);
     if (filtros.comAlteracao) q.set("comAlteracao", "1");
     if (filtros.comAlerta) q.set("comAlerta", "1");
     if (filtros.comNaoCalculavel) q.set("comNaoCalculavel", "1");
-    const scopeHash = params.get("scopeHash");
-    if (scopeHash) q.set("scopeHash", scopeHash);
-    const canal = params.get("canal");
-    if (canal !== null) q.set("canal", canal);
     return q.toString();
-  }, [entityType, period, filtros, search]);
+  }, [comum, aba, filtros]);
 
-  const { data, isLoading, error } = useQuery({
-    queryKey: ["composition", "fleet", query],
-    queryFn: () => fetchJson<VisaoDeFrota>(`/composition/fleet?${query}`),
+  const queryDosConjuntos = useMemo(() => {
+    const q = new URLSearchParams(comum);
+    if (filtrosDeConjuntos.busca) q.set("busca", filtrosDeConjuntos.busca);
+    if (filtrosDeConjuntos.status) q.set("status", filtrosDeConjuntos.status);
+    if (filtrosDeConjuntos.comDivergencia) q.set("comDivergencia", "1");
+    if (filtrosDeConjuntos.semPar) q.set("semPar", "1");
+    if (filtrosDeConjuntos.comAlteracao) q.set("comAlteracao", "1");
+    return q.toString();
+  }, [comum, filtrosDeConjuntos]);
+
+  const emConjuntos = aba === "CONJUNTO";
+
+  const frota = useQuery({
+    queryKey: ["composition", "fleet", queryDaFrota],
+    queryFn: () => fetchJson<VisaoDeFrota>(`/composition/fleet?${queryDaFrota}`),
+    enabled: !emConjuntos,
   });
+
+  const conjuntos = useQuery({
+    queryKey: ["composition", "conjuntos", queryDosConjuntos],
+    queryFn: () => fetchJson<VisaoDeConjuntos>(`/composition/conjuntos?${queryDosConjuntos}`),
+    enabled: emConjuntos,
+  });
+
+  const ativa = emConjuntos ? conjuntos : frota;
+  /*
+    O cabeçalho é o mesmo nas três abas, e o seletor de vigência precisa da lista
+    de vigências venha ela de qual rota vier. As duas a devolvem porque as duas
+    leem o mesmo contexto — trocar de aba não pode trocar de vigência.
+  */
+  const cabecalho = emConjuntos ? conjuntos.data : frota.data;
 
   const irPara = (mudancas: Record<string, string>) => {
     const next = new URLSearchParams(search);
@@ -111,18 +175,21 @@ export default function Composicao() {
           <div>
             <h1 className="text-2xl font-bold tracking-tight">Composição</h1>
             <p className="text-muted-foreground mt-1 max-w-3xl text-sm">
-              Quanto cada equipamento recebe nesta vigência, de onde vem cada valor, e o
-              que o produto ainda não consegue apurar com segurança.
+              {emConjuntos
+                ? "O cavalo e a carreta como uma unidade só: o que a fonte declara para o " +
+                  "conjunto, o que cada lado recebe, e se as duas contas fecham."
+                : "Quanto cada equipamento recebe nesta vigência, de onde vem cada valor, e o " +
+                  "que o produto ainda não consegue apurar com segurança."}
             </p>
           </div>
-          {data && (
+          {cabecalho && (
             <div className="text-right shrink-0">
               <div className="text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
-                {data.context.label}
+                {cabecalho.context.label}
               </div>
               <VigenciaSelect
-                vigencias={data.vigencias}
-                atual={data.effectiveDate}
+                vigencias={cabecalho.vigencias}
+                atual={cabecalho.effectiveDate}
                 onEscolher={(v) => irPara({ period: v })}
               />
             </div>
@@ -137,7 +204,7 @@ export default function Composicao() {
               onClick={() => irPara({ tipo: tipo.entityType })}
               className={cn(
                 "px-5 py-2.5 text-sm font-semibold uppercase tracking-wide border-b-2 transition-colors",
-                tipo.entityType === entityType
+                tipo.entityType === aba
                   ? "border-brand text-brand"
                   : "border-transparent text-muted-foreground hover:text-foreground",
               )}
@@ -145,39 +212,95 @@ export default function Composicao() {
               {tipo.rotulo}
             </button>
           ))}
-          <MotivoDosConjuntos />
         </nav>
       </header>
 
       <div className="px-8 py-6 space-y-6">
-        {error && (
-          <ApiErrorNotice error={error} what="A frota desta vigência não pôde ser carregada." />
+        {ativa.error && (
+          <ApiErrorNotice
+            error={ativa.error}
+            what={
+              emConjuntos
+                ? "Os conjuntos desta vigência não puderam ser carregados."
+                : "A frota desta vigência não pôde ser carregada."
+            }
+          />
         )}
 
-        {data && <Resumo view={data} />}
+        {emConjuntos ? (
+          <>
+            {conjuntos.data && <ResumoDosConjuntos view={conjuntos.data} />}
 
-        <BarraDeFiltros
-          filtros={filtros}
-          onMudar={setFiltros}
-          resultado={data ? `${data.linhas.length} de ${data.totalSemFiltro}` : ""}
-        />
+            <BarraDeFiltrosDosConjuntos
+              filtros={filtrosDeConjuntos}
+              onMudar={setFiltrosDeConjuntos}
+              resultado={
+                conjuntos.data
+                  ? `${conjuntos.data.linhas.length} de ${conjuntos.data.totalSemFiltro}`
+                  : ""
+              }
+            />
 
-        {isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+            {conjuntos.isLoading && (
+              <p className="text-sm text-muted-foreground">Carregando…</p>
+            )}
 
-        {data && !data.serieEntregue && (
-          <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm flex gap-3">
-            <Info className="w-4 h-4 mt-0.5 shrink-0 text-brand" />
-            <p>
-              A vigência <strong>{data.periodLabel}</strong> não entregou a série de{" "}
-              {data.rotuloDoTipo.toLowerCase()}. O que aparece abaixo, se aparecer, veio da
-              vigência anterior — são equipamentos que saíram da frota.
-            </p>
-          </div>
+            {conjuntos.data && <AvisoDasSeries view={conjuntos.data} />}
+            {conjuntos.data && <TabelaDeConjuntos view={conjuntos.data} />}
+          </>
+        ) : (
+          <>
+            {frota.data && <Resumo view={frota.data} />}
+
+            <BarraDeFiltros
+              filtros={filtros}
+              onMudar={setFiltros}
+              resultado={
+                frota.data ? `${frota.data.linhas.length} de ${frota.data.totalSemFiltro}` : ""
+              }
+            />
+
+            {frota.isLoading && <p className="text-sm text-muted-foreground">Carregando…</p>}
+
+            {frota.data && !frota.data.serieEntregue && (
+              <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm flex gap-3">
+                <Info className="w-4 h-4 mt-0.5 shrink-0 text-brand" />
+                <p>
+                  A vigência <strong>{frota.data.periodLabel}</strong> não entregou a série de{" "}
+                  {frota.data.rotuloDoTipo.toLowerCase()}. O que aparece abaixo, se aparecer,
+                  veio da vigência anterior — são equipamentos que saíram da frota.
+                </p>
+              </div>
+            )}
+
+            {frota.data && <Tabela view={frota.data} />}
+          </>
         )}
-
-        {data && <Tabela view={data} />}
       </div>
     </Layout>
+  );
+}
+
+/**
+ * O aviso de que falta um dos dois lados.
+ *
+ * Um conjunto precisa das duas séries. Quando a vigência entrega só uma, a
+ * tabela abaixo não está errada — ela está mostrando o que existe —, e dizer
+ * qual lado faltou é a diferença entre "a frota encolheu" e "o arquivo veio
+ * pela metade".
+ */
+function AvisoDasSeries({ view }: { view: VisaoDeConjuntos }) {
+  const faltando = (["CAVALO", "CARRETA"] as const).filter((t) => !view.seriesEntregues[t]);
+  if (faltando.length === 0) return null;
+  return (
+    <div className="bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm flex gap-3">
+      <Info className="w-4 h-4 mt-0.5 shrink-0 text-brand" />
+      <p>
+        A vigência <strong>{view.periodLabel}</strong> não entregou a série de{" "}
+        {faltando.map((t) => (t === "CAVALO" ? "cavalos" : "carretas")).join(" nem de ")}. Sem os
+        dois lados não há conjunto a formar, e o que aparece abaixo é o que a vigência tem.
+      </p>
+    </div>
   );
 }
 
@@ -205,32 +328,6 @@ function VigenciaSelect({
         ))}
       </SelectContent>
     </Select>
-  );
-}
-
-/**
- * A aba que ainda não existe, dita em vez de omitida.
- *
- * O vínculo cavalo–carreta está no dado e é confiável — `Placa Carreta` casa um
- * a um com as carretas do banco nas 9 vigências. O que falta não é o vínculo: é
- * a pergunta que a aba responderia. A remuneração do conjunto já vem pronta da
- * fonte em `custoFixo`, e uma aba que repetisse essa coluna não diria nada que a
- * ficha da carreta não diga. Ela passa a valer contra a remuneração **paga**,
- * que é a auditoria financeira — e esse dado ainda não existe no FreightCheck.
- */
-function MotivoDosConjuntos() {
-  return (
-    <span
-      className="ml-2 px-3 py-2.5 text-xs text-muted-foreground/70 inline-flex items-center gap-1.5 cursor-help"
-      title={
-        "O vínculo cavalo–carreta existe e é confiável (Placa Carreta casa um a um nas " +
-        "9 vigências). A aba espera o que ela vai confrontar: a remuneração efetivamente " +
-        "paga. Sem isso, ela repetiria a coluna custoFixo que a ficha da carreta já mostra."
-      }
-    >
-      <Layers className="w-3.5 h-3.5" />
-      Conjuntos · em breve
-    </span>
   );
 }
 

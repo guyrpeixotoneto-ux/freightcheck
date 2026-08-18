@@ -34,7 +34,13 @@ try {
       Object.keys(b).length === 0 ? "nenhum" : Object.entries(b).map(([p, v]) => `${brl(v)}/${p.toLowerCase()}`).join("  +  ");
     console.log(`\n  ${view.totals.changes} alterações  →  ${view.totals.groups} grupos  ·  ${view.totals.vehiclesTouched} ativos tocados  ·  ${view.totals.unchanged} valores sem alteração`);
     console.log(`  IMPACTO DESTA VIGÊNCIA : ${fmt(i.byPeriodicity)}`);
-    console.log(`  fora por dupla contagem: ${fmt(i.excludedByPeriodicity)}  (${i.excludedChanges} alterações)`);
+    console.log(`  bruto (auditoria técnica): ${fmt(i.brutoByPeriodicity)}`);
+    for (const degrau of i.rastro.degraus) {
+      console.log(
+        `  − ${fmt(degrau.removidoByPeriodicity)} ${degrau.rotulo} ` +
+          `(${degrau.mudancasRemovidas} alterações) → ${fmt(degrau.subtotalByPeriodicity)}`,
+      );
+    }
     console.log(`  sem preço              : ${i.notCalculable} alterações`);
     console.log(`  ACUMULADO (${view.accumulated.comparisons} comparações, ${view.accumulated.from} → ${view.accumulated.to}): ${fmt(view.accumulated.byPeriodicity)}`);
 

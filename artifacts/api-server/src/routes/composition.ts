@@ -5,18 +5,25 @@ import {
   getAlteracoesDoEquipamento,
   getHistorico,
   getVinculoDoCavalo,
+  getVisaoDeConjuntos,
   getVisaoDeFrota,
   montarComposicao,
   TIPOS_COM_REGRA,
+  type FiltrosDeConjuntos,
   type FiltrosDeFrota,
 } from "@workspace/composition";
 
 /**
  * Composição — a memória de cálculo da remuneração, por equipamento.
  *
- * Quatro rotas, uma por pergunta:
+ * Cinco rotas, uma por pergunta:
  *
  * - `/composition/fleet` — quanto cada equipamento recebe nesta vigência.
+ * - `/composition/conjuntos` — o cavalo e a carreta lidos como uma unidade só,
+ *   e a conferência entre o total que a fonte declara para o conjunto e a soma
+ *   do que as duas fichas apuram. Não é `fleet` com outro `entityType`: conjunto
+ *   não é tipo de equipamento, é o par — e a rota não aceita `entityType`
+ *   justamente para que ninguém o trate como se fosse.
  * - `/composition/equipment/:id` — de onde vem cada valor deste equipamento,
  *   e quais componentes ficaram de fora, com o motivo. É a mesma resposta que
  *   alimenta a aba Composição e a aba Parâmetros: são duas leituras do mesmo
@@ -108,6 +115,59 @@ router.get("/composition/fleet", async (req, res): Promise<void> => {
   } catch (err) {
     if (sendContextError(res, err)) return;
     req.log.error({ err }, "Error building composition fleet view");
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+function parseFiltrosDeConjuntos(query: Record<string, unknown>): FiltrosDeConjuntos {
+  const flag = (key: string) => query[key] === "1" || query[key] === "true";
+  const status = typeof query.status === "string" ? query.status : undefined;
+  return {
+    ...(typeof query.busca === "string" && query.busca !== "" ? { busca: query.busca } : {}),
+    ...(status === "NORMAL" ||
+    status === "ATENCAO" ||
+    status === "CRITICO" ||
+    status === "INCOMPLETO"
+      ? { status }
+      : {}),
+    ...(flag("comDivergencia") ? { comDivergencia: true } : {}),
+    ...(flag("semPar") ? { semPar: true } : {}),
+    ...(flag("comAlteracao") ? { comAlteracao: true } : {}),
+  };
+}
+
+router.get("/composition/conjuntos", async (req, res): Promise<void> => {
+  const query = req.query as Record<string, unknown>;
+  try {
+    const view = await getVisaoDeConjuntos(db, {
+      ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
+      ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
+      filtros: parseFiltrosDeConjuntos(query),
+    });
+    if (!view) {
+      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+      return;
+    }
+    /*
+      Uma placa apontada por mais de um cavalo contradiz o que as 9 vigências
+      medidas mostram, e o efeito dela é contábil: a carreta seria contada duas
+      vezes se o pareamento a atribuísse aos dois. A tela continua abrindo — ela
+      diz, linha a linha, o que aconteceu —, mas o estado não passa em silêncio.
+    */
+    const disputadas = view.linhas.filter((l) => l.natureza === "PLACA_DISPUTADA");
+    if (disputadas.length > 0) {
+      req.log.error(
+        {
+          effectiveDate: view.effectiveDate,
+          placas: [...new Set(disputadas.map((l) => l.placaApontada))],
+        },
+        "Placa de carreta apontada por mais de um cavalo na mesma vigência.",
+      );
+    }
+    res.json(view);
+  } catch (err) {
+    if (sendContextError(res, err)) return;
+    req.log.error({ err }, "Error building composition conjuntos view");
     res.status(500).json({ error: "Internal server error" });
   }
 });

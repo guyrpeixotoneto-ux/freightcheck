@@ -155,6 +155,18 @@ Ela **não** prova qual dos dois é pago, e escolher um seria presumir. Por isso
   teste (`dre-real.test.ts`) em vez de escondida numa igualdade que fechava por
   compensação.
 
+E a diferença deixou de ser só um número em teste: a **aba Conjuntos** — que
+existe para conferir o par contra o que a fonte declara — passa a apontar
+**12 dos 71 conjuntos** de ago/2026 como divergentes, cada um pelo lucro fixo do
+seu cavalo. Ela mostrava zero divergências antes, e mostrava porque os dois
+lados da conta liam a mesma dupla contagem: a linha da carreta somava a coluna
+do conjunto, e o declarado a continha por dentro. Dois erros iguais dos dois
+lados dão zero de divergência.
+
+Na série inteira são **64 de 657**, e a contagem cresce de 6 em janeiro para 12
+em agosto — acompanhando os cavalos cujo financiamento terminou e migrou para o
+lucro do novo ciclo. É o comportamento da fonte, e não deriva do produto.
+
 ---
 
 ## 4. Atributo por atributo — o que entra

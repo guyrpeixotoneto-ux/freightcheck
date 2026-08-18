@@ -694,13 +694,14 @@ export const ARTIGOS: Artigo[] = [
       "vigência mais recente da seleção que os números da tela estão usando.\n\n" +
       "**Visão executiva**\n" +
       "*Visão geral* — o panorama do que existe.\n" +
-      "*Acompanhamento* — o resumo de uma vigência.\n" +
-      "*Análise de frota* — cavalos e carretas.\n\n" +
+      "*Acompanhamento* — o resumo de uma vigência.\n\n" +
       "**Auditoria**\n" +
       "*Alterações* — linha a linha, com veículo, valor anterior e valor novo.\n" +
       "*Comparar vigências* — duas vigências escolhidas à mão.\n" +
       "*Parâmetros* — o catálogo de cartões, com quanto mudou em cada gaveta.\n" +
       "*Vigências* — o histórico de datas.\n\n" +
+      "**Frota**\n" +
+      "*Análise de frota* — cavalos e carretas.\n\n" +
       "**Inteligência**\n" +
       "*Assistente IA* — esta conversa.\n" +
       "*Book do Operador* — as regras, por bloco.\n\n" +
