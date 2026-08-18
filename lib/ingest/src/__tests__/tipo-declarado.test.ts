@@ -9,6 +9,7 @@ import {
   stage,
 } from "../pipeline";
 import { getImportRunIssues } from "../history";
+import { apresentacaoDoDetalhe } from "../apontamentos";
 import { createTestDatabase, modelExportPaths, type TestDb } from "../testing";
 import { corrigirValoresNumericos, escreverPlanilha } from "./planilha-sintetica";
 
@@ -375,5 +376,29 @@ describe("a colisão de chave aparece na pré-visualização", () => {
     // A forma normalizada continua no detalhe, para quem depura identidade.
     expect(detalheConflito.entityKey).toBe("07526557001505ANALISTA");
     expect(detalheConflito.atributos).toContain("qlp_administrativo.custo_fixo");
+
+    /*
+      A apresentação estruturada — o que a tela desenha em seções. O registro
+      sai em campos com os nomes da planilha (não a chave emendada), a
+      divergência nomeia a coluna pelo cabeçalho original (não pelo código de
+      atributo), e cada valor vem com a linha de onde veio.
+    */
+    const apresentacao = apresentacaoDoDetalhe(conflito.ocorrencias[0].detail)!;
+    expect(apresentacao).not.toBeNull();
+    expect(apresentacao.titulo).toMatch(/mesmo registro/);
+    expect(apresentacao.registro).toContainEqual({
+      campo: "Unidade - CNPJ",
+      valor: "07.526.557/0015-05",
+    });
+    expect(apresentacao.registro).toContainEqual({ campo: "Cargo", valor: "ANALISTA" });
+    expect(apresentacao.onde).toEqual([{ aba: "Planilha1", linhas: [2, 3] }]);
+    const diferenca = apresentacao.diferencas!.find((d) => d.campo === "Custo Fixo")!;
+    expect(diferenca).toBeDefined();
+    expect(diferenca.versoes).toEqual([
+      { aba: "Planilha1", linha: 2, valor: "100" },
+      { aba: "Planilha1", linha: 3, valor: "999" },
+    ]);
+    expect(apresentacao.comoCorrigir).toBeTruthy();
+    expect(apresentacao.porQueImporta).toBeTruthy();
   });
 });
