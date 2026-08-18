@@ -15,6 +15,7 @@ import {
   CLASSES,
   classeAtual,
   consequenciaDe,
+  emOutrasLinhas,
   filtrar,
   jaClassificadas,
   motivoDeNaoPoder,
@@ -76,6 +77,7 @@ export default function Categorias() {
   const visiveis = filtrar(categorias, filtro);
   const pendentes = precisamDeClasse(visiveis);
   const classificadas = jaClassificadas(visiveis);
+  const outrasLinhas = emOutrasLinhas(visiveis);
   const falta = oQueFalta(categorias);
 
   return (
@@ -145,6 +147,26 @@ export default function Categorias() {
               <span className="ml-2 font-normal normal-case">
                 {grupo.itens.length}{" "}
                 {grupo.itens.length === 1 ? "categoria" : "categorias"}
+              </span>
+            </h2>
+            {grupo.itens.map((categoria) => (
+              <CartaoDeCategoria key={categoria.id} categoria={categoria} />
+            ))}
+          </section>
+        ))}
+
+        {/* As que moram numa linha da DRE cadastrada por quem opera. Não são
+            fila — quem as pôs ali decidiu alguma coisa —, mas precisam estar à
+            vista: fora das três casas, elas ficam fora dos totais de custo, e
+            uma categoria invisível é uma categoria que ninguém move. */}
+        {outrasLinhas.map((grupo) => (
+          <section key={grupo.linha} className="space-y-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              {grupo.linha}
+              <span className="ml-2 font-normal normal-case">
+                {grupo.itens.length}{" "}
+                {grupo.itens.length === 1 ? "categoria" : "categorias"} · fora dos
+                totais de custo fixo e variável
               </span>
             </h2>
             {grupo.itens.map((categoria) => (
