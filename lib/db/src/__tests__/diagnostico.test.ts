@@ -81,8 +81,14 @@ describe("diagnosticar", () => {
 
     expect(d.estado).toBe("SCHEMA_DIVERGENTE");
     expect(d.acao?.codigo).toBe("CONFERIR_SCHEMA");
-    // Rodar as migrations não resolve: elas já constam como aplicadas.
-    expect(d.acao?.comando).toBeUndefined();
+    /*
+      Rodar as migrations não resolve — elas já constam como aplicadas — e é
+      isso que continua travado: o comando oferecido é a conferência, que só
+      lê, e nunca o `migrate`. A ação dizia "compare" sem dizer com o quê; o
+      `conferir-schema` nasceu para ela e agora é citado por ela.
+    */
+    expect(d.acao?.comando).toBe("pnpm --filter @workspace/db run conferir-schema");
+    expect(d.acao?.comando).not.toMatch(/\brun migrate\b/);
     expect(textoDoDiagnostico(d)).not.toMatch(/Nenhuma ação é necessária/);
   });
 
@@ -286,6 +292,89 @@ describe("diagnosticar", () => {
  * `attribute.definition` fora do banco, e a primeira notícia disso foi uma tela
  * em 500. Entre uma coisa e outra, `/healthz` respondeu SAUDAVEL o tempo todo.
  */
+describe("a conferência de schema no diagnóstico", () => {
+  /*
+   * O caso vivido, na ordem em que doeu: registro completo, coluna a menos, e
+   * o `/healthz` respondendo SAUDAVEL até uma tela morrer com 42703 — sem que
+   * nada, nem a tela, soubesse dizer **qual** coluna. `objetosAusentes` é a
+   * conferência entrando na observação, e estes casos fixam as três semânticas
+   * do campo: ausente (ninguém conferiu), vazio (conferido e limpo), não vazio
+   * (conferido, e falta exatamente isto).
+   */
+  it("nomeia a divergência sem esperar nenhuma consulta morrer", () => {
+    const d = diagnosticar(
+      observado({ aplicadas: 35, objetosAusentes: ["attribute.cost_class"] }),
+    );
+
+    expect(d.estado).toBe("SCHEMA_DIVERGENTE");
+    expect(d.evidencia).toContain("attribute.cost_class");
+    expect(d.evidencia).not.toMatch(/um objeto de schema falta/);
+  });
+
+  it("a ação diz com o quê comparar — o comando que sempre existiu para ela", () => {
+    const d = diagnosticar(observado({ objetosAusentes: ["attribute.cost_class"] }));
+
+    expect(d.acao?.codigo).toBe("CONFERIR_SCHEMA");
+    expect(d.acao?.comando).toBe("pnpm --filter @workspace/db run conferir-schema");
+  });
+
+  it("a consulta que morreu também ganha o comando, mesmo sem conferência", () => {
+    const d = diagnosticar(observado({ objetoAusenteAgora: true }));
+
+    expect(d.estado).toBe("SCHEMA_DIVERGENTE");
+    expect(d.acao?.comando).toBe("pnpm --filter @workspace/db run conferir-schema");
+    /* Sem conferência não se nomeia nada: a frase é a de contagem. */
+    expect(d.evidencia).toMatch(/um objeto de schema falta/);
+  });
+
+  it("a lista longa sai limitada, com o resto contado", () => {
+    const ausentes = Array.from({ length: 8 }, (_, i) => `tabela.coluna_${i}`);
+    const d = diagnosticar(observado({ objetosAusentes: ausentes }));
+
+    expect(d.evidencia).toContain("tabela.coluna_4");
+    expect(d.evidencia).not.toContain("tabela.coluna_5");
+    expect(d.evidencia).toContain("e mais 3");
+  });
+
+  it("conferido e limpo é um SAUDAVEL que diz que conferiu", () => {
+    const d = diagnosticar(observado({ aplicadas: 35, objetosAusentes: [] }));
+
+    expect(d.estado).toBe("SAUDAVEL");
+    expect(d.evidencia).toMatch(/o schema confere/);
+  });
+
+  it("sem conferência, SAUDAVEL não afirma conferência que não houve", () => {
+    const d = diagnosticar(observado({ aplicadas: 35 }));
+
+    expect(d.estado).toBe("SAUDAVEL");
+    expect(d.evidencia).not.toMatch(/confere/);
+  });
+
+  it("com migrations pendentes, elas explicam a ausência — a conferência não reclassifica", () => {
+    /* Mesma regra do `objetoAusenteAgora`: divergência só é dizível quando a
+       contagem afirma que nada falta. */
+    const d = diagnosticar(
+      observado({
+        pendentes: ["0030_classe_de_custo_no_atributo"],
+        objetosAusentes: ["attribute.cost_class"],
+      }),
+    );
+
+    expect(d.estado).toBe("MIGRATIONS_PENDENTES");
+  });
+
+  it("o bridge pendente continua decidindo antes: ele é declaração, não dedução", () => {
+    const d = diagnosticar(
+      observado({
+        bridgePendente: {},
+        objetosAusentes: ["snapshot.canonical_snapshot_key"],
+      }),
+    );
+
+    expect(d.estado).toBe("BRIDGE_PENDENTE");
+  });
+});
+
 describe("BRIDGE_PENDENTE", () => {
   it("nomeia o estado em vez de deixar deduzir por schema ausente", () => {
     const d = diagnosticar(observado({ bridgePendente: {} }));

@@ -8,6 +8,9 @@
     "./schema": "./src/schema/index.ts",
     "./migrate": "./src/migrate.ts",
     "./diagnostico": "./src/diagnostico.ts",
+    "./conferir-schema": "./src/conferir-schema.ts",
+    "./reconvergencia": "./src/reconvergencia.ts",
+    "./bridge": "./src/bridge.ts",
     "./bridge-marcador": "./src/bridge-marcador.ts"
   },
   "scripts": {

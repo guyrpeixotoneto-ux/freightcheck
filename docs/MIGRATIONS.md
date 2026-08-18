@@ -14,6 +14,32 @@ Onde isso roda:
 | à mão | `pnpm --filter @workspace/db run migrate` |
 | testes | cada banco de teste nasce das migrations, nunca de push |
 
+## A reconvergência da partida — quando o Provision desfaz o que a fila fez
+
+O passo de schema do Publishing compara **Development com Production** e aplica
+o diff antes de o servidor novo existir. Como Development fica atrás da fila por
+política (ver abaixo), todo deploy que acontece nessa janela propõe **remover**
+de Production o que as migrations criaram — colunas, tabelas, índices e
+constraints —, e o registro não fica sabendo: ele vive no schema `drizzle`, fora
+do espelho. O resultado era o estado sem saída de 18/08/2026: 35 migrations
+registradas, `attribute.cost_class` inexistente, telas caindo com 42703 e a fila
+sem nada a fazer, porque ela decide pelo carimbo.
+
+Por isso a partida de Production tem um segundo passo, depois de
+`runMigrations()`: a **reconvergência** (`lib/db/src/reconvergencia.ts`). Ela
+compara o schema real com o que o build declara e repõe o que falta com DDL
+levantado **verbatim das migrations** — nunca sintetizado. Num deploy limpo ela
+não aplica nada; depois de um Provision destrutivo, devolve o schema ao estado
+que `estruturaDe` medi(r)ia num banco criado do zero pela fila — provado em
+`artifacts/api-server/src/__tests__/deploy-normal-reconverge.test.ts`.
+
+O que ela **não** faz: não roda com migrations pendentes (a fila resolve), não
+roda com bridge pendente (o `bridge:up` resolve), e não ressuscita **conteúdo**
+de coluna que o Provision destruiu — estrutura é recuperável pela fila, decisão
+humana apagada não é recuperável por ninguém. `publicar:conferir` antes de todo
+Publish continua sendo o que impede a perda, e o boot loga alto quando teve de
+repor qualquer coisa.
+
 ## Quem avança a fila só por ter subido
 
 A regra é uma: **só Production aplica migrations ao iniciar.** Todo o resto
