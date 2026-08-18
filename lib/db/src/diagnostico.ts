@@ -450,7 +450,8 @@ export function diagnosticar(estado: EstadoObservado): Diagnostico {
           /*
             O comando existia — `conferir-schema` nasceu **para** esta ação — e
             a ação não o citava: a tela mandava comparar sem dizer com o quê. É
-            leitura por padrão; repor coluna exige a bandeira `--aplicar`, e
+            leitura por padrão; repor o que falta exige a bandeira `--aplicar`
+            (a mesma reconvergência da partida, ver `reconvergencia.ts`), e
             continua sendo decisão de quem conhece o banco.
           */
           comando: "pnpm --filter @workspace/db run conferir-schema",

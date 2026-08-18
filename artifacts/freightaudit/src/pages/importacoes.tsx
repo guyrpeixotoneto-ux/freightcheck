@@ -34,6 +34,11 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { erroDaResposta, fetchJson, getApiUrl, readJson } from "@/lib/api";
+import {
+  estadoDaImportacao,
+  faceDoCartao,
+  type FaceDoCartao,
+} from "@/lib/importacoes";
 import { cn } from "@/lib/utils";
 
 /**
@@ -93,25 +98,58 @@ interface ImportRun {
   pendingIdentities: string[];
   /** O tipo declarado no envio — a aba por onde o arquivo entrou. */
   declaredType: string | null;
-  /** Os tipos que a importação de fato produziu, lidos das vigências dela. */
+  /** O que as vigências desta importação passaram a cobrir, herança incluída. */
   entityTypes: string[];
+  /** Os tipos que este arquivo trouxe — `entityTypes` sem a parte herdada. */
+  tiposDoArquivo: string[];
+}
+
+/** O rótulo humano de um tipo: "Cavalo", "QLP Administrativo". */
+const rotuloDoTipo = (code: string) =>
+  TIPOS_DE_IMPORTACAO.find((t) => t.code === code)?.rotulo ?? code;
+
+/**
+ * O que veio no arquivo desta importação — e, por isso, a que aba ela pertence.
+ *
+ * Duas respostas, nesta ordem, e a ordem é o desenho: **o que foi declarado**
+ * manda, porque é a aba em que a pessoa de fato enviou o arquivo; na falta da
+ * declaração — toda importação anterior a ela —, valem **os fatos que o
+ * arquivo produziu**, sem a parte herdada de revisões anteriores. A herança
+ * fica de fora do recorte de propósito: o arquivo de carreta que regrava as
+ * vigências preservando os cavalos não vira um upload de cavalos por isso —
+ * essa metade da história é dita dentro do cartão ({@link TipoDaImportacao}),
+ * não pela aba em que ele aparece.
+ *
+ * Uma importação sem declaração e sem fatos próprios legíveis — a que falhou
+ * antes de promover, ou a anterior ao agregado por tipo que o backfill não
+ * cobriu — não aparece em aba de tipo nenhuma, e é assim que deve ser:
+ * classificá-la por palpite seria dizer que ela trouxe o que ninguém mediu.
+ * Ela continua inteira na aba Todas, que existe também por isso.
+ *
+ * Exportada porque o recorte é um contrato da tela, e o teste dele mora em
+ * `__tests__/importacoes-abas.test.ts`.
+ */
+export const tiposVindosDoArquivo = (run: TiposDaImportacao): string[] =>
+  run.declaredType !== null ? [run.declaredType] : run.tiposDoArquivo;
+
+/** O pedaço de {@link ImportRun} de que o recorte e as etiquetas dependem. */
+export interface TiposDaImportacao {
+  declaredType: string | null;
+  entityTypes: string[];
+  tiposDoArquivo: string[];
 }
 
 /**
- * A que aba pertence uma importação.
- *
- * Duas respostas, nesta ordem, e a ordem é o desenho: **o que foi declarado**
- * manda, porque é a aba em que a pessoa de fato enviou o arquivo; na falta dela
- * — toda importação anterior à declaração —, vale **o que saiu do arquivo**,
- * que é a única evidência que resta.
- *
- * Uma importação sem nem uma nem outra não aparece em aba de tipo nenhuma, e é
- * assim que deve ser: ela não produziu vigência e não declarou tipo, e
- * listá-la sob "Cavalo" seria dizer que ela trouxe cavalos. Ela continua
- * inteira na aba Todas, que existe também por isso.
+ * O que a vigência resultante cobre além do arquivo — a herança das revisões
+ * anteriores. Vazio no caso comum, em que a vigência é o arquivo; vazio também
+ * quando não se sabe o que o arquivo trouxe, porque sem essa leitura apontar
+ * herança seria dar nome errado a uma diferença que não dá para calcular.
  */
-const tiposDaImportacao = (run: ImportRun): string[] =>
-  run.declaredType !== null ? [run.declaredType] : run.entityTypes;
+export const tiposHerdados = (run: TiposDaImportacao): string[] => {
+  const doArquivo = new Set(tiposVindosDoArquivo(run));
+  if (doArquivo.size === 0) return [];
+  return run.entityTypes.filter((tipo) => !doArquivo.has(tipo));
+};
 
 /**
  * Um apontamento do pipeline, como a API o entrega.
@@ -306,7 +344,9 @@ export default function Importacoes() {
     aparece aqui na contagem de cada aba, que conta o que o clique abre.
   */
   const doRecorte =
-    aba === null ? runs : runs.filter((run) => tiposDaImportacao(run).includes(aba));
+    aba === null
+      ? runs
+      : runs.filter((run) => tiposVindosDoArquivo(run).includes(aba));
 
   const esperandoDecisao = [
     ...new Set([
@@ -490,7 +530,7 @@ export default function Importacoes() {
                 <span className="ml-1.5 tabular-nums text-xs text-muted-foreground">
                   {n(
                     runs.filter((run) =>
-                      tiposDaImportacao(run).includes(tipo.code),
+                      tiposVindosDoArquivo(run).includes(tipo.code),
                     ).length,
                   )}
                 </span>
@@ -645,37 +685,76 @@ export default function Importacoes() {
 }
 
 /**
- * De que tipo é esta importação, e como a tela sabe disso.
+ * De que tipo é esta importação — em duas afirmações que não se misturam.
  *
- * As duas procedências são ditas com todas as letras porque não são a mesma
- * coisa: **declarado** é o que a pessoa afirmou ao escolher a aba, e o servidor
- * conferiu; **produzido** é o que saiu do arquivo, e é tudo o que existe para
- * as importações anteriores à declaração. Escrever as duas como se fossem uma
- * seria apagar justamente a diferença que este produto existe para mostrar.
+ * **Arquivo** é o que este arquivo trouxe: a declaração do envio quando
+ * existe, senão o que os fatos dele dizem. **Vigência resultante** é o que as
+ * vigências gravadas passaram a cobrir — que pode ser mais que o arquivo,
+ * porque a revisão preserva os tipos que ele não toca: o arquivo de carreta
+ * que entra numa vigência que já tinha cavalos grava uma revisão cobrindo os
+ * dois. As duas moravam na mesma fileira de etiquetas, e foi isso que fez
+ * "Cavalo + Carreta" parecer tipos detectados dentro de um arquivo só de
+ * carretas. A segunda linha só aparece quando diz algo que a primeira não
+ * disse; repetir o mesmo tipo nas duas seria ruído vestido de rigor.
  */
 function TipoDaImportacao({ run }: { run: ImportRun }) {
-  const tipos = tiposDaImportacao(run);
-  if (tipos.length === 0) return null;
+  const doArquivo = tiposVindosDoArquivo(run);
+  const herdados = tiposHerdados(run);
+  if (doArquivo.length === 0 && run.entityTypes.length === 0) return null;
 
-  const rotulo = (code: string) =>
-    TIPOS_DE_IMPORTACAO.find((t) => t.code === code)?.rotulo ?? code;
+  const chip = (tipo: string) => (
+    <span
+      key={tipo}
+      className="text-[0.6875rem] px-2 py-0.5 rounded-lg border bg-muted/40 text-foreground"
+    >
+      {rotuloDoTipo(tipo)}
+    </span>
+  );
+
+  /*
+    Importação antiga, promovida antes de o agregado por tipo existir e fora do
+    backfill: não há como separar arquivo de herança, e inventar a separação
+    seria pior que não fazê-la. Resta a cobertura, dita como cobertura.
+  */
+  if (doArquivo.length === 0) {
+    return (
+      <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
+        <span className="text-[0.6875rem] text-muted-foreground">
+          Vigências cobrem
+        </span>
+        {run.entityTypes.map(chip)}
+        <span className="text-[0.6875rem] text-muted-foreground">
+          lido das vigências que entraram
+        </span>
+      </p>
+    );
+  }
 
   return (
-    <p className="mt-1.5 flex flex-wrap items-center gap-1.5">
-      {tipos.map((tipo) => (
-        <span
-          key={tipo}
-          className="text-[0.6875rem] px-2 py-0.5 rounded-lg border bg-muted/40 text-foreground"
-        >
-          {rotulo(tipo)}
+    <div className="mt-1.5 space-y-1">
+      <p className="flex flex-wrap items-center gap-1.5">
+        <span className="text-[0.6875rem] text-muted-foreground">Arquivo</span>
+        {doArquivo.map(chip)}
+        <span className="text-[0.6875rem] text-muted-foreground">
+          {run.declaredType !== null
+            ? "declarado no envio"
+            : "lido do conteúdo do arquivo"}
         </span>
-      ))}
-      <span className="text-[0.6875rem] text-muted-foreground">
-        {run.declaredType !== null
-          ? "declarado no envio"
-          : "lido das vigências que entraram"}
-      </span>
-    </p>
+      </p>
+      {herdados.length > 0 && (
+        <p className="flex flex-wrap items-center gap-1.5">
+          <span className="text-[0.6875rem] text-muted-foreground">
+            {run.snapshots === 1 ? "Vigência resultante" : "Vigências resultantes"}
+          </span>
+          {run.entityTypes.map(chip)}
+          <span className="text-[0.6875rem] text-muted-foreground">
+            {herdados.map(rotuloDoTipo).join(" e ")} preservado
+            {herdados.length > 1 ? "s" : ""} de revisões anteriores — não veio
+            {herdados.length > 1 ? "ram" : ""} neste arquivo
+          </span>
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -940,29 +1019,11 @@ function RunCard({
   );
 }
 
-/**
- * Como cada estado se chama e o que ele significa, para quem opera.
- *
- * "Duplicata" era uma palavra só, e ela escondia três situações que pedem
- * reações diferentes: o mesmo arquivo de novo (não faça nada), o mesmo dado num
- * arquivo diferente (não faça nada, e saiba que o número não vai mudar) e uma
- * vigência que já existe (decida se é correção). O estado do run distingue as
- * duas primeiras; a terceira chega como recusa da aprovação.
- */
-const ESTADOS: Record<string, { rotulo: string; tom: "ok" | "erro" | "neutro" | "espera" }> = {
-  PROMOTED: { rotulo: "aprovada", tom: "ok" },
-  PREVIEWED: { rotulo: "conferida", tom: "espera" },
-  PENDING: { rotulo: "na fila", tom: "espera" },
-  READING: { rotulo: "lendo", tom: "espera" },
-  STAGED: { rotulo: "preparada", tom: "espera" },
-  PROMOTING: { rotulo: "aprovando", tom: "espera" },
-  FAILED: { rotulo: "falhou", tom: "erro" },
-  ABORTED: { rotulo: "abortada", tom: "erro" },
-  VALIDATION_ERROR: { rotulo: "dado não fecha", tom: "erro" },
-  SKIPPED_DUPLICATE: { rotulo: "arquivo já recebido", tom: "neutro" },
-  SKIPPED_DUPLICATE_DATA: { rotulo: "dados já registrados", tom: "neutro" },
-};
-
+/*
+  Os nomes e tons de cada estado (ESTADOS, estadoDaImportacao) moram em
+  `@/lib/importacoes`, junto com a cara do cartão de upload: é lógica que se
+  testa sem desenhar, e o cartão e a pílula precisam contar a mesma história.
+*/
 const TONS = {
   ok: "bg-emerald-50 text-emerald-700 border-emerald-200",
   erro: "bg-red-50 text-red-800 border-red-200",
@@ -971,10 +1032,6 @@ const TONS = {
   neutro: "bg-slate-100 text-slate-700 border-slate-300",
   espera: "bg-amber-50 text-amber-800 border-amber-200",
 } as const;
-
-export function estadoDaImportacao(status: string) {
-  return ESTADOS[status] ?? { rotulo: status.toLowerCase(), tom: "espera" as const };
-}
 
 function StatusPill({ status }: { status: string }) {
   const estado = estadoDaImportacao(status);
@@ -1029,6 +1086,37 @@ function RunDetailDialog({
               {run.finishedAt ? dateTime(run.finishedAt) : "—"}
             </Field>
             <Field label="Enviado por">{run.triggeredBy ?? "—"}</Field>
+            {/* A mesma distinção do cartão, com as mesmas palavras: o que o
+                arquivo trouxe numa linha, o que a vigência resultante cobre na
+                outra — e a segunda só quando difere da primeira. */}
+            {tiposVindosDoArquivo(run).length > 0 && (
+              <Field label="Arquivo">
+                {tiposVindosDoArquivo(run).map(rotuloDoTipo).join(" + ")}
+                <span className="text-muted-foreground">
+                  {" "}
+                  ·{" "}
+                  {run.declaredType !== null
+                    ? "declarado no envio"
+                    : "lido do conteúdo do arquivo"}
+                </span>
+              </Field>
+            )}
+            {tiposHerdados(run).length > 0 && (
+              <Field
+                label={
+                  run.snapshots === 1
+                    ? "Vigência resultante"
+                    : "Vigências resultantes"
+                }
+              >
+                {run.entityTypes.map(rotuloDoTipo).join(" + ")}
+                <span className="text-muted-foreground">
+                  {" "}
+                  · {tiposHerdados(run).map(rotuloDoTipo).join(" e ")} veio de
+                  revisões anteriores, não deste arquivo
+                </span>
+              </Field>
+            )}
             <Field label="Produziu">
               {plural(run.sheets, "aba", "abas")} ·{" "}
               {plural(run.rawRows, "linha", "linhas")} ·{" "}
@@ -1656,11 +1744,64 @@ function Field({
 }
 
 /**
+ * As cores de cada cara do cartão, no mesmo espírito de TONS: a recusa é
+ * vermelha, a duplicata é neutra — pintá-la de vermelho ensina o operador a
+ * procurar culpa onde não há —, e o que espera é âmbar.
+ */
+const CORES_DA_FACE: Record<
+  FaceDoCartao["face"],
+  { cartao: string; selo: string; icone: string; detalhe: string }
+> = {
+  lendo: {
+    cartao: "border-amber-200 bg-amber-50",
+    selo: "bg-amber-100",
+    icone: "text-amber-700",
+    detalhe: "text-amber-900",
+  },
+  conferida: {
+    cartao: "border-amber-200 bg-amber-50",
+    selo: "bg-amber-100",
+    icone: "text-amber-700",
+    detalhe: "text-amber-900",
+  },
+  recusada: {
+    cartao: "border-red-200 bg-red-50",
+    selo: "bg-red-100",
+    icone: "text-red-700",
+    detalhe: "text-red-900",
+  },
+  duplicata: {
+    cartao: "border-slate-300 bg-slate-100",
+    selo: "bg-slate-200",
+    icone: "text-slate-700",
+    detalhe: "text-slate-700",
+  },
+  aprovada: {
+    cartao: "border-emerald-200 bg-emerald-50",
+    selo: "bg-emerald-100",
+    icone: "text-emerald-700",
+    detalhe: "text-emerald-900",
+  },
+};
+
+const ICONE_DA_FACE: Record<FaceDoCartao["face"], typeof Upload> = {
+  lendo: Upload,
+  conferida: CheckCircle2,
+  recusada: AlertTriangle,
+  duplicata: ShieldCheck,
+  aprovada: CheckCircle2,
+};
+
+/**
  * One upload in flight: polls until the pipeline finishes reading it.
  *
  * The card shows what the run has produced so far, then the preview summary
  * and the approval button. Approving stays disabled while there are errors,
  * because an error is fixed at the source, not approved.
+ *
+ * Que cara fazer para cada estado é decisão de `faceDoCartao`, não daqui: o
+ * cartão distinguia três estados à mão e todo o resto — a recusa por validação
+ * inclusive — aparecia como se ainda estivesse lendo, com o enum cru na tela.
  */
 function PendingRun({
   importRunId,
@@ -1676,14 +1817,20 @@ function PendingRun({
   const { data } = useQuery({
     queryKey: ["imports", importRunId, "status"],
     queryFn: () => fetchJson<RunStatus>(`/imports/${importRunId}/status`),
-    // Stops polling once the pipeline has finished or given up.
+    // Para em QUALQUER estado terminal. A lista era escrita à mão — PREVIEWED,
+    // FAILED, PROMOTED — e um run recusado por validação, que não estava nela,
+    // deixava o cartão consultando o servidor a cada 1,2s para sempre.
     refetchInterval: (query) => {
       const s = (query.state.data as RunStatus | undefined)?.status;
-      return s === "PREVIEWED" || s === "FAILED" || s === "PROMOTED" ? false : 1200;
+      return faceDoCartao(s).emAndamento ? 1200 : false;
     },
   });
 
-  const ready = data?.status === "PREVIEWED";
+  const cara = faceDoCartao(data?.status);
+  const cores = CORES_DA_FACE[cara.face];
+  const Icone = ICONE_DA_FACE[cara.face];
+  const ready = cara.face === "conferida";
+  const recusada = cara.face === "recusada";
 
   /*
     A única coisa nesta tela que exige decisão, e não leitura.
@@ -1698,30 +1845,18 @@ function PendingRun({
   const identidadesNovas = data?.pendingIdentities ?? [];
   const [identidadeDeclarada, setIdentidadeDeclarada] = useState(false);
   const travadoPorIdentidade = identidadesNovas.length > 0 && !identidadeDeclarada;
-  const failed = data?.status === "FAILED";
 
   return (
-    <div
-      className={cn(
-        "rounded-xl border px-6 py-5 space-y-4",
-        failed ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50",
-      )}
-    >
+    <div className={cn("rounded-xl border px-6 py-5 space-y-4", cores.cartao)}>
       <div className="flex items-start justify-between gap-4">
         <div className="flex items-start gap-3 min-w-0">
           <div
             className={cn(
               "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
-              failed ? "bg-red-100" : "bg-amber-100",
+              cores.selo,
             )}
           >
-            {failed ? (
-              <AlertTriangle className="w-5 h-5 text-red-700" />
-            ) : ready ? (
-              <CheckCircle2 className="w-5 h-5 text-amber-700" />
-            ) : (
-              <Upload className="w-5 h-5 text-amber-700" />
-            )}
+            <Icone className={cn("w-5 h-5", cores.icone)} />
           </div>
           <div className="min-w-0">
             {/* O nome vem antes do estado: enviando dois arquivos de uma vez,
@@ -1741,16 +1876,15 @@ function PendingRun({
                 )}
               </p>
             )}
-            <p className="font-semibold text-sm">
-              {ready
-                ? "Conferido, ainda não importado."
-                : failed
-                  ? "Falhou ao ler o arquivo."
-                  : "Lendo o arquivo…"}
-            </p>
-            <p className="text-xs mt-0.5 text-amber-900">
-              {failed ? (
-                <span className="text-red-900">{data?.failureReason}</span>
+            <p className="font-semibold text-sm">{cara.titulo}</p>
+            <p className={cn("text-xs mt-0.5", cores.detalhe)}>
+              {cara.face === "lendo" ? (
+                <>
+                  {/* O rótulo de ESTADOS, nunca o enum cru: "na fila…",
+                      "lendo…", "preparada…" — não "validation_error…". */}
+                  {data ? `${estadoDaImportacao(data.status).rotulo}…` : "recebido…"}{" "}
+                  nada entra sem sua aprovação.
+                </>
               ) : ready ? (
                 data!.errors > 0 ? (
                   <strong>
@@ -1765,10 +1899,9 @@ function PendingRun({
                   </>
                 )
               ) : (
-                <>
-                  {data ? `${data.status.toLowerCase()}…` : "recebido…"} nada entra
-                  sem sua aprovação.
-                </>
+                // O motivo que o pipeline gravou no run — a recusa por
+                // validação diz aqui qual conflito foi, em vez de sumir.
+                (data?.failureReason ?? cara.motivoPadrao)
               )}
             </p>
           </div>
@@ -1836,8 +1969,10 @@ function PendingRun({
           já aprovada: é neste cartão que a decisão acontece, e uma colisão de
           chave que só se pudesse ler depois de aprovar chegaria tarde. Vêm
           fechados por código porque um arquivo normal traz 1.300 avisos de um
-          tipo só, e abrir tudo esconderia os três que importam. */}
-      {(ready || failed) && (
+          tipo só, e abrir tudo esconderia os três que importam. Nas recusas
+          eles são o próprio motivo — a entidade duplicada, o tipo que diverge
+          da declaração — então aparecem também. */}
+      {(ready || recusada) && (
         <div className="rounded-xl border border-amber-200 bg-white/60 p-4">
           <Apontamentos importRunId={importRunId} />
         </div>
