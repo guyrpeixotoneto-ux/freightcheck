@@ -63,6 +63,9 @@ em `/api` — que é o aceite desta configuração.
   dois bancos (`DATABASE_URL` e `PRODUCTION_DATABASE_URL`); reprova se ela
   remover qualquer coisa de lá, que é o estado em que Development está atrás.
 - Única env obrigatória: `DATABASE_URL`
+- `BACKUP_DIR` liga o backup automático (dump diário com prova de restore em
+  CI); **em produção ele deve apontar para armazenamento durável**, e o
+  `/api/healthz` diz a idade da última cópia. Ver `docs/BACKUP.md`.
 - Opcional: `ANTHROPIC_API_KEY` liga a redação por modelo no Assistente de IA.
   Sem ela o assistente **continua respondendo**, com a redação montada em código
   sobre o mesmo material; a tela diz em qual dos dois modos está.

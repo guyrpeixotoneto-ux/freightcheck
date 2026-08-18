@@ -1,5 +1,6 @@
 import { runMigrations } from "@workspace/db/migrate";
 import app from "./app";
+import { agendarBackups } from "./lib/backup-agendado";
 import { logger } from "./lib/logger";
 import {
   deveMigrarNaPartida,
@@ -165,4 +166,8 @@ app.listen(port, (err) => {
 
   // Migrations run after binding — keeps the startup probe window clean.
   void applyMigrationsInBackground();
+
+  // Depois da fila, a cópia: com BACKUP_DIR definido, toda partida confere a
+  // idade do último dump e repõe o que envelheceu — ver backup-agendado.ts.
+  agendarBackups();
 });

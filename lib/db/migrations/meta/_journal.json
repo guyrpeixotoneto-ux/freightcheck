@@ -253,6 +253,13 @@
       "when": 1787076523853,
       "tag": "0035_tipo_declarado",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1787090551732,
+      "tag": "0036_funcoes_restauraveis",
+      "breakpoints": true
     }
   ]
 }
