@@ -14,10 +14,12 @@ import {
 } from "drizzle-orm";
 import {
   type Database,
+  attributeTable,
   ticketChangeTable,
   ticketImportTable,
   ticketTable,
 } from "@workspace/db";
+import { viraDinheiro } from "@workspace/curation";
 import { parseVigenciaLabel } from "@workspace/ingest";
 import {
   CLASSES_DE_VALOR,
@@ -76,6 +78,12 @@ export interface TicketChangeRow {
   impactAmount: number | null;
   impactConfidence: string;
   impactReason: string | null;
+  /**
+   * A régua financeira do parâmetro desta linha — é ela que autoriza a soma
+   * de seleção a tratar `impactAmount` como dinheiro, e diz de que cadência.
+   * `null` quando o parâmetro não tem coluna correspondente no modelo.
+   */
+  regua: ReguaDoParametro | null;
 
   /** Dias entre abertura e fechamento; com o chamado aberto, até hoje. */
   ageInDays: number | null;
@@ -262,11 +270,128 @@ export interface TicketTotals {
   byChangeKind: { changeKind: string | null; count: number }[];
   calculated: number;
   notCalculable: number;
-  impactSum: number;
+  /**
+   * O impacto do envio, na régua financeira do produto — nunca um escalar.
+   *
+   * O escalar que morava aqui (`impactSum`) somava mensal com anual e
+   * parâmetro monetário com parâmetro que nem dinheiro é. A justificativa
+   * ("aplicado − pedido é a mesma unidade") vale por LINHA e é falsa na soma
+   * entre linhas — era o único número do produto fora da régua que o resto
+   * trata como inegociável. Ver `resumirImpactoDosChamados`.
+   */
+  impacto: ImpactoDosChamados;
   /** Alterações em que o valor de fato mudou. */
   divergent: number;
   averageDaysToClose: number | null;
   stillOpen: number;
+}
+
+// ---------------------------------------------------------------------------
+// A régua financeira dos chamados
+// ---------------------------------------------------------------------------
+
+/** O que a régua do produto responde sobre um parâmetro de chamado. */
+export interface ReguaDoParametro {
+  /** `viraDinheiro` disse sim: monetário, confirmado, somável. */
+  somavel: boolean;
+  /** O motivo do não, na frase da régua — `null` quando soma. */
+  motivo: string | null;
+  /** A periodicidade declarada da semântica; `SEM_PERIODICIDADE` sem ela. */
+  periodicidade: string;
+}
+
+/**
+ * O impacto de um conjunto de alterações de chamado, por periodicidade.
+ *
+ * Mesma forma de pensar do motor da Planilha: baldes por periodicidade, nunca
+ * um escalar, e o que não passa na régua sai **contado**, não somado — uma
+ * alteração excluída sem contagem é indistinguível de uma que nunca existiu.
+ */
+export interface ImpactoDosChamados {
+  porPeriodicidade: Record<string, number>;
+  /** Alterações CALCULATED cujo parâmetro passou na régua e entrou na soma. */
+  alteracoesSomadas: number;
+  /**
+   * Alterações CALCULATED cujo parâmetro NÃO passa na régua — sem semântica
+   * confirmada, não monetário, ou sem coluna correspondente no modelo. A
+   * variação existe e está nas linhas; dinheiro ela não é.
+   */
+  foraDaRegua: number;
+}
+
+/**
+ * Carrega a régua para um conjunto de códigos — a MESMA régua da Planilha.
+ *
+ * `viraDinheiro` é a autoridade única do produto sobre "isto entra num total
+ * que alguém vai auditar?". Reimplementá-la aqui com um `is_monetary = true`
+ * seria a segunda régua que este módulo passou um ano evitando ter.
+ */
+export async function reguaDosParametros(
+  db: Database,
+  codes: (string | null)[],
+): Promise<Map<string, ReguaDoParametro>> {
+  const distintos = [...new Set(codes.filter((c): c is string => c !== null))];
+  if (distintos.length === 0) return new Map();
+
+  const atributos = await db
+    .select({
+      code: attributeTable.code,
+      unit: attributeTable.unit,
+      aggregation: attributeTable.aggregation,
+      isMonetary: attributeTable.isMonetary,
+      semanticsStatus: attributeTable.semanticsStatus,
+      dataType: attributeTable.dataType,
+      periodicity: attributeTable.periodicity,
+    })
+    .from(attributeTable)
+    .where(inArray(attributeTable.code, distintos));
+
+  const regua = new Map<string, ReguaDoParametro>();
+  for (const a of atributos) {
+    const veredito = viraDinheiro(a);
+    regua.set(a.code, {
+      somavel: veredito.ok,
+      motivo: veredito.ok ? null : veredito.motivo,
+      periodicidade: a.periodicity ?? "SEM_PERIODICIDADE",
+    });
+  }
+  return regua;
+}
+
+/**
+ * Soma itens já agregados por parâmetro, aplicando a régua — função pura.
+ *
+ * Um item cujo código não está na régua (parâmetro sem coluna no modelo, ou
+ * `attributeCode` nulo) conta como fora: somar o que o modelo não conhece
+ * seria exatamente o chute que a régua existe para impedir.
+ */
+export function resumirImpactoDosChamados(
+  itens: { attributeCode: string | null; calculated: number; impactSum: number | null }[],
+  regua: Map<string, ReguaDoParametro>,
+): ImpactoDosChamados {
+  const porPeriodicidade: Record<string, number> = {};
+  let alteracoesSomadas = 0;
+  let foraDaRegua = 0;
+
+  for (const item of itens) {
+    if (item.calculated === 0) continue;
+    const r = item.attributeCode !== null ? regua.get(item.attributeCode) : undefined;
+    if (!r || !r.somavel || item.impactSum === null) {
+      foraDaRegua += item.calculated;
+      continue;
+    }
+    porPeriodicidade[r.periodicidade] =
+      (porPeriodicidade[r.periodicidade] ?? 0) + item.impactSum;
+    alteracoesSomadas += item.calculated;
+  }
+
+  return {
+    porPeriodicidade: Object.fromEntries(
+      Object.entries(porPeriodicidade).map(([k, v]) => [k, Number(v.toFixed(2))]),
+    ),
+    alteracoesSomadas,
+    foraDaRegua,
+  };
 }
 
 /** O envio mais recente que foi lido até o fim. É dele que a tela fala. */
@@ -600,6 +725,11 @@ export async function listTicketChanges(
     .limit(Math.min(filters.limit ?? 300, 1000))
     .offset(filters.offset ?? 0);
 
+  const regua = await reguaDosParametros(
+    db,
+    rows.map(({ c }) => c.attributeCode),
+  );
+
   return {
     total: count?.total ?? 0,
     rows: rows.map(({ c, t }) => ({
@@ -633,6 +763,7 @@ export async function listTicketChanges(
       impactAmount: num(c.impactAmount),
       impactConfidence: c.impactConfidence,
       impactReason: c.impactReason,
+      regua: c.attributeCode !== null ? (regua.get(c.attributeCode) ?? null) : null,
 
       ageInDays: idade(t.openedAt, t.closedAt),
       stillOpen: t.closedAt === null,
@@ -766,12 +897,42 @@ export async function getTicketTotals(
       changes: sql<number>`count(*)`.mapWith(Number),
       calculated: sql<number>`count(*) filter (where ${ticketChangeTable.impactConfidence} = 'CALCULATED')`.mapWith(Number),
       notCalculable: sql<number>`count(*) filter (where ${ticketChangeTable.impactConfidence} <> 'CALCULATED')`.mapWith(Number),
-      impactSum: sql<string | null>`sum(${ticketChangeTable.impactAmount}) filter (where ${ticketChangeTable.impactConfidence} = 'CALCULATED')`,
       divergent: sql<number>`count(*) filter (where ${DIVERGENT})`.mapWith(Number),
     })
     .from(ticketChangeTable)
     .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
     .where(escopoChanges);
+
+  /*
+    O dinheiro sai agregado POR PARÂMETRO, e a régua decide em TypeScript.
+    Um `sum()` global aqui somava mensal com anual e monetário com o que nem
+    dinheiro é — por parâmetro, cada item tem uma periodicidade só, e
+    `resumirImpactoDosChamados` monta os baldes com a mesma `viraDinheiro` da
+    Planilha.
+  */
+  const porParametro = await db
+    .select({
+      attributeCode: ticketChangeTable.attributeCode,
+      calculated: sql<number>`count(*) filter (where ${ticketChangeTable.impactConfidence} = 'CALCULATED')`.mapWith(Number),
+      impactSum: sql<string | null>`sum(${ticketChangeTable.impactAmount}) filter (where ${ticketChangeTable.impactConfidence} = 'CALCULATED')`,
+    })
+    .from(ticketChangeTable)
+    .innerJoin(ticketTable, eq(ticketTable.id, ticketChangeTable.ticketId))
+    .where(escopoChanges)
+    .groupBy(ticketChangeTable.attributeCode);
+
+  const regua = await reguaDosParametros(
+    db,
+    porParametro.map((p) => p.attributeCode),
+  );
+  const impacto = resumirImpactoDosChamados(
+    porParametro.map((p) => ({
+      attributeCode: p.attributeCode,
+      calculated: p.calculated,
+      impactSum: p.impactSum === null ? null : Number(p.impactSum),
+    })),
+    regua,
+  );
 
   const [chamados] = await db
     .select({
@@ -834,10 +995,7 @@ export async function getTicketTotals(
     byChangeKind,
     calculated: agg?.calculated ?? 0,
     notCalculable: agg?.notCalculable ?? 0,
-    impactSum:
-      agg?.impactSum === null || agg?.impactSum === undefined
-        ? 0
-        : Number(agg.impactSum),
+    impacto,
     divergent: agg?.divergent ?? 0,
     averageDaysToClose:
       chamados?.avgDays === null || chamados?.avgDays === undefined
@@ -890,7 +1048,13 @@ export interface TicketParameterInClass {
   attributeCode: string | null;
   changes: number;
   calculated: number;
+  /**
+   * Soma dos deltas apurados DESTE parâmetro — uma unidade só, uma
+   * periodicidade só, então o escalar é legítimo aqui. Se ele é dinheiro, e
+   * de que cadência, é a `regua` quem diz; sem ela a tela não deve escrever R$.
+   */
   impactSum: number | null;
+  regua: ReguaDoParametro | null;
   /** Por que este parâmetro caiu nesta classe. Vem da tabela de classificação. */
   porque: string | null;
   /** Em que outras classes ele também entra — vazio quando entra só nesta. */
@@ -905,7 +1069,8 @@ export interface TicketClassRollup {
   descricao: string;
   changes: number;
   calculated: number;
-  impactSum: number | null;
+  /** A soma da classe atravessa parâmetros — só existe na régua, por balde. */
+  impacto: ImpactoDosChamados;
   parameters: TicketParameterInClass[];
 }
 
@@ -942,6 +1107,7 @@ export interface TicketGroupedRow {
  */
 export function classificarAlteracoes(
   rows: TicketGroupedRow[],
+  regua: Map<string, ReguaDoParametro>,
 ): TicketClassificationView {
   const caixas = new Map<ClasseNaTela, Map<string, TicketParameterInClass>>(
     CLASSES_DE_VALOR.map((c) => [c.codigo, new Map()]),
@@ -975,6 +1141,8 @@ export function classificarAlteracoes(
         changes: 0,
         calculated: 0,
         impactSum: null,
+        regua:
+          row.attributeCode !== null ? (regua.get(row.attributeCode) ?? null) : null,
         porque: conhecido?.porque ?? null,
         tambemEm: classes.filter((outra) => outra !== classe),
         subjects: [],
@@ -1007,7 +1175,8 @@ export function classificarAlteracoes(
       descricao: descricao.descricao,
       changes: parameters.reduce((soma, p) => soma + p.changes, 0),
       calculated: parameters.reduce((soma, p) => soma + p.calculated, 0),
-      impactSum: somarApurados(parameters),
+      // A soma da classe atravessa parâmetros: passa pela régua, por balde.
+      impacto: resumirImpactoDosChamados(parameters, regua),
       parameters,
     };
   });
@@ -1026,18 +1195,6 @@ function porTamanho(
   return nomeA.localeCompare(nomeB, "pt-BR");
 }
 
-/**
- * `null` quando nada foi apurado, e não zero.
- *
- * Zero é uma afirmação — "mexeram e não mudou nada" — e é falsa quando a
- * verdade é "ninguém conseguiu apurar". A tela mostra as duas coisas com
- * palavras diferentes, e depende desta distinção chegar até ela.
- */
-function somarApurados(itens: { impactSum: number | null }[]): number | null {
-  const apurados = itens.filter((i) => i.impactSum !== null);
-  if (apurados.length === 0) return null;
-  return apurados.reduce((soma, i) => soma + (i.impactSum ?? 0), 0);
-}
 
 /**
  * As alterações do envio agrupadas por parâmetro e assunto, e classificadas.
@@ -1079,6 +1236,10 @@ export async function getTicketClassification(
       ticketTable.subject,
     );
 
+  const regua = await reguaDosParametros(
+    db,
+    rows.map((r) => r.attributeCode),
+  );
   return classificarAlteracoes(
     rows.map((r) => ({
       parameterLabel: r.parameterLabel,
@@ -1088,6 +1249,7 @@ export async function getTicketClassification(
       calculated: r.calculated,
       impactSum: r.impactSum === null ? null : Number(r.impactSum),
     })),
+    regua,
   );
 }
 
