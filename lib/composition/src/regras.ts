@@ -141,28 +141,55 @@ export interface RegraDeEquipamento {
  * confere a planilha vai encontrá-las lá e precisa saber por que o produto não
  * as somou.
  *
- * **A identidade que fecha a conta**, medida nas 9 vigências, 558 de 558 pares
- * cavalo–carreta, tolerância de R$ 0,01, zero exceções:
+ * **A identidade que fecha a conta — e a metade dela que era falsa.** Medida nas
+ * 9 vigências, 558 de 558 pares cavalo–carreta, tolerância de R$ 0,01:
  *
  * ```
  * (finameImplemento + lucroFixomodeloNovoCiclo) + finameCavalo = custoFixo
- *  \___________ carreta ___________/            \_ cavalo _/     \ conjunto /
  * ```
  *
- * É ela que prova as duas metades da regra ao mesmo tempo: a decomposição é
- * **exaustiva** (nada do conjunto ficou sem dono) e **disjunta** (nenhum real
- * tem dois donos). Somar a frota de cavalos com a de carretas passa a ser
- * legítimo justamente por causa disso — e o teste que a reproduz está em
- * `__tests__/composicao-real.test.ts`, onde ele para qualquer refactor que
- * volte a somar `custoFixo` na linha da carreta.
+ * Ela fecha, e por isso foi lida como prova de que a decomposição era
+ * **exaustiva** (nada do conjunto sem dono) e **disjunta** (nenhum real com dois
+ * donos). A primeira metade é verdadeira. A segunda não é, e uma identidade que
+ * fecha não podia prová-la: `lucroFixomodeloNovoCiclo` contém o lucro fixo do
+ * cavalo (ver acima), e `finameCavalo` **é** esse mesmo lucro nos 51 pares em
+ * que o financiamento do cavalo já se encerrou — amortização e juros e lucro do
+ * novo ciclo nunca coexistem, medido em 558 linhas, 0 coexistências. Nesses 51
+ * pares o `custoFixo` da fonte soma o mesmo real duas vezes.
  *
- * **Uma armadilha, para quem vier depois.** `lucroFixomodeloNovoCiclo` da
- * carreta *não* é o lucro fixo do cavalo, embora os dois valores coincidam em
- * alguns pares — a placa RZM0B31 em ago/2026 tem R$ 4.677,85 nos dois lados, o
- * que parece prova de dupla contagem e não é. Medido: entre as 284 linhas em
- * que a coluna não é zero, 233 coincidem com `lucroFixomodeloNovoCicloCarreta`
- * (o mesmo valor sob outro nome) e apenas 15 com o do cavalo. A coincidência é
- * de valor, não de significado — a frota inteira usa poucos valores-padrão.
+ * A identidade disjunta, que é a que este módulo passa a sustentar:
+ *
+ * ```
+ * (finameImplemento + lucroFixomodeloNovoCicloCarreta) + finameCavalo
+ *  \____________ carreta ____________/                  \_ cavalo _/
+ * ```
+ *
+ * Ela **não** reproduz o `custoFixo` da fonte — fica abaixo dele por exatamente
+ * o lucro fixo do cavalo repetido (507 dos 558 pares fecham; os 51 que faltam
+ * são os que o dobro explica). Reproduzir a fonte deixou de ser o contrato: a
+ * fonte conta duas vezes, e copiá-la seria propagar o erro com a nossa
+ * assinatura. O teste que guarda as duas afirmações está em
+ * `__tests__/composicao-real.test.ts`.
+ *
+ * **A armadilha era outra, e este parágrafo já esteve errado.** Ele dizia que
+ * `lucroFixomodeloNovoCiclo` da carreta *não* era o lucro fixo do cavalo, e
+ * citava a placa RZM0B31 em ago/2026 — R$ 4.677,85 dos dois lados — como
+ * coincidência de valor. A contagem que sustentava a frase estava certa: entre
+ * as 284 linhas em que a coluna não é zero, 233 batem com
+ * `lucroFixomodeloNovoCicloCarreta` e 15 com a do cavalo. A pergunta é que
+ * estava errada. "De qual das duas ela copia?" tem uma terceira resposta que
+ * ninguém testou: **de nenhuma — ela é a soma das duas.**
+ *
+ * Medido em 18/08/2026: `lucroFixomodeloNovoCiclo = lucroFixomodeloNovoCicloCarreta
+ * + lucroFixomodeloNovoCicloCavalo` em **284 de 284** pares, zero exceções. As
+ * 233 e as 15 são os casos em que uma das parcelas é zero; o que decide são as
+ * **36 linhas em que as duas são não nulas ao mesmo tempo**, e a identidade
+ * fecha em todas. Numa coincidência de valor elas seriam exceções.
+ *
+ * A consequência é dinheiro: a coluna era somada na linha da carreta e carregava
+ * o lucro fixo do cavalo junto — R$ 34.793,84/mês em ago/2026. Ela está agora em
+ * `ESCOPOS_DE_CONJUNTO`, e quem passou a ser a linha da carreta é a parcela
+ * própria dela, `lucro_fixomodelo_novo_ciclo_carreta`.
  */
 /**
  * A lista mora em `@workspace/comparison`, ao lado de `COMPOSITIONS`.

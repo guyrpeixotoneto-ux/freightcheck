@@ -59,12 +59,12 @@ describe("dupla contagem — a verdade financeira única", () => {
     contrato: o produto chegou a publicar cada um deles como "impacto líquido
     de agosto", em telas diferentes, no mesmo dia.
   */
-  it("agosto/2026: 39.936,28 bruto → 28.511,24 → 16.594,55 oficial", async () => {
+  it("agosto/2026: 39.936,28 bruto → 28.511,24 → 11.916,70 oficial", async () => {
     const view = await getGroupedView(ctx.db, AGOSTO);
     const i = view!.impact;
 
     expect(i.brutoByPeriodicity.MENSAL).toBeCloseTo(39936.28, 2);
-    expect(i.byPeriodicity.MENSAL).toBeCloseTo(16594.55, 2);
+    expect(i.byPeriodicity.MENSAL).toBeCloseTo(11916.7, 2);
 
     const [composicao, escopo] = i.rastro.degraus;
     expect(composicao.etapa).toBe("COMPOSICAO");
@@ -73,9 +73,16 @@ describe("dupla contagem — a verdade financeira única", () => {
     expect(composicao.mudancasRemovidas).toBe(6);
 
     expect(escopo.etapa).toBe("ESCOPO_DE_CONJUNTO");
-    expect(escopo.removidoByPeriodicity.MENSAL).toBeCloseTo(11916.69, 2);
-    expect(escopo.subtotalByPeriodicity.MENSAL).toBeCloseTo(16594.55, 2);
-    expect(escopo.mudancasRemovidas).toBe(5);
+    /*
+      Cresceu R$ 4.677,85 em 18/08/2026, e o número que sobra encolheu na mesma
+      medida: `carreta.lucro_fixomodelo_novo_ciclo` entrou para o escopo de
+      conjunto, porque é a soma da parcela da carreta com a do cavalo — 284 de
+      284 pares. O real que ela trazia já estava contado na linha do cavalo.
+    */
+    expect(escopo.removidoByPeriodicity.MENSAL).toBeCloseTo(16594.54, 2);
+    expect(escopo.subtotalByPeriodicity.MENSAL).toBeCloseTo(11916.7, 2);
+    // Seis desde 18/08/2026: a alteração do lucro fixo do conjunto entrou aqui.
+    expect(escopo.mudancasRemovidas).toBe(6);
 
     // A invariante: nada sumiu, foi separado.
     expect(
@@ -89,8 +96,8 @@ describe("dupla contagem — a verdade financeira única", () => {
       "39.936,28 bruto",
       "− 11.425,04 duplicidades por composição",
       "= 28.511,24 subtotal técnico",
-      "− 11.916,69 duplicidades entre escopos cavalo↔carreta",
-      "= 16.594,55 impacto oficial",
+      "− 16.594,54 duplicidades entre escopos cavalo↔carreta",
+      "= 11.916,70 impacto oficial",
     ]);
   });
 

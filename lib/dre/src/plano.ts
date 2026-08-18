@@ -162,11 +162,17 @@ export interface ComponenteDaDRE {
    * O que dizer quando a linha não tem valor — **haja fonte declarada ou não**.
    *
    * Obrigatório quando `fontes` é vazio, e útil quando não é. O caso que exigiu
-   * a segunda metade: `carreta.custo_aluguel` está declarado como fonte do
-   * aluguel de implemento e é `PRESUMED`, então o portão da semântica o recusa e
-   * a linha chega vazia. Sem esta mensagem, ela dizia "coluna sem dado" — que é
-   * falso e manda o leitor procurar na Ambev uma coluna que já existe. O que
-   * falta é a confirmação, e é isso que a linha passa a dizer.
+   * a segunda metade foi `carreta.custo_aluguel`: declarado como fonte do
+   * aluguel de implemento e recusado no portão da semântica por não estar
+   * confirmado, ele fazia a linha chegar vazia dizendo "coluna sem dado" — falso,
+   * e um convite a procurar na Ambev uma coluna que já existe.
+   *
+   * O exemplo envelheceu bem, e é por isso que fica: em 18/08/2026 a
+   * periodicidade daquela coluna foi confirmada por base aritmética e a linha
+   * passou a ter valor. A mensagem de ausência continua necessária — agora para
+   * o implemento que de fato não tem aluguel no mês —, e o que ela diz mudou
+   * junto. Uma frase de ausência descreve **por que** falta, e essa razão muda
+   * quando a curadoria anda.
    */
   ausencia?: {
     motivo: MotivoDeAusencia;
@@ -319,12 +325,17 @@ export const PLANO_DA_DRE: ComponenteDaDRE[] = [
     apareceEm: ["CARRETA"],
     fontes: [
       { entityType: "CARRETA", attributeCode: "carreta.finame_implemento" },
-      { entityType: "CARRETA", attributeCode: "carreta.lucro_fixomodelo_novo_ciclo" },
+      { entityType: "CARRETA", attributeCode: "carreta.lucro_fixomodelo_novo_ciclo_carreta" },
     ],
     evidencia:
-      "O que resta da carreta depois de custoFixo e finame saírem por escopo de " +
-      "conjunto: finameImplemento (= amortização + juros + aluguel, 651 de 651 linhas) " +
-      "e o lucro fixo, que volta a ser raiz quando o total que o continha sai.",
+      "O que resta da carreta depois de custoFixo, finame e lucroFixomodeloNovoCiclo " +
+      "saírem por escopo de conjunto: finameImplemento (= amortização + juros + " +
+      "aluguel, 369 de 369 linhas não nulas) e a parcela própria do lucro fixo. " +
+      "A segunda fonte era carreta.lucro_fixomodelo_novo_ciclo até 18/08/2026, e ela " +
+      "carregava o lucro fixo do cavalo junto — medido: lucroFixomodeloNovoCiclo = " +
+      "parcela da carreta + parcela do cavalo em 284 de 284 pares, com 36 pares em que " +
+      "as duas parcelas são não nulas ao mesmo tempo. Eram R$ 34.793,84/mês de cavalo " +
+      "dentro da receita da carreta em ago/2026.",
     essencial: true,
   },
   {
@@ -542,18 +553,22 @@ export const PLANO_DA_DRE: ComponenteDaDRE[] = [
     apareceEm: ["CARRETA", "CONJUNTO"],
     fontes: [{ entityType: "CARRETA", attributeCode: "carreta.custo_aluguel" }],
     ausencia: {
-      motivo: "SEMANTICA_NAO_CONFIRMADA",
+      motivo: "COLUNA_SEM_DADO",
       oQueFalta:
-        "Confirmar com a Ambev a periodicidade de carreta.custoAluguel. A coluna " +
-        "existe e tem valor — R$ 11.777,92 na frota de ago/2026 —, e o portão da " +
-        "semântica a recusa porque ninguém declarou se o valor é mensal ou anual. " +
-        "É a única linha desta DRE que uma confirmação de curadoria destrava sozinha.",
+        "Este implemento não tem aluguel nesta vigência. A linha passou a ser apurável " +
+        "em 18/08/2026, quando a periodicidade foi confirmada por base aritmética: " +
+        "finameImplemento = amortização + juros + aluguel em 369 de 369 linhas não " +
+        "nulas, e finameImplemento é confirmado MENSAL. Antes disso ela chegava vazia " +
+        "por falta de curadoria, e não por falta de dado — que é o que esta mensagem " +
+        "dizia.",
     },
     evidencia:
       "custoAluguel é a terceira parcela de finameImplemento e explica exatamente as " +
       "18 linhas em que a identidade falharia sem ela — as placas CUL0J25 e FCW7D86 " +
-      "nas 9 vigências, implementos alugados sem financiamento. Média R$ 162,83; " +
-      "não nulo em 18 de 651 linhas. Está PRESUMED em 15/08/2026 e por isso não soma.",
+      "nas 9 vigências, implementos alugados sem financiamento. Confirmada MENSAL em " +
+      "18/08/2026 pela cadeia da parcela: finameImplemento = amortização + juros + " +
+      "aluguel em 369 de 369 linhas não nulas, e finameImplemento é MENSAL. Soma " +
+      "R$ 11.777,92 na frota de ago/2026.",
     essencial: false,
   },
   {

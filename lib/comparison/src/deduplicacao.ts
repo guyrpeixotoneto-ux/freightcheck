@@ -10,7 +10,7 @@
  * |----------------------------------|-----------------|----------------------------|
  * | `engine.ts` → cartão de Planilha  | R$ 39.936,28/mês | nenhuma                    |
  * | `grouped.ts` → cartão da Visão geral | R$ 28.511,24/mês | só `isCoveredByParts`   |
- * | `panorama.ts` → ranking econômico | R$ 16.594,55/mês | parcela **e** conjunto, por código |
+ * | `panorama.ts` → ranking econômico | R$ 11.916,70/mês | parcela **e** conjunto, por código |
  * | `composition/motor.ts` → ficha    | (por ativo)      | parcela e conjunto         |
  *
  * Não eram quatro opiniões: eram quatro cópias da mesma intenção, escritas em
@@ -56,10 +56,40 @@
  * embutida **nesta mesma comparação**. Uma carreta cujo cavalo não mexeu teve
  * variação própria (o implemento), e ela conta.
  *
- * A ordem entre as duas não altera o resultado: uma decide sobre totais de
- * composição, a outra sobre colunas de conjunto, e nenhum código está nos dois
- * conjuntos. A ordem em que são testadas define apenas qual motivo é reportado,
- * e `COBERTO_POR_PARCELAS` vem primeiro por ser a mais específica.
+ * ---------------------------------------------------------------------------
+ * As duas regras se sobrepõem, e o que a ordem decide
+ * ---------------------------------------------------------------------------
+ *
+ * Esta seção já afirmou que "nenhum código está nos dois conjuntos". **É
+ * falso**, e a frase estava aqui como suposição, sem medição — exatamente o
+ * defeito que este módulo existe para corrigir do outro lado.
+ *
+ * `carreta.custo_fixo` está nos dois registros: é total em `COMPOSITIONS`
+ * (`finame + lucroFixomodeloNovoCiclo`) e é coluna de conjunto em
+ * `ESCOPOS_DE_CONJUNTO` (embute o `finame_cavalo` do cavalo vinculado). Uma
+ * linha dele pode satisfazer as duas regras ao mesmo tempo, e em agosto/2026
+ * **cinco das dezenove linhas com preço satisfazem** — todas as cinco são
+ * `carreta.custo_fixo`.
+ *
+ * O que a ordem altera, e o que ela não altera, medido em 18/08/2026 sobre a
+ * vigência de agosto (19 linhas com preço, bruto R$ 39.936,28/mês):
+ *
+ * | ordem                  | degrau 1     | subtotal     | degrau 2     | oficial      |
+ * |------------------------|--------------|--------------|--------------|--------------|
+ * | composição → conjunto  | 11.425,04    | 28.511,24    | 11.916,69    | **16.594,55** |
+ * | conjunto → composição  | 28.511,23    | 11.425,05    | −5.169,50    | **16.594,55** |
+ *
+ * **O total é invariante**: as cinco linhas ambíguas saem em qualquer ordem, e
+ * nenhuma linha é descontada duas vezes — as exclusões continuam sendo uma
+ * partição (6 + 5 + 8 = 19). O que depende da ordem é a **atribuição entre os
+ * degraus**, e portanto o subtotal do rastro.
+ *
+ * `COBERTO_POR_PARCELAS` é testada primeiro por ser a mais específica: ela
+ * nomeia quais parcelas cobrem aquele total naquele ativo, enquanto a de
+ * conjunto nomeia só o equipamento vinculado. Quem lê o rastro recebe a
+ * explicação mais estreita das duas — mas ela é uma escolha de redação, não uma
+ * propriedade do dado, e o subtotal intermediário precisa ser lido com isso em
+ * mente. É mais uma razão para ele viver dentro de `rastro` e não como campo.
  */
 
 import {
@@ -539,8 +569,8 @@ export function resumirImpacto(
  * 39.936,28 bruto
  * − 11.425,04 duplicidades por composição
  * = 28.511,24 subtotal técnico
- * − 11.916,69 duplicidades entre escopos cavalo↔carreta
- * = 16.594,55 impacto oficial
+ * − 16.594,54 duplicidades entre escopos cavalo↔carreta
+ * = 11.916,70 impacto oficial
  * ```
  */
 export function explicarRastro(

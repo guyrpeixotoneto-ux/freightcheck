@@ -479,7 +479,7 @@ export async function getConsolidated(
       `calculated_impact_by_periodicity` — o total antes de qualquer regra de
       dupla contagem — e o entregava à aba Planilha, que o publicava como
       "Impacto apurado": R$ 39.936,28/mês em agosto/2026, onde o dinheiro era
-      R$ 16.594,55/mês. Somar o bruto de várias vigências só multiplicava o
+      R$ 11.916,70/mês. Somar o bruto de várias vigências só multiplicava o
       erro.
 
       Somar oficiais de comparações distintas é legítimo porque cada regra de

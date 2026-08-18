@@ -185,6 +185,49 @@ export const CONFIRMED_SEMANTICS: ConfirmedSemantics[] = [
       "em 37 de 38 implementos com ambas as parcelas não nulas.",
   })),
 
+  // Cadeia E — as duas parcelas próprias da carreta, medidas em 18/08/2026.
+  //
+  // As duas entram pelo mesmo argumento das Cadeias A e B, e não por leitura de
+  // nome: **são parcelas de um total já confirmado como MENSAL, e uma soma não
+  // muda de periodicidade no meio.** O que elas destravam é a linha própria da
+  // carreta — sem elas, excluir as colunas de conjunto levaria embora também o
+  // dinheiro que é do implemento.
+  {
+    code: "carreta.lucro_fixomodelo_novo_ciclo_carreta",
+    unit: "BRL",
+    periodicity: "MENSAL",
+    aggregation: "SUM",
+    isMonetary: true,
+    meaningCode: "montante_mes",
+    taxonomyCode: "cf_remuneracao_capital",
+    confirmedBy: "guyrpeixoto.neto@gmail.com",
+    basis:
+      "Aprovado em 18/08/2026 com base aritmética: é parcela de " +
+      "carreta.lucro_fixomodelo_novo_ciclo, que é parcela de custoFixo — confirmado MENSAL " +
+      "pelo transportador em 10/08/2026. A decomposição foi medida nas 9 vigências: " +
+      "lucroFixomodeloNovoCiclo = parcela da carreta + parcela do cavalo em 284 de 284 " +
+      "pares não nulos, com 36 pares em que as duas parcelas coexistem. É esta coluna que " +
+      "passa a ser a linha da carreta depois que o total do conjunto sai do escopo dela.",
+  },
+  {
+    code: "carreta.custo_aluguel",
+    unit: "BRL",
+    periodicity: "MENSAL",
+    aggregation: "SUM",
+    isMonetary: true,
+    meaningCode: "montante_mes",
+    taxonomyCode: "cf_financiamento",
+    confirmedBy: "guyrpeixoto.neto@gmail.com",
+    basis:
+      "Aprovado em 18/08/2026 com base aritmética: finameImplemento = amortizacaoImplemento " +
+      "+ jurosFinameImplemento + custoAluguel em 369 de 369 linhas (346 exatas, 23 por " +
+      "arredondamento, zero falhas); sem esta terceira parcela a identidade falha em 18 " +
+      "linhas, todas de implementos alugados, em que o custo inteiro está no aluguel. Como " +
+      "finameImplemento é confirmado MENSAL pela Cadeia B, a parcela é mensal. Fica na " +
+      "classe do financiamento porque é o que ocupa o lugar dele: são os implementos que a " +
+      "frota aluga em vez de financiar.",
+  },
+
   // Cadeia D — 1,000% do valor da NF, desvio zero, de Jan a Jun/2026.
   // Um por cento ao ano é alíquota plausível; ao mês daria 12% a.a.
   {

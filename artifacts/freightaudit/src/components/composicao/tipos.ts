@@ -69,6 +69,8 @@ export interface LinhaDaFrota {
   mensal: number | null;
   componentes: number;
   semRegraFinanceira: number;
+  /** Números deste equipamento que a curadoria ainda não classificou. */
+  semClassificacao: number;
   variacao: Variacao | null;
   status: Status;
 }
@@ -97,6 +99,14 @@ export interface VisaoDeFrota {
     semVariacao: number;
     incompletos: number;
     componentesSemRegra: number;
+    componentesSemClassificacao: number;
+    equipamentosComPendencia: number;
+    /**
+     * A única resposta autorizada a "a frota está apurada?". Nenhuma tela pode
+     * afirmar completude sem consultar este campo — ver `ResumoDaFrota` em
+     * `@workspace/composition`.
+     */
+    apuracaoCompleta: boolean;
     porFarol: Record<Farol, number>;
   };
   linhas: LinhaDaFrota[];
@@ -258,6 +268,8 @@ export interface ComponenteNaoApurado {
   baseQueFalta: string | null;
   contidoEm: string | null;
   monetarioPotencial: boolean;
+  /** Número que a curadoria ainda não classificou — nem como dinheiro, nem como não-dinheiro. */
+  semClassificacao: boolean;
 }
 
 export interface Composicao {
@@ -291,7 +303,12 @@ export interface Composicao {
     mensal: number | null;
   } | null;
   variacaoMensal: Variacao | null;
-  completude: { calculaveis: number; semRegraFinanceira: number; parcial: boolean };
+  completude: {
+    calculaveis: number;
+    semRegraFinanceira: number;
+    semClassificacao: number;
+    parcial: boolean;
+  };
   status: Status;
   vinculo: {
     placaCarreta: string;
@@ -318,6 +335,7 @@ export interface Historico {
     mensal: number | null;
     componentes: number;
     semRegraFinanceira: number;
+    semClassificacao: number;
     variacao: Variacao | null;
     componentesAlterados: number;
     naoApuradoPor: MotivoDaNaoApuracao | null;
