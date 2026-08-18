@@ -9,7 +9,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { getApiUrl } from "@/lib/api";
+import { fetchArquivo, getApiUrl, salvarArquivo } from "@/lib/api";
+import { apresentar } from "@/lib/apresentar-erro";
 import { rotuloDoTipo } from "@/lib/frota";
 import { cn } from "@/lib/utils";
 
@@ -108,12 +109,58 @@ export function PlanilhaDeAtributos({ equipamento }: PlanilhaDeAtributosProps) {
   const [aplicacao, setAplicacao] = useState<Aplicacao | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   /*
+    O download tem estado próprio, e não o `erro` do diálogo: a recusa de baixar
+    acontece com o diálogo fechado, ao lado do botão, e escrevê-la no mesmo
+    lugar da falha de leitura da planilha faria a frase aparecer só depois de a
+    pessoa abrir "Enviar preenchida" — que é a outra ponta do trabalho.
+  */
+  const [baixando, setBaixando] = useState(false);
+  const [erroDoDownload, setErroDoDownload] = useState<unknown>(null);
+  /*
     O arquivo fica guardado entre a prévia e a aplicação porque as duas o
     reenviam: o servidor relê e reconfere na hora de gravar, em vez de acreditar
     num diff calculado aqui. Guardado como `File` — e não como base64 — para não
     ter o arquivo inteiro duas vezes na memória da aba.
   */
   const [arquivoLido, setArquivoLido] = useState<File | null>(null);
+
+  /**
+   * Baixar o modelo — e trazer a recusa como frase, não como arquivo.
+   *
+   * Era `window.location.assign`, e o caminho feliz funcionava: o servidor
+   * responde `Content-Disposition: attachment` e o navegador salva sem tirar a
+   * página do lugar. O caminho infeliz é que não existia. Uma aba sem nenhum
+   * atributo na base — `Trecho 0`, que esta tela mostra de propósito — responde
+   * 404 com `{"error": …}`, e navegar até lá troca a Curadoria por uma página
+   * branca com o JSON cru. Quem clicou perde a tela e recebe, em vez de uma
+   * orientação, a mensagem entre chaves e aspas escapadas.
+   *
+   * `fetchArquivo` é a função que esta interface já usa na exportação do
+   * Impacto justamente por isso: bytes só quando a resposta é o arquivo, e o
+   * erro sobe como `ApiError` para ser dito em uma linha aqui do lado.
+   */
+  const baixar = async () => {
+    setBaixando(true);
+    setErroDoDownload(null);
+    try {
+      const { blob, filename } = await fetchArquivo(
+        `/curation/atributos/modelo.xlsx${
+          equipamento === null ? "" : `?equipamento=${encodeURIComponent(equipamento)}`
+        }`,
+      );
+      // O nome vem do servidor, que já o escreve dizendo o recorte
+      // (`curadoria-atributos-carreta.xlsx`). O padrão daqui é a reserva para
+      // uma resposta sem `Content-Disposition`.
+      salvarArquivo(blob, filename ?? "curadoria-atributos.xlsx");
+    } catch (err) {
+      setErroDoDownload(err);
+    } finally {
+      setBaixando(false);
+    }
+  };
+
+  const avisoDoDownload =
+    erroDoDownload === null ? null : apresentar(erroDoDownload);
 
   const fechar = () => {
     setAberto(false);
@@ -175,10 +222,11 @@ export function PlanilhaDeAtributos({ equipamento }: PlanilhaDeAtributosProps) {
   return (
     <>
       <div className="flex flex-wrap items-center gap-2">
-        {/* Navegação, e não `fetch`: o servidor responde com
-            `Content-Disposition: attachment`, então o navegador baixa o arquivo
-            com o nome que ele manda e a página não sai do lugar — sem os bytes
-            passarem pela memória da aba.
+        {/* `fetch` e não navegação: o arquivo chega pela memória da aba para
+            que a recusa também chegue — o 404 de uma aba sem atributo nenhum é
+            JSON, e deixá-lo para o navegador troca a Curadoria por uma página
+            de texto cru. São algumas dezenas de linhas de planilha; o custo de
+            passar por aqui é o preço de a falha ter onde ser dita.
 
             E `<Button>` de verdade, não `asChild`: o componente deste projeto
             não implementa a prop, e um `<a>` dentro de um `<button>` é HTML
@@ -187,22 +235,15 @@ export function PlanilhaDeAtributos({ equipamento }: PlanilhaDeAtributosProps) {
           variant="outline"
           size="sm"
           className="gap-1.5"
-          onClick={() =>
-            window.location.assign(
-              getApiUrl(
-                `/curation/atributos/modelo.xlsx${
-                  equipamento === null
-                    ? ""
-                    : `?equipamento=${encodeURIComponent(equipamento)}`
-                }`,
-              ),
-            )
-          }
+          onClick={baixar}
+          disabled={baixando}
         >
           <Download className="h-4 w-4" />
-          {equipamento === null
-            ? "Baixar modelo (.xlsx)"
-            : `Baixar modelo de ${rotuloDoTipo(equipamento).toLowerCase()} (.xlsx)`}
+          {baixando
+            ? "Montando a planilha…"
+            : equipamento === null
+              ? "Baixar modelo (.xlsx)"
+              : `Baixar modelo de ${rotuloDoTipo(equipamento).toLowerCase()} (.xlsx)`}
         </Button>
         <Button
           variant="outline"
@@ -216,6 +257,16 @@ export function PlanilhaDeAtributos({ equipamento }: PlanilhaDeAtributosProps) {
         <span className="text-xs text-muted-foreground">
           Descreve em lote. Não confirma nada.
         </span>
+        {/* A frase do servidor inteira, e não um resumo nosso: é ela que
+            distingue "esta aba está vazia, troque de aba" de "esta base não tem
+            atributo nenhum, importe o Freightec primeiro" — e as duas mandam
+            fazer coisas diferentes. `w-full` para ela cair na linha de baixo em
+            vez de espremer os dois botões. */}
+        {avisoDoDownload && (
+          <p className="w-full text-xs text-red-600">
+            {avisoDoDownload.orientacao?.resumo ?? avisoDoDownload.mensagemCrua}
+          </p>
+        )}
       </div>
 
       <Dialog open={aberto} onOpenChange={(v) => (v ? setAberto(true) : fechar())}>
