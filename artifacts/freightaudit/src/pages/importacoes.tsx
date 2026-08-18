@@ -1400,7 +1400,12 @@ function PendingRun({
     // Stops polling once the pipeline has finished or given up.
     refetchInterval: (query) => {
       const s = (query.state.data as RunStatus | undefined)?.status;
-      return s === "PREVIEWED" || s === "FAILED" || s === "PROMOTED" ? false : 1200;
+      // ABORTED entra na lista dos terminais: é o desfecho que a varredura de
+      // órfãs grava quando um reinício levou o processo que lia — sem ele aqui,
+      // o card ficaria consultando para sempre um estado que não muda mais.
+      return s === "PREVIEWED" || s === "FAILED" || s === "PROMOTED" || s === "ABORTED"
+        ? false
+        : 1200;
     },
   });
 
@@ -1419,7 +1424,7 @@ function PendingRun({
   const identidadesNovas = data?.pendingIdentities ?? [];
   const [identidadeDeclarada, setIdentidadeDeclarada] = useState(false);
   const travadoPorIdentidade = identidadesNovas.length > 0 && !identidadeDeclarada;
-  const failed = data?.status === "FAILED";
+  const failed = data?.status === "FAILED" || data?.status === "ABORTED";
 
   return (
     <div

@@ -1,4 +1,6 @@
+import { db } from "@workspace/db";
 import { runMigrations } from "@workspace/db/migrate";
+import { varrerLeiturasOrfas } from "@workspace/ingest";
 import app from "./app";
 import { agendarBackups } from "./lib/backup-agendado";
 import { logger } from "./lib/logger";
@@ -170,4 +172,36 @@ app.listen(port, (err) => {
   // Depois da fila, a cópia: com BACKUP_DIR definido, toda partida confere a
   // idade do último dump e repõe o que envelheceu — ver backup-agendado.ts.
   agendarBackups();
+
+  // E a varredura de leituras órfãs: um run preso em PENDING/READING por um
+  // reinício era um beco sem saída para o usuário (reenvio recusado como
+  // duplicata, exclusão recusada como "ainda lendo"). Ver lib/ingest/recuperacao.
+  agendarVarreduraDeOrfas();
 });
+
+function agendarVarreduraDeOrfas(): void {
+  if (!process.env["DATABASE_URL"]) return;
+
+  const varrer = async (momento: string): Promise<void> => {
+    try {
+      const relatorio = await varrerLeiturasOrfas(db);
+      if (relatorio.importacoes.length > 0 || relatorio.chamados.length > 0) {
+        logger.warn(
+          {
+            momento,
+            importacoes: relatorio.importacoes,
+            chamados: relatorio.chamados,
+          },
+          "Leituras órfãs encontradas e encerradas — o reinício levou o processo " +
+            "que as terminaria. Os arquivos podem ser excluídos e reenviados.",
+        );
+      }
+    } catch (err) {
+      logger.error({ err, momento }, "A varredura de leituras órfãs falhou.");
+    }
+  };
+
+  void varrer("partida");
+  const timer = setInterval(() => void varrer("intervalo"), 5 * 60_000);
+  timer.unref();
+}
