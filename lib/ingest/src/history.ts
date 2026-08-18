@@ -44,6 +44,25 @@ export interface ImportRunSummary {
   warnings: number;
   /** Vigências this run produced, oldest first. */
   labels: string[];
+  /**
+   * O tipo declarado no envio — a aba da tela em que o arquivo foi escolhido.
+   *
+   * `null` em toda importação anterior à declaração, e nas que entram por CLI.
+   */
+  declaredType: string | null;
+  /**
+   * Os tipos que esta importação de fato produziu, lidos das vigências dela.
+   *
+   * Não é o mesmo que {@link declaredType}, e a diferença é o ponto: a
+   * declaração é o que se disse antes de ler o arquivo; isto é o que saiu dele.
+   * Uma importação promovida antes de a declaração existir tem só a segunda —
+   * e é por ela que a aba do tipo recorta o histórico antigo.
+   *
+   * Vazio quando a importação não produziu vigência nenhuma. Isso não é um
+   * detalhe de implementação: é a resposta honesta para o arquivo que entrou e
+   * não virou nada, que antes ficava indistinguível de um arquivo cheio.
+   */
+  entityTypes: string[];
 }
 
 /**
@@ -83,6 +102,25 @@ function selectRunSummary(db: Database) {
           ),
           '{}'
         )`,
+      declaredType: importRunTable.declaredType,
+      /*
+        Os tipos saem de `snapshot.entity_type_set`, que já está sendo lido
+        aqui ao lado para os rótulos. A alternativa seria um DISTINCT sobre
+        `staged_fact` — dezenas de milhares de linhas por importação, uma vez
+        por cartão da lista — para responder a mesma pergunta.
+      */
+      entityTypes: sql<string[]>`
+        coalesce(
+          array(
+            SELECT DISTINCT btrim(t)
+              FROM snapshot s,
+                   unnest(string_to_array(s.entity_type_set, '+')) AS t
+             WHERE s.import_run_id = ${importRunTable.id}
+               AND btrim(t) <> ''
+             ORDER BY 1
+          ),
+          '{}'
+        )`,
     })
     .from(importRunTable)
     .innerJoin(sourceFileTable, eq(sourceFileTable.id, importRunTable.sourceFileId));
@@ -117,6 +155,8 @@ export interface ImportRunStatus {
   /** Qual arquivo é este: dois envios de uma vez são dois cartões iguais sem ele. */
   filename: string;
   failureReason: string | null;
+  /** O tipo declarado no envio, para o cartão dizer por qual aba ele entrou. */
+  declaredType: string | null;
   sheets: number;
   rawCells: number;
   facts: number;
@@ -149,6 +189,7 @@ export async function getImportRunStatus(
       snapshotCount: importRunTable.snapshotCount,
       errorCount: importRunTable.errorCount,
       warningCount: importRunTable.warningCount,
+      declaredType: importRunTable.declaredType,
       filename: sourceFileTable.filename,
     })
     .from(importRunTable)
@@ -176,6 +217,7 @@ export async function getImportRunStatus(
     status: run.status,
     filename: run.filename,
     failureReason: run.failureReason,
+    declaredType: run.declaredType,
     sheets: run.rawSheetCount,
     rawCells: run.rawCellCount,
     facts: run.stagedFactCount,

@@ -1,6 +1,11 @@
 import { readFileSync } from "node:fs";
 import * as XLSX from "xlsx";
 import type { CellType, SourceCell } from "./values";
+import {
+  COLUNA_DE_VIGENCIA,
+  COLUNAS_IDENTIFICADORAS,
+  identificadorNoCabecalho,
+} from "./tipos";
 
 /**
  * Reading the workbook without deciding anything we cannot justify.
@@ -10,8 +15,20 @@ import type { CellType, SourceCell } from "./values";
  * column is called.
  */
 
-/** Columns a source sheet must have for the grain (vigência, asset) to exist. */
-const REQUIRED_KEY_COLUMNS = ["vigencia", "placa"];
+/*
+ * O grão de uma aba de fatos: a vigência, e **um** identificador de linha.
+ *
+ * A exigência era `vigencia` **e** `placa`, os dois, e tinha o formato do
+ * equipamento que este leitor nasceu para ler. O trecho não tem placa, e a
+ * consequência não era uma recusa: era uma aba rebaixada a PIVOT, zero fato
+ * produzido, zero erro, zero aviso. O arquivo entrava mudo.
+ *
+ * Qual identificador serve é do tipo, e mora em `tipos.ts` junto dele — daí
+ * `COLUNA_DE_VIGENCIA` e `identificadorNoCabecalho` virem de lá. Aqui a
+ * pergunta é anterior — *isto é uma aba de fatos?* —, e ela se responde com
+ * qualquer identificador conhecido, porque o papel da aba é decidido antes da
+ * identidade dela.
+ */
 
 export interface SheetPlan {
   name: string;
@@ -27,6 +44,16 @@ export interface SheetPlan {
   /** Derived entity type for SOURCE sheets, e.g. "CAVALO". */
   entityType: string | null;
   entityTypeReason: string | null;
+  /**
+   * Que coluna identifica a linha nesta aba, na forma de `foldText`.
+   *
+   * `placa` numa aba de cavalo, `chavetrecho` numa de trecho, `null` fora de
+   * SOURCE. Registrada porque é uma decisão do plano, e decisão registrada é o
+   * que permite discordar dela — a mesma razão de `roleReason` existir. A
+   * staging não a lê daqui: ela trabalha a partir de `raw_sheet` e reencontra a
+   * coluna no cabeçalho gravado.
+   */
+  identifierColumn: string | null;
 }
 
 export interface ReadWorkbook {
@@ -180,6 +207,7 @@ function planSheet(
       headers: [],
       entityType: null,
       entityTypeReason: null,
+      identifierColumn: null,
     };
   }
 
@@ -195,20 +223,35 @@ function planSheet(
   const filled = headers.filter((h) => h !== null).length;
   const fillRatio = columnCount === 0 ? 0 : filled / columnCount;
   const folded = headers.map((h) => (h === null ? "" : foldText(h)));
-  const missingKeys = REQUIRED_KEY_COLUMNS.filter((k) => !folded.includes(k));
+  const temVigencia = folded.includes(COLUNA_DE_VIGENCIA);
+  const identificador = identificadorNoCabecalho(folded);
 
-  if (missingKeys.length > 0) {
+  if (!temVigencia || identificador === null) {
+    // A recusa diz o que falta **e** o que serviria: um cabeçalho sem placa é
+    // uma aba de trecho legítima, e quem lê a razão precisa saber que
+    // `chaveTrecho` também abriria a porta.
+    const faltando = [
+      ...(temVigencia ? [] : [COLUNA_DE_VIGENCIA]),
+      ...(identificador === null
+        ? [
+            `um identificador de linha (${COLUNAS_IDENTIFICADORAS.map(
+              (c) => c.sourceName,
+            ).join(" ou ")})`,
+          ]
+        : []),
+    ];
     return {
       name,
       index,
       role: "PIVOT",
-      roleReason: `First row lacks the grain column(s) ${missingKeys.join(", ")}; treated as a derived/pivot sheet and excluded from canonical facts.`,
+      roleReason: `A primeira linha não traz ${faltando.join(" nem ")}; tratada como aba derivada/pivô e fora dos fatos canônicos.`,
       headerRowIndex: null,
       rowCount,
       columnCount,
       headers,
       entityType: null,
       entityTypeReason: null,
+      identifierColumn: null,
     };
   }
 
@@ -224,6 +267,7 @@ function planSheet(
       headers,
       entityType: null,
       entityTypeReason: null,
+      identifierColumn: null,
     };
   }
 
@@ -232,13 +276,14 @@ function planSheet(
     name,
     index,
     role: "SOURCE",
-    roleReason: `First row carries ${REQUIRED_KEY_COLUMNS.join(" + ")} and ${(fillRatio * 100).toFixed(0)}% populated headers.`,
+    roleReason: `A primeira linha traz ${COLUNA_DE_VIGENCIA} + ${identificador.sourceName} e ${(fillRatio * 100).toFixed(0)}% dos cabeçalhos preenchidos.`,
     headerRowIndex: range.s.r + 1,
     rowCount,
     columnCount,
     headers,
     entityType,
     entityTypeReason: reason,
+    identifierColumn: identificador.folded,
   };
 }
 

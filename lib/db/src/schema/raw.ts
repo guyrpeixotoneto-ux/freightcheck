@@ -76,6 +76,15 @@ export const importRunTable = pgTable(
     /** Populated on promotion; how many snapshots this run produced. */
     snapshotCount: integer("snapshot_count").notNull().default(0),
     failureReason: text("failure_reason"),
+    /**
+     * O tipo que quem enviou declarou — a aba da tela em que ele escolheu.
+     *
+     * Nulo quer dizer "ninguém declarou", que é como toda importação anterior
+     * a esta coluna entrou: o tipo saía do conteúdo, e continua saindo. O que
+     * a declaração acrescenta é uma segunda resposta para a mesma pergunta, e
+     * a importação compara as duas — ver `lib/ingest/src/tipos.ts`.
+     */
+    declaredType: text("declared_type"),
   },
   (t) => [index("import_run_source_file_idx").on(t.sourceFileId)],
 );

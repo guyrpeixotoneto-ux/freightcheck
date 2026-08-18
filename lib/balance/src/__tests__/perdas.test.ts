@@ -178,7 +178,10 @@ describe("as saídas de perda", () => {
     const pivo = etapa1.porAba.find((a) => a.sheetName === "Resumo")!;
 
     expect(pivo.role).toBe("PIVOT");
-    expect(pivo.roleReason).toMatch(/grain column/i);
+    // A razão nomeia o que faltou e o que serviria: sem vigência, e sem
+    // nenhuma das colunas que identificam uma linha.
+    expect(pivo.roleReason).toMatch(/não traz vigencia/);
+    expect(pivo.roleReason).toMatch(/identificador de linha/);
     expect(pivo.celulas).toBe(4);
     expect(pivo.virouFato).toBe(0);
     expect(pivo.perda).toBe(0);

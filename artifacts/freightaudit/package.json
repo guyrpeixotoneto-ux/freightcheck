@@ -78,6 +78,7 @@
   },
   "dependencies": {
     "@workspace/curation": "workspace:*",
+    "@workspace/ingest": "workspace:*",
     "@workspace/knowledge": "workspace:*"
   }
 }

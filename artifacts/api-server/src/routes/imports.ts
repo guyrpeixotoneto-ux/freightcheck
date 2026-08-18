@@ -14,6 +14,7 @@ import {
   captureRaw,
   deleteImportRun,
   ensureImportStorageDir,
+  exigirTipoDeclarado,
   getImportRun,
   getImportRunSheets,
   getImportRunSnapshots,
@@ -55,7 +56,12 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
  */
 const DEFAULT_ACTOR = "upload";
 
-export type DecodedUpload = { filename: string; bytes: Buffer };
+export type DecodedUpload = {
+  filename: string;
+  bytes: Buffer;
+  /** O tipo que a aba da tela declarou, ou `null` quando não veio nenhum. */
+  declaredType: string | null;
+};
 
 export type DecodeResult =
   { ok: true; value: DecodedUpload } | { ok: false; error: string };
@@ -73,7 +79,43 @@ export function decodeUpload(body: unknown): DecodeResult {
   if (typeof body !== "object" || body === null) {
     return { ok: false, error: "Envie um JSON com filename e contentBase64." };
   }
-  const { filename, contentBase64 } = body as Record<string, unknown>;
+  const { filename, contentBase64, declaredType } = body as Record<string, unknown>;
+
+  /*
+    O tipo é opcional no contrato e obrigatório na tela.
+
+    Opcional porque as importações que já existem não têm nenhum, e porque a
+    CLI de desenvolvimento continua enviando sem — a dedução por conteúdo não
+    foi substituída, ganhou uma conferência. A tela sempre manda, porque lá o
+    envio acontece dentro de uma aba, e a aba é a declaração.
+  */
+  if (
+    declaredType !== undefined &&
+    declaredType !== null &&
+    typeof declaredType !== "string"
+  ) {
+    return { ok: false, error: "declaredType, quando enviado, precisa ser texto." };
+  }
+  const tipoDeclarado =
+    typeof declaredType === "string" && declaredType.trim() !== ""
+      ? declaredType.trim()
+      : null;
+
+  /*
+    A recusa do tipo acontece **antes** de o arquivo virar bytes em disco.
+
+    `exigirTipoDeclarado` é a mesma função que o pipeline chama — a regra tem um
+    dono só. Chamá-la aqui não a duplica: evita escrever um .xlsx que já se sabe
+    que não vai entrar, e devolve o motivo com o resto das recusas de formato,
+    onde quem opera já procura por ele.
+  */
+  if (tipoDeclarado !== null) {
+    try {
+      exigirTipoDeclarado(tipoDeclarado);
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  }
 
   if (typeof filename !== "string" || filename.trim() === "") {
     return { ok: false, error: "filename é obrigatório." };
@@ -108,7 +150,10 @@ export function decodeUpload(body: unknown): DecodeResult {
     };
   }
 
-  return { ok: true, value: { filename: safeName, bytes } };
+  return {
+    ok: true,
+    value: { filename: safeName, bytes, declaredType: tipoDeclarado },
+  };
 }
 
 /**
@@ -428,7 +473,7 @@ router.post("/imports", async (req, res, next): Promise<void> => {
   }
 
   try {
-    const { filename, bytes } = decoded.value;
+    const { filename, bytes, declaredType } = decoded.value;
     // O nome em disco é o próprio sha256: dois envios do mesmo conteúdo
     // apontam para o mesmo arquivo, e nomes vindos do cliente nunca viram
     // caminho.
@@ -443,6 +488,7 @@ router.post("/imports", async (req, res, next): Promise<void> => {
       filePath,
       filename,
       receivedBy: req.user?.email ?? DEFAULT_ACTOR,
+      declaredType,
     });
 
     if (received.isDuplicate) {

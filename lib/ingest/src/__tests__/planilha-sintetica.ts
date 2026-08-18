@@ -15,6 +15,10 @@ import * as XLSX from "xlsx";
  */
 
 export interface LinhaSpec {
+  /**
+   * A chave da linha. Placa numa aba de equipamento; a chave do trecho numa
+   * aba de trecho — ver {@link AbaSpec.identificador}.
+   */
   placa: string;
   chassi?: string;
   /** código do atributo (sem o prefixo do equipamento) -> valor */
@@ -24,6 +28,15 @@ export interface LinhaSpec {
 export interface AbaSpec {
   /** `cavalos` e `carretas` são os nomes que o classificador reconhece. */
   nome: string;
+  /**
+   * Como as linhas desta aba se identificam. `Placa` por padrão.
+   *
+   * O trecho não tem placa: ele é uma perna de rota, e a planilha de curadoria
+   * declara `chaveTrecho` como o campo chave dele. Poder escrever as duas
+   * formas é o que permite provar que o leitor aceita as duas — antes, toda
+   * planilha sintética tinha placa, e uma aba sem placa nunca era exercitada.
+   */
+  identificador?: "Placa" | "chaveTrecho";
   /**
    * Colunas de fato além de {@link ATRIBUTOS_PADRAO}, nesta aba.
    *
@@ -46,16 +59,20 @@ export interface PlanilhaSpec {
   abas: AbaSpec[];
 }
 
-const COLUNAS_FIXAS = [
+/** O que toda aba carrega antes da identidade: vigência e escopo. */
+const COLUNAS_DE_ESCOPO = [
   "Vigencia",
   "Unidade - CNPJ",
   "Unidade - Nome",
   "Unidade - Regional",
   "Operador - CNPJ",
   "Operador - Nome",
-  "Placa",
-  "chassi",
 ] as const;
+
+/** As colunas de identidade de uma aba, que dependem de como ela se identifica. */
+function colunasDeIdentidade(aba: AbaSpec): string[] {
+  return aba.identificador === "chaveTrecho" ? ["chaveTrecho"] : ["Placa", "chassi"];
+}
 
 /** As colunas de fato que as planilhas sintéticas carregam por padrão. */
 export const ATRIBUTOS_PADRAO = ["Custo Fixo", "Custo Variavel"] as const;
@@ -75,7 +92,8 @@ export function escreverPlanilha(spec: PlanilhaSpec, nomeArquivo?: string): stri
 
   for (const aba of spec.abas) {
     const atributos = [...ATRIBUTOS_PADRAO, ...(aba.colunas ?? [])];
-    const cabecalho = [...COLUNAS_FIXAS, ...atributos];
+    const identidade = colunasDeIdentidade(aba);
+    const cabecalho = [...COLUNAS_DE_ESCOPO, ...identidade, ...atributos];
     const linhas: (string | number | null)[][] = [cabecalho as unknown as string[]];
 
     for (const linha of aba.linhas) {
@@ -86,8 +104,13 @@ export function escreverPlanilha(spec: PlanilhaSpec, nomeArquivo?: string): stri
         spec.regional ?? "GEO NE",
         spec.operadorCnpj === null ? "" : (spec.operadorCnpj ?? "20.618.821/0007-99"),
         spec.operadorNome ?? "OPERADOR TESTE",
-        linha.placa,
-        linha.chassi ?? `CHASSI${linha.placa.toUpperCase().replace(/[^A-Z0-9]/g, "")}`,
+        ...(aba.identificador === "chaveTrecho"
+          ? [linha.placa]
+          : [
+              linha.placa,
+              linha.chassi ??
+                `CHASSI${linha.placa.toUpperCase().replace(/[^A-Z0-9]/g, "")}`,
+            ]),
         ...atributos.map(
           (a) =>
             linha.valores?.[a] ??
@@ -134,6 +157,7 @@ export function corrigirValoresNumericos(origem: string): string {
   const PRESERVAR = new Set([
     "vigencia",
     "placa",
+    "chavetrecho",
     "placa carreta",
     "chassi",
     "unidade - cnpj",

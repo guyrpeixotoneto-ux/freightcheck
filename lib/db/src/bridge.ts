@@ -131,6 +131,19 @@ export const ALLOWLIST: {
     tipo: "text",
     aindaPodeNaoExistir: true,
   },
+  /*
+    A da `0035`. O tipo declarado no envio — a aba da tela por onde a planilha
+    entrou. Aditiva e nula por definição: toda importação anterior a ela não
+    declarou nada, e é isso que `NULL` diz. Production a ganha quando rodar a
+    fila; até lá o `down` a mantém, para que a proposta do Publishing continue
+    sendo só o que esta lista nomeia.
+  */
+  {
+    tabela: "import_run",
+    coluna: "declared_type",
+    tipo: "text",
+    aindaPodeNaoExistir: true,
+  },
 ];
 
 /**

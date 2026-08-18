@@ -41,6 +41,7 @@ import {
 } from "./workbook";
 import {
   classifyEntityType,
+  conferirDeclaracao,
   novasIdentidades,
   type IdentityDecision,
   type KnownEntityType,
@@ -58,6 +59,13 @@ import {
   type ScopeEntry,
 } from "./canonical-identity";
 import { typeCell, type SentinelRule, type SourceCell } from "./values";
+import {
+  COLUNA_DE_VIGENCIA,
+  COLUNAS_IDENTIFICADORAS,
+  identificadorNoCabecalho,
+  tipoDeImportacao,
+  type DefinicaoDeTipo,
+} from "./tipos";
 
 /**
  * F1 — ingestion.
@@ -68,11 +76,21 @@ import { typeCell, type SentinelRule, type SourceCell } from "./values";
  * canonical layer — inside a single transaction.
  */
 
-/** Columns that become structure rather than facts. */
+/**
+ * As colunas que viram estrutura em vez de fato.
+ *
+ * A vigência é de todo tipo; o identificador é **do** tipo — placa no cavalo e
+ * na carreta, `chaveTrecho` no trecho —, e por isso ele vem de `tipos.ts`, onde
+ * mora junto do tipo a que pertence. Ver a nota de `COLUNA_DE_GRAO_UNIVERSAL`
+ * em `workbook.ts` para o que a regra antiga custava.
+ */
 const GRAIN_COLUMNS = {
-  vigencia: "vigencia",
-  placa: "placa",
+  vigencia: COLUNA_DE_VIGENCIA,
 } as const;
+
+const IDENTIFICADORES_FOLDED = new Set(
+  COLUNAS_IDENTIFICADORAS.map((coluna) => coluna.folded),
+);
 
 /** Organisational scope carried by every source row. */
 const SCOPE_COLUMNS: Record<string, { scopeType: string; nameColumn?: string }> =
@@ -98,7 +116,42 @@ const SUSPECTED_SENTINELS = ["-1"];
  * células útil quando três linhas estão sujas. O que entra aqui é só o que não
  * tem resposta certa possível.
  */
-const BLOQUEIAM_PROMOCAO = new Set(["ENTIDADE_DUPLICADA_CONFLITANTE"]);
+const BLOQUEIAM_PROMOCAO = new Set([
+  "ENTIDADE_DUPLICADA_CONFLITANTE",
+  "TIPO_DIVERGE_DA_DECLARACAO",
+]);
+
+/**
+ * O motivo que fica gravado quando a pré-visualização recusa a promoção.
+ *
+ * Era uma frase fixa, escrita para o único impedimento que existia: a mesma
+ * entidade duas vezes na mesma vigência com valores diferentes. Com a
+ * conferência do tipo declarado passaram a ser dois, e repetir a frase da
+ * duplicidade em cima de uma divergência de tipo mandaria corrigir o que não
+ * está errado. Cada impedimento escreve o seu, e o da divergência sai do
+ * próprio problema — `sample` é a mensagem que a staging gravou.
+ */
+function motivoDoImpedimento(
+  impeditivas: { code: string; count: number; sample: string }[],
+): string {
+  const frases = impeditivas.map((issue) => {
+    if (issue.code === "ENTIDADE_DUPLICADA_CONFLITANTE") {
+      return (
+        `${issue.count} ${issue.count === 1 ? "conflito impede" : "conflitos impedem"} esta importação: ` +
+        `a mesma entidade aparece mais de uma vez na mesma vigência com valores diferentes. ` +
+        `Corrija a origem e envie o arquivo de novo.`
+      );
+    }
+    if (issue.code === "TIPO_DIVERGE_DA_DECLARACAO") {
+      return (
+        `${issue.sample} Nada foi importado: envie o arquivo pela aba do tipo certo, ` +
+        `ou confira se este é mesmo o arquivo que você queria enviar.`
+      );
+    }
+    return issue.sample;
+  });
+  return frases.join(" ");
+}
 
 /** Postgres caps a statement at 65535 bound parameters. */
 const INSERT_CHUNK = 1_000;
@@ -157,6 +210,37 @@ export interface ReceiveOptions {
    * accidental re-upload can never duplicate anything.
    */
   allowReprocess?: boolean;
+  /**
+   * O tipo que quem envia declarou — a aba da tela em que ele escolheu enviar.
+   *
+   * Opcional, e o que ele muda é a *conferência*, não a dedução: a staging
+   * continua classificando cada aba pelo conteúdo dela, e compara as duas
+   * respostas. Ausente, tudo se passa como antes. Ver {@link conferirDeclaracao}.
+   */
+  declaredType?: string | null;
+}
+
+/**
+ * A declaração conferida antes de qualquer coisa acontecer.
+ *
+ * Duas recusas, e as duas antes de gravar: um código que não é tipo nenhum
+ * (cliente desatualizado, endereço montado à mão) e um tipo que o pipeline
+ * ainda não sabe ingerir — o QLP de hoje. A segunda é a que importa, e o motivo
+ * dela é longo de propósito: aceitar o arquivo o faria entrar e não produzir
+ * fato nenhum, com zero erro e zero aviso, que foi exatamente o que aconteceu
+ * com a primeira planilha de trecho.
+ */
+export function exigirTipoDeclarado(declaredType: string): DefinicaoDeTipo {
+  const tipo = tipoDeImportacao(declaredType);
+  if (tipo === null) {
+    throw new Error(
+      `"${declaredType}" não é um tipo de importação conhecido. Escolha uma das abas da tela de Importações.`,
+    );
+  }
+  if (tipo.aindaNaoEntra !== null) {
+    throw new Error(`${tipo.rotulo} ainda não pode ser importado. ${tipo.aindaNaoEntra}`);
+  }
+  return tipo;
 }
 
 /**
@@ -170,6 +254,12 @@ export async function receiveFile(
   db: Database,
   options: ReceiveOptions,
 ): Promise<ReceiveResult> {
+  // Antes de ler os bytes: um tipo recusado não deve deixar rastro de arquivo.
+  const declarado =
+    options.declaredType == null || options.declaredType.trim() === ""
+      ? null
+      : exigirTipoDeclarado(options.declaredType);
+
   const bytes = readFileSync(options.filePath);
   const contentSha256 = createHash("sha256").update(bytes).digest("hex");
   const filename = options.filename ?? options.filePath.split("/").pop()!;
@@ -238,6 +328,7 @@ export async function receiveFile(
           : null,
       finishedAt:
         isDuplicate && !options.allowReprocess ? new Date() : null,
+      declaredType: declarado?.code ?? null,
     })
     .returning();
 
@@ -471,6 +562,18 @@ export async function stage(
       ),
     );
 
+  /*
+    O tipo que quem enviou declarou, quando declarou.
+
+    Lido uma vez para a importação inteira, como o dicionário: a declaração é
+    do arquivo, e vale igual para todas as abas dele.
+  */
+  const [runDeclarado] = await db
+    .select({ declaredType: importRunTable.declaredType })
+    .from(importRunTable)
+    .where(eq(importRunTable.id, importRunId));
+  const declarado = tipoDeImportacao(runDeclarado?.declaredType ?? null);
+
   const knownAliases = await db.select().from(attributeAliasTable);
   const aliasKey = (sourceName: string, sheetName: string) =>
     `${sheetName} ${sourceName}`;
@@ -540,9 +643,47 @@ export async function stage(
       .filter((header) => header !== "")
       .map((header) => slugifyColumn(header));
 
-    const decisao = classifyEntityType(sheet.sheetName, slugsDaAba, conhecidos);
-    const entityType = decisao.entityType;
+    const deduzida = classifyEntityType(sheet.sheetName, slugsDaAba, conhecidos);
+
+    /*
+      A declaração, conferida contra o que a aba traz.
+
+      Sem declaração, a decisão é a dedução de sempre. Com ela, a conferência é
+      quem responde — e ela nunca troca o tipo em silêncio: ou a declaração se
+      sustenta e vira a identidade, ou a divergência vira um ERRO impeditivo e
+      a aba continua descrita pelo que ela de fato é, para a pré-visualização
+      poder mostrar o arquivo que chegou.
+    */
+    const identificadorDaAba = identificadorNoCabecalho(
+      [...headerCells.values()]
+        .map((cell) => (cell.rawValue ?? "").trim())
+        .filter((header) => header !== "")
+        .map((header) => foldText(header)),
+    );
+    const conferida =
+      declarado === null
+        ? null
+        : conferirDeclaracao(declarado, deduzida, identificadorDaAba, sheet.sheetName);
+
+    const decisao = conferida?.decision ?? deduzida;
+    const entityType = conferida?.entityType ?? deduzida.entityType;
     identidades.push({ sheetName: sheet.sheetName, decision: decisao });
+
+    if (conferida?.divergencia) {
+      issues.push({
+        importRunId,
+        rawSheetId: sheet.id,
+        severity: "ERROR",
+        code: "TIPO_DIVERGE_DA_DECLARACAO",
+        message: conferida.divergencia,
+        detail: {
+          declarado: declarado?.code,
+          conteudo: deduzida.entityType,
+          identificadorDaAba: identificadorDaAba?.sourceName ?? null,
+          scores: deduzida.scores.slice(0, 4),
+        },
+      });
+    }
 
     issues.push({
       importRunId,
@@ -550,9 +691,11 @@ export async function stage(
       severity: decisao.isNew ? "WARNING" : "INFO",
       code: decisao.isNew
         ? "NEW_EQUIPMENT_IDENTITY"
-        : decisao.source === "DICIONARIO"
-          ? "IDENTITY_FROM_COLUMNS"
-          : "IDENTITY_FROM_SHEET_NAME",
+        : decisao.source === "DECLARADO"
+          ? "IDENTITY_FROM_DECLARATION"
+          : decisao.source === "DICIONARIO"
+            ? "IDENTITY_FROM_COLUMNS"
+            : "IDENTITY_FROM_SHEET_NAME",
       message: `Aba "${sheet.sheetName}" tratada como ${entityType}. ${decisao.reason}`,
       detail: {
         entityType,
@@ -581,7 +724,7 @@ export async function stage(
       const attributeCode = `${entityType.toLowerCase()}.${slug}`;
 
       const isGrain =
-        folded === GRAIN_COLUMNS.vigencia || folded === GRAIN_COLUMNS.placa;
+        folded === GRAIN_COLUMNS.vigencia || IDENTIFICADORES_FOLDED.has(folded);
 
       const previousHeader = slugSeen.get(slug);
       if (previousHeader !== undefined) {
@@ -615,8 +758,8 @@ export async function stage(
           status: "IGNORED",
           note:
             folded === GRAIN_COLUMNS.vigencia
-              ? "Grain column: becomes the snapshot (source_label + effective_date), not a fact."
-              : "Grain column: becomes the entity identifier (PLACA), not a fact.",
+              ? "Coluna de grão: vira a vigência (source_label + effective_date), não um fato."
+              : `Coluna de grão: vira o identificador da linha (${header}), não um fato.`,
         });
         columns.push({ columnIndex, header, folded, attributeCode, role: "GRAIN" });
         continue;
@@ -650,8 +793,17 @@ export async function stage(
     await insertChunked(db, columnMappingTable, mappingRows as never[]);
 
     const vigenciaColumn = columns.find((c) => c.folded === GRAIN_COLUMNS.vigencia);
-    const placaColumn = columns.find((c) => c.folded === GRAIN_COLUMNS.placa);
-    if (!vigenciaColumn || !placaColumn) continue;
+    /*
+      Qual coluna identifica a linha desta aba.
+
+      Não é sempre a placa: o trecho se identifica por `chaveTrecho`, e é por
+      isso que a busca é pelo conjunto de identificadores conhecidos e não por
+      um nome fixo. `workbook.ts` já garantiu que existe uma — uma aba sem
+      identificador não teria virado SOURCE —, e o `continue` fica de guarda
+      para o caso de RAW ter sido capturado por uma versão anterior do leitor.
+    */
+    const identificadorColumn = columns.find((c) => IDENTIFICADORES_FOLDED.has(c.folded));
+    if (!vigenciaColumn || !identificadorColumn) continue;
 
     // --- rows ---------------------------------------------------------------
     for (const row of rows) {
@@ -660,7 +812,7 @@ export async function stage(
       if (!bucket) continue;
 
       const rawLabel = (bucket.get(vigenciaColumn.columnIndex)?.rawValue ?? "").trim();
-      const rawPlaca = (bucket.get(placaColumn.columnIndex)?.rawValue ?? "").trim();
+      const rawChave = (bucket.get(identificadorColumn.columnIndex)?.rawValue ?? "").trim();
 
       // A completely blank row is structural padding, not a rejection.
       const hasAnyValue = [...bucket.values()].some(
@@ -671,7 +823,7 @@ export async function stage(
       // Uma placa que só tem pontuação (`---`) não identifica veículo nenhum:
       // ela normaliza para vazio, e vazio não é chave. Recusar aqui é o mesmo
       // tratamento que a placa em branco já recebia.
-      if (rawLabel === "" || rawPlaca === "" || normalizeIdentifier(rawPlaca) === "") {
+      if (rawLabel === "" || rawChave === "" || normalizeIdentifier(rawChave) === "") {
         rowsRejected++;
         issues.push({
           importRunId,
@@ -679,8 +831,12 @@ export async function stage(
           rawRowId: row.id,
           severity: "ERROR",
           code: "ROW_MISSING_GRAIN_KEY",
-          message: `Row ${row.rowIndex} of "${sheet.sheetName}" is missing ${rawLabel === "" ? "Vigencia" : "Placa"}; rejected.`,
-          detail: { vigencia: rawLabel, placa: rawPlaca },
+          message: `A linha ${row.rowIndex} de "${sheet.sheetName}" está sem ${rawLabel === "" ? "Vigencia" : identificadorColumn.header}; recusada.`,
+          detail: {
+            vigencia: rawLabel,
+            identificador: identificadorColumn.header,
+            valor: rawChave,
+          },
         });
         continue;
       }
@@ -752,8 +908,8 @@ export async function stage(
           importRunId,
           rawCellId: cell.id,
           snapshotLabel: vigencia.label,
-          entityKey: normalizeIdentifier(rawPlaca),
-          entityKeyRaw: rawPlaca,
+          entityKey: normalizeIdentifier(rawChave),
+          entityKeyRaw: rawChave,
           entityType,
           attributeCode: column.attributeCode,
           valueNumeric: typed.valueNumeric,
@@ -1106,14 +1262,20 @@ export async function preview(
     .filter((i) => i.severity === "ERROR")
     .reduce((sum, i) => sum + i.count, 0);
 
-  // Nem todo ERRO impede promover: linha sem placa é linha recusada, e o resto
-  // do arquivo continua válido — foi sempre assim. O que impede é o dado que
-  // não fecha, e hoje isso é uma coisa só: a mesma entidade aparecendo duas
-  // vezes na mesma vigência com valores que discordam. Escolher um dos dois em
-  // silêncio seria inventar o número.
-  const impeditivos = issueRows
-    .filter((i) => i.severity === "ERROR" && BLOQUEIAM_PROMOCAO.has(i.code))
-    .reduce((sum, i) => sum + i.count, 0);
+  /*
+    Nem todo ERRO impede promover: linha sem chave é linha recusada, e o resto do
+    arquivo continua válido — foi sempre assim. O que impede são os dois casos em
+    que não existe resposta certa a escolher:
+
+    - a mesma entidade aparecendo duas vezes na mesma vigência com valores que
+      discordam — escolher um dos dois em silêncio seria inventar o número;
+    - o tipo declarado no envio discordando do que a aba traz — aceitar seria
+      gravar como cavalo o que é carreta porque alguém clicou na aba errada.
+  */
+  const impeditivas = issueRows.filter(
+    (i) => i.severity === "ERROR" && BLOQUEIAM_PROMOCAO.has(i.code),
+  );
+  const impeditivos = impeditivas.reduce((sum, i) => sum + i.count, 0);
 
   if (run.status === "STAGED") {
     await db
@@ -1123,9 +1285,7 @@ export async function preview(
           ? {
               status: "VALIDATION_ERROR",
               finishedAt: new Date(),
-              failureReason:
-                `${impeditivos} ${impeditivos === 1 ? "conflito impede" : "conflitos impedem"} esta importação: a mesma entidade aparece mais de uma vez na mesma vigência com valores diferentes. ` +
-                `Corrija a origem e envie o arquivo de novo.`,
+              failureReason: motivoDoImpedimento(impeditivas),
             }
           : { status: "PREVIEWED" },
       )
@@ -1241,6 +1401,15 @@ export interface PromoteResult {
  *
  * Lido da staging, e não das abas: duas abas podem concordar em criar o mesmo
  * equipamento novo, e o que importa é o conjunto que vai ser escrito.
+ *
+ * **O tipo declarado no envio não é pendência.** A confirmação existe para que
+ * criar equipamento deixe de ser efeito colateral de um nome de aba e passe a
+ * ser declaração de quem promove — e quem escolheu a aba Trecho para enviar o
+ * arquivo já fez essa declaração, antes de o leitor abrir a planilha. Cobrá-la
+ * de novo na promoção seria fazer a mesma pergunta à mesma pessoa em duas
+ * telas, e a segunda com menos contexto que a primeira. O que sustenta isso é a
+ * conferência: uma declaração que divergisse do conteúdo não teria chegado até
+ * aqui — ela vira ERRO impeditivo na pré-visualização.
  */
 export async function identidadesPendentes(
   db: Database,
@@ -1254,10 +1423,17 @@ export async function identidadesPendentes(
   // importação de todas não pode depender de uma declaração que ninguém
   // teria como fazer. O aviso da staging continua na pré-visualização.
   if (conhecidos.length === 0) return [];
+
+  const [run] = await db
+    .select({ declaredType: importRunTable.declaredType })
+    .from(importRunTable)
+    .where(eq(importRunTable.id, importRunId));
+  const declarado = tipoDeImportacao(run?.declaredType ?? null);
+
   return novasIdentidades(
     rows.map((r) => r.entity_type),
     conhecidos.map((c) => c.entityType),
-  );
+  ).filter((tipo) => tipo !== declarado?.code);
 }
 
 /** A recusa, escrita para quem opera — e com a saída no próprio texto. */
