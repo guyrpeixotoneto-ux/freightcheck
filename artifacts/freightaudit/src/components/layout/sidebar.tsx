@@ -153,13 +153,16 @@ const NAV_GROUPS: NavGroup[] = [
     itens: [
       { href: "/", label: "Visão geral", icon: House },
       { href: "/vigencia", label: "Acompanhamento", icon: TrendingUp },
-      { href: "/analise-equipamentos", label: "Análise de frota", icon: Truck },
       /*
-        Composição vem logo depois da Análise de frota porque é o drill-down
-        dela: a análise diz como a frota se comporta, e a composição responde,
-        para um equipamento, por que ele recebe o que recebe. Fica na visão
-        executiva e não na auditoria por ser a porta de entrada — quem abre
-        procura um valor, e só depois procura a inconsistência dele.
+        A Análise de frota saiu daqui e passou a abrir a seção **Frota**, ao lado
+        das telas que descem ao ativo: é o mesmo assunto lido de duas alturas, e
+        o olho procura as duas no mesmo bloco.
+
+        A Composição ficou. Ela continua sendo o drill-down da análise — a
+        análise diz como a frota se comporta, e a composição responde, para um
+        equipamento, por que ele recebe o que recebe —, mas mora na visão
+        executiva, e não na auditoria nem na Frota, por ser a porta de entrada:
+        quem abre procura um valor, e só depois procura a inconsistência dele.
       */
       { href: "/composicao", label: "Composição", icon: Calculator },
       /*
@@ -169,9 +172,9 @@ const NAV_GROUPS: NavGroup[] = [
         linhas reorganizadas em seções contábeis. Duas telas e um motor.
 
         Fica aqui, e não na seção **Frota**, pelo mesmo motivo que a Composição:
-        as duas abrem na frota e descem ao ativo. A seção Frota olha o ativo
-        individual desde a primeira tela, e é lá que vive o `/dre-veiculo` ainda
-        em preparo — que continua em preparo, porque o que falta a ele é custo
+        as duas partem de um valor apurado e só então descem ao ativo — entra-se
+        nelas pela conta, não pela placa. Na Frota vive o `/dre-veiculo` ainda em
+        preparo, que continua em preparo porque o que falta a ele é custo
         operacional, e não esta apuração.
       */
       { href: "/dre", label: "DRE", icon: Receipt },
@@ -214,15 +217,17 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     /*
-      Frota olha o ativo individual; Análise de frota, lá em cima, olha a
-      categoria. São níveis diferentes da mesma pergunta, e por isso a seção
-      repete o caminhão da Visão executiva no seu ícone: o olho reconhece o
+      A seção reúne as duas alturas da mesma pergunta: a Análise de frota olha a
+      categoria, e as telas 360° olham o ativo individual. Por isso ela abre pela
+      análise — lê-se a frota inteira, e só então se desce à placa —, e por isso
+      o ícone da seção é o mesmo caminhão do item que a abre: o olho reconhece o
       assunto, e a posição na lista diz de que altura ele está sendo visto.
     */
     titulo: "Frota",
     icon: Truck,
     cor: "text-nav-frota",
     itens: [
+      { href: "/analise-equipamentos", label: "Análise de frota", icon: Truck },
       { href: "/cavalo-360", label: "Cavalo 360°", icon: Tractor },
       { href: "/carreta-360", label: "Carreta 360°", icon: Container },
       /*
