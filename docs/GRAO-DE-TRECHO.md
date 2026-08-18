@@ -124,6 +124,114 @@ Placa identifica e permanece; `odometroEntrada` identifica e **não** permanece 
 e o CLI marca isso explicitamente, porque uma coluna assim seria uma identidade
 que mata e recria a frota toda quinzena.
 
+---
+
+## 2-A. A medição no arquivo real (18/08/2026)
+
+O `Modelo_Trecho.xlsx` chegou e está em `attached_assets/`. Ele é um **modelo**,
+não um export: **3 linhas de dado, 1 vigência** (`EMPURRADA_2_8_2026`), 110
+colunas, todas do mesmo escopo (CDR BAHIA, mesmo operador).
+
+### O que ele **não** pode responder — e por que não vou responder assim
+
+| Pergunta | Estado | Por quê |
+|---|---|---|
+| 1. Unicidade por vigência | **não discrimina** | 41 de 110 colunas "identificam a linha" — incluindo `freteCtrc`, `kmIda`, `previsaoViagens`. Com 3 linhas, qualquer coluna com 3 valores distintos passa |
+| 2. Permanência entre vigências | **não observável** | há uma vigência só; não existe segunda quinzena em que a chave pudesse reaparecer |
+| 3. Estabilidade semântica | **não observável** | com uma vigência, toda coluna é constante por chave. A resposta seria "todas são âncoras", que é verdade e não informa nada |
+| 4. `chaveTrecho` × Origem/Destino | **não observável** — e ver abaixo | mudança entre vigências precisa de duas |
+
+A ferramenta agora **recusa** essas três em vez de imprimir números
+trivialmente perfeitos: era ela mesma que anunciava "101 âncoras" para todo
+candidato. Ver o bloco `SUFICIÊNCIA DA EVIDÊNCIA`.
+
+### O que ele **prova**, e é muito
+
+**1. O diagnóstico original, no arquivo de verdade.** Passado pelo leitor:
+
+```
+aba "Sheet1" -> PIVOT
+  First row lacks the grain column(s) placa
+```
+
+Não há coluna `Placa` entre as 110. A planilha nunca teve como entrar, e a
+recusa nova produz para ela a frase certa.
+
+**2. `chaveTrecho` não é um identificador: é uma concatenação.** Os três valores
+do arquivo:
+
+```
+CDR BAHIA_REVALLE AGRESTE/SERRINHA (BA)_28_false
+CDR BAHIA_REVALLE AGRESTE/ALAGOINHAS (BA)_28_false
+CDR BAHIA_DBS/MONTE SANTO(BA)_28_false
+```
+
+Componente a componente: `Origem` · `Destino` · `Capacidade` (28 pallets) · uma
+flag booleana. Isso muda a pergunta inteira, em duas direções:
+
+- **O item 4 é estruturalmente vazio.** Origem e Destino nunca poderão divergir
+  de `chaveTrecho`, porque estão *dentro* dela. Um teste que os comparasse
+  devolveria "nenhum caso" para sempre — e por construção, não por estabilidade.
+- **A chave carrega dois atributos mutáveis.** `Capacidade` é classificada como
+  direcionador operacional pelo próprio dicionário do cliente. Se a capacidade
+  de uma rota mudar de 28 para 30 pallets, `chaveTrecho` muda — e a mesma rota
+  física vira uma entidade nova, com o histórico partido em duas. **É exatamente
+  a falha de identidade que este levantamento existe para evitar**, e ela estava
+  escondida dentro do campo que o cadastro chama de "campo chave".
+
+A flag booleana final é `false` nas três linhas. Três colunas booleanas do
+arquivo estão em `false` nas três (`F-MOV`, `faturamentoDestinoObrigatorio`,
+`frotaNoMunicipio`) — **não dá para saber qual é**, e as duas que variam
+(`trechoComDiaria`, `trechoComVr`) estão descartadas porque discordam da flag na
+primeira linha.
+
+**3. Armadilhas de normalização, todas nas três linhas.** Qualquer chave montada
+sobre estes textos precisa passar por `normalizeIdentifier` antes de virar
+identidade:
+
+| Coluna | Valor real | Armadilha |
+|---|---|---|
+| `Origem` / `Destino` | `Unidade: CDR BAHIA \| Região: NE` | rótulo embutido, não é código |
+| `Destino` (linhas 2-3) | `Região:  NE` — **dois espaços** | a mesma região escrita de dois jeitos no mesmo arquivo |
+| `destino SAP` | `1031295.0` | código inteiro lido como float |
+| `Capacidade` | `Pallets: 28` | número embutido em rótulo |
+
+**4. O item 6, respondido inteiro** — e este não depende do tamanho da amostra,
+porque vem do dicionário do cliente, não da estatística:
+
+| Natureza | Colunas | O que é |
+|---|---|---|
+| Competência | 1 | `Vigencia` — o eixo do versionamento |
+| Descritivo | 27 | cadastro: unidade, operador, códigos SAP/TMS, região |
+| Operacional | 22 | direcionadores: `Capacidade`, `kmIda`, `kmRodado`, `previsaoViagens`, tempos, turnos |
+| Remuneratório | 60 | entra na DRE: `freteCtrc`, `freteReaisKM*`, `freteReaisViagem*`, impostos, margens |
+
+A caixa **identidade** fica vazia de propósito: ela sai da medição, e a medição
+deste arquivo não discrimina.
+
+### O que falta para fechar o veredito
+
+Um export com **duas ou mais vigências** e volume real — o equivalente ao
+`Modelo_Cavalo.xlsx`, que traz 558 linhas em 9 quinzenas. Com ele, três
+perguntas ficam decidíveis num comando:
+
+```
+pnpm --filter @workspace/ingest exec tsx src/cli/medir-grao.ts <export>.xlsx \
+  --dicionario docs/planilha-atributos-frete-dre.xlsx \
+  --composta "Origem,Destino" \
+  --composta "Origem,Destino,Capacidade" \
+  --casos "Origem,Destino:Capacidade,turnoEmpurrada,Operador - CNPJ"
+```
+
+E a pergunta que decide o desenho, que só o histórico responde: **a mesma rota
+origem–destino muda de `Capacidade` ao longo das quinzenas?** Se muda,
+`chaveTrecho` está desqualificada como identidade canônica — ela partiria o
+histórico da rota —, e a identidade é a origem–destino normalizada, com
+capacidade e turno como atributos descritivos. Se nunca muda, `chaveTrecho`
+sobrevive, e a diferença passa a ser só de robustez.
+
+---
+
 ### O que está bloqueado
 
 Preciso do `Modelo Trecho.xlsx` (ou de qualquer export real de trecho) para
@@ -426,7 +534,12 @@ sem rótulo. Fase 3 é o que dá nome aos trechos na tela.
 
 ## 6. O que preciso de você
 
-**O `Modelo Trecho.xlsx`** — ou qualquer export real de trecho. É o que sobrou:
-as outras duas perguntas foram respondidas em 18/08/2026 (família: TRECHO é tipo
-de entidade, e nada muda agora; viagem: caminho B, modelado). Sem o arquivo a
-fase 1 não roda, e a chave continua sendo hipótese.
+**Um export de trecho com duas ou mais vigências e volume real.** O
+`Modelo_Trecho.xlsx` chegou e está medido (§2-A): ele prova o defeito de leitura,
+revela que `chaveTrecho` é uma concatenação que embute `Capacidade`, e responde
+a classificação por natureza. O que ele não tem como responder — com 3 linhas e
+uma quinzena — é permanência, estabilidade semântica e, por consequência, a
+identidade canônica.
+
+As outras duas perguntas foram respondidas em 18/08/2026: família — TRECHO é
+tipo de entidade, nada muda agora; viagem — caminho B, modelado.
