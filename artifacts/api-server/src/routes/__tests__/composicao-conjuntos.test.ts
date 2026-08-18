@@ -135,10 +135,22 @@ describe("GET /composition/conjuntos", () => {
 
   it("confere o total declarado contra a soma das duas fichas", async () => {
     const { body } = await get("/composition/conjuntos");
-    expect(body.resumo.divergem).toBe(0);
     expect(body.resumo.conferidos).toBe(body.resumo.conjuntos);
     expect(body.toleranciaDaConferencia).toBe(0.01);
 
+    /*
+      A rota **serve** a divergência; não é papel dela zerá-la. Desde
+      18/08/2026 há conjuntos em que a fonte declara mais do que os dois
+      equipamentos recebem — o lucro fixo do cavalo que o `custoFixo` conta
+      duas vezes. A contagem exata e a razão estão em
+      `lib/composition/__tests__/conjuntos-real.test.ts`; aqui o que se guarda é
+      que a rota entrega a conferência inteira, divergentes incluídos.
+    */
+    expect(body.resumo.divergem).toBeGreaterThan(0);
+    expect(body.resumo.fecham + body.resumo.divergem).toBe(body.resumo.conferidos);
+
+    /* O apurado é sempre a soma das duas fichas — inclusive nos que divergem
+       do declarado, que é justamente o que a divergência mede. */
     const pareado = body.linhas.find((l: any) => l.natureza === "PAREADO");
     expect(pareado.declaradoCode).toBe("carreta.custo_fixo");
     expect(pareado.cavalo.mensal + pareado.carreta.mensal).toBeCloseTo(pareado.apurado, 2);

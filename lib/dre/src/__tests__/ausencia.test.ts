@@ -54,11 +54,15 @@ describe("ausência não é zero", () => {
 
   it("prefere o motivo declarado no plano ao genérico do motor", () => {
     /*
-      O aluguel de implemento tem fonte declarada e está PRESUMED no banco real:
-      o portão da semântica o recusa **antes** deste motor, que por isso não vê
-      diferença entre "recusado no portão" e "ativo sem valor". O plano declara
-      o que dizer, e é a mensagem certa — mandar o leitor pedir à Ambev uma
-      coluna que já existe seria o pior dos dois erros.
+      O aluguel de implemento tem fonte declarada, e um implemento financiado
+      simplesmente não tem aluguel no mês. O motor genérico diria "nenhum dos
+      atributos declarados tem valor apurável" — verdadeiro e mudo. O plano
+      declara a frase que explica, e é ela que a linha usa.
+
+      Até 18/08/2026 este era o caso do portão da semântica: a coluna existia,
+      tinha valor, e ninguém tinha confirmado a periodicidade. A confirmação
+      chegou e a frase mudou junto — o que o teste guarda é a precedência, que
+      não mudou.
     */
     const semAluguel = montarDRE({
       escopo: "CARRETA",
@@ -67,8 +71,10 @@ describe("ausência não é zero", () => {
     });
     const aluguel = linha(semAluguel, "fixo.aluguel_implemento")!;
     expect(aluguel.valor).toBeNull();
-    expect(aluguel.ausencia!.motivo).toBe("SEMANTICA_NAO_CONFIRMADA");
-    expect(aluguel.ausencia!.oQueFalta).toContain("custoAluguel");
+    expect(aluguel.ausencia!.motivo).toBe("COLUNA_SEM_DADO");
+    // A frase do plano, e não a do motor: esta é a que diz por que falta.
+    expect(aluguel.ausencia!.oQueFalta).toContain("não tem aluguel nesta vigência");
+    expect(aluguel.ausencia!.oQueFalta).not.toContain("Nenhum dos atributos declarados");
   });
 
   it("cai no motivo genérico quando o plano não declarou nenhum", () => {
@@ -140,20 +146,34 @@ describe("aguardando curadoria", () => {
     expect(codigos).not.toContain("variavel.arla");
   });
 
-  it("inclui componente com fonte quando a fonte não passou no portão", () => {
+  it("o aluguel saiu da fila da curadoria quando a periodicidade foi confirmada", () => {
     /*
-      É o caso real do aluguel de implemento: a coluna existe, tem valor, e está
-      PRESUMED. Ele pertence a esta lista — e não à das lacunas — porque é a
-      única linha desta DRE que uma confirmação de curadoria destrava sozinha.
+      Este teste afirmava o contrário, e estava certo enquanto
+      `carreta.custo_aluguel` não tinha semântica confirmada: era a única linha
+      desta DRE que uma confirmação de curadoria destravava sozinha.
+
+      Em 18/08/2026 a confirmação veio — por base aritmética, não por leitura de
+      nome: finameImplemento = amortização + juros + aluguel em 369 de 369
+      linhas não nulas, e finameImplemento é MENSAL. A linha saiu da fila, e é
+      isso que este teste passa a guardar: uma pendência resolvida tem de sumir
+      da lista de pendências, senão a fila nunca encolhe.
     */
     const semAluguel = montarDRE({
       escopo: "CARRETA",
       ...VIGENCIA,
       lados: [lado("CARRETA", "XYZ9W87", { "carreta.finame_implemento": 2500 })],
     });
-    expect(semAluguel.aguardandoCuradoria.map((a) => a.code)).toContain(
+    expect(semAluguel.aguardandoCuradoria.map((a) => a.code)).not.toContain(
       "fixo.aluguel_implemento",
     );
+
+    // E com valor, ela apura — o que a fila esperava que acontecesse.
+    const comAluguel = montarDRE({
+      escopo: "CARRETA",
+      ...VIGENCIA,
+      lados: [lado("CARRETA", "XYZ9W87", { "carreta.custo_aluguel": 6414.37 })],
+    });
+    expect(linha(comAluguel, "fixo.aluguel_implemento")!.valor).toBeCloseTo(6414.37, 2);
   });
 });
 

@@ -232,23 +232,36 @@ describe("o total desce e a parcela fica", () => {
   it("a parcela volta a ser raiz quando o total saiu por escopo", async () => {
     const panorama = (await getPanoramaDeAlteracoes(ctx.db))!;
 
-    // `lucro_fixomodelo_novo_ciclo` é parcela de `custo_fixo`, que saiu por
-    // conjunto. Se a saída do total a levasse junto, a carreta perderia uma
-    // linha econômica que é só dela.
-    expect(panorama.maisAlterados).toContain("carreta.lucro_fixomodelo_novo_ciclo");
-    expect(panorama.maiorImpacto).toContain("carreta.lucro_fixomodelo_novo_ciclo");
+    /*
+      A regra é a mesma e o exemplo dela mudou de dono em 18/08/2026.
+      `lucro_fixomodelo_novo_ciclo` era a parcela que voltava a ser raiz quando
+      `custo_fixo` saía por conjunto — até medir-se que ela também é de
+      conjunto: é a soma da parcela da carreta com a do cavalo, 284 de 284
+      pares. Quem volta a ser raiz agora é a parcela própria da carreta, e é ela
+      que a carreta perderia se a saída do total a levasse junto.
+    */
+    expect(panorama.maisAlterados).toContain("carreta.lucro_fixomodelo_novo_ciclo_carreta");
+    expect(panorama.maiorImpacto).toContain("carreta.lucro_fixomodelo_novo_ciclo_carreta");
   });
 
   it("a decomposição da carreta é a mesma que o motor de composição usa", async () => {
     const panorama = (await getPanoramaDeAlteracoes(ctx.db))!;
 
     /*
-      Exaustiva e disjunta, e nenhum real do cavalo entra nela. O que mudou
-      com a direção única: `carreta.finame_implemento` é ele próprio um total
+      Exaustiva e disjunta, e nenhum real do cavalo entra nela. Duas mudanças
+      se encontram nesta lista, e ela é o lugar onde as duas se conferem.
+
+      Da direção única: `carreta.finame_implemento` é ele próprio um total
       declarado (`amortizacao_implemento + juros_finame_implemento +
       custo_aluguel`), então **ele** desce e as parcelas dele sobem no lugar.
       A soma que a lista representa é a mesma; o que muda é em que grão ela é
       exibida — e o grão agora é o mesmo do dinheiro.
+
+      Do escopo de conjunto: quem fecha a lista é
+      `lucro_fixomodelo_novo_ciclo_carreta`, e não `lucro_fixomodelo_novo_ciclo`.
+      A coluna sem sufixo é a soma da parcela da carreta com a do cavalo (284 de
+      284 pares), e mantê-la aqui punha o lucro fixo do cavalo dentro do
+      "disjunta" que esta asserção afirma.
     */
     const daCarreta = panorama.maiorImpacto.filter(
       (c) => de(panorama, c)!.entityType === "CARRETA",
@@ -256,7 +269,7 @@ describe("o total desce e a parcela fica", () => {
     expect(daCarreta.sort()).toEqual([
       "carreta.amortizacao_implemento",
       "carreta.juros_finame_implemento",
-      "carreta.lucro_fixomodelo_novo_ciclo",
+      "carreta.lucro_fixomodelo_novo_ciclo_carreta",
     ]);
   });
 });

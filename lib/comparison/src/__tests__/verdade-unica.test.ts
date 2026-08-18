@@ -25,8 +25,15 @@ import { compositionOf, escopoDeConjunto } from "../composition";
  */
 
 const AGOSTO = "2026-08-01";
-/** O oficial de agosto/2026, deduplicado por composição **e** por conjunto. */
-const OFICIAL = 16594.55;
+/**
+ * O oficial de agosto/2026, deduplicado por composição **e** por conjunto.
+ *
+ * Era 16.594,55 até 18/08/2026, quando `carreta.lucro_fixomodelo_novo_ciclo`
+ * passou a escopo de conjunto: ela é a soma da parcela da carreta com a do
+ * cavalo (284 de 284 pares), e os R$ 4.677,85 que saíram são o lucro fixo de um
+ * cavalo que já estava contado na linha dele.
+ */
+const OFICIAL = 11916.7;
 /** O bruto, antes de qualquer regra. Só auditoria técnica o pode citar. */
 const BRUTO = 39936.28;
 
@@ -46,7 +53,7 @@ afterAll(async () => {
 });
 
 describe("todo caminho responde o mesmo número", () => {
-  it("Visão geral, Alterações e o consolidado chegam em R$ 16.594,55/mês", async () => {
+  it("Visão geral, Alterações e o consolidado chegam em R$ 11.916,70/mês", async () => {
     const view = (await getGroupedView(ctx.db, AGOSTO))!;
     const familias = (await getFamiliesView(ctx.db, AGOSTO))!;
     const ids = await idsDeAgosto();

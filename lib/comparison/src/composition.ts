@@ -160,6 +160,34 @@ export const ESCOPOS_DE_CONJUNTO: EscopoDeConjunto[] = [
       "nas 99 linhas sem cavalo vinculado o resto não é zero, então a decomposição é " +
       "comprovada onde há par, e não exaustiva.",
   },
+  {
+    /*
+      Achado em 18/08/2026, e ele **corrige uma leitura anterior deste
+      repositório**. O comentário de `regras.ts` afirmava que
+      `lucroFixomodeloNovoCiclo` da carreta *não* era o lucro fixo do cavalo,
+      apoiado numa contagem de coincidência de valor: 233 linhas iguais à
+      parcela da carreta e apenas 15 iguais à do cavalo. Os números estavam
+      certos e a conclusão estava errada. A pergunta que faltou fazer não era
+      "de qual das duas ela copia o valor?", e sim "ela é a **soma** das duas?".
+
+      É. E o que prova é justamente o terço que a contagem antiga não olhava:
+      as 36 linhas em que as duas parcelas são não nulas **ao mesmo tempo**.
+      Numa cópia elas seriam as exceções; numa soma são a confirmação, e a
+      identidade fecha em todas.
+    */
+    code: "carreta.lucro_fixomodelo_novo_ciclo",
+    entityType: "CARRETA",
+    contem: "cavalo.lucro_fixomodelo_novo_ciclo_cavalo",
+    evidence:
+      "Medido em 18/08/2026 sobre as 9 vigências do export real: " +
+      "lucroFixomodeloNovoCiclo = lucroFixomodeloNovoCicloCarreta + " +
+      "lucroFixomodeloNovoCicloCavalo em 284 de 284 pares em que a coluna não é zero " +
+      "(tolerância R$ 0,01, zero exceções). Em 36 desses pares as duas parcelas são não " +
+      "nulas ao mesmo tempo, o que descarta a leitura de que a coluna fosse cópia de uma " +
+      "delas; em 233 só a carreta tem valor e em 15 só o cavalo. A coluna é do conjunto, e " +
+      "somá-la na linha da carreta contava o lucro fixo do cavalo duas vezes — R$ 34.793,84 " +
+      "por mês em agosto/2026, 11,5% do total da frota de carretas.",
+  },
 ];
 
 const ESCOPO_POR_CODIGO = new Map(ESCOPOS_DE_CONJUNTO.map((e) => [e.code, e]));

@@ -11,6 +11,14 @@ import { conjuntoDeReferencia } from "./fixtures";
  * módulo tem de saber disso. Aqui os dois caminhos são calculados e conferidos
  * um contra o outro — se um refactor voltar a somar `custoFixo` na linha da
  * carreta, esta asserção quebra antes de a tela existir.
+ *
+ * **O que mudou em 18/08/2026.** Os dois caminhos eram declarados *iguais*, e
+ * não são: a coluna `custoFixo` da fonte soma o lucro fixo do cavalo duas vezes
+ * — uma dentro de `finame` (que contém `finameCavalo`) e outra dentro de
+ * `lucroFixomodeloNovoCiclo`. Medido nos 51 pares em que o financiamento do
+ * cavalo já acabou, zero exceções. A linha da carreta passou a somar só a
+ * parcela própria dela, e a diferença virou o que ela sempre foi: um número com
+ * nome, conferido abaixo em vez de escondido numa igualdade.
  */
 
 const VIGENCIA = { effectiveDate: "2026-08-01", periodLabel: "Agosto/2026" };
@@ -33,29 +41,37 @@ describe("as três leituras", () => {
   it("dá a cada escopo a sua própria receita", () => {
     const { cavalo, carreta, conjunto } = dres();
     expect(receita(cavalo)).toBe(14000);
-    expect(receita(carreta)).toBe(3000);
+    /* finameImplemento 2.500 + a parcela própria do lucro fixo 400. */
+    expect(receita(carreta)).toBe(2900);
+    /* custoFixo, a coluna do conjunto, como a fonte a entrega. */
     expect(receita(conjunto)).toBe(17000);
   });
 
-  it("a receita do conjunto é a soma dos dois lados — e é lida de uma coluna só", () => {
+  it("a receita do conjunto excede a soma dos lados pelo lucro fixo do cavalo", () => {
     const { cavalo, carreta, conjunto } = dres();
     /*
-      14.000 + 3.000 = 17.000. A igualdade não é uma coincidência do fixture: é
-      a identidade medida em 558 de 558 pares reais
-      (finameImplemento + lucroFixo) + finameCavalo = custoFixo.
-      O conjunto lê `custoFixo` direto, e não a soma — mas as duas contas têm de
-      dar o mesmo, e é isso que esta linha confere.
+      14.000 + 2.900 = 16.900, contra 17.000 de `custoFixo`. Os 100 de diferença
+      são o `lucroFixomodeloNovoCicloCavalo` do fixture — contado uma vez dentro
+      de `finameCavalo`, que é a receita do cavalo, e outra dentro de
+      `lucroFixomodeloNovoCiclo`, que é parcela de `custoFixo`.
+
+      A diferença é da fonte, não do módulo, e por isso ela é **afirmada** aqui:
+      um refactor que a fizesse desaparecer estaria escolhendo um dos dois
+      números sem ter com que decidir. Qual deles a Ambev paga é pergunta para a
+      Ambev — ver docs/MAPA-MONETARIO-CAVALO-CARRETA.md.
     */
-    expect(receita(conjunto)).toBe(receita(cavalo)! + receita(carreta)!);
+    const soma = receita(cavalo)! + receita(carreta)!;
+    expect(soma).toBe(16900);
+    expect(receita(conjunto)! - soma).toBe(100);
   });
 
   it("o resultado do conjunto é a soma dos resultados dos dois lados", () => {
     const { cavalo, carreta, conjunto } = dres();
-    /* −900 do cavalo (lucro 100 − IPVA 1.000) + 500 da carreta = −400. */
+    /* −900 do cavalo (lucro 100 − IPVA 1.000) + 400 da carreta = −500. */
     expect(resultado(cavalo)).toBe(-900);
-    expect(resultado(carreta)).toBe(500);
-    expect(resultado(conjunto)).toBe(-400);
-    expect(resultado(conjunto)).toBe(resultado(cavalo)! + resultado(carreta)!);
+    expect(resultado(carreta)).toBe(400);
+    /* E o conjunto fica 100 acima da soma, pela mesma razão da receita. */
+    expect(resultado(conjunto)! - (resultado(cavalo)! + resultado(carreta)!)).toBe(100);
   });
 });
 
@@ -63,14 +79,16 @@ describe("dupla contagem", () => {
   it("a carreta não recebe o que o conjunto recebe", () => {
     const { carreta } = dres();
     /* custoFixo vale 17.000 e contém o cavalo. Se ele vazasse para cá, a
-       receita da carreta saltaria de 3.000 para 17.000 ou 20.000. */
-    expect(receita(carreta)).toBe(3000);
+       receita da carreta saltaria de 2.900 para 17.000 ou 19.900. */
+    expect(receita(carreta)).toBe(2900);
     expect(linha(carreta, "receita.remuneracao_fixa")).toBeNull();
     const codigos = carreta.secoes.flatMap((s) =>
       s.linhas.flatMap((l) => l.origens.map((o) => o.attributeCode)),
     );
     expect(codigos).not.toContain("carreta.custo_fixo");
     expect(codigos).not.toContain("carreta.finame");
+    // E nem a coluna do lucro fixo do conjunto, que carrega o cavalo junto.
+    expect(codigos).not.toContain("carreta.lucro_fixomodelo_novo_ciclo");
   });
 
   it("o conjunto não soma a receita do par com a receita de cada lado", () => {

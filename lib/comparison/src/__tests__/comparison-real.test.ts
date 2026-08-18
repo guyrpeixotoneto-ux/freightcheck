@@ -129,10 +129,17 @@ describe("as 298 alterações destravadas pela curadoria", () => {
       .select({ n: sql<number>`count(*)`.mapWith(Number) })
       .from(changeTable)
       .where(eq(changeTable.impactConfidence, "CALCULATED"));
-    // 345 com o bloco de alta confiança aplicado. Boa parte dele já vem da
-    // importação desde que ela aplica o registro canônico; o que este número
-    // fixa é o total, e não quem chegou primeiro.
-    expect(calculated.n).toBe(345);
+    /*
+      352 desde 18/08/2026, contra 345 antes. As sete que entraram são as
+      alterações de `carreta.lucro_fixomodelo_novo_ciclo_carreta` e
+      `carreta.custo_aluguel`, cujas periodicidades foram confirmadas naquela
+      data por base aritmética — ver `semantica-confirmada.ts`, Cadeia E.
+
+      Curadoria **precifica** alteração, não a cria: o número de alterações
+      continua o mesmo logo abaixo, e o que subiu foi quantas delas o produto
+      sabe converter em dinheiro.
+    */
+    expect(calculated.n).toBe(352);
 
     // And the change count itself is untouched: curation prices changes, it
     // never creates or destroys them.

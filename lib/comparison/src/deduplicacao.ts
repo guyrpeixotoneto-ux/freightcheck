@@ -10,7 +10,7 @@
  * |----------------------------------|-----------------|----------------------------|
  * | `engine.ts` → cartão de Planilha  | R$ 39.936,28/mês | nenhuma                    |
  * | `grouped.ts` → cartão da Visão geral | R$ 28.511,24/mês | só `isCoveredByParts`   |
- * | `panorama.ts` → ranking econômico | R$ 16.594,55/mês | parcela **e** conjunto, por código |
+ * | `panorama.ts` → ranking econômico | R$ 11.916,70/mês | parcela **e** conjunto, por código |
  * | `composition/motor.ts` → ficha    | (por ativo)      | parcela e conjunto         |
  *
  * Não eram quatro opiniões: eram quatro cópias da mesma intenção, escritas em
@@ -569,8 +569,8 @@ export function resumirImpacto(
  * 39.936,28 bruto
  * − 11.425,04 duplicidades por composição
  * = 28.511,24 subtotal técnico
- * − 11.916,69 duplicidades entre escopos cavalo↔carreta
- * = 16.594,55 impacto oficial
+ * − 16.594,54 duplicidades entre escopos cavalo↔carreta
+ * = 11.916,70 impacto oficial
  * ```
  */
 export function explicarRastro(

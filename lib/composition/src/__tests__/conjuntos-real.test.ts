@@ -79,12 +79,40 @@ describe("os conjuntos de agosto/2026", () => {
     expect(carretas).toBe(71);
   });
 
-  it("confere os 71 e todos fecham dentro do centavo", () => {
+  /**
+   * A conferência que passou a divergir — e é para isso que ela existe.
+   *
+   * Até 18/08/2026 os 71 fechavam no centavo, e o teste dizia isso. Fechavam
+   * porque os dois lados da conta liam a mesma dupla contagem: a linha da
+   * carreta somava `carreta.lucro_fixomodelo_novo_ciclo`, que é a soma da
+   * parcela dela com a do cavalo (284 de 284 pares), e o declarado é
+   * `custoFixo`, que contém o mesmo lucro do cavalo por dentro de `finame`.
+   * Dois erros iguais dos dois lados dão zero de divergência.
+   *
+   * Corrigida a linha da carreta, a conferência passa a mostrar o que sempre
+   * esteve lá: nos conjuntos em que o financiamento do cavalo já acabou, a
+   * fonte declara mais do que os dois equipamentos recebem, pelo valor exato
+   * do lucro fixo daquele cavalo. Uma tela que confere o par contra a fonte
+   * fazendo isso é a tela funcionando.
+   */
+  it("mostra os 12 conjuntos em que a fonte declara mais do que o par recebe", () => {
     expect(agosto.resumo.conferidos).toBe(71);
-    expect(agosto.resumo.fecham).toBe(71);
-    expect(agosto.resumo.divergem).toBe(0);
-    for (const linha of agosto.linhas) {
-      expect(linha.fecha).toBe(true);
+    expect(agosto.resumo.fecham).toBe(59);
+    expect(agosto.resumo.divergem).toBe(12);
+
+    const divergentes = agosto.linhas.filter((l) => !l.fecha);
+    expect(divergentes).toHaveLength(12);
+
+    /*
+      A divergência de um par tem nome: é o lucro fixo do cavalo dele. Conferido
+      na placa da tela — QYP3G72, cujo `finameCavalo` de R$ 4.677,85 é
+      inteiramente lucro do novo ciclo, sem amortização nem juros.
+    */
+    const qyp3g72 = divergentes.find((l) => l.rotulo.includes("QYP3G72"))!;
+    expect(qyp3g72.divergencia).toBeCloseTo(4677.85, 2);
+
+    /* Os 59 que fecham continuam fechando dentro do centavo. */
+    for (const linha of agosto.linhas.filter((l) => l.fecha)) {
       expect(Math.abs(linha.divergencia!)).toBeLessThanOrEqual(agosto.toleranciaDaConferencia);
     }
   });
@@ -94,14 +122,20 @@ describe("os conjuntos de agosto/2026", () => {
    *
    * R$ 1.204.664,11 é a soma de `carreta.custo_fixo` nas 71 carretas de
    * agosto/2026 — o mesmo número medido em 15/08/2026 e registrado em
-   * `docs/DRE-DIAGNOSTICO.md`. Os onze centavos de diferença contra o apurado
-   * são arredondamento da planilha, distribuídos em 71 linhas.
+   * `docs/DRE-DIAGNOSTICO.md`. Ele não mudou: quem mudou foi o apurado, e a
+   * diferença de R$ 34.793,95 é o lucro fixo dos cavalos que o `custoFixo`
+   * conta duas vezes — uma dentro de `finame`, que contém `finameCavalo`, e
+   * outra dentro de `lucroFixomodeloNovoCiclo`.
+   *
+   * Qual dos dois números a Ambev paga é pergunta para a Ambev; o produto
+   * mostra os dois e nomeia a diferença. Ver
+   * `docs/MAPA-MONETARIO-CAVALO-CARRETA.md`.
    */
-  it("declara R$ 1.204.664,11/mês e apura R$ 1.204.664,00 pelo outro caminho", () => {
+  it("declara R$ 1.204.664,11/mês e apura R$ 1.169.870,16 pelo outro caminho", () => {
     expect(agosto.resumo.comDeclarado).toBe(71);
     expect(agosto.resumo.declaradoTotal).toBeCloseTo(1_204_664.11, 2);
-    expect(agosto.resumo.apuradoTotal).toBeCloseTo(1_204_664.0, 2);
-    expect(agosto.resumo.divergenciaTotal).toBeCloseTo(0.11, 2);
+    expect(agosto.resumo.apuradoTotal).toBeCloseTo(1_169_870.16, 2);
+    expect(agosto.resumo.divergenciaTotal).toBeCloseTo(34_793.95, 2);
   });
 
   /**
@@ -148,25 +182,33 @@ describe("os conjuntos de agosto/2026", () => {
 
 describe("a série inteira", () => {
   /**
-   * A identidade nas 9 vigências, e não só na medida.
+   * A conferência nas 9 vigências.
    *
-   * 657 conjuntos ao todo. **Nenhum diverge.** Este é o contrato que a aba
-   * publica na tela a cada leitura: quando um deles divergir, será porque a
-   * fonte mudou de regra — e a tela vai dizer qual conjunto e de quanto.
+   * 657 conjuntos ao todo, todos conferidos, **64 divergentes** — e o número
+   * cresce ao longo da série (6 em janeiro, 12 em agosto) porque cresce a
+   * quantidade de cavalos cujo financiamento terminou e migrou para o lucro do
+   * novo ciclo. É o comportamento esperado da fonte, não deriva do produto: a
+   * dupla contagem do `custoFixo` só aparece nos pares em que essa migração já
+   * aconteceu.
+   *
+   * O que continua sendo contrato duro é o resto: nenhum vínculo quebrado, e
+   * todo conjunto conferido.
    */
-  it("fecha a conferência em todas as vigências", async () => {
+  it("confere todas as vigências e mede quantos divergem", async () => {
     let conjuntos = 0;
     let conferidos = 0;
+    let divergem = 0;
     for (const vigencia of agosto.vigencias) {
       const view = (await getVisaoDeConjuntos(ctx.db, { period: vigencia.effectiveDate }))!;
-      expect(view.resumo.divergem).toBe(0);
       expect(view.resumo.vinculosQuebrados).toBe(0);
       expect(view.resumo.conferidos).toBe(view.resumo.conjuntos);
       conjuntos += view.resumo.conjuntos;
       conferidos += view.resumo.conferidos;
+      divergem += view.resumo.divergem;
     }
     expect(conjuntos).toBe(657);
     expect(conferidos).toBe(657);
+    expect(divergem).toBe(64);
   }, 300_000);
 
   /**
@@ -222,7 +264,9 @@ describe("os filtros", () => {
       period: AGOSTO,
       filtros: { comDivergencia: true },
     }))!;
-    expect(divergentes.linhas).toHaveLength(0);
+    /* Doze em agosto/2026 — ver a conferência acima. O filtro existe para
+       levar quem audita direto a eles. */
+    expect(divergentes.linhas).toHaveLength(12);
 
     const busca = (await getVisaoDeConjuntos(ctx.db, {
       period: AGOSTO,

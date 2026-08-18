@@ -133,6 +133,24 @@ export interface ComponenteNaoApurado {
    * financeira" — um booleano ou uma data nunca deveriam contar ali.
    */
   monetarioPotencial: boolean;
+  /**
+   * Se este é um **número que ninguém classificou**.
+   *
+   * A diferença para `monetarioPotencial` é a direção da dúvida, e ela custou
+   * uma tela mentindo. `monetarioPotencial` pergunta "isto é dinheiro?" e só
+   * responde sim quando a curadoria já disse que é — de modo que uma coluna
+   * nunca olhada responde **não**, some da contagem, e a frota inteira aparece
+   * com "0 componentes sem regra financeira" ao lado de dezenas de colunas
+   * numéricas que ninguém leu. Medido no export real: 62 de 62 cavalos
+   * "apurados", zero pendências, e `lucroVariavelPrevistoCavalo` — R$ 216.173,31
+   * por mês na frota — fora da conta sem aparecer em lugar nenhum.
+   *
+   * Este campo pergunta o contrário: **alguém já descartou que seja dinheiro?**
+   * Enquanto a resposta for não, o número conta como pendência. Classificar uma
+   * coluna como não-monetária é trabalho de curadoria e faz o número cair; o
+   * silêncio, não.
+   */
+  semClassificacao: boolean;
 }
 
 export interface TotalDaGaveta {
@@ -191,7 +209,16 @@ export interface ComposicaoDoEquipamento extends CabecalhoDoEquipamento {
     calculaveis: number;
     /** Componentes monetários que ficaram de fora por falta de regra. */
     semRegraFinanceira: number;
-    /** Verdadeiro quando há dinheiro na tela que o produto não soube apurar. */
+    /**
+     * Números que a curadoria ainda não classificou — ver
+     * {@link ComponenteNaoApurado.semClassificacao}.
+     */
+    semClassificacao: number;
+    /**
+     * Verdadeiro quando há dinheiro na tela que o produto não soube apurar
+     * **ou** número que ninguém classificou. Enquanto for verdadeiro, nenhuma
+     * tela pode afirmar que a apuração deste equipamento está completa.
+     */
     parcial: boolean;
   };
   status: StatusDoEquipamento;
@@ -465,6 +492,20 @@ function ehMonetarioPotencial(
     classificacao?.isMonetary === true ||
     UNIDADES_DE_DINHEIRO.has(classificacao?.unit ?? "")
   );
+}
+
+/**
+ * Se um componente que ficou de fora é um número sobre o qual a curadoria ainda
+ * não se pronunciou.
+ *
+ * Só conta o que tem número nesta vigência: uma coluna sem valor não é dinheiro
+ * que o produto deixou de apurar, e contá-la faria a pendência crescer com
+ * células vazias. Os motivos que já são uma decisão da curadoria — não
+ * monetário, não somável — ficam de fora por definição: neles alguém já
+ * respondeu.
+ */
+function ehSemClassificacao(fato: FatoDoAtivo, motivo: MotivoDeExclusao): boolean {
+  return motivo === "SEMANTICA_NAO_CONFIRMADA" && numeroDe(fato) !== null;
 }
 
 function explicar(
@@ -841,6 +882,7 @@ export function comporDeFatos(
       baseQueFalta: classificacao ? baseQueFalta(classificacao) : null,
       contidoEm,
       monetarioPotencial: ehMonetarioPotencial(classificacao, motivo),
+      semClassificacao: ehSemClassificacao(fato, motivo),
     });
   }
 
@@ -983,6 +1025,7 @@ export async function montarComposicao(
   }
 
   const semRegra = naoApurados.filter((n) => n.monetarioPotencial).length;
+  const semClasse = naoApurados.filter((n) => n.semClassificacao).length;
 
   return {
     entityId,
@@ -1008,7 +1051,8 @@ export async function montarComposicao(
     completude: {
       calculaveis: linhas.length,
       semRegraFinanceira: semRegra,
-      parcial: semRegra > 0,
+      semClassificacao: semClasse,
+      parcial: semRegra > 0 || semClasse > 0,
     },
     status: avaliarStatus({
       presente: fatos.length > 0,

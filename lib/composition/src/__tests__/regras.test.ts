@@ -125,6 +125,81 @@ describe("o portão, nos estados que o banco não guarda", () => {
   });
 });
 
+/**
+ * A contagem de pendências — o número que impedia a tela de mentir e não
+ * impedia.
+ *
+ * O defeito que estes testes travam: `monetarioPotencial` só conta o que a
+ * curadoria **já** classificou como dinheiro, de modo que uma coluna nunca
+ * olhada não contava. A tela somava "0 componentes sem regra financeira" e
+ * concluía completude sobre dezenas de números que ninguém tinha lido.
+ */
+describe("números que ninguém classificou", () => {
+  it("um número sem semântica confirmada conta como pendência", () => {
+    const resultado = comporDeFatos(
+      "CAVALO",
+      [fato({ code: "cavalo.lucro_variavel_previsto_cavalo", value_numeric: "3753.83" })],
+      new Map(),
+    );
+    const item = resultado.naoApurados[0];
+    expect(item.motivo).toBe("SEMANTICA_NAO_CONFIRMADA");
+    expect(item.semClassificacao).toBe(true);
+    /*
+      E continua fora de `monetarioPotencial`: o produto não sabe que é dinheiro,
+      e afirmar que é seria o mesmo erro na direção oposta. São duas perguntas
+      diferentes, e é por isso que são dois campos.
+    */
+    expect(item.monetarioPotencial).toBe(false);
+  });
+
+  it("texto, data e booleano não inflam a contagem", () => {
+    const resultado = comporDeFatos(
+      "CAVALO",
+      [
+        fato({ code: "cavalo.chassi", data_type: "TEXT", value_text: "9BW" }),
+        fato({ code: "cavalo.data", data_type: "DATE", value_date: "2026-08-01" }),
+        fato({ code: "cavalo.ativo", data_type: "BOOLEAN", value_boolean: true }),
+      ],
+      new Map(),
+    );
+    expect(resultado.naoApurados.every((n) => !n.semClassificacao)).toBe(true);
+  });
+
+  it("uma célula sem número não é dinheiro que faltou apurar", () => {
+    const resultado = comporDeFatos(
+      "CAVALO",
+      [fato({ code: "cavalo.qualquer", is_null: true, null_reason: "célula vazia" })],
+      new Map(),
+    );
+    expect(resultado.naoApurados[0].semClassificacao).toBe(false);
+  });
+
+  it("um componente já classificado como não monetário sai da contagem", () => {
+    const resultado = comporDeFatos(
+      "CAVALO",
+      [fato({ code: "cavalo.percentual_icms", value_numeric: "12" })],
+      new Map([
+        [
+          "cavalo.percentual_icms",
+          classificacao({
+            attributeId: "cavalo.percentual_icms",
+            attributeCode: "cavalo.percentual_icms",
+            unit: null,
+            aggregation: "NONE",
+            isMonetary: false,
+          }),
+        ],
+      ]),
+    );
+    /*
+      É este o caminho pelo qual o número desce: alguém olhou a coluna e disse
+      que é alíquota. O silêncio não faz o número descer — só a curadoria faz.
+    */
+    expect(resultado.naoApurados[0].motivo).toBe("NAO_MONETARIO");
+    expect(resultado.naoApurados[0].semClassificacao).toBe(false);
+  });
+});
+
 describe("escopo de conjunto", () => {
   const carreta = [
     fato({ code: "carreta.custo_fixo", value_numeric: "23408.92" }),
@@ -134,6 +209,7 @@ describe("escopo de conjunto", () => {
     fato({ code: "carreta.juros_finame_implemento", value_numeric: "2437.99" }),
     fato({ code: "carreta.custo_aluguel", value_numeric: "0" }),
     fato({ code: "carreta.lucro_fixomodelo_novo_ciclo", value_numeric: "1520.32" }),
+    fato({ code: "carreta.lucro_fixomodelo_novo_ciclo_carreta", value_numeric: "1100.00" }),
   ];
   const mensalConfirmado = new Map(
     carreta.map((f) => [
@@ -153,18 +229,28 @@ describe("escopo de conjunto", () => {
   it("não soma o cavalo dentro da carreta", () => {
     const resultado = comporDeFatos("CARRETA", carreta, mensalConfirmado);
     const mensal = resultado.totais.find((t) => t.gaveta === "MENSAL")!;
-    // finameImplemento 6.639,08 + lucroFixo 1.520,32 — e não custoFixo 23.408,92,
-    // que carrega o financiamento do cavalo.
-    expect(mensal.valor).toBe(8159.4);
+    /*
+      finameImplemento 6.639,08 + a parcela **própria** da carreta 1.100,00.
+
+      Fora ficam as três colunas de conjunto: custoFixo 23.408,92, finame
+      23.408,92 e lucroFixomodeloNovoCiclo 1.520,32 — esta última carrega o
+      lucro fixo do cavalo somado ao da carreta (medido: 284 de 284 pares), e
+      somá-la aqui contava o cavalo duas vezes.
+    */
+    expect(mensal.valor).toBe(7739.08);
     expect(resultado.linhas.map((l) => l.code).sort()).toEqual([
       "carreta.finame_implemento",
-      "carreta.lucro_fixomodelo_novo_ciclo",
+      "carreta.lucro_fixomodelo_novo_ciclo_carreta",
     ]);
   });
 
   it("as colunas de conjunto ficam na tela, com a evidência escrita", () => {
     const resultado = comporDeFatos("CARRETA", carreta, mensalConfirmado);
-    for (const code of ["carreta.custo_fixo", "carreta.finame"]) {
+    for (const code of [
+      "carreta.custo_fixo",
+      "carreta.finame",
+      "carreta.lucro_fixomodelo_novo_ciclo",
+    ]) {
       const item = resultado.naoApurados.find((n) => n.code === code)!;
       expect(item.motivo, code).toBe("ESCOPO_DE_CONJUNTO");
       expect(item.explicacao, code).toContain("conjunto");
@@ -175,10 +261,19 @@ describe("escopo de conjunto", () => {
 
   it("uma parcela cujo total saiu por escopo volta a ser raiz", () => {
     const resultado = comporDeFatos("CARRETA", carreta, mensalConfirmado);
-    // lucroFixomodeloNovoCiclo é parcela de custoFixo, que está fora do escopo.
-    // Se a exclusão do total a levasse junto, sumiriam R$ 1.520,32 da carreta.
+    /*
+      A regra continua valendo, e o caso mudou de dono. `lucroFixomodeloNovoCiclo`
+      era o exemplo dela até 18/08/2026 — parcela de `custoFixo`, que sai por
+      escopo, e por isso voltava a ser raiz. A medição mostrou que ela também é
+      de conjunto, então quem volta a ser raiz agora é a parcela própria da
+      carreta. Se a exclusão dos dois totais a levasse junto, sumiriam R$ 1.100,00
+      que são do implemento.
+    */
+    expect(
+      resultado.linhas.some((l) => l.code === "carreta.lucro_fixomodelo_novo_ciclo_carreta"),
+    ).toBe(true);
     expect(resultado.linhas.some((l) => l.code === "carreta.lucro_fixomodelo_novo_ciclo")).toBe(
-      true,
+      false,
     );
   });
 
@@ -192,6 +287,7 @@ describe("escopo de conjunto", () => {
     expect(regraDe("CARRETA").foraDoEscopo.map((f) => f.code).sort()).toEqual([
       "carreta.custo_fixo",
       "carreta.finame",
+      "carreta.lucro_fixomodelo_novo_ciclo",
       "carreta.lucro_variavel_previsto",
     ]);
     expect(
