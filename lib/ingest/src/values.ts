@@ -141,7 +141,9 @@ export function typeCell(
   if (cell.type === "e") {
     warnings.push({
       code: "ERROR_CELL",
-      message: `Excel error value in column "${options.columnHeader}": ${String(cell.value)}`,
+      message:
+        `A célula da coluna "${options.columnHeader}" traz um erro do Excel ` +
+        `(${String(cell.value)}); o valor entrou como vazio, marcado como inválido.`,
     });
     return { ...nullValue(NullReason.INVALID), warnings };
   }
@@ -175,7 +177,9 @@ export function typeCell(
     if (!date) {
       warnings.push({
         code: "ERROR_CELL",
-        message: `Unreadable date in column "${options.columnHeader}": ${rawText}`,
+        message:
+          `A data na coluna "${options.columnHeader}" não pôde ser lida ` +
+          `(${rawText}); o valor entrou como vazio, marcado como inválido.`,
       });
       return { ...nullValue(NullReason.INVALID), warnings };
     }
@@ -186,7 +190,9 @@ export function typeCell(
       const iso = toIsoDateTime(date);
       warnings.push({
         code: "DATE_WITH_TIME_COMPONENT",
-        message: `Column "${options.columnHeader}" carries a time component (${iso}); stored as ISO-8601 text to avoid truncation.`,
+        message:
+          `A coluna "${options.columnHeader}" traz data com horário (${iso}); ` +
+          `o valor foi guardado completo, como texto, para o horário não se perder.`,
       });
       return {
         valueNumeric: null,
@@ -219,7 +225,9 @@ export function typeCell(
     if (!Number.isFinite(num)) {
       warnings.push({
         code: "ERROR_CELL",
-        message: `Non-finite number in column "${options.columnHeader}": ${rawText}`,
+        message:
+          `O número na coluna "${options.columnHeader}" não é um número válido ` +
+          `(${rawText}); o valor entrou como vazio, marcado como inválido.`,
       });
       return { ...nullValue(NullReason.INVALID), warnings };
     }
@@ -233,15 +241,18 @@ export function typeCell(
       warnings.push({
         code: "AMBIGUOUS_DATE_SERIAL",
         message:
-          `Column "${options.columnHeader}" holds ${num}, which is a plausible Excel date serial` +
-          (asDate ? ` (${toIsoDateTime(asDate)})` : "") +
-          ` but the file did not format it as a date. Stored as NUMERIC pending curation.`,
+          `A coluna "${options.columnHeader}" traz ${num}, que pode ser uma data ` +
+          `do Excel${asDate ? ` (${toIsoDateTime(asDate)})` : ""}, mas o arquivo ` +
+          `não a formatou como data. Guardado como número até a curadoria decidir.`,
       });
     }
     if (options.suspectedSentinelValues?.includes(rawText.trim())) {
       warnings.push({
         code: "SUSPECTED_SENTINEL",
-        message: `Column "${options.columnHeader}" holds ${rawText}, which may mean "not applicable". Stored as NUMERIC; needs a confirmed sentinel rule before it can be treated as absent.`,
+        message:
+          `A coluna "${options.columnHeader}" traz ${rawText}, que pode significar ` +
+          `"não se aplica". Guardado como número: só uma regra confirmada na ` +
+          `curadoria pode tratá-lo como ausência.`,
       });
     }
     const numeric = toNumericString(num);
