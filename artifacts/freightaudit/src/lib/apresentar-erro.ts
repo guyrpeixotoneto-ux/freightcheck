@@ -54,6 +54,17 @@ export interface Apresentacao {
    * ela é a única coisa que se tem, e não uma opinião concorrente.
    */
   mensagemCrua: string | null;
+  /**
+   * O identificador da requisição que falhou, quando o servidor o mandou.
+   *
+   * Aparece **junto com a orientação ou sozinho**, e é a única coisa nesta
+   * forma que não tenta explicar nada. É o que faltava no caso que não tem
+   * explicação nenhuma: a tela dizia `Internal server error`, o `/api/healthz`
+   * dizia `SAUDAVEL`, e as duas coisas eram verdade — porque a causa era um
+   * defeito de código numa rota, que só o log daquela requisição descreve. Sem
+   * este número não havia como dizer *qual* requisição procurar.
+   */
+  requestId: string | null;
   /** O link para o `/healthz`, que só ajuda quando não se orientou nada. */
   mostrarLinkHealthz: boolean;
 }
@@ -119,6 +130,13 @@ export function apresentar(
     contexto: orientacao ? contexto : null,
     orientacao,
     mensagemCrua: orientacao ? null : mensagem,
+    /*
+      Não entra na regra de "uma orientação só": ele não é opinião sobre o que
+      houve, é o endereço da linha de log. Convive com qualquer desfecho, e é
+      exatamente no desfecho sem orientação — o erro que ninguém sabe explicar
+      — que ele é a única coisa acionável que a tela tem para oferecer.
+    */
+    requestId: error instanceof ApiError ? (error.requestId ?? null) : null,
     mostrarLinkHealthz: orientacao === null,
   };
 }

@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
-import { Router, type IRouter, type Response } from "express";
+import {
+  Router,
+  type IRouter,
+  type NextFunction,
+  type Response,
+} from "express";
 import { codigoDoPostgres, db } from "@workspace/db";
 import {
   ImportDeletionRefused,
@@ -23,7 +28,8 @@ import {
   stage,
 } from "@workspace/ingest";
 import { semearContrato } from "@workspace/coverage";
-import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
+import { faltaSchema } from "../lib/schema-ausente";
+import { contextoDeSchema } from "../middlewares/contexto-de-schema";
 
 /**
  * Importações (F1) — receber um arquivo, contar o que saiu dele, e só então
@@ -35,6 +41,7 @@ import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
  * uma decisão humana — é essa separação que o pipeline chama de preview.
  */
 const router: IRouter = Router();
+
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -178,6 +185,21 @@ const CONTEXTO_DE_SCHEMA =
   "nada foi importado e nada se perdeu.";
 
 /**
+ * O que esta superfície sabe dizer quando falta schema — declarado, não escrito
+ * dentro de um `catch`.
+ *
+ * `CONTEXTO_DE_SCHEMA` era passado a `responderSchemaAusente` de dentro dos
+ * dois ajudantes de falha. Continua sendo a mesma frase, no mesmo 503 com o
+ * mesmo diagnóstico; o que mudou é que ela chega lá sem que nenhuma rota
+ * precise reconhecer schema ausente por conta própria. Ver
+ * `middlewares/contexto-de-schema.ts`.
+ */
+router.use(
+  ["/imports", "/import-deletions"],
+  contextoDeSchema(CONTEXTO_DE_SCHEMA),
+);
+
+/**
  * O motivo gravado num run que falhou, quando a causa foi schema atrasado.
  *
  * Diferente de `CONTEXTO_DE_SCHEMA` num ponto: este texto vai para
@@ -318,24 +340,28 @@ function registrarFalha(
  * A falha de uma rota que escreve: 503 para schema, 422 para recusa, 500 para o
  * resto.
  */
-async function responderFalhaDeEscrita(
+function responderFalhaDeEscrita(
   res: Response,
+  next: NextFunction,
   log: Log,
   err: unknown,
   operacao: string,
   importRunId?: string,
-): Promise<void> {
+): void {
   registrarFalha(log, err, operacao, importRunId);
   const desfecho = classificarFalhaDeImportacao(err);
-  if (desfecho.tipo === "SCHEMA") {
-    await responderSchemaAusente(res, CONTEXTO_DE_SCHEMA);
-    return;
-  }
   if (desfecho.tipo === "REGRA") {
     res.status(422).json({ error: desfecho.mensagem });
     return;
   }
-  res.status(500).json({ error: FALHA_INESPERADA });
+  /*
+    SCHEMA e INESPERADO seguem para `middlewares/contrato-json.ts`: o 503 com
+    diagnóstico e o 500 com `requestId` são os mesmos para a API inteira, e o
+    contexto desta superfície está declarado no `router.use` lá em cima. O que
+    esta função ainda decide é o único desfecho que só ela sabe reconhecer — a
+    recusa que o pipeline escreve para quem opera.
+  */
+  next(err);
 }
 
 /**
@@ -346,18 +372,14 @@ async function responderFalhaDeEscrita(
  * — é o caso em que a tela de Importações abre vazia num banco desatualizado, e
  * a diferença entre "não há importações" e "este banco não sabe respondê-las".
  */
-async function responderFalhaDeLeitura(
-  res: Response,
+function responderFalhaDeLeitura(
+  next: NextFunction,
   log: Log,
   err: unknown,
   operacao: string,
-): Promise<void> {
+): void {
   registrarFalha(log, err, operacao);
-  if (faltaSchema(err)) {
-    await responderSchemaAusente(res, CONTEXTO_DE_SCHEMA);
-    return;
-  }
-  res.status(500).json({ error: FALHA_INESPERADA });
+  next(err);
 }
 
 /**
@@ -390,15 +412,15 @@ async function readInBackground(importRunId: string, log: Log): Promise<void> {
   }
 }
 
-router.get("/imports", async (req, res): Promise<void> => {
+router.get("/imports", async (req, res, next): Promise<void> => {
   try {
     res.json(await listImportRuns(db));
   } catch (err) {
-    await responderFalhaDeLeitura(res, req.log, err, "listagem de importações");
+    responderFalhaDeLeitura(next, req.log, err, "listagem de importações");
   }
 });
 
-router.post("/imports", async (req, res): Promise<void> => {
+router.post("/imports", async (req, res, next): Promise<void> => {
   const decoded = decodeUpload(req.body);
   if (!decoded.ok) {
     res.status(400).json({ error: decoded.error });
@@ -449,11 +471,11 @@ router.post("/imports", async (req, res): Promise<void> => {
 
     void readInBackground(received.importRunId, req.log);
   } catch (err) {
-    await responderFalhaDeEscrita(res, req.log, err, "recebimento do arquivo");
+    responderFalhaDeEscrita(res, next, req.log, err, "recebimento do arquivo");
   }
 });
 
-router.get("/imports/:id/status", async (req, res): Promise<void> => {
+router.get("/imports/:id/status", async (req, res, next): Promise<void> => {
   if (!UUID.test(req.params.id)) {
     res.status(400).json({ error: "Identificador de importação inválido." });
     return;
@@ -466,11 +488,11 @@ router.get("/imports/:id/status", async (req, res): Promise<void> => {
     }
     res.json(status);
   } catch (err) {
-    await responderFalhaDeLeitura(res, req.log, err, "estado da importação");
+    responderFalhaDeLeitura(next, req.log, err, "estado da importação");
   }
 });
 
-router.get("/imports/:id", async (req, res): Promise<void> => {
+router.get("/imports/:id", async (req, res, next): Promise<void> => {
   if (!UUID.test(req.params.id)) {
     res.status(400).json({ error: "Identificador de importação inválido." });
     return;
@@ -487,11 +509,11 @@ router.get("/imports/:id", async (req, res): Promise<void> => {
     ]);
     res.json({ run, sheets, snapshots });
   } catch (err) {
-    await responderFalhaDeLeitura(res, req.log, err, "detalhe da importação");
+    responderFalhaDeLeitura(next, req.log, err, "detalhe da importação");
   }
 });
 
-router.post("/imports/:id/promote", async (req, res): Promise<void> => {
+router.post("/imports/:id/promote", async (req, res, next): Promise<void> => {
   if (!UUID.test(req.params.id)) {
     res.status(400).json({ error: "Identificador de importação inválido." });
     return;
@@ -580,8 +602,9 @@ router.post("/imports/:id/promote", async (req, res): Promise<void> => {
     // Todo o resto passa pela classificação: schema atrasado vira 503 com o
     // diagnóstico do banco, e não um 422 que manda mexer numa planilha que está
     // certa. Era daqui que saía a consulta crua para a tela.
-    await responderFalhaDeEscrita(
+    responderFalhaDeEscrita(
       res,
+      next,
       req.log,
       err,
       "aprovação da importação",
@@ -598,7 +621,7 @@ router.post("/imports/:id/promote", async (req, res): Promise<void> => {
  * fatos. Esta rota é o que transforma a confirmação numa decisão — e é a mesma
  * conta que a exclusão vai fazer, escrita uma vez só em `planImportDeletion`.
  */
-router.get("/imports/:id/deletion", async (req, res): Promise<void> => {
+router.get("/imports/:id/deletion", async (req, res, next): Promise<void> => {
   if (!UUID.test(req.params.id)) {
     res.status(400).json({ error: "Identificador de importação inválido." });
     return;
@@ -611,7 +634,7 @@ router.get("/imports/:id/deletion", async (req, res): Promise<void> => {
     }
     res.json(plan);
   } catch (err) {
-    await responderFalhaDeLeitura(res, req.log, err, "plano de exclusão");
+    responderFalhaDeLeitura(next, req.log, err, "plano de exclusão");
   }
 });
 
@@ -626,7 +649,7 @@ router.get("/imports/:id/deletion", async (req, res): Promise<void> => {
  * posterior — voltam como 409 com a frase inteira. Não são erros do servidor:
  * são a ordem em que as coisas podem ser desfeitas.
  */
-router.delete("/imports/:id", async (req, res): Promise<void> => {
+router.delete("/imports/:id", async (req, res, next): Promise<void> => {
   if (!UUID.test(req.params.id)) {
     res.status(400).json({ error: "Identificador de importação inválido." });
     return;
@@ -653,8 +676,9 @@ router.delete("/imports/:id", async (req, res): Promise<void> => {
       });
       return;
     }
-    await responderFalhaDeEscrita(
+    responderFalhaDeEscrita(
       res,
+      next,
       req.log,
       err,
       "exclusão da importação",
@@ -664,11 +688,11 @@ router.delete("/imports/:id", async (req, res): Promise<void> => {
 });
 
 /** O histórico das exclusões — o que já não está mais aqui, e por ordem de quem. */
-router.get("/import-deletions", async (req, res): Promise<void> => {
+router.get("/import-deletions", async (req, res, next): Promise<void> => {
   try {
     res.json(await listImportDeletions(db));
   } catch (err) {
-    await responderFalhaDeLeitura(res, req.log, err, "histórico de exclusões");
+    responderFalhaDeLeitura(next, req.log, err, "histórico de exclusões");
   }
 });
 

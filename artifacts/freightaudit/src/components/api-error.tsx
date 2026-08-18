@@ -93,6 +93,20 @@ export function ApiErrorNotice({
           {vista.mensagemCrua}
         </p>
       )}
+      {/*
+        O identificador da requisição — a única coisa acionável quando não há
+        orientação nenhuma. Era o buraco desta tela: `Internal server error` com
+        o `/healthz` respondendo `SAUDAVEL`, e nada que ligasse o que se via ao
+        que o servidor registrou. Com este número, quem está na tela consegue
+        dizer *qual* chamada falhou a quem consegue ler o log.
+      */}
+      {vista.requestId && (
+        <p className="text-xs">
+          Requisição{" "}
+          <code className="font-mono select-all">{vista.requestId}</code> — é
+          por este número que o log descreve a falha.
+        </p>
+      )}
       {vista.mostrarLinkHealthz && (
         <p className="text-xs">
           <a href="/api/healthz" className="underline">

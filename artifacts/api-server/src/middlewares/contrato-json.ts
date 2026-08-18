@@ -1,4 +1,8 @@
-import type { ErrorRequestHandler, RequestHandler } from "express";
+import type { ErrorRequestHandler, Request, RequestHandler, Response } from "express";
+import { erroDoPostgres } from "@workspace/db";
+import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
+import { statusDaRecusa } from "../lib/recusa-de-dominio";
+import { ehFraseParaQuemOpera } from "../lib/classificar-falha";
 
 /**
  * O contrato desta API, sustentado pelo servidor — e não por cada rota.
@@ -64,10 +68,34 @@ function podeDetalhar(): boolean {
   return process.env["NODE_ENV"] !== "production";
 }
 
+/**
+ * O detalhe passa pela mesma peneira de toda mensagem que vira resposta.
+ *
+ * A chave decide **se** há detalhe; ela nunca decidiu **o quê**, e essa era a
+ * brecha. `err.message` de um `DrizzleQueryError` é a consulta com os
+ * parâmetros — `Failed query: INSERT INTO "snapshot_entity_type" … params: …` —
+ * e ela saía inteira em qualquer ambiente que não fosse produção, além de sair
+ * em produção para quem ligasse `API_ERRO_DETALHADO=1`.
+ *
+ * Enquanto cada rota respondia o seu próprio 500 com frase fixa, o detalhe não
+ * alcançava as rotas que mexem em banco. Alcança agora que todas passam por
+ * aqui — e a resposta certa não é desligar o detalhe, que é o que economiza uma
+ * ida ao log num defeito nosso: é dizer o que dá para dizer sem carregar SQL.
+ *
+ * O que sobra quando o texto não passa é o que nunca foi sensível e é o que se
+ * quer saber primeiro: **a classe do erro e o SQLSTATE**. A mensagem inteira
+ * continua no log deste `requestId`, que é onde ela sempre esteve.
+ */
 function detalheDe(err: unknown): string | undefined {
   if (!podeDetalhar()) return undefined;
-  if (err instanceof Error) return `${err.name}: ${err.message}`;
-  return String(err);
+  const texto = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  if (ehFraseParaQuemOpera(texto)) return texto;
+  const nome = err instanceof Error ? err.name : "erro";
+  const codigo = erroDoPostgres(err)?.code;
+  return (
+    `${nome}${codigo ? ` (SQLSTATE ${codigo})` : ""} — a mensagem carrega a ` +
+    `consulta e ficou no log desta requisição.`
+  );
 }
 
 /**
@@ -80,7 +108,7 @@ function detalheDe(err: unknown): string | undefined {
  * quebrou". Qualquer `status` de 5xx é ignorado — se foi falha nossa, o número
  * é 500 e a explicação está no log, não no erro que subiu.
  */
-function statusDeRecusa(err: unknown): number | null {
+function statusDoParser(err: unknown): number | null {
   const candidato = (err as { status?: unknown; statusCode?: unknown } | null)
     ?.status;
   const alternativo = (err as { statusCode?: unknown } | null)?.statusCode;
@@ -121,50 +149,43 @@ export const rotaDesconhecida: RequestHandler = (req, res) => {
   });
 };
 
+/** O `code` de uma recusa nomeada pelo domínio — ver `lib/recusa-de-dominio.ts`. */
+export const CODIGO_RECUSA = "RECUSA";
+
 /**
- * A última linha: o que sobrou de erro vira JSON, sempre.
+ * O contexto de um schema ausente que este handler — e só ele — sabe escrever.
  *
- * Três desfechos, nesta ordem:
+ * Uma rota que declarasse o seu próprio texto voltaria a precisar de um
+ * `catch`, e é o `catch` que este arquivo existe para eliminar. O que sobra é o
+ * que dá para dizer sem estar dentro da rota, e é honesto: **qual** pedido
+ * parou e **com que SQLSTATE** o banco o recusou.
  *
- * 1. **Cabeçalho já enviado.** Não há status para trocar. Se a resposta em
- *    curso é um stream de eventos — o `/assistant/ask` com `text/event-stream`
- *    —, o erro sai como o último evento, que é onde a tela já sabe procurá-lo.
- *    Qualquer outro caso só pode ser encerrado.
- * 2. **Recusa do parser de corpo.** O status dele é preservado (400, 413, 415)
- *    e a frase diz o que estava errado no pedido.
- * 3. **Falha nossa.** 500, com `code` e `requestId`, e o erro inteiro — com
- *    stack — na linha de log deste `requestId`.
+ * Recomendação nenhuma sai daqui. O que houve com o banco, se há risco e o que
+ * resolve vêm de `diagnosticar`, a mesma autoridade que responde ao `/healthz`
+ * — ver `lib/schema-ausente.ts`. O SQLSTATE atravessa (é um código, não revela
+ * nada) e a mensagem do driver não: ela carrega host, usuário e o trecho que
+ * falhou, e vai só para o log deste `requestId`.
  */
-export const erroEmJson: ErrorRequestHandler = (err, req, res, _next) => {
-  req.log?.error({ err }, "Erro não tratado — respondido pelo contrato JSON");
+function contextoDeSchemaAusente(req: Request, err: unknown): string {
+  const codigo = erroDoPostgres(err)?.code;
+  const doRouter = req.contextoDeSchema;
+  const sqlstate = codigo ? ` O banco recusou com SQLSTATE ${codigo}.` : "";
+  if (doRouter) return `${doRouter}${sqlstate}`;
+  return (
+    `${req.method} ${req.path} parou porque este banco não tem parte do ` +
+    `schema que esta rota lê.${sqlstate}`
+  );
+}
 
-  if (res.headersSent) {
-    const tipo = String(res.getHeader("content-type") ?? "");
-    if (tipo.includes("text/event-stream")) {
-      res.write(
-        `event: erro\ndata: ${JSON.stringify({
-          error: "A resposta foi interrompida por uma falha do servidor.",
-          code: CODIGO_ERRO_INTERNO,
-          requestId: req.id,
-          ...(detalheDe(err) ? { detalhe: detalheDe(err) } : {}),
-        })}\n\n`,
-      );
-    }
-    res.end();
-    return;
-  }
-
-  const recusa = statusDeRecusa(err);
-  if (recusa !== null) {
-    res.status(recusa).json({
-      error: frasePara(recusa, err),
-      code: CODIGO_PEDIDO_INVALIDO,
-      requestId: req.id,
-      ...(detalheDe(err) ? { detalhe: detalheDe(err) } : {}),
-    });
-    return;
-  }
-
+/**
+ * O 500 de sempre — a última saída, quando nada acima classificou o erro.
+ *
+ * Está numa função porque é chamado de dois lugares: do fluxo normal e do
+ * `catch` que protege a classificação. Um handler de erro que **lança** deixa o
+ * Express cair no `finalhandler`, que responde `text/html` — exatamente o que
+ * este arquivo inteiro existe para impedir.
+ */
+function responderFalhaInterna(req: Request, res: Response, err: unknown): void {
   res.status(500).json({
     error:
       "O servidor falhou ao processar este pedido. Nada foi gravado por esta " +
@@ -173,4 +194,104 @@ export const erroEmJson: ErrorRequestHandler = (err, req, res, _next) => {
     requestId: req.id,
     ...(detalheDe(err) ? { detalhe: detalheDe(err) } : {}),
   });
+}
+
+/**
+ * A última linha: o que sobrou de erro vira JSON, sempre.
+ *
+ * Cinco desfechos, **nesta ordem** — e a ordem é o desenho, não arrumação:
+ *
+ * 1. **Cabeçalho já enviado.** Não há status para trocar. Se a resposta em
+ *    curso é um stream de eventos — o `/assistant/ask` com `text/event-stream`
+ *    —, o erro sai como o último evento, que é onde a tela já sabe procurá-lo.
+ *    Qualquer outro caso só pode ser encerrado.
+ * 2. **Recusa do parser de corpo.** O status dele é preservado (400, 413, 415)
+ *    e a frase diz o que estava errado no pedido.
+ * 3. **Recusa nomeada pelo domínio.** 404, 400, 409 ou 422 conforme a classe,
+ *    com a frase que o domínio escreveu. Vem antes do schema porque uma recusa
+ *    é uma resposta, e não uma falha: perguntar pelo banco primeiro faria uma
+ *    vigência inexistente parecer um banco quebrado.
+ * 4. **Falta schema.** 503 com o diagnóstico de `diagnosticar` — a mesma
+ *    autoridade que responde ao `/healthz`. É o caso que o `/healthz` sozinho
+ *    não enxerga: pela contagem de migrations está tudo em dia e, ainda assim,
+ *    um objeto que elas criam não está lá.
+ * 5. **Falha nossa.** 500, com `code` e `requestId`, e o erro inteiro — com
+ *    stack — na linha de log deste `requestId`.
+ *
+ * Os desfechos 3 e 4 eram, até aqui, trabalho de cada rota: trinta e nove
+ * `try/catch` traduziam a recusa e quatro arquivos perguntavam por schema. Quem
+ * não fizesse as duas coisas — e a maioria não fazia — respondia
+ * `{"error": "Internal server error"}`, a constante que esta API não emite mais
+ * em lugar nenhum. Aqui as perguntas são feitas uma vez, para todas as rotas, e
+ * **nenhuma rota pode deixar de fazê-las esquecendo de escrever um `catch`.**
+ *
+ * O `async` e o `catch` de dentro andam juntos: o desfecho 4 abre conexão para
+ * observar o banco, e um handler de erro cuja promessa rejeita deixa o Express
+ * responder HTML. Se a classificação falhar, o pedido cai no 500 — que é a
+ * resposta certa para "nem o diagnóstico foi possível".
+ */
+export const erroEmJson: ErrorRequestHandler = (err, req, res, _next) => {
+  void (async () => {
+    if (res.headersSent) {
+      req.log?.error({ err }, "Erro não tratado — respondido pelo contrato JSON");
+      const tipo = String(res.getHeader("content-type") ?? "");
+      if (tipo.includes("text/event-stream")) {
+        res.write(
+          `event: erro\ndata: ${JSON.stringify({
+            error: "A resposta foi interrompida por uma falha do servidor.",
+            code: CODIGO_ERRO_INTERNO,
+            requestId: req.id,
+            ...(detalheDe(err) ? { detalhe: detalheDe(err) } : {}),
+          })}\n\n`,
+        );
+      }
+      res.end();
+      return;
+    }
+
+    const doParser = statusDoParser(err);
+    if (doParser !== null) {
+      req.log?.warn({ err }, "Pedido recusado pelo parser de corpo");
+      res.status(doParser).json({
+        error: frasePara(doParser, err),
+        code: CODIGO_PEDIDO_INVALIDO,
+        requestId: req.id,
+        ...(detalheDe(err) ? { detalhe: detalheDe(err) } : {}),
+      });
+      return;
+    }
+
+    try {
+      /*
+        Uma recusa nomeada não é defeito: sai como `warn`, e sem `detalhe` — a
+        frase dela **é** o detalhe, escrita pelo domínio para quem lê.
+      */
+      const daRecusa = statusDaRecusa(err);
+      if (daRecusa !== null) {
+        req.log?.warn({ err }, "Recusa nomeada pelo domínio");
+        res.status(daRecusa).json({
+          error: err instanceof Error ? err.message : "Pedido recusado.",
+          code: CODIGO_RECUSA,
+          requestId: req.id,
+        });
+        return;
+      }
+
+      if (faltaSchema(err)) {
+        req.log?.error({ err }, "Schema ausente — respondido com diagnóstico");
+        await responderSchemaAusente(res, contextoDeSchemaAusente(req, err));
+        return;
+      }
+    } catch (falhaDaClassificacao) {
+      req.log?.error(
+        { err, falhaDaClassificacao },
+        "Erro não tratado — a classificação também falhou",
+      );
+      if (!res.headersSent) responderFalhaInterna(req, res, err);
+      return;
+    }
+
+    req.log?.error({ err }, "Erro não tratado — respondido pelo contrato JSON");
+    responderFalhaInterna(req, res, err);
+  })();
 };

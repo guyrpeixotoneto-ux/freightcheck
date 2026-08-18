@@ -64,23 +64,18 @@ const criticidade = (v: unknown): Criticidade | undefined =>
  * abre.
  */
 router.get("/coverage", async (req, res): Promise<void> => {
-  try {
-    const q = req.query as Record<string, unknown>;
-    res.json(
-      await visaoDaCobertura(db, {
-        datasetFamily: texto(q.familia),
-        scopeHash: texto(q.escopo),
-        canal: q.canal === undefined ? undefined : (texto(q.canal) ?? null),
-        entityType: texto(q.equipamento),
-        vigencias: numero(q.vigencias, 6, 36),
-        criticidadeMinima: criticidade(q.criticidade),
-        limiteDeLacunas: numero(q.limiteLacunas, 50, 500),
-      }),
-    );
-  } catch (err) {
-    req.log.error({ err }, "Error building coverage view");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  const q = req.query as Record<string, unknown>;
+  res.json(
+    await visaoDaCobertura(db, {
+      datasetFamily: texto(q.familia),
+      scopeHash: texto(q.escopo),
+      canal: q.canal === undefined ? undefined : (texto(q.canal) ?? null),
+      entityType: texto(q.equipamento),
+      vigencias: numero(q.vigencias, 6, 36),
+      criticidadeMinima: criticidade(q.criticidade),
+      limiteDeLacunas: numero(q.limiteLacunas, 50, 500),
+    }),
+  );
 });
 
 /** Uma célula da matriz, aberta: lacunas, contribuintes e inesperados. */
@@ -89,22 +84,13 @@ router.get("/coverage/cell/:snapshotId/:entityType", async (req, res): Promise<v
     res.status(400).json({ error: "Identificador de vigência inválido." });
     return;
   }
-  try {
-    res.json(
-      await detalheDaCelula(
-        db,
-        req.params.snapshotId,
-        req.params.entityType.toUpperCase(),
-      ),
-    );
-  } catch (err) {
-    if (err instanceof CelulaNaoEncontrada) {
-      res.status(404).json({ error: err.message });
-      return;
-    }
-    req.log.error({ err }, "Error opening coverage cell");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  res.json(
+    await detalheDaCelula(
+      db,
+      req.params.snapshotId,
+      req.params.entityType.toUpperCase(),
+    ),
+  );
 });
 
 /** As entidades atingidas por uma lacuna, com o motivo de cada uma. */
@@ -113,58 +99,43 @@ router.get("/coverage/gap/:snapshotId/:attributeCode", async (req, res): Promise
     res.status(400).json({ error: "Identificador de vigência inválido." });
     return;
   }
-  try {
-    const detalhe = await detalheDaLacuna(
-      db,
-      req.params.snapshotId,
-      req.params.attributeCode,
-      numero(req.query.limite, 200, 2000),
-    );
-    if (!detalhe) {
-      res.status(404).json({ error: "Vigência ou atributo não encontrado." });
-      return;
-    }
-    res.json(detalhe);
-  } catch (err) {
-    req.log.error({ err }, "Error opening coverage gap");
-    res.status(500).json({ error: "Internal server error" });
+  const detalhe = await detalheDaLacuna(
+    db,
+    req.params.snapshotId,
+    req.params.attributeCode,
+    numero(req.query.limite, 200, 2000),
+  );
+  if (!detalhe) {
+    res.status(404).json({ error: "Vigência ou atributo não encontrado." });
+    return;
   }
+  res.json(detalhe);
 });
 
 /** A série de um atributo ao longo das vigências — a quebra de padrão. */
 router.get("/coverage/history/:attributeCode", async (req, res): Promise<void> => {
-  try {
-    const q = req.query as Record<string, unknown>;
-    res.json(
-      await historicoDoAtributo(db, req.params.attributeCode, {
-        scopeHash: texto(q.escopo),
-        canal: q.canal === undefined ? undefined : (texto(q.canal) ?? null),
-        limite: numero(q.limite, 24, 120),
-      }),
-    );
-  } catch (err) {
-    req.log.error({ err }, "Error building attribute coverage history");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  const q = req.query as Record<string, unknown>;
+  res.json(
+    await historicoDoAtributo(db, req.params.attributeCode, {
+      scopeHash: texto(q.escopo),
+      canal: q.canal === undefined ? undefined : (texto(q.canal) ?? null),
+      limite: numero(q.limite, 24, 120),
+    }),
+  );
 });
 
 /** O que apareceu de novo, com o provável equivalente e o status de curadoria. */
 router.get("/coverage/discoveries", async (req, res): Promise<void> => {
-  try {
-    const q = req.query as Record<string, unknown>;
-    res.json(
-      await descobertas(db, {
-        datasetFamily: texto(q.familia),
-        scopeHash: texto(q.escopo),
-        canal: q.canal === undefined ? undefined : (texto(q.canal) ?? null),
-        desdeVigencia: texto(q.desde),
-        limite: numero(q.limite, 100, 500),
-      }),
-    );
-  } catch (err) {
-    req.log.error({ err }, "Error listing coverage discoveries");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  const q = req.query as Record<string, unknown>;
+  res.json(
+    await descobertas(db, {
+      datasetFamily: texto(q.familia),
+      scopeHash: texto(q.escopo),
+      canal: q.canal === undefined ? undefined : (texto(q.canal) ?? null),
+      desdeVigencia: texto(q.desde),
+      limite: numero(q.limite, 100, 500),
+    }),
+  );
 });
 
 /** De onde veio um valor: a cadeia até a célula do arquivo original. */
@@ -174,17 +145,12 @@ router.get("/coverage/provenance/:factId", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Identificador de fato inválido." });
     return;
   }
-  try {
-    const p = await provenienciaDoFato(db, factId);
-    if (!p) {
-      res.status(404).json({ error: "Fato não encontrado." });
-      return;
-    }
-    res.json(p);
-  } catch (err) {
-    req.log.error({ err }, "Error building provenance");
-    res.status(500).json({ error: "Internal server error" });
+  const p = await provenienciaDoFato(db, factId);
+  if (!p) {
+    res.status(404).json({ error: "Fato não encontrado." });
+    return;
   }
+  res.json(p);
 });
 
 /**
@@ -208,48 +174,38 @@ router.get("/coverage/contract", (_req, res): void => {
  * sustenta "alguém digitou este nome", nunca "esta pessoa decidiu".
  */
 router.post("/coverage/decisions", async (req, res): Promise<void> => {
-  try {
-    const b = (req.body ?? {}) as Record<string, unknown>;
-    const status = b.status === "DISPENSADO" ? "DISPENSADO" : "CONFIRMADO";
+  const b = (req.body ?? {}) as Record<string, unknown>;
+  const status = b.status === "DISPENSADO" ? "DISPENSADO" : "CONFIRMADO";
 
-    const datasetFamily = texto(b.datasetFamily);
-    const entityType = texto(b.entityType);
-    const attributeCode = texto(b.attributeCode);
-    const efetivoDe = texto(b.efetivoDe);
-    if (!datasetFamily || !entityType || !attributeCode || !efetivoDe) {
-      res.status(400).json({
-        error:
-          "Uma decisão precisa dizer sobre o que ela é: família, equipamento, atributo e a partir de quando vale.",
-      });
-      return;
-    }
-
-    await registrarDecisao(db, {
-      datasetFamily,
-      canal: b.canal === undefined ? undefined : (texto(b.canal) ?? null),
-      scopeKey: b.scopeKey === undefined ? undefined : (texto(b.scopeKey) ?? null),
-      entityType: entityType.toUpperCase(),
-      attributeCode,
-      status,
-      criticidade: criticidade(b.criticidade),
-      efetivoDe,
-      efetivoAte: texto(b.efetivoAte) ?? null,
-      sucessor: texto(b.sucessor) ?? null,
-      motivo: typeof b.motivo === "string" ? b.motivo : "",
-      evidencia: (b.evidencia as Record<string, unknown>) ?? {},
-      ator: req.user!.email,
+  const datasetFamily = texto(b.datasetFamily);
+  const entityType = texto(b.entityType);
+  const attributeCode = texto(b.attributeCode);
+  const efetivoDe = texto(b.efetivoDe);
+  if (!datasetFamily || !entityType || !attributeCode || !efetivoDe) {
+    res.status(400).json({
+      error:
+        "Uma decisão precisa dizer sobre o que ela é: família, equipamento, atributo e a partir de quando vale.",
     });
-
-    res.status(201).json({ ok: true });
-  } catch (err) {
-    if (err instanceof DecisaoRecusada) {
-      /* Recusa de regra de negócio, escrita para quem opera. Nunca um 500. */
-      res.status(422).json({ error: err.message });
-      return;
-    }
-    req.log.error({ err }, "Error recording coverage decision");
-    res.status(500).json({ error: "Internal server error" });
+    return;
   }
+
+  await registrarDecisao(db, {
+    datasetFamily,
+    canal: b.canal === undefined ? undefined : (texto(b.canal) ?? null),
+    scopeKey: b.scopeKey === undefined ? undefined : (texto(b.scopeKey) ?? null),
+    entityType: entityType.toUpperCase(),
+    attributeCode,
+    status,
+    criticidade: criticidade(b.criticidade),
+    efetivoDe,
+    efetivoAte: texto(b.efetivoAte) ?? null,
+    sucessor: texto(b.sucessor) ?? null,
+    motivo: typeof b.motivo === "string" ? b.motivo : "",
+    evidencia: (b.evidencia as Record<string, unknown>) ?? {},
+    ator: req.user!.email,
+  });
+
+  res.status(201).json({ ok: true });
 });
 
 /**
@@ -266,50 +222,40 @@ router.post("/coverage/decisions", async (req, res): Promise<void> => {
  * nunca "esta pessoa decidiu".
  */
 router.post("/coverage/fleet-decisions", async (req, res): Promise<void> => {
-  try {
-    const b = (req.body ?? {}) as Record<string, unknown>;
-    const status = b.status === "ESPERADA" ? "ESPERADA" : "BAIXA";
+  const b = (req.body ?? {}) as Record<string, unknown>;
+  const status = b.status === "ESPERADA" ? "ESPERADA" : "BAIXA";
 
-    const datasetFamily = texto(b.datasetFamily);
-    const entityType = texto(b.entityType);
-    const entityId = texto(b.entityId);
-    const efetivoDe = texto(b.efetivoDe);
-    if (!datasetFamily || !entityType || !entityId || !efetivoDe) {
-      res.status(400).json({
-        error:
-          "Uma decisão de frota precisa dizer sobre o que ela é: família, equipamento, qual entidade e a partir de quando vale.",
-      });
-      return;
-    }
-    if (!UUID.test(entityId)) {
-      res.status(400).json({ error: "Identificador de entidade inválido." });
-      return;
-    }
-
-    await registrarBaixa(db, {
-      datasetFamily,
-      canal: b.canal === undefined ? undefined : (texto(b.canal) ?? null),
-      scopeKey: b.scopeKey === undefined ? undefined : (texto(b.scopeKey) ?? null),
-      entityType: entityType.toUpperCase(),
-      entityId,
-      status,
-      efetivoDe,
-      efetivoAte: texto(b.efetivoAte) ?? null,
-      motivo: typeof b.motivo === "string" ? b.motivo : "",
-      evidencia: (b.evidencia as Record<string, unknown>) ?? {},
-      ator: req.user!.email,
+  const datasetFamily = texto(b.datasetFamily);
+  const entityType = texto(b.entityType);
+  const entityId = texto(b.entityId);
+  const efetivoDe = texto(b.efetivoDe);
+  if (!datasetFamily || !entityType || !entityId || !efetivoDe) {
+    res.status(400).json({
+      error:
+        "Uma decisão de frota precisa dizer sobre o que ela é: família, equipamento, qual entidade e a partir de quando vale.",
     });
-
-    res.status(201).json({ ok: true });
-  } catch (err) {
-    if (err instanceof BaixaRecusada) {
-      /* Recusa de regra de negócio, escrita para quem opera. Nunca um 500. */
-      res.status(422).json({ error: err.message });
-      return;
-    }
-    req.log.error({ err }, "Error recording fleet decision");
-    res.status(500).json({ error: "Internal server error" });
+    return;
   }
+  if (!UUID.test(entityId)) {
+    res.status(400).json({ error: "Identificador de entidade inválido." });
+    return;
+  }
+
+  await registrarBaixa(db, {
+    datasetFamily,
+    canal: b.canal === undefined ? undefined : (texto(b.canal) ?? null),
+    scopeKey: b.scopeKey === undefined ? undefined : (texto(b.scopeKey) ?? null),
+    entityType: entityType.toUpperCase(),
+    entityId,
+    status,
+    efetivoDe,
+    efetivoAte: texto(b.efetivoAte) ?? null,
+    motivo: typeof b.motivo === "string" ? b.motivo : "",
+    evidencia: (b.evidencia as Record<string, unknown>) ?? {},
+    ator: req.user!.email,
+  });
+
+  res.status(201).json({ ok: true });
 });
 
 /**
@@ -326,22 +272,12 @@ router.post("/coverage/fleet-decisions", async (req, res): Promise<void> => {
  * "não havia mais nada a refazer".
  */
 router.post("/coverage/aggregate/rebuild", async (req, res): Promise<void> => {
-  try {
-    res.json(await refazerAgregado(db));
-  } catch (err) {
-    req.log.error({ err }, "Error rebuilding coverage aggregate");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  res.json(await refazerAgregado(db));
 });
 
 /** Quais vigências estão sem agregado — a leitura que o `POST` acima repara. */
 router.get("/coverage/aggregate/missing", async (req, res): Promise<void> => {
-  try {
-    res.json(await vigenciasSemAgregado(db));
-  } catch (err) {
-    req.log.error({ err }, "Error listing snapshots without coverage aggregate");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  res.json(await vigenciasSemAgregado(db));
 });
 
 /**
@@ -353,12 +289,7 @@ router.get("/coverage/aggregate/missing", async (req, res): Promise<void> => {
  * peça. Chamada pela promoção, que é quando o dicionário pode ter crescido.
  */
 router.post("/coverage/contract/seed", async (req, res): Promise<void> => {
-  try {
-    res.json(await semearContrato(db));
-  } catch (err) {
-    req.log.error({ err }, "Error seeding coverage contract");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  res.json(await semearContrato(db));
 });
 
 export default router;

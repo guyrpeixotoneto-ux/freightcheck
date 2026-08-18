@@ -21,6 +21,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
+import { erroEmJson } from "../../middlewares/contrato-json";
 import * as XLSX from "xlsx";
 
 const getCurationQueue = vi.hoisted(() => vi.fn());
@@ -69,6 +70,13 @@ beforeAll(async () => {
     next();
   });
   app.use(router);
+  /*
+    O contrato JSON, montado como no `app.ts`. Não é cerimônia de teste: desde
+    que a tradução das recusas e o diagnóstico de schema saíram dos `catch` das
+    rotas, é ele quem responde 404, 400, 422, 503 e 500 — e um app de teste sem
+    ele mede o `finalhandler` do Express, que devolve HTML.
+  */
+  app.use(erroEmJson);
   await new Promise<void>((resolve) => {
     servidor = app.listen(0, () => resolve());
   });

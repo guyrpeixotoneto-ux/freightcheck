@@ -1,17 +1,13 @@
-import {
-  Router,
-  type IRouter,
-  type NextFunction,
-  type Request,
-  type Response,
-} from "express";
-import { db, erroDoPostgres } from "@workspace/db";
+import { Router, type IRouter } from "express";
+import { db } from "@workspace/db";
 import {
   rascunharDefinicao,
   sugerirFormula,
   sugerirSemantica,
 } from "@workspace/assistant";
-import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
+import { faltaSchema } from "../lib/schema-ausente";
+import { classificarFalha } from "../lib/classificar-falha";
+import { contextoDeSchema } from "../middlewares/contexto-de-schema";
 import {
   aplicarPreenchimento,
   definirClasseDeCusto,
@@ -81,6 +77,24 @@ const SCHEMA_DA_CURADORIA =
   "0028_significado_economico";
 
 /**
+ * A mesma frase de antes, declarada em vez de escrita dentro de um `catch`.
+ *
+ * Ela era composta por um `responderFalha` que sete rotas chamavam, e cada
+ * chamada custava um `catch` que precisava capturar tudo para chegar até ela.
+ * O 503 com diagnóstico continua saindo igual; o SQLSTATE é acrescentado pelo
+ * contrato JSON, que é quem o tem em mãos na hora. Ver
+ * `middlewares/contexto-de-schema.ts` e `middlewares/contrato-json.ts`.
+ */
+router.use(
+  "/curation",
+  contextoDeSchema(
+    `A Curadoria não pôde ler ou gravar neste banco. O que esta tela lê vem ` +
+      `de ${SCHEMA_DA_CURADORIA}. Nada foi gravado por esta chamada, e ` +
+      `nenhuma semântica já confirmada foi tocada.`,
+  ),
+);
+
+/**
  * O erro é "falta schema", e não defeito do pedido?
  *
  * A lista de SQLSTATEs mora em `lib/schema-ausente.ts`, junto da resposta que
@@ -92,86 +106,13 @@ export function faltaOSchemaDaCuradoria(err: unknown): boolean {
   return faltaSchema(err);
 }
 
-/**
- * A falha, separando banco divergente de defeito de código.
- *
- * `{"error": "Internal server error"}` era o que estas sete rotas respondiam a
- * qualquer coisa que desse errado: a mesma frase para uma coluna que falta,
- * para o banco fora do ar e para um defeito nosso. Nada nela liga o que se lê
- * na tela à linha no log, e foi exatamente essa constante que o
- * `middlewares/contrato-json.ts` passou a substituir no resto da API — só que
- * o `try/catch` daqui respondia antes, e o contrato nunca via o erro.
- *
- * Agora há dois desfechos, e cada um manda olhar para um lugar diferente:
- *
- * 1. **Falta schema** → 503 com o diagnóstico de `diagnosticar`, a mesma
- *    autoridade que responde ao `/healthz`. É o caso que o `/healthz` sozinho
- *    não enxerga: pela contagem de migrations está tudo em dia, e mesmo assim
- *    um objeto que elas criam não está lá (`SCHEMA_DIVERGENTE`).
- * 2. **Qualquer outra coisa** → segue para o contrato JSON, que responde 500
- *    com `code`, `requestId` e — fora de produção — o detalhe da exceção.
- *
- * O log sai uma vez só: aqui quando a resposta é 503, porque
- * `responderSchemaAusente` não loga; no contrato quando é 500, porque lá o
- * `requestId` já acompanha a linha.
- */
-async function responderFalha(
-  req: Request,
-  res: Response,
-  next: NextFunction,
-  err: unknown,
-  contexto: string,
-): Promise<void> {
-  if (!faltaOSchemaDaCuradoria(err)) {
-    next(err);
-    return;
-  }
-
-  req.log?.error({ err }, contexto);
-  /*
-    O SQLSTATE atravessa e a mensagem do driver não — mesma regra do
-    `/healthz`. O código separa "falta a tabela" (42P01) de "falta a coluna"
-    (42703), que é a diferença entre uma migration que nunca rodou e uma que
-    consta como aplicada e não deixou tudo o que promete; a mensagem carrega
-    host, usuário e o trecho que falhou, e vai só para o log.
-  */
-  const codigo = erroDoPostgres(err)?.code;
-  await responderSchemaAusente(
-    res,
-    `${contexto} O que esta tela lê vem de ${SCHEMA_DA_CURADORIA}` +
-      `${codigo ? `, e o banco recusou com SQLSTATE ${codigo}` : ""}. ` +
-      "Nada foi gravado por esta chamada, e nenhuma semântica já confirmada " +
-      "foi tocada.",
-  );
-}
-
 router.get("/curation/summary", async (req, res, next): Promise<void> => {
-  try {
-    res.json(await getCurationSummary(db));
-  } catch (err) {
-    await responderFalha(
-      req,
-      res,
-      next,
-      err,
-      "O resumo da curadoria não pôde ser contado neste banco.",
-    );
-  }
+  res.json(await getCurationSummary(db));
 });
 
 router.get("/curation/queue", async (req, res, next): Promise<void> => {
-  try {
-    const includeConfirmed = req.query.includeConfirmed === "true";
-    res.json(await getCurationQueue(db, { includeConfirmed }));
-  } catch (err) {
-    await responderFalha(
-      req,
-      res,
-      next,
-      err,
-      "A fila de curadoria não pôde ser lida neste banco.",
-    );
-  }
+  const includeConfirmed = req.query.includeConfirmed === "true";
+  res.json(await getCurationQueue(db, { includeConfirmed }));
 });
 
 /**
@@ -276,132 +217,92 @@ function sufixoDoArquivo(equipamento: string): string {
  * Sem o parâmetro, o arquivo é o de sempre: uma aba por equipamento.
  */
 router.get("/curation/atributos/modelo.xlsx", async (req, res, next): Promise<void> => {
-  try {
-    const equipamento = normalizarEquipamento(
-      typeof req.query.equipamento === "string" ? req.query.equipamento : null,
-    );
+  const equipamento = normalizarEquipamento(
+    typeof req.query.equipamento === "string" ? req.query.equipamento : null,
+  );
 
-    const [atributos, catalogos] = await Promise.all([
-      atributosDoModelo(equipamento),
-      catalogosDoModelo(),
-    ]);
+  const [atributos, catalogos] = await Promise.all([
+    atributosDoModelo(equipamento),
+    catalogosDoModelo(),
+  ]);
 
-    if (atributos.length === 0) {
-      /*
-        Duas frases porque são dois becos diferentes, e mandar a primeira para
-        quem caiu no segundo manda a pessoa importar uma base que ela já
-        importou. O recorte vazio é o caso comum: a tela mostra a aba mesmo
-        quando ela está zerada, de propósito, então dá para clicar em baixar
-        estando nela.
-      */
-      res.status(404).json({
-        error:
-          equipamento === null
-            ? "Nenhum atributo importado ainda — não há o que descrever. Importe a planilha do Freightec primeiro."
-            : `Nenhum atributo de ${comoSeEscreve(equipamento)} nesta base — não há o que descrever nesta aba. Troque de aba ou baixe por "Todos".`,
-      });
-      return;
-    }
-
-    const bytes = await montarModeloDeAtributos({
-      linhas: montarLinhas(atributos, catalogos),
-      ...catalogos,
-      geradoPor: req.user!.email,
-      geradoEm: agoraEmBrasilia(new Date()),
+  if (atributos.length === 0) {
+    /*
+      Duas frases porque são dois becos diferentes, e mandar a primeira para
+      quem caiu no segundo manda a pessoa importar uma base que ela já
+      importou. O recorte vazio é o caso comum: a tela mostra a aba mesmo
+      quando ela está zerada, de propósito, então dá para clicar em baixar
+      estando nela.
+    */
+    res.status(404).json({
+      error:
+        equipamento === null
+          ? "Nenhum atributo importado ainda — não há o que descrever. Importe a planilha do Freightec primeiro."
+          : `Nenhum atributo de ${comoSeEscreve(equipamento)} nesta base — não há o que descrever nesta aba. Troque de aba ou baixe por "Todos".`,
     });
-
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    );
-    res.setHeader("Content-Length", String(bytes.length));
-    res.setHeader(
-      "Content-Disposition",
-      /*
-        O nome diz o recorte. Dois arquivos na pasta de downloads chamados
-        `curadoria-atributos.xlsx`, um com a frota inteira e outro só com a
-        carreta, viram `(1)` e uma dúvida na hora de reenviar.
-      */
-      contentDisposition(
-        `curadoria-atributos${equipamento === null ? "" : sufixoDoArquivo(equipamento)}.xlsx`,
-      ),
-    );
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.send(bytes);
-  } catch (err) {
-    await responderFalha(
-      req,
-      res,
-      next,
-      err,
-      "O modelo de atributos não pôde ser montado neste banco.",
-    );
+    return;
   }
+
+  const bytes = await montarModeloDeAtributos({
+    linhas: montarLinhas(atributos, catalogos),
+    ...catalogos,
+    geradoPor: req.user!.email,
+    geradoEm: agoraEmBrasilia(new Date()),
+  });
+
+  res.setHeader(
+    "Content-Type",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  );
+  res.setHeader("Content-Length", String(bytes.length));
+  res.setHeader(
+    "Content-Disposition",
+    /*
+      O nome diz o recorte. Dois arquivos na pasta de downloads chamados
+      `curadoria-atributos.xlsx`, um com a frota inteira e outro só com a
+      carreta, viram `(1)` e uma dúvida na hora de reenviar.
+    */
+    contentDisposition(
+      `curadoria-atributos${equipamento === null ? "" : sufixoDoArquivo(equipamento)}.xlsx`,
+    ),
+  );
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.send(bytes);
 });
 
 router.post("/curation/atributos/modelo/previa", async (req, res, next): Promise<void> => {
-  try {
-    const conferido = await conferirUpload(req.body);
-    if (!conferido.ok) {
-      res.status(400).json({ error: conferido.erro });
-      return;
-    }
-    res.json(conferido.conferencia);
-  } catch (err) {
-    await responderFalha(
-      req,
-      res,
-      next,
-      err,
-      "A planilha de atributos não pôde ser conferida neste banco.",
-    );
+  const conferido = await conferirUpload(req.body);
+  if (!conferido.ok) {
+    res.status(400).json({ error: conferido.erro });
+    return;
   }
+  res.json(conferido.conferencia);
 });
 
 router.post("/curation/atributos/modelo/aplicar", async (req, res, next): Promise<void> => {
-  try {
-    const conferido = await conferirUpload(req.body);
-    if (!conferido.ok) {
-      res.status(400).json({ error: conferido.erro });
-      return;
-    }
-
-    // Quem assina é a sessão, como em toda escrita de curadoria. Aqui isso
-    // importa mais do que de costume: o arquivo passou por gente que não tem
-    // login, e o histórico tem de registrar quem o trouxe para dentro.
-    const resultado = await aplicarPreenchimento(db, {
-      linhas: conferido.conferencia.linhas,
-      actor: req.user!.email,
-    });
-    res.json({ ...resultado, conferencia: conferido.conferencia.resumo });
-  } catch (err) {
-    await responderFalha(
-      req,
-      res,
-      next,
-      err,
-      "A planilha de atributos não pôde ser aplicada neste banco.",
-    );
+  const conferido = await conferirUpload(req.body);
+  if (!conferido.ok) {
+    res.status(400).json({ error: conferido.erro });
+    return;
   }
+
+  // Quem assina é a sessão, como em toda escrita de curadoria. Aqui isso
+  // importa mais do que de costume: o arquivo passou por gente que não tem
+  // login, e o histórico tem de registrar quem o trouxe para dentro.
+  const resultado = await aplicarPreenchimento(db, {
+    linhas: conferido.conferencia.linhas,
+    actor: req.user!.email,
+  });
+  res.json({ ...resultado, conferencia: conferido.conferencia.resumo });
 });
 
 router.get("/curation/attributes/:code", async (req, res, next): Promise<void> => {
-  try {
-    const detail = await getAttributeDetail(db, req.params.code);
-    if (!detail) {
-      res.status(404).json({ error: "Atributo não encontrado" });
-      return;
-    }
-    res.json(detail);
-  } catch (err) {
-    await responderFalha(
-      req,
-      res,
-      next,
-      err,
-      "Os valores reais deste atributo não puderam ser lidos neste banco.",
-    );
+  const detail = await getAttributeDetail(db, req.params.code);
+  if (!detail) {
+    res.status(404).json({ error: "Atributo não encontrado" });
+    return;
   }
+  res.json(detail);
 });
 
 router.post("/curation/attributes/:code/confirm", async (req, res, next): Promise<void> => {
@@ -455,14 +356,9 @@ router.post("/curation/attributes/:code/confirm", async (req, res, next): Promis
       que falta periodicidade. O curador lê aquilo como erro do que ele
       preencheu, e não há nada que ele possa preencher que resolva.
     */
-    if (faltaOSchemaDaCuradoria(err)) {
-      await responderFalha(
-        req,
-        res,
-        next,
-        err,
-        "A confirmação não pôde ser gravada neste banco.",
-      );
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
       return;
     }
     // These are business-rule refusals — a missing periodicity on a monetary
@@ -497,22 +393,16 @@ router.patch("/curation/attributes/:code/meaning", async (req, res, next): Promi
       do Postgres, mandando o curador reescrever um significado que estava
       certo.
     */
-    if (faltaOSchemaDaCuradoria(err)) {
-      await responderFalha(
-        req,
-        res,
-        next,
-        err,
-        "O significado não pôde ser gravado neste banco.",
-      );
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
       return;
     }
     // Refusals here are business rules with messages written for the curator
     // ("nothing to write", "no versioned semantics yet"), so they are surfaced
     // rather than swallowed into a 500 — same treatment as /confirm.
-    const message = err instanceof Error ? err.message : "Erro desconhecido";
     req.log.warn({ err }, "Meaning update refused");
-    res.status(422).json({ error: message });
+    res.status(422).json({ error: desfecho.mensagem });
   }
 });
 
@@ -533,63 +423,46 @@ router.patch("/curation/attributes/:code/meaning", async (req, res, next): Promi
 router.post(
   "/curation/attributes/:code/formula/sugestao",
   async (req, res, next): Promise<void> => {
-    try {
-      const detail = await getAttributeDetail(db, req.params.code);
-      if (!detail) {
-        res.status(404).json({ error: "Atributo não encontrado" });
-        return;
-      }
-
-      const nome =
-        typeof req.body?.displayName === "string"
-          ? req.body.displayName
-          : (detail.displayName ?? "");
-      const definicao =
-        typeof req.body?.definition === "string"
-          ? req.body.definition
-          : (detail.definition ?? "");
-
-      res.json(
-        await sugerirFormula({
-          nome,
-          nomeDeOrigem: detail.sourceName,
-          definicao,
-          unidade: detail.unit,
-          periodicidade: detail.periodicity,
-          entidade: detail.entityType,
-          tipoDeDado: detail.dataType,
-          taxonomia: detail.taxonomyName,
-          // O cabeçalho da planilha é outra pista do que a coluna é, e ele
-          // costuma diferir do código: `Vida_Comb` na primeira linha, `
-          // vidaCombustivel` no código gerado pela importação.
-          cabecalho: detail.samples.find((s) => s.columnHeader)?.columnHeader ?? null,
-          /*
-            Só o formato dos valores, e só dos que existem. É o que separa
-            "valor fixo de tabela" de "conta que varia por veículo" — e amostra
-            nula não diz nada sobre a conta, ocupando uma das vagas com a
-            palavra "ausente".
-          */
-          exemplos: detail.samples
-            .filter((s) => !s.isNull && s.value !== null)
-            .map((s) => String(s.value)),
-        }),
-      );
-    } catch (err) {
-      /*
-        `sugerirFormula` não lança — o que cair aqui é falha de banco, e não uma
-        regra de negócio para o curador ler. Segue pelo mesmo caminho das
-        outras: esta rota lê o atributo pelo `getAttributeDetail`, que passa
-        pela fila e portanto pela `attribute.definition` — é uma das que morrem
-        primeiro num banco divergente.
-      */
-      await responderFalha(
-        req,
-        res,
-        next,
-        err,
-        "A fórmula deste atributo não pôde ser sugerida neste banco.",
-      );
+    const detail = await getAttributeDetail(db, req.params.code);
+    if (!detail) {
+      res.status(404).json({ error: "Atributo não encontrado" });
+      return;
     }
+
+    const nome =
+      typeof req.body?.displayName === "string"
+        ? req.body.displayName
+        : (detail.displayName ?? "");
+    const definicao =
+      typeof req.body?.definition === "string"
+        ? req.body.definition
+        : (detail.definition ?? "");
+
+    res.json(
+      await sugerirFormula({
+        nome,
+        nomeDeOrigem: detail.sourceName,
+        definicao,
+        unidade: detail.unit,
+        periodicidade: detail.periodicity,
+        entidade: detail.entityType,
+        tipoDeDado: detail.dataType,
+        taxonomia: detail.taxonomyName,
+        // O cabeçalho da planilha é outra pista do que a coluna é, e ele
+        // costuma diferir do código: `Vida_Comb` na primeira linha, `
+        // vidaCombustivel` no código gerado pela importação.
+        cabecalho: detail.samples.find((s) => s.columnHeader)?.columnHeader ?? null,
+        /*
+          Só o formato dos valores, e só dos que existem. É o que separa
+          "valor fixo de tabela" de "conta que varia por veículo" — e amostra
+          nula não diz nada sobre a conta, ocupando uma das vagas com a
+          palavra "ausente".
+        */
+        exemplos: detail.samples
+          .filter((s) => !s.isNull && s.value !== null)
+          .map((s) => String(s.value)),
+      }),
+    );
   },
 );
 
@@ -607,61 +480,45 @@ router.post(
 router.post(
   "/curation/attributes/:code/definicao/rascunho",
   async (req, res, next): Promise<void> => {
-    try {
-      const detail = await getAttributeDetail(db, req.params.code);
-      if (!detail) {
-        res.status(404).json({ error: "Atributo não encontrado" });
-        return;
-      }
-
-      const nome =
-        typeof req.body?.displayName === "string"
-          ? req.body.displayName
-          : (detail.displayName ?? "");
-      const formula =
-        typeof req.body?.calculationBasis === "string"
-          ? req.body.calculationBasis
-          : (detail.calculationBasis ?? "");
-
-      res.json(
-        await rascunharDefinicao({
-          nome,
-          nomeDeOrigem: detail.sourceName,
-          formula,
-          unidade: detail.unit,
-          periodicidade: detail.periodicity,
-          entidade: detail.entityType,
-          tipoDeDado: detail.dataType,
-          taxonomia: detail.taxonomyName,
-          // O cabeçalho da planilha é outra pista do que a coluna é, e ele
-          // costuma diferir do código: `Vida_Comb` na primeira linha, `
-          // vidaCombustivel` no código gerado pela importação.
-          cabecalho: detail.samples.find((s) => s.columnHeader)?.columnHeader ?? null,
-          /*
-            Só o formato dos valores, e só dos que existem. Amostra nula não
-            diz nada sobre a natureza da coluna e ocuparia uma das seis vagas
-            com a palavra "ausente".
-          */
-          exemplos: detail.samples
-            .filter((s) => !s.isNull && s.value !== null)
-            .map((s) => String(s.value)),
-        }),
-      );
-    } catch (err) {
-      /*
-        `rascunharDefinicao` não lança — o que cair aqui é falha de banco, e não
-        uma regra de negócio para o curador ler. Mesmo caminho da leitura da
-        fórmula: esta rota lê o atributo pelo `getAttributeDetail`, que passa
-        pela fila e portanto pela `attribute.definition`.
-      */
-      await responderFalha(
-        req,
-        res,
-        next,
-        err,
-        "O rascunho deste atributo não pôde ser escrito neste banco.",
-      );
+    const detail = await getAttributeDetail(db, req.params.code);
+    if (!detail) {
+      res.status(404).json({ error: "Atributo não encontrado" });
+      return;
     }
+
+    const nome =
+      typeof req.body?.displayName === "string"
+        ? req.body.displayName
+        : (detail.displayName ?? "");
+    const formula =
+      typeof req.body?.calculationBasis === "string"
+        ? req.body.calculationBasis
+        : (detail.calculationBasis ?? "");
+
+    res.json(
+      await rascunharDefinicao({
+        nome,
+        nomeDeOrigem: detail.sourceName,
+        formula,
+        unidade: detail.unit,
+        periodicidade: detail.periodicity,
+        entidade: detail.entityType,
+        tipoDeDado: detail.dataType,
+        taxonomia: detail.taxonomyName,
+        // O cabeçalho da planilha é outra pista do que a coluna é, e ele
+        // costuma diferir do código: `Vida_Comb` na primeira linha, `
+        // vidaCombustivel` no código gerado pela importação.
+        cabecalho: detail.samples.find((s) => s.columnHeader)?.columnHeader ?? null,
+        /*
+          Só o formato dos valores, e só dos que existem. Amostra nula não
+          diz nada sobre a natureza da coluna e ocuparia uma das seis vagas
+          com a palavra "ausente".
+        */
+        exemplos: detail.samples
+          .filter((s) => !s.isNull && s.value !== null)
+          .map((s) => String(s.value)),
+      }),
+    );
   },
 );
 
@@ -682,70 +539,54 @@ router.post(
 router.post(
   "/curation/attributes/:code/semantica/sugestao",
   async (req, res, next): Promise<void> => {
-    try {
-      const detail = await getAttributeDetail(db, req.params.code);
-      if (!detail) {
-        res.status(404).json({ error: "Atributo não encontrado" });
-        return;
-      }
-
-      const nome =
-        typeof req.body?.displayName === "string"
-          ? req.body.displayName
-          : (detail.displayName ?? "");
-      const formula =
-        typeof req.body?.calculationBasis === "string"
-          ? req.body.calculationBasis
-          : (detail.calculationBasis ?? "");
-      const definicao =
-        typeof req.body?.definition === "string"
-          ? req.body.definition
-          : (detail.definition ?? "");
-
-      res.json(
-        await sugerirSemantica({
-          codigo: detail.code,
-          nomeDeOrigem: detail.sourceName,
-          nome,
-          // O cabeçalho da planilha é outra pista do que a coluna é, e ele
-          // costuma diferir do código: `Vida_Comb` na primeira linha,
-          // `vidaCombustivel` no código gerado pela importação.
-          cabecalho: detail.samples.find((s) => s.columnHeader)?.columnHeader ?? null,
-          entidade: detail.entityType,
-          tipoDeDado: detail.dataType,
-          definicao,
-          formula,
-          taxonomia: detail.taxonomyName,
-          valores: detail.valueCount,
-          ausentes: detail.nullCount,
-          amostras: detail.samples.map((s) => ({
-            vigencia: s.snapshotLabel,
-            valor: s.isNull ? null : (s.value ?? null),
-            original: s.originalValue,
-            tipoDeOrigem: s.originalType,
-          })),
-          historico: detail.history.map((h) => ({
-            vigencia: h.snapshotLabel,
-            soma: h.sum,
-            quantidade: h.count,
-          })),
-        }),
-      );
-    } catch (err) {
-      /*
-        `sugerirSemantica` não lança — o que cair aqui é falha de banco, e não
-        uma regra de negócio para o curador ler. Mesmo caminho das outras duas
-        rotas de IA: esta lê o atributo pelo `getAttributeDetail`, que passa pela
-        fila e portanto pela `attribute.definition`.
-      */
-      await responderFalha(
-        req,
-        res,
-        next,
-        err,
-        "A semântica deste atributo não pôde ser sugerida neste banco.",
-      );
+    const detail = await getAttributeDetail(db, req.params.code);
+    if (!detail) {
+      res.status(404).json({ error: "Atributo não encontrado" });
+      return;
     }
+
+    const nome =
+      typeof req.body?.displayName === "string"
+        ? req.body.displayName
+        : (detail.displayName ?? "");
+    const formula =
+      typeof req.body?.calculationBasis === "string"
+        ? req.body.calculationBasis
+        : (detail.calculationBasis ?? "");
+    const definicao =
+      typeof req.body?.definition === "string"
+        ? req.body.definition
+        : (detail.definition ?? "");
+
+    res.json(
+      await sugerirSemantica({
+        codigo: detail.code,
+        nomeDeOrigem: detail.sourceName,
+        nome,
+        // O cabeçalho da planilha é outra pista do que a coluna é, e ele
+        // costuma diferir do código: `Vida_Comb` na primeira linha,
+        // `vidaCombustivel` no código gerado pela importação.
+        cabecalho: detail.samples.find((s) => s.columnHeader)?.columnHeader ?? null,
+        entidade: detail.entityType,
+        tipoDeDado: detail.dataType,
+        definicao,
+        formula,
+        taxonomia: detail.taxonomyName,
+        valores: detail.valueCount,
+        ausentes: detail.nullCount,
+        amostras: detail.samples.map((s) => ({
+          vigencia: s.snapshotLabel,
+          valor: s.isNull ? null : (s.value ?? null),
+          original: s.originalValue,
+          tipoDeOrigem: s.originalType,
+        })),
+        historico: detail.history.map((h) => ({
+          vigencia: h.snapshotLabel,
+          soma: h.sum,
+          quantidade: h.count,
+        })),
+      }),
+    );
   },
 );
 
@@ -772,17 +613,7 @@ router.post(
  * pedido não pode ser atendido como veio, e a mensagem ensina o formato.
  */
 router.get("/curation/significados", async (req, res, next): Promise<void> => {
-  try {
-    res.json(await listarSignificados(db));
-  } catch (err) {
-    await responderFalha(
-      req,
-      res,
-      next,
-      err,
-      "O cadastro de significados não pôde ser lido neste banco.",
-    );
-  }
+  res.json(await listarSignificados(db));
 });
 
 router.post("/curation/significados", async (req, res, next): Promise<void> => {
@@ -802,19 +633,13 @@ router.post("/curation/significados", async (req, res, next): Promise<void> => {
     }
     res.status(resultado.desfecho === "CRIADO" ? 201 : 200).json(resultado);
   } catch (err) {
-    if (faltaOSchemaDaCuradoria(err)) {
-      await responderFalha(
-        req,
-        res,
-        next,
-        err,
-        "O significado não pôde ser cadastrado neste banco.",
-      );
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
       return;
     }
-    const message = err instanceof Error ? err.message : "Erro desconhecido";
     req.log.warn({ err }, "Meaning creation refused");
-    res.status(422).json({ error: message });
+    res.status(422).json({ error: desfecho.mensagem });
   }
 });
 
@@ -826,17 +651,7 @@ router.post("/curation/significados", async (req, res, next): Promise<void> => {
  * categorias mostraria a criação sumindo no instante seguinte ao do clique.
  */
 router.get("/curation/sinteticos", async (req, res, next): Promise<void> => {
-  try {
-    res.json(await listarSinteticos(db));
-  } catch (err) {
-    await responderFalha(
-      req,
-      res,
-      next,
-      err,
-      "As linhas da DRE não puderam ser lidas neste banco.",
-    );
-  }
+  res.json(await listarSinteticos(db));
 });
 
 router.post("/curation/sinteticos", async (req, res, next): Promise<void> => {
@@ -849,19 +664,13 @@ router.post("/curation/sinteticos", async (req, res, next): Promise<void> => {
     const resultado = await criarSintetico(db, { name, actor: req.user!.email });
     res.status(resultado.desfecho === "CRIADO" ? 201 : 200).json(resultado);
   } catch (err) {
-    if (faltaOSchemaDaCuradoria(err)) {
-      await responderFalha(
-        req,
-        res,
-        next,
-        err,
-        "A linha da DRE não pôde ser cadastrada neste banco.",
-      );
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
       return;
     }
-    const message = err instanceof Error ? err.message : "Erro desconhecido";
     req.log.warn({ err }, "Synthetic DRE line creation refused");
-    res.status(422).json({ error: message });
+    res.status(422).json({ error: desfecho.mensagem });
   }
 });
 
@@ -876,17 +685,7 @@ router.post("/curation/sinteticos", async (req, res, next): Promise<void> => {
  * pedido mandou tirar.
  */
 router.get("/curation/categorias", async (req, res, next): Promise<void> => {
-  try {
-    res.json(await listarCategorias(db));
-  } catch (err) {
-    await responderFalha(
-      req,
-      res,
-      next,
-      err,
-      "As categorias não puderam ser lidas neste banco.",
-    );
-  }
+  res.json(await listarCategorias(db));
 });
 
 router.post("/curation/categorias", async (req, res, next): Promise<void> => {
@@ -911,19 +710,13 @@ router.post("/curation/categorias", async (req, res, next): Promise<void> => {
     });
     res.status(resultado.desfecho === "CRIADO" ? 201 : 200).json(resultado);
   } catch (err) {
-    if (faltaOSchemaDaCuradoria(err)) {
-      await responderFalha(
-        req,
-        res,
-        next,
-        err,
-        "A categoria não pôde ser cadastrada neste banco.",
-      );
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
       return;
     }
-    const message = err instanceof Error ? err.message : "Erro desconhecido";
     req.log.warn({ err }, "Category creation refused");
-    res.status(422).json({ error: message });
+    res.status(422).json({ error: desfecho.mensagem });
   }
 });
 
@@ -963,21 +756,15 @@ router.patch(
         }),
       );
     } catch (err) {
-      if (faltaOSchemaDaCuradoria(err)) {
-        await responderFalha(
-          req,
-          res,
-          next,
-          err,
-          "A família desta categoria não pôde ser gravada neste banco.",
-        );
+      const desfecho = classificarFalha(err);
+      if (desfecho.tipo !== "REGRA") {
+        next(err);
         return;
       }
       // Recusas de regra de negócio — classe inexistente, nó que é uma classe,
       // justificativa em branco — com a frase escrita para quem está na tela.
-      const message = err instanceof Error ? err.message : "Erro desconhecido";
       req.log.warn({ err }, "Category classification refused");
-      res.status(422).json({ error: message });
+    res.status(422).json({ error: desfecho.mensagem });
     }
   },
 );
@@ -1008,55 +795,29 @@ router.patch(
         }),
       );
     } catch (err) {
-      if (faltaOSchemaDaCuradoria(err)) {
-        await responderFalha(
-          req,
-          res,
-          next,
-          err,
-          "A classe de custo deste atributo não pôde ser gravada neste banco.",
-        );
+      const desfecho = classificarFalha(err);
+      if (desfecho.tipo !== "REGRA") {
+        next(err);
         return;
       }
-      const message = err instanceof Error ? err.message : "Erro desconhecido";
       req.log.warn({ err }, "Cost class refused");
-      res.status(422).json({ error: message });
+      res.status(422).json({ error: desfecho.mensagem });
     }
   },
 );
 
 router.get("/curation/taxonomy", async (req, res, next): Promise<void> => {
-  try {
-    const flat = req.query.flat === "true";
-    res.json(flat ? await listTaxonomyNodes(db) : await getTaxonomyTree(db));
-  } catch (err) {
-    await responderFalha(
-      req,
-      res,
-      next,
-      err,
-      "A taxonomia não pôde ser lida neste banco.",
-    );
-  }
+  const flat = req.query.flat === "true";
+  res.json(flat ? await listTaxonomyNodes(db) : await getTaxonomyTree(db));
 });
 
 router.post("/curation/proposal-pass", async (req, res, next): Promise<void> => {
-  try {
-    const actor = req.user?.email ?? "api:proposal-pass";
-    await seedTaxonomy(db, actor);
-    // A migration já grava o catálogo no escopo global; esta chamada é a
-    // idempotente que cobre um banco vindo de antes dela e um escopo novo.
-    await seedSignificados(db, actor);
-    res.json(await runProposalPass(db, actor));
-  } catch (err) {
-    await responderFalha(
-      req,
-      res,
-      next,
-      err,
-      "A passada de proposta não pôde rodar neste banco.",
-    );
-  }
+  const actor = req.user?.email ?? "api:proposal-pass";
+  await seedTaxonomy(db, actor);
+  // A migration já grava o catálogo no escopo global; esta chamada é a
+  // idempotente que cobre um banco vindo de antes dela e um escopo novo.
+  await seedSignificados(db, actor);
+  res.json(await runProposalPass(db, actor));
 });
 
 export default router;

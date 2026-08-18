@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
-import { Router, type IRouter, type Response } from "express";
+import { Router, type IRouter } from "express";
 import { desc, eq, sql } from "drizzle-orm";
 import { db, bookEntryTable, codigoDoPostgres } from "@workspace/db";
-import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
+import { faltaSchema } from "../lib/schema-ausente";
+import { contextoDeSchema } from "../middlewares/contexto-de-schema";
 
 /**
  * Book do Operador — a regra de cada bloco, escrita ou anexada.
@@ -29,6 +30,28 @@ import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
  * linhas; o resto sai por `/history` e por `/content`.
  */
 const router: IRouter = Router();
+
+/**
+ * O que este router — e mais ninguém — sabe dizer quando falta schema.
+ *
+ * A frase é a mesma de antes, e ela sai do mesmo lugar de sempre: o 503 com o
+ * diagnóstico de `diagnosticar`. O que mudou é quem a entrega. Ela morava num
+ * `responderFalha` chamado de dentro de quatro `try/catch`, e cada um daqueles
+ * `catch` cobrava um preço: para dizer isto num banco divergente, eles
+ * capturavam **tudo** — e o que não fosse falta de schema saía como
+ * `{"error": "Internal server error"}`, sem `code` e sem `requestId`.
+ *
+ * Declarada aqui, ela chega ao mesmo lugar sem que nenhuma rota precise
+ * capturar coisa alguma. Ver `middlewares/contexto-de-schema.ts`.
+ */
+router.use(
+  "/book",
+  contextoDeSchema(
+    "O Book do Operador não tem onde guardar neste banco: a tabela que a " +
+      "migration 0008_book_entries cria não existe aqui. Não é o seu " +
+      "arquivo — nada chegou a ser gravado, e nada se perdeu.",
+  ),
+);
 
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -390,21 +413,16 @@ const PREVIEW = {
  * de errar quando o critério de desempate muda.
  */
 router.get("/book/entries", async (req, res): Promise<void> => {
-  try {
-    const linhas = await db
-      .selectDistinctOn([bookEntryTable.blockKey], {
-        ...METADADO,
-        ...PREVIEW,
-        revisions: sql<number>`count(*) over (partition by ${bookEntryTable.blockKey})::int`,
-      })
-      .from(bookEntryTable)
-      .orderBy(bookEntryTable.blockKey, desc(bookEntryTable.revision));
+  const linhas = await db
+    .selectDistinctOn([bookEntryTable.blockKey], {
+      ...METADADO,
+      ...PREVIEW,
+      revisions: sql<number>`count(*) over (partition by ${bookEntryTable.blockKey})::int`,
+    })
+    .from(bookEntryTable)
+    .orderBy(bookEntryTable.blockKey, desc(bookEntryTable.revision));
 
-    res.json(linhas);
-  } catch (err) {
-    req.log.error({ err }, "Error listing book entries");
-    await responderFalha(res, err);
-  }
+  res.json(linhas);
 });
 
 /**
@@ -423,21 +441,16 @@ router.get("/book/entries/history", async (req, res): Promise<void> => {
     return;
   }
 
-  try {
-    const linhas = await db
-      .select({ ...METADADO, bodyText: bookEntryTable.bodyText })
-      .from(bookEntryTable)
-      .where(eq(bookEntryTable.blockKey, blockKey.trim()))
-      .orderBy(desc(bookEntryTable.revision));
+  const linhas = await db
+    .select({ ...METADADO, bodyText: bookEntryTable.bodyText })
+    .from(bookEntryTable)
+    .where(eq(bookEntryTable.blockKey, blockKey.trim()))
+    .orderBy(desc(bookEntryTable.revision));
 
-    res.json(linhas);
-  } catch (err) {
-    req.log.error({ err }, "Error listing book entry history");
-    await responderFalha(res, err);
-  }
+  res.json(linhas);
 });
 
-router.post("/book/entries", async (req, res): Promise<void> => {
+router.post("/book/entries", async (req, res, next): Promise<void> => {
   const decoded = decodeBookEntry(req.body);
   if (!decoded.ok) {
     res.status(400).json({ error: decoded.error });
@@ -530,8 +543,7 @@ router.post("/book/entries", async (req, res): Promise<void> => {
       });
       return;
     }
-    req.log.error({ err }, "Error storing book entry");
-    await responderFalha(res, err);
+    next(err);
   }
 });
 
@@ -549,57 +561,52 @@ router.get("/book/entries/:id/content", async (req, res): Promise<void> => {
     return;
   }
 
-  try {
-    const [entrada] = await db
-      .select({
-        kind: bookEntryTable.kind,
-        blockTitle: bookEntryTable.blockTitle,
-        revision: bookEntryTable.revision,
-        filename: bookEntryTable.filename,
-        mimeType: bookEntryTable.mimeType,
-        content: bookEntryTable.content,
-        bodyText: bookEntryTable.bodyText,
-      })
-      .from(bookEntryTable)
-      .where(eq(bookEntryTable.id, id))
-      .limit(1);
+  const [entrada] = await db
+    .select({
+      kind: bookEntryTable.kind,
+      blockTitle: bookEntryTable.blockTitle,
+      revision: bookEntryTable.revision,
+      filename: bookEntryTable.filename,
+      mimeType: bookEntryTable.mimeType,
+      content: bookEntryTable.content,
+      bodyText: bookEntryTable.bodyText,
+    })
+    .from(bookEntryTable)
+    .where(eq(bookEntryTable.id, id))
+    .limit(1);
 
-    if (!entrada) {
-      res.status(404).json({ error: "Entrada não encontrada." });
-      return;
-    }
-
-    /*
-      O CHECK do banco garante que DOCUMENTO tem `content` e TEXTO tem
-      `body_text`. O `??` existe para o TypeScript, que não lê constraint — e
-      um Buffer vazio aqui seria um arquivo de 0 byte, não uma exceção
-      silenciosa.
-    */
-    const bytes =
-      entrada.kind === "DOCUMENTO"
-        ? (entrada.content ?? Buffer.alloc(0))
-        : Buffer.from(entrada.bodyText ?? "", "utf8");
-
-    const nome =
-      entrada.kind === "DOCUMENTO"
-        ? (entrada.filename ?? "documento")
-        : nomeDeTexto(entrada.blockTitle, entrada.revision);
-
-    res.setHeader("Content-Type", entrada.mimeType);
-    res.setHeader("Content-Length", String(bytes.length));
-    res.setHeader("Content-Disposition", contentDisposition(nome));
-    /*
-      O conteúdo vem de quem usa o sistema, e o tipo é deduzido da extensão que
-      essa pessoa deu. `nosniff` impede o navegador de decidir por conta própria
-      que aquilo é outra coisa — e a resposta sai sempre como anexo, nunca
-      renderizada nesta origem.
-    */
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.send(bytes);
-  } catch (err) {
-    req.log.error({ err }, "Error reading book entry content");
-    await responderFalha(res, err);
+  if (!entrada) {
+    res.status(404).json({ error: "Entrada não encontrada." });
+    return;
   }
+
+  /*
+    O CHECK do banco garante que DOCUMENTO tem `content` e TEXTO tem
+    `body_text`. O `??` existe para o TypeScript, que não lê constraint — e
+    um Buffer vazio aqui seria um arquivo de 0 byte, não uma exceção
+    silenciosa.
+  */
+  const bytes =
+    entrada.kind === "DOCUMENTO"
+      ? (entrada.content ?? Buffer.alloc(0))
+      : Buffer.from(entrada.bodyText ?? "", "utf8");
+
+  const nome =
+    entrada.kind === "DOCUMENTO"
+      ? (entrada.filename ?? "documento")
+      : nomeDeTexto(entrada.blockTitle, entrada.revision);
+
+  res.setHeader("Content-Type", entrada.mimeType);
+  res.setHeader("Content-Length", String(bytes.length));
+  res.setHeader("Content-Disposition", contentDisposition(nome));
+  /*
+    O conteúdo vem de quem usa o sistema, e o tipo é deduzido da extensão que
+    essa pessoa deu. `nosniff` impede o navegador de decidir por conta própria
+    que aquilo é outra coisa — e a resposta sai sempre como anexo, nunca
+    renderizada nesta origem.
+  */
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.send(bytes);
 });
 
 function isUniqueViolation(err: unknown): boolean {
@@ -619,32 +626,6 @@ function isUniqueViolation(err: unknown): boolean {
  */
 export function faltaOSchemaDoBook(err: unknown): boolean {
   return faltaSchema(err);
-}
-
-/**
- * A resposta de um erro inesperado — separando o que é defeito do que é banco
- * desatualizado.
- *
- * "Internal server error" foi o que esta rota respondeu a um envio de documento
- * num banco onde a tabela do Book não existia. A frase manda procurar no lugar
- * errado: ela sugere um defeito no envio, quando o arquivo estava perfeito e o
- * que faltava era uma migration.
- *
- * O que esta rota diz é só o que ela sabe: qual schema falta, e que o documento
- * não se perdeu. O que houve com o banco e o que resolve vêm de `diagnosticar`
- * — ver `lib/schema-ausente.ts`.
- */
-async function responderFalha(res: Response, err: unknown): Promise<void> {
-  if (faltaOSchemaDoBook(err)) {
-    await responderSchemaAusente(
-      res,
-      "O Book do Operador não tem onde guardar neste banco: a tabela que a " +
-        "migration 0008_book_entries cria não existe aqui. Não é o seu " +
-        "arquivo — nada chegou a ser gravado, e nada se perdeu.",
-    );
-    return;
-  }
-  res.status(500).json({ error: "Internal server error" });
 }
 
 export default router;

@@ -11,7 +11,7 @@ import {
   type SituacaoDoAtivo,
 } from "@workspace/comparison";
 import { getVisaoDeFrota, TIPOS_COM_REGRA } from "@workspace/composition";
-import { parseContext, sendContextError } from "../lib/contexto";
+import { parseContext } from "../lib/contexto";
 
 /**
  * Frota — quem existe, antes de perguntar o que mudou.
@@ -71,33 +71,27 @@ function parseEscopoDoContexto(
  * no rodapé é um seletor em que a placa procurada pode não estar.
  */
 router.get("/frota/ativos", async (req, res): Promise<void> => {
-  try {
-    const query = req.query as Record<string, unknown>;
-    const entityType =
-      typeof query.entityType === "string" && query.entityType.trim() !== ""
-        ? query.entityType.trim()
-        : null;
+  const query = req.query as Record<string, unknown>;
+  const entityType =
+    typeof query.entityType === "string" && query.entityType.trim() !== ""
+      ? query.entityType.trim()
+      : null;
 
-    if (entityType === null) {
-      res.status(400).json({ error: "Informe o equipamento em entityType." });
-      return;
-    }
-
-    const frota = await listarFrota(db, {
-      entityType,
-      context: parseContext(query),
-    });
-
-    if (!frota) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-    res.json(frota);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error listing fleet assets");
-    res.status(500).json({ error: "Internal server error" });
+  if (entityType === null) {
+    res.status(400).json({ error: "Informe o equipamento em entityType." });
+    return;
   }
+
+  const frota = await listarFrota(db, {
+    entityType,
+    context: parseContext(query),
+  });
+
+  if (!frota) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
+  }
+  res.json(frota);
 });
 
 /**
@@ -135,116 +129,110 @@ router.get("/frota/ativos", async (req, res): Promise<void> => {
  * duas contas com réguas diferentes. O card as põe lado a lado, nunca juntas.
  */
 router.get("/frota/panorama", async (req, res): Promise<void> => {
-  try {
-    const query = req.query as Record<string, unknown>;
-    const entityType =
-      typeof query.entityType === "string" && query.entityType.trim() !== ""
-        ? query.entityType.trim()
-        : null;
+  const query = req.query as Record<string, unknown>;
+  const entityType =
+    typeof query.entityType === "string" && query.entityType.trim() !== ""
+      ? query.entityType.trim()
+      : null;
 
-    if (entityType === null) {
-      res.status(400).json({ error: "Informe o equipamento em entityType." });
-      return;
-    }
-    if (!TIPOS_COM_REGRA.includes(entityType)) {
-      res.status(400).json({
-        error:
-          `Não há regra de remuneração declarada para "${entityType}", então não ` +
-          `há o que mostrar por ativo. Tipos disponíveis: ${TIPOS_COM_REGRA.join(", ")}.`,
-      });
-      return;
-    }
-
-    /*
-      Unidade e canal, e **não** o De/Até.
-
-      `parseContext` lê os dois recortes porque as abas de Impacto e Cliente
-      leem séries; aqui a leitura é de uma vigência só — a que a Composição
-      apurou —, e um `de`/`ate` chegando de um link antigo estreitaria a série
-      debaixo de um card que fala de um mês. Os cards mostram o período no
-      cabeçalho, e é esse período que `period` escolhe.
-    */
-    const contexto = parseEscopoDoContexto(query);
-    const periodo =
-      typeof query.period === "string" && query.period !== ""
-        ? query.period
-        : undefined;
-
-    const visao = await getVisaoDeFrota(db, entityType, {
-      ...(periodo !== undefined ? { period: periodo } : {}),
-      ...(contexto !== undefined ? { context: contexto } : {}),
-      filtros: {},
-    });
-    if (!visao) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-
-    /*
-      A comparação é a do período que a Composição está mostrando, e não a mais
-      recente do banco: o card diz "R$ 3.324 em agosto" e "3 alterações", e as
-      duas frases têm de ser do mesmo mês. Pedir a comparação por conta própria
-      abriria a porta para um card que mistura dois períodos sem dizer.
-    */
-    const consolidado = await getConsolidated(db, visao.effectiveDate, contexto);
-    const alteracoes = consolidado
-      ? await situacaoPorAtivo(db, consolidado.changeSetIds, { entityType })
-      : new Map<string, SituacaoDoAtivo>();
-
-    /*
-      Os chamados são do envio mais recente, e **não** têm recorte de período: o
-      export da fila é uma população própria, sem vigência nem unidade — é a
-      mesma recusa que `paramsDeAlteracoes` escreve para a aba Chamados. O card
-      diz de que envio veio a contagem, para que ninguém a leia como "chamados
-      de agosto".
-    */
-    const envio = await latestTicketImport(db).catch(() => null);
-    const chamados = envio
-      ? await chamadosPorAtivo(db, envio.id, { entityType }).catch(
-          () => new Map<string, ChamadosDoAtivo>(),
-        )
-      : new Map<string, ChamadosDoAtivo>();
-
-    const ativos = visao.linhas.map((linha) => {
-      const placa = linha.placa;
-      const mudou = placa === null ? undefined : alteracoes.get(placa);
-      const pedidos = placa === null ? undefined : chamados.get(placa);
-      return {
-        ...linha,
-        alteracoes: mudou?.alteracoes ?? 0,
-        maiorAlteracao: mudou?.maior ?? null,
-        chamados: pedidos?.chamados ?? 0,
-        alteracoesDeChamado: pedidos?.alteracoes ?? 0,
-      };
-    });
-
-    res.json({
-      entityType,
-      rotuloDoTipo: visao.rotuloDoTipo,
-      context: visao.context,
-      effectiveDate: visao.effectiveDate,
-      periodLabel: visao.periodLabel,
-      anterior: visao.anterior,
-      vigencias: visao.vigencias,
-      serieEntregue: visao.serieEntregue,
-      resumo: visao.resumo,
-      // De onde vem cada contagem, para o card poder dizê-lo em vez de deixar
-      // quem lê supor que as três são do mesmo recorte. Elas não são.
-      procedencia: {
-        comparacao: consolidado
-          ? { period: consolidado.period, completa: consolidado.complete }
-          : null,
-        envioDeChamados: envio
-          ? { id: envio.id, filename: envio.filename, receivedAt: envio.receivedAt }
-          : null,
-      },
-      ativos,
-    });
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building fleet panorama");
-    res.status(500).json({ error: "Internal server error" });
+  if (entityType === null) {
+    res.status(400).json({ error: "Informe o equipamento em entityType." });
+    return;
   }
+  if (!TIPOS_COM_REGRA.includes(entityType)) {
+    res.status(400).json({
+      error:
+        `Não há regra de remuneração declarada para "${entityType}", então não ` +
+        `há o que mostrar por ativo. Tipos disponíveis: ${TIPOS_COM_REGRA.join(", ")}.`,
+    });
+    return;
+  }
+
+  /*
+    Unidade e canal, e **não** o De/Até.
+
+    `parseContext` lê os dois recortes porque as abas de Impacto e Cliente
+    leem séries; aqui a leitura é de uma vigência só — a que a Composição
+    apurou —, e um `de`/`ate` chegando de um link antigo estreitaria a série
+    debaixo de um card que fala de um mês. Os cards mostram o período no
+    cabeçalho, e é esse período que `period` escolhe.
+  */
+  const contexto = parseEscopoDoContexto(query);
+  const periodo =
+    typeof query.period === "string" && query.period !== ""
+      ? query.period
+      : undefined;
+
+  const visao = await getVisaoDeFrota(db, entityType, {
+    ...(periodo !== undefined ? { period: periodo } : {}),
+    ...(contexto !== undefined ? { context: contexto } : {}),
+    filtros: {},
+  });
+  if (!visao) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
+  }
+
+  /*
+    A comparação é a do período que a Composição está mostrando, e não a mais
+    recente do banco: o card diz "R$ 3.324 em agosto" e "3 alterações", e as
+    duas frases têm de ser do mesmo mês. Pedir a comparação por conta própria
+    abriria a porta para um card que mistura dois períodos sem dizer.
+  */
+  const consolidado = await getConsolidated(db, visao.effectiveDate, contexto);
+  const alteracoes = consolidado
+    ? await situacaoPorAtivo(db, consolidado.changeSetIds, { entityType })
+    : new Map<string, SituacaoDoAtivo>();
+
+  /*
+    Os chamados são do envio mais recente, e **não** têm recorte de período: o
+    export da fila é uma população própria, sem vigência nem unidade — é a
+    mesma recusa que `paramsDeAlteracoes` escreve para a aba Chamados. O card
+    diz de que envio veio a contagem, para que ninguém a leia como "chamados
+    de agosto".
+  */
+  const envio = await latestTicketImport(db).catch(() => null);
+  const chamados = envio
+    ? await chamadosPorAtivo(db, envio.id, { entityType }).catch(
+        () => new Map<string, ChamadosDoAtivo>(),
+      )
+    : new Map<string, ChamadosDoAtivo>();
+
+  const ativos = visao.linhas.map((linha) => {
+    const placa = linha.placa;
+    const mudou = placa === null ? undefined : alteracoes.get(placa);
+    const pedidos = placa === null ? undefined : chamados.get(placa);
+    return {
+      ...linha,
+      alteracoes: mudou?.alteracoes ?? 0,
+      maiorAlteracao: mudou?.maior ?? null,
+      chamados: pedidos?.chamados ?? 0,
+      alteracoesDeChamado: pedidos?.alteracoes ?? 0,
+    };
+  });
+
+  res.json({
+    entityType,
+    rotuloDoTipo: visao.rotuloDoTipo,
+    context: visao.context,
+    effectiveDate: visao.effectiveDate,
+    periodLabel: visao.periodLabel,
+    anterior: visao.anterior,
+    vigencias: visao.vigencias,
+    serieEntregue: visao.serieEntregue,
+    resumo: visao.resumo,
+    // De onde vem cada contagem, para o card poder dizê-lo em vez de deixar
+    // quem lê supor que as três são do mesmo recorte. Elas não são.
+    procedencia: {
+      comparacao: consolidado
+        ? { period: consolidado.period, completa: consolidado.complete }
+        : null,
+      envioDeChamados: envio
+        ? { id: envio.id, filename: envio.filename, receivedAt: envio.receivedAt }
+        : null,
+    },
+    ativos,
+  });
 });
 
 export default router;

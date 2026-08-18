@@ -1,9 +1,4 @@
-import type { Response } from "express";
-import {
-  ContextNotFoundError,
-  JanelaInvalidaError,
-  type RequestedContext,
-} from "@workspace/comparison";
+import type { RequestedContext } from "@workspace/comparison";
 
 /**
  * O contexto pedido na query — unidade, canal e o recorte de vigências.
@@ -46,25 +41,4 @@ export function parseContext(
     // completa a outra ponta com o extremo da série.
     ...(de !== undefined || ate !== undefined ? { janela: { de, ate } } : {}),
   };
-}
-
-/**
- * As duas recusas escritas do contexto, cada uma no seu código.
- *
- * 404 quando o contexto não existe — não há o que importar ainda, ou a unidade
- * pedida nunca entregou nada. 400 quando o contexto existe e o **recorte** é
- * que não: o cliente pediu uma vigência que este contexto não tem, e a resposta
- * traz a lista das que tem. Trocar os dois códigos faria a tela oferecer
- * "importe alguma coisa" a quem só precisa escolher outra ponta.
- */
-export function sendContextError(res: Response, err: unknown): boolean {
-  if (err instanceof ContextNotFoundError) {
-    res.status(404).json({ error: err.message });
-    return true;
-  }
-  if (err instanceof JanelaInvalidaError) {
-    res.status(400).json({ error: err.message });
-    return true;
-  }
-  return false;
 }

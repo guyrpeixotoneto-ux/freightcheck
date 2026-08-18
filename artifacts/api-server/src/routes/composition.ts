@@ -75,14 +75,6 @@ function parseFiltros(query: Record<string, unknown>): FiltrosDeFrota {
   };
 }
 
-function sendContextError(res: Response, err: unknown): boolean {
-  if (err instanceof ContextNotFoundError) {
-    res.status(404).json({ error: err.message });
-    return true;
-  }
-  return false;
-}
-
 /** Os tipos que a tela pode abrir como aba. */
 router.get("/composition/equipment-types", (_req, res): void => {
   res.json(TIPOS_COM_REGRA);
@@ -101,22 +93,16 @@ router.get("/composition/fleet", async (req, res): Promise<void> => {
     return;
   }
 
-  try {
-    const view = await getVisaoDeFrota(db, entityType, {
-      ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
-      ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
-      filtros: parseFiltros(query),
-    });
-    if (!view) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-    res.json(view);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building composition fleet view");
-    res.status(500).json({ error: "Internal server error" });
+  const view = await getVisaoDeFrota(db, entityType, {
+    ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
+    ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
+    filtros: parseFiltros(query),
+  });
+  if (!view) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
   }
+  res.json(view);
 });
 
 function parseFiltrosDeConjuntos(query: Record<string, unknown>): FiltrosDeConjuntos {
@@ -138,38 +124,32 @@ function parseFiltrosDeConjuntos(query: Record<string, unknown>): FiltrosDeConju
 
 router.get("/composition/conjuntos", async (req, res): Promise<void> => {
   const query = req.query as Record<string, unknown>;
-  try {
-    const view = await getVisaoDeConjuntos(db, {
-      ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
-      ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
-      filtros: parseFiltrosDeConjuntos(query),
-    });
-    if (!view) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-    /*
-      Uma placa apontada por mais de um cavalo contradiz o que as 9 vigências
-      medidas mostram, e o efeito dela é contábil: a carreta seria contada duas
-      vezes se o pareamento a atribuísse aos dois. A tela continua abrindo — ela
-      diz, linha a linha, o que aconteceu —, mas o estado não passa em silêncio.
-    */
-    const disputadas = view.linhas.filter((l) => l.natureza === "PLACA_DISPUTADA");
-    if (disputadas.length > 0) {
-      req.log.error(
-        {
-          effectiveDate: view.effectiveDate,
-          placas: [...new Set(disputadas.map((l) => l.placaApontada))],
-        },
-        "Placa de carreta apontada por mais de um cavalo na mesma vigência.",
-      );
-    }
-    res.json(view);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building composition conjuntos view");
-    res.status(500).json({ error: "Internal server error" });
+  const view = await getVisaoDeConjuntos(db, {
+    ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
+    ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
+    filtros: parseFiltrosDeConjuntos(query),
+  });
+  if (!view) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
   }
+  /*
+    Uma placa apontada por mais de um cavalo contradiz o que as 9 vigências
+    medidas mostram, e o efeito dela é contábil: a carreta seria contada duas
+    vezes se o pareamento a atribuísse aos dois. A tela continua abrindo — ela
+    diz, linha a linha, o que aconteceu —, mas o estado não passa em silêncio.
+  */
+  const disputadas = view.linhas.filter((l) => l.natureza === "PLACA_DISPUTADA");
+  if (disputadas.length > 0) {
+    req.log.error(
+      {
+        effectiveDate: view.effectiveDate,
+        placas: [...new Set(disputadas.map((l) => l.placaApontada))],
+      },
+      "Placa de carreta apontada por mais de um cavalo na mesma vigência.",
+    );
+  }
+  res.json(view);
 });
 
 router.get("/composition/equipment/:entityId", async (req, res): Promise<void> => {
@@ -179,57 +159,51 @@ router.get("/composition/equipment/:entityId", async (req, res): Promise<void> =
     return;
   }
   const query = req.query as Record<string, unknown>;
-  try {
-    const composicao = await montarComposicao(db, entityId, {
-      ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
-      ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
-    });
-    if (!composicao) {
-      res.status(404).json({ error: "Equipamento ou vigência não encontrados." });
-      return;
-    }
-    /*
-      O vínculo com a carreta só é resolvido para o cavalo, e só quando a fonte
-      o declara. Vai junto da composição porque é um atalho de navegação, não um
-      número — nada dele entra em total nenhum (ver `ficha.ts`).
-
-      A vigência e o contexto são os que a composição **já resolveu**, e não o
-      que veio na query. Reenviar o pedido faria a leitura resolvê-lo uma
-      segunda vez, e duas resoluções são duas chances de a ficha e o atalho
-      dela falarem de vigências diferentes.
-    */
-    const vinculo =
-      composicao.entityType === "CAVALO"
-        ? await getVinculoDoCavalo(db, entityId, {
-            effectiveDate: composicao.effectiveDate,
-            context: { scopeHash: composicao.scopeHash, channel: composicao.channel },
-          })
-        : null;
-
-    /*
-      Duas carretas correntes com a mesma placa contradizem
-      `entity_identifier_current_uq`. A ficha continua abrindo — o vínculo é um
-      atalho, e derrubar a página inteira por causa dele seria trocar um defeito
-      por outro maior —, mas o estado não passa em silêncio.
-    */
-    if (vinculo?.ambiguidade) {
-      req.log.error(
-        {
-          entityId,
-          placaCarreta: vinculo.placaCarreta,
-          carretas: vinculo.ambiguidade.entityIds,
-          effectiveDate: composicao.effectiveDate,
-        },
-        "Mais de uma carreta corrente com a mesma placa; o vínculo do cavalo ficou sem destino.",
-      );
-    }
-
-    res.json({ ...composicao, vinculo });
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building equipment composition");
-    res.status(500).json({ error: "Internal server error" });
+  const composicao = await montarComposicao(db, entityId, {
+    ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
+    ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
+  });
+  if (!composicao) {
+    res.status(404).json({ error: "Equipamento ou vigência não encontrados." });
+    return;
   }
+  /*
+    O vínculo com a carreta só é resolvido para o cavalo, e só quando a fonte
+    o declara. Vai junto da composição porque é um atalho de navegação, não um
+    número — nada dele entra em total nenhum (ver `ficha.ts`).
+
+    A vigência e o contexto são os que a composição **já resolveu**, e não o
+    que veio na query. Reenviar o pedido faria a leitura resolvê-lo uma
+    segunda vez, e duas resoluções são duas chances de a ficha e o atalho
+    dela falarem de vigências diferentes.
+  */
+  const vinculo =
+    composicao.entityType === "CAVALO"
+      ? await getVinculoDoCavalo(db, entityId, {
+          effectiveDate: composicao.effectiveDate,
+          context: { scopeHash: composicao.scopeHash, channel: composicao.channel },
+        })
+      : null;
+
+  /*
+    Duas carretas correntes com a mesma placa contradizem
+    `entity_identifier_current_uq`. A ficha continua abrindo — o vínculo é um
+    atalho, e derrubar a página inteira por causa dele seria trocar um defeito
+    por outro maior —, mas o estado não passa em silêncio.
+  */
+  if (vinculo?.ambiguidade) {
+    req.log.error(
+      {
+        entityId,
+        placaCarreta: vinculo.placaCarreta,
+        carretas: vinculo.ambiguidade.entityIds,
+        effectiveDate: composicao.effectiveDate,
+      },
+      "Mais de uma carreta corrente com a mesma placa; o vínculo do cavalo ficou sem destino.",
+    );
+  }
+
+  res.json({ ...composicao, vinculo });
 });
 
 router.get("/composition/equipment/:entityId/history", async (req, res): Promise<void> => {
@@ -238,22 +212,16 @@ router.get("/composition/equipment/:entityId/history", async (req, res): Promise
     res.status(400).json({ error: "Identificador de equipamento inválido." });
     return;
   }
-  try {
-    const historico = await getHistorico(
-      db,
-      entityId,
-      parseContext(req.query as Record<string, unknown>),
-    );
-    if (!historico) {
-      res.status(404).json({ error: "Equipamento não encontrado." });
-      return;
-    }
-    res.json(historico);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building equipment history");
-    res.status(500).json({ error: "Internal server error" });
+  const historico = await getHistorico(
+    db,
+    entityId,
+    parseContext(req.query as Record<string, unknown>),
+  );
+  if (!historico) {
+    res.status(404).json({ error: "Equipamento não encontrado." });
+    return;
   }
+  res.json(historico);
 });
 
 /**
@@ -270,21 +238,15 @@ router.get("/composition/equipment/:entityId/changes", async (req, res): Promise
     return;
   }
   const query = req.query as Record<string, unknown>;
-  try {
-    const alteracoes = await getAlteracoesDoEquipamento(db, entityId, {
-      ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
-      ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
-    });
-    if (!alteracoes) {
-      res.status(404).json({ error: "Equipamento ou vigência não encontrados." });
-      return;
-    }
-    res.json(alteracoes);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building equipment changes");
-    res.status(500).json({ error: "Internal server error" });
+  const alteracoes = await getAlteracoesDoEquipamento(db, entityId, {
+    ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
+    ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
+  });
+  if (!alteracoes) {
+    res.status(404).json({ error: "Equipamento ou vigência não encontrados." });
+    return;
   }
+  res.json(alteracoes);
 });
 
 export default router;

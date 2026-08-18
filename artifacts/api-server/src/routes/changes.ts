@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
-import { parseContext, sendContextError } from "../lib/contexto";
+import { classificarFalha } from "../lib/classificar-falha";
+import { parseContext } from "../lib/contexto";
 import {
   computeChangeSet,
   findPreviousSnapshot,
@@ -125,30 +126,15 @@ function comEscopo(filters: ChangeFilters, escopo: EscopoDeFrota): ChangeFilters
 
 /** As unidades e canais que já entregaram vigência — o seletor de contexto. */
 router.get("/contexts", async (req, res): Promise<void> => {
-  try {
-    res.json(await listContexts(db));
-  } catch (err) {
-    req.log.error({ err }, "Error listing contexts");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  res.json(await listContexts(db));
 });
 
 router.get("/snapshots", async (req, res): Promise<void> => {
-  try {
-    res.json(await listComparableSnapshots(db));
-  } catch (err) {
-    req.log.error({ err }, "Error listing snapshots");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  res.json(await listComparableSnapshots(db));
 });
 
 router.get("/change-sets", async (req, res): Promise<void> => {
-  try {
-    res.json(await listChangeSets(db));
-  } catch (err) {
-    req.log.error({ err }, "Error listing change sets");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  res.json(await listChangeSets(db));
 });
 
 /**
@@ -156,95 +142,90 @@ router.get("/change-sets", async (req, res): Promise<void> => {
  * demand if it has not been made yet.
  */
 router.get("/changes/latest", async (req, res): Promise<void> => {
-  try {
-    const snapshots = await listComparableSnapshots(db);
-    if (snapshots.length === 0) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-
-    /**
-     * Vigências only compare inside their own series. When the Ambev ships
-     * carretas and cavalos as separate files there are two series, and simply
-     * taking "the newest snapshot" would answer for one equipment type while
-     * silently dropping the other.
-     */
-    const seriesKey = (s: (typeof snapshots)[number]) =>
-      `${s.scopeHash}|${s.entityTypeSet}`;
-    const series = [...new Set(snapshots.map(seriesKey))]
-      .map((key) => {
-        const members = snapshots.filter((s) => seriesKey(s) === key);
-        return {
-          key,
-          entityTypeSet: members[0].entityTypeSet,
-          latest: members[members.length - 1],
-          count: members.length,
-        };
-      })
-      // Deterministic: newest first, then by name so ties never reorder.
-      .sort(
-        (a, b) =>
-          b.latest.effectiveDate.localeCompare(a.latest.effectiveDate) ||
-          a.entityTypeSet.localeCompare(b.entityTypeSet),
-      );
-
-    const requested = req.query.entityTypeSet;
-    const chosen =
-      (typeof requested === "string" &&
-        series.find((s) => s.entityTypeSet === requested)) ||
-      series[0];
-    const latest = chosen.latest;
-    const previousId = await findPreviousSnapshot(db, latest.id);
-    if (!previousId) {
-      res.status(409).json({
-        error: `"${latest.sourceLabel}" é a primeira vigência da série; não há anterior com que comparar.`,
-      });
-      return;
-    }
-
-    const set = await computeChangeSet(db, previousId, latest.id, {
-      computedBy: "api:latest",
-    });
-    const escopo = parseEscopo(req.query as Record<string, unknown>);
-    const filters = comEscopo(
-      parseFilters(req.query as Record<string, unknown>),
-      escopo,
-    );
-    const [changes, breakdown, totais] = await Promise.all([
-      listChanges(db, set.id, filters),
-      getChangeSetBreakdown(db, set.id, escopo, filters),
-      /*
-        Os totais saem **sempre**, e com os mesmos filtros da lista.
-
-        Antes eles só existiam sob `escopo=1`, e sem eles a tela caía nos totais
-        da comparação inteira: quem chegava do cartão "Impacto líquido" — que
-        manda `impactConfidence=CALCULATED` — via a lista obedecer e o cabeçalho
-        não. "19 com impacto" embaixo de "267 alterações · R$ 39.936" eram dois
-        recortes empilhados, e o de cima tinha cara de total.
-      */
-      totaisDoEscopo(db, set.id, escopo, filters),
-    ]);
-    res.json({
-      set,
-      breakdown,
-      // `set` continua sendo a comparação inteira — é ela que a tela de
-      // Alterações lê, e mexer nos agregados dela mudaria o que aquela tela
-      // afirma. O escopo vem ao lado, recontado, e só quando foi pedido.
-      ...(totais ? { escopo, totais } : {}),
-      // So the screen can offer the other series instead of pretending this is
-      // the whole fleet.
-      series: series.map((s) => ({
-        entityTypeSet: s.entityTypeSet,
-        vigencias: s.count,
-        latestLabel: s.latest.sourceLabel,
-      })),
-      selectedSeries: chosen.entityTypeSet,
-      ...changes,
-    });
-  } catch (err) {
-    req.log.error({ err }, "Error computing latest changes");
-    res.status(500).json({ error: "Internal server error" });
+  const snapshots = await listComparableSnapshots(db);
+  if (snapshots.length === 0) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
   }
+
+  /**
+   * Vigências only compare inside their own series. When the Ambev ships
+   * carretas and cavalos as separate files there are two series, and simply
+   * taking "the newest snapshot" would answer for one equipment type while
+   * silently dropping the other.
+   */
+  const seriesKey = (s: (typeof snapshots)[number]) =>
+    `${s.scopeHash}|${s.entityTypeSet}`;
+  const series = [...new Set(snapshots.map(seriesKey))]
+    .map((key) => {
+      const members = snapshots.filter((s) => seriesKey(s) === key);
+      return {
+        key,
+        entityTypeSet: members[0].entityTypeSet,
+        latest: members[members.length - 1],
+        count: members.length,
+      };
+    })
+    // Deterministic: newest first, then by name so ties never reorder.
+    .sort(
+      (a, b) =>
+        b.latest.effectiveDate.localeCompare(a.latest.effectiveDate) ||
+        a.entityTypeSet.localeCompare(b.entityTypeSet),
+    );
+
+  const requested = req.query.entityTypeSet;
+  const chosen =
+    (typeof requested === "string" &&
+      series.find((s) => s.entityTypeSet === requested)) ||
+    series[0];
+  const latest = chosen.latest;
+  const previousId = await findPreviousSnapshot(db, latest.id);
+  if (!previousId) {
+    res.status(409).json({
+      error: `"${latest.sourceLabel}" é a primeira vigência da série; não há anterior com que comparar.`,
+    });
+    return;
+  }
+
+  const set = await computeChangeSet(db, previousId, latest.id, {
+    computedBy: "api:latest",
+  });
+  const escopo = parseEscopo(req.query as Record<string, unknown>);
+  const filters = comEscopo(
+    parseFilters(req.query as Record<string, unknown>),
+    escopo,
+  );
+  const [changes, breakdown, totais] = await Promise.all([
+    listChanges(db, set.id, filters),
+    getChangeSetBreakdown(db, set.id, escopo, filters),
+    /*
+      Os totais saem **sempre**, e com os mesmos filtros da lista.
+
+      Antes eles só existiam sob `escopo=1`, e sem eles a tela caía nos totais
+      da comparação inteira: quem chegava do cartão "Impacto líquido" — que
+      manda `impactConfidence=CALCULATED` — via a lista obedecer e o cabeçalho
+      não. "19 com impacto" embaixo de "267 alterações · R$ 39.936" eram dois
+      recortes empilhados, e o de cima tinha cara de total.
+    */
+    totaisDoEscopo(db, set.id, escopo, filters),
+  ]);
+  res.json({
+    set,
+    breakdown,
+    // `set` continua sendo a comparação inteira — é ela que a tela de
+    // Alterações lê, e mexer nos agregados dela mudaria o que aquela tela
+    // afirma. O escopo vem ao lado, recontado, e só quando foi pedido.
+    ...(totais ? { escopo, totais } : {}),
+    // So the screen can offer the other series instead of pretending this is
+    // the whole fleet.
+    series: series.map((s) => ({
+      entityTypeSet: s.entityTypeSet,
+      vigencias: s.count,
+      latestLabel: s.latest.sourceLabel,
+    })),
+    selectedSeries: chosen.entityTypeSet,
+    ...changes,
+  });
 });
 
 /**
@@ -255,44 +236,38 @@ router.get("/changes/latest", async (req, res): Promise<void> => {
  * arrived, and the response names what is absent so the caller can say so.
  */
 router.get("/changes/consolidated", async (req, res): Promise<void> => {
-  try {
-    const period = typeof req.query.period === "string" ? req.query.period : undefined;
-    const context = parseContext(req.query as Record<string, unknown>);
-    const view = await getConsolidated(db, period, context);
-    if (!view) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-
-    const escopo = parseEscopo(req.query as Record<string, unknown>);
-    const filters = comEscopo(
-      parseFilters(req.query as Record<string, unknown>),
-      escopo,
-    );
-    const [changes, breakdown, totais] = await Promise.all([
-      listChanges(db, view.changeSetIds, filters),
-      getChangeSetBreakdown(db, view.changeSetIds, escopo, filters),
-      // Idem `/latest`: os totais são da mesma população que a lista, sempre.
-      totaisDoEscopo(db, view.changeSetIds, escopo, filters),
-    ]);
-    res.json({
-      view,
-      breakdown,
-      // A `view` continua descrevendo o período inteiro — quais séries chegaram,
-      // qual faltou, o total da frota. O escopo não a reescreve: ele vem ao
-      // lado, recontado sobre as linhas, e a tela 360° lê daqui.
-      ...(totais ? { escopo, totais } : {}),
-      // Os períodos são os do mesmo contexto da view — listar os de outra
-      // unidade num seletor que muda esta tela seria oferecer uma escolha que
-      // troca de assunto sem avisar.
-      periods: await listPeriods(db, view.context),
-      ...changes,
-    });
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building consolidated view");
-    res.status(500).json({ error: "Internal server error" });
+  const period = typeof req.query.period === "string" ? req.query.period : undefined;
+  const context = parseContext(req.query as Record<string, unknown>);
+  const view = await getConsolidated(db, period, context);
+  if (!view) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
   }
+
+  const escopo = parseEscopo(req.query as Record<string, unknown>);
+  const filters = comEscopo(
+    parseFilters(req.query as Record<string, unknown>),
+    escopo,
+  );
+  const [changes, breakdown, totais] = await Promise.all([
+    listChanges(db, view.changeSetIds, filters),
+    getChangeSetBreakdown(db, view.changeSetIds, escopo, filters),
+    // Idem `/latest`: os totais são da mesma população que a lista, sempre.
+    totaisDoEscopo(db, view.changeSetIds, escopo, filters),
+  ]);
+  res.json({
+    view,
+    breakdown,
+    // A `view` continua descrevendo o período inteiro — quais séries chegaram,
+    // qual faltou, o total da frota. O escopo não a reescreve: ele vem ao
+    // lado, recontado sobre as linhas, e a tela 360° lê daqui.
+    ...(totais ? { escopo, totais } : {}),
+    // Os períodos são os do mesmo contexto da view — listar os de outra
+    // unidade num seletor que muda esta tela seria oferecer uma escolha que
+    // troca de assunto sem avisar.
+    periods: await listPeriods(db, view.context),
+    ...changes,
+  });
 });
 
 /**
@@ -308,20 +283,14 @@ router.get("/changes/consolidated", async (req, res): Promise<void> => {
  * abriu primeiro.
  */
 router.get("/changes/grouped", async (req, res): Promise<void> => {
-  try {
-    const period = typeof req.query.period === "string" ? req.query.period : undefined;
-    const context = parseContext(req.query as Record<string, unknown>);
-    const view = await getGroupedView(db, period, context);
-    if (!view) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-    res.json(view);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building grouped view");
-    res.status(500).json({ error: "Internal server error" });
+  const period = typeof req.query.period === "string" ? req.query.period : undefined;
+  const context = parseContext(req.query as Record<string, unknown>);
+  const view = await getGroupedView(db, period, context);
+  if (!view) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
   }
+  res.json(view);
 });
 
 /**
@@ -333,20 +302,14 @@ router.get("/changes/grouped", async (req, res): Promise<void> => {
  * da vigência dentro de cada periodicidade.
  */
 router.get("/changes/families", async (req, res): Promise<void> => {
-  try {
-    const period = typeof req.query.period === "string" ? req.query.period : undefined;
-    const context = parseContext(req.query as Record<string, unknown>);
-    const view = await getFamiliesView(db, period, context);
-    if (!view) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-    res.json({ ...view, freightechSemDado: FREIGHTECH_SEM_DADO });
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building families view");
-    res.status(500).json({ error: "Internal server error" });
+  const period = typeof req.query.period === "string" ? req.query.period : undefined;
+  const context = parseContext(req.query as Record<string, unknown>);
+  const view = await getFamiliesView(db, period, context);
+  if (!view) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
   }
+  res.json({ ...view, freightechSemDado: FREIGHTECH_SEM_DADO });
 });
 
 /**
@@ -357,23 +320,17 @@ router.get("/changes/families", async (req, res): Promise<void> => {
  * análise abre antes de a pessoa escolher qualquer coisa.
  */
 router.get("/changes/range", async (req, res): Promise<void> => {
-  try {
-    const from = typeof req.query.from === "string" ? req.query.from : undefined;
-    const to = typeof req.query.to === "string" ? req.query.to : undefined;
-    const bruto = typeof req.query.parameters === "string" ? req.query.parameters : "";
-    const parameters = bruto.split(",").map((p) => p.trim()).filter(Boolean);
-    const context = parseContext(req.query as Record<string, unknown>);
-    const analysis = await getRangeAnalysis(db, from, to, context, parameters);
-    if (!analysis) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-    res.json(analysis);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building range analysis");
-    res.status(500).json({ error: "Internal server error" });
+  const from = typeof req.query.from === "string" ? req.query.from : undefined;
+  const to = typeof req.query.to === "string" ? req.query.to : undefined;
+  const bruto = typeof req.query.parameters === "string" ? req.query.parameters : "";
+  const parameters = bruto.split(",").map((p) => p.trim()).filter(Boolean);
+  const context = parseContext(req.query as Record<string, unknown>);
+  const analysis = await getRangeAnalysis(db, from, to, context, parameters);
+  if (!analysis) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
   }
+  res.json(analysis);
 });
 
 /**
@@ -388,69 +345,51 @@ router.get("/changes/range", async (req, res): Promise<void> => {
  * junto (não existe `change_set` gravado para consultar depois).
  */
 router.get("/changes/end-to-end", async (req, res): Promise<void> => {
-  try {
-    const from = typeof req.query.from === "string" ? req.query.from : undefined;
-    const to = typeof req.query.to === "string" ? req.query.to : undefined;
-    const bruto = typeof req.query.parameters === "string" ? req.query.parameters : "";
-    const parameters = bruto.split(",").map((p) => p.trim()).filter(Boolean);
-    const context = parseContext(req.query as Record<string, unknown>);
-    const analysis = await getEndToEndAnalysis(db, from, to, context, parameters);
-    if (!analysis) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-    res.json(analysis);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building end-to-end analysis");
-    res.status(500).json({ error: "Internal server error" });
+  const from = typeof req.query.from === "string" ? req.query.from : undefined;
+  const to = typeof req.query.to === "string" ? req.query.to : undefined;
+  const bruto = typeof req.query.parameters === "string" ? req.query.parameters : "";
+  const parameters = bruto.split(",").map((p) => p.trim()).filter(Boolean);
+  const context = parseContext(req.query as Record<string, unknown>);
+  const analysis = await getEndToEndAnalysis(db, from, to, context, parameters);
+  if (!analysis) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
   }
+  res.json(analysis);
 });
 
 /** Nível 2 — os veículos por trás de um cartão, um por linha. */
 router.get("/changes/grouped/vehicles", async (req, res): Promise<void> => {
-  try {
-    const { period, attributeCode, entityType, changeType, comparability, impactConfidence } =
-      req.query as Record<string, string | undefined>;
-    if (!period || !attributeCode || !entityType) {
-      res.status(400).json({ error: "Informe period, attributeCode e entityType." });
-      return;
-    }
-    const context = parseContext(req.query as Record<string, unknown>);
-    res.json(
-      await getGroupVehicles(db, {
-        period,
-        attributeCode,
-        entityType,
-        changeType,
-        comparability,
-        impactConfidence,
-        scopeHash: context?.scopeHash,
-        ...(context && "channel" in context ? { channel: context.channel } : {}),
-      }),
-    );
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error listing group vehicles");
-    res.status(500).json({ error: "Internal server error" });
+  const { period, attributeCode, entityType, changeType, comparability, impactConfidence } =
+    req.query as Record<string, string | undefined>;
+  if (!period || !attributeCode || !entityType) {
+    res.status(400).json({ error: "Informe period, attributeCode e entityType." });
+    return;
   }
+  const context = parseContext(req.query as Record<string, unknown>);
+  res.json(
+    await getGroupVehicles(db, {
+      period,
+      attributeCode,
+      entityType,
+      changeType,
+      comparability,
+      impactConfidence,
+      scopeHash: context?.scopeHash,
+      ...(context && "channel" in context ? { channel: context.channel } : {}),
+    }),
+  );
 });
 
 /** Nível 2 — a série do atributo nas vigências, com numerador e denominador. */
 router.get("/attributes/:code/series", async (req, res): Promise<void> => {
-  try {
-    const context = parseContext(req.query as Record<string, unknown>);
-    const series = await getAttributeSeries(db, req.params.code, context);
-    if (!series) {
-      res.status(404).json({ error: "Atributo não encontrado." });
-      return;
-    }
-    res.json(series);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error loading attribute series");
-    res.status(500).json({ error: "Internal server error" });
+  const context = parseContext(req.query as Record<string, unknown>);
+  const series = await getAttributeSeries(db, req.params.code, context);
+  if (!series) {
+    res.status(404).json({ error: "Atributo não encontrado." });
+    return;
   }
+  res.json(series);
 });
 
 /**
@@ -463,20 +402,14 @@ router.get("/attributes/:code/series", async (req, res): Promise<void> => {
  * valor, que é o que separa uma opção viva de uma que sobrou no cadastro.
  */
 router.get("/attributes/:code/domain", async (req, res): Promise<void> => {
-  try {
-    const context = parseContext(req.query as Record<string, unknown>);
-    const period = typeof req.query.period === "string" ? req.query.period : undefined;
-    const domain = await getAttributeDomain(db, req.params.code, context, period);
-    if (!domain) {
-      res.status(404).json({ error: "Atributo não encontrado nesta vigência." });
-      return;
-    }
-    res.json(domain);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error loading attribute domain");
-    res.status(500).json({ error: "Internal server error" });
+  const context = parseContext(req.query as Record<string, unknown>);
+  const period = typeof req.query.period === "string" ? req.query.period : undefined;
+  const domain = await getAttributeDomain(db, req.params.code, context, period);
+  if (!domain) {
+    res.status(404).json({ error: "Atributo não encontrado nesta vigência." });
+    return;
   }
+  res.json(domain);
 });
 
 /**
@@ -489,31 +422,25 @@ router.get("/attributes/:code/domain", async (req, res): Promise<void> => {
  * que o dicionário não conhecer voltam em `missingColumns` em vez de sumirem.
  */
 router.get("/entities/table", async (req, res): Promise<void> => {
-  try {
-    const entityType = typeof req.query.entityType === "string" ? req.query.entityType : "";
-    const bruto = typeof req.query.attributes === "string" ? req.query.attributes : "";
-    const attributes = bruto.split(",").map((c) => c.trim()).filter(Boolean);
-    if (!entityType || attributes.length === 0) {
-      res.status(400).json({ error: "Informe entityType e attributes." });
-      return;
-    }
-    const context = parseContext(req.query as Record<string, unknown>);
-    const period = typeof req.query.period === "string" ? req.query.period : undefined;
-    const table = await getEntityTable(db, entityType, attributes, context, period);
-    if (!table) {
-      res.status(404).json({ error: "Nenhuma vigência para este contexto." });
-      return;
-    }
-    res.json(table);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error loading entity table");
-    res.status(500).json({ error: "Internal server error" });
+  const entityType = typeof req.query.entityType === "string" ? req.query.entityType : "";
+  const bruto = typeof req.query.attributes === "string" ? req.query.attributes : "";
+  const attributes = bruto.split(",").map((c) => c.trim()).filter(Boolean);
+  if (!entityType || attributes.length === 0) {
+    res.status(400).json({ error: "Informe entityType e attributes." });
+    return;
   }
+  const context = parseContext(req.query as Record<string, unknown>);
+  const period = typeof req.query.period === "string" ? req.query.period : undefined;
+  const table = await getEntityTable(db, entityType, attributes, context, period);
+  if (!table) {
+    res.status(404).json({ error: "Nenhuma vigência para este contexto." });
+    return;
+  }
+  res.json(table);
 });
 
 /** Comparar: any two snapshots the user picks. */
-router.post("/change-sets", async (req, res): Promise<void> => {
+router.post("/change-sets", async (req, res, next): Promise<void> => {
   try {
     const { snapshotAId, snapshotBId, force } = req.body ?? {};
     if (!snapshotAId || !snapshotBId) {
@@ -526,55 +453,48 @@ router.post("/change-sets", async (req, res): Promise<void> => {
     });
     res.json(set);
   } catch (err) {
-    // Refusals here are meaningful — mismatched scope, same snapshot twice —
-    // and the message is written for the person reading it.
-    const message = err instanceof Error ? err.message : "Erro desconhecido";
+    /*
+      Refusals here are meaningful — mismatched scope, same snapshot twice —
+      and the message is written for the person reading it. Mas só as recusas:
+      uma falha de banco chegava aqui como 422 com a consulta do drizzle no
+      corpo, dizendo a quem chamou que o defeito era do pedido dele.
+    */
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
+      return;
+    }
     req.log.warn({ err }, "Comparison refused");
-    res.status(422).json({ error: message });
+    res.status(422).json({ error: desfecho.mensagem });
   }
 });
 
 router.get("/change-sets/:id/changes", async (req, res): Promise<void> => {
-  try {
-    const filters = parseFilters(req.query as Record<string, unknown>);
-    const [changes, breakdown] = await Promise.all([
-      listChanges(db, req.params.id, filters),
-      getChangeSetBreakdown(db, req.params.id),
-    ]);
-    res.json({ breakdown, ...changes });
-  } catch (err) {
-    req.log.error({ err }, "Error listing changes");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  const filters = parseFilters(req.query as Record<string, unknown>);
+  const [changes, breakdown] = await Promise.all([
+    listChanges(db, req.params.id, filters),
+    getChangeSetBreakdown(db, req.params.id),
+  ]);
+  res.json({ breakdown, ...changes });
 });
 
 router.get("/change-sets/pair/:aId/:bId", async (req, res): Promise<void> => {
-  try {
-    const set = await getChangeSetForPair(db, req.params.aId, req.params.bId);
-    if (!set) {
-      res.status(404).json({ error: "Comparação ainda não calculada." });
-      return;
-    }
-    res.json(set);
-  } catch (err) {
-    req.log.error({ err }, "Error fetching change set");
-    res.status(500).json({ error: "Internal server error" });
+  const set = await getChangeSetForPair(db, req.params.aId, req.params.bId);
+  if (!set) {
+    res.status(404).json({ error: "Comparação ainda não calculada." });
+    return;
   }
+  res.json(set);
 });
 
 /** Both sides of one change, down to the originating cell. */
 router.get("/changes/:id/provenance", async (req, res): Promise<void> => {
-  try {
-    const provenance = await getChangeProvenance(db, Number(req.params.id));
-    if (!provenance) {
-      res.status(404).json({ error: "Alteração não encontrada." });
-      return;
-    }
-    res.json(provenance);
-  } catch (err) {
-    req.log.error({ err }, "Error fetching provenance");
-    res.status(500).json({ error: "Internal server error" });
+  const provenance = await getChangeProvenance(db, Number(req.params.id));
+  if (!provenance) {
+    res.status(404).json({ error: "Alteração não encontrada." });
+    return;
   }
+  res.json(provenance);
 });
 
 export default router;

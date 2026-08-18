@@ -36,12 +36,7 @@ const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 router.get("/users", async (req, res): Promise<void> => {
-  try {
-    res.json(await listUsers(db));
-  } catch (err) {
-    req.log.error({ err }, "Error listing users");
-    res.status(500).json({ error: "Não foi possível listar as contas." });
-  }
+  res.json(await listUsers(db));
 });
 
 router.post("/users", async (req, res): Promise<void> => {
@@ -56,26 +51,17 @@ router.post("/users", async (req, res): Promise<void> => {
     return;
   }
 
-  try {
-    const user = await createUser(db, {
-      name: name as string,
-      email: email as string,
-      password: password as string,
-      createdBy: req.user!.email,
-    });
-    req.log.info(
-      { email: user.email, by: req.user!.email },
-      "Conta criada pela interface",
-    );
-    res.status(201).json(user);
-  } catch (err) {
-    if (err instanceof EmailAlreadyUsedError) {
-      res.status(409).json({ error: err.message });
-      return;
-    }
-    req.log.error({ err }, "Error creating user");
-    res.status(500).json({ error: "Não foi possível criar a conta." });
-  }
+  const user = await createUser(db, {
+    name: name as string,
+    email: email as string,
+    password: password as string,
+    createdBy: req.user!.email,
+  });
+  req.log.info(
+    { email: user.email, by: req.user!.email },
+    "Conta criada pela interface",
+  );
+  res.status(201).json(user);
 });
 
 /**
@@ -90,33 +76,28 @@ router.post("/users/:id/disable", async (req, res): Promise<void> => {
     return;
   }
 
-  try {
-    const target = await findUserById(db, req.params.id);
-    if (!target) {
-      res.status(404).json({ error: "Conta não encontrada." });
-      return;
-    }
-
-    const refusal = whyCannotDisable({
-      targetId: target.id,
-      actorId: req.user!.id,
-      activeUsers: await countActiveUsers(db),
-    });
-    if (refusal) {
-      res.status(409).json({ error: refusal });
-      return;
-    }
-
-    await setUserDisabled(db, target.id, true, req.user!.email);
-    req.log.info(
-      { email: target.email, by: req.user!.email },
-      "Conta desativada",
-    );
-    res.json(await listUsers(db));
-  } catch (err) {
-    req.log.error({ err }, "Error disabling user");
-    res.status(500).json({ error: "Não foi possível desativar a conta." });
+  const target = await findUserById(db, req.params.id);
+  if (!target) {
+    res.status(404).json({ error: "Conta não encontrada." });
+    return;
   }
+
+  const refusal = whyCannotDisable({
+    targetId: target.id,
+    actorId: req.user!.id,
+    activeUsers: await countActiveUsers(db),
+  });
+  if (refusal) {
+    res.status(409).json({ error: refusal });
+    return;
+  }
+
+  await setUserDisabled(db, target.id, true, req.user!.email);
+  req.log.info(
+    { email: target.email, by: req.user!.email },
+    "Conta desativada",
+  );
+  res.json(await listUsers(db));
 });
 
 router.post("/users/:id/enable", async (req, res): Promise<void> => {
@@ -125,23 +106,18 @@ router.post("/users/:id/enable", async (req, res): Promise<void> => {
     return;
   }
 
-  try {
-    const target = await findUserById(db, req.params.id);
-    if (!target) {
-      res.status(404).json({ error: "Conta não encontrada." });
-      return;
-    }
-
-    await setUserDisabled(db, target.id, false, req.user!.email);
-    req.log.info(
-      { email: target.email, by: req.user!.email },
-      "Conta reativada",
-    );
-    res.json(await listUsers(db));
-  } catch (err) {
-    req.log.error({ err }, "Error enabling user");
-    res.status(500).json({ error: "Não foi possível reativar a conta." });
+  const target = await findUserById(db, req.params.id);
+  if (!target) {
+    res.status(404).json({ error: "Conta não encontrada." });
+    return;
   }
+
+  await setUserDisabled(db, target.id, false, req.user!.email);
+  req.log.info(
+    { email: target.email, by: req.user!.email },
+    "Conta reativada",
+  );
+  res.json(await listUsers(db));
 });
 
 /**
@@ -166,25 +142,20 @@ router.post("/users/:id/password", async (req, res): Promise<void> => {
     return;
   }
 
-  try {
-    const target = await findUserById(db, req.params.id);
-    if (!target) {
-      res.status(404).json({ error: "Conta não encontrada." });
-      return;
-    }
-
-    await setUserPassword(db, target.id, req.body.password as string);
-    req.log.info(
-      { email: target.email, by: req.user!.email },
-      "Senha redefinida por outra pessoa",
-    );
-    // A lista de volta, como nas outras duas: as sessões daquela pessoa
-    // acabaram de cair, e é isso que a tela precisa reexibir.
-    res.json(await listUsers(db));
-  } catch (err) {
-    req.log.error({ err }, "Error resetting password");
-    res.status(500).json({ error: "Não foi possível redefinir a senha." });
+  const target = await findUserById(db, req.params.id);
+  if (!target) {
+    res.status(404).json({ error: "Conta não encontrada." });
+    return;
   }
+
+  await setUserPassword(db, target.id, req.body.password as string);
+  req.log.info(
+    { email: target.email, by: req.user!.email },
+    "Senha redefinida por outra pessoa",
+  );
+  // A lista de volta, como nas outras duas: as sessões daquela pessoa
+  // acabaram de cair, e é isso que a tela precisa reexibir.
+  res.json(await listUsers(db));
 });
 
 export default router;

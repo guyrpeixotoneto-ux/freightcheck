@@ -77,12 +77,27 @@ export class ApiError extends Error {
    * mandavam fazer coisas diferentes sobre o mesmo erro.
    */
   readonly diagnostico?: Diagnostico;
+  /**
+   * O identificador que o servidor deu a esta requisição.
+   *
+   * É o único campo desta classe que serve para uma falha que **ninguém** sabe
+   * explicar — e é justamente essa que a interface mais recebia. Um 500 do
+   * contrato JSON traz `requestId`; a linha de log que o descreve, com a
+   * exceção inteira, traz o mesmo valor. Sem ele, "deu erro nesta tela" e "o
+   * log tem quatrocentas linhas" são dois fatos que não se encontram, e a
+   * pessoa na tela não tem o que dizer a quem consegue ler o log.
+   */
+  readonly requestId?: string;
 
   constructor(
     message: string,
     status: number,
     code?: string,
-    extra?: { contexto?: string; diagnostico?: Diagnostico },
+    extra?: {
+      contexto?: string;
+      diagnostico?: Diagnostico;
+      requestId?: string;
+    },
   ) {
     super(message);
     this.name = "ApiError";
@@ -90,6 +105,7 @@ export class ApiError extends Error {
     if (code !== undefined) this.code = code;
     if (extra?.contexto !== undefined) this.contexto = extra.contexto;
     if (extra?.diagnostico !== undefined) this.diagnostico = extra.diagnostico;
+    if (extra?.requestId !== undefined) this.requestId = extra.requestId;
   }
 }
 
@@ -138,6 +154,9 @@ export function erroDaResposta(
         : {}),
       ...(ehDiagnostico(body.diagnostico)
         ? { diagnostico: body.diagnostico }
+        : {}),
+      ...(typeof body.requestId === "string" && body.requestId !== ""
+        ? { requestId: body.requestId }
         : {}),
     },
   );

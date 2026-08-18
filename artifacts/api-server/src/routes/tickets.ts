@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
-import { Router, type IRouter, type Response } from "express";
+import { Router, type IRouter } from "express";
 import { codigoDoPostgres, db } from "@workspace/db";
-import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
+import { faltaSchema } from "../lib/schema-ausente";
+import { contextoDeSchema } from "../middlewares/contexto-de-schema";
 import {
   TicketImportDeletionRefused,
   deleteTicketImport,
@@ -46,6 +47,25 @@ import {
  */
 const router: IRouter = Router();
 
+/**
+ * O que este router — e mais ninguém — sabe dizer quando falta schema.
+ *
+ * Mesma frase de sempre, entregue pelo mesmo 503 com diagnóstico. O que sai são
+ * os oito `try/catch` que existiam só para chamá-la: para dizer isto num banco
+ * atrasado, cada um precisava capturar tudo — e o que não fosse falta de schema
+ * virava `{"error": "Internal server error"}`, a constante que mandava procurar
+ * defeito num arquivo que estava certo. Ver `middlewares/contexto-de-schema.ts`.
+ */
+router.use(
+  ["/ticket-imports", "/tickets", "/ticket-import-deletions"],
+  contextoDeSchema(
+    "Este banco ainda não tem onde guardar chamados: falta pelo menos uma " +
+      "das migrations que criam esse schema (0012_chamados, " +
+      "0013_chamados_por_parametro, 0014_chamados_formato_real). Não é o seu " +
+      "arquivo — nada chegou a ser gravado, e nada se perdeu.",
+  ),
+);
+
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const DEFAULT_ACTOR = "upload";
@@ -64,29 +84,6 @@ const DEFAULT_ACTOR = "upload";
  */
 export function faltaOSchemaDeChamados(err: unknown): boolean {
   return faltaSchema(err);
-}
-
-/**
- * A falha, separando o que é defeito do que é banco desatualizado.
- *
- * "Internal server error" foi o que estas rotas responderam a um export perfeito
- * num banco onde faltavam as migrations de chamados — nas duas pontas, a do
- * upload e a da listagem. A frase manda procurar no arquivo, que estava certo.
- * O status também muda: 503 é indisponibilidade temporária deste ambiente, e
- * não erro do pedido.
- */
-async function responderFalha(res: Response, err: unknown): Promise<void> {
-  if (faltaOSchemaDeChamados(err)) {
-    await responderSchemaAusente(
-      res,
-      "Este banco ainda não tem onde guardar chamados: falta pelo menos uma " +
-        "das migrations que criam esse schema (0012_chamados, " +
-        "0013_chamados_por_parametro, 0014_chamados_formato_real). Não é o seu " +
-        "arquivo — nada chegou a ser gravado, e nada se perdeu.",
-    );
-    return;
-  }
-  res.status(500).json({ error: "Internal server error" });
 }
 
 export type DecodedTicketUpload = {
@@ -288,12 +285,7 @@ async function readInBackground(
 
 /** Os envios de chamados, o mais novo primeiro — os que falharam inclusive. */
 router.get("/ticket-imports", async (req, res): Promise<void> => {
-  try {
-    res.json(await listTicketImports(db));
-  } catch (err) {
-    req.log.error({ err }, "Error listing ticket imports");
-    await responderFalha(res, err);
-  }
+  res.json(await listTicketImports(db));
 });
 
 router.post("/ticket-imports", async (req, res): Promise<void> => {
@@ -303,43 +295,38 @@ router.post("/ticket-imports", async (req, res): Promise<void> => {
     return;
   }
 
-  try {
-    const { filename, extension, bytes } = decoded.value;
-    const contentSha256 = createHash("sha256").update(bytes).digest("hex");
-    const filePath = path.join(
-      ensureImportStorageDir(),
-      `chamados-${contentSha256}${extension}`,
-    );
-    writeFileSync(filePath, bytes);
+  const { filename, extension, bytes } = decoded.value;
+  const contentSha256 = createHash("sha256").update(bytes).digest("hex");
+  const filePath = path.join(
+    ensureImportStorageDir(),
+    `chamados-${contentSha256}${extension}`,
+  );
+  writeFileSync(filePath, bytes);
 
-    const received = await receiveTicketFile(db, {
-      filePath,
-      filename,
-      receivedBy: req.user?.email ?? DEFAULT_ACTOR,
-    });
+  const received = await receiveTicketFile(db, {
+    filePath,
+    filename,
+    receivedBy: req.user?.email ?? DEFAULT_ACTOR,
+  });
 
-    if (received.isDuplicate) {
-      const run = await getTicketImport(db, received.ticketImportId);
-      res.status(409).json({
-        error:
-          run?.failureReason ??
-          `Este arquivo de chamados já havia sido lido (sha256 ${contentSha256.slice(0, 16)}…).`,
-        ticketImportId: received.ticketImportId,
-      });
-      return;
-    }
-
-    res.status(202).json({
+  if (received.isDuplicate) {
+    const run = await getTicketImport(db, received.ticketImportId);
+    res.status(409).json({
+      error:
+        run?.failureReason ??
+        `Este arquivo de chamados já havia sido lido (sha256 ${contentSha256.slice(0, 16)}…).`,
       ticketImportId: received.ticketImportId,
-      contentSha256: received.contentSha256,
-      status: "PENDING",
     });
-
-    void readInBackground(received.ticketImportId, req.log);
-  } catch (err) {
-    req.log.error({ err }, "Error receiving ticket import");
-    await responderFalha(res, err);
+    return;
   }
+
+  res.status(202).json({
+    ticketImportId: received.ticketImportId,
+    contentSha256: received.contentSha256,
+    status: "PENDING",
+  });
+
+  void readInBackground(received.ticketImportId, req.log);
 });
 
 router.get("/ticket-imports/:id", async (req, res): Promise<void> => {
@@ -347,17 +334,12 @@ router.get("/ticket-imports/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Identificador de envio inválido." });
     return;
   }
-  try {
-    const run = await getTicketImport(db, req.params.id);
-    if (!run) {
-      res.status(404).json({ error: "Envio de chamados não encontrado." });
-      return;
-    }
-    res.json(run);
-  } catch (err) {
-    req.log.error({ err }, "Error loading ticket import");
-    await responderFalha(res, err);
+  const run = await getTicketImport(db, req.params.id);
+  if (!run) {
+    res.status(404).json({ error: "Envio de chamados não encontrado." });
+    return;
   }
+  res.json(run);
 });
 
 /**
@@ -373,17 +355,12 @@ router.get("/ticket-imports/:id/deletion", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Identificador de envio inválido." });
     return;
   }
-  try {
-    const plan = await planTicketImportDeletion(db, req.params.id);
-    if (!plan) {
-      res.status(404).json({ error: "Envio de chamados não encontrado." });
-      return;
-    }
-    res.json(plan);
-  } catch (err) {
-    req.log.error({ err }, "Error planning ticket import deletion");
-    await responderFalha(res, err);
+  const plan = await planTicketImportDeletion(db, req.params.id);
+  if (!plan) {
+    res.status(404).json({ error: "Envio de chamados não encontrado." });
+    return;
   }
+  res.json(plan);
 });
 
 /**
@@ -396,7 +373,7 @@ router.get("/ticket-imports/:id/deletion", async (req, res): Promise<void> => {
  * A recusa — um envio ainda sendo lido — volta como 409 com a frase inteira.
  * Não é erro do servidor: é a ordem em que as coisas podem ser desfeitas.
  */
-router.delete("/ticket-imports/:id", async (req, res): Promise<void> => {
+router.delete("/ticket-imports/:id", async (req, res, next): Promise<void> => {
   if (!UUID.test(req.params.id)) {
     res.status(400).json({ error: "Identificador de envio inválido." });
     return;
@@ -419,19 +396,13 @@ router.delete("/ticket-imports/:id", async (req, res): Promise<void> => {
       res.status(naoEncontrado ? 404 : 409).json({ error: err.message });
       return;
     }
-    req.log.error({ err }, "Error deleting ticket import");
-    await responderFalha(res, err);
+    next(err);
   }
 });
 
 /** O histórico das exclusões — o que já não está mais aqui, e por ordem de quem. */
 router.get("/ticket-import-deletions", async (req, res): Promise<void> => {
-  try {
-    res.json(await listTicketImportDeletions(db));
-  } catch (err) {
-    req.log.error({ err }, "Error listing ticket import deletions");
-    await responderFalha(res, err);
-  }
+  res.json(await listTicketImportDeletions(db));
 });
 
 /**
@@ -443,78 +414,73 @@ router.get("/ticket-import-deletions", async (req, res): Promise<void> => {
  * para mostrar o convite a importar em vez de uma faixa vermelha.
  */
 router.get("/tickets", async (req, res): Promise<void> => {
-  try {
-    const requested = typeof req.query.ticketImportId === "string"
-      ? req.query.ticketImportId
-      : undefined;
-    if (requested !== undefined && !UUID.test(requested)) {
-      res.status(400).json({ error: "Identificador de envio inválido." });
-      return;
-    }
-
-    const run = requested
-      ? await getTicketImport(db, requested)
-      : await latestTicketImport(db);
-
-    if (!run) {
-      res.json({
-        import: null,
-        imports: await listTicketImports(db),
-        totals: null,
-        byParameter: [],
-        vigencias: { disponiveis: [], rotulos: {}, semVigencia: 0 },
-        janela: null,
-        vigenciasNoRecorte: 0,
-        total: 0,
-        rows: [],
-      });
-      return;
-    }
-
-    /*
-      Os dois recortes da população são resolvidos antes de tudo e atravessam as
-      quatro leituras — nenhum dos dois é filtro de linha.
-
-      O **escopo de frota** diz de que ativos a tela fala; o **recorte De/Até**
-      diz de que período. Passar qualquer um deles só para a lista deixaria os
-      cartões do topo respondendo pelo envio inteiro ao lado de um seletor
-      dizendo "3 de 9 vigências" — dois números certos e a leitura errada, que é
-      o defeito que este produto existe para pegar.
-    */
-    const eixo = await getTicketVigencias(db, run.id);
-    const janela = parseJanela(req.query as Record<string, unknown>);
-    const vigenciaLabels = rotulosNaJanela(eixo, janela);
-    const escopo = parseEscopoDeFrota(req.query as Record<string, unknown>);
-
-    const filters = {
-      ...parseTicketFilters(req.query as Record<string, unknown>),
-      vigenciaLabels,
-    };
-    const [changes, totals, byParameter, imports] = await Promise.all([
-      listTicketChanges(db, run.id, filters, escopo),
-      getTicketTotals(db, run.id, vigenciaLabels, escopo),
-      getTicketsByParameter(db, run.id, vigenciaLabels, 15, escopo),
-      listTicketImports(db),
-    ]);
-
-    // `escopo` volta na resposta pelo mesmo motivo que `entityType` volta em
-    // Impacto: a tela precisa poder dizer que os 340 chamados abaixo são os do
-    // cavalo, e não os 1.218 do arquivo.
-    res.json({
-      import: run,
-      imports,
-      totals,
-      byParameter,
-      ...(temEscopo(escopo) ? { escopo } : {}),
-      vigencias: eixoParaTela(eixo),
-      janela,
-      vigenciasNoRecorte: contarVigenciasNoRecorte(eixo, vigenciaLabels),
-      ...changes,
-    });
-  } catch (err) {
-    req.log.error({ err }, "Error listing tickets");
-    await responderFalha(res, err);
+  const requested = typeof req.query.ticketImportId === "string"
+    ? req.query.ticketImportId
+    : undefined;
+  if (requested !== undefined && !UUID.test(requested)) {
+    res.status(400).json({ error: "Identificador de envio inválido." });
+    return;
   }
+
+  const run = requested
+    ? await getTicketImport(db, requested)
+    : await latestTicketImport(db);
+
+  if (!run) {
+    res.json({
+      import: null,
+      imports: await listTicketImports(db),
+      totals: null,
+      byParameter: [],
+      vigencias: { disponiveis: [], rotulos: {}, semVigencia: 0 },
+      janela: null,
+      vigenciasNoRecorte: 0,
+      total: 0,
+      rows: [],
+    });
+    return;
+  }
+
+  /*
+    Os dois recortes da população são resolvidos antes de tudo e atravessam as
+    quatro leituras — nenhum dos dois é filtro de linha.
+
+    O **escopo de frota** diz de que ativos a tela fala; o **recorte De/Até**
+    diz de que período. Passar qualquer um deles só para a lista deixaria os
+    cartões do topo respondendo pelo envio inteiro ao lado de um seletor
+    dizendo "3 de 9 vigências" — dois números certos e a leitura errada, que é
+    o defeito que este produto existe para pegar.
+  */
+  const eixo = await getTicketVigencias(db, run.id);
+  const janela = parseJanela(req.query as Record<string, unknown>);
+  const vigenciaLabels = rotulosNaJanela(eixo, janela);
+  const escopo = parseEscopoDeFrota(req.query as Record<string, unknown>);
+
+  const filters = {
+    ...parseTicketFilters(req.query as Record<string, unknown>),
+    vigenciaLabels,
+  };
+  const [changes, totals, byParameter, imports] = await Promise.all([
+    listTicketChanges(db, run.id, filters, escopo),
+    getTicketTotals(db, run.id, vigenciaLabels, escopo),
+    getTicketsByParameter(db, run.id, vigenciaLabels, 15, escopo),
+    listTicketImports(db),
+  ]);
+
+  // `escopo` volta na resposta pelo mesmo motivo que `entityType` volta em
+  // Impacto: a tela precisa poder dizer que os 340 chamados abaixo são os do
+  // cavalo, e não os 1.218 do arquivo.
+  res.json({
+    import: run,
+    imports,
+    totals,
+    byParameter,
+    ...(temEscopo(escopo) ? { escopo } : {}),
+    vigencias: eixoParaTela(eixo),
+    janela,
+    vigenciasNoRecorte: contarVigenciasNoRecorte(eixo, vigenciaLabels),
+    ...changes,
+  });
 });
 
 /**
@@ -530,59 +496,54 @@ router.get("/tickets", async (req, res): Promise<void> => {
  * e `classification` cairia no `:id`, que responderia 400 por não ser UUID.
  */
 router.get("/tickets/classification", async (req, res): Promise<void> => {
-  try {
-    const requested =
-      typeof req.query.ticketImportId === "string"
-        ? req.query.ticketImportId
-        : undefined;
-    if (requested !== undefined && !UUID.test(requested)) {
-      res.status(400).json({ error: "Identificador de envio inválido." });
-      return;
-    }
-
-    const run = requested
-      ? await getTicketImport(db, requested)
-      : await latestTicketImport(db);
-
-    // Mesma escolha de `/tickets`: sem envio é 200 com nada dentro, e não 404.
-    // A aba abre antes de existir arquivo, e isso é um estado, não um erro.
-    if (!run) {
-      res.json({
-        import: null,
-        classes: [],
-        changes: 0,
-        overlap: 0,
-        unclassified: 0,
-      });
-      return;
-    }
-
-    /*
-      Sem filtro, como o cabeçalho diz — mas **com** escopo e **com** recorte,
-      que são outra coisa. A árvore é do envio inteiro para quem abre por
-      Alterações, e é a do equipamento para quem abre por Cavalo 360°: lá a
-      população da tela é outra, e uma árvore da frota inteira dentro dela
-      contaria o que a tela afirma não estar mostrando. O recorte De/Até é o
-      mesmo da lista pela mesma razão — as duas visões são do mesmo arquivo, e
-      uma árvore que somasse o envio inteiro ao lado de uma lista recortada
-      faria as duas visões da mesma aba discordarem sobre o próprio assunto.
-    */
-    const escopo = parseEscopoDeFrota(req.query as Record<string, unknown>);
-    const eixo = await getTicketVigencias(db, run.id);
-    const vigenciaLabels = rotulosNaJanela(
-      eixo,
-      parseJanela(req.query as Record<string, unknown>),
-    );
-
-    res.json({
-      import: run,
-      ...(temEscopo(escopo) ? { escopo } : {}),
-      ...(await getTicketClassification(db, run.id, vigenciaLabels, escopo)),
-    });
-  } catch (err) {
-    req.log.error({ err }, "Error classifying tickets");
-    await responderFalha(res, err);
+  const requested =
+    typeof req.query.ticketImportId === "string"
+      ? req.query.ticketImportId
+      : undefined;
+  if (requested !== undefined && !UUID.test(requested)) {
+    res.status(400).json({ error: "Identificador de envio inválido." });
+    return;
   }
+
+  const run = requested
+    ? await getTicketImport(db, requested)
+    : await latestTicketImport(db);
+
+  // Mesma escolha de `/tickets`: sem envio é 200 com nada dentro, e não 404.
+  // A aba abre antes de existir arquivo, e isso é um estado, não um erro.
+  if (!run) {
+    res.json({
+      import: null,
+      classes: [],
+      changes: 0,
+      overlap: 0,
+      unclassified: 0,
+    });
+    return;
+  }
+
+  /*
+    Sem filtro, como o cabeçalho diz — mas **com** escopo e **com** recorte,
+    que são outra coisa. A árvore é do envio inteiro para quem abre por
+    Alterações, e é a do equipamento para quem abre por Cavalo 360°: lá a
+    população da tela é outra, e uma árvore da frota inteira dentro dela
+    contaria o que a tela afirma não estar mostrando. O recorte De/Até é o
+    mesmo da lista pela mesma razão — as duas visões são do mesmo arquivo, e
+    uma árvore que somasse o envio inteiro ao lado de uma lista recortada
+    faria as duas visões da mesma aba discordarem sobre o próprio assunto.
+  */
+  const escopo = parseEscopoDeFrota(req.query as Record<string, unknown>);
+  const eixo = await getTicketVigencias(db, run.id);
+  const vigenciaLabels = rotulosNaJanela(
+    eixo,
+    parseJanela(req.query as Record<string, unknown>),
+  );
+
+  res.json({
+    import: run,
+    ...(temEscopo(escopo) ? { escopo } : {}),
+    ...(await getTicketClassification(db, run.id, vigenciaLabels, escopo)),
+  });
 });
 
 /**
@@ -600,17 +561,12 @@ router.get("/tickets/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Identificador de chamado inválido." });
     return;
   }
-  try {
-    const ticket = await getTicket(db, req.params.id);
-    if (!ticket) {
-      res.status(404).json({ error: "Chamado não encontrado." });
-      return;
-    }
-    res.json(ticket);
-  } catch (err) {
-    req.log.error({ err }, "Error loading ticket");
-    await responderFalha(res, err);
+  const ticket = await getTicket(db, req.params.id);
+  if (!ticket) {
+    res.status(404).json({ error: "Chamado não encontrado." });
+    return;
   }
+  res.json(ticket);
 });
 
 export default router;
