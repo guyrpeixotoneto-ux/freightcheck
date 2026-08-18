@@ -8,6 +8,7 @@ import { formatBrl } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AvisoDeCircularidade, Cascata } from "@/components/dre/cascata";
 import { Cobertura, Indicadores } from "@/components/dre/indicadores";
+import { ResumoDaConta } from "@/components/dre/resumo";
 import { EvolucaoDoResultado, PonteDoResultado } from "@/components/dre/graficos";
 import {
   ROTULO_DO_ESCOPO,
@@ -127,12 +128,29 @@ export default function DREVeiculo() {
 
         {data && (
           <>
+            {/*
+              O resumo vem antes dos indicadores porque a pergunta que traz
+              alguém a esta página vem do ranking — "por que este conjunto deu
+              −R$ 721,79?" — e é a receita, o custo e a diferença entre os dois
+              que respondem. Receita líquida e EBITDA são a leitura contábil da
+              mesma unidade, e ela continua logo abaixo, no lugar de sempre.
+            */}
+            <section>
+              <h2 className="text-sm font-semibold mb-3">Resumo da conta</h2>
+              <ResumoDaConta dre={data.atual} />
+            </section>
+
             <Indicadores dre={data.atual} anterior={data.anterior} />
             <Cobertura cobertura={data.atual.cobertura} estado={data.atual.estado} />
             <AvisoDeCircularidade texto={data.aviso} />
 
             <section>
-              <h2 className="text-sm font-semibold mb-3">Demonstração</h2>
+              <h2 className="text-sm font-semibold mb-3">
+                Demonstração
+                <span className="ml-2 font-normal text-muted-foreground">
+                  a mesma conta na ordem contábil, com a origem de cada número
+                </span>
+              </h2>
               <Cascata dre={data.atual} />
             </section>
 

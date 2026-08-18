@@ -347,6 +347,8 @@ function Ranking({
   linhas: LinhaDoRanking[];
   linkDaUnidade: (entityId: string) => string;
 }) {
+  const [, navigate] = useLocation();
+
   if (linhas.length === 0) {
     return (
       <div className="border rounded-lg bg-card px-6 py-12 text-center">
@@ -374,7 +376,30 @@ function Ranking({
         </thead>
         <tbody>
           {linhas.map((l) => (
-            <tr key={l.id} className="border-b last:border-b-0 hover:bg-muted/40 transition-colors">
+            /*
+              A linha inteira abre a unidade, e não só a placa.
+
+              A seta no fim da linha já prometia isso, e só o rótulo respondia:
+              quem clicava no `−R$ 721,79` — que é o número que fez a pessoa
+              parar naquela linha — não ia a lugar nenhum. O link continua no
+              rótulo porque é ele que dá o endereço ao teclado, ao "abrir em
+              nova aba" e ao leitor de tela; o `onClick` da linha é o atalho do
+              mouse por cima dele, e por isso não repete o `tabIndex`.
+            */
+            <tr
+              key={l.id}
+              onClick={(e) => {
+                /*
+                  Ctrl/⌘-clique e clique no próprio link são do link, não da
+                  linha: sem esta guarda, abrir a unidade numa aba nova levava
+                  a aba atual junto.
+                */
+                if (e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+                if ((e.target as HTMLElement).closest("a")) return;
+                navigate(linkDaUnidade(l.entityIds[0]));
+              }}
+              className="border-b last:border-b-0 cursor-pointer hover:bg-muted/40 transition-colors"
+            >
               <td className="px-4 py-2.5">
                 <Link
                   href={linkDaUnidade(l.entityIds[0])}
