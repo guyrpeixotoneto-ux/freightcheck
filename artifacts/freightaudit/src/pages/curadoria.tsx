@@ -1743,7 +1743,16 @@ function MeaningCard({
             placeholder="Ex.: 1,000% do valor da nota de compra."
             rows={2}
           />
-          <FormulaEmPortugues detail={detail} formula={basis} />
+          <FormulaSugerida
+            detail={detail}
+            nome={displayName}
+            definicao={definition}
+            formula={basis}
+            onEscrever={(texto) => {
+              setBasis(texto);
+              setSaved(false);
+            }}
+          />
         </Field>
 
         {error && (
@@ -1927,68 +1936,85 @@ const MOTIVO_SEM_RASCUNHO: Record<string, string> = {
 };
 
 /**
- * "O que essa fórmula quer dizer?", respondido em português.
+ * "Escreva a conta por mim", a partir do que a coluna já é.
  *
- * O campo acima guarda a regra como a fonte a explicou — "1,000% do valor da
- * nota", "menor entre o preço da ANP e o da operadora". Quem escreveu entende;
- * quem lê meses depois, muitas vezes não. O botão pede ao modelo uma leitura
- * daquele texto, e é só isso que ele faz.
+ * O campo "Fórmula de cálculo" é o que faltava no caso do IPVA: a coluna trocou
+ * de base de cálculo duas vezes sem mudar de unidade, e nada na tela registrava
+ * isso. Ele fica em branco porque quem cura já disse o que a coluna é nos dois
+ * campos de cima e ainda precisa de um segundo ato de redação para escrever
+ * como o número sai. Este botão escreve o primeiro rascunho dessa conta, com o
+ * mesmo desenho do botão de "O que é" — e pelas mesmas decisões, que a tela
+ * precisa deixar claras:
  *
- * Três decisões que a tela precisa deixar claras, porque nenhuma delas é óbvia
- * olhando um botão:
+ * - **Escreve no campo, não numa caixa ao lado.** O resultado é rascunho de
+ *   quem clicou: entra no textarea aberto, dá para cortar, corrigir e
+ *   reescrever antes de salvar. Uma sugestão em caixa separada, com botão
+ *   "usar", seria um passo a mais para chegar ao mesmo lugar.
+ * - **O que havia antes volta com um clique.** `Desfazer` fica à vista enquanto
+ *   o texto for o que a IA escreveu, e some assim que a pessoa mexe nele — a
+ *   partir daí restaurar apagaria o trabalho dela, não o da IA.
+ * - **Lê o que está digitado, não o que está salvo.** Nome e descrição sobem no
+ *   corpo do pedido. Pedir para salvar antes faria a sugestão custar o ato que
+ *   ela existe para adiantar — e num atributo sem semântica versionada a base
+ *   de cálculo nem pode ser gravada ainda.
+ * - **É proposta, não apuração.** O modelo não lê contrato e não sabe qual
+ *   percentual foi negociado: onde falta número, a frase vem com a lacuna
+ *   nomeada, para a pessoa perguntar à fonte. O rodapé diz isso na tela, e não
+ *   só aqui.
  *
- * - **Lê o que está digitado, não o que está salvo.** A fórmula sobe no corpo
- *   do pedido. Pedir para salvar antes faria a leitura custar um ato que ela
- *   não deveria custar — e num atributo sem semântica versionada a base de
- *   cálculo nem pode ser gravada ainda.
- * - **Não grava e não confere.** Não há onde guardar o resultado e não deve
- *   haver: é paráfrase do que uma pessoa digitou, não apuração. O rodapé diz
- *   isso na tela, e não só aqui.
- * - **Envelhece à vista.** Se o texto muda depois da leitura, a leitura passa a
- *   falar de outra fórmula. Ela continua visível — apagá-la sozinha pareceria
- *   defeito — mas avisando sobre o quê ela foi feita.
+ * Nada aqui grava: o campo continua precisando de "Salvar nome e significado",
+ * e salvar continua não confirmando semântica nenhuma.
  */
-function FormulaEmPortugues({
+function FormulaSugerida({
   detail,
+  nome,
+  definicao,
   formula,
+  onEscrever,
 }: {
   detail: AttributeDetail;
+  nome: string;
+  definicao: string;
   formula: string;
+  onEscrever: (texto: string) => void;
 }) {
-  const [leitura, setLeitura] = useState<{
-    texto: string | null;
-    motivo: string;
-    sobre: string;
-  } | null>(null);
+  /** O que estava escrito antes da sugestão, e a sugestão que a substituiu. */
+  const [troca, setTroca] = useState<{ antes: string; depois: string } | null>(null);
+  const [motivo, setMotivo] = useState<string | null>(null);
 
-  const ler = useMutation({
+  const sugerir = useMutation({
     mutationFn: async () => {
       const response = await fetch(
-        getApiUrl(`/curation/attributes/${detail.code}/formula/leitura`),
+        getApiUrl(`/curation/attributes/${detail.code}/formula/sugestao`),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ calculationBasis: formula }),
+          body: JSON.stringify({ displayName: nome, definition: definicao }),
         },
       );
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Falha ao ler a fórmula");
+      if (!response.ok) throw new Error(body.error ?? "Falha ao sugerir a fórmula");
       return body as { texto: string | null; motivo: string };
     },
-    onSuccess: (body) => setLeitura({ ...body, sobre: formula.trim() }),
+    onSuccess: (body) => {
+      if (!body.texto) {
+        setMotivo(body.motivo);
+        return;
+      }
+      setMotivo(null);
+      setTroca({ antes: formula, depois: body.texto });
+      onEscrever(body.texto);
+    },
   });
 
-  const vazia = !formula.trim();
-  /*
-    Só uma leitura de verdade envelhece. Quando não houve texto — o modelo não
-    respondeu, não está configurado, recusou —, não existe paráfrase que possa
-    "falar da versão anterior", e o aviso aparecia mesmo assim: embaixo de "Não
-    consegui ler agora" a tela dizia que a leitura era de outra fórmula, o que
-    inventa uma leitura que nunca houve. O motivo em si continua valendo para
-    qualquer texto, e por isso continua visível.
-  */
-  const desatualizada =
-    leitura !== null && leitura.texto !== null && leitura.sobre !== formula.trim();
+  // Nome **ou** descrição basta, como na rota: são os dois caminhos reais —
+  // quem acabou de batizar a coluna, e quem abriu um atributo que outra pessoa
+  // descreveu sem apelidar. Exigir os dois desligaria o botão nos dois casos em
+  // que ele é mais útil.
+  const semBase = !nome.trim() && !definicao.trim();
+  // O `Desfazer` só vale enquanto o campo ainda contém o que a IA escreveu:
+  // depois de a pessoa mexer, restaurar apagaria o texto dela.
+  const podeDesfazer = troca !== null && formula === troca.depois;
 
   return (
     <div className="space-y-2">
@@ -1996,45 +2022,52 @@ function FormulaEmPortugues({
         <Button
           variant="outline"
           size="sm"
-          onClick={() => ler.mutate()}
-          disabled={vazia || ler.isPending}
+          onClick={() => sugerir.mutate()}
+          disabled={semBase || sugerir.isPending}
         >
           <Sparkles className="h-3.5 w-3.5" />
-          {ler.isPending ? "Lendo…" : "Explicar esta fórmula"}
+          {sugerir.isPending ? "Sugerindo…" : "Sugerir fórmula"}
         </Button>
         <p className="text-xs text-muted-foreground">
-          {vazia
-            ? "Escreva a fórmula acima para pedir a leitura."
-            : "Uma leitura em português do texto acima. Não grava nada."}
+          {semBase
+            ? "Dê o nome gerencial ou a descrição acima para a IA propor a conta."
+            : formula.trim()
+              ? "Reescreve o campo acima a partir do que a coluna é. Dá para desfazer."
+              : "Propõe a conta a partir do que a coluna é. Nada é gravado."}
         </p>
       </div>
 
-      {ler.isError && (
+      {sugerir.isError && (
         <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-          {ler.error.message}
+          {sugerir.error.message}
         </p>
       )}
 
-      {leitura && (
-        <div className="rounded-md border bg-muted/40 px-3 py-2 space-y-1.5">
-          {leitura.texto ? (
-            <p className="text-sm whitespace-pre-line">{leitura.texto}</p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {MOTIVO_SEM_LEITURA[leitura.motivo] ?? MOTIVO_SEM_LEITURA.ERRO}
-            </p>
-          )}
-          {desatualizada && (
-            <p className="text-xs text-amber-700">
-              O texto mudou depois desta leitura — ela fala da versão anterior.
-            </p>
-          )}
-          {leitura.texto && (
-            <p className="text-xs text-muted-foreground">
-              Escrito por IA a partir do texto acima. É uma leitura, não uma
-              conferência: não diz se a fórmula está certa e não confirma nada.
-            </p>
-          )}
+      {motivo && (
+        <p className="text-sm text-muted-foreground bg-muted/40 border rounded-md px-3 py-2">
+          {MOTIVO_SEM_FORMULA[motivo] ?? MOTIVO_SEM_FORMULA.ERRO}
+        </p>
+      )}
+
+      {podeDesfazer && (
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={() => {
+              onEscrever(troca.antes);
+              setTroca(null);
+            }}
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+            Desfazer
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            {troca.antes.trim()
+              ? "Fórmula proposta por IA, escrita por cima do texto anterior. Revise na fonte antes de salvar."
+              : "Fórmula proposta por IA a partir do nome e da descrição acima. É uma hipótese, não uma conferência: onde falta número, a frase diz o que perguntar à fonte."}
+          </p>
         </div>
       )}
     </div>
@@ -2042,17 +2075,20 @@ function FormulaEmPortugues({
 }
 
 /**
- * Por que não houve leitura, dito para quem está curando a coluna.
+ * Por que não houve fórmula sugerida, dito para quem está curando a coluna.
  *
- * Nenhuma destas frases é um erro do curador, e nenhuma pede ação dele sobre a
- * fórmula — por isso saem em texto normal, e não em vermelho de erro.
+ * `SEM_BASE` não deveria chegar pela tela — o botão fica desligado sem nome e
+ * sem descrição —, mas a rota também é chamável com os dois guardados em
+ * branco, e uma frase é mais barata do que descobrir por que a caixa não
+ * apareceu.
  */
-const MOTIVO_SEM_LEITURA: Record<string, string> = {
-  VAZIO: "Não há fórmula escrita para ler.",
+const MOTIVO_SEM_FORMULA: Record<string, string> = {
+  SEM_BASE:
+    "Sem nome gerencial e sem descrição, não há do que partir para propor a conta.",
   SEM_CHAVE:
-    "A leitura por IA não está configurada neste ambiente. O campo continua funcionando normalmente.",
-  RECUSA: "O modelo não quis ler este texto. O campo segue salvo do mesmo jeito.",
-  ERRO: "Não consegui ler agora. Tente de novo em alguns instantes.",
+    "A sugestão por IA não está configurada neste ambiente. O campo continua funcionando normalmente.",
+  RECUSA: "O modelo não quis propor uma fórmula aqui. Escreva-a à mão.",
+  ERRO: "Não consegui sugerir agora. Tente de novo em alguns instantes.",
 };
 
 function Field({
