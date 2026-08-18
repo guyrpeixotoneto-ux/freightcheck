@@ -36,8 +36,24 @@ const BADGE_STYLE: Record<string, string> = {
   SEM_SINAL: "bg-zinc-50 text-zinc-500 border-zinc-200",
 };
 
-export function GroupCard({ group, period }: { group: ChangeGroup; period: string }) {
-  const [open, setOpen] = useState(false);
+export function GroupCard({
+  group,
+  period,
+  inicialmenteAberto = false,
+}: {
+  group: ChangeGroup;
+  period: string;
+  /**
+   * Se o cartão já nasce aberto.
+   *
+   * Falso em toda lista — numa pilha de cartões, abrir todos é não ordenar
+   * nenhum. Verdadeiro onde o cartão **é** o assunto da tela: na gaveta que uma
+   * alteração em destaque abre, exigir mais um clique para ver os veículos
+   * seria esconder atrás de um chevron exatamente o que o clique anterior pediu.
+   */
+  inicialmenteAberto?: boolean;
+}) {
+  const [open, setOpen] = useState(inicialmenteAberto);
   const money = group.impact.amount !== null && group.impact.amount !== 0;
 
   return (
