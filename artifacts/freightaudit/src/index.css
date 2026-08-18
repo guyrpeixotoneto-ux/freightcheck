@@ -68,6 +68,7 @@
   --color-nav-inteligencia: hsl(var(--nav-inteligencia));
   --color-nav-dados: hsl(var(--nav-dados));
   --color-nav-admin: hsl(var(--nav-admin));
+  --color-nav-fechamento: hsl(var(--nav-fechamento));
 
   --color-sidebar: hsl(var(--sidebar));
   --color-sidebar-foreground: hsl(var(--sidebar-foreground));
@@ -239,6 +240,7 @@
   --nav-inteligencia: 212 73% 29%;
   --nav-dados: 212 73% 29%;
   --nav-admin: 212 73% 29%;
+  --nav-fechamento: 212 73% 29%;
 
   /*
    * A lateral é branca, e a faixa do topo é marinho. Os dois juntos é que
@@ -353,6 +355,7 @@
   --nav-inteligencia: 212 80% 66%;
   --nav-dados: 212 80% 66%;
   --nav-admin: 212 80% 66%;
+  --nav-fechamento: 212 80% 66%;
 
   --sidebar: 213 46% 10%;
   --sidebar-foreground: 213 25% 84%;

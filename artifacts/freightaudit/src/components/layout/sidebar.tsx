@@ -50,7 +50,6 @@ import {
   Truck,
   Users,
   UsersRound,
-  type LucideIcon,
 } from "lucide-react";
 import {
   DropdownMenu,
@@ -61,6 +60,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ambienteDe, type Ambiente } from "@/lib/ambiente";
 import { getApiUrl } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import {
@@ -68,6 +68,8 @@ import {
   useCuradoriaPendente,
   useImportacoesEmAndamento,
 } from "./contadores";
+import type { NavGroup, NavItem } from "./nav";
+import { NAV_GROUPS_FECHAMENTO } from "./nav-fechamento";
 import { useSecoesRecolhidas } from "./preferencias";
 
 /**
@@ -109,21 +111,12 @@ import { useSecoesRecolhidas } from "./preferencias";
  * o comentário de `NAV_GROUPS` e `pages/telas-em-preparo.ts`.
  */
 
-interface NavItem {
-  href: string;
-  label: string;
-  icon: LucideIcon;
-  /** O número à direita, quando há um para mostrar. */
-  contador?: "alteracoes" | "importacoes" | "curadoria";
-}
-
-interface NavGroup {
-  titulo: string;
-  icon: LucideIcon;
-  /** A classe de cor da seção — ver o bloco `--nav-*` em `index.css`. */
-  cor: string;
-  itens: NavItem[];
-}
+/*
+  `NavItem` e `NavGroup` moram em `nav.ts`: a mesma forma descreve a lista da
+  Auditoria (abaixo) e a do Fechamento (`nav-fechamento.ts`), e qual das duas a
+  lateral mostra é decidido pelo ambiente que a URL declara — ver
+  `lib/ambiente.ts`.
+*/
 
 /**
  * As oito seções, e a ordem em que se lê o trabalho de um dia.
@@ -332,7 +325,17 @@ export function Sidebar({ open }: { open: boolean }) {
 
   const contadores = { alteracoes, importacoes, curadoria };
 
-  if (!open) return <FaixaDeIcones location={location} contadores={contadores} />;
+  /*
+    A lateral é a mesma nos dois ambientes; o conteúdo é que troca. Quem decide
+    é a URL (`lib/ambiente.ts`): sob `/fechamento`, as quatro seções do
+    processo de fechamento; em todo o resto, as oito da Auditoria de sempre.
+  */
+  const ambiente = ambienteDe(location);
+  const grupos = ambiente === "fechamento" ? NAV_GROUPS_FECHAMENTO : NAV_GROUPS;
+
+  if (!open) {
+    return <FaixaDeIcones location={location} grupos={grupos} ambiente={ambiente} contadores={contadores} />;
+  }
 
   return (
     /*
@@ -346,10 +349,10 @@ export function Sidebar({ open }: { open: boolean }) {
      */
     <aside className="w-[19rem] bg-sidebar text-sidebar-foreground border-r border-sidebar-border shrink-0 flex flex-col sticky top-16 h-[calc(100dvh-4rem)]">
       <div className="overflow-y-auto flex-1">
-        <SeletorDeUnidade />
+        <SeletorDeUnidade ambiente={ambiente} />
 
         <nav className="pb-2">
-          {NAV_GROUPS.map((grupo, indice) => {
+          {grupos.map((grupo, indice) => {
             const aberto = !recolhido(grupo.titulo);
             const contemAtivo = grupo.itens.some((item) => estaAtivo(location, item.href));
             const escondido = aberto
@@ -423,7 +426,14 @@ export function Sidebar({ open }: { open: boolean }) {
         </nav>
       </div>
 
-      <ChamadaDoAssistente />
+      {/*
+        O convite ao assistente pertence à Auditoria: `/assistente` é uma tela
+        de lá, e um atalho fixo que troca de ambiente sem dizer que troca
+        quebraria justamente a noção de "onde estou" que a lateral existe para
+        dar. Quando o Fechamento tiver o que perguntar à IA, o convite volta —
+        apontando para dentro dele.
+      */}
+      {ambiente === "auditoria" && <ChamadaDoAssistente />}
     </aside>
   );
 }
@@ -456,9 +466,13 @@ type Contadores = Record<NonNullable<NavItem["contador"]>, number>;
  */
 function FaixaDeIcones({
   location,
+  grupos,
+  ambiente,
   contadores,
 }: {
   location: string;
+  grupos: NavGroup[];
+  ambiente: Ambiente;
   contadores: Contadores;
 }) {
   return (
@@ -466,7 +480,7 @@ function FaixaDeIcones({
       <div className="overflow-y-auto flex-1 py-2">
         <UnidadeNaFaixa />
 
-        {NAV_GROUPS.map((grupo, indice) => (
+        {grupos.map((grupo, indice) => (
           <div
             key={grupo.titulo}
             className={cn("py-1.5", indice > 0 && "border-t border-sidebar-border")}
@@ -483,17 +497,20 @@ function FaixaDeIcones({
         ))}
       </div>
 
-      <div className="p-2 border-t border-sidebar-border">
-        <Rotulo texto="Pergunte ao FreightCheck">
-          <Link
-            href="/assistente"
-            aria-label="Pergunte ao FreightCheck"
-            className="w-11 h-11 mx-auto rounded-lg border border-nav-inteligencia/30 bg-nav-inteligencia/[0.06] flex items-center justify-center hover:bg-nav-inteligencia/[0.12] transition-colors"
-          >
-            <Sparkles className="w-[1.125rem] h-[1.125rem] text-nav-inteligencia" />
-          </Link>
-        </Rotulo>
-      </div>
+      {/* Mesma regra da lateral inteira: o atalho ao assistente é da Auditoria. */}
+      {ambiente === "auditoria" && (
+        <div className="p-2 border-t border-sidebar-border">
+          <Rotulo texto="Pergunte ao FreightCheck">
+            <Link
+              href="/assistente"
+              aria-label="Pergunte ao FreightCheck"
+              className="w-11 h-11 mx-auto rounded-lg border border-nav-inteligencia/30 bg-nav-inteligencia/[0.06] flex items-center justify-center hover:bg-nav-inteligencia/[0.12] transition-colors"
+            >
+              <Sparkles className="w-[1.125rem] h-[1.125rem] text-nav-inteligencia" />
+            </Link>
+          </Rotulo>
+        </div>
+      )}
     </aside>
   );
 }
@@ -605,10 +622,12 @@ function normalizar(texto: string): string {
 
 /**
  * O item ativo é o da rota atual, e prefixo só conta abaixo da raiz — sem essa
- * exceção "/" ficaria aceso em toda tela do produto.
+ * exceção "/" ficaria aceso em toda tela do produto. `/fechamento` é a raiz do
+ * outro ambiente e tem a mesma exceção pela mesma razão: todo endereço do
+ * Fechamento começa com ele.
  */
 function estaAtivo(location: string, href: string): boolean {
-  if (href === "/") return location === "/";
+  if (href === "/" || href === "/fechamento") return location === href;
   return location === href || location.startsWith(`${href}/`);
 }
 
@@ -710,8 +729,14 @@ interface Contexto {
  * Com um contexto só, o campo não vira seletor: fica um cartão que informa. Um
  * menu de uma opção é uma promessa de variedade que o dado não tem — e obriga
  * um clique para descobrir que não havia escolha.
+ *
+ * No Fechamento o cartão informa e não vira seletor nem com vários contextos:
+ * trocar de unidade hoje leva a Parâmetros, que é uma tela da Auditoria, e um
+ * seletor que muda de ambiente ao ser usado confundiria mais do que ajuda. A
+ * unidade continua escrita — todo número do fechamento também depende dela —,
+ * e o seletor chega junto com a primeira tela do Fechamento que filtre por ela.
  */
-function SeletorDeUnidade() {
+function SeletorDeUnidade({ ambiente }: { ambiente: Ambiente }) {
   const search = useSearch();
   const { data, isLoading } = useQuery({
     queryKey: ["contexts"],
@@ -747,7 +772,7 @@ function SeletorDeUnidade() {
             isLoading ? "" : "Envie a primeira planilha em Importações para abrir uma unidade."
           }
         />
-      ) : contextos.length === 1 ? (
+      ) : contextos.length === 1 || ambiente === "fechamento" ? (
         <CaixaDaUnidade titulo={unidadeDe(atual)} detalhe={detalheDe(atual)} />
       ) : (
         <DropdownMenu>
