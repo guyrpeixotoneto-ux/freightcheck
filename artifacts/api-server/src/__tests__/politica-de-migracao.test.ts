@@ -20,22 +20,40 @@ import { deveMigrarNaPartida } from "../lib/migrations";
  */
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-describe("Development não migra na partida", () => {
-  it("não migra mesmo com DATABASE_URL definida — que é o caso real do Run", () => {
+describe("Development converge pela fila na partida", () => {
+  /*
+    Reversão medida: a regra anterior ("Development só avança à mão") existiu
+    para a era em que Production estava atrás da fila. Depois que Production
+    alcançou a cabeça, Development atrás virou o estado que faz o Provision do
+    Publishing propor REMOVER de Production o que as migrations criaram — o
+    diff destrutivo que apagou dado real em 17 e 18/08/2026. Development à
+    frente produz, no pior caso, um deploy recusado; Development atrás produz
+    perda de decisão humana. Esta prova prende o sentido seguro.
+  */
+  it("migra com NODE_ENV=development — é o que mantém a proposta do Publishing vazia", () => {
     const decisao = deveMigrarNaPartida({
       NODE_ENV: "development",
       DATABASE_URL: "postgres://user:senha@localhost:5432/freightcheck",
     });
 
-    expect(decisao.migrar).toBe(false);
+    expect(decisao.migrar).toBe(true);
     expect(decisao.motivo).toContain("development");
   });
 
   it("é o que `scripts/dev.mjs` passa ao servidor, e não uma suposição", () => {
     const dev = readFileSync(path.join(RAIZ, "../..", "scripts/dev.mjs"), "utf8");
     // Se alguém trocar este env, a política de Development muda junto — e é
-    // melhor que esta prova caia aqui do que o banco avance em silêncio lá.
+    // melhor que esta prova caia aqui do que Development ficar atrás em
+    // silêncio e o próximo Publish propor remoção.
     expect(dev).toMatch(/NODE_ENV:\s*"development"/);
+  });
+
+  it("um Development que precise ficar parado fixa isso pela chave, como um Preview", () => {
+    const decisao = deveMigrarNaPartida({
+      NODE_ENV: "development",
+      DB_MIGRATE_ON_BOOT: "0",
+    });
+    expect(decisao.migrar).toBe(false);
   });
 });
 

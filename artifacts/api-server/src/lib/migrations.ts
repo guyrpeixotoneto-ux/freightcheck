@@ -96,6 +96,21 @@ const NAO = new Set(["0", "false", "no", "off"]);
  * passa `development` ao subir o servidor, e o `[services.production.run.env]`
  * do artifact passa `production`.
  *
+ * **Development também converge pela fila, e isso é reversão medida de uma
+ * política.** A regra anterior — Development só avança à mão — existiu para não
+ * fabricar diff no Publishing enquanto Production estava atrás (era a época do
+ * bridge). Production alcançou a cabeça da fila, e a mesma regra passou a
+ * produzir o estado inverso, que é o pior dos dois: Development atrás faz o
+ * Provision propor **remover** de Production o que as migrations criaram — e
+ * foi o que destruiu dado real em 17 e 18/08/2026. Os dois sentidos do diff não
+ * se equivalem: Development à frente produz proposta aditiva, cujo pior
+ * desfecho é um deploy recusado; Development atrás produz proposta destrutiva,
+ * cujo pior desfecho é perda de decisão humana. Convergir Development
+ * automaticamente elimina o sentido destrutivo por construção — a janela que
+ * sobra é a dos segundos entre o merge e a fila rodar. `NODE_ENV=test` e
+ * ambiente sem `NODE_ENV` continuam sem migrar: suíte cria banco descartável, e
+ * o padrão de um ambiente desconhecido segue sendo o seguro.
+ *
  * **Valor não reconhecido não desliga nada.** Um `DB_MIGRATE_ON_BOOT=sim` — ou
  * um espaço a mais — cai de volta no `NODE_ENV` em vez de virar "não migre", e
  * o motivo carrega o valor recusado. Um erro de digitação numa variável de
@@ -125,6 +140,12 @@ export function deveMigrarNaPartida(
   const ambiente = env["NODE_ENV"];
   if (ambiente === "production") {
     return { migrar: true, motivo: `NODE_ENV=production${naoReconhecido}` };
+  }
+  if (ambiente === "development") {
+    // Development convergindo é o que mantém a proposta de schema do
+    // Publishing vazia — ver o cabeçalho. Um Development que precise ficar
+    // parado fixa isso por DB_MIGRATE_ON_BOOT=0, como qualquer Preview.
+    return { migrar: true, motivo: `NODE_ENV=development${naoReconhecido}` };
   }
 
   return {
@@ -334,5 +355,21 @@ export async function reconvergirNaPartida(
     await pool.end();
   }
 
-  return { rodou: true, relatorio: await reconvergirSchema(databaseUrl) };
+  /*
+    A pasta vai por parâmetro, nunca pelo default. O default de `readMigrations`
+    resolve por `import.meta.url` de `lib/db` — que, dentro do bundle do
+    api-server, aponta para `artifacts/api-server/migrations`, uma pasta que não
+    existe. O defeito ficou invisível enquanto Development não migrava na
+    partida (este ramo nunca rodava fora do deploy); a primeira partida de
+    Development com a política nova o expôs. `migrationsFolder()` é a resposta
+    certa nos dois mundos: `dist/migrations` no bundle, `lib/db/migrations` no
+    fonte.
+  */
+  return {
+    rodou: true,
+    relatorio: await reconvergirSchema(
+      databaseUrl,
+      readMigrations(migrationsFolder()),
+    ),
+  };
 }
