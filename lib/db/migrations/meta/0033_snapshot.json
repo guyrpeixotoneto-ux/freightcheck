@@ -1,6 +1,6 @@
 {
-  "id": "7a2d4e19-6b03-4c57-9e81-5d0af3b21033",
-  "prevId": "3f6c1b02-9a44-4d18-b0e7-2c5e91f0a032",
+  "id": "3f6c1b02-9a44-4d18-b0e7-2c5e91f0a033",
+  "prevId": "003d7c0a-098a-45b4-8597-98f9aa26b8e9",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4581,7 +4581,7 @@
       "checkConstraints": {
         "coverage_expectation_origin_ck": {
           "name": "coverage_expectation_origin_ck",
-          "value": "\"coverage_expectation\".\"origin\" IN ('CONTRATO', 'CURADORIA')"
+          "value": "\"coverage_expectation\".\"origin\" IN ('CONTRATO', 'CATALOGO', 'CURADORIA')"
         },
         "coverage_expectation_status_ck": {
           "name": "coverage_expectation_status_ck",
@@ -4602,6 +4602,201 @@
         "coverage_expectation_sucessor_ck": {
           "name": "coverage_expectation_sucessor_ck",
           "value": "\"coverage_expectation\".\"succeeded_by_attribute_code\" IS NULL OR \"coverage_expectation\".\"effective_until\" IS NOT NULL"
+        }
+      },
+      "isRLSEnabled": false
+    },
+    "public.entity_expectation": {
+      "name": "entity_expectation",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "source_system": {
+          "name": "source_system",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'FREIGHTEC'"
+        },
+        "dataset_family": {
+          "name": "dataset_family",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "canal": {
+          "name": "canal",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "scope_key": {
+          "name": "scope_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "entity_type": {
+          "name": "entity_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "entity_id": {
+          "name": "entity_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "origin": {
+          "name": "origin",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "effective_from": {
+          "name": "effective_from",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "effective_until": {
+          "name": "effective_until",
+          "type": "date",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "rationale": {
+          "name": "rationale",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "evidence": {
+          "name": "evidence",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "actor": {
+          "name": "actor",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "entity_expectation_recorte_idx": {
+          "name": "entity_expectation_recorte_idx",
+          "columns": [
+            {
+              "expression": "dataset_family",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "entity_type",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "effective_from",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "entity_expectation_entity_idx": {
+          "name": "entity_expectation_entity_idx",
+          "columns": [
+            {
+              "expression": "entity_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "entity_expectation_entity_id_entity_id_fk": {
+          "name": "entity_expectation_entity_id_entity_id_fk",
+          "tableFrom": "entity_expectation",
+          "tableTo": "entity",
+          "columnsFrom": [
+            "entity_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "entity_expectation_uq": {
+          "name": "entity_expectation_uq",
+          "nullsNotDistinct": true,
+          "columns": [
+            "source_system",
+            "dataset_family",
+            "canal",
+            "scope_key",
+            "entity_type",
+            "entity_id",
+            "effective_from"
+          ]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {
+        "entity_expectation_origin_ck": {
+          "name": "entity_expectation_origin_ck",
+          "value": "\"entity_expectation\".\"origin\" IN ('CONTRATO', 'CURADORIA')"
+        },
+        "entity_expectation_status_ck": {
+          "name": "entity_expectation_status_ck",
+          "value": "\"entity_expectation\".\"status\" IN ('ESPERADA', 'BAIXA')"
+        },
+        "entity_expectation_rationale_ck": {
+          "name": "entity_expectation_rationale_ck",
+          "value": "btrim(\"entity_expectation\".\"rationale\") <> ''"
+        },
+        "entity_expectation_actor_ck": {
+          "name": "entity_expectation_actor_ck",
+          "value": "btrim(\"entity_expectation\".\"actor\") <> ''"
         }
       },
       "isRLSEnabled": false

@@ -42,7 +42,7 @@ import {
 import { avaliarStatus, type StatusDoEquipamento } from "./status";
 
 /** Diferença até a qual um total e as suas parcelas são considerados iguais. */
-const TOLERANCIA_CENTAVO = 0.01;
+export const TOLERANCIA_CENTAVO = 0.01;
 
 // ---------------------------------------------------------------------------
 // Formato de saída
@@ -294,6 +294,56 @@ interface IdentidadeDoAtivo extends Record<string, unknown> {
   entity_type: string;
   placa: string | null;
   chassi: string | null;
+}
+
+/** A identidade de leitura de um ativo: como ele se chama nas telas. */
+export interface Identidade {
+  entityId: string;
+  entityType: string;
+  placa: string | null;
+  chassi: string | null;
+}
+
+/**
+ * As identidades correntes de um ou mais tipos de equipamento, numa consulta.
+ *
+ * Uma consulta e não uma por tipo: a visão de conjuntos precisa dos dois lados
+ * ao mesmo tempo, e duas idas ao banco para montar o mesmo mapa seriam duas
+ * chances de ler o cavalo de um estado e a carreta de outro.
+ */
+export async function lerIdentidades(
+  db: Database,
+  entityTypes: string[],
+): Promise<Map<string, Identidade>> {
+  const { rows } = await db.execute<{
+    entity_id: string;
+    entity_type: string;
+    placa: string | null;
+    chassi: string | null;
+  }>(sql`
+    SELECT e.id::text AS entity_id,
+           e.entity_type,
+           max(ei.identifier_value) FILTER (WHERE ei.identifier_type = 'PLACA')  AS placa,
+           max(ei.identifier_value) FILTER (WHERE ei.identifier_type = 'CHASSI') AS chassi
+      FROM entity e
+      LEFT JOIN entity_identifier ei ON ei.entity_id = e.id AND ei.is_current
+     WHERE e.entity_type IN (${sql.join(
+       entityTypes.map((tipo) => sql`${tipo}`),
+       sql`, `,
+     )})
+     GROUP BY 1, 2
+  `);
+  return new Map(
+    rows.map((r) => [
+      r.entity_id,
+      {
+        entityId: r.entity_id,
+        entityType: r.entity_type,
+        placa: r.placa,
+        chassi: r.chassi,
+      },
+    ]),
+  );
 }
 
 async function lerIdentidade(

@@ -380,10 +380,13 @@ export function ChangeTable({
                   )}
                 </td>
                 <td className="px-4 py-2">
+                  {/* O nome vem primeiro: é por ele que se reconhece a linha.
+                      O código fica embaixo, como endereço de quem precisa
+                      conferir de onde o número saiu. */}
+                  <NomeDoAtributo row={row} onVerQuinzenas={onVerQuinzenas} />
                   <div className="font-mono text-xs text-muted-foreground">
                     {row.attributeCode ?? "—"}
                   </div>
-                  <NomeDoAtributo row={row} onVerQuinzenas={onVerQuinzenas} />
                   {row.category === "SEMANTICS_CHANGE" && (
                     <div className="text-xs text-violet-800 mt-0.5">
                       {natureLabel(row.nature)}
@@ -501,7 +504,7 @@ function NomeDoAtributo({
   }
 
   /*
-    Sem nome de exibição, o botão é o código — que a linha de cima já mostra em
+    Sem nome de exibição, o botão é o código — que a linha de baixo já mostra em
     cinza. A repetição é preferível a um travessão clicável: o alvo do clique
     precisa dizer o que se vai abrir.
   */

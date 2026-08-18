@@ -147,6 +147,12 @@ export const ALLOWLIST: {
  * derivadas abaixo: o que ela guarda é decisão humana — um curador que dispensou
  * uma ausência ou aceitou uma renomeação escreveu ali algo que nenhuma consulta
  * reconstrói. Se ela tiver linha, abortar é o desfecho certo, não um transtorno.
+ *
+ * `entity_expectation`, da `0032`, é o mesmo caso no grão da entidade. Uma baixa
+ * de frota é a afirmação de que um equipamento saiu — a única coisa capaz de
+ * fazer a cobertura parar de cobrá-lo. Nenhuma consulta a reconstrói: a série
+ * mostra que o caminhão sumiu, e é justamente sobre o *porquê* que a linha fala.
+ * Perdê-la reabriria todas as lacunas que alguém já resolveu.
  */
 const TABELAS_REMOVIDAS = [
   "ticket_change",
@@ -154,6 +160,7 @@ const TABELAS_REMOVIDAS = [
   "import_decision",
   "ticket_import_deletion",
   "coverage_expectation",
+  "entity_expectation",
 ];
 
 /**
@@ -1061,7 +1068,6 @@ function planoUp(): PassoUp[] {
   const M18 = "0018_identidade_forte";
   const M19 = "0019_assistant_feedback";
   const M20 = "0020_chamados_exclusao";
-  const M32 = "0032_verdade_financeira_unica";
 
   // 1. Desfaz o estado legado que o `down` recriou. Quem o desfaz é a `0013`.
   for (const col of COLUNAS_LEGADAS_TICKET) {
@@ -1288,8 +1294,35 @@ function planoUp(): PassoUp[] {
     });
   }
 
+  // A `0032` — o universo esperado. A tabela nova do grão da entidade, e a
+  // reabertura do CHECK de origem: `coverage_expectation` volta da `0021` com a
+  // lista antiga (`CONTRATO`, `CURADORIA`), então o par drop/add tem de vir
+  // **depois** dela, ou o banco restaurado recusaria toda linha `CATALOGO` e a
+  // semeadura falharia na primeira partida.
+  const M32 = "0032_universo_esperado";
+  add(M32, "entity_expectation", levantar(M32, /CREATE TABLE IF NOT EXISTS "entity_expectation"/));
+  add(
+    M32,
+    "FK de entity_expectation",
+    levantar(M32, /entity_expectation_entity_id_entity_id_fk/),
+  );
+  for (const i of ["entity_expectation_recorte_idx", "entity_expectation_entity_idx"]) {
+    add(M32, `índice ${i}`, levantar(M32, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
+  add(
+    M32,
+    "coverage_expectation_origin_ck (drop)",
+    levantar(M32, /DROP CONSTRAINT IF EXISTS "coverage_expectation_origin_ck"/),
+  );
+  add(
+    M32,
+    "coverage_expectation_origin_ck",
+    levantar(M32, /ADD CONSTRAINT "coverage_expectation_origin_ck"/),
+  );
+
+  const M33 = "0033_verdade_financeira_unica";
   /*
-    As três colunas da `0032`. A definição é levantada da própria migration, e
+    As três colunas da `0033`. A definição é levantada da própria migration, e
     não escrita aqui: uma segunda redação do mesmo DDL é a forma mais silenciosa
     de o `up` devolver uma coluna com default ou nulidade diferente da que a fila
     cria — e o teste que compara "depois do up" com "banco criado do zero" é
@@ -1301,9 +1334,9 @@ function planoUp(): PassoUp[] {
     "mudancas_fora_do_total",
   ]) {
     add(
-      M32,
+      M33,
       `change_set.${col}`,
-      levantar(M32, new RegExp(`ALTER TABLE "change_set"\\s+ADD COLUMN IF NOT EXISTS "${col}"`)),
+      levantar(M33, new RegExp(`ALTER TABLE "change_set"\\s+ADD COLUMN IF NOT EXISTS "${col}"`)),
     );
   }
 

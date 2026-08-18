@@ -8,6 +8,8 @@ import {
   vigenciasObservadas,
 } from "./observado";
 import { contribuintesDaVigencia } from "./proveniencia";
+import { atributoDeclarado } from "@workspace/curation/catalogo-declarado";
+import { rosterDaVigencia, type EntidadeAusente } from "./frota";
 import { medirCelula, periodoDe, rotuloDaFamilia, rotuloDoEquipamento } from "./matriz";
 import type { Contagem, EstadoDeCobertura, Lacuna } from "./modelo";
 
@@ -44,6 +46,15 @@ export interface DetalheDaCelula {
   contaCritica: Contagem;
   /** As lacunas desta célula, piores primeiro. */
   lacunas: Lacuna[];
+  /**
+   * Os equipamentos que eram esperados aqui e não vieram.
+   *
+   * A lacuna de atributo responde "o que falta"; esta responde "de quem". As
+   * duas juntas são o que separa "o arquivo veio com menos colunas" de "o
+   * arquivo veio com menos caminhões" — dois problemas com donos diferentes,
+   * que a cobertura antiga somava num percentual só quando somava.
+   */
+  entidadesAusentes: EntidadeAusente[];
   /** Quais arquivos formaram esta vigência, e com quantos fatos cada um. */
   contribuintes: Awaited<ReturnType<typeof contribuintesDaVigencia>>;
   /** Atributos que chegaram e ninguém esperava. */
@@ -76,8 +87,18 @@ export async function detalheDaCelula(
   );
   if (!vigencia) throw new CelulaNaoEncontrada(snapshotId, entityType);
 
+  /*
+    O equipamento pode não estar na vigência **e** a célula existir mesmo assim.
+
+    É o caso do conjunto declarado que nunca chegou: a matriz desenha a linha
+    porque o catálogo a declara, e a tela convida a clicar nela — "clique numa
+    célula para ver o que falta". Enquanto a ausência do agregado era motivo de
+    404, o convite levava a um erro exatamente na célula que mais tinha o que
+    explicar. A decisão de existir ou não fica para depois de resolver o
+    esperado, logo abaixo: sem equipamento **e** sem expectativa não há célula;
+    sem equipamento e com expectativa há, com zero entidades.
+  */
   const equipamento = vigencia.equipamentos.find((e) => e.entityType === entityType);
-  if (!equipamento) throw new CelulaNaoEncontrada(snapshotId, entityType);
 
   const observados = (await atributosObservados(db, [snapshotId])).filter(
     (o) => o.entityType === entityType,
@@ -91,18 +112,34 @@ export async function detalheDaCelula(
     entidadesComAtributo: o.comValor + o.vazias,
   }));
 
+  /*
+    O mesmo roster da matriz, pela mesma razão que a matriz o usa — e por mais
+    uma: o drill-down promete abrir "com a mesma conta que a matriz mostrou".
+    Duas leituras da mesma célula que resolvessem o denominador de formas
+    diferentes dariam dois percentuais para a mesma pergunta, que é o defeito
+    que `modelo.ts` chama pelo nome.
+  */
+  const roster = await rosterDaVigencia(db, vigencia, entidadesPorTipo);
+
   const { esperados, dispensados } = await esperadoDaVigencia(
     db,
     vigencia,
     presenca,
-    entidadesPorTipo,
+    roster.esperadasPorTipo,
   );
 
+  const esperadosDoTipo = esperados.filter((e) => e.entityType === entityType);
+  if (!equipamento && esperadosDoTipo.length === 0) {
+    throw new CelulaNaoEncontrada(snapshotId, entityType);
+  }
+
   const medida = medirCelula({
-    esperados: esperados.filter((e) => e.entityType === entityType),
+    esperados: esperadosDoTipo,
     observados,
     dispensados,
-    entidadesNaVigencia: equipamento.entidades,
+    entidadesNaVigencia: equipamento?.entidades ?? 0,
+    entidadesEsperadas: roster.esperadasPorTipo.get(entityType),
+    ausentes: roster.ausentes.filter((a) => a.entityType === entityType),
   });
 
   /* Só agora, e só para as lacunas ausentes, o candidato a renomeação. */
@@ -173,6 +210,7 @@ export async function detalheDaCelula(
         b.entidadesFaltando - a.entidadesFaltando ||
         a.attributeCode.localeCompare(b.attributeCode),
     ),
+    entidadesAusentes: medida.entidadesAusentes,
     contribuintes: await contribuintesDaVigencia(db, snapshotId),
     inesperados: observados
       .filter((o) => !esperadosPorCodigo.has(o.attributeCode))
@@ -208,20 +246,39 @@ export async function detalheDaLacuna(
   attributeCode: string,
   limite = 200,
 ): Promise<DetalheDaLacuna | null> {
+  /*
+    `LEFT JOIN`, e não o produto cartesiano de antes.
+
+    A consulta exigia linha em `attribute` para devolver qualquer coisa, e
+    `attribute` só ganha linha na importação, de célula com valor. O resultado
+    era que a lacuna mais grave que existe — o atributo declarado que **nunca**
+    chegou — era a única que não abria: a matriz a listava, a tela convidava a
+    clicar, e o clique dava 404. O rótulo, nesse caso, vem do catálogo, que é
+    quem sabe que `trecho.pedagio_cheio` se chama "Pedágio cheio".
+  */
   const { rows } = await db.execute<{
     source_label: string;
     effective_date: string;
-    code: string;
-    label: string;
-    entity_type: string;
+    code: string | null;
+    label: string | null;
+    entity_type: string | null;
   }>(sql`
     SELECT s.source_label, s.effective_date::text, a.code,
            coalesce(a.display_name, a.source_name) AS label, a.entity_type
-      FROM snapshot s, attribute a
-     WHERE s.id = ${snapshotId}::uuid AND a.code = ${attributeCode}
+      FROM snapshot s
+      LEFT JOIN attribute a ON a.code = ${attributeCode}
+     WHERE s.id = ${snapshotId}::uuid
   `);
   const cabecalho = rows[0];
   if (!cabecalho) return null;
+
+  const declarado = atributoDeclarado(attributeCode);
+  /* Nem importado nem declarado: o código não é de nada, e 404 é a resposta. */
+  if (!cabecalho.code && !declarado) return null;
+
+  const attributeLabel =
+    cabecalho.label ?? declarado?.nomeGerencial ?? declarado?.sourceName ?? attributeCode;
+  const entityType = cabecalho.entity_type ?? declarado?.entityType ?? "";
 
   const faltando = await entidadesDoAtributo(db, snapshotId, attributeCode, {
     apenasFaltando: true,
@@ -230,8 +287,8 @@ export async function detalheDaLacuna(
 
   return {
     attributeCode,
-    attributeLabel: cabecalho.label,
-    entityType: cabecalho.entity_type,
+    attributeLabel,
+    entityType,
     vigencia: {
       snapshotId,
       sourceLabel: cabecalho.source_label,

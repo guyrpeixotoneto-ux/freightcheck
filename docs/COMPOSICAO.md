@@ -1,7 +1,7 @@
 # Composição — diagnóstico e desenho
 
 > **Status:** implementado. `lib/composition`, `/api/composition/*`, telas
-> `/composicao` e `/composicao/:id`.
+> `/composicao` (abas Cavalos, Carretas e Conjuntos) e `/composicao/:id`.
 > **Base da investigação:** o banco reconstruído do export real
 > (`Remuneração_Equipamento_Análise_FT`), 9 vigências, 83.241 fatos, 144 ativos,
 > 138 atributos, medido em 14/08/2026.
@@ -177,14 +177,63 @@ Y componentes sem regra" — e melhora com a curadoria.
 
 ---
 
-## 7. O que ficou preparado e desligado
+## 7. A aba Conjuntos, e por que ela deixou de estar desligada
 
-**Conjuntos.** O vínculo existe e é confiável: `cavalo.placa_carreta` tem valor
-nos 62 cavalos da última vigência, aponta 62 placas distintas, e as 62 casam com
-uma carreta do banco — um para um. `getVinculoDoCavalo` já o resolve, e a ficha
-do cavalo leva à carreta. A aba não foi ligada porque a remuneração do conjunto
-já vem pronta da fonte (`custoFixo`): uma aba que a repetisse não diria nada que
-a ficha da carreta não diga. Ela passa a valer quando houver o que confrontar.
+O motivo pelo qual ela ficou desligada estava certo e continua valendo: **a
+remuneração do conjunto já vem pronta da fonte, em `custoFixo`, e uma aba que
+repetisse essa coluna não diria nada que a ficha da carreta não diga.**
+
+O que mudou não foi o dado — foi a pergunta. A aba não repete `custoFixo`: ela o
+**confronta** com a soma que o produto apura pelo outro caminho, o das duas
+fichas. É a identidade de §2, refeita a cada leitura, conjunto a conjunto:
+
+```
+(finameImplemento + lucroFixomodeloNovoCiclo) + finameCavalo = custoFixo
+ \____________ carreta ____________/           \_ cavalo _/    \ conjunto /
+```
+
+Até aqui ela vivia só num teste de regressão — verdadeira em 558 pares medidos
+em 14/08/2026, e muda a respeito da vigência que chegasse depois. Medido agora
+sobre as 9 vigências, conjunto a conjunto: **657 conjuntos, 657 conferidos,
+nenhum diverge** (tolerância de R$ 0,01). Em agosto/2026 a fonte declara
+R$ 1.204.664,11/mês e as fichas somam R$ 1.204.664,00 — onze centavos de
+arredondamento distribuídos em 71 linhas.
+
+| O que a aba mostra | Onde mais isso aparece |
+|---|---|
+| O total que a fonte declara para o par | Ficha da carreta (como componente fora do escopo) |
+| Quanto disso é do cavalo e quanto é da carreta | Nas duas fichas, separadas |
+| **A diferença entre os dois** | **Em nenhum outro lugar** |
+| Quem trocou de carreta entre vigências | **Em nenhum outro lugar** |
+| Placa apontada sem carreta na vigência | **Em nenhum outro lugar** |
+| Carreta que nenhum cavalo puxa | **Em nenhum outro lugar** |
+
+As quatro últimas linhas são o que só existe quando se olha para o par: nem a
+ficha do cavalo nem a da carreta vê o outro lado.
+
+**A contagem que impede a dupla contagem.** Cada ativo entra em exatamente um
+conjunto — um por cavalo, mais um por carreta que ninguém aponta. Em agosto/2026:
+62 pareados + 9 órfãs = 71 conjuntos, cobrindo 62 cavalos e 71 carretas, cada um
+uma vez. É isso que autoriza somar a coluna da tela.
+
+**A regra do pareamento mora num lugar só.** `lib/composition/src/vinculo.ts`,
+funções puras sobre os fatos da vigência. A DRE, que já pareava os dois lados
+para apurar o escopo CONJUNTO, passou a ler dali — duas implementações de "qual
+carreta é desta placa?" seriam duas chances de a DRE e a Composição
+responderem coisas diferentes sobre a mesma vigência, e o efeito de discordarem
+é uma carreta contada duas vezes de um lado e nenhuma do outro.
+
+**O farol do conjunto não acende por carreta órfã.** São 9 das 71 desta base, em
+toda vigência; um alerta permanente seria ruído. A natureza do vínculo é uma
+coluna da tabela. O que acende é movimento e integridade: a conferência que não
+fecha, o vínculo que aponta para o vazio, a troca de carreta, a variação acima de
+10%.
+
+**O que a aba não é.** Não é a DRE do conjunto — aquela pergunta o que sobra
+depois do custo, e vive em `@workspace/dre` com escopo CONJUNTO. Esta pergunta se
+a remuneração do conjunto e a dos dois equipamentos contam a mesma história.
+
+## 8. O que ficou preparado e desligado
 
 **Auditoria.** Esperado × recebido. Falta o recebido. A aba aparece desligada,
 com o motivo, em vez de ligada e vazia.

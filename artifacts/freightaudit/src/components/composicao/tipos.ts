@@ -103,6 +103,100 @@ export interface VisaoDeFrota {
   totalSemFiltro: number;
 }
 
+// ---------------------------------------------------------------------------
+// Conjuntos — o cavalo e a carreta lidos como uma unidade só
+// ---------------------------------------------------------------------------
+
+/** Como o conjunto se formou, ou por que não se formou. */
+export type NaturezaDoVinculo =
+  | "PAREADO"
+  | "CAVALO_SEM_VINCULO"
+  | "PLACA_SEM_CARRETA"
+  | "PLACA_DISPUTADA"
+  | "CARRETA_ORFA";
+
+export const ROTULO_DA_NATUREZA: Record<NaturezaDoVinculo, string> = {
+  PAREADO: "Cavalo + carreta",
+  CAVALO_SEM_VINCULO: "Cavalo sem carreta",
+  PLACA_SEM_CARRETA: "Placa sem carreta",
+  PLACA_DISPUTADA: "Placa disputada",
+  CARRETA_ORFA: "Carreta sem cavalo",
+};
+
+export interface ComponenteDoLado {
+  code: string;
+  titulo: string;
+  valor: number;
+}
+
+export interface LadoDoConjunto {
+  entityId: string;
+  entityType: string;
+  placa: string | null;
+  chassi: string | null;
+  mensal: number | null;
+  componentes: ComponenteDoLado[];
+  semRegraFinanceira: number;
+  naoApuradoPor: MotivoDaNaoApuracao | null;
+}
+
+export interface LinhaDoConjunto {
+  id: string;
+  rotulo: string;
+  natureza: NaturezaDoVinculo;
+  explicacaoDoVinculo: string;
+  placaApontada: string | null;
+  presente: boolean;
+  cavalo: LadoDoConjunto | null;
+  carreta: LadoDoConjunto | null;
+  apurado: number | null;
+  declarado: number | null;
+  declaradoCode: string | null;
+  declaradoTitulo: string | null;
+  fonte: string | null;
+  divergencia: number | null;
+  fecha: boolean | null;
+  variacao: Variacao | null;
+  carretaAnterior: string | null;
+  status: { farol: Farol; motivos: string[]; alertas: number };
+}
+
+export interface VisaoDeConjuntos {
+  context: {
+    scopeHash: string;
+    channel: string | null;
+    label: string;
+    unidade: string | null;
+  };
+  effectiveDate: string;
+  periodLabel: string;
+  anterior: { effectiveDate: string; periodLabel: string } | null;
+  vigencias: { effectiveDate: string; periodLabel: string }[];
+  seriesEntregues: { CAVALO: boolean; CARRETA: boolean };
+  toleranciaDaConferencia: number;
+  resumo: {
+    conjuntos: number;
+    pareados: number;
+    carretasOrfas: number;
+    cavalosSemCarreta: number;
+    vinculosQuebrados: number;
+    comDeclarado: number;
+    declaradoTotal: number | null;
+    apuradoTotal: number | null;
+    conferidos: number;
+    fecham: number;
+    divergem: number;
+    divergenciaTotal: number | null;
+    variacaoTotal: number | null;
+    comAumento: number;
+    comReducao: number;
+    trocaramDeCarreta: number;
+    porFarol: Record<Farol, number>;
+  };
+  linhas: LinhaDoConjunto[];
+  totalSemFiltro: number;
+}
+
 export interface Parcela {
   code: string;
   titulo: string;

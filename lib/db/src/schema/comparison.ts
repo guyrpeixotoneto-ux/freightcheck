@@ -65,7 +65,7 @@ export const changeSetTable = pgTable(
      * Renomear o campo é o que faz o compilador cobrar de cada um deles qual
      * leitura quer, que era o objetivo. Renomear a **coluna** custaria três
      * propriedades que a fila de migrations protege, e o motivo de cada uma
-     * está escrito na `0032`.
+     * está escrito na `0033`.
      *
      * Deliberadamente não é um escalar. Um valor mensal e um anual não se
      * somam, e um total único afirmaria que sim: esta tabela já reportou

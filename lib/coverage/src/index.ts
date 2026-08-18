@@ -20,6 +20,7 @@ export * from "./modelo";
 export * from "./contrato";
 export * from "./esperado";
 export * from "./observado";
+export * from "./frota";
 export * from "./agregado";
 export * from "./descoberta";
 export * from "./proveniencia";

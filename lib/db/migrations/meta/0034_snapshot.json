@@ -1,6 +1,6 @@
 {
-  "id": "003d7c0a-098a-45b4-8597-98f9aa26b8e9",
-  "prevId": "d12fce48-a817-5eb7-a457-b496381be909",
+  "id": "7a2d4e19-6b03-4c57-9e81-5d0af3b21034",
+  "prevId": "3f6c1b02-9a44-4d18-b0e7-2c5e91f0a033",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3843,6 +3843,27 @@
           "primaryKey": false,
           "notNull": true,
           "default": "'{}'::jsonb"
+        },
+        "impacto_oficial_by_periodicity": {
+          "name": "impacto_oficial_by_periodicity",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "deducao_rastro": {
+          "name": "deducao_rastro",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "mudancas_fora_do_total": {
+          "name": "mudancas_fora_do_total",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
         },
         "impact_not_calculable": {
           "name": "impact_not_calculable",

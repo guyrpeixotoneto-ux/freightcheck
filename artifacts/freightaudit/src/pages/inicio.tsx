@@ -36,9 +36,15 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { ApiError, fetchJson } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { periodicitySuffix } from "@/lib/format";
+import {
+  COR_DA_LINHA,
+  DetalheDaAlteracao,
+  ICONE_DA_LINHA,
+} from "@/components/inicio/detalhe-da-alteracao";
 import { DetalheDoImpacto } from "@/components/inicio/detalhe-do-impacto";
 import {
   cobertura,
+  detalheDaAlteracao,
   detalheDoImpacto,
   escreverImpacto,
   escreverPercentual,
@@ -230,6 +236,21 @@ export default function Inicio() {
   */
   const recorte = lerRecorte(search);
 
+  /*
+    A alteração aberta na gaveta mora na URL, pelo mesmo motivo que `?impacto=`.
+
+    São duas chaves e não uma porque são duas leituras diferentes da vigência —
+    o parâmetro que somou dinheiro e a alteração que está em destaque. Abrir uma
+    apaga a outra do endereço: duas gavetas empilhadas escondem a de baixo sem
+    fechá-la, e quem fechasse a de cima cairia num painel que não pediu.
+  */
+  const alteracao = useMemo(
+    () => detalheDaAlteracao(view, parametros.get("alteracao"), lerRecorte(search)),
+    // `parametros` e `recorte` são derivados de `search`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [view, search],
+  );
+
   const trocarPara = (mudancas: Record<string, string | null>) => {
     const proxima = new URLSearchParams(search);
     for (const [chave, valor] of Object.entries(mudancas)) {
@@ -290,9 +311,13 @@ export default function Inicio() {
               <MaioresImpactos
                 ranking={ranking}
                 period={view.period}
-                onAbrir={(key) => trocarPara({ impacto: key })}
+                onAbrir={(key) => trocarPara({ impacto: key, alteracao: null })}
               />
-              <UltimasAlteracoes view={view} recorte={recorte} />
+              <UltimasAlteracoes
+                view={view}
+                recorte={recorte}
+                onAbrir={(chave) => trocarPara({ alteracao: chave, impacto: null })}
+              />
             </div>
 
             <div className="grid gap-5 lg:grid-cols-2">
@@ -310,6 +335,13 @@ export default function Inicio() {
               periodLabel={view.periodLabel}
               recorte={recorte}
               onFechar={() => trocarPara({ impacto: null })}
+            />
+
+            <DetalheDaAlteracao
+              detalhe={alteracao}
+              period={view.period}
+              periodLabel={view.periodLabel}
+              onFechar={() => trocarPara({ alteracao: null })}
             />
           </>
         )}
@@ -1182,20 +1214,6 @@ function SemPodio() {
 // Últimas alterações
 // ---------------------------------------------------------------------------
 
-const ICONE_DA_LINHA: Record<LinhaDeAlteracao["tipo"], LucideIcon> = {
-  queda: ArrowDownRight,
-  alta: ArrowUpRight,
-  "sem-preco": CircleHelp,
-  neutro: Info,
-};
-
-const COR_DA_LINHA: Record<LinhaDeAlteracao["tipo"], string> = {
-  queda: "text-red-700 bg-red-50",
-  alta: "text-emerald-700 bg-emerald-50",
-  "sem-preco": "text-warning bg-warning/10",
-  neutro: "text-muted-foreground bg-muted",
-};
-
 /**
  * As alterações em destaque desta vigência.
  *
@@ -1208,17 +1226,20 @@ const COR_DA_LINHA: Record<LinhaDeAlteracao["tipo"], string> = {
 function UltimasAlteracoes({
   view,
   recorte,
+  onAbrir,
 }: {
   view: FamiliesView;
   recorte: Recorte;
+  /** Abre a conta por trás de uma linha. Ver `DetalheDaAlteracao`. */
+  onAbrir: (chave: string) => void;
 }) {
-  const linhas = ultimasAlteracoes(view, 4, recorte);
+  const linhas = ultimasAlteracoes(view, 4);
 
   return (
     <section className={cn(CARTAO, "px-6 py-5 flex flex-col")}>
       <div className="flex items-center gap-2">
         <h2 className="text-base font-bold">Alterações em destaque</h2>
-        <Ajuda texto="As alterações mais relevantes da vigência aberta, na mesma ordem do Acompanhamento: dinheiro primeiro, ruído por último." />
+        <Ajuda texto="As alterações mais relevantes da vigência aberta, na mesma ordem do Acompanhamento: dinheiro primeiro, ruído por último. Clique numa linha para ver por que ela está aqui e o que mudou, veículo a veículo." />
         {/*
           "Ver todas" leva a vigência junto. Sem ela, o link abria a comparação
           mais recente da unidade padrão — e quem estava lendo julho de CAMAÇARI
@@ -1243,14 +1264,21 @@ function UltimasAlteracoes({
             return (
               <li key={linha.chave}>
                 {/*
-                  A linha inteira é o link, e o destino é o recorte dela: a
-                  vigência aberta, o parâmetro e o equipamento de que ela fala.
-                  Era o beco mais visível desta tela — quatro alterações
-                  anunciadas por nome, e nenhuma delas abria as suas linhas.
+                  A linha inteira é o botão, e ele abre a gaveta em vez de
+                  trocar de tela.
+
+                  O link para a Planilha filtrada resolvia metade do beco: dava
+                  as linhas, mas cobrava a Visão geral inteira por elas e não
+                  respondia a pergunta que o destaque provoca — *por que isto
+                  está aqui em cima?*. A gaveta responde as duas sem sair, com a
+                  mesma disciplina dos Maiores impactos, e continua levando à
+                  Planilha por dentro para quem quer as linhas mesmo.
                 */}
-                <Link
-                  href={linha.href}
-                  className="group flex items-start gap-3 py-3.5 -mx-2 px-2 rounded-lg hover:bg-accent/40 transition-colors"
+                <button
+                  type="button"
+                  onClick={() => onAbrir(linha.chave)}
+                  title={`Por que ${linha.titulo} está em destaque`}
+                  className="w-full text-left group flex items-start gap-3 py-3.5 -mx-2 px-2 rounded-lg hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand transition-colors"
                 >
                   <span
                     className={cn(
@@ -1280,7 +1308,8 @@ function UltimasAlteracoes({
                   <span className="shrink-0 rounded-lg border px-2.5 py-1.5 text-xs text-muted-foreground tabular-nums">
                     {linha.direita}
                   </span>
-                </Link>
+                  <ChevronRight className="w-4 h-4 shrink-0 mt-1.5 text-muted-foreground opacity-40 group-hover:opacity-100 transition-opacity" />
+                </button>
               </li>
             );
           })}

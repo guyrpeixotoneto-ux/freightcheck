@@ -1,6 +1,7 @@
 import type { Database } from "@workspace/db";
 import { esperadoDaVigencia, type PresencaNaVigencia } from "./esperado";
 import { descobertas, type Descoberta } from "./descoberta";
+import { rosterDasVigencias, type EntidadeAusente } from "./frota";
 import {
   atributosObservados,
   vigenciasObservadas,
@@ -10,6 +11,7 @@ import {
 import {
   classificar,
   contar,
+  ehDeclarado,
   ORDEM_DA_CRITICIDADE,
   ORDEM_DO_ESTADO,
   type Contagem,
@@ -63,6 +65,13 @@ export interface CelulaDaMatriz {
   contaCritica: Contagem;
   /** Quantas lacunas, por criticidade. A lista fica no drill-down. */
   lacunas: { critico: number; relevante: number; informativo: number };
+  /**
+   * Os equipamentos que eram esperados nesta célula e não vieram.
+   *
+   * Lista, e não contagem, porque a pergunta seguinte de quem lê é sempre
+   * "quais?" — e a placa é a resposta que deixa a pessoa ir conferir.
+   */
+  entidadesAusentes: EntidadeAusente[];
   novos: number;
 }
 
@@ -229,6 +238,26 @@ export async function visaoDaCobertura(
   const celulas: CelulaDaMatriz[] = [];
   const lacunas: VisaoDaCobertura["lacunas"] = [];
 
+  /*
+    O roster de todas as vigências numa chamada, e não uma por volta do laço.
+
+    A continuidade de cada vigência olha as anteriores do mesmo recorte, de modo
+    que perguntar por vigência é quadrático — e o custo aparecia antes de
+    qualquer volume: a suíte sobre o export real passou de 7s para 18s. O par
+    (vigência, entidade) é pequeno o bastante para caber inteiro em memória, e é
+    ali que a diferença entre vigências é feita.
+  */
+  const rosters = await rosterDasVigencias(
+    db,
+    vigencias,
+    new Map(
+      vigencias.map((v) => [
+        v.snapshotId,
+        new Map(v.equipamentos.map((e) => [e.entityType, e.entidades] as const)),
+      ]),
+    ),
+  );
+
   for (const vigencia of vigencias) {
     if (vigencia.equipamentos.length === 0) {
       incompleto.push({
@@ -249,14 +278,56 @@ export async function visaoDaCobertura(
       entidadesComAtributo: o.comValor + o.vazias,
     }));
 
+    /*
+      O roster entra **antes** de resolver o esperado, e não depois.
+
+      `resolverEsperado` usa a contagem de entidades como denominador de cada
+      atributo declarado. Se ela continuasse sendo "quantos chegaram", uma
+      carreta que sumisse do arquivo sairia dos dois lados da fração e o
+      percentual não se mexeria — o modo de falhar que este módulo inteiro
+      existe para não ter. Passando o esperado, a mesma carreta some só do
+      numerador, e a célula cai.
+    */
+    const roster = rosters.get(vigencia.snapshotId) ?? {
+      esperadasPorTipo: entidadesPorTipo,
+      ausentes: [],
+    };
+
     const { esperados, dispensados } = await esperadoDaVigencia(
       db,
       vigencia,
       presenca,
-      entidadesPorTipo,
+      roster.esperadasPorTipo,
     );
 
-    for (const equipamento of vigencia.equipamentos) {
+    /*
+      As células são a união do que chegou com o que era esperado — não só do
+      que chegou.
+
+      Enquanto o laço percorria `vigencia.equipamentos`, a matriz só conseguia
+      falar de tipos presentes: um tipo inteiro que não veio não ganhava linha,
+      e um tipo sem linha não tem como estar ausente na tela. Era o buraco mais
+      caro do módulo, porque ele escondia exatamente o pior caso — o conjunto
+      que não existe é mais grave do que o conjunto incompleto, e era o único
+      que a matriz não sabia desenhar.
+
+      A união é sobre o **declarado**, e não sobre toda origem: histórico e
+      estrutura são inferidos a partir do que chegou, e um tipo que nunca chegou
+      não tem nem histórico nem estrutura. Só uma declaração pode afirmar que
+      ele deveria estar aqui — que é a razão de o catálogo existir.
+    */
+    const tiposEsperados = new Set(
+      esperados.filter((e) => ehDeclarado(e.justificativa.origem)).map((e) => e.entityType),
+    );
+    const equipamentos: { entityType: string; entidades: number }[] = [
+      ...vigencia.equipamentos.map((e) => ({ entityType: e.entityType, entidades: e.entidades })),
+      ...[...tiposEsperados]
+        .filter((t) => !entidadesPorTipo.has(t))
+        .sort()
+        .map((entityType) => ({ entityType, entidades: 0 })),
+    ];
+
+    for (const equipamento of equipamentos) {
       if (filtro.entityType && equipamento.entityType !== filtro.entityType) continue;
 
       const resultado = medirCelula({
@@ -264,6 +335,8 @@ export async function visaoDaCobertura(
         observados: doSnapshot.filter((o) => o.entityType === equipamento.entityType),
         dispensados,
         entidadesNaVigencia: equipamento.entidades,
+        entidadesEsperadas: roster.esperadasPorTipo.get(equipamento.entityType),
+        ausentes: roster.ausentes.filter((a) => a.entityType === equipamento.entityType),
         novos:
           novosPorCelula.get(
             `${vigencia.scopeHash}|${vigencia.canal}|${equipamento.entityType}|${vigencia.effectiveDate}`,
@@ -287,6 +360,7 @@ export async function visaoDaCobertura(
         conta: resultado.conta,
         contaCritica: resultado.contaCritica,
         lacunas: resultado.contagemDeLacunas,
+        entidadesAusentes: resultado.entidadesAusentes,
         novos: resultado.novos,
       });
 
@@ -342,7 +416,19 @@ export function medirCelula(entrada: {
   esperados: Esperado[];
   observados: AtributoObservado[];
   dispensados: Set<string>;
+  /** Quantas entidades deste tipo a vigência de fato trouxe. */
   entidadesNaVigencia: number;
+  /**
+   * Quantas deveriam existir — o roster.
+   *
+   * Ausente quer dizer "o mesmo que chegou", que era a única resposta possível
+   * antes de `frota.ts` e continua sendo a certa para quem chama esta função
+   * sem roster (os testes puros). Quando ela vem maior, a diferença é gente que
+   * falta, e é o que faz a cobertura cair em vez de encolher com o arquivo.
+   */
+  entidadesEsperadas?: number;
+  /** Quem falta, com a evidência de que era esperado. */
+  ausentes?: EntidadeAusente[];
   /**
    * Quantos atributos **estrearam** nesta vigência, vindo de `descobertas`.
    *
@@ -365,6 +451,7 @@ export function medirCelula(entrada: {
   estado: EstadoDeCobertura;
   lacunas: Lacuna[];
   contagemDeLacunas: { critico: number; relevante: number; informativo: number };
+  entidadesAusentes: EntidadeAusente[];
   novos: number;
 } {
   const porCodigo = new Map(entrada.observados.map((o) => [o.attributeCode, o]));
@@ -444,8 +531,26 @@ export function medirCelula(entrada: {
 
   const novos = entrada.novos ?? 0;
 
+  /*
+    Três candidatos, e o maior vence.
+
+    O roster e o observado são os dois óbvios. O terceiro é o piso que
+    `resolverEsperado` já aplicou por atributo: num conjunto declarado do qual
+    nenhuma entidade chegou, cada atributo espera uma entidade, e a célula
+    precisa dizer o mesmo — senão ela anuncia "0 entidades esperadas" ao lado de
+    "110 combinações esperadas", dois números da mesma conta que não fecham.
+  */
+  const entidadesEsperadas = Math.max(
+    entrada.entidadesEsperadas ?? 0,
+    entrada.entidadesNaVigencia,
+    ...entrada.esperados
+      .filter((e) => !entrada.dispensados.has(e.attributeCode))
+      .map((e) => e.entidadesEsperadas),
+    0,
+  );
+
   const conta = contar({
-    entidadesEsperadas: entrada.entidadesNaVigencia,
+    entidadesEsperadas,
     entidadesEncontradas: entrada.entidadesNaVigencia,
     atributosEsperados: entrada.esperados.filter(
       (e) => !entrada.dispensados.has(e.attributeCode),
@@ -457,7 +562,7 @@ export function medirCelula(entrada: {
   });
 
   const contaCritica = contar({
-    entidadesEsperadas: entrada.entidadesNaVigencia,
+    entidadesEsperadas,
     entidadesEncontradas: entrada.entidadesNaVigencia,
     atributosEsperados: atributosCriticos,
     atributosEncontrados: atributosCriticosEncontrados,
@@ -484,6 +589,7 @@ export function medirCelula(entrada: {
     }),
     lacunas,
     contagemDeLacunas,
+    entidadesAusentes: entrada.ausentes ?? [],
     novos,
   };
 }
@@ -684,6 +790,38 @@ function resumir(
   };
 
   const pior = criticas.sort((a, b) => b.entidadesFaltando - a.entidadesFaltando)[0];
+
+  /*
+    Um conjunto inteiro ausente vale mais do que a conta de críticos diz.
+
+    A cobertura crítica mede os atributos que alimentam componentes
+    `essencial` da DRE **e que têm coluna declarada na fonte**. Quando um tipo
+    de linha inteiro não chega, esses dois filtros conspiram para o silêncio:
+    Diesel, Arla, Pneus e Manutenção são componentes essenciais e estão em
+    `plano.ts` com `fontes: []`, porque a coluna que os alimentaria é de trecho
+    e nenhum arquivo de trecho jamais chegou. Zero fonte declarada é zero
+    atributo crítico, e zero atributo crítico faltando é 100% de cobertura
+    crítica — sobre um conjunto que não existe.
+
+    O veredito é a única frase que a tela mostra antes dos números, e ela não
+    pode dizer "pode analisar" enquanto um conjunto declarado está inteiramente
+    ausente. Ele não deixa de ser verdade sobre os atributos críticos que
+    existem; ele deixa de ser a resposta à pergunta que quem lê está fazendo.
+
+    Por tipo, e não por célula: nove vigências sem trecho são um conjunto que
+    falta, e não nove problemas.
+  */
+  const tiposAusentes = [
+    ...new Set(
+      celulas
+        .filter((c) => c.estado === "AUSENTE")
+        .map((c) => c.entityType)
+        .filter((tipo) =>
+          celulas.every((c) => c.entityType !== tipo || c.estado === "AUSENTE"),
+        ),
+    ),
+  ].sort();
+
   const veredito: ResumoDaCobertura["veredito"] =
     critica.combinacoesEsperadas === 0
       ? {
@@ -691,19 +829,26 @@ function resumir(
           frase:
             "Nenhum atributo crítico está declarado para este recorte — não há análise financeira a garantir aqui.",
         }
-      : critica.percentual >= 100
+      : critica.percentual < 100
         ? {
-            estado: "CONFIAVEL",
-            frase: "Análises financeiras disponíveis: todo dado crítico está presente.",
-          }
-        : {
             estado: "COMPROMETIDA",
             frase: pior
               ? `Análise comprometida: falta ${pior.attributeLabel} para ${pior.entidadesFaltando} ${
                   pior.entidadesFaltando === 1 ? "equipamento" : "equipamentos"
                 } em ${pior.entityType.toLowerCase()}.`
               : "Análise comprometida: há dado crítico faltando.",
-          };
+          }
+        : tiposAusentes.length > 0
+          ? {
+              estado: "COMPROMETIDA",
+              frase:
+                `Análise comprometida: ${listar(tiposAusentes)} não chegou em nenhuma vigência ` +
+                `deste recorte. O dado crítico que temos está completo, mas ele não cobre o que falta.`,
+            }
+          : {
+              estado: "CONFIAVEL",
+              frase: "Análises financeiras disponíveis: todo dado crítico está presente.",
+            };
 
   return {
     geral,
@@ -714,4 +859,11 @@ function resumir(
     novos,
     veredito,
   };
+}
+
+/** "trecho", "trecho e carreta", "trecho, carreta e cavalo". */
+function listar(tipos: string[]): string {
+  const nomes = tipos.map((t) => t.toLowerCase());
+  if (nomes.length <= 1) return nomes[0] ?? "";
+  return `${nomes.slice(0, -1).join(", ")} e ${nomes[nomes.length - 1]}`;
 }
