@@ -99,7 +99,7 @@ export interface PalavrasDoTipo {
    * rodada que dispara o pagamento, não o mês que passou. Escrever "quanto ele
    * custa por mês" sobre uma grade de trechos seria dar periodicidade mensal a
    * um número que não a tem, que é o erro que
-   * `change_set.calculated_impact_by_periodicity` existe para não repetir.
+   * `change_set.impacto_oficial_by_periodicity` existe para não repetir.
    */
   precoNaGrade: string;
   href: string;

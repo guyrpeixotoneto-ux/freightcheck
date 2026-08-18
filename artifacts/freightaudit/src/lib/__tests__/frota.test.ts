@@ -218,7 +218,7 @@ describe("o que a tela promete", () => {
     a Composição apura. O trecho é pago **por viagem** — é a perna rodada que
     dispara o pagamento. Reaproveitar "quanto ele custa por mês" aqui daria
     periodicidade mensal a um número que não a tem, que é exatamente o erro que
-    `change_set.calculated_impact_by_periodicity` existe para não repetir, agora
+    `change_set.impacto_oficial_by_periodicity` existe para não repetir, agora
     escrito no subtítulo em vez de na coluna.
   */
   it("não promete mês na tela do trecho, porque trecho se paga por viagem", () => {

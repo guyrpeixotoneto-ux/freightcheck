@@ -12,6 +12,14 @@ import {
 } from "./classification";
 import { assessImpact } from "./impact";
 import { channelOf, channelSql } from "./series";
+import {
+  criarDeduplicador,
+  resumirImpacto,
+  type LinhaDeMudanca,
+  type RastroDaDeducao,
+  type ResumoDeImpacto,
+} from "./deduplicacao";
+import { carregarVinculosDeConjunto } from "./vinculos";
 
 /**
  * The comparison engine.
@@ -47,11 +55,27 @@ export interface ChangeSetSummary {
   inconclusive: number;
   semanticsChanges: number;
   /**
-   * Calculated impact per periodicity, e.g. `{MENSAL: -87808.57, ANUAL: -735312.15}`.
-   * Never a single total: a monthly figure and an annual one do not add up.
+   * O impacto, por periodicidade. Nunca um total único: mensal e anual não se
+   * somam. Ver {@link ImpactoDoChangeSet}.
    */
-  calculatedImpactByPeriodicity: Record<string, number>;
+  impacto: ImpactoDoChangeSet;
   impactNotCalculable: number;
+}
+
+/**
+ * O impacto de uma comparação: **dois números e um rastro**.
+ *
+ * `oficial` é a verdade financeira, e é o único que uma tela, um consolidado ou
+ * uma exportação pode publicar como "Impacto apurado". `bruto` é conferência
+ * técnica. `rastro` explica a distância entre os dois — é texto de auditoria, e
+ * não um terceiro valor: nenhum consumidor financeiro lê subtotal de dentro
+ * dele.
+ */
+export interface ImpactoDoChangeSet {
+  oficial: Record<string, number>;
+  bruto: Record<string, number>;
+  rastro: RastroDaDeducao;
+  mudancasForaDoTotal: number;
 }
 
 /**
@@ -171,7 +195,14 @@ export async function computeChangeSet(
         eq(changeSetTable.snapshotBId, snapshotBId),
       ),
     );
-  if (existing.length > 0 && !options.force) {
+  /*
+    `status === "DONE"` e não só "existe": a migração 0032 marcou como `STALE`
+    toda comparação gravada antes de o impacto oficial existir. Sem esta
+    condição elas ficariam com `impacto_oficial_by_periodicity = {}` para
+    sempre, e as telas leriam zero — que é pior do que o número inflado que
+    esta mudança veio corrigir.
+  */
+  if (existing.length > 0 && existing[0].status === "DONE" && !options.force) {
     return toSummary(existing[0], a.sourceLabel, b.sourceLabel);
   }
 
@@ -212,8 +243,7 @@ export async function computeChangeSet(
       ...linha,
       changeSetId: set.id,
     }));
-    const { unchanged, inconclusive, entitiesAdded, entitiesRemoved } = diff;
-    const calculatedImpact = { ...diff.calculatedImpactByPeriodicity };
+    const { unchanged, inconclusive, entitiesAdded, entitiesRemoved, impacto } = diff;
     let impactNotCalculable = diff.impactNotCalculable;
 
     // ---------------------------------------------------------------------
@@ -347,7 +377,24 @@ export async function computeChangeSet(
         unchanged,
         inconclusive,
         semanticsChanges: semanticsChanged,
-        calculatedImpactByPeriodicity: roundBuckets(calculatedImpact),
+        /*
+          Dois números no domínio, e um rastro que explica a distância.
+          `impacto_oficial_by_periodicity` é o que as telas publicam;
+          `impacto_bruto_by_periodicity` é conferência técnica e não aparece
+          rotulado como "Impacto apurado" em lugar nenhum. Os subtotais
+          intermediários vivem em `deducao_rastro` — são explicação, não valor.
+        */
+        impactoBrutoByPeriodicity: roundBuckets(impacto.brutoByPeriodicity),
+        impactoOficialByPeriodicity: roundBuckets(impacto.byPeriodicity),
+        /*
+          O cast é a fronteira entre os pacotes, e não uma folga de tipo:
+          `@workspace/db` não pode importar `@workspace/comparison` (a
+          dependência é ao contrário), então a coluna é declarada como jsonb
+          genérico e a forma real — `RastroDaDeducao` — é garantida aqui, no
+          único lugar que escreve nela.
+        */
+        deducaoRastro: impacto.rastro as unknown as Record<string, unknown>,
+        mudancasForaDoTotal: impacto.excludedChanges,
         impactNotCalculable,
       })
       .where(eq(changeSetTable.id, set.id))
@@ -382,8 +429,17 @@ export interface SnapshotDiff {
   inconclusive: number;
   entitiesAdded: number;
   entitiesRemoved: number;
-  /** Por periodicidade, sempre: um número mensal e um anual não se somam. */
-  calculatedImpactByPeriodicity: Record<string, number>;
+  /**
+   * O impacto nas três leituras, já deduplicado.
+   *
+   * Não é mais um acumulador do laço. As duas regras de dupla contagem são por
+   * ativo — "as parcelas deste total mudaram neste veículo?", "o cavalo
+   * vinculado mexeu na coluna que esta embute?" — e nenhuma das duas tem
+   * resposta enquanto o laço ainda está descobrindo o que mudou. Era essa a
+   * causa raiz: o motor somava cedo demais para poder aplicar a regra, e por
+   * isso não aplicava nenhuma.
+   */
+  impacto: ResumoDeImpacto;
   impactNotCalculable: number;
 }
 
@@ -399,9 +455,13 @@ export async function diffSnapshots(
   const rows: ComputedChange[] = [];
   let unchanged = 0;
   let inconclusive = 0;
-  // Keyed by periodicity, because summing across periodicities is the very
-  // error the product exists to catch.
-  const calculatedImpact: Record<string, number> = {};
+  /*
+    As linhas com preço, guardadas com o **código** do atributo, para o segundo
+    passo. O `ComputedChange` carrega `attributeId` (uuid) porque é o que a
+    tabela grava; a regra de composição fala em códigos (`carreta.custo_fixo`),
+    e a tradução existe aqui dentro do laço, onde a classificação está à mão.
+  */
+  const paraDeduplicar: LinhaDeMudanca[] = [];
   let impactNotCalculable = 0;
 
   // ---------------------------------------------------------------------
@@ -482,14 +542,14 @@ export async function diffSnapshots(
       numericAfter: after.numeric,
       comparable: verdict.comparability === "COMPARABLE",
     });
-    if (impact.confidence === "CALCULATED" && impact.amount !== null) {
-      // An impact without a declared periodicity cannot be pooled with
-      // anything; it gets its own bucket rather than a silent home.
-      const bucket = impact.periodicity ?? "SEM_PERIODICIDADE";
-      calculatedImpact[bucket] = (calculatedImpact[bucket] ?? 0) + impact.amount;
-    } else {
-      impactNotCalculable++;
-    }
+    if (impact.confidence !== "CALCULATED" || impact.amount === null) impactNotCalculable++;
+    paraDeduplicar.push({
+      attributeCode: classification.attributeCode,
+      entityId: row.entity_id,
+      impactConfidence: impact.confidence,
+      impactAmount: impact.amount,
+      impactPeriodicity: impact.periodicity,
+    });
 
     rows.push({
       category: "SOURCE_CHANGE",
@@ -568,13 +628,28 @@ export async function diffSnapshots(
     });
   }
 
+  /*
+    O segundo passo — e a razão de ele existir.
+
+    Aqui o laço já acabou, então já se sabe **tudo** o que mudou em cada ativo.
+    É a informação que as duas regras de dupla contagem exigem e que não existia
+    lá dentro. O vínculo do conjunto é lido na vigência B, e não do cadastro
+    atual: uma carreta troca de cavalo entre um mês e outro, e deduplicar março
+    com o par de hoje atribuiria o dinheiro ao conjunto errado.
+  */
+  const vinculos = await carregarVinculosDeConjunto(executor, [b.id]);
+  const impacto = resumirImpacto(
+    paraDeduplicar,
+    criarDeduplicador(paraDeduplicar, vinculos),
+  );
+
   return {
     changes: rows,
     unchanged,
     inconclusive,
     entitiesAdded,
     entitiesRemoved,
-    calculatedImpactByPeriodicity: roundBuckets(calculatedImpact),
+    impacto,
     impactNotCalculable,
   };
 }
@@ -844,7 +919,16 @@ function toSummary(
     unchanged: set.unchanged,
     inconclusive: set.inconclusive,
     semanticsChanges: set.semanticsChanges,
-    calculatedImpactByPeriodicity: set.calculatedImpactByPeriodicity ?? {},
+    impacto: {
+      oficial: set.impactoOficialByPeriodicity ?? {},
+      bruto: set.impactoBrutoByPeriodicity ?? {},
+      rastro: (set.deducaoRastro ?? {
+        brutoByPeriodicity: {},
+        degraus: [],
+        oficialByPeriodicity: {},
+      }) as unknown as RastroDaDeducao,
+      mudancasForaDoTotal: set.mudancasForaDoTotal ?? 0,
+    },
     impactNotCalculable: set.impactNotCalculable,
   };
 }

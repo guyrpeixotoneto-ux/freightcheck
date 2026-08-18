@@ -155,12 +155,34 @@ describe("quem não passa na régua aparece mesmo assim", () => {
   });
 });
 
-describe("o total manda e a parcela desce", () => {
-  it("as parcelas de um total que mudou ficam fora dos dois rankings", async () => {
+/*
+  A direção desta regra **mudou**, e a mudança é o assunto do arquivo
+  `deduplicacao.ts`.
+
+  Este bloco chamava-se "o total manda e a parcela desce" e media o contrário do
+  que o resto do produto fazia: aqui a parcela saía do ranking quando o total
+  também mudava; na soma do dinheiro o total é que saía quando a parcela mudava.
+  As duas evitam contar o mesmo real duas vezes, e por isso as duas passavam nos
+  seus próprios testes — mas juntas faziam esta tela abrir agosto/2026
+  destacando `carreta.custo_fixo` como a maior linha econômica, um número que a
+  soma oficial já havia descartado inteiro por dupla contagem.
+
+  Agora a direção é uma só, vinda de `ehLinhaEconomica`: **o total desce, a
+  parcela fica.** Uma parcela é medição direta; um total é a soma dela com
+  outras, e com as parcelas à vista o total é redundante.
+*/
+describe("o total desce e a parcela fica", () => {
+  it("o total cujas parcelas mudaram sai dos dois rankings", async () => {
     const panorama = (await getPanoramaDeAlteracoes(ctx.db))!;
 
-    // As 27 transições de juros e as 10 de amortização já estão dentro das 37
-    // do `finame_cavalo`: listá-las ao lado contaria o mesmo real de novo.
+    // As 37 transições de `finame_cavalo` já estão explicadas pelas 27 de juros
+    // e pelas 10 de amortização: listar o total ao lado delas contaria o mesmo
+    // real de novo.
+    expect(de(panorama, "cavalo.finame_cavalo")?.papel).toBe("TOTAL");
+    expect(panorama.maiorImpacto).not.toContain("cavalo.finame_cavalo");
+    expect(panorama.maisAlterados).not.toContain("cavalo.finame_cavalo");
+
+    // E as parcelas continuam, uma vez cada — são elas que sustentam o número.
     for (const parcela of [
       "cavalo.juros_finame_cavalo",
       "cavalo.amortizacao_cavalo",
@@ -168,12 +190,8 @@ describe("o total manda e a parcela desce", () => {
     ]) {
       expect(de(panorama, parcela)?.papel).toBe("PARCELA");
       expect(de(panorama, parcela)?.dentroDe).toBe("cavalo.finame_cavalo");
-      expect(panorama.maiorImpacto).not.toContain(parcela);
-      expect(panorama.maisAlterados).not.toContain(parcela);
+      expect(panorama.maiorImpacto).toContain(parcela);
     }
-
-    // E o total continua lá, uma vez.
-    expect(panorama.maiorImpacto).toContain("cavalo.finame_cavalo");
   });
 
   it("a parcela continua na lista, para o drill-down do total", async () => {
@@ -224,14 +242,20 @@ describe("o total manda e a parcela desce", () => {
   it("a decomposição da carreta é a mesma que o motor de composição usa", async () => {
     const panorama = (await getPanoramaDeAlteracoes(ctx.db))!;
 
-    // Exaustiva e disjunta: `finame_implemento + lucro_fixomodelo_novo_ciclo`
-    // é o par que `regras.test.ts` fixa do outro lado, e nenhum real do cavalo
-    // entra nele.
+    /*
+      Exaustiva e disjunta, e nenhum real do cavalo entra nela. O que mudou
+      com a direção única: `carreta.finame_implemento` é ele próprio um total
+      declarado (`amortizacao_implemento + juros_finame_implemento +
+      custo_aluguel`), então **ele** desce e as parcelas dele sobem no lugar.
+      A soma que a lista representa é a mesma; o que muda é em que grão ela é
+      exibida — e o grão agora é o mesmo do dinheiro.
+    */
     const daCarreta = panorama.maiorImpacto.filter(
       (c) => de(panorama, c)!.entityType === "CARRETA",
     );
     expect(daCarreta.sort()).toEqual([
-      "carreta.finame_implemento",
+      "carreta.amortizacao_implemento",
+      "carreta.juros_finame_implemento",
       "carreta.lucro_fixomodelo_novo_ciclo",
     ]);
   });
@@ -268,7 +292,11 @@ describe("o ranking financeiro não mistura periodicidades", () => {
     const anual = panorama.impactoPorPeriodicidade.find(
       (g) => g.periodicity === "ANUAL",
     )!;
-    expect(mensal.codes).toContain("cavalo.finame_cavalo");
+    // As parcelas do FINAME, e não o total — ver "o total desce e a parcela
+    // fica". O ponto do teste é a separação por periodicidade, e ele continua
+    // valendo em qualquer grão.
+    expect(mensal.codes).toContain("cavalo.amortizacao_cavalo");
+    expect(mensal.codes).not.toContain("cavalo.finame_cavalo");
     expect(anual.codes).toEqual(["cavalo.ipva_licenciamento"]);
     expect(mensal.codes).not.toContain("cavalo.ipva_licenciamento");
   });
@@ -410,8 +438,13 @@ describe("fixo e variável se leem separados", () => {
       Remuneração ao transportador, que é receita e sai como NAO_APLICAVEL. Elas
       nunca foram custo — estavam na classe de custo mais próxima por falta de um
       lado de receita na árvore.
+
+      De 11 para 13 quando a direção da regra passou a ser única: dois totais
+      desceram (`cavalo.finame_cavalo` e `carreta.finame_implemento`) e cinco
+      parcelas subiram no lugar deles. Mais linhas, o mesmo dinheiro — o grão da
+      lista passou a ser o grão da soma.
     */
-    expect(recorte("FIXO").totais.linhasEconomicas).toBe(11);
+    expect(recorte("FIXO").totais.linhasEconomicas).toBe(13);
     expect(recorte("VARIAVEL").totais.linhasEconomicas).toBe(
       panorama.totais.linhasEconomicas -
         recorte("FIXO").totais.linhasEconomicas -
@@ -457,9 +490,13 @@ describe("fixo e variável se leem separados", () => {
     const panorama = (await getPanoramaDeAlteracoes(ctx.db))!;
     const fixo = panorama.recortes.find((r) => r.classe === "FIXO")!;
 
-    // `juros_finame_cavalo` é parcela de um total que também mudou: está fora
-    // do ranking inteiro, e continua fora do recorte de fixo.
-    expect(fixo.maisAlterados).not.toContain("cavalo.juros_finame_cavalo");
+    /*
+      `cavalo.finame_cavalo` é um total cujas parcelas também mudaram: está fora
+      do ranking inteiro, e continua fora do recorte de fixo. A parcela
+      `juros_finame_cavalo` está dentro dos dois — é ela que sustenta o número.
+    */
+    expect(fixo.maisAlterados).not.toContain("cavalo.finame_cavalo");
+    expect(fixo.maisAlterados).toContain("cavalo.juros_finame_cavalo");
 
     // `carreta.custo_fixo` já contém o cavalo: fora dos rankings, e presente na
     // visão de conjunto — do lado do fixo, que é a classe dela.
@@ -503,8 +540,13 @@ describe("fixo e variável se leem separados", () => {
       custo fixo junto com a remuneração de capital. Ela continua apurável e
       continua no panorama inteiro — mudou de recorte, não de existência, que é
       exatamente o que a soma dos três recortes acima prova.
+
+      Cinco desde que a direção da regra é única: o total `finame_cavalo` saiu e
+      as três parcelas dele entraram, e o mesmo aconteceu com
+      `finame_implemento`. O dinheiro é o mesmo; ele passou a ser exibido no grão
+      em que é somado.
     */
-    expect(fixo.totais.comImpacto).toBe(3);
+    expect(fixo.totais.comImpacto).toBe(5);
     expect(panorama.maiorImpacto).toEqual(
       expect.arrayContaining(fixo.maiorImpacto),
     );

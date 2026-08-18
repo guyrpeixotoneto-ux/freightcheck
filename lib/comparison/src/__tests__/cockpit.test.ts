@@ -56,6 +56,7 @@ function group(overrides: Partial<ChangeGroup> = {}): ChangeGroup {
       countedVehicles: 0,
       excludedVehicles: 0,
       excludedAmount: null,
+      excludedMotivo: null,
       excludedReason: null,
     },
     natures: [],
@@ -180,6 +181,7 @@ const ipva = group({
     countedVehicles: 62,
     excludedVehicles: 0,
     excludedAmount: null,
+    excludedMotivo: null,
     excludedReason: null,
   },
   natures: ["valor"],
@@ -217,6 +219,7 @@ const zerado = group({
     countedVehicles: 0,
     excludedVehicles: 0,
     excludedAmount: null,
+    excludedMotivo: null,
     excludedReason: null,
   },
   natures: ["zerou"],
@@ -265,14 +268,16 @@ function view(groups: ChangeGroup[], overrides: Partial<CockpitInput> = {}): Coc
     },
     impact: {
       byPeriodicity: {},
-      excludedByPeriodicity: {},
+      brutoByPeriodicity: {},
+      rastro: { brutoByPeriodicity: {}, degraus: [], oficialByPeriodicity: {} },
       excludedChanges: 0,
       notCalculable: changes,
       calculatedChanges: 0,
     },
     accumulated: {
       byPeriodicity: {},
-      excludedByPeriodicity: {},
+      brutoByPeriodicity: {},
+      rastro: { brutoByPeriodicity: {}, degraus: [], oficialByPeriodicity: {} },
       excludedChanges: 0,
       notCalculable: 0,
       calculatedChanges: 0,
@@ -479,7 +484,8 @@ describe("panorama — a composição do risco", () => {
       view([ipva, zerado], {
         impact: {
           byPeriodicity: { ANUAL: -144874.5 },
-          excludedByPeriodicity: { MENSAL: -11425.04 },
+          brutoByPeriodicity: {},
+          rastro: { brutoByPeriodicity: {}, degraus: [], oficialByPeriodicity: {} },
           excludedChanges: 6,
           notCalculable: 10,
           calculatedChanges: 68,
@@ -636,7 +642,8 @@ describe("narrativa — composição determinística, nunca modelo", () => {
       view([ipva], {
         impact: {
           byPeriodicity: { ANUAL: -144874.5, MENSAL: 28511.24 },
-          excludedByPeriodicity: {},
+          brutoByPeriodicity: {},
+      rastro: { brutoByPeriodicity: {}, degraus: [], oficialByPeriodicity: {} },
           excludedChanges: 0,
           notCalculable: 0,
           calculatedChanges: 62,
@@ -738,7 +745,8 @@ describe("histórico — não confundir vigência com acumulado", () => {
       view([ipva], {
         accumulated: {
           byPeriodicity: { ANUAL: -735312.15 },
-          excludedByPeriodicity: {},
+          brutoByPeriodicity: {},
+      rastro: { brutoByPeriodicity: {}, degraus: [], oficialByPeriodicity: {} },
           excludedChanges: 0,
           notCalculable: 0,
           calculatedChanges: 100,

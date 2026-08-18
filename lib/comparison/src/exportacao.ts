@@ -56,8 +56,9 @@ import {
  * parâmetros de um equipamento; só os valores mudam, e eles vêm numa consulta
  * só, para todos os códigos de uma vez.
  *
- * O que **não** se filtra aqui é o que a tela deixa de fora dos rankings: a
- * parcela cujo total também mudou e a coluna que já contém o outro equipamento.
+ * O que **não** se filtra aqui é o que a tela deixa de fora dos rankings: o
+ * total cujas parcelas também mudaram, e a coluna que já contém o outro
+ * equipamento.
  * Elas mudaram, alguém vai procurá-las, e uma aba a menos num arquivo é uma
  * ausência sem explicação. Cada aba diz o papel que tem
  * ({@link AbaDeImpacto.linhaEconomica}), que é o que impede alguém de somar as
@@ -80,10 +81,14 @@ export interface AbaDeImpacto {
   /**
    * Se o parâmetro é uma das linhas econômicas do panorama.
    *
-   * `false` são os dois casos que a tela tira dos rankings para não contar o
-   * mesmo real duas vezes: a parcela cujo total também mudou, e a coluna que já
-   * embute o outro equipamento. A aba existe do mesmo jeito — ver o topo do
-   * arquivo —, e este campo é o que a mantém honesta.
+   * `false` são os dois casos que a autoridade de dedução tira da soma para não
+   * contar o mesmo real duas vezes: o total cujas parcelas também mudaram, e a
+   * coluna que já embute o outro equipamento. A aba existe do mesmo jeito — ver
+   * o topo do arquivo —, e este campo é o que a mantém honesta.
+   *
+   * A regra vem de `ehLinhaEconomica`, e não de um critério próprio deste
+   * módulo: uma exportação que decidisse sozinha seria a sétima autoridade
+   * sobre a mesma pergunta, e a que ninguém confere porque sai em Excel.
    */
   linhaEconomica: boolean;
   /** Por qual coluna as linhas estão dobradas. Null quando não há como dobrar. */

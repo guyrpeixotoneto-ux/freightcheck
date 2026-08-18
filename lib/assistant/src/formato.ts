@@ -78,7 +78,13 @@ export function numerosDoImpacto(impacto: ImpactSummary): number[] {
 export function numerosDoResumoDeImpacto(impacto: ImpactSummary): number[] {
   return [
     ...Object.values(impacto.byPeriodicity),
-    ...Object.values(impacto.excludedByPeriodicity),
+    ...Object.values(impacto.brutoByPeriodicity),
+    // Os degraus também têm lastro: quando o assistente explica por que o
+    // número caiu, ele cita o que cada regra tirou e o subtotal entre elas.
+    ...impacto.rastro.degraus.flatMap((d) => [
+      ...Object.values(d.removidoByPeriodicity),
+      ...Object.values(d.subtotalByPeriodicity),
+    ]),
     impacto.excludedChanges,
     impacto.notCalculable,
     impacto.calculatedChanges,

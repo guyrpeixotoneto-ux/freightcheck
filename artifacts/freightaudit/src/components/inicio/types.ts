@@ -326,7 +326,18 @@ export interface GroupVehicle {
   impactAmount: number | null;
   impactPeriodicity: string | null;
   impactConfidence: string;
-  excludedFromTotal: boolean;
+  /**
+   * Por que este ativo ficou fora da soma — `null` quando ele entra.
+   *
+   * A linha **continua na lista**: o que ela perde é o lugar no total, não a
+   * visibilidade. O motivo viaja junto para que o selo diga onde o dinheiro foi
+   * contado, em vez de deixar quem confere procurando um valor que sumiu.
+   */
+  foraDoTotal: {
+    motivo: "COBERTO_POR_PARCELAS" | "ESCOPO_DE_CONJUNTO";
+    representadoPor: string;
+    explicacao: string;
+  } | null;
   inconclusiveReason: string | null;
   anomaly: Omit<Anomaly, "vehicles"> | null;
   /**

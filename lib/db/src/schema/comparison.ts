@@ -51,22 +51,73 @@ export const changeSetTable = pgTable(
     semanticsChanges: integer("semantics_changes").notNull().default(0),
 
     /**
-     * Calculated impact, **broken down by periodicity** — e.g.
-     * `{"MENSAL": -87808.57, "ANUAL": -735312.15}`.
+     * Impacto **bruto**, por periodicidade — sem nenhuma regra de dupla
+     * contagem aplicada. Auditoria técnica, e nunca "Impacto apurado" numa
+     * tela.
      *
-     * Deliberately not a single number. A monthly figure and an annual one do
-     * not add up, and a scalar total would silently claim they do: this table
-     * once reported "R$ -757.009,57" for a set that was really R$ -735 mil per
-     * year plus R$ -88 mil per month. Annualising the two into a comparable
-     * figure is F4's job, and it needs its own confirmed rules.
+     * Chamava-se `calculated_impact_by_periodicity`, e o nome escondia o que
+     * ele é: o `engine.ts` o acumula linha a linha, e uma regra que é por ativo
+     * ("as parcelas deste total mudaram neste veículo?") não tem resposta
+     * dentro desse laço. Seis consumidores o publicaram como total. Em
+     * agosto/2026 isso dizia R$ 39.936,28/mês onde o dinheiro era
+     * R$ 16.594,55/mês.
      *
-     * Empty object while nothing is calculable, which is the honest state
-     * until semantics are confirmed.
+     * Deliberadamente não é um escalar. Um valor mensal e um anual não se
+     * somam, e um total único afirmaria que sim: esta tabela já reportou
+     * "R$ -757.009,57" para um conjunto que era R$ -735 mil por ano mais
+     * R$ -88 mil por mês.
      */
-    calculatedImpactByPeriodicity: jsonb("calculated_impact_by_periodicity")
+    impactoBrutoByPeriodicity: jsonb("impacto_bruto_by_periodicity")
       .$type<Record<string, number>>()
       .notNull()
       .default({}),
+
+    /**
+     * A **verdade financeira oficial**: o dinheiro contado uma vez só.
+     *
+     * As duas regras de `@workspace/comparison/deduplicacao` aplicadas por
+     * ativo — total coberto pelas parcelas, e coluna que embute o equipamento
+     * vinculado. É este o número que toda tela, cartão, consolidado e
+     * exportação publica sob o nome "Impacto apurado".
+     */
+    impactoOficialByPeriodicity: jsonb("impacto_oficial_by_periodicity")
+      .$type<Record<string, number>>()
+      .notNull()
+      .default({}),
+
+    /**
+     * O rastro da dedução — **explicação, nunca valor consumível.**
+     *
+     * A escada do bruto ao oficial, degrau a degrau: quanto cada regra tirou e
+     * onde o número ficou depois dela. Em agosto/2026:
+     *
+     * ```
+     * 39.936,28 bruto
+     * − 11.425,04 duplicidades por composição
+     * = 28.511,24 subtotal técnico
+     * − 11.916,69 duplicidades entre escopos cavalo↔carreta
+     * = 16.594,55 impacto oficial
+     * ```
+     *
+     * Os subtotais moram **aqui dentro**, e não em colunas próprias, de
+     * propósito. R$ 28.511,24 foi publicado por meses como o impacto líquido da
+     * vigência e não é: ele ainda conta o `finame` do cavalo duas vezes. Uma
+     * coluna `impacto_por_composicao_by_periodicity` ao lado das outras duas
+     * seria um convite a alguém lê-la como "impacto" — e o produto voltaria a
+     * ter três verdades financeiras. Dentro do rastro ele é o que é: um passo
+     * da conta.
+     *
+     * Forma: `{ brutoByPeriodicity, degraus[], oficialByPeriodicity }` — ver
+     * `RastroDaDeducao` em `@workspace/comparison/deduplicacao`.
+     */
+    deducaoRastro: jsonb("deducao_rastro")
+      .$type<Record<string, unknown>>()
+      .notNull()
+      .default({}),
+
+    /** Quantas alterações ficaram fora da soma por dupla contagem. Contagem, não dinheiro. */
+    mudancasForaDoTotal: integer("mudancas_fora_do_total").notNull().default(0),
+
     /** How many changes carry no calculable impact, and therefore sit outside the sum. */
     impactNotCalculable: integer("impact_not_calculable").notNull().default(0),
 

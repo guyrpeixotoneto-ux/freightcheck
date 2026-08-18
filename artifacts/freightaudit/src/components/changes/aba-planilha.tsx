@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import {
@@ -11,6 +11,7 @@ import {
   Columns3,
   DollarSign,
   HelpCircle,
+  Layers,
   Lock,
   SlidersHorizontal,
   TrendingDown,
@@ -55,6 +56,7 @@ import {
   temRecorte,
   type Recorte,
 } from "@/lib/recorte";
+import { formatBrl } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { SeriesContext } from "@/components/inicio/types";
 
@@ -133,7 +135,26 @@ interface TotaisDoEscopo {
   attributesRemoved: number;
   inconclusive: number;
   impactNotCalculable: number;
+  /** O impacto **oficial**, já deduplicado. É o que o cartão publica. */
   impactByPeriodicity: Record<string, number>;
+  /** O bruto, antes de qualquer dedução. Só a escada o mostra, e rotulado. */
+  impactoBrutoByPeriodicity: Record<string, number>;
+  /** A escada do bruto ao oficial. Explicação, não valor consumível. */
+  deducaoRastro: RastroDaDeducao;
+  mudancasForaDoTotal: number;
+}
+
+/** A escada da dedução, como o servidor a grava em `change_set.deducao_rastro`. */
+interface RastroDaDeducao {
+  brutoByPeriodicity: Record<string, number>;
+  degraus: {
+    etapa: string;
+    rotulo: string;
+    removidoByPeriodicity: Record<string, number>;
+    mudancasRemovidas: number;
+    subtotalByPeriodicity: Record<string, number>;
+  }[];
+  oficialByPeriodicity: Record<string, number>;
 }
 
 interface LatestResponse {
@@ -148,7 +169,12 @@ interface LatestResponse {
     attributesRemoved: number;
     unchanged: number;
     inconclusive: number;
-    calculatedImpactByPeriodicity: Record<string, number>;
+    /** O impacto **oficial** — deduplicado. É o único que a tela publica. */
+    impacto: {
+      oficial: Record<string, number>;
+      bruto: Record<string, number>;
+      mudancasForaDoTotal: number;
+    };
     impactNotCalculable: number;
   };
   breakdown: Breakdown;
@@ -165,7 +191,7 @@ interface LatestResponse {
  * diz o tamanho do problema em uma linha; o detalhe — que é longo — só ocupa a
  * tela de quem pediu para vê-lo.
  */
-type PainelPlanilha = "parcial" | "semPreco" | null;
+type PainelPlanilha = "parcial" | "semPreco" | "deducao" | null;
 
 /**
  * A tela responde, em ordem: o que mudou, de quanto para quanto, quanto isso
@@ -425,6 +451,13 @@ export function AbaPlanilha({
    * mesma cara de verdade. `??` e não `||`: `totais` ausente é resposta de rota
    * antiga, não um total zerado.
    */
+  /*
+    Os totais que o servidor recontou **no mesmo recorte da lista** — escopo de
+    frota e filtros de linha. Antes eles só vinham sob escopo, e sem eles a tela
+    caía nos totais da vigência inteira: um cabeçalho de 267 alterações e
+    R$ 39.936 em cima de uma lista de 19. `??` e não `||`: `totais` ausente é
+    resposta de rota antiga, não um total zerado.
+  */
   const doEscopo = consolidated.data?.totais;
   const totals =
     series === null
@@ -441,7 +474,7 @@ export function AbaPlanilha({
   const impact =
     series === null
       ? (doEscopo?.impactByPeriodicity ?? cv?.impactByPeriodicity ?? {})
-      : (data?.set.calculatedImpactByPeriodicity ?? {});
+      : (data?.set.impacto.oficial ?? {});
 
   /*
     O aviso de consolidado parcial continua valendo sob escopo, e é ali que ele
@@ -450,6 +483,15 @@ export function AbaPlanilha({
     escopo muda é só de quem são os números, não o que a `view` sabe sobre a
     entrega.
   */
+  /*
+    A escada e a contagem do que saiu por dupla contagem vêm dos totais
+    recontados no escopo — os mesmos que alimentam os cartões. Sob série única
+    não há recontagem, e o painel não aparece em vez de aparecer com o número da
+    frota inteira.
+  */
+  const rastro = doEscopo?.deducaoRastro ?? null;
+  const foraDoTotal = doEscopo?.mudancasForaDoTotal ?? 0;
+
   const parcial = series === null && cv !== undefined && !cv.complete;
   const semPreco = totals?.impactNotCalculable ?? 0;
   const temAviso = parcial || semPreco > 0;
@@ -700,7 +742,84 @@ export function AbaPlanilha({
                 onClick={() => abrirPainel("semPreco")}
               />
             )}
+            {/*
+              A escada da dedução, atrás de um clique.
+
+              Ela existe porque o número deste cartão **muda** quando a regra de
+              dupla contagem entra, e uma queda de R$ 39.936 para R$ 16.594 sem
+              explicação ao alcance é indistinguível de um erro. Quem confere
+              precisa poder responder "por que caiu?" sem abrir o código — e a
+              resposta é a mesma que o `change_set` grava.
+            */}
+            {foraDoTotal > 0 && (
+              <Aviso
+                tone="amber"
+                icone={<Layers className="w-6 h-6" />}
+                titulo={`${foraDoTotal.toLocaleString("pt-BR")} alterações fora do total por dupla contagem`}
+                detalhe="Continuam na lista — o dinheiro delas está contado noutra linha"
+                acao="Ver a conta"
+                aberto={painel === "deducao"}
+                onClick={() => abrirPainel("deducao")}
+              />
+            )}
           </div>
+
+          {painel === "deducao" && rastro && (
+            <div className="rounded-xl border bg-muted/30 p-4 text-sm space-y-3">
+              <p>
+                O impacto apurado é o dinheiro contado <strong>uma vez só</strong>.
+                Abaixo, o caminho do total técnico até ele — cada degrau é uma
+                relação medida entre colunas, e nenhuma alteração sai da lista.
+              </p>
+              {Object.keys(rastro.brutoByPeriodicity).map((periodicidade) => (
+                <div key={periodicidade} className="space-y-1">
+                  <div className="text-xs uppercase tracking-wide text-muted-foreground">
+                    {periodicidade.toLowerCase()}
+                  </div>
+                  <table className="font-mono text-xs tabular-nums">
+                    <tbody>
+                      <tr>
+                        <td className="pr-3 text-right">
+                          {formatBrl(rastro.brutoByPeriodicity[periodicidade] ?? 0)}
+                        </td>
+                        <td className="text-muted-foreground">
+                          bruto — soma técnica, antes de qualquer dedução
+                        </td>
+                      </tr>
+                      {rastro.degraus.map((degrau, i) => (
+                        <Fragment key={degrau.etapa}>
+                          <tr>
+                            <td className="pr-3 text-right text-red-700">
+                              − {formatBrl(degrau.removidoByPeriodicity[periodicidade] ?? 0)}
+                            </td>
+                            <td className="text-muted-foreground">
+                              {degrau.rotulo} ({degrau.mudancasRemovidas})
+                            </td>
+                          </tr>
+                          <tr>
+                            <td className="pr-3 text-right border-t">
+                              {formatBrl(degrau.subtotalByPeriodicity[periodicidade] ?? 0)}
+                            </td>
+                            <td
+                              className={
+                                i === rastro.degraus.length - 1
+                                  ? "font-sans font-semibold"
+                                  : "text-muted-foreground"
+                              }
+                            >
+                              {i === rastro.degraus.length - 1
+                                ? "impacto apurado"
+                                : "subtotal técnico — não é um impacto, é um passo da conta"}
+                            </td>
+                          </tr>
+                        </Fragment>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+          )}
 
           {painel === "parcial" && cv && (
             <div className="rounded-xl border bg-muted/30 p-4 text-sm">

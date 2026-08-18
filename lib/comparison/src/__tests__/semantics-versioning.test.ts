@@ -100,7 +100,7 @@ describe("backfill", () => {
     });
     expect(set.valueChanges).toBe(1);
     expect(set.semanticsChanges).toBe(0);
-    expect(set.calculatedImpactByPeriodicity).toEqual({ MENSAL: 100 });
+    expect(set.impacto.oficial).toEqual({ MENSAL: 100 });
   });
 });
 
@@ -204,9 +204,9 @@ describe("a comparação recusa somar significados incompatíveis", () => {
   it("mantém fora do impacto o que ficou incompatível", async () => {
     const set = await computeChangeSet(ctx.db, snapshotIds.FEV, snapshotIds.MAR);
     // Só o IPVA, que não mudou de significado, entra: 12.000 -> 9.000.
-    expect(set.calculatedImpactByPeriodicity).toEqual({ ANUAL: -3000 });
+    expect(set.impacto.oficial).toEqual({ ANUAL: -3000 });
     // Os R$ 12.100 de "aumento" do custoFixo não aparecem em lugar nenhum.
-    expect(set.calculatedImpactByPeriodicity.MENSAL).toBeUndefined();
+    expect(set.impacto.oficial.MENSAL).toBeUndefined();
   });
 
   it("compara normalmente o atributo cujo significado não mudou", async () => {
@@ -307,7 +307,7 @@ describe("mudança de base de cálculo", () => {
     expect(value.inconclusiveReason).toMatch(/base de cálculo mudou/);
     expect(value.impactConfidence).toBe("NOT_CALCULABLE");
     // E agora nada é calculável nesta transição.
-    expect(set.calculatedImpactByPeriodicity).toEqual({});
+    expect(set.impacto.oficial).toEqual({});
     expect(set.semanticsChanges).toBe(2);
   });
 });

@@ -338,7 +338,7 @@ export function resolverRaizes(elegiveis: string[]): {
  * As gavetas em que um componente calculável pode cair.
  *
  * Três, e nunca uma só. Mensal e anual não se somam, e o produto já foi mordido
- * por isso — `change_set.calculated_impact_by_periodicity` existe porque um
+ * por isso — `change_set.impacto_oficial_by_periodicity` existe porque um
  * escalar único uma vez apresentou "R$ −757.009,57" para um conjunto que era
  * R$ −735 mil por ano mais R$ −88 mil por mês. Anualizar exige uma regra
  * confirmada que ainda não temos, então a tela mostra as três lado a lado.

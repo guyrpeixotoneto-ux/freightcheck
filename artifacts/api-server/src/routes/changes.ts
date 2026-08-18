@@ -212,10 +212,17 @@ router.get("/changes/latest", async (req, res): Promise<void> => {
     );
     const [changes, breakdown, totais] = await Promise.all([
       listChanges(db, set.id, filters),
-      getChangeSetBreakdown(db, set.id, escopo),
-      pediuEscopo(req.query as Record<string, unknown>)
-        ? totaisDoEscopo(db, set.id, escopo)
-        : null,
+      getChangeSetBreakdown(db, set.id, escopo, filters),
+      /*
+        Os totais saem **sempre**, e com os mesmos filtros da lista.
+
+        Antes eles só existiam sob `escopo=1`, e sem eles a tela caía nos totais
+        da comparação inteira: quem chegava do cartão "Impacto líquido" — que
+        manda `impactConfidence=CALCULATED` — via a lista obedecer e o cabeçalho
+        não. "19 com impacto" embaixo de "267 alterações · R$ 39.936" eram dois
+        recortes empilhados, e o de cima tinha cara de total.
+      */
+      totaisDoEscopo(db, set.id, escopo, filters),
     ]);
     res.json({
       set,
@@ -264,10 +271,9 @@ router.get("/changes/consolidated", async (req, res): Promise<void> => {
     );
     const [changes, breakdown, totais] = await Promise.all([
       listChanges(db, view.changeSetIds, filters),
-      getChangeSetBreakdown(db, view.changeSetIds, escopo),
-      pediuEscopo(req.query as Record<string, unknown>)
-        ? totaisDoEscopo(db, view.changeSetIds, escopo)
-        : null,
+      getChangeSetBreakdown(db, view.changeSetIds, escopo, filters),
+      // Idem `/latest`: os totais são da mesma população que a lista, sempre.
+      totaisDoEscopo(db, view.changeSetIds, escopo, filters),
     ]);
     res.json({
       view,

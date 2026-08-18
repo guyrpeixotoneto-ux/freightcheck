@@ -32,7 +32,11 @@ interface Overview {
     entities_removed: number;
     inconclusive: number;
     impact_not_calculable: number;
-    calculated_impact_by_periodicity: Record<string, number>;
+    /** O impacto **oficial** desta comparação — deduplicado. É o que se mostra. */
+    impacto_oficial_by_periodicity: Record<string, number>;
+    /** O bruto, antes de qualquer dedução. Auditoria técnica; nunca rotulado "apurado". */
+    impacto_bruto_by_periodicity: Record<string, number>;
+    mudancas_fora_do_total: number;
   } | null;
   impactByPeriodicity: {
     periodicity: string;
