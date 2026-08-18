@@ -1,4 +1,4 @@
-import { useRef, useState, type ReactNode } from "react";
+import { Fragment, useRef, useState, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import {
@@ -106,6 +106,26 @@ interface ImportRun {
  */
 const tiposDaImportacao = (run: ImportRun): string[] =>
   run.declaredType !== null ? [run.declaredType] : run.entityTypes;
+
+/**
+ * Um apontamento do pipeline, como a API o entrega.
+ *
+ * `detail` é o que o pipeline gravou junto do texto — a chave que colidiu, os
+ * campos envolvidos, a vigência. Ele chega como objeto livre de propósito: cada
+ * código anota o que o seu caso pede, e a tela mostra o que vier em vez de
+ * conhecer um formato por código, que a obrigaria a mudar a cada anotação nova.
+ */
+interface IssueGroup {
+  code: string;
+  severity: string;
+  count: number;
+  ocorrencias: {
+    message: string;
+    detail: Record<string, unknown> | null;
+    sheetName: string | null;
+    rowIndex: number | null;
+  }[];
+}
 
 interface RunDetail {
   sheets: {
@@ -1020,6 +1040,8 @@ function RunDetailDialog({
             )}
           </dl>
 
+          <Apontamentos importRunId={run.importRunId} />
+
           <DialogFooter>
             <Button variant="outline" size="sm" onClick={onClose}>
               Fechar
@@ -1028,6 +1050,133 @@ function RunDetailDialog({
         </>
       )}
     </Dialog>
+  );
+}
+
+/**
+ * O que o pipeline anotou, e onde — a evidência que já existia e ninguém lia.
+ *
+ * A tela mostrava a contagem de erros e avisos. Isso responde "deu problema?" e
+ * não responde "qual, em que chave, em que campo", que é o que decide se a
+ * origem está errada ou se a nossa leitura dela está. `validation_issue` sempre
+ * teve a resposta; faltava alcançá-la.
+ *
+ * Três decisões que esta lista sustenta:
+ *
+ * - **A colisão que concorda aparece como as outras.** Duas linhas caindo na
+ *   mesma chave e dizendo o mesmo não é erro nenhum, e é o sintoma mais cedo de
+ *   um grão que não separa a origem. Ela entra como informação, com a chave e
+ *   os campos, e não como um número no fim de um resumo.
+ * - **O `detail` é mostrado como veio.** Cada código anota o que o seu caso
+ *   pede; uma tela que conhecesse um formato por código teria de mudar a cada
+ *   anotação nova, e a que não muda mostra menos do que o pipeline sabe.
+ * - **Nada aqui é ação.** É leitura, e só se abre por dentro do detalhe da
+ *   importação — o botão que promove continua sendo o do cartão.
+ */
+function Apontamentos({ importRunId }: { importRunId: string }) {
+  const { data, isLoading, error } = useQuery({
+    queryKey: ["imports", importRunId, "issues"],
+    queryFn: () => fetchJson<IssueGroup[]>(`/imports/${importRunId}/issues`),
+  });
+
+  const [aberto, setAberto] = useState<string | null>(null);
+
+  if (isLoading) {
+    return <p className="text-sm text-muted-foreground">Lendo os apontamentos…</p>;
+  }
+  if (error) {
+    return (
+      <p className="text-sm text-red-900 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
+        Não foi possível ler os apontamentos: {(error as Error).message} Esta
+        importação pode ter apontamentos — o que falhou foi perguntar.
+      </p>
+    );
+  }
+  if (!data || data.length === 0) {
+    return (
+      <p className="text-sm text-muted-foreground">
+        O pipeline não anotou nada nesta importação.
+      </p>
+    );
+  }
+
+  const tom = (severity: string) =>
+    severity === "ERROR"
+      ? "border-red-200 bg-red-50 text-red-900"
+      : severity === "WARNING"
+        ? "border-amber-200 bg-amber-50 text-amber-900"
+        : "border-border bg-muted/30 text-foreground";
+
+  return (
+    <div className="space-y-2">
+      <p className="text-[0.6875rem] font-semibold uppercase tracking-wider text-muted-foreground">
+        Apontamentos
+      </p>
+      {data.map((grupo) => {
+        const id = `${grupo.severity}:${grupo.code}`;
+        const expandido = aberto === id;
+        return (
+          <div key={id} className={cn("rounded-xl border", tom(grupo.severity))}>
+            <button
+              type="button"
+              onClick={() => setAberto(expandido ? null : id)}
+              className="w-full flex items-center gap-2 px-4 py-2.5 text-left text-sm"
+            >
+              {expandido ? (
+                <ChevronDown className="w-4 h-4 shrink-0" />
+              ) : (
+                <ChevronRight className="w-4 h-4 shrink-0" />
+              )}
+              <span className="font-mono text-xs">{grupo.code}</span>
+              <span className="ml-auto tabular-nums text-xs font-semibold">
+                {n(grupo.count)}
+              </span>
+            </button>
+
+            {expandido && (
+              <ul className="px-4 pb-3 space-y-2.5 text-sm">
+                {grupo.ocorrencias.map((o, i) => (
+                  <li key={i} className="border-t pt-2.5 first:border-t-0 first:pt-0">
+                    <p className="leading-relaxed">{o.message}</p>
+                    {(o.sheetName || o.rowIndex !== null) && (
+                      <p className="text-xs opacity-75 mt-0.5">
+                        {o.sheetName && <>aba {o.sheetName}</>}
+                        {o.sheetName && o.rowIndex !== null && " · "}
+                        {o.rowIndex !== null && <>linha {o.rowIndex}</>}
+                      </p>
+                    )}
+                    {o.detail && Object.keys(o.detail).length > 0 && (
+                      <dl className="mt-1.5 grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-xs">
+                        {Object.entries(o.detail).map(([campo, valor]) => (
+                          <Fragment key={campo}>
+                            <dt className="opacity-70">{campo}</dt>
+                            <dd className="font-mono break-all">
+                              {Array.isArray(valor)
+                                ? valor.join(", ")
+                                : typeof valor === "object" && valor !== null
+                                  ? JSON.stringify(valor)
+                                  : String(valor)}
+                            </dd>
+                          </Fragment>
+                        ))}
+                      </dl>
+                    )}
+                  </li>
+                ))}
+                {/* O corte é do servidor, e é dito: 40 mil células podem
+                    produzir dezenas de milhares de apontamentos, e uma lista
+                    que parasse sem avisar leria como "só tem estes". */}
+                {grupo.count > grupo.ocorrencias.length && (
+                  <li className="text-xs opacity-75 border-t pt-2.5">
+                    Mostrando {n(grupo.ocorrencias.length)} de {n(grupo.count)}.
+                  </li>
+                )}
+              </ul>
+            )}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -1401,6 +1550,17 @@ function PendingRun({
               {label}
             </span>
           ))}
+        </div>
+      )}
+
+      {/* Os apontamentos ficam **aqui**, e não só no detalhe de uma importação
+          já aprovada: é neste cartão que a decisão acontece, e uma colisão de
+          chave que só se pudesse ler depois de aprovar chegaria tarde. Vêm
+          fechados por código porque um arquivo normal traz 1.300 avisos de um
+          tipo só, e abrir tudo esconderia os três que importam. */}
+      {(ready || failed) && (
+        <div className="rounded-xl border border-amber-200 bg-white/60 p-4">
+          <Apontamentos importRunId={importRunId} />
         </div>
       )}
     </div>

@@ -1065,7 +1065,23 @@ export async function stage(
 
   const consolidados: Record<string, unknown>[] = [];
   const conflitos = new Map<string, Set<string>>();
-  let consolidacoes = 0;
+  /*
+    As duplicidades que **concordam**, por chave.
+
+    Era um número só — "N valores apareceram mais de uma vez" —, sem dizer de
+    que chave nem em que campo. Para quem está medindo se um grão separa as
+    linhas da origem, esse número é a evidência principal e vinha ilegível: duas
+    linhas caindo na mesma chave é o sintoma de um grão grosso demais, e ele
+    aparece **antes** de haver conflito, justamente enquanto as duas concordam.
+
+    Agrupado por chave, cada colisão vira um apontamento que nomeia a vigência,
+    o tipo, a chave e os campos envolvidos — a mesma forma da recusa por
+    conflito, para as duas se lerem juntas.
+  */
+  const consolidacoesPorChave = new Map<
+    string,
+    { atributos: Set<string>; linhas: number }
+  >();
   for (const [grao, ocorrencias] of porGrao) {
     if (ocorrencias.length === 1) {
       consolidados.push(ocorrencias[0]);
@@ -1088,11 +1104,21 @@ export async function stage(
       ),
     );
     consolidados.push(ocorrencias[0]);
+    const [label, entityType, entityKey, attributeCode] = grao.split("\u001f");
     if (valores.size === 1) {
-      consolidacoes++;
+      const chave = [label, entityType, entityKey].join("\u001f");
+      const registro = consolidacoesPorChave.get(chave) ?? {
+        atributos: new Set<string>(),
+        linhas: 0,
+      };
+      registro.atributos.add(attributeCode);
+      // O maior número de ocorrências de um mesmo atributo é quantas linhas da
+      // origem caíram nesta chave: somar por atributo contaria a mesma linha
+      // uma vez por coluna.
+      registro.linhas = Math.max(registro.linhas, ocorrencias.length);
+      consolidacoesPorChave.set(chave, registro);
       continue;
     }
-    const [label, entityType, entityKey] = grao.split("\u001f");
     const chave = [label, entityType, entityKey].join("\u001f");
     let atributos = conflitos.get(chave);
     if (!atributos) {
@@ -1102,13 +1128,27 @@ export async function stage(
     atributos.add(ocorrencias[0].attributeCode as string);
   }
 
-  if (consolidacoes > 0) {
+  for (const [chave, { atributos, linhas }] of consolidacoesPorChave) {
+    const [label, entityType, entityKey] = chave.split("\u001f");
+    const campos = [...atributos].sort();
     issues.push({
       importRunId,
       severity: "INFO",
       code: "ENTIDADE_DUPLICADA_CONSOLIDADA",
-      message: `${consolidacoes} valores apareceram mais de uma vez para a mesma entidade e atributo, com o mesmo conteúdo depois de normalizado; foram consolidados numa ocorrência.`,
-      detail: { ocorrencias: consolidacoes },
+      message:
+        `${entityType} ${entityKey} aparece em ${linhas} linhas da vigência ${label}, e elas dizem o mesmo em ` +
+        `${campos.length} ${campos.length === 1 ? "campo" : "campos"}; consolidadas numa ocorrência. ` +
+        `Nada foi descartado: as linhas continuam inteiras no RAW, e é lá que elas podem ser conferidas uma a uma.`,
+      detail: {
+        vigencia: label,
+        entityType,
+        entityKey,
+        linhas,
+        // Os campos inteiros, e não uma amostra: é esta lista que diz **o
+        // que** as duas linhas tinham em comum, e ela é o material da medição
+        // de grão. Truncá-la aqui seria esconder metade da evidência.
+        atributos: campos,
+      },
     });
   }
 

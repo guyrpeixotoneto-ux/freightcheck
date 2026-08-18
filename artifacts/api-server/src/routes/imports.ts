@@ -16,6 +16,7 @@ import {
   ensureImportStorageDir,
   exigirTipoDeclarado,
   getImportRun,
+  getImportRunIssues,
   getImportRunSheets,
   getImportRunSnapshots,
   getImportRunStatus,
@@ -556,6 +557,35 @@ router.get("/imports/:id", async (req, res, next): Promise<void> => {
     res.json({ run, sheets, snapshots });
   } catch (err) {
     responderFalhaDeLeitura(next, req.log, err, "detalhe da importação");
+  }
+});
+
+/**
+ * Os apontamentos de uma importação — o que o pipeline anotou, e onde.
+ *
+ * `validation_issue` é escrito desde o começo e nunca foi lido por tela
+ * nenhuma: a interface mostrava a contagem de erros e avisos e o motivo da
+ * falha. Isso responde "deu problema?" e não responde "qual, em que chave, em
+ * que campo" — que é o que decide se a origem está errada ou se a nossa leitura
+ * dela está.
+ *
+ * Só lê. Não muda estado, não decide nada; é a evidência que já existia,
+ * finalmente alcançável.
+ */
+router.get("/imports/:id/issues", async (req, res, next): Promise<void> => {
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de importação inválido." });
+    return;
+  }
+  try {
+    const run = await getImportRun(db, req.params.id);
+    if (!run) {
+      res.status(404).json({ error: "Importação não encontrada" });
+      return;
+    }
+    res.json(await getImportRunIssues(db, req.params.id));
+  } catch (err) {
+    responderFalhaDeLeitura(next, req.log, err, "apontamentos da importação");
   }
 });
 

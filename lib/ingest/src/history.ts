@@ -1,11 +1,13 @@
-import { desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
   importRunTable,
+  rawRowTable,
   rawSheetTable,
   snapshotTable,
   sourceFileTable,
   stagedFactTable,
+  validationIssueTable,
 } from "@workspace/db";
 import { identidadesPendentes } from "./pipeline";
 import { parseVigenciaLabel } from "./vigencia";
@@ -260,4 +262,93 @@ export async function getImportRunSnapshots(db: Database, importRunId: string) {
     .from(snapshotTable)
     .where(eq(snapshotTable.importRunId, importRunId))
     .orderBy(snapshotTable.effectiveDate);
+}
+
+/**
+ * Os apontamentos de uma importação, agrupados por código.
+ *
+ * `validation_issue` já era escrito pelo pipeline desde o começo, e nunca foi
+ * lido por tela nenhuma: a interface mostrava a *contagem* de erros e avisos, e
+ * o motivo da falha quando havia. Isso responde "deu problema?" e não responde
+ * "qual, onde, em que campo" — que é a pergunta de quem precisa decidir se a
+ * origem está errada ou se a nossa leitura dela está.
+ *
+ * A pergunta ficou concreta com o quadro de pessoal: para saber se unidade +
+ * cargo (+ turno) separa as linhas da origem, é preciso ver **quais** chaves
+ * colidiram e **em que campos** — inclusive as colisões que concordam, que não
+ * são erro nenhum e são o sintoma mais cedo de um grão grosso demais.
+ *
+ * Agrupado por código porque é assim que se lê: 1.300 avisos de um tipo são uma
+ * linha com um número, e três colisões de chave são três linhas para abrir. As
+ * ocorrências vêm com o `detail` que o pipeline gravou — chave, campos,
+ * vigência —, e limitadas por código, porque um arquivo de 40 mil células pode
+ * produzir dezenas de milhares de apontamentos e nenhuma tela lê isso.
+ */
+export interface ImportIssueGroup {
+  code: string;
+  severity: string;
+  /** Quantos apontamentos deste código existem — não quantos vieram abaixo. */
+  count: number;
+  /** As primeiras ocorrências, com o que o pipeline gravou em cada uma. */
+  ocorrencias: {
+    message: string;
+    detail: unknown;
+    sheetName: string | null;
+    rowIndex: number | null;
+  }[];
+}
+
+/** Quantas ocorrências de cada código a leitura devolve. */
+export const OCORRENCIAS_POR_CODIGO = 50;
+
+export async function getImportRunIssues(
+  db: Database,
+  importRunId: string,
+): Promise<ImportIssueGroup[]> {
+  const contagens = await db
+    .select({
+      code: validationIssueTable.code,
+      severity: validationIssueTable.severity,
+      count: sql<number>`count(*)`.mapWith(Number),
+    })
+    .from(validationIssueTable)
+    .where(eq(validationIssueTable.importRunId, importRunId))
+    .groupBy(validationIssueTable.code, validationIssueTable.severity)
+    .orderBy(desc(sql`count(*)`));
+
+  const grupos: ImportIssueGroup[] = [];
+  for (const grupo of contagens) {
+    const ocorrencias = await db
+      .select({
+        message: validationIssueTable.message,
+        detail: validationIssueTable.detail,
+        sheetName: rawSheetTable.sheetName,
+        rowIndex: rawRowTable.rowIndex,
+      })
+      .from(validationIssueTable)
+      .leftJoin(rawSheetTable, eq(rawSheetTable.id, validationIssueTable.rawSheetId))
+      .leftJoin(rawRowTable, eq(rawRowTable.id, validationIssueTable.rawRowId))
+      .where(
+        and(
+          eq(validationIssueTable.importRunId, importRunId),
+          eq(validationIssueTable.code, grupo.code),
+          eq(validationIssueTable.severity, grupo.severity),
+        ),
+      )
+      .orderBy(validationIssueTable.id)
+      .limit(OCORRENCIAS_POR_CODIGO);
+
+    grupos.push({ ...grupo, ocorrencias });
+  }
+
+  /*
+    A ordem: erro, aviso, informação — e dentro de cada um, o mais numeroso
+    primeiro. Quem abre esta lista está procurando o que impede promover antes
+    do que apenas anota.
+  */
+  const peso = (severity: string) =>
+    severity === "ERROR" ? 0 : severity === "WARNING" ? 1 : 2;
+  return grupos.sort(
+    (a, b) => peso(a.severity) - peso(b.severity) || b.count - a.count,
+  );
 }

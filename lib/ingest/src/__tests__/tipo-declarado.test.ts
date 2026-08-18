@@ -8,6 +8,7 @@ import {
   receiveFile,
   stage,
 } from "../pipeline";
+import { getImportRunIssues } from "../history";
 import { createTestDatabase, modelExportPaths, type TestDb } from "../testing";
 import { corrigirValoresNumericos, escreverPlanilha } from "./planilha-sintetica";
 
@@ -274,5 +275,96 @@ describe("a declaração que o arquivo desmente", () => {
     // acontece: a identidade é o conjunto, e falta o cargo e o turno.
     expect(rows[0].failure_reason).toMatch(/cargoEquipeEmpurrada/);
     expect(rows[0].failure_reason).toMatch(/turnoEmpurrada/);
+  });
+});
+
+/**
+ * A colisão de chave, visível antes de aprovar.
+ *
+ * O grão do quadro de pessoal é uma **hipótese**: unidade + cargo (+ turno)
+ * separa as linhas da origem, ou não separa, e quem responde isso são os
+ * arquivos reais ao longo de algumas vigências. O que a importação precisa
+ * garantir enquanto a resposta não chega é que a evidência apareça inteira — a
+ * chave que colidiu, os campos envolvidos, e as linhas ainda no RAW.
+ *
+ * Os dois desfechos são conferidos aqui porque eles chegam por caminhos
+ * diferentes, e só um deles é erro:
+ *
+ * - duas linhas na mesma chave **discordando** é ERRO, e impede promover;
+ * - duas linhas na mesma chave **concordando** não é erro nenhum — e é o
+ *   sintoma mais cedo de um grão grosso demais, então precisa ser legível.
+ */
+describe("a colisão de chave aparece na pré-visualização", () => {
+  const duasLinhasIguais = (valores: Record<string, number>) =>
+    escreverPlanilha({
+      vigencia: "EMPURRADA_1_9_2026",
+      abas: [
+        {
+          nome: "Planilha1",
+          identificador: "Cargo",
+          linhas: [
+            { placa: "ANALISTA", valores: { "Custo Fixo": 100 } },
+            { placa: "ANALISTA", valores },
+          ],
+        },
+      ],
+    });
+
+  it("nomeia a chave e os campos quando as duas linhas concordam", async () => {
+    const { relatorio, importRunId } = await importar(
+      duasLinhasIguais({ "Custo Fixo": 100 }),
+      "QLP_ADMINISTRATIVO",
+    );
+
+    // Não é erro: as duas dizem o mesmo, e promover continua permitido.
+    expect(relatorio.blockingErrors).toBe(0);
+
+    const grupos = await getImportRunIssues(ctx.db, importRunId);
+    const consolidada = grupos.find(
+      (g) => g.code === "ENTIDADE_DUPLICADA_CONSOLIDADA",
+    )!;
+    expect(consolidada.severity).toBe("INFO");
+
+    const [ocorrencia] = consolidada.ocorrencias;
+    const detalhe = ocorrencia.detail as {
+      entityKey: string;
+      linhas: number;
+      atributos: string[];
+    };
+    // A chave que colidiu, quantas linhas caíram nela, e em que campos.
+    expect(detalhe.entityKey).toBe("07526557001505ANALISTA");
+    expect(detalhe.linhas).toBe(2);
+    expect(detalhe.atributos).toContain("qlp_administrativo.custo_fixo");
+    expect(ocorrencia.message).toMatch(/continuam inteiras no RAW/);
+
+    // E nada se perdeu: as duas linhas da planilha estão gravadas, ainda que
+    // uma só tenha virado fato.
+    const { rows } = await ctx.db.execute<{ n: number }>(sql`
+      SELECT count(*)::int AS n
+        FROM raw_row r
+        JOIN raw_sheet s ON s.id = r.raw_sheet_id
+       WHERE s.import_run_id = ${importRunId}::uuid AND NOT r.is_header
+    `);
+    expect(rows[0].n).toBe(2);
+  });
+
+  it("recusa, nomeando a chave e o campo, quando as duas discordam", async () => {
+    const { relatorio, importRunId } = await importar(
+      duasLinhasIguais({ "Custo Fixo": 999 }),
+      "QLP_ADMINISTRATIVO",
+    );
+
+    expect(relatorio.blockingErrors).toBeGreaterThan(0);
+
+    const grupos = await getImportRunIssues(ctx.db, importRunId);
+    const conflito = grupos.find(
+      (g) => g.code === "ENTIDADE_DUPLICADA_CONFLITANTE",
+    )!;
+    // Erro vem primeiro na lista: quem abre isto procura o que impede promover.
+    expect(grupos[0].code).toBe("ENTIDADE_DUPLICADA_CONFLITANTE");
+    expect(conflito.ocorrencias[0].message).toContain("07526557001505ANALISTA");
+    expect(
+      (conflito.ocorrencias[0].detail as { atributos: string[] }).atributos,
+    ).toContain("qlp_administrativo.custo_fixo");
   });
 });
