@@ -5,6 +5,7 @@ import {
   BadgeCheck,
   Building2,
   Bot,
+  Briefcase,
   Calculator,
   Receipt,
   CalendarDays,
@@ -26,6 +27,7 @@ import {
   Gavel,
   GitCompareArrows,
   Handshake,
+  HardHat,
   History,
   House,
   Layers,
@@ -47,6 +49,7 @@ import {
   TriangleAlert,
   Truck,
   Users,
+  UsersRound,
   type LucideIcon,
 } from "lucide-react";
 import {
@@ -71,7 +74,7 @@ import { useSecoesRecolhidas } from "./preferencias";
  * A lateral do produto.
  *
  * Três blocos, de cima para baixo: **onde estou** (a unidade aberta), **para
- * onde vou** (as telas, em sete seções) e **o que posso perguntar** (o
+ * onde vou** (as telas, em oito seções) e **o que posso perguntar** (o
  * assistente). A ordem é a da pergunta que a pessoa traz ao abrir o sistema.
  *
  * O que mudou em relação à lista única que existia aqui, e por quê:
@@ -92,7 +95,7 @@ import { useSecoesRecolhidas } from "./preferencias";
  * 3. **Os números vêm junto com os itens.** Alterações, Importações e Curadoria
  *    mostram quanto há para fazer antes de a pessoa clicar. Bolinha com zero não
  *    aparece: contagem que não conta nada ensina o olho a ignorar o lugar.
- * 4. **As seções recolhem.** Quem passa o dia em Auditoria fecha as outras seis
+ * 4. **As seções recolhem.** Quem passa o dia em Auditoria fecha as outras sete
  *    e fica com sete itens na tela — e é o crescimento da lista que transformou
  *    esse recurso de conforto em necessidade. A escolha vale para o navegador,
  *    não para a página — ver `useSecoesRecolhidas` —, e recolher esconde a
@@ -123,16 +126,17 @@ interface NavGroup {
 }
 
 /**
- * As sete seções, e a ordem em que se lê o trabalho de um dia.
+ * As oito seções, e a ordem em que se lê o trabalho de um dia.
  *
  * A lista dobrou — de dezessete itens em cinco seções para trinta e cinco em sete —
  * e nenhum item saiu: as duas seções novas, **Recuperação** e **Frota**, e os
  * itens acrescentados às cinco antigas nomeiam trabalho que o produto vai
  * fazer; nada do que já existia mudou de nome, de lugar relativo ou de endereço.
  *
- * A ordem das sete é a de uma auditoria completa, de cima para baixo: vê-se o
+ * A ordem das oito é a de uma auditoria completa, de cima para baixo: vê-se o
  * retrato (**Visão executiva**), procura-se o desvio (**Auditoria**), cobra-se
- * o desvio achado (**Recuperação**), desce-se ao ativo que o sofreu (**Frota**),
+ * o desvio achado (**Recuperação**), confere-se o quadro de gente que o modelo
+ * remunera (**QLP**), desce-se ao ativo que o sofreu (**Frota**),
  * pergunta-se ao assistente o que sobrou (**Inteligência**), e por baixo de
  * tudo estão o material (**Dados & governança**) e a casa (**Administração**).
  *
@@ -213,6 +217,24 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/contestacao", label: "Contestação & Recuperação", icon: Gavel },
       { href: "/reconciliacao", label: "Reconciliação", icon: Handshake },
       { href: "/risco-materialidade", label: "Risco & Materialidade", icon: ShieldCheck },
+    ],
+  },
+  {
+    /*
+      QLP — o quadro de lotação de pessoal que o modelo remunera — é seção
+      própria, acima da Frota, porque é a outra metade da mesma conta: a Frota
+      carrega o custo do ativo, e o QLP carrega o custo da estrutura de gente,
+      lida nas duas alturas em que o Freightech a publica — a operação e a
+      administração. Os dois itens abrem telas em preparo: a regra vive no Book,
+      mas o export que abastece este banco ainda não traz os valores de QLP —
+      ver `pages/telas-em-preparo.ts`, onde cada um diz o que falta.
+    */
+    titulo: "QLP",
+    icon: UsersRound,
+    cor: "text-nav-qlp",
+    itens: [
+      { href: "/qlp-operacional", label: "QLP Operacional", icon: HardHat },
+      { href: "/qlp-administrativo", label: "QLP Administrativo", icon: Briefcase },
     ],
   },
   {

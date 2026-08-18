@@ -58,7 +58,7 @@ describe("a lateral", () => {
     expect(hrefs).toHaveLength(new Set(hrefs).size);
   });
 
-  it("mantém as sete seções do desenho, na ordem", () => {
+  it("mantém as oito seções do desenho, na ordem", () => {
     const texto = fonte("components/layout/sidebar.tsx");
     const lista = texto.slice(
       texto.indexOf("const NAV_GROUPS"),
@@ -69,6 +69,7 @@ describe("a lateral", () => {
       "Visão executiva",
       "Auditoria",
       "Recuperação",
+      "QLP",
       "Frota",
       "Inteligência",
       "Dados & governança",
@@ -110,7 +111,7 @@ describe("o catálogo de telas em preparo", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(15);
+    expect(telas).toBe(17);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });
