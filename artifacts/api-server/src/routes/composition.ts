@@ -132,14 +132,37 @@ router.get("/composition/equipment/:entityId", async (req, res): Promise<void> =
       O vínculo com a carreta só é resolvido para o cavalo, e só quando a fonte
       o declara. Vai junto da composição porque é um atalho de navegação, não um
       número — nada dele entra em total nenhum (ver `ficha.ts`).
+
+      A vigência e o contexto são os que a composição **já resolveu**, e não o
+      que veio na query. Reenviar o pedido faria a leitura resolvê-lo uma
+      segunda vez, e duas resoluções são duas chances de a ficha e o atalho
+      dela falarem de vigências diferentes.
     */
     const vinculo =
       composicao.entityType === "CAVALO"
         ? await getVinculoDoCavalo(db, entityId, {
-            period: composicao.effectiveDate,
-            ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
+            effectiveDate: composicao.effectiveDate,
+            context: { scopeHash: composicao.scopeHash, channel: composicao.channel },
           })
         : null;
+
+    /*
+      Duas carretas correntes com a mesma placa contradizem
+      `entity_identifier_current_uq`. A ficha continua abrindo — o vínculo é um
+      atalho, e derrubar a página inteira por causa dele seria trocar um defeito
+      por outro maior —, mas o estado não passa em silêncio.
+    */
+    if (vinculo?.ambiguidade) {
+      req.log.error(
+        {
+          entityId,
+          placaCarreta: vinculo.placaCarreta,
+          carretas: vinculo.ambiguidade.entityIds,
+          effectiveDate: composicao.effectiveDate,
+        },
+        "Mais de uma carreta corrente com a mesma placa; o vínculo do cavalo ficou sem destino.",
+      );
+    }
 
     res.json({ ...composicao, vinculo });
   } catch (err) {
