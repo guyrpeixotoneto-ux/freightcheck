@@ -158,6 +158,7 @@ const SUSPECTED_SENTINELS = ["-1"];
 const BLOQUEIAM_PROMOCAO = new Set([
   "ENTIDADE_DUPLICADA_CONFLITANTE",
   "TIPO_DIVERGE_DA_DECLARACAO",
+  "ABA_REBAIXADA_COM_TIPO_DECLARADO",
 ]);
 
 /**
@@ -179,6 +180,13 @@ function motivoDoImpedimento(
         `${issue.count} ${issue.count === 1 ? "conflito impede" : "conflitos impedem"} esta importação: ` +
         `a mesma entidade aparece mais de uma vez na mesma vigência com valores diferentes. ` +
         `Corrija a origem e envie o arquivo de novo.`
+      );
+    }
+    if (issue.code === "ABA_REBAIXADA_COM_TIPO_DECLARADO") {
+      return (
+        `${issue.sample} Nada desta importação foi aproveitado como fato. A causa ` +
+        `mais comum é a origem ter renomeado uma coluna estrutural (Vigência, ou as ` +
+        `colunas de identidade). Confira o arquivo contra o export anterior antes de reenviar.`
       );
     }
     if (issue.code === "TIPO_DIVERGE_DA_DECLARACAO") {
@@ -638,6 +646,43 @@ export async function stage(
   const labels = new Set<string>();
   const identidades: SheetIdentity[] = [];
   let rowsRejected = 0;
+
+  /*
+    Com tipo declarado, aba rebaixada é ERRO impeditivo — não rodapé.
+
+    O rebaixamento a PIVOT/UNKNOWN acontece quando o cabeçalho perdeu a coluna
+    de Vigência ou as colunas de identidade — que é exatamente o que a origem
+    renomear uma coluna estrutural produz. Sem esta guarda, o cenário nº 1 do
+    produto terminava assim: todas as abas rebaixadas em silêncio, zero fatos,
+    importação "verde", e o balanço de massa fechando porque PIVOT é DESCARTE.
+    Quem declara o tipo está afirmando "este arquivo é o export deste
+    equipamento" — uma aba com linhas que não entra como fonte contradiz a
+    declaração, e a contradição precisa parar a importação com o motivo à vista.
+  */
+  if (declarado !== null) {
+    const rebaixadas = await db
+      .select()
+      .from(rawSheetTable)
+      .where(
+        and(
+          eq(rawSheetTable.importRunId, importRunId),
+          sql`${rawSheetTable.role} <> 'SOURCE'`,
+        ),
+      );
+    for (const aba of rebaixadas) {
+      if ((aba.rowCount ?? 0) === 0) continue;
+      issues.push({
+        importRunId,
+        rawSheetId: aba.id,
+        severity: "ERROR",
+        code: "ABA_REBAIXADA_COM_TIPO_DECLARADO",
+        message:
+          `A aba "${aba.sheetName}" tem ${aba.rowCount} linha(s) e não foi aceita ` +
+          `como fonte de um envio declarado como ${declarado.code}: ${aba.roleReason}`,
+        detail: { role: aba.role, roleReason: aba.roleReason, declarado: declarado.code },
+      });
+    }
+  }
 
   for (const sheet of sheets) {
     const rows = await db
@@ -1414,15 +1459,31 @@ export async function preview(
   );
   const impeditivos = impeditivas.reduce((sum, i) => sum + i.count, 0);
 
+  /*
+    Zero fatos é impedimento por si — mesmo sem nenhum apontamento.
+
+    Um arquivo em que nada virou fato não tem o que aprovar: deixá-lo chegar a
+    PREVIEWED (e a PROMOTED, vazio) fabricava a importação "verde" que não
+    trouxe nada — o falso verde clássico. O motivo diz onde olhar.
+  */
+  const totalDeFatos = snapshots.reduce((soma, s) => soma + s.factCount, 0);
+  const vazio = totalDeFatos === 0;
+
   if (run.status === "STAGED") {
     await db
       .update(importRunTable)
       .set(
-        impeditivos > 0
+        impeditivos > 0 || vazio
           ? {
               status: "VALIDATION_ERROR",
               finishedAt: new Date(),
-              failureReason: motivoDoImpedimento(impeditivas),
+              failureReason:
+                impeditivos > 0
+                  ? motivoDoImpedimento(impeditivas)
+                  : "Nenhuma célula deste arquivo virou fato: nenhuma aba foi aceita " +
+                    "como fonte. Confira os papéis das abas nesta importação — a causa " +
+                    "mais comum é a origem ter renomeado uma coluna estrutural " +
+                    "(Vigência, ou as colunas de identidade).",
             }
           : { status: "PREVIEWED" },
       )
@@ -1760,6 +1821,22 @@ export async function promote(
         .select()
         .from(stagedFactTable)
         .where(eq(stagedFactTable.importRunId, importRunId));
+
+      /*
+        Defesa em profundidade: a pré-visualização já recusa o run vazio, mas
+        um run PREVIEWED de antes desta guarda — ou qualquer caminho futuro
+        que a contorne — não pode terminar "PROMOTED" sem um fato sequer. Uma
+        promoção vazia é o falso verde perfeito: sucesso, zero conteúdo.
+      */
+      if (staged.length === 0) {
+        throw new PromocaoRecusada(
+          "Nada a promover: nenhuma célula deste arquivo virou fato. Confira os " +
+            "papéis das abas nesta importação — a causa mais comum é a origem ter " +
+            "renomeado uma coluna estrutural (Vigência, ou as colunas de identidade).",
+          "PROMOCAO_VAZIA_RECUSADA",
+          "VALIDATION_ERROR",
+        );
+      }
 
       const byLabel = new Map<string, typeof staged>();
       for (const fact of staged) {
