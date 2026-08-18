@@ -132,7 +132,6 @@ export interface Escolhas {
   taxonomyCode: string | null;
   /** Só usado quando o significado escolhido deixa o período em aberto. */
   periodicity: string | null;
-  justificativa: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -306,9 +305,9 @@ export function precisaDoPeriodo(
  * `null` quando não falta nada — e a ausência da frase é o sinal, não um texto
  * dizendo "está tudo certo", que ocuparia o mesmo espaço para não informar.
  *
- * A justificativa entra na conta. Ela é a invariante mais antiga desta tela (o
- * banco recusa uma confirmação sem ela) e escondê-la da contagem faria o botão
- * continuar desligado sem que a tela dissesse por quê.
+ * A justificativa saiu da conta junto com o campo que a pedia: o que falta para
+ * confirmar é o que a tela pergunta, e nada mais. Quem assina continua sendo a
+ * sessão — o ato nunca dependeu da frase em prosa, e sim de haver responsável.
  */
 export function oQueFalta(
   escolhas: Escolhas,
@@ -320,7 +319,6 @@ export function oQueFalta(
   if (precisaDoPeriodo(escolhas, catalogo) && !escolhas.periodicity) {
     faltas.push("de quanto em quanto tempo ele é pago");
   }
-  if (!escolhas.justificativa.trim()) faltas.push("a justificativa");
 
   if (faltas.length === 0) return null;
   const lista =

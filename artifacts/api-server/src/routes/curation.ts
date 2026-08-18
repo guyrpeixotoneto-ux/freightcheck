@@ -50,7 +50,7 @@ import { decodeUpload } from "./imports";
  * Curation API (F2).
  *
  * The only endpoint that can confirm semantics is POST /curation/attributes/
- * :code/confirm, and it requires an actor and a reason.
+ * :code/confirm, and it requires an actor — the reason is optional.
  *
  * PATCH /curation/attributes/:code/meaning writes what a column is called and
  * what it means, and nothing else. It is
@@ -424,13 +424,6 @@ router.post("/curation/attributes/:code/confirm", async (req, res, next): Promis
      * sessão, aqui ele sempre existe.
      */
     const actor = req.user!.email;
-
-    if (!reason) {
-      res.status(400).json({
-        error: "Confirmar exige uma justificativa (reason).",
-      });
-      return;
-    }
 
     /*
       `meaningCode` é o caminho da tela, e quando ele vem os campos técnicos do
@@ -1006,13 +999,6 @@ router.patch(
         res.status(400).json({ error: "Informe a classe (classe)." });
         return;
       }
-      if (!reason) {
-        res.status(400).json({
-          error: "Definir a classe de custo exige uma justificativa (reason).",
-        });
-        return;
-      }
-
       res.json(
         await definirClasseDeCusto(db, {
           code: req.params.code,

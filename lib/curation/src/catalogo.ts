@@ -1142,16 +1142,20 @@ export async function definirClasseDeCusto(
     code: string;
     classe: ClasseDeCusto;
     actor: string;
-    reason: string;
+    /**
+     * A justificativa, quando houver.
+     *
+     * Deixou de ser exigida junto com o campo que a pedia na curadoria: a
+     * classe é gravada pela mesma tela que confirma a interpretação, e o que a
+     * auditoria exige é assinatura — `actor`, que continua obrigatório. O
+     * evento em `curation_event` guarda o antes e o depois, que é o que um
+     * revisor lê para saber o que mudou.
+     */
+    reason?: string | null;
   },
 ): Promise<ClasseDeCustoResult> {
   if (!entrada.actor?.trim()) {
     throw new Error("Definir a classe de custo exige um responsável identificado.");
-  }
-  if (!entrada.reason?.trim()) {
-    throw new Error(
-      "Definir a classe de custo exige uma justificativa — é o que um revisor vai querer ler depois.",
-    );
   }
   if (!CLASSES_DE_CUSTO.some((c) => c.classe === entrada.classe)) {
     throw new Error(
@@ -1198,7 +1202,7 @@ export async function definirClasseDeCusto(
       valueBefore: atributo.costClass,
       valueAfter: entrada.classe,
       actor: entrada.actor,
-      reason: entrada.reason,
+      reason: entrada.reason ?? null,
     });
   });
 

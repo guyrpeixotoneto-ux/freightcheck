@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { curationEventTable, taxonomyNodeTable } from "@workspace/db";
 import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest/testing";
 import {
@@ -394,15 +394,7 @@ describe("a classe de custo é do atributo, e não da natureza", () => {
     expect(r.desfecho).toBe("JA_ESTAVA");
   });
 
-  it("exige justificativa e responsável — isto decide de que lado a conta cai", async () => {
-    await expect(
-      definirClasseDeCusto(ctx.db, {
-        code: CAVALO,
-        classe: "VARIAVEL",
-        actor: ATOR,
-        reason: "  ",
-      }),
-    ).rejects.toThrow(/justificativa/);
+  it("exige responsável — isto decide de que lado a conta cai", async () => {
     await expect(
       definirClasseDeCusto(ctx.db, {
         code: CAVALO,
@@ -411,5 +403,35 @@ describe("a classe de custo é do atributo, e não da natureza", () => {
         reason: "Qualquer.",
       }),
     ).rejects.toThrow(/responsável/);
+  });
+
+  /*
+    A justificativa em prosa deixou de ser exigida junto com o campo que a
+    pedia na curadoria — a classe é gravada pela mesma tela que confirma a
+    interpretação. O que o evento tem de guardar continua sendo o que mudou,
+    de quê para quê e por quem: é isso que um revisor lê.
+  */
+  it("grava sem justificativa, e o evento ainda diz o que mudou e por quem", async () => {
+    const r = await definirClasseDeCusto(ctx.db, {
+      code: CAVALO,
+      classe: "VARIAVEL",
+      actor: ATOR,
+    });
+    expect(r.desfecho).toBe("GRAVADA");
+
+    const [evento] = await ctx.db
+      .select()
+      .from(curationEventTable)
+      .where(
+        and(
+          eq(curationEventTable.targetLabel, CAVALO),
+          eq(curationEventTable.field, "cost_class"),
+        ),
+      )
+      .orderBy(desc(curationEventTable.createdAt))
+      .limit(1);
+    expect(evento.valueAfter).toBe("VARIAVEL");
+    expect(evento.actor).toBe(ATOR);
+    expect(evento.reason).toBeNull();
   });
 });

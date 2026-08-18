@@ -94,7 +94,6 @@ const escolhas = (over: Partial<Escolhas> = {}): Escolhas => ({
   meaningCode: null,
   taxonomyCode: null,
   periodicity: null,
-  justificativa: "",
   ...over,
 });
 
@@ -195,17 +194,14 @@ describe("o que já estava confirmado continua aparecendo", () => {
 describe("a confirmação incompleta", () => {
   it("diz quantas informações faltam e quais são", () => {
     expect(oQueFalta(escolhas(), CATALOGO)).toBe(
-      "Faltam 3 informações para confirmar: o significado do valor, sua categoria e a justificativa.",
+      "Faltam 2 informações para confirmar: o significado do valor e sua categoria.",
     );
   });
 
   it("no singular, escreve no singular", () => {
-    expect(
-      oQueFalta(
-        escolhas({ meaningCode: "taxa_litro", taxonomyCode: "cv_combustivel" }),
-        CATALOGO,
-      ),
-    ).toBe("Falta 1 informação para confirmar: a justificativa.");
+    expect(oQueFalta(escolhas({ meaningCode: "taxa_litro" }), CATALOGO)).toBe(
+      "Falta 1 informação para confirmar: sua categoria.",
+    );
   });
 
   it("conta o período quando o significado o deixa em aberto", () => {
@@ -213,7 +209,6 @@ describe("a confirmação incompleta", () => {
       escolhas({
         meaningCode: "montante_veiculo",
         taxonomyCode: "cf_pneus",
-        justificativa: "Conforme a tabela.",
       }),
       CATALOGO,
     );
@@ -224,23 +219,15 @@ describe("a confirmação incompleta", () => {
     const completo = escolhas({
       meaningCode: "taxa_litro",
       taxonomyCode: "cv_combustivel",
-      justificativa: "Conforme a tabela de remuneração enviada.",
     });
     expect(podeConfirmar(completo, CATALOGO)).toBe(true);
     expect(oQueFalta(completo, CATALOGO)).toBeNull();
-
-    // A justificativa é invariante do banco desde sempre; escondê-la da
-    // contagem deixaria o botão desligado sem que a tela dissesse por quê.
-    expect(
-      podeConfirmar({ ...completo, justificativa: "   " }, CATALOGO),
-    ).toBe(false);
   });
 
   it("não habilita com o período em aberto sem resposta", () => {
     const quase = escolhas({
       meaningCode: "montante_veiculo",
       taxonomyCode: "cf_pneus",
-      justificativa: "Conforme a tabela.",
     });
     expect(podeConfirmar(quase, CATALOGO)).toBe(false);
     expect(

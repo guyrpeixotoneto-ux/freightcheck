@@ -201,16 +201,6 @@ describe("confirmation is a human act, enforced by the database", () => {
     ).rejects.toThrow(/attribute_confirmed_monetary_is_complete/);
   });
 
-  it("refuses a confirmation with no justification", async () => {
-    await expect(
-      confirmAttribute(ctx.db, {
-        code: "carreta.seguro",
-        actor: "guy",
-        reason: "   ",
-      }),
-    ).rejects.toThrow(/justificativa/);
-  });
-
   it("refuses to confirm a monetary attribute whose periodicity is still unknown", async () => {
     await expect(
       confirmAttribute(ctx.db, {

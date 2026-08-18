@@ -6,6 +6,7 @@ import {
   CONFIRMED_SEMANTICS,
   curationEventTable,
 } from "@workspace/db";
+import { divergenciasDaProjecao } from "@workspace/db";
 import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest/testing";
 import { confirmAttribute, getCurationQueue, runProposalPass } from "../engine";
 import { applyConfirmations } from "../confirmations";
@@ -212,17 +213,6 @@ describe("a agregação é consequência — a taxa nunca vira montante", () => 
 });
 
 describe("as invariantes que não afrouxaram", () => {
-  it("continua exigindo justificativa", async () => {
-    await expect(
-      confirmAttribute(ctx.db, {
-        code: MONTANTE,
-        meaningCode: "montante_mes",
-        actor: ATOR,
-        reason: "   ",
-      }),
-    ).rejects.toThrow(/justificativa/);
-  });
-
   it("continua exigindo responsável identificado", async () => {
     await expect(
       confirmAttribute(ctx.db, {
@@ -419,5 +409,47 @@ describe("o que já estava confirmado continua legível", () => {
       .from(attributeTable)
       .where(eq(attributeTable.semanticsStatus, "CONFIRMED"));
     expect(confirmados).toBeGreaterThan(5);
+  });
+});
+
+/*
+  Por último de propósito: este bloco confirma de novo, e sem justificativa.
+  Rodá-lo antes trocaria o `reason` dos eventos que os testes acima leem, e o
+  que falharia seria a ordem, não a regra.
+*/
+describe("a justificativa, que deixou de ser exigida", () => {
+  /*
+    Ela saiu da tela de curadoria e por isso saiu da guarda: quem confirma já
+    responde o que o valor significa e onde ele cai, e quem assina é a sessão —
+    `actor`, que continua obrigatório. O que confirmar sem ela **não** pode
+    fazer é apagar a leitura do motor que já estava escrita: o ato acrescenta
+    evidência, e nunca destrói a que existia.
+  */
+  it("confirma sem ela, e sem apagar a análise já escrita", async () => {
+    const { attribute: antes, versao: versaoAntes } = await estadoDe(MONTANTE);
+    expect(antes.semanticsRationale).toBe(POR_QUE);
+    expect(versaoAntes.rationale).toBe(POR_QUE);
+
+    await confirmAttribute(ctx.db, {
+      code: MONTANTE,
+      meaningCode: "montante_mes",
+      actor: ATOR,
+    });
+
+    const { attribute: depois, versao } = await estadoDe(MONTANTE);
+    expect(depois.semanticsStatus).toBe("CONFIRMED");
+    expect(depois.confirmedBy).toBe(ATOR);
+    expect(depois.semanticsRationale).toBe(POR_QUE);
+    /*
+      A vigência tem de guardar a mesma frase que a projeção — `rationale` é
+      campo projetado, e apagá-lo de um lado só é a divergência que
+      `divergenciasDaProjecao` existe para acusar.
+    */
+    expect(versao.rationale).toBe(POR_QUE);
+  });
+
+  it("não deixa a projeção e a vigência discordarem", async () => {
+    const divergencias = await divergenciasDaProjecao(ctx.db);
+    expect(divergencias.filter((d) => d.code === MONTANTE)).toEqual([]);
   });
 });
