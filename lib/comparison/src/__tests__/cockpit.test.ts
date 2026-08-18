@@ -256,6 +256,13 @@ function view(groups: ChangeGroup[], overrides: Partial<CockpitInput> = {}): Coc
       formatOnlyChanges: groups
         .filter((g) => g.formatOnly)
         .reduce((total, g) => total + g.changes, 0),
+      byCategory: {
+        valueChanges: changes,
+        fleetChanges: 0,
+        layoutChanges: 0,
+        semanticsChanges: 0,
+        outras: 0,
+      },
       groups: groups.length,
       vehiclesTouched: 62,
       entitiesAdded: 0,
@@ -655,6 +662,13 @@ describe("narrativa — composição determinística, nunca modelo", () => {
         totals: {
           changes: 0,
           formatOnlyChanges: 0,
+          byCategory: {
+            valueChanges: 0,
+            fleetChanges: 0,
+            layoutChanges: 0,
+            semanticsChanges: 0,
+            outras: 0,
+          },
           groups: 0,
           vehiclesTouched: 0,
           entitiesAdded: 0,
@@ -690,6 +704,13 @@ describe("narrativa — composição determinística, nunca modelo", () => {
         totals: {
           changes: 0,
           formatOnlyChanges: 0,
+          byCategory: {
+            valueChanges: 0,
+            fleetChanges: 0,
+            layoutChanges: 0,
+            semanticsChanges: 0,
+            outras: 0,
+          },
           groups: 0,
           vehiclesTouched: 0,
           entitiesAdded: 0,

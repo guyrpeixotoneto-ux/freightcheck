@@ -306,6 +306,45 @@ export interface GroupedView {
      * cabeçalho, que é o defeito que este campo existe para evitar.
      */
     formatOnlyChanges: number;
+    /**
+     * De que eixo do motor vieram as `changes` — as quatro parcelas, somando
+     * exatamente o total.
+     *
+     * Existe porque as duas telas que contam a mesma vigência contavam coisas
+     * diferentes com palavras parecidas: a aba Planilha mostra "Valores
+     * alterados", que é `change_set.value_changes` e conta **só**
+     * `SOURCE_CHANGE`; a Visão gerencial mostra "Alterações detectadas", que é
+     * `changes` e conta os quatro eixos. Um cliente leu 244 numa tela e 749 na
+     * outra, no mesmo período, e não havia nada em nenhuma das duas que
+     * explicasse a distância — que é a pior coisa que um produto de auditoria
+     * pode fazer com dois números seus.
+     *
+     * **Contado sobre `rows`, e não lido dos contadores do `change_set`.** Os
+     * contadores são gravados no instante do cálculo; `rows` é o que a tabela
+     * `change` tem agora. Somar parcelas de uma fonte sob um total de outra
+     * produziria um cartão que fecha na aritmética e mente sobre a origem —
+     * e foi exatamente essa confusão de fontes que deixou a divergência
+     * invisível por tanto tempo. Fechando aqui, o cartão vira o instrumento que
+     * denuncia a próxima: se as parcelas somam o total mas o total discorda da
+     * outra tela, a causa não está nos eixos, e a tela diz isso sozinha.
+     */
+    byCategory: {
+      /** `SOURCE_CHANGE` — um valor que a fonte mandou mudou. */
+      valueChanges: number;
+      /** `FLEET_CHANGE` — um ativo entrou ou saiu da frota. */
+      fleetChanges: number;
+      /** `LAYOUT_CHANGE` — uma coluna apareceu ou sumiu do export. */
+      layoutChanges: number;
+      /** `SEMANTICS_CHANGE` — o significado de uma coluna mudou. */
+      semanticsChanges: number;
+      /**
+       * Qualquer eixo que o motor passe a emitir e que esta lista não nomeie.
+       *
+       * Fica visível de propósito: uma parcela que não fecha com o total é um
+       * defeito que a tela precisa poder mostrar, não um resto para arredondar.
+       */
+      outras: number;
+    };
     groups: number;
     vehiclesTouched: number;
     entitiesAdded: number;
@@ -1039,6 +1078,7 @@ export async function getGroupedView(
       formatOnlyChanges: groups
         .filter((g) => g.formatOnly)
         .reduce((total, g) => total + g.changes, 0),
+      byCategory: contarPorEixo(rows),
       groups: groups.length,
       vehiclesTouched,
       entitiesAdded: sets.reduce((s, r) => s + r.entities_added, 0),
@@ -1052,6 +1092,33 @@ export async function getGroupedView(
   };
 
   return { ...base, cockpit: buildCockpit(base) };
+}
+
+/**
+ * As `changes` separadas pelo eixo do motor que as produziu.
+ *
+ * Uma passada sobre as mesmas linhas que deram o total, para que as parcelas
+ * não possam divergir dele por construção. O que não cair nos quatro eixos
+ * conhecidos vai para `outras` em vez de sumir: um eixo novo aparecendo na
+ * tela como resto visível é um aviso; sumindo em silêncio, é um total que
+ * deixou de fechar sem que ninguém soubesse.
+ */
+function contarPorEixo(rows: RawChange[]): GroupedView["totals"]["byCategory"] {
+  const contagem = {
+    valueChanges: 0,
+    fleetChanges: 0,
+    layoutChanges: 0,
+    semanticsChanges: 0,
+    outras: 0,
+  };
+  for (const row of rows) {
+    if (row.category === "SOURCE_CHANGE") contagem.valueChanges++;
+    else if (row.category === "FLEET_CHANGE") contagem.fleetChanges++;
+    else if (row.category === "LAYOUT_CHANGE") contagem.layoutChanges++;
+    else if (row.category === "SEMANTICS_CHANGE") contagem.semanticsChanges++;
+    else contagem.outras++;
+  }
+  return contagem;
 }
 
 export function compareGroups(a: ChangeGroup, b: ChangeGroup): number {

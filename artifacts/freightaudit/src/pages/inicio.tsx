@@ -45,16 +45,17 @@ import {
   impactosDaVigencia,
   integridade,
   maioresImpactos,
+  maiorAbrangencia,
+  parametrosMaisAlterados,
   participacao,
   partesDoImpacto,
   pontosDeAtencao,
   qualidadeDaCobertura,
   ultimaImportacao,
-  ultimasAlteracoes,
   variacao,
   vigenciaAnterior,
   type ExecucaoDeImportacao,
-  type LinhaDeAlteracao,
+  type LinhaDeParametro,
   type PontoDeAtencao,
   type Tom,
 } from "@/lib/visao-geral";
@@ -207,7 +208,7 @@ export default function Inicio() {
     Sai do endereço, e não do estado da tela, porque é o mesmo que os cartões de
     troca escrevem lá em cima — o link herda a unidade e a vigência que estão à
     vista. A vigência é reposta com a que o servidor de fato respondeu (dentro de
-    `pontosDeAtencao` e `ultimasAlteracoes`): quem abriu sem escolher nada tem a
+    `pontosDeAtencao` e `parametrosMaisAlterados`): quem abriu sem escolher nada tem a
     URL vazia e mesmo assim está lendo uma vigência, e mandá-la vazia faria o
     outro lado escolher de novo, por conta própria, e possivelmente outra.
   */
@@ -270,8 +271,13 @@ export default function Inicio() {
             )}
 
             <div className="grid gap-5 lg:grid-cols-2">
-              <MaioresImpactos ranking={ranking} period={view.period} />
-              <UltimasAlteracoes view={view} recorte={recorte} />
+              <MaioresImpactos
+                ranking={ranking}
+                view={view}
+                period={view.period}
+                recorte={recorte}
+              />
+              <ParametrosMaisAlterados view={view} recorte={recorte} />
             </div>
 
             <div className="grid gap-5 lg:grid-cols-2">
@@ -569,8 +575,8 @@ function Indicadores({
 
       <Indicador
         icone={FileText}
-        titulo="Alterações detectadas"
-        ajuda="Cada valor que mudou entre a vigência anterior e esta, contado uma vez por ativo e por parâmetro."
+        titulo="Ocorrências detectadas"
+        ajuda="Tudo o que o motor apurou entre a vigência anterior e esta, nos quatro eixos: valor que mudou, ativo que entrou ou saiu, coluna que apareceu ou sumiu, e significado de coluna que mudou. A aba Planilha mostra só o primeiro eixo, sob o nome 'Valores alterados' — por isso os dois números podem não coincidir, e por isso as parcelas estão logo abaixo."
         href={linkDeAlteracoes({ recorte: daVigencia })}
         abrir="ver a lista completa das alterações"
       >
@@ -590,6 +596,7 @@ function Indicadores({
             {escreverVariacao(variacaoDeMudancas)} vs vigência anterior
           </p>
         )}
+        <Decomposicao totals={view.totals} />
         <Nota texto={`${view.totals.groups} pontos da remuneração tocados`} />
       </Indicador>
 
@@ -856,6 +863,76 @@ function Nota({ texto }: { texto: string }) {
   return <p className="text-xs text-muted-foreground mt-3 leading-snug">{texto}</p>;
 }
 
+/**
+ * As parcelas do número de ocorrências, por eixo do motor.
+ *
+ * **Existe por causa de uma pergunta que a tela não sabia responder.** A aba
+ * Planilha mostrava 244 e esta mostrava 749 no mesmo período, e as duas estavam
+ * certas: lá o rótulo é "Valores alterados" e conta só o eixo `SOURCE_CHANGE`;
+ * aqui é o total dos quatro eixos. Nada em nenhuma das duas telas dizia isso, e
+ * dois números seus que não se explicam gastam mais confiança do que qualquer
+ * número errado — porque quem lê não descobre em qual acreditar.
+ *
+ * **A primeira parcela é sempre dita, mesmo valendo zero.** Ela é a que a outra
+ * tela mostra; escondê-la quando não há valor alterado devolveria exatamente o
+ * silêncio que este componente existe para acabar. As outras três aparecem
+ * quando existem: uma linha de zeros ensina a não ler a linha.
+ *
+ * `outras` é a válvula. Se o motor passar a emitir um eixo que este código não
+ * nomeia, ele aparece como "outros" em vez de fazer a soma não fechar em
+ * silêncio — que é a única forma de erro que este cartão não pode ter, já que a
+ * sua razão de ser é justamente mostrar que a conta fecha.
+ */
+function Decomposicao({ totals }: { totals: FamiliesView["totals"] }) {
+  const { byCategory } = totals;
+  const partes: string[] = [
+    `${byCategory.valueChanges.toLocaleString("pt-BR")} ${
+      byCategory.valueChanges === 1 ? "valor alterado" : "valores alterados"
+    }`,
+  ];
+  if (byCategory.fleetChanges > 0) {
+    partes.push(
+      `${byCategory.fleetChanges.toLocaleString("pt-BR")} ${
+        byCategory.fleetChanges === 1
+          ? "ativo entrou/saiu"
+          : "ativos entraram/saíram"
+      }`,
+    );
+  }
+  if (byCategory.layoutChanges > 0) {
+    partes.push(
+      `${byCategory.layoutChanges.toLocaleString("pt-BR")} ${
+        byCategory.layoutChanges === 1 ? "coluna" : "colunas"
+      }`,
+    );
+  }
+  if (byCategory.semanticsChanges > 0) {
+    partes.push(
+      `${byCategory.semanticsChanges.toLocaleString("pt-BR")} de semântica`,
+    );
+  }
+  if (byCategory.outras > 0) {
+    partes.push(`${byCategory.outras.toLocaleString("pt-BR")} de outro eixo`);
+  }
+
+  return (
+    <p className="text-xs text-muted-foreground mt-2.5 leading-snug">
+      {partes.join(" · ")}
+      {partes.length === 1 && (
+        /*
+          Com uma parcela só, a soma é o próprio total e a linha pareceria uma
+          repetição do número grande. Dizer que os outros três eixos ficaram em
+          zero é o que a transforma em informação: a vigência não mexeu na
+          frota, no layout nem na semântica.
+        */
+        <span className="block mt-0.5">
+          nenhum ativo entrou ou saiu, nenhuma coluna e nenhuma semântica mudou
+        </span>
+      )}
+    </p>
+  );
+}
+
 function Barra({ proporcao, tom }: { proporcao: number; tom: Tom }) {
   const largura = Math.max(0, Math.min(1, proporcao)) * 100;
   return (
@@ -997,78 +1074,94 @@ const COLUNAS_DA_ATENCAO: Record<number, string> = {
  * que este produto se recusa a fazer no escuro. Por isso o cabeçalho traz a
  * periodicidade escrita, e o rodapé nomeia as que ficaram de fora em vez de
  * deixá-las sumir.
+ *
+ * **Sem impacto apurado, o painel troca de assunto — e diz que trocou.** Antes
+ * ele mostrava um vazio ilustrado, honesto e inútil: a vigência com 20
+ * parâmetros mexidos e nenhuma semântica confirmada é justamente a que tem mais
+ * o que olhar, e o lugar mais nobre da tela ficava dizendo que não havia nada.
+ * Agora ele mostra "Maior abrangência", que é a única ordenação que aquele dado
+ * sustenta.
+ *
+ * O que **não** pode acontecer é a troca ser silenciosa. Abrangência não é
+ * dinheiro: "toda a frota" e "R$ 18 mil/mês" respondem perguntas diferentes, e
+ * um alcance total pode valer zero. Por isso o `<h2>` muda junto com o conteúdo
+ * — nenhuma linha de abrangência aparece sob o título "Maiores impactos" — e a
+ * primeira coisa dentro do painel é a frase que diz por que o outro ranking não
+ * está ali. Um painel que troca de métrica mantendo o título é pior do que o
+ * vazio que ele substituiu: quem passa o olho lê percentual de frota como
+ * percentual de custo.
  */
 function MaioresImpactos({
   ranking,
+  view,
   period,
+  recorte,
 }: {
   ranking: ReturnType<typeof maioresImpactos>;
+  view: FamiliesView;
   period: string;
+  recorte: Recorte;
 }) {
+  if (ranking === null) {
+    return <MaiorAbrangencia view={view} recorte={recorte} />;
+  }
+
   return (
     <section className={cn(CARTAO, "px-6 py-5 flex flex-col")}>
       <div className="flex items-center gap-2">
         <h2 className="text-base font-bold">Maiores impactos</h2>
-        {ranking && (
-          <span className="text-xs font-semibold text-muted-foreground">
-            em R$
-            {periodicitySuffix(ranking.periodicity)}
-          </span>
-        )}
+        <span className="text-xs font-semibold text-muted-foreground">
+          em R$
+          {periodicitySuffix(ranking.periodicity)}
+        </span>
         <Ajuda texto="Os parâmetros que mais mexeram na remuneração desta vigência. O ranking acontece dentro de uma periodicidade — nunca entre periodicidades diferentes." />
       </div>
 
-      {ranking === null ? (
-        <SemPodio />
-      ) : (
-        <>
-          <ol className="mt-4 space-y-3.5 flex-1">
-            {ranking.linhas.map((linha, indice) => (
-              <li key={linha.key} className="flex items-center gap-3">
-                <span className="w-6 h-6 rounded-full border text-[0.6875rem] font-bold flex items-center justify-center shrink-0 text-muted-foreground">
-                  {indice + 1}
-                </span>
-                <span className="w-40 shrink-0 min-w-0">
-                  <span className="block text-sm font-semibold truncate" title={linha.name}>
-                    {linha.name}
-                  </span>
-                  <span className="block text-[0.6875rem] text-muted-foreground truncate">
-                    {linha.familyName}
-                  </span>
-                </span>
-                <span className="flex-1 h-2.5 bg-muted overflow-hidden min-w-8">
-                  <span
-                    className={cn(
-                      "block h-full",
-                      linha.amount < 0 ? "bg-red-600" : "bg-emerald-600",
-                    )}
-                    style={{ width: `${Math.max(2, linha.proporcao * 100)}%` }}
-                  />
-                </span>
-                <span
-                  className={cn(
-                    "text-sm font-bold tabular-nums shrink-0 text-right w-28",
-                    linha.amount < 0 ? "text-red-700" : "text-emerald-700",
-                  )}
-                >
-                  {escreverImpacto({ periodicity: ranking.periodicity, amount: linha.amount })}
-                </span>
-              </li>
-            ))}
-          </ol>
+      <ol className="mt-4 space-y-3.5 flex-1">
+        {ranking.linhas.map((linha, indice) => (
+          <li key={linha.key} className="flex items-center gap-3">
+            <span className="w-6 h-6 rounded-full border text-[0.6875rem] font-bold flex items-center justify-center shrink-0 text-muted-foreground">
+              {indice + 1}
+            </span>
+            <span className="w-40 shrink-0 min-w-0">
+              <span className="block text-sm font-semibold truncate" title={linha.name}>
+                {linha.name}
+              </span>
+              <span className="block text-[0.6875rem] text-muted-foreground truncate">
+                {linha.familyName}
+              </span>
+            </span>
+            <span className="flex-1 h-2.5 bg-muted overflow-hidden min-w-8">
+              <span
+                className={cn(
+                  "block h-full",
+                  linha.amount < 0 ? "bg-red-600" : "bg-emerald-600",
+                )}
+                style={{ width: `${Math.max(2, linha.proporcao * 100)}%` }}
+              />
+            </span>
+            <span
+              className={cn(
+                "text-sm font-bold tabular-nums shrink-0 text-right w-28",
+                linha.amount < 0 ? "text-red-700" : "text-emerald-700",
+              )}
+            >
+              {escreverImpacto({ periodicity: ranking.periodicity, amount: linha.amount })}
+            </span>
+          </li>
+        ))}
+      </ol>
 
-          {ranking.outras.length > 0 && (
-            <p className="text-xs text-muted-foreground mt-4 border-t pt-3">
-              Esta vigência também tem impacto em{" "}
-              <strong className="text-foreground">
-                R$
-                {ranking.outras.map((p) => periodicitySuffix(p)).join(", R$")}
-              </strong>
-              , que não entra neste ranking porque não se compara com o de cima. Os números
-              completos estão em Parâmetros.
-            </p>
-          )}
-        </>
+      {ranking.outras.length > 0 && (
+        <p className="text-xs text-muted-foreground mt-4 border-t pt-3">
+          Esta vigência também tem impacto em{" "}
+          <strong className="text-foreground">
+            R$
+            {ranking.outras.map((p) => periodicitySuffix(p)).join(", R$")}
+          </strong>
+          , que não entra neste ranking porque não se compara com o de cima. Os números
+          completos estão em Parâmetros.
+        </p>
       )}
 
       <Link
@@ -1083,53 +1176,137 @@ function MaioresImpactos({
 }
 
 /**
- * O pódio que não existe nesta vigência.
+ * O painel que ocupa o lugar do pódio quando não há dinheiro apurado.
  *
- * Duas frases, e as duas dizem a mesma coisa em alturas diferentes: a primeira
- * é o fato ("nenhum parâmetro tem impacto apurado"), a segunda é a cadeia que
- * produziu o fato ("sem semântica não há preço, sem preço não há ranking").
- * Quem só passa o olho lê a primeira e já sabe que não é defeito da tela; quem
- * precisa agir lê a segunda e sabe onde a corrente começa.
+ * **Não é um estado vazio, e não é o pódio com outra régua.** É outra métrica,
+ * com outro título, e as duas coisas são deliberadas.
  *
- * O desenho é de dois ícones e um círculo cinza, sem arquivo de imagem: um
- * vazio ilustrado ocupa o lugar que o pódio ocuparia, e um painel que encolhe
- * quando não tem dado faz a linha inteira dançar ao trocar de vigência.
+ * A primeira frase continua sendo a que o vazio ilustrado dizia — "nenhum
+ * parâmetro desta vigência tem impacto apurado", seguida da cadeia que produziu
+ * o fato — porque quem abre precisa saber que o ranking de dinheiro não sumiu
+ * por defeito da tela. Ela vem **antes** da lista, e não depois, para que
+ * ninguém leia os percentuais de frota achando que são a resposta financeira
+ * que veio procurar.
+ *
+ * A régua é a proporção da frota alcançada, e a barra diz isso e só isso. Ela
+ * é cinza-azulada de propósito: vermelho e verde nesta tela significam dinheiro
+ * saindo e entrando, e pintar alcance com as cores do impacto seria dizer com
+ * cor aquilo que o título acabou de negar com palavra.
+ *
+ * O botão do rodapé muda junto. "Ver todos os impactos" numa vigência sem
+ * impacto nenhum leva a uma tela que não tem o que mostrar; aqui ele leva à
+ * curadoria, que é onde a corrente começa e o único lugar em que alguém pode
+ * destravar o ranking que está faltando.
  */
-function SemPodio() {
+function MaiorAbrangencia({
+  view,
+  recorte,
+}: {
+  view: FamiliesView;
+  recorte: Recorte;
+}) {
+  const linhas = maiorAbrangencia(view, 3, recorte);
+
   return (
-    <div className="flex-1 flex flex-col items-center justify-center text-center px-4 py-8">
-      <span
-        className="relative w-28 h-28 rounded-full bg-muted flex items-center justify-center"
-        aria-hidden="true"
+    <section className={cn(CARTAO, "px-6 py-5 flex flex-col")}>
+      <div className="flex items-center gap-2">
+        <h2 className="text-base font-bold">Maior abrangência</h2>
+        <span className="text-xs font-semibold text-muted-foreground">
+          em % da frota
+        </span>
+        <Ajuda texto="Em que proporção da frota cada parâmetro mudou. É alcance, não dinheiro: um parâmetro que mudou em toda a frota pode custar zero, e este ranking não diz nada sobre valor." />
+      </div>
+
+      <p className="text-sm mt-3 leading-snug">
+        <strong className="font-bold">
+          Nenhum parâmetro desta vigência tem impacto apurado.
+        </strong>{" "}
+        <span className="text-muted-foreground">
+          Sem semântica confirmada não há preço, e sem preço não há ranking de
+          dinheiro. Enquanto isso, o que este painel pode ordenar é o alcance.
+        </span>
+      </p>
+
+      {linhas.length === 0 ? (
+        <p className="text-sm text-muted-foreground mt-4 flex-1">
+          O cliente não mexeu em nada nesta vigência.
+        </p>
+      ) : (
+        <ol className="mt-4 space-y-3.5 flex-1">
+          {linhas.map((linha, indice) => (
+            <li key={linha.key}>
+              <Link
+                href={linha.href}
+                className="group flex items-center gap-3 -mx-2 px-2 py-1.5 rounded-lg hover:bg-accent/40 transition-colors"
+              >
+                <span className="w-6 h-6 rounded-full border text-[0.6875rem] font-bold flex items-center justify-center shrink-0 text-muted-foreground">
+                  {indice + 1}
+                </span>
+                <span className="w-40 shrink-0 min-w-0">
+                  <span
+                    className="block text-sm font-semibold truncate group-hover:text-brand transition-colors"
+                    title={linha.name}
+                  >
+                    {linha.name}
+                  </span>
+                  <span className="block text-[0.6875rem] text-muted-foreground truncate">
+                    {linha.equipment}
+                  </span>
+                </span>
+                <span className="flex-1 h-2.5 bg-muted overflow-hidden min-w-8">
+                  <span
+                    className="block h-full bg-slate-500"
+                    style={{
+                      width: `${Math.max(2, linha.percent ?? 0)}%`,
+                    }}
+                  />
+                </span>
+                {/*
+                  Os dois números juntos, e o percentual nunca sozinho: "100%"
+                  sem o "62 de 62" ao lado esconde se a frota tem sessenta ativos
+                  ou dois, e um alcance total de dois ativos não é a mesma
+                  notícia.
+                */}
+                <span className="shrink-0 text-right w-28">
+                  <span className="block text-sm font-bold tabular-nums">
+                    {linha.percent === null
+                      ? "—"
+                      : escreverPercentual(linha.percent)}
+                  </span>
+                  <span className="block text-[0.6875rem] text-muted-foreground tabular-nums">
+                    {linha.vehicles.toLocaleString("pt-BR")} de{" "}
+                    {linha.fleet.toLocaleString("pt-BR")}
+                  </span>
+                </span>
+              </Link>
+            </li>
+          ))}
+        </ol>
+      )}
+
+      <Link
+        href="/curadoria"
+        className="mt-5 self-start inline-flex items-center gap-1.5 rounded-lg border border-brand px-5 py-2.5 text-sm font-bold text-brand hover:bg-accent transition-colors"
       >
-        <ChartNoAxesCombined className="w-12 h-12 text-muted-foreground/40" strokeWidth={1.75} />
-        <Search
-          className="w-7 h-7 text-muted-foreground/50 absolute right-6 bottom-6"
-          strokeWidth={2}
-        />
-      </span>
-      <p className="text-base font-bold mt-5 max-w-sm leading-snug">
-        Nenhum parâmetro desta vigência tem impacto apurado.
-      </p>
-      <p className="text-sm text-muted-foreground mt-1.5 max-w-md leading-snug">
-        Sem semântica confirmada não há preço, e sem preço não há ranking.
-      </p>
-    </div>
+        Confirmar semântica na Curadoria
+        <ChevronRight className="w-4 h-4" />
+      </Link>
+    </section>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Últimas alterações
+// Parâmetros mais alterados
 // ---------------------------------------------------------------------------
 
-const ICONE_DA_LINHA: Record<LinhaDeAlteracao["tipo"], LucideIcon> = {
+const ICONE_DA_LINHA: Record<LinhaDeParametro["tipo"], LucideIcon> = {
   queda: ArrowDownRight,
   alta: ArrowUpRight,
   "sem-preco": CircleHelp,
   neutro: Info,
 };
 
-const COR_DA_LINHA: Record<LinhaDeAlteracao["tipo"], string> = {
+const COR_DA_LINHA: Record<LinhaDeParametro["tipo"], string> = {
   queda: "text-red-700 bg-red-50",
   alta: "text-emerald-700 bg-emerald-50",
   "sem-preco": "text-warning bg-warning/10",
@@ -1137,28 +1314,45 @@ const COR_DA_LINHA: Record<LinhaDeAlteracao["tipo"], string> = {
 };
 
 /**
- * As alterações em destaque desta vigência.
+ * Os pontos da remuneração que mais mudaram nesta vigência.
+ *
+ * **A ordem é a coluna que está à vista.** Antes este painel mostrava a fila do
+ * cockpit — criticidade, depois abrangência, depois magnitude — sob o título
+ * "Alterações em destaque", e trazia à direita a contagem de *ativos*. Quem lia
+ * procurava "o que mudou mais" e recebia uma ordem que nenhum número visível
+ * explicava: o primeiro item podia ter menos alterações que o terceiro, e a
+ * razão morava num cálculo de criticidade que a tela não mostrava. Uma lista
+ * ordenada por algo invisível é uma lista que se pede para o leitor aceitar.
+ *
+ * **As duas grandezas ficam lado a lado porque não são a mesma.** "62
+ * alterações · 62 ativos" é uma coluna que mexeu uma vez em toda a frota; "62
+ * alterações · 3 ativos" é um punhado de ativos com muita coisa mexida. Mostrar
+ * só uma das duas apagaria a diferença entre duas investigações que não se
+ * parecem.
  *
  * Sem coluna de relógio, e é decisão de verdade e não de espaço: **todas as
  * alterações desta vigência foram apuradas na mesma comparação, no mesmo
  * instante.** Quatro horários diferentes ao lado — "hoje, 10:32", "hoje, 09:58"
- * — inventariam uma cronologia que o dado não tem. O que é verdadeiro pôr à
- * direita é o tamanho do fato: em quantos ativos ele aconteceu.
+ * — inventariam uma cronologia que o dado não tem.
+ *
+ * A fila do cockpit não sumiu do produto: ela continua sendo a ordem do
+ * Acompanhamento, que é a tela de agir. Esta é a tela de olhar, e a pergunta
+ * dela é outra.
  */
-function UltimasAlteracoes({
+function ParametrosMaisAlterados({
   view,
   recorte,
 }: {
   view: FamiliesView;
   recorte: Recorte;
 }) {
-  const linhas = ultimasAlteracoes(view, 4, recorte);
+  const linhas = parametrosMaisAlterados(view, 4, recorte);
 
   return (
     <section className={cn(CARTAO, "px-6 py-5 flex flex-col")}>
       <div className="flex items-center gap-2">
-        <h2 className="text-base font-bold">Alterações em destaque</h2>
-        <Ajuda texto="As alterações mais relevantes da vigência aberta, na mesma ordem do Acompanhamento: dinheiro primeiro, ruído por último." />
+        <h2 className="text-base font-bold">Parâmetros mais alterados</h2>
+        <Ajuda texto="Os pontos da remuneração com mais linhas de alteração nesta vigência, do maior para o menor. Alterações e ativos são grandezas diferentes e aparecem separados: um mesmo ativo pode ter várias alterações no mesmo ponto." />
         {/*
           "Ver todas" leva a vigência junto. Sem ela, o link abria a comparação
           mais recente da unidade padrão — e quem estava lendo julho de CAMAÇARI
@@ -1201,10 +1395,11 @@ function UltimasAlteracoes({
                     <Icone className="w-4 h-4" />
                   </span>
                   {/*
-                    A ordem numerada, e não bolinha de lista: esta fila é a do
-                    cockpit, e o "1." afirma que existe um primeiro — quem lê
-                    precisa saber que a lista está ordenada por relevância e não
-                    pela ordem em que os dados chegaram.
+                    A ordem numerada, e não bolinha de lista: o "1." afirma que
+                    existe um primeiro — quem lê precisa saber que a lista está
+                    ordenada, e não na ordem em que os dados chegaram. Aqui o
+                    critério da ordem é a própria coluna da direita, o que
+                    dispensa acreditar na numeração.
                   */}
                   <span className="text-sm font-bold text-muted-foreground tabular-nums shrink-0 pt-1">
                     {indice + 1}.
@@ -1214,11 +1409,27 @@ function UltimasAlteracoes({
                       {linha.titulo}
                     </span>
                     <span className="block text-xs text-muted-foreground mt-1 leading-snug">
-                      {linha.detalhe}
+                      {linha.equipamento}
                     </span>
                   </span>
-                  <span className="shrink-0 rounded-lg border px-2.5 py-1.5 text-xs text-muted-foreground tabular-nums">
-                    {linha.direita}
+                  {/*
+                    As duas contagens empilhadas, a que ordena em cima e em
+                    corpo maior. Uma ao lado da outra na mesma linha, "62 · 62"
+                    vira um par sem rótulo, e foi assim que a versão anterior
+                    deste painel conseguiu mostrar ativos onde todo mundo lia
+                    alterações.
+                  */}
+                  <span className="shrink-0 rounded-lg border px-2.5 py-1.5 text-right tabular-nums">
+                    <span className="block text-sm font-bold">
+                      {linha.alteracoes.toLocaleString("pt-BR")}{" "}
+                      <span className="text-[0.6875rem] font-normal text-muted-foreground">
+                        {linha.alteracoes === 1 ? "alteração" : "alterações"}
+                      </span>
+                    </span>
+                    <span className="block text-[0.6875rem] text-muted-foreground">
+                      {linha.veiculos.toLocaleString("pt-BR")}{" "}
+                      {linha.veiculos === 1 ? "ativo" : "ativos"}
+                    </span>
                   </span>
                 </Link>
               </li>

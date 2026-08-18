@@ -390,6 +390,146 @@ export function maioresImpactos(
 }
 
 // ---------------------------------------------------------------------------
+// Maior abrangência
+// ---------------------------------------------------------------------------
+
+export interface LinhaDeAbrangencia {
+  key: string;
+  name: string;
+  equipment: string;
+  /** Ativos distintos deste equipamento com esta alteração. */
+  vehicles: number;
+  /** A frota do equipamento a que o parâmetro pertence. */
+  fleet: number;
+  /** `vehicles / fleet` em pontos percentuais; `null` sem frota conhecida. */
+  percent: number | null;
+  href: string;
+}
+
+/**
+ * Os parâmetros que alcançaram mais ativos — **e isto não é um ranking de
+ * dinheiro**.
+ *
+ * Existe porque o pódio de impacto some inteiro quando nenhuma coluna tem
+ * semântica confirmada, e some justamente nas vigências em que há mais o que
+ * olhar: 20 parâmetros mexidos, 62 cavalos tocados, e um painel vazio no lugar
+ * mais nobre da tela. O vazio era honesto — sem preço não há ranking de preço —
+ * e ainda assim deixava a pessoa sem a única ordenação que aquele dado
+ * sustenta.
+ *
+ * **O que ele não faz é virar substituto silencioso.** Abrangência e impacto
+ * respondem perguntas diferentes: "em quantos ativos isto aconteceu" não é "o
+ * que isto custou", e um parâmetro que mudou em toda a frota pode valer zero.
+ * Por isso esta lista sai com nome próprio e título próprio na tela — nunca
+ * debaixo de "Maiores impactos", que é onde ela seria lida como dinheiro por
+ * quem passa o olho. A troca de título é a peça que impede a leitura errada; a
+ * função só entrega o dado.
+ *
+ * A régua é a proporção da frota, e não a contagem: 15 de 15 carretas é
+ * alcance total, e 15 de 62 cavalos é um quarto. Ordenar por contagem crua
+ * poria o segundo na frente do primeiro em toda vigência com frotas de tamanhos
+ * diferentes.
+ */
+export function maiorAbrangencia(
+  view: GroupedView,
+  limite = 3,
+  recorte: Recorte = RECORTE_VAZIO,
+): LinhaDeAbrangencia[] {
+  const daVigencia: Recorte = { ...recorte, period: view.period };
+  return [...view.groups]
+    .map((grupo) => ({
+      key: grupo.key,
+      name: tituloCurto(grupo),
+      equipment: grupo.equipment,
+      vehicles: grupo.vehicles,
+      fleet: grupo.fleet,
+      percent: participacao(grupo.vehicles, grupo.fleet),
+      href: linkDaAlteracao(grupo, daVigencia),
+    }))
+    .sort((a, b) => {
+      const alcance = (b.percent ?? -1) - (a.percent ?? -1);
+      if (alcance !== 0) return alcance;
+      return b.vehicles - a.vehicles;
+    })
+    .slice(0, limite);
+}
+
+// ---------------------------------------------------------------------------
+// Parâmetros mais alterados
+// ---------------------------------------------------------------------------
+
+export interface LinhaDeParametro {
+  chave: string;
+  tipo: TipoDeLinha;
+  titulo: string;
+  equipamento: string;
+  /** Linhas de alteração no ponto — a régua que ordena esta lista. */
+  alteracoes: number;
+  /** Ativos distintos tocados. Nunca somado com o de outro ponto. */
+  veiculos: number;
+  href: string;
+}
+
+/**
+ * Os pontos da remuneração que mais mudaram, por **número de alterações**.
+ *
+ * O painel da direita mostrava a fila do cockpit — criticidade, depois
+ * abrangência, depois magnitude — sob o título "Alterações em destaque", e
+ * trazia à direita a contagem de *ativos*. Quem lia procurava "o que mudou
+ * mais" e recebia uma ordem que nenhuma das colunas visíveis explicava: o
+ * primeiro item podia ter menos alterações que o terceiro, e a razão morava num
+ * cálculo de criticidade que a tela não mostrava.
+ *
+ * Aqui a ordem é a coluna: mais alterações primeiro, e as duas grandezas ficam
+ * lado a lado, porque elas não são a mesma e a diferença entre elas é
+ * informação. **62 alterações em 62 ativos** é uma coluna que mexeu uma vez em
+ * toda a frota; **62 alterações em 3 ativos** é um punhado de ativos com muita
+ * coisa mexida — e são investigações diferentes.
+ *
+ * Empate desce para os ativos e depois para o nome, porque a ordem tem de ser
+ * estável entre dois carregamentos da mesma vigência: uma lista que se
+ * reorganiza sozinha ao atualizar a página faz quem lê duvidar do dado antes de
+ * duvidar da ordenação.
+ */
+export function parametrosMaisAlterados(
+  view: GroupedView,
+  limite = 4,
+  recorte: Recorte = RECORTE_VAZIO,
+): LinhaDeParametro[] {
+  const daVigencia: Recorte = { ...recorte, period: view.period };
+  return [...view.groups]
+    .sort((a, b) => {
+      if (b.changes !== a.changes) return b.changes - a.changes;
+      if (b.vehicles !== a.vehicles) return b.vehicles - a.vehicles;
+      return a.title.localeCompare(b.title, "pt-BR");
+    })
+    .slice(0, limite)
+    .map((grupo) => ({
+      chave: grupo.key,
+      tipo: tipoDaLinha(grupo),
+      titulo: tituloCurto(grupo),
+      equipamento: grupo.equipment,
+      alteracoes: grupo.changes,
+      veiculos: grupo.vehicles,
+      href: linkDaAlteracao(grupo, daVigencia),
+    }));
+}
+
+/**
+ * O nome do ponto, sem o veredito na frente.
+ *
+ * `tituloDaLinha` escreve "Mudança sem preço — combustivelConsumoNeg — Cavalo",
+ * que é a frase certa num painel onde a coluna da direita é o tamanho do fato.
+ * Nestas duas listas o veredito já está dito noutro lugar — no ícone, no
+ * equipamento em coluna própria — e repeti-lo empurraria o nome do parâmetro
+ * para fora da largura disponível, que é o único texto pelo qual alguém procura
+ * a linha.
+ */
+function tituloCurto(grupo: ChangeGroup): string {
+  return grupo.title;
+}
+
+// ---------------------------------------------------------------------------
 // O que merece sua atenção
 // ---------------------------------------------------------------------------
 

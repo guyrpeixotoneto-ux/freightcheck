@@ -140,6 +140,18 @@ export interface GroupedView {
     changes: number;
     /** Quantas das `changes` são só troca de formato. Parcela, não subtração. */
     formatOnlyChanges: number;
+    /**
+     * De que eixo do motor vieram as `changes` — as quatro parcelas somam o
+     * total. Espelha `GroupedView.totals.byCategory` em
+     * `lib/comparison/src/grouped.ts`, que explica por que elas existem.
+     */
+    byCategory: {
+      valueChanges: number;
+      fleetChanges: number;
+      layoutChanges: number;
+      semanticsChanges: number;
+      outras: number;
+    };
     groups: number;
     vehiclesTouched: number;
     entitiesAdded: number;

@@ -243,6 +243,51 @@ describe("anomalia de formato — o serial do Excel", () => {
     expect(view!.cockpit.kpis.anomalies.formatOnlyChanges).toBe(62);
   });
 
+  it("as parcelas por eixo somam o total, e nomeiam o que não é valor", async () => {
+    /*
+      O contrato do cartão "Ocorrências detectadas" da Visão geral.
+
+      Ele nasceu de um cliente lendo 244 numa tela e 749 na outra, no mesmo
+      período, sem nada que explicasse a distância: a aba Planilha conta só
+      `SOURCE_CHANGE` sob o nome "Valores alterados"; a Visão gerencial conta os
+      quatro eixos. A defesa contra a próxima divergência é esta soma fechar
+      sempre — se as parcelas fecham com o total e o total discorda da outra
+      tela, a causa não está nos eixos, e o cartão diz isso sozinho.
+    */
+    const agosto = await getGroupedView(ctx.db, AGOSTO);
+    const eixos = agosto!.totals.byCategory;
+    expect(
+      eixos.valueChanges +
+        eixos.fleetChanges +
+        eixos.layoutChanges +
+        eixos.semanticsChanges +
+        eixos.outras,
+    ).toBe(agosto!.totals.changes);
+
+    // Agosto é a vigência em que os dois números coincidem: nenhum ativo entrou
+    // ou saiu, nenhuma coluna e nenhuma semântica mudou. É por isso que ela não
+    // servia para detectar o defeito, e é por isso que ela está aqui.
+    expect(eixos.valueChanges).toBe(267);
+    expect(eixos.fleetChanges).toBe(0);
+    expect(eixos.layoutChanges).toBe(0);
+    expect(eixos.semanticsChanges).toBe(0);
+    expect(eixos.outras).toBe(0);
+
+    /*
+      Fevereiro é a vigência que separa as duas contagens: 350 ocorrências, das
+      quais 346 são valor e 4 são movimento de frota. Sem este caso o teste
+      passaria com uma implementação que devolvesse `changes` inteiro como
+      "valores alterados" — que é exatamente a confusão que o campo desfaz.
+    */
+    const fevereiro = await getGroupedView(ctx.db, "2026-02-02");
+    expect(fevereiro!.totals.changes).toBe(350);
+    expect(fevereiro!.totals.byCategory.valueChanges).toBe(346);
+    expect(fevereiro!.totals.byCategory.fleetChanges).toBe(4);
+    expect(fevereiro!.totals.byCategory.valueChanges).toBeLessThan(
+      fevereiro!.totals.changes,
+    );
+  });
+
   it("o valor original de cada lado continua rastreável até a célula", async () => {
     const vehicles = await getGroupVehicles(ctx.db, {
       period: AGOSTO,

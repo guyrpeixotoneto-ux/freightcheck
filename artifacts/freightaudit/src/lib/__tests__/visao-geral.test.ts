@@ -7,6 +7,8 @@ import {
   impactosDaVigencia,
   integridade,
   maioresImpactos,
+  maiorAbrangencia,
+  parametrosMaisAlterados,
   participacao,
   pontosDeAtencao,
   qualidadeDaCobertura,
@@ -192,6 +194,13 @@ function vigencia(overrides: Partial<GroupedView> = {}): GroupedView {
     complete: true,
     totals: {
       changes: 267,
+      byCategory: {
+        valueChanges: 267,
+        fleetChanges: 0,
+        layoutChanges: 0,
+        semanticsChanges: 0,
+        outras: 0,
+      },
       groups: 41,
       vehiclesTouched: 83,
       entitiesAdded: 0,
@@ -407,6 +416,99 @@ describe("maiores impactos", () => {
   it("sem parâmetro com impacto, não há pódio", () => {
     expect(maioresImpactos(summary([]))).toBeNull();
     expect(maioresImpactos(undefined)).toBeNull();
+  });
+});
+
+describe("parâmetros mais alterados — a ordem é a coluna que está à vista", () => {
+  it("ordena por alterações, e não pela fila de prioridade", () => {
+    /*
+      A fila do cockpit põe "a" na frente; a contagem de alterações põe "b". O
+      painel da direita mudou de pergunta de propósito, e este teste é o que
+      impede a ordem antiga de voltar por engano: uma lista ordenada por um
+      critério invisível é indistinguível de uma lista fora de ordem.
+    */
+    const view = vigencia({
+      groups: [
+        grupo({ key: "a", title: "Poucas", changes: 3, vehicles: 3 }),
+        grupo({ key: "b", title: "Muitas", changes: 62, vehicles: 12 }),
+      ],
+      cockpit: cockpit({
+        priorities: [prioridade({ key: "a", rank: 1 }), prioridade({ key: "b", rank: 2 })],
+      }),
+    });
+    expect(parametrosMaisAlterados(view).map((l) => l.chave)).toEqual(["b", "a"]);
+  });
+
+  it("entrega alterações e ativos separados, porque não são a mesma grandeza", () => {
+    const view = vigencia({
+      groups: [grupo({ key: "a", changes: 62, vehicles: 3 })],
+    });
+    const [linha] = parametrosMaisAlterados(view);
+    expect(linha.alteracoes).toBe(62);
+    expect(linha.veiculos).toBe(3);
+  });
+
+  it("empate desce para ativos e depois para o nome, para a ordem não dançar", () => {
+    const view = vigencia({
+      groups: [
+        grupo({ key: "c", title: "Zebra", changes: 10, vehicles: 5 }),
+        grupo({ key: "a", title: "Alfa", changes: 10, vehicles: 5 }),
+        grupo({ key: "b", title: "Beta", changes: 10, vehicles: 9 }),
+      ],
+    });
+    expect(parametrosMaisAlterados(view).map((l) => l.chave)).toEqual(["b", "a", "c"]);
+  });
+
+  it("o título não repete o veredito, que já está no ícone", () => {
+    const view = vigencia({
+      groups: [grupo({ key: "a", title: "combustivelConsumoNeg" })],
+    });
+    const [linha] = parametrosMaisAlterados(view);
+    expect(linha.titulo).toBe("combustivelConsumoNeg");
+    expect(linha.equipamento).toBe("Cavalo");
+  });
+});
+
+describe("maior abrangência — alcance, e nunca dinheiro", () => {
+  it("ordena pela proporção da frota, e não pela contagem crua", () => {
+    /*
+      15 de 15 é alcance total; 20 de 62 é um terço. Ordenar por contagem poria
+      o segundo na frente em toda vigência com frotas de tamanhos diferentes —
+      e o painel afirmaria alcance maior para quem alcançou menos.
+    */
+    const view = vigencia({
+      groups: [
+        grupo({ key: "cavalo", changes: 20, vehicles: 20, fleet: 62 }),
+        grupo({ key: "carreta", changes: 15, vehicles: 15, fleet: 15 }),
+      ],
+    });
+    const linhas = maiorAbrangencia(view);
+    expect(linhas.map((l) => l.key)).toEqual(["carreta", "cavalo"]);
+    expect(linhas[0].percent).toBe(100);
+    expect(linhas[0].vehicles).toBe(15);
+    expect(linhas[0].fleet).toBe(15);
+  });
+
+  it("frota desconhecida não vira 0% nem sobe no ranking", () => {
+    const view = vigencia({
+      groups: [
+        grupo({ key: "sem-frota", vehicles: 4, fleet: 0 }),
+        grupo({ key: "com-frota", vehicles: 1, fleet: 62 }),
+      ],
+    });
+    const linhas = maiorAbrangencia(view);
+    expect(linhas[0].key).toBe("com-frota");
+    expect(linhas.find((l) => l.key === "sem-frota")!.percent).toBeNull();
+  });
+
+  it("cada linha abre a população que ela contou", () => {
+    const view = vigencia({
+      groups: [grupo({ key: "a", attributeCode: "cavalo.ipva", entityType: "CAVALO" })],
+    });
+    const [linha] = maiorAbrangencia(view, 3, { unidade: null, canal: null, period: null });
+    expect(linha.href).toContain("attributeCode=cavalo.ipva");
+    expect(linha.href).toContain("entityType=CAVALO");
+    expect(linha.href).toContain("period=2026-08-01");
   });
 });
 

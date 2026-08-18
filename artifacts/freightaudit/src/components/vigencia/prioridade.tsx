@@ -18,6 +18,8 @@ import {
   HistoricoAtributo,
   TabelaVeiculos,
 } from "@/components/changes/detalhe-alteracao";
+import { ImpactoQuinzenas } from "@/components/changes/impacto-quinzenas";
+import { equipamentoValido } from "@/lib/frota";
 import type {
   AttributeSeries,
   ChangeGroup,
@@ -475,6 +477,8 @@ function Investigacao({
         </Secao>
       )}
 
+      <QuinzenasDaInvestigacao group={group} contexto={contexto} />
+
       <div>
         {/*
           O título muda de palavra quando o grupo é troca de formato pura.
@@ -549,6 +553,63 @@ function Investigacao({
         </Secao>
       </div>
     </div>
+  );
+}
+
+/**
+ * A matriz de quinzenas do parâmetro investigado, dentro da investigação.
+ *
+ * **O que faltava aqui era a linha do tempo por ativo.** A investigação já
+ * respondia o que mudou, em quantos ativos, com que padrões e como o parâmetro
+ * se comportou nas vigências — mas o "como" era um gráfico agregado. Quem
+ * precisa conferir a alteração ativo a ativo, quinzena a quinzena, tinha de sair
+ * daqui, abrir Alterações, achar o mesmo parâmetro e reconstruir o recorte à
+ * mão. Era o mesmo beco que a linha da fila tinha antes de "Investigar" existir,
+ * um nível abaixo.
+ *
+ * **Abre direto na matriz, sem o panorama.** `escopo` trava o equipamento do
+ * grupo, e é ele que faz `ImpactoQuinzenas` pular a lista de escolha e apagar o
+ * botão "Tudo que mudou" — que aqui levaria a pessoa da investigação de um
+ * parâmetro para a frota inteira, sem sair da linha da tabela em que ela clicou.
+ * O parâmetro e o equipamento são os do grupo, e não uma escolha nova: a matriz
+ * tem de falar do mesmo ponto que o resto do painel, ou as duas metades da
+ * mesma investigação passariam a responder por populações diferentes.
+ *
+ * **Nada se abre para grupo que não é de atributo.** Um ativo que entrou na
+ * frota ou uma coluna que sumiu do layout não têm série de valores por
+ * quinzena; montar a matriz para eles devolveria uma tabela vazia sob um título
+ * que promete dado — que é exatamente o "buraco que se lê como faltou carregar"
+ * de que esta tela já se defende em outros pontos. O mesmo vale para o
+ * equipamento que a frota não conhece: `escopo` exige um `Equipamento`, e
+ * inventar um faria a matriz responder pela população errada.
+ */
+function QuinzenasDaInvestigacao({
+  group,
+  contexto,
+}: {
+  group: ChangeGroup;
+  contexto: URLSearchParams;
+}) {
+  if (group.attributeCode === null || !equipamentoValido(group.entityType)) {
+    return null;
+  }
+
+  return (
+    <Secao titulo="Quanto cada ativo custa em cada quinzena">
+      <p className="text-xs text-muted-foreground mb-3 leading-snug">
+        A mesma matriz da aba Impacto, recortada neste parâmetro e neste
+        equipamento. As colunas são as vigências entregues; a cor de uma célula é
+        a comparação com a vigência anterior, e não uma pintura à mão.
+      </p>
+      <ImpactoQuinzenas
+        contexto={contexto}
+        escopo={{ entityType: group.entityType, placa: null }}
+        escolhaInicial={{
+          entityType: group.entityType,
+          code: group.attributeCode,
+        }}
+      />
+    </Secao>
   );
 }
 
