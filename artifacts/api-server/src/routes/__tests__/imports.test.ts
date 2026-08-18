@@ -127,14 +127,10 @@ describe("o tipo declarado no upload", () => {
     if (result.ok) expect(result.value.declaredType).toBe("CAVALO");
   });
 
-  it("recusa o QLP com o motivo, antes de o arquivo virar bytes em disco", () => {
-    const result = comTipo("QLP_ADMINISTRATIVO");
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.error).toMatch(/QLP Administrativo ainda não pode ser importado/);
-      // A frase diz o que falta, e não só que não dá: é ela que a tela repete.
-      expect(result.error).toMatch(/Falta o modelo da planilha/);
-    }
+  it("carrega o QLP, que tem grão declarado como qualquer outro tipo", () => {
+    const result = comTipo("QLP_OPERACIONAL");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.value.declaredType).toBe("QLP_OPERACIONAL");
   });
 
   it("recusa um tipo que não existe", () => {

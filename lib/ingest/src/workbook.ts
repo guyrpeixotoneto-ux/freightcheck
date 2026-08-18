@@ -3,8 +3,8 @@ import * as XLSX from "xlsx";
 import type { CellType, SourceCell } from "./values";
 import {
   COLUNA_DE_VIGENCIA,
-  COLUNAS_IDENTIFICADORAS,
-  identificadorNoCabecalho,
+  TIPOS_DE_IMPORTACAO,
+  identidadeNoCabecalho,
 } from "./tipos";
 
 /**
@@ -45,15 +45,16 @@ export interface SheetPlan {
   entityType: string | null;
   entityTypeReason: string | null;
   /**
-   * Que coluna identifica a linha nesta aba, na forma de `foldText`.
+   * Que colunas identificam a linha nesta aba, na forma de `foldText`.
    *
-   * `placa` numa aba de cavalo, `chavetrecho` numa de trecho, `null` fora de
-   * SOURCE. Registrada porque é uma decisão do plano, e decisão registrada é o
-   * que permite discordar dela — a mesma razão de `roleReason` existir. A
-   * staging não a lê daqui: ela trabalha a partir de `raw_sheet` e reencontra a
-   * coluna no cabeçalho gravado.
+   * `["placa"]` numa aba de cavalo, `["chavetrecho"]` numa de trecho, as três
+   * do quadro de pessoal numa de QLP Operacional. Vazia fora de SOURCE.
+   * Registrada porque é uma decisão do plano, e decisão registrada é o que
+   * permite discordar dela — a mesma razão de `roleReason` existir. A staging
+   * não a lê daqui: ela trabalha a partir de `raw_sheet` e reencontra as
+   * colunas no cabeçalho gravado.
    */
-  identifierColumn: string | null;
+  identifierColumns: string[];
 }
 
 export interface ReadWorkbook {
@@ -207,7 +208,7 @@ function planSheet(
       headers: [],
       entityType: null,
       entityTypeReason: null,
-      identifierColumn: null,
+      identifierColumns: [],
     };
   }
 
@@ -224,20 +225,21 @@ function planSheet(
   const fillRatio = columnCount === 0 ? 0 : filled / columnCount;
   const folded = headers.map((h) => (h === null ? "" : foldText(h)));
   const temVigencia = folded.includes(COLUNA_DE_VIGENCIA);
-  const identificador = identificadorNoCabecalho(folded);
+  const identidade = identidadeNoCabecalho(folded);
 
-  if (!temVigencia || identificador === null) {
-    // A recusa diz o que falta **e** o que serviria: um cabeçalho sem placa é
-    // uma aba de trecho legítima, e quem lê a razão precisa saber que
-    // `chaveTrecho` também abriria a porta.
+  if (!temVigencia || identidade === null) {
+    // A recusa diz o que falta **e** o que serviria: um cabeçalho sem placa
+    // pode ser uma aba de trecho ou de quadro de pessoal perfeitamente
+    // legítima, e quem lê a razão precisa saber quais conjuntos abririam a
+    // porta. A lista sai dos próprios tipos, então um tipo novo aparece nela
+    // sem ninguém lembrar de vir aqui.
+    const conjuntos = TIPOS_DE_IMPORTACAO.filter((t) => t.identidade.length > 0)
+      .map((t) => t.identidade.map((c) => c.sourceName).join(" + "))
+      .filter((texto, i, todos) => todos.indexOf(texto) === i);
     const faltando = [
       ...(temVigencia ? [] : [COLUNA_DE_VIGENCIA]),
-      ...(identificador === null
-        ? [
-            `um identificador de linha (${COLUNAS_IDENTIFICADORAS.map(
-              (c) => c.sourceName,
-            ).join(" ou ")})`,
-          ]
+      ...(identidade === null
+        ? [`as colunas que identificam uma linha (${conjuntos.join(", ou ")})`]
         : []),
     ];
     return {
@@ -251,7 +253,7 @@ function planSheet(
       headers,
       entityType: null,
       entityTypeReason: null,
-      identifierColumn: null,
+      identifierColumns: [],
     };
   }
 
@@ -267,7 +269,7 @@ function planSheet(
       headers,
       entityType: null,
       entityTypeReason: null,
-      identifierColumn: null,
+      identifierColumns: [],
     };
   }
 
@@ -276,14 +278,17 @@ function planSheet(
     name,
     index,
     role: "SOURCE",
-    roleReason: `A primeira linha traz ${COLUNA_DE_VIGENCIA} + ${identificador.sourceName} e ${(fillRatio * 100).toFixed(0)}% dos cabeçalhos preenchidos.`,
+    roleReason:
+      `A primeira linha traz ${COLUNA_DE_VIGENCIA} + ` +
+      `${identidade.map((c) => c.sourceName).join(" + ")} e ` +
+      `${(fillRatio * 100).toFixed(0)}% dos cabeçalhos preenchidos.`,
     headerRowIndex: range.s.r + 1,
     rowCount,
     columnCount,
     headers,
     entityType,
     entityTypeReason: reason,
-    identifierColumn: identificador.folded,
+    identifierColumns: identidade.map((coluna) => coluna.folded),
   };
 }
 

@@ -487,13 +487,10 @@ export default function Importacoes() {
           }}
         />
 
-        {/* Três estados, e cada um diz o que é possível fazer aqui. Em Todas
-            não há envio porque não há tipo declarado — e enviar sem declarar é
-            justamente o que esta tela deixou de fazer. */}
+        {/* Em Todas não há envio porque não há tipo declarado — e enviar sem
+            declarar é justamente o que esta tela deixou de fazer. */}
         {tipoDaAba === null ? (
           <SemAbaEscolhida />
-        ) : tipoDaAba.aindaNaoEntra !== null ? (
-          <TipoQueAindaNaoEntra tipo={tipoDaAba} />
         ) : (
           <Dropzone
             tipo={tipoDaAba}
@@ -675,34 +672,6 @@ function SemAbaEscolhida() {
           Para enviar uma planilha, escolha a aba do tipo dela acima. A aba é o
           que declara o tipo, e é contra essa declaração que a importação
           confere o que o arquivo traz — por isso não se envia daqui.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/**
- * A aba de um tipo que o pipeline ainda não ingere.
- *
- * Ela existe, e existir é o ponto: o QLP faz parte do que este produto vai
- * receber, e uma aba ausente não tem onde dizer isso. O que ela não faz é
- * aceitar arquivo — aceitar produziria uma importação com zero fato, zero erro
- * e zero aviso, que foi como a primeira planilha de trecho entrou e não virou
- * nada. O motivo vem de `tipos.ts`, o mesmo que o servidor usa para recusar:
- * a frase da tela e a da API não podem discordar sobre o que falta.
- */
-function TipoQueAindaNaoEntra({ tipo }: { tipo: DefinicaoDeTipo }) {
-  return (
-    <div className="rounded-xl border border-amber-200 bg-amber-50 px-6 py-5 flex items-start gap-4">
-      <div className="w-12 h-12 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
-        <AlertTriangle className="w-5 h-5 text-amber-700" />
-      </div>
-      <div className="min-w-0">
-        <p className="font-semibold text-amber-900">
-          {tipo.rotulo} ainda não pode ser importado
-        </p>
-        <p className="text-sm text-amber-900/90 mt-0.5 leading-relaxed">
-          {tipo.descricao} {tipo.aindaNaoEntra}
         </p>
       </div>
     </div>

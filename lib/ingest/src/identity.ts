@@ -198,11 +198,12 @@ export function novasIdentidades(
  * é onde ele diz — mas um clique na aba errada não pode virar identidade. Então
  * a declaração é conferida por dois caminhos independentes, nesta ordem:
  *
- * 1. **O grão.** Cada tipo se identifica por uma coluna (`tipos.ts`), e ela ou
- *    está no cabeçalho ou não está. É a conferência que separa o trecho dos
- *    equipamentos com certeza, sem depender de dicionário nenhum — e é a única
- *    que funciona no primeiro arquivo de um tipo, que é justamente o caso em
- *    que a dedução por conteúdo não tem o que consultar.
+ * 1. **O grão.** Cada tipo se identifica por um conjunto de colunas
+ *    (`tipos.ts`), e elas ou estão no cabeçalho ou não estão. É a conferência
+ *    que separa o trecho e o quadro de pessoal dos equipamentos com certeza,
+ *    sem depender de dicionário nenhum — e é a única que funciona no primeiro
+ *    arquivo de um tipo, que é justamente o caso em que a dedução por conteúdo
+ *    não tem o que consultar.
  * 2. **O dicionário.** Cavalo e carreta se identificam os dois por placa, e o
  *    grão não os separa. O que os separa são as colunas: quando a pontuação
  *    reconhece um tipo com folga (`DICIONARIO`) e ele não é o declarado, quem
@@ -225,13 +226,13 @@ export interface DeclaracaoConferida {
 export function conferirDeclaracao(
   declarado: DefinicaoDeTipo,
   decisao: IdentityDecision,
-  /** O identificador encontrado no cabeçalho da aba, na forma de `foldText`. */
-  identificadorDaAba: ColunaIdentificadora | null,
+  /** O cabeçalho da aba, em `foldText` — é nele que a identidade é procurada. */
+  cabecalhoFolded: Iterable<string>,
   sheetName: string,
 ): DeclaracaoConferida {
-  const esperado = declarado.identificador;
+  const esperada = declarado.identidade;
 
-  if (esperado === null) {
+  if (esperada.length === 0) {
     // Um tipo sem grão declarado não deveria ter chegado até aqui — a recusa
     // acontece no recebimento. Se chegou, o silêncio é o pior desfecho.
     return {
@@ -243,16 +244,17 @@ export function conferirDeclaracao(
     };
   }
 
-  if (identificadorDaAba === null || identificadorDaAba.folded !== esperado.folded) {
+  const presentes = new Set(cabecalhoFolded);
+  const ausentes = esperada.filter((coluna) => !presentes.has(coluna.folded));
+
+  if (ausentes.length > 0) {
     return {
       entityType: decisao.entityType,
       decision: decisao,
       divergencia:
-        `Você escolheu ${declarado.rotulo}, que se identifica pela coluna ` +
-        `"${esperado.sourceName}". A aba "${sheetName}" ` +
-        (identificadorDaAba === null
-          ? "não traz essa coluna."
-          : `se identifica por "${identificadorDaAba.sourceName}", que é de outro tipo.`),
+        `Você escolheu ${declarado.rotulo}, cuja linha é identificada por ` +
+        `${esperada.map((c) => `"${c.sourceName}"`).join(" + ")}. A aba ` +
+        `"${sheetName}" não traz ${ausentes.map((c) => `"${c.sourceName}"`).join(" nem ")}.`,
     };
   }
 
@@ -270,11 +272,13 @@ export function conferirDeclaracao(
     identificador declarado, e por isso não recebe essa dispensa: aí a
     sobreposição de colunas é a única evidência que existe, e ela vale.
   */
-  const graoDoDeduzido = tipoDeImportacao(decisao.entityType)?.identificador;
+  const graoDoDeduzido = tipoDeImportacao(decisao.entityType)?.identidade;
+  const chave = (colunas: ColunaIdentificadora[]) =>
+    colunas.map((c) => c.folded).join("+");
   const graoJaSeparou =
     graoDoDeduzido !== undefined &&
-    graoDoDeduzido !== null &&
-    graoDoDeduzido.folded !== esperado.folded;
+    graoDoDeduzido.length > 0 &&
+    chave(graoDoDeduzido) !== chave(esperada);
 
   if (
     decisao.source === "DICIONARIO" &&
@@ -300,8 +304,8 @@ export function conferirDeclaracao(
       // depois seria fazer a mesma pergunta à mesma pessoa em duas telas.
       isNew: false,
       reason:
-        `Tipo declarado no envio: ${declarado.rotulo}. A aba traz a coluna ` +
-        `"${esperado.sourceName}", que é o grão deste tipo` +
+        `Tipo declarado no envio: ${declarado.rotulo}. A aba traz ` +
+        `${esperada.map((c) => `"${c.sourceName}"`).join(" + ")}, que é o grão deste tipo` +
         (decisao.source === "DICIONARIO"
           ? `, e o dicionário concorda — ${decisao.reason}`
           : `. ${decisao.reason}`),

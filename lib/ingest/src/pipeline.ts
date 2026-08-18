@@ -54,6 +54,7 @@ import {
   datasetFamilyOfSet,
   missingRequiredScopeTypes,
   normalizeChannel,
+  normalizeDocumento,
   normalizeIdentifier,
   type CanonicalFact,
   type ScopeEntry,
@@ -62,8 +63,10 @@ import { typeCell, type SentinelRule, type SourceCell } from "./values";
 import {
   COLUNA_DE_VIGENCIA,
   COLUNAS_IDENTIFICADORAS,
-  identificadorNoCabecalho,
+  SEPARADOR_LEGIVEL,
+  identidadeNoCabecalho,
   tipoDeImportacao,
+  type ColunaIdentificadora,
   type DefinicaoDeTipo,
 } from "./tipos";
 
@@ -79,18 +82,54 @@ import {
 /**
  * As colunas que viram estrutura em vez de fato.
  *
- * A vigência é de todo tipo; o identificador é **do** tipo — placa no cavalo e
- * na carreta, `chaveTrecho` no trecho —, e por isso ele vem de `tipos.ts`, onde
- * mora junto do tipo a que pertence. Ver a nota de `COLUNA_DE_GRAO_UNIVERSAL`
- * em `workbook.ts` para o que a regra antiga custava.
+ * A vigência é de todo tipo; a identidade é **do** tipo — placa no cavalo e na
+ * carreta, `chaveTrecho` no trecho, unidade + cargo (+ turno) no quadro de
+ * pessoal —, e por isso ela vem de `tipos.ts`, onde mora junto do tipo a que
+ * pertence. Ver a nota do grão em `workbook.ts` para o que a regra antiga
+ * custava.
+ *
+ * **Uma coluna de escopo identifica sem deixar de ser fato.** `Unidade - CNPJ`
+ * é metade da chave do QLP e é de onde `resolveScopes` tira a unidade da
+ * vigência — e ele lê escopo dos fatos. Tirá-la dos fatos faria a promoção
+ * recusar, por unidade ausente, um arquivo em que a unidade está escrita em
+ * toda linha.
  */
 const GRAIN_COLUMNS = {
   vigencia: COLUNA_DE_VIGENCIA,
 } as const;
 
-const IDENTIFICADORES_FOLDED = new Set(
-  COLUNAS_IDENTIFICADORAS.map((coluna) => coluna.folded),
+/** As colunas que, ao virar chave, deixam de ser fato. Ver acima. */
+const SO_CHAVE_FOLDED = new Set(
+  COLUNAS_IDENTIFICADORAS.filter((c) => c.tambemEhFato !== true).map((c) => c.folded),
 );
+
+/**
+ * A chave de uma linha, a partir dos valores das colunas de identidade.
+ *
+ * As partes entram normalizadas e emendadas sem separador, porque `entity_key`
+ * precisa sobreviver a `freightcheck_norm_identificador` sem mudar: a
+ * normalização já rodou uma vez sobre a base inteira (`0015`), e uma chave que
+ * mudasse ao ser normalizada de novo fundiria entidades hoje distintas. O CNPJ
+ * entra com 14 dígitos fixos, o que mantém a emenda legível pela posição.
+ *
+ * A forma legível vai para `entity_key_raw`, e de lá para
+ * `entity_identifier.identifier_value_raw` — que existe exatamente para isto:
+ * "o identificador como veio escrito. Evidência, não identidade."
+ */
+function chaveDaLinha(
+  partes: { coluna: ColunaIdentificadora; valor: string }[],
+): { chave: string; legivel: string } {
+  return {
+    chave: partes
+      .map(({ coluna, valor }) =>
+        coluna.normalizacao === "DOCUMENTO"
+          ? normalizeDocumento(valor)
+          : normalizeIdentifier(valor),
+      )
+      .join(""),
+    legivel: partes.map((p) => p.valor).join(SEPARADOR_LEGIVEL),
+  };
+}
 
 /** Organisational scope carried by every source row. */
 const SCOPE_COLUMNS: Record<string, { scopeType: string; nameColumn?: string }> =
@@ -223,12 +262,13 @@ export interface ReceiveOptions {
 /**
  * A declaração conferida antes de qualquer coisa acontecer.
  *
- * Duas recusas, e as duas antes de gravar: um código que não é tipo nenhum
- * (cliente desatualizado, endereço montado à mão) e um tipo que o pipeline
- * ainda não sabe ingerir — o QLP de hoje. A segunda é a que importa, e o motivo
- * dela é longo de propósito: aceitar o arquivo o faria entrar e não produzir
- * fato nenhum, com zero erro e zero aviso, que foi exatamente o que aconteceu
- * com a primeira planilha de trecho.
+ * Duas recusas, e as duas antes de gravar. A primeira é um código que não é
+ * tipo nenhum — cliente desatualizado, endereço montado à mão. A segunda é um
+ * tipo que a lista nomeia e cujo grão ainda não foi declarado: nenhum está
+ * assim hoje, e a recusa existe para que o dia em que um estiver não seja
+ * descoberto por um arquivo que entrou, foi aprovado e não produziu fato
+ * nenhum — que foi exatamente o que aconteceu com a primeira planilha de
+ * trecho, com zero erro e zero aviso.
  */
 export function exigirTipoDeclarado(declaredType: string): DefinicaoDeTipo {
   const tipo = tipoDeImportacao(declaredType);
@@ -237,8 +277,11 @@ export function exigirTipoDeclarado(declaredType: string): DefinicaoDeTipo {
       `"${declaredType}" não é um tipo de importação conhecido. Escolha uma das abas da tela de Importações.`,
     );
   }
-  if (tipo.aindaNaoEntra !== null) {
-    throw new Error(`${tipo.rotulo} ainda não pode ser importado. ${tipo.aindaNaoEntra}`);
+  if (tipo.identidade.length === 0) {
+    throw new Error(
+      `${tipo.rotulo} ainda não pode ser importado: o pipeline não sabe o que identifica uma linha desse tipo, ` +
+        `e sem isso o arquivo entraria sem produzir fato nenhum.`,
+    );
   }
   return tipo;
 }
@@ -654,16 +697,14 @@ export async function stage(
       a aba continua descrita pelo que ela de fato é, para a pré-visualização
       poder mostrar o arquivo que chegou.
     */
-    const identificadorDaAba = identificadorNoCabecalho(
-      [...headerCells.values()]
-        .map((cell) => (cell.rawValue ?? "").trim())
-        .filter((header) => header !== "")
-        .map((header) => foldText(header)),
-    );
+    const cabecalhoFolded = [...headerCells.values()]
+      .map((cell) => (cell.rawValue ?? "").trim())
+      .filter((header) => header !== "")
+      .map((header) => foldText(header));
     const conferida =
       declarado === null
         ? null
-        : conferirDeclaracao(declarado, deduzida, identificadorDaAba, sheet.sheetName);
+        : conferirDeclaracao(declarado, deduzida, cabecalhoFolded, sheet.sheetName);
 
     const decisao = conferida?.decision ?? deduzida;
     const entityType = conferida?.entityType ?? deduzida.entityType;
@@ -679,7 +720,8 @@ export async function stage(
         detail: {
           declarado: declarado?.code,
           conteudo: deduzida.entityType,
-          identificadorDaAba: identificadorDaAba?.sourceName ?? null,
+          identidadeDaAba:
+            identidadeNoCabecalho(cabecalhoFolded)?.map((c) => c.sourceName) ?? null,
           scores: deduzida.scores.slice(0, 4),
         },
       });
@@ -724,7 +766,7 @@ export async function stage(
       const attributeCode = `${entityType.toLowerCase()}.${slug}`;
 
       const isGrain =
-        folded === GRAIN_COLUMNS.vigencia || IDENTIFICADORES_FOLDED.has(folded);
+        folded === GRAIN_COLUMNS.vigencia || SO_CHAVE_FOLDED.has(folded);
 
       const previousHeader = slugSeen.get(slug);
       if (previousHeader !== undefined) {
@@ -794,16 +836,35 @@ export async function stage(
 
     const vigenciaColumn = columns.find((c) => c.folded === GRAIN_COLUMNS.vigencia);
     /*
-      Qual coluna identifica a linha desta aba.
+      Quais colunas identificam a linha desta aba.
 
-      Não é sempre a placa: o trecho se identifica por `chaveTrecho`, e é por
-      isso que a busca é pelo conjunto de identificadores conhecidos e não por
-      um nome fixo. `workbook.ts` já garantiu que existe uma — uma aba sem
-      identificador não teria virado SOURCE —, e o `continue` fica de guarda
-      para o caso de RAW ter sido capturado por uma versão anterior do leitor.
+      Não é sempre a placa, e nem sempre é uma só: o trecho se identifica por
+      `chaveTrecho`, e o quadro de pessoal por unidade + cargo (+ turno). A
+      identidade usada é a **do tipo declarado**, quando há um — a conferência
+      acima já provou que as colunas dele estão no cabeçalho —, e a que o
+      cabeçalho sustenta quando não há.
+
+      `workbook.ts` já garantiu que existe alguma: uma aba sem identidade não
+      teria virado SOURCE. O `continue` fica de guarda para o caso de RAW ter
+      sido capturado por uma versão anterior do leitor.
     */
-    const identificadorColumn = columns.find((c) => IDENTIFICADORES_FOLDED.has(c.folded));
-    if (!vigenciaColumn || !identificadorColumn) continue;
+    const identidadeDaAba =
+      (conferida?.divergencia == null ? declarado?.identidade : null) ??
+      identidadeNoCabecalho(cabecalhoFolded) ??
+      [];
+    const colunasDaChave = identidadeDaAba
+      .map((coluna) => ({
+        coluna,
+        columnIndex: [...headerCells.entries()].find(
+          ([, cell]) => foldText((cell.rawValue ?? "").trim()) === coluna.folded,
+        )?.[0],
+      }))
+      .filter(
+        (c): c is { coluna: ColunaIdentificadora; columnIndex: number } =>
+          c.columnIndex !== undefined,
+      );
+    if (!vigenciaColumn || colunasDaChave.length !== identidadeDaAba.length) continue;
+    if (colunasDaChave.length === 0) continue;
 
     // --- rows ---------------------------------------------------------------
     for (const row of rows) {
@@ -812,7 +873,10 @@ export async function stage(
       if (!bucket) continue;
 
       const rawLabel = (bucket.get(vigenciaColumn.columnIndex)?.rawValue ?? "").trim();
-      const rawChave = (bucket.get(identificadorColumn.columnIndex)?.rawValue ?? "").trim();
+      const partesDaChave = colunasDaChave.map(({ coluna, columnIndex }) => ({
+        coluna,
+        valor: (bucket.get(columnIndex)?.rawValue ?? "").trim(),
+      }));
 
       // A completely blank row is structural padding, not a rejection.
       const hasAnyValue = [...bucket.values()].some(
@@ -823,19 +887,41 @@ export async function stage(
       // Uma placa que só tem pontuação (`---`) não identifica veículo nenhum:
       // ela normaliza para vazio, e vazio não é chave. Recusar aqui é o mesmo
       // tratamento que a placa em branco já recebia.
-      if (rawLabel === "" || rawChave === "" || normalizeIdentifier(rawChave) === "") {
+      /*
+        Toda parte da chave precisa de valor.
+
+        Numa chave composta a exigência vale peça a peça, e não sobre o
+        resultado: uma linha de QLP sem CNPJ e outra sem cargo produziriam
+        chaves diferentes entre si e ambas erradas, e as duas emendariam com
+        linhas legítimas. Recusar a linha nomeando a coluna vazia é a mesma
+        regra que a placa em branco sempre teve.
+      */
+      const vazias = partesDaChave.filter(
+        ({ coluna, valor }) =>
+          valor === "" ||
+          (coluna.normalizacao === "DOCUMENTO"
+            ? normalizeDocumento(valor)
+            : normalizeIdentifier(valor)) === "",
+      );
+      const { chave: chaveDaEntidade, legivel } = chaveDaLinha(partesDaChave);
+
+      if (rawLabel === "" || vazias.length > 0) {
         rowsRejected++;
+        const faltando =
+          rawLabel === ""
+            ? "Vigencia"
+            : vazias.map(({ coluna }) => coluna.sourceName).join(" e ");
         issues.push({
           importRunId,
           rawSheetId: sheet.id,
           rawRowId: row.id,
           severity: "ERROR",
           code: "ROW_MISSING_GRAIN_KEY",
-          message: `A linha ${row.rowIndex} de "${sheet.sheetName}" está sem ${rawLabel === "" ? "Vigencia" : identificadorColumn.header}; recusada.`,
+          message: `A linha ${row.rowIndex} de "${sheet.sheetName}" está sem ${faltando}; recusada.`,
           detail: {
             vigencia: rawLabel,
-            identificador: identificadorColumn.header,
-            valor: rawChave,
+            identidade: colunasDaChave.map(({ coluna }) => coluna.sourceName),
+            faltando,
           },
         });
         continue;
@@ -908,8 +994,8 @@ export async function stage(
           importRunId,
           rawCellId: cell.id,
           snapshotLabel: vigencia.label,
-          entityKey: normalizeIdentifier(rawChave),
-          entityKeyRaw: rawChave,
+          entityKey: chaveDaEntidade,
+          entityKeyRaw: legivel,
           entityType,
           attributeCode: column.attributeCode,
           valueNumeric: typed.valueNumeric,
@@ -1032,10 +1118,21 @@ export async function stage(
       importRunId,
       severity: "ERROR",
       code: "ENTIDADE_DUPLICADA_CONFLITANTE",
+      /*
+        A frase dizia "a carreta de placa X" e "o mesmo veículo", e deixou de
+        servir quando o grão parou de ser sempre uma placa: um trecho não tem
+        placa, e uma linha de quadro de pessoal não é veículo nenhum. O que a
+        recusa precisa nomear é a chave que se repetiu, e ela vale para os três.
+      */
       message:
-        `A ${entityType.toLowerCase()} de placa ${entityKey} aparece mais de uma vez na vigência ${label} com valores diferentes em ${[...atributos].sort().join(", ")}. ` +
-        `Duas linhas para o mesmo veículo, discordando, não têm resposta certa: corrija a origem e envie de novo.`,
-      detail: { vigencia: label, entityType, placa: entityKey, atributos: [...atributos].sort() },
+        `${entityType} ${entityKey} aparece mais de uma vez na vigência ${label} com valores diferentes em ${[...atributos].sort().join(", ")}. ` +
+        `Duas linhas para a mesma chave, discordando, não têm resposta certa: corrija a origem e envie de novo.`,
+      detail: {
+        vigencia: label,
+        entityType,
+        entityKey,
+        atributos: [...atributos].sort(),
+      },
     });
   }
 

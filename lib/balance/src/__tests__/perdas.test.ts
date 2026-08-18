@@ -181,7 +181,7 @@ describe("as saídas de perda", () => {
     // A razão nomeia o que faltou e o que serviria: sem vigência, e sem
     // nenhuma das colunas que identificam uma linha.
     expect(pivo.roleReason).toMatch(/não traz vigencia/);
-    expect(pivo.roleReason).toMatch(/identificador de linha/);
+    expect(pivo.roleReason).toMatch(/colunas que identificam uma linha/);
     expect(pivo.celulas).toBe(4);
     expect(pivo.virouFato).toBe(0);
     expect(pivo.perda).toBe(0);

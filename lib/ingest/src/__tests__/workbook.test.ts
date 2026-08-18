@@ -94,12 +94,13 @@ describe("sheet classification on the real export", () => {
 
     // The reason is recorded so a reviewer can disagree with the classifier.
     expect(byName.get("Quantidade")!.roleReason).toMatch(/não traz vigencia/);
-    // A recusa nomeia os dois identificadores que serviriam: quem lê precisa
-    // saber que uma aba sem placa ainda pode ser uma aba de trecho legítima.
-    expect(byName.get("Quantidade")!.roleReason).toMatch(/Placa ou chaveTrecho/);
+    // A recusa nomeia os conjuntos que serviriam: quem lê precisa saber que uma
+    // aba sem placa ainda pode ser uma de trecho ou de quadro de pessoal.
+    expect(byName.get("Quantidade")!.roleReason).toMatch(/Placa, ou chaveTrecho/);
+    expect(byName.get("Quantidade")!.roleReason).toMatch(/Unidade - CNPJ \+ Cargo/);
     expect(byName.get("cavalos")!.roleReason).toMatch(/vigencia \+ Placa/);
-    expect(byName.get("cavalos")!.identifierColumn).toBe("placa");
-    expect(byName.get("Quantidade")!.identifierColumn).toBeNull();
+    expect(byName.get("cavalos")!.identifierColumns).toEqual(["placa"]);
+    expect(byName.get("Quantidade")!.identifierColumns).toEqual([]);
   });
 
   it("finds no duplicate slug inside either source sheet", () => {
@@ -138,7 +139,7 @@ describe("o grão é do tipo, não da placa", () => {
     const [aba] = sheets;
 
     expect(aba.role).toBe("SOURCE");
-    expect(aba.identifierColumn).toBe("chavetrecho");
+    expect(aba.identifierColumns).toEqual(["chavetrecho"]);
     expect(aba.entityType).toBe("TRECHO");
     expect(aba.roleReason).toMatch(/vigencia \+ chaveTrecho/);
   });
@@ -151,7 +152,7 @@ describe("o grão é do tipo, não da placa", () => {
     const [aba] = readWorkbook(caminho).sheets;
 
     expect(aba.role).toBe("SOURCE");
-    expect(aba.identifierColumn).toBe("placa");
+    expect(aba.identifierColumns).toEqual(["placa"]);
   });
 
   it("recusa a aba sem identificador nenhum dizendo quais serviriam", () => {
@@ -159,7 +160,7 @@ describe("o grão é do tipo, não da placa", () => {
       (s) => s.role === "PIVOT",
     )!;
 
-    expect(pivo.roleReason).toMatch(/Placa ou chaveTrecho/);
-    expect(pivo.identifierColumn).toBeNull();
+    expect(pivo.roleReason).toMatch(/Placa, ou chaveTrecho/);
+    expect(pivo.identifierColumns).toEqual([]);
   });
 });

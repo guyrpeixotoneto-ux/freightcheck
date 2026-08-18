@@ -54,20 +54,47 @@ const SEP_LINE = "\u001c";
  */
 export const DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO = "REMUNERACAO_EQUIPAMENTO";
 
+/**
+ * O quadro de lotação de pessoal — administrativo e operacional, uma família.
+ *
+ * **Por que não a mesma família do equipamento.** A identidade da vigência é
+ * (sistema, família, canal, data, escopo). Sem família própria, um arquivo de
+ * QLP da mesma unidade, mesma data e mesmo canal teria a mesma identidade da
+ * remuneração de equipamento — e entraria como *revisão* dela, superpondo uma
+ * vigência que fala de caminhão com uma que fala de gente. A família existe
+ * para essa distinção; usá-la é o que impede a confusão, não uma formalidade.
+ *
+ * **Por que uma só para os dois QLPs.** Pelo mesmo argumento que junta CAVALO e
+ * CARRETA: os dois arquivos descrevem o mesmo quadro da mesma vigência, cada um
+ * com uma parte da população. Em famílias separadas, cada um abriria a sua
+ * vigência e nunca se reconheceriam como partes de um todo; na mesma, o segundo
+ * entra como revisão que herda os fatos do primeiro — a máquina de fato herdado
+ * (`0017`) foi escrita exatamente para o arquivo parcial.
+ */
+export const DATASET_FAMILY_QUADRO_DE_PESSOAL = "QUADRO_DE_PESSOAL";
+
 const FAMILY_BY_ENTITY_TYPE: Record<string, string> = {
   CAVALO: DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
   CARRETA: DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
+  QLP_ADMINISTRATIVO: DATASET_FAMILY_QUADRO_DE_PESSOAL,
+  QLP_OPERACIONAL: DATASET_FAMILY_QUADRO_DE_PESSOAL,
 };
 
 /**
  * A família a que um tipo de equipamento pertence.
  *
- * Um tipo ainda não mapeado cai na família de remuneração de equipamento, que é
- * a única que este produto recebe. O padrão é deliberadamente *inclusivo*: um
- * equipamento novo (um DOLLY, digamos) tem de entrar como componente da
- * vigência que já existe, e não abrir uma segunda identidade ativa para a mesma
- * data — que é exatamente a falha que este módulo fecha. Quando houver uma
- * segunda família de verdade, ela se declara aqui.
+ * Um tipo ainda não mapeado cai na família de remuneração de equipamento. O
+ * padrão é deliberadamente *inclusivo*: um equipamento novo (um DOLLY, digamos)
+ * tem de entrar como componente da vigência que já existe, e não abrir uma
+ * segunda identidade ativa para a mesma data — que é exatamente a falha que
+ * este módulo fecha.
+ *
+ * O espelho em SQL (`freightcheck_dataset_family`, na `0015`) devolve a família
+ * de equipamento para qualquer entrada, e continua assim de propósito: ele
+ * serve ao *backfill* daquela migration, sobre uma base que só tinha
+ * equipamento. Quem decide daqui para frente é esta função — a coluna
+ * `snapshot.dataset_family` é escrita por ela, e a chave canônica gerada pelo
+ * banco lê a coluna, não a função.
  */
 export function datasetFamilyFor(entityType: string): string {
   return (

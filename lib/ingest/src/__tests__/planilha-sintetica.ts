@@ -16,10 +16,19 @@ import * as XLSX from "xlsx";
 
 export interface LinhaSpec {
   /**
-   * A chave da linha. Placa numa aba de equipamento; a chave do trecho numa
-   * aba de trecho — ver {@link AbaSpec.identificador}.
+   * A chave da linha: placa, chave do trecho ou cargo, conforme a aba — ver
+   * {@link AbaSpec.identificador}.
    */
   placa: string;
+  /** O turno, só nas abas de QLP Operacional, onde ele completa a chave. */
+  turno?: string;
+  /**
+   * A unidade desta linha, quando ela não é a do arquivo.
+   *
+   * Existe para escrever o único caso que a chave do QLP precisa sustentar:
+   * duas unidades com o mesmo cargo, na mesma vigência, no mesmo arquivo.
+   */
+  unidadeCnpj?: string;
   chassi?: string;
   /** código do atributo (sem o prefixo do equipamento) -> valor */
   valores?: Record<string, number | string>;
@@ -31,12 +40,13 @@ export interface AbaSpec {
   /**
    * Como as linhas desta aba se identificam. `Placa` por padrão.
    *
-   * O trecho não tem placa: ele é uma perna de rota, e a planilha de curadoria
-   * declara `chaveTrecho` como o campo chave dele. Poder escrever as duas
-   * formas é o que permite provar que o leitor aceita as duas — antes, toda
-   * planilha sintética tinha placa, e uma aba sem placa nunca era exercitada.
+   * Nem todo tipo tem placa: o trecho é uma perna de rota, identificada por
+   * `chaveTrecho`, e o quadro de pessoal é um cargo dentro de uma unidade — e
+   * no operacional dentro de um turno. Poder escrever as quatro formas é o que
+   * permite provar que o leitor aceita as quatro; antes, toda planilha
+   * sintética tinha placa, e uma aba sem placa nunca era exercitada.
    */
-  identificador?: "Placa" | "chaveTrecho";
+  identificador?: "Placa" | "chaveTrecho" | "Cargo" | "cargoEquipeEmpurrada";
   /**
    * Colunas de fato além de {@link ATRIBUTOS_PADRAO}, nesta aba.
    *
@@ -71,7 +81,32 @@ const COLUNAS_DE_ESCOPO = [
 
 /** As colunas de identidade de uma aba, que dependem de como ela se identifica. */
 function colunasDeIdentidade(aba: AbaSpec): string[] {
-  return aba.identificador === "chaveTrecho" ? ["chaveTrecho"] : ["Placa", "chassi"];
+  switch (aba.identificador) {
+    case "chaveTrecho":
+      return ["chaveTrecho"];
+    case "Cargo":
+      return ["Cargo"];
+    case "cargoEquipeEmpurrada":
+      return ["cargoEquipeEmpurrada", "turnoEmpurrada"];
+    default:
+      return ["Placa", "chassi"];
+  }
+}
+
+/** Os valores de identidade de uma linha, na ordem das colunas acima. */
+function valoresDeIdentidade(aba: AbaSpec, linha: LinhaSpec): string[] {
+  switch (aba.identificador) {
+    case "chaveTrecho":
+    case "Cargo":
+      return [linha.placa];
+    case "cargoEquipeEmpurrada":
+      return [linha.placa, linha.turno ?? "1"];
+    default:
+      return [
+        linha.placa,
+        linha.chassi ?? `CHASSI${linha.placa.toUpperCase().replace(/[^A-Z0-9]/g, "")}`,
+      ];
+  }
 }
 
 /** As colunas de fato que as planilhas sintéticas carregam por padrão. */
@@ -99,18 +134,13 @@ export function escreverPlanilha(spec: PlanilhaSpec, nomeArquivo?: string): stri
     for (const linha of aba.linhas) {
       linhas.push([
         spec.vigencia,
-        spec.unidadeCnpj === null ? "" : (spec.unidadeCnpj ?? "07.526.557/0015-05"),
+        linha.unidadeCnpj ??
+          (spec.unidadeCnpj === null ? "" : (spec.unidadeCnpj ?? "07.526.557/0015-05")),
         spec.unidadeNome ?? "CAMACARI",
         spec.regional ?? "GEO NE",
         spec.operadorCnpj === null ? "" : (spec.operadorCnpj ?? "20.618.821/0007-99"),
         spec.operadorNome ?? "OPERADOR TESTE",
-        ...(aba.identificador === "chaveTrecho"
-          ? [linha.placa]
-          : [
-              linha.placa,
-              linha.chassi ??
-                `CHASSI${linha.placa.toUpperCase().replace(/[^A-Z0-9]/g, "")}`,
-            ]),
+        ...valoresDeIdentidade(aba, linha),
         ...atributos.map(
           (a) =>
             linha.valores?.[a] ??
@@ -158,6 +188,9 @@ export function corrigirValoresNumericos(origem: string): string {
     "vigencia",
     "placa",
     "chavetrecho",
+    "cargo",
+    "cargoequipeempurrada",
+    "turnoempurrada",
     "placa carreta",
     "chassi",
     "unidade - cnpj",

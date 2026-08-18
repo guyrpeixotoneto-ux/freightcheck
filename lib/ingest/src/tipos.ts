@@ -20,19 +20,41 @@
  * O grão, e por que ele é do tipo
  * ---------------------------------------------------------------------------
  * O leitor exigia `vigencia` **e** `placa` para uma aba virar fonte de fatos, e
- * essa regra tinha o formato do equipamento que ela nasceu para ler. O trecho
- * não tem placa: ele é uma perna de rota, e a planilha de curadoria diz qual é
- * a chave dele com todas as letras — `chaveTrecho`, "Chave do trecho - campo
- * chave" (`lib/curation/src/catalogo-declarado.ts`).
+ * essa regra tinha o formato do equipamento que ela nasceu para ler. Os outros
+ * tipos não têm placa:
+ *
+ * - o **trecho** é uma perna de rota, e a planilha de curadoria diz qual é a
+ *   chave dele com todas as letras — `chaveTrecho`, "Chave do trecho - campo
+ *   chave" (`lib/curation/src/catalogo-declarado.ts`);
+ * - o **QLP** é quadro de pessoal: a linha é um cargo dentro de uma unidade,
+ *   e no operacional também dentro de um turno.
  *
  * A consequência de tratar a placa como universal não era um erro na tela: era
  * silêncio. Uma aba sem placa era rebaixada a PIVOT, os fatos dela não eram
  * produzidos, e a importação terminava com zero fato, zero erro e zero aviso —
- * aprovada. O arquivo entrava e não dizia nada. É por isso que o identificador
- * mora aqui, ao lado do tipo, e não numa constante que vale para todos.
+ * aprovada. O arquivo entrava e não dizia nada.
  *
  * ---------------------------------------------------------------------------
- * Duas normalizações, e as duas escritas
+ * Por que a identidade é uma **lista** de colunas
+ * ---------------------------------------------------------------------------
+ * Porque a do QLP não cabe em uma. `entity_identifier` tem índice único sobre
+ * (tipo, valor) **global**, e os fatos de uma vigência inteira — o arquivo
+ * todo, todas as unidades — moram no mesmo snapshot: o promote agrupa por
+ * rótulo de vigência, e o escopo do snapshot é o conjunto das unidades do
+ * arquivo. Uma chave "MOTORISTA" seria a mesma linha para Camaçari e para
+ * Jaguariúna dentro da mesma vigência — duas linhas para a mesma entidade,
+ * discordando, que é exatamente o conflito que `ENTIDADE_DUPLICADA_CONFLITANTE`
+ * recusa. A unidade entra na chave por isso.
+ *
+ * **O operador não entra**, e isso é uma escolha, não um esquecimento. O
+ * produto já declara em `REQUIRED_SCOPE_TYPES` que a unidade é o que diz *de
+ * quem* é a remuneração; o operador é escopo. Se um dia dois operadores
+ * servirem a mesma unidade com o mesmo cargo, o conflito aparece como recusa
+ * nomeada na pré-visualização — e aí ele se acrescenta aqui, com a evidência na
+ * mão, em vez de por precaução.
+ *
+ * ---------------------------------------------------------------------------
+ * Duas normalizações de cabeçalho, e as duas escritas
  * ---------------------------------------------------------------------------
  * O mesmo cabeçalho é comparado de dois jeitos no pipeline: `foldText` (que só
  * tira acento e caixa) decide o papel da aba e acha a coluna do grão;
@@ -60,7 +82,18 @@ export type TipoDeImportacao =
   | "QLP_ADMINISTRATIVO"
   | "QLP_OPERACIONAL";
 
-/** A coluna que diz *de quem* é a linha. */
+/**
+ * Como o valor de uma coluna de identidade vira chave.
+ *
+ * `DOCUMENTO` existe porque o Excel entrega CNPJ ora mascarado, ora como
+ * número — e como número ele perde o zero da frente. Reduzido a dígitos e
+ * completado a 14, os dois viram a mesma unidade; reduzido como identificador
+ * comum, `07.526.557/0015-05` e `7526557001505` seriam duas unidades
+ * diferentes, e o quadro de pessoal de Camaçari existiria em duplicidade.
+ */
+export type NormalizacaoDeChave = "IDENTIFICADOR" | "DOCUMENTO";
+
+/** Uma coluna que participa da identidade da linha. */
 export interface ColunaIdentificadora {
   /** Como `foldText` a escreve — a forma que acha a coluna no cabeçalho. */
   folded: string;
@@ -68,6 +101,19 @@ export interface ColunaIdentificadora {
   slug: string;
   /** O cabeçalho literal, como a planilha o escreve. Vai para a tela. */
   sourceName: string;
+  normalizacao: NormalizacaoDeChave;
+  /**
+   * A coluna continua sendo fato, mesmo participando da identidade.
+   *
+   * Verdadeiro só para as colunas de escopo. `Unidade - CNPJ` identifica a
+   * linha do QLP **e** é de onde `resolveScopes` tira a unidade da vigência —
+   * e ele lê escopo dos fatos. Tirá-la dos fatos por ela virar chave faria a
+   * promoção recusar por `ESCOPO_OBRIGATORIO_AUSENTE` uma vigência cuja unidade
+   * está escrita em toda linha do arquivo.
+   *
+   * Falso é o caso comum: a placa é chave e não é fato, como sempre foi.
+   */
+  tambemEhFato?: boolean;
 }
 
 export interface DefinicaoDeTipo {
@@ -77,18 +123,16 @@ export interface DefinicaoDeTipo {
   /** Uma linha sobre o que se importa por aqui. */
   descricao: string;
   /**
-   * A coluna identificadora do tipo, ou `null` quando o grão ainda não é
-   * conhecido. `null` e {@link aindaNaoEntra} andam juntos, sempre.
-   */
-  identificador: ColunaIdentificadora | null;
-  /**
-   * Por que o pipeline ainda não ingere este tipo — `null` quando ingere.
+   * As colunas que, juntas, identificam uma linha — na ordem em que compõem a
+   * chave.
    *
-   * Existe para a recusa ser uma frase, e não um arquivo que entra e produz
-   * nada. Uma aba na tela sem esta frase seria exatamente a armadilha que a
-   * declaração veio desfazer.
+   * Vazia é o estado de um tipo que a tela nomeia e o pipeline ainda não sabe
+   * ingerir. Nenhum dos cinco está assim hoje; o que sustenta a lista é
+   * `exigirTipoDeclarado`, que recusa a declaração de um tipo sem grão em vez
+   * de deixar o arquivo entrar e não produzir fato nenhum — o silêncio que a
+   * primeira planilha de trecho custou.
    */
-  aindaNaoEntra: string | null;
+  identidade: ColunaIdentificadora[];
 }
 
 /** A coluna de vigência — a metade do grão que todo tipo compartilha. */
@@ -98,12 +142,44 @@ const PLACA: ColunaIdentificadora = {
   folded: "placa",
   slug: "placa",
   sourceName: "Placa",
+  normalizacao: "IDENTIFICADOR",
 };
 
 const CHAVE_TRECHO: ColunaIdentificadora = {
   folded: "chavetrecho",
   slug: "chave_trecho",
   sourceName: "chaveTrecho",
+  normalizacao: "IDENTIFICADOR",
+};
+
+/** A unidade, que no QLP identifica além de situar. Ver `tambemEhFato`. */
+const UNIDADE_CNPJ: ColunaIdentificadora = {
+  folded: "unidade - cnpj",
+  slug: "unidade_cnpj",
+  sourceName: "Unidade - CNPJ",
+  normalizacao: "DOCUMENTO",
+  tambemEhFato: true,
+};
+
+const CARGO: ColunaIdentificadora = {
+  folded: "cargo",
+  slug: "cargo",
+  sourceName: "Cargo",
+  normalizacao: "IDENTIFICADOR",
+};
+
+const CARGO_EQUIPE: ColunaIdentificadora = {
+  folded: "cargoequipeempurrada",
+  slug: "cargo_equipe_empurrada",
+  sourceName: "cargoEquipeEmpurrada",
+  normalizacao: "IDENTIFICADOR",
+};
+
+const TURNO: ColunaIdentificadora = {
+  folded: "turnoempurrada",
+  slug: "turno_empurrada",
+  sourceName: "turnoEmpurrada",
+  normalizacao: "IDENTIFICADOR",
 };
 
 /**
@@ -119,15 +195,13 @@ export const TIPOS_DE_IMPORTACAO: DefinicaoDeTipo[] = [
     code: "CAVALO",
     rotulo: "Cavalo",
     descricao: "O export de remuneração do cavalo mecânico, por placa e quinzena.",
-    identificador: PLACA,
-    aindaNaoEntra: null,
+    identidade: [PLACA],
   },
   {
     code: "CARRETA",
     rotulo: "Carreta",
     descricao: "O export de remuneração da carreta, por placa e quinzena.",
-    identificador: PLACA,
-    aindaNaoEntra: null,
+    identidade: [PLACA],
   },
   {
     code: "TRECHO",
@@ -135,32 +209,24 @@ export const TIPOS_DE_IMPORTACAO: DefinicaoDeTipo[] = [
     descricao:
       "O export do lado variável da remuneração — origem, destino e quilometragem —, " +
       "identificado pela chave do trecho e não por placa.",
-    identificador: CHAVE_TRECHO,
-    aindaNaoEntra: null,
+    identidade: [CHAVE_TRECHO],
   },
   {
     code: "QLP_ADMINISTRATIVO",
     rotulo: "QLP Administrativo",
-    descricao: "O quadro de lotação de pessoal da estrutura administrativa.",
-    identificador: null,
-    aindaNaoEntra:
-      "O QLP não é frota: a linha dele não é uma placa nem um trecho, e o pipeline " +
-      "ainda não sabe o que identifica uma linha de quadro de pessoal. Aceitar o " +
-      "arquivo agora o faria entrar sem produzir fato nenhum — que é o silêncio que " +
-      "esta tela existe para não repetir. Falta o modelo da planilha para o grão ser " +
-      "declarado aqui.",
+    descricao:
+      "O quadro de lotação de pessoal da estrutura administrativa: um cargo por " +
+      "unidade, com as despesas de ordenados, encargos, benefícios, frota leve, " +
+      "telefonia e uniformes.",
+    identidade: [UNIDADE_CNPJ, CARGO],
   },
   {
     code: "QLP_OPERACIONAL",
     rotulo: "QLP Operacional",
-    descricao: "O quadro de lotação de pessoal da operação.",
-    identificador: null,
-    aindaNaoEntra:
-      "O QLP não é frota: a linha dele não é uma placa nem um trecho, e o pipeline " +
-      "ainda não sabe o que identifica uma linha de quadro de pessoal. Aceitar o " +
-      "arquivo agora o faria entrar sem produzir fato nenhum — que é o silêncio que " +
-      "esta tela existe para não repetir. Falta o modelo da planilha para o grão ser " +
-      "declarado aqui.",
+    descricao:
+      "O quadro de lotação de pessoal da operação: um cargo por unidade e turno, " +
+      "com piso, adicional noturno, benefícios, encargos e a quantidade por caminhão.",
+    identidade: [UNIDADE_CNPJ, CARGO_EQUIPE, TURNO],
   },
 ];
 
@@ -174,42 +240,55 @@ export function tipoDeImportacao(code: string | null | undefined): DefinicaoDeTi
   return POR_CODIGO.get(code.trim().toUpperCase()) ?? null;
 }
 
-/** O tipo entra hoje? Falso para quem tem {@link DefinicaoDeTipo.aindaNaoEntra}. */
-export function tipoEntra(code: string | null | undefined): boolean {
-  const tipo = tipoDeImportacao(code);
-  return tipo !== null && tipo.identificador !== null;
-}
 
-/**
- * Todas as colunas que identificam alguma linha, na forma de `foldText`.
- *
- * É o que permite o leitor reconhecer uma aba de fatos sem saber ainda de que
- * tipo ela é: o papel da aba é decidido antes da identidade, e continua sendo.
- */
+/** Toda coluna que participa da identidade de algum tipo, sem repetição. */
 export const COLUNAS_IDENTIFICADORAS: ColunaIdentificadora[] = [
   ...new Map(
     TIPOS_DE_IMPORTACAO.flatMap((tipo) =>
-      tipo.identificador ? [[tipo.identificador.folded, tipo.identificador] as const] : [],
+      tipo.identidade.map((coluna) => [coluna.folded, coluna] as const),
     ),
   ).values(),
 ];
 
 /**
- * As colunas que são chave, e por isso não descrevem equipamento nenhum.
+ * As colunas que são chave e **só** chave, e por isso não descrevem tipo nenhum.
  *
- * `identity.ts` as tira da pontuação: contá-las aproximaria todos os tipos
- * entre si sem informar nada. A forma aqui é a de `slugifyColumn`, porque é
- * com slugs que a pontuação trabalha.
+ * `identity.ts` as tira da pontuação por sobreposição de colunas: contá-las
+ * aproximaria os tipos entre si sem informar nada. A coluna de escopo fica de
+ * fora desta lista porque ela continua sendo fato — ela descreve a linha tanto
+ * quanto qualquer outra, e some da pontuação seria tirar informação real.
+ *
+ * A forma aqui é a de `slugifyColumn`, porque é com slugs que a pontuação
+ * trabalha.
  */
 export const SLUGS_DE_GRAO: string[] = [
   COLUNA_DE_VIGENCIA,
-  ...COLUNAS_IDENTIFICADORAS.map((coluna) => coluna.slug),
+  ...COLUNAS_IDENTIFICADORAS.filter((c) => c.tambemEhFato !== true).map((c) => c.slug),
 ];
 
-/** A coluna identificadora encontrada num cabeçalho já passado por `foldText`. */
-export function identificadorNoCabecalho(
+/**
+ * A identidade que um cabeçalho sustenta — a mais específica que ele completa.
+ *
+ * Responde a pergunta anterior à do tipo: *isto é uma aba de fatos?*. Um
+ * cabeçalho serve quando traz **todas** as colunas de identidade de algum tipo.
+ *
+ * "A mais específica" resolve o único empate possível: o QLP traz `Unidade -
+ * CNPJ` como parte da chave, e toda aba de equipamento também traz essa coluna
+ * — só que como escopo. Preferir a identidade maior faz uma aba de QLP
+ * Operacional ser lida com as três colunas dela, e não com um prefixo de outra.
+ * Com tipo declarado esse desempate nem chega a acontecer: a aba da tela diz
+ * qual é, e a conferência só verifica se as colunas dela estão lá.
+ */
+export function identidadeNoCabecalho(
   cabecalhoFolded: Iterable<string>,
-): ColunaIdentificadora | null {
+): ColunaIdentificadora[] | null {
   const presentes = new Set(cabecalhoFolded);
-  return COLUNAS_IDENTIFICADORAS.find((coluna) => presentes.has(coluna.folded)) ?? null;
+  const candidatas = TIPOS_DE_IMPORTACAO.map((tipo) => tipo.identidade)
+    .filter((identidade) => identidade.length > 0)
+    .filter((identidade) => identidade.every((coluna) => presentes.has(coluna.folded)))
+    .sort((a, b) => b.length - a.length);
+  return candidatas[0] ?? null;
 }
+
+/** Como a chave de uma linha se escreve para quem lê: as partes, separadas. */
+export const SEPARADOR_LEGIVEL = " · ";
