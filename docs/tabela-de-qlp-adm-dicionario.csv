@@ -1,38 +1,38 @@
-﻿Atributo;Nome Gerencial;O que é;Categoria DRE - Sintético
-Vigencia;Quinzena;Quinzena de validade da linha. Cada cargo administrativo tem uma linha por vigência, e é a comparação entre elas que mostra o que mudou na estrutura remunerada.;Cadastral (não entra na DRE)
-Unidade - CNPJ;CNPJ da Unidade;CNPJ da unidade Ambev a que a estrutura administrativa está vinculada.;Cadastral (não entra na DRE)
-Unidade - Nome;Nome da Unidade;Nome da unidade (fábrica ou CDD) cuja estrutura administrativa é remunerada aqui.;Cadastral (não entra na DRE)
-Unidade SAP;Codigo da unidade;Código da unidade no SAP — chave de conciliação com o razão contábil.;Cadastral (não entra na DRE)
-Unidade TMS;Código TMS da Unidade;Código da mesma unidade no TMS.;Cadastral (não entra na DRE)
-Unidade - Promax UNB;UNB Promax da Unidade;Código da unidade de negócio no Promax.;Cadastral (não entra na DRE)
-Unidade - Regional;Regional da Unidade;Regional a que a unidade pertence — o nível em que a estrutura é comparada entre operações.;Cadastral (não entra na DRE)
-Operador - CNPJ;CNPJ do Transportador;"CNPJ da transportadora cuja estrutura administrativa é remunerada. É dela a folha; a Ambev remunera a estrutura dentro do modelo.";Cadastral (não entra na DRE)
-Operador - Nome;Nome do Transportador;Razão social da transportadora.;Cadastral (não entra na DRE)
-Operador - SAP;Codigo do Transportador;Código da transportadora como fornecedora no SAP — chave do pagamento.;Cadastral (não entra na DRE)
-Operador - TMS;Código TMS do Transportador;Código da transportadora no TMS.;Cadastral (não entra na DRE)
-Operador - Promax;Código Promax do Transportador;Código da transportadora no Promax.;Cadastral (não entra na DRE)
-Organizacao de Compras;Organização de Compras;Organização de compras (SAP) sob a qual o contrato foi firmado.;Cadastral (não entra na DRE)
-Prazo Pagamento;Prazo de Pagamento;Condição de pagamento acordada, em dias. Muda o caixa, não o resultado.;Cadastral (não entra na DRE)
-Cargo;CARGO REMUNERADO;O cargo administrativo remunerado nesta linha — supervisor, analista, auxiliar. **É a chave da tabela**: cada linha é um cargo do quadro, e não uma pessoa. Quem diz quantas pessoas há é a coluna Quantidade correspondente.;Cadastral (não entra na DRE)
-Despesa Benefício;CALCULO DO BENEFICIO REMUNERADO MULTIPLICADO PELA QUANTIDADE DE BENEFICIOS REMUNERADOS;Benefícios do cargo em reais: Valor Benefício × Quantidade Benefício. É montante — e é uma das seis despesas que efetivamente somam nesta tabela.;(−) Custo fixo — estrutura administrativa
-Despesa Encargos;CALCULO DO ENCARGO REMUNERADO;Encargos e provisões do cargo em reais — INSS, FGTS, férias, 13º e reflexos sobre os ordenados. Montante.;(−) Custo fixo — estrutura administrativa
-Despesa Frota Leve;CALCULO DE FROTA LEVE REMUNERADO;Frota leve em reais: os veículos de apoio da estrutura administrativa (carro do supervisor, utilitário da operação), não o cavalo nem a carreta. Montante.;(−) Custo fixo — estrutura administrativa
-Despesa Ordenados;CALCULO DE SALARIO ORDENADO POR QUANTIDADES ORDENADAS DO QLP;Ordenados do cargo em reais: Salário Ordenados × Quantidade Ordenados. É a maior das seis despesas, e a que o benchmark do QLP audita.;(−) Custo fixo — estrutura administrativa
-Despesa Telefonia;CALCULO DE TELEFONIA REMUNERADA;Telefonia em reais — linhas e aparelhos da estrutura administrativa. Montante.;(−) Custo fixo — estrutura administrativa
-Despesa Uniformes;CALCULO DE UNIFORMES REMUNERADA;Uniformes da estrutura administrativa em reais. Montante. Não confundir com o EPI da equipe operacional, que vive na tabela de equipe (totalUniformeEPI).;(−) Custo fixo — estrutura administrativa
-QLP Benchmark Quantidade;QUANTIDADE BENCHMARK;Quantidade de referência do cargo — quantas pessoas o padrão da operação prevê, contra as que o quadro tem. **É a régua da auditoria bimestral do QLP ADM**: a diferença entre benchmark e realizado é o que vira não conformidade, e a consequência financeira dela está no bloco DESCONTO QLP ADM do Book.;Benchmark (não entra na DRE)
-QLP Benchmark Salário;SALARIO BENCHMARK;"Salário de referência do cargo. No Freightech vem de uma matriz por faixas (0, 15, 30, 50, 60, 70, 80 — a sequência é irregular de propósito, não faltam faixas); o export traz o valor já resolvido para o cargo.";Benchmark (não entra na DRE)
-Quantidade Benefício;QUANTIDADE DE BENEFICIO REMUNERADO;Quantos benefícios são remunerados no cargo. É o multiplicador de Valor Benefício — não é dinheiro.;Direcionador (não entra na DRE)
-Quantidade Encargos;QUANTIDADE DE BENEFICIO ENCARGO REMUNERADO;Quantidade sobre a qual os encargos são remunerados. O rótulo veio com a palavra 'benefício' no meio, aparentemente herdada da linha de cima — vale confirmar se a base é a mesma.;Direcionador (não entra na DRE)
-Quantidade Frota Leve;QUANTIDADE DE FROTA LEVE REMUNERADO;Quantos veículos de frota leve o cargo tem direito a ter remunerados.;Direcionador (não entra na DRE)
-Quantidade Ordenados;QUANTIDADE DE QLP REMUNERADO;Quantas posições do cargo o QLP remunera — o efetivo reconhecido. É esta quantidade que o benchmark confronta.;Direcionador (não entra na DRE)
-Quantidade Telefonia;QUANTIDADE DE TELEFONIA REMUNERADO;Quantas linhas/aparelhos são remunerados no cargo.;Direcionador (não entra na DRE)
-Quantidade Uniformes;QUANTIDADE DE UNIFORMES REMUNERADOS;Quantos uniformes são remunerados no cargo.;Direcionador (não entra na DRE)
-Salário Encargos;CALCULO DE SALARIOS MAIS ENCARGOS;Salário do cargo já com encargos — o custo unitário para quem paga, e não o que a pessoa recebe. É parâmetro unitário: multiplicado pela quantidade é que vira despesa.;(−) Custo fixo — parâmetro unitário (não soma)
-Salário Ordenados;CALCULO DE SALARIOS ORDENADOS;Salário unitário do cargo, sem encargos. Multiplicado por Quantidade Ordenados produz Despesa Ordenados — somar os dois é contar o mesmo salário duas vezes.;(−) Custo fixo — parâmetro unitário (não soma)
-Vale Transporte;CALCULO DO VALE TRANSPORTE ORDENADO;Vale-transporte do quadro ordenado. Atenção: confirmar se ele já está dentro de Despesa Benefício ou se soma à parte — as duas leituras são plausíveis pelos rótulos, e elas diferem pelo valor inteiro do VT.;(−) Custo fixo — estrutura administrativa
-Valor Benefício;VALOR DO BENEFICIO REMUNERADO;Valor unitário do benefício. Parâmetro: só vira dinheiro multiplicado por Quantidade Benefício.;(−) Custo fixo — parâmetro unitário (não soma)
-Valor Frota Leve;VALOR DE FROTA LEVE REMUNERADO;Valor unitário de um veículo de frota leve — aluguel ou custo mensal reconhecido. Parâmetro.;(−) Custo fixo — parâmetro unitário (não soma)
-Valor Telefonia;VALOR DE TELEFONIA REMUNERADA;Valor unitário da linha de telefonia. Parâmetro.;(−) Custo fixo — parâmetro unitário (não soma)
-Valor Uniformes;VALOR DE UNIFORMES REMUNERADO;Valor unitário do uniforme. Parâmetro.;(−) Custo fixo — parâmetro unitário (não soma)
-_id;Identificador do registro;Chave técnica do documento no banco. Sem leitura de negócio — serve para rastrear a linha entre cargas.;Cadastral (não entra na DRE)
+﻿Atributo;Nome Gerencial;O que é;Categoria DRE - Sintético;Categoria DRE - Analítico
+Vigencia;Quinzena;Quinzena de validade da linha. Cada cargo administrativo tem uma linha por vigência, e é a comparação entre elas que mostra o que mudou na estrutura remunerada.;Cadastral (não entra na DRE);Cadastro — Vigência
+Unidade - CNPJ;CNPJ da Unidade;CNPJ da unidade Ambev a que a estrutura administrativa está vinculada.;Cadastral (não entra na DRE);Cadastro — Unidade
+Unidade - Nome;Nome da Unidade;Nome da unidade (fábrica ou CDD) cuja estrutura administrativa é remunerada aqui.;Cadastral (não entra na DRE);Cadastro — Unidade
+Unidade SAP;Codigo da unidade;Código da unidade no SAP — chave de conciliação com o razão contábil.;Cadastral (não entra na DRE);Cadastro — Unidade
+Unidade TMS;Código TMS da Unidade;Código da mesma unidade no TMS.;Cadastral (não entra na DRE);Cadastro — Unidade
+Unidade - Promax UNB;UNB Promax da Unidade;Código da unidade de negócio no Promax.;Cadastral (não entra na DRE);Cadastro — Unidade
+Unidade - Regional;Regional da Unidade;Regional a que a unidade pertence — o nível em que a estrutura é comparada entre operações.;Cadastral (não entra na DRE);Cadastro — Unidade
+Operador - CNPJ;CNPJ do Transportador;"CNPJ da transportadora cuja estrutura administrativa é remunerada. É dela a folha; a Ambev remunera a estrutura dentro do modelo.";Cadastral (não entra na DRE);Cadastro — Operador
+Operador - Nome;Nome do Transportador;Razão social da transportadora.;Cadastral (não entra na DRE);Cadastro — Operador
+Operador - SAP;Codigo do Transportador;Código da transportadora como fornecedora no SAP — chave do pagamento.;Cadastral (não entra na DRE);Cadastro — Operador
+Operador - TMS;Código TMS do Transportador;Código da transportadora no TMS.;Cadastral (não entra na DRE);Cadastro — Operador
+Operador - Promax;Código Promax do Transportador;Código da transportadora no Promax.;Cadastral (não entra na DRE);Cadastro — Operador
+Organizacao de Compras;Organização de Compras;Organização de compras (SAP) sob a qual o contrato foi firmado.;Cadastral (não entra na DRE);Cadastro — Contrato
+Prazo Pagamento;Prazo de Pagamento;Condição de pagamento acordada, em dias. Muda o caixa, não o resultado.;Cadastral (não entra na DRE);Cadastro — Contrato
+Cargo;CARGO REMUNERADO;O cargo administrativo remunerado nesta linha — supervisor, analista, auxiliar. **É a chave da tabela**: cada linha é um cargo do quadro, e não uma pessoa. Quem diz quantas pessoas há é a coluna Quantidade correspondente.;Cadastral (não entra na DRE);Cadastro — Cargo
+Despesa Benefício;CALCULO DO BENEFICIO REMUNERADO MULTIPLICADO PELA QUANTIDADE DE BENEFICIOS REMUNERADOS;Benefícios do cargo em reais: Valor Benefício × Quantidade Benefício. É montante — e é uma das seis despesas que efetivamente somam nesta tabela.;(−) Custo fixo — estrutura administrativa;Estrutura ADM — Benefícios
+Despesa Encargos;CALCULO DO ENCARGO REMUNERADO;Encargos e provisões do cargo em reais — INSS, FGTS, férias, 13º e reflexos sobre os ordenados. Montante.;(−) Custo fixo — estrutura administrativa;Estrutura ADM — Encargos e provisões
+Despesa Frota Leve;CALCULO DE FROTA LEVE REMUNERADO;Frota leve em reais: os veículos de apoio da estrutura administrativa (carro do supervisor, utilitário da operação), não o cavalo nem a carreta. Montante.;(−) Custo fixo — estrutura administrativa;Estrutura ADM — Frota leve
+Despesa Ordenados;CALCULO DE SALARIO ORDENADO POR QUANTIDADES ORDENADAS DO QLP;Ordenados do cargo em reais: Salário Ordenados × Quantidade Ordenados. É a maior das seis despesas, e a que o benchmark do QLP audita.;(−) Custo fixo — estrutura administrativa;Estrutura ADM — Ordenados
+Despesa Telefonia;CALCULO DE TELEFONIA REMUNERADA;Telefonia em reais — linhas e aparelhos da estrutura administrativa. Montante.;(−) Custo fixo — estrutura administrativa;Estrutura ADM — Telefonia
+Despesa Uniformes;CALCULO DE UNIFORMES REMUNERADA;Uniformes da estrutura administrativa em reais. Montante. Não confundir com o EPI da equipe operacional, que vive na tabela de equipe (totalUniformeEPI).;(−) Custo fixo — estrutura administrativa;Estrutura ADM — Uniformes
+QLP Benchmark Quantidade;QUANTIDADE BENCHMARK;Quantidade de referência do cargo — quantas pessoas o padrão da operação prevê, contra as que o quadro tem. **É a régua da auditoria bimestral do QLP ADM**: a diferença entre benchmark e realizado é o que vira não conformidade, e a consequência financeira dela está no bloco DESCONTO QLP ADM do Book.;Benchmark (não entra na DRE);Benchmark QLP — Quadro de referência
+QLP Benchmark Salário;SALARIO BENCHMARK;"Salário de referência do cargo. No Freightech vem de uma matriz por faixas (0, 15, 30, 50, 60, 70, 80 — a sequência é irregular de propósito, não faltam faixas); o export traz o valor já resolvido para o cargo.";Benchmark (não entra na DRE);Benchmark QLP — Salário de referência
+Quantidade Benefício;QUANTIDADE DE BENEFICIO REMUNERADO;Quantos benefícios são remunerados no cargo. É o multiplicador de Valor Benefício — não é dinheiro.;Direcionador (não entra na DRE);Estrutura ADM — Benefícios
+Quantidade Encargos;QUANTIDADE DE BENEFICIO ENCARGO REMUNERADO;Quantidade sobre a qual os encargos são remunerados. O rótulo veio com a palavra 'benefício' no meio, aparentemente herdada da linha de cima — vale confirmar se a base é a mesma.;Direcionador (não entra na DRE);Estrutura ADM — Encargos e provisões
+Quantidade Frota Leve;QUANTIDADE DE FROTA LEVE REMUNERADO;Quantos veículos de frota leve o cargo tem direito a ter remunerados.;Direcionador (não entra na DRE);Estrutura ADM — Frota leve
+Quantidade Ordenados;QUANTIDADE DE QLP REMUNERADO;Quantas posições do cargo o QLP remunera — o efetivo reconhecido. É esta quantidade que o benchmark confronta.;Direcionador (não entra na DRE);Estrutura ADM — Ordenados
+Quantidade Telefonia;QUANTIDADE DE TELEFONIA REMUNERADO;Quantas linhas/aparelhos são remunerados no cargo.;Direcionador (não entra na DRE);Estrutura ADM — Telefonia
+Quantidade Uniformes;QUANTIDADE DE UNIFORMES REMUNERADOS;Quantos uniformes são remunerados no cargo.;Direcionador (não entra na DRE);Estrutura ADM — Uniformes
+Salário Encargos;CALCULO DE SALARIOS MAIS ENCARGOS;Salário do cargo já com encargos — o custo unitário para quem paga, e não o que a pessoa recebe. É parâmetro unitário: multiplicado pela quantidade é que vira despesa.;(−) Custo fixo — parâmetro unitário (não soma);Estrutura ADM — Encargos e provisões
+Salário Ordenados;CALCULO DE SALARIOS ORDENADOS;Salário unitário do cargo, sem encargos. Multiplicado por Quantidade Ordenados produz Despesa Ordenados — somar os dois é contar o mesmo salário duas vezes.;(−) Custo fixo — parâmetro unitário (não soma);Estrutura ADM — Ordenados
+Vale Transporte;CALCULO DO VALE TRANSPORTE ORDENADO;Vale-transporte do quadro ordenado. Atenção: confirmar se ele já está dentro de Despesa Benefício ou se soma à parte — as duas leituras são plausíveis pelos rótulos, e elas diferem pelo valor inteiro do VT.;(−) Custo fixo — estrutura administrativa;Estrutura ADM — Transporte
+Valor Benefício;VALOR DO BENEFICIO REMUNERADO;Valor unitário do benefício. Parâmetro: só vira dinheiro multiplicado por Quantidade Benefício.;(−) Custo fixo — parâmetro unitário (não soma);Estrutura ADM — Benefícios
+Valor Frota Leve;VALOR DE FROTA LEVE REMUNERADO;Valor unitário de um veículo de frota leve — aluguel ou custo mensal reconhecido. Parâmetro.;(−) Custo fixo — parâmetro unitário (não soma);Estrutura ADM — Frota leve
+Valor Telefonia;VALOR DE TELEFONIA REMUNERADA;Valor unitário da linha de telefonia. Parâmetro.;(−) Custo fixo — parâmetro unitário (não soma);Estrutura ADM — Telefonia
+Valor Uniformes;VALOR DE UNIFORMES REMUNERADO;Valor unitário do uniforme. Parâmetro.;(−) Custo fixo — parâmetro unitário (não soma);Estrutura ADM — Uniformes
+_id;Identificador do registro;Chave técnica do documento no banco. Sem leitura de negócio — serve para rastrear a linha entre cargas.;Cadastral (não entra na DRE);Cadastro — Chave técnica
