@@ -290,23 +290,38 @@ export function criarDeduplicador(
   const chaveDoAtivo = (linha: LinhaDeMudanca) =>
     `${linha.comparacaoId ?? ""}\u001f${linha.entityId}`;
 
-  const mudouNoAtivo = new Map<string, Set<string>>();
+  /*
+    O índice das regras é `contouNoAtivo` — códigos cuja linha tem preço
+    apurado (CALCULATED, numérico) neste ativo e nesta comparação — e não um
+    índice de "mudou". A pergunta que uma exclusão precisa responder é "a linha
+    que representaria este dinheiro ENTROU na soma?", e mudar sem preço não
+    entra em soma nenhuma.
+
+    O índice anterior era de "mudou", e o furo era silencioso e sempre para baixo:
+    um total calculável (+R$ 100) com uma parcela APPEARED — sem delta, sem
+    impacto — saía da soma "coberto pela parcela", e a parcela não punha nada
+    no lugar. O oficial dizia R$ 0 com o rastro afirmando que o dinheiro estava
+    contado em outra linha que não contava nada. Cobertura sem representação é
+    exatamente a dupla contagem ao contrário: dinheiro sumido.
+  */
+  const contouNoAtivo = new Map<string, Set<string>>();
   for (const linha of linhas) {
     if (linha.entityId === null || linha.attributeCode === null) continue;
+    if (precoDe(linha) === null) continue;
     const chave = chaveDoAtivo(linha);
-    let codigos = mudouNoAtivo.get(chave);
-    if (!codigos) mudouNoAtivo.set(chave, (codigos = new Set()));
-    codigos.add(linha.attributeCode);
+    let comPreco = contouNoAtivo.get(chave);
+    if (!comPreco) contouNoAtivo.set(chave, (comPreco = new Set()));
+    comPreco.add(linha.attributeCode);
   }
 
   const porComposicao = (linha: LinhaDeMudanca): ForaDoTotal | null => {
     if (linha.entityId === null) return null;
-    if (!isCoveredByParts(linha.attributeCode, chaveDoAtivo(linha), mudouNoAtivo)) {
+    if (!isCoveredByParts(linha.attributeCode, chaveDoAtivo(linha), contouNoAtivo)) {
       return null;
     }
     const composicao = compositionOf(linha.attributeCode);
     const partes = PARTES_POR_TOTAL.get(linha.attributeCode!) ?? [];
-    const mudaram = mudouNoAtivo.get(chaveDoAtivo(linha)) ?? new Set<string>();
+    const mudaram = contouNoAtivo.get(chaveDoAtivo(linha)) ?? new Set<string>();
     const cobertas = partes.filter((p) => mudaram.has(p));
     return {
       motivo: "COBERTO_POR_PARCELAS",
@@ -327,11 +342,14 @@ export function criarDeduplicador(
     if (!escopo || linha.entityId === null) return null;
     const embutidos = vinculos.embutidos.get(linha.entityId);
     if (!embutidos) return null;
-    // Só sai quando o ativo embutido mexeu **nesta** comparação: sem isso a
-    // regra viraria "esta coluna nunca conta", e apagaria a variação própria do
-    // implemento nas carretas cujo cavalo não mudou.
+    // Só sai quando o ativo embutido mexeu **nesta** comparação — e mexeu COM
+    // PREÇO. Sem a primeira condição, a regra viraria "esta coluna nunca
+    // conta", apagando a variação própria do implemento nas carretas cujo
+    // cavalo não mudou; sem a segunda, uma coluna embutida que mudou sem
+    // impacto apurável tiraria daqui um dinheiro que nenhuma outra linha
+    // representa.
     const mexeu = embutidos.some((id) =>
-      mudouNoAtivo
+      contouNoAtivo
         .get(`${linha.comparacaoId ?? ""}\u001f${id}`)
         ?.has(escopo.contem),
     );
