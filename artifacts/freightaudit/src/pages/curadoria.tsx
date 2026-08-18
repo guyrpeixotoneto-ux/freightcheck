@@ -30,7 +30,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  classeDaCategoria,
+  familiaDaCategoria,
   leituraDe,
   oQueFalta,
   podeConfirmar,
@@ -848,6 +848,17 @@ function ConfirmarInterpretacao({
    * o filtro da segunda lista enquanto a resposta não existe.
    */
   const [sinteticoPendente, setSinteticoPendente] = useState<string | null>(null);
+  /**
+   * Como o valor se comporta — e por que é um estado separado da categoria.
+   *
+   * Era lido da categoria: a árvore declarava a classe e a herdava para baixo.
+   * Deixou de ser, porque a mesma natureza tem classes diferentes conforme o
+   * contexto — `Pessoal e encargos` é fixo no cavalo e variável no trecho —, e
+   * lê-la da árvore obrigava a duplicar a natureza. Agora é do atributo.
+   */
+  const [costClass, setCostClass] = useState<string | null>(
+    detail.costClass ?? null,
+  );
   const [periodicity, setPeriodicity] = useState<string | null>(detail.periodicity);
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -985,6 +996,33 @@ function ConfirmarInterpretacao({
       );
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Falha ao confirmar");
+
+      /*
+        A classe de custo vai numa chamada própria, e de propósito.
+
+        Ela não é um dos campos que a confirmação assina: confirmar destrava
+        soma de dinheiro — unidade, periodicidade, agregação —, e dizer de que
+        lado da conta o valor cai é outra afirmação, com o seu próprio evento de
+        curadoria. Eram atos separados quando isto se fazia movendo a categoria
+        na árvore, e continuam sendo.
+
+        A justificativa é a mesma porque a pessoa a escreveu uma vez, sobre a
+        mesma decisão.
+      */
+      if (costClass && costClass !== detail.costClass) {
+        const classe = await fetch(
+          getApiUrl(`/curation/attributes/${detail.code}/classe-de-custo`),
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ classe: costClass, reason }),
+          },
+        );
+        const corpo = await classe.json();
+        if (!classe.ok) {
+          throw new Error(corpo.error ?? "Falha ao gravar a classe de custo");
+        }
+      }
       return body;
     },
     onSuccess: () => {
@@ -1299,8 +1337,8 @@ function ConfirmarInterpretacao({
               rotuloDe={(item) => item.analitico || item.caminho}
               detalheDe={(item) =>
                 sinteticoAtivo === null
-                  ? `${item.sintetico} · ${classeDaCategoria(item)}`
-                  : classeDaCategoria(item)
+                  ? `${item.sintetico} · ${familiaDaCategoria(item)}`
+                  : familiaDaCategoria(item)
               }
               previaDe={() =>
                 "Entra como categoria nova, ainda sem classe de custo — ela não se lê no nome. " +
@@ -1310,6 +1348,31 @@ function ConfirmarInterpretacao({
               placeholder="Pesquisar ou cadastrar…"
               erro={erroDoCadastro}
             />
+          </Field>
+
+          {/* A classe de custo fica **depois** da categoria e é outra pergunta:
+              a de cima diz o que o valor é, esta diz como ele se comporta. Era
+              uma só quando a árvore declarava a classe, e a mesma natureza não
+              cabia em dois lados por causa disso. */}
+          <Field
+            label="Como este valor se comporta?"
+            hint="Custo fixo incide por ter o ativo; variável, só quando roda. É do atributo, não da categoria — a mesma natureza pode ser fixa num equipamento e variável em outro."
+          >
+            <Select
+              value={costClass ?? ""}
+              onValueChange={(valor) => setCostClass(valor)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Escolher o comportamento…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="FIXO">Custo fixo</SelectItem>
+                <SelectItem value="VARIAVEL">Custo variável</SelectItem>
+                <SelectItem value="NAO_APLICAVEL">
+                  Não é custo — cadastro, direcionador ou receita
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </Field>
 
           <Field

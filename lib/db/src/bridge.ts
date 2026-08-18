@@ -95,13 +95,42 @@ export const COLUNAS_LEGADAS_TICKET: { nome: string; ddl: string }[] = [
  * Todas nullable, sem default, sem generated, em tabela que já existe — e todas
  * conferidas por tipo pela `0015` (ver a seção 4 daquela migration).
  */
-export const ALLOWLIST: { tabela: string; coluna: string; tipo: string }[] = [
+export const ALLOWLIST: {
+  tabela: string;
+  coluna: string;
+  tipo: string;
+  /**
+   * A coluna entra na fila depois do ponto em que o bridge costuma rodar.
+   *
+   * As primeiras seis existem desde cedo, e por isso a conferência do `down`
+   * exige encontrá-las: ausência ali significaria que o `down` removeu o que
+   * não devia. Uma coluna acrescentada por uma migration recente é diferente —
+   * um Development parado antes dela **não a tem**, e não tê-la é o estado
+   * correto, não um defeito do bridge. Marcadas assim, elas são conferidas
+   * quando existem e ignoradas quando ainda não chegaram.
+   */
+  aindaPodeNaoExistir?: boolean;
+}[] = [
   { tabela: "snapshot", coluna: "dataset_family", tipo: "text" },
   { tabela: "snapshot", coluna: "canal", tipo: "text" },
   { tabela: "snapshot", coluna: "canonical_scope", tipo: "jsonb" },
   { tabela: "snapshot", coluna: "canonical_payload_hash", tipo: "text" },
   { tabela: "staged_fact", coluna: "entity_key_raw", tipo: "text" },
   { tabela: "entity_identifier", coluna: "identifier_value_raw", tipo: "text" },
+  /*
+    As duas da `0030`. A classe de custo saiu da taxonomia e virou propriedade
+    do atributo — versionada em `attribute_semantics`, projetada em `attribute`.
+    São aditivas, como todas as daqui: Production ganha as colunas quando rodar
+    a fila, e até lá o `down` as mantém para que a proposta do Publishing não
+    tenha nada além delas.
+  */
+  { tabela: "attribute", coluna: "cost_class", tipo: "text", aindaPodeNaoExistir: true },
+  {
+    tabela: "attribute_semantics",
+    coluna: "cost_class",
+    tipo: "text",
+    aindaPodeNaoExistir: true,
+  },
 ];
 
 /**
@@ -798,6 +827,7 @@ export async function bridgeDown(
         [a.tabela, a.coluna],
       );
       const r = rows[0];
+      if (!r && a.aindaPodeNaoExistir) continue;
       conferir(
         `allowlist ${a.tabela}.${a.coluna}`,
         !!r && r.t === a.tipo && r.n === "YES" && r.d === null,

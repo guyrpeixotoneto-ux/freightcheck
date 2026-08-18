@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { curationEventTable, semanticMeaningTable, taxonomyNodeTable } from "@workspace/db";
 import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest/testing";
 import {
@@ -281,15 +281,43 @@ describe("categorias — hierarquia por dentro, linguagem de negócio por fora",
   it("a lista fala em caminho de negócio, e não em nó de taxonomia", async () => {
     const categorias = await listarCategorias(ctx.db);
     const manutencao = categorias.find((c) => c.code === "cv_manutencao");
-    expect(manutencao?.caminho).toBe("Custo Variável › Manutenção");
-    expect(manutencao?.costClass).toBe("VARIAVEL");
+    expect(manutencao?.caminho).toBe("Consumo e operação › Manutenção");
+    // Os dois níveis em que a DRE se lê, derivados do mesmo nó.
+    expect(manutencao?.sintetico).toBe("Consumo e operação");
+    expect(manutencao?.analitico).toBe("Manutenção");
   });
 
-  it("as classes e a raiz não são escolhíveis — classificar em 'Custo Fixo' é não classificar", async () => {
+  it("as famílias e a raiz não são escolhíveis — classificar numa família é não classificar", async () => {
     const codigos = (await listarCategorias(ctx.db)).map((c) => c.code);
-    expect(codigos).not.toContain("remuneracao");
-    expect(codigos).not.toContain("custo_fixo");
+    expect(codigos).not.toContain("natureza");
+    expect(codigos).not.toContain("operacao");
     expect(codigos).toContain("cv_pneus");
+  });
+
+  /*
+    A raiz não é o nome do domínio. Chamava-se "Remuneração", e uma árvore que
+    começa no nome do domínio chega enviesada: sob ela as classes eram três
+    recortes de custo e nenhum de receita.
+  */
+  it("a raiz nomeia a pergunta que a árvore responde, e não o domínio", async () => {
+    const [raiz] = await ctx.db
+      .select()
+      .from(taxonomyNodeTable)
+      .where(isNull(taxonomyNodeTable.parentId));
+    expect(raiz.code).toBe("natureza");
+    expect(raiz.name).toBe("Natureza do atributo");
+  });
+
+  it("o lado da receita e os direcionadores têm casa própria", async () => {
+    const codigos = (await listarCategorias(ctx.db)).map((c) => c.code);
+    // As duas famílias inteiras que faltavam: sem elas, tudo que a Ambev paga
+    // ficava sem lugar e km/tempo/ciclo caíam em "Especificação técnica".
+    expect(codigos).toEqual(expect.arrayContaining(["rem_fixa", "rem_frete_trecho"]));
+    expect(codigos).toEqual(expect.arrayContaining(["dir_distancia", "dir_tempo"]));
+    // E os que vinham caindo em "Outros".
+    expect(codigos).toEqual(
+      expect.arrayContaining(["op_pedagio", "op_lavagem", "prot_seguro_carga"]),
+    );
   });
 
   it("selecionar uma categoria existente é achá-la pela busca", async () => {
@@ -308,23 +336,22 @@ describe("categorias — hierarquia por dentro, linguagem de negócio por fora",
   });
 
   it("cadastra a categoria nova, com autor, e já pronta para ser selecionada", async () => {
-    const r = await criarCategoria(ctx.db, { name: "Pedágio", actor: ATOR });
+    const r = await criarCategoria(ctx.db, { name: "Escolta armada", actor: ATOR });
     expect(r.desfecho).toBe("CRIADO");
     expect(r.item).toMatchObject({
-      name: "Pedágio",
-      code: "pedagio",
+      name: "Escolta armada",
+      code: "escolta_armada",
       // Sob "Não classificado": a classe de custo não se lê no nome, e um
       // palpite entre fixo e variável mudaria de lado quatro telas do produto.
-      caminho: "Não classificado › Pedágio",
-      costClass: null,
+      caminho: "Não classificado › Escolta armada",
     });
 
     const [linha] = await ctx.db
       .select()
       .from(taxonomyNodeTable)
-      .where(eq(taxonomyNodeTable.code, "pedagio"));
+      .where(eq(taxonomyNodeTable.code, "escolta_armada"));
     expect(linha.createdBy).toBe(ATOR);
-    expect(linha.path).toBe("remuneracao/nao_classificado/pedagio");
+    expect(linha.path).toBe("natureza/nao_classificado/escolta_armada");
   });
 
   it("a árvore inicial continua sem autor, e isso é uma resposta", async () => {
@@ -339,7 +366,7 @@ describe("categorias — hierarquia por dentro, linguagem de negócio por fora",
     const [linha] = await ctx.db
       .select()
       .from(taxonomyNodeTable)
-      .where(eq(taxonomyNodeTable.code, "pedagio"));
+      .where(eq(taxonomyNodeTable.code, "escolta_armada"));
     const eventos = await ctx.db
       .select()
       .from(curationEventTable)
@@ -349,9 +376,9 @@ describe("categorias — hierarquia por dentro, linguagem de negócio por fora",
   });
 
   it("criar de novo devolve a que existe, a menos de acento e caixa", async () => {
-    const r = await criarCategoria(ctx.db, { name: "pedagio", actor: ATOR });
+    const r = await criarCategoria(ctx.db, { name: "escolta_armada", actor: ATOR });
     expect(r.desfecho).toBe("JA_EXISTE");
-    expect(r.item?.code).toBe("pedagio");
+    expect(r.item?.code).toBe("escolta_armada");
   });
 
   it("exige responsável identificado", async () => {

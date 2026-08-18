@@ -28,7 +28,6 @@ const cat = (over: Partial<Categoria> = {}): Categoria => ({
   code: "pedagio",
   name: "Pedágio",
   caminho: "Não classificado › Pedágio",
-  costClass: null,
   classeCode: SEM_CLASSE,
   atributos: 0,
   isSeed: false,
@@ -40,8 +39,7 @@ const combustivel = cat({
   code: "cv_combustivel",
   name: "Combustível",
   caminho: "Custo Variável › Combustível",
-  costClass: "VARIAVEL",
-  classeCode: "custo_variavel",
+  classeCode: "operacao",
   atributos: 7,
   isSeed: true,
 });
@@ -51,8 +49,7 @@ const pneus = cat({
   code: "cf_pneus",
   name: "Pneus",
   caminho: "Custo Fixo › Pneus",
-  costClass: "FIXO",
-  classeCode: "custo_fixo",
+  classeCode: "frota",
   atributos: 2,
   isSeed: true,
 });
@@ -62,10 +59,9 @@ const identificacao = cat({
   code: "cad_identificacao",
   name: "Identificação do ativo",
   caminho: "Cadastral (não remuneratório) › Identificação do ativo",
-  // Nula **por decisão**: cadastro não é custo, e carimbá-lo FIXO o poria num
+  // A família cadastral: descreve o ativo, e não mede grandeza econômica. Se é
   // total. É o caso que distingue "sem classe" de "classificada como nenhuma".
-  costClass: null,
-  classeCode: "cadastral",
+  classeCode: "cadastro",
   atributos: 12,
   isSeed: true,
 });
@@ -76,12 +72,11 @@ describe("quem ainda precisa de classe", () => {
     expect(fila.map((c) => c.code)).toEqual(["pedagio"]);
   });
 
-  it("'Não é custo' não volta para a fila, por mais nula que a classe seja", () => {
-    // `costClass` é nula nas duas; só `classeCode` separa a decisão tomada da
-    // decisão adiada.
-    expect(identificacao.costClass).toBeNull();
+  it("cadastro não volta para a fila — é família, e família é decisão tomada", () => {
+    // Só `classeCode` separa a decisão tomada da adiada. A classe de custo saiu
+    // da categoria e virou do atributo; aqui a pergunta é outra.
     expect(precisamDeClasse([identificacao])).toEqual([]);
-    expect(classeAtual(identificacao)).toBe("NAO_E_CUSTO");
+    expect(classeAtual(identificacao)).toBe("cadastro");
   });
 
   it("ordena por quantas colunas dependem da decisão", () => {
@@ -102,14 +97,15 @@ describe("quem ainda precisa de classe", () => {
 });
 
 describe("as já classificadas, agrupadas pela casa em que moram", () => {
-  it("agrupa nas três classes, na ordem da conta", () => {
+  it("agrupa pelas famílias, na ordem da árvore", () => {
     const grupos = jaClassificadas([combustivel, pneus, identificacao, cat()]);
-    expect(grupos.map((g) => g.classe)).toEqual(["FIXO", "VARIAVEL", "NAO_E_CUSTO"]);
-    expect(grupos[0].itens.map((c) => c.name)).toEqual(["Pneus"]);
+    // Na ordem da árvore, e não na ordem em que a lista chegou.
+    expect(grupos.map((g) => g.classe)).toEqual(["cadastro", "frota", "operacao"]);
+    expect(grupos[0].itens.map((c) => c.name)).toEqual(["Identificação do ativo"]);
   });
 
   it("não mostra grupo vazio", () => {
-    expect(jaClassificadas([combustivel]).map((g) => g.classe)).toEqual(["VARIAVEL"]);
+    expect(jaClassificadas([combustivel]).map((g) => g.classe)).toEqual(["operacao"]);
   });
 
   it("a categoria sem classe não entra em grupo nenhum", () => {
@@ -147,21 +143,21 @@ describe("a frase do topo", () => {
 
 describe("a consequência, dita antes do clique", () => {
   it("diz para onde vai e quantas colunas vão junto", () => {
-    const texto = consequenciaDe(cat({ atributos: 4 }), "VARIAVEL");
-    expect(texto).toContain('"Pedágio" passa a viver em custo variável');
+    const texto = consequenciaDe(cat({ atributos: 4 }), "operacao");
+    expect(texto).toContain('"Pedágio" passa a viver em consumo e operação');
     expect(texto).toContain("4 colunas passam a entrar por aí");
   });
 
   it("diz também o que **não** muda — a metade que costuma faltar", () => {
     // `change.cost_class` é materializada quando a comparação roda. Reescrevê-la
     // aqui seria a curadoria editando um resultado apurado.
-    expect(consequenciaDe(cat(), "FIXO")).toContain(
+    expect(consequenciaDe(cat(), "frota")).toContain(
       "comparações já calculadas seguem com a classe que tinham",
     );
   });
 
   it("não promete movimento onde não há coluna nenhuma", () => {
-    expect(consequenciaDe(cat({ atributos: 0 }), "FIXO")).toContain(
+    expect(consequenciaDe(cat({ atributos: 0 }), "frota")).toContain(
       "nada muda de lugar agora",
     );
   });
@@ -171,14 +167,14 @@ describe("quando o botão habilita", () => {
   const justificativa = "O contrato de agosto repassa pedágio por viagem.";
 
   it("com classe escolhida e justificativa escrita", () => {
-    expect(podeClassificar(cat(), { classe: "VARIAVEL", justificativa })).toBe(true);
+    expect(podeClassificar(cat(), { classe: "operacao", justificativa })).toBe(true);
   });
 
   it("nunca sem justificativa — a decisão é assinada", () => {
-    expect(podeClassificar(cat(), { classe: "VARIAVEL", justificativa: "   " })).toBe(
+    expect(podeClassificar(cat(), { classe: "operacao", justificativa: "   " })).toBe(
       false,
     );
-    expect(motivoDeNaoPoder(cat(), { classe: "VARIAVEL", justificativa: "" })).toContain(
+    expect(motivoDeNaoPoder(cat(), { classe: "operacao", justificativa: "" })).toContain(
       "assinatura",
     );
   });
@@ -191,20 +187,20 @@ describe("quando o botão habilita", () => {
   });
 
   it("nunca para a classe em que ela já está — não há o que decidir ali", () => {
-    expect(podeClassificar(combustivel, { classe: "VARIAVEL", justificativa })).toBe(
+    expect(podeClassificar(combustivel, { classe: "operacao", justificativa })).toBe(
       false,
     );
     expect(
-      motivoDeNaoPoder(combustivel, { classe: "VARIAVEL", justificativa }),
+      motivoDeNaoPoder(combustivel, { classe: "operacao", justificativa }),
     ).toContain("já está aí");
   });
 
   it("reclassificar é permitido: a fonte muda de regra, e a classe de agosto deixa de valer", () => {
-    expect(podeClassificar(combustivel, { classe: "FIXO", justificativa })).toBe(true);
+    expect(podeClassificar(combustivel, { classe: "frota", justificativa })).toBe(true);
   });
 
   it("sem impedimento, não inventa motivo", () => {
-    expect(motivoDeNaoPoder(cat(), { classe: "FIXO", justificativa })).toBeNull();
+    expect(motivoDeNaoPoder(cat(), { classe: "frota", justificativa })).toBeNull();
   });
 });
 
@@ -227,14 +223,25 @@ describe("o filtro", () => {
   });
 });
 
-describe("as três classes", () => {
-  it("são exatamente as três casas da árvore, e 'Não classificado' não é uma delas", () => {
+describe("as famílias da árvore", () => {
+  it("são as famílias semânticas, e 'Não classificado' não é uma delas", () => {
     // "Não classificado" é de onde se sai, nunca um destino. Oferecê-lo como
     // opção transformaria a fila num lugar de onde não se sai.
+    //
+    // Eram três e eram econômicas — custo fixo, variável, não é custo. Deixaram
+    // de ser quando a classe de custo saiu da árvore: a mesma natureza tem
+    // classes diferentes conforme o contexto, e mantê-las aqui obrigava a
+    // duplicar o nó.
     expect(CLASSES.map((c) => c.no)).toEqual([
-      "custo_fixo",
-      "custo_variavel",
-      "cadastral",
+      "cadastro",
+      "frota",
+      "operacao",
+      "pessoal",
+      "protecao",
+      "tributos",
+      "capital",
+      "remuneracao_transportador",
+      "direcionador",
     ]);
     expect(CLASSES.map((c) => c.no)).not.toContain(SEM_CLASSE);
   });

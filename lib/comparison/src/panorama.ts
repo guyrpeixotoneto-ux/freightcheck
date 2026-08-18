@@ -2,7 +2,7 @@ import { sql } from "drizzle-orm";
 import { viraDinheiro } from "@workspace/curation";
 import type { Database } from "@workspace/db";
 import { attributeLabel, equipmentLabel } from "./labels";
-import { INHERITED_COST_CLASS_JOIN } from "./classification";
+import { inheritedCostClassJoin } from "./classification";
 import {
   COMPOSITIONS,
   ESCOPOS_DE_CONJUNTO,
@@ -483,7 +483,7 @@ export async function getPanoramaDeAlteracoes(
            node.name AS taxonomy_name
       FROM attribute a
       LEFT JOIN taxonomy_node node ON node.id = a.taxonomy_node_id
-      ${INHERITED_COST_CLASS_JOIN}
+      ${inheritedCostClassJoin("a")}
      WHERE a.data_type = 'NUMERIC'
   `);
   const reguaDe = new Map(atributos.map((a) => [a.code, a]));

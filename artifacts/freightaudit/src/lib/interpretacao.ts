@@ -60,25 +60,26 @@ export interface OpcaoDeCategoria {
    */
   sintetico: string;
   analitico: string;
-  costClass: string | null;
-  /** `custo_fixo` | `custo_variavel` | `cadastral` | `nao_classificado`. */
+  /** A família semântica: `operacao`, `capital`, `nao_classificado`… */
   classeCode: string | null;
 }
 
 /**
- * A classe de custo dita para quem escolhe categoria.
+ * A família da categoria, dita para quem escolhe.
  *
- * `costClass` sozinha não serve, e o erro seria caro na direção mais silenciosa
- * possível: uma categoria cadastral tem `costClass` nula **por decisão** —
- * cadastro não é custo —, e chamá-la de "ainda sem classe" mandaria a pessoa
- * classificar de novo o que já está classificado. Só `classeCode` separa a
- * decisão tomada da decisão adiada.
+ * Isto **era** a classe de custo — "Custo fixo", "Custo variável", "Não é
+ * custo" —, lida da posição na árvore. Deixou de ser: a classe de custo é do
+ * atributo, não da natureza, e a árvore passou a agrupar por família semântica.
+ * O que a linha de detalhe informa agora é onde a categoria mora, que é o que
+ * ajuda a escolher entre duas de nome parecido.
+ *
+ * `nao_classificado` continua sendo o único que merece uma frase diferente: é o
+ * limbo de onde se sai, e dizer o nome dele seria dizer que está tudo certo.
  */
-export function classeDaCategoria(categoria: OpcaoDeCategoria): string {
-  if (categoria.classeCode === "custo_fixo") return "Custo fixo";
-  if (categoria.classeCode === "custo_variavel") return "Custo variável";
-  if (categoria.classeCode === "cadastral") return "Não é custo";
-  return "Ainda sem classe de custo";
+export function familiaDaCategoria(categoria: OpcaoDeCategoria): string {
+  if (categoria.classeCode === null) return "Fora da árvore";
+  if (categoria.classeCode === "nao_classificado") return "Ainda sem família";
+  return categoria.sintetico;
 }
 
 /** O que a tela sabe do atributo, reduzido ao que estas funções perguntam. */

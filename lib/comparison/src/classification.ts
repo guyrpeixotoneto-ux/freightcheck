@@ -2,41 +2,52 @@ import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 
 /**
- * Resolving an attribute's cost class.
+ * Resolvendo a classe de custo de um atributo.
  *
- * The audit found the one structural gap in the model: `cost_class` is
- * declared on the CLASS nodes (`custo_fixo`, `custo_variavel`) and inherited by
- * everything below, but every attribute is assigned to a GROUP node. A plain
- * `attribute -> taxonomy_node` join therefore returns NULL for all 138
- * attributes, and question 6 ("custo fixo, variável ou outro?") cannot be
- * answered from it.
+ * Ela **era** declarada nos nós de classe da taxonomia (`custo_fixo`,
+ * `custo_variavel`) e herdada por tudo abaixo, e este arquivo existia para
+ * fazer essa herança: um join lateral que achava o ancestral mais próximo com
+ * classe declarada.
  *
- * No migration is needed to close it: `taxonomy_node.path` is already
- * materialised, so the nearest ancestor that declares a class is the longest
- * path that is a prefix of mine. That is a single lateral join, no recursion.
+ * Desde a migration 0030 a classe é do **atributo**, não do nó. O motivo é que
+ * ela nunca foi propriedade da natureza: `Pessoal e encargos` é custo fixo
+ * quando o valor descreve o cavalo e variável quando descreve o trecho, e
+ * enquanto a classe morou na árvore a mesma natureza precisava de dois nós —
+ * fazendo "o que é isto?" ter duas respostas conforme o contexto.
+ *
+ * O fragmento continua existindo, com o mesmo nome e o mesmo contrato, por uma
+ * razão prática: cinco consultas o interpolam, e a regra que elas compartilham
+ * — *de onde sai a classe de custo* — precisa ter um lugar só, ou vira cinco
+ * respostas esperando para divergir. O que mudou é o que ele faz: nenhuma
+ * recursão, nenhuma herança, uma coluna.
  */
 
 /**
- * The inheritance itself, as a joinable fragment.
+ * De onde sai a classe de custo, como fragmento interpolável.
  *
- * Three queries need it now — the two below and the panorama's — and the rule
- * they share is not a formatting detail: "the nearest ancestor that declares a
- * class" is the whole answer to *is this fixed or variable*, and a second copy
- * of it would be a second answer waiting to drift from this one.
+ * Recebe o alias da tabela que traz a coluna porque as três consultas que o
+ * usam partem de lugares diferentes — duas de `attribute`, uma de
+ * `attribute_semantics` —, e as duas tabelas têm a coluna: a versionada é a
+ * verdade, a projeção é a leitura barata.
  *
- * The contract is one identifier: the outer query must expose the attribute's
- * own taxonomy node as `node`. The join adds `inherited.cost_class`.
+ * O nome exposto continua sendo `inherited.cost_class`, que é o que as
+ * consultas já selecionam. Ele ficou impróprio — não se herda mais nada — e
+ * mudá-lo custaria tocar cinco `SELECT` para não dizer nada de novo.
+ *
+ * `NAO_APLICAVEL` sai como NULL. Para quem lê um total, "não é custo" e
+ * "ninguém decidiu" são a mesma ausência; a diferença entre os dois é da
+ * curadoria, e quem precisa dela lê `attribute.cost_class` direto. Traduzir
+ * aqui é o que mantém intactas as telas que já distinguiam FIXO, VARIAVEL e
+ * "sem classe".
  */
-export const INHERITED_COST_CLASS_JOIN = sql`
+export function inheritedCostClassJoin(alias: "a" | "v") {
+  const coluna = alias === "a" ? sql`a.cost_class` : sql`v.cost_class`;
+  return sql`
       LEFT JOIN LATERAL (
-        SELECT ancestor.cost_class
-          FROM taxonomy_node ancestor
-         WHERE node.path IS NOT NULL
-           AND ancestor.cost_class IS NOT NULL
-           AND (node.path = ancestor.path OR node.path LIKE ancestor.path || '/%')
-         ORDER BY length(ancestor.path) DESC
-         LIMIT 1
+        SELECT CASE WHEN ${coluna} IN ('FIXO', 'VARIAVEL') THEN ${coluna} END
+                 AS cost_class
       ) AS inherited ON true`;
+}
 
 export interface AttributeClassification {
   /** Which semantics version this describes. Null before any versioning. */
@@ -107,7 +118,7 @@ export async function loadAttributeClassificationsAt(
            node.name
       FROM attribute_semantics v
       LEFT JOIN taxonomy_node node ON node.id = v.taxonomy_node_id
-      ${INHERITED_COST_CLASS_JOIN}
+      ${inheritedCostClassJoin("v")}
      WHERE v.effective_from <= ${date}::date
        AND (v.effective_until IS NULL OR ${date}::date < v.effective_until)
   `);
@@ -168,7 +179,7 @@ export async function loadAttributeClassifications(
            node.name
       FROM attribute a
       LEFT JOIN taxonomy_node node ON node.id = a.taxonomy_node_id
-      ${INHERITED_COST_CLASS_JOIN}
+      ${inheritedCostClassJoin("a")}
   `);
 
   const map = new Map<string, AttributeClassification>();

@@ -54,14 +54,18 @@ export interface TaxonomyNodeView {
   code: string;
   name: string;
   kind: string;
-  /** Declared here, or inherited from the nearest ancestor that declares it. */
-  costClass: string | null;
   path: string;
   depth: number;
   children: TaxonomyNodeView[];
 }
 
-/** Read the whole tree, with cost class resolved through inheritance. */
+/**
+ * A árvore inteira.
+ *
+ * Sem classe de custo: ela saiu da taxonomia na migration 0030 e virou coluna
+ * do atributo. Um nó responde o que o valor é, e é só isso que esta leitura
+ * devolve.
+ */
 export async function getTaxonomyTree(db: Database): Promise<TaxonomyNodeView[]> {
   const nodes = await db
     .select()
@@ -77,7 +81,6 @@ export async function getTaxonomyTree(db: Database): Promise<TaxonomyNodeView[]>
       code: node.code,
       name: node.name,
       kind: node.kind,
-      costClass: node.costClass,
       path: node.path,
       depth: node.depth,
       children: [],
@@ -94,7 +97,6 @@ export async function getTaxonomyTree(db: Database): Promise<TaxonomyNodeView[]>
     }
     const parent = views.get(node.parentId);
     if (!parent) continue;
-    if (view.costClass === null) view.costClass = parent.costClass;
     parent.children.push(view);
   }
   return roots;

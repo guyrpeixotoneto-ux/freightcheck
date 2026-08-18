@@ -44,7 +44,7 @@ let ctx: TestDb;
 let servidor: Server;
 let base: string;
 
-/** Os 22 nós, contados da própria árvore — nunca um número escrito à mão. */
+/** Os nós da árvore, contados dela mesma — nunca um número escrito à mão. */
 const NOS_CANONICOS = contarNosCanonicos();
 
 const JULHO = "2026-07-02";
@@ -157,15 +157,24 @@ describe("a promoção garante a estrutura obrigatória — banco vazio, sem see
     expect(primeira.body).not.toHaveProperty("versions");
   });
 
-  it("1. semeia os 22 nós da taxonomia", async () => {
+  it("1. semeia a árvore canônica inteira", async () => {
+    /*
+      A árvore já vem da fila de migrations desde a 0031, que a reorganizou e
+      criou os nós que faltavam. A promoção continua sendo quem **garante** que
+      ela existe — e num banco migrado a garantia encontra tudo no lugar, que é
+      o desfecho certo, não uma promoção que não fez nada.
+    */
     expect(primeira.body.taxonomia).toEqual({
-      nosCriados: NOS_CANONICOS,
-      nosExistentes: 0,
+      nosCriados: 0,
+      nosExistentes: NOS_CANONICOS,
     });
 
     const nos = await ctx.db.select().from(taxonomyNodeTable);
     expect(nos).toHaveLength(NOS_CANONICOS);
-    expect(NOS_CANONICOS).toBe(22);
+    // Eram 22 quando as classes eram econômicas. A árvore semântica é maior:
+    // ganhou remuneração, direcionador operacional e as naturezas que vinham
+    // caindo em "Outros".
+    expect(NOS_CANONICOS).toBe(46);
     // A árvore que a tela oferece no seletor "Nó da taxonomia" existe.
     const arvore = await get("/curation/taxonomy?flat=true");
     expect(arvore.body).toHaveLength(NOS_CANONICOS);
@@ -212,14 +221,38 @@ describe("a promoção garante a estrutura obrigatória — banco vazio, sem see
     );
     expect(confirmados).toHaveLength(CONFIRMED_SEMANTICS.length);
     for (const c of confirmados) {
-      expect(c.costClass, c.attributeCode).not.toBeNull();
       expect(c.taxonomyName, c.attributeCode).not.toBeNull();
     }
+
     /*
-      A herança é o que se está provando aqui, e não um `UPDATE`: nenhum nó de
-      grupo declara classe — quem declara são `custo_fixo` e `custo_variavel`, e
-      o atributo a recebe do ancestral mais próximo. `finameCavalo` está em
-      `cf_financiamento`, que não tem classe própria.
+      Classe de custo em todo mundo, **exceto** o que não é custo.
+
+      `lucroFixomodeloNovoCiclo` e `finame` são remuneração ao transportador —
+      receita —, e receita não tem classe de custo: ela sai nula de propósito,
+      pela mesma razão que cadastro sai. Exigir classe deles poria receita de um
+      lado da conta de custo, que é o erro que a família nova existe para
+      impedir.
+    */
+    const semClasse = confirmados
+      .filter((c) => c.costClass === null)
+      .map((c) => c.attributeCode)
+      .sort();
+    for (const code of semClasse) {
+      expect(
+        (await ctx.db.execute<{ familia: string }>(sql`
+          SELECT split_part(n.path, '/', 2) AS familia
+            FROM attribute a JOIN taxonomy_node n ON n.id = a.taxonomy_node_id
+           WHERE a.code = ${code}
+        `)).rows[0]?.familia,
+        code,
+      ).toBe("remuneracao_transportador");
+    }
+    /*
+      O que se prova aqui é que a promoção **garante** a classe, e não que a
+      árvore a herda: desde a migration 0030 a classe é coluna do atributo, e
+      nenhum nó a declara. `finameCavalo` está em `cf_financiamento`, que vive
+      na família `capital` — e é dela que vem o padrão FIXO que a promoção
+      gravou no atributo.
     */
     const finame = confirmados.find((c) => c.attributeCode === "cavalo.finame_cavalo")!;
     expect(finame.costClass).toBe("FIXO");
@@ -252,9 +285,13 @@ describe("a promoção garante a estrutura obrigatória — banco vazio, sem see
       registro canônico. Antes desta correção o segundo número era zero — e
       ficava zero para sempre, porque `cost_class` e `taxonomy_name` são
       **gravados** na linha no momento em que a comparação é calculada.
+
+      `comClasse` é menor que `comGrupo` desde que a receita ganhou casa
+      própria: as duas colunas de remuneração têm grupo e não têm classe de
+      custo, porque não são custo.
     */
     expect(linhas.total).toBe(267);
-    expect(linhas.comClasse).toBe(19);
+    expect(linhas.comClasse).toBe(17);
     expect(linhas.comGrupo).toBe(19);
   });
 });
