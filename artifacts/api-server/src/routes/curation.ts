@@ -14,7 +14,8 @@ import {
 import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
 import {
   aplicarPreenchimento,
-  classificarCategoria,
+  definirClasseDeCusto,
+  moverCategoriaParaFamilia,
   confirmAttribute,
   conferirPreenchimento,
   criarCategoria,
@@ -945,7 +946,59 @@ router.post("/curation/categorias", async (req, res, next): Promise<void> => {
  * como em toda decisão deste produto que mexe em dinheiro.
  */
 router.patch(
-  "/curation/categorias/:code/classe",
+  "/curation/categorias/:code/familia",
+  async (req, res, next): Promise<void> => {
+    try {
+      const { familia, reason } = req.body ?? {};
+      if (!familia) {
+        res.status(400).json({ error: "Informe a família (familia)." });
+        return;
+      }
+      if (!reason) {
+        res.status(400).json({
+          error: "Mover uma categoria exige uma justificativa (reason).",
+        });
+        return;
+      }
+
+      res.json(
+        await moverCategoriaParaFamilia(db, {
+          code: req.params.code,
+          familia,
+          actor: req.user!.email,
+          reason,
+        }),
+      );
+    } catch (err) {
+      if (faltaOSchemaDaCuradoria(err)) {
+        await responderFalha(
+          req,
+          res,
+          next,
+          err,
+          "A família desta categoria não pôde ser gravada neste banco.",
+        );
+        return;
+      }
+      // Recusas de regra de negócio — classe inexistente, nó que é uma classe,
+      // justificativa em branco — com a frase escrita para quem está na tela.
+      const message = err instanceof Error ? err.message : "Erro desconhecido";
+      req.log.warn({ err }, "Category classification refused");
+      res.status(422).json({ error: message });
+    }
+  },
+);
+
+/**
+ * A classe de custo — do atributo, e não da categoria.
+ *
+ * A rota irmã acima move uma categoria de família e responde *o que ela é*.
+ * Esta responde *como este valor se comporta*, e é por atributo porque a mesma
+ * natureza tem classes diferentes conforme o contexto: `Pessoal e encargos` é
+ * fixo no cavalo e variável no trecho. Ver `definirClasseDeCusto`.
+ */
+router.patch(
+  "/curation/attributes/:code/classe-de-custo",
   async (req, res, next): Promise<void> => {
     try {
       const { classe, reason } = req.body ?? {};
@@ -955,13 +1008,13 @@ router.patch(
       }
       if (!reason) {
         res.status(400).json({
-          error: "Classificar exige uma justificativa (reason).",
+          error: "Definir a classe de custo exige uma justificativa (reason).",
         });
         return;
       }
 
       res.json(
-        await classificarCategoria(db, {
+        await definirClasseDeCusto(db, {
           code: req.params.code,
           classe,
           actor: req.user!.email,
@@ -975,14 +1028,12 @@ router.patch(
           res,
           next,
           err,
-          "A classe desta categoria não pôde ser gravada neste banco.",
+          "A classe de custo deste atributo não pôde ser gravada neste banco.",
         );
         return;
       }
-      // Recusas de regra de negócio — classe inexistente, nó que é uma classe,
-      // justificativa em branco — com a frase escrita para quem está na tela.
       const message = err instanceof Error ? err.message : "Erro desconhecido";
-      req.log.warn({ err }, "Category classification refused");
+      req.log.warn({ err }, "Cost class refused");
       res.status(422).json({ error: message });
     }
   },

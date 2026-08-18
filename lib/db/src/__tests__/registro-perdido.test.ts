@@ -109,11 +109,20 @@ describe("registro de migrations perdido", () => {
       registro afirmaria que os atributos ganharam versão, sem que nenhum
       tivesse ganhado. Rodar é o certo, e é barato: o `WHERE NOT EXISTS` faz
       dela um no-op em banco já em dia.
+
+      A `0031` entra pelo mesmo terceiro motivo. Ela reorganiza a árvore da
+      taxonomia — renomeia a raiz, religa pais, cria os nós que faltavam — e não
+      cria coluna, índice nem constraint: nenhuma inspeção da forma do schema
+      diz se ela rodou. Adotá-la deixaria um banco com a árvore antiga afirmando
+      que tem a nova, que é a pior das duas mentiras possíveis aqui. É
+      idempotente por construção: faz upsert por código e recalcula `path` da
+      parentagem, então a segunda passada não move nada.
     */
     const semObjetoNovo = [
       "0018_identidade_forte",
       "0023_semantica_coerente",
       "0025_semantica_inicial",
+      "0031_taxonomia_semantica",
     ];
     expect(segunda.adopted).toEqual(
       primeira.applied.filter((tag) => !semObjetoNovo.includes(tag)),

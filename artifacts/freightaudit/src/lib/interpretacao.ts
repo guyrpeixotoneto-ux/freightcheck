@@ -60,61 +60,56 @@ export interface OpcaoDeCategoria {
    */
   sintetico: string;
   analitico: string;
-  costClass: string | null;
-  /** `custo_fixo` | `custo_variavel` | `cadastral` | `nao_classificado`. */
+  /** A família semântica: `operacao`, `capital`, `nao_classificado`… */
   classeCode: string | null;
 }
 
 /**
- * Uma linha sintética da DRE, como o campo de cima da Categoria DRE a mostra.
+/**
+ * Uma família da árvore, como o campo de cima da Categoria DRE a mostra.
  *
- * Vem do servidor, e não da lista de categorias: uma linha criada agora ainda
+ * Vem do servidor, e não da lista de categorias: uma família criada agora ainda
  * não tem analítico dentro, e derivá-la das categorias a esconderia justamente
  * no instante em que quem a criou procura por ela.
+ *
+ * Sem `costClass` e sem `decideClasseDeCusto`. As duas existiam enquanto a
+ * árvore declarava a classe de custo e a herdava para baixo — e a tela precisava
+ * avisar que pendurar uma categoria em "Custo Fixo" decidia dinheiro. A classe
+ * saiu da árvore e virou coluna do atributo, então nenhuma família decide mais
+ * de que lado da conta uma coluna cai, e a categoria nova pode nascer dentro de
+ * qualquer uma sem classificar nada.
  */
 export interface OpcaoDeSintetico {
   id: string;
   code: string;
   nome: string;
-  costClass: string | null;
-  /**
-   * `true` em custo fixo, custo variável e cadastral — as três casas em que
-   * pendurar uma categoria é decidir de que lado da conta ela cai. É o que faz
-   * a tela avisar, antes do clique, que a categoria nova não nasce ali dentro.
-   */
-  decideClasseDeCusto: boolean;
   categorias: number;
   isSeed: boolean;
 }
 
-/** O que a linha da DRE já tem dentro, dito na segunda linha da opção. */
+/** O que a família já tem dentro, dito na segunda linha da opção. */
 export function leituraDoSintetico(sintetico: OpcaoDeSintetico): string {
-  const quantas =
-    sintetico.categorias === 0
-      ? "nenhuma categoria ainda"
-      : sintetico.categorias === 1
-        ? "1 categoria"
-        : `${sintetico.categorias} categorias`;
-  if (sintetico.code === "custo_fixo") return `Custo fixo · ${quantas}`;
-  if (sintetico.code === "custo_variavel") return `Custo variável · ${quantas}`;
-  if (sintetico.code === "cadastral") return `Não é custo · ${quantas}`;
-  return `Sem classe de custo · ${quantas}`;
+  if (sintetico.categorias === 0) return "nenhuma categoria ainda";
+  if (sintetico.categorias === 1) return "1 categoria";
+  return `${sintetico.categorias} categorias`;
 }
 
 /**
- * A classe de custo dita para quem escolhe categoria.
+ * A família da categoria, dita para quem escolhe.
  *
- * `costClass` sozinha não serve, e o erro seria caro na direção mais silenciosa
- * possível: uma categoria cadastral tem `costClass` nula **por decisão** —
- * cadastro não é custo —, e chamá-la de "ainda sem classe" mandaria a pessoa
- * classificar de novo o que já está classificado. Só `classeCode` separa a
- * decisão tomada da decisão adiada.
+ * Isto **era** a classe de custo — "Custo fixo", "Custo variável", "Não é
+ * custo" —, lida da posição na árvore. Deixou de ser: a classe de custo é do
+ * atributo, não da natureza, e a árvore passou a agrupar por família semântica.
+ * O que a linha de detalhe informa agora é onde a categoria mora, que é o que
+ * ajuda a escolher entre duas de nome parecido.
+ *
+ * `nao_classificado` continua sendo o único que merece uma frase diferente: é o
+ * limbo de onde se sai, e dizer o nome dele seria dizer que está tudo certo.
  */
-export function classeDaCategoria(categoria: OpcaoDeCategoria): string {
-  if (categoria.classeCode === "custo_fixo") return "Custo fixo";
-  if (categoria.classeCode === "custo_variavel") return "Custo variável";
-  if (categoria.classeCode === "cadastral") return "Não é custo";
-  return "Ainda sem classe de custo";
+export function familiaDaCategoria(categoria: OpcaoDeCategoria): string {
+  if (categoria.classeCode === null) return "Fora da árvore";
+  if (categoria.classeCode === "nao_classificado") return "Ainda sem família";
+  return categoria.sintetico;
 }
 
 /** O que a tela sabe do atributo, reduzido ao que estas funções perguntam. */

@@ -1,6 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { and, eq, sql } from "drizzle-orm";
-import { curationEventTable, semanticMeaningTable, taxonomyNodeTable } from "@workspace/db";
+import { and, eq, isNull, sql } from "drizzle-orm";
+import {
+  curationEventTable,
+  DEFAULT_TAXONOMY,
+  semanticMeaningTable,
+  taxonomyNodeTable,
+} from "@workspace/db";
 import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest/testing";
 import {
   criarCategoria,
@@ -283,15 +288,43 @@ describe("categorias — hierarquia por dentro, linguagem de negócio por fora",
   it("a lista fala em caminho de negócio, e não em nó de taxonomia", async () => {
     const categorias = await listarCategorias(ctx.db);
     const manutencao = categorias.find((c) => c.code === "cv_manutencao");
-    expect(manutencao?.caminho).toBe("Custo Variável › Manutenção");
-    expect(manutencao?.costClass).toBe("VARIAVEL");
+    expect(manutencao?.caminho).toBe("Consumo e operação › Manutenção");
+    // Os dois níveis em que a DRE se lê, derivados do mesmo nó.
+    expect(manutencao?.sintetico).toBe("Consumo e operação");
+    expect(manutencao?.analitico).toBe("Manutenção");
   });
 
-  it("as classes e a raiz não são escolhíveis — classificar em 'Custo Fixo' é não classificar", async () => {
+  it("as famílias e a raiz não são escolhíveis — classificar numa família é não classificar", async () => {
     const codigos = (await listarCategorias(ctx.db)).map((c) => c.code);
-    expect(codigos).not.toContain("remuneracao");
-    expect(codigos).not.toContain("custo_fixo");
+    expect(codigos).not.toContain("natureza");
+    expect(codigos).not.toContain("operacao");
     expect(codigos).toContain("cv_pneus");
+  });
+
+  /*
+    A raiz não é o nome do domínio. Chamava-se "Remuneração", e uma árvore que
+    começa no nome do domínio chega enviesada: sob ela as classes eram três
+    recortes de custo e nenhum de receita.
+  */
+  it("a raiz nomeia a pergunta que a árvore responde, e não o domínio", async () => {
+    const [raiz] = await ctx.db
+      .select()
+      .from(taxonomyNodeTable)
+      .where(isNull(taxonomyNodeTable.parentId));
+    expect(raiz.code).toBe("natureza");
+    expect(raiz.name).toBe("Natureza do atributo");
+  });
+
+  it("o lado da receita e os direcionadores têm casa própria", async () => {
+    const codigos = (await listarCategorias(ctx.db)).map((c) => c.code);
+    // As duas famílias inteiras que faltavam: sem elas, tudo que a Ambev paga
+    // ficava sem lugar e km/tempo/ciclo caíam em "Especificação técnica".
+    expect(codigos).toEqual(expect.arrayContaining(["rem_fixa", "rem_frete_trecho"]));
+    expect(codigos).toEqual(expect.arrayContaining(["dir_distancia", "dir_tempo"]));
+    // E os que vinham caindo em "Outros".
+    expect(codigos).toEqual(
+      expect.arrayContaining(["op_pedagio", "op_lavagem", "prot_seguro_carga"]),
+    );
   });
 
   it("selecionar uma categoria existente é achá-la pela busca", async () => {
@@ -310,23 +343,22 @@ describe("categorias — hierarquia por dentro, linguagem de negócio por fora",
   });
 
   it("cadastra a categoria nova, com autor, e já pronta para ser selecionada", async () => {
-    const r = await criarCategoria(ctx.db, { name: "Pedágio", actor: ATOR });
+    const r = await criarCategoria(ctx.db, { name: "Escolta armada", actor: ATOR });
     expect(r.desfecho).toBe("CRIADO");
     expect(r.item).toMatchObject({
-      name: "Pedágio",
-      code: "pedagio",
+      name: "Escolta armada",
+      code: "escolta_armada",
       // Sob "Não classificado": a classe de custo não se lê no nome, e um
       // palpite entre fixo e variável mudaria de lado quatro telas do produto.
-      caminho: "Não classificado › Pedágio",
-      costClass: null,
+      caminho: "Não classificado › Escolta armada",
     });
 
     const [linha] = await ctx.db
       .select()
       .from(taxonomyNodeTable)
-      .where(eq(taxonomyNodeTable.code, "pedagio"));
+      .where(eq(taxonomyNodeTable.code, "escolta_armada"));
     expect(linha.createdBy).toBe(ATOR);
-    expect(linha.path).toBe("remuneracao/nao_classificado/pedagio");
+    expect(linha.path).toBe("natureza/nao_classificado/escolta_armada");
   });
 
   it("a árvore inicial continua sem autor, e isso é uma resposta", async () => {
@@ -341,7 +373,7 @@ describe("categorias — hierarquia por dentro, linguagem de negócio por fora",
     const [linha] = await ctx.db
       .select()
       .from(taxonomyNodeTable)
-      .where(eq(taxonomyNodeTable.code, "pedagio"));
+      .where(eq(taxonomyNodeTable.code, "escolta_armada"));
     const eventos = await ctx.db
       .select()
       .from(curationEventTable)
@@ -351,9 +383,9 @@ describe("categorias — hierarquia por dentro, linguagem de negócio por fora",
   });
 
   it("criar de novo devolve a que existe, a menos de acento e caixa", async () => {
-    const r = await criarCategoria(ctx.db, { name: "pedagio", actor: ATOR });
+    const r = await criarCategoria(ctx.db, { name: "escolta_armada", actor: ATOR });
     expect(r.desfecho).toBe("JA_EXISTE");
-    expect(r.item?.code).toBe("pedagio");
+    expect(r.item?.code).toBe("escolta_armada");
   });
 
   it("exige responsável identificado", async () => {
@@ -365,37 +397,36 @@ describe("categorias — hierarquia por dentro, linguagem de negócio por fora",
 
 
 describe("linhas sintéticas — o primeiro nível da DRE, também cadastrável", () => {
-  it("a lista traz as quatro linhas do produto, com o que já mora em cada uma", async () => {
+  it("a lista traz as famílias do produto, com o que já mora em cada uma", async () => {
     const sinteticos = await listarSinteticos(ctx.db);
-    expect(sinteticos.map((s) => s.code)).toEqual([
-      "custo_fixo",
-      "custo_variavel",
-      "cadastral",
-      "nao_classificado",
-    ]);
-    const variavel = sinteticos.find((s) => s.code === "custo_variavel")!;
-    expect(variavel.nome).toBe("Custo Variável");
-    expect(variavel.categorias).toBeGreaterThan(0);
-    expect(variavel.isSeed).toBe(true);
-    // As três casas em que classificar decide dinheiro. "Não classificado" não
-    // é uma delas: é de onde se sai.
-    expect(sinteticos.filter((s) => s.decideClasseDeCusto).map((s) => s.code)).toEqual([
-      "custo_fixo",
-      "custo_variavel",
-      "cadastral",
-    ]);
+    // Eram quatro e eram econômicas. São as famílias semânticas desde que a
+    // classe de custo saiu da árvore.
+    expect(sinteticos.map((s) => s.code)).toEqual(
+      DEFAULT_TAXONOMY.children!.map((c) => c.code),
+    );
+    const operacao = sinteticos.find((s) => s.code === "operacao")!;
+    expect(operacao.nome).toBe("Consumo e operação");
+    expect(operacao.categorias).toBeGreaterThan(0);
+    expect(operacao.isSeed).toBe(true);
+    /*
+      Nenhuma família decide lado da conta.
+
+      Havia três que decidiam — custo fixo, custo variável e cadastral —, e por
+      isso a tela impedia categoria nova de nascer dentro delas: seria
+      classificar sem autor. A classe de custo saiu da árvore e virou coluna do
+      atributo, então a lista é de naturezas e "Não classificado" continua sendo
+      a única de onde só se sai.
+    */
+    expect(sinteticos.map((s) => s.code)).toContain("nao_classificado");
+    expect(sinteticos.every((s) => !("decideClasseDeCusto" in s))).toBe(true);
   });
 
-  it("cadastra a linha nova, com autor, e sem lado da conta", async () => {
+  it("cadastra a família nova, com autor", async () => {
     const r = await criarSintetico(ctx.db, { name: "Receita de frete", actor: ATOR });
     expect(r.desfecho).toBe("CRIADO");
     expect(r.item).toMatchObject({
       code: "receita_de_frete",
       nome: "Receita de frete",
-      // Nasce sem `cost_class` pelo mesmo motivo que uma categoria nasce sob
-      // "Não classificado": de que lado da conta a linha cai não se lê no nome.
-      costClass: null,
-      decideClasseDeCusto: false,
       categorias: 0,
       isSeed: false,
     });
@@ -406,7 +437,7 @@ describe("linhas sintéticas — o primeiro nível da DRE, também cadastrável"
       .where(eq(taxonomyNodeTable.code, "receita_de_frete"));
     expect(linha.createdBy).toBe(ATOR);
     expect(linha.depth).toBe(1);
-    expect(linha.path).toBe("remuneracao/receita_de_frete");
+    expect(linha.path).toBe("natureza/receita_de_frete");
 
     const eventos = await ctx.db
       .select()
@@ -438,8 +469,6 @@ describe("linhas sintéticas — o primeiro nível da DRE, também cadastrável"
       caminho: "Receita de frete › Frete peso",
       sintetico: "Receita de frete",
       analitico: "Frete peso",
-      // Sem classe herdada: a linha nova não declara nenhuma.
-      costClass: null,
     });
     const receita = (await listarSinteticos(ctx.db)).find(
       (s) => s.code === "receita_de_frete",
@@ -490,8 +519,11 @@ describe("linhas sintéticas — o primeiro nível da DRE, também cadastrável"
     expect((await listarSinteticos(ctx.db)).map((s) => s.code)).not.toContain("pneus");
   });
 
-  it("e o simétrico: uma linha da DRE não vira categoria", async () => {
-    const r = await criarCategoria(ctx.db, { name: "Custo Fixo", actor: ATOR });
+  it("e o simétrico: uma família não vira categoria", async () => {
+    const r = await criarCategoria(ctx.db, {
+      name: "Consumo e operação",
+      actor: ATOR,
+    });
     expect(r.desfecho).toBe("JA_EXISTE");
     expect(r.item).toBeNull();
     expect(r.mensagem).toContain("é uma linha da DRE");

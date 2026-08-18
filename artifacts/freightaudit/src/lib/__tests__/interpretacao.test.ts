@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   avisoDeParecido,
-  classeDaCategoria,
+  familiaDaCategoria,
   leituraDe,
   leituraDoSintetico,
   oQueFalta,
@@ -49,31 +49,29 @@ const CATALOGO: OpcaoDeSignificado[] = SIGNIFICADOS_PADRAO.map((s) => {
   };
 });
 
+/** Uma categoria como a API a entrega: o caminho já partido nos dois níveis. */
+const categoria = (
+  id: string,
+  code: string,
+  caminho: string,
+  classeCode: string,
+): OpcaoDeCategoria => {
+  const [sintetico, ...resto] = caminho.split("›").map((parte) => parte.trim());
+  return {
+    id,
+    code,
+    name: resto.at(-1) ?? sintetico,
+    caminho,
+    sintetico,
+    analitico: resto.join(" › "),
+    classeCode,
+  };
+};
+
 const CATEGORIAS: OpcaoDeCategoria[] = [
-  {
-    id: "1",
-    code: "cv_combustivel",
-    name: "Combustível",
-    caminho: "Custo Variável › Combustível",
-    costClass: "VARIAVEL",
-    classeCode: "custo_variavel",
-  },
-  {
-    id: "2",
-    code: "cv_manutencao",
-    name: "Manutenção",
-    caminho: "Custo Variável › Manutenção",
-    costClass: "VARIAVEL",
-    classeCode: "custo_variavel",
-  },
-  {
-    id: "3",
-    code: "cf_pneus",
-    name: "Pneus",
-    caminho: "Custo Fixo › Pneus",
-    costClass: "FIXO",
-    classeCode: "custo_fixo",
-  },
+  categoria("1", "cv_combustivel", "Consumo e operação › Combustível", "operacao"),
+  categoria("2", "cv_manutencao", "Consumo e operação › Manutenção", "operacao"),
+  categoria("3", "cv_pneus", "Consumo e operação › Pneus", "operacao"),
 ];
 
 const campo = (over: Partial<CampoEmConfirmacao> = {}): CampoEmConfirmacao => ({
@@ -319,84 +317,59 @@ describe("o combobox pesquisável", () => {
   });
 });
 
-describe("a classe da categoria, dita para quem escolhe", () => {
-  it("nomeia as três casas", () => {
-    expect(classeDaCategoria(CATEGORIAS[0])).toBe("Custo variável");
-    expect(classeDaCategoria(CATEGORIAS[2])).toBe("Custo fixo");
+describe("a família da categoria, dita para quem escolhe", () => {
+  /*
+    Isto era a classe de custo, lida da posição na árvore. Deixou de ser: a
+    classe é do atributo, e a árvore agrupa por natureza. O detalhe agora serve
+    para separar duas categorias de nome parecido, que é o que quem escolhe
+    precisa.
+  */
+  it("nomeia a família em que a categoria mora", () => {
+    expect(familiaDaCategoria(CATEGORIAS[0])).toBe("Consumo e operação");
+    expect(
+      familiaDaCategoria(
+        categoria("9", "cad_identificacao", "Cadastro e identificação › Identificação do ativo", "cadastro"),
+      ),
+    ).toBe("Cadastro e identificação");
   });
 
-  it("'Não é custo' não é 'sem classe' — e é o erro caro deste campo", () => {
-    // Uma categoria cadastral tem `costClass` nula por decisão. Chamá-la de
-    // "ainda sem classe" mandaria a pessoa classificar de novo o que já está
-    // classificado, para sempre.
-    const cadastral: OpcaoDeCategoria = {
-      id: "9",
-      code: "cad_identificacao",
-      name: "Identificação do ativo",
-      caminho: "Cadastral (não remuneratório) › Identificação do ativo",
-      costClass: null,
-      classeCode: "cadastral",
-    };
-    expect(classeDaCategoria(cadastral)).toBe("Não é custo");
-  });
-
-  it("só quem mora em Não classificado é anunciado como sem classe", () => {
-    const nova: OpcaoDeCategoria = {
-      id: "8",
-      code: "pedagio",
-      name: "Pedágio",
-      caminho: "Não classificado › Pedágio",
-      costClass: null,
-      classeCode: "nao_classificado",
-    };
-    expect(classeDaCategoria(nova)).toBe("Ainda sem classe de custo");
+  it("só quem mora em Não classificado é anunciado como sem família", () => {
+    const nova = categoria("8", "pedagio", "Não classificado › Pedágio", "nao_classificado");
+    expect(familiaDaCategoria(nova)).toBe("Ainda sem família");
   });
 });
 
-describe("a linha da DRE, lida no campo do sintético", () => {
+describe("a família, lida no campo do sintético", () => {
   const linha = (parcial: Partial<OpcaoDeSintetico>): OpcaoDeSintetico => ({
     id: "1",
-    code: "custo_fixo",
-    nome: "Custo Fixo",
-    costClass: "FIXO",
-    decideClasseDeCusto: true,
+    code: "frota",
+    nome: "Frota e equipamento",
     categorias: 8,
     isSeed: true,
     ...parcial,
   });
 
-  it("diz o lado da conta e quanto já mora dentro", () => {
-    expect(leituraDoSintetico(linha({}))).toBe("Custo fixo · 8 categorias");
-    expect(
-      leituraDoSintetico(
-        linha({ code: "custo_variavel", nome: "Custo Variável", categorias: 1 }),
-      ),
-    ).toBe("Custo variável · 1 categoria");
+  /*
+    A leitura dizia o lado da conta — "Custo fixo · 8 categorias" —, e não diz
+    mais: nenhuma família decide classe de custo desde que ela virou coluna do
+    atributo. O que sobrou é o que de fato ajuda a escolher: quanto já mora
+    dentro.
+  */
+  it("diz quanto já mora dentro", () => {
+    expect(leituraDoSintetico(linha({}))).toBe("8 categorias");
+    expect(leituraDoSintetico(linha({ categorias: 1 }))).toBe("1 categoria");
   });
 
-  it("a linha recém-criada se anuncia vazia, e não some da lista", () => {
-    // O contrário — derivar as linhas das categorias — esconderia a linha nova
-    // no instante seguinte ao do clique que a criou.
+  it("a família recém-criada se anuncia vazia, e não some da lista", () => {
+    // O contrário — derivar as famílias das categorias — esconderia a nova no
+    // instante seguinte ao do clique que a criou.
     const nova = linha({
       code: "receita_de_frete",
       nome: "Receita de frete",
-      costClass: null,
-      decideClasseDeCusto: false,
       categorias: 0,
       isSeed: false,
     });
-    expect(leituraDoSintetico(nova)).toBe("Sem classe de custo · nenhuma categoria ainda");
-  });
-
-  it("'Não classificado' é a linha de onde se sai, e não uma classe", () => {
-    const naoClassificado = linha({
-      code: "nao_classificado",
-      nome: "Não classificado",
-      costClass: null,
-      decideClasseDeCusto: false,
-      categorias: 3,
-    });
-    expect(leituraDoSintetico(naoClassificado)).toBe("Sem classe de custo · 3 categorias");
+    expect(leituraDoSintetico(nova)).toBe("nenhuma categoria ainda");
   });
 });
 

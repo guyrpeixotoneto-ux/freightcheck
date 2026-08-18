@@ -214,13 +214,13 @@ function CartaoDeCategoria({
   const classificar = useMutation({
     mutationFn: async () => {
       const response = await fetch(
-        getApiUrl(`/curation/categorias/${categoria.code}/classe`),
+        getApiUrl(`/curation/categorias/${categoria.code}/familia`),
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           // `actor` não vai daqui: quem assina é a sessão, como em toda decisão
           // deste produto que mexe em dinheiro.
-          body: JSON.stringify({ classe, reason: justificativa }),
+          body: JSON.stringify({ familia: classe, reason: justificativa }),
         },
       );
       const body = await response.json();

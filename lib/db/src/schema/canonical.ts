@@ -308,8 +308,18 @@ export const taxonomyNodeTable = pgTable(
     /** ROOT | CLASS | GROUP | SUBGROUP | ... — text, so depth stays open. */
     kind: text("kind").notNull(),
     /**
-     * FIXO | VARIAVEL | null. Inherited from the nearest ancestor that sets
-     * it, so only the class level needs to declare it.
+     * **Morta.** Ninguém lê, ninguém escreve, e a migration 0030 a zerou.
+     *
+     * A classe de custo saiu daqui e virou `attribute.cost_class`: ela nunca foi
+     * propriedade da natureza — `Pessoal e encargos` é fixo no cavalo e variável
+     * no trecho —, e enquanto morou no nó a árvore precisava de um nó por
+     * combinação das duas.
+     *
+     * A coluna continua declarada por uma razão operacional, e não conceitual:
+     * derrubá-la agora faria a proposta do Publishing **removê-la de Production**
+     * antes de Production ter rodado a fila, que é DDL destrutivo fora de ordem —
+     * exatamente o que `textoDaProposta` existe para impedir. O `DROP` é uma
+     * migration de uma linha, no dia em que Production estiver em dia.
      */
     costClass: text("cost_class"),
     /** Materialised ancestry, e.g. "remuneracao/custo_fixo/frota_cavalo". */
@@ -442,6 +452,21 @@ export const attributeTable = pgTable(
      * second.
      */
     economicEffect: text("economic_effect"),
+    /**
+     * FIXO | VARIAVEL | NAO_APLICAVEL | null — **do atributo, não do nó**.
+     *
+     * A taxonomia responde o que o valor é; esta coluna responde como ele se
+     * comporta. Morava no nó da taxonomia e herdava para baixo, o que obrigava a
+     * árvore a ter um nó por combinação das duas: `Pessoal e encargos` é fixo
+     * quando descreve o cavalo e variável quando descreve o trecho, e com a
+     * classe no nó "o que é isto?" passava a ter duas respostas conforme o
+     * contexto. Ver a migration 0030.
+     *
+     * `NAO_APLICAVEL` é afirmação, não lacuna — cadastro e direcionador
+     * operacional não são custo, e carimbá-los FIXO os poria num total. `null` é
+     * "ninguém decidiu ainda".
+     */
+    costClass: text("cost_class"),
     /** Only a human writes these two, and only for CONFIRMED. */
     confirmedBy: text("confirmed_by"),
     confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
