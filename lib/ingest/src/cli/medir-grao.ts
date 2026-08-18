@@ -75,9 +75,56 @@ interface Medida {
    * reaparecem em todas as outras. 1 quer dizer população estável.
    */
   estabilidade: number | null;
+  /** Estabilidade semântica — calculada só para quem passa no teste de chave. */
+  semantica: EstabilidadeSemantica | null;
+}
+
+/**
+ * A chave continua nomeando **a mesma coisa** ao longo do arquivo?
+ *
+ * Unicidade e permanência são perguntas sobre a chave. Esta é sobre o que ela
+ * carrega: uma chave que identifica a linha e permanece entre quinzenas ainda
+ * pode estar sendo **reaproveitada** — o cadastro aposenta a rota Camaçari→
+ * Salvador e reusa `CAM-SSA-01` para Camaçari→Feira no mês seguinte. Nas duas
+ * medidas anteriores isso passa limpo: não repete, e reaparece em todas as
+ * vigências. E é a pior falha das três, porque a comparação entre vigências
+ * atribuiria a variação de preço de uma rota à outra.
+ *
+ * A medida: para cada valor da chave, quantas colunas do arquivo mantêm **um
+ * único valor** ao longo de todas as vigências.
+ *
+ * - `ancoras` são as colunas constantes por chave. São elas que provam que a
+ *   chave nomeia uma coisa, e não uma linha: se nenhuma coluna acompanha a
+ *   chave, ela não descreve nada estável.
+ * - `quaseAncoras` são as que ficam constantes em 90% ou mais das chaves — e
+ *   não em todas. É a lista mais informativa das duas: uma coluna cadastral
+ *   quase constante é exatamente o rastro de uma chave reaproveitada, e ela
+ *   nomeia a linha do Excel onde ir conferir.
+ *
+ * Colunas de dinheiro e direcionadores **devem** variar entre vigências (é a
+ * razão de a tabela ser versionada), então elas não aparecem como âncoras e
+ * isso não é defeito. O que se lê aqui é a lista de âncoras: origem, destino,
+ * capacidade, operador.
+ */
+interface EstabilidadeSemantica {
+  /** Colunas constantes por chave, em todas as vigências. */
+  ancoras: string[];
+  /** Colunas constantes em 90%+ das chaves, mas não em todas. */
+  quaseAncoras: { coluna: string; fracao: number; exemplo: string | null }[];
+  /** Chaves cujo conjunto de âncoras candidatas discordou. */
+  chavesComDivergencia: number;
 }
 
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
+
+/**
+ * A partir de quanta constância uma coluna vira "quase âncora".
+ *
+ * 0,9 não é sagrado: é a faixa em que "a coluna descreve a chave" e "esta chave
+ * foi reaproveitada" ficam distinguíveis. Abaixo disso a coluna simplesmente
+ * varia — é dado de vigência, não descrição de identidade.
+ */
+const LIMIAR_DE_ANCORA = 0.9;
 
 function lerAba(sheet: XLSX.WorkSheet): { colunas: Coluna[]; linhas: string[][] } {
   const ref = sheet["!ref"];
@@ -184,7 +231,92 @@ function medir(
     maiorRepeticao,
     exemploRepetido,
     estabilidade,
+    semantica: null,
   };
+}
+
+/**
+ * O que acompanha esta chave sem mudar — a estabilidade semântica.
+ *
+ * Roda **só** para as candidatas que já passaram no teste de chave, e não para
+ * as 110 colunas: é uma varredura de (chaves × colunas), e fazê-la para toda
+ * coluna candidata seria quadrática num arquivo grande sem informar nada — uma
+ * coluna que repete dentro da vigência já está descartada antes daqui.
+ */
+function medirSemantica(
+  componentes: ColunaPosicionada[],
+  todas: ColunaPosicionada[],
+  linhas: string[][],
+): EstabilidadeSemantica {
+  const daChave = new Set(componentes.map((c) => c.posicaoNaLinha));
+  const outras = todas.filter((c) => !daChave.has(c.posicaoNaLinha));
+
+  /** chave -> coluna -> valores vistos */
+  const porChave = new Map<string, Map<number, Set<string>>>();
+  for (const linha of linhas) {
+    const valores = componentes.map((c) => linha[c.posicaoNaLinha] ?? "");
+    if (valores.some((v) => v === "")) continue;
+    const chave = valores.map((v) => normalizeIdentifier(v)).join("");
+    let bucket = porChave.get(chave);
+    if (!bucket) {
+      bucket = new Map();
+      porChave.set(chave, bucket);
+    }
+    for (const coluna of outras) {
+      const valor = (linha[coluna.posicaoNaLinha] ?? "").trim();
+      // Célula vazia não é discordância: é ausência, e tratá-la como um valor
+      // faria toda coluna com buraco parecer instável.
+      if (valor === "") continue;
+      let vistos = bucket.get(coluna.posicaoNaLinha);
+      if (!vistos) {
+        vistos = new Set();
+        bucket.set(coluna.posicaoNaLinha, vistos);
+      }
+      vistos.add(valor);
+    }
+  }
+
+  const ancoras: string[] = [];
+  const quaseAncoras: EstabilidadeSemantica["quaseAncoras"] = [];
+  const divergiu = new Set<string>();
+
+  for (const coluna of outras) {
+    let constantes = 0;
+    let observadas = 0;
+    let exemplo: string | null = null;
+    const discordantes: string[] = [];
+    for (const [chave, bucket] of porChave) {
+      const vistos = bucket.get(coluna.posicaoNaLinha);
+      if (!vistos || vistos.size === 0) continue;
+      observadas++;
+      if (vistos.size === 1) constantes++;
+      else {
+        discordantes.push(chave);
+        if (exemplo === null) exemplo = [...vistos].slice(0, 3).join(" / ");
+      }
+    }
+    if (observadas === 0) continue;
+    const fracao = constantes / observadas;
+    if (fracao === 1) {
+      ancoras.push(coluna.header);
+      continue;
+    }
+    if (fracao < LIMIAR_DE_ANCORA) continue;
+    quaseAncoras.push({ coluna: coluna.header, fracao, exemplo });
+    /*
+      A contagem de chaves suspeitas conta **só** as que discordam numa coluna
+      quase-âncora.
+
+      Contar qualquer divergência daria o arquivo inteiro: preço, pedágio e
+      quilometragem mudam entre vigências porque a tabela é versionada, e é
+      para isso que ela existe. O sinal é a chave que discorda numa coluna em
+      que quase todas as outras concordam.
+    */
+    for (const chave of discordantes) divergiu.add(chave);
+  }
+
+  quaseAncoras.sort((a, b) => b.fracao - a.fracao);
+  return { ancoras, quaseAncoras, chavesComDivergencia: divergiu.size };
 }
 
 function main(): void {
@@ -281,6 +413,52 @@ function main(): void {
     const chaves = candidatas.filter(
       (m) => m.repetidas === 0 && m.preenchimento === 1,
     );
+
+    /*
+      A terceira pergunta, só para quem passou nas duas primeiras.
+
+      Identificar a linha e permanecer entre vigências ainda deixa passar a
+      chave reaproveitada — a que nomeia uma rota nesta quinzena e outra na
+      seguinte. Ver `EstabilidadeSemantica`.
+    */
+    const comSemantica = chaves.slice(0, 8);
+    for (const medida of comSemantica) {
+      const componentes = medida.colunas.map(
+        (header) => posicionadas.find((c) => c.header === header)!,
+      );
+      medida.semantica = medirSemantica(componentes, posicionadas, linhas);
+    }
+
+    if (comSemantica.length > 0) {
+      console.log(`\n   ESTABILIDADE SEMÂNTICA — o que acompanha a chave sem mudar`);
+      for (const m of comSemantica) {
+        const sem = m.semantica!;
+        const amostra = sem.ancoras.slice(0, 6).join(", ");
+        console.log(
+          `   ${m.nome.slice(0, 38).padEnd(38)} ${String(sem.ancoras.length).padStart(3)} âncoras` +
+            (amostra ? `: ${amostra}${sem.ancoras.length > 6 ? "…" : ""}` : ""),
+        );
+        if (sem.ancoras.length === 0) {
+          console.log(
+            `      nenhuma coluna acompanha esta chave sem mudar — ela nomeia a ` +
+              `linha, não uma coisa.`,
+          );
+        }
+        for (const quase of sem.quaseAncoras.slice(0, 4)) {
+          console.log(
+            `      ${quase.coluna} é constante em ${pct(quase.fracao)} das chaves e ` +
+              `discorda no resto${quase.exemplo ? ` (ex.: ${quase.exemplo})` : ""}`,
+          );
+        }
+        if (sem.chavesComDivergencia > 0) {
+          console.log(
+            `      ${sem.chavesComDivergencia} chaves mudam de descrição ao longo do ` +
+              `arquivo — candidatas a reaproveitamento.`,
+          );
+        }
+      }
+    }
+
     console.log("");
     if (chaves.length === 0) {
       console.log(
