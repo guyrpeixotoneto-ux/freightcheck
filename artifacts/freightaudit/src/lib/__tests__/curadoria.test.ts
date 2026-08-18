@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   abasDeEquipamento,
+  atributoCabeNaAba,
   EQUIPAMENTOS_DA_CURADORIA,
   estaDescrito,
   filtrarPorEquipamento,
@@ -172,5 +173,42 @@ describe("o rótulo do tipo", () => {
   */
   it("sai de uma lista só, e não de duas que combinam", () => {
     expect(EQUIPAMENTOS_DA_CURADORIA).toBe(EQUIPAMENTOS);
+  });
+});
+
+/**
+ * O clique na aba precisa valer.
+ *
+ * O que se guarda aqui é o caso que quebrou a tela: com um atributo de cavalo
+ * aberto, "Carreta" não respondia. A aba mudava, o desempate que existe para
+ * corrigir um link a trazia de volta, e o resultado era um clique sem efeito e
+ * sem explicação. `atributoCabeNaAba` é o que diz quando o card aberto sai —
+ * e é soltar o card, e não travar a aba, que resolve a contradição.
+ */
+describe("atributoCabeNaAba", () => {
+  it("solta o atributo de cavalo quando se clica em Carreta", () => {
+    expect(atributoCabeNaAba(fila, "cavalo.ipva", "CARRETA")).toBe(false);
+  });
+
+  it("mantém o atributo quando a aba de destino é a dele", () => {
+    expect(atributoCabeNaAba(fila, "cavalo.ipva", "CAVALO")).toBe(true);
+  });
+
+  it("mantém o atributo em Todos, que contém a fila inteira", () => {
+    expect(atributoCabeNaAba(fila, "cavalo.ipva", null)).toBe(true);
+  });
+
+  it("não tem o que fechar com nenhum atributo aberto", () => {
+    expect(atributoCabeNaAba(fila, null, "CARRETA")).toBe(true);
+  });
+
+  /*
+    Em "Pendentes" a fila não traz os confirmados: o atributo que outra tela
+    mandou ler pode não estar nela. Fechá-lo por não ser encontrado tiraria da
+    tela justamente o card que se pediu para abrir.
+  */
+  it("mantém o atributo que a fila carregada não contém", () => {
+    expect(atributoCabeNaAba(fila, "carreta.confirmado", "CARRETA")).toBe(true);
+    expect(atributoCabeNaAba([], "cavalo.ipva", "CARRETA")).toBe(true);
   });
 });

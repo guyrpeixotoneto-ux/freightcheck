@@ -139,3 +139,49 @@ export function filtrarPorEquipamento<T extends ItemComEquipamento>(
   if (tipo === null) return [...itens];
   return itens.filter((item) => normalizarEquipamento(item.entityType) === tipo);
 }
+
+/** O mínimo de que a regra abaixo precisa: o código e o tipo de cada item. */
+export interface ItemDaFila extends ItemComEquipamento {
+  code: string;
+}
+
+/**
+ * O atributo aberto continua na fila depois de trocar de aba?
+ *
+ * Esta pergunta existe porque a tela mantém **duas** coisas no endereço — o
+ * recorte (`?equipamento=`) e o atributo em leitura (`?atributo=`) — e elas
+ * podem se contradizer. Quando se contradizem, a tela tinha uma regra para
+ * desempatar: a aba anda até o equipamento do atributo aberto, para que o
+ * painel da direita nunca mostre um card que a lista da esquerda não contém.
+ *
+ * Essa regra resolvia a chegada por link e quebrava o clique. Com um atributo
+ * de cavalo aberto, clicar em "Carreta" reescrevia o endereço, o desempate
+ * reagia à mudança e reescrevia de volta para "Cavalo" — no mesmo quadro, sem
+ * nada na tela. O efeito para quem clicava é o pior possível: a aba **não
+ * responde**, e nada explica por quê. Só "Todos" funcionava, por ser o recorte
+ * que não recorta.
+ *
+ * O desempate certo não é mexer na aba: é soltar o atributo. Quem clica numa
+ * aba está dizendo de que equipamento quer falar, e isso é mais recente do que
+ * o card que estava aberto. A contradição continua impossível — some o card, em
+ * vez de voltar a aba —, e o clique passa a valer.
+ *
+ * Três casos devolvem `true` e nenhum deles é generosidade:
+ *
+ *  - **nada aberto**: não há o que fechar;
+ *  - **destino "Todos"** (`null`): a fila inteira contém qualquer atributo;
+ *  - **atributo fora da fila carregada**: em "Pendentes" a fila não tem os
+ *    confirmados, e um atributo que não está nela não pode ser julgado. Fechá-lo
+ *    por não ser encontrado tiraria da tela justamente o card que outra tela
+ *    mandou ler.
+ */
+export function atributoCabeNaAba(
+  fila: readonly ItemDaFila[],
+  codigo: string | null,
+  destino: string | null,
+): boolean {
+  if (codigo === null || destino === null) return true;
+  const item = fila.find((i) => i.code === codigo);
+  if (item === undefined) return true;
+  return normalizarEquipamento(item.entityType) === destino;
+}

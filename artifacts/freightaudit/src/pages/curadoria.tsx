@@ -53,6 +53,7 @@ import {
 import { fetchJson, getApiUrl } from "@/lib/api";
 import {
   abasDeEquipamento,
+  atributoCabeNaAba,
   estaDescrito,
   filtrarPorEquipamento,
   normalizarEquipamento,
@@ -256,6 +257,26 @@ export default function Curadoria() {
     );
   }, [queue, filter]);
 
+  /*
+    Clicar numa aba: o recorte muda, e o atributo aberto sai junto se não for
+    dele.
+
+    O `setEquipamento` cru continua existindo para o efeito abaixo, que responde
+    a um link. Um clique é outra coisa, e precisava ser: com um atributo de
+    cavalo aberto, trocar para "Carreta" escrevia o endereço e o efeito o
+    escrevia de volta no quadro seguinte — a aba voltava sozinha para "Cavalo",
+    sem nada na tela dizendo por quê, e só "Todos" respondia ao clique.
+
+    Quem decide o que sai é `atributoCabeNaAba`, em `lib/curadoria.ts`, onde os
+    três casos que **não** fecham o card estão escritos e testados.
+  */
+  const escolherAba = (tipo: string | null) => {
+    irPara({
+      equipamento: tipo,
+      ...(atributoCabeNaAba(queue, selected, tipo) ? {} : { atributo: null }),
+    });
+  };
+
   const abas = useMemo(() => abasDeEquipamento(filtradosPorTexto), [filtradosPorTexto]);
   const visible = useMemo(
     () => filtrarPorEquipamento(filtradosPorTexto, equipamento),
@@ -283,9 +304,15 @@ export default function Curadoria() {
     Um link para `cavalo.ipva` aberto com a aba `Carreta` no endereço mostrava o
     painel de um atributo que a lista ao lado não continha — a contradição que o
     efeito acima já resolvia para o botão Pendentes. A aba anda uma vez, só
-    quando o atributo pedido é de outro equipamento; clicar numa aba com um
-    atributo aberto continua sendo escolha de quem clicou, e ela não se desfaz
-    sozinha.
+    quando o atributo pedido é de outro equipamento.
+
+    **Isto responde ao link, e não ao clique.** A frase anterior deste
+    comentário afirmava que clicar numa aba continuava sendo escolha de quem
+    clicou — e não era: o efeito não distingue quem escreveu o endereço, então
+    ele desfazia o clique com a mesma regra com que corrigia o link, e a aba
+    ficava presa no equipamento do card aberto. Quem separa os dois é
+    `escolherAba`, acima: no clique o card sai, e aí não há contradição para
+    este efeito desfazer.
   */
   useEffect(() => {
     if (selected === null || equipamento === null) return;
@@ -366,7 +393,7 @@ export default function Curadoria() {
         <Tabs
           value={equipamento ?? TODOS}
           onValueChange={(valor) =>
-            setEquipamento(valor === TODOS ? null : valor)
+            escolherAba(valor === TODOS ? null : valor)
           }
           className="mt-5"
         >
