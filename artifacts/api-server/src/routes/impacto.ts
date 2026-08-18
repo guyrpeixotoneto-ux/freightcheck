@@ -6,7 +6,7 @@ import {
   getQuinzenaMatrix,
   type CorteDaExportacao,
 } from "@workspace/comparison";
-import { parseContext, sendContextError } from "../lib/contexto";
+import { parseContext } from "../lib/contexto";
 import {
   agoraEmBrasilia,
   montarPlanilhaDeImpacto,
@@ -48,35 +48,29 @@ const router: IRouter = Router();
  * numa afirmação falsa.
  */
 router.get("/impacto/quinzenas", async (req, res): Promise<void> => {
-  try {
-    const query = req.query as Record<string, unknown>;
-    const str = (key: string) =>
-      typeof query[key] === "string" && query[key] !== ""
-        ? (query[key] as string)
-        : undefined;
+  const query = req.query as Record<string, unknown>;
+  const str = (key: string) =>
+    typeof query[key] === "string" && query[key] !== ""
+      ? (query[key] as string)
+      : undefined;
 
-    const matriz = await getQuinzenaMatrix(db, {
-      entityType: str("entityType"),
-      attributeCode: str("attributeCode"),
-      groupBy: str("groupBy"),
-      // A placa das telas 360°. Conferida lá dentro contra a frota do
-      // equipamento, e ecoada em `plate` na resposta — uma placa que este
-      // contexto não tem cai na frota inteira em vez de virar erro, e a tela
-      // precisa saber que foi isso que aconteceu.
-      plate: str("placa"),
-      context: parseContext(query),
-    });
+  const matriz = await getQuinzenaMatrix(db, {
+    entityType: str("entityType"),
+    attributeCode: str("attributeCode"),
+    groupBy: str("groupBy"),
+    // A placa das telas 360°. Conferida lá dentro contra a frota do
+    // equipamento, e ecoada em `plate` na resposta — uma placa que este
+    // contexto não tem cai na frota inteira em vez de virar erro, e a tela
+    // precisa saber que foi isso que aconteceu.
+    plate: str("placa"),
+    context: parseContext(query),
+  });
 
-    if (!matriz) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-    res.json(matriz);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building impact matrix");
-    res.status(500).json({ error: "Internal server error" });
+  if (!matriz) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
   }
+  res.json(matriz);
 });
 
 /**
@@ -93,21 +87,15 @@ router.get("/impacto/quinzenas", async (req, res): Promise<void> => {
  * mudou" numa afirmação falsa.
  */
 router.get("/impacto/panorama", async (req, res): Promise<void> => {
-  try {
-    const panorama = await getPanoramaDeAlteracoes(db, {
-      context: parseContext(req.query as Record<string, unknown>),
-    });
+  const panorama = await getPanoramaDeAlteracoes(db, {
+    context: parseContext(req.query as Record<string, unknown>),
+  });
 
-    if (!panorama) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-    res.json(panorama);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building change panorama");
-    res.status(500).json({ error: "Internal server error" });
+  if (!panorama) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
   }
+  res.json(panorama);
 });
 
 /**
@@ -137,47 +125,41 @@ export function parseCorte(valor: unknown): CorteDaExportacao {
  * o motivo em vez de baixar um arquivo com uma mensagem de erro dentro.
  */
 router.get("/impacto/exportacao.xlsx", async (req, res): Promise<void> => {
-  try {
-    const query = req.query as Record<string, unknown>;
-    const exportacao = await getExportacaoDeImpacto(db, {
-      classe: parseCorte(query.classe),
-      context: parseContext(query),
-    });
+  const query = req.query as Record<string, unknown>;
+  const exportacao = await getExportacaoDeImpacto(db, {
+    classe: parseCorte(query.classe),
+    context: parseContext(query),
+  });
 
-    if (!exportacao) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-    /*
-      Nada mudou no recorte é uma resposta, e ela não pode virar um arquivo com
-      um índice vazio: quem baixasse teria de conferir aba por aba para descobrir
-      que não havia nenhuma. A tela já sabe dizer isso em uma linha.
-    */
-    if (exportacao.abas.length === 0) {
-      res.status(404).json({
-        error:
-          "Nenhum parâmetro mudou de valor neste recorte — não há aba para exportar.",
-      });
-      return;
-    }
-
-    const bytes = await montarPlanilhaDeImpacto(
-      exportacao,
-      agoraEmBrasilia(new Date()),
-    );
-    res.setHeader(
-      "Content-Type",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    );
-    res.setHeader("Content-Length", String(bytes.length));
-    res.setHeader("Content-Disposition", contentDisposition(nomeDoArquivo(exportacao)));
-    res.setHeader("X-Content-Type-Options", "nosniff");
-    res.send(bytes);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building impact workbook");
-    res.status(500).json({ error: "Internal server error" });
+  if (!exportacao) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
   }
+  /*
+    Nada mudou no recorte é uma resposta, e ela não pode virar um arquivo com
+    um índice vazio: quem baixasse teria de conferir aba por aba para descobrir
+    que não havia nenhuma. A tela já sabe dizer isso em uma linha.
+  */
+  if (exportacao.abas.length === 0) {
+    res.status(404).json({
+      error:
+        "Nenhum parâmetro mudou de valor neste recorte — não há aba para exportar.",
+    });
+    return;
+  }
+
+  const bytes = await montarPlanilhaDeImpacto(
+    exportacao,
+    agoraEmBrasilia(new Date()),
+  );
+  res.setHeader(
+    "Content-Type",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  );
+  res.setHeader("Content-Length", String(bytes.length));
+  res.setHeader("Content-Disposition", contentDisposition(nomeDoArquivo(exportacao)));
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.send(bytes);
 });
 
 export default router;

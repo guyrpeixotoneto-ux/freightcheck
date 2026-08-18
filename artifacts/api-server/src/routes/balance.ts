@@ -20,12 +20,7 @@ const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 router.get("/balance", async (req, res): Promise<void> => {
-  try {
-    res.json(await listarBalancos(db));
-  } catch (err) {
-    req.log.error({ err }, "Error listing mass balances");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  res.json(await listarBalancos(db));
 });
 
 router.get("/balance/:importRunId", async (req, res): Promise<void> => {
@@ -34,17 +29,12 @@ router.get("/balance/:importRunId", async (req, res): Promise<void> => {
     res.status(400).json({ error: "Identificador de importação inválido." });
     return;
   }
-  try {
-    const balanco = await balancoDaImportacao(db, importRunId);
-    if (!balanco) {
-      res.status(404).json({ error: "Importação não encontrada." });
-      return;
-    }
-    res.json(balanco);
-  } catch (err) {
-    req.log.error({ err }, "Error building mass balance");
-    res.status(500).json({ error: "Internal server error" });
+  const balanco = await balancoDaImportacao(db, importRunId);
+  if (!balanco) {
+    res.status(404).json({ error: "Importação não encontrada." });
+    return;
   }
+  res.json(balanco);
 });
 
 export default router;

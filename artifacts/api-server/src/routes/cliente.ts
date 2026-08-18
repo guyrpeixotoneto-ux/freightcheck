@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import { getRecomendacoesAoCliente } from "@workspace/advisory";
-import { parseContext, sendContextError } from "../lib/contexto";
+import { parseContext } from "../lib/contexto";
 
 /**
  * Cliente — a quarta aba de Alterações.
@@ -48,27 +48,21 @@ const router: IRouter = Router();
  * "isto é o que temos a discutir" numa afirmação falsa.
  */
 router.get("/cliente/recomendacoes", async (req, res): Promise<void> => {
-  try {
-    const query = req.query as Record<string, unknown>;
-    const texto = (valor: unknown): string | undefined =>
-      typeof valor === "string" && valor.trim() !== "" ? valor.trim() : undefined;
+  const query = req.query as Record<string, unknown>;
+  const texto = (valor: unknown): string | undefined =>
+    typeof valor === "string" && valor.trim() !== "" ? valor.trim() : undefined;
 
-    const recomendacoes = await getRecomendacoesAoCliente(db, {
-      entityType: texto(query.entityType),
-      placa: texto(query.placa),
-      context: parseContext(query),
-    });
+  const recomendacoes = await getRecomendacoesAoCliente(db, {
+    entityType: texto(query.entityType),
+    placa: texto(query.placa),
+    context: parseContext(query),
+  });
 
-    if (!recomendacoes) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-    res.json(recomendacoes);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building client recommendations");
-    res.status(500).json({ error: "Internal server error" });
+  if (!recomendacoes) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
   }
+  res.json(recomendacoes);
 });
 
 export default router;

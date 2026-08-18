@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { Server } from "node:http";
 import express from "express";
+import { erroEmJson } from "../../middlewares/contrato-json";
 import { sql } from "drizzle-orm";
 import {
   attributeTable,
@@ -120,6 +121,13 @@ beforeAll(async () => {
     next();
   });
   app.use(router);
+  /*
+    O contrato JSON, montado como no `app.ts`. Não é cerimônia de teste: desde
+    que a tradução das recusas e o diagnóstico de schema saíram dos `catch` das
+    rotas, é ele quem responde 404, 400, 422, 503 e 500 — e um app de teste sem
+    ele mede o `finalhandler` do Express, que devolve HTML.
+  */
+  app.use(erroEmJson);
 
   servidor = await new Promise<Server>((resolve) => {
     const s = app.listen(0, "127.0.0.1", () => resolve(s));

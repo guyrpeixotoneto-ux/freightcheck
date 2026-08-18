@@ -16,6 +16,12 @@ import {
   stage,
 } from "@workspace/ingest";
 import { getOverview } from "@workspace/comparison";
+import { classificarFalha } from "../lib/classificar-falha";
+
+/** O motivo gravado num run cuja causa não se sabe explicar a quem opera. */
+const MOTIVO_INESPERADO =
+  "Não foi possível concluir a importação. O estado do banco está em " +
+  "/api/healthz.";
 
 /**
  * Read-only views over what the system already holds: the panel, the import
@@ -27,34 +33,19 @@ import { getOverview } from "@workspace/comparison";
 const router: IRouter = Router();
 
 router.get("/overview", async (req, res): Promise<void> => {
-  try {
-    res.json(await getOverview(db));
-  } catch (err) {
-    req.log.error({ err }, "Error building overview");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  res.json(await getOverview(db));
 });
 
 router.get("/imports", async (req, res): Promise<void> => {
-  try {
-    res.json(await listImportRuns(db));
-  } catch (err) {
-    req.log.error({ err }, "Error listing imports");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  res.json(await listImportRuns(db));
 });
 
 router.get("/imports/:id", async (req, res): Promise<void> => {
-  try {
-    const [sheets, snapshots] = await Promise.all([
-      getImportRunSheets(db, req.params.id),
-      getImportRunSnapshots(db, req.params.id),
-    ]);
-    res.json({ sheets, snapshots });
-  } catch (err) {
-    req.log.error({ err }, "Error loading import run");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  const [sheets, snapshots] = await Promise.all([
+    getImportRunSheets(db, req.params.id),
+    getImportRunSnapshots(db, req.params.id),
+  ]);
+  res.json({ sheets, snapshots });
 });
 
 /**
@@ -79,7 +70,7 @@ router.get("/imports/:id", async (req, res): Promise<void> => {
  */
 router.post(
   "/imports",
-  async (req, res): Promise<void> => {
+  async (req, res, next): Promise<void> => {
     try {
       const { filename, contentBase64 } = (req.body ?? {}) as {
         filename?: string;
@@ -133,7 +124,14 @@ router.post(
           await stage(db, runId);
           await preview(db, runId);
         } catch (err) {
-          const message = err instanceof Error ? err.message : "Erro desconhecido";
+          /*
+            O motivo fica gravado, e gravado é para sempre: `failureReason` é
+            campo de leitura humana, e o `err.message` de uma falha de banco ali
+            é pior do que numa resposta HTTP — a resposta passa, o campo fica.
+          */
+          const desfecho = classificarFalha(err);
+          const message =
+            desfecho.tipo === "REGRA" ? desfecho.mensagem : MOTIVO_INESPERADO;
           try {
             await db
               .update(importRunTable)
@@ -147,46 +145,50 @@ router.post(
         }
       })();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Erro desconhecido";
-      req.log.error({ err }, "Error receiving upload");
-      if (!res.headersSent) res.status(422).json({ error: message });
+      /*
+        422 é para a recusa que se escreve a quem envia. Uma falha de banco
+        chegava aqui como 422 com a consulta do drizzle dentro — o número
+        dizendo que o defeito era do arquivo, e o corpo mostrando SQL.
+      */
+      const desfecho = classificarFalha(err);
+      if (desfecho.tipo !== "REGRA") {
+        next(err);
+        return;
+      }
+      req.log.warn({ err }, "Upload refused");
+      if (!res.headersSent) res.status(422).json({ error: desfecho.mensagem });
     }
   },
 );
 
 /** Where a run is, and its preview once there is one. */
 router.get("/imports/:id/status", async (req, res): Promise<void> => {
-  try {
-    const [run] = await db
-      .select()
-      .from(importRunTable)
-      .where(eq(importRunTable.id, req.params.id));
-    if (!run) {
-      res.status(404).json({ error: "Importação não encontrada." });
-      return;
-    }
-
-    const snapshots =
-      run.status === "PREVIEWED" || run.status === "PROMOTED"
-        ? await getImportRunSnapshotLabels(db, run.id)
-        : [];
-
-    res.json({
-      importRunId: run.id,
-      status: run.status,
-      failureReason: run.failureReason,
-      sheets: run.rawSheetCount,
-      rawCells: run.rawCellCount,
-      facts: run.stagedFactCount,
-      snapshots: run.snapshotCount,
-      errors: run.errorCount,
-      warnings: run.warningCount,
-      labels: snapshots,
-    });
-  } catch (err) {
-    req.log.error({ err }, "Error reading import status");
-    res.status(500).json({ error: "Internal server error" });
+  const [run] = await db
+    .select()
+    .from(importRunTable)
+    .where(eq(importRunTable.id, req.params.id));
+  if (!run) {
+    res.status(404).json({ error: "Importação não encontrada." });
+    return;
   }
+
+  const snapshots =
+    run.status === "PREVIEWED" || run.status === "PROMOTED"
+      ? await getImportRunSnapshotLabels(db, run.id)
+      : [];
+
+  res.json({
+    importRunId: run.id,
+    status: run.status,
+    failureReason: run.failureReason,
+    sheets: run.rawSheetCount,
+    rawCells: run.rawCellCount,
+    facts: run.stagedFactCount,
+    snapshots: run.snapshotCount,
+    errors: run.errorCount,
+    warnings: run.warningCount,
+    labels: snapshots,
+  });
 });
 
 /*

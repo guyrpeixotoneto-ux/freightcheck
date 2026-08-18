@@ -87,14 +87,6 @@ function parseFiltros(query: Record<string, unknown>): FiltrosDaFrota {
   };
 }
 
-function sendContextError(res: Response, err: unknown): boolean {
-  if (err instanceof ContextNotFoundError) {
-    res.status(404).json({ error: err.message });
-    return true;
-  }
-  return false;
-}
-
 /**
  * O plano da DRE — servido para que a tela não precise repetir a estrutura.
  *
@@ -115,22 +107,16 @@ router.get("/dre/fleet", async (req, res): Promise<void> => {
   const escopo = parseEscopo(query, res);
   if (!escopo) return;
 
-  try {
-    const view = await getDREDaFrota(db, escopo, {
-      ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
-      ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
-      filtros: parseFiltros(query),
-    });
-    if (!view) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-    res.json({ ...view, aviso: AVISO_DE_CIRCULARIDADE });
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building DRE fleet view");
-    res.status(500).json({ error: "Internal server error" });
+  const view = await getDREDaFrota(db, escopo, {
+    ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
+    ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
+    filtros: parseFiltros(query),
+  });
+  if (!view) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
   }
+  res.json({ ...view, aviso: AVISO_DE_CIRCULARIDADE });
 });
 
 router.get("/dre/unit/:entityId", async (req, res): Promise<void> => {
@@ -143,25 +129,19 @@ router.get("/dre/unit/:entityId", async (req, res): Promise<void> => {
   const escopo = parseEscopo(query, res);
   if (!escopo) return;
 
-  try {
-    const dre = await getDREDoVeiculo(db, entityId, escopo, {
-      ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
-      ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
+  const dre = await getDREDoVeiculo(db, entityId, escopo, {
+    ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
+    ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
+  });
+  if (!dre) {
+    res.status(404).json({
+      error:
+        `Este equipamento não forma uma unidade econômica de escopo ${escopo} ` +
+        `nesta vigência.`,
     });
-    if (!dre) {
-      res.status(404).json({
-        error:
-          `Este equipamento não forma uma unidade econômica de escopo ${escopo} ` +
-          `nesta vigência.`,
-      });
-      return;
-    }
-    res.json({ ...dre, aviso: AVISO_DE_CIRCULARIDADE });
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building DRE unit view");
-    res.status(500).json({ error: "Internal server error" });
+    return;
   }
+  res.json({ ...dre, aviso: AVISO_DE_CIRCULARIDADE });
 });
 
 /**
@@ -181,21 +161,15 @@ router.get("/dre/unit/:entityId/bridge", async (req, res): Promise<void> => {
   const escopo = parseEscopo(query, res);
   if (!escopo) return;
 
-  try {
-    const ponte = await getPonteDaDRE(db, entityId, escopo, {
-      ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
-      ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
-    });
-    if (!ponte) {
-      res.status(404).json({ error: "Equipamento ou vigência não encontrados." });
-      return;
-    }
-    res.json({ ...ponte, explicacao: explicarResultado(ponte) });
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building DRE bridge");
-    res.status(500).json({ error: "Internal server error" });
+  const ponte = await getPonteDaDRE(db, entityId, escopo, {
+    ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
+    ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
+  });
+  if (!ponte) {
+    res.status(404).json({ error: "Equipamento ou vigência não encontrados." });
+    return;
   }
+  res.json({ ...ponte, explicacao: explicarResultado(ponte) });
 });
 
 router.get("/dre/unit/:entityId/history", async (req, res): Promise<void> => {
@@ -208,21 +182,15 @@ router.get("/dre/unit/:entityId/history", async (req, res): Promise<void> => {
   const escopo = parseEscopo(query, res);
   if (!escopo) return;
 
-  try {
-    const historico = await getHistoricoDaDRE(db, escopo, {
-      entityId,
-      ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
-    });
-    if (!historico) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-    res.json(historico);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building DRE history");
-    res.status(500).json({ error: "Internal server error" });
+  const historico = await getHistoricoDaDRE(db, escopo, {
+    entityId,
+    ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
+  });
+  if (!historico) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
   }
+  res.json(historico);
 });
 
 router.get("/dre/history", async (req, res): Promise<void> => {
@@ -230,20 +198,14 @@ router.get("/dre/history", async (req, res): Promise<void> => {
   const escopo = parseEscopo(query, res);
   if (!escopo) return;
 
-  try {
-    const historico = await getHistoricoDaDRE(db, escopo, {
-      ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
-    });
-    if (!historico) {
-      res.status(404).json({ error: "Nenhuma vigência importada ainda." });
-      return;
-    }
-    res.json(historico);
-  } catch (err) {
-    if (sendContextError(res, err)) return;
-    req.log.error({ err }, "Error building DRE fleet history");
-    res.status(500).json({ error: "Internal server error" });
+  const historico = await getHistoricoDaDRE(db, escopo, {
+    ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
+  });
+  if (!historico) {
+    res.status(404).json({ error: "Nenhuma vigência importada ainda." });
+    return;
   }
+  res.json(historico);
 });
 
 export default router;

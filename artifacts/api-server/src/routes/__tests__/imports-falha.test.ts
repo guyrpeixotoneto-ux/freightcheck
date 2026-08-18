@@ -32,6 +32,7 @@ import {
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import express from "express";
+import { erroEmJson } from "../../middlewares/contrato-json";
 import { DrizzleQueryError } from "drizzle-orm/errors";
 import type { EstadoObservado } from "@workspace/db/diagnostico";
 
@@ -55,6 +56,10 @@ vi.mock("@workspace/ingest", async (original) => ({
 }));
 
 const { default: router } = await import("../imports");
+const { CODIGO_ERRO_INTERNO } = await import(
+  "../../middlewares/contrato-json"
+);
+
 const { classificarFalhaDeImportacao, ehFraseParaQuemOpera, motivoGravavel } =
   await import("../imports");
 const { PromocaoRecusada } = await import("@workspace/ingest");
@@ -125,6 +130,13 @@ beforeAll(async () => {
     next();
   });
   app.use(router);
+  /*
+    O contrato JSON, montado como no `app.ts`. Não é cerimônia de teste: desde
+    que a tradução das recusas e o diagnóstico de schema saíram dos `catch` das
+    rotas, é ele quem responde 404, 400, 422, 503 e 500 — e um app de teste sem
+    ele mede o `finalhandler` do Express, que devolve HTML.
+  */
+  app.use(erroEmJson);
   await new Promise<void>((resolve) => {
     servidor = app.listen(0, () => resolve());
   });
@@ -276,7 +288,13 @@ describe("42P10 — o ON CONFLICT sem índice que o case", () => {
     const { status, body } = await aprovar();
 
     expect(status).toBe(500);
-    expect((body as Record<string, unknown>)["code"]).toBeUndefined();
+    /*
+      `ERRO_INTERNO`, e não `SCHEMA_AUSENTE`: é o código do contrato JSON, que
+      passou a responder por todo desfecho inesperado desta API. O que este
+      caso trava continua sendo o mesmo — um defeito nosso não pode sair
+      classificado como banco atrasado, nem mandar rodar migration nenhuma.
+    */
+    expect((body as Record<string, unknown>)["code"]).toBe(CODIGO_ERRO_INTERNO);
     expect(JSON.stringify(body)).not.toMatch(/migration/i);
     exigirRespostaLimpa(body);
   });
@@ -375,10 +393,22 @@ describe("o erro inesperado responde sem contar o que é", () => {
     const corpo = body as Record<string, unknown>;
 
     expect(status).toBe(500);
-    expect(corpo["error"]).toMatch(/Não foi possível concluir a importação/);
-    expect(corpo["error"]).toMatch(/healthz/);
-    expect(JSON.stringify(corpo)).not.toMatch(/Cannot read properties/);
-    expect(JSON.stringify(corpo)).not.toMatch(/entityId/);
+    /*
+      A frase é a do contrato JSON, e não mais a que esta rota escrevia por
+      conta própria: um 500 responde igual em toda a API, com `code` e
+      `requestId`. O que esta rota perdeu em especificidade — "não foi possível
+      concluir a importação" — ela ganhou no identificador que liga esta tela à
+      linha do log, que é o que faltava para descobrir *qual* defeito foi este.
+    */
+    expect(corpo["error"]).toMatch(/O servidor falhou ao processar este pedido/);
+    expect(corpo["code"]).toBe(CODIGO_ERRO_INTERNO);
+    /*
+      O texto do runtime só aparece no `detalhe`, que é campo de
+      desenvolvimento — ver `podeDetalhar`. Em produção ele não existe, e é isso
+      que `producao-nao-detalha` prova. Aqui o que se exige é que ele não esteja
+      no `error`, que é o que a tela mostra em qualquer ambiente.
+    */
+    expect(corpo["error"]).not.toMatch(/Cannot read properties/);
   });
 
   it("um erro do banco que não é schema também é 500, e não 422", async () => {
@@ -400,7 +430,7 @@ describe("o erro inesperado responde sem contar o que é", () => {
     const { status, body } = await aprovar();
     expect(status).toBe(500);
     expect((body as Record<string, unknown>)["error"]).toMatch(
-      /Não foi possível concluir a importação/,
+      /O servidor falhou ao processar este pedido/,
     );
   });
 });

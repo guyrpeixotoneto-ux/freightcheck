@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
+import { classificarFalha } from "../lib/classificar-falha";
 import {
   backfillSemantics,
   correctSemantics,
@@ -18,30 +19,20 @@ import {
 const router: IRouter = Router();
 
 router.get("/curation/versions", async (req, res): Promise<void> => {
-  try {
-    res.json(await listVersionedAttributes(db));
-  } catch (err) {
-    req.log.error({ err }, "Error listing versioned attributes");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  res.json(await listVersionedAttributes(db));
 });
 
 router.get("/curation/versions/:code", async (req, res): Promise<void> => {
-  try {
-    const history = await getSemanticsHistory(db, req.params.code);
-    if (history.length === 0) {
-      res.status(404).json({ error: "Atributo sem semântica registrada." });
-      return;
-    }
-    res.json(history);
-  } catch (err) {
-    req.log.error({ err }, "Error loading semantics history");
-    res.status(500).json({ error: "Internal server error" });
+  const history = await getSemanticsHistory(db, req.params.code);
+  if (history.length === 0) {
+    res.status(404).json({ error: "Atributo sem semântica registrada." });
+    return;
   }
+  res.json(history);
 });
 
 /** A Freightec mudou a regra a partir de uma vigência. Vira alteração. */
-router.post("/curation/versions/:code/source-change", async (req, res): Promise<void> => {
+router.post("/curation/versions/:code/source-change", async (req, res, next): Promise<void> => {
   try {
     const version = await recordSourceSemanticsChange(db, {
       code: req.params.code,
@@ -51,14 +42,18 @@ router.post("/curation/versions/:code/source-change", async (req, res): Promise<
     });
     res.json(version);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Erro desconhecido";
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
+      return;
+    }
     req.log.warn({ err }, "Source semantics change refused");
-    res.status(422).json({ error: message });
+    res.status(422).json({ error: desfecho.mensagem });
   }
 });
 
 /** Nós entendemos errado. Corrige o trecho inteiro e não vira alteração. */
-router.post("/curation/versions/:code/correction", async (req, res): Promise<void> => {
+router.post("/curation/versions/:code/correction", async (req, res, next): Promise<void> => {
   try {
     const version = await correctSemantics(db, {
       code: req.params.code,
@@ -67,19 +62,18 @@ router.post("/curation/versions/:code/correction", async (req, res): Promise<voi
     });
     res.json(version);
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Erro desconhecido";
+    const desfecho = classificarFalha(err);
+    if (desfecho.tipo !== "REGRA") {
+      next(err);
+      return;
+    }
     req.log.warn({ err }, "Semantics correction refused");
-    res.status(422).json({ error: message });
+    res.status(422).json({ error: desfecho.mensagem });
   }
 });
 
 router.post("/curation/versions/backfill", async (req, res): Promise<void> => {
-  try {
-    res.json(await backfillSemantics(db));
-  } catch (err) {
-    req.log.error({ err }, "Error backfilling semantics");
-    res.status(500).json({ error: "Internal server error" });
-  }
+  res.json(await backfillSemantics(db));
 });
 
 export default router;

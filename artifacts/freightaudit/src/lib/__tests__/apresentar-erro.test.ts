@@ -11,7 +11,7 @@
  * que o teste falhe se a forma mudar de um lado só.
  */
 import { describe, expect, it } from "vitest";
-import { ApiError } from "@/lib/api";
+import { ApiError, erroDaResposta } from "@/lib/api";
 import { apresentar } from "@/lib/apresentar-erro";
 import { ehDiagnostico, type Diagnostico } from "@/lib/diagnostico";
 import { ErroDeTransporte, diagnosticarTransporte } from "@/lib/transporte";
@@ -244,5 +244,105 @@ describe("apresentar", () => {
     );
     expect(vista.orientacao).toBeNull();
     expect(vista.mensagemCrua).toBe("erro");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// O identificador da requisição — o que a tela oferece quando não há explicação
+// ---------------------------------------------------------------------------
+
+/**
+ * O caso vivido, e o que faltava nele.
+ *
+ * Composição e a aba Planilha mostravam `Internal server error` enquanto o
+ * `/api/healthz` respondia `SAUDAVEL`. As duas coisas eram verdade: o banco
+ * estava são e a falha era de código, dentro de uma rota. Nesse desfecho a
+ * função **não** orienta nada — orientar sobre o banco mandaria procurar no
+ * lugar errado — e é justamente aí que a tela ficava sem nada acionável.
+ *
+ * O `requestId` é a saída, e é a única coisa nesta forma que não tenta explicar
+ * o que houve: ele diz qual linha do log descreve a falha.
+ */
+describe("o requestId", () => {
+  const erroInterno = (extra?: { requestId?: string }) =>
+    new ApiError(
+      "O servidor falhou ao processar este pedido. Nada foi gravado por esta chamada.",
+      500,
+      "ERRO_INTERNO",
+      extra,
+    );
+
+  it("atravessa quando não há orientação nenhuma — o caso sem explicação", () => {
+    const vista = apresentar(erroInterno({ requestId: "9f2c1a" }), {
+      diagnostico: SAUDAVEL,
+    });
+
+    expect(vista.orientacao).toBeNull();
+    expect(vista.requestId).toBe("9f2c1a");
+  });
+
+  it("convive com a orientação: não é uma segunda opinião, é um endereço", () => {
+    /*
+      A invariante de "uma orientação só" vale para recomendação. O
+      identificador não recomenda nada, e some-lo junto tiraria da tela a única
+      coisa que liga um 503 a uma linha de log.
+    */
+    const vista = apresentar(erroDeChamados(PENDENTES));
+    expect(vista.orientacao?.estado).toBe("MIGRATIONS_PENDENTES");
+
+    const comId = apresentar(
+      new ApiError("falhou", 503, "SCHEMA_AUSENTE", {
+        diagnostico: PENDENTES,
+        requestId: "abc123",
+      }),
+    );
+    expect(comId.orientacao?.estado).toBe("MIGRATIONS_PENDENTES");
+    expect(comId.requestId).toBe("abc123");
+  });
+
+  it("é nulo quando o servidor não mandou nenhum — e não vira string vazia", () => {
+    expect(apresentar(erroInterno()).requestId).toBeNull();
+    expect(apresentar(new Error("caiu")).requestId).toBeNull();
+    expect(apresentar("caiu").requestId).toBeNull();
+  });
+
+  it("é lido do corpo da resposta, junto com code e diagnóstico", () => {
+    /*
+      `erroDaResposta` é o único lugar que constrói um `ApiError` a partir de
+      uma resposta. Enquanto cada tela montava o seu, elas montavam pela
+      metade — e foi assim que o `diagnostico` se perdia no caminho do upload.
+      O identificador entra pela mesma porta, para não repetir a história.
+    */
+    const erro = erroDaResposta(
+      { status: 500 } as Response,
+      {
+        error: "O servidor falhou ao processar este pedido.",
+        code: "ERRO_INTERNO",
+        requestId: "7b3e0d",
+      },
+    );
+
+    expect(erro.requestId).toBe("7b3e0d");
+    expect(erro.code).toBe("ERRO_INTERNO");
+    expect(apresentar(erro).requestId).toBe("7b3e0d");
+  });
+
+  it("um requestId vazio conta como ausente", () => {
+    const erro = erroDaResposta({ status: 500 } as Response, {
+      error: "falhou",
+      requestId: "",
+    });
+
+    expect(erro.requestId).toBeUndefined();
+  });
+
+  it("uma falha de transporte não inventa identificador", () => {
+    /* Se a requisição não chegou à API, não há requisição para identificar —
+       e um número aqui mandaria procurar no log um pedido que nunca existiu. */
+    const vista = apresentar(
+      new ErroDeTransporte(diagnosticarTransporte({ naoCompletou: true })),
+    );
+
+    expect(vista.requestId).toBeNull();
   });
 });
