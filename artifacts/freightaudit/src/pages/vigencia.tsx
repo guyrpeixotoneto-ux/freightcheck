@@ -128,36 +128,30 @@ export default function Vigencia() {
   return (
     <Layout>
       <header className="px-8 pt-7 pb-5 max-w-[1600px]">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="min-w-0">
-            <h1 className="text-4xl font-bold tracking-tight">
-              {data ? capitalizar(data.periodLabel) : "Acompanhamento"}
-            </h1>
-            {data && (
-              <p className="text-base text-muted-foreground mt-1">{data.context.label}</p>
-            )}
+        {/*
+          Duas colunas que não trocam de lugar: o título é o que encolhe
+          (`flex-1 min-w-0`) e o seletor é o que não encolhe (`shrink-0`).
+          Com `flex-wrap` e uma linha de procedência de mil e poucos pixels, o
+          seletor caía para a linha de baixo e ia parar à esquerda, embaixo do
+          título — no lugar onde ninguém procura o controle da página.
+        */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:gap-6">
+          <div className="min-w-0 flex-1">
             {/*
-              A vigência de cada lado vem antes do nome do arquivo.
-              `CAV_JUL → CAV_AGO` identifica as entregas e não diz de quando
-              elas são; e o "de quando" do lado esquerdo não é dedutível do
-              título da página, porque cada série compara contra a última
-              entrega **dela** — uma que pulou um mês tem um "antes" mais velho
-              que o da outra, na mesma vigência.
+              Unidade e canal sobem para cima do título. Eles são o que não
+              muda enquanto se navega — a vigência é o que muda —, e lidos
+              embaixo de um "Agosto/2026" de 36px pareciam legenda dele, e não
+              o contexto de que a vigência é um recorte.
             */}
             {data && (
-              <p className="text-muted-foreground text-xs mt-1.5">
-                {data.series.map((s, i) => (
-                  <span key={s.entityTypeSet}>
-                    {i > 0 && " · "}
-                    {s.equipment.toLowerCase()}:{" "}
-                    {s.previousPeriodLabel ?? "sem vigência anterior"} → {data.periodLabel}{" "}
-                    <span className="font-mono">
-                      ({s.previousLabel ?? "—"} → {s.snapshotLabel})
-                    </span>
-                  </span>
-                ))}
+              <p className="text-xs font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+                {data.context.label}
               </p>
             )}
+            <h1 className="text-4xl font-bold tracking-tight mt-1">
+              {data ? capitalizar(data.periodLabel) : "Acompanhamento"}
+            </h1>
+            {data && <Procedencia series={data.series} periodLabel={data.periodLabel} />}
           </div>
 
           {/*
@@ -166,7 +160,7 @@ export default function Vigencia() {
             teria mais a que se referir — dentro da mesma moldura do campo, tem.
           */}
           {data && data.periods.length > 1 && (
-            <div className="flex items-stretch border rounded-lg bg-card shadow-sm overflow-hidden">
+            <div className="flex items-stretch border rounded-lg bg-card shadow-sm overflow-hidden shrink-0">
               <span className="flex items-center px-3 text-xs font-semibold text-muted-foreground border-r">
                 Vigência
               </span>
@@ -309,6 +303,51 @@ export default function Vigencia() {
 
 function capitalizar(texto: string): string {
   return texto.charAt(0).toUpperCase() + texto.slice(1);
+}
+
+/**
+ * De onde saiu cada série — uma ficha por série, e não uma frase só.
+ *
+ * A vigência de cada lado vem antes do nome do arquivo. `CAV_JUL → CAV_AGO`
+ * identifica as entregas e não diz de quando elas são; e o "de quando" do lado
+ * esquerdo não é dedutível do título da página, porque cada série compara
+ * contra a última entrega **dela** — uma que pulou um mês tem um "antes" mais
+ * velho que o da outra, na mesma vigência.
+ *
+ * Isso cabia numa linha corrida enquanto havia uma série. Com duas, a linha
+ * junta dois nomes de vigência e dois nomes de arquivo por série, passa de mil
+ * pixels e cobra para ser lida o que ela deveria dar de graça: qual par é de
+ * qual série se descobre contando parênteses. A ficha separa as séries no eixo
+ * em que elas são independentes, e separa dentro de cada uma as duas camadas —
+ * a vigência, que é o rótulo, e o arquivo, que é a prova.
+ */
+function Procedencia({
+  series,
+  periodLabel,
+}: {
+  series: GroupedView["series"];
+  periodLabel: string;
+}) {
+  return (
+    <div className="flex flex-wrap gap-2 mt-3">
+      {series.map((s) => (
+        <div
+          key={s.entityTypeSet}
+          className="min-w-0 rounded-lg border bg-card/60 px-3 py-1.5"
+        >
+          <div className="flex items-baseline gap-1.5 text-xs">
+            <span className="font-semibold">{s.equipment.toLowerCase()}</span>
+            <span className="text-muted-foreground">
+              {s.previousPeriodLabel ?? "sem vigência anterior"} → {periodLabel}
+            </span>
+          </div>
+          <div className="font-mono text-[0.6875rem] text-muted-foreground/80 truncate">
+            {s.previousLabel ?? "—"} → {s.snapshotLabel}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
 }
 
 /** Quantos pontos a fila abre mostrando, antes de alguém pedir o resto. */
