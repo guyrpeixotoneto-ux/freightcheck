@@ -290,6 +290,54 @@ const NOME_DO_TIPO_DE_VALOR: Record<string, string> = {
   BOOLEAN: "sim/não",
 };
 
+/**
+ * As seções fixas de cada aviso de célula.
+ *
+ * `values.ts` escreve a frase (o resumo) porque é lá que o caso é entendido;
+ * título, correção e motivo não variam por célula e por isso moram aqui, onde
+ * a frase vira apontamento. Sem isto, o grupo destes avisos aparecia na tela
+ * com o código cru como título — exatamente o jargão que a leitura principal
+ * não pode ter.
+ */
+const AVISO_DE_CELULA: Record<
+  string,
+  { titulo: string; comoCorrigir?: string; porQueImporta: string }
+> = {
+  ERROR_CELL: {
+    titulo: "Uma célula não pôde ser lida",
+    comoCorrigir:
+      "Abra a célula indicada e corrija o valor — o erro (#REF!, #DIV/0!…) está " +
+      "na própria planilha. Enquanto isso, o valor conta como vazio.",
+    porQueImporta:
+      "Um erro de célula não é um valor: entrar como zero inventaria dado; " +
+      "entrar como vazio, marcado, mantém a conta honesta.",
+  },
+  DATE_WITH_TIME_COMPONENT: {
+    titulo: "Uma data veio com horário",
+    comoCorrigir:
+      "Nada a corrigir se o horário é intencional. Se a coluna devia ter só " +
+      "datas, ajuste o formato das células na origem.",
+    porQueImporta: "Cortar o horário perderia informação que a coluna carrega.",
+  },
+  AMBIGUOUS_DATE_SERIAL: {
+    titulo: "Um número parece ser uma data",
+    comoCorrigir:
+      "Se a coluna é de datas, formate as células como data na planilha e envie " +
+      "de novo. Se é número mesmo, nada a fazer — a curadoria decide.",
+    porQueImporta:
+      "Converter por palpite trocaria um número real por uma data inventada.",
+  },
+  SUSPECTED_SENTINEL: {
+    titulo: 'Um valor pode significar "não se aplica"',
+    comoCorrigir:
+      'Se o valor marca mesmo "não se aplica", confirme a regra na curadoria; ' +
+      "se é um valor real, nada a fazer.",
+    porQueImporta:
+      "Tratar o valor como ausência sem regra confirmada mudaria médias e " +
+      "totais em silêncio.",
+  },
+};
+
 /** Postgres caps a statement at 65535 bound parameters. */
 const INSERT_CHUNK = 1_000;
 
@@ -715,6 +763,27 @@ export async function stage(
     .where(eq(importRunTable.id, importRunId));
   const declarado = tipoDeImportacao(runDeclarado?.declaredType ?? null);
 
+  /*
+    O nome curado de cada atributo, quando a curadoria já deu um.
+
+    As mensagens preferem o `display_name` ("O que cada atributo mede", dado na
+    curadoria) ao cabeçalho cru, porque é o nome que a pessoa reconhece — e
+    mantêm o cabeçalho entre parênteses quando os dois diferem, porque é o
+    cabeçalho que diz **onde corrigir** no arquivo. Ver `nomeDoAtributo`.
+  */
+  const nomesCurados = new Map<string, string>(
+    (
+      await db
+        .select({
+          code: attributeTable.code,
+          displayName: attributeTable.displayName,
+        })
+        .from(attributeTable)
+    )
+      .filter((a) => a.displayName !== null && a.displayName.trim() !== "")
+      .map((a) => [a.code, a.displayName as string]),
+  );
+
   const knownAliases = await db.select().from(attributeAliasTable);
   const aliasKey = (sourceName: string, sheetName: string) =>
     `${sheetName} ${sourceName}`;
@@ -755,6 +824,21 @@ export async function stage(
     depois do laço de abas, quando a coluna já ficou para trás.
   */
   const nomeDaColuna = new Map<string, string>();
+  /*
+    O nome de um atributo como uma frase o mostra: o curado quando existe, o
+    cabeçalho quando não — e os dois quando diferem, porque um diz **o que é**
+    e o outro diz **onde corrigir**. O código interno só aparece quando não há
+    nem um nem outro, o que é o caso de um atributo que nunca teve célula
+    nesta importação.
+  */
+  const nomeDoAtributo = (code: string): string => {
+    const cabecalho = nomeDaColuna.get(code);
+    const curado = nomesCurados.get(code);
+    if (curado && cabecalho && curado !== cabecalho) {
+      return `${curado} (coluna "${cabecalho}")`;
+    }
+    return curado ?? cabecalho ?? code;
+  };
   const labels = new Set<string>();
   const identidades: SheetIdentity[] = [];
   let rowsRejected = 0;
@@ -1189,6 +1273,7 @@ export async function stage(
         });
 
         for (const warning of typed.warnings) {
+          const aviso = AVISO_DE_CELULA[warning.code];
           issues.push({
             importRunId,
             rawSheetId: sheet.id,
@@ -1197,7 +1282,28 @@ export async function stage(
             severity: "WARNING",
             code: warning.code,
             message: warning.message,
-            detail: { attributeCode: column.attributeCode },
+            detail: {
+              attributeCode: column.attributeCode,
+              ...(aviso
+                ? {
+                    apresentacao: {
+                      titulo: aviso.titulo,
+                      resumo: warning.message,
+                      onde: [
+                        {
+                          aba: sheet.sheetName,
+                          linhas: [row.rowIndex],
+                          coluna: column.header,
+                        },
+                      ],
+                      ...(aviso.comoCorrigir
+                        ? { comoCorrigir: aviso.comoCorrigir }
+                        : {}),
+                      porQueImporta: aviso.porQueImporta,
+                    } satisfies ApresentacaoDeApontamento,
+                  }
+                : {}),
+            },
           });
         }
 
@@ -1276,7 +1382,7 @@ export async function stage(
   }
   for (const [code, types] of typesByAttribute) {
     if (types.size <= 1) continue;
-    const nome = nomeDaColuna.get(code) ?? code;
+    const nome = nomeDoAtributo(code);
     const tiposLegiveis = [...types]
       .sort()
       .map((t) => NOME_DO_TIPO_DE_VALOR[t] ?? t.toLowerCase());
@@ -1511,7 +1617,7 @@ export async function stage(
       não virar um parágrafo de página quando a linha inteira discorda.
     */
     const diferencas = campos.map((campo) => ({
-      campo: nomeDaColuna.get(campo) ?? campo,
+      campo: nomeDoAtributo(campo),
       versoes: conflito.porAtributo.get(campo)!.map((ocorrencia) => {
         const origem = origemDoStaged.get(ocorrencia);
         return {
@@ -3015,18 +3121,22 @@ async function recordChassisIdentifiers(
   effectiveDate: string,
   importRunId: string,
 ): Promise<void> {
-  const chassisByEntity = new Map<string, string>();
+  const chassisByEntity = new Map<string, { chassis: string; legivel: string }>();
   for (const fact of facts) {
     const suffix = fact.attributeCode.split(".").slice(1).join(".");
     if (suffix !== "chassi" || fact.isNull) continue;
     const value = (fact.valueText ?? "").trim();
     if (value === "") continue;
-    chassisByEntity.set(`${fact.entityType}:${fact.entityKey}`, value);
+    chassisByEntity.set(`${fact.entityType}:${fact.entityKey}`, {
+      chassis: value,
+      legivel: fact.entityKeyRaw ?? fact.entityKey,
+    });
   }
 
-  for (const [cacheKey, chassis] of chassisByEntity) {
+  for (const [cacheKey, { chassis, legivel }] of chassisByEntity) {
     const entityId = entityCache.get(cacheKey);
     if (!entityId) continue;
+    const [entityType] = cacheKey.split(":");
     const [existing] = await tx
       .select()
       .from(entityIdentifierTable)
@@ -3039,12 +3149,38 @@ async function recordChassisIdentifiers(
       );
     if (existing) {
       if (existing.entityId !== entityId) {
+        const rotulo = tipoDeImportacao(entityType)?.rotulo ?? entityType;
         await tx.insert(validationIssueTable).values({
           importRunId,
           severity: "ERROR",
           code: "ENTITY_IDENTIFIER_CONFLICT",
-          message: `Chassis ${chassis} is already current for a different entity; identifier not attached.`,
-          detail: { chassis, existingEntityId: existing.entityId, entityId },
+          message:
+            `O chassi ${chassis} já pertence, hoje, a outro veículo no sistema; ` +
+            `ele não foi vinculado a ${rotulo} "${legivel}". Os valores da linha ` +
+            `entraram normalmente.`,
+          detail: {
+            chassis,
+            existingEntityId: existing.entityId,
+            entityId,
+            apresentacao: {
+              titulo: "Um chassi do arquivo já pertence a outro veículo",
+              resumo:
+                `O chassi ${chassis} já está, hoje, vinculado a outro veículo no ` +
+                `sistema. Ele não foi vinculado a ${rotulo} "${legivel}"; os ` +
+                `valores da linha entraram normalmente.`,
+              registro: [
+                ...registroDoTipo(entityType, legivel),
+                { campo: "chassi", valor: chassis },
+              ],
+              comoCorrigir:
+                "Confira na planilha se o chassi está na linha do veículo certo. " +
+                "Se o chassi mudou mesmo de veículo, trate a troca com a curadoria " +
+                "— ela é registrada com histórico, não por importação.",
+              porQueImporta:
+                "Dois veículos com o mesmo chassi corromperiam o histórico dos " +
+                "dois; o vínculo existente fica de pé até alguém decidir.",
+            } satisfies ApresentacaoDeApontamento,
+          },
         });
       }
       continue;
