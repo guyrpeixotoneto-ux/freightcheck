@@ -232,6 +232,13 @@
       "when": 1787019240000,
       "tag": "0032_verdade_financeira_unica",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1787019300000,
+      "tag": "0033_reconciliar_verdade_financeira",
+      "breakpoints": true
     }
   ]
 }

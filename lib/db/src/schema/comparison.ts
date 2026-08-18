@@ -55,19 +55,24 @@ export const changeSetTable = pgTable(
      * contagem aplicada. Auditoria técnica, e nunca "Impacto apurado" numa
      * tela.
      *
-     * Chamava-se `calculated_impact_by_periodicity`, e o nome escondia o que
-     * ele é: o `engine.ts` o acumula linha a linha, e uma regra que é por ativo
-     * ("as parcelas deste total mudaram neste veículo?") não tem resposta
-     * dentro desse laço. Seis consumidores o publicaram como total. Em
-     * agosto/2026 isso dizia R$ 39.936,28/mês onde o dinheiro era
-     * R$ 16.594,55/mês.
+     * **A coluna física continua sendo `calculated_impact_by_periodicity`**, e
+     * só o campo mudou de nome. O nome antigo escondia o que ele é: o
+     * `engine.ts` o acumula linha a linha, e uma regra que é por ativo ("as
+     * parcelas deste total mudaram neste veículo?") não tem resposta dentro
+     * desse laço. Seis consumidores o publicaram como total — em agosto/2026,
+     * R$ 39.936,28/mês onde o dinheiro era R$ 16.594,55/mês.
+     *
+     * Renomear o campo é o que faz o compilador cobrar de cada um deles qual
+     * leitura quer, que era o objetivo. Renomear a **coluna** custaria três
+     * propriedades que a fila de migrations protege, e o motivo de cada uma
+     * está escrito na `0032`.
      *
      * Deliberadamente não é um escalar. Um valor mensal e um anual não se
      * somam, e um total único afirmaria que sim: esta tabela já reportou
      * "R$ -757.009,57" para um conjunto que era R$ -735 mil por ano mais
      * R$ -88 mil por mês.
      */
-    impactoBrutoByPeriodicity: jsonb("impacto_bruto_by_periodicity")
+    impactoBrutoByPeriodicity: jsonb("calculated_impact_by_periodicity")
       .$type<Record<string, number>>()
       .notNull()
       .default({}),
