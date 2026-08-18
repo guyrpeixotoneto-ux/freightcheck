@@ -9,20 +9,67 @@ const router = Router();
 // Helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
-function findExcelFile(): string | null {
-  // Search up from __dirname for an attached_assets directory
-  const candidates = [
+/**
+ * As duas abas sem as quais esta rota não tem o que responder.
+ *
+ * `sheet_to_json` de uma aba que não existe não é erro: é `[]`. Foi assim que a
+ * tela de Análise de Equipamentos passou a abrir com "0 vigências analisadas",
+ * gráficos vazios e nenhuma mensagem — o servidor respondia 200 com listas
+ * vazias porque a pasta `attached_assets` tem três `.xlsx` e o antigo
+ * `findExcelFile` devolvia o primeiro que `readdirSync` entregasse. Os dois
+ * modelos de importação (`Modelo_Cavalo.xlsx`, `Modelo_Carreta.xlsx`) moram na
+ * mesma pasta da planilha de remuneração e carregam uma aba só, com outro nome.
+ * Por isso a escolha aqui é por conteúdo — quem tem as duas abas —, nunca por
+ * ordem de diretório.
+ */
+const ABAS_EXIGIDAS = ["carretas", "cavalos"] as const;
+
+function candidateDirs(): string[] {
+  // Search up from the process cwd for an attached_assets directory
+  return [
     path.resolve(process.cwd(), "../../attached_assets"),
     path.resolve(process.cwd(), "../attached_assets"),
     path.resolve(process.cwd(), "attached_assets"),
   ];
-  for (const dir of candidates) {
+}
+
+function temAsAbas(wb: XLSX.WorkBook): boolean {
+  return ABAS_EXIGIDAS.every((aba) => wb.Sheets[aba] != null);
+}
+
+/** Abre a planilha de remuneração da frota — a que tem `carretas` e `cavalos`. */
+function openFleetWorkbook(): { filePath: string; wb: XLSX.WorkBook } {
+  const vistos: string[] = [];
+
+  for (const dir of candidateDirs()) {
     if (!fs.existsSync(dir)) continue;
-    const files = fs.readdirSync(dir);
-    const xlsx = files.find((f) => f.endsWith(".xlsx"));
-    if (xlsx) return path.join(dir, xlsx);
+    const files = fs
+      .readdirSync(dir)
+      .filter((f) => f.endsWith(".xlsx") && !f.startsWith("~$"))
+      .sort();
+
+    for (const f of files) {
+      const filePath = path.join(dir, f);
+      vistos.push(filePath);
+      let wb: XLSX.WorkBook;
+      try {
+        wb = XLSX.readFile(filePath);
+      } catch {
+        continue; // arquivo ilegível não desqualifica os outros da pasta
+      }
+      if (temAsAbas(wb)) return { filePath, wb };
+    }
   }
-  return null;
+
+  /*
+    Some errado é melhor que responder vazio: a tela distingue `error` de "veio
+    sem dados", e só o primeiro diz ao usuário que falta um arquivo em vez de
+    sugerir que a frota não tem nada.
+  */
+  const onde = vistos.length
+    ? `Planilhas encontradas, nenhuma com as abas ${ABAS_EXIGIDAS.join(" e ")}: ${vistos.join(", ")}`
+    : `Nenhum .xlsx encontrado em: ${candidateDirs().join(", ")}`;
+  throw new Error(`Arquivo de frota (.xlsx) não encontrado em attached_assets. ${onde}`);
 }
 
 /** Parse "EMPURRADA_D_M_YYYY" → Date */
@@ -65,10 +112,7 @@ let _cache: FleetData | null = null;
 function getFleetData(): FleetData {
   if (_cache) return _cache;
 
-  const filePath = findExcelFile();
-  if (!filePath) throw new Error("Arquivo de frota (.xlsx) não encontrado em attached_assets");
-
-  const wb = XLSX.readFile(filePath);
+  const { wb } = openFleetWorkbook();
 
   const carretasRaw = XLSX.utils.sheet_to_json<Row>(wb.Sheets["carretas"], { defval: null });
   const cavalosRaw  = XLSX.utils.sheet_to_json<Row>(wb.Sheets["cavalos"],  { defval: null });
