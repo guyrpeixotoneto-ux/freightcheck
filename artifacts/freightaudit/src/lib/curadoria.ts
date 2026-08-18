@@ -1,4 +1,4 @@
-import { normalizarEquipamento } from "@workspace/curation";
+import { normalizarEquipamento } from "@workspace/curation/equipamento";
 
 import { EQUIPAMENTOS, rotuloDoTipo } from "@/lib/frota";
 

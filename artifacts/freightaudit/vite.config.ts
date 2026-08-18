@@ -40,6 +40,43 @@ function servePort(): number {
  */
 const basePath = process.env.BASE_PATH ?? '/';
 
+/**
+ * Código de servidor no bundle do navegador derruba o build, em vez de apagar a
+ * tela em produção.
+ *
+ * Foi assim que o produto inteiro passou a abrir em branco: uma função de três
+ * linhas importada do índice de `@workspace/curation` arrastou `@workspace/db`,
+ * `drizzle-orm` e o `pg` inteiro para dentro do bundle. O `pg` pede `net`,
+ * `tls`, `fs`, `crypto`; o Vite troca cada um por um substituto vazio e
+ * **avisa** — e aviso no meio de um build verde não é lido por ninguém. No
+ * navegador o `pg` toca `Buffer` ao ser avaliado, `Buffer` não existe ali, e o
+ * erro estoura antes de `createRoot().render()` — antes, portanto, do
+ * `ErrorBoundary`, que só protege o que já montou. O resultado é `#root` vazio,
+ * nenhuma mensagem, e do lado de fora isso é indistinguível de um servidor fora
+ * do ar.
+ *
+ * O sintoma é caríssimo e a causa é barata de detectar: módulo que roda no
+ * navegador não tem por que importar builtin do Node. O aviso que já existia
+ * passa a ser o erro que ele sempre foi.
+ *
+ * Isto deixa a versão anterior publicada quando alguém erra — o que é ruim, e é
+ * muito melhor do que publicar uma tela em branco: o defeito aparece no log do
+ * deploy, com o nome do módulo e de quem o importou, em vez de aparecer para
+ * quem ia usar o sistema.
+ */
+function recusarBuiltinDoNode(aviso: { message: string }): void {
+  if (
+    aviso.message.includes('has been externalized for browser compatibility')
+  ) {
+    throw new Error(
+      `Código de servidor entrou no bundle do navegador.\n\n${aviso.message}\n\n` +
+        'Importe do subcaminho que não fala com o banco — ' +
+        '`@workspace/curation/significado`, `@workspace/curation/equipamento` — ' +
+        'em vez do índice do pacote.',
+    );
+  }
+}
+
 // `async` porque os plugins do Replit são carregados sob demanda logo abaixo.
 export default defineConfig(async ({ command }) => ({
   base: basePath,
@@ -77,6 +114,12 @@ export default defineConfig(async ({ command }) => ({
   build: {
     outDir: path.resolve(import.meta.dirname, 'dist/public'),
     emptyOutDir: true,
+    rollupOptions: {
+      onwarn(aviso, avisar) {
+        recusarBuiltinDoNode(aviso);
+        avisar(aviso);
+      },
+    },
   },
   server: {
     port: command === 'serve' ? servePort() : undefined,

@@ -173,20 +173,15 @@ export const COLUNAS_DO_MODELO: ColunaDoModelo[] = [
 export const ROTULO_DA_COLUNA_ANTIGA = "Categoria DRE";
 
 /**
- * O tipo de equipamento como a base o guarda: em maiúsculas, sem espaço em
- * volta. Texto vazio vira `null`, que quer dizer "todos".
+ * O normalizador do tipo de equipamento continua saindo daqui para quem importa
+ * o índice do pacote — o servidor —, mas passou a morar em `./equipamento`.
  *
- * Mora aqui, e não em cada ponta, porque o recorte agora atravessa a rede: a
- * tela manda `?equipamento=` no endereço do download e o servidor decide que
- * abas escrever com o que chegou. Duas normalizações dos mesmos três tipos
- * concordam hoje e discordam no dia em que uma delas aprender a tirar acento —
- * e a discordância apareceria como um arquivo vazio, que é a forma mais cara de
- * descobrir o problema.
+ * A mudança é de endereço, não de regra: este arquivo fala com o banco, e a
+ * tela também precisa da função. Importá-la por aqui obrigava o navegador a
+ * carregar `@workspace/db` junto, e o produto abria em branco. O porquê inteiro
+ * está em `equipamento.ts`.
  */
-export function normalizarEquipamento(valor: string | null | undefined): string | null {
-  const limpo = valor?.trim().toUpperCase() ?? "";
-  return limpo === "" ? null : limpo;
-}
+export { normalizarEquipamento } from "./equipamento";
 
 /** Uma linha do modelo, como o servidor a escreve no arquivo. */
 export interface LinhaDoModelo {
