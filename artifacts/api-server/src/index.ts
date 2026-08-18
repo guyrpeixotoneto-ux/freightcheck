@@ -137,6 +137,17 @@ async function applyMigrationsInBackground(): Promise<void> {
           "removida não volta, e é por isso que `publicar:conferir` antes de " +
           "todo Publish continua valendo.",
       );
+      // Reposição estrutural é o rastro de uma mutilação: o conteúdo daquelas
+      // colunas se perdeu (ex.: papéis voltam todos OPERADOR) e alguém precisa
+      // decidir entre restaurar o backup ou refazer as decisões. Isso não pode
+      // depender de alguém reler o log da partida.
+      void alertar({
+        tipo: "RECONVERGENCIA_REPOS",
+        resumo:
+          `${reconvergencia.relatorio.aplicados.length} objeto(s) de schema repostos na ` +
+          `partida — algo os removeu por fora; o conteúdo deles não volta sozinho.`,
+        detalhe: { repostos: reconvergencia.relatorio.aplicados.map((a) => a.alvo) },
+      });
     } else if (
       reconvergencia.relatorio.semComando.length > 0 ||
       reconvergencia.relatorio.falhas.length > 0
