@@ -403,7 +403,17 @@ export interface ConfirmInput {
     "Significado" veio desfazer.
   */
   actor: string;
-  reason: string;
+  /**
+   * A justificativa, quando houver.
+   *
+   * Deixou de ser obrigatória junto com o campo que a pedia na tela de
+   * curadoria: quem confirma já responde *o que* o valor significa e *onde* ele
+   * cai, e o par de respostas é o que um revisor lê. O que a auditoria exige é
+   * assinatura — `actor`, que continua obrigatório e continua saindo da sessão.
+   * Uma frase em prosa é bem-vinda quando existe (a reaplicação do registro
+   * canônico ainda manda a dela), e nunca foi o que sustentava o ato.
+   */
+  reason?: string | null;
 }
 
 /**
@@ -420,12 +430,6 @@ export async function confirmAttribute(
   if (!input.actor?.trim()) {
     throw new Error("A confirmação exige um responsável identificado.");
   }
-  if (!input.reason?.trim()) {
-    throw new Error(
-      "A confirmação exige uma justificativa — é o que um revisor vai querer ler depois.",
-    );
-  }
-
   const [attribute] = await db
     .select()
     .from(attributeTable)
@@ -562,8 +566,8 @@ export async function confirmAttribute(
     e confirmar hoje não é afirmar nada sobre o passado.
 
     O que continua sendo desta função são as **guardas** acima: ator
-    identificado, justificativa escrita e semântica coerente. É o que separa a
-    confirmação humana da replicação de uma decisão já tomada.
+    identificado e semântica coerente. É o que separa a confirmação humana da
+    replicação de uma decisão já tomada.
   */
   await db.transaction(async (tx) => {
     await gravarSemanticaConfirmada(
@@ -578,7 +582,7 @@ export async function confirmAttribute(
       */
       {
         actor: input.actor,
-        reason: input.reason,
+        reason: input.reason ?? null,
         camposDoAto:
           input.meaningCode != null
             ? ["semantics_status", "meaning_id"]

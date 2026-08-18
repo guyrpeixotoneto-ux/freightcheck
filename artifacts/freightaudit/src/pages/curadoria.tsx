@@ -49,7 +49,6 @@ import {
   significadoPara,
 } from "@workspace/curation/significado";
 import { fetchJson, getApiUrl } from "@/lib/api";
-import { useAuth } from "@/lib/auth";
 import {
   abasDeEquipamento,
   estaDescrito,
@@ -65,7 +64,7 @@ import { cn } from "@/lib/utils";
  * O que esta tela existe para impedir: um número com aparência de certo.
  * Enquanto um atributo não é confirmado aqui, ele aparece nas telas de
  * mudança mas não entra em nenhuma soma financeira — e o banco recusa
- * qualquer tentativa de confirmar sem responsável e justificativa.
+ * qualquer tentativa de confirmar sem responsável.
  */
 
 interface QueueItem {
@@ -657,12 +656,12 @@ function AttributePanel({
                   : "bg-muted border-primary",
               )}
             >
-              {/* Depois de confirmar, `semanticsRationale` deixa de ser a
-                  proposta do motor: a confirmação a sobrescreve com a
-                  justificativa de quem assinou. Chamar as duas de "proposta do
-                  sistema" atribuía ao motor uma frase escrita por uma pessoa —
-                  e é justamente a confusão entre os campos em prosa que o card
-                  "Significado" existe para desfazer. */}
+              {/* `semanticsRationale` é a proposta do motor até que alguém
+                  escreva por cima dela — o que hoje só acontece por fora desta
+                  tela, que deixou de pedir justificativa. Chamar as duas de
+                  "proposta do sistema" atribuiria ao motor uma frase que pode
+                  ter sido escrita por uma pessoa, e é justamente a confusão
+                  entre os campos em prosa que o card "Significado" desfaz. */}
               <div className="font-semibold text-xs uppercase tracking-wide mb-1">
                 {conflicted
                   ? "Conflito detectado"
@@ -803,7 +802,6 @@ function ConfirmarInterpretacao({
   onConfirmed: () => void;
 }) {
   const queryClient = useQueryClient();
-  const signedInAs = useAuth().user?.email ?? "quem está logado";
 
   const { data: catalogo = [] } = useQuery({
     queryKey: ["curation", "significados"],
@@ -849,7 +847,6 @@ function ConfirmarInterpretacao({
    */
   const [sinteticoPendente, setSinteticoPendente] = useState<string | null>(null);
   const [periodicity, setPeriodicity] = useState<string | null>(detail.periodicity);
-  const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [erroDoCadastro, setErroDoCadastro] = useState<string | null>(null);
   const [verAnalise, setVerAnalise] = useState(false);
@@ -864,9 +861,8 @@ function ConfirmarInterpretacao({
     ganhou voto sobre unidade nem agregação; ele opina sobre o campo, e a
     tradução é uma só.
 
-    Categoria e justificativa continuam fora do alcance dela, e por motivos
-    diferentes: a categoria não se lê no número, e a justificativa é o que vai
-    assinado.
+    A categoria continua fora do alcance dela: não se lê no número em que
+    linha da DRE o valor cai.
   */
   const [sugestao, setSugestao] = useState<SugestaoDeSemantica | null>(null);
   const [motivoSemSugestao, setMotivoSemSugestao] = useState<string | null>(null);
@@ -926,7 +922,6 @@ function ConfirmarInterpretacao({
     meaningCode,
     taxonomyCode,
     periodicity,
-    justificativa: reason,
   };
   const escolhido = catalogo.find((o) => o.code === meaningCode) ?? null;
   const categoriaEscolhida = categorias.find((c) => c.code === taxonomyCode) ?? null;
@@ -979,7 +974,6 @@ function ConfirmarInterpretacao({
             meaningCode,
             periodicity: pedePeriodo ? periodicity : undefined,
             taxonomyCode: taxonomyCode ?? undefined,
-            reason,
           }),
         },
       );
@@ -1311,18 +1305,6 @@ function ConfirmarInterpretacao({
               erro={erroDoCadastro}
             />
           </Field>
-
-          <Field
-            label="Por que você está confirmando isso?"
-            hint={`Essa justificativa ficará registrada no histórico com sua assinatura (${signedInAs}).`}
-          >
-            <Textarea
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Ex.: Conforme a tabela de remuneração enviada, este valor representa R$ por litro e pertence à categoria combustível."
-              rows={2}
-            />
-          </Field>
         </div>
 
         {/* 8. Estado incompleto — dito por extenso, e não por um botão cinza
@@ -1411,7 +1393,7 @@ function entendimentoCurto(
     : `Não foi possível ler, a partir dos valores, que grandeza "${nome}" mede.`;
 
   if (detail.semanticsStatus === "CONFIRMED") {
-    return `${primeira} A interpretação já foi confirmada; alterá-la exige uma nova justificativa assinada.`;
+    return `${primeira} A interpretação já foi confirmada; alterá-la exige uma nova confirmação assinada.`;
   }
 
   return (
@@ -1477,8 +1459,8 @@ function LeituraDaIA({ sugestao }: { sugestao: SugestaoDeSemantica }) {
 
       <p className="text-xs text-muted-foreground">
         Escrita por IA a partir dos valores importados. É um palpite, não uma
-        apuração: não confirma nada, não destrava cálculo e não entra na
-        justificativa assinada.
+        apuração: não confirma nada, não destrava cálculo e não substitui a
+        confirmação assinada.
       </p>
     </div>
   );

@@ -288,7 +288,8 @@ export async function gravarSemanticaConfirmada(
   semantica: SemanticaConfirmada,
   autoria: {
     actor: string;
-    reason: string;
+    /** A justificativa, quando houver — a curadoria deixou de exigi-la. */
+    reason: string | null;
     confirmedAt?: Date;
     /**
      * Sob que campos registrar o ato quando nenhum valor muda.
@@ -359,9 +360,25 @@ export async function gravarSemanticaConfirmada(
   comparar("taxonomy_node_id", antes?.taxonomyNodeId, alvo.taxonomyNodeId);
   comparar("semantics_status", antes?.semanticsStatus, alvo.semanticsStatus);
 
+  /*
+    Sem justificativa, o que já estava escrito em prosa fica — nos **dois**
+    destinos, e é por isso que o mesmo `if` aparece duas vezes logo abaixo.
+
+    A coluna guarda a leitura do motor até que alguém escreva por cima dela.
+    Sobrescrevê-la com nulo faria a confirmação *apagar* a análise que a tela
+    mostra: o ato de confirmar passaria a destruir a evidência que ele deveria
+    acrescentar. E apagar de um só lado seria pior que apagar dos dois —
+    `semantics_rationale` é campo projetado, e `divergenciasDaProjecao` compara
+    a projeção com a vigência exatamente para acusar quando as duas discordam.
+  */
+  const emProsa = autoria.reason ? { rationale: autoria.reason } : {};
+
   await db
     .update(attributeTable)
-    .set({ ...alvo, semanticsRationale: autoria.reason } as never)
+    .set({
+      ...alvo,
+      ...(emProsa.rationale ? { semanticsRationale: emProsa.rationale } : {}),
+    } as never)
     .where(eq(attributeTable.id, atributo.id));
 
   await db
@@ -374,7 +391,7 @@ export async function gravarSemanticaConfirmada(
       meaningId: alvo.meaningId,
       taxonomyNodeId: alvo.taxonomyNodeId,
       semanticsStatus: alvo.semanticsStatus,
-      rationale: autoria.reason,
+      ...emProsa,
       confirmedBy: autoria.actor,
       confirmedAt: confirmadoEm,
     })
