@@ -1,6 +1,8 @@
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
+  CLASSE_PADRAO_DA_FAMILIA,
+  garantirClasseDeCustoPadrao,
   attributeSemanticsTable,
   attributeTable,
   curationEventTable,
@@ -71,6 +73,8 @@ async function espelharNaVersaoEmVigor(
     isMonetary: boolean | null;
     meaningId?: string | null;
     taxonomyNodeId: string | null;
+    /** Como o valor se comporta. Do atributo, não do nó — ver a migration 0030. */
+    costClass?: string | null;
     semanticsStatus: string;
     rationale: string | null;
     confirmedBy?: string | null;
@@ -252,6 +256,8 @@ export async function runProposalPass(
 
   const nodes = await db.select().from(taxonomyNodeTable);
   const nodeByCode = new Map(nodes.map((n) => [n.code, n]));
+  /** A família de um nó: o segundo degrau do caminho, logo abaixo da raiz. */
+  const familiaDoNo = (path: string | null | undefined) => path?.split("/")[1] ?? null;
 
   const significados = await listarSignificados(db);
   const significadosPorCodigo = new Map(significados.map((s) => [s.code, s.id]));
@@ -297,6 +303,16 @@ export async function runProposalPass(
     record("aggregation", attribute.aggregation, conflict ? null : proposal.aggregation);
     record("is_monetary", attribute.isMonetary, conflict ? null : proposal.isMonetary);
     record("taxonomy_node_id", attribute.taxonomyNodeId, node?.id ?? null);
+    /*
+      A classe só é proposta quando ninguém decidiu ainda. Sobrescrever a de um
+      atributo já classificado seria a máquina desfazendo curadoria — e é
+      justamente por a classe ser do atributo que ela pode ter sido decidida
+      contra o padrão da família.
+    */
+    const classePadrao =
+      CLASSE_PADRAO_DA_FAMILIA[familiaDoNo(node?.path) ?? ""] ?? null;
+    const classeProposta = attribute.costClass ?? classePadrao;
+    record("cost_class", attribute.costClass, classeProposta);
     record("semantics_status", attribute.semanticsStatus, nextStatus);
 
     if (changes.length === 0) {
@@ -333,6 +349,7 @@ export async function runProposalPass(
         ? (significadosPorCodigo.get(significadoProposto.code) ?? attribute.meaningId)
         : attribute.meaningId,
       taxonomyNodeId: node?.id ?? null,
+      costClass: classeProposta,
       semanticsStatus: nextStatus,
     };
 
@@ -363,6 +380,15 @@ export async function runProposalPass(
     if (nextStatus === "PRESUMED") proposed++;
     else leftUnknown++;
   }
+
+  /*
+    A classe que falta, inclusive para quem esta passada não alcança.
+
+    O laço acima só olha atributos não confirmados — e são os confirmados que
+    carregam dinheiro. A mesma garantia roda na promoção, e é dela que esta
+    chamada vem: uma segunda cópia da regra seria uma segunda resposta.
+  */
+  await garantirClasseDeCustoPadrao(db);
 
   return {
     examined: evidence.length,
@@ -619,6 +645,12 @@ export interface QueueItem {
   taxonomyCode: string | null;
   taxonomyPath: string | null;
   taxonomyName: string | null;
+  /**
+   * Como o valor se comporta — FIXO, VARIAVEL, NAO_APLICAVEL ou nulo.
+   *
+   * Do atributo, e não da categoria: a natureza não decide a classe. Ver
+   * `attribute.cost_class` e a migration 0030.
+   */
   costClass: string | null;
   valueCount: number;
   nullCount: number;
@@ -661,7 +693,7 @@ export async function getCurationQueue(
       taxonomyCode: taxonomyNodeTable.code,
       taxonomyPath: taxonomyNodeTable.path,
       taxonomyName: taxonomyNodeTable.name,
-      costClass: taxonomyNodeTable.costClass,
+      costClass: attributeTable.costClass,
     })
     .from(attributeTable)
     .leftJoin(

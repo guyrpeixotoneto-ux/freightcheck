@@ -36,6 +36,16 @@ export interface AttributeSpec {
   aggregation?: string | null;
   isMonetary?: boolean | null;
   taxonomyCode?: string;
+  /**
+   * Como o atributo se comporta — FIXO, VARIAVEL, NAO_APLICAVEL.
+   *
+   * Separado de `taxonomyCode` porque as duas respostas são separadas desde a
+   * migration 0030: a categoria diz o que o valor é, esta coluna diz como ele
+   * se comporta. Omitido, o fixture deriva a classe do nó, que é o que a árvore
+   * fazia por herança — assim as fixturas escritas antes continuam dizendo a
+   * mesma coisa sem precisarem ser reescritas uma a uma.
+   */
+  costClass?: string | null;
 }
 
 /**
@@ -150,6 +160,14 @@ export async function buildFixture(
     }
     const node =
       spec.taxonomyCode === "cv_combustivel" ? nodeVar : spec.taxonomyCode ? nodeFixo : null;
+    const costClass =
+      spec.costClass !== undefined
+        ? spec.costClass
+        : spec.taxonomyCode === "cv_combustivel"
+          ? "VARIAVEL"
+          : spec.taxonomyCode
+            ? "FIXO"
+            : null;
     const [created] = await db
       .insert(attributeTable)
       .values({
@@ -164,6 +182,7 @@ export async function buildFixture(
         isMonetary: spec.isMonetary ?? null,
         semanticsStatus: spec.semanticsStatus ?? "UNKNOWN",
         taxonomyNodeId: node?.id ?? null,
+        costClass,
         confirmedBy: spec.semanticsStatus === "CONFIRMED" ? "fixture@test" : null,
         confirmedAt: spec.semanticsStatus === "CONFIRMED" ? new Date() : null,
       })

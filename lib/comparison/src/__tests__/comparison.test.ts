@@ -456,7 +456,7 @@ describe("identidade, não posição", () => {
 });
 
 describe("classificação de custo", () => {
-  it("resolve FIXO e VARIAVEL por herança na taxonomia", async () => {
+  it("resolve FIXO e VARIAVEL pela classe do atributo", async () => {
     const { rows } = await compare(
       ATTRIBUTES,
       { AAA1A11: { "carreta.custo_fixo": 1000, "carreta.tarifa_km": 2 } },
@@ -464,8 +464,9 @@ describe("classificação de custo", () => {
     );
     const fixo = rows.find((r) => r.attributeCode === "carreta.custo_fixo")!;
     const variavel = rows.find((r) => r.attributeCode === "carreta.tarifa_km")!;
-    // The gap the audit found: attributes hang off GROUP nodes, and the class
-    // lives on their CLASS ancestor.
+    // A classe é do atributo desde a 0030, e não do nó: a mesma natureza tem
+    // classes diferentes conforme o contexto, e lê-la da árvore obrigava a
+    // duplicar a natureza para acomodar os dois.
     expect(fixo.costClass).toBe("FIXO");
     expect(variavel.costClass).toBe("VARIAVEL");
   });

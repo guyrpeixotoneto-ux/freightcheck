@@ -30,8 +30,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  classeDaCategoria,
+  familiaDaCategoria,
   leituraDe,
+  leituraDoSintetico,
   oQueFalta,
   podeConfirmar,
   precisaDoPeriodo,
@@ -43,6 +44,7 @@ import {
   type Escolhas,
   type OpcaoDeCategoria,
   type OpcaoDeSignificado,
+  type OpcaoDeSintetico,
 } from "@/lib/interpretacao";
 import {
   PERIODOS_EM_ABERTO,
@@ -811,6 +813,19 @@ function ConfirmarInterpretacao({
     queryKey: ["curation", "categorias"],
     queryFn: () => fetchJson<OpcaoDeCategoria[]>("/curation/categorias"),
   });
+  /*
+    As linhas da DRE vêm do servidor, e não das categorias.
+
+    Derivá-las das categorias — que era o que esta tela fazia — dá a lista certa
+    enquanto ninguém cria nada, e some com a linha nova exatamente quando ela
+    importa: recém-criada, ela ainda não tem analítico dentro, e uma linha que
+    desaparece no instante seguinte ao do clique é indistinguível de uma criação
+    que falhou.
+  */
+  const { data: sinteticos = [] } = useQuery({
+    queryKey: ["curation", "sinteticos"],
+    queryFn: () => fetchJson<OpcaoDeSintetico[]>("/curation/sinteticos"),
+  });
 
   const campo: CampoEmConfirmacao = {
     meaningCode: detail.meaningCode,
@@ -846,6 +861,17 @@ function ConfirmarInterpretacao({
    * o filtro da segunda lista enquanto a resposta não existe.
    */
   const [sinteticoPendente, setSinteticoPendente] = useState<string | null>(null);
+  /**
+   * Como o valor se comporta — e por que é um estado separado da categoria.
+   *
+   * Era lido da categoria: a árvore declarava a classe e a herdava para baixo.
+   * Deixou de ser, porque a mesma natureza tem classes diferentes conforme o
+   * contexto — `Pessoal e encargos` é fixo no cavalo e variável no trecho —, e
+   * lê-la da árvore obrigava a duplicar a natureza. Agora é do atributo.
+   */
+  const [costClass, setCostClass] = useState<string | null>(
+    detail.costClass ?? null,
+  );
   const [periodicity, setPeriodicity] = useState<string | null>(detail.periodicity);
   const [error, setError] = useState<string | null>(null);
   const [erroDoCadastro, setErroDoCadastro] = useState<string | null>(null);
@@ -940,10 +966,17 @@ function ConfirmarInterpretacao({
     derivar a classe.
   */
   const sinteticoAtivo = categoriaEscolhida?.sintetico ?? sinteticoPendente;
-  const sinteticos = useMemo(
-    () => [...new Set(categorias.map((c) => c.sintetico))].filter(Boolean),
-    [categorias],
-  );
+  /*
+    O sintético continua sendo guardado como nome — é o que a categoria devolve
+    em `sintetico`, e é por nome que a lista do analítico é filtrada. O objeto
+    inteiro é achado aqui porque a criação precisa do código da família.
+
+    Não há mais a pergunta "esta linha decide lado da conta?": nenhuma decide. A
+    classe de custo saiu da árvore e virou coluna do atributo, e por isso a
+    categoria nova pode nascer dentro de qualquer família sem classificar nada.
+  */
+  const sinteticoEscolhido =
+    sinteticos.find((s) => s.nome === sinteticoAtivo) ?? null;
   const analiticasVisiveis = useMemo(
     () =>
       sinteticoAtivo === null
@@ -979,6 +1012,33 @@ function ConfirmarInterpretacao({
       );
       const body = await response.json();
       if (!response.ok) throw new Error(body.error ?? "Falha ao confirmar");
+
+      /*
+        A classe de custo vai numa chamada própria, e de propósito.
+
+        Ela não é um dos campos que a confirmação assina: confirmar destrava
+        soma de dinheiro — unidade, periodicidade, agregação —, e dizer de que
+        lado da conta o valor cai é outra afirmação, com o seu próprio evento de
+        curadoria. Eram atos separados quando isto se fazia movendo a categoria
+        na árvore, e continuam sendo.
+
+        Nenhuma das duas pede justificativa em prosa: a tela deixou de ter o
+        campo, e quem assina as duas é a mesma sessão.
+      */
+      if (costClass && costClass !== detail.costClass) {
+        const classe = await fetch(
+          getApiUrl(`/curation/attributes/${detail.code}/classe-de-custo`),
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ classe: costClass }),
+          },
+        );
+        const corpo = await classe.json();
+        if (!classe.ok) {
+          throw new Error(corpo.error ?? "Falha ao gravar a classe de custo");
+        }
+      }
       return body;
     },
     onSuccess: () => {
@@ -1011,6 +1071,34 @@ function ConfirmarInterpretacao({
     return body.item as OpcaoDeSignificado | null;
   };
 
+  /**
+   * Cadastrar uma linha da DRE sem sair daqui.
+   *
+   * Mesmo motivo da criação de categoria, um nível acima: um primeiro nível
+   * fechado obriga quem cura a pendurar o que ela quer dizer na linha *mais
+   * parecida* que existe, e a DRE passa a somar numa linha que ninguém
+   * escolheu. A linha nasce sem classe de custo — de que lado da conta ela cai
+   * não se lê no nome, e nada abaixo dela entra num total até que se decida.
+   */
+  const criarSinteticoInline = async (
+    name: string,
+  ): Promise<OpcaoDeSintetico | null> => {
+    setErroDoCadastro(null);
+    const response = await fetch(getApiUrl("/curation/sinteticos"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    const body = await response.json();
+    if (!response.ok) {
+      setErroDoCadastro(body.error ?? "Não consegui cadastrar esta linha da DRE.");
+      return null;
+    }
+    if (body.desfecho === "JA_EXISTE") setErroDoCadastro(body.mensagem);
+    await queryClient.invalidateQueries({ queryKey: ["curation", "sinteticos"] });
+    return body.item as OpcaoDeSintetico | null;
+  };
+
   const criarCategoriaInline = async (
     name: string,
   ): Promise<OpcaoDeCategoria | null> => {
@@ -1018,7 +1106,14 @@ function ConfirmarInterpretacao({
     const response = await fetch(getApiUrl("/curation/categorias"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name }),
+      /*
+        A linha escolhida vai junto, e o cadastro decide se atende: nas três
+        casas em que classificar decide dinheiro (custo fixo, variável e
+        cadastral) a categoria nova entra sob "Não classificado", porque nascer
+        lá dentro seria classificar sem justificativa. A prévia do combobox diz
+        isso antes do clique, e o item devolvido traz o sintético real.
+      */
+      body: JSON.stringify({ name, sintetico: sinteticoEscolhido?.code ?? null }),
     });
     const body = await response.json();
     if (!response.ok) {
@@ -1026,7 +1121,12 @@ function ConfirmarInterpretacao({
       return null;
     }
     if (body.desfecho === "JA_EXISTE") setErroDoCadastro(body.mensagem);
-    await queryClient.invalidateQueries({ queryKey: ["curation", "categorias"] });
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ["curation", "categorias"] }),
+      // A contagem de cada linha muda com a categoria nova, e é ela que a
+      // segunda linha de cada opção mostra.
+      queryClient.invalidateQueries({ queryKey: ["curation", "sinteticos"] }),
+    ]);
     return body.item as OpcaoDeCategoria | null;
   };
 
@@ -1235,12 +1335,19 @@ function ConfirmarInterpretacao({
               decide — em que linha da DRE a coluna cai. */}
           <Field
             label="Categoria DRE - Sintético"
-            hint="A linha da DRE que totaliza. Sozinha ela não classifica: escolher aqui filtra a lista do analítico."
+            hint="A linha da DRE que totaliza. Sozinha ela não classifica: escolher aqui filtra a lista do analítico. Pesquise ou cadastre uma nova."
           >
-            <Select
-              value={sinteticoAtivo ?? ""}
-              onValueChange={(valor) => {
-                setSinteticoPendente(valor);
+            {/*
+              Criável, como o analítico, e pelo mesmo motivo: um primeiro nível
+              fechado obriga quem cura a pendurar o que ela quer dizer na linha
+              *mais parecida* que existe, e aí a DRE soma numa linha que ninguém
+              escolheu, sem que tela nenhuma acuse.
+            */}
+            <ComboboxCriavel
+              itens={sinteticos}
+              valor={sinteticoEscolhido}
+              aoEscolher={(item) => {
+                setSinteticoPendente(item.nome);
                 /*
                   Trocar a linha da DRE derruba o analítico que pertencia à
                   anterior. É a diferença que importa: sem isto a tela ficaria
@@ -1248,23 +1355,22 @@ function ConfirmarInterpretacao({
                   a confirmação gravaria seria o antigo — o sintético é derivado
                   do nó, e é o nó que manda.
                 */
-                if (categoriaEscolhida && categoriaEscolhida.sintetico !== valor) {
+                if (categoriaEscolhida && categoriaEscolhida.sintetico !== item.nome) {
                   setTaxonomyCode(null);
                 }
                 setErroDoCadastro(null);
               }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Escolher a linha da DRE…" />
-              </SelectTrigger>
-              <SelectContent>
-                {sinteticos.map((nome) => (
-                  <SelectItem key={nome} value={nome}>
-                    {nome}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              aoCriar={criarSinteticoInline}
+              rotuloDe={(item) => item.nome}
+              detalheDe={(item) => leituraDoSintetico(item)}
+              previaDe={() =>
+                "Entra como linha nova da DRE, ainda sem lado da conta — de que lado ela cai não se lê no nome. " +
+                "Até que se decida, o que estiver dentro dela fica fora dos totais de custo fixo e variável."
+              }
+              rotuloDeCriacao={(texto) => `Criar linha da DRE “${texto}”`}
+              placeholder="Escolher ou cadastrar a linha da DRE…"
+              erro={erroDoCadastro}
+            />
           </Field>
 
           <Field
@@ -1293,17 +1399,52 @@ function ConfirmarInterpretacao({
               rotuloDe={(item) => item.analitico || item.caminho}
               detalheDe={(item) =>
                 sinteticoAtivo === null
-                  ? `${item.sintetico} · ${classeDaCategoria(item)}`
-                  : classeDaCategoria(item)
+                  ? `${item.sintetico} · ${familiaDaCategoria(item)}`
+                  : familiaDaCategoria(item)
               }
+              /*
+                A prévia diz onde a categoria vai cair de verdade, antes do
+                clique. Eram dois destinos possíveis enquanto três famílias
+                decidiam lado da conta e por isso não recebiam categoria nova; a
+                classe saiu da árvore, e agora a categoria nasce onde quem
+                escolheu mandou — ou no limbo, quando ninguém escolheu.
+              */
               previaDe={() =>
-                "Entra como categoria nova, ainda sem classe de custo — ela não se lê no nome. " +
-                "Você decide isso em Categorias, e até lá as colunas dela ficam fora dos totais de custo fixo e variável."
+                sinteticoEscolhido
+                  ? `Entra em ${sinteticoAtivo}. Dizer o que a coluna é não diz como ela se comporta — ` +
+                    "isso é o campo abaixo, e é por atributo."
+                  : "Entra como categoria nova, sob “Não classificado” — escolha a família acima " +
+                    "para que ela nasça no lugar certo."
               }
               rotuloDeCriacao={(texto) => `Criar categoria “${texto}”`}
               placeholder="Pesquisar ou cadastrar…"
               erro={erroDoCadastro}
             />
+          </Field>
+
+          {/* A classe de custo fica **depois** da categoria e é outra pergunta:
+              a de cima diz o que o valor é, esta diz como ele se comporta. Era
+              uma só quando a árvore declarava a classe, e a mesma natureza não
+              cabia em dois lados por causa disso. */}
+          <Field
+            label="Como este valor se comporta?"
+            hint="Custo fixo incide por ter o ativo; variável, só quando roda. É do atributo, não da categoria — a mesma natureza pode ser fixa num equipamento e variável em outro."
+          >
+            <Select
+              value={costClass ?? ""}
+              onValueChange={(valor) => setCostClass(valor)}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Escolher o comportamento…" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="FIXO">Custo fixo</SelectItem>
+                <SelectItem value="VARIAVEL">Custo variável</SelectItem>
+                <SelectItem value="NAO_APLICAVEL">
+                  Não é custo — cadastro, direcionador ou receita
+                </SelectItem>
+              </SelectContent>
+            </Select>
           </Field>
         </div>
 
@@ -1650,7 +1791,16 @@ function MeaningCard({
             placeholder="Ex.: 1,000% do valor da nota de compra."
             rows={2}
           />
-          <FormulaEmPortugues detail={detail} formula={basis} />
+          <FormulaSugerida
+            detail={detail}
+            nome={displayName}
+            definicao={definition}
+            formula={basis}
+            onEscrever={(texto) => {
+              setBasis(texto);
+              setSaved(false);
+            }}
+          />
         </Field>
 
         {error && (
@@ -1834,68 +1984,85 @@ const MOTIVO_SEM_RASCUNHO: Record<string, string> = {
 };
 
 /**
- * "O que essa fórmula quer dizer?", respondido em português.
+ * "Escreva a conta por mim", a partir do que a coluna já é.
  *
- * O campo acima guarda a regra como a fonte a explicou — "1,000% do valor da
- * nota", "menor entre o preço da ANP e o da operadora". Quem escreveu entende;
- * quem lê meses depois, muitas vezes não. O botão pede ao modelo uma leitura
- * daquele texto, e é só isso que ele faz.
+ * O campo "Fórmula de cálculo" é o que faltava no caso do IPVA: a coluna trocou
+ * de base de cálculo duas vezes sem mudar de unidade, e nada na tela registrava
+ * isso. Ele fica em branco porque quem cura já disse o que a coluna é nos dois
+ * campos de cima e ainda precisa de um segundo ato de redação para escrever
+ * como o número sai. Este botão escreve o primeiro rascunho dessa conta, com o
+ * mesmo desenho do botão de "O que é" — e pelas mesmas decisões, que a tela
+ * precisa deixar claras:
  *
- * Três decisões que a tela precisa deixar claras, porque nenhuma delas é óbvia
- * olhando um botão:
+ * - **Escreve no campo, não numa caixa ao lado.** O resultado é rascunho de
+ *   quem clicou: entra no textarea aberto, dá para cortar, corrigir e
+ *   reescrever antes de salvar. Uma sugestão em caixa separada, com botão
+ *   "usar", seria um passo a mais para chegar ao mesmo lugar.
+ * - **O que havia antes volta com um clique.** `Desfazer` fica à vista enquanto
+ *   o texto for o que a IA escreveu, e some assim que a pessoa mexe nele — a
+ *   partir daí restaurar apagaria o trabalho dela, não o da IA.
+ * - **Lê o que está digitado, não o que está salvo.** Nome e descrição sobem no
+ *   corpo do pedido. Pedir para salvar antes faria a sugestão custar o ato que
+ *   ela existe para adiantar — e num atributo sem semântica versionada a base
+ *   de cálculo nem pode ser gravada ainda.
+ * - **É proposta, não apuração.** O modelo não lê contrato e não sabe qual
+ *   percentual foi negociado: onde falta número, a frase vem com a lacuna
+ *   nomeada, para a pessoa perguntar à fonte. O rodapé diz isso na tela, e não
+ *   só aqui.
  *
- * - **Lê o que está digitado, não o que está salvo.** A fórmula sobe no corpo
- *   do pedido. Pedir para salvar antes faria a leitura custar um ato que ela
- *   não deveria custar — e num atributo sem semântica versionada a base de
- *   cálculo nem pode ser gravada ainda.
- * - **Não grava e não confere.** Não há onde guardar o resultado e não deve
- *   haver: é paráfrase do que uma pessoa digitou, não apuração. O rodapé diz
- *   isso na tela, e não só aqui.
- * - **Envelhece à vista.** Se o texto muda depois da leitura, a leitura passa a
- *   falar de outra fórmula. Ela continua visível — apagá-la sozinha pareceria
- *   defeito — mas avisando sobre o quê ela foi feita.
+ * Nada aqui grava: o campo continua precisando de "Salvar nome e significado",
+ * e salvar continua não confirmando semântica nenhuma.
  */
-function FormulaEmPortugues({
+function FormulaSugerida({
   detail,
+  nome,
+  definicao,
   formula,
+  onEscrever,
 }: {
   detail: AttributeDetail;
+  nome: string;
+  definicao: string;
   formula: string;
+  onEscrever: (texto: string) => void;
 }) {
-  const [leitura, setLeitura] = useState<{
-    texto: string | null;
-    motivo: string;
-    sobre: string;
-  } | null>(null);
+  /** O que estava escrito antes da sugestão, e a sugestão que a substituiu. */
+  const [troca, setTroca] = useState<{ antes: string; depois: string } | null>(null);
+  const [motivo, setMotivo] = useState<string | null>(null);
 
-  const ler = useMutation({
+  const sugerir = useMutation({
     mutationFn: async () => {
       const response = await fetch(
-        getApiUrl(`/curation/attributes/${detail.code}/formula/leitura`),
+        getApiUrl(`/curation/attributes/${detail.code}/formula/sugestao`),
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ calculationBasis: formula }),
+          body: JSON.stringify({ displayName: nome, definition: definicao }),
         },
       );
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error ?? "Falha ao ler a fórmula");
+      if (!response.ok) throw new Error(body.error ?? "Falha ao sugerir a fórmula");
       return body as { texto: string | null; motivo: string };
     },
-    onSuccess: (body) => setLeitura({ ...body, sobre: formula.trim() }),
+    onSuccess: (body) => {
+      if (!body.texto) {
+        setMotivo(body.motivo);
+        return;
+      }
+      setMotivo(null);
+      setTroca({ antes: formula, depois: body.texto });
+      onEscrever(body.texto);
+    },
   });
 
-  const vazia = !formula.trim();
-  /*
-    Só uma leitura de verdade envelhece. Quando não houve texto — o modelo não
-    respondeu, não está configurado, recusou —, não existe paráfrase que possa
-    "falar da versão anterior", e o aviso aparecia mesmo assim: embaixo de "Não
-    consegui ler agora" a tela dizia que a leitura era de outra fórmula, o que
-    inventa uma leitura que nunca houve. O motivo em si continua valendo para
-    qualquer texto, e por isso continua visível.
-  */
-  const desatualizada =
-    leitura !== null && leitura.texto !== null && leitura.sobre !== formula.trim();
+  // Nome **ou** descrição basta, como na rota: são os dois caminhos reais —
+  // quem acabou de batizar a coluna, e quem abriu um atributo que outra pessoa
+  // descreveu sem apelidar. Exigir os dois desligaria o botão nos dois casos em
+  // que ele é mais útil.
+  const semBase = !nome.trim() && !definicao.trim();
+  // O `Desfazer` só vale enquanto o campo ainda contém o que a IA escreveu:
+  // depois de a pessoa mexer, restaurar apagaria o texto dela.
+  const podeDesfazer = troca !== null && formula === troca.depois;
 
   return (
     <div className="space-y-2">
@@ -1903,45 +2070,52 @@ function FormulaEmPortugues({
         <Button
           variant="outline"
           size="sm"
-          onClick={() => ler.mutate()}
-          disabled={vazia || ler.isPending}
+          onClick={() => sugerir.mutate()}
+          disabled={semBase || sugerir.isPending}
         >
           <Sparkles className="h-3.5 w-3.5" />
-          {ler.isPending ? "Lendo…" : "Explicar esta fórmula"}
+          {sugerir.isPending ? "Sugerindo…" : "Sugerir fórmula"}
         </Button>
         <p className="text-xs text-muted-foreground">
-          {vazia
-            ? "Escreva a fórmula acima para pedir a leitura."
-            : "Uma leitura em português do texto acima. Não grava nada."}
+          {semBase
+            ? "Dê o nome gerencial ou a descrição acima para a IA propor a conta."
+            : formula.trim()
+              ? "Reescreve o campo acima a partir do que a coluna é. Dá para desfazer."
+              : "Propõe a conta a partir do que a coluna é. Nada é gravado."}
         </p>
       </div>
 
-      {ler.isError && (
+      {sugerir.isError && (
         <p className="text-sm text-red-800 bg-red-50 border border-red-200 rounded-md px-3 py-2">
-          {ler.error.message}
+          {sugerir.error.message}
         </p>
       )}
 
-      {leitura && (
-        <div className="rounded-md border bg-muted/40 px-3 py-2 space-y-1.5">
-          {leitura.texto ? (
-            <p className="text-sm whitespace-pre-line">{leitura.texto}</p>
-          ) : (
-            <p className="text-sm text-muted-foreground">
-              {MOTIVO_SEM_LEITURA[leitura.motivo] ?? MOTIVO_SEM_LEITURA.ERRO}
-            </p>
-          )}
-          {desatualizada && (
-            <p className="text-xs text-amber-700">
-              O texto mudou depois desta leitura — ela fala da versão anterior.
-            </p>
-          )}
-          {leitura.texto && (
-            <p className="text-xs text-muted-foreground">
-              Escrito por IA a partir do texto acima. É uma leitura, não uma
-              conferência: não diz se a fórmula está certa e não confirma nada.
-            </p>
-          )}
+      {motivo && (
+        <p className="text-sm text-muted-foreground bg-muted/40 border rounded-md px-3 py-2">
+          {MOTIVO_SEM_FORMULA[motivo] ?? MOTIVO_SEM_FORMULA.ERRO}
+        </p>
+      )}
+
+      {podeDesfazer && (
+        <div className="flex items-center gap-3">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-xs"
+            onClick={() => {
+              onEscrever(troca.antes);
+              setTroca(null);
+            }}
+          >
+            <Undo2 className="h-3.5 w-3.5" />
+            Desfazer
+          </Button>
+          <p className="text-xs text-muted-foreground">
+            {troca.antes.trim()
+              ? "Fórmula proposta por IA, escrita por cima do texto anterior. Revise na fonte antes de salvar."
+              : "Fórmula proposta por IA a partir do nome e da descrição acima. É uma hipótese, não uma conferência: onde falta número, a frase diz o que perguntar à fonte."}
+          </p>
         </div>
       )}
     </div>
@@ -1949,17 +2123,20 @@ function FormulaEmPortugues({
 }
 
 /**
- * Por que não houve leitura, dito para quem está curando a coluna.
+ * Por que não houve fórmula sugerida, dito para quem está curando a coluna.
  *
- * Nenhuma destas frases é um erro do curador, e nenhuma pede ação dele sobre a
- * fórmula — por isso saem em texto normal, e não em vermelho de erro.
+ * `SEM_BASE` não deveria chegar pela tela — o botão fica desligado sem nome e
+ * sem descrição —, mas a rota também é chamável com os dois guardados em
+ * branco, e uma frase é mais barata do que descobrir por que a caixa não
+ * apareceu.
  */
-const MOTIVO_SEM_LEITURA: Record<string, string> = {
-  VAZIO: "Não há fórmula escrita para ler.",
+const MOTIVO_SEM_FORMULA: Record<string, string> = {
+  SEM_BASE:
+    "Sem nome gerencial e sem descrição, não há do que partir para propor a conta.",
   SEM_CHAVE:
-    "A leitura por IA não está configurada neste ambiente. O campo continua funcionando normalmente.",
-  RECUSA: "O modelo não quis ler este texto. O campo segue salvo do mesmo jeito.",
-  ERRO: "Não consegui ler agora. Tente de novo em alguns instantes.",
+    "A sugestão por IA não está configurada neste ambiente. O campo continua funcionando normalmente.",
+  RECUSA: "O modelo não quis propor uma fórmula aqui. Escreva-a à mão.",
+  ERRO: "Não consegui sugerir agora. Tente de novo em alguns instantes.",
 };
 
 function Field({

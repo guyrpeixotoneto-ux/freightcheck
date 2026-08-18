@@ -24,6 +24,15 @@ export interface LinhaSpec {
 export interface AbaSpec {
   /** `cavalos` e `carretas` são os nomes que o classificador reconhece. */
   nome: string;
+  /**
+   * Colunas de fato além de {@link ATRIBUTOS_PADRAO}, nesta aba.
+   *
+   * Existe para o que só se pode escrever variando uma coluna que as duas
+   * padrão não têm — `Placa Carreta`, que é o vínculo cavalo–carreta. O valor
+   * de cada linha sai de `LinhaSpec.valores`; linha que não declara o seu sai
+   * vazia, e vazio é ausência, não zero.
+   */
+  colunas?: string[];
   linhas: LinhaSpec[];
 }
 
@@ -65,7 +74,8 @@ export function escreverPlanilha(spec: PlanilhaSpec, nomeArquivo?: string): stri
   const wb = XLSX.utils.book_new();
 
   for (const aba of spec.abas) {
-    const cabecalho = [...COLUNAS_FIXAS, ...ATRIBUTOS_PADRAO];
+    const atributos = [...ATRIBUTOS_PADRAO, ...(aba.colunas ?? [])];
+    const cabecalho = [...COLUNAS_FIXAS, ...atributos];
     const linhas: (string | number | null)[][] = [cabecalho as unknown as string[]];
 
     for (const linha of aba.linhas) {
@@ -78,7 +88,11 @@ export function escreverPlanilha(spec: PlanilhaSpec, nomeArquivo?: string): stri
         spec.operadorNome ?? "OPERADOR TESTE",
         linha.placa,
         linha.chassi ?? `CHASSI${linha.placa.toUpperCase().replace(/[^A-Z0-9]/g, "")}`,
-        ...ATRIBUTOS_PADRAO.map((a) => linha.valores?.[a] ?? 1000),
+        ...atributos.map(
+          (a) =>
+            linha.valores?.[a] ??
+            ((ATRIBUTOS_PADRAO as readonly string[]).includes(a) ? 1000 : ""),
+        ),
       ]);
     }
 

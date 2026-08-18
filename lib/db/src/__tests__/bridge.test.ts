@@ -202,7 +202,7 @@ afterAll(async () => {
 }, 300_000);
 
 describe("o contrato com o Publishing", () => {
-  it("depois do bridge-down o diff é exatamente 6 ADD COLUMN e nada mais", async () => {
+  it("depois do bridge-down o diff é exatamente as colunas da allowlist e nada mais", async () => {
     const dev = await development();
     const prod = await production();
     await noveVigenciasReais(prod.pool);
@@ -217,7 +217,9 @@ describe("o contrato com o Publishing", () => {
 
     /*
       O critério completo, e não só o de tabela e coluna: **nada** sobra em
-      nenhuma categoria, exceto as seis colunas da allowlist. Views, funções e
+      nenhuma categoria, exceto as colunas da allowlist — que é lida dela, e não
+      contada à mão, para que acrescentar uma coluna aditiva não custe editar o
+      número num teste. Views, funções e
       colunas geradas contam aqui porque são o que um diff de schema não modela
       — e, no caso das funções, a prova disso é o próprio erro que derrubou o
       deploy: ele chamou `freightcheck_snapshot_key` sem tê-la criado.
@@ -481,14 +483,22 @@ describe("a invariante final: schema e registro andam juntos", () => {
 
     // ---- Fase A: o bridge desmonta o diff perigoso ----------------------
     expect((await bridgeDown(dev.url)).falha).toBeUndefined();
+    /*
+      Este Development está parado na 0018, e por isso o diff traz só as colunas
+      da allowlist que já existiam àquela altura. As marcadas
+      `aindaPodeNaoExistir` entram por migrations posteriores — não estarem aqui
+      é o estado correto, e exigi-las faria este teste cobrar do bridge uma
+      coluna que a fila ainda não criou.
+    */
+    const jaExistiamNa0018 = ALLOWLIST.filter((a) => !a.aindaPodeNaoExistir);
     const diffNoDeploy = await diffDoPublishing(dev.pool, prod.pool);
     expect(diffNoDeploy.drop).toEqual([]);
     expect(diffNoDeploy.addColumn.sort()).toEqual(
-      ALLOWLIST.map((a) => `${a.tabela}.${a.coluna}`).sort(),
+      jaExistiamNa0018.map((a) => `${a.tabela}.${a.coluna}`).sort(),
     );
 
     // ---- O Publishing aplica a allowlist em Production -------------------
-    for (const a of ALLOWLIST) {
+    for (const a of jaExistiamNa0018) {
       await prod.pool.query(`ALTER TABLE "${a.tabela}" ADD COLUMN "${a.coluna}" ${a.tipo}`);
     }
 

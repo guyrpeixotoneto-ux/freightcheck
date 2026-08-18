@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { sql } from "drizzle-orm";
+import { resolveContext } from "@workspace/comparison";
 import { criarBancoComExportRealPromovido, type TestDb } from "@workspace/ingest/testing";
 import { applyConfirmations, runProposalPass, seedTaxonomy } from "@workspace/curation";
 import { getVisaoDeFrota, type VisaoDeFrota } from "../frota";
@@ -277,13 +278,19 @@ describe("o histórico e as alterações", () => {
 
 describe("o vínculo cavalo–carreta", () => {
   it("resolve a carreta de cada cavalo, e ela existe no banco", async () => {
+    // A vigência e o contexto vão resolvidos, como a rota os passa.
+    const context = (await resolveContext(ctx.db))!;
     let comVinculo = 0;
     for (const linha of cavalos.linhas) {
-      const vinculo = await getVinculoDoCavalo(ctx.db, linha.entityId, { period: AGOSTO });
+      const vinculo = await getVinculoDoCavalo(ctx.db, linha.entityId, {
+        effectiveDate: AGOSTO,
+        context,
+      });
       if (vinculo === null) continue;
       comVinculo += 1;
       expect(vinculo.carretaEntityId, `${linha.placa} → ${vinculo.placaCarreta}`).not.toBeNull();
       expect(vinculo.totalDoConjunto).not.toBeNull();
+      expect(vinculo.ambiguidade).toBeNull();
     }
     // Um para um, nos 62 cavalos da vigência.
     expect(comVinculo).toBe(62);

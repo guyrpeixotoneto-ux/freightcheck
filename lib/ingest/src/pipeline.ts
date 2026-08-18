@@ -5,6 +5,7 @@ import type { Database } from "@workspace/db";
 import {
   aplicarConfirmacoesCanonicas,
   garantirSemanticaInicial,
+  garantirClasseDeCustoPadrao,
   garantirTaxonomiaCanonica,
   attributeAliasTable,
   attributeTable,
@@ -2004,6 +2005,20 @@ export async function promote(
       const confirmacoes = await aplicarConfirmacoesCanonicas(
         tx as unknown as Database,
       );
+
+      /*
+        E a classe de custo dos que acabaram de ser classificados.
+
+        Terceira garantia estrutural, na mesma transação e pelo mesmo motivo das
+        duas de cima: um atributo confirmado sem classe de custo some das telas
+        de custo fixo e variável e da DRE sem uma linha de erro. A passada de
+        propostas não o alcança — ela só olha o que **não** está confirmado —, e
+        `cavalo.ipva_licenciamento` nasce confirmado pelas confirmações
+        canônicas.
+
+        Preenche só o que está vazio: quem decidiu a classe tem valor gravado.
+      */
+      await garantirClasseDeCustoPadrao(tx as unknown as Database);
 
       // Um run em que **toda** vigência já existia idêntica não é uma promoção
       // vazia: é uma duplicata de dados, e o estado diz isso.

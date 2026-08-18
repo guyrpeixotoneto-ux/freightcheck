@@ -96,6 +96,8 @@ export const attributeSemanticsTable = pgTable(
      */
     economicDirection: text("economic_direction"),
     economicEffect: text("economic_effect"),
+    /** FIXO | VARIAVEL | NAO_APLICAVEL | null. Ver `attribute.cost_class`. */
+    costClass: text("cost_class"),
 
     semanticsStatus: text("semantics_status").notNull().default("UNKNOWN"),
     confirmedBy: text("confirmed_by"),

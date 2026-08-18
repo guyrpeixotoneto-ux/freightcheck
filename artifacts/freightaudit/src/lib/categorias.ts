@@ -17,22 +17,30 @@ export interface Categoria {
   name: string;
   /** "Custo Variável › Manutenção" — a hierarquia dita em linguagem de negócio. */
   caminho: string;
-  costClass: string | null;
-  /** `custo_fixo` | `custo_variavel` | `cadastral` | `nao_classificado`. */
+  /** O primeiro degrau do caminho — a família em que a categoria mora. */
+  sintetico: string;
+  /** A família semântica: `operacao`, `capital`, `nao_classificado`… */
   classeCode: string | null;
   /** Quantas colunas estão nesta categoria hoje. É a materialidade. */
   atributos: number;
   isSeed: boolean;
 }
 
-export type Classe = "FIXO" | "VARIAVEL" | "NAO_E_CUSTO";
+/** O código da família na árvore. */
+export type Classe = string;
 
 /**
- * As três casas, com o nó da árvore que cada uma é.
+ * As famílias em que uma categoria pode morar, com o nó que cada uma é.
+ *
+ * Eram três e eram econômicas — custo fixo, custo variável, não é custo —, e
+ * mover entre elas era como se decidia de que lado da conta a coluna caía. Não é
+ * mais: a classe de custo saiu da árvore e virou decisão por atributo, porque a
+ * mesma natureza tem classes diferentes conforme o contexto. Mover uma categoria
+ * agora diz **o que ela é**, e a lista abaixo são as famílias de natureza.
  *
  * O `no` é o que liga esta lista à taxonomia de verdade — é por ele que
- * `classeCode` responde "já está classificada". Escrever a lista aqui sem o nó
- * faria a tela ter uma quarta opinião sobre uma árvore que já tem dono.
+ * `classeCode` responde "já saiu do limbo". Escrever a lista aqui sem o nó faria
+ * a tela ter uma segunda opinião sobre uma árvore que já tem dono.
  */
 export const CLASSES: {
   classe: Classe;
@@ -41,25 +49,65 @@ export const CLASSES: {
   ajuda: string;
 }[] = [
   {
-    classe: "FIXO",
-    no: "custo_fixo",
-    rotulo: "Custo fixo",
+    classe: "cadastro",
+    no: "cadastro",
+    rotulo: "Cadastro e identificação",
     ajuda:
-      "O que se paga por ter o equipamento, rode ele ou não: financiamento, depreciação, seguros, tributos, remuneração de capital.",
+      "Descreve o ativo, o contrato ou o escopo, e não mede grandeza econômica: chassi, placa, unidade, vigência.",
   },
   {
-    classe: "VARIAVEL",
-    no: "custo_variavel",
-    rotulo: "Custo variável",
+    classe: "frota",
+    no: "frota",
+    rotulo: "Frota e equipamento",
     ajuda:
-      "O que se paga por rodar: combustível, manutenção, pneus, pedágio, e o lucro variável previsto.",
+      "O equipamento em si — o cavalo, a carreta, o que é alugado e os itens que o contrato obriga a ter.",
   },
   {
-    classe: "NAO_E_CUSTO",
-    no: "cadastral",
-    rotulo: "Não é custo",
+    classe: "operacao",
+    no: "operacao",
+    rotulo: "Consumo e operação",
     ajuda:
-      "Descreve o equipamento e não entra em conta nenhuma: identificação, especificação técnica, contrato, escopo.",
+      "O que a operação consome ao rodar: combustível, arla, pneus, manutenção, lavagem, pedágio.",
+  },
+  {
+    classe: "pessoal",
+    no: "pessoal",
+    rotulo: "Pessoal",
+    ajuda:
+      "Motorista e encargos — jornada, diária, vale-refeição, prêmio de produtividade.",
+  },
+  {
+    classe: "protecao",
+    no: "protecao",
+    rotulo: "Proteção e conformidade",
+    ajuda: "Seguro do ativo, seguro da carga e rastreamento.",
+  },
+  {
+    classe: "tributos",
+    no: "tributos",
+    rotulo: "Tributos e taxas",
+    ajuda: "Tributos e taxas — sobre a prestação do serviço ou sobre o ativo.",
+  },
+  {
+    classe: "capital",
+    no: "capital",
+    rotulo: "Capital e financiamento",
+    ajuda:
+      "Financiamento, juros, depreciação, as premissas da operação de compra e o valor de aquisição.",
+  },
+  {
+    classe: "remuneracao_transportador",
+    no: "remuneracao_transportador",
+    rotulo: "Remuneração ao transportador",
+    ajuda:
+      "O que a Ambev paga: remuneração fixa e variável, lucro fixo e variável, frete do trecho.",
+  },
+  {
+    classe: "direcionador",
+    no: "direcionador",
+    rotulo: "Direcionador operacional",
+    ajuda:
+      "Não é dinheiro: é o que multiplica ou divide dinheiro — km, tempo, ciclo, capacidade.",
   },
 ];
 
@@ -69,6 +117,41 @@ export const SEM_CLASSE = "nao_classificado";
 /** A classe em que a categoria está hoje, ou `null` quando ainda não tem. */
 export function classeAtual(categoria: Categoria): Classe | null {
   return CLASSES.find((c) => c.no === categoria.classeCode)?.classe ?? null;
+}
+
+/**
+ * As categorias que moram numa linha da DRE cadastrada por quem opera.
+ *
+ * Elas existem desde que a linha sintética passou a ser criável na tela de
+ * confirmação, e sem esta função sumiriam da tela: não estão em nenhuma das
+ * três casas, e não estão em "Não classificado". Uma categoria invisível é uma
+ * categoria que ninguém consegue mover, e as colunas dentro dela ficariam fora
+ * de todo total sem nenhuma tela dizendo onde foram parar.
+ *
+ * Ficam **fora** da fila de propósito, pelo mesmo motivo que uma categoria
+ * cadastral fica: quem a pôs em "Receita de frete" decidiu alguma coisa, e
+ * cobrar classe de custo dela seria cobrar para sempre uma decisão já tomada.
+ * O que a tela oferece continua sendo mover — classificar é mover, e daqui
+ * também se move.
+ */
+export function emOutrasLinhas(
+  categorias: Categoria[],
+): { linha: string; itens: Categoria[] }[] {
+  const fora = categorias.filter(
+    (c) =>
+      c.classeCode !== null &&
+      c.classeCode !== SEM_CLASSE &&
+      !CLASSES.some((classe) => classe.no === c.classeCode),
+  );
+  const linhas = [...new Set(fora.map((c) => c.sintetico))].sort((a, b) =>
+    a.localeCompare(b, "pt-BR"),
+  );
+  return linhas.map((linha) => ({
+    linha,
+    itens: fora
+      .filter((c) => c.sintetico === linha)
+      .sort((a, b) => b.atributos - a.atributos || a.name.localeCompare(b.name, "pt-BR")),
+  }));
 }
 
 /**
@@ -138,7 +221,7 @@ export function oQueFalta(categorias: Categoria[]): string | null {
  * exatamente o que este produto não faz.
  */
 export function consequenciaDe(categoria: Categoria, classe: Classe): string {
-  const rotulo = CLASSES.find((c) => c.classe === classe)!.rotulo.toLowerCase();
+  const rotulo = CLASSES.find((c) => c.classe === classe)?.rotulo.toLowerCase() ?? classe;
   const colunas =
     categoria.atributos === 0
       ? "Nenhuma coluna está nesta categoria hoje, então nada muda de lugar agora."

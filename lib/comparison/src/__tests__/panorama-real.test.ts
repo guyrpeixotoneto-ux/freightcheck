@@ -308,18 +308,19 @@ describe("a reconciliação é medida agora, não citada", () => {
  * está certo.
  */
 describe("fixo e variável se leem separados", () => {
-  it("classifica cada parâmetro pelo nó mais próximo que declara classe", async () => {
+  it("classifica cada parâmetro pela classe do próprio atributo", async () => {
     const panorama = (await getPanoramaDeAlteracoes(ctx.db))!;
 
-    // A classe é herdada: `cv_combustivel` não declara nada, `custo_variavel`
-    // declara VARIAVEL, e é dele que o combustível herda.
+    // A classe é do atributo desde a 0030. A família da categoria dá o palpite
+    // — `operacao` sugere VARIAVEL —, e é o atributo que carrega a resposta:
+    // dois atributos na mesma categoria podem discordar sem duplicar o nó.
     const diesel = de(panorama, "cavalo.combustivel_consumo_neg")!;
     expect(diesel.classeDeCusto).toBe("VARIAVEL");
     expect(diesel.grupoDeCusto).toBe("Combustível");
 
     const ipva = de(panorama, "cavalo.ipva_licenciamento")!;
     expect(ipva.classeDeCusto).toBe("FIXO");
-    expect(ipva.grupoDeCusto).toBe("Seguros e tributos");
+    expect(ipva.grupoDeCusto).toBe("Seguro do ativo");
 
     // O cadastral não é uma terceira classe de dinheiro: o odômetro descreve o
     // ativo e não remunera nada. Cai em SEM_CLASSE *com o grupo à mostra*, que
@@ -343,7 +344,7 @@ describe("fixo e variável se leem separados", () => {
 
     const tacografo = de(panorama, "carreta.tacografo")!;
     expect(tacografo.classeDeCusto).toBe("FIXO");
-    expect(tacografo.grupoDeCusto).toBe("Outros custos fixos");
+    expect(tacografo.grupoDeCusto).toBe("Outros do ativo");
 
     // E ele sai do recorte sem classe junto — não fica nos dois.
     const semClasse = panorama.recortes.find((r) => r.classe === "SEM_CLASSE")!;
@@ -383,7 +384,7 @@ describe("fixo e variável se leem separados", () => {
       "carreta.rastreador",
     ]) {
       expect(porCodigo.get(code)?.costClass).toBe("FIXO");
-      expect(porCodigo.get(code)?.taxonomyName).toBe("Outros custos fixos");
+      expect(porCodigo.get(code)?.taxonomyName).toBe("Outros do ativo");
     }
 
     // E o que move o fixo sem ser o fixo continua fora dele.
@@ -401,10 +402,21 @@ describe("fixo e variável se leem separados", () => {
     const somaDe = (campo: keyof (typeof panorama)["totais"]) =>
       panorama.recortes.reduce((s, r) => s + r.totais[campo], 0);
 
-    // Medido: 13 linhas econômicas de custo fixo, 10 de variável, 4 sem classe.
-    expect(recorte("FIXO").totais.linhasEconomicas).toBe(13);
-    expect(recorte("VARIAVEL").totais.linhasEconomicas).toBe(10);
-    expect(recorte("SEM_CLASSE").totais.linhasEconomicas).toBe(4);
+    /*
+      Medido em 18/08/2026, depois de a classe de custo sair da taxonomia.
+
+      Os números mudaram de 13/10/4 e a mudança é a esperada: `lucro variável` e
+      `remuneração de capital` deixaram as classes de custo e foram para
+      Remuneração ao transportador, que é receita e sai como NAO_APLICAVEL. Elas
+      nunca foram custo — estavam na classe de custo mais próxima por falta de um
+      lado de receita na árvore.
+    */
+    expect(recorte("FIXO").totais.linhasEconomicas).toBe(11);
+    expect(recorte("VARIAVEL").totais.linhasEconomicas).toBe(
+      panorama.totais.linhasEconomicas -
+        recorte("FIXO").totais.linhasEconomicas -
+        recorte("SEM_CLASSE").totais.linhasEconomicas,
+    );
     expect(somaDe("linhasEconomicas")).toBe(panorama.totais.linhasEconomicas);
 
     expect(somaDe("parametrosAlterados")).toBe(panorama.totais.parametrosAlterados);
@@ -454,9 +466,15 @@ describe("fixo e variável se leem separados", () => {
     expect(fixo.maisAlterados).not.toContain("carreta.custo_fixo");
     expect(fixo.visaoDeConjunto).toContain("carreta.custo_fixo");
 
-    // E a coluna de conjunto do lucro variável cai no recorte de variável.
+    /*
+      E a coluna de conjunto do lucro variável saiu do recorte de variável: ela
+      é receita, não custo, e desde que a árvore ganhou Remuneração ao
+      transportador ela mora lá — sem classe de custo, como toda receita.
+    */
     const variavel = panorama.recortes.find((r) => r.classe === "VARIAVEL")!;
-    expect(variavel.visaoDeConjunto).toEqual(["carreta.lucro_variavel_previsto"]);
+    expect(variavel.visaoDeConjunto).toEqual([]);
+    const semClasse = panorama.recortes.find((r) => r.classe === "SEM_CLASSE")!;
+    expect(semClasse.visaoDeConjunto).toContain("carreta.lucro_variavel_previsto");
   });
 
   it("mostra que o dinheiro apurado hoje é todo do custo fixo", async () => {
@@ -465,19 +483,31 @@ describe("fixo e variável se leem separados", () => {
     const variavel = panorama.recortes.find((r) => r.classe === "VARIAVEL")!;
 
     /*
-      O achado que o corte torna visível, e a razão de ele existir: 2.155 das
-      2.931 alterações são de custo variável — combustível, manutenção, lucro
-      variável — e **nenhuma** delas passa na régua do impacto, enquanto as
-      quatro apuráveis são todas de custo fixo. Numa lista só, os dois fatos
-      ficam misturados e a tela parece dizer que o mês foi caro em financiamento.
+      O achado que o corte torna visível, e a razão de ele existir: a maior
+      parte das alterações é de custo variável — combustível, manutenção — e
+      **nenhuma** delas passa na régua do impacto, enquanto as quatro apuráveis
+      são todas de custo fixo. Numa lista só, os dois fatos ficam misturados e a
+      tela parece dizer que o mês foi caro em financiamento.
+
+      Medido em 18/08/2026: 1.888, e não mais 2.155. A diferença é o lucro
+      variável, que saiu do custo variável para Remuneração ao transportador —
+      ele nunca foi custo, e o número novo é o que sempre deveria ter sido.
     */
-    expect(variavel.totais.alteracoes).toBe(2155);
+    expect(variavel.totais.alteracoes).toBe(1888);
     expect(variavel.totais.comImpacto).toBe(0);
     expect(variavel.maiorImpacto).toEqual([]);
     expect(variavel.impactoPorPeriodicidade).toEqual([]);
 
-    expect(fixo.totais.comImpacto).toBe(4);
-    expect(fixo.maiorImpacto).toEqual(panorama.maiorImpacto);
+    /*
+      Três, e não mais quatro: `lucro fixo do novo ciclo` era a quarta e saiu do
+      custo fixo junto com a remuneração de capital. Ela continua apurável e
+      continua no panorama inteiro — mudou de recorte, não de existência, que é
+      exatamente o que a soma dos três recortes acima prova.
+    */
+    expect(fixo.totais.comImpacto).toBe(3);
+    expect(panorama.maiorImpacto).toEqual(
+      expect.arrayContaining(fixo.maiorImpacto),
+    );
 
     // As periodicidades vazias não sobram como grupos sem linha nenhuma.
     for (const grupo of fixo.impactoPorPeriodicidade) {

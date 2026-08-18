@@ -7,24 +7,27 @@ import {
 } from "express";
 import { db, erroDoPostgres } from "@workspace/db";
 import {
-  interpretarFormula,
   rascunharDefinicao,
+  sugerirFormula,
   sugerirSemantica,
 } from "@workspace/assistant";
 import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
 import {
   aplicarPreenchimento,
-  classificarCategoria,
+  definirClasseDeCusto,
+  moverCategoriaParaFamilia,
   confirmAttribute,
   conferirPreenchimento,
   criarCategoria,
   criarSignificado,
+  criarSintetico,
   getAttributeDetail,
   getCurationQueue,
   getCurationSummary,
   getTaxonomyTree,
   listarCategorias,
   listarSignificados,
+  listarSinteticos,
   listTaxonomyNodes,
   montarLinhas,
   normalizarEquipamento,
@@ -514,18 +517,21 @@ router.patch("/curation/attributes/:code/meaning", async (req, res, next): Promi
 });
 
 /**
- * Ler a fórmula de cálculo em voz alta. Não grava nada.
+ * Sugerir a fórmula de cálculo a partir do que a coluna é. Não grava nada.
  *
- * POST, e não GET, porque a fórmula vai no corpo: a tela pede a leitura do que
- * está digitado **agora**, antes de salvar. Exigir o salvamento primeiro faria
- * a leitura depender de um ato que ela não deveria custar — e, num atributo sem
- * semântica versionada, a base de cálculo nem chega a poder ser gravada.
+ * POST, e não GET, porque o nome e a descrição vão no corpo: a tela pede a
+ * sugestão a partir do que está digitado **agora**. Quem acabou de batizar e
+ * descrever a coluna ainda não salvou — e é justamente nesse instante que a
+ * sugestão vale, enquanto a pessoa tem o significado na cabeça e só falta
+ * escrever a conta. Exigir o salvamento primeiro faria a sugestão custar o ato
+ * que ela existe para adiantar; e, num atributo sem semântica versionada, a
+ * base de cálculo nem chega a poder ser gravada.
  *
- * O corpo é opcional: sem ele, lê-se o que está guardado. É o caminho de quem
- * abre um atributo que outra pessoa preencheu.
+ * O corpo é opcional: sem ele, sugere-se a partir do nome e da descrição
+ * guardados. É o caminho de quem abre um atributo que outra pessoa preencheu.
  */
 router.post(
-  "/curation/attributes/:code/formula/leitura",
+  "/curation/attributes/:code/formula/sugestao",
   async (req, res, next): Promise<void> => {
     try {
       const detail = await getAttributeDetail(db, req.params.code);
@@ -534,36 +540,54 @@ router.post(
         return;
       }
 
-      const formula =
-        typeof req.body?.calculationBasis === "string"
-          ? req.body.calculationBasis
-          : (detail.calculationBasis ?? "");
+      const nome =
+        typeof req.body?.displayName === "string"
+          ? req.body.displayName
+          : (detail.displayName ?? "");
+      const definicao =
+        typeof req.body?.definition === "string"
+          ? req.body.definition
+          : (detail.definition ?? "");
 
       res.json(
-        await interpretarFormula({
-          formula,
-          // O nome de leitura, pelas mesmas regras das telas: apelido quando
-          // existe, literal da planilha quando não.
-          nome: detail.displayName ?? detail.sourceName,
-          definicao: detail.definition,
+        await sugerirFormula({
+          nome,
+          nomeDeOrigem: detail.sourceName,
+          definicao,
           unidade: detail.unit,
           periodicidade: detail.periodicity,
+          entidade: detail.entityType,
+          tipoDeDado: detail.dataType,
+          taxonomia: detail.taxonomyName,
+          // O cabeçalho da planilha é outra pista do que a coluna é, e ele
+          // costuma diferir do código: `Vida_Comb` na primeira linha, `
+          // vidaCombustivel` no código gerado pela importação.
+          cabecalho: detail.samples.find((s) => s.columnHeader)?.columnHeader ?? null,
+          /*
+            Só o formato dos valores, e só dos que existem. É o que separa
+            "valor fixo de tabela" de "conta que varia por veículo" — e amostra
+            nula não diz nada sobre a conta, ocupando uma das vagas com a
+            palavra "ausente".
+          */
+          exemplos: detail.samples
+            .filter((s) => !s.isNull && s.value !== null)
+            .map((s) => String(s.value)),
         }),
       );
     } catch (err) {
       /*
-        `interpretarFormula` não lança — o que cair aqui é falha de banco, e
-        não uma regra de negócio para o curador ler. Segue pelo mesmo caminho
-        das outras: esta rota lê o atributo pelo `getAttributeDetail`, que
-        passa pela fila e portanto pela `attribute.definition` — é uma das que
-        morrem primeiro num banco divergente.
+        `sugerirFormula` não lança — o que cair aqui é falha de banco, e não uma
+        regra de negócio para o curador ler. Segue pelo mesmo caminho das
+        outras: esta rota lê o atributo pelo `getAttributeDetail`, que passa
+        pela fila e portanto pela `attribute.definition` — é uma das que morrem
+        primeiro num banco divergente.
       */
       await responderFalha(
         req,
         res,
         next,
         err,
-        "A fórmula deste atributo não pôde ser lida neste banco.",
+        "A fórmula deste atributo não pôde ser sugerida neste banco.",
       );
     }
   },
@@ -795,6 +819,53 @@ router.post("/curation/significados", async (req, res, next): Promise<void> => {
 });
 
 /**
+ * As linhas sintéticas da DRE — e a criação inline delas.
+ *
+ * Lista própria, e não derivada de `/curation/categorias`: uma linha recém
+ * criada ainda não tem categoria nenhuma dentro, e a tela que a derivasse das
+ * categorias mostraria a criação sumindo no instante seguinte ao do clique.
+ */
+router.get("/curation/sinteticos", async (req, res, next): Promise<void> => {
+  try {
+    res.json(await listarSinteticos(db));
+  } catch (err) {
+    await responderFalha(
+      req,
+      res,
+      next,
+      err,
+      "As linhas da DRE não puderam ser lidas neste banco.",
+    );
+  }
+});
+
+router.post("/curation/sinteticos", async (req, res, next): Promise<void> => {
+  try {
+    const name = typeof req.body?.name === "string" ? req.body.name : "";
+    if (!name.trim()) {
+      res.status(400).json({ error: "Informe o nome da linha da DRE (name)." });
+      return;
+    }
+    const resultado = await criarSintetico(db, { name, actor: req.user!.email });
+    res.status(resultado.desfecho === "CRIADO" ? 201 : 200).json(resultado);
+  } catch (err) {
+    if (faltaOSchemaDaCuradoria(err)) {
+      await responderFalha(
+        req,
+        res,
+        next,
+        err,
+        "A linha da DRE não pôde ser cadastrada neste banco.",
+      );
+      return;
+    }
+    const message = err instanceof Error ? err.message : "Erro desconhecido";
+    req.log.warn({ err }, "Synthetic DRE line creation refused");
+    res.status(422).json({ error: message });
+  }
+});
+
+/**
  * As categorias em linguagem de negócio — e a criação inline delas.
  *
  * Separada de `/curation/taxonomy` de propósito, e não por duplicação: aquela
@@ -825,7 +896,19 @@ router.post("/curation/categorias", async (req, res, next): Promise<void> => {
       res.status(400).json({ error: "Informe o nome da categoria (name)." });
       return;
     }
-    const resultado = await criarCategoria(db, { name, actor: req.user!.email });
+    /*
+      `sintetico` é o código da linha da DRE escolhida na tela, e vai como
+      pedido — o cadastro decide se atende. Ver `criarCategoria`: nas três
+      casas da classificação ele é recusado em silêncio, porque criar lá
+      dentro seria classificar sem autor nem justificativa.
+    */
+    const sintetico =
+      typeof req.body?.sintetico === "string" ? req.body.sintetico : null;
+    const resultado = await criarCategoria(db, {
+      name,
+      sintetico,
+      actor: req.user!.email,
+    });
     res.status(resultado.desfecho === "CRIADO" ? 201 : 200).json(resultado);
   } catch (err) {
     if (faltaOSchemaDaCuradoria(err)) {
@@ -856,7 +939,59 @@ router.post("/curation/categorias", async (req, res, next): Promise<void> => {
  * como em toda decisão deste produto que mexe em dinheiro.
  */
 router.patch(
-  "/curation/categorias/:code/classe",
+  "/curation/categorias/:code/familia",
+  async (req, res, next): Promise<void> => {
+    try {
+      const { familia, reason } = req.body ?? {};
+      if (!familia) {
+        res.status(400).json({ error: "Informe a família (familia)." });
+        return;
+      }
+      if (!reason) {
+        res.status(400).json({
+          error: "Mover uma categoria exige uma justificativa (reason).",
+        });
+        return;
+      }
+
+      res.json(
+        await moverCategoriaParaFamilia(db, {
+          code: req.params.code,
+          familia,
+          actor: req.user!.email,
+          reason,
+        }),
+      );
+    } catch (err) {
+      if (faltaOSchemaDaCuradoria(err)) {
+        await responderFalha(
+          req,
+          res,
+          next,
+          err,
+          "A família desta categoria não pôde ser gravada neste banco.",
+        );
+        return;
+      }
+      // Recusas de regra de negócio — classe inexistente, nó que é uma classe,
+      // justificativa em branco — com a frase escrita para quem está na tela.
+      const message = err instanceof Error ? err.message : "Erro desconhecido";
+      req.log.warn({ err }, "Category classification refused");
+      res.status(422).json({ error: message });
+    }
+  },
+);
+
+/**
+ * A classe de custo — do atributo, e não da categoria.
+ *
+ * A rota irmã acima move uma categoria de família e responde *o que ela é*.
+ * Esta responde *como este valor se comporta*, e é por atributo porque a mesma
+ * natureza tem classes diferentes conforme o contexto: `Pessoal e encargos` é
+ * fixo no cavalo e variável no trecho. Ver `definirClasseDeCusto`.
+ */
+router.patch(
+  "/curation/attributes/:code/classe-de-custo",
   async (req, res, next): Promise<void> => {
     try {
       const { classe, reason } = req.body ?? {};
@@ -864,15 +999,8 @@ router.patch(
         res.status(400).json({ error: "Informe a classe (classe)." });
         return;
       }
-      if (!reason) {
-        res.status(400).json({
-          error: "Classificar exige uma justificativa (reason).",
-        });
-        return;
-      }
-
       res.json(
-        await classificarCategoria(db, {
+        await definirClasseDeCusto(db, {
           code: req.params.code,
           classe,
           actor: req.user!.email,
@@ -886,14 +1014,12 @@ router.patch(
           res,
           next,
           err,
-          "A classe desta categoria não pôde ser gravada neste banco.",
+          "A classe de custo deste atributo não pôde ser gravada neste banco.",
         );
         return;
       }
-      // Recusas de regra de negócio — classe inexistente, nó que é uma classe,
-      // justificativa em branco — com a frase escrita para quem está na tela.
       const message = err instanceof Error ? err.message : "Erro desconhecido";
-      req.log.warn({ err }, "Category classification refused");
+      req.log.warn({ err }, "Cost class refused");
       res.status(422).json({ error: message });
     }
   },

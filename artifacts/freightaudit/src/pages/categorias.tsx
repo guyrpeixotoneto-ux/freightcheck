@@ -15,6 +15,7 @@ import {
   CLASSES,
   classeAtual,
   consequenciaDe,
+  emOutrasLinhas,
   filtrar,
   jaClassificadas,
   motivoDeNaoPoder,
@@ -76,6 +77,7 @@ export default function Categorias() {
   const visiveis = filtrar(categorias, filtro);
   const pendentes = precisamDeClasse(visiveis);
   const classificadas = jaClassificadas(visiveis);
+  const outrasLinhas = emOutrasLinhas(visiveis);
   const falta = oQueFalta(categorias);
 
   return (
@@ -153,6 +155,26 @@ export default function Categorias() {
           </section>
         ))}
 
+        {/* As que moram numa linha da DRE cadastrada por quem opera. Não são
+            fila — quem as pôs ali decidiu alguma coisa —, mas precisam estar à
+            vista: fora das três casas, elas ficam fora dos totais de custo, e
+            uma categoria invisível é uma categoria que ninguém move. */}
+        {outrasLinhas.map((grupo) => (
+          <section key={grupo.linha} className="space-y-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              {grupo.linha}
+              <span className="ml-2 font-normal normal-case">
+                {grupo.itens.length}{" "}
+                {grupo.itens.length === 1 ? "categoria" : "categorias"} · fora dos
+                totais de custo fixo e variável
+              </span>
+            </h2>
+            {grupo.itens.map((categoria) => (
+              <CartaoDeCategoria key={categoria.id} categoria={categoria} />
+            ))}
+          </section>
+        ))}
+
         {!isLoading && visiveis.length === 0 && (
           <p className="text-sm text-muted-foreground">
             Nenhuma categoria com esse filtro.
@@ -192,13 +214,13 @@ function CartaoDeCategoria({
   const classificar = useMutation({
     mutationFn: async () => {
       const response = await fetch(
-        getApiUrl(`/curation/categorias/${categoria.code}/classe`),
+        getApiUrl(`/curation/categorias/${categoria.code}/familia`),
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           // `actor` não vai daqui: quem assina é a sessão, como em toda decisão
           // deste produto que mexe em dinheiro.
-          body: JSON.stringify({ classe, reason: justificativa }),
+          body: JSON.stringify({ familia: classe, reason: justificativa }),
         },
       );
       const body = await response.json();
