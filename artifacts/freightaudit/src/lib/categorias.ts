@@ -17,6 +17,8 @@ export interface Categoria {
   name: string;
   /** "Custo Variável › Manutenção" — a hierarquia dita em linguagem de negócio. */
   caminho: string;
+  /** A linha da DRE em que a categoria mora — o primeiro degrau do caminho. */
+  sintetico: string;
   costClass: string | null;
   /** `custo_fixo` | `custo_variavel` | `cadastral` | `nao_classificado`. */
   classeCode: string | null;
@@ -69,6 +71,41 @@ export const SEM_CLASSE = "nao_classificado";
 /** A classe em que a categoria está hoje, ou `null` quando ainda não tem. */
 export function classeAtual(categoria: Categoria): Classe | null {
   return CLASSES.find((c) => c.no === categoria.classeCode)?.classe ?? null;
+}
+
+/**
+ * As categorias que moram numa linha da DRE cadastrada por quem opera.
+ *
+ * Elas existem desde que a linha sintética passou a ser criável na tela de
+ * confirmação, e sem esta função sumiriam da tela: não estão em nenhuma das
+ * três casas, e não estão em "Não classificado". Uma categoria invisível é uma
+ * categoria que ninguém consegue mover, e as colunas dentro dela ficariam fora
+ * de todo total sem nenhuma tela dizendo onde foram parar.
+ *
+ * Ficam **fora** da fila de propósito, pelo mesmo motivo que uma categoria
+ * cadastral fica: quem a pôs em "Receita de frete" decidiu alguma coisa, e
+ * cobrar classe de custo dela seria cobrar para sempre uma decisão já tomada.
+ * O que a tela oferece continua sendo mover — classificar é mover, e daqui
+ * também se move.
+ */
+export function emOutrasLinhas(
+  categorias: Categoria[],
+): { linha: string; itens: Categoria[] }[] {
+  const fora = categorias.filter(
+    (c) =>
+      c.classeCode !== null &&
+      c.classeCode !== SEM_CLASSE &&
+      !CLASSES.some((classe) => classe.no === c.classeCode),
+  );
+  const linhas = [...new Set(fora.map((c) => c.sintetico))].sort((a, b) =>
+    a.localeCompare(b, "pt-BR"),
+  );
+  return linhas.map((linha) => ({
+    linha,
+    itens: fora
+      .filter((c) => c.sintetico === linha)
+      .sort((a, b) => b.atributos - a.atributos || a.name.localeCompare(b.name, "pt-BR")),
+  }));
 }
 
 /**

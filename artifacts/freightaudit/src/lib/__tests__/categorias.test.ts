@@ -3,6 +3,7 @@ import {
   CLASSES,
   classeAtual,
   consequenciaDe,
+  emOutrasLinhas,
   filtrar,
   jaClassificadas,
   motivoDeNaoPoder,
@@ -28,6 +29,7 @@ const cat = (over: Partial<Categoria> = {}): Categoria => ({
   code: "pedagio",
   name: "Pedágio",
   caminho: "Não classificado › Pedágio",
+  sintetico: "Não classificado",
   costClass: null,
   classeCode: SEM_CLASSE,
   atributos: 0,
@@ -40,6 +42,7 @@ const combustivel = cat({
   code: "cv_combustivel",
   name: "Combustível",
   caminho: "Custo Variável › Combustível",
+  sintetico: "Custo Variável",
   costClass: "VARIAVEL",
   classeCode: "custo_variavel",
   atributos: 7,
@@ -51,6 +54,7 @@ const pneus = cat({
   code: "cf_pneus",
   name: "Pneus",
   caminho: "Custo Fixo › Pneus",
+  sintetico: "Custo Fixo",
   costClass: "FIXO",
   classeCode: "custo_fixo",
   atributos: 2,
@@ -62,6 +66,7 @@ const identificacao = cat({
   code: "cad_identificacao",
   name: "Identificação do ativo",
   caminho: "Cadastral (não remuneratório) › Identificação do ativo",
+  sintetico: "Cadastral (não remuneratório)",
   // Nula **por decisão**: cadastro não é custo, e carimbá-lo FIXO o poria num
   // total. É o caso que distingue "sem classe" de "classificada como nenhuma".
   costClass: null,
@@ -98,6 +103,45 @@ describe("quem ainda precisa de classe", () => {
     const a = cat({ id: "6", code: "a", name: "ARLA" });
     expect(precisamDeClasse([b, a]).map((c) => c.name)).toEqual(["ARLA", "Balsa"]);
     expect(precisamDeClasse([a, b]).map((c) => c.name)).toEqual(["ARLA", "Balsa"]);
+  });
+});
+
+describe("as que moram numa linha da DRE cadastrada por quem opera", () => {
+  const fretePeso = cat({
+    id: "10",
+    code: "frete_peso",
+    name: "Frete peso",
+    caminho: "Receita de frete › Frete peso",
+    sintetico: "Receita de frete",
+    classeCode: "receita_de_frete",
+    atributos: 4,
+  });
+  const fretePedagio = cat({
+    id: "11",
+    code: "frete_pedagio",
+    name: "Frete pedágio",
+    caminho: "Receita de frete › Frete pedágio",
+    sintetico: "Receita de frete",
+    classeCode: "receita_de_frete",
+    atributos: 9,
+  });
+
+  it("aparecem agrupadas pela linha, e não somem da tela", () => {
+    const grupos = emOutrasLinhas([combustivel, fretePeso, cat(), fretePedagio]);
+    expect(grupos).toHaveLength(1);
+    expect(grupos[0].linha).toBe("Receita de frete");
+    // Mesma ordem das outras listas: mais colunas dependendo da decisão em cima.
+    expect(grupos[0].itens.map((c) => c.name)).toEqual(["Frete pedágio", "Frete peso"]);
+  });
+
+  it("não entram na fila nem nas três casas — quem as pôs ali já decidiu", () => {
+    expect(precisamDeClasse([fretePeso])).toEqual([]);
+    expect(jaClassificadas([fretePeso])).toEqual([]);
+    expect(oQueFalta([fretePeso])).toBeNull();
+  });
+
+  it("as três casas e 'Não classificado' continuam fora daqui", () => {
+    expect(emOutrasLinhas([combustivel, pneus, identificacao, cat()])).toEqual([]);
   });
 });
 
