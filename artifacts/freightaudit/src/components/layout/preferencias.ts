@@ -19,7 +19,7 @@ import { useCallback, useEffect, useState } from "react";
  */
 
 const CHAVE_MENU = "freightcheck:menu-aberto";
-const CHAVE_SECOES = "freightcheck:menu-secoes-recolhidas";
+const CHAVE_SECOES = "freightcheck:menu-secoes-abertas";
 
 /** A lateral inteira ou a faixa de ícones. O padrão é a lateral inteira. */
 export function useMenuAberto() {
@@ -35,25 +35,30 @@ export function useMenuAberto() {
 }
 
 /**
- * Quais seções o usuário fechou.
+ * Quais seções o usuário abriu.
  *
- * A chave é o título da seção. Renomear uma seção reabre-a para quem a tinha
- * fechado, e é o comportamento certo: a seção com aquele nome é outra.
+ * O menu de cartões nasce com as oito seções fechadas — é o retrato de descanso
+ * do desenho: oito cartões, um por assunto, e a lista de telas só aparece sob
+ * clique. Por isso o que se guarda é o que foi **aberto**, e não o que foi
+ * fechado: o padrão é o cartão fechado.
+ *
+ * A chave é o título da seção. Renomear uma seção fecha-a para quem a tinha
+ * aberto, e é o comportamento certo: a seção com aquele nome é outra.
  */
 export function useSecoesRecolhidas() {
-  const [recolhidas, setRecolhidas] = useState<string[]>(() => lerTextos(CHAVE_SECOES));
+  const [abertas, setAbertas] = useState<string[]>(() => lerTextos(CHAVE_SECOES));
 
   useEffect(() => {
-    gravar(CHAVE_SECOES, recolhidas);
-  }, [recolhidas]);
+    gravar(CHAVE_SECOES, abertas);
+  }, [abertas]);
 
   const alternar = useCallback((titulo: string) => {
-    setRecolhidas((atual) =>
+    setAbertas((atual) =>
       atual.includes(titulo) ? atual.filter((t) => t !== titulo) : [...atual, titulo],
     );
   }, []);
 
-  const recolhido = useCallback((titulo: string) => recolhidas.includes(titulo), [recolhidas]);
+  const recolhido = useCallback((titulo: string) => !abertas.includes(titulo), [abertas]);
 
   return { recolhido, alternar };
 }

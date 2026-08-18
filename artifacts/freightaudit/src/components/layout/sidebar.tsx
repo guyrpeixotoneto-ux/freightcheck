@@ -62,6 +62,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { getApiUrl } from "@/lib/api";
+import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 import {
   useAlteracoesDaVigencia,
@@ -74,19 +75,18 @@ import { useSecoesRecolhidas } from "./preferencias";
  * A lateral do produto.
  *
  * Três blocos, de cima para baixo: **onde estou** (a unidade aberta), **para
- * onde vou** (as telas, em oito seções) e **o que posso perguntar** (o
- * assistente). A ordem é a da pergunta que a pessoa traz ao abrir o sistema.
+ * onde vou** (as telas, em oito seções) e **quem sou** (a pessoa logada, no
+ * rodapé). A ordem é a da pergunta que a pessoa traz ao abrir o sistema.
  *
  * O que mudou em relação à lista única que existia aqui, e por quê:
  *
- * 1. **Sete seções no lugar de uma lista corrida.** Trinta e dois itens em
+ * 1. **Oito cartões no lugar de uma lista corrida.** Trinta e sete itens em
  *    lista corrida se leem um a um, sempre; agrupados por trabalho — o que a
  *    diretoria olha, o que a auditoria abre, o que a recuperação cobra, o que a
  *    frota detalha, o que a inteligência responde, o que a governança alimenta,
- *    o que a administração ajusta — o olho pula ao bloco e lê cinco. Foi isso
- *    que substituiu a busca por funcionalidade que morava aqui: com os itens
- *    visíveis e agrupados, o campo de busca era um passo a mais para chegar ao
- *    que já estava na tela.
+ *    o que a administração ajusta — o olho pula ao cartão e lê cinco. Cada
+ *    seção é um cartão de borda arredondada, e a lista de telas mora dentro
+ *    dele: fechado, o menu inteiro cabe numa tela sem rolar.
  * 2. **A unidade saiu do botão e virou estado.** O botão laranja "Seleção de
  *    unidades" não dizia qual unidade estava aberta — e essa é a primeira coisa
  *    que precisa estar dita, porque todo número da tela depende dela. Agora o
@@ -95,12 +95,15 @@ import { useSecoesRecolhidas } from "./preferencias";
  * 3. **Os números vêm junto com os itens.** Alterações, Importações e Curadoria
  *    mostram quanto há para fazer antes de a pessoa clicar. Bolinha com zero não
  *    aparece: contagem que não conta nada ensina o olho a ignorar o lugar.
- * 4. **As seções recolhem.** Quem passa o dia em Auditoria fecha as outras sete
- *    e fica com sete itens na tela — e é o crescimento da lista que transformou
- *    esse recurso de conforto em necessidade. A escolha vale para o navegador,
- *    não para a página — ver `useSecoesRecolhidas` —, e recolher esconde a
- *    lista, nunca a informação: a seção fechada que contém a tela aberta leva a
- *    barra marinho, e a que esconde fila de trabalho traz a soma no cabeçalho.
+ * 4. **As seções nascem fechadas e abrem sob clique.** O retrato de descanso é
+ *    o dos oito cartões; quem passa o dia em Auditoria abre a sua e a escolha
+ *    fica — para o navegador, não para a página, ver `useSecoesRecolhidas`.
+ *    Fechar esconde a lista, nunca a informação: o cartão fechado que contém a
+ *    tela aberta fica aceso com a barra marinho, e o que esconde fila de
+ *    trabalho traz a soma no cabeçalho.
+ * 5. **O rodapé é de quem entrou.** Avatar com as iniciais, nome e e-mail, com
+ *    Configurações e Sair no menu — o mesmo par que a faixa do topo oferece,
+ *    ao alcance de onde o olho já está quando navega.
  *
  * A regra antiga continua acima de tudo, com o alcance dito por extenso:
  * **nenhum item daqui leva a lugar nenhum, e nenhum leva a um número
@@ -348,8 +351,8 @@ export function Sidebar({ open }: { open: boolean }) {
       <div className="overflow-y-auto flex-1">
         <SeletorDeUnidade />
 
-        <nav className="pb-2">
-          {NAV_GROUPS.map((grupo, indice) => {
+        <nav className="px-4 pb-4 space-y-3">
+          {NAV_GROUPS.map((grupo) => {
             const aberto = !recolhido(grupo.titulo);
             const contemAtivo = grupo.itens.some((item) => estaAtivo(location, item.href));
             const escondido = aberto
@@ -360,9 +363,14 @@ export function Sidebar({ open }: { open: boolean }) {
                 );
 
             return (
+              /*
+                Cada seção é um cartão. O canto arredondado com `overflow-hidden`
+                é o que deixa a barra marinho do cabeçalho ativo acompanhar a
+                curva em vez de vazar dela.
+              */
               <div
                 key={grupo.titulo}
-                className={cn("py-2.5", indice > 0 && "border-t border-sidebar-border")}
+                className="rounded-xl border border-sidebar-border overflow-hidden"
               >
                 <button
                   type="button"
@@ -373,19 +381,22 @@ export function Sidebar({ open }: { open: boolean }) {
                     /*
                       A borda esquerda do cabeçalho existe nos dois estados, pela
                       mesma razão que a dos itens: nascer só quando a seção se
-                      fecha empurraria o título três pixels a cada clique.
+                      fecha empurraria o título quatro pixels a cada clique.
                     */
-                    "w-full flex items-center gap-2 border-l-[3px] pl-[calc(1rem-3px)] pr-3 pb-2 text-left text-[0.6875rem] font-bold uppercase tracking-[0.08em] hover:opacity-80 transition-opacity",
+                    "w-full flex items-center gap-3 border-l-4 pl-[calc(1.125rem-4px)] pr-3.5 py-3.5 text-left text-[0.8125rem] font-bold uppercase tracking-[0.08em] transition-colors",
                     grupo.cor,
                     /*
-                      Seção fechada com a tela aberta dentro dela leva a barra
-                      marinho: fechar uma seção é escolher não ver a lista, e
-                      nunca deixar de saber onde se está.
+                      Cartão fechado com a tela aberta dentro dele fica aceso —
+                      barra marinho e fundo azul-claro: fechar uma seção é
+                      escolher não ver a lista, e nunca deixar de saber onde se
+                      está. Aberto, quem acende é o próprio item ativo.
                     */
-                    !aberto && contemAtivo ? "border-brand" : "border-transparent",
+                    !aberto && contemAtivo
+                      ? "border-brand bg-sidebar-accent"
+                      : "border-transparent hover:bg-muted",
                   )}
                 >
-                  <grupo.icon className="w-4 h-4 shrink-0" strokeWidth={2.25} />
+                  <grupo.icon className="w-5 h-5 shrink-0" strokeWidth={2} />
                   <span className="flex-1 min-w-0 truncate">{grupo.titulo}</span>
                   {/*
                     O que a seção fechada esconde de trabalho vem para o
@@ -393,20 +404,23 @@ export function Sidebar({ open }: { open: boolean }) {
                     autorização para o produto parar de dizer que há fila.
                   */}
                   {escondido > 0 && (
-                    <span className="min-w-5 h-5 px-1.5 rounded-full bg-current text-[0.625rem] font-bold flex items-center justify-center tabular-nums">
+                    <span className="min-w-6 h-6 px-2 rounded-full bg-current text-[0.6875rem] font-bold flex items-center justify-center tabular-nums">
                       <span className="text-sidebar">{escondido > 99 ? "99+" : escondido}</span>
                     </span>
                   )}
-                  <ChevronDown
+                  <ChevronRight
                     className={cn(
-                      "w-3.5 h-3.5 shrink-0 transition-transform",
-                      !aberto && "-rotate-90",
+                      "w-4 h-4 shrink-0 transition-transform",
+                      aberto && "rotate-90",
                     )}
                   />
                 </button>
 
                 {aberto && (
-                  <div id={idDaSecao(grupo.titulo)}>
+                  <div
+                    id={idDaSecao(grupo.titulo)}
+                    className="border-t border-sidebar-border py-1"
+                  >
                     {grupo.itens.map((item) => (
                       <ItemDoMenu
                         key={item.href}
@@ -423,7 +437,7 @@ export function Sidebar({ open }: { open: boolean }) {
         </nav>
       </div>
 
-      <ChamadaDoAssistente />
+      <RodapeDoUsuario />
     </aside>
   );
 }
@@ -631,7 +645,7 @@ function ItemDoMenu({
           está apagado — porque uma borda que só nasce no item aceso empurraria
           o texto três pixels para a direita a cada clique.
         */
-        "flex items-center gap-3 border-l-[3px] pl-[calc(1rem-3px)] pr-3 py-2 text-sm transition-colors",
+        "flex items-center gap-3 border-l-[3px] pl-[calc(1.125rem-3px)] pr-3.5 py-2 text-sm transition-colors",
         ativo
           ? "border-brand bg-sidebar-accent text-brand font-semibold"
           : "border-transparent text-sidebar-foreground hover:bg-muted",
@@ -736,7 +750,7 @@ function SeletorDeUnidade() {
 
   return (
     <div className="p-4 pb-3">
-      <div className="text-[0.625rem] font-bold uppercase tracking-[0.1em] text-muted-foreground mb-2">
+      <div className="text-[0.6875rem] font-bold uppercase tracking-[0.1em] text-muted-foreground mb-2.5">
         Unidade atual
       </div>
 
@@ -748,13 +762,18 @@ function SeletorDeUnidade() {
           }
         />
       ) : contextos.length === 1 ? (
-        <CaixaDaUnidade titulo={unidadeDe(atual)} detalhe={detalheDe(atual)} />
+        <CaixaDaUnidade
+          titulo={unidadeDe(atual)}
+          detalhe={canalDe(atual)}
+          vigencia={mesAbreviado(atual.latestPeriod)}
+        />
       ) : (
         <DropdownMenu>
-          <DropdownMenuTrigger className="w-full text-left rounded-lg border border-sidebar-border bg-sidebar px-3 py-2.5 hover:border-brand transition-colors">
+          <DropdownMenuTrigger className="w-full text-left rounded-xl border border-sidebar-border bg-sidebar p-3.5 hover:border-brand transition-colors">
             <CaixaDaUnidade
               titulo={unidadeDe(atual)}
-              detalhe={detalheDe(atual)}
+              detalhe={canalDe(atual)}
+              vigencia={mesAbreviado(atual.latestPeriod)}
               seta
               semMoldura
             />
@@ -782,37 +801,65 @@ function SeletorDeUnidade() {
 function CaixaDaUnidade({
   titulo,
   detalhe,
+  vigencia,
   seta,
   semMoldura,
 }: {
   titulo: string;
   detalhe: string;
+  /** `ago/2026` — vira a etiqueta com o calendário. Sem vigência, sem etiqueta. */
+  vigencia?: string;
   seta?: boolean;
   semMoldura?: boolean;
 }) {
   return (
     <div
       className={cn(
-        "flex items-center gap-2.5",
-        !semMoldura && "rounded-lg border border-sidebar-border px-3 py-2.5",
+        "flex items-start gap-3",
+        !semMoldura && "rounded-xl border border-sidebar-border p-3.5",
       )}
     >
-      <MapPin className="w-4 h-4 shrink-0 text-brand" />
+      {/*
+        O alfinete ganhou um círculo azul-claro atrás: é o mesmo desenho do
+        cartão de seção aceso, e diz a mesma coisa — este é o lugar onde você
+        está.
+      */}
+      <span className="w-12 h-12 rounded-full bg-sidebar-accent flex items-center justify-center shrink-0">
+        <MapPin className="w-5 h-5 text-brand" />
+      </span>
       <span className="min-w-0 flex-1">
-        <span className="block text-sm font-bold truncate">{titulo}</span>
+        <span
+          className={cn(
+            "block font-bold truncate",
+            /*
+              O nome da unidade fala alto — caixa alta e corpo grande — mas só
+              ele: "Carregando…" e "Nenhuma vigência importada" gritados em
+              maiúsculas leriam como erro, e não como estado.
+            */
+            vigencia !== undefined ? "text-lg leading-tight uppercase tracking-wide" : "text-sm",
+          )}
+        >
+          {titulo}
+        </span>
         {/*
-          O detalhe quebra em vez de cortar: aqui mora tanto "EMPURRADA ·
-          ago/2026", que cabe, quanto a frase que explica um banco sem vigência
-          nenhuma — e essa, cortada em "Envie a primeira planilha em
-          Importações…", perde justamente a instrução.
+          O detalhe quebra em vez de cortar: aqui mora tanto o canal, que cabe,
+          quanto a frase que explica um banco sem vigência nenhuma — e essa,
+          cortada em "Envie a primeira planilha em Importações…", perde
+          justamente a instrução.
         */}
         {detalhe !== "" && (
-          <span className="block text-[0.6875rem] leading-tight text-muted-foreground">
+          <span className="block text-[0.8125rem] leading-snug text-muted-foreground tracking-wide">
             {detalhe}
           </span>
         )}
+        {vigencia !== undefined && (
+          <span className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-accent px-2.5 py-1 text-xs font-semibold text-accent-foreground">
+            <CalendarDays className="w-3.5 h-3.5" />
+            {vigencia}
+          </span>
+        )}
       </span>
-      {seta && <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />}
+      {seta && <ChevronDown className="w-4 h-4 shrink-0 mt-1 text-muted-foreground" />}
     </div>
   );
 }
@@ -823,10 +870,14 @@ function unidadeDe(contexto: Contexto): string {
   return unidade?.name ?? unidade?.code ?? contexto.label;
 }
 
-/** `EMPURRADA · ago/2026` — o canal do rótulo e a vigência mais recente dele. */
+/** O canal do rótulo — a linha sob o nome da unidade. */
+function canalDe(contexto: Contexto): string {
+  return contexto.channel ?? "sem canal no rótulo";
+}
+
+/** `EMPURRADA · ago/2026` — canal e vigência numa linha, para rótulo e menu. */
 function detalheDe(contexto: Contexto): string {
-  const canal = contexto.channel ?? "sem canal no rótulo";
-  return `${canal} · ${mesAbreviado(contexto.latestPeriod)}`;
+  return `${canalDe(contexto)} · ${mesAbreviado(contexto.latestPeriod)}`;
 }
 
 function enderecoDe(contexto: Contexto): string {
@@ -848,31 +899,65 @@ function mesAbreviado(data: string): string {
 }
 
 /**
- * O convite ao assistente, no pé da lateral.
+ * Quem entrou, no pé da lateral.
  *
- * Fica fora da área que rola, colado embaixo, porque a pergunta que ele responde
- * costuma ser a que sobra depois de a pessoa procurar a tela certa e não achar.
+ * Fica fora da área que rola, colado embaixo. O convite ao assistente que
+ * morava aqui saiu no redesenho dos cartões: o assistente continua a um clique,
+ * dentro de **Inteligência**, e o pé passou a responder a pergunta que sobrava
+ * sem lugar no menu — *como quem estou vendo estes números?* O par
+ * Configurações/Sair é o mesmo do menu da faixa vermelha, ao alcance de onde o
+ * olho já está quando navega.
+ *
+ * A segunda linha é o e-mail, não um papel: este produto deliberadamente não
+ * tem papéis — ver o comentário de `lib/db/src/schema/auth.ts` — e escrever
+ * "Administrador" aqui prometeria uma permissão que o sistema não confere.
  */
-function ChamadaDoAssistente() {
+function RodapeDoUsuario() {
+  const { user, logout, isSubmitting } = useAuth();
+
+  if (!user) return null;
+
   return (
     <div className="p-4 border-t border-sidebar-border">
-      <Link
-        href="/assistente"
-        className="flex items-center gap-2.5 rounded-lg border border-nav-inteligencia/30 bg-nav-inteligencia/[0.06] px-3 py-2.5 hover:bg-nav-inteligencia/[0.12] transition-colors"
-      >
-        <span className="w-8 h-8 rounded-full bg-nav-inteligencia/15 flex items-center justify-center shrink-0">
-          <Sparkles className="w-4 h-4 text-nav-inteligencia" />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="block text-[0.75rem] font-bold text-nav-inteligencia">
-            Pergunte ao FreightCheck
+      <DropdownMenu>
+        <DropdownMenuTrigger className="w-full flex items-center gap-3 rounded-lg p-1.5 -m-1.5 text-left hover:bg-muted transition-colors">
+          <span className="w-10 h-10 rounded-full bg-brand text-brand-foreground text-sm font-bold flex items-center justify-center shrink-0">
+            {iniciaisDe(user.name)}
           </span>
-          <span className="block text-[0.6875rem] leading-tight text-muted-foreground">
-            Analise seus dados e documentos
+          <span className="min-w-0 flex-1">
+            <span className="block text-sm font-semibold truncate">{user.name}</span>
+            <span className="block text-xs text-muted-foreground truncate">{user.email}</span>
           </span>
-        </span>
-        <ChevronRight className="w-4 h-4 shrink-0 text-nav-inteligencia" />
-      </Link>
+          <ChevronDown className="w-4 h-4 shrink-0 text-muted-foreground" />
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" side="top" className="w-64">
+          <DropdownMenuLabel className="font-normal">
+            <div className="font-semibold">{user.name}</div>
+            <div className="text-xs text-muted-foreground truncate">{user.email}</div>
+          </DropdownMenuLabel>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem asChild>
+            <Link href="/configuracoes">Configurações</Link>
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            disabled={isSubmitting}
+            onSelect={() => {
+              void logout();
+            }}
+          >
+            Sair
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
+}
+
+/** `Guy Peixoto` → `GP`; nome de uma palavra só rende uma letra. */
+function iniciaisDe(nome: string): string {
+  const partes = nome.trim().split(/\s+/).filter(Boolean);
+  if (partes.length === 0) return "?";
+  const primeira = partes[0][0];
+  const ultima = partes.length > 1 ? partes[partes.length - 1][0] : "";
+  return `${primeira}${ultima}`.toUpperCase();
 }
