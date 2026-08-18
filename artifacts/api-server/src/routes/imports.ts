@@ -131,7 +131,17 @@ export function whyCannotPromote(status: string): string | null {
     case "SKIPPED_DUPLICATE_DATA":
       return "O arquivo é diferente, mas os dados normalizados desta vigência são iguais aos já registrados. Nenhum dado foi duplicado.";
     case "VALIDATION_ERROR":
-      return "Esta importação não pode ser aprovada: o dado não fecha. Veja o motivo na importação, corrija a origem e envie o arquivo de novo.";
+      /*
+        A frase não afirma mais *qual* foi a recusa.
+
+        VALIDATION_ERROR queria dizer uma coisa só — a mesma entidade duas vezes
+        na mesma vigência com valores diferentes — e agora quer dizer duas: essa,
+        e o arquivo que não produziu fato nenhum. Dizer "o dado não fecha" a quem
+        enviou uma planilha que não foi lida manda a pessoa procurar contradição
+        onde não há dado. O motivo específico está em `failure_reason`, escrito
+        pela conferência, e é ele que a tela mostra.
+      */
+      return "Esta importação foi recusada na conferência e não pode ser aprovada. O motivo está escrito na importação — corrija a origem e envie o arquivo de novo.";
     case "ABORTED":
       return "Esta importação foi abortada. Envie o arquivo de novo para recomeçar.";
     default:

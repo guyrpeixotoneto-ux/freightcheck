@@ -685,10 +685,27 @@ const ESTADOS: Record<string, { rotulo: string; tom: "ok" | "erro" | "neutro" | 
   PROMOTING: { rotulo: "aprovando", tom: "espera" },
   FAILED: { rotulo: "falhou", tom: "erro" },
   ABORTED: { rotulo: "abortada", tom: "erro" },
-  VALIDATION_ERROR: { rotulo: "dado não fecha", tom: "erro" },
+  VALIDATION_ERROR: { rotulo: "recusada", tom: "erro" },
   SKIPPED_DUPLICATE: { rotulo: "arquivo já recebido", tom: "neutro" },
   SKIPPED_DUPLICATE_DATA: { rotulo: "dados já registrados", tom: "neutro" },
 };
+
+/**
+ * Os estados em que o pipeline não mexe mais — onde parar de perguntar.
+ *
+ * Faltava `VALIDATION_ERROR` aqui, e a consequência não era cosmética: o
+ * cartão do envio continuava perguntando o estado a cada 1,2 s e mostrando
+ * "lendo o arquivo…" a um arquivo que já tinha sido recusado.
+ */
+const ESTADO_TERMINAL = new Set([
+  "PREVIEWED",
+  "PROMOTED",
+  "FAILED",
+  "ABORTED",
+  "VALIDATION_ERROR",
+  "SKIPPED_DUPLICATE",
+  "SKIPPED_DUPLICATE_DATA",
+]);
 
 const TONS = {
   ok: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -1005,11 +1022,23 @@ function PendingRun({
     // Stops polling once the pipeline has finished or given up.
     refetchInterval: (query) => {
       const s = (query.state.data as RunStatus | undefined)?.status;
-      return s === "PREVIEWED" || s === "FAILED" || s === "PROMOTED" ? false : 1200;
+      return s === undefined || !ESTADO_TERMINAL.has(s) ? 1200 : false;
     },
   });
 
   const ready = data?.status === "PREVIEWED";
+
+  /*
+    A recusa é um fim de caminho, e a tela precisa dizer isso.
+
+    `VALIDATION_ERROR` não estava na lista que interrompe o polling, e o efeito
+    era um cartão girando para sempre com a frase "validation_error… nada entra
+    sem sua aprovação" — a recusa existia no banco e não chegava a quem enviou.
+    Ela agora cobre também o arquivo que não produziu fato nenhum, que é o caso
+    em que ficar em silêncio é mais caro: o run seguia aprovável e o selo verde
+    dizia que uma planilha vazia tinha entrado.
+  */
+  const recusado = data?.status === "VALIDATION_ERROR";
 
   /*
     A única coisa nesta tela que exige decisão, e não leitura.
@@ -1025,12 +1054,14 @@ function PendingRun({
   const [identidadeDeclarada, setIdentidadeDeclarada] = useState(false);
   const travadoPorIdentidade = identidadesNovas.length > 0 && !identidadeDeclarada;
   const failed = data?.status === "FAILED";
+  /** Falhou ao ler ou foi recusado: nos dois casos, não há o que aprovar. */
+  const vermelho = failed || recusado;
 
   return (
     <div
       className={cn(
         "rounded-xl border px-6 py-5 space-y-4",
-        failed ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50",
+        vermelho ? "border-red-200 bg-red-50" : "border-amber-200 bg-amber-50",
       )}
     >
       <div className="flex items-start justify-between gap-4">
@@ -1038,10 +1069,10 @@ function PendingRun({
           <div
             className={cn(
               "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
-              failed ? "bg-red-100" : "bg-amber-100",
+              vermelho ? "bg-red-100" : "bg-amber-100",
             )}
           >
-            {failed ? (
+            {vermelho ? (
               <AlertTriangle className="w-5 h-5 text-red-700" />
             ) : ready ? (
               <CheckCircle2 className="w-5 h-5 text-amber-700" />
@@ -1060,10 +1091,12 @@ function PendingRun({
                 ? "Conferido, ainda não importado."
                 : failed
                   ? "Falhou ao ler o arquivo."
-                  : "Lendo o arquivo…"}
+                  : recusado
+                    ? "Recusado: nada deste arquivo entrou."
+                    : "Lendo o arquivo…"}
             </p>
             <p className="text-xs mt-0.5 text-amber-900">
-              {failed ? (
+              {vermelho ? (
                 <span className="text-red-900">{data?.failureReason}</span>
               ) : ready ? (
                 data!.errors > 0 ? (
@@ -1145,6 +1178,12 @@ function PendingRun({
           ))}
         </div>
       )}
+
+      {/* A recusa por "nada entrou" fala das abas, então as abas vêm junto:
+          é nesta lista que está escrito por que cada uma foi descartada, e
+          mandar quem enviou procurar isso noutra tela é o mesmo silêncio de
+          antes, com uma frase a mais. */}
+      {recusado && <SheetList runId={importRunId} />}
     </div>
   );
 }

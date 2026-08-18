@@ -137,10 +137,13 @@ describe("whyCannotPromote", () => {
     expect(arquivo).not.toBe(dados);
   });
 
-  it("diz que o dado não fecha, e que o caminho é reenviar", () => {
+  it("diz que a conferência recusou, e que o caminho é reenviar", () => {
     const erro = whyCannotPromote("VALIDATION_ERROR")!;
-    expect(erro).toMatch(/não fecha/i);
+    expect(erro).toMatch(/recusada na conferência/i);
     expect(erro).toMatch(/envie o arquivo de novo/i);
+    // A frase genérica não pode afirmar a causa: VALIDATION_ERROR cobre tanto
+    // o dado que se contradiz quanto o arquivo que não produziu fato nenhum.
+    expect(erro).not.toMatch(/não fecha/i);
   });
 
   it("um estado novo no futuro ainda recusa, e diz qual é", () => {

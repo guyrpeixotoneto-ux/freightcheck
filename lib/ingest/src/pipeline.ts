@@ -46,6 +46,10 @@ import {
 } from "./identity";
 import { parseVigenciaLabel } from "./vigencia";
 import {
+  CODIGO_ARQUIVO_SEM_FATOS,
+  motivoDeArquivoSemFatos,
+} from "./sem-fatos";
+import {
   canonicalPayloadHash,
   canonicalScopeOf,
   canonicalSnapshotKey,
@@ -97,7 +101,12 @@ const SUSPECTED_SENTINELS = ["-1"];
  * células útil quando três linhas estão sujas. O que entra aqui é só o que não
  * tem resposta certa possível.
  */
-const BLOQUEIAM_PROMOCAO = new Set(["ENTIDADE_DUPLICADA_CONFLITANTE"]);
+const BLOQUEIAM_PROMOCAO = new Set([
+  "ENTIDADE_DUPLICADA_CONFLITANTE",
+  // Zero fato não é um arquivo limpo: é um arquivo que não foi lido. Aprovar
+  // isto registrava uma importação verde que não importou nada.
+  CODIGO_ARQUIVO_SEM_FATOS,
+]);
 
 /** Postgres caps a statement at 65535 bound parameters. */
 const INSERT_CHUNK = 1_000;
@@ -882,6 +891,51 @@ export async function stage(
     });
   }
 
+  /*
+    O arquivo que não produziu nada.
+
+    Vem depois da consolidação porque é ela que dá o número: `consolidados` é o
+    que de fato iria para a staging. E vem antes da gravação dos apontamentos
+    para que este entre na mesma leva — contado em `errorCount`, listado na
+    pré-visualização e impeditivo de promoção pelo mesmo caminho que os outros,
+    sem um segundo mecanismo paralelo. Ver `sem-fatos.ts` para o porquê de zero
+    fato ser falha e não resultado.
+
+    A lista de abas é relida aqui, e não reaproveitada de `sheets`: aquela foi
+    filtrada por `role = SOURCE`, e a recusa precisa nomear justamente as que
+    ficaram de fora.
+  */
+  const todasAsAbas = await db
+    .select({
+      sheetName: rawSheetTable.sheetName,
+      role: rawSheetTable.role,
+      rowCount: rawSheetTable.rowCount,
+    })
+    .from(rawSheetTable)
+    .where(eq(rawSheetTable.importRunId, importRunId))
+    .orderBy(rawSheetTable.sheetIndex);
+
+  const motivoSemFatos = motivoDeArquivoSemFatos({
+    abas: todasAsAbas,
+    fatos: consolidados.length,
+  });
+  if (motivoSemFatos !== null) {
+    issues.push({
+      importRunId,
+      severity: "ERROR",
+      code: CODIGO_ARQUIVO_SEM_FATOS,
+      message: motivoSemFatos,
+      detail: {
+        fatos: consolidados.length,
+        abas: todasAsAbas.map((a) => ({
+          nome: a.sheetName,
+          papel: a.role,
+          linhas: a.rowCount,
+        })),
+      },
+    });
+  }
+
   await insertChunked(db, stagedFactTable, consolidados as never[]);
   await insertChunked(
     db,
@@ -1114,17 +1168,33 @@ export async function preview(
     .filter((i) => i.severity === "ERROR" && BLOQUEIAM_PROMOCAO.has(i.code))
     .reduce((sum, i) => sum + i.count, 0);
 
+  /*
+    A recusa é escrita uma vez só, na staging, e repetida aqui.
+
+    "Nada entrou" e "o dado não fecha" são as duas recusas possíveis, e elas
+    pedem coisas diferentes de quem operou — a primeira é sobre o arquivo não
+    ter sido lido, a segunda sobre ele se contradizer. Uma frase genérica para
+    as duas mandaria metade das pessoas procurar no lugar errado, então o
+    motivo do run é o do próprio apontamento (só existe um `ARQUIVO_SEM_FATOS`
+    por run, e `sample` é a mensagem dele).
+  */
+  const semFatos = issueRows.find((i) => i.code === CODIGO_ARQUIVO_SEM_FATOS);
+  const motivoDaRecusa =
+    semFatos?.sample ??
+    (impeditivos > 0
+      ? `${impeditivos} ${impeditivos === 1 ? "conflito impede" : "conflitos impedem"} esta importação: a mesma entidade aparece mais de uma vez na mesma vigência com valores diferentes. ` +
+        `Corrija a origem e envie o arquivo de novo.`
+      : null);
+
   if (run.status === "STAGED") {
     await db
       .update(importRunTable)
       .set(
-        impeditivos > 0
+        motivoDaRecusa !== null
           ? {
               status: "VALIDATION_ERROR",
               finishedAt: new Date(),
-              failureReason:
-                `${impeditivos} ${impeditivos === 1 ? "conflito impede" : "conflitos impedem"} esta importação: a mesma entidade aparece mais de uma vez na mesma vigência com valores diferentes. ` +
-                `Corrija a origem e envie o arquivo de novo.`,
+              failureReason: motivoDaRecusa,
             }
           : { status: "PREVIEWED" },
       )
@@ -1446,6 +1516,36 @@ export async function promote(
         .select()
         .from(stagedFactTable)
         .where(eq(stagedFactTable.importRunId, importRunId));
+
+      /*
+        Sem fato não se promove — e a checagem é repetida aqui de propósito.
+
+        A pré-visualização já recusa este run (`ARQUIVO_SEM_FATOS` bloqueia, e o
+        estado vira VALIDATION_ERROR), então em operação normal este `if` não
+        dispara. Ele existe porque o laço abaixo percorre as vigências
+        encontradas: com zero fato não há vigência, o laço não executa, e a
+        promoção **terminava bem** — foi assim que um arquivo que não importou
+        nada saiu com o selo de aprovado. Um run PREVIEWED anterior a esta
+        correção ainda está por aí; a garantia tem de morar no lugar que grava.
+      */
+      if (staged.length === 0) {
+        const abas = await tx
+          .select({
+            sheetName: rawSheetTable.sheetName,
+            role: rawSheetTable.role,
+            rowCount: rawSheetTable.rowCount,
+          })
+          .from(rawSheetTable)
+          .where(eq(rawSheetTable.importRunId, importRunId))
+          .orderBy(rawSheetTable.sheetIndex);
+        throw new PromocaoRecusada(
+          motivoDeArquivoSemFatos({ abas, fatos: 0 }) ??
+            "Este arquivo não produziu nenhum fato, e não há o que aprovar.",
+          CODIGO_ARQUIVO_SEM_FATOS,
+          "VALIDATION_ERROR",
+          { abas },
+        );
+      }
 
       const byLabel = new Map<string, typeof staged>();
       for (const fact of staged) {
