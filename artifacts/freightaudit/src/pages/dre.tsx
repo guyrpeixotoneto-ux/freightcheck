@@ -17,6 +17,7 @@ import { formatBrl, formatBrlShort, formatPercent } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { AvisoDeCircularidade, Cascata } from "@/components/dre/cascata";
 import { Cobertura, Indicadores } from "@/components/dre/indicadores";
+import { ResumoDaConta } from "@/components/dre/resumo";
 import { EvolucaoDoResultado } from "@/components/dre/graficos";
 import {
   CRITERIOS,
@@ -174,6 +175,32 @@ export default function DRE() {
 
         {data && (
           <>
+            {/*
+              O mesmo resumo da página da unidade, com a frota inteira dentro.
+
+              Vale aqui pelo mesmo motivo que vale lá — receita, custo e a
+              diferença entre os dois, com o que forma cada um — e o componente
+              é literalmente o mesmo: `ConsolidadoDaDRE` traz as linhas com a
+              mesma `contribuicao` que a apuração de um veículo traz, então a
+              conta que o resumo faz não muda de forma quando o assunto passa de
+              um conjunto para 71.
+
+              Ele descreve a **frota**, e não o recorte do ranking logo abaixo:
+              é a decisão que `lib/dre/src/frota.ts` já toma para o consolidado
+              — filtrar por "só negativos" não pode fazer a receita encolher na
+              tela —, e os indicadores ao lado seguem a mesma regra.
+            */}
+            <section>
+              <h2 className="text-sm font-semibold mb-3">
+                Resumo da conta
+                <span className="ml-2 font-normal text-muted-foreground">
+                  a frota inteira desta vigência — {data.consolidado.unidades}{" "}
+                  {data.consolidado.unidades === 1 ? "unidade" : "unidades"}
+                </span>
+              </h2>
+              <ResumoDaConta dre={data.consolidado} />
+            </section>
+
             <Indicadores dre={data.consolidado} anterior={data.consolidadoAnterior} />
 
             <Cobertura

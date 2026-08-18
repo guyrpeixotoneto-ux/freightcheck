@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { resumir } from "../resumo";
+import { ehConsolidado, resumir } from "../resumo";
 import type {
   ApuracaoDaDRE,
   CoberturaDaDRE,
+  ConsolidadoDaDRE,
   LinhaDaDRE,
   SecaoDaDRE,
   SecaoId,
@@ -173,5 +174,73 @@ describe("resumir", () => {
     expect(r.itensDaReceita).toEqual([]);
     expect(r.itensDoCusto).toEqual([]);
     expect(r.resultado).toBe(0);
+  });
+});
+
+/** O consolidado é a apuração mais o que só `consolidar` escreve. */
+function consolidado(linhas: LinhaDaDRE[]): ConsolidadoDaDRE {
+  const { identidade: _identidade, competencia: _competencia, ...resto } = apuracao(linhas);
+  return {
+    ...resto,
+    unidades: 71,
+    ativos: 142,
+    distribuicao: { comResultado: 71, positivas: 12, negativas: 59, neutras: 0, semResultado: 0 },
+  };
+}
+
+describe("ehConsolidado", () => {
+  const LINHAS = [
+    linha("RECEITA_FIXA", "RECEITA_BRUTA", 18_000),
+    linha("MANUTENCAO", "CUSTO_VARIAVEL", 6_400),
+  ];
+
+  /*
+    O bloco é o mesmo nas duas telas e a legenda não pode ser: "o que a unidade
+    fatura" embaixo da soma de 71 delas descreve a coisa errada, e não há número
+    na tela que desminta a frase. `unidades` é o único campo que separa os dois
+    contratos — `consolidar` o escreve, `apurarUnidade` não —, então é ele que
+    decide, em runtime e não só no `tsc`.
+  */
+  it("reconhece o consolidado da frota", () => {
+    expect(ehConsolidado(consolidado(LINHAS))).toBe(true);
+  });
+
+  it("não confunde a apuração de uma unidade com o consolidado", () => {
+    expect(ehConsolidado(apuracao(LINHAS))).toBe(false);
+  });
+});
+
+describe("resumir, sobre o consolidado da frota", () => {
+  const LINHAS = [
+    linha("RECEITA_FIXA", "RECEITA_BRUTA", 1_204_664.11),
+    linha("RECEITA_VARIAVEL", "RECEITA_BRUTA", 82_450.3),
+    linha("ICMS", "DEDUCOES", 154_509.4),
+    linha("MANUTENCAO", "CUSTO_VARIAVEL", 241_300),
+    linha("DEPRECIACAO", "DEPRECIACAO_FINANCEIRO", 397_000),
+    linha("DIESEL", "CUSTO_VARIAVEL", null, true),
+  ];
+
+  /*
+    A frota entra pelo mesmo caminho da unidade porque `consolidar` monta as
+    linhas com a mesma `contribuicao = valor × sinal`. Se um dia deixar de
+    montar, é aqui que aparece — e não numa tela somando errado em silêncio.
+  */
+  it("faz a mesma conta que faz numa unidade", () => {
+    const daFrota = resumir(consolidado(LINHAS));
+    const daUnidade = resumir(apuracao(LINHAS));
+    expect(daFrota.receita).toBe(daUnidade.receita);
+    expect(daFrota.custo).toBe(daUnidade.custo);
+    expect(daFrota.resultado).toBe(daUnidade.resultado);
+  });
+
+  it("soma a escala da frota sem perder centavos", () => {
+    const r = resumir(consolidado(LINHAS));
+    expect(r.receita).toBe(1_287_114.41);
+    expect(r.custo).toBe(792_809.4);
+    expect(r.resultado).toBe(494_305.01);
+  });
+
+  it("conta as linhas sem dado do consolidado", () => {
+    expect(resumir(consolidado(LINHAS)).custoSemDado).toBe(1);
   });
 });
