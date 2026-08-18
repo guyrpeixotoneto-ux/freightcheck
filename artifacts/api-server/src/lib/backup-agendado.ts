@@ -1,4 +1,5 @@
 import { fazerBackup, ultimoBackup } from "@workspace/db/backup";
+import { alertar } from "./alerta";
 import { logger } from "./logger";
 
 /**
@@ -71,6 +72,11 @@ async function conferirEFazer(motivo: string): Promise<void> {
     // Falha de backup é incidente, não rodapé: sem esta linha alta, a primeira
     // notícia de que as cópias pararam seria o dia em que uma fizesse falta.
     logger.error({ err, motivo }, "Backup do banco FALHOU — o dado está numa cópia só.");
+    void alertar({
+      tipo: "BACKUP_FALHOU",
+      resumo: "O backup automático falhou — o dado está numa cópia só.",
+      detalhe: { motivo, erro: err instanceof Error ? err.message : String(err) },
+    });
   } finally {
     emAndamento = false;
   }

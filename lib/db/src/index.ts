@@ -8,6 +8,35 @@ const { Pool } = pg;
 export type Database = NodePgDatabase<typeof schema>;
 
 /**
+ * Os limites do pool — números escritos, nunca os defaults do driver.
+ *
+ * O default do `pg` é esperar **para sempre** por uma conexão livre e deixar
+ * uma query rodar **para sempre**. Com dez conexões e uma consulta travada, o
+ * efeito era o produto inteiro pendurado em silêncio — inclusive o check de
+ * sessão, que roda em toda chamada. Um limite estourado vira erro nomeado no
+ * log e um 500 com requestId; a espera infinita não vira nada.
+ *
+ * `statement_timeout` largo de propósito: a promoção de uma vigência grande é
+ * uma transação legítima de dezenas de segundos, e um teto apertado a mataria
+ * no meio. Migrations e reconvergência não passam por aqui — abrem conexão
+ * própria — e continuam sem teto, porque backfill longo é trabalho, não
+ * travamento.
+ */
+function limite(nome: string, padrao: number): number {
+  const bruto = Number(process.env[nome]);
+  return Number.isFinite(bruto) && bruto > 0 ? bruto : padrao;
+}
+
+export function opcoesDoPool(): pg.PoolConfig {
+  return {
+    max: limite("DB_POOL_MAX", 10),
+    connectionTimeoutMillis: limite("DB_CONNECT_TIMEOUT_MS", 10_000),
+    idleTimeoutMillis: limite("DB_IDLE_TIMEOUT_MS", 30_000),
+    statement_timeout: limite("DB_STATEMENT_TIMEOUT_MS", 120_000),
+  };
+}
+
+/**
  * Build an isolated connection. Tests use this to talk to a scratch database
  * without touching the process-wide `db` below.
  */
@@ -15,7 +44,7 @@ export function createDb(connectionString: string): {
   db: Database;
   pool: pg.Pool;
 } {
-  const pool = new Pool({ connectionString });
+  const pool = new Pool({ connectionString, ...opcoesDoPool() });
   return { db: drizzle(pool, { schema }), pool };
 }
 

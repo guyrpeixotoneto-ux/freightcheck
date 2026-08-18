@@ -66,6 +66,13 @@ em `/api` — que é o aceite desta configuração.
 - `BACKUP_DIR` liga o backup automático (dump diário com prova de restore em
   CI); **em produção ele deve apontar para armazenamento durável**, e o
   `/api/healthz` diz a idade da última cópia. Ver `docs/BACKUP.md`.
+- `ALERTA_WEBHOOK_URL` liga o alerta operacional: migration falhando na
+  partida, backup falhando, reconvergência incompleta, leituras órfãs e taxa
+  de 500 chegam como POST JSON (`{text, tipo, …}`, um por tipo a cada 10 min).
+  Sem ela, os mesmos eventos saem como `ALERTA <TIPO>` no log.
+- O pool do Postgres tem limites escritos (`DB_POOL_MAX`,
+  `DB_CONNECT_TIMEOUT_MS`, `DB_STATEMENT_TIMEOUT_MS`…): espera infinita por
+  conexão e query sem teto deixaram de ser o default.
 - Opcional: `ANTHROPIC_API_KEY` liga a redação por modelo no Assistente de IA.
   Sem ela o assistente **continua respondendo**, com a redação montada em código
   sobre o mesmo material; a tela diz em qual dos dois modos está.
