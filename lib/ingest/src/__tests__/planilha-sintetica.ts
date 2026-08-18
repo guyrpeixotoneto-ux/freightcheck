@@ -15,7 +15,20 @@ import * as XLSX from "xlsx";
  */
 
 export interface LinhaSpec {
+  /**
+   * A chave da linha: placa, chave do trecho ou cargo, conforme a aba — ver
+   * {@link AbaSpec.identificador}.
+   */
   placa: string;
+  /** O turno, só nas abas de QLP Operacional, onde ele completa a chave. */
+  turno?: string;
+  /**
+   * A unidade desta linha, quando ela não é a do arquivo.
+   *
+   * Existe para escrever o único caso que a chave do QLP precisa sustentar:
+   * duas unidades com o mesmo cargo, na mesma vigência, no mesmo arquivo.
+   */
+  unidadeCnpj?: string;
   chassi?: string;
   /** código do atributo (sem o prefixo do equipamento) -> valor */
   valores?: Record<string, number | string>;
@@ -24,6 +37,16 @@ export interface LinhaSpec {
 export interface AbaSpec {
   /** `cavalos` e `carretas` são os nomes que o classificador reconhece. */
   nome: string;
+  /**
+   * Como as linhas desta aba se identificam. `Placa` por padrão.
+   *
+   * Nem todo tipo tem placa: o trecho é uma perna de rota, identificada por
+   * `chaveTrecho`, e o quadro de pessoal é um cargo dentro de uma unidade — e
+   * no operacional dentro de um turno. Poder escrever as quatro formas é o que
+   * permite provar que o leitor aceita as quatro; antes, toda planilha
+   * sintética tinha placa, e uma aba sem placa nunca era exercitada.
+   */
+  identificador?: "Placa" | "chaveTrecho" | "Cargo" | "cargoEquipeEmpurrada";
   /**
    * Colunas de fato além de {@link ATRIBUTOS_PADRAO}, nesta aba.
    *
@@ -46,16 +69,45 @@ export interface PlanilhaSpec {
   abas: AbaSpec[];
 }
 
-const COLUNAS_FIXAS = [
+/** O que toda aba carrega antes da identidade: vigência e escopo. */
+const COLUNAS_DE_ESCOPO = [
   "Vigencia",
   "Unidade - CNPJ",
   "Unidade - Nome",
   "Unidade - Regional",
   "Operador - CNPJ",
   "Operador - Nome",
-  "Placa",
-  "chassi",
 ] as const;
+
+/** As colunas de identidade de uma aba, que dependem de como ela se identifica. */
+function colunasDeIdentidade(aba: AbaSpec): string[] {
+  switch (aba.identificador) {
+    case "chaveTrecho":
+      return ["chaveTrecho"];
+    case "Cargo":
+      return ["Cargo"];
+    case "cargoEquipeEmpurrada":
+      return ["cargoEquipeEmpurrada", "turnoEmpurrada"];
+    default:
+      return ["Placa", "chassi"];
+  }
+}
+
+/** Os valores de identidade de uma linha, na ordem das colunas acima. */
+function valoresDeIdentidade(aba: AbaSpec, linha: LinhaSpec): string[] {
+  switch (aba.identificador) {
+    case "chaveTrecho":
+    case "Cargo":
+      return [linha.placa];
+    case "cargoEquipeEmpurrada":
+      return [linha.placa, linha.turno ?? "1"];
+    default:
+      return [
+        linha.placa,
+        linha.chassi ?? `CHASSI${linha.placa.toUpperCase().replace(/[^A-Z0-9]/g, "")}`,
+      ];
+  }
+}
 
 /** As colunas de fato que as planilhas sintéticas carregam por padrão. */
 export const ATRIBUTOS_PADRAO = ["Custo Fixo", "Custo Variavel"] as const;
@@ -75,19 +127,20 @@ export function escreverPlanilha(spec: PlanilhaSpec, nomeArquivo?: string): stri
 
   for (const aba of spec.abas) {
     const atributos = [...ATRIBUTOS_PADRAO, ...(aba.colunas ?? [])];
-    const cabecalho = [...COLUNAS_FIXAS, ...atributos];
+    const identidade = colunasDeIdentidade(aba);
+    const cabecalho = [...COLUNAS_DE_ESCOPO, ...identidade, ...atributos];
     const linhas: (string | number | null)[][] = [cabecalho as unknown as string[]];
 
     for (const linha of aba.linhas) {
       linhas.push([
         spec.vigencia,
-        spec.unidadeCnpj === null ? "" : (spec.unidadeCnpj ?? "07.526.557/0015-05"),
+        linha.unidadeCnpj ??
+          (spec.unidadeCnpj === null ? "" : (spec.unidadeCnpj ?? "07.526.557/0015-05")),
         spec.unidadeNome ?? "CAMACARI",
         spec.regional ?? "GEO NE",
         spec.operadorCnpj === null ? "" : (spec.operadorCnpj ?? "20.618.821/0007-99"),
         spec.operadorNome ?? "OPERADOR TESTE",
-        linha.placa,
-        linha.chassi ?? `CHASSI${linha.placa.toUpperCase().replace(/[^A-Z0-9]/g, "")}`,
+        ...valoresDeIdentidade(aba, linha),
         ...atributos.map(
           (a) =>
             linha.valores?.[a] ??
@@ -134,6 +187,10 @@ export function corrigirValoresNumericos(origem: string): string {
   const PRESERVAR = new Set([
     "vigencia",
     "placa",
+    "chavetrecho",
+    "cargo",
+    "cargoequipeempurrada",
+    "turnoempurrada",
     "placa carreta",
     "chassi",
     "unidade - cnpj",
