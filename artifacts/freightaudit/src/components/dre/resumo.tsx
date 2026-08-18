@@ -87,6 +87,25 @@ export function resumir(dre: ApuracaoDaDRE | ConsolidadoDaDRE) {
   };
 }
 
+/**
+ * Uma frota ou uma unidade — o que está sendo somado.
+ *
+ * `unidades` é campo do consolidado e de mais nada: `consolidar` o preenche com
+ * o número de apurações somadas, e `apurarUnidade` nunca o escreve. É o
+ * discriminante que o próprio contrato oferece, e por isso vale em runtime e
+ * não só no `tsc`.
+ *
+ * Existe nomeado, e testado, porque o erro que ele evita é mudo: sem ele o
+ * bloco dizia "o que a unidade fatura" embaixo da soma de 71 delas, e uma
+ * legenda que descreve a coisa errada é pior do que legenda nenhuma — quem lê
+ * acredita, e não há número na tela que a desminta.
+ */
+export function ehConsolidado(
+  dre: ApuracaoDaDRE | ConsolidadoDaDRE,
+): dre is ConsolidadoDaDRE {
+  return "unidades" in dre;
+}
+
 export function ResumoDaConta({
   dre,
   className,
@@ -95,6 +114,7 @@ export function ResumoDaConta({
   className?: string;
 }) {
   const r = resumir(dre);
+  const daFrota = ehConsolidado(dre);
 
   return (
     <div className={cn("border rounded-lg bg-card overflow-hidden", className)}>
@@ -105,7 +125,11 @@ export function ResumoDaConta({
         que é a leitura degradada aceitável — a ordem vertical diz o mesmo.
       */}
       <div className="grid sm:grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-x-4 gap-y-3 px-5 py-4">
-        <Numero rotulo="Receita" valor={r.receita} detalhe="o que a unidade fatura" />
+        <Numero
+          rotulo="Receita"
+          valor={r.receita}
+          detalhe={daFrota ? "o que a frota fatura" : "o que a unidade fatura"}
+        />
         <Operador>−</Operador>
         <Numero rotulo="Custo" valor={r.custo} detalhe="o que ela consome" />
         <Operador>=</Operador>
@@ -123,14 +147,14 @@ export function ResumoDaConta({
 
       <div className="grid md:grid-cols-2 border-t divide-y md:divide-y-0 md:divide-x">
         <Composicao
-          titulo="O que forma a receita"
+          titulo={daFrota ? "O que forma a receita da frota" : "O que forma a receita"}
           total={r.receita}
           itens={r.itensDaReceita}
           semDado={r.receitaSemDado}
           faltaDiz="A receita apurada pode estar abaixo da real."
         />
         <Composicao
-          titulo="O que forma o custo"
+          titulo={daFrota ? "O que forma o custo da frota" : "O que forma o custo"}
           total={r.custo}
           itens={r.itensDoCusto}
           comSecao
