@@ -519,7 +519,7 @@ async function lerFatosSimples(
 }
 
 // ---------------------------------------------------------------------------
-// Conjunto — a arquitetura pronta, a aba ainda não
+// Conjunto — o atalho da ficha do cavalo para a carreta que ele puxa
 // ---------------------------------------------------------------------------
 
 /** O que a ficha do cavalo mostra sobre a carreta que ele puxa. */
@@ -547,22 +547,20 @@ export interface VinculoDoCavalo {
 /**
  * A carreta que este cavalo puxa nesta vigência, quando a fonte declara uma.
  *
- * **Por que isto existe e a aba CONJUNTOS ainda não.** O vínculo é confiável:
- * medido em 14/08/2026 na última vigência, `cavalo.placa_carreta` tem valor nos
- * 62 cavalos, aponta 62 placas distintas, e as 62 casam com uma carreta que
- * existe no banco — um para um, sem sobra dos dois lados. E a aritmética
- * confirma a semântica do vínculo, não só a sua forma: `carreta.finame` menos
- * `carreta.finame_implemento` dá exatamente o `cavalo.finame_cavalo` do cavalo
- * apontado, em 558 de 558 linhas.
+ * **O que esta função é, e o que ela não é.** É o atalho de navegação da ficha
+ * do cavalo: uma linha, um destino, resolvida em SQL para uma placa só. A regra
+ * do pareamento — quem puxa quem, quem ficou órfã, o que fazer quando dois
+ * cavalos apontam a mesma placa — mora em `vinculo.ts` e serve a aba Conjuntos e
+ * a DRE, que precisam da frota inteira pareada de uma vez. As duas leituras
+ * respondem à mesma pergunta e uma delas cabe numa consulta; o que não pode é a
+ * *regra* estar escrita duas vezes, e não está.
  *
- * O que ainda não existe é a *pergunta* respondida: a remuneração do conjunto
- * já está na fonte, em `carreta.custo_fixo`, e uma aba CONJUNTOS que se
- * limitasse a repetir essa coluna não acrescentaria nada ao que a ficha da
- * carreta já mostra. Ela passa a valer quando houver o que confrontar — a
- * remuneração efetivamente paga, que é a Auditoria de §17 do briefing.
- *
- * Até lá, o vínculo aparece na ficha do cavalo como um atalho para a carreta, e
- * este é o ponto único onde ele é resolvido.
+ * O vínculo é confiável: medido em 14/08/2026 na última vigência,
+ * `cavalo.placa_carreta` tem valor nos 62 cavalos, aponta 62 placas distintas, e
+ * as 62 casam com uma carreta que existe no banco — um para um, sem sobra dos
+ * dois lados. E a aritmética confirma a semântica do vínculo, não só a sua
+ * forma: `carreta.finame` menos `carreta.finame_implemento` dá exatamente o
+ * `cavalo.finame_cavalo` do cavalo apontado, em 558 de 558 linhas.
  *
  * @param vigencia A vigência e o contexto **já resolvidos** pela composição que
  * está na tela. Não são opcionais de propósito: a versão anterior recebia um

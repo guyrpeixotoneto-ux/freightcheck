@@ -100,8 +100,13 @@ export interface RegraDeEquipamento {
   foraDoEscopo: ForaDoEscopo[];
   /**
    * O atributo que carrega a remuneração do conjunto, quando a fonte entrega
-   * um. Não é usado em nenhum total hoje; é o que a aba CONJUNTOS vai ler
-   * quando existir, e está escrito aqui para que ela não precise redescobri-lo.
+   * um.
+   *
+   * Não entra em total nenhum **deste** equipamento — é escopo de conjunto, e é
+   * `foraDoEscopo` que o mantém fora. Quem o lê é a aba Conjuntos
+   * (`conjunto.ts`), para confrontá-lo com a soma que as duas fichas apuram; a
+   * leitura passa por `aprovados`, isto é, pelo mesmo portão de semântica que
+   * todo o resto, e não pelo fato cru.
    */
   totalDoConjunto?: string;
 }
