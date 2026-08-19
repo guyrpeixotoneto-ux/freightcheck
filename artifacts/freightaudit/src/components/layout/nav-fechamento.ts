@@ -49,7 +49,7 @@ import type { NavGroup } from "./nav";
  *    sentidos. Encerrar é o ato: conferido e aprovado, congela-se a
  *    competência.
  * 3. **A lista de competências chama-se "Importações"**: o que se faz nela é
- *    abrir o período e enviar os cinco relatórios que a Ambev exporta na
+ *    abrir o período e enviar os relatórios que a Ambev exporta na
  *    quinzena. A lista é o que sobra depois de importar; nomear a tela por ela
  *    escondia o gesto que a enche.
  *

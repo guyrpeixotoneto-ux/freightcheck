@@ -37,7 +37,7 @@ import { cn } from "@/lib/utils";
  * **O que ela responde, e por que não é a mesma pergunta da tela de dentro.**
  * A competência aberta responde "quanto esta quinzena vale, verba a verba, e o
  * que não fecha". Esta responde outra: *onde está o trabalho*. Quais CDDs
- * ainda não receberam os cinco relatórios, quais já apuraram, quanto de CT-e
+ * ainda não receberam todos os relatórios, quais já apuraram, quanto de CT-e
  * foi emitido no período e quanto disso continua sem resposta. É a fila do
  * fechamento vista de cima — o mesmo papel que a lista de alterações cumpre na
  * Auditoria.
@@ -470,7 +470,7 @@ export default function Apuracoes() {
               <Link href="/fechamento/competencias" className="text-primary hover:underline">
                 Importações
               </Link>{" "}
-              e envie os cinco relatórios que a Ambev exporta na quinzena. O que for
+              e envie os relatórios que a Ambev exporta na quinzena. O que for
               apurado a partir deles aparece aqui.
             </p>
           </div>

@@ -5,6 +5,7 @@ import {
   abrirCompetencia,
   apurarCompetencia,
   buscarCompetencia,
+  descartarDadosDaCompetencia,
   lerApuracaoVigente,
   lerDiaDaCompetencia,
   lerDiarioDaCompetencia,
@@ -22,7 +23,7 @@ import { DESCRICAO_DA_FONTE, TIPOS_DE_FONTE, type TipoDeFonte } from "@workspace
 /**
  * Fechamento de Remuneração — a superfície HTTP do outro ambiente do produto.
  *
- * Sete rotas, e a ordem delas é a do trabalho: abre-se a competência, enviam-se
+ * A ordem das rotas é a do trabalho: abre-se a competência, enviam-se
  * os documentos que a Ambev exportou, roda-se a apuração, lê-se a conta com as
  * divergências — e, quando o número não convence, desce-se ao dia e à viagem
  * que o produziram. Nada aqui calcula: a aritmética inteira mora em
@@ -35,7 +36,7 @@ import { DESCRICAO_DA_FONTE, TIPOS_DE_FONTE, type TipoDeFonte } from "@workspace
  * com o motivo em português em vez de um erro de parser de formulário.
  *
  * **A diferença em relação à importação da Auditoria** é que lá o tipo do
- * arquivo é deduzível do conteúdo, e aqui não: os cinco relatórios do Promax
+ * arquivo é deduzível do conteúdo, e aqui não: os relatórios do Promax
  * não se identificam. Um 03.08.15 e um 03.08.18 são os dois `.xlsx` com
  * cabeçalho na primeira linha, e trocá-los daria uma conta plausível e errada.
  * Por isso `tipo` é obrigatório, sempre — a aba da tela é a declaração.
@@ -48,6 +49,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const EXTENSOES: Record<TipoDeFonte, string[]> = {
   OPERACAO: [".xlsx", ".xls"],
   CTE: [".xlsx", ".xls"],
+  PAGAMENTO: [".txt"],
   DISPONIBILIDADE: [".xlsx", ".xls"],
   REQUISICOES: [".csv"],
   CONCILIACAO: [".txt"],
@@ -71,7 +73,7 @@ router.get("/fechamento/competencias", async (_req, res): Promise<void> => {
 /**
  * Todas as competências já somadas — a tela de Apurações.
  *
- * Devolve, por competência, quais dos cinco relatórios estão vigentes, os
+ * Devolve, por competência, quais relatórios estão vigentes, os
  * totais que a apuração gravou e o quanto continua em discussão. É a mesma
  * informação que `/competencias/:id` traz, sem a memória de cálculo: o que
  * cabe numa linha de lista. Ver `listarApuracoes` para por que a soma acontece
@@ -280,6 +282,42 @@ router.post("/fechamento/competencias/:id/documentos", async (req, res): Promise
         error: erro.message,
         codigo: erro.codigo,
         detalhe: erro.detalhe,
+      });
+      return;
+    }
+    throw erro;
+  }
+});
+
+/**
+ * Descarta o que foi importado para a competência.
+ *
+ * `DELETE` e não um `POST /descarte` porque é exatamente o que o verbo diz, e
+ * porque o que sobra depois dele — a competência vazia — não é um recurso novo
+ * que mereça um endereço próprio.
+ *
+ * **O caminho é `/dados` e não `/documentos`** porque o que sai é mais do que
+ * os arquivos: saem as linhas que eles produziram e as apurações que saíram
+ * delas. Prometer "documentos" e apagar a conta junto seria a rota mentir sobre
+ * o próprio alcance.
+ *
+ * A resposta devolve o que foi apagado, contado por fonte. Um `204` seria mais
+ * curto e diria menos: quem acabou de descartar uma quinzena inteira precisa
+ * ver o tamanho do que descartou, ainda mais quando descartou por engano.
+ */
+router.delete("/fechamento/competencias/:id/dados", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de competência inválido." });
+    return;
+  }
+  try {
+    res.json(await descartarDadosDaCompetencia(db, id));
+  } catch (erro) {
+    if (erro instanceof RecusaDeFechamento) {
+      res.status(erro.codigo === "COMPETENCIA_NAO_ENCONTRADA" ? 404 : 409).json({
+        error: erro.message,
+        codigo: erro.codigo,
       });
       return;
     }

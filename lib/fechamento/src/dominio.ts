@@ -37,7 +37,7 @@ export type Frota = "PADRAO" | "SPOT" | "FIXO" | "ESPECIAL";
 export type TipoDeFrotaContratada = "FF" | "VAN";
 
 /**
- * As cinco fontes que um fechamento consome.
+ * As seis fontes que um fechamento consome.
  *
  * Os nomes são os do processo, não os dos arquivos: quem opera chama o
  * relatório pelo número da rotina (`03.08.15`), mas o número é do Promax e
@@ -48,6 +48,8 @@ export type TipoDeFonte =
   | "OPERACAO"
   /** 03.08.15 — os CT-es emitidos por verba. O extrato fiscal. */
   | "CTE"
+  /** 03.08.20 — o demonstrativo de pagamento. A única fonte que abre o fixo. */
+  | "PAGAMENTO"
   /** 03.08.18 — frota contratada × realizada. Origem dos descontos no fixo. */
   | "DISPONIBILIDADE"
   /** 03.08.12.09 — requisições de despesa aprovadas. Origem do complementar. */
@@ -58,6 +60,7 @@ export type TipoDeFonte =
 export const TIPOS_DE_FONTE: TipoDeFonte[] = [
   "OPERACAO",
   "CTE",
+  "PAGAMENTO",
   "DISPONIBILIDADE",
   "REQUISICOES",
   "CONCILIACAO",
@@ -74,6 +77,12 @@ export const DESCRICAO_DA_FONTE: Record<TipoDeFonte, { rotina: string; nome: str
     rotina: "03.08.15",
     nome: "CT-es por verba",
     papel: "Tudo que foi faturado, verba a verba — o que a Ambev diz ter emitido.",
+  },
+  PAGAMENTO: {
+    rotina: "03.08.20",
+    nome: "Demonstrativo de pagamento",
+    papel:
+      "O que a Ambev diz que vai pagar, verba a verba — a única fonte que abre a parcela fixa.",
   },
   DISPONIBILIDADE: {
     rotina: "03.08.18",

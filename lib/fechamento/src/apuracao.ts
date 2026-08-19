@@ -8,6 +8,7 @@ import type { Requisicao } from "./leitores/requisicoes";
 import { STATUS_QUE_PAGA } from "./leitores/requisicoes";
 import type { DiaDeDisponibilidade } from "./leitores/disponibilidade";
 import { valorDe, type Conciliacao } from "./leitores/conciliacao";
+import { ctrcPorVerba, type Pagamento } from "./leitores/pagamento";
 import type { Verba } from "./verbas";
 
 /**
@@ -28,6 +29,22 @@ import type { Verba } from "./verbas";
  *                +  requisições aprovadas × fator  (03.08.12.09, com imposto)
  * ```
  *
+ * **E a regra que faltava, que o 03.08.20 trouxe.** A igualdade acima cobre o
+ * que nasce da operação e do complementar, e **não cobre o fixo** — as verbas
+ * de frota, equipe e administrativo, que na quinzena de referência eram
+ * R$ 654.310,24 dos R$ 1.473.432,61 emitidos. Elas têm origem única, e é o
+ * demonstrativo de pagamento:
+ *
+ * ```
+ * CT-e da verba fixa  =  a coluna CTRC-ICMS do 03.08.20
+ * ```
+ *
+ * Conferida no mesmo fechamento, essa igualdade fecha **ao centavo** nas seis
+ * verbas fixas dos dois canais. Nas variáveis o 03.08.20 não entra na conta —
+ * lá ele é uma segunda opinião, e quando discorda do CT-e a diferença vira
+ * divergência em vez de virar parcela: somá-lo às outras três dobraria o mesmo
+ * dinheiro.
+ *
  * Conferida contra um fechamento real — CDD Belém, 2ª quinzena de julho/2026 —
  * essa igualdade fecha nas **quinze** verbas que o arquivo trouxe, com resíduo
  * máximo de R$ 0,66 em R$ 39 mil (arredondamento do fator). É essa igualdade
@@ -44,6 +61,7 @@ import type { Verba } from "./verbas";
 export interface Fontes {
   operacao?: Viagem[];
   ctes?: LinhaDeCte[];
+  pagamento?: Pagamento;
   requisicoes?: Requisicao[];
   disponibilidade?: DiaDeDisponibilidade[];
   conciliacao?: Conciliacao;
@@ -98,6 +116,8 @@ export interface Divergencia {
     | "REQUISICAO_NAO_FATURADA"
     /** O SRTrans descontou frete mínimo — o maior valor unilateral da conta. */
     | "DESCONTO_FRETE_MINIMO"
+    /** O demonstrativo de pagamento e o CT-e emitido não dizem o mesmo. */
+    | "PAGAMENTO_DIVERGE_DO_CTE"
     /** Saldo que atravessa para a quinzena seguinte, incluindo NF-e sem CT-e. */
     | "SALDO_ATRAVESSANDO"
     /** Desconto por indisponibilidade atribuído à transportadora. */
@@ -178,6 +198,7 @@ export function apurar(competencia: Competencia, fontes: Fontes): Apuracao {
   const marcar = (tipo: TipoDeFonte, tem: boolean) => (tem ? presentes : ausentes).push(tipo);
   marcar("OPERACAO", !!fontes.operacao);
   marcar("CTE", !!fontes.ctes);
+  marcar("PAGAMENTO", !!fontes.pagamento);
   marcar("DISPONIBILIDADE", !!fontes.disponibilidade);
   marcar("REQUISICOES", !!fontes.requisicoes);
   marcar("CONCILIACAO", !!fontes.conciliacao);
@@ -190,12 +211,19 @@ export function apurar(competencia: Competencia, fontes: Fontes): Apuracao {
   const aliquotas = medirAliquotas(ctes, requisicoes);
   const fatorDoCanal = new Map(aliquotas.map((a) => [a.canal, a.fator]));
 
-  const verbas = apurarVerbas(ctes, requisicoes, fontes.conciliacao, fatorDoCanal);
+  const verbas = apurarVerbas(
+    ctes,
+    requisicoes,
+    fontes.conciliacao,
+    fontes.pagamento,
+    fatorDoCanal,
+  );
   const operacao = fontes.operacao ? resumirOperacao(fontes.operacao, competencia) : null;
   const divergencias = levantarDivergencias(
     verbas,
     requisicoes,
     fontes.conciliacao,
+    fontes.pagamento,
     fontes.disponibilidade,
     operacao,
     competencia,
@@ -239,10 +267,21 @@ const NOME_NO_COMPLEMENTAR: Record<string, string> = {
   SERVICOS_DIVERSOS: "S. Diversos/Comodatos/Eventos",
 };
 
+/**
+ * As naturezas cuja única origem possível é o demonstrativo de pagamento.
+ *
+ * O fixo não nasce de viagem nem de requisição: é a parcela contratada da
+ * frota, da equipe e do indireto. Nenhuma das outras cinco fontes a abre por
+ * verba — a conciliação do Promax cobre só o variável, e o 03.08.15 é o próprio
+ * documento que se quer conferir.
+ */
+const SUSTENTADAS_PELO_PAGAMENTO = new Set(["FIXO", "ADMINISTRATIVO"]);
+
 function apurarVerbas(
   ctes: LinhaDeCte[],
   requisicoes: Requisicao[],
   conciliacao: Conciliacao | undefined,
+  pagamento: Pagamento | undefined,
   fatorDoCanal: Map<Canal, number>,
 ): VerbaApurada[] {
   const porVbz = new Map<number, VerbaApurada>();
@@ -263,6 +302,20 @@ function apurarVerbas(
     atual.baseEmitida += cte.valorFrete;
     atual.documentos += 1;
     porVbz.set(cte.verba.vbz, atual);
+  }
+
+  /* Uma verba que o demonstrativo abre e o CT-e não emitiu ainda é conta. */
+  for (const item of pagamento?.itens ?? []) {
+    if (porVbz.has(item.verba.vbz)) continue;
+    porVbz.set(item.verba.vbz, {
+      verba: item.verba,
+      emitido: 0,
+      baseEmitida: 0,
+      documentos: 0,
+      esperado: null,
+      memoria: [],
+      diferenca: null,
+    });
   }
 
   /* Uma requisição de VBZ que não teve CT-e ainda precisa aparecer na conta. */
@@ -344,6 +397,28 @@ function apurarVerbas(
       }
     }
 
+    /*
+      3. O demonstrativo de pagamento, onde ele é a origem — e só ali.
+
+      Nas verbas variáveis e complementares o 03.08.20 também traz um valor, e
+      ele não entra aqui de propósito: aquelas já são reconstruídas pela
+      igualdade das outras fontes, e uma quarta parcela sobre o mesmo dinheiro
+      faria o apurado passar do emitido em toda verba que fecha hoje. O que o
+      demonstrativo diz sobre elas vira divergência, não parcela.
+    */
+    if (pagamento && SUSTENTADAS_PELO_PAGAMENTO.has(apurada.verba.natureza)) {
+      const doPagamento = pagamento.itens.filter((i) => i.verba.vbz === apurada.verba.vbz);
+      if (doPagamento.length > 0) {
+        memoria.push({
+          origem: "PAGAMENTO",
+          descricao: "Demonstrativo de pagamento — coluna CTRC-ICMS, a que vira CT-e",
+          semImposto: centavos(doPagamento.reduce((s, i) => s + i.semImposto, 0)),
+          comImposto: centavos(doPagamento.reduce((s, i) => s + i.ctrcIcms, 0)),
+          registros: doPagamento.length,
+        });
+      }
+    }
+
     apurada.memoria = memoria;
     apurada.emitido = centavos(apurada.emitido);
     apurada.baseEmitida = centavos(apurada.baseEmitida);
@@ -360,6 +435,7 @@ function levantarDivergencias(
   verbas: VerbaApurada[],
   requisicoes: Requisicao[],
   conciliacao: Conciliacao | undefined,
+  pagamento: Pagamento | undefined,
   disponibilidade: DiaDeDisponibilidade[] | undefined,
   operacao: Apuracao["operacao"],
   competencia: Competencia,
@@ -388,6 +464,35 @@ function levantarDivergencias(
         valor: v.diferenca ?? 0,
         onde: `VBZ ${v.verba.vbz} — emitido ${emReais(v.emitido)}, apurado ${emReais(v.esperado)}`,
         sentido: (v.diferenca ?? 0) < 0 ? "A_RECEBER" : "A_PAGAR",
+      });
+    }
+  }
+
+  /*
+    O que o demonstrativo diz sobre as verbas que ele não sustenta.
+
+    Nas variáveis e complementares o 03.08.20 é uma segunda opinião sobre o
+    mesmo CT-e, e as duas discordarem é o achado mais direto que este
+    fechamento produz: o documento que a Ambev e a transportadora assinam diz
+    um valor, e o que foi faturado diz outro. Não vira parcela — viraria dupla
+    contagem, ver `apurarVerbas` —, vira pergunta, com os dois números na
+    frase, porque a primeira coisa que se faz com ela é conferir os dois.
+  */
+  if (pagamento) {
+    const ctrc = ctrcPorVerba(pagamento);
+    for (const v of verbas) {
+      if (SUSTENTADAS_PELO_PAGAMENTO.has(v.verba.natureza)) continue;
+      const doPagamento = ctrc.get(v.verba.vbz);
+      if (doPagamento == null) continue;
+      const diferenca = centavos(v.emitido - doPagamento);
+      if (Math.abs(diferenca) <= tolerancia(doPagamento)) continue;
+      divergencias.push({
+        tipo: "PAGAMENTO_DIVERGE_DO_CTE",
+        canal: v.verba.canal,
+        titulo: `${v.verba.nome}: o demonstrativo e o CT-e emitido não dizem o mesmo`,
+        valor: diferenca,
+        onde: `VBZ ${v.verba.vbz} — 03.08.20 ${emReais(doPagamento)}, 03.08.15 ${emReais(v.emitido)}`,
+        sentido: diferenca < 0 ? "A_RECEBER" : "A_PAGAR",
       });
     }
   }

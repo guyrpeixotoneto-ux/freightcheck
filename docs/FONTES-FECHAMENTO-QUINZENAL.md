@@ -6,7 +6,7 @@
 > próprios arquivos — os valores citados fecham ao centavo, salvo onde dito o
 > contrário. Este documento alimenta o ambiente **Fechamento** (ver
 > `FECHAMENTO.md`) e é a especificação de que `lib/fechamento` nasceu — o
-> pacote lê as cinco fontes e reconstrói esta conta inteira, com testes.
+> pacote lê as fontes e reconstrói esta conta inteira, com testes.
 
 ## O ciclo em uma frase
 
@@ -17,7 +17,7 @@ A operação diária gera o **variável** (2Art), a indisponibilidade de frota g
 (03.02.59.02), e a planilha **Fechamento_Remuneracao.xlsb** é onde a
 transportadora/CDD reconstrói e confere cada uma dessas pontas.
 
-## As seis fontes
+## As sete fontes
 
 ### 1. Relatório 2Art (`2art.xlsx`, aba `2Art_07`)
 
@@ -77,7 +77,33 @@ não cobre.
 
 **É o extrato fiscal: tudo que foi efetivamente faturado, verba a verba.**
 
-### 5. Relatório 03.02.59.02 — conciliação CT-e × SRTrans (`.txt`, Promax)
+### 5. Relatório 03.08.20 — demonstrativo de pagamento (`.txt`, largura fixa, latin-1)
+
+O documento que **as duas partes assinam** ("declaramos estar de acordo com os
+valores acima"), por canal (ROTA e AS) e em dois blocos por canal (**FRETE** e
+**OUTROS CUSTOS**). Cada verba vem em seis colunas: `S/Imposto`, `NF-ISS`,
+`CTRC-ICMS`, `Valor Faturado` e as duas de VLC. Os percentuais das duas
+naturezas de documento estão no próprio cabeçalho (2,38% / 97,62% na Rota;
+0% / 100% no AS). Depois das verbas vêm os descontos — devolução (com base e
+percentual), os quatro de disponibilidade e o frete mínimo —, cada um com a
+frase que diz **de qual VBZ ele já foi subtraído**. Fecha em `Total
+Remuneração` por canal: 1.355.682,61 (Rota) e 89.748,02 (AS) na amostra.
+
+**É a fonte que abre a parcela fixa** — a única. A coluna `CTRC-ICMS` é a que
+vira CT-e, e ela bate **ao centavo** com o 03.08.15 nas seis verbas fixas dos
+dois canais (VBZ 01, 02, 03, 04, 20, 23): os R$ 654.310,24 que nenhuma outra
+fonte sustentava. Nas cinco verbas variáveis (05, 07, 08, 24, 26) os dois
+documentos discordam em R$ 54.841,96 — e isso é achado, não erro de leitura: o
+demonstrativo é tirado numa data e o CT-e carrega saldo de quinzenas
+anteriores.
+
+**É também o único relatório que declara o próprio período**, em letra, no
+cabeçalho de toda página (`Periodo: 16/07/2026 a 31/07/2026`). Nas outras
+fontes o que existe é data de emissão, de aprovação, ou o rótulo da quinzena —
+e rótulo não é data. Por isso é nele que a competência aberta no mês errado é
+recusada na porta.
+
+### 6. Relatório 03.02.59.02 — conciliação CT-e × SRTrans (`.txt`, Promax)
 
 Relatório sintético do Promax por transportadora e quinzena, em duas seções
 (**ROTA** e **AS**), cada uma com duas colunas: **R$ CT-e (Emitido)** e
@@ -91,7 +117,7 @@ AS 81.748,69; calculado SRTrans 371.946,03; saldo para a próxima quinzena
 
 **É o fecho: o que foi faturado contra o que o sistema diz que era devido.**
 
-### 6. `Fechamento_Remuneracao.xlsb` — a planilha-mãe da conferência
+### 7. `Fechamento_Remuneracao.xlsb` — a planilha-mãe da conferência
 
 Pasta de trabalho "FECHAMENTO SRTRANS" com ~44 abas que **espelham as fontes
 acima**, aba por aba:
@@ -152,8 +178,16 @@ acima**, aba por aba:
    - VBZ 26 (AS Freteiro) 75.685,88 = 70.765,03 + 4.920,85
 
    As verbas *fixas* (Ativa, Inativa, Equipe Entrega, Despesa Administrativa)
-   ficam fora — nenhuma das cinco fontes as sustenta, e na quinzena conferida
-   elas são R$ 654.310,24 dos R$ 1.473.432,61 emitidos.
+   ficam fora desta igualdade — ela cobre o que nasce da operação e do
+   complementar. Elas são R$ 654.310,24 dos R$ 1.473.432,61 emitidos, e quem
+   as sustenta é o **03.08.20**, numa igualdade de uma parcela só:
+
+   ```
+   CT-e da verba fixa = a coluna CTRC-ICMS do 03.08.20
+   ```
+
+   Ela fecha ao centavo nas seis: VBZ 01 (74.050,40), 02 (203.160,40),
+   03 (352.946,00), 04 (23.442,14), 20 (355,65) e 23 (355,65).
 
 4. **Há três percentuais de imposto no mesmo fechamento, e eles não são iguais.**
    Este é o achado que a planilha não tinha como mostrar:
@@ -218,10 +252,14 @@ acima**, aba por aba:
 Duas pontas continuam abertas, e estão aqui para não serem confundidas com
 coisa resolvida:
 
-- **De onde vêm as parcelas fixas.** Frota Fixa Ativa/Inativa, Equipe Entrega e
-  Despesa Administrativa somam R$ 654.310,24 dos R$ 1.473.432,61 emitidos, e
-  nenhuma das cinco fontes as sustenta. Falta a tabela de contrato — que é
-  justamente o que a Auditoria do FreightCheck já conhece. Ligar as duas é o
-  passo que fecha 100% da conta.
+- **O que forma cada parcela fixa.** O 03.08.20 diz *quanto* é cada verba fixa
+  e fecha ao centavo com o CT-e, o que tira os R$ 654.310,24 do escuro. O que
+  ele não abre é a formação: quantos veículos, a que valor contratado, com que
+  desconto — a tabela de contrato, que é justamente o que a Auditoria do
+  FreightCheck já conhece. Ligar as duas troca "o demonstrativo diz 74.050,40"
+  por "74.050,40 = 8 veículos × R$ … − R$ … de indisponibilidade".
+- **Os R$ 54.841,96 entre o 03.08.20 e o 03.08.15** nas cinco verbas variáveis.
+  Saldo de quinzena anterior, CT-e represado e frete mínimo são os candidatos —
+  o 03.02.59.02 traz os três, e cruzá-los é o próximo passo.
 - **Por que o canal Rota abre R$ 5.575,68** entre o 2Art e o calculado do
   SRTrans, se o canal AS bate ao centavo.

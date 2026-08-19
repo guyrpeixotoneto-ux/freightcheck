@@ -10,6 +10,7 @@ import {
   FileUp,
   Lock,
   LockOpen,
+  Trash2,
   Upload,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
@@ -23,6 +24,7 @@ import { formatBrl, formatNumber } from "@/lib/format";
 import { Textarea } from "@/components/ui/textarea";
 import {
   apurar,
+  descartarDados,
   encerrar,
   reabrir,
   enviarDocumento,
@@ -31,6 +33,7 @@ import {
   listarFontes,
   EXPLICACAO_DA_DIVERGENCIA,
   NOME_DO_ESTADO,
+  type DadosDescartados,
   type Documento,
   type Fonte,
   type TipoDeFonte,
@@ -46,19 +49,19 @@ const emDiaBR = (iso: string) => iso.split("-").reverse().join("/");
 /**
  * A competência aberta — onde o fechamento acontece.
  *
- * A tela tem cinco partes, e a ordem é a do trabalho: recebe os cinco
- * relatórios que a Ambev exporta, mostra o que a operação rodou dia a dia, roda
+ * A tela tem cinco partes, e a ordem é a do trabalho: recebe os relatórios
+ * que a Ambev exporta, mostra o que a operação rodou dia a dia, roda
  * a conta, mostra o que não fecha e salva a quinzena. É esta tela que substitui
  * a pasta de Excel de 44 abas — a grade de dias no lugar das abas `01`…`31`, a
  * conta no lugar dos PROCVs entre elas.
  *
- * **Por que a apuração é um botão e não acontece sozinha ao subir o quinto
+ * **Por que a apuração é um botão e não acontece sozinha ao subir o último
  * arquivo.** Porque rodar grava: a apuração vigente anterior é despromovida e
  * uma nova entra no lugar (ver `fechamento_apuracao`). Um recálculo automático
  * mudaria, sem ninguém pedir, o número que alguém pode ter aprovado — e a
  * aprovação deixaria de significar coisa alguma. O botão é o consentimento.
  *
- * **Por que a conta roda com menos de cinco fontes.** Porque quase sempre é
+ * **Por que a conta roda com menos fontes do que o catálogo pede.** Porque quase sempre é
  * assim que o dia funciona: o relatório de conciliação sai depois dos outros.
  * A apuração roda com o que há, diz nominalmente o que falta, e o que ela não
  * consegue sustentar aparece como não conferido em vez de virar zero.
@@ -67,6 +70,14 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   const cliente = useQueryClient();
   const [erroDoEnvio, setErroDoEnvio] = useState<string | null>(null);
   const [motivo, setMotivo] = useState("");
+  /*
+    O descarte pergunta antes, e a pergunta mora na tela em vez de num
+    `window.confirm`: o diálogo do navegador não sabe dizer *quantos* arquivos
+    vão embora, e ver o tamanho do que se vai apagar é a única defesa real
+    contra apagar a competência errada.
+  */
+  const [confirmandoDescarte, setConfirmandoDescarte] = useState(false);
+  const [descartado, setDescartado] = useState<DadosDescartados | null>(null);
 
   const dados = useQuery({
     queryKey: ["fechamento", "competencia", id],
@@ -97,7 +108,24 @@ export default function CompetenciaAberta({ id }: { id: string }) {
 
   const rodar = useMutation({
     mutationFn: () => apurar(id),
-    onSuccess: () => cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] }),
+    onSuccess: () => {
+      setDescartado(null);
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] });
+    },
+  });
+
+  const descartar = useMutation({
+    mutationFn: () => descartarDados(id),
+    onSuccess: (resultado) => {
+      setConfirmandoDescarte(false);
+      setDescartado(resultado);
+      setErroDoEnvio(null);
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] });
+      /* A grade de dias e as duas listas do ambiente liam o que acabou de sair. */
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "diario", id] });
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "apuracoes"] });
+    },
   });
 
   const atualizar = () => {
@@ -191,7 +219,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Cinco exportações do Promax/SRTrans. A conta roda com o que houver
+              Seis exportações do Promax/SRTrans. A conta roda com o que houver
               — o que faltar aparece nomeado na apuração, nunca como zero.
             </p>
             {erroDoEnvio && (
@@ -284,17 +312,83 @@ export default function CompetenciaAberta({ id }: { id: string }) {
               <Calculator className="w-4 h-4" />
               A conta da quinzena
             </CardTitle>
-            <Button
-              onClick={() => rodar.mutate()}
-              disabled={rodar.isPending || vigentes.size === 0 || encerrada}
-            >
-              {rodar.isPending ? "Apurando…" : apuracao ? "Apurar de novo" : "Apurar"}
-            </Button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {confirmandoDescarte ? (
+                <>
+                  <span className="text-sm text-muted-foreground">
+                    Apagar {documentos.length} arquivo(s) e a apuração desta competência?
+                  </span>
+                  <Button
+                    variant="destructive"
+                    onClick={() => descartar.mutate()}
+                    disabled={descartar.isPending}
+                  >
+                    {descartar.isPending ? "Descartando…" : "Sim, descartar"}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setConfirmandoDescarte(false)}
+                    disabled={descartar.isPending}
+                  >
+                    Cancelar
+                  </Button>
+                </>
+              ) : (
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setDescartado(null);
+                    setConfirmandoDescarte(true);
+                  }}
+                  disabled={encerrada || documentos.length === 0}
+                  title="Apaga os relatórios importados, as linhas deles e as apurações — a competência continua aberta"
+                >
+                  <Trash2 className="w-4 h-4" />
+                  Descartar dados
+                </Button>
+              )}
+              <Button
+                onClick={() => rodar.mutate()}
+                disabled={rodar.isPending || vigentes.size === 0 || encerrada}
+              >
+                {rodar.isPending ? "Apurando…" : apuracao ? "Apurar de novo" : "Apurar"}
+              </Button>
+            </div>
           </CardHeader>
           <CardContent className="space-y-4">
             {rodar.isError && (
               <Alert variant="destructive">
                 <AlertDescription>{textoDoErro(rodar.error)}</AlertDescription>
+              </Alert>
+            )}
+            {descartar.isError && (
+              <Alert variant="destructive">
+                <AlertDescription>{textoDoErro(descartar.error)}</AlertDescription>
+              </Alert>
+            )}
+            {descartado && (
+              <Alert>
+                <Trash2 className="w-4 h-4" />
+                <AlertDescription className="space-y-2">
+                  <p>
+                    {descartado.documentos} relatório(s) e {descartado.apuracoes}{" "}
+                    apuração(ões) descartados. A competência continua aberta, de{" "}
+                    {emDiaBR(competencia.inicio)} a {emDiaBR(competencia.fim)} — os
+                    arquivos certos podem entrar agora, inclusive os mesmos que
+                    acabaram de sair.
+                  </p>
+                  {(fontes.data ?? []).some((f) => (descartado.linhas[f.tipo] ?? 0) > 0) && (
+                    <ul className="text-xs text-muted-foreground">
+                      {(fontes.data ?? [])
+                        .filter((f) => (descartado.linhas[f.tipo] ?? 0) > 0)
+                        .map((f) => (
+                          <li key={f.tipo}>
+                            {f.rotina} · {formatNumber(descartado.linhas[f.tipo], 0)} linha(s)
+                          </li>
+                        ))}
+                    </ul>
+                  )}
+                </AlertDescription>
               </Alert>
             )}
             {!apuracao && (
@@ -368,7 +462,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
               {encerrada ? (
                 <>
                   <p className="text-sm text-muted-foreground">
-                    Esta competência está fechada: os cinco relatórios, a conta
+                    Esta competência está fechada: os relatórios, a conta
                     apurada e as divergências ficam como estão, e o banco recusa
                     qualquer escrita nela. É o que faz o número que você cobrou
                     continuar sendo o número que se lê daqui a um ano.

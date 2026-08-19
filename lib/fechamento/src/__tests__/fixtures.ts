@@ -1,7 +1,7 @@
 import * as XLSX from "xlsx";
 
 /**
- * Fixtures sintéticas: os cinco layouts, com números pequenos e conferíveis à
+ * Fixtures sintéticas: os seis layouts, com números pequenos e conferíveis à
  * mão.
  *
  * São sintéticas de propósito. Os arquivos reais de um fechamento carregam
@@ -9,7 +9,7 @@ import * as XLSX from "xlsx";
  * não entra em repositório. O que os testes precisam guardar não é o dado: é o
  * **layout** (o cabeçalho três linhas abaixo do topo, a data em serial, o CSV
  * em latin-1 com ponto e vírgula, o TXT de largura fixa em duas colunas) e a
- * **aritmética** que liga as cinco fontes.
+ * **aritmética** que liga as seis fontes.
  *
  * Os valores foram escolhidos para que a igualdade central do fechamento feche
  * exatamente, com um fator de conversão redondo (1,25 = alíquota de 20%):
@@ -276,4 +276,87 @@ export function fixtureConciliacao(): string {
     "Encontrado Notas Fiscais sem Vinculo com CT-e.",
     "",
   ].join("\n");
+}
+
+/**
+ * O 03.08.20 — o demonstrativo de pagamento, em largura fixa e latin-1.
+ *
+ * Os números conversam com os do 03.08.15 de propósito, e de três jeitos
+ * diferentes, porque são os três desfechos que a apuração precisa distinguir:
+ *
+ * - **VBZ 01** (fixo) traz 2.000,00 na coluna CTRC-ICMS, que é exatamente o que
+ *   o CT-e emitiu. É a linha que faz o "sem fonte" de 2.000,00 virar zero — o
+ *   motivo de esta fonte existir.
+ * - **VBZ 05** (variável) traz 1.000,00 contra os 1.100,00 emitidos. Não vira
+ *   parcela (a verba já é reconstruída pela conciliação e pelas requisições);
+ *   vira divergência de 100,00.
+ * - **VBZ 09** (complementar) traz 500,00, igual ao emitido: concordância, e
+ *   portanto silêncio.
+ *
+ * O cabeçalho declara `Periodo: 16/07/2026 a 31/07/2026`, que é o que permite
+ * recusar o arquivo aberto na competência de outro mês. Os acentos de
+ * `Remuneração` e `mínimo` estão aqui para provar a decodificação latin-1.
+ */
+export function fixturePagamento(): Buffer {
+  const regua = "-".repeat(130);
+  const colunas = [
+    "VBZ                                             S/Imposto         NF-ISS       CTRC-ICMS          Valor     Valor VLC    Valor VLC",
+    "                                                                   0,00%         100,00%       Faturado        NF-ISS    CTRC-ICMS",
+  ];
+  const item = (rotulo: string, sem: string, ctrc: string, vlc: string) =>
+    [`${rotulo.padEnd(45)}${sem.padStart(9)}${"0,00".padStart(15)}${ctrc.padStart(16)}${ctrc.padStart(15)}${"0,00".padStart(14)}${vlc.padStart(13)}`,
+     "      (71027001 BRALLLV234)", ""];
+
+  const linhas = [
+    "PW02581R-  -p-Promax Web          (050 )  Remuneracao de Transportadoras   *** Pagamento ***     01/08/2026    Pag.   1",
+    "CDD FICTICIO                             Periodo: 16/07/2026 a 31/07/2026                             15:37",
+    "Versao: 12.22.00.04      Rotina: 03.08.20.00.00      Usuario: 00099783515",
+    "",
+    "Transportadora  36 TRANSPORTES FICTICIA LTDA",
+    "",
+    "Entregas para 081-0443 - CDD FICTICIO",
+    "",
+    "ROTA",
+    "",
+    "FRETE",
+    regua,
+    ...colunas,
+    ...item(" 01 - Frota Fixa Ativa", "1.600,00", "2.000,00", "1.800,00"),
+    ...item(" 05 - Frota Fixa Variavel", "800,00", "1.000,00", "900,00"),
+    "",
+    "Total Frete                                      2.400,00           0,00        3.000,00       3.000,00         0,00     2.700,00",
+    "",
+    "",
+    "DESCONTO DEVOLUCAO",
+    regua,
+    "Valor S/Imposto (Todas VBZ's exceto Rem. Var. Equipe Ent. e despesas de Outros Custos)         2.400,00",
+    "% Dev. Resp. Transportadora                                                                        1,50 %",
+    "Desconto Devolucao                                                                                36,00",
+    "*Desconto Liquido Devolucao ja subtraido da VBZ Frota Fixa Ativa",
+    "",
+    "DESCONTO DISPONIBILIDADE",
+    regua,
+    "Desconto FF - Custo Fixo (Desconto Liquido ja subtraido da VBZ 01 - Frota Fixa Ativa)            100,00",
+    "Desconto FF - Equipe Entrega (Desconto Liquido ja subtraido da VBZ 02 - Equipe Entrega)          200,00",
+    "Desconto FF - Custo Indireto (Desconto Liquido ja subtraido da VBZ 03 - Despesas Adm.)             0,00",
+    "Desconto FF - Fator Ajudante (Desconto Liquido ja subtraido da VBZ 02 - Equipe Entrega)            0,00",
+    "",
+    "DESCONTO FRETE MINIMO",
+    regua,
+    "Desconto Frete m\u00ednimo (Desconto L\u00edquido j\u00e1 subtra\u00eddo das VBZs de custo Fixo coluna ICMS)          50,00",
+    "",
+    "OUTROS CUSTOS",
+    regua,
+    ...colunas,
+    ...item(" 09 - Rota - Outras Despesas", "400,00", "500,00", "450,00"),
+    "",
+    "Total Outros Custos                                400,00           0,00          500,00         500,00         0,00       450,00",
+    "",
+    regua,
+    "Total Remunera\u00e7\u00e3o                                                                              3.500,00",
+    "",
+    "     Para efeito do calculo de remuneracao a ser paga a transportadora",
+    "     declaramos estar de acordo com os valores acima.",
+  ];
+  return Buffer.from(linhas.join("\r\n"), "latin1");
 }

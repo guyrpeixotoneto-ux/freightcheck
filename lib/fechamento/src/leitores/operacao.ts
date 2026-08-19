@@ -5,7 +5,7 @@ import { celula, lerAba, type LinhaDePlanilha } from "./planilha";
 /**
  * O 2Art — o diário operacional, uma linha por viagem.
  *
- * É a fonte mais rica das cinco (cerca de 120 colunas) e a única que descreve
+ * É a fonte mais rica de todas (cerca de 120 colunas) e a única que descreve
  * o que de fato aconteceu na rua: qual veículo saiu, com quantas caixas,
  * quantas entregou, a que horas voltou e quanto aquilo vale. Todo o frete
  * variável da quinzena nasce aqui — é este arquivo que as abas `01`…`31` da

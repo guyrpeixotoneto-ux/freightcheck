@@ -68,7 +68,7 @@ Cinco desvios deliberados da lista originalmente proposta:
    o nome do processo fica onde ele começa, e um segundo item com a mesma
    palavra diria dois sentidos de uma vez.
 3. **A lista de competências chama-se "Importações"** — o que se faz nela é
-   abrir o período e enviar os cinco relatórios da quinzena; a lista é
+   abrir o período e enviar os relatórios da quinzena; a lista é
    consequência. Ao lado dela, **Apurações** mostra o resultado dessa
    importação: o que já foi apurado, quanto foi emitido e quanto há a
    questionar.
@@ -174,6 +174,33 @@ Quatro decisões que a tela materializa:
    porque só nele a data da linha é o dia em que a viagem rodou; nas outras
    fontes é emissão ou aprovação, que atravessa a virada da quinzena de forma
    legítima.
+
+## Descartar o que foi importado — o desfazer da competência errada
+
+Ao lado de "Apurar", a competência aberta tem **Descartar dados**: apaga os
+relatórios enviados, as linhas que eles produziram e as apurações que saíram
+delas, e deixa a competência aberta e vazia, pronta para receber os arquivos
+certos. Quem confirma vê antes quantos arquivos vão embora, e depois o que
+saiu, contado por fonte.
+
+Ele existe por um caso real: a quinzena de julho lançada na competência de
+agosto. Três decisões que o ato materializa:
+
+1. **Apaga de verdade, não despromove.** `receberDocumento` já sabe substituir
+   uma exportação por outra, guardando a anterior como histórico — isso resolve
+   "a Ambev reenviou o arquivo corrigido". Não resolve este caso: o índice
+   `(competência, sha256)` recusaria o reenvio do *mesmo* arquivo depois de a
+   data ser corrigida, e o conserto ficaria sem porta.
+2. **A apuração cai junto.** Ela é a conta daquelas linhas; mantida sobre um
+   banco sem elas, seria um total que nada sustenta.
+3. **A competência sobrevive, e volta a `ABERTA`.** Unidade, transportadora e
+   datas continuam certas mesmo quando o arquivo estava errado. Encerrada, o
+   descarte é recusado com o nome da competência e a saída — reabrir, com
+   motivo.
+
+E, desde o 03.08.20, o erro que ele conserta tende a não acontecer mais: aquele
+relatório declara o próprio período no cabeçalho, e é recusado na porta quando
+não é o da competência.
 
 ## A conta abre na lista — Apurações sem trocar de tela
 

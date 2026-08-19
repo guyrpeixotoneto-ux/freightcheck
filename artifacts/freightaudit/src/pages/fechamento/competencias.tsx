@@ -229,7 +229,7 @@ export default function Competencias() {
             )}
             {competencias.data?.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                Nenhuma ainda. Abra a primeira acima e envie os cinco relatórios da quinzena.
+                Nenhuma ainda. Abra a primeira acima e envie os relatórios da quinzena.
               </p>
             )}
             <ul className="divide-y">

@@ -10,6 +10,8 @@ import {
   fechamentoDisponibilidadeTable,
   fechamentoDivergenciaTable,
   fechamentoDocumentoTable,
+  fechamentoPagamentoDescontoTable,
+  fechamentoPagamentoItemTable,
   fechamentoRequisicaoTable,
   fechamentoViagemTable,
 } from "@workspace/db";
@@ -35,6 +37,7 @@ import { lerCtes } from "./leitores/cte";
 import { lerRequisicoes } from "./leitores/requisicoes";
 import { lerDisponibilidade } from "./leitores/disponibilidade";
 import { lerConciliacao } from "./leitores/conciliacao";
+import { lerPagamento, type BlocoDoPagamento, type TipoDeDescontoDoPagamento } from "./leitores/pagamento";
 import { verbaDe, verbaDesconhecida, type Verba } from "./verbas";
 
 /**
@@ -256,6 +259,7 @@ export async function receberDocumento(
 
   const lido = interpretar(entrada.tipo, entrada.conteudo);
   recusarOperacaoDeOutroPeriodo(competencia, entrada.nomeDoArquivo, lido.dias);
+  recusarPagamentoDeOutroPeriodo(competencia, entrada.nomeDoArquivo, lido.periodo);
 
   return db.transaction(async (tx) => {
     const anterior = await tx
@@ -363,15 +367,60 @@ function recusarOperacaoDeOutroPeriodo(
 }
 
 /**
+ * Recusa o 03.08.20 de outro período — e este é o mais fácil de todos.
+ *
+ * O demonstrativo **escreve o próprio período no cabeçalho de toda página**
+ * (`Periodo: 16/07/2026 a 31/07/2026`), o que nenhuma outra fonte faz: no 2Art
+ * o período se infere das viagens, no 03.08.15 e no 03.08.12.09 o que existe é
+ * o rótulo da quinzena de pagamento, e rótulo não é data. Aqui a comparação é
+ * literal, e por isso a recusa é exata em vez de heurística.
+ *
+ * **Por que isso importa mais do que parece.** O erro que ela pega é o de
+ * lançar a quinzena inteira na competência errada — os arquivos de julho
+ * abertos na competência de agosto. Sem esta checagem ele só aparece na hora de
+ * comparar a conta com a planilha, uma quinzena depois, quando já não se sabe
+ * qual dos seis arquivos foi o trocado.
+ */
+function recusarPagamentoDeOutroPeriodo(
+  competencia: CompetenciaRegistrada,
+  nomeDoArquivo: string,
+  periodo: { inicio: Dia | null; fim: Dia | null } | undefined,
+): void {
+  if (!periodo?.inicio || !periodo.fim) return;
+  if (periodo.inicio === competencia.inicio && periodo.fim === competencia.fim) return;
+
+  throw new RecusaDeFechamento(
+    "DOCUMENTO_FORA_DO_PERIODO",
+    `"${nomeDoArquivo}" é o demonstrativo de ${emBR(periodo.inicio)} a ${emBR(periodo.fim)}, ` +
+      `e a competência ${competencia.chave} vai de ${emBR(competencia.inicio)} a ` +
+      `${emBR(competencia.fim)}. O próprio arquivo declara o período no cabeçalho. ` +
+      `Envie o 03.08.20 deste período, ou abra a competência do período do arquivo.`,
+    {
+      de: periodo.inicio,
+      ate: periodo.fim,
+      inicio: competencia.inicio,
+      fim: competencia.fim,
+    },
+  );
+}
+
+/**
  * Quantas linhas o leitor produziu, e o que recusou — sem gravar nada ainda.
  *
- * `dias` sai só do 2Art, e é o que permite conferir, antes de gravar, se o
- * arquivo é mesmo o desta quinzena — ver `recusarOperacaoDeOutroPeriodo`.
+ * `dias` sai só do 2Art e `periodo` só do 03.08.20; os dois existem para que a
+ * conferência de "este arquivo é mesmo desta quinzena?" aconteça **antes** de
+ * qualquer linha ser gravada — ver as duas recusas acima.
  */
 function interpretar(
   tipo: TipoDeFonte,
   conteudo: Buffer,
-): { linhasLidas: number; recusas: Recusa[]; dias?: Dia[] } {
+): {
+  linhasLidas: number;
+  recusas: Recusa[];
+  dias?: Dia[];
+  /** O período que o próprio arquivo declara. Só o 03.08.20 declara um. */
+  periodo?: { inicio: Dia | null; fim: Dia | null };
+} {
   try {
     switch (tipo) {
       case "OPERACAO": {
@@ -393,6 +442,14 @@ function interpretar(
       case "DISPONIBILIDADE": {
         const l = lerDisponibilidade(conteudo);
         return { linhasLidas: l.linhas.length, recusas: l.recusas };
+      }
+      case "PAGAMENTO": {
+        const l = lerPagamento(conteudo);
+        return {
+          linhasLidas: l.itens.length + l.descontos.length,
+          recusas: [],
+          periodo: l.periodo,
+        };
       }
       case "CONCILIACAO": {
         const l = lerConciliacao(conteudo);
@@ -698,6 +755,42 @@ async function gravarLinhas(
       );
       return;
     }
+    case "PAGAMENTO": {
+      const pagamento = lerPagamento(conteudo);
+      await emLotes(pagamento.itens, (lote) =>
+        tx.insert(fechamentoPagamentoItemTable).values(
+          lote.map((i) => ({
+            ...comum,
+            linhaNoArquivo: i.linha,
+            canal: i.canal,
+            bloco: i.bloco,
+            vbz: i.verba.vbz,
+            nomeNoArquivo: i.nomeNoArquivo,
+            semImposto: String(i.semImposto),
+            nfIss: String(i.nfIss),
+            ctrcIcms: String(i.ctrcIcms),
+            valorFaturado: String(i.valorFaturado),
+            vlcNfIss: String(i.vlcNfIss),
+            vlcCtrcIcms: String(i.vlcCtrcIcms),
+          })),
+        ),
+      );
+      if (pagamento.descontos.length > 0) {
+        await tx.insert(fechamentoPagamentoDescontoTable).values(
+          pagamento.descontos.map((d) => ({
+            ...comum,
+            linhaNoArquivo: d.linha,
+            canal: d.canal,
+            tipo: d.tipo,
+            rotulo: d.rotulo,
+            valor: String(d.valor),
+            base: d.base == null ? null : String(d.base),
+            percentual: d.percentual == null ? null : String(d.percentual),
+          })),
+        );
+      }
+      return;
+    }
     case "CONCILIACAO": {
       const conciliacao = lerConciliacao(conteudo);
       await emLotes(conciliacao.itens, (lote) =>
@@ -834,7 +927,7 @@ export async function apurarCompetencia(
   return { competencia, apuracao, apuracaoId };
 }
 
-/** As cinco fontes, reconstruídas das tabelas de linha. */
+/** As seis fontes, reconstruídas das tabelas de linha. */
 async function lerFontesDoBanco(db: Database, competenciaId: string): Promise<Fontes> {
   const presentes = await db
     .select({ tipo: fechamentoDocumentoTable.tipo })
@@ -877,6 +970,53 @@ async function lerFontesDoBanco(db: Database, competenciaId: string): Promise<Fo
       imposto: numero(c.imposto),
       controle: c.controle ?? "",
     }));
+  }
+
+  if (tem.has("PAGAMENTO")) {
+    const [itens, descontos] = await Promise.all([
+      db
+        .select()
+        .from(fechamentoPagamentoItemTable)
+        .where(eq(fechamentoPagamentoItemTable.competenciaId, competenciaId)),
+      db
+        .select()
+        .from(fechamentoPagamentoDescontoTable)
+        .where(eq(fechamentoPagamentoDescontoTable.competenciaId, competenciaId)),
+    ]);
+    /*
+      O cabeçalho do arquivo — período, unidade, transportadora — não é
+      regravado: ele já foi conferido contra a competência na porta de entrada
+      (ver `recusarPagamentoDeOutroPeriodo`), e guardá-lo de novo criaria uma
+      segunda verdade sobre de quem é a quinzena.
+    */
+    fontes.pagamento = {
+      periodo: { inicio: null, fim: null },
+      unidade: null,
+      transportadora: null,
+      itens: itens.map((i) => ({
+        linha: i.linhaNoArquivo,
+        canal: i.canal as Canal,
+        bloco: i.bloco as BlocoDoPagamento,
+        verba: verbaGravada(i.vbz, i.canal as Canal, i.nomeNoArquivo),
+        nomeNoArquivo: i.nomeNoArquivo,
+        semImposto: numero(i.semImposto),
+        nfIss: numero(i.nfIss),
+        ctrcIcms: numero(i.ctrcIcms),
+        valorFaturado: numero(i.valorFaturado),
+        vlcNfIss: numero(i.vlcNfIss),
+        vlcCtrcIcms: numero(i.vlcCtrcIcms),
+      })),
+      descontos: descontos.map((d) => ({
+        linha: d.linhaNoArquivo,
+        canal: d.canal as Canal,
+        tipo: d.tipo as TipoDeDescontoDoPagamento,
+        rotulo: d.rotulo,
+        valor: numero(d.valor),
+        base: d.base == null ? null : numero(d.base),
+        percentual: d.percentual == null ? null : numero(d.percentual),
+      })),
+      totais: [],
+    };
   }
 
   if (tem.has("REQUISICOES")) {
@@ -1335,7 +1475,7 @@ export async function listarApuracoes(db: Database): Promise<ResumoDeApuracao[]>
     const questao = apuracao ? questaoDa.get(apuracao.id) : undefined;
     return {
       competencia,
-      // Na ordem do catálogo, e não na de chegada: as cinco casinhas da linha
+      // Na ordem do catálogo, e não na de chegada: as casinhas da linha
       // ficam sempre no mesmo lugar, e a que falta é reconhecida pela posição.
       relatorios: TIPOS_DE_FONTE.filter((tipo) => tipos?.has(tipo) ?? false),
       apuracao: apuracao
@@ -1348,6 +1488,137 @@ export async function listarApuracoes(db: Database): Promise<ResumoDeApuracao[]>
             aQuestionarQuantidade: questao?.quantidade ?? 0,
           }
         : null,
+    };
+  });
+}
+
+/** O que saiu do banco num descarte — dito por extenso, nunca "pronto". */
+export interface DadosDescartados {
+  competencia: CompetenciaRegistrada;
+  /** Documentos apagados, contando os que já estavam despromovidos. */
+  documentos: number;
+  /** Apurações apagadas, contando as que não eram mais vigentes. */
+  apuracoes: number;
+  /** Linhas apagadas, por fonte. É o que a tela repete de volta a quem clicou. */
+  linhas: Record<TipoDeFonte, number>;
+}
+
+/**
+ * Descarta o que foi importado para uma competência: os documentos, as linhas
+ * que eles produziram e as apurações que saíram delas.
+ *
+ * **Por que apagar de verdade, e não despromover.** `receberDocumento` já sabe
+ * trocar uma exportação por outra — a anterior fica no histórico, marcada
+ * `vigente = false`. Isso resolve "a Ambev reenviou o arquivo corrigido" e não
+ * resolve o caso deste ato: o arquivo do período errado, aberto na competência
+ * errada. Mantê-lo como histórico guardaria no banco a evidência de uma
+ * quinzena que nunca foi esta, e o índice `(competência, sha256)` ainda
+ * recusaria o reenvio do mesmo arquivo depois que a data fosse corrigida — o
+ * descarte existe para desfazer, e desfazer pela metade é o que faz a próxima
+ * importação mentir.
+ *
+ * **Por que a apuração cai junto.** Ela é a conta *daquelas* linhas. Mantida
+ * sobre um banco sem elas, seria um total que nada sustenta — exatamente o que
+ * o módulo inteiro existe para não produzir.
+ *
+ * **Por que a competência sobrevive, vazia.** Quem lançou o mês errado quer
+ * reimportar, não recomeçar: unidade, transportadora e datas continuam certas
+ * mesmo quando o arquivo estava errado. O estado volta a `ABERTA` porque é o
+ * que ela passa a ser — deixá-la `APURADA` sem apuração afirmaria uma conta que
+ * não existe mais.
+ *
+ * **Por que a encerrada é recusada aqui e não só pelo gatilho.** O gatilho
+ * `fechamento_*_congelada` já barraria a escrita, com a mensagem do Postgres.
+ * A recusa daqui chega antes e em português, com o nome da competência e a
+ * saída — reabrir, com motivo —, que é a diferença entre um erro e uma
+ * instrução.
+ */
+export async function descartarDadosDaCompetencia(
+  db: Database,
+  competenciaId: string,
+): Promise<DadosDescartados> {
+  const competencia = await buscarCompetencia(db, competenciaId);
+  if (!competencia) {
+    throw new RecusaDeFechamento(
+      "COMPETENCIA_NAO_ENCONTRADA",
+      "A competência informada não existe.",
+    );
+  }
+  if (competencia.estado === "ENCERRADA") {
+    throw new RecusaDeFechamento(
+      "COMPETENCIA_ENCERRADA",
+      `A competência ${competencia.chave} está encerrada. Reabra-a, com motivo, antes de descartar o que foi importado.`,
+    );
+  }
+
+  return db.transaction(async (tx) => {
+    const quantas = (resultado: { rowCount: number | null }) => resultado.rowCount ?? 0;
+
+    /*
+      As linhas saem antes dos documentos porque apontam para eles: deixar o
+      banco decidir a ordem por cascade funcionaria, mas esconderia da contagem
+      quantas linhas de cada fonte foram embora — que é justamente o que quem
+      clicou precisa ver para saber que descartou o que queria.
+    */
+    const linhas: Record<TipoDeFonte, number> = {
+      OPERACAO: quantas(
+        await tx
+          .delete(fechamentoViagemTable)
+          .where(eq(fechamentoViagemTable.competenciaId, competenciaId)),
+      ),
+      CTE: quantas(
+        await tx.delete(fechamentoCteTable).where(eq(fechamentoCteTable.competenciaId, competenciaId)),
+      ),
+      PAGAMENTO:
+        quantas(
+          await tx
+            .delete(fechamentoPagamentoItemTable)
+            .where(eq(fechamentoPagamentoItemTable.competenciaId, competenciaId)),
+        ) +
+        quantas(
+          await tx
+            .delete(fechamentoPagamentoDescontoTable)
+            .where(eq(fechamentoPagamentoDescontoTable.competenciaId, competenciaId)),
+        ),
+      DISPONIBILIDADE: quantas(
+        await tx
+          .delete(fechamentoDisponibilidadeTable)
+          .where(eq(fechamentoDisponibilidadeTable.competenciaId, competenciaId)),
+      ),
+      REQUISICOES: quantas(
+        await tx
+          .delete(fechamentoRequisicaoTable)
+          .where(eq(fechamentoRequisicaoTable.competenciaId, competenciaId)),
+      ),
+      CONCILIACAO: quantas(
+        await tx
+          .delete(fechamentoConciliacaoItemTable)
+          .where(eq(fechamentoConciliacaoItemTable.competenciaId, competenciaId)),
+      ),
+    };
+
+    /* Verbas e divergências apontam a apuração e saem por cascade com ela. */
+    const apuracoes = quantas(
+      await tx
+        .delete(fechamentoApuracaoTable)
+        .where(eq(fechamentoApuracaoTable.competenciaId, competenciaId)),
+    );
+    const documentos = quantas(
+      await tx
+        .delete(fechamentoDocumentoTable)
+        .where(eq(fechamentoDocumentoTable.competenciaId, competenciaId)),
+    );
+
+    await tx
+      .update(fechamentoCompetenciaTable)
+      .set({ estado: "ABERTA", apuradaEm: null })
+      .where(eq(fechamentoCompetenciaTable.id, competenciaId));
+
+    return {
+      competencia: { ...competencia, estado: "ABERTA", apuradaEm: null },
+      documentos,
+      apuracoes,
+      linhas,
     };
   });
 }
