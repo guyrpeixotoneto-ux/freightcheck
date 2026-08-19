@@ -3,7 +3,12 @@ import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import { seedTaxonomy } from "@workspace/curation";
 import { absent, buildFixture, type AttributeSpec } from "@workspace/comparison/testing";
 import { COLUNA } from "../colunas";
-import { lerCadastroDaUnidade, VigenciaDoCadastroNaoEncontrada } from "../leitura";
+import {
+  ComparacaoSemDuasVigencias,
+  lerCadastroDaUnidade,
+  lerComparacaoDeCadastros,
+  VigenciaDoCadastroNaoEncontrada,
+} from "../leitura";
 
 /**
  * A leitura do acervo, contra um banco de verdade.
@@ -248,5 +253,102 @@ describe("a leitura do acervo", () => {
     await expect(
       lerCadastroDaUnidade(ctx.db, { ...CONTEXTO, period: "2026-01-01" }),
     ).rejects.toBeInstanceOf(VigenciaDoCadastroNaoEncontrada);
+  });
+});
+
+describe("as duas quinzenas lado a lado", () => {
+  async function comparacao(pedido: { de?: string; ate?: string } = {}) {
+    const lida = await lerComparacaoDeCadastros(ctx.db, { ...CONTEXTO, ...pedido });
+    expect(lida).not.toBeNull();
+    return lida!;
+  }
+
+  it("sem pedido, compara as duas vigências mais recentes", async () => {
+    const par = await comparacao();
+
+    expect(par.esquerda.effectiveDate).toBe(ANTERIOR);
+    expect(par.direita.effectiveDate).toBe(VIGENCIA);
+    expect(par.blocos.flatMap((b) => b.linhas)).toHaveLength(30);
+  });
+
+  /*
+    A ordem é do calendário, não do clique. Sem isto, escolher a quinzena nova
+    no seletor da esquerda faria a mesma tela dizer "subiu" e "desceu" sobre o
+    mesmo movimento, conforme a ordem em que alguém mexeu nos dois campos.
+  */
+  it("ordena as pontas cronologicamente, mesmo pedidas ao contrário", async () => {
+    const par = await comparacao({ de: VIGENCIA, ate: ANTERIOR });
+
+    expect(par.esquerda.effectiveDate).toBe(ANTERIOR);
+    expect(par.direita.effectiveDate).toBe(VIGENCIA);
+  });
+
+  /*
+    Julho tem cavalos e nenhum trecho; agosto tem os dois. As alíquotas de
+    agosto **ganharam lastro** — e ganhar lastro não é subir de zero. É a mesma
+    regra de `comparacao.test.ts`, aqui atravessando o banco de ponta a ponta.
+  */
+  it("não transforma cobertura que apareceu em aumento de valor", async () => {
+    const par = await comparacao();
+    const icms = par.blocos
+      .flatMap((b) => b.linhas)
+      .find((l) => l.chave === "aliquota_icms")!;
+
+    expect(icms.movimento).toBe("GANHOU_LASTRO");
+    expect(icms.variacao).toBeNull();
+    expect(icms.direita.valor).toBeCloseTo(17.84, 4);
+  });
+
+  it("mostra o crescimento da frota entre as duas quinzenas", async () => {
+    const par = await comparacao();
+    const ativos = par.blocos
+      .flatMap((b) => b.linhas)
+      .find((l) => l.chave === "frota_fixa_ativos")!;
+
+    // Julho tinha um cavalo ativo; agosto tem dois.
+    expect(ativos.movimento).toBe("SUBIU");
+    expect(ativos.esquerda.valor).toBe(1);
+    expect(ativos.direita.valor).toBe(2);
+    expect(ativos.variacao).toEqual({ absoluta: 1, percentual: 100 });
+  });
+
+  it("traz o material das duas pontas, para a tela dizer o que cada uma entregou", async () => {
+    const par = await comparacao();
+
+    expect(par.esquerda.material).toEqual({ cavalos: 1, trechos: 0, trechosEntregues: false });
+    expect(par.direita.material).toEqual({ cavalos: 5, trechos: 2, trechosEntregues: true });
+  });
+
+  it("recusa a ponta que não existe, como a leitura de uma vigência", async () => {
+    await expect(
+      lerComparacaoDeCadastros(ctx.db, { ...CONTEXTO, de: "2026-01-01" }),
+    ).rejects.toBeInstanceOf(VigenciaDoCadastroNaoEncontrada);
+  });
+
+  /*
+    Uma unidade com uma vigência só não tem par a mostrar, e a recusa é
+    própria: não é 404 (a unidade está lá), não é 400 (o pedido está certo) — é
+    o acervo que ainda não tem duas quinzenas.
+  */
+  it("recusa comparar quando a unidade só entregou uma vigência", async () => {
+    await buildFixture(
+      ctx.db,
+      ATRIBUTOS_DO_CAVALO,
+      [
+        {
+          label: "SOZINHA_1_9_2026",
+          effectiveDate: "2026-09-01",
+          data: { ZZZ9Z99: { ...IPVA, [COLUNA.ativo.code]: "SIM" } },
+        },
+      ],
+      { entityType: "CAVALO", scopeHash: "escopo-de-uma-vigencia", canal: "sozinha" },
+    );
+
+    await expect(
+      lerComparacaoDeCadastros(ctx.db, {
+        scopeHash: "escopo-de-uma-vigencia",
+        channel: "SOZINHA",
+      }),
+    ).rejects.toBeInstanceOf(ComparacaoSemDuasVigencias);
   });
 });

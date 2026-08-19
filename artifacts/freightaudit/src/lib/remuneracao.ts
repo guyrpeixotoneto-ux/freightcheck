@@ -69,6 +69,67 @@ export interface CadastroDaUnidade {
   material: { cavalos: number; trechos: number; trechosEntregues: boolean };
 }
 
+/**
+ * O que aconteceu com a linha entre uma quinzena e a outra.
+ *
+ * Os quatro últimos são sobre o **acervo**, não sobre o dinheiro — ver
+ * `lib/remuneracao/src/comparacao.ts`. A tela os desenha diferente por isso: um
+ * "+100%" que descreve uma coluna que passou a ser importada seria o número
+ * mais perigoso que este módulo poderia mostrar.
+ */
+export type Movimento =
+  | "IGUAL"
+  | "SUBIU"
+  | "DESCEU"
+  | "GANHOU_LASTRO"
+  | "PERDEU_LASTRO"
+  | "SEM_COMPARACAO";
+
+export interface Variacao {
+  absoluta: number;
+  /** Nulo quando a base é zero — dividir por zero não é "infinito%". */
+  percentual: number | null;
+}
+
+export interface LinhaComparada {
+  chave: string;
+  rotulo: string;
+  medida: Medida;
+  preenchimento: Preenchimento;
+  esquerda: LinhaApurada;
+  direita: LinhaApurada;
+  movimento: Movimento;
+  variacao: Variacao | null;
+}
+
+export interface BlocoComparado {
+  titulo: string;
+  resumo: string;
+  linhas: LinhaComparada[];
+}
+
+export interface PontaDaComparacao {
+  effectiveDate: string;
+  periodLabel: string;
+  material: { cavalos: number; trechos: number; trechosEntregues: boolean };
+}
+
+export interface ComparacaoDeCadastros {
+  blocos: BlocoComparado[];
+  resumo: {
+    linhas: number;
+    iguais: number;
+    mudaram: number;
+    ganharamLastro: number;
+    perderamLastro: number;
+    semComparacao: number;
+  };
+  contexto: CadastroDaUnidade["contexto"];
+  esquerda: PontaDaComparacao;
+  direita: PontaDaComparacao;
+  vigencias: { effectiveDate: string; periodLabel: string }[];
+}
+
 export interface UnidadeDoCadastro {
   scopeHash: string;
   canal: string | null;
@@ -93,6 +154,24 @@ export function lerCadastro(pedido: {
   if (pedido.period) query.set("period", pedido.period);
   const sufixo = query.toString();
   return fetchJson<CadastroDaUnidade>(`/remuneracao/cadastro${sufixo ? `?${sufixo}` : ""}`);
+}
+
+/** As duas quinzenas lado a lado. Sem `de`/`ate`, as duas mais recentes. */
+export function lerComparacao(pedido: {
+  scopeHash?: string;
+  canal?: string | null;
+  de?: string;
+  ate?: string;
+}): Promise<ComparacaoDeCadastros> {
+  const query = new URLSearchParams();
+  if (pedido.scopeHash) query.set("scopeHash", pedido.scopeHash);
+  if (pedido.canal !== undefined && pedido.canal !== null) query.set("canal", pedido.canal);
+  if (pedido.de) query.set("de", pedido.de);
+  if (pedido.ate) query.set("ate", pedido.ate);
+  const sufixo = query.toString();
+  return fetchJson<ComparacaoDeCadastros>(
+    `/remuneracao/comparacao${sufixo ? `?${sufixo}` : ""}`,
+  );
 }
 
 /**
@@ -125,8 +204,49 @@ export function escreverValor(valor: number, medida: Medida): string {
   });
 }
 
+/**
+ * A variação escrita, com o sinal explícito.
+ *
+ * Pontos percentuais em linha de percentual, e não "%": a fatia dentro do
+ * município que vai de 3,16% para 2,38% caiu **0,78 ponto**, e escrever "−0,78%"
+ * ali seria confundir a diferença com a razão entre as duas — que é −24,7%. As
+ * duas aparecem na tela, e por isso precisam ser distinguíveis.
+ */
+export function escreverVariacao(variacao: Variacao, medida: Medida): string {
+  const sinal = variacao.absoluta > 0 ? "+" : "−";
+  const magnitude = Math.abs(variacao.absoluta);
+
+  if (medida === "PERCENTUAL") {
+    const pontos = magnitude.toLocaleString("pt-BR", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 4,
+    });
+    return `${sinal}${pontos} ${magnitude === 1 ? "ponto" : "pontos"}`;
+  }
+  return `${sinal}${escreverValor(magnitude, medida)}`;
+}
+
 /** A legenda da planilha, em palavra que quem a usa reconhece. */
 export const NOME_DO_PREENCHIMENTO: Record<Preenchimento, string> = {
   INFORMADO: "Preencher informações",
   AUTOMATICO: "Preenchimento automático",
+};
+
+/**
+ * O que cada movimento significa, numa frase — a que a tela mostra no rodapé de
+ * uma linha que mudou de estado.
+ *
+ * `IGUAL`, `SUBIU` e `DESCEU` não têm frase: o número das duas colunas já as
+ * diz, e uma legenda repetindo "subiu" ao lado de uma seta para cima só ocupa
+ * espaço. As outras três têm, porque nenhuma delas é sobre dinheiro e as três
+ * seriam lidas como se fossem.
+ */
+export const EXPLICACAO_DO_MOVIMENTO: Partial<Record<Movimento, string>> = {
+  GANHOU_LASTRO:
+    "Não é aumento: o acervo passou a sustentar esta linha nesta quinzena. Comparar com a " +
+    "anterior seria comparar com um valor que nunca existiu.",
+  PERDEU_LASTRO:
+    "A quinzena anterior sustentava esta linha e esta não sustenta. Não é queda — é cobertura " +
+    "que se perdeu, e vale conferir o que mudou na importação.",
+  SEM_COMPARACAO: "Nenhuma das duas quinzenas sustenta esta linha.",
 };

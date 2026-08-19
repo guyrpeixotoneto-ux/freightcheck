@@ -19,6 +19,7 @@ import {
 } from "./colunas";
 import type { CavaloDaVigencia, TrechoDaVigencia } from "./medicao";
 import { montarCadastro, type CadastroMontado } from "./montagem";
+import { compararCadastros, type CadastroComparado } from "./comparacao";
 
 /**
  * A leitura do acervo da Auditoria — a única parte deste módulo que vai ao
@@ -50,20 +51,44 @@ export interface VigenciaDoCadastro {
   periodLabel: string;
 }
 
+export interface ContextoDoCadastro {
+  scopeHash: string;
+  channel: string | null;
+  label: string;
+  unidade: string | null;
+  scopes: { scopeType: string; code: string; name: string | null }[];
+}
+
+/** Quantos cavalos e trechos a vigência entregou — o lastro, em números. */
+export interface MaterialLido {
+  cavalos: number;
+  trechos: number;
+  trechosEntregues: boolean;
+}
+
 export interface CadastroDaUnidade extends CadastroMontado {
-  contexto: {
-    scopeHash: string;
-    channel: string | null;
-    label: string;
-    unidade: string | null;
-    scopes: { scopeType: string; code: string; name: string | null }[];
-  };
+  contexto: ContextoDoCadastro;
   effectiveDate: string;
   periodLabel: string;
   /** Todas as vigências desta unidade, para o seletor. */
   vigencias: VigenciaDoCadastro[];
-  /** Quantos cavalos e trechos a vigência entregou — o lastro, em números. */
-  material: { cavalos: number; trechos: number; trechosEntregues: boolean };
+  material: MaterialLido;
+}
+
+/** Uma ponta da comparação: a quinzena e o que ela entregou. */
+export interface PontaDaComparacao {
+  effectiveDate: string;
+  periodLabel: string;
+  material: MaterialLido;
+}
+
+export interface ComparacaoDeCadastros extends CadastroComparado {
+  contexto: ContextoDoCadastro;
+  /** A quinzena mais antiga do par — a coluna da esquerda. */
+  esquerda: PontaDaComparacao;
+  /** A mais recente — a coluna da direita, e a que a variação descreve. */
+  direita: PontaDaComparacao;
+  vigencias: VigenciaDoCadastro[];
 }
 
 /** Erro de recusa: a vigência pedida não existe nesta unidade. Rota traduz em 404. */
@@ -74,6 +99,26 @@ export class VigenciaDoCadastroNaoEncontrada extends Error {
         `Disponíveis: ${disponiveis.join(", ") || "nenhuma"}.`,
     );
     this.name = "VigenciaDoCadastroNaoEncontrada";
+  }
+}
+
+/**
+ * Erro de recusa: esta unidade só entregou uma vigência. Rota traduz em 422.
+ *
+ * Não é 404 — a unidade existe e o cadastro dela também. O que não existe é o
+ * par, e responder 404 mandaria quem está olhando procurar uma unidade que está
+ * bem ali. Também não é 400: o pedido está correto, o acervo é que ainda não
+ * tem duas quinzenas.
+ */
+export class ComparacaoSemDuasVigencias extends Error {
+  constructor(unidade: string, disponiveis: string[]) {
+    super(
+      `Comparar duas quinzenas exige duas vigências, e ${unidade} entregou ` +
+        `${disponiveis.length === 0 ? "nenhuma" : "uma só"}` +
+        `${disponiveis.length === 1 ? ` (${disponiveis[0]})` : ""}. ` +
+        "Importe a quinzena seguinte para ver as duas lado a lado.",
+    );
+    this.name = "ComparacaoSemDuasVigencias";
   }
 }
 
@@ -103,37 +148,133 @@ export async function lerCadastroDaUnidade(
   if (contextos.length === 0) return null;
 
   const contexto = (await resolveContext(db, pedido, contextos))!;
+  const effectiveDate = conferirVigencia(contexto, pedido?.period ?? contexto.latestPeriod);
+  const { montado, material } = await montarDaVigencia(db, effectiveDate, contexto);
 
-  const effectiveDate = pedido?.period ?? contexto.latestPeriod;
-  if (!contexto.periodosDisponiveis.includes(effectiveDate)) {
-    throw new VigenciaDoCadastroNaoEncontrada(effectiveDate, contexto.periodosDisponiveis);
+  return {
+    ...montado,
+    contexto: retratoDo(contexto),
+    effectiveDate,
+    periodLabel: periodLabel(effectiveDate),
+    vigencias: vigenciasDe(contexto),
+    material,
+  };
+}
+
+/**
+ * Duas quinzenas da mesma unidade, lado a lado.
+ *
+ * É a forma da planilha: a aba de cadastro traz os dois blocos um ao lado do
+ * outro, e quem confere lê as duas colunas juntas. Sem pedido explícito, o par
+ * são as **duas vigências mais recentes** da unidade — que é o que a pessoa
+ * quer ver ao abrir, e é o par que a planilha do mês corrente mostra.
+ *
+ * A ordem é sempre cronológica, e não a ordem em que o pedido chegou: a coluna
+ * da esquerda é a mais antiga, a da direita a mais nova, e a variação descreve
+ * o caminho de uma para a outra. Aceitar o par invertido faria a mesma tela
+ * dizer "subiu 8%" e "desceu 7,4%" sobre o mesmo movimento, conforme a ordem em
+ * que alguém clicou nos seletores.
+ *
+ * `null` quando o acervo não tem unidade nenhuma; recusa escrita quando a
+ * unidade só tem uma vigência ({@link ComparacaoSemDuasVigencias}) ou quando
+ * uma das pontas pedidas não existe ({@link VigenciaDoCadastroNaoEncontrada}).
+ */
+export async function lerComparacaoDeCadastros(
+  db: Database,
+  pedido?: RequestedContext & { de?: string; ate?: string },
+): Promise<ComparacaoDeCadastros | null> {
+  const contextos = await listContexts(db);
+  if (contextos.length === 0) return null;
+
+  const contexto = (await resolveContext(db, pedido, contextos))!;
+  const disponiveis = contexto.periodosDisponiveis;
+  if (disponiveis.length < 2) {
+    throw new ComparacaoSemDuasVigencias(contexto.label, disponiveis);
   }
 
+  /*
+    O padrão são as duas últimas, nesta ordem. `periodosDisponiveis` já vem da
+    mais antiga para a mais nova, então as duas últimas posições são o par
+    cronológico sem nenhum `sort` a mais.
+  */
+  const padraoEsquerda = disponiveis[disponiveis.length - 2];
+  const padraoDireita = disponiveis[disponiveis.length - 1];
+
+  const pedidas = [
+    conferirVigencia(contexto, pedido?.de ?? padraoEsquerda),
+    conferirVigencia(contexto, pedido?.ate ?? padraoDireita),
+  ].sort();
+  const [dataEsquerda, dataDireita] = pedidas;
+
+  const [esquerda, direita] = await Promise.all([
+    montarDaVigencia(db, dataEsquerda, contexto),
+    montarDaVigencia(db, dataDireita, contexto),
+  ]);
+
+  return {
+    ...compararCadastros(esquerda.montado, direita.montado),
+    contexto: retratoDo(contexto),
+    esquerda: {
+      effectiveDate: dataEsquerda,
+      periodLabel: periodLabel(dataEsquerda),
+      material: esquerda.material,
+    },
+    direita: {
+      effectiveDate: dataDireita,
+      periodLabel: periodLabel(dataDireita),
+      material: direita.material,
+    },
+    vigencias: vigenciasDe(contexto),
+  };
+}
+
+/**
+ * A vigência pedida, ou a recusa escrita.
+ *
+ * Aparar em silêncio para a mais próxima daria o número certo sob o título
+ * errado — a mesma recusa que `resolverContextoDoQuadro` faz no QLP, pelo mesmo
+ * motivo.
+ */
+function conferirVigencia(contexto: ContextInfo, pedida: string): string {
+  if (!contexto.periodosDisponiveis.includes(pedida)) {
+    throw new VigenciaDoCadastroNaoEncontrada(pedida, contexto.periodosDisponiveis);
+  }
+  return pedida;
+}
+
+/** Lê o material de uma vigência e monta o cadastro dela. */
+async function montarDaVigencia(
+  db: Database,
+  effectiveDate: string,
+  contexto: SeriesContext,
+): Promise<{ montado: CadastroMontado; material: MaterialLido }> {
   const [cavalos, trechos, trechosEntregues] = await Promise.all([
     lerCavalos(db, effectiveDate, contexto),
     lerTrechos(db, effectiveDate, contexto),
     serieEntregue(db, TIPO_TRECHO, effectiveDate, contexto),
   ]);
 
-  const montado = montarCadastro({ cavalos, trechos, trechosEntregues });
-
   return {
-    ...montado,
-    contexto: {
-      scopeHash: contexto.scopeHash,
-      channel: contexto.channel,
-      label: contexto.label,
-      unidade: unidadeDe(contexto),
-      scopes: contexto.scopes,
-    },
-    effectiveDate,
-    periodLabel: periodLabel(effectiveDate),
-    vigencias: contexto.periodosDisponiveis.map((data) => ({
-      effectiveDate: data,
-      periodLabel: periodLabel(data),
-    })),
+    montado: montarCadastro({ cavalos, trechos, trechosEntregues }),
     material: { cavalos: cavalos.length, trechos: trechos.length, trechosEntregues },
   };
+}
+
+function retratoDo(contexto: ContextInfo): ContextoDoCadastro {
+  return {
+    scopeHash: contexto.scopeHash,
+    channel: contexto.channel,
+    label: contexto.label,
+    unidade: unidadeDe(contexto),
+    scopes: contexto.scopes,
+  };
+}
+
+function vigenciasDe(contexto: ContextInfo): VigenciaDoCadastro[] {
+  return contexto.periodosDisponiveis.map((data) => ({
+    effectiveDate: data,
+    periodLabel: periodLabel(data),
+  }));
 }
 
 /** O nome da unidade dentro do escopo do contexto, quando ele o declara. */

@@ -351,7 +351,13 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   frota, ao lado da que o export declara e da que a apuração usa. Cada uma das
   trinta linhas sai com um estado explícito (`APURADO`, `EM_CONJUNTO`,
   `SEM_LASTRO`), e a linha sem lastro escreve o motivo, a destrava e o atalho
-  para a tela que hoje chega mais perto. **A alíquota é medida em reais**
+  para a tela que hoje chega mais perto. **Abre em duas quinzenas lado a lado**,
+  que é a forma da planilha, com uma terceira coluna de variação que o Excel não
+  tem; a vista de uma quinzena fica a um clique e é a que traz a memória de
+  cálculo. Na comparação, **lastro que aparece ou some nunca vira variação de
+  valor**: uma linha que passou a ter lastro não subiu de zero, subiu de *não
+  sabíamos*, e um "+100%" ali descreveria uma coluna que passou a ser importada.
+  **A alíquota é medida em reais**
   (`impostosIcmsIss ÷ freteCtrc`), nunca lida de `percentualIcmsIss`: uma coluna
   de percentual não diz se vem em pontos (`17,84`) ou em fração (`0,1784`), e a
   razão entre dois valores em reais não tem essa ambiguidade. PIS e COFINS saem

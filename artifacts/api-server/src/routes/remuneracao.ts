@@ -1,7 +1,11 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import type { RequestedContext } from "@workspace/comparison";
-import { lerCadastroDaUnidade, listarUnidades } from "@workspace/remuneracao";
+import {
+  lerCadastroDaUnidade,
+  lerComparacaoDeCadastros,
+  listarUnidades,
+} from "@workspace/remuneracao";
 
 /**
  * Remuneração — o cadastro da planilha, por unidade.
@@ -16,6 +20,9 @@ import { lerCadastroDaUnidade, listarUnidades } from "@workspace/remuneracao";
  * - `/remuneracao/cadastro` — as trinta linhas da aba para uma unidade numa
  *   vigência, cada uma com o número e a procedência, ou com o motivo de não ter
  *   número.
+ * - `/remuneracao/comparacao` — as mesmas trinta linhas em **duas quinzenas
+ *   lado a lado**, que é a forma da planilha: a aba traz os dois blocos um ao
+ *   lado do outro, e quem confere lê as duas colunas juntas.
  *
  * **Nada aqui calcula.** A aritmética inteira mora em `@workspace/remuneracao`,
  * testada sem banco e sem HTTP, como a do Fechamento. Este arquivo lê a query,
@@ -95,6 +102,36 @@ router.get("/remuneracao/cadastro", async (req, res): Promise<void> => {
     return;
   }
   res.json(cadastro);
+});
+
+/**
+ * Duas quinzenas da mesma unidade, lado a lado.
+ *
+ * Sem `de` e `ate`, as duas vigências mais recentes — o par que a planilha do
+ * mês corrente mostra. As duas pontas saem ordenadas em ordem cronológica pelo
+ * domínio, e não na ordem em que chegaram: ver `lerComparacaoDeCadastros`.
+ *
+ * `ComparacaoSemDuasVigencias` sobe daqui como recusa nomeada e vira 422 em
+ * `lib/recusa-de-dominio.ts` — a unidade existe, o cadastro dela existe, o que
+ * não existe é o par.
+ */
+router.get("/remuneracao/comparacao", async (req, res): Promise<void> => {
+  const query = req.query as Record<string, unknown>;
+  const contexto = parseContext(query);
+  const de = typeof query.de === "string" && query.de !== "" ? query.de : undefined;
+  const ate = typeof query.ate === "string" && query.ate !== "" ? query.ate : undefined;
+
+  const comparacao = await lerComparacaoDeCadastros(db, {
+    ...(contexto ?? {}),
+    ...(de !== undefined ? { de } : {}),
+    ...(ate !== undefined ? { ate } : {}),
+  });
+
+  if (!comparacao) {
+    res.status(404).json({ error: SEM_ACERVO });
+    return;
+  }
+  res.json(comparacao);
 });
 
 export default router;
