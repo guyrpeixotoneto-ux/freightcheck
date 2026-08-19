@@ -1,7 +1,7 @@
 /**
  * A competência, e as três formas de escrever uma data no fechamento.
  *
- * As cinco fontes datam a mesma quinzena de três jeitos incompatíveis:
+ * As fontes datam a mesma quinzena de jeitos incompatíveis entre si:
  *
  * | fonte | como escreve 16/07/2026 |
  * | --- | --- |

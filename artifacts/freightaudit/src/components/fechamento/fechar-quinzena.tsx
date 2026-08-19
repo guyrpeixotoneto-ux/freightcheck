@@ -58,7 +58,7 @@ export function oQueQuestionar(apuracao: Apuracao): {
  *
  * **O resumo aparece antes do botão, nas duas telas.** Fechar é o ato a partir
  * do qual o banco recusa escrita na competência; quem clica precisa ver o que
- * está congelando — quantos dos cinco relatórios entraram, quanto foi emitido,
+ * está congelando — quantos relatórios entraram, quanto foi emitido,
  * quanto continua a questionar. Um botão de fechar sem esse resumo seria mais
  * rápido e diria menos, e é justamente o que a lista não deve ganhar por estar
  * com pressa.
@@ -80,7 +80,7 @@ export function FecharQuinzena({
   documentos: Documento[];
   /** A apuração vigente: sem ela não há o que fechar, e o servidor recusa. */
   apuracao: Apuracao;
-  /** O catálogo das cinco fontes — o denominador de "3 de 5 relatórios". */
+  /** O catálogo das fontes — o denominador de "3 de 6 relatórios". */
   fontes: Fonte[];
 }) {
   const cliente = useQueryClient();
@@ -109,7 +109,7 @@ export function FecharQuinzena({
     return (
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          Esta competência está fechada: os cinco relatórios, a conta apurada e as
+          Esta competência está fechada: os relatórios, a conta apurada e as
           divergências ficam como estão, e o banco recusa qualquer escrita nela. É o
           que faz o número que você cobrou continuar sendo o número que se lê daqui
           a um ano.
@@ -156,7 +156,7 @@ export function FecharQuinzena({
         <li>
           {/* Cinco enquanto o catálogo não chegou: é quantas são, e a frase não
               deve dizer "de 0" enquanto a consulta viaja. */}
-          • {enviados} de {fontes.length > 0 ? fontes.length : 5} relatórios enviados
+          • {enviados} de {fontes.length > 0 ? fontes.length : 6} relatórios enviados
         </li>
         <li>• {formatBrl(apuracao.totais.emitido)} emitidos em CT-e</li>
         <li>

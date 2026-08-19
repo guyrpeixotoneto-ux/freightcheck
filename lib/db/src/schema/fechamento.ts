@@ -130,7 +130,7 @@ export const fechamentoDocumentoTable = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     competenciaId: uuid("competencia_id").notNull(),
-    /** `OPERACAO` | `CTE` | `DISPONIBILIDADE` | `REQUISICOES` | `CONCILIACAO`. */
+    /** `OPERACAO` | `CTE` | `PAGAMENTO` | `DISPONIBILIDADE` | `REQUISICOES` | `CONCILIACAO`. */
     tipo: text("tipo").notNull(),
     nomeDoArquivo: text("nome_do_arquivo").notNull(),
     sha256: text("sha256").notNull(),
@@ -159,7 +159,7 @@ export const fechamentoDocumentoTable = pgTable(
     index("fechamento_documento_por_competencia").on(t.competenciaId, t.tipo),
     check(
       "fechamento_documento_tipo",
-      sql`${t.tipo} in ('OPERACAO', 'CTE', 'DISPONIBILIDADE', 'REQUISICOES', 'CONCILIACAO')`,
+      sql`${t.tipo} in ('OPERACAO', 'CTE', 'PAGAMENTO', 'DISPONIBILIDADE', 'REQUISICOES', 'CONCILIACAO')`,
     ),
   ],
 );
@@ -169,14 +169,15 @@ export const fechamentoDocumentoTable = pgTable(
  * ======================================================================== */
 
 /*
- * Cinco tabelas e não uma tabela polimórfica com um `jsonb` de payload.
+ * Uma tabela por grão, e não uma tabela polimórfica com um `jsonb` de payload.
  *
  * A tabela única seria menor de escrever e impossível de conferir: `SUM` sobre
  * um campo dentro de JSON não usa índice, o tipo de cada campo deixa de ser
  * garantido pelo banco, e a primeira pergunta de auditoria — "some o frete
- * destas 19 mil viagens" — vira varredura. As cinco fontes têm grãos
- * genuinamente diferentes; modelá-las como se fossem a mesma coisa esconderia
- * exatamente o que a apuração precisa distinguir.
+ * destas 19 mil viagens" — vira varredura. As seis fontes têm grãos
+ * genuinamente diferentes — e o 03.08.20 tem dois, verba e desconto, que viram
+ * duas tabelas pela mesma razão; modelá-las como se fossem a mesma coisa
+ * esconderia exatamente o que a apuração precisa distinguir.
  *
  * Toda linha aponta o documento de origem, e o documento aponta o arquivo: a
  * cadeia até a célula não se interrompe em nenhum ponto.
@@ -481,6 +482,103 @@ export const fechamentoConciliacaoItemTable = pgTable(
     }).onDelete("cascade"),
     index("fechamento_conciliacao_item_por_secao").on(t.competenciaId, t.secao),
     index("fechamento_conciliacao_item_por_documento").on(t.documentoId),
+  ],
+);
+
+/**
+ * Uma verba do demonstrativo de pagamento (03.08.20).
+ *
+ * As seis colunas do relatório viram seis colunas aqui, e nenhuma delas é
+ * derivada das outras na leitura: `valorFaturado` é `NF-ISS + CTRC-ICMS` no
+ * arquivo, mas guardá-lo como o arquivo o traz é o que permite acusar o dia em
+ * que a soma do Promax não fechar. Recalcular na importação apagaria justamente
+ * o erro que se quer encontrar.
+ *
+ * A mesma VBZ pode aparecer duas vezes no mesmo canal — a 07 (Freteiro) vem no
+ * bloco de frete e no de outros custos —, e por isso a chave natural inclui o
+ * bloco. Somar as duas é trabalho da apuração, não do banco.
+ */
+export const fechamentoPagamentoItemTable = pgTable(
+  "fechamento_pagamento_item",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    documentoId: uuid("documento_id").notNull(),
+    competenciaId: uuid("competencia_id").notNull(),
+    linhaNoArquivo: integer("linha_no_arquivo").notNull(),
+    /** `ROTA` ou `AS`. */
+    canal: text("canal").notNull(),
+    /** `FRETE` ou `OUTROS_CUSTOS`. */
+    bloco: text("bloco").notNull(),
+    vbz: integer("vbz").notNull(),
+    /** O nome como o arquivo o escreve, que nem sempre é o do catálogo. */
+    nomeNoArquivo: text("nome_no_arquivo").notNull(),
+    semImposto: numeric("sem_imposto", { precision: 14, scale: 2 }).notNull().default("0"),
+    nfIss: numeric("nf_iss", { precision: 14, scale: 2 }).notNull().default("0"),
+    /** A coluna que vira CT-e — a que se compara ao 03.08.15. */
+    ctrcIcms: numeric("ctrc_icms", { precision: 14, scale: 2 }).notNull().default("0"),
+    valorFaturado: numeric("valor_faturado", { precision: 14, scale: 2 }).notNull().default("0"),
+    vlcNfIss: numeric("vlc_nf_iss", { precision: 14, scale: 2 }).notNull().default("0"),
+    vlcCtrcIcms: numeric("vlc_ctrc_icms", { precision: 14, scale: 2 }).notNull().default("0"),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.documentoId],
+      foreignColumns: [fechamentoDocumentoTable.id],
+      name: "fechamento_pagamento_item_documento_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.competenciaId],
+      foreignColumns: [fechamentoCompetenciaTable.id],
+      name: "fechamento_pagamento_item_competencia_fk",
+    }).onDelete("cascade"),
+    index("fechamento_pagamento_item_por_verba").on(t.competenciaId, t.vbz),
+    index("fechamento_pagamento_item_por_documento").on(t.documentoId),
+    check("fechamento_pagamento_item_canal", sql`${t.canal} in ('ROTA', 'AS')`),
+    check("fechamento_pagamento_item_bloco", sql`${t.bloco} in ('FRETE', 'OUTROS_CUSTOS')`),
+  ],
+);
+
+/**
+ * Um desconto do demonstrativo de pagamento.
+ *
+ * Devolução, os quatro de disponibilidade e o frete mínimo. Todos vêm do
+ * arquivo com a frase "Desconto Liquido ja subtraido da VBZ …", e o `rotulo`
+ * guarda a frase inteira porque é ela que impede a leitura errada mais cara
+ * possível: somar o desconto de novo a uma verba de que ele já saiu.
+ *
+ * `base` e `percentual` só existem na devolução — nas outras são `NULL`, e não
+ * zero: zero afirmaria que a base era nenhuma.
+ */
+export const fechamentoPagamentoDescontoTable = pgTable(
+  "fechamento_pagamento_desconto",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    documentoId: uuid("documento_id").notNull(),
+    competenciaId: uuid("competencia_id").notNull(),
+    linhaNoArquivo: integer("linha_no_arquivo").notNull(),
+    canal: text("canal").notNull(),
+    /** `DEVOLUCAO`, `DISPONIBILIDADE_*` ou `FRETE_MINIMO`. */
+    tipo: text("tipo").notNull(),
+    /** O rótulo inteiro, com a frase de qual VBZ o desconto já saiu. */
+    rotulo: text("rotulo").notNull(),
+    valor: numeric("valor", { precision: 14, scale: 2 }).notNull().default("0"),
+    base: numeric("base", { precision: 14, scale: 2 }),
+    percentual: numeric("percentual", { precision: 8, scale: 4 }),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.documentoId],
+      foreignColumns: [fechamentoDocumentoTable.id],
+      name: "fechamento_pagamento_desconto_documento_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.competenciaId],
+      foreignColumns: [fechamentoCompetenciaTable.id],
+      name: "fechamento_pagamento_desconto_competencia_fk",
+    }).onDelete("cascade"),
+    index("fechamento_pagamento_desconto_por_competencia").on(t.competenciaId, t.canal),
+    index("fechamento_pagamento_desconto_por_documento").on(t.documentoId),
+    check("fechamento_pagamento_desconto_canal", sql`${t.canal} in ('ROTA', 'AS')`),
   ],
 );
 

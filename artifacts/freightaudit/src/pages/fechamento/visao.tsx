@@ -267,7 +267,7 @@ export default function VisaoGerencial() {
               <Link href="/fechamento/competencias" className="text-primary hover:underline">
                 Importações
               </Link>{" "}
-              e envie os cinco relatórios que a Ambev exporta no período. A partir
+              e envie os relatórios que a Ambev exporta no período. A partir
               deles o FreightCheck reconstrói a conta verba a verba, com a memória
               de cálculo de cada parcela, e aponta o que não fecha. Nenhum número
               aparece sem a linha de arquivo que o sustenta.

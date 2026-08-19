@@ -16,6 +16,7 @@ import {
   lerFrota,
   lerNumero,
   lerOperacao,
+  lerPagamento,
   lerRequisicoes,
   medirAliquotas,
   valorDe,
@@ -28,6 +29,7 @@ import {
   fixtureDisponibilidade,
   fixtureOperacao,
   fixtureOperacaoComCabecalhoEspacado,
+  fixturePagamento,
   fixtureRequisicoes,
 } from "./fixtures";
 
@@ -389,7 +391,9 @@ describe("a apuração", () => {
 
   it("roda com o que há e nomeia a fonte que falta", () => {
     const semConciliacao = apurar(competencia(2026, 7, 2), { ...fontes, conciliacao: undefined });
-    expect(semConciliacao.fontesAusentes).toEqual(["CONCILIACAO"]);
+    /* `fontes` não traz o 03.08.20: ele é a fonte do bloco abaixo, e as duas
+       ausências saem nomeadas na ordem do catálogo. */
+    expect(semConciliacao.fontesAusentes).toEqual(["PAGAMENTO", "CONCILIACAO"]);
     /* Sem a conciliação, a verba 5 perde a origem — e vira não conferida, não zero. */
     expect(semConciliacao.verbas.find((v) => v.verba.vbz === 5)?.esperado).toBeNull();
     expect(semConciliacao.totais.emitido).toBe(apuracao.totais.emitido);
@@ -398,5 +402,93 @@ describe("a apuração", () => {
   it("soma o emitido de todas as verbas, conferidas ou não", () => {
     expect(apuracao.totais.emitido).toBe(1100 + 750 + 500 + 2000 + 100);
     expect(apuracao.totais.diferenca).toBe(0);
+  });
+
+  describe("com o 03.08.20", () => {
+    const comPagamento = apurar(competencia(2026, 7, 2), {
+      ...fontes,
+      pagamento: lerPagamento(fixturePagamento()),
+    });
+    const daConta = (vbz: number) => comPagamento.verbas.find((v) => v.verba.vbz === vbz);
+
+    it("sustenta o fixo, que nenhuma das outras cinco alcança", () => {
+      /* Sem ele o mesmo fechamento deixava 2.000,00 sem quem conferisse. */
+      expect(apuracao.totais.naoConferido).toBe(2000);
+      expect(comPagamento.totais.naoConferido).toBe(0);
+
+      const fixa = daConta(1);
+      expect(fixa?.esperado).toBe(2000);
+      expect(fixa?.diferenca).toBe(0);
+      expect(fixa?.memoria.map((m) => m.origem)).toEqual(["PAGAMENTO"]);
+      expect(fixa?.memoria[0]?.semImposto).toBe(1600);
+      expect(
+        comPagamento.divergencias.some((d) => d.tipo === "VERBA_SEM_ORIGEM"),
+      ).toBe(false);
+    });
+
+    it("nas variáveis é segunda opinião: discordar vira divergência, não parcela", () => {
+      const variavel = daConta(5);
+      /* Continua reconstruída pelas outras fontes — nada de quarta parcela. */
+      expect(variavel?.esperado).toBe(1100);
+      expect(variavel?.memoria.some((m) => m.origem === "PAGAMENTO")).toBe(false);
+
+      const perguntas = comPagamento.divergencias.filter(
+        (d) => d.tipo === "PAGAMENTO_DIVERGE_DO_CTE",
+      );
+      /* Só a VBZ 5 discorda (1.100,00 emitidos contra 1.000,00 no
+         demonstrativo). A 9 diz o mesmo nos dois, e silêncio é a resposta
+         certa para concordância. */
+      expect(perguntas).toHaveLength(1);
+      expect(perguntas[0]?.valor).toBe(100);
+      expect(perguntas[0]?.sentido).toBe("A_PAGAR");
+      expect(perguntas[0]?.onde).toContain("VBZ 5");
+    });
+
+    it("não muda o emitido: o 03.08.15 continua sendo quem diz o que foi faturado", () => {
+      expect(comPagamento.totais.emitido).toBe(apuracao.totais.emitido);
+    });
+  });
+});
+
+describe("o 03.08.20", () => {
+  const pagamento = lerPagamento(fixturePagamento());
+
+  it("lê o período que o próprio arquivo declara — e é o único que declara", () => {
+    expect(pagamento.periodo).toEqual({ inicio: "2026-07-16", fim: "2026-07-31" });
+    expect(pagamento.transportadora).toEqual({
+      codigo: "36",
+      nome: "TRANSPORTES FICTICIA LTDA",
+    });
+  });
+
+  it("lê as seis colunas de cada verba, nos dois blocos", () => {
+    expect(pagamento.itens.map((i) => i.verba.vbz)).toEqual([1, 5, 9]);
+    const fixa = pagamento.itens.find((i) => i.verba.vbz === 1)!;
+    expect(fixa.bloco).toBe("FRETE");
+    expect(fixa.semImposto).toBe(1600);
+    expect(fixa.ctrcIcms).toBe(2000);
+    expect(fixa.valorFaturado).toBe(2000);
+    expect(pagamento.itens.find((i) => i.verba.vbz === 9)?.bloco).toBe("OUTROS_CUSTOS");
+  });
+
+  it("guarda base e percentual só onde eles existem", () => {
+    const devolucao = pagamento.descontos.find((d) => d.tipo === "DEVOLUCAO")!;
+    expect(devolucao.base).toBe(2400);
+    expect(devolucao.percentual).toBe(1.5);
+    expect(devolucao.valor).toBe(36);
+    /* O rótulo inteiro fica: é ele que diz de qual VBZ o desconto já saiu. */
+    expect(devolucao.rotulo).toContain("Desconto Devolucao");
+
+    const equipe = pagamento.descontos.find((d) => d.tipo === "DISPONIBILIDADE_EQUIPE")!;
+    expect(equipe.valor).toBe(200);
+    expect(equipe.base).toBeNull();
+    expect(equipe.percentual).toBeNull();
+
+    /* O rótulo cita a VBZ 02: pegar o primeiro número da linha daria 2. */
+    expect(pagamento.descontos.find((d) => d.tipo === "FRETE_MINIMO")?.valor).toBe(50);
+  });
+
+  it("fecha o total do canal, com o acento que só o latin-1 entrega", () => {
+    expect(pagamento.totais).toEqual([{ canal: "ROTA", total: 3500 }]);
   });
 });

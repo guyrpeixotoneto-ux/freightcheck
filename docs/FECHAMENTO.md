@@ -68,7 +68,7 @@ Cinco desvios deliberados da lista originalmente proposta:
    o nome do processo fica onde ele começa, e um segundo item com a mesma
    palavra diria dois sentidos de uma vez.
 3. **A lista de competências chama-se "Importações"** — o que se faz nela é
-   abrir o período e enviar os cinco relatórios da quinzena; a lista é
+   abrir o período e enviar os relatórios da quinzena; a lista é
    consequência. Ao lado dela, **Apurações** mostra o resultado dessa
    importação: o que já foi apurado, quanto foi emitido e quanto há a
    questionar.
@@ -174,6 +174,74 @@ Quatro decisões que a tela materializa:
    porque só nele a data da linha é o dia em que a viagem rodou; nas outras
    fontes é emissão ou aprovação, que atravessa a virada da quinzena de forma
    legítima.
+
+## O Resumo Geral — o mês nas três colunas em que ele é discutido
+
+`/fechamento/resumo` é a aba `Resumo Geral` da planilha, sem planilha. A
+apuração tem grão de quinzena, que é o grão certo para apurar; o documento que
+a transportadora leva para a mesa tem grão de **mês**. A tela põe 1ª quinzena,
+2ª quinzena e TOTAL lado a lado, verba a verba, e fecha com as mesmas linhas
+com que a planilha fecha.
+
+Um seletor de três posições no topo — **1ª quinzena · 2ª quinzena ·
+Consolidado** — troca o recorte sem trocar de tela nem de consulta: nas duas
+primeiras a pergunta é de conferência (emitido contra apurado, verba a verba);
+no consolidado é de fechamento (as três colunas e o total do mês).
+
+Quatro decisões que a tela materializa:
+
+1. **Os rótulos são as verbas, não os da planilha.** As linhas do primeiro
+   quadro dela — `CUSTO FIXO PADRONIZADO`, `ESPECIAIS`, `VANS` — não são
+   combinação das VBZs de fonte nenhuma: conferidas contra o 03.08.20, não
+   fecham. São a decomposição própria da planilha, e só as fórmulas do `.xlsb`
+   a explicam. Escrever aqueles rótulos sobre outros números daria cara de
+   conferido ao que não foi.
+2. **O fecho compara com o 03.08.20, e não com o `TOTAL GERAL UNIDADE`.**
+   Aquela coluna é a reconstrução da própria planilha, feita com um fator de
+   conversão digitado (1,366960) que não sai de arquivo nenhum — os medidos são
+   1,344541 na Rota e 1,377221 no AS. A tela põe lado a lado os dois números
+   que têm documento: o emitido em CT-e e o `Total Remuneração` do
+   demonstrativo assinado. A diferença entre eles é a linha que a planilha
+   chama de `DIFERENÇA - TOTAL GERAL`.
+3. **A coluna que falta é traço, e o total não a soma como zero.** Meio mês
+   importado é o estado normal de quem está trabalhando, e "esta quinzena valeu
+   zero" é diferente de "esta quinzena não foi apurada" — a planilha escreve as
+   duas como `R$ -`.
+4. **Os descontos do 03.08.20 aparecem fora das somas.** O relatório diz, em
+   cada linha, que o valor já foi subtraído da verba correspondente. Eles estão
+   ali para conferir contra as linhas de desconto da planilha, não para somar
+   de novo.
+
+A aritmética mora em `lib/fechamento/src/resumo.ts`, pura e sob teste, pela
+mesma razão de `lib/fechamento-gerencial`: uma soma feita no navegador é uma
+segunda opinião sobre remuneração.
+
+## Descartar o que foi importado — o desfazer da competência errada
+
+Ao lado de "Apurar", a competência aberta tem **Descartar dados**: apaga os
+relatórios enviados, as linhas que eles produziram e as apurações que saíram
+delas, e deixa a competência aberta e vazia, pronta para receber os arquivos
+certos. Quem confirma vê antes quantos arquivos vão embora, e depois o que
+saiu, contado por fonte.
+
+Ele existe por um caso real: a quinzena de julho lançada na competência de
+agosto. Três decisões que o ato materializa:
+
+1. **Apaga de verdade, não despromove.** `receberDocumento` já sabe substituir
+   uma exportação por outra, guardando a anterior como histórico — isso resolve
+   "a Ambev reenviou o arquivo corrigido". Não resolve este caso: o índice
+   `(competência, sha256)` recusaria o reenvio do *mesmo* arquivo depois de a
+   data ser corrigida, e o conserto ficaria sem porta.
+2. **A apuração cai junto.** Ela é a conta daquelas linhas; mantida sobre um
+   banco sem elas, seria um total que nada sustenta.
+3. **A competência sobrevive, e volta a `ABERTA`.** Unidade, transportadora e
+   datas continuam certas mesmo quando o arquivo estava errado. Encerrada, o
+   descarte é recusado com o nome da competência e a saída — reabrir, com
+   motivo.
+
+E, desde o 03.08.20, o erro que ele conserta tende a não acontecer mais: aquele
+relatório declara o próprio período no cabeçalho, e é recusado na porta quando
+não é o da competência.
 
 ## A conta abre na lista — Apurações sem trocar de tela
 

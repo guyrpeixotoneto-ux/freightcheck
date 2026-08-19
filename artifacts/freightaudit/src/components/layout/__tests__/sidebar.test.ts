@@ -195,7 +195,7 @@ describe("o catálogo de etapas do Fechamento", () => {
     /*
       Sete, e não as oito do desenho original: **Importações** saiu do
       catálogo quando virou tela de verdade — a competência existe no banco,
-      recebe os cinco relatórios da quinzena e apura. Este número cai a cada
+      recebe os relatórios da quinzena e apura. Este número cai a cada
       etapa construída, e chegar a zero é o catálogo ter cumprido o seu papel.
     */
     expect(telas).toBe(7);

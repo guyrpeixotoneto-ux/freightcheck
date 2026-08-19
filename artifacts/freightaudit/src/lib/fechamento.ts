@@ -10,7 +10,13 @@ import { fetchJson, getApiUrl, readJson, erroDaResposta } from "@/lib/api";
  * não poder, nem por acidente, calcular remuneração por conta própria.
  */
 
-export type TipoDeFonte = "OPERACAO" | "CTE" | "DISPONIBILIDADE" | "REQUISICOES" | "CONCILIACAO";
+export type TipoDeFonte =
+  | "OPERACAO"
+  | "CTE"
+  | "PAGAMENTO"
+  | "DISPONIBILIDADE"
+  | "REQUISICOES"
+  | "CONCILIACAO";
 
 export interface Fonte {
   tipo: TipoDeFonte;
@@ -341,8 +347,112 @@ export function apurar(id: string): Promise<Apuracao> {
   return fetchJson<Apuracao>(`/fechamento/competencias/${id}/apuracao`, { method: "POST" });
 }
 
+/* ---------------------------------------------------------------------------
+   O resumo do mês — as duas quinzenas lado a lado
+   ------------------------------------------------------------------------ */
+
+/** Um valor nas três colunas do resumo. `null` é ausência, nunca zero. */
+export interface TresColunas {
+  primeira: number | null;
+  segunda: number | null;
+  total: number | null;
+}
+
+export interface LinhaDoResumo {
+  vbz: number;
+  nome: string;
+  natureza: string;
+  emitido: TresColunas;
+  apurado: TresColunas;
+}
+
+export interface BlocoDoResumo {
+  natureza: string;
+  titulo: string;
+  linhas: LinhaDoResumo[];
+  emitido: TresColunas;
+  apurado: TresColunas;
+}
+
+/** Um desconto do 03.08.20 — informativo: já saiu das verbas, não se soma. */
+export interface DescontoDoResumo {
+  tipo: string;
+  nome: string;
+  valores: TresColunas;
+}
+
+export interface CanalDoResumo {
+  canal: string;
+  blocos: BlocoDoResumo[];
+  descontos: DescontoDoResumo[];
+  emitido: TresColunas;
+  conferido: TresColunas;
+  semFonte: TresColunas;
+  /** `Total Remuneração` do 03.08.20 — o lado que a Ambev assina. */
+  demonstrativo: TresColunas;
+  /** `emitido − demonstrativo`. */
+  diferenca: TresColunas;
+}
+
+export interface ResumoDoMes {
+  ano: number;
+  mes: number;
+  unidade: { codigo: string; nome: string | null };
+  transportadora: { codigo: string; nome: string | null };
+  quinzenas: {
+    quinzena: 1 | 2;
+    competenciaId: string | null;
+    chave: string | null;
+    estado: string | null;
+    apurada: boolean;
+    temDemonstrativo: boolean;
+  }[];
+  canais: CanalDoResumo[];
+}
+
 /**
- * Envia um dos cinco relatórios.
+ * O mês inteiro, das duas quinzenas.
+ *
+ * Os quatro parâmetros são obrigatórios porque um fechamento é a trinca
+ * (unidade, transportadora, período): dois CDDs no mesmo mês são dois resumos.
+ */
+export function lerResumoDoMes(alvo: {
+  unidade: string;
+  transportadora: string;
+  ano: number;
+  mes: number;
+}): Promise<ResumoDoMes> {
+  const busca = new URLSearchParams({
+    unidade: alvo.unidade,
+    transportadora: alvo.transportadora,
+    ano: String(alvo.ano),
+    mes: String(alvo.mes),
+  });
+  return fetchJson<ResumoDoMes>(`/fechamento/resumo?${busca.toString()}`);
+}
+
+/** O que o descarte apagou — contado por fonte, para a tela repetir de volta. */
+export interface DadosDescartados {
+  competencia: Competencia;
+  documentos: number;
+  apuracoes: number;
+  linhas: Record<TipoDeFonte, number>;
+}
+
+/**
+ * Descarta tudo que foi importado para a competência.
+ *
+ * Não é o desfazer de um envio: é o de todos. Existe porque o erro que ele
+ * conserta — a quinzena aberta num período e alimentada com os arquivos de
+ * outro — não se resolve reenviando por cima, já que o mesmo arquivo é recusado
+ * por SHA na mesma competência. Ver `persistencia.ts`.
+ */
+export function descartarDados(id: string): Promise<DadosDescartados> {
+  return fetchJson<DadosDescartados>(`/fechamento/competencias/${id}/dados`, { method: "DELETE" });
+}
+
+/**
+ * Envia um dos relatórios da quinzena.
  *
  * O arquivo vai em base64 dentro de um JSON, como na importação da Auditoria —
  * ver `routes/fechamento.ts` para o porquê. `FileReader` é usado em vez de
@@ -397,6 +507,8 @@ export const EXPLICACAO_DA_DIVERGENCIA: Record<string, string> = {
     "A apuração reconstruiu esta verba a partir das fontes e chegou a um valor diferente do emitido.",
   REQUISICAO_NAO_FATURADA:
     "Uma despesa foi aprovada no SRTrans e não virou CT-e nenhum. É valor aprovado que não foi pago.",
+  PAGAMENTO_DIVERGE_DO_CTE:
+    "O demonstrativo de pagamento (03.08.20) e o CT-e emitido (03.08.15) dizem valores diferentes para a mesma verba. É o documento que as duas partes assinaram contra o que foi faturado.",
   DESCONTO_FRETE_MINIMO:
     "O SRTrans reduziu o valor calculado por frete mínimo. Aparece só na coluna do calculado, sem contrapartida no emitido.",
   SALDO_ATRAVESSANDO:

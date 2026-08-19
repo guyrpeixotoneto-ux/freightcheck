@@ -161,7 +161,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
 
     /*
       O diff que o Publishing veria ANTES do deploy: só criação — a coluna, o
-      CHECK e as tabelas do ambiente Fechamento — e nada de DROP nem ALTER. É o
+      CHECK e as doze tabelas do ambiente Fechamento — e nada de DROP nem ALTER. É o
       diff que a política "recuse a proposta, publique só build e start"
       atravessa sem risco: recusar deixa Production intacta e o servidor novo
       aplica a fila na partida.
@@ -185,6 +185,9 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "fechamento_apuracao",
         "fechamento_apuracao_verba",
         "fechamento_divergencia",
+        /* As duas do 03.08.20, da `0043` — mesmo caso: Production não as tem. */
+        "fechamento_pagamento_item",
+        "fechamento_pagamento_desconto",
       ]),
     );
     /*
@@ -237,6 +240,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
       "0040_reprocessamento",
       "0041_reconciliar_reprocessamento",
       "0042_viagem_completa",
+      "0043_pagamento",
     ]);
 
     // Preservação + backfill: as três contas continuam com o hash original e

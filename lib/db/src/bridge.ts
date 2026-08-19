@@ -193,7 +193,8 @@ const TABELAS_REMOVIDAS = [
   "coverage_expectation",
   "entity_expectation",
   /*
-    As dez do Fechamento, da `0039`. Elas entram aqui inteiras, e na ordem em
+    As doze do Fechamento — as dez da `0039` e as duas do 03.08.20, da `0043`.
+    Elas entram aqui inteiras, e na ordem em
     que o `RESTRICT` do `down` as aceita — filha antes de mãe —, porque o
     ambiente é novo: Production não o conhece, e até rodar a fila toda tabela
     dele é uma tabela que a proposta do Publishing proporia criar.
@@ -207,6 +208,8 @@ const TABELAS_REMOVIDAS = [
   "fechamento_divergencia",
   "fechamento_apuracao_verba",
   "fechamento_apuracao",
+  "fechamento_pagamento_desconto",
+  "fechamento_pagamento_item",
   "fechamento_conciliacao_item",
   "fechamento_disponibilidade",
   "fechamento_requisicao",
@@ -1564,6 +1567,59 @@ function planoUp(): PassoUp[] {
     são enfeite — sem elas `"lucro"` casaria também `"lucro_unitario"`, e
     `levantar` abortaria por achar dois statements onde espera um.
   */
+  /*
+    A `0043` — as duas tabelas do 03.08.20, o demonstrativo de pagamento.
+
+    Entram aqui pela mesma razão das dez da `0039`: o `down` as derruba porque
+    Production ainda não conhece o ambiente, e o `up` tem de devolvê-las
+    inteiras. Cada objeto é levantado da própria migration, um por bloco
+    reentrante, e não reescrito aqui — uma segunda escrita da mesma definição
+    concorda no dia em que é escrita e discorda no dia em que a migration muda.
+
+    O CHECK de `fechamento_documento.tipo` entra **e é o passo mais fácil de
+    esquecer**, porque a tabela que o carrega não é da `0043`. O `down` derruba
+    `fechamento_documento` inteira e o `up` a recria pelo `CREATE TABLE` da
+    `0039` — que traz o CHECK com os cinco tipos de lá. Sem a troca aqui, o
+    banco reconstruído recusaria um documento `PAGAMENTO` que um banco criado
+    do zero aceita: o mesmo schema por duas autoridades, divergindo em silêncio
+    num único ARRAY. É o `bridge-up` comparado contra um banco novo que pega
+    isso, e foi ele que pegou.
+
+    Os dois passos, na ordem da migration: o DROP antes do ADD, cada um
+    levantado pelo próprio padrão — é o mesmo desenho de `app_user_role_ck` na
+    `0037`, pela mesma razão.
+  */
+  const M43 = "0043_pagamento";
+  for (const t of ["fechamento_pagamento_item", "fechamento_pagamento_desconto"]) {
+    add(M43, t, levantar(M43, new RegExp(`CREATE TABLE IF NOT EXISTS "${t}" \\(`)));
+    for (const fk of [`${t}_documento_fk`, `${t}_competencia_fk`]) {
+      add(M43, `FK ${fk}`, levantar(M43, new RegExp(`ADD CONSTRAINT "${fk}"`)));
+    }
+    add(
+      M43,
+      `gatilho ${t}_congelada`,
+      levantar(M43, new RegExp(`CREATE TRIGGER "${t}_congelada"`)),
+    );
+  }
+  for (const i of [
+    "fechamento_pagamento_item_por_verba",
+    "fechamento_pagamento_item_por_documento",
+    "fechamento_pagamento_desconto_por_competencia",
+    "fechamento_pagamento_desconto_por_documento",
+  ]) {
+    add(M43, `índice ${i}`, levantar(M43, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
+  add(
+    M43,
+    "fechamento_documento_tipo (drop)",
+    levantar(M43, /DROP CONSTRAINT IF EXISTS "fechamento_documento_tipo"/),
+  );
+  add(
+    M43,
+    "fechamento_documento_tipo",
+    levantar(M43, /ADD CONSTRAINT "fechamento_documento_tipo"/),
+  );
+
   const M42 = "0042_viagem_completa";
   for (const coluna of COLUNAS_DO_RETRATO_DA_VIAGEM) {
     add(

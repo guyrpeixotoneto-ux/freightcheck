@@ -6,6 +6,9 @@ import { runMigrations } from "@workspace/db/migrate";
 import {
   abrirCompetencia,
   apurarCompetencia,
+  buscarCompetencia,
+  lerResumoDoMes,
+  descartarDadosDaCompetencia,
   encerrarCompetencia,
   lerApuracaoVigente,
   lerDiaDaCompetencia,
@@ -22,6 +25,7 @@ import {
   fixtureCtes,
   fixtureDisponibilidade,
   fixtureOperacao,
+  fixturePagamento,
   fixtureRequisicoes,
 } from "./fixtures";
 
@@ -130,7 +134,10 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     await apurarCompetencia(db, comp.id);
     const apuracao = (await lerApuracaoVigente(db, comp.id))!;
 
-    expect(apuracao.fontesAusentes).toEqual([]);
+    /* O 03.08.20 fica de fora aqui de propósito: ele é o assunto do bloco
+       "o 03.08.20 no banco", e é a ausência dele que mantém o não conferido
+       de 2.000,00 visível neste teste. */
+    expect(apuracao.fontesAusentes).toEqual(["PAGAMENTO"]);
     /* Os mesmos números do teste sem banco — é essa igualdade que importa. */
     expect(apuracao.totais.emitido).toBe(4450);
     expect(apuracao.totais.naoConferido).toBe(2000);
@@ -384,6 +391,230 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     expect(semNada.relatorios).toEqual([]);
     expect(semNada.apuracao).toBeNull();
   }, 60_000);
+
+  /*
+    O 03.08.20 tem unidade própria (`445`) pelo mesmo motivo do descarte: ele
+    muda o não conferido da competência em que entra, e as asserções acima leem
+    a de `443`.
+  */
+  describe("o 03.08.20 no banco", () => {
+    const unidadeDoPagamento = { codigo: "445", nome: "CDD DO PAGAMENTO" };
+
+    it("fecha o fixo que as outras fontes deixavam sem quem conferisse", async () => {
+      const comp = await abrirCompetencia(db, {
+        ano: 2026,
+        mes: 7,
+        quinzena: 2,
+        unidade: unidadeDoPagamento,
+        transportadora,
+      });
+      await receberDocumento(db, {
+        competenciaId: comp.id,
+        tipo: "CTE",
+        nomeDoArquivo: "03.08.15.xlsx",
+        conteudo: fixtureCtes(),
+      });
+
+      /*
+        Só o 03.08.15: sem nenhuma fonte que confira, o emitido inteiro
+        (4.450,00) é não conferido. É o retrato mais honesto que a apuração
+        consegue dar de uma competência com um arquivo só.
+      */
+      await apurarCompetencia(db, comp.id);
+      const semEle = (await lerApuracaoVigente(db, comp.id))!;
+      expect(semEle.totais.naoConferido).toBe(4450);
+      expect(semEle.verbas.find((v) => v.vbz === 1)?.esperado).toBeNull();
+
+      const recebido = await receberDocumento(db, {
+        competenciaId: comp.id,
+        tipo: "PAGAMENTO",
+        nomeDoArquivo: "03.08.20.txt",
+        conteudo: fixturePagamento(),
+      });
+      /* Três verbas e seis descontos: o relatório inteiro, não só o que a
+         conta usa. */
+      expect(recebido.linhasLidas).toBe(9);
+
+      /* Com ele, os 2.000,00 do fixo saem do não conferido — e só eles: as
+         variáveis continuam esperando as fontes que as reconstroem. */
+      await apurarCompetencia(db, comp.id);
+      const comEle = (await lerApuracaoVigente(db, comp.id))!;
+      expect(comEle.totais.naoConferido).toBe(4450 - 2000);
+
+      /* A memória volta do banco com a parcela, e não recalculada na leitura. */
+      const fixa = comEle.verbas.find((v) => v.vbz === 1)!;
+      expect(fixa.esperado).toBe(2000);
+      expect(fixa.memoria.map((m) => m.origem)).toEqual(["PAGAMENTO"]);
+      expect(fixa.memoria[0]?.semImposto).toBe(1600);
+    }, 60_000);
+
+    it("o resumo do mês lê o demonstrativo do banco, e diz o que falta da outra quinzena", async () => {
+      const resumo = await lerResumoDoMes(db, {
+        unidade: unidadeDoPagamento.codigo,
+        transportadora: transportadora.codigo,
+        ano: 2026,
+        mes: 7,
+      });
+
+      const rota = resumo.canais.find((c) => c.canal === "ROTA")!;
+      /* Só a 2ª quinzena existe: a coluna da 1ª fica vazia, e o total do mês é
+         o que existe — não meio mês com cara de mês inteiro. */
+      expect(rota.emitido.primeira).toBeNull();
+      expect(rota.emitido.segunda).toBe(4350);
+      expect(rota.emitido.total).toBe(4350);
+      expect(resumo.quinzenas.find((q) => q.quinzena === 1)).toMatchObject({
+        competenciaId: null,
+        apurada: false,
+      });
+
+      /* `Total Remuneração` do 03.08.20: frete 3.000,00 + outros 500,00. */
+      expect(rota.demonstrativo.segunda).toBe(3500);
+      expect(rota.diferenca.segunda).toBe(4350 - 3500);
+      /* O frete mínimo do relatório chega inteiro, e fora das somas. */
+      expect(rota.descontos.find((d) => d.tipo === "FRETE_MINIMO")?.valores.segunda).toBe(50);
+    }, 60_000);
+
+    it("recusa o demonstrativo de outro período, pelo que ele mesmo declara", async () => {
+      /*
+        O caso que motivou a checagem: julho lançado em agosto. O 03.08.20 é a
+        única fonte que escreve o período no cabeçalho, e por isso é a única em
+        que o erro pode ser pego na porta em vez de uma quinzena depois.
+      */
+      const agosto = await abrirCompetencia(db, {
+        ano: 2026,
+        mes: 8,
+        quinzena: 1,
+        unidade: unidadeDoPagamento,
+        transportadora,
+      });
+      const recusa = await receberDocumento(db, {
+        competenciaId: agosto.id,
+        tipo: "PAGAMENTO",
+        nomeDoArquivo: "03.08.20.txt",
+        conteudo: fixturePagamento(),
+      }).catch((e: unknown) => e);
+
+      expect(recusa).toBeInstanceOf(RecusaDeFechamento);
+      expect((recusa as RecusaDeFechamento).codigo).toBe("DOCUMENTO_FORA_DO_PERIODO");
+      /* Os dois períodos aparecem por extenso: é o que responde "qual dos
+         arquivos eu troquei?" na hora do erro. */
+      expect((recusa as RecusaDeFechamento).message).toContain("16/07/2026 a 31/07/2026");
+      expect((recusa as RecusaDeFechamento).message).toContain("01/08/2026 a 15/08/2026");
+      expect(await listarDocumentos(db, agosto.id)).toEqual([]);
+    });
+  });
+
+  /*
+    O descarte — o desfazer de quem lançou a quinzena no período errado.
+
+    Ele mora numa unidade própria (`444`) porque apaga tudo que encontra, e as
+    asserções acima leem a competência de `443` que os testes anteriores
+    montaram. Duas quinzenas iguais em unidades diferentes é o caso real de
+    qualquer forma: a chave de uma competência é (unidade, transportadora,
+    quinzena), não a quinzena sozinha.
+  */
+  describe("o descarte dos dados", () => {
+    const unidadeDoDescarte = { codigo: "444", nome: "CDD DO DESCARTE" };
+
+    it("apaga arquivos, linhas e apuração, e deixa a competência aberta", async () => {
+      const comp = await abrirCompetencia(db, {
+        ano: 2026,
+        mes: 7,
+        quinzena: 2,
+        unidade: unidadeDoDescarte,
+        transportadora,
+      });
+      const fontes = [
+        ["OPERACAO", "2art.xlsx", fixtureOperacao()],
+        ["CTE", "03.08.15.xlsx", fixtureCtes()],
+        ["REQUISICOES", "03.08.12.09.csv", fixtureRequisicoes()],
+        ["DISPONIBILIDADE", "03.08.18.xlsx", fixtureDisponibilidade()],
+        ["CONCILIACAO", "03.02.59.02.txt", Buffer.from(fixtureConciliacao(), "latin1")],
+      ] as const;
+      for (const [tipo, nome, conteudo] of fontes) {
+        await receberDocumento(db, {
+          competenciaId: comp.id,
+          tipo,
+          nomeDoArquivo: nome,
+          conteudo: conteudo as Buffer,
+        });
+      }
+      await apurarCompetencia(db, comp.id);
+      expect(await lerApuracaoVigente(db, comp.id)).not.toBeNull();
+
+      const saiu = await descartarDadosDaCompetencia(db, comp.id);
+
+      expect(saiu.documentos).toBe(5);
+      expect(saiu.apuracoes).toBe(1);
+      expect(saiu.linhas.OPERACAO).toBeGreaterThan(0);
+      expect(saiu.linhas.CTE).toBeGreaterThan(0);
+      expect(saiu.linhas.CONCILIACAO).toBeGreaterThan(0);
+      expect(saiu.competencia.estado).toBe("ABERTA");
+
+      /* Nada do que a tela lê sobrevive ao descarte — nem a conta, nem a grade. */
+      expect(await listarDocumentos(db, comp.id)).toEqual([]);
+      expect(await lerApuracaoVigente(db, comp.id)).toBeNull();
+      expect((await lerDiarioDaCompetencia(db, comp.id))!.fonte).toBeNull();
+
+      /* A competência sobrevive: as datas e as partes nunca estiveram erradas. */
+      const sobrevivente = await buscarCompetencia(db, comp.id);
+      expect(sobrevivente?.chave).toBe("2026-07-Q2");
+      expect(sobrevivente?.estado).toBe("ABERTA");
+      expect(sobrevivente?.apuradaEm).toBeNull();
+    }, 60_000);
+
+    it("depois dele o mesmo arquivo entra de novo — é para isso que ele apaga", async () => {
+      /*
+        A prova de que despromover não bastaria. O índice
+        `(competência, sha256)` recusa o mesmo conteúdo duas vezes na mesma
+        competência, e é assim que tem de ser enquanto o documento existe: é o
+        que impede a conta de dobrar. Quem lançou o período errado precisa
+        justamente reenviar o mesmo arquivo depois de corrigir a data — se o
+        descarte deixasse o registro para trás, o conserto seria impossível
+        pela porta da frente.
+      */
+      const comp = await abrirCompetencia(db, {
+        ano: 2026,
+        mes: 7,
+        quinzena: 2,
+        unidade: unidadeDoDescarte,
+        transportadora,
+      });
+      const enviar = () =>
+        receberDocumento(db, {
+          competenciaId: comp.id,
+          tipo: "CTE" as const,
+          nomeDoArquivo: "03.08.15.xlsx",
+          conteudo: fixtureCtes(),
+        });
+
+      const primeiro = await enviar();
+      expect(primeiro.linhasLidas).toBeGreaterThan(0);
+      await expect(enviar()).rejects.toMatchObject({ codigo: "DOCUMENTO_JA_RECEBIDO" });
+
+      await descartarDadosDaCompetencia(db, comp.id);
+
+      const denovo = await enviar();
+      expect(denovo.linhasLidas).toBe(primeiro.linhasLidas);
+      expect(denovo.substituiu).toBeNull();
+    }, 60_000);
+
+    it("recusa a competência encerrada em vez de deixar o gatilho falar sozinho", async () => {
+      const comp = await abrirCompetencia(db, {
+        ano: 2026,
+        mes: 11,
+        quinzena: 1,
+        unidade: unidadeDoDescarte,
+        transportadora,
+      });
+      await pool.query("update fechamento_competencia set estado = 'ENCERRADA' where id = $1", [
+        comp.id,
+      ]);
+      await expect(descartarDadosDaCompetencia(db, comp.id)).rejects.toMatchObject({
+        codigo: "COMPETENCIA_ENCERRADA",
+      });
+    });
+  });
 
   it("uma competência encerrada não aceita documento", async () => {
     const comp = await abrirCompetencia(db, { ano: 2026, mes: 9, quinzena: 1, unidade, transportadora });
