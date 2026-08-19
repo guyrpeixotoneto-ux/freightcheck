@@ -7,6 +7,7 @@ import {
   ComparacaoSemDuasVigencias,
   lerCadastroDaUnidade,
   lerComparacaoDeCadastros,
+  lerSituacaoDasUnidades,
   VigenciaDoCadastroNaoEncontrada,
 } from "../leitura";
 
@@ -357,5 +358,141 @@ describe("as duas quinzenas lado a lado", () => {
         channel: "SOZINHA",
       }),
     ).rejects.toBeInstanceOf(ComparacaoSemDuasVigencias);
+  });
+});
+
+/**
+ * A lista das unidades — e o defeito que só o banco pega.
+ *
+ * A leitura da lista pergunta por **todas** as unidades de uma vez, cada uma na
+ * vigência mais recente *dela*. As unidades não estão todas na mesma quinzena,
+ * e é aí que mora o erro que nenhum teste em memória alcança: um predicado que
+ * cruzasse a lista de unidades com a lista de datas — `scope IN (…) AND date IN
+ * (…)` — devolveria número plausível para todo mundo e somaria duas quinzenas
+ * na conta de quem só tem uma.
+ *
+ * As duas unidades abaixo existem para armar exatamente esse cruzamento. Uma
+ * tem **julho** como vigência mais recente; a outra tem julho **e** agosto,
+ * com trechos diferentes em cada uma. Ler a segunda pela sua vigência mais
+ * recente dá um trecho; ler as duas datas juntas daria quatro, e é essa a
+ * diferença que o caso do meio confere.
+ */
+describe("a lista das unidades", () => {
+  /** Só trechos, e só em julho — a unidade cuja vigência mais recente é julho. */
+  const SO_TRECHOS = "escopo-so-trechos";
+  /** Trechos em julho e em agosto, em entidades distintas — a isca do cruzamento. */
+  const DUAS_VIGENCIAS = "escopo-de-duas-vigencias";
+
+  beforeAll(async () => {
+    await buildFixture(
+      ctx.db,
+      ATRIBUTOS_DO_TRECHO,
+      [
+        {
+          label: "SOTRECHO_1_7_2026",
+          effectiveDate: ANTERIOR,
+          data: { "T-FORA": { ...FORA }, "T-DENTRO": { ...DENTRO } },
+        },
+      ],
+      { entityType: "TRECHO", scopeHash: SO_TRECHOS, canal: "trechos" },
+    );
+
+    await buildFixture(
+      ctx.db,
+      ATRIBUTOS_DO_TRECHO,
+      [
+        {
+          label: "DUASVIG_1_7_2026",
+          effectiveDate: ANTERIOR,
+          data: {
+            "D-JUL-1": { ...FORA },
+            "D-JUL-2": { ...FORA },
+            "D-JUL-3": { ...DENTRO },
+          },
+        },
+        {
+          label: "DUASVIG_1_8_2026",
+          effectiveDate: VIGENCIA,
+          data: { "D-AGO-1": { ...FORA } },
+        },
+      ],
+      { entityType: "TRECHO", scopeHash: DUAS_VIGENCIAS, canal: "trechos" },
+    );
+  }, 300_000);
+
+  async function unidade(scopeHash: string) {
+    const lista = await lerSituacaoDasUnidades(ctx.db);
+    const achada = lista.unidades.find((u) => u.scopeHash === scopeHash);
+    expect(achada, `unidade ${scopeHash} na lista`).toBeDefined();
+    return achada!;
+  }
+
+  it("responde cada unidade pela vigência mais recente dela, e diz qual é", async () => {
+    const camacari = await unidade(ESCOPO);
+
+    expect(camacari.effectiveDate).toBe(VIGENCIA);
+    expect(camacari.periodLabel).toBe("agosto/2026");
+    expect(camacari.vigencias).toBe(2);
+    expect(camacari.channel).toBe("EMPURRADA");
+  });
+
+  /*
+    O caso que o cruzamento de listas quebraria. A unidade das duas vigências
+    tem três trechos em julho e um em agosto; agosto é a mais recente dela, e a
+    resposta é um. Se a data de outra unidade — a de julho, logo acima —
+    entrasse no predicado desta, seriam quatro, e o número apareceria plausível
+    em toda a coluna.
+  */
+  it("não mistura o material de uma unidade com o da vigência de outra", async () => {
+    const camacari = await unidade(ESCOPO);
+    const soTrechos = await unidade(SO_TRECHOS);
+    const duasVigencias = await unidade(DUAS_VIGENCIAS);
+
+    expect(camacari.material).toEqual({ cavalos: 5, trechos: 2, trechosEntregues: true });
+
+    expect(soTrechos.effectiveDate).toBe(ANTERIOR);
+    expect(soTrechos.material).toEqual({ cavalos: 0, trechos: 2, trechosEntregues: true });
+
+    expect(duasVigencias.effectiveDate).toBe(VIGENCIA);
+    expect(duasVigencias.material).toEqual({ cavalos: 0, trechos: 1, trechosEntregues: true });
+  });
+
+  it("diz qual metade do cadastro cada unidade sustenta", async () => {
+    expect((await unidade(ESCOPO)).cadastro).toMatchObject({
+      estado: "FROTA_E_ALIQUOTAS",
+      frota: true,
+      aliquotas: true,
+    });
+    expect((await unidade(SO_TRECHOS)).cadastro).toMatchObject({
+      estado: "SO_ALIQUOTAS",
+      frota: false,
+      aliquotas: true,
+    });
+  });
+
+  /*
+    A promessa que justifica a lista montar o cadastro em vez de deduzi-lo do
+    material: o que ela conta é o que a tela da unidade mostra. Se um dia os
+    dois divergirem, é aqui que aparece.
+  */
+  it("conta o mesmo lastro que a tela daquela unidade mostra", async () => {
+    const daLista = await unidade(ESCOPO);
+    const lido = await cadastro();
+
+    expect(daLista.cadastro.linhas).toBe(lido.resumo.linhas);
+    expect(daLista.cadastro.comLastro).toBe(lido.resumo.apuradas + lido.resumo.emConjunto);
+    expect(daLista.cadastro.semLastro).toBe(lido.resumo.semLastro);
+  });
+
+  it("resume as unidades pelos estados que elas de fato têm", async () => {
+    const lista = await lerSituacaoDasUnidades(ctx.db);
+    const { resumo } = lista;
+
+    expect(resumo.unidades).toBe(lista.unidades.length);
+    expect(
+      resumo.frotaEAliquotas + resumo.soFrota + resumo.soAliquotas + resumo.semLastro,
+    ).toBe(resumo.unidades);
+    expect(resumo.frotaEAliquotas).toBeGreaterThanOrEqual(1);
+    expect(resumo.soAliquotas).toBeGreaterThanOrEqual(1);
   });
 });
