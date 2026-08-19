@@ -1,0 +1,174 @@
+# As fontes do fechamento quinzenal — e como elas se conversam
+
+> **Origem:** aprendizado sobre um conjunto real de arquivos da quinzena
+> **16–31/07/2026**, CDD Belém, transportadora **036 – Horizonte Logística**.
+> Todos os vínculos descritos aqui foram conferidos numericamente contra os
+> próprios arquivos — os valores citados fecham ao centavo, salvo onde dito o
+> contrário. Este documento alimenta o ambiente **Fechamento** (ver
+> `FECHAMENTO.md`), que hoje tem estrutura mas nenhuma lógica financeira.
+
+## O ciclo em uma frase
+
+A operação diária gera o **variável** (2Art), a indisponibilidade de frota gera
+**descontos no fixo** (03.08.18), as despesas extras aprovadas viram
+**complemento** (03.08.12.09); tudo se materializa em **CT-es por verba**
+(03.08.15), o Promax **concilia** CT-e emitido contra o calculado pelo SRTrans
+(03.02.59.02), e a planilha **Fechamento_Remuneracao.xlsb** é onde a
+transportadora/CDD reconstrói e confere cada uma dessas pontas.
+
+## As seis fontes
+
+### 1. Relatório 2Art (`2art.xlsx`, aba `2Art_07`)
+
+O diário operacional, **uma linha por mapa/viagem** (949 linhas, 14 dias úteis
+de 16/07 a 31/07, ~120 colunas). Traz data (`ddmmaaaa`), veículo e placa,
+**Frota** (`Padrao` | `Spot` | `Fixo` | `Espec.`), canal **Entrega**
+(`Rota` | `AS`), mapa, caixas carregadas/entregues, ocupação, horários e km de
+saída/retorno, e a cadeia monetária da viagem: `ValorFrete` (= `CustoVariavel`),
+`TipoImposto` (`CTRC-ICMS`), `PercImposto` (27,39), `ValorImposto` e
+`ValorFaturado` (= frete com gross-up de imposto). Também abre a remuneração da
+equipe (`ValorUnitPontoMot/Ajd`, `ValorEquipeEntrMot/Ajd`) e o previsto do
+roteirizador (`TempoPrevistoRoad`, `KmPrevistoRoad`).
+
+**É a origem do custo variável por viagem.**
+
+### 2. Relatório 03.08.18 — disponibilidade de frota (`03.08.18.xlsx`, abas `FF` e `Van`)
+
+**Uma linha por dia** do mês (datas em serial Excel; 46204 = 01/07/2026), por
+tipo de frota (FF = caminhões da frota fixa; Van). Compara frota **Contratada**
+contra o **Real** (1ª e 2ª viagem) e decompõe o gap por responsabilidade:
+`Gap Cia.` (da Ambev, não desconta) versus `Gap TP …` (da transportadora,
+cancelado/não cancelado). Cada gap da transportadora vira desconto:
+`Desc.FF Custo Fixo`, `Desc.FF Equipe`, `Desc.FF Indiretos`, `Desconto FA`
+(fator ajudante) e `Desconto Total`. Traz ainda % de utilização e
+disponibilidade.
+
+**É a origem dos descontos sobre a parcela fixa da remuneração.**
+
+### 3. Relatório 03.08.12.09 — requisições de despesas extras (`.csv`, `;`, latin-1)
+
+**Uma linha por requisição** aprovada no SRTrans para a quinzena (coluna
+`Quinzena Pagamento` = rótulo `16/07/2026`, isto é, a quinzena 16–31/07). Cada
+requisição tem canal (`Rota`/`AS`), tipo de despesa (incentivo, hora extra,
+RV equipe de entrega, taxa de descarga, pernoite, pedágio…), a **VBZ** de
+destino (`000006` RV EE, `000009` Rota-Outras, `000029` AS-Estadias, `000030`
+AS-Outras…), o valor **sem imposto** e a trilha de aprovação (solicitante →
+aprovador regional → aprovador AC, com data/hora de cada decisão).
+
+Na amostra: total 291.097,69 = **Rota 262.282,80** + **AS 28.814,89**.
+
+**É a origem do pagamento complementar (o que não nasce do cálculo automático).**
+
+### 4. Relatório 03.08.15 — CT-es emitidos por verba (`03.08.15.xlsx`)
+
+**Uma linha por CT-e/NF** (23.250 linhas), todas com `Data` = 46219
+(o rótulo 16/07/2026 da quinzena). Cada linha: **VBZ** (verba: Rota/AS ×
+Frota Fixa Ativa/Inativa/Variável, Equipe Entrega, Despesa Administrativa,
+Freteiro, Outras Despesas, Estadias…), número do CT-e e da NF, `Valor CT-e` e a
+abertura de impostos (`Vlr. Frete` + ICMS + PIS + COFINS = CT-e), e a chave de
+acesso (`Nr Controle`). Total da amostra: 1.473.432,61 — aqui aparecem **também
+as parcelas fixas** (Frota Fixa Ativa 74.050,40; Equipe Entrega 203.160,40;
+Despesa Administrativa 352.946,00…), que a conciliação de variável (03.02.59.02)
+não cobre.
+
+**É o extrato fiscal: tudo que foi efetivamente faturado, verba a verba.**
+
+### 5. Relatório 03.02.59.02 — conciliação CT-e × SRTrans (`.txt`, Promax)
+
+Relatório sintético do Promax por transportadora e quinzena, em duas seções
+(**ROTA** e **AS**), cada uma com duas colunas: **R$ CT-e (Emitido)** e
+**R$ SRTrans (Calculado)**. Traz as pendências (saldo de quinzenas anteriores,
+NF-e sem CT-e, CT-es represados), o resumo da quinzena (Frota Fixa + Freteiro +
+S.Diversos = Total Variável), o **Desconto Frete Mínimo** (só na coluna
+calculada), o **complementar variável** por alteração de perfil/cancelamento, e
+o total geral. Na amostra: CT-es recebidos 417.970,31 = Rota 336.221,62 +
+AS 81.748,69; calculado SRTrans 371.946,03; saldo para a próxima quinzena
+22.043,27 = 16.096,70 (Rota) + 5.946,57 (AS).
+
+**É o fecho: o que foi faturado contra o que o sistema diz que era devido.**
+
+### 6. `Fechamento_Remuneracao.xlsb` — a planilha-mãe da conferência
+
+Pasta de trabalho "FECHAMENTO SRTRANS" com ~44 abas que **espelham as fontes
+acima**, aba por aba:
+
+- **`01`…`31`** — uma aba por dia do mês, alimentada pelo 2Art, com
+  `TOTAL PADRAO` e `TOTAL SPOT` do dia;
+- **`Mapa Rota`** e **`Resumo Geral`** — matrizes dia × indicador (frota fixa
+  em rota, spot, etc.) para o mês;
+- **`Outros Custos`** — as despesas extras por quinzena, alimentada pelo
+  03.08.12.09;
+- **`03.08.15`** e **`03.08.18`** — cópias dos relatórios homônimos (a
+  `03.08.18` com coluna auxiliar `Concatenar` para PROCV);
+- **`748`** e **`305`** — conferência de NF/frete fixo (código, tabela de
+  frete, alíquota, ICMS, frete total, coluna `Conferência`);
+- **`Base`**, **`Cadastro`**, **`Conferência`**, **`Abertura`**,
+  **`Justificativa`** — parametrização (datas de fechamento, filial
+  "BELÉM ROTA", legenda, motivos de gap: absenteísmo, atraso de carregamento,
+  bloqueio telemetria, desconto indevido…) e os totais NF × CT-e por quinzena.
+
+## Como elas se conversam (vínculos conferidos)
+
+```
+2Art (viagem a viagem) ──────────────► xlsb abas 01..31 / Mapa Rota / Resumo Geral
+03.08.18 (indisponibilidade) ────────► descontos no fixo · xlsb aba 03.08.18
+03.08.12.09 (requisições) ──► × gross-up de imposto ──► CT-es no 03.08.15 (VBZs 06/09/29/30)
+                          └─────────────────────────────► xlsb aba Outros Custos
+03.08.15 (CT-es por verba) ── variáveis = "R$ CT-e Emitido" + complementar ──► 03.02.59.02
+03.02.59.02 (conciliação) ── saldos e pendências ──► próxima quinzena
+```
+
+1. **2Art → abas diárias do xlsb.** A aba `16` do xlsb tem
+   `TOTAL PADRAO = 12.406,10` e `TOTAL SPOT = 5.312,62`; no 2Art, dia
+   16/07, canal **Rota**, a soma de `ValorFaturado` dá exatamente
+   12.406,10 (frota Padrao) e 5.312,62 (frota Spot). As abas diárias são o
+   2Art filtrado por canal Rota e agrupado por tipo de frota.
+
+2. **03.08.12.09 → aba Outros Custos do xlsb.** A soma das requisições de
+   canal Rota (262.282,80, sem imposto) é exatamente o valor "2ª QZN" da aba
+   `Outros Custos`; a mesma aba mostra o valor com imposto (358.530,22).
+
+3. **03.08.12.09 → CT-es no 03.08.15, com gross-up de imposto.** As
+   requisições viram CT-e na verba correspondente, divididas por (1 − imposto):
+   - RV Equipe Entrega (VBZ 000006): 182.035,14 × **1,34454** = 244.753,67 ✓
+   - Rota - Outras Despesas (VBZ 000009): 74.247,66 × **1,34454** = 99.828,99 ✓
+   - AS - Outras Despesas (pedágio, VBZ 000030): 192,00 × **1,37724** = 264,43 ✓
+
+   O fator difere por canal: Rota ≈ 1,34454 e AS ≈ 1,37724 (este último é
+   1/(1−27,39%), a alíquota `CTRC-ICMS` que o 2Art mostra). A composição exata
+   dos impostos por canal ainda não foi derivada — fica como pendência.
+
+4. **03.08.15 → 03.02.59.02.** As verbas *variáveis* do 03.08.15 são a coluna
+   "R$ CT-e (Emitido)" do TXT **mais** o complementar variável da mesma seção:
+   - Rota - Frota Fixa Variável 208.498,46 = 206.283,08 + 2.215,38 ✓
+   - AS - Freteiro 75.685,88 = 70.765,03 + 4.920,85 ✓
+   - AS - Frota Fixa Variável 11.219,31 = 10.983,66 + 235,65 ✓
+   - Rota - Frete S.Diversos 19,77 = complementar S.Diversos 19,77 ✓
+
+   As verbas *fixas* do 03.08.15 (Ativa, Inativa, Equipe Entrega, Despesa
+   Administrativa) ficam fora dessa conciliação — o TXT só trata do variável.
+
+5. **03.08.18 → parcela fixa.** Os descontos diários (`Desconto Total` de FF e
+   Van) reduzem o custo fixo pago; a aba espelho no xlsb existe para cruzá-los
+   com o que foi faturado. O vínculo aritmético com uma linha específica do
+   03.08.15 não foi fechado nesta amostra (o fixo é mensal, a amostra é de uma
+   quinzena).
+
+6. **03.02.59.02 fecha o ciclo.** Dentro do TXT: 417.970,31 (recebido) =
+   336.221,62 + 81.748,69; 371.946,03 (calculado) = 322.593,78 + 49.352,25 —
+   a diferença entre recebido e calculado é o **Desconto Frete Mínimo**
+   (17.398,54 na Rota + 37.552,94 no AS); e o saldo que atravessa para a
+   próxima quinzena (22.043,27) carrega NF-e sem CT-e e saldos anteriores.
+
+## Convenções que valem para todas
+
+- **"Quinzena 16/07/2026"** é rótulo, não data de emissão: significa o período
+  16–31/07. Datas aparecem em três formatos: serial Excel (46219 = 16/07/2026;
+  46204 = 01/07/2026), `ddmmaaaa` (2Art) e `dd/mm/aaaa` (CSV/TXT).
+- **Canal** (`Rota` = distribuição urbana; `AS` = área de serviço/interior) e
+  **tipo de frota** (`Padrao`, `Spot`, `Fixo`/Van, `Espec.`) são os dois eixos
+  de agregação de tudo.
+- **VBZ** é a verba orçamentária que liga requisição → CT-e → conciliação; é a
+  chave semântica entre 03.08.12.09, 03.08.15 e o TXT.
+- Valores do SRTrans circulam **sem imposto**; CT-e é **com imposto**
+  (gross-up por canal). Comparar os dois sem essa conversão é o erro clássico.
