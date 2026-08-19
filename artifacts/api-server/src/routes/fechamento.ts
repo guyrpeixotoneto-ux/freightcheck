@@ -6,6 +6,7 @@ import {
   apurarCompetencia,
   buscarCompetencia,
   lerApuracaoVigente,
+  listarApuracoes,
   listarCompetencias,
   listarDocumentos,
   listarPartes,
@@ -62,6 +63,19 @@ router.get("/fechamento/fontes", (_req, res): void => {
 
 router.get("/fechamento/competencias", async (_req, res): Promise<void> => {
   res.json(await listarCompetencias(db));
+});
+
+/**
+ * Todas as competências já somadas — a tela de Apurações.
+ *
+ * Devolve, por competência, quais dos cinco relatórios estão vigentes, os
+ * totais que a apuração gravou e o quanto continua em discussão. É a mesma
+ * informação que `/competencias/:id` traz, sem a memória de cálculo: o que
+ * cabe numa linha de lista. Ver `listarApuracoes` para por que a soma acontece
+ * aqui e não no navegador.
+ */
+router.get("/fechamento/apuracoes", async (_req, res): Promise<void> => {
+  res.json(await listarApuracoes(db));
 });
 
 /**
