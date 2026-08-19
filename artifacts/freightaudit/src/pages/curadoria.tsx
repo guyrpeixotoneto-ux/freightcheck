@@ -10,6 +10,7 @@ import {
   ShieldCheck,
   Sparkles,
   Undo2,
+  WifiOff,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -58,6 +59,7 @@ import {
   normalizarEquipamento,
 } from "@/lib/curadoria";
 import { rotuloDoTipo } from "@/lib/frota";
+import { useConsultaResiliente } from "@/lib/consulta-resiliente";
 import { cn } from "@/lib/utils";
 
 /**
@@ -172,6 +174,16 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+/**
+ * A rota da fila, escrita uma vez.
+ *
+ * É o endpoint **sem** os filtros, e isso é a decisão: o registro de falhas se
+ * organiza por esta chave, e incluir `includeConfirmed` faria o mesmo episódio
+ * de rede aparecer como dois endpoints diferentes conforme o estado de um
+ * checkbox. A query string continua onde sempre esteve, na chamada.
+ */
+const ENDPOINT_DA_FILA = "/curation/queue";
+
 export default function Curadoria() {
   const queryClient = useQueryClient();
   const search = useSearch();
@@ -225,11 +237,36 @@ export default function Curadoria() {
     queryFn: () => fetchJson<CurationSummary>("/curation/summary"),
   });
 
-  const { data: queue = [], isLoading, error } = useQuery({
+  /*
+    A fila é a única query desta tela que sustenta o conteúdo inteiro: sem ela
+    não há cards, não há abas, não há o que filtrar. Era ela que sumia atrás do
+    painel amarelo quando um refetch de fundo não completava.
+
+    Esta tela chegou a montar a política à mão — espalhar as opções, guardar a
+    última fila num `ref`, assinar o `onlineManager`, escrever a regra do painel.
+    Quatro coisas para copiar são quatro coisas para copiar pela metade, e foi
+    assim que Competências acabou com um tratamento diferente para a mesma
+    falha. Agora é `useConsultaResiliente`, e o que sobra aqui é desenho.
+  */
+  const fila = useConsultaResiliente<QueueItem[]>({
     queryKey: ["curation", "queue", showConfirmed],
-    queryFn: () =>
-      fetchJson<QueueItem[]>(`/curation/queue?includeConfirmed=${showConfirmed}`),
+    endpoint: ENDPOINT_DA_FILA,
+    buscar: () =>
+      fetchJson<QueueItem[]>(
+        `${ENDPOINT_DA_FILA}?includeConfirmed=${showConfirmed}`,
+      ),
   });
+
+  /*
+    `?? []` é conveniência de renderização, e **não** a autoridade sobre haver
+    dado. Quem responde isso é `fila.houveResposta`, dentro do hook: uma fila
+    legitimamente vazia — tudo curado — é uma resposta, e a versão anterior, que
+    perguntava `queue.length > 0`, trocava essa boa notícia pelo painel de
+    indisponibilidade na primeira falha seguinte.
+  */
+  const queue = fila.dados ?? [];
+  const isLoading = fila.carregando;
+  const error = fila.erro;
 
   const { data: detail } = useQuery({
     queryKey: ["curation", "attribute", selected],
@@ -410,12 +447,51 @@ export default function Curadoria() {
         </div>
       </header>
 
-      {error && (
+      {fila.indisponivel && (
         <div className="px-8 pt-6">
           <ApiErrorNotice
             error={error}
             what="A fila de curadoria não pôde ser carregada."
           />
+        </div>
+      )}
+
+      {/*
+        A falha que **não** substitui a tela.
+
+        Quando há fila em tela, uma chamada que não completou é um recado de
+        rodapé, não um diagnóstico de produto: o que se vê continua sendo o que
+        o servidor mandou, e a única coisa que mudou é a hora. Dizer a hora é o
+        que faz esta tira ser honesta — "de 14h02" é verificável, "pode estar
+        desatualizado" é uma desculpa.
+
+        Era aqui que a tela mentia por omissão de forma: qualquer falha, mesmo
+        a que passaria sozinha, virava o mesmo painel amarelo com a mesma
+        recomendação de plataforma, sobre uma fila que estava logo ali embaixo,
+        inteira e correta.
+      */}
+      {fila.avisarSobreDadoGuardado && (
+        <div className="px-8 pt-6">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-amber-200 bg-amber-50/70 px-4 py-2 text-sm text-amber-900">
+            <WifiOff className="w-4 h-4 shrink-0" />
+            <span>
+              A atualização da fila não completou. O que está em tela é de{" "}
+              {new Date(fila.respondidoEm ?? 0).toLocaleTimeString("pt-BR", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+              , e continua válido.
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7"
+              disabled={fila.atualizando}
+              onClick={fila.tentarDeNovo}
+            >
+              {fila.atualizando ? "Tentando…" : "Tentar de novo"}
+            </Button>
+          </div>
         </div>
       )}
 
@@ -511,7 +587,16 @@ export default function Curadoria() {
                 </button>
               );
             })}
-            {!isLoading && visible.length === 0 && (
+            {/*
+              "A fila está vazia" e "a fila não pôde ser carregada" não podem
+              aparecer juntas. Fila vazia é uma afirmação sobre a base — não há
+              coluna pendente —, e quando a chamada nem completou não se sabe
+              disso: o zero em tela é a ausência de resposta, não um resultado.
+              Era o que acontecia, e é a mesma classe de defeito que
+              `apresentar-erro.ts` fecha no eixo do erro: duas vozes sobre o
+              mesmo fato, livres para dizer coisas diferentes.
+            */}
+            {!isLoading && !fila.indisponivel && visible.length === 0 && (
               <FilaVazia
                 equipamento={equipamento}
                 filtrando={filter.trim() !== ""}

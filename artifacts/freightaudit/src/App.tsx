@@ -6,7 +6,8 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
 import { Route, Switch, Router as WouterRouter } from 'wouter';
 import { AuthProvider, useAuth } from '@/lib/auth';
-import { ApiError } from '@/lib/api';
+import { publicarNoConsole } from '@/lib/registro-de-falhas';
+import { PADRAO_DAS_CONSULTAS } from '@/lib/chamada-resiliente';
 import Login from '@/pages/login';
 
 import Inicio from '@/pages/inicio';
@@ -63,30 +64,100 @@ import { ETAPAS_FECHAMENTO } from '@/pages/fechamento/etapas';
  * Simulação volta ao roteador — funcionando.
  */
 /**
- * Insistir só onde insistir adianta.
+ * A política de resiliência da aplicação inteira — e por que ela é global.
  *
- * O padrão do React Query são três tentativas com espera crescente — desenhado
- * para rede instável, e errado para as falhas desta API, que são quase todas
- * definitivas: um 400 sobre o arquivo enviado e um 503 de "falta a migration"
- * respondem igual na quarta tentativa e na primeira. O preço eram sete segundos
- * de "Carregando…" antes de a tela dizer o que houve — tempo em que quem está
- * olhando conclui que travou.
+ * Insistir só onde insistir adianta. O padrão do React Query são três tentativas
+ * com espera crescente, desenhado para rede instável e errado para as falhas
+ * desta API, que são quase todas definitivas: um 400 sobre o arquivo enviado e
+ * um 503 de "falta a migration" respondem igual na quarta tentativa e na
+ * primeira. O preço eram sete segundos de "Carregando…" antes de a tela dizer o
+ * que houve — tempo em que quem está olhando conclui que travou.
  *
- * Fica a insistência para o que ela resolve: 5xx sem código nosso, que é onde
- * mora a queda momentânea de conexão.
+ * O que mudou é o alcance. A regra de repetição já morava aqui, mas escrita à
+ * mão e sem tipo; agora é `deveTentarDeNovo`, a mesma autoridade que as telas
+ * resilientes consultam, e vem acompanhada das duas opções que faltavam. As
+ * três valem para as 104 consultas da aplicação, e não só para as telas que
+ * alguém lembrar de converter — que é a diferença entre resolver isto
+ * estruturalmente e resolver tela por tela.
+ *
+ * ---------------------------------------------------------------------------
+ * O que muda, exatamente
+ * ---------------------------------------------------------------------------
+ *
+ * **`retry`.** Antes: qualquer erro que não fosse `ApiError` 4xx ou com `code`
+ * era repetido duas vezes. Agora: `ehFalhaTransitoria` decide. Os desfechos
+ * coincidem em tudo que importa — `TypeError`, 5xx sem código e 5xx com código
+ * continuam se comportando igual — e divergem em três, todos para melhor: um
+ * 4xx de corpo vazio e um HTML de proxy com status de sucesso deixam de ser
+ * repetidos (repetir devolve o mesmo), e um erro que não é de nenhuma classe
+ * nossa — `undefined is not a function`, um contrato que mudou — passa a
+ * falhar de primeira, em vez de esconder um defeito de código atrás de 1,6s de
+ * espera.
+ *
+ * **`retryDelay`.** Antes: o padrão do React Query, 1s e 2s. Agora: 400ms e
+ * 1200ms. Mais curto porque a maior parte das quedas de transporte se resolve
+ * entre um pacote e o seguinte, e porque a soma total (1,6s) é o que cabe antes
+ * de quem espera achar que travou.
+ *
+ * **`refetchOnWindowFocus`.** Antes: `true`, o padrão. Agora: `false`. É a única
+ * mudança com perda, e é a que resolve o defeito: toda volta à aba disparava um
+ * refetch em todas as queries montadas, e um refetch que falha repõe o erro na
+ * tela sem ninguém ter pedido nada. Quem só voltou para a aba lê aquilo como "o
+ * produto quebrou de novo", e o "de novo" não descreve o produto — descreve o
+ * gatilho.
+ *
+ * O que se perde: uma aba deixada aberta numa tela deixa de se atualizar sozinha
+ * quando alguém volta a ela. O que **não** se perde, e é por isso que o preço é
+ * pequeno: `staleTime` é 0 por padrão neste app, então `refetchOnMount` continua
+ * refazendo a consulta a cada navegação; e toda mutação invalida as chaves que
+ * tocou. Fica descoberto só o caso de ficar parado na mesma tela enquanto outra
+ * pessoa muda o dado.
+ *
+ * **`refetchOnReconnect`.** Já era `true` por padrão. Declarado porque agora é
+ * decisão, e não herança: é a contrapartida de ter desligado o foco, e é o que
+ * garante que a tela se recupere sozinha quando a conexão volta.
+ *
+ * ---------------------------------------------------------------------------
+ * As exceções, todas explícitas
+ * ---------------------------------------------------------------------------
+ *
+ * Três lugares continuam refazendo por foco, e cada um declara isso na própria
+ * query — um default global não some com nenhum deles:
+ *
+ * 1. **A sessão** (`lib/auth.tsx`). É o motivo de o refetch por foco existir:
+ *    a sessão pode morrer no servidor enquanto a aba está de lado, e sem
+ *    reperguntar a tela seguiria mostrando um sistema que já não responde. Já
+ *    declarava `refetchOnWindowFocus: true` antes desta mudança.
+ * 2. **Os contadores do menu** (`components/layout/contadores.ts`). São os
+ *    únicos que dependem do foco *implicitamente*: o layout nunca desmonta,
+ *    então `refetchOnMount` não os alcança, e sem foco eles congelariam no
+ *    número da primeira carga. Passam a declarar o `true`.
+ * 3. **O seletor de contexto** (`components/layout/sidebar.tsx`), pela mesma
+ *    razão e no mesmo lugar da tela.
+ *
+ * As três engolem erro (devolvem `[]` ou `0`) e usam `retry: false`: nenhuma
+ * delas chega a mostrar falha a ninguém, e por isso o foco ligado não repõe
+ * painel nenhum. É o que as torna exceções seguras.
+ *
+ * **Não** são exceções, e não precisavam ser: as telas que acompanham progresso
+ * — o cartão de importação (`pages/importacoes.tsx`) e a aba de Chamados
+ * (`components/changes/aba-chamados.tsx`). Elas se atualizam por
+ * `refetchInterval` condicional, que é independente do foco e continua
+ * funcionando igual.
  */
 const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      retry: (falhas, erro) => {
-        if (erro instanceof ApiError && (erro.status < 500 || erro.code)) {
-          return false;
-        }
-        return falhas < 2;
-      },
-    },
-  },
+  defaultOptions: { queries: PADRAO_DAS_CONSULTAS },
 });
+
+/*
+  O registro de falhas de transporte fica alcançável pelo console.
+
+  Uma linha, na partida, e é a única forma de a evidência sair de um navegador
+  que não está conseguindo falar com o servidor — mandá-la pela rede seria
+  mandá-la justamente pelo caminho que acabou de quebrar. Ver
+  `lib/registro-de-falhas.ts`.
+*/
+publicarNoConsole();
 
 function Router() {
   return (

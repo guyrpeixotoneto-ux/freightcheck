@@ -19,14 +19,12 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { GradeDeDias } from "@/components/fechamento/grade-de-dias";
 import { ContaApurada } from "@/components/fechamento/conta-apurada";
+import { FecharQuinzena, oQueQuestionar } from "@/components/fechamento/fechar-quinzena";
 import { apresentar } from "@/lib/apresentar-erro";
 import { formatBrl, formatNumber } from "@/lib/format";
-import { Textarea } from "@/components/ui/textarea";
 import {
   apurar,
   descartarDados,
-  encerrar,
-  reabrir,
   enviarDocumento,
   lerCompetencia,
   lerDiario,
@@ -69,7 +67,6 @@ const emDiaBR = (iso: string) => iso.split("-").reverse().join("/");
 export default function CompetenciaAberta({ id }: { id: string }) {
   const cliente = useQueryClient();
   const [erroDoEnvio, setErroDoEnvio] = useState<string | null>(null);
-  const [motivo, setMotivo] = useState("");
   /*
     O descarte pergunta antes, e a pergunta mora na tela em vez de num
     `window.confirm`: o diálogo do navegador não sabe dizer *quantos* arquivos
@@ -128,19 +125,6 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     },
   });
 
-  const atualizar = () => {
-    void cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] });
-    void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
-  };
-  const fechar = useMutation({ mutationFn: () => encerrar(id), onSuccess: atualizar });
-  const destravar = useMutation({
-    mutationFn: (motivo: string) => reabrir(id, motivo),
-    onSuccess: () => {
-      setMotivo("");
-      atualizar();
-    },
-  });
-
   if (dados.isLoading) {
     return (
       <Layout>
@@ -163,10 +147,14 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   const { competencia, documentos, apuracao } = dados.data;
   const encerrada = competencia.estado === "ENCERRADA";
   const vigentes = new Map(documentos.filter((d) => d.vigente).map((d) => [d.tipo, d]));
-  const acionaveis = apuracao?.divergencias.filter((d) => d.sentido !== "INFORMATIVO") ?? [];
-  const aReceber = acionaveis
-    .filter((d) => d.sentido === "A_RECEBER")
-    .reduce((s, d) => s + d.valor, 0);
+  /*
+    A fila do que questionar sai de `oQueQuestionar`, e não de um filtro escrito
+    aqui: é o mesmo número que o resumo do fechamento mostra ao lado do botão de
+    congelar, e duas contas iguais em dois lugares divergiriam um dia.
+  */
+  const { acionaveis, aReceber } = apuracao
+    ? oQueQuestionar(apuracao)
+    : { acionaveis: [], aReceber: 0 };
 
   return (
     <Layout>
@@ -458,83 +446,19 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                 {encerrada ? "Quinzena salva" : "Salvar a quinzena"}
               </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3">
-              {encerrada ? (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    Esta competência está fechada: os relatórios, a conta
-                    apurada e as divergências ficam como estão, e o banco recusa
-                    qualquer escrita nela. É o que faz o número que você cobrou
-                    continuar sendo o número que se lê daqui a um ano.
-                  </p>
-                  <div className="space-y-2 border-t pt-3">
-                    <p className="text-sm font-medium">Precisa reabrir?</p>
-                    <p className="text-sm text-muted-foreground">
-                      Escreva o motivo. Ele fica no registro da competência — é o
-                      que distingue uma correção de uma alteração silenciosa
-                      depois do fato.
-                    </p>
-                    <Textarea
-                      value={motivo}
-                      onChange={(e) => setMotivo(e.target.value)}
-                      placeholder="Ex.: a Ambev reenviou o 03.08.15 com a VBZ 29 corrigida."
-                      rows={2}
-                    />
-                    {destravar.isError && (
-                      <Alert variant="destructive">
-                        <AlertDescription>{textoDoErro(destravar.error)}</AlertDescription>
-                      </Alert>
-                    )}
-                    <Button
-                      variant="outline"
-                      onClick={() => destravar.mutate(motivo)}
-                      disabled={motivo.trim() === "" || destravar.isPending}
-                    >
-                      <LockOpen className="w-3.5 h-3.5 mr-1.5" />
-                      {destravar.isPending ? "Reabrindo…" : "Reabrir competência"}
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <p className="text-sm text-muted-foreground">
-                    Tudo o que você enviou e apurou já está gravado — salvar não
-                    é o que guarda os dados. O que este botão faz é{" "}
-                    <strong>fechar a quinzena</strong>: a partir dele nada mais
-                    entra nela, e a conta apurada passa a ser o registro do que
-                    foi cobrado. Reabrir depois é possível, com motivo.
-                  </p>
-                  <ul className="text-sm text-muted-foreground space-y-1">
-                    <li>
-                      • {vigentes.size} de {fontes.data?.length ?? 5} relatórios enviados
-                    </li>
-                    <li>• {formatBrl(apuracao.totais.emitido)} emitidos em CT-e</li>
-                    <li>
-                      • {acionaveis.length} ponto(s) a questionar, somando{" "}
-                      {formatBrl(aReceber)}
-                    </li>
-                  </ul>
-                  {apuracao.fontesAusentes.length > 0 && (
-                    <Alert>
-                      <AlertTriangle className="w-4 h-4" />
-                      <AlertDescription>
-                        Faltam {apuracao.fontesAusentes.length} relatório(s). Dá para
-                        fechar assim, e o que eles sustentariam vai ficar registrado
-                        como não conferido.
-                      </AlertDescription>
-                    </Alert>
-                  )}
-                  {fechar.isError && (
-                    <Alert variant="destructive">
-                      <AlertDescription>{textoDoErro(fechar.error)}</AlertDescription>
-                    </Alert>
-                  )}
-                  <Button onClick={() => fechar.mutate()} disabled={fechar.isPending}>
-                    <Lock className="w-3.5 h-3.5 mr-1.5" />
-                    {fechar.isPending ? "Salvando…" : "Salvar e fechar a quinzena"}
-                  </Button>
-                </>
-              )}
+            <CardContent>
+              {/*
+                O painel é o mesmo que a lista de Importações mostra na linha da
+                competência — ver `components/fechamento/fechar-quinzena`. Aqui
+                ele é o fim do trabalho; lá, o gesto de quem fecha várias
+                seguidas. O ato, o resumo e o aviso do que falta são um só.
+              */}
+              <FecharQuinzena
+                competencia={competencia}
+                documentos={documentos}
+                apuracao={apuracao}
+                fontes={fontes.data ?? []}
+              />
             </CardContent>
           </Card>
         )}

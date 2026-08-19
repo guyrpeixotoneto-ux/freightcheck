@@ -277,6 +277,45 @@ Três decisões que a tela materializa:
    dizendo isso, com o atalho para ir rodar a conta, porque apurar continua
    sendo um botão de lá: rodar grava.
 
+## A quinzena fecha na lista — Importações sem entrar na competência
+
+`/fechamento/competencias` era só a porta de entrada: abria-se o período e
+enviavam-se os cinco relatórios. Fechar era outro caminho — entrar na
+competência, descer a página e clicar no botão do fim. Quem fecha, porém, não
+fecha *uma* competência: fecha a quinzena inteira, CDD a CDD. Entrar e voltar a
+cada uma fazia perder a lista justamente a cada fechamento, e a lista é o que
+diz quantas ainda faltam.
+
+Agora cada linha traz a ação do seu estado, e o painel abre ali mesmo.
+
+Três decisões que a tela materializa:
+
+1. **É o mesmo painel nas duas telas.** O bloco "Salvar a quinzena" saiu da
+   competência aberta para `components/fechamento/fechar-quinzena.tsx`, e as
+   duas o desenham — a mesma razão de `conta-apurada.tsx`. Com ele veio o
+   resumo: quantos dos cinco relatórios entraram, quanto foi emitido e quanto há
+   a questionar, sempre **antes** do botão. Fechar é o ato a partir do qual o
+   banco recusa escrita na competência; um botão de lista que congelasse o
+   período sem mostrar o que está congelando seria mais rápido e diria menos.
+2. **O estado decide o que a linha oferece, e são três respostas, não duas.**
+   `acaoDoFechamento` (sob teste em `pages/fechamento/__tests__/`) manda apurar
+   quem ainda não apurou — encerrar sem apuração congelaria um período que não
+   sabe quanto vale, e o servidor recusa —, oferece fechar a quem tem apuração
+   vigente e reabrir a quem já encerrou. "Não dá para fechar" tem duas causas
+   diferentes, e um botão cinza sem explicação juntaria as duas numa frustração
+   só.
+3. **Um painel aberto por vez.** Ao contrário de Apurações, onde abrir várias
+   contas serve para comparar CDDs, aqui o que se abre é um ato — e dois atos
+   abertos ao mesmo tempo convidam a fechar a quinzena errada.
+
+O formulário de abertura mudou junto, na mesma direção: **o mês é escolhido, e
+não digitado.** Ele tem doze valores e nomes que todo mundo sabe de cor, e `7`
+num campo de texto é uma pergunta a mais num formulário que existe para não ter
+nenhuma. O valor continua sendo o número que a rota espera; só o rótulo é a
+palavra. O ano segue digitado — é aberto —, mas a tela agora aplica a mesma
+régua da rota (2000 a 2100) antes do clique, para não gastar uma ida ao servidor
+dizendo o que já se sabia.
+
 ## Remuneração — o cadastro, e a única tela que atravessa a fronteira
 
 `/fechamento/remuneracao/unidade` reproduz a aba **CADASTRO DA PLANILHA DE
@@ -423,3 +462,9 @@ de negócio, não dedução por semelhança de nome de coluna.
 - `lib/remuneracao/src/__tests__/leitura.test.ts` — o SQL, contra um Postgres de
   verdade e com os códigos reais do export; e o par sempre em ordem
   cronológica, mesmo pedido ao contrário.
+- `pages/fechamento/__tests__/competencias-fechamento.test.ts` — cada estado da
+  competência oferece uma ação só, e nunca a errada; e o ano é conferido antes
+  da ida ao servidor, nas duas pontas da faixa.
+- `components/fechamento/__tests__/fechar-quinzena.test.ts` — a fila do que
+  questionar: a divergência informativa fica de fora, e a soma é só do que
+  reduz o que a transportadora recebe. É o número que aparece em três lugares.
