@@ -193,6 +193,137 @@ export function leituraDoRun(run: ContadoresDoRun): LeituraDoRun {
   return { leitura: "LIDO" };
 }
 
+/** O pedaço de uma importação de que a decisão de aprovar depende. */
+export interface ContadoresDaAprovacao {
+  status: string;
+  /**
+   * Apontamentos que impedem aprovar este arquivo — **não** o total de ERROs.
+   *
+   * Vem do servidor, que o calcula com o mesmo predicado do pipeline.
+   */
+  blockingErrors: number;
+  /** Chaves que já se sabe que ficarão de fora se este arquivo for aprovado. */
+  chavesEmQuarentena: number;
+  /** Equipamentos novos que este arquivo criaria e quem aprova ainda não declarou. */
+  identidadesNaoDeclaradas: number;
+}
+
+/** O que impede aprovar agora — `null` quando nada impede. */
+export type ImpedimentoDaAprovacao =
+  /** O run não está conferido: ainda lendo, recusado, duplicata ou já aprovado. */
+  | "NAO_CONFERIDO"
+  /** Há apontamento que segura o arquivo inteiro. Corrigir a origem e reenviar. */
+  | "ERRO_BLOQUEANTE"
+  /** Equipamento novo esperando a declaração de quem aprova. */
+  | "IDENTIDADE_NAO_DECLARADA";
+
+/**
+ * O que este arquivo já se sabe que **não** vai trazer, dito antes do clique.
+ *
+ * Deixar o arquivo entrar cria uma dívida que o bloqueio não tinha: um registro
+ * que ficou de fora não aparece como faltando — ele simplesmente não aparece,
+ * indistinguível na tabela do cargo que a unidade não tem. Quem aprova precisa
+ * saber disso enquanto ainda dá para escolher corrigir a origem, e não depois.
+ */
+export interface RessalvaDaQuarentena {
+  /** A frase curta, na linha de detalhe do cartão. */
+  frase: string;
+  /** O que ela custa: a vigência nasce incompleta nestas chaves. */
+  consequencia: string;
+}
+
+export interface DecisaoDaAprovacao {
+  /** O botão pode ser apertado. */
+  podeAprovar: boolean;
+  /** Por que não, quando não. `null` quando nada impede. */
+  impedimento: ImpedimentoDaAprovacao | null;
+  /** O preço de aprovar assim mesmo. `null` quando a vigência entra inteira. */
+  ressalva: RessalvaDaQuarentena | null;
+}
+
+/**
+ * Se "Aprovar e importar" pode ser apertado — e o que dizer antes de apertar.
+ *
+ * ---------------------------------------------------------------------------
+ * O defeito que esta função fecha
+ * ---------------------------------------------------------------------------
+ * O botão perguntava `errors > 0`, e `errors` é o total de apontamentos de
+ * severidade ERRO daquele run. A pergunta e a resposta pareciam a mesma coisa
+ * enquanto todo ERRO segurava o arquivo. Quando a duplicidade conflitante
+ * deixou de segurá-lo — ela retira a chave e deixa o resto entrar —, as duas
+ * deixaram de coincidir, e o efeito foi visto na tela: um QLP de Camaçari
+ * conferido, com 11.760 fatos e 8 chaves em conflito, chegou com o botão
+ * desabilitado e a frase "8 erros — corrija a origem antes de aprovar" em cima
+ * dele. O pipeline considerava aquele arquivo aprovável; a tela dizia que não.
+ * A única saída oferecida era corrigir uma planilha para destravar uma
+ * importação que o servidor teria aceitado.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que a resposta não é uma conta de erros
+ * ---------------------------------------------------------------------------
+ * Aprovar depende de três coisas, e nenhuma delas é "quantos ERROs":
+ *
+ * 1. **o run estar conferido.** `PREVIEWED` não é um estado qualquer: é o
+ *    desfecho que a pré-visualização grava quando nada impede promover. Um
+ *    arquivo com impedimento nunca chega nele — vira `VALIDATION_ERROR`, com o
+ *    motivo escrito. Quem diz "pode aprovar" é o pipeline, e o estado é a forma
+ *    como ele já disse;
+ * 2. **nenhum apontamento impeditivo.** É a mesma conta do pipeline
+ *    (`impedePromocao`), que o servidor agora manda pronta em `blockingErrors`.
+ *    Perguntar de novo é redundante por construção — e é exatamente por isso
+ *    que vale perguntar: se um dia um estado novo puder chegar aqui com
+ *    impedimento, o botão fecha sozinho em vez de descobrir pela recusa;
+ * 3. **equipamento novo declarado.** A única decisão que esta tela exige, e não
+ *    apenas leitura. Sem a declaração a API recusaria de todo jeito.
+ *
+ * O que **não** entra: a chave em quarentena. Ela não impede aprovar — ela
+ * custa uma parte da vigência, e o preço se anuncia ({@link ressalva}), não se
+ * cobra travando o botão.
+ */
+export function decisaoDaAprovacao(run: ContadoresDaAprovacao): DecisaoDaAprovacao {
+  const impedimento: ImpedimentoDaAprovacao | null =
+    faceDoCartao(run.status).face !== "conferida"
+      ? "NAO_CONFERIDO"
+      : run.blockingErrors > 0
+        ? "ERRO_BLOQUEANTE"
+        : run.identidadesNaoDeclaradas > 0
+          ? "IDENTIDADE_NAO_DECLARADA"
+          : null;
+
+  return {
+    podeAprovar: impedimento === null,
+    impedimento,
+    ressalva: ressalvaDaQuarentena(run.chavesEmQuarentena),
+  };
+}
+
+/**
+ * A ressalva da quarentena, em número e em consequência.
+ *
+ * A frase antiga — "8 erros — corrija a origem antes de aprovar" — errava as
+ * duas metades: chamava de erro do arquivo o que é ausência de um registro, e
+ * mandava corrigir antes de aprovar quando aprovar era permitido. Corrigir a
+ * origem continua sendo o caminho para ter a vigência inteira; o que ele deixou
+ * de ser é condição para importar os outros 11.760 fatos.
+ */
+export function ressalvaDaQuarentena(chaves: number): RessalvaDaQuarentena | null {
+  if (chaves <= 0) return null;
+  const um = chaves === 1;
+  return {
+    frase:
+      `${chaves.toLocaleString("pt-BR")} ${um ? "registro ficará" : "registros ficarão"} ` +
+      `de fora por conflito. O restante do arquivo pode ser importado.`,
+    consequencia:
+      `${um ? "Uma chave aparece" : `${chaves.toLocaleString("pt-BR")} chaves aparecem`} ` +
+      `mais de uma vez na mesma vigência com valores que discordam, e o FreightCheck ` +
+      `não escolhe entre eles: ${um ? "esse registro fica" : "esses registros ficam"} ` +
+      `de fora inteiro${um ? "" : "s"}, com a evidência gravada nos apontamentos abaixo. ` +
+      `Se aprovar assim, a vigência nasce incompleta ${um ? "nessa chave" : "nessas chaves"} — ` +
+      `o que ficou de fora não aparece como faltando, apenas não aparece. ` +
+      `Para tê-${um ? "lo" : "los"} na vigência, corrija a origem e importe de novo.`,
+  };
+}
+
 /** O papel de uma importação dentro da história do seu arquivo. */
 export type PapelNoArquivo = "RECEBIMENTO" | "TENTATIVA_RECUSADA" | "REPROCESSAMENTO";
 

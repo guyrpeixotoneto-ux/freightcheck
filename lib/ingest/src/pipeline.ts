@@ -71,8 +71,8 @@ import {
   type DefinicaoDeTipo,
 } from "./tipos";
 import {
-  CODIGOS_QUE_BLOQUEIAM_PROMOCAO,
-  CODIGOS_QUE_ISOLAM_A_CHAVE,
+  impedePromocao,
+  isolaAChave,
   type ApresentacaoDeApontamento,
   type CampoDeRegistro,
   type OndeDoApontamento,
@@ -153,23 +153,6 @@ const SCOPE_COLUMNS: Record<string, { scopeType: string; nameColumn?: string }> 
  * quietly change every average computed downstream.
  */
 const SUSPECTED_SENTINELS = ["-1"];
-
-/**
- * Os problemas que impedem promover, por código.
- *
- * A lista é curta de propósito, e encolheu. Um ERRO de leitura — linha sem
- * placa, rótulo de vigência ilegível — recusa aquela linha e deixa o resto
- * entrar, que é o comportamento que o produto sempre teve e que mantém um
- * arquivo de 40 mil células útil quando três linhas estão sujas. A duplicidade
- * conflitante era a exceção mais cara: ela segurava o arquivo inteiro, e um
- * QLP de 11.760 fatos parou por 8 chaves. Hoje ela retira a chave e deixa o
- * arquivo entrar — ver `CODIGOS_QUE_ISOLAM_A_CHAVE`. O que sobrou aqui é o
- * arquivo que não é o que disse ser, e desse não há parte aproveitável.
- *
- * A lista mora em `apontamentos.ts` porque a tela anuncia a mesma diferença no
- * selo, e as duas leituras não podem divergir.
- */
-const BLOQUEIAM_PROMOCAO = CODIGOS_QUE_BLOQUEIAM_PROMOCAO;
 
 /**
  * O motivo que fica gravado quando a pré-visualização recusa a promoção.
@@ -2239,7 +2222,7 @@ export interface PreviewReport {
    *
    * Só os que impedem — não todo ERRO. Uma linha sem placa é ERRO e não impede
    * nada; uma chave em conflito é ERRO, retira o registro e o arquivo segue
-   * aprovável. Ver `CODIGOS_QUE_BLOQUEIAM_PROMOCAO`.
+   * aprovável. Quem responde é `impedePromocao`, em `apontamentos.ts`.
    */
   blockingErrors: number;
   /**
@@ -2374,11 +2357,13 @@ export async function preview(
     mais nada é perfeitamente aprovável, e um campo chamado `blockingErrors`
     devolvendo 8 faria toda leitura dele concluir o contrário do que é verdade.
     Duas perguntas iguais respondidas por dois cálculos é como uma tela passa a
-    discordar do pipeline; aqui há um cálculo só.
+    discordar do pipeline — e foi o que aconteceu enquanto este cálculo morava
+    só aqui: a tela continuou perguntando `errors > 0`, e o mesmo arquivo que
+    este trecho considera aprovável chegava com o botão desabilitado. Hoje o
+    cálculo é um só de verdade: `impedePromocao` responde aqui, na leitura de
+    estado do run e no botão, e é lá que ele muda.
   */
-  const impeditivas = issueRows.filter(
-    (i) => i.severity === "ERROR" && BLOQUEIAM_PROMOCAO.has(i.code),
-  );
+  const impeditivas = issueRows.filter(impedePromocao);
   const impeditivos = impeditivas.reduce((sum, i) => sum + i.count, 0);
   const blockingErrors = impeditivos;
 
@@ -2387,7 +2372,7 @@ export async function preview(
     decide o que dizer sobre um arquivo que não trouxe fato nenhum.
   */
   const emQuarentena = issueRows
-    .filter((i) => CODIGOS_QUE_ISOLAM_A_CHAVE.has(i.code))
+    .filter(isolaAChave)
     .reduce((soma, i) => soma + i.count, 0);
 
   /*
