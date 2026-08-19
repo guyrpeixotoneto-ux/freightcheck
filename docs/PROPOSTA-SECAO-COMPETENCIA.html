@@ -1,0 +1,1460 @@
+<title>Seção Competência</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap">
+
+<style>
+/* ===========================================================================
+   Os tokens são os do produto (artifacts/freightaudit/src/index.css), não uma
+   paleta nova. Uma proposta de tela que chega com a própria cor propõe duas
+   coisas ao mesmo tempo, e a segunda ninguém pediu.
+   =========================================================================== */
+:root {
+  --fundo:        hsl(210 40% 98%);
+  --tinta:        hsl(213 47% 16%);
+  --linha:        hsl(214 30% 91%);
+  --cartao:       hsl(0 0% 100%);
+  --marinho:      hsl(212 73% 29%);
+  --marinho-cont: hsl(0 0% 100%);
+  --suave:        hsl(214 17% 46%);
+  --calmo:        hsl(214 32% 96%);
+  --realce:       hsl(214 38% 94%);
+  --atencao:      hsl(36 94% 52%);
+  --atencao-txt:  hsl(30 90% 28%);
+  --atencao-bg:   hsl(38 92% 95%);
+  --perda:        hsl(0 72% 44%);
+  --ganho:        hsl(152 64% 31%);
+  --topo:         hsl(211 65% 17%);
+  --topo-txt:     hsl(0 0% 100%);
+  --topo-marca:   hsl(208 79% 51%);
+  --lateral:      hsl(0 0% 100%);
+  --lateral-txt:  hsl(215 45% 24%);
+  --vitrine: hsl(213 26% 74%);
+  --sombra: 0 1px 2px hsl(213 47% 16% / .05), 0 1px 3px hsl(213 47% 16% / .04);
+  --sombra-alta: 0 10px 30px hsl(213 47% 16% / .14), 0 2px 8px hsl(213 47% 16% / .08);
+  --sans: 'Montserrat', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --fundo:        hsl(213 44% 11%);
+    --tinta:        hsl(210 40% 98%);
+    --linha:        hsl(214 30% 19%);
+    --cartao:       hsl(213 42% 13%);
+    --marinho:      hsl(212 80% 62%);
+    --marinho-cont: hsl(213 60% 10%);
+    --suave:        hsl(214 20% 66%);
+    --calmo:        hsl(214 30% 19%);
+    --realce:       hsl(214 32% 22%);
+    --atencao:      hsl(38 94% 58%);
+    --atencao-txt:  hsl(38 92% 74%);
+    --atencao-bg:   hsl(36 34% 12%);
+    --perda:        hsl(0 75% 62%);
+    --ganho:        hsl(152 58% 52%);
+    --topo:         hsl(213 55% 9%);
+    --topo-marca:   hsl(209 75% 64%);
+    --lateral:      hsl(213 46% 10%);
+    --lateral-txt:  hsl(213 25% 84%);
+    --vitrine: hsl(213 44% 7%);
+  --sombra: 0 1px 2px hsl(0 0% 0% / .4);
+    --sombra-alta: 0 10px 30px hsl(0 0% 0% / .5);
+  }
+}
+:root[data-theme="dark"] {
+  --fundo:        hsl(213 44% 11%);
+  --tinta:        hsl(210 40% 98%);
+  --linha:        hsl(214 30% 19%);
+  --cartao:       hsl(213 42% 13%);
+  --marinho:      hsl(212 80% 62%);
+  --marinho-cont: hsl(213 60% 10%);
+  --suave:        hsl(214 20% 66%);
+  --calmo:        hsl(214 30% 19%);
+  --realce:       hsl(214 32% 22%);
+  --atencao:      hsl(38 94% 58%);
+  --atencao-txt:  hsl(38 92% 74%);
+  --atencao-bg:   hsl(36 34% 12%);
+  --perda:        hsl(0 75% 62%);
+  --ganho:        hsl(152 58% 52%);
+  --topo:         hsl(213 55% 9%);
+  --topo-marca:   hsl(209 75% 64%);
+  --lateral:      hsl(213 46% 10%);
+  --lateral-txt:  hsl(213 25% 84%);
+  --vitrine: hsl(213 44% 7%);
+  --sombra: 0 1px 2px hsl(0 0% 0% / .4);
+  --sombra-alta: 0 10px 30px hsl(0 0% 0% / .5);
+}
+
+* { box-sizing: border-box; }
+:focus-visible { outline: 2px solid var(--marinho); outline-offset: 2px; border-radius: 4px; }
+body {
+  margin: 0;
+  background: var(--fundo);
+  color: var(--tinta);
+  font-family: var(--sans);
+  font-size: 16px;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+svg { display: block; }
+
+/* --------------------------------------------------------------- estrutura */
+.folha { max-width: 1200px; margin: 0 auto; padding: 0 24px 96px; }
+
+/* A maquete é a única coisa que rompe a coluna: ela tem a largura da tela real. */
+.moldura { margin-inline: calc((100% - min(1312px, 92vw)) / 2); }
+.coluna {
+  display: grid; grid-template-columns: 150px minmax(0, 64ch);
+  column-gap: 36px; align-items: start;
+}
+.coluna > * { grid-column: 2; }
+.coluna > .numeral {
+  grid-column: 1; grid-row: 1; margin: 0; text-align: right;
+  padding-top: .42em; line-height: 1.5;
+}
+.coluna > h2 { grid-row: 1; }
+@media (max-width: 780px) {
+  .coluna { display: block; }
+  .coluna > .numeral { text-align: left; margin-bottom: 10px; }
+}
+.secao { margin-top: 72px; }
+
+/* ------------------------------------------------------------------- capa  */
+.capa {
+  background: var(--topo);
+  color: var(--topo-txt);
+  padding: 64px 0 56px;
+  margin-bottom: 56px;
+  border-bottom: 1px solid hsl(0 0% 100% / .08);
+}
+.capa .folha { padding-bottom: 0; }
+.sobrenome {
+  font-size: 11px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase;
+  color: hsl(0 0% 100% / .62); margin: 0 0 18px;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+}
+.sobrenome .marca { color: var(--topo-marca); }
+.capa h1 {
+  font-size: clamp(2.1rem, 5vw, 3.35rem); font-weight: 800; letter-spacing: -.028em;
+  line-height: 1.05; margin: 0 0 22px; max-width: 17ch; text-wrap: balance;
+}
+.capa .fio { color: hsl(0 0% 100% / .84); font-size: 1.06rem; max-width: 60ch; margin: 0; }
+.capa .fio strong { color: #fff; font-weight: 600; }
+.carimbo {
+  margin-top: 30px; padding-top: 18px; border-top: 1px solid hsl(0 0% 100% / .16);
+  font-family: var(--mono); font-size: 12px; color: hsl(0 0% 100% / .58);
+  display: flex; gap: 22px; flex-wrap: wrap;
+}
+
+/* --------------------------------------------------------------- tipografia */
+h2 {
+  font-size: 1.55rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.2;
+  margin: 0 0 6px; text-wrap: balance;
+}
+h3 { font-size: 1.06rem; font-weight: 700; letter-spacing: -.01em; margin: 34px 0 6px; }
+.numeral {
+  font-family: var(--mono); font-size: 12px; font-weight: 700; letter-spacing: .14em;
+  text-transform: uppercase; color: var(--marinho); margin: 0 0 12px;
+}
+p { margin: 0 0 16px; }
+.coluna p { color: hsl(213 30% 28%); }
+:root[data-theme="dark"] .coluna p { color: hsl(213 22% 78%); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .coluna p { color: hsl(213 22% 78%); }
+}
+strong { font-weight: 700; color: var(--tinta); }
+code, .mono { font-family: var(--mono); font-size: .88em; }
+.coluna ul { margin: 0 0 16px; padding-left: 0; list-style: none; display: grid; gap: 11px; }
+.coluna ul li { position: relative; padding-left: 22px; color: hsl(213 30% 28%); }
+:root[data-theme="dark"] .coluna ul li { color: hsl(213 22% 78%); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .coluna ul li { color: hsl(213 22% 78%); }
+}
+.coluna ul li::before {
+  content: ""; position: absolute; left: 2px; top: .62em;
+  width: 7px; height: 7px; border-radius: 2px; background: var(--marinho); opacity: .5;
+}
+
+/* ------------------------------------------------------------------- notas  */
+/* As notas alinham pela borda da maquete, não pela coluna de texto: elas
+   comentam a tela, e o olho volta ao mesmo eixo vertical. */
+.notas {
+  display: grid; gap: 20px; margin-top: 30px; max-width: 1000px;
+  margin-left: calc((100% - min(1312px, 92vw)) / 2); margin-right: 0;
+}
+@media (max-width: 820px) { .notas { margin-left: 0; } }
+@media (min-width: 900px) { .notas { grid-template-columns: 1fr 1fr; } }
+.nota {
+  background: var(--cartao); border: 1px solid var(--linha); border-radius: 12px;
+  padding: 18px 20px; box-shadow: var(--sombra);
+}
+.nota h4 {
+  margin: 0 0 6px; font-size: .95rem; font-weight: 700; letter-spacing: -.005em;
+  display: flex; align-items: baseline; gap: 10px;
+}
+.chave {
+  flex: none; width: 22px; height: 22px; border-radius: 50%;
+  background: var(--marinho); color: var(--marinho-cont);
+  font-family: var(--mono); font-size: 11px; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center;
+  align-self: center;
+}
+.nota p { margin: 0; font-size: .9rem; line-height: 1.55; color: var(--suave); }
+.nota p + p { margin-top: 8px; }
+
+/* ------------------------------------------------------------------ maquete */
+.moldura { margin-top: 34px; }
+.secao > .moldura { margin-top: 34px; }
+.rotulo-maquete {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-family: var(--mono); font-size: 11.5px; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--suave); margin-bottom: 10px;
+}
+.rotulo-maquete .rota { color: var(--marinho); font-weight: 700; text-transform: none; letter-spacing: 0; }
+.tela {
+  overflow-x: auto; border-radius: 14px; border: 1px solid var(--linha);
+  box-shadow: var(--sombra-alta); background: var(--fundo);
+}
+.tela-interna { min-width: 1240px; display: flex; flex-direction: column; }
+
+/* -------- topbar do produto */
+.tb {
+  height: 52px; background: var(--topo); color: var(--topo-txt);
+  display: flex; align-items: center; gap: 14px; padding: 0 18px; flex: none;
+}
+.tb .logo { font-weight: 800; font-size: 15px; letter-spacing: -.01em; }
+.tb .logo em { font-style: normal; color: var(--topo-marca); }
+.tb .div { width: 1px; height: 20px; background: hsl(0 0% 100% / .22); }
+.tb .amb {
+  display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 600;
+  color: hsl(0 0% 100% / .9); background: hsl(0 0% 100% / .1);
+  padding: 5px 10px; border-radius: 8px;
+}
+.tb .dir { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.tb .pastilha {
+  width: 28px; height: 28px; border-radius: 50%; background: hsl(0 0% 100% / .14);
+  display: grid; place-items: center; font-size: 11px; font-weight: 700;
+}
+
+/* -------- corpo: lateral + conteúdo */
+.corpo { display: flex; align-items: stretch; min-height: 660px; }
+
+.lat {
+  width: 248px; flex: none; background: var(--lateral); color: var(--lateral-txt);
+  border-right: 1px solid var(--linha); padding: 14px 12px; display: flex; flex-direction: column; gap: 10px;
+}
+.lat-titulo {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+  color: var(--suave); padding: 0 6px;
+}
+.cartao-unidade {
+  border: 1px solid var(--linha); border-radius: 12px; padding: 11px 12px;
+  display: flex; gap: 10px; align-items: flex-start;
+}
+.cartao-unidade .pin {
+  width: 34px; height: 34px; border-radius: 50%; background: var(--realce);
+  display: grid; place-items: center; flex: none; color: var(--marinho);
+}
+.cartao-unidade b { display: block; font-size: 13px; font-weight: 700; line-height: 1.3; }
+.cartao-unidade span { display: block; font-size: 11.5px; color: var(--suave); line-height: 1.4; }
+.grupo { border: 1px solid var(--linha); border-radius: 12px; overflow: hidden; }
+.grupo-cab {
+  display: flex; align-items: center; gap: 10px; padding: 11px 12px;
+  font-size: 12px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
+  color: var(--marinho);
+}
+.grupo-cab .seta { margin-left: auto; color: var(--suave); }
+.grupo-itens { border-top: 1px solid var(--linha); padding: 4px 0; }
+.item {
+  display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 14px;
+  font-size: 13px; color: var(--lateral-txt); border-left: 3px solid transparent;
+}
+.item svg { color: var(--suave); flex: none; }
+.item.ativo {
+  background: var(--realce); border-left-color: var(--marinho);
+  color: var(--marinho); font-weight: 700;
+}
+.item.ativo svg { color: var(--marinho); }
+.grupo.fechado .grupo-cab { color: var(--lateral-txt); }
+
+/* -------- área de conteúdo */
+.conteudo { flex: 1; min-width: 0; background: var(--fundo); }
+.cab-tela { background: var(--cartao); border-bottom: 1px solid var(--linha); padding: 20px 26px; }
+.cab-tela h1 { margin: 0; font-size: 21px; font-weight: 800; letter-spacing: -.022em; }
+.cab-tela p { margin: 6px 0 0; font-size: 13.5px; color: var(--suave); max-width: 66ch; }
+.cab-linha { display: flex; align-items: flex-start; gap: 18px; flex-wrap: wrap; }
+.cab-linha .dir { margin-left: auto; display: flex; gap: 10px; align-items: center; }
+.painel { padding: 22px 26px; display: grid; gap: 18px; }
+
+/* -------- peças de UI */
+.cartao {
+  background: var(--cartao); border: 1px solid var(--linha); border-radius: 12px;
+  box-shadow: var(--sombra); overflow: hidden;
+}
+.cartao-cab {
+  padding: 14px 18px; display: flex; align-items: center; gap: 10px;
+  font-size: 14px; font-weight: 700;
+}
+.cartao-cab .dir { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.cartao-corpo { padding: 0 18px 16px; }
+.cifra {
+  font-family: var(--sans); font-weight: 700; font-size: .8em;
+  letter-spacing: .01em; margin-right: .22em; opacity: .85;
+}
+.btn {
+  white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 7px; border-radius: 8px;
+  background: var(--marinho); color: var(--marinho-cont); border: 1px solid var(--marinho);
+  font-family: var(--sans); font-size: 13px; font-weight: 600; padding: 8px 13px; line-height: 1.2;
+}
+.btn.vazio { background: transparent; color: var(--tinta); border-color: var(--linha); }
+.btn.pequeno { font-size: 12px; padding: 6px 10px; }
+.selecao {
+  display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--linha);
+  background: var(--cartao); border-radius: 8px; padding: 7px 11px; font-size: 13px; font-weight: 600;
+}
+.pilula {
+  display: inline-flex; align-items: center; gap: 6px; border-radius: 999px;
+  border: 1px solid var(--linha); background: var(--calmo); color: var(--suave);
+  font-size: 10.5px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase;
+  padding: 3px 9px; white-space: nowrap;
+}
+.pilula .ponto { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+.pilula.andamento { border-color: var(--marinho); color: var(--marinho); background: transparent; }
+.pilula.pronta { background: var(--marinho); border-color: var(--marinho); color: var(--marinho-cont); }
+.pilula.travada { background: var(--calmo); color: var(--suave); }
+.pilula.espera { border-style: dashed; }
+
+/* -------- a régua das cinco fontes */
+.regua { display: inline-flex; align-items: center; gap: 3px; }
+.regua .celula {
+  min-width: 40px; height: 21px; border-radius: 4px; display: grid; place-items: center;
+  font-family: var(--mono); font-size: 9.5px; font-weight: 700; letter-spacing: .02em;
+  padding: 0 4px;
+}
+.regua .celula.tem { background: var(--marinho); color: var(--marinho-cont); }
+.regua .celula.falta {
+  background: transparent; color: var(--suave); opacity: .75;
+  border: 1px dashed currentColor;
+}
+.regua .conta {
+  font-family: var(--mono); font-size: 11px; font-weight: 700; color: var(--suave);
+  margin-left: 7px; letter-spacing: 0;
+}
+.regua .conta.completa { color: var(--marinho); }
+
+/* -------- a barra de cobertura */
+.cobertura { display: flex; height: 8px; border-radius: 999px; overflow: hidden; background: var(--calmo); }
+.cobertura .conferido { background: var(--marinho); }
+.cobertura .sem-fonte {
+  background-image: repeating-linear-gradient(
+    135deg, var(--suave) 0 2px, transparent 2px 6px
+  );
+  background-color: var(--calmo); opacity: .8;
+}
+.legenda-cob {
+  display: flex; gap: 16px; flex-wrap: wrap; margin-top: 8px;
+  font-size: 11.5px; color: var(--suave);
+}
+.legenda-cob span { display: inline-flex; align-items: center; gap: 6px; }
+.amostra { width: 12px; height: 8px; border-radius: 2px; flex: none; }
+.amostra.a { background: var(--marinho); }
+.amostra.b {
+  background-image: repeating-linear-gradient(135deg, var(--suave) 0 2px, transparent 2px 6px);
+  background-color: var(--calmo);
+}
+
+/* -------- números */
+.numeros { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1px; background: var(--linha); }
+.numeros > div { background: var(--cartao); padding: 14px 18px; }
+.numeros .rotulo {
+  font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase;
+  color: var(--suave); margin-bottom: 5px;
+}
+.numeros .valor {
+  font-family: var(--mono); font-size: 20px; font-weight: 700; letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums;
+}
+.numeros .valor.atencao { color: var(--atencao-txt); }
+.numeros .apoio { font-size: 11.5px; color: var(--suave); margin-top: 4px; line-height: 1.4; }
+
+/* -------- lista de competências (tela 1) */
+.linha-comp {
+  display: grid; grid-template-columns: minmax(0,1.4fr) 258px 152px 116px 18px;
+  align-items: center; gap: 16px; padding: 13px 18px 13px 15px;
+  border-top: 1px solid var(--linha); border-left: 3px solid transparent;
+}
+.linha-comp:first-child { border-top: none; }
+.linha-comp.acao { background: var(--atencao-bg); border-left-color: var(--atencao); }
+.comp-nome { font-size: 13.5px; font-weight: 700; line-height: 1.35; }
+.comp-sub { font-size: 11.5px; color: var(--suave); margin-top: 2px; }
+.comp-sub .destaque-at { color: var(--atencao-txt); font-weight: 700; }
+.dinheiro {
+  font-family: var(--mono); font-size: 13px; font-weight: 700; text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.dinheiro small {
+  display: block; font-family: var(--sans); font-size: 10.5px; font-weight: 600;
+  color: var(--suave); letter-spacing: .04em; text-transform: uppercase; margin-bottom: 2px;
+}
+.dinheiro.pergunta { color: var(--atencao-txt); }
+.dinheiro.vazio { color: var(--suave); font-weight: 500; }
+.seta-fim { color: var(--suave); }
+
+/* -------- faixa da quinzena em curso */
+.em-curso {
+  display: flex; align-items: center; gap: 14px; padding: 14px 18px;
+  border: 1px dashed var(--linha); border-radius: 12px; background: transparent;
+}
+.em-curso .marcador {
+  width: 36px; height: 36px; border-radius: 10px; background: var(--calmo);
+  display: grid; place-items: center; color: var(--suave); flex: none;
+}
+.em-curso b { font-size: 13.5px; display: block; }
+.em-curso span { font-size: 12px; color: var(--suave); }
+.em-curso .btn { margin-left: auto; flex: none; }
+
+/* -------- tabela (tela 2) */
+.tabela { width: 100%; border-collapse: collapse; font-size: 13px; }
+.tabela th {
+  text-align: left; font-size: 10.5px; font-weight: 800; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--suave); padding: 9px 10px;
+  border-bottom: 1px solid var(--linha); white-space: nowrap;
+}
+.tabela th.num, .tabela td.num { text-align: right; }
+.tabela td { padding: 11px 10px; border-bottom: 1px solid var(--linha); vertical-align: middle; }
+.tabela tr:last-child td { border-bottom: none; }
+.tabela td.num {
+  font-family: var(--mono); font-weight: 700; font-variant-numeric: tabular-nums;
+}
+.tabela td.num.pergunta { color: var(--atencao-txt); }
+.tabela td.num.nada { color: var(--suave); font-weight: 400; }
+.grupo-quinzena td {
+  background: var(--calmo); padding: 8px 12px; border-bottom: 1px solid var(--linha);
+}
+.grupo-quinzena .faixa { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.grupo-quinzena b { font-size: 12px; font-weight: 800; letter-spacing: .04em; text-transform: uppercase; }
+.grupo-quinzena .resumo {
+  margin-left: auto; font-family: var(--mono); font-size: 11.5px; color: var(--suave);
+  font-variant-numeric: tabular-nums;
+}
+.filtros { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; padding: 0 0 14px; }
+.filtro {
+  display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--linha);
+  border-radius: 8px; padding: 6px 11px; font-size: 12.5px; background: var(--cartao);
+}
+.filtro b { font-weight: 700; }
+.filtro.aceso { border-color: var(--marinho); color: var(--marinho); }
+
+/* -------- diálogo */
+/* O diálogo é mostrado à parte, e não por cima da tabela: as duas coisas são
+   a proposta, e uma cobrindo a outra não deixa ver nenhuma das duas. */
+.vitrine {
+  margin-top: 20px; padding: 44px 24px; border-radius: 14px;
+  border: 1px solid var(--linha); background: var(--vitrine);
+  display: grid; place-items: center;
+}
+.dialogo {
+  width: min(560px, 100%); background: var(--cartao);
+  border: 1px solid var(--linha); border-radius: 14px; box-shadow: var(--sombra-alta);
+  overflow: hidden;
+}
+.dialogo-cab { padding: 18px 22px 12px; }
+.dialogo-cab h3 { margin: 0; font-size: 16px; font-weight: 800; letter-spacing: -.015em; }
+.dialogo-cab p { margin: 5px 0 0; font-size: 12.5px; color: var(--suave); }
+.dialogo-corpo { padding: 4px 22px 18px; display: grid; gap: 16px; }
+.dialogo-pe {
+  padding: 14px 22px; border-top: 1px solid var(--linha); background: var(--calmo);
+  display: flex; gap: 10px; align-items: center;
+}
+.dialogo-pe .btn:last-of-type { margin-left: auto; }
+.campo { display: grid; gap: 5px; }
+.campo label { font-size: 11.5px; font-weight: 700; letter-spacing: .03em; }
+.entrada {
+  border: 1px solid var(--linha); border-radius: 8px; padding: 8px 11px; font-size: 13px;
+  background: var(--cartao); display: flex; align-items: center; gap: 8px;
+}
+.entrada .fantasma { color: var(--suave); }
+.entrada .dir { margin-left: auto; color: var(--suave); }
+.trio { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 10px; }
+.repetir { border: 1px solid var(--marinho); border-radius: 10px; overflow: hidden; }
+.repetir-cab {
+  padding: 10px 13px; background: var(--realce); display: flex; align-items: center; gap: 9px;
+  font-size: 12.5px; font-weight: 700; color: var(--marinho);
+}
+.repetir-cab .dir { margin-left: auto; font-size: 11px; font-weight: 700; }
+.par {
+  display: flex; align-items: center; gap: 10px; padding: 7px 13px; font-size: 12.5px;
+  border-top: 1px solid var(--linha);
+}
+.marca-sel {
+  width: 15px; height: 15px; border-radius: 4px; border: 1.5px solid var(--marinho);
+  background: var(--marinho); color: var(--marinho-cont); display: grid; place-items: center; flex: none;
+}
+.marca-sel.livre { background: transparent; border-color: var(--linha); color: transparent; }
+.par .cod { font-family: var(--mono); font-size: 11px; color: var(--suave); margin-left: auto; }
+
+/* -------- catálogo da régua */
+.catalogo { display: grid; gap: 1px; background: var(--linha); border: 1px solid var(--linha);
+  border-radius: 12px; overflow: hidden; margin-top: 22px; }
+.catalogo > div {
+  background: var(--cartao); padding: 13px 18px; display: grid; gap: 6px 18px;
+  grid-template-columns: 258px minmax(0, 1fr); align-items: center;
+}
+@media (max-width: 700px) { .catalogo > div { grid-template-columns: 1fr; } }
+.catalogo .txt { font-size: 13px; }
+.catalogo .txt b { display: block; }
+.catalogo .txt span { color: var(--suave); font-size: 12px; }
+.catalogo .regua { flex: none; }
+
+/* -------- tabela de origem das fontes */
+.fontes-tab { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 22px; }
+.fontes-tab th {
+  text-align: left; font-size: 10.5px; font-weight: 800; letter-spacing: .08em;
+  text-transform: uppercase; color: var(--suave); padding: 8px 12px 8px 0;
+  border-bottom: 1.5px solid var(--tinta);
+}
+.fontes-tab td { padding: 11px 12px 11px 0; border-bottom: 1px solid var(--linha); vertical-align: top; }
+.fontes-tab td:first-child { white-space: nowrap; }
+.fontes-tab .rot {
+  font-family: var(--mono); font-size: 11px; font-weight: 700; background: var(--marinho);
+  color: var(--marinho-cont); padding: 3px 7px; border-radius: 4px; display: inline-block;
+}
+.fontes-tab .sub { display: block; color: var(--suave); font-size: 12.5px; margin-top: 2px; }
+
+/* -------- caixa de ressalva */
+.ressalva {
+  border-left: 3px solid var(--atencao); background: var(--atencao-bg);
+  border-radius: 0 10px 10px 0; padding: 16px 20px; margin: 26px 0;
+}
+.ressalva h4 {
+  margin: 0 0 6px; font-size: 11px; font-weight: 800; letter-spacing: .1em;
+  text-transform: uppercase; color: var(--atencao-txt);
+}
+.ressalva p { margin: 0; font-size: .93rem; color: var(--tinta); }
+.ressalva p + p { margin-top: 9px; }
+
+/* -------- rodapé */
+.rodape {
+  margin-top: 80px; padding-top: 22px; border-top: 1px solid var(--linha);
+  font-size: 12.5px; color: var(--suave);
+}
+.rodape p { color: var(--suave); }
+
+@media (max-width: 640px) {
+  .capa { padding: 44px 0 40px; }
+  .secao { margin-top: 56px; }
+}
+</style>
+
+<header class="capa">
+  <div class="folha">
+    <p class="sobrenome"><span class="marca">FreightCheck</span> <span>·</span> <span>Fechamento de Remuneração</span></p>
+    <h1>A seção Competência, refeita</h1>
+    <p class="fio">
+      Duas telas que hoje mostram a mesma lista passam a ter dois trabalhos:
+      uma responde <strong>podemos fechar esta quinzena?</strong> e a outra é o
+      arquivo dos períodos. No meio das duas, uma peça nova — a régua das cinco
+      fontes — diz num relance o que já chegou e o que falta.
+    </p>
+    <div class="carimbo">
+      <span>proposta de desenho</span>
+      <span>19/08/2026</span>
+      <span>claude/preview-fechamento-remuneracao</span>
+    </div>
+  </div>
+</header>
+
+<div class="folha">
+
+  <!-- ===================================================================== -->
+  <section class="coluna">
+    <p class="numeral">01 · O que a seção faz hoje</p>
+    <h2>Duas telas, uma lista só</h2>
+    <p>
+      A <strong>Visão do fechamento</strong> mostra até seis competências, repete o
+      menu da lateral em forma de cartão e explica a relação com a Auditoria.
+      <strong>Competências</strong> mostra a mesma lista, agora inteira, com um
+      formulário de abertura fixo no topo. Nenhuma das duas responde a pergunta
+      que o ambiente existe para responder — <em>quanto devemos receber nesta
+      quinzena, o que está pendente, podemos fechar</em> — porque nenhuma das
+      duas traz número.
+    </p>
+    <ul>
+      <li><strong>A visão não é uma visão.</strong> É um índice com um texto
+        explicativo. O cartão “o processo, na ordem em que acontece” diz o mesmo
+        que a lateral diz três centímetros à esquerda.</li>
+      <li><strong>A lista não diz o estado do trabalho.</strong> A pilha
+        <span class="mono">ABERTA</span> não distingue a competência sem nenhum
+        relatório da que está esperando só a conciliação — e é essa diferença
+        que decide o que fazer no dia.</li>
+      <li><strong>O formulário ocupa o topo de uma tela diária</strong> para um
+        gesto que acontece a cada quinze dias, e pede seis vezes a mesma coisa
+        quando a quinzena tem seis CDDs.</li>
+      <li><strong>O número mais honesto do produto não aparece.</strong> Que 44%
+        do emitido entra sem fonte que confira é a informação que separa este
+        fechamento de uma planilha otimista, e ela só existe dentro da
+        competência aberta.</li>
+    </ul>
+  </section>
+
+  <!-- ===================================================================== -->
+  <section class="secao coluna">
+    <p class="numeral">02 · A proposta</p>
+    <h2>Uma tela para a quinzena, outra para o arquivo</h2>
+    <p>
+      O calendário é o metrônomo deste ambiente: a cada quinze dias a Ambev
+      fecha um período, exporta cinco relatórios e a transportadora tem alguns
+      dias para conferir. E há sempre <strong>duas quinzenas vivas ao mesmo
+      tempo</strong> — a que está rodando na rua e a que está sendo fechada na
+      mesa. A seção inteira se organiza em torno disso.
+    </p>
+    <ul>
+      <li><strong>Visão do fechamento</strong> — a mesa de trabalho da quinzena
+        que está fechando. Todas as competências daquele período, ordenadas pelo
+        que impede o fechamento, com os três números da quinzena inteira.</li>
+      <li><strong>Competências</strong> — o arquivo. Todo período que já
+        existiu, agrupado por quinzena, com valor, cobertura e estado. É onde se
+        abre a próxima e onde se acha a de julho.</li>
+    </ul>
+  </section>
+
+  <!-- ===================================================================== -->
+  <section class="secao">
+    <div class="coluna">
+      <p class="numeral">03 · Primeira tela</p>
+      <h2>Visão do fechamento</h2>
+      <p>
+        Abre já dentro da quinzena que está fechando — não numa lista de todas.
+        A pergunta do topo da tela é a pergunta do ambiente, e as três leituras
+        embaixo dela são a resposta que existe até agora.
+      </p>
+    </div>
+
+    <div class="moldura">
+      <p class="rotulo-maquete"><span class="rota">/fechamento</span> <span>·</span> <span>maquete em fidelidade de produto</span></p>
+      <div class="tela">
+        <div class="tela-interna">
+
+          <!-- topbar -->
+          <div class="tb">
+            <span class="logo">Freight<em>Check</em></span>
+            <span class="div"></span>
+            <span class="amb">
+              Fechamento
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </span>
+            <span class="dir"><span class="pastilha">GP</span></span>
+          </div>
+
+          <div class="corpo">
+            <!-- lateral -->
+            <aside class="lat">
+              <div class="lat-titulo">Unidade</div>
+              <div class="cartao-unidade">
+                <span class="pin">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                </span>
+                <span>
+                  <b>Todas as unidades</b>
+                  <span>6 CDDs · 3 transportadoras</span>
+                </span>
+              </div>
+
+              <div class="grupo">
+                <div class="grupo-cab">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                  Competência
+                  <svg class="seta" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </div>
+                <div class="grupo-itens">
+                  <div class="item ativo">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
+                    Visão do fechamento
+                  </div>
+                  <div class="item">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                    Competências
+                  </div>
+                </div>
+              </div>
+
+              <div class="grupo fechado">
+                <div class="grupo-cab">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 10h2M8 14h2M8 18h2M14 10h2v8h-2z"/></svg>
+                  Apuração
+                  <svg class="seta" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </div>
+              </div>
+              <div class="grupo fechado">
+                <div class="grupo-cab">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14a2 2 0 0 0 2-2v-1a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v1a2 2 0 0 0 2 2Z"/><path d="M12 16V9"/><circle cx="12" cy="6" r="4"/></svg>
+                  Decisão
+                  <svg class="seta" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </div>
+              </div>
+              <div class="grupo fechado">
+                <div class="grupo-cab">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>
+                  Registro
+                  <svg class="seta" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </div>
+              </div>
+            </aside>
+
+            <!-- conteúdo -->
+            <main class="conteudo">
+              <div class="cab-tela">
+                <div class="cab-linha">
+                  <div>
+                    <h1>Podemos fechar a 1ª quinzena de agosto?</h1>
+                    <p>01/08 a 15/08 de 2026 · 6 competências · o período encerrou há 4 dias</p>
+                  </div>
+                  <div class="dir">
+                    <span class="selecao">
+                      1ª quinzena de ago/2026
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="painel">
+
+                <!-- ① os três números -->
+                <div class="cartao">
+                  <div class="numeros">
+                    <div>
+                      <div class="rotulo">Emitido em CT-e</div>
+                      <div class="valor"><span class="cifra">R$</span>3.813.853,15</div>
+                      <div class="apoio">O que a Ambev diz ter faturado nas 4 competências já apuradas.</div>
+                    </div>
+                    <div>
+                      <div class="rotulo">Conferido pela apuração</div>
+                      <div class="valor"><span class="cifra">R$</span>2.125.198,54</div>
+                      <div class="apoio">56% do emitido, reconstruído verba a verba a partir das fontes.</div>
+                    </div>
+                    <div>
+                      <div class="rotulo">A questionar</div>
+                      <div class="valor atencao"><span class="cifra">R$</span>284.716,92</div>
+                      <div class="apoio">Valores que reduzem o recebimento, cada um com a linha de origem.</div>
+                    </div>
+                  </div>
+                  <div class="cartao-corpo" style="padding-top:14px">
+                    <div class="cobertura">
+                      <div class="conferido" style="width:56%"></div>
+                      <div class="sem-fonte" style="width:44%"></div>
+                    </div>
+                    <div class="legenda-cob">
+                      <span><i class="amostra a"></i> 56% conferido contra as cinco fontes</span>
+                      <span><i class="amostra b"></i> 44% sem fonte que confira — a parcela fixa do contrato (R$ 1.688.654,61)</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- ②③④ a mesa de trabalho -->
+                <div class="cartao">
+                  <div class="cartao-cab">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                    As competências da quinzena
+                    <span class="dir">
+                      <span class="pilula andamento"><span class="ponto"></span>2 esperando relatório</span>
+                    </span>
+                  </div>
+
+                  <div class="linha-comp acao">
+                    <div>
+                      <div class="comp-nome">CDD Macapá <span style="color:var(--suave);font-weight:500">· 481</span></div>
+                      <div class="comp-sub">Transportadora 052 · <span class="destaque-at">nenhum relatório recebido</span></div>
+                    </div>
+                    <div>
+                      <span class="regua" role="img" aria-label="0 de 5 relatórios recebidos">
+                        <span class="celula falta">2Art</span>
+                        <span class="celula falta">08.18</span>
+                        <span class="celula falta">12.09</span>
+                        <span class="celula falta">08.15</span>
+                        <span class="celula falta">59.02</span>
+                        <span class="conta">0/5</span>
+                      </span>
+                    </div>
+                    <div class="dinheiro vazio">— sem apuração</div>
+                    <div><span class="pilula espera"><span class="ponto"></span>Aberta</span></div>
+                    <svg class="seta-fim" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                  </div>
+
+                  <div class="linha-comp acao">
+                    <div>
+                      <div class="comp-nome">CDD Santarém <span style="color:var(--suave);font-weight:500">· 470</span></div>
+                      <div class="comp-sub">Transportadora 052 · <span class="destaque-at">faltam o CT-e por verba e a conciliação</span></div>
+                    </div>
+                    <div>
+                      <span class="regua" role="img" aria-label="3 de 5 relatórios recebidos">
+                        <span class="celula tem">2Art</span>
+                        <span class="celula tem">08.18</span>
+                        <span class="celula tem">12.09</span>
+                        <span class="celula falta">08.15</span>
+                        <span class="celula falta">59.02</span>
+                        <span class="conta">3/5</span>
+                      </span>
+                    </div>
+                    <div class="dinheiro vazio">— sem apuração</div>
+                    <div><span class="pilula espera"><span class="ponto"></span>Aberta</span></div>
+                    <svg class="seta-fim" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                  </div>
+
+                  <div class="linha-comp">
+                    <div>
+                      <div class="comp-nome">CDD Belém <span style="color:var(--suave);font-weight:500">· 443</span></div>
+                      <div class="comp-sub">Transportadora 036 · apurada em 18/08, 14:22</div>
+                    </div>
+                    <div>
+                      <span class="regua" role="img" aria-label="5 de 5 relatórios recebidos">
+                        <span class="celula tem">2Art</span>
+                        <span class="celula tem">08.18</span>
+                        <span class="celula tem">12.09</span>
+                        <span class="celula tem">08.15</span>
+                        <span class="celula tem">59.02</span>
+                        <span class="conta completa">5/5</span>
+                      </span>
+                    </div>
+                    <div class="dinheiro pergunta"><small>A questionar</small><span class="cifra">R$</span>120.057,85</div>
+                    <div><span class="pilula pronta"><span class="ponto"></span>Apurada</span></div>
+                    <svg class="seta-fim" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                  </div>
+
+                  <div class="linha-comp">
+                    <div>
+                      <div class="comp-nome">CDD Ananindeua <span style="color:var(--suave);font-weight:500">· 447</span></div>
+                      <div class="comp-sub">Transportadora 036 · apurada em 18/08, 14:31</div>
+                    </div>
+                    <div>
+                      <span class="regua" role="img" aria-label="5 de 5 relatórios recebidos">
+                        <span class="celula tem">2Art</span>
+                        <span class="celula tem">08.18</span>
+                        <span class="celula tem">12.09</span>
+                        <span class="celula tem">08.15</span>
+                        <span class="celula tem">59.02</span>
+                        <span class="conta completa">5/5</span>
+                      </span>
+                    </div>
+                    <div class="dinheiro pergunta"><small>A questionar</small><span class="cifra">R$</span>74.310,22</div>
+                    <div><span class="pilula pronta"><span class="ponto"></span>Apurada</span></div>
+                    <svg class="seta-fim" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                  </div>
+
+                  <div class="linha-comp">
+                    <div>
+                      <div class="comp-nome">CDD Castanhal <span style="color:var(--suave);font-weight:500">· 451</span></div>
+                      <div class="comp-sub">Transportadora 041 · apurada sem a conciliação</div>
+                    </div>
+                    <div>
+                      <span class="regua" role="img" aria-label="4 de 5 relatórios recebidos">
+                        <span class="celula tem">2Art</span>
+                        <span class="celula tem">08.18</span>
+                        <span class="celula tem">12.09</span>
+                        <span class="celula tem">08.15</span>
+                        <span class="celula falta">59.02</span>
+                        <span class="conta">4/5</span>
+                      </span>
+                    </div>
+                    <div class="dinheiro pergunta"><small>A questionar</small><span class="cifra">R$</span>38.902,77</div>
+                    <div><span class="pilula pronta"><span class="ponto"></span>Apurada</span></div>
+                    <svg class="seta-fim" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                  </div>
+
+                  <div class="linha-comp">
+                    <div>
+                      <div class="comp-nome">CDD Marabá <span style="color:var(--suave);font-weight:500">· 462</span></div>
+                      <div class="comp-sub">Transportadora 041 · congelada em 18/08, 17:05</div>
+                    </div>
+                    <div>
+                      <span class="regua" role="img" aria-label="5 de 5 relatórios recebidos">
+                        <span class="celula tem">2Art</span>
+                        <span class="celula tem">08.18</span>
+                        <span class="celula tem">12.09</span>
+                        <span class="celula tem">08.15</span>
+                        <span class="celula tem">59.02</span>
+                        <span class="conta completa">5/5</span>
+                      </span>
+                    </div>
+                    <div class="dinheiro"><small>Cobrado</small><span class="cifra">R$</span>741.330,96</div>
+                    <div>
+                      <span class="pilula travada">
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                        Encerrada
+                      </span>
+                    </div>
+                    <svg class="seta-fim" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+                  </div>
+                </div>
+
+                <!-- ⑤ a quinzena em curso -->
+                <div class="em-curso">
+                  <span class="marcador">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                  </span>
+                  <span>
+                    <b>A 2ª quinzena de agosto está rodando na rua — 16/08 a 31/08, faltam 12 dias.</b>
+                    <span>Os relatórios saem depois do encerramento do período; não há nada a conferir aqui ainda. As 6 competências ainda não foram abertas.</span>
+                  </span>
+                  <button class="btn vazio pequeno" type="button">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                    Abrir as 6 desta quinzena
+                  </button>
+                </div>
+
+              </div>
+            </main>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="notas">
+      <div class="nota">
+        <h4><span class="chave">1</span> Os três números são da quinzena, não de uma competência</h4>
+        <p>
+          Emitido, conferido e a questionar somam as competências já apuradas do
+          período — e a barra abaixo deles carrega a confissão que o produto
+          hoje esconde dentro da tela de dentro: <strong>44% do emitido entra sem
+          fonte que confira</strong>. O hachurado não é uma cor de dado, é
+          ausência: não vale zero, vale “não sei”.
+        </p>
+      </div>
+      <div class="nota">
+        <h4><span class="chave">2</span> A ordem da lista é a ordem do trabalho</h4>
+        <p>
+          Primeiro o que impede o fechamento — competência sem relatório —, depois
+          o que já apurou, do maior valor a questionar para o menor, e por último
+          o que já congelou. Ninguém precisa ler seis linhas para saber por onde
+          começar; a primeira linha é por onde se começa.
+        </p>
+      </div>
+      <div class="nota">
+        <h4><span class="chave">3</span> A régua diz o que a pilha não dizia</h4>
+        <p>
+          <span class="mono">ABERTA</span> descrevia tanto o Macapá, que não tem
+          nada, quanto o Santarém, que espera dois arquivos. A régua separa os
+          dois sem uma palavra, e é a mesma peça na lista, na tabela e no
+          cabeçalho da competência aberta.
+        </p>
+      </div>
+      <div class="nota">
+        <h4><span class="chave">4</span> Cada linha mostra o número que decide</h4>
+        <p>
+          Na competência apurada, o que interessa é o valor a questionar — é ele
+          que vira conversa com a Ambev. Na encerrada, o que interessa é o
+          cobrado. Na que ainda não apurou, a coluna diz <em>sem apuração</em>, e
+          não <span class="mono">R$ 0,00</span>.
+        </p>
+      </div>
+      <div class="nota">
+        <h4><span class="chave">5</span> A quinzena em curso aparece, e desarma a tela vazia</h4>
+        <p>
+          Há sempre dois períodos vivos. Dizer que o segundo está rodando e que
+          os relatórios só saem depois do dia 31 transforma um vazio inexplicável
+          numa informação — e coloca ali o único gesto útil do momento: abrir as
+          competências do período que começou.
+        </p>
+      </div>
+      <div class="nota">
+        <h4><span class="chave">6</span> O que saiu</h4>
+        <p>
+          O cartão “o processo, na ordem em que acontece” — a lateral já é esse
+          mapa — e o cartão sobre a Auditoria, que virou um link no rodapé da
+          tela. Documentação num cockpit envelhece: quem entra todo dia lê uma
+          vez e passa a pular o bloco inteiro, inclusive quando ele mudar.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================== -->
+  <section class="secao">
+    <div class="coluna">
+      <p class="numeral">04 · Segunda tela</p>
+      <h2>Competências</h2>
+      <p>
+        Deixa de ser um formulário com uma lista embaixo e passa a ser o arquivo
+        do ambiente: toda quinzena que já existiu, agrupada por período, com
+        valor, cobertura e estado. Abrir competência sai do topo da tela e vira
+        um diálogo — mostrado aberto aqui, porque é nele que está a economia
+        real de trabalho.
+      </p>
+    </div>
+
+    <div class="moldura">
+      <p class="rotulo-maquete"><span class="rota">/fechamento/competencias</span> <span>·</span> <span>com o diálogo de abertura aberto</span></p>
+      <div class="tela">
+        <div class="tela-interna">
+          <div class="tb">
+            <span class="logo">Freight<em>Check</em></span>
+            <span class="div"></span>
+            <span class="amb">
+              Fechamento
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+            </span>
+            <span class="dir"><span class="pastilha">GP</span></span>
+          </div>
+
+          <div class="corpo">
+            <aside class="lat">
+              <div class="lat-titulo">Unidade</div>
+              <div class="cartao-unidade">
+                <span class="pin">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>
+                </span>
+                <span>
+                  <b>Todas as unidades</b>
+                  <span>6 CDDs · 3 transportadoras</span>
+                </span>
+              </div>
+              <div class="grupo">
+                <div class="grupo-cab">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                  Competência
+                  <svg class="seta" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </div>
+                <div class="grupo-itens">
+                  <div class="item">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
+                    Visão do fechamento
+                  </div>
+                  <div class="item ativo">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+                    Competências
+                  </div>
+                </div>
+              </div>
+              <div class="grupo fechado">
+                <div class="grupo-cab">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="2" width="16" height="20" rx="2"/><path d="M8 6h8M8 10h2M8 14h2M8 18h2M14 10h2v8h-2z"/></svg>
+                  Apuração
+                  <svg class="seta" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </div>
+              </div>
+              <div class="grupo fechado">
+                <div class="grupo-cab">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 22h14a2 2 0 0 0 2-2v-1a3 3 0 0 0-3-3H6a3 3 0 0 0-3 3v1a2 2 0 0 0 2 2Z"/><path d="M12 16V9"/><circle cx="12" cy="6" r="4"/></svg>
+                  Decisão
+                  <svg class="seta" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </div>
+              </div>
+              <div class="grupo fechado">
+                <div class="grupo-cab">
+                  <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l3 2"/></svg>
+                  Registro
+                  <svg class="seta" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m9 18 6-6-6-6"/></svg>
+                </div>
+              </div>
+            </aside>
+
+            <main class="conteudo">
+              <div class="cab-tela">
+                <div class="cab-linha">
+                  <div>
+                    <h1>Competências</h1>
+                    <p>Cada competência é uma quinzena de um CDD com uma transportadora — o período que se apura, se confere e se fecha.</p>
+                  </div>
+                  <div class="dir">
+                    <button class="btn" type="button">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+                      Abrir competência
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div class="painel">
+                <div>
+                  <div class="filtros">
+                    <span class="filtro aceso"><b>Quinzena</b> ago/2026 · 1ª</span>
+                    <span class="filtro"><b>Unidade</b> todas</span>
+                    <span class="filtro"><b>Transportadora</b> todas</span>
+                    <span class="filtro"><b>Estado</b> todos</span>
+                  </div>
+
+                  <div class="cartao">
+                    <table class="tabela">
+                      <thead>
+                        <tr>
+                          <th>Unidade e transportadora</th>
+                          <th>Relatórios</th>
+                          <th class="num">Emitido em CT-e</th>
+                          <th class="num">Conferido</th>
+                          <th class="num">A questionar</th>
+                          <th>Estado</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr class="grupo-quinzena">
+                          <td colspan="6">
+                            <span class="faixa">
+                              <b>1ª quinzena de agosto de 2026</b>
+                              <span style="font-size:12px;color:var(--suave)">01/08 a 15/08 · 6 competências</span>
+                              <span class="resumo">R$ 3.813.853,15 emitidos · 56% conferido · R$ 284.716,92 a questionar</span>
+                            </span>
+                          </td>
+                        </tr>
+
+                        <tr>
+                          <td>
+                            <div class="comp-nome">CDD Belém <span style="color:var(--suave);font-weight:500">· 443</span></div>
+                            <div class="comp-sub">Transportadora 036</div>
+                          </td>
+                          <td>
+                            <span class="regua">
+                              <span class="celula tem">2Art</span><span class="celula tem">08.18</span><span class="celula tem">12.09</span><span class="celula tem">08.15</span><span class="celula tem">59.02</span>
+                              <span class="conta completa">5/5</span>
+                            </span>
+                          </td>
+                          <td class="num">1.473.432,61</td>
+                          <td class="num">
+                            56%
+                            <div class="cobertura" style="width:68px;margin:5px 0 0 auto;height:7px"><div class="conferido" style="width:56%"></div><div class="sem-fonte" style="width:44%"></div></div>
+                          </td>
+                          <td class="num pergunta">120.057,85</td>
+                          <td><span class="pilula pronta"><span class="ponto"></span>Apurada</span></td>
+                        </tr>
+
+                        <tr>
+                          <td>
+                            <div class="comp-nome">CDD Ananindeua <span style="color:var(--suave);font-weight:500">· 447</span></div>
+                            <div class="comp-sub">Transportadora 036</div>
+                          </td>
+                          <td>
+                            <span class="regua">
+                              <span class="celula tem">2Art</span><span class="celula tem">08.18</span><span class="celula tem">12.09</span><span class="celula tem">08.15</span><span class="celula tem">59.02</span>
+                              <span class="conta completa">5/5</span>
+                            </span>
+                          </td>
+                          <td class="num">986.204,18</td>
+                          <td class="num">
+                            58%
+                            <div class="cobertura" style="width:68px;margin:5px 0 0 auto;height:7px"><div class="conferido" style="width:58%"></div><div class="sem-fonte" style="width:42%"></div></div>
+                          </td>
+                          <td class="num pergunta">74.310,22</td>
+                          <td><span class="pilula pronta"><span class="ponto"></span>Apurada</span></td>
+                        </tr>
+
+                        <tr>
+                          <td>
+                            <div class="comp-nome">CDD Castanhal <span style="color:var(--suave);font-weight:500">· 451</span></div>
+                            <div class="comp-sub">Transportadora 041</div>
+                          </td>
+                          <td>
+                            <span class="regua">
+                              <span class="celula tem">2Art</span><span class="celula tem">08.18</span><span class="celula tem">12.09</span><span class="celula tem">08.15</span><span class="celula falta">59.02</span>
+                              <span class="conta">4/5</span>
+                            </span>
+                          </td>
+                          <td class="num">612.885,40</td>
+                          <td class="num">
+                            54%
+                            <div class="cobertura" style="width:68px;margin:5px 0 0 auto;height:7px"><div class="conferido" style="width:54%"></div><div class="sem-fonte" style="width:46%"></div></div>
+                          </td>
+                          <td class="num pergunta">38.902,77</td>
+                          <td><span class="pilula pronta"><span class="ponto"></span>Apurada</span></td>
+                        </tr>
+
+                        <tr>
+                          <td>
+                            <div class="comp-nome">CDD Marabá <span style="color:var(--suave);font-weight:500">· 462</span></div>
+                            <div class="comp-sub">Transportadora 041</div>
+                          </td>
+                          <td>
+                            <span class="regua">
+                              <span class="celula tem">2Art</span><span class="celula tem">08.18</span><span class="celula tem">12.09</span><span class="celula tem">08.15</span><span class="celula tem">59.02</span>
+                              <span class="conta completa">5/5</span>
+                            </span>
+                          </td>
+                          <td class="num">741.330,96</td>
+                          <td class="num">
+                            54%
+                            <div class="cobertura" style="width:68px;margin:5px 0 0 auto;height:7px"><div class="conferido" style="width:54%"></div><div class="sem-fonte" style="width:46%"></div></div>
+                          </td>
+                          <td class="num pergunta">51.446,08</td>
+                          <td>
+                            <span class="pilula travada">
+                              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                              Encerrada
+                            </span>
+                          </td>
+                        </tr>
+
+                        <tr>
+                          <td>
+                            <div class="comp-nome">CDD Santarém <span style="color:var(--suave);font-weight:500">· 470</span></div>
+                            <div class="comp-sub">Transportadora 052</div>
+                          </td>
+                          <td>
+                            <span class="regua">
+                              <span class="celula tem">2Art</span><span class="celula tem">08.18</span><span class="celula tem">12.09</span><span class="celula falta">08.15</span><span class="celula falta">59.02</span>
+                              <span class="conta">3/5</span>
+                            </span>
+                          </td>
+                          <td class="num nada">— sem apuração</td>
+                          <td class="num nada">—</td>
+                          <td class="num nada">—</td>
+                          <td><span class="pilula espera"><span class="ponto"></span>Aberta</span></td>
+                        </tr>
+
+                        <tr>
+                          <td>
+                            <div class="comp-nome">CDD Macapá <span style="color:var(--suave);font-weight:500">· 481</span></div>
+                            <div class="comp-sub">Transportadora 052</div>
+                          </td>
+                          <td>
+                            <span class="regua">
+                              <span class="celula falta">2Art</span><span class="celula falta">08.18</span><span class="celula falta">12.09</span><span class="celula falta">08.15</span><span class="celula falta">59.02</span>
+                              <span class="conta">0/5</span>
+                            </span>
+                          </td>
+                          <td class="num nada">— sem apuração</td>
+                          <td class="num nada">—</td>
+                          <td class="num nada">—</td>
+                          <td><span class="pilula espera"><span class="ponto"></span>Aberta</span></td>
+                        </tr>
+
+                        <tr class="grupo-quinzena">
+                          <td colspan="6">
+                            <span class="faixa">
+                              <b>2ª quinzena de julho de 2026</b>
+                              <span style="font-size:12px;color:var(--suave)">16/07 a 31/07 · 6 competências</span>
+                              <span class="resumo">R$ 4.106.918,72 emitidos · 55% conferido · todas encerradas</span>
+                            </span>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+            </main>
+          </div>
+        </div>
+      </div>
+      <p class="rotulo-maquete" style="margin-top:26px"><span class="rota">Abrir competência</span> <span>·</span> <span>o diálogo, de perto</span></p>
+      <div class="vitrine">
+      <div class="dialogo">
+        <div class="dialogo-cab">
+          <h3>Abrir competência</h3>
+          <p>Uma competência é uma quinzena de um CDD com uma transportadora. É a única coisa que se digita — todo o resto vem dos arquivos.</p>
+        </div>
+        <div class="dialogo-corpo">
+          <div class="trio">
+            <div class="campo">
+              <label for="d-ano">Ano</label>
+              <div class="entrada" id="d-ano">2026</div>
+            </div>
+            <div class="campo">
+              <label for="d-mes">Mês</label>
+              <div class="entrada" id="d-mes">
+                Agosto
+                <span class="dir"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+              </div>
+            </div>
+            <div class="campo">
+              <label for="d-quin">Quinzena</label>
+              <div class="entrada" id="d-quin">
+                2ª — 16 a 31
+                <span class="dir"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+              </div>
+            </div>
+          </div>
+
+          <div class="repetir">
+            <div class="repetir-cab">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/><path d="M3 21v-5h5"/></svg>
+              Repetir os pares da 1ª quinzena
+              <span class="dir">5 de 6</span>
+            </div>
+            <div class="par"><span class="marca-sel"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span> CDD Belém · Transportadora 036 <span class="cod">443 × 036</span></div>
+            <div class="par"><span class="marca-sel"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span> CDD Ananindeua · Transportadora 036 <span class="cod">447 × 036</span></div>
+            <div class="par"><span class="marca-sel"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span> CDD Castanhal · Transportadora 041 <span class="cod">451 × 041</span></div>
+            <div class="par"><span class="marca-sel"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span> CDD Marabá · Transportadora 041 <span class="cod">462 × 041</span></div>
+            <div class="par"><span class="marca-sel"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span> CDD Santarém · Transportadora 052 <span class="cod">470 × 052</span></div>
+            <div class="par"><span class="marca-sel livre"><svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="m5 13 4 4L19 7"/></svg></span> CDD Macapá · Transportadora 052 <span class="cod">481 × 052</span></div>
+          </div>
+
+          <div class="campo">
+            <label for="d-avulsa">Ou uma avulsa</label>
+            <div class="entrada" id="d-avulsa">
+              <span class="fantasma">Escolha ou digite <span class="mono">código — nome</span></span>
+              <span class="dir"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg></span>
+            </div>
+          </div>
+        </div>
+        <div class="dialogo-pe">
+          <span style="font-size:12px;color:var(--suave)">Abrir duas vezes a mesma competência devolve a que já existe.</span>
+          <button class="btn" type="button">Abrir 5 competências</button>
+        </div>
+      </div>
+      </div>
+    </div>
+
+    <div class="notas">
+      <div class="nota">
+        <h4><span class="chave">7</span> Agrupada por quinzena, porque é assim que se lembra</h4>
+        <p>
+          Ninguém procura “a competência 3f9a”. Procura “a de julho, o Belém”. A
+          faixa de cada período traz o total emitido, a cobertura e o que há a
+          questionar, então o arquivo também responde “como foi julho” sem que
+          se abra nada.
+        </p>
+      </div>
+      <div class="nota">
+        <h4><span class="chave">8</span> Abrir seis competências vira um gesto</h4>
+        <p>
+          Os pares CDD × transportadora se repetem quinzena após quinzena. O
+          diálogo propõe os da quinzena anterior já marcados; desmarcar o que não
+          se repete é mais rápido do que digitar seis vezes o mesmo par — e o
+          formulário some da tela que se olha todo dia.
+        </p>
+      </div>
+      <div class="nota">
+        <h4><span class="chave">9</span> Ausência não é zero, nem na tabela</h4>
+        <p>
+          Onde não houve apuração, a célula diz <em>sem apuração</em> e o traço
+          fica em cinza, fora do peso do número. Um <span class="mono">0,00</span>
+          ali entraria na leitura da coluna e faria a quinzena parecer menor do
+          que é — é o mesmo defeito da planilha, onde fonte que faltou virava
+          zero e o zero sumia na soma.
+        </p>
+      </div>
+      <div class="nota">
+        <h4><span class="chave">10</span> Os filtros são a navegação</h4>
+        <p>
+          Quinzena, unidade, transportadora e estado — os quatro eixos pelos
+          quais alguém procura um período. O filtro de quinzena começa na que
+          está fechando, que é a mesma que a Visão abriu: as duas telas nunca
+          discordam sobre qual período está em foco.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===================================================================== -->
+  <section class="secao">
+    <div class="coluna">
+      <p class="numeral">05 · A peça que atravessa</p>
+      <h2>A régua das cinco fontes</h2>
+      <p>
+        Tudo o que o fechamento precisa chega em cinco arquivos, e o estado real
+        de uma competência é <em>quais chegaram</em>. A régua diz isso em cinco
+        células com o número da rotina — o nome pelo qual quem opera as chama.
+        Cheia é arquivo recebido; tracejada é ausência declarada. Ela aparece na
+        Visão, na tabela e no cabeçalho da competência aberta, sempre igual.
+      </p>
+    </div>
+
+    <div class="coluna">
+      <div class="catalogo">
+        <div>
+          <span class="regua"><span class="celula falta">2Art</span><span class="celula falta">08.18</span><span class="celula falta">12.09</span><span class="celula falta">08.15</span><span class="celula falta">59.02</span><span class="conta">0/5</span></span>
+          <span class="txt"><b>Nada chegou</b><span>A competência existe, o período fechou, e a Ambev ainda não exportou.</span></span>
+        </div>
+        <div>
+          <span class="regua"><span class="celula tem">2Art</span><span class="celula tem">08.18</span><span class="celula tem">12.09</span><span class="celula falta">08.15</span><span class="celula falta">59.02</span><span class="conta">3/5</span></span>
+          <span class="txt"><b>Falta o financeiro</b><span>A operação já chegou; sem o CT-e por verba não há o que conferir contra.</span></span>
+        </div>
+        <div>
+          <span class="regua"><span class="celula tem">2Art</span><span class="celula tem">08.18</span><span class="celula tem">12.09</span><span class="celula tem">08.15</span><span class="celula falta">59.02</span><span class="conta">4/5</span></span>
+          <span class="txt"><b>Falta a conciliação</b><span>O caso mais comum: o 03.02.59.02 sai depois dos outros. Dá para apurar assim.</span></span>
+        </div>
+        <div>
+          <span class="regua"><span class="celula tem">2Art</span><span class="celula tem">08.18</span><span class="celula tem">12.09</span><span class="celula tem">08.15</span><span class="celula tem">59.02</span><span class="conta completa">5/5</span></span>
+          <span class="txt"><b>Completa</b><span>A conta pode ser reconstruída inteira, e o que ela não sustenta é a parcela fixa.</span></span>
+        </div>
+      </div>
+
+      <table class="fontes-tab">
+        <thead>
+          <tr><th>Célula</th><th>Rotina e o que ela responde</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><span class="rot">2Art</span></td>
+            <td><strong>Relatório operacional</strong><span class="sub">Uma linha por viagem: veículo, mapa, caixas, horários, km e o frete daquela viagem. Origem do frete variável.</span></td>
+          </tr>
+          <tr>
+            <td><span class="rot">08.18</span></td>
+            <td><strong>03.08.18 — Disponibilidade de frota</strong><span class="sub">Contratados, saídos e de quem é a culpa pela diferença. Origem dos descontos sobre a parcela fixa.</span></td>
+          </tr>
+          <tr>
+            <td><span class="rot">12.09</span></td>
+            <td><strong>03.08.12.09 — Requisições de despesa</strong><span class="sub">Despesas extras aprovadas, com a trilha de quem pediu e quem aprovou. Origem do complementar.</span></td>
+          </tr>
+          <tr>
+            <td><span class="rot">08.15</span></td>
+            <td><strong>03.08.15 — CT-es por verba</strong><span class="sub">O extrato fiscal: cada CT-e emitido, com a VBZ e a abertura dos impostos. O que a Ambev diz ter faturado.</span></td>
+          </tr>
+          <tr>
+            <td><span class="rot">59.02</span></td>
+            <td><strong>03.02.59.02 — Conciliação CT-e × SRTrans</strong><span class="sub">O fecho da quinzena: emitido contra calculado, mais os saldos que atravessam para o período seguinte.</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ===================================================================== -->
+  <section class="secao coluna">
+    <p class="numeral">06 · O que isto exige</p>
+    <h2>Uma leitura nova no servidor, e só</h2>
+    <p>
+      Quase tudo o que as duas telas mostram já existe no banco — é a mesma
+      apuração que a competência aberta lê. O que muda é <em>onde</em> se lê: a
+      lista hoje devolve só o registro da competência, e as telas precisam do
+      resumo de cada uma.
+    </p>
+    <ul>
+      <li><strong>A lista passa a devolver o resumo.</strong>
+        <code>GET /fechamento/competencias</code> ganha, por competência, os
+        tipos de fonte vigentes e os totais da apuração vigente — emitido,
+        conferido, não conferido e a soma das divergências acionáveis. Uma
+        consulta agregada, não uma apuração por linha: a conta já está gravada.</li>
+      <li><strong>A quinzena vira um filtro de primeira classe.</strong> A tela
+        precisa perguntar “as competências de ago/2026, 1ª” sem varrer tudo.
+        <code>ano</code>, <code>mes</code> e <code>quinzena</code> já são colunas
+        da competência.</li>
+      <li><strong>Repetir os pares.</strong> Uma abertura em lote a partir dos
+        pares da quinzena anterior — que é a mesma rotina de abrir, chamada N
+        vezes, e devolve a existente quando já existe, como hoje.</li>
+      <li><strong>Nada de número novo.</strong> Cobertura é
+        <code>conferido ÷ emitido</code> sobre totais já gravados; a régua é
+        <code>documentos.filter(vigente)</code>. Nenhuma das duas telas calcula
+        remuneração — a conta continua morando no servidor, e a interface
+        continua sem poder, nem por acidente, fazê-la.</li>
+    </ul>
+
+    <div class="ressalva">
+      <h4>Sobre os números desta maquete</h4>
+      <p>
+        Todos os valores mostrados são <strong>demonstração</strong>. A
+        competência do CDD Belém é o fechamento real conferido em julho de 2026
+        — R$ 1.473.432,61 emitidos, R$ 654.310,24 sem fonte que confira,
+        R$ 120.057,85 a questionar; as outras cinco foram construídas em torno
+        dela para mostrar os estados que a tela precisa saber desenhar.
+      </p>
+      <p>
+        A regra do produto continua valendo na implementação: <strong>nenhuma
+        tela mostra um número que o banco não sustente.</strong> Onde a leitura
+        nova não existir ainda, a coluna fica vazia e diz por quê — não vira
+        zero.
+      </p>
+    </div>
+  </section>
+
+  <footer class="rodape coluna">
+    <p>
+      Proposta de desenho para a seção <strong>Competência</strong> do ambiente
+      Fechamento de Remuneração. As telas seguem os tokens de
+      <code>artifacts/freightaudit/src/index.css</code> — marinho como única cor
+      de ação, laranja só para o que pede olho humano, verde e vermelho apenas
+      como leitura de dado — e o menu de
+      <code>components/layout/nav-fechamento.ts</code> não muda uma vírgula.
+    </p>
+  </footer>
+
+</div>
