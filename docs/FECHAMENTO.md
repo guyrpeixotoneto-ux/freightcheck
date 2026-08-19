@@ -54,7 +54,7 @@ listas:
   Recuperação, QLP, Frota, Inteligência, Dados & governança, Administração.
 - **Fechamento** — `components/layout/nav-fechamento.ts`, quatro seções na
   ordem do processo:
-  - **Competência**: Visão do fechamento · Competências
+  - **Fechamento**: Visão do fechamento · Importações · Apurações
   - **Apuração**: Apuração · Pendências · Conferências
   - **Decisão**: Ajustes · Aprovações · Encerramento
   - **Registro**: Histórico
@@ -63,8 +63,14 @@ Dois desvios deliberados da lista originalmente proposta:
 
 1. **Apuração vem antes de Pendências** — pendência é o que a apuração não
    conseguiu apurar; sem rodar a conta, não há fila.
-2. **"Fechamento" virou "Encerramento"** — um item com o nome do próprio
-   ambiente diria a mesma palavra com dois sentidos.
+2. **A primeira seção chama-se "Fechamento", e o ato final, "Encerramento"** —
+   o nome do processo fica onde ele começa, e um segundo item com a mesma
+   palavra diria dois sentidos de uma vez.
+3. **A lista de competências chama-se "Importações"** — o que se faz nela é
+   abrir o período e enviar os cinco relatórios da quinzena; a lista é
+   consequência. Ao lado dela, **Apurações** mostra o resultado dessa
+   importação: o que já foi apurado, quanto foi emitido e quanto há a
+   questionar.
 
 O cartão de unidade aparece nos dois ambientes (a unidade governa os números
 dos dois); no Fechamento ele informa e não vira seletor, porque trocar unidade

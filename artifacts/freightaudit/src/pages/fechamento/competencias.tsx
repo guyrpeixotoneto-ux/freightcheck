@@ -67,7 +67,7 @@ const previaDaParte = (texto: string) => {
 };
 
 /**
- * Competências — os períodos que o fechamento fecha.
+ * Importações — a porta por onde entram os períodos que o fechamento fecha.
  *
  * A tela é uma lista e um formulário, e o formulário é curto de propósito: uma
  * competência é (unidade, transportadora, quinzena), e nada mais. Tudo o que a
@@ -120,7 +120,7 @@ export default function Competencias() {
   return (
     <Layout>
       <header className="border-b bg-card px-8 py-6">
-        <h1 className="text-2xl font-bold tracking-tight">Competências</h1>
+        <h1 className="text-2xl font-bold tracking-tight">Importações</h1>
         <p className="text-muted-foreground mt-2 max-w-3xl">
           Cada competência é uma quinzena de um CDD com uma transportadora — o
           período que se apura, se confere e se fecha.
