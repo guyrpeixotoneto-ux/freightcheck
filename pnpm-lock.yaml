@@ -206,6 +206,9 @@ importers:
       '@workspace/dre':
         specifier: workspace:*
         version: link:../../lib/dre
+      '@workspace/fechamento':
+        specifier: workspace:*
+        version: link:../../lib/fechamento
       '@workspace/ingest':
         specifier: workspace:*
         version: link:../../lib/ingest
