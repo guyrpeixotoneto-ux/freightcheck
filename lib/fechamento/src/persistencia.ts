@@ -26,6 +26,7 @@ import {
   competenciaDaChave,
   dentroDaCompetencia,
   type Competencia,
+  type Dia,
 } from "./periodo";
 import { apurar, type Apuracao, type Fontes, type Parcela } from "./apuracao";
 import { lerOperacao, type DetalheDaViagem, type Viagem } from "./leitores/operacao";
@@ -62,6 +63,7 @@ export class RecusaDeFechamento extends Error {
       | "COMPETENCIA_NAO_ESTA_ENCERRADA"
       | "MOTIVO_OBRIGATORIO"
       | "DOCUMENTO_JA_RECEBIDO"
+      | "DOCUMENTO_FORA_DO_PERIODO"
       | "ARQUIVO_ILEGIVEL",
     mensagem: string,
     readonly detalhe?: unknown,
@@ -253,6 +255,7 @@ export async function receberDocumento(
   }
 
   const lido = interpretar(entrada.tipo, entrada.conteudo);
+  recusarOperacaoDeOutroPeriodo(competencia, entrada.nomeDoArquivo, lido.dias);
 
   return db.transaction(async (tx) => {
     const anterior = await tx
@@ -312,13 +315,72 @@ export async function receberDocumento(
   });
 }
 
-/** Quantas linhas o leitor produziu, e o que recusou — sem gravar nada ainda. */
-function interpretar(tipo: TipoDeFonte, conteudo: Buffer): { linhasLidas: number; recusas: Recusa[] } {
+/** `2026-07-16` → `16/07/2026`, que é como quem fecha a quinzena lê uma data. */
+function emBR(dia: Dia): string {
+  const [ano, mes, d] = dia.split("-");
+  return `${d}/${mes}/${ano}`;
+}
+
+/**
+ * Recusa o 2Art que não tem uma linha sequer dentro da competência.
+ *
+ * O 2Art é exportado por mês e a quinzena é meio mês, então **metade do arquivo
+ * cair fora é o normal** — e essa metade é contada, nunca recusada (ver
+ * `viagensForaDoPeriodo`). Nenhuma linha cair dentro é outra coisa: é o arquivo
+ * de um período aberto na competência de outro. Aceitá-lo gravava centenas de
+ * viagens que nenhuma conta daqui pode usar, com visto verde e "949 linhas" na
+ * linha da fonte — e a única pista de que nada entrou era uma nota de rodapé um
+ * cartão abaixo, que ainda por cima dizia "da outra quinzena **do mês**" quando
+ * o arquivo era de outro mês inteiro. A importação que mente é a que diz ter
+ * dado certo.
+ *
+ * **A checagem é só do 2Art, de propósito.** Nas outras quatro fontes a data da
+ * linha é emissão ou aprovação, que legitimamente atravessa a virada da
+ * quinzena — confundir rótulo com data de emissão é justamente o erro que faz
+ * uma quinzena inteira sumir de um filtro (ver `FONTES-FECHAMENTO-QUINZENAL.md`
+ * e o cabeçalho de `periodo.ts`). Só no 2Art o dia da linha é o dia em que a
+ * viagem rodou, e só nele "fora do período" é afirmação segura.
+ */
+function recusarOperacaoDeOutroPeriodo(
+  competencia: CompetenciaRegistrada,
+  nomeDoArquivo: string,
+  dias: Dia[] | undefined,
+): void {
+  if (!dias || dias.length === 0) return;
+  if (dias.some((dia) => dentroDaCompetencia(competencia, dia))) return;
+
+  const ordenados = [...dias].sort();
+  const de = ordenados[0];
+  const ate = ordenados[ordenados.length - 1];
+  throw new RecusaDeFechamento(
+    "DOCUMENTO_FORA_DO_PERIODO",
+    `"${nomeDoArquivo}" traz ${dias.length} viagens, e nenhuma delas é desta quinzena: ` +
+      `o arquivo é a operação de ${emBR(de)} a ${emBR(ate)}, e a competência ${competencia.chave} ` +
+      `vai de ${emBR(competencia.inicio)} a ${emBR(competencia.fim)}. ` +
+      `Envie o 2Art deste período, ou abra a competência do período do arquivo.`,
+    { de, ate, inicio: competencia.inicio, fim: competencia.fim, viagens: dias.length },
+  );
+}
+
+/**
+ * Quantas linhas o leitor produziu, e o que recusou — sem gravar nada ainda.
+ *
+ * `dias` sai só do 2Art, e é o que permite conferir, antes de gravar, se o
+ * arquivo é mesmo o desta quinzena — ver `recusarOperacaoDeOutroPeriodo`.
+ */
+function interpretar(
+  tipo: TipoDeFonte,
+  conteudo: Buffer,
+): { linhasLidas: number; recusas: Recusa[]; dias?: Dia[] } {
   try {
     switch (tipo) {
       case "OPERACAO": {
         const l = lerOperacao(conteudo);
-        return { linhasLidas: l.linhas.length, recusas: l.recusas };
+        return {
+          linhasLidas: l.linhas.length,
+          recusas: l.recusas,
+          dias: l.linhas.map((v) => v.dia),
+        };
       }
       case "CTE": {
         const l = lerCtes(conteudo);

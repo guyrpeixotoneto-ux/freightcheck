@@ -64,14 +64,22 @@ export const NAV_GROUPS_FECHAMENTO: NavGroup[] = [
       responde sobre **uma** competência, como toda tela da Auditoria responde
       sobre uma vigência —, mas a seção que abre o menu leva o nome do processo,
       e não o do seu eixo: quem abre a lateral procura onde se fecha, não como o
-      período se chama. É a seção do começo do trabalho — a visão do período em
-      andamento e a porta por onde os períodos entram.
+      período se chama. É a seção do começo do trabalho — o retrato do ano por
+      unidade e a porta por onde os períodos entram.
+
+      **A home chama-se "Visão Gerencial", e não "Visão do fechamento".** A
+      primeira versão listava as seis competências mais recentes: respondia "o
+      que aconteceu por último", que é uma pergunta de quem opera, e a home do
+      ambiente é lida por quem responde pelo número. A pergunta dela passou a
+      ser "quanto do ano já fechou, em quais unidades, e onde está o atraso" — e
+      o nome mudou junto, porque um menu que promete visão e entrega lista gasta
+      o clique de quem procurava o total.
     */
     titulo: "Fechamento",
     icon: CalendarDays,
     cor: "text-nav-fechamento",
     itens: [
-      { href: "/fechamento", label: "Visão do fechamento", icon: House },
+      { href: "/fechamento", label: "Visão Gerencial", icon: House },
       { href: "/fechamento/competencias", label: "Importações", icon: CalendarDays },
       { href: "/fechamento/apuracoes", label: "Apurações", icon: Table2 },
     ],
@@ -87,6 +95,14 @@ export const NAV_GROUPS_FECHAMENTO: NavGroup[] = [
       Um item só, hoje, e a seção existe assim mesmo: é aqui que as outras telas
       de cadastro por unidade vão cair, e diluí-las em "Competência" faria a
       seção do período falar de duas coisas.
+
+      O item aponta para a **lista das unidades**, e não para o cadastro de
+      uma delas: são duas telas — `/fechamento/remuneracao` responde quais
+      unidades já têm cadastro de pé, e `/fechamento/remuneracao/unidade`, os
+      parâmetros de uma. Um item de menu que abrisse direto o cadastro teria de
+      escolher a unidade por conta própria, e escolher em silêncio é o que este
+      produto não faz. O rótulo continua "Cadastro" porque é o nome do que se
+      vai fazer ali; a lista é a porta.
     */
     titulo: "Remuneração",
     icon: ScrollText,

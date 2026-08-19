@@ -143,6 +143,99 @@ export function listarUnidadesDoCadastro(): Promise<UnidadeDoCadastro[]> {
   return fetchJson<UnidadeDoCadastro[]>("/remuneracao/unidades");
 }
 
+/**
+ * O que o acervo sustenta no cadastro de uma unidade.
+ *
+ * Quatro estados, e nenhum deles é uma nota: dizem qual das duas metades do
+ * cadastro tem lastro — a frota, que vem do export de equipamento, e as
+ * alíquotas, que vêm do de frete. Ver `lib/remuneracao/src/situacao.ts` para
+ * por que não é um percentual sobre as trinta linhas.
+ */
+export type EstadoDoCadastro =
+  | "FROTA_E_ALIQUOTAS"
+  | "SO_FROTA"
+  | "SO_ALIQUOTAS"
+  | "SEM_LASTRO";
+
+export interface SituacaoDoCadastro {
+  linhas: number;
+  comLastro: number;
+  semLastro: number;
+  frota: boolean;
+  aliquotas: boolean;
+  estado: EstadoDoCadastro;
+}
+
+export interface SituacaoDaUnidade {
+  scopeHash: string;
+  channel: string | null;
+  label: string;
+  unidade: string | null;
+  scopes: { scopeType: string; code: string; name: string | null }[];
+  /** A vigência mais recente da unidade — a que a situação descreve. */
+  effectiveDate: string;
+  periodLabel: string;
+  /** Quantas vigências a unidade tem no acervo. */
+  vigencias: number;
+  material: { cavalos: number; trechos: number; trechosEntregues: boolean };
+  cadastro: SituacaoDoCadastro;
+}
+
+export interface SituacaoDasUnidades {
+  unidades: SituacaoDaUnidade[];
+  resumo: {
+    unidades: number;
+    frotaEAliquotas: number;
+    soFrota: number;
+    soAliquotas: number;
+    semLastro: number;
+  };
+}
+
+/** As unidades do acervo, cada uma com o que o cadastro dela alcança hoje. */
+export function lerSituacaoDasUnidades(): Promise<SituacaoDasUnidades> {
+  return fetchJson<SituacaoDasUnidades>("/remuneracao/situacao");
+}
+
+/**
+ * O estado escrito: o rótulo curto da marca e a frase que o sustenta.
+ *
+ * A frase não é enfeite e não é a mesma para os quatro: ela é o que separa "o
+ * cadastro desta unidade não existe" de "o cadastro existe e falta a metade que
+ * o export de frete traz". A primeira leitura manda procurar quem não mandou
+ * arquivo; a segunda manda procurar **qual** arquivo, e são trabalhos
+ * diferentes.
+ */
+export const ESTADO_DO_CADASTRO: Record<
+  EstadoDoCadastro,
+  { rotulo: string; frase: string }
+> = {
+  FROTA_E_ALIQUOTAS: {
+    rotulo: "Frota e alíquotas",
+    frase:
+      "As duas metades têm lastro: a vigência entregou os cavalos e entregou os trechos com " +
+      "as colunas em reais.",
+  },
+  SO_FROTA: {
+    rotulo: "Só a frota",
+    frase:
+      "A frota está contada, e as alíquotas, as proporções e o resumo de impostos não têm " +
+      "lastro — todos saem dos trechos.",
+  },
+  SO_ALIQUOTAS: {
+    rotulo: "Só as alíquotas",
+    frase:
+      "As alíquotas estão medidas, e a frota fixa fica sem número: a vigência não entregou " +
+      "cavalos, ou eles vieram sem a coluna que separa ativo de parado.",
+  },
+  SEM_LASTRO: {
+    rotulo: "Sem lastro",
+    frase:
+      "A unidade entregou vigência, mas não o que o cadastro lê: nenhuma linha da aba tem " +
+      "número nesta quinzena.",
+  },
+};
+
 export function lerCadastro(pedido: {
   scopeHash?: string;
   canal?: string | null;

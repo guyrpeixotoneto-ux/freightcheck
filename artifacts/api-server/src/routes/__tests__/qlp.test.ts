@@ -142,6 +142,45 @@ const quinzenaDeSetembro = () =>
     ],
   });
 
+/*
+  A quinzena de outubro carrega o caso da quarentena por chave.
+
+  O COORDENADOR da unidade A vem duas vezes, com salários que discordam — e é
+  ele, e só ele, que fica de fora. As outras três linhas entram normalmente, que
+  é a diferença que a quarentena existe para produzir: antes, este arquivo
+  inteiro parava, e as três linhas boas não chegavam ao quadro.
+
+  O AUXILIAR repetido **concordando** entra junto de propósito: consolidação e
+  conflito têm de continuar se distinguindo, e uma repetição que concorda não
+  pode acabar em quarentena.
+*/
+const quinzenaComConflito = () =>
+  escreverPlanilha({
+    vigencia: "EMPURRADA_1_10_2026",
+    abas: [
+      {
+        nome: "TABELA DE QLP ADM",
+        identificador: "Cargo",
+        colunas: COLUNAS,
+        linhas: [
+          cargo("COORDENADOR ADM", { qtd: 1, salario: 9800, despesa: 9800, benchmark: 1 }),
+          cargo("COORDENADOR ADM", { qtd: 1, salario: 11500, despesa: 11500, benchmark: 1 }),
+          cargo("ANALISTA ADM", { qtd: 2, salario: 4600, despesa: 9200, benchmark: 2 }),
+          cargo(
+            "AUXILIAR ADM",
+            { qtd: 1, salario: 2600, despesa: 2600, benchmark: 2 },
+            UNIDADE_B,
+          ),
+          cargo(
+            "AUXILIAR ADM",
+            { qtd: 1, salario: 2600, despesa: 2600, benchmark: 2 },
+            UNIDADE_B,
+          ),
+        ],
+      },
+    ],
+  });
+
 beforeAll(async () => {
   ctx = await createTestDatabase("api_qlp");
   process.env.DATABASE_URL = ctx.url;
@@ -432,5 +471,67 @@ describe("a superfície do QLP Administrativo, na ordem em que a vida acontece",
     expect(proveniencia.status).toBe(200);
     expect(proveniencia.body.sheet_before ?? proveniencia.body.sheetBefore).toBeTruthy();
     expect(proveniencia.body.sheet_after ?? proveniencia.body.sheetAfter).toBeTruthy();
+  });
+
+  /*
+    O sexto estado: a vigência que entrou incompleta.
+
+    É o estado que a quarentena por chave criou, e o único em que o quadro pode
+    estar certo sobre si mesmo e errado sobre a unidade — o cargo em conflito
+    não aparece como faltando, ele simplesmente não aparece. Por isso as três
+    afirmações abaixo andam juntas e nenhuma delas basta sozinha: o arquivo
+    entrou, o quadro **diz** que está incompleto, e a evidência do que falta
+    está onde alguém a encontra.
+  */
+  it("a vigência entra incompleta, e a tela sabe o que ficou de fora", async () => {
+    await importarQlp(quinzenaComConflito());
+
+    const quadro = await get("/qlp/administrativo?period=2026-10-01");
+    expect(quadro.status).toBe(200);
+
+    // 1. O arquivo entrou: as linhas que não conflitam estão no quadro.
+    const unidadeA = quadro.body.unidades.find((u: any) => u.cnpj === "07526557001505");
+    expect(unidadeA.cargos.map((c: any) => c.cargo)).toEqual(["ANALISTA ADM"]);
+    // A repetição que **concorda** foi consolidada, não posta em quarentena.
+    const unidadeB = quadro.body.unidades.find((u: any) => u.cnpj === "20618821000799");
+    expect(unidadeB.cargos.map((c: any) => c.cargo)).toEqual(["AUXILIAR ADM"]);
+
+    // 2. E o quadro diz que está incompleto, antes de qualquer contagem.
+    expect(quadro.body.registrosFaltando).toBe(1);
+
+    // 3. A evidência: a chave legível, as linhas da planilha e os dois valores.
+    const { status, body } = await get("/qlp/administrativo/inconsistencias");
+    expect(status).toBe(200);
+    expect(body.total).toBe(1);
+    expect(body.pendencias).toHaveLength(1);
+
+    const vigencia = body.pendencias[0];
+    expect(vigencia.vigenciaLabel).toBe("EMPURRADA_1_10_2026");
+    expect(vigencia.registros).toHaveLength(1);
+
+    const registro = vigencia.registros[0];
+    expect(registro.code).toBe("ENTIDADE_DUPLICADA_CONFLITANTE");
+    expect(registro.chave).toContain("COORDENADOR ADM");
+    expect(registro.chave).toContain("07.526.557/0015-05");
+    expect(registro.apresentacao.onde).toEqual([
+      { aba: "TABELA DE QLP ADM", linhas: [2, 3] },
+    ]);
+    const salario = registro.apresentacao.diferencas.find(
+      (d: any) => d.campo === "Salário Ordenados",
+    );
+    expect(salario.versoes.map((v: any) => v.valor)).toEqual(["9800", "11500"]);
+
+    /*
+      A fila é do contexto inteiro, e não da quinzena selecionada: pedir agosto
+      continua devolvendo a pendência de outubro. Filtrá-la pelo seletor faria a
+      aba parecer vazia justamente para quem abriu o produto na quinzena errada.
+    */
+    const deAgosto = await get("/qlp/administrativo/inconsistencias?period=2026-08-01");
+    expect(deAgosto.body.effectiveDate).toBe("2026-08-01");
+    expect(deAgosto.body.total).toBe(1);
+
+    // E as vigências sem conflito continuam completas.
+    const agosto = await get("/qlp/administrativo?period=2026-08-01");
+    expect(agosto.body.registrosFaltando).toBe(0);
   });
 });

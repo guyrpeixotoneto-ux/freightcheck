@@ -54,13 +54,13 @@ listas:
   Recuperação, QLP, Frota, Inteligência, Dados & governança, Administração.
 - **Fechamento** — `components/layout/nav-fechamento.ts`, cinco seções na
   ordem do processo:
-  - **Fechamento**: Visão do fechamento · Importações · Apurações
+  - **Fechamento**: Visão Gerencial · Importações · Apurações
   - **Remuneração**: Cadastro
   - **Apuração**: Apuração · Pendências · Conferências
   - **Decisão**: Ajustes · Aprovações · Encerramento
   - **Registro**: Histórico
 
-Quatro desvios deliberados da lista originalmente proposta:
+Cinco desvios deliberados da lista originalmente proposta:
 
 1. **Apuração vem antes de Pendências** — pendência é o que a apuração não
    conseguiu apurar; sem rodar a conta, não há fila.
@@ -75,6 +75,9 @@ Quatro desvios deliberados da lista originalmente proposta:
 4. **Remuneração entrou entre Fechamento e Apuração** — ela não é um momento do
    processo, é a base contra a qual ele roda (ver abaixo). Não foi para o topo
    porque a primeira linha da lateral é a home do ambiente.
+5. **A home chama-se "Visão Gerencial"** — ver a seção abaixo. A primeira
+   versão, "Visão do fechamento", listava as seis competências mais recentes:
+   respondia "o que aconteceu por último", que é pergunta de quem opera.
 
 O cartão de unidade aparece nos dois ambientes (a unidade governa os números
 dos dois); no Fechamento ele informa e não vira seletor, porque trocar unidade
@@ -91,6 +94,42 @@ a Auditoria e o dizem por extenso, com uma tarja "Auditoria" antes do clique.
 
 Construir uma etapa de verdade é o movimento de sempre: a entrada sai do
 catálogo, a rota em `App.tsx` aponta para a tela real, e o menu não muda.
+
+## A Visão Gerencial — o ano por unidade
+
+A home do ambiente (`pages/fechamento/visao.tsx`) responde à pergunta de quem
+**responde pelo número**, e não à de quem o produz: *quanto do ano já fechou, em
+quais unidades, e onde está o atraso.*
+
+Uma faixa executiva do ano escolhido — fechamentos realizados (%), quinzenas
+vencidas em aberto, quinzenas vencidas sem competência, emitido em CT-e e
+quanto continua a questionar — e, abaixo, um cartão por unidade em ordem do
+atraso, cada um com o seu percentual, o dinheiro apurado e uma faixa de 24
+traços que mostra *quando* o ano fechou. Clicar no cartão abre
+`/fechamento/unidades/:codigo?ano=AAAA` (`pages/fechamento/unidade.tsx`): as 24
+quinzenas do ano daquela unidade, uma a uma, com as competências de cada uma e o
+caminho até a tela de dentro.
+
+Quatro decisões que as duas telas materializam:
+
+1. **O percentual de fechamento é sobre a competência, não sobre o
+   calendário.** Uma unidade com 12 competências e 7 encerradas está em 58%,
+   ainda que o ano tenha 24 quinzenas. Dividir por 24 daria um número menor e
+   mais alarmante que também seria falso — o sistema não sabe se a unidade
+   deveria ter operado em janeiro, e uma unidade que começou em julho apareceria
+   eternamente reprovada por um passado que não é dela.
+2. **O que o calendário tem a dizer não se perde: vira lacuna.** A quinzena que
+   passou sem competência nenhuma é contada à parte, só entre as que **já
+   venceram**, e aparece pelo nome na grade do ano. É a informação que nenhuma
+   lista de registros consegue dar, porque não há registro nenhum para listar —
+   a mesma razão pela qual o dia sem operação aparece na grade de dias.
+3. **Nada aqui recompõe remuneração.** A leitura é a de Apurações
+   (`GET /fechamento/apuracoes`), com os totais que a apuração gravou. O
+   agrupamento por unidade e a divisão que vira percentual moram em
+   `lib/fechamento-gerencial.ts`, fora do JSX e sob teste.
+4. **A unidade não está na lateral.** `/fechamento/unidades/:codigo` é
+   aprofundamento de um número da home, não uma seção do processo — o menu
+   continua sendo as cinco etapas do trabalho.
 
 ## A visão por dia — as abas `01`…`31` da planilha
 
@@ -115,7 +154,7 @@ O que sustenta a tela:
 | `routes/fechamento.ts` | `GET …/dias` e `GET …/dias/:dia` |
 | `components/fechamento/` | a grade de ladrilhos, o catálogo de colunas e a tabela larga |
 
-Três decisões que a tela materializa:
+Quatro decisões que a tela materializa:
 
 1. **O dia sem operação aparece na grade**, apagado e clicável. "Não rodou" é
    uma resposta; a grade que esconde o dia vazio obriga a contar ladrilhos para
@@ -125,14 +164,84 @@ Três decisões que a tela materializa:
    soma feita na tela seria uma segunda conta do mesmo dinheiro.
 3. **A última coluna da tabela é a linha física do 2Art.** É a ponta da trilha:
    permite conferir a célula de origem sem refazer a conta.
+4. **O 2Art de outro período é recusado na porta**, com os dois períodos
+   nomeados (`DOCUMENTO_FORA_DO_PERIODO`). Metade do arquivo cair fora é o
+   normal — ele é mensal e a quinzena é meio mês —, e essa metade é contada, não
+   recusada. *Nenhuma* linha cair dentro é outra coisa: é o arquivo de um
+   período aberto na competência de outro. Ele entrava com visto verde e "949
+   linhas" na linha da fonte, gravava tudo, e a grade nascia inteira vazia — a
+   importação que mente é a que diz ter dado certo. A checagem é só do 2Art,
+   porque só nele a data da linha é o dia em que a viagem rodou; nas outras
+   fontes é emissão ou aprovação, que atravessa a virada da quinzena de forma
+   legítima.
+
+## A conta abre na lista — Apurações sem trocar de tela
+
+`/fechamento/apuracoes` é a fila do fechamento: uma linha por competência,
+agrupada por quinzena, com o que foi emitido, quanto está conferido e quanto
+continua a questionar. A pergunta seguinte a "56% conferido" é sempre a mesma —
+*conferido onde?* — e ela custava uma troca de tela: abrir a competência,
+voltar, refazer o filtro, reprocurar a linha. Quem comparava dois CDDs pagava
+esse pedágio a cada ida e volta.
+
+Agora o clique **abre a conta na própria linha**: os três números da quinzena, a
+conversão medida dos arquivos e a tabela de verbas, com a memória de cálculo de
+cada uma a um segundo clique. O cabeçalho da quinzena abre o grupo inteiro — e
+só o fecha quando não falta nenhuma competência por abrir, para que o clique num
+grupo meio aberto termine de abri-lo em vez de fechar o que já se estava lendo.
+
+Três decisões que a tela materializa:
+
+1. **É o mesmo componente nas duas telas.** A conta saiu da competência aberta
+   para `components/fechamento/conta-apurada.tsx`, e as duas o desenham. Duas
+   cópias do mesmo bloco seriam duas opiniões sobre o mesmo número, e a segunda
+   envelheceria calada.
+2. **A conta é buscada quando a linha abre**, sob a mesma chave de consulta da
+   competência aberta (`["fechamento", "competencia", id]`). A lista é o índice
+   de dezenas de quinzenas e cada conta traz verbas, memória e divergências:
+   baixar todas para mostrar uma seria pagar o fechamento inteiro para ler uma
+   linha. Como a chave é a mesma, quem abre aqui e depois entra na tela de
+   dentro a encontra pronta — e quem volta de lá reabre a linha sem nova ida ao
+   servidor.
+3. **A linha não troca mais de tela; ela abre.** O caminho para a competência
+   inteira — enviar relatório, ver os dias, encerrar — fica dentro do painel
+   aberto, onde a pergunta seguinte aparece. Competência ainda não apurada abre
+   dizendo isso, com o atalho para ir rodar a conta, porque apurar continua
+   sendo um botão de lá: rodar grava.
 
 ## Remuneração — o cadastro, e a única tela que atravessa a fronteira
 
-`/fechamento/remuneracao` reproduz a aba **CADASTRO DA PLANILHA DE
+`/fechamento/remuneracao/unidade` reproduz a aba **CADASTRO DA PLANILHA DE
 REMUNERAÇÃO**: as quatro alíquotas, o tamanho da frota fixa, quanto vale cada
 parcela por veículo ativo e inativo, as vans, as rotas noturnas, o marketing, a
 proporção de documentos dentro e fora do município, e o resumo de impostos. É a
 aba que abre a pasta de Excel e de onde todas as outras puxam.
+
+**E `/fechamento/remuneracao` é a lista que vem antes dela.** São duas
+perguntas, e a segunda não responde a primeira: o cadastro de uma unidade
+responde *quais são os parâmetros dela*; quem abre Remuneração na virada da
+quinzena quer saber *onde está o trabalho* — quais CDDs já têm o cadastro de pé
+e quais ainda não têm. Sem a lista, descobrir que um deles entregou a frota e
+não entregou os trechos custa abri-lo, e com trinta unidades custa abrir trinta
+telas para achar as duas que faltam. É o mesmo papel que Apurações cumpre para
+as competências.
+
+Cada unidade aparece com um estado de **quatro valores** — `FROTA_E_ALIQUOTAS`,
+`SO_FROTA`, `SO_ALIQUOTAS`, `SEM_LASTRO` — e o estado é sobre as duas metades
+do cadastro, não sobre um percentual das trinta linhas. A razão está em
+`lib/remuneracao/src/situacao.ts`: onze das trinta têm lastro sobre um acervo
+completo, e as outras dezenove dependem de decisões de negócio que ninguém
+registrou. "37% cadastrado" seria lido como "falta importar alguma coisa"
+justamente na unidade que entregou tudo o que tinha para entregar. O que separa
+uma unidade da outra são as duas metades que dependem do que ela mandou: a
+frota, que vem do export de equipamento, e as alíquotas, que vêm do de frete.
+
+A lista **monta o cadastro de cada unidade** em vez de deduzir o estado do
+material entregue, e paga por isso: quatro consultas, cada uma respondendo por
+todas as unidades de uma vez no par (unidade, vigência mais recente dela). É o
+que garante que a lista e a tela do cadastro nunca discordem — o caso que a
+dedução erraria é a vigência que entregou trechos sem as colunas em reais, em
+que a tela mostra as alíquotas em branco e a dedução diria "em dia".
 
 **Duas vistas, e a padrão é a de duas quinzenas lado a lado** — que é a forma da
 planilha: a aba traz os dois blocos um ao lado do outro, e quem confere lê as

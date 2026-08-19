@@ -53,7 +53,8 @@ const planilhaDeTrecho = () =>
  *
  * Duas unidades, o mesmo cargo, a mesma vigência, o mesmo arquivo. Com a chave
  * sendo só o cargo, as duas linhas seriam a mesma entidade discordando de si
- * mesma — e a importação inteira pararia em ENTIDADE_DUPLICADA_CONFLITANTE.
+ * mesma — e as duas unidades sumiriam do quadro em ENTIDADE_DUPLICADA_CONFLITANTE,
+ * cada uma levando junto tudo o que a outra afirmava.
  */
 const planilhaDeQlpOperacional = () =>
   escreverPlanilha({
@@ -349,19 +350,29 @@ describe("a colisão de chave aparece na pré-visualização", () => {
     expect(rows[0].n).toBe(2);
   });
 
-  it("recusa, nomeando a chave e o campo, quando as duas discordam", async () => {
+  it("isola a chave, nomeando a chave e o campo, quando as duas discordam", async () => {
     const { relatorio, importRunId } = await importar(
       duasLinhasIguais({ "Custo Fixo": 999 }),
       "QLP_ADMINISTRATIVO",
     );
 
-    expect(relatorio.blockingErrors).toBeGreaterThan(0);
+    /*
+      O conflito não impede aprovar o arquivo — ele retira a chave.
+
+      A planilha deste caso tem uma chave só, então retirar a chave esvazia o
+      arquivo e a importação para por estar vazia; o que não acontece mais é
+      parar **por causa do conflito**. `blockingErrors` conta o que impede
+      aprovar — e só isso, desde que o conflito saiu dessa lista;
+      `chavesEmQuarentena` conta o que ficou de fora, e é lá que ele aparece.
+    */
+    expect(relatorio.blockingErrors).toBe(0);
+    expect(relatorio.chavesEmQuarentena).toBe(1);
 
     const grupos = await getImportRunIssues(ctx.db, importRunId);
     const conflito = grupos.find(
       (g) => g.code === "ENTIDADE_DUPLICADA_CONFLITANTE",
     )!;
-    // Erro vem primeiro na lista: quem abre isto procura o que impede promover.
+    // Erro vem primeiro na lista: quem abre isto procura o que ficou de fora.
     expect(grupos[0].code).toBe("ENTIDADE_DUPLICADA_CONFLITANTE");
     // A chave como está escrita no arquivo — não a forma normalizada emendada,
     // que ninguém encontra na planilha — e os dois valores em desacordo, com a

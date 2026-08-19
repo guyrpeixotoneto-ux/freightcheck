@@ -72,6 +72,7 @@ import {
 } from "./tipos";
 import {
   CODIGOS_QUE_BLOQUEIAM_PROMOCAO,
+  CODIGOS_QUE_ISOLAM_A_CHAVE,
   type ApresentacaoDeApontamento,
   type CampoDeRegistro,
   type OndeDoApontamento,
@@ -156,40 +157,39 @@ const SUSPECTED_SENTINELS = ["-1"];
 /**
  * Os problemas que impedem promover, por código.
  *
- * A lista é curta de propósito. Um ERRO de leitura — linha sem placa, rótulo de
- * vigência ilegível — recusa aquela linha e deixa o resto entrar, que é o
- * comportamento que o produto sempre teve e que mantém um arquivo de 40 mil
- * células útil quando três linhas estão sujas. O que entra é só o que não tem
- * resposta certa possível. A lista mora em `apontamentos.ts` porque a tela
- * anuncia a mesma diferença no selo ("Erro bloqueante" contra "Erro"), e as
- * duas leituras não podem divergir.
+ * A lista é curta de propósito, e encolheu. Um ERRO de leitura — linha sem
+ * placa, rótulo de vigência ilegível — recusa aquela linha e deixa o resto
+ * entrar, que é o comportamento que o produto sempre teve e que mantém um
+ * arquivo de 40 mil células útil quando três linhas estão sujas. A duplicidade
+ * conflitante era a exceção mais cara: ela segurava o arquivo inteiro, e um
+ * QLP de 11.760 fatos parou por 8 chaves. Hoje ela retira a chave e deixa o
+ * arquivo entrar — ver `CODIGOS_QUE_ISOLAM_A_CHAVE`. O que sobrou aqui é o
+ * arquivo que não é o que disse ser, e desse não há parte aproveitável.
+ *
+ * A lista mora em `apontamentos.ts` porque a tela anuncia a mesma diferença no
+ * selo, e as duas leituras não podem divergir.
  */
 const BLOQUEIAM_PROMOCAO = CODIGOS_QUE_BLOQUEIAM_PROMOCAO;
 
 /**
  * O motivo que fica gravado quando a pré-visualização recusa a promoção.
  *
- * Era uma frase fixa, escrita para o único impedimento que existia: a mesma
- * entidade duas vezes na mesma vigência com valores diferentes. Com a
+ * Era uma frase fixa, escrita para o único impedimento que existia na época: a
+ * mesma entidade duas vezes na mesma vigência com valores diferentes. Com a
  * conferência do tipo declarado passaram a ser dois, e repetir a frase da
  * duplicidade em cima de uma divergência de tipo mandaria corrigir o que não
- * está errado. Cada impedimento escreve o seu, e o da divergência sai do
- * próprio problema — `sample` é a mensagem que a staging gravou.
+ * está errado — daí cada impedimento escrever o seu, a partir do próprio
+ * problema (`sample` é a mensagem que a staging gravou).
+ *
+ * A duplicidade saiu daqui depois: ela não impede mais promover, retira a
+ * chave e deixa o arquivo entrar. O que sobrou são os dois impedimentos de
+ * tipo — e a frase fixa, se voltasse, seria de novo a frase errada, agora
+ * mandando corrigir uma duplicidade que já foi tratada sozinha.
  */
 function motivoDoImpedimento(
   impeditivas: { code: string; count: number; sample: string }[],
 ): string {
   const frases = impeditivas.map((issue) => {
-    if (issue.code === "ENTIDADE_DUPLICADA_CONFLITANTE") {
-      return (
-        `${issue.count} ${issue.count === 1 ? "conflito impede" : "conflitos impedem"} esta importação: ` +
-        `a mesma entidade aparece mais de uma vez na mesma vigência com valores diferentes, ` +
-        `e não há como saber qual das linhas vale. ` +
-        `Os apontamentos da importação nomeiam ${issue.count === 1 ? "o conflito" : "cada conflito"} — ` +
-        `a chave repetida, as linhas da planilha e os valores que discordam. ` +
-        `Corrija a origem e envie o arquivo de novo.`
-      );
-    }
     if (issue.code === "ABA_REBAIXADA_COM_TIPO_DECLARADO") {
       return (
         `${issue.sample} Nada desta importação foi aproveitado como fato. A causa ` +
@@ -1002,6 +1002,14 @@ export interface StageResult {
   errors: number;
   warnings: number;
   rowsRejected: number;
+  /**
+   * Quantas chaves ficaram de fora por conflito entre linhas repetidas.
+   *
+   * Não é uma fatia de `stagedFacts`: é o que **não** está lá. Uma vigência com
+   * este número maior que zero está incompleta, e quem a lê precisa saber
+   * disso antes de somar qualquer coisa.
+   */
+  chavesEmQuarentena: number;
   snapshotLabels: string[];
   /** Como a identidade de cada aba foi decidida, e com que evidência. */
   identities: SheetIdentity[];
@@ -1837,11 +1845,26 @@ export async function stage(
       origens: { aba: string; linha: number }[];
     }
   >();
+  /*
+    Por que a classificação vem antes de qualquer escolha entrar na staging.
+
+    O laço escolhia e empurrava no mesmo passo — `consolidados.push` acontecia
+    grão a grão, antes de se saber se **a chave** tinha conflito em algum outro
+    atributo. Enquanto o conflito segurava o arquivo inteiro isso não fazia
+    diferença: nada era promovido de qualquer jeito. Com a quarentena por chave
+    faz toda: um cargo que discorda no salário teria as outras 34 colunas já
+    empurradas quando o conflito aparecesse, e entraria na vigência como um
+    registro que nenhuma linha da planilha afirma.
+
+    Então primeiro se classifica tudo — quem é único, quem repete concordando,
+    quem repete discordando —, e só depois se decide o que entra. `Map` preserva
+    a ordem de inserção, de modo que a staging recebe os mesmos fatos na mesma
+    ordem de antes; o que mudou é quais.
+  */
+  const escolhidoPorGrao = new Map<string, Record<string, unknown>>();
   for (const [grao, ocorrencias] of porGrao) {
-    if (ocorrencias.length === 1) {
-      consolidados.push(ocorrencias[0]);
-      continue;
-    }
+    escolhidoPorGrao.set(grao, ocorrencias[0]);
+    if (ocorrencias.length === 1) continue;
     const valores = new Set(
       ocorrencias.map((o) =>
         canonicalPayloadHash([
@@ -1858,7 +1881,6 @@ export async function stage(
         ]),
       ),
     );
-    consolidados.push(ocorrencias[0]);
     const [label, entityType, entityKey, attributeCode] = grao.split("\u001f");
     if (valores.size === 1) {
       const chave = [label, entityType, entityKey].join("\u001f");
@@ -1897,7 +1919,41 @@ export async function stage(
     conflito.porAtributo.set(attributeCode, ocorrencias);
   }
 
+  /*
+    A quarentena, e o que ela deixa passar.
+
+    A chave em conflito sai **inteira**, e não só nos atributos que discordam.
+    Duas linhas para o mesmo cargo são duas afirmações concorrentes sobre ele;
+    ficar com os 33 campos em que elas concordam e descartar os 2 em que
+    discordam montaria um registro que nenhuma das duas linhas faz — e a
+    ausência dos 2 se leria, lá na frente, como "o export não trouxe essa
+    coluna", que é outra afirmação, e falsa.
+
+    Fora da quarentena, tudo entra. É a diferença que o arquivo do QLP tornou
+    visível: 8 chaves em conflito não são motivo para 11.760 fatos ficarem de
+    fora, desde que as 8 fiquem — e desde que a tela diga quais são.
+  */
+  for (const [grao, escolhido] of escolhidoPorGrao) {
+    const [label, entityType, entityKey] = grao.split("\u001f");
+    if (conflitos.has([label, entityType, entityKey].join("\u001f"))) continue;
+    consolidados.push(escolhido);
+  }
+
   for (const [chave, { legivel, atributos, linhas, origens }] of consolidacoesPorChave) {
+    /*
+      Uma chave em quarentena não foi consolidada — ela não entrou.
+
+      As duas coisas acontecem juntas o tempo todo, e é o caso **comum**: um
+      cargo com 35 colunas repetido em duas linhas que só discordam no salário
+      cai aqui por 34 atributos e no conflito por 1. Emitir os dois apontamentos
+      faria a mesma importação dizer "consolidadas numa ocorrência; nada foi
+      descartado" e "este registro ficou de fora" sobre o mesmo registro — e a
+      primeira frase seria falsa.
+
+      Quem manda é o conflito: o que decide o destino da chave é o atributo que
+      discorda, não os que concordam.
+    */
+    if (conflitos.has(chave)) continue;
     const [label, entityType, entityKey] = chave.split("\u001f");
     const rotulo = tipoDeImportacao(entityType)?.rotulo ?? entityType;
     const campos = [...atributos].sort();
@@ -2014,21 +2070,24 @@ export async function stage(
           ? "Encontramos duas linhas para o mesmo registro com informações diferentes"
           : "Encontramos linhas repetidas para o mesmo registro com informações diferentes",
       resumo:
-        `A importação não pode continuar: o mesmo registro aparece ` +
-        `${origens.length > 1 ? `${origens.length} vezes` : "mais de uma vez"} na ` +
-        `vigência ${label}, com dados que não batem entre si.`,
+        `Este registro ficou de fora da vigência ${label}: ele aparece ` +
+        `${origens.length > 1 ? `${origens.length} vezes` : "mais de uma vez"}, ` +
+        `com dados que não batem entre si. O resto do arquivo foi importado ` +
+        `normalmente.`,
       onde: ondeDasOrigens(origens),
       registro: registroDoTipo(entityType, conflito.legivel),
       diferencas,
       comoCorrigir:
         "Verifique qual linha está correta. Se as linhas falam do mesmo registro, " +
-        "mantenha apenas a correta — ou deixe os valores iguais — e importe novamente. " +
-        "Se são registros diferentes, confira as colunas que os identificam: algo as " +
-        "está fazendo parecer o mesmo.",
+        "mantenha apenas a correta — ou deixe os valores iguais — e importe novamente: " +
+        "o registro entra na vigência e sai desta lista. Se são registros diferentes, " +
+        "confira as colunas que os identificam: algo as está fazendo parecer o mesmo.",
       porQueImporta:
-        "O FreightCheck não escolhe em silêncio entre dois valores conflitantes: a " +
+        "O FreightCheck não escolhe em silêncio entre dois valores conflitantes — a " +
         "escolha errada entraria no histórico e nos cálculos da auditoria como se " +
-        "fosse o dado verdadeiro.",
+        "fosse o dado verdadeiro. Por isso ele não escolhe: deixa o registro de fora, " +
+        "com a evidência aqui, e a vigência segue marcada como incompleta enquanto " +
+        "ele estiver faltando.",
     };
 
     issues.push({
@@ -2040,9 +2099,10 @@ export async function stage(
         (origens.length > 0 ? ` — ${nomearOrigens(origens)} —` : "") +
         ` com valores diferentes: ${naFrase.join("; ")}${maisCampos}. ` +
         `Linhas repetidas para a mesma chave, discordando entre si, não têm resposta certa, ` +
-        `e a importação não escolhe uma em silêncio. ` +
+        `e a importação não escolhe uma em silêncio: este registro ficou de fora da vigência, ` +
+        `e o resto do arquivo entrou. ` +
         `Corrija a planilha de origem — deixe uma linha só por chave, ou os mesmos valores nas repetidas — ` +
-        `e envie o arquivo de novo.`,
+        `e importe de novo para que ele entre.`,
       detail: {
         vigencia: label,
         tipo: rotulo,
@@ -2090,6 +2150,7 @@ export async function stage(
     errors,
     warnings,
     rowsRejected,
+    chavesEmQuarentena: conflitos.size,
     snapshotLabels: [...labels].sort(),
     identities: identidades,
   };
@@ -2159,10 +2220,27 @@ export interface PreviewReport {
     warnings: number;
   };
   issuesByCode: { code: string; severity: string; count: number; sample: string }[];
+  /**
+   * Quantas chaves esta importação deixou de fora por conflito.
+   *
+   * Fica ao lado de `blockingErrors` e diz outra coisa: `blockingErrors` conta
+   * o que impede aprovar o arquivo; este conta o que já se sabe que **não vai
+   * entrar** se ele for aprovado. Zero é o caso comum; maior que zero, a
+   * vigência nasce incompleta e a tela precisa dizê-lo antes da aprovação, não
+   * depois.
+   */
+  chavesEmQuarentena: number;
   /** Nulls broken down by reason — absence is never collapsed into one bucket. */
   nullsByReason: { reason: string; count: number }[];
   /** True economic zeros, kept separate from every kind of absence. */
   zeroCount: number;
+  /**
+   * Quantos apontamentos impedem aprovar este arquivo.
+   *
+   * Só os que impedem — não todo ERRO. Uma linha sem placa é ERRO e não impede
+   * nada; uma chave em conflito é ERRO, retira o registro e o arquivo segue
+   * aprovável. Ver `CODIGOS_QUE_BLOQUEIAM_PROMOCAO`.
+   */
   blockingErrors: number;
   /**
    * Equipamentos que esta importação criaria e o dicionário não conhece.
@@ -2275,24 +2353,42 @@ export async function preview(
     .from(stagedFactTable)
     .where(eq(stagedFactTable.importRunId, importRunId));
 
-  const blockingErrors = issueRows
-    .filter((i) => i.severity === "ERROR")
-    .reduce((sum, i) => sum + i.count, 0);
-
   /*
-    Nem todo ERRO impede promover: linha sem chave é linha recusada, e o resto do
-    arquivo continua válido — foi sempre assim. O que impede são os dois casos em
-    que não existe resposta certa a escolher:
+    Nem todo ERRO impede promover, e as consequências são três, não duas.
 
-    - a mesma entidade aparecendo duas vezes na mesma vigência com valores que
-      discordam — escolher um dos dois em silêncio seria inventar o número;
-    - o tipo declarado no envio discordando do que a aba traz — aceitar seria
-      gravar como cavalo o que é carreta porque alguém clicou na aba errada.
+    Linha sem chave é linha recusada, e o resto do arquivo continua válido — foi
+    sempre assim. A mesma entidade duas vezes com valores que discordam retira
+    **a chave** e deixa o arquivo entrar: escolher um dos dois em silêncio seria
+    inventar o número, e segurar o arquivo inteiro por causa dela custava onze
+    mil fatos bons por oito ruins (ver a quarentena, em `stage`).
+
+    O que impede promover é o arquivo que não é o que disse ser — o tipo
+    declarado no envio discordando do que a aba traz. Aceitar seria gravar como
+    cavalo o que é carreta porque alguém clicou na aba errada, e aí não há chave
+    a isolar: é o arquivo todo que está sob a etiqueta errada.
+
+    **`blockingErrors` é esta mesma conta, e não outra.** Ele contava todo ERRO,
+    e enquanto o conflito de chave segurava o arquivo a conta batia por
+    acidente: os erros que existiam ou bloqueavam, ou vinham junto de um que
+    bloqueava. Com a quarentena o acidente acabou — um arquivo com 8 conflitos e
+    mais nada é perfeitamente aprovável, e um campo chamado `blockingErrors`
+    devolvendo 8 faria toda leitura dele concluir o contrário do que é verdade.
+    Duas perguntas iguais respondidas por dois cálculos é como uma tela passa a
+    discordar do pipeline; aqui há um cálculo só.
   */
   const impeditivas = issueRows.filter(
     (i) => i.severity === "ERROR" && BLOQUEIAM_PROMOCAO.has(i.code),
   );
   const impeditivos = impeditivas.reduce((sum, i) => sum + i.count, 0);
+  const blockingErrors = impeditivos;
+
+  /*
+    As chaves que a quarentena reteve — contadas aqui porque é aqui que se
+    decide o que dizer sobre um arquivo que não trouxe fato nenhum.
+  */
+  const emQuarentena = issueRows
+    .filter((i) => CODIGOS_QUE_ISOLAM_A_CHAVE.has(i.code))
+    .reduce((soma, i) => soma + i.count, 0);
 
   /*
     Zero fatos é impedimento por si — mesmo sem nenhum apontamento.
@@ -2300,6 +2396,12 @@ export async function preview(
     Um arquivo em que nada virou fato não tem o que aprovar: deixá-lo chegar a
     PREVIEWED (e a PROMOTED, vazio) fabricava a importação "verde" que não
     trouxe nada — o falso verde clássico. O motivo diz onde olhar.
+
+    E "onde olhar" depende de por que ficou vazio. Com a quarentena por chave
+    existe um segundo caminho para o zero: o arquivo foi lido, reconhecido e
+    tipado, e **todas** as suas chaves conflitaram. Mandar conferir os papéis
+    das abas nesse caso mandaria procurar um defeito que não existe — as abas
+    foram aceitas; o que não fecha são as linhas.
   */
   const totalDeFatos = snapshots.reduce((soma, s) => soma + s.factCount, 0);
   const vazio = totalDeFatos === 0;
@@ -2315,10 +2417,17 @@ export async function preview(
               failureReason:
                 impeditivos > 0
                   ? motivoDoImpedimento(impeditivas)
-                  : "Nenhuma célula deste arquivo virou fato: nenhuma aba foi aceita " +
-                    "como fonte. Confira os papéis das abas nesta importação — a causa " +
-                    "mais comum é a origem ter renomeado uma coluna estrutural " +
-                    "(Vigência, ou as colunas de identidade).",
+                  : emQuarentena > 0
+                    ? `Todos os registros deste arquivo ficaram em quarentena: ` +
+                      `${emQuarentena === 1 ? "a única chave" : `as ${emQuarentena} chaves`} que ele traz ` +
+                      `${emQuarentena === 1 ? "aparece" : "aparecem"} mais de uma vez na mesma vigência com valores ` +
+                      `que discordam, e não sobrou nada para importar. Os apontamentos nomeiam ` +
+                      `${emQuarentena === 1 ? "o conflito" : "cada conflito"} — a chave, as linhas da planilha e os ` +
+                      `valores em desacordo. Corrija a origem e importe de novo.`
+                    : "Nenhuma célula deste arquivo virou fato: nenhuma aba foi aceita " +
+                      "como fonte. Confira os papéis das abas nesta importação — a causa " +
+                      "mais comum é a origem ter renomeado uma coluna estrutural " +
+                      "(Vigência, ou as colunas de identidade).",
             }
           : { status: "PREVIEWED" },
       )
@@ -2359,6 +2468,7 @@ export async function preview(
       .sort((a, b) => b.count - a.count),
     zeroCount: zeroRow?.count ?? 0,
     blockingErrors,
+    chavesEmQuarentena: emQuarentena,
     pendingIdentities: await identidadesPendentes(db, importRunId),
   };
 }

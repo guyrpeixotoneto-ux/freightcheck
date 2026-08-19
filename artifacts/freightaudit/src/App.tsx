@@ -35,12 +35,14 @@ import Frota360 from '@/pages/frota-360';
 import QlpAdministrativo from '@/pages/qlp-administrativo';
 import { EmPreparo } from '@/pages/em-preparo';
 import { TELAS_EM_PREPARO } from '@/pages/telas-em-preparo';
-import VisaoDoFechamento from '@/pages/fechamento/visao';
+import VisaoGerencial from '@/pages/fechamento/visao';
+import UnidadeDoFechamento from '@/pages/fechamento/unidade';
 import Competencias from '@/pages/fechamento/competencias';
 import Apuracoes from '@/pages/fechamento/apuracoes';
 import CompetenciaAberta from '@/pages/fechamento/competencia';
 import DiaDoFechamento from '@/pages/fechamento/dia';
 import RemuneracaoCadastro from '@/pages/fechamento/remuneracao';
+import RemuneracaoUnidades from '@/pages/fechamento/remuneracao-unidades';
 import { EtapaDoFechamento } from '@/pages/fechamento/etapa';
 import { ETAPAS_FECHAMENTO } from '@/pages/fechamento/etapas';
 
@@ -198,7 +200,16 @@ function Router() {
         entrada de lá e escrever o `<Route>` explícito aqui, e enquanto os dois
         coexistirem a linha explícita ganha.
       */}
-      <Route path="/fechamento" component={VisaoDoFechamento} />
+      <Route path="/fechamento" component={VisaoGerencial} />
+      {/*
+        O ano de uma unidade, atrás do cartão da Visão Gerencial. Não está na
+        lateral de propósito: é aprofundamento de um número da home, e não uma
+        seção do processo — o menu do Fechamento continua sendo as cinco etapas
+        do trabalho.
+      */}
+      <Route path="/fechamento/unidades/:codigo">
+        {(params) => <UnidadeDoFechamento codigo={decodeURIComponent(params.codigo)} />}
+      </Route>
       <Route path="/fechamento/competencias" component={Competencias} />
       <Route path="/fechamento/competencias/:id">
         {(params) => <CompetenciaAberta id={params.id} />}
@@ -218,8 +229,16 @@ function Router() {
         é o que a apuração da quinzena consome —, e a rota HTTP dela fica fora
         de `/fechamento` pelo motivo simétrico: o dado é da unidade numa
         vigência. Ver `routes/remuneracao.ts`.
+
+        São duas telas e duas perguntas: a lista responde *quais unidades já têm
+        cadastro de pé*, e a de dentro, *quais são os parâmetros desta unidade*.
+        A lista fica no endereço curto porque é por onde se entra — e porque era
+        ele que a lateral já apontava. O endereço antigo do cadastro era este
+        mesmo, com a unidade na query; a lista encaminha quem chegar com
+        `scopeHash` para `/unidade`, e nenhum link guardado por aí morre.
       */}
-      <Route path="/fechamento/remuneracao" component={RemuneracaoCadastro} />
+      <Route path="/fechamento/remuneracao" component={RemuneracaoUnidades} />
+      <Route path="/fechamento/remuneracao/unidade" component={RemuneracaoCadastro} />
       {ETAPAS_FECHAMENTO.map((etapa) => (
         <Route key={etapa.href} path={etapa.href}>
           <EtapaDoFechamento etapa={etapa} />
