@@ -19,13 +19,17 @@
 -- primeira consulta teria de saber qual metade ler.
 --
 -- **Nenhum número é derivado na importação.** `valor_faturado` é
--- `nf_iss + ctrc_icms` no arquivo, e é gravado como o arquivo o traz. Recalculá-lo
--- apagaria exatamente o erro que se quer encontrar no dia em que a soma do
--- Promax não fechar.
-
-ALTER TABLE "fechamento_documento" DROP CONSTRAINT IF EXISTS "fechamento_documento_tipo";--> statement-breakpoint
-ALTER TABLE "fechamento_documento" ADD CONSTRAINT "fechamento_documento_tipo"
-	CHECK ("tipo" in ('OPERACAO', 'CTE', 'PAGAMENTO', 'DISPONIBILIDADE', 'REQUISICOES', 'CONCILIACAO'));--> statement-breakpoint
+-- `nf_iss + ctrc_icms` no arquivo, e é gravado como o arquivo o traz.
+-- Recalculá-lo apagaria exatamente o erro que se quer encontrar no dia em que a
+-- soma do Promax não fechar.
+--
+-- O DDL abaixo é o que `drizzle-kit generate` produziu do schema, com três
+-- diferenças deliberadas, todas na forma e nenhuma no resultado: os objetos
+-- nascem reentrantes (`IF NOT EXISTS`, um bloco por chave), como toda a `0039`,
+-- para que a adoção de um banco que já os tem não trave a fila; e os dois
+-- gatilhos de congelamento entram no fim, porque o drizzle não modela gatilho e
+-- uma fonte que continuasse aceitando escrita depois do encerramento seria uma
+-- porta aberta para mudar, em silêncio, a conta que alguém já cobrou.
 
 CREATE TABLE IF NOT EXISTS "fechamento_pagamento_item" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
@@ -42,10 +46,9 @@ CREATE TABLE IF NOT EXISTS "fechamento_pagamento_item" (
 	"valor_faturado" numeric(14, 2) DEFAULT '0' NOT NULL,
 	"vlc_nf_iss" numeric(14, 2) DEFAULT '0' NOT NULL,
 	"vlc_ctrc_icms" numeric(14, 2) DEFAULT '0' NOT NULL,
-	CONSTRAINT "fechamento_pagamento_item_canal" CHECK ("canal" in ('ROTA', 'AS')),
-	CONSTRAINT "fechamento_pagamento_item_bloco" CHECK ("bloco" in ('FRETE', 'OUTROS_CUSTOS'))
+	CONSTRAINT "fechamento_pagamento_item_canal" CHECK ("fechamento_pagamento_item"."canal" in ('ROTA', 'AS')),
+	CONSTRAINT "fechamento_pagamento_item_bloco" CHECK ("fechamento_pagamento_item"."bloco" in ('FRETE', 'OUTROS_CUSTOS'))
 );--> statement-breakpoint
-
 CREATE TABLE IF NOT EXISTS "fechamento_pagamento_desconto" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"documento_id" uuid NOT NULL,
@@ -57,26 +60,42 @@ CREATE TABLE IF NOT EXISTS "fechamento_pagamento_desconto" (
 	"valor" numeric(14, 2) DEFAULT '0' NOT NULL,
 	"base" numeric(14, 2),
 	"percentual" numeric(8, 4),
-	CONSTRAINT "fechamento_pagamento_desconto_canal" CHECK ("canal" in ('ROTA', 'AS'))
+	CONSTRAINT "fechamento_pagamento_desconto_canal" CHECK ("fechamento_pagamento_desconto"."canal" in ('ROTA', 'AS'))
 );--> statement-breakpoint
 
 DO $reentrante$
 BEGIN
 	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_pagamento_item_documento_fk') THEN
-		ALTER TABLE "fechamento_pagamento_item" ADD CONSTRAINT "fechamento_pagamento_item_documento_fk"
-		FOREIGN KEY ("documento_id") REFERENCES "fechamento_documento"("id") ON DELETE cascade;
+		ALTER TABLE "fechamento_pagamento_item"
+			ADD CONSTRAINT "fechamento_pagamento_item_documento_fk"
+			FOREIGN KEY ("documento_id") REFERENCES "fechamento_documento"("id") ON DELETE CASCADE;
 	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
 	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_pagamento_item_competencia_fk') THEN
-		ALTER TABLE "fechamento_pagamento_item" ADD CONSTRAINT "fechamento_pagamento_item_competencia_fk"
-		FOREIGN KEY ("competencia_id") REFERENCES "fechamento_competencia"("id") ON DELETE cascade;
+		ALTER TABLE "fechamento_pagamento_item"
+			ADD CONSTRAINT "fechamento_pagamento_item_competencia_fk"
+			FOREIGN KEY ("competencia_id") REFERENCES "fechamento_competencia"("id") ON DELETE CASCADE;
 	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
 	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_pagamento_desconto_documento_fk') THEN
-		ALTER TABLE "fechamento_pagamento_desconto" ADD CONSTRAINT "fechamento_pagamento_desconto_documento_fk"
-		FOREIGN KEY ("documento_id") REFERENCES "fechamento_documento"("id") ON DELETE cascade;
+		ALTER TABLE "fechamento_pagamento_desconto"
+			ADD CONSTRAINT "fechamento_pagamento_desconto_documento_fk"
+			FOREIGN KEY ("documento_id") REFERENCES "fechamento_documento"("id") ON DELETE CASCADE;
 	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
 	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_pagamento_desconto_competencia_fk') THEN
-		ALTER TABLE "fechamento_pagamento_desconto" ADD CONSTRAINT "fechamento_pagamento_desconto_competencia_fk"
-		FOREIGN KEY ("competencia_id") REFERENCES "fechamento_competencia"("id") ON DELETE cascade;
+		ALTER TABLE "fechamento_pagamento_desconto"
+			ADD CONSTRAINT "fechamento_pagamento_desconto_competencia_fk"
+			FOREIGN KEY ("competencia_id") REFERENCES "fechamento_competencia"("id") ON DELETE CASCADE;
 	END IF;
 END
 $reentrante$;--> statement-breakpoint
@@ -86,9 +105,13 @@ CREATE INDEX IF NOT EXISTS "fechamento_pagamento_item_por_documento" ON "fechame
 CREATE INDEX IF NOT EXISTS "fechamento_pagamento_desconto_por_competencia" ON "fechamento_pagamento_desconto" ("competencia_id","canal");--> statement-breakpoint
 CREATE INDEX IF NOT EXISTS "fechamento_pagamento_desconto_por_documento" ON "fechamento_pagamento_desconto" ("documento_id");--> statement-breakpoint
 
--- As duas tabelas novas congelam junto com a competência, como as outras cinco:
--- uma fonte que continuasse aceitando escrita depois do encerramento seria uma
--- porta aberta para mudar, em silêncio, a conta que alguém já cobrou.
+-- O tipo de documento passa a admitir `PAGAMENTO`. O `DROP` vem com
+-- `IF EXISTS` porque a fila também roda sobre bancos adotados, onde a
+-- constraint pode ter outro nome ou não existir.
+ALTER TABLE "fechamento_documento" DROP CONSTRAINT IF EXISTS "fechamento_documento_tipo";--> statement-breakpoint
+ALTER TABLE "fechamento_documento" ADD CONSTRAINT "fechamento_documento_tipo" CHECK ("fechamento_documento"."tipo" in ('OPERACAO', 'CTE', 'PAGAMENTO', 'DISPONIBILIDADE', 'REQUISICOES', 'CONCILIACAO'));--> statement-breakpoint
+
+-- As duas tabelas novas congelam junto com a competência, como as outras sete.
 DO $reentrante$
 BEGIN
 	IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'fechamento_pagamento_item_congelada') THEN
