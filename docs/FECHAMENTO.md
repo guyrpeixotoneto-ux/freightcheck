@@ -115,7 +115,7 @@ O que sustenta a tela:
 | `routes/fechamento.ts` | `GET …/dias` e `GET …/dias/:dia` |
 | `components/fechamento/` | a grade de ladrilhos, o catálogo de colunas e a tabela larga |
 
-Três decisões que a tela materializa:
+Quatro decisões que a tela materializa:
 
 1. **O dia sem operação aparece na grade**, apagado e clicável. "Não rodou" é
    uma resposta; a grade que esconde o dia vazio obriga a contar ladrilhos para
