@@ -75,15 +75,31 @@ const ROTULO_SEVERIDADE: Record<Severity, string> = {
 };
 
 /** As colunas da fila, para o `colSpan` da investigação não sair do lugar. */
-export const COLUNAS_PRIORIDADE = 9;
+export const COLUNAS_PRIORIDADE = 8;
 
 /**
  * Uma linha da fila de investigação.
  *
  * A linha é uma leitura de tabela: posição, criticidade, parâmetro, frota,
- * pontos da conta de prioridade, veículos, anomalia, impacto e a ação. Nove
- * colunas que se comparam de cima a baixo — que é como se escolhe por onde
- * começar. O diagnóstico e a prova ficam na investigação, um clique abaixo.
+ * alterações, anomalia, impacto e a ação. Oito colunas que se comparam de cima
+ * a baixo — que é como se escolhe por onde começar. O diagnóstico e a prova
+ * ficam na investigação, um clique abaixo.
+ *
+ * **A grandeza da coluna é alteração, e não ponto de prioridade.** A soma da
+ * fila é o critério da ordem, não uma medida da vigência: `68` não tem unidade
+ * que se compare com nada — nem com as 267 linhas do topo da tela, nem entre
+ * dois pontos, porque a escala dela é interna. Quem lê a fila quer o tamanho do
+ * que mudou, e esse número é `changes`. A conta continua inteira e auditável em
+ * dois lugares: no `title` da posição, para quem quer a razão da ordem sem sair
+ * da linha, e na investigação, em "Por que este ponto está nesta posição",
+ * parcela por parcela.
+ *
+ * **E a coluna de veículos saiu junto.** Hoje há uma linha por (ativo,
+ * atributo) — `grouped.ts` diz isso e a soma fecha —, então `Alterações` e
+ * `Veículos` mostrariam o mesmo número em toda linha, e duas colunas iguais
+ * fazem quem lê procurar a diferença que não existe. A abrangência continua
+ * dita onde ela é lida: embaixo do parâmetro, em "10 de 71 carretas", onde ela
+ * vem com o denominador que a torna interpretável.
  */
 export function LinhaPrioridade({
   entry,
@@ -103,7 +119,12 @@ export function LinhaPrioridade({
   return (
     <>
       <tr className={cn("border-t transition-colors", aberto ? "bg-muted/40" : "hover:bg-muted/30")}>
-        <td className="pl-5 pr-2 py-3 align-middle text-[0.9375rem] font-bold tabular-nums text-muted-foreground">
+        <td
+          className="pl-5 pr-2 py-3 align-middle text-[0.9375rem] font-bold tabular-nums text-muted-foreground"
+          title={`Posição ${item.rank} · soma de prioridade ${item.score}: ${item.reasons
+            .map((r) => `${r.label} +${r.points}`)
+            .join(", ")}`}
+        >
           {String(item.rank).padStart(2, "0")}
         </td>
 
@@ -141,19 +162,18 @@ export function LinhaPrioridade({
           {group.equipment}
         </td>
 
+        {/*
+          Sem cor de criticidade neste número. A contagem é tamanho, não risco:
+          pintar 68 linhas de âmbar diria que a linha é grave por ser grande, e
+          a criticidade já tem coluna própria duas casas à esquerda.
+        */}
         <td
           className="px-2 py-3 align-middle text-right"
-          title={`Soma da conta de prioridade: ${item.reasons
-            .map((r) => `${r.label} +${r.points}`)
-            .join(", ")}`}
+          title={`${group.changes} ${
+            group.changes === 1 ? "linha alterada" : "linhas alteradas"
+          } neste ponto · ${item.shareLabel}`}
         >
-          <span className={cn("text-[0.9375rem] font-bold tabular-nums", cores.texto)}>
-            {item.score}
-          </span>
-        </td>
-
-        <td className="px-2 py-3 align-middle text-right text-[0.9375rem] tabular-nums">
-          {group.vehicles}
+          <span className="text-[0.9375rem] font-bold tabular-nums">{group.changes}</span>
         </td>
 
         <td className="px-2 py-3 align-middle text-center">
