@@ -1,7 +1,14 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { ChevronRight, Info, Search } from "lucide-react";
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronsUpDown,
+  ChevronUp,
+  Info,
+  Search,
+} from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
 import { Input } from "@/components/ui/input";
@@ -30,6 +37,12 @@ import {
   TabelaDeConjuntos,
   type FiltrosDeConjuntos,
 } from "@/components/composicao/conjuntos";
+import {
+  ordenarLinhas,
+  proximaOrdem,
+  type ChaveDeOrdem,
+  type OrdemDaFrota,
+} from "@/components/composicao/ordenacao";
 
 /**
  * Composição — a frota, por tipo de equipamento.
@@ -526,6 +539,9 @@ function BarraDeFiltros({
  * célula vazia na vigência. Ver `ROTULO_DA_NAO_APURACAO`.
  */
 function Tabela({ view }: { view: VisaoDeFrota }) {
+  const [ordem, setOrdem] = useState<OrdemDaFrota>(null);
+  const linhas = useMemo(() => ordenarLinhas(view.linhas, ordem), [view.linhas, ordem]);
+
   if (view.linhas.length === 0) {
     return (
       <p className="text-sm text-muted-foreground py-8 text-center border rounded-md bg-card">
@@ -540,17 +556,55 @@ function Tabela({ view }: { view: VisaoDeFrota }) {
         <thead>
           <tr className="border-b bg-muted/40 text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
             <th className="w-8 px-4 py-2.5" />
-            <th className="text-left px-2 py-2.5 font-semibold">Equipamento</th>
-            <th className="text-left px-4 py-2.5 font-semibold">Unidade · Operação</th>
+            <Cabecalho
+              chave="equipamento"
+              rotulo="Equipamento"
+              ordem={ordem}
+              onOrdenar={setOrdem}
+              className="text-left px-2"
+            />
+            <Cabecalho
+              chave="unidade"
+              rotulo="Unidade · Operação"
+              ordem={ordem}
+              onOrdenar={setOrdem}
+              className="text-left px-4"
+            />
+            {/*
+              Vigência não ordena porque não varia: toda linha desta tabela é da
+              vigência escolhida no topo — `getVisaoDeFrota` carimba o mesmo
+              `alvo.effectiveDate` em todas, e quem sai da frota aparece com
+              "fora da vigência" na coluna do dinheiro, não com outra data. Um
+              cabeçalho clicável que não reordenasse nada seria lido como
+              defeito. Quem quer outra vigência troca no seletor do topo.
+            */}
             <th className="text-left px-4 py-2.5 font-semibold">Vigência</th>
-            <th className="text-right px-4 py-2.5 font-semibold">Remuneração apurada</th>
-            <th className="text-right px-4 py-2.5 font-semibold">Variação</th>
-            <th className="text-left px-4 py-2.5 font-semibold">Alertas</th>
+            <Cabecalho
+              chave="mensal"
+              rotulo="Remuneração apurada"
+              ordem={ordem}
+              onOrdenar={setOrdem}
+              className="text-right px-4"
+            />
+            <Cabecalho
+              chave="variacao"
+              rotulo="Variação"
+              ordem={ordem}
+              onOrdenar={setOrdem}
+              className="text-right px-4"
+            />
+            <Cabecalho
+              chave="alertas"
+              rotulo="Alertas"
+              ordem={ordem}
+              onOrdenar={setOrdem}
+              className="text-left px-4"
+            />
             <th className="w-8 px-4 py-2.5" />
           </tr>
         </thead>
         <tbody>
-          {view.linhas.map((linha) => (
+          {linhas.map((linha) => (
             <tr
               key={linha.entityId}
               className="border-b last:border-0 hover:bg-muted/40 transition-colors"
@@ -628,5 +682,69 @@ function Tabela({ view }: { view: VisaoDeFrota }) {
         </tbody>
       </table>
     </div>
+  );
+}
+
+/**
+ * O cabeçalho que ordena.
+ *
+ * Um clique põe a coluna no sentido de estreia — dinheiro do maior para o
+ * menor, texto de A a Z —, o segundo inverte, o terceiro devolve a ordem por
+ * placa. A seta diz em qual dos três a tabela está: as duas pontas quando
+ * ninguém pediu nada, e a ponta de cima ou de baixo quando pediram. Sem ela o
+ * leitor teria que inferir a ordem lendo os valores, que é o trabalho que a
+ * coluna acabou de fazer por ele.
+ *
+ * A régua está em `components/composicao/ordenacao.ts`, com o motivo de a
+ * ausência nunca contar como zero.
+ */
+function Cabecalho({
+  chave,
+  rotulo,
+  ordem,
+  onOrdenar,
+  className,
+}: {
+  chave: ChaveDeOrdem;
+  rotulo: string;
+  ordem: OrdemDaFrota;
+  onOrdenar: (ordem: OrdemDaFrota) => void;
+  className?: string;
+}) {
+  const ativa = ordem?.chave === chave;
+  return (
+    <th
+      scope="col"
+      aria-sort={!ativa ? "none" : ordem.sentido === "asc" ? "ascending" : "descending"}
+      className={cn("py-2.5 font-semibold", className)}
+    >
+      <button
+        type="button"
+        onClick={() => onOrdenar(proximaOrdem(ordem, chave))}
+        title={
+          ativa
+            ? "ordenar pelo outro sentido — o terceiro clique volta à ordem por placa"
+            : `ordenar por ${rotulo.toLowerCase()}`
+        }
+        className={cn(
+          /*
+            O `uppercase tracking-wider` do <tr> não desce até aqui: o reset de
+            formulário zera `text-transform` no <button>, e o rótulo sairia em
+            caixa mista no meio de uma linha de cabeçalhos em caixa alta.
+          */
+          "inline-flex items-center gap-1.5 uppercase tracking-wider transition-colors hover:text-foreground",
+          ativa && "text-foreground",
+        )}
+      >
+        {rotulo}
+        {!ativa ? (
+          <ChevronsUpDown className="w-3 h-3 shrink-0 opacity-40" />
+        ) : ordem.sentido === "asc" ? (
+          <ChevronUp className="w-3 h-3 shrink-0" />
+        ) : (
+          <ChevronDown className="w-3 h-3 shrink-0" />
+        )}
+      </button>
+    </th>
   );
 }
