@@ -6,6 +6,7 @@ import {
   apurarCompetencia,
   buscarCompetencia,
   descartarDadosDaCompetencia,
+  excluirCompetencia,
   lerApuracaoVigente,
   lerDiaDaCompetencia,
   lerDiarioDaCompetencia,
@@ -442,6 +443,37 @@ router.post("/fechamento/competencias/:id/reabertura", async (req, res): Promise
   }
   try {
     res.json(await reabrirCompetencia(db, id, { motivo, por: req.user?.id ?? null }));
+  } catch (erro) {
+    if (erro instanceof RecusaDeFechamento) {
+      res.status(erro.codigo === "COMPETENCIA_NAO_ENCONTRADA" ? 404 : 409).json({
+        error: erro.message,
+        codigo: erro.codigo,
+      });
+      return;
+    }
+    throw erro;
+  }
+});
+
+/**
+ * Exclui a competência inteira — a importação deixa de existir.
+ *
+ * É `DELETE` no recurso, e não `DELETE .../dados`: aquele esvazia a quinzena e
+ * a mantém na lista; este apaga a linha. A distinção mora na URL porque os dois
+ * atos se parecem no clique e não se parecem no resultado, e quem chama a API
+ * de fora precisa poder dizer qual dos dois quis.
+ *
+ * A encerrada é recusada com 409 — a mesma regra do envio e do descarte, e a
+ * mesma saída: reabrir, com motivo.
+ */
+router.delete("/fechamento/competencias/:id", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de competência inválido." });
+    return;
+  }
+  try {
+    res.json(await excluirCompetencia(db, id));
   } catch (erro) {
     if (erro instanceof RecusaDeFechamento) {
       res.status(erro.codigo === "COMPETENCIA_NAO_ENCONTRADA" ? 404 : 409).json({

@@ -1,7 +1,15 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
-import { ArrowRight, CalendarDays, Lock, LockOpen, Plus, WifiOff } from "lucide-react";
+import {
+  ArrowRight,
+  CalendarDays,
+  Lock,
+  LockOpen,
+  Plus,
+  Trash2,
+  WifiOff,
+} from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,6 +27,7 @@ import { ComboboxCriavel } from "@/components/ui/combobox-criavel";
 import { FecharQuinzena } from "@/components/fechamento/fechar-quinzena";
 import {
   abrirCompetencia,
+  excluirCompetencia,
   lerCompetencia,
   listarCompetencias,
   listarFontes,
@@ -99,6 +108,22 @@ export function acaoDoFechamento(estado: Competencia["estado"]): AcaoDoFechament
 }
 
 /**
+ * Dá para excluir esta importação? A mesma régua que o servidor aplica.
+ *
+ * Só a encerrada é recusada, e é o único estado em que apagar destruiria algo
+ * que vale como prova: uma quinzena fechada é o registro do que foi cobrado.
+ * Nos outros — aberta, em apuração, apurada, aprovada — a competência ainda é
+ * trabalho em curso, e um trabalho em curso aberto por engano é exatamente o
+ * que este ato existe para desfazer.
+ *
+ * A regra continua sendo do servidor (`excluirCompetencia`, em
+ * `persistencia.ts`): o que a tela evita é oferecer um botão que vai voltar 409.
+ */
+export function podeExcluir(estado: Competencia["estado"]): boolean {
+  return estado !== "ENCERRADA";
+}
+
+/**
  * O ano digitado é um ano — a mesma régua que a rota aplica.
  *
  * Repetida aqui de propósito: sem ela o botão manda um `NaN` para o servidor e
@@ -148,6 +173,13 @@ export default function Competencias() {
   const [transportadora, setTransportadora] = useState<Parte | null>(null);
   /** A competência cujo painel de fechamento está aberto — uma, ou nenhuma. */
   const [fechando, setFechando] = useState<string | null>(null);
+  /*
+    E a que está sendo excluída, que é outro painel e nunca o mesmo. Um estado
+    só, com um "qual", pareceria mais enxuto e deixaria os dois atos a um
+    `setState` de distância um do outro — e o ato que apaga uma quinzena inteira
+    não deve compartilhar variável com o que a fecha.
+  */
+  const [excluindo, setExcluindo] = useState<string | null>(null);
 
   /*
     A lista sustenta a tela inteira, e por isso é a que paga o preço de uma
@@ -386,6 +418,7 @@ export default function Competencias() {
               {competencias.dados?.map((c) => {
                 const acao = acaoDoFechamento(c.estado);
                 const painelAberto = fechando === c.id;
+                const excluindoEsta = excluindo === c.id;
                 return (
                   <li key={c.id}>
                     <div className="flex items-center gap-3">
@@ -419,13 +452,54 @@ export default function Competencias() {
                         <AcaoDaLinha
                           acao={acao}
                           aberto={painelAberto}
-                          aoAlternar={() => setFechando(painelAberto ? null : c.id)}
+                          aoAlternar={() => {
+                            setExcluindo(null);
+                            setFechando(painelAberto ? null : c.id);
+                          }}
                         />
                       </div>
+                      {/*
+                        Excluir é ícone, e as outras ações são texto: a
+                        hierarquia da linha é o trabalho da quinzena — fechar,
+                        reabrir, apurar —, e apagar a importação é o conserto de
+                        um engano de cadastro, que acontece uma vez e não deve
+                        disputar o olho com o que se faz toda quinzena. O
+                        `title` mora no `span` porque o botão desabilitado tem
+                        `pointer-events: none` e engoliria a explicação de por
+                        que está desabilitado.
+                      */}
+                      <span
+                        className="shrink-0"
+                        title={
+                          podeExcluir(c.estado)
+                            ? "Excluir esta importação"
+                            : "A quinzena está fechada — reabra, com motivo, antes de excluir."
+                        }
+                      >
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className="h-8 w-8 text-muted-foreground hover:text-destructive"
+                          aria-label={`Excluir a importação de ${c.inicio.split("-").reverse().join("/")} a ${c.fim.split("-").reverse().join("/")}`}
+                          aria-expanded={excluindoEsta}
+                          disabled={!podeExcluir(c.estado)}
+                          onClick={() => {
+                            setFechando(null);
+                            setExcluindo(excluindoEsta ? null : c.id);
+                          }}
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </Button>
+                      </span>
                     </div>
                     {painelAberto && (
                       <div className="mb-3 rounded-md border bg-muted/20 px-4 py-4">
                         <FechamentoDaLinha competenciaId={c.id} />
+                      </div>
+                    )}
+                    {excluindoEsta && (
+                      <div className="mb-3 rounded-md border border-destructive/40 bg-destructive/5 px-4 py-4">
+                        <ExclusaoDaLinha competencia={c} aoFechar={() => setExcluindo(null)} />
                       </div>
                     )}
                   </li>
@@ -547,5 +621,103 @@ function FechamentoDaLinha({ competenciaId }: { competenciaId: string }) {
       apuracao={apuracao}
       fontes={fontes.data ?? []}
     />
+  );
+}
+
+/**
+ * O painel de exclusão de uma linha — a pergunta antes do ato irreversível.
+ *
+ * **Por que a pergunta mora na tela, e não num `window.confirm`.** É a mesma
+ * razão do descarte na competência aberta: o diálogo do navegador não sabe
+ * dizer *quantos* arquivos vão embora, e ver o tamanho do que se vai apagar é a
+ * única defesa real contra apagar a importação errada. Aqui vale duas vezes,
+ * porque na lista as quinzenas se parecem — dois CDDs no mesmo período são duas
+ * linhas quase idênticas.
+ *
+ * **Por que busca a competência inteira.** Pelo mesmo motivo de
+ * `FechamentoDaLinha`: a lista traz o índice, e o tamanho do que existe dentro
+ * de cada quinzena não cabe nele. A chave é a mesma da tela da competência, de
+ * propósito — quem já abriu a competência não espera de novo aqui.
+ *
+ * **A encerrada não chega até aqui**: o botão da linha está desabilitado, e o
+ * servidor recusaria de todo modo. Reabrir, com motivo, vem antes — é o que
+ * mantém uma quinzena fechada valendo como prova do que foi cobrado.
+ */
+function ExclusaoDaLinha({
+  competencia,
+  aoFechar,
+}: {
+  competencia: Competencia;
+  /** Fecha o painel — o mesmo gesto para quem desistiu e para quem excluiu. */
+  aoFechar: () => void;
+}) {
+  const cliente = useQueryClient();
+  const dados = useQuery({
+    queryKey: ["fechamento", "competencia", competencia.id],
+    queryFn: () => lerCompetencia(competencia.id),
+  });
+
+  const excluir = useMutation({
+    mutationFn: () => excluirCompetencia(competencia.id),
+    onSuccess: () => {
+      /*
+        A competência apagada sai do cache em vez de ser invalidada: invalidar
+        mandaria buscar de novo o que não existe mais, e a tela dela — se
+        alguém a tiver aberta noutra aba — pediria um 404 para descobrir o que
+        já se sabe aqui.
+      */
+      cliente.removeQueries({ queryKey: ["fechamento", "competencia", competencia.id] });
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "apuracoes"] });
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "partes"] });
+      aoFechar();
+    },
+  });
+
+  const periodo = `${competencia.inicio.split("-").reverse().join("/")} a ${competencia.fim.split("-").reverse().join("/")}`;
+  const enviados = dados.data?.documentos.filter((d) => d.vigente).length ?? 0;
+
+  return (
+    <div className="space-y-3">
+      <p className="text-sm font-medium">Excluir esta importação?</p>
+      <p className="text-sm text-muted-foreground">
+        {periodo} · {competencia.unidade.nome ?? competencia.unidade.codigo} ·{" "}
+        {competencia.transportadora.nome ?? competencia.transportadora.codigo}
+      </p>
+      {dados.isLoading ? (
+        <p className="text-sm text-muted-foreground">Contando o que vai junto…</p>
+      ) : (
+        <ul className="text-sm text-muted-foreground space-y-1">
+          <li>• {enviados} relatório(s) enviado(s), com as linhas que eles produziram</li>
+          <li>
+            • {dados.data?.apuracao ? "a conta apurada e as divergências dela" : "nenhuma apuração"}
+          </li>
+          <li>• os dias da quinzena, como esta competência os montou</li>
+        </ul>
+      )}
+      <p className="text-sm text-muted-foreground">
+        A quinzena deixa de existir e não volta. Se o que está errado são os
+        arquivos, e não a quinzena, abra a competência e use{" "}
+        <strong>Descartar dados</strong> — ela fica, vazia, e recebe os certos.
+      </p>
+      {excluir.isError && (
+        <Alert variant="destructive">
+          <AlertDescription>{textoDoErro(excluir.error)}</AlertDescription>
+        </Alert>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="destructive"
+          onClick={() => excluir.mutate()}
+          disabled={excluir.isPending}
+        >
+          <Trash2 className="w-4 h-4 mr-1.5" />
+          {excluir.isPending ? "Excluindo…" : "Sim, excluir a importação"}
+        </Button>
+        <Button variant="ghost" onClick={aoFechar} disabled={excluir.isPending}>
+          Cancelar
+        </Button>
+      </div>
+    </div>
   );
 }

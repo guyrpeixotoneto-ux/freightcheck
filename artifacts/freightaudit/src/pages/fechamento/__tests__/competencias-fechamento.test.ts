@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acaoDoFechamento, anoAceito } from "../competencias";
+import { acaoDoFechamento, anoAceito, podeExcluir } from "../competencias";
 
 /**
  * O contrato de fechar a quinzena a partir da lista de Importações.
@@ -61,5 +61,32 @@ describe("anoAceito", () => {
 
   it("aceita o ano com espaço em volta — quem digita não apaga o espaço", () => {
     expect(anoAceito(" 2026 ")).toBe(true);
+  });
+});
+
+/**
+ * Quem pode ser excluída da lista.
+ *
+ * A régua tem um estado só do lado do não, e é o que importa: a quinzena
+ * encerrada é a prova de uma cobrança, e apagá-la de um clique de lista apagaria
+ * a prova sem que ninguém tenha dito por quê. Reabrir — com motivo escrito, que
+ * fica no registro — é o caminho, e o servidor recusa do mesmo jeito.
+ */
+describe("podeExcluir", () => {
+  it("recusa a encerrada: reabrir, com motivo, vem antes de apagar", () => {
+    expect(podeExcluir("ENCERRADA")).toBe(false);
+  });
+
+  it("deixa excluir a que foi aberta por engano, antes de qualquer arquivo", () => {
+    expect(podeExcluir("ABERTA")).toBe(true);
+  });
+
+  it("deixa excluir a que já apurou — apurar não é cobrar", () => {
+    expect(podeExcluir("APURADA")).toBe(true);
+    expect(podeExcluir("EM_APURACAO")).toBe(true);
+  });
+
+  it("deixa excluir a aprovada: aprovar não congela, encerrar é que congela", () => {
+    expect(podeExcluir("APROVADA")).toBe(true);
   });
 });
