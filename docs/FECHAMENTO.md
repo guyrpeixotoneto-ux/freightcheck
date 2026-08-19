@@ -50,8 +50,13 @@ avisar.
 A lateral é o mesmo componente (`components/layout/sidebar.tsx`) com duas
 listas:
 
-- **Auditoria** — `NAV_GROUPS`, intacta: Visão executiva, Auditoria,
-  Recuperação, QLP, Frota, Inteligência, Dados & governança, Administração.
+- **Auditoria** — `NAV_GROUPS`: Visão executiva, Auditoria, Recuperação, QLP,
+  Frota, Inteligência, Dados & governança, Administração. As oito seções e a
+  ordem delas são as de sempre; o único item acrescentado desde a separação dos
+  ambientes é a **Visão Gerencial**, que abre a Visão executiva com o acervo
+  inteiro (todas as unidades) acima da Visão geral, que responde pela unidade
+  aberta — ver `pages/visao-gerencial.tsx` e a seção correspondente no
+  `replit.md`.
 - **Fechamento** — `components/layout/nav-fechamento.ts`, cinco seções na
   ordem do processo:
   - **Fechamento**: Visão Gerencial · Importações · Apurações
