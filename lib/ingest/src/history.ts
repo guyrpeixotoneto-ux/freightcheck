@@ -9,6 +9,7 @@ import {
   stagedFactTable,
   validationIssueTable,
 } from "@workspace/db";
+import { impedePromocao, isolaAChave } from "./apontamentos";
 import { identidadesPendentes } from "./pipeline";
 import { parseVigenciaLabel } from "./vigencia";
 
@@ -256,8 +257,45 @@ export interface ImportRunStatus {
   rawCells: number;
   facts: number;
   snapshots: number;
+  /**
+   * Todo apontamento de severidade ERRO deste run — o total, e nada além dele.
+   *
+   * **Não é a resposta a "pode aprovar?".** Foi lido como se fosse, e o preço
+   * apareceu na tela: um QLP com 8 chaves em conflito e nenhum impedimento
+   * chegava com "Aprovar e importar" desabilitado e a frase "8 erros — corrija
+   * a origem antes de aprovar", enquanto o pipeline já tinha classificado o
+   * mesmo arquivo como conferido e aprovável. Quem pergunta sobre aprovação lê
+   * {@link blockingErrors}; este número continua aqui porque "quantos
+   * apontamentos ERRO este run produziu" é uma pergunta legítima do histórico,
+   * e é a que ele responde.
+   *
+   * Vem de `import_run.error_count`, gravado pelo pipeline enquanto rodava — e
+   * continua sendo isso. Ajustar o contador do banco para caber na pergunta da
+   * tela reescreveria o que aquele run de fato produziu.
+   */
   errors: number;
   warnings: number;
+  /**
+   * Quantos apontamentos impedem aprovar este arquivo — a conta do pipeline.
+   *
+   * Zero é o caso comum, inclusive num arquivo cheio de ERROs: linha sem placa
+   * recusa a linha, chave em conflito retira o registro, e nem uma nem outra
+   * impedem o arquivo. Sai do mesmo `impedePromocao` que a pré-visualização usa
+   * para decidir entre PREVIEWED e VALIDATION_ERROR, e é por isso que a tela
+   * pode confiar nele sem repetir a regra.
+   */
+  blockingErrors: number;
+  /**
+   * Quantas chaves já se sabe que **não** vão entrar se este run for aprovado.
+   *
+   * A duplicidade conflitante retira o registro e deixa o resto do arquivo
+   * entrar. Isso é o comportamento certo e cria uma dívida: a vigência nasce
+   * incompleta nessas chaves, e um registro que ficou de fora não aparece como
+   * faltando — ele simplesmente não aparece. Este número existe para a tela
+   * poder dizê-lo **antes** da aprovação, que é quando ainda dá para decidir
+   * corrigir a origem em vez de importar incompleto.
+   */
+  chavesEmQuarentena: number;
   labels: string[];
   /**
    * Equipamentos que esta importação criaria e o dicionário não conhece.
@@ -298,6 +336,31 @@ export async function getImportRunStatus(
     .from(stagedFactTable)
     .where(eq(stagedFactTable.importRunId, importRunId));
 
+  /*
+    As duas contas que decidem a aprovação, feitas sobre os apontamentos.
+
+    Não saem de `import_run`: os contadores gravados lá respondem "quantos
+    ERROs" e "quantos avisos", e a pergunta aqui é outra — *quais* apontamentos,
+    porque a consequência é do código e não da severidade. Agrupar por código é
+    o suficiente (um run tem poucos códigos distintos, muitas ocorrências) e sai
+    do índice que já existe — `validation_issue_run_code_idx` —, o que importa
+    porque o cartão de upload consulta este estado a cada 1,2 s enquanto o
+    arquivo é lido. Os predicados são os do pipeline: se a lista do que bloqueia
+    mudar, os dois lados mudam juntos porque leem a mesma função.
+  */
+  const apontamentos = await db
+    .select({
+      code: validationIssueTable.code,
+      severity: validationIssueTable.severity,
+      count: sql<number>`count(*)::int`,
+    })
+    .from(validationIssueTable)
+    .where(eq(validationIssueTable.importRunId, importRunId))
+    .groupBy(validationIssueTable.code, validationIssueTable.severity);
+
+  const somar = (linhas: typeof apontamentos) =>
+    linhas.reduce((soma, i) => soma + i.count, 0);
+
   const labels = staged
     .map((row) => row.label)
     // Ordenar por data, e não pelo texto: EMPURRADA_2_12_2025 vem antes de
@@ -321,6 +384,8 @@ export async function getImportRunStatus(
     snapshots: run.snapshotCount,
     errors: run.errorCount,
     warnings: run.warningCount,
+    blockingErrors: somar(apontamentos.filter(impedePromocao)),
+    chavesEmQuarentena: somar(apontamentos.filter(isolaAChave)),
     labels,
     pendingIdentities: await identidadesPendentes(db, importRunId),
   };
