@@ -8,6 +8,10 @@ import {
   DecisaoRecusada,
 } from "@workspace/coverage";
 import { VigenciaNaoEncontradaError } from "@workspace/qlp";
+import {
+  ComparacaoSemDuasVigencias,
+  VigenciaDoCadastroNaoEncontrada,
+} from "@workspace/remuneracao";
 import { EmailAlreadyUsedError } from "./session";
 
 /**
@@ -58,6 +62,13 @@ const RECUSAS: { classe: new (...args: never[]) => Error; status: number }[] = [
      a ausência é da vigência, e responder a mais próxima seria o número certo
      sob o título errado. */
   { classe: VigenciaNaoEncontradaError, status: 404 },
+  /* Idem para o cadastro de remuneração: a unidade existe, a vigência pedida é
+     que não. Classe própria, e não a do QLP, porque as duas telas oferecem
+     listas de vigências diferentes — a mensagem precisa nomear a lista certa. */
+  { classe: VigenciaDoCadastroNaoEncontrada, status: 404 },
+  /* A unidade existe e o cadastro dela também; o que não existe é o **par**.
+     422 e nunca 404: um 404 mandaria procurar uma unidade que está bem ali. */
+  { classe: ComparacaoSemDuasVigencias, status: 422 },
   /* Regra de negócio escrita para quem opera — a frase é dela, e sai inteira. */
   { classe: DecisaoRecusada, status: 422 },
   { classe: BaixaRecusada, status: 422 },

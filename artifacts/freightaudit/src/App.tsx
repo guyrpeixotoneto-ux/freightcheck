@@ -39,6 +39,7 @@ import VisaoDoFechamento from '@/pages/fechamento/visao';
 import Competencias from '@/pages/fechamento/competencias';
 import Apuracoes from '@/pages/fechamento/apuracoes';
 import CompetenciaAberta from '@/pages/fechamento/competencia';
+import RemuneracaoCadastro from '@/pages/fechamento/remuneracao';
 import { EtapaDoFechamento } from '@/pages/fechamento/etapa';
 import { ETAPAS_FECHAMENTO } from '@/pages/fechamento/etapas';
 
@@ -202,6 +203,14 @@ function Router() {
         {(params) => <CompetenciaAberta id={params.id} />}
       </Route>
       <Route path="/fechamento/apuracoes" component={Apuracoes} />
+      {/*
+        Remuneração é a única tela do Fechamento que lê o acervo da Auditoria e
+        não uma competência. Ela mora aqui porque é aqui que serve — o cadastro
+        é o que a apuração da quinzena consome —, e a rota HTTP dela fica fora
+        de `/fechamento` pelo motivo simétrico: o dado é da unidade numa
+        vigência. Ver `routes/remuneracao.ts`.
+      */}
+      <Route path="/fechamento/remuneracao" component={RemuneracaoCadastro} />
       {ETAPAS_FECHAMENTO.map((etapa) => (
         <Route key={etapa.href} path={etapa.href}>
           <EtapaDoFechamento etapa={etapa} />

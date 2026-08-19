@@ -20,6 +20,7 @@ import clienteRouter from "./cliente";
 import frotaRouter from "./frota";
 import fechamentoRouter from "./fechamento";
 import qlpRouter from "./qlp";
+import remuneracaoRouter from "./remuneracao";
 
 /**
  * F0/F1 surface.
@@ -111,6 +112,15 @@ import qlpRouter from "./qlp";
  * não mudou, que é justamente o que um seletor de placa não pode deixar de
  * oferecer.
  *
+ * `remuneracao` é o módulo Remuneração: o CADASTRO DA PLANILHA DE REMUNERAÇÃO
+ * — alíquotas, tamanho de frota, valor de cada parcela por veículo, proporção
+ * de documentos — montado por unidade a partir do acervo canônico. Não tem
+ * tabela própria e não guarda nada: um cadastro com tabela própria seria uma
+ * terceira verdade sobre a frota, ao lado da que o export declara e da que a
+ * apuração usa. A tela dele é do Fechamento (é lá que ele serve), mas a rota
+ * não vive sob `/fechamento` de propósito — o cadastro é da unidade numa
+ * vigência, não de uma competência.
+ *
  * `qlp` é a tela QLP Administrativo: o quadro de pessoal da estrutura
  * administrativa, lido dos mesmos fatos canônicos — a família de dados é
  * QUADRO_DE_PESSOAL, o grão é unidade + cargo, e nenhuma tabela nova existe
@@ -152,6 +162,7 @@ router.use(impactoRouter);
 router.use(clienteRouter);
 router.use(frotaRouter);
 router.use(qlpRouter);
+router.use(remuneracaoRouter);
 router.use(fechamentoRouter);
 
 export default router;

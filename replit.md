@@ -339,9 +339,36 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   Sobre este export o resultado é **0 propostas, 14 investigações e 13 fora** —
   e zero proposta é um resultado, não uma falha. Ver
   `docs/DIAGNOSTICO-ABA-CLIENTE.md`.
+- **Remuneração (Fechamento → Remuneração → Cadastro)** — `lib/remuneracao`,
+  rotas em `artifacts/api-server/src/routes/remuneracao.ts`, tela em
+  `artifacts/freightaudit/src/pages/fechamento/remuneracao.tsx`. Reproduz a aba
+  **CADASTRO DA PLANILHA DE REMUNERAÇÃO** por unidade: alíquotas, tamanho da
+  frota fixa, parcelas por veículo, vans, rotas noturnas, marketing, proporção
+  de documentos e resumo de impostos. **É a única tela do Fechamento que lê o
+  acervo da Auditoria**, e por isso a rota HTTP fica fora de `/fechamento`: o
+  cadastro é da unidade numa vigência, não de uma competência. Não tem tabela
+  própria — um cadastro com tabela própria seria uma terceira verdade sobre a
+  frota, ao lado da que o export declara e da que a apuração usa. Cada uma das
+  trinta linhas sai com um estado explícito (`APURADO`, `EM_CONJUNTO`,
+  `SEM_LASTRO`), e a linha sem lastro escreve o motivo, a destrava e o atalho
+  para a tela que hoje chega mais perto. **Abre em duas quinzenas lado a lado**,
+  que é a forma da planilha, com uma terceira coluna de variação que o Excel não
+  tem; a vista de uma quinzena fica a um clique e é a que traz a memória de
+  cálculo. Na comparação, **lastro que aparece ou some nunca vira variação de
+  valor**: uma linha que passou a ter lastro não subiu de zero, subiu de *não
+  sabíamos*, e um "+100%" ali descreveria uma coluna que passou a ser importada.
+  **A alíquota é medida em reais**
+  (`impostosIcmsIss ÷ freteCtrc`), nunca lida de `percentualIcmsIss`: uma coluna
+  de percentual não diz se vem em pontos (`17,84`) ou em fração (`0,1784`), e a
+  razão entre dois valores em reais não tem essa ambiguidade. PIS e COFINS saem
+  como **par**, porque o export os soma em `fretePisCofins` — rachá-los pela
+  alíquota da lei federal traria para dentro do produto uma premissa que nenhum
+  arquivo do cliente sustenta. Ver `docs/FECHAMENTO.md`.
 - `docs/ARQUITETURA.md` — as decisões estruturais em prosa
 - `docs/DIAGNOSTICO-ABA-CLIENTE.md` — o comportamento econômico de cada
   parâmetro, medido, e por que quase nada vira proposta
+- `docs/FECHAMENTO.md` — os dois ambientes (Auditoria e Fechamento), a regra do
+  prefixo que os separa e o módulo Remuneração
 - `docs/PROPOSTA-NAVEGACAO-FREIGHTECH.md` — o mapeamento Freightech → FreightCheck
 
 ## Assistente de IA
