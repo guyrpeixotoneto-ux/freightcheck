@@ -1057,7 +1057,7 @@ function VindoDaVisaoGeral({
         className="inline-flex items-center gap-1.5 text-sm font-bold text-brand hover:underline shrink-0"
       >
         <ArrowLeft className="w-4 h-4" />
-        Visão geral
+        Resumo executivo
       </Link>
       <p className="min-w-0 flex-1 text-sm text-muted-foreground">
         {partes.length > 0 ? (
