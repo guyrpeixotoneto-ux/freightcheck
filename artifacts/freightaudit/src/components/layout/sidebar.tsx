@@ -151,7 +151,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: ChartNoAxesCombined,
     cor: "text-nav-executiva",
     itens: [
-      { href: "/", label: "Visão geral", icon: House },
+      { href: "/", label: "Resumo executivo", icon: House },
       { href: "/vigencia", label: "Acompanhamento", icon: TrendingUp },
       /*
         A Análise de frota saiu daqui e passou a abrir a seção **Frota**, ao lado
