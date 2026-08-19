@@ -24,6 +24,9 @@
     },
     {
       "path": "../../lib/advisory"
+    },
+    {
+      "path": "../../lib/qlp"
     }
   ]
 }

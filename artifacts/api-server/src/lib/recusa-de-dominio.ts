@@ -7,6 +7,7 @@ import {
   CelulaNaoEncontrada,
   DecisaoRecusada,
 } from "@workspace/coverage";
+import { VigenciaNaoEncontradaError } from "@workspace/qlp";
 import { EmailAlreadyUsedError } from "./session";
 
 /**
@@ -53,6 +54,10 @@ const RECUSAS: { classe: new (...args: never[]) => Error; status: number }[] = [
      escolher outra ponta da janela. */
   { classe: JanelaInvalidaError, status: 400 },
   { classe: CelulaNaoEncontrada, status: 404 },
+  /* O contexto de QLP existe; a quinzena pedida é que não foi importada. 404 —
+     a ausência é da vigência, e responder a mais próxima seria o número certo
+     sob o título errado. */
+  { classe: VigenciaNaoEncontradaError, status: 404 },
   /* Regra de negócio escrita para quem opera — a frase é dela, e sai inteira. */
   { classe: DecisaoRecusada, status: 422 },
   { classe: BaixaRecusada, status: 422 },

@@ -40,6 +40,7 @@ export const FAMILY_ORDER = [
   "AQUISICAO_FINANCIAMENTO",
   "TRIBUTOS_SEGUROS",
   "MODELOS_REMUNERACAO",
+  "ESTRUTURA_ADM",
   "DIMENSOES",
   "GERAL",
   "PARAMETROS_GERAIS",
@@ -87,6 +88,17 @@ export const FAMILIES: Record<FamilyCode, FamilyDefinition> = {
     name: "Modelos de remuneração",
     origin: "FREIGHTECH",
     note: "Lucro fixo do novo ciclo e remuneração variável.",
+  },
+  ESTRUTURA_ADM: {
+    code: "ESTRUTURA_ADM",
+    name: "Estrutura administrativa",
+    origin: "FREIGHTCHECK",
+    note:
+      "O QLP ADM: o quadro administrativo que o modelo remunera, rubrica a rubrica — " +
+      "ordenados, encargos, benefícios, frota leve, telefonia, uniformes e o benchmark " +
+      "da auditoria bimestral. No Freightech esse cartão mora na família Equipe; aqui " +
+      "ganha gaveta própria porque chega por um export próprio, com grão próprio " +
+      "(unidade + cargo), e a curadoria dele destrava uma tela inteira.",
   },
   DIMENSOES: {
     code: "DIMENSOES",
@@ -293,7 +305,52 @@ const MAP: Record<string, [FamilyCode, string]> = {
   "carreta.ciclo": ["CONTRATO_CICLO", "Contrato"],
   "cavalo.ciclo": ["CONTRATO_CICLO", "Contrato"],
 
+  // ---- ESTRUTURA ADMINISTRATIVA (QLP ADM) ----------------------------------
+  /*
+    Os 21 atributos estruturais do export de QLP Administrativo, nos parâmetros
+    do dicionário (`docs/tabela-de-qlp-adm-dicionario.csv`): cada rubrica reúne
+    o seu trio quantidade × valor = despesa, para que a conferência caiba numa
+    gaveta só. Os 14 cadastrais do mesmo export seguem a convenção da casa e
+    caem em CONTEXTO, logo abaixo — cadastro não é remuneração em nenhuma
+    família. A chave é o `slugifyColumn` do cabeçalho real, como nas demais.
+  */
+  "qlp_administrativo.quantidade_ordenados": ["ESTRUTURA_ADM", "Ordenados"],
+  "qlp_administrativo.salario_ordenados": ["ESTRUTURA_ADM", "Ordenados"],
+  "qlp_administrativo.despesa_ordenados": ["ESTRUTURA_ADM", "Ordenados"],
+  "qlp_administrativo.quantidade_encargos": ["ESTRUTURA_ADM", "Encargos e provisões"],
+  "qlp_administrativo.salario_encargos": ["ESTRUTURA_ADM", "Encargos e provisões"],
+  "qlp_administrativo.despesa_encargos": ["ESTRUTURA_ADM", "Encargos e provisões"],
+  "qlp_administrativo.quantidade_beneficio": ["ESTRUTURA_ADM", "Benefícios"],
+  "qlp_administrativo.valor_beneficio": ["ESTRUTURA_ADM", "Benefícios"],
+  "qlp_administrativo.despesa_beneficio": ["ESTRUTURA_ADM", "Benefícios"],
+  "qlp_administrativo.vale_transporte": ["ESTRUTURA_ADM", "Vale-transporte"],
+  "qlp_administrativo.quantidade_frota_leve": ["ESTRUTURA_ADM", "Frota leve"],
+  "qlp_administrativo.valor_frota_leve": ["ESTRUTURA_ADM", "Frota leve"],
+  "qlp_administrativo.despesa_frota_leve": ["ESTRUTURA_ADM", "Frota leve"],
+  "qlp_administrativo.quantidade_telefonia": ["ESTRUTURA_ADM", "Telefonia"],
+  "qlp_administrativo.valor_telefonia": ["ESTRUTURA_ADM", "Telefonia"],
+  "qlp_administrativo.despesa_telefonia": ["ESTRUTURA_ADM", "Telefonia"],
+  "qlp_administrativo.quantidade_uniformes": ["ESTRUTURA_ADM", "Uniformes"],
+  "qlp_administrativo.valor_uniformes": ["ESTRUTURA_ADM", "Uniformes"],
+  "qlp_administrativo.despesa_uniformes": ["ESTRUTURA_ADM", "Uniformes"],
+  "qlp_administrativo.qlp_benchmark_quantidade": ["ESTRUTURA_ADM", "Benchmark QLP"],
+  "qlp_administrativo.qlp_benchmark_salario": ["ESTRUTURA_ADM", "Benchmark QLP"],
+
   // ---- CONTEXTO ------------------------------------------------------------
+  "qlp_administrativo.unidade_cnpj": ["CONTEXTO", "Escopo e identificação"],
+  "qlp_administrativo.unidade_nome": ["CONTEXTO", "Escopo e identificação"],
+  "qlp_administrativo.unidade_sap": ["CONTEXTO", "Escopo e identificação"],
+  "qlp_administrativo.unidade_tms": ["CONTEXTO", "Escopo e identificação"],
+  "qlp_administrativo.unidade_promax_unb": ["CONTEXTO", "Escopo e identificação"],
+  "qlp_administrativo.unidade_regional": ["CONTEXTO", "Escopo e identificação"],
+  "qlp_administrativo.operador_cnpj": ["CONTEXTO", "Escopo e identificação"],
+  "qlp_administrativo.operador_nome": ["CONTEXTO", "Escopo e identificação"],
+  "qlp_administrativo.operador_sap": ["CONTEXTO", "Escopo e identificação"],
+  "qlp_administrativo.operador_tms": ["CONTEXTO", "Escopo e identificação"],
+  "qlp_administrativo.operador_promax": ["CONTEXTO", "Escopo e identificação"],
+  "qlp_administrativo.organizacao_de_compras": ["CONTEXTO", "Escopo e identificação"],
+  "qlp_administrativo.prazo_pagamento": ["CONTEXTO", "Escopo e identificação"],
+  "qlp_administrativo.id": ["CONTEXTO", "Escopo e identificação"],
   "carreta.unidade_cnpj": ["CONTEXTO", "Escopo e identificação"],
   "cavalo.unidade_cnpj": ["CONTEXTO", "Escopo e identificação"],
   "carreta.unidade_nome": ["CONTEXTO", "Escopo e identificação"],
@@ -362,7 +419,12 @@ export const FREIGHTECH_SEM_DADO: { family: string; parameters: string[] }[] = [
       "FAD",
       "FAD - Despesa Fixa",
       "Parâmetros Equipe Entrega",
-      "QLP ADM",
+      /*
+        "QLP ADM" morou aqui até o export próprio dele passar a ser importável
+        (tipo QLP_ADMINISTRATIVO, família de dados QUADRO_DE_PESSOAL). Os
+        atributos dele agora têm gaveta: ESTRUTURA_ADM, acima. Mantê-lo nesta
+        nota diria que o dado não existe justamente quando ele passou a existir.
+      */
     ],
   },
   {
