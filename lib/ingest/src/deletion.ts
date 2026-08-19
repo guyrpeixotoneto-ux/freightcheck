@@ -69,6 +69,14 @@ export interface ImportDeletionPlan {
   labels: string[];
   /** Revisões anteriores que voltam a valer quando esta sair. */
   restoredLabels: string[];
+  /**
+   * Releituras deste arquivo que apontam para esta importação, e que serão
+   * reancoradas quando ela sair.
+   *
+   * Não impede a exclusão — ver {@link releiturasDe} —, mas quem apaga precisa
+   * saber que está mexendo numa corrente, e não numa importação solta.
+   */
+  reprocessamentosReancorados: string[];
   /** Por que não dá para excluir agora — null quando dá. */
   refusal: string | null;
   removes: ImportDeletionCounts;
@@ -278,6 +286,37 @@ async function supersededByLaterRun(
 }
 
 /**
+ * As releituras que apontam para este run — e por que elas **não** o impedem
+ * de sair.
+ *
+ * A primeira versão disto era uma recusa: "esta importação foi reprocessada
+ * depois, exclua a releitura primeiro". Parecia a mesma regra da correção de
+ * vigência, e é o oposto dela. A correção mais nova depende do dado da antiga;
+ * a releitura **substitui** a antiga, e o caso que justifica todo o
+ * reprocessamento termina exatamente em apagar a leitura relida: um arquivo que
+ * entrou sob o tipo errado é relido com o tipo certo, aprovado, e aí a
+ * importação errada — a que gravou vigência na família errada — precisa sair.
+ * A recusa proibia o último passo do procedimento que ela deveria servir.
+ *
+ * O que se faz, então, é o que se faz ao remover um nó de uma corrente:
+ * reancorar. Quem apontava para o run que sai passa a apontar para o que ele
+ * apontava, e a história continua legível de ponta a ponta. Quando o run que
+ * sai é a cabeça da corrente, o ponteiro fica nulo — e a releitura continua
+ * sendo uma releitura, porque quem diz isso é `reprocess_reason`, que fica.
+ */
+async function releiturasDe(
+  db: Database,
+  runId: string,
+): Promise<{ id: string }[]> {
+  const { rows } = await db.execute<{ id: string }>(sql`
+    SELECT ir.id::text AS id
+      FROM import_run ir
+     WHERE ir.reprocess_of_run_id = ${runId}::uuid
+     ORDER BY ir.started_at`);
+  return rows;
+}
+
+/**
  * O que sairia, sem tirar nada — a frase que a tela mostra antes de perguntar.
  *
  * Contar antes é o que permite a pergunta ser específica: "isto apaga 41.391
@@ -305,6 +344,7 @@ export async function planImportDeletion(
      ORDER BY anterior.effective_date`);
 
   const posteriores = await supersededByLaterRun(db, importRunId);
+  const releituras = await releiturasDe(db, importRunId);
   const refusal =
     whyCannotDelete(run.status, run.started_at) ??
     (posteriores.length > 0
@@ -391,6 +431,7 @@ export async function planImportDeletion(
     receivedAt: run.received_at,
     labels,
     restoredLabels: restoredRows.map((r) => r.source_label),
+    reprocessamentosReancorados: releituras.map((r) => r.id),
     refusal,
     removes,
   };
@@ -507,6 +548,24 @@ export async function deleteImportRun(
       await tx.execute(sql`DELETE FROM attribute_semantics WHERE attribute_id IN (${lista})`);
       await tx.execute(sql`DELETE FROM attribute WHERE id IN (${lista})`);
     }
+
+    /*
+      A corrente de releituras se fecha por cima do run que sai.
+
+      Não é o mesmo caso dos ponteiros abaixo, que viram NULL: aqueles são
+      "onde isto foi visto pela primeira vez", e sem o run não há resposta.
+      Aqui há: quem releu o run que sai passa a reler o que **ele** relia, que é
+      a leitura anterior da mesma corrente. Só quando o run que sai é a cabeça —
+      o recebimento original — é que o ponteiro fica nulo, e aí a releitura
+      continua se identificando pelo `reprocess_reason`, que não é tocado.
+    */
+    await tx.execute(sql`
+      UPDATE import_run
+         SET reprocess_of_run_id = (
+               SELECT saindo.reprocess_of_run_id FROM import_run saindo
+                WHERE saindo.id = ${importRunId}::uuid
+             )
+       WHERE reprocess_of_run_id = ${importRunId}::uuid`);
 
     // --- o que sobrevive não pode apontar para um run que não existe -------
     for (const stmt of [

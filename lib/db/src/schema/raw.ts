@@ -12,6 +12,7 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import { importRunStatus, sheetRole } from "./enums";
 
 /**
@@ -85,8 +86,48 @@ export const importRunTable = pgTable(
      * a importação compara as duas — ver `lib/ingest/src/tipos.ts`.
      */
     declaredType: text("declared_type"),
+    /**
+     * O run que este aqui releu — nulo em toda importação que é a primeira
+     * leitura do seu arquivo.
+     *
+     * Reprocessar é reler um `source_file` que já entrou, porque o leitor mudou
+     * desde a primeira vez. O run novo não substitui o antigo nem o apaga: ele
+     * aponta para ele. É isso que permite a tela dizer "esta é uma releitura
+     * daquela de 18/08" em vez de mostrar dois recebimentos do mesmo arquivo
+     * como se fossem coincidência.
+     */
+    reprocessOfRunId: uuid("reprocess_of_run_id"),
+    /**
+     * Por que se releu — obrigatório para quem aponta, e conferido pelo banco
+     * (`import_run_reprocess_completo`).
+     *
+     * Um reprocessamento contorna de propósito a defesa que impede o mesmo
+     * arquivo de entrar duas vezes. A frase é o que separa isso de um clique a
+     * mais: quem pede tem de saber o que mudou desde a primeira leitura, e
+     * quem ler o histórico daqui a três meses tem de encontrar essa resposta
+     * sem precisar reconstituir a data de um commit.
+     *
+     * **É esta coluna, e não o ponteiro, que diz "isto é uma releitura".** O
+     * ponteiro pode ficar nulo quando a leitura relida é excluída — o que é
+     * legítimo, e é o passo final de corrigir um arquivo que entrou sob o tipo
+     * errado. A razão sobrevive, porque ela é o fato de auditoria.
+     */
+    reprocessReason: text("reprocess_reason"),
   },
-  (t) => [index("import_run_source_file_idx").on(t.sourceFileId)],
+  (t) => [
+    index("import_run_source_file_idx").on(t.sourceFileId),
+    /**
+     * No máximo um run por decidir por arquivo — a trava contra o
+     * reprocessamento repetido, decidida pelo banco e não por um SELECT antes
+     * do INSERT. Ver `0036_reprocessamento.sql`; os estados terminais ficam de
+     * fora porque é sobre eles que se reprocessa.
+     */
+    uniqueIndex("import_run_leitura_aberta_uq")
+      .on(t.sourceFileId)
+      .where(
+        sql`${t.status} IN ('PENDING', 'READING', 'STAGED', 'PREVIEWED', 'PROMOTING')`,
+      ),
+  ],
 );
 
 /**

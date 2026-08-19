@@ -11,6 +11,7 @@ import { codigoDoPostgres, db } from "@workspace/db";
 import {
   ImportDeletionRefused,
   PromocaoRecusada,
+  ReprocessamentoRecusado,
   captureRaw,
   deleteImportRun,
   ensureImportStorageDir,
@@ -27,6 +28,7 @@ import {
   preview,
   promote,
   receiveFile,
+  reprocessImportRun,
   stage,
 } from "@workspace/ingest";
 import { semearContrato } from "@workspace/coverage";
@@ -519,6 +521,82 @@ router.post("/imports", async (req, res, next): Promise<void> => {
     void readInBackground(received.importRunId, req.log);
   } catch (err) {
     responderFalhaDeEscrita(res, next, req.log, err, "recebimento do arquivo");
+  }
+});
+
+/**
+ * Reprocessar — reler um arquivo que já entrou, porque o leitor mudou.
+ *
+ * Rota própria, e não um campo no POST /imports, e a diferença não é de estilo.
+ * O envio é uma coisa que se faz o tempo todo, com um arquivo na mão; a
+ * releitura é uma coisa que se faz raramente, sobre uma importação que já está
+ * na tela, e que **contorna de propósito** a defesa que impede o mesmo conteúdo
+ * de entrar duas vezes. Um booleano dentro do envio faria as duas caberem no
+ * mesmo clique — e o dia em que alguém marcasse a caixa por engano seria
+ * indistinguível, no histórico, do dia em que alguém decidiu reler.
+ *
+ * Por isso o pedido nomeia uma importação do arquivo (`:id`), traz o motivo
+ * obrigatório, e devolve **outro** run — que nasce em PENDING e para em
+ * PREVIEWED. Promover continua sendo POST /imports/:id/promote, sobre o run
+ * novo, com o resumo à vista. Reprocessar nunca publica.
+ *
+ * `:id` pode ser qualquer run daquele arquivo, inclusive a tentativa recusada
+ * por duplicata — que é justamente o cartão de onde o operador vai clicar. Quem
+ * será relido, o pipeline decide: a leitura mais recente que abriu o arquivo.
+ * A resposta traz `reprocessOfRunId` para a tela poder dizer qual foi.
+ */
+router.post("/imports/:id/reprocess", async (req, res, next): Promise<void> => {
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de importação inválido." });
+    return;
+  }
+
+  const body = (req.body ?? {}) as Record<string, unknown>;
+  const reason = typeof body.reason === "string" ? body.reason : "";
+  /*
+    Três estados para `declaredType`, e os três significam coisas diferentes:
+    ausente herda a declaração do run relido, `null` relê sem declaração
+    nenhuma, e uma string redeclara. É a distinção que o caso do QLP precisa —
+    a primeira leitura não tinha declaração porque a aba ainda não existia.
+  */
+  const declaredType =
+    body.declaredType === undefined
+      ? undefined
+      : typeof body.declaredType === "string" && body.declaredType.trim() !== ""
+        ? body.declaredType.trim()
+        : null;
+
+  try {
+    const resultado = await reprocessImportRun(db, req.params.id, {
+      reason,
+      requestedBy: req.user?.email ?? DEFAULT_ACTOR,
+      ...(declaredType !== undefined ? { declaredType } : {}),
+    });
+
+    res.status(202).json({
+      importRunId: resultado.importRunId,
+      reprocessOfRunId: resultado.reprocessOfRunId,
+      contentSha256: resultado.contentSha256,
+      filename: resultado.filename,
+      declaredType: resultado.declaredType,
+      status: "PENDING",
+    });
+
+    void readInBackground(resultado.importRunId, req.log);
+  } catch (err) {
+    // A recusa é regra de negócio, não falha: 409 com a frase que o pipeline
+    // escreveu, do mesmo jeito que a duplicata e a promoção repetida.
+    if (err instanceof ReprocessamentoRecusado) {
+      res.status(409).json({ error: err.message });
+      return;
+    }
+    // Um tipo declarado que não existe é pedido malformado, e a frase de
+    // `exigirTipoDeclarado` já é a explicação inteira.
+    if (err instanceof Error && /não é um tipo de importação conhecido/.test(err.message)) {
+      res.status(400).json({ error: err.message });
+      return;
+    }
+    responderFalhaDeEscrita(res, next, req.log, err, "reprocessamento do arquivo");
   }
 });
 

@@ -11,6 +11,7 @@ import {
   FileDown,
   FileSpreadsheet,
   Layers,
+  RefreshCw,
   ShieldCheck,
   Table2,
   Trash2,
@@ -37,7 +38,11 @@ import { erroDaResposta, fetchJson, getApiUrl, readJson } from "@/lib/api";
 import {
   estadoDaImportacao,
   faceDoCartao,
+  historicoDoArquivo,
+  leituraDoRun,
   type FaceDoCartao,
+  type HistoricoDoArquivo,
+  type PapelNoArquivo,
 } from "@/lib/importacoes";
 import { cn } from "@/lib/utils";
 
@@ -58,6 +63,26 @@ import { cn } from "@/lib/utils";
  * comparação daqui para baixo.
  */
 const TODAS = "__todas__";
+
+/**
+ * O valor de "sem declaração" dentro do `select` do reprocessamento.
+ *
+ * Mesma tradução na fronteira que {@link TODAS}: fora do componente ele é
+ * `null`, e é `null` que o servidor entende como "relê sem declarar, deduzindo
+ * pelo conteúdo". Um `<option value="">` seria indistinguível de "nada
+ * escolhido" no DOM.
+ */
+const SEM_DECLARACAO = "__sem_declaracao__";
+
+/**
+ * O tamanho mínimo do motivo, repetido do pipeline de propósito.
+ *
+ * O servidor é quem recusa — `reprocessImportRun` não confia no cliente. O
+ * número aqui existe só para o botão já nascer desabilitado, em vez de deixar
+ * a pessoa escrever "ok", clicar, e receber a recusa depois da ida ao servidor.
+ * Se os dois divergirem, quem manda continua sendo o servidor.
+ */
+const MOTIVO_MINIMO = 12;
 
 /**
  * Os estados em que a importação ainda não terminou de ser decidida.
@@ -102,6 +127,14 @@ interface ImportRun {
   entityTypes: string[];
   /** Os tipos que este arquivo trouxe — `entityTypes` sem a parte herdada. */
   tiposDoArquivo: string[];
+  /** O run que este releu, quando ele é um reprocessamento. */
+  reprocessOfRunId: string | null;
+  /** Por que se releu. Sempre junto com o campo acima. */
+  reprocessReason: string | null;
+  /** As releituras deste run, da mais antiga para a mais nova. */
+  reprocessadoPor: string[];
+  /** Quantas leituras este mesmo arquivo já teve, contando esta. */
+  leiturasDoArquivo: number;
 }
 
 /** O rótulo humano de um tipo: "Cavalo", "QLP Administrativo". */
@@ -198,6 +231,8 @@ interface DeletionPlan {
   labels: string[];
   /** Revisões anteriores que voltam a valer quando esta sair. */
   restoredLabels: string[];
+  /** Releituras que serão reancoradas quando esta importação sair. */
+  reprocessamentosReancorados: string[];
   /** Por que não dá para excluir agora — null quando dá. */
   refusal: string | null;
   removes: {
@@ -242,6 +277,8 @@ interface RunStatus {
   pendingIdentities: string[];
   /** O tipo declarado no envio — a aba por onde este arquivo entrou. */
   declaredType: string | null;
+  /** Preenchido quando este run é uma releitura, e não um envio. */
+  reprocessOfRunId: string | null;
 }
 
 /**
@@ -302,6 +339,7 @@ export default function Importacoes() {
 
   const [detailOf, setDetailOf] = useState<ImportRun | null>(null);
   const [deleteOf, setDeleteOf] = useState<ImportRun | null>(null);
+  const [reprocessOf, setReprocessOf] = useState<ImportRun | null>(null);
   const [pendingIds, setPendingIds] = useState<string[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [removed, setRemoved] = useState<string | null>(null);
@@ -412,6 +450,50 @@ export default function Importacoes() {
       // sem depender de o operador dar reload.
       queryClient.invalidateQueries({ queryKey: ["imports"] });
     },
+  });
+
+  /**
+   * Reprocessar — reler um arquivo que já entrou, porque o leitor mudou.
+   *
+   * Não é um envio: nenhum byte sobe. O pedido nomeia a importação a reler, e o
+   * servidor abre **outro** run sobre o mesmo `source_file`. Por isso ele não
+   * mexe em `pendingIds` de outro jeito senão acrescentando o run novo: o run
+   * antigo continua na lista, com o que ele produziu, exatamente como estava.
+   *
+   * `invalidateQueries` só da lista, e não geral: até aqui nada entrou na
+   * camada canônica — o run novo nasce em PENDING e para em PREVIEWED. Quem
+   * mexe no resto da interface é a aprovação, que continua sendo outro clique.
+   */
+  const reprocess = useMutation({
+    mutationFn: async ({
+      importRunId,
+      reason,
+      declaredType,
+    }: {
+      importRunId: string;
+      reason: string;
+      declaredType: string | null;
+    }) => {
+      const response = await fetch(
+        getApiUrl(`/imports/${importRunId}/reprocess`),
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason, declaredType }),
+        },
+      );
+      const body = await readJson(response);
+      if (!response.ok) throw erroDaResposta(response, body);
+      return body;
+    },
+    onSuccess: (body) => {
+      setError(null);
+      setRemoved(null);
+      setReprocessOf(null);
+      setPendingIds((current) => [...current, body.importRunId as string]);
+      queryClient.invalidateQueries({ queryKey: ["imports"] });
+    },
+    onError: (err: Error) => setError(err.message),
   });
 
   const promote = useMutation({
@@ -637,6 +719,12 @@ export default function Importacoes() {
           <RunCard
             key={run.importRunId}
             run={run}
+            /* A história do arquivo sai da lista inteira, não do recorte: o
+               recebimento original de um arquivo pode ser de um tipo que a aba
+               atual não mostra — foi assim no caso que originou isto, em que a
+               tentativa recusada estava na aba do QLP e o recebimento, sem
+               declaração nenhuma, só aparecia em Todas. */
+            todos={runs}
             expanded={expanded === run.importRunId}
             onToggle={() =>
               setExpanded(expanded === run.importRunId ? null : run.importRunId)
@@ -645,6 +733,10 @@ export default function Importacoes() {
             onDelete={() => {
               setRemoved(null);
               setDeleteOf(run);
+            }}
+            onReprocess={() => {
+              setRemoved(null);
+              setReprocessOf(run);
             }}
           />
         ))}
@@ -668,6 +760,23 @@ export default function Importacoes() {
       </div>
 
       <RunDetailDialog run={detailOf} onClose={() => setDetailOf(null)} />
+      <ReprocessDialog
+        /* Uma caixa por importação, como na exclusão: o motivo digitado para
+           uma não pode aparecer preenchido na próxima. */
+        key={reprocessOf?.importRunId ?? "nenhuma"}
+        run={reprocessOf}
+        todos={runs}
+        onClose={() => setReprocessOf(null)}
+        onConfirm={(reason, declaredType) =>
+          reprocessOf &&
+          reprocess.mutate({
+            importRunId: reprocessOf.importRunId,
+            reason,
+            declaredType,
+          })
+        }
+        working={reprocess.isPending}
+      />
       <DeleteDialog
         /* Uma caixa por importação: o motivo digitado para uma não pode
            aparecer preenchido na próxima. */
@@ -853,17 +962,24 @@ function Dropzone({
 
 function RunCard({
   run,
+  todos,
   expanded,
   onToggle,
   onDetails,
   onDelete,
+  onReprocess,
 }: {
   run: ImportRun;
+  /** A lista inteira: é dela que sai a história do arquivo deste run. */
+  todos: ImportRun[];
   expanded: boolean;
   onToggle: () => void;
   onDetails: () => void;
   onDelete: () => void;
+  onReprocess: () => void;
 }) {
+  const leitura = leituraDoRun(run);
+  const historico = historicoDoArquivo(todos, run);
   return (
     <div className="rounded-xl border bg-card px-6 py-5 shadow-sm space-y-5">
       <div className="flex items-start justify-between gap-4">
@@ -883,7 +999,20 @@ function RunCard({
               <span aria-hidden>·</span>
               <span>{(run.byteSize / 1024).toFixed(0)} KB</span>
               <span aria-hidden>·</span>
-              <span>{dateTime(run.receivedAt)}</span>
+              {/*
+                A data **desta** leitura, e não a do arquivo.
+
+                Aqui ficava `receivedAt`, que é `source_file.received_at` — do
+                arquivo, e portanto a mesma nos três cartões que o mesmo
+                conteúdo produz. O efeito foi visto: uma tentativa recusada
+                mostrava a data do recebimento original com os seis contadores
+                em zero, e quem lia concluía que o envio daquele dia não tinha
+                produzido nada. Eram duas coisas diferentes no mesmo lugar.
+
+                A data do arquivo continua no cartão, quando ela diz algo que
+                esta não diz — ver a linha do histórico do arquivo abaixo.
+              */}
+              <span>{dateTime(run.startedAt)}</span>
               {run.triggeredBy && (
                 <>
                   <span aria-hidden>·</span>
@@ -891,20 +1020,27 @@ function RunCard({
                 </>
               )}
             </p>
+            <PapelNoHistorico run={run} historico={historico} />
             <TipoDaImportacao run={run} />
           </div>
         </div>
         <StatusPill status={run.status} />
       </div>
 
-      {/* O arquivo que entrou e não virou nada.
+      {/* O que este run leu — e a frase precisa ser verdade sobre ele.
 
-          Este cartão já mostrava "Fatos 0" ao lado de "aprovada", e os dois
-          são verdade — mas quem lê seis quadros de número não lê um zero como
-          "esta importação não serviu para nada". A frase existe porque foi
-          assim que uma planilha de trecho inteira passou despercebida: 440
-          células gravadas, nenhum fato, nenhum erro, nenhum aviso. */}
-      {run.stagedFacts === 0 && !ESPERANDO_DECISAO.has(run.status) && (
+          Havia uma frase só, mostrada sempre que "fatos = 0": "as células foram
+          gravadas, mas nenhuma aba foi reconhecida como fonte de fatos". Ela é
+          verdadeira para o arquivo que entrou e não virou nada — o caso para o
+          qual foi escrita, e um caso real: uma planilha de trecho inteira passou
+          despercebida com 440 células gravadas, nenhum fato, nenhum erro.
+
+          E é **falsa** para a duplicata, que não gravou célula nenhuma porque
+          nem chegou a abrir o arquivo. A tela afirmava um trabalho que não
+          houve, e mandava conferir as colunas de uma planilha que o leitor nunca
+          viu. Quem decide qual frase cabe é `leituraDoRun`, a partir dos
+          contadores do próprio run — ver `@/lib/importacoes`. */}
+      {leitura.leitura === "LIDO_SEM_FATOS" && (
         <p className="text-sm border border-amber-200 bg-amber-50 text-amber-900 rounded-xl px-4 py-3">
           Nenhum fato saiu deste arquivo. As células foram gravadas, mas nenhuma
           aba dele foi reconhecida como fonte de fatos — abra{" "}
@@ -913,7 +1049,14 @@ function RunCard({
         </p>
       )}
 
-      {run.failureReason && (
+      {leitura.leitura === "NAO_ABERTO_DUPLICATA" && (
+        <ArquivoNaoAberto run={run} historico={historico} onReprocess={onReprocess} />
+      )}
+
+      {/* O motivo gravado no run. A duplicata já o diz por extenso no bloco
+          acima, com a saída junto; repeti-lo aqui seria a mesma frase duas
+          vezes no mesmo cartão. */}
+      {run.failureReason && leitura.leitura !== "NAO_ABERTO_DUPLICATA" && (
         <p
           className={cn(
             "text-sm border rounded-xl px-4 py-3",
@@ -921,6 +1064,26 @@ function RunCard({
           )}
         >
           {run.failureReason}
+        </p>
+      )}
+
+      {/* Uma releitura diz de quem é releitura e por quê, no próprio cartão:
+          sem isso ela é só mais um cartão do mesmo arquivo, e o histórico volta
+          a parecer o que era antes — envios repetidos sem explicação. */}
+      {run.reprocessReason !== null && (
+        <p className="text-sm border border-blue-200 bg-blue-50 text-blue-900 rounded-xl px-4 py-3">
+          <RefreshCw className="w-3.5 h-3.5 inline-block mr-1.5 -mt-0.5" />
+          <strong>Reprocessamento.</strong> Releitura do mesmo arquivo já
+          recebido
+          {historico.releu ? (
+            <> — a leitura de {dateTime(historico.releu.startedAt)}</>
+          ) : (
+            // Reancorada ou órfã: a leitura relida foi excluída depois, o que é
+            // o passo final legítimo de corrigir um arquivo lido sob o tipo
+            // errado. A releitura continua sendo uma releitura.
+            <>, cuja leitura anterior já foi excluída</>
+          )}
+          . Motivo declarado: <em>{run.reprocessReason}</em>
         </p>
       )}
 
@@ -998,6 +1161,22 @@ function RunCard({
             protege não é a dificuldade de achar o botão, e sim a tela seguinte,
             que diz quantos fatos e quais vigências saem antes de perguntar.
           */}
+          {/*
+            Reprocessar fica ao lado de Excluir porque as duas respondem à
+            mesma pergunta — "este arquivo precisa entrar de novo" — e a
+            resposta certa quase sempre é esta, não aquela. Enquanto só havia
+            Excluir, releitura e apagamento eram a mesma tecla: para reler um
+            arquivo era preciso apagar a prova de que ele havia chegado.
+          */}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onReprocess}
+            className="text-blue-700 hover:text-blue-800 hover:bg-blue-50"
+          >
+            <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+            Reprocessar
+          </Button>
           <Button
             variant="ghost"
             size="sm"
@@ -1015,6 +1194,143 @@ function RunCard({
       </div>
 
       {expanded && <SheetList runId={run.importRunId} />}
+    </div>
+  );
+}
+
+/**
+ * Onde este run se encaixa na história do seu arquivo.
+ *
+ * Só aparece quando o arquivo teve mais de uma leitura — no caso comum, de um
+ * arquivo que entrou uma vez e pronto, dizer "1ª de 1 leitura" seria ruído com
+ * cara de rigor. Quando há mais de uma, é esta linha que impede três cartões
+ * quase iguais de parecerem três envios sem relação.
+ */
+function PapelNoHistorico({
+  run,
+  historico,
+}: {
+  run: ImportRun;
+  historico: HistoricoDoArquivo<ImportRun>;
+}) {
+  if (historico.leituras.length < 2) return null;
+  const posicao = historico.leituras.findIndex(
+    (r) => r.importRunId === run.importRunId,
+  );
+
+  const PAPEL: Record<PapelNoArquivo, { texto: string; classe: string }> = {
+    RECEBIMENTO: {
+      texto: "Recebimento original",
+      classe: "bg-emerald-50 text-emerald-700 border-emerald-200",
+    },
+    TENTATIVA_RECUSADA: {
+      texto: "Reenvio recusado",
+      classe: "bg-slate-100 text-slate-700 border-slate-300",
+    },
+    REPROCESSAMENTO: {
+      texto: "Reprocessamento",
+      classe: "bg-blue-50 text-blue-700 border-blue-200",
+    },
+  };
+  const papel = PAPEL[historico.papel];
+
+  return (
+    <p className="text-xs text-muted-foreground mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span className={cn("rounded-md border px-1.5 py-0.5 font-medium", papel.classe)}>
+        {papel.texto}
+      </span>
+      <span>
+        {posicao >= 0 ? `${posicao + 1}ª de ` : ""}
+        {plural(historico.leituras.length, "leitura", "leituras")} deste arquivo
+      </span>
+      <span aria-hidden>·</span>
+      <span>arquivo recebido em {dateTime(run.receivedAt)}</span>
+    </p>
+  );
+}
+
+/**
+ * A duplicata, dita como ela é: o arquivo não foi aberto.
+ *
+ * O cartão mostrava seis contadores em zero ao lado de um aviso dizendo que as
+ * células tinham sido gravadas e nenhuma aba reconhecida. Os zeros estavam
+ * certos e a frase estava errada, e a combinação das duas fazia o operador
+ * procurar o defeito nas colunas da planilha dele — quando o que havia
+ * acontecido é que o leitor nunca abriu o arquivo.
+ *
+ * Aqui os zeros ganham a explicação que os torna informação: não houve leitura.
+ * E a saída vem junto, porque a pergunta seguinte é sempre a mesma — "então
+ * como eu faço para este arquivo entrar?".
+ */
+function ArquivoNaoAberto({
+  run,
+  historico,
+  onReprocess,
+}: {
+  run: ImportRun;
+  historico: HistoricoDoArquivo<ImportRun>;
+  onReprocess: () => void;
+}) {
+  return (
+    <div className="text-sm border border-slate-300 bg-slate-50 text-slate-800 rounded-xl px-4 py-3 space-y-2">
+      <p>
+        <strong>Nada foi lido: o arquivo não chegou a ser aberto.</strong> O
+        SHA-256 reconheceu este conteúdo antes da leitura começar — ele já havia
+        sido recebido, byte a byte. Os zeros abaixo são disso:{" "}
+        <strong>nenhuma aba, nenhuma célula, nenhum fato</strong>. Não é que o
+        leitor não tenha entendido a planilha; é que ele não a abriu.
+      </p>
+      {historico.recebimento ? (
+        <p>
+          O recebimento original é a importação de{" "}
+          <strong>{dateTime(historico.recebimento.startedAt)}</strong>
+          {/* O que aquela importação produziu decide a frase, e a diferença é
+              a que mais importa aqui: um recebimento com vigências manda o
+              operador para onde o dado está; um recebimento que não produziu
+              nada é a causa provável de a tela dele estar vazia, e dizer
+              "é lá que está o dado" seria mandá-lo procurar o que não existe. */}
+          {historico.recebimento.labels.length > 0 ? (
+            <>
+              , que gravou{" "}
+              {plural(
+                historico.recebimento.labels.length,
+                "vigência",
+                "vigências",
+              )}
+              :{" "}
+              <span className="font-mono text-xs">
+                {historico.recebimento.labels.join(", ")}
+              </span>
+              . É lá que está o que este conteúdo produziu.
+            </>
+          ) : (
+            <>
+              {" "}
+              — e ela <strong>não produziu vigência nenhuma</strong>. Se a tela
+              deste tipo está vazia, é daí que vem: o conteúdo entrou uma vez, e
+              aquela leitura não virou dado.
+            </>
+          )}
+        </p>
+      ) : (
+        <p>
+          O recebimento original não está nesta lista — procure em{" "}
+          <strong>Todas</strong> pelo mesmo sha256{" "}
+          <span className="font-mono text-xs">{run.contentSha256.slice(0, 16)}…</span>.
+        </p>
+      )}
+      <p>
+        Se o leitor mudou desde aquela importação — uma coluna que ele não
+        entendia, um tipo que ele não sabia identificar —,{" "}
+        <button
+          onClick={onReprocess}
+          className="text-primary font-medium hover:underline"
+        >
+          reprocesse o arquivo
+        </button>
+        : o mesmo conteúdo é lido de novo, numa importação nova, sem apagar nada
+        do que já está aqui.
+      </p>
     </div>
   );
 }
@@ -1689,6 +2005,31 @@ function DeleteDialog({
                 </p>
               )}
 
+              {/* Excluir uma leitura que foi relida é legítimo — é o passo
+                  final de corrigir um arquivo lido sob o tipo errado. Mas quem
+                  apaga precisa saber que mexe numa corrente: as releituras não
+                  saem junto, elas passam a apontar para a leitura anterior. */}
+              {plan.reprocessamentosReancorados.length > 0 && (
+                <p className="text-sm text-blue-900 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3">
+                  {plan.reprocessamentosReancorados.length === 1 ? (
+                    <>
+                      Uma releitura deste arquivo aponta para esta importação.
+                      Ela <strong>não sai junto</strong>: o que ela produziu
+                      continua valendo, e ela passa a apontar para a leitura
+                      anterior desta corrente.
+                    </>
+                  ) : (
+                    <>
+                      {n(plan.reprocessamentosReancorados.length)} releituras
+                      deste arquivo apontam para esta importação. Elas{" "}
+                      <strong>não saem junto</strong>: o que produziram continua
+                      valendo, e passam a apontar para a leitura anterior desta
+                      corrente.
+                    </>
+                  )}
+                </p>
+              )}
+
               <label className="block space-y-1.5">
                 <span className="text-xs uppercase tracking-wider text-muted-foreground">
                   Motivo (opcional)
@@ -1718,6 +2059,200 @@ function DeleteDialog({
             >
               <Trash2 className="w-3.5 h-3.5 mr-1.5" />
               {deleting ? "Excluindo…" : "Excluir importação"}
+            </Button>
+          </DialogFooter>
+        </>
+      )}
+    </Dialog>
+  );
+}
+
+/**
+ * Reprocessar — a caixa que transforma um clique numa decisão.
+ *
+ * Reprocessar contorna de propósito a defesa que impede o mesmo conteúdo de
+ * entrar duas vezes, e uma ação assim não pode custar um clique. O que a
+ * protege não é esconder o botão: é esta tela, que obriga a escrever o que
+ * mudou desde a primeira leitura e mostra, antes de perguntar, o que a
+ * releitura vai e o que ela **não** vai fazer.
+ *
+ * A redeclaração do tipo é o caso que originou tudo isto — o arquivo de QLP que
+ * entrou quando a aba do QLP ainda não existia, e cuja releitura precisa dizer
+ * o que ele é. Trocar o tipo muda a família do dataset, e por isso a vigência
+ * nova não substitui a antiga: ela nasce ao lado. Isso está escrito aqui, e não
+ * descoberto depois, na tela de Dados, por quem for somar.
+ */
+function ReprocessDialog({
+  run,
+  todos,
+  onClose,
+  onConfirm,
+  working,
+}: {
+  run: ImportRun | null;
+  todos: ImportRun[];
+  onClose: () => void;
+  onConfirm: (reason: string, declaredType: string | null) => void;
+  working: boolean;
+}) {
+  /*
+    Quem será relido não é o cartão de onde se clicou.
+
+    O clique quase sempre sai da tentativa recusada — é nela que a frase "este
+    arquivo já havia sido recebido" aparece. Mas quem o servidor relê é a última
+    leitura que abriu o arquivo, e é contra a declaração **dela** que a troca de
+    tipo se mede. Comparar com o cartão clicado deixaria a tela calada
+    exatamente no caso do QLP: a tentativa recusada foi enviada pela aba do QLP,
+    o recebimento original não tinha declaração nenhuma, e a releitura muda a
+    família do dataset sem ninguém ser avisado.
+  */
+  const alvo = run ? historicoDoArquivo(todos, run).alvoDaReleitura : null;
+  const tipoDoAlvo = alvo?.declaredType ?? null;
+
+  const [reason, setReason] = useState("");
+  const [declaredType, setDeclaredType] = useState<string>(
+    // O que a tela oferece por padrão é o que o operador provavelmente quer:
+    // a declaração do cartão de onde ele clicou, que na dúvida é a mais
+    // recente — e não a do run antigo que será relido.
+    run?.declaredType ?? tipoDoAlvo ?? SEM_DECLARACAO,
+  );
+
+  const tipoEscolhido = declaredType === SEM_DECLARACAO ? null : declaredType;
+  const trocaDeTipo = tipoEscolhido !== tipoDoAlvo;
+  const motivoCurto = reason.trim().length < MOTIVO_MINIMO;
+
+  return (
+    <Dialog open={run !== null} onOpenChange={(open) => !open && onClose()}>
+      {run && (
+        <>
+          <DialogHeader>
+            <DialogTitle>Reprocessar "{run.filename}"?</DialogTitle>
+            <DialogDescription>
+              O mesmo arquivo é lido de novo, do começo, numa importação nova.
+              Nada do que já está no sistema é apagado ou reescrito.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <dl className="rounded-xl border divide-y overflow-hidden text-sm">
+              {[
+                ["O arquivo", "não é reenviado — o original guardado é relido"],
+                ["Esta importação", "continua no histórico, com o que produziu"],
+                ["A releitura", "para em “conferida”; aprovar é outro clique"],
+                ["Publicar", "nada entra na base sem essa aprovação"],
+              ].map(([label, texto]) => (
+                <div
+                  key={label}
+                  className="flex items-start justify-between gap-4 px-4 py-2 bg-muted/30"
+                >
+                  <dt className="text-muted-foreground shrink-0">{label}</dt>
+                  <dd className="text-right">{texto}</dd>
+                </div>
+              ))}
+            </dl>
+
+            <label className="block space-y-1.5">
+              <span className="text-xs uppercase tracking-wider text-muted-foreground">
+                Tipo declarado nesta releitura
+              </span>
+              <select
+                value={declaredType}
+                onChange={(e) => setDeclaredType(e.target.value)}
+                className="w-full rounded-lg border px-3 py-2 text-sm bg-background"
+              >
+                <option value={SEM_DECLARACAO}>
+                  Sem declaração — deduzir pelo conteúdo
+                </option>
+                {TIPOS_DE_IMPORTACAO.map((tipo) => (
+                  <option key={tipo.code} value={tipo.code}>
+                    {tipo.rotulo}
+                  </option>
+                ))}
+              </select>
+              <span className="text-xs text-muted-foreground">
+                {alvo === null ? (
+                  "Este arquivo não tem nenhuma leitura para reler."
+                ) : (
+                  <>
+                    A leitura que será relida é a de{" "}
+                    {dateTime(alvo.startedAt)}, que entrou{" "}
+                    {tipoDoAlvo
+                      ? `como ${rotuloDoTipo(tipoDoAlvo)}.`
+                      : "sem declaração — o tipo saiu do conteúdo do arquivo."}
+                  </>
+                )}
+              </span>
+            </label>
+
+            {/* A consequência que não é óbvia, dita antes e não depois.
+
+                A identidade de uma vigência inclui a família do dataset, e o
+                tipo declarado decide a família. Declarar outro tipo faz a
+                vigência nova não ser revisão da antiga: as duas ficam ativas,
+                cada uma na sua família. Para a tela do tipo novo isso é o certo
+                — ela passa a ver o número. Para quem somar a família antiga, o
+                engano continua lá até alguém excluí-lo. */}
+            {trocaDeTipo && (
+              <p className="text-sm text-amber-900 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3">
+                <strong>A releitura muda o tipo declarado</strong>
+                {tipoDoAlvo
+                  ? ` — de ${rotuloDoTipo(tipoDoAlvo)} para ${
+                      tipoEscolhido ? rotuloDoTipo(tipoEscolhido) : "sem declaração"
+                    }.`
+                  : `: a leitura anterior não declarava tipo, e esta declara ${
+                      tipoEscolhido ? rotuloDoTipo(tipoEscolhido) : "nenhum"
+                    }.`}{" "}
+                {alvo !== null && alvo.labels.length > 0 ? (
+                  <>
+                    As vigências que a leitura anterior gravou (
+                    <span className="font-mono text-xs">
+                      {alvo.labels.join(", ")}
+                    </span>
+                    ) <strong>não são substituídas</strong>
+                  </>
+                ) : (
+                  <>
+                    O que a leitura anterior tiver gravado{" "}
+                    <strong>não é substituído</strong>
+                  </>
+                )}
+                : tipos diferentes vivem em famílias de dados diferentes, e a
+                vigência nova nasce <em>ao lado</em> da antiga em vez de
+                corrigi-la. Depois de aprovar a releitura, exclua a importação
+                anterior para tirar do sistema o que ela gravou sob o tipo
+                errado.
+              </p>
+            )}
+
+            <label className="block space-y-1.5">
+              <span className="text-xs uppercase tracking-wider text-muted-foreground">
+                O que mudou desde a primeira leitura?
+              </span>
+              <input
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="ex.: o leitor passou a reconhecer o grão do QLP Administrativo"
+                className="w-full rounded-lg border px-3 py-2 text-sm bg-background"
+              />
+              <span className="text-xs text-muted-foreground">
+                Obrigatório. Fica no histórico da importação, e é o que explica,
+                daqui a meses, por que o mesmo arquivo foi lido duas vezes.
+              </span>
+            </label>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" size="sm" onClick={onClose}>
+              Cancelar
+            </Button>
+            <Button
+              size="sm"
+              disabled={motivoCurto || working}
+              onClick={() => onConfirm(reason.trim(), tipoEscolhido)}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              <RefreshCw className="w-3.5 h-3.5 mr-1.5" />
+              {working ? "Abrindo releitura…" : "Reprocessar arquivo"}
             </Button>
           </DialogFooter>
         </>
@@ -1869,7 +2404,10 @@ function PendingRun({
                     excluir a importação. */}
                 {data.declaredType && (
                   <span className="ml-2 font-normal text-xs text-amber-900/80">
-                    enviado como{" "}
+                    {/* "enviado como" é falso para uma releitura: ninguém
+                        enviou nada — o arquivo já estava aqui, e o tipo foi
+                        declarado no pedido de reprocessamento. */}
+                    {data.reprocessOfRunId ? "relido como" : "enviado como"}{" "}
                     {TIPOS_DE_IMPORTACAO.find((t) => t.code === data.declaredType)
                       ?.rotulo ?? data.declaredType}
                   </span>
