@@ -3,7 +3,8 @@ import { periodosDoAno, quinzenaDaData, type PeriodoDaQuinzena } from "./calenda
 /**
  * A aritmética da Visão Gerencial da Auditoria — o acervo visto de cima.
  *
- * O ambiente tinha o retrato de **uma** unidade numa vigência (a Visão geral) e
+ * O ambiente tinha o retrato de **uma** unidade numa vigência (o Resumo
+ * executivo) e
  * nenhum retrato do conjunto. Quem responde pela auditoria não pergunta "o que
  * mudou em CAMAÇARI em agosto"; pergunta *quanto do que chegou já foi
  * comparado, em quais unidades, e onde está o que ninguém olhou* — e essa

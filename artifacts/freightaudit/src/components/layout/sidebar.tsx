@@ -155,16 +155,16 @@ const NAV_GROUPS: NavGroup[] = [
       /*
         A Visão Gerencial abre a seção porque é a leitura mais alta que o
         ambiente tem: todas as unidades de uma vez, em ordem do que falta
-        auditar. A Visão geral vem logo abaixo e responde pela unidade aberta —
-        é a mesma escada da lateral do Fechamento, onde a Visão Gerencial
-        também é o primeiro item.
+        auditar. O Resumo executivo vem logo abaixo e responde pela unidade
+        aberta — é a mesma escada da lateral do Fechamento, onde a Visão
+        Gerencial também é o primeiro item.
 
-        O nome é quase o mesmo e a diferença é de altura, não de assunto: uma é
-        o conjunto, a outra é a unidade. Por isso ficam coladas, e nesta ordem —
-        separá-las por três itens faria parecer que falam de coisas diferentes.
+        As duas ficam coladas, e nesta ordem, porque são a mesma pergunta em
+        duas alturas: o conjunto e a unidade. Separá-las por três itens faria
+        parecer que falam de coisas diferentes.
       */
       { href: "/visao-gerencial", label: "Visão Gerencial", icon: LayoutDashboard },
-      { href: "/", label: "Visão geral", icon: House },
+      { href: "/", label: "Resumo executivo", icon: House },
       { href: "/vigencia", label: "Acompanhamento", icon: TrendingUp },
       /*
         A Análise de frota saiu daqui e passou a abrir a seção **Frota**, ao lado

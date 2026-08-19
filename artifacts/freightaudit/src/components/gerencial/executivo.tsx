@@ -40,7 +40,7 @@ export function Numero({
    *
    * Separada do valor porque ela **não pode sumir** na redução de corpo: um
    * "R$ 39.936" sem o "/mês" é a mesma frase com outro significado. É a mesma
-   * decisão do `ValorGrande` da Visão geral, e o mesmo tamanho.
+   * decisão do `ValorGrande` do Resumo executivo, e o mesmo tamanho.
    */
   sufixo?: string;
   detalhe: string;

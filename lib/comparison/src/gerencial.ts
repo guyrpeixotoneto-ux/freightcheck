@@ -10,7 +10,7 @@ import { channelSql, listContexts, type ContextInfo } from "./series";
  * não a de quem a executa: *quanto do que chegou já foi comparado, em quais
  * unidades, e onde está o que ninguém olhou.* É a irmã da Visão Gerencial do
  * Fechamento, e nasceu pela mesma razão — o produto tinha o retrato de **uma**
- * unidade numa vigência (a Visão geral) e nenhum retrato do conjunto.
+ * unidade numa vigência (o Resumo executivo) e nenhum retrato do conjunto.
  *
  * Três decisões moram nesta função, e as três são sobre não mentir:
  *

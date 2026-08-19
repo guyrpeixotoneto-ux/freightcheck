@@ -28,8 +28,8 @@ import { cn } from "@/lib/utils";
  * Visão Gerencial — a auditoria do ano inteiro, unidade a unidade.
  *
  * **A pergunta que ela responde é de quem responde pela auditoria, não de quem
- * a executa.** Quem audita abre uma unidade e trabalha dentro dela — é o que a
- * Visão geral serve, e continua servindo. Quem responde pelo conjunto quer
+ * a executa.** Quem audita abre uma unidade e trabalha dentro dela — é o que o
+ * Resumo executivo serve, e continua servindo. Quem responde pelo conjunto quer
  * saber outra coisa, e quer saber sem clicar: *quanto do que chegou já foi
  * comparado, em quais unidades, e onde está o que ninguém olhou.* Essa pergunta
  * não tinha tela: o produto tinha o retrato de uma unidade numa vigência e
@@ -56,9 +56,9 @@ import { cn } from "@/lib/utils";
  * 2. **A ordem dos cartões é a do trabalho que falta**, e não a alfabética:
  *    primeiro quem tem vigência sem comparação. A tela existe para dizer onde
  *    ir.
- * 3. **O cartão abre a unidade.** Clicar leva à Visão geral daquele recorte —
- *    a tela que já responde pela unidade em profundidade. Uma terceira tela de
- *    unidade seria uma segunda verdade sobre o mesmo lugar.
+ * 3. **O cartão abre a unidade.** Clicar leva ao Resumo executivo daquele
+ *    recorte — a tela que já responde pela unidade em profundidade. Uma
+ *    terceira tela de unidade seria uma segunda verdade sobre o mesmo lugar.
  */
 
 /**
@@ -516,7 +516,7 @@ export default function VisaoGerencialDaAuditoria() {
                 Para descer ao detalhe de uma unidade, o caminho continua sendo o
                 de sempre:{" "}
                 <Link href="/" className="text-primary hover:underline">
-                  Visão geral
+                  Resumo executivo
                 </Link>{" "}
                 para os números da vigência aberta,{" "}
                 <Link href="/alteracoes" className="text-primary hover:underline">

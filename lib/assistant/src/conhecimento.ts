@@ -693,7 +693,7 @@ export const ARTIGOS: Artigo[] = [
       "O menu tem cinco seções, e no topo dele fica a unidade aberta — unidade, canal e " +
       "vigência mais recente da seleção que os números da tela estão usando.\n\n" +
       "**Visão executiva**\n" +
-      "*Visão geral* — o panorama do que existe.\n" +
+      "*Resumo executivo* — o panorama do que existe.\n" +
       "*Acompanhamento* — o resumo de uma vigência.\n\n" +
       "**Auditoria**\n" +
       "*Alterações* — linha a linha, com veículo, valor anterior e valor novo.\n" +
