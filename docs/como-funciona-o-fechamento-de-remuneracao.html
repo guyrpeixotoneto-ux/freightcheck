@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<title>Como funciona o fechamento de remuneração</title>
+<style>
+  @page { size: A4; margin: 20mm 18mm 18mm 18mm; }
+  @page :first { margin: 0; }
+
+  :root {
+    --tinta: #14181f;
+    --suave: #5b6572;
+    --linha: #dde2e8;
+    --azul: #14539a;
+    --azul-claro: #eef4fb;
+    --ambar: #8a5a00;
+    --ambar-claro: #fdf5e6;
+    --verde: #14664a;
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body {
+    margin: 0;
+    font-family: "Georgia", "Times New Roman", serif;
+    font-size: 10.2pt;
+    line-height: 1.55;
+    color: var(--tinta);
+  }
+
+  /* ---------- capa ---------- */
+  .capa {
+    height: 297mm;
+    padding: 45mm 22mm 22mm;
+    background: linear-gradient(160deg, #0e2440 0%, #14539a 100%);
+    color: #fff;
+    page-break-after: always;
+    display: flex;
+    flex-direction: column;
+  }
+  .capa .marca {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 9pt; letter-spacing: .22em; text-transform: uppercase;
+    opacity: .8; margin-bottom: auto;
+  }
+  .capa h1 {
+    font-size: 34pt; line-height: 1.12; font-weight: normal;
+    margin: 0 0 14mm; max-width: 15cm;
+  }
+  .capa .sub {
+    font-size: 12pt; line-height: 1.5; opacity: .9; max-width: 13cm;
+    border-top: 1px solid rgba(255,255,255,.3); padding-top: 6mm;
+  }
+  .capa .rodape {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 8.5pt; opacity: .7; margin-top: 14mm; line-height: 1.7;
+  }
+
+  /* ---------- estrutura ---------- */
+  h2 {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 15pt; font-weight: 700; letter-spacing: -.01em;
+    margin: 11mm 0 3mm; padding-bottom: 2mm;
+    border-bottom: 2px solid var(--tinta);
+    page-break-after: avoid;
+  }
+  h2:first-of-type { margin-top: 0; }
+  h3 {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 10.5pt; font-weight: 700; margin: 6mm 0 1.5mm;
+    page-break-after: avoid;
+  }
+  p { margin: 0 0 3mm; text-align: justify; hyphens: auto; }
+  strong { font-weight: 700; }
+  .destaque { color: var(--azul); font-weight: 700; }
+
+  ul, ol { margin: 0 0 3mm; padding-left: 5mm; }
+  li { margin-bottom: 1.5mm; }
+
+  .nota {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 8.6pt; color: var(--suave); line-height: 1.5;
+  }
+
+  /* ---------- caixas ---------- */
+  .caixa {
+    border-left: 3px solid var(--azul);
+    background: var(--azul-claro);
+    padding: 4mm 5mm; margin: 4mm 0;
+    page-break-inside: avoid;
+  }
+  .caixa.aviso { border-left-color: var(--ambar); background: var(--ambar-claro); }
+  .caixa h4 {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 9pt; text-transform: uppercase; letter-spacing: .08em;
+    margin: 0 0 2mm; color: var(--azul);
+  }
+  .caixa.aviso h4 { color: var(--ambar); }
+  .caixa p:last-child { margin-bottom: 0; }
+
+  /* ---------- fórmula ---------- */
+  .formula {
+    font-family: "SF Mono", "Consolas", monospace;
+    font-size: 9.2pt; line-height: 1.9;
+    background: #f6f8fa; border: 1px solid var(--linha);
+    padding: 4mm 5mm; margin: 4mm 0; white-space: pre;
+    page-break-inside: avoid;
+  }
+
+  /* ---------- tabelas ---------- */
+  table { width: 100%; border-collapse: collapse; margin: 3mm 0 4mm; font-size: 9pt; page-break-inside: avoid; }
+  th {
+    font-family: "Helvetica Neue", Arial, sans-serif;
+    font-size: 8pt; text-transform: uppercase; letter-spacing: .06em;
+    text-align: left; color: var(--suave);
+    border-bottom: 1.5px solid var(--tinta); padding: 2mm 2mm 1.5mm;
+  }
+  td { padding: 1.8mm 2mm; border-bottom: 1px solid var(--linha); vertical-align: top; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; font-family: "Helvetica Neue", Arial, sans-serif; }
+  .rotina { font-family: "SF Mono", "Consolas", monospace; font-size: 8.6pt; color: var(--azul); white-space: nowrap; }
+
+  /* ---------- fluxo ---------- */
+  .fluxo { margin: 5mm 0; page-break-inside: avoid; }
+  .fonte-linha {
+    display: flex; align-items: flex-start; gap: 4mm;
+    padding: 2.5mm 0; border-bottom: 1px solid var(--linha);
+  }
+  .fonte-linha:last-child { border-bottom: none; }
+  .fonte-cod {
+    font-family: "SF Mono", "Consolas", monospace; font-size: 8.4pt;
+    color: #fff; background: var(--azul); padding: 1mm 2mm; border-radius: 2px;
+    white-space: nowrap; min-width: 26mm; text-align: center;
+  }
+  .fonte-txt { flex: 1; }
+  .fonte-txt b { font-family: "Helvetica Neue", Arial, sans-serif; font-size: 9.4pt; }
+  .fonte-txt span { display: block; font-size: 9pt; color: var(--suave); }
+
+  .quebra { page-break-before: always; }
+  .juntos { page-break-inside: avoid; }
+</style>
+</head>
+<body>
+
+<!-- ================= CAPA ================= -->
+<section class="capa">
+  <div class="marca">FreightCheck &nbsp;·&nbsp; Fechamento de Remuneração</div>
+  <h1>Como funciona o fechamento de remuneração</h1>
+  <div class="sub">
+    O processo pelo qual uma transportadora confere, a cada quinzena, se o que a
+    Ambev vai pagar é o que é devido — as cinco fontes, a conta que as une, e
+    onde o dinheiro costuma se perder.
+  </div>
+  <div class="rodape">
+    Documento derivado de um fechamento real: CDD Belém, transportadora 036,<br>
+    2ª quinzena de julho de 2026. Todos os valores citados foram conferidos<br>
+    contra os arquivos de origem.
+  </div>
+</section>
+
+<!-- ================= 1 ================= -->
+<h2>1. Do que se trata</h2>
+
+<p>
+A cada quinze dias, a Ambev calcula quanto deve à transportadora que faz a
+distribuição de um CDD, emite os CT-es correspondentes e envia um conjunto de
+relatórios. O <strong>fechamento de remuneração</strong> é o trabalho do outro
+lado dessa mesa: reconstruir a conta de forma independente e verificar se o
+valor que será pago é o valor devido.
+</p>
+
+<p>
+O ponto de vista importa. Quem calcula é o sistema da Ambev (SRTrans/Promax);
+quem emite os relatórios é a Ambev; quem precisa conferir é a transportadora.
+Historicamente essa conferência é feita numa planilha Excel de mais de quarenta
+abas, montada à mão a cada quinzena, com PROCVs ligando um relatório ao outro.
+</p>
+
+<div class="caixa">
+  <h4>A pergunta que o fechamento responde</h4>
+  <p>
+    Quanto devemos receber nesta quinzena? O que está pendente? Podemos fechar o
+    período? — e, quando a conta não bate, <strong>qual das parcelas está
+    faltando</strong>.
+  </p>
+</div>
+
+<!-- ================= 2 ================= -->
+<h2>2. As cinco fontes</h2>
+
+<p>
+Tudo o que o fechamento precisa chega em cinco arquivos, exportados do Promax e
+do SRTrans. Cada um responde por uma parte da conta, e nenhum deles responde
+sozinho.
+</p>
+
+<div class="fluxo">
+  <div class="fonte-linha">
+    <span class="fonte-cod">2Art</span>
+    <span class="fonte-txt"><b>Relatório operacional</b>
+      <span>Uma linha por viagem: veículo, mapa, caixas carregadas e entregues,
+      horários, quilometragem e o frete daquela viagem. É <strong>a origem do
+      frete variável</strong> — o que a operação de fato rodou na rua.</span></span>
+  </div>
+  <div class="fonte-linha">
+    <span class="fonte-cod">03.08.18</span>
+    <span class="fonte-txt"><b>Disponibilidade de frota</b>
+      <span>Dia a dia: quantos veículos foram contratados, quantos saíram, e de
+      quem é a culpa pela diferença. É <strong>a origem dos descontos</strong>
+      sobre a parcela fixa.</span></span>
+  </div>
+  <div class="fonte-linha">
+    <span class="fonte-cod">03.08.12.09</span>
+    <span class="fonte-txt"><b>Requisições de despesa</b>
+      <span>As despesas extras aprovadas — incentivo, hora extra, remuneração
+      variável da equipe, taxa de descarga, pernoite, pedágio — com a trilha de
+      quem pediu e quem aprovou. É <strong>a origem do complementar</strong>.</span></span>
+  </div>
+  <div class="fonte-linha">
+    <span class="fonte-cod">03.08.15</span>
+    <span class="fonte-txt"><b>CT-es por verba</b>
+      <span>O extrato fiscal: cada CT-e emitido, com a verba (VBZ) a que pertence
+      e a abertura completa dos impostos. É <strong>o que a Ambev diz ter
+      faturado</strong>.</span></span>
+  </div>
+  <div class="fonte-linha">
+    <span class="fonte-cod">03.02.59.02</span>
+    <span class="fonte-txt"><b>Conciliação CT-e × SRTrans</b>
+      <span>O fecho da quinzena, em duas colunas: o que foi <em>emitido</em> em
+      CT-e contra o que o sistema <em>calculou</em> que era devido, mais os saldos
+      que atravessam para a quinzena seguinte.</span></span>
+  </div>
+</div>
+
+<div class="caixa aviso">
+  <h4>Três formas de escrever a mesma data</h4>
+  <p>
+    As fontes datam a mesma quinzena de jeitos incompatíveis: o 2Art escreve
+    <span class="rotina">16072026</span>; o 03.08.15 e o 03.08.18 usam o serial
+    do Excel (<span class="rotina">46219</span>); o CSV e o TXT escrevem
+    <span class="rotina">16/07/2026</span>. E a “quinzena 16/07/2026” é
+    <strong>rótulo do período 16–31/07</strong>, não data de emissão — confundir
+    os dois faz uma quinzena inteira sumir de um filtro.
+  </p>
+</div>
+
+<!-- ================= 3 ================= -->
+<h2 class="quebra">3. A igualdade central</h2>
+
+<p>
+A VBZ — a verba orçamentária — é o fio que atravessa as três fontes
+financeiras: a requisição nasce apontando uma VBZ, o CT-e é emitido naquela VBZ,
+e a conciliação soma as VBZs em rubricas. Seguindo esse fio, descobre-se a regra
+que rege o fechamento inteiro:
+</p>
+
+<div class="formula">CT-e emitido na verba  =  o que o SRTrans calculou       (conciliação, quinzena atual)
+                       +  o complementar de perfil     (conciliação, bloco complementar)
+                       +  requisições aprovadas × fator (03.08.12.09, convertido)</div>
+
+<p>
+Conferida contra o fechamento real de julho/2026, essa igualdade fecha nas
+<strong>quinze verbas</strong> que o arquivo trouxe, com resíduo máximo de
+<strong>um centavo</strong>. Alguns exemplos:
+</p>
+
+<table>
+  <thead>
+    <tr>
+      <th>VBZ</th><th>Verba</th><th class="num">CT-e emitido</th><th>Como se forma</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr><td>5</td><td>Rota · Frota Fixa Variável</td><td class="num">208.498,46</td><td>206.283,08 + 2.215,38</td></tr>
+    <tr><td>7</td><td>Rota · Freteiro</td><td class="num">139.431,82</td><td>129.938,54 + 1.426,03 + 6.000,00 × 1,344541</td></tr>
+    <tr><td>9</td><td>Rota · Outras Despesas</td><td class="num">99.828,99</td><td>74.247,66 × 1,344541</td></tr>
+    <tr><td>26</td><td>AS · Freteiro</td><td class="num">75.685,88</td><td>70.765,03 + 4.920,85</td></tr>
+    <tr><td>29</td><td>AS · Estadias</td><td class="num">39.420,04</td><td>28.622,89 × 1,377240</td></tr>
+  </tbody>
+</table>
+
+<p>
+É essa igualdade que permite sair de “o total não bate” para “<strong>esta verba
+não bate, e falta esta parcela dela</strong>”. Sem ela, uma divergência de mil
+reais num total de um milhão e meio é impossível de localizar.
+</p>
+
+<h3>O que a igualdade não cobre</h3>
+
+<p>
+Quatro verbas ficam de fora porque nenhuma das cinco fontes as sustenta: Frota
+Fixa Ativa, Frota Fixa Inativa, Equipe de Entrega Ativa e Despesa
+Administrativa. Elas são a parcela fixa do contrato. Na quinzena conferida
+somam <strong>R$ 654.310,24</strong> de um total emitido de R$ 1.473.432,61 —
+<strong>44% da conta entra sem conferência</strong>, e a única resposta honesta
+é dizer isso, não fingir que fecha.
+</p>
+
+<!-- ================= 4 ================= -->
+<h2>4. Os três impostos que não são o mesmo</h2>
+
+<p>
+O SRTrans movimenta valores <strong>sem</strong> imposto: uma requisição aprovada
+em R$ 6.000,00 é R$ 6.000,00 líquidos. O CT-e é emitido <strong>com</strong>
+imposto. Entre os dois há um fator — e comparar as duas fontes sem aplicá-lo
+acusa uma divergência de 34% onde não existe nenhuma.
+</p>
+
+<p>
+O que não é óbvio é que há <strong>três percentuais diferentes</strong> em jogo
+no mesmo fechamento:
+</p>
+
+<table>
+  <thead>
+    <tr><th>Percentual</th><th>Onde aparece</th><th class="num">Medido</th><th class="num">Fator</th></tr>
+  </thead>
+  <tbody>
+    <tr><td>Pagamento, canal Rota</td><td>requisição → CT-e</td><td class="num">25,6252%</td><td class="num">1,344541</td></tr>
+    <tr><td>Pagamento, canal AS</td><td>requisição → CT-e</td><td class="num">27,3900%</td><td class="num">1,377240</td></tr>
+    <tr><td>Fiscal, dentro do CT-e</td><td>Vlr. Imposto ÷ Valor CT-e</td><td class="num">26,477%</td><td class="num">1,360112</td></tr>
+  </tbody>
+</table>
+
+<p>
+Os dois primeiros são regra de remuneração e mudam por canal; o terceiro é a
+composição tributária do documento (ICMS 19% + PIS 1,336% + COFINS 6,156%).
+</p>
+
+<div class="caixa aviso">
+  <h4>Uma pergunta legítima para a Ambev</h4>
+  <p>
+    No canal Rota, o complementar é convertido a 25,63% enquanto o próprio CT-e
+    compõe a 26,48%. São <strong>1,17% a menos</strong> do que a carga fiscal do
+    documento. Sobre os R$ 256 mil de complementar da quinzena, a diferença não é
+    arredondamento.
+  </p>
+</div>
+
+<div class="caixa">
+  <h4>Por isso o fator é medido, nunca presumido</h4>
+  <p>
+    Existem verbas cujo CT-e só pode ter vindo de requisição — as complementares
+    que a conciliação não lista. Nelas, a razão entre o CT-e emitido e a
+    requisição aprovada <em>é</em> o fator, sem nada mais no meio. Escrever uma
+    alíquota em código congelaria uma decisão da Ambev dentro do sistema, e no dia
+    em que ela mudasse a conta erraria calada.
+  </p>
+</div>
+
+<!-- ================= 5 ================= -->
+<h2 class="quebra">5. Onde o dinheiro se perde</h2>
+
+<p>
+Reconstruir a conta serve para localizar o que a reduz. Na quinzena conferida,
+seis itens somaram <strong>R$ 120.057,85</strong> em valores que diminuem o que a
+transportadora recebe — cada um rastreável até a linha do arquivo de onde saiu.
+</p>
+
+<table>
+  <thead>
+    <tr><th class="num">Valor</th><th>O que é</th><th>Onde olhar</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="num">37.552,94</td>
+      <td><b>Desconto de frete mínimo · AS</b><br>
+        <span class="nota">Redução unilateral do SRTrans. Aparece só na coluna do
+        calculado, sem contrapartida no emitido.</span></td>
+      <td class="rotina">03.02.59.02</td>
+    </tr>
+    <tr>
+      <td class="num">37.487,42</td>
+      <td><b>Desconto por indisponibilidade</b><br>
+        <span class="nota">Veículo que não rodou, com o gap atribuído à
+        transportadora. Reclassificar o gap para a Ambev devolve o valor — é o
+        que a aba “Justificativa” da planilha existe para sustentar.</span></td>
+      <td class="rotina">03.08.18</td>
+    </tr>
+    <tr>
+      <td class="num">17.398,54</td>
+      <td><b>Desconto de frete mínimo · Rota</b></td>
+      <td class="rotina">03.02.59.02</td>
+    </tr>
+    <tr>
+      <td class="num">16.096,70</td>
+      <td><b>Saldo que atravessa · Rota</b><br>
+        <span class="nota">Inclui nota fiscal sem CT-e. O relatório avisa:
+        “Encontrado Notas Fiscais sem Vinculo com CT-e”.</span></td>
+      <td class="rotina">03.02.59.02</td>
+    </tr>
+    <tr>
+      <td class="num">5.946,57</td>
+      <td><b>Saldo que atravessa · AS</b></td>
+      <td class="rotina">03.02.59.02</td>
+    </tr>
+    <tr>
+      <td class="num">5.575,68</td>
+      <td><b>2Art não bate com o calculado · Rota</b><br>
+        <span class="nota">A operação registra R$ 328.169,46 de frete; o SRTrans
+        calculou R$ 322.593,78. No canal AS os dois lados batem ao centavo
+        (R$ 49.352,25), o que prova que a comparação é legítima.</span></td>
+      <td class="rotina">2Art</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="nota">
+Além disso, há a categoria que o fechamento precisa vigiar mesmo quando está
+zerada: <strong>requisição aprovada e não faturada</strong> — despesa que passou
+por toda a trilha de aprovação e não virou CT-e nenhum. É dinheiro aprovado que
+simplesmente não é pago se ninguém procurar.
+</p>
+
+<!-- ================= 6 ================= -->
+<h2>6. Como o FreightCheck faz isso sem planilha</h2>
+
+<p>
+O módulo <strong>Fechamento</strong> do FreightCheck executa esse processo
+inteiro. O fluxo tem três passos:
+</p>
+
+<ol>
+  <li><strong>Abrir a competência</strong> — uma quinzena de um CDD com uma
+      transportadora. É a única informação digitada; todo o resto vem dos
+      arquivos.</li>
+  <li><strong>Enviar os relatórios</strong> — os cinco, em qualquer ordem. Cada
+      linha é normalizada e gravada com o número da linha física do arquivo de
+      origem.</li>
+  <li><strong>Apurar</strong> — a conta é reconstruída verba a verba, com a
+      memória de cálculo de cada parcela, e o que não fecha vira uma lista de
+      trabalho.</li>
+</ol>
+
+<h3>O que muda em relação à planilha</h3>
+
+<table>
+  <thead><tr><th>Na planilha</th><th>No FreightCheck</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>O resultado é uma célula. De onde ele veio está no PROCV, se alguém
+          souber lê-lo.</td>
+      <td>Cada verba abre a <strong>memória de cálculo</strong>: as parcelas, a
+          origem de cada uma e o fator aplicado.</td>
+    </tr>
+    <tr>
+      <td>Quem confere precisa ser quem montou.</td>
+      <td>Qualquer pessoa abre a competência e vê a conta com o mesmo detalhe.</td>
+    </tr>
+    <tr>
+      <td>Fonte que faltou vira zero, e o zero desaparece na soma.</td>
+      <td>Fonte ausente é <strong>nomeada</strong>; o que ela sustentaria fica
+          marcado como não conferido.</td>
+    </tr>
+    <tr>
+      <td>Linha ilegível some.</td>
+      <td>Vira recusa com o número da linha e o texto original.</td>
+    </tr>
+    <tr>
+      <td>Reenviar o mesmo arquivo dobra a conta em silêncio.</td>
+      <td>O arquivo é reconhecido pelo conteúdo e recusado.</td>
+    </tr>
+    <tr>
+      <td>Alíquota digitada numa célula, esquecida por meses.</td>
+      <td>Fator <strong>medido</strong> dos próprios arquivos, a cada apuração,
+          com a memória da medição.</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="caixa">
+  <h4>Duas garantias que a arquitetura sustenta</h4>
+  <p>
+    <strong>A apuração é gravada, não recalculada.</strong> Ela é função pura dos
+    documentos e poderia ser refeita a cada leitura — mas então trocar um arquivo
+    mudaria retroativamente o número que alguém aprovou, e a aprovação deixaria de
+    significar coisa alguma. Rodar de novo cria uma versão nova; o histórico
+    responde “o que mudou desde que aprovei”.
+  </p>
+  <p>
+    <strong>A competência encerrada congela.</strong> Não por convenção, mas por
+    regra do banco de dados: nada entra numa competência fechada. Reabrir é um
+    ato registrado, com autor e motivo.
+  </p>
+</div>
+
+<!-- ================= 7 ================= -->
+<h2>7. O que ainda não se sabe</h2>
+
+<p>
+Duas pontas permanecem abertas, e estão aqui para não serem confundidas com
+coisa resolvida:
+</p>
+
+<ul>
+  <li><strong>De onde vêm as parcelas fixas.</strong> Os R$ 654.310,24 de frota
+      fixa, equipe e despesa administrativa não têm fonte entre as cinco. Falta
+      a tabela de contrato — que é exatamente o que o outro ambiente do
+      FreightCheck, a Auditoria, já conhece. Ligar os dois é o passo que leva a
+      conferência de 56% para 100% da conta.</li>
+  <li><strong>Por que o canal Rota abre R$ 5.575,68</strong> entre o 2Art e o
+      calculado do SRTrans, se o canal AS bate ao centavo.</li>
+</ul>
+
+<p class="nota" style="margin-top:8mm; border-top:1px solid var(--linha); padding-top:3mm;">
+Este documento descreve o processo tal como observado em um fechamento real e
+tal como implementado no módulo Fechamento do FreightCheck. Os valores citados
+são da 2ª quinzena de julho de 2026, CDD Belém, transportadora 036, e foram
+conferidos contra os arquivos de origem.
+</p>
+
+</body>
+</html>
