@@ -80,6 +80,12 @@ export const SHARDS = {
     // isso ao lado dele. Não usa template nem seed, então não há localidade a
     // preservar; 2,3s medidos com o banco local.
     "@workspace/fechamento",
+    // `remuneracao` tem exatamente o mesmo perfil, e por isso o mesmo lugar: 45
+    // testes de aritmética pura sobre material sintético — as medições do
+    // cadastro e a comparação das duas quinzenas — e 15 de leitura que criam um
+    // banco descartável a partir das migrations, sem template e sem seed. 4,7s
+    // medidos com o banco local.
+    "@workspace/remuneracao",
   ],
   ingest: ["@workspace/ingest"],
   curado: [
