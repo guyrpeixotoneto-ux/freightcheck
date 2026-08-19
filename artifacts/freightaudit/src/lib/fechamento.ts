@@ -36,6 +36,15 @@ export interface Competencia {
   abertaEm: string;
   apuradaEm: string | null;
   encerradaEm: string | null;
+  /** Por que a competência foi reaberta, quando foi. */
+  motivoDaReabertura: string | null;
+}
+
+/** Uma unidade ou transportadora que já apareceu em alguma competência. */
+export interface Parte {
+  codigo: string;
+  nome: string | null;
+  competencias: number;
 }
 
 export interface Recusa {
@@ -280,6 +289,24 @@ export function abrirCompetencia(entrada: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(entrada),
+  });
+}
+
+export function listarPartes(): Promise<{ unidades: Parte[]; transportadoras: Parte[] }> {
+  return fetchJson<{ unidades: Parte[]; transportadoras: Parte[] }>("/fechamento/partes");
+}
+
+/** Encerra a competência — congela a quinzena. */
+export function encerrar(id: string): Promise<Competencia> {
+  return fetchJson<Competencia>(`/fechamento/competencias/${id}/encerramento`, { method: "POST" });
+}
+
+/** Reabre uma competência encerrada. O motivo é obrigatório. */
+export function reabrir(id: string, motivo: string): Promise<Competencia> {
+  return fetchJson<Competencia>(`/fechamento/competencias/${id}/reabertura`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ motivo }),
   });
 }
 

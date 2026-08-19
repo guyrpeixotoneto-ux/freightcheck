@@ -101,7 +101,7 @@ O que sustenta a tela:
 | --- | --- |
 | `lib/fechamento/src/leitores/operacao.ts` | lê a viagem inteira: os 15 campos que a conta soma, e o `detalhe` — veículo, horários, laço, ocupação, remuneração da equipe |
 | `lib/fechamento/src/diario.ts` | `diasDaCompetencia` (a grade) e `abrirDia` (a aba), aritmética pura |
-| `lib/db` (migration `0040`) | as 47 colunas do retrato, todas anuláveis: coluna que a exportação não trouxe fica `NULL`, nunca `0` |
+| `lib/db` (migration `0042`) | as 47 colunas do retrato, todas anuláveis: coluna que a exportação não trouxe fica `NULL`, nunca `0` |
 | `routes/fechamento.ts` | `GET …/dias` e `GET …/dias/:dia` |
 | `components/fechamento/` | a grade de ladrilhos, o catálogo de colunas e a tabela larga |
 

@@ -144,6 +144,24 @@ export const ALLOWLIST: {
     tipo: "text",
     aindaPodeNaoExistir: true,
   },
+  /*
+    As duas da `0040`. O reprocessamento — reler um arquivo já recebido porque o
+    leitor mudou — precisa dizer no histórico *qual leitura ele releu* e *por
+    quê*. Aditivas e nulas por definição: toda importação que não é releitura
+    tem as duas em `NULL`, que é exatamente o que elas devem dizer dela.
+  */
+  {
+    tabela: "import_run",
+    coluna: "reprocess_of_run_id",
+    tipo: "uuid",
+    aindaPodeNaoExistir: true,
+  },
+  {
+    tabela: "import_run",
+    coluna: "reprocess_reason",
+    tipo: "text",
+    aindaPodeNaoExistir: true,
+  },
 ];
 
 /**
@@ -211,7 +229,7 @@ const TABELAS_REMOVIDAS = [
  * com uma cópia reescrita aqui, que poderia divergir sem ninguém ver.
  */
 /**
- * As colunas que a `0040` acrescentou a `fechamento_viagem` — o retrato da
+ * As colunas que a `0042` acrescentou a `fechamento_viagem` — o retrato da
  * viagem, que a tela do dia mostra e a conta não usa.
  *
  * A lista existe para o `up`: o `down` derruba a tabela inteira e o `up` a
@@ -340,6 +358,11 @@ export const INDICES_REMOVIDOS = [
   "fact_inherited_idx",
   "ticket_vigencia_idx",
   "fact_nao_aplicavel_idx",
+  // A `0040`: no máximo uma leitura por decidir por arquivo, que é a trava
+  // contra o reprocessamento em duplicidade. Sai como as demais — o Publishing
+  // não a modela, e um índice único que ele tentasse criar em Production
+  // encontraria dados que ele não sabe explicar.
+  "import_run_leitura_aberta_uq",
 ];
 
 /**
@@ -412,6 +435,11 @@ const CHECKS_REMOVIDOS: [string, string][] = [
   // A `0037` — o CHECK cai junto com a coluna `role`; está aqui para o `up`
   // e a `0038` o reporem em par com ela.
   ["app_user", "app_user_role_ck"],
+  // As duas da `0040`. Acompanham as colunas do reprocessamento na allowlist:
+  // as colunas ficam (são aditivas e nulas), as constraints saem, porque o
+  // Publishing não as carrega e o `up` as repõe pela própria migration.
+  ["import_run", "import_run_reprocess_of_fk"],
+  ["import_run", "import_run_reprocess_completo"],
 ];
 
 const NULLABLE_TEMPORARIO: [string, string][] = [
@@ -1148,6 +1176,7 @@ function planoUp(): PassoUp[] {
   const M18 = "0018_identidade_forte";
   const M19 = "0019_assistant_feedback";
   const M20 = "0020_chamados_exclusao";
+  const M40 = "0040_reprocessamento";
 
   // 1. Desfaz o estado legado que o `down` recriou. Quem o desfaz é a `0013`.
   for (const col of COLUNAS_LEGADAS_TICKET) {
@@ -1521,7 +1550,7 @@ function planoUp(): PassoUp[] {
   }
 
   /*
-    A `0040` — o retrato da viagem, que a `0039` não tinha.
+    A `0042` — o retrato da viagem, que a `0039` não tinha.
 
     Ela entra aqui porque o `down` derruba `fechamento_viagem` inteira, e o
     `up` a recria pelo `CREATE TABLE` da `0039`: sem este passo a tabela
@@ -1535,12 +1564,12 @@ function planoUp(): PassoUp[] {
     são enfeite — sem elas `"lucro"` casaria também `"lucro_unitario"`, e
     `levantar` abortaria por achar dois statements onde espera um.
   */
-  const M40 = "0040_viagem_completa";
+  const M42 = "0042_viagem_completa";
   for (const coluna of COLUNAS_DO_RETRATO_DA_VIAGEM) {
     add(
-      M40,
+      M42,
       `fechamento_viagem.${coluna}`,
-      levantar(M40, new RegExp(`ADD COLUMN IF NOT EXISTS "${coluna}"`)),
+      levantar(M42, new RegExp(`ADD COLUMN IF NOT EXISTS "${coluna}"`)),
     );
   }
 
@@ -1550,6 +1579,27 @@ function planoUp(): PassoUp[] {
     add(M15, `${t}.${col} NOT NULL`, `ALTER TABLE "${t}" ALTER COLUMN "${col}" SET NOT NULL`);
   }
   add(M18, "constraints da identidade", levantar(M18, /snapshot_canonical_scope_nao_vazio_ck/));
+
+  /*
+    As da `0040`. O índice e as duas constraints do reprocessamento voltam pelo
+    DDL da própria migration — nenhum deles é reescrito aqui, pela mesma razão
+    de `levantar` existir: uma segunda escrita da mesma definição concorda no
+    dia em que é escrita e discorda no dia em que a migration muda.
+
+    As colunas não entram: elas nunca saíram. Estão na ALLOWLIST justamente
+    porque são aditivas e nulas, e o `down` as mantém.
+  */
+  add(
+    M40,
+    "índice import_run_leitura_aberta_uq",
+    levantar(M40, /CREATE UNIQUE INDEX IF NOT EXISTS "import_run_leitura_aberta_uq"/),
+  );
+  add(M40, "constraint import_run_reprocess_of_fk", levantar(M40, /import_run_reprocess_of_fk/));
+  add(
+    M40,
+    "constraint import_run_reprocess_completo",
+    levantar(M40, /import_run_reprocess_completo/),
+  );
 
   return p;
 }

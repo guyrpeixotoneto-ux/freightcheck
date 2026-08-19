@@ -187,7 +187,25 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "fechamento_divergencia",
       ]),
     );
-    expect(antes.addColumn).toEqual(["app_user.role"]);
+    /*
+      As colunas aditivas, todas elas — e a lista é fechada de propósito.
+
+      `app_user.role` é da `0037`; as duas de `import_run` são da `0040`, o
+      reprocessamento: elas dizem qual leitura um run releu e por quê. As três
+      são aditivas e nulas, que é o que faz este diff atravessável — o servidor
+      novo aplica a fila na partida e Production as ganha lá.
+
+      Prendê-las aqui é o ponto: uma coluna nova que apareça neste diff sem
+      alguém ter vindo escrevê-la nesta linha é uma mudança de schema que
+      ninguém avaliou contra a política de deploy.
+    */
+    expect(new Set(antes.addColumn)).toEqual(
+      new Set([
+        "app_user.role",
+        "import_run.reprocess_of_run_id",
+        "import_run.reprocess_reason",
+      ]),
+    );
     /*
       As constraints das tabelas novas — chave primária, estrangeira e CHECK —
       vêm junto, e são conferidas pela regra "pertencem a uma tabela do
@@ -197,8 +215,17 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
       duas mudanças trazem aparece no diff.
     */
     expect(
-      antes.addConstraint.filter((c) => !c.startsWith("fechamento_")),
-    ).toEqual(["app_user_role_ck"]);
+      new Set(antes.addConstraint.filter((c) => !c.startsWith("fechamento_"))),
+    ).toEqual(
+      new Set([
+        "app_user_role_ck",
+        // As duas da `0040`. Aditivas como a de cima: o FK e o CHECK do
+        // reprocessamento nascem sobre colunas que ninguém tinha preenchido, e
+        // por isso não há linha em Production que elas possam recusar.
+        "import_run_reprocess_of_fk",
+        "import_run_reprocess_completo",
+      ]),
+    );
 
     // A partida do servidor novo: exatamente as migrations que faltavam.
     const report = await runMigrations(prod.url);
@@ -207,7 +234,9 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
       "0037_papeis",
       "0038_reconciliar_papeis",
       "0039_fechamento",
-      "0040_viagem_completa",
+      "0040_reprocessamento",
+      "0041_reconciliar_reprocessamento",
+      "0042_viagem_completa",
     ]);
 
     // Preservação + backfill: as três contas continuam com o hash original e

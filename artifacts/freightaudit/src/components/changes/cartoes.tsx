@@ -113,7 +113,14 @@ export function MetricCard({
       >
         {icon}
       </div>
-      <div className="min-w-0">
+      {/*
+        `flex-1` e `@container`: a coluna toma a largura que sobra do ladrilho
+        do ícone, e passa a ser a régua que o valor consulta para escolher o
+        próprio corpo. Sem os dois, `ImpactoPorPeriodicidade` mediria a janela
+        inteira e escreveria um número do tamanho da tela dentro de um cartão
+        de 230px.
+      */}
+      <div className="min-w-0 flex-1 @container">
         <div className="text-sm font-medium text-muted-foreground">{label}</div>
         <div
           className={cn(
@@ -140,6 +147,39 @@ export function MetricCard({
 }
 
 /**
+ * Largura aproximada de um texto, em múltiplos do próprio corpo da fonte.
+ *
+ * Responde a uma pergunta só: *em que tamanho este número cabe na largura que o
+ * cartão tem?* As larguras são as da Montserrat em negrito com `tabular-nums` —
+ * medidas uma vez, arredondadas para cima — e a conta é grosseira de propósito.
+ * O erro dela cai sempre para o mesmo lado: sobra alguns pixels, nunca falta.
+ */
+export function larguraAproximada(texto: string): number {
+  let ems = 0;
+  for (const c of texto) {
+    if (c >= "0" && c <= "9") ems += 0.68;
+    else if (c === "." || c === "," || c === "/" || c === ":") ems += 0.3;
+    else if (c === " " || c === "\u00a0") ems += 0.24;
+    else if (c === "\u2212" || c === "-" || c === "+") ems += 0.58;
+    else if (c === "m" || c === "w") ems += 1.05;
+    else if (c !== c.toLowerCase() && c === c.toUpperCase()) ems += 0.75;
+    else ems += 0.67;
+  }
+  return ems;
+}
+
+/**
+ * Os dois lugares onde o impacto aparece, e o corpo de letra que cada um
+ * comporta: o cartão do topo das abas, e o ladrilho estreito das telas de
+ * comparação. Em ambos o número desce até o piso e para ali — abaixo dele o
+ * valor deixa de competir com o rótulo e vira legenda.
+ */
+const CORPO = {
+  cartao: { teto: "1.5rem", tetoVarias: "1.125rem", piso: "0.875rem" },
+  ladrilho: { teto: "1.25rem", tetoVarias: "1rem", piso: "0.75rem" },
+} as const;
+
+/**
  * Impacto apurado, uma linha por periodicidade.
  *
  * Nunca um número só: R$/mês e R$/ano são grandezas diferentes, e somá-las
@@ -148,8 +188,18 @@ export function MetricCard({
  */
 export function ImpactoPorPeriodicidade({
   buckets,
+  escala = "cartao",
+  colorido = true,
 }: {
   buckets: Record<string, number>;
+  /** Onde este impacto está sendo escrito — é o que decide o teto do corpo. */
+  escala?: keyof typeof CORPO;
+  /**
+   * Ganho e perda ditos pela cor. Os ladrilhos das telas de comparação escrevem
+   * todos os seus números em tinta única, e um verde solitário lá dentro leria
+   * como destaque em vez de sinal.
+   */
+  colorido?: boolean;
 }) {
   const entries = Object.entries(buckets);
   if (entries.length === 0) {
@@ -165,29 +215,81 @@ export function ImpactoPorPeriodicidade({
     */
     return <span className="block text-base text-muted-foreground">não calculável</span>;
   }
-  return (
-    /*
-      `whitespace-nowrap` não é estética. Um sinal de menos que cai sozinho na
-      linha de cima transforma "-R$ 594" em algo que se lê como número positivo,
-      e este é o cartão em que essa leitura custa dinheiro. É a mesma razão pela
-      qual `ImpactCell` o carrega na tabela.
 
-      O tamanho cede antes da quebra: com duas periodicidades cabem duas linhas
-      no lugar de uma, e o texto encolhe para que nenhuma delas quebre no meio.
-    */
+  const linhas = entries.map(([periodicity, amount]) => ({
+    periodicity,
+    amount,
+    valor: brl0(amount),
+    sufixo: `/${periodicity.toLowerCase()}`,
+  }));
+
+  /*
+    O corpo do número sai da largura que o cartão tem, e não de um tamanho fixo
+    escolhido no escuro.
+
+    O tamanho fixo é o que produzia o defeito: `R$ 11.917/mensal` em `text-2xl`
+    pede 170px, e a coluna de texto do cartão — cinco cartões numa linha, menos
+    o ladrilho do ícone — oferece 120px numa tela de 1600. O que passava disso
+    era pintado por cima do cartão vizinho, e o sufixo saía cortado no meio.
+
+    `100cqw` é a largura real desta coluna (o `@container` de `MetricCard`, ou o
+    ladrilho em `comparar`/QLP); dividida pela largura que a linha mais larga
+    pede em "ems", dá o corpo em que ela cabe inteira. O `clamp` põe as duas
+    ressalvas: nunca maior que o tamanho do desenho, nunca menor que o piso em
+    que o número ainda se lê como número.
+
+    Estreitar antes de quebrar é a regra desta tela — `whitespace-nowrap` abaixo
+    é o outro lado dela. Um sinal de menos que cai sozinho na linha de cima
+    transforma "−R$ 594" em algo que se lê como número positivo, e este é o
+    cartão em que essa leitura custa dinheiro. É a mesma razão pela qual
+    `ImpactCell` o carrega na tabela.
+  */
+  const { teto, tetoVarias, piso } = CORPO[escala];
+  const ems = Math.max(
+    ...linhas.map(
+      (l) => larguraAproximada(l.valor) + 0.2 + larguraAproximada(l.sufixo) / 2,
+    ),
+  );
+  const corpo = `clamp(${piso}, calc(100cqw / ${ems.toFixed(2)}), ${
+    linhas.length > 1 ? tetoVarias : teto
+  })`;
+
+  return (
     <div
-      className={cn(
-        "leading-tight",
-        entries.length > 1 ? "text-lg space-y-0.5" : "text-2xl",
-      )}
+      className={cn("leading-tight", linhas.length > 1 && "space-y-0.5")}
+      style={{ fontSize: corpo }}
     >
-      {entries.map(([periodicity, amount]) => (
-        <div key={periodicity} className="flex items-baseline gap-1 whitespace-nowrap">
-          <span className={amount < 0 ? "text-red-600" : "text-emerald-700"}>
-            {brl0(amount)}
+      {linhas.map((l) => (
+        <div
+          key={l.periodicity}
+          className="flex items-baseline gap-1 whitespace-nowrap"
+        >
+          {/*
+            A válvula do piso. Nas larguras que este produto usa hoje o número
+            cabe inteiro em algum corpo acima do piso — mas o piso existe, e um
+            valor grande o bastante com uma periodicidade de nome longo acaba
+            por encontrá-lo. Quando isso acontece, cede o fim do número, com
+            reticências e o valor inteiro no `title`: fica contido no cartão e
+            se anuncia como corte, em vez de ser pintado sobre o vizinho. O que
+            **não** cede é a unidade — um número truncado que perdesse o
+            "/mensal" junto viraria uma grandeza sem nome.
+          */}
+          <span
+            title={l.valor}
+            className={cn(
+              "min-w-0 truncate",
+              colorido && (l.amount < 0 ? "text-red-600" : "text-emerald-700"),
+            )}
+          >
+            {l.valor}
           </span>
-          <span className="text-xs font-medium text-muted-foreground">
-            /{periodicity.toLowerCase()}
+          {/* Meio corpo do número, e não um tamanho próprio: o sufixo encolhe
+              junto, e a proporção entre os dois é a mesma em qualquer cartão. */}
+          <span
+            className="font-medium text-muted-foreground shrink-0"
+            style={{ fontSize: "0.5em" }}
+          >
+            {l.sufixo}
           </span>
         </div>
       ))}

@@ -9,6 +9,8 @@ import {
   Check,
   ChevronRight,
   FileUp,
+  Lock,
+  LockOpen,
   Upload,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
@@ -18,8 +20,11 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { GradeDeDias } from "@/components/fechamento/grade-de-dias";
 import { apresentar } from "@/lib/apresentar-erro";
 import { formatBrl, formatNumber } from "@/lib/format";
+import { Textarea } from "@/components/ui/textarea";
 import {
   apurar,
+  encerrar,
+  reabrir,
   enviarDocumento,
   lerCompetencia,
   lerDiario,
@@ -42,11 +47,11 @@ const emDiaBR = (iso: string) => iso.split("-").reverse().join("/");
 /**
  * A competência aberta — onde o fechamento acontece.
  *
- * A tela tem quatro partes, e a ordem é a do trabalho: recebe os cinco
+ * A tela tem cinco partes, e a ordem é a do trabalho: recebe os cinco
  * relatórios que a Ambev exporta, mostra o que a operação rodou dia a dia, roda
- * a conta, mostra o que não fecha. É esta tela que substitui a pasta de Excel
- * de 44 abas — a grade de dias no lugar das abas `01`…`31`, a conta no lugar
- * dos PROCVs entre elas.
+ * a conta, mostra o que não fecha e salva a quinzena. É esta tela que substitui
+ * a pasta de Excel de 44 abas — a grade de dias no lugar das abas `01`…`31`, a
+ * conta no lugar dos PROCVs entre elas.
  *
  * **Por que a apuração é um botão e não acontece sozinha ao subir o quinto
  * arquivo.** Porque rodar grava: a apuração vigente anterior é despromovida e
@@ -63,6 +68,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   const cliente = useQueryClient();
   const [erroDoEnvio, setErroDoEnvio] = useState<string | null>(null);
   const [verbaAberta, setVerbaAberta] = useState<number | null>(null);
+  const [motivo, setMotivo] = useState("");
 
   const dados = useQuery({
     queryKey: ["fechamento", "competencia", id],
@@ -96,6 +102,19 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     onSuccess: () => cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] }),
   });
 
+  const atualizar = () => {
+    void cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] });
+    void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
+  };
+  const fechar = useMutation({ mutationFn: () => encerrar(id), onSuccess: atualizar });
+  const destravar = useMutation({
+    mutationFn: (motivo: string) => reabrir(id, motivo),
+    onSuccess: () => {
+      setMotivo("");
+      atualizar();
+    },
+  });
+
   if (dados.isLoading) {
     return (
       <Layout>
@@ -116,6 +135,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   }
 
   const { competencia, documentos, apuracao } = dados.data;
+  const encerrada = competencia.estado === "ENCERRADA";
   const vigentes = new Map(documentos.filter((d) => d.vigente).map((d) => [d.tipo, d]));
   const acionaveis = apuracao?.divergencias.filter((d) => d.sentido !== "INFORMATIVO") ?? [];
   const aReceber = acionaveis
@@ -144,6 +164,20 @@ export default function CompetenciaAberta({ id }: { id: string }) {
           {competencia.unidade.nome ?? competencia.unidade.codigo} ·{" "}
           {competencia.transportadora.nome ?? competencia.transportadora.codigo}
         </p>
+        {encerrada && (
+          <p className="mt-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+            <Lock className="w-3.5 h-3.5" />
+            Quinzena salva e congelada em{" "}
+            {new Date(competencia.encerradaEm!).toLocaleString("pt-BR")}. Nada mais
+            entra nela sem reabertura.
+          </p>
+        )}
+        {competencia.motivoDaReabertura && !encerrada && (
+          <p className="mt-2 inline-flex items-center gap-1.5 text-sm text-amber-700">
+            <LockOpen className="w-3.5 h-3.5" />
+            Reaberta: {competencia.motivoDaReabertura}
+          </p>
+        )}
       </header>
 
       <div className="p-8 space-y-6 max-w-5xl">
@@ -174,6 +208,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                   fonte={fonte}
                   documento={vigentes.get(fonte.tipo)}
                   enviando={enviar.isPending && enviar.variables?.tipo === fonte.tipo}
+                  travada={encerrada}
                   onArquivo={(arquivo) => enviar.mutate({ tipo: fonte.tipo, arquivo })}
                 />
               ))}
@@ -250,7 +285,10 @@ export default function CompetenciaAberta({ id }: { id: string }) {
               <Calculator className="w-4 h-4" />
               A conta da quinzena
             </CardTitle>
-            <Button onClick={() => rodar.mutate()} disabled={rodar.isPending || vigentes.size === 0}>
+            <Button
+              onClick={() => rodar.mutate()}
+              disabled={rodar.isPending || vigentes.size === 0 || encerrada}
+            >
               {rodar.isPending ? "Apurando…" : apuracao ? "Apurar de novo" : "Apurar"}
             </Button>
           </CardHeader>
@@ -363,6 +401,97 @@ export default function CompetenciaAberta({ id }: { id: string }) {
             </CardContent>
           </Card>
         )}
+        {/* ---------------------------------------------------------------
+            5. Salvar a quinzena
+            --------------------------------------------------------------- */}
+        {apuracao && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                {encerrada ? <Lock className="w-4 h-4" /> : <Check className="w-4 h-4" />}
+                {encerrada ? "Quinzena salva" : "Salvar a quinzena"}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {encerrada ? (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Esta competência está fechada: os cinco relatórios, a conta
+                    apurada e as divergências ficam como estão, e o banco recusa
+                    qualquer escrita nela. É o que faz o número que você cobrou
+                    continuar sendo o número que se lê daqui a um ano.
+                  </p>
+                  <div className="space-y-2 border-t pt-3">
+                    <p className="text-sm font-medium">Precisa reabrir?</p>
+                    <p className="text-sm text-muted-foreground">
+                      Escreva o motivo. Ele fica no registro da competência — é o
+                      que distingue uma correção de uma alteração silenciosa
+                      depois do fato.
+                    </p>
+                    <Textarea
+                      value={motivo}
+                      onChange={(e) => setMotivo(e.target.value)}
+                      placeholder="Ex.: a Ambev reenviou o 03.08.15 com a VBZ 29 corrigida."
+                      rows={2}
+                    />
+                    {destravar.isError && (
+                      <Alert variant="destructive">
+                        <AlertDescription>{textoDoErro(destravar.error)}</AlertDescription>
+                      </Alert>
+                    )}
+                    <Button
+                      variant="outline"
+                      onClick={() => destravar.mutate(motivo)}
+                      disabled={motivo.trim() === "" || destravar.isPending}
+                    >
+                      <LockOpen className="w-3.5 h-3.5 mr-1.5" />
+                      {destravar.isPending ? "Reabrindo…" : "Reabrir competência"}
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm text-muted-foreground">
+                    Tudo o que você enviou e apurou já está gravado — salvar não
+                    é o que guarda os dados. O que este botão faz é{" "}
+                    <strong>fechar a quinzena</strong>: a partir dele nada mais
+                    entra nela, e a conta apurada passa a ser o registro do que
+                    foi cobrado. Reabrir depois é possível, com motivo.
+                  </p>
+                  <ul className="text-sm text-muted-foreground space-y-1">
+                    <li>
+                      • {vigentes.size} de {fontes.data?.length ?? 5} relatórios enviados
+                    </li>
+                    <li>• {formatBrl(apuracao.totais.emitido)} emitidos em CT-e</li>
+                    <li>
+                      • {acionaveis.length} ponto(s) a questionar, somando{" "}
+                      {formatBrl(aReceber)}
+                    </li>
+                  </ul>
+                  {apuracao.fontesAusentes.length > 0 && (
+                    <Alert>
+                      <AlertTriangle className="w-4 h-4" />
+                      <AlertDescription>
+                        Faltam {apuracao.fontesAusentes.length} relatório(s). Dá para
+                        fechar assim, e o que eles sustentariam vai ficar registrado
+                        como não conferido.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+                  {fechar.isError && (
+                    <Alert variant="destructive">
+                      <AlertDescription>{textoDoErro(fechar.error)}</AlertDescription>
+                    </Alert>
+                  )}
+                  <Button onClick={() => fechar.mutate()} disabled={fechar.isPending}>
+                    <Lock className="w-3.5 h-3.5 mr-1.5" />
+                    {fechar.isPending ? "Salvando…" : "Salvar e fechar a quinzena"}
+                  </Button>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
     </Layout>
   );
@@ -383,11 +512,14 @@ function LinhaDeFonte({
   fonte,
   documento,
   enviando,
+  travada,
   onArquivo,
 }: {
   fonte: Fonte;
   documento: Documento | undefined;
   enviando: boolean;
+  /** A competência está encerrada: nada entra nela sem reabertura. */
+  travada: boolean;
   onArquivo: (arquivo: File) => void;
 }) {
   const campo = useRef<HTMLInputElement>(null);
@@ -432,7 +564,7 @@ function LinhaDeFonte({
         <Button
           variant={documento ? "outline" : "default"}
           size="sm"
-          disabled={enviando}
+          disabled={enviando || travada}
           onClick={() => campo.current?.click()}
         >
           <Upload className="w-3.5 h-3.5 mr-1.5" />
