@@ -87,6 +87,14 @@ export const NAV_GROUPS_FECHAMENTO: NavGroup[] = [
       Um item só, hoje, e a seção existe assim mesmo: é aqui que as outras telas
       de cadastro por unidade vão cair, e diluí-las em "Competência" faria a
       seção do período falar de duas coisas.
+
+      O item aponta para a **lista das unidades**, e não para o cadastro de
+      uma delas: são duas telas — `/fechamento/remuneracao` responde quais
+      unidades já têm cadastro de pé, e `/fechamento/remuneracao/unidade`, os
+      parâmetros de uma. Um item de menu que abrisse direto o cadastro teria de
+      escolher a unidade por conta própria, e escolher em silêncio é o que este
+      produto não faz. O rótulo continua "Cadastro" porque é o nome do que se
+      vai fazer ali; a lista é a porta.
     */
     titulo: "Remuneração",
     icon: ScrollText,

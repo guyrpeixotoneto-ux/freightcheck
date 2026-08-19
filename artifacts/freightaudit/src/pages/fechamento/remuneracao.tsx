@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { useLocation, useSearch } from "wouter";
-import { Columns2, Link2, Rows3, ScrollText } from "lucide-react";
+import { Link, useLocation, useSearch } from "wouter";
+import { ArrowLeft, Columns2, Link2, Rows3, ScrollText } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent } from "@/components/ui/card";
@@ -23,7 +23,14 @@ import {
 } from "@/lib/remuneracao";
 
 /**
- * Remuneração — o cadastro da planilha, por unidade.
+ * Remuneração — o cadastro da planilha de **uma** unidade.
+ *
+ * A tela de dentro: quem chega aqui já escolheu a unidade, na lista que
+ * `remuneracao-unidades.tsx` desenha. As duas perguntas são diferentes e por
+ * isso são duas telas — lá é *onde está o trabalho*, aqui é *quais são os
+ * parâmetros desta unidade*. O seletor de unidade continua no topo, para quem
+ * está conferindo dois CDDs seguidos e não quer voltar à lista entre um e
+ * outro.
  *
  * Esta é a aba que abre a pasta de Excel: as quatro alíquotas, o tamanho da
  * frota, quanto vale cada parcela por veículo, quantas vans, quantas rotas
@@ -134,7 +141,7 @@ export default function RemuneracaoCadastro() {
       if (valor === null) query.delete(chave);
       else query.set(chave, valor);
     }
-    navegar(`/fechamento/remuneracao?${query}`);
+    navegar(`/fechamento/remuneracao/unidade?${query}`);
   }
 
   /*
@@ -154,7 +161,7 @@ export default function RemuneracaoCadastro() {
     */
     const query = new URLSearchParams({ scopeHash, canal });
     if (vistaPedida !== null) query.set("vista", vistaPedida);
-    navegar(`/fechamento/remuneracao?${query}`);
+    navegar(`/fechamento/remuneracao/unidade?${query}`);
   }
 
   const carregando = vista === "duas" ? comparacao.isLoading : cadastro.isLoading;
@@ -164,7 +171,14 @@ export default function RemuneracaoCadastro() {
   return (
     <Layout>
       <header className="border-b bg-card px-8 py-6">
-        <div className="flex items-center gap-2">
+        <Link
+          href="/fechamento/remuneracao"
+          className="inline-flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+        >
+          <ArrowLeft className="w-3 h-3" />
+          Todas as unidades
+        </Link>
+        <div className="flex items-center gap-2 mt-2">
           <ScrollText className="w-6 h-6 text-nav-fechamento" />
           <h1 className="text-2xl font-bold tracking-tight">Remuneração</h1>
         </div>

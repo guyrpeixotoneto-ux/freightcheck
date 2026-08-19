@@ -340,8 +340,20 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   e zero proposta é um resultado, não uma falha. Ver
   `docs/DIAGNOSTICO-ABA-CLIENTE.md`.
 - **Remuneração (Fechamento → Remuneração → Cadastro)** — `lib/remuneracao`,
-  rotas em `artifacts/api-server/src/routes/remuneracao.ts`, tela em
-  `artifacts/freightaudit/src/pages/fechamento/remuneracao.tsx`. Reproduz a aba
+  rotas em `artifacts/api-server/src/routes/remuneracao.ts`, telas em
+  `artifacts/freightaudit/src/pages/fechamento/remuneracao-unidades.tsx` (a
+  lista) e `.../remuneracao.tsx` (o cadastro de uma unidade). **A lista vem
+  antes**, em `/fechamento/remuneracao`, e responde outra pergunta: quais
+  unidades já têm cadastro de pé e quais ainda não têm — com um estado de
+  quatro valores por unidade (frota e alíquotas, só a frota, só as alíquotas,
+  sem lastro) e quantas das trinta linhas têm lastro. O estado é sobre as duas
+  metades que dependem do que a unidade entregou, e não um percentual das
+  trinta: onze delas têm lastro sobre um acervo completo, e "37% cadastrado"
+  seria lido como "falta importar alguma coisa" na unidade que entregou tudo.
+  A lista monta o cadastro de cada unidade em vez de deduzi-lo do material —
+  quatro consultas para todas elas, no par (unidade, vigência mais recente
+  dela) —, para que ela e a tela do cadastro nunca discordem. O cadastro
+  reproduz a aba
   **CADASTRO DA PLANILHA DE REMUNERAÇÃO** por unidade: alíquotas, tamanho da
   frota fixa, parcelas por veículo, vans, rotas noturnas, marketing, proporção
   de documentos e resumo de impostos. **É a única tela do Fechamento que lê o

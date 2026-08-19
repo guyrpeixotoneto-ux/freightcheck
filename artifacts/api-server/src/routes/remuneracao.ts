@@ -4,19 +4,26 @@ import type { RequestedContext } from "@workspace/comparison";
 import {
   lerCadastroDaUnidade,
   lerComparacaoDeCadastros,
+  lerSituacaoDasUnidades,
   listarUnidades,
 } from "@workspace/remuneracao";
 
 /**
  * Remuneração — o cadastro da planilha, por unidade.
  *
- * Duas rotas, e a segunda é a tela inteira:
+ * Quatro rotas, e cada uma é uma pergunta inteira:
  *
  * - `/remuneracao/unidades` — quem tem cadastro a mostrar. É a mesma lista de
  *   `/contexts`, e existe separada porque o módulo pergunta pela **unidade**,
  *   não pelo contexto de comparação: quem abre a tela escolhe "CAMAÇARI ·
  *   EMPURRADA", e a palavra "contexto" é vocabulário do motor, não de quem
  *   opera.
+ * - `/remuneracao/situacao` — as mesmas unidades, cada uma com **o que o
+ *   cadastro dela alcança** na vigência mais recente. É a tela que vem antes do
+ *   cadastro, e é rota separada de `/unidades` de propósito: aquela é o seletor
+ *   e tem de ser barata, esta monta o cadastro de todas as unidades e custa o
+ *   que custa. Juntá-las faria o seletor da tela de detalhe pagar a conta da
+ *   lista toda vez que alguém troca de unidade.
  * - `/remuneracao/cadastro` — as trinta linhas da aba para uma unidade numa
  *   vigência, cada uma com o número e a procedência, ou com o motivo de não ter
  *   número.
@@ -73,6 +80,23 @@ router.get("/remuneracao/unidades", async (_req, res): Promise<void> => {
       vigencias: u.periodosDisponiveis,
     })),
   );
+});
+
+/**
+ * A situação do cadastro em cada unidade.
+ *
+ * A pergunta que vem antes de "qual é o cadastro desta unidade": **quais
+ * unidades já têm cadastro de pé, e quais ainda não têm.** Devolve, por
+ * unidade, a vigência mais recente, o que ela entregou e quantas das trinta
+ * linhas têm lastro — mais o estado em uma palavra, que é o que a tela destaca.
+ *
+ * Sem parâmetros: a pergunta é sobre o conjunto, e recortá-lo por unidade seria
+ * pedir a lista de uma unidade só. Acervo vazio devolve lista vazia com resumo
+ * zerado, e não 404 — não há nada pedido que possa não existir, e a tela sabe
+ * escrever "nenhuma unidade entregou vigência ainda" a partir do zero.
+ */
+router.get("/remuneracao/situacao", async (_req, res): Promise<void> => {
+  res.json(await lerSituacaoDasUnidades(db));
 });
 
 /**
