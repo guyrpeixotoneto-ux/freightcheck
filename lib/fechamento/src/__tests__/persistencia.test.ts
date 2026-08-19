@@ -6,8 +6,11 @@ import { runMigrations } from "@workspace/db/migrate";
 import {
   abrirCompetencia,
   apurarCompetencia,
+  encerrarCompetencia,
   lerApuracaoVigente,
   listarDocumentos,
+  listarPartes,
+  reabrirCompetencia,
   receberDocumento,
   RecusaDeFechamento,
 } from "../persistencia";
@@ -184,6 +187,74 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     expect(documentos.filter((d) => d.vigente)).toHaveLength(1);
     expect(documentos.find((d) => d.vigente)?.linhasLidas).toBe(6);
   }, 60_000);
+
+  it("salvar a quinzena exige ter apurado — congelar o que não se sabe quanto vale é pior", async () => {
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 10, quinzena: 1, unidade, transportadora });
+    await expect(encerrarCompetencia(db, comp.id)).rejects.toMatchObject({
+      codigo: "COMPETENCIA_NAO_APURADA",
+    });
+  });
+
+  it("salva a quinzena, e salvar de novo é um clique repetido e não um erro", async () => {
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    const fechada = await encerrarCompetencia(db, comp.id);
+    expect(fechada.estado).toBe("ENCERRADA");
+    expect(fechada.encerradaEm).not.toBeNull();
+    expect((await encerrarCompetencia(db, comp.id)).estado).toBe("ENCERRADA");
+  });
+
+  it("a quinzena salva não aceita mais nem documento nem reapuração", async () => {
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    await expect(
+      receberDocumento(db, {
+        competenciaId: comp.id,
+        tipo: "OPERACAO",
+        nomeDoArquivo: "tarde-demais.xlsx",
+        conteudo: fixtureOperacao(),
+      }),
+    ).rejects.toMatchObject({ codigo: "COMPETENCIA_ENCERRADA" });
+    await expect(apurarCompetencia(db, comp.id)).rejects.toMatchObject({
+      codigo: "COMPETENCIA_ENCERRADA",
+    });
+  });
+
+  it("reabrir exige motivo escrito, e o motivo fica no registro", async () => {
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    await expect(reabrirCompetencia(db, comp.id, { motivo: "   " })).rejects.toMatchObject({
+      codigo: "MOTIVO_OBRIGATORIO",
+    });
+
+    const reaberta = await reabrirCompetencia(db, comp.id, {
+      motivo: "A Ambev reenviou o 03.08.15 com a VBZ 29 corrigida.",
+    });
+    /* Volta para APURADA e não para ABERTA: a apuração que estava lá continua valendo. */
+    expect(reaberta.estado).toBe("APURADA");
+    expect(reaberta.encerradaEm).toBeNull();
+    expect(reaberta.motivoDaReabertura).toContain("VBZ 29");
+    /*
+      E volta a aceitar escrita. Reapurar é a prova mais direta que existe: a
+      apuração grava em `fechamento_apuracao`, que é uma das tabelas que o
+      gatilho congela — se ela passa, o descongelamento é real e não uma
+      etiqueta trocada.
+    */
+    const { apuracao } = await apurarCompetencia(db, comp.id);
+    expect(apuracao.totais.emitido).toBe(4450);
+  }, 60_000);
+
+  it("reabrir o que não está encerrado é recusado", async () => {
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    await expect(reabrirCompetencia(db, comp.id, { motivo: "qualquer" })).rejects.toMatchObject({
+      codigo: "COMPETENCIA_NAO_ESTA_ENCERRADA",
+    });
+  });
+
+  it("as partes são derivadas das competências, com o nome mais recente de cada código", async () => {
+    const partes = await listarPartes(db);
+    const cdd = partes.unidades.find((u) => u.codigo === "443");
+    expect(cdd?.nome).toBe("CDD FICTICIO");
+    expect(cdd?.competencias).toBeGreaterThan(1);
+    expect(partes.transportadoras.map((t) => t.codigo)).toContain("36");
+  });
 
   it("uma competência encerrada não aceita documento", async () => {
     const comp = await abrirCompetencia(db, { ano: 2026, mes: 9, quinzena: 1, unidade, transportadora });
