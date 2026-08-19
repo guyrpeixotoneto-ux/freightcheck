@@ -19,7 +19,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { GradeDeDias } from "@/components/fechamento/grade-de-dias";
 import { ContaApurada } from "@/components/fechamento/conta-apurada";
-import { FecharQuinzena, oQueQuestionar } from "@/components/fechamento/fechar-quinzena";
+import {
+  FecharQuinzena,
+  ReabrirQuinzena,
+  oQueQuestionar,
+} from "@/components/fechamento/fechar-quinzena";
 import { apresentar } from "@/lib/apresentar-erro";
 import { formatBrl, formatNumber } from "@/lib/format";
 import {
@@ -149,6 +153,12 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   const encerrada = competencia.estado === "ENCERRADA";
   const vigentes = new Map(documentos.filter((d) => d.vigente).map((d) => [d.tipo, d]));
   /*
+    O que ainda não chegou, nomeado. Com a quinzena fechada é esta lista que
+    explica por que alguém quer reabri-la: "falta o 03.08.20" é uma frase
+    acionável, "falta 1 relatório" não é.
+  */
+  const faltando = (fontes.data ?? []).filter((f) => !vigentes.has(f.tipo));
+  /*
     A fila do que questionar sai de `oQueQuestionar`, e não de um filtro escrito
     aqui: é o mesmo número que o resumo do fechamento mostra ao lado do botão de
     congelar, e duas contas iguais em dois lugares divergiriam um dia.
@@ -188,12 +198,23 @@ export default function CompetenciaAberta({ id }: { id: string }) {
           {competencia.transportadora.nome ?? competencia.transportadora.codigo}
         </p>
         {encerrada && (
-          <p className="mt-2 inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-            <Lock className="w-3.5 h-3.5" />
-            Quinzena salva e congelada em{" "}
-            {new Date(competencia.encerradaEm!).toLocaleString("pt-BR")}. Nada mais
-            entra nela sem reabertura.
-          </p>
+          /*
+            O aviso de congelada traz o caminho de volta junto, e não só a
+            constatação. Dizer "nada mais entra nela sem reabertura" sem
+            oferecer a reabertura ali mesmo obriga quem precisa enviar o
+            relatório que faltou a descer a tela inteira — passando pela conta e
+            pelas divergências — até o painel do fim, e quem não sabia que ele
+            existe conclui que não dá.
+          */
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2">
+            <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+              <Lock className="w-3.5 h-3.5" />
+              Quinzena salva e congelada em{" "}
+              {new Date(competencia.encerradaEm!).toLocaleString("pt-BR")}. Nada mais
+              entra nela sem reabertura.
+            </p>
+            <ReabrirQuinzena competencia={competencia} rotulo="Reabrir" />
+          </div>
         )}
         {competencia.motivoDaReabertura && !encerrada && (
           <p className="mt-2 inline-flex items-center gap-1.5 text-sm text-amber-700">
@@ -222,6 +243,45 @@ export default function CompetenciaAberta({ id }: { id: string }) {
               A conta roda com o que houver — o que faltar aparece nomeado na
               apuração, nunca como zero.
             </p>
+            {/*
+              A reabertura aparece aqui, e não só no painel do fim da tela,
+              porque é aqui que ela é procurada: a Ambev manda o relatório que
+              faltava depois de a quinzena ter fechado, e quem recebeu está
+              olhando para o botão de enviar que não clica. O bloco é o mesmo
+              componente das outras duas telas — o formulário de reabrir mora
+              num lugar só (ver `components/fechamento/fechar-quinzena`).
+            */}
+            {encerrada && (
+              <Alert>
+                <Lock className="w-4 h-4" />
+                <AlertDescription className="space-y-2">
+                  <p>
+                    Enviar e substituir estão travados enquanto a quinzena estiver
+                    fechada.
+                    {faltando.length > 0 && (
+                      <>
+                        {" "}
+                        Falta{faltando.length > 1 ? "m" : ""}{" "}
+                        {faltando.map((f) => f.rotina).join(", ")}.
+                      </>
+                    )}
+                  </p>
+                  <p>
+                    Reabrir destrava o envio: escreva o motivo, mande o arquivo e
+                    apure de novo — a apuração de hoje continua valendo até a
+                    próxima rodar, e fechar de novo é o mesmo botão do fim da tela.
+                  </p>
+                  <ReabrirQuinzena
+                    competencia={competencia}
+                    rotulo={
+                      faltando.length > 0
+                        ? "Reabrir para enviar o que falta"
+                        : "Reabrir a quinzena"
+                    }
+                  />
+                </AlertDescription>
+              </Alert>
+            )}
             {erroDoEnvio && (
               <Alert variant="destructive">
                 <AlertDescription>{erroDoEnvio}</AlertDescription>
@@ -549,15 +609,22 @@ function LinhaDeFonte({
             e.target.value = "";
           }}
         />
-        <Button
-          variant={documento ? "outline" : "default"}
-          size="sm"
-          disabled={enviando || travada}
-          onClick={() => campo.current?.click()}
-        >
-          <Upload className="w-3.5 h-3.5 mr-1.5" />
-          {enviando ? "Enviando…" : documento ? "Substituir" : "Enviar"}
-        </Button>
+        {/*
+          O `title` mora no `span`, e não no botão: um botão desabilitado tem
+          `pointer-events: none` e nunca mostraria a explicação de por que está
+          desabilitado — que é justamente a única coisa que ele tem a dizer.
+        */}
+        <span title={travada ? "A quinzena está fechada — reabra para enviar." : undefined}>
+          <Button
+            variant={documento ? "outline" : "default"}
+            size="sm"
+            disabled={enviando || travada}
+            onClick={() => campo.current?.click()}
+          >
+            <Upload className="w-3.5 h-3.5 mr-1.5" />
+            {enviando ? "Enviando…" : documento ? "Substituir" : "Enviar"}
+          </Button>
+        </span>
       </div>
     </li>
   );

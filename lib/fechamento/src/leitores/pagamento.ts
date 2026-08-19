@@ -1,6 +1,6 @@
 import { centavos, lerNumero, type Canal } from "../dominio";
 import { diaDeTextoBR, type Dia } from "../periodo";
-import { verbaDe, verbaDesconhecida, type Verba } from "../verbas";
+import { VERBAS, verbaDe, verbaDesconhecida, type Verba } from "../verbas";
 
 /**
  * O 03.08.20 — o demonstrativo de pagamento da quinzena.
@@ -88,6 +88,15 @@ export interface DescontoDoPagamento {
   /** Só a devolução tem base e percentual. Nas outras é `null`, nunca zero. */
   base: number | null;
   percentual: number | null;
+  /**
+   * As VBZs de que este desconto **já foi subtraído**, lidas do próprio rótulo.
+   *
+   * Lista vazia quando o rótulo não nomeia nenhuma — é o caso do frete mínimo,
+   * que diz "das VBZs de custo Fixo coluna ICMS" sem dizer quais. Vazia é
+   * diferente de "de nenhuma": o desconto saiu de alguma verba, e é o arquivo
+   * que não conta de qual. Ver {@link vbzsCitadasNoRotulo}.
+   */
+  vbzDeOrigem: number[];
 }
 
 export interface Pagamento {
@@ -137,6 +146,45 @@ function numero(bruto: string | undefined): number {
 function ultimoValor(texto: string): number | null {
   const achados = texto.match(RE_VALOR);
   return achados && achados.length > 0 ? numero(achados[achados.length - 1]) : null;
+}
+
+/*
+  As VBZs que a frase do desconto nomeia. `VBZ 01`, `VBZs 01 e 02`, `da VBZ's`
+  — o Promax alterna as três grafias, e o que interessa é sempre o número.
+*/
+const RE_VBZ_NUMERADA = /\bvbz'?s?\.?\s*(?:n[ºo]\.?\s*)?(\d{1,3})\b/gi;
+
+/**
+ * De quais VBZs o desconto já foi subtraído, segundo o próprio rótulo.
+ *
+ * A frase "Desconto Liquido ja subtraido da VBZ 01 - Frota Fixa Ativa" é o
+ * dado mais caro da linha: é ela que impede o erro de descontar duas vezes, e
+ * é ela que diz **em qual quadro da planilha** o desconto pousa. Ler o número
+ * dali é ler o arquivo; deduzi-lo do tipo do desconto seria decidir por ele.
+ *
+ * Duas grafias convivem no mesmo relatório. A da disponibilidade traz o
+ * código (`da VBZ 01 - Frota Fixa Ativa`); a da devolução traz só o nome
+ * (`da VBZ Frota Fixa Ativa`). Quando não há número, o nome é resolvido contra
+ * o catálogo **do mesmo canal** — sem isso, `Frota Fixa Ativa` seria a 01 da
+ * Rota e a 20 do AS ao mesmo tempo.
+ *
+ * Devolve lista vazia quando o rótulo não nomeia nenhuma, que é o caso do
+ * frete mínimo (`das VBZs de custo Fixo coluna ICMS`). Vazia não é "de
+ * nenhuma": é o arquivo não dizendo de qual.
+ */
+export function vbzsCitadasNoRotulo(rotulo: string, canal: Canal): number[] {
+  const achadas = new Set<number>();
+  for (const encontro of rotulo.matchAll(RE_VBZ_NUMERADA)) {
+    achadas.add(Number(encontro[1]));
+  }
+  if (achadas.size === 0) {
+    const texto = chave(rotulo);
+    for (const verba of VERBAS) {
+      if (verba.canal !== canal) continue;
+      if (texto.includes(`vbz ${chave(verba.nome)}`)) achadas.add(verba.vbz);
+    }
+  }
+  return [...achadas].sort((a, b) => a - b);
 }
 
 /** Os quatro descontos de disponibilidade, pelo nome com que o relatório os abre. */
@@ -237,6 +285,22 @@ export function lerPagamento(arquivo: Buffer | ArrayBuffer | string): Pagamento 
       bloco = "DISPONIBILIDADE";
       continue;
     }
+    /*
+      A devolução espalha a frase de origem numa linha própria, começada por
+      asterisco — as outras a trazem entre parênteses, junto do valor. Ela é o
+      que diz de qual verba o desconto saiu, e sem ela a devolução seria o único
+      desconto do relatório sem origem declarada. A linha é anexada ao rótulo do
+      desconto que acabou de ser lido, e não guardada à parte, porque é a mesma
+      afirmação partida em duas linhas pela largura do papel.
+    */
+    if (rotulo.startsWith("*desconto liquido devolucao")) {
+      const anterior = descontos[descontos.length - 1];
+      if (anterior && anterior.tipo === "DEVOLUCAO") {
+        anterior.rotulo = `${anterior.rotulo} ${limpa}`;
+        anterior.vbzDeOrigem = vbzsCitadasNoRotulo(anterior.rotulo, anterior.canal);
+      }
+      continue;
+    }
     if (rotulo === "desconto frete minimo") {
       bloco = "FRETE_MINIMO";
       continue;
@@ -294,6 +358,7 @@ export function lerPagamento(arquivo: Buffer | ArrayBuffer | string): Pagamento 
           valor,
           base: devolucao.base,
           percentual: devolucao.percentual,
+          vbzDeOrigem: vbzsCitadasNoRotulo(limpa, canal),
         });
       }
       continue;
@@ -310,6 +375,7 @@ export function lerPagamento(arquivo: Buffer | ArrayBuffer | string): Pagamento 
           valor,
           base: null,
           percentual: null,
+          vbzDeOrigem: vbzsCitadasNoRotulo(limpa, canal),
         });
       }
       continue;
@@ -324,6 +390,7 @@ export function lerPagamento(arquivo: Buffer | ArrayBuffer | string): Pagamento 
         valor,
         base: null,
         percentual: null,
+        vbzDeOrigem: vbzsCitadasNoRotulo(limpa, canal),
       });
     }
   }
