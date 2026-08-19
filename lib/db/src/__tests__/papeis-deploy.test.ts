@@ -36,6 +36,8 @@ async function comAdmin<T>(fn: (p: pg.Pool) => Promise<T>): Promise<T> {
   }
 }
 
+const poolsAbertos: pg.Pool[] = [];
+
 async function bancoNovo(): Promise<{ url: string; pool: pg.Pool }> {
   const nome = `fc_papeis_${process.pid}_${++sequencia}`;
   await comAdmin(async (a) => {
@@ -43,7 +45,9 @@ async function bancoNovo(): Promise<{ url: string; pool: pg.Pool }> {
     await a.query(`CREATE DATABASE "${nome}"`);
   });
   criados.push(nome);
-  return { url: urlDe(nome), pool: new pg.Pool({ connectionString: urlDe(nome) }) };
+  const pool = new pg.Pool({ connectionString: urlDe(nome) });
+  poolsAbertos.push(pool);
+  return { url: urlDe(nome), pool };
 }
 
 /**
@@ -103,6 +107,9 @@ async function formaDoPapel(pool: pg.Pool): Promise<{ coluna: string; check: str
 }
 
 afterAll(async () => {
+  // Fechar os pools ANTES de derrubar os bancos: um terminate num cliente
+  // ocioso vira exceção não tratada e mancha uma suíte verde.
+  await Promise.all(poolsAbertos.map((p) => p.end().catch(() => {})));
   await comAdmin(async (a) => {
     for (const nome of criados) {
       await a.query(
@@ -291,8 +298,14 @@ describe("cenário 3 — o estado híbrido: mutilação reposta pela reconvergê
       linha — todo mundo volta OPERADOR (o default fail-closed), inclusive quem
       era ADMIN. É perda de conteúdo, e é dita em vez de remendada: o estado é
       coerente (o CHECK vale), o portão fica fechado para todos (nenhum falso
-      admin), e a saída é a documentada — o terminal cria um ADMIN novo, ou o
-      backup da véspera restaura o banco.
+      admin), e a saída é a documentada. A estrutura volta SOZINHA no próximo
+      boot (reconvergência) — nenhum passo manual. O conteúdo perdido se
+      recupera pelo mecanismo versionado: restore do backup automático (B3,
+      RPO ≤ 24h). Criar um ADMIN pelo terminal é break-glass extraordinário —
+      para quando o backup também se perdeu — e nunca faz parte do
+      procedimento de deploy. O INSERT abaixo só prova que o estado reparado
+      ACEITA a recuperação (o CHECK e o backfill-sentinela não a bloqueiam),
+      não que ela seja o caminho normal.
     */
     expect(await papeis(b.pool)).toEqual({
       "chefe@x.com": "OPERADOR",
