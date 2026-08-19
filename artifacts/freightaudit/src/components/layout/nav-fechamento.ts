@@ -64,14 +64,22 @@ export const NAV_GROUPS_FECHAMENTO: NavGroup[] = [
       responde sobre **uma** competência, como toda tela da Auditoria responde
       sobre uma vigência —, mas a seção que abre o menu leva o nome do processo,
       e não o do seu eixo: quem abre a lateral procura onde se fecha, não como o
-      período se chama. É a seção do começo do trabalho — a visão do período em
-      andamento e a porta por onde os períodos entram.
+      período se chama. É a seção do começo do trabalho — o retrato do ano por
+      unidade e a porta por onde os períodos entram.
+
+      **A home chama-se "Visão Gerencial", e não "Visão do fechamento".** A
+      primeira versão listava as seis competências mais recentes: respondia "o
+      que aconteceu por último", que é uma pergunta de quem opera, e a home do
+      ambiente é lida por quem responde pelo número. A pergunta dela passou a
+      ser "quanto do ano já fechou, em quais unidades, e onde está o atraso" — e
+      o nome mudou junto, porque um menu que promete visão e entrega lista gasta
+      o clique de quem procurava o total.
     */
     titulo: "Fechamento",
     icon: CalendarDays,
     cor: "text-nav-fechamento",
     itens: [
-      { href: "/fechamento", label: "Visão do fechamento", icon: House },
+      { href: "/fechamento", label: "Visão Gerencial", icon: House },
       { href: "/fechamento/competencias", label: "Importações", icon: CalendarDays },
       { href: "/fechamento/apuracoes", label: "Apurações", icon: Table2 },
     ],

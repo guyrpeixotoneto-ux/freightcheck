@@ -54,13 +54,13 @@ listas:
   Recuperação, QLP, Frota, Inteligência, Dados & governança, Administração.
 - **Fechamento** — `components/layout/nav-fechamento.ts`, cinco seções na
   ordem do processo:
-  - **Fechamento**: Visão do fechamento · Importações · Apurações
+  - **Fechamento**: Visão Gerencial · Importações · Apurações
   - **Remuneração**: Cadastro
   - **Apuração**: Apuração · Pendências · Conferências
   - **Decisão**: Ajustes · Aprovações · Encerramento
   - **Registro**: Histórico
 
-Quatro desvios deliberados da lista originalmente proposta:
+Cinco desvios deliberados da lista originalmente proposta:
 
 1. **Apuração vem antes de Pendências** — pendência é o que a apuração não
    conseguiu apurar; sem rodar a conta, não há fila.
@@ -75,6 +75,9 @@ Quatro desvios deliberados da lista originalmente proposta:
 4. **Remuneração entrou entre Fechamento e Apuração** — ela não é um momento do
    processo, é a base contra a qual ele roda (ver abaixo). Não foi para o topo
    porque a primeira linha da lateral é a home do ambiente.
+5. **A home chama-se "Visão Gerencial"** — ver a seção abaixo. A primeira
+   versão, "Visão do fechamento", listava as seis competências mais recentes:
+   respondia "o que aconteceu por último", que é pergunta de quem opera.
 
 O cartão de unidade aparece nos dois ambientes (a unidade governa os números
 dos dois); no Fechamento ele informa e não vira seletor, porque trocar unidade
@@ -91,6 +94,42 @@ a Auditoria e o dizem por extenso, com uma tarja "Auditoria" antes do clique.
 
 Construir uma etapa de verdade é o movimento de sempre: a entrada sai do
 catálogo, a rota em `App.tsx` aponta para a tela real, e o menu não muda.
+
+## A Visão Gerencial — o ano por unidade
+
+A home do ambiente (`pages/fechamento/visao.tsx`) responde à pergunta de quem
+**responde pelo número**, e não à de quem o produz: *quanto do ano já fechou, em
+quais unidades, e onde está o atraso.*
+
+Uma faixa executiva do ano escolhido — fechamentos realizados (%), quinzenas
+vencidas em aberto, quinzenas vencidas sem competência, emitido em CT-e e
+quanto continua a questionar — e, abaixo, um cartão por unidade em ordem do
+atraso, cada um com o seu percentual, o dinheiro apurado e uma faixa de 24
+traços que mostra *quando* o ano fechou. Clicar no cartão abre
+`/fechamento/unidades/:codigo?ano=AAAA` (`pages/fechamento/unidade.tsx`): as 24
+quinzenas do ano daquela unidade, uma a uma, com as competências de cada uma e o
+caminho até a tela de dentro.
+
+Quatro decisões que as duas telas materializam:
+
+1. **O percentual de fechamento é sobre a competência, não sobre o
+   calendário.** Uma unidade com 12 competências e 7 encerradas está em 58%,
+   ainda que o ano tenha 24 quinzenas. Dividir por 24 daria um número menor e
+   mais alarmante que também seria falso — o sistema não sabe se a unidade
+   deveria ter operado em janeiro, e uma unidade que começou em julho apareceria
+   eternamente reprovada por um passado que não é dela.
+2. **O que o calendário tem a dizer não se perde: vira lacuna.** A quinzena que
+   passou sem competência nenhuma é contada à parte, só entre as que **já
+   venceram**, e aparece pelo nome na grade do ano. É a informação que nenhuma
+   lista de registros consegue dar, porque não há registro nenhum para listar —
+   a mesma razão pela qual o dia sem operação aparece na grade de dias.
+3. **Nada aqui recompõe remuneração.** A leitura é a de Apurações
+   (`GET /fechamento/apuracoes`), com os totais que a apuração gravou. O
+   agrupamento por unidade e a divisão que vira percentual moram em
+   `lib/fechamento-gerencial.ts`, fora do JSX e sob teste.
+4. **A unidade não está na lateral.** `/fechamento/unidades/:codigo` é
+   aprofundamento de um número da home, não uma seção do processo — o menu
+   continua sendo as cinco etapas do trabalho.
 
 ## A visão por dia — as abas `01`…`31` da planilha
 

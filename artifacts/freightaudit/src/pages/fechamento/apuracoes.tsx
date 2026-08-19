@@ -17,6 +17,13 @@ import {
   type Competencia,
   type ResumoDeApuracao,
 } from "@/lib/fechamento";
+import {
+  emDiaCurto,
+  MES_CURTO,
+  MES_LONGO,
+  nomeDaParte,
+  percentualConferido,
+} from "@/lib/fechamento-gerencial";
 import { formatBrl } from "@/lib/format";
 import { apresentar } from "@/lib/apresentar-erro";
 import { cn } from "@/lib/utils";
@@ -59,19 +66,6 @@ function textoDoErro(erro: unknown): string {
 /** O sentinela dos filtros: nenhum recorte aplicado. */
 const TUDO = "*";
 
-const MES_CURTO = [
-  "jan", "fev", "mar", "abr", "mai", "jun",
-  "jul", "ago", "set", "out", "nov", "dez",
-];
-
-const MES_LONGO = [
-  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-];
-
-/** `2026-08-15` vira `15/08` — o dia dentro do mês que o grupo já nomeou. */
-const emDiaCurto = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
-
 /**
  * Dinheiro sem o cifrão, com os centavos sempre presentes.
  *
@@ -84,8 +78,6 @@ const emDiaCurto = (iso: string) => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;
 const emValor = (v: number) =>
   v.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const nomeDaParte = (p: { codigo: string; nome: string | null }) => p.nome ?? p.codigo;
-
 /** `03.08.12.09` vira `12.09`; `2Art` continua `2Art`. */
 const rotinaCurta = (rotina: string) => rotina.split(".").slice(-2).join(".");
 
@@ -93,19 +85,6 @@ const rotuloLongo = (c: Competencia) =>
   `${c.quinzena}ª quinzena de ${MES_LONGO[c.mes - 1]} de ${c.ano}`;
 
 const rotuloCurto = (c: Competencia) => `${MES_CURTO[c.mes - 1]}/${c.ano} · ${c.quinzena}ª`;
-
-/**
- * Quanto do emitido a apuração conseguiu sustentar, em porcentagem.
- *
- * `naoConferido` é a parte do CT-e emitido que nenhuma das cinco fontes
- * explica; o conferido é o resto. Devolve `null` quando não houve emissão
- * alguma — `0/0` não é 100% conferido nem 0%, é uma quinzena sem o que
- * conferir, e desenhar uma barra cheia ali seria mentir por arredondamento.
- */
-function percentualConferido(a: { emitido: number; naoConferido: number }): number | null {
-  if (a.emitido <= 0) return null;
-  return ((a.emitido - a.naoConferido) / a.emitido) * 100;
-}
 
 /**
  * A aparência de cada estado.
