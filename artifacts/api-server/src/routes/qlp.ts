@@ -4,6 +4,7 @@ import type { RequestedContext } from "@workspace/comparison";
 import {
   getDetalheDoCargo,
   getEvolucaoDoQuadro,
+  getInconsistenciasDoQuadro,
   getQuadroAdministrativo,
   type FiltrosDoQuadro,
 } from "@workspace/qlp";
@@ -11,7 +12,7 @@ import {
 /**
  * QLP Administrativo — o quadro de pessoal da estrutura administrativa.
  *
- * Três rotas, uma por pergunta:
+ * Quatro rotas, uma por pergunta:
  *
  * - `/qlp/administrativo` — o quadro de uma vigência: cargos por unidade, os
  *   valores que o export declarou e o resumo executivo. Efetivo e custo saem
@@ -22,6 +23,10 @@ import {
  *   linha, coluna, valor bruto), no mesmo SELECT.
  * - `/qlp/administrativo/evolucao` — a série: presença de cada cargo por
  *   quinzena e contagens de estrutura, com janela De/Até.
+ * - `/qlp/administrativo/inconsistencias` — o que **não** entrou: os registros
+ *   que a importação deixou em quarentena porque a planilha os trazia duas
+ *   vezes com valores que discordam. É a contrapartida obrigatória da
+ *   quarentena por chave — o arquivo entra, e o que ficou de fora se lê aqui.
  *
  * O que estas rotas deliberadamente **não** respondem: diferença de valor entre
  * vigências. Isso é comparação, a comparação é do motor canônico, e a tela a
@@ -94,6 +99,27 @@ router.get("/qlp/administrativo/evolucao", async (req, res): Promise<void> => {
   const janela = parseJanela(query);
   const view = await getEvolucaoDoQuadro(db, {
     context: { ...parseContext(query), ...(janela ? { janela } : {}) },
+  });
+  if (!view) {
+    res.status(404).json({ error: SEM_QLP });
+    return;
+  }
+  res.json(view);
+});
+
+/**
+ * A fila do que falta, e não um retrato da vigência selecionada.
+ *
+ * `period` é aceito — ele decide a vigência corrente do contexto devolvido, que
+ * a tela usa para se situar —, mas a lista de pendências é do contexto inteiro:
+ * dado que falta não deixa de faltar por estarmos olhando outra quinzena. Ver
+ * `lib/qlp/src/inconsistencias.ts`.
+ */
+router.get("/qlp/administrativo/inconsistencias", async (req, res): Promise<void> => {
+  const query = req.query as Record<string, unknown>;
+  const view = await getInconsistenciasDoQuadro(db, {
+    ...(parsePeriod(query) !== undefined ? { period: parsePeriod(query)! } : {}),
+    ...(parseContext(query) !== undefined ? { context: parseContext(query)! } : {}),
   });
   if (!view) {
     res.status(404).json({ error: SEM_QLP });

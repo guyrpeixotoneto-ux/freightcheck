@@ -36,3 +36,4 @@ export * from "./contexto";
 export * from "./quadro";
 export * from "./detalhe";
 export * from "./evolucao";
+export * from "./inconsistencias";

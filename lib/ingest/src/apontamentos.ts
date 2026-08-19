@@ -55,15 +55,14 @@ export const ROTULO_DE_SEVERIDADE: Record<SeveridadeDeApontamento, string> = {
  *
  * ERRO e bloqueio são coisas diferentes, e a tela não pode confundi-las: uma
  * linha sem placa é ERRO e recusa **aquela linha** — o arquivo segue
- * aprovável; a mesma chave com dois valores é ERRO e segura **o arquivo**,
- * porque não existe resposta certa para promover. O selo do cartão escreve
- * essa diferença ("Erro bloqueante" contra "Erro"), e escrever exige saber —
- * este Set é a lista, aqui porque o pipeline (que recusa por ela) e a tela
- * (que a anuncia) precisam ler a mesma, e este é o módulo que os dois
+ * aprovável; uma aba que prometia um tipo e entregou outro é ERRO e segura
+ * **o arquivo**, porque não há parte aproveitável de um arquivo que não é o
+ * que disse ser. O selo do cartão escreve essa diferença, e escrever exige
+ * saber — este Set é a lista, aqui porque o pipeline (que recusa por ela) e a
+ * tela (que a anuncia) precisam ler a mesma, e este é o módulo que os dois
  * alcançam.
  */
 export const CODIGOS_QUE_BLOQUEIAM_PROMOCAO: ReadonlySet<string> = new Set([
-  "ENTIDADE_DUPLICADA_CONFLITANTE",
   "TIPO_DIVERGE_DA_DECLARACAO",
   // Aba rebaixada com tipo declarado: alguém disse que aquela aba era de um
   // tipo e a leitura não a reconheceu como tal. Promover importaria uma
@@ -72,14 +71,45 @@ export const CODIGOS_QUE_BLOQUEIAM_PROMOCAO: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Os códigos que retiram **uma chave** da importação e deixam o resto entrar.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que esta categoria existe, e por que ela não é bloqueio
+ * ---------------------------------------------------------------------------
+ * A duplicidade conflitante — a mesma entidade duas vezes na mesma vigência
+ * com valores que discordam — já foi bloqueio de arquivo, e o preço apareceu
+ * na tela: um QLP com 11.760 fatos bons parava inteiro por 8 chaves em
+ * conflito, e a saída oferecida era corrigir a origem e reenviar. Oito
+ * problemas seguravam onze mil respostas.
+ *
+ * O que não pode acontecer continua não acontecendo: o pipeline não escolhe em
+ * silêncio entre dois valores conflitantes. Ele **não escolhe** — a chave fica
+ * de fora da importação, com toda a evidência gravada no apontamento, e o
+ * resto da vigência entra. É uma terceira consequência, e ela precisa de nome
+ * próprio: "Erro" faria a tela dizer que só aquela linha caiu (não caiu: caiu
+ * o registro inteiro, em todas as suas colunas), e "Erro bloqueante" faria a
+ * tela dizer que nada entrou (entrou quase tudo).
+ *
+ * Quem lê isto junto com {@link CODIGOS_QUE_BLOQUEIAM_PROMOCAO} vê as três
+ * consequências que uma importação pode ter, e elas são exaustivas: a linha
+ * cai, o registro cai, ou o arquivo cai.
+ */
+export const CODIGOS_QUE_ISOLAM_A_CHAVE: ReadonlySet<string> = new Set([
+  "ENTIDADE_DUPLICADA_CONFLITANTE",
+]);
+
+/**
  * O texto do selo de um apontamento: a severidade com a consequência dentro.
  *
  * "ERROR" cru diria menos do que a tela sabe; "Erro bloqueante" em todo ERRO
- * diria mais do que é verdade. O selo diz exatamente o que o código faz.
+ * diria mais do que é verdade. O selo diz exatamente o que o código faz — e
+ * são três coisas diferentes que ele pode fazer, não duas.
  */
 export function rotuloDoSelo(severity: string, code: string): string {
   if (severity === "ERROR") {
-    return CODIGOS_QUE_BLOQUEIAM_PROMOCAO.has(code) ? "Erro bloqueante" : "Erro";
+    if (CODIGOS_QUE_BLOQUEIAM_PROMOCAO.has(code)) return "Erro bloqueante";
+    if (CODIGOS_QUE_ISOLAM_A_CHAVE.has(code)) return "Registro não importado";
+    return "Erro";
   }
   return ROTULO_DE_SEVERIDADE[severity as SeveridadeDeApontamento] ?? severity;
 }
