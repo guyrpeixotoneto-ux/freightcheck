@@ -32,6 +32,7 @@ import Versoes from '@/pages/versoes';
 import Unidades from '@/pages/unidades';
 import Configuracoes from '@/pages/configuracoes';
 import Frota360 from '@/pages/frota-360';
+import QlpAdministrativo from '@/pages/qlp-administrativo';
 import { EmPreparo } from '@/pages/em-preparo';
 import { TELAS_EM_PREPARO } from '@/pages/telas-em-preparo';
 import VisaoDoFechamento from '@/pages/fechamento/visao';
@@ -142,6 +143,12 @@ function Router() {
         <Frota360 key="trecho-360" equipamento="TRECHO" />
       </Route>
       <Route path="/comparar" component={Comparar} />
+      {/*
+        QLP Administrativo saiu de `TELAS_EM_PREPARO` quando a importação
+        passou a receber o export próprio dele (tipo QLP_ADMINISTRATIVO) — o
+        menu não mudou uma vírgula, como manda o catálogo.
+      */}
+      <Route path="/qlp-administrativo" component={QlpAdministrativo} />
       <Route path="/importacoes" component={Importacoes} />
       <Route path="/composicao" component={Composicao} />
       <Route path="/composicao/:entityId" component={ComposicaoEquipamento} />
@@ -157,7 +164,7 @@ function Router() {
       <Route path="/configuracoes" component={Configuracoes} />
 
       {/*
-        As dezoito telas que o menu anuncia e o banco ainda não sustenta.
+        As telas que o menu anuncia e o banco ainda não sustenta.
 
         Elas entram no roteador pela mesma razão que `/simulacao` saiu, e não
         pela razão oposta: o pecado nunca foi a rota existir, foi a rota abrir

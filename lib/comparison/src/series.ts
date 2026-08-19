@@ -154,7 +154,23 @@ export class JanelaInvalidaError extends Error {
  * é como o Painel antigo passou a exibir a série de menor impacto e a omitir a
  * maior, sem dizer que omitia.
  */
-export async function listContexts(db: Database): Promise<ContextInfo[]> {
+export async function listContexts(
+  db: Database,
+  /**
+   * Recorte opcional por família de dados (`snapshot.dataset_family`).
+   *
+   * Existe porque o quadro de pessoal forma vigências próprias na mesma unidade
+   * e canal: a tela de QLP precisa saber quais contextos **têm** QLP, e a régua
+   * de disponibilidade (`periodosDisponiveis`) precisa listar só as vigências
+   * daquela família — senão o seletor ofereceria quinzenas de equipamento a uma
+   * tela que não sabe respondê-las. Sem o argumento, nada muda para ninguém.
+   */
+  opts?: { datasetFamily?: string },
+): Promise<ContextInfo[]> {
+  const familia = opts?.datasetFamily
+    ? sql` AND s.dataset_family = ${opts.datasetFamily}`
+    : sql``;
+
   const { rows } = await db.execute<{
     scope_hash: string;
     channel: string | null;
@@ -169,7 +185,7 @@ export async function listContexts(db: Database): Promise<ContextInfo[]> {
            array_agg(DISTINCT s.effective_date::text ORDER BY s.effective_date::text)
              AS all_periods
       FROM snapshot s
-     WHERE s.status <> 'SUPERSEDED'
+     WHERE s.status <> 'SUPERSEDED'${familia}
      GROUP BY 1, 2
      ORDER BY max(s.effective_date) DESC, s.scope_hash, 2 NULLS LAST
   `);
@@ -187,7 +203,7 @@ export async function listContexts(db: Database): Promise<ContextInfo[]> {
       FROM snapshot s
       JOIN snapshot_scope ss ON ss.snapshot_id = s.id
       JOIN scope sc          ON sc.id = ss.scope_id
-     WHERE s.status <> 'SUPERSEDED'
+     WHERE s.status <> 'SUPERSEDED'${familia}
      ORDER BY s.scope_hash, 2 NULLS LAST, sc.scope_type, sc.code
   `);
 
