@@ -17,6 +17,7 @@ import {
   resolverContextoDoQuadro,
   type ContextoDoQuadro,
 } from "./contexto";
+import { contarRegistrosFaltando } from "./inconsistencias";
 
 /**
  * O quadro de uma vigência: o que o modelo remunera de estrutura administrativa,
@@ -114,6 +115,19 @@ export interface VisaoDoQuadro extends ContextoDoQuadro {
   atributos: AtributoDoQuadro[];
   unidades: UnidadeDoQuadro[];
   filtros: FiltrosDoQuadro;
+  /**
+   * Quantos registros a importação deixou de fora desta vigência.
+   *
+   * Zero no caso comum. Maior que zero, **este quadro está incompleto** e a
+   * tela tem de dizê-lo antes de qualquer contagem: um cargo em quarentena não
+   * aparece na tabela, não entra em `resumo.cargos` e não é distinguível, no
+   * desenho, de um cargo que a unidade não tem. O número existe aqui para que
+   * essa diferença não dependa de alguém abrir a aba certa.
+   *
+   * A evidência inteira — chave, linhas e valores em desacordo — está em
+   * `getInconsistenciasDoQuadro`.
+   */
+  registrosFaltando: number;
 }
 
 type FatoDoQuadro = {
@@ -377,5 +391,6 @@ export async function getQuadroAdministrativo(
       (a.nome ?? a.cnpj).localeCompare(b.nome ?? b.cnpj, "pt-BR"),
     ),
     filtros,
+    registrosFaltando: await contarRegistrosFaltando(db, context, effectiveDate),
   };
 }

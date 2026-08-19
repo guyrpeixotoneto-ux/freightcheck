@@ -449,7 +449,16 @@ describe("o que não pode ser promovido", () => {
     expect(await ativos(ctx.db, "2030-09-16")).toHaveLength(0);
   });
 
-  it("recusa a mesma entidade duas vezes com valores conflitantes", async () => {
+  /*
+    A quarentena por chave, provada pelos dois lados.
+
+    Estes dois testes são o mesmo conflito com um vizinho de diferença, e é o
+    vizinho que carrega a decisão: o arquivo em que **só** a chave conflitante
+    existe não tem o que importar e para; o arquivo em que ela convive com uma
+    placa sadia importa a sadia e deixa a outra de fora. Antes os dois paravam,
+    e era esse o custo — oito conflitos seguravam onze mil fatos bons.
+  */
+  it("deixa entrar o que não conflita e retira só a chave em conflito", async () => {
     const resultado = await importarSpec(
       planilhaPadrao({
         vigencia: "EMPURRADA_17_9_2030",
@@ -459,13 +468,13 @@ describe("o que não pode ser promovido", () => {
             linhas: [
               { placa: "DUP1A11", valores: { "Custo Fixo": 100 } },
               { placa: "dup-1a11", valores: { "Custo Fixo": 200 } },
+              { placa: "BOA1A11", valores: { "Custo Fixo": 300 } },
             ],
           },
         ],
       }),
-      { ateOPreview: true },
     );
-    expect(resultado.status).toBe("VALIDATION_ERROR");
+    expect(resultado.status).toBe("PROMOTED");
 
     const [problema] = await ctx.db
       .select()
@@ -477,6 +486,55 @@ describe("o que não pode ser promovido", () => {
         ),
       );
     expect(problema.message).toMatch(/aparece mais de uma vez/i);
+    expect(problema.message).toMatch(/ficou de fora/i);
+
+    // A vigência entrou — com a placa sadia, e sem a que conflitou.
+    const vivas = await ativos(ctx.db, "2030-09-17");
+    expect(vivas).toHaveLength(1);
+    expect(vivas[0].entityCount).toBe(1);
+
+    const { rows } = await ctx.db.execute<{ chave: string }>(sql`
+      SELECT ei.identifier_value AS chave
+        FROM fact f
+        JOIN entity_identifier ei
+          ON ei.entity_id = f.entity_id
+         AND ei.is_current
+         AND ei.identifier_type = 'PLACA' 
+       WHERE f.snapshot_id = ${vivas[0].id}::uuid
+       GROUP BY 1
+    `);
+    expect(rows.map((r) => r.chave)).toEqual(["BOA1A11"]);
+  });
+
+  it("para quando a quarentena leva tudo, e diz que foi ela", async () => {
+    const resultado = await importarSpec(
+      planilhaPadrao({
+        vigencia: "EMPURRADA_26_9_2030",
+        abas: [
+          {
+            nome: "cavalos",
+            linhas: [
+              { placa: "SOZ1A11", valores: { "Custo Fixo": 100 } },
+              { placa: "soz-1a11", valores: { "Custo Fixo": 200 } },
+            ],
+          },
+        ],
+      }),
+      { ateOPreview: true },
+    );
+    /*
+      Continua sendo VALIDATION_ERROR — não sobrou fato para aprovar —, mas o
+      motivo não pode ser o de sempre. "Nenhuma aba foi aceita como fonte"
+      mandaria conferir os papéis das abas, e as abas foram aceitas: o que não
+      fecha são as linhas.
+    */
+    expect(resultado.status).toBe("VALIDATION_ERROR");
+    const [run] = await ctx.db
+      .select()
+      .from(importRunTable)
+      .where(eq(importRunTable.id, resultado.importRunId));
+    expect(run.failureReason).toMatch(/quarentena/i);
+    expect(run.failureReason).not.toMatch(/nenhuma aba foi aceita/i);
   });
 
   it("consolida a mesma entidade repetida quando as duas linhas concordam", async () => {

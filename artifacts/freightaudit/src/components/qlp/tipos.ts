@@ -2,6 +2,7 @@
  * Os tipos das respostas de `/qlp/administrativo*` — espelho manual de
  * `lib/qlp/src`, como os demais domínios (`components/composicao/tipos.ts`).
  */
+import type { ApresentacaoDeApontamento } from "@workspace/ingest/apontamentos";
 
 export interface ContextoDaResposta {
   scopeHash: string;
@@ -79,6 +80,51 @@ export interface VisaoDoQuadro {
   atributos: AtributoDoQuadro[];
   unidades: UnidadeDoQuadro[];
   filtros: { busca?: string; unidade?: string };
+  /**
+   * Quantos registros a importação deixou de fora desta vigência.
+   *
+   * Zero no caso comum. Maior que zero, o quadro está incompleto — os cargos em
+   * quarentena não estão na tabela e não estão em `resumo.cargos` —, e a tela
+   * precisa dizê-lo antes de qualquer contagem. A evidência está na aba de
+   * Inconsistências.
+   */
+  registrosFaltando: number;
+}
+
+/**
+ * Um registro que a importação deixou de fora, com a evidência de por quê.
+ *
+ * Espelho de `RegistroInconsistente` (`lib/qlp/src/inconsistencias.ts`). A
+ * `apresentacao` é o mesmo contrato que a tela de Importações desenha — ver
+ * `components/apontamentos/apresentacao.tsx`.
+ */
+export interface RegistroInconsistente {
+  vigenciaLabel: string;
+  effectiveDate: string;
+  periodLabel: string;
+  code: string;
+  chave: string;
+  linhas: string[];
+  apresentacao?: ApresentacaoDeApontamento;
+  mensagem: string;
+}
+
+export interface VigenciaComPendencia {
+  vigenciaLabel: string;
+  effectiveDate: string;
+  periodLabel: string;
+  registros: RegistroInconsistente[];
+}
+
+export interface InconsistenciasDoQuadro {
+  context: ContextoDaResposta;
+  effectiveDate: string;
+  periodLabel: string;
+  anterior: string | null;
+  vigencias: VigenciaDoQuadro[];
+  /** Só as vigências que têm registro faltando, da mais nova para a mais antiga. */
+  pendencias: VigenciaComPendencia[];
+  total: number;
 }
 
 export interface OrigemDoFato {

@@ -54,8 +54,14 @@ import type {
   AtributoDoQuadro,
   DetalheDoCargo,
   EvolucaoDoQuadro,
+  InconsistenciasDoQuadro,
+  RegistroInconsistente,
   VisaoDoQuadro,
 } from "@/components/qlp/tipos";
+import {
+  SecoesDaApresentacao,
+  SeloDeSeveridade,
+} from "@/components/apontamentos/apresentacao";
 
 /**
  * QLP Administrativo — o quadro de pessoal da estrutura administrativa que o
@@ -71,6 +77,10 @@ import type {
  * - **Alterações** — o que mudou entre duas vigências do quadro. O diff é o do
  *   motor canônico (`POST /change-sets`), o mesmo de Comparar Vigências: esta
  *   aba só escolhe o par e apresenta — nenhuma diferença é calculada aqui.
+ * - **Inconsistências** — o que **não** está no quadro. A importação não escolhe
+ *   em silêncio entre duas linhas que discordam sobre o mesmo cargo: ela deixa
+ *   o registro de fora e o arquivo entra. Sem esta aba, a vigência apareceria
+ *   completa sem estar — e é por isso que ela existe, e não como relatório.
  *
  * Efetivo total e custo da estrutura nascem **travados**: os atributos do QLP
  * chegam sem semântica confirmada, e agregar sem curadoria seria adivinhação.
@@ -78,11 +88,12 @@ import type {
  * no lugar de um número que não existe.
  */
 
-type Aba = "quadro" | "evolucao" | "alteracoes";
+type Aba = "quadro" | "evolucao" | "alteracoes" | "inconsistencias";
 const ABAS: { id: Aba; rotulo: string }[] = [
   { id: "quadro", rotulo: "Quadro" },
   { id: "evolucao", rotulo: "Evolução" },
   { id: "alteracoes", rotulo: "Alterações" },
+  { id: "inconsistencias", rotulo: "Inconsistências" },
 ];
 
 const TODAS = "__todas__";
@@ -137,6 +148,24 @@ export default function QlpAdministrativo() {
     queryFn: () =>
       fetchJsonOrNull<EvolucaoDoQuadro>(`/qlp/administrativo/evolucao?${comum.toString()}`),
     enabled: aba === "evolucao" || aba === "alteracoes",
+    retry: false,
+  });
+
+  /*
+    Sempre habilitada, e não só com a aba aberta.
+
+    O selo do número no rótulo da aba é o que faz alguém reparar que falta dado
+    — se ele só aparecesse depois do clique, só veria quem já desconfiava. A
+    consulta é um `JOIN` indexado que devolve zero linhas no caso comum, e o
+    seu contexto vem do mesmo `comum` das demais: unidade e canal, sem a
+    vigência, porque a fila é do contexto inteiro.
+  */
+  const inconsistencias = useQuery({
+    queryKey: ["qlp", "inconsistencias", comum.toString()],
+    queryFn: () =>
+      fetchJsonOrNull<InconsistenciasDoQuadro>(
+        `/qlp/administrativo/inconsistencias?${comum.toString()}`,
+      ),
     retry: false,
   });
 
@@ -201,6 +230,11 @@ export default function QlpAdministrativo() {
               )}
             >
               {item.rotulo}
+              {item.id === "inconsistencias" && (inconsistencias.data?.total ?? 0) > 0 && (
+                <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-[0.6875rem] font-bold text-red-700 tabular-nums">
+                  {inconsistencias.data!.total}
+                </span>
+              )}
             </button>
           ))}
         </nav>
@@ -222,6 +256,13 @@ export default function QlpAdministrativo() {
           <>
             <ResumoExecutivo view={quadro.data} />
 
+            {aba !== "inconsistencias" && quadro.data.registrosFaltando > 0 && (
+              <QuadroIncompleto
+                faltando={quadro.data.registrosFaltando}
+                onVerDetalhe={() => irPara({ aba: "inconsistencias" })}
+              />
+            )}
+
             {aba === "quadro" && (
               <AbaQuadro
                 view={quadro.data}
@@ -236,6 +277,12 @@ export default function QlpAdministrativo() {
               <AbaEvolucao view={evolucao.data ?? null} carregando={evolucao.isLoading} />
             )}
             {aba === "alteracoes" && <AbaAlteracoes serie={evolucao.data?.quadro ?? []} />}
+            {aba === "inconsistencias" && (
+              <AbaInconsistencias
+                view={inconsistencias.data ?? null}
+                carregando={inconsistencias.isLoading}
+              />
+            )}
           </>
         )}
       </div>
@@ -1089,5 +1136,191 @@ function DetalheDrawer({
         </div>
       </SheetContent>
     </Sheet>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// O que não está no quadro — e a ressalva que impede lê-lo como se estivesse.
+// ---------------------------------------------------------------------------
+
+/**
+ * A ressalva no topo do quadro incompleto.
+ *
+ * Ela existe porque a quarentena por chave tem um efeito colateral que nenhum
+ * número da tela denuncia sozinho: um cargo que ficou de fora **não aparece
+ * como faltando**, ele simplesmente não aparece — e não há como distinguir, na
+ * tabela, o cargo que a unidade não tem do cargo que a planilha trazia duas
+ * vezes com salários diferentes. "Cargos no quadro: 214" é verdade sobre o
+ * quadro e mentira sobre a unidade, e a diferença entre as duas coisas é esta
+ * frase.
+ *
+ * Por isso ela fica acima do conteúdo, em todas as abas menos a que já mostra o
+ * detalhe, e não atrás de um clique.
+ */
+function QuadroIncompleto({
+  faltando,
+  onVerDetalhe,
+}: {
+  faltando: number;
+  onVerDetalhe: () => void;
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-md border border-amber-300 bg-amber-50 px-4 py-3">
+      <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600 mt-0.5" />
+      <div className="text-sm">
+        <p className="font-semibold text-amber-900">
+          Este quadro está incompleto: {faltando}{" "}
+          {faltando === 1 ? "registro ficou" : "registros ficaram"} de fora da importação.
+        </p>
+        <p className="text-amber-800 mt-0.5">
+          A planilha trouxe {faltando === 1 ? "esse cargo" : "esses cargos"} mais de uma vez
+          na mesma vigência, com valores que discordam, e a importação não escolhe uma das
+          linhas em silêncio. Eles não estão na tabela abaixo nem nas contagens acima.{" "}
+          <button
+            type="button"
+            onClick={onVerDetalhe}
+            className="font-semibold underline underline-offset-2"
+          >
+            Ver quais são
+          </button>
+          .
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A aba de Inconsistências: a fila do que precisa ser corrigido na origem.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que ela ignora o seletor de vigência
+ * ---------------------------------------------------------------------------
+ * As outras três abas são retratos de uma quinzena, e o seletor é o que as
+ * governa. Esta não é retrato: é trabalho pendente. Um cargo que ficou de fora
+ * de uma quinzena de três meses atrás continua sendo dado que falta hoje, e
+ * escondê-lo atrás do seletor faria a aba parecer vazia justamente para quem
+ * abriu o produto na quinzena mais recente — o único jeito de descobrir seria
+ * varrer o seletor quinzena a quinzena. Por isso a lista é do contexto inteiro,
+ * agrupada por vigência, da mais nova para a mais antiga.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que o desenho de cada registro não é daqui
+ * ---------------------------------------------------------------------------
+ * É o mesmo apontamento que a tela de Importações mostra, com a mesma
+ * evidência — a chave como está escrita no arquivo, as linhas que colidiram, os
+ * valores lado a lado, o que fazer. Desenhá-lo de novo aqui seria pedir que
+ * duas telas concordassem para sempre sobre o que um conflito é. Ver
+ * `components/apontamentos/apresentacao.tsx`.
+ */
+function AbaInconsistencias({
+  view,
+  carregando,
+}: {
+  view: InconsistenciasDoQuadro | null;
+  carregando: boolean;
+}) {
+  if (carregando) {
+    return <p className="text-sm text-muted-foreground">Carregando as inconsistências…</p>;
+  }
+  if (!view) return null;
+
+  if (view.total === 0) {
+    return (
+      <Card>
+        <CardContent className="p-12 text-center space-y-3">
+          <ShieldCheck className="w-8 h-8 mx-auto text-emerald-600" />
+          <p className="font-semibold">Nenhum registro ficou de fora.</p>
+          <p className="text-sm text-muted-foreground max-w-xl mx-auto">
+            Em todas as vigências de <strong>{view.context.label}</strong>, cada cargo aparece
+            uma vez só por quinzena — ou, quando aparece repetido, as linhas dizem a mesma
+            coisa e foram consolidadas. Os quadros desta série estão completos.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <section className="space-y-4">
+      <Card>
+        <CardContent className="p-4 flex items-start gap-3">
+          <Info className="w-5 h-5 shrink-0 text-muted-foreground mt-0.5" />
+          <div className="text-sm text-muted-foreground">
+            <p>
+              <strong className="text-foreground">
+                {view.total} {view.total === 1 ? "registro" : "registros"}
+              </strong>{" "}
+              {view.total === 1 ? "ficou" : "ficaram"} de fora do quadro em{" "}
+              {view.pendencias.length}{" "}
+              {view.pendencias.length === 1 ? "vigência" : "vigências"} de{" "}
+              <strong className="text-foreground">{view.context.label}</strong>. A importação
+              não escolhe entre duas linhas que discordam sobre o mesmo cargo — ela deixa o
+              registro de fora, com a evidência abaixo, e importa o resto do arquivo.
+            </p>
+            <p className="mt-2">
+              Esta lista é de toda a série, e não da quinzena selecionada acima: dado que
+              falta não deixa de faltar por estarmos olhando outra vigência. Corrigida a
+              origem e importado o arquivo de novo, o registro entra e sai daqui sozinho.
+            </p>
+          </div>
+        </CardContent>
+      </Card>
+
+      {view.pendencias.map((vigencia) => (
+        <Card key={vigencia.vigenciaLabel}>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2 flex-wrap">
+              {vigencia.periodLabel}
+              <span className="font-mono text-xs font-normal text-muted-foreground">
+                {vigencia.vigenciaLabel}
+              </span>
+              <span className="ml-auto text-xs font-normal text-muted-foreground tabular-nums">
+                {vigencia.registros.length}{" "}
+                {vigencia.registros.length === 1 ? "registro" : "registros"}
+              </span>
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {vigencia.registros.map((registro, i) => (
+              <RegistroDeInconsistencia key={`${registro.chave}-${i}`} registro={registro} />
+            ))}
+          </CardContent>
+        </Card>
+      ))}
+    </section>
+  );
+}
+
+/**
+ * Um registro que ficou de fora, com a evidência inteira.
+ *
+ * O título é a chave como está escrita na planilha — `07.526.557/0015-05 ·
+ * ANALISTA ADM` —, e não a normalizada: quem vai corrigir procura na planilha,
+ * e a normalizada não está lá. Quando o apontamento é anterior ao contrato de
+ * apresentação, a frase do pipeline aparece inteira; ela sempre existe.
+ */
+function RegistroDeInconsistencia({ registro }: { registro: RegistroInconsistente }) {
+  return (
+    <div className="rounded-lg border border-red-200 bg-red-50/50 px-4 py-3 text-sm text-red-950">
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <p className="font-semibold break-words">{registro.chave || "Registro sem chave legível"}</p>
+        <SeloDeSeveridade severity="ERROR" code={registro.code} />
+      </div>
+      {registro.apresentacao ? (
+        <SecoesDaApresentacao
+          apresentacao={registro.apresentacao}
+          severity="ERROR"
+          code={registro.code}
+        />
+      ) : (
+        <div className="space-y-1">
+          <p className="leading-relaxed">{registro.mensagem}</p>
+          {registro.linhas.length > 0 && (
+            <p className="text-xs opacity-75">{registro.linhas.join(" · ")}</p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
