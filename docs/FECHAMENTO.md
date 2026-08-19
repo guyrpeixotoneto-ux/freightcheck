@@ -82,6 +82,40 @@ a Auditoria e o dizem por extenso, com uma tarja "Auditoria" antes do clique.
 Construir uma etapa de verdade é o movimento de sempre: a entrada sai do
 catálogo, a rota em `App.tsx` aponta para a tela real, e o menu não muda.
 
+## A visão por dia — as abas `01`…`31` da planilha
+
+A competência aberta (`pages/fechamento/competencia.tsx`) tem quatro partes, e a
+segunda é a **grade de dias**: um ladrilho por dia do período, com o que a
+operação rodou naquele dia, e um clique que abre
+`/fechamento/competencias/:id/dias/:dia` — a viagem a viagem daquele dia, com
+`TOTAL PADRÃO` e `TOTAL SPOT` ao fim de cada grupo de frota.
+
+É a parte da planilha que a apuração não substituía. A conta responde *quanto a
+quinzena vale, verba a verba*; a aba diária responde outra pergunta, que é a de
+quem opera: **o que aconteceu no dia 3.** Sem ela, discordar de um total exigia
+reabrir o 2Art.
+
+O que sustenta a tela:
+
+| onde | o quê |
+| --- | --- |
+| `lib/fechamento/src/leitores/operacao.ts` | lê a viagem inteira: os 15 campos que a conta soma, e o `detalhe` — veículo, horários, laço, ocupação, remuneração da equipe |
+| `lib/fechamento/src/diario.ts` | `diasDaCompetencia` (a grade) e `abrirDia` (a aba), aritmética pura |
+| `lib/db` (migration `0040`) | as 47 colunas do retrato, todas anuláveis: coluna que a exportação não trouxe fica `NULL`, nunca `0` |
+| `routes/fechamento.ts` | `GET …/dias` e `GET …/dias/:dia` |
+| `components/fechamento/` | a grade de ladrilhos, o catálogo de colunas e a tabela larga |
+
+Três decisões que a tela materializa:
+
+1. **O dia sem operação aparece na grade**, apagado e clicável. "Não rodou" é
+   uma resposta; a grade que esconde o dia vazio obriga a contar ladrilhos para
+   descobrir qual falta. O que a tela nunca faz é confundir isso com "o 2Art não
+   foi importado" — esse caso é dito por extenso, acima da grade.
+2. **Os totais vêm do servidor**, da mesma função que alimenta a apuração. Uma
+   soma feita na tela seria uma segunda conta do mesmo dinheiro.
+3. **A última coluna da tabela é a linha física do 2Art.** É a ponta da trilha:
+   permite conferir a célula de origem sem refazer a conta.
+
 ## O que o Fechamento vai precisar (fora desta fundação)
 
 - A **competência** como registro próprio (estado, dono, ciclo de vida) e a

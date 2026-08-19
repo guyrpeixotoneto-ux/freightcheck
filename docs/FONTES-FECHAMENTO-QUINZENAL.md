@@ -31,7 +31,10 @@ saída/retorno, e a cadeia monetária da viagem: `ValorFrete` (= `CustoVariavel`
 equipe (`ValorUnitPontoMot/Ajd`, `ValorEquipeEntrMot/Ajd`) e o previsto do
 roteirizador (`TempoPrevistoRoad`, `KmPrevistoRoad`).
 
-**É a origem do custo variável por viagem.**
+**É a origem do custo variável por viagem** — e, desde a visão por dia, a fonte
+que a tela `/fechamento/competencias/:id/dias/:dia` reproduz linha a linha: o
+2Art é lido inteiro (as ~60 colunas que a aba diária mostra), e não só as quinze
+que a conta soma. Ver `FECHAMENTO.md`.
 
 ### 2. Relatório 03.08.18 — disponibilidade de frota (`03.08.18.xlsx`, abas `FF` e `Van`)
 
@@ -192,6 +195,14 @@ acima**, aba por aba:
 - **"Quinzena 16/07/2026"** é rótulo, não data de emissão: significa o período
   16–31/07. Datas aparecem em três formatos: serial Excel (46219 = 16/07/2026;
   46204 = 01/07/2026), `ddmmaaaa` (2Art) e `dd/mm/aaaa` (CSV/TXT).
+- **O `ddmmaaaa` do 2Art tem sete dígitos nos dias 1 a 9.** A coluna é
+  numérica, e todo número perde o zero à esquerda: 01/07/2026 chega como
+  `1072026`. O zero perdido só pode ser o do dia — o do mês fica no meio do
+  número (`10072026` para 10/07), e o Excel não corta dígito interno.
+- **O cabeçalho do 2Art vem em duas grafias.** A exportação direta do Promax
+  escreve `CxCarreg` e `ValorFrete`; a mesma planilha salva de dentro da pasta
+  de fechamento escreve `CX CARREG` e `VALOR FRETE`. São as mesmas colunas, e o
+  leitor reconhece as duas (`compactarColuna`, em `leitores/planilha.ts`).
 - **Canal** (`Rota` = distribuição urbana; `AS` = área de serviço/interior) e
   **tipo de frota** (`Padrao`, `Spot`, `Fixo`/Van, `Espec.`) são os dois eixos
   de agregação de tudo.

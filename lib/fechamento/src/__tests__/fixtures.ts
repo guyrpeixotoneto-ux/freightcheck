@@ -33,20 +33,119 @@ function planilha(abas: Record<string, unknown[][]>): Buffer {
 }
 
 /**
- * O 2Art. Quatro viagens: três de Rota (duas Padrao, uma Spot) e uma de AS.
+ * As colunas do 2Art, na ordem em que o Promax as exporta.
  *
- * A terceira linha é uma viagem com o canal ilegível — está aqui para provar
- * que ela vira recusa nomeada e não zero silencioso.
+ * A lista está inteira — e não só as que a conta usa — porque é ela que a tela
+ * do dia reproduz: o layout **é** o que o teste precisa guardar. Os nomes são
+ * os do relatório, colados e sem acento, que é a grafia da exportação direta;
+ * `fixtureOperacaoComCabecalhoEspacado` guarda a outra.
+ */
+const COLUNAS_DO_2ART = [
+  "Data", "Transp", "Entrega", "CargaAtual", "Frota", "CustoSpot", "Regiao", "Veiculo", "Placa",
+  "VeiculoIndisp", "PlacaIndisp", "FrotaIndisp", "TipoIndisp", "Mapa", "Entregas", "CxCarreg",
+  "CxEntreg", "Ocupacao", "CxRota", "CxAS", "VeicBM", "RShow", "EntrVol", "HrSaida", "HrEntrada",
+  "KmSaida", "KmEntrada", "CustoVariavel", "Lucro", "LucroUnit", "ValorFrete", "TipoImposto",
+  "PercImposto", "ValorImposto", "ValorFaturado", "ValorUnitCxEntregue", "ValorPgCxEntregSemImp",
+  "ValorPgCxEntregComImp", "TempoPrevistoRoad", "KmPrevistoRoad", "ValorUnitPontoMot",
+  "ValorUnitPontoAjd", "ValorEquipeEntrMot", "ValorEquipeEntrAjd", "CustoVariavelCEDBZ",
+  "LucroUnitCEDBZ", "LucroVariavelCxEntregueFFCEDBZ", "TempoInterno", "ValorDropdown", "VeicCadDD",
+  "KmLaco", "KmDeslocamento", "TempoLaco", "TempoDeslocamento", "SitMultiCDD", "UnbOrigem",
+  "MatricMotorista", "MatricAjudante1", "MatricAjudante2",
+];
+
+/** Uma linha do 2Art: o que a viagem declara, e `null` no que ela não traz. */
+function viagem(declarado: Record<string, unknown>): unknown[] {
+  const desconhecida = Object.keys(declarado).filter((c) => !COLUNAS_DO_2ART.includes(c));
+  if (desconhecida.length > 0) {
+    throw new Error(`A fixture do 2Art não tem estas colunas: ${desconhecida.join(", ")}`);
+  }
+  return COLUNAS_DO_2ART.map((coluna) => declarado[coluna] ?? null);
+}
+
+/**
+ * O 2Art. Cinco viagens da 2ª quinzena e uma da 1ª, mais uma recusa.
+ *
+ * A primeira linha vem com o **retrato inteiro** — veículo, horários, laço,
+ * remuneração da equipe —, porque é ela que prova que a tela do dia recebe a
+ * linha completa. As demais trazem só o que a conta usa: coluna ausente tem de
+ * continuar ausente, e não virar zero.
+ *
+ * A linha do canal ilegível está aqui para provar que ela vira recusa nomeada.
+ * A do dia `1072026` — sete dígitos, o zero à esquerda que o Excel come em
+ * 01/07 — está aqui porque exigir oito recusava a operação dos dias 1 a 9.
  */
 export function fixtureOperacao(): Buffer {
   return planilha({
     "2Art_07": [
-      ["Data", "Transp", "Entrega", "Frota", "Placa", "Mapa", "Entregas", "CxCarreg", "CxEntreg", "ValorFrete", "PercImposto", "ValorImposto", "ValorFaturado"],
-      [16072026, 36, "Rota", "Padrao", "AAA1A11", "1001", 10, 200, 200, 800, 20, 200, 1000],
-      [16072026, 36, "Rota", "Padrao", "BBB2B22", "1002", 8, 150, 140, 400, 20, 100, 500],
-      [16072026, 36, "Entrega?", "Padrao", "CCC3C33", "1003", 1, 10, 10, 99, 20, 24.75, 123.75],
-      [16072026, 36, "Rota", "Spot", "DDD4D44", "1004", 5, 100, 100, 240, 20, 60, 300],
-      [17072026, 36, "AS", "Padrao", "EEE5E55", "2001", 3, 90, 90, 160, 20, 40, 200],
+      COLUNAS_DO_2ART,
+      viagem({
+        Data: 16072026, Transp: 36, Entrega: "Rota", CargaAtual: "Roteriz", Frota: "Padrao",
+        CustoSpot: 0, Regiao: 1, Veiculo: 63, Placa: "AAA1A11", Mapa: "1001",
+        Entregas: 10, CxCarreg: 200, CxEntreg: 200, Ocupacao: 55.23, CxRota: 200, CxAS: 0,
+        VeicBM: 0.37, RShow: 2, EntrVol: "Entrega",
+        HrSaida: "16/07/2026 7:39", HrEntrada: "16/07/2026 17:30", KmSaida: 995, KmEntrada: 1100,
+        CustoVariavel: 800, Lucro: 120, LucroUnit: 0.6,
+        ValorFrete: 800, TipoImposto: "CTRC-ICMS", PercImposto: 20, ValorImposto: 200,
+        ValorFaturado: 1000,
+        ValorUnitCxEntregue: 4, ValorPgCxEntregSemImp: 4, ValorPgCxEntregComImp: 5,
+        TempoPrevistoRoad: "  9:14", KmPrevistoRoad: 124.87,
+        ValorUnitPontoMot: 1.5, ValorUnitPontoAjd: 1.1, ValorEquipeEntrMot: 15,
+        ValorEquipeEntrAjd: 11,
+        CustoVariavelCEDBZ: 1000, LucroUnitCEDBZ: 0.5,
+        LucroVariavelCxEntregueFFCEDBZ: 0.25,
+        TempoInterno: "00:37", ValorDropdown: 0, VeicCadDD: "N",
+        KmLaco: 19.42, KmDeslocamento: 105.45, TempoLaco: "  5:22", TempoDeslocamento: "  3:52",
+        SitMultiCDD: 0, UnbOrigem: 30229,
+        MatricMotorista: 450, MatricAjudante1: 5282, MatricAjudante2: 0,
+      }),
+      viagem({
+        Data: 16072026, Transp: 36, Entrega: "Rota", Frota: "Padrao", Placa: "BBB2B22",
+        Mapa: "1002", Entregas: 8, CxCarreg: 150, CxEntreg: 140,
+        ValorFrete: 400, PercImposto: 20, ValorImposto: 100, ValorFaturado: 500,
+      }),
+      viagem({
+        Data: 16072026, Transp: 36, Entrega: "Entrega?", Frota: "Padrao", Placa: "CCC3C33",
+        Mapa: "1003", Entregas: 1, CxCarreg: 10, CxEntreg: 10,
+        ValorFrete: 99, PercImposto: 20, ValorImposto: 24.75, ValorFaturado: 123.75,
+      }),
+      viagem({
+        Data: 16072026, Transp: 36, Entrega: "Rota", Frota: "Spot", CustoSpot: 240,
+        Placa: "DDD4D44", Mapa: "1004", Entregas: 5, CxCarreg: 100, CxEntreg: 100,
+        ValorFrete: 240, PercImposto: 20, ValorImposto: 60, ValorFaturado: 300,
+      }),
+      viagem({
+        Data: 17072026, Transp: 36, Entrega: "AS", Frota: "Padrao", Placa: "EEE5E55",
+        Mapa: "2001", Entregas: 3, CxCarreg: 90, CxEntreg: 90,
+        ValorFrete: 160, PercImposto: 20, ValorImposto: 40, ValorFaturado: 200,
+      }),
+      viagem({
+        Data: 1072026, Transp: 36, Entrega: "Rota", Frota: "Padrao", Placa: "FFF6F66",
+        Mapa: "0101", Entregas: 4, CxCarreg: 80, CxEntreg: 80,
+        ValorFrete: 120, PercImposto: 20, ValorImposto: 30, ValorFaturado: 150,
+      }),
+    ],
+  });
+}
+
+/**
+ * O mesmo 2Art salvo de dentro da pasta de fechamento: cabeçalho com espaços.
+ *
+ * `CX CARREG` e `VALOR FRETE` são as mesmas colunas que `CxCarreg` e
+ * `ValorFrete`, e um leitor que só reconhecesse uma das grafias recusaria o
+ * arquivo inteiro — o cabeçalho é procurado por essas colunas.
+ */
+export function fixtureOperacaoComCabecalhoEspacado(): Buffer {
+  const espacado = COLUNAS_DO_2ART.map((c) =>
+    c.replace(/([a-z])([A-Z])/g, "$1 $2").toUpperCase(),
+  );
+  return planilha({
+    "2Art_07": [
+      espacado,
+      viagem({
+        Data: 16072026, Transp: 36, Entrega: "Rota", Frota: "Padrao", Placa: "AAA1A11",
+        Mapa: "1001", Entregas: 10, CxCarreg: 200, CxEntreg: 200, Ocupacao: 55.23,
+        ValorFrete: 800, PercImposto: 20, ValorImposto: 200, ValorFaturado: 1000,
+      }),
     ],
   });
 }

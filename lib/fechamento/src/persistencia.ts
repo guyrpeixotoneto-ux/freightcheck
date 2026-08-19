@@ -14,9 +14,15 @@ import {
   fechamentoViagemTable,
 } from "@workspace/db";
 import { type Canal, type Frota, type Recusa, type TipoDeFonte, type TipoDeFrotaContratada } from "./dominio";
-import { competencia as montarCompetencia, competenciaDaChave, type Competencia } from "./periodo";
+import {
+  competencia as montarCompetencia,
+  competenciaDaChave,
+  dentroDaCompetencia,
+  type Competencia,
+} from "./periodo";
 import { apurar, type Apuracao, type Fontes, type Parcela } from "./apuracao";
-import { lerOperacao } from "./leitores/operacao";
+import { lerOperacao, type DetalheDaViagem, type Viagem } from "./leitores/operacao";
+import { abrirDia, diasDaCompetencia, type DiaAberto, type DiaDaOperacao } from "./diario";
 import { lerCtes } from "./leitores/cte";
 import { lerRequisicoes } from "./leitores/requisicoes";
 import { lerDisponibilidade } from "./leitores/disponibilidade";
@@ -330,6 +336,168 @@ async function emLotes<T>(itens: T[], gravar: (lote: T[]) => Promise<unknown>): 
 
 type Transacao = Parameters<Parameters<Database["transaction"]>[0]>[0];
 
+/**
+ * O retrato da viagem, do objeto lido para as colunas do banco.
+ *
+ * Texto vazio vira `NULL`, e número ausente continua ausente. É a mesma regra
+ * do leitor, repetida aqui porque é aqui que ela vira dado gravado: `""` e `0`
+ * afirmam ("a placa é vazia", "não pagou nada"); `NULL` diz que a exportação
+ * não trouxe a coluna, que é a única coisa que sabemos.
+ */
+function retratoParaOBanco(detalhe: DetalheDaViagem | undefined) {
+  const texto = (valor: string | undefined) => (valor?.trim() ? valor.trim() : null);
+  const numero = (valor: number | null | undefined) =>
+    valor == null ? null : String(valor);
+
+  return {
+    transportadora: texto(detalhe?.transportadora),
+    cargaAtual: texto(detalhe?.cargaAtual),
+    regiao: texto(detalhe?.regiao),
+    veiculo: texto(detalhe?.veiculo),
+    entregaOuVolume: texto(detalhe?.entregaOuVolume),
+    unidadeDeOrigem: texto(detalhe?.unidadeDeOrigem),
+    situacaoMultiCdd: texto(detalhe?.situacaoMultiCdd),
+    veiculoCadastradoNoCdd: texto(detalhe?.veiculoCadastradoNoCdd),
+    matriculaDoMotorista: texto(detalhe?.matriculaDoMotorista),
+    matriculaDoAjudante1: texto(detalhe?.matriculaDoAjudante1),
+    matriculaDoAjudante2: texto(detalhe?.matriculaDoAjudante2),
+
+    veiculoIndisponivel: texto(detalhe?.veiculoIndisponivel),
+    placaIndisponivel: texto(detalhe?.placaIndisponivel),
+    frotaIndisponivel: texto(detalhe?.frotaIndisponivel),
+    tipoDeIndisponibilidade: texto(detalhe?.tipoDeIndisponibilidade),
+
+    ocupacao: numero(detalhe?.ocupacao),
+    caixasDeRota: numero(detalhe?.caixasDeRota),
+    caixasDeAs: numero(detalhe?.caixasDeAs),
+    veiculoBm: numero(detalhe?.veiculoBm),
+    rShow: numero(detalhe?.rShow),
+
+    horaDeSaida: texto(detalhe?.horaDeSaida),
+    horaDeEntrada: texto(detalhe?.horaDeEntrada),
+    kmDeSaida: numero(detalhe?.kmDeSaida),
+    kmDeEntrada: numero(detalhe?.kmDeEntrada),
+    tempoInterno: texto(detalhe?.tempoInterno),
+    tempoDoLaco: texto(detalhe?.tempoDoLaco),
+    tempoDeDeslocamento: texto(detalhe?.tempoDeDeslocamento),
+    kmDoLaco: numero(detalhe?.kmDoLaco),
+    kmDeDeslocamento: numero(detalhe?.kmDeDeslocamento),
+
+    tempoPrevisto: texto(detalhe?.tempoPrevisto),
+    kmPrevisto: numero(detalhe?.kmPrevisto),
+
+    custoSpot: numero(detalhe?.custoSpot),
+    custoVariavel: numero(detalhe?.custoVariavel),
+    lucro: numero(detalhe?.lucro),
+    lucroUnitario: numero(detalhe?.lucroUnitario),
+    tipoDeImposto: texto(detalhe?.tipoDeImposto),
+    valorUnitarioPorCaixaEntregue: numero(detalhe?.valorUnitarioPorCaixaEntregue),
+    valorPagoPorCaixaSemImposto: numero(detalhe?.valorPagoPorCaixaSemImposto),
+    valorPagoPorCaixaComImposto: numero(detalhe?.valorPagoPorCaixaComImposto),
+    valorDropdown: numero(detalhe?.valorDropdown),
+
+    valorUnitarioDoPontoDoMotorista: numero(detalhe?.valorUnitarioDoPontoDoMotorista),
+    valorUnitarioDoPontoDoAjudante: numero(detalhe?.valorUnitarioDoPontoDoAjudante),
+    valorDaEquipeDeEntregaMotorista: numero(detalhe?.valorDaEquipeDeEntregaMotorista),
+    valorDaEquipeDeEntregaAjudante: numero(detalhe?.valorDaEquipeDeEntregaAjudante),
+
+    custoVariavelCedbz: numero(detalhe?.custoVariavelCedbz),
+    lucroUnitarioCedbz: numero(detalhe?.lucroUnitarioCedbz),
+    lucroVariavelPorCaixaEntregueFfcedbz: numero(detalhe?.lucroVariavelPorCaixaEntregueFfcedbz),
+  };
+}
+
+/**
+ * A viagem inteira, como o banco a guardou.
+ *
+ * É a mesma função para a apuração e para a tela do dia — de propósito. Duas
+ * conversões da mesma linha são duas oportunidades de a tela mostrar um frete
+ * e a conta somar outro; aqui a linha vira viagem uma vez só, e o que a
+ * apuração soma é literalmente o que a tela exibe.
+ */
+function viagemGravada(linha: typeof fechamentoViagemTable.$inferSelect): Viagem {
+  const numero = (v: string | null) => (v == null ? 0 : Number(v));
+  return {
+    linha: linha.linhaNoArquivo,
+    dia: linha.dia,
+    canal: linha.canal as Canal,
+    frota: linha.frota as Frota,
+    placa: linha.placa ?? "",
+    mapa: linha.mapa ?? "",
+    entregas: linha.entregas,
+    caixasCarregadas: numero(linha.caixasCarregadas),
+    caixasEntregues: numero(linha.caixasEntregues),
+    valorFrete: numero(linha.valorFrete),
+    percentualDeImposto: linha.percentualDeImposto == null ? null : Number(linha.percentualDeImposto),
+    valorDeImposto: numero(linha.valorDeImposto),
+    valorFaturado: numero(linha.valorFaturado),
+    detalhe: retratoDoBanco(linha),
+  };
+}
+
+/** O caminho de volta: a linha gravada vira o retrato que a tela do dia mostra. */
+function retratoDoBanco(linha: typeof fechamentoViagemTable.$inferSelect): DetalheDaViagem {
+  const texto = (valor: string | null) => valor ?? "";
+  const numero = (valor: string | null) => (valor == null ? null : Number(valor));
+
+  return {
+    transportadora: texto(linha.transportadora),
+    cargaAtual: texto(linha.cargaAtual),
+    regiao: texto(linha.regiao),
+    veiculo: texto(linha.veiculo),
+    entregaOuVolume: texto(linha.entregaOuVolume),
+    unidadeDeOrigem: texto(linha.unidadeDeOrigem),
+    situacaoMultiCdd: texto(linha.situacaoMultiCdd),
+    veiculoCadastradoNoCdd: texto(linha.veiculoCadastradoNoCdd),
+    matriculaDoMotorista: texto(linha.matriculaDoMotorista),
+    matriculaDoAjudante1: texto(linha.matriculaDoAjudante1),
+    matriculaDoAjudante2: texto(linha.matriculaDoAjudante2),
+
+    veiculoIndisponivel: texto(linha.veiculoIndisponivel),
+    placaIndisponivel: texto(linha.placaIndisponivel),
+    frotaIndisponivel: texto(linha.frotaIndisponivel),
+    tipoDeIndisponibilidade: texto(linha.tipoDeIndisponibilidade),
+
+    ocupacao: numero(linha.ocupacao),
+    caixasDeRota: numero(linha.caixasDeRota),
+    caixasDeAs: numero(linha.caixasDeAs),
+    veiculoBm: numero(linha.veiculoBm),
+    rShow: numero(linha.rShow),
+
+    horaDeSaida: texto(linha.horaDeSaida),
+    horaDeEntrada: texto(linha.horaDeEntrada),
+    kmDeSaida: numero(linha.kmDeSaida),
+    kmDeEntrada: numero(linha.kmDeEntrada),
+    tempoInterno: texto(linha.tempoInterno),
+    tempoDoLaco: texto(linha.tempoDoLaco),
+    tempoDeDeslocamento: texto(linha.tempoDeDeslocamento),
+    kmDoLaco: numero(linha.kmDoLaco),
+    kmDeDeslocamento: numero(linha.kmDeDeslocamento),
+
+    tempoPrevisto: texto(linha.tempoPrevisto),
+    kmPrevisto: numero(linha.kmPrevisto),
+
+    custoSpot: numero(linha.custoSpot),
+    custoVariavel: numero(linha.custoVariavel),
+    lucro: numero(linha.lucro),
+    lucroUnitario: numero(linha.lucroUnitario),
+    tipoDeImposto: texto(linha.tipoDeImposto),
+    valorUnitarioPorCaixaEntregue: numero(linha.valorUnitarioPorCaixaEntregue),
+    valorPagoPorCaixaSemImposto: numero(linha.valorPagoPorCaixaSemImposto),
+    valorPagoPorCaixaComImposto: numero(linha.valorPagoPorCaixaComImposto),
+    valorDropdown: numero(linha.valorDropdown),
+
+    valorUnitarioDoPontoDoMotorista: numero(linha.valorUnitarioDoPontoDoMotorista),
+    valorUnitarioDoPontoDoAjudante: numero(linha.valorUnitarioDoPontoDoAjudante),
+    valorDaEquipeDeEntregaMotorista: numero(linha.valorDaEquipeDeEntregaMotorista),
+    valorDaEquipeDeEntregaAjudante: numero(linha.valorDaEquipeDeEntregaAjudante),
+
+    custoVariavelCedbz: numero(linha.custoVariavelCedbz),
+    lucroUnitarioCedbz: numero(linha.lucroUnitarioCedbz),
+    lucroVariavelPorCaixaEntregueFfcedbz: numero(linha.lucroVariavelPorCaixaEntregueFfcedbz),
+  };
+}
+
 async function gravarLinhas(
   tx: Transacao,
   competenciaId: string,
@@ -359,6 +527,7 @@ async function gravarLinhas(
             percentualDeImposto: v.percentualDeImposto == null ? null : String(v.percentualDeImposto),
             valorDeImposto: String(v.valorDeImposto),
             valorFaturado: String(v.valorFaturado),
+            ...retratoParaOBanco(v.detalhe),
           })),
         ),
       );
@@ -603,21 +772,7 @@ async function lerFontesDoBanco(db: Database, competenciaId: string): Promise<Fo
       .select()
       .from(fechamentoViagemTable)
       .where(eq(fechamentoViagemTable.competenciaId, competenciaId));
-    fontes.operacao = linhas.map((v) => ({
-      linha: v.linhaNoArquivo,
-      dia: v.dia,
-      canal: v.canal as Canal,
-      frota: v.frota as Frota,
-      placa: v.placa ?? "",
-      mapa: v.mapa ?? "",
-      entregas: v.entregas,
-      caixasCarregadas: numero(v.caixasCarregadas),
-      caixasEntregues: numero(v.caixasEntregues),
-      valorFrete: numero(v.valorFrete),
-      percentualDeImposto: v.percentualDeImposto == null ? null : Number(v.percentualDeImposto),
-      valorDeImposto: numero(v.valorDeImposto),
-      valorFaturado: numero(v.valorFaturado),
-    }));
+    fontes.operacao = linhas.map(viagemGravada);
   }
 
   if (tem.has("CTE")) {
@@ -867,4 +1022,126 @@ export async function lerApuracaoVigente(
       desfecho: d.desfecho,
     })),
   };
+}
+
+/* ===========================================================================
+ * O diário: a operação da competência, dia a dia
+ * ======================================================================== */
+
+/** O 2Art vigente da competência — de onde o diário saiu. */
+export interface FonteDoDiario {
+  nomeDoArquivo: string;
+  linhasLidas: number;
+  enviadoEm: Date;
+}
+
+export interface DiarioDaCompetencia {
+  competencia: CompetenciaRegistrada;
+  /** `null` quando o 2Art ainda não foi enviado — e aí a grade nasce vazia. */
+  fonte: FonteDoDiario | null;
+  dias: DiaDaOperacao[];
+  /**
+   * Viagens do 2Art que caíram fora do período, contadas e nunca somadas.
+   *
+   * O 2Art é exportado por mês e a competência é meio mês: metade do arquivo
+   * pertence à outra quinzena. Este número existe para que "o arquivo tem 949
+   * linhas e a grade mostra 480 viagens" tenha resposta na própria tela, em vez
+   * de virar desconfiança sobre a importação.
+   */
+  viagensForaDoPeriodo: number;
+}
+
+export interface DiaDaCompetencia {
+  competencia: CompetenciaRegistrada;
+  fonte: FonteDoDiario | null;
+  dia: DiaAberto;
+}
+
+/** O 2Art vigente, quando há um. */
+async function fonteDaOperacao(db: Database, competenciaId: string): Promise<FonteDoDiario | null> {
+  const [documento] = await db
+    .select({
+      nomeDoArquivo: fechamentoDocumentoTable.nomeDoArquivo,
+      linhasLidas: fechamentoDocumentoTable.linhasLidas,
+      enviadoEm: fechamentoDocumentoTable.enviadoEm,
+    })
+    .from(fechamentoDocumentoTable)
+    .where(
+      and(
+        eq(fechamentoDocumentoTable.competenciaId, competenciaId),
+        eq(fechamentoDocumentoTable.tipo, "OPERACAO"),
+        eq(fechamentoDocumentoTable.vigente, true),
+      ),
+    )
+    .limit(1);
+  return documento ?? null;
+}
+
+/**
+ * A grade de dias da competência — o que a tela abre antes de escolher um dia.
+ *
+ * Lê as viagens gravadas, e não o arquivo: é a mesma garantia da apuração — o
+ * número que a tela mostra é um número que o banco sustenta, com a linha física
+ * do 2Art do lado. Sem competência, `null`; sem 2Art, a grade vem inteira com
+ * zero viagens em cada dia, que é a resposta honesta a "o que rodou no dia 3"
+ * quando ninguém importou a operação ainda.
+ */
+export async function lerDiarioDaCompetencia(
+  db: Database,
+  competenciaId: string,
+): Promise<DiarioDaCompetencia | null> {
+  const competencia = await buscarCompetencia(db, competenciaId);
+  if (!competencia) return null;
+
+  const [fonte, linhas] = await Promise.all([
+    fonteDaOperacao(db, competenciaId),
+    db.select().from(fechamentoViagemTable).where(eq(fechamentoViagemTable.competenciaId, competenciaId)),
+  ]);
+
+  const viagens = linhas.map(viagemGravada);
+  const dias = diasDaCompetencia(competencia, viagens);
+  const noPeriodo = dias.reduce((s, d) => s + d.totais.viagens, 0);
+
+  return {
+    competencia,
+    fonte,
+    dias,
+    viagensForaDoPeriodo: viagens.length - noPeriodo,
+  };
+}
+
+/**
+ * Um dia aberto: as viagens daquele dia, inteiras.
+ *
+ * O filtro por dia é do banco (índice `fechamento_viagem_por_competencia`, que
+ * já abre por competência e dia) e não da memória: a tela do dia é a que se
+ * abre e fecha dezenas de vezes numa conferência, e trazer a quinzena inteira
+ * para escolher um dia seria pagar quinze vezes o que se vai ler uma.
+ *
+ * `null` quando a competência não existe **ou** quando o dia está fora dela —
+ * as duas coisas são a mesma para quem pergunta: não há esse dia aqui.
+ */
+export async function lerDiaDaCompetencia(
+  db: Database,
+  competenciaId: string,
+  dia: string,
+): Promise<DiaDaCompetencia | null> {
+  const competencia = await buscarCompetencia(db, competenciaId);
+  if (!competencia) return null;
+  if (!dentroDaCompetencia(competencia, dia)) return null;
+
+  const [fonte, linhas] = await Promise.all([
+    fonteDaOperacao(db, competenciaId),
+    db
+      .select()
+      .from(fechamentoViagemTable)
+      .where(
+        and(
+          eq(fechamentoViagemTable.competenciaId, competenciaId),
+          eq(fechamentoViagemTable.dia, dia),
+        ),
+      ),
+  ]);
+
+  return { competencia, fonte, dia: abrirDia(dia, linhas.map(viagemGravada)) };
 }

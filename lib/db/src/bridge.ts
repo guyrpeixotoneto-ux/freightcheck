@@ -210,6 +210,39 @@ const TABELAS_REMOVIDAS = [
  * O `up` a reconstrói com **aquele mesmo statement**, levantado do disco — não
  * com uma cópia reescrita aqui, que poderia divergir sem ninguém ver.
  */
+/**
+ * As colunas que a `0040` acrescentou a `fechamento_viagem` — o retrato da
+ * viagem, que a tela do dia mostra e a conta não usa.
+ *
+ * A lista existe para o `up`: o `down` derruba a tabela inteira e o `up` a
+ * recria pelo `CREATE TABLE` da `0039`, que não as conhece. Sem elas a tabela
+ * voltaria com quinze colunas em vez de sessenta e duas.
+ *
+ * Os nomes estão aqui por extenso, e não lidos do SQL por expressão regular,
+ * pelo mesmo motivo de toda lista nominal deste arquivo: o que o `up` repõe é
+ * decisão declarada, e uma varredura que casasse a mais reporia coisa que
+ * ninguém revisou. Quem confere o par é o teste do bridge, que compara o
+ * schema depois do `up` com o de um banco criado do zero pela fila.
+ */
+const COLUNAS_DO_RETRATO_DA_VIAGEM = [
+  "transportadora", "carga_atual", "regiao",
+  "veiculo", "entrega_ou_volume", "unidade_de_origem",
+  "situacao_multi_cdd", "veiculo_cadastrado_no_cdd", "matricula_do_motorista",
+  "matricula_do_ajudante_1", "matricula_do_ajudante_2", "veiculo_indisponivel",
+  "placa_indisponivel", "frota_indisponivel", "tipo_de_indisponibilidade",
+  "ocupacao", "caixas_de_rota", "caixas_de_as",
+  "veiculo_bm", "r_show", "hora_de_saida",
+  "hora_de_entrada", "km_de_saida", "km_de_entrada",
+  "tempo_interno", "tempo_do_laco", "tempo_de_deslocamento",
+  "km_do_laco", "km_de_deslocamento", "tempo_previsto",
+  "km_previsto", "custo_spot", "custo_variavel",
+  "lucro", "lucro_unitario", "tipo_de_imposto",
+  "valor_unitario_por_caixa_entregue", "valor_pago_por_caixa_sem_imposto", "valor_pago_por_caixa_com_imposto",
+  "valor_dropdown", "valor_unitario_do_ponto_do_motorista", "valor_unitario_do_ponto_do_ajudante",
+  "valor_da_equipe_de_entrega_motorista", "valor_da_equipe_de_entrega_ajudante", "custo_variavel_cedbz",
+  "lucro_unitario_cedbz", "lucro_variavel_por_caixa_entregue_ffcedbz",
+] as const;
+
 const TABELAS_DERIVADAS: { nome: string; migration: string; marca: RegExp }[] = [
   {
     nome: "snapshot_entity_type",
@@ -1485,6 +1518,30 @@ function planoUp(): PassoUp[] {
     "fechamento_apuracao",
   ]) {
     add(M39, `gatilho ${t}_congelada`, levantar(M39, new RegExp(`CREATE TRIGGER "${t}_congelada"`)));
+  }
+
+  /*
+    A `0040` — o retrato da viagem, que a `0039` não tinha.
+
+    Ela entra aqui porque o `down` derruba `fechamento_viagem` inteira, e o
+    `up` a recria pelo `CREATE TABLE` da `0039`: sem este passo a tabela
+    voltaria com as quinze colunas da conta e sem as quarenta e sete que a tela
+    do dia mostra — um schema que nenhuma das duas autoridades reconhece, que é
+    o estado que o bridge existe para não produzir.
+
+    Cada coluna é levantada pelo próprio nome, e não em bloco, pela mesma razão
+    que as chaves e os gatilhos acima: é o que permite endereçá-las uma a uma
+    aqui e na reconvergência da partida. As aspas de fechamento no padrão não
+    são enfeite — sem elas `"lucro"` casaria também `"lucro_unitario"`, e
+    `levantar` abortaria por achar dois statements onde espera um.
+  */
+  const M40 = "0040_viagem_completa";
+  for (const coluna of COLUNAS_DO_RETRATO_DA_VIAGEM) {
+    add(
+      M40,
+      `fechamento_viagem.${coluna}`,
+      levantar(M40, new RegExp(`ADD COLUMN IF NOT EXISTS "${coluna}"`)),
+    );
   }
 
   // 5. Obrigatoriedade e constraints.

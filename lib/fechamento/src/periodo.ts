@@ -56,13 +56,28 @@ export function diaDeSerial(serial: unknown): Dia | null {
   return comoDia(new Date((ajustado - EPOCA_EM_SERIAL + 1) * MS_POR_DIA));
 }
 
-/** `16072026` (o formato do 2Art, número ou texto) → dia. */
+/**
+ * `16072026` (o formato do 2Art, número ou texto) → dia.
+ *
+ * **Os sete dígitos são o primeiro dia do mês, e não lixo.** A coluna `Data` do
+ * 2Art é numérica, e todo número perde o zero à esquerda: 01/07/2026 chega como
+ * `1072026`. Exigir oito dígitos recusava a operação inteira dos dias 1 a 9 —
+ * nove dias de viagem por quinzena virando recusa nomeada, com o resto do mês
+ * entrando normalmente, que é a forma mais silenciosa possível de faltar
+ * dinheiro numa apuração.
+ *
+ * O zero perdido só pode ser o do dia: o do mês fica no meio do número
+ * (`10072026` para 10/07) e o Excel não corta dígito interno. Por isso a
+ * complementação é para a esquerda e de um dígito só — sete viram oito, e nada
+ * mais é aceito.
+ */
 export function diaDeDDMMAAAA(bruto: unknown): Dia | null {
   const texto = String(bruto ?? "").trim();
-  if (!/^\d{8}$/.test(texto)) return null;
-  const dd = Number(texto.slice(0, 2));
-  const mm = Number(texto.slice(2, 4));
-  const aaaa = Number(texto.slice(4, 8));
+  if (!/^\d{7,8}$/.test(texto)) return null;
+  const oito = texto.padStart(8, "0");
+  const dd = Number(oito.slice(0, 2));
+  const mm = Number(oito.slice(2, 4));
+  const aaaa = Number(oito.slice(4, 8));
   return montar(aaaa, mm, dd);
 }
 

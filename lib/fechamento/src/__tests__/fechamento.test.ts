@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  abrirDia,
   apurar,
   competencia,
   competenciaDaChave,
   competenciaDoDia,
   diaDeDDMMAAAA,
+  diasDaCompetencia,
   diaDeSerial,
   diaDeTextoBR,
   lerCanal,
@@ -25,6 +27,7 @@ import {
   fixtureCtes,
   fixtureDisponibilidade,
   fixtureOperacao,
+  fixtureOperacaoComCabecalhoEspacado,
   fixtureRequisicoes,
 } from "./fixtures";
 
@@ -44,6 +47,17 @@ describe("as três formas de escrever uma data", () => {
   it("lê o ddmmaaaa colado do 2Art e o dd/mm/aaaa do CSV", () => {
     expect(diaDeDDMMAAAA(16072026)).toBe("2026-07-16");
     expect(diaDeTextoBR("16/07/2026")).toBe("2026-07-16");
+  });
+
+  it("lê os sete dígitos de 01/07 — o zero à esquerda que o Excel come", () => {
+    /* A coluna `Data` do 2Art é numérica, e todo número perde o zero da frente.
+       Exigir oito dígitos recusava a operação inteira dos dias 1 a 9. */
+    expect(diaDeDDMMAAAA(1072026)).toBe("2026-07-01");
+    expect(diaDeDDMMAAAA("9082026")).toBe("2026-08-09");
+    /* O zero do mês fica no meio do número, e o Excel não corta dígito
+       interno: dez de julho continua tendo oito dígitos. */
+    expect(diaDeDDMMAAAA(10072026)).toBe("2026-07-10");
+    expect(diaDeDDMMAAAA(107202)).toBeNull();
   });
 
   it("recusa data impossível em vez de deixá-la transbordar", () => {
@@ -92,10 +106,13 @@ describe("o 2Art", () => {
   const lido = lerOperacao(fixtureOperacao());
 
   it("lê as viagens e recusa a que tem canal ilegível, com a linha e o texto", () => {
-    expect(lido.linhas).toHaveLength(4);
+    /* Cinco: quatro da 2ª quinzena e a de 01/07, cuja data vem com sete
+       dígitos. A recusada é a do canal ilegível, e só ela. */
+    expect(lido.linhas).toHaveLength(5);
     expect(lido.recusas).toEqual([
       { linha: 4, motivo: "O canal da viagem não é Rota nem AS.", original: "Entrega?" },
     ]);
+    expect(lido.linhas.map((v) => v.dia)).toContain("2026-07-01");
   });
 
   it("reproduz o total do dia por tipo de frota — o que as abas 01..31 da planilha faziam", () => {
@@ -105,6 +122,92 @@ describe("o 2Art", () => {
         .reduce((s, v) => s + v.valorFaturado, 0);
     expect(doDia("PADRAO")).toBe(1500);
     expect(doDia("SPOT")).toBe(300);
+  });
+
+  it("traz a linha inteira, e não só as colunas que a conta soma", () => {
+    /* É o que a tela do dia mostra: veículo, horários, laço, equipe. Sem isto,
+       conferir uma viagem continuaria exigindo reabrir o 2Art. */
+    const primeira = lido.linhas[0];
+    expect(primeira.detalhe).toMatchObject({
+      veiculo: "63",
+      cargaAtual: "Roteriz",
+      ocupacao: 55.23,
+      horaDeSaida: "16/07/2026 7:39",
+      kmDeSaida: 995,
+      tipoDeImposto: "CTRC-ICMS",
+      tempoPrevisto: "9:14",
+      kmPrevisto: 124.87,
+      valorDaEquipeDeEntregaMotorista: 15,
+      unidadeDeOrigem: "30229",
+      matriculaDoMotorista: "450",
+    });
+  });
+
+  it("deixa nulo o que a exportação não trouxe, em vez de zerar", () => {
+    /* A segunda viagem declara só o que a conta usa. `0` ali afirmaria que ela
+       não pagou equipe nenhuma — que é diferente de não sabermos. */
+    const segunda = lido.linhas[1];
+    expect(segunda.detalhe?.valorDaEquipeDeEntregaMotorista).toBeNull();
+    expect(segunda.detalhe?.ocupacao).toBeNull();
+    expect(segunda.detalhe?.horaDeSaida).toBe("");
+    /* E o que ela declara continua chegando. */
+    expect(segunda.valorFaturado).toBe(500);
+  });
+
+  it("lê o mesmo relatório com o cabeçalho espaçado da pasta de fechamento", () => {
+    /* `CX CARREG` e `CxCarreg` são a mesma coluna; sem isso o arquivo salvo de
+       dentro da planilha seria recusado inteiro, no cabeçalho. */
+    const espacado = lerOperacao(fixtureOperacaoComCabecalhoEspacado());
+    expect(espacado.recusas).toEqual([]);
+    expect(espacado.linhas).toHaveLength(1);
+    expect(espacado.linhas[0].caixasCarregadas).toBe(200);
+    expect(espacado.linhas[0].valorFaturado).toBe(1000);
+    expect(espacado.linhas[0].detalhe?.ocupacao).toBe(55.23);
+  });
+});
+
+describe("o diário da quinzena", () => {
+  const viagens = lerOperacao(fixtureOperacao()).linhas;
+  const segunda = competencia(2026, 7, 2);
+
+  it("traz um dia por dia do período, inclusive os que não rodaram", () => {
+    const dias = diasDaCompetencia(segunda, viagens);
+    expect(dias).toHaveLength(16);
+    expect(dias[0].dia).toBe("2026-07-16");
+    expect(dias.at(-1)?.dia).toBe("2026-07-31");
+    /* 16/07 rodou; 18/07 não rodou e continua na grade, com zero. */
+    expect(dias[0].totais.viagens).toBe(3);
+    expect(dias[2].totais.viagens).toBe(0);
+    expect(dias[2].totais.freteComImposto).toBe(0);
+  });
+
+  it("deixa de fora a viagem da outra quinzena, e não a soma em lugar nenhum", () => {
+    /* O 2Art é mensal e a competência é meio mês: 01/07 pertence à 1ª. */
+    const dias = diasDaCompetencia(segunda, viagens);
+    expect(dias.reduce((s, d) => s + d.totais.viagens, 0)).toBe(4);
+    const primeira = diasDaCompetencia(competencia(2026, 7, 1), viagens);
+    expect(primeira[0].dia).toBe("2026-07-01");
+    expect(primeira[0].totais.viagens).toBe(1);
+    expect(primeira[0].totais.freteComImposto).toBe(150);
+  });
+
+  it("abre o dia com os totais por frota — o TOTAL PADRAO e o TOTAL SPOT da aba", () => {
+    const dia = abrirDia("2026-07-16", viagens);
+    expect(dia.viagens).toHaveLength(3);
+    expect(dia.totais.freteComImposto).toBe(1800);
+    expect(dia.porFrota).toEqual([
+      expect.objectContaining({ frota: "PADRAO", viagens: 2, freteComImposto: 1500 }),
+      expect.objectContaining({ frota: "SPOT", viagens: 1, freteComImposto: 300 }),
+    ]);
+    /* A ordem é a da planilha: os Padrao juntos, depois o spot. */
+    expect(dia.viagens.map((v) => v.frota)).toEqual(["PADRAO", "PADRAO", "SPOT"]);
+  });
+
+  it("dá o número e o dia da semana que o ladrilho mostra", () => {
+    const dia = abrirDia("2026-07-16", viagens);
+    expect(dia.numeroDoDia).toBe(16);
+    /* 16/07/2026 é quinta-feira. */
+    expect(dia.diaDaSemana).toBe(4);
   });
 });
 
