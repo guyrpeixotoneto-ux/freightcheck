@@ -1576,11 +1576,18 @@ function planoUp(): PassoUp[] {
     reentrante, e não reescrito aqui — uma segunda escrita da mesma definição
     concorda no dia em que é escrita e discorda no dia em que a migration muda.
 
-    O CHECK de `fechamento_documento.tipo` **não** entra: a tabela inteira sai
-    no `down` e volta pelo `CREATE TABLE` da `0039`, que traz o CHECK com os
-    cinco tipos de lá. O que a `0043` faz nele é uma troca, e trocar uma
-    constraint numa tabela recém-criada pela `0039` é justamente o passo que a
-    fila aplica quando a migration roda — não o que o bridge restaura.
+    O CHECK de `fechamento_documento.tipo` entra **e é o passo mais fácil de
+    esquecer**, porque a tabela que o carrega não é da `0043`. O `down` derruba
+    `fechamento_documento` inteira e o `up` a recria pelo `CREATE TABLE` da
+    `0039` — que traz o CHECK com os cinco tipos de lá. Sem a troca aqui, o
+    banco reconstruído recusaria um documento `PAGAMENTO` que um banco criado
+    do zero aceita: o mesmo schema por duas autoridades, divergindo em silêncio
+    num único ARRAY. É o `bridge-up` comparado contra um banco novo que pega
+    isso, e foi ele que pegou.
+
+    Os dois passos, na ordem da migration: o DROP antes do ADD, cada um
+    levantado pelo próprio padrão — é o mesmo desenho de `app_user_role_ck` na
+    `0037`, pela mesma razão.
   */
   const M43 = "0043_pagamento";
   for (const t of ["fechamento_pagamento_item", "fechamento_pagamento_desconto"]) {
@@ -1602,6 +1609,16 @@ function planoUp(): PassoUp[] {
   ]) {
     add(M43, `índice ${i}`, levantar(M43, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
   }
+  add(
+    M43,
+    "fechamento_documento_tipo (drop)",
+    levantar(M43, /DROP CONSTRAINT IF EXISTS "fechamento_documento_tipo"/),
+  );
+  add(
+    M43,
+    "fechamento_documento_tipo",
+    levantar(M43, /ADD CONSTRAINT "fechamento_documento_tipo"/),
+  );
 
   const M42 = "0042_viagem_completa";
   for (const coluna of COLUNAS_DO_RETRATO_DA_VIAGEM) {
