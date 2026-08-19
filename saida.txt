@@ -1,0 +1,86 @@
+=== [0] EVIDÊNCIA DE AMBIENTE (não sensível) ===
+  base  | host_hash | replica |  servidor_no_ar_desde  | runs_totais | arquivos | snapshots_totais | primeiro_run | ultimo_run 
+--------+-----------+---------+------------------------+-------------+----------+------------------+--------------+------------
+ neondb | 595b86df  | f       | 2026-08-19 20:45:52+00 |           4 |        4 |               18 | 2026-08-14   | 2026-08-19
+(1 row)
+
+
+  ^ CONFIRA ACIMA ANTES DE SEGUIR:
+    - "base" é o nome do banco de Production?
+    - "runs_totais"/"primeiro_run" batem com um ambiente em uso real?
+      (Development tem poucos runs e histórico curto.)
+    - "host_hash" difere do hash do host de Development?
+
+=== [0b] CANDIDATOS AO RUN DAS 2026-08-19 06:44 (America/Sao_Paulo) ===
+            import_run_id             |      status      |   declared_type    |              filename               |   iniciado_local    |      iniciado_utc       
+--------------------------------------+------------------+--------------------+-------------------------------------+---------------------+-------------------------
+ 9a192a97-8d96-4c5c-84e3-065e9dae5bd2 | VALIDATION_ERROR | QLP_ADMINISTRATIVO | QLP ADM_Remunerado Camaçari_V@.xlsx | 2026-08-19 06:44:02 | 2026-08-19 09:44:02 GMT
+(1 row)
+
+
+OK: exatamente 1 run identificado às 2026-08-19 06:44 (America/Sao_Paulo).
+
+=== EXECUTANDO prova-qlp.sql (consultas 1–8, somente leitura) ===
+=== [1] RUNS DO ARQUIVO QLP ADM ===
+            import_run_id             |      status      |   declared_type    |            source_file_id            |              filename               |      sha256       |          started_at           |        finished_at         | abas | linhas_raw | celulas_raw | fatos | vigencias | erros | avisos |                                                                                                                                                             failure_reason                                                                                                                                                              | reprocess_of_run_id | reprocess_reason |        triggered_by        
+--------------------------------------+------------------+--------------------+--------------------------------------+-------------------------------------+-------------------+-------------------------------+----------------------------+------+------------+-------------+-------+-----------+-------+--------+-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+---------------------+------------------+----------------------------
+ 9a192a97-8d96-4c5c-84e3-065e9dae5bd2 | VALIDATION_ERROR | QLP_ADMINISTRATIVO | 0b0dcd76-3054-4aea-ac4b-04704f49c568 | QLP ADM_Remunerado Camaçari_V@.xlsx | 168d211b7d3a6b9f… | 2026-08-19 09:44:02.015364+00 | 2026-08-19 09:44:13.301+00 |    1 |        345 |       12765 | 11760 |         0 |     8 |      0 | 8 conflitos impedem esta importação: a mesma entidade aparece mais de uma vez na mesma vigência com valores diferentes, e não há como saber qual das linhas vale. Os apontamentos da importação nomeiam cada conflito — a chave repetida, as linhas da planilha e os valores que discordam. Corrija a origem e envie o arquivo de novo. |                     |                  | guyrpeixoto.neto@gmail.com
+(1 row)
+
+
+=== [2] LEITURAS EM ABERTO (bloqueiam reprocessar) ===
+ id | status | started_at | filename 
+----+--------+------------+----------
+(0 rows)
+
+
+=== [3] SNAPSHOTS DESSES RUNS (prova do promote) ===
+ snapshot_id | import_run_id | status | dataset_family | canal | effective_date | source_label | revision | entity_count | fact_count | scope_hash | created_at 
+-------------+---------------+--------+----------------+-------+----------------+--------------+----------+--------------+------------+------------+------------
+(0 rows)
+
+
+=== [4] listContexts(QUADRO_DE_PESSOAL) — a consulta da tela ===
+ scope_hash | canal | latest_period | periods | all_periods 
+------------+-------+---------------+---------+-------------
+(0 rows)
+
+
+=== [4b] Famílias existentes no canônico (controle) ===
+     dataset_family      |   status   | snapshots | vigencias | fatos 
+-------------------------+------------+-----------+-----------+-------
+ REMUNERACAO_EQUIPAMENTO | CLOSED     |         9 |         9 | 83241
+ REMUNERACAO_EQUIPAMENTO | SUPERSEDED |         9 |         9 | 41850
+(2 rows)
+
+
+=== [5] Fatos visíveis à tela do QLP ADM ===
+ effective_date | dataset_family | entity_type | entidades | fatos 
+----------------+----------------+-------------+-----------+-------
+(0 rows)
+
+
+=== [5b] entity_type criado por esses runs ===
+ entity_type | entidades | sem_identificador_placa 
+-------------+-----------+-------------------------
+(0 rows)
+
+
+=== [6] Apontamentos (validation_issue) ===
+            import_run_id             | severity |              code              | ocorrencias |                                                                                                                                                                                                                                                                                                                exemplo                                                                                                                                                                                                                                                                                                                 
+--------------------------------------+----------+--------------------------------+-------------+----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+ 9a192a97-8d96-4c5c-84e3-065e9dae5bd2 | INFO     | NEW_ATTRIBUTE                  |          35 | A coluna "Despesa Benefício" da aba "QLP ADM" apareceu pela primeira vez; passa a ser acompanhada a partir desta importação.
+ 9a192a97-8d96-4c5c-84e3-065e9dae5bd2 | ERROR    | ENTIDADE_DUPLICADA_CONFLITANTE |           8 | QLP Administrativo "07526557001505_CERV · Cargo: Conferente | Classificação: Classificação: CARREGAMENTO - ESTACIONÁRIA" aparece mais de uma vez na vigência EMPURRADA_1_5_2026 — nas linhas 315 e 316 da aba "QLP ADM" — com valores diferentes: _id (a linha 315 traz "e2e69c7f-b1d2-4dc5-879d-784f5234e93d" e a linha 316 traz "911d18d3-1835-4ccb-b7ae-3ff931d51a6d"). Linhas repetidas para a mesma chave, discordando entre si, não têm resposta certa, e a importação não escolhe uma em silêncio. Corrija a planilha de origem — deixe uma linha só por chave, ou os mesmos valores nas repetidas — e envie o arquivo de novo.
+ 9a192a97-8d96-4c5c-84e3-065e9dae5bd2 | INFO     | ENTIDADE_DUPLICADA_CONSOLIDADA |           8 | QLP Administrativo "07526557001505_CERV · Cargo: Conferente | Classificação: Classificação: CARREGAMENTO - ESTACIONÁRIA" aparece em 2 linhas da vigência EMPURRADA_1_5_2026 — nas linhas 315 e 316 da aba "QLP ADM" —, e elas dizem o mesmo em 34 campos; consolidadas numa ocorrência. Nada foi descartado: as linhas continuam inteiras no RAW, e é lá que elas podem ser conferidas uma a uma.
+ 9a192a97-8d96-4c5c-84e3-065e9dae5bd2 | INFO     | IDENTITY_FROM_DECLARATION      |           1 | Aba "QLP ADM" tratada como QLP Administrativo. Tipo declarado no envio: QLP Administrativo. A aba traz "Unidade - CNPJ" + "Cargo", que é o grão deste tipo. Identidade tirada do nome da aba ("QLP ADM") porque o melhor palpite do dicionário é CARRETA com 40%, abaixo dos 75% exigidos. Isso criaria o equipamento QLPADM, que não existe no dicionário.
+(4 rows)
+
+
+=== [7] Fatos em staging por run (separa A de D) ===
+            import_run_id             |    entity_type     | staged_facts | entidades_distintas | rotulos_vigencia 
+--------------------------------------+--------------------+--------------+---------------------+------------------
+ 9a192a97-8d96-4c5c-84e3-065e9dae5bd2 | QLP_ADMINISTRATIVO |        11760 |                  42 |                8
+(1 row)
+
+
+=== FIM. Nenhuma escrita foi executada. ===
