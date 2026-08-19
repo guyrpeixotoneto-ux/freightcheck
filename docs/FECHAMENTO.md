@@ -126,6 +126,40 @@ Três decisões que a tela materializa:
 3. **A última coluna da tabela é a linha física do 2Art.** É a ponta da trilha:
    permite conferir a célula de origem sem refazer a conta.
 
+## A conta abre na lista — Apurações sem trocar de tela
+
+`/fechamento/apuracoes` é a fila do fechamento: uma linha por competência,
+agrupada por quinzena, com o que foi emitido, quanto está conferido e quanto
+continua a questionar. A pergunta seguinte a "56% conferido" é sempre a mesma —
+*conferido onde?* — e ela custava uma troca de tela: abrir a competência,
+voltar, refazer o filtro, reprocurar a linha. Quem comparava dois CDDs pagava
+esse pedágio a cada ida e volta.
+
+Agora o clique **abre a conta na própria linha**: os três números da quinzena, a
+conversão medida dos arquivos e a tabela de verbas, com a memória de cálculo de
+cada uma a um segundo clique. O cabeçalho da quinzena abre o grupo inteiro — e
+só o fecha quando não falta nenhuma competência por abrir, para que o clique num
+grupo meio aberto termine de abri-lo em vez de fechar o que já se estava lendo.
+
+Três decisões que a tela materializa:
+
+1. **É o mesmo componente nas duas telas.** A conta saiu da competência aberta
+   para `components/fechamento/conta-apurada.tsx`, e as duas o desenham. Duas
+   cópias do mesmo bloco seriam duas opiniões sobre o mesmo número, e a segunda
+   envelheceria calada.
+2. **A conta é buscada quando a linha abre**, sob a mesma chave de consulta da
+   competência aberta (`["fechamento", "competencia", id]`). A lista é o índice
+   de dezenas de quinzenas e cada conta traz verbas, memória e divergências:
+   baixar todas para mostrar uma seria pagar o fechamento inteiro para ler uma
+   linha. Como a chave é a mesma, quem abre aqui e depois entra na tela de
+   dentro a encontra pronta — e quem volta de lá reabre a linha sem nova ida ao
+   servidor.
+3. **A linha não troca mais de tela; ela abre.** O caminho para a competência
+   inteira — enviar relatório, ver os dias, encerrar — fica dentro do painel
+   aberto, onde a pergunta seguinte aparece. Competência ainda não apurada abre
+   dizendo isso, com o atalho para ir rodar a conta, porque apurar continua
+   sendo um botão de lá: rodar grava.
+
 ## Remuneração — o cadastro, e a única tela que atravessa a fronteira
 
 `/fechamento/remuneracao` reproduz a aba **CADASTRO DA PLANILHA DE
