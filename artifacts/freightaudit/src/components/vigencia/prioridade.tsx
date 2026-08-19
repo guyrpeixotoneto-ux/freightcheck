@@ -22,6 +22,7 @@ import type {
   AttributeSeries,
   ChangeGroup,
   GroupVehicle,
+  PriorityItem,
   Severity,
 } from "@/components/inicio/types";
 import type { ItemCockpit } from "@/lib/cockpit";
@@ -34,8 +35,9 @@ import type { ItemCockpit } from "@/lib/cockpit";
  * 1. **A linha da tabela** responde *o que é, em quanto da frota, e quanto
  *    custa* — em linguagem de auditor, e em colunas que se comparam de cima a
  *    baixo. Nada de `2028-07-01T12:00:00Z → 46935.5` aqui.
- * 2. **A investigação** abre a profundidade técnica: os dois lados como vieram,
- *    o diagnóstico, os padrões, os veículos, a série e a origem.
+ * 2. **A investigação** abre a profundidade técnica, do tamanho para a prova:
+ *    a abrangência, os dois lados como vieram — com os padrões colados neles —,
+ *    o diagnóstico com suas ressalvas, os veículos, a série e a origem.
  * 3. **A conta da prioridade** fica visível no fim da investigação. Um ranking
  *    cujo critério não pode ser lido é indistinguível de um palpite; aqui a
  *    soma que produziu a posição está escrita, parcela por parcela.
@@ -338,9 +340,68 @@ function Investigacao({
         )}
       </div>
 
-      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
+      {/*
+        A abrangência abre a investigação, em vez de fechar uma segunda fileira
+        de cartões.
+
+        Ela é o tamanho do achado, e tudo abaixo é lido contra ela: "o valor foi
+        zerado" em 10 de 71 carretas e em 71 de 71 é a mesma frase e dois
+        problemas diferentes. Enquanto era meia coluna *embaixo* do diagnóstico,
+        a escala chegava depois da conclusão que depende dela — e o leitor tinha
+        de subir de novo para reler a frase com o peso certo.
+      */}
+      <Secao titulo="Abrangência">
+        <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+          <p>
+            <span className="text-xl font-bold tabular-nums">{group.vehicles}</span>{" "}
+            <span className="text-muted-foreground">
+              de {group.fleet} {group.equipment.toLowerCase()}
+              {group.fleet === 1 ? "" : "s"} da frota comparada
+            </span>
+          </p>
+          {/*
+            As duas grandezas na mesma linha, e cada uma dizendo o que conta:
+            fatia da frota é veículo, "alterações neste ponto" é linha. A
+            contagem de linhas não depende mais da fatia existir — ela é sabida
+            sempre, e some da tela junto com a barra não fazia sentido.
+          */}
+          <p className="text-xs text-muted-foreground">
+            {item.sharePercent !== null && (
+              <>{item.sharePercent.toLocaleString("pt-BR")}% da frota · </>
+            )}
+            {group.changes} {group.changes === 1 ? "alteração" : "alterações"} neste ponto
+          </p>
+        </div>
+        {/*
+          A barra tem largura máxima: solta na largura inteira do painel, uma
+          régua de 1,5px separando duas seções é lida como filete decorativo, e
+          não como a frota medida. Presa a uma medida de leitura, ela volta a
+          ser o desenho do "10 de 71".
+        */}
+        {item.sharePercent !== null && (
+          <div className="h-1.5 max-w-2xl bg-muted overflow-hidden mt-2">
+            <div
+              className={cn("h-full", CORES[item.severity].barra)}
+              style={{ width: `${item.sharePercent}%` }}
+            />
+          </div>
+        )}
+      </Secao>
+
+      {/*
+        Duas colunas de mesma largura, e não `1fr 1.2fr`: a fileira de baixo
+        usava `md:grid-cols-2`, então a divisa entre as colunas mudava de lugar
+        de uma fileira para a outra e os títulos de seção não se alinhavam na
+        mesma tela. Um breakpoint só (`md`), uma divisa só.
+
+        À esquerda a prova — o que a planilha entregou, e se ela entregou a
+        mesma coisa em todos os veículos. À direita a leitura: o que o
+        FreightCheck conclui, e o que ele se recusa a concluir.
+      */}
+      <div className="grid gap-5 md:grid-cols-2">
         <Secao titulo="O que mudou">
           <OQueMudou group={group} />
+          <Padroes group={group} item={item} />
         </Secao>
 
         <Secao titulo="Diagnóstico FreightCheck">
@@ -406,65 +467,22 @@ function Investigacao({
             </div>
           )}
           {group.impact.amount === null && group.impact.reason && (
-            <div className="mt-2 border bg-muted/40 px-3 py-2">
-              <span className="inline-flex items-center gap-1.5 font-medium text-foreground text-xs">
+            /*
+              Mesma gramática das outras ressalvas — régua à esquerda, título
+              curto com ícone, corpo em uma frase — e só a cor muda, porque só o
+              peso muda. Esta era uma caixa cinza inteira, com outro tamanho de
+              título: a informação que explica a coluna de dinheiro da fila
+              dizer "Não calculado" era a que menos parecia pertencer ao grupo.
+            */
+            <div className="mt-2 border-l-4 border-slate-400 bg-muted/40 px-3 py-2">
+              <div className="font-semibold text-[0.6875rem] uppercase tracking-wide mb-1 flex items-center gap-1.5">
                 <Lock className="w-3.5 h-3.5" />
                 Por que não há valor apurado
-              </span>
-              <p className="mt-1 text-xs text-muted-foreground leading-snug">
+              </div>
+              <p className="text-xs text-muted-foreground leading-snug">
                 {group.impact.reason}
               </p>
             </div>
-          )}
-        </Secao>
-      </div>
-
-      <div className="grid gap-5 md:grid-cols-2">
-        <Secao titulo="Abrangência">
-          <p>
-            <span className="text-xl font-bold tabular-nums">{group.vehicles}</span>{" "}
-            <span className="text-muted-foreground">
-              de {group.fleet} {group.equipment.toLowerCase()}
-              {group.fleet === 1 ? "" : "s"} da frota comparada
-            </span>
-          </p>
-          {item.sharePercent !== null && (
-            <div className="mt-1.5">
-              <div className="h-1.5 bg-muted overflow-hidden">
-                <div
-                  className={cn("h-full", CORES[item.severity].barra)}
-                  style={{ width: `${item.sharePercent}%` }}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {item.sharePercent.toLocaleString("pt-BR")}% da frota · {group.changes}{" "}
-                {group.changes === 1 ? "alteração" : "alterações"} neste ponto
-              </p>
-            </div>
-          )}
-        </Secao>
-
-        <Secao titulo="Padrões encontrados">
-          {group.patterns <= 1 ? (
-            <p className="text-muted-foreground">
-              Um único comportamento em todos os veículos deste ponto.
-            </p>
-          ) : (
-            <>
-              <p>{item.patternsSummary}</p>
-              {group.dominantPattern && (
-                <p className="mt-1.5 font-mono text-xs bg-muted/50 border px-2 py-1.5 inline-block">
-                  {group.dominantPattern.before ?? "—"} → {group.dominantPattern.after ?? "—"}
-                  <span className="font-sans text-muted-foreground">
-                    {" "}
-                    · {group.dominantPattern.vehicles} veículos
-                  </span>
-                </p>
-              )}
-              <p className="text-xs text-muted-foreground mt-1.5">
-                Os demais padrões aparecem veículo a veículo na tabela abaixo.
-              </p>
-            </>
           )}
         </Secao>
       </div>
@@ -564,6 +582,66 @@ function Secao({ titulo, children }: { titulo: string; children: React.ReactNode
 }
 
 /**
+ * O par dominante *quando é ele* que "O que mudou" está mostrando como
+ * ANTERIOR/ATUAL — e `null` quando o bloco de cima mostra outra coisa (os
+ * totais da frota, ou uma faixa de variação por veículo).
+ *
+ * Uma função só, consultada nos dois lugares, porque a pergunta é a mesma nos
+ * dois: *este par já está na tela?* Enquanto cada seção decidia por conta
+ * própria, "Padrões encontrados" imprimia como chip o mesmo
+ * `1843.23 → 6529.73` que "O que mudou" mostrava em caixa alta meia tela ao
+ * lado — o mesmo fato em duas formas, fazendo o leitor procurar uma diferença
+ * que não existe.
+ */
+function parDominanteNoTopo(group: ChangeGroup) {
+  const a = group.aggregate;
+  const totais = a.summable && a.totalBefore !== null && a.totalAfter !== null;
+  return totais ? null : group.dominantPattern;
+}
+
+/**
+ * Quantos comportamentos existem sob a mesma alteração, colado nas duas pontas.
+ *
+ * Era uma seção própria, na outra ponta de um grid de quatro cartões, separada
+ * por uma fileira inteira do valor que ela descreve. A frase agora fica embaixo
+ * do par e diz o que aquele par é — o padrão mais frequente, e em quantos
+ * veículos —, o que também dispensa o "(3 de 10 veículos)" que a legenda de
+ * cima repetia com outro substantivo.
+ */
+function Padroes({ group, item }: { group: ChangeGroup; item: PriorityItem }) {
+  if (group.patterns <= 1) {
+    return (
+      <p className="text-xs text-muted-foreground mt-2">
+        Um único comportamento em todos os veículos deste ponto.
+      </p>
+    );
+  }
+
+  return (
+    <div className="mt-3 border-t pt-2.5">
+      <p className="text-xs leading-snug">{item.patternsSummary}</p>
+      {/*
+        O chip só quando o par ainda não está visível acima — nos grupos
+        somáveis (onde o topo mostra os totais da frota) e nos que só têm faixa
+        de variação. Aí ele não repete nada: é a única aparição do par.
+      */}
+      {group.dominantPattern && !parDominanteNoTopo(group) && (
+        <p className="mt-1.5 font-mono text-xs bg-muted/50 border px-2 py-1.5 inline-block">
+          {group.dominantPattern.before ?? "—"} → {group.dominantPattern.after ?? "—"}
+          <span className="font-sans text-muted-foreground">
+            {" "}
+            · {group.dominantPattern.vehicles} veículos
+          </span>
+        </p>
+      )}
+      <p className="text-xs text-muted-foreground mt-1.5">
+        Os demais padrões aparecem veículo a veículo na tabela abaixo.
+      </p>
+    </div>
+  );
+}
+
+/**
  * Os dois lados, como a fonte os entregou.
  *
  * É aqui — e só aqui — que o valor cru aparece. Na linha ele seria ruído; nesta
@@ -588,14 +666,20 @@ function OQueMudou({ group }: { group: ChangeGroup }) {
     );
   }
 
-  if (group.dominantPattern) {
+  const par = parDominanteNoTopo(group);
+  if (par) {
     return (
       <div className="grid grid-cols-2 gap-3">
-        <Lado titulo="Anterior" valor={group.dominantPattern.before ?? "—"} />
-        <Lado titulo="Atual" valor={group.dominantPattern.after ?? "—"} forte />
+        <Lado titulo="Anterior" valor={par.before ?? "—"} />
+        <Lado titulo="Atual" valor={par.after ?? "—"} forte />
+        {/*
+          Só a procedência do número fica aqui. Em quantos veículos este par
+          vale é a frase logo abaixo, escrita uma vez e com o substantivo da
+          frota — esta legenda dizia "veículos" numa tela que, três linhas
+          acima, chama os mesmos itens de carretas.
+        */}
         <p className="col-span-2 text-xs text-muted-foreground">
-          Valores como vieram da planilha, sem conversão, no padrão mais frequente do grupo (
-          {group.dominantPattern.vehicles} de {group.vehicles} veículos).
+          Valores como vieram da planilha, sem conversão, no padrão mais frequente do grupo.
         </p>
       </div>
     );
