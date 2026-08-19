@@ -1,6 +1,5 @@
 import {
   BadgeCheck,
-  Briefcase,
   ChartColumn,
   ClipboardCheck,
   Database,
@@ -176,13 +175,19 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
   // QLP
   // -------------------------------------------------------------------------
   /*
-    As duas telas nascem no catálogo pela mesma razão: o Freightech publica o
-    QLP — o quadro de lotação de pessoal que o modelo remunera — mas o export
-    que abastece este banco não traz nenhuma das suas linhas. "QLP ADM" está
-    listado nominalmente em `FREIGHTECH_SEM_DADO` (`lib/comparison/families.ts`),
-    na família Equipe, e os cartões de benchmark de QLP (cargo, quantidade e
-    valor por faixa) estão catalogados em `lib/knowledge/catalogo.ts` sem coluna
-    importada. A regra existe e está escrita no Book; o número, ainda não.
+    `/qlp-administrativo` saiu deste catálogo: a importação passou a receber o
+    export próprio do QLP ADM (tipo QLP_ADMINISTRATIVO, família de dados
+    QUADRO_DE_PESSOAL), e a tela de verdade lê o quadro por unidade e cargo,
+    compara vigências pelo motor canônico e rastreia cada valor até a célula.
+    O que a entrada dizia faltar em segundo lugar **continua faltando**: o
+    registro da auditoria bimestral — o DESCONTO QLP ADM — não vem em export
+    nenhum, e a tela diz isso em vez de fingir o desconto. A distinção está
+    escrita na própria tela, e é dela que sai a próxima versão desta resposta.
+
+    O QLP Operacional continua aqui pela razão de sempre: o export dele ainda
+    não chegou. O tipo de importação já existe (`QLP_OPERACIONAL`, grão unidade
+    + cargo + turno), então o caminho é o mesmo que o administrativo percorreu:
+    importar a primeira planilha, e promover a tela.
   */
   {
     href: "/qlp-operacional",
@@ -206,31 +211,6 @@ export const TELAS_EM_PREPARO: TelaEmPreparo[] = [
         href: "/assistente",
         label: "Assistente IA",
         porque: "Responde o que o Book diz sobre QLP, cargo a cargo, sem esperar a tela.",
-      },
-    ],
-  },
-  {
-    href: "/qlp-administrativo",
-    label: "QLP Administrativo",
-    icon: Briefcase,
-    cor: "text-nav-qlp",
-    pergunta:
-      "O que a estrutura administrativa da transportadora custa no modelo — a composição do QLP ADM e o desconto que a auditoria bimestral dele gera.",
-    depende: [
-      "Os valores do QLP ADM na importação: o parâmetro existe no Freightech e está entre os que o export não traz — nomeado em `FREIGHTECH_SEM_DADO`, família Equipe.",
-      "O registro da auditoria bimestral — o DESCONTO QLP ADM — vinculado à quinzena que ele desconta, sem o qual a tela diria a regra do desconto e nunca o desconto aplicado.",
-    ],
-    hoje: [
-      {
-        href: "/book-operador",
-        label: "Book do Operador",
-        porque:
-          "Os blocos QLP ADM e DESCONTO QLP ADM detalham a composição e a auditoria — a regra inteira, sem o número.",
-      },
-      {
-        href: "/assistente",
-        label: "Assistente IA",
-        porque: "\"O que é QLP ADM?\" já é respondida pelo Book, com a fonte ao lado.",
       },
     ],
   },
