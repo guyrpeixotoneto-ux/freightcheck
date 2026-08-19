@@ -7,6 +7,7 @@ import {
   buscarCompetencia,
   descartarDadosDaCompetencia,
   lerApuracaoVigente,
+  lerDeParaDaCompetencia,
   lerDiaDaCompetencia,
   lerDiarioDaCompetencia,
   lerResumoDoMes,
@@ -19,7 +20,15 @@ import {
   encerrarCompetencia,
   RecusaDeFechamento,
 } from "@workspace/fechamento/persistencia";
-import { DESCRICAO_DA_FONTE, TIPOS_DE_FONTE, type TipoDeFonte } from "@workspace/fechamento";
+import {
+  DESCRICAO_DA_FONTE,
+  GRUPOS_DA_PLANILHA,
+  LINHAS_DA_PLANILHA,
+  TIPOS_DE_FONTE,
+  type Canal,
+  type ColunaDoPagamento,
+  type TipoDeFonte,
+} from "@workspace/fechamento";
 
 /**
  * Fechamento de Remuneração — a superfície HTTP do outro ambiente do produto.
@@ -196,6 +205,79 @@ router.get("/fechamento/competencias/:id", async (req, res): Promise<void> => {
     lerApuracaoVigente(db, id),
   ]);
   res.json({ competencia, documentos, apuracao });
+});
+
+/**
+ * O de-para: o painel da planilha preenchido com o 03.08.20 desta competência.
+ *
+ * Responde à pergunta que o produto ainda não respondia — "a classificação do
+ * sistema conversa com a da planilha?" —, e responde nos rótulos da planilha,
+ * não nos nossos: `CUSTO FIXO PADRONIZADO`, `DESCONTO DE DEVOLUÇÃO`, `TOTAL
+ * OUTROS CUSTOS`. Cada linha vem com o valor ou com o motivo de não ter, e cada
+ * quadro vem com o resíduo, que é o que as linhas sem origem somam.
+ *
+ * **404 quando o 03.08.20 não foi importado**, e não um painel de zeros. É a
+ * mesma regra do diário: a fonte ausente é uma resposta, e ela não pode ter a
+ * cara de "a quinzena valeu zero".
+ *
+ * `coluna` escolhe contra o que conferir — `semImposto` (o padrão, e a moeda em
+ * que os descontos do relatório vêm), `ctrcIcms` (o que vira CT-e) ou
+ * `valorFaturado`. `canal` existe pelo mesmo motivo que existe no módulo: o
+ * painel transcrito é o da Rota, e o do AS entra quando os rótulos dele forem
+ * capturados.
+ */
+router.get("/fechamento/competencias/:id/de-para", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de competência inválido." });
+    return;
+  }
+
+  const colunas: ColunaDoPagamento[] = ["semImposto", "ctrcIcms", "valorFaturado"];
+  const pedida = String(req.query.coluna ?? "semImposto");
+  if (!colunas.includes(pedida as ColunaDoPagamento)) {
+    res.status(400).json({ error: `coluna precisa ser uma de: ${colunas.join(", ")}.` });
+    return;
+  }
+  const canais: Canal[] = ["ROTA", "AS"];
+  const canal = String(req.query.canal ?? "ROTA");
+  if (!canais.includes(canal as Canal)) {
+    res.status(400).json({ error: `canal precisa ser um de: ${canais.join(", ")}.` });
+    return;
+  }
+
+  const competencia = await buscarCompetencia(db, id);
+  if (!competencia) {
+    res.status(404).json({ error: "Competência não encontrada." });
+    return;
+  }
+
+  const painel = await lerDeParaDaCompetencia(db, id, {
+    canal: canal as Canal,
+    coluna: pedida as ColunaDoPagamento,
+  });
+  if (!painel) {
+    res.status(404).json({
+      error:
+        "O 03.08.20 (demonstrativo de pagamento) não foi importado nesta competência — e é " +
+        "ele que abre a parcela fixa verba a verba. Sem ele o painel da planilha não tem de " +
+        "onde sair.",
+    });
+    return;
+  }
+
+  res.json({ competencia, painel });
+});
+
+/**
+ * O catálogo do de-para, sem competência nenhuma.
+ *
+ * A tela precisa saber quais são os dezoito rótulos e o que cada um significa
+ * antes de ter números — para desenhar o painel vazio, e para explicar uma
+ * ausência sem precisar de um 03.08.20 importado.
+ */
+router.get("/fechamento/de-para", (_req, res): void => {
+  res.json({ linhas: LINHAS_DA_PLANILHA, grupos: GRUPOS_DA_PLANILHA });
 });
 
 /**
