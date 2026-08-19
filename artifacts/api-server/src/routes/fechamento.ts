@@ -24,6 +24,7 @@ import {
 } from "@workspace/fechamento/persistencia";
 import {
   DESCRICAO_DA_FONTE,
+  FORMATOS_DA_FONTE,
   GRUPOS_DA_PLANILHA,
   LINHAS_DA_PLANILHA,
   QUINZENAS_DA_FONTE,
@@ -50,23 +51,29 @@ import {
  *
  * **A diferença em relação à importação da Auditoria** é que lá o tipo do
  * arquivo é deduzível do conteúdo, e aqui não: os relatórios do Promax
- * não se identificam. Um 03.08.15 e um 03.08.18 são os dois `.xlsx` com
- * cabeçalho na primeira linha, e trocá-los daria uma conta plausível e errada.
- * Por isso `tipo` é obrigatório, sempre — a aba da tela é a declaração.
+ * não se identificam. Um 03.08.15 e um 03.08.18 chegam os dois com cabeçalho na
+ * primeira linha — e chegam nos mesmos formatos —, e trocá-los daria uma conta
+ * plausível e errada. Por isso `tipo` é obrigatório, sempre — a aba da tela é a
+ * declaração.
+ *
+ * **O que a extensão decide, e o que ela não decide.** Ela é conferida contra a
+ * fonte declarada porque é o primeiro sinal de que alguém trocou a aba de
+ * envio, e a recusa aqui é muito mais útil do que a mesma recusa três camadas
+ * abaixo, falando de cabeçalho. O que ela não faz é escolher o leitor: quem
+ * decide se o arquivo é planilha, texto delimitado ou largura fixa é o conteúdo
+ * dele (ver `leitores/formato`), porque `.csv` e `.txt` são o mesmo arquivo com
+ * dois nomes na mão de quem opera.
  */
 const router: IRouter = Router();
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** As extensões que cada fonte admite. O TXT do Promax não vem em planilha. */
-const EXTENSOES: Record<TipoDeFonte, string[]> = {
-  OPERACAO: [".xlsx", ".xls"],
-  CTE: [".xlsx", ".xls"],
-  PAGAMENTO: [".txt"],
-  DISPONIBILIDADE: [".xlsx", ".xls"],
-  REQUISICOES: [".csv"],
-  CONCILIACAO: [".txt"],
-};
+/*
+ * As extensões que cada fonte admite moram em `@workspace/fechamento`
+ * (`FORMATOS_DA_FONTE`), junto do resto do vocabulário das fontes, e não aqui:
+ * a lista é uma afirmação sobre o que os leitores conseguem ler, e quem a
+ * mantém é quem mexe neles. Esta rota apenas a publica e a aplica.
+ */
 
 /**
  * O catálogo das fontes, para a tela saber o que pedir e por quê.
@@ -83,7 +90,7 @@ router.get("/fechamento/fontes", (_req, res): void => {
     TIPOS_DE_FONTE.map((tipo) => ({
       tipo,
       ...DESCRICAO_DA_FONTE[tipo],
-      extensoes: EXTENSOES[tipo],
+      extensoes: FORMATOS_DA_FONTE[tipo],
       quinzenas: QUINZENAS_DA_FONTE[tipo],
     })),
   );
@@ -421,11 +428,11 @@ router.post("/fechamento/competencias/:id/documentos", async (req, res): Promise
     return;
   }
   const extensao = path.extname(filename).toLowerCase();
-  if (!EXTENSOES[tipo].includes(extensao)) {
+  if (!FORMATOS_DA_FONTE[tipo].includes(extensao)) {
     const fonte = DESCRICAO_DA_FONTE[tipo];
     res.status(400).json({
       error:
-        `O relatório ${fonte.rotina} (${fonte.nome}) vem em ${EXTENSOES[tipo].join(" ou ")}, ` +
+        `O relatório ${fonte.rotina} (${fonte.nome}) é lido em ${FORMATOS_DA_FONTE[tipo].join(", ")}, ` +
         `e "${filename}" é ${extensao || "sem extensão"}. Confira se não trocou a aba de envio.`,
     });
     return;

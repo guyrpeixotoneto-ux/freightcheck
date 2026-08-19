@@ -1,5 +1,6 @@
 import { centavos, lerNumero, type Canal } from "../dominio";
 import { diaDeTextoBR, type Dia } from "../periodo";
+import { lerTextoDeRelatorio } from "./formato";
 
 /**
  * O 03.02.59.02 — a conciliação CT-e × SRTrans, do Promax.
@@ -21,6 +22,18 @@ import { diaDeTextoBR, type Dia } from "../periodo";
  * Quinzena`, `Desconto Frete Minimo` —, e os rótulos aqui são comparados sem
  * acento justamente para que a versão do dia em que ele passar a ter acento
  * continue lendo.
+ *
+ * **Quando ele chega delimitado, a régua deixa de existir — e o campo ocupa o
+ * lugar dela.** É a única fonte em que o formato muda o que se pode afirmar:
+ * nas outras cinco o separador é embalagem, e aqui a coluna *é* o sentido. Por
+ * isso um `.csv` desta fonte não é lido pela posição do caractere, e sim pelo
+ * índice do campo — e esse índice é descoberto no próprio arquivo, pelo
+ * cabeçalho que ele traz (`(Emitido)` / `(Calculado)`) ou, na falta dele, pelas
+ * duas únicas colunas em que valores aparecem. Quando nem uma coisa nem outra
+ * resolve, o leitor **recusa o arquivo** em vez de escolher uma coluna: um
+ * `Desconto Frete Minimo` lido na coluna errada não dá erro nenhum, dá um
+ * fechamento plausível e errado, que é o desfecho mais caro que este módulo
+ * pode produzir.
  */
 
 /** Onde o número estava: qual das duas colunas do relatório. */
@@ -69,16 +82,161 @@ export interface Conciliacao {
 }
 
 const RE_VALOR = /-?[\d.]{1,15},\d{2}/g;
+/** O mesmo valor, quando ele é o campo inteiro e não um trecho da linha. */
+const RE_CAMPO_DE_VALOR = /^-?[\d.]{1,15},\d{2}$/;
+
+/**
+ * Onde as duas colunas de dinheiro estão, num arquivo delimitado.
+ *
+ * O equivalente exato de `FIM_DA_COLUNA_EMITIDO` para um arquivo sem régua: lá
+ * a pergunta é "o número terminou antes da coluna 76?", aqui é "o número está
+ * no campo do emitido ou no do calculado?".
+ */
+interface ReguaDeCampos {
+  emitido: number;
+  calculado: number;
+}
+
+/** O arquivo é delimitado, mas não diz qual coluna é qual. */
+export class ColunasDaConciliacaoIndefinidas extends Error {
+  constructor(readonly encontradas: number[]) {
+    super(
+      "O relatório de conciliação veio delimitado, e não dá para saber qual coluna é o emitido " +
+        "(R$ CT-e) e qual é o calculado (R$ SRTrans): o arquivo não traz o cabeçalho que as nomeia " +
+        `e ${encontradas.length === 1 ? "só uma coluna traz" : `${encontradas.length} colunas trazem`} valor. ` +
+        "A mesma linha nas duas colunas quer dizer coisas opostas, então o leitor não escolhe por conta " +
+        "própria — envie o .txt do Promax, que traz as duas colunas alinhadas.",
+    );
+    this.name = "ColunasDaConciliacaoIndefinidas";
+  }
+}
+
+/** `(emitido)`, `r$ ct-e` e afins, sem acento e sem caixa. */
+function marcaDeColuna(campo: string): ColunaDaConciliacao | null {
+  const texto = chave(campo).replace(/[()]/g, "");
+  if (texto === "emitido" || texto === "r$ ct-e") return "EMITIDO";
+  if (texto === "calculado" || texto === "r$ srtrans") return "CALCULADO";
+  return null;
+}
+
+/** Em que campos o arquivo põe valor — a evidência de onde estão as colunas. */
+function camposComValor(matriz: string[][]): number[] {
+  const indices = new Set<number>();
+  for (const campos of matriz) {
+    campos.forEach((campo, i) => {
+      if (RE_CAMPO_DE_VALOR.test(campo.trim())) indices.add(i);
+    });
+  }
+  return [...indices].sort((a, b) => a - b);
+}
+
+/** O cabeçalho que nomeia as duas colunas, quando o arquivo traz um. */
+function reguaDoCabecalho(matriz: string[][]): ReguaDeCampos | null {
+  for (const campos of matriz) {
+    let emitido = -1;
+    let calculado = -1;
+    campos.forEach((campo, i) => {
+      const marca = marcaDeColuna(campo);
+      if (marca === "EMITIDO" && emitido < 0) emitido = i;
+      if (marca === "CALCULADO" && calculado < 0) calculado = i;
+    });
+    if (emitido >= 0 && calculado >= 0) return { emitido, calculado };
+  }
+  return null;
+}
+
+/**
+ * Descobre a régua do arquivo delimitado.
+ *
+ * Duas vias, nesta ordem, e nenhuma terceira:
+ *
+ * 1. **O cabeçalho, quando ele existe.** `(Emitido)` e `(Calculado)` (ou
+ *    `R$ CT-e` e `R$ SRTrans`) são o próprio arquivo dizendo onde estão as
+ *    colunas, e é isso que se lê — **desde que os valores estejam mesmo lá**.
+ *    Essa conferência não é zelo excessivo: um cabeçalho que aponta para
+ *    colunas vazias faria toda linha ser lida sem valor nenhum, e um relatório
+ *    inteiro em branco é a falha mais silenciosa que este leitor poderia ter.
+ * 2. **As colunas que têm dinheiro, quando são exatamente duas.** Aí a da
+ *    esquerda é o emitido e a da direita o calculado, que é a mesma ordem da
+ *    régua de largura fixa. Não é palpite: é a única leitura compatível com o
+ *    layout do relatório.
+ *
+ * Uma só coluna, ou três, e o leitor recusa — ver a classe acima.
+ */
+function reguaDeCampos(matriz: string[][]): ReguaDeCampos {
+  const comValor = camposComValor(matriz);
+  const doCabecalho = reguaDoCabecalho(matriz);
+  if (
+    doCabecalho &&
+    (comValor.includes(doCabecalho.emitido) || comValor.includes(doCabecalho.calculado))
+  ) {
+    return doCabecalho;
+  }
+  if (comValor.length !== 2) throw new ColunasDaConciliacaoIndefinidas(comValor);
+  return { emitido: comValor[0], calculado: comValor[1] };
+}
+
+/** O que uma linha de valor declara, seja qual for o formato em que ela veio. */
+interface ValoresDaLinha {
+  rubrica: string;
+  conciliado: "S" | "N" | null;
+  emitido: number | null;
+  calculado: number | null;
+}
+
+/** A linha de largura fixa: a coluna em que o número termina é quem decide. */
+function valoresPelaPosicao(bruta: string): ValoresDaLinha | null {
+  RE_VALOR.lastIndex = 0;
+  const achados = [...bruta.matchAll(RE_VALOR)];
+  if (achados.length === 0) return null;
+
+  let emitido: number | null = null;
+  let calculado: number | null = null;
+  for (const achado of achados) {
+    const fim = (achado.index ?? 0) + achado[0].length;
+    const valor = lerNumero(achado[0]);
+    if (valor == null) continue;
+    if (fim <= FIM_DA_COLUNA_EMITIDO) emitido = centavos(valor);
+    else calculado = centavos(valor);
+  }
+
+  const marca = /\s([SN])\s+[\d.]+,\d{2}/.exec(bruta);
+  return {
+    rubrica: bruta.slice(0, achados[0].index ?? 0).trim().replace(/\s+[SN]$/, "").trim(),
+    conciliado: marca ? (marca[1] as "S" | "N") : null,
+    emitido,
+    calculado,
+  };
+}
+
+/** A linha delimitada: o índice do campo é quem decide. */
+function valoresPelosCampos(campos: string[], regua: ReguaDeCampos): ValoresDaLinha | null {
+  const valorEm = (i: number): number | null => {
+    const bruto = (campos[i] ?? "").trim();
+    if (!RE_CAMPO_DE_VALOR.test(bruto)) return null;
+    const valor = lerNumero(bruto);
+    return valor == null ? null : centavos(valor);
+  };
+  const emitido = valorEm(regua.emitido);
+  const calculado = valorEm(regua.calculado);
+  if (emitido === null && calculado === null) return null;
+
+  const antes = campos
+    .slice(0, Math.min(regua.emitido, regua.calculado))
+    .map((c) => c.trim())
+    .filter((c) => c !== "");
+  const ultimo = antes[antes.length - 1];
+  const conciliado = ultimo === "S" || ultimo === "N" ? (antes.pop() as "S" | "N") : null;
+
+  return { rubrica: antes.join(" ").trim(), conciliado, emitido, calculado };
+}
 
 /** Lê o 03.02.59.02. */
 export function lerConciliacao(arquivo: Buffer | ArrayBuffer | string): Conciliacao {
-  const texto =
-    typeof arquivo === "string"
-      ? arquivo
-      : new TextDecoder("latin1").decode(
-          arquivo instanceof Buffer ? arquivo : new Uint8Array(arquivo),
-        );
-  const linhas = texto.split(/\r?\n/);
+  const { linhas, campos, linhaFisica } = lerTextoDeRelatorio(arquivo);
+  /* A régua do arquivo delimitado é descoberta uma vez, antes da primeira
+     linha de valor: ela é do documento, não da linha. */
+  const regua = campos ? reguaDeCampos(campos) : null;
 
   let transportadora: Conciliacao["transportadora"] = null;
   let unidade: string | null = null;
@@ -92,7 +250,7 @@ export function lerConciliacao(arquivo: Buffer | ArrayBuffer | string): Concilia
 
   for (let i = 0; i < linhas.length; i += 1) {
     const bruta = linhas[i] ?? "";
-    const linha = i + 1;
+    const linha = linhaFisica[i] ?? i + 1;
     const enxuta = bruta.trim();
     if (enxuta === "") continue;
 
@@ -139,9 +297,9 @@ export function lerConciliacao(arquivo: Buffer | ArrayBuffer | string): Concilia
     }
 
     /* --- as linhas de valor ------------------------------------------------ */
-    RE_VALOR.lastIndex = 0;
-    const achados = [...bruta.matchAll(RE_VALOR)];
-    if (achados.length === 0) {
+    const valores =
+      regua && campos ? valoresPelosCampos(campos[i] ?? [], regua) : valoresPelaPosicao(bruta);
+    if (!valores) {
       /*
         Linha sem número. Duas coisas chegam aqui: um subtítulo sem valor
         (`Recebido Quinzenas Anteriores`), que é contexto, e um aviso do
@@ -153,28 +311,7 @@ export function lerConciliacao(arquivo: Buffer | ArrayBuffer | string): Concilia
       continue;
     }
 
-    let emitido: number | null = null;
-    let calculado: number | null = null;
-    for (const achado of achados) {
-      const fim = (achado.index ?? 0) + achado[0].length;
-      const valor = lerNumero(achado[0]);
-      if (valor == null) continue;
-      if (fim <= FIM_DA_COLUNA_EMITIDO) emitido = centavos(valor);
-      else calculado = centavos(valor);
-    }
-
-    const rubrica = bruta.slice(0, achados[0].index ?? 0).trim().replace(/\s+[SN]$/, "").trim();
-    const marca = /\s([SN])\s+[\d.]+,\d{2}/.exec(bruta);
-
-    itens.push({
-      linha,
-      secao,
-      bloco,
-      rubrica,
-      conciliado: marca ? (marca[1] as "S" | "N") : null,
-      emitido,
-      calculado,
-    });
+    itens.push({ linha, secao, bloco, ...valores });
   }
 
   return { transportadora, unidade, periodo, opcao, itens, avisos };

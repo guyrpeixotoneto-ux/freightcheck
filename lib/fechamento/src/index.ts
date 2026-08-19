@@ -48,8 +48,19 @@ export { lerDisponibilidade, type DiaDeDisponibilidade } from "./leitores/dispon
 export {
   lerConciliacao,
   valorDe,
+  ColunasDaConciliacaoIndefinidas,
   type Conciliacao,
   type ItemDaConciliacao,
   type ColunaDaConciliacao,
 } from "./leitores/conciliacao";
-export { CabecalhoNaoEncontrado, nomesDasAbas } from "./leitores/planilha";
+export {
+  CabecalhoNaoEncontrado,
+  TabelaNaoDelimitada,
+  nomesDasAbas,
+} from "./leitores/planilha";
+/*
+  O formato do arquivo é decidido pelo conteúdo, e não pela extensão. Quem
+  recebe upload precisa das duas primeiras para dizer a quem enviou o que
+  chegou; `FORMATOS_DA_FONTE` (em `dominio`) diz o que cada fonte aceita.
+*/
+export { ehPlanilha, separadorDe, decodificarTexto } from "./leitores/formato";

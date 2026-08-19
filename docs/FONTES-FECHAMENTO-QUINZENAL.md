@@ -17,6 +17,55 @@ A operação diária gera o **variável** (2Art), a indisponibilidade de frota g
 (03.02.59.02), e a planilha **Fechamento_Remuneracao.xlsb** é onde a
 transportadora/CDD reconstrói e confere cada uma dessas pontas.
 
+## Em que formato cada fonte chega
+
+Os nomes de arquivo citados abaixo (`2art.xlsx`, `03.08.15.xlsx`, `.txt`,
+`.csv`) são os do conjunto real de que este documento nasceu — **não** são a
+única forma em que cada relatório sai. O mesmo relatório vem em `.xlsx` quando
+alguém o exporta pela tela do Promax e em `.csv` quando o exporta pela fila de
+relatórios, e chega em `.txt` quando o caminho passou por um sistema que
+renomeia. Uma exportação já vista no CDD Belém:
+`03.08.15_1Q_JUL.csv` ao lado de `2artq_congel_01_072026_0443_0036.xlsx` e de
+`03.02.59.02_1Q_07.txt`.
+
+Por isso o produto **decide o formato pelo conteúdo do arquivo, não pela
+extensão** (ver `lib/fechamento/src/leitores/formato.ts`): assinatura de ZIP ou
+de OLE2 é planilha; o resto é texto, e aí a pergunta seguinte é se ele é
+delimitado ou de largura fixa. O que cada fonte aceita está em
+`FORMATOS_DA_FONTE` (`lib/fechamento/src/dominio.ts`), e é a lista que a tela
+mostra em cada linha de envio:
+
+| fonte | formatos aceitos |
+| --- | --- |
+| 2Art | `.xlsx` `.xls` `.csv` `.txt` |
+| 03.08.15 | `.xlsx` `.xls` `.csv` `.txt` |
+| 03.08.18 | `.xlsx` `.xls` `.csv` `.txt` |
+| 03.08.12.09 | `.csv` `.txt` `.xlsx` `.xls` |
+| 03.08.20 | `.txt` `.csv` |
+| 03.02.59.02 | `.txt` `.csv` |
+
+Três consequências que não são detalhe de implementação:
+
+1. **A data muda de forma com o formato.** Num `.xlsx` o 03.08.15 data em
+   serial (`46219`); num `.csv` não existe serial, e a mesma coluna vem
+   `16/07/2026`. As três formas (serial, `dd/mm/aaaa`, `ddmmaaaa`) são lidas
+   por `diaDeCelula`, e não se confundem entre si — os intervalos não se
+   sobrepõem.
+2. **O 03.08.18 é o único em que a aba é dado.** É o nome dela (`FF`, `Van`)
+   que diz de que frota é a linha, e as duas descontam coisas diferentes. Um
+   `.csv` dele só é aceito quando alguma coluna declara a frota; sem ela, a
+   recusa é do arquivo inteiro e pede a planilha.
+3. **O 03.02.59.02 é o único em que a coluna do número é o sentido.** No
+   `.txt`, a régua de caracteres resolve (emitido termina na 75, calculado na
+   88). No `.csv`, quem resolve é o índice do campo, descoberto no cabeçalho do
+   próprio arquivo (`(Emitido)` / `(Calculado)`) ou nas duas únicas colunas que
+   trazem valor. Quando nem uma coisa nem outra resolve, o leitor **recusa** —
+   escolher a coluna daria um fechamento plausível e errado.
+
+As duas fontes de largura fixa não aceitam planilha, e isso é deliberado:
+coladas numa planilha elas perdem a forma em que o relatório escreveu o valor,
+e o resultado seria uma verba lida a menos, em silêncio.
+
 ## As sete fontes
 
 ### 1. Relatório 2Art (`2art.xlsx`, aba `2Art_07`)
