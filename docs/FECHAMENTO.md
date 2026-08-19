@@ -50,8 +50,13 @@ avisar.
 A lateral é o mesmo componente (`components/layout/sidebar.tsx`) com duas
 listas:
 
-- **Auditoria** — `NAV_GROUPS`, intacta: Visão executiva, Auditoria,
-  Recuperação, QLP, Frota, Inteligência, Dados & governança, Administração.
+- **Auditoria** — `NAV_GROUPS`: Visão executiva, Auditoria, Recuperação, QLP,
+  Frota, Inteligência, Dados & governança, Administração. As oito seções e a
+  ordem delas são as de sempre; o único item acrescentado desde a separação dos
+  ambientes é a **Visão Gerencial**, que abre a Visão executiva com o acervo
+  inteiro (todas as unidades) acima do Resumo executivo, que responde pela
+  unidade aberta — ver `pages/visao-gerencial.tsx` e a seção correspondente no
+  `replit.md`.
 - **Fechamento** — `components/layout/nav-fechamento.ts`, cinco seções na
   ordem do processo:
   - **Fechamento**: Visão Gerencial · Importações · Apurações
@@ -191,11 +196,11 @@ no consolidado é de fechamento (as três colunas e o total do mês).
 Quatro decisões que a tela materializa:
 
 1. **Os rótulos são as verbas, não os da planilha.** As linhas do primeiro
-   quadro dela — `CUSTO FIXO PADRONIZADO`, `ESPECIAIS`, `VANS` — não são
-   combinação das VBZs de fonte nenhuma: conferidas contra o 03.08.20, não
-   fecham. São a decomposição própria da planilha, e só as fórmulas do `.xlsb`
-   a explicam. Escrever aqueles rótulos sobre outros números daria cara de
-   conferido ao que não foi.
+   quadro dela — `CUSTO FIXO PADRONIZADO`, `ESPECIAIS`, `VANS` — são um rateio
+   por tipo de frota que o 03.08.20 não faz, e escrevê-los sobre números que não
+   são deles daria cara de conferido ao que não foi. A tradução entre as duas
+   classificações não sumiu por isso: ela mora no de-para, na seção abaixo, que
+   diz o que casa, o que só casa em conjunto e o que ainda não casa.
 2. **O fecho compara com o 03.08.20, e não com o `TOTAL GERAL UNIDADE`.**
    Aquela coluna é a reconstrução da própria planilha, feita com um fator de
    conversão digitado (1,366960) que não sai de arquivo nenhum — os medidos são
@@ -215,6 +220,93 @@ Quatro decisões que a tela materializa:
 A aritmética mora em `lib/fechamento/src/resumo.ts`, pura e sob teste, pela
 mesma razão de `lib/fechamento-gerencial`: uma soma feita no navegador é uma
 segunda opinião sobre remuneração.
+
+## O de-para — a classificação do sistema conversando com a da planilha
+
+O fechamento classifica dinheiro por **VBZ** (`05 - Frota Fixa Variável`,
+`07 - Freteiro`). A planilha classifica o mesmo dinheiro por **quadro do
+RESUMO** (`CUSTO FIXO PADRONIZADO`, `CUSTO VARIÁVEL (AGREGADO)`, `TOTAL OUTROS
+CUSTOS`). São dois recortes do mesmo total, e quem conferia lia os dois lado a
+lado e casava de cabeça. `lib/fechamento/src/de-para.ts` é essa tradução
+escrita, com os dezoito rótulos do painel da Rota transcritos acento por acento.
+
+**O termo que faltava era o desconto.** A planilha escreve a parcela **bruta** e
+mostra o abatimento numa linha à parte; o 03.08.20 escreve a verba **já
+líquida** — cada desconto dele vem com a frase "Desconto Liquido ja subtraido da
+VBZ …". Comparar os dois diretamente não fecha, e era por isso que o produto
+registrava que aquelas linhas não fechavam. Somados os descontos de volta, o
+quadro fecha contra o demonstrativo.
+
+O que cada linha do painel virou:
+
+| Linha da planilha | O que o FreightCheck põe atrás dela |
+| --- | --- |
+| `TOTAL REMUNERAÇÃO ROTA DVS` | título do quadro. `DVS` não é definido em nenhuma das seis fontes |
+| `CUSTO FIXO PADRONIZADO` · `CUSTO FIXO INATIVOS` · `CUSTO VANS INATIVAS` · `CUSTO FIXO - ESPECIAIS` · `CUSTO FIXO - VANS` | **em conjunto**: as verbas fixas e administrativas do bloco `FRETE`, brutas dos descontos do quadro. O rateio por tipo de frota não existe no 03.08.20 |
+| `INDISPONIBILIDADE` (nos dois quadros) | sem origem — a planilha tem duas linhas de disponibilidade e o relatório tem um bloco; qual das duas esta carrega não está escrito |
+| `DESCONTO DE DEVOLUÇÃO %` | a alíquota `% Dev. Resp. Transportadora` |
+| `DESCONTO DE DISPONIBILIDADE` | os quatro descontos do bloco `DESCONTO DISPONIBILIDADE` |
+| `DESCONTO COMPLEMENTAR NEGATIVO` | sem origem — sobra o `DESCONTO FRETE MINIMO` do lado do relatório, e casá-los por eliminação é dedução, não leitura |
+| `TOTAL REMUNERAÇÃO ROTA` (fixo) | as verbas fixas e administrativas do bloco `FRETE`, líquidas |
+| `CUSTO VARIÁVEL (FROTA FIXA)` · `CUSTO VARIÁVEL (AGREGADO)` | **em conjunto**: as verbas variáveis do `FRETE` (VBZ 05 e 07), brutas da devolução |
+| `DESCONTO DE DEVOLUÇÃO` | o `Desconto Devolucao` do 03.08.20 |
+| `TOTAL REMUNERAÇÃO ROTA` (variável) | as verbas variáveis e complementares do bloco `FRETE` |
+| `TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS` · `TOTAL OUTROS CUSTOS` | o bloco `OUTROS CUSTOS`, que o relatório traz com esse nome |
+
+Quatro decisões que o módulo materializa:
+
+1. **Nenhuma linha inventa a origem.** É a regra de `@workspace/remuneracao`
+   aplicada aqui: a linha sem correspondência traz `motivo` e `destrava` por
+   extenso, e não um número plausível.
+2. **O que o arquivo traz junto fica junto.** As cinco linhas de tipo de frota
+   compartilham um número, como `PIS + COFINS` compartilham no cadastro.
+   Rachá-lo por semelhança de rótulo seria simples e seria invenção.
+3. **O resíduo é a afirmação verificável.** Cada quadro devolve
+   `total − somado`, que é, por construção, o que as linhas sem origem e as
+   verbas sem linha somam. Resíduo zero afirma que `INDISPONIBILIDADE` e
+   `DESCONTO COMPLEMENTAR NEGATIVO` estão vazias na quinzena — e a planilha
+   derruba essa afirmação num minuto, que é de propósito.
+4. **A VBZ do desconto é lida, não deduzida.** `ja subtraido da VBZ 01` vira
+   dado (`vbzDeOrigem`), e é ele que acusa o caso da devolução: a planilha a
+   abate no quadro do variável e o relatório declara tê-la tirado da VBZ 01, que
+   é fixa. O número fica onde a planilha o pôs; a discordância é dita.
+
+`GET /fechamento/competencias/:id/de-para` devolve o painel preenchido
+(`?coluna=semImposto|ctrcIcms|valorFaturado`), e `GET /fechamento/de-para` o
+catálogo dos dezoito rótulos sem competência nenhuma. O painel transcrito é o da
+Rota; o do AS existe na planilha e os rótulos dele ainda não foram capturados.
+
+## Os relatórios de cada quinzena — quatro na primeira, seis na segunda
+
+O catálogo tem seis fontes; **a quinzena decide quantas delas existem**. A
+primeira quinzena fecha com quatro — 2Art, 03.08.15, 03.08.20 e 03.08.18 — e a
+segunda com as seis: as requisições de despesa (03.08.12.09) e a conciliação do
+Promax (03.02.59.02) chegam com o fechamento da segunda.
+
+A regra mora em `FONTES_DA_QUINZENA` (`lib/fechamento/src/dominio.ts`), num
+lugar só, e desce por três caminhos:
+
+1. **A apuração não chama de ausente o que a quinzena não tem.**
+   `fontesAusentes` só nomeia o que é esperado ali. Sem isso, toda primeira
+   quinzena do ano nasceria com duas pendências que ninguém pode resolver — e
+   "falta importar", que é trabalho de alguém, passaria a se confundir com "não
+   há o que importar", que não é.
+2. **A tela pede o que existe.** A competência aberta lista os relatórios da
+   quinzena dela, e o rodapé de "3 de 4 relatórios" tem o denominador certo nas
+   duas metades do mês. Na lista de Apurações, onde as duas convivem na mesma
+   tabela, o recorte é por linha (`fontesDaCompetencia`, em
+   `lib/fechamento.ts` da interface).
+3. **O catálogo da API diz em que quinzenas cada fonte entra.**
+   `GET /fechamento/fontes` devolve sempre as seis, cada uma com `quinzenas`;
+   quem desenha uma página com quinzenas das duas metades não precisa buscar o
+   catálogo duas vezes.
+
+O que a regra **não** faz é recusar. Uma conciliação enviada a uma primeira
+quinzena é recebida, lida e apurada como qualquer outra fonte — e a tela a
+mostra com a tarja "fora da 1ª quinzena", em vez de escondê-la. A lista diz o
+que se espera, não o que se admite: é a mesma regra que faz a conta rodar com o
+que houver, e arquivo importado que some da tela é a forma mais rápida de
+alguém importá-lo de novo.
 
 ## Descartar o que foi importado — o desfazer da competência errada
 
@@ -242,6 +334,47 @@ agosto. Três decisões que o ato materializa:
 E, desde o 03.08.20, o erro que ele conserta tende a não acontecer mais: aquele
 relatório declara o próprio período no cabeçalho, e é recusado na porta quando
 não é o da competência.
+
+## Excluir a importação — quando a errada é a quinzena, e não os arquivos
+
+O descarte serve à quinzena certa alimentada com os arquivos errados. O outro
+erro é a quinzena que não devia existir: o CDD errado, a transportadora errada,
+o período aberto duas vezes. Esvaziá-la deixaria na lista uma linha vazia que
+ninguém sabe por que está lá — e que a próxima pessoa abriria por engano.
+
+Em **Importações**, cada linha tem o ícone de lixeira ao lado da ação da
+quinzena. Ele abre um painel que diz o que vai junto — quantos relatórios,
+se há conta apurada, os dias — antes de qualquer coisa ser apagada, pela mesma
+razão do descarte: na lista as quinzenas se parecem, e duas linhas quase
+idênticas são dois CDDs no mesmo período. A confirmação apaga a competência e
+tudo que aponta para ela (`DELETE /fechamento/competencias/:id`).
+
+**A encerrada é recusada** — o botão da linha está desabilitado e o servidor
+recusa com 409. É a mesma regra do envio e do descarte, e pelo mesmo motivo: a
+quinzena fechada é o registro do que foi cobrado, e apagá-la de dentro de um
+clique de lista apagaria a prova sem que ninguém tenha dito por quê. Reabrir,
+com motivo escrito, vem antes.
+
+## Reabrir aparece onde o envio trava
+
+Reabrir é o único caminho de volta de uma quinzena encerrada, e ele pede motivo
+— o texto fica no registro da competência e é o que distingue uma correção de
+uma alteração silenciosa depois do fato. O formulário mora num componente só
+(`components/fechamento/fechar-quinzena`) e aparece onde é procurado:
+
+1. No **cabeçalho da competência**, ao lado do aviso de congelada — a frase
+   "nada mais entra nela sem reabertura" traz junto o que fazer a respeito.
+2. Dentro do **cartão dos relatórios**, com o que falta nomeado ("Faltam
+   03.08.20"). É o caso mais comum: a Ambev manda o relatório que faltava
+   depois de a quinzena ter fechado, e quem recebeu está olhando para o botão
+   de enviar que não clica.
+3. No **painel de fechamento**, na competência e na linha de Importações — a
+   outra metade do ato que congelou o período.
+
+Fora do painel de fechamento o bloco começa recolhido: o clique abre o que se
+vai fazer, e não o faz. A competência volta para `APURADA`, e não para
+`ABERTA` — a apuração que estava lá continua valendo, e é contra ela que se
+compara o que mudar depois de o arquivo novo entrar.
 
 ## A conta abre na lista — Apurações sem trocar de tela
 
@@ -463,8 +596,15 @@ de negócio, não dedução por semelhança de nome de coluna.
   verdade e com os códigos reais do export; e o par sempre em ordem
   cronológica, mesmo pedido ao contrário.
 - `pages/fechamento/__tests__/competencias-fechamento.test.ts` — cada estado da
-  competência oferece uma ação só, e nunca a errada; e o ano é conferido antes
-  da ida ao servidor, nas duas pontas da faixa.
+  competência oferece uma ação só, e nunca a errada; o ano é conferido antes
+  da ida ao servidor, nas duas pontas da faixa; e só a encerrada é recusada
+  pela exclusão.
 - `components/fechamento/__tests__/fechar-quinzena.test.ts` — a fila do que
   questionar: a divergência informativa fica de fora, e a soma é só do que
   reduz o que a transportadora recebe. É o número que aparece em três lugares.
+  E o motivo da reabertura, que em branco não sai daqui.
+- `lib/__tests__/fechamento.test.ts` — o recorte por quinzena: quatro
+  relatórios na primeira e seis na segunda, e o que foi enviado fora da
+  quinzena dele continua na lista (e no denominador). Do lado do motor,
+  `lib/fechamento/src/__tests__/fechamento.test.ts` guarda a outra ponta: a
+  primeira quinzena não nomeia como ausente o que ela não tem.

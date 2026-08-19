@@ -10,10 +10,12 @@ import {
   lerResumoDoMes,
   descartarDadosDaCompetencia,
   encerrarCompetencia,
+  excluirCompetencia,
   lerApuracaoVigente,
   lerDiaDaCompetencia,
   lerDiarioDaCompetencia,
   listarApuracoes,
+  listarCompetencias,
   listarDocumentos,
   listarPartes,
   reabrirCompetencia,
@@ -161,11 +163,12 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
       relatórios de largura fixa delimitados — e a apuração que sai do banco é
       conferida contra a que saiu dos formatos de sempre.
 
-      A competência é outra (agosto) porque a de julho já recebeu esses mesmos
-      relatórios: reenviá-los lá seria o caso de substituição, que é outro
-      teste.
+      São duas unidades próprias (`447` e `448`) pela mesma razão do descarte e
+      da exclusão: os dois lados da comparação recebem os *mesmos* arquivos, e
+      reenviá-los na competência do `443` seria o caso de substituição, que é
+      outro teste.
     */
-    const emAgosto = { codigo: "446", nome: "CDD DOS FORMATOS" };
+    const noFormatoDeSempre = { codigo: "447", nome: "CDD DOS FORMATOS" };
     const receber = async (
       competenciaId: string,
       fontes: readonly (readonly [string, string, Buffer])[],
@@ -181,7 +184,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     };
 
     const deSempre = await abrirCompetencia(db, {
-      ano: 2026, mes: 7, quinzena: 2, unidade: emAgosto, transportadora,
+      ano: 2026, mes: 7, quinzena: 2, unidade: noFormatoDeSempre, transportadora,
     });
     await receber(deSempre.id, [
       ["OPERACAO", "2art.xlsx", fixtureOperacao()],
@@ -194,7 +197,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     await apurarCompetencia(db, deSempre.id);
 
     const nosOutros = await abrirCompetencia(db, {
-      ano: 2026, mes: 7, quinzena: 2, unidade: { codigo: "447", nome: "CDD DOS FORMATOS 2" },
+      ano: 2026, mes: 7, quinzena: 2, unidade: { codigo: "448", nome: "CDD DOS FORMATOS 2" },
       transportadora,
     });
     await receber(nosOutros.id, [
@@ -697,6 +700,108 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
       await expect(descartarDadosDaCompetencia(db, comp.id)).rejects.toMatchObject({
         codigo: "COMPETENCIA_ENCERRADA",
       });
+    });
+  });
+
+  /*
+    A exclusão é o outro erro: não é a quinzena certa com os arquivos errados —
+    é a quinzena que não devia existir. Unidade própria (`446`) pela mesma razão
+    do descarte: ela leva a competência inteira embora, e as asserções dos
+    outros blocos leem as competências que eles montaram.
+  */
+  describe("a exclusão da importação", () => {
+    const unidadeDaExclusao = { codigo: "446", nome: "CDD DA EXCLUSAO" };
+
+    it("leva a competência junto — a importação deixa de existir", async () => {
+      const comp = await abrirCompetencia(db, {
+        ano: 2026,
+        mes: 7,
+        quinzena: 2,
+        unidade: unidadeDaExclusao,
+        transportadora,
+      });
+      const fontes = [
+        ["OPERACAO", "2art.xlsx", fixtureOperacao()],
+        ["CTE", "03.08.15.xlsx", fixtureCtes()],
+        ["REQUISICOES", "03.08.12.09.csv", fixtureRequisicoes()],
+      ] as const;
+      for (const [tipo, nome, conteudo] of fontes) {
+        await receberDocumento(db, {
+          competenciaId: comp.id,
+          tipo,
+          nomeDoArquivo: nome,
+          conteudo: conteudo as Buffer,
+        });
+      }
+      await apurarCompetencia(db, comp.id);
+
+      const saiu = await excluirCompetencia(db, comp.id);
+
+      /* O tamanho do que foi embora volta contado: é o que a tela repete. */
+      expect(saiu.documentos).toBe(3);
+      expect(saiu.apuracoes).toBe(1);
+      expect(saiu.linhas.OPERACAO).toBeGreaterThan(0);
+      expect(saiu.linhas.CTE).toBeGreaterThan(0);
+      expect(saiu.competencia.chave).toBe("2026-07-Q2");
+
+      /* E a competência não está mais lá — nem para quem pergunta pelo id. */
+      expect(await buscarCompetencia(db, comp.id)).toBeNull();
+      expect((await listarCompetencias(db)).some((c) => c.id === comp.id)).toBe(false);
+      expect((await listarApuracoes(db)).some((a) => a.competencia.id === comp.id)).toBe(false);
+    }, 60_000);
+
+    it("depois dela a mesma quinzena pode ser aberta de novo, do zero", async () => {
+      /*
+        A prova de que nada ficou para trás: `abrirCompetencia` devolve a que já
+        existe quando existe, então um id novo só sai se a anterior tiver
+        mesmo saído do banco.
+      */
+      const antes = await abrirCompetencia(db, {
+        ano: 2026,
+        mes: 10,
+        quinzena: 1,
+        unidade: unidadeDaExclusao,
+        transportadora,
+      });
+      await excluirCompetencia(db, antes.id);
+      const depois = await abrirCompetencia(db, {
+        ano: 2026,
+        mes: 10,
+        quinzena: 1,
+        unidade: unidadeDaExclusao,
+        transportadora,
+      });
+      expect(depois.id).not.toBe(antes.id);
+      expect(depois.estado).toBe("ABERTA");
+    });
+
+    it("recusa a encerrada: apagar a prova de uma cobrança pede reabrir antes", async () => {
+      const comp = await abrirCompetencia(db, {
+        ano: 2026,
+        mes: 11,
+        quinzena: 2,
+        unidade: unidadeDaExclusao,
+        transportadora,
+      });
+      await pool.query("update fechamento_competencia set estado = 'ENCERRADA' where id = $1", [
+        comp.id,
+      ]);
+      await expect(excluirCompetencia(db, comp.id)).rejects.toMatchObject({
+        codigo: "COMPETENCIA_ENCERRADA",
+      });
+      /* E ela continua inteira: a recusa não apagou nada pela metade. */
+      expect(await buscarCompetencia(db, comp.id)).not.toBeNull();
+
+      /* Reaberta, com motivo, a exclusão passa — é o caminho que a recusa diz. */
+      await reabrirCompetencia(db, comp.id, { motivo: "quinzena aberta em duplicidade" });
+      await excluirCompetencia(db, comp.id);
+      expect(await buscarCompetencia(db, comp.id)).toBeNull();
+    });
+
+    it("recusa o id que não existe, e não devolve zero como se tivesse apagado nada", async () => {
+      await expect(
+        excluirCompetencia(db, "00000000-0000-0000-0000-000000000000"),
+      ).rejects.toMatchObject({ codigo: "COMPETENCIA_NAO_ENCONTRADA" });
     });
   });
 

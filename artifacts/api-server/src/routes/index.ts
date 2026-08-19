@@ -5,6 +5,7 @@ import usersRouter from "./users";
 import fleetAnalysisRouter from "./fleet-analysis";
 import curationRouter from "./curation";
 import changesRouter from "./changes";
+import gerencialRouter from "./gerencial";
 import importsRouter from "./imports";
 import overviewRouter from "./overview";
 import versionsRouter from "./versions";
@@ -34,6 +35,13 @@ import remuneracaoRouter from "./remuneracao";
  * promover em outro, porque entre os dois existe uma decisão humana.
  *
  * `curation` is the F2 surface; `changes` is F3 — Alterações and Comparar.
+ *
+ * `gerencial` é a Visão Gerencial da Auditoria: o acervo inteiro numa leitura
+ * só — toda vigência viva, de toda unidade, com a comparação que a explica.
+ * Fica fora de `changes` porque o grão é outro: lá tudo responde sobre uma
+ * comparação de um contexto, e esta é a única leitura do ambiente que atravessa
+ * contextos. Não calcula comparação nenhuma; a vigência que nunca foi comparada
+ * volta como buraco, que é o que a tela existe para mostrar.
  *
  * `fleet-analysis` is kept as-is for now: it reads the workbook directly and
  * does not depend on the database, so the existing Fleet Analysis screen keeps
@@ -148,6 +156,7 @@ router.use(healthRouter);
 router.use(fleetAnalysisRouter);
 router.use(curationRouter);
 router.use(changesRouter);
+router.use(gerencialRouter);
 router.use(importsRouter);
 router.use(overviewRouter);
 router.use(versionsRouter);

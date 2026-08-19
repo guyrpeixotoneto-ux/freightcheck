@@ -361,6 +361,114 @@ export function fixturePagamento(): Buffer {
   return Buffer.from(linhas.join("\r\n"), "latin1");
 }
 
+/**
+ * Um 03.08.20 com o painel da Rota inteiro — o material do de-para.
+ *
+ * `fixturePagamento` é deliberadamente magra: três verbas, o bastante para
+ * provar que o fixo passa a ter fonte. O de-para precisa do contrário — de um
+ * arquivo em que **todas** as figuras do painel existam ao mesmo tempo, porque
+ * o que ele afirma é uma identidade entre quadros, e identidade não se prova
+ * com um termo só.
+ *
+ * Os números são redondos e escolhidos para que a conta possa ser conferida a
+ * olho:
+ *
+ * ```
+ * FRETE          fixo/adm  01+02+03+04 = 200.000,00   (já líquidos)
+ *                variável     05 + 07  = 120.000,00
+ *                complementar      06  =   5.000,00
+ * OUTROS CUSTOS               09 + 07  =  15.000,00
+ * ```
+ *
+ * E os descontos, todos com a frase de origem que o relatório escreve:
+ * devolução de 4.875,00 (1,50% sobre 325.000,00, saída da VBZ 01), 3.800,00 de
+ * disponibilidade repartidos entre as VBZs 01, 02 e 03, e 700,00 de frete
+ * mínimo — o único cujo rótulo não nomeia VBZ nenhuma.
+ *
+ * Com esse material, o quadro do fixo fecha em zero, o do variável sobra
+ * exatamente a VBZ 06 — que o painel da planilha não nomeia — e o de outros
+ * custos fecha em zero. É a conta que o teste do de-para verifica.
+ */
+export function fixturePagamentoDoPainel(): Buffer {
+  const regua = "-".repeat(130);
+  const colunas = [
+    "VBZ                                             S/Imposto         NF-ISS       CTRC-ICMS          Valor     Valor VLC    Valor VLC",
+    "                                                                   0,00%         100,00%       Faturado        NF-ISS    CTRC-ICMS",
+  ];
+  /* As seis colunas na ordem do relatório; só a primeira interessa ao de-para. */
+  const item = (rotulo: string, sem: string) => [
+    `${rotulo.padEnd(45)}${sem.padStart(12)}${"0,00".padStart(15)}${sem.padStart(16)}${sem.padStart(15)}${"0,00".padStart(14)}${sem.padStart(13)}`,
+    "      (71027001 BRALLLV234)",
+    "",
+  ];
+  const desconto = (rotulo: string, valor: string) => `${rotulo.padEnd(100)}${valor.padStart(12)}`;
+
+  const linhas = [
+    "PW02581R-  -p-Promax Web          (050 )  Remuneracao de Transportadoras   *** Pagamento ***     01/08/2026    Pag.   1",
+    "CDD FICTICIO                             Periodo: 16/07/2026 a 31/07/2026                             15:37",
+    "Versao: 12.22.00.04      Rotina: 03.08.20.00.00      Usuario: 00099783515",
+    "",
+    "Transportadora  36 TRANSPORTES FICTICIA LTDA",
+    "",
+    "Entregas para 081-0443 - CDD FICTICIO",
+    "",
+    "ROTA",
+    "",
+    "FRETE",
+    regua,
+    ...colunas,
+    ...item(" 01 - Frota Fixa Ativa", "100.000,00"),
+    ...item(" 02 - Equipe Entrega Ativa", "60.000,00"),
+    ...item(" 03 - Despesa Administrativa", "30.000,00"),
+    ...item(" 04 - Frota Fixa Inativa", "10.000,00"),
+    ...item(" 05 - Frota Fixa Variavel", "80.000,00"),
+    ...item(" 06 - Rem. Variavel Equipe Entrega", "5.000,00"),
+    ...item(" 07 - Freteiro", "40.000,00"),
+    "",
+    "Total Frete                                    325.000,00           0,00      325.000,00     325.000,00         0,00   325.000,00",
+    "",
+    "",
+    "DESCONTO DEVOLUCAO",
+    regua,
+    desconto(
+      "Valor S/Imposto (Todas VBZ's exceto Rem. Var. Equipe Ent. e despesas de Outros Custos)",
+      "325.000,00",
+    ),
+    desconto("% Dev. Resp. Transportadora", "1,50 %"),
+    desconto("Desconto Devolucao", "4.875,00"),
+    "*Desconto Liquido Devolucao ja subtraido da VBZ Frota Fixa Ativa",
+    "",
+    "DESCONTO DISPONIBILIDADE",
+    regua,
+    desconto("Desconto FF - Custo Fixo (Desconto Liquido ja subtraido da VBZ 01 - Frota Fixa Ativa)", "1.000,00"),
+    desconto("Desconto FF - Equipe Entrega (Desconto Liquido ja subtraido da VBZ 02 - Equipe Entrega)", "2.000,00"),
+    desconto("Desconto FF - Custo Indireto (Desconto Liquido ja subtraido da VBZ 03 - Despesas Adm.)", "500,00"),
+    desconto("Desconto FF - Fator Ajudante (Desconto Liquido ja subtraido da VBZ 02 - Equipe Entrega)", "300,00"),
+    "",
+    "DESCONTO FRETE MINIMO",
+    regua,
+    desconto(
+      "Desconto Frete mínimo (Desconto Líquido já subtraído das VBZs de custo Fixo coluna ICMS)",
+      "700,00",
+    ),
+    "",
+    "OUTROS CUSTOS",
+    regua,
+    ...colunas,
+    ...item(" 07 - Rota - Freteiro", "3.000,00"),
+    ...item(" 09 - Rota - Outras Despesas", "12.000,00"),
+    "",
+    "Total Outros Custos                             15.000,00           0,00       15.000,00      15.000,00         0,00    15.000,00",
+    "",
+    regua,
+    "Total Remuneração                                                                            340.000,00",
+    "",
+    "     Para efeito do calculo de remuneracao a ser paga a transportadora",
+    "     declaramos estar de acordo com os valores acima.",
+  ];
+  return Buffer.from(linhas.join("\r\n"), "latin1");
+}
+
 /* ==========================================================================
    As mesmas seis fontes, nos outros formatos em que elas chegam.
 
