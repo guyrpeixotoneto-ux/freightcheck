@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
-import { ArrowRight, CalendarDays, Lock, LockOpen, Plus } from "lucide-react";
+import { ArrowRight, CalendarDays, Lock, LockOpen, Plus, WifiOff } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -29,6 +29,7 @@ import {
 } from "@/lib/fechamento";
 import { MES_LONGO } from "@/lib/fechamento-gerencial";
 import { apresentar } from "@/lib/apresentar-erro";
+import { useConsultaResiliente } from "@/lib/consulta-resiliente";
 
 /**
  * O erro, na frase que a apresentação escolheu.
@@ -148,9 +149,21 @@ export default function Competencias() {
   /** A competência cujo painel de fechamento está aberto — uma, ou nenhuma. */
   const [fechando, setFechando] = useState<string | null>(null);
 
-  const competencias = useQuery({
+  /*
+    A lista sustenta a tela inteira, e por isso é a que paga o preço de uma
+    falha de transporte. Era ela que sumia atrás do aviso vermelho quando uma
+    chamada não completava — inclusive quando a chamada seguinte teria
+    respondido, e inclusive quando a lista em tela continuava correta.
+
+    Os defaults globais (`App.tsx`) já lhe dão repetição só para falha
+    transitória, 400/1200ms, foco desligado e reconexão ligada. O que só o hook
+    entrega é o que muda o desenho: preservar a resposta anterior, distinguir
+    "não respondeu" de "respondeu vazio", e oferecer a tentativa manual.
+  */
+  const competencias = useConsultaResiliente<Competencia[]>({
     queryKey: ["fechamento", "competencias"],
-    queryFn: listarCompetencias,
+    endpoint: "/fechamento/competencias",
+    buscar: listarCompetencias,
   });
   const partes = useQuery({ queryKey: ["fechamento", "partes"], queryFn: listarPartes });
 
@@ -305,27 +318,72 @@ export default function Competencias() {
             <CardTitle className="text-base">Competências</CardTitle>
           </CardHeader>
           <CardContent>
-            {competencias.isLoading && (
+            {competencias.carregando && (
               <p className="text-sm text-muted-foreground">Carregando…</p>
             )}
-            {competencias.isError && (
+
+            {/*
+              O aviso vermelho só aparece quando não há lista nenhuma para
+              mostrar — nunca houve resposta, e as tentativas automáticas já se
+              esgotaram. Antes ele aparecia em qualquer falha, sobre uma lista
+              que continuava em tela e continuava certa.
+            */}
+            {competencias.indisponivel && (
               <Alert variant="destructive">
-                <AlertDescription>{textoDoErro(competencias.error)}</AlertDescription>
+                <AlertDescription>{textoDoErro(competencias.erro)}</AlertDescription>
               </Alert>
             )}
-            {competencias.data?.length === 0 && (
+
+            {/*
+              Com lista em tela, a falha é recado de rodapé: o que se vê é o que
+              o servidor mandou, e só a hora mudou. Dizer a hora é o que torna
+              isto honesto — "de 14h02" é verificável, "pode estar
+              desatualizado" é desculpa.
+            */}
+            {competencias.avisarSobreDadoGuardado && (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-amber-200 bg-amber-50/70 px-4 py-2 text-sm text-amber-900">
+                <WifiOff className="w-4 h-4 shrink-0" />
+                <span>
+                  A atualização da lista não completou. O que está em tela é de{" "}
+                  {new Date(competencias.respondidoEm ?? 0).toLocaleTimeString(
+                    "pt-BR",
+                    { hour: "2-digit", minute: "2-digit" },
+                  )}
+                  , e continua válido.
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7"
+                  disabled={competencias.atualizando}
+                  onClick={competencias.tentarDeNovo}
+                >
+                  {competencias.atualizando ? "Tentando…" : "Tentar de novo"}
+                </Button>
+              </div>
+            )}
+
+            {/*
+              "Nenhuma ainda" é uma afirmação sobre a base, e só pode ser feita
+              depois de o servidor ter respondido. `houveResposta` é a
+              autoridade: `dados?.length === 0` também é verdade quando não
+              houve resposta alguma, e era assim que a tela chegava a prometer
+              "nenhuma competência" a respeito de uma pergunta que ninguém
+              conseguiu fazer.
+            */}
+            {competencias.houveResposta && competencias.dados?.length === 0 && (
               <p className="text-sm text-muted-foreground">
                 Nenhuma ainda. Abra a primeira acima e envie os cinco relatórios da quinzena.
               </p>
             )}
-            {(competencias.data?.length ?? 0) > 0 && (
+            {(competencias.dados?.length ?? 0) > 0 && (
               <p className="text-sm text-muted-foreground mb-3">
                 A linha abre a competência — relatórios, dias e a conta. A que já
                 apurou fecha aqui mesmo; a que já fechou reabre com motivo.
               </p>
             )}
             <ul className="divide-y">
-              {competencias.data?.map((c) => {
+              {competencias.dados?.map((c) => {
                 const acao = acaoDoFechamento(c.estado);
                 const painelAberto = fechando === c.id;
                 return (

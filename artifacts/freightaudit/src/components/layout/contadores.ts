@@ -14,6 +14,16 @@ import { getApiUrl } from "@/lib/api";
  * não vira bolinha.** Zero com desenho de alerta ensina o olho a ignorar
  * justamente o lugar onde o número importante vai aparecer depois. Quem chama
  * decide o que fazer com o zero; nenhum destes ganchos inventa um.
+ *
+ * **Os três refazem por foco, contra o padrão global.** É a exceção declarada em
+ * `App.tsx`, e este é o caso em que o foco é a *única* atualização que existe: o
+ * menu vive no layout, que nunca desmonta, então `refetchOnMount` não o alcança
+ * nunca — sem foco os números congelariam na primeira carga da aba, e número
+ * errado ao lado do item é pior do que número nenhum.
+ *
+ * É exceção segura pelo que os três têm em comum: engolem o erro (devolvem
+ * vazio ou zero) e não repetem. Refazer por foco aqui não repõe painel nenhum
+ * na tela, que é o defeito que o padrão global existe para impedir.
  */
 
 /** Importações que ainda não terminaram. */
@@ -28,6 +38,8 @@ export function useImportacoesEmAndamento(): number {
     },
     staleTime: 30_000,
     retry: false,
+    // Exceção ao `refetchOnWindowFocus: false` global — ver a nota no topo.
+    refetchOnWindowFocus: true,
   });
   return (data ?? []).filter((i) => i.status !== "PROMOTED" && i.status !== "FAILED").length;
 }
@@ -51,6 +63,8 @@ export function useCuradoriaPendente(): number {
     },
     staleTime: 60_000,
     retry: false,
+    // Exceção ao `refetchOnWindowFocus: false` global — ver a nota no topo.
+    refetchOnWindowFocus: true,
   });
   return data ?? 0;
 }
@@ -78,6 +92,8 @@ export function useAlteracoesDaVigencia(): number {
     },
     staleTime: 60_000,
     retry: false,
+    // Exceção ao `refetchOnWindowFocus: false` global — ver a nota no topo.
+    refetchOnWindowFocus: true,
   });
 
   const linhas = data ?? [];
