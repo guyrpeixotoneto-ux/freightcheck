@@ -625,7 +625,24 @@ export function AbaChamados({
         )}
 
         {totals && visao === "resumo" && (
-          <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 xl:grid-cols-5">
+          <div
+            /*
+              A linha é medida pela largura que sobra, não pelo tamanho da janela.
+
+              `xl:grid-cols-5` contava a janela inteira e ignorava os 304px da
+              lateral: numa tela de 1440 com o menu aberto, os cinco cartões
+              ficavam com 202px cada, dos quais 112 vão para o ladrilho do ícone e
+              para os respiros. O que sobrava não cabia um valor em reais, e o
+              impacto saía com o fim comido pelas reticências — `R$ 11.9…` no
+              cartão que existe para dizer quanto o mês custou.
+
+              `auto-fit` com piso de 14rem inverte a conta: cada cartão tem uma
+              largura mínima em que o seu conteúdo cabe, e quando não cabem cinco
+              na linha, o que muda é o número de colunas — não o tamanho do que
+              está escrito dentro delas.
+            */
+            className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(14rem,1fr))]"
+          >
             <MetricCard
               tone="blue"
               icon={<SlidersHorizontal className="w-6 h-6" />}
