@@ -124,54 +124,84 @@ export function esperaDaTentativa(falhasAnteriores: number): number {
 }
 
 /**
+ * A resposta que valeu — e "valeu" não quer dizer "veio cheia".
+ *
+ * Esta forma existe por causa de um defeito de raciocínio que a primeira versão
+ * cometeu: ela perguntava `dados.length > 0` para decidir se havia algo em tela.
+ * Parece equivalente e não é. **Uma fila vazia é um resultado**: quer dizer "não
+ * há coluna pendente", que é a melhor notícia que a Curadoria pode dar. Tratar
+ * esse zero como ausência de dado fazia a tela, na falha seguinte, trocar a boa
+ * notícia por um painel de indisponibilidade — e afirmar indisponibilidade sobre
+ * uma pergunta que o servidor tinha respondido perfeitamente.
+ *
+ * A autoridade certa é **houve resposta**, não quantos registros vieram. Por isso
+ * o que se guarda é a resposta inteira com a hora dela, e `null` significa uma
+ * coisa só: nunca houve resposta. Nenhum chamador precisa contar nada.
+ */
+export interface RespostaValida<T> {
+  dados: T;
+  /** Quando o servidor respondeu isto, em ms de época. */
+  em: number;
+}
+
+/**
+ * Guardar a resposta nova, ou manter a anterior quando não houve resposta nova.
+ *
+ * Guarda o par, e não o dado solto. A versão anterior guardava só os dados e
+ * lia a hora do `dataUpdatedAt` da query — que pertence à **chave atual**, e
+ * vale 0 numa chave que ainda não respondeu. Numa troca de aba que falhava, a
+ * tela exibia a hora da época sobre uma lista carregada dois minutos antes. Uma
+ * tira que existe para dizer a idade do dado não pode errar a idade do dado.
+ *
+ * @param anterior  o que já estava guardado, ou `null` na primeira vez.
+ * @param recebida  a resposta desta renderização, ou `undefined` quando não há
+ *                  resposta nova — placeholder, espera, ou erro.
+ */
+export function guardarResposta<T>(
+  anterior: RespostaValida<T> | null,
+  recebida: RespostaValida<T> | undefined,
+): RespostaValida<T> | null {
+  return recebida === undefined ? anterior : recebida;
+}
+
+/**
  * A tela já pode falar em indisponibilidade?
  *
  * Só quando as duas coisas valem ao mesmo tempo: as tentativas automáticas
- * acabaram **e** não há nada em tela para preservar. É a regra que separa este
- * módulo de um `retry: 2` solto na query.
+ * acabaram **e** nunca houve resposta válida para preservar. É a regra que
+ * separa este módulo de um `retry: 2` solto na query.
  *
- * O segundo termo é o que costuma ser esquecido. Uma fila que carregou às
- * 14h02 continua sendo a fila às 14h05, e trocá-la por um painel amarelo
- * porque um refetch de fundo falhou é destruir informação boa em nome de uma
- * falha que ninguém pediu para observar. Quem tem dado em tela recebe um aviso
- * ao lado; quem não tem nada recebe o painel, porque aí o painel é a única
- * coisa que há para mostrar.
+ * O segundo termo é o que costuma ser esquecido, e o que a primeira versão
+ * errou. Uma fila que carregou às 14h02 continua sendo a fila às 14h05, e
+ * trocá-la por um painel amarelo porque um refetch de fundo falhou é destruir
+ * informação boa em nome de uma falha que ninguém pediu para observar. Quem tem
+ * resposta guardada recebe um aviso ao lado; quem nunca teve recebe o painel,
+ * porque aí o painel é a única coisa que há para mostrar.
  *
- * @param temDadoEmTela  há resultado anterior sendo exibido agora.
+ * @param houveResposta  já houve resposta válida — **inclusive vazia**.
  * @param erro           o erro final, depois de esgotadas as tentativas.
  *                       `null`/`undefined` enquanto o React Query ainda repete.
  */
 export function deveApresentarIndisponibilidade(
-  temDadoEmTela: boolean,
+  houveResposta: boolean,
   erro: unknown,
 ): boolean {
   if (erro === null || erro === undefined) return false;
-  return !temDadoEmTela;
+  return !houveResposta;
 }
 
 /**
- * O último resultado que valeu, atravessando um erro.
+ * A falha que **não** substitui a tela: houve erro, e há resposta guardada.
  *
- * Esta função existe por um limite do React Query que só apareceu quando o
- * teste do sexto cenário falhou — e a descoberta vale o comentário, porque a
- * intuição erra aqui. `placeholderData: keepPreviousData` **não** preserva
- * dado através de um erro: o placeholder só é aplicado enquanto o status é
- * `pending`. Assim que a query falha, o status vira `error` e `data` volta a
- * `undefined` para aquela chave. Numa troca de aba que falha — chave nova, sem
- * dado próprio — a lista some, que é exatamente o que se queria impedir.
- *
- * O `keepPreviousData` continua valendo e continua necessário: é ele que evita
- * o esqueleto durante a espera. O que falta é a outra metade, e é esta: quem
- * mostra a fila guarda a última que mostrou, e continua mostrando-a. Duas
- * peças, duas fases — a espera e o erro.
- *
- * Trivial de propósito. O valor está em existir num lugar só, com o motivo
- * escrito: um `??` solto na tela seria apagado na primeira limpeza por alguém
- * que leu a documentação do `keepPreviousData` e concluiu que era redundante.
+ * O par de `deveApresentarIndisponibilidade`, e declarado aqui pelo mesmo motivo
+ * pelo qual aquela existe: enquanto cada tela escrevia `error && dados` à mão,
+ * cada tela escrevia uma variação — e a variação que usava `length` reaparecia
+ * exatamente no caso da lista vazia.
  */
-export function preservarUltimoValido<T>(
-  anterior: T | undefined,
-  atual: T | undefined,
-): T | undefined {
-  return atual === undefined ? anterior : atual;
+export function deveAvisarSobreDadoGuardado(
+  houveResposta: boolean,
+  erro: unknown,
+): boolean {
+  if (erro === null || erro === undefined) return false;
+  return houveResposta;
 }

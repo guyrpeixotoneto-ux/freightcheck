@@ -304,10 +304,22 @@ export function carimboConhecido(): Carimbo | null {
 
   Por endpoint, e não uma variável só: duas telas falhando juntas embaralhariam
   as origens uma da outra, e o registro passaria a mentir com precisão de
-  relógio. A primeira pergunta sobre um endpoint é sempre `montagem` — é a
-  única origem que se deduz sem ninguém marcar.
+  relógio.
+
+  **Toda origem é marcada; nenhuma é deduzida.** A primeira versão deduzia
+  `montagem` da primeira chamada que via para cada endpoint, guardando os
+  endpoints já vistos num `Set` que vivia enquanto a aba vivesse. A dedução
+  estava certa uma vez e errada em todas as seguintes: sair da tela e voltar
+  monta o componente de novo, e aquela montagem — legítima, com um refetch
+  legítimo — era registrada como `desconhecida`, porque o endpoint já constava
+  do `Set`. Quem lesse o registro veria uma falha sem origem justamente na volta
+  para a tela, que é um dos momentos que mais se quer distinguir.
+
+  Com a marcação explícita de `useConsultaResiliente` na montagem, o `Set`
+  deixou de ter função e saiu. `desconhecida` passa a significar o que o nome
+  diz — ninguém marcou —, e sobra para o caso honesto: um refetch disparado por
+  invalidação de mutação, que de fato não tem origem de navegação.
 */
-const jaChamados = new Set<string>();
 const origensMarcadas = new Map<string, OrigemDoRefetch>();
 
 /** Quem dispara um refetch deliberado diz aqui por quê, antes de disparar. */
@@ -324,10 +336,7 @@ export function marcarOrigem(endpoint: string, origem: OrigemDoRefetch): void {
 export function consumirOrigem(endpoint: string): OrigemDoRefetch {
   const marcada = origensMarcadas.get(endpoint);
   origensMarcadas.delete(endpoint);
-  const primeira = !jaChamados.has(endpoint);
-  jaChamados.add(endpoint);
-  if (marcada !== undefined) return marcada;
-  return primeira ? "montagem" : "desconhecida";
+  return marcada ?? "desconhecida";
 }
 
 export function falhasRegistradas(): readonly FalhaDeChamada[] {
@@ -338,7 +347,6 @@ export function falhasRegistradas(): readonly FalhaDeChamada[] {
 export function limparRegistro(): void {
   registradas.length = 0;
   ultimoCarimbo = null;
-  jaChamados.clear();
   origensMarcadas.clear();
 }
 

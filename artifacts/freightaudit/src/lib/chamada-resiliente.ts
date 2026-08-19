@@ -35,6 +35,26 @@ import { deveTentarDeNovo, esperaDaTentativa } from "@/lib/resiliencia";
  * política escrita dentro do teste — o que passa lá é o que roda na tela.
  */
 
+/**
+ * As opções que valem para **toda** consulta da aplicação.
+ *
+ * Exportadas, e não escritas dentro do `new QueryClient`, por um motivo só: é o
+ * que permite ao teste exercitar o objeto que roda no produto em vez de uma
+ * reescrita dele. Uma política global cuja prova é uma cópia da política não
+ * prova nada — foi assim que "o foco não refaz a chamada" chegou a passar num
+ * ambiente onde foco não refazia chamada nenhuma.
+ *
+ * A análise de impacto de cada uma das quatro, e as três exceções que declaram
+ * `refetchOnWindowFocus: true`, estão no cabeçalho de `App.tsx`, que é onde
+ * quem procura por "por que esta tela não atualiza sozinha" vai olhar.
+ */
+export const PADRAO_DAS_CONSULTAS = {
+  retry: deveTentarDeNovo,
+  retryDelay: esperaDaTentativa,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: true,
+} as const;
+
 /** O carimbo do servidor, lido de `/api/build`. */
 async function lerCarimbo(): Promise<Carimbo | null> {
   try {
@@ -108,18 +128,35 @@ export function chamadaResiliente<T>({
       try {
         const dados = await buscar(endpoint);
         /*
-          Deu certo: é a hora — e a única hora — em que dá para perguntar ao
-          servidor quem ele é. Se havia falha em aberto, este carimbo fecha o
-          episódio dizendo a que atribuí-lo; se não havia, ele fica de base para
-          a próxima. Ler o carimbo mesmo quando nada falhou é o que dá base de
-          comparação à primeira falha da sessão, que é a que mais interessa.
+          O carimbo é lido **fora do caminho crítico**, e isso é uma correção.
 
-          Quem decide entre os dois casos é `registrarSucesso`, e não este
-          arquivo: a pergunta é "há falha em aberto?", e quem tem o registro é
-          quem sabe responder.
+          A primeira versão fazia `await carimbo()` aqui, entre ter o dado em
+          mãos e devolvê-lo. O efeito é o oposto do que este módulo existe para
+          fazer: toda carga bem-sucedida da fila passava a esperar uma segunda
+          requisição antes de a tela receber o que já estava pronto —
+          diagnóstico atrasando produto. E atrasava pior justamente onde dói,
+          porque a partida a frio que se quer diagnosticar é exatamente o
+          momento em que o `/build` também responde devagar.
+
+          Sem `await`: o dado sai agora, o carimbo chega quando chegar. Nada
+          depende da ordem — `registrarSucesso` fecha episódios pelo registro,
+          não por quem chamou —, e um `/build` que nunca responda não segura
+          nada. `void` porque o resultado não interessa a este caminho, e o
+          `.catch` porque uma promessa rejeitada sem tratamento derrubaria o
+          console com um erro que já é esperado e já é tratado dentro de
+          `lerCarimbo`.
+
+          Provado em `__tests__/fila-de-curadoria.test.ts`: com um `/build` que
+          demora mais do que o teste inteiro, o dado chega assim mesmo.
         */
-        const atual = await carimbo();
-        if (atual) registrarSucesso(atual);
+        void carimbo()
+          .then((atual) => {
+            if (atual) registrarSucesso(atual);
+          })
+          .catch(() => {
+            // `lerCarimbo` já engole o que sabe engolir; isto cobre um
+            // `carimbo` injetado que rejeite, e mantém a promessa silenciosa.
+          });
         return dados;
       } catch (erro) {
         registrarFalha(
@@ -177,9 +214,11 @@ export function chamadaResiliente<T>({
      * quando a query falha, o status vira `error` e `data` volta a `undefined`
      * na chave nova. Ou seja: esta opção sozinha **não** cumpre a promessa de
      * preservar a tela numa falha — cobre a espera, não o desfecho. A outra
-     * metade é `preservarUltimoValido`, em `resiliencia.ts`, e as duas juntas é
-     * que fecham o caso. Não é dedução: foi o sexto cenário de
-     * `fila-de-curadoria.test.ts` que reprovou a versão com só esta linha.
+     * metade é `guardarResposta`, em `resiliencia.ts`, aplicada pelo `ref` de
+     * `useConsultaResiliente`; as duas juntas é que fecham o caso. Não é
+     * dedução: foi o cenário "dado anterior + falha transitória" de
+     * `__tests__/consulta-resiliente.test.ts` que reprovou a versão com só esta
+     * linha, e ele ainda afirma o limite (`depois.data` sai `undefined`).
      */
     placeholderData: keepPreviousData,
   };

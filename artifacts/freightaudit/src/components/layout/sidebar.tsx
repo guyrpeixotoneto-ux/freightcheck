@@ -579,6 +579,13 @@ function UnidadeNaFaixa() {
     },
     staleTime: 60_000,
     retry: false,
+    /*
+      Exceção ao `refetchOnWindowFocus: false` global, pela mesma razão dos
+      contadores do menu: isto vive no layout, que nunca desmonta, e sem foco
+      não haveria atualização nenhuma. Engole o erro e não repete, e por isso o
+      foco ligado não repõe painel na tela. Ver `layout/contadores.ts`.
+    */
+    refetchOnWindowFocus: true,
   });
 
   const atual = (data ?? [])[0];
@@ -760,6 +767,8 @@ function SeletorDeUnidade({ ambiente }: { ambiente: Ambiente }) {
     },
     staleTime: 60_000,
     retry: false,
+    // Exceção ao foco global, como acima. Ver `layout/contadores.ts`.
+    refetchOnWindowFocus: true,
   });
 
   const contextos = data ?? [];
