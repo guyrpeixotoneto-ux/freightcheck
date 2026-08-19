@@ -154,7 +154,7 @@ O que sustenta a tela:
 | `routes/fechamento.ts` | `GET …/dias` e `GET …/dias/:dia` |
 | `components/fechamento/` | a grade de ladrilhos, o catálogo de colunas e a tabela larga |
 
-Três decisões que a tela materializa:
+Quatro decisões que a tela materializa:
 
 1. **O dia sem operação aparece na grade**, apagado e clicável. "Não rodou" é
    uma resposta; a grade que esconde o dia vazio obriga a contar ladrilhos para
@@ -164,6 +164,16 @@ Três decisões que a tela materializa:
    soma feita na tela seria uma segunda conta do mesmo dinheiro.
 3. **A última coluna da tabela é a linha física do 2Art.** É a ponta da trilha:
    permite conferir a célula de origem sem refazer a conta.
+4. **O 2Art de outro período é recusado na porta**, com os dois períodos
+   nomeados (`DOCUMENTO_FORA_DO_PERIODO`). Metade do arquivo cair fora é o
+   normal — ele é mensal e a quinzena é meio mês —, e essa metade é contada, não
+   recusada. *Nenhuma* linha cair dentro é outra coisa: é o arquivo de um
+   período aberto na competência de outro. Ele entrava com visto verde e "949
+   linhas" na linha da fonte, gravava tudo, e a grade nascia inteira vazia — a
+   importação que mente é a que diz ter dado certo. A checagem é só do 2Art,
+   porque só nele a data da linha é o dia em que a viagem rodou; nas outras
+   fontes é emissão ou aprovação, que atravessa a virada da quinzena de forma
+   legítima.
 
 ## A conta abre na lista — Apurações sem trocar de tela
 
@@ -201,11 +211,37 @@ Três decisões que a tela materializa:
 
 ## Remuneração — o cadastro, e a única tela que atravessa a fronteira
 
-`/fechamento/remuneracao` reproduz a aba **CADASTRO DA PLANILHA DE
+`/fechamento/remuneracao/unidade` reproduz a aba **CADASTRO DA PLANILHA DE
 REMUNERAÇÃO**: as quatro alíquotas, o tamanho da frota fixa, quanto vale cada
 parcela por veículo ativo e inativo, as vans, as rotas noturnas, o marketing, a
 proporção de documentos dentro e fora do município, e o resumo de impostos. É a
 aba que abre a pasta de Excel e de onde todas as outras puxam.
+
+**E `/fechamento/remuneracao` é a lista que vem antes dela.** São duas
+perguntas, e a segunda não responde a primeira: o cadastro de uma unidade
+responde *quais são os parâmetros dela*; quem abre Remuneração na virada da
+quinzena quer saber *onde está o trabalho* — quais CDDs já têm o cadastro de pé
+e quais ainda não têm. Sem a lista, descobrir que um deles entregou a frota e
+não entregou os trechos custa abri-lo, e com trinta unidades custa abrir trinta
+telas para achar as duas que faltam. É o mesmo papel que Apurações cumpre para
+as competências.
+
+Cada unidade aparece com um estado de **quatro valores** — `FROTA_E_ALIQUOTAS`,
+`SO_FROTA`, `SO_ALIQUOTAS`, `SEM_LASTRO` — e o estado é sobre as duas metades
+do cadastro, não sobre um percentual das trinta linhas. A razão está em
+`lib/remuneracao/src/situacao.ts`: onze das trinta têm lastro sobre um acervo
+completo, e as outras dezenove dependem de decisões de negócio que ninguém
+registrou. "37% cadastrado" seria lido como "falta importar alguma coisa"
+justamente na unidade que entregou tudo o que tinha para entregar. O que separa
+uma unidade da outra são as duas metades que dependem do que ela mandou: a
+frota, que vem do export de equipamento, e as alíquotas, que vêm do de frete.
+
+A lista **monta o cadastro de cada unidade** em vez de deduzir o estado do
+material entregue, e paga por isso: quatro consultas, cada uma respondendo por
+todas as unidades de uma vez no par (unidade, vigência mais recente dela). É o
+que garante que a lista e a tela do cadastro nunca discordem — o caso que a
+dedução erraria é a vigência que entregou trechos sem as colunas em reais, em
+que a tela mostra as alíquotas em branco e a dedução diria "em dia".
 
 **Duas vistas, e a padrão é a de duas quinzenas lado a lado** — que é a forma da
 planilha: a aba traz os dois blocos um ao lado do outro, e quem confere lê as

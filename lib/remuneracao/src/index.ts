@@ -23,5 +23,6 @@ export * from "./catalogo";
 export * from "./colunas";
 export * from "./medicao";
 export * from "./montagem";
+export * from "./situacao";
 export * from "./comparacao";
 export * from "./leitura";
