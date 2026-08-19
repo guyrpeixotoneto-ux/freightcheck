@@ -1,4 +1,4 @@
-import { Fragment, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link } from "wouter";
 import {
@@ -7,7 +7,6 @@ import {
   Calculator,
   CalendarDays,
   Check,
-  ChevronRight,
   FileUp,
   Lock,
   LockOpen,
@@ -18,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { GradeDeDias } from "@/components/fechamento/grade-de-dias";
+import { ContaApurada } from "@/components/fechamento/conta-apurada";
 import { apresentar } from "@/lib/apresentar-erro";
 import { formatBrl, formatNumber } from "@/lib/format";
 import { Textarea } from "@/components/ui/textarea";
@@ -34,7 +34,6 @@ import {
   type Documento,
   type Fonte,
   type TipoDeFonte,
-  type VerbaApurada,
 } from "@/lib/fechamento";
 
 function textoDoErro(erro: unknown): string {
@@ -67,7 +66,6 @@ const emDiaBR = (iso: string) => iso.split("-").reverse().join("/");
 export default function CompetenciaAberta({ id }: { id: string }) {
   const cliente = useQueryClient();
   const [erroDoEnvio, setErroDoEnvio] = useState<string | null>(null);
-  const [verbaAberta, setVerbaAberta] = useState<number | null>(null);
   const [motivo, setMotivo] = useState("");
 
   const dados = useQuery({
@@ -306,54 +304,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
               </p>
             )}
 
-            {apuracao && (
-              <>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  <Numero titulo="Emitido em CT-e" valor={apuracao.totais.emitido} />
-                  <Numero
-                    titulo="Conferido pela apuração"
-                    valor={apuracao.totais.esperado}
-                    nota="Reconstruído das fontes, verba a verba."
-                  />
-                  <Numero
-                    titulo="Sem fonte que confira"
-                    valor={apuracao.totais.naoConferido}
-                    nota="Emitido que nenhuma das cinco fontes sustenta — a parte fixa do contrato."
-                  />
-                </div>
-
-                {apuracao.fontesAusentes.length > 0 && (
-                  <Alert>
-                    <AlertTriangle className="w-4 h-4" />
-                    <AlertDescription>
-                      Esta apuração rodou sem {apuracao.fontesAusentes.length} fonte(s):{" "}
-                      {apuracao.fontesAusentes
-                        .map((t) => fontes.data?.find((f) => f.tipo === t)?.rotina ?? t)
-                        .join(", ")}
-                      . As verbas que dependiam delas ficaram sem conferência.
-                    </AlertDescription>
-                  </Alert>
-                )}
-
-                {apuracao.aliquotas.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    Conversão medida dos próprios arquivos:{" "}
-                    {apuracao.aliquotas
-                      .map((a) => `${a.canal} ${a.percentual.toFixed(4)}%`)
-                      .join(" · ")}
-                    . Nenhuma alíquota é presumida — o fator sai da razão entre a
-                    requisição aprovada e o CT-e emitido nas verbas que só podem
-                    ter vindo de requisição.
-                  </p>
-                )}
-
-                <TabelaDeVerbas
-                  verbas={apuracao.verbas}
-                  aberta={verbaAberta}
-                  onAbrir={(vbz) => setVerbaAberta(verbaAberta === vbz ? null : vbz)}
-                />
-              </>
-            )}
+            {apuracao && <ContaApurada apuracao={apuracao} fontes={fontes.data ?? []} />}
           </CardContent>
         </Card>
 
@@ -497,16 +448,6 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   );
 }
 
-function Numero({ titulo, valor, nota }: { titulo: string; valor: number; nota?: string }) {
-  return (
-    <div className="rounded-lg border bg-card p-4">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">{titulo}</p>
-      <p className="text-xl font-bold tabular-nums mt-1">{formatBrl(valor)}</p>
-      {nota && <p className="text-xs text-muted-foreground mt-1">{nota}</p>}
-    </div>
-  );
-}
-
 /** Uma fonte: o que ela é, se já chegou, e o que o leitor recusou dela. */
 function LinhaDeFonte({
   fonte,
@@ -572,107 +513,5 @@ function LinhaDeFonte({
         </Button>
       </div>
     </li>
-  );
-}
-
-/**
- * As verbas, e a memória de cálculo de cada uma.
- *
- * O que a planilha nunca teve: clicar numa verba abre de onde cada real dela
- * saiu — a rubrica da conciliação, o complementar de perfil, as requisições
- * aprovadas e o fator que as converteu. É o que permite discordar de um número
- * sem precisar refazê-lo.
- */
-function TabelaDeVerbas({
-  verbas,
-  aberta,
-  onAbrir,
-}: {
-  verbas: VerbaApurada[];
-  aberta: number | null;
-  onAbrir: (vbz: number) => void;
-}) {
-  return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
-        <thead>
-          <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
-            <th className="py-2 pr-3 font-medium">Verba</th>
-            <th className="py-2 px-3 font-medium text-right">Emitido</th>
-            <th className="py-2 px-3 font-medium text-right">Apurado</th>
-            <th className="py-2 pl-3 font-medium text-right">Diferença</th>
-          </tr>
-        </thead>
-        <tbody>
-          {verbas.map((v) => (
-            <Fragment key={v.vbz}>
-              <tr
-                className="border-b hover:bg-muted/50 cursor-pointer"
-                onClick={() => onAbrir(v.vbz)}
-              >
-                <td className="py-2 pr-3">
-                  <span className="inline-flex items-center gap-1.5">
-                    <ChevronRight
-                      className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${
-                        aberta === v.vbz ? "rotate-90" : ""
-                      }`}
-                    />
-                    <span className="font-mono text-xs text-muted-foreground">{v.vbz}</span>
-                    <span>
-                      {v.canal} · {v.nome}
-                    </span>
-                  </span>
-                </td>
-                <td className="py-2 px-3 text-right tabular-nums">{formatBrl(v.emitido)}</td>
-                <td className="py-2 px-3 text-right tabular-nums text-muted-foreground">
-                  {v.esperado === null ? "—" : formatBrl(v.esperado)}
-                </td>
-                <td className="py-2 pl-3 text-right tabular-nums">
-                  {v.diferenca === null ? (
-                    <span className="text-xs text-muted-foreground">sem fonte</span>
-                  ) : (
-                    formatBrl(v.diferenca)
-                  )}
-                </td>
-              </tr>
-              {aberta === v.vbz && (
-                <tr className="border-b bg-muted/30">
-                  <td colSpan={4} className="py-3 px-8">
-                    {v.memoria.length === 0 ? (
-                      <p className="text-sm text-muted-foreground">
-                        Nenhuma das cinco fontes sustenta esta verba — ela entrou
-                        na conta pelo que foi emitido, e ninguém a conferiu. É o
-                        caso da parcela fixa do contrato.
-                      </p>
-                    ) : (
-                      <ul className="space-y-1.5">
-                        {v.memoria.map((m, i) => (
-                          <li key={i} className="flex items-baseline justify-between gap-4 text-sm">
-                            <span className="text-muted-foreground">
-                              {m.descricao}
-                              {m.fator != null && m.semImposto != null && (
-                                <span className="font-mono text-xs">
-                                  {" "}
-                                  ({formatBrl(m.semImposto)} × {m.fator.toFixed(6)})
-                                </span>
-                              )}
-                            </span>
-                            <span className="tabular-nums shrink-0">{formatBrl(m.comImposto)}</span>
-                          </li>
-                        ))}
-                        <li className="flex items-baseline justify-between gap-4 text-sm font-medium border-t pt-1.5">
-                          <span>Total apurado</span>
-                          <span className="tabular-nums">{formatBrl(v.esperado ?? 0)}</span>
-                        </li>
-                      </ul>
-                    )}
-                  </td>
-                </tr>
-              )}
-            </Fragment>
-          ))}
-        </tbody>
-      </table>
-    </div>
   );
 }
