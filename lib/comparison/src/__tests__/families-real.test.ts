@@ -161,6 +161,101 @@ describe("o resumo executivo", () => {
     }
   });
 
+  /**
+   * Os dois lados abertos por parâmetro.
+   *
+   * `lossesByPeriodicity` e `gainsByPeriodicity` respondem *quanto*; `sides`
+   * responde *de onde*, e a tela publica os dois juntos. É o par que produz a
+   * classe de defeito mais cara que uma tela de dinheiro tem: um total que não é
+   * a soma da lista logo abaixo dele. Quem confere soma na mão, e descobrir a
+   * diferença sozinho é descobrir que uma das duas linhas mente sem saber qual.
+   *
+   * As quatro provas fecham essa porta: a lista soma no lado, os dois lados
+   * somam no líquido, o líquido é o mesmo da vigência, e nenhum parâmetro está
+   * no lado errado.
+   */
+  it("abre cada lado por parâmetro, e a lista soma no total do lado", async () => {
+    const view = (await getFamiliesView(ctx.db))!;
+    expect(view.summary.sides.length).toBeGreaterThan(0);
+
+    for (const lado of view.summary.sides) {
+      for (const [nome, side] of [
+        ["ganho", lado.gains],
+        ["perda", lado.losses],
+      ] as const) {
+        // Até o centavo, que é a precisão em que o dinheiro é lido e escrito.
+        // O total é arredondado uma vez sobre a soma crua, e a lista sobre cada
+        // parcela — a distância entre os dois só existiria se o motor gravasse
+        // fração de centavo, e a régua de 2 casas é justamente onde ela para de
+        // importar.
+        const soma = side.parameters.reduce((total, p) => total + p.amount, 0);
+        expect(soma, `${nome} de ${lado.periodicity}`).toBeCloseTo(side.total, 2);
+        expect(
+          side.parameters.reduce((total, p) => total + p.changes, 0),
+          `alterações do ${nome} de ${lado.periodicity}`,
+        ).toBe(side.changes);
+        // Nenhum parâmetro no lado errado: um ganho negativo somaria à perda
+        // dentro da lista dos ganhos, e o total continuaria fechando.
+        for (const p of side.parameters) {
+          if (nome === "ganho") expect(p.amount, p.name).toBeGreaterThan(0);
+          else expect(p.amount, p.name).toBeLessThan(0);
+        }
+      }
+    }
+  });
+
+  it("os dois lados fecham no líquido da vigência, periodicidade a periodicidade", async () => {
+    const view = (await getFamiliesView(ctx.db))!;
+    for (const lado of view.summary.sides) {
+      expect(lado.gains.total + lado.losses.total, lado.periodicity).toBeCloseTo(
+        lado.net,
+        2,
+      );
+      expect(lado.net, `líquido de ${lado.periodicity}`).toBeCloseTo(
+        view.impact.byPeriodicity[lado.periodicity],
+        2,
+      );
+    }
+  });
+
+  it("publica perdas e ganhos a partir de `sides`, e não de uma segunda soma", async () => {
+    const view = (await getFamiliesView(ctx.db))!;
+    const { lossesByPeriodicity, gainsByPeriodicity, sides } = view.summary;
+    for (const lado of sides) {
+      if (lado.losses.total !== 0) {
+        expect(lossesByPeriodicity[lado.periodicity]).toBe(lado.losses.total);
+      }
+      if (lado.gains.total !== 0) {
+        expect(gainsByPeriodicity[lado.periodicity]).toBe(lado.gains.total);
+      }
+    }
+    // E nada aparece nos dois campos sem estar em `sides`: um balde a mais ali
+    // seria um total sem lista que o explique.
+    const baldes = new Set(sides.map((s) => s.periodicity));
+    for (const balde of [
+      ...Object.keys(lossesByPeriodicity),
+      ...Object.keys(gainsByPeriodicity),
+    ]) {
+      expect(baldes.has(balde), balde).toBe(true);
+    }
+  });
+
+  it("conta cada ativo uma vez por parâmetro, e não uma vez por linha", async () => {
+    const view = (await getFamiliesView(ctx.db))!;
+    for (const lado of view.summary.sides) {
+      for (const side of [lado.gains, lado.losses]) {
+        for (const p of side.parameters) {
+          expect(p.vehicles, p.name).toBeLessThanOrEqual(p.changes);
+        }
+        // O lado tem, no máximo, a soma dos ativos dos seus parâmetros — e
+        // costuma ter menos, porque a mesma placa mudou em mais de um.
+        expect(side.vehicles).toBeLessThanOrEqual(
+          side.parameters.reduce((total, p) => total + p.vehicles, 0),
+        );
+      }
+    }
+  });
+
   it("não produz um número único somando periodicidades", async () => {
     const view = (await getFamiliesView(ctx.db))!;
     for (const vehicle of view.summary.topVehicles) {

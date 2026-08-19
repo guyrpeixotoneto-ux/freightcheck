@@ -784,6 +784,16 @@ export async function compararIntervalo(
  * e continuam separados por periodicidade. Somar perda mensal com perda anual
  * para produzir "o total que perdemos" daria um número que nenhuma das duas
  * grandezas justifica.
+ *
+ * A lista sai de `summary.sides` — a partição **por linha de alteração** —, e
+ * não mais dos `topParameters` filtrados pelo sinal do saldo. A diferença é
+ * medida e não é pequena: em agosto/2026 `Financiamento` subiu R$ 17.086,20 em
+ * quatro cavalos e caiu R$ 2.147,19 num quinto. Pelo saldo ele aparecia só do
+ * lado do ganho, com R$ 14.939,01, e a pergunta "onde a remuneração caiu?"
+ * recebia uma resposta em que aquela queda não existia — enquanto a Visão geral,
+ * que lê os mesmos lados, a mostrava. Duas superfícies do mesmo produto
+ * respondendo diferente sobre o mesmo dinheiro é o defeito que este arquivo
+ * inteiro existe para não cometer.
  */
 export async function rankingDeImpacto(
   db: Database,
@@ -800,15 +810,34 @@ export async function rankingDeImpacto(
   const porPeriodicidade = lado === "PERDA" ? r.lossesByPeriodicity : r.gainsByPeriodicity;
   const entradas = Object.entries(porPeriodicidade).filter(([, v]) => v !== 0);
 
-  const relevantes = r.topParameters
-    .map((p) => {
-      const soma = Object.entries(p.byPeriodicity).filter(([, v]) =>
-        lado === "PERDA" ? v < 0 : v > 0,
-      );
-      return { p, soma };
-    })
-    .filter((x) => x.soma.length > 0)
-    .slice(0, 5);
+  /*
+    O mesmo parâmetro pode ter valor deste lado em mais de uma periodicidade, e
+    as duas saem juntas na linha dele — nunca somadas. O ranking entre
+    parâmetros usa o maior módulo dentro de **uma** periodicidade, que é a mesma
+    régua do pódio da Visão geral.
+  */
+  const porParametro = new Map<
+    string,
+    { name: string; familyName: string; changes: number; soma: [string, number][] }
+  >();
+  for (const balde of r.sides) {
+    const side = lado === "PERDA" ? balde.losses : balde.gains;
+    for (const p of side.parameters) {
+      const entrada =
+        porParametro.get(p.key) ??
+        { name: p.name, familyName: p.familyName, changes: 0, soma: [] };
+      entrada.changes += p.changes;
+      entrada.soma.push([balde.periodicity, p.amount]);
+      porParametro.set(p.key, entrada);
+    }
+  }
+
+  const maiorModulo = (soma: [string, number][]) =>
+    soma.reduce((maior, [, v]) => Math.max(maior, Math.abs(v)), 0);
+  const relevantes = [...porParametro.values()]
+    .sort((a, b) => maiorModulo(b.soma) - maiorModulo(a.soma))
+    .slice(0, 5)
+    .map((p) => ({ p, soma: p.soma }));
 
   const fatos: Fato[] = [
     {
@@ -827,7 +856,12 @@ export async function rankingDeImpacto(
     fatos.push({
       rotulo: p.name,
       valor: soma.map(([per, v]) => dinheiro(v, per)).join(" · "),
-      detalhe: `${p.familyName} · ${INTEIRO.format(p.changes)} alterações`,
+      // "deste lado" e não "do parâmetro": a contagem é das linhas que caíram
+      // aqui. O mesmo parâmetro pode ter outras do outro lado, e escrever só
+      // "12 alterações" faria a soma das duas listas parecer contagem dobrada.
+      detalhe: `${p.familyName} · ${INTEIRO.format(p.changes)} ${
+        p.changes === 1 ? "alteração deste lado" : "alterações deste lado"
+      }`,
     });
   }
 
@@ -850,7 +884,7 @@ export async function rankingDeImpacto(
       ...entradas.map(([, v]) => v),
       ...relevantes.flatMap(({ p, soma }) => [p.changes, ...soma.map(([, v]) => v)]),
     ],
-    origem: `getFamiliesView → summary.${lado === "PERDA" ? "lossesByPeriodicity" : "gainsByPeriodicity"} · ${visao.periodLabel}`,
+    origem: `getFamiliesView → summary.sides[].${lado === "PERDA" ? "losses" : "gains"} · ${visao.periodLabel}`,
     recorte: recorteDe(ctx.info, { vigencia: visao.periodLabel }),
     tela: { label: "Parâmetros", href: "/parametros" },
     ...(relevantes[0] ? { assuntoEmDestaque: relevantes[0].p.name } : {}),

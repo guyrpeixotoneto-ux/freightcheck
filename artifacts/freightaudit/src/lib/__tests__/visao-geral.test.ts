@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cobertura,
+  composicaoDoImpacto,
   detalheDaAlteracao,
   detalheDoImpacto,
   equipamentoMaisTocado,
@@ -8,6 +9,7 @@ import {
   frotaTotal,
   impactosDaVigencia,
   integridade,
+  ladosDoImpacto,
   maioresImpactos,
   participacao,
   pontosDeAtencao,
@@ -401,6 +403,7 @@ describe("maiores impactos", () => {
     impact: impacto(),
     lossesByPeriodicity: {},
     gainsByPeriodicity: {},
+    sides: [],
     changes: 0,
     groups: 0,
     critical: 0,
@@ -442,6 +445,228 @@ describe("maiores impactos", () => {
   });
 });
 
+/**
+ * Os dois lados do impacto.
+ *
+ * O líquido é uma subtração, e uma subtração esconde as duas parcelas: a mesma
+ * frase descreve uma vigência calma e uma em que dois movimentos grandes quase
+ * se anularam. O que roda aqui são as três maneiras de essa leitura mentir:
+ *
+ * 1. Publicar um total que não é a soma da lista que o explica.
+ * 2. Somar periodicidades diferentes para produzir "o positivo da vigência".
+ * 3. Desenhar uma balança onde não houve movimento apurável.
+ */
+describe("os dois lados do impacto", () => {
+  const lado = (
+    total: number,
+    parametros: { key: string; name: string; amount: number; changes?: number }[],
+  ) => ({
+    total,
+    changes: parametros.reduce((soma, p) => soma + (p.changes ?? 1), 0),
+    vehicles: parametros.length,
+    parameters: parametros.map((p) => ({
+      key: p.key,
+      name: p.name,
+      family: "AQUISICAO",
+      familyName: "Aquisição e financiamento",
+      changes: p.changes ?? 1,
+      vehicles: 1,
+      amount: p.amount,
+    })),
+  });
+
+  const comLados = (sides: FamiliesView["summary"]["sides"]): FamiliesView => ({
+    ...vigencia({
+      impact: impacto({
+        byPeriodicity: Object.fromEntries(sides.map((s) => [s.periodicity, s.net])),
+        excluido: { MENSAL: -400 },
+        excludedChanges: 2,
+        notCalculable: 62,
+        calculatedChanges: 205,
+      }),
+    }),
+    summary: {
+      impact: impacto(),
+      lossesByPeriodicity: Object.fromEntries(
+        sides.filter((s) => s.losses.total !== 0).map((s) => [s.periodicity, s.losses.total]),
+      ),
+      gainsByPeriodicity: Object.fromEntries(
+        sides.filter((s) => s.gains.total !== 0).map((s) => [s.periodicity, s.gains.total]),
+      ),
+      sides,
+      changes: 0,
+      groups: 0,
+      critical: 0,
+      locked: 0,
+      notCalculable: 62,
+      vehiclesTouched: 0,
+      topParameters: [],
+      topVehicles: [],
+    },
+    families: [],
+    freightechSemDado: [],
+  });
+
+  const mensal = {
+    periodicity: "MENSAL",
+    net: 11916.7,
+    gains: lado(19616.7, [
+      { key: "AQUISICAO|Financiamento", name: "Financiamento", amount: 14938.7, changes: 5 },
+      { key: "REMUNERACAO|Lucro fixo", name: "Lucro fixo", amount: 4678 },
+    ]),
+    losses: lado(-7700, [
+      { key: "AQUISICAO|Depreciação", name: "Depreciação", amount: -7700, changes: 3 },
+    ]),
+  };
+  const anual = {
+    periodicity: "ANUAL",
+    net: -2100,
+    gains: lado(0, []),
+    losses: lado(-2100, [{ key: "MANUTENCAO|Pneus", name: "Pneus", amount: -2100 }]),
+  };
+
+  it("publica os dois lados ao lado do líquido, e os três fecham", () => {
+    const [primeiro] = ladosDoImpacto(comLados([mensal]));
+    expect(primeiro.ganhos + primeiro.perdas).toBeCloseTo(primeiro.liquido, 2);
+    expect(primeiro.ganhos).toBeGreaterThan(0);
+    expect(primeiro.perdas).toBeLessThan(0);
+  });
+
+  it("mede movimento e não saldo na fatia da barra", () => {
+    // R$ 19.616,70 subiram e R$ 7.700 desceram: 71,8% do que se mexeu foi para
+    // cima. A fatia do saldo (11.916,70 ÷ 19.616,70) daria 60,7% — o número de
+    // outra pergunta.
+    const [primeiro] = ladosDoImpacto(comLados([mensal]));
+    expect(primeiro.fatiaDeGanho).toBeCloseTo(19616.7 / (19616.7 + 7700), 4);
+  });
+
+  it("não desenha balança quando não houve movimento apurável", () => {
+    expect(ladosDoImpacto(comLados([]))).toEqual([]);
+    expect(ladosDoImpacto(null)).toEqual([]);
+    const parado = { periodicity: "MENSAL", net: 0, gains: lado(0, []), losses: lado(0, []) };
+    expect(ladosDoImpacto(comLados([parado]))[0].fatiaDeGanho).toBeNull();
+  });
+
+  it("mantém cada periodicidade na sua linha, com o seu par de lados", () => {
+    const lidos = ladosDoImpacto(comLados([mensal, anual]));
+    expect(lidos.map((l) => l.periodicity)).toEqual(["MENSAL", "ANUAL"]);
+    expect(lidos[1].ganhos).toBe(0);
+    expect(lidos[1].perdas).toBe(-2100);
+  });
+
+  describe("a balança que o cartão abre", () => {
+    it("o total de cada lado é a soma exata da lista que o explica", () => {
+      const balanca = composicaoDoImpacto(comLados([mensal]), "MENSAL")!;
+      const somaDosGanhos = balanca.ganhos.linhas.reduce((t, l) => t + l.amount, 0);
+      const somaDasPerdas = balanca.perdas.linhas.reduce((t, l) => t + l.amount, 0);
+      expect(somaDosGanhos).toBeCloseTo(balanca.ganhos.total, 2);
+      expect(somaDasPerdas).toBeCloseTo(balanca.perdas.total, 2);
+      expect(balanca.ganhos.total + balanca.perdas.total).toBeCloseTo(balanca.liquido, 2);
+    });
+
+    it("põe as duas listas na mesma escala, porque são da mesma periodicidade", () => {
+      const balanca = composicaoDoImpacto(comLados([mensal]), "MENSAL")!;
+      // A maior perda (7.700) é metade do maior ganho (14.938,70): a barra dela
+      // precisa terminar na metade, e não no fim de uma escala só das perdas.
+      expect(balanca.ganhos.linhas[0].proporcao).toBe(1);
+      expect(balanca.perdas.linhas[0].proporcao).toBeCloseTo(7700 / 14938.7, 4);
+    });
+
+    /*
+      O caso real de agosto/2026: `Financiamento` subiu em quatro cavalos e caiu
+      num quinto. Pelo saldo ele seria "+R$ 14.939 e mais nada", e o movimento
+      contrário sumiria dentro do próprio parâmetro.
+    */
+    const dosDoisLados = comLados([
+      {
+        periodicity: "MENSAL",
+        net: 11916.7,
+        gains: lado(21764.05, [
+          { key: "AQUISICAO|Financiamento", name: "Financiamento", amount: 17086.2, changes: 4 },
+          { key: "REMUNERACAO|Lucro fixo", name: "Lucro fixo", amount: 4677.85 },
+        ]),
+        losses: lado(-9847.35, [
+          { key: "AQUISICAO|Depreciação", name: "Depreciação", amount: -7700.16 },
+          { key: "AQUISICAO|Financiamento", name: "Financiamento", amount: -2147.19 },
+        ]),
+      },
+    ]);
+
+    it("diz na linha quando o mesmo parâmetro está nos dois lados", () => {
+      const balanca = composicaoDoImpacto(dosDoisLados, "MENSAL")!;
+      const ganho = balanca.ganhos.linhas.find((l) => l.name === "Financiamento")!;
+      const perda = balanca.perdas.linhas.find((l) => l.name === "Financiamento")!;
+
+      expect(ganho.amount).toBe(17086.2);
+      expect(ganho.noOutroLado).toBe(-2147.19);
+      // O saldo é o número que o painel do parâmetro abre — e é ele que a linha
+      // precisa antecipar, senão o clique parece trocar o número de lugar.
+      expect(ganho.liquido).toBeCloseTo(14939.01, 2);
+      expect(perda.noOutroLado).toBe(17086.2);
+      expect(perda.liquido).toBeCloseTo(14939.01, 2);
+
+      // E o parâmetro de um lado só não inventa a outra ponta.
+      const so = balanca.perdas.linhas.find((l) => l.name === "Depreciação")!;
+      expect(so.noOutroLado).toBeNull();
+      expect(so.liquido).toBe(so.amount);
+    });
+
+    it("não deixa o saldo do parâmetro encolher o lado", () => {
+      const balanca = composicaoDoImpacto(dosDoisLados, "MENSAL")!;
+      // O ganho publicado é o que de fato subiu (21.764,05), e não a soma dos
+      // saldos dos parâmetros que terminaram positivos (19.616,86).
+      expect(balanca.ganhos.total).toBe(21764.05);
+      expect(balanca.perdas.total).toBe(-9847.35);
+      expect(balanca.ganhos.total + balanca.perdas.total).toBeCloseTo(balanca.liquido, 2);
+    });
+
+    it("ordena cada lado pelo tamanho do movimento", () => {
+      const balanca = composicaoDoImpacto(comLados([mensal]), "MENSAL")!;
+      expect(balanca.ganhos.linhas.map((l) => l.name)).toEqual(["Financiamento", "Lucro fixo"]);
+    });
+
+    it("abre no lado pedido, e sem pedido no lado que mais mexeu", () => {
+      const view = comLados([mensal]);
+      expect(composicaoDoImpacto(view, "MENSAL", "perdas")!.primeiro).toBe("perdas");
+      expect(composicaoDoImpacto(view, "MENSAL")!.primeiro).toBe("ganhos");
+      expect(composicaoDoImpacto(comLados([anual]), "ANUAL")!.primeiro).toBe("perdas");
+      // Lado inventado na URL não vira lado: cai na régua do maior movimento.
+      expect(composicaoDoImpacto(view, "MENSAL", "outro")!.primeiro).toBe("ganhos");
+    });
+
+    it("nunca soma periodicidades — as outras saem em linha própria", () => {
+      const balanca = composicaoDoImpacto(comLados([mensal, anual]), "MENSAL")!;
+      expect(balanca.periodicity).toBe("MENSAL");
+      expect(balanca.outras.map((o) => o.periodicity)).toEqual(["ANUAL"]);
+      expect(balanca.liquido).toBe(mensal.net);
+    });
+
+    it("cai na periodicidade dominante quando a pedida não está nesta vigência", () => {
+      const balanca = composicaoDoImpacto(comLados([mensal]), "ANUAL")!;
+      expect(balanca.periodicity).toBe("MENSAL");
+    });
+
+    it("diz o que não está na balança, em vez de deixar somar os dois lados como se fossem tudo", () => {
+      const balanca = composicaoDoImpacto(comLados([mensal]), "MENSAL")!;
+      expect(balanca.semPreco).toBe(62);
+      expect(balanca.excluido.alteracoes).toBe(2);
+      expect(balanca.excluido.valor).toBe(-400);
+    });
+
+    it("não abre balança nenhuma quando a vigência não tem impacto apurado", () => {
+      expect(composicaoDoImpacto(comLados([]), "MENSAL")).toBeNull();
+      expect(composicaoDoImpacto(null, "MENSAL")).toBeNull();
+    });
+
+    it("fica fechada quando a URL não pede periodicidade nenhuma", () => {
+      // Sem `?composicao=` não há gaveta. Sem esta recusa, a balança nascia
+      // aberta em toda visita à Visão geral, por cima da tela que ninguém pediu
+      // para esconder.
+      expect(composicaoDoImpacto(comLados([mensal]), null)).toBeNull();
+    });
+  });
+});
+
 describe("de onde vem um número do pódio", () => {
   /*
     Um parâmetro com as três coisas que o painel precisa distinguir: o que soma
@@ -456,6 +681,7 @@ describe("de onde vem um número do pódio", () => {
       impact: vigencia().impact,
       lossesByPeriodicity: {},
       gainsByPeriodicity: {},
+      sides: [],
       changes: 0,
       groups: 0,
       critical: 0,
@@ -720,6 +946,7 @@ describe("o caminho até as Alterações", () => {
       impact: view.impact,
       lossesByPeriodicity: {},
       gainsByPeriodicity: {},
+      sides: [],
       changes: 0,
       groups: 0,
       critical: 0,

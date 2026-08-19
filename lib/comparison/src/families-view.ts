@@ -90,12 +90,76 @@ export interface FamilyView {
   parameters: ParameterView[];
 }
 
+/**
+ * Um parâmetro dentro de um dos dois lados do impacto.
+ *
+ * `amount` é a soma das linhas **daquele sinal** do parâmetro, e não o líquido
+ * dele: um parâmetro que subiu em oito ativos e caiu em dois aparece nos dois
+ * lados, com o número de cada lado. É essa a diferença entre este recorte e o
+ * `topParameters` acima, que ranqueia pelo líquido — e é a razão de os dois
+ * existirem: um responde *quanto pesou no saldo*, o outro *de onde veio cada
+ * lado do saldo*.
+ */
+export interface ImpactContributor {
+  key: string;
+  name: string;
+  family: FamilyCode;
+  familyName: string;
+  /** Alterações com preço deste parâmetro que caíram neste lado. */
+  changes: number;
+  vehicles: number;
+  amount: number;
+}
+
+/** Um lado do impacto de uma periodicidade: o total e de onde ele vem. */
+export interface ImpactSide {
+  /** Positivo no ganho, negativo na perda. O sinal nunca é jogado fora. */
+  total: number;
+  changes: number;
+  vehicles: number;
+  /** Os parâmetros deste lado, o maior em módulo primeiro. */
+  parameters: ImpactContributor[];
+}
+
+/**
+ * O impacto de uma periodicidade partido nos dois lados que o formam.
+ *
+ * `net = gains.total + losses.total`, e o total de cada lado é a soma dos
+ * parâmetros dele — as duas igualdades por construção, porque os três números
+ * saem da mesma varredura de linhas. É o que permite a tela publicar "+R$ X e
+ * −R$ Y" ao lado do líquido sem que alguém, somando a lista à mão, chegue a um
+ * terceiro número.
+ *
+ * A partição é **por linha de alteração**, e não pelo saldo do parâmetro ou do
+ * grupo, e a diferença é medida. Em CAMAÇARI · EMPURRADA, agosto/2026,
+ * `Financiamento` aparece nos dois lados: **+R$ 17.086,20 em quatro cavalos e
+ * −R$ 2.147,19 num quinto**. Pelo saldo ele seria um ganho de R$ 14.939,01 e
+ * mais nada — o movimento contrário sumiria dentro do próprio parâmetro, e a
+ * vigência publicaria "R$ 19.616,86 somaram, R$ 7.700,16 saíram" no lugar dos
+ * R$ 21.764,05 e R$ 9.847,35 que de fato se mexeram.
+ */
+export interface ImpactSides {
+  periodicity: string;
+  net: number;
+  gains: ImpactSide;
+  losses: ImpactSide;
+}
+
 export interface ExecutiveSummary {
   /** Já sem dupla contagem, e separado por periodicidade. */
   impact: ImpactSummary;
   /** Só o que reduz a remuneração, por periodicidade. Nunca somado ao ganho. */
   lossesByPeriodicity: Record<string, number>;
   gainsByPeriodicity: Record<string, number>;
+  /**
+   * Os mesmos dois lados, abertos por parâmetro e por periodicidade.
+   *
+   * `lossesByPeriodicity` e `gainsByPeriodicity` são projeções deste campo —
+   * saem da mesma varredura, e não de uma segunda soma. Uma tela que publique
+   * os dois totais e a lista que os explica lê tudo daqui, e por isso não tem
+   * como divergir de si mesma.
+   */
+  sides: ImpactSides[];
   changes: number;
   groups: number;
   critical: number;
@@ -697,18 +761,44 @@ function compareParameters(a: ParameterView, b: ParameterView): number {
 
 type Rows = Awaited<ReturnType<typeof loadChanges>>;
 
+/**
+ * Um parâmetro em construção dentro de um dos lados.
+ *
+ * Guarda o conjunto de ativos, e não a contagem: a mesma placa costuma aparecer
+ * em mais de uma linha do mesmo parâmetro, e somar as linhas para dizer
+ * "veículos" contaria a mesma placa duas vezes.
+ */
+interface Contribuicao {
+  name: string;
+  family: FamilyCode;
+  familyName: string;
+  changes: number;
+  vehicles: Set<string>;
+  amount: number;
+}
+
 function buildSummary(
   view: GroupedView,
   families: FamilyView[],
   rows: Rows,
   dedup: Deduplicador,
 ): ExecutiveSummary {
-  const losses: Record<string, number> = {};
-  const gains: Record<string, number> = {};
   const byVehicle = new Map<
     string,
     { plate: string; entityType: string | null; changes: number; byPeriodicity: Record<string, number> }
   >();
+  /*
+    Os dois lados, acumulados por periodicidade, por sinal e por parâmetro numa
+    varredura só.
+
+    Uma varredura e não duas porque `gainsByPeriodicity` e a lista que o explica
+    precisam ser o mesmo número somado do mesmo jeito. Foi uma segunda soma
+    escrita à parte que produziu, do outro lado deste produto, quatro respostas
+    diferentes para "qual foi o impacto?" (ver o cabeçalho de `deduplicacao.ts`);
+    aqui os totais saem da própria lista, e por isso não têm como discordar dela.
+  */
+  const ganhos = new Map<string, Map<string, Contribuicao>>();
+  const perdas = new Map<string, Map<string, Contribuicao>>();
 
   for (const row of rows) {
     const key = row.entity_id ?? `linha-${row.id}`;
@@ -730,10 +820,90 @@ function buildSummary(
 
     const bucket = row.impact_periodicity ?? "SEM_PERIODICIDADE";
     const amount = Number(row.impact_amount);
-    if (amount < 0) losses[bucket] = (losses[bucket] ?? 0) + amount;
-    else if (amount > 0) gains[bucket] = (gains[bucket] ?? 0) + amount;
     entry.byPeriodicity[bucket] = (entry.byPeriodicity[bucket] ?? 0) + amount;
+
+    // Zero não é lado nenhum: uma linha apurada em R$ 0,00 não somou nem tirou,
+    // e pô-la num dos dois inflaria a contagem de alterações daquele lado com
+    // um movimento que não existiu.
+    if (amount === 0) continue;
+    const placement = placementOf(row.attribute_code);
+    const doSinal = amount < 0 ? perdas : ganhos;
+    const lado = doSinal.get(bucket) ?? new Map<string, Contribuicao>();
+    doSinal.set(bucket, lado);
+    const contribuicao =
+      lado.get(placement.parameterKey) ??
+      {
+        // O mesmo `placementOf` que montou a árvore de famílias, e não uma
+        // segunda tabela de nomes: o parâmetro que a lista nomeia aqui é o
+        // mesmo que o painel abre lá, com a mesma chave.
+        name: placement.parameter,
+        family: placement.family,
+        familyName: placement.familyName,
+        changes: 0,
+        vehicles: new Set<string>(),
+        amount: 0,
+      };
+    contribuicao.changes++;
+    contribuicao.amount += amount;
+    if (row.entity_id !== null) contribuicao.vehicles.add(row.entity_id);
+    lado.set(placement.parameterKey, contribuicao);
   }
+
+  const ladoDe = (
+    sinal: Map<string, Map<string, Contribuicao>>,
+    bucket: string,
+  ): ImpactSide => {
+    const contribuicoes = [...(sinal.get(bucket) ?? new Map<string, Contribuicao>()).entries()];
+    const parameters = contribuicoes
+      .map(([key, c]) => ({
+        key,
+        name: c.name,
+        family: c.family,
+        familyName: c.familyName,
+        changes: c.changes,
+        vehicles: c.vehicles.size,
+        amount: round(c.amount),
+      }))
+      .sort(
+        (a, b) =>
+          Math.abs(b.amount) - Math.abs(a.amount) ||
+          b.changes - a.changes ||
+          a.name.localeCompare(b.name, "pt-BR"),
+      );
+    return {
+      /*
+        O total sai das mesmas linhas que a lista, e é arredondado uma vez só
+        sobre a soma crua — exatamente como `summariseImpact` arredonda o
+        líquido da vigência.
+
+        Somar a lista já arredondada seria quase igual e não é: `impact_amount`
+        é `numeric(18,6)`, e uma linha com fração de centavo faria o total deste
+        lado divergir do líquido que a mesma vigência publica em outro cartão. O
+        que a tela precisa é fechar com o líquido; a lista fecha com o total até
+        o centavo, que é a precisão em que o dinheiro é lido.
+      */
+      total: round(contribuicoes.reduce((soma, [, c]) => soma + c.amount, 0)),
+      changes: parameters.reduce((soma, p) => soma + p.changes, 0),
+      vehicles: new Set(contribuicoes.flatMap(([, c]) => [...c.vehicles])).size,
+      parameters,
+    };
+  };
+
+  const baldes = [...new Set([...ganhos.keys(), ...perdas.keys()])];
+  const porPeriodicidade: ImpactSides[] = baldes
+    .map((periodicity) => {
+      const gains = ladoDe(ganhos, periodicity);
+      const losses = ladoDe(perdas, periodicity);
+      return { periodicity, net: round(gains.total + losses.total), gains, losses };
+    })
+    .sort((a, b) => Math.abs(b.net) - Math.abs(a.net) || a.periodicity.localeCompare(b.periodicity));
+
+  const losses = Object.fromEntries(
+    porPeriodicidade.filter((s) => s.losses.total !== 0).map((s) => [s.periodicity, s.losses.total]),
+  );
+  const gains = Object.fromEntries(
+    porPeriodicidade.filter((s) => s.gains.total !== 0).map((s) => [s.periodicity, s.gains.total]),
+  );
 
   const parameters = families.flatMap((f) =>
     f.parameters.map((p) => ({
@@ -748,12 +918,10 @@ function buildSummary(
 
   return {
     impact: view.impact,
-    lossesByPeriodicity: Object.fromEntries(
-      Object.entries(losses).map(([k, v]) => [k, round(v)]),
-    ),
-    gainsByPeriodicity: Object.fromEntries(
-      Object.entries(gains).map(([k, v]) => [k, round(v)]),
-    ),
+    // Já arredondados: os dois saem de `sides`, que é onde a soma acontece.
+    lossesByPeriodicity: losses,
+    gainsByPeriodicity: gains,
+    sides: porPeriodicidade,
     changes: view.totals.changes,
     groups: view.totals.groups,
     critical: families.reduce((sum, f) => sum + f.critical, 0),
