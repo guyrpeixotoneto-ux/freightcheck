@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { oQueQuestionar } from "../fechar-quinzena";
+import { motivoAceito, oQueQuestionar } from "../fechar-quinzena";
 import type { Apuracao, Divergencia } from "@/lib/fechamento";
 
 /**
@@ -69,5 +69,31 @@ describe("oQueQuestionar", () => {
     const { acionaveis, aReceber } = oQueQuestionar(apuracaoCom([]));
     expect(acionaveis).toEqual([]);
     expect(aReceber).toBe(0);
+  });
+});
+
+/**
+ * O motivo da reabertura, conferido antes da viagem.
+ *
+ * A regra continua sendo do servidor — a rota recusa o vazio e
+ * `reabrirCompetencia` recusa de novo —, e a mesma régua aqui existe para que o
+ * botão não gaste uma ida e volta para dizer o que já se sabia.
+ */
+describe("motivoAceito", () => {
+  it("aceita o motivo escrito", () => {
+    expect(motivoAceito("a Ambev mandou o 03.08.20 depois do fechamento")).toBe(true);
+  });
+
+  it("recusa o campo vazio: reabrir sem dizer por quê é a alteração silenciosa", () => {
+    expect(motivoAceito("")).toBe(false);
+  });
+
+  it("recusa o espaço em branco, que é o vazio escrito de outro jeito", () => {
+    expect(motivoAceito("   ")).toBe(false);
+    expect(motivoAceito("\n\t")).toBe(false);
+  });
+
+  it("aceita o motivo com espaço em volta — quem digita não apara a ponta", () => {
+    expect(motivoAceito("  o 03.08.18 veio truncado  ")).toBe(true);
   });
 });

@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { AlertTriangle, Lock, LockOpen } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -45,6 +45,134 @@ export function oQueQuestionar(apuracao: Apuracao): {
 }
 
 /**
+ * O motivo da reabertura serve? A mesma régua do servidor, deste lado.
+ *
+ * A regra é do servidor — a rota recusa o motivo vazio e `reabrirCompetencia`
+ * recusa de novo, de propósito (ver `routes/fechamento.ts`). A cópia aqui não
+ * afrouxa nada: existe para que o botão não gaste uma ida e volta para dizer o
+ * que já se sabia, e para que um campo em branco pareça um campo em branco em
+ * vez de uma falha do sistema.
+ */
+export function motivoAceito(texto: string): boolean {
+  return texto.trim() !== "";
+}
+
+/**
+ * O que uma mudança de estado da competência invalida — sempre as três chaves.
+ *
+ * O estado aparece na tela da competência, em Importações, em Apurações e nas
+ * duas da Visão Gerencial, e todas as outras leem
+ * `["fechamento", "competencias"]` ou `["fechamento", "apuracoes"]`. Fechar ou
+ * reabrir sem invalidá-las deixaria a mesma quinzena "Apurada" numa aba e
+ * "Encerrada" na outra, que é a forma mais barata de fazer alguém desconfiar do
+ * número certo.
+ */
+function atualizarFechamento(cliente: QueryClient, competenciaId: string): void {
+  void cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", competenciaId] });
+  void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
+  void cliente.invalidateQueries({ queryKey: ["fechamento", "apuracoes"] });
+}
+
+/**
+ * Reabrir a quinzena — o caminho de volta, e ele pede motivo.
+ *
+ * Vive separado de `FecharQuinzena` porque o ato é procurado em lugares
+ * diferentes e por razões diferentes. No fim da tela da competência e na linha
+ * de Importações, é a outra metade do painel que congelou o período. Mas o
+ * caso mais comum não é nenhum dos dois: é a Ambev mandar o relatório que
+ * faltava *depois* de a quinzena estar fechada, e quem recebeu estar olhando
+ * exatamente para o botão de enviar que não clica — por isso a lista de
+ * relatórios da competência também oferece este bloco, ao lado do envio
+ * travado. Três cópias do formulário seriam três opiniões sobre o que
+ * descongela um período fechado, e a terceira envelheceria calada.
+ *
+ * **Por que começa recolhido fora do painel de fechamento.** Reabrir descongela
+ * a prova de uma cobrança; um campo de texto sempre aberto no meio da lista de
+ * relatórios convidaria a isso como se fosse rotina. O botão que revela o campo
+ * é a mesma regra da linha de Importações: o clique abre o que se vai fazer, e
+ * não o faz.
+ *
+ * **A competência volta para APURADA, não para ABERTA** (ver
+ * `reabrirCompetencia`): a apuração que estava lá continua valendo, e é contra
+ * ela que se compara o que mudar depois do arquivo novo entrar.
+ */
+export function ReabrirQuinzena({
+  competencia,
+  iniciaAberto = false,
+  rotulo = "Reabrir a quinzena",
+}: {
+  competencia: Competencia;
+  /** No painel de fechamento o formulário já vem aberto: reabrir é o assunto dele. */
+  iniciaAberto?: boolean;
+  /** O que o botão promete, quando o bloco começa recolhido. */
+  rotulo?: string;
+}) {
+  const cliente = useQueryClient();
+  const [aberto, setAberto] = useState(iniciaAberto);
+  const [motivo, setMotivo] = useState("");
+
+  const destravar = useMutation({
+    mutationFn: (razao: string) => reabrir(competencia.id, razao),
+    onSuccess: () => {
+      setMotivo("");
+      setAberto(iniciaAberto);
+      atualizarFechamento(cliente, competencia.id);
+    },
+  });
+
+  if (!aberto) {
+    return (
+      <Button variant="outline" size="sm" onClick={() => setAberto(true)}>
+        <LockOpen className="w-3.5 h-3.5 mr-1.5" />
+        {rotulo}
+      </Button>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      <p className="text-sm text-muted-foreground">
+        Escreva o motivo. Ele fica no registro da competência — é o que distingue
+        uma correção de uma alteração silenciosa depois do fato.
+      </p>
+      <Textarea
+        value={motivo}
+        onChange={(e) => setMotivo(e.target.value)}
+        placeholder="Ex.: a Ambev mandou o 03.08.20 depois de a quinzena ter fechado."
+        rows={2}
+      />
+      {destravar.isError && (
+        <Alert variant="destructive">
+          <AlertDescription>{textoDoErro(destravar.error)}</AlertDescription>
+        </Alert>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          variant="outline"
+          onClick={() => destravar.mutate(motivo)}
+          disabled={!motivoAceito(motivo) || destravar.isPending}
+        >
+          <LockOpen className="w-3.5 h-3.5 mr-1.5" />
+          {destravar.isPending ? "Reabrindo…" : "Reabrir competência"}
+        </Button>
+        {!iniciaAberto && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setAberto(false);
+              setMotivo("");
+            }}
+            disabled={destravar.isPending}
+          >
+            Cancelar
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/**
  * Fechar a quinzena — e reabri-la, com motivo.
  *
  * Vive aqui, e não dentro da competência aberta, pela mesma razão de
@@ -84,21 +212,10 @@ export function FecharQuinzena({
   fontes: Fonte[];
 }) {
   const cliente = useQueryClient();
-  const [motivo, setMotivo] = useState("");
 
-  const atualizar = () => {
-    void cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", competencia.id] });
-    void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
-    void cliente.invalidateQueries({ queryKey: ["fechamento", "apuracoes"] });
-  };
-
-  const fechar = useMutation({ mutationFn: () => encerrar(competencia.id), onSuccess: atualizar });
-  const destravar = useMutation({
-    mutationFn: (razao: string) => reabrir(competencia.id, razao),
-    onSuccess: () => {
-      setMotivo("");
-      atualizar();
-    },
+  const fechar = useMutation({
+    mutationFn: () => encerrar(competencia.id),
+    onSuccess: () => atualizarFechamento(cliente, competencia.id),
   });
 
   const encerrada = competencia.estado === "ENCERRADA";
@@ -116,29 +233,7 @@ export function FecharQuinzena({
         </p>
         <div className="space-y-2 border-t pt-3">
           <p className="text-sm font-medium">Precisa reabrir?</p>
-          <p className="text-sm text-muted-foreground">
-            Escreva o motivo. Ele fica no registro da competência — é o que distingue
-            uma correção de uma alteração silenciosa depois do fato.
-          </p>
-          <Textarea
-            value={motivo}
-            onChange={(e) => setMotivo(e.target.value)}
-            placeholder="Ex.: a Ambev reenviou o 03.08.15 com a VBZ 29 corrigida."
-            rows={2}
-          />
-          {destravar.isError && (
-            <Alert variant="destructive">
-              <AlertDescription>{textoDoErro(destravar.error)}</AlertDescription>
-            </Alert>
-          )}
-          <Button
-            variant="outline"
-            onClick={() => destravar.mutate(motivo)}
-            disabled={motivo.trim() === "" || destravar.isPending}
-          >
-            <LockOpen className="w-3.5 h-3.5 mr-1.5" />
-            {destravar.isPending ? "Reabrindo…" : "Reabrir competência"}
-          </Button>
+          <ReabrirQuinzena competencia={competencia} iniciaAberto />
         </div>
       </div>
     );
