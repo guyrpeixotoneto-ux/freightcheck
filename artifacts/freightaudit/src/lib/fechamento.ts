@@ -25,6 +25,8 @@ export interface Fonte {
   nome: string;
   papel: string;
   extensoes: string[];
+  /** Em que quinzenas este relatório é esperado. A 1ª tem quatro; a 2ª, os seis. */
+  quinzenas: (1 | 2)[];
 }
 
 export interface Competencia {
@@ -276,6 +278,35 @@ export function listarFontes(): Promise<Fonte[]> {
   return fetchJson<Fonte[]>("/fechamento/fontes");
 }
 
+/**
+ * Os relatórios que uma competência pede, na ordem do catálogo.
+ *
+ * A quinzena decide: a primeira fecha com quatro relatórios (2Art, 03.08.15,
+ * 03.08.20 e 03.08.18) e a segunda com os seis, porque as requisições
+ * (03.08.12.09) e a conciliação (03.02.59.02) chegam com o fechamento do mês.
+ * Mostrar as seis nas duas fazia toda primeira quinzena exibir duas linhas
+ * eternamente vazias — e "falta importar" é trabalho de alguém, enquanto "não
+ * há o que importar" não é.
+ *
+ * `recebidas` é o que já entrou na competência, e entra na lista mesmo fora da
+ * quinzena dele: um arquivo enviado nunca some da tela por causa deste recorte.
+ * Isso é o que mantém a conta do rodapé honesta — o denominador é esta lista, e
+ * um documento fora da quinzena aparece nas duas pontas da fração em vez de
+ * virar um `5/4`.
+ *
+ * O catálogo chega por consulta, então a lista nasce vazia e se preenche; quem
+ * a usa como denominador precisa tratar o vazio como "ainda não sei", nunca
+ * como zero.
+ */
+export function fontesDaCompetencia(
+  catalogo: Fonte[],
+  quinzena: 1 | 2,
+  recebidas: TipoDeFonte[] = [],
+): Fonte[] {
+  const chegou = new Set(recebidas);
+  return catalogo.filter((f) => f.quinzenas.includes(quinzena) || chegou.has(f.tipo));
+}
+
 export function listarCompetencias(): Promise<Competencia[]> {
   return fetchJson<Competencia[]>("/fechamento/competencias");
 }
@@ -502,7 +533,7 @@ export const NOME_DO_ESTADO: Record<Competencia["estado"], string> = {
 /** O que cada divergência significa, em uma frase. */
 export const EXPLICACAO_DA_DIVERGENCIA: Record<string, string> = {
   VERBA_SEM_ORIGEM:
-    "Foi emitido CT-e nesta verba e nenhuma das cinco fontes a sustenta. Não é erro — é a parte fixa do contrato, que ainda não tem fonte aqui.",
+    "Foi emitido CT-e nesta verba e nenhuma das fontes da quinzena a sustenta. Não é erro — é a parte fixa do contrato, que ainda não tem fonte aqui.",
   VERBA_NAO_FECHA:
     "A apuração reconstruiu esta verba a partir das fontes e chegou a um valor diferente do emitido.",
   REQUISICAO_NAO_FATURADA:

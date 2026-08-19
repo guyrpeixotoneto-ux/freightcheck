@@ -19,6 +19,7 @@ import { ComboboxCriavel } from "@/components/ui/combobox-criavel";
 import { FecharQuinzena } from "@/components/fechamento/fechar-quinzena";
 import {
   abrirCompetencia,
+  fontesDaCompetencia,
   lerCompetencia,
   listarCompetencias,
   listarFontes,
@@ -545,7 +546,12 @@ function FechamentoDaLinha({ competenciaId }: { competenciaId: string }) {
       competencia={competencia}
       documentos={documentos}
       apuracao={apuracao}
-      fontes={fontes.data ?? []}
+      /* Os da quinzena desta linha — a primeira pede quatro, a segunda, seis. */
+      fontes={fontesDaCompetencia(
+        fontes.data ?? [],
+        competencia.quinzena,
+        documentos.filter((d) => d.vigente).map((d) => d.tipo),
+      )}
     />
   );
 }

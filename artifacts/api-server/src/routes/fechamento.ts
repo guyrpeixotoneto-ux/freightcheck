@@ -19,7 +19,12 @@ import {
   encerrarCompetencia,
   RecusaDeFechamento,
 } from "@workspace/fechamento/persistencia";
-import { DESCRICAO_DA_FONTE, TIPOS_DE_FONTE, type TipoDeFonte } from "@workspace/fechamento";
+import {
+  DESCRICAO_DA_FONTE,
+  QUINZENAS_DA_FONTE,
+  TIPOS_DE_FONTE,
+  type TipoDeFonte,
+} from "@workspace/fechamento";
 
 /**
  * Fechamento de Remuneração — a superfície HTTP do outro ambiente do produto.
@@ -56,13 +61,23 @@ const EXTENSOES: Record<TipoDeFonte, string[]> = {
   CONCILIACAO: [".txt"],
 };
 
-/** O catálogo das fontes, para a tela saber o que pedir e por quê. */
+/**
+ * O catálogo das fontes, para a tela saber o que pedir e por quê.
+ *
+ * Devolve as seis sempre, com `quinzenas` dizendo em qual delas cada uma é
+ * esperada — a primeira quinzena tem quatro relatórios, a segunda tem os seis
+ * (ver `FONTES_DA_QUINZENA`). O recorte é da tela e não da rota de propósito:
+ * a lista de Apurações mostra quinzenas das duas metades na mesma tabela, e
+ * filtrar aqui a obrigaria a buscar o catálogo duas vezes para desenhar uma
+ * página.
+ */
 router.get("/fechamento/fontes", (_req, res): void => {
   res.json(
     TIPOS_DE_FONTE.map((tipo) => ({
       tipo,
       ...DESCRICAO_DA_FONTE[tipo],
       extensoes: EXTENSOES[tipo],
+      quinzenas: QUINZENAS_DA_FONTE[tipo],
     })),
   );
 });
