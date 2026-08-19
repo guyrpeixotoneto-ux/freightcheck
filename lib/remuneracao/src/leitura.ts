@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
   ContextNotFoundError,
+  channelSql,
   contextFilter,
   listContexts,
   periodLabel,
@@ -20,16 +21,25 @@ import {
 import type { CavaloDaVigencia, TrechoDaVigencia } from "./medicao";
 import { montarCadastro, type CadastroMontado } from "./montagem";
 import { compararCadastros, type CadastroComparado } from "./comparacao";
+import { medirSituacao, type EstadoDoCadastro, type SituacaoDoCadastro } from "./situacao";
 
 /**
  * A leitura do acervo da Auditoria — a única parte deste módulo que vai ao
  * banco.
  *
- * Quatro consultas por vigência, e **nenhuma delas por ativo**: a mesma escolha
- * de `lerVigencia` em `@workspace/composition`, pela mesma razão — uma consulta
- * por cavalo daria sessenta idas ao banco para desenhar uma aba de cadastro.
- * São quatro e não três porque a frota precisa de duas: uma para os fatos de
- * `ativo` e outra para **quem existe**, que é maior — ver `lerCavalos`.
+ * Quatro consultas, e **nenhuma delas por ativo nem por unidade**: a mesma
+ * escolha de `lerVigencia` em `@workspace/composition`, pela mesma razão — uma
+ * consulta por cavalo daria sessenta idas ao banco para desenhar uma aba de
+ * cadastro, e uma por unidade daria trinta para desenhar a lista que vem antes
+ * dela. São quatro e não três porque a frota precisa de duas: uma para os fatos
+ * de `ativo` e outra para **quem existe**, que é maior — ver
+ * `lerCavalosEmLote`.
+ *
+ * As quatro recebem uma lista de {@link Alvo} — pares (unidade, vigência) — em
+ * vez de uma unidade e uma data. Com um alvo, respondem o cadastro de uma
+ * unidade; com todos, a lista das unidades. É um SQL só nos dois casos, e é o
+ * que garante que a lista e a tela nunca discordem sobre o que a unidade
+ * entregou.
  *
  * **Por que este módulo lê os fatos direto, e não pela Composição.** A
  * Composição responde "quanto este equipamento recebe", e para isso passa cada
@@ -89,6 +99,44 @@ export interface ComparacaoDeCadastros extends CadastroComparado {
   /** A mais recente — a coluna da direita, e a que a variação descreve. */
   direita: PontaDaComparacao;
   vigencias: VigenciaDoCadastro[];
+}
+
+/**
+ * Uma unidade na lista, com o que o cadastro dela alcança na vigência mais
+ * recente que ela entregou.
+ *
+ * A vigência é sempre a mais recente, e não uma escolhida por quem chama: a
+ * pergunta desta lista é "o cadastro desta unidade está de pé **hoje**", e
+ * responder por uma quinzena antiga faria a unidade que parou de entregar
+ * parecer em dia. Qual quinzena respondeu está em `effectiveDate`, ao lado da
+ * resposta, para que a lista nunca escolha em silêncio.
+ */
+export interface SituacaoDaUnidade extends ContextoDoCadastro {
+  /** A vigência mais recente da unidade — a que esta situação descreve. */
+  effectiveDate: string;
+  periodLabel: string;
+  /** Quantas vigências a unidade tem no acervo, todas elas. */
+  vigencias: number;
+  material: MaterialLido;
+  cadastro: SituacaoDoCadastro;
+}
+
+export interface SituacaoDasUnidades {
+  unidades: SituacaoDaUnidade[];
+  /**
+   * Quantas unidades em cada estado — os quatro somam `unidades`.
+   *
+   * Somados aqui, e não na tela, pela mesma razão que os totais do Fechamento
+   * vêm do servidor: uma contagem feita na interface é uma segunda conta sobre
+   * o mesmo material, e as duas divergem no dia em que um estado novo nascer.
+   */
+  resumo: {
+    unidades: number;
+    frotaEAliquotas: number;
+    soFrota: number;
+    soAliquotas: number;
+    semLastro: number;
+  };
 }
 
 /** Erro de recusa: a vigência pedida não existe nesta unidade. Rota traduz em 404. */
@@ -229,6 +277,73 @@ export async function lerComparacaoDeCadastros(
 }
 
 /**
+ * As unidades do acervo, cada uma com o que o cadastro dela alcança hoje.
+ *
+ * É a tela que vem **antes** do cadastro: quem abre Remuneração na virada da
+ * quinzena não quer uma unidade — quer saber quais já estão de pé e quais
+ * ainda não. Sem esta leitura, descobrir que um CDD entregou a frota e não
+ * entregou os trechos custa abrir o CDD, e com trinta unidades custa abrir
+ * trinta telas para achar as duas que faltam.
+ *
+ * **Quatro consultas, e não quatro por unidade.** Cada uma responde por todas
+ * as unidades de uma vez, pelo par (unidade, vigência mais recente) que
+ * {@link filtroDosAlvos} monta — a mesma decisão de `lerCavalosEmLote`,
+ * escalada de "não uma consulta por cavalo" para "não um cadastro por
+ * unidade". O trabalho
+ * de montagem continua sendo o de trinta unidades, porque é ele que garante que
+ * a lista e a tela do cadastro digam a mesma coisa: quem responde "esta linha
+ * tem lastro" nos dois lugares é a mesma `montarCadastro`.
+ *
+ * Acervo vazio devolve lista vazia e resumo zerado, e não `null`: aqui não há
+ * unidade pedida que possa não existir — a pergunta é sobre o conjunto, e o
+ * conjunto vazio é uma resposta legítima que a tela sabe escrever.
+ */
+export async function lerSituacaoDasUnidades(db: Database): Promise<SituacaoDasUnidades> {
+  const contextos = await listContexts(db);
+  const alvos: Alvo[] = contextos.map((contexto) => ({
+    contexto,
+    effectiveDate: contexto.latestPeriod,
+  }));
+
+  const [cavalos, trechos, entregues] = await Promise.all([
+    lerCavalosEmLote(db, alvos),
+    lerTrechosEmLote(db, alvos),
+    serieEntregueEmLote(db, TIPO_TRECHO, alvos),
+  ]);
+
+  const unidades = contextos.map((contexto): SituacaoDaUnidade => {
+    const chave = chaveDoAlvo(contexto.scopeHash, contexto.channel);
+    const { montado, material } = materialDe(
+      cavalos.get(chave) ?? [],
+      trechos.get(chave) ?? [],
+      entregues.has(chave),
+    );
+    return {
+      ...retratoDo(contexto),
+      effectiveDate: contexto.latestPeriod,
+      periodLabel: periodLabel(contexto.latestPeriod),
+      vigencias: contexto.periods,
+      material,
+      cadastro: medirSituacao(montado),
+    };
+  });
+
+  const quantas = (estado: EstadoDoCadastro) =>
+    unidades.filter((u) => u.cadastro.estado === estado).length;
+
+  return {
+    unidades,
+    resumo: {
+      unidades: unidades.length,
+      frotaEAliquotas: quantas("FROTA_E_ALIQUOTAS"),
+      soFrota: quantas("SO_FROTA"),
+      soAliquotas: quantas("SO_ALIQUOTAS"),
+      semLastro: quantas("SEM_LASTRO"),
+    },
+  };
+}
+
+/**
  * A vigência pedida, ou a recusa escrita.
  *
  * Aparar em silêncio para a mais próxima daria o número certo sob o título
@@ -248,12 +363,36 @@ async function montarDaVigencia(
   effectiveDate: string,
   contexto: SeriesContext,
 ): Promise<{ montado: CadastroMontado; material: MaterialLido }> {
-  const [cavalos, trechos, trechosEntregues] = await Promise.all([
-    lerCavalos(db, effectiveDate, contexto),
-    lerTrechos(db, effectiveDate, contexto),
-    serieEntregue(db, TIPO_TRECHO, effectiveDate, contexto),
+  const alvos: Alvo[] = [{ contexto, effectiveDate }];
+  const chave = chaveDoAlvo(contexto.scopeHash, contexto.channel);
+
+  const [cavalos, trechos, entregues] = await Promise.all([
+    lerCavalosEmLote(db, alvos),
+    lerTrechosEmLote(db, alvos),
+    serieEntregueEmLote(db, TIPO_TRECHO, alvos),
   ]);
 
+  return materialDe(
+    cavalos.get(chave) ?? [],
+    trechos.get(chave) ?? [],
+    entregues.has(chave),
+  );
+}
+
+/**
+ * O cadastro montado e o lastro em números, de um material já lido.
+ *
+ * Existe para que a tela do cadastro e a lista das unidades montem pelo mesmo
+ * caminho. Se a lista contasse lastro por conta própria — "tem trecho, logo tem
+ * alíquota" —, ela acertaria quase sempre e erraria exatamente no caso que
+ * importa: a vigência que entregou trechos sem as colunas em reais, em que a
+ * tela diz "sem lastro" e a lista diria "em dia".
+ */
+function materialDe(
+  cavalos: CavaloDaVigencia[],
+  trechos: TrechoDaVigencia[],
+  trechosEntregues: boolean,
+): { montado: CadastroMontado; material: MaterialLido } {
   return {
     montado: montarCadastro({ cavalos, trechos, trechosEntregues }),
     material: { cavalos: cavalos.length, trechos: trechos.length, trechosEntregues },
@@ -284,27 +423,96 @@ function unidadeDe(contexto: ContextInfo): string | null {
 }
 
 /**
- * Se a vigência **declarou** entregar aquela série.
+ * Uma unidade e a vigência dela que será lida.
+ *
+ * As consultas abaixo recebem uma **lista** destes, e não uma unidade e uma
+ * data, e é o que permite o mesmo SQL responder pelo cadastro de uma unidade e
+ * pela lista de todas. Duas versões da mesma consulta é como um dos dois lados
+ * passa a contar a frota de um jeito que o outro não conta — e nada na tela
+ * diria qual dos dois está certo.
+ */
+interface Alvo {
+  contexto: SeriesContext;
+  effectiveDate: string;
+}
+
+/** A chave que junta a linha lida de volta à unidade que a entregou. */
+function chaveDoAlvo(scopeHash: string, channel: string | null): string {
+  return `${scopeHash}|${channel ?? ""}`;
+}
+
+/**
+ * O predicado dos alvos: o `contextFilter` de cada unidade **com a data
+ * daquela unidade**, e nunca uma lista de unidades cruzada com uma lista de
+ * datas.
+ *
+ * A diferença é o defeito que este formato existe para não cometer: as unidades
+ * não estão todas na mesma vigência — a que parou de entregar em junho tem
+ * junho como a mais recente —, e um `IN (datas)` traria junho para dentro da
+ * unidade que já está em agosto, somando duas quinzenas numa contagem só. O par
+ * anda junto ou não anda.
+ */
+function filtroDosAlvos(alias: string, alvos: Alvo[]) {
+  /*
+    Sem alvo nenhum, `false`: a consulta continua válida e não devolve linha.
+    As leitoras já saem antes de chegar aqui, mas um `sql.join` de lista vazia
+    produziria SQL quebrado — e é o tipo de erro que só aparece no dia em que o
+    acervo está vazio, que é o pior dia para descobri-lo.
+  */
+  if (alvos.length === 0) return sql`false`;
+
+  return sql.join(
+    alvos.map(
+      (alvo) =>
+        sql`(${contextFilter(alias, alvo.contexto)}
+             AND ${sql.raw(`${alias}.effective_date`)} = ${alvo.effectiveDate}::date)`,
+    ),
+    sql` OR `,
+  );
+}
+
+/** As duas colunas que dizem de qual alvo a linha veio. */
+function colunasDoAlvo(alias: string) {
+  return sql`${sql.raw(`${alias}.scope_hash`)} AS scope_hash,
+             ${channelSql(`${alias}.source_label`)} AS canal`;
+}
+
+/** O que toda linha lida em lote traz, além do que ela mesma diz. */
+interface LinhaComAlvo extends Record<string, unknown> {
+  scope_hash: string;
+  canal: string | null;
+}
+
+/**
+ * Quais alvos **declararam** entregar aquela série.
  *
  * Lê `snapshot.entity_type_set` e não a existência de fatos, pela mesma razão
  * de `serieFoiEntregue` na Frota: uma aba entregue vazia é dado; uma aba não
  * entregue é a forma do arquivo. As duas produzem zero trechos e pedem frases
  * diferentes.
  */
-async function serieEntregue(
+async function serieEntregueEmLote(
   db: Database,
   entityType: string,
-  effectiveDate: string,
-  contexto: SeriesContext,
-): Promise<boolean> {
-  const { rows } = await db.execute<{ entity_type_set: string }>(sql`
-    SELECT s.entity_type_set
+  alvos: Alvo[],
+): Promise<Set<string>> {
+  if (alvos.length === 0) return new Set();
+
+  const { rows } = await db.execute<LinhaComAlvo & { entity_type_set: string }>(sql`
+    SELECT ${colunasDoAlvo("s")},
+           s.entity_type_set
       FROM snapshot s
-     WHERE s.effective_date = ${effectiveDate}::date
-       AND s.status <> 'SUPERSEDED'
-       AND ${contextFilter("s", contexto)}
+     WHERE s.status <> 'SUPERSEDED'
+       AND (${filtroDosAlvos("s", alvos)})
   `);
-  return rows.some((r) => (r.entity_type_set ?? "").split("+").includes(entityType));
+
+  const entregues = new Set<string>();
+  for (const row of rows) {
+    if ((row.entity_type_set ?? "").split("+").includes(entityType)) {
+      entregues.add(chaveDoAlvo(row.scope_hash, row.canal));
+    }
+  }
+  return entregues;
 }
 
 interface LinhaDeFato extends Record<string, unknown> {
@@ -316,16 +524,16 @@ interface LinhaDeFato extends Record<string, unknown> {
   is_null: boolean;
 }
 
-/** Os fatos de um tipo de entidade numa vigência, restritos aos códigos pedidos. */
+/** Os fatos de um tipo de entidade nos alvos, restritos aos códigos pedidos. */
 async function lerFatosDoTipo(
   db: Database,
   entityType: string,
   codigos: string[],
-  effectiveDate: string,
-  contexto: SeriesContext,
-): Promise<Map<string, Map<string, LinhaDeFato>>> {
-  const { rows } = await db.execute<LinhaDeFato>(sql`
-    SELECT f.entity_id::text     AS entity_id,
+  alvos: Alvo[],
+): Promise<Map<string, Map<string, Map<string, LinhaDeFato>>>> {
+  const { rows } = await db.execute<LinhaDeFato & LinhaComAlvo>(sql`
+    SELECT ${colunasDoAlvo("s")},
+           f.entity_id::text     AS entity_id,
            a.code,
            f.value_numeric::text AS value_numeric,
            f.value_text,
@@ -340,18 +548,20 @@ async function lerFatosDoTipo(
          codigos.map((code) => sql`${code}`),
          sql`, `,
        )})
-       AND s.effective_date = ${effectiveDate}::date
        AND s.status <> 'SUPERSEDED'
-       AND ${contextFilter("s", contexto)}
+       AND (${filtroDosAlvos("s", alvos)})
   `);
 
-  const porAtivo = new Map<string, Map<string, LinhaDeFato>>();
+  const porAlvo = new Map<string, Map<string, Map<string, LinhaDeFato>>>();
   for (const row of rows) {
+    const chave = chaveDoAlvo(row.scope_hash, row.canal);
+    const porAtivo = porAlvo.get(chave) ?? new Map<string, Map<string, LinhaDeFato>>();
     const atual = porAtivo.get(row.entity_id) ?? new Map<string, LinhaDeFato>();
     atual.set(row.code, row);
     porAtivo.set(row.entity_id, atual);
+    porAlvo.set(chave, porAtivo);
   }
-  return porAtivo;
+  return porAlvo;
 }
 
 /**
@@ -415,18 +625,13 @@ function booleanoDe(fato: LinhaDeFato | undefined): boolean | null {
   return null;
 }
 
-async function lerCavalos(
+async function lerCavalosEmLote(
   db: Database,
-  effectiveDate: string,
-  contexto: SeriesContext,
-): Promise<CavaloDaVigencia[]> {
-  const porAtivo = await lerFatosDoTipo(
-    db,
-    TIPO_CAVALO,
-    CODIGOS_DO_CAVALO,
-    effectiveDate,
-    contexto,
-  );
+  alvos: Alvo[],
+): Promise<Map<string, CavaloDaVigencia[]>> {
+  if (alvos.length === 0) return new Map();
+
+  const porAlvo = await lerFatosDoTipo(db, TIPO_CAVALO, CODIGOS_DO_CAVALO, alvos);
 
   /*
     A consulta acima só devolve cavalos que tenham **alguma** das colunas
@@ -435,46 +640,51 @@ async function lerCavalos(
     precisa dizer. Por isso a lista de quem existe vem de `entity`, e os fatos
     só a preenchem.
   */
-  const { rows } = await db.execute<{ entity_id: string }>(sql`
-    SELECT DISTINCT f.entity_id::text AS entity_id
+  const { rows } = await db.execute<LinhaComAlvo & { entity_id: string }>(sql`
+    SELECT DISTINCT ${colunasDoAlvo("s")},
+           f.entity_id::text AS entity_id
       FROM fact f
       JOIN snapshot s ON s.id = f.snapshot_id
       JOIN entity e   ON e.id = f.entity_id
      WHERE e.entity_type = ${TIPO_CAVALO}
-       AND s.effective_date = ${effectiveDate}::date
        AND s.status <> 'SUPERSEDED'
-       AND ${contextFilter("s", contexto)}
+       AND (${filtroDosAlvos("s", alvos)})
   `);
 
-  return rows.map((row) => ({
-    entityId: row.entity_id,
-    ativo: booleanoDe(porAtivo.get(row.entity_id)?.get(COLUNA.ativo.code)),
-  }));
+  const cavalos = new Map<string, CavaloDaVigencia[]>();
+  for (const row of rows) {
+    const chave = chaveDoAlvo(row.scope_hash, row.canal);
+    const lista = cavalos.get(chave) ?? [];
+    lista.push({
+      entityId: row.entity_id,
+      ativo: booleanoDe(porAlvo.get(chave)?.get(row.entity_id)?.get(COLUNA.ativo.code)),
+    });
+    cavalos.set(chave, lista);
+  }
+  return cavalos;
 }
 
-async function lerTrechos(
+async function lerTrechosEmLote(
   db: Database,
-  effectiveDate: string,
-  contexto: SeriesContext,
-): Promise<TrechoDaVigencia[]> {
-  const porAtivo = await lerFatosDoTipo(
-    db,
-    TIPO_TRECHO,
-    CODIGOS_DO_TRECHO,
-    effectiveDate,
-    contexto,
-  );
+  alvos: Alvo[],
+): Promise<Map<string, TrechoDaVigencia[]>> {
+  if (alvos.length === 0) return new Map();
 
-  const trechos: TrechoDaVigencia[] = [];
-  for (const fatos of porAtivo.values()) {
-    trechos.push({
-      tributo: tributoDe(fatos.get(COLUNA.tributo.code)),
-      percentualDeclarado: numeroDe(fatos.get(COLUNA.percentualDeclarado.code)),
-      freteCtrc: numeroDe(fatos.get(COLUNA.freteCtrc.code)),
-      imposto: numeroDe(fatos.get(COLUNA.imposto.code)),
-      pisCofins: numeroDe(fatos.get(COLUNA.pisCofins.code)),
-      previsaoViagens: numeroDe(fatos.get(COLUNA.previsaoViagens.code)),
-    });
+  const porAlvo = await lerFatosDoTipo(db, TIPO_TRECHO, CODIGOS_DO_TRECHO, alvos);
+
+  const trechos = new Map<string, TrechoDaVigencia[]>();
+  for (const [chave, porAtivo] of porAlvo) {
+    trechos.set(
+      chave,
+      [...porAtivo.values()].map((fatos) => ({
+        tributo: tributoDe(fatos.get(COLUNA.tributo.code)),
+        percentualDeclarado: numeroDe(fatos.get(COLUNA.percentualDeclarado.code)),
+        freteCtrc: numeroDe(fatos.get(COLUNA.freteCtrc.code)),
+        imposto: numeroDe(fatos.get(COLUNA.imposto.code)),
+        pisCofins: numeroDe(fatos.get(COLUNA.pisCofins.code)),
+        previsaoViagens: numeroDe(fatos.get(COLUNA.previsaoViagens.code)),
+      })),
+    );
   }
   return trechos;
 }
