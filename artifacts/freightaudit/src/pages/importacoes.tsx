@@ -1822,6 +1822,11 @@ function PendingRun({
     // deixava o cartão consultando o servidor a cada 1,2s para sempre.
     refetchInterval: (query) => {
       const s = (query.state.data as RunStatus | undefined)?.status;
+      // Quem decide é a face do cartão, e não uma lista de estados repetida
+      // aqui: ABORTED — o desfecho que a varredura de órfãs grava quando um
+      // reinício levou o processo que lia — é terminal lá, então o cartão para
+      // de consultar sozinho, sem que ninguém precise lembrar de somá-lo a uma
+      // segunda lista.
       return faceDoCartao(s).emAndamento ? 1200 : false;
     },
   });

@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
+  attributeTable,
   ticketChangeTable,
   ticketImportTable,
   ticketTable,
@@ -117,15 +118,55 @@ beforeAll(async () => {
     ])
     .returning();
 
+  /*
+    A régua financeira dos chamados é a mesma da Planilha (`viraDinheiro`):
+    para o impacto entrar num balde, o parâmetro precisa de uma semântica
+    confirmada, monetária e somável — e de periodicidade, que dá o balde.
+    Os dois códigos abaixo existem para isso; o que não tiver código na régua
+    conta em `foraDaRegua`, nunca na soma.
+  */
+  await ctx.db.insert(attributeTable).values([
+    {
+      code: "cavalo.frete_peso",
+      sourceName: "Frete peso",
+      entityType: "CAVALO",
+      dataType: "NUMBER",
+      unit: "BRL",
+      periodicity: "MENSAL",
+      aggregation: "SUM",
+      semanticsStatus: "CONFIRMED",
+      isMonetary: true,
+      confirmedBy: "teste",
+      confirmedAt: new Date(),
+    },
+    {
+      code: "cavalo.pedagio",
+      sourceName: "Pedágio",
+      entityType: "CAVALO",
+      dataType: "NUMBER",
+      unit: "BRL",
+      periodicity: "MENSAL",
+      aggregation: "SUM",
+      semanticsStatus: "CONFIRMED",
+      isMonetary: true,
+      confirmedBy: "teste",
+      confirmedAt: new Date(),
+    },
+  ]);
+
   const alteracao = (
     ticketId: string,
     parameterLabel: string,
     coluna: number,
     impacto: string | null,
+    attributeCode: string | null = parameterLabel === "Pedágio"
+      ? "cavalo.pedagio"
+      : "cavalo.frete_peso",
   ) => ({
     ticketId,
     ticketImportId: envioId,
     parameterLabel,
+    attributeCode,
     sourceColumnIndex: coluna,
     changeKind: "SET",
     beforeSource: "ARQUIVO",
@@ -232,8 +273,10 @@ describe("o recorte alcança os cartões, e não só a lista", () => {
     expect(totais.changes).toBe(total);
     expect(totais.changes).toBe(4);
     expect(totais.tickets).toBe(3);
-    // 10 + 20 + 100 + 200 — e o milhar de março fica fora.
-    expect(totais.impactSum).toBe(330);
+    // 10 + 20 + 100 + 200 — e o milhar de março fica fora. Na régua: os dois
+    // parâmetros são mensais e confirmados, então o balde é um só.
+    expect(totais.impacto.porPeriodicidade).toEqual({ MENSAL: 330 });
+    expect(totais.impacto.foraDaRegua).toBe(0);
   });
 
   it("cada contagem continua prometendo o que o filtro entrega, dentro do recorte", async () => {
@@ -256,7 +299,12 @@ describe("o recorte alcança os cartões, e não só a lista", () => {
       await rotulos(MAR, MAR),
     );
     expect(porParametro).toEqual([
-      { parameterLabel: "Frete peso", attributeCode: null, count: 1, impactSum: 1000 },
+      {
+        parameterLabel: "Frete peso",
+        attributeCode: "cavalo.frete_peso",
+        count: 1,
+        impactSum: 1000,
+      },
     ]);
   });
 

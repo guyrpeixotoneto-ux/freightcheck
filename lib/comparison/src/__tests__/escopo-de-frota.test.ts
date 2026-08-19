@@ -193,6 +193,9 @@ beforeAll(async () => {
       ticketId: doCavalo.id,
       ticketImportId: envioId,
       parameterLabel: "Frete peso",
+      // A régua financeira dos chamados lê a semântica do atributo: este é
+      // confirmado, monetário e MENSAL — o impacto dele entra no balde.
+      attributeCode: "cavalo.custo_fixo",
       entityLabel: "BBB1B11",
       entityType: "CAVALO",
       sourceColumnIndex: 0,
@@ -217,6 +220,7 @@ beforeAll(async () => {
       ticketId: doOutroCavalo.id,
       ticketImportId: envioId,
       parameterLabel: "Frete peso",
+      attributeCode: "cavalo.custo_fixo",
       entityLabel: "BBB2B22",
       entityType: "CAVALO",
       sourceColumnIndex: 0,
@@ -515,7 +519,9 @@ describe("os chamados", () => {
     // O cartão do topo é o do cavalo: três alterações em dois chamados.
     expect(cavalo.changes).toBe(3);
     expect(cavalo.tickets).toBe(2);
-    expect(cavalo.impactSum).toBe(17);
+    // 10 + 7, os dois em cavalo.custo_fixo (MENSAL, confirmado): um balde só.
+    expect(cavalo.impacto.porPeriodicidade).toEqual({ MENSAL: 17 });
+    expect(cavalo.impacto.foraDaRegua).toBe(0);
   });
 
   it("mantêm o cartão e a lista dizendo o mesmo número", async () => {

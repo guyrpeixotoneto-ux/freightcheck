@@ -65,6 +65,10 @@ export const ROTULO_DE_SEVERIDADE: Record<SeveridadeDeApontamento, string> = {
 export const CODIGOS_QUE_BLOQUEIAM_PROMOCAO: ReadonlySet<string> = new Set([
   "ENTIDADE_DUPLICADA_CONFLITANTE",
   "TIPO_DIVERGE_DA_DECLARACAO",
+  // Aba rebaixada com tipo declarado: alguém disse que aquela aba era de um
+  // tipo e a leitura não a reconheceu como tal. Promover importaria uma
+  // vigência sem o que foi prometido — silêncio no lugar do dado.
+  "ABA_REBAIXADA_COM_TIPO_DECLARADO",
 ]);
 
 /**

@@ -290,23 +290,38 @@ export function criarDeduplicador(
   const chaveDoAtivo = (linha: LinhaDeMudanca) =>
     `${linha.comparacaoId ?? ""}\u001f${linha.entityId}`;
 
-  const mudouNoAtivo = new Map<string, Set<string>>();
+  /*
+    O índice das regras é `contouNoAtivo` — códigos cuja linha tem preço
+    apurado (CALCULATED, numérico) neste ativo e nesta comparação — e não um
+    índice de "mudou". A pergunta que uma exclusão precisa responder é "a linha
+    que representaria este dinheiro ENTROU na soma?", e mudar sem preço não
+    entra em soma nenhuma.
+
+    O índice anterior era de "mudou", e o furo era silencioso e sempre para baixo:
+    um total calculável (+R$ 100) com uma parcela APPEARED — sem delta, sem
+    impacto — saía da soma "coberto pela parcela", e a parcela não punha nada
+    no lugar. O oficial dizia R$ 0 com o rastro afirmando que o dinheiro estava
+    contado em outra linha que não contava nada. Cobertura sem representação é
+    exatamente a dupla contagem ao contrário: dinheiro sumido.
+  */
+  const contouNoAtivo = new Map<string, Set<string>>();
   for (const linha of linhas) {
     if (linha.entityId === null || linha.attributeCode === null) continue;
+    if (precoDe(linha) === null) continue;
     const chave = chaveDoAtivo(linha);
-    let codigos = mudouNoAtivo.get(chave);
-    if (!codigos) mudouNoAtivo.set(chave, (codigos = new Set()));
-    codigos.add(linha.attributeCode);
+    let comPreco = contouNoAtivo.get(chave);
+    if (!comPreco) contouNoAtivo.set(chave, (comPreco = new Set()));
+    comPreco.add(linha.attributeCode);
   }
 
   const porComposicao = (linha: LinhaDeMudanca): ForaDoTotal | null => {
     if (linha.entityId === null) return null;
-    if (!isCoveredByParts(linha.attributeCode, chaveDoAtivo(linha), mudouNoAtivo)) {
+    if (!isCoveredByParts(linha.attributeCode, chaveDoAtivo(linha), contouNoAtivo)) {
       return null;
     }
     const composicao = compositionOf(linha.attributeCode);
     const partes = PARTES_POR_TOTAL.get(linha.attributeCode!) ?? [];
-    const mudaram = mudouNoAtivo.get(chaveDoAtivo(linha)) ?? new Set<string>();
+    const mudaram = contouNoAtivo.get(chaveDoAtivo(linha)) ?? new Set<string>();
     const cobertas = partes.filter((p) => mudaram.has(p));
     return {
       motivo: "COBERTO_POR_PARCELAS",
@@ -327,11 +342,14 @@ export function criarDeduplicador(
     if (!escopo || linha.entityId === null) return null;
     const embutidos = vinculos.embutidos.get(linha.entityId);
     if (!embutidos) return null;
-    // Só sai quando o ativo embutido mexeu **nesta** comparação: sem isso a
-    // regra viraria "esta coluna nunca conta", e apagaria a variação própria do
-    // implemento nas carretas cujo cavalo não mudou.
+    // Só sai quando o ativo embutido mexeu **nesta** comparação — e mexeu COM
+    // PREÇO. Sem a primeira condição, a regra viraria "esta coluna nunca
+    // conta", apagando a variação própria do implemento nas carretas cujo
+    // cavalo não mudou; sem a segunda, uma coluna embutida que mudou sem
+    // impacto apurável tiraria daqui um dinheiro que nenhuma outra linha
+    // representa.
     const mexeu = embutidos.some((id) =>
-      mudouNoAtivo
+      contouNoAtivo
         .get(`${linha.comparacaoId ?? ""}\u001f${id}`)
         ?.has(escopo.contem),
     );
@@ -557,6 +575,102 @@ export function resumirImpacto(
     calculatedChanges,
     notCalculable,
   };
+}
+
+/**
+ * O que ficou fora do oficial, por periodicidade — a soma dos degraus.
+ *
+ * É o número que a interface escreve ao lado de "já contado em outra linha".
+ * Ele não existe como campo próprio no resumo de propósito: seria a terceira
+ * porta de que o comentário acima fala. Quem precisa dele o deriva daqui, da
+ * mesma escada que o produziu — a interface lia um campo com esse nome que o
+ * servidor deixou de enviar, e a tela caiu inteira; um campo derivado não tem
+ * como divergir do rastro.
+ */
+export function excluidoDaSoma(resumo: ResumoDeImpacto): Record<string, number> {
+  const baldes: Record<string, number> = {};
+  for (const degrau of resumo.rastro.degraus) {
+    for (const [balde, valor] of Object.entries(degrau.removidoByPeriodicity)) {
+      somar(baldes, balde, valor);
+    }
+  }
+  return arredondar(baldes);
+}
+
+/**
+ * Junta resumos já decididos — o cartão que agrega vários parâmetros.
+ *
+ * Somar resumos não re-decide nada: cada linha já passou pelo deduplicador no
+ * recorte em que a decisão vale. O que se soma aqui são os baldes, degrau a
+ * degrau, com os subtotais refeitos por subtração — a mesma conta de
+ * `resumirImpacto`, sobre números já apurados. Mora aqui, e não na interface,
+ * porque uma segunda redação desta soma no front foi exatamente como o campo
+ * `excludedByPeriodicity` sobreviveu oito commits depois de morrer no servidor.
+ */
+export function somarResumos(resumos: ResumoDeImpacto[]): ResumoDeImpacto {
+  const oficial: Record<string, number> = {};
+  const bruto: Record<string, number> = {};
+  const removido: Record<EtapaDaDeducao, Record<string, number>> = {
+    COMPOSICAO: {},
+    ESCOPO_DE_CONJUNTO: {},
+  };
+  const removidas: Record<EtapaDaDeducao, number> = {
+    COMPOSICAO: 0,
+    ESCOPO_DE_CONJUNTO: 0,
+  };
+  let excludedChanges = 0;
+  let calculatedChanges = 0;
+  let notCalculable = 0;
+
+  for (const resumo of resumos) {
+    for (const [balde, valor] of Object.entries(resumo.byPeriodicity)) {
+      somar(oficial, balde, valor);
+    }
+    for (const [balde, valor] of Object.entries(resumo.brutoByPeriodicity)) {
+      somar(bruto, balde, valor);
+    }
+    for (const degrau of resumo.rastro.degraus) {
+      for (const [balde, valor] of Object.entries(degrau.removidoByPeriodicity)) {
+        somar(removido[degrau.etapa], balde, valor);
+      }
+      removidas[degrau.etapa] += degrau.mudancasRemovidas;
+    }
+    excludedChanges += resumo.excludedChanges;
+    calculatedChanges += resumo.calculatedChanges;
+    notCalculable += resumo.notCalculable;
+  }
+
+  const corrente = { ...bruto };
+  const degraus: DegrauDaDeducao[] = ETAPAS.map((etapa) => {
+    for (const [balde, valor] of Object.entries(removido[etapa])) {
+      corrente[balde] = (corrente[balde] ?? 0) - valor;
+    }
+    return {
+      etapa,
+      rotulo: ROTULO_DA_ETAPA[etapa],
+      removidoByPeriodicity: arredondar(removido[etapa]),
+      mudancasRemovidas: removidas[etapa],
+      subtotalByPeriodicity: arredondar(corrente),
+    };
+  });
+
+  return {
+    byPeriodicity: arredondar(oficial),
+    brutoByPeriodicity: arredondar(bruto),
+    rastro: {
+      brutoByPeriodicity: arredondar(bruto),
+      degraus,
+      oficialByPeriodicity: arredondar(oficial),
+    },
+    excludedChanges,
+    calculatedChanges,
+    notCalculable,
+  };
+}
+
+/** O resumo sem linha nenhuma — o ponto neutro de `somarResumos`. */
+export function resumoVazio(): ResumoDeImpacto {
+  return somarResumos([]);
 }
 
 /**

@@ -23,6 +23,8 @@ export interface SessionUser {
   id: string;
   name: string;
   email: string;
+  /** ADMIN gerencia contas; OPERADOR usa o produto. Ver a migration 0037. */
+  role: string;
 }
 
 /**
@@ -94,12 +96,35 @@ export async function countActiveUsers(db: Database): Promise<number> {
   return row?.total ?? 0;
 }
 
+/** Administradores ativos agora — a guarda do "último admin". */
+export async function countActiveAdmins(db: Database): Promise<number> {
+  const [row] = await db
+    .select({ total: sql<number>`count(*)::int` })
+    .from(appUserTable)
+    .where(and(isNull(appUserTable.disabledAt), eq(appUserTable.role, "ADMIN")));
+  return row?.total ?? 0;
+}
+
+/** Muda o papel. A validação do valor e a guarda do último admin são da rota. */
+export async function setUserRole(
+  db: Database,
+  userId: string,
+  role: string,
+): Promise<void> {
+  await db
+    .update(appUserTable)
+    .set({ role })
+    .where(eq(appUserTable.id, userId));
+}
+
 export async function createUser(
   db: Database,
   input: {
     name: string;
     email: string;
     password: string;
+    /** ADMIN ou OPERADOR. Ausente, vale o default fail-closed do banco (OPERADOR). */
+    role?: string;
     /** Quem está criando. Ausente = terminal (`create-user`). */
     createdBy?: string;
   },
@@ -112,12 +137,14 @@ export async function createUser(
         name: input.name.trim(),
         email: normalizeEmail(input.email),
         passwordHash,
+        ...(input.role ? { role: input.role } : {}),
         ...(input.createdBy ? { createdBy: input.createdBy } : {}),
       })
       .returning({
         id: appUserTable.id,
         name: appUserTable.name,
         email: appUserTable.email,
+        role: appUserTable.role,
       });
     return user!;
   } catch (err) {
@@ -136,6 +163,7 @@ export async function findUserForLogin(
       id: appUserTable.id,
       name: appUserTable.name,
       email: appUserTable.email,
+        role: appUserTable.role,
       passwordHash: appUserTable.passwordHash,
     })
     .from(appUserTable)
@@ -194,6 +222,7 @@ export async function resolveSession(
       id: appUserTable.id,
       name: appUserTable.name,
       email: appUserTable.email,
+        role: appUserTable.role,
     })
     .from(userSessionTable)
     .innerJoin(appUserTable, eq(appUserTable.id, userSessionTable.userId))
@@ -215,7 +244,7 @@ export async function resolveSession(
       .where(eq(userSessionTable.id, row.sessionId));
   }
 
-  return { id: row.id, name: row.name, email: row.email };
+  return { id: row.id, name: row.name, email: row.email, role: row.role };
 }
 
 /** Sair é apagar a linha: um logout que só limpasse o cookie deixaria o token
@@ -275,6 +304,7 @@ export async function listUsers(db: Database): Promise<ManagedUser[]> {
       id: appUserTable.id,
       name: appUserTable.name,
       email: appUserTable.email,
+        role: appUserTable.role,
       disabledAt: appUserTable.disabledAt,
       lastLoginAt: appUserTable.lastLoginAt,
       createdAt: appUserTable.createdAt,
@@ -310,6 +340,7 @@ export async function findUserById(
       id: appUserTable.id,
       name: appUserTable.name,
       email: appUserTable.email,
+        role: appUserTable.role,
       disabledAt: appUserTable.disabledAt,
     })
     .from(appUserTable)

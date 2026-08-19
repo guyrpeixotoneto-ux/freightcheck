@@ -11,7 +11,8 @@
     "./conferir-schema": "./src/conferir-schema.ts",
     "./reconvergencia": "./src/reconvergencia.ts",
     "./bridge": "./src/bridge.ts",
-    "./bridge-marcador": "./src/bridge-marcador.ts"
+    "./bridge-marcador": "./src/bridge-marcador.ts",
+    "./backup": "./src/backup.ts"
   },
   "scripts": {
     "generate": "drizzle-kit generate --config ./drizzle-kit.config.ts",
@@ -22,7 +23,10 @@
     "conferir-schema": "tsx ./src/conferir-schema-cli.ts",
     "bridge:down": "tsx ./src/bridge-cli.ts down",
     "bridge:up": "tsx ./src/bridge-cli.ts up",
-    "publicar:conferir": "tsx ./src/bridge-cli.ts conferir"
+    "publicar:conferir": "tsx ./src/bridge-cli.ts conferir",
+    "backup": "tsx ./src/backup-cli.ts backup",
+    "backup:listar": "tsx ./src/backup-cli.ts listar",
+    "backup:restaurar": "tsx ./src/backup-cli.ts restaurar"
   },
   "dependencies": {
     "drizzle-orm": "catalog:",

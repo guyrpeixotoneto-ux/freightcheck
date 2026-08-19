@@ -9,21 +9,24 @@ Onde isso roda:
 | momento | quem aplica |
 | --- | --- |
 | partida do servidor **em Production** | `artifacts/api-server/src/index.ts` chama `runMigrations()` em segundo plano; o estado sai em `/api/healthz` |
-| desenvolvimento | **ninguém automaticamente** — ver a política abaixo |
-| post-merge do Replit | `scripts/post-merge.sh` instala; **não** migra, e diz isso |
+| partida do servidor **em Development** | o mesmo caminho — ver a política abaixo e por que ela mudou de sinal |
+| post-merge do Replit | `scripts/post-merge.sh` instala **e aplica a fila** quando há `DATABASE_URL` |
 | à mão | `pnpm --filter @workspace/db run migrate` |
 | testes | cada banco de teste nasce das migrations, nunca de push |
 
 ## A reconvergência da partida — quando o Provision desfaz o que a fila fez
 
 O passo de schema do Publishing compara **Development com Production** e aplica
-o diff antes de o servidor novo existir. Como Development fica atrás da fila por
-política (ver abaixo), todo deploy que acontece nessa janela propõe **remover**
-de Production o que as migrations criaram — colunas, tabelas, índices e
-constraints —, e o registro não fica sabendo: ele vive no schema `drizzle`, fora
-do espelho. O resultado era o estado sem saída de 18/08/2026: 35 migrations
-registradas, `attribute.cost_class` inexistente, telas caindo com 42703 e a fila
-sem nada a fazer, porque ela decide pelo carimbo.
+o diff antes de o servidor novo existir. Enquanto Development ficava atrás da
+fila por política — a política antiga, revertida abaixo —, todo deploy nessa
+janela propunha **remover** de Production o que as migrations criaram —
+colunas, tabelas, índices e constraints —, e o registro não ficava sabendo: ele
+vive no schema `drizzle`, fora do espelho. O resultado era o estado sem saída
+de 18/08/2026: 35 migrations registradas, `attribute.cost_class` inexistente,
+telas caindo com 42703 e a fila sem nada a fazer, porque ela decide pelo
+carimbo. Hoje Development converge sozinho e esse estado não persiste; a
+reconvergência continua existindo como rede para o dia em que alguém aceitar a
+proposta errada mesmo assim.
 
 Por isso a partida de Production tem um segundo passo, depois de
 `runMigrations()`: a **reconvergência** (`lib/db/src/reconvergencia.ts`). Ela
@@ -55,15 +58,29 @@ e as duas portas não têm como discordar, porque são a mesma função.
 
 ## Quem avança a fila só por ter subido
 
-A regra é uma: **só Production aplica migrations ao iniciar.** Todo o resto
-avança por comando explícito.
+A regra é uma: **os dois ambientes com banco próprio convergem pela fila ao
+iniciar — Production e Development.** Testes e ambientes desconhecidos não.
 
 | ambiente | migra na partida | como avança |
 | --- | --- | --- |
-| Development (`pnpm dev`) | não | `pnpm --filter @workspace/db run migrate` |
+| Development (`pnpm dev`) | **sim** | o próprio servidor, na partida; o `post-merge` também aplica no merge |
 | Testes e CI | não | cada arquivo cria um banco descartável a partir das migrations |
 | Preview / qualquer serviço novo | não — é o padrão | `DB_MIGRATE_ON_BOOT=1`, se for mesmo para migrar |
 | Production / Publish | **sim** | o próprio servidor, na partida |
+
+**Por que Development voltou a convergir sozinho — a reversão é medida.** A
+regra anterior ("Development só avança à mão") foi escrita para a era do
+bridge, quando Production estava atrás da fila e qualquer avanço automático de
+Development fabricava um diff no Publishing. Production alcançou a cabeça da
+fila, e a mesma regra passou a produzir o estado inverso: **Development atrás é
+a precondição do diff destrutivo** — o Provision propõe remover de Production o
+que as migrations criaram, e foi isso que apagou dado real em 17 e 18/08/2026.
+Os dois sentidos do diff não se equivalem: Development à frente produz proposta
+aditiva, cujo pior desfecho é um deploy recusado; Development atrás produz
+proposta destrutiva, cujo pior desfecho é perda de decisão humana, que nenhuma
+reconvergência devolve. Com Development convergindo na partida e no merge, o
+estado "atrás" dura os segundos entre o pull e a fila — não até alguém lembrar
+de um comando na véspera de um Publish.
 
 Quem decide é `deveMigrarNaPartida()`, em
 `artifacts/api-server/src/lib/migrations.ts`. Ela lê dois sinais, nesta ordem:

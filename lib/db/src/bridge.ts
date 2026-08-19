@@ -266,6 +266,15 @@ export const COLUNAS_REMOVIDAS: [string, string][] = [
   ["change_set", "impacto_oficial_by_periodicity"],
   ["change_set", "deducao_rastro"],
   ["change_set", "mudancas_fora_do_total"],
+  /*
+    A `0037`, pelo mesmo contrato: `app_user.role` é NOT NULL com default,
+    forma que a allowlist não aceita. Diferente das colunas de `change_set`,
+    ela é decisão de gente — e é por isso que a `0038` que a repõe refaz o
+    backfill pela mesma sentinela da `0037` (sem nenhum ADMIN, as contas
+    existentes viram ADMIN): um Development que passe por down sem up volta ao
+    estado pós-migration, nunca a um estado sem papel.
+  */
+  ["app_user", "role"],
 ];
 
 /** Índices que o `down` remove. Exportada pelo motivo de `COLUNAS_REMOVIDAS`. */
@@ -345,6 +354,9 @@ const CHECKS_REMOVIDOS: [string, string][] = [
   // aceita, então o `down` as derruba e o `up` as repõe.
   ["attribute", "attribute_semantica_coerente"],
   ["attribute_semantics", "attribute_semantics_semantica_coerente"],
+  // A `0037` — o CHECK cai junto com a coluna `role`; está aqui para o `up`
+  // e a `0038` o reporem em par com ela.
+  ["app_user", "app_user_role_ck"],
 ];
 
 const NULLABLE_TEMPORARIO: [string, string][] = [
@@ -1352,6 +1364,27 @@ function planoUp(): PassoUp[] {
       levantar(M33, new RegExp(`ALTER TABLE "change_set"\\s+ADD COLUMN IF NOT EXISTS "${col}"`)),
     );
   }
+
+  // A `0037` — coluna, backfill e CHECK, levantados da própria migration.
+  // O backfill entra porque `role` é decisão de gente com uma sentinela
+  // reentrante (sem nenhum ADMIN, as contas existentes viram ADMIN): um up que
+  // repusesse só a estrutura deixaria todo mundo OPERADOR — inclusive quem
+  // precisa entrar em Configurações para consertar isso.
+  const M37 = "0037_papeis";
+  add(M37, "app_user.role", levantar(M37, /ALTER TABLE "app_user" ADD COLUMN IF NOT EXISTS "role"/));
+  // O backfill é a segunda escrita de linha do plano, marcada como tal: `role`
+  // é decisão de gente com sentinela reentrante (sem nenhum ADMIN, as contas
+  // existentes viram ADMIN). Um up só de estrutura deixaria todo mundo
+  // OPERADOR — inclusive quem precisaria entrar em Configurações para
+  // consertar isso.
+  p.push({
+    migration: M37,
+    objeto: "app_user.role (backfill)",
+    sql: reconstruir(M37, /UPDATE "app_user"/),
+    reconstroiDados: true,
+  });
+  add(M37, "app_user_role_ck (drop)", levantar(M37, /DROP CONSTRAINT IF EXISTS "app_user_role_ck"/));
+  add(M37, "app_user_role_ck", levantar(M37, /ADD CONSTRAINT "app_user_role_ck"/));
 
   // 5. Obrigatoriedade e constraints.
   //    Os valores nunca saíram: o `down` só afrouxou o NOT NULL.

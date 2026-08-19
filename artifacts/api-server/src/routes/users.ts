@@ -8,23 +8,26 @@ import {
 } from "../lib/auth";
 import {
   EmailAlreadyUsedError,
+  countActiveAdmins,
   countActiveUsers,
   createUser,
   findUserById,
   listUsers,
   setUserDisabled,
   setUserPassword,
+  setUserRole,
 } from "../lib/session";
 
 /**
  * Quem tem acesso — a superfície da tela de Configurações.
  *
- * Toda rota aqui exige sessão, como todas as outras; o que não existe é papel.
- * Quem entra pode criar, desativar e redefinir senha de qualquer pessoa, e isso
- * é uma decisão consciente: um produto usado por um time pequeno de auditoria,
- * em que separar "quem administra" de "quem cura" seria inventar uma hierarquia
- * que ninguém pediu. O que fica registrado é *quem fez* — `created_by` e
- * `disabled_by` — porque é isso que torna o ato revisável depois.
+ * Toda rota aqui exige sessão, como todas as outras; e as mutações exigem
+ * papel. Dois papéis, e só dois: **ADMIN** cria, desativa, redefine senha e
+ * muda papel; **OPERADOR** usa o produto. A separação nasceu de um achado da
+ * auditoria comercial: sem papel, qualquer conta redefinia a senha de
+ * qualquer outra — tomada de conta a um clique, num produto cujo valor é o
+ * "quem fez". Ler a lista continua aberto a quem entrou: transparência sobre
+ * quem tem acesso não é privilégio.
  *
  * Ninguém é apagado. `actor` das confirmações já feitas aponta para estas
  * linhas, e apagar uma transformaria um histórico auditável num e-mail órfão.
@@ -35,12 +38,27 @@ const router: IRouter = Router();
 const UUID =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+const PAPEIS = new Set(["ADMIN", "OPERADOR"]);
+
+/** A recusa de papel, uma frase só — quem a lê sabe a quem pedir. */
+export function somenteAdmin(req: { user?: { role: string } }): string | null {
+  return req.user?.role === "ADMIN"
+    ? null
+    : "Somente administradores gerenciam contas. Peça a um administrador.";
+}
+
 router.get("/users", async (req, res): Promise<void> => {
   res.json(await listUsers(db));
 });
 
 router.post("/users", async (req, res): Promise<void> => {
-  const { name, email, password } = req.body ?? {};
+  const recusa = somenteAdmin(req);
+  if (recusa) {
+    res.status(403).json({ error: recusa });
+    return;
+  }
+
+  const { name, email, password, role } = req.body ?? {};
 
   const problem =
     describeNameProblem(name) ??
@@ -50,11 +68,16 @@ router.post("/users", async (req, res): Promise<void> => {
     res.status(400).json({ error: problem });
     return;
   }
+  if (role !== undefined && !PAPEIS.has(role as string)) {
+    res.status(400).json({ error: "Papel precisa ser ADMIN ou OPERADOR." });
+    return;
+  }
 
   const user = await createUser(db, {
     name: name as string,
     email: email as string,
     password: password as string,
+    ...(role !== undefined ? { role: role as string } : {}),
     createdBy: req.user!.email,
   });
   req.log.info(
@@ -71,6 +94,11 @@ router.post("/users", async (req, res): Promise<void> => {
  * se perde.
  */
 router.post("/users/:id/disable", async (req, res): Promise<void> => {
+  const recusa = somenteAdmin(req);
+  if (recusa) {
+    res.status(403).json({ error: recusa });
+    return;
+  }
   if (!UUID.test(req.params.id)) {
     res.status(400).json({ error: "Identificador de conta inválido." });
     return;
@@ -91,6 +119,14 @@ router.post("/users/:id/disable", async (req, res): Promise<void> => {
     res.status(409).json({ error: refusal });
     return;
   }
+  if (target.role === "ADMIN" && (await countActiveAdmins(db)) <= 1) {
+    res.status(409).json({
+      error:
+        "Esta é a última conta de administrador ativa. Desativá-la deixaria o " +
+        "sistema sem quem gerencie contas. Promova outra pessoa antes.",
+    });
+    return;
+  }
 
   await setUserDisabled(db, target.id, true, req.user!.email);
   req.log.info(
@@ -101,6 +137,11 @@ router.post("/users/:id/disable", async (req, res): Promise<void> => {
 });
 
 router.post("/users/:id/enable", async (req, res): Promise<void> => {
+  const recusa = somenteAdmin(req);
+  if (recusa) {
+    res.status(403).json({ error: recusa });
+    return;
+  }
   if (!UUID.test(req.params.id)) {
     res.status(400).json({ error: "Identificador de conta inválido." });
     return;
@@ -131,6 +172,11 @@ router.post("/users/:id/enable", async (req, res): Promise<void> => {
  * aqui a envia para lugar nenhum.
  */
 router.post("/users/:id/password", async (req, res): Promise<void> => {
+  const recusa = somenteAdmin(req);
+  if (recusa) {
+    res.status(403).json({ error: recusa });
+    return;
+  }
   if (!UUID.test(req.params.id)) {
     res.status(400).json({ error: "Identificador de conta inválido." });
     return;
@@ -155,6 +201,56 @@ router.post("/users/:id/password", async (req, res): Promise<void> => {
   );
   // A lista de volta, como nas outras duas: as sessões daquela pessoa
   // acabaram de cair, e é isso que a tela precisa reexibir.
+  res.json(await listUsers(db));
+});
+
+/**
+ * Mudar o papel de uma conta — ADMIN promove e rebaixa.
+ *
+ * A única recusa além do portão é a que evita o beco: rebaixar o último
+ * administrador ativo deixaria o sistema sem quem gerencie contas — inclusive
+ * sem quem pudesse desfazer o rebaixamento.
+ */
+router.post("/users/:id/role", async (req, res): Promise<void> => {
+  const recusa = somenteAdmin(req);
+  if (recusa) {
+    res.status(403).json({ error: recusa });
+    return;
+  }
+  if (!UUID.test(req.params.id)) {
+    res.status(400).json({ error: "Identificador de conta inválido." });
+    return;
+  }
+  const { role } = req.body ?? {};
+  if (!PAPEIS.has(role as string)) {
+    res.status(400).json({ error: "Papel precisa ser ADMIN ou OPERADOR." });
+    return;
+  }
+
+  const target = await findUserById(db, req.params.id);
+  if (!target) {
+    res.status(404).json({ error: "Conta não encontrada." });
+    return;
+  }
+
+  if (
+    target.role === "ADMIN" &&
+    role === "OPERADOR" &&
+    (await countActiveAdmins(db)) <= 1
+  ) {
+    res.status(409).json({
+      error:
+        "Esta é a última conta de administrador ativa. Rebaixá-la deixaria o " +
+        "sistema sem quem gerencie contas — inclusive sem quem pudesse desfazer isto.",
+    });
+    return;
+  }
+
+  await setUserRole(db, target.id, role as string);
+  req.log.info(
+    { email: target.email, role, by: req.user!.email },
+    "Papel de conta alterado",
+  );
   res.json(await listUsers(db));
 });
 
