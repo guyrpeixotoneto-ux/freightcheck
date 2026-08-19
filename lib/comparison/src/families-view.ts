@@ -15,6 +15,7 @@ import {
 import { periodLabel } from "./labels";
 import {
   buildGroup,
+  chaveDaFrota,
   compareGroups,
   getGroupedView,
   groupKey,
@@ -521,6 +522,37 @@ export async function getRangeAnalysis(
      ORDER BY sb.effective_date DESC, sb.entity_type_set
   `);
 
+  /*
+    A frota de um grupo é a do **equipamento** dele, e não a da vigência.
+
+    `snapshot.entity_count` conta a vigência inteira: num snapshot
+    `CARRETA+CAVALO` ele soma os dois, e usá-lo faria um grupo de cavalo medir a
+    cobertura dele contra uma frota que inclui as carretas. A contagem por tipo
+    é a mesma de `getGroupedView` — uma definição só de "a frota deste grupo",
+    em três leituras.
+  */
+  const { rows: frotas } = await db.execute<{
+    change_set_id: string;
+    entity_type: string;
+    fleet: number;
+  }>(sql`
+    SELECT cs.id AS change_set_id,
+           t   AS entity_type,
+           (
+             SELECT count(DISTINCT f.entity_id)::int
+               FROM fact f
+               JOIN entity e ON e.id = f.entity_id
+              WHERE f.snapshot_id = sb.id AND e.entity_type = t
+           ) AS fleet
+      FROM change_set cs
+      JOIN snapshot sb ON sb.id = cs.snapshot_b_id
+      CROSS JOIN LATERAL unnest(string_to_array(sb.entity_type_set, '+')) AS t
+     WHERE sb.effective_date > ${inicio}::date
+       AND sb.effective_date <= ${fim}::date
+       AND sb.status <> 'SUPERSEDED'
+       AND ${contextFilter("sb", context)}
+  `);
+
   const changeSetIds = sets.map((s) => s.change_set_id);
   const todasAsLinhas = await loadChanges(db, changeSetIds);
 
@@ -557,7 +589,9 @@ export async function getRangeAnalysis(
       : todasAsLinhas;
 
   const periodoDoSet = new Map(sets.map((s) => [s.change_set_id, s.period]));
-  const fleetByChangeSet = new Map(sets.map((s) => [s.change_set_id, s.fleet]));
+  const fleetByChangeSet = new Map(
+    frotas.map((f) => [chaveDaFrota(f.change_set_id, f.entity_type), f.fleet]),
+  );
 
   // ---- movimento por vigência ---------------------------------------------
   /*

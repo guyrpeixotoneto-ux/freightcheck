@@ -13,6 +13,7 @@ import { FAMILIES, placementOf, type FamilyCode } from "./families";
 import type { ParameterRollup } from "./families-view";
 import {
   buildGroup,
+  chaveDaFrota,
   compareGroups,
   groupKey,
   summariseImpact,
@@ -150,6 +151,28 @@ export interface EndToEndAnalysis {
 
 const round = (v: number) => Number(v.toFixed(2));
 
+/**
+ * Quantos ativos de cada tipo a vigência trouxe — a frota de um grupo.
+ *
+ * A mesma contagem de `getGroupedView`: entidades distintas com fato naquele
+ * snapshot, por `entity_type`. Não é `snapshot.entity_count`, que soma os tipos
+ * todos de uma vigência `CARRETA+CAVALO` e faria um grupo de cavalo medir-se
+ * contra uma frota que inclui as carretas.
+ */
+async function frotaPorTipo(
+  db: Database,
+  snapshotId: string,
+): Promise<Record<string, number>> {
+  const { rows } = await db.execute<{ entity_type: string; fleet: number }>(sql`
+    SELECT e.entity_type, count(DISTINCT f.entity_id)::int AS fleet
+      FROM fact f
+      JOIN entity e ON e.id = f.entity_id
+     WHERE f.snapshot_id = ${snapshotId}::uuid
+     GROUP BY e.entity_type
+  `);
+  return Object.fromEntries(rows.map((r) => [r.entity_type, r.fleet]));
+}
+
 /** A forma que `buildGroup` lê — a mesma que sai do SQL de `loadChanges`. */
 interface LinhaCrua extends Record<string, unknown> {
   id: number;
@@ -275,12 +298,20 @@ export async function getEndToEndAnalysis(
     entitiesRemoved += diff.entitiesRemoved;
     entitiesCompared += b.entity_count - diff.entitiesAdded;
     /*
-      `buildGroup` usa a frota da série para dizer a cobertura do grupo, e a
-      chave que ele consulta é o `change_set_id` da linha. Aqui não existe
-      `change_set` — o nome da série ocupa esse lugar, que é o que a chave
-      significa nesta leitura: de qual arquivo aquele grupo veio.
+      `buildGroup` usa a frota para dizer a cobertura do grupo, e a chave que ele
+      consulta é (comparação, equipamento). Aqui não existe `change_set` — o nome
+      da série ocupa o lugar da comparação, que é o que a chave significa nesta
+      leitura: de qual arquivo aquele grupo veio.
+
+      O equipamento é a outra metade, e ele **não** é dispensável. A série pode
+      cobrir mais de um tipo (`CARRETA+CAVALO` é o caso real), e
+      `snapshot.entity_count` conta os dois juntos: indexar só pela série faria a
+      busca de `buildGroup` errar, cair no `?? 0`, e a frota desabar para o
+      número de ativos do próprio grupo — cobertura `TOTAL` em tudo.
     */
-    fleetByChangeSet.set(serie, b.entity_count);
+    for (const [tipo, frota] of Object.entries(await frotaPorTipo(db, b.id))) {
+      fleetByChangeSet.set(chaveDaFrota(serie, tipo), frota);
+    }
   }
 
   // ---- traduz para a forma que o agrupamento já sabe ler --------------------

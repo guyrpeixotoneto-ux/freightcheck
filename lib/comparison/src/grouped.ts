@@ -470,6 +470,28 @@ export function groupKey(row: RawChange): string {
   ].join("|");
 }
 
+/**
+ * A chave do índice de frota — **(comparação, equipamento)**, e nunca só um
+ * dos dois.
+ *
+ * Existe como função exportada porque três leituras montam este índice e uma
+ * quarta o consulta, e enquanto a chave foi um literal repetido as três
+ * divergiram em silêncio: `getGroupedView` montava (comparação, equipamento);
+ * `getFamiliesView` e `getEndToEndAnalysis` montavam só a comparação. A busca
+ * errava, caía no `?? 0`, e `fleet` desabava para `vehicles` — a razão dava 1,
+ * a cobertura de todo grupo virava `TOTAL`, e `coverageLabel` publicava "Toda
+ * a frota · N de N" sobre um grupo que tinha pegado meia frota.
+ *
+ * Um erro de chave não dá erro de tipo nem de execução: dá um número
+ * plausível. Por isso a chave passa a ter um dono só.
+ */
+export function chaveDaFrota(
+  changeSetId: string,
+  entityType: string | null,
+): string {
+  return `${changeSetId}\u001f${entityType}`;
+}
+
 export function buildGroup(
   rows: RawChange[],
   fleetByChangeSet: Map<string, number>,
@@ -483,7 +505,7 @@ export function buildGroup(
   // uma comparação (não acontece hoje, mas nada impede), toma-se a maior.
   const fleet = Math.max(
     ...rows.map(
-      (r) => fleetByChangeSet.get(`${r.change_set_id}\u001f${r.entity_type}`) ?? 0,
+      (r) => fleetByChangeSet.get(chaveDaFrota(r.change_set_id, r.entity_type)) ?? 0,
     ),
     vehicles,
   );
@@ -963,7 +985,7 @@ export async function getGroupedView(
   // Indexada por (comparação, equipamento): a frota de um grupo é a do
   // equipamento a que o atributo pertence.
   const fleetByChangeSet = new Map(
-    seriesRows.map((s) => [`${s.change_set_id}\u001f${s.entity_type}`, s.fleet]),
+    seriesRows.map((s) => [chaveDaFrota(s.change_set_id, s.entity_type), s.fleet]),
   );
   const rows = await loadChanges(db, changeSetIds);
 
