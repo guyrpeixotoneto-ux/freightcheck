@@ -1,5 +1,10 @@
 import { useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+} from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import {
   ArrowRight,
@@ -27,6 +32,7 @@ import { ComboboxCriavel } from "@/components/ui/combobox-criavel";
 import { FecharQuinzena } from "@/components/fechamento/fechar-quinzena";
 import {
   abrirCompetencia,
+  cadastrarParte,
   excluirCompetencia,
   fontesDaCompetencia,
   lerCompetencia,
@@ -36,6 +42,7 @@ import {
   NOME_DO_ESTADO,
   type Competencia,
   type Parte,
+  type TipoDeParte,
 } from "@/lib/fechamento";
 import { MES_LONGO } from "@/lib/fechamento-gerencial";
 import { apresentar } from "@/lib/apresentar-erro";
@@ -61,22 +68,48 @@ function textoDoErro(erro: unknown): string {
  * transportadora são numéricos, então o que vem antes do separador é o código e
  * o que vem depois é o nome. Sem separador, o texto inteiro vira código — é o
  * caso de quem digita só `443`, e o nome fica em branco até alguém escrevê-lo.
+ *
+ * A função **lê** e não grava: quem grava é o servidor, em `cadastrarParte`. O
+ * nome anterior (`cadastrar`) prometia o contrário, e a promessa era verdadeira
+ * quando o cadastro só existia dentro do estado desta tela.
  */
-function cadastrar(texto: string): Parte {
+export function lerParteDigitada(texto: string): { codigo: string; nome: string | null } {
   const partido = /^\s*([^—\-/]+?)\s*[—\-/]\s*(.+?)\s*$/.exec(texto);
-  if (partido) return { codigo: partido[1], nome: partido[2], competencias: 0 };
-  return { codigo: texto.trim(), nome: null, competencias: 0 };
+  if (partido) return { codigo: partido[1]!, nome: partido[2]! };
+  return { codigo: texto.trim(), nome: null };
+}
+
+/**
+ * O clique em "Usar" — grava a parte e a devolve, ou `null` se o servidor
+ * recusou.
+ *
+ * O `catch` não engole a recusa: ela fica na mutação e aparece embaixo do campo
+ * pelo `erro` do combobox. O que o `null` faz é impedir o dropdown de fechar
+ * em cima de um texto que não foi gravado — quem perde o que escreveu junto com
+ * o motivo escreve de novo às cegas.
+ */
+function cadastrarDoCampo(
+  cadastro: UseMutationResult<Parte, Error, string>,
+  texto: string,
+): Promise<Parte | null> {
+  return cadastro.mutateAsync(texto).catch(() => null);
 }
 
 const rotuloDaParte = (p: Parte) => (p.nome ? `${p.codigo} — ${p.nome}` : p.codigo);
 
+/*
+  A parte cadastrada e ainda não usada não é "nova": ela está gravada, e some
+  da lista só se alguém a apagar. Dizer "vai ser cadastrada ao abrir" era
+  verdade quando o cadastro era efeito da abertura — e era exatamente o que
+  fazia o nome ir embora junto com a importação excluída.
+*/
 const detalheDaParte = (p: Parte) =>
   p.competencias === 0
-    ? "nova — vai ser cadastrada ao abrir a competência"
+    ? "cadastrada — ainda sem competência"
     : `${p.competencias} competência${p.competencias === 1 ? "" : "s"}`;
 
 const previaDaParte = (texto: string) => {
-  const parte = cadastrar(texto);
+  const parte = lerParteDigitada(texto);
   return parte.nome
     ? `Código ${parte.codigo}, nome “${parte.nome}”.`
     : `Código ${parte.codigo}, sem nome — escreva “${parte.codigo} — Nome” para nomeá-la.`;
@@ -200,6 +233,24 @@ export default function Competencias() {
   });
   const partes = useQuery({ queryKey: ["fechamento", "partes"], queryFn: listarPartes });
 
+  /*
+    O cadastro de uma parte — uma mutação por campo, e não uma compartilhada
+    pelos dois. A recusa precisa aparecer embaixo do campo que a provocou;
+    compartilhada, o erro da transportadora piscaria no campo da unidade.
+
+    A lista é invalidada no sucesso porque a parte recém-cadastrada passa a ser
+    uma opção como qualquer outra — inclusive para o outro fechamento que a
+    pessoa vai abrir em seguida, sem recarregar a tela.
+  */
+  const opcoesDoCadastro = (tipo: TipoDeParte) => ({
+    mutationFn: (texto: string) => cadastrarParte({ tipo, ...lerParteDigitada(texto) }),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "partes"] });
+    },
+  });
+  const cadastroDaUnidade = useMutation(opcoesDoCadastro("UNIDADE"));
+  const cadastroDaTransportadora = useMutation(opcoesDoCadastro("TRANSPORTADORA"));
+
   const abrir = useMutation({
     mutationFn: () =>
       abrirCompetencia({
@@ -235,9 +286,17 @@ export default function Competencias() {
       <div className="p-8 space-y-6 max-w-4xl">
         <Card>
           <CardHeader className="pb-3">
+            {/*
+              "Realizar Fechamento", e não "Abrir competência": o cartão é a
+              porta do trabalho, e quem chega aqui vem fechar a quinzena — não
+              criar um registro chamado competência. A competência continua
+              sendo o que o formulário produz, e o resto da tela continua
+              chamando-a assim; o que mudou é o rótulo do gesto, que passa a
+              dizer o que a pessoa veio fazer em vez de como o sistema guarda.
+            */}
             <CardTitle className="text-base flex items-center gap-2">
               <Plus className="w-4 h-4" />
-              Abrir competência
+              Realizar Fechamento
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -293,7 +352,8 @@ export default function Competencias() {
                   itens={partes.data?.unidades ?? []}
                   valor={unidade}
                   aoEscolher={setUnidade}
-                  aoCriar={(texto) => Promise.resolve(cadastrar(texto))}
+                  aoCriar={(texto) => cadastrarDoCampo(cadastroDaUnidade, texto)}
+                  erro={cadastroDaUnidade.isError ? textoDoErro(cadastroDaUnidade.error) : null}
                   rotuloDe={rotuloDaParte}
                   detalheDe={detalheDaParte}
                   chaveDe={(p) => p.codigo}
@@ -309,7 +369,12 @@ export default function Competencias() {
                   itens={partes.data?.transportadoras ?? []}
                   valor={transportadora}
                   aoEscolher={setTransportadora}
-                  aoCriar={(texto) => Promise.resolve(cadastrar(texto))}
+                  aoCriar={(texto) => cadastrarDoCampo(cadastroDaTransportadora, texto)}
+                  erro={
+                    cadastroDaTransportadora.isError
+                      ? textoDoErro(cadastroDaTransportadora.error)
+                      : null
+                  }
                   rotuloDe={rotuloDaParte}
                   detalheDe={detalheDaParte}
                   chaveDe={(p) => p.codigo}
@@ -321,11 +386,13 @@ export default function Competencias() {
             </div>
 
             <p className="text-xs text-muted-foreground">
-              As duas listas são as unidades e transportadoras que já apareceram
-              em alguma competência — não há cadastro à parte. Para uma nova,
-              digite <code className="font-mono">código — nome</code> (por
-              exemplo <code className="font-mono">443 — CDD Belém</code>) e
-              escolha “Usar”.
+              As duas listas são o que já foi cadastrado, mais o que aparece em
+              alguma competência. Para cadastrar, digite{" "}
+              <code className="font-mono">código — nome</code> (por exemplo{" "}
+              <code className="font-mono">443 — CDD Belém</code>) e escolha
+              “Usar”: fica gravado na hora e continua aqui mesmo que a
+              competência seja excluída depois. Digitar o mesmo código com um
+              nome novo renomeia.
             </p>
 
             {abrir.isError && (
@@ -335,7 +402,7 @@ export default function Competencias() {
             )}
 
             <Button onClick={() => abrir.mutate()} disabled={!podeAbrir || abrir.isPending}>
-              {abrir.isPending ? "Abrindo…" : "Abrir competência"}
+              {abrir.isPending ? "Iniciando…" : "Realizar Fechamento"}
             </Button>
           </CardContent>
         </Card>
@@ -406,7 +473,8 @@ export default function Competencias() {
             */}
             {competencias.houveResposta && competencias.dados?.length === 0 && (
               <p className="text-sm text-muted-foreground">
-                Nenhuma ainda. Abra a primeira acima e envie os relatórios da quinzena.
+                Nenhuma ainda. Comece o primeiro fechamento acima e envie os
+                relatórios da quinzena.
               </p>
             )}
             {(competencias.dados?.length ?? 0) > 0 && (

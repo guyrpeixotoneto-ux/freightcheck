@@ -17,6 +17,7 @@ import {
   listarDocumentos,
   listarPartes,
   receberDocumento,
+  registrarParte,
   reabrirCompetencia,
   encerrarCompetencia,
   RecusaDeFechamento,
@@ -106,14 +107,58 @@ router.get("/fechamento/apuracoes", async (_req, res): Promise<void> => {
 });
 
 /**
- * As unidades e transportadoras já usadas, para o campo que se pesquisa.
+ * As unidades e transportadoras que o Fechamento conhece, para o campo que se
+ * pesquisa.
  *
- * Derivadas das competências e não de um cadastro próprio — ver `listarPartes`
- * para o porquê. A tela oferece o que existe e deixa digitar o que não existe;
- * o que não existe passa a existir quando a competência é aberta.
+ * São as cadastradas somadas às que aparecem em alguma competência — ver
+ * `listarPartes` para por que as duas fontes e por que elas não brigam. A tela
+ * oferece o que existe e deixa digitar o que não existe; o que não existe passa
+ * a existir no `POST` abaixo.
  */
 router.get("/fechamento/partes", async (_req, res): Promise<void> => {
   res.json(await listarPartes(db));
+});
+
+/**
+ * Cadastra uma unidade ou transportadora — o que o "Usar" do campo faz.
+ *
+ * **Por que existe uma rota para isto.** Antes o cadastro era um efeito da
+ * abertura: digitava-se `443 — CDD Belém`, abria-se a competência, e o nome
+ * passava a existir porque a competência existia. Excluir aquela importação —
+ * o desfazer de quem abriu a errada — apagava o nome junto, e o campo voltava a
+ * dizer "Nada encontrado" para quem tinha acabado de escrevê-lo. Cadastrar
+ * virou um ato próprio, com endereço próprio, e a exclusão da competência
+ * voltou a apagar só a competência.
+ *
+ * `201` sempre, inclusive quando o código já existia: o corpo devolvido é a
+ * parte como a lista a mostra, e é isso que a tela seleciona no campo. Recadastrar
+ * um código com nome novo é renomear (ver `registrarParte`) — o gesto de quem
+ * escreveu `443` e volta para escrever `443 — CDD Belém`.
+ */
+router.post("/fechamento/partes", async (req, res): Promise<void> => {
+  const corpo = req.body as Record<string, unknown>;
+  const tipo = corpo?.tipo;
+  const codigo = corpo?.codigo;
+
+  if (tipo !== "UNIDADE" && tipo !== "TRANSPORTADORA") {
+    res.status(400).json({
+      error: "tipo precisa ser UNIDADE ou TRANSPORTADORA — são os dois lados de um fechamento.",
+    });
+    return;
+  }
+  if (typeof codigo !== "string" || codigo.trim() === "") {
+    res.status(400).json({
+      error: "codigo é obrigatório — é por ele que a competência encontra a parte.",
+    });
+    return;
+  }
+
+  const parte = await registrarParte(db, {
+    tipo,
+    codigo,
+    nome: typeof corpo?.nome === "string" ? corpo.nome : null,
+  });
+  res.status(201).json(parte);
 });
 
 /**
