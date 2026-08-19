@@ -160,22 +160,54 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
     expect((await runMigrations(dev.url)).failure).toBeUndefined();
 
     /*
-      O diff que o Publishing veria ANTES do deploy: só criação — a coluna e o
-      CHECK — e nada de DROP nem ALTER. É o diff que a política "recuse a
-      proposta, publique só build e start" atravessa sem risco: recusar deixa
-      Production intacta e o servidor novo aplica a fila na partida.
+      O diff que o Publishing veria ANTES do deploy: só criação — a coluna, o
+      CHECK e as tabelas do ambiente Fechamento — e nada de DROP nem ALTER. É o
+      diff que a política "recuse a proposta, publique só build e start"
+      atravessa sem risco: recusar deixa Production intacta e o servidor novo
+      aplica a fila na partida.
+
+      As tabelas são conferidas por conjunto e não por lista ordenada: a ordem
+      em que o diff as devolve é a de leitura do catálogo, e prendê-la aqui
+      transformaria uma reordenação inofensiva em teste vermelho.
     */
     const antes = await diffDoPublishing(dev.pool, prod.pool);
     expect(antes.drop).toEqual([]);
     expect(antes.alter).toEqual([]);
-    expect(antes.addTable).toEqual([]);
+    expect(new Set(antes.addTable)).toEqual(
+      new Set([
+        "fechamento_competencia",
+        "fechamento_documento",
+        "fechamento_viagem",
+        "fechamento_cte",
+        "fechamento_requisicao",
+        "fechamento_disponibilidade",
+        "fechamento_conciliacao_item",
+        "fechamento_apuracao",
+        "fechamento_apuracao_verba",
+        "fechamento_divergencia",
+      ]),
+    );
     expect(antes.addColumn).toEqual(["app_user.role"]);
-    expect(antes.addConstraint).toEqual(["app_user_role_ck"]);
+    /*
+      As constraints das tabelas novas — chave primária, estrangeira e CHECK —
+      vêm junto, e são conferidas pela regra "pertencem a uma tabela do
+      Fechamento" em vez de por uma lista de trinta e um nomes. A lista
+      congelaria a nomenclatura interna de dez tabelas num teste que não fala
+      sobre ela; o que este cenário precisa provar é que **nada além** do que as
+      duas mudanças trazem aparece no diff.
+    */
+    expect(
+      antes.addConstraint.filter((c) => !c.startsWith("fechamento_")),
+    ).toEqual(["app_user_role_ck"]);
 
-    // A partida do servidor novo: exatamente as duas migrations que faltavam.
+    // A partida do servidor novo: exatamente as migrations que faltavam.
     const report = await runMigrations(prod.url);
     expect(report.failure).toBeUndefined();
-    expect(report.applied).toEqual(["0037_papeis", "0038_reconciliar_papeis"]);
+    expect(report.applied).toEqual([
+      "0037_papeis",
+      "0038_reconciliar_papeis",
+      "0039_fechamento",
+    ]);
 
     // Preservação + backfill: as três contas continuam com o hash original e
     // viram ADMIN — era o que todas já podiam fazer.

@@ -185,7 +185,13 @@ describe("o catálogo de etapas do Fechamento", () => {
     const etapas = fonte("pages/fechamento/etapas.ts");
     const telas = [...etapas.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(8);
+    /*
+      Sete, e não as oito do desenho original: **Competências** saiu do
+      catálogo quando virou tela de verdade — a competência existe no banco,
+      recebe os cinco relatórios da quinzena e apura. Este número cai a cada
+      etapa construída, e chegar a zero é o catálogo ter cumprido o seu papel.
+    */
+    expect(telas).toBe(7);
     expect([...etapas.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...etapas.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });

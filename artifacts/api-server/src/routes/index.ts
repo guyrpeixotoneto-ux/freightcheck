@@ -18,6 +18,7 @@ import ticketsRouter from "./tickets";
 import impactoRouter from "./impacto";
 import clienteRouter from "./cliente";
 import frotaRouter from "./frota";
+import fechamentoRouter from "./fechamento";
 import qlpRouter from "./qlp";
 
 /**
@@ -45,6 +46,11 @@ import qlpRouter from "./qlp";
  * É a única superfície que guarda arquivo dentro do banco, e o motivo está em
  * `lib/db/src/schema/book.ts` — aqui o documento é o conteúdo, não há cópia
  * derivada dele, e o disco desta plataforma não sobrevive a um deploy.
+ *
+ * `fechamento` é a superfície do **outro ambiente**: a competência, os cinco
+ * relatórios que a Ambev exporta por quinzena, e a conta reconstruída deles.
+ * Não calcula nada — a aritmética inteira mora em `@workspace/fechamento`,
+ * testada sem banco e sem HTTP.
  *
  * `balance` é o Balanço de Massa: a conta de conservação da importação —
  * quantas células o arquivo trouxe, por quais destinos declarados elas saíram,
@@ -146,5 +152,6 @@ router.use(impactoRouter);
 router.use(clienteRouter);
 router.use(frotaRouter);
 router.use(qlpRouter);
+router.use(fechamentoRouter);
 
 export default router;

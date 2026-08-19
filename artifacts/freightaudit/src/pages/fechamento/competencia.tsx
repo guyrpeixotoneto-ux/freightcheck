@@ -1,0 +1,468 @@
+import { Fragment, useRef, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link } from "wouter";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Calculator,
+  Check,
+  ChevronRight,
+  FileUp,
+  Upload,
+} from "lucide-react";
+import { Layout } from "@/components/layout/layout";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { apresentar } from "@/lib/apresentar-erro";
+import { formatBrl } from "@/lib/format";
+import {
+  apurar,
+  enviarDocumento,
+  lerCompetencia,
+  listarFontes,
+  EXPLICACAO_DA_DIVERGENCIA,
+  NOME_DO_ESTADO,
+  type Documento,
+  type Fonte,
+  type TipoDeFonte,
+  type VerbaApurada,
+} from "@/lib/fechamento";
+
+function textoDoErro(erro: unknown): string {
+  const aviso = apresentar(erro);
+  return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível concluir.";
+}
+
+const emDiaBR = (iso: string) => iso.split("-").reverse().join("/");
+
+/**
+ * A competência aberta — onde o fechamento acontece.
+ *
+ * A tela tem três partes, e a ordem é a do trabalho: recebe os cinco relatórios
+ * que a Ambev exporta, roda a conta, mostra o que não fecha. É esta tela que
+ * substitui a pasta de Excel de 44 abas.
+ *
+ * **Por que a apuração é um botão e não acontece sozinha ao subir o quinto
+ * arquivo.** Porque rodar grava: a apuração vigente anterior é despromovida e
+ * uma nova entra no lugar (ver `fechamento_apuracao`). Um recálculo automático
+ * mudaria, sem ninguém pedir, o número que alguém pode ter aprovado — e a
+ * aprovação deixaria de significar coisa alguma. O botão é o consentimento.
+ *
+ * **Por que a conta roda com menos de cinco fontes.** Porque quase sempre é
+ * assim que o dia funciona: o relatório de conciliação sai depois dos outros.
+ * A apuração roda com o que há, diz nominalmente o que falta, e o que ela não
+ * consegue sustentar aparece como não conferido em vez de virar zero.
+ */
+export default function CompetenciaAberta({ id }: { id: string }) {
+  const cliente = useQueryClient();
+  const [erroDoEnvio, setErroDoEnvio] = useState<string | null>(null);
+  const [verbaAberta, setVerbaAberta] = useState<number | null>(null);
+
+  const dados = useQuery({
+    queryKey: ["fechamento", "competencia", id],
+    queryFn: () => lerCompetencia(id),
+  });
+  const fontes = useQuery({ queryKey: ["fechamento", "fontes"], queryFn: listarFontes });
+
+  const enviar = useMutation({
+    mutationFn: ({ tipo, arquivo }: { tipo: TipoDeFonte; arquivo: File }) =>
+      enviarDocumento(id, tipo, arquivo),
+    onMutate: () => setErroDoEnvio(null),
+    onError: (erro) => setErroDoEnvio(textoDoErro(erro)),
+    onSuccess: () => cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] }),
+  });
+
+  const rodar = useMutation({
+    mutationFn: () => apurar(id),
+    onSuccess: () => cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] }),
+  });
+
+  if (dados.isLoading) {
+    return (
+      <Layout>
+        <div className="p-8 text-sm text-muted-foreground">Carregando a competência…</div>
+      </Layout>
+    );
+  }
+  if (dados.isError || !dados.data) {
+    return (
+      <Layout>
+        <div className="p-8">
+          <Alert variant="destructive">
+            <AlertDescription>{textoDoErro(dados.error)}</AlertDescription>
+          </Alert>
+        </div>
+      </Layout>
+    );
+  }
+
+  const { competencia, documentos, apuracao } = dados.data;
+  const vigentes = new Map(documentos.filter((d) => d.vigente).map((d) => [d.tipo, d]));
+  const acionaveis = apuracao?.divergencias.filter((d) => d.sentido !== "INFORMATIVO") ?? [];
+  const aReceber = acionaveis
+    .filter((d) => d.sentido === "A_RECEBER")
+    .reduce((s, d) => s + d.valor, 0);
+
+  return (
+    <Layout>
+      <header className="border-b bg-card px-8 py-6">
+        <Link
+          href="/fechamento/competencias"
+          className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-2"
+        >
+          <ArrowLeft className="w-3.5 h-3.5" />
+          Competências
+        </Link>
+        <div className="flex flex-wrap items-center gap-3">
+          <h1 className="text-2xl font-bold tracking-tight">
+            {emDiaBR(competencia.inicio)} a {emDiaBR(competencia.fim)}
+          </h1>
+          <span className="rounded-full border border-border bg-muted px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
+            {NOME_DO_ESTADO[competencia.estado]}
+          </span>
+        </div>
+        <p className="text-muted-foreground mt-2">
+          {competencia.unidade.nome ?? competencia.unidade.codigo} ·{" "}
+          {competencia.transportadora.nome ?? competencia.transportadora.codigo}
+        </p>
+      </header>
+
+      <div className="p-8 space-y-6 max-w-5xl">
+        {/* ---------------------------------------------------------------
+            1. Os relatórios
+            --------------------------------------------------------------- */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileUp className="w-4 h-4" />
+              Os relatórios da quinzena
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              Cinco exportações do Promax/SRTrans. A conta roda com o que houver
+              — o que faltar aparece nomeado na apuração, nunca como zero.
+            </p>
+            {erroDoEnvio && (
+              <Alert variant="destructive">
+                <AlertDescription>{erroDoEnvio}</AlertDescription>
+              </Alert>
+            )}
+            <ul className="divide-y">
+              {fontes.data?.map((fonte) => (
+                <LinhaDeFonte
+                  key={fonte.tipo}
+                  fonte={fonte}
+                  documento={vigentes.get(fonte.tipo)}
+                  enviando={enviar.isPending && enviar.variables?.tipo === fonte.tipo}
+                  onArquivo={(arquivo) => enviar.mutate({ tipo: fonte.tipo, arquivo })}
+                />
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+
+        {/* ---------------------------------------------------------------
+            2. A conta
+            --------------------------------------------------------------- */}
+        <Card>
+          <CardHeader className="pb-3 flex-row items-center justify-between gap-4 space-y-0">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Calculator className="w-4 h-4" />
+              A conta da quinzena
+            </CardTitle>
+            <Button onClick={() => rodar.mutate()} disabled={rodar.isPending || vigentes.size === 0}>
+              {rodar.isPending ? "Apurando…" : apuracao ? "Apurar de novo" : "Apurar"}
+            </Button>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {rodar.isError && (
+              <Alert variant="destructive">
+                <AlertDescription>{textoDoErro(rodar.error)}</AlertDescription>
+              </Alert>
+            )}
+            {!apuracao && (
+              <p className="text-sm text-muted-foreground">
+                {vigentes.size === 0
+                  ? "Envie ao menos um relatório para apurar."
+                  : "Nenhuma apuração ainda. Apurar grava a conta — é por isso que é um botão, e não algo que acontece sozinho: o número apurado é o que pode ser aprovado depois."}
+              </p>
+            )}
+
+            {apuracao && (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <Numero titulo="Emitido em CT-e" valor={apuracao.totais.emitido} />
+                  <Numero
+                    titulo="Conferido pela apuração"
+                    valor={apuracao.totais.esperado}
+                    nota="Reconstruído das fontes, verba a verba."
+                  />
+                  <Numero
+                    titulo="Sem fonte que confira"
+                    valor={apuracao.totais.naoConferido}
+                    nota="Emitido que nenhuma das cinco fontes sustenta — a parte fixa do contrato."
+                  />
+                </div>
+
+                {apuracao.fontesAusentes.length > 0 && (
+                  <Alert>
+                    <AlertTriangle className="w-4 h-4" />
+                    <AlertDescription>
+                      Esta apuração rodou sem {apuracao.fontesAusentes.length} fonte(s):{" "}
+                      {apuracao.fontesAusentes
+                        .map((t) => fontes.data?.find((f) => f.tipo === t)?.rotina ?? t)
+                        .join(", ")}
+                      . As verbas que dependiam delas ficaram sem conferência.
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {apuracao.aliquotas.length > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    Conversão medida dos próprios arquivos:{" "}
+                    {apuracao.aliquotas
+                      .map((a) => `${a.canal} ${a.percentual.toFixed(4)}%`)
+                      .join(" · ")}
+                    . Nenhuma alíquota é presumida — o fator sai da razão entre a
+                    requisição aprovada e o CT-e emitido nas verbas que só podem
+                    ter vindo de requisição.
+                  </p>
+                )}
+
+                <TabelaDeVerbas
+                  verbas={apuracao.verbas}
+                  aberta={verbaAberta}
+                  onAbrir={(vbz) => setVerbaAberta(verbaAberta === vbz ? null : vbz)}
+                />
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ---------------------------------------------------------------
+            3. O que não fecha
+            --------------------------------------------------------------- */}
+        {apuracao && (
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" />
+                O que perguntar à Ambev
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {acionaveis.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  Nada a questionar nesta apuração.
+                </p>
+              ) : (
+                <>
+                  <p className="text-sm">
+                    <span className="font-semibold">{formatBrl(aReceber)}</span> em
+                    valores que reduzem o que a transportadora recebe, cada um com
+                    a fonte e a linha de onde saiu.
+                  </p>
+                  <ul className="divide-y">
+                    {acionaveis.map((d) => (
+                      <li key={d.id} className="py-3 space-y-1">
+                        <div className="flex items-start justify-between gap-4">
+                          <span className="font-medium">{d.titulo}</span>
+                          <span className="font-mono text-sm shrink-0 tabular-nums">
+                            {formatBrl(d.valor)}
+                          </span>
+                        </div>
+                        <p className="text-sm text-muted-foreground">
+                          {EXPLICACAO_DA_DIVERGENCIA[d.tipo] ?? d.tipo}
+                        </p>
+                        <p className="text-xs text-muted-foreground font-mono">{d.onde}</p>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        )}
+      </div>
+    </Layout>
+  );
+}
+
+function Numero({ titulo, valor, nota }: { titulo: string; valor: number; nota?: string }) {
+  return (
+    <div className="rounded-lg border bg-card p-4">
+      <p className="text-xs uppercase tracking-wide text-muted-foreground">{titulo}</p>
+      <p className="text-xl font-bold tabular-nums mt-1">{formatBrl(valor)}</p>
+      {nota && <p className="text-xs text-muted-foreground mt-1">{nota}</p>}
+    </div>
+  );
+}
+
+/** Uma fonte: o que ela é, se já chegou, e o que o leitor recusou dela. */
+function LinhaDeFonte({
+  fonte,
+  documento,
+  enviando,
+  onArquivo,
+}: {
+  fonte: Fonte;
+  documento: Documento | undefined;
+  enviando: boolean;
+  onArquivo: (arquivo: File) => void;
+}) {
+  const campo = useRef<HTMLInputElement>(null);
+
+  return (
+    <li className="py-3 flex items-start justify-between gap-4">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          {documento ? (
+            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+          ) : (
+            <span className="w-4 h-4 rounded-full border border-dashed border-muted-foreground/50 shrink-0" />
+          )}
+          <span className="font-medium font-mono text-sm">{fonte.rotina}</span>
+          <span className="text-sm text-muted-foreground">{fonte.nome}</span>
+        </div>
+        <p className="text-sm text-muted-foreground mt-0.5 ml-6">{fonte.papel}</p>
+        {documento && (
+          <p className="text-xs text-muted-foreground mt-1 ml-6">
+            {documento.nomeDoArquivo} · {documento.linhasLidas.toLocaleString("pt-BR")} linhas
+            {documento.recusas.length > 0 && (
+              <span className="text-amber-600">
+                {" "}
+                · {documento.recusas.length} linha(s) recusada(s): {documento.recusas[0].motivo}
+              </span>
+            )}
+          </p>
+        )}
+      </div>
+      <div className="shrink-0">
+        <input
+          ref={campo}
+          type="file"
+          className="hidden"
+          accept={fonte.extensoes.join(",")}
+          onChange={(e) => {
+            const arquivo = e.target.files?.[0];
+            if (arquivo) onArquivo(arquivo);
+            e.target.value = "";
+          }}
+        />
+        <Button
+          variant={documento ? "outline" : "default"}
+          size="sm"
+          disabled={enviando}
+          onClick={() => campo.current?.click()}
+        >
+          <Upload className="w-3.5 h-3.5 mr-1.5" />
+          {enviando ? "Enviando…" : documento ? "Substituir" : "Enviar"}
+        </Button>
+      </div>
+    </li>
+  );
+}
+
+/**
+ * As verbas, e a memória de cálculo de cada uma.
+ *
+ * O que a planilha nunca teve: clicar numa verba abre de onde cada real dela
+ * saiu — a rubrica da conciliação, o complementar de perfil, as requisições
+ * aprovadas e o fator que as converteu. É o que permite discordar de um número
+ * sem precisar refazê-lo.
+ */
+function TabelaDeVerbas({
+  verbas,
+  aberta,
+  onAbrir,
+}: {
+  verbas: VerbaApurada[];
+  aberta: number | null;
+  onAbrir: (vbz: number) => void;
+}) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+            <th className="py-2 pr-3 font-medium">Verba</th>
+            <th className="py-2 px-3 font-medium text-right">Emitido</th>
+            <th className="py-2 px-3 font-medium text-right">Apurado</th>
+            <th className="py-2 pl-3 font-medium text-right">Diferença</th>
+          </tr>
+        </thead>
+        <tbody>
+          {verbas.map((v) => (
+            <Fragment key={v.vbz}>
+              <tr
+                className="border-b hover:bg-muted/50 cursor-pointer"
+                onClick={() => onAbrir(v.vbz)}
+              >
+                <td className="py-2 pr-3">
+                  <span className="inline-flex items-center gap-1.5">
+                    <ChevronRight
+                      className={`w-3.5 h-3.5 text-muted-foreground transition-transform ${
+                        aberta === v.vbz ? "rotate-90" : ""
+                      }`}
+                    />
+                    <span className="font-mono text-xs text-muted-foreground">{v.vbz}</span>
+                    <span>
+                      {v.canal} · {v.nome}
+                    </span>
+                  </span>
+                </td>
+                <td className="py-2 px-3 text-right tabular-nums">{formatBrl(v.emitido)}</td>
+                <td className="py-2 px-3 text-right tabular-nums text-muted-foreground">
+                  {v.esperado === null ? "—" : formatBrl(v.esperado)}
+                </td>
+                <td className="py-2 pl-3 text-right tabular-nums">
+                  {v.diferenca === null ? (
+                    <span className="text-xs text-muted-foreground">sem fonte</span>
+                  ) : (
+                    formatBrl(v.diferenca)
+                  )}
+                </td>
+              </tr>
+              {aberta === v.vbz && (
+                <tr className="border-b bg-muted/30">
+                  <td colSpan={4} className="py-3 px-8">
+                    {v.memoria.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        Nenhuma das cinco fontes sustenta esta verba — ela entrou
+                        na conta pelo que foi emitido, e ninguém a conferiu. É o
+                        caso da parcela fixa do contrato.
+                      </p>
+                    ) : (
+                      <ul className="space-y-1.5">
+                        {v.memoria.map((m, i) => (
+                          <li key={i} className="flex items-baseline justify-between gap-4 text-sm">
+                            <span className="text-muted-foreground">
+                              {m.descricao}
+                              {m.fator != null && m.semImposto != null && (
+                                <span className="font-mono text-xs">
+                                  {" "}
+                                  ({formatBrl(m.semImposto)} × {m.fator.toFixed(6)})
+                                </span>
+                              )}
+                            </span>
+                            <span className="tabular-nums shrink-0">{formatBrl(m.comImposto)}</span>
+                          </li>
+                        ))}
+                        <li className="flex items-baseline justify-between gap-4 text-sm font-medium border-t pt-1.5">
+                          <span>Total apurado</span>
+                          <span className="tabular-nums">{formatBrl(v.esperado ?? 0)}</span>
+                        </li>
+                      </ul>
+                    )}
+                  </td>
+                </tr>
+              )}
+            </Fragment>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}

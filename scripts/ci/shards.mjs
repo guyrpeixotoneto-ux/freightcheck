@@ -74,6 +74,12 @@ export const SHARDS = {
     "@workspace/freightaudit",
     "@workspace/db",
     "@workspace/coverage",
+    // `fechamento` tem duas metades e nenhuma delas é pesada: 32 testes de
+    // aritmética pura sobre fixtures sintéticas, e 6 de integração que criam um
+    // banco descartável a partir das migrations — o mesmo padrão de `db`, e por
+    // isso ao lado dele. Não usa template nem seed, então não há localidade a
+    // preservar; 2,3s medidos com o banco local.
+    "@workspace/fechamento",
   ],
   ingest: ["@workspace/ingest"],
   curado: [
