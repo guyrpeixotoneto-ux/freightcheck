@@ -263,8 +263,9 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                     <>
                       {" "}
                       · {formatNumber(diario.data.viagensForaDoPeriodo, 0)} do 2Art
-                      ficaram de fora, por serem da outra quinzena do mês — elas
-                      não entram em conta nenhuma daqui
+                      ficaram de fora, por serem de fora de{" "}
+                      {emDiaBR(competencia.inicio)} a {emDiaBR(competencia.fim)} —
+                      elas não entram em conta nenhuma daqui
                     </>
                   )}
                   .
