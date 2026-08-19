@@ -50,8 +50,13 @@ avisar.
 A lateral é o mesmo componente (`components/layout/sidebar.tsx`) com duas
 listas:
 
-- **Auditoria** — `NAV_GROUPS`, intacta: Visão executiva, Auditoria,
-  Recuperação, QLP, Frota, Inteligência, Dados & governança, Administração.
+- **Auditoria** — `NAV_GROUPS`: Visão executiva, Auditoria, Recuperação, QLP,
+  Frota, Inteligência, Dados & governança, Administração. As oito seções e a
+  ordem delas são as de sempre; o único item acrescentado desde a separação dos
+  ambientes é a **Visão Gerencial**, que abre a Visão executiva com o acervo
+  inteiro (todas as unidades) acima do Resumo executivo, que responde pela
+  unidade aberta — ver `pages/visao-gerencial.tsx` e a seção correspondente no
+  `replit.md`.
 - **Fechamento** — `components/layout/nav-fechamento.ts`, cinco seções na
   ordem do processo:
   - **Fechamento**: Visão Gerencial · Importações · Apurações
@@ -270,6 +275,38 @@ Quatro decisões que o módulo materializa:
 (`?coluna=semImposto|ctrcIcms|valorFaturado`), e `GET /fechamento/de-para` o
 catálogo dos dezoito rótulos sem competência nenhuma. O painel transcrito é o da
 Rota; o do AS existe na planilha e os rótulos dele ainda não foram capturados.
+
+## Os relatórios de cada quinzena — quatro na primeira, seis na segunda
+
+O catálogo tem seis fontes; **a quinzena decide quantas delas existem**. A
+primeira quinzena fecha com quatro — 2Art, 03.08.15, 03.08.20 e 03.08.18 — e a
+segunda com as seis: as requisições de despesa (03.08.12.09) e a conciliação do
+Promax (03.02.59.02) chegam com o fechamento da segunda.
+
+A regra mora em `FONTES_DA_QUINZENA` (`lib/fechamento/src/dominio.ts`), num
+lugar só, e desce por três caminhos:
+
+1. **A apuração não chama de ausente o que a quinzena não tem.**
+   `fontesAusentes` só nomeia o que é esperado ali. Sem isso, toda primeira
+   quinzena do ano nasceria com duas pendências que ninguém pode resolver — e
+   "falta importar", que é trabalho de alguém, passaria a se confundir com "não
+   há o que importar", que não é.
+2. **A tela pede o que existe.** A competência aberta lista os relatórios da
+   quinzena dela, e o rodapé de "3 de 4 relatórios" tem o denominador certo nas
+   duas metades do mês. Na lista de Apurações, onde as duas convivem na mesma
+   tabela, o recorte é por linha (`fontesDaCompetencia`, em
+   `lib/fechamento.ts` da interface).
+3. **O catálogo da API diz em que quinzenas cada fonte entra.**
+   `GET /fechamento/fontes` devolve sempre as seis, cada uma com `quinzenas`;
+   quem desenha uma página com quinzenas das duas metades não precisa buscar o
+   catálogo duas vezes.
+
+O que a regra **não** faz é recusar. Uma conciliação enviada a uma primeira
+quinzena é recebida, lida e apurada como qualquer outra fonte — e a tela a
+mostra com a tarja "fora da 1ª quinzena", em vez de escondê-la. A lista diz o
+que se espera, não o que se admite: é a mesma regra que faz a conta rodar com o
+que houver, e arquivo importado que some da tela é a forma mais rápida de
+alguém importá-lo de novo.
 
 ## Descartar o que foi importado — o desfazer da competência errada
 
@@ -566,3 +603,8 @@ de negócio, não dedução por semelhança de nome de coluna.
   questionar: a divergência informativa fica de fora, e a soma é só do que
   reduz o que a transportadora recebe. É o número que aparece em três lugares.
   E o motivo da reabertura, que em branco não sai daqui.
+- `lib/__tests__/fechamento.test.ts` — o recorte por quinzena: quatro
+  relatórios na primeira e seis na segunda, e o que foi enviado fora da
+  quinzena dele continua na lista (e no denominador). Do lado do motor,
+  `lib/fechamento/src/__tests__/fechamento.test.ts` guarda a outra ponta: a
+  primeira quinzena não nomeia como ausente o que ela não tem.

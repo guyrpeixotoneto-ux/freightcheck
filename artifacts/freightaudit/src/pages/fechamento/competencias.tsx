@@ -28,6 +28,7 @@ import { FecharQuinzena } from "@/components/fechamento/fechar-quinzena";
 import {
   abrirCompetencia,
   excluirCompetencia,
+  fontesDaCompetencia,
   lerCompetencia,
   listarCompetencias,
   listarFontes,
@@ -619,7 +620,12 @@ function FechamentoDaLinha({ competenciaId }: { competenciaId: string }) {
       competencia={competencia}
       documentos={documentos}
       apuracao={apuracao}
-      fontes={fontes.data ?? []}
+      /* Os da quinzena desta linha — a primeira pede quatro, a segunda, seis. */
+      fontes={fontesDaCompetencia(
+        fontes.data ?? [],
+        competencia.quinzena,
+        documentos.filter((d) => d.vigente).map((d) => d.tipo),
+      )}
     />
   );
 }
