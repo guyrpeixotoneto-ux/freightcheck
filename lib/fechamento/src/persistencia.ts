@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, notInArray, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
   fechamentoApuracaoTable,
@@ -13,7 +13,14 @@ import {
   fechamentoRequisicaoTable,
   fechamentoViagemTable,
 } from "@workspace/db";
-import { type Canal, type Frota, type Recusa, type TipoDeFonte, type TipoDeFrotaContratada } from "./dominio";
+import {
+  TIPOS_DE_FONTE,
+  type Canal,
+  type Frota,
+  type Recusa,
+  type TipoDeFonte,
+  type TipoDeFrotaContratada,
+} from "./dominio";
 import { competencia as montarCompetencia, competenciaDaChave, type Competencia } from "./periodo";
 import { apurar, type Apuracao, type Fontes, type Parcela } from "./apuracao";
 import { lerOperacao } from "./leitores/operacao";
@@ -45,6 +52,9 @@ export class RecusaDeFechamento extends Error {
     readonly codigo:
       | "COMPETENCIA_NAO_ENCONTRADA"
       | "COMPETENCIA_ENCERRADA"
+      | "COMPETENCIA_NAO_APURADA"
+      | "COMPETENCIA_NAO_ESTA_ENCERRADA"
+      | "MOTIVO_OBRIGATORIO"
       | "DOCUMENTO_JA_RECEBIDO"
       | "ARQUIVO_ILEGIVEL",
     mensagem: string,
@@ -63,6 +73,15 @@ export interface CompetenciaRegistrada extends Competencia {
   abertaEm: Date;
   apuradaEm: Date | null;
   encerradaEm: Date | null;
+  /**
+   * Por que a competência foi reaberta, quando foi.
+   *
+   * Vive no registro e não num log à parte porque é a pergunta que se faz
+   * olhando para a competência — "por que este período, que estava fechado,
+   * está aberto de novo?" —, e uma resposta que exige abrir outra tela não é
+   * respondida.
+   */
+  motivoDaReabertura: string | null;
 }
 
 /**
@@ -155,6 +174,7 @@ function comoRegistrada(linha: typeof fechamentoCompetenciaTable.$inferSelect): 
     abertaEm: linha.abertaEm,
     apuradaEm: linha.apuradaEm,
     encerradaEm: linha.encerradaEm,
+    motivoDaReabertura: linha.motivoDaReabertura,
   };
 }
 
@@ -867,4 +887,295 @@ export async function lerApuracaoVigente(
       desfecho: d.desfecho,
     })),
   };
+}
+
+
+/**
+ * O resumo de uma competência: o que a tela de Apurações mostra numa linha.
+ *
+ * É a competência somada, não a competência inteira. Nada aqui abre a memória
+ * de cálculo — para isso existe a tela de dentro —, e nada aqui é recalculado:
+ * `emitido` e `naoConferido` são os totais que a apuração gravou quando rodou,
+ * e não uma soma refeita agora. Um número que muda entre a lista e o detalhe
+ * seria pior do que não ter lista.
+ */
+export interface ResumoDeApuracao {
+  competencia: CompetenciaRegistrada;
+  /** As fontes com documento vigente. O `4/5` da tela sai daqui. */
+  relatorios: TipoDeFonte[];
+  /** Nulo enquanto a competência não apurou. Nulo não é zero. */
+  apuracao: {
+    rodadaEm: Date;
+    emitido: number;
+    naoConferido: number;
+    diferenca: number;
+    /**
+     * O que há em discussão: a soma, **em módulo**, das divergências
+     * acionáveis que ainda não tiveram desfecho.
+     *
+     * Em módulo porque as duas direções são pergunta — o que falta receber e o
+     * que se recebeu a mais. Somá-las com sinal deixaria uma abater a outra e
+     * devolveria um número menor do que o que está de fato em aberto, que é o
+     * oposto do que a coluna promete.
+     *
+     * Ficam de fora as informativas, que não pedem resposta, e as que já foram
+     * aceitas ou resolvidas, que deixaram de ser pergunta. Uma em contestação
+     * continua contando: contestar é justamente estar questionando.
+     */
+    aQuestionar: number;
+    /** Quantas divergências sustentam esse valor. */
+    aQuestionarQuantidade: number;
+  } | null;
+}
+
+/**
+ * O resumo de todas as competências, da mais recente para a mais antiga.
+ *
+ * **Por que existe, em vez de a tela somar.** A alternativa seria a lista
+ * chamar `GET /competencias/:id` uma vez por competência e montar o resumo no
+ * navegador: N+1 idas ao banco numa tela que existe justamente para olhar
+ * todas de uma vez, com o total da quinzena aparecendo só depois da última
+ * resposta. Aqui são quatro consultas de tamanho fixo, e o custo não cresce
+ * com o número de competências.
+ *
+ * **Por que quatro consultas e não um `join` só.** Documentos e divergências
+ * são muitos-para-um em relação à competência; um `join` das duas multiplicaria
+ * as linhas uma pela outra e as somas sairiam infladas. Agregar cada lado no
+ * banco e cruzar por `id` na memória é a forma que não tem esse erro.
+ */
+export async function listarApuracoes(db: Database): Promise<ResumoDeApuracao[]> {
+  const competencias = await listarCompetencias(db);
+  if (competencias.length === 0) return [];
+
+  const [documentos, apuracoes, questoes] = await Promise.all([
+    db
+      .select({
+        competenciaId: fechamentoDocumentoTable.competenciaId,
+        tipo: fechamentoDocumentoTable.tipo,
+      })
+      .from(fechamentoDocumentoTable)
+      .where(eq(fechamentoDocumentoTable.vigente, true)),
+    db
+      .select({
+        id: fechamentoApuracaoTable.id,
+        competenciaId: fechamentoApuracaoTable.competenciaId,
+        rodadaEm: fechamentoApuracaoTable.rodadaEm,
+        totalEmitido: fechamentoApuracaoTable.totalEmitido,
+        totalNaoConferido: fechamentoApuracaoTable.totalNaoConferido,
+        totalDiferenca: fechamentoApuracaoTable.totalDiferenca,
+      })
+      .from(fechamentoApuracaoTable)
+      .where(eq(fechamentoApuracaoTable.vigente, true)),
+    db
+      .select({
+        apuracaoId: fechamentoDivergenciaTable.apuracaoId,
+        soma: sql<string>`coalesce(sum(abs(${fechamentoDivergenciaTable.valor})), 0)`,
+        quantidade: sql<number>`count(*)::int`,
+      })
+      .from(fechamentoDivergenciaTable)
+      .where(
+        and(
+          notInArray(fechamentoDivergenciaTable.sentido, ["INFORMATIVO"]),
+          notInArray(fechamentoDivergenciaTable.desfecho, ["ACEITA", "RESOLVIDA"]),
+        ),
+      )
+      .groupBy(fechamentoDivergenciaTable.apuracaoId),
+  ]);
+
+  const recebidos = new Map<string, Set<string>>();
+  for (const d of documentos) {
+    const tipos = recebidos.get(d.competenciaId) ?? new Set<string>();
+    tipos.add(d.tipo);
+    recebidos.set(d.competenciaId, tipos);
+  }
+  const apuracaoDa = new Map(apuracoes.map((a) => [a.competenciaId, a]));
+  const questaoDa = new Map(questoes.map((q) => [q.apuracaoId, q]));
+
+  return competencias.map((competencia) => {
+    const tipos = recebidos.get(competencia.id);
+    const apuracao = apuracaoDa.get(competencia.id);
+    const questao = apuracao ? questaoDa.get(apuracao.id) : undefined;
+    return {
+      competencia,
+      // Na ordem do catálogo, e não na de chegada: as cinco casinhas da linha
+      // ficam sempre no mesmo lugar, e a que falta é reconhecida pela posição.
+      relatorios: TIPOS_DE_FONTE.filter((tipo) => tipos?.has(tipo) ?? false),
+      apuracao: apuracao
+        ? {
+            rodadaEm: apuracao.rodadaEm,
+            emitido: Number(apuracao.totalEmitido),
+            naoConferido: Number(apuracao.totalNaoConferido),
+            diferenca: Number(apuracao.totalDiferenca),
+            aQuestionar: Number(questao?.soma ?? 0),
+            aQuestionarQuantidade: questao?.quantidade ?? 0,
+          }
+        : null,
+    };
+  });
+}
+
+/**
+ * Encerra a competência — o ato de dizer "esta quinzena está fechada".
+ *
+ * **O que ele muda, já que tudo estava salvo.** Cada documento enviado e cada
+ * apuração rodada já estão no banco desde que aconteceram: nada aqui é o
+ * primeiro `INSERT` de coisa alguma. O que o encerramento acrescenta é o
+ * *congelamento* — a partir dele o gatilho `fechamento_*_congelada` recusa
+ * qualquer escrita nas tabelas da competência, e o número que se cobrou passa a
+ * ser o número que se vai ler daqui a um ano. Salvar contínuo e fechar são
+ * coisas diferentes, e só a segunda vale como prova.
+ *
+ * **Por que exige uma apuração vigente.** Encerrar sem ter apurado congelaria
+ * uma competência que não sabe quanto vale: os documentos estariam lá e a conta
+ * não. Não é um detalhe de validação — é a diferença entre um período fechado e
+ * um período abandonado.
+ */
+export async function encerrarCompetencia(
+  db: Database,
+  competenciaId: string,
+  por?: string | null,
+): Promise<CompetenciaRegistrada> {
+  const competencia = await buscarCompetencia(db, competenciaId);
+  if (!competencia) {
+    throw new RecusaDeFechamento("COMPETENCIA_NAO_ENCONTRADA", "A competência informada não existe.");
+  }
+  if (competencia.estado === "ENCERRADA") {
+    /*
+      Encerrar de novo é um clique repetido, não um erro: devolve o estado que
+      já vale, em vez de assustar quem só quis conferir se tinha salvo.
+    */
+    return competencia;
+  }
+
+  const apuracao = await lerApuracaoVigente(db, competenciaId);
+  if (!apuracao) {
+    throw new RecusaDeFechamento(
+      "COMPETENCIA_NAO_APURADA",
+      `A competência ${competencia.chave} ainda não foi apurada. ` +
+        `Encerrar sem apurar congelaria um período que não sabe quanto vale.`,
+    );
+  }
+
+  const [linha] = await db
+    .update(fechamentoCompetenciaTable)
+    .set({
+      estado: "ENCERRADA",
+      encerradaEm: new Date(),
+      encerradaPor: por ?? null,
+      /*
+        O motivo da reabertura anterior sai quando a competência fecha de novo:
+        ele explica um período aberto, e um período fechado não tem o que
+        explicar. Mantê-lo faria a tela mostrar, numa competência encerrada, a
+        justificativa de uma reabertura que já foi resolvida.
+      */
+      motivoDaReabertura: null,
+    })
+    .where(eq(fechamentoCompetenciaTable.id, competenciaId))
+    .returning();
+  return comoRegistrada(linha);
+}
+
+/**
+ * Reabre uma competência encerrada — com autor e motivo, sempre.
+ *
+ * O motivo é obrigatório e não tem valor-padrão. Uma competência encerrada é a
+ * prova de uma cobrança; descongelá-la é uma decisão que alguém toma, e o
+ * registro de quem tomou e por quê é a única coisa que separa uma correção
+ * legítima de uma alteração silenciosa depois do fato.
+ *
+ * A competência volta para `APURADA` e não para `ABERTA`: a apuração que estava
+ * lá continua valendo, e é justamente contra ela que se vai comparar o que
+ * mudar daqui em diante.
+ */
+export async function reabrirCompetencia(
+  db: Database,
+  competenciaId: string,
+  entrada: { motivo: string; por?: string | null },
+): Promise<CompetenciaRegistrada> {
+  const competencia = await buscarCompetencia(db, competenciaId);
+  if (!competencia) {
+    throw new RecusaDeFechamento("COMPETENCIA_NAO_ENCONTRADA", "A competência informada não existe.");
+  }
+  if (competencia.estado !== "ENCERRADA") {
+    throw new RecusaDeFechamento(
+      "COMPETENCIA_NAO_ESTA_ENCERRADA",
+      `A competência ${competencia.chave} não está encerrada — não há o que reabrir.`,
+    );
+  }
+  const motivo = entrada.motivo.trim();
+  if (motivo === "") {
+    throw new RecusaDeFechamento(
+      "MOTIVO_OBRIGATORIO",
+      "Reabrir uma competência encerrada exige um motivo escrito: ele é o que " +
+        "distingue uma correção de uma alteração silenciosa depois do fato.",
+    );
+  }
+
+  const [linha] = await db
+    .update(fechamentoCompetenciaTable)
+    .set({
+      estado: "APURADA",
+      encerradaEm: null,
+      encerradaPor: null,
+      motivoDaReabertura: motivo,
+    })
+    .where(eq(fechamentoCompetenciaTable.id, competenciaId))
+    .returning();
+  return comoRegistrada(linha);
+}
+
+
+/** Uma unidade ou transportadora, como as competências a conhecem. */
+export interface Parte {
+  codigo: string;
+  nome: string | null;
+  /** Em quantas competências ela já apareceu — a lista sai ordenada por isto. */
+  competencias: number;
+}
+
+/**
+ * As unidades e transportadoras que já foram usadas.
+ *
+ * **Não há tabela de cadastro, e é decisão.** Uma unidade existe, para o
+ * Fechamento, quando alguém abre uma competência com ela — antes disso é um
+ * código que ninguém usou. Uma tabela própria criaria um segundo lugar onde o
+ * nome de um CDD pode estar escrito, e o dia em que os dois divergissem
+ * ninguém saberia qual vale. Aqui a lista é derivada: é literalmente o que as
+ * competências dizem.
+ *
+ * O nome devolvido é o **mais recente** que aquele código recebeu. Corrigir a
+ * grafia de um CDD passa a ser abrir a próxima competência escrevendo certo —
+ * sem migração, sem tela de cadastro, e sem apagar como as anteriores foram
+ * gravadas.
+ */
+export async function listarPartes(
+  db: Database,
+): Promise<{ unidades: Parte[]; transportadoras: Parte[] }> {
+  const consultar = async (codigo: string, nome: string): Promise<Parte[]> => {
+    const { rows } = await db.execute<{
+      codigo: string;
+      nome: string | null;
+      competencias: string;
+    }>(sql`
+      select
+        c.${sql.raw(codigo)} as codigo,
+        (array_agg(c.${sql.raw(nome)} order by c.aberta_em desc)
+           filter (where c.${sql.raw(nome)} is not null))[1] as nome,
+        count(*)::text as competencias
+      from fechamento_competencia c
+      group by c.${sql.raw(codigo)}
+      order by count(*) desc, c.${sql.raw(codigo)}
+    `);
+    return rows.map((r) => ({
+      codigo: r.codigo,
+      nome: r.nome,
+      competencias: Number(r.competencias),
+    }));
+  };
+
+  const [unidades, transportadoras] = await Promise.all([
+    consultar("unidade_codigo", "unidade_nome"),
+    consultar("transportadora_codigo", "transportadora_nome"),
+  ]);
+  return { unidades, transportadoras };
 }

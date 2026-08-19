@@ -37,6 +37,7 @@ import { EmPreparo } from '@/pages/em-preparo';
 import { TELAS_EM_PREPARO } from '@/pages/telas-em-preparo';
 import VisaoDoFechamento from '@/pages/fechamento/visao';
 import Competencias from '@/pages/fechamento/competencias';
+import Apuracoes from '@/pages/fechamento/apuracoes';
 import CompetenciaAberta from '@/pages/fechamento/competencia';
 import RemuneracaoCadastro from '@/pages/fechamento/remuneracao';
 import { EtapaDoFechamento } from '@/pages/fechamento/etapa';
@@ -201,6 +202,7 @@ function Router() {
       <Route path="/fechamento/competencias/:id">
         {(params) => <CompetenciaAberta id={params.id} />}
       </Route>
+      <Route path="/fechamento/apuracoes" component={Apuracoes} />
       {/*
         Remuneração é a única tela do Fechamento que lê o acervo da Auditoria e
         não uma competência. Ela mora aqui porque é aqui que serve — o cadastro

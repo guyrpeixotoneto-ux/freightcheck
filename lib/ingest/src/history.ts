@@ -81,6 +81,35 @@ export interface ImportRunSummary {
    * tipo, se o backfill da migration 0021 não as cobriu.
    */
   tiposDoArquivo: string[];
+  /**
+   * O run que este releu — nulo em toda importação que é a primeira leitura do
+   * seu arquivo.
+   *
+   * É o que permite a tela separar três coisas que hoje chegam misturadas na
+   * mesma lista: o **recebimento**, que é a primeira vez que aquele conteúdo
+   * entrou; a **tentativa recusada**, que é o reenvio idêntico barrado pelo
+   * SHA-256 sem ler nada; e o **reprocessamento**, que é a releitura deliberada
+   * do mesmo arquivo porque o leitor mudou.
+   */
+  reprocessOfRunId: string | null;
+  /** Por que se releu. Sempre presente quando {@link reprocessOfRunId} está. */
+  reprocessReason: string | null;
+  /**
+   * As releituras **deste** run, da mais antiga para a mais nova.
+   *
+   * A relação escrita nos dois sentidos, e não só no de quem aponta. Sem ela o
+   * cartão do recebimento original não teria como dizer "isto foi relido
+   * depois" sem varrer a lista inteira — e o detalhe de uma importação, que
+   * carrega um run só, não teria como dizer nada.
+   */
+  reprocessadoPor: string[];
+  /**
+   * Quantas leituras este mesmo arquivo já teve, contando esta.
+   *
+   * Sai de `source_file`, não da lista da tela: o detalhe de uma importação
+   * precisa saber que não está sozinho mesmo carregando um run só.
+   */
+  leiturasDoArquivo: number;
 }
 
 /**
@@ -159,6 +188,28 @@ function selectRunSummary(db: Database) {
           ),
           '{}'
         )`,
+      reprocessOfRunId: importRunTable.reprocessOfRunId,
+      reprocessReason: importRunTable.reprocessReason,
+      /*
+        A relação lida no sentido contrário — quem releu este run.
+
+        Um `array()` correlacionado e não um JOIN: a lista é quase sempre
+        vazia, e um JOIN multiplicaria as linhas do cartão para o caso raro em
+        que não é.
+      */
+      reprocessadoPor: sql<string[]>`
+        coalesce(
+          array(
+            SELECT r.id::text
+              FROM import_run r
+             WHERE r.reprocess_of_run_id = ${importRunTable.id}
+             ORDER BY r.started_at
+          ),
+          '{}'
+        )`,
+      leiturasDoArquivo: sql<number>`
+        (SELECT count(*)::int FROM import_run r
+          WHERE r.source_file_id = ${importRunTable.sourceFileId})`,
     })
     .from(importRunTable)
     .innerJoin(sourceFileTable, eq(sourceFileTable.id, importRunTable.sourceFileId));
@@ -195,6 +246,12 @@ export interface ImportRunStatus {
   failureReason: string | null;
   /** O tipo declarado no envio, para o cartão dizer por qual aba ele entrou. */
   declaredType: string | null;
+  /**
+   * Preenchido quando este run é uma releitura — o cartão em andamento precisa
+   * saber, porque "enviado como QLP Administrativo" é falso para um arquivo que
+   * ninguém enviou: ele foi relido, e o tipo foi declarado na releitura.
+   */
+  reprocessOfRunId: string | null;
   sheets: number;
   rawCells: number;
   facts: number;
@@ -228,6 +285,7 @@ export async function getImportRunStatus(
       errorCount: importRunTable.errorCount,
       warningCount: importRunTable.warningCount,
       declaredType: importRunTable.declaredType,
+      reprocessOfRunId: importRunTable.reprocessOfRunId,
       filename: sourceFileTable.filename,
     })
     .from(importRunTable)
@@ -256,6 +314,7 @@ export async function getImportRunStatus(
     filename: run.filename,
     failureReason: run.failureReason,
     declaredType: run.declaredType,
+    reprocessOfRunId: run.reprocessOfRunId,
     sheets: run.rawSheetCount,
     rawCells: run.rawCellCount,
     facts: run.stagedFactCount,

@@ -254,7 +254,7 @@ export default function RemuneracaoCadastro() {
                 O cadastro é da <strong>unidade numa vigência</strong>, e não de uma competência:
                 ele descreve o que a Ambev contratou, que é o que a Auditoria guarda. É por isso
                 que a lista de períodos aqui é de vigências, e não das quinzenas abertas em
-                Competências.
+                Importações.
               </span>
             </p>
           </CardContent>

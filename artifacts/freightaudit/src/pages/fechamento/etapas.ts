@@ -54,7 +54,7 @@ export const ETAPAS_FECHAMENTO: EtapaFechamento[] = [
     pergunta:
       "Quanto a remuneração da competência vale — o total apurado, aberto por equipamento e por rubrica, com a origem de cada parcela.",
     depende: [
-      "A competência aberta (ver Competências): apuração é sempre a de um período, e o período ainda não existe como registro.",
+      "A competência aberta (ver Importações): apuração é sempre a de um período, e o período ainda não existe como registro.",
       "O realizado da operação — viagens, quilometragem, disponibilidade. A base remunerada diz o preço contratado de cada coisa; sem o volume que aconteceu, o que se soma é tabela, não remuneração devida.",
     ],
     hoje: [

@@ -6,9 +6,13 @@ import {
   apurarCompetencia,
   buscarCompetencia,
   lerApuracaoVigente,
+  listarApuracoes,
   listarCompetencias,
   listarDocumentos,
+  listarPartes,
   receberDocumento,
+  reabrirCompetencia,
+  encerrarCompetencia,
   RecusaDeFechamento,
 } from "@workspace/fechamento/persistencia";
 import { DESCRICAO_DA_FONTE, TIPOS_DE_FONTE, type TipoDeFonte } from "@workspace/fechamento";
@@ -59,6 +63,30 @@ router.get("/fechamento/fontes", (_req, res): void => {
 
 router.get("/fechamento/competencias", async (_req, res): Promise<void> => {
   res.json(await listarCompetencias(db));
+});
+
+/**
+ * Todas as competências já somadas — a tela de Apurações.
+ *
+ * Devolve, por competência, quais dos cinco relatórios estão vigentes, os
+ * totais que a apuração gravou e o quanto continua em discussão. É a mesma
+ * informação que `/competencias/:id` traz, sem a memória de cálculo: o que
+ * cabe numa linha de lista. Ver `listarApuracoes` para por que a soma acontece
+ * aqui e não no navegador.
+ */
+router.get("/fechamento/apuracoes", async (_req, res): Promise<void> => {
+  res.json(await listarApuracoes(db));
+});
+
+/**
+ * As unidades e transportadoras já usadas, para o campo que se pesquisa.
+ *
+ * Derivadas das competências e não de um cadastro próprio — ver `listarPartes`
+ * para o porquê. A tela oferece o que existe e deixa digitar o que não existe;
+ * o que não existe passa a existir quando a competência é aberta.
+ */
+router.get("/fechamento/partes", async (_req, res): Promise<void> => {
+  res.json(await listarPartes(db));
 });
 
 /**
@@ -221,6 +249,73 @@ router.post("/fechamento/competencias/:id/apuracao", async (req, res): Promise<v
   try {
     await apurarCompetencia(db, id);
     res.json(await lerApuracaoVigente(db, id));
+  } catch (erro) {
+    if (erro instanceof RecusaDeFechamento) {
+      res.status(erro.codigo === "COMPETENCIA_NAO_ENCONTRADA" ? 404 : 409).json({
+        error: erro.message,
+        codigo: erro.codigo,
+      });
+      return;
+    }
+    throw erro;
+  }
+});
+
+/**
+ * Encerra a competência: o ato de dizer "esta quinzena está fechada".
+ *
+ * É `POST` e não `PUT` porque não é a edição de um campo — é um ato com
+ * consequência: a partir dele o gatilho do banco recusa qualquer escrita nas
+ * tabelas da competência.
+ */
+router.post("/fechamento/competencias/:id/encerramento", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de competência inválido." });
+    return;
+  }
+  try {
+    res.json(await encerrarCompetencia(db, id, req.user?.id ?? null));
+  } catch (erro) {
+    if (erro instanceof RecusaDeFechamento) {
+      res.status(erro.codigo === "COMPETENCIA_NAO_ENCONTRADA" ? 404 : 409).json({
+        error: erro.message,
+        codigo: erro.codigo,
+      });
+      return;
+    }
+    throw erro;
+  }
+});
+
+/**
+ * Reabre uma competência encerrada — com motivo, sempre.
+ *
+ * O motivo é recusado vazio aqui e de novo no repositório. A dupla conferência
+ * é deliberada: a rota é a porta que a tela usa, e o repositório é a regra —
+ * um script que chame a função direto não deve conseguir reabrir sem dizer por
+ * quê.
+ */
+router.post("/fechamento/competencias/:id/reabertura", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de competência inválido." });
+    return;
+  }
+  const motivo = typeof (req.body as Record<string, unknown>)?.motivo === "string"
+    ? ((req.body as Record<string, unknown>).motivo as string).trim()
+    : "";
+  if (motivo === "") {
+    res.status(400).json({
+      error:
+        "Escreva o motivo da reabertura: ele é o que distingue uma correção de " +
+        "uma alteração silenciosa depois do fato.",
+      codigo: "MOTIVO_OBRIGATORIO",
+    });
+    return;
+  }
+  try {
+    res.json(await reabrirCompetencia(db, id, { motivo, por: req.user?.id ?? null }));
   } catch (erro) {
     if (erro instanceof RecusaDeFechamento) {
       res.status(erro.codigo === "COMPETENCIA_NAO_ENCONTRADA" ? 404 : 409).json({

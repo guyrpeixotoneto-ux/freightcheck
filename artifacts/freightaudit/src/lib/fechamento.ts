@@ -36,6 +36,15 @@ export interface Competencia {
   abertaEm: string;
   apuradaEm: string | null;
   encerradaEm: string | null;
+  /** Por que a competência foi reaberta, quando foi. */
+  motivoDaReabertura: string | null;
+}
+
+/** Uma unidade ou transportadora que já apareceu em alguma competência. */
+export interface Parte {
+  codigo: string;
+  nome: string | null;
+  competencias: number;
 }
 
 export interface Recusa {
@@ -121,6 +130,33 @@ export function listarCompetencias(): Promise<Competencia[]> {
   return fetchJson<Competencia[]>("/fechamento/competencias");
 }
 
+/**
+ * Uma competência somada: o que cabe numa linha da tela de Apurações.
+ *
+ * Espelha `ResumoDeApuracao` do servidor. Os totais vêm prontos de propósito —
+ * a interface não soma remuneração, nem a partir de partes que ela mesma
+ * recebeu. Ver o cabeçalho deste arquivo.
+ */
+export interface ResumoDeApuracao {
+  competencia: Competencia;
+  /** As fontes com documento vigente, na ordem do catálogo. */
+  relatorios: TipoDeFonte[];
+  /** Nulo enquanto a competência não apurou. Nulo não é zero. */
+  apuracao: {
+    rodadaEm: string;
+    emitido: number;
+    naoConferido: number;
+    diferenca: number;
+    /** A soma, em módulo, das divergências acionáveis ainda sem desfecho. */
+    aQuestionar: number;
+    aQuestionarQuantidade: number;
+  } | null;
+}
+
+export function listarApuracoes(): Promise<ResumoDeApuracao[]> {
+  return fetchJson<ResumoDeApuracao[]>("/fechamento/apuracoes");
+}
+
 export function lerCompetencia(id: string): Promise<CompetenciaAberta> {
   return fetchJson<CompetenciaAberta>(`/fechamento/competencias/${id}`);
 }
@@ -136,6 +172,24 @@ export function abrirCompetencia(entrada: {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(entrada),
+  });
+}
+
+export function listarPartes(): Promise<{ unidades: Parte[]; transportadoras: Parte[] }> {
+  return fetchJson<{ unidades: Parte[]; transportadoras: Parte[] }>("/fechamento/partes");
+}
+
+/** Encerra a competência — congela a quinzena. */
+export function encerrar(id: string): Promise<Competencia> {
+  return fetchJson<Competencia>(`/fechamento/competencias/${id}/encerramento`, { method: "POST" });
+}
+
+/** Reabre uma competência encerrada. O motivo é obrigatório. */
+export function reabrir(id: string, motivo: string): Promise<Competencia> {
+  return fetchJson<Competencia>(`/fechamento/competencias/${id}/reabertura`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ motivo }),
   });
 }
 

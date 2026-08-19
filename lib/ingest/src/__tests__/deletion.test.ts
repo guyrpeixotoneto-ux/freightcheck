@@ -35,7 +35,6 @@ async function importar(arquivo: string, opcoes: { revisao?: boolean } = {}) {
   const recebido = await receiveFile(ctx.db, {
     filePath: arquivo,
     receivedBy: "quem.importou@exemplo.com",
-    allowReprocess: opcoes.revisao === true,
   });
   await captureRaw(ctx.db, recebido.importRunId);
   await stage(ctx.db, recebido.importRunId);
@@ -199,10 +198,12 @@ describe("a ordem em que as coisas podem ser desfeitas", () => {
   beforeAll(async () => {
     // A revisão 2 da mesma vigência: o caso real de uma correção reimportada.
     //
-    // Antes bastava reimportar o **mesmo** arquivo com `allowReprocess`. Com a
-    // identidade canônica, reenviar o mesmo conteúdo é reconhecido como dado
-    // igual e não abre revisão nenhuma — que é o comportamento correto. Para
-    // haver revisão 2, o arquivo precisa de fato corrigir alguma coisa.
+    // Com a identidade canônica, reenviar o mesmo conteúdo é reconhecido como
+    // dado igual e não abre revisão nenhuma — que é o comportamento correto.
+    // Para haver revisão 2, o arquivo precisa de fato corrigir alguma coisa, e
+    // é por isso que este envio leva bytes diferentes: `revisao` aqui só decide
+    // o `onExistingSnapshot`, não a defesa do SHA-256. Reler o **mesmo** byte é
+    // outra porta, com procedência própria — ver `reprocessamento.test.ts`.
     [primeira] = (
       await ctx.pool.query<{ id: string }>(
         `SELECT id FROM import_run ORDER BY started_at LIMIT 1`,
