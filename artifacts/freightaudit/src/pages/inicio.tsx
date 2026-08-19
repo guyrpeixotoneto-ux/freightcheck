@@ -43,8 +43,10 @@ import {
 } from "@/components/inicio/detalhe-da-alteracao";
 import { DetalheDoImpacto } from "@/components/inicio/detalhe-do-impacto";
 import { ComposicaoDoImpacto } from "@/components/inicio/composicao-do-impacto";
+import { ComposicaoDasAlteracoes } from "@/components/inicio/composicao-das-alteracoes";
 import {
   cobertura,
+  composicaoDasAlteracoes,
   composicaoDoImpacto,
   detalheDaAlteracao,
   detalheDoImpacto,
@@ -65,6 +67,7 @@ import {
   variacao,
   vigenciaAnterior,
   type ExecucaoDeImportacao,
+  type FocoDeAlteracoes,
   type Lado,
   type LadosDoImpacto,
   type LinhaDeAlteracao,
@@ -264,6 +267,25 @@ export default function Inicio() {
   );
 
   /*
+    A composição das alterações detectadas, a quarta gaveta desta tela.
+
+    Chave própria (`?detectadas=`) e não um valor a mais em `?composicao=`: são
+    duas leituras de vigências inteiras que não se somam — uma parte dinheiro em
+    dois lados, a outra parte contagem em três partições —, e uma chave só
+    obrigaria quem lê o endereço a saber qual painel um valor abre.
+
+    `detectadas` e não `alteracoes`: `?alteracao=` já existe e abre outra coisa,
+    e duas chaves a uma letra de distância são um erro esperando para acontecer
+    em quem monta um endereço à mão.
+  */
+  const detectadas = useMemo(
+    () => composicaoDasAlteracoes(view, parametros.get("detectadas"), lerRecorte(search)),
+    // `parametros` e o recorte são derivados de `search`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [view, search],
+  );
+
+  /*
     O recorte que sai daqui rumo às Alterações.
 
     Sai do endereço, e não do estado da tela, porque é o mesmo que os cartões de
@@ -316,6 +338,7 @@ export default function Inicio() {
       alteracao: null,
       composicao: null,
       lado: null,
+      detectadas: null,
       ...aberta,
     });
 
@@ -349,6 +372,7 @@ export default function Inicio() {
               onAbrirComposicao={(periodicity, lado) =>
                 abrirGaveta({ composicao: periodicity, lado: lado ?? null })
               }
+              onAbrirDetectadas={(foco) => abrirGaveta({ detectadas: foco })}
             />
 
             <Atencao
@@ -394,6 +418,16 @@ export default function Inicio() {
               />
               <Explorar />
             </div>
+
+            <ComposicaoDasAlteracoes
+              composicao={detectadas}
+              period={view.period}
+              periodLabel={view.periodLabel}
+              recorte={recorte}
+              onAbrirPonto={(chave) => abrirGaveta({ alteracao: chave })}
+              onTrocarFoco={(foco) => abrirGaveta({ detectadas: foco })}
+              onFechar={() => trocarPara({ detectadas: null })}
+            />
 
             <ComposicaoDoImpacto
               composicao={composicao}
@@ -609,6 +643,7 @@ function Indicadores({
   cobertura: coberturaAuditada,
   recorte,
   onAbrirComposicao,
+  onAbrirDetectadas,
 }: {
   view: FamiliesView;
   anterior: GroupedView | null;
@@ -616,6 +651,8 @@ function Indicadores({
   recorte: Recorte;
   /** Abre a balança da vigência. Ver `ComposicaoDoImpacto`. */
   onAbrirComposicao: (periodicity: string, lado?: Lado) => void;
+  /** Abre a composição das alterações. Ver `ComposicaoDasAlteracoes`. */
+  onAbrirDetectadas: (foco: FocoDeAlteracoes) => void;
 }) {
   const impactos = impactosDaVigencia(view);
   /*
@@ -728,9 +765,23 @@ function Indicadores({
       <Indicador
         icone={FileText}
         titulo="Alterações detectadas"
-        ajuda="Cada valor que mudou entre a vigência anterior e esta, contado uma vez por ativo e por parâmetro."
-        href={linkDeAlteracoes({ recorte: daVigencia })}
-        abrir="ver a lista completa das alterações"
+        /*
+          A definição passou a dizer o que a de antes prometia e o número não
+          cumpria. "Cada valor que mudou" descrevia 205 das 267 de agosto/2026:
+          as outras 62 são troca de formato pura, em que os dois lados valem o
+          mesmo. A frase agora conta as duas coisas, e a partição está no cartão.
+        */
+        ajuda="Cada célula que veio diferente da vigência anterior, contada uma vez por ativo e por parâmetro. Nem toda diferença é um valor diferente: a troca de formato da fonte entra na contagem e sai destacada."
+        /*
+          O cartão abre a gaveta, e não mais a lista de Alterações — a mesma
+          troca do cartão de Impacto líquido, pela mesma razão. A lista continua
+          a um clique: é a primeira porta lá dentro, e agora chega com a
+          composição já lida em vez de com 267 linhas para conferir na mão.
+        */
+        aoAbrir={
+          view.totals.changes === 0 ? undefined : () => onAbrirDetectadas("todas")
+        }
+        abrir="ver de onde vêm estas alterações"
       >
         <ValorGrande texto={view.totals.changes.toLocaleString("pt-BR")} />
         {variacaoDeMudancas !== null && (
@@ -748,6 +799,11 @@ function Indicadores({
             {escreverVariacao(variacaoDeMudancas)} vs vigência anterior
           </p>
         )}
+        <ValorEFormato
+          total={view.totals.changes}
+          formato={view.totals.formatOnlyChanges}
+          onAbrir={onAbrirDetectadas}
+        />
         <Nota texto={`${view.totals.groups} pontos da remuneração tocados`} />
       </Indicador>
 
@@ -1027,6 +1083,73 @@ function DoisLados({
           </div>
         );
       })}
+    </div>
+  );
+}
+
+/**
+ * O que mexeu no valor e o que só trocou de formato, dentro do cartão.
+ *
+ * A barra existe porque a contagem sozinha mente por omissão: em agosto/2026,
+ * **62 das 267 alterações detectadas não são valor que mudou** — são troca de
+ * formato pura, em que os dois lados valem o mesmo e o que mudou foi a forma de
+ * exportar a coluna. Um quarto do número mais lido da tela descrevia outra
+ * coisa, e nada na tela dizia isso.
+ *
+ * Ardósia e não âmbar no lado do formato: o que aquele selo diz é que **não**
+ * houve mudança contratual, e vesti-lo de alerta reporia pela cor o susto que a
+ * classificação acabou de tirar. É a mesma decisão do selo FORMATO no cartão de
+ * grupo.
+ *
+ * **Sem troca de formato, o bloco inteiro some** — e isso é uma afirmação, não
+ * um vazio: quer dizer que as alterações da vigência são todas valores que
+ * mudaram. Uma barra de um segmento só não parte nada, e ocuparia a linha para
+ * dizer "100%".
+ *
+ * Os dois números são botões, e cada um abre a gaveta **já recortada naquele
+ * lado**. O cartão inteiro já abre a gaveta; o que estes dois acrescentam é
+ * chegar lá com a lista de pontos que interessa em vez da vigência toda.
+ */
+function ValorEFormato({
+  total,
+  formato,
+  onAbrir,
+}: {
+  total: number;
+  formato: number;
+  onAbrir: (foco: FocoDeAlteracoes) => void;
+}) {
+  if (formato === 0 || total === 0) return null;
+  const valor = total - formato;
+  const fatia = Math.max(0, Math.min(1, valor / total)) * 100;
+
+  return (
+    <div className="mt-3.5">
+      <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div className="h-full bg-brand" style={{ width: `${fatia}%` }} />
+        <div className="h-full bg-slate-400" style={{ width: `${100 - fatia}%` }} />
+      </div>
+      {/* `relative z-10` pela mesma razão que o ⓘ: o botão do cartão cobre tudo. */}
+      <div className="relative z-10 mt-1.5 flex items-center justify-between gap-1">
+        <button
+          type="button"
+          onClick={() => onAbrir("valor")}
+          aria-label={`${valor.toLocaleString("pt-BR")} mexeram no valor: ver quais pontos`}
+          title="Ver os pontos em que o valor mudou"
+          className="rounded px-1 -mx-1 text-xs font-bold tabular-nums text-brand hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        >
+          {valor.toLocaleString("pt-BR")} no valor
+        </button>
+        <button
+          type="button"
+          onClick={() => onAbrir("formato")}
+          aria-label={`${formato.toLocaleString("pt-BR")} são só troca de formato: ver quais pontos`}
+          title="Ver os pontos em que só o formato mudou"
+          className="rounded px-1 -mx-1 text-xs font-bold tabular-nums text-slate-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand"
+        >
+          {formato.toLocaleString("pt-BR")} só formato
+        </button>
+      </div>
     </div>
   );
 }
