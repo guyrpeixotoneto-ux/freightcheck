@@ -208,7 +208,12 @@ export function FecharQuinzena({
   documentos: Documento[];
   /** A apuração vigente: sem ela não há o que fechar, e o servidor recusa. */
   apuracao: Apuracao;
-  /** O catálogo das fontes — o denominador de "3 de 6 relatórios". */
+  /**
+   * Os relatórios que **esta** quinzena pede — o denominador de "3 de 4
+   * relatórios". A primeira quinzena tem quatro e a segunda tem seis, então o
+   * denominador vem recortado de fora (ver `fontesDaCompetencia`) em vez de ser
+   * o catálogo inteiro.
+   */
   fontes: Fonte[];
 }) {
   const cliente = useQueryClient();
@@ -249,9 +254,12 @@ export function FecharQuinzena({
       </p>
       <ul className="text-sm text-muted-foreground space-y-1">
         <li>
-          {/* Cinco enquanto o catálogo não chegou: é quantas são, e a frase não
-              deve dizer "de 0" enquanto a consulta viaja. */}
-          • {enviados} de {fontes.length > 0 ? fontes.length : 6} relatórios enviados
+          {/* Sem catálogo não há denominador: a frase perde o "de N" em vez de
+              dizer "de 0" enquanto a consulta viaja — ou de chutar seis numa
+              primeira quinzena, que tem quatro. */}
+          {fontes.length > 0
+            ? `• ${enviados} de ${fontes.length} relatórios enviados`
+            : `• ${enviados} relatório(s) enviados`}
         </li>
         <li>• {formatBrl(apuracao.totais.emitido)} emitidos em CT-e</li>
         <li>

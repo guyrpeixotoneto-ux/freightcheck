@@ -30,6 +30,7 @@ import {
   apurar,
   descartarDados,
   enviarDocumento,
+  fontesDaCompetencia,
   lerCompetencia,
   lerDiario,
   listarFontes,
@@ -165,6 +166,14 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   const { acionaveis, aReceber } = apuracao
     ? oQueQuestionar(apuracao)
     : { acionaveis: [], aReceber: 0 };
+  /*
+    Os relatórios desta quinzena, e não os seis do catálogo: a primeira quinzena
+    não tem requisições nem conciliação. O que já foi enviado entra na lista de
+    qualquer forma — ver `fontesDaCompetencia`.
+  */
+  const catalogo = fontesDaCompetencia(fontes.data ?? [], competencia.quinzena, [
+    ...vigentes.keys(),
+  ]);
 
   return (
     <Layout>
@@ -228,8 +237,11 @@ export default function CompetenciaAberta({ id }: { id: string }) {
           </CardHeader>
           <CardContent className="space-y-3">
             <p className="text-sm text-muted-foreground">
-              Seis exportações do Promax/SRTrans. A conta roda com o que houver
-              — o que faltar aparece nomeado na apuração, nunca como zero.
+              {competencia.quinzena === 1
+                ? "Quatro exportações do Promax/SRTrans: a 1ª quinzena não tem as requisições (03.08.12.09) nem a conciliação (03.02.59.02), que chegam com o fechamento da 2ª."
+                : "Seis exportações do Promax/SRTrans."}{" "}
+              A conta roda com o que houver — o que faltar aparece nomeado na
+              apuração, nunca como zero.
             </p>
             {/*
               A reabertura aparece aqui, e não só no painel do fim da tela,
@@ -276,11 +288,13 @@ export default function CompetenciaAberta({ id }: { id: string }) {
               </Alert>
             )}
             <ul className="divide-y">
-              {fontes.data?.map((fonte) => (
+              {catalogo.map((fonte) => (
                 <LinhaDeFonte
                   key={fonte.tipo}
                   fonte={fonte}
                   documento={vigentes.get(fonte.tipo)}
+                  foraDaQuinzena={!fonte.quinzenas.includes(competencia.quinzena)}
+                  quinzena={competencia.quinzena}
                   enviando={enviar.isPending && enviar.variables?.tipo === fonte.tipo}
                   travada={encerrada}
                   onArquivo={(arquivo) => enviar.mutate({ tipo: fonte.tipo, arquivo })}
@@ -447,7 +461,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
               </p>
             )}
 
-            {apuracao && <ContaApurada apuracao={apuracao} fontes={fontes.data ?? []} />}
+            {apuracao && <ContaApurada apuracao={apuracao} fontes={catalogo} />}
           </CardContent>
         </Card>
 
@@ -517,7 +531,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                 competencia={competencia}
                 documentos={documentos}
                 apuracao={apuracao}
-                fontes={fontes.data ?? []}
+                fontes={catalogo}
               />
             </CardContent>
           </Card>
@@ -531,12 +545,21 @@ export default function CompetenciaAberta({ id }: { id: string }) {
 function LinhaDeFonte({
   fonte,
   documento,
+  foraDaQuinzena,
+  quinzena,
   enviando,
   travada,
   onArquivo,
 }: {
   fonte: Fonte;
   documento: Documento | undefined;
+  /**
+   * O relatório não é dos que esta quinzena pede, e está aqui porque alguém o
+   * enviou. A linha diz isso em vez de sumir: arquivo importado que desaparece
+   * da tela é a forma mais rápida de alguém importá-lo de novo.
+   */
+  foraDaQuinzena: boolean;
+  quinzena: 1 | 2;
   enviando: boolean;
   /** A competência está encerrada: nada entra nela sem reabertura. */
   travada: boolean;
@@ -555,6 +578,11 @@ function LinhaDeFonte({
           )}
           <span className="font-medium font-mono text-sm">{fonte.rotina}</span>
           <span className="text-sm text-muted-foreground">{fonte.nome}</span>
+          {foraDaQuinzena && (
+            <span className="rounded-full border border-border px-2 py-0.5 text-[0.6875rem] uppercase tracking-wide text-muted-foreground">
+              fora da {quinzena}ª quinzena
+            </span>
+          )}
         </div>
         <p className="text-sm text-muted-foreground mt-0.5 ml-6">{fonte.papel}</p>
         {documento && (

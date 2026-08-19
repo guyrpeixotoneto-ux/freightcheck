@@ -1,4 +1,10 @@
-import { centavos, type Canal, type TipoDeFonte } from "./dominio";
+import {
+  centavos,
+  fonteEsperadaNaQuinzena,
+  TIPOS_DE_FONTE,
+  type Canal,
+  type TipoDeFonte,
+} from "./dominio";
 import type { Competencia } from "./periodo";
 import { dentroDaCompetencia } from "./periodo";
 import { medirAliquotas, medirCargaFiscal, type Aliquota, type CargaFiscal } from "./aliquota";
@@ -55,6 +61,11 @@ import type { Verba } from "./verbas";
  * não vira zero; vira `null` com a fonte nomeada em `fontesAusentes`. A conta
  * roda com o que há, diz o que falta, e o total que ela mostra é sempre o total
  * do que ela conseguiu sustentar.
+ *
+ * **E o que ela não chama de falta.** `fontesAusentes` só nomeia o que a
+ * quinzena da competência tem: a primeira não recebe requisições nem
+ * conciliação (`FONTES_DA_QUINZENA`), e cobrá-las ali seria pedir arquivo que
+ * não existe.
  */
 
 /** As fontes que a apuração consome. Todas opcionais: a conta roda com o que há. */
@@ -193,15 +204,29 @@ function emReais(valor: number): string {
 
 /** Roda a apuração da competência com as fontes que houver. */
 export function apurar(competencia: Competencia, fontes: Fontes): Apuracao {
+  const recebida: Record<TipoDeFonte, boolean> = {
+    OPERACAO: !!fontes.operacao,
+    CTE: !!fontes.ctes,
+    PAGAMENTO: !!fontes.pagamento,
+    DISPONIBILIDADE: !!fontes.disponibilidade,
+    REQUISICOES: !!fontes.requisicoes,
+    CONCILIACAO: !!fontes.conciliacao,
+  };
+  /*
+    Ausente é o que **esta quinzena** espera e não chegou — não tudo que não
+    chegou. A primeira quinzena não tem requisições nem conciliação (ver
+    `FONTES_DA_QUINZENA`), e nomeá-las ali faria toda primeira quinzena do ano
+    nascer com duas pendências que ninguém pode resolver.
+
+    O que chegou fora da quinzena dele continua presente: presente é presente, e
+    a conta usa o que houver.
+  */
   const presentes: TipoDeFonte[] = [];
   const ausentes: TipoDeFonte[] = [];
-  const marcar = (tipo: TipoDeFonte, tem: boolean) => (tem ? presentes : ausentes).push(tipo);
-  marcar("OPERACAO", !!fontes.operacao);
-  marcar("CTE", !!fontes.ctes);
-  marcar("PAGAMENTO", !!fontes.pagamento);
-  marcar("DISPONIBILIDADE", !!fontes.disponibilidade);
-  marcar("REQUISICOES", !!fontes.requisicoes);
-  marcar("CONCILIACAO", !!fontes.conciliacao);
+  for (const tipo of TIPOS_DE_FONTE) {
+    if (recebida[tipo]) presentes.push(tipo);
+    else if (fonteEsperadaNaQuinzena(competencia.quinzena, tipo)) ausentes.push(tipo);
+  }
 
   const ctes = fontes.ctes ?? [];
   const requisicoes = (fontes.requisicoes ?? []).filter(

@@ -24,7 +24,7 @@ export function ContaApurada({
   fontes,
 }: {
   apuracao: Apuracao;
-  /** O catálogo das cinco fontes, para nomear pela rotina o que faltou. */
+  /** Os relatórios que esta quinzena pede, para nomear pela rotina o que faltou. */
   fontes: Fonte[];
 }) {
   /*
@@ -46,7 +46,7 @@ export function ContaApurada({
         <Numero
           titulo="Sem fonte que confira"
           valor={apuracao.totais.naoConferido}
-          nota="Emitido que nenhuma das cinco fontes sustenta — a parte fixa do contrato."
+          nota="Emitido que nenhuma das fontes da quinzena sustenta — a parte fixa do contrato."
         />
       </div>
 
@@ -176,7 +176,7 @@ function TabelaDeVerbas({
                   <td colSpan={4} className="py-3 px-8">
                     {v.memoria.length === 0 ? (
                       <p className="text-sm text-muted-foreground">
-                        Nenhuma das cinco fontes sustenta esta verba — ela
+                        Nenhuma das fontes da quinzena sustenta esta verba — ela
                         entrou na conta pelo que foi emitido, e ninguém a
                         conferiu. É o caso da parcela fixa do contrato.
                       </p>

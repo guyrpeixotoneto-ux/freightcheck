@@ -148,7 +148,7 @@ export interface QuinzenaDoAno extends PeriodoDaQuinzena {
 /**
  * Quanto do emitido a apuração conseguiu sustentar, em porcentagem.
  *
- * `naoConferido` é a parte do CT-e emitido que nenhuma das cinco fontes
+ * `naoConferido` é a parte do CT-e emitido que nenhuma das fontes da quinzena
  * explica; o conferido é o resto. Devolve `null` quando não houve emissão
  * alguma — `0/0` não é 100% conferido nem 0%, é um período sem o que conferir,
  * e desenhar uma barra cheia ali seria mentir por arredondamento.

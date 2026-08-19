@@ -20,6 +20,9 @@ import {
   lerRequisicoes,
   medirAliquotas,
   valorDe,
+  FONTES_DA_QUINZENA,
+  QUINZENAS_DA_FONTE,
+  fonteEsperadaNaQuinzena,
 } from "../index";
 import {
   FATOR,
@@ -320,6 +323,28 @@ describe("a alíquota é medida, não presumida", () => {
   });
 });
 
+describe("o catálogo de cada quinzena", () => {
+  it("dá quatro relatórios à primeira e seis à segunda", () => {
+    expect(FONTES_DA_QUINZENA[1]).toEqual([
+      "OPERACAO",
+      "CTE",
+      "PAGAMENTO",
+      "DISPONIBILIDADE",
+    ]);
+    expect(FONTES_DA_QUINZENA[2]).toHaveLength(6);
+  });
+
+  it("diz, por fonte, em que quinzenas ela é esperada", () => {
+    /* É esta forma que a API publica e a tela lê — e ela é derivada da outra,
+       para que as duas não possam discordar. */
+    expect(QUINZENAS_DA_FONTE.CTE).toEqual([1, 2]);
+    expect(QUINZENAS_DA_FONTE.REQUISICOES).toEqual([2]);
+    expect(QUINZENAS_DA_FONTE.CONCILIACAO).toEqual([2]);
+    expect(fonteEsperadaNaQuinzena(1, "CONCILIACAO")).toBe(false);
+    expect(fonteEsperadaNaQuinzena(2, "CONCILIACAO")).toBe(true);
+  });
+});
+
 describe("a apuração", () => {
   const fontes = {
     operacao: lerOperacao(fixtureOperacao()).linhas,
@@ -387,6 +412,37 @@ describe("a apuração", () => {
     expect(rota?.valor).toBe(500);
     /* AS fecha ao centavo, e por isso não vira divergência. */
     expect(apuracao.divergencias.some((d) => d.tipo === "OPERACAO_NAO_FECHA" && d.canal === "AS")).toBe(false);
+  });
+
+  it("não cobra da 1ª quinzena o que a 1ª quinzena não tem", () => {
+    /* A primeira quinzena fecha com quatro relatórios: as requisições
+       (03.08.12.09) e a conciliação (03.02.59.02) chegam com o fechamento da
+       segunda. Nomeá-las como ausentes ali seria cobrar arquivo que ninguém
+       pode enviar — e a tela passaria a quinzena inteira pedindo o impossível. */
+    const primeira = apurar(competencia(2026, 7, 1), { ctes: fontes.ctes });
+    expect(primeira.fontesAusentes).toEqual(["OPERACAO", "PAGAMENTO", "DISPONIBILIDADE"]);
+
+    /* A mesma falta, na segunda quinzena, são cinco: lá as duas existem. */
+    const segunda = apurar(competencia(2026, 7, 2), { ctes: fontes.ctes });
+    expect(segunda.fontesAusentes).toEqual([
+      "OPERACAO",
+      "PAGAMENTO",
+      "DISPONIBILIDADE",
+      "REQUISICOES",
+      "CONCILIACAO",
+    ]);
+  });
+
+  it("conta como presente o que chegou fora da quinzena dele", () => {
+    /* A lista da quinzena diz o que se espera, não o que se admite: uma
+       conciliação enviada a uma primeira quinzena é lida e apurada como
+       qualquer outra fonte. Presente é presente. */
+    const primeira = apurar(competencia(2026, 7, 1), {
+      ctes: fontes.ctes,
+      conciliacao: fontes.conciliacao,
+    });
+    expect(primeira.fontesPresentes).toContain("CONCILIACAO");
+    expect(primeira.fontesAusentes).not.toContain("CONCILIACAO");
   });
 
   it("roda com o que há e nomeia a fonte que falta", () => {
