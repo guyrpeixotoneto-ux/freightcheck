@@ -182,7 +182,29 @@ export const fechamentoDocumentoTable = pgTable(
  * cadeia até a célula não se interrompe em nenhum ponto.
  */
 
-/** Uma viagem do 2Art. */
+/**
+ * Uma viagem do 2Art.
+ *
+ * As colunas se dividem em duas naturezas, e a divisão é a mesma que
+ * `leitores/operacao.ts` faz na leitura. Do `dia` ao `valor_faturado` está o
+ * que a apuração soma — mexer ali muda dinheiro. Da `transportadora` em diante
+ * está o **retrato da viagem**: veículo, placa, horários, quilometragem,
+ * ocupação, a abertura da remuneração da equipe. Nenhuma delas entra em conta
+ * nenhuma; elas existem porque a tela do dia — a que substitui as abas
+ * `01`…`31` da planilha — mostra a linha inteira, e porque a alternativa seria
+ * guardar meia viagem e mandar quem confere reabrir o arquivo.
+ *
+ * **Todas as colunas do retrato são anuláveis, e nenhuma tem default.** O 2Art
+ * de um CDD traz colunas que o de outro não traz; um `0` onde a exportação não
+ * trouxe nada afirmaria que a viagem não pagou aquilo, que é diferente de não
+ * sabermos. `NULL` é a única resposta honesta, e é o que a tela mostra como
+ * traço.
+ *
+ * **Códigos são `text`, não número.** Veículo, região, transportadora,
+ * matrícula e unidade de origem identificam algo — somá-los ou ordená-los como
+ * grandeza não significaria nada, e o texto ainda preserva o zero à esquerda
+ * que um número perderia.
+ */
 export const fechamentoViagemTable = pgTable(
   "fechamento_viagem",
   {
@@ -205,6 +227,75 @@ export const fechamentoViagemTable = pgTable(
     valorDeImposto: numeric("valor_de_imposto", { precision: 14, scale: 2 }).notNull().default("0"),
     /** O frete com imposto — o que se compara ao CT-e. */
     valorFaturado: numeric("valor_faturado", { precision: 14, scale: 2 }).notNull().default("0"),
+
+    /* --- o retrato: quem rodou ------------------------------------------- */
+    transportadora: text("transportadora"),
+    cargaAtual: text("carga_atual"),
+    regiao: text("regiao"),
+    veiculo: text("veiculo"),
+    entregaOuVolume: text("entrega_ou_volume"),
+    unidadeDeOrigem: text("unidade_de_origem"),
+    situacaoMultiCdd: text("situacao_multi_cdd"),
+    veiculoCadastradoNoCdd: text("veiculo_cadastrado_no_cdd"),
+    matriculaDoMotorista: text("matricula_do_motorista"),
+    matriculaDoAjudante1: text("matricula_do_ajudante_1"),
+    matriculaDoAjudante2: text("matricula_do_ajudante_2"),
+
+    /* --- o retrato: a indisponibilidade ---------------------------------- */
+    veiculoIndisponivel: text("veiculo_indisponivel"),
+    placaIndisponivel: text("placa_indisponivel"),
+    frotaIndisponivel: text("frota_indisponivel"),
+    tipoDeIndisponibilidade: text("tipo_de_indisponibilidade"),
+
+    /* --- o retrato: o que a viagem moveu --------------------------------- */
+    ocupacao: numeric("ocupacao", { precision: 8, scale: 4 }),
+    caixasDeRota: numeric("caixas_de_rota", { precision: 14, scale: 2 }),
+    caixasDeAs: numeric("caixas_de_as", { precision: 14, scale: 2 }),
+    veiculoBm: numeric("veiculo_bm", { precision: 14, scale: 4 }),
+    rShow: numeric("r_show", { precision: 14, scale: 4 }),
+
+    /* --- o retrato: o relógio e o hodômetro ------------------------------ */
+    horaDeSaida: text("hora_de_saida"),
+    horaDeEntrada: text("hora_de_entrada"),
+    kmDeSaida: numeric("km_de_saida", { precision: 14, scale: 2 }),
+    kmDeEntrada: numeric("km_de_entrada", { precision: 14, scale: 2 }),
+    /*
+      As durações são `text` porque é assim que o relatório as escreve — o mesmo
+      arquivo traz `9:14` e `0:37:00` na mesma coluna. Convertê-las a minutos
+      seria decidir, sem fonte, qual das duas grafias o Promax quis dizer; o que
+      a tela precisa é mostrar o que está lá.
+    */
+    tempoInterno: text("tempo_interno"),
+    tempoDoLaco: text("tempo_do_laco"),
+    tempoDeDeslocamento: text("tempo_de_deslocamento"),
+    kmDoLaco: numeric("km_do_laco", { precision: 14, scale: 2 }),
+    kmDeDeslocamento: numeric("km_de_deslocamento", { precision: 14, scale: 2 }),
+
+    /* --- o retrato: o previsto do roteirizador --------------------------- */
+    tempoPrevisto: text("tempo_previsto"),
+    kmPrevisto: numeric("km_previsto", { precision: 14, scale: 2 }),
+
+    /* --- o retrato: o dinheiro além do frete ----------------------------- */
+    custoSpot: numeric("custo_spot", { precision: 14, scale: 2 }),
+    custoVariavel: numeric("custo_variavel", { precision: 14, scale: 2 }),
+    lucro: numeric("lucro", { precision: 14, scale: 2 }),
+    lucroUnitario: numeric("lucro_unitario", { precision: 14, scale: 4 }),
+    tipoDeImposto: text("tipo_de_imposto"),
+    valorUnitarioPorCaixaEntregue: numeric("valor_unitario_por_caixa_entregue", { precision: 14, scale: 4 }),
+    valorPagoPorCaixaSemImposto: numeric("valor_pago_por_caixa_sem_imposto", { precision: 14, scale: 4 }),
+    valorPagoPorCaixaComImposto: numeric("valor_pago_por_caixa_com_imposto", { precision: 14, scale: 4 }),
+    valorDropdown: numeric("valor_dropdown", { precision: 14, scale: 2 }),
+
+    /* --- o retrato: a remuneração da equipe ------------------------------ */
+    valorUnitarioDoPontoDoMotorista: numeric("valor_unitario_do_ponto_do_motorista", { precision: 14, scale: 4 }),
+    valorUnitarioDoPontoDoAjudante: numeric("valor_unitario_do_ponto_do_ajudante", { precision: 14, scale: 4 }),
+    valorDaEquipeDeEntregaMotorista: numeric("valor_da_equipe_de_entrega_motorista", { precision: 14, scale: 2 }),
+    valorDaEquipeDeEntregaAjudante: numeric("valor_da_equipe_de_entrega_ajudante", { precision: 14, scale: 2 }),
+
+    /* --- o retrato: a abertura CEDBZ ------------------------------------- */
+    custoVariavelCedbz: numeric("custo_variavel_cedbz", { precision: 14, scale: 2 }),
+    lucroUnitarioCedbz: numeric("lucro_unitario_cedbz", { precision: 14, scale: 4 }),
+    lucroVariavelPorCaixaEntregueFfcedbz: numeric("lucro_variavel_por_caixa_entregue_ffcedbz", { precision: 14, scale: 4 }),
   },
   (t) => [
     foreignKey({

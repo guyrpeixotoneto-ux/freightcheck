@@ -236,6 +236,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
       "0039_fechamento",
       "0040_reprocessamento",
       "0041_reconciliar_reprocessamento",
+      "0042_viagem_completa",
     ]);
 
     // Preservação + backfill: as três contas continuam com o hash original e

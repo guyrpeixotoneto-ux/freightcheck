@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 /**
  * A leitura crua de uma planilha, comum aos quatro leitores de `.xlsx`.
  *
- * Três decisões moram aqui, e todas existem para que os leitores acima não
+ * Quatro decisões moram aqui, e todas existem para que os leitores acima não
  * precisem conhecer o SheetJS:
  *
  * 1. **A célula chega como veio.** `raw: true` desliga a formatação: uma data
@@ -18,6 +18,9 @@ import * as XLSX from "xlsx";
  *    configuração.
  * 3. **A linha física é preservada.** Toda linha lida carrega o número que o
  *    Excel mostra, porque uma recusa que não diz onde não serve para ninguém.
+ * 4. **O nome da coluna vale sem os espaços.** `ValorFrete` e `VALOR FRETE`
+ *    são a mesma coluna escrita por dois exportadores diferentes do mesmo
+ *    relatório — ver `compactarColuna`.
  */
 
 export interface LinhaDePlanilha {
@@ -44,6 +47,25 @@ export function normalizarColuna(nome: string): string {
 }
 
 /**
+ * O mesmo nome, sem o que só separa palavras — espaço, ponto, hífen, `%`.
+ *
+ * Existe porque a mesma coluna chega escrita de dois jeitos conforme quem
+ * exportou: o 2Art salvo do Promax escreve `CxCarreg` e `ValorFrete`, e o
+ * mesmo relatório salvo de dentro da pasta de fechamento escreve `CX CARREG` e
+ * `VALOR FRETE`. São o mesmo dado, e um leitor que só reconhece uma das grafias
+ * recusa metade das exportações reais — inclusive no cabeçalho, onde a recusa
+ * não é de uma coluna, é do arquivo inteiro.
+ *
+ * A forma compacta é **fallback**, nunca a primeira via: o nome exato manda, e
+ * só quando ele não existe é que se procura por aqui. Assim duas colunas
+ * distintas que colapsem na mesma forma continuam sendo lidas pelo nome que
+ * cada uma tem.
+ */
+export function compactarColuna(nome: string): string {
+  return normalizarColuna(nome).replace(/[^a-z0-9]/g, "");
+}
+
+/**
  * Encontra a linha de cabeçalho: a primeira que contém **todas** as colunas
  * exigidas.
  *
@@ -54,12 +76,16 @@ function acharCabecalho(
   matriz: unknown[][],
   exigidas: string[],
 ): { indice: number; nomes: string[] } | null {
-  const alvo = exigidas.map(normalizarColuna);
   for (let i = 0; i < matriz.length && i < 50; i += 1) {
     const linha = matriz[i] ?? [];
     const nomes = linha.map((c) => (typeof c === "string" ? c : c == null ? "" : String(c)));
-    const presentes = new Set(nomes.map(normalizarColuna));
-    if (alvo.every((a) => presentes.has(a))) return { indice: i, nomes };
+    const presentes = new Set([
+      ...nomes.map(normalizarColuna),
+      ...nomes.map(compactarColuna),
+    ]);
+    const tem = (nome: string) =>
+      presentes.has(normalizarColuna(nome)) || presentes.has(compactarColuna(nome));
+    if (exigidas.every(tem)) return { indice: i, nomes };
   }
   return null;
 }
@@ -113,6 +139,14 @@ export function lerAba(
     cabecalho.nomes.forEach((nome, coluna) => {
       if (nome) celulas[normalizarColuna(nome)] = bruta[coluna] ?? null;
     });
+    /* Os apelidos entram depois de todos os nomes exatos, e nunca por cima de
+       um: uma coluna que já existe pelo nome dela não pode ser encoberta pela
+       forma compacta de outra. */
+    cabecalho.nomes.forEach((nome, coluna) => {
+      if (!nome) return;
+      const apelido = compactarColuna(nome);
+      if (apelido && !(apelido in celulas)) celulas[apelido] = bruta[coluna] ?? null;
+    });
     linhas.push({ numero: i + 1, celulas });
   }
 
@@ -124,7 +158,12 @@ export function nomesDasAbas(arquivo: Buffer | ArrayBuffer): string[] {
   return XLSX.read(arquivo, { type: "buffer", bookSheets: true }).SheetNames;
 }
 
-/** O valor de uma coluna, procurando pelo nome normalizado. */
+/**
+ * O valor de uma coluna, pelo nome normalizado — e, na falta dele, pela forma
+ * compacta (ver `compactarColuna`).
+ */
 export function celula(linha: LinhaDePlanilha, coluna: string): unknown {
-  return linha.celulas[normalizarColuna(coluna)] ?? null;
+  const nome = normalizarColuna(coluna);
+  if (nome in linha.celulas) return linha.celulas[nome] ?? null;
+  return linha.celulas[compactarColuna(coluna)] ?? null;
 }

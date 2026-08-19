@@ -8,6 +8,8 @@ import {
   apurarCompetencia,
   encerrarCompetencia,
   lerApuracaoVigente,
+  lerDiaDaCompetencia,
+  lerDiarioDaCompetencia,
   listarApuracoes,
   listarDocumentos,
   listarPartes,
@@ -188,6 +190,55 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     expect(documentos.filter((d) => d.vigente)).toHaveLength(1);
     expect(documentos.find((d) => d.vigente)?.linhasLidas).toBe(6);
   }, 60_000);
+
+  it("devolve a quinzena dia a dia, e a viagem do outro meio do mês fica de fora", async () => {
+    /* A grade da tela: um item por dia do período, com ou sem operação. A
+       viagem de 01/07 está no mesmo 2Art e pertence à 1ª quinzena — ela é
+       contada como fora do período, e não somada em dia nenhum daqui. */
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    const diario = (await lerDiarioDaCompetencia(db, comp.id))!;
+
+    expect(diario.fonte?.nomeDoArquivo).toBe("2art.xlsx");
+    expect(diario.dias).toHaveLength(16);
+    expect(diario.viagensForaDoPeriodo).toBe(1);
+    expect(diario.dias[0]).toMatchObject({ dia: "2026-07-16", numeroDoDia: 16 });
+    expect(diario.dias[0].totais.freteComImposto).toBe(1800);
+    expect(diario.dias[2].totais.viagens).toBe(0);
+  }, 60_000);
+
+  it("abre o dia com a viagem inteira — o retrato atravessa o banco", async () => {
+    /* A prova de que a tela do dia mostra o que o 2Art trouxe, e não uma
+       versão empobrecida dele: o retrato sai do arquivo, vira coluna, e volta. */
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    const aberto = (await lerDiaDaCompetencia(db, comp.id, "2026-07-16"))!;
+
+    expect(aberto.dia.viagens).toHaveLength(3);
+    expect(aberto.dia.porFrota).toEqual([
+      expect.objectContaining({ frota: "PADRAO", freteComImposto: 1500 }),
+      expect.objectContaining({ frota: "SPOT", freteComImposto: 300 }),
+    ]);
+
+    const completa = aberto.dia.viagens.find((v) => v.placa === "AAA1A11")!;
+    expect(completa.detalhe).toMatchObject({
+      veiculo: "63",
+      ocupacao: 55.23,
+      horaDeSaida: "16/07/2026 7:39",
+      tempoPrevisto: "9:14",
+      kmPrevisto: 124.87,
+      unidadeDeOrigem: "30229",
+    });
+
+    /* O que a exportação não trouxe continua nulo depois de ir e voltar. */
+    const parcial = aberto.dia.viagens.find((v) => v.placa === "BBB2B22")!;
+    expect(parcial.detalhe?.ocupacao).toBeNull();
+    expect(parcial.detalhe?.valorDaEquipeDeEntregaMotorista).toBeNull();
+    expect(parcial.detalhe?.horaDeSaida).toBe("");
+  }, 60_000);
+
+  it("dia fora da quinzena não existe — e não é um dia vazio", async () => {
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    expect(await lerDiaDaCompetencia(db, comp.id, "2026-07-01")).toBeNull();
+  });
 
   it("salvar a quinzena exige ter apurado — congelar o que não se sabe quanto vale é pior", async () => {
     const comp = await abrirCompetencia(db, { ano: 2026, mes: 10, quinzena: 1, unidade, transportadora });

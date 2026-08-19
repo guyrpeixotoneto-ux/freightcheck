@@ -5,6 +5,7 @@ import {
   AlertTriangle,
   ArrowLeft,
   Calculator,
+  CalendarDays,
   Check,
   ChevronRight,
   FileUp,
@@ -16,8 +17,9 @@ import { Layout } from "@/components/layout/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { GradeDeDias } from "@/components/fechamento/grade-de-dias";
 import { apresentar } from "@/lib/apresentar-erro";
-import { formatBrl } from "@/lib/format";
+import { formatBrl, formatNumber } from "@/lib/format";
 import { Textarea } from "@/components/ui/textarea";
 import {
   apurar,
@@ -25,6 +27,7 @@ import {
   reabrir,
   enviarDocumento,
   lerCompetencia,
+  lerDiario,
   listarFontes,
   EXPLICACAO_DA_DIVERGENCIA,
   NOME_DO_ESTADO,
@@ -44,9 +47,11 @@ const emDiaBR = (iso: string) => iso.split("-").reverse().join("/");
 /**
  * A competência aberta — onde o fechamento acontece.
  *
- * A tela tem três partes, e a ordem é a do trabalho: recebe os cinco relatórios
- * que a Ambev exporta, roda a conta, mostra o que não fecha. É esta tela que
- * substitui a pasta de Excel de 44 abas.
+ * A tela tem cinco partes, e a ordem é a do trabalho: recebe os cinco
+ * relatórios que a Ambev exporta, mostra o que a operação rodou dia a dia, roda
+ * a conta, mostra o que não fecha e salva a quinzena. É esta tela que substitui
+ * a pasta de Excel de 44 abas — a grade de dias no lugar das abas `01`…`31`, a
+ * conta no lugar dos PROCVs entre elas.
  *
  * **Por que a apuração é um botão e não acontece sozinha ao subir o quinto
  * arquivo.** Porque rodar grava: a apuração vigente anterior é despromovida e
@@ -70,13 +75,26 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     queryFn: () => lerCompetencia(id),
   });
   const fontes = useQuery({ queryKey: ["fechamento", "fontes"], queryFn: listarFontes });
+  /*
+    O diário é consulta própria, e não parte de `lerCompetencia`: ele muda por
+    outro motivo (o 2Art entrou) e é lido por outra tela (a do dia). Juntá-los
+    faria toda apuração reinvalidar a grade de dias, que não mudou.
+  */
+  const diario = useQuery({
+    queryKey: ["fechamento", "diario", id],
+    queryFn: () => lerDiario(id),
+  });
 
   const enviar = useMutation({
     mutationFn: ({ tipo, arquivo }: { tipo: TipoDeFonte; arquivo: File }) =>
       enviarDocumento(id, tipo, arquivo),
     onMutate: () => setErroDoEnvio(null),
     onError: (erro) => setErroDoEnvio(textoDoErro(erro)),
-    onSuccess: () => cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] }),
+    onSuccess: () => {
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] });
+      /* O 2Art recém-enviado é o que a grade de dias mostra — ela reabre. */
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "diario", id] });
+    },
   });
 
   const rodar = useMutation({
@@ -199,7 +217,67 @@ export default function CompetenciaAberta({ id }: { id: string }) {
         </Card>
 
         {/* ---------------------------------------------------------------
-            2. A conta
+            2. Os dias
+            --------------------------------------------------------------- */}
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <CalendarDays className="w-4 h-4" />
+              Os dias da quinzena
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              O que a operação rodou, dia a dia, do 2Art. Clique num dia para ver
+              as viagens daquele dia inteiras — placa, mapa, caixas, horários e a
+              cadeia de imposto —, com os totais por frota que se comparam ao
+              SRTrans.
+            </p>
+            {diario.isError && (
+              <Alert variant="destructive">
+                <AlertDescription>{textoDoErro(diario.error)}</AlertDescription>
+              </Alert>
+            )}
+            {diario.isLoading && (
+              <p className="text-sm text-muted-foreground">Carregando os dias…</p>
+            )}
+            {diario.data && (
+              <>
+                {!diario.data.fonte && (
+                  <Alert>
+                    <AlertTriangle className="w-4 h-4" />
+                    <AlertDescription>
+                      O 2Art ainda não foi enviado. A grade abaixo é o calendário
+                      da quinzena, e não a operação dela: dia vazio aqui quer
+                      dizer que ninguém importou o relatório, não que ninguém
+                      rodou.
+                    </AlertDescription>
+                  </Alert>
+                )}
+                <GradeDeDias competenciaId={id} dias={diario.data.dias} />
+                <p className="text-xs text-muted-foreground">
+                  {formatNumber(
+                    diario.data.dias.reduce((s, d) => s + d.totais.viagens, 0),
+                    0,
+                  )}{" "}
+                  viagem(ns) no período
+                  {diario.data.viagensForaDoPeriodo > 0 && (
+                    <>
+                      {" "}
+                      · {formatNumber(diario.data.viagensForaDoPeriodo, 0)} do 2Art
+                      ficaram de fora, por serem da outra quinzena do mês — elas
+                      não entram em conta nenhuma daqui
+                    </>
+                  )}
+                  .
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* ---------------------------------------------------------------
+            3. A conta
             --------------------------------------------------------------- */}
         <Card>
           <CardHeader className="pb-3 flex-row items-center justify-between gap-4 space-y-0">
@@ -280,7 +358,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
         </Card>
 
         {/* ---------------------------------------------------------------
-            3. O que não fecha
+            4. O que não fecha
             --------------------------------------------------------------- */}
         {apuracao && (
           <Card>
@@ -324,7 +402,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
           </Card>
         )}
         {/* ---------------------------------------------------------------
-            4. Salvar a quinzena
+            5. Salvar a quinzena
             --------------------------------------------------------------- */}
         {apuracao && (
           <Card>

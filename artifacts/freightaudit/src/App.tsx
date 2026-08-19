@@ -39,6 +39,7 @@ import VisaoDoFechamento from '@/pages/fechamento/visao';
 import Competencias from '@/pages/fechamento/competencias';
 import Apuracoes from '@/pages/fechamento/apuracoes';
 import CompetenciaAberta from '@/pages/fechamento/competencia';
+import DiaDoFechamento from '@/pages/fechamento/dia';
 import RemuneracaoCadastro from '@/pages/fechamento/remuneracao';
 import { EtapaDoFechamento } from '@/pages/fechamento/etapa';
 import { ETAPAS_FECHAMENTO } from '@/pages/fechamento/etapas';
@@ -201,6 +202,14 @@ function Router() {
       <Route path="/fechamento/competencias" component={Competencias} />
       <Route path="/fechamento/competencias/:id">
         {(params) => <CompetenciaAberta id={params.id} />}
+      </Route>
+      {/*
+        O dia da quinzena vem depois da competência, e o `Switch` entrega ao
+        primeiro que casa: como os dois caminhos têm profundidades diferentes,
+        a ordem aqui é só leitura — `/dias/:dia` nunca é confundido com `/:id`.
+      */}
+      <Route path="/fechamento/competencias/:id/dias/:dia">
+        {(params) => <DiaDoFechamento id={params.id} dia={params.dia} />}
       </Route>
       <Route path="/fechamento/apuracoes" component={Apuracoes} />
       {/*

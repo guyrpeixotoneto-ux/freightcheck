@@ -122,6 +122,150 @@ export interface CompetenciaAberta {
   apuracao: Apuracao | null;
 }
 
+/* ---------------------------------------------------------------------------
+   O diário: a operação dia a dia, e o dia aberto viagem a viagem
+   ------------------------------------------------------------------------ */
+
+/** O retrato da viagem — o que a tabela do dia mostra e a conta não usa. */
+export interface DetalheDaViagem {
+  transportadora: string;
+  cargaAtual: string;
+  regiao: string;
+  veiculo: string;
+  entregaOuVolume: string;
+  unidadeDeOrigem: string;
+  situacaoMultiCdd: string;
+  veiculoCadastradoNoCdd: string;
+  matriculaDoMotorista: string;
+  matriculaDoAjudante1: string;
+  matriculaDoAjudante2: string;
+
+  veiculoIndisponivel: string;
+  placaIndisponivel: string;
+  frotaIndisponivel: string;
+  tipoDeIndisponibilidade: string;
+
+  ocupacao: number | null;
+  caixasDeRota: number | null;
+  caixasDeAs: number | null;
+  veiculoBm: number | null;
+  rShow: number | null;
+
+  horaDeSaida: string;
+  horaDeEntrada: string;
+  kmDeSaida: number | null;
+  kmDeEntrada: number | null;
+  tempoInterno: string;
+  tempoDoLaco: string;
+  tempoDeDeslocamento: string;
+  kmDoLaco: number | null;
+  kmDeDeslocamento: number | null;
+
+  tempoPrevisto: string;
+  kmPrevisto: number | null;
+
+  custoSpot: number | null;
+  custoVariavel: number | null;
+  lucro: number | null;
+  lucroUnitario: number | null;
+  tipoDeImposto: string;
+  valorUnitarioPorCaixaEntregue: number | null;
+  valorPagoPorCaixaSemImposto: number | null;
+  valorPagoPorCaixaComImposto: number | null;
+  valorDropdown: number | null;
+
+  valorUnitarioDoPontoDoMotorista: number | null;
+  valorUnitarioDoPontoDoAjudante: number | null;
+  valorDaEquipeDeEntregaMotorista: number | null;
+  valorDaEquipeDeEntregaAjudante: number | null;
+
+  custoVariavelCedbz: number | null;
+  lucroUnitarioCedbz: number | null;
+  lucroVariavelPorCaixaEntregueFfcedbz: number | null;
+}
+
+export interface Viagem {
+  /** A linha física no 2Art — a ponta da trilha até a célula de origem. */
+  linha: number;
+  dia: string;
+  canal: string;
+  frota: string;
+  placa: string;
+  mapa: string;
+  entregas: number;
+  caixasCarregadas: number;
+  caixasEntregues: number;
+  valorFrete: number;
+  percentualDeImposto: number | null;
+  valorDeImposto: number;
+  valorFaturado: number;
+  detalhe?: DetalheDaViagem;
+}
+
+export interface TotaisDaOperacao {
+  viagens: number;
+  entregas: number;
+  caixasCarregadas: number;
+  caixasEntregues: number;
+  freteSemImposto: number;
+  imposto: number;
+  freteComImposto: number;
+}
+
+export interface DiaDaOperacao {
+  dia: string;
+  numeroDoDia: number;
+  /** 0 = domingo. O nome é da tela, que é quem sabe o idioma. */
+  diaDaSemana: number;
+  totais: TotaisDaOperacao;
+  porFrota: (TotaisDaOperacao & { frota: string })[];
+  porCanal: (TotaisDaOperacao & { canal: string })[];
+}
+
+export interface DiaAberto extends DiaDaOperacao {
+  viagens: Viagem[];
+}
+
+export interface FonteDoDiario {
+  nomeDoArquivo: string;
+  linhasLidas: number;
+  enviadoEm: string;
+}
+
+export interface Diario {
+  competencia: Competencia;
+  /** Nulo quando o 2Art ainda não foi enviado — e aí a grade nasce vazia. */
+  fonte: FonteDoDiario | null;
+  dias: DiaDaOperacao[];
+  /** Viagens do 2Art fora do período: o arquivo é mensal, a competência é meio mês. */
+  viagensForaDoPeriodo: number;
+}
+
+export interface DiaDaCompetencia {
+  competencia: Competencia;
+  fonte: FonteDoDiario | null;
+  dia: DiaAberto;
+}
+
+export function lerDiario(competenciaId: string): Promise<Diario> {
+  return fetchJson<Diario>(`/fechamento/competencias/${competenciaId}/dias`);
+}
+
+export function lerDia(competenciaId: string, dia: string): Promise<DiaDaCompetencia> {
+  return fetchJson<DiaDaCompetencia>(`/fechamento/competencias/${competenciaId}/dias/${dia}`);
+}
+
+/** Como o 2Art escreve o tipo de frota, na palavra que a planilha usa. */
+export const NOME_DA_FROTA: Record<string, string> = {
+  PADRAO: "Padrão",
+  SPOT: "Spot",
+  FIXO: "Fixo",
+  ESPECIAL: "Especial",
+};
+
+/** Domingo a sábado, como o ladrilho os abrevia. */
+export const DIAS_DA_SEMANA = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"];
+
 export function listarFontes(): Promise<Fonte[]> {
   return fetchJson<Fonte[]>("/fechamento/fontes");
 }

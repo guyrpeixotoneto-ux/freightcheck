@@ -6,6 +6,8 @@ import {
   apurarCompetencia,
   buscarCompetencia,
   lerApuracaoVigente,
+  lerDiaDaCompetencia,
+  lerDiarioDaCompetencia,
   listarApuracoes,
   listarCompetencias,
   listarDocumentos,
@@ -20,9 +22,10 @@ import { DESCRICAO_DA_FONTE, TIPOS_DE_FONTE, type TipoDeFonte } from "@workspace
 /**
  * Fechamento de Remuneração — a superfície HTTP do outro ambiente do produto.
  *
- * Cinco rotas, e a ordem delas é a do trabalho: abre-se a competência, enviam-se
+ * Sete rotas, e a ordem delas é a do trabalho: abre-se a competência, enviam-se
  * os documentos que a Ambev exportou, roda-se a apuração, lê-se a conta com as
- * divergências. Nada aqui calcula: a aritmética inteira mora em
+ * divergências — e, quando o número não convence, desce-se ao dia e à viagem
+ * que o produziram. Nada aqui calcula: a aritmética inteira mora em
  * `@workspace/fechamento`, testada sem banco e sem HTTP, e este arquivo só a
  * liga à tela.
  *
@@ -157,6 +160,57 @@ router.get("/fechamento/competencias/:id", async (req, res): Promise<void> => {
     lerApuracaoVigente(db, id),
   ]);
   res.json({ competencia, documentos, apuracao });
+});
+
+/**
+ * O diário da competência: um item por dia do período, com ou sem operação.
+ *
+ * É a grade que a tela abre antes de escolher um dia — a mesma que as abas
+ * `01`…`31` da planilha `Fechamento_Remuneracao.xlsb` formam, só que sem
+ * planilha. O dia sem viagem nenhuma vem na lista com zero, e não some: "não
+ * rodou" e "não importamos o 2Art" são coisas diferentes, e a resposta traz
+ * `fonte: null` quando é o segundo caso.
+ */
+router.get("/fechamento/competencias/:id/dias", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de competência inválido." });
+    return;
+  }
+  const diario = await lerDiarioDaCompetencia(db, id);
+  if (!diario) {
+    res.status(404).json({ error: "Competência não encontrada." });
+    return;
+  }
+  res.json(diario);
+});
+
+/**
+ * Um dia aberto: as viagens daquele dia, inteiras, com os totais por frota.
+ *
+ * O dia vem no caminho em `AAAA-MM-DD` porque é assim que o módulo inteiro
+ * escreve data — a tela é que traduz para `dd/mm`. Dia fora da competência
+ * responde 404, e não uma lista vazia: lista vazia diria "não rodou nada em
+ * 20/08" para uma pergunta sobre uma quinzena que termina em 15/08.
+ */
+router.get("/fechamento/competencias/:id/dias/:dia", async (req, res): Promise<void> => {
+  const { id, dia } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de competência inválido." });
+    return;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dia)) {
+    res.status(400).json({ error: "O dia precisa vir em AAAA-MM-DD." });
+    return;
+  }
+  const aberto = await lerDiaDaCompetencia(db, id, dia);
+  if (!aberto) {
+    res.status(404).json({
+      error: "Não há esse dia nesta competência — confira se a data está dentro da quinzena.",
+    });
+    return;
+  }
+  res.json(aberto);
 });
 
 /**
