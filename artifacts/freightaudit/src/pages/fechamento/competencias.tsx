@@ -15,7 +15,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { abrirCompetencia, listarCompetencias, NOME_DO_ESTADO } from "@/lib/fechamento";
+import { ComboboxCriavel } from "@/components/ui/combobox-criavel";
+import {
+  abrirCompetencia,
+  listarCompetencias,
+  listarPartes,
+  NOME_DO_ESTADO,
+  type Parte,
+} from "@/lib/fechamento";
 import { apresentar } from "@/lib/apresentar-erro";
 
 /**
@@ -29,6 +36,35 @@ function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
   return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível concluir.";
 }
+
+/**
+ * O texto digitado, lido como `código — nome`.
+ *
+ * O separador aceita travessão, hífen ou barra porque quem digita não sabe qual
+ * escolhemos, e as três formas são inequívocas: o código de um CDD e o de uma
+ * transportadora são numéricos, então o que vem antes do separador é o código e
+ * o que vem depois é o nome. Sem separador, o texto inteiro vira código — é o
+ * caso de quem digita só `443`, e o nome fica em branco até alguém escrevê-lo.
+ */
+function cadastrar(texto: string): Parte {
+  const partido = /^\s*([^—\-/]+?)\s*[—\-/]\s*(.+?)\s*$/.exec(texto);
+  if (partido) return { codigo: partido[1], nome: partido[2], competencias: 0 };
+  return { codigo: texto.trim(), nome: null, competencias: 0 };
+}
+
+const rotuloDaParte = (p: Parte) => (p.nome ? `${p.codigo} — ${p.nome}` : p.codigo);
+
+const detalheDaParte = (p: Parte) =>
+  p.competencias === 0
+    ? "nova — vai ser cadastrada ao abrir a competência"
+    : `${p.competencias} competência${p.competencias === 1 ? "" : "s"}`;
+
+const previaDaParte = (texto: string) => {
+  const parte = cadastrar(texto);
+  return parte.nome
+    ? `Código ${parte.codigo}, nome “${parte.nome}”.`
+    : `Código ${parte.codigo}, sem nome — escreva “${parte.codigo} — Nome” para nomeá-la.`;
+};
 
 /**
  * Competências — os períodos que o fechamento fecha.
@@ -51,15 +87,14 @@ export default function Competencias() {
   const [ano, setAno] = useState(String(hoje.getFullYear()));
   const [mes, setMes] = useState(String(hoje.getMonth() + 1));
   const [quinzena, setQuinzena] = useState(hoje.getDate() <= 15 ? "1" : "2");
-  const [unidade, setUnidade] = useState("");
-  const [unidadeNome, setUnidadeNome] = useState("");
-  const [transportadora, setTransportadora] = useState("");
-  const [transportadoraNome, setTransportadoraNome] = useState("");
+  const [unidade, setUnidade] = useState<Parte | null>(null);
+  const [transportadora, setTransportadora] = useState<Parte | null>(null);
 
   const competencias = useQuery({
     queryKey: ["fechamento", "competencias"],
     queryFn: listarCompetencias,
   });
+  const partes = useQuery({ queryKey: ["fechamento", "partes"], queryFn: listarPartes });
 
   const abrir = useMutation({
     mutationFn: () =>
@@ -67,19 +102,20 @@ export default function Competencias() {
         ano: Number(ano),
         mes: Number(mes),
         quinzena: Number(quinzena) as 1 | 2,
-        unidade: { codigo: unidade.trim(), nome: unidadeNome.trim() || undefined },
+        unidade: { codigo: unidade!.codigo, nome: unidade!.nome ?? undefined },
         transportadora: {
-          codigo: transportadora.trim(),
-          nome: transportadoraNome.trim() || undefined,
+          codigo: transportadora!.codigo,
+          nome: transportadora!.nome ?? undefined,
         },
       }),
     onSuccess: (criada) => {
       void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "partes"] });
       navegar(`/fechamento/competencias/${criada.id}`);
     },
   });
 
-  const podeAbrir = unidade.trim() !== "" && transportadora.trim() !== "";
+  const podeAbrir = unidade !== null && transportadora !== null;
 
   return (
     <Layout>
@@ -125,41 +161,46 @@ export default function Competencias() {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
-                <Label htmlFor="unidade">Código da unidade (CDD)</Label>
-                <Input
+                <Label htmlFor="unidade">Unidade (CDD)</Label>
+                <ComboboxCriavel<Parte>
                   id="unidade"
-                  value={unidade}
-                  onChange={(e) => setUnidade(e.target.value)}
-                  placeholder="443"
+                  itens={partes.data?.unidades ?? []}
+                  valor={unidade}
+                  aoEscolher={setUnidade}
+                  aoCriar={(texto) => Promise.resolve(cadastrar(texto))}
+                  rotuloDe={rotuloDaParte}
+                  detalheDe={detalheDaParte}
+                  chaveDe={(p) => p.codigo}
+                  placeholder="Escolha ou digite o código e o nome"
+                  rotuloDeCriacao={(texto) => `Usar “${texto}”`}
+                  previaDe={previaDaParte}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="unidade-nome">Nome da unidade</Label>
-                <Input
-                  id="unidade-nome"
-                  value={unidadeNome}
-                  onChange={(e) => setUnidadeNome(e.target.value)}
-                  placeholder="CDD BELEM"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="transportadora">Código da transportadora</Label>
-                <Input
+                <Label htmlFor="transportadora">Transportadora</Label>
+                <ComboboxCriavel<Parte>
                   id="transportadora"
-                  value={transportadora}
-                  onChange={(e) => setTransportadora(e.target.value)}
-                  placeholder="36"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="transportadora-nome">Nome da transportadora</Label>
-                <Input
-                  id="transportadora-nome"
-                  value={transportadoraNome}
-                  onChange={(e) => setTransportadoraNome(e.target.value)}
+                  itens={partes.data?.transportadoras ?? []}
+                  valor={transportadora}
+                  aoEscolher={setTransportadora}
+                  aoCriar={(texto) => Promise.resolve(cadastrar(texto))}
+                  rotuloDe={rotuloDaParte}
+                  detalheDe={detalheDaParte}
+                  chaveDe={(p) => p.codigo}
+                  placeholder="Escolha ou digite o código e o nome"
+                  rotuloDeCriacao={(texto) => `Usar “${texto}”`}
+                  previaDe={previaDaParte}
                 />
               </div>
             </div>
+
+            <p className="text-xs text-muted-foreground">
+              As duas listas são as unidades e transportadoras que já apareceram
+              em alguma competência — não há cadastro à parte. Para uma nova,
+              digite <code className="font-mono">código — nome</code> (por
+              exemplo <code className="font-mono">443 — CDD Belém</code>) e
+              escolha “Usar”.
+            </p>
 
             {abrir.isError && (
               <Alert variant="destructive">
