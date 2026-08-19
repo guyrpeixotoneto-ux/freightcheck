@@ -128,9 +128,7 @@ export default function BookOperador() {
         </h1>
         <p className="text-muted-foreground mt-1 max-w-3xl">
           Os blocos em que o Freightech publica as regras de remuneração da
-          Ambev — o que compõe cada pagamento, o que a transportadora precisa
-          entregar, e sob qual acordo. É o lado que a planilha de vigência não
-          traz: ela exporta o cadastro remunerado da frota, não o regulamento.
+          Ambev — o regulamento que a planilha de vigência não traz.
         </p>
       </header>
 
@@ -142,20 +140,13 @@ export default function BookOperador() {
           />
         )}
 
+        {/*
+          Uma linha visível — os números vivos e a ressalva quando há o que
+          ressalvar — e o modo de usar dobrado num <details>: quem preenche o
+          book todo dia não precisa reler a explicação a cada visita.
+        */}
         <div className="rounded-md border-l-4 border-sky-500 bg-sky-50 px-4 py-3 text-sky-900">
-          <div className="font-semibold text-xs uppercase tracking-wide mb-1 flex items-center gap-1.5">
-            <Info className="w-3.5 h-3.5" />
-            Como este book se preenche
-          </div>
           <p className="text-sm">
-            O índice vem do Freightech; a regra de cada bloco é registrada aqui,
-            de dois jeitos: <strong>escrevendo o texto</strong>, quando ela cabe
-            escrita, ou <strong>anexando o documento</strong> — contrato, manual,
-            planilha — quando ele existe. Abra um cartão para ler, escrever ou
-            anexar. Substituir nunca apaga: cada envio vira uma revisão nova, e
-            a anterior continua no histórico do bloco.
-          </p>
-          <p className="text-sm mt-1.5">
             {entradas.isLoading ? (
               "Conferindo quais blocos já têm regra…"
             ) : (
@@ -164,32 +155,13 @@ export default function BookOperador() {
                   {comRegra} de {BLOCOS_BOOK.length}
                 </strong>{" "}
                 blocos com regra registrada
-                {comDocumento > 0 && (
-                  <>
-                    , {comDocumento} com documento anexado — régua verde e clipe
-                    no cartão
-                  </>
-                )}
-                .
+                {comDocumento > 0 && <>, {comDocumento} com documento anexado</>}
+                . Abra um cartão para ler, escrever ou anexar.
               </>
-            )}{" "}
-            {/*
-              A ressalva só aparece quando há o que ressalvar. Enquanto os dois
-              números batem, repetir "66 de 66 que a base declara" seria ruído
-              numa frase que existe para chamar atenção — e ruído constante é
-              como um alarme para de ser lido.
-            */}
-            {naoTranscritos === 0 ? (
+            )}
+            {naoTranscritos > 0 && (
               <>
-                O índice tem os {TOTAL_DECLARADO_FREIGHTECH} registros da base do
-                Freightech, entre eles {repetidos}{" "}
-                {repetidos === 1
-                  ? "bloco que ela lista duas vezes"
-                  : "blocos que ela lista duas vezes"}
-                .
-              </>
-            ) : (
-              <>
+                {" "}
                 {BLOCOS_BOOK.length} blocos transcritos de{" "}
                 {TOTAL_DECLARADO_FREIGHTECH} que a base de lá declara —{" "}
                 {naoTranscritos}{" "}
@@ -200,6 +172,37 @@ export default function BookOperador() {
               </>
             )}
           </p>
+          <details className="mt-1.5">
+            <summary className="cursor-pointer select-none text-xs font-semibold uppercase tracking-wide hover:opacity-80">
+              <Info className="inline w-3.5 h-3.5 mr-1 align-[-2px]" />
+              Como este book se preenche
+            </summary>
+            <p className="text-sm mt-1.5">
+              O índice vem do Freightech; a regra de cada bloco é registrada
+              aqui, de dois jeitos: <strong>escrevendo o texto</strong>, quando
+              ela cabe escrita, ou <strong>anexando o documento</strong> —
+              contrato, manual, planilha — quando ele existe. No cartão, a régua
+              verde marca quem já tem regra; o clipe, quem tem documento.
+              Substituir nunca apaga: cada envio vira uma revisão nova, e a
+              anterior continua no histórico do bloco.
+              {/*
+                Enquanto os dois números batem, "66 registros, 3 em dobro" é
+                curiosidade de rodapé e mora aqui dentro; quando deixam de
+                bater, a divergência vira ressalva e sobe para a linha visível.
+              */}
+              {naoTranscritos === 0 && (
+                <>
+                  {" "}
+                  O índice tem os {TOTAL_DECLARADO_FREIGHTECH} registros da base
+                  do Freightech, entre eles {repetidos}{" "}
+                  {repetidos === 1
+                    ? "bloco que ela lista duas vezes"
+                    : "blocos que ela lista duas vezes"}
+                  .
+                </>
+              )}
+            </p>
+          </details>
         </div>
 
         <div className="flex flex-wrap items-end gap-4">
