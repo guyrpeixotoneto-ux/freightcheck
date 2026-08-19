@@ -3,6 +3,7 @@ import { erroDoPostgres } from "@workspace/db";
 import { faltaSchema, responderSchemaAusente } from "../lib/schema-ausente";
 import { statusDaRecusa } from "../lib/recusa-de-dominio";
 import { ehFraseParaQuemOpera } from "../lib/classificar-falha";
+import { alertar } from "../lib/alerta";
 
 /**
  * O contrato desta API, sustentado pelo servidor — e não por cada rota.
@@ -193,6 +194,13 @@ function responderFalhaInterna(req: Request, res: Response, err: unknown): void 
     code: CODIGO_ERRO_INTERNO,
     requestId: req.id,
     ...(detalheDe(err) ? { detalhe: detalheDe(err) } : {}),
+  });
+  // O 500 genérico é o evento que ninguém deveria descobrir pelo cliente:
+  // um por janela vira alerta, os demais viram contagem — ver lib/alerta.
+  void alertar({
+    tipo: "HTTP_500",
+    resumo: `500 em ${req.method} ${req.path}`,
+    detalhe: { requestId: req.id, path: req.path },
   });
 }
 

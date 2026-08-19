@@ -1,0 +1,436 @@
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import type { Server } from "node:http";
+import express from "express";
+import { erroEmJson } from "../../middlewares/contrato-json";
+import { captureRaw, preview, promote, receiveFile, stage } from "@workspace/ingest";
+import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
+import { escreverPlanilha, planilhaPadrao } from "@workspace/ingest/testing/planilha";
+import { createDb, encerrarPoolDoProcesso } from "@workspace/db";
+
+/**
+ * `/qlp/administrativo*` — o contrato da superfície, sobre o pipeline real.
+ *
+ * O cálculo mora em `@workspace/qlp` e a comparação no motor canônico; o que se
+ * protege aqui são os estados que a tela promete sustentar, na ordem em que
+ * eles acontecem na vida real:
+ *
+ * 1. nenhum QLP importado — 404 que aponta o caminho, mesmo com vigência de
+ *    equipamento no banco;
+ * 2. uma vigência — quadro inteiro, agregações travadas com o motivo, porque
+ *    todo atributo nasce UNKNOWN;
+ * 3. curadoria confirma efetivo e despesa — as duas métricas destravam, e só
+ *    elas;
+ * 4. segunda vigência com quinzena pulada — o "anterior" é o anterior real da
+ *    série, a quinzena que não existe é recusa nomeada, e o buraco fica visível
+ *    na régua;
+ * 5. alterações — cargo que entra, cargo que sai, quantidade e dinheiro que
+ *    mudam, tudo pelo change-set canônico, com proveniência dos dois lados.
+ */
+
+let ctx: TestDb;
+let servidor: Server;
+let base: string;
+let nomeDoBanco: string;
+
+interface Resposta {
+  status: number;
+  body: any;
+}
+
+async function get(caminho: string): Promise<Resposta> {
+  const res = await fetch(`${base}${caminho}`);
+  return { status: res.status, body: await res.json() };
+}
+
+async function post(caminho: string, corpo: unknown): Promise<Resposta> {
+  const res = await fetch(`${base}${caminho}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(corpo),
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+async function importarQlp(arquivo: string): Promise<void> {
+  const recebido = await receiveFile(ctx.db, {
+    filePath: arquivo,
+    declaredType: "QLP_ADMINISTRATIVO",
+  });
+  await captureRaw(ctx.db, recebido.importRunId);
+  await stage(ctx.db, recebido.importRunId);
+  const relatorio = await preview(ctx.db, recebido.importRunId);
+  expect(relatorio.blockingErrors).toBe(0);
+  await promote(ctx.db, recebido.importRunId);
+}
+
+/** As colunas de fato além das duas padrão — nomes reais do dicionário. */
+const COLUNAS = [
+  "Quantidade Ordenados",
+  "Salário Ordenados",
+  "Despesa Ordenados",
+  "QLP Benchmark Quantidade",
+];
+
+const UNIDADE_B = "20.618.821/0007-99";
+
+const cargo = (
+  nome: string,
+  valores: { qtd: number; salario: number; despesa: number; benchmark: number },
+  unidadeCnpj?: string,
+) => ({
+  placa: nome,
+  ...(unidadeCnpj ? { unidadeCnpj } : {}),
+  valores: {
+    "Quantidade Ordenados": valores.qtd,
+    "Salário Ordenados": valores.salario,
+    "Despesa Ordenados": valores.despesa,
+    "QLP Benchmark Quantidade": valores.benchmark,
+  },
+});
+
+const primeiraQuinzena = () =>
+  escreverPlanilha({
+    vigencia: "EMPURRADA_1_8_2026",
+    abas: [
+      {
+        nome: "TABELA DE QLP ADM",
+        identificador: "Cargo",
+        colunas: COLUNAS,
+        linhas: [
+          cargo("COORDENADOR ADM", { qtd: 1, salario: 9800, despesa: 9800, benchmark: 1 }),
+          cargo("ANALISTA ADM", { qtd: 3, salario: 4600, despesa: 13800, benchmark: 2 }),
+          cargo("AUXILIAR ADM", { qtd: 4, salario: 2400, despesa: 9600, benchmark: 4 }),
+          cargo(
+            "COORDENADOR ADM",
+            { qtd: 1, salario: 10400, despesa: 10400, benchmark: 1 },
+            UNIDADE_B,
+          ),
+        ],
+      },
+    ],
+  });
+
+/*
+  A quinzena seguinte importada é a de **setembro**: a 2ª de agosto não existe
+  de propósito, porque o buraco na régua é um dos estados que a tela promete
+  mostrar. Entre as duas: o AUXILIAR sai da unidade A, um AUXILIAR entra na
+  unidade B, e o ANALISTA da A perde efetivo (3→2) e despesa (13800→9200).
+*/
+const quinzenaDeSetembro = () =>
+  escreverPlanilha({
+    vigencia: "EMPURRADA_1_9_2026",
+    abas: [
+      {
+        nome: "TABELA DE QLP ADM",
+        identificador: "Cargo",
+        colunas: COLUNAS,
+        linhas: [
+          cargo("COORDENADOR ADM", { qtd: 1, salario: 9800, despesa: 9800, benchmark: 1 }),
+          cargo("ANALISTA ADM", { qtd: 2, salario: 4600, despesa: 9200, benchmark: 2 }),
+          cargo(
+            "COORDENADOR ADM",
+            { qtd: 1, salario: 10400, despesa: 10400, benchmark: 1 },
+            UNIDADE_B,
+          ),
+          cargo(
+            "AUXILIAR ADM",
+            { qtd: 1, salario: 2600, despesa: 2600, benchmark: 2 },
+            UNIDADE_B,
+          ),
+        ],
+      },
+    ],
+  });
+
+beforeAll(async () => {
+  ctx = await createTestDatabase("api_qlp");
+  process.env.DATABASE_URL = ctx.url;
+  nomeDoBanco = ctx.url.replace(/^.*\//, "").replace(/\?.*$/, "");
+
+  const { default: qlpRouter } = await import("../qlp");
+  const { default: changesRouter } = await import("../changes");
+  const { default: curationRouter } = await import("../curation");
+
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    (req as unknown as { log: unknown }).log = {
+      error: () => {},
+      warn: () => {},
+      info: () => {},
+    };
+    // A curadoria assina pela sessão; nos testes a sessão é esta.
+    (req as unknown as { user: unknown }).user = { email: "teste@freightcheck" };
+    next();
+  });
+  app.use(qlpRouter);
+  app.use(changesRouter);
+  app.use(curationRouter);
+  app.use(erroEmJson);
+
+  servidor = await new Promise<Server>((resolve) => {
+    const s = app.listen(0, "127.0.0.1", () => resolve(s));
+  });
+  const endereco = servidor.address();
+  if (typeof endereco === "string" || endereco === null) throw new Error("sem porta");
+  base = `http://127.0.0.1:${endereco.port}`;
+}, 300_000);
+
+afterAll(async () => {
+  if (servidor) {
+    servidor.closeAllConnections();
+    await new Promise<void>((resolve) => servidor.close(() => resolve()));
+  }
+  await ctx?.pool.end().catch(() => {});
+  await encerrarPoolDoProcesso().catch(() => {});
+
+  const admin = createDb(
+    process.env.TEST_ADMIN_DATABASE_URL ??
+      "postgresql://postgres@/postgres?host=/tmp/pgsock&port=5433",
+  );
+  await admin.pool.query(
+    `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+      WHERE datname = $1 AND pid <> pg_backend_pid()`,
+    [nomeDoBanco],
+  );
+  await admin.pool.query(`DROP DATABASE IF EXISTS "${nomeDoBanco}" WITH (FORCE)`);
+  await admin.pool.end();
+}, 60_000);
+
+describe("a superfície do QLP Administrativo, na ordem em que a vida acontece", () => {
+  let entityIdDoAnalista = "";
+  let changeSetId = "";
+
+  it("sem QLP nenhum: 404 com a frase que aponta o caminho", async () => {
+    const quadro = await get("/qlp/administrativo");
+    expect(quadro.status).toBe(404);
+    expect(quadro.body.error).toMatch(/QLP Administrativo/);
+
+    const evolucao = await get("/qlp/administrativo/evolucao");
+    expect(evolucao.status).toBe(404);
+
+    const detalhe = await get(
+      "/qlp/administrativo/entidades/00000000-0000-4000-8000-000000000000",
+    );
+    expect(detalhe.status).toBe(404);
+  });
+
+  it("vigência de equipamento não acende o quadro — o QLP tem família própria", async () => {
+    const recebido = await receiveFile(ctx.db, { filePath: escreverPlanilha(planilhaPadrao()) });
+    await captureRaw(ctx.db, recebido.importRunId);
+    await stage(ctx.db, recebido.importRunId);
+    const relatorio = await preview(ctx.db, recebido.importRunId);
+    await promote(ctx.db, recebido.importRunId, {
+      confirmNewEntityTypes: relatorio.pendingIdentities,
+    });
+
+    const quadro = await get("/qlp/administrativo");
+    expect(quadro.status).toBe(404);
+  });
+
+  it("uma vigência: o quadro inteiro, com as agregações travadas e o motivo escrito", async () => {
+    await importarQlp(primeiraQuinzena());
+
+    const { status, body } = await get("/qlp/administrativo");
+    expect(status).toBe(200);
+
+    expect(body.effectiveDate).toBe("2026-08-01");
+    expect(body.anterior).toBeNull();
+    expect(body.vigencias.map((v: any) => v.effectiveDate)).toEqual(["2026-08-01"]);
+    expect(body.vigencias[0].sourceLabels).toContain("EMPURRADA_1_8_2026");
+
+    expect(body.resumo.cargos).toBe(4);
+    expect(body.resumo.unidades).toBe(2);
+
+    // Todo atributo nasce UNKNOWN: as duas métricas vêm sem valor e com o
+    // motivo por extenso — nunca um zero.
+    expect(body.resumo.efetivo.valor).toBeNull();
+    expect(body.resumo.efetivo.motivo).toMatch(/curadoria/i);
+    expect(body.resumo.custo.valor).toBeNull();
+    expect(body.resumo.custo.motivo).toMatch(/Curadoria/);
+    expect(body.resumo.curadoria.confirmados).toBe(0);
+    expect(body.resumo.curadoria.total).toBe(11);
+
+    const quantidade = body.atributos.find(
+      (a: any) => a.code === "qlp_administrativo.quantidade_ordenados",
+    );
+    expect(quantidade.semantica.status).toBe("UNKNOWN");
+
+    const unidadeA = body.unidades.find((u: any) => u.cnpj === "07526557001505");
+    expect(unidadeA.cargos.map((c: any) => c.cargo)).toEqual([
+      "ANALISTA ADM",
+      "AUXILIAR ADM",
+      "COORDENADOR ADM",
+    ]);
+    const analista = unidadeA.cargos.find((c: any) => c.cargo === "ANALISTA ADM");
+    expect(analista.valores["qlp_administrativo.quantidade_ordenados"]).toBe(3);
+    entityIdDoAnalista = analista.entityId;
+
+    // Filtro estreita a lista, nunca o resumo.
+    const filtrado = await get("/qlp/administrativo?busca=analista");
+    expect(filtrado.body.resumo.cargos).toBe(4);
+    const visiveis = filtrado.body.unidades.flatMap((u: any) => u.cargos);
+    expect(visiveis).toHaveLength(1);
+    expect(visiveis[0].cargo).toBe("ANALISTA ADM");
+
+    const porUnidade = await get(`/qlp/administrativo?unidade=${UNIDADE_B}`);
+    expect(porUnidade.body.unidades).toHaveLength(1);
+    expect(porUnidade.body.unidades[0].cnpj).toBe("20618821000799");
+  });
+
+  it("a ficha do cargo traz cada fato com a célula de origem, no mesmo pedido", async () => {
+    const { status, body } = await get(
+      `/qlp/administrativo/entidades/${entityIdDoAnalista}`,
+    );
+    expect(status).toBe(200);
+    expect(body.cargo).toBe("ANALISTA ADM");
+    expect(body.chaveLegivel).toContain(" · ");
+    expect(body.presente).toBe(true);
+    expect(body.atributos).toHaveLength(11);
+
+    const despesa = body.atributos.find(
+      (a: any) => a.code === "qlp_administrativo.despesa_ordenados",
+    );
+    expect(despesa.valor).toBe(13800);
+    expect(despesa.origem.aba).toBe("TABELA DE QLP ADM");
+    expect(despesa.origem.linha).toBeGreaterThan(1);
+    expect(despesa.origem.coluna).toBeTruthy();
+    expect(despesa.origem.valorBruto).toBe("13800");
+    expect(despesa.origem.arquivo).toMatch(/\.xlsx$/);
+
+    const invalido = await get("/qlp/administrativo/entidades/nao-e-uuid");
+    expect(invalido.status).toBe(400);
+  });
+
+  it("confirmar a semântica na curadoria destrava exatamente o que foi confirmado", async () => {
+    const efetivo = await post(
+      "/curation/attributes/qlp_administrativo.quantidade_ordenados/confirm",
+      { aggregation: "SUM", isMonetary: false, reason: "teste: efetivo reconhecido" },
+    );
+    expect(efetivo.status).toBe(200);
+
+    const despesa = await post(
+      "/curation/attributes/qlp_administrativo.despesa_ordenados/confirm",
+      {
+        unit: "BRL",
+        periodicity: "MENSAL",
+        aggregation: "SUM",
+        isMonetary: true,
+        reason: "teste: montante de ordenados",
+      },
+    );
+    expect(despesa.status).toBe(200);
+
+    const { body } = await get("/qlp/administrativo");
+    expect(body.resumo.efetivo.valor).toBe(9); // 1 + 3 + 4 + 1
+    expect(body.resumo.efetivo.motivo).toBeNull();
+    expect(body.resumo.custo.valor).toBe(43600); // 9800 + 13800 + 9600 + 10400
+    expect(body.resumo.custo.motivo).toBeNull();
+    // O resto continua pendente, e a resposta diz isso.
+    expect(body.resumo.apuracaoCompleta).toBe(false);
+    expect(body.resumo.numericosPendentes).toBeGreaterThan(0);
+    expect(body.resumo.curadoria.confirmados).toBe(2);
+  });
+
+  it("segunda vigência com quinzena pulada: anterior real, buraco visível, quinzena inexistente é recusa", async () => {
+    await importarQlp(quinzenaDeSetembro());
+
+    const { body } = await get("/qlp/administrativo");
+    expect(body.effectiveDate).toBe("2026-09-01");
+    expect(body.anterior).toBe("2026-08-01");
+    // A 2ª quinzena de agosto não foi importada: a régua mostra só o que
+    // existe, e o buraco é a data que falta entre as duas.
+    expect(body.vigencias.map((v: any) => v.effectiveDate)).toEqual([
+      "2026-08-01",
+      "2026-09-01",
+    ]);
+
+    const antiga = await get("/qlp/administrativo?period=2026-08-01");
+    expect(antiga.status).toBe(200);
+    expect(antiga.body.effectiveDate).toBe("2026-08-01");
+
+    const inexistente = await get("/qlp/administrativo?period=2026-08-15");
+    expect(inexistente.status).toBe(404);
+    expect(inexistente.body.error).toMatch(/2026-08-15/);
+  });
+
+  it("a evolução mostra a presença: quem saiu, quem entrou, e a janela recusa ponta que não existe", async () => {
+    const { status, body } = await get("/qlp/administrativo/evolucao");
+    expect(status).toBe(200);
+    expect(body.vigencias.map((v: any) => v.effectiveDate)).toEqual([
+      "2026-08-01",
+      "2026-09-01",
+    ]);
+    expect(body.vigencias.map((v: any) => v.cargos)).toEqual([4, 4]);
+
+    const linha = (unidade: string, cargo: string) =>
+      body.quadro.find(
+        (q: any) => q.unidadeCnpj === unidade && q.cargo === cargo,
+      );
+    expect(linha("07526557001505", "AUXILIAR ADM").presencas).toEqual([true, false]);
+    expect(linha("20618821000799", "AUXILIAR ADM").presencas).toEqual([false, true]);
+    expect(linha("07526557001505", "ANALISTA ADM").presencas).toEqual([true, true]);
+
+    const recortada = await get("/qlp/administrativo/evolucao?de=2026-09-01");
+    expect(recortada.body.vigencias).toHaveLength(1);
+
+    const invalida = await get("/qlp/administrativo/evolucao?de=2026-08-15");
+    expect(invalida.status).toBe(400);
+  });
+
+  it("alterações saem do change-set canônico: entrada, saída, quantidade e dinheiro", async () => {
+    const snapshots = await get("/snapshots");
+    const doQuadro = snapshots.body.filter(
+      (s: any) => s.entityTypeSet === "QLP_ADMINISTRATIVO",
+    );
+    expect(doQuadro).toHaveLength(2);
+
+    const criado = await post("/change-sets", {
+      snapshotAId: doQuadro[0].id,
+      snapshotBId: doQuadro[1].id,
+    });
+    expect(criado.status).toBeLessThan(300);
+    changeSetId = criado.body.id;
+    expect(criado.body.entitiesAdded).toBe(1);
+    expect(criado.body.entitiesRemoved).toBe(1);
+
+    const entradas = await get(
+      `/change-sets/${changeSetId}/changes?changeType=ENTITY_ADDED`,
+    );
+    expect(entradas.body.rows).toHaveLength(1);
+    // O motor rotula a linha com a chave normalizada da entidade — a tradução
+    // para o nome legível é da apresentação (`components/qlp/apresentacao.ts`),
+    // e a dívida de gravar o rótulo cru está registrada em `lib/qlp`.
+    expect(entradas.body.rows[0].entityLabel).toBe("20618821000799AUXILIARADM");
+    expect(entradas.body.rows[0].entityType).toBe("QLP_ADMINISTRATIVO");
+
+    const saidas = await get(
+      `/change-sets/${changeSetId}/changes?changeType=ENTITY_REMOVED`,
+    );
+    expect(saidas.body.rows).toHaveLength(1);
+    expect(saidas.body.rows[0].entityLabel).toBe("07526557001505AUXILIARADM");
+
+    const quantidade = await get(
+      `/change-sets/${changeSetId}/changes?attributeCode=qlp_administrativo.quantidade_ordenados`,
+    );
+    const mudancaDeQuadro = quantidade.body.rows.find(
+      (r: any) => r.changeType === "VALUE_CHANGED",
+    );
+    expect(Number(mudancaDeQuadro.valueBefore)).toBe(3);
+    expect(Number(mudancaDeQuadro.valueAfter)).toBe(2);
+
+    const despesa = await get(
+      `/change-sets/${changeSetId}/changes?attributeCode=qlp_administrativo.despesa_ordenados`,
+    );
+    const mudancaDeDinheiro = despesa.body.rows.find(
+      (r: any) => r.changeType === "VALUE_CHANGED",
+    );
+    expect(Number(mudancaDeDinheiro.valueBefore)).toBe(13800);
+    expect(Number(mudancaDeDinheiro.valueAfter)).toBe(9200);
+
+    const proveniencia = await get(`/changes/${mudancaDeDinheiro.id}/provenance`);
+    expect(proveniencia.status).toBe(200);
+    expect(proveniencia.body.sheet_before ?? proveniencia.body.sheetBefore).toBeTruthy();
+    expect(proveniencia.body.sheet_after ?? proveniencia.body.sheetAfter).toBeTruthy();
+  });
+});

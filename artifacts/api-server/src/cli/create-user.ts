@@ -63,9 +63,12 @@ try {
     name: name!,
     email: email!,
     password,
+    // A conta do terminal é a primeira de um ambiente novo — sem um ADMIN,
+    // ninguém criaria as demais pela tela.
+    role: "ADMIN",
   });
   const total = await countUsers(db);
-  console.log(`Conta criada: ${user.name} <${user.email}>.`);
+  console.log(`Conta criada: ${user.name} <${user.email}> (ADMIN).`);
   console.log(`Este ambiente agora tem ${total} conta(s).`);
   process.exit(0);
 } catch (err) {

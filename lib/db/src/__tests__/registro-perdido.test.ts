@@ -123,6 +123,11 @@ describe("registro de migrations perdido", () => {
       "0023_semantica_coerente",
       "0025_semantica_inicial",
       "0031_taxonomia_semantica",
+      // A 0036 só redefine funções que a 0015 criou (CREATE OR REPLACE, mesma
+      // assinatura, corpos com schema qualificado): nenhuma inspeção da forma
+      // do schema prova que a versão restaurável é a que está lá. Rodar é o
+      // certo, e é no-op estrutural — a segunda passada deixa tudo no lugar.
+      "0036_funcoes_restauraveis",
     ];
     expect(segunda.adopted).toEqual(
       primeira.applied.filter((tag) => !semObjetoNovo.includes(tag)),

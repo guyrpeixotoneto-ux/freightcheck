@@ -24,6 +24,7 @@
     "@workspace/dre": "workspace:*",
     "@workspace/ingest": "workspace:*",
     "@workspace/knowledge": "workspace:*",
+    "@workspace/qlp": "workspace:*",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.6",
     "drizzle-orm": "catalog:",

@@ -257,8 +257,29 @@
     {
       "idx": 36,
       "version": "7",
-      "when": 1787076523854,
-      "tag": "0036_fechamento",
+      "when": 1787090551732,
+      "tag": "0036_funcoes_restauraveis",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1787093165522,
+      "tag": "0037_papeis",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1787094126074,
+      "tag": "0038_reconciliar_papeis",
+      "breakpoints": true
+    },
+    {
+      "idx": 39,
+      "version": "7",
+      "when": 1787104896038,
+      "tag": "0039_fechamento",
       "breakpoints": true
     }
   ]

@@ -1,3 +1,4 @@
+import { excluidoDaSoma } from "@workspace/comparison/deduplicacao";
 import type { BalancoResumo } from "@/components/balanco/tipos";
 import type {
   ChangeGroup,
@@ -517,7 +518,7 @@ export function detalheDoImpacto(
     semPreco: parametro.impact.notCalculable,
     excluido: {
       alteracoes: parametro.impact.excludedChanges,
-      valor: parametro.impact.excludedByPeriodicity[escolhida] ?? null,
+      valor: excluidoDaSoma(parametro.impact)[escolhida] ?? null,
     },
     outras: Object.entries(buckets)
       .filter(([p]) => p !== escolhida)

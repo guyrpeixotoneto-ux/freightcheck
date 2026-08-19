@@ -50,33 +50,23 @@ import type { JanelaDeVigencias } from "@/components/changes/janela-vigencias";
  * parecer errada; escrevê-la é o que a torna conferível.
  */
 
-export interface TicketSubjectRollup {
-  subject: string | null;
-  changes: number;
-  calculated: number;
-  impactSum: number | null;
-}
-
-export interface TicketParameterInClass {
-  parameterLabel: string;
-  attributeCode: string | null;
-  changes: number;
-  calculated: number;
-  impactSum: number | null;
-  porque: string | null;
-  tambemEm: string[];
-  subjects: TicketSubjectRollup[];
-}
-
-export interface TicketClassRollup {
-  classe: string;
-  nome: string;
-  descricao: string;
-  changes: number;
-  calculated: number;
-  impactSum: number | null;
-  parameters: TicketParameterInClass[];
-}
+/*
+  Os tipos são os do servidor, não cópias — a cópia local carregou um
+  `impactSum` de classe que somava mensal com anual, e teria continuado a
+  compilar depois de o servidor parar de enviá-lo. `import type` é apagado na
+  compilação; o typecheck acusa o drift no commit em que ele nasce.
+*/
+export type {
+  TicketClassRollup,
+  TicketParameterInClass,
+  TicketSubjectRollup,
+} from "@workspace/comparison";
+import type {
+  TicketClassRollup,
+  TicketParameterInClass,
+  TicketSubjectRollup,
+} from "@workspace/comparison";
+import { impactEntries } from "@/lib/format";
 
 export interface TicketClassificationResponse {
   import: { id: string; filename: string } | null;
@@ -297,7 +287,7 @@ function CartaoDeClasse({
           {classe.parameters.length} parâmetro
           {classe.parameters.length === 1 ? "" : "s"} · {fatia}%
         </span>
-        <ImpactoCurto soma={classe.impactSum} apuradas={classe.calculated} />
+        <ImpactoDaClasse impacto={classe.impacto} />
       </div>
     </button>
   );
@@ -312,14 +302,36 @@ function CartaoDeClasse({
 function ImpactoCurto({
   soma,
   apuradas,
+  regua,
 }: {
   soma: number | null;
   apuradas: number;
+  /** A régua financeira do parâmetro; sem ela, o escalar não é dinheiro. */
+  regua?: { somavel: boolean; motivo: string | null; periodicidade: string } | null;
 }) {
   if (soma === null || apuradas === 0) {
     return (
       <span className="text-muted-foreground" title="nenhuma delas tem impacto apurado">
         sem impacto apurado
+      </span>
+    );
+  }
+  /*
+    Variação apurada num parâmetro que a régua financeira não deixa somar —
+    sem semântica confirmada, não monetário, ou sem coluna no modelo. O número
+    existe e fica à vista; R$ ele não é, e a tela diz isso em vez de pintar.
+  */
+  if (regua !== undefined && (regua === null || !regua.somavel)) {
+    return (
+      <span
+        className="text-muted-foreground"
+        title={
+          regua?.motivo ??
+          "parâmetro sem coluna correspondente no modelo — a régua financeira não o alcança"
+        }
+      >
+        variação {soma > 0 ? "+" : ""}
+        {brl0(soma).replace("R$", "").trim()} — fora da régua
       </span>
     );
   }
@@ -333,6 +345,57 @@ function ImpactoCurto({
     >
       {soma > 0 ? "+" : ""}
       {brl0(soma)}
+    </span>
+  );
+}
+
+/**
+ * O impacto de uma classe — baldes por periodicidade, nunca um escalar.
+ *
+ * A soma da classe atravessa parâmetros; quem decide o que entra é a mesma
+ * régua da Planilha, no servidor, e o que ficou fora chega contado.
+ */
+function ImpactoDaClasse({
+  impacto,
+}: {
+  impacto: {
+    porPeriodicidade: Record<string, number>;
+    alteracoesSomadas: number;
+    foraDaRegua: number;
+  };
+}) {
+  const entradas = impactEntries(impacto.porPeriodicidade).sort(
+    (a, b) => Math.abs(b.amount) - Math.abs(a.amount),
+  );
+  if (entradas.length === 0) {
+    return (
+      <span
+        className="text-muted-foreground"
+        title={
+          impacto.foraDaRegua > 0
+            ? `${numero(impacto.foraDaRegua)} alterações apuradas fora da régua financeira`
+            : "nenhuma delas tem impacto apurado"
+        }
+      >
+        sem impacto na régua
+      </span>
+    );
+  }
+  const negativo = entradas[0].amount < 0;
+  return (
+    <span
+      className={cn(
+        "font-mono tabular-nums font-medium",
+        negativo ? "text-red-600" : "text-emerald-700",
+      )}
+      title={
+        `${numero(impacto.alteracoesSomadas)} alterações entram nesta soma` +
+        (impacto.foraDaRegua > 0
+          ? ` · ${numero(impacto.foraDaRegua)} apuradas fora da régua`
+          : "")
+      }
+    >
+      {entradas.map((e) => e.label).join(" · ")}
     </span>
   );
 }
@@ -512,6 +575,7 @@ function LinhaDeParametro({
             <ImpactoCurto
               soma={parametro.impactSum}
               apuradas={parametro.calculated}
+              regua={parametro.regua}
             />
           </div>
         </div>

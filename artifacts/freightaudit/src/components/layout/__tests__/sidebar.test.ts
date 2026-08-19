@@ -141,11 +141,12 @@ describe("o catálogo de telas em preparo", () => {
   /*
     O número cai quando uma tela fica pronta, e é isso que ele mede.
 
-    Eram dezoito; `/impacto-financeiro` saiu ao virar Alterações › Impacto, e
-    `/cavalo-360` e `/carreta-360` saíram ao virar `pages/frota-360.tsx` — as
-    quatro leituras de Alterações recortadas no equipamento, com a placa como
-    segundo nível. As rotas dos três passaram a ser `<Route>` de verdade em
-    `App.tsx`, e o teste acima, o dos órfãos, é o que garante que nenhum item do
+    Eram dezoito; `/impacto-financeiro` saiu ao virar Alterações › Impacto,
+    `/cavalo-360` e `/carreta-360` saíram ao virar `pages/frota-360.tsx`, e
+    `/qlp-administrativo` saiu quando a importação passou a receber o export
+    próprio do QLP ADM e a tela de verdade nasceu em
+    `pages/qlp-administrativo.tsx`. As rotas passaram a ser `<Route>` de
+    verdade em `App.tsx`, e o teste acima, o dos órfãos, garante que nenhum item do
     menu ficou apontando para o vazio na troca. Baixá-lo aqui é o último passo
     de entregar uma tela; subi-lo sem acrescentar `pergunta` e `depende` é o que
     este caso recusa.
@@ -154,7 +155,7 @@ describe("o catálogo de telas em preparo", () => {
     const catalogo = fonte("pages/telas-em-preparo.ts");
     const telas = [...catalogo.matchAll(/^\s{4}href:\s*"([^"]+)"/gm)].length;
 
-    expect(telas).toBe(17);
+    expect(telas).toBe(16);
     expect([...catalogo.matchAll(/^\s{4}depende:\s*\[/gm)]).toHaveLength(telas);
     expect([...catalogo.matchAll(/^\s{4}pergunta:/gm)]).toHaveLength(telas);
   });

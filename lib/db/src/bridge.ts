@@ -174,6 +174,28 @@ const TABELAS_REMOVIDAS = [
   "ticket_import_deletion",
   "coverage_expectation",
   "entity_expectation",
+  /*
+    As dez do Fechamento, da `0039`. Elas entram aqui inteiras, e na ordem em
+    que o `RESTRICT` do `down` as aceita — filha antes de mãe —, porque o
+    ambiente é novo: Production não o conhece, e até rodar a fila toda tabela
+    dele é uma tabela que a proposta do Publishing proporia criar.
+
+    A pré-condição de vazia é a certa também aqui, e por um motivo que vale
+    além do padrão: uma competência guarda os cinco relatórios que a Ambev
+    exportou naquela quinzena e a conta que se cobrou a partir deles. Derrubá-la
+    com linhas dentro apagaria a prova de uma cobrança — exatamente o que o
+    gatilho `fechamento_*_congelada` existe para impedir do outro lado.
+  */
+  "fechamento_divergencia",
+  "fechamento_apuracao_verba",
+  "fechamento_apuracao",
+  "fechamento_conciliacao_item",
+  "fechamento_disponibilidade",
+  "fechamento_requisicao",
+  "fechamento_cte",
+  "fechamento_viagem",
+  "fechamento_documento",
+  "fechamento_competencia",
 ];
 
 /**
@@ -266,6 +288,15 @@ export const COLUNAS_REMOVIDAS: [string, string][] = [
   ["change_set", "impacto_oficial_by_periodicity"],
   ["change_set", "deducao_rastro"],
   ["change_set", "mudancas_fora_do_total"],
+  /*
+    A `0037`, pelo mesmo contrato: `app_user.role` é NOT NULL com default,
+    forma que a allowlist não aceita. Diferente das colunas de `change_set`,
+    ela é decisão de gente — e é por isso que a `0038` que a repõe refaz o
+    backfill pela mesma sentinela da `0037` (sem nenhum ADMIN, as contas
+    existentes viram ADMIN): um Development que passe por down sem up volta ao
+    estado pós-migration, nunca a um estado sem papel.
+  */
+  ["app_user", "role"],
 ];
 
 /** Índices que o `down` remove. Exportada pelo motivo de `COLUNAS_REMOVIDAS`. */
@@ -345,6 +376,9 @@ const CHECKS_REMOVIDOS: [string, string][] = [
   // aceita, então o `down` as derruba e o `up` as repõe.
   ["attribute", "attribute_semantica_coerente"],
   ["attribute_semantics", "attribute_semantics_semantica_coerente"],
+  // A `0037` — o CHECK cai junto com a coluna `role`; está aqui para o `up`
+  // e a `0038` o reporem em par com ela.
+  ["app_user", "app_user_role_ck"],
 ];
 
 const NULLABLE_TEMPORARIO: [string, string][] = [
@@ -1351,6 +1385,106 @@ function planoUp(): PassoUp[] {
       `change_set.${col}`,
       levantar(M33, new RegExp(`ALTER TABLE "change_set"\\s+ADD COLUMN IF NOT EXISTS "${col}"`)),
     );
+  }
+
+  // A `0037` — coluna, backfill e CHECK, levantados da própria migration.
+  // O backfill entra porque `role` é decisão de gente com uma sentinela
+  // reentrante (sem nenhum ADMIN, as contas existentes viram ADMIN): um up que
+  // repusesse só a estrutura deixaria todo mundo OPERADOR — inclusive quem
+  // precisa entrar em Configurações para consertar isso.
+  const M37 = "0037_papeis";
+  add(M37, "app_user.role", levantar(M37, /ALTER TABLE "app_user" ADD COLUMN IF NOT EXISTS "role"/));
+  // O backfill é a segunda escrita de linha do plano, marcada como tal: `role`
+  // é decisão de gente com sentinela reentrante (sem nenhum ADMIN, as contas
+  // existentes viram ADMIN). Um up só de estrutura deixaria todo mundo
+  // OPERADOR — inclusive quem precisaria entrar em Configurações para
+  // consertar isso.
+  p.push({
+    migration: M37,
+    objeto: "app_user.role (backfill)",
+    sql: reconstruir(M37, /UPDATE "app_user"/),
+    reconstroiDados: true,
+  });
+  add(M37, "app_user_role_ck (drop)", levantar(M37, /DROP CONSTRAINT IF EXISTS "app_user_role_ck"/));
+  add(M37, "app_user_role_ck", levantar(M37, /ADD CONSTRAINT "app_user_role_ck"/));
+
+  /*
+    A `0039` — o ambiente Fechamento inteiro, que o `down` remove porque
+    Production ainda não o conhece.
+
+    A ordem aqui é a da migration e importa: tabela antes de FK, FK antes de
+    índice, e a função de gatilho antes dos gatilhos que a chamam. Cada chave e
+    cada gatilho é levantado pelo próprio nome — a migration os escreve um por
+    bloco reentrante, e não em laço, exatamente para que possam ser
+    endereçados assim aqui e pela reconvergência da partida.
+  */
+  const M39 = "0039_fechamento";
+  const TABELAS_DO_FECHAMENTO = [
+    "fechamento_competencia",
+    "fechamento_documento",
+    "fechamento_viagem",
+    "fechamento_cte",
+    "fechamento_requisicao",
+    "fechamento_disponibilidade",
+    "fechamento_conciliacao_item",
+    "fechamento_apuracao",
+    "fechamento_apuracao_verba",
+    "fechamento_divergencia",
+  ];
+  for (const t of TABELAS_DO_FECHAMENTO) {
+    add(M39, t, levantar(M39, new RegExp(`CREATE TABLE IF NOT EXISTS "${t}" \\(`)));
+  }
+  for (const nome of [
+    "fechamento_documento_competencia_fk",
+    ...["fechamento_viagem", "fechamento_cte", "fechamento_requisicao",
+        "fechamento_disponibilidade", "fechamento_conciliacao_item"].flatMap((t) => [
+      `${t}_documento_fk`,
+      `${t}_competencia_fk`,
+    ]),
+    "fechamento_apuracao_competencia_fk",
+    "fechamento_apuracao_verba_apuracao_fk",
+    "fechamento_divergencia_apuracao_fk",
+  ]) {
+    add(M39, `FK ${nome}`, levantar(M39, new RegExp(`ADD CONSTRAINT "${nome}"`)));
+  }
+  for (const i of [
+    "fechamento_competencia_unica",
+    "fechamento_competencia_por_periodo",
+    "fechamento_documento_sem_repeticao",
+    "fechamento_documento_vigente_unico",
+    "fechamento_documento_por_competencia",
+    "fechamento_viagem_por_competencia",
+    "fechamento_viagem_por_documento",
+    "fechamento_cte_por_verba",
+    "fechamento_cte_por_documento",
+    "fechamento_requisicao_por_verba",
+    "fechamento_requisicao_por_documento",
+    "fechamento_disponibilidade_por_dia",
+    "fechamento_disponibilidade_por_documento",
+    "fechamento_conciliacao_item_por_secao",
+    "fechamento_conciliacao_item_por_documento",
+    "fechamento_apuracao_vigente_unica",
+    "fechamento_apuracao_por_competencia",
+    "fechamento_apuracao_verba_unica",
+    "fechamento_divergencia_por_apuracao",
+  ]) {
+    add(M39, `índice ${i}`, levantar(M39, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
+  add(
+    M39,
+    "fechamento_recusar_escrita_em_encerrada()",
+    levantar(M39, /CREATE OR REPLACE FUNCTION fechamento_recusar_escrita_em_encerrada/),
+  );
+  for (const t of [
+    "fechamento_documento",
+    "fechamento_viagem",
+    "fechamento_cte",
+    "fechamento_requisicao",
+    "fechamento_disponibilidade",
+    "fechamento_conciliacao_item",
+    "fechamento_apuracao",
+  ]) {
+    add(M39, `gatilho ${t}_congelada`, levantar(M39, new RegExp(`CREATE TRIGGER "${t}_congelada"`)));
   }
 
   // 5. Obrigatoriedade e constraints.

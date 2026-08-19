@@ -97,13 +97,17 @@ export interface ChangeGroup {
   badgeLabel: string;
 }
 
-export interface ImpactSummary {
-  byPeriodicity: Record<string, number>;
-  excludedByPeriodicity: Record<string, number>;
-  excludedChanges: number;
-  notCalculable: number;
-  calculatedChanges: number;
-}
+/*
+  O tipo é o do servidor, e não uma cópia dele.
+
+  A cópia que morava aqui declarava `excludedByPeriodicity`, um campo que o
+  servidor deixou de enviar oito commits antes — e a tela caiu inteira no
+  primeiro clique, com a suíte verde, porque os mocks testavam a cópia. Um
+  `import type` é apagado na compilação (nada do servidor entra no bundle), e o
+  typecheck passa a acusar o drift no commit em que ele nasce.
+*/
+export type { ResumoDeImpacto as ImpactSummary } from "@workspace/comparison/deduplicacao";
+import type { ResumoDeImpacto as ImpactSummary } from "@workspace/comparison/deduplicacao";
 
 export interface SeriesContext {
   scopeHash: string;

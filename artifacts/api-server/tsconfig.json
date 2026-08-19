@@ -26,6 +26,9 @@
       "path": "../../lib/advisory"
     },
     {
+      "path": "../../lib/qlp"
+    },
+    {
       "path": "../../lib/fechamento"
     }
   ]

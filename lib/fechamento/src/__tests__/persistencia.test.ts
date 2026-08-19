@@ -28,9 +28,11 @@ import {
  * conta refeita a partir dela é a mesma. Sem ele, os dois lados poderiam
  * divergir sem que nada acusasse.
  *
- * Precisa de um Postgres. Sem ele o arquivo é pulado inteiro em vez de falhar:
- * quem roda `vitest` para conferir uma mudança no leitor não deveria precisar
- * de banco para isso.
+ * Precisa de um Postgres, e o que ele faz sem um depende de onde está rodando.
+ * Na máquina de quem desenvolve, pula: quem mexeu num leitor não deveria
+ * precisar de banco para conferir a mudança. **No CI, não pula** — lá o banco é
+ * um serviço declarado do job, e um arquivo que se cala quando ele some é a
+ * mesma classe de falso verde que `scripts/ci/shards.mjs` existe para impedir.
  */
 const ADMIN =
   process.env.TEST_ADMIN_DATABASE_URL ??
@@ -38,6 +40,21 @@ const ADMIN =
   "postgresql://postgres@/postgres?host=/tmp/pgsock&port=5433";
 
 const NOME = `fc_fechamento_${process.pid}`;
+
+/**
+ * A mesma conexão, apontada para outro banco.
+ *
+ * Trocar o nome com `replace` sobre a string parecia bastar e não bastava: a
+ * URL do CI tem query (`?application_name=ci`) e a de uma máquina local pode
+ * não ter, e a expressão que casava com uma passava batido na outra — deixando
+ * a URL intacta e o teste prestes a derrubar o banco de trabalho de alguém.
+ * `URL` resolve as duas formas pela mesma regra.
+ */
+function apontarPara(url: string, banco: string): string {
+  const alvo = new URL(url);
+  alvo.pathname = `/${banco}`;
+  return alvo.toString();
+}
 
 async function bancoAlcancavel(): Promise<boolean> {
   const pool = new pg.Pool({ connectionString: ADMIN, connectionTimeoutMillis: 1500 });
@@ -51,7 +68,8 @@ async function bancoAlcancavel(): Promise<boolean> {
   }
 }
 
-const temBanco = await bancoAlcancavel();
+const noCi = process.env.CI === "true" || process.env.CI === "1";
+const temBanco = noCi || (await bancoAlcancavel());
 
 describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
   let pool: pg.Pool;
@@ -62,7 +80,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     await admin.query(`DROP DATABASE IF EXISTS "${NOME}"`);
     await admin.query(`CREATE DATABASE "${NOME}"`);
     await admin.end();
-    const url = ADMIN.replace(/\/[^/?]+\?/, `/${NOME}?`);
+    const url = apontarPara(ADMIN, NOME);
     await runMigrations(url);
     pool = new pg.Pool({ connectionString: url });
     db = drizzle(pool) as unknown as Database;

@@ -204,28 +204,102 @@ CREATE TABLE IF NOT EXISTS "fechamento_conciliacao_item" (
 	"calculado" numeric(14, 2)
 );--> statement-breakpoint
 
+-- As chaves estrangeiras das cinco tabelas de linha, uma por bloco.
+--
+-- Um laço `FOREACH` seria menor e está errado: a reconvergência da partida
+-- (`lib/db/src/reconvergencia.ts`) repõe constraint ausente levantando da fila
+-- o bloco que cria **aquela** constraint, e casa exatamente esta forma. Dez
+-- chaves dentro de um laço são um statement que não nomeia nenhuma delas:
+-- somem da conferência, e um deploy que perdesse uma FK não a recuperaria. A
+-- verbosidade é o preço de cada objeto ser endereçável.
 DO $reentrante$
-DECLARE
-	tabela text;
 BEGIN
-	FOREACH tabela IN ARRAY ARRAY[
-		'fechamento_viagem',
-		'fechamento_cte',
-		'fechamento_requisicao',
-		'fechamento_disponibilidade',
-		'fechamento_conciliacao_item'
-	] LOOP
-		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = tabela || '_documento_fk') THEN
-			EXECUTE format(
-				'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (documento_id) REFERENCES fechamento_documento(id) ON DELETE CASCADE',
-				tabela, tabela || '_documento_fk');
-		END IF;
-		IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = tabela || '_competencia_fk') THEN
-			EXECUTE format(
-				'ALTER TABLE %I ADD CONSTRAINT %I FOREIGN KEY (competencia_id) REFERENCES fechamento_competencia(id) ON DELETE CASCADE',
-				tabela, tabela || '_competencia_fk');
-		END IF;
-	END LOOP;
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_viagem_documento_fk') THEN
+		ALTER TABLE "fechamento_viagem"
+			ADD CONSTRAINT "fechamento_viagem_documento_fk"
+			FOREIGN KEY ("documento_id") REFERENCES "fechamento_documento"("id") ON DELETE CASCADE;
+	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_viagem_competencia_fk') THEN
+		ALTER TABLE "fechamento_viagem"
+			ADD CONSTRAINT "fechamento_viagem_competencia_fk"
+			FOREIGN KEY ("competencia_id") REFERENCES "fechamento_competencia"("id") ON DELETE CASCADE;
+	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_cte_documento_fk') THEN
+		ALTER TABLE "fechamento_cte"
+			ADD CONSTRAINT "fechamento_cte_documento_fk"
+			FOREIGN KEY ("documento_id") REFERENCES "fechamento_documento"("id") ON DELETE CASCADE;
+	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_cte_competencia_fk') THEN
+		ALTER TABLE "fechamento_cte"
+			ADD CONSTRAINT "fechamento_cte_competencia_fk"
+			FOREIGN KEY ("competencia_id") REFERENCES "fechamento_competencia"("id") ON DELETE CASCADE;
+	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_requisicao_documento_fk') THEN
+		ALTER TABLE "fechamento_requisicao"
+			ADD CONSTRAINT "fechamento_requisicao_documento_fk"
+			FOREIGN KEY ("documento_id") REFERENCES "fechamento_documento"("id") ON DELETE CASCADE;
+	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_requisicao_competencia_fk') THEN
+		ALTER TABLE "fechamento_requisicao"
+			ADD CONSTRAINT "fechamento_requisicao_competencia_fk"
+			FOREIGN KEY ("competencia_id") REFERENCES "fechamento_competencia"("id") ON DELETE CASCADE;
+	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_disponibilidade_documento_fk') THEN
+		ALTER TABLE "fechamento_disponibilidade"
+			ADD CONSTRAINT "fechamento_disponibilidade_documento_fk"
+			FOREIGN KEY ("documento_id") REFERENCES "fechamento_documento"("id") ON DELETE CASCADE;
+	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_disponibilidade_competencia_fk') THEN
+		ALTER TABLE "fechamento_disponibilidade"
+			ADD CONSTRAINT "fechamento_disponibilidade_competencia_fk"
+			FOREIGN KEY ("competencia_id") REFERENCES "fechamento_competencia"("id") ON DELETE CASCADE;
+	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_conciliacao_item_documento_fk') THEN
+		ALTER TABLE "fechamento_conciliacao_item"
+			ADD CONSTRAINT "fechamento_conciliacao_item_documento_fk"
+			FOREIGN KEY ("documento_id") REFERENCES "fechamento_documento"("id") ON DELETE CASCADE;
+	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_conciliacao_item_competencia_fk') THEN
+		ALTER TABLE "fechamento_conciliacao_item"
+			ADD CONSTRAINT "fechamento_conciliacao_item_competencia_fk"
+			FOREIGN KEY ("competencia_id") REFERENCES "fechamento_competencia"("id") ON DELETE CASCADE;
+	END IF;
 END
 $reentrante$;--> statement-breakpoint
 
@@ -344,24 +418,70 @@ BEGIN
 END
 $gatilho$ LANGUAGE plpgsql;--> statement-breakpoint
 
+-- Um gatilho por tabela, e não um laço, pelo mesmo motivo das chaves acima: a
+-- reconvergência casa a forma reentrante de `pg_trigger` e extrai dela o nome e
+-- a tabela. Sete gatilhos dentro de um laço são um statement que não nomeia
+-- nenhum deles.
 DO $reentrante$
-DECLARE
-	tabela text;
 BEGIN
-	FOREACH tabela IN ARRAY ARRAY[
-		'fechamento_documento',
-		'fechamento_viagem',
-		'fechamento_cte',
-		'fechamento_requisicao',
-		'fechamento_disponibilidade',
-		'fechamento_conciliacao_item',
-		'fechamento_apuracao'
-	] LOOP
-		EXECUTE format('DROP TRIGGER IF EXISTS %I ON %I', tabela || '_congelada', tabela);
-		EXECUTE format(
-			'CREATE TRIGGER %I BEFORE INSERT OR UPDATE OR DELETE ON %I
-			 FOR EACH ROW EXECUTE FUNCTION fechamento_recusar_escrita_em_encerrada()',
-			tabela || '_congelada', tabela);
-	END LOOP;
+	IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'fechamento_documento_congelada') THEN
+		CREATE TRIGGER "fechamento_documento_congelada"
+		BEFORE INSERT OR UPDATE OR DELETE ON "fechamento_documento"
+		FOR EACH ROW EXECUTE FUNCTION fechamento_recusar_escrita_em_encerrada();
+	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'fechamento_viagem_congelada') THEN
+		CREATE TRIGGER "fechamento_viagem_congelada"
+		BEFORE INSERT OR UPDATE OR DELETE ON "fechamento_viagem"
+		FOR EACH ROW EXECUTE FUNCTION fechamento_recusar_escrita_em_encerrada();
+	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'fechamento_cte_congelada') THEN
+		CREATE TRIGGER "fechamento_cte_congelada"
+		BEFORE INSERT OR UPDATE OR DELETE ON "fechamento_cte"
+		FOR EACH ROW EXECUTE FUNCTION fechamento_recusar_escrita_em_encerrada();
+	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'fechamento_requisicao_congelada') THEN
+		CREATE TRIGGER "fechamento_requisicao_congelada"
+		BEFORE INSERT OR UPDATE OR DELETE ON "fechamento_requisicao"
+		FOR EACH ROW EXECUTE FUNCTION fechamento_recusar_escrita_em_encerrada();
+	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'fechamento_disponibilidade_congelada') THEN
+		CREATE TRIGGER "fechamento_disponibilidade_congelada"
+		BEFORE INSERT OR UPDATE OR DELETE ON "fechamento_disponibilidade"
+		FOR EACH ROW EXECUTE FUNCTION fechamento_recusar_escrita_em_encerrada();
+	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'fechamento_conciliacao_item_congelada') THEN
+		CREATE TRIGGER "fechamento_conciliacao_item_congelada"
+		BEFORE INSERT OR UPDATE OR DELETE ON "fechamento_conciliacao_item"
+		FOR EACH ROW EXECUTE FUNCTION fechamento_recusar_escrita_em_encerrada();
+	END IF;
+END
+$reentrante$;--> statement-breakpoint
+DO $reentrante$
+BEGIN
+	IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'fechamento_apuracao_congelada') THEN
+		CREATE TRIGGER "fechamento_apuracao_congelada"
+		BEFORE INSERT OR UPDATE OR DELETE ON "fechamento_apuracao"
+		FOR EACH ROW EXECUTE FUNCTION fechamento_recusar_escrita_em_encerrada();
+	END IF;
 END
 $reentrante$;

@@ -20,6 +20,8 @@ export interface SessionUser {
   id: string;
   name: string;
   email: string;
+  /** ADMIN gerencia contas; OPERADOR usa o produto. O servidor decide. */
+  role: string;
 }
 
 interface SessionState {

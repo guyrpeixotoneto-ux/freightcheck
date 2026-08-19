@@ -54,6 +54,7 @@ import {
   type TicketFilters as TicketFilterState,
   type TicketTotals,
 } from "@/components/changes/ticket-table";
+import { impactEntries } from "@/lib/format";
 import { erroDaResposta, fetchJson, getApiUrl, readJson } from "@/lib/api";
 import { paramsDoEscopo, type EscopoDeFrota } from "@/lib/frota";
 import { primeiraPagina, type Janela } from "@/lib/paginacao";
@@ -398,11 +399,19 @@ export function AbaChamados({
     ao lado de um total vermelho faria o olho procurar duas vezes onde está o
     problema.
   */
+  /*
+    O tom sai do balde de maior módulo — nunca de uma soma entre baldes, que
+    seria somar mensal com anual pela porta do CSS.
+  */
+  const baldes = totals ? Object.values(totals.impacto.porPeriodicidade) : [];
+  const maiorBalde = baldes.length
+    ? baldes.reduce((a, b) => (Math.abs(b) > Math.abs(a) ? b : a))
+    : 0;
   const tomDoDinheiro =
-    totals && totals.calculated > 0
-      ? totals.impactSum < 0
+    totals && totals.impacto.alteracoesSomadas > 0
+      ? maiorBalde < 0
         ? "bad"
-        : totals.impactSum > 0
+        : maiorBalde > 0
           ? "good"
           : "muted"
       : "muted";
@@ -641,23 +650,29 @@ export function AbaChamados({
               valueTone={tomDoDinheiro}
             />
             {/*
-              Impacto dos chamados — uma soma só, e por que ela é diferente da
-              outra. Aqui não há periodicidade a separar: `aplicado − pedido` é
-              uma diferença entre duas quantias declaradas na mesma unidade pelo
-              próprio arquivo. É por isso que este número **não** entra no
-              cartão da aba Planilha: lá a régua é outra.
+              Impacto dos chamados — na régua financeira do produto, por
+              periodicidade. O escalar que morava aqui somava mensal com anual
+              e monetário com o que nem dinheiro é: "aplicado − pedido é a
+              mesma unidade" vale por linha, e é falso na soma entre linhas.
+              Quem decide o que entra é a MESMA `viraDinheiro` da Planilha, e
+              o que não passa é contado no hint em vez de somado.
             */}
             <MetricCard
               tone="red"
               icon={<TrendingDown className="w-6 h-6" />}
               label="Impacto"
               value={
-                totals.calculated === 0
+                totals.impacto.alteracoesSomadas === 0
                   ? "não calculável"
-                  : `${totals.impactSum > 0 ? "+" : ""}${brl0(totals.impactSum)}`
+                  : impactEntries(totals.impacto.porPeriodicidade)
+                      .sort((a, b) => Math.abs(b.amount) - Math.abs(a.amount))
+                      .map((e) => e.label)
+                      .join(" · ")
               }
-              hint={`${totals.notCalculable.toLocaleString("pt-BR")} alterações fora desta soma`}
-              valueTone={totals.calculated === 0 ? "muted" : tomDoDinheiro}
+              hint={`${(totals.notCalculable + totals.impacto.foraDaRegua).toLocaleString(
+                "pt-BR",
+              )} alterações fora desta soma — sem apuração ou fora da régua financeira`}
+              valueTone={totals.impacto.alteracoesSomadas === 0 ? "muted" : tomDoDinheiro}
             />
             <MetricCard
               tone="purple"

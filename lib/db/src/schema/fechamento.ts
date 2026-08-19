@@ -11,6 +11,7 @@ import {
   index,
   uniqueIndex,
   check,
+  foreignKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
@@ -30,6 +31,14 @@ import { sql } from "drizzle-orm";
  * são eventos datados, com grão e ciclo de vida próprios. Forçá-los no
  * canônico exigiria uma entidade sintética por CT-e e destruiria a garantia que
  * o canônico dá — a de que toda entidade lá é um ativo que a Ambev remunera.
+ *
+ * **Por que toda FK tem nome declarado.** O nome que o drizzle geraria sozinho
+ * — `<tabela>_<coluna>_<destino>_<coluna>_fk` — passa de 63 caracteres em cinco
+ * destas tabelas, e o Postgres trunca identificador nesse limite **em
+ * silêncio**. O efeito não é cosmético: a constraint nasce com o nome cortado,
+ * toda conferência por nome — a reconvergência da partida, o diff do
+ * Publishing — não a encontra, e conclui que a FK está faltando num banco em
+ * que ela está lá. Nome curto e explícito resolve na origem.
  *
  * **O que é imutável aqui.** A competência encerrada congela: o gatilho
  * `fechamento_competencia_encerrada` recusa qualquer escrita nas tabelas de
@@ -120,9 +129,7 @@ export const fechamentoDocumentoTable = pgTable(
   "fechamento_documento",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    competenciaId: uuid("competencia_id")
-      .notNull()
-      .references(() => fechamentoCompetenciaTable.id, { onDelete: "cascade" }),
+    competenciaId: uuid("competencia_id").notNull(),
     /** `OPERACAO` | `CTE` | `DISPONIBILIDADE` | `REQUISICOES` | `CONCILIACAO`. */
     tipo: text("tipo").notNull(),
     nomeDoArquivo: text("nome_do_arquivo").notNull(),
@@ -140,6 +147,11 @@ export const fechamentoDocumentoTable = pgTable(
     enviadoEm: timestamp("enviado_em", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    foreignKey({
+      columns: [t.competenciaId],
+      foreignColumns: [fechamentoCompetenciaTable.id],
+      name: "fechamento_documento_competencia_fk",
+    }).onDelete("cascade"),
     uniqueIndex("fechamento_documento_sem_repeticao").on(t.competenciaId, t.sha256),
     uniqueIndex("fechamento_documento_vigente_unico")
       .on(t.competenciaId, t.tipo)
@@ -175,12 +187,8 @@ export const fechamentoViagemTable = pgTable(
   "fechamento_viagem",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    documentoId: uuid("documento_id")
-      .notNull()
-      .references(() => fechamentoDocumentoTable.id, { onDelete: "cascade" }),
-    competenciaId: uuid("competencia_id")
-      .notNull()
-      .references(() => fechamentoCompetenciaTable.id, { onDelete: "cascade" }),
+    documentoId: uuid("documento_id").notNull(),
+    competenciaId: uuid("competencia_id").notNull(),
     /** A linha física no arquivo — a ponta da trilha. */
     linhaNoArquivo: integer("linha_no_arquivo").notNull(),
     dia: date("dia").notNull(),
@@ -199,6 +207,16 @@ export const fechamentoViagemTable = pgTable(
     valorFaturado: numeric("valor_faturado", { precision: 14, scale: 2 }).notNull().default("0"),
   },
   (t) => [
+    foreignKey({
+      columns: [t.documentoId],
+      foreignColumns: [fechamentoDocumentoTable.id],
+      name: "fechamento_viagem_documento_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.competenciaId],
+      foreignColumns: [fechamentoCompetenciaTable.id],
+      name: "fechamento_viagem_competencia_fk",
+    }).onDelete("cascade"),
     index("fechamento_viagem_por_competencia").on(t.competenciaId, t.dia, t.canal),
     index("fechamento_viagem_por_documento").on(t.documentoId),
   ],
@@ -209,12 +227,8 @@ export const fechamentoCteTable = pgTable(
   "fechamento_cte",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    documentoId: uuid("documento_id")
-      .notNull()
-      .references(() => fechamentoDocumentoTable.id, { onDelete: "cascade" }),
-    competenciaId: uuid("competencia_id")
-      .notNull()
-      .references(() => fechamentoCompetenciaTable.id, { onDelete: "cascade" }),
+    documentoId: uuid("documento_id").notNull(),
+    competenciaId: uuid("competencia_id").notNull(),
     linhaNoArquivo: integer("linha_no_arquivo").notNull(),
     dia: date("dia"),
     /** A VBZ — a chave semântica que liga requisição, CT-e e conciliação. */
@@ -236,6 +250,16 @@ export const fechamentoCteTable = pgTable(
     controle: text("controle"),
   },
   (t) => [
+    foreignKey({
+      columns: [t.documentoId],
+      foreignColumns: [fechamentoDocumentoTable.id],
+      name: "fechamento_cte_documento_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.competenciaId],
+      foreignColumns: [fechamentoCompetenciaTable.id],
+      name: "fechamento_cte_competencia_fk",
+    }).onDelete("cascade"),
     index("fechamento_cte_por_verba").on(t.competenciaId, t.vbz),
     index("fechamento_cte_por_documento").on(t.documentoId),
   ],
@@ -246,12 +270,8 @@ export const fechamentoRequisicaoTable = pgTable(
   "fechamento_requisicao",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    documentoId: uuid("documento_id")
-      .notNull()
-      .references(() => fechamentoDocumentoTable.id, { onDelete: "cascade" }),
-    competenciaId: uuid("competencia_id")
-      .notNull()
-      .references(() => fechamentoCompetenciaTable.id, { onDelete: "cascade" }),
+    documentoId: uuid("documento_id").notNull(),
+    competenciaId: uuid("competencia_id").notNull(),
     linhaNoArquivo: integer("linha_no_arquivo").notNull(),
     /** O número da requisição no SRTrans. */
     numero: text("numero").notNull(),
@@ -273,6 +293,16 @@ export const fechamentoRequisicaoTable = pgTable(
     decididaEm: date("decidida_em"),
   },
   (t) => [
+    foreignKey({
+      columns: [t.documentoId],
+      foreignColumns: [fechamentoDocumentoTable.id],
+      name: "fechamento_requisicao_documento_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.competenciaId],
+      foreignColumns: [fechamentoCompetenciaTable.id],
+      name: "fechamento_requisicao_competencia_fk",
+    }).onDelete("cascade"),
     index("fechamento_requisicao_por_verba").on(t.competenciaId, t.vbz),
     index("fechamento_requisicao_por_documento").on(t.documentoId),
   ],
@@ -283,12 +313,8 @@ export const fechamentoDisponibilidadeTable = pgTable(
   "fechamento_disponibilidade",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    documentoId: uuid("documento_id")
-      .notNull()
-      .references(() => fechamentoDocumentoTable.id, { onDelete: "cascade" }),
-    competenciaId: uuid("competencia_id")
-      .notNull()
-      .references(() => fechamentoCompetenciaTable.id, { onDelete: "cascade" }),
+    documentoId: uuid("documento_id").notNull(),
+    competenciaId: uuid("competencia_id").notNull(),
     linhaNoArquivo: integer("linha_no_arquivo").notNull(),
     /** `FF` (caminhões) ou `VAN`. */
     tipoDeFrota: text("tipo_de_frota").notNull(),
@@ -312,6 +338,16 @@ export const fechamentoDisponibilidadeTable = pgTable(
     percentualDeDisponibilidade: numeric("percentual_de_disponibilidade", { precision: 8, scale: 4 }),
   },
   (t) => [
+    foreignKey({
+      columns: [t.documentoId],
+      foreignColumns: [fechamentoDocumentoTable.id],
+      name: "fechamento_disponibilidade_documento_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.competenciaId],
+      foreignColumns: [fechamentoCompetenciaTable.id],
+      name: "fechamento_disponibilidade_competencia_fk",
+    }).onDelete("cascade"),
     index("fechamento_disponibilidade_por_dia").on(t.competenciaId, t.dia),
     index("fechamento_disponibilidade_por_documento").on(t.documentoId),
   ],
@@ -329,12 +365,8 @@ export const fechamentoConciliacaoItemTable = pgTable(
   "fechamento_conciliacao_item",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    documentoId: uuid("documento_id")
-      .notNull()
-      .references(() => fechamentoDocumentoTable.id, { onDelete: "cascade" }),
-    competenciaId: uuid("competencia_id")
-      .notNull()
-      .references(() => fechamentoCompetenciaTable.id, { onDelete: "cascade" }),
+    documentoId: uuid("documento_id").notNull(),
+    competenciaId: uuid("competencia_id").notNull(),
     linhaNoArquivo: integer("linha_no_arquivo").notNull(),
     /** `ROTA`, `AS` ou `GERAL`. */
     secao: text("secao").notNull(),
@@ -346,6 +378,16 @@ export const fechamentoConciliacaoItemTable = pgTable(
     calculado: numeric("calculado", { precision: 14, scale: 2 }),
   },
   (t) => [
+    foreignKey({
+      columns: [t.documentoId],
+      foreignColumns: [fechamentoDocumentoTable.id],
+      name: "fechamento_conciliacao_item_documento_fk",
+    }).onDelete("cascade"),
+    foreignKey({
+      columns: [t.competenciaId],
+      foreignColumns: [fechamentoCompetenciaTable.id],
+      name: "fechamento_conciliacao_item_competencia_fk",
+    }).onDelete("cascade"),
     index("fechamento_conciliacao_item_por_secao").on(t.competenciaId, t.secao),
     index("fechamento_conciliacao_item_por_documento").on(t.documentoId),
   ],
@@ -372,9 +414,7 @@ export const fechamentoApuracaoTable = pgTable(
   "fechamento_apuracao",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    competenciaId: uuid("competencia_id")
-      .notNull()
-      .references(() => fechamentoCompetenciaTable.id, { onDelete: "cascade" }),
+    competenciaId: uuid("competencia_id").notNull(),
     rodadaEm: timestamp("rodada_em", { withTimezone: true }).notNull().defaultNow(),
     rodadaPor: uuid("rodada_por"),
     vigente: boolean("vigente").notNull().default(true),
@@ -397,6 +437,11 @@ export const fechamentoApuracaoTable = pgTable(
     totalDiferenca: numeric("total_diferenca", { precision: 16, scale: 2 }).notNull().default("0"),
   },
   (t) => [
+    foreignKey({
+      columns: [t.competenciaId],
+      foreignColumns: [fechamentoCompetenciaTable.id],
+      name: "fechamento_apuracao_competencia_fk",
+    }).onDelete("cascade"),
     uniqueIndex("fechamento_apuracao_vigente_unica")
       .on(t.competenciaId)
       .where(sql`${t.vigente}`),
@@ -409,9 +454,7 @@ export const fechamentoApuracaoVerbaTable = pgTable(
   "fechamento_apuracao_verba",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    apuracaoId: uuid("apuracao_id")
-      .notNull()
-      .references(() => fechamentoApuracaoTable.id, { onDelete: "cascade" }),
+    apuracaoId: uuid("apuracao_id").notNull(),
     vbz: integer("vbz").notNull(),
     canal: text("canal").notNull(),
     verbaNome: text("verba_nome").notNull(),
@@ -426,6 +469,11 @@ export const fechamentoApuracaoVerbaTable = pgTable(
     memoria: jsonb("memoria").notNull().default(sql`'[]'::jsonb`),
   },
   (t) => [
+    foreignKey({
+      columns: [t.apuracaoId],
+      foreignColumns: [fechamentoApuracaoTable.id],
+      name: "fechamento_apuracao_verba_apuracao_fk",
+    }).onDelete("cascade"),
     uniqueIndex("fechamento_apuracao_verba_unica").on(t.apuracaoId, t.vbz),
   ],
 );
@@ -442,9 +490,7 @@ export const fechamentoDivergenciaTable = pgTable(
   "fechamento_divergencia",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    apuracaoId: uuid("apuracao_id")
-      .notNull()
-      .references(() => fechamentoApuracaoTable.id, { onDelete: "cascade" }),
+    apuracaoId: uuid("apuracao_id").notNull(),
     tipo: text("tipo").notNull(),
     canal: text("canal").notNull(),
     titulo: text("titulo").notNull(),
@@ -460,6 +506,11 @@ export const fechamentoDivergenciaTable = pgTable(
     desfechoNota: text("desfecho_nota"),
   },
   (t) => [
+    foreignKey({
+      columns: [t.apuracaoId],
+      foreignColumns: [fechamentoApuracaoTable.id],
+      name: "fechamento_divergencia_apuracao_fk",
+    }).onDelete("cascade"),
     index("fechamento_divergencia_por_apuracao").on(t.apuracaoId, t.desfecho),
     check(
       "fechamento_divergencia_sentido",

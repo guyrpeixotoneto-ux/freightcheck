@@ -172,18 +172,15 @@ async function startApi() {
      */
     runInstall: null,
     /*
-      Migrar o banco de desenvolvimento **não** é efeito colateral de subir o
-      servidor. Era, e o custo apareceu inteiro: como o Publishing calcula o
-      diff comparando Development com Production, um `Run` depois de um merge
-      levava o banco de desenvolvimento para a migration seguinte sem ninguém
-      decidir isso — e a publicação seguinte encontrava uma diferença que
-      ninguém pediu. Foi assim que Development chegou à `0018` enquanto
-      Production estava com o registro vazio.
-
-      Agora migrar é ato explícito: `pnpm --filter @workspace/db run migrate`.
-      Nada se perde em cobertura — a suíte cria banco descartável por arquivo a
-      partir das migrations, então testar a migration seguinte nunca dependeu
-      deste banco.
+      O supervisor não migra — e isso continua sendo sobre camada, não sobre
+      política. Quem abre conexão é o servidor, e é ele que decide
+      (`deveMigrarNaPartida`) e registra a decisão no log. A política mudou de
+      sinal: em NODE_ENV=development o servidor **converge** o schema pela fila
+      versionada na partida, porque Development atrás é o que faz o Provision
+      do Publishing propor remover de Production o que as migrations criaram —
+      o diff destrutivo que apagou dado real em 17 e 18/08/2026. A história
+      completa, incluindo por que a regra anterior existiu, está em
+      docs/MIGRATIONS.md e no cabeçalho de `deveMigrarNaPartida`.
     */
     runMigrations: null,
     /*
@@ -226,9 +223,11 @@ async function startApi() {
       arquivo de fato sabe: que ele não migra, e por onde se migra à mão.
     */
     console.warn(
-      "[api] este script não migra o banco. Development avança por " +
-        "`pnpm --filter @workspace/db run migrate` — ver docs/MIGRATIONS.md. " +
-        "A política do servidor sai no log dele, na partida.",
+      "[api] este script não migra o banco; quem decide é o servidor " +
+        "(`deveMigrarNaPartida`), e em NODE_ENV=development ele converge o " +
+        "schema pela fila versionada, dizendo no log o que aplicou. Para " +
+        "aplicar à mão: `pnpm --filter @workspace/db run migrate` — ver " +
+        "docs/MIGRATIONS.md.",
     );
   }
 

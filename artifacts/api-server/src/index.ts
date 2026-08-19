@@ -1,5 +1,9 @@
+import { db } from "@workspace/db";
 import { runMigrations } from "@workspace/db/migrate";
+import { varrerLeiturasOrfas } from "@workspace/ingest";
 import app from "./app";
+import { alertar } from "./lib/alerta";
+import { agendarBackups } from "./lib/backup-agendado";
 import { logger } from "./lib/logger";
 import {
   deveMigrarNaPartida,
@@ -95,6 +99,11 @@ async function applyMigrationsInBackground(): Promise<void> {
         },
         "Uma migration falhou — as anteriores ficaram aplicadas, as seguintes não foram tentadas. /api/healthz mostra quais faltam.",
       );
+      void alertar({
+        tipo: "MIGRATION_FALHOU",
+        resumo: `A migration ${report.failure.tag} falhou na partida; o schema está atrás do build.`,
+        detalhe: { tag: report.failure.tag, code: report.failure.code },
+      });
       return;
     }
 
@@ -128,6 +137,17 @@ async function applyMigrationsInBackground(): Promise<void> {
           "removida não volta, e é por isso que `publicar:conferir` antes de " +
           "todo Publish continua valendo.",
       );
+      // Reposição estrutural é o rastro de uma mutilação: o conteúdo daquelas
+      // colunas se perdeu (ex.: papéis voltam todos OPERADOR) e alguém precisa
+      // decidir entre restaurar o backup ou refazer as decisões. Isso não pode
+      // depender de alguém reler o log da partida.
+      void alertar({
+        tipo: "RECONVERGENCIA_REPOS",
+        resumo:
+          `${reconvergencia.relatorio.aplicados.length} objeto(s) de schema repostos na ` +
+          `partida — algo os removeu por fora; o conteúdo deles não volta sozinho.`,
+        detalhe: { repostos: reconvergencia.relatorio.aplicados.map((a) => a.alvo) },
+      });
     } else if (
       reconvergencia.relatorio.semComando.length > 0 ||
       reconvergencia.relatorio.falhas.length > 0
@@ -139,12 +159,25 @@ async function applyMigrationsInBackground(): Promise<void> {
         },
         "Reconvergência incompleta — /api/healthz continua nomeando o que falta.",
       );
+      void alertar({
+        tipo: "RECONVERGENCIA_INCOMPLETA",
+        resumo: "A partida não conseguiu repor todos os objetos de schema.",
+        detalhe: {
+          semComando: reconvergencia.relatorio.semComando,
+          falhas: reconvergencia.relatorio.falhas,
+        },
+      });
     }
   } catch (err) {
     logger.error(
       { err },
       "Não foi possível sequer tentar as migrations — o servidor continua no ar, mas /api/healthz vai reportar o schema desatualizado.",
     );
+    void alertar({
+      tipo: "MIGRATION_FALHOU",
+      resumo: "A partida não conseguiu sequer tentar as migrations — banco fora ou pasta ausente.",
+      detalhe: { erro: err instanceof Error ? err.message : String(err) },
+    });
   }
 }
 
@@ -165,4 +198,47 @@ app.listen(port, (err) => {
 
   // Migrations run after binding — keeps the startup probe window clean.
   void applyMigrationsInBackground();
+
+  // Depois da fila, a cópia: com BACKUP_DIR definido, toda partida confere a
+  // idade do último dump e repõe o que envelheceu — ver backup-agendado.ts.
+  agendarBackups();
+
+  // E a varredura de leituras órfãs: um run preso em PENDING/READING por um
+  // reinício era um beco sem saída para o usuário (reenvio recusado como
+  // duplicata, exclusão recusada como "ainda lendo"). Ver lib/ingest/recuperacao.
+  agendarVarreduraDeOrfas();
 });
+
+function agendarVarreduraDeOrfas(): void {
+  if (!process.env["DATABASE_URL"]) return;
+
+  const varrer = async (momento: string): Promise<void> => {
+    try {
+      const relatorio = await varrerLeiturasOrfas(db);
+      if (relatorio.importacoes.length > 0 || relatorio.chamados.length > 0) {
+        logger.warn(
+          {
+            momento,
+            importacoes: relatorio.importacoes,
+            chamados: relatorio.chamados,
+          },
+          "Leituras órfãs encontradas e encerradas — o reinício levou o processo " +
+            "que as terminaria. Os arquivos podem ser excluídos e reenviados.",
+        );
+        void alertar({
+          tipo: "LEITURA_ORFA_ENCERRADA",
+          resumo:
+            `${relatorio.importacoes.length + relatorio.chamados.length} leitura(s) ` +
+            `órfã(s) encerrada(s) — um reinício interrompeu importação em andamento.`,
+          detalhe: { momento, importacoes: relatorio.importacoes.length, chamados: relatorio.chamados.length },
+        });
+      }
+    } catch (err) {
+      logger.error({ err, momento }, "A varredura de leituras órfãs falhou.");
+    }
+  };
+
+  void varrer("partida");
+  const timer = setInterval(() => void varrer("intervalo"), 5 * 60_000);
+  timer.unref();
+}
