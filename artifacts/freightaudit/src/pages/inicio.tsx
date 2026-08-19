@@ -42,8 +42,10 @@ import {
   ICONE_DA_LINHA,
 } from "@/components/inicio/detalhe-da-alteracao";
 import { DetalheDoImpacto } from "@/components/inicio/detalhe-do-impacto";
+import { ComposicaoDoImpacto } from "@/components/inicio/composicao-do-impacto";
 import {
   cobertura,
+  composicaoDoImpacto,
   detalheDaAlteracao,
   detalheDoImpacto,
   escreverImpacto,
@@ -52,6 +54,7 @@ import {
   frotaTotal,
   impactosDaVigencia,
   integridade,
+  ladosDoImpacto,
   maioresImpactos,
   participacao,
   partesDoImpacto,
@@ -62,6 +65,8 @@ import {
   variacao,
   vigenciaAnterior,
   type ExecucaoDeImportacao,
+  type Lado,
+  type LadosDoImpacto,
   type LinhaDeAlteracao,
   type PontoDeAtencao,
   type Tom,
@@ -72,6 +77,7 @@ import {
   nomeDaUnidade,
   type Recorte,
 } from "@/lib/recorte";
+import { formatBrlShort } from "@/lib/format";
 import type { FamiliesView, GroupedView, SeriesContext } from "@/components/inicio/types";
 import type { BalancoResumo } from "@/components/balanco/tipos";
 
@@ -218,10 +224,43 @@ export default function Inicio() {
     painel em vez de sair da tela, que é o que a mão espera de uma gaveta.
   */
   const detalhe = useMemo(
-    () => detalheDoImpacto(view, parametros.get("impacto"), ranking?.periodicity ?? null),
+    () =>
+      detalheDoImpacto(
+        view,
+        parametros.get("impacto"),
+        /*
+          Qual periodicidade o painel explica, dita no endereço.
+
+          Quem clica no pódio e quem clica numa linha da balança chegam ao mesmo
+          painel por caminhos que ranqueiam em periodicidades possivelmente
+          diferentes — o pódio na de maior movimento, a balança na que estava
+          aberta. Sem a chave, o painel escolheria a do pódio nos dois casos, e
+          quem abrisse a balança do anual receberia o número mensal sob o nome do
+          parâmetro que acabou de clicar. A chave é opcional: um `?impacto=`
+          colado sem ela continua caindo na régua do pódio.
+        */
+        parametros.get("periodicidade") ?? ranking?.periodicity ?? null,
+      ),
     // `parametros` é derivado de `search`, e `ranking` de `view`.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [view, ranking, search],
+  );
+
+  /*
+    A balança aberta na gaveta mora na URL, como as outras duas.
+
+    São três chaves e não uma porque são três leituras diferentes da vigência —
+    o saldo partido em dois lados, o parâmetro que somou dinheiro e a alteração
+    em destaque. Abrir uma apaga as outras do endereço: duas gavetas empilhadas
+    escondem a de baixo sem fechá-la, e quem fechasse a de cima cairia num
+    painel que não pediu.
+  */
+  const composicao = useMemo(
+    () =>
+      composicaoDoImpacto(view, parametros.get("composicao"), parametros.get("lado")),
+    // `parametros` é derivado de `search`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [view, search],
   );
 
   /*
@@ -261,6 +300,25 @@ export default function Inicio() {
     navegar(texto ? `/?${texto}` : "/");
   };
 
+  /*
+    Abrir uma gaveta é fechar as outras duas, e as chaves que sobram de uma
+    gaveta fechada também saem.
+
+    Escrito uma vez aqui e não em cada `onAbrir`: eram cinco lugares montando a
+    mesma lista de chaves a apagar, e o primeiro a esquecer uma delas deixaria um
+    `?lado=perdas` grudado num endereço que não tem balança — invisível na tela e
+    colável assim mesmo.
+  */
+  const abrirGaveta = (aberta: Record<string, string | null>) =>
+    trocarPara({
+      impacto: null,
+      periodicidade: null,
+      alteracao: null,
+      composicao: null,
+      lado: null,
+      ...aberta,
+    });
+
   return (
     <Layout>
       <Cabecalho
@@ -288,6 +346,9 @@ export default function Inicio() {
               anterior={comparacao.data ?? null}
               cobertura={coberturaAuditada}
               recorte={recorte}
+              onAbrirComposicao={(periodicity, lado) =>
+                abrirGaveta({ composicao: periodicity, lado: lado ?? null })
+              }
             />
 
             <Atencao
@@ -311,12 +372,17 @@ export default function Inicio() {
               <MaioresImpactos
                 ranking={ranking}
                 period={view.period}
-                onAbrir={(key) => trocarPara({ impacto: key, alteracao: null })}
+                onAbrir={(key) =>
+                  abrirGaveta({
+                    impacto: key,
+                    periodicidade: ranking?.periodicity ?? null,
+                  })
+                }
               />
               <UltimasAlteracoes
                 view={view}
                 recorte={recorte}
-                onAbrir={(chave) => trocarPara({ alteracao: chave, impacto: null })}
+                onAbrir={(chave) => abrirGaveta({ alteracao: chave })}
               />
             </div>
 
@@ -329,12 +395,25 @@ export default function Inicio() {
               <Explorar />
             </div>
 
+            <ComposicaoDoImpacto
+              composicao={composicao}
+              periodLabel={view.periodLabel}
+              recorte={{ ...recorte, period: view.period }}
+              onAbrirParametro={(key, periodicity) =>
+                abrirGaveta({ impacto: key, periodicidade: periodicity })
+              }
+              onTrocarPeriodicidade={(periodicity) =>
+                abrirGaveta({ composicao: periodicity })
+              }
+              onFechar={() => trocarPara({ composicao: null, lado: null })}
+            />
+
             <DetalheDoImpacto
               detalhe={detalhe}
               period={view.period}
               periodLabel={view.periodLabel}
               recorte={recorte}
-              onFechar={() => trocarPara({ impacto: null })}
+              onFechar={() => trocarPara({ impacto: null, periodicidade: null })}
             />
 
             <DetalheDaAlteracao
@@ -529,13 +608,25 @@ function Indicadores({
   anterior,
   cobertura: coberturaAuditada,
   recorte,
+  onAbrirComposicao,
 }: {
   view: FamiliesView;
   anterior: GroupedView | null;
   cobertura: ReturnType<typeof cobertura>;
   recorte: Recorte;
+  /** Abre a balança da vigência. Ver `ComposicaoDoImpacto`. */
+  onAbrirComposicao: (periodicity: string, lado?: Lado) => void;
 }) {
   const impactos = impactosDaVigencia(view);
+  /*
+    Só as periodicidades em que dinheiro de fato se mexeu.
+
+    Filtrado aqui e não dentro do bloco dos dois lados porque é o mesmo corte
+    que decide se o cartão abre a gaveta: uma periodicidade cujos dois lados são
+    zero não tem balança a mostrar, e mandar o clique para ela abriria um painel
+    com duas listas vazias.
+  */
+  const lados = ladosDoImpacto(view).filter((l) => l.fatiaDeGanho !== null);
   const frota = frotaTotal(view);
   const veiculos = participacao(view.totals.vehiclesTouched, frota);
   const semPreco = participacao(view.impact.notCalculable, view.totals.changes);
@@ -552,21 +643,26 @@ function Indicadores({
       <Indicador
         icone={ReceiptText}
         titulo="Impacto líquido"
-        ajuda="A diferença de remuneração apurada nesta vigência, por periodicidade. R$/mês e R$/ano nunca são somados: são grandezas diferentes."
+        ajuda="A diferença de remuneração apurada nesta vigência, por periodicidade — o que somou menos o que subtraiu. R$/mês e R$/ano nunca são somados: são grandezas diferentes."
         /*
-          Sem impacto apurado não há lista para abrir: o link levaria a uma tela
-          filtrada em "com impacto" que responderia com zero linhas, que é o
-          mesmo que um beco com aparência de erro.
+          O cartão abre uma gaveta, e não mais a lista filtrada de Alterações.
+
+          O que ele publica é uma subtração, e o que faltava era justamente as
+          duas parcelas dela. Em agosto/2026 o cartão dizia "R$ 11.917/mês
+          favorável", e o que aconteceu foi R$ 21.764 entrando enquanto R$ 9.847
+          saíam. A lista de linhas não responde isso — ela mostra as alterações
+          uma a uma, e reconstruir os dois lados a partir dali é a conta que
+          ninguém faz. A gaveta responde, e leva a lista dentro dela.
+
+          Sem impacto apurado não há balança para abrir, e o cartão continua só
+          cartão: uma gaveta vazia depois de um clique se lê como defeito.
         */
-        href={
-          impactos.length === 0
+        aoAbrir={
+          lados.length === 0
             ? undefined
-            : linkDeAlteracoes({
-                recorte: daVigencia,
-                filtros: { impactConfidence: "CALCULATED" },
-              })
+            : () => onAbrirComposicao(lados[0].periodicity)
         }
-        abrir="ver as alterações que somam este valor"
+        abrir="ver o que somou e o que subtraiu"
       >
         {impactos.length === 0 ? (
           <>
@@ -610,6 +706,7 @@ function Indicadores({
               )}
               {impactos[0].amount < 0 ? "desfavorável" : "favorável"}
             </p>
+            <DoisLados lados={lados} onAbrir={onAbrirComposicao} />
             {/*
               Quem diz que não há com que comparar é o cockpit, e não a ausência
               da resposta anterior: `hasBaseline` é a verdade por série, e a
@@ -748,6 +845,7 @@ function Indicador({
   ajuda,
   tom,
   href,
+  aoAbrir,
   abrir,
   children,
 }: {
@@ -757,16 +855,27 @@ function Indicador({
   tom?: "marca" | "ok";
   /** Para onde o número leva. Sem destino, o cartão continua só cartão. */
   href?: string;
+  /**
+   * A gaveta que o número abre, para quem não sai da tela.
+   *
+   * Alternativa a `href`, e não companheira dele: um cartão com os dois teria
+   * dois destinos para o mesmo clique, e o primeiro a divergir seria o que
+   * ninguém está olhando. A casca é a mesma — a seta, o rótulo acessível e a
+   * borda que acende no hover não sabem qual dos dois está preenchido.
+   */
+  aoAbrir?: () => void;
   /** O que a pessoa vai encontrar lá — o rodapé do cartão, e o rótulo do link. */
   abrir?: string;
   children: React.ReactNode;
 }) {
+  const abre = href !== undefined || aoAbrir !== undefined;
+
   return (
     <section
       className={cn(
         CARTAO,
         "p-5 flex flex-col",
-        href && "relative group focus-within:border-brand hover:border-brand transition-colors",
+        abre && "relative group focus-within:border-brand hover:border-brand transition-colors",
       )}
     >
       <div className="flex items-start gap-2.5">
@@ -794,7 +903,7 @@ function Indicador({
           baixo deles, e sem a camada o ⓘ deixaria de abrir a definição.
         */}
         <Ajuda texto={ajuda} />
-        {href && (
+        {abre && (
           <ChevronRight
             className="relative z-10 w-4 h-4 shrink-0 mt-0.5 text-muted-foreground group-hover:text-brand transition-colors"
             aria-hidden
@@ -811,7 +920,7 @@ function Indicador({
         navega por leitor de tela ouve quatro links seguidos e precisa distinguir
         os quatro. É a mesma frase que a seta carrega no `title`.
       */}
-      {href && (
+      {href !== undefined && (
         <Link
           href={href}
           aria-label={`${titulo}: ${abrir ?? "abrir"}`}
@@ -819,7 +928,106 @@ function Indicador({
           className="absolute inset-0 rounded-xl"
         />
       )}
+      {href === undefined && aoAbrir !== undefined && (
+        <button
+          type="button"
+          onClick={aoAbrir}
+          aria-label={`${titulo}: ${abrir ?? "abrir"}`}
+          title={abrir}
+          className="absolute inset-0 rounded-xl"
+        />
+      )}
     </section>
+  );
+}
+
+/**
+ * Os dois lados do impacto, dentro do cartão.
+ *
+ * A barra mede **movimento** e não saldo: a fatia verde é `ganhos ÷ (ganhos +
+ * |perdas|)`. É a diferença entre "esta vigência foi calma" e "esta vigência
+ * teve dois movimentos grandes que quase se anularam" — duas leituras que o
+ * líquido sozinho publica com a mesma frase, e que pedem conversas diferentes
+ * com o cliente.
+ *
+ * Os dois números são botões, e cada um abre a balança **naquele lado**. O
+ * cartão inteiro já abre a balança; o que estes dois acrescentam é chegar lá com
+ * a lista que interessa em cima, sem rolar. Eles ficam acima do link que cobre o
+ * cartão (`relative z-10`) pela mesma razão que o ⓘ fica.
+ *
+ * A periodicidade só é escrita quando há mais de uma: com uma só, ela já está
+ * colada no número grande logo acima, e repeti-la gastaria a linha que o cartão
+ * não tem.
+ *
+ * Zero aqui é medição, e não ausência dela — a régua do arquivo continua de pé.
+ * "R$ 0" num dos lados quer dizer que **toda** alteração com preço foi para o
+ * outro lado, que é um fato sobre a vigência. O que não chega até aqui é a
+ * periodicidade sem movimento nenhum: ela é cortada em `Indicadores`, junto com
+ * a decisão de o cartão abrir ou não.
+ */
+function DoisLados({
+  lados,
+  onAbrir,
+}: {
+  lados: LadosDoImpacto[];
+  onAbrir: (periodicity: string, lado?: Lado) => void;
+}) {
+  if (lados.length === 0) return null;
+
+  return (
+    <div className="mt-3.5 space-y-3">
+      {lados.map((lado) => {
+        const verde = Math.max(0, Math.min(1, lado.fatiaDeGanho ?? 0)) * 100;
+        return (
+          <div key={lado.periodicity}>
+            {lados.length > 1 && (
+              <p className="text-[0.6875rem] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                em R$
+                {periodicitySuffix(lado.periodicity)}
+              </p>
+            )}
+            <div className="flex h-1.5 w-full overflow-hidden rounded-full bg-muted">
+              <div className="h-full bg-emerald-600" style={{ width: `${verde}%` }} />
+              <div className="h-full bg-red-600" style={{ width: `${100 - verde}%` }} />
+            </div>
+            <div className="relative z-10 mt-1.5 flex items-center justify-between gap-1">
+              {/*
+                O rótulo acessível diz o que o número é, e não só o número.
+
+                O conteúdo do botão é "+R$ 21.764", e um leitor de tela leria
+                exatamente isso: um valor sem substantivo, ao lado de outro
+                valor sem substantivo. O `aria-label` põe a palavra que a cor
+                está dizendo para quem enxerga.
+              */}
+              <button
+                type="button"
+                onClick={() => onAbrir(lado.periodicity, "ganhos")}
+                aria-label={`Somou ${formatBrlShort(lado.ganhos)}: ver tudo o que aumentou a remuneração`}
+                title="Ver tudo o que somou à remuneração"
+                className={cn(
+                  "rounded px-1 -mx-1 text-xs font-bold tabular-nums hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand",
+                  lado.ganhos === 0 ? "text-muted-foreground" : "text-emerald-700",
+                )}
+              >
+                +{formatBrlShort(lado.ganhos)}
+              </button>
+              <button
+                type="button"
+                onClick={() => onAbrir(lado.periodicity, "perdas")}
+                aria-label={`Subtraiu ${formatBrlShort(Math.abs(lado.perdas))}: ver tudo o que reduziu a remuneração`}
+                title="Ver tudo o que subtraiu da remuneração"
+                className={cn(
+                  "rounded px-1 -mx-1 text-xs font-bold tabular-nums hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand",
+                  lado.perdas === 0 ? "text-muted-foreground" : "text-red-700",
+                )}
+              >
+                {formatBrlShort(lado.perdas)}
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 

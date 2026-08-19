@@ -286,10 +286,46 @@ export interface FamilyView {
   parameters: ParameterView[];
 }
 
+/**
+ * Um parâmetro dentro de um dos dois lados do impacto — espelha
+ * `ImpactContributor` em `lib/comparison/src/families-view.ts`.
+ *
+ * `amount` é a soma das linhas **daquele sinal**, e não o líquido do parâmetro:
+ * o que subiu em oito ativos e caiu em dois aparece nos dois lados, com o
+ * número de cada um.
+ */
+export interface ImpactContributor {
+  key: string;
+  name: string;
+  family: string;
+  familyName: string;
+  changes: number;
+  vehicles: number;
+  amount: number;
+}
+
+export interface ImpactSide {
+  /** Positivo no ganho, negativo na perda. */
+  total: number;
+  changes: number;
+  vehicles: number;
+  parameters: ImpactContributor[];
+}
+
+/** `net = gains.total + losses.total`, e cada total é a soma dos parâmetros dele. */
+export interface ImpactSides {
+  periodicity: string;
+  net: number;
+  gains: ImpactSide;
+  losses: ImpactSide;
+}
+
 export interface ExecutiveSummary {
   impact: ImpactSummary;
   lossesByPeriodicity: Record<string, number>;
   gainsByPeriodicity: Record<string, number>;
+  /** Os dois lados abertos por parâmetro — a fonte dos dois campos acima. */
+  sides: ImpactSides[];
   changes: number;
   groups: number;
   critical: number;

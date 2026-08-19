@@ -5,6 +5,7 @@ import type {
   ExecutiveSummary,
   FamiliesView,
   GroupedView,
+  ImpactSide,
   PriorityItem,
 } from "@/components/inicio/types";
 import { juntarPrioridades } from "@/lib/cockpit";
@@ -152,6 +153,237 @@ export function escreverPercentual(percentual: number, casas = 0): string {
  */
 export function frotaTotal(view: GroupedView): number {
   return view.cockpit.kpis.fleet;
+}
+
+// ---------------------------------------------------------------------------
+// Os dois lados do impacto
+// ---------------------------------------------------------------------------
+
+export type Lado = "ganhos" | "perdas";
+
+/**
+ * O impacto de uma periodicidade e os dois movimentos que o formam.
+ *
+ * O líquido é uma subtração, e uma subtração esconde as duas parcelas. Medido
+ * em CAMAÇARI · EMPURRADA, agosto/2026: o cartão dizia "R$ 11.917/mês
+ * favorável", e o que aconteceu foi R$ 21.764 entrando e R$ 9.847 saindo. As
+ * duas frases descrevem a mesma vigência, e pedem conversas diferentes — os
+ * dois lados ficam ao lado do saldo para que a segunda não seja lida como a
+ * primeira.
+ *
+ * `ganhos + perdas = liquido`, sempre, porque os três saem da mesma varredura
+ * de linhas no servidor (`ExecutiveSummary.sides`). A soma acontece lá; aqui só
+ * se lê.
+ */
+export interface LadosDoImpacto {
+  periodicity: string;
+  liquido: number;
+  /** O que somou. Sempre ≥ 0. */
+  ganhos: number;
+  /** O que tirou. Sempre ≤ 0 — o sinal fica, porque é ele que diz o que faz. */
+  perdas: number;
+  /**
+   * A fatia verde da barra, de 0 a 1 — `ganhos ÷ (ganhos + |perdas|)`.
+   *
+   * É proporção de **movimento**, e não de saldo: mede quanto do dinheiro que
+   * se mexeu nesta vigência foi para cima. `null` quando não se mexeu nada, e
+   * aí não há barra a desenhar — meia barra cinza seria a figura de um empate
+   * que não aconteceu.
+   */
+  fatiaDeGanho: number | null;
+}
+
+/**
+ * Cada periodicidade da vigência com os seus dois lados, a maior em módulo
+ * primeiro — a mesma ordem de `impactosDaVigencia`, e pela mesma razão.
+ *
+ * Vazio quando não há impacto apurado. Nunca uma linha com três zeros: um lado
+ * zerado que não existe e um lado zerado que existe são coisas diferentes, e o
+ * cartão que recebe a lista vazia diz "nenhum valor apurável" em vez de
+ * desenhar uma balança equilibrada.
+ */
+export function ladosDoImpacto(view: FamiliesView | null | undefined): LadosDoImpacto[] {
+  return (view?.summary.sides ?? []).map((lado) => {
+    const movimento = lado.gains.total + Math.abs(lado.losses.total);
+    return {
+      periodicity: lado.periodicity,
+      liquido: lado.net,
+      ganhos: lado.gains.total,
+      perdas: lado.losses.total,
+      fatiaDeGanho: movimento === 0 ? null : lado.gains.total / movimento,
+    };
+  });
+}
+
+/** Uma linha da lista de um lado — um parâmetro e o que ele pôs ali. */
+export interface LinhaDeLado {
+  key: string;
+  name: string;
+  familyName: string;
+  /** Alterações com preço deste parâmetro **deste lado**. */
+  changes: number;
+  vehicles: number;
+  amount: number;
+  /**
+   * O comprimento da barra: 0 a 1 do maior valor **das duas listas**.
+   *
+   * A escala é única porque as duas listas são da mesma periodicidade, e ali a
+   * comparação é legítima. Uma escala por lado faria a maior perda e o maior
+   * ganho terminarem no mesmo lugar, dizendo com a figura que os dois pesam
+   * igual.
+   */
+  proporcao: number;
+  /**
+   * O que este mesmo parâmetro pôs no **outro** lado — `null` quando não pôs.
+   *
+   * Não é detalhe raro: em CAMAÇARI · EMPURRADA, agosto/2026, `Financiamento`
+   * subiu R$ 17.086,20 em quatro cavalos e caiu R$ 2.147,19 num quinto, e está
+   * nas duas listas com os dois números.
+   */
+  noOutroLado: number | null;
+  /**
+   * O saldo do parâmetro nesta periodicidade — `amount + noOutroLado`.
+   *
+   * É o número que o painel do parâmetro abre, e é por isso que ele viaja
+   * junto: quem clica em "+R$ 17.086 Financiamento" e cai num painel escrito
+   * "R$ 14.939" precisa ter lido antes por que os dois existem. Igual a
+   * `amount` quando o parâmetro está num lado só, e aí a linha não diz nada.
+   */
+  liquido: number;
+}
+
+export interface LadoDetalhado {
+  lado: Lado;
+  /** A soma exata das linhas abaixo — positiva no ganho, negativa na perda. */
+  total: number;
+  alteracoes: number;
+  veiculos: number;
+  linhas: LinhaDeLado[];
+}
+
+/**
+ * O impacto de uma periodicidade aberto nos dois lados, com o que produziu cada
+ * um — o painel que o cartão de Impacto líquido abre.
+ *
+ * Sai da mesma resposta que desenhou o cartão (`summary.sides`), e não de um
+ * pedido novo: o número lido no cartão e o número lido na gaveta têm de ser o
+ * mesmo número, e dois pedidos a vigências diferentes é exatamente como eles
+ * deixariam de ser.
+ *
+ * `null` quando a vigência não tem impacto apurado — o endereço com
+ * `?composicao=` continua colável, e um colado depois de trocar a vigência não
+ * abre uma balança vazia.
+ */
+export interface ComposicaoDoImpacto {
+  periodicity: string;
+  liquido: number;
+  ganhos: LadoDetalhado;
+  perdas: LadoDetalhado;
+  /** O lado que abre primeiro: o que foi clicado, ou o maior em módulo. */
+  primeiro: Lado;
+  /** A fatia verde da barra da gaveta — a mesma conta do cartão. */
+  fatiaDeGanho: number | null;
+  /**
+   * As outras periodicidades desta vigência, com os seus lados.
+   *
+   * Em linha própria e sempre: R$/mês e R$/ano não somam, aqui nem em lugar
+   * nenhum do produto. Elas aparecem como troca de assunto — cada uma abre a
+   * sua própria balança — em vez de sumirem.
+   */
+  outras: LadosDoImpacto[];
+  /**
+   * Alterações da vigência que ficaram sem preço.
+   *
+   * Não estão em lado nenhum, e é por isso que precisam ser ditas aqui: quem
+   * lê "R$ 21.764 somaram e R$ 9.847 tiraram" conclui que viu a vigência
+   * inteira, e o que ficou sem preço é justamente o que pode virar um terceiro
+   * número depois da curadoria.
+   */
+  semPreco: number;
+  /** O que saiu da soma por já estar contado nas parcelas, nesta periodicidade. */
+  excluido: { alteracoes: number; valor: number | null };
+}
+
+/** `ganhos` e `perdas` são os dois valores que a URL aceita em `?lado=`. */
+function ladoValido(valor: string | null): valor is Lado {
+  return valor === "ganhos" || valor === "perdas";
+}
+
+export function composicaoDoImpacto(
+  view: FamiliesView | null | undefined,
+  periodicidade: string | null,
+  lado: string | null = null,
+): ComposicaoDoImpacto | null {
+  const sides = view?.summary.sides ?? [];
+  /*
+    Sem periodicidade pedida não há balança — é o `?composicao=` ausente da URL,
+    e a gaveta fica fechada.
+
+    A régua é a mesma de `detalheDoImpacto`, e a razão é a mesma: a chave da URL
+    **é** o estado da gaveta. Sem esta linha, a balança nascia aberta em toda
+    visita à Visão geral, escondendo a tela atrás de um painel que ninguém pediu.
+  */
+  if (!view || periodicidade === null || sides.length === 0) return null;
+
+  /*
+    Qual periodicidade esta balança explica.
+
+    A pedida, quando a vigência de fato tem essa periodicidade — é a que estava
+    escrita ao lado do número que alguém clicou. Quando não tem, vale a régua do
+    cartão, a de maior módulo: um endereço com `?composicao=ANUAL` colado depois
+    de trocar de vigência ainda cai numa balança que existe, e a gaveta escreve
+    a periodicidade em cima do valor, então a troca aparece em vez de passar.
+  */
+  const escolhido = sides.find((s) => s.periodicity === periodicidade) ?? sides[0];
+
+  const teto = Math.max(
+    ...escolhido.gains.parameters.map((p) => Math.abs(p.amount)),
+    ...escolhido.losses.parameters.map((p) => Math.abs(p.amount)),
+    0,
+  );
+  const detalhar = (nome: Lado, origem: ImpactSide, oposto: ImpactSide): LadoDetalhado => ({
+    lado: nome,
+    total: origem.total,
+    alteracoes: origem.changes,
+    veiculos: origem.vehicles,
+    linhas: origem.parameters.map((p) => {
+      const noOutroLado =
+        oposto.parameters.find((o) => o.key === p.key)?.amount ?? null;
+      return {
+        key: p.key,
+        name: p.name,
+        familyName: p.familyName,
+        changes: p.changes,
+        vehicles: p.vehicles,
+        amount: p.amount,
+        proporcao: teto === 0 ? 0 : Math.abs(p.amount) / teto,
+        noOutroLado,
+        liquido: Number((p.amount + (noOutroLado ?? 0)).toFixed(2)),
+      };
+    }),
+  });
+
+  const movimento = escolhido.gains.total + Math.abs(escolhido.losses.total);
+
+  return {
+    periodicity: escolhido.periodicity,
+    liquido: escolhido.net,
+    ganhos: detalhar("ganhos", escolhido.gains, escolhido.losses),
+    perdas: detalhar("perdas", escolhido.losses, escolhido.gains),
+    // Sem lado pedido, abre o que mais mexeu — é ele que a pessoa veio ver.
+    primeiro: ladoValido(lado)
+      ? lado
+      : Math.abs(escolhido.losses.total) > escolhido.gains.total
+        ? "perdas"
+        : "ganhos",
+    fatiaDeGanho: movimento === 0 ? null : escolhido.gains.total / movimento,
+    outras: ladosDoImpacto(view).filter((l) => l.periodicity !== escolhido.periodicity),
+    semPreco: view.impact.notCalculable,
+    excluido: {
+      alteracoes: view.impact.excludedChanges,
+      valor: excluidoDaSoma(view.impact)[escolhido.periodicity] ?? null,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
