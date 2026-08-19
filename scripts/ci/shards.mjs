@@ -81,6 +81,13 @@ export const SHARDS = {
     "@workspace/curation",
     "@workspace/composition",
     "@workspace/dre",
+    // `qlp` ainda não tem bateria própria — o quadro é exercitado de fora, por
+    // `families-qlp` em comparison, `apresentacao` no front e `qlp.test.ts` no
+    // api-server. Fica declarado aqui mesmo assim: o pacote já anuncia script
+    // `test`, e um pacote com script e sem shard é exatamente o verde mentiroso
+    // que esta lista existe para impedir. Quando a bateria dele nascer, nasce
+    // junto de comparison e curation, de quem ele lê.
+    "@workspace/qlp",
   ],
   balance: ["@workspace/balance", "@workspace/api-server"],
   assistente: ["@workspace/assistant"],
