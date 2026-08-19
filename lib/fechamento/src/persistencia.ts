@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, notInArray, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
   fechamentoApuracaoTable,
@@ -13,7 +13,14 @@ import {
   fechamentoRequisicaoTable,
   fechamentoViagemTable,
 } from "@workspace/db";
-import { type Canal, type Frota, type Recusa, type TipoDeFonte, type TipoDeFrotaContratada } from "./dominio";
+import {
+  TIPOS_DE_FONTE,
+  type Canal,
+  type Frota,
+  type Recusa,
+  type TipoDeFonte,
+  type TipoDeFrotaContratada,
+} from "./dominio";
 import {
   competencia as montarCompetencia,
   competenciaDaChave,
@@ -1157,6 +1164,130 @@ export async function lerDiaDaCompetencia(
   ]);
 
   return { competencia, fonte, dia: abrirDia(dia, linhas.map(viagemGravada)) };
+}
+
+/**
+ * O resumo de uma competência: o que a tela de Apurações mostra numa linha.
+ *
+ * É a competência somada, não a competência inteira. Nada aqui abre a memória
+ * de cálculo — para isso existe a tela de dentro —, e nada aqui é recalculado:
+ * `emitido` e `naoConferido` são os totais que a apuração gravou quando rodou,
+ * e não uma soma refeita agora. Um número que muda entre a lista e o detalhe
+ * seria pior do que não ter lista.
+ */
+export interface ResumoDeApuracao {
+  competencia: CompetenciaRegistrada;
+  /** As fontes com documento vigente. O `4/5` da tela sai daqui. */
+  relatorios: TipoDeFonte[];
+  /** Nulo enquanto a competência não apurou. Nulo não é zero. */
+  apuracao: {
+    rodadaEm: Date;
+    emitido: number;
+    naoConferido: number;
+    diferenca: number;
+    /**
+     * O que há em discussão: a soma, **em módulo**, das divergências
+     * acionáveis que ainda não tiveram desfecho.
+     *
+     * Em módulo porque as duas direções são pergunta — o que falta receber e o
+     * que se recebeu a mais. Somá-las com sinal deixaria uma abater a outra e
+     * devolveria um número menor do que o que está de fato em aberto, que é o
+     * oposto do que a coluna promete.
+     *
+     * Ficam de fora as informativas, que não pedem resposta, e as que já foram
+     * aceitas ou resolvidas, que deixaram de ser pergunta. Uma em contestação
+     * continua contando: contestar é justamente estar questionando.
+     */
+    aQuestionar: number;
+    /** Quantas divergências sustentam esse valor. */
+    aQuestionarQuantidade: number;
+  } | null;
+}
+
+/**
+ * O resumo de todas as competências, da mais recente para a mais antiga.
+ *
+ * **Por que existe, em vez de a tela somar.** A alternativa seria a lista
+ * chamar `GET /competencias/:id` uma vez por competência e montar o resumo no
+ * navegador: N+1 idas ao banco numa tela que existe justamente para olhar
+ * todas de uma vez, com o total da quinzena aparecendo só depois da última
+ * resposta. Aqui são quatro consultas de tamanho fixo, e o custo não cresce
+ * com o número de competências.
+ *
+ * **Por que quatro consultas e não um `join` só.** Documentos e divergências
+ * são muitos-para-um em relação à competência; um `join` das duas multiplicaria
+ * as linhas uma pela outra e as somas sairiam infladas. Agregar cada lado no
+ * banco e cruzar por `id` na memória é a forma que não tem esse erro.
+ */
+export async function listarApuracoes(db: Database): Promise<ResumoDeApuracao[]> {
+  const competencias = await listarCompetencias(db);
+  if (competencias.length === 0) return [];
+
+  const [documentos, apuracoes, questoes] = await Promise.all([
+    db
+      .select({
+        competenciaId: fechamentoDocumentoTable.competenciaId,
+        tipo: fechamentoDocumentoTable.tipo,
+      })
+      .from(fechamentoDocumentoTable)
+      .where(eq(fechamentoDocumentoTable.vigente, true)),
+    db
+      .select({
+        id: fechamentoApuracaoTable.id,
+        competenciaId: fechamentoApuracaoTable.competenciaId,
+        rodadaEm: fechamentoApuracaoTable.rodadaEm,
+        totalEmitido: fechamentoApuracaoTable.totalEmitido,
+        totalNaoConferido: fechamentoApuracaoTable.totalNaoConferido,
+        totalDiferenca: fechamentoApuracaoTable.totalDiferenca,
+      })
+      .from(fechamentoApuracaoTable)
+      .where(eq(fechamentoApuracaoTable.vigente, true)),
+    db
+      .select({
+        apuracaoId: fechamentoDivergenciaTable.apuracaoId,
+        soma: sql<string>`coalesce(sum(abs(${fechamentoDivergenciaTable.valor})), 0)`,
+        quantidade: sql<number>`count(*)::int`,
+      })
+      .from(fechamentoDivergenciaTable)
+      .where(
+        and(
+          notInArray(fechamentoDivergenciaTable.sentido, ["INFORMATIVO"]),
+          notInArray(fechamentoDivergenciaTable.desfecho, ["ACEITA", "RESOLVIDA"]),
+        ),
+      )
+      .groupBy(fechamentoDivergenciaTable.apuracaoId),
+  ]);
+
+  const recebidos = new Map<string, Set<string>>();
+  for (const d of documentos) {
+    const tipos = recebidos.get(d.competenciaId) ?? new Set<string>();
+    tipos.add(d.tipo);
+    recebidos.set(d.competenciaId, tipos);
+  }
+  const apuracaoDa = new Map(apuracoes.map((a) => [a.competenciaId, a]));
+  const questaoDa = new Map(questoes.map((q) => [q.apuracaoId, q]));
+
+  return competencias.map((competencia) => {
+    const tipos = recebidos.get(competencia.id);
+    const apuracao = apuracaoDa.get(competencia.id);
+    const questao = apuracao ? questaoDa.get(apuracao.id) : undefined;
+    return {
+      competencia,
+      // Na ordem do catálogo, e não na de chegada: as cinco casinhas da linha
+      // ficam sempre no mesmo lugar, e a que falta é reconhecida pela posição.
+      relatorios: TIPOS_DE_FONTE.filter((tipo) => tipos?.has(tipo) ?? false),
+      apuracao: apuracao
+        ? {
+            rodadaEm: apuracao.rodadaEm,
+            emitido: Number(apuracao.totalEmitido),
+            naoConferido: Number(apuracao.totalNaoConferido),
+            diferenca: Number(apuracao.totalDiferenca),
+            aQuestionar: Number(questao?.soma ?? 0),
+            aQuestionarQuantidade: questao?.quantidade ?? 0,
+          }
+        : null,
+    };
+  });
 }
 
 /**

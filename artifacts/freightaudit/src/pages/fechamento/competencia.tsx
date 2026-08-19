@@ -150,7 +150,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-2"
         >
           <ArrowLeft className="w-3.5 h-3.5" />
-          Competências
+          Importações
         </Link>
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-2xl font-bold tracking-tight">

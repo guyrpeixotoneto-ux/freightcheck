@@ -274,6 +274,33 @@ export function listarCompetencias(): Promise<Competencia[]> {
   return fetchJson<Competencia[]>("/fechamento/competencias");
 }
 
+/**
+ * Uma competência somada: o que cabe numa linha da tela de Apurações.
+ *
+ * Espelha `ResumoDeApuracao` do servidor. Os totais vêm prontos de propósito —
+ * a interface não soma remuneração, nem a partir de partes que ela mesma
+ * recebeu. Ver o cabeçalho deste arquivo.
+ */
+export interface ResumoDeApuracao {
+  competencia: Competencia;
+  /** As fontes com documento vigente, na ordem do catálogo. */
+  relatorios: TipoDeFonte[];
+  /** Nulo enquanto a competência não apurou. Nulo não é zero. */
+  apuracao: {
+    rodadaEm: string;
+    emitido: number;
+    naoConferido: number;
+    diferenca: number;
+    /** A soma, em módulo, das divergências acionáveis ainda sem desfecho. */
+    aQuestionar: number;
+    aQuestionarQuantidade: number;
+  } | null;
+}
+
+export function listarApuracoes(): Promise<ResumoDeApuracao[]> {
+  return fetchJson<ResumoDeApuracao[]>("/fechamento/apuracoes");
+}
+
 export function lerCompetencia(id: string): Promise<CompetenciaAberta> {
   return fetchJson<CompetenciaAberta>(`/fechamento/competencias/${id}`);
 }

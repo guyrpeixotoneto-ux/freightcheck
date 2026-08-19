@@ -37,6 +37,7 @@ import { EmPreparo } from '@/pages/em-preparo';
 import { TELAS_EM_PREPARO } from '@/pages/telas-em-preparo';
 import VisaoDoFechamento from '@/pages/fechamento/visao';
 import Competencias from '@/pages/fechamento/competencias';
+import Apuracoes from '@/pages/fechamento/apuracoes';
 import CompetenciaAberta from '@/pages/fechamento/competencia';
 import DiaDoFechamento from '@/pages/fechamento/dia';
 import { EtapaDoFechamento } from '@/pages/fechamento/etapa';
@@ -209,6 +210,7 @@ function Router() {
       <Route path="/fechamento/competencias/:id/dias/:dia">
         {(params) => <DiaDoFechamento id={params.id} dia={params.dia} />}
       </Route>
+      <Route path="/fechamento/apuracoes" component={Apuracoes} />
       {ETAPAS_FECHAMENTO.map((etapa) => (
         <Route key={etapa.href} path={etapa.href}>
           <EtapaDoFechamento etapa={etapa} />

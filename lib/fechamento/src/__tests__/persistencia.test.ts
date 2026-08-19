@@ -10,6 +10,7 @@ import {
   lerApuracaoVigente,
   lerDiaDaCompetencia,
   lerDiarioDaCompetencia,
+  listarApuracoes,
   listarDocumentos,
   listarPartes,
   reabrirCompetencia,
@@ -306,6 +307,52 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     expect(cdd?.competencias).toBeGreaterThan(1);
     expect(partes.transportadoras.map((t) => t.codigo)).toContain("36");
   });
+
+  /*
+    O resumo que a tela de Apurações lê, conferido contra as mesmas linhas de
+    onde ele sai. É o caso que impede as duas formas de errar uma lista somada
+    no banco: contar documento substituído como se ainda valesse, e deixar a
+    soma das divergências inflar por causa do `join` (ver `listarApuracoes`).
+  */
+  it("resume cada competência sem contar documento substituído nem inflar a soma", async () => {
+    const resumos = await listarApuracoes(db);
+
+    /* Da quinzena mais recente para a mais antiga — a ordem da tela. */
+    const chaves = resumos.map((r) => r.competencia.chave);
+    expect([...chaves].sort().reverse()).toEqual(chaves);
+
+    const q2 = resumos.find((r) => r.competencia.chave === "2026-07-Q2")!;
+    expect(q2.relatorios).toEqual([
+      "OPERACAO",
+      "CTE",
+      "DISPONIBILIDADE",
+      "REQUISICOES",
+      "CONCILIACAO",
+    ]);
+    expect(q2.apuracao?.emitido).toBe(4450);
+    expect(q2.apuracao?.naoConferido).toBe(2000);
+
+    /*
+      A soma que o `sum(abs(...))` devolveu tem de bater, ao centavo, com a
+      soma das mesmas divergências linha a linha. Um `join` a mais na consulta
+      multiplicaria as linhas e este número dobraria sem que nada mais mudasse.
+    */
+    const vigente = (await lerApuracaoVigente(db, q2.competencia.id))!;
+    const aQuestionar = vigente.divergencias
+      .filter((d) => d.sentido !== "INFORMATIVO" && d.desfecho !== "ACEITA" && d.desfecho !== "RESOLVIDA")
+      .reduce((soma, d) => soma + Math.abs(d.valor), 0);
+    expect(aQuestionar).toBeGreaterThan(0);
+    expect(q2.apuracao?.aQuestionar).toBeCloseTo(aQuestionar, 2);
+
+    /* O reenvio corrigido deixou dois documentos, e só um vigente. */
+    const q1 = resumos.find((r) => r.competencia.chave === "2026-08-Q1")!;
+    expect(q1.relatorios).toEqual(["REQUISICOES"]);
+
+    /* Sem apuração é `null`, e não zero: ela não vale zero, ela não rodou. */
+    const semNada = resumos.find((r) => r.competencia.chave === "2026-10-Q1")!;
+    expect(semNada.relatorios).toEqual([]);
+    expect(semNada.apuracao).toBeNull();
+  }, 60_000);
 
   it("uma competência encerrada não aceita documento", async () => {
     const comp = await abrirCompetencia(db, { ano: 2026, mes: 9, quinzena: 1, unidade, transportadora });
