@@ -31,6 +31,7 @@ import {
   type Dia,
 } from "./periodo";
 import { apurar, type Apuracao, type Fontes, type Parcela } from "./apuracao";
+import { montarResumo, type QuinzenaApurada, type ResumoDoMes } from "./resumo";
 import { lerOperacao, type DetalheDaViagem, type Viagem } from "./leitores/operacao";
 import { abrirDia, diasDaCompetencia, type DiaAberto, type DiaDaOperacao } from "./diario";
 import { lerCtes } from "./leitores/cte";
@@ -285,6 +286,12 @@ export async function receberDocumento(
       await tx
         .delete(fechamentoConciliacaoItemTable)
         .where(eq(fechamentoConciliacaoItemTable.documentoId, anterior[0].id));
+      await tx
+        .delete(fechamentoPagamentoItemTable)
+        .where(eq(fechamentoPagamentoItemTable.documentoId, anterior[0].id));
+      await tx
+        .delete(fechamentoPagamentoDescontoTable)
+        .where(eq(fechamentoPagamentoDescontoTable.documentoId, anterior[0].id));
       await tx
         .update(fechamentoDocumentoTable)
         .set({ vigente: false })
@@ -1490,6 +1497,123 @@ export async function listarApuracoes(db: Database): Promise<ResumoDeApuracao[]>
         : null,
     };
   });
+}
+
+/**
+ * O mês inteiro — as duas quinzenas lado a lado, com o total.
+ *
+ * É a leitura que responde à pergunta mensal, que é a que a transportadora
+ * discute com a Ambev: a apuração tem grão de quinzena, e o documento que se
+ * negocia tem grão de mês. Sem ela, comparar com a planilha exigia abrir duas
+ * telas e somar à mão.
+ *
+ * **Nada é recalculado aqui.** As verbas vêm da apuração vigente de cada
+ * quinzena, como ela foi gravada; a coluna do demonstrativo vem da soma de
+ * `valor_faturado` dos itens do 03.08.20, que é como o próprio relatório fecha
+ * o `Total Remuneração`. Rodar a apuração de novo para montar um resumo faria o
+ * total do mês divergir do total que cada quinzena mostra — pelo mesmo motivo
+ * pelo qual a apuração é gravada e não recalculada a cada leitura.
+ *
+ * **O mês sem competência nenhuma não é erro.** Devolve o resumo vazio, com as
+ * duas quinzenas nomeadas e ausentes: é a resposta certa para "ainda não
+ * importei nada", e é diferente de "a unidade não existe".
+ */
+export async function lerResumoDoMes(
+  db: Database,
+  alvo: { unidade: string; transportadora: string; ano: number; mes: number },
+): Promise<ResumoDoMes> {
+  const competencias = await db
+    .select()
+    .from(fechamentoCompetenciaTable)
+    .where(
+      and(
+        eq(fechamentoCompetenciaTable.unidadeCodigo, alvo.unidade),
+        eq(fechamentoCompetenciaTable.transportadoraCodigo, alvo.transportadora),
+        eq(fechamentoCompetenciaTable.ano, alvo.ano),
+        eq(fechamentoCompetenciaTable.mes, alvo.mes),
+      ),
+    );
+
+  const quinzenas: QuinzenaApurada[] = [];
+  for (const c of competencias) {
+    const [apuracao, demonstrativo, descontos] = await Promise.all([
+      lerApuracaoVigente(db, c.id),
+      somarDemonstrativo(db, c.id),
+      somarDescontosDoDemonstrativo(db, c.id),
+    ]);
+    quinzenas.push({
+      quinzena: c.quinzena === 1 ? 1 : 2,
+      competenciaId: c.id,
+      chave: c.chave,
+      estado: c.estado,
+      verbas:
+        apuracao?.verbas.map((v) => ({
+          vbz: v.vbz,
+          canal: v.canal,
+          nome: v.nome,
+          natureza: v.natureza,
+          emitido: v.emitido,
+          esperado: v.esperado,
+        })) ?? null,
+      demonstrativo,
+      descontos,
+    });
+  }
+
+  const qualquer = competencias[0];
+  return montarResumo({
+    ano: alvo.ano,
+    mes: alvo.mes,
+    unidade: { codigo: alvo.unidade, nome: qualquer?.unidadeNome ?? null },
+    transportadora: { codigo: alvo.transportadora, nome: qualquer?.transportadoraNome ?? null },
+    quinzenas,
+  });
+}
+
+/**
+ * O `Total Remuneração` do 03.08.20, por canal.
+ *
+ * É a soma de `valor_faturado` — frete mais outros custos —, que é exatamente
+ * como o relatório fecha o próprio total. Devolve `null` quando o 03.08.20 não
+ * foi importado, e não uma lista vazia: lista vazia diria "o demonstrativo diz
+ * zero", que é outra afirmação.
+ */
+async function somarDemonstrativo(
+  db: Database,
+  competenciaId: string,
+): Promise<{ canal: Canal; total: number }[] | null> {
+  const linhas = await db
+    .select({
+      canal: fechamentoPagamentoItemTable.canal,
+      total: sql<string>`sum(${fechamentoPagamentoItemTable.valorFaturado})`,
+    })
+    .from(fechamentoPagamentoItemTable)
+    .where(eq(fechamentoPagamentoItemTable.competenciaId, competenciaId))
+    .groupBy(fechamentoPagamentoItemTable.canal);
+  if (linhas.length === 0) return null;
+  return linhas.map((l) => ({ canal: l.canal as Canal, total: Number(l.total ?? 0) }));
+}
+
+/** Os descontos do 03.08.20, somados por canal e tipo. */
+async function somarDescontosDoDemonstrativo(
+  db: Database,
+  competenciaId: string,
+): Promise<{ canal: Canal; tipo: string; valor: number }[] | null> {
+  const linhas = await db
+    .select({
+      canal: fechamentoPagamentoDescontoTable.canal,
+      tipo: fechamentoPagamentoDescontoTable.tipo,
+      valor: sql<string>`sum(${fechamentoPagamentoDescontoTable.valor})`,
+    })
+    .from(fechamentoPagamentoDescontoTable)
+    .where(eq(fechamentoPagamentoDescontoTable.competenciaId, competenciaId))
+    .groupBy(fechamentoPagamentoDescontoTable.canal, fechamentoPagamentoDescontoTable.tipo);
+  if (linhas.length === 0) return null;
+  return linhas.map((l) => ({
+    canal: l.canal as Canal,
+    tipo: l.tipo,
+    valor: Number(l.valor ?? 0),
+  }));
 }
 
 /** O que saiu do banco num descarte — dito por extenso, nunca "pronto". */

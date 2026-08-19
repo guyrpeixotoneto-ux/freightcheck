@@ -347,6 +347,90 @@ export function apurar(id: string): Promise<Apuracao> {
   return fetchJson<Apuracao>(`/fechamento/competencias/${id}/apuracao`, { method: "POST" });
 }
 
+/* ---------------------------------------------------------------------------
+   O resumo do mês — as duas quinzenas lado a lado
+   ------------------------------------------------------------------------ */
+
+/** Um valor nas três colunas do resumo. `null` é ausência, nunca zero. */
+export interface TresColunas {
+  primeira: number | null;
+  segunda: number | null;
+  total: number | null;
+}
+
+export interface LinhaDoResumo {
+  vbz: number;
+  nome: string;
+  natureza: string;
+  emitido: TresColunas;
+  apurado: TresColunas;
+}
+
+export interface BlocoDoResumo {
+  natureza: string;
+  titulo: string;
+  linhas: LinhaDoResumo[];
+  emitido: TresColunas;
+  apurado: TresColunas;
+}
+
+/** Um desconto do 03.08.20 — informativo: já saiu das verbas, não se soma. */
+export interface DescontoDoResumo {
+  tipo: string;
+  nome: string;
+  valores: TresColunas;
+}
+
+export interface CanalDoResumo {
+  canal: string;
+  blocos: BlocoDoResumo[];
+  descontos: DescontoDoResumo[];
+  emitido: TresColunas;
+  conferido: TresColunas;
+  semFonte: TresColunas;
+  /** `Total Remuneração` do 03.08.20 — o lado que a Ambev assina. */
+  demonstrativo: TresColunas;
+  /** `emitido − demonstrativo`. */
+  diferenca: TresColunas;
+}
+
+export interface ResumoDoMes {
+  ano: number;
+  mes: number;
+  unidade: { codigo: string; nome: string | null };
+  transportadora: { codigo: string; nome: string | null };
+  quinzenas: {
+    quinzena: 1 | 2;
+    competenciaId: string | null;
+    chave: string | null;
+    estado: string | null;
+    apurada: boolean;
+    temDemonstrativo: boolean;
+  }[];
+  canais: CanalDoResumo[];
+}
+
+/**
+ * O mês inteiro, das duas quinzenas.
+ *
+ * Os quatro parâmetros são obrigatórios porque um fechamento é a trinca
+ * (unidade, transportadora, período): dois CDDs no mesmo mês são dois resumos.
+ */
+export function lerResumoDoMes(alvo: {
+  unidade: string;
+  transportadora: string;
+  ano: number;
+  mes: number;
+}): Promise<ResumoDoMes> {
+  const busca = new URLSearchParams({
+    unidade: alvo.unidade,
+    transportadora: alvo.transportadora,
+    ano: String(alvo.ano),
+    mes: String(alvo.mes),
+  });
+  return fetchJson<ResumoDoMes>(`/fechamento/resumo?${busca.toString()}`);
+}
+
 /** O que o descarte apagou — contado por fonte, para a tela repetir de volta. */
 export interface DadosDescartados {
   competencia: Competencia;

@@ -7,6 +7,7 @@ import {
   abrirCompetencia,
   apurarCompetencia,
   buscarCompetencia,
+  lerResumoDoMes,
   descartarDadosDaCompetencia,
   encerrarCompetencia,
   lerApuracaoVigente,
@@ -445,6 +446,32 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
       expect(fixa.esperado).toBe(2000);
       expect(fixa.memoria.map((m) => m.origem)).toEqual(["PAGAMENTO"]);
       expect(fixa.memoria[0]?.semImposto).toBe(1600);
+    }, 60_000);
+
+    it("o resumo do mês lê o demonstrativo do banco, e diz o que falta da outra quinzena", async () => {
+      const resumo = await lerResumoDoMes(db, {
+        unidade: unidadeDoPagamento.codigo,
+        transportadora: transportadora.codigo,
+        ano: 2026,
+        mes: 7,
+      });
+
+      const rota = resumo.canais.find((c) => c.canal === "ROTA")!;
+      /* Só a 2ª quinzena existe: a coluna da 1ª fica vazia, e o total do mês é
+         o que existe — não meio mês com cara de mês inteiro. */
+      expect(rota.emitido.primeira).toBeNull();
+      expect(rota.emitido.segunda).toBe(4350);
+      expect(rota.emitido.total).toBe(4350);
+      expect(resumo.quinzenas.find((q) => q.quinzena === 1)).toMatchObject({
+        competenciaId: null,
+        apurada: false,
+      });
+
+      /* `Total Remuneração` do 03.08.20: frete 3.000,00 + outros 500,00. */
+      expect(rota.demonstrativo.segunda).toBe(3500);
+      expect(rota.diferenca.segunda).toBe(4350 - 3500);
+      /* O frete mínimo do relatório chega inteiro, e fora das somas. */
+      expect(rota.descontos.find((d) => d.tipo === "FRETE_MINIMO")?.valores.segunda).toBe(50);
     }, 60_000);
 
     it("recusa o demonstrativo de outro período, pelo que ele mesmo declara", async () => {

@@ -175,6 +175,47 @@ Quatro decisões que a tela materializa:
    fontes é emissão ou aprovação, que atravessa a virada da quinzena de forma
    legítima.
 
+## O Resumo Geral — o mês nas três colunas em que ele é discutido
+
+`/fechamento/resumo` é a aba `Resumo Geral` da planilha, sem planilha. A
+apuração tem grão de quinzena, que é o grão certo para apurar; o documento que
+a transportadora leva para a mesa tem grão de **mês**. A tela põe 1ª quinzena,
+2ª quinzena e TOTAL lado a lado, verba a verba, e fecha com as mesmas linhas
+com que a planilha fecha.
+
+Um seletor de três posições no topo — **1ª quinzena · 2ª quinzena ·
+Consolidado** — troca o recorte sem trocar de tela nem de consulta: nas duas
+primeiras a pergunta é de conferência (emitido contra apurado, verba a verba);
+no consolidado é de fechamento (as três colunas e o total do mês).
+
+Quatro decisões que a tela materializa:
+
+1. **Os rótulos são as verbas, não os da planilha.** As linhas do primeiro
+   quadro dela — `CUSTO FIXO PADRONIZADO`, `ESPECIAIS`, `VANS` — não são
+   combinação das VBZs de fonte nenhuma: conferidas contra o 03.08.20, não
+   fecham. São a decomposição própria da planilha, e só as fórmulas do `.xlsb`
+   a explicam. Escrever aqueles rótulos sobre outros números daria cara de
+   conferido ao que não foi.
+2. **O fecho compara com o 03.08.20, e não com o `TOTAL GERAL UNIDADE`.**
+   Aquela coluna é a reconstrução da própria planilha, feita com um fator de
+   conversão digitado (1,366960) que não sai de arquivo nenhum — os medidos são
+   1,344541 na Rota e 1,377221 no AS. A tela põe lado a lado os dois números
+   que têm documento: o emitido em CT-e e o `Total Remuneração` do
+   demonstrativo assinado. A diferença entre eles é a linha que a planilha
+   chama de `DIFERENÇA - TOTAL GERAL`.
+3. **A coluna que falta é traço, e o total não a soma como zero.** Meio mês
+   importado é o estado normal de quem está trabalhando, e "esta quinzena valeu
+   zero" é diferente de "esta quinzena não foi apurada" — a planilha escreve as
+   duas como `R$ -`.
+4. **Os descontos do 03.08.20 aparecem fora das somas.** O relatório diz, em
+   cada linha, que o valor já foi subtraído da verba correspondente. Eles estão
+   ali para conferir contra as linhas de desconto da planilha, não para somar
+   de novo.
+
+A aritmética mora em `lib/fechamento/src/resumo.ts`, pura e sob teste, pela
+mesma razão de `lib/fechamento-gerencial`: uma soma feita no navegador é uma
+segunda opinião sobre remuneração.
+
 ## Descartar o que foi importado — o desfazer da competência errada
 
 Ao lado de "Apurar", a competência aberta tem **Descartar dados**: apaga os

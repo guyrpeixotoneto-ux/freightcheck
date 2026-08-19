@@ -82,6 +82,7 @@ export const NAV_GROUPS_FECHAMENTO: NavGroup[] = [
       { href: "/fechamento", label: "Visão Gerencial", icon: House },
       { href: "/fechamento/competencias", label: "Importações", icon: CalendarDays },
       { href: "/fechamento/apuracoes", label: "Apurações", icon: Table2 },
+      { href: "/fechamento/resumo", label: "Resumo geral", icon: FileSpreadsheet },
     ],
   },
   {

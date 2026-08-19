@@ -39,6 +39,7 @@ import VisaoGerencial from '@/pages/fechamento/visao';
 import UnidadeDoFechamento from '@/pages/fechamento/unidade';
 import Competencias from '@/pages/fechamento/competencias';
 import Apuracoes from '@/pages/fechamento/apuracoes';
+import ResumoGeral from '@/pages/fechamento/resumo';
 import CompetenciaAberta from '@/pages/fechamento/competencia';
 import DiaDoFechamento from '@/pages/fechamento/dia';
 import RemuneracaoCadastro from '@/pages/fechamento/remuneracao';
@@ -223,6 +224,7 @@ function Router() {
         {(params) => <DiaDoFechamento id={params.id} dia={params.dia} />}
       </Route>
       <Route path="/fechamento/apuracoes" component={Apuracoes} />
+      <Route path="/fechamento/resumo" component={ResumoGeral} />
       {/*
         Remuneração é a única tela do Fechamento que lê o acervo da Auditoria e
         não uma competência. Ela mora aqui porque é aqui que serve — o cadastro

@@ -29,6 +29,7 @@ export * from "./verbas";
 export * from "./aliquota";
 export * from "./apuracao";
 export * from "./diario";
+export * from "./resumo";
 export { lerOperacao, type DetalheDaViagem, type Viagem } from "./leitores/operacao";
 export { lerCtes, type LinhaDeCte } from "./leitores/cte";
 export {

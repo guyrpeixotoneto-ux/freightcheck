@@ -9,6 +9,7 @@ import {
   lerApuracaoVigente,
   lerDiaDaCompetencia,
   lerDiarioDaCompetencia,
+  lerResumoDoMes,
   listarApuracoes,
   listarCompetencias,
   listarDocumentos,
@@ -92,6 +93,39 @@ router.get("/fechamento/apuracoes", async (_req, res): Promise<void> => {
  */
 router.get("/fechamento/partes", async (_req, res): Promise<void> => {
   res.json(await listarPartes(db));
+});
+
+/**
+ * O mês inteiro — as duas quinzenas lado a lado, com o total.
+ *
+ * É a leitura que a tela de Resumo faz, e a que responde no formato em que a
+ * transportadora discute o número com a Ambev. Os quatro parâmetros são
+ * obrigatórios porque a trinca que identifica um fechamento é (unidade,
+ * transportadora, período): dois CDDs no mesmo mês são dois resumos, e somá-los
+ * por omissão de um filtro seria inventar um terceiro.
+ */
+router.get("/fechamento/resumo", async (req, res): Promise<void> => {
+  const unidade = String(req.query.unidade ?? "").trim();
+  const transportadora = String(req.query.transportadora ?? "").trim();
+  const ano = Number(req.query.ano);
+  const mes = Number(req.query.mes);
+
+  if (unidade === "" || transportadora === "") {
+    res.status(400).json({
+      error: "unidade e transportadora são obrigatórias — o resumo é de um fechamento, não de um mês do calendário.",
+    });
+    return;
+  }
+  if (!Number.isInteger(ano) || ano < 2000 || ano > 2100) {
+    res.status(400).json({ error: "ano precisa ser um ano entre 2000 e 2100." });
+    return;
+  }
+  if (!Number.isInteger(mes) || mes < 1 || mes > 12) {
+    res.status(400).json({ error: "mes precisa ser um número de 1 a 12." });
+    return;
+  }
+
+  res.json(await lerResumoDoMes(db, { unidade, transportadora, ano, mes }));
 });
 
 /**
