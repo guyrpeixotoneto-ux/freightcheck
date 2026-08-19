@@ -6,7 +6,19 @@ import {
   somarResumos,
 } from "@workspace/comparison/deduplicacao";
 import { useSearch, useLocation } from "wouter";
-import { AlertTriangle, ChevronRight, Info, Search, Star } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronRight,
+  HelpCircle,
+  Info,
+  Layers,
+  LayoutGrid,
+  Search,
+  SlidersHorizontal,
+  Star,
+  Truck,
+  Wallet,
+} from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { GroupCard } from "@/components/inicio/group-card";
 import { TabelaFreightech, type ColunaTabela } from "@/components/parametros/tabela";
@@ -14,6 +26,11 @@ import { TabelaDominio } from "@/components/parametros/dominio";
 import { TabelaInventario } from "@/components/parametros/inventario";
 import { AnaliseCartao } from "@/components/parametros/analise";
 import { GradeDeAtributos } from "@/components/parametros/atributos";
+import {
+  AbaBotao,
+  ImpactoPorPeriodicidade,
+  MetricCard,
+} from "@/components/changes/cartoes";
 import {
   Select,
   SelectContent,
@@ -321,7 +338,24 @@ export default function Parametros() {
   return (
     <Layout>
       <div className="px-10 py-6 max-w-[1600px]">
-        <h1 className="text-3xl font-bold uppercase tracking-tight">Escolha de segmento</h1>
+        {/*
+          O cabeçalho é o das telas novas — ícone, título em caixa de frase e a
+          explicação embaixo. A caixa alta de antes vinha de o único assunto
+          desta tela ser o espelho do Freightech, onde o título é ESCOLHA DE
+          SEGMENTO porque lá é assim. O espelho continua sendo uma das duas
+          leituras, e virou aba; o título da página passa a ser o do módulo.
+        */}
+        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+          <SlidersHorizontal className="w-6 h-6 text-primary" />
+          Parâmetros
+        </h1>
+        <p className="text-muted-foreground text-sm mt-1 max-w-3xl">
+          Duas leituras da mesma vigência. <strong>Atributos</strong> é o que o cliente
+          mexeu, coluna a coluna, arrumado por cavalo, carreta, conjunto, trecho e QLP —
+          cada cartão abre nos veículos desta unidade. <strong>Catálogo Freightech</strong>{" "}
+          é a tela de Escolha de segmento como ela é lá, com todas as gavetas, inclusive as
+          que este export ainda não alimenta.
+        </p>
 
         {data && (
           <BarraFiltro
@@ -436,11 +470,7 @@ export default function Parametros() {
           />
         ) : (
           <>
-            {data && (
-              <div className="mt-6">
-                <Resumo view={data} />
-              </div>
-            )}
+            {data && <Ladrilhos view={data} />}
 
             <FaixaVisaoGeral onAbrir={() => abrirCartao(CHAVE_VISAO_GERAL)} />
 
@@ -489,6 +519,82 @@ export default function Parametros() {
 }
 
 /**
+ * Os cinco números do topo, na forma de ladrilho das outras telas.
+ *
+ * Era um parágrafo com números em negrito, e o parágrafo dizia a verdade — mas
+ * exigia lê-lo inteiro para achar o número que se veio buscar, e nenhuma outra
+ * tela do produto apresenta os seus assim. `MetricCard` é o mesmo componente de
+ * Alterações e das telas de comparação, o que também garante a regra que mais
+ * importa aqui: `ImpactoPorPeriodicidade` escreve **uma linha por
+ * periodicidade** e nunca um escalar, porque R$/mês e R$/ano não se somam.
+ *
+ * As duas ressalvas continuam escritas embaixo, e não viraram nota de rodapé:
+ * quanto ficou fora do líquido por já estar contado em outra linha, e quantas
+ * alterações estão sem preço. Um total de impacto sem elas parece cobrir o
+ * arquivo inteiro quando cobre uma parte dele.
+ */
+function Ladrilhos({ view }: { view: FamiliesView }) {
+  const { summary } = view;
+  const excluido = impactEntries(excluidoDaSoma(summary.impact));
+  const familias = view.families.filter((f) => f.changes > 0).length;
+
+  return (
+    <div className="mt-6 space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+        <MetricCard
+          tone="green"
+          icon={<Wallet className="w-6 h-6" />}
+          label="Impacto líquido"
+          value={<ImpactoPorPeriodicidade buckets={summary.impact.byPeriodicity} />}
+          hint={`${summary.notCalculable} alterações fora destes valores`}
+        />
+        <MetricCard
+          tone="blue"
+          icon={<Layers className="w-6 h-6" />}
+          label="Pontos da remuneração"
+          value={summary.groups.toLocaleString("pt-BR")}
+          hint={`em ${familias} ${familias === 1 ? "família" : "famílias"}`}
+        />
+        <MetricCard
+          tone="purple"
+          icon={<SlidersHorizontal className="w-6 h-6" />}
+          label="Alterações"
+          value={summary.changes.toLocaleString("pt-BR")}
+          hint={`${summary.critical} críticas · ${summary.locked} com preço travado`}
+        />
+        <MetricCard
+          tone="orange"
+          icon={<HelpCircle className="w-6 h-6" />}
+          label="Sem preço"
+          value={summary.notCalculable.toLocaleString("pt-BR")}
+          hint="listadas, não escondidas"
+          valueTone={summary.notCalculable > 0 ? "warn" : "muted"}
+        />
+        <MetricCard
+          tone="blue"
+          icon={<Truck className="w-6 h-6" />}
+          label="Veículos tocados"
+          value={summary.vehiclesTouched.toLocaleString("pt-BR")}
+          hint="ativos com pelo menos uma alteração"
+        />
+      </div>
+
+      {excluido.length > 0 && (
+        <p className="text-xs text-muted-foreground flex gap-2 max-w-4xl">
+          <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          <span>
+            {excluido.map((e) => e.label).join(" · ")} ficaram fora do líquido por já
+            estarem contados em outra linha — parcelas ou conjunto —{" "}
+            {summary.impact.excludedChanges}{" "}
+            {summary.impact.excludedChanges === 1 ? "alteração" : "alterações"}.
+          </span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
  * As duas portas da tela, ditas pelo que cada uma responde.
  *
  * O rótulo sozinho não bastava: "Atributos" e "Catálogo Freightech" são dois
@@ -510,53 +616,24 @@ function AbasDeVista({
   onVista: (valor: "atributos" | "catalogo") => void;
 }) {
   return (
-    <div className="mt-7 flex flex-wrap items-end gap-8 border-b">
-      <AbaDeVista
-        rotulo="Atributos"
-        explicacao={`o que mudou nesta quinzena, por escopo · ${atributos} ${
-          atributos === 1 ? "atributo" : "atributos"
-        }`}
-        ativa={vista === "atributos"}
+    <div className="mt-7 flex flex-wrap items-center gap-2 border-b" role="tablist">
+      <AbaBotao
+        active={vista === "atributos"}
         onClick={() => onVista("atributos")}
+        icon={<LayoutGrid className="w-4 h-4" />}
+        label="Atributos"
+        hint="O que o cliente mexeu nesta vigência, coluna a coluna, por escopo"
+        count={atributos}
       />
-      <AbaDeVista
-        rotulo="Catálogo Freightech"
-        explicacao={`as gavetas de lá, na ordem de lá · ${cartoes} cartões`}
-        ativa={vista === "catalogo"}
+      <AbaBotao
+        active={vista === "catalogo"}
         onClick={() => onVista("catalogo")}
+        icon={<Layers className="w-4 h-4" />}
+        label="Catálogo Freightech"
+        hint="As gavetas da tela de Escolha de segmento, na ordem de lá"
+        count={cartoes}
       />
     </div>
-  );
-}
-
-function AbaDeVista({
-  rotulo,
-  explicacao,
-  ativa,
-  onClick,
-}: {
-  rotulo: string;
-  explicacao: string;
-  ativa: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={ativa}
-      className={cn(
-        "pb-2 -mb-px border-b-[3px] text-left transition-colors",
-        ativa
-          ? "border-brand text-foreground"
-          : "border-transparent text-muted-foreground hover:text-foreground",
-      )}
-    >
-      <span className="block text-[0.8125rem] font-bold uppercase tracking-wide">
-        {rotulo}
-      </span>
-      <span className="block text-xs text-muted-foreground mt-0.5">{explicacao}</span>
-    </button>
   );
 }
 
@@ -574,21 +651,19 @@ function FaixaVisaoGeral({ onAbrir }: { onAbrir: () => void }) {
     <button
       type="button"
       onClick={onAbrir}
-      className="mt-5 w-full bg-card border border-l-[5px] border-l-brand px-6 py-5 text-left hover:bg-accent transition-colors flex items-center justify-between gap-6"
+      className="mt-4 w-full flex items-center gap-4 rounded-xl border bg-card shadow-sm px-5 py-4 text-left transition-all hover:shadow-md hover:border-brand/40"
     >
-      <div>
-        <div className="text-xs uppercase tracking-wider text-muted-foreground">
-          Visão geral
-        </div>
-        <div className="text-xl font-bold uppercase tracking-tight mt-0.5">
-          Remuneração total
-        </div>
-        <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-          Todos os parâmetros somados num intervalo: quanto perdemos, quanto ganhamos,
-          onde pesou, quando aconteceu, o que foi revertido e quanto ainda está sem preço.
+      <div className="h-12 w-12 rounded-xl bg-blue-50 text-blue-600 grid place-content-center shrink-0">
+        <Wallet className="w-6 h-6" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="font-bold tracking-tight">Remuneração total</div>
+        <p className="text-sm text-muted-foreground">
+          Todos os parâmetros somados num intervalo: quanto perdemos, quanto ganhamos, onde
+          pesou, quando aconteceu, o que foi revertido e quanto ainda está sem preço.
         </p>
       </div>
-      <span className="text-[0.8125rem] font-bold uppercase tracking-wide text-brand shrink-0 inline-flex items-center gap-1">
+      <span className="text-sm font-medium text-brand shrink-0 inline-flex items-center gap-1">
         Abrir <ChevronRight className="w-4 h-4" />
       </span>
     </button>
@@ -598,13 +673,15 @@ function FaixaVisaoGeral({ onAbrir }: { onAbrir: () => void }) {
 /** A série que não chegou não está contada como zero — e a tela diz isso. */
 function VisaoParcial({ view }: { view: FamiliesView }) {
   return (
-    <div className="mt-5 bg-card border border-l-[6px] border-l-brand flex gap-3 px-6 py-4 text-sm">
-      <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-brand" />
-      <p>
-        <strong>Visão parcial.</strong> Nesta vigência chegou apenas{" "}
-        {view.series.map((s) => s.equipment.toLowerCase()).join(", ")}. Falta{" "}
-        <strong>{view.missingSeries.join(", ").toLowerCase()}</strong> — a série ausente
-        não está contada como zero.
+    <div className="mt-4 flex items-center gap-4 rounded-xl border border-amber-100 bg-amber-50 px-5 py-4">
+      <div className="h-12 w-12 rounded-full bg-amber-500 text-white grid place-content-center shrink-0">
+        <AlertTriangle className="w-6 h-6" />
+      </div>
+      <p className="text-sm text-muted-foreground">
+        <strong className="text-amber-700">Visão parcial.</strong> Nesta vigência chegou
+        apenas {view.series.map((s) => s.equipment.toLowerCase()).join(", ")}. Falta{" "}
+        <strong>{view.missingSeries.join(", ").toLowerCase()}</strong> — a série ausente não
+        está contada como zero.
       </p>
     </div>
   );
@@ -1027,7 +1104,7 @@ function BarraFiltro({
       <Campo rotulo="Canal/Segmento" nota={canais.length > 1 ? null : "único canal importado"}>
         {canais.length > 1 ? (
           <Select value={canal ?? ""} onValueChange={(valor) => setCanal(valor || null)}>
-            <SelectTrigger className="w-56 h-12 rounded-sm bg-card">
+            <SelectTrigger className="w-56 h-11 rounded-lg bg-background">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1045,7 +1122,7 @@ function BarraFiltro({
 
       <Campo rotulo="Vigência" nota={`${view.periods.length} no histórico`}>
         <Select value={period} onValueChange={setPeriod}>
-          <SelectTrigger className="w-56 h-12 rounded-sm bg-card">
+          <SelectTrigger className="w-56 h-11 rounded-lg bg-background">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -1067,7 +1144,7 @@ function BarraFiltro({
               setCanal(contextos.find((c) => c.scopeHash === valor)?.channel ?? null);
             }}
           >
-            <SelectTrigger className="w-56 h-12 rounded-sm bg-card">
+            <SelectTrigger className="w-56 h-11 rounded-lg bg-background">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1091,10 +1168,10 @@ function BarraFiltro({
           disabled={!sujo}
           onClick={() => onFiltrar({ scopeHash, canal, period })}
           className={cn(
-            "h-12 px-8 rounded-sm text-[0.8125rem] font-bold uppercase tracking-wide transition-colors",
+            "h-11 px-6 rounded-lg text-sm font-medium transition-colors",
             sujo
-              ? "bg-brand text-brand-foreground hover:brightness-95"
-              : "bg-brand/40 text-white cursor-not-allowed",
+              ? "bg-brand text-brand-foreground hover:brightness-110"
+              : "bg-muted text-muted-foreground cursor-not-allowed",
           )}
         >
           Filtrar
@@ -1109,7 +1186,7 @@ function BarraFiltro({
               disabled={!buscaAtiva}
               onChange={(event) => onBuscar(event.target.value)}
               aria-label="Buscar parâmetro pelo nome"
-              className="w-60 h-12 rounded-sm border border-input bg-card pl-3 pr-10 text-sm outline-none focus:border-brand disabled:bg-muted/60"
+              className="w-60 h-11 rounded-lg border border-input bg-background pl-3 pr-10 text-sm outline-none transition-colors focus:border-brand disabled:bg-muted/50"
             />
             <Search className="w-5 h-5 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           </div>
@@ -2031,88 +2108,8 @@ function Ficha({
 }
 
 /* ------------------------------------------------------------------ */
-/* Resumo e impacto                                                    */
+/* O impacto, dito pelo motivo certo                                   */
 /* ------------------------------------------------------------------ */
-
-/** O resumo executivo, compactado para caber acima da grade. */
-function Resumo({ view }: { view: FamiliesView }) {
-  const { summary } = view;
-  const liquido = impactEntries(summary.impact.byPeriodicity);
-
-  return (
-    <div className="min-w-0">
-      <p className="text-lg">
-        {summary.changes === 0 ? (
-          <>O cliente não mexeu em nada nesta vigência.</>
-        ) : (
-          <>
-            O cliente mexeu em <strong>{summary.groups}</strong>{" "}
-            {summary.groups === 1 ? "ponto" : "pontos"} da sua remuneração, em{" "}
-            <strong>{view.families.filter((f) => f.changes > 0).length}</strong>{" "}
-            {view.families.filter((f) => f.changes > 0).length === 1 ? "família" : "famílias"}
-            .
-          </>
-        )}
-      </p>
-
-      {liquido.length > 0 && (
-        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 mt-2">
-          <span className="text-xs uppercase tracking-wide text-muted-foreground">
-            Impacto líquido
-          </span>
-          {liquido.map((e) => (
-            <span
-              key={e.periodicity}
-              className={cn(
-                "text-2xl font-bold tabular-nums",
-                e.amount < 0 ? "text-brand-red" : "text-success",
-              )}
-            >
-              {formatBrlShort(e.amount)}
-              <span className="text-sm font-normal text-muted-foreground">
-                {periodicitySuffix(e.periodicity)}
-              </span>
-            </span>
-          ))}
-        </div>
-      )}
-
-      <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground mt-2">
-        <span>
-          <strong className="text-foreground">{summary.changes}</strong> alterações
-        </span>
-        <span>
-          <strong className="text-foreground">{summary.critical}</strong> críticas
-        </span>
-        <span>
-          <strong className="text-foreground">{summary.locked}</strong> com preço travado
-        </span>
-        <span>
-          <strong className="text-foreground">{summary.notCalculable}</strong> sem preço
-        </span>
-        <span>
-          <strong className="text-foreground">{summary.vehiclesTouched}</strong> veículos
-          tocados
-        </span>
-      </div>
-
-      {impactEntries(excluidoDaSoma(summary.impact)).length > 0 && (
-        <p className="text-xs text-muted-foreground flex gap-2 mt-2 max-w-2xl">
-          <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-          <span>
-            {impactEntries(excluidoDaSoma(summary.impact))
-              .map((e) => e.label)
-              .join(" · ")}{" "}
-            ficaram fora do líquido por já estarem contados em outra linha —
-            parcelas ou conjunto —{" "}
-            {summary.impact.excludedChanges}{" "}
-            {summary.impact.excludedChanges === 1 ? "alteração" : "alterações"}.
-          </span>
-        </p>
-      )}
-    </div>
-  );
-}
 
 /**
  * O impacto dito pelo motivo certo. Três estados diferentes de "sem número", e

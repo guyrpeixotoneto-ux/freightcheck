@@ -159,8 +159,13 @@ export function GroupCard({
  * Só existe total quando `aggregation = SUM`. Para tudo o mais aparece a faixa
  * de variação e a média, ditas como tais — porque somar km/l de 62 cavalos
  * produz um número que não significa coisa nenhuma.
+ *
+ * Exportado porque o cartão de atributo, na grade de Parâmetros, faz a mesma
+ * pergunta num espaço menor. Ele herda o corpo da letra do contêiner e não
+ * decide nada por conta própria — o que muda entre os dois lugares é o tamanho,
+ * e o que não pode mudar é a regra de quando existe total e quando não existe.
  */
-function BeforeAfter({ group }: { group: ChangeGroup }) {
+export function BeforeAfter({ group }: { group: ChangeGroup }) {
   const a = group.aggregate;
 
   if (a.summable && a.totalBefore !== null && a.totalAfter !== null) {
