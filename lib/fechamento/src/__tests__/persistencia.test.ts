@@ -22,11 +22,17 @@ import {
 } from "../persistencia";
 import {
   fixtureConciliacao,
+  fixtureConciliacaoEmCsv,
   fixtureCtes,
+  fixtureCtesEmCsv,
   fixtureDisponibilidade,
+  fixtureDisponibilidadeEmCsv,
   fixtureOperacao,
+  fixtureOperacaoEmCsv,
   fixturePagamento,
+  fixturePagamentoEmCsv,
   fixtureRequisicoes,
+  fixtureRequisicoesEmPlanilha,
 } from "./fixtures";
 
 /**
@@ -145,6 +151,79 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     expect(apuracao.verbas.find((v) => v.vbz === 1)?.esperado).toBeNull();
     expect(apuracao.divergencias.some((d) => d.tipo === "DESCONTO_FRETE_MINIMO" && d.valor === 200)).toBe(true);
   }, 60_000);
+
+  it("chega à mesma conta com os relatórios nos outros formatos em que eles saem", async () => {
+    /*
+      A promessa que a tela faz a quem opera: o formato do arquivo não muda o
+      número. Aqui as seis fontes entram **todas** pela outra forma — o 2Art e o
+      03.08.15 em CSV no lugar da planilha, o 03.08.18 em CSV com a coluna que
+      diz a frota, as requisições em planilha no lugar do CSV, e os dois
+      relatórios de largura fixa delimitados — e a apuração que sai do banco é
+      conferida contra a que saiu dos formatos de sempre.
+
+      A competência é outra (agosto) porque a de julho já recebeu esses mesmos
+      relatórios: reenviá-los lá seria o caso de substituição, que é outro
+      teste.
+    */
+    const emAgosto = { codigo: "446", nome: "CDD DOS FORMATOS" };
+    const receber = async (
+      competenciaId: string,
+      fontes: readonly (readonly [string, string, Buffer])[],
+    ) => {
+      for (const [tipo, nome, conteudo] of fontes) {
+        await receberDocumento(db, {
+          competenciaId,
+          tipo: tipo as Parameters<typeof receberDocumento>[1]["tipo"],
+          nomeDoArquivo: nome,
+          conteudo,
+        });
+      }
+    };
+
+    const deSempre = await abrirCompetencia(db, {
+      ano: 2026, mes: 7, quinzena: 2, unidade: emAgosto, transportadora,
+    });
+    await receber(deSempre.id, [
+      ["OPERACAO", "2art.xlsx", fixtureOperacao()],
+      ["CTE", "03.08.15.xlsx", fixtureCtes()],
+      ["REQUISICOES", "03.08.12.09.csv", fixtureRequisicoes()],
+      ["DISPONIBILIDADE", "03.08.18.xlsx", fixtureDisponibilidade()],
+      ["PAGAMENTO", "03.08.20.txt", fixturePagamento()],
+      ["CONCILIACAO", "03.02.59.02.txt", Buffer.from(fixtureConciliacao(), "latin1")],
+    ]);
+    await apurarCompetencia(db, deSempre.id);
+
+    const nosOutros = await abrirCompetencia(db, {
+      ano: 2026, mes: 7, quinzena: 2, unidade: { codigo: "447", nome: "CDD DOS FORMATOS 2" },
+      transportadora,
+    });
+    await receber(nosOutros.id, [
+      ["OPERACAO", "2art.csv", fixtureOperacaoEmCsv()],
+      ["CTE", "03.08.15_1Q_JUL.csv", fixtureCtesEmCsv()],
+      ["REQUISICOES", "03.08.12.09.xlsx", fixtureRequisicoesEmPlanilha()],
+      ["DISPONIBILIDADE", "03.08.18.csv", fixtureDisponibilidadeEmCsv()],
+      ["PAGAMENTO", "03.08.20_1Q_JUL.csv", fixturePagamentoEmCsv()],
+      ["CONCILIACAO", "03.02.59.02_1Q_JUL.csv", fixtureConciliacaoEmCsv()],
+    ]);
+    await apurarCompetencia(db, nosOutros.id);
+
+    const a = (await lerApuracaoVigente(db, deSempre.id))!;
+    const b = (await lerApuracaoVigente(db, nosOutros.id))!;
+
+    expect(b.fontesAusentes).toEqual(a.fontesAusentes);
+    expect(b.totais).toEqual(a.totais);
+    expect(b.verbas.map((v) => [v.vbz, v.emitido, v.esperado, v.diferenca])).toEqual(
+      a.verbas.map((v) => [v.vbz, v.emitido, v.esperado, v.diferenca]),
+    );
+    expect(b.divergencias.map((d) => [d.tipo, d.valor])).toEqual(
+      a.divergencias.map((d) => [d.tipo, d.valor]),
+    );
+
+    /* E os dias da quinzena — que saem só do 2Art — também são os mesmos. */
+    const diasDe = async (id: string) =>
+      (await lerDiarioDaCompetencia(db, id))!.dias.map((d) => [d.dia, d.totais.viagens]);
+    expect(await diasDe(nosOutros.id)).toEqual(await diasDe(deSempre.id));
+  }, 120_000);
 
   it("guarda a memória de cálculo de cada parcela, com o fator medido", async () => {
     const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
@@ -359,7 +438,12 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     const chaves = resumos.map((r) => r.competencia.chave);
     expect([...chaves].sort().reverse()).toEqual(chaves);
 
-    const q2 = resumos.find((r) => r.competencia.chave === "2026-07-Q2")!;
+    /* A chave sozinha não identifica uma competência: a trinca é (unidade,
+       transportadora, período), e outras unidades têm a mesma quinzena aberta
+       nesta suíte. O resumo conferido aqui é o do CDD que recebeu as cinco. */
+    const q2 = resumos.find(
+      (r) => r.competencia.chave === "2026-07-Q2" && r.competencia.unidade.codigo === "443",
+    )!;
     expect(q2.relatorios).toEqual([
       "OPERACAO",
       "CTE",
