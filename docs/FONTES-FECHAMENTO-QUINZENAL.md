@@ -5,7 +5,8 @@
 > Todos os vínculos descritos aqui foram conferidos numericamente contra os
 > próprios arquivos — os valores citados fecham ao centavo, salvo onde dito o
 > contrário. Este documento alimenta o ambiente **Fechamento** (ver
-> `FECHAMENTO.md`), que hoje tem estrutura mas nenhuma lógica financeira.
+> `FECHAMENTO.md`) e é a especificação de que `lib/fechamento` nasceu — o
+> pacote lê as cinco fontes e reconstrói esta conta inteira, com testes.
 
 ## O ciclo em uma frase
 
@@ -128,33 +129,59 @@ acima**, aba por aba:
    canal Rota (262.282,80, sem imposto) é exatamente o valor "2ª QZN" da aba
    `Outros Custos`; a mesma aba mostra o valor com imposto (358.530,22).
 
-3. **03.08.12.09 → CT-es no 03.08.15, com gross-up de imposto.** As
-   requisições viram CT-e na verba correspondente, divididas por (1 − imposto):
-   - RV Equipe Entrega (VBZ 000006): 182.035,14 × **1,34454** = 244.753,67 ✓
-   - Rota - Outras Despesas (VBZ 000009): 74.247,66 × **1,34454** = 99.828,99 ✓
-   - AS - Outras Despesas (pedágio, VBZ 000030): 192,00 × **1,37724** = 264,43 ✓
+3. **A igualdade central: como cada CT-e se forma.** Todo CT-e emitido em uma
+   verba é a soma de no máximo três parcelas:
 
-   O fator difere por canal: Rota ≈ 1,34454 e AS ≈ 1,37724 (este último é
-   1/(1−27,39%), a alíquota `CTRC-ICMS` que o 2Art mostra). A composição exata
-   dos impostos por canal ainda não foi derivada — fica como pendência.
+   ```
+   CT-e da verba  =  o que o SRTrans calculou      (03.02.59.02, quinzena atual)
+                  +  o complementar de perfil       (03.02.59.02, bloco complementar)
+                  +  requisições aprovadas × fator  (03.08.12.09, convertido)
+   ```
 
-4. **03.08.15 → 03.02.59.02.** As verbas *variáveis* do 03.08.15 são a coluna
-   "R$ CT-e (Emitido)" do TXT **mais** o complementar variável da mesma seção:
-   - Rota - Frota Fixa Variável 208.498,46 = 206.283,08 + 2.215,38 ✓
-   - AS - Freteiro 75.685,88 = 70.765,03 + 4.920,85 ✓
-   - AS - Frota Fixa Variável 11.219,31 = 10.983,66 + 235,65 ✓
-   - Rota - Frete S.Diversos 19,77 = complementar S.Diversos 19,77 ✓
+   Essa igualdade fecha nas **quinze** verbas da quinzena conferida, com
+   resíduo máximo de R$ 0,01 quando o fator é medido dos próprios arquivos.
+   Exemplos:
 
-   As verbas *fixas* do 03.08.15 (Ativa, Inativa, Equipe Entrega, Despesa
-   Administrativa) ficam fora dessa conciliação — o TXT só trata do variável.
+   - VBZ 5 (Rota Frota Fixa Variável) 208.498,46 = 206.283,08 + 2.215,38
+   - VBZ 7 (Rota Freteiro) 139.431,82 = 129.938,54 + 1.426,03 + 6.000,00 × 1,34454
+   - VBZ 9 (Rota Outras Despesas) 99.828,99 = 74.247,66 × 1,34454
+   - VBZ 29 (AS Estadias) 39.420,04 = 28.622,89 × 1,37724
+   - VBZ 26 (AS Freteiro) 75.685,88 = 70.765,03 + 4.920,85
 
-5. **03.08.18 → parcela fixa.** Os descontos diários (`Desconto Total` de FF e
+   As verbas *fixas* (Ativa, Inativa, Equipe Entrega, Despesa Administrativa)
+   ficam fora — nenhuma das cinco fontes as sustenta, e na quinzena conferida
+   elas são R$ 654.310,24 dos R$ 1.473.432,61 emitidos.
+
+4. **Há três percentuais de imposto no mesmo fechamento, e eles não são iguais.**
+   Este é o achado que a planilha não tinha como mostrar:
+
+   | percentual | onde aparece | medido |
+   | --- | --- | --- |
+   | pagamento, canal Rota | requisição → CT-e | **25,6252%** (fator 1,344541) |
+   | pagamento, canal AS | requisição → CT-e | **27,3900%** (fator 1,377240) |
+   | fiscal, dentro do CT-e | `Vlr. Imposto` ÷ `Valor CT-e` | **26,477%** (fator 1,360112) |
+
+   Os dois primeiros são regra de remuneração e mudam por canal; o terceiro é a
+   composição tributária do documento (ICMS 19% + PIS 1,336% + COFINS 6,156%).
+   No canal Rota o complementar é convertido a 25,63% enquanto o CT-e compõe a
+   26,48% — **1,17% a menos** do que a carga fiscal do próprio documento. É uma
+   pergunta legítima para a Ambev. Nenhum desses percentuais deve ser escrito em
+   código: `lib/fechamento` os **mede** dos arquivos a cada apuração.
+
+5. **O 2Art fecha contra o calculado do SRTrans.** A soma de `ValorFaturado`
+   por canal, no período, é diretamente comparável ao `Total Variavel Calculado
+   SRTRANS` da conciliação. No canal **AS** bate ao centavo — R$ 49.352,25 dos
+   dois lados —, o que prova que a comparação é legítima; no canal **Rota** o
+   2Art soma R$ 328.169,46 contra R$ 322.593,78 calculados, abrindo
+   **R$ 5.575,68** sem explicação nas fontes.
+
+7. **03.08.18 → parcela fixa.** Os descontos diários (`Desconto Total` de FF e
    Van) reduzem o custo fixo pago; a aba espelho no xlsb existe para cruzá-los
    com o que foi faturado. O vínculo aritmético com uma linha específica do
    03.08.15 não foi fechado nesta amostra (o fixo é mensal, a amostra é de uma
    quinzena).
 
-6. **03.02.59.02 fecha o ciclo.** Dentro do TXT: 417.970,31 (recebido) =
+8. **03.02.59.02 fecha o ciclo.** Dentro do TXT: 417.970,31 (recebido) =
    336.221,62 + 81.748,69; 371.946,03 (calculado) = 322.593,78 + 49.352,25 —
    a diferença entre recebido e calculado é o **Desconto Frete Mínimo**
    (17.398,54 na Rota + 37.552,94 no AS); e o saldo que atravessa para a
@@ -171,4 +198,19 @@ acima**, aba por aba:
 - **VBZ** é a verba orçamentária que liga requisição → CT-e → conciliação; é a
   chave semântica entre 03.08.12.09, 03.08.15 e o TXT.
 - Valores do SRTrans circulam **sem imposto**; CT-e é **com imposto**
-  (gross-up por canal). Comparar os dois sem essa conversão é o erro clássico.
+  (fator por canal). Comparar os dois sem essa conversão é o erro clássico —
+  e o fator nunca deve ser presumido, porque há três percentuais diferentes no
+  mesmo fechamento (item 4).
+
+## O que ainda não se sabe
+
+Duas pontas continuam abertas, e estão aqui para não serem confundidas com
+coisa resolvida:
+
+- **De onde vêm as parcelas fixas.** Frota Fixa Ativa/Inativa, Equipe Entrega e
+  Despesa Administrativa somam R$ 654.310,24 dos R$ 1.473.432,61 emitidos, e
+  nenhuma das cinco fontes as sustenta. Falta a tabela de contrato — que é
+  justamente o que a Auditoria do FreightCheck já conhece. Ligar as duas é o
+  passo que fecha 100% da conta.
+- **Por que o canal Rota abre R$ 5.575,68** entre o 2Art e o calculado do
+  SRTrans, se o canal AS bate ao centavo.

@@ -40,6 +40,9 @@
       "path": "./lib/advisory"
     },
     {
+      "path": "./lib/fechamento"
+    },
+    {
       "path": "./lib/api-client-react"
     },
     {
