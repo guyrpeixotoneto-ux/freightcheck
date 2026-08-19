@@ -1,16 +1,23 @@
-import { ArrowRight, Hammer } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowRight, CalendarDays, Plus } from "lucide-react";
 import { Link } from "wouter";
 import { Layout } from "@/components/layout/layout";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { listarCompetencias, NOME_DO_ESTADO } from "@/lib/fechamento";
 import { ETAPAS_FECHAMENTO } from "./etapas";
 
 /**
  * A porta de entrada do ambiente Fechamento.
  *
- * Quando houver uma competência aberta, esta tela será o cockpit dela: em que
- * etapa o período está, quanto já foi apurado, o que ainda bloqueia o
- * encerramento. Hoje não há competência — o registro nem existe no banco — e a
- * tela diz exatamente isso, sem um número inventado.
+ * A competência já existe como registro, e a tela mostra as que existem — com
+ * o período, o estado e para onde ir. Enquanto não houver nenhuma, ela não
+ * inventa um cockpit vazio: convida a abrir a primeira.
+ *
+ * O que ela ainda **não** mostra é o valor apurado de cada competência na
+ * própria lista. Mostrá-lo aqui exigiria uma leitura por competência a cada
+ * abertura da tela, e o número que importa — o que não fecha — só faz sentido
+ * ao lado da memória de cálculo que o sustenta, que é a tela de dentro.
  *
  * O que ela já faz, e faz de verdade, é apresentar o processo: as etapas do
  * fechamento na ordem em que acontecem, cada uma com a pergunta que responde.
@@ -19,16 +26,16 @@ import { ETAPAS_FECHAMENTO } from "./etapas";
  * abre a sua tela, que por sua vez diz o que falta para ela ter número.
  */
 export default function VisaoDoFechamento() {
+  const competencias = useQuery({
+    queryKey: ["fechamento", "competencias"],
+    queryFn: listarCompetencias,
+  });
+  const abertas = competencias.data ?? [];
+
   return (
     <Layout>
       <header className="border-b bg-card px-8 py-6">
-        <div className="flex items-center gap-2">
-          <h1 className="text-2xl font-bold tracking-tight">Visão do fechamento</h1>
-          <span className="ml-1 inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
-            <Hammer className="w-3 h-3" />
-            Em preparo
-          </span>
-        </div>
+        <h1 className="text-2xl font-bold tracking-tight">Visão do fechamento</h1>
         <p className="text-muted-foreground mt-2 max-w-3xl">
           Quanto devemos receber nesta competência, o que está pendente, o que
           precisa ser conferido — e se podemos fechar o período.
@@ -37,22 +44,60 @@ export default function VisaoDoFechamento() {
 
       <div className="p-8 space-y-6 max-w-3xl">
         <Card>
-          <CardHeader className="pb-3">
-            <CardTitle className="text-base">Nenhuma competência aberta</CardTitle>
+          <CardHeader className="pb-3 flex-row items-center justify-between gap-4 space-y-0">
+            <CardTitle className="text-base">Competências</CardTitle>
+            <Link href="/fechamento/competencias">
+              <Button size="sm" variant="outline">
+                <Plus className="w-3.5 h-3.5 mr-1.5" />
+                Abrir competência
+              </Button>
+            </Link>
           </CardHeader>
-          <CardContent className="text-sm text-muted-foreground space-y-3">
-            <p>
-              O Fechamento apura a remuneração de um período — a competência —
-              sobre a mesma base de frota e as mesmas vigências que a Auditoria
-              confere. A competência ainda não existe como registro no banco:
-              quando existir, esta tela mostrará o período em andamento, a etapa
-              em que ele está e o que falta para encerrá-lo.
-            </p>
-            <p>
-              Enquanto isso, nada aqui mostra valor de exemplo. As etapas abaixo
-              já abrem, e cada uma diz o que precisa existir antes de ela
-              responder.
-            </p>
+          <CardContent>
+            {competencias.isLoading && (
+              <p className="text-sm text-muted-foreground">Carregando…</p>
+            )}
+            {!competencias.isLoading && abertas.length === 0 && (
+              <div className="text-sm text-muted-foreground space-y-3">
+                <p>
+                  Nenhuma competência ainda. Uma competência é uma quinzena de um
+                  CDD com uma transportadora — abra a primeira e envie os cinco
+                  relatórios que a Ambev exporta no período.
+                </p>
+                <p>
+                  A partir deles o FreightCheck reconstrói a conta verba a verba,
+                  com a memória de cálculo de cada parcela, e aponta o que não
+                  fecha. Nenhum número aparece sem a linha de arquivo que o
+                  sustenta.
+                </p>
+              </div>
+            )}
+            <ul className="divide-y">
+              {abertas.slice(0, 6).map((c) => (
+                <li key={c.id}>
+                  <Link
+                    href={`/fechamento/competencias/${c.id}`}
+                    className="flex items-center justify-between gap-4 py-3 hover:bg-muted/50 -mx-2 px-2 rounded"
+                  >
+                    <span className="min-w-0">
+                      <span className="flex items-center gap-2 font-medium">
+                        <CalendarDays className="w-4 h-4 text-muted-foreground shrink-0" />
+                        {c.inicio.split("-").reverse().join("/")} a{" "}
+                        {c.fim.split("-").reverse().join("/")}
+                        <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
+                          {NOME_DO_ESTADO[c.estado]}
+                        </span>
+                      </span>
+                      <span className="block text-sm text-muted-foreground truncate">
+                        {c.unidade.nome ?? c.unidade.codigo} ·{" "}
+                        {c.transportadora.nome ?? c.transportadora.codigo}
+                      </span>
+                    </span>
+                    <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
           </CardContent>
         </Card>
 

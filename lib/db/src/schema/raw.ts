@@ -119,7 +119,7 @@ export const importRunTable = pgTable(
     /**
      * No máximo um run por decidir por arquivo — a trava contra o
      * reprocessamento repetido, decidida pelo banco e não por um SELECT antes
-     * do INSERT. Ver `0036_reprocessamento.sql`; os estados terminais ficam de
+     * do INSERT. Ver `0040_reprocessamento.sql`; os estados terminais ficam de
      * fora porque é sobre eles que se reprocessa.
      */
     uniqueIndex("import_run_leitura_aberta_uq")

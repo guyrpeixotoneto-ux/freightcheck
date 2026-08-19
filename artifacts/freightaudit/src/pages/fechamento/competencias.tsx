@@ -1,0 +1,225 @@
+import { useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Link, useLocation } from "wouter";
+import { ArrowRight, CalendarDays, Plus } from "lucide-react";
+import { Layout } from "@/components/layout/layout";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { abrirCompetencia, listarCompetencias, NOME_DO_ESTADO } from "@/lib/fechamento";
+import { apresentar } from "@/lib/apresentar-erro";
+
+/**
+ * O erro, na frase que a apresentação escolheu.
+ *
+ * `apresentar` decide entre a orientação tipada e a mensagem crua — a regra de
+ * "uma orientação só" mora lá, e repeti-la aqui abriria uma segunda opinião
+ * sobre o mesmo erro.
+ */
+function textoDoErro(erro: unknown): string {
+  const aviso = apresentar(erro);
+  return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível concluir.";
+}
+
+/**
+ * Competências — os períodos que o fechamento fecha.
+ *
+ * A tela é uma lista e um formulário, e o formulário é curto de propósito: uma
+ * competência é (unidade, transportadora, quinzena), e nada mais. Tudo o que a
+ * define depois — quanto vale, o que falta — vem dos arquivos que a Ambev
+ * exporta, não de campo digitado.
+ *
+ * Abrir a mesma competência duas vezes devolve a que já existe, e o botão
+ * simplesmente navega para ela. É o gesto de quem volta no dia seguinte, e
+ * tratá-lo como erro ("esta competência já existe") ensinaria a pessoa a temer
+ * um botão que não faz mal nenhum.
+ */
+export default function Competencias() {
+  const [, navegar] = useLocation();
+  const cliente = useQueryClient();
+  const hoje = new Date();
+
+  const [ano, setAno] = useState(String(hoje.getFullYear()));
+  const [mes, setMes] = useState(String(hoje.getMonth() + 1));
+  const [quinzena, setQuinzena] = useState(hoje.getDate() <= 15 ? "1" : "2");
+  const [unidade, setUnidade] = useState("");
+  const [unidadeNome, setUnidadeNome] = useState("");
+  const [transportadora, setTransportadora] = useState("");
+  const [transportadoraNome, setTransportadoraNome] = useState("");
+
+  const competencias = useQuery({
+    queryKey: ["fechamento", "competencias"],
+    queryFn: listarCompetencias,
+  });
+
+  const abrir = useMutation({
+    mutationFn: () =>
+      abrirCompetencia({
+        ano: Number(ano),
+        mes: Number(mes),
+        quinzena: Number(quinzena) as 1 | 2,
+        unidade: { codigo: unidade.trim(), nome: unidadeNome.trim() || undefined },
+        transportadora: {
+          codigo: transportadora.trim(),
+          nome: transportadoraNome.trim() || undefined,
+        },
+      }),
+    onSuccess: (criada) => {
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
+      navegar(`/fechamento/competencias/${criada.id}`);
+    },
+  });
+
+  const podeAbrir = unidade.trim() !== "" && transportadora.trim() !== "";
+
+  return (
+    <Layout>
+      <header className="border-b bg-card px-8 py-6">
+        <h1 className="text-2xl font-bold tracking-tight">Competências</h1>
+        <p className="text-muted-foreground mt-2 max-w-3xl">
+          Cada competência é uma quinzena de um CDD com uma transportadora — o
+          período que se apura, se confere e se fecha.
+        </p>
+      </header>
+
+      <div className="p-8 space-y-6 max-w-4xl">
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Plus className="w-4 h-4" />
+              Abrir competência
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="ano">Ano</Label>
+                <Input id="ano" value={ano} onChange={(e) => setAno(e.target.value)} inputMode="numeric" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="mes">Mês</Label>
+                <Input id="mes" value={mes} onChange={(e) => setMes(e.target.value)} inputMode="numeric" />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="quinzena">Quinzena</Label>
+                <Select value={quinzena} onValueChange={setQuinzena}>
+                  <SelectTrigger id="quinzena">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="1">1ª — dias 1 a 15</SelectItem>
+                    <SelectItem value="2">2ª — dia 16 ao fim do mês</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="unidade">Código da unidade (CDD)</Label>
+                <Input
+                  id="unidade"
+                  value={unidade}
+                  onChange={(e) => setUnidade(e.target.value)}
+                  placeholder="443"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="unidade-nome">Nome da unidade</Label>
+                <Input
+                  id="unidade-nome"
+                  value={unidadeNome}
+                  onChange={(e) => setUnidadeNome(e.target.value)}
+                  placeholder="CDD BELEM"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="transportadora">Código da transportadora</Label>
+                <Input
+                  id="transportadora"
+                  value={transportadora}
+                  onChange={(e) => setTransportadora(e.target.value)}
+                  placeholder="36"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="transportadora-nome">Nome da transportadora</Label>
+                <Input
+                  id="transportadora-nome"
+                  value={transportadoraNome}
+                  onChange={(e) => setTransportadoraNome(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {abrir.isError && (
+              <Alert variant="destructive">
+                <AlertDescription>{textoDoErro(abrir.error)}</AlertDescription>
+              </Alert>
+            )}
+
+            <Button onClick={() => abrir.mutate()} disabled={!podeAbrir || abrir.isPending}>
+              {abrir.isPending ? "Abrindo…" : "Abrir competência"}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Competências abertas</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {competencias.isLoading && (
+              <p className="text-sm text-muted-foreground">Carregando…</p>
+            )}
+            {competencias.isError && (
+              <Alert variant="destructive">
+                <AlertDescription>{textoDoErro(competencias.error)}</AlertDescription>
+              </Alert>
+            )}
+            {competencias.data?.length === 0 && (
+              <p className="text-sm text-muted-foreground">
+                Nenhuma ainda. Abra a primeira acima e envie os cinco relatórios da quinzena.
+              </p>
+            )}
+            <ul className="divide-y">
+              {competencias.data?.map((c) => (
+                <li key={c.id}>
+                  <Link
+                    href={`/fechamento/competencias/${c.id}`}
+                    className="flex items-center justify-between gap-4 py-3 hover:bg-muted/50 -mx-2 px-2 rounded"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 font-medium">
+                        <CalendarDays className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <span>
+                          {c.inicio.split("-").reverse().join("/")} a {c.fim.split("-").reverse().join("/")}
+                        </span>
+                        <span className="rounded-full border border-border bg-muted px-2 py-0.5 text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
+                          {NOME_DO_ESTADO[c.estado]}
+                        </span>
+                      </div>
+                      <p className="text-sm text-muted-foreground truncate">
+                        {c.unidade.nome ?? c.unidade.codigo} · {c.transportadora.nome ?? c.transportadora.codigo}
+                      </p>
+                    </div>
+                    <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </CardContent>
+        </Card>
+      </div>
+    </Layout>
+  );
+}

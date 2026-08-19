@@ -32,8 +32,10 @@ import { cn } from "@/lib/utils";
  * Duas ausências deliberadas. Não há botão de excluir: o `actor` das
  * confirmações já feitas aponta para estas pessoas, e apagar uma linha
  * transformaria um histórico auditável num e-mail órfão — desativar tira o
- * acesso e preserva o histórico. E não há papéis: quem entra pode tudo, o que é
- * verdade e está escrito na tela, em vez de sugerido por uma hierarquia que não
+ * acesso e preserva o histórico. Há dois papéis, e só dois: ADMIN gerencia
+ * contas; OPERADOR usa o produto. Quem decide é o servidor — aqui a gestão
+ * fica escondida de quem não pode usá-la, em vez de renderizada para falhar —
+ * sem sugerir uma hierarquia por tela que não
  * existe no servidor.
  */
 
@@ -41,6 +43,8 @@ interface ManagedUser {
   id: string;
   name: string;
   email: string;
+  /** ADMIN gerencia contas; OPERADOR usa o produto. */
+  role: string;
   disabledAt: string | null;
   lastLoginAt: string | null;
   createdAt: string;
@@ -62,6 +66,7 @@ function post(path: string, body?: unknown): Promise<unknown> {
 }
 
 export default function Configuracoes() {
+  const { user: me } = useAuth();
   const { data: users = [], isLoading, error } = useQuery({
     queryKey: ["users"],
     queryFn: () => fetchJson<ManagedUser[]>("/users"),
@@ -93,7 +98,14 @@ export default function Configuracoes() {
       )}
 
       <div className="p-8 space-y-6 max-w-5xl">
-        <NewUserCard />
+        {me?.role === "ADMIN" ? (
+          <NewUserCard />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            Somente administradores criam contas, desativam acesso e redefinem
+            senha. A sua conta é de operador — peça a um administrador.
+          </p>
+        )}
 
         <Card>
           <CardHeader className="pb-3">
@@ -135,11 +147,12 @@ function NewUserCard() {
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [role, setRole] = useState("OPERADOR");
   const [error, setError] = useState<string | null>(null);
   const [created, setCreated] = useState<string | null>(null);
 
   const create = useMutation({
-    mutationFn: () => post("/users", { name, email, password }),
+    mutationFn: () => post("/users", { name, email, password, role }),
     onSuccess: () => {
       setCreated(email.trim().toLowerCase());
       setError(null);
@@ -207,6 +220,20 @@ function NewUserCard() {
             </Field>
           </div>
 
+          <Field label="Papel" htmlFor="new-role">
+            {/* select nativo de propósito: dois valores, e o navegador acessível
+                de graça vale mais que um componente para isto. */}
+            <select
+              id="new-role"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="h-9 rounded-md border border-input bg-transparent px-3 text-sm"
+            >
+              <option value="OPERADOR">Operador — usa o produto</option>
+              <option value="ADMIN">Administrador — também gerencia contas</option>
+            </select>
+          </Field>
+
           {error && <Refusal>{error}</Refusal>}
           {created && (
             <p className="flex items-center gap-2 text-sm text-emerald-700">
@@ -272,6 +299,21 @@ function UserRow({ user }: { user: ManagedUser }) {
                 você
               </Badge>
             )}
+            <Badge
+              variant="outline"
+              className={
+                user.role === "ADMIN"
+                  ? "border-blue-300 text-blue-800"
+                  : "text-muted-foreground"
+              }
+              title={
+                user.role === "ADMIN"
+                  ? "Gerencia contas: cria, desativa, redefine senha e muda papel."
+                  : "Usa o produto; não gerencia contas."
+              }
+            >
+              {user.role === "ADMIN" ? "administrador" : "operador"}
+            </Badge>
             {disabled ? (
               <Badge className="bg-muted text-muted-foreground border-border hover:bg-muted">
                 <Ban className="w-3 h-3 mr-1" />
@@ -303,6 +345,10 @@ function UserRow({ user }: { user: ManagedUser }) {
           </div>
         </div>
 
+        {/* As ações são do administrador; para o operador nem renderizam —
+            um botão que só existe para responder 403 ensina a desconfiar da
+            tela. O servidor recusa de todo jeito. */}
+        {me?.role === "ADMIN" && (
         <div className="flex items-center gap-2">
           <Button
             variant="outline"
@@ -345,6 +391,7 @@ function UserRow({ user }: { user: ManagedUser }) {
             </Button>
           )}
         </div>
+        )}
       </div>
 
       {resetting && (

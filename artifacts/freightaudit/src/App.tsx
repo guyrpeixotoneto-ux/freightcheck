@@ -36,6 +36,8 @@ import QlpAdministrativo from '@/pages/qlp-administrativo';
 import { EmPreparo } from '@/pages/em-preparo';
 import { TELAS_EM_PREPARO } from '@/pages/telas-em-preparo';
 import VisaoDoFechamento from '@/pages/fechamento/visao';
+import Competencias from '@/pages/fechamento/competencias';
+import CompetenciaAberta from '@/pages/fechamento/competencia';
 import { EtapaDoFechamento } from '@/pages/fechamento/etapa';
 import { ETAPAS_FECHAMENTO } from '@/pages/fechamento/etapas';
 
@@ -194,6 +196,10 @@ function Router() {
         coexistirem a linha explícita ganha.
       */}
       <Route path="/fechamento" component={VisaoDoFechamento} />
+      <Route path="/fechamento/competencias" component={Competencias} />
+      <Route path="/fechamento/competencias/:id">
+        {(params) => <CompetenciaAberta id={params.id} />}
+      </Route>
       {ETAPAS_FECHAMENTO.map((etapa) => (
         <Route key={etapa.href} path={etapa.href}>
           <EtapaDoFechamento etapa={etapa} />

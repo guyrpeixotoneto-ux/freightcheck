@@ -566,7 +566,19 @@ let cliente: Anthropic | null = null;
 export function obterCliente(): Anthropic {
   // O cliente é criado uma vez: ele carrega o pool de conexões HTTP, e um por
   // requisição desperdiçaria o handshake em toda pergunta digitada.
-  cliente ??= new Anthropic();
+  //
+  // O timeout é escrito porque o default do SDK é 10 minutos com retries que
+  // chegam a ~30 de relógio: uma pergunta pendurada meia hora segurando
+  // conexão HTTP e contexto não é resiliência, é fila. Quando o teto estoura,
+  // `redigir` já sabe o que fazer — a resposta sai pela redação em código e o
+  // selo diz quem escreveu.
+  cliente ??= new Anthropic({
+    timeout: (() => {
+      const bruto = Number(process.env["ASSISTENTE_TIMEOUT_MS"]);
+      return Number.isFinite(bruto) && bruto > 0 ? bruto : 120_000;
+    })(),
+    maxRetries: 1,
+  });
   return cliente;
 }
 

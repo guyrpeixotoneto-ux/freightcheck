@@ -7,6 +7,7 @@ import {
   type EstadoObservado,
 } from "@workspace/db/diagnostico";
 import { observarBanco } from "../lib/migrations";
+import { estadoDoBackup } from "../lib/backup-agendado";
 
 /**
  * Saúde do processo, e — o que faltava — do que ele enxerga do banco.
@@ -126,7 +127,12 @@ export async function describeDatabase(
 router.get("/healthz", async (_req, res) => {
   const base = HealthCheckResponse.parse({ status: "ok" });
   const database = await describeDatabase(() => observarBanco());
-  res.json({ ...base, database });
+  /*
+    O backup entra pela mesma razão que as migrations: cópia atrasada é um
+    estado que precisa ser observável de fora ANTES de fazer falta. Sai o
+    estado, nunca o caminho — este endpoint é público.
+  */
+  res.json({ ...base, database, backup: estadoDoBackup() });
 });
 
 const startedAt = new Date().toISOString();

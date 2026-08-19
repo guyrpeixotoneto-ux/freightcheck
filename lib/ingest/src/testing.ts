@@ -79,11 +79,12 @@ export async function createTestDatabase(name: string): Promise<TestDb> {
  * Quem precisa observar o preparo acontecendo — as suítes de `lib/ingest`, cujo
  * objeto **é** a importação — continua usando `createTestDatabase`.
  *
- * **Por que não `pg_dump`/`pg_restore`.** Foi medido e reprovou: o restore
- * falha com `function freightcheck_norm_canal(text) does not exist`, porque o
- * schema tem coluna gerada que depende de função própria e o ordenador de
- * dependências do `pg_restore` não resolve isso. Um restore parcial daria um
- * banco que passa alguns testes e falha outros pelo motivo errado.
+ * **Por que não `pg_dump`/`pg_restore`.** Quando isto foi medido, o restore
+ * falhava com `function freightcheck_norm_canal(text) does not exist` — as
+ * funções da identidade chamavam irmãs sem schema e o `pg_restore` roda com
+ * `search_path` vazio. A `0036` corrigiu isso (e `backup-restore.test.ts`
+ * prova o ciclo), mas o TEMPLATE continua sendo o caminho certo aqui pelo
+ * custo: 269 ms contra segundos de dump+restore por arquivo.
  */
 
 /** Constrói o conteúdo do template. Roda uma vez, contra um banco já migrado. */

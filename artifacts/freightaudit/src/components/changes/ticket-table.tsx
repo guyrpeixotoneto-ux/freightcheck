@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useRef, useState } from "react";
+import { impactEntries } from "@/lib/format";
 import { useQuery } from "@tanstack/react-query";
 import {
   ArrowRight,
@@ -47,55 +48,20 @@ import { cn } from "@/lib/utils";
  * cara de um declarado.
  */
 
-export interface TicketChangeRow {
-  id: string;
-  ticketId: string;
-  externalId: string;
-  openedAt: string | null;
-  closedAt: string | null;
-  statusRaw: string | null;
-  statusBucket: string;
-  requestedBy: string | null;
-  subject: string | null;
-  vigenciaLabel: string | null;
-  entityDescription: string | null;
+/*
+  O tipo da linha é o do servidor — inclusive a `regua`, que é o que autoriza
+  a soma de seleção a tratar `impactAmount` como dinheiro.
+*/
+export type { TicketChangeRow } from "@workspace/comparison";
+import type { TicketChangeRow } from "@workspace/comparison";
 
-  parameterLabel: string;
-  changeKind: string | null;
-  attributeCode: string | null;
-  entityLabel: string | null;
-  entityType: string | null;
-
-  valueBeforeRaw: string | null;
-  valueBeforeNumeric: number | null;
-  valueAfterRaw: string | null;
-  valueAfterNumeric: number | null;
-  beforeSource: string;
-  beforeReference: string | null;
-
-  deltaAbsolute: number | null;
-  deltaPercent: number | null;
-  impactAmount: number | null;
-  impactConfidence: string;
-  impactReason: string | null;
-
-  ageInDays: number | null;
-  stillOpen: boolean;
-}
-
-export interface TicketTotals {
-  changes: number;
-  tickets: number;
-  byStatus: { statusBucket: string; count: number }[];
-  byBeforeSource: { beforeSource: string; count: number }[];
-  byChangeKind: { changeKind: string | null; count: number }[];
-  calculated: number;
-  notCalculable: number;
-  impactSum: number;
-  divergent: number;
-  averageDaysToClose: number | null;
-  stillOpen: number;
-}
+/*
+  O tipo é o do servidor, não uma cópia — a cópia que morava aqui carregou um
+  `impactSum` escalar que somava mensal com anual. `import type` é apagado na
+  compilação (nada do servidor entra no bundle), e o typecheck acusa o drift.
+*/
+export type { TicketTotals } from "@workspace/comparison";
+import type { TicketTotals } from "@workspace/comparison";
 
 export interface TicketFilters {
   statusBucket: string;
@@ -816,10 +782,28 @@ function SelectionBar({
   nestaPagina: number;
   onClear: () => void;
 }) {
+  /*
+    A soma da seleção atravessa parâmetros, então obedece à mesma régua de
+    todos os totais do produto: só entra linha apurada CUJO parâmetro é
+    monetário e confirmado, e cada periodicidade tem o seu balde — somar
+    mensal com anual num escalar era exatamente o número que ninguém
+    conseguiria sustentar depois.
+  */
   const apuradas = rows.filter(
-    (r) => r.impactConfidence === "CALCULATED" && r.impactAmount !== null,
+    (r) =>
+      r.impactConfidence === "CALCULATED" &&
+      r.impactAmount !== null &&
+      r.regua?.somavel === true,
   );
-  const soma = apuradas.reduce((total, r) => total + (r.impactAmount ?? 0), 0);
+  const porPeriodicidade: Record<string, number> = {};
+  for (const r of apuradas) {
+    const balde = r.regua?.periodicidade ?? "SEM_PERIODICIDADE";
+    porPeriodicidade[balde] = (porPeriodicidade[balde] ?? 0) + (r.impactAmount ?? 0);
+  }
+  const somas = impactEntries(porPeriodicidade).sort(
+    (a, b) => Math.abs(b.amount) - Math.abs(a.amount),
+  );
+  const negativo = (somas[0]?.amount ?? 0) < 0;
   const fora = rows.length - apuradas.length;
 
   return (
@@ -834,21 +818,20 @@ function SelectionBar({
           <span
             className={cn(
               "font-mono tabular-nums font-medium",
-              soma < 0 ? "text-red-700" : soma > 0 ? "text-emerald-700" : "text-foreground",
+              negativo ? "text-red-700" : "text-emerald-700",
             )}
           >
-            {soma > 0 ? "+" : ""}
-            {brl(soma)}
+            {somas.map((e) => e.label).join(" · ")}
           </span>
         </span>
       ) : (
         <span className="text-muted-foreground">
-          nenhuma delas tem impacto apurado
+          nenhuma delas entra na régua financeira
         </span>
       )}
       {fora > 0 && apuradas.length > 0 && (
         <span className="text-xs text-muted-foreground">
-          {fora} fora desta soma, por não ter impacto apurado
+          {fora} fora desta soma — sem apuração ou fora da régua financeira
         </span>
       )}
       {/* A seleção atravessa a paginação, então a barra diz quantas das

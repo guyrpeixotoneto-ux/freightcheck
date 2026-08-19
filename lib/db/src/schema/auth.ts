@@ -41,6 +41,17 @@ export const appUserTable = pgTable(
      */
     passwordHash: text("password_hash").notNull(),
     /**
+     * ADMIN ou OPERADOR — o papel mínimo que separa "quem gerencia contas" de
+     * "quem audita". Nasceu porque a ausência de papéis deixava qualquer conta
+     * redefinir a senha de qualquer outra — tomada de conta a um clique, num
+     * produto cujo valor é o "quem fez".
+     *
+     * O default do banco é OPERADOR de propósito (fail-closed: um INSERT que
+     * esqueça o papel não fabrica um administrador); as contas anteriores à
+     * migration viram ADMIN no backfill, porque era o que todas já podiam.
+     */
+    role: text("role").notNull().default("OPERADOR"),
+    /**
      * Desativar em vez de apagar: o `actor` das confirmações já feitas aponta
      * para esta pessoa, e apagar a linha transformaria um histórico auditável
      * num e-mail órfão.

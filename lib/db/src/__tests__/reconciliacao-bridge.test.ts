@@ -320,7 +320,7 @@ describe("C. toda entrada do bridge está de um dos dois lados da fronteira", ()
         // `UNIQUE` opcional: a unicidade não muda a pergunta que esta prova
         // faz — "existe reconciliação para o que o `down` tira?" —, e o
         // primeiro índice único a sair no `down` (`import_run_leitura_aberta_uq`,
-        // da `0036`) passava despercebido por um regex que só via o plural
+        // da `0040`) passava despercebido por um regex que só via o plural
         // comum.
         new RegExp(`CREATE (?:UNIQUE )?INDEX IF NOT EXISTS "${indice}"`, "i").test(
           sqlDaReconciliacao,

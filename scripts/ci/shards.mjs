@@ -74,6 +74,12 @@ export const SHARDS = {
     "@workspace/freightaudit",
     "@workspace/db",
     "@workspace/coverage",
+    // `fechamento` tem duas metades e nenhuma delas é pesada: 32 testes de
+    // aritmética pura sobre fixtures sintéticas, e 6 de integração que criam um
+    // banco descartável a partir das migrations — o mesmo padrão de `db`, e por
+    // isso ao lado dele. Não usa template nem seed, então não há localidade a
+    // preservar; 2,3s medidos com o banco local.
+    "@workspace/fechamento",
   ],
   ingest: ["@workspace/ingest"],
   curado: [
@@ -81,6 +87,13 @@ export const SHARDS = {
     "@workspace/curation",
     "@workspace/composition",
     "@workspace/dre",
+    // `qlp` ainda não tem bateria própria — o quadro é exercitado de fora, por
+    // `families-qlp` em comparison, `apresentacao` no front e `qlp.test.ts` no
+    // api-server. Fica declarado aqui mesmo assim: o pacote já anuncia script
+    // `test`, e um pacote com script e sem shard é exatamente o verde mentiroso
+    // que esta lista existe para impedir. Quando a bateria dele nascer, nasce
+    // junto de comparison e curation, de quem ele lê.
+    "@workspace/qlp",
   ],
   balance: ["@workspace/balance", "@workspace/api-server"],
   assistente: ["@workspace/assistant"],

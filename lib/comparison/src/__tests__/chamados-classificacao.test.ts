@@ -10,6 +10,7 @@
 import { describe, expect, it } from "vitest";
 import {
   classificarAlteracoes,
+  type ReguaDoParametro,
   type TicketGroupedRow,
 } from "../chamados";
 
@@ -31,12 +32,15 @@ const linha = (
 const classe = (view: ReturnType<typeof classificarAlteracoes>, codigo: string) =>
   view.classes.find((c) => c.classe === codigo)!;
 
+/** Régua vazia: nenhum parâmetro passa — o padrão honesto destas dobras. */
+const SEM_REGUA = new Map<string, ReguaDoParametro>();
+
 describe("classificarAlteracoes", () => {
   it("separa o que mexe no fixo do que mexe no variável", () => {
     const view = classificarAlteracoes([
       linha("seguro", "ajuste de formula", 71),
       linha("freteReaisViagemPedagio", "Ajuste complemento PM", 1041),
-    ]);
+    ], SEM_REGUA);
 
     expect(classe(view, "FIXO").changes).toBe(71);
     expect(classe(view, "VARIAVEL").changes).toBe(1041);
@@ -54,7 +58,7 @@ describe("classificarAlteracoes", () => {
       linha("seguro", "ajuste de formula", 71),
       linha("kmIda", "AJuste KM e excluir duplicadas", 5),
       linha("cavaloEmpurrada", "transferencia de placas", 2),
-    ]);
+    ], SEM_REGUA);
 
     expect(view.changes).toBe(78);
     expect(view.overlap).toBe(2);
@@ -68,7 +72,7 @@ describe("classificarAlteracoes", () => {
   it("aponta, no parâmetro repetido, em que outra classe ele também entra", () => {
     const view = classificarAlteracoes([
       linha("cavaloEmpurrada", "transferencia de placas", 2),
-    ]);
+    ], SEM_REGUA);
 
     expect(classe(view, "FIXO").parameters[0].tambemEm).toEqual(["VARIAVEL"]);
     expect(classe(view, "VARIAVEL").parameters[0].tambemEm).toEqual(["FIXO"]);
@@ -80,7 +84,7 @@ describe("classificarAlteracoes", () => {
     // seria classificado, porque ninguém saberia que ele está lá.
     const view = classificarAlteracoes([
       linha("parametroNovoDoFreightech", "Cadastrar", 5),
-    ]);
+    ], SEM_REGUA);
 
     const naoClassificado = classe(view, "NAO_CLASSIFICADO");
     expect(view.unclassified).toBe(5);
@@ -92,7 +96,7 @@ describe("classificarAlteracoes", () => {
   it("mantém a classe vazia na lista", () => {
     // "Nenhum chamado mexeu no diesel neste mês" é resposta. Uma caixa que
     // some quando dá zero deixa quem lê sem saber se a pergunta foi feita.
-    const view = classificarAlteracoes([linha("seguro", "ajuste de formula", 3)]);
+    const view = classificarAlteracoes([linha("seguro", "ajuste de formula", 3)], SEM_REGUA);
 
     expect(view.classes.map((c) => c.classe)).toEqual([
       "FIXO",
@@ -109,7 +113,7 @@ describe("classificarAlteracoes", () => {
       linha("finameCavalo", "ajuste de formula finame", 10),
       linha("finameCavalo", "AJUSTE FINAME CONFORME REGRA", 5),
       linha("finameCavalo", null, 6),
-    ]);
+    ], SEM_REGUA);
 
     const parametro = classe(view, "FIXO").parameters[0];
     expect(parametro.changes).toBe(21);
@@ -118,26 +122,68 @@ describe("classificarAlteracoes", () => {
     expect(parametro.subjects.map((s) => s.subject)).toContain(null);
   });
 
-  it("soma impacto só do que foi apurado, e não inventa zero", () => {
+  it("a soma da classe passa pela régua: só o confirmado e monetário vira balde", () => {
     /*
-      Zero é a afirmação de que mexeram e nada mudou. Quando a verdade é "nada
-      foi apurado", a soma precisa chegar na tela como ausência — é ela que faz
-      a tela escrever "sem impacto apurado" em vez de "R$ 0".
+      A soma da classe atravessa parâmetros — mensal com anual, monetário com o
+      que nem dinheiro é. Por isso ela só existe na régua (`viraDinheiro`), por
+      periodicidade; o que não passa é CONTADO em `foraDaRegua`, nunca somado
+      nem escondido.
     */
-    const view = classificarAlteracoes([
-      linha("kmIda", "AJuste KM e excluir duplicadas", 5, {
-        calculated: 2,
-        impactSum: -297,
-      }),
-      linha("kmVolta", "AJuste KM e excluir duplicadas", 5),
+    const regua = new Map<string, ReguaDoParametro>([
+      ["cavalo.km_ida", { somavel: true, motivo: null, periodicidade: "MENSAL" }],
     ]);
+    const view = classificarAlteracoes(
+      [
+        linha("kmIda", "AJuste KM e excluir duplicadas", 5, {
+          attributeCode: "cavalo.km_ida",
+          calculated: 2,
+          impactSum: -297,
+        }),
+        // Apurado no arquivo, mas sem régua: variação existe, dinheiro não é.
+        linha("kmVolta", "AJuste KM e excluir duplicadas", 5, {
+          calculated: 1,
+          impactSum: 40,
+        }),
+      ],
+      regua,
+    );
 
     const variavel = classe(view, "VARIAVEL");
-    expect(variavel.impactSum).toBe(-297);
-    expect(variavel.calculated).toBe(2);
+    expect(variavel.impacto.porPeriodicidade).toEqual({ MENSAL: -297 });
+    expect(variavel.impacto.alteracoesSomadas).toBe(2);
+    expect(variavel.impacto.foraDaRegua).toBe(1);
+    expect(variavel.calculated).toBe(3);
 
-    const semApuracao = variavel.parameters.find((p) => p.parameterLabel === "kmVolta");
-    expect(semApuracao?.impactSum).toBeNull();
+    // O escalar por parâmetro continua existindo (uma unidade só), com a
+    // régua ao lado dizendo se ele é dinheiro.
+    const semRegua = variavel.parameters.find((p) => p.parameterLabel === "kmVolta");
+    expect(semRegua?.impactSum).toBe(40);
+    expect(semRegua?.regua).toBeNull();
+  });
+
+  it("periodicidades diferentes nunca se somam num escalar de classe", () => {
+    const regua = new Map<string, ReguaDoParametro>([
+      ["cavalo.seguro", { somavel: true, motivo: null, periodicidade: "MENSAL" }],
+      ["cavalo.ipva", { somavel: true, motivo: null, periodicidade: "ANUAL" }],
+    ]);
+    const view = classificarAlteracoes(
+      [
+        linha("seguro", "ajuste", 2, {
+          attributeCode: "cavalo.seguro",
+          calculated: 2,
+          impactSum: 100,
+        }),
+        linha("ipvaLicenciamento", "ajuste", 1, {
+          attributeCode: "cavalo.ipva",
+          calculated: 1,
+          impactSum: 1200,
+        }),
+      ],
+      regua,
+    );
+
+    const fixo = classe(view, "FIXO");
+    expect(fixo.impacto.porPeriodicidade).toEqual({ MENSAL: 100, ANUAL: 1200 });
   });
 
   it("não perde alteração nenhuma: o total é a soma das linhas de origem", () => {
@@ -148,12 +194,12 @@ describe("classificarAlteracoes", () => {
       linha("parametroDesconhecido", null, 4),
     ];
 
-    const view = classificarAlteracoes(linhas);
+    const view = classificarAlteracoes(linhas, SEM_REGUA);
     expect(view.changes).toBe(linhas.reduce((t, l) => t + l.changes, 0));
   });
 
   it("devolve o envio vazio sem estourar", () => {
-    const view = classificarAlteracoes([]);
+    const view = classificarAlteracoes([], SEM_REGUA);
     expect(view.changes).toBe(0);
     expect(view.overlap).toBe(0);
     expect(view.unclassified).toBe(0);

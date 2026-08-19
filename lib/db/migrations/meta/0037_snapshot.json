@@ -1,6 +1,6 @@
 {
-  "id": "0037be17-c0ff-ee5e-ed10-367eb1c0de37",
-  "prevId": "cf28ae44-c0e9-4fea-ab62-3bd87ccc12c8",
+  "id": "008eb9f7-38cc-4974-8662-4356d3abfab1",
+  "prevId": "a5727e28-270a-4a3d-bf10-f61f28b87383",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -291,18 +291,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "reprocess_of_run_id": {
-          "name": "reprocess_of_run_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reprocess_reason": {
-          "name": "reprocess_reason",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
         }
       },
       "indexes": {
@@ -317,22 +305,6 @@
             }
           ],
           "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
-        "import_run_leitura_aberta_uq": {
-          "name": "import_run_leitura_aberta_uq",
-          "columns": [
-            {
-              "expression": "source_file_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"import_run\".\"status\" IN ('PENDING', 'READING', 'STAGED', 'PREVIEWED', 'PROMOTING')",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -5284,6 +5256,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "role": {
+          "name": "role",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'OPERADOR'"
         },
         "disabled_at": {
           "name": "disabled_at",

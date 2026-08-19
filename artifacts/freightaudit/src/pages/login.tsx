@@ -71,7 +71,8 @@ export default function Login() {
         </div>
 
         <p className="text-xs text-white/50">
-          Uso interno. Os dados aqui dentro são contratuais.
+          Os dados aqui dentro são contratuais e ficam registrados no nome de
+          quem os toca.
         </p>
       </aside>
 
