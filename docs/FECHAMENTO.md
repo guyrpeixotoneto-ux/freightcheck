@@ -191,11 +191,11 @@ no consolidado é de fechamento (as três colunas e o total do mês).
 Quatro decisões que a tela materializa:
 
 1. **Os rótulos são as verbas, não os da planilha.** As linhas do primeiro
-   quadro dela — `CUSTO FIXO PADRONIZADO`, `ESPECIAIS`, `VANS` — não são
-   combinação das VBZs de fonte nenhuma: conferidas contra o 03.08.20, não
-   fecham. São a decomposição própria da planilha, e só as fórmulas do `.xlsb`
-   a explicam. Escrever aqueles rótulos sobre outros números daria cara de
-   conferido ao que não foi.
+   quadro dela — `CUSTO FIXO PADRONIZADO`, `ESPECIAIS`, `VANS` — são um rateio
+   por tipo de frota que o 03.08.20 não faz, e escrevê-los sobre números que não
+   são deles daria cara de conferido ao que não foi. A tradução entre as duas
+   classificações não sumiu por isso: ela mora no de-para, na seção abaixo, que
+   diz o que casa, o que só casa em conjunto e o que ainda não casa.
 2. **O fecho compara com o 03.08.20, e não com o `TOTAL GERAL UNIDADE`.**
    Aquela coluna é a reconstrução da própria planilha, feita com um fator de
    conversão digitado (1,366960) que não sai de arquivo nenhum — os medidos são
@@ -215,6 +215,61 @@ Quatro decisões que a tela materializa:
 A aritmética mora em `lib/fechamento/src/resumo.ts`, pura e sob teste, pela
 mesma razão de `lib/fechamento-gerencial`: uma soma feita no navegador é uma
 segunda opinião sobre remuneração.
+
+## O de-para — a classificação do sistema conversando com a da planilha
+
+O fechamento classifica dinheiro por **VBZ** (`05 - Frota Fixa Variável`,
+`07 - Freteiro`). A planilha classifica o mesmo dinheiro por **quadro do
+RESUMO** (`CUSTO FIXO PADRONIZADO`, `CUSTO VARIÁVEL (AGREGADO)`, `TOTAL OUTROS
+CUSTOS`). São dois recortes do mesmo total, e quem conferia lia os dois lado a
+lado e casava de cabeça. `lib/fechamento/src/de-para.ts` é essa tradução
+escrita, com os dezoito rótulos do painel da Rota transcritos acento por acento.
+
+**O termo que faltava era o desconto.** A planilha escreve a parcela **bruta** e
+mostra o abatimento numa linha à parte; o 03.08.20 escreve a verba **já
+líquida** — cada desconto dele vem com a frase "Desconto Liquido ja subtraido da
+VBZ …". Comparar os dois diretamente não fecha, e era por isso que o produto
+registrava que aquelas linhas não fechavam. Somados os descontos de volta, o
+quadro fecha contra o demonstrativo.
+
+O que cada linha do painel virou:
+
+| Linha da planilha | O que o FreightCheck põe atrás dela |
+| --- | --- |
+| `TOTAL REMUNERAÇÃO ROTA DVS` | título do quadro. `DVS` não é definido em nenhuma das seis fontes |
+| `CUSTO FIXO PADRONIZADO` · `CUSTO FIXO INATIVOS` · `CUSTO VANS INATIVAS` · `CUSTO FIXO - ESPECIAIS` · `CUSTO FIXO - VANS` | **em conjunto**: as verbas fixas e administrativas do bloco `FRETE`, brutas dos descontos do quadro. O rateio por tipo de frota não existe no 03.08.20 |
+| `INDISPONIBILIDADE` (nos dois quadros) | sem origem — a planilha tem duas linhas de disponibilidade e o relatório tem um bloco; qual das duas esta carrega não está escrito |
+| `DESCONTO DE DEVOLUÇÃO %` | a alíquota `% Dev. Resp. Transportadora` |
+| `DESCONTO DE DISPONIBILIDADE` | os quatro descontos do bloco `DESCONTO DISPONIBILIDADE` |
+| `DESCONTO COMPLEMENTAR NEGATIVO` | sem origem — sobra o `DESCONTO FRETE MINIMO` do lado do relatório, e casá-los por eliminação é dedução, não leitura |
+| `TOTAL REMUNERAÇÃO ROTA` (fixo) | as verbas fixas e administrativas do bloco `FRETE`, líquidas |
+| `CUSTO VARIÁVEL (FROTA FIXA)` · `CUSTO VARIÁVEL (AGREGADO)` | **em conjunto**: as verbas variáveis do `FRETE` (VBZ 05 e 07), brutas da devolução |
+| `DESCONTO DE DEVOLUÇÃO` | o `Desconto Devolucao` do 03.08.20 |
+| `TOTAL REMUNERAÇÃO ROTA` (variável) | as verbas variáveis e complementares do bloco `FRETE` |
+| `TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS` · `TOTAL OUTROS CUSTOS` | o bloco `OUTROS CUSTOS`, que o relatório traz com esse nome |
+
+Quatro decisões que o módulo materializa:
+
+1. **Nenhuma linha inventa a origem.** É a regra de `@workspace/remuneracao`
+   aplicada aqui: a linha sem correspondência traz `motivo` e `destrava` por
+   extenso, e não um número plausível.
+2. **O que o arquivo traz junto fica junto.** As cinco linhas de tipo de frota
+   compartilham um número, como `PIS + COFINS` compartilham no cadastro.
+   Rachá-lo por semelhança de rótulo seria simples e seria invenção.
+3. **O resíduo é a afirmação verificável.** Cada quadro devolve
+   `total − somado`, que é, por construção, o que as linhas sem origem e as
+   verbas sem linha somam. Resíduo zero afirma que `INDISPONIBILIDADE` e
+   `DESCONTO COMPLEMENTAR NEGATIVO` estão vazias na quinzena — e a planilha
+   derruba essa afirmação num minuto, que é de propósito.
+4. **A VBZ do desconto é lida, não deduzida.** `ja subtraido da VBZ 01` vira
+   dado (`vbzDeOrigem`), e é ele que acusa o caso da devolução: a planilha a
+   abate no quadro do variável e o relatório declara tê-la tirado da VBZ 01, que
+   é fixa. O número fica onde a planilha o pôs; a discordância é dita.
+
+`GET /fechamento/competencias/:id/de-para` devolve o painel preenchido
+(`?coluna=semImposto|ctrcIcms|valorFaturado`), e `GET /fechamento/de-para` o
+catálogo dos dezoito rótulos sem competência nenhuma. O painel transcrito é o da
+Rota; o do AS existe na planilha e os rótulos dele ainda não foram capturados.
 
 ## Descartar o que foi importado — o desfazer da competência errada
 

@@ -37,12 +37,14 @@ import { cn } from "@/lib/utils";
  * servidor, e é justamente entre eles que se fica indo e voltando.
  *
  * **Por que os rótulos não são os da planilha.** As linhas do primeiro quadro
- * dela — `CUSTO FIXO PADRONIZADO`, `ESPECIAIS`, `VANS` — não são combinação das
- * VBZs de nenhuma fonte: conferidas contra o 03.08.20, não fecham. São a
- * decomposição própria da planilha, e só as fórmulas do `.xlsb` a explicam.
- * Escrever aqueles rótulos sobre números que não são aqueles seria a pior
- * coisa que esta tela poderia fazer — dar cara de conferido ao que não foi. As
- * linhas são as verbas, que os arquivos sustentam uma a uma.
+ * dela — `CUSTO FIXO PADRONIZADO`, `ESPECIAIS`, `VANS` — são um rateio por tipo
+ * de frota que o 03.08.20 não faz: ele traz a frota fixa somada numa VBZ só.
+ * Escrever aqueles rótulos sobre números que não são aqueles seria a pior coisa
+ * que esta tela poderia fazer — dar cara de conferido ao que não foi. As linhas
+ * são as verbas, que os arquivos sustentam uma a uma. A tradução entre as duas
+ * classificações existe e mora noutro lugar: `de-para.ts`, em
+ * `@workspace/fechamento`, que diz o que casa verba a verba, o que só casa em
+ * conjunto e o que continua sem casar — com o motivo escrito em cada caso.
  *
  * **Por que o fecho compara com o 03.08.20 e não com o `TOTAL GERAL UNIDADE`.**
  * Aquela coluna é a reconstrução da própria planilha, feita com um fator de
