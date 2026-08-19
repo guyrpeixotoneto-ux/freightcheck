@@ -48,7 +48,16 @@ export interface Competencia {
   motivoDaReabertura: string | null;
 }
 
-/** Uma unidade ou transportadora que já apareceu em alguma competência. */
+/** Os dois lados de um fechamento: o CDD que recebe e quem entrega. */
+export type TipoDeParte = "UNIDADE" | "TRANSPORTADORA";
+
+/**
+ * Uma unidade ou transportadora que o Fechamento conhece.
+ *
+ * `competencias` é em quantas ela já apareceu, e pode ser `0`: a parte
+ * cadastrada existe antes de qualquer competência usá-la — é o que faz o nome
+ * sobreviver à exclusão de uma importação.
+ */
 export interface Parte {
   codigo: string;
   nome: string | null;
@@ -358,6 +367,26 @@ export function abrirCompetencia(entrada: {
 
 export function listarPartes(): Promise<{ unidades: Parte[]; transportadoras: Parte[] }> {
   return fetchJson<{ unidades: Parte[]; transportadoras: Parte[] }>("/fechamento/partes");
+}
+
+/**
+ * Cadastra a unidade ou a transportadora — o "Usar" do campo.
+ *
+ * O cadastro é um ato à parte da abertura de propósito: quem escreve o nome de
+ * um CDD não deveria perdê-lo ao excluir a importação que abriu por engano.
+ * Recadastrar o mesmo código com nome novo renomeia; sem nome, mantém o que
+ * estava lá.
+ */
+export function cadastrarParte(entrada: {
+  tipo: TipoDeParte;
+  codigo: string;
+  nome?: string | null;
+}): Promise<Parte> {
+  return fetchJson<Parte>("/fechamento/partes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(entrada),
+  });
 }
 
 /** Encerra a competência — congela a quinzena. */

@@ -355,6 +355,47 @@ quinzena fechada é o registro do que foi cobrado, e apagá-la de dentro de um
 clique de lista apagaria a prova sem que ninguém tenha dito por quê. Reabrir,
 com motivo escrito, vem antes.
 
+## O cadastro de unidade e transportadora — o nome sobrevive à importação
+
+O cartão que abre **Importações** chama-se **Realizar Fechamento**. É o gesto
+que a tela oferece — ano, mês, quinzena, CDD e transportadora, e começa-se a
+fechar a quinzena. O que ele produz continua sendo a competência, e o resto do
+ambiente continua chamando-a assim; o rótulo mudou porque quem chega ali vem
+fechar, e não criar um registro chamado competência.
+
+Os dois campos de parte se pesquisam e cadastram do próprio lugar
+(`ComboboxCriavel`): digitar `443 — CDD Belém` e escolher "Usar" grava a unidade
+na hora, por `POST /fechamento/partes`.
+
+**Gravar na hora é o conserto de um defeito com nome.** A lista das partes era
+derivada e só — `listarPartes` lia as competências e devolvia os códigos que
+apareciam nelas. Quem digitava o nome do CDD, abria a competência e depois
+excluía a importação — o desfazer da seção anterior, feito para a quinzena que
+não devia existir — perdia o nome junto: o cadastro morava dentro do registro
+que ele serve para criar. Hoje ele é tabela própria (`fechamento_parte`, na
+`0044`), e excluir a competência apaga só a competência.
+
+Três regras que o cadastro materializa:
+
+1. **Duas fontes, uma verdade.** A lista continua somando o cadastro às partes
+   que aparecem em competências: o cadastro responde pelo que ninguém usou
+   ainda, e as competências respondem pela contagem de cada código. Toda escrita
+   passa por `registrarParte` (o campo que cadastra e a abertura de
+   competência), de modo que a linha guarda sempre o **último** nome escrito,
+   que é exatamente o que a lista derivada devolvia. A `0044` traz para o
+   cadastro o que já existia — sem isso, "o nome sobrevive à exclusão" valeria
+   só para o que fosse digitado depois do deploy.
+2. **Renomear é reescrever; apagar o nome, não.** `443 — CDD Belém` por cima de
+   um `443` sem nome renomeia. `443` sozinho por cima de um nome que já existe
+   mantém o nome: abrir uma competência digitando só o código não pode apagar o
+   que alguém escreveu antes.
+3. **O mesmo código dos dois lados são dois cadastros.** `36` pode ser um CDD e
+   uma transportadora ao mesmo tempo; a unicidade é do par (tipo, código).
+
+A parte cadastrada e ainda não usada aparece na lista com "cadastrada — ainda
+sem competência", e não como "nova": ela está gravada, e some só se alguém a
+apagar.
+
 ## Reabrir aparece onde o envio trava
 
 Reabrir é o único caminho de volta de uma quinzena encerrada, e ele pede motivo
@@ -597,8 +638,14 @@ de negócio, não dedução por semelhança de nome de coluna.
   cronológica, mesmo pedido ao contrário.
 - `pages/fechamento/__tests__/competencias-fechamento.test.ts` — cada estado da
   competência oferece uma ação só, e nunca a errada; o ano é conferido antes
-  da ida ao servidor, nas duas pontas da faixa; e só a encerrada é recusada
-  pela exclusão.
+  da ida ao servidor, nas duas pontas da faixa; só a encerrada é recusada
+  pela exclusão; e o texto do campo de parte é lido como `código — nome` pelos
+  três separadores, sem partir o nome que tem hífen no meio.
+- `lib/fechamento/src/__tests__/persistencia.test.ts` — entre os casos do banco,
+  os quatro do cadastro de partes: a parte cadastrada **continua na lista depois
+  de a competência ser excluída** (o defeito que a `0044` conserta), renomear
+  reescreve e o cadastro sem nome não apaga o que estava lá, o mesmo código dos
+  dois lados são dois cadastros, e o código em branco é recusado.
 - `components/fechamento/__tests__/fechar-quinzena.test.ts` — a fila do que
   questionar: a divergência informativa fica de fora, e a soma é só do que
   reduz o que a transportadora recebe. É o número que aparece em três lugares.

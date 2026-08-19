@@ -20,6 +20,7 @@ import {
   listarPartes,
   reabrirCompetencia,
   receberDocumento,
+  registrarParte,
   RecusaDeFechamento,
 } from "../persistencia";
 import {
@@ -420,12 +421,84 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     });
   });
 
-  it("as partes são derivadas das competências, com o nome mais recente de cada código", async () => {
+  it("as partes saem das competências, com o nome mais recente de cada código", async () => {
     const partes = await listarPartes(db);
     const cdd = partes.unidades.find((u) => u.codigo === "443");
     expect(cdd?.nome).toBe("CDD FICTICIO");
     expect(cdd?.competencias).toBeGreaterThan(1);
     expect(partes.transportadoras.map((t) => t.codigo)).toContain("36");
+  });
+
+  /*
+    O cadastro de partes — a metade da lista que não depende de competência
+    nenhuma.
+
+    Os três casos abaixo são o defeito relatado e as duas regras que o
+    conserto não pode quebrar: a parte cadastrada **sobrevive à exclusão** da
+    importação que a usou; recadastrar com nome novo **renomeia**; e
+    recadastrar sem nome **não apaga** o nome que já estava lá. Os códigos são
+    próprios (`901`, `902`) para não mexer com o `443` dos testes acima.
+  */
+  it("a parte cadastrada continua na lista depois de a competência ser excluída", async () => {
+    const nova = { codigo: "901", nome: "CDD DO CADASTRO" };
+    const comp = await abrirCompetencia(db, {
+      ano: 2026,
+      mes: 11,
+      quinzena: 1,
+      unidade: nova,
+      transportadora,
+    });
+
+    /* Antes: a unidade aparece com a competência que a estreou. */
+    const durante = (await listarPartes(db)).unidades.find((u) => u.codigo === "901");
+    expect(durante).toEqual({ codigo: "901", nome: "CDD DO CADASTRO", competencias: 1 });
+
+    await excluirCompetencia(db, comp.id);
+
+    /*
+      Depois: a competência foi embora e o nome ficou. Era exatamente isto que
+      se perdia — quem excluía a importação aberta por engano voltava para um
+      campo que dizia "Nada encontrado" sobre o CDD que tinha acabado de
+      escrever.
+    */
+    const depois = (await listarPartes(db)).unidades.find((u) => u.codigo === "901");
+    expect(depois).toEqual({ codigo: "901", nome: "CDD DO CADASTRO", competencias: 0 });
+  });
+
+  it("recadastrar com nome novo renomeia, e sem nome mantém o que estava lá", async () => {
+    const soCodigo = await registrarParte(db, { tipo: "UNIDADE", codigo: "902" });
+    expect(soCodigo).toEqual({ codigo: "902", nome: null, competencias: 0 });
+
+    const nomeada = await registrarParte(db, {
+      tipo: "UNIDADE",
+      codigo: "902",
+      nome: "CDD SEGUNDO NOME",
+    });
+    expect(nomeada.nome).toBe("CDD SEGUNDO NOME");
+
+    /* Sem nome não é "apague o nome": é "não tenho um para dar". */
+    const semNomeDeNovo = await registrarParte(db, { tipo: "UNIDADE", codigo: "902" });
+    expect(semNomeDeNovo.nome).toBe("CDD SEGUNDO NOME");
+
+    /* E o vazio digitado vale o mesmo que a ausência — nunca um nome em branco. */
+    const comEspaco = await registrarParte(db, { tipo: "UNIDADE", codigo: " 902 ", nome: "   " });
+    expect(comEspaco).toEqual({ codigo: "902", nome: "CDD SEGUNDO NOME", competencias: 0 });
+
+    const unidades = (await listarPartes(db)).unidades.filter((u) => u.codigo === "902");
+    expect(unidades).toHaveLength(1);
+  });
+
+  it("o mesmo código pode ser um CDD e uma transportadora — são dois cadastros", async () => {
+    await registrarParte(db, { tipo: "TRANSPORTADORA", codigo: "902", nome: "OUTRA COISA" });
+    const partes = await listarPartes(db);
+    expect(partes.unidades.find((u) => u.codigo === "902")?.nome).toBe("CDD SEGUNDO NOME");
+    expect(partes.transportadoras.find((x) => x.codigo === "902")?.nome).toBe("OUTRA COISA");
+  });
+
+  it("o código em branco é recusado — não é uma parte, é um campo vazio", async () => {
+    await expect(registrarParte(db, { tipo: "UNIDADE", codigo: "   " })).rejects.toMatchObject({
+      codigo: "PARTE_SEM_CODIGO",
+    });
   });
 
   /*

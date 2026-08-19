@@ -12,6 +12,7 @@ import {
   fechamentoDocumentoTable,
   fechamentoPagamentoDescontoTable,
   fechamentoPagamentoItemTable,
+  fechamentoParteTable,
   fechamentoRequisicaoTable,
   fechamentoViagemTable,
 } from "@workspace/db";
@@ -79,7 +80,8 @@ export class RecusaDeFechamento extends Error {
       | "MOTIVO_OBRIGATORIO"
       | "DOCUMENTO_JA_RECEBIDO"
       | "DOCUMENTO_FORA_DO_PERIODO"
-      | "ARQUIVO_ILEGIVEL",
+      | "ARQUIVO_ILEGIVEL"
+      | "PARTE_SEM_CODIGO",
     mensagem: string,
     readonly detalhe?: unknown,
   ) {
@@ -115,6 +117,12 @@ export interface CompetenciaRegistrada extends Competencia {
  * dia seguinte. Criar uma segunda seria criar duas verdades sobre o mesmo
  * dinheiro — o índice único do banco impede, e aqui a intenção é atendida em
  * vez de virar erro.
+ *
+ * **As duas partes ficam cadastradas, inclusive quando a competência já
+ * existia.** É o que faz o vocabulário sobreviver ao registro: excluir uma
+ * importação aberta por engano não pode levar embora o nome do CDD que alguém
+ * escreveu para abri-la. O cadastro é idempotente e nunca apaga um nome (ver
+ * `registrarParte`), então repetir a abertura só reafirma o que já estava lá.
  */
 export async function abrirCompetencia(
   db: Database,
@@ -128,6 +136,9 @@ export async function abrirCompetencia(
   },
 ): Promise<CompetenciaRegistrada> {
   const comp = montarCompetencia(entrada.ano, entrada.mes, entrada.quinzena);
+
+  await registrarParte(db, { tipo: "UNIDADE", ...entrada.unidade });
+  await registrarParte(db, { tipo: "TRANSPORTADORA", ...entrada.transportadora });
 
   const existente = await db
     .select()
@@ -1950,7 +1961,16 @@ export async function reabrirCompetencia(
 }
 
 
-/** Uma unidade ou transportadora, como as competências a conhecem. */
+/** Os dois lados de um fechamento: o CDD que recebe e quem entrega. */
+export type TipoDeParte = "UNIDADE" | "TRANSPORTADORA";
+
+/** A coluna da competência que guarda cada lado. */
+const COLUNAS_DA_PARTE: Record<TipoDeParte, { codigo: string; nome: string }> = {
+  UNIDADE: { codigo: "unidade_codigo", nome: "unidade_nome" },
+  TRANSPORTADORA: { codigo: "transportadora_codigo", nome: "transportadora_nome" },
+};
+
+/** Uma unidade ou transportadora, como o Fechamento a conhece. */
 export interface Parte {
   codigo: string;
   nome: string | null;
@@ -1959,37 +1979,60 @@ export interface Parte {
 }
 
 /**
- * As unidades e transportadoras que já foram usadas.
+ * As unidades e transportadoras que o Fechamento conhece — cadastradas e usadas.
  *
- * **Não há tabela de cadastro, e é decisão.** Uma unidade existe, para o
- * Fechamento, quando alguém abre uma competência com ela — antes disso é um
- * código que ninguém usou. Uma tabela própria criaria um segundo lugar onde o
- * nome de um CDD pode estar escrito, e o dia em que os dois divergissem
- * ninguém saberia qual vale. Aqui a lista é derivada: é literalmente o que as
- * competências dizem.
+ * **A lista já foi derivada e só, e o que quebrou foi o uso.** A regra antiga
+ * era esta, escrita aqui: uma unidade existe quando alguém abre uma competência
+ * com ela, e a lista é literalmente o que as competências dizem. O preço
+ * apareceu no dia em que alguém digitou `443 — CDD Belém`, abriu a competência
+ * e depois **excluiu** a importação — que é justamente o que a exclusão existe
+ * para desfazer. O nome foi junto: o cadastro morava dentro do registro que ele
+ * serve para criar, e não havia como desfazer um sem desfazer o outro.
  *
- * O nome devolvido é o **mais recente** que aquele código recebeu. Corrigir a
- * grafia de um CDD passa a ser abrir a próxima competência escrevendo certo —
- * sem migração, sem tela de cadastro, e sem apagar como as anteriores foram
- * gravadas.
+ * Hoje são duas fontes somadas, e não duas verdades. Toda escrita de parte
+ * atravessa `registrarParte` — o campo que cadastra e a abertura de competência
+ * —, de modo que `fechamento_parte` guarda sempre o **último** nome escrito,
+ * que é exatamente o que a lista derivada devolvia. O cadastro responde pelo
+ * que ninguém usou ainda; as competências respondem pela contagem, e por
+ * qualquer código que não tenha chegado ao cadastro. Onde as duas falam, o
+ * cadastro ganha, porque ele é o mais recente por construção — e a `0044`
+ * começou por trazer para lá tudo o que as competências já diziam.
+ *
+ * A ordem continua a mesma — mais usada primeiro, empate pelo código —, e a
+ * parte só cadastrada entra no fim com `competencias: 0`, que é a informação
+ * honesta sobre ela.
  */
 export async function listarPartes(
   db: Database,
 ): Promise<{ unidades: Parte[]; transportadoras: Parte[] }> {
-  const consultar = async (codigo: string, nome: string): Promise<Parte[]> => {
+  const consultar = async (tipo: TipoDeParte): Promise<Parte[]> => {
+    const { codigo, nome } = COLUNAS_DA_PARTE[tipo];
     const { rows } = await db.execute<{
       codigo: string;
       nome: string | null;
       competencias: string;
     }>(sql`
+      with das_competencias as (
+        select
+          c.${sql.raw(codigo)} as codigo,
+          (array_agg(c.${sql.raw(nome)} order by c.aberta_em desc)
+             filter (where c.${sql.raw(nome)} is not null))[1] as nome,
+          count(*) as competencias
+        from fechamento_competencia c
+        group by c.${sql.raw(codigo)}
+      ),
+      do_cadastro as (
+        select p.codigo, p.nome
+        from fechamento_parte p
+        where p.tipo = ${tipo}
+      )
       select
-        c.${sql.raw(codigo)} as codigo,
-        (array_agg(c.${sql.raw(nome)} order by c.aberta_em desc)
-           filter (where c.${sql.raw(nome)} is not null))[1] as nome,
-        count(*)::text as competencias
-      from fechamento_competencia c
-      group by c.${sql.raw(codigo)}
-      order by count(*) desc, c.${sql.raw(codigo)}
+        coalesce(k.codigo, d.codigo) as codigo,
+        coalesce(k.nome, d.nome) as nome,
+        coalesce(d.competencias, 0)::text as competencias
+      from do_cadastro k
+      full outer join das_competencias d on d.codigo = k.codigo
+      order by coalesce(d.competencias, 0) desc, coalesce(k.codigo, d.codigo)
     `);
     return rows.map((r) => ({
       codigo: r.codigo,
@@ -1999,10 +2042,68 @@ export async function listarPartes(
   };
 
   const [unidades, transportadoras] = await Promise.all([
-    consultar("unidade_codigo", "unidade_nome"),
-    consultar("transportadora_codigo", "transportadora_nome"),
+    consultar("UNIDADE"),
+    consultar("TRANSPORTADORA"),
   ]);
   return { unidades, transportadoras };
+}
+
+/**
+ * Cadastra uma parte — ou reescreve o nome da que já existe.
+ *
+ * É a única porta de escrita do cadastro, e por isso ela é o lugar onde as
+ * regras cabem uma vez só:
+ *
+ * - **O código é aparado e obrigatório.** Um código em branco não é uma parte
+ *   nova; é um campo que ninguém preencheu, e gravá-lo criaria uma linha que
+ *   nenhuma competência jamais casaria.
+ * - **Nome vazio é `null`, nunca `""`.** As duas coisas se parecem na tela e
+ *   ordenam diferente no banco; a ausência tem uma representação só.
+ * - **Renomear é reescrever; apagar o nome, não.** O `coalesce` do `on
+ *   conflict` deixa `443 — CDD Belém` corrigir um `443` sem nome, e impede que
+ *   uma abertura de competência feita só com o código apague o nome que alguém
+ *   já tinha escrito. Perder um nome é sempre pior do que manter o anterior.
+ *
+ * Devolve a parte como a lista a mostra — com a contagem de competências —,
+ * para que a tela possa selecioná-la no campo sem esperar a lista inteira
+ * chegar de novo.
+ */
+export async function registrarParte(
+  db: Database,
+  entrada: { tipo: TipoDeParte; codigo: string; nome?: string | null },
+): Promise<Parte> {
+  const codigo = entrada.codigo.trim();
+  const nome = entrada.nome?.trim() ? entrada.nome.trim() : null;
+  if (codigo === "") {
+    throw new RecusaDeFechamento(
+      "PARTE_SEM_CODIGO",
+      "O código é obrigatório — é por ele que a competência encontra a unidade ou a transportadora.",
+    );
+  }
+
+  const [linha] = await db
+    .insert(fechamentoParteTable)
+    .values({ tipo: entrada.tipo, codigo, nome })
+    .onConflictDoUpdate({
+      target: [fechamentoParteTable.tipo, fechamentoParteTable.codigo],
+      set: {
+        nome: sql`coalesce(excluded.nome, ${fechamentoParteTable.nome})`,
+        atualizadaEm: sql`now()`,
+      },
+    })
+    .returning();
+
+  const { rows } = await db.execute<{ competencias: string }>(sql`
+    select count(*)::text as competencias
+    from fechamento_competencia c
+    where c.${sql.raw(COLUNAS_DA_PARTE[entrada.tipo].codigo)} = ${codigo}
+  `);
+
+  return {
+    codigo: linha!.codigo,
+    nome: linha!.nome,
+    competencias: Number(rows[0]?.competencias ?? 0),
+  };
 }
 
 /**

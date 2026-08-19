@@ -106,6 +106,50 @@ export const fechamentoCompetenciaTable = pgTable(
   ],
 );
 
+/**
+ * A unidade e a transportadora que alguém cadastrou — o vocabulário que
+ * sobrevive à competência.
+ *
+ * **Por que ela existe, se a lista sempre foi derivada.** Era derivada e só:
+ * `listarPartes` lia as competências e devolvia os códigos que apareciam nelas.
+ * A consequência apareceu no uso — quem digitou `443 — CDD Belém` no campo,
+ * abriu a competência e depois excluiu a importação aberta por engano perdeu o
+ * nome junto com ela. O cadastro tinha ido morar dentro do registro que ele
+ * serve para criar, e desfazer o registro desfazia o cadastro.
+ *
+ * **O que ela não é.** Não é uma segunda verdade sobre o nome de um CDD. Toda
+ * escrita de parte passa por aqui — a do campo que cadastra e a da abertura de
+ * competência —, de modo que esta tabela guarda sempre o **último** nome
+ * escrito, que é exatamente o que a lista derivada devolvia. `listarPartes`
+ * continua somando as duas fontes: o cadastro responde pelo que ninguém usou
+ * ainda, e as competências respondem pela contagem de cada código. A `0044`
+ * nasce com o que já existia dentro — o backfill é o que faz a garantia valer
+ * também para as competências abertas antes dela.
+ *
+ * `codigo` é único **por tipo**, e não no geral: `36` pode ser uma
+ * transportadora e um CDD ao mesmo tempo, e os dois números não têm relação um
+ * com o outro.
+ */
+export const fechamentoParteTable = pgTable(
+  "fechamento_parte",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** `UNIDADE` ou `TRANSPORTADORA` — os dois lados de um fechamento. */
+    tipo: text("tipo").notNull(),
+    /** `443`, `36` — o código como as fontes da Ambev o escrevem. */
+    codigo: text("codigo").notNull(),
+    /** `CDD BELEM`. Nulo enquanto ninguém escreveu o nome — nunca vazio. */
+    nome: text("nome"),
+    criadaEm: timestamp("criada_em", { withTimezone: true }).notNull().defaultNow(),
+    /** Quando o nome foi escrito pela última vez. */
+    atualizadaEm: timestamp("atualizada_em", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("fechamento_parte_unica").on(t.tipo, t.codigo),
+    check("fechamento_parte_tipo", sql`${t.tipo} in ('UNIDADE', 'TRANSPORTADORA')`),
+  ],
+);
+
 /* ===========================================================================
  * 2. Os documentos
  * ======================================================================== */
