@@ -125,6 +125,16 @@ Três decisões que a tela materializa:
    soma feita na tela seria uma segunda conta do mesmo dinheiro.
 3. **A última coluna da tabela é a linha física do 2Art.** É a ponta da trilha:
    permite conferir a célula de origem sem refazer a conta.
+4. **O 2Art de outro período é recusado na porta**, com os dois períodos
+   nomeados (`DOCUMENTO_FORA_DO_PERIODO`). Metade do arquivo cair fora é o
+   normal — ele é mensal e a quinzena é meio mês —, e essa metade é contada, não
+   recusada. *Nenhuma* linha cair dentro é outra coisa: é o arquivo de um
+   período aberto na competência de outro. Ele entrava com visto verde e "949
+   linhas" na linha da fonte, gravava tudo, e a grade nascia inteira vazia — a
+   importação que mente é a que diz ter dado certo. A checagem é só do 2Art,
+   porque só nele a data da linha é o dia em que a viagem rodou; nas outras
+   fontes é emissão ou aprovação, que atravessa a virada da quinzena de forma
+   legítima.
 
 ## Remuneração — o cadastro, e a única tela que atravessa a fronteira
 

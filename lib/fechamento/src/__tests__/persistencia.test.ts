@@ -162,6 +162,37 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     ).rejects.toBeInstanceOf(RecusaDeFechamento);
   });
 
+  it("recusa o 2Art de outro período em vez de gravar viagens que nenhuma conta usa", async () => {
+    /* O caso real: o 2Art de 16–31/07 enviado numa competência de 01–15/08. Ele
+       entrava com visto verde e "6 linhas", gravava tudo, e a grade de dias
+       nascia inteira vazia — a mentira mais cara que uma importação pode contar
+       é a de ter dado certo. A recusa nomeia os dois períodos, que é o que
+       responde "importei o arquivo, por que não tem viagem?" na hora do erro.
+
+       A fronteira é *nenhuma* linha cair dentro, e não alguma cair fora: o
+       mesmo arquivo entra sem reclamação na competência de julho (ver o teste
+       que recebe as cinco fontes, e o `viagensForaDoPeriodo` de 1 mais abaixo),
+       porque o 2Art é mensal e a quinzena é meio mês. */
+    const agosto = await abrirCompetencia(db, { ano: 2026, mes: 8, quinzena: 1, unidade, transportadora });
+    const recusa = await receberDocumento(db, {
+      competenciaId: agosto.id,
+      tipo: "OPERACAO",
+      nomeDoArquivo: "2art.xlsx",
+      conteudo: fixtureOperacao(),
+    }).catch((e: unknown) => e);
+
+    expect(recusa).toBeInstanceOf(RecusaDeFechamento);
+    expect((recusa as RecusaDeFechamento).codigo).toBe("DOCUMENTO_FORA_DO_PERIODO");
+    expect((recusa as Error).message).toContain("01/07/2026 a 17/07/2026");
+    expect((recusa as Error).message).toContain("01/08/2026 a 15/08/2026");
+
+    /* E nada ficou para trás: o documento recusado não grava meia competência. */
+    expect(await listarDocumentos(db, agosto.id)).toHaveLength(0);
+    const diario = (await lerDiarioDaCompetencia(db, agosto.id))!;
+    expect(diario.fonte).toBeNull();
+    expect(diario.viagensForaDoPeriodo).toBe(0);
+  }, 60_000);
+
   it("reenviar uma exportação corrigida substitui a anterior e mantém as duas no histórico", async () => {
     const comp = await abrirCompetencia(db, { ano: 2026, mes: 8, quinzena: 1, unidade, transportadora });
     await receberDocumento(db, {
