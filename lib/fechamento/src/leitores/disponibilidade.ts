@@ -1,6 +1,6 @@
 import { centavos, lerCanal, lerNumero, type Canal, type Leitura, type Recusa, type TipoDeFrotaContratada } from "../dominio";
-import { diaDeSerial, type Dia } from "../periodo";
-import { celula, lerAba, nomesDasAbas, type LinhaDePlanilha } from "./planilha";
+import { diaDeCelula, type Dia } from "../periodo";
+import { celula, lerAba, nomesDasAbas, type LinhaDePlanilha, type PlanilhaLida } from "./planilha";
 
 /**
  * O 03.08.18 — frota contratada contra frota que rodou.
@@ -66,13 +66,50 @@ const ABAS: { nome: string; tipo: TipoDeFrotaContratada }[] = [
 ];
 
 /**
+ * As colunas em que uma exportação de texto pode declarar de que frota é a
+ * linha — o que, na planilha, o nome da aba dizia.
+ *
+ * A ordem é a da especificidade: uma coluna que fala de tipo de frota manda
+ * sobre a coluna genérica `Frota`, que no relatório real traz o perfil do
+ * veículo (`Padrao`) e só às vezes a frota contratada.
+ */
+const COLUNAS_DE_TIPO_DE_FROTA = ["Tipo Frota", "Tipo de Frota", "Frota FF/Van", "Aba", "Frota"];
+
+/** `FF`/`Van` como o relatório os escreve. `null` no que não for um dos dois. */
+function lerTipoDeFrotaContratada(bruto: unknown): TipoDeFrotaContratada | null {
+  const texto = String(bruto ?? "").trim().toLowerCase();
+  if (texto === "ff") return "FF";
+  if (texto === "van") return "VAN";
+  return null;
+}
+
+/** Alguma coluna desta linha declara a frota contratada? */
+function tipoDeFrotaDeclarado(bruta: LinhaDePlanilha): TipoDeFrotaContratada | null {
+  for (const coluna of COLUNAS_DE_TIPO_DE_FROTA) {
+    const tipo = lerTipoDeFrotaContratada(celula(bruta, coluna));
+    if (tipo) return tipo;
+  }
+  return null;
+}
+
+/**
  * Lê o 03.08.18, as duas abas.
  *
  * Uma aba ausente não é erro: há CDDs sem van. O que seria erro é ler nenhuma
  * das duas, e aí a exceção de cabeçalho da última tentativa sobe.
+ *
+ * **Um arquivo de texto não tem abas, e esta é a única fonte para quem isso
+ * importa.** Nas outras cinco a aba é embalagem; aqui ela *é* dado — é o nome
+ * dela que diz se a linha fala do caminhão ou da van, e as duas descontam
+ * coisas diferentes. Por isso um `.csv` só é aceito quando alguma coluna
+ * declara a frota (ver `COLUNAS_DE_TIPO_DE_FROTA`); quando nenhuma declara, a
+ * recusa é do arquivo inteiro e diz para enviar a planilha. Escolher `FF` por
+ * omissão seria dar à van os descontos do caminhão, em silêncio.
  */
 export function lerDisponibilidade(arquivo: Buffer | ArrayBuffer): Leitura<DiaDeDisponibilidade> {
   const presentes = new Set(nomesDasAbas(arquivo));
+  if (presentes.size === 0) return lerTabelaUnica(arquivo);
+
   const linhas: DiaDeDisponibilidade[] = [];
   const recusas: Recusa[] = [];
   let lidas = 0;
@@ -97,6 +134,38 @@ export function lerDisponibilidade(arquivo: Buffer | ArrayBuffer): Leitura<DiaDe
   return { linhas, recusas };
 }
 
+/** O 03.08.18 exportado em texto: uma tabela só, com a frota dentro dela. */
+function lerTabelaUnica(arquivo: Buffer | ArrayBuffer): Leitura<DiaDeDisponibilidade> {
+  const planilha: PlanilhaLida = lerAba(arquivo, { exigidas: COLUNAS_EXIGIDAS });
+  const linhas: DiaDeDisponibilidade[] = [];
+  const recusas: Recusa[] = [];
+
+  if (!planilha.linhas.some((bruta) => tipoDeFrotaDeclarado(bruta) !== null)) {
+    throw new Error(
+      "O relatório de disponibilidade veio em texto, e nenhuma coluna dele diz se a linha é " +
+        `da frota FF ou da Van (procuradas: ${COLUNAS_DE_TIPO_DE_FROTA.join(", ")}). ` +
+        "As duas descontam coisas diferentes, e escolher uma delas seria inventar o desconto — " +
+        "envie o .xlsx, que traz as duas abas nomeadas.",
+    );
+  }
+
+  for (const bruta of planilha.linhas) {
+    const tipo = tipoDeFrotaDeclarado(bruta);
+    if (!tipo) {
+      recusas.push({
+        linha: bruta.numero,
+        motivo: "A linha não diz se é da frota FF ou da Van.",
+        original: String(celula(bruta, COLUNAS_DE_TIPO_DE_FROTA[0]) ?? ""),
+      });
+      continue;
+    }
+    const lida = lerLinha(bruta, planilha.aba, tipo, recusas);
+    if (lida) linhas.push(lida);
+  }
+
+  return { linhas, recusas };
+}
+
 function lerLinha(
   bruta: LinhaDePlanilha,
   aba: string,
@@ -108,8 +177,8 @@ function lerLinha(
     return null;
   };
 
-  const dia = diaDeSerial(celula(bruta, "Data"));
-  if (!dia) return recusar("A data do dia não é um serial de data válido.", celula(bruta, "Data"));
+  const dia = diaDeCelula(celula(bruta, "Data"));
+  if (!dia) return recusar("A data do dia não é uma data válida.", celula(bruta, "Data"));
 
   const canal = lerCanal(celula(bruta, "Canal"));
   if (!canal) return recusar("O canal do dia não é Rota nem AS.", celula(bruta, "Canal"));

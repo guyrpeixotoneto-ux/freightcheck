@@ -1,6 +1,7 @@
 import { centavos, lerNumero, type Canal } from "../dominio";
 import { diaDeTextoBR, type Dia } from "../periodo";
 import { VERBAS, verbaDe, verbaDesconhecida, type Verba } from "../verbas";
+import { lerTextoDeRelatorio } from "./formato";
 
 /**
  * O 03.08.20 — o demonstrativo de pagamento da quinzena.
@@ -34,6 +35,14 @@ import { VERBAS, verbaDe, verbaDesconhecida, type Verba } from "../verbas";
  * as seis colunas sempre na mesma ordem, e o que distingue uma linha da outra é
  * o rótulo. Ler por rótulo sobrevive a um alinhamento que mude de versão; ler
  * por coluna, não.
+ *
+ * **E é essa escolha que faz o mesmo leitor servir ao arquivo delimitado.** Um
+ * `.csv` deste relatório traz as mesmas colunas na mesma ordem, separadas por
+ * um caractere em vez de por espaço; remontar a linha juntando os campos com
+ * dois espaços (ver `lerTextoDeRelatorio`, em `formato.ts`) devolve exatamente
+ * a linha que as expressões abaixo já sabiam ler. Não há uma segunda gramática
+ * aqui, e é de propósito: duas gramáticas para o mesmo relatório divergiriam
+ * na primeira verba nova.
  */
 
 /** Em que bloco do relatório a verba apareceu. */
@@ -198,17 +207,12 @@ const DISPONIBILIDADE: { marca: string; tipo: TipoDeDescontoDoPagamento }[] = [
 /**
  * Lê o 03.08.20.
  *
- * Recebe bytes e não texto para decodificar latin-1 aqui dentro, pela mesma
- * razão do leitor de requisições: quem chama não deveria precisar saber a
- * codificação de uma fonte.
+ * Recebe bytes e não texto porque a codificação e o formato são decididos aqui
+ * dentro, pela mesma razão do leitor de requisições: quem chama não deveria
+ * precisar saber nem em que codificação nem em que formato uma fonte chegou.
  */
 export function lerPagamento(arquivo: Buffer | ArrayBuffer | string): Pagamento {
-  const texto =
-    typeof arquivo === "string"
-      ? arquivo
-      : new TextDecoder("latin1").decode(
-          arquivo instanceof Buffer ? arquivo : new Uint8Array(arquivo),
-        );
+  const { linhas: fisicas, linhaFisica } = lerTextoDeRelatorio(arquivo);
 
   const itens: ItemDePagamento[] = [];
   const descontos: DescontoDoPagamento[] = [];
@@ -231,10 +235,9 @@ export function lerPagamento(arquivo: Buffer | ArrayBuffer | string): Pagamento 
     percentual: null,
   };
 
-  const linhas = texto.split(/\r?\n/);
-  for (let i = 0; i < linhas.length; i += 1) {
-    const bruta = linhas[i] ?? "";
-    const numeroDaLinha = i + 1;
+  for (let i = 0; i < fisicas.length; i += 1) {
+    const bruta = fisicas[i] ?? "";
+    const numeroDaLinha = linhaFisica[i] ?? i + 1;
     const limpa = bruta.trim();
     if (limpa === "" || /^-+$/.test(limpa)) continue;
 
