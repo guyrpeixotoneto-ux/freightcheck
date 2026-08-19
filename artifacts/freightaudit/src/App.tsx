@@ -35,7 +35,8 @@ import Frota360 from '@/pages/frota-360';
 import QlpAdministrativo from '@/pages/qlp-administrativo';
 import { EmPreparo } from '@/pages/em-preparo';
 import { TELAS_EM_PREPARO } from '@/pages/telas-em-preparo';
-import VisaoDoFechamento from '@/pages/fechamento/visao';
+import VisaoGerencial from '@/pages/fechamento/visao';
+import UnidadeDoFechamento from '@/pages/fechamento/unidade';
 import Competencias from '@/pages/fechamento/competencias';
 import Apuracoes from '@/pages/fechamento/apuracoes';
 import CompetenciaAberta from '@/pages/fechamento/competencia';
@@ -199,7 +200,16 @@ function Router() {
         entrada de lá e escrever o `<Route>` explícito aqui, e enquanto os dois
         coexistirem a linha explícita ganha.
       */}
-      <Route path="/fechamento" component={VisaoDoFechamento} />
+      <Route path="/fechamento" component={VisaoGerencial} />
+      {/*
+        O ano de uma unidade, atrás do cartão da Visão Gerencial. Não está na
+        lateral de propósito: é aprofundamento de um número da home, e não uma
+        seção do processo — o menu do Fechamento continua sendo as cinco etapas
+        do trabalho.
+      */}
+      <Route path="/fechamento/unidades/:codigo">
+        {(params) => <UnidadeDoFechamento codigo={decodeURIComponent(params.codigo)} />}
+      </Route>
       <Route path="/fechamento/competencias" component={Competencias} />
       <Route path="/fechamento/competencias/:id">
         {(params) => <CompetenciaAberta id={params.id} />}
