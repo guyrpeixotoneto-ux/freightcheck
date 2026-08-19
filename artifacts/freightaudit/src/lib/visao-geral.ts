@@ -386,6 +386,281 @@ export function composicaoDoImpacto(
   };
 }
 
+
+// ---------------------------------------------------------------------------
+// De onde vêm as alterações detectadas
+// ---------------------------------------------------------------------------
+
+/**
+ * Qual recorte da composição está em foco. `todas` é o painel inteiro.
+ *
+ * Mora na URL como o lado da balança mora: quem clicou em "62 só formato" veio
+ * perguntar *quais*, e o painel precisa abrir já com a resposta em cima.
+ */
+export type FocoDeAlteracoes = "todas" | "valor" | "formato";
+
+export function focoValido(valor: string | null): valor is FocoDeAlteracoes {
+  return valor === "todas" || valor === "valor" || valor === "formato";
+}
+
+/**
+ * Uma fatia de uma das partições — **sempre em alterações**, nunca em pontos.
+ *
+ * A unidade única é a regra deste painel inteiro. O Acompanhamento publica o
+ * mesmo panorama em pontos, porque lá a pergunta é "por onde começo" e a fila é
+ * de pontos; aqui o número que se abriu conta alterações, e uma seção que
+ * trocasse de unidade no meio faria as três partições pararem de fechar com ele.
+ * `pontos` viaja junto como contexto da fatia, e nunca como o número dela.
+ */
+export interface FatiaDeAlteracoes {
+  chave: string;
+  rotulo: string;
+  alteracoes: number;
+  /** Quantos pontos da remuneração produziram esta fatia. `null` quando não se aplica. */
+  pontos: number | null;
+  /** 0 a 1 do total da vigência — o comprimento da barra. */
+  proporcao: number;
+  /**
+   * As linhas desta fatia em Alterações — `null` quando **não existe** filtro
+   * que reproduza exatamente esta contagem.
+   *
+   * Não é omissão: um atalho que abre um total diferente do que foi clicado
+   * gasta mais confiança do que economiza cliques, e é o que aconteceria com
+   * "viraram dinheiro: 7" apontando para `impactConfidence=CALCULATED`, que
+   * devolve as 19 — as 7 mais as 12 que saíram por dupla contagem.
+   */
+  href: string | null;
+  /** O que a fatia quer dizer, ou por que ela não abre nada. */
+  nota: string | null;
+}
+
+/** Um ponto da remuneração tocado nesta vigência, na conta das alterações. */
+export interface PontoTocado {
+  /** A chave do grupo — a mesma que `?alteracao=` abre. */
+  chave: string;
+  titulo: string;
+  equipamento: string;
+  badgeLabel: string;
+  alteracoes: number;
+  veiculos: number;
+  /** Do ponto com mais alterações da vigência: 0 a 1. É o comprimento da barra. */
+  proporcao: number;
+  formatOnly: boolean;
+}
+
+/**
+ * As alterações detectadas, abertas nas partições que as explicam.
+ *
+ * O cartão publicava "267" e uma frase que o contradiz: *"cada valor que mudou
+ * entre a vigência anterior e esta"*. Em agosto/2026, **62 das 267 não são
+ * valor que mudou** — são troca de formato pura, onde os dois lados valem o
+ * mesmo e só a forma de exportar a coluna mudou. Um quarto do número mais lido
+ * da tela descrevia outra coisa, e nada na tela dizia isso.
+ *
+ * Daí as três partições, e a regra que vale para as três: **cada uma soma
+ * exatamente o total**, e todas contam alterações. Elas respondem perguntas
+ * diferentes sobre o mesmo conjunto:
+ *
+ * - **o que aconteceu com o valor** — mexeu, ou só a forma mudou;
+ * - **de que tipo foi o sinal** — o selo que o motor já atribuiu ao ponto;
+ * - **o que a apuração fez** — virou dinheiro, saiu por dupla contagem, ou
+ *   ficou sem preço.
+ *
+ * Nada aqui pede dado novo ao servidor: as três saem da mesma resposta que
+ * desenhou o cartão. Dois pedidos seriam duas vigências possíveis, e duas
+ * vigências é exatamente como o número do painel deixaria de bater com o de
+ * cima.
+ *
+ * `null` quando a gaveta não foi pedida (`?detectadas=` ausente) ou quando a
+ * vigência não detectou alteração nenhuma — um painel de composição sobre zero
+ * é três barras vazias dizendo o que a tela já disse.
+ */
+export interface ComposicaoDasAlteracoes {
+  total: number;
+  /** `totals.groups` — os "pontos da remuneração tocados" que o cartão anuncia. */
+  pontos: number;
+  foco: FocoDeAlteracoes;
+  /**
+   * Mexeu no valor, ou só o formato mudou.
+   *
+   * Vazia quando não há troca de formato nenhuma, e isso é uma afirmação: quer
+   * dizer que as 267 são 267 valores que mudaram. Uma partição de uma fatia só
+   * não parte nada, e ocuparia a tela para dizer "100%".
+   */
+  porEfeito: FatiaDeAlteracoes[];
+  /** O selo do motor, o de mais alterações primeiro. */
+  porNatureza: FatiaDeAlteracoes[];
+  /** O desfecho da apuração: dinheiro, dupla contagem, sem preço. */
+  porApuracao: FatiaDeAlteracoes[];
+  /** Os pontos tocados, o de mais alterações primeiro — já recortados pelo foco. */
+  tocados: PontoTocado[];
+  /** Quantos pontos existem sem o foco, para a lista dizer o que ela recortou. */
+  tocadosNoTotal: number;
+}
+
+export function composicaoDasAlteracoes(
+  view: GroupedView | null | undefined,
+  foco: string | null,
+  recorte: Recorte = RECORTE_VAZIO,
+): ComposicaoDasAlteracoes | null {
+  /*
+    Sem `?detectadas=` na URL não há gaveta, e sem alteração não há composição.
+
+    A mesma régua de `composicaoDoImpacto`, pela mesma razão: a chave da URL
+    **é** o estado da gaveta, e um painel que nascesse aberto esconderia a tela
+    atrás de algo que ninguém pediu.
+  */
+  if (!view || foco === null) return null;
+  const total = view.totals.changes;
+  if (total === 0) return null;
+
+  const escolhido: FocoDeAlteracoes = focoValido(foco) ? foco : "todas";
+  const daVigencia: Recorte = { ...recorte, period: view.period };
+  const fatia = (valor: number) => (total === 0 ? 0 : valor / total);
+
+  const formato = view.totals.formatOnlyChanges;
+  const porEfeito: FatiaDeAlteracoes[] =
+    formato === 0
+      ? []
+      : [
+          {
+            chave: "valor",
+            rotulo: "Mexeram no valor",
+            alteracoes: total - formato,
+            pontos: null,
+            proporcao: fatia(total - formato),
+            href: null,
+            nota: "O número dos dois lados é diferente. Só daqui pode sair impacto — troca de formato nunca vira dinheiro.",
+          },
+          {
+            chave: "formato",
+            rotulo: "Só o formato mudou",
+            alteracoes: formato,
+            pontos: null,
+            proporcao: fatia(formato),
+            href: null,
+            /*
+              Sem link, e não por falta de vontade: Alterações não tem filtro de
+              formato. O caminho existe e é o de baixo — o foco recorta a lista
+              de pontos, e de lá cada ponto abre as suas linhas.
+            */
+            nota: "A coluna mudou de forma; o valor dos dois lados é o mesmo, e nada disto vira dinheiro.",
+          },
+        ];
+
+  const porNatureza: FatiaDeAlteracoes[] = [...view.cockpit.panorama.byBadge]
+    /*
+      Ordenado por alteração, e não por ponto como no Acompanhamento.
+
+      As duas telas leem a mesma tabela e publicam colunas diferentes dela: lá a
+      fila é de pontos, aqui o número que se abriu conta alterações. Cada uma
+      ordena pelo que publica; ordenar por uma coluna e mostrar a outra é que
+      faria a barra mais longa aparecer no meio da lista.
+    */
+    .sort((a, b) => b.changes - a.changes || a.label.localeCompare(b.label, "pt-BR"))
+    .map((balde) => ({
+      chave: balde.badge,
+      rotulo: balde.label,
+      alteracoes: balde.changes,
+      pontos: balde.groups,
+      proporcao: fatia(balde.changes),
+      href: null,
+      nota: null,
+    }));
+
+  const pricing = view.cockpit.panorama.pricing;
+  /*
+    Os três rótulos são os do Panorama do Acompanhamento, letra por letra.
+
+    São os mesmos três números, lidos da mesma `pricing`. Dar-lhes nomes
+    diferentes em duas telas do mesmo produto obrigaria quem visse as duas a
+    descobrir sozinho que "viraram dinheiro" e "com valor apurado" são a mesma
+    coisa — e a desconfiar quando descobrisse.
+  */
+  const porApuracao: FatiaDeAlteracoes[] = [
+    {
+      chave: "apurado",
+      rotulo: "Com valor apurado",
+      alteracoes: pricing.calculatedChanges,
+      pontos: null,
+      proporcao: fatia(pricing.calculatedChanges),
+      href: null,
+      nota: "Entraram no impacto líquido da vigência.",
+    },
+    {
+      chave: "excluido",
+      rotulo: "Fora do total (parcelas)",
+      alteracoes: pricing.excludedChanges,
+      pontos: null,
+      proporcao: fatia(pricing.excludedChanges),
+      href: null,
+      nota: "Têm preço apurado, mas já estão contadas dentro de outro parâmetro — somá-las contaria o mesmo dinheiro duas vezes.",
+    },
+    {
+      chave: "sem-preco",
+      rotulo: "Sem preço",
+      alteracoes: pricing.notCalculableChanges,
+      pontos: null,
+      proporcao: fatia(pricing.notCalculableChanges),
+      href:
+        pricing.notCalculableChanges === 0
+          ? null
+          : linkDeAlteracoes({
+              recorte: daVigencia,
+              filtros: { impactConfidence: "NOT_CALCULABLE" },
+            }),
+      /*
+        O motivo sai do motor, e não de uma frase escrita aqui.
+
+        A frase que morava neste lugar dizia "falta semântica confirmada", e ela
+        é falsa para 62 das 248 de agosto/2026: aquelas não têm preço porque os
+        dois lados não são comparáveis, que é outra coisa e manda procurar noutro
+        lugar. `pricing.reasons` traz as sentenças que o motor de fato registrou,
+        já ordenadas pela que explica mais alterações — é a mesma leitura que o
+        Panorama do Acompanhamento publica.
+      */
+      nota: motivoDoPreco(pricing.reasons),
+    },
+  ].filter((f) => f.alteracoes > 0);
+
+  const teto = view.groups.reduce((maior, g) => Math.max(maior, g.changes), 0);
+  const tocados = view.groups
+    .filter((grupo) =>
+      escolhido === "valor"
+        ? !grupo.formatOnly
+        : escolhido === "formato"
+          ? grupo.formatOnly
+          : true,
+    )
+    .map((grupo) => ({
+      chave: grupo.key,
+      titulo: grupo.title,
+      equipamento: grupo.equipment,
+      badgeLabel: grupo.badgeLabel,
+      alteracoes: grupo.changes,
+      veiculos: grupo.vehicles,
+      proporcao: teto === 0 ? 0 : grupo.changes / teto,
+      formatOnly: grupo.formatOnly,
+    }))
+    .sort(
+      (a, b) =>
+        b.alteracoes - a.alteracoes ||
+        b.veiculos - a.veiculos ||
+        a.titulo.localeCompare(b.titulo, "pt-BR"),
+    );
+
+  return {
+    total,
+    pontos: view.totals.groups,
+    foco: escolhido,
+    porEfeito,
+    porNatureza,
+    porApuracao,
+    tocados,
+    tocadosNoTotal: view.groups.length,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Cobertura e integridade — o que vem do Balanço de Massa
 // ---------------------------------------------------------------------------
@@ -1188,6 +1463,23 @@ export function qualidadeDaCobertura(percentual: number): { palavra: string; tom
   if (percentual >= 95) return { palavra: "Alta", tom: "ok" };
   if (percentual >= 85) return { palavra: "Parcial", tom: "atencao" };
   return { palavra: "Baixa", tom: "grave" };
+}
+
+/**
+ * Por que falta preço, na frase do motor — e quantas outras razões existem.
+ *
+ * `null` quando o motor não registrou motivo nenhum: um "sem preço" sem
+ * explicação é honesto, e inventar uma explicação para ele não é.
+ */
+function motivoDoPreco(
+  reasons: { reason: string; groups: number; changes: number }[],
+): string | null {
+  if (reasons.length === 0) return null;
+  const extras =
+    reasons.length > 1
+      ? ` (+${reasons.length - 1} ${reasons.length === 2 ? "outro motivo" : "outros motivos"})`
+      : "";
+  return `${reasons[0].reason}${extras}`;
 }
 
 function inteiro(valor: number): string {

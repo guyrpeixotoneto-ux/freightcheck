@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   cobertura,
+  composicaoDasAlteracoes,
   composicaoDoImpacto,
   detalheDaAlteracao,
   detalheDoImpacto,
@@ -182,7 +183,7 @@ function cockpit(overrides: Partial<CockpitView> = {}): CockpitView {
       fleet: 144,
       impact: impacto({ notCalculable: 62, calculatedChanges: 205 }),
       hasImpact: true,
-      anomalies: { groups: 0, changes: 0 },
+      anomalies: { groups: 0, changes: 0, formatOnlyGroups: 0, formatOnlyChanges: 0 },
     },
     baseline: { hasBaseline: true, seriesWithoutBaseline: [] },
     narrative: { headline: "…", sentences: [] },
@@ -241,6 +242,7 @@ function vigencia(overrides: Partial<GroupedView> = {}): GroupedView {
     complete: true,
     totals: {
       changes: 267,
+      formatOnlyChanges: 0,
       groups: 41,
       vehiclesTouched: 83,
       entitiesAdded: 0,
@@ -664,6 +666,172 @@ describe("os dois lados do impacto", () => {
       // para esconder.
       expect(composicaoDoImpacto(comLados([mensal]), null)).toBeNull();
     });
+  });
+});
+
+/**
+ * De onde vêm as alterações detectadas.
+ *
+ * O cartão publica uma contagem, e uma contagem esconde do que ela é feita. O
+ * que roda aqui são as quatro maneiras de essa leitura mentir:
+ *
+ * 1. Publicar uma partição que não soma o número que ela explica.
+ * 2. Trocar de unidade no meio — contar pontos numa seção e alterações na outra.
+ * 3. Prometer um filtro que devolveria outra contagem.
+ * 4. Recortar as partições junto com a lista, e deixar de fechar com o total.
+ */
+describe("de onde vêm as alterações detectadas", () => {
+  const comFormato = (overrides: Partial<GroupedView> = {}) =>
+    vigencia({
+      totals: {
+        changes: 267,
+        formatOnlyChanges: 62,
+        groups: 3,
+        vehiclesTouched: 83,
+        entitiesAdded: 0,
+        entitiesRemoved: 0,
+        unchanged: 0,
+        inconclusive: 62,
+      },
+      groups: [
+        grupo({ key: "a", title: "Combustível", changes: 124, vehicles: 62, badgeLabel: "Abrangência" }),
+        grupo({
+          key: "b",
+          title: "Data do contrato",
+          changes: 62,
+          vehicles: 62,
+          formatOnly: true,
+          badge: "FORMATO",
+          badgeLabel: "Formato da fonte",
+        }),
+        grupo({ key: "c", title: "Financiamento", changes: 81, vehicles: 10, badgeLabel: "Dinheiro" }),
+      ],
+      cockpit: cockpit({
+        panorama: {
+          bySeverity: [],
+          byBadge: [
+            { badge: "DINHEIRO", label: "Dinheiro", groups: 7, changes: 81 },
+            { badge: "FORMATO", label: "Formato da fonte", groups: 1, changes: 62 },
+            { badge: "COBERTURA", label: "Abrangência", groups: 2, changes: 124 },
+          ],
+          byEquipment: [],
+          pricing: {
+            calculatedChanges: 7,
+            excludedChanges: 12,
+            notCalculableChanges: 248,
+            lockedGroups: 0,
+            reasons: [],
+          },
+        },
+      }),
+      ...overrides,
+    });
+
+  const soma = (fatias: { alteracoes: number }[]) =>
+    fatias.reduce((total, f) => total + f.alteracoes, 0);
+
+  it("cada partição soma exatamente o número que ela explica", () => {
+    const c = composicaoDasAlteracoes(comFormato(), "todas")!;
+    expect(c.total).toBe(267);
+    expect(soma(c.porEfeito)).toBe(267);
+    expect(soma(c.porNatureza)).toBe(267);
+    expect(soma(c.porApuracao)).toBe(267);
+  });
+
+  it("separa o que mexeu no valor do que só trocou de formato", () => {
+    const c = composicaoDasAlteracoes(comFormato(), "todas")!;
+    expect(c.porEfeito.map((f) => [f.chave, f.alteracoes])).toEqual([
+      ["valor", 205],
+      ["formato", 62],
+    ]);
+  });
+
+  it("cala a partição do formato quando não houve troca de formato nenhuma", () => {
+    // Uma partição de uma fatia só não parte nada — e um "100%" na tela ensina
+    // a não ler a seção.
+    const c = composicaoDasAlteracoes(vigencia(), "todas")!;
+    expect(c.porEfeito).toEqual([]);
+  });
+
+  it("ordena a natureza do sinal por alteração, que é o que ela publica", () => {
+    const c = composicaoDasAlteracoes(comFormato(), "todas")!;
+    expect(c.porNatureza.map((f) => f.rotulo)).toEqual([
+      "Abrangência",
+      "Dinheiro",
+      "Formato da fonte",
+    ]);
+    // O ponto viaja junto como contexto, e nunca como o número da fatia.
+    expect(c.porNatureza[0].alteracoes).toBe(124);
+    expect(c.porNatureza[0].pontos).toBe(2);
+  });
+
+  it("não promete filtro que devolveria outra contagem", () => {
+    const c = composicaoDasAlteracoes(comFormato(), "todas")!;
+    const porChave = new Map(c.porApuracao.map((f) => [f.chave, f]));
+    // `impactConfidence=CALCULATED` devolveria as 19 — as 7 mais as 12 que
+    // saíram por dupla contagem. Sem filtro exato, sem link.
+    expect(porChave.get("apurado")!.href).toBeNull();
+    expect(porChave.get("excluido")!.href).toBeNull();
+    expect(porChave.get("sem-preco")!.href).toContain("impactConfidence=NOT_CALCULABLE");
+  });
+
+  it("leva o recorte da vigência no único link que existe", () => {
+    const c = composicaoDasAlteracoes(comFormato(), "todas", {
+      period: "2026-07-01",
+      scopeHash: "h",
+      canal: "EMPURRADA",
+    })!;
+    const query = new URLSearchParams(
+      c.porApuracao.find((f) => f.chave === "sem-preco")!.href!.split("?")[1],
+    );
+    // A vigência é a que o servidor respondeu, e não a que a URL pediu.
+    expect(query.get("period")).toBe("2026-08-01");
+    expect(query.get("scopeHash")).toBe("h");
+    expect(query.get("canal")).toBe("EMPURRADA");
+  });
+
+  it("recorta só a lista de pontos, e as partições continuam sobre a vigência inteira", () => {
+    const c = composicaoDasAlteracoes(comFormato(), "formato")!;
+    expect(c.tocados.map((p) => p.chave)).toEqual(["b"]);
+    expect(c.tocadosNoTotal).toBe(3);
+    // As três partições não se mexem: filtrá-las faria o painel discordar do
+    // número que ele acabou de publicar no topo.
+    expect(soma(c.porEfeito)).toBe(267);
+    expect(soma(c.porNatureza)).toBe(267);
+    expect(soma(c.porApuracao)).toBe(267);
+  });
+
+  it("ordena os pontos pelo tamanho, e mede a barra contra o maior da vigência", () => {
+    const c = composicaoDasAlteracoes(comFormato(), "valor")!;
+    expect(c.tocados.map((p) => p.titulo)).toEqual(["Combustível", "Financiamento"]);
+    // O maior é o de 124, e ele está fora deste recorte em "formato" — a escala
+    // continua a mesma, senão a barra mudaria de significado ao trocar de foco.
+    expect(c.tocados[0].proporcao).toBe(1);
+    expect(c.tocados[1].proporcao).toBeCloseTo(81 / 124, 4);
+  });
+
+  it("fica fechada quando a URL não pede, e não abre sobre vigência sem alteração", () => {
+    expect(composicaoDasAlteracoes(comFormato(), null)).toBeNull();
+    expect(composicaoDasAlteracoes(null, "todas")).toBeNull();
+    const vazia = vigencia({
+      totals: {
+        changes: 0,
+        formatOnlyChanges: 0,
+        groups: 0,
+        vehiclesTouched: 0,
+        entitiesAdded: 0,
+        entitiesRemoved: 0,
+        unchanged: 0,
+        inconclusive: 0,
+      },
+    });
+    expect(composicaoDasAlteracoes(vazia, "todas")).toBeNull();
+  });
+
+  it("foco inventado na URL não vira recorte — cai em todas", () => {
+    const c = composicaoDasAlteracoes(comFormato(), "outro")!;
+    expect(c.foco).toBe("todas");
+    expect(c.tocados).toHaveLength(3);
   });
 });
 
