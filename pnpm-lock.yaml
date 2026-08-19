@@ -218,6 +218,9 @@ importers:
       '@workspace/qlp':
         specifier: workspace:*
         version: link:../../lib/qlp
+      '@workspace/remuneracao':
+        specifier: workspace:*
+        version: link:../../lib/remuneracao
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7
@@ -1048,6 +1051,34 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.9.5
+      tsx:
+        specifier: 'catalog:'
+        version: 4.23.1
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@25.9.5)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.1)(yaml@2.9.0)
+
+  lib/remuneracao:
+    dependencies:
+      '@workspace/comparison':
+        specifier: workspace:*
+        version: link:../comparison
+      '@workspace/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: 'catalog:'
+        version: 0.45.2(@types/pg@8.20.0)(pg@8.22.0)
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.9.5
+      '@workspace/curation':
+        specifier: workspace:*
+        version: link:../curation
+      '@workspace/ingest':
+        specifier: workspace:*
+        version: link:../ingest
       tsx:
         specifier: 'catalog:'
         version: 4.23.1

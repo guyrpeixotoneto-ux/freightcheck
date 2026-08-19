@@ -46,6 +46,9 @@
       "path": "./lib/fechamento"
     },
     {
+      "path": "./lib/remuneracao"
+    },
+    {
       "path": "./lib/api-client-react"
     },
     {

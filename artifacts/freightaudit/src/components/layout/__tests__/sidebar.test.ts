@@ -95,12 +95,18 @@ describe("a lateral", () => {
     apuração dela, a decisão sobre o que foi apurado, o registro do que fechou.
     O teste guarda a ordem pela mesma razão do teste acima: ela é desenho, não
     acaso.
+
+    Remuneração é a exceção que confirma a regra, e por isso está no meio e não
+    no fim: ela não é um momento do processo, é a base contra a qual ele roda —
+    o cadastro da unidade, que a apuração consome. Entre a competência e a
+    apuração é onde ela é consultada, e é onde ela fica.
   */
-  it("mantém as quatro seções do Fechamento, na ordem do processo", () => {
+  it("mantém as cinco seções do Fechamento, na ordem do processo", () => {
     const texto = fonte("components/layout/nav-fechamento.ts");
 
     expect([...texto.matchAll(/titulo:\s*"([^"]+)"/g)].map((m) => m[1])).toEqual([
       "Competência",
+      "Remuneração",
       "Apuração",
       "Decisão",
       "Registro",
