@@ -23,10 +23,17 @@ export type EstadoDoBanco =
 /**
  * Os códigos de ação dos **dois** eixos.
  *
- * Os do banco espelham `CodigoDeAcao` do servidor. `RESTABELECER_API` não tem
- * par do outro lado, e não teria: ele nasce de uma falha em que o servidor não
- * chegou a ser consultado, e portanto não teria como classificar coisa alguma.
- * Ver `transporte.ts`.
+ * Os do banco espelham `CodigoDeAcao` do servidor. Os dois últimos não têm par
+ * do outro lado, e não teriam: nascem de falhas em que o servidor não chegou a
+ * ser consultado, e portanto não teria como classificar coisa alguma. Ver
+ * `transporte.ts`.
+ *
+ * **`IDENTIFICAR_QUEDA` não é um `RESTABELECER_API` mais educado.** Os dois
+ * descrevem camadas diferentes e mandam fazer coisas diferentes:
+ * `RESTABELECER_API` é para quando se sabe que não há ninguém atrás do `/api`
+ * — houve resposta, e ela veio de uma camada anterior. `IDENTIFICAR_QUEDA` é
+ * para quando não houve resposta nenhuma, e por isso **não se sabe** qual
+ * camada caiu; mandar subir um processo aí é chutar. Ver `SEM_RESPOSTA`.
  */
 export type CodigoDeAcao =
   | "APLICAR_MIGRATIONS"
@@ -35,7 +42,8 @@ export type CodigoDeAcao =
   | "CONFERIR_SCHEMA"
   | "CONFIGURAR_DATABASE_URL"
   | "RESTABELECER_BANCO"
-  | "RESTABELECER_API";
+  | "RESTABELECER_API"
+  | "IDENTIFICAR_QUEDA";
 
 export interface Acao {
   codigo: CodigoDeAcao;
