@@ -1676,74 +1676,148 @@ export async function descartarDadosDaCompetencia(
   }
 
   return db.transaction(async (tx) => {
-    const quantas = (resultado: { rowCount: number | null }) => resultado.rowCount ?? 0;
-
-    /*
-      As linhas saem antes dos documentos porque apontam para eles: deixar o
-      banco decidir a ordem por cascade funcionaria, mas esconderia da contagem
-      quantas linhas de cada fonte foram embora — que é justamente o que quem
-      clicou precisa ver para saber que descartou o que queria.
-    */
-    const linhas: Record<TipoDeFonte, number> = {
-      OPERACAO: quantas(
-        await tx
-          .delete(fechamentoViagemTable)
-          .where(eq(fechamentoViagemTable.competenciaId, competenciaId)),
-      ),
-      CTE: quantas(
-        await tx.delete(fechamentoCteTable).where(eq(fechamentoCteTable.competenciaId, competenciaId)),
-      ),
-      PAGAMENTO:
-        quantas(
-          await tx
-            .delete(fechamentoPagamentoItemTable)
-            .where(eq(fechamentoPagamentoItemTable.competenciaId, competenciaId)),
-        ) +
-        quantas(
-          await tx
-            .delete(fechamentoPagamentoDescontoTable)
-            .where(eq(fechamentoPagamentoDescontoTable.competenciaId, competenciaId)),
-        ),
-      DISPONIBILIDADE: quantas(
-        await tx
-          .delete(fechamentoDisponibilidadeTable)
-          .where(eq(fechamentoDisponibilidadeTable.competenciaId, competenciaId)),
-      ),
-      REQUISICOES: quantas(
-        await tx
-          .delete(fechamentoRequisicaoTable)
-          .where(eq(fechamentoRequisicaoTable.competenciaId, competenciaId)),
-      ),
-      CONCILIACAO: quantas(
-        await tx
-          .delete(fechamentoConciliacaoItemTable)
-          .where(eq(fechamentoConciliacaoItemTable.competenciaId, competenciaId)),
-      ),
-    };
-
-    /* Verbas e divergências apontam a apuração e saem por cascade com ela. */
-    const apuracoes = quantas(
-      await tx
-        .delete(fechamentoApuracaoTable)
-        .where(eq(fechamentoApuracaoTable.competenciaId, competenciaId)),
-    );
-    const documentos = quantas(
-      await tx
-        .delete(fechamentoDocumentoTable)
-        .where(eq(fechamentoDocumentoTable.competenciaId, competenciaId)),
-    );
+    const apagado = await apagarOQueFoiImportado(tx, competenciaId);
 
     await tx
       .update(fechamentoCompetenciaTable)
       .set({ estado: "ABERTA", apuradaEm: null })
       .where(eq(fechamentoCompetenciaTable.id, competenciaId));
 
-    return {
-      competencia: { ...competencia, estado: "ABERTA", apuradaEm: null },
-      documentos,
-      apuracoes,
-      linhas,
-    };
+    return { competencia: { ...competencia, estado: "ABERTA", apuradaEm: null }, ...apagado };
+  });
+}
+
+/**
+ * Apaga o que foi importado para uma competência, dentro de uma transação que
+ * já está aberta, e devolve o tamanho do que saiu.
+ *
+ * É o corpo comum de dois atos que apagam a mesma coisa e diferem no que fazem
+ * depois: o descarte devolve a competência vazia e aberta, e a exclusão apaga a
+ * própria competência em seguida. Escrever as onze tabelas duas vezes seria
+ * garantir que a segunda cópia esquecesse a tabela que a próxima fonte
+ * trouxer — e um resto órfão de uma quinzena apagada é exatamente o tipo de
+ * linha que reaparece somando numa conta meses depois.
+ */
+async function apagarOQueFoiImportado(
+  tx: Transacao,
+  competenciaId: string,
+): Promise<Omit<DadosDescartados, "competencia">> {
+  const quantas = (resultado: { rowCount: number | null }) => resultado.rowCount ?? 0;
+
+  /*
+    As linhas saem antes dos documentos porque apontam para eles: deixar o
+    banco decidir a ordem por cascade funcionaria, mas esconderia da contagem
+    quantas linhas de cada fonte foram embora — que é justamente o que quem
+    clicou precisa ver para saber que descartou o que queria.
+  */
+  const linhas: Record<TipoDeFonte, number> = {
+    OPERACAO: quantas(
+      await tx
+        .delete(fechamentoViagemTable)
+        .where(eq(fechamentoViagemTable.competenciaId, competenciaId)),
+    ),
+    CTE: quantas(
+      await tx.delete(fechamentoCteTable).where(eq(fechamentoCteTable.competenciaId, competenciaId)),
+    ),
+    PAGAMENTO:
+      quantas(
+        await tx
+          .delete(fechamentoPagamentoItemTable)
+          .where(eq(fechamentoPagamentoItemTable.competenciaId, competenciaId)),
+      ) +
+      quantas(
+        await tx
+          .delete(fechamentoPagamentoDescontoTable)
+          .where(eq(fechamentoPagamentoDescontoTable.competenciaId, competenciaId)),
+      ),
+    DISPONIBILIDADE: quantas(
+      await tx
+        .delete(fechamentoDisponibilidadeTable)
+        .where(eq(fechamentoDisponibilidadeTable.competenciaId, competenciaId)),
+    ),
+    REQUISICOES: quantas(
+      await tx
+        .delete(fechamentoRequisicaoTable)
+        .where(eq(fechamentoRequisicaoTable.competenciaId, competenciaId)),
+    ),
+    CONCILIACAO: quantas(
+      await tx
+        .delete(fechamentoConciliacaoItemTable)
+        .where(eq(fechamentoConciliacaoItemTable.competenciaId, competenciaId)),
+    ),
+  };
+
+  /* Verbas e divergências apontam a apuração e saem por cascade com ela. */
+  const apuracoes = quantas(
+    await tx
+      .delete(fechamentoApuracaoTable)
+      .where(eq(fechamentoApuracaoTable.competenciaId, competenciaId)),
+  );
+  const documentos = quantas(
+    await tx
+      .delete(fechamentoDocumentoTable)
+      .where(eq(fechamentoDocumentoTable.competenciaId, competenciaId)),
+  );
+
+  return { documentos, apuracoes, linhas };
+}
+
+/** O que a exclusão levou junto — o mesmo tamanho que o descarte relata. */
+export interface CompetenciaExcluida {
+  /** A competência que deixou de existir, como ela era no instante anterior. */
+  competencia: CompetenciaRegistrada;
+  documentos: number;
+  apuracoes: number;
+  linhas: Record<TipoDeFonte, number>;
+}
+
+/**
+ * Exclui a competência inteira — a importação some da lista, com tudo dentro.
+ *
+ * **A diferença para o descarte.** Descartar esvazia a quinzena e a mantém: quem
+ * subiu o arquivo do mês errado quer reimportar, e unidade, transportadora e
+ * datas continuam certas. Excluir é o outro caso — a competência em si não
+ * devia existir: o CDD errado, a transportadora errada, a quinzena aberta em
+ * duplicidade. Esvaziá-la deixaria na lista uma linha vazia que ninguém sabe
+ * por que está lá, e que a próxima pessoa abriria por engano.
+ *
+ * **Encerrada, não.** É a mesma regra do envio e do descarte, e pelo mesmo
+ * motivo: uma quinzena encerrada é a prova de uma cobrança, e apagá-la de
+ * dentro de um clique de lista apagaria a prova sem que ninguém tenha dito por
+ * quê. Reabrir — que exige motivo escrito e fica no registro — é o caminho, e a
+ * recusa daqui diz isso em vez de deixar o gatilho responder em SQL.
+ *
+ * **Por que apaga linha a linha em vez de confiar no cascade.** Todas as chaves
+ * apontam a competência com `on delete cascade`, então um `DELETE` só bastaria
+ * para o banco. Não basta para quem clicou: o que volta é o tamanho do que foi
+ * embora — quantos documentos, quantas apurações, quantas linhas de cada
+ * fonte —, e é essa contagem que faz "excluí a importação certa" ser uma
+ * verificação e não uma esperança.
+ */
+export async function excluirCompetencia(
+  db: Database,
+  competenciaId: string,
+): Promise<CompetenciaExcluida> {
+  const competencia = await buscarCompetencia(db, competenciaId);
+  if (!competencia) {
+    throw new RecusaDeFechamento(
+      "COMPETENCIA_NAO_ENCONTRADA",
+      "A competência informada não existe.",
+    );
+  }
+  if (competencia.estado === "ENCERRADA") {
+    throw new RecusaDeFechamento(
+      "COMPETENCIA_ENCERRADA",
+      `A competência ${competencia.chave} está encerrada. Reabra-a, com motivo, antes de excluir a importação.`,
+    );
+  }
+
+  return db.transaction(async (tx) => {
+    const apagado = await apagarOQueFoiImportado(tx, competenciaId);
+    await tx
+      .delete(fechamentoCompetenciaTable)
+      .where(eq(fechamentoCompetenciaTable.id, competenciaId));
+    return { competencia, ...apagado };
   });
 }
 

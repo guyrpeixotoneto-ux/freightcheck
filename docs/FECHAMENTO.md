@@ -243,6 +243,47 @@ E, desde o 03.08.20, o erro que ele conserta tende a não acontecer mais: aquele
 relatório declara o próprio período no cabeçalho, e é recusado na porta quando
 não é o da competência.
 
+## Excluir a importação — quando a errada é a quinzena, e não os arquivos
+
+O descarte serve à quinzena certa alimentada com os arquivos errados. O outro
+erro é a quinzena que não devia existir: o CDD errado, a transportadora errada,
+o período aberto duas vezes. Esvaziá-la deixaria na lista uma linha vazia que
+ninguém sabe por que está lá — e que a próxima pessoa abriria por engano.
+
+Em **Importações**, cada linha tem o ícone de lixeira ao lado da ação da
+quinzena. Ele abre um painel que diz o que vai junto — quantos relatórios,
+se há conta apurada, os dias — antes de qualquer coisa ser apagada, pela mesma
+razão do descarte: na lista as quinzenas se parecem, e duas linhas quase
+idênticas são dois CDDs no mesmo período. A confirmação apaga a competência e
+tudo que aponta para ela (`DELETE /fechamento/competencias/:id`).
+
+**A encerrada é recusada** — o botão da linha está desabilitado e o servidor
+recusa com 409. É a mesma regra do envio e do descarte, e pelo mesmo motivo: a
+quinzena fechada é o registro do que foi cobrado, e apagá-la de dentro de um
+clique de lista apagaria a prova sem que ninguém tenha dito por quê. Reabrir,
+com motivo escrito, vem antes.
+
+## Reabrir aparece onde o envio trava
+
+Reabrir é o único caminho de volta de uma quinzena encerrada, e ele pede motivo
+— o texto fica no registro da competência e é o que distingue uma correção de
+uma alteração silenciosa depois do fato. O formulário mora num componente só
+(`components/fechamento/fechar-quinzena`) e aparece onde é procurado:
+
+1. No **cabeçalho da competência**, ao lado do aviso de congelada — a frase
+   "nada mais entra nela sem reabertura" traz junto o que fazer a respeito.
+2. Dentro do **cartão dos relatórios**, com o que falta nomeado ("Faltam
+   03.08.20"). É o caso mais comum: a Ambev manda o relatório que faltava
+   depois de a quinzena ter fechado, e quem recebeu está olhando para o botão
+   de enviar que não clica.
+3. No **painel de fechamento**, na competência e na linha de Importações — a
+   outra metade do ato que congelou o período.
+
+Fora do painel de fechamento o bloco começa recolhido: o clique abre o que se
+vai fazer, e não o faz. A competência volta para `APURADA`, e não para
+`ABERTA` — a apuração que estava lá continua valendo, e é contra ela que se
+compara o que mudar depois de o arquivo novo entrar.
+
 ## A conta abre na lista — Apurações sem trocar de tela
 
 `/fechamento/apuracoes` é a fila do fechamento: uma linha por competência,
@@ -463,8 +504,10 @@ de negócio, não dedução por semelhança de nome de coluna.
   verdade e com os códigos reais do export; e o par sempre em ordem
   cronológica, mesmo pedido ao contrário.
 - `pages/fechamento/__tests__/competencias-fechamento.test.ts` — cada estado da
-  competência oferece uma ação só, e nunca a errada; e o ano é conferido antes
-  da ida ao servidor, nas duas pontas da faixa.
+  competência oferece uma ação só, e nunca a errada; o ano é conferido antes
+  da ida ao servidor, nas duas pontas da faixa; e só a encerrada é recusada
+  pela exclusão.
 - `components/fechamento/__tests__/fechar-quinzena.test.ts` — a fila do que
   questionar: a divergência informativa fica de fora, e a soma é só do que
   reduz o que a transportadora recebe. É o número que aparece em três lugares.
+  E o motivo da reabertura, que em branco não sai daqui.

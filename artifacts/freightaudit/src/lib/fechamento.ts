@@ -451,6 +451,22 @@ export function descartarDados(id: string): Promise<DadosDescartados> {
   return fetchJson<DadosDescartados>(`/fechamento/competencias/${id}/dados`, { method: "DELETE" });
 }
 
+/** O que a exclusão levou — o mesmo tamanho que o descarte relata. */
+export type CompetenciaExcluida = DadosDescartados;
+
+/**
+ * Exclui a competência inteira: a importação some da lista, com tudo dentro.
+ *
+ * É o outro erro, e não o mesmo do descarte. Descartar serve à quinzena certa
+ * alimentada com os arquivos errados — ela fica, vazia, e recebe os certos.
+ * Excluir serve à quinzena que não devia existir: o CDD errado, a
+ * transportadora errada, o período aberto duas vezes. Uma competência encerrada
+ * é recusada pelo servidor: reabrir, com motivo, vem antes.
+ */
+export function excluirCompetencia(id: string): Promise<CompetenciaExcluida> {
+  return fetchJson<CompetenciaExcluida>(`/fechamento/competencias/${id}`, { method: "DELETE" });
+}
+
 /**
  * Envia um dos relatórios da quinzena.
  *
