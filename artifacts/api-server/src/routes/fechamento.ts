@@ -26,6 +26,7 @@ import {
   FORMATOS_DA_FONTE,
   GRUPOS_DA_PLANILHA,
   LINHAS_DA_PLANILHA,
+  painelDeUmaQuinzena,
   QUINZENAS_DA_FONTE,
   TIPOS_DE_FONTE,
   type Canal,
@@ -285,7 +286,16 @@ router.get("/fechamento/competencias/:id/de-para", async (req, res): Promise<voi
     return;
   }
 
-  res.json({ competencia, painel });
+  /*
+    A tela recebe o painel na mesma forma do resumo mensal — três colunas, com
+    só a desta quinzena preenchida. É o que permite às duas telas usarem o mesmo
+    componente e, portanto, mostrarem a mesma coisa: uma segunda formatação no
+    navegador seria a chance de elas divergirem sem ninguém notar.
+  */
+  res.json({
+    competencia,
+    painel: painelDeUmaQuinzena(competencia.quinzena === 1 ? 1 : 2, painel),
+  });
 });
 
 /**

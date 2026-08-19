@@ -34,6 +34,7 @@ import {
 import { apurar, type Apuracao, type Fontes, type Parcela } from "./apuracao";
 import { montarResumo, type QuinzenaApurada, type ResumoDoMes } from "./resumo";
 import {
+  CANAIS_COM_PAINEL,
   conferirDePara,
   type ColunaDoPagamento,
   type DeParaConferido,
@@ -1554,10 +1555,22 @@ export async function lerResumoDoMes(
 
   const quinzenas: QuinzenaApurada[] = [];
   for (const c of competencias) {
-    const [apuracao, demonstrativo, descontos] = await Promise.all([
+    const [apuracao, demonstrativo, descontos, paineis] = await Promise.all([
       lerApuracaoVigente(db, c.id),
       somarDemonstrativo(db, c.id),
       somarDescontosDoDemonstrativo(db, c.id),
+      /*
+        O painel entra aqui, e não numa segunda chamada da tela, porque a
+        pergunta é a mesma: o mês nas três colunas. Duas idas ao servidor para
+        montar uma página fariam as duas metades chegarem em momentos
+        diferentes — e é justamente entre elas que se fica indo e voltando.
+      */
+      Promise.all(
+        CANAIS_COM_PAINEL.map((canal) => lerDeParaDaCompetencia(db, c.id, { canal })),
+      ).then((lidos) => {
+        const existentes = lidos.filter((p): p is DeParaConferido => p !== null);
+        return existentes.length > 0 ? existentes : null;
+      }),
     ]);
     quinzenas.push({
       quinzena: c.quinzena === 1 ? 1 : 2,
@@ -1575,6 +1588,7 @@ export async function lerResumoDoMes(
         })) ?? null,
       demonstrativo,
       descontos,
+      paineis,
     });
   }
 

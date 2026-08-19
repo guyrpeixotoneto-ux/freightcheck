@@ -462,7 +462,13 @@ export default function CompetenciaAberta({ id }: { id: string }) {
               </p>
             )}
 
-            {apuracao && <ContaApurada apuracao={apuracao} fontes={catalogo} />}
+            {apuracao && (
+              <ContaApurada
+                apuracao={apuracao}
+                competenciaId={competencia.id}
+                fontes={catalogo}
+              />
+            )}
           </CardContent>
         </Card>
 

@@ -17,6 +17,10 @@ import {
   type ResumoDoMes,
   type TresColunas,
 } from "@/lib/fechamento";
+import {
+  PainelDaPlanilhaTabela,
+  type ColunaDoPainel,
+} from "@/components/fechamento/painel-da-planilha";
 import { cn } from "@/lib/utils";
 
 /**
@@ -36,15 +40,19 @@ import { cn } from "@/lib/utils";
  * Separá-las em rotas diferentes faria trocar de recorte custar uma ida ao
  * servidor, e é justamente entre eles que se fica indo e voltando.
  *
- * **Por que os rótulos não são os da planilha.** As linhas do primeiro quadro
- * dela — `CUSTO FIXO PADRONIZADO`, `ESPECIAIS`, `VANS` — são um rateio por tipo
- * de frota que o 03.08.20 não faz: ele traz a frota fixa somada numa VBZ só.
- * Escrever aqueles rótulos sobre números que não são aqueles seria a pior coisa
- * que esta tela poderia fazer — dar cara de conferido ao que não foi. As linhas
- * são as verbas, que os arquivos sustentam uma a uma. A tradução entre as duas
- * classificações existe e mora noutro lugar: `de-para.ts`, em
- * `@workspace/fechamento`, que diz o que casa verba a verba, o que só casa em
- * conjunto e o que continua sem casar — com o motivo escrito em cada caso.
+ * **Duas abas, e não uma escolha entre dois rótulos.** `Verbas` mostra o
+ * recorte com que o sistema apura — a VBZ, que os arquivos sustentam uma a uma.
+ * `Planilha` mostra o recorte com que a Ambev e a transportadora conversam —
+ * `Custo fixo padronizado`, `Custo variável (agregado)`, `Desconto de
+ * devolução`. Não dá para escolher um: as linhas do primeiro quadro da planilha
+ * são um rateio por tipo de frota que o 03.08.20 não faz, e escrevê-las sobre
+ * as verbas daria cara de conferido ao que não foi; mas conferir só por verba
+ * obriga quem discute o mês a casar de cabeça com o `.xlsb` aberto ao lado. As
+ * duas abas fecham no mesmo `Total remuneração (03.08.20)`, e é isso que faz
+ * delas duas vistas e não duas contas. A tradução entre elas mora em
+ * `de-para.ts`, em `@workspace/fechamento`, que diz o que casa verba a verba, o
+ * que só casa em conjunto e o que continua sem casar — com o motivo escrito em
+ * cada caso.
  *
  * **Por que o fecho compara com o 03.08.20 e não com o `TOTAL GERAL UNIDADE`.**
  * Aquela coluna é a reconstrução da própria planilha, feita com um fator de
@@ -59,6 +67,7 @@ import { cn } from "@/lib/utils";
  */
 
 type Recorte = "1" | "2" | "consolidado";
+type Aba = "verbas" | "planilha";
 
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
@@ -82,6 +91,7 @@ export default function ResumoGeral() {
   const ano = Number(parametros.get("ano") ?? ANOS[0]);
   const mes = Number(parametros.get("mes") ?? new Date().getMonth() + 1);
   const recorte = (parametros.get("ver") ?? "consolidado") as Recorte;
+  const aba = (parametros.get("aba") ?? "verbas") as Aba;
 
   const trocar = (campo: string, valor: string) => {
     const proximos = new URLSearchParams(parametros);
@@ -202,7 +212,9 @@ export default function ResumoGeral() {
           <p className="text-sm text-muted-foreground">Carregando o mês…</p>
         )}
 
-        {resumo.data && <Corpo resumo={resumo.data} recorte={recorte} trocar={trocar} />}
+        {resumo.data && (
+          <Corpo resumo={resumo.data} recorte={recorte} aba={aba} trocar={trocar} />
+        )}
       </div>
     </Layout>
   );
@@ -211,10 +223,12 @@ export default function ResumoGeral() {
 function Corpo({
   resumo,
   recorte,
+  aba,
   trocar,
 }: {
   resumo: ResumoDoMes;
   recorte: Recorte;
+  aba: Aba;
   trocar: (campo: string, valor: string) => void;
 }) {
   const vazio = resumo.canais.length === 0;
@@ -222,29 +236,30 @@ function Corpo({
 
   return (
     <div className="space-y-6">
-      {/* O seletor de recorte — três posições sobre o mesmo dado. */}
-      <div className="inline-flex rounded-lg border border-border bg-muted p-1">
-        {(
-          [
+      {/*
+        Dois seletores, e não um: o da esquerda escolhe em que linguagem se lê
+        o mês — a do sistema ou a da planilha — e o da direita, que pedaço do
+        mês. São perguntas independentes, e juntá-las num seletor só faria seis
+        posições para dizer o que duas e três dizem.
+      */}
+      <div className="flex flex-wrap items-center gap-3">
+        <Seletor
+          valor={aba}
+          opcoes={[
+            ["verbas", "Verbas"],
+            ["planilha", "Planilha"],
+          ]}
+          onTrocar={(v) => trocar("aba", v)}
+        />
+        <Seletor
+          valor={recorte}
+          opcoes={[
             ["1", "1ª quinzena"],
             ["2", "2ª quinzena"],
             ["consolidado", "Consolidado"],
-          ] as const
-        ).map(([valor, rotulo]) => (
-          <button
-            key={valor}
-            type="button"
-            onClick={() => trocar("ver", valor)}
-            className={cn(
-              "rounded-md px-4 py-1.5 text-sm font-medium transition-colors",
-              recorte === valor
-                ? "bg-card text-foreground shadow-sm"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {rotulo}
-          </button>
-        ))}
+          ]}
+          onTrocar={(v) => trocar("ver", v)}
+        />
       </div>
 
       {/* O que existe de cada quinzena, dito antes dos números. */}
@@ -292,10 +307,86 @@ function Corpo({
         </Alert>
       )}
 
-      {resumo.canais.map((canal) => (
-        <TabelaDoCanal key={canal.canal} canal={canal} recorte={recorte} />
+      {resumo.canais.map((canal) =>
+        aba === "planilha" ? (
+          <PainelDoCanal key={canal.canal} canal={canal} recorte={recorte} />
+        ) : (
+          <TabelaDoCanal key={canal.canal} canal={canal} recorte={recorte} />
+        ),
+      )}
+    </div>
+  );
+}
+
+function Seletor<T extends string>({
+  valor,
+  opcoes,
+  onTrocar,
+}: {
+  valor: T;
+  opcoes: readonly (readonly [T, string])[];
+  onTrocar: (valor: T) => void;
+}) {
+  return (
+    <div className="inline-flex rounded-lg border border-border bg-muted p-1">
+      {opcoes.map(([v, rotulo]) => (
+        <button
+          key={v}
+          type="button"
+          onClick={() => onTrocar(v)}
+          className={cn(
+            "rounded-md px-4 py-1.5 text-sm font-medium transition-colors",
+            valor === v
+              ? "bg-card text-foreground shadow-sm"
+              : "text-muted-foreground hover:text-foreground",
+          )}
+        >
+          {rotulo}
+        </button>
       ))}
     </div>
+  );
+}
+
+/**
+ * As colunas que um recorte pede — as mesmas nas duas abas.
+ *
+ * No consolidado são as três da planilha; numa quinzena é só a dela, porque
+ * repetir a coluna vazia da outra sugeriria que ela deveria estar preenchida.
+ */
+function colunasDoRecorte(recorte: Recorte): ColunaDoPainel[] {
+  if (recorte === "consolidado") {
+    return [
+      { rotulo: "1ª quinzena", de: (v) => v.primeira },
+      { rotulo: "2ª quinzena", de: (v) => v.segunda },
+      { rotulo: "Total", de: (v) => v.total },
+    ];
+  }
+  return recorte === "1"
+    ? [{ rotulo: "1ª quinzena", de: (v) => v.primeira }]
+    : [{ rotulo: "2ª quinzena", de: (v) => v.segunda }];
+}
+
+function PainelDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Recorte }) {
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">{canal.canal}</CardTitle>
+      </CardHeader>
+      <CardContent className="overflow-x-auto">
+        {canal.painel ? (
+          <PainelDaPlanilhaTabela painel={canal.painel} colunas={colunasDoRecorte(recorte)} />
+        ) : (
+          <p className="text-sm text-muted-foreground">
+            O painel do {canal.canal} existe na planilha e ainda não foi transcrito
+            aqui — os rótulos dele não foram capturados, e escrevê-los por
+            analogia com os da Rota inventaria a metade que falta. As verbas do{" "}
+            {canal.canal} continuam apuradas e conferidas na aba Verbas; o que
+            falta é a tradução para as linhas da planilha.
+          </p>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -326,7 +417,7 @@ function TabelaDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
       <CardContent className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b text-xs uppercase tracking-wide text-muted-foreground">
+            <tr className="border-b text-xs text-muted-foreground">
               <th className="py-2 text-left font-medium">Verba</th>
               {cabecalho.map((c) => (
                 <th key={c} className="py-2 text-right font-medium min-w-32">
@@ -339,7 +430,7 @@ function TabelaDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
             {canal.blocos.map((bloco) => (
               <Fragment key={bloco.natureza}>
                 <tr className="border-b bg-muted/40">
-                  <td colSpan={4} className="py-1.5 text-xs font-semibold uppercase tracking-wide">
+                  <td colSpan={4} className="py-1.5 text-xs font-semibold">
                     {bloco.titulo}
                   </td>
                 </tr>
@@ -359,7 +450,7 @@ function TabelaDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
                   </tr>
                 ))}
                 <tr className="border-b font-semibold">
-                  <td className="py-2 text-right pr-4 text-xs uppercase tracking-wide text-muted-foreground">
+                  <td className="py-2 text-right pr-4 text-xs text-muted-foreground">
                     Subtotal
                   </td>
                   {celulas(bloco.emitido, bloco.apurado).map((valor, i) => (
@@ -375,7 +466,7 @@ function TabelaDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
 
         {canal.descontos.length > 0 && (
           <div className="mt-6">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <p className="text-xs font-semibold text-muted-foreground">
               Descontos do 03.08.20
             </p>
             <p className="text-xs text-muted-foreground mt-1 mb-2">
