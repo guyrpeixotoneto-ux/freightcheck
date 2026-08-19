@@ -203,7 +203,7 @@ attribute_alias             -- normalização sem perder a origem
 | Tabela | Papel | Detalhe que importa |
 |---|---|---|
 | `source_file` | arquivo original | binário + SHA-256; mesmo hash não reimporta |
-| `import_run` | execução | quem, quando, contagens; tentativa falha também fica |
+| `import_run` | execução | quem, quando, contagens; tentativa falha também fica; `reprocess_of_run_id` marca a releitura |
 | `raw_cell` | célula como veio | aba, linha, coluna, valor textual, tipo detectado |
 | `snapshot` | vigência fechada | `source_label` literal + `effective_date` derivada; imutável |
 | `entity` | o ativo remunerado | placa + chassi; sobrevive a troca de placa |
@@ -443,6 +443,7 @@ numa tela executiva — o pior resultado possível para um sistema de auditoria.
 | Identidade instável | Média | `_id` é UUID novo a cada export | placa + chassi, com histórico de troca |
 | Renomeação de coluna | Média | `lucroVariavelPrevisto` vs `…Carreta` | `attribute_alias` com confirmação humana |
 | Reimportação duplicando | Média | reenvios são rotina | SHA-256 + `UNIQUE` no grão de `fact` |
+| Arquivo trancado pelo próprio SHA | Média | o leitor melhora depois que o arquivo entrou | reprocessamento: run novo sobre o mesmo `source_file`, com motivo |
 | Falso alarme em massa | Média | placa removida "muda" 70 atributos | hierarquia: `ENTIDADE −` suprime filhos |
 | Volume | Baixa hoje | 85 mil fatos/export, 1 unidade | partição por snapshot; escopos multi-valor |
 

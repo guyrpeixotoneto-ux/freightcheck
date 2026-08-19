@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
-import { readFileSync, statSync } from "node:fs";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { existsSync, readFileSync, statSync } from "node:fs";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
+  codigoDoPostgres,
   aplicarConfirmacoesCanonicas,
   garantirSemanticaInicial,
   garantirClasseDeCustoPadrao,
@@ -398,11 +399,6 @@ export interface ReceiveOptions {
   filename?: string;
   receivedBy?: string;
   /**
-   * Re-derive from a file already on record. The default refuses, so an
-   * accidental re-upload can never duplicate anything.
-   */
-  allowReprocess?: boolean;
-  /**
    * O tipo que quem envia declarou — a aba da tela em que ele escolheu enviar.
    *
    * Opcional, e o que ele muda é a *conferência*, não a dedução: a staging
@@ -445,6 +441,13 @@ export function exigirTipoDeclarado(declaredType: string): DefinicaoDeTipo {
  * SHA-256 is the first line of idempotency defence; the snapshot business key
  * (see {@link promote}) is the second, and catches the case where the same
  * vigência arrives inside a differently-encoded file.
+ *
+ * O reenvio idêntico é **sempre** recusado aqui, e não há parâmetro que o
+ * libere. Reler um arquivo que já entrou é uma decisão de outra natureza — não
+ * "recebi de novo", e sim "o leitor mudou" — e ela tem porta própria, com
+ * motivo obrigatório e procedência gravada: {@link reprocessImportRun}. Um
+ * booleano nesta função faria as duas caberem na mesma chamada, e a diferença
+ * entre elas sumiria do histórico exatamente quando ele mais é lido.
  */
 export async function receiveFile(
   db: Database,
@@ -513,33 +516,352 @@ export async function receiveFile(
     .insert(importRunTable)
     .values({
       sourceFileId,
-      status: isDuplicate && !options.allowReprocess ? "SKIPPED_DUPLICATE" : "PENDING",
+      status: isDuplicate ? "SKIPPED_DUPLICATE" : "PENDING",
       triggeredBy: options.receivedBy ?? null,
-      failureReason:
-        isDuplicate && !options.allowReprocess
-          ? // Este texto vai direto para a tela de Importações, então é escrito
-            // para quem opera, não para quem depura. O sha abreviado é o mesmo
-            // que o card exibe, para o operador conseguir casar os dois.
-            `Este arquivo já havia sido recebido (sha256 ${contentSha256.slice(0, 16)}…). Nada foi reprocessado: o conteúdo é idêntico, byte a byte, ao de uma importação anterior.`
-          : null,
-      finishedAt:
-        isDuplicate && !options.allowReprocess ? new Date() : null,
+      failureReason: isDuplicate
+        ? // Este texto vai direto para a tela de Importações, então é escrito
+          // para quem opera, não para quem depura. O sha abreviado é o mesmo
+          // que o card exibe, para o operador conseguir casar os dois.
+          //
+          // Ele diz o que **não** aconteceu — nenhuma célula foi lida — porque
+          // o cartão ao lado mostra seis contadores zerados, e zero ao lado de
+          // "arquivo já recebido" já foi lido como "o leitor não entendeu meu
+          // arquivo". Não entendeu não: não abriu. A saída, quando o arquivo
+          // precisa mesmo ser relido, é {@link reprocessImportRun}.
+          `Este arquivo já havia sido recebido (sha256 ${contentSha256.slice(0, 16)}…). ` +
+          `Nada foi lido desta vez: nenhuma aba, nenhuma célula e nenhum fato — o conteúdo é ` +
+          `idêntico, byte a byte, ao de uma importação anterior, e a leitura nem chegou a começar. ` +
+          `Se o leitor mudou desde aquela importação, use Reprocessar em vez de reenviar.`
+        : null,
+      finishedAt: isDuplicate ? new Date() : null,
       declaredType: declarado?.code ?? null,
     })
     .returning();
 
   await db.insert(importDecisionTable).values({
     importRunId: run.id,
-    decisao: isDuplicate && !options.allowReprocess ? "DUPLICATA_DE_ARQUIVO" : "RECEBIDO",
-    motivo:
-      isDuplicate && !options.allowReprocess
-        ? `Arquivo idêntico, byte a byte, a um já recebido (sha256 ${contentSha256.slice(0, 16)}…). Nada foi reprocessado.`
-        : `Arquivo recebido e registrado (sha256 ${contentSha256.slice(0, 16)}…).`,
+    decisao: isDuplicate ? "DUPLICATA_DE_ARQUIVO" : "RECEBIDO",
+    motivo: isDuplicate
+      ? `Arquivo idêntico, byte a byte, a um já recebido (sha256 ${contentSha256.slice(0, 16)}…). O arquivo não foi aberto.`
+      : `Arquivo recebido e registrado (sha256 ${contentSha256.slice(0, 16)}…).`,
     filename,
     contentSha256,
   });
 
   return { sourceFileId, importRunId: run.id, isDuplicate, contentSha256 };
+}
+
+// ---------------------------------------------------------------------------
+// Step 1b — reprocessar um arquivo que já entrou
+// ---------------------------------------------------------------------------
+
+/**
+ * Os estados em que um run ainda não terminou de ser decidido.
+ *
+ * É a mesma lista do índice parcial `import_run_leitura_aberta_uq` — e ela
+ * está escrita duas vezes de propósito, aqui e na migration, pelo mesmo motivo
+ * que `tipos.ts` explica: o banco não importa TypeScript. O que impede as duas
+ * de discordarem não é a boa intenção, é `reprocessamento.test.ts`, que compara
+ * esta lista com a definição real do índice no `pg_catalog`.
+ */
+export const ESTADOS_POR_DECIDIR = [
+  "PENDING",
+  "READING",
+  "STAGED",
+  "PREVIEWED",
+  "PROMOTING",
+] as const;
+
+/** Recusa de um pedido de reprocessamento. A frase é para quem opera. */
+export class ReprocessamentoRecusado extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ReprocessamentoRecusado";
+  }
+}
+
+export interface ReprocessOptions {
+  /** Quem pediu — vai para `triggered_by` do run novo. */
+  requestedBy?: string | null;
+  /** Por que se está relendo. Obrigatório; ver {@link MOTIVO_MINIMO}. */
+  reason: string;
+  /**
+   * O tipo declarado da releitura.
+   *
+   * Omitido, herda o do run relido — reprocessar por causa de uma correção no
+   * leitor não deve exigir redeclarar o que já estava declarado. Informado,
+   * **substitui**, e é essa a porta do caso que originou tudo isto: o arquivo
+   * de QLP que entrou sem declaração nenhuma, quando a tela ainda não tinha a
+   * aba, e cuja releitura precisa dizer o que ele é.
+   *
+   * `null` explícito relê sem declaração, deixando a dedução do conteúdo
+   * decidir sozinha — o comportamento anterior à declaração.
+   */
+  declaredType?: string | null;
+}
+
+export interface ReprocessResult {
+  /** O run novo, em PENDING, esperando `captureRaw`. */
+  importRunId: string;
+  /**
+   * O run que ele relê — a leitura mais recente deste arquivo que abriu o
+   * arquivo, que nem sempre é o run pelo qual o pedido chegou.
+   */
+  reprocessOfRunId: string;
+  sourceFileId: string;
+  contentSha256: string;
+  filename: string;
+  declaredType: string | null;
+}
+
+/** Um motivo tem de ser uma frase, não um espaço em branco para pular a porta. */
+export const MOTIVO_MINIMO = 12;
+
+/**
+ * Reler um arquivo já recebido, porque o leitor mudou desde a primeira vez.
+ *
+ * ---------------------------------------------------------------------------
+ * Por que isto existe
+ * ---------------------------------------------------------------------------
+ * O SHA-256 responde *este arquivo já entrou?* antes de abrir o arquivo, e é
+ * ele que impede o reenvio acidental virar dado em dobro. O que ele não
+ * distingue é a pergunta que só aparece com o tempo: **o leitor mudou desde
+ * então?** Para o Postgres as duas situações são a mesma linha em
+ * `source_file`, e a resposta era a mesma recusa.
+ *
+ * Aconteceu com o QLP. Uma planilha de quadro de pessoal entrou quando o
+ * pipeline ainda exigia `vigencia` + `placa` para uma aba virar fonte de fatos.
+ * Sem placa, a aba caiu como PIVOT: células gravadas, zero fato, zero erro,
+ * zero aviso — o arquivo entrou mudo. Dias depois o leitor aprendeu o grão do
+ * QLP (`tipos.ts`), e aí o mesmo arquivo, reenviado, batia no SHA-256. A defesa
+ * contra o reenvio acidental tinha virado tranca contra a releitura legítima, e
+ * a única saída era excluir o histórico e reenviar — apagar a evidência de que
+ * o arquivo chegou no dia em que chegou, para poder lê-lo de novo.
+ *
+ * ---------------------------------------------------------------------------
+ * O que um reprocessamento é, e o que ele não é
+ * ---------------------------------------------------------------------------
+ * É um `import_run` **novo** sobre o **mesmo** `source_file`. Não é um run
+ * reaberto, não é um UPDATE, não é uma exclusão seguida de reenvio:
+ *
+ * - o **recebimento original continua intacto** — mesmo id, mesmos contadores,
+ *   mesmas células RAW, mesmas vigências, mesmo `received_at`;
+ * - o **arquivo não é duplicado** — um `source_file`, um sha, um arquivo em
+ *   disco, quantas leituras forem precisas. Este é o motivo de a função receber
+ *   um run e não um caminho: o byte já está guardado, e reenviá-lo abriria
+ *   espaço para relerem outra coisa sob o mesmo nome;
+ * - o run novo **diz de quem é releitura e por quê** (`reprocess_of_run_id`,
+ *   `reprocess_reason`), e as duas colunas viajam juntas por CHECK do banco.
+ *
+ * ---------------------------------------------------------------------------
+ * O que ele deliberadamente não faz: publicar
+ * ---------------------------------------------------------------------------
+ * Ele para em PENDING e entrega o id. A esteira é a mesma de sempre —
+ * `captureRaw` → `stage` → `preview` —, e ela termina em PREVIEWED. Promover
+ * continua sendo {@link promote}, chamado por quem decide, depois de ler o
+ * resumo. Reprocessar não pode publicar sozinho justamente porque ele existe
+ * para o caso em que ninguém sabe ainda o que a nova leitura vai produzir.
+ *
+ * ---------------------------------------------------------------------------
+ * O `:id` identifica o arquivo, não o alvo da releitura
+ * ---------------------------------------------------------------------------
+ * O pedido chega pelo run que estava na tela — e o mais provável de estar na
+ * tela é a tentativa recusada, porque é nela que a pergunta nasce. O alvo é
+ * calculado a partir daí: a leitura mais recente **daquele conteúdo** que de
+ * fato abriu o arquivo. A corrente que sai disso é linear e legível
+ * (recebimento → 1ª releitura → 2ª releitura), e nenhuma linha do banco afirma
+ * que releu um run que não leu nada.
+ *
+ * ---------------------------------------------------------------------------
+ * As três recusas
+ * ---------------------------------------------------------------------------
+ * 1. **Sem motivo.** Contornar a defesa contra dado em dobro não pode ser um
+ *    clique a mais. A frase obrigatória é a fricção e é a auditoria.
+ * 2. **Sem arquivo em disco.** Reler o que não está guardado seria inventar.
+ * 3. **Com uma leitura já aberta.** No máximo um run por decidir por arquivo, e
+ *    quem decide isso é o índice parcial `import_run_leitura_aberta_uq`, não um
+ *    SELECT antes do INSERT — dois cliques no mesmo botão leem "não há nenhuma"
+ *    os dois. A consulta daqui existe só para a recusa sair em português; a
+ *    corrida perdida volta como 23505 e é traduzida na mesma frase.
+ */
+export async function reprocessImportRun(
+  db: Database,
+  /** Qualquer run do arquivo a reler — inclusive uma tentativa recusada. */
+  importRunId: string,
+  options: ReprocessOptions,
+): Promise<ReprocessResult> {
+  const motivo = (options.reason ?? "").trim();
+  if (motivo.length < MOTIVO_MINIMO) {
+    throw new ReprocessamentoRecusado(
+      `Reprocessar exige o motivo da releitura, com pelo menos ${MOTIVO_MINIMO} caracteres — ` +
+        `o que mudou desde a primeira leitura deste arquivo. Ele fica no histórico da importação, ` +
+        `e é o que explica, daqui a meses, por que o mesmo arquivo foi lido duas vezes.`,
+    );
+  }
+
+  const [pedido] = await db
+    .select({
+      id: importRunTable.id,
+      sourceFileId: importRunTable.sourceFileId,
+    })
+    .from(importRunTable)
+    .where(eq(importRunTable.id, importRunId));
+
+  if (!pedido) {
+    throw new ReprocessamentoRecusado(
+      "Esta importação não existe — não há o que reler.",
+    );
+  }
+
+  /*
+    Quem é relido não é necessariamente o cartão de onde se clicou.
+
+    O pedido chega pelo run que o operador tinha na tela, e o cartão mais
+    provável de estar na tela é justamente o pior candidato a ser o alvo: a
+    **tentativa recusada**, que é onde a frase "este arquivo já havia sido
+    recebido" aparece e onde a pergunta "e agora?" nasce. Gravar
+    `reprocess_of_run_id` apontando para ela seria escrever no banco que esta
+    releitura relê um run que não leu nada — e a coluna diz, com todas as
+    letras, *o run que este aqui releu*.
+
+    Então o `:id` identifica o **arquivo**, e o alvo é calculado: a leitura mais
+    recente daquele conteúdo que de fato abriu o arquivo. Isso dá uma corrente
+    em vez de um leque — recebimento → 1ª releitura → 2ª releitura —, que é como
+    a história se lê, e faz a recusa de exclusão (`planImportDeletion`) proteger
+    o run que importa em vez de uma tentativa que não produziu nada.
+  */
+  const [anterior] = await db
+    .select({
+      id: importRunTable.id,
+      sourceFileId: importRunTable.sourceFileId,
+      declaredType: importRunTable.declaredType,
+      startedAt: importRunTable.startedAt,
+    })
+    .from(importRunTable)
+    .where(
+      and(
+        eq(importRunTable.sourceFileId, pedido.sourceFileId),
+        ne(importRunTable.status, "SKIPPED_DUPLICATE"),
+      ),
+    )
+    .orderBy(desc(importRunTable.startedAt))
+    .limit(1);
+
+  // Só sobra tentativa recusada: o arquivo entrou uma vez, aquele run foi
+  // excluído, e o que restou é o registro de que alguém tentou reenviá-lo. Não
+  // há leitura para reler, e a saída honesta é reenviar o arquivo.
+  if (!anterior) {
+    throw new ReprocessamentoRecusado(
+      "Não há nenhuma leitura deste arquivo para reler — o histórico dele só tem tentativas " +
+        "recusadas por duplicata, que não chegaram a abrir o arquivo. Envie o arquivo de novo " +
+        "pela aba do tipo certo.",
+    );
+  }
+
+  const [arquivo] = await db
+    .select()
+    .from(sourceFileTable)
+    .where(eq(sourceFileTable.id, anterior.sourceFileId));
+
+  // O original é preservado byte a byte justamente para isto. Quando ele não
+  // está lá, a resposta honesta é que o arquivo precisa ser reenviado — e não
+  // uma releitura de um caminho que não abre.
+  if (!arquivo || !existsSync(arquivo.storagePath)) {
+    throw new ReprocessamentoRecusado(
+      `O arquivo original de "${arquivo?.filename ?? "esta importação"}" não está mais guardado, ` +
+        `e sem ele não há o que reler. Envie o arquivo de novo pela aba do tipo certo.`,
+    );
+  }
+
+  /*
+    A declaração da releitura.
+
+    Herdar por omissão é o que faz o caso comum — "o leitor corrigiu as datas,
+    releia" — não pedir que ninguém redigite o que já estava certo. Trocar por
+    pedido explícito é o caso do QLP, em que a primeira leitura não tinha
+    declaração nenhuma porque a aba ainda não existia.
+
+    `exigirTipoDeclarado` é o mesmo guarda do envio: um tipo que a lista não
+    conhece, ou que o pipeline ainda não sabe identificar, é recusado aqui —
+    antes de abrir run — em vez de virar um arquivo que entra e não produz fato.
+  */
+  const declaracaoPedida =
+    options.declaredType === undefined ? anterior.declaredType : options.declaredType;
+  const declarado =
+    declaracaoPedida === null || declaracaoPedida.trim() === ""
+      ? null
+      : exigirTipoDeclarado(declaracaoPedida);
+
+  const abertos = await db
+    .select({ id: importRunTable.id, status: importRunTable.status })
+    .from(importRunTable)
+    .where(
+      and(
+        eq(importRunTable.sourceFileId, anterior.sourceFileId),
+        inArray(importRunTable.status, [...ESTADOS_POR_DECIDIR]),
+      ),
+    );
+
+  if (abertos.length > 0) {
+    throw new ReprocessamentoRecusado(recusaDeLeituraAberta(arquivo.filename));
+  }
+
+  let run: { id: string };
+  try {
+    [run] = await db
+      .insert(importRunTable)
+      .values({
+        sourceFileId: anterior.sourceFileId,
+        status: "PENDING",
+        triggeredBy: options.requestedBy ?? null,
+        declaredType: declarado?.code ?? null,
+        reprocessOfRunId: anterior.id,
+        reprocessReason: motivo,
+      })
+      .returning({ id: importRunTable.id });
+  } catch (err) {
+    // A corrida perdida. O índice parcial recusou o segundo INSERT, e o
+    // operador que clicou duas vezes lê a mesma frase de quem chegou atrasado
+    // — e não um 23505 com nome de índice dentro.
+    if (codigoDoPostgres(err) === "23505") {
+      throw new ReprocessamentoRecusado(recusaDeLeituraAberta(arquivo.filename));
+    }
+    throw err;
+  }
+
+  await db.insert(importDecisionTable).values({
+    importRunId: run.id,
+    decisao: "REPROCESSAMENTO",
+    motivo:
+      `Releitura do arquivo já recebido (sha256 ${arquivo.contentSha256.slice(0, 16)}…), ` +
+      `pedida sobre a importação de ${anterior.startedAt.toISOString().slice(0, 10)}. ` +
+      `Motivo declarado: ${motivo}`,
+    filename: arquivo.filename,
+    contentSha256: arquivo.contentSha256,
+    detalhe: {
+      reprocessOfRunId: anterior.id,
+      declaredTypeAnterior: anterior.declaredType,
+      declaredType: declarado?.code ?? null,
+      motivo,
+    },
+  });
+
+  return {
+    importRunId: run.id,
+    reprocessOfRunId: anterior.id,
+    sourceFileId: anterior.sourceFileId,
+    contentSha256: arquivo.contentSha256,
+    filename: arquivo.filename,
+    declaredType: declarado?.code ?? null,
+  };
+}
+
+function recusaDeLeituraAberta(filename: string): string {
+  return (
+    `Já existe uma leitura em andamento de "${filename}" — ela precisa terminar, e ser aprovada ou ` +
+    `excluída, antes de outra começar. Duas leituras simultâneas do mesmo arquivo disputariam a mesma ` +
+    `vigência, e a segunda só descobriria isso depois de ler o arquivo inteiro.`
+  );
 }
 
 // ---------------------------------------------------------------------------

@@ -317,7 +317,12 @@ describe("C. toda entrada do bridge está de um dos dois lados da fronteira", ()
     for (const indice of INDICES_REMOVIDOS) {
       if (FORA_DO_ALCANCE_INDICES.has(indice)) continue;
       expect(
-        new RegExp(`CREATE INDEX IF NOT EXISTS "${indice}"`, "i").test(
+        // `UNIQUE` opcional: a unicidade não muda a pergunta que esta prova
+        // faz — "existe reconciliação para o que o `down` tira?" —, e o
+        // primeiro índice único a sair no `down` (`import_run_leitura_aberta_uq`,
+        // da `0040`) passava despercebido por um regex que só via o plural
+        // comum.
+        new RegExp(`CREATE (?:UNIQUE )?INDEX IF NOT EXISTS "${indice}"`, "i").test(
           sqlDaReconciliacao,
         ),
         `o índice ${indice} sai no bridge:down e nenhuma reconciliação o recria. ` +
