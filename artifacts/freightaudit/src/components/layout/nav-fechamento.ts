@@ -3,11 +3,13 @@ import {
   CalendarDays,
   Calculator,
   ClipboardCheck,
+  FileSpreadsheet,
   History,
   House,
   ListTodo,
   Lock,
   PenLine,
+  ScrollText,
   Stamp,
   Table2,
 } from "lucide-react";
@@ -19,9 +21,17 @@ import type { NavGroup } from "./nav";
  * O Fechamento de Remuneração é um processo com começo, meio e fim: abre-se a
  * competência, apura-se quanto a remuneração daquela quinzena/mês vale,
  * resolve-se o que impede a conta de fechar, decide-se sobre o que sobrou, e
- * fecha-se o período — que então vira registro. As quatro seções são esses
- * quatro momentos, na ordem em que o trabalho acontece, pela mesma razão que
- * as oito da Auditoria seguem a ordem de uma auditoria completa.
+ * fecha-se o período — que então vira registro. Quatro das cinco seções são
+ * esses quatro momentos, na ordem em que o trabalho acontece, pela mesma razão
+ * que as oito da Auditoria seguem a ordem de uma auditoria completa.
+ *
+ * **Remuneração entrou depois, e entrou no meio.** Ela não é um momento do
+ * processo: é a base contra a qual o processo roda — as alíquotas, o tamanho da
+ * frota, quanto vale cada parcela por veículo. Fica entre Fechamento e Apuração
+ * porque é essa a ordem de quem trabalha: abre-se o período e recebem-se os
+ * relatórios, confere-se o cadastro da unidade, e só então se apura. Não foi
+ * para o topo porque a primeira linha da lateral é a home do ambiente, e
+ * trocá-la faria "voltar ao início" deixar de ser o primeiro item.
  *
  * O desenho partiu da lista pedida (Visão, Competência, Pendências, Apuração,
  * Conferências, Ajustes, Aprovações, Fechamento, Histórico) com três mudanças
@@ -65,6 +75,23 @@ export const NAV_GROUPS_FECHAMENTO: NavGroup[] = [
       { href: "/fechamento/competencias", label: "Importações", icon: CalendarDays },
       { href: "/fechamento/apuracoes", label: "Apurações", icon: Table2 },
     ],
+  },
+  {
+    /*
+      O cadastro da planilha de remuneração, por unidade — a aba que abre a
+      pasta de Excel e de onde todas as outras puxam. É a única seção do
+      Fechamento que lê o acervo da Auditoria em vez de uma competência, e o
+      motivo está em `pages/fechamento/remuneracao.tsx`: o que ela mostra é o
+      que a Ambev **contratou**, e o contratado mora no modelo canônico.
+
+      Um item só, hoje, e a seção existe assim mesmo: é aqui que as outras telas
+      de cadastro por unidade vão cair, e diluí-las em "Competência" faria a
+      seção do período falar de duas coisas.
+    */
+    titulo: "Remuneração",
+    icon: ScrollText,
+    cor: "text-nav-fechamento",
+    itens: [{ href: "/fechamento/remuneracao", label: "Cadastro", icon: FileSpreadsheet }],
   },
   {
     titulo: "Apuração",
