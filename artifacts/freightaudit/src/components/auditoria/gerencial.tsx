@@ -1,54 +1,56 @@
 import {
   CircleDashed,
   CircleSlash,
-  Clock,
-  Lock,
+  Flag,
+  ScanSearch,
   TriangleAlert,
   type LucideIcon,
 } from "lucide-react";
 import {
   EXPLICACAO_DA_SITUACAO,
   NOME_DA_SITUACAO,
-  type QuinzenaDoAno,
-  type SituacaoDaQuinzena,
-} from "@/lib/fechamento-gerencial";
+  type QuinzenaAuditada,
+  type SituacaoDaAuditoria,
+} from "@/lib/auditoria-gerencial";
 import { cn } from "@/lib/utils";
 
 /**
- * O vocabulário visual da Visão Gerencial do Fechamento — as cinco situações de
+ * O vocabulário visual da Visão Gerencial da Auditoria — as cinco situações de
  * uma quinzena, a faixa do ano e a legenda.
  *
- * Mora aqui, e não em cada tela, porque a mesma cor tem de querer dizer a mesma
- * coisa na faixa do ano do cartão e na grade da unidade: duas telas com dois
- * verdes diferentes para "encerrada" obrigariam quem lê a reaprender a legenda
- * a cada clique.
+ * A forma é a mesma da Visão Gerencial do Fechamento de propósito: quem lê as
+ * duas não deve ter de reaprender a faixa. O que muda é o que cada cor quer
+ * dizer, e isso não podia ser partilhado — lá a casa cheia é a competência
+ * encerrada, aqui é a vigência comparada.
  *
- * **Só uma situação é alarme.** `VENCIDA` — a quinzena acabou e a competência
- * continua aberta — é a única pintada em destaque de erro, porque é a única em
- * que alguém está atrasado. `SEM_COMPETENCIA` é buraco e usa o traço
- * pontilhado da ausência, o mesmo do dia sem operação na grade de dias; o resto
- * é o calendário seguindo o seu curso, e calendário não é alarme.
+ * **Só uma situação é alarme.** `PENDENTE` — a vigência chegou, tem anterior e
+ * continua sem comparação — é a única pintada em destaque de erro, porque é a
+ * única em que alguém deixou de olhar. `SEM_VIGENCIA` é ausência e usa o traço
+ * pontilhado, e ausência aqui não é atraso: a fonte publica quando muda, e uma
+ * quinzena sem publicação é o cadastro parado. `INICIAL` tem cor própria — a
+ * primeira vigência de uma série não pode ser comparada com nada, e pintá-la de
+ * pendente faria toda unidade estrear reprovada.
  */
 export const APARENCIA_DA_SITUACAO: Record<
-  SituacaoDaQuinzena,
+  SituacaoDaAuditoria,
   { ladrilho: string; etiqueta: string; icon: LucideIcon }
 > = {
-  ENCERRADA: {
+  AUDITADA: {
     ladrilho: "bg-primary border-primary",
     etiqueta: "border-primary bg-primary text-primary-foreground",
-    icon: Lock,
+    icon: ScanSearch,
   },
-  VENCIDA: {
+  PENDENTE: {
     ladrilho: "bg-destructive border-destructive",
     etiqueta: "border-destructive bg-destructive text-destructive-foreground",
     icon: TriangleAlert,
   },
-  EM_CURSO: {
+  INICIAL: {
     ladrilho: "bg-primary/30 border-primary/40",
     etiqueta: "border-primary/40 bg-primary/10 text-primary",
-    icon: Clock,
+    icon: Flag,
   },
-  SEM_COMPETENCIA: {
+  SEM_VIGENCIA: {
     ladrilho: "bg-muted border-border border-dashed",
     etiqueta: "border-border border-dashed bg-muted text-muted-foreground",
     icon: CircleSlash,
@@ -60,12 +62,12 @@ export const APARENCIA_DA_SITUACAO: Record<
   },
 };
 
-/** A situação por extenso, na etiqueta que as duas telas usam. */
+/** A situação por extenso, na etiqueta. */
 export function EtiquetaDaSituacao({
   situacao,
   className,
 }: {
-  situacao: SituacaoDaQuinzena;
+  situacao: SituacaoDaAuditoria;
   className?: string;
 }) {
   const { etiqueta, icon: Icone } = APARENCIA_DA_SITUACAO[situacao];
@@ -90,19 +92,29 @@ export function EtiquetaDaSituacao({
  * Doze pares de janeiro a dezembro, um traço por quinzena, na ordem do
  * calendário. Não é gráfico e não pretende ser lido número a número: é o
  * formato da barra de progresso de um ano, em que o olho pega o padrão antes da
- * palavra — três vermelhos seguidos em maio dizem "maio atrasou" sem que
- * ninguém precise ler maio.
+ * palavra — quatro casas apagadas seguidas dizem "esta unidade parou de
+ * publicar em maio" sem que ninguém precise ler maio.
  *
- * Cada traço leva o nome do período no `title` porque a faixa é pequena demais
- * para rotular, e uma faixa sem rótulo nenhum viraria decoração.
+ * Cada traço leva no `title` o período, quantas vigências caíram nele e a
+ * situação: a faixa é pequena demais para rotular, e uma faixa sem rótulo
+ * nenhum viraria decoração.
  */
-export function FaixaDoAno({ quinzenas }: { quinzenas: QuinzenaDoAno[] }) {
+export function FaixaDoAno({ quinzenas }: { quinzenas: QuinzenaAuditada[] }) {
   return (
     <div className="flex items-end gap-[3px]" aria-hidden>
       {quinzenas.map((q) => (
         <span
           key={q.chave}
-          title={`${q.inicio.slice(8, 10)}/${q.inicio.slice(5, 7)} a ${q.fim.slice(8, 10)}/${q.fim.slice(5, 7)} — ${NOME_DA_SITUACAO[q.situacao]}`}
+          title={[
+            `${q.inicio.slice(8, 10)}/${q.inicio.slice(5, 7)} a ${q.fim.slice(8, 10)}/${q.fim.slice(5, 7)}`,
+            NOME_DA_SITUACAO[q.situacao],
+            q.vigencias.length > 0 &&
+              `${q.vigencias.length} vigência${q.vigencias.length === 1 ? "" : "s"}`,
+            q.alteracoes > 0 &&
+              `${q.alteracoes} alteraç${q.alteracoes === 1 ? "ão" : "ões"}`,
+          ]
+            .filter((p): p is string => typeof p === "string")
+            .join(" — ")}
           className={cn(
             "h-4 flex-1 rounded-[2px] border",
             APARENCIA_DA_SITUACAO[q.situacao].ladrilho,
@@ -118,11 +130,11 @@ export function FaixaDoAno({ quinzenas }: { quinzenas: QuinzenaDoAno[] }) {
 
 /** A legenda das cinco situações, para quem lê a faixa pela primeira vez. */
 export function LegendaDasSituacoes({ className }: { className?: string }) {
-  const situacoes: SituacaoDaQuinzena[] = [
-    "ENCERRADA",
-    "VENCIDA",
-    "EM_CURSO",
-    "SEM_COMPETENCIA",
+  const situacoes: SituacaoDaAuditoria[] = [
+    "AUDITADA",
+    "PENDENTE",
+    "INICIAL",
+    "SEM_VIGENCIA",
     "FUTURA",
   ];
   return (
@@ -145,12 +157,3 @@ export function LegendaDasSituacoes({ className }: { className?: string }) {
     </ul>
   );
 }
-
-/*
-  O número grande e a barra moram em `components/gerencial/executivo.tsx` desde
-  que a Visão Gerencial da Auditoria passou a ler a faixa executiva pela mesma
-  régua. Continuam saindo daqui para as duas telas do Fechamento que já os
-  importavam deste arquivo — o que é altura de leitura não é vocabulário de
-  domínio, e só o segundo é que muda de ambiente para ambiente.
-*/
-export { Barra, Numero } from "@/components/gerencial/executivo";

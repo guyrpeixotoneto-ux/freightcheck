@@ -249,13 +249,35 @@ function percent(value: number): string {
   })}%`;
 }
 
+/**
+ * O substantivo do equipamento — e o gênero dele.
+ *
+ * O gênero não é enfeite gramatical: sem ele, `summarisePatterns` escrevia
+ * "3 dos 10 carretas" na investigação de uma frota inteira de carretas. Quem
+ * lê um diagnóstico que erra a concordância na primeira frase passa a conferir
+ * o resto com desconfiança — e o resto, aqui, é a conta que ordena a fila.
+ */
+const SUBSTANTIVOS: Record<
+  string,
+  { singular: string; plural: string; feminino: boolean }
+> = {
+  CAVALO: { singular: "cavalo", plural: "cavalos", feminino: false },
+  CARRETA: { singular: "carreta", plural: "carretas", feminino: true },
+};
+
+const SUBSTANTIVO_PADRAO = {
+  singular: "veículo",
+  plural: "veículos",
+  feminino: false,
+};
+
+function substantivoDe(entityType: string | null) {
+  return SUBSTANTIVOS[entityType ?? ""] ?? SUBSTANTIVO_PADRAO;
+}
+
 function vehicleNoun(entityType: string | null, count: number): string {
-  const map: Record<string, [string, string]> = {
-    CAVALO: ["cavalo", "cavalos"],
-    CARRETA: ["carreta", "carretas"],
-  };
-  const pair = map[entityType ?? ""] ?? ["veículo", "veículos"];
-  return count === 1 ? pair[0] : pair[1];
+  const s = substantivoDe(entityType);
+  return count === 1 ? s.singular : s.plural;
 }
 
 /**
@@ -373,10 +395,11 @@ export function diagnose(group: ChangeGroup): string {
 export function summarisePatterns(group: ChangeGroup): string | null {
   if (group.patterns <= 1) return null;
   const noun = vehicleNoun(group.entityType, group.vehicles);
+  const de = substantivoDe(group.entityType).feminino ? "das" : "dos";
   const base = `Encontramos ${pt(group.patterns)} comportamentos diferentes nesta alteração`;
   if (!group.dominantPattern) return `${base}.`;
   return (
-    `${base}; ${pt(group.dominantPattern.vehicles)} dos ${pt(group.vehicles)} ${noun} ` +
+    `${base}; ${pt(group.dominantPattern.vehicles)} ${de} ${pt(group.vehicles)} ${noun} ` +
     `seguem o mesmo padrão.`
   );
 }

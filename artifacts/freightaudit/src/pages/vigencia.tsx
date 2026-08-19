@@ -255,8 +255,13 @@ export default function Vigencia() {
                         <h2 className="text-lg font-bold">Prioridades para investigação</h2>
                         <p className="text-xs text-muted-foreground mt-0.5">
                           Ordenadas pelo nível de atenção, pela abrangência e pela magnitude
-                          da mudança — a soma que dá a posição está na coluna{" "}
-                          <span className="font-medium">Pontos</span>.
+                          da mudança — a soma que dá a posição está escrita dentro de cada
+                          investigação, em{" "}
+                          <span className="font-medium">
+                            Por que este ponto está nesta posição
+                          </span>
+                          . A coluna <span className="font-medium">Alterações</span> conta
+                          linhas, e as de todos os pontos fecham com o total da vigência.
                         </p>
                       </div>
 
@@ -383,8 +388,7 @@ function Fila({
               <Cabecalho>Criticidade</Cabecalho>
               <Cabecalho>Parâmetro</Cabecalho>
               <Cabecalho>Frota</Cabecalho>
-              <Cabecalho alinhamento="right">Pontos</Cabecalho>
-              <Cabecalho alinhamento="right">Veículos</Cabecalho>
+              <Cabecalho alinhamento="right">Alterações</Cabecalho>
               <Cabecalho alinhamento="center">Anomalia</Cabecalho>
               <Cabecalho alinhamento="right">Impacto</Cabecalho>
               <Cabecalho alinhamento="right" className="pl-2 pr-5">

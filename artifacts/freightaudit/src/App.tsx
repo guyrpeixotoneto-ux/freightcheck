@@ -11,6 +11,7 @@ import { PADRAO_DAS_CONSULTAS } from '@/lib/chamada-resiliente';
 import Login from '@/pages/login';
 
 import Inicio from '@/pages/inicio';
+import VisaoGerencialDaAuditoria from '@/pages/visao-gerencial';
 import Vigencia from '@/pages/vigencia';
 import Dados from '@/pages/dados';
 import Alteracoes from '@/pages/alteracoes';
@@ -163,6 +164,15 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Inicio} />
+      {/*
+        A Visão Gerencial da Auditoria — o acervo inteiro, unidade a unidade.
+
+        Endereço próprio e não a home: `/` é a Visão geral da unidade aberta, e
+        é ela que todo link colado por aí abre há tempo. As duas convivem em
+        alturas diferentes — esta responde pelo conjunto, aquela pela unidade —,
+        e o menu as põe em ordem de altura dentro de Visão executiva.
+      */}
+      <Route path="/visao-gerencial" component={VisaoGerencialDaAuditoria} />
       <Route path="/vigencia" component={Vigencia} />
       <Route path="/dados" component={Dados} />
       <Route path="/apresentacao" component={ApresentacaoVideo} />

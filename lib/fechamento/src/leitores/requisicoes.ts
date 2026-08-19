@@ -1,6 +1,7 @@
 import { centavos, lerCanal, lerNumero, type Canal, type Leitura, type Recusa } from "../dominio";
-import { diaDeTextoBR, type Dia } from "../periodo";
+import { diaDeCelula, type Dia } from "../periodo";
 import { verbaDe, verbaDesconhecida, type Verba } from "../verbas";
+import { celula, lerAba, type LinhaDePlanilha } from "./planilha";
 
 /**
  * O 03.08.12.09 — as requisições de despesa aprovadas.
@@ -16,10 +17,15 @@ import { verbaDe, verbaDesconhecida, type Verba } from "../verbas";
  * trilha fica, porque "esta despesa não foi paga" e "esta despesa não foi
  * aprovada a tempo" são pendências diferentes, com donos diferentes.
  *
- * **O arquivo é CSV com ponto e vírgula, em latin-1.** As duas coisas são do
- * SRTrans e não se negociam; o decodificador é escolhido aqui e testado, porque
- * ler `Pesquisa de Risco` como `Pesquisa de Risco` com acento quebrado
- * transformaria o tipo de despesa em duas categorias distintas na tela.
+ * **O arquivo sai do SRTrans em CSV com ponto e vírgula, em latin-1** — e essa
+ * continua sendo a forma de sempre. O que mudou é que ela deixou de ser a
+ * única: o mesmo relatório chega em `.xlsx` quando alguém o abre e salva, e
+ * chega em UTF-8 quando o Excel o regrava como "CSV UTF-8". As três formas
+ * entram pela mesma porta (`lerAba`, em `planilha.ts`), que decide pelo
+ * conteúdo e não pela extensão; a codificação continua sendo latin-1 por
+ * declaração da origem, e só muda quando o próprio arquivo declara outra com
+ * uma BOM — ler `Pesquisa de Risco` com o acento quebrado transformaria o tipo
+ * de despesa em duas categorias distintas na tela.
  */
 
 export interface Requisicao {
@@ -49,103 +55,66 @@ export interface Requisicao {
 export const STATUS_QUE_PAGA = "aprovada";
 
 /**
+ * As quatro colunas sem as quais a requisição não vira dinheiro em verba
+ * nenhuma — e, por isso, as que identificam o relatório.
+ */
+const COLUNAS_EXIGIDAS = ["Requisição", "Canal", "Cod. VBZ", "Valor"];
+
+/**
  * Lê o 03.08.12.09.
  *
- * Recebe o arquivo em bytes e não em texto para poder decodificar latin-1 aqui
- * dentro: quem chama não deveria precisar saber a codificação de uma fonte.
+ * A leitura passou a ser por **nome de coluna** e não por posição no cabeçalho.
+ * Enquanto a única forma era o CSV de ponto e vírgula, cortar a linha e contar
+ * campos dava no mesmo; com a planilha no caminho não dá — lá não há linha para
+ * cortar. `lerAba` normaliza os três formatos na mesma grade, e daqui para
+ * baixo o leitor só conhece colunas.
  */
 export function lerRequisicoes(arquivo: Buffer | ArrayBuffer): Leitura<Requisicao> {
-  const texto = decodificar(arquivo);
+  const planilha = lerAba(arquivo, { exigidas: COLUNAS_EXIGIDAS });
   const linhas: Requisicao[] = [];
   const recusas: Recusa[] = [];
 
-  const fisicas = texto.split(/\r?\n/);
-  const cabecalho = (fisicas[0] ?? "").split(";").map((c) => normalizar(c));
-  const indice = (nome: string) => cabecalho.indexOf(normalizar(nome));
-
-  const iRequisicao = indice("Requisição");
-  const iCanal = indice("Canal");
-  const iVbz = indice("Cod. VBZ");
-  const iValor = indice("Valor");
-  if (iRequisicao < 0 || iCanal < 0 || iVbz < 0 || iValor < 0) {
-    throw new Error(
-      "O arquivo não tem o cabeçalho do relatório de requisições " +
-        "(faltou Requisição, Canal, Cod. VBZ ou Valor).",
-    );
-  }
-
-  for (let i = 1; i < fisicas.length; i += 1) {
-    const bruta = fisicas[i];
-    if (!bruta || bruta.trim() === "") continue;
-    const campos = bruta.split(";");
-    const recusar = (motivo: string, original: unknown) => {
-      recusas.push({ linha: i + 1, motivo, original: String(original ?? "") });
-      return null;
-    };
-
-    const canal = lerCanal(campos[iCanal]);
-    if (!canal) {
-      recusar("O canal da requisição não é Rota nem AS.", campos[iCanal]);
-      continue;
-    }
-
-    const vbz = lerNumero(campos[iVbz]);
-    if (vbz == null) {
-      recusar("A requisição não aponta uma VBZ.", campos[iVbz]);
-      continue;
-    }
-
-    const valor = lerNumero(campos[iValor]);
-    if (valor == null) {
-      recusar("O valor da requisição não é um número.", campos[iValor]);
-      continue;
-    }
-
-    const nomeDaVbz = campos[indice("VBZ")] ?? "";
-    linhas.push({
-      linha: i + 1,
-      numero: (campos[iRequisicao] ?? "").trim(),
-      quinzenaDePagamento: diaDeTextoBR(campos[indice("Quinzena Pagamento")]),
-      canal,
-      verba: verbaDe(vbz) ?? verbaDesconhecida(vbz, canal, nomeDaVbz),
-      tipoDeDespesa: {
-        codigo: (campos[indice("Cod Tipo Despesa")] ?? "").trim(),
-        nome: (campos[indice("Tipo Despesa")] ?? "").trim(),
-      },
-      descricao: (campos[indice("Descrição Despesa")] ?? "").trim(),
-      status: (campos[indice("Status")] ?? "").trim(),
-      valor: centavos(valor),
-      solicitante: (campos[indice("ID Solicitante")] ?? "").trim(),
-      aprovadorRegional: (campos[indice("ID Aprovador RG")] ?? "").trim(),
-      aprovadorAC: (campos[indice("ID Aprovador AC")] ?? "").trim(),
-      enviadaEm: diaDeTextoBR(campos[indice("Data Envio Requisição")]),
-      decididaEm: diaDeTextoBR(campos[indice("Data Decisão Regional")]),
-    });
+  for (const bruta of planilha.linhas) {
+    const lida = lerLinha(bruta, recusas);
+    if (lida) linhas.push(lida);
   }
 
   return { linhas, recusas };
 }
 
-/**
- * Decodifica o CSV.
- *
- * O SRTrans exporta em latin-1 (ISO-8859-1). Tentar UTF-8 primeiro e cair para
- * latin-1 seria adivinhação: a mesma sequência de bytes é válida nas duas e
- * produz palavras diferentes. Como a origem é conhecida e única, a codificação
- * é declarada — e o teste que lê `Requisição` de volta é quem guarda a
- * declaração.
- */
-function decodificar(arquivo: Buffer | ArrayBuffer): string {
-  return new TextDecoder("latin1").decode(
-    arquivo instanceof Buffer ? arquivo : new Uint8Array(arquivo),
-  );
-}
+function lerLinha(bruta: LinhaDePlanilha, recusas: Recusa[]): Requisicao | null {
+  const recusar = (motivo: string, original: unknown) => {
+    recusas.push({ linha: bruta.numero, motivo, original: String(original ?? "") });
+    return null;
+  };
+  const texto = (coluna: string) => String(celula(bruta, coluna) ?? "").trim();
 
-function normalizar(nome: string): string {
-  return nome
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
+  const canal = lerCanal(celula(bruta, "Canal"));
+  if (!canal) return recusar("O canal da requisição não é Rota nem AS.", celula(bruta, "Canal"));
+
+  const vbz = lerNumero(celula(bruta, "Cod. VBZ"));
+  if (vbz == null) return recusar("A requisição não aponta uma VBZ.", celula(bruta, "Cod. VBZ"));
+
+  const valor = lerNumero(celula(bruta, "Valor"));
+  if (valor == null) return recusar("O valor da requisição não é um número.", celula(bruta, "Valor"));
+
+  return {
+    linha: bruta.numero,
+    numero: texto("Requisição"),
+    quinzenaDePagamento: diaDeCelula(celula(bruta, "Quinzena Pagamento")),
+    canal,
+    verba: verbaDe(vbz) ?? verbaDesconhecida(vbz, canal, texto("VBZ")),
+    tipoDeDespesa: {
+      codigo: texto("Cod Tipo Despesa"),
+      nome: texto("Tipo Despesa"),
+    },
+    descricao: texto("Descrição Despesa"),
+    status: texto("Status"),
+    valor: centavos(valor),
+    solicitante: texto("ID Solicitante"),
+    aprovadorRegional: texto("ID Aprovador RG"),
+    aprovadorAC: texto("ID Aprovador AC"),
+    enviadaEm: diaDeCelula(celula(bruta, "Data Envio Requisição")),
+    decididaEm: diaDeCelula(celula(bruta, "Data Decisão Regional")),
+  };
 }

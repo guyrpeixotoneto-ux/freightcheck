@@ -12,6 +12,7 @@ import {
   SelectTrigger,
 } from "@/components/ui/select";
 import {
+  fontesDaCompetencia,
   lerCompetencia,
   listarApuracoes,
   listarFontes,
@@ -528,6 +529,14 @@ export default function Apuracoes() {
                     const conferido = apuracao ? percentualConferido(apuracao) : null;
                     const aberta = abertas.has(c.id);
                     const alternar = () => setAbertas((a) => alternarUma(a, c.id));
+                    /*
+                      As casinhas são as da quinzena desta linha: a primeira pede
+                      quatro relatórios e a segunda, seis. A tabela mistura as
+                      duas metades do mês, então o recorte é por linha — desenhar
+                      seis em toda linha faria metade das quinzenas parecer
+                      eternamente incompleta.
+                    */
+                    const esperados = fontesDaCompetencia(catalogo, c.quinzena, relatorios);
                     return (
                       <Fragment key={c.id}>
                         <tr
@@ -578,7 +587,7 @@ export default function Apuracoes() {
 
                           <td className="px-4 py-3 align-middle">
                             <div className="flex items-center gap-1.5">
-                              {catalogo.map((fonte) => {
+                              {esperados.map((fonte) => {
                                 const chegou = relatorios.includes(fonte.tipo);
                                 return (
                                   <span
@@ -595,9 +604,9 @@ export default function Apuracoes() {
                                   </span>
                                 );
                               })}
-                              {catalogo.length > 0 && (
+                              {esperados.length > 0 && (
                                 <span className="text-muted-foreground font-mono text-xs ml-1.5">
-                                  {relatorios.length}/{catalogo.length}
+                                  {relatorios.length}/{esperados.length}
                                 </span>
                               )}
                             </div>
@@ -691,7 +700,7 @@ export default function Apuracoes() {
                                   </Link>
                                 </div>
                                 {apuracao ? (
-                                  <ContaDaLinha competenciaId={c.id} fontes={catalogo} />
+                                  <ContaDaLinha competenciaId={c.id} fontes={esperados} />
                                 ) : (
                                   <SemApuracao competenciaId={c.id} />
                                 )}
