@@ -22,6 +22,7 @@ import {
   type ChangeRow,
   type Filters,
 } from "@/components/changes/change-table";
+import { ImpactoPorPeriodicidade } from "@/components/changes/cartoes";
 import { primeiraPagina, type Janela } from "@/lib/paginacao";
 
 /**
@@ -210,7 +211,16 @@ export default function Comparar() {
 
         {set && (
           <>
-            <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+            <div
+              /*
+                Pelo espaço que sobra, não pelo tamanho da janela: seis colunas
+                fixas ignoram os 304px da lateral e entregam ladrilhos de 139px
+                numa tela de 1280 — estreitos demais para um valor em reais, que
+                então era escrito por cima do ladrilho vizinho. Com `auto-fit`, o
+                que cede é o número de colunas.
+              */
+              className="grid gap-4 grid-cols-[repeat(auto-fit,minmax(9rem,1fr))]"
+            >
               <Tile label="Valores alterados" value={set.valueChanges} />
               <Tile label="Sem alteração" value={set.unchanged} />
               <Tile label="Ativos entraram" value={`+${set.entitiesAdded}`} />
@@ -219,17 +229,21 @@ export default function Comparar() {
                 label="Colunas +/−"
                 value={`+${set.attributesAdded} / −${set.attributesRemoved}`}
               />
+              {/*
+                O mesmo componente dos cartões das abas, e não uma cópia com as
+                mesmas regras: uma linha por periodicidade — R$/mês e R$/ano não
+                somam —, e o corpo do número escolhido pela largura que este
+                ladrilho tem. Emendadas numa string só, as duas periodicidades
+                saíam do ladrilho pela direita.
+              */}
               <Tile
                 label="Impacto apurado"
                 value={
-                  Object.keys(set.impacto.oficial).length === 0
-                    ? "não calculável"
-                    : Object.entries(set.impacto.oficial)
-                        .map(
-                          ([p, v]) =>
-                            `${v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 })}/${p.toLowerCase()}`,
-                        )
-                        .join("  ")
+                  <ImpactoPorPeriodicidade
+                    buckets={set.impacto.oficial}
+                    escala="ladrilho"
+                    colorido={false}
+                  />
                 }
                 hint={`${set.impactNotCalculable} fora destes valores`}
               />
@@ -322,11 +336,18 @@ function Tile({
   hint,
 }: {
   label: string;
-  value: string | number;
+  /**
+   * Um número, ou o que não cabe em um: o impacto é uma linha por
+   * periodicidade, e um ladrilho que só aceitasse texto obrigaria a emendar as
+   * duas numa string — que é como elas saíam pela direita do cartão.
+   */
+  value: React.ReactNode;
   hint?: string;
 }) {
   return (
-    <div className="rounded-lg border bg-card px-4 py-3">
+    // `@container`: a largura do ladrilho é a régua que o valor consulta para
+    // escolher o próprio corpo.
+    <div className="rounded-lg border bg-card px-4 py-3 @container">
       <div className="text-xs font-medium text-muted-foreground">{label}</div>
       <div className="text-xl font-bold tabular-nums mt-1">{value}</div>
       {hint && <div className="text-xs text-muted-foreground mt-0.5">{hint}</div>}
