@@ -188,19 +188,30 @@ a transportadora leva para a mesa tem grão de **mês**. A tela põe 1ª quinzen
 2ª quinzena e TOTAL lado a lado, verba a verba, e fecha com as mesmas linhas
 com que a planilha fecha.
 
-Um seletor de três posições no topo — **1ª quinzena · 2ª quinzena ·
-Consolidado** — troca o recorte sem trocar de tela nem de consulta: nas duas
-primeiras a pergunta é de conferência (emitido contra apurado, verba a verba);
-no consolidado é de fechamento (as três colunas e o total do mês).
+Dois seletores no topo, um por pergunta. **Verbas · Planilha** escolhe em que
+linguagem se lê o mês; **1ª quinzena · 2ª quinzena · Consolidado** escolhe que
+pedaço dele. Nenhum dos dois troca de tela nem de consulta — os quatro recortes
+saem do mesmo dado, buscado uma vez, e é justamente entre eles que se fica indo
+e voltando.
 
 Quatro decisões que a tela materializa:
 
-1. **Os rótulos são as verbas, não os da planilha.** As linhas do primeiro
-   quadro dela — `CUSTO FIXO PADRONIZADO`, `ESPECIAIS`, `VANS` — são um rateio
-   por tipo de frota que o 03.08.20 não faz, e escrevê-los sobre números que não
-   são deles daria cara de conferido ao que não foi. A tradução entre as duas
-   classificações não sumiu por isso: ela mora no de-para, na seção abaixo, que
-   diz o que casa, o que só casa em conjunto e o que ainda não casa.
+1. **Duas abas, e não uma escolha entre dois rótulos.** `Verbas` mostra o
+   recorte com que o sistema apura — a VBZ, que os arquivos sustentam uma a uma.
+   `Planilha` mostra o recorte com que a Ambev e a transportadora conversam —
+   `Custo fixo padronizado`, `Custo variável (agregado)`, `Desconto de
+   devolução`. Não dá para escolher um: as linhas do primeiro quadro da planilha
+   são um rateio por tipo de frota que o 03.08.20 não faz, e escrevê-las sobre
+   as verbas daria cara de conferido ao que não foi; mas conferir só por verba
+   obriga quem discute o mês a casar de cabeça com o `.xlsb` aberto ao lado. As
+   duas abas fecham no mesmo `Total remuneração (03.08.20)`, e é isso que faz
+   delas duas vistas e não duas contas. A aba `Planilha` mostra ainda os dois
+   números que a separam dele — a soma dos quadros, sem imposto, e o imposto,
+   que é a subtração dos dois e não um fator digitado. As mesmas duas abas
+   aparecem em `A conta da quinzena`, no mesmo componente, para que não possam
+   divergir. Os rótulos são os da planilha escritos como se escreve: a
+   transcrição literal, em caixa alta, viaja no dado e aparece ao abrir a
+   linha.
 2. **O fecho compara com o 03.08.20, e não com o `TOTAL GERAL UNIDADE`.**
    Aquela coluna é a reconstrução da própria planilha, feita com um fator de
    conversão digitado (1,366960) que não sai de arquivo nenhum — os medidos são
@@ -228,7 +239,21 @@ O fechamento classifica dinheiro por **VBZ** (`05 - Frota Fixa Variável`,
 RESUMO** (`CUSTO FIXO PADRONIZADO`, `CUSTO VARIÁVEL (AGREGADO)`, `TOTAL OUTROS
 CUSTOS`). São dois recortes do mesmo total, e quem conferia lia os dois lado a
 lado e casava de cabeça. `lib/fechamento/src/de-para.ts` é essa tradução
-escrita, com os dezoito rótulos do painel da Rota transcritos acento por acento.
+escrita, com os dezoito rótulos do painel da Rota transcritos acento por acento
+— e com um segundo nome por linha, o mesmo rótulo escrito como se escreve, que
+é o que a tela mostra.
+
+**A aritmética da planilha corrigiu três classificações.** Três linhas estavam
+enquadradas pelo que o rótulo delas parecia dizer, e o painel somado desmentiu
+as três: `TOTAL REMUNERAÇÃO ROTA DVS` começa com `TOTAL` e é **parcela** (sem
+ela o quadro não fecha; com ela fecha ao centavo, nas duas quinzenas);
+`DESCONTO DE DEVOLUÇÃO %` termina em `%` e traz **dinheiro**, o mesmo do quadro
+de baixo — o `%` é do critério, não da unidade; e a `INDISPONIBILIDADE` do
+quadro do variável tem nome de parcela e é o **desconto** de disponibilidade,
+centavo por centavo. Em todos os três, quem decidiu foi a soma do quadro contra
+o total que a própria planilha escreve. A `INDISPONIBILIDADE` do quadro do fixo
+segue sem lastro, e seguir é o certo: aquela célula vem vazia nas duas
+quinzenas, e vazia não decide sinal nenhum.
 
 **O termo que faltava era o desconto.** A planilha escreve a parcela **bruta** e
 mostra o abatimento numa linha à parte; o 03.08.20 escreve a verba **já
@@ -241,10 +266,10 @@ O que cada linha do painel virou:
 
 | Linha da planilha | O que o FreightCheck põe atrás dela |
 | --- | --- |
-| `TOTAL REMUNERAÇÃO ROTA DVS` | título do quadro. `DVS` não é definido em nenhuma das seis fontes |
-| `CUSTO FIXO PADRONIZADO` · `CUSTO FIXO INATIVOS` · `CUSTO VANS INATIVAS` · `CUSTO FIXO - ESPECIAIS` · `CUSTO FIXO - VANS` | **em conjunto**: as verbas fixas e administrativas do bloco `FRETE`, brutas dos descontos do quadro. O rateio por tipo de frota não existe no 03.08.20 |
-| `INDISPONIBILIDADE` (nos dois quadros) | sem origem — a planilha tem duas linhas de disponibilidade e o relatório tem um bloco; qual das duas esta carrega não está escrito |
-| `DESCONTO DE DEVOLUÇÃO %` | a alíquota `% Dev. Resp. Transportadora` |
+| `TOTAL REMUNERAÇÃO ROTA DVS` · `CUSTO FIXO PADRONIZADO` · `CUSTO FIXO INATIVOS` · `CUSTO VANS INATIVAS` · `CUSTO FIXO - ESPECIAIS` · `CUSTO FIXO - VANS` | **em conjunto**: as verbas fixas e administrativas do bloco `FRETE`, brutas dos descontos do quadro. O rateio por tipo de frota não existe no 03.08.20, e a sigla `DVS` não é definida em nenhuma das seis fontes |
+| `INDISPONIBILIDADE` (quadro do fixo) | sem origem — a célula vem vazia, e vazia não diz se a linha seria parcela ou abatimento |
+| `INDISPONIBILIDADE` (quadro do variável) | os quatro descontos do bloco `DESCONTO DISPONIBILIDADE` — o mesmo número que `DESCONTO DE DISPONIBILIDADE` abate no quadro de cima |
+| `DESCONTO DE DEVOLUÇÃO %` | o `Desconto Devolucao` do 03.08.20. A alíquota `% Dev. Resp. Transportadora` viaja na procedência da linha |
 | `DESCONTO DE DISPONIBILIDADE` | os quatro descontos do bloco `DESCONTO DISPONIBILIDADE` |
 | `DESCONTO COMPLEMENTAR NEGATIVO` | sem origem — sobra o `DESCONTO FRETE MINIMO` do lado do relatório, e casá-los por eliminação é dedução, não leitura |
 | `TOTAL REMUNERAÇÃO ROTA` (fixo) | as verbas fixas e administrativas do bloco `FRETE`, líquidas |
@@ -258,21 +283,24 @@ Quatro decisões que o módulo materializa:
 1. **Nenhuma linha inventa a origem.** É a regra de `@workspace/remuneracao`
    aplicada aqui: a linha sem correspondência traz `motivo` e `destrava` por
    extenso, e não um número plausível.
-2. **O que o arquivo traz junto fica junto.** As cinco linhas de tipo de frota
+2. **O que o arquivo traz junto fica junto.** As seis linhas do quadro do fixo
    compartilham um número, como `PIS + COFINS` compartilham no cadastro.
-   Rachá-lo por semelhança de rótulo seria simples e seria invenção.
+   Rachá-lo por semelhança de rótulo seria simples e seria invenção — a tela
+   escreve o valor uma vez, na linha do conjunto.
 3. **O resíduo é a afirmação verificável.** Cada quadro devolve
    `total − somado`, que é, por construção, o que as linhas sem origem e as
-   verbas sem linha somam. Resíduo zero afirma que `INDISPONIBILIDADE` e
-   `DESCONTO COMPLEMENTAR NEGATIVO` estão vazias na quinzena — e a planilha
-   derruba essa afirmação num minuto, que é de propósito.
+   verbas sem linha somam. Resíduo zero afirma que `INDISPONIBILIDADE` (a do
+   fixo) e `DESCONTO COMPLEMENTAR NEGATIVO` estão vazias na quinzena — e a
+   planilha derruba essa afirmação num minuto, que é de propósito.
 4. **A VBZ do desconto é lida, não deduzida.** `ja subtraido da VBZ 01` vira
    dado (`vbzDeOrigem`), e é ele que acusa o caso da devolução: a planilha a
    abate no quadro do variável e o relatório declara tê-la tirado da VBZ 01, que
    é fixa. O número fica onde a planilha o pôs; a discordância é dita.
 
-`GET /fechamento/competencias/:id/de-para` devolve o painel preenchido
-(`?coluna=semImposto|ctrcIcms|valorFaturado`), e `GET /fechamento/de-para` o
+`GET /fechamento/competencias/:id/de-para` devolve o painel preenchido nas três
+colunas do mês, com só a da quinzena preenchida — a mesma forma que o resumo
+mensal entrega, para que a aba `Planilha` seja o mesmo componente nas duas telas
+(`?coluna=semImposto|ctrcIcms|valorFaturado`). `GET /fechamento/de-para` devolve o
 catálogo dos dezoito rótulos sem competência nenhuma. O painel transcrito é o da
 Rota; o do AS existe na planilha e os rótulos dele ainda não foram capturados.
 

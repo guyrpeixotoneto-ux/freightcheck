@@ -319,7 +319,7 @@ function ContaDaLinha({ competenciaId, fontes }: { competenciaId: string; fontes
   */
   const { apuracao } = dados.data;
   if (!apuracao) return <SemApuracao competenciaId={competenciaId} />;
-  return <ContaApurada apuracao={apuracao} fontes={fontes} />;
+  return <ContaApurada apuracao={apuracao} competenciaId={competenciaId} fontes={fontes} />;
 }
 
 /** O que dizer quando não há conta — e para onde ir fazer uma. */
