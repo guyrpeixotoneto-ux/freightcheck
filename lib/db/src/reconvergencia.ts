@@ -1,5 +1,6 @@
 import pg from "pg";
 import { readMigrations, type MigrationFile } from "./migrate";
+import { bridgePendente } from "./bridge-marcador";
 import {
   comandoQueRepoe,
   compararSchema,
@@ -68,8 +69,12 @@ import {
  * ---------------------------------------------------------------------------
  * Quando rodar
  * ---------------------------------------------------------------------------
- * Na partida, depois de `runMigrations()`, sob a mesma política que decide
- * migrar (`deveMigrarNaPartida`) — Production, portanto. Não roda com
+ * Dois chamadores, a mesma porta de entrada (`reconvergirSeCabivel`): a partida
+ * de Production, depois de `runMigrations()`, sob a mesma política que decide
+ * migrar (`deveMigrarNaPartida`); e o operador, por
+ * `conferir-schema -- --aplicar`, que é o que resolve a tela de
+ * SCHEMA_DIVERGENTE num ambiente onde a partida não reconverge — Development,
+ * ou um Production que ainda roda um build sem este módulo. Não roda com
  * migrations pendentes: pendência explica ausência, e é a fila quem resolve.
  * O lock serializa instâncias de autoscale que sobem juntas, como no migrate.
  */
@@ -401,4 +406,84 @@ export async function reconvergirSchema(
     client.release();
     await pool.end();
   }
+}
+
+/** O desfecho: reconvergiu, ou recusou — e o motivo nomeia quem resolve. */
+export type DesfechoDaReconvergencia =
+  | { rodou: true; relatorio: RelatorioDeReconvergencia }
+  | { rodou: false; motivo: string };
+
+/**
+ * A reconvergência atrás das suas recusas — a única porta de entrada.
+ *
+ * As recusas são política, e política tem um dono só: esta função. A partida do
+ * servidor e o `conferir-schema -- --aplicar` chamam-na igualmente, e por isso
+ * não têm como discordar sobre quando reconvergir é cabível. Cada recusa nomeia
+ * quem resolve:
+ *
+ *   - **schema inexistente**: banco novo — a fila resolve, do zero;
+ *   - **pendências** (registro ausente ou incompleto): com migration pendente,
+ *     a ausência é explicada e a fila é quem resolve — reconvergir aqui criaria
+ *     objeto fora de ordem;
+ *   - **bridge pendente**: o banco declara um estado intencional no meio de um
+ *     deploy assistido, e repor o que o `down` tirou é papel do `up`.
+ *
+ * Abre a própria conexão pela URL — e não por um pool de processo — para que a
+ * pergunta e o reparo caiam garantidamente no mesmo banco, inclusive nos testes
+ * que exercitam vários.
+ */
+export async function reconvergirSeCabivel(
+  connectionString: string,
+  migrations: MigrationFile[] = readMigrations(),
+): Promise<DesfechoDaReconvergencia> {
+  const pool = new pg.Pool({ connectionString, max: 1 });
+  try {
+    const schema = await pool.query<{ migrated: boolean }>(
+      `select to_regclass('public.import_run') is not null as migrated`,
+    );
+    if (!schema.rows[0]?.migrated) {
+      return { rodou: false, motivo: "schema ainda não existe — a fila resolve" };
+    }
+
+    const temRegistro = await pool.query<{ existe: boolean }>(
+      `select to_regclass('drizzle.__drizzle_migrations') is not null as existe`,
+    );
+    if (!temRegistro.rows[0]?.existe) {
+      /* Schema sem registro: aos olhos deste build está tudo pendente — e é a
+         fila (ou a adoção, decisão humana) quem resolve, nunca o reparo. */
+      return {
+        rodou: false,
+        motivo: `${migrations.length} migration(s) pendente(s) — a fila resolve`,
+      };
+    }
+
+    const { rows } = await pool.query<{ created_at: string }>(
+      `select created_at from drizzle.__drizzle_migrations`,
+    );
+    const aplicadas = new Set(rows.map((linha) => Number(linha.created_at)));
+    const pendentes = migrations.filter((m) => !aplicadas.has(m.when));
+    if (pendentes.length > 0) {
+      return {
+        rodou: false,
+        motivo: `${pendentes.length} migration(s) pendente(s) — a fila resolve`,
+      };
+    }
+
+    const bridge = await bridgePendente(async (texto) => {
+      const r = await pool.query<Record<string, unknown>>(texto);
+      return { rows: r.rows };
+    });
+    if (bridge.pendente) {
+      return { rodou: false, motivo: "bridge pendente — o bridge:up resolve" };
+    }
+  } catch (err) {
+    return {
+      rodou: false,
+      motivo: `banco inalcançável (${err instanceof Error ? err.message : String(err)})`,
+    };
+  } finally {
+    await pool.end();
+  }
+
+  return { rodou: true, relatorio: await reconvergirSchema(connectionString, migrations) };
 }

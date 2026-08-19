@@ -35,6 +35,9 @@ import Frota360 from '@/pages/frota-360';
 import QlpAdministrativo from '@/pages/qlp-administrativo';
 import { EmPreparo } from '@/pages/em-preparo';
 import { TELAS_EM_PREPARO } from '@/pages/telas-em-preparo';
+import VisaoDoFechamento from '@/pages/fechamento/visao';
+import { EtapaDoFechamento } from '@/pages/fechamento/etapa';
+import { ETAPAS_FECHAMENTO } from '@/pages/fechamento/etapas';
 
 /**
  * As rotas do produto.
@@ -177,6 +180,23 @@ function Router() {
       {TELAS_EM_PREPARO.map((tela) => (
         <Route key={tela.href} path={tela.href}>
           <EmPreparo tela={tela} />
+        </Route>
+      ))}
+
+      {/*
+        O ambiente Fechamento inteiro, sob um prefixo só.
+
+        `/fechamento/...` é o segundo espaço de trabalho do produto — ver
+        `lib/ambiente.ts` para a regra e o porquê de a Auditoria ter ficado nos
+        endereços de sempre. As etapas vêm do catálogo pela mesma razão que as
+        telas em preparo vêm do delas: construir a tela de verdade é tirar a
+        entrada de lá e escrever o `<Route>` explícito aqui, e enquanto os dois
+        coexistirem a linha explícita ganha.
+      */}
+      <Route path="/fechamento" component={VisaoDoFechamento} />
+      {ETAPAS_FECHAMENTO.map((etapa) => (
+        <Route key={etapa.href} path={etapa.href}>
+          <EtapaDoFechamento etapa={etapa} />
         </Route>
       ))}
 

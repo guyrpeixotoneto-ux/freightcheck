@@ -20,6 +20,7 @@ import {
   stage,
 } from "../pipeline";
 import { deleteImportRun } from "../deletion";
+import { getImportRun } from "../history";
 import { createTestDatabase, type TestDb } from "../testing";
 import {
   escreverPlanilha,
@@ -326,7 +327,7 @@ describe("CAVALO+CARRETA seguido de só CAVALO", () => {
     // modo que uma correção só de cavalos abria uma **segunda** vigência ativa,
     // e os cavalos passavam a contar em dobro.
     const vigencia = "EMPURRADA_13_9_2030";
-    await importarSpec(
+    const ambos = await importarSpec(
       planilhaPadrao({
         vigencia,
         abas: [
@@ -335,6 +336,11 @@ describe("CAVALO+CARRETA seguido de só CAVALO", () => {
         ],
       }),
     );
+    // O arquivo que trouxe os dois tipos diz os dois nos dois campos: nada é
+    // herança na primeira revisão.
+    const resumoDeAmbos = await getImportRun(ctx.db, ambos.importRunId);
+    expect(resumoDeAmbos?.entityTypes).toEqual(["CARRETA", "CAVALO"]);
+    expect(resumoDeAmbos?.tiposDoArquivo).toEqual(["CARRETA", "CAVALO"]);
 
     const soCavalo = await importarSpec(
       planilhaPadrao({
@@ -364,6 +370,14 @@ describe("CAVALO+CARRETA seguido de só CAVALO", () => {
         ),
       );
     expect(carreta[0].n).toBeGreaterThan(0);
+
+    // O histórico separa as duas afirmações: a vigência resultante cobre os
+    // dois tipos, mas o segundo arquivo só trouxe cavalos — a carreta é
+    // herança, e escrevê-la como conteúdo do arquivo foi o que fez a tela de
+    // Importações etiquetar um arquivo de um tipo com os dois.
+    const resumo = await getImportRun(ctx.db, soCavalo.importRunId);
+    expect(resumo?.entityTypes).toEqual(["CARRETA", "CAVALO"]);
+    expect(resumo?.tiposDoArquivo).toEqual(["CAVALO"]);
   });
 
   it("sem declarar correção, é recusado e o run continua aprovável", async () => {

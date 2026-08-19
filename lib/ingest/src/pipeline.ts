@@ -69,6 +69,12 @@ import {
   type ColunaIdentificadora,
   type DefinicaoDeTipo,
 } from "./tipos";
+import {
+  CODIGOS_QUE_BLOQUEIAM_PROMOCAO,
+  type ApresentacaoDeApontamento,
+  type CampoDeRegistro,
+  type OndeDoApontamento,
+} from "./apontamentos";
 
 /**
  * F1 — ingestion.
@@ -152,13 +158,12 @@ const SUSPECTED_SENTINELS = ["-1"];
  * A lista é curta de propósito. Um ERRO de leitura — linha sem placa, rótulo de
  * vigência ilegível — recusa aquela linha e deixa o resto entrar, que é o
  * comportamento que o produto sempre teve e que mantém um arquivo de 40 mil
- * células útil quando três linhas estão sujas. O que entra aqui é só o que não
- * tem resposta certa possível.
+ * células útil quando três linhas estão sujas. O que entra é só o que não tem
+ * resposta certa possível. A lista mora em `apontamentos.ts` porque a tela
+ * anuncia a mesma diferença no selo ("Erro bloqueante" contra "Erro"), e as
+ * duas leituras não podem divergir.
  */
-const BLOQUEIAM_PROMOCAO = new Set([
-  "ENTIDADE_DUPLICADA_CONFLITANTE",
-  "TIPO_DIVERGE_DA_DECLARACAO",
-]);
+const BLOQUEIAM_PROMOCAO = CODIGOS_QUE_BLOQUEIAM_PROMOCAO;
 
 /**
  * O motivo que fica gravado quando a pré-visualização recusa a promoção.
@@ -177,7 +182,10 @@ function motivoDoImpedimento(
     if (issue.code === "ENTIDADE_DUPLICADA_CONFLITANTE") {
       return (
         `${issue.count} ${issue.count === 1 ? "conflito impede" : "conflitos impedem"} esta importação: ` +
-        `a mesma entidade aparece mais de uma vez na mesma vigência com valores diferentes. ` +
+        `a mesma entidade aparece mais de uma vez na mesma vigência com valores diferentes, ` +
+        `e não há como saber qual das linhas vale. ` +
+        `Os apontamentos da importação nomeiam ${issue.count === 1 ? "o conflito" : "cada conflito"} — ` +
+        `a chave repetida, as linhas da planilha e os valores que discordam. ` +
         `Corrija a origem e envie o arquivo de novo.`
       );
     }
@@ -191,6 +199,144 @@ function motivoDoImpedimento(
   });
   return frases.join(" ");
 }
+
+/**
+ * O valor de uma linha staged, como a planilha o escreveria.
+ *
+ * A recusa por conflito diz que duas linhas discordam, e dizer **em quê**
+ * exige mostrar os dois valores lado a lado. O staged guarda o valor tipado em
+ * quatro colunas; aqui ele volta a ser uma palavra só, legível na frase.
+ */
+function valorStaged(row: Record<string, unknown>): string {
+  if (row.isNull === true) return "vazio";
+  if (row.valueNumeric != null) {
+    const s = String(row.valueNumeric);
+    return s.includes(".") ? s.replace(/0+$/, "").replace(/\.$/, "") : s;
+  }
+  if (row.valueText != null) return `"${row.valueText}"`;
+  if (row.valueBoolean != null) return row.valueBoolean === true ? "verdadeiro" : "falso";
+  if (row.valueDate != null) return String(row.valueDate);
+  return "vazio";
+}
+
+/** "12", "12 e 87", "12, 87 e 90" — a enumeração como se escreve. */
+function listarComE(itens: string[]): string {
+  if (itens.length <= 1) return itens[0] ?? "";
+  return `${itens.slice(0, -1).join(", ")} e ${itens[itens.length - 1]}`;
+}
+
+/**
+ * Onde as linhas repetidas estão, dito como quem abre a planilha procura:
+ * "nas linhas 12 e 87 da aba \"Planilha1\"". Agrupado por aba porque a colisão
+ * pode atravessar abas — e aí dizer só os números mandaria abrir a errada.
+ */
+function nomearOrigens(origens: { aba: string; linha: number }[]): string {
+  const porAba = new Map<string, number[]>();
+  for (const origem of origens) {
+    const linhas = porAba.get(origem.aba) ?? [];
+    if (!linhas.includes(origem.linha)) linhas.push(origem.linha);
+    porAba.set(origem.aba, linhas);
+  }
+  return [...porAba.entries()]
+    .map(([aba, linhas]) =>
+      linhas.length === 1
+        ? `na linha ${linhas[0]} da aba "${aba}"`
+        : `nas linhas ${listarComE(linhas.map(String))} da aba "${aba}"`,
+    )
+    .join(" e ");
+}
+
+/** As mesmas origens, agrupadas por aba, na forma que a seção "Onde" desenha. */
+function ondeDasOrigens(
+  origens: { aba: string; linha: number }[],
+): OndeDoApontamento[] {
+  const porAba = new Map<string, number[]>();
+  for (const origem of origens) {
+    const linhas = porAba.get(origem.aba) ?? [];
+    if (!linhas.includes(origem.linha)) linhas.push(origem.linha);
+    porAba.set(origem.aba, linhas);
+  }
+  return [...porAba.entries()].map(([aba, linhas]) => ({ aba, linhas }));
+}
+
+/**
+ * Os campos que identificam o registro, com os nomes que a planilha usa.
+ *
+ * A forma legível da chave ("07.526.557/0015-05 · CONFERENTE") já é melhor que
+ * a normalizada, mas ainda obriga quem lê a saber o que cada pedaço é. As
+ * colunas de identidade do tipo sabem: elas têm `sourceName` — "Unidade -
+ * CNPJ", "Cargo" — e vêm na mesma ordem em que a chave foi emendada. Quando o
+ * tipo não está na lista (um equipamento novo) ou a chave veio de outra versão
+ * com outro número de partes, a chave legível inteira fica sob um rótulo só,
+ * que ainda é honesto: é o registro, sem nome de campo.
+ */
+function registroDoTipo(entityType: string, legivel: string): CampoDeRegistro[] {
+  const partes = legivel.split(SEPARADOR_LEGIVEL);
+  const identidade = tipoDeImportacao(entityType)?.identidade ?? [];
+  if (identidade.length > 0 && identidade.length === partes.length) {
+    return identidade.map((coluna, i) => ({
+      campo: coluna.sourceName,
+      valor: partes[i],
+    }));
+  }
+  return [{ campo: "Registro", valor: legivel }];
+}
+
+/** Como cada tipo interno de valor se chama numa frase. */
+const NOME_DO_TIPO_DE_VALOR: Record<string, string> = {
+  NUMERIC: "número",
+  TEXT: "texto",
+  DATE: "data",
+  BOOLEAN: "sim/não",
+};
+
+/**
+ * As seções fixas de cada aviso de célula.
+ *
+ * `values.ts` escreve a frase (o resumo) porque é lá que o caso é entendido;
+ * título, correção e motivo não variam por célula e por isso moram aqui, onde
+ * a frase vira apontamento. Sem isto, o grupo destes avisos aparecia na tela
+ * com o código cru como título — exatamente o jargão que a leitura principal
+ * não pode ter.
+ */
+const AVISO_DE_CELULA: Record<
+  string,
+  { titulo: string; comoCorrigir?: string; porQueImporta: string }
+> = {
+  ERROR_CELL: {
+    titulo: "Uma célula não pôde ser lida",
+    comoCorrigir:
+      "Abra a célula indicada e corrija o valor — o erro (#REF!, #DIV/0!…) está " +
+      "na própria planilha. Enquanto isso, o valor conta como vazio.",
+    porQueImporta:
+      "Um erro de célula não é um valor: entrar como zero inventaria dado; " +
+      "entrar como vazio, marcado, mantém a conta honesta.",
+  },
+  DATE_WITH_TIME_COMPONENT: {
+    titulo: "Uma data veio com horário",
+    comoCorrigir:
+      "Nada a corrigir se o horário é intencional. Se a coluna devia ter só " +
+      "datas, ajuste o formato das células na origem.",
+    porQueImporta: "Cortar o horário perderia informação que a coluna carrega.",
+  },
+  AMBIGUOUS_DATE_SERIAL: {
+    titulo: "Um número parece ser uma data",
+    comoCorrigir:
+      "Se a coluna é de datas, formate as células como data na planilha e envie " +
+      "de novo. Se é número mesmo, nada a fazer — a curadoria decide.",
+    porQueImporta:
+      "Converter por palpite trocaria um número real por uma data inventada.",
+  },
+  SUSPECTED_SENTINEL: {
+    titulo: 'Um valor pode significar "não se aplica"',
+    comoCorrigir:
+      'Se o valor marca mesmo "não se aplica", confirme a regra na curadoria; ' +
+      "se é um valor real, nada a fazer.",
+    porQueImporta:
+      "Tratar o valor como ausência sem regra confirmada mudaria médias e " +
+      "totais em silêncio.",
+  },
+};
 
 /** Postgres caps a statement at 65535 bound parameters. */
 const INSERT_CHUNK = 1_000;
@@ -617,6 +763,27 @@ export async function stage(
     .where(eq(importRunTable.id, importRunId));
   const declarado = tipoDeImportacao(runDeclarado?.declaredType ?? null);
 
+  /*
+    O nome curado de cada atributo, quando a curadoria já deu um.
+
+    As mensagens preferem o `display_name` ("O que cada atributo mede", dado na
+    curadoria) ao cabeçalho cru, porque é o nome que a pessoa reconhece — e
+    mantêm o cabeçalho entre parênteses quando os dois diferem, porque é o
+    cabeçalho que diz **onde corrigir** no arquivo. Ver `nomeDoAtributo`.
+  */
+  const nomesCurados = new Map<string, string>(
+    (
+      await db
+        .select({
+          code: attributeTable.code,
+          displayName: attributeTable.displayName,
+        })
+        .from(attributeTable)
+    )
+      .filter((a) => a.displayName !== null && a.displayName.trim() !== "")
+      .map((a) => [a.code, a.displayName as string]),
+  );
+
   const knownAliases = await db.select().from(attributeAliasTable);
   const aliasKey = (sourceName: string, sheetName: string) =>
     `${sheetName} ${sourceName}`;
@@ -635,6 +802,43 @@ export async function stage(
 
   const issues: PendingIssue[] = [];
   const stagedRows: Record<string, unknown>[] = [];
+  /*
+    De onde cada fato staged veio — a aba e a linha da planilha.
+
+    A recusa por duplicidade precisa mandar quem opera para um lugar que
+    existe no arquivo dele, e "a chave X colidiu" não é um lugar: "as linhas
+    12 e 87 da aba Planilha1" é. `staged_fact` até aponta a célula via
+    `raw_cell_id`, mas na hora de escrever a mensagem o que se tem na mão é a
+    linha staged, e refazer o caminho até o RAW custaria uma consulta por
+    conflito. O mapa vive só nesta passagem e nunca é gravado.
+  */
+  const origemDoStaged = new WeakMap<
+    Record<string, unknown>,
+    { aba: string; linha: number }
+  >();
+  /*
+    O cabeçalho original de cada atributo, para as mensagens falarem a língua
+    da planilha. `attribute.code` é interno ("qlp_administrativo.id"); o que a
+    pessoa reconhece é o cabeçalho que ela mesma escreveu ("ID"). O mapa é da
+    importação inteira porque apontamentos como o de tipo misto são computados
+    depois do laço de abas, quando a coluna já ficou para trás.
+  */
+  const nomeDaColuna = new Map<string, string>();
+  /*
+    O nome de um atributo como uma frase o mostra: o curado quando existe, o
+    cabeçalho quando não — e os dois quando diferem, porque um diz **o que é**
+    e o outro diz **onde corrigir**. O código interno só aparece quando não há
+    nem um nem outro, o que é o caso de um atributo que nunca teve célula
+    nesta importação.
+  */
+  const nomeDoAtributo = (code: string): string => {
+    const cabecalho = nomeDaColuna.get(code);
+    const curado = nomesCurados.get(code);
+    if (curado && cabecalho && curado !== cabecalho) {
+      return `${curado} (coluna "${cabecalho}")`;
+    }
+    return curado ?? cabecalho ?? code;
+  };
   const labels = new Set<string>();
   const identidades: SheetIdentity[] = [];
   let rowsRejected = 0;
@@ -711,6 +915,17 @@ export async function stage(
     identidades.push({ sheetName: sheet.sheetName, decision: decisao });
 
     if (conferida?.divergencia) {
+      const apresentacao: ApresentacaoDeApontamento = {
+        titulo: "O arquivo não parece ser do tipo escolhido no envio",
+        resumo: conferida.divergencia,
+        onde: [{ aba: sheet.sheetName }],
+        comoCorrigir:
+          "Envie o arquivo pela aba do tipo certo — ou confira se este é mesmo " +
+          "o arquivo que você queria enviar. Nada foi importado.",
+        porQueImporta:
+          "Importar um arquivo como se fosse de outro tipo misturaria colunas e " +
+          "registros de naturezas diferentes, e o erro só apareceria depois, nos números.",
+      };
       issues.push({
         importRunId,
         rawSheetId: sheet.id,
@@ -723,10 +938,12 @@ export async function stage(
           identidadeDaAba:
             identidadeNoCabecalho(cabecalhoFolded)?.map((c) => c.sourceName) ?? null,
           scores: deduzida.scores.slice(0, 4),
+          apresentacao,
         },
       });
     }
 
+    const rotuloDoTipo = tipoDeImportacao(entityType)?.rotulo ?? entityType;
     issues.push({
       importRunId,
       rawSheetId: sheet.id,
@@ -738,12 +955,34 @@ export async function stage(
           : decisao.source === "DICIONARIO"
             ? "IDENTITY_FROM_COLUMNS"
             : "IDENTITY_FROM_SHEET_NAME",
-      message: `Aba "${sheet.sheetName}" tratada como ${entityType}. ${decisao.reason}`,
+      message: `Aba "${sheet.sheetName}" tratada como ${rotuloDoTipo}. ${decisao.reason}`,
       detail: {
         entityType,
         source: decisao.source,
         isNew: decisao.isNew,
         scores: decisao.scores.slice(0, 4),
+        apresentacao: {
+          titulo: decisao.isNew
+            ? "Um tipo de equipamento novo apareceu neste arquivo"
+            : `A aba foi reconhecida como ${rotuloDoTipo}`,
+          resumo: decisao.reason,
+          onde: [{ aba: sheet.sheetName }],
+          ...(decisao.isNew
+            ? {
+                comoCorrigir:
+                  "Se o tipo é mesmo novo, confirme-o na pré-visualização para a " +
+                  "importação seguir. Se não é, confira o nome da aba e as colunas — " +
+                  "algo impediu o reconhecimento.",
+                porQueImporta:
+                  "Um tipo criado por engano viraria uma categoria paralela no " +
+                  "dicionário, e os valores dele ficariam fora das comparações do tipo certo.",
+              }
+            : {
+                porQueImporta:
+                  "É esse reconhecimento que decide com que dicionário as colunas " +
+                  "desta aba são lidas e comparadas.",
+              }),
+        } satisfies ApresentacaoDeApontamento,
       },
     });
 
@@ -764,6 +1003,7 @@ export async function stage(
       const folded = foldText(header);
       const slug = slugifyColumn(header);
       const attributeCode = `${entityType.toLowerCase()}.${slug}`;
+      nomeDaColuna.set(attributeCode, header);
 
       const isGrain =
         folded === GRAIN_COLUMNS.vigencia || SO_CHAVE_FOLDED.has(folded);
@@ -776,8 +1016,28 @@ export async function stage(
           rawCellId: cell.id,
           severity: "ERROR",
           code: "AMBIGUOUS_COLUMN_SLUG",
-          message: `Columns "${previousHeader}" and "${header}" both normalise to "${slug}" in sheet "${sheet.sheetName}". Refusing to merge them.`,
-          detail: { slug, headers: [previousHeader, header] },
+          message:
+            `As colunas "${previousHeader}" e "${header}" da aba "${sheet.sheetName}" ` +
+            `viram o mesmo nome depois de normalizadas, e juntá-las misturaria dados ` +
+            `diferentes; a segunda foi recusada.`,
+          detail: {
+            slug,
+            headers: [previousHeader, header],
+            apresentacao: {
+              titulo: "Duas colunas têm nomes que se confundem",
+              resumo:
+                `Na aba "${sheet.sheetName}", as colunas "${previousHeader}" e "${header}" ` +
+                `são a mesma quando maiúsculas, acentos e espaços deixam de contar. ` +
+                `A coluna "${header}" foi recusada; o resto da aba continuou.`,
+              onde: [{ aba: sheet.sheetName, coluna: header }],
+              comoCorrigir:
+                "Renomeie uma das duas colunas na planilha, de modo que os nomes não " +
+                "se confundam, e envie o arquivo de novo.",
+              porQueImporta:
+                "Se as duas entrassem como a mesma coluna, os valores de uma " +
+                "sobrescreveriam os da outra sem aviso.",
+            } satisfies ApresentacaoDeApontamento,
+          },
         });
         mappingRows.push({
           importRunId,
@@ -826,7 +1086,23 @@ export async function stage(
           rawCellId: cell.id,
           severity: "INFO",
           code: "NEW_ATTRIBUTE",
-          message: `New column "${header}" in sheet "${sheet.sheetName}" -> attribute "${attributeCode}" (semantics UNKNOWN until curated).`,
+          message:
+            `A coluna "${header}" da aba "${sheet.sheetName}" apareceu pela ` +
+            `primeira vez; passa a ser acompanhada a partir desta importação.`,
+          detail: {
+            attributeCode,
+            apresentacao: {
+              titulo: "Uma coluna nova passou a ser acompanhada",
+              resumo:
+                `A coluna "${header}" da aba "${sheet.sheetName}" apareceu pela ` +
+                `primeira vez. Os valores dela entraram normalmente.`,
+              onde: [{ aba: sheet.sheetName, coluna: header }],
+              porQueImporta:
+                "Colunas novas entram sem classificação até a curadoria dizer o que " +
+                "medem — até lá os valores ficam guardados, mas fora dos cálculos " +
+                "que dependem de classificação.",
+            } satisfies ApresentacaoDeApontamento,
+          },
         });
       }
       columns.push({ columnIndex, header, folded, attributeCode, role: "FACT" });
@@ -922,6 +1198,19 @@ export async function stage(
             vigencia: rawLabel,
             identidade: colunasDaChave.map(({ coluna }) => coluna.sourceName),
             faltando,
+            apresentacao: {
+              titulo: "Uma linha veio sem a informação que a identifica",
+              resumo:
+                `A linha ${row.rowIndex} da aba "${sheet.sheetName}" está sem ` +
+                `${faltando}. Só essa linha foi recusada; o resto do arquivo continuou.`,
+              onde: [{ aba: sheet.sheetName, linhas: [row.rowIndex] }],
+              comoCorrigir:
+                `Preencha ${faltando} nessa linha e envie o arquivo de novo — ou ` +
+                `apague a linha, se ela não devia estar ali.`,
+              porQueImporta:
+                "Sem essa informação não há como saber de que registro a linha " +
+                "fala, e um valor sem dono entraria nos cálculos sem poder ser conferido.",
+            } satisfies ApresentacaoDeApontamento,
           },
         });
         continue;
@@ -936,8 +1225,29 @@ export async function stage(
           rawRowId: row.id,
           severity: "ERROR",
           code: "UNPARSEABLE_VIGENCIA_LABEL",
-          message: `Row ${row.rowIndex} of "${sheet.sheetName}": cannot derive a date from vigência label "${rawLabel}" (${vigencia.failureCode}); rejected rather than guessed.`,
-          detail: { label: rawLabel, failureCode: vigencia.failureCode },
+          message:
+            `A linha ${row.rowIndex} da aba "${sheet.sheetName}" traz a vigência ` +
+            `"${rawLabel}", de onde não dá para tirar uma data; a linha foi ` +
+            `recusada em vez de adivinhada.`,
+          detail: {
+            label: rawLabel,
+            failureCode: vigencia.failureCode,
+            apresentacao: {
+              titulo: "Não conseguimos entender a vigência de uma linha",
+              resumo:
+                `A linha ${row.rowIndex} da aba "${sheet.sheetName}" traz ` +
+                `"${rawLabel}" na coluna Vigencia, e desse texto não dá para tirar ` +
+                `uma data. Só essa linha foi recusada; o resto do arquivo continuou.`,
+              onde: [{ aba: sheet.sheetName, linhas: [row.rowIndex] }],
+              registro: [{ campo: "Vigencia", valor: rawLabel }],
+              comoCorrigir:
+                "Escreva a vigência dessa linha como nas demais linhas do arquivo " +
+                "(por exemplo, EMPURRADA_1_8_2026) e envie o arquivo de novo.",
+              porQueImporta:
+                "A vigência diz quando o valor passou a valer. Adivinhar uma data " +
+                "colocaria o dado no período errado da auditoria.",
+            } satisfies ApresentacaoDeApontamento,
+          },
         });
         continue;
       }
@@ -963,6 +1273,7 @@ export async function stage(
         });
 
         for (const warning of typed.warnings) {
+          const aviso = AVISO_DE_CELULA[warning.code];
           issues.push({
             importRunId,
             rawSheetId: sheet.id,
@@ -971,7 +1282,28 @@ export async function stage(
             severity: "WARNING",
             code: warning.code,
             message: warning.message,
-            detail: { attributeCode: column.attributeCode },
+            detail: {
+              attributeCode: column.attributeCode,
+              ...(aviso
+                ? {
+                    apresentacao: {
+                      titulo: aviso.titulo,
+                      resumo: warning.message,
+                      onde: [
+                        {
+                          aba: sheet.sheetName,
+                          linhas: [row.rowIndex],
+                          coluna: column.header,
+                        },
+                      ],
+                      ...(aviso.comoCorrigir
+                        ? { comoCorrigir: aviso.comoCorrigir }
+                        : {}),
+                      porQueImporta: aviso.porQueImporta,
+                    } satisfies ApresentacaoDeApontamento,
+                  }
+                : {}),
+            },
           });
         }
 
@@ -985,12 +1317,30 @@ export async function stage(
             rawRowId: row.id,
             severity: "ERROR",
             code: "MISSING_RAW_CELL",
-            message: `No RAW cell captured for column "${column.header}" at row ${row.rowIndex}; fact not staged.`,
+            message:
+              `A leitura não capturou a célula da coluna "${column.header}" na ` +
+              `linha ${row.rowIndex} — falha nossa, não do arquivo; esse valor não entrou.`,
+            detail: {
+              apresentacao: {
+                titulo: "Falha na leitura de uma célula",
+                resumo:
+                  `A leitura interna não capturou a célula da coluna ` +
+                  `"${column.header}" na linha ${row.rowIndex}. Esse valor não ` +
+                  `entrou; o resto do arquivo continuou.`,
+                onde: [{ aba: sheet.sheetName, linhas: [row.rowIndex], coluna: column.header }],
+                comoCorrigir:
+                  "Envie o arquivo de novo. Se o erro repetir, é um defeito do " +
+                  "FreightCheck, não da sua planilha — reporte-o.",
+                porQueImporta:
+                  "Um valor que a leitura perdeu precisa aparecer como perdido, " +
+                  "não sumir em silêncio.",
+              } satisfies ApresentacaoDeApontamento,
+            },
           });
           continue;
         }
 
-        stagedRows.push({
+        const staged: Record<string, unknown> = {
           importRunId,
           rawCellId: cell.id,
           snapshotLabel: vigencia.label,
@@ -1006,7 +1356,9 @@ export async function stage(
           isNull: typed.isNull,
           nullReason: typed.nullReason,
           status: typed.warnings.length > 0 ? "WARNING" : "VALID",
-        });
+        };
+        stagedRows.push(staged);
+        origemDoStaged.set(staged, { aba: sheet.sheetName, linha: row.rowIndex });
       }
     }
   }
@@ -1030,12 +1382,34 @@ export async function stage(
   }
   for (const [code, types] of typesByAttribute) {
     if (types.size <= 1) continue;
+    const nome = nomeDoAtributo(code);
+    const tiposLegiveis = [...types]
+      .sort()
+      .map((t) => NOME_DO_TIPO_DE_VALOR[t] ?? t.toLowerCase());
     issues.push({
       importRunId,
       severity: "WARNING",
       code: "MIXED_TYPE_COLUMN",
-      message: `Attribute "${code}" arrives as ${[...types].sort().join(" and ")} within the same import; stored per value and typed MIXED pending curation.`,
-      detail: { attributeCode: code, types: [...types].sort() },
+      message:
+        `A coluna "${nome}" traz ${listarComE(tiposLegiveis)} no mesmo arquivo; ` +
+        `cada valor foi guardado como veio, até a curadoria decidir o tipo.`,
+      detail: {
+        attributeCode: code,
+        types: [...types].sort(),
+        apresentacao: {
+          titulo: "Uma coluna mistura tipos de valor",
+          resumo:
+            `A coluna "${nome}" traz ${listarComE(tiposLegiveis)} no mesmo ` +
+            `arquivo. Nada foi recusado: cada valor foi guardado como veio.`,
+          comoCorrigir:
+            `Confira na planilha se a coluna "${nome}" não mistura, por engano, ` +
+            "número com texto — um \"N/A\" no meio de valores, por exemplo. Se a " +
+            "mistura for legítima, a curadoria decide como tratá-la.",
+          porQueImporta:
+            "Somar ou comparar uma coluna que mistura tipos produziria resultados " +
+            "errados sem avisar.",
+        } satisfies ApresentacaoDeApontamento,
+      },
     });
   }
 
@@ -1064,7 +1438,17 @@ export async function stage(
   }
 
   const consolidados: Record<string, unknown>[] = [];
-  const conflitos = new Map<string, Set<string>>();
+  /*
+    Os conflitos, com a evidência inteira: por chave, cada campo que discorda
+    guarda as suas ocorrências staged — é delas que a mensagem tira a forma
+    legível da chave, as linhas da planilha e os dois valores em desacordo.
+    Um `Set` de códigos de atributo dizia **onde** havia conflito e não **o
+    quê**, e a recusa chegava à tela mandando corrigir sem mostrar a diferença.
+  */
+  const conflitos = new Map<
+    string,
+    { legivel: string; porAtributo: Map<string, Record<string, unknown>[]> }
+  >();
   /*
     As duplicidades que **concordam**, por chave.
 
@@ -1080,7 +1464,12 @@ export async function stage(
   */
   const consolidacoesPorChave = new Map<
     string,
-    { atributos: Set<string>; linhas: number }
+    {
+      legivel: string;
+      atributos: Set<string>;
+      linhas: number;
+      origens: { aba: string; linha: number }[];
+    }
   >();
   for (const [grao, ocorrencias] of porGrao) {
     if (ocorrencias.length === 1) {
@@ -1108,70 +1497,195 @@ export async function stage(
     if (valores.size === 1) {
       const chave = [label, entityType, entityKey].join("\u001f");
       const registro = consolidacoesPorChave.get(chave) ?? {
+        legivel: (ocorrencias[0].entityKeyRaw as string) || entityKey,
         atributos: new Set<string>(),
         linhas: 0,
+        origens: [] as { aba: string; linha: number }[],
       };
       registro.atributos.add(attributeCode);
       // O maior número de ocorrências de um mesmo atributo é quantas linhas da
       // origem caíram nesta chave: somar por atributo contaria a mesma linha
       // uma vez por coluna.
       registro.linhas = Math.max(registro.linhas, ocorrencias.length);
+      for (const ocorrencia of ocorrencias) {
+        const origem = origemDoStaged.get(ocorrencia);
+        if (
+          origem &&
+          !registro.origens.some((o) => o.aba === origem.aba && o.linha === origem.linha)
+        ) {
+          registro.origens.push(origem);
+        }
+      }
       consolidacoesPorChave.set(chave, registro);
       continue;
     }
     const chave = [label, entityType, entityKey].join("\u001f");
-    let atributos = conflitos.get(chave);
-    if (!atributos) {
-      atributos = new Set();
-      conflitos.set(chave, atributos);
+    let conflito = conflitos.get(chave);
+    if (!conflito) {
+      conflito = {
+        legivel: (ocorrencias[0].entityKeyRaw as string) || entityKey,
+        porAtributo: new Map(),
+      };
+      conflitos.set(chave, conflito);
     }
-    atributos.add(ocorrencias[0].attributeCode as string);
+    conflito.porAtributo.set(attributeCode, ocorrencias);
   }
 
-  for (const [chave, { atributos, linhas }] of consolidacoesPorChave) {
+  for (const [chave, { legivel, atributos, linhas, origens }] of consolidacoesPorChave) {
     const [label, entityType, entityKey] = chave.split("\u001f");
+    const rotulo = tipoDeImportacao(entityType)?.rotulo ?? entityType;
     const campos = [...atributos].sort();
+    const onde = origens.length > 0 ? ` — ${nomearOrigens(origens)} —` : "";
     issues.push({
       importRunId,
       severity: "INFO",
       code: "ENTIDADE_DUPLICADA_CONSOLIDADA",
       message:
-        `${entityType} ${entityKey} aparece em ${linhas} linhas da vigência ${label}, e elas dizem o mesmo em ` +
+        `${rotulo} "${legivel}" aparece em ${linhas} linhas da vigência ${label}${onde}, e elas dizem o mesmo em ` +
         `${campos.length} ${campos.length === 1 ? "campo" : "campos"}; consolidadas numa ocorrência. ` +
         `Nada foi descartado: as linhas continuam inteiras no RAW, e é lá que elas podem ser conferidas uma a uma.`,
       detail: {
         vigencia: label,
+        tipo: rotulo,
+        chave: legivel,
         entityType,
         entityKey,
         linhas,
+        origem: origens.map((o) => `aba "${o.aba}", linha ${o.linha}`),
         // Os campos inteiros, e não uma amostra: é esta lista que diz **o
         // que** as duas linhas tinham em comum, e ela é o material da medição
         // de grão. Truncá-la aqui seria esconder metade da evidência.
         atributos: campos,
+        apresentacao: {
+          titulo: "Linhas repetidas concordavam e foram consolidadas",
+          resumo:
+            `O mesmo registro aparece em ${linhas} linhas da vigência ${label}, ` +
+            `com valores iguais. Entrou uma ocorrência só; nada foi descartado.`,
+          onde: ondeDasOrigens(origens),
+          registro: registroDoTipo(entityType, legivel),
+          comoCorrigir:
+            "Nada precisa ser corrigido agora. Se a repetição não era esperada, " +
+            "vale conferir a origem — linhas repetidas costumam ser o primeiro " +
+            "sinal de um registro que a planilha não separa direito.",
+          porQueImporta:
+            "Todas as linhas seguem guardadas como chegaram e podem ser " +
+            "conferidas uma a uma; a consolidação só evita contar o mesmo valor duas vezes.",
+        } satisfies ApresentacaoDeApontamento,
       },
     });
   }
 
-  for (const [chave, atributos] of conflitos) {
+  for (const [chave, conflito] of conflitos) {
     const [label, entityType, entityKey] = chave.split("\u001f");
+    const rotulo = tipoDeImportacao(entityType)?.rotulo ?? entityType;
+    const campos = [...conflito.porAtributo.keys()].sort();
+
+    // As linhas da planilha envolvidas no conflito, sem repetição — a união
+    // entre os campos, porque as mesmas linhas discordam em vários deles.
+    const origens: { aba: string; linha: number }[] = [];
+    for (const ocorrencias of conflito.porAtributo.values()) {
+      for (const ocorrencia of ocorrencias) {
+        const origem = origemDoStaged.get(ocorrencia);
+        if (
+          origem &&
+          !origens.some((o) => o.aba === origem.aba && o.linha === origem.linha)
+        ) {
+          origens.push(origem);
+        }
+      }
+    }
+    origens.sort((a, b) =>
+      a.aba === b.aba ? a.linha - b.linha : a.aba.localeCompare(b.aba),
+    );
+
+    /*
+      A frase mostra a divergência, e não só onde ela está.
+
+      Dizia "com valores diferentes em qlp_administrativo.id" — o código do
+      campo, a chave normalizada emendada e nada dos valores. Quem lia sabia
+      que havia conflito e não sabia qual era, nem em que linha da planilha
+      olhar. Agora a recusa traz a chave como está escrita no arquivo, as
+      linhas que colidiram e os dois valores em desacordo — o suficiente para
+      corrigir sem investigar. O corte em poucos campos evita uma frase de
+      página inteira quando a linha inteira discorda; a lista completa segue
+      em `detail.atributos`.
+    */
+    /*
+      As diferenças inteiras, estruturadas: a coluna pelo cabeçalho que a
+      planilha usa, e cada valor com a linha de onde veio. É esta lista que a
+      tela desenha como tabela — a frase abaixo mostra só as primeiras para
+      não virar um parágrafo de página quando a linha inteira discorda.
+    */
+    const diferencas = campos.map((campo) => ({
+      campo: nomeDoAtributo(campo),
+      versoes: conflito.porAtributo.get(campo)!.map((ocorrencia) => {
+        const origem = origemDoStaged.get(ocorrencia);
+        return {
+          ...(origem ? { aba: origem.aba, linha: origem.linha } : {}),
+          valor: valorStaged(ocorrencia),
+        };
+      }),
+    }));
+
+    const MOSTRAR = 3;
+    const naFrase = diferencas.slice(0, MOSTRAR).map((diferenca) => {
+      const versoes = diferenca.versoes.map((versao) =>
+        versao.linha !== undefined
+          ? `a linha ${versao.linha} traz ${versao.valor}`
+          : `uma linha traz ${versao.valor}`,
+      );
+      return `${diferenca.campo} (${listarComE(versoes)})`;
+    });
+    const cortados = campos.length - MOSTRAR;
+    const maisCampos =
+      cortados > 0
+        ? `; e mais ${cortados} ${cortados === 1 ? "campo divergente, listado" : "campos divergentes, listados"} no detalhe`
+        : "";
+
+    const apresentacao: ApresentacaoDeApontamento = {
+      titulo:
+        origens.length === 2
+          ? "Encontramos duas linhas para o mesmo registro com informações diferentes"
+          : "Encontramos linhas repetidas para o mesmo registro com informações diferentes",
+      resumo:
+        `A importação não pode continuar: o mesmo registro aparece ` +
+        `${origens.length > 1 ? `${origens.length} vezes` : "mais de uma vez"} na ` +
+        `vigência ${label}, com dados que não batem entre si.`,
+      onde: ondeDasOrigens(origens),
+      registro: registroDoTipo(entityType, conflito.legivel),
+      diferencas,
+      comoCorrigir:
+        "Verifique qual linha está correta. Se as linhas falam do mesmo registro, " +
+        "mantenha apenas a correta — ou deixe os valores iguais — e importe novamente. " +
+        "Se são registros diferentes, confira as colunas que os identificam: algo as " +
+        "está fazendo parecer o mesmo.",
+      porQueImporta:
+        "O FreightCheck não escolhe em silêncio entre dois valores conflitantes: a " +
+        "escolha errada entraria no histórico e nos cálculos da auditoria como se " +
+        "fosse o dado verdadeiro.",
+    };
+
     issues.push({
       importRunId,
       severity: "ERROR",
       code: "ENTIDADE_DUPLICADA_CONFLITANTE",
-      /*
-        A frase dizia "a carreta de placa X" e "o mesmo veículo", e deixou de
-        servir quando o grão parou de ser sempre uma placa: um trecho não tem
-        placa, e uma linha de quadro de pessoal não é veículo nenhum. O que a
-        recusa precisa nomear é a chave que se repetiu, e ela vale para os três.
-      */
       message:
-        `${entityType} ${entityKey} aparece mais de uma vez na vigência ${label} com valores diferentes em ${[...atributos].sort().join(", ")}. ` +
-        `Duas linhas para a mesma chave, discordando, não têm resposta certa: corrija a origem e envie de novo.`,
+        `${rotulo} "${conflito.legivel}" aparece mais de uma vez na vigência ${label}` +
+        (origens.length > 0 ? ` — ${nomearOrigens(origens)} —` : "") +
+        ` com valores diferentes: ${naFrase.join("; ")}${maisCampos}. ` +
+        `Linhas repetidas para a mesma chave, discordando entre si, não têm resposta certa, ` +
+        `e a importação não escolhe uma em silêncio. ` +
+        `Corrija a planilha de origem — deixe uma linha só por chave, ou os mesmos valores nas repetidas — ` +
+        `e envie o arquivo de novo.`,
       detail: {
         vigencia: label,
+        tipo: rotulo,
+        chave: conflito.legivel,
         entityType,
         entityKey,
-        atributos: [...atributos].sort(),
+        linhas: origens.map((o) => `aba "${o.aba}", linha ${o.linha}`),
+        atributos: campos,
+        apresentacao,
       },
     });
   }
@@ -2607,18 +3121,22 @@ async function recordChassisIdentifiers(
   effectiveDate: string,
   importRunId: string,
 ): Promise<void> {
-  const chassisByEntity = new Map<string, string>();
+  const chassisByEntity = new Map<string, { chassis: string; legivel: string }>();
   for (const fact of facts) {
     const suffix = fact.attributeCode.split(".").slice(1).join(".");
     if (suffix !== "chassi" || fact.isNull) continue;
     const value = (fact.valueText ?? "").trim();
     if (value === "") continue;
-    chassisByEntity.set(`${fact.entityType}:${fact.entityKey}`, value);
+    chassisByEntity.set(`${fact.entityType}:${fact.entityKey}`, {
+      chassis: value,
+      legivel: fact.entityKeyRaw ?? fact.entityKey,
+    });
   }
 
-  for (const [cacheKey, chassis] of chassisByEntity) {
+  for (const [cacheKey, { chassis, legivel }] of chassisByEntity) {
     const entityId = entityCache.get(cacheKey);
     if (!entityId) continue;
+    const [entityType] = cacheKey.split(":");
     const [existing] = await tx
       .select()
       .from(entityIdentifierTable)
@@ -2631,12 +3149,38 @@ async function recordChassisIdentifiers(
       );
     if (existing) {
       if (existing.entityId !== entityId) {
+        const rotulo = tipoDeImportacao(entityType)?.rotulo ?? entityType;
         await tx.insert(validationIssueTable).values({
           importRunId,
           severity: "ERROR",
           code: "ENTITY_IDENTIFIER_CONFLICT",
-          message: `Chassis ${chassis} is already current for a different entity; identifier not attached.`,
-          detail: { chassis, existingEntityId: existing.entityId, entityId },
+          message:
+            `O chassi ${chassis} já pertence, hoje, a outro veículo no sistema; ` +
+            `ele não foi vinculado a ${rotulo} "${legivel}". Os valores da linha ` +
+            `entraram normalmente.`,
+          detail: {
+            chassis,
+            existingEntityId: existing.entityId,
+            entityId,
+            apresentacao: {
+              titulo: "Um chassi do arquivo já pertence a outro veículo",
+              resumo:
+                `O chassi ${chassis} já está, hoje, vinculado a outro veículo no ` +
+                `sistema. Ele não foi vinculado a ${rotulo} "${legivel}"; os ` +
+                `valores da linha entraram normalmente.`,
+              registro: [
+                ...registroDoTipo(entityType, legivel),
+                { campo: "chassi", valor: chassis },
+              ],
+              comoCorrigir:
+                "Confira na planilha se o chassi está na linha do veículo certo. " +
+                "Se o chassi mudou mesmo de veículo, trate a troca com a curadoria " +
+                "— ela é registrada com histórico, não por importação.",
+              porQueImporta:
+                "Dois veículos com o mesmo chassi corromperiam o histórico dos " +
+                "dois; o vínculo existente fica de pé até alguém decidir.",
+            } satisfies ApresentacaoDeApontamento,
+          },
         });
       }
       continue;
