@@ -45,29 +45,6 @@ export interface EtapaFechamento {
 
 export const ETAPAS_FECHAMENTO: EtapaFechamento[] = [
   // -------------------------------------------------------------------------
-  // Competência
-  // -------------------------------------------------------------------------
-  {
-    href: "/fechamento/competencias",
-    label: "Competências",
-    icon: CalendarDays,
-    pergunta:
-      "Que períodos existem, em que estado está cada um — aberto, em apuração, aprovado, fechado — e qual é o que está sendo trabalhado agora.",
-    depende: [
-      "A competência como registro próprio no banco: hoje existe a vigência, que é o retrato que o Freightec exporta, e não o período de apuração com estado, dono e ciclo de vida.",
-      "A regra que liga competência a vigência — qual retrato da base remunerada vale para qual período — decidida e escrita, porque é ela que diz sobre o que o fechamento fecha.",
-    ],
-    hoje: [
-      {
-        href: "/vigencias",
-        label: "Vigências",
-        porque: "Os períodos que a base já conhece: cada vigência importada, com o que ela cobre.",
-        ambiente: "auditoria",
-      },
-    ],
-  },
-
-  // -------------------------------------------------------------------------
   // Apuração
   // -------------------------------------------------------------------------
   {

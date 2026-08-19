@@ -154,6 +154,23 @@ export function tolerancia(valor: number): number {
   return 1 + Math.abs(valor) * 0.00002;
 }
 
+/**
+ * Dinheiro na frase de uma divergência.
+ *
+ * O título vai para o banco e de lá para a tela, então ele precisa nascer
+ * legível: `328169.46` no meio de uma frase em português é o tipo de detalhe
+ * que faz quem lê desconfiar do resto. A formatação é fixada em pt-BR porque a
+ * frase também é.
+ */
+function emReais(valor: number): string {
+  return valor.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}
+
 /** Roda a apuração da competência com as fontes que houver. */
 export function apurar(competencia: Competencia, fontes: Fontes): Apuracao {
   const presentes: TipoDeFonte[] = [];
@@ -369,7 +386,7 @@ function levantarDivergencias(
         canal: v.verba.canal,
         titulo: `${v.verba.nome}: emitido e apurado não fecham`,
         valor: v.diferenca ?? 0,
-        onde: `VBZ ${v.verba.vbz} — emitido ${v.emitido.toFixed(2)}, apurado ${v.esperado.toFixed(2)}`,
+        onde: `VBZ ${v.verba.vbz} — emitido ${emReais(v.emitido)}, apurado ${emReais(v.esperado)}`,
         sentido: (v.diferenca ?? 0) < 0 ? "A_RECEBER" : "A_PAGAR",
       });
     }
@@ -459,8 +476,8 @@ function levantarDivergencias(
         tipo: "OPERACAO_NAO_FECHA",
         canal: resumo.canal,
         titulo:
-          `O 2Art do canal ${resumo.canal} soma ${resumo.freteComImposto.toFixed(2)} e o SRTrans ` +
-          `calculou ${calculado.toFixed(2)}`,
+          `O 2Art do canal ${resumo.canal} soma ${emReais(resumo.freteComImposto)} e o SRTrans ` +
+          `calculou ${emReais(calculado)}`,
         valor: diferenca,
         onde: `2Art — ${resumo.viagens} viagens no período, coluna ValorFaturado`,
         sentido: diferenca > 0 ? "A_RECEBER" : "A_PAGAR",
