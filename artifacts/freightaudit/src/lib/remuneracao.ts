@@ -233,13 +233,19 @@ export const NOME_DO_PREENCHIMENTO: Record<Preenchimento, string> = {
 };
 
 /**
- * O que cada movimento significa, numa frase — a que a tela mostra no rodapé de
- * uma linha que mudou de estado.
+ * O que cada movimento significa, numa frase.
  *
  * `IGUAL`, `SUBIU` e `DESCEU` não têm frase: o número das duas colunas já as
  * diz, e uma legenda repetindo "subiu" ao lado de uma seta para cima só ocupa
- * espaço. As outras três têm, porque nenhuma delas é sobre dinheiro e as três
- * seriam lidas como se fossem.
+ * espaço.
+ *
+ * `SEM_COMPARACAO` também não tem, e por outra razão: ela é a maioria das
+ * linhas hoje, e a mesma frase escrita em cada uma apareceu vinte e sete vezes
+ * idênticas na mesma tela, empurrando para baixo as três que tinham número. O
+ * que ela diria a tabela agora diz uma vez por bloco.
+ *
+ * Ficam as duas que são notícia — cobertura que apareceu e cobertura que sumiu.
+ * Nenhuma das duas é sobre dinheiro, e as duas seriam lidas como se fossem.
  */
 export const EXPLICACAO_DO_MOVIMENTO: Partial<Record<Movimento, string>> = {
   GANHOU_LASTRO:
@@ -248,5 +254,4 @@ export const EXPLICACAO_DO_MOVIMENTO: Partial<Record<Movimento, string>> = {
   PERDEU_LASTRO:
     "A quinzena anterior sustentava esta linha e esta não sustenta. Não é queda — é cobertura " +
     "que se perdeu, e vale conferir o que mudou na importação.",
-  SEM_COMPARACAO: "Nenhuma das duas quinzenas sustenta esta linha.",
 };

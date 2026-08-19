@@ -115,15 +115,22 @@ beforeAll(async () => {
       {
         label: "EMPURRADA_1_7_2026",
         effectiveDate: ANTERIOR,
-        data: { AAA1A11: { ...IPVA, [COLUNA.ativo.code]: "SIM" } },
+        data: { AAA1A11: { ...IPVA, [COLUNA.ativo.code]: "ATIVO" } },
       },
       {
         label: "EMPURRADA_1_8_2026",
         effectiveDate: VIGENCIA,
         data: {
-          AAA1A11: { ...IPVA, [COLUNA.ativo.code]: "SIM" },
+          /*
+            `ATIVO` e `PARADO` são as duas palavras do export real — medidas no
+            acervo de CAMAÇARI em 19/08/2026, 442 e 116 linhas nas nove
+            vigências. É por elas que a contagem tem de responder; `SIM` está
+            junto porque a mesma coluna chega assim em outros exports, e o
+            cadastro não pode depender de qual variante veio no mês.
+          */
+          AAA1A11: { ...IPVA, [COLUNA.ativo.code]: "ATIVO" },
           BBB2B22: { ...IPVA, [COLUNA.ativo.code]: "SIM" },
-          CCC3C33: { ...IPVA, [COLUNA.ativo.code]: "NAO" },
+          CCC3C33: { ...IPVA, [COLUNA.ativo.code]: "PARADO" },
           /*
             Os dois últimos existem na vigência e não dizem se estão ativos, de
             duas formas diferentes — e as duas acontecem no export real:
@@ -211,10 +218,10 @@ describe("a leitura do acervo", () => {
     expect(pis.conjunto!.valor).toBeCloseTo(9.25, 4);
   });
 
-  it("conta a frota pela coluna `ativo`, inclusive quando ela vem como texto", async () => {
+  it("conta a frota pelas palavras que a coluna `ativo` de fato usa", async () => {
     const lido = await cadastro();
 
-    // `SIM` e `NAO` — o export escreve assim, e o canônico guarda em `value_text`.
+    // `ATIVO`/`PARADO` no export real, `SIM` numa variante — todas em `value_text`.
     expect(valorDe(lido, "frota_fixa_ativos")).toBe(2);
     expect(valorDe(lido, "frota_fixa_inativos")).toBe(1);
     // Cinco veículos, três respostas. Os dois calados não engrossam os inativos.
@@ -338,7 +345,7 @@ describe("as duas quinzenas lado a lado", () => {
         {
           label: "SOZINHA_1_9_2026",
           effectiveDate: "2026-09-01",
-          data: { ZZZ9Z99: { ...IPVA, [COLUNA.ativo.code]: "SIM" } },
+          data: { ZZZ9Z99: { ...IPVA, [COLUNA.ativo.code]: "ATIVO" } },
         },
       ],
       { entityType: "CAVALO", scopeHash: "escopo-de-uma-vigencia", canal: "sozinha" },

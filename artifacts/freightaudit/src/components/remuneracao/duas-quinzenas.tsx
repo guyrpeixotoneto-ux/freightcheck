@@ -109,6 +109,18 @@ function Bloco({
   rotuloEsquerda: string;
   rotuloDireita: string;
 }) {
+  /*
+    Quantas linhas do bloco nenhuma das duas quinzenas sustenta.
+
+    A frase sai **uma vez por bloco**, e não uma por linha. Escrita linha a
+    linha ela apareceu vinte e sete vezes na mesma tela, idêntica, empurrando
+    para baixo as três linhas que de fato tinham número — o oposto do que a
+    comparação existe para fazer. Uma vez por bloco diz a mesma coisa e deixa a
+    tabela legível; o motivo específico de cada linha continua inteiro na vista
+    de uma quinzena, que é onde ele cabe.
+  */
+  const semLastroNasDuas = bloco.linhas.filter((l) => l.movimento === "SEM_COMPARACAO").length;
+
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -146,22 +158,48 @@ function Bloco({
             </tbody>
           </table>
         </div>
+
+        {semLastroNasDuas > 0 && (
+          <p className="border-t px-6 py-3 text-xs text-muted-foreground">
+            {semLastroNasDuas === bloco.linhas.length
+              ? "Nenhuma das duas quinzenas sustenta as linhas deste bloco."
+              : `${semLastroNasDuas} ${
+                  semLastroNasDuas === 1 ? "linha deste bloco" : "linhas deste bloco"
+                } ${semLastroNasDuas === 1 ? "não é sustentada" : "não são sustentadas"} por ` +
+                "nenhuma das duas quinzenas."}{" "}
+            O motivo de cada uma, e o que a destravaria, está na vista{" "}
+            <strong>Uma quinzena</strong>.
+          </p>
+        )}
       </CardContent>
     </Card>
   );
 }
 
-/** A cor de cada movimento. Só os dois de dinheiro ganham cor. */
+/**
+ * **Nenhum movimento é verde ou vermelho, e isso é decisão.**
+ *
+ * O produto usa vermelho e verde em outras telas — em `aba-chamados.tsx` e
+ * `aba-planilha.tsx` a cor sai de `perda`, que é uma afirmação sobre o
+ * resultado. Aqui não existe equivalente: **o cadastro não tem polaridade.**
+ * Mais veículo ativo é bom; mais veículo parado é ruim; ICMS mais alto é ruim;
+ * a fatia dentro do município subir não é nem uma coisa nem outra. Trinta
+ * linhas, e o sentido de "subiu" muda de uma para a outra.
+ *
+ * Colorir por direção resolveria isso pintando de verde a linha "Total Frota
+ * Fixa Inativos" quando ela sobe de 14 para 16 — dois caminhões que pararam de
+ * rodar, anunciados como boa notícia. Foi exatamente o que apareceu na tela
+ * antes desta decisão.
+ *
+ * O que carrega a direção são a seta e o sinal, que não afirmam nada além da
+ * direção — o mesmo argumento de `formatPercent` em `lib/format.ts`: "o sinal
+ * explícito evita ler queda como alta". Quem sabe se subir é bom naquela linha
+ * é quem está lendo, e esta tela não finge saber por ele.
+ */
 const COR_DO_MOVIMENTO: Record<Movimento, string> = {
-  SUBIU: "text-emerald-600 dark:text-emerald-400",
-  DESCEU: "text-destructive",
+  SUBIU: "text-foreground",
+  DESCEU: "text-foreground",
   IGUAL: "text-muted-foreground",
-  /*
-    Cobertura ganha e perdida não é verde nem vermelho: verde diria "melhorou o
-    resultado" e vermelho, "piorou", e nenhuma das duas fala de resultado. Ficam
-    na cor do texto secundário, com a frase inteira embaixo — que é o que de
-    fato precisa ser lido.
-  */
   GANHOU_LASTRO: "text-muted-foreground",
   PERDEU_LASTRO: "text-muted-foreground",
   SEM_COMPARACAO: "text-muted-foreground",
@@ -175,15 +213,23 @@ const ICONE_DO_MOVIMENTO: Partial<Record<Movimento, typeof Minus>> = {
 
 function Linha({ linha }: { linha: LinhaComparada }) {
   const Icone = ICONE_DO_MOVIMENTO[linha.movimento];
-  const explicacao = EXPLICACAO_DO_MOVIMENTO[linha.movimento];
   const mexeu = linha.movimento === "SUBIU" || linha.movimento === "DESCEU";
 
   /*
-    A ausência só é mostrada quando ela é a novidade do par. Repetir os dois
-    motivos em toda linha que nenhuma das quinzenas sustenta encheria a tabela
-    com dezenove parágrafos idênticos — e eles estão, íntegros, na vista de uma
-    quinzena. O que muda de estado, porém, aparece sempre.
+    Só o que **mudou de estado** ganha parágrafo próprio.
+
+    `SEM_COMPARACAO` é a maioria das linhas hoje, e a frase dela é sempre a
+    mesma; escrita em cada uma, apareceu vinte e sete vezes idênticas na mesma
+    tela. Ela passou para o rodapé do bloco. Ficam aqui as duas que são notícia
+    — cobertura que apareceu e cobertura que sumiu —, com o motivo do lado que
+    não sustenta junto: são as únicas linhas desta tela que alguém poderia ler
+    como dinheiro sem serem, e por isso são as únicas que nunca são abreviadas.
   */
+  const explicacao =
+    linha.movimento === "GANHOU_LASTRO" || linha.movimento === "PERDEU_LASTRO"
+      ? EXPLICACAO_DO_MOVIMENTO[linha.movimento]
+      : undefined;
+
   const ausenciaRelevante =
     linha.movimento === "PERDEU_LASTRO"
       ? linha.direita.ausencia
