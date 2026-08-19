@@ -958,6 +958,12 @@ importers:
 
   lib/fechamento:
     dependencies:
+      '@workspace/db':
+        specifier: workspace:*
+        version: link:../db
+      drizzle-orm:
+        specifier: 'catalog:'
+        version: 0.45.2(@types/pg@8.20.0)(pg@8.22.0)
       xlsx:
         specifier: ^0.18.5
         version: 0.18.5
@@ -965,6 +971,12 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 25.9.5
+      '@types/pg':
+        specifier: ^8.20.0
+        version: 8.20.0
+      pg:
+        specifier: ^8.22.0
+        version: 8.22.0
       tsx:
         specifier: 'catalog:'
         version: 4.23.1

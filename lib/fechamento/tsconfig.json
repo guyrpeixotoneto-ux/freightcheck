@@ -6,8 +6,16 @@
     "emitDeclarationOnly": true,
     "outDir": "dist",
     "rootDir": "src",
-    "types": ["node"]
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src"],
-  "references": []
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../db"
+    }
+  ]
 }
