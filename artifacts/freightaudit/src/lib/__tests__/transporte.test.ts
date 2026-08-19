@@ -22,11 +22,55 @@ describe("diagnosticarTransporte", () => {
     const d = diagnosticarTransporte({ naoCompletou: true });
 
     expect(d.estado).toBe("SEM_RESPOSTA");
-    expect(d.acao?.codigo).toBe("RESTABELECER_API");
     expect(d.acao?.quem).toBe("plataforma");
-    // A frase precisa dizer como separar as duas causas, porque o navegador
-    // escreve as duas como "Failed to fetch".
-    expect(d.resumo).toMatch(/healthz/);
+    // A evidência precisa ensinar a separar as três causas, porque o navegador
+    // escreve as três como "Failed to fetch".
+    expect(d.evidencia).toMatch(/ERR_CONNECTION_REFUSED/);
+    expect(d.evidencia).toMatch(/CORS/);
+  });
+
+  /**
+   * A regressão que esta suíte não pegava, e que custou a pergunta "por que
+   * esse erro continua dando?".
+   *
+   * `SEM_RESPOSTA` recomendava `RESTABELECER_API` como todos os outros estados.
+   * Numa passagem anterior o `resumo` foi reescrito para admitir que podia não
+   * ser a API, e a **ação continuou mandando conferir a API** — o teste de cima
+   * prendia justamente o código errado, então a correção pela metade passou
+   * verde. Aqui a asserção é negativa de propósito: o que não pode voltar é a
+   * recomendação, não o texto.
+   *
+   * E a razão de fundo é observável: com o processo fora do ar quem responde é a
+   * camada anterior, com 5xx de corpo vazio, e isso é `API_AUSENTE`. Chegar em
+   * `SEM_RESPOSTA` é chegar no estado em que a API derrubada é a hipótese menos
+   * compatível com o que se observou.
+   */
+  it("SEM_RESPOSTA não manda conferir o processo da API — quem faz isso é API_AUSENTE", () => {
+    const semResposta = diagnosticarTransporte({ naoCompletou: true });
+    const apiAusente = diagnosticarTransporte({ status: 502, corpoVazio: true });
+
+    expect(semResposta.acao?.codigo).toBe("IDENTIFICAR_QUEDA");
+    expect(semResposta.acao?.codigo).not.toBe("RESTABELECER_API");
+    expect(semResposta.acao?.texto).not.toMatch(/API Server/);
+
+    // O estado que de fato observou a ausência continua mandando o que sempre
+    // mandou — a correção não pode ter apagado o caso legítimo.
+    expect(apiAusente.acao?.codigo).toBe("RESTABELECER_API");
+    expect(apiAusente.acao?.texto).toMatch(/API Server/);
+  });
+
+  /**
+   * Os dois estados nascem de fatos diferentes, e a diferença é medida.
+   *
+   * Com a API fora do ar o proxy do Vite responde `HTTP/1.1 500`,
+   * `Content-Type: text/plain`, zero bytes; o roteador do Replit responde 502
+   * igualmente vazio. Corpo vazio com 5xx é `API_AUSENTE`. `SEM_RESPOSTA` só
+   * acontece quando não veio status nenhum — e por isso não carrega `status`.
+   */
+  it("SEM_RESPOSTA não tem status; API_AUSENTE tem", () => {
+    expect(diagnosticarTransporte({ naoCompletou: true }).status).toBeUndefined();
+    expect(diagnosticarTransporte({ status: 502, corpoVazio: true }).status).toBe(502);
+    expect(diagnosticarTransporte({ status: 500, corpoVazio: true }).status).toBe(500);
   });
 
   /**

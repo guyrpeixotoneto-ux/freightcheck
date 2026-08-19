@@ -7,6 +7,7 @@ import NotFound from '@/pages/not-found';
 import { Route, Switch, Router as WouterRouter } from 'wouter';
 import { AuthProvider, useAuth } from '@/lib/auth';
 import { ApiError } from '@/lib/api';
+import { publicarNoConsole } from '@/lib/registro-de-falhas';
 import Login from '@/pages/login';
 
 import Inicio from '@/pages/inicio';
@@ -86,6 +87,16 @@ const queryClient = new QueryClient({
     },
   },
 });
+
+/*
+  O registro de falhas de transporte fica alcançável pelo console.
+
+  Uma linha, na partida, e é a única forma de a evidência sair de um navegador
+  que não está conseguindo falar com o servidor — mandá-la pela rede seria
+  mandá-la justamente pelo caminho que acabou de quebrar. Ver
+  `lib/registro-de-falhas.ts`.
+*/
+publicarNoConsole();
 
 function Router() {
   return (

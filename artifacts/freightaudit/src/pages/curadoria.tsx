@@ -1,5 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  onlineManager,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useLocation, useSearch } from "wouter";
 import {
   AlertTriangle,
@@ -10,6 +15,7 @@ import {
   ShieldCheck,
   Sparkles,
   Undo2,
+  WifiOff,
 } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ApiErrorNotice } from "@/components/api-error";
@@ -58,6 +64,12 @@ import {
   normalizarEquipamento,
 } from "@/lib/curadoria";
 import { rotuloDoTipo } from "@/lib/frota";
+import { chamadaResiliente } from "@/lib/chamada-resiliente";
+import { marcarOrigem } from "@/lib/registro-de-falhas";
+import {
+  deveApresentarIndisponibilidade,
+  preservarUltimoValido,
+} from "@/lib/resiliencia";
 import { cn } from "@/lib/utils";
 
 /**
@@ -172,6 +184,16 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+/**
+ * A rota da fila, escrita uma vez.
+ *
+ * É o endpoint **sem** os filtros, e isso é a decisão: o registro de falhas se
+ * organiza por esta chave, e incluir `includeConfirmed` faria o mesmo episódio
+ * de rede aparecer como dois endpoints diferentes conforme o estado de um
+ * checkbox. A query string continua onde sempre esteve, na chamada.
+ */
+const ENDPOINT_DA_FILA = "/curation/queue";
+
 export default function Curadoria() {
   const queryClient = useQueryClient();
   const search = useSearch();
@@ -225,11 +247,100 @@ export default function Curadoria() {
     queryFn: () => fetchJson<CurationSummary>("/curation/summary"),
   });
 
-  const { data: queue = [], isLoading, error } = useQuery({
+  /*
+    A fila é a única query desta tela que sustenta o conteúdo inteiro, e por
+    isso é a que paga o preço de uma falha de transporte: sem ela não há cards,
+    não há abas, não há o que filtrar. Era ela que sumia atrás do painel amarelo
+    quando um refetch de fundo não completava.
+
+    `chamadaResiliente` traz junto a política que faz uma falha transitória
+    passar sem tela nenhuma trocar de lugar — repetição com espera crescente,
+    foco desligado, reconexão ligada, resultado anterior preservado. O
+    `ENDPOINT_DA_FILA` sai da template string porque agora ele também é a chave
+    do registro de falhas, e uma chave que muda com o filtro contaria o mesmo
+    episódio como dois.
+  */
+  const {
+    data: filaRecebida,
+    isLoading,
+    error,
+    isFetching,
+    refetch,
+    dataUpdatedAt,
+  } = useQuery({
     queryKey: ["curation", "queue", showConfirmed],
-    queryFn: () =>
-      fetchJson<QueueItem[]>(`/curation/queue?includeConfirmed=${showConfirmed}`),
+    ...chamadaResiliente<QueueItem[]>({
+      endpoint: ENDPOINT_DA_FILA,
+      buscar: () =>
+        fetchJson<QueueItem[]>(
+          `${ENDPOINT_DA_FILA}?includeConfirmed=${showConfirmed}`,
+        ),
+    }),
   });
+
+  /*
+    A última fila que esta tela mostrou, **com a hora dela** — a metade que o
+    React Query não cobre.
+
+    `keepPreviousData` segura o dado anterior enquanto se espera, e o solta no
+    instante em que a query falha: o placeholder só vale com status `pending`.
+    Numa troca de aba que falha, a chave é nova, não tem dado próprio, e a lista
+    sumiria — exatamente o caso que o item 3 proíbe. Este `ref` atravessa o erro.
+
+    A hora anda junto do dado, e não ao lado dele, por um defeito que a primeira
+    versão tinha: a tira lia `dataUpdatedAt` da query, que pertence à **chave
+    atual**. Numa troca de aba que falha, essa chave nunca respondeu, o campo
+    vale 0, e "o que está em tela é de 21:00" mostrava a hora da época sobre uma
+    fila carregada há dois minutos. Uma tira que existe para dizer a idade do
+    dado não pode errar a idade do dado.
+
+    É também o critério de "resultado de verdade": `dataUpdatedAt > 0` só vale
+    quando a chave atual respondeu. Enquanto é placeholder, o par anterior fica
+    — e é o certo, porque o placeholder *é* o dado anterior.
+
+    Escrever num `ref` durante o render é seguro aqui: a operação só avança, é
+    idempotente para o mesmo resultado, e um render descartado no máximo teria
+    guardado uma fila que o servidor de fato mandou. Não é cache paralelo — não
+    invalida nada, não decide buscar nada. Ver `preservarUltimoValido`.
+  */
+  const ultimaFilaBoa = useRef<{ dados: QueueItem[]; em: number } | undefined>(
+    undefined,
+  );
+  ultimaFilaBoa.current = preservarUltimoValido(
+    ultimaFilaBoa.current,
+    filaRecebida !== undefined && dataUpdatedAt > 0
+      ? { dados: filaRecebida, em: dataUpdatedAt }
+      : undefined,
+  );
+  const queue = ultimaFilaBoa.current?.dados ?? [];
+
+  /*
+    A volta da conexão é anotada antes de o React Query refazer a chamada.
+
+    Sem esta linha o registro atribuiria a `desconhecida` justamente o refetch
+    mais informativo que existe: o que acontece logo depois de o navegador
+    dizer que voltou. Quando ele falha, o que se aprendeu é que a reconexão foi
+    anunciada cedo demais — e essa é uma conclusão que só se tira sabendo a
+    origem.
+  */
+  useEffect(
+    () =>
+      onlineManager.subscribe((online) => {
+        if (online) marcarOrigem(ENDPOINT_DA_FILA, "reconexao");
+      }),
+    [],
+  );
+
+  /*
+    A regra que separa "a Curadoria está indisponível" de "esta chamada não
+    completou". O `error` do React Query só fica preenchido depois de as
+    tentativas automáticas esgotarem — é ele que garante a metade "esgotou" —, e
+    `queue.length` responde a outra metade: se ainda há fila em tela, ela
+    continua sendo a verdade que se tinha, e trocá-la por um aviso é perder
+    informação boa por causa de uma falha de caminho.
+  */
+  const indisponivel = deveApresentarIndisponibilidade(queue.length > 0, error);
+  const falhaSobreDadoAntigo = error !== null && queue.length > 0;
 
   const { data: detail } = useQuery({
     queryKey: ["curation", "attribute", selected],
@@ -410,12 +521,54 @@ export default function Curadoria() {
         </div>
       </header>
 
-      {error && (
+      {indisponivel && (
         <div className="px-8 pt-6">
           <ApiErrorNotice
             error={error}
             what="A fila de curadoria não pôde ser carregada."
           />
+        </div>
+      )}
+
+      {/*
+        A falha que **não** substitui a tela.
+
+        Quando há fila em tela, uma chamada que não completou é um recado de
+        rodapé, não um diagnóstico de produto: o que se vê continua sendo o que
+        o servidor mandou, e a única coisa que mudou é a hora. Dizer a hora é o
+        que faz esta tira ser honesta — "de 14h02" é verificável, "pode estar
+        desatualizado" é uma desculpa.
+
+        Era aqui que a tela mentia por omissão de forma: qualquer falha, mesmo
+        a que passaria sozinha, virava o mesmo painel amarelo com a mesma
+        recomendação de plataforma, sobre uma fila que estava logo ali embaixo,
+        inteira e correta.
+      */}
+      {falhaSobreDadoAntigo && (
+        <div className="px-8 pt-6">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-amber-200 bg-amber-50/70 px-4 py-2 text-sm text-amber-900">
+            <WifiOff className="w-4 h-4 shrink-0" />
+            <span>
+              A atualização da fila não completou. O que está em tela é de{" "}
+              {new Date(ultimaFilaBoa.current?.em ?? 0).toLocaleTimeString(
+                "pt-BR",
+                { hour: "2-digit", minute: "2-digit" },
+              )}
+              , e continua válido.
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7"
+              disabled={isFetching}
+              onClick={() => {
+                marcarOrigem(ENDPOINT_DA_FILA, "manual");
+                void refetch();
+              }}
+            >
+              {isFetching ? "Tentando…" : "Tentar de novo"}
+            </Button>
+          </div>
         </div>
       )}
 
@@ -511,7 +664,16 @@ export default function Curadoria() {
                 </button>
               );
             })}
-            {!isLoading && visible.length === 0 && (
+            {/*
+              "A fila está vazia" e "a fila não pôde ser carregada" não podem
+              aparecer juntas. Fila vazia é uma afirmação sobre a base — não há
+              coluna pendente —, e quando a chamada nem completou não se sabe
+              disso: o zero em tela é a ausência de resposta, não um resultado.
+              Era o que acontecia, e é a mesma classe de defeito que
+              `apresentar-erro.ts` fecha no eixo do erro: duas vozes sobre o
+              mesmo fato, livres para dizer coisas diferentes.
+            */}
+            {!isLoading && !indisponivel && visible.length === 0 && (
               <FilaVazia
                 equipamento={equipamento}
                 filtrando={filter.trim() !== ""}
