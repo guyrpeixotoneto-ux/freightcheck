@@ -508,7 +508,7 @@ function Cabecalho({
       <div className="flex flex-wrap items-start justify-between gap-4 max-w-[1600px]">
         <div className="min-w-0">
           <h1 className="text-[2rem] font-extrabold tracking-tight leading-tight">
-            Visão geral{unidade ? ` — ${unidade}` : ""}
+            Resumo executivo{unidade ? ` — ${unidade}` : ""}
           </h1>
           {partes.length > 0 && (
             <p className="text-sm text-muted-foreground mt-1.5">{partes.join(" · ")}</p>
