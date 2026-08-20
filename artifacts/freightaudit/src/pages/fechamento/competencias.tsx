@@ -15,6 +15,7 @@ import {
   Trash2,
   WifiOff,
 } from "lucide-react";
+import { ApiErrorNotice } from "@/components/api-error";
 import { Layout } from "@/components/layout/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -515,15 +516,32 @@ export default function Competencias() {
             )}
 
             {/*
-              O aviso vermelho só aparece quando não há lista nenhuma para
-              mostrar — nunca houve resposta, e as tentativas automáticas já se
-              esgotaram. Antes ele aparecia em qualquer falha, sobre uma lista
-              que continuava em tela e continuava certa.
+              O aviso só aparece quando não há lista nenhuma para mostrar —
+              nunca houve resposta, e as tentativas automáticas já se esgotaram.
+              Antes ele aparecia em qualquer falha, sobre uma lista que
+              continuava em tela e continuava certa.
+
+              É o `ApiErrorNotice`, e não um `Alert` com uma linha de texto.
+              Esta tela desenhava a falha à mão, e desenhava **um terço dela**:
+              `textoDoErro` devolve só o `resumo` da orientação, então caíam
+              fora o risco — "Nada foi gravado e nada se perdeu", que é a
+              primeira pergunta de quem vê vermelho — e a ação, que é a única
+              linha acionável. O que sobrava era um parágrafo de diagnóstico sem
+              saída, e sem nem o botão de repetir que a tira âmbar logo abaixo
+              já tinha.
+
+              A Curadoria, com o mesmo hook e a mesma falha, já usava este
+              componente. Duas telas com dois tratamentos para a mesma falha é
+              exatamente o que o cabeçalho de `useConsultaResiliente` diz ter
+              sido escrito para acabar — e tinha sobrevivido aqui.
             */}
             {competencias.indisponivel && (
-              <Alert variant="destructive">
-                <AlertDescription>{textoDoErro(competencias.erro)}</AlertDescription>
-              </Alert>
+              <ApiErrorNotice
+                error={competencias.erro}
+                what="A lista de competências não pôde ser carregada."
+                onTentarDeNovo={competencias.tentarDeNovo}
+                tentando={competencias.atualizando}
+              />
             )}
 
             {/*
