@@ -19,11 +19,13 @@ import {
   listarDocumentos,
   listarPartes,
   reabrirCompetencia,
+  lerConteudoDoDocumento,
   lerDeParaDaCompetencia,
   receberDocumento,
   registrarParte,
   RecusaDeFechamento,
 } from "../persistencia";
+import { lerPagamento } from "../leitores/pagamento";
 import {
   fixtureConciliacao,
   fixtureConciliacaoEmCsv,
@@ -254,33 +256,127 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     ).rejects.toBeInstanceOf(RecusaDeFechamento);
   });
 
-  it("recusa o arquivo que leu e do qual não tirou nada", async () => {
+  /*
+    Cada teste de quarentena abre a **sua** competência, num mês que nenhum outro
+    usa. `abrirCompetencia` devolve a existente quando ela existe, e o banco é
+    um só para a suíte inteira: compartilhar a competência faria um teste ver o
+    documento do outro — e o `sha256` único por competência recusaria o segundo
+    envio do mesmo fixture como repetido.
+  */
+  /*
+    Varia a **unidade**, e não o período: a competência é a trinca (unidade,
+    transportadora, chave), e o fixture do 03.08.20 declara 16–31/07/2026 no
+    cabeçalho — `recusarPagamentoDeOutroPeriodo` recusaria qualquer outro mês.
+  */
+  let proximaUnidade = 1;
+  const competenciaSo = () =>
+    abrirCompetencia(db, {
+      ano: 2026,
+      mes: 7,
+      quinzena: 2,
+      unidade: { codigo: `QUARENTENA-${proximaUnidade++}`, nome: "CDD DE TESTE" },
+      transportadora,
+    });
+
+  /** O fixture bom, com uma coluna de valor a menos em cada linha de verba. */
+  function semVerbaPorColunaAMenos(): Buffer {
+    const texto = fixturePagamentoDoPainel().toString("utf8");
+    return Buffer.from(
+      texto
+        .split(/\r?\n/)
+        .map((l) => {
+          const m = /^(\s*\d{1,3}\s*-\s*.+?\s{2,})((?:-?[\d.]+,\d{2}\s+){5})(-?[\d.]+,\d{2})\s*$/.exec(l);
+          return m ? `${m[1]}${m[2]!.trimEnd()}` : l;
+        })
+        .join("\r\n"),
+      "utf8",
+    );
+  }
+
+  /** O fixture bom, sem os cabeçalhos de seção que tornam a verba elegível. */
+  function semVerbaPorFaltarSecao(): Buffer {
+    const texto = fixturePagamentoDoPainel().toString("utf8");
+    return Buffer.from(texto.replace("FRETE\r\n", "").replace("OUTROS CUSTOS\r\n", ""), "utf8");
+  }
+
+  it("o arquivo que leu e do qual não tirou nada fica em quarentena, guardado", async () => {
     /* O caso real, relatado da tela: "eu importei o arquivo sim, mas diz que não
        importei". Os leitores do fechamento são máquinas de estado sobre texto e
        não lançam quando a estrutura não é a esperada — devolvem listas vazias.
-       A importação gravava o documento, inseria zero fatos e respondia sucesso,
-       e aí a lista de relatórios contava o arquivo como recebido enquanto o
-       painel dizia "não foi importado". As duas telas estavam certas.
+       A importação gravava o documento, inseria zero fatos e respondia sucesso.
 
-       Pior do que o silêncio: um segundo envio sem fatos **apaga** as linhas do
-       primeiro pela despromoção do documento anterior. A recusa vem antes da
-       transação justamente por isso. */
-    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
-    const recusa = await receberDocumento(db, {
+       Recusar jogaria fora a evidência. Guardar sem promover conserva as duas
+       coisas: o arquivo, que agora pode ser examinado, e a conta anterior, que
+       continua de pé. */
+    const comp = await competenciaSo();
+    const recebido = await receberDocumento(db, {
       competenciaId: comp.id,
       tipo: "PAGAMENTO",
       nomeDoArquivo: "03.08.20 (formato desconhecido).txt",
       conteudo: Buffer.from("relatorio qualquer\nsem nenhuma linha que o leitor reconheca\n", "utf8"),
-    }).catch((e: unknown) => e);
+    });
 
-    expect(recusa).toBeInstanceOf(RecusaDeFechamento);
-    expect((recusa as RecusaDeFechamento).codigo).toBe("DOCUMENTO_SEM_FATOS");
-    /* A mensagem nomeia a rotina, para quem enviou saber contra o que conferir. */
-    expect((recusa as RecusaDeFechamento).message).toContain("03.08.20");
+    expect(recebido.desfecho).toBe("EM_QUARENTENA");
+    expect(recebido.motivoDaQuarentena).toContain("03.08.20");
+    expect(recebido.substituiu).toBeNull();
+    /* Não virou fonte da conta. */
+    expect(await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" })).toBeNull();
+    /* E ainda assim está guardado, inteiro. */
+    const guardado = await lerConteudoDoDocumento(db, recebido.id);
+    expect(guardado?.conteudo.toString("utf8")).toContain("sem nenhuma linha");
   });
 
-  it("um envio sem fatos não apaga o que o envio anterior gravou", async () => {
-    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+  it("PAGAMENTO com descontos e nenhuma verba não vale como demonstrativo", async () => {
+    /* O caso de produção: catorze descontos, zero verbas. Ler não é valer — o
+       demonstrativo existe para abrir a parcela fixa verba a verba, e sem verba
+       ele não abre nada. */
+    const comp = await competenciaSo();
+    const recebido = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20 (so descontos).txt",
+      conteudo: semVerbaPorColunaAMenos(),
+    });
+
+    expect(recebido.desfecho).toBe("EM_QUARENTENA");
+    expect(recebido.linhasLidas).toBeGreaterThan(0);
+    expect(recebido.motivoDaQuarentena).toContain("nenhuma verba");
+    /* As recusas detalhadas sobrevivem, com linha e texto original. */
+    expect(recebido.recusas.length).toBeGreaterThan(0);
+    expect(recebido.recusas[0]?.motivo).toContain("coluna(s) de valor");
+    expect(recebido.recusas[0]?.original).toContain("Frota Fixa Ativa");
+  });
+
+  it("layout sem FRETE/OUTROS CUSTOS entra em quarentena com o motivo do recorte", async () => {
+    const comp = await competenciaSo();
+    const recebido = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20 (sem secao).txt",
+      conteudo: semVerbaPorFaltarSecao(),
+    });
+    expect(recebido.desfecho).toBe("EM_QUARENTENA");
+    expect(recebido.recusas[0]?.motivo).toContain("fora de uma seção");
+  });
+
+  it("um PAGAMENTO válido é promovido e vira a conta", async () => {
+    const comp = await competenciaSo();
+    const recebido = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20.txt",
+      conteudo: fixturePagamentoDoPainel(),
+    });
+    expect(recebido.desfecho).toBe("PROMOVIDO");
+    expect(recebido.motivoDaQuarentena).toBeNull();
+    expect(recebido.recusas).toEqual([]);
+    expect(await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" })).not.toBeNull();
+  });
+
+  it("reenvio inválido não destrói a importação válida anterior", async () => {
+    /* O modo de falhar mais caro: o segundo envio despromovia o primeiro e
+       apagava as linhas dele **antes** de saber se prestava. */
+    const comp = await competenciaSo();
     await receberDocumento(db, {
       competenciaId: comp.id,
       tipo: "PAGAMENTO",
@@ -290,17 +386,37 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     const antes = await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" });
     expect(antes).not.toBeNull();
 
-    await receberDocumento(db, {
+    const segundo = await receberDocumento(db, {
       competenciaId: comp.id,
       tipo: "PAGAMENTO",
       nomeDoArquivo: "03.08.20 (truncado).txt",
-      conteudo: Buffer.from("cabecalho e mais nada\n", "utf8"),
-    }).catch(() => undefined);
+      conteudo: semVerbaPorColunaAMenos(),
+    });
+    expect(segundo.desfecho).toBe("EM_QUARENTENA");
 
-    /* O painel continua de pé: a recusa aconteceu antes de despromover nada. */
     const depois = await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" });
     expect(depois).not.toBeNull();
     expect(depois?.totalDoRelatorio).toBe(antes?.totalDoRelatorio);
+  });
+
+  it("o arquivo volta do banco byte a byte, e é reprocessável sem o .txt", async () => {
+    const comp = await competenciaSo();
+    const original = fixturePagamentoDoPainel();
+    const recebido = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20.txt",
+      conteudo: original,
+    });
+
+    const guardado = await lerConteudoDoDocumento(db, recebido.id);
+    expect(guardado?.conteudo.equals(original)).toBe(true);
+    expect(guardado?.nomeDoArquivo).toBe("03.08.20.txt");
+    expect(guardado?.tipo).toBe("PAGAMENTO");
+    /* Reprocessável: o leitor roda sobre o que voltou e dá o mesmo resultado. */
+    expect(lerPagamento(guardado!.conteudo).itens.length).toBe(
+      lerPagamento(original).itens.length,
+    );
   });
 
   it("recusa o 2Art de outro período em vez de gravar viagens que nenhuma conta usa", async () => {

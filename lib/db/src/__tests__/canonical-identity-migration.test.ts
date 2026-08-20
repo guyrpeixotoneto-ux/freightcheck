@@ -235,6 +235,7 @@ describe("0015 sobre um banco parado na 0014", () => {
       "0043_pagamento",
       "0044_partes_cadastradas",
       "0045_planilha_de_remuneracao",
+      "0046_conteudo_da_importacao",
     ]);
 
     const linhas = await retrato(pool);

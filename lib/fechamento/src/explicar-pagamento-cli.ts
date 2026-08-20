@@ -1,11 +1,18 @@
 import { readFileSync } from "node:fs";
 
+import { createDb } from "@workspace/db";
+
 import { lerPagamento } from "./leitores/pagamento";
+import { lerConteudoDoDocumento } from "./persistencia";
 
 /**
  * Por que este 03.08.20 não virou verba — linha a linha, sem banco.
  *
  * ```
+ * # da própria importação, sem arquivo nenhum no workspace:
+ * PRODUCTION_DATABASE_URL='…' … ./src/explicar-pagamento-cli.ts --documento <uuid> --producao
+ *
+ * # ou de um arquivo em disco, quando ele existe:
  * pnpm --filter @workspace/fechamento exec tsx ./src/explicar-pagamento-cli.ts 03.08.20.txt
  * ```
  *
@@ -39,15 +46,68 @@ function diagnosticarLinha(bruta: string): string | null {
   return "tem 6 valores, mas há texto entre eles ou no fim da linha que o leitor não espera";
 }
 
-function principal(): void {
-  const caminho = process.argv[2];
-  if (!caminho) {
-    console.error("uso: tsx ./src/explicar-pagamento-cli.ts <arquivo do 03.08.20>");
+/**
+ * De onde vêm os bytes: do banco, pela importação, ou do disco.
+ *
+ * A primeira forma é a que fecha o ciclo — o arquivo guardado na importação
+ * volta e é examinado sem que ninguém precise reenviá-lo. A segunda continua
+ * existindo para o arquivo que ainda não entrou no sistema, e para os
+ * documentos anteriores à `0046`, que não têm conteúdo guardado.
+ */
+async function obterConteudo(): Promise<{ bytes: Buffer; origem: string } | null> {
+  const argumentos = process.argv.slice(2);
+  const posicao = argumentos.indexOf("--documento");
+  const documentoId = posicao >= 0 ? argumentos[posicao + 1] : undefined;
+
+  if (!documentoId) {
+    const caminho = argumentos.find((a) => !a.startsWith("--"));
+    if (!caminho) {
+      console.error(
+        "uso: tsx ./src/explicar-pagamento-cli.ts <arquivo>\n" +
+          "     tsx ./src/explicar-pagamento-cli.ts --documento <uuid> [--producao]",
+      );
+      return null;
+    }
+    return { bytes: readFileSync(caminho), origem: caminho };
+  }
+
+  const producao = argumentos.includes("--producao");
+  const url = producao ? process.env.PRODUCTION_DATABASE_URL : process.env.DATABASE_URL;
+  if (!url || url.trim() === "") {
+    console.error(
+      producao
+        ? "PRODUCTION_DATABASE_URL não está definida (ou está vazia)."
+        : "DATABASE_URL não está definida.",
+    );
+    return null;
+  }
+  const { db, pool } = createDb(url);
+  try {
+    const guardado = await lerConteudoDoDocumento(db, documentoId);
+    if (!guardado) {
+      console.error(
+        `O documento ${documentoId} não tem conteúdo guardado.\n` +
+          `Importações anteriores à migration 0046 não guardavam o arquivo — para essas,\n` +
+          `passe o caminho do .txt, ou reenvie pelo app.`,
+      );
+      return null;
+    }
+    return {
+      bytes: guardado.conteudo,
+      origem: `${guardado.nomeDoArquivo} (importação ${documentoId.slice(0, 8)}, do banco)`,
+    };
+  } finally {
+    await pool.end();
+  }
+}
+
+async function principal(): Promise<void> {
+  const obtido = await obterConteudo();
+  if (!obtido) {
     process.exitCode = 1;
     return;
   }
-
-  const conteudo = readFileSync(caminho);
+  const { bytes: conteudo, origem: caminho } = obtido;
   const lido = lerPagamento(conteudo);
 
   console.log(`arquivo: ${caminho}  (${conteudo.length} bytes)\n`);
@@ -139,4 +199,4 @@ function principal(): void {
   for (const [canal, quantas] of porCanal) console.log(`    ${canal}: ${quantas} verba(s)`);
 }
 
-principal();
+await principal();

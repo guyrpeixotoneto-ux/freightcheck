@@ -11,6 +11,7 @@ import {
   index,
   uniqueIndex,
   check,
+  customType,
   foreignKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
@@ -205,6 +206,55 @@ export const fechamentoDocumentoTable = pgTable(
       "fechamento_documento_tipo",
       sql`${t.tipo} in ('OPERACAO', 'CTE', 'PAGAMENTO', 'DISPONIBILIDADE', 'REQUISICOES', 'CONCILIACAO')`,
     ),
+  ],
+);
+
+/** `bytea` — o drizzle não traz um tipo de bytes pronto para o Postgres. */
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => "bytea",
+});
+
+/**
+ * O arquivo como ele chegou — os bytes, guardados.
+ *
+ * **O que isto conserta.** `fechamento_documento.caminho` prometia que "a
+ * evidência pode ser reaberta" e nunca foi preenchida: a rota de upload
+ * decodificava o base64, lia, gravava os fatos derivados e descartava o
+ * conteúdo. Quando uma importação produziu descontos e nenhuma verba, não havia
+ * como saber por quê sem pedir o `.txt` de volta a quem enviou — e pedir o
+ * arquivo de volta é confessar que o sistema não guarda o que recebeu.
+ *
+ * **Tabela à parte, e não uma coluna em `fechamento_documento`.** Listar
+ * documentos é a operação mais comum da tela, e um `bytea` de megabytes na
+ * mesma linha faria toda listagem arrastar o conteúdo pelo TOAST sem precisar
+ * dele. Aqui o conteúdo só é lido por quem o pede.
+ *
+ * **Comprimido, e com o tamanho original ao lado.** Os relatórios são texto de
+ * largura fixa e comprimem cerca de dez para um; o 03.08.15 de uma quinzena tem
+ * vinte e três mil linhas. `bytes_originais` e o `sha256` do documento tornam a
+ * descompressão verificável: quem lê confere que recuperou exatamente o que
+ * entrou, e não uma aproximação.
+ *
+ * **Sai junto com a competência.** `on delete cascade` pelo documento, que já
+ * cascateia da competência: descartar o que foi importado tem de levar o
+ * arquivo também, ou o descarte seria parcial e o disco cresceria para sempre.
+ */
+export const fechamentoDocumentoConteudoTable = pgTable(
+  "fechamento_documento_conteudo",
+  {
+    documentoId: uuid("documento_id").primaryKey(),
+    /** O arquivo, comprimido com gzip. */
+    conteudo: bytea("conteudo").notNull(),
+    /** Quantos bytes o arquivo tinha antes de comprimir — confere na volta. */
+    bytesOriginais: integer("bytes_originais").notNull(),
+    guardadoEm: timestamp("guardado_em", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    foreignKey({
+      columns: [t.documentoId],
+      foreignColumns: [fechamentoDocumentoTable.id],
+      name: "fechamento_documento_conteudo_documento_fk",
+    }).onDelete("cascade"),
   ],
 );
 

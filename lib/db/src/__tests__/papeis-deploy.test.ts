@@ -192,6 +192,8 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "fechamento_parte",
         /* A planilha informada, da `0045` — idem: Production não a tem. */
         "remuneracao_planilha",
+        /* O conteúdo guardado da importação, da `0046` — idem. */
+        "fechamento_documento_conteudo",
       ]),
     );
     /*
@@ -252,6 +254,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
       "0043_pagamento",
       "0044_partes_cadastradas",
       "0045_planilha_de_remuneracao",
+      "0046_conteudo_da_importacao",
     ]);
 
     // Preservação + backfill: as três contas continuam com o hash original e

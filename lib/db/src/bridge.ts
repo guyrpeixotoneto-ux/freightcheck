@@ -221,6 +221,12 @@ const TABELAS_REMOVIDAS = [
   "fechamento_requisicao",
   "fechamento_cte",
   "fechamento_viagem",
+  /*
+    O conteúdo guardado da importação, da `0046`. Vem **antes** do documento
+    porque é filha dele: derrubar o pai primeiro esbarraria na chave
+    estrangeira, que é o que esta ordem existe para evitar.
+  */
+  "fechamento_documento_conteudo",
   "fechamento_documento",
   "fechamento_competencia",
   "fechamento_parte",
@@ -1679,6 +1685,24 @@ function planoUp(): PassoUp[] {
   for (const i of ["remuneracao_planilha_unica", "remuneracao_planilha_por_vigencia"]) {
     add(M45, `índice ${i}`, levantar(M45, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
   }
+
+  /*
+    A `0046` — o arquivo importado deixa de ser descartado depois de lido. Mesmo
+    caso da `0044` e da `0045`: Production não conhece a tabela até rodar a
+    fila, então o `down` a derruba e o `up` tem de devolvê-la inteira, com a
+    chave estrangeira que a faz sair junto com o documento.
+  */
+  const M46 = "0046_conteudo_da_importacao";
+  add(
+    M46,
+    "fechamento_documento_conteudo",
+    levantar(M46, /CREATE TABLE IF NOT EXISTS "fechamento_documento_conteudo" \(/),
+  );
+  add(
+    M46,
+    "fk fechamento_documento_conteudo_documento_fk",
+    levantar(M46, /DO \$reentrante\$\s*\n\s*BEGIN\s*\n\s*IF NOT EXISTS \(SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_documento_conteudo_documento_fk'\)/),
+  );
 
   const M42 = "0042_viagem_completa";
   for (const coluna of COLUNAS_DO_RETRATO_DA_VIAGEM) {

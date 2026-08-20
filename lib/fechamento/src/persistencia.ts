@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { gunzipSync, gzipSync } from "node:zlib";
 import { and, desc, eq, notInArray, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
@@ -9,6 +10,7 @@ import {
   fechamentoCteTable,
   fechamentoDisponibilidadeTable,
   fechamentoDivergenciaTable,
+  fechamentoDocumentoConteudoTable,
   fechamentoDocumentoTable,
   fechamentoPagamentoDescontoTable,
   fechamentoPagamentoItemTable,
@@ -85,7 +87,6 @@ export class RecusaDeFechamento extends Error {
       | "DOCUMENTO_JA_RECEBIDO"
       | "DOCUMENTO_FORA_DO_PERIODO"
       | "ARQUIVO_ILEGIVEL"
-      | "DOCUMENTO_SEM_FATOS"
       | "PARTE_SEM_CODIGO",
     mensagem: string,
     readonly detalhe?: unknown,
@@ -217,6 +218,21 @@ function comoRegistrada(linha: typeof fechamentoCompetenciaTable.$inferSelect): 
   };
 }
 
+/**
+ * O que aconteceu com o arquivo — e as duas coisas são desfechos, não erros.
+ *
+ * `PROMOVIDO`: o arquivo virou os fatos da competência e despromoveu o anterior
+ * do mesmo tipo. `EM_QUARENTENA`: o arquivo foi **guardado inteiro**, com as
+ * recusas, e não virou fato nenhum — o anterior continua valendo.
+ *
+ * **Por que quarentena e não recusa.** Recusar joga fora a evidência: o arquivo
+ * volta para quem enviou e o sistema fica sem saber o que havia nele. Guardar
+ * sem promover conserva as duas coisas que importam — a conta anterior, que
+ * continua de pé, e o arquivo problemático, que agora pode ser examinado sem
+ * pedir nada a ninguém.
+ */
+export type DesfechoDaImportacao = "PROMOVIDO" | "EM_QUARENTENA";
+
 export interface DocumentoRecebido {
   id: string;
   tipo: TipoDeFonte;
@@ -225,6 +241,9 @@ export interface DocumentoRecebido {
   recusas: Recusa[];
   /** O documento que substituiu, quando houve substituição. */
   substituiu: string | null;
+  desfecho: DesfechoDaImportacao;
+  /** Por que ficou em quarentena. `null` quando foi promovido. */
+  motivoDaQuarentena: string | null;
 }
 
 /**
@@ -285,10 +304,15 @@ export async function receberDocumento(
     );
   }
 
+  /*
+    Ler primeiro, decidir depois, gravar por último. A ordem é o que torna a
+    importação atômica no sentido que importa: nada é despromovido antes de se
+    saber se o que chegou merece promover.
+  */
   const lido = interpretar(entrada.tipo, entrada.conteudo);
-  recusarDocumentoSemFatos(entrada.tipo, entrada.nomeDoArquivo, lido);
   recusarOperacaoDeOutroPeriodo(competencia, entrada.nomeDoArquivo, lido.dias);
   recusarPagamentoDeOutroPeriodo(competencia, entrada.nomeDoArquivo, lido.periodo);
+  const motivoDaQuarentena = motivoParaQuarentena(entrada.tipo, entrada.nomeDoArquivo, lido);
 
   return db.transaction(async (tx) => {
     const anterior = await tx
@@ -303,7 +327,13 @@ export async function receberDocumento(
       )
       .limit(1);
 
-    if (anterior[0]) {
+    /*
+      **Só se promove o que vale.** O bloco abaixo apaga as linhas do documento
+      anterior e o despromove; rodá-lo antes de saber se o novo presta foi o que
+      deixou uma competência sem a parcela fixa. Em quarentena ele não roda: o
+      anterior fica intocado, vigente, com os fatos dele de pé.
+    */
+    if (anterior[0] && motivoDaQuarentena === null) {
       /* As linhas saem por cascade; o documento fica, despromovido. */
       await tx.delete(fechamentoViagemTable).where(eq(fechamentoViagemTable.documentoId, anterior[0].id));
       await tx.delete(fechamentoCteTable).where(eq(fechamentoCteTable.documentoId, anterior[0].id));
@@ -337,11 +367,28 @@ export async function receberDocumento(
         caminho: entrada.caminho ?? null,
         linhasLidas: lido.linhasLidas,
         recusas: lido.recusas,
+        /* O documento em quarentena existe, é consultável, e não é a fonte da
+           conta. É o que permite examiná-lo sem que ele valha nada. */
+        vigente: motivoDaQuarentena === null,
         enviadoPor: entrada.por ?? null,
       })
       .returning({ id: fechamentoDocumentoTable.id });
 
-    await gravarLinhas(tx, entrada.competenciaId, documento.id, entrada.tipo, entrada.conteudo);
+    /*
+      O arquivo é guardado **sempre**, promovido ou não — e o caso em quarentena
+      é justamente o que mais precisa dele: é o arquivo que ninguém consegue
+      explicar sem reabrir. Comprimido, com o tamanho original ao lado para que
+      a volta seja verificável.
+    */
+    await tx.insert(fechamentoDocumentoConteudoTable).values({
+      documentoId: documento.id,
+      conteudo: gzipSync(entrada.conteudo),
+      bytesOriginais: entrada.conteudo.byteLength,
+    });
+
+    if (motivoDaQuarentena === null) {
+      await gravarLinhas(tx, entrada.competenciaId, documento.id, entrada.tipo, entrada.conteudo);
+    }
 
     return {
       id: documento.id,
@@ -349,7 +396,10 @@ export async function receberDocumento(
       nomeDoArquivo: entrada.nomeDoArquivo,
       linhasLidas: lido.linhasLidas,
       recusas: lido.recusas,
-      substituiu: anterior[0]?.id ?? null,
+      desfecho: motivoDaQuarentena === null ? "PROMOVIDO" : "EM_QUARENTENA",
+      motivoDaQuarentena,
+      /* Substituir é ato de quem promove; em quarentena não se substitui nada. */
+      substituiu: motivoDaQuarentena === null ? (anterior[0]?.id ?? null) : null,
     };
   });
 }
@@ -402,47 +452,51 @@ function recusarOperacaoDeOutroPeriodo(
 }
 
 /**
- * Recusa o arquivo que o leitor entendeu e do qual não tirou nada.
+ * O arquivo produz fatos que valem a pena promover?
  *
- * **O defeito que isto corrige.** Os leitores do fechamento são máquinas de
- * estado sobre texto: quando a estrutura não é a esperada, eles não lançam —
- * devolvem listas vazias. A importação gravava o documento, inseria zero fatos
- * e respondia sucesso. O resultado eram duas telas discordando sobre o mesmo
- * arquivo: a lista de relatórios o contava como recebido, e o painel dizia "não
- * foi importado". As duas estavam certas, e é essa contradição que fazia perder
- * a tarde.
+ * **Isto é o portão entre ler e valer.** Ler é o que o leitor faz; valer é o
+ * que despromove o documento anterior e vira a conta da quinzena. Antes os dois
+ * eram o mesmo ato, e a consequência apareceu em produção: um 03.08.20 do qual
+ * o leitor tirou catorze descontos e nenhuma verba entrou como bom, apagou o
+ * que o envio anterior gravara, e deixou a competência sem a parcela fixa.
  *
- * **Por que zero fatos nunca é um envio legítimo.** Nenhuma das seis fontes tem
- * versão vazia: um 2Art sem viagens, um 03.08.20 sem verbas ou um 03.08.18 sem
- * dias não são quinzenas paradas, são arquivos que o leitor não reconheceu — o
- * formato mudou, veio o relatório errado, ou o export saiu truncado. Aceitar o
- * envio é gravar um silêncio com cara de dado.
+ * **Por que o 03.08.20 sem verba é inválido e não apenas magro.** Ele é a única
+ * fonte que abre a parcela fixa verba a verba — é para isso que existe.
+ * Descontos sem verbas não são um demonstrativo pequeno; são um demonstrativo
+ * cujo corpo o leitor não reconheceu. Promovê-lo troca uma conta certa por
+ * meia conta, em silêncio.
  *
- * A recusa vem **antes** da transação de propósito: um segundo envio que não
- * produz fatos apagaria as linhas do primeiro pela despromoção, e a competência
- * ficaria pior do que estava. Ver o bloco que despromove o documento anterior.
+ * Devolve `null` quando pode promover, ou o motivo quando não pode.
  */
-function recusarDocumentoSemFatos(
+function motivoParaQuarentena(
   tipo: TipoDeFonte,
   nomeDoArquivo: string,
-  lido: { linhasLidas: number; recusas: Recusa[] },
-): void {
-  if (lido.linhasLidas > 0) return;
-
+  lido: { linhasLidas: number; recusas: Recusa[]; verbas?: number },
+): string | null {
   const rotina = DESCRICAO_DA_FONTE[tipo].rotina;
-  /* A primeira recusa do leitor é a pista mais útil que existe para quem enviou. */
   const pista =
     lido.recusas.length > 0
       ? ` O leitor recusou ${lido.recusas.length} linha(s); a primeira diz: "${lido.recusas[0]?.motivo ?? ""}".`
-      : " O leitor não reconheceu nenhuma linha do formato esperado.";
+      : "";
 
-  throw new RecusaDeFechamento(
-    "DOCUMENTO_SEM_FATOS",
-    `"${nomeDoArquivo}" foi lido como ${rotina} e não produziu nenhum registro.` +
-      `${pista} Confira se o arquivo é mesmo o ${rotina} e se o export saiu completo — ` +
-      `um envio sem registros não seria importação, seria apagar o que já está aqui.`,
-    { tipo, linhasLidas: 0, recusas: lido.recusas.length },
-  );
+  if (lido.linhasLidas === 0) {
+    return (
+      `"${nomeDoArquivo}" foi lido como ${rotina} e não produziu nenhum registro.` +
+      `${pista || " O leitor não reconheceu nenhuma linha do formato esperado."} ` +
+      `Confira se o arquivo é mesmo o ${rotina} e se o export saiu completo.`
+    );
+  }
+
+  if (tipo === "PAGAMENTO" && lido.verbas === 0) {
+    return (
+      `"${nomeDoArquivo}" foi lido como ${rotina} e trouxe ${lido.linhasLidas} registro(s), ` +
+      `mas nenhuma verba — e é a verba que o demonstrativo existe para abrir.` +
+      `${pista} O arquivo ficou guardado inteiro para exame; a importação anterior ` +
+      `continua valendo.`
+    );
+  }
+
+  return null;
 }
 
 /**
@@ -499,6 +553,12 @@ function interpretar(
   dias?: Dia[];
   /** O período que o próprio arquivo declara. Só o 03.08.20 declara um. */
   periodo?: { inicio: Dia | null; fim: Dia | null };
+  /**
+   * Quantas verbas o 03.08.20 trouxe — separado de `linhasLidas`, que soma
+   * verbas e descontos. É a diferença entre os dois que revela o arquivo em que
+   * só os descontos foram reconhecidos.
+   */
+  verbas?: number;
 } {
   try {
     switch (tipo) {
@@ -525,6 +585,7 @@ function interpretar(
       case "PAGAMENTO": {
         const l = lerPagamento(conteudo);
         return {
+          verbas: l.itens.length,
           linhasLidas: l.itens.length + l.descontos.length,
           /* As linhas com cara de verba que não entraram, com o texto original:
              sem o arquivo guardado, é esta a evidência de por que não entraram. */
@@ -2303,6 +2364,62 @@ export async function registrarParte(
     nome: linha!.nome,
     competencias: Number(rows[0]?.competencias ?? 0),
   };
+}
+
+/**
+ * O arquivo de uma importação, de volta como ele entrou.
+ *
+ * **É o que fecha o ciclo.** A importação guarda os bytes; esta função os
+ * devolve. Entre as duas, qualquer diagnóstico sobre "por que este arquivo não
+ * produziu o que se esperava" deixa de exigir que alguém reenvie o `.txt` —
+ * que era a única saída antes da `0046`, e a que fazia o sistema parecer não
+ * guardar o que recebeu.
+ *
+ * **Confere na volta.** O tamanho descomprimido e o `sha256` gravados no
+ * documento são verificados contra o que saiu daqui. Um arquivo que voltasse
+ * diferente do que entrou seria pior do que não guardar: quem examinasse estaria
+ * examinando outra coisa, sem saber.
+ *
+ * `null` quando o documento é anterior à `0046` — e aí os bytes não existem
+ * mesmo, não é falha de leitura.
+ */
+export async function lerConteudoDoDocumento(
+  db: Database,
+  documentoId: string,
+): Promise<{ conteudo: Buffer; nomeDoArquivo: string; tipo: TipoDeFonte } | null> {
+  const linhas = await db
+    .select({
+      conteudo: fechamentoDocumentoConteudoTable.conteudo,
+      bytesOriginais: fechamentoDocumentoConteudoTable.bytesOriginais,
+      nomeDoArquivo: fechamentoDocumentoTable.nomeDoArquivo,
+      tipo: fechamentoDocumentoTable.tipo,
+      sha256: fechamentoDocumentoTable.sha256,
+    })
+    .from(fechamentoDocumentoConteudoTable)
+    .innerJoin(
+      fechamentoDocumentoTable,
+      eq(fechamentoDocumentoTable.id, fechamentoDocumentoConteudoTable.documentoId),
+    )
+    .where(eq(fechamentoDocumentoConteudoTable.documentoId, documentoId))
+    .limit(1);
+
+  const linha = linhas[0];
+  if (!linha) return null;
+
+  const conteudo = gunzipSync(linha.conteudo);
+  if (conteudo.byteLength !== linha.bytesOriginais) {
+    throw new Error(
+      `O conteúdo guardado de "${linha.nomeDoArquivo}" voltou com ${conteudo.byteLength} bytes ` +
+        `e foi guardado com ${linha.bytesOriginais}.`,
+    );
+  }
+  const sha = createHash("sha256").update(conteudo).digest("hex");
+  if (sha !== linha.sha256) {
+    throw new Error(
+      `O conteúdo guardado de "${linha.nomeDoArquivo}" não confere com o sha256 do envio.`,
+    );
+  }
+  return { conteudo, nomeDoArquivo: linha.nomeDoArquivo, tipo: linha.tipo as TipoDeFonte };
 }
 
 /**
