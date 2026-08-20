@@ -330,6 +330,13 @@
       "when": 1787190171147,
       "tag": "0046_tipo_de_operacao",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1787224769007,
+      "tag": "0047_unidade_sem_acervo",
+      "breakpoints": true
     }
   ]
 }

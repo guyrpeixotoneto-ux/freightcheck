@@ -241,6 +241,22 @@ const TABELAS_REMOVIDAS = [
     exatamente o que o bridge não pode fazer.
   */
   "remuneracao_planilha",
+  /*
+    A unidade cadastrada à mão, da `0047` — o mesmo caso da planilha acima, e a
+    pré-condição de vazia é igualmente dura pela mesma razão. Cada linha é uma
+    unidade que alguém registrou porque a aba de Excel dela chegou antes do
+    export, e não há consulta que a reconstrua: enquanto o arquivo não vem, o
+    acervo não sabe que essa unidade existe. Descartá-la levaria junto o único
+    lugar onde ela existia — e a planilha digitada nela ficaria pendurada num
+    escopo que sumiu da lista.
+
+    Entra **depois** de `remuneracao_planilha` na ordem do `down`, que é a
+    ordem em que o `RESTRICT` aceita: as duas não têm FK entre si (a planilha é
+    por `scope_hash`, e não por chave estrangeira para cá — ver
+    `schema/remuneracao.ts`), então a ordem entre elas é livre; ficam juntas
+    porque falam da mesma coisa.
+  */
+  "remuneracao_unidade",
 ];
 
 /**
@@ -1710,6 +1726,18 @@ function planoUp(): PassoUp[] {
   for (const i of ["remuneracao_planilha_unica", "remuneracao_planilha_por_vigencia"]) {
     add(M45, `índice ${i}`, levantar(M45, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
   }
+
+  const M47 = "0047_unidade_sem_acervo";
+  add(
+    M47,
+    "remuneracao_unidade",
+    levantar(M47, /CREATE TABLE IF NOT EXISTS "remuneracao_unidade" \(/),
+  );
+  add(
+    M47,
+    "índice remuneracao_unidade_unica",
+    levantar(M47, /INDEX IF NOT EXISTS "remuneracao_unidade_unica"/),
+  );
 
   const M42 = "0042_viagem_completa";
   for (const coluna of COLUNAS_DO_RETRATO_DA_VIAGEM) {
