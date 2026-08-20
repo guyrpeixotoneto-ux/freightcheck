@@ -221,11 +221,23 @@ describe("o caminho de volta", () => {
   it("devolve a Visão geral do mesmo recorte", () => {
     expect(
       linkDaVisaoGeral(recorte({ period: "2026-08-01", scopeHash: "abc" })),
-    ).toBe("/?period=2026-08-01&scopeHash=abc");
+    ).toBe("/resumo-executivo?period=2026-08-01&scopeHash=abc");
   });
 
   it("sem recorte, volta para a Visão geral e nada mais", () => {
-    expect(linkDaVisaoGeral(RECORTE_VAZIO)).toBe("/");
+    expect(linkDaVisaoGeral(RECORTE_VAZIO)).toBe("/resumo-executivo");
+  });
+
+  /*
+    A volta não aponta mais para a raiz, e este teste é o que impede o endereço
+    antigo de voltar por descuido: `/` é a porta da Visão Gerencial desde que a
+    entrada mudou, e um link de volta que caísse lá levaria quem clicou para o
+    acervo inteiro — perdendo exatamente o recorte que a volta existe para
+    preservar.
+  */
+  it("nunca volta para a raiz", () => {
+    expect(linkDaVisaoGeral(recorte({ period: "2026-08-01" })).startsWith("/?")).toBe(false);
+    expect(linkDaVisaoGeral(RECORTE_VAZIO)).not.toBe("/");
   });
 });
 

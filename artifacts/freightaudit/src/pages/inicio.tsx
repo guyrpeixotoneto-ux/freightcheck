@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiError, fetchJson } from "@/lib/api";
+import { RESUMO_EXECUTIVO } from "@/lib/ambiente";
 import { cn } from "@/lib/utils";
 import { periodicitySuffix } from "@/lib/format";
 import {
@@ -319,7 +320,7 @@ export default function Inicio() {
       else proxima.set(chave, valor);
     }
     const texto = proxima.toString();
-    navegar(texto ? `/?${texto}` : "/");
+    navegar(texto ? `${RESUMO_EXECUTIVO}?${texto}` : RESUMO_EXECUTIVO);
   };
 
   /*

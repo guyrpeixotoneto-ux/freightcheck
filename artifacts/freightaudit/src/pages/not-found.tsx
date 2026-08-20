@@ -1,4 +1,5 @@
 import { Layout } from "@/components/layout/layout";
+import { ENTRADA_DA_AUDITORIA } from "@/lib/ambiente";
 import { Link } from "wouter";
 
 export default function NotFound() {
@@ -11,7 +12,7 @@ export default function NotFound() {
           <p className="text-muted-foreground mb-6">
             A página que você está procurando não existe ou foi movida.
           </p>
-          <Link href="/" className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-8 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90">
+          <Link href={ENTRADA_DA_AUDITORIA} className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-8 text-sm font-medium text-primary-foreground shadow transition-colors hover:bg-primary/90">
             Voltar ao Dashboard
           </Link>
         </div>

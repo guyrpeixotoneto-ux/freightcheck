@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "@/components/ui/select";
 import { fetchJson } from "@/lib/api";
+import { ENTRADA_DA_AUDITORIA, RESUMO_EXECUTIVO } from "@/lib/ambiente";
 import { emDiaCurto, hojeEm } from "@/lib/calendario";
 import {
   anosComVigencia,
@@ -319,7 +320,7 @@ export default function VisaoGerencialDaAuditoria() {
             {anos.length > 0 && (
               <Select
                 value={String(ano)}
-                onValueChange={(v) => navegar(`/visao-gerencial?ano=${v}`)}
+                onValueChange={(v) => navegar(`${ENTRADA_DA_AUDITORIA}?ano=${v}`)}
               >
                 <SelectTrigger
                   className="h-auto w-auto gap-2 rounded-full px-4 py-2 shadow-none"
@@ -550,7 +551,7 @@ export default function VisaoGerencialDaAuditoria() {
                 </Link>{" "}
                 da unidade, que é onde o "o que mudou" está atributo a atributo. Os
                 outros dois caminhos continuam abertos pela lateral:{" "}
-                <Link href="/" className="text-primary hover:underline">
+                <Link href={RESUMO_EXECUTIVO} className="text-primary hover:underline">
                   Resumo executivo
                 </Link>{" "}
                 para os números da vigência aberta,{" "}

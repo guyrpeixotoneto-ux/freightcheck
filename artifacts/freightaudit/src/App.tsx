@@ -1,11 +1,13 @@
+import { useEffect } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Loader2 } from 'lucide-react';
 import { ErrorBoundary } from '@/components/error-boundary';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import NotFound from '@/pages/not-found';
-import { Route, Switch, Router as WouterRouter } from 'wouter';
+import { Route, Switch, useLocation, useSearch, Router as WouterRouter } from 'wouter';
 import { AuthProvider, useAuth } from '@/lib/auth';
+import { destinoDaRaiz, RESUMO_EXECUTIVO } from '@/lib/ambiente';
 import { publicarNoConsole } from '@/lib/registro-de-falhas';
 import { PADRAO_DAS_CONSULTAS } from '@/lib/chamada-resiliente';
 import Login from '@/pages/login';
@@ -163,19 +165,65 @@ const queryClient = new QueryClient({
 */
 publicarNoConsole();
 
+/**
+ * A raiz, que só encaminha.
+ *
+ * Sem tela e sem "Carregando…": o que ela faz é trocar o endereço e sair de
+ * cena, e por isso devolve `null` — um esqueleto piscando aqui apareceria por
+ * um quadro e sumiria, que é ruído puro num caminho que ninguém deveria ver.
+ *
+ * **A troca é `replace`, e isso não é detalhe.** Empilhar `/visao-gerencial`
+ * por cima de `/` deixaria o botão Voltar apontando para uma rota que
+ * imediatamente encaminha de novo: quem apertasse voltar não sairia do lugar.
+ * Substituindo, `/` não chega a existir no histórico, e o voltar leva de volta
+ * ao que havia antes do produto.
+ *
+ * A decisão de para onde ir mora em `destinoDaRaiz` (`lib/ambiente.ts`), fora
+ * do JSX, e é testada lá — aqui só se obedece a ela.
+ */
+function EntradaDaAuditoria() {
+  const busca = useSearch();
+  const [, navegar] = useLocation();
+  const destino = destinoDaRaiz(busca);
+
+  useEffect(() => {
+    navegar(destino, { replace: true });
+  }, [destino, navegar]);
+
+  return null;
+}
+
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={Inicio} />
+      {/*
+        A raiz não é mais tela: é a porta.
+
+        Quem abre o produto entra pelo conjunto — a Visão Gerencial, todas as
+        unidades de uma vez —, e não dentro de uma unidade que ninguém escolheu.
+        A regra inteira, com o porquê e com o que ela deve aos links antigos,
+        mora em `lib/ambiente.ts`; aqui só se obedece.
+      */}
+      <Route path="/" component={EntradaDaAuditoria} />
       {/*
         A Visão Gerencial da Auditoria — o acervo inteiro, unidade a unidade.
 
-        Endereço próprio e não a home: `/` é a Visão geral da unidade aberta, e
-        é ela que todo link colado por aí abre há tempo. As duas convivem em
-        alturas diferentes — esta responde pelo conjunto, aquela pela unidade —,
-        e o menu as põe em ordem de altura dentro de Visão executiva.
+        Endereço próprio *e* destino da raiz. O endereço próprio é o que a
+        lateral aponta e o que acende o item do menu; a raiz encaminha para cá,
+        e não renderiza a tela por conta própria, para que a Visão Gerencial
+        tenha um endereço só. Duas rotas mostrando a mesma tela seriam duas
+        respostas para "onde eu estou" — e a lateral só sabe acender uma.
       */}
       <Route path="/visao-gerencial" component={VisaoGerencialDaAuditoria} />
+      {/*
+        O Resumo executivo, no endereço que diz o nome dele.
+
+        Morava em `/` por antiguidade, e não por decisão: era a primeira tela do
+        produto. Ele continua respondendo pela unidade aberta e continua sendo a
+        segunda linha da Visão executiva — o que mudou foi a ordem em que se
+        chega, que agora é a do trabalho: o acervo, depois a unidade.
+      */}
+      <Route path={RESUMO_EXECUTIVO} component={Inicio} />
       <Route path="/vigencia" component={Vigencia} />
       <Route path="/dados" component={Dados} />
       <Route path="/apresentacao" component={ApresentacaoVideo} />
