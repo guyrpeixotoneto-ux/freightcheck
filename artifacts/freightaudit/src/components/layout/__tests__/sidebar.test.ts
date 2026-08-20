@@ -71,7 +71,7 @@ describe("a lateral", () => {
     expect(hrefs).toHaveLength(new Set(hrefs).size);
   });
 
-  it("mantém as oito seções do desenho, na ordem", () => {
+  it("mantém as nove seções do desenho, na ordem", () => {
     const texto = fonte("components/layout/sidebar.tsx");
     const lista = texto.slice(
       texto.indexOf("const NAV_GROUPS"),
@@ -80,6 +80,12 @@ describe("a lateral", () => {
 
     expect([...lista.matchAll(/titulo:\s*"([^"]+)"/g)].map((m) => m[1])).toEqual([
       "Visão executiva",
+      /*
+        Compras vem antes de Auditoria porque é um portão antes de o dinheiro
+        sair, e não uma descoberta sobre o que já saiu — ver o comentário da
+        seção em `sidebar.tsx`.
+      */
+      "Compras",
       "Auditoria",
       "Recuperação",
       "QLP",

@@ -41,10 +41,12 @@ import {
   Settings2,
   Shield,
   ShieldCheck,
+  ShoppingCart,
   SlidersVertical,
   Sparkles,
   SquareActivity,
   SquareTerminal,
+  Tags,
   Tractor,
   TrendingUp,
   TriangleAlert,
@@ -78,18 +80,19 @@ import { useSecoesRecolhidas } from "./preferencias";
  * A lateral do produto.
  *
  * Três blocos, de cima para baixo: **onde estou** (a unidade aberta), **para
- * onde vou** (as telas, em oito seções) e **quem sou** (a pessoa logada, no
+ * onde vou** (as telas, em nove seções) e **quem sou** (a pessoa logada, no
  * rodapé). A ordem é a da pergunta que a pessoa traz ao abrir o sistema.
  *
  * O que mudou em relação à lista única que existia aqui, e por quê:
  *
- * 1. **Oito cartões no lugar de uma lista corrida.** Quarenta e um itens em
- *    lista corrida se leem um a um, sempre; agrupados por trabalho — o que a
- *    diretoria olha, o que a auditoria abre, o que a recuperação cobra, o que a
- *    frota detalha, o que a inteligência responde, o que a governança alimenta,
- *    o que a administração ajusta — o olho pula ao cartão e lê cinco. Cada
- *    seção é um cartão de borda arredondada, e a lista de telas mora dentro
- *    dele: fechado, o menu inteiro cabe numa tela sem rolar.
+ * 1. **Um cartão por seção, no lugar de uma lista corrida.** Quarenta e dois
+ *    itens em lista corrida se leem um a um, sempre; agrupados por trabalho — o
+ *    que a diretoria olha, o que a compra libera, o que a auditoria abre, o que
+ *    a recuperação cobra, o que a frota detalha, o que a inteligência responde,
+ *    o que a governança alimenta, o que a administração ajusta — o olho pula ao
+ *    cartão e lê cinco. Cada seção é um cartão de borda arredondada, e a lista
+ *    de telas mora dentro dele: fechado, o menu inteiro cabe numa tela sem
+ *    rolar.
  * 2. **A unidade saiu do botão e virou estado.** O botão laranja "Seleção de
  *    unidades" não dizia qual unidade estava aberta — e essa é a primeira coisa
  *    que precisa estar dita, porque todo número da tela depende dela. Agora o
@@ -99,11 +102,11 @@ import { useSecoesRecolhidas } from "./preferencias";
  *    mostram quanto há para fazer antes de a pessoa clicar. Bolinha com zero não
  *    aparece: contagem que não conta nada ensina o olho a ignorar o lugar.
  * 4. **As seções nascem fechadas e abrem sob clique.** O retrato de descanso é
- *    o dos oito cartões; quem passa o dia em Auditoria abre a sua e a escolha
- *    fica — para o navegador, não para a página, ver `useSecoesRecolhidas`.
- *    Fechar esconde a lista, nunca a informação: o cartão fechado que contém a
- *    tela aberta fica aceso com a barra marinho, e o que esconde fila de
- *    trabalho traz a soma no cabeçalho.
+ *    o dos cartões fechados; quem passa o dia em Auditoria abre a sua e a
+ *    escolha fica — para o navegador, não para a página, ver
+ *    `useSecoesRecolhidas`. Fechar esconde a lista, nunca a informação: o
+ *    cartão fechado que contém a tela aberta fica aceso com a barra marinho, e
+ *    o que esconde fila de trabalho traz a soma no cabeçalho.
  * 5. **O rodapé é de quem entrou.** Avatar com as iniciais, nome e e-mail, com
  *    Configurações e Sair no menu — o mesmo par que a faixa do topo oferece,
  *    ao alcance de onde o olho já está quando navega.
@@ -123,17 +126,18 @@ import { useSecoesRecolhidas } from "./preferencias";
 */
 
 /**
- * As oito seções, e a ordem em que se lê o trabalho de um dia.
+ * As nove seções, e a ordem em que se lê o trabalho de um dia.
  *
  * A lista dobrou — de dezessete itens em cinco seções para trinta e cinco em sete —
  * e nenhum item saiu: as duas seções novas, **Recuperação** e **Frota**, e os
  * itens acrescentados às cinco antigas nomeiam trabalho que o produto vai
  * fazer; nada do que já existia mudou de nome, de lugar relativo ou de endereço.
  *
- * A ordem das oito é a de uma auditoria completa, de cima para baixo: vê-se o
- * retrato (**Visão executiva**), procura-se o desvio (**Auditoria**), cobra-se
- * o desvio achado (**Recuperação**), confere-se o quadro de gente que o modelo
- * remunera (**QLP**), desce-se ao ativo que o sofreu (**Frota**),
+ * A ordem é a de uma auditoria completa, de cima para baixo: vê-se o retrato
+ * (**Visão executiva**), libera-se o que precisa ser comprado hoje
+ * (**Compras**), procura-se o desvio (**Auditoria**), cobra-se o desvio achado
+ * (**Recuperação**), confere-se o quadro de gente que o modelo remunera
+ * (**QLP**), desce-se ao ativo que o sofreu (**Frota**),
  * pergunta-se ao assistente o que sobrou (**Inteligência**), e por baixo de
  * tudo estão o material (**Dados & governança**) e a casa (**Administração**).
  *
@@ -192,6 +196,24 @@ const NAV_GROUPS: NavGroup[] = [
       */
       { href: "/dre", label: "DRE", icon: Receipt },
     ],
+  },
+  {
+    /*
+      Compras fica entre a Visão executiva e a Auditoria, e a posição é a do
+      gesto que ela serve: alguém está com um pedido de compra parado na mesa e
+      precisa saber, agora, quanto a Ambev remunera aquele produto. Não é
+      auditoria — auditar é descobrir o que mudou, e aqui nada mudou; é um
+      portão antes de o dinheiro sair, e por isso vem antes.
+
+      Um item só, como a seção Remuneração da lateral do Fechamento. A seção
+      existe mesmo assim porque o trabalho é outro: quem passa o dia comprando
+      não abre nenhuma das sete telas de Auditoria, e um item de compra perdido
+      no meio delas seria encontrado por quem já sabia que ele existia.
+    */
+    titulo: "Compras",
+    icon: ShoppingCart,
+    cor: "text-nav-compras",
+    itens: [{ href: "/remunerado", label: "Remunerado", icon: Tags }],
   },
   {
     titulo: "Auditoria",

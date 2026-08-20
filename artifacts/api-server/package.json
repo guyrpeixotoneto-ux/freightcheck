@@ -17,6 +17,7 @@
     "@workspace/assistant": "workspace:*",
     "@workspace/balance": "workspace:*",
     "@workspace/comparison": "workspace:*",
+    "@workspace/compras": "workspace:*",
     "@workspace/composition": "workspace:*",
     "@workspace/coverage": "workspace:*",
     "@workspace/curation": "workspace:*",
