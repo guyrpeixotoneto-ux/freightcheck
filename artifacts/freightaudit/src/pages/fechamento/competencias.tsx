@@ -40,6 +40,9 @@ import {
   listarFontes,
   listarPartes,
   NOME_DO_ESTADO,
+  rotuloDoTipo,
+  TIPO_NAO_INFORMADO,
+  TIPOS_DE_OPERACAO,
   type Competencia,
   type Parte,
   type TipoDeParte,
@@ -119,52 +122,21 @@ const previaDaParte = (texto: string) => {
 const mesPorExtenso = (mes: number) =>
   MES_LONGO[mes - 1].replace(/^./, (letra) => letra.toUpperCase());
 
-/**
- * Os tipos de operação que o formulário oferece.
- *
- * **Não confundir com `Canal`**, que no motor do Fechamento é `ROTA` | `AS` —
- * distribuição urbana diária contra área de serviço, o eixo de agregação das
- * verbas. As duas palavras colidem em "ROTA" e querem dizer coisas diferentes:
- * aqui ROTA é o **modelo de operação da unidade**, o mesmo eixo que o rótulo da
- * vigência carrega (`EMPURRADA_1_8_2026`) e o mesmo da planilha de remuneração.
- * É por isso que o campo se chama Tipo, e não Canal.
- *
- * A lista é fechada, ao contrário dos campos de unidade e transportadora, e a
- * razão é o que cada um protege. Lá o vocabulário é da operação e cresce; aqui
- * ele é o eixo de uma **chave**, e um campo livre faria "Empurrada" e
- * "EMPURRADA" virarem dois fechamentos do mesmo mês. Um terceiro tipo é uma
- * linha nesta lista no dia em que ele existir.
- */
-/**
- * O tipo como a tela o escreve.
- *
- * `NAO_INFORMADO` é o carimbo do backfill da `0046` — as competências abertas
- * antes de o campo existir. Ele aparece por extenso, e não escondido: a linha
- * que não diz de qual operação ela é continua sendo um fato sobre o acervo, e
- * mostrá-la como se fosse empurrada seria escrever na tela um tipo que ninguém
- * declarou.
- */
-function rotuloDoTipo(tipo: string): string {
-  if (tipo === "NAO_INFORMADO") return "tipo não informado";
-  return TIPOS_DE_OPERACAO.find((t) => t.valor === tipo)?.rotulo ?? tipo;
-}
+/*
+  `TIPOS_DE_OPERACAO` e `rotuloDoTipo` vivem em `@/lib/fechamento` e não aqui.
 
-const TIPOS_DE_OPERACAO = [
-  {
-    valor: "EMPURRADA",
-    rotulo: "Empurrada",
-    explicacao:
-      "A distribuição empurrada da unidade — a operação que as vigências deste acervo " +
-      "descrevem hoje.",
-  },
-  {
-    valor: "ROTA",
-    rotulo: "Rota",
-    explicacao:
-      "A operação de rota da mesma unidade. É um fechamento separado do de empurrada, com a " +
-      "sua própria planilha de remuneração.",
-  },
-];
+  **Não confundir com `Canal`**, que no motor do Fechamento é `ROTA` | `AS` —
+  distribuição urbana diária contra área de serviço, o eixo de agregação das
+  verbas. As duas palavras colidem em "ROTA" e querem dizer coisas diferentes:
+  aqui ROTA é o **modelo de operação da unidade**, o mesmo eixo que o rótulo da
+  vigência carrega (`EMPURRADA_1_8_2026`) e o mesmo da planilha de remuneração.
+  É por isso que o campo se chama Tipo, e não Canal.
+
+  A lista mudou de casa porque duas telas a leem — esta, que **abre**, e o
+  Resumo geral, que **consulta** —, e as duas precisam escrever o mesmo tipo com
+  a mesma palavra. Duas cópias já custaram caro uma vez: o Resumo nasceu com a
+  lista de abrir e por isso não alcançava nenhum fechamento anterior à `0046`.
+*/
 
 /**
  * O que a linha da lista oferece, pelo estado da competência.
@@ -607,7 +579,7 @@ export default function Competencias() {
                           <p className="text-sm text-muted-foreground truncate">
                             {c.unidade.nome ?? c.unidade.codigo} · {c.transportadora.nome ?? c.transportadora.codigo}
                             {" · "}
-                            <span className={c.tipoDeOperacao === "NAO_INFORMADO" ? "italic" : "font-medium"}>
+                            <span className={c.tipoDeOperacao === TIPO_NAO_INFORMADO ? "italic" : "font-medium"}>
                               {rotuloDoTipo(c.tipoDeOperacao)}
                             </span>
                           </p>

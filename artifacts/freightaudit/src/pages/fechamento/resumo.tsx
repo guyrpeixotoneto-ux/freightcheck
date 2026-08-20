@@ -13,6 +13,9 @@ import { MES_LONGO } from "@/lib/fechamento-gerencial";
 import {
   lerResumoDoMes,
   listarPartes,
+  rotuloDoTipo,
+  TIPO_NAO_INFORMADO,
+  TIPOS_PARA_LER,
   type CanalDoResumo,
   type PainelComparado,
   type ResumoDoMes,
@@ -155,6 +158,14 @@ export default function ResumoGeral() {
                 O tipo vem logo depois da unidade porque é com ela que ele forma
                 a operação: "CAMAÇARI · EMPURRADA" é uma coisa e "CAMAÇARI ·
                 ROTA" é outra, com contas separadas desde a `0046`.
+
+                A lista é a de **ler** (`TIPOS_PARA_LER`), e não a de abrir: ela
+                tem o `NAO_INFORMADO` do backfill. Quem abre não pode escolhê-lo
+                — seria dizer "não sei" num campo obrigatório —, mas todo
+                fechamento anterior à `0046` o carrega, e um seletor sem ele
+                deixa o acervo inteiro sem endereço nesta tela: a unidade certa,
+                a transportadora certa, o mês certo, e mesmo assim nada. Foi o
+                que aconteceu no dia em que o campo chegou aqui.
               */}
               <div className="space-y-1.5">
                 <Label htmlFor="tipo-de-operacao">Tipo</Label>
@@ -166,10 +177,20 @@ export default function ResumoGeral() {
                     <SelectValue placeholder="Escolha" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="EMPURRADA">Empurrada</SelectItem>
-                    <SelectItem value="ROTA">Rota</SelectItem>
+                    {TIPOS_PARA_LER.map((t) => (
+                      <SelectItem key={t.valor} value={t.valor}>
+                        {t.rotulo}
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
+                {tipoDeOperacao === TIPO_NAO_INFORMADO && (
+                  <p className="text-xs text-muted-foreground">
+                    Os fechamentos abertos antes de o Tipo existir. A migration
+                    não adivinhou de qual operação eles eram — e ninguém escreveu
+                    por eles.
+                  </p>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="transportadora">Transportadora</Label>
@@ -241,26 +262,69 @@ export default function ResumoGeral() {
         )}
 
         {resumo.data && (
-          <Corpo resumo={resumo.data} recorte={recorte} aba={aba} trocar={trocar} />
+          <Corpo
+            resumo={resumo.data}
+            tipoDeOperacao={tipoDeOperacao}
+            recorte={recorte}
+            aba={aba}
+            trocar={trocar}
+          />
         )}
       </div>
     </Layout>
   );
 }
 
+/**
+ * A quinzena existe? — a pergunta que o `find` não responde.
+ *
+ * `lerResumoDoMes` devolve **sempre** as duas quinzenas, "existam elas ou não":
+ * a que não foi aberta vem com tudo nulo. Quem procurasse a quinzena com um
+ * `find` acharia esse esqueleto e o leria como uma competência de verdade — que
+ * é o que a tela fazia, chamando de "importada, ainda não apurada" o mês em que
+ * nada tinha sido aberto. É `competenciaId` que separa os dois: ele só existe
+ * quando existe uma competência no banco.
+ */
+export function quinzenaExiste(q: { competenciaId: string | null } | undefined): boolean {
+  return q?.competenciaId != null;
+}
+
+/**
+ * Por que o mês está sem números — e as duas respostas pedem gestos diferentes.
+ *
+ * `SEM_COMPETENCIA` é "não há fechamento nenhum aqui": ou ninguém abriu, ou o
+ * que existe está sob outro Tipo. Quem lê precisa abrir a quinzena, ou trocar o
+ * seletor. `SEM_APURACAO` é "o fechamento existe e os arquivos entraram, mas a
+ * conta não rodou": aí o gesto é apurar. Dizer a segunda frase no primeiro caso
+ * manda procurar uma apuração que não tem onde acontecer.
+ */
+export type MotivoDoVazio = "SEM_COMPETENCIA" | "SEM_APURACAO";
+
+export function motivoDoVazio(
+  quinzenas: { competenciaId: string | null }[],
+): MotivoDoVazio {
+  return quinzenas.some(quinzenaExiste) ? "SEM_APURACAO" : "SEM_COMPETENCIA";
+}
+
 function Corpo({
   resumo,
+  tipoDeOperacao,
   recorte,
   aba,
   trocar,
 }: {
   resumo: ResumoDoMes;
+  tipoDeOperacao: string;
   recorte: Recorte;
   aba: Aba;
   trocar: (campo: string, valor: string) => void;
 }) {
   const vazio = resumo.canais.length === 0;
-  const daQuinzena = (n: 1 | 2) => resumo.quinzenas.find((q) => q.quinzena === n);
+  const motivo = motivoDoVazio(resumo.quinzenas);
+  const daQuinzena = (n: 1 | 2) => {
+    const q = resumo.quinzenas.find((x) => x.quinzena === n);
+    return quinzenaExiste(q) ? q : undefined;
+  };
 
   return (
     <div className="space-y-6">
@@ -326,11 +390,68 @@ function Corpo({
       {vazio && (
         <Alert>
           <AlertDescription>
-            Nenhuma competência apurada em {MES_LONGO[resumo.mes - 1]} de {resumo.ano}{" "}
-            para {resumo.unidade.nome ?? resumo.unidade.codigo} ·{" "}
-            {resumo.transportadora.nome ?? resumo.transportadora.codigo}. Abra a
-            quinzena em Importações, envie os relatórios e rode a apuração — o
-            resumo se enche sozinho.
+            {/*
+              O fechamento é nomeado inteiro — as três partes da chave e o mês —,
+              e o Tipo entre elas: desde a `0046` ele é o eixo que decide se o
+              que se procura está aqui ou numa segunda operação da mesma unidade.
+              Sem ele na frase, "não tem nada" parecia ser sobre o mês.
+            */}
+            {motivo === "SEM_COMPETENCIA" ? (
+              <>
+                Nenhum fechamento aberto em {MES_LONGO[resumo.mes - 1]} de{" "}
+                {resumo.ano} para {resumo.unidade.nome ?? resumo.unidade.codigo} ·{" "}
+                {resumo.transportadora.nome ?? resumo.transportadora.codigo} ·{" "}
+                {rotuloDoTipo(tipoDeOperacao)}.{" "}
+                {tipoDeOperacao === TIPO_NAO_INFORMADO ? (
+                  <>
+                    Abra a quinzena em{" "}
+                    <Link href="/fechamento/competencias" className="text-primary hover:underline">
+                      Importações
+                    </Link>{" "}
+                    e envie os relatórios.
+                  </>
+                ) : (
+                  <>
+                    {/*
+                      A dica que faltava. Quem abriu a quinzena antes de o campo
+                      Tipo existir não tem como saber que o backfill a carimbou
+                      de "tipo não informado" — do lado de cá o mês simplesmente
+                      sumiu. Vale como primeira hipótese porque é a única causa
+                      que não depende de erro de quem lê.
+                    */}
+                    Se este mês já existia antes de o campo <strong>Tipo</strong>{" "}
+                    aparecer, ele está em{" "}
+                    <button
+                      type="button"
+                      onClick={() => trocar("tipoDeOperacao", TIPO_NAO_INFORMADO)}
+                      className="text-primary font-medium hover:underline"
+                    >
+                      tipo não informado
+                    </button>
+                    : a migration que criou o campo não adivinhou de qual operação
+                    cada fechamento antigo era. Se não é o caso, abra a quinzena
+                    em{" "}
+                    <Link href="/fechamento/competencias" className="text-primary hover:underline">
+                      Importações
+                    </Link>
+                    .
+                  </>
+                )}
+              </>
+            ) : (
+              <>
+                O fechamento de {MES_LONGO[resumo.mes - 1]} de {resumo.ano} para{" "}
+                {resumo.unidade.nome ?? resumo.unidade.codigo} ·{" "}
+                {resumo.transportadora.nome ?? resumo.transportadora.codigo} ·{" "}
+                {rotuloDoTipo(tipoDeOperacao)} está aberto, e nenhuma quinzena
+                foi apurada ainda — é a apuração que produz as verbas que este
+                resumo soma. Rode-a em{" "}
+                <Link href="/fechamento/competencias" className="text-primary hover:underline">
+                  Importações
+                </Link>{" "}
+                — o resumo se enche sozinho.
+              </>
+            )}
           </AlertDescription>
         </Alert>
       )}
