@@ -1,4 +1,4 @@
-import { centavos, lerNumero, type Canal } from "../dominio";
+import { centavos, lerNumero, type Canal, type Recusa } from "../dominio";
 import { diaDeTextoBR, type Dia } from "../periodo";
 import { VERBAS, verbaDe, verbaDesconhecida, type Verba } from "../verbas";
 import { lerTextoDeRelatorio } from "./formato";
@@ -117,6 +117,21 @@ export interface Pagamento {
   descontos: DescontoDoPagamento[];
   /** O `Total Remuneração` que o próprio relatório fecha, por canal. */
   totais: { canal: Canal; total: number }[];
+  /**
+   * As linhas que **pareciam verba** e não foram aceitas, com o texto original.
+   *
+   * Este leitor era o único, junto com o da conciliação, a não devolver recusa
+   * nenhuma — e a consequência apareceu em produção: um 03.08.20 gravou catorze
+   * descontos e nenhuma verba, e não havia como saber por quê sem pedir o
+   * arquivo de volta. O sistema não guarda o arquivo (ver `receberDocumento`),
+   * então a recusa **é** a evidência: `Recusa.original` existe exatamente para
+   * que a decisão possa ser revista sem reabrir o que não está guardado.
+   *
+   * Só entra aqui o que tem forma de verba — `NN - Nome` seguido de valores.
+   * Recusar toda linha não reconhecida encheria o registro com cabeçalho,
+   * rodapé e linha em branco, e a evidência se perderia no ruído.
+   */
+  recusas: Recusa[];
 }
 
 /*
@@ -131,6 +146,14 @@ const RE_TRANSPORTADORA = /^Transportadora\s+(\d+)\s+(.+?)\s*$/i;
 const RE_UNIDADE = /^Entregas para\s+(\S+)\s*-\s*(.+?)\s*$/i;
 const RE_TOTAL = /^total remuneracao\s+(-?[\d.]+,\d{2})\s*$/;
 const RE_VALOR = /-?[\d.]+,\d{2}/g;
+/**
+ * Uma linha que **começa** como verba: `NN - Nome` seguido de alguma coisa.
+ *
+ * Mais frouxo que {@link RE_ITEM} de propósito: serve para reconhecer o que o
+ * relatório quis dizer, e não o que o leitor aceita. A diferença entre os dois
+ * é exatamente a recusa que vale a pena registrar.
+ */
+const RE_PARECE_VERBA = /^\s*\d{1,3}\s*-\s*.{3,}?\s{2,}.+$/;
 
 /** Sem acento e em minúsculas: o Promax alterna as duas grafias entre versões. */
 function chave(texto: string): string {
@@ -216,6 +239,7 @@ export function lerPagamento(arquivo: Buffer | ArrayBuffer | string): Pagamento 
 
   const itens: ItemDePagamento[] = [];
   const descontos: DescontoDoPagamento[] = [];
+  const recusas: Recusa[] = [];
   const totais: { canal: Canal; total: number }[] = [];
   let periodo: { inicio: Dia | null; fim: Dia | null } = { inicio: null, fim: null };
   let unidade: Pagamento["unidade"] = null;
@@ -344,6 +368,33 @@ export function lerPagamento(arquivo: Buffer | ArrayBuffer | string): Pagamento 
       continue;
     }
 
+    /*
+      A linha tem cara de verba e não entrou. Aqui é o único lugar em que dá
+      para dizer **por que**, e é o que se guarda: sem o arquivo original — que
+      o fechamento não persiste —, esta recusa é a evidência.
+
+      Duas causas, e elas pedem coisas opostas de quem for consertar. Ou o
+      layout tem outro número de colunas (o export mudou, e o leitor é que
+      precisa mudar), ou a linha está fora de uma seção `FRETE`/`OUTROS CUSTOS`
+      (o arquivo veio recortado, e é ele que precisa vir inteiro).
+    */
+    if (RE_PARECE_VERBA.test(bruta)) {
+      const quantos = (bruta.match(RE_VALOR) ?? []).length;
+      recusas.push({
+        linha: numeroDaLinha,
+        motivo:
+          quantos !== 6
+            ? `Linha de verba com ${quantos} coluna(s) de valor; o 03.08.20 traz 6 ` +
+              `(sem imposto, NF/ISS, CTRC/ICMS, faturado, VLC NF/ISS, VLC CTRC/ICMS).`
+            : bloco === null
+              ? "Linha de verba fora de uma seção `FRETE` ou `OUTROS CUSTOS` — o arquivo " +
+                "parece ter vindo sem os cabeçalhos de seção."
+              : `Linha de verba dentro da seção "${bloco}", que não recebe verba.`,
+        original: bruta,
+      });
+      continue;
+    }
+
     const valor = ultimoValor(limpa);
     if (valor === null) continue;
 
@@ -398,7 +449,7 @@ export function lerPagamento(arquivo: Buffer | ArrayBuffer | string): Pagamento 
     }
   }
 
-  return { periodo, unidade, transportadora, itens, descontos, totais };
+  return { periodo, unidade, transportadora, itens, descontos, totais, recusas };
 }
 
 /**
