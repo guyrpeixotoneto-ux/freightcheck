@@ -41,9 +41,18 @@ explícito ficou para o domínio que nasce agora, onde não custa nada.
 Pelo seletor no topbar, colado à marca — `FreightCheck | Auditoria ▾` —
 implementado em `components/layout/topbar.tsx`. Ele mostra sempre o ambiente
 aberto e lista os dois com nome completo e descrição. Trocar navega para a
-home do outro (`/` ou `/fechamento`). A marca também leva à home **do ambiente
-aberto**, para que "voltar ao início" nunca troque de espaço de trabalho sem
-avisar.
+home do outro (`/visao-gerencial` ou `/fechamento`). A marca também leva à home
+**do ambiente aberto**, para que "voltar ao início" nunca troque de espaço de
+trabalho sem avisar.
+
+As duas homes são a mesma tela em ambientes diferentes — a **Visão Gerencial**
+de cada um —, e isso é deliberado: quem entra entra pelo conjunto, e desce à
+unidade depois. A da Auditoria mudou de endereço para isso: `/` deixou de
+renderizar o Resumo executivo, que passou a ter endereço próprio
+(`/resumo-executivo`), e virou a porta que encaminha — para a Visão Gerencial
+quando vem nua, e para o Resumo executivo quando vem com recorte na consulta,
+que é o formato de todo link antigo. A regra inteira está em `lib/ambiente.ts`
+(`destinoDaRaiz`).
 
 ## A lateral contextual
 
@@ -55,8 +64,9 @@ listas:
   ordem delas são as de sempre; o único item acrescentado desde a separação dos
   ambientes é a **Visão Gerencial**, que abre a Visão executiva com o acervo
   inteiro (todas as unidades) acima do Resumo executivo, que responde pela
-  unidade aberta — ver `pages/visao-gerencial.tsx` e a seção correspondente no
-  `replit.md`.
+  unidade aberta — e que, desde que virou a entrada do ambiente, é também a
+  tela em que o produto abre. Ver `pages/visao-gerencial.tsx` e a seção
+  correspondente no `replit.md`.
 - **Fechamento** — `components/layout/nav-fechamento.ts`, cinco seções na
   ordem do processo:
   - **Fechamento**: Visão Gerencial · Importações · Apurações
@@ -563,7 +573,7 @@ devolvem nulo em vez de escolher o valor mais provável.
 
 `NAO_INFORMADO` é recusado na porta de entrada (`normalizarTipoDeOperacao`):
 ele é o carimbo do backfill, e nada além dele pode escrevê-lo. A tela mostra
-essas competências como "tipo não informado", por extenso — mostrá-las como
+essas competências como "Não informado", por extenso — mostrá-las como
 empurradas seria escrever na tela um tipo que ninguém declarou.
 
 O `DEFAULT` da coluna fica, e é fail-safe pela razão **oposta** à de
@@ -752,7 +762,7 @@ mês. Recusá-lo não o tornava mais verdadeiro — só o mantinha fora do produ
 onde ninguém o conferia.
 
 `remuneracao_planilha` (migration `0045`) guarda o valor por (escopo, canal,
-vigência, chave da linha), com autor, data e observação. **Ela não é a "tabela
+vigência, chave da linha), com autor e data. **Ela não é a "tabela
 própria" que a seção acima recusa**, e a distinção é o eixo do desenho: aquela
 seria uma segunda verdade sobre a *frota*; esta guarda o que a *planilha
 declara*. São perguntas diferentes, e por isso vivem em campos diferentes até o
@@ -780,6 +790,46 @@ apagá-la:
    de `comLastro`, e os quatro estados não mudam com a planilha: uma unidade sem
    arquivo nenhum e com a aba transcrita apareceria "Frota e alíquotas", e quem
    opera pararia de procurar o arquivo que falta.
+
+### A unidade que ainda não importou nada
+
+Uma unidade sempre nasceu de um `snapshot`: `listContexts` agrupa o acervo por
+`(scope_hash, canal)`, e quem nunca mandou export não existia em tela nenhuma.
+Na Auditoria a regra está certa e continua — lá a pergunta é o que os arquivos
+sustentam. No Fechamento era uma parede: a quinzena é de várias unidades, a aba
+de Excel costuma chegar antes do arquivo, e a unidade que só tem aba não tinha
+onde ser digitada. Não por recusa do produto: por não haver linha para clicar.
+
+`remuneracao_unidade` (migration `0048`) guarda **identidade, e não número** —
+nome, código, tipo de operação e a quinzena em que se começa a preencher. Os
+números continuam na `remuneracao_planilha`, com as quatro regras acima
+intactas: uma unidade registrada nasce **sem lastro**, porque o acervo de fato
+não mede nada dela.
+
+**O identificador é calculado, e é isso que impede a unidade duplicada.** Ele
+sai do mesmo `hashScopeSet` da importação — `sha256` dos descritores
+`TIPO:código` ordenados —, somado na borda da rota e nunca no domínio: uma
+segunda implementação da chave de negócio discordaria da primeira algum dia, e
+nesse dia a planilha digitada sumiria da unidade sem erro em tela. Registrada
+com o código que o export também carrega, a unidade digitada recebe **o mesmo**
+identificador que o import produzirá, e no dia em que o arquivo chegar ele cai
+na unidade que já estava lá: o rótulo passa a vir do arquivo, a planilha
+continua onde estava, e ninguém junta duas linhas.
+
+Daí a exigência que a tela diz por extenso: o código vai **como está na coluna
+`Unidade - CNPJ` do export**, com pontuação se lá houver. O hash da importação é
+somado sobre o texto da célula, e não sobre o CNPJ canônico — limpar a máscara
+aqui pareceria mais caprichado e produziria o identificador de um código que o
+arquivo não tem.
+
+**A ordem de procedência é acervo, planilha, registro.** Havendo snapshot para o
+par, `contextosDoModulo` ignora a linha registrada e usa o contexto do acervo;
+a linha não é apagada, porque quem registrou e quando é a única procedência que
+a unidade teve enquanto não havia arquivo. E a lista para de dizer "no acervo"
+para quem não tem acervo: a unidade registrada aparece marcada, porque "sem
+lastro" numa importada quer dizer "o arquivo veio e não trouxe o que o cadastro
+lê" — e manda procurar uma coluna — enquanto numa registrada quer dizer
+"arquivo nenhum veio", que não manda procurar nada.
 
 Declarar PIS e COFINS separados destrava as duas linhas do par — é a destrava
 que o próprio catálogo já nomeava — e a soma das duas metades é conferida contra

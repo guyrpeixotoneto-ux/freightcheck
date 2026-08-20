@@ -2,18 +2,23 @@ import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import type { RequestedContext } from "@workspace/comparison";
 import { ehMimeDeImagem, lerPlanilhaDaImagem } from "@workspace/assistant";
+import { hashScopeSet } from "@workspace/ingest";
 import {
   BLOCOS_DO_CADASTRO,
   conferirCelula,
   copiarPlanilhaDaUnidade,
+  descritorDeEscopo,
   gravarPlanilhaDaUnidade,
   lerCadastroDaUnidade,
   lerComparacaoDeCadastros,
   lerPlanilhaDaUnidade,
   lerSituacaoDasUnidades,
   listarUnidades,
+  normalizarCodigo,
+  registrarUnidade,
   LinhaDaPlanilhaInvalida,
   PlanilhaVazia,
+  UnidadeInvalida,
 } from "@workspace/remuneracao";
 
 /**
@@ -430,6 +435,75 @@ router.post("/remuneracao/planilha/leitura-de-imagem", async (req, res): Promise
     erro: leitura.erro,
     modelo: leitura.modelo,
   });
+});
+
+/**
+ * Registra uma unidade que ainda não importou vigência nenhuma.
+ *
+ * **Por que a rota existe.** Até aqui, unidade era o que `listContexts` achava
+ * no acervo: quem nunca mandou export não tinha linha para clicar, e a planilha
+ * dele — que costuma chegar antes do arquivo — não tinha onde ser digitada. Na
+ * Auditoria a regra estava certa e continua; no Fechamento ela era uma parede,
+ * porque lá a quinzena é de várias unidades e nenhuma delas espera a outra.
+ *
+ * **O que ela grava é identidade, e nada mais.** Nome, código, tipo de operação
+ * e a quinzena inicial. Nenhum número: os números continuam entrando pelo `PUT`
+ * da planilha, marcados como informados, com autor e data.
+ *
+ * **O `scope_hash` é somado aqui, com o `hashScopeSet` da importação.** É de
+ * propósito que ele não é somado no domínio: a regra é da importação, e uma
+ * segunda implementação dela seria uma segunda chave de negócio — no dia em que
+ * as duas discordassem, a planilha digitada sumiria da unidade sem erro nenhum
+ * em tela. Somando aqui, com a mesma função, registrar CAMAÇARI com o código
+ * que o export carrega produz **o mesmo** identificador que o import produzirá,
+ * e o arquivo, quando chegar, cai na unidade que já estava lá.
+ *
+ * O autor sai da sessão, como no `PUT` da planilha, e pela mesma razão.
+ */
+router.post("/remuneracao/unidades", async (req, res): Promise<void> => {
+  const corpo = (req.body ?? {}) as Record<string, unknown>;
+  const nome = typeof corpo.nome === "string" ? corpo.nome : "";
+  const codigoBruto = typeof corpo.codigo === "string" ? corpo.codigo : "";
+  const canal = typeof corpo.canal === "string" && corpo.canal.trim() !== "" ? corpo.canal : null;
+  const vigencia = typeof corpo.vigencia === "string" ? corpo.vigencia.trim() : "";
+  const scopeType =
+    typeof corpo.scopeType === "string" && corpo.scopeType.trim() !== ""
+      ? corpo.scopeType.trim().toUpperCase()
+      : "UNIDADE";
+
+  const codigo = normalizarCodigo(codigoBruto);
+  if (codigo === "") {
+    throw new UnidadeInvalida(
+      "O código da unidade é obrigatório — é o mesmo que vem no export, e é ele que faz a " +
+        "planilha digitada hoje encontrar o arquivo que chegar depois. Sem ele, a unidade " +
+        "importada nasceria ao lado desta em vez de dentro dela.",
+    );
+  }
+  /*
+    A vigência é conferida como forma, e não contra uma lista: não há lista. A
+    unidade não tem acervo, e é justamente a quinzena declarada aqui que vai
+    povoar o seletor do formulário — recusá-la por não constar de lugar nenhum
+    seria recusar a única data que existe.
+  */
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(vigencia)) {
+    throw new UnidadeInvalida(
+      "A quinzena inicial é obrigatória e vem como data (AAAA-MM-DD). Ela é a única vigência " +
+        "que esta unidade tem até a primeira planilha ser salva — sem ela o formulário abre " +
+        "sem nada para escolher.",
+    );
+  }
+
+  const unidade = await registrarUnidade(db, {
+    scopeHash: hashScopeSet([descritorDeEscopo(scopeType, codigo)]),
+    scopeType,
+    codigo,
+    nome,
+    canal,
+    vigenciaInicial: vigencia,
+    autor: { id: req.user?.id ?? null, nome: req.user?.name ?? null },
+  });
+
+  res.status(201).json(unidade);
 });
 
 export default router;

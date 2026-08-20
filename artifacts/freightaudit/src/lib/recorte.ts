@@ -30,6 +30,8 @@
  * deixa a regra testável sem montar tela nenhuma.
  */
 
+import { RESUMO_EXECUTIVO } from "@/lib/ambiente";
+
 // ---------------------------------------------------------------------------
 // As abas
 // ---------------------------------------------------------------------------
@@ -281,10 +283,16 @@ export function nomeDaUnidade(contexto: {
  * A volta existe porque a ida aplica um filtro: quem chegou às 244 alterações
  * sem preço precisa poder voltar aos cinco números de onde as 244 saíram sem
  * refazer a escolha de unidade e de vigência no caminho.
+ *
+ * O endereço escrito aqui é `/resumo-executivo`, e não mais a raiz: a tela
+ * mudou de lugar quando `/` virou a porta da Visão Gerencial. Os links que já
+ * saíram daqui em forma de `/?…` não morreram — a raiz encaminha quem chegar
+ * com recorte na consulta, e é `destinoDaRaiz` (`lib/ambiente.ts`) que faz
+ * isso.
  */
 export function linkDaVisaoGeral(recorte: Recorte): string {
   const consulta = paramsDoRecorte(recorte).toString();
-  return consulta ? `/?${consulta}` : "/";
+  return consulta ? `${RESUMO_EXECUTIVO}?${consulta}` : RESUMO_EXECUTIVO;
 }
 
 /**

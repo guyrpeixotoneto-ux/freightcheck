@@ -42,7 +42,13 @@ import { ApiErrorNotice } from "@/components/api-error";
 import { fetchJsonOrNull } from "@/lib/api";
 import { cn } from "@/lib/utils";
 import { useFavoritos } from "@/lib/favoritos";
-import { formatBrlShort, impactEntries, periodicitySuffix } from "@/lib/format";
+import {
+  formatBrlShort,
+  impactEntries,
+  periodicityAdjective,
+  periodicitySuffix,
+  sortByPeriodicity,
+} from "@/lib/format";
 import {
   CATALOGO_FREIGHTECH,
   chaveDoCartao,
@@ -519,35 +525,107 @@ export default function Parametros() {
 }
 
 /**
- * Os cinco números do topo, na forma de ladrilho das outras telas.
+ * As colunas da régua nas telas largas, pela quantidade de cartões que a
+ * vigência produziu.
+ *
+ * Escrito à mão e não montado por interpolação: o Tailwind gera só as classes
+ * que encontra escritas no código, e `2xl:grid-cols-${n}` não existiria na folha
+ * de estilo — a grade cairia silenciosamente para uma coluna.
+ *
+ * Cinco numa fileira é o que a tela sempre teve, e continua cabendo. Seis não
+ * cabem: a sexta coluna estreita a coluna de texto até "Impacto líquido mensal"
+ * quebrar em duas linhas e o valor cair de corpo — perde-se no cartão de
+ * dinheiro exatamente o que a separação foi feita para lhe devolver. Duas
+ * fileiras de três custam altura e não custam número; sete vão em quatro
+ * colunas pela mesma conta.
+ */
+const COLUNAS_DA_REGUA: Record<number, string> = {
+  5: "lg:grid-cols-3 2xl:grid-cols-5",
+  6: "lg:grid-cols-3",
+  7: "lg:grid-cols-4",
+};
+
+/**
+ * Os números do topo, na forma de ladrilho das outras telas.
  *
  * Era um parágrafo com números em negrito, e o parágrafo dizia a verdade — mas
  * exigia lê-lo inteiro para achar o número que se veio buscar, e nenhuma outra
  * tela do produto apresenta os seus assim. `MetricCard` é o mesmo componente de
- * Alterações e das telas de comparação, o que também garante a regra que mais
- * importa aqui: `ImpactoPorPeriodicidade` escreve **uma linha por
- * periodicidade** e nunca um escalar, porque R$/mês e R$/ano não se somam.
+ * Alterações e das telas de comparação.
  *
- * As duas ressalvas continuam escritas embaixo, e não viraram nota de rodapé:
+ * **Um cartão por periodicidade, e não duas linhas espremidas num só.** A regra
+ * que os separa é a de sempre — R$/mês e R$/ano são grandezas diferentes e não
+ * se somam —, e um cartão para cada um a diz melhor do que o empilhamento
+ * dizia: a grandeza passa a estar no rótulo, onde se lê antes do número, em vez
+ * de num sufixo em meio corpo depois dele. O número também recupera a largura
+ * inteira do cartão, que era o preço escondido do empilhamento —
+ * `ImpactoPorPeriodicidade` cede corpo de letra quando escreve mais de uma
+ * linha (1,125rem contra 1,5rem), e o valor mais importante da tela era o menor
+ * dela. O que continua impossível é o que sempre foi: não há cartão que junte os
+ * dois, aqui nem em lugar nenhum.
+ *
+ * O número de cartões, portanto, é o número de periodicidades apuradas mais
+ * quatro — e a grade se ajusta a ele. Sem nenhum valor apurado sobra um cartão
+ * só, com "não calculável" no lugar do número: uma régua sem a linha do dinheiro
+ * se leria como uma vigência sem dinheiro, e o que falta é preço, não impacto.
+ *
+ * As duas ressalvas continuam escritas junto, e não viraram nota de rodapé:
  * quanto ficou fora do líquido por já estar contado em outra linha, e quantas
  * alterações estão sem preço. Um total de impacto sem elas parece cobrir o
- * arquivo inteiro quando cobre uma parte dele.
+ * arquivo inteiro quando cobre uma parte dele — e por isso a segunda repete-se
+ * em cada cartão de impacto em vez de sair uma vez ao lado do primeiro: são as
+ * mesmas alterações fora de cada um dos valores, e o cartão que a perdesse
+ * viraria o total redondo que esta tela não publica.
  */
 function Ladrilhos({ view }: { view: FamiliesView }) {
   const { summary } = view;
-  const excluido = impactEntries(excluidoDaSoma(summary.impact));
+  const excluido = sortByPeriodicity(impactEntries(excluidoDaSoma(summary.impact)));
   const familias = view.families.filter((f) => f.changes > 0).length;
+  const impactos = sortByPeriodicity(impactEntries(summary.impact.byPeriodicity));
+  const semPreco = summary.notCalculable.toLocaleString("pt-BR");
+  const cartoes = Math.max(impactos.length, 1) + 4;
 
   return (
     <div className="mt-6 space-y-4">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
-        <MetricCard
-          tone="green"
-          icon={<Wallet className="w-6 h-6" />}
-          label="Impacto líquido"
-          value={<ImpactoPorPeriodicidade buckets={summary.impact.byPeriodicity} />}
-          hint={`${summary.notCalculable} alterações fora destes valores`}
-        />
+      <div
+        className={cn(
+          "grid gap-4 sm:grid-cols-2",
+          COLUNAS_DA_REGUA[cartoes] ?? "lg:grid-cols-3",
+        )}
+      >
+        {impactos.length === 0 ? (
+          <MetricCard
+            tone="green"
+            icon={<Wallet className="w-6 h-6" />}
+            label="Impacto líquido"
+            value={<ImpactoPorPeriodicidade buckets={{}} />}
+            hint={`${semPreco} ${
+              summary.notCalculable === 1 ? "alteração sem preço" : "alterações sem preço"
+            }`}
+          />
+        ) : (
+          /*
+            Mesmo ícone e mesmo tom nos dois: é a mesma medida em unidades
+            diferentes, e pintá-los de cores distintas anunciaria uma diferença
+            de natureza que não existe. Quem diz qual é qual é o rótulo.
+          */
+          impactos.map((impacto) => (
+            <MetricCard
+              key={impacto.periodicity}
+              tone="green"
+              icon={<Wallet className="w-6 h-6" />}
+              label={`Impacto líquido ${periodicityAdjective(impacto.periodicity)}`}
+              value={
+                <ImpactoPorPeriodicidade
+                  buckets={{ [impacto.periodicity]: impacto.amount }}
+                />
+              }
+              hint={`${semPreco} ${
+                summary.notCalculable === 1 ? "alteração fora" : "alterações fora"
+              } deste valor`}
+            />
+          ))
+        )}
         <MetricCard
           tone="blue"
           icon={<Layers className="w-6 h-6" />}

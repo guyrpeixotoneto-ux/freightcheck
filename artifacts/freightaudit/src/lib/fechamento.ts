@@ -110,7 +110,7 @@ export const TIPOS_DE_OPERACAO: { valor: string; rotulo: string; explicacao: str
  */
 export const TIPOS_PARA_LER: { valor: string; rotulo: string }[] = [
   ...TIPOS_DE_OPERACAO.map(({ valor, rotulo }) => ({ valor, rotulo })),
-  { valor: TIPO_NAO_INFORMADO, rotulo: "tipo não informado" },
+  { valor: TIPO_NAO_INFORMADO, rotulo: "Não informado" },
 ];
 
 /**

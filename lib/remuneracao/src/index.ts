@@ -33,6 +33,25 @@
  * com autor e data, nunca como `APURADO`; e onde o acervo também responde, o
  * valor da linha continua sendo o medido, com o declarado ao lado como
  * conferência. Ver `informado.ts`.
+ *
+ * **A segunda tabela, `remuneracao_unidade`, e a regra que ela dobra.** Uma
+ * unidade sempre nasceu de um `snapshot`: quem nunca mandou export não existia
+ * em tela nenhuma. Na Auditoria isso está certo — lá a pergunta é o que os
+ * arquivos sustentam, e uma unidade sem arquivo não sustenta nada. No
+ * Fechamento é uma parede: a quinzena é de várias unidades, a aba de Excel
+ * costuma chegar antes do export, e a unidade que só tem aba não tinha onde ser
+ * digitada.
+ *
+ * A tabela guarda **identidade, e não número**: nome, código, tipo de operação
+ * e a quinzena em que se começou a preencher. Os números continuam na
+ * `remuneracao_planilha`, com o mesmo estado `INFORMADO` de sempre.
+ *
+ * E o identificador dela não é sorteado: é o mesmo `hashScopeSet` da
+ * importação, somado na borda sobre o código que o export também carrega. É o
+ * que faz o dia da primeira importação de uma unidade registrada ser um dia em
+ * que nada acontece na tela — o rótulo passa a vir do arquivo, a planilha
+ * digitada continua onde estava, e ninguém precisa juntar duas linhas. Ver
+ * `unidade.ts`.
  */
 
 export * from "./catalogo";
@@ -41,6 +60,7 @@ export * from "./medicao";
 export * from "./informado";
 export * from "./montagem";
 export * from "./situacao";
+export * from "./unidade";
 export * from "./comparacao";
 export * from "./vigencia";
 export * from "./planilha";

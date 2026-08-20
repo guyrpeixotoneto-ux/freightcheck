@@ -61,7 +61,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ambienteDe, type Ambiente } from "@/lib/ambiente";
+import {
+  ambienteDe,
+  ENTRADA_DA_AUDITORIA,
+  RESUMO_EXECUTIVO,
+  type Ambiente,
+} from "@/lib/ambiente";
 import { getApiUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -162,9 +167,13 @@ const NAV_GROUPS: NavGroup[] = [
         As duas ficam coladas, e nesta ordem, porque são a mesma pergunta em
         duas alturas: o conjunto e a unidade. Separá-las por três itens faria
         parecer que falam de coisas diferentes.
+
+        A ordem do menu agora é também a ordem da entrada: `/` encaminha para o
+        primeiro destes dois itens, e o segundo tem endereço próprio desde que
+        deixou a raiz. Ver `lib/ambiente.ts`.
       */
-      { href: "/visao-gerencial", label: "Visão Gerencial", icon: LayoutDashboard },
-      { href: "/", label: "Resumo executivo", icon: House },
+      { href: ENTRADA_DA_AUDITORIA, label: "Visão Gerencial", icon: LayoutDashboard },
+      { href: RESUMO_EXECUTIVO, label: "Resumo executivo", icon: House },
       { href: "/vigencia", label: "Acompanhamento", icon: TrendingUp },
       /*
         A Análise de frota saiu daqui e passou a abrir a seção **Frota**, ao lado
@@ -657,6 +666,10 @@ function normalizar(texto: string): string {
  * exceção "/" ficaria aceso em toda tela do produto. `/fechamento` é a raiz do
  * outro ambiente e tem a mesma exceção pela mesma razão: todo endereço do
  * Fechamento começa com ele.
+ *
+ * A exceção de "/" continua aqui mesmo depois de a raiz ter deixado de ser item
+ * de menu: ela custa uma comparação e é o que impede a lateral inteira de
+ * acender no dia em que alguém reaproveitar "/" como href de algum item.
  */
 function estaAtivo(location: string, href: string): boolean {
   if (href === "/" || href === "/fechamento") return location === href;
@@ -751,6 +764,63 @@ interface Contexto {
 }
 
 /**
+ * O que a barra lateral diz sobre unidade — e são duas coisas diferentes.
+ *
+ * Na Auditoria, a unidade aberta: a pergunta de lá é sobre uma série, e o
+ * cartão diz de qual. No Fechamento, o alcance: a quinzena é de várias
+ * unidades, e afirmar uma seria afirmar um recorte que nenhuma tela honra.
+ *
+ * **Os dois ramos são componentes, e não um `if` dentro de um.** O da
+ * Auditoria chama `useSearch` e `useQuery`; o do Fechamento não chama nenhum
+ * dos dois, e a barra lateral não remonta ao navegar entre os ambientes. Um
+ * `return` antecipado antes dos hooks mudaria a ordem deles no meio da vida do
+ * componente, que é o erro que o React não perdoa.
+ */
+function SeletorDeUnidade({ ambiente }: { ambiente: Ambiente }) {
+  return ambiente === "fechamento" ? <AlcanceDoFechamento /> : <UnidadeAberta />;
+}
+
+/**
+ * O Fechamento não tem unidade aberta — e o cartão passou a dizer isso.
+ *
+ * Ele mostrava uma unidade, a da URL ou a mais recente, como se o ambiente
+ * estivesse preso a ela. Não está: das dez telas do Fechamento, oito nunca
+ * mencionam `scopeHash`, e as duas que mencionam são a lista de unidades, que
+ * monta um link por linha, e o cadastro de uma unidade, que lê o parâmetro da
+ * URL depois do clique. Nenhuma delas lia este cartão.
+ *
+ * A justificativa antiga era que "todo número do fechamento também depende
+ * dela", e ela deixou de valer: quem fecha a quinzena fecha as trinta, não
+ * uma. Um cartão que afirma um recorte que nenhuma tela honra não é decoração
+ * inofensiva — este foi lido, em uso, como "só consigo cadastrar a planilha de
+ * CAMAÇARI porque estou nela", que é a conclusão errada sobre uma tela que
+ * sempre listou todas.
+ *
+ * Nada aqui lê `/contexts`, e não é só economia de uma chamada: o que ele
+ * mostrasse a partir dela seria de novo uma unidade escolhida por quem não vai
+ * usá-la. Uma contagem também não serve — tirada do acervo, ela passaria a
+ * mentir por baixo no dia em que existir unidade cadastrada à mão, que não tem
+ * vigência importada para ser contada.
+ */
+function AlcanceDoFechamento() {
+  return (
+    <div className="p-4 pb-3">
+      <div className="text-[0.6875rem] font-bold uppercase tracking-[0.1em] text-muted-foreground mb-2.5">
+        Alcance
+      </div>
+      <CaixaDaUnidade
+        icone={Layers}
+        titulo="Todas as unidades"
+        detalhe={
+          "O Fechamento não se prende a uma: cada tela lista as unidades que existem, e " +
+          "você escolhe na linha."
+        }
+      />
+    </div>
+  );
+}
+
+/**
  * A unidade, o canal e a vigência mais recente da seleção aberta.
  *
  * Lê `/contexts` — as unidades e canais que **já entregaram vigência**, não uma
@@ -761,14 +831,8 @@ interface Contexto {
  * Com um contexto só, o campo não vira seletor: fica um cartão que informa. Um
  * menu de uma opção é uma promessa de variedade que o dado não tem — e obriga
  * um clique para descobrir que não havia escolha.
- *
- * No Fechamento o cartão informa e não vira seletor nem com vários contextos:
- * trocar de unidade hoje leva a Parâmetros, que é uma tela da Auditoria, e um
- * seletor que muda de ambiente ao ser usado confundiria mais do que ajuda. A
- * unidade continua escrita — todo número do fechamento também depende dela —,
- * e o seletor chega junto com a primeira tela do Fechamento que filtre por ela.
  */
-function SeletorDeUnidade({ ambiente }: { ambiente: Ambiente }) {
+function UnidadeAberta() {
   const search = useSearch();
   const { data, isLoading } = useQuery({
     queryKey: ["contexts"],
@@ -806,7 +870,7 @@ function SeletorDeUnidade({ ambiente }: { ambiente: Ambiente }) {
             isLoading ? "" : "Envie a primeira planilha em Importações para abrir uma unidade."
           }
         />
-      ) : contextos.length === 1 || ambiente === "fechamento" ? (
+      ) : contextos.length === 1 ? (
         <CaixaDaUnidade
           titulo={unidadeDe(atual)}
           detalhe={canalDe(atual)}
@@ -849,6 +913,7 @@ function CaixaDaUnidade({
   vigencia,
   seta,
   semMoldura,
+  icone: Icone = MapPin,
 }: {
   titulo: string;
   detalhe: string;
@@ -856,6 +921,11 @@ function CaixaDaUnidade({
   vigencia?: string;
   seta?: boolean;
   semMoldura?: boolean;
+  /**
+   * O desenho dentro do círculo. O alfinete diz "você está aqui", e é por isso
+   * que ele não serve ao Fechamento: lá não se está em unidade nenhuma.
+   */
+  icone?: typeof MapPin;
 }) {
   return (
     <div
@@ -870,7 +940,7 @@ function CaixaDaUnidade({
         está.
       */}
       <span className="w-12 h-12 rounded-full bg-sidebar-accent flex items-center justify-center shrink-0">
-        <MapPin className="w-5 h-5 text-brand" />
+        <Icone className="w-5 h-5 text-brand" />
       </span>
       <span className="min-w-0 flex-1">
         <span
