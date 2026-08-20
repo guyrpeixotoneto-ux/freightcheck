@@ -1,17 +1,22 @@
-import { useEffect } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
-import { ArrowRight, ScrollText } from "lucide-react";
+import { ArrowRight, ChevronRight, ScrollText } from "lucide-react";
 import { BotaoDeCadastroDaPlanilha } from "@/components/remuneracao/painel-de-cadastro";
 import { BotaoDeRegistroDeUnidade } from "@/components/remuneracao/registrar-unidade";
+import { VistaDeUmaQuinzena } from "@/components/remuneracao/uma-quinzena";
+import { Filtro, TUDO } from "@/components/fechamento/filtro";
 import { Layout } from "@/components/layout/layout";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
-import { Card, CardContent } from "@/components/ui/card";
-import { Numero } from "@/components/remuneracao/comuns";
 import { apresentar } from "@/lib/apresentar-erro";
+import { emDiaCurto, MES_LONGO } from "@/lib/calendario";
+import { alternarGrupo, alternarUma, grupoEstaAberto } from "@/lib/linhas-abertas";
+import { cn } from "@/lib/utils";
 import {
+  chaveDoCadastro,
   ESTADO_DO_CADASTRO,
+  lerCadastro,
   lerSituacaoDasUnidades,
   type EstadoDoCadastro,
   type SituacaoDaUnidade,
@@ -26,8 +31,22 @@ import {
  * pergunta é *onde está o trabalho* — quais CDDs já têm o cadastro de pé e
  * quais ainda não têm. Sem esta lista, descobrir que um deles entregou a frota
  * e não entregou os trechos custa abri-lo, e com trinta unidades custa abrir
- * trinta telas para achar as duas que faltam. É o mesmo papel que Apurações
- * cumpre para as competências, e que a lista de alterações cumpre na Auditoria.
+ * trinta telas para achar as duas que faltam.
+ *
+ * **É a forma de Apurações, porque é a mesma pergunta.** As duas telas são a
+ * fila do fechamento vista de cima, e por isso têm a mesma anatomia: os filtros
+ * em etiqueta, as linhas reunidas por período com o total do grupo escrito no
+ * cabeçalho, e a resposta cara de cada linha abrindo **na própria linha**. Lá o
+ * grupo é a quinzena e o que abre é a conta; aqui o grupo é a vigência e o que
+ * abre é o cadastro (`components/remuneracao/uma-quinzena`) — o mesmo
+ * componente da tela de dentro, e não um desenho parecido: duas versões do
+ * mesmo cadastro acabariam divergindo, e a daqui seria a que ninguém lembrou de
+ * corrigir. O gesto de abrir também é um só, em `lib/linhas-abertas.ts`.
+ *
+ * O cadastro é buscado quando a linha abre, e não junto da lista: montar as
+ * trinta linhas de uma unidade é o trabalho mais caro deste módulo, e baixar
+ * trinta cadastros para mostrar um seria pagar a lista inteira para ler uma
+ * unidade.
  *
  * **O destaque é sobre as duas metades do cadastro, e não sobre um
  * percentual.** Hoje, sobre um acervo completo, onze das trinta linhas têm
@@ -37,12 +56,14 @@ import {
  * entregou tudo o que tinha para entregar. O que de fato separa uma unidade da
  * outra são as duas metades que dependem do que ela mandou: a **frota**, que
  * vem do export de equipamento, e as **alíquotas**, que vêm do de frete. Ver
- * `lib/remuneracao/src/situacao.ts`.
+ * `lib/remuneracao/src/situacao.ts`. É por isso que o cabeçalho do grupo conta
+ * unidades por estado e não soma linhas com lastro: "89 de 900" é o mesmo
+ * percentual disfarçado, e diria a mesma coisa errada.
  *
- * **A situação é sempre da vigência mais recente da unidade**, e a tela escreve
- * qual é em cada linha. Uma lista que respondesse por uma quinzena fixa faria a
- * unidade que parou de entregar em junho parecer em dia; uma que respondesse
- * sem dizer por qual quinzena responde seria pior ainda.
+ * **A situação é sempre da vigência mais recente da unidade**, e é ela que
+ * decide em que grupo a linha cai. Uma lista que respondesse por uma quinzena
+ * fixa faria a unidade que parou de entregar em junho parecer em dia; agrupada
+ * assim, ela aparece — sozinha, num grupo de junho, abaixo de todo mundo.
  */
 
 function textoDoErro(erro: unknown): string {
@@ -64,6 +85,37 @@ const APARENCIA_DO_ESTADO: Record<EstadoDoCadastro, BadgeProps["variant"]> = {
   SO_FROTA: "warning",
   SO_ALIQUOTAS: "warning",
   SEM_LASTRO: "destructive",
+};
+
+/** Os quatro, na ordem em que o módulo os escreve — do completo ao vazio. */
+const ESTADOS: EstadoDoCadastro[] = [
+  "FROTA_E_ALIQUOTAS",
+  "SO_FROTA",
+  "SO_ALIQUOTAS",
+  "SEM_LASTRO",
+];
+
+/**
+ * Como cada estado entra na frase do grupo.
+ *
+ * Não é o rótulo da marca, e a diferença é gramatical: a marca **nomeia** o
+ * estado de uma unidade ("Só a frota") e a frase do grupo **conta** unidades
+ * nele ("1 só com a frota"). Reaproveitar o rótulo daria "1 só a frota", que
+ * ninguém lê duas vezes de propósito.
+ */
+const NO_RESUMO: Record<EstadoDoCadastro, string> = {
+  FROTA_E_ALIQUOTAS: "com as duas metades",
+  SO_FROTA: "só com a frota",
+  SO_ALIQUOTAS: "só com as alíquotas",
+  SEM_LASTRO: "sem lastro",
+};
+
+/** Onde cada estado é contado dentro do grupo. */
+const CONTADOR: Record<EstadoDoCadastro, keyof ContagemDoGrupo> = {
+  FROTA_E_ALIQUOTAS: "frotaEAliquotas",
+  SO_FROTA: "soFrota",
+  SO_ALIQUOTAS: "soAliquotas",
+  SEM_LASTRO: "semLastro",
 };
 
 /**
@@ -99,6 +151,43 @@ function fraseDosTrechos(u: SituacaoDaUnidade): string {
   return `${contar(u.material.trechos, "trecho", "trechos")}, sem as colunas em reais`;
 }
 
+/** O nome do CDD, sem o canal — "CAMAÇARI" de "CAMAÇARI · EMPURRADA". */
+function nomeDaUnidade(u: SituacaoDaUnidade): string {
+  return u.unidade ?? u.label.split(" · ")[0] ?? u.label;
+}
+
+/**
+ * A identidade de uma linha: o par que a distingue de todas as outras.
+ *
+ * É o mesmo par que endereça a unidade no servidor — escopo e canal —, e não um
+ * índice: a lista se reordena a cada filtro, e um índice faria a linha aberta
+ * saltar para outra unidade quando alguém trocasse o recorte.
+ */
+export function chaveDaLinha(u: SituacaoDaUnidade): string {
+  return `${u.scopeHash}|${u.channel ?? ""}`;
+}
+
+/** `2026-08-16` → `agosto de 2026`, o título do grupo. */
+function mesPorExtenso(data: string): string {
+  const indice = Number(data.slice(5, 7)) - 1;
+  return indice >= 0 && indice < 12 ? `${MES_LONGO[indice]} de ${data.slice(0, 4)}` : data;
+}
+
+/**
+ * `2026-08-16` → `agosto/2026` — a forma que o servidor dá ao **mês inteiro**.
+ *
+ * Serve para uma pergunta só: o rótulo desta vigência diz mais do que o grupo já
+ * disse? A unidade que entrega uma vez por mês tem `periodLabel` igual a este
+ * texto, e repeti-lo na linha seria escrever "agosto" embaixo de "agosto". A que
+ * entrega quinzenalmente tem "2ª quinzena de agosto de 2026", e aí a linha
+ * precisa dizer qual das duas respondeu — ver `rotuloDaVigencia`, em
+ * `lib/remuneracao/src/vigencia.ts`.
+ */
+function mesDaVigencia(data: string): string {
+  const indice = Number(data.slice(5, 7)) - 1;
+  return indice >= 0 && indice < 12 ? `${MES_LONGO[indice]}/${data.slice(0, 4)}` : data;
+}
+
 /**
  * O endereço do cadastro daquela unidade.
  *
@@ -112,9 +201,166 @@ function enderecoDaUnidade(u: SituacaoDaUnidade): string {
   return `/fechamento/remuneracao/unidade?${query}`;
 }
 
+interface ContagemDoGrupo {
+  frotaEAliquotas: number;
+  soFrota: number;
+  soAliquotas: number;
+  semLastro: number;
+  /** Unidades com alguma linha digitada da aba de Excel. */
+  comPlanilha: number;
+  /** Destas, quantas têm alguma linha em que a planilha e o acervo discordam. */
+  comDivergencia: number;
+  /** Unidades que entraram por cadastro, e não por arquivo. */
+  registradas: number;
+}
+
+/** Um mês de vigência e as unidades cuja última entrega caiu nele. */
+export interface Grupo extends ContagemDoGrupo {
+  /** `2026-08` — o mês, que é o que reúne as unidades. */
+  chave: string;
+  titulo: string;
+  /** Os dias de vigência que existem no grupo, já escritos: `01/08`, `16/08`. */
+  dias: string[];
+  linhas: SituacaoDaUnidade[];
+}
+
+/**
+ * As unidades reunidas pelo mês da vigência mais recente de cada uma.
+ *
+ * **Por que o mês, e não a data exata.** Duas unidades que entregaram no dia 1º
+ * e no dia 16 de agosto estão as duas em dia, e separá-las em dois grupos
+ * esconderia a única coisa que o agrupamento existe para mostrar — quem ficou
+ * para trás. O mês é o grão em que "atrasada" quer dizer alguma coisa. Os dias
+ * que existem dentro do grupo continuam escritos no cabeçalho dele, e a linha
+ * cuja vigência é mais específica que o mês a escreve por extenso.
+ *
+ * **A ordem é do mês mais recente para o mais antigo, e é calculada aqui.** Ao
+ * contrário de Apurações, a lista não chega ordenada por data: o servidor manda
+ * as unidades do acervo por vigência decrescente e **acrescenta ao fim** as que
+ * existem só por planilha ou por cadastro à mão (ver `contextosEProcedencia`).
+ * Herdar essa ordem colocaria a unidade cadastrada à mão num grupo próprio no
+ * rodapé, ainda que a vigência dela fosse a mais recente de todas.
+ *
+ * Dentro do grupo, por nome — pela mesma razão: a ordem que vem do banco é a do
+ * `scope_hash`, que não quer dizer nada para quem lê.
+ */
+export function agruparPorVigencia(unidades: SituacaoDaUnidade[]): Grupo[] {
+  const por = new Map<string, Grupo>();
+  const dias = new Map<string, Set<string>>();
+
+  for (const u of unidades) {
+    const chave = u.effectiveDate.slice(0, 7);
+    let grupo = por.get(chave);
+    if (!grupo) {
+      grupo = {
+        chave,
+        titulo: mesPorExtenso(u.effectiveDate),
+        dias: [],
+        linhas: [],
+        frotaEAliquotas: 0,
+        soFrota: 0,
+        soAliquotas: 0,
+        semLastro: 0,
+        comPlanilha: 0,
+        comDivergencia: 0,
+        registradas: 0,
+      };
+      por.set(chave, grupo);
+      dias.set(chave, new Set());
+    }
+    grupo.linhas.push(u);
+    dias.get(chave)!.add(u.effectiveDate);
+    /*
+      Tudo aqui conta **unidades**, e nunca linhas de cadastro somadas entre
+      elas: a lista é de unidades, e uma frase que misturasse os dois grãos
+      ("2 unidades · 89 linhas informadas") faria os dois números parecerem
+      comparáveis. O que cada unidade tem por dentro está na linha dela.
+    */
+    grupo[CONTADOR[u.cadastro.estado]] += 1;
+    if (u.cadastro.informadas > 0) grupo.comPlanilha += 1;
+    if (u.cadastro.divergentes > 0) grupo.comDivergencia += 1;
+    if (u.registradaAMao) grupo.registradas += 1;
+  }
+
+  for (const grupo of por.values()) {
+    grupo.dias = [...dias.get(grupo.chave)!].sort().map(emDiaCurto);
+    grupo.linhas.sort((a, b) => a.label.localeCompare(b.label, "pt-BR"));
+  }
+  return [...por.values()].sort((a, b) => b.chave.localeCompare(a.chave));
+}
+
+/**
+ * O resumo do grupo, na frase que ele merece.
+ *
+ * Cada número gruda na primeira palavra dele com espaço inquebrável, como em
+ * {@link contar}: a frase é longa, o cabeçalho é de uma linha só, e um "1" que
+ * termina a linha com "sem lastro" começando a seguinte é um número que perdeu
+ * o substantivo.
+ */
+export function resumoDoGrupo(grupo: Grupo): string {
+  const partes = [contar(grupo.linhas.length, "unidade", "unidades")];
+
+  /* Só os estados que existem no grupo: um "0 sem lastro" ocuparia a frase para
+     dizer que não há o que fazer, e é justamente o que não precisa ser dito. */
+  for (const estado of ESTADOS) {
+    const quantas = grupo[CONTADOR[estado]];
+    if (quantas > 0) partes.push(`${quantas}\u00A0${NO_RESUMO[estado]}`);
+  }
+
+  if (grupo.comPlanilha > 0) partes.push(`${grupo.comPlanilha}\u00A0com planilha informada`);
+  if (grupo.comDivergencia > 0) {
+    partes.push(
+      `${grupo.comDivergencia}\u00A0${grupo.comDivergencia === 1 ? "diverge" : "divergem"} do acervo`,
+    );
+  }
+  if (grupo.registradas > 0) {
+    partes.push(contar(grupo.registradas, "cadastrada à mão", "cadastradas à mão"));
+  }
+  return partes.join(" · ");
+}
+
+/** As unidades de um grupo, na ordem em que ele as mostra. */
+const idsDoGrupo = (grupo: Grupo) => grupo.linhas.map(chaveDaLinha);
+
+/**
+ * O cadastro de uma unidade, dentro da linha dela.
+ *
+ * A chave é a mesma da tela do cadastro — {@link chaveDoCadastro} —, e não por
+ * economia de nome: quem abre a linha aqui e depois entra na tela de dentro a
+ * encontra pronta, e quem volta de lá reabre a linha sem nova ida ao servidor.
+ * Sem vigência pedida, como o link da linha também não a pede: a resposta é
+ * sempre a vigência mais recente, que é por quem esta lista responde.
+ */
+function CadastroDaLinha({ unidade }: { unidade: SituacaoDaUnidade }) {
+  const canal = unidade.channel ?? "";
+  const dados = useQuery({
+    queryKey: chaveDoCadastro(unidade.scopeHash, canal, null),
+    queryFn: () => lerCadastro({ scopeHash: unidade.scopeHash, canal }),
+  });
+
+  if (dados.isLoading) {
+    return <p className="text-sm text-muted-foreground">Montando o cadastro…</p>;
+  }
+  if (dados.isError || !dados.data) {
+    return (
+      <Alert variant="destructive">
+        <AlertDescription>{textoDoErro(dados.error)}</AlertDescription>
+      </Alert>
+    );
+  }
+  return <VistaDeUmaQuinzena dados={dados.data} />;
+}
+
 export default function RemuneracaoUnidades() {
   const busca = useSearch();
   const [, navegar] = useLocation();
+
+  const [vigencia, setVigencia] = useState(TUDO);
+  const [nome, setNome] = useState(TUDO);
+  const [operacao, setOperacao] = useState(TUDO);
+  const [estado, setEstado] = useState(TUDO);
+  /* As unidades com o cadastro aberto — ver `lib/linhas-abertas.ts`. */
+  const [abertas, setAbertas] = useState<ReadonlySet<string>>(() => new Set());
 
   /*
     O endereço antigo do cadastro era este, com a unidade na query. Quem tiver
@@ -141,15 +387,7 @@ export default function RemuneracaoUnidades() {
     enabled: !encaminhando,
   });
 
-  const unidades = situacao.data?.unidades ?? [];
-  const resumo = situacao.data?.resumo;
-  /*
-    Contada aqui, e não somada no servidor como os quatro estados, porque não é
-    um estado do cadastro: é a **procedência da unidade**, e ela já vem marcada
-    linha a linha. Um quinto número no resumo do servidor a colocaria ao lado
-    de quatro que se somam entre si e este não soma com nenhum.
-  */
-  const registradas = unidades.filter((u) => u.registradaAMao).length;
+  const unidades = useMemo(() => situacao.data?.unidades ?? [], [situacao.data]);
 
   /*
     Os tipos de operação que já existem em alguma unidade — o que o seletor do
@@ -161,10 +399,70 @@ export default function RemuneracaoUnidades() {
     EMPURRADA e ROTA acertaria hoje e estaria errada no dia em que um terceiro
     aparecesse — e o campo continua aceitando digitar, que é o que faz o
     terceiro poder aparecer.
+
+    É da lista inteira, e não do recorte: filtrar por EMPURRADA não faz ROTA
+    deixar de existir, e o formulário que nasce numa linha filtrada precisa
+    oferecer os dois do mesmo jeito.
   */
-  const canaisConhecidos = [
-    ...new Set(unidades.map((u) => u.channel).filter((c): c is string => c !== null && c !== "")),
-  ];
+  const canaisConhecidos = useMemo(
+    () => [
+      ...new Set(unidades.map((u) => u.channel).filter((c): c is string => c !== null && c !== "")),
+    ],
+    [unidades],
+  );
+
+  /*
+    As opções de cada filtro são o que existe, e só. Oferecer uma vigência que
+    nenhuma unidade tem daria uma lista vazia com cara de erro; oferecer um
+    estado que nada alcançou daria a mesma coisa. Um filtro que só oferece
+    recortes com resultado nunca leva a tela ao vazio por escolha de quem
+    filtra.
+  */
+  const opcoes = useMemo(() => {
+    const vigencias = new Map<string, string>();
+    const nomes = new Set<string>();
+    const operacoes = new Set<string>();
+    const presentes = new Set<EstadoDoCadastro>();
+    for (const u of unidades) {
+      vigencias.set(u.effectiveDate.slice(0, 7), mesPorExtenso(u.effectiveDate));
+      nomes.add(nomeDaUnidade(u));
+      if (u.channel) operacoes.add(u.channel);
+      presentes.add(u.cadastro.estado);
+    }
+    const emOrdem = (s: Set<string>) =>
+      [...s].sort((a, b) => a.localeCompare(b, "pt-BR")).map((v) => ({ valor: v, rotulo: v }));
+    return {
+      /* Da mais recente para a mais antiga, como os grupos. */
+      vigencias: [...vigencias]
+        .sort(([a], [b]) => b.localeCompare(a))
+        .map(([valor, rotulo]) => ({ valor, rotulo })),
+      nomes: emOrdem(nomes),
+      operacoes: emOrdem(operacoes),
+      /* Na ordem dos estados, e não na ordem em que apareceram na lista. */
+      estados: ESTADOS.filter((e) => presentes.has(e)).map((e) => ({
+        valor: e,
+        rotulo: ESTADO_DO_CADASTRO[e].rotulo,
+      })),
+    };
+  }, [unidades]);
+
+  const grupos = useMemo(
+    () =>
+      agruparPorVigencia(
+        unidades.filter((u) => {
+          if (vigencia !== TUDO && u.effectiveDate.slice(0, 7) !== vigencia) return false;
+          if (nome !== TUDO && nomeDaUnidade(u) !== nome) return false;
+          if (operacao !== TUDO && (u.channel ?? "") !== operacao) return false;
+          if (estado !== TUDO && u.cadastro.estado !== estado) return false;
+          return true;
+        }),
+      ),
+    [unidades, vigencia, nome, operacao, estado],
+  );
+
+  const abertoNoGrupo = (grupo: Grupo) => grupoEstaAberto(abertas, idsDoGrupo(grupo));
+  const filtrando = [vigencia, nome, operacao, estado].some((v) => v !== TUDO);
+  const semLastro = situacao.data?.resumo.semLastro ?? 0;
 
   /*
     Sem tela nenhuma no quadro do encaminhamento. Com a consulta desligada,
@@ -192,12 +490,11 @@ export default function RemuneracaoUnidades() {
         </div>
         <p className="text-muted-foreground mt-2 max-w-3xl">
           As unidades que o cadastro da planilha de remuneração conhece, e o que ele alcança
-          em cada uma hoje. Abrir uma linha é abrir o cadastro dela — alíquotas, frota,
-          parcelas por veículo e proporção de documentos. O que o acervo ainda não responde,
-          alguém digita da aba de Excel: é o botão <strong>Cadastrar planilha</strong>, e ele
-          abre o formulário aqui mesmo. A unidade cuja aba chegou antes do export não precisa
-          esperar por ele — <strong>Cadastrar unidade</strong> a põe na lista, sem lastro e
-          dizendo que está sem.
+          em cada uma hoje. Clique numa unidade para abrir o cadastro dela aqui mesmo —
+          alíquotas, frota, parcelas por veículo e proporção de documentos. O que o acervo
+          ainda não responde, alguém digita da aba de Excel em <strong>Cadastrar planilha</strong>;
+          e a unidade cuja aba chegou antes do export entra por <strong>Cadastrar unidade</strong>,
+          sem lastro e dizendo que está sem.
         </p>
       </header>
 
@@ -209,236 +506,331 @@ export default function RemuneracaoUnidades() {
         que é a outra lista de unidades do produto.
       */}
       <div className="p-8 space-y-6">
+        <div className="flex flex-wrap items-center gap-3">
+          <Filtro
+            rotulo="Vigência"
+            valor={vigencia}
+            aoTrocar={setVigencia}
+            opcoes={opcoes.vigencias}
+            tudo="todas"
+          />
+          <Filtro
+            rotulo="Unidade"
+            valor={nome}
+            aoTrocar={setNome}
+            opcoes={opcoes.nomes}
+            tudo="todas"
+          />
+          {/*
+            A operação só aparece onde existe: um acervo em que nenhuma série
+            traz canal ofereceria uma etiqueta que abre vazia, e uma etiqueta
+            sem opção nenhuma é um controle quebrado.
+          */}
+          {opcoes.operacoes.length > 0 && (
+            <Filtro
+              rotulo="Operação"
+              valor={operacao}
+              aoTrocar={setOperacao}
+              opcoes={opcoes.operacoes}
+              tudo="todas"
+            />
+          )}
+          <Filtro
+            rotulo="Cadastro"
+            valor={estado}
+            aoTrocar={setEstado}
+            opcoes={opcoes.estados}
+            tudo="todos"
+          />
+        </div>
+
         {situacao.isError && (
           <Alert variant="destructive">
             <AlertDescription>{textoDoErro(situacao.error)}</AlertDescription>
           </Alert>
         )}
 
-        {resumo && resumo.unidades > 0 && (
-          <Card>
-            <CardContent className="pt-6 space-y-4">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                <Numero titulo="Frota e alíquotas" valor={resumo.frotaEAliquotas} destaque />
-                <Numero titulo="Só a frota" valor={resumo.soFrota} />
-                <Numero titulo="Só as alíquotas" valor={resumo.soAliquotas} />
-                <Numero titulo="Sem lastro" valor={resumo.semLastro} alerta />
-              </div>
-              <p className="text-xs text-muted-foreground border-t pt-3">
-                {contar(resumo.unidades, "unidade", "unidades")} nesta lista
-                {registradas > 0 && (
-                  <>
-                    {" "}—{" "}
-                    {contar(
-                      registradas,
-                      "delas foi cadastrada à mão e ainda não tem export",
-                      "delas foram cadastradas à mão e ainda não têm export",
-                    )}
-                  </>
-                )}
-                . Cada uma respondida pela <strong>vigência mais recente que ela tem</strong>,
-                que está escrita na linha: uma lista presa a uma quinzena fixa faria a unidade
-                que parou de entregar parecer em dia.
-              </p>
-              {/*
-                A cadência da planilha é a mesma da vigência, e dizê-lo aqui
-                evita a leitura errada que a coluna sozinha convida: quem
-                preencheu a 1ª quinzena e voltar no dia 16 vai ver "nada
-                informado" — não porque o que digitou sumiu, mas porque a linha
-                passou a responder pela quinzena seguinte, que ainda está em
-                branco. Sem esta frase, a conclusão natural é que o cadastro se
-                perdeu.
-              */}
-              <p className="text-xs text-muted-foreground">
-                A <strong>planilha informada</strong> segue a mesma quinzena: a coluna conta o
-                que foi digitado para a vigência escrita na linha, e a quinzena seguinte começa
-                em branco sem apagar a anterior. Dentro do formulário há{" "}
-                <em>copiar de outra vigência</em>, para partir da quinzena passada e corrigir
-                só o que mudou.
-              </p>
-              {/*
-                Sem lastro é o único dos quatro estados em que o acervo não
-                responde **nada**, e por isso é o único que ganha frase própria:
-                nele a planilha informada não é complemento, é a única forma de o
-                cadastro ter número. Sem esta linha a tela responde "sem lastro"
-                e cala a saída que existe — que foi o que aconteceu no primeiro
-                uso.
-              */}
-              {resumo.semLastro > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {resumo.semLastro === 1
-                    ? "A unidade sem lastro não tem número nenhum vindo do acervo"
-                    : `As ${resumo.semLastro} unidades sem lastro não têm número nenhum vindo do acervo`}
-                  : enquanto o export não chega, o cadastro delas só ganha número pela{" "}
-                  <strong>planilha informada</strong> — o botão da direita abre o formulário, e
-                  o que entrar por lá fica marcado como informado, com autor e data.
-                </p>
-              )}
-            </CardContent>
-          </Card>
+        {situacao.isLoading && (
+          <p className="text-sm text-muted-foreground">Montando os cadastros…</p>
         )}
 
-        <Card>
-          <CardContent className="p-0">
-            {situacao.isLoading && (
-              <p className="p-6 text-sm text-muted-foreground">Montando os cadastros…</p>
-            )}
+        {!situacao.isLoading && !situacao.isError && unidades.length === 0 && (
+          <div className="rounded-lg border bg-card p-8 text-sm text-muted-foreground max-w-2xl space-y-3">
+            <p>
+              Nenhuma unidade ainda. Há dois caminhos, e eles não se substituem: a primeira
+              planilha enviada em{" "}
+              <Link href="/importacoes" className="text-primary hover:underline">
+                Importações
+              </Link>{" "}
+              traz a unidade com o que o acervo mede, e <strong>Cadastrar unidade</strong>,
+              aqui em cima, põe na lista aquela cuja aba de Excel já chegou e cujo export
+              ainda não — sem lastro, e dizendo que está sem.
+            </p>
+          </div>
+        )}
 
-            {!situacao.isLoading && !situacao.isError && unidades.length === 0 && (
-              <p className="p-6 text-sm text-muted-foreground">
-                Nenhuma unidade ainda. Há dois caminhos, e eles não se substituem: a primeira
-                planilha enviada em{" "}
-                <Link href="/importacoes" className="text-primary hover:underline">
-                  Importações
-                </Link>{" "}
-                traz a unidade com o que o acervo mede, e <strong>Cadastrar unidade</strong>,
-                aqui em cima, põe na lista aquela cuja aba de Excel já chegou e cujo export
-                ainda não — sem lastro, e dizendo que está sem.
-              </p>
-            )}
+        {!situacao.isLoading && unidades.length > 0 && grupos.length === 0 && (
+          <p className="text-sm text-muted-foreground">
+            Nenhuma unidade com esse recorte. Volte um filtro para “todas”.
+          </p>
+        )}
 
-            {unidades.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b bg-muted/50 text-xs uppercase text-muted-foreground">
-                      <th className="text-left px-4 py-2 font-medium">Unidade</th>
-                      <th className="text-left px-4 py-2 font-medium">Cadastro</th>
-                      <th className="text-left px-4 py-2 font-medium">Frota</th>
-                      <th className="text-left px-4 py-2 font-medium">Trechos</th>
-                      <th className="text-right px-4 py-2 font-medium">Linhas com lastro</th>
-                      <th className="text-right px-4 py-2 font-medium">Planilha informada</th>
-                      <th className="text-left px-4 py-2 font-medium">Vigência mais recente</th>
-                      <th className="text-right px-4 py-2 font-medium" />
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {unidades.map((u) => (
-                      <tr
-                        key={`${u.scopeHash}|${u.channel ?? ""}`}
-                        className="border-b last:border-0 hover:bg-muted/40 align-top"
+        {grupos.length > 0 && (
+          <div className="rounded-lg border bg-card overflow-x-auto">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="border-b text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
+                  <th className="text-left font-bold px-4 py-3">Unidade</th>
+                  <th className="text-left font-bold px-4 py-3">Cadastro</th>
+                  <th className="text-left font-bold px-4 py-3">Frota</th>
+                  <th className="text-left font-bold px-4 py-3">Trechos</th>
+                  <th className="text-right font-bold px-4 py-3">Linhas com lastro</th>
+                  <th className="text-right font-bold px-4 py-3">Planilha informada</th>
+                  <th className="text-right font-bold px-4 py-3" />
+                </tr>
+              </thead>
+              {grupos.map((grupo) => (
+                <tbody key={grupo.chave}>
+                  <tr className="border-b bg-muted/40">
+                    <th colSpan={7} scope="colgroup" className="p-0 text-left font-normal">
+                      <button
+                        type="button"
+                        onClick={() => setAbertas((a) => alternarGrupo(a, idsDoGrupo(grupo)))}
+                        aria-expanded={abertoNoGrupo(grupo)}
+                        className="flex w-full items-start gap-2 px-4 py-2.5 text-left hover:bg-muted/70"
                       >
-                        <td className="px-4 py-3">
-                          <Link
-                            href={enderecoDaUnidade(u)}
-                            className="font-semibold hover:underline"
-                          >
-                            {u.label}
-                          </Link>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {u.registradaAMao
-                              ? contar(u.vigencias, "vigência cadastrada", "vigências cadastradas")
-                              : contar(u.vigencias, "vigência no acervo", "vigências no acervo")}
-                          </p>
-                          {/*
-                            A marca é da unidade, e não do cadastro: o estado ao
-                            lado já diz que não há lastro, e "sem lastro" numa
-                            unidade importada quer dizer "o arquivo veio e não
-                            trouxe o que o cadastro lê" — coisa muito diferente
-                            de "arquivo nenhum veio". Sem esta linha as duas
-                            situações ficam com a mesma cara, e a primeira manda
-                            procurar um export que ninguém deixou de mandar.
-                          */}
-                          {u.registradaAMao && (
-                            <p className="text-[0.6875rem] text-muted-foreground/80 mt-0.5">
-                              cadastrada à mão — sem export importado
-                            </p>
+                        <ChevronRight
+                          className={cn(
+                            "w-3.5 h-3.5 mt-0.5 shrink-0 text-muted-foreground transition-transform",
+                            abertoNoGrupo(grupo) && "rotate-90",
                           )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <Badge
-                            variant={APARENCIA_DO_ESTADO[u.cadastro.estado]}
-                            title={ESTADO_DO_CADASTRO[u.cadastro.estado].frase}
-                            className="whitespace-nowrap"
-                          >
-                            {ESTADO_DO_CADASTRO[u.cadastro.estado].rotulo}
-                          </Badge>
-                        </td>
-                        <td className="px-4 py-3">
-                          <MetadeDoCadastro tem={u.cadastro.frota} frase={fraseDaFrota(u)} />
-                        </td>
-                        <td className="px-4 py-3">
-                          <MetadeDoCadastro
-                            tem={u.cadastro.aliquotas}
-                            frase={fraseDosTrechos(u)}
-                          />
-                        </td>
-                        <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap">
-                          {u.cadastro.comLastro} de {u.cadastro.linhas}
-                        </td>
-                        {/*
-                          A planilha informada é coluna própria, e nunca somada
-                          à de lastro: as duas respondem perguntas opostas — uma
-                          diz o que a unidade **entregou**, a outra o que alguém
-                          **digitou**. Somadas, a unidade que não mandou arquivo
-                          nenhum e teve a aba transcrita apareceria em dia, e
-                          quem opera pararia de procurar o arquivo que falta.
-                        */}
-                        {/*
-                          A célula é o **lugar de preencher**, e não só a
-                          contagem.
-
-                          Sem o botão, esta coluna dizia "nada informado" e não
-                          oferecia nada a quem lesse isso: o formulário existia
-                          numa aba dentro do cadastro da unidade, a um clique de
-                          distância e sem nada que o anunciasse daqui. Numa
-                          unidade sem lastro nenhum — que é o caso em que a
-                          planilha informada é a **única** forma de o cadastro
-                          ter número — a lista mandava procurar um arquivo e
-                          calava a saída que existe.
-                        */}
-                        <td className="px-4 py-3 text-right whitespace-nowrap">
-                          <div className="inline-flex flex-col items-end gap-1">
-                            {u.cadastro.informadas > 0 && (
-                              <>
-                                <span className="tabular-nums">
-                                  {u.cadastro.informadas} de {u.cadastro.linhas}
-                                </span>
-                                {u.cadastro.divergentes > 0 ? (
-                                  <Badge variant="destructive" className="text-[0.6875rem]">
-                                    {u.cadastro.divergentes}{" "}
-                                    {u.cadastro.divergentes === 1
-                                      ? "diverge do acervo"
-                                      : "divergem do acervo"}
-                                  </Badge>
-                                ) : (
-                                  u.cadastro.conferidas > 0 && (
-                                    <span className="text-[0.6875rem] text-muted-foreground">
-                                      {u.cadastro.conferidas}{" "}
-                                      {u.cadastro.conferidas === 1
-                                        ? "confere com o acervo"
-                                        : "conferem com o acervo"}
-                                    </span>
-                                  )
+                          aria-hidden
+                        />
+                        <span>
+                          <span className="font-bold uppercase tracking-wide text-xs">
+                            {grupo.titulo}
+                          </span>
+                          <span className="text-muted-foreground text-xs ml-3">
+                            {grupo.dias.join(" e ")} · {resumoDoGrupo(grupo)}
+                          </span>
+                        </span>
+                      </button>
+                    </th>
+                  </tr>
+                  {grupo.linhas.map((u) => {
+                    const chave = chaveDaLinha(u);
+                    const aberta = abertas.has(chave);
+                    const alternar = () => setAbertas((a) => alternarUma(a, chave));
+                    /* O rótulo da vigência só quando ele diz mais que o mês do
+                       grupo — ver `mesDaVigencia`. */
+                    const vigenciaDaLinha =
+                      u.periodLabel === mesDaVigencia(u.effectiveDate) ? null : u.periodLabel;
+                    return (
+                      <Fragment key={chave}>
+                        <tr
+                          onClick={alternar}
+                          className={cn(
+                            "border-b last:border-b-0 cursor-pointer hover:bg-muted/50",
+                            aberta && "bg-muted/40",
+                          )}
+                        >
+                          <td className="px-4 py-3 align-middle">
+                            {/*
+                              O botão repete o clique da linha por causa do
+                              teclado: uma `<tr>` clicável não recebe foco, e sem
+                              ele o cadastro seria inalcançável sem mouse.
+                            */}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                alternar();
+                              }}
+                              aria-expanded={aberta}
+                              className="flex items-start gap-1.5 text-left"
+                            >
+                              <ChevronRight
+                                className={cn(
+                                  "w-3.5 h-3.5 mt-1 shrink-0 text-muted-foreground transition-transform",
+                                  aberta && "rotate-90",
                                 )}
-                              </>
-                            )}
-                            <BotaoDeCadastroDaPlanilha
-                              unidade={u}
-                              canaisConhecidos={canaisConhecidos}
-                            />
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 whitespace-nowrap">{u.periodLabel}</td>
-                        <td className="px-4 py-3 text-right">
-                          <Link
-                            href={enderecoDaUnidade(u)}
-                            className="text-xs text-primary hover:underline inline-flex items-center gap-1 whitespace-nowrap"
-                          >
-                            abrir cadastro
-                            <ArrowRight className="w-3 h-3" />
-                          </Link>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                                aria-hidden
+                              />
+                              <span>
+                                <span className="font-semibold">{u.label}</span>
+                                <span className="block text-muted-foreground text-xs mt-0.5">
+                                  {u.registradaAMao
+                                    ? contar(
+                                        u.vigencias,
+                                        "vigência cadastrada",
+                                        "vigências cadastradas",
+                                      )
+                                    : contar(u.vigencias, "vigência no acervo", "vigências no acervo")}
+                                  {vigenciaDaLinha && ` · ${vigenciaDaLinha}`}
+                                </span>
+                                {/*
+                                  A marca é da unidade, e não do cadastro: o
+                                  estado ao lado já diz que não há lastro, e
+                                  "sem lastro" numa unidade importada quer dizer
+                                  "o arquivo veio e não trouxe o que o cadastro
+                                  lê" — coisa muito diferente de "arquivo nenhum
+                                  veio". Sem esta linha as duas situações ficam
+                                  com a mesma cara, e a primeira manda procurar
+                                  um export que ninguém deixou de mandar.
+                                */}
+                                {u.registradaAMao && (
+                                  <span className="block text-[0.6875rem] text-muted-foreground/80 mt-0.5">
+                                    cadastrada à mão — sem export importado
+                                  </span>
+                                )}
+                              </span>
+                            </button>
+                          </td>
 
-        {unidades.length > 0 && <Legenda />}
+                          <td className="px-4 py-3 align-middle">
+                            <Badge
+                              variant={APARENCIA_DO_ESTADO[u.cadastro.estado]}
+                              title={ESTADO_DO_CADASTRO[u.cadastro.estado].frase}
+                              className="gap-1.5 whitespace-nowrap px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide"
+                            >
+                              <span className="w-1.5 h-1.5 rounded-full bg-current" aria-hidden />
+                              {ESTADO_DO_CADASTRO[u.cadastro.estado].rotulo}
+                            </Badge>
+                          </td>
+
+                          <td className="px-4 py-3 align-middle">
+                            <MetadeDoCadastro tem={u.cadastro.frota} frase={fraseDaFrota(u)} />
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            <MetadeDoCadastro
+                              tem={u.cadastro.aliquotas}
+                              frase={fraseDosTrechos(u)}
+                            />
+                          </td>
+
+                          {/*
+                            Sem barra de proporção ao lado do número, ao
+                            contrário da coluna "conferido" de Apurações, que é
+                            a que ocupa este lugar lá. Lá a razão entre dois
+                            valores é a resposta; aqui "3 de 30" desenhado como
+                            10% seria o percentual que o módulo recusa —
+                            dezenove das trinta linhas dependem de decisão de
+                            negócio, e não de arquivo que falta.
+                          */}
+                          <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap align-middle">
+                            {u.cadastro.comLastro} de {u.cadastro.linhas}
+                          </td>
+
+                          {/*
+                            A planilha informada é coluna própria, e nunca somada
+                            à de lastro: as duas respondem perguntas opostas — uma
+                            diz o que a unidade **entregou**, a outra o que alguém
+                            **digitou**. Somadas, a unidade que não mandou arquivo
+                            nenhum e teve a aba transcrita apareceria em dia, e
+                            quem opera pararia de procurar o arquivo que falta.
+
+                            A célula é o **lugar de preencher**, e não só a
+                            contagem: sem o botão, esta coluna dizia "nada
+                            informado" e não oferecia nada a quem lesse isso.
+
+                            O clique é retido aqui porque a linha inteira abre o
+                            cadastro: o formulário sobe num portal que continua
+                            filho desta célula na árvore do React, e sem a
+                            retenção cada tecla dentro dele fecharia — ou abriria
+                            — a linha atrás.
+                          */}
+                          <td
+                            className="px-4 py-3 text-right whitespace-nowrap align-middle"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <div className="inline-flex flex-col items-end gap-1">
+                              {u.cadastro.informadas > 0 && (
+                                <>
+                                  <span className="tabular-nums">
+                                    {u.cadastro.informadas} de {u.cadastro.linhas}
+                                  </span>
+                                  {u.cadastro.divergentes > 0 ? (
+                                    <Badge variant="destructive" className="text-[0.6875rem]">
+                                      {u.cadastro.divergentes}{" "}
+                                      {u.cadastro.divergentes === 1
+                                        ? "diverge do acervo"
+                                        : "divergem do acervo"}
+                                    </Badge>
+                                  ) : (
+                                    u.cadastro.conferidas > 0 && (
+                                      <span className="text-[0.6875rem] text-muted-foreground">
+                                        {u.cadastro.conferidas}{" "}
+                                        {u.cadastro.conferidas === 1
+                                          ? "confere com o acervo"
+                                          : "conferem com o acervo"}
+                                      </span>
+                                    )
+                                  )}
+                                </>
+                              )}
+                              <BotaoDeCadastroDaPlanilha
+                                unidade={u}
+                                canaisConhecidos={canaisConhecidos}
+                              />
+                            </div>
+                          </td>
+
+                          <td className="px-4 py-3 text-right align-middle">
+                            <Link
+                              href={enderecoDaUnidade(u)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="text-xs text-primary hover:underline inline-flex items-center gap-1 whitespace-nowrap"
+                            >
+                              abrir cadastro
+                              <ArrowRight className="w-3 h-3" />
+                            </Link>
+                          </td>
+                        </tr>
+
+                        {aberta && (
+                          <tr className="border-b last:border-b-0 bg-muted/20">
+                            <td colSpan={7} className="px-4 py-4 sm:px-9">
+                              <div className="space-y-3">
+                                <div className="flex flex-wrap items-baseline justify-between gap-3">
+                                  <p className="text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
+                                    O cadastro da vigência · {u.label}
+                                  </p>
+                                  {/*
+                                    O cadastro abre aqui; o resto da unidade —
+                                    trocar de vigência, comparar duas quinzenas,
+                                    digitar a planilha com as trinta linhas à
+                                    vista — é outra tela, e o caminho para ela
+                                    fica onde a pergunta seguinte aparece.
+                                  */}
+                                  <Link
+                                    href={enderecoDaUnidade(u)}
+                                    className="inline-flex items-center gap-1 text-sm text-primary hover:underline"
+                                  >
+                                    Abrir a unidade — vigências, comparação e planilha
+                                    <ArrowRight className="w-3.5 h-3.5" aria-hidden />
+                                  </Link>
+                                </div>
+                                <CadastroDaLinha unidade={u} />
+                              </div>
+                            </td>
+                          </tr>
+                        )}
+                      </Fragment>
+                    );
+                  })}
+                </tbody>
+              ))}
+            </table>
+          </div>
+        )}
+
+        {filtrando && grupos.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            Os totais de cada vigência são os das unidades visíveis com este recorte.
+          </p>
+        )}
+
+        {unidades.length > 0 && <Notas semLastro={semLastro} />}
       </div>
     </Layout>
   );
@@ -466,55 +858,86 @@ function MetadeDoCadastro({ tem, frase }: { tem: boolean; frase: string }) {
 }
 
 /**
- * O que cada estado quer dizer, por extenso e uma vez só.
+ * O que a tabela não cabe dizer em cada linha — por extenso e uma vez só.
  *
- * A marca da tabela é curta porque a coluna é estreita; a frase que a sustenta
- * mora aqui, do mesmo jeito que a legenda azul/cinza da planilha mora no rodapé
- * do cadastro em vez de repetida em trinta linhas.
+ * **Por que embaixo, e não num cartão em cima.** Era um cartão antes da
+ * tabela, com quatro contadores grandes e três parágrafos, e ele empurrava a
+ * lista para fora da primeira tela: quem abre Remuneração quer ver as unidades,
+ * não ler sobre elas. Os contadores viraram a frase de cada grupo — onde valem
+ * mais, porque ali respondem por uma vigência —, e o texto ficou aqui, depois
+ * do que ele explica.
+ *
+ * **E por que continua existindo.** Cada parágrafo abaixo fecha uma leitura
+ * errada que já aconteceu com o produto na mão: a marca curta que não diz o que
+ * o estado quer dizer, a coluna de lastro lida como "falta importar", a
+ * planilha informada que parece ter sumido na virada da quinzena, e a unidade
+ * sem lastro que parecia não ter saída nenhuma.
  */
-function Legenda() {
-  const estados: EstadoDoCadastro[] = [
-    "FROTA_E_ALIQUOTAS",
-    "SO_FROTA",
-    "SO_ALIQUOTAS",
-    "SEM_LASTRO",
-  ];
-
+function Notas({ semLastro }: { semLastro: number }) {
   return (
-    <Card>
-      <CardContent className="pt-6 space-y-3">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          O que cada situação diz
-        </p>
-        <dl className="space-y-2">
-          {estados.map((estado) => (
-            <div key={estado} className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3">
-              <dt className="shrink-0 sm:w-40">
-                <Badge variant={APARENCIA_DO_ESTADO[estado]} className="whitespace-nowrap">
-                  {ESTADO_DO_CADASTRO[estado].rotulo}
-                </Badge>
-              </dt>
-              <dd className="text-xs text-muted-foreground">
-                {ESTADO_DO_CADASTRO[estado].frase}
-              </dd>
-            </div>
-          ))}
-        </dl>
-        <p className="text-xs text-muted-foreground border-t pt-3">
-          <strong>Linhas com lastro</strong> conta as trinta linhas da aba, e não as duas
-          metades: dezenove delas dependem de decisões de negócio que ainda não foram
-          registradas, e não de arquivo que alguém deixou de mandar — abrir o cadastro de uma
-          unidade diz, linha a linha, qual é o caso de cada uma.
-        </p>
+    <div className="rounded-lg border bg-card p-6 space-y-3">
+      <p className="text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
+        O que cada situação diz
+      </p>
+      <dl className="space-y-2">
+        {ESTADOS.map((estado) => (
+          <div key={estado} className="flex flex-col sm:flex-row sm:items-baseline gap-1 sm:gap-3">
+            <dt className="shrink-0 sm:w-40">
+              <Badge
+                variant={APARENCIA_DO_ESTADO[estado]}
+                className="gap-1.5 whitespace-nowrap px-2.5 py-1 text-[0.6875rem] font-bold uppercase tracking-wide"
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-current" aria-hidden />
+                {ESTADO_DO_CADASTRO[estado].rotulo}
+              </Badge>
+            </dt>
+            <dd className="text-xs text-muted-foreground">{ESTADO_DO_CADASTRO[estado].frase}</dd>
+          </div>
+        ))}
+      </dl>
+
+      <p className="text-xs text-muted-foreground border-t pt-3">
+        <strong>Linhas com lastro</strong> conta as trinta linhas da aba, e não as duas
+        metades: dezenove delas dependem de decisões de negócio que ainda não foram
+        registradas, e não de arquivo que alguém deixou de mandar — abrir o cadastro de uma
+        unidade diz, linha a linha, qual é o caso de cada uma.
+      </p>
+
+      {/*
+        A cadência da planilha é a mesma da vigência, e dizê-lo aqui evita a
+        leitura errada que a coluna sozinha convida: quem preencheu a 1ª quinzena
+        e voltar no dia 16 vai ver "nada informado" — não porque o que digitou
+        sumiu, mas porque a linha passou a responder pela quinzena seguinte, que
+        ainda está em branco. Sem esta frase, a conclusão natural é que o
+        cadastro se perdeu.
+      */}
+      <p className="text-xs text-muted-foreground">
+        <strong>Planilha informada</strong> conta o outro lado: as linhas que alguém digitou
+        da aba de Excel. Ela não entra em "linhas com lastro" — número digitado é lastro da
+        planilha, não do acervo — e é justamente por ficarem separadas que a coluna consegue
+        dizer quantas linhas os dois respondem e em quantas eles discordam. Ela segue a mesma
+        vigência da linha: a quinzena seguinte começa em branco sem apagar a anterior, e
+        dentro do formulário há <em>copiar de outra vigência</em>, para partir da quinzena
+        passada e corrigir só o que mudou.
+      </p>
+
+      {/*
+        Sem lastro é o único dos quatro estados em que o acervo não responde
+        **nada**, e por isso é o único que ganha frase própria: nele a planilha
+        informada não é complemento, é a única forma de o cadastro ter número.
+        Sem esta linha a tela responde "sem lastro" e cala a saída que existe —
+        que foi o que aconteceu no primeiro uso.
+      */}
+      {semLastro > 0 && (
         <p className="text-xs text-muted-foreground">
-          <strong>Planilha informada</strong> conta o outro lado: as linhas que alguém digitou
-          da aba de Excel, dentro do cadastro da unidade. Ela não entra em "linhas com lastro"
-          — número digitado é lastro da planilha, não do acervo — e é justamente por ficarem
-          separadas que a coluna consegue dizer quantas linhas os dois respondem e em quantas
-          eles discordam. Os quatro estados acima continuam falando só do que a unidade
-          entregou.
+          {semLastro === 1
+            ? "A unidade sem lastro não tem número nenhum vindo do acervo"
+            : `As ${semLastro} unidades sem lastro não têm número nenhum vindo do acervo`}
+          : enquanto o export não chega, o cadastro delas só ganha número pela{" "}
+          <strong>planilha informada</strong> — o botão da coluna abre o formulário, e o que
+          entrar por lá fica marcado como informado, com autor e data.
         </p>
-      </CardContent>
-    </Card>
+      )}
+    </div>
   );
 }
