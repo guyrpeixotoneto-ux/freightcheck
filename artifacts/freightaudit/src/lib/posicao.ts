@@ -1,4 +1,5 @@
 import type { AtributoNaPonta, UniversoDoTipo } from "./analise";
+import { ESCOPOS, escopoDoAtributo, type EscopoCode } from "./escopos";
 
 /**
  * As regras da tela de posição, fora do JSX.
@@ -14,52 +15,68 @@ import type { AtributoNaPonta, UniversoDoTipo } from "./analise";
  * dupla contagem é por ativo e olha para fora do par.
  */
 
+/**
+ * O que dizer quando um equipamento não tem vigência nenhuma no recorte.
+ *
+ * A frase é da tela, e por isso mora aqui; o **nome** do equipamento não é —
+ * ele vem de `ESCOPOS`, que é o vocabulário do produto para "de que isto é
+ * atributo?". Duas listas de rótulos para os mesmos cinco tipos discordariam no
+ * dia em que uma delas mudasse, e o dia em que discordassem seria o dia em que
+ * nenhuma das duas seria lida.
+ */
+const SEM_DADO: Partial<Record<EscopoCode, string>> = {
+  CAVALO: "Nenhuma vigência de cavalo neste período para esta unidade.",
+  CARRETA: "Nenhuma vigência de carreta neste período para esta unidade.",
+  TRECHO: "Nenhuma vigência de trecho neste período para esta unidade.",
+  QLP_ADMINISTRATIVO:
+    "Nenhuma vigência do quadro administrativo neste período. O QLP tem identidade e calendário próprios — ele não acompanha as vigências de equipamento.",
+  QLP_OPERACIONAL:
+    "Sem dados disponíveis. O tipo de importação existe, e o export do quadro operacional ainda não chegou — enquanto não chegar, não há quadro para mostrar.",
+};
+
 export interface TipoDaRemuneracao {
   entityType: string;
   titulo: string;
-  /** O que dizer quando este tipo não tem vigência nenhuma no recorte. */
   semDado: string;
 }
 
 /**
- * Os tipos que a remuneração de facto tem, na ordem em que se lê a operação.
+ * Os equipamentos que viram bloco — os cinco importáveis, na ordem de `ESCOPOS`.
  *
- * **Cinco, e não seis.** Não há "Conjunto", e a ausência é a decisão: conjunto é
- * *escopo* — o valor que cobre cavalo e carreta juntos —, e não um tipo de
- * entidade irmão dos outros. Um sexto bloco mostraria pela terceira vez o
- * dinheiro que a dedução já retirou da soma exactamente para não o contar duas
- * vezes. O conjunto ganha um selo na linha, alimentado pela decisão do
- * deduplicador.
+ * **Cinco, e não os seis escopos.** Parâmetros oferece CONJUNTO como escopo
+ * próprio, e com razão: lá a pergunta é *de que isto é atributo*, e
+ * `carreta.finame` é do par, não da carreta. Aqui a pergunta é outra — *como
+ * está a posição de cada equipamento* —, e cada bloco carrega dinheiro. Um bloco
+ * CONJUNTO exibiria, com título próprio, exactamente as linhas que a dedução
+ * retirou da soma para não contar o cavalo duas vezes: o mesmo dinheiro
+ * apresentado uma terceira vez, agora com aparência de total.
+ *
+ * As linhas de conjunto não somem por isso. Elas ficam no bloco do equipamento
+ * em cuja tabela a linha existe, com o selo que diz o que são — e o selo sai de
+ * `escopoDoAtributo`, o mesmo classificador que Parâmetros usa. As duas telas
+ * agrupam diferente e **classificam igual**, que é o que impede a divergência.
  */
-export const TIPOS_DA_REMUNERACAO: TipoDaRemuneracao[] = [
-  {
-    entityType: "CAVALO",
-    titulo: "Cavalo",
-    semDado: "Nenhuma vigência de cavalo neste período para esta unidade.",
-  },
-  {
-    entityType: "CARRETA",
-    titulo: "Carreta",
-    semDado: "Nenhuma vigência de carreta neste período para esta unidade.",
-  },
-  {
-    entityType: "TRECHO",
-    titulo: "Trecho",
-    semDado: "Nenhuma vigência de trecho neste período para esta unidade.",
-  },
-  {
-    entityType: "QLP_ADMINISTRATIVO",
-    titulo: "QLP Administrativo",
-    semDado:
-      "Nenhuma vigência do quadro administrativo neste período. O QLP tem identidade e calendário próprios — ele não acompanha as vigências de equipamento.",
-  },
-  {
-    entityType: "QLP_OPERACIONAL",
-    titulo: "QLP Operacional",
-    semDado:
-      "Sem dados disponíveis. O tipo de importação existe, e o export do quadro operacional ainda não chegou — enquanto não chegar, não há quadro para mostrar.",
-  },
-];
+export const TIPOS_DA_REMUNERACAO: TipoDaRemuneracao[] = ESCOPOS.filter(
+  (e) => e.code !== "CONJUNTO",
+).map((escopo) => ({
+  entityType: escopo.code,
+  titulo: escopo.nome,
+  semDado: SEM_DADO[escopo.code] ?? "Nenhuma vigência deste equipamento no período.",
+}));
+
+/**
+ * Se esta linha é de uma coluna que já embute o cavalo vinculado.
+ *
+ * Pergunta ao classificador do produto, e não ao deduplicador: são duas
+ * perguntas diferentes. `escopoDoAtributo` responde *o que o atributo é* —
+ * verdade do cadastro, estável; `foraDaSoma` responde *se o dinheiro desta
+ * leitura saiu da soma* — decisão por ativo, que pode não ocorrer numa
+ * comparação em que a parcela não se mexeu. O selo é sobre a primeira; a frase
+ * que o acompanha, sobre a segunda.
+ */
+export function ehDoConjunto(linha: AtributoNaPonta): boolean {
+  return escopoDoAtributo(linha.attributeCode, linha.entityType) === "CONJUNTO";
+}
 
 export interface BlocoDaPosicao {
   tipo: TipoDaRemuneracao;

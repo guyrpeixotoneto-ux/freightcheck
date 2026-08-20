@@ -3,9 +3,11 @@ import type { AtributoNaPonta, UniversoDoTipo } from "../analise";
 import {
   agruparPorParametro,
   blocosDaPosicao,
+  ehDoConjunto,
   totaisDaPosicao,
   TIPOS_DA_REMUNERACAO,
 } from "../posicao";
+import { ESCOPOS } from "../escopos";
 
 /**
  * As regras da tela de posição.
@@ -86,6 +88,36 @@ describe("os blocos da tela", () => {
       expect(bloco.linhas).toEqual([]);
       expect(bloco.tipo.semDado.length).toBeGreaterThan(0);
     }
+  });
+
+  it("os rótulos são os de ESCOPOS, e não uma segunda lista", () => {
+    /*
+      Duas listas de nomes para os mesmos cinco tipos discordariam no dia em que
+      uma delas mudasse. Os blocos derivam de `ESCOPOS`, que é o vocabulário do
+      produto — Parâmetros lê a mesma lista.
+    */
+    const doProduto = ESCOPOS.filter((e) => e.code !== "CONJUNTO");
+    expect(TIPOS_DA_REMUNERACAO.map((t) => t.entityType)).toEqual(
+      doProduto.map((e) => e.code),
+    );
+    expect(TIPOS_DA_REMUNERACAO.map((t) => t.titulo)).toEqual(
+      doProduto.map((e) => e.nome),
+    );
+  });
+
+  it("classifica o conjunto pelo mesmo critério que Parâmetros", () => {
+    /*
+      O selo pergunta ao classificador do produto, e não ao deduplicador: um é
+      sobre o que o atributo **é**, o outro sobre se o dinheiro **desta** leitura
+      saiu da soma. `carreta.finame` é do conjunto mesmo numa comparação em que a
+      parcela não se mexeu e nada foi excluído.
+    */
+    expect(ehDoConjunto(linha({ entityType: "CARRETA", attributeCode: "carreta.finame" }))).toBe(
+      true,
+    );
+    expect(
+      ehDoConjunto(linha({ entityType: "CAVALO", attributeCode: "cavalo.ipva_licenciamento" })),
+    ).toBe(false);
   });
 
   it("não existe bloco de conjunto — conjunto é escopo, não equipamento", () => {

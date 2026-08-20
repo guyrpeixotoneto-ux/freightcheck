@@ -9,7 +9,7 @@ import {
   periodicitySuffix,
 } from "@/lib/format";
 import { porPeriodicidade, type AtributoNaPonta, type UniversoDoTipo } from "@/lib/analise";
-import { agruparPorParametro, type TipoDaRemuneracao } from "@/lib/posicao";
+import { agruparPorParametro, ehDoConjunto, type TipoDaRemuneracao } from "@/lib/posicao";
 
 /** O valor de um lado, na grandeza que a coluna mede. */
 function Valor({
@@ -81,9 +81,12 @@ function Linha({ linha }: { linha: AtributoNaPonta }) {
       <tr className={cn("border-b", revertido && "bg-muted/30")}>
         <td className="py-2 pl-5 pr-3 align-top">
           <span className="font-medium">{linha.title}</span>
-          {linha.foraDaSoma?.motivo === "ESCOPO_DE_CONJUNTO" && (
+          {ehDoConjunto(linha) && (
             <span
-              title={linha.foraDaSoma.explicacao}
+              title={
+                linha.foraDaSoma?.explicacao ??
+                "Esta coluna da carreta já embute o cavalo vinculado: o número é do par, e não da carreta sozinha."
+              }
               className="ml-1.5 inline-flex items-center gap-1 text-[0.6875rem] uppercase tracking-wide text-muted-foreground"
             >
               <Layers className="w-3 h-3" />
