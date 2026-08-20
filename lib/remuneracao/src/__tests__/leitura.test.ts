@@ -496,3 +496,86 @@ describe("a lista das unidades", () => {
     expect(resumo.soAliquotas).toBeGreaterThanOrEqual(1);
   });
 });
+
+/**
+ * As duas quinzenas do mesmo mês — a unidade que entrega dia 1 e dia 16.
+ *
+ * É como a planilha de remuneração chega, e é o caso que o rótulo genérico não
+ * distinguia: `2026-08-01` e `2026-08-16` saíam as duas como "agosto/2026", no
+ * seletor do formulário, nos títulos da comparação e na coluna da lista. Quem
+ * ia digitar a segunda quinzena escolhia entre dois itens iguais.
+ *
+ * A régua está provada linha a linha em `vigencia.test.ts`; o que este bloco
+ * garante é a **ligação** — que as três leituras do módulo usam a régua, e não
+ * só a que alguém lembrou de trocar.
+ */
+describe("as duas quinzenas do mesmo mês", () => {
+  const QUINZENAL = "escopo-quinzenal";
+  const SEGUNDA = "2026-08-16";
+  const PEDIDO = { scopeHash: QUINZENAL, channel: "QUINZENAL" };
+
+  beforeAll(async () => {
+    await buildFixture(
+      ctx.db,
+      ATRIBUTOS_DO_CAVALO,
+      [
+        {
+          label: "QUINZENAL_1_8_2026",
+          effectiveDate: VIGENCIA,
+          data: { "Q-1": { ...IPVA, [COLUNA.ativo.code]: "ATIVO" } },
+        },
+        {
+          label: "QUINZENAL_16_8_2026",
+          effectiveDate: SEGUNDA,
+          data: {
+            "Q-1": { ...IPVA, [COLUNA.ativo.code]: "ATIVO" },
+            "Q-2": { ...IPVA, [COLUNA.ativo.code]: "ATIVO" },
+          },
+        },
+      ],
+      { entityType: "CAVALO", scopeHash: QUINZENAL, canal: "cavalos" },
+    );
+  }, 300_000);
+
+  it("nomeia cada uma no seletor do cadastro", async () => {
+    const lido = await lerCadastroDaUnidade(ctx.db, PEDIDO);
+
+    expect(lido!.effectiveDate).toBe(SEGUNDA);
+    expect(lido!.periodLabel).toBe("2ª quinzena de agosto/2026");
+    expect(lido!.vigencias).toEqual([
+      { effectiveDate: VIGENCIA, periodLabel: "1ª quinzena de agosto/2026" },
+      { effectiveDate: SEGUNDA, periodLabel: "2ª quinzena de agosto/2026" },
+    ]);
+  });
+
+  it("dá títulos diferentes às duas colunas da comparação", async () => {
+    const par = await lerComparacaoDeCadastros(ctx.db, PEDIDO);
+
+    expect(par!.esquerda.periodLabel).toBe("1ª quinzena de agosto/2026");
+    expect(par!.direita.periodLabel).toBe("2ª quinzena de agosto/2026");
+  });
+
+  /*
+    E a lista continua respondendo pela vigência mais recente — só que agora
+    dizendo qual das duas quinzenas de agosto é essa.
+  */
+  it("diz qual quinzena a coluna da lista está respondendo", async () => {
+    const lista = await lerSituacaoDasUnidades(ctx.db);
+    const achada = lista.unidades.find((u) => u.scopeHash === QUINZENAL)!;
+
+    expect(achada.effectiveDate).toBe(SEGUNDA);
+    expect(achada.periodLabel).toBe("2ª quinzena de agosto/2026");
+    expect(achada.material.cavalos).toBe(2);
+  });
+
+  /*
+    A outra ponta da régua, no banco: a unidade que entrega uma vez por mês
+    continua com o rótulo do mês. O grão da quinzena é o que os arquivos
+    mostram, não o que este módulo prefere.
+  */
+  it("não chama de quinzena o mês que veio inteiro", async () => {
+    const camacari = await lerCadastroDaUnidade(ctx.db, CONTEXTO);
+    expect(camacari!.periodLabel).toBe("agosto/2026");
+    expect(camacari!.vigencias.map((v) => v.periodLabel)).toEqual(["julho/2026", "agosto/2026"]);
+  });
+});

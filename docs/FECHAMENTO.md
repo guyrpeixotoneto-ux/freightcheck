@@ -809,6 +809,31 @@ não oferecia nada a quem lesse isso, numa unidade **sem lastro nenhum** — o c
 em que a planilha é a única forma de o cadastro ter número. A tela mandava
 procurar um arquivo e calava a saída que existia.
 
+#### Qual quinzena — o rótulo da vigência neste módulo
+
+A planilha é **quinzenal**: a mesma unidade entrega `2026-08-01` e `2026-08-16`,
+e o cadastro de cada uma é o seu. O rótulo genérico do produto (`periodLabel`,
+em `@workspace/comparison`) escreve as duas como "agosto/2026" — o que é certo
+nas telas da Auditoria, que comparam meses, e errado aqui: o seletor do
+formulário oferecia dois itens idênticos, e escolher a quinzena certa virava
+sorte.
+
+`rotuloDaVigencia` (`lib/remuneracao/src/vigencia.ts`) decide pelo **conjunto**,
+e não pela data sozinha:
+
+| o que a unidade entregou naquele mês | como a vigência se escreve |
+| --- | --- |
+| uma vigência só | `agosto/2026` — não se inventa quinzena onde o mês veio inteiro |
+| duas, uma em cada metade | `1ª quinzena de agosto/2026` / `2ª quinzena de agosto/2026` |
+| três, ou duas na mesma metade | `16/08/2026` — o dia, que distingue sempre |
+
+A régua da metade é a do Fechamento (`competenciaDoDia`: até o dia 15 é a
+primeira, do 16 é a segunda), restatada e não importada — a Auditoria não
+depende do Fechamento. E a lista traz a consequência escrita: a coluna "planilha
+informada" conta o que foi digitado **para a vigência daquela linha**, então a
+quinzena seguinte começa em branco sem apagar a anterior. Dentro do formulário,
+*copiar de outra vigência* parte da quinzena passada.
+
 ## O que o Fechamento vai precisar (fora desta fundação)
 
 - A **competência** como registro próprio (estado, dono, ciclo de vida) e a
@@ -837,8 +862,12 @@ procurar um arquivo e calava a saída que existia.
 - `lib/remuneracao/src/__tests__/comparacao.test.ts` — lastro que aparece ou
   some nunca vira variação de valor, nos dois sentidos.
 - `lib/remuneracao/src/__tests__/leitura.test.ts` — o SQL, contra um Postgres de
-  verdade e com os códigos reais do export; e o par sempre em ordem
-  cronológica, mesmo pedido ao contrário.
+  verdade e com os códigos reais do export; o par sempre em ordem cronológica,
+  mesmo pedido ao contrário; e a unidade quinzenal, cujas duas entregas de
+  agosto chegam à tela com rótulos diferentes nas três leituras do módulo.
+- `lib/remuneracao/src/__tests__/vigencia.test.ts` — o rótulo da vigência: as
+  duas quinzenas separadas, o mês inteiro que **não** vira quinzena, e o dia
+  como saída quando a quinzena não separa.
 - `lib/remuneracao/src/__tests__/informado.test.ts` — a fronteira entre digitado
   e medido, em memória: o declarado que **não** sobrescreve o apurado, o total
   que herda o informado das parcelas, o resumo de impostos derivado de alíquotas
