@@ -216,17 +216,28 @@ function desagrupar(dia: DiaDaPlanilha): ViagemDoMapa[] {
 }
 
 /**
- * Como o custo fixo padronizado deve pesar, num dos dois modos da prova.
+ * Em que regra a prova roda.
  *
- * `REGRA_PROPOSTA` pesa sempre pelo cadastro. `PLANILHA_LEGADA` reproduz o que
- * cada quinzena da planilha faz — o que, para a 1ª, **é** pesar pelo cadastro:
- * o defeito é só da 2ª. Por isso o modo legado não é "usar o diário sempre", e
- * sim "usar o que aquela quinzena usa".
+ * **`REGRA_CANONICA` é a regra oficial do FreightCheck**: a autoridade sobre os
+ * pesos do imposto é o `Cadastro`, nas duas quinzenas, e os pesos somam 1. É o
+ * que o produto calcula quando alguém pergunta quanto é devido.
+ *
+ * **`PLANILHA_LEGADA` existe para reprodução histórica**, não como alternativa
+ * de cálculo. Ela repete o que cada quinzena da planilha faz — o que, para a
+ * 1ª, **é** pesar pelo cadastro: o defeito é só da 2ª, que lê
+ * `Mapa Rota!AJ119`. Por isso o modo legado não é "usar o diário sempre", e sim
+ * "usar o que aquela quinzena usou".
+ *
+ * As duas convivem de propósito. Corrigir o histórico em silêncio faria os
+ * números de um fechamento já discutido mudarem sem aviso; manter só o legado
+ * carregaria o defeito para sempre. {@link compararModos} põe os dois lado a
+ * lado com a diferença nomeada, que é o que permite decidir com o número na
+ * mão.
  */
-export type ModoDaProva = "REGRA_PROPOSTA" | "PLANILHA_LEGADA";
+export type ModoDaProva = "REGRA_CANONICA" | "PLANILHA_LEGADA";
 
 function fatiaDoModo(q: QuinzenaDaPlanilha, modo: ModoDaProva): FatiaDoPadronizado {
-  if (modo === "REGRA_PROPOSTA" || q.quinzena === 1) return { fonte: "CADASTRO" };
+  if (modo === "REGRA_CANONICA" || q.quinzena === 1) return { fonte: "CADASTRO" };
   return { fonte: "PLANILHA_LEGADA", foraDoMunicipio: q.foraDoMunicipioNoDiario };
 }
 
@@ -253,7 +264,7 @@ export interface Reconciliacao {
  */
 export function reconciliar(
   fechamento: FechamentoDaPlanilha,
-  modo: ModoDaProva = "REGRA_PROPOSTA",
+  modo: ModoDaProva = "REGRA_CANONICA",
 ): Reconciliacao {
   const mapas = new Map(
     fechamento.quinzenas.map((q) => [
@@ -358,5 +369,84 @@ export function reconciliar(
     linhas,
     totais,
     placar: { iguais, diferentes },
+  };
+}
+
+/* ---------------------------------------------------------------------------
+   Legado × Canônica — o que a correção da regra muda, com o número
+   ------------------------------------------------------------------------ */
+
+/** Uma linha vista pelas duas regras, com o efeito de trocar de uma para a outra. */
+export interface LinhaComparada {
+  chave: string;
+  rotulo: string;
+  /** O que a planilha calcula hoje — e o que o histórico já discutido mostra. */
+  legado: { primeira: number | null; segunda: number | null; total: number | null };
+  /** O que a regra oficial calcula, com a autoridade no Cadastro. */
+  canonica: { primeira: number | null; segunda: number | null; total: number | null };
+  /** `canônica − legado`. Zero quando a regra não muda nada naquela linha. */
+  efeito: { primeira: number | null; segunda: number | null; total: number | null };
+  /** Por que a regra muda esta linha. `null` quando não muda. */
+  porque: string | null;
+}
+
+export interface ComparacaoDeModos {
+  competencia: string;
+  linhas: LinhaComparada[];
+  totais: LinhaComparada[];
+  /** As linhas em que adotar a regra canônica muda algum número. */
+  afetadas: string[];
+  /** O efeito no `TOTAL GERAL UNIDADE` do mês. */
+  efeitoNoTotalGeral: number | null;
+}
+
+/**
+ * Roda a prova nas duas regras e devolve o que muda de uma para a outra.
+ *
+ * É a resposta à pergunta que decide a adoção: *o que acontece com os números
+ * já assinados se a regra passar a valer?* Sem ela, trocar a regra seria pedir
+ * um voto de confiança; com ela, é uma diferença por linha que alguém confere.
+ *
+ * O sistema não escolhe: devolve os dois lados. Quem decide se o histórico é
+ * reprocessado ou preservado é quem responde pelo contrato.
+ */
+export function compararModos(fechamento: FechamentoDaPlanilha): ComparacaoDeModos {
+  const canonica = reconciliar(fechamento, "REGRA_CANONICA");
+  const legada = reconciliar(fechamento, "PLANILHA_LEGADA");
+
+  const efeitoDe = (a: number | null, b: number | null) =>
+    a === null || b === null ? null : centavos(a - b);
+
+  const comparar = (
+    doLegado: LinhaReconciliada[],
+    doCanonico: LinhaReconciliada[],
+  ): LinhaComparada[] =>
+    doCanonico.map((c) => {
+      const l = doLegado.find((x) => x.chave === c.chave);
+      const efeito = {
+        primeira: efeitoDe(c.motor.primeira, l?.motor.primeira ?? null),
+        segunda: efeitoDe(c.motor.segunda, l?.motor.segunda ?? null),
+        total: efeitoDe(c.motor.total, l?.motor.total ?? null),
+      };
+      const muda = [efeito.primeira, efeito.segunda].some((n) => n !== null && Math.abs(n) >= 0.005);
+      return {
+        chave: c.chave,
+        rotulo: c.rotulo,
+        legado: l?.motor ?? { primeira: null, segunda: null, total: null },
+        canonica: c.motor,
+        efeito,
+        porque: muda ? (DIVERGENCIAS_CONHECIDAS[c.chave] ?? null) : null,
+      };
+    });
+
+  const linhas = comparar(legada.linhas, canonica.linhas);
+  const totais = comparar(legada.totais, canonica.totais);
+
+  return {
+    competencia: fechamento.competencia,
+    linhas,
+    totais,
+    afetadas: linhas.filter((l) => l.porque !== null).map((l) => l.rotulo),
+    efeitoNoTotalGeral: totais.find((t) => t.chave === "geral")?.efeito.total ?? null,
   };
 }

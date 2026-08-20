@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   ARREDONDAMENTO_DO_TOTAL,
   DIVERGENCIAS_CONHECIDAS,
+  compararModos,
   interpretarAmostra,
   reconciliar,
   type LinhaReconciliada,
@@ -47,7 +48,7 @@ const fechamento = interpretarAmostra(
   JSON.parse(readFileSync(CAMINHO_DA_AMOSTRA, "utf8")),
 );
 
-const proposta = reconciliar(fechamento, "REGRA_PROPOSTA");
+const canonica = reconciliar(fechamento, "REGRA_CANONICA");
 const legada = reconciliar(fechamento, "PLANILHA_LEGADA");
 
 const linha = (r: { linhas: LinhaReconciliada[] }, chave: string): LinhaReconciliada => {
@@ -97,7 +98,7 @@ describe("os custos fixos fecham ao centavo nas duas quinzenas", () => {
     "custo_fixo_especiais",
     "custo_fixo_vans",
   ]) {
-    it(chave, () => fechaNasQuinzenas(linha(proposta, chave)));
+    it(chave, () => fechaNasQuinzenas(linha(canonica, chave)));
   }
 
   /*
@@ -105,14 +106,14 @@ describe("os custos fixos fecham ao centavo nas duas quinzenas", () => {
     isso que ele tem uma seção só sua mais abaixo.
   */
   it("custo_fixo_padronizado fecha na 1ª quinzena nos dois modos", () => {
-    expect(linha(proposta, "custo_fixo_padronizado").diferenca.primeira).toBe(0);
+    expect(linha(canonica, "custo_fixo_padronizado").diferenca.primeira).toBe(0);
     expect(linha(legada, "custo_fixo_padronizado").diferenca.primeira).toBe(0);
   });
 });
 
 describe("os descontos fecham ao centavo", () => {
   it("devolução — a base sem imposto, brutada e negativa", () => {
-    const l = linha(proposta, "desconto_devolucao_percentual");
+    const l = linha(canonica, "desconto_devolucao_percentual");
     expect(l.motor.primeira).toBe(-18199.19);
     expect(l.motor.segunda).toBe(-21548.23);
     expect(l.diferenca.primeira).toBe(0);
@@ -120,7 +121,7 @@ describe("os descontos fecham ao centavo", () => {
   });
 
   it("disponibilidade — mesma regra, base do 03.08.18", () => {
-    const l = linha(proposta, "desconto_disponibilidade");
+    const l = linha(canonica, "desconto_disponibilidade");
     expect(l.motor.primeira).toBe(-15907.37);
     expect(l.motor.segunda).toBe(-125271.68);
     expect(l.diferenca.primeira).toBe(0);
@@ -128,7 +129,7 @@ describe("os descontos fecham ao centavo", () => {
   });
 
   it("complementar negativo — o único que não é brutado", () => {
-    const l = linha(proposta, "desconto_complementar_negativo");
+    const l = linha(canonica, "desconto_complementar_negativo");
     expect(l.motor.segunda).toBe(-14050.54);
     fechaNasQuinzenas(l);
   });
@@ -141,7 +142,7 @@ describe("o gross-up", () => {
    * registrava como "um fator digitado que não sai de arquivo nenhum".
    */
   it("aparece na memória de cálculo, com a fatia que o produziu", () => {
-    const l = linha(proposta, "custo_fixo_padronizado");
+    const l = linha(canonica, "custo_fixo_padronizado");
     expect(l.memoria.primeira).toContain("1.365455");
     expect(l.memoria.primeira).toContain("56 veículos ativos");
     expect(l.memoria.primeira).toContain("os dois do cadastro");
@@ -159,26 +160,26 @@ describe("o gross-up", () => {
 
 describe("a remuneração variável", () => {
   it("o agregado fecha na 1ª quinzena e diverge R$ 0,06 na 2ª", () => {
-    const l = linha(proposta, "custo_variavel_agregado");
+    const l = linha(canonica, "custo_variavel_agregado");
     expect(l.diferenca.primeira).toBe(0);
     /* Seis viagens Spot de R$ 0,01 que a tabela de tarifa da planilha não pega. */
     expect(l.diferenca.segunda).toBe(0.06);
   });
 
   it("a frota fixa diverge exatamente o que os três dias sem BM/BN valem", () => {
-    const l = linha(proposta, "custo_variavel_frota_fixa");
+    const l = linha(canonica, "custo_variavel_frota_fixa");
     /* Dia 12 (+851,99) e dia 15 (−79,93) na 1ª; dia 27 (−81,01) na 2ª. */
     expect(l.diferenca.primeira).toBe(772.06);
     expect(l.diferenca.segunda).toBe(-81.01);
   });
 
   it("a indisponibilidade do quadro variável é o desconto de disponibilidade", () => {
-    expect(linha(proposta, "indisponibilidade_variavel").motor.segunda).toBe(-125271.68);
-    fechaNasQuinzenas(linha(proposta, "indisponibilidade_variavel"));
+    expect(linha(canonica, "indisponibilidade_variavel").motor.segunda).toBe(-125271.68);
+    fechaNasQuinzenas(linha(canonica, "indisponibilidade_variavel"));
   });
 
   it("o DVS herda as diferenças do variável e a da recarga/noturna quebrada", () => {
-    const l = linha(proposta, "rota_dvs");
+    const l = linha(canonica, "rota_dvs");
     expect(l.diferenca.segunda).toBe(-80.95);
     /* Na 1ª, os R$ 6.344,78 do cache da linha 129 dominam a diferença. */
     expect(l.diferenca.primeira).toBe(-5572.72);
@@ -196,8 +197,8 @@ describe("a inconsistência conhecida entre Cadastro!F50 e Mapa Rota!AJ119", () 
     expect(linha(legada, "custo_fixo_padronizado").motor.segunda).toBe(739274);
   });
 
-  it("pela regra proposta, o padronizado sobe R$ 128,05 na 2ª quinzena", () => {
-    const l = linha(proposta, "custo_fixo_padronizado");
+  it("pela regra canônica, o padronizado sobe R$ 128,05 na 2ª quinzena", () => {
+    const l = linha(canonica, "custo_fixo_padronizado");
     expect(l.motor.segunda).toBe(739402.05);
     expect(l.diferenca.segunda).toBe(128.05);
     expect(l.diferenca.total).toBe(128.05);
@@ -206,11 +207,11 @@ describe("a inconsistência conhecida entre Cadastro!F50 e Mapa Rota!AJ119", () 
   it("a memória diz qual fonte pesou, e com que pesos", () => {
     expect(linha(legada, "custo_fixo_padronizado").memoria.segunda).toContain("Mapa Rota!AJ119");
     expect(linha(legada, "custo_fixo_padronizado").memoria.segunda).toContain("0.9998274");
-    expect(linha(proposta, "custo_fixo_padronizado").memoria.segunda).toContain("= 1");
+    expect(linha(canonica, "custo_fixo_padronizado").memoria.segunda).toContain("= 1");
   });
 
   it("os R$ 128,05 atravessam o total geral da unidade", () => {
-    const geral = total(proposta, "geral");
+    const geral = total(canonica, "geral");
     const geralLegado = total(legada, "geral");
     expect(geral.motor.segunda! - geralLegado.motor.segunda!).toBeCloseTo(128.05, 2);
   });
@@ -227,7 +228,7 @@ describe("o centavo de arredondamento, que só aparece no total", () => {
       ["custo_vans_inativas", -0.01],
       ["desconto_devolucao_percentual", 0.01],
     ] as const) {
-      const l = linha(proposta, chave);
+      const l = linha(canonica, chave);
       expect(l.diferenca.primeira, `${l.rotulo} · 1ª`).toBe(0);
       expect(l.diferenca.segunda, `${l.rotulo} · 2ª`).toBe(0);
       expect(l.diferenca.total, `${l.rotulo} · total`).toBe(esperado);
@@ -235,12 +236,72 @@ describe("o centavo de arredondamento, que só aparece no total", () => {
   });
 
   it("a linha diz que a diferença é de arredondamento, e não de conta", () => {
-    expect(linha(proposta, "custo_vans_inativas").divergencia).toBe(ARREDONDAMENTO_DO_TOTAL);
+    expect(linha(canonica, "custo_vans_inativas").divergencia).toBe(ARREDONDAMENTO_DO_TOTAL);
   });
 
   it("a soma das metades arredondadas é o que o motor devolve", () => {
-    const l = linha(proposta, "custo_vans_inativas");
+    const l = linha(canonica, "custo_vans_inativas");
     expect(l.motor.primeira! + l.motor.segunda!).toBeCloseTo(l.motor.total!, 2);
+  });
+});
+
+describe("Legado × Regra Canônica — o que a correção custa", () => {
+  const c = compararModos(fechamento);
+
+  /**
+   * A pergunta que decide a adoção não é "qual regra é melhor", e sim "o que
+   * acontece com o que já foi assinado". A comparação responde com o número.
+   */
+  it("a regra canônica toca uma linha só, e só na 2ª quinzena", () => {
+    expect(c.afetadas).toEqual(["CUSTO FIXO PADRONIZADO"]);
+    const padronizado = c.linhas.find((l) => l.chave === "custo_fixo_padronizado")!;
+    expect(padronizado.efeito.primeira).toBe(0);
+    expect(padronizado.efeito.segunda).toBe(128.05);
+  });
+
+  it("mostra os dois valores lado a lado, sem eleger um em silêncio", () => {
+    const padronizado = c.linhas.find((l) => l.chave === "custo_fixo_padronizado")!;
+    expect(padronizado.legado.segunda).toBe(739274);
+    expect(padronizado.canonica.segunda).toBe(739402.05);
+  });
+
+  it("diz o efeito no total geral do mês", () => {
+    expect(c.efeitoNoTotalGeral).toBe(128.05);
+  });
+
+  it("as demais linhas ficam idênticas — a troca não mexe no resto", () => {
+    for (const l of c.linhas) {
+      if (l.chave === "custo_fixo_padronizado") continue;
+      expect(l.efeito.primeira, `${l.rotulo} · 1ª`).toBe(0);
+      expect(l.efeito.segunda, `${l.rotulo} · 2ª`).toBe(0);
+    }
+  });
+
+  it("toda linha que a regra muda diz por quê", () => {
+    for (const l of c.linhas) {
+      const muda = l.efeito.primeira !== 0 || l.efeito.segunda !== 0;
+      expect(Boolean(l.porque), `${l.rotulo}`).toBe(muda);
+    }
+  });
+});
+
+describe("os defeitos de preenchimento da planilha não são reproduzidos", () => {
+  /**
+   * Os dias 12, 15 e 27 tiveram as colunas auxiliares `BM`/`BN` não arrastadas.
+   * O motor calcula pela regra certa e a diferença aparece — calibrá-lo para
+   * repetir a célula vazia seria transformar um defeito demonstrado em regra.
+   */
+  it("a frota fixa diverge nos dois modos, e no mesmo tanto", () => {
+    for (const r of [canonica, legada]) {
+      expect(linha(r, "custo_variavel_frota_fixa").diferenca.primeira).toBe(772.06);
+      expect(linha(r, "custo_variavel_frota_fixa").diferenca.segunda).toBe(-81.01);
+    }
+  });
+
+  it("o efeito no mês é de R$ 691,06, e a reconciliação o explica", () => {
+    const l = linha(canonica, "custo_variavel_frota_fixa");
+    expect(l.diferenca.total).toBe(691.06);
+    expect(l.divergencia).toContain("12, 15 e 27");
   });
 });
 
@@ -264,13 +325,13 @@ describe("o placar da reconciliação", () => {
     ]);
   });
 
-  it("pela regra proposta, entra também o padronizado", () => {
-    expect(proposta.placar.iguais).toBe(30);
-    expect(proposta.placar.diferentes).toBe(12);
+  it("pela regra canônica, entra também o padronizado", () => {
+    expect(canonica.placar.iguais).toBe(30);
+    expect(canonica.placar.diferentes).toBe(12);
   });
 
   it("toda linha que não fecha tem o motivo escrito", () => {
-    for (const l of [...proposta.linhas, ...legada.linhas]) {
+    for (const l of [...canonica.linhas, ...legada.linhas]) {
       const fecha = l.diferenca.primeira === 0 && l.diferenca.segunda === 0;
       if (fecha) continue;
       expect(l.divergencia, `${l.rotulo} não fecha e não diz por quê`).toBeTruthy();

@@ -3,9 +3,11 @@ import * as XLSX from "xlsx";
 
 import { lerCadastro } from "./leitores/cadastro";
 import {
+  compararModos,
   reconciliar,
   type DiaDaPlanilha,
   type FechamentoDaPlanilha,
+  type ComparacaoDeModos,
   type ModoDaProva,
   type QuinzenaDaPlanilha,
   type Reconciliacao,
@@ -190,6 +192,41 @@ export function tabelaEmMarkdown(r: Reconciliacao): string {
   return saida.join("\n");
 }
 
+/** Legado × Canônica, com o efeito de adotar a regra oficial. */
+export function comparacaoEmMarkdown(c: ComparacaoDeModos): string {
+  const saida: string[] = [];
+  saida.push(`### ${c.competencia} — Legado × Regra Canônica`);
+  saida.push("");
+  saida.push("| Linha | Legado 1ª | Canônica 1ª | Efeito 1ª | Legado 2ª | Canônica 2ª | Efeito 2ª | Efeito no total |");
+  saida.push("|---|---:|---:|---:|---:|---:|---:|---:|");
+  for (const l of [...c.linhas, ...c.totais]) {
+    if (
+      [l.efeito.primeira, l.efeito.segunda, l.efeito.total].every(
+        (n) => n === null || Math.abs(n) < 0.005,
+      )
+    ) {
+      continue;
+    }
+    saida.push(
+      `| ${l.rotulo} | ${brl(l.legado.primeira)} | ${brl(l.canonica.primeira)} | ${brl(l.efeito.primeira)} ` +
+        `| ${brl(l.legado.segunda)} | ${brl(l.canonica.segunda)} | ${brl(l.efeito.segunda)} | ${brl(l.efeito.total)} |`,
+    );
+  }
+  saida.push("");
+  saida.push(
+    c.afetadas.length === 0
+      ? "A regra canônica não muda nenhuma linha neste fechamento."
+      : `Linhas que a regra canônica muda: **${c.afetadas.join(", ")}**. ` +
+        `Efeito no TOTAL GERAL UNIDADE do mês: **${brl(c.efeitoNoTotalGeral)}**.`,
+  );
+  saida.push("");
+  saida.push(
+    "As linhas omitidas acima são as que as duas regras calculam igual — a troca de " +
+      "autoridade só toca o custo fixo padronizado da 2ª quinzena.",
+  );
+  return saida.join("\n");
+}
+
 function principal(): void {
   const argumentos = process.argv.slice(2);
   const caminho = argumentos.find((a) => !a.startsWith("--"));
@@ -210,10 +247,11 @@ function principal(): void {
     console.log("");
   }
 
-  for (const modo of ["REGRA_PROPOSTA", "PLANILHA_LEGADA"] as ModoDaProva[]) {
+  for (const modo of ["PLANILHA_LEGADA", "REGRA_CANONICA"] as ModoDaProva[]) {
     console.log(tabelaEmMarkdown(reconciliar(fechamento, modo)));
     console.log("");
   }
+  console.log(comparacaoEmMarkdown(compararModos(fechamento)));
 }
 
 /* Só roda como programa; importado, é só o extrator e o formatador. */

@@ -82,7 +82,7 @@ Rodada sobre o fechamento real. Catorze linhas × três colunas = 42 células.
 | Modo | Fecham em R$ 0,00 | Não fecham |
 |---|---:|---:|
 | `PLANILHA_LEGADA` — reproduz a planilha | **32** | 10 |
-| `REGRA_PROPOSTA` — uma regra só nas duas quinzenas | 30 | 12 |
+| `REGRA_CANONICA` — a regra oficial, autoridade no Cadastro | 30 | 12 |
 
 **Todas as linhas de custo fixo e todos os descontos fecham ao centavo nas duas
 quinzenas.** O que não fecha está inteiramente contido em quatro causas, todas
@@ -106,14 +106,26 @@ pesa o lado de dentro pelo cadastro (`F49 = 0,0238`) e o de fora pelo diário
 | | Valor | Diferença |
 |---|---:|---:|
 | Planilha (`AJ133`) e modo `PLANILHA_LEGADA` | 739.274,00 | — |
-| Modo `REGRA_PROPOSTA` (pesos do cadastro, somando 1) | 739.402,05 | **+128,05** |
+| Modo `REGRA_CANONICA` (pesos do cadastro, somando 1) | 739.402,05 | **+128,05** |
 
 Os R$ 128,05 atravessam o `TOTAL REMUNERAÇÃO ROTA` e o `TOTAL GERAL UNIDADE`.
 
-**Nenhuma fonte foi eleita canônica em silêncio.** `FatiaDoPadronizado` é um
-parâmetro do motor e a linha devolvida diz, em `memoria`, quais pesos usou e de
-onde vieram. A recomendação é `CADASTRO` — pesos que somam 1, igual ao resto do
-quadro —, mas a decisão de trocar é do negócio, não do código.
+**A regra oficial do FreightCheck é `REGRA_CANONICA`: a autoridade sobre os
+pesos é o `Cadastro`, nas duas quinzenas.** O comportamento da 2ª quinzena da
+planilha é tratado como inconsistência dela, não como regra.
+
+`PLANILHA_LEGADA` permanece — para **reprodução histórica**, não como
+alternativa de cálculo. O histórico não é corrigido em silêncio:
+`compararModos()` devolve Legado × Canônica × diferença por linha, e o CLI a
+imprime. Em julho/2026 a troca toca uma linha só:
+
+| Linha | Legado 2ª | Canônica 2ª | Efeito |
+|---|---:|---:|---:|
+| `CUSTO FIXO PADRONIZADO` | 739.274,00 | 739.402,05 | **+128,05** |
+| `TOTAL REMUNERAÇÃO ROTA` | 991.501,67 | 991.629,72 | +128,05 |
+| `TOTAL GERAL UNIDADE` | 1.350.031,89 | 1.350.159,94 | +128,05 |
+
+Nenhuma outra linha muda.
 
 ### 2. Colunas auxiliares não preenchidas em três dias — R$ 772,06 e −R$ 81,01
 
@@ -131,7 +143,12 @@ A viagem continua contada como **mapa** (`Mapa Rota!121` usa `COUNTIF` sobre a
 coluna `E`, que não depende de `BM`/`BN`) e some do **rateio**. Nos 31 dias a
 contagem de mapas do motor bate com a da planilha em **31 de 31**; só o rateio
 desses três dias diverge, e a soma das diferenças dá exatamente
-`+772,06` e `−81,01`.
+`+772,06` e `−81,01` — **R$ 691,06 no mês**.
+
+**O motor não é calibrado para repetir célula vazia.** Estes três dias são
+defeitos demonstrados da planilha: a regra está certa, o preenchimento é que
+falhou. O motor calcula pela regra e a reconciliação explica a diferença, nos
+dois modos.
 
 ### 3. `Mapa Rota!129` aponta para uma linha que não existe — R$ 6.344,78
 
@@ -167,6 +184,55 @@ o total diverge.** Ninguém paga R$ 13.088,6240.
 uma linha inexistente. O valor exibido é cache, e ele alimenta o `TOTAL GERAL
 UNIDADE`. Coincide com `Outros Custos!F4`/`G4`, que é o que o motor usa.
 
+## As bases dos descontos não têm origem rastreável na planilha
+
+Investigado a pedido, para fechar o elo até o documento de origem. **O elo não
+existe dentro da pasta.**
+
+As seis bases — devolução, disponibilidade e complementar, nas duas quinzenas —
+são **digitadas à mão** em `Mapa Rota!R138:R140` e `AH138:AH140`. Nenhuma delas
+tem fórmula:
+
+| Célula | Valor | Fórmula |
+|---|---:|---|
+| `R138` devolução 1ª | 13.328,30 | *(nenhuma — digitado)* |
+| `R139` disponibilidade 1ª | 11.649,87 | *(nenhuma — digitado)* |
+| `AH138` devolução 2ª | 15.763,61 | *(nenhuma — digitado)* |
+| `AH139` disponibilidade 2ª | 91.642,50 | *(nenhuma — digitado)* |
+| `AH140` complementar 2ª | 14.050,54 | *(nenhuma — digitado)* |
+
+A aba `Justificativa` parece a origem, e não é: ela **lê de volta** do `Mapa
+Rota` (`='Mapa Rota'!R138`) e traz uma cópia das colunas do 03.08.18.
+
+O teste decisivo é contra o próprio 03.08.18, que está na pasta como aba:
+
+| | 03.08.18 `Desconto Total` | Base digitada | Relação |
+|---|---:|---:|---|
+| 1ª quinzena | 42.939,35 | 11.649,87 | 27,1 % |
+| 2ª quinzena | 29.075,62 | 91.642,50 | 315,2 % |
+
+Nenhuma coluna, nem soma de colunas, do 03.08.18 ou da `Justificativa`
+reproduz as bases digitadas — em nenhuma das duas quinzenas, por nenhum fator
+constante. **A derivação acontece fora do arquivo.**
+
+### O que isso significa, e o que o sistema pode fazer melhor
+
+O sistema já lê o 03.08.18 e extrai, por dia e por canal,
+`descontos: { custoFixo, equipe, indiretos, fatorAjudante, total }`
+(`leitores/disponibilidade.ts`), e já lê os descontos do 03.08.20 com base e
+percentual (`leitores/pagamento.ts`). Ele tem, portanto, o material para
+**calcular** a base em vez de recebê-la digitada — o que a planilha não faz.
+
+Isso é uma mudança de número, não só de método: com o `Desconto Total` do
+03.08.18 como base, a 1ª quinzena descontaria R$ 42.939,35 × fator em vez de
+R$ 11.649,87 × fator. Antes de ligar esse fio é preciso saber **o que a
+transportadora usou para chegar aos números digitados** — e essa informação não
+está em nenhum arquivo entregue até aqui.
+
+**Enquanto isso não for respondido, o fechamento não é ponta a ponta.** As
+bases entram no motor como parâmetro de entrada (`BasesDaQuinzena`), com o
+mesmo tratamento de ausência das demais: `null`, nunca zero.
+
 ## De onde vem o dinheiro do mês
 
 Medido sobre julho/2026, em valor absoluto:
@@ -196,6 +262,21 @@ quinzena, ao lado das outras seis.
 Enquanto isso não existe, o sistema reproduz o fechamento a partir dos
 relatórios importados **mais** um cadastro fornecido à parte — e não a partir
 dos relatórios sozinhos.
+
+## O ramo `Menu!E12 <> "BELÉM"` é código morto
+
+As linhas 127 e 128 têm um `IF(Menu!$E$12<>"BELÉM", …)` que sugere duas regras
+por unidade. Verificado:
+
+- `Menu!E12` está **vazia**. A unidade está em `Menu!D12` (`"BELÉM ROTA"`).
+- A condição `"" <> "BELÉM"` é sempre verdadeira, logo o ramo tomado é o
+  **"não-BELÉM"** — inclusive nesta pasta, que é de Belém.
+- O termo que esse ramo acrescenta é `−D145`, e a **linha 145 está inteiramente
+  vazia** (0 de 39 células ocupadas).
+
+Ou seja: o `IF` lê a célula errada, e os dois ramos produzem o mesmo número
+porque o termo que os distingue é zero. Não há regra por unidade a modelar aqui
+— há uma condição quebrada que nunca teve efeito.
 
 ## Autoridade única
 
