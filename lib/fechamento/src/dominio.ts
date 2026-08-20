@@ -256,7 +256,14 @@ export function lerNumero(bruto: unknown): number | null {
   return Number.isFinite(valor) ? valor : null;
 }
 
-/** Arredonda para centavos — a moeda do fechamento não tem casa decimal escondida. */
+/**
+ * Arredonda para centavos — a moeda do fechamento não tem casa decimal escondida.
+ *
+ * O `+ 0` no fim não é enfeite: sem ele, um valor negativo que arredonda para
+ * nada vira `-0`, que imprime `-R$ 0,00` numa tabela de conferência e faz
+ * `toBe(0)` falhar num teste. Zero negativo é um artefato de ponto flutuante,
+ * nunca uma afirmação sobre dinheiro.
+ */
 export function centavos(valor: number): number {
-  return Math.round(valor * 100) / 100;
+  return Math.round(valor * 100) / 100 + 0;
 }

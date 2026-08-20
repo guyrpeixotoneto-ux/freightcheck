@@ -2,8 +2,20 @@
 
 Rastreamento das fórmulas da `Fechamento_Remuneracao.xlsb` (44 abas), feito
 sobre o fechamento real de **julho/2026 — CDD Belém · Horizonte**. Cada
-afirmação daqui foi reproduzida em código e está sob teste em
-`lib/fechamento/src/__tests__/mapa-rota.test.ts`.
+afirmação daqui é reproduzida em código e está sob teste:
+
+- `lib/fechamento/src/mapa-rota.ts` — o motor, a única implementação da conta;
+- `lib/fechamento/src/reconciliacao.ts` — a prova, planilha contra motor;
+- `lib/fechamento/src/reconciliar-planilha-cli.ts` — roda a prova contra a `.xlsb`;
+- `lib/fechamento/src/__tests__/reconciliacao.test.ts` — o gate de regressão.
+
+Para refazer a prova contra o arquivo de verdade:
+
+```
+pnpm --filter @workspace/fechamento exec tsx \
+  ./src/reconciliar-planilha-cli.ts caminho/Fechamento_Remuneracao.xlsb \
+  --amostra ./src/__tests__/amostras/julho-2026.json
+```
 
 ## A descoberta que muda o desenho
 
@@ -18,26 +30,41 @@ O de-para que o produto tinha traduzia as mesmas dezoito linhas **a partir do
 nunca abre: sem ele, `lerDeParaDaCompetencia` devolve `null` e a aba `Planilha`
 não tem o que mostrar.
 
-As duas leituras não competem, e é bom que existam as duas: esta diz **quanto é
-devido pelo contrato**, a do de-para diz **quanto foi demonstrado**. A diferença
-entre elas é o que se discute na mesa.
+As duas leituras não competem: esta diz **quanto é devido pelo contrato**, a do
+de-para diz **quanto foi demonstrado**. A diferença é o que se discute na mesa.
 
-## A cadeia
+## Proveniência — arquivo → célula → regra → cálculo → resumo
 
-```
-Resumo Geral!AI7:AI17   ──►  Mapa Rota!AI131..AI140   ──►  Cadastro!C9..C50   (1ª quinzena)
-Resumo Geral!AJ7:AJ17   ──►  Mapa Rota!AJ131..AJ140   ──►  Cadastro!F9..F50   (2ª quinzena)
-Resumo Geral!AI29       ──►  Outros Custos!F4
-Resumo Geral!AI38       ──►  Abertura!F45              (o lado da transportadora)
-```
+`AI` é a coluna da 1ª quinzena, `AJ` a da 2ª, `AK` o total. Os valores do
+cadastro são **mensais**; toda linha fixa divide por dois.
 
-A coluna `C` do `Cadastro` é a 1ª quinzena; a `F`, a 2ª. Os valores são
-**mensais** e cada linha divide por dois.
+| Linha do resumo | Célula | Origem | Regra |
+|---|---|---|---|
+| `TOTAL REMUNERAÇÃO ROTA DVS` | `AI7` ← `Mapa Rota!131` | abas `01`…`31` + `Cadastro!C20`,`C23` | soma das quatro parcelas variáveis abaixo |
+| `CUSTO FIXO PADRONIZADO` | `AI8` ← `Mapa Rota!133` | `Cadastro!C18,C19,C21,C22,C13` | `(soma das 4 parcelas ÷ 2) × veículos ativos × fator` |
+| `CUSTO FIXO INATIVOS` | `AI9` ← `Mapa Rota!136` | `Cadastro!C27,C14` | `(remuneração inativa ÷ 2) × veículos inativos × fator` |
+| `CUSTO VANS INATIVAS` | `AI10` ← `Mapa Rota!137` | `Cadastro!C37,C36` | `(remuneração vans inativas ÷ 2) × vans inativas × fator` |
+| `INDISPONIBILIDADE` | `AI11` ← `Mapa Rota!132` | abas diárias, coluna `BP` | soma do faturado das viagens com tipo de indisponibilidade |
+| `CUSTO FIXO - ESPECIAIS` | `AI12` ← `Mapa Rota!134` | `Cadastro!C41,C40,C45` | `(noturna × fator ÷ 2) × rotas + (marketing × fator ÷ 2)` |
+| `CUSTO FIXO - VANS` | `AI13` ← `Mapa Rota!135` | `Cadastro!C31,C32,C30` | `(custo fixo + equipe) × vans × fator ÷ 2` |
+| `DESCONTO DE DEVOLUÇÃO %` | `AI14` ← `Mapa Rota!138` | `Mapa Rota!R138` (último dia) | `−base sem imposto × fator` |
+| `DESCONTO DE DISPONIBILIDADE` | `AI15` ← `Mapa Rota!139` | `Mapa Rota!R139` (03.08.18) | `−base sem imposto × fator` |
+| `DESCONTO COMPLEMENTAR NEGATIVO` | `AI16` ← `Mapa Rota!140` | `Mapa Rota!R140` | `−base`, **sem** fator |
+| `TOTAL REMUNERAÇÃO ROTA` | `AI17` | — | soma de `AI7:AI16` |
+| `CUSTO VARIÁVEL (FROTA FIXA)` | `AI21` ← `Mapa Rota!127` | abas diárias + `Cadastro!C20,C23` | por dia: `(previsto ÷ 25) ÷ divisor` pelo split do dia `×` mapas fechados |
+| `CUSTO VARIÁVEL (AGREGADO)` | `AI22` ← `Mapa Rota!128` | abas diárias, coluna `AI` | soma do faturado das viagens de frota `Spot` |
+| *(dentro do DVS)* `Recarga / Noturna` | `Mapa Rota!129` | abas diárias | soma do faturado de frota `Padrao` com carga `Recarga`/`Noturna` |
+| *(dentro do DVS)* `Vans` | `Mapa Rota!130` | abas diárias | soma do faturado das viagens de frota `Fixo` |
+| `TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS` | `AI29` ← `Outros Custos!F4` | 03.08.12.09 | total de outros custos da quinzena |
+| `TOTAL GERAL UNIDADE` | `AI36` | — | `AI17 + AI30 + AI34` |
+| `TOTAL GERAL SRTRANS` | `AI38` ← `Abertura!F45` | transportadora | o lado que a SRTrans apresenta |
+
+A coluna `C` do `Cadastro` é a 1ª quinzena; a `F`, a 2ª.
 
 ## O fator de imposto — o "1,366960" que não tinha origem
 
-O produto registrava que a coluna `TOTAL GERAL UNIDADE` usava "um fator de
-conversão digitado (1,366960) que não sai de arquivo nenhum". **Sai.** É
+O produto registrava que a planilha usava "um fator de conversão digitado
+(1,366960) que não sai de arquivo nenhum". **Sai.** É
 
 ```
 fator = fatiaDentroDoMunicípio / (1 − PIS − COFINS − ISS)
@@ -48,78 +75,131 @@ Com as alíquotas de julho/2026 (PIS 0,65 %, COFINS 8,6 %, ICMS 17,84 %, ISS
 5,9 %) dá **1,365455** na 1ª quinzena e **1,366960** na 2ª — a diferença é só a
 fatia de documentos emitidos dentro do município (3,16 % contra 2,38 %).
 
-## As cinco linhas de custo fixo
+## Reconciliação — planilha × motor
 
-Nenhuma passa por relatório. Todas reproduzem **ao centavo**.
+Rodada sobre o fechamento real. Catorze linhas × três colunas = 42 células.
 
-| Linha | Conta | 1ª quinzena |
-|---|---|---|
-| `CUSTO FIXO PADRONIZADO` | `(frota ativa + equipe + QLP adm. + outras despesas) ÷ 2 × veículos ativos × fator` | 731.502,84 |
-| `CUSTO FIXO INATIVOS` | `remuneração da frota inativa ÷ 2 × veículos inativos × fator` | 9.017,30 |
-| `CUSTO VANS INATIVAS` | `remuneração das vans inativas ÷ 2 × vans inativas × fator` | 13.088,62 |
-| `CUSTO FIXO - ESPECIAIS` | `noturna × fator ÷ 2 × rotas noturnas + marketing × fator ÷ 2` | 5.938,28 |
-| `CUSTO FIXO - VANS` | `(custo fixo da van + equipe da van) × vans × fator ÷ 2` | 42.745,64 |
+| Modo | Fecham em R$ 0,00 | Não fecham |
+|---|---:|---:|
+| `PLANILHA_LEGADA` — reproduz a planilha | **32** | 10 |
+| `REGRA_PROPOSTA` — uma regra só nas duas quinzenas | 30 | 12 |
 
-Isto responde à nota que o de-para trazia — de que padronizado, especiais e vans
-seriam "o mesmo dinheiro do 03.08.20 partido por tipo de frota, uma divisão que
-o relatório não faz". Não é divisão nenhuma: são cinco fórmulas independentes
-sobre o cadastro.
+**Todas as linhas de custo fixo e todos os descontos fecham ao centavo nas duas
+quinzenas.** O que não fecha está inteiramente contido em quatro causas, todas
+da própria planilha, e nenhuma é absorvida pelo motor.
 
-## Os três descontos
+### 1. `Mapa Rota!AJ133` mistura duas fontes na mesma soma — R$ 128,05
 
-Chegam **sem imposto** — acumulados na última coluna de dia da quinzena — e
-entram negativos:
+```
+AI133 (1ª)  base × Cadastro!$C$49 ÷ dentro  +  base × Cadastro!$C$50 ÷ fora
+AJ133 (2ª)  base × Cadastro!$F$49 ÷ dentro  +  base × Mapa Rota!AJ119 ÷ fora
+```
 
-- `DESCONTO DE DEVOLUÇÃO %` — `−base × fator`
-- `DESCONTO DE DISPONIBILIDADE` — `−base × fator`
-- `DESCONTO COMPLEMENTAR NEGATIVO` — `−base`, **sem** o fator
+A 1ª pesa os dois lados pelo cadastro, e `C49 + C50 = 1` por construção. A 2ª
+pesa o lado de dentro pelo cadastro (`F49 = 0,0238`) e o de fora pelo diário
+(`AJ119 = 0,97602740`).
 
-A assimetria do terceiro é da planilha, e é deliberada: ele já vem no valor em
-que é descontado.
+**O defeito não é a fonte escolhida, é a mistura:** `0,0238 + 0,97602740 =
+0,9998274`. Os pesos não fecham em 1, e a fórmula desconta silenciosamente
+0,0173 % da base.
 
-## O lado variável — o único que sai da operação
+| | Valor | Diferença |
+|---|---:|---:|
+| Planilha (`AJ133`) e modo `PLANILHA_LEGADA` | 739.274,00 | — |
+| Modo `REGRA_PROPOSTA` (pesos do cadastro, somando 1) | 739.402,05 | **+128,05** |
 
-| Linha | Regra | Confere? |
-|---|---|---|
-| `CUSTO VARIÁVEL (AGREGADO)` | soma do `VALOR FATURADO` das viagens de frota `Spot` | exato nas duas quinzenas |
-| `Vans` | soma do faturado das viagens de frota `Fixo` (é assim que o 2Art nomeia a van) | exato |
-| `Recarga / Noturna` | soma do faturado das viagens de frota `Padrao` com `CARGA ATUAL` de recarga ou noturna | exato na 2ª quinzena |
-| `CUSTO VARIÁVEL (FROTA FIXA)` | `(custo variável previsto ÷ 25) ÷ divisor` pelo split de emissão, × mapas fechados | ±0,05 % |
+Os R$ 128,05 atravessam o `TOTAL REMUNERAÇÃO ROTA` e o `TOTAL GERAL UNIDADE`.
 
-`TOTAL REMUNERAÇÃO ROTA DVS` é a soma das quatro — a planilha o traz de `Mapa
-Rota!131`, cujo rótulo é literalmente `Custo Variável =>`. A sigla continua sendo
-da Ambev e não foi expandida; o que deixou de ser desconhecido é o **número**.
+**Nenhuma fonte foi eleita canônica em silêncio.** `FatiaDoPadronizado` é um
+parâmetro do motor e a linha devolvida diz, em `memoria`, quais pesos usou e de
+onde vieram. A recomendação é `CADASTRO` — pesos que somam 1, igual ao resto do
+quadro —, mas a decisão de trocar é do negócio, não do código.
 
-## Onde a própria planilha se contradiz
+### 2. Colunas auxiliares não preenchidas em três dias — R$ 772,06 e −R$ 81,01
 
-Registrado para que a conferência contra o `.xlsb` saiba de antemão onde vai
-discordar. O código **não** imita nenhum destes.
+`Mapa Rota!112` e `113` contam viagens `NF-ISS` e `CTRC-ICMS` somando as colunas
+auxiliares `BM`/`BN` das abas diárias. Em três dias essas fórmulas **não foram
+arrastadas**:
 
-1. **`Mapa Rota!AJ133` lê a célula errada.** A fórmula do custo fixo padronizado
-   da 2ª quinzena usa `AJ119` — a fatia de emissão calculada do diário — onde a
-   da 1ª usa `Cadastro!C50`, a digitada. As duas quase coincidem, e a diferença
-   é de **R$ 128,05**, que atravessa até o `TOTAL GERAL UNIDADE`. O código usa o
-   cadastro nas duas quinzenas, que é a única das duas leituras que o contrato
-   sustenta.
+| Dia | O que falta | Efeito |
+|---|---|---:|
+| 12 | `BM` e `BN` ausentes nas 3 linhas | 3 mapas somem do rateio → `D125 = 0` → +R$ 851,99 |
+| 15 | `BM` ausente em 2 linhas `NF-ISS` | 2 viagens ISS viram fora do município → −R$ 79,93 |
+| 27 | `BM` ausente em 2 linhas `NF-ISS` | idem → −R$ 81,01 |
 
-2. **`Resumo Geral!AI30` e `AJ30` são fórmulas quebradas.** `TOTAL OUTROS
-   CUSTOS` soma `AI1048605:AI1048605` — uma linha que não existe, resto de uma
-   exclusão. A fórmula devolve zero; o que a planilha mostra (R$ 358.530,22) é
-   valor de cache, e ele ainda alimenta o `TOTAL GERAL UNIDADE`.
+A viagem continua contada como **mapa** (`Mapa Rota!121` usa `COUNTIF` sobre a
+coluna `E`, que não depende de `BM`/`BN`) e some do **rateio**. Nos 31 dias a
+contagem de mapas do motor bate com a da planilha em **31 de 31**; só o rateio
+desses três dias diverge, e a soma das diferenças dá exatamente
+`+772,06` e `−81,01`.
 
-3. **`Mapa Rota!129` está quebrada em todos os dias.** O `Custo Variável
-   (Recarga e Noturna)` diário aponta para `D1048619:D1048629`. Os valores
-   exibidos são cache. Na 2ª quinzena o cache coincide com a soma correta
-   (3.957,82); na 1ª **não**: a planilha mostra 11.574,83 e a soma das viagens
-   de recarga e noturna dá 5.230,05.
+### 3. `Mapa Rota!129` aponta para uma linha que não existe — R$ 6.344,78
 
-## O que o sistema ainda não tem
+A fórmula diária do `Custo Variável (Recarga e Noturna)` é
+`SUMPRODUCT($B$43:$B$53, D1048619:D1048629)` — resto de uma exclusão de linha.
+Ela devolve zero, e o que a planilha exibe é **valor de cache**.
 
-A aba `Cadastro` **não existe como fonte** no fechamento — nenhum dos seis
-relatórios da Ambev traz frota contratada nem tarifa por veículo. Sem ela, dois
-terços do dinheiro do mês não podem ser reconstruídos.
+| Quinzena | Planilha (cache) | Soma real das viagens | Diferença |
+|---|---:|---:|---:|
+| 1ª | 11.574,83 | 5.230,05 | **−6.344,78** |
+| 2ª | 3.957,82 | 3.957,82 | 0,00 |
 
-`lib/fechamento/src/leitores/cadastro.ts` lê essa aba direto da `.xlsb` do
-usuário, por rótulo e não por endereço de célula. O que falta para o fechamento
-rodar fim a fim é o cadastro virar documento importável como os outros — uma
-sétima fonte, com vigência por quinzena.
+Na 2ª o cache coincide com a conta certa; na 1ª, não. Esta é a maior divergência
+do mês e a única que muda o total em milhares.
+
+### 4. `CUSTO VARIÁVEL (AGREGADO)` por tabela de tarifa — R$ 0,06
+
+A planilha soma o agregado com `SUMPRODUCT(tarifas × contagem de viagens com
+aquele faturado)`. Seis viagens `Spot` de **R$ 0,01** na 2ª quinzena têm um
+faturado que não está na tabela e por isso não entram. O motor soma o faturado
+das viagens de frota `Spot`, e as pega.
+
+### 5. Arredondamento na coluna do total — R$ 0,01
+
+A planilha soma as duas quinzenas com dez casas e arredonda no fim; o motor
+arredonda cada quinzena — que é o que se fatura — e soma. Duas linhas de
+julho/2026 caem perto de meio centavo. **As duas quinzenas fecham ao centavo; só
+o total diverge.** Ninguém paga R$ 13.088,6240.
+
+### Outras fórmulas quebradas, sem efeito no resultado
+
+`Resumo Geral!AI30`/`AJ30` (`TOTAL OUTROS CUSTOS`) somam `AI1048605:AI1048605`,
+uma linha inexistente. O valor exibido é cache, e ele alimenta o `TOTAL GERAL
+UNIDADE`. Coincide com `Outros Custos!F4`/`G4`, que é o que o motor usa.
+
+## De onde vem o dinheiro do mês
+
+Medido sobre julho/2026, em valor absoluto:
+
+| Fonte | Valor | Fatia |
+|---|---:|---:|
+| **`Cadastro` — não existe em nenhum relatório** | R$ 1.627.370,20 | **57,8 %** |
+| Diário operacional (2Art/748) + tarifa prevista do `Cadastro` | R$ 635.168,80 | 22,6 % |
+| 03.08.12.09 — requisições de despesa | R$ 358.530,22 | 12,7 % |
+| 03.08.18 — disponibilidade | R$ 141.179,05 | 5,0 % |
+| Devolução | R$ 39.747,42 | 1,4 % |
+| Complementar negativo | R$ 14.050,54 | 0,5 % |
+
+**Só as quatro últimas linhas — 19,6 % — saem inteiramente dos relatórios que a
+Ambev entrega.** As outras 80,4 % tocam parâmetros que só a aba `Cadastro`
+guarda.
+
+## O que falta para o fechamento rodar fim a fim
+
+A aba `Cadastro` **não é fonte no sistema**: nenhum dos seis relatórios traz
+frota contratada, tarifa por veículo, alíquotas ou fatia de emissão.
+`lib/fechamento/src/leitores/cadastro.ts` já a lê da `.xlsb` do usuário — por
+rótulo, não por endereço de célula — e reconstrói o custo fixo ao centavo. O que
+falta é ela virar **documento importável**, uma sétima fonte com vigência por
+quinzena, ao lado das outras seis.
+
+Enquanto isso não existe, o sistema reproduz o fechamento a partir dos
+relatórios importados **mais** um cadastro fornecido à parte — e não a partir
+dos relatórios sozinhos.
+
+## Autoridade única
+
+O gross-up e as linhas do resumo existem em `mapa-rota.ts` e em nenhum outro
+lugar. API, tela, DRE e relatórios consomem o motor.
+`__tests__/autoridade-unica.test.ts` varre `lib/`, `artifacts/` e `scripts/` e
+falha se a aritmética do imposto for reescrita fora dele.

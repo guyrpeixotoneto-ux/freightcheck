@@ -32,6 +32,12 @@ export * from "./diario";
 export * from "./resumo";
 export * from "./de-para";
 export * from "./mapa-rota";
+/*
+  A prova de equivalência contra a planilha. Vai no índice porque quem consome o
+  motor precisa poder conferi-lo — e porque a alternativa, um script solto, é
+  como se chega a duas verdades sobre o mesmo número.
+*/
+export * from "./reconciliacao";
 export { lerOperacao, type DetalheDaViagem, type Viagem } from "./leitores/operacao";
 export {
   lerCadastro,

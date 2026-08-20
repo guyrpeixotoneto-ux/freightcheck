@@ -150,7 +150,7 @@ describe("os descontos", () => {
       const linhas = linhasDeDesconto(JULHO_2026[q], BASES[q]);
       const esperado =
         q === 1
-          ? { devolucao: -18199.19, disponibilidade: -15907.37, complementar: -0 }
+          ? { devolucao: -18199.19, disponibilidade: -15907.37, complementar: 0 }
           : { devolucao: -21548.23, disponibilidade: -125271.68, complementar: -14050.54 };
       expect(valorDe(linhas, "desconto_devolucao_percentual")).toBe(esperado.devolucao);
       expect(valorDe(linhas, "desconto_disponibilidade")).toBe(esperado.disponibilidade);

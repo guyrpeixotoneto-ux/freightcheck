@@ -173,6 +173,44 @@ function porQuinzena(mensal: number): number {
    As linhas
    ------------------------------------------------------------------------ */
 
+/**
+ * Como o **custo fixo padronizado** pesa os dois lados do imposto.
+ *
+ * Esta escolha é explícita porque a planilha não a faz igual nas duas quinzenas,
+ * e porque decidir por ela em silêncio trocaria um erro visível por um
+ * invisível. No `RESUMO GERAL` de julho/2026:
+ *
+ * ```
+ * Mapa Rota!AI133 (1ª)  base × Cadastro!$C$49 ÷ dentro  +  base × Cadastro!$C$50 ÷ fora
+ * Mapa Rota!AJ133 (2ª)  base × Cadastro!$F$49 ÷ dentro  +  base × Mapa Rota!AJ119 ÷ fora
+ * ```
+ *
+ * A 1ª pesa os dois lados pelo cadastro, e `C49 + C50 = 1` por construção
+ * (`C50 = 1 − C49`). A 2ª pesa o lado de dentro pelo cadastro e o de fora pelo
+ * diário — **duas fontes independentes na mesma soma**. O defeito não é a fonte
+ * escolhida, é a mistura: `F49 + AJ119 = 0,9998274`, e a fórmula desconta
+ * silenciosamente 0,0173 % da base por os pesos não fecharem em 1.
+ *
+ * O efeito é de **R$ 128,05** no mês, atravessando o `TOTAL REMUNERAÇÃO ROTA` e
+ * o `TOTAL GERAL UNIDADE`. Todas as demais linhas fixas, nas duas quinzenas,
+ * pesam pelo cadastro.
+ *
+ * `CADASTRO` é a regra que este módulo **propõe**: uma fonte só, pesos que
+ * somam 1, igual ao resto do quadro. `PLANILHA_LEGADA` **reproduz** o que a 2ª
+ * quinzena faz hoje, para quem precisa bater linha a linha com o `.xlsb` antes
+ * de mudar qualquer coisa. Nenhuma das duas é padrão escondido: a linha
+ * devolvida diz em `memoria` qual foi usada e com que pesos.
+ */
+export type FatiaDoPadronizado =
+  /** Pesa os dois lados pelo cadastro — a regra proposta. */
+  | { fonte: "CADASTRO" }
+  /**
+   * Pesa o lado de dentro pelo cadastro e o de fora por este número, como
+   * `Mapa Rota!AJ119`. Reproduz a 2ª quinzena da planilha, pesos frouxos
+   * inclusive.
+   */
+  | { fonte: "PLANILHA_LEGADA"; foraDoMunicipio: number };
+
 /** O papel da linha dentro do quadro — decide como ela soma. */
 export type PapelNoMapa = "PARCELA" | "DESCONTO" | "TOTAL";
 
@@ -214,9 +252,30 @@ function linha(
  * ausência do 03.08.20: o que as sustenta é o contrato. O que o demonstrativo
  * faria é **conferi-las**, não produzi-las.
  */
-export function linhasDoCustoFixo(p: ParametrosDoCadastro): LinhaDoMapa[] {
+export function linhasDoCustoFixo(
+  p: ParametrosDoCadastro,
+  fatiaDoPadronizado: FatiaDoPadronizado = { fonte: "CADASTRO" },
+): LinhaDoMapa[] {
   const fator = fatorDeImposto(p.aliquotas, p.parcelaDentroDoMunicipio);
   const f = fator.toFixed(6);
+
+  /*
+    O padronizado é a única linha que pode pesar diferente — ver
+    {@link FatiaDoPadronizado}. As outras quatro pesam pelo cadastro sempre,
+    porque é o que a planilha faz nas duas quinzenas.
+  */
+  const { dentro, fora } = divisoresDe(p.aliquotas);
+  const pesoDentro = p.parcelaDentroDoMunicipio;
+  const pesoFora =
+    fatiaDoPadronizado.fonte === "PLANILHA_LEGADA"
+      ? fatiaDoPadronizado.foraDoMunicipio
+      : 1 - p.parcelaDentroDoMunicipio;
+  const fatorDoPadrao = pesoDentro / dentro + pesoFora / fora;
+  const origemDaFatia =
+    fatiaDoPadronizado.fonte === "PLANILHA_LEGADA"
+      ? `pesos ${pesoDentro.toFixed(6)} (cadastro) + ${pesoFora.toFixed(6)} (diário, Mapa Rota!AJ119) = ` +
+        `${(pesoDentro + pesoFora).toFixed(7)} — reprodução da planilha`
+      : `pesos ${pesoDentro.toFixed(6)} + ${pesoFora.toFixed(6)} = 1, os dois do cadastro`;
 
   /* O veículo ativo é a soma das quatro parcelas do cadastro, não uma delas. */
   const porVeiculo =
@@ -244,8 +303,9 @@ export function linhasDoCustoFixo(p: ParametrosDoCadastro): LinhaDoMapa[] {
       "custo_fixo_padronizado",
       "CUSTO FIXO PADRONIZADO",
       "PARCELA",
-      bruto(padronizado, p),
-      `(${porVeiculo.toFixed(2)} ÷ 2) × ${p.frotaFixaAtiva} veículos ativos × ${f}`,
+      padronizado * fatorDoPadrao,
+      `(${porVeiculo.toFixed(2)} ÷ 2) × ${p.frotaFixaAtiva} veículos ativos × ` +
+        `${fatorDoPadrao.toFixed(6)} — ${origemDaFatia}`,
     ),
     linha(
       "custo_fixo_inativos",
@@ -476,8 +536,17 @@ export function montarMapaDaQuinzena(entrada: {
   parametros: ParametrosDoCadastro;
   variavel: VariavelDaQuinzena;
   bases: BasesDaQuinzena;
+  /**
+   * De onde o custo fixo padronizado tira a fatia de emissão.
+   *
+   * O padrão é o cadastro — a regra que este módulo propõe. Quem está
+   * conferindo contra o `.xlsb` passa `DIARIO` na 2ª quinzena para reproduzir
+   * `Mapa Rota!AJ119`. Ver {@link FatiaDoPadronizado}.
+   */
+  fatiaDoPadronizado?: FatiaDoPadronizado;
 }): MapaDaQuinzena {
   const { parametros: p, variavel, bases } = entrada;
+  const fatiaDoPadronizado = entrada.fatiaDoPadronizado ?? { fonte: "CADASTRO" };
 
   /* Uma parcela ausente apaga a soma: quatro parcelas menos uma não é o DVS. */
   const somaDoVariavel = (partes: (number | null)[]): number | null => {
@@ -505,7 +574,7 @@ export function montarMapaDaQuinzena(entrada: {
     quadro em silêncio.
   */
   const fixo = Object.fromEntries(
-    linhasDoCustoFixo(p).map((l) => [l.chave, l]),
+    linhasDoCustoFixo(p, fatiaDoPadronizado).map((l) => [l.chave, l]),
   ) as Record<string, LinhaDoMapa>;
 
   /* --- Quadro 1: a remuneração da rota ---------------------------------- */
