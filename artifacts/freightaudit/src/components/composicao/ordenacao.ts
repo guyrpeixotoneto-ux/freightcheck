@@ -99,10 +99,10 @@ function comparar(a: LinhaDaFrota, b: LinhaDaFrota, ordem: NonNullable<OrdemDaFr
     case "mensal":
       return porNumero(a.mensal, b.mensal, ordem.sentido);
     /*
-      Pelo valor com sinal, e não pelo módulo: esta é uma tela de custo, onde
-      um aumento de mil reais e uma economia de mil reais são notícias
-      opostas — a própria célula pinta uma de vermelho e a outra de verde.
-      Ordenar pelo módulo as encostaria uma na outra no topo da lista.
+      Pelo valor com sinal, e não pelo módulo: mil reais a mais e mil reais a
+      menos de remuneração são notícias opostas — a própria célula pinta o
+      aumento de verde e a queda de vermelho. Ordenar pelo módulo as
+      encostaria uma na outra no topo da lista.
     */
     case "variacao":
       return porNumero(a.variacao?.absoluta ?? null, b.variacao?.absoluta ?? null, ordem.sentido);
