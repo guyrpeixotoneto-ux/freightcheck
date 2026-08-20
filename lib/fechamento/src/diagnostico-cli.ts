@@ -30,13 +30,26 @@ import { sql } from "drizzle-orm";
  * Não escreve nada: é leitura pura, segura de rodar em produção.
  */
 
-const FATOS: { tipo: string; tabela: string }[] = [
-  { tipo: "OPERACAO", tabela: "fechamento_viagem" },
-  { tipo: "CTE", tabela: "fechamento_cte" },
-  { tipo: "PAGAMENTO", tabela: "fechamento_pagamento_item" },
-  { tipo: "DISPONIBILIDADE", tabela: "fechamento_disponibilidade" },
-  { tipo: "REQUISICOES", tabela: "fechamento_requisicao" },
-  { tipo: "CONCILIACAO", tabela: "fechamento_conciliacao_item" },
+/**
+ * Onde cada fonte grava os fatos dela.
+ *
+ * **O 03.08.20 grava em duas tabelas, e contar só uma mente.** As verbas vão
+ * para `fechamento_pagamento_item` e os descontos para
+ * `fechamento_pagamento_desconto`; `linhas_lidas` soma as duas. Um relatório em
+ * que só os descontos foram reconhecidos aparecia aqui como "0 fatos" com
+ * `linhas_lidas` cheio — o que parece arquivo perdido e é, na verdade, item não
+ * reconhecido. São diagnósticos diferentes e levam a ações diferentes.
+ */
+const FATOS: { tipo: string; tabelas: string[] }[] = [
+  { tipo: "OPERACAO", tabelas: ["fechamento_viagem"] },
+  { tipo: "CTE", tabelas: ["fechamento_cte"] },
+  {
+    tipo: "PAGAMENTO",
+    tabelas: ["fechamento_pagamento_item", "fechamento_pagamento_desconto"],
+  },
+  { tipo: "DISPONIBILIDADE", tabelas: ["fechamento_disponibilidade"] },
+  { tipo: "REQUISICOES", tabelas: ["fechamento_requisicao"] },
+  { tipo: "CONCILIACAO", tabelas: ["fechamento_conciliacao_item"] },
 ];
 
 interface LinhaDoDiagnostico extends Record<string, unknown> {
@@ -176,18 +189,35 @@ async function principal(): Promise<void> {
       injeção; a versão parametrizada custa uma função e fecha a porta.
     */
     const contados = new Map<string, number>();
-    for (const { tipo, tabela } of FATOS) {
+    /* Por tabela, para que a de descontos some à de itens em vez de sobrescrevê-la. */
+    const porTabela = new Map<string, Map<string, number>>();
+    for (const { tipo, tabelas } of FATOS) {
       const ids = rows.filter((r) => r.tipo === tipo).map((r) => r.documento_id);
       /* Lista vazia nem chega ao banco: `any('{}')` seria uma ida à toa. */
       if (ids.length === 0) continue;
-      const { rows: contagem } = await db.execute<{ documento_id: string; total: string }>(sql`
-        select documento_id::text as documento_id, count(*)::text as total
-          from ${sql.raw(tabela)}
-         where documento_id = any(${sql.param(ids)}::uuid[])
-         group by documento_id
-      `);
-      for (const c of contagem) contados.set(c.documento_id, Number(c.total));
+      for (const tabela of tabelas) {
+        const { rows: contagem } = await db.execute<{ documento_id: string; total: string }>(sql`
+          select documento_id::text as documento_id, count(*)::text as total
+            from ${sql.raw(tabela)}
+           where documento_id = any(${sql.param(ids)}::uuid[])
+           group by documento_id
+        `);
+        const daTabela = new Map<string, number>();
+        for (const c of contagem) {
+          daTabela.set(c.documento_id, Number(c.total));
+          contados.set(c.documento_id, (contados.get(c.documento_id) ?? 0) + Number(c.total));
+        }
+        porTabela.set(tabela, daTabela);
+      }
     }
+
+    /* A abertura do 03.08.20, que é onde a diferença entre item e desconto mora. */
+    const itens = porTabela.get("fechamento_pagamento_item");
+    const descontosDe = porTabela.get("fechamento_pagamento_desconto");
+    const abertura = (r: LinhaDoDiagnostico) =>
+      r.tipo === "PAGAMENTO"
+        ? `  (verbas ${itens?.get(r.documento_id) ?? 0} · descontos ${descontosDe?.get(r.documento_id) ?? 0})`
+        : "";
 
     let chaveAtual = "";
     const suspeitos: LinhaDoDiagnostico[] = [];
@@ -206,7 +236,30 @@ async function principal(): Promise<void> {
         `  ${r.vigente ? " * " : "   "}  ${r.tipo.padEnd(16)}` +
           `${String(r.linhas_lidas).padStart(6)}${String(fatos).padStart(7)}` +
           `${String(r.recusas).padStart(9)}  ${r.enviado_em}  ${r.nome}` +
-          `${alerta ? "   <<< VIGENTE E SEM FATOS" : ""}`,
+          `${alerta ? "   <<< VIGENTE E SEM FATOS" : ""}${abertura(r)}`,
+      );
+    }
+
+    /*
+      O 03.08.20 que trouxe desconto e nenhuma verba é um caso próprio: o arquivo
+      foi lido, as seções foram reconhecidas, e só as linhas de verba não
+      casaram com o layout esperado. Diagnóstico e conserto são outros.
+    */
+    const semVerba = rows.filter(
+      (r) =>
+        r.tipo === "PAGAMENTO" &&
+        r.vigente &&
+        (itens?.get(r.documento_id) ?? 0) === 0 &&
+        (descontosDe?.get(r.documento_id) ?? 0) > 0,
+    );
+    if (semVerba.length > 0) {
+      console.log("");
+      console.log(`${semVerba.length} demonstrativo(s) com desconto e NENHUMA verba:`);
+      for (const s of semVerba) console.log(`  ${s.chave} · "${s.nome}"`);
+      console.log(
+        "\nO arquivo foi lido e as seções foram reconhecidas — só as linhas de verba não\n" +
+          "casaram com o layout esperado (VBZ, nome e SEIS colunas de valor). Rode\n" +
+          "`explicar-pagamento-cli.ts <arquivo>` sobre ele para ver qual linha falhou e por quê.",
       );
     }
 
