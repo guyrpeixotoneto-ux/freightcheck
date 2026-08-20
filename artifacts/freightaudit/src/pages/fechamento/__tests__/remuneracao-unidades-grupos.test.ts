@@ -7,7 +7,12 @@ import {
 import type { EstadoDoCadastro, SituacaoDaUnidade } from "@/lib/remuneracao";
 
 /**
- * Como a lista de Remuneração reúne as unidades — e por que a ordem é dela.
+ * Como a lista de Remuneração reúne os cadastros — e por que a ordem é dela.
+ *
+ * **A lista é por vigência**: uma linha por (unidade, quinzena), e não uma por
+ * unidade. É o que faz a planilha preenchida em julho continuar em tela quando
+ * agosto chega vazio — e é por isso que o grupo conta cadastros, e não
+ * unidades, em tudo menos na procedência, que é fato da unidade.
  *
  * **A lista não chega ordenada.** O servidor manda as unidades do acervo por
  * vigência decrescente e acrescenta ao fim as que existem só por planilha ou
@@ -16,9 +21,9 @@ import type { EstadoDoCadastro, SituacaoDaUnidade } from "@/lib/remuneracao";
  * sozinho no rodapé ainda que a vigência dela fosse a mais recente de todas —
  * exatamente a unidade que a tela existe para não deixar escondida.
  *
- * **A frase do grupo conta unidades, e nunca linhas de cadastro.** É o mesmo
- * cuidado de `situacao.ts`: somar as trinta linhas de cada uma daria "89 de
- * 900", que é o percentual que o módulo recusa, disfarçado de total.
+ * **A frase do grupo conta cadastros, e nunca as trinta linhas de dentro
+ * deles.** É o mesmo cuidado de `situacao.ts`: somá-las daria "89 de 900", que
+ * é o percentual que o módulo recusa, disfarçado de total.
  */
 
 /** O espaço inquebrável que `contar` e a frase do grupo põem depois do número. */
@@ -54,7 +59,6 @@ function unidade(
     scopes: [],
     effectiveDate,
     periodLabel: `${effectiveDate.slice(5, 7)}/${effectiveDate.slice(0, 4)}`,
-    vigencias: 1,
     material: { cavalos: 0, trechos: 0, trechosEntregues: false, linhasInformadas: 0 },
     cadastro: cadastro(estado),
     registradaAMao: false,
@@ -103,7 +107,27 @@ describe("agruparPorVigencia", () => {
     ]);
   });
 
-  it("conta unidades por estado, e cada uma entra num contador só", () => {
+  /*
+    A unidade que entregou as duas quinzenas do mês tem duas linhas no mesmo
+    grupo. Elas ficam juntas, porque a ordem é pelo nome, e em ordem de
+    calendário entre si — que é como se lê "o que estava preenchido na 1ª" ao
+    lado de "o que falta na 2ª".
+  */
+  it("põe as duas quinzenas da mesma unidade juntas, na ordem do calendário", () => {
+    const [grupo] = agruparPorVigencia([
+      unidade("CAMAÇARI", "2026-08-16", "SO_FROTA"),
+      unidade("BELÉM", "2026-08-01", "SEM_LASTRO"),
+      unidade("CAMAÇARI", "2026-08-01", "SO_FROTA"),
+    ]);
+
+    expect(grupo!.linhas.map((u) => `${u.label} ${u.effectiveDate}`)).toEqual([
+      "BELÉM 2026-08-01",
+      "CAMAÇARI 2026-08-01",
+      "CAMAÇARI 2026-08-16",
+    ]);
+  });
+
+  it("conta cadastros por estado, e cada um entra num contador só", () => {
     const grupos = agruparPorVigencia([
       unidade("A", "2026-08-01", "FROTA_E_ALIQUOTAS"),
       unidade("B", "2026-08-01", "SO_FROTA"),
@@ -122,7 +146,7 @@ describe("agruparPorVigencia", () => {
     ).toBe(grupo!.linhas.length);
   });
 
-  it("conta a planilha e a divergência por unidade, e não por linha digitada", () => {
+  it("conta a planilha e a divergência por cadastro, e não por linha digitada", () => {
     const grupos = agruparPorVigencia([
       unidade("A", "2026-08-01", "SO_FROTA", {
         cadastro: cadastro("SO_FROTA", { informadas: 12, conferidas: 4, divergentes: 3 }),
@@ -138,6 +162,21 @@ describe("agruparPorVigencia", () => {
     expect(grupo!.comDivergencia).toBe(1);
   });
 
+  /*
+    Ser cadastrada à mão é fato da unidade, e não da quinzena: as duas linhas
+    abaixo são a mesma unidade nas duas quinzenas de agosto, e contá-las duas
+    vezes diria que há duas unidades sem export onde há uma.
+  */
+  it("conta a unidade cadastrada à mão uma vez, mesmo com duas vigências no mês", () => {
+    const [grupo] = agruparPorVigencia([
+      unidade("BELÉM", "2026-08-01", "SEM_LASTRO", { registradaAMao: true }),
+      unidade("BELÉM", "2026-08-16", "SEM_LASTRO", { registradaAMao: true }),
+    ]);
+
+    expect(grupo!.linhas).toHaveLength(2);
+    expect(grupo!.unidadesRegistradas).toBe(1);
+  });
+
   it("a lista vazia não inventa grupo nenhum", () => {
     expect(agruparPorVigencia([])).toEqual([]);
   });
@@ -151,7 +190,7 @@ describe("resumoDoGrupo", () => {
     ]);
 
     expect(resumoDoGrupo(grupo!)).toBe(
-      `2${NBSP}unidades · 1${NBSP}só com a frota · 1${NBSP}sem lastro`,
+      `2${NBSP}cadastros · 1${NBSP}só com a frota · 1${NBSP}sem lastro`,
     );
   });
 
@@ -164,22 +203,23 @@ describe("resumoDoGrupo", () => {
     ]);
 
     expect(resumoDoGrupo(grupo!)).toBe(
-      `1${NBSP}unidade · 1${NBSP}sem lastro · 1${NBSP}com planilha informada · ` +
-        `1${NBSP}diverge do acervo · 1${NBSP}cadastrada à mão`,
+      `1${NBSP}cadastro · 1${NBSP}sem lastro · 1${NBSP}com planilha informada · ` +
+        `1${NBSP}diverge do acervo · 1${NBSP}unidade cadastrada à mão`,
     );
   });
 
   it("cala o que não tem: nem planilha, nem divergência, nem cadastro à mão", () => {
     const [grupo] = agruparPorVigencia([unidade("A", "2026-08-01", "FROTA_E_ALIQUOTAS")]);
 
-    expect(resumoDoGrupo(grupo!)).toBe(`1${NBSP}unidade · 1${NBSP}com as duas metades`);
+    expect(resumoDoGrupo(grupo!)).toBe(`1${NBSP}cadastro · 1${NBSP}com as duas metades`);
   });
 });
 
 describe("chaveDaLinha", () => {
   /*
     Duas séries da mesma unidade — uma por canal — são duas linhas, e abrir uma
-    não pode abrir a outra. O par é o mesmo que endereça a unidade no servidor.
+    não pode abrir a outra. A chave é a mesma que endereça o cadastro no
+    servidor: escopo, canal e vigência.
   */
   it("separa as duas operações do mesmo escopo", () => {
     const empurrada = unidade("CAMAÇARI", "2026-08-01", "SO_FROTA");
@@ -187,8 +227,16 @@ describe("chaveDaLinha", () => {
     expect(chaveDaLinha(empurrada)).not.toBe(chaveDaLinha(rota));
   });
 
+  /* E as duas quinzenas da mesma série também: abrir julho abriria agosto
+     junto se a vigência ficasse de fora da chave. */
+  it("separa as duas vigências da mesma série", () => {
+    const primeira = unidade("CAMAÇARI", "2026-08-01", "SO_FROTA");
+    const segunda = unidade("CAMAÇARI", "2026-08-16", "SO_FROTA");
+    expect(chaveDaLinha(primeira)).not.toBe(chaveDaLinha(segunda));
+  });
+
   it("a série sem canal tem chave própria, e não a de um canal qualquer", () => {
     const semCanal = unidade("CAMAÇARI", "2026-08-01", "SO_FROTA", { channel: null });
-    expect(chaveDaLinha(semCanal)).toBe("camaçari|");
+    expect(chaveDaLinha(semCanal)).toBe("camaçari||2026-08-01");
   });
 });

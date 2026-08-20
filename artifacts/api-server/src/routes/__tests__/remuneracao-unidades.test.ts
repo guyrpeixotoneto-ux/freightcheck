@@ -370,10 +370,10 @@ describe("informar o código depois", () => {
     await informarCodigo({ scopeHash: POR_NOME, codigo: "12345678000199" });
 
     const res = await fetch(`${base}/remuneracao/situacao`);
-    const body = (await res.json()) as { unidades: { scopeHash: string; label: string }[] };
+    const body = (await res.json()) as { cadastros: { scopeHash: string; label: string }[] };
 
-    expect(body.unidades.find((u) => u.scopeHash === POR_NOME)).toBeUndefined();
-    expect(body.unidades.find((u) => u.scopeHash === POR_CODIGO)?.label).toBe(
+    expect(body.cadastros.find((c) => c.scopeHash === POR_NOME)).toBeUndefined();
+    expect(body.cadastros.find((c) => c.scopeHash === POR_CODIGO)?.label).toBe(
       "CAMAÇARI · EMPURRADA",
     );
   });
@@ -400,11 +400,11 @@ describe("a unidade cadastrada aparece nas leituras do módulo", () => {
 
     const res = await fetch(`${base}/remuneracao/situacao`);
     const body = (await res.json()) as {
-      unidades: { scopeHash: string; registradaAMao: boolean; label: string }[];
+      cadastros: { scopeHash: string; registradaAMao: boolean; label: string }[];
     };
 
-    const nossa = body.unidades.find(
-      (u) => u.scopeHash === hashScopeSet(["UNIDADE:12345678000199"]),
+    const nossa = body.cadastros.find(
+      (c) => c.scopeHash === hashScopeSet(["UNIDADE:12345678000199"]),
     );
 
     expect(nossa).toBeDefined();

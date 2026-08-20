@@ -246,17 +246,16 @@ export interface SituacaoDoCadastro {
   divergentes: number;
 }
 
+/** Uma unidade **numa vigência** — a linha da lista. */
 export interface SituacaoDaUnidade {
   scopeHash: string;
   channel: string | null;
   label: string;
   unidade: string | null;
   scopes: { scopeType: string; code: string; name: string | null }[];
-  /** A vigência mais recente da unidade — a que a situação descreve. */
+  /** A vigência que esta linha responde. */
   effectiveDate: string;
   periodLabel: string;
-  /** Quantas vigências a unidade tem. */
-  vigencias: number;
   material: MaterialDaVigencia;
   cadastro: SituacaoDoCadastro;
   /**
@@ -272,9 +271,18 @@ export interface SituacaoDaUnidade {
 }
 
 export interface SituacaoDasUnidades {
-  unidades: SituacaoDaUnidade[];
+  /** Um cadastro por (unidade, vigência) — a linha da lista. */
+  cadastros: SituacaoDaUnidade[];
+  /**
+   * Os totais do conjunto, contados no servidor.
+   *
+   * `unidades` e `cadastros` são grãos diferentes e os dois estão aqui: a
+   * unidade de nove vigências é **uma** unidade e nove cadastros. Os quatro
+   * estados contam cadastros, e somam `cadastros`.
+   */
   resumo: {
     unidades: number;
+    cadastros: number;
     frotaEAliquotas: number;
     soFrota: number;
     soAliquotas: number;
@@ -282,7 +290,7 @@ export interface SituacaoDasUnidades {
   };
 }
 
-/** As unidades do acervo, cada uma com o que o cadastro dela alcança hoje. */
+/** Os cadastros que o módulo conhece — um por unidade e vigência. */
 export function lerSituacaoDasUnidades(): Promise<SituacaoDasUnidades> {
   return fetchJson<SituacaoDasUnidades>("/remuneracao/situacao");
 }

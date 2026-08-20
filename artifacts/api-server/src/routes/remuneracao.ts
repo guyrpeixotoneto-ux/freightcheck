@@ -35,12 +35,12 @@ import {
  *   não pelo contexto de comparação: quem abre a tela escolhe "CAMAÇARI ·
  *   EMPURRADA", e a palavra "contexto" é vocabulário do motor, não de quem
  *   opera.
- * - `/remuneracao/situacao` — as mesmas unidades, cada uma com **o que o
- *   cadastro dela alcança** na vigência mais recente. É a tela que vem antes do
- *   cadastro, e é rota separada de `/unidades` de propósito: aquela é o seletor
- *   e tem de ser barata, esta monta o cadastro de todas as unidades e custa o
- *   que custa. Juntá-las faria o seletor da tela de detalhe pagar a conta da
- *   lista toda vez que alguém troca de unidade.
+ * - `/remuneracao/situacao` — as mesmas unidades, **uma linha por vigência de
+ *   cada uma**, com o que o cadastro daquela quinzena alcança. É a tela que vem
+ *   antes do cadastro, e é rota separada de `/unidades` de propósito: aquela é
+ *   o seletor e tem de ser barata, esta monta o cadastro de todas as vigências
+ *   de todas as unidades e custa o que custa. Juntá-las faria o seletor da tela
+ *   de detalhe pagar a conta da lista toda vez que alguém troca de unidade.
  * - `/remuneracao/cadastro` — as trinta linhas da aba para uma unidade numa
  *   vigência, cada uma com o número e a procedência, ou com o motivo de não ter
  *   número.
@@ -132,12 +132,14 @@ router.get("/remuneracao/unidades", async (_req, res): Promise<void> => {
 });
 
 /**
- * A situação do cadastro em cada unidade.
+ * A situação do cadastro em cada unidade, vigência por vigência.
  *
  * A pergunta que vem antes de "qual é o cadastro desta unidade": **quais
- * unidades já têm cadastro de pé, e quais ainda não têm.** Devolve, por
- * unidade, a vigência mais recente, o que ela entregou e quantas das trinta
+ * unidades já têm cadastro de pé, e quais ainda não têm.** Devolve uma linha
+ * por (unidade, vigência) — a quinzena, o que ela entregou e quantas das trinta
  * linhas têm lastro — mais o estado em uma palavra, que é o que a tela destaca.
+ * Por vigência, e não só pela mais recente, porque a planilha preenchida numa
+ * quinzena antiga é trabalho que existe e precisa de uma linha onde aparecer.
  *
  * Sem parâmetros: a pergunta é sobre o conjunto, e recortá-lo por unidade seria
  * pedir a lista de uma unidade só. Acervo vazio devolve lista vazia com resumo

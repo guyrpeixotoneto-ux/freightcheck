@@ -301,8 +301,17 @@ describe("um canal que o acervo não entregou", () => {
 
   it("passa a existir como unidade própria na lista, sem lastro nenhum", async () => {
     const situacao = await lerSituacaoDasUnidades(ctx.db);
-    const rota = situacao.unidades.find((u) => u.channel === "ROTA");
+    const deRota = situacao.cadastros.filter((c) => c.channel === "ROTA");
+    const rota = deRota[0];
     expect(rota, "a unidade de ROTA").toBeDefined();
+
+    /*
+      Uma linha, e não uma por vigência da unidade: as quinzenas de ROTA são as
+      que a planilha tem. As do irmão importado continuam sendo as do
+      formulário — a quinzena é do calendário do cliente —, e trazê-las para cá
+      encheria a lista de linhas de um canal que ninguém entregou.
+    */
+    expect(deRota.map((c) => c.effectiveDate)).toEqual([VIGENCIA]);
 
     // Herda a unidade — é a mesma —, e o rótulo troca o canal.
     expect(rota!.scopeHash).toBe(ESCOPO);
@@ -361,7 +370,9 @@ describe("a lista de unidades", () => {
   */
   it("conta o informado ao lado do lastro, e nunca dentro dele", async () => {
     const situacao = await lerSituacaoDasUnidades(ctx.db);
-    const unidade = situacao.unidades.find((u) => u.scopeHash === ESCOPO)!;
+    const unidade = situacao.cadastros.find(
+      (c) => c.scopeHash === ESCOPO && c.channel === "EMPURRADA" && c.effectiveDate === VIGENCIA,
+    )!;
 
     expect(unidade.effectiveDate).toBe(VIGENCIA);
     expect(unidade.cadastro.informadas).toBeGreaterThan(0);
