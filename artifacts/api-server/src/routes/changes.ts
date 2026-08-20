@@ -129,8 +129,22 @@ router.get("/contexts", async (req, res): Promise<void> => {
   res.json(await listContexts(db));
 });
 
+/**
+ * As vigências vivas — **de uma família por vez, a de equipamento por padrão**.
+ *
+ * Era a lista inteira, e quem quisesse outra família recortava no cliente. A
+ * tela do quadro de pessoal fazia exatamente isso, e por isso o padrão não
+ * podia ser "todas": esta rota também é de onde `/changes/latest` tira "a série
+ * mais recente", e uma quinzena de cargos entrando aqui trocava qual série a
+ * tela de Alterações abre. Quem lê o quadro nomeia a família dele — é a mesma
+ * conversa de `/contexts`, e a mesma de `lib/qlp/src/contexto.ts`.
+ */
 router.get("/snapshots", async (req, res): Promise<void> => {
-  res.json(await listComparableSnapshots(db));
+  const datasetFamily =
+    typeof req.query.datasetFamily === "string" && req.query.datasetFamily !== ""
+      ? req.query.datasetFamily
+      : undefined;
+  res.json(await listComparableSnapshots(db, { datasetFamily }));
 });
 
 router.get("/change-sets", async (req, res): Promise<void> => {

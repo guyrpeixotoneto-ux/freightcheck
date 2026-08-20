@@ -7,6 +7,8 @@ import {
 import { seedTaxonomy } from "@workspace/curation";
 import { computeMissingChangeSets, listPeriods } from "../consolidated";
 import { getGroupedView } from "../grouped";
+import { listarVigenciasDaAuditoria } from "../gerencial";
+import { listComparableSnapshots } from "../query";
 import { listContexts, resolveContext } from "../series";
 import { buildFixture, type AttributeSpec } from "./fixtures";
 
@@ -239,5 +241,92 @@ describe("a régua de vigências, quando as duas famílias dividem o escopo", ()
     expect(view).not.toBeNull();
     expect(view!.period).toBe("2026-07-01");
     expect(view!.series.map((s) => s.entityTypeSet)).toEqual(["CARRETA"]);
+  });
+});
+
+
+/**
+ * As duas leituras que não passam pelo `contextFilter`.
+ *
+ * A correção original pôs a família dentro do contexto, e o contexto é o
+ * predicado de mais de sessenta consultas — mas não de todas. Duas ficaram de
+ * fora **por construção**, porque nenhuma delas é a leitura de uma unidade só:
+ * a Visão Gerencial percorre todos os contextos de uma vez, e o seletor de
+ * "Comparar vigências" lista todas as vigências vivas. Nas duas, o quadro de
+ * pessoal continuou entrando pela mesma porta de sempre: mesma unidade, mesmo
+ * canal, portanto a mesma chave de contexto.
+ */
+describe("a Visão Gerencial da auditoria de equipamento", () => {
+  it("não conta as vigências do quadro entre as vigências da unidade", async () => {
+    const linhas = await listarVigenciasDaAuditoria(ctx.db);
+
+    expect(linhas.map((l) => l.entityTypeSet)).not.toContain("QLP_ADMINISTRATIVO");
+  });
+
+  it("não conta a vigência do quadro no cartão da unidade que divide o escopo", async () => {
+    const linhas = await listarVigenciasDaAuditoria(ctx.db);
+    const daUnidade = linhas.filter((l) => l.contexto.scopeHash === UNIDADE_COMPARTILHADA);
+
+    /*
+      Sem a cláusula, esta unidade tinha duas linhas — a de julho, de carreta, e
+      a de agosto, de cargos —, e a segunda entrava no cartão como uma vigência
+      comparável que ninguém comparou. Era metade da conta "N de M vigências
+      comparadas" descrevendo outro assunto.
+
+      E o estrago não parava no cartão. O cartão é um link, e ele leva aos
+      Parâmetros da unidade **na última vigência dela** — `max(effectiveDate)`
+      destas linhas. Com a de agosto no meio, o link abria os Parâmetros numa
+      data que só o quadro entregou: `getGroupedView` não acha o período na
+      régua do equipamento, a rota devolve 404, e a tela — que lê 404 como
+      "ainda não importaram nada" — anunciava "Nenhuma vigência importada
+      ainda" sobre uma unidade com nove vigências no banco. A última data desta
+      lista é, portanto, a asserção que importa.
+    */
+    expect(daUnidade.map((l) => l.effectiveDate)).toEqual(["2026-07-01"]);
+  });
+
+  it("a unidade que só entregou quadro não vira cartão de equipamento", async () => {
+    const linhas = await listarVigenciasDaAuditoria(ctx.db);
+
+    expect(linhas.map((l) => l.contexto.scopeHash)).not.toContain(UNIDADE_QUADRO);
+  });
+
+  it("quem lê o quadro continua enxergando as vigências dele", async () => {
+    const linhas = await listarVigenciasDaAuditoria(ctx.db, {
+      datasetFamily: DATASET_FAMILY_QUADRO_DE_PESSOAL,
+    });
+
+    expect(linhas.map((l) => l.entityTypeSet)).toEqual([
+      "QLP_ADMINISTRATIVO",
+      "QLP_ADMINISTRATIVO",
+    ]);
+    expect(linhas.map((l) => l.contexto.scopeHash)).toEqual(
+      expect.arrayContaining([UNIDADE_QUADRO, UNIDADE_COMPARTILHADA]),
+    );
+  });
+});
+
+describe("o seletor de vigências para comparar", () => {
+  it("não oferece uma quinzena do quadro de pessoal", async () => {
+    const vivas = await listComparableSnapshots(ctx.db);
+
+    expect(vivas.map((s) => s.entityTypeSet)).not.toContain("QLP_ADMINISTRATIVO");
+  });
+
+  it("continua oferecendo as vigências de equipamento", async () => {
+    const vivas = await listComparableSnapshots(ctx.db);
+
+    expect(vivas.map((s) => s.entityTypeSet)).toEqual(["CARRETA", "CARRETA", "CARRETA"]);
+  });
+
+  it("quem lê o quadro continua escolhendo entre as quinzenas dele", async () => {
+    const vivas = await listComparableSnapshots(ctx.db, {
+      datasetFamily: DATASET_FAMILY_QUADRO_DE_PESSOAL,
+    });
+
+    expect(vivas.map((s) => s.entityTypeSet)).toEqual([
+      "QLP_ADMINISTRATIVO",
+      "QLP_ADMINISTRATIVO",
+    ]);
   });
 });

@@ -4,6 +4,7 @@ import { attributeTable, changeSetTable, changeTable, snapshotTable } from "@wor
 import type { EscopoDeFrota } from "./escopo";
 import { attributeLabel, periodLabel } from "./labels";
 import { impactoApurado, linhasApuradas } from "./impacto-apurado";
+import { datasetFamilyFilter } from "./series";
 import type { RastroDaDeducao } from "./deduplicacao";
 
 /**
@@ -826,8 +827,22 @@ export async function listChangeSets(db: Database) {
   return rows;
 }
 
-/** Live snapshots, oldest first — the pickers on Comparar read this. */
-export async function listComparableSnapshots(db: Database) {
+/**
+ * Live snapshots, oldest first — the pickers on Comparar read this.
+ *
+ * **De uma família por vez, e a de equipamento por padrão.** Duas vigências de
+ * famílias diferentes não se comparam: `findPreviousSnapshot` já as separa pela
+ * cobertura, então um par assim nunca produziria comparação — mas esta lista é
+ * também de onde `/changes/latest` tira "a série mais recente", e uma quinzena
+ * do quadro de pessoal entrando aqui muda qual série a tela de Alterações abre.
+ * É o mesmo defeito que a família fechou no `contextFilter`, numa consulta que
+ * não passa por ele.
+ */
+export async function listComparableSnapshots(
+  db: Database,
+  /** Qual família listar (`snapshot.dataset_family`). Padrão: equipamento. */
+  opts?: { datasetFamily?: string },
+) {
   return db
     .select({
       id: snapshotTable.id,
@@ -841,7 +856,10 @@ export async function listComparableSnapshots(db: Database) {
       factCount: snapshotTable.factCount,
     })
     .from(snapshotTable)
-    .where(sql`${snapshotTable.status} <> 'SUPERSEDED'`)
+    .where(
+      sql`${snapshotTable.status} <> 'SUPERSEDED'
+          AND ${datasetFamilyFilter("snapshot", opts?.datasetFamily)}`,
+    )
     .orderBy(snapshotTable.effectiveDate);
 }
 

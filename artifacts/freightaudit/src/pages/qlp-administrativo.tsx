@@ -707,15 +707,28 @@ function AbaAlteracoes({ serie }: { serie: EvolucaoDoQuadro["quadro"] }) {
     setJanela((atual) => (atual.pagina === 1 ? atual : { ...atual, pagina: 1 }));
   }, [filters, set?.id]);
 
+  /*
+    A família é pedida ao servidor, e não recortada depois.
+
+    `/snapshots` responde pela família de equipamento quando ninguém pede outra
+    — é a mesma regra de `/contexts`, e ela existe porque o contrário fazia uma
+    quinzena de cargos entrar na leitura de placas. Esta tela é a que fala de
+    gente, então ela nomeia a família dela, do mesmo jeito que
+    `lib/qlp/src/contexto.ts` já nomeava. A constante mora em
+    `@workspace/ingest` (`DATASET_FAMILY_QUADRO_DE_PESSOAL`) e não é importada
+    aqui de propósito: aquele pacote carrega o pipeline de importação inteiro, e
+    ele não tem por que ir para o bundle do navegador.
+  */
   const { data: snapshots = [], error: snapshotsError } = useQuery({
-    queryKey: ["snapshots"],
-    queryFn: () => fetchJson<SnapshotComparavel[]>("/snapshots"),
+    queryKey: ["snapshots", "QUADRO_DE_PESSOAL"],
+    queryFn: () =>
+      fetchJson<SnapshotComparavel[]>("/snapshots?datasetFamily=QUADRO_DE_PESSOAL"),
   });
 
   /*
-    Só as vigências do quadro entram nos seletores — recorte de apresentação
-    sobre a lista geral. O motor recusaria um par QLP × equipamento de todo
-    jeito; aqui o par nem chega a ser oferecido.
+    Dentro da família, só o administrativo entra nos seletores — o operacional é
+    do mesmo quadro e forma série própria. O motor recusaria um par entre as
+    duas coberturas de todo jeito; aqui o par nem chega a ser oferecido.
   */
   const doQuadro = useMemo(
     () => snapshots.filter((s) => s.entityTypeSet === "QLP_ADMINISTRATIVO"),
