@@ -21,6 +21,7 @@ import {
   listarPartes,
   receberDocumento,
   registrarParte,
+  reimportarDocumento,
   reabrirCompetencia,
   encerrarCompetencia,
   RecusaDeFechamento,
@@ -563,6 +564,50 @@ router.get("/fechamento/documentos/:id/diagnostico", async (req, res): Promise<v
     documento: { id, nomeDoArquivo: guardado.nomeDoArquivo },
     diagnostico: diagnosticarPagamento(guardado.conteudo),
   });
+});
+
+/**
+ * Reimporta um documento a partir do arquivo que a importação guardou.
+ *
+ * **A porta que faltava.** As linhas de uma fonte são derivadas do arquivo, e
+ * quando as duas discordam — o 03.08.20 com dez verbas dentro e o banco sem
+ * nenhuma — quem está errado é a derivação. Até aqui não havia como pedir que
+ * ela fosse refeita: a tela mandava substituir o arquivo, o índice
+ * `(competência, sha256)` recusava o reenvio do mesmo, e sobrava descartar a
+ * competência inteira — seis fontes fora por causa de uma.
+ *
+ * **`POST` e não `PUT`** porque não se está pondo um recurso no lugar de outro
+ * — nada entra e nada sai: é o mesmo documento, com o mesmo id, relido. O corpo
+ * é vazio de propósito: o arquivo já está no banco, e aceitar um aqui seria uma
+ * segunda porta de importação, com as regras da primeira por perto.
+ *
+ * `200` quando voltou a valer e `202` quando a releitura o mandou para a
+ * quarentena — a mesma distinção do envio, e pela mesma razão: reimportar não
+ * perdoa o arquivo, refaz a leitura dele.
+ */
+router.post("/fechamento/documentos/:id/reimportar", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de documento inválido." });
+    return;
+  }
+
+  try {
+    const refeito = await reimportarDocumento(db, id);
+    res.status(refeito.desfecho === "PROMOVIDO" ? 200 : 202).json(refeito);
+  } catch (erro) {
+    if (erro instanceof RecusaDeFechamento) {
+      const ausente =
+        erro.codigo === "DOCUMENTO_NAO_ENCONTRADO" || erro.codigo === "COMPETENCIA_NAO_ENCONTRADA";
+      res.status(ausente ? 404 : 409).json({
+        error: erro.message,
+        codigo: erro.codigo,
+        detalhe: erro.detalhe,
+      });
+      return;
+    }
+    throw erro;
+  }
 });
 
 /**

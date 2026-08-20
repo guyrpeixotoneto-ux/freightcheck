@@ -765,6 +765,21 @@ export function diagnosticarDocumento(
   return fetchJson(`/fechamento/documentos/${documentoId}/diagnostico`);
 }
 
+/**
+ * Reimporta o documento a partir do arquivo que a importação guardou.
+ *
+ * O conserto de quando a linha do banco discorda do arquivo — o 03.08.20 com
+ * dez verbas dentro e a competência sem nenhuma. Nada é reenviado: os bytes já
+ * estão no banco, e é sobre eles que a leitura é refeita. Reimportar não
+ * perdoa o arquivo — ele passa pelos mesmos portões do envio, e volta em
+ * `EM_QUARENTENA` se continuar não produzindo fato nenhum.
+ */
+export function reimportarDocumento(documentoId: string): Promise<DocumentoRecebido> {
+  return fetchJson<DocumentoRecebido>(`/fechamento/documentos/${documentoId}/reimportar`, {
+    method: "POST",
+  });
+}
+
 /** O que o descarte apagou — contado por fonte, para a tela repetir de volta. */
 export interface DadosDescartados {
   competencia: Competencia;
@@ -778,8 +793,13 @@ export interface DadosDescartados {
  *
  * Não é o desfazer de um envio: é o de todos. Existe porque o erro que ele
  * conserta — a quinzena aberta num período e alimentada com os arquivos de
- * outro — não se resolve reenviando por cima, já que o mesmo arquivo é recusado
- * por SHA na mesma competência. Ver `persistencia.ts`.
+ * outro — não se resolve reenviando por cima: o mesmo arquivo é recusado por
+ * SHA na mesma competência enquanto o documento sustentar linhas, que é
+ * exatamente o caso do arquivo do período errado. Ver `persistencia.ts`.
+ *
+ * **Não é mais a saída do documento que não sustenta nada.** Esse tem
+ * {@link reimportarDocumento}, e o reenvio dele deixou de ser recusado —
+ * descartar seis fontes por causa de uma era o preço de não ter conserto.
  */
 export function descartarDados(id: string): Promise<DadosDescartados> {
   return fetchJson<DadosDescartados>(`/fechamento/competencias/${id}/dados`, { method: "DELETE" });

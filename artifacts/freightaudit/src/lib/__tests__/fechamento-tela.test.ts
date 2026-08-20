@@ -8,8 +8,9 @@ import {
   chaveDoDiario,
   chaveDoPainel,
   estadoDaFonte,
+  oQueDizerDoSemVerba,
 } from "@/lib/fechamento-tela";
-import type { Documento, DocumentoRecebido } from "@/lib/fechamento";
+import type { DiagnosticoDoPagamento, Documento, DocumentoRecebido } from "@/lib/fechamento";
 
 /**
  * As duas decisões que a tela do Fechamento toma antes de desenhar.
@@ -117,5 +118,65 @@ describe("o aviso depois de um envio aceito", () => {
   it("quarentena sem motivo escrito ainda avisa que o arquivo não valeu", () => {
     const aviso = avisoDoEnvio({ ...RECEBIDO, desfecho: "EM_QUARENTENA", motivoDaQuarentena: null });
     expect(aviso?.motivo).toContain("não virou a conta");
+  });
+});
+
+/**
+ * A frase que a lista mostra sobre o 03.08.20 sem verba no banco.
+ *
+ * O caso que estes testes trancam é o do arquivo real da 1ª quinzena: 14 linhas
+ * lidas, que são **10 verbas e 4 descontos**, e uma tela que dizia serem todas
+ * descontos porque o `count(*)` do banco voltara zero. A tela não tinha lido o
+ * arquivo, e mesmo assim afirmava o que havia dentro dele.
+ */
+describe("o que a lista diz do 03.08.20 que não sustenta verba", () => {
+  const SEM_VERBA: Documento = { ...DOCUMENTO, verbas: 0 };
+
+  const diagnostico = (parcial: Partial<DiagnosticoDoPagamento>): DiagnosticoDoPagamento => ({
+    causa: "LEU_NORMALMENTE",
+    resumo: "",
+    lido: { verbas: 10, descontos: 4, totais: 2 },
+    cabecalho: { periodo: { inicio: null, fim: null }, unidade: null, transportadora: null },
+    secoes: { canal: true, bloco: true, verbasBemFormatadas: 10 },
+    suspeitas: [],
+    ...parcial,
+  });
+
+  it("sem o diagnóstico, não afirma nada sobre o conteúdo do arquivo", () => {
+    const { frase, reimportar } = oQueDizerDoSemVerba(SEM_VERBA, undefined);
+    /* A afirmação que estava errada, e que a tela não tem como sustentar. */
+    expect(frase).not.toContain("que são descontos");
+    expect(frase).toContain("14 linha(s)");
+    expect(frase).toContain("nenhuma verba dele sustenta");
+    expect(reimportar).toBe(false);
+  });
+
+  it("quando o arquivo guardado tem verba, a culpa vai para a importação", () => {
+    const { frase, reimportar } = oQueDizerDoSemVerba(
+      SEM_VERBA,
+      diagnostico({ causa: "LEU_NORMALMENTE" }),
+    );
+    expect(frase).toContain("10 verba(s)");
+    expect(frase).toContain("4 desconto(s)");
+    expect(frase).toContain("quem não as gravou foi a importação");
+    /* E o conserto é refazer a leitura, não pedir outro arquivo a quem opera. */
+    expect(frase).toContain("Não é caso de trocar o arquivo");
+    expect(reimportar).toBe(true);
+  });
+
+  it("quando o arquivo é mesmo o problema, não oferece reimportar", () => {
+    /* Reimportar aqui repetiria o mesmo resultado e ainda tiraria o documento
+       de vigente — o que resolve é reexportar o relatório. */
+    for (const causa of [
+      "NAO_E_O_03_08_20",
+      "SEM_CABECALHO_DE_SECAO",
+      "LINHA_DE_VERBA_RECUSADA",
+      "SEM_CORPO_DE_VERBA",
+    ] as const) {
+      const { frase, reimportar } = oQueDizerDoSemVerba(SEM_VERBA, diagnostico({ causa }));
+      expect(reimportar).toBe(false);
+      expect(frase).toContain("não tirou verba nenhuma dele");
+      expect(frase).not.toContain("que são descontos");
+    }
   });
 });

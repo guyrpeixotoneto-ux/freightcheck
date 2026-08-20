@@ -1,4 +1,4 @@
-import type { Documento, DocumentoRecebido } from "@/lib/fechamento";
+import type { DiagnosticoDoPagamento, Documento, DocumentoRecebido } from "@/lib/fechamento";
 
 /**
  * O que a tela do Fechamento decide antes de desenhar — e as chaves com que ela
@@ -121,5 +121,72 @@ export function avisoDoEnvio(recebido: DocumentoRecebido): AvisoDoEnvio | null {
     motivo:
       recebido.motivoDaQuarentena ??
       "O arquivo foi guardado e não virou a conta desta quinzena.",
+  };
+}
+
+/** A frase da lista, e se há conserto a oferecer ao lado dela. */
+export interface OQueDizerDoSemVerba {
+  /** A frase da lista. Nunca afirma nada sobre bytes que não foram lidos. */
+  frase: string;
+  /** Refazer a leitura do arquivo guardado resolve? */
+  reimportar: boolean;
+}
+
+/**
+ * O que a lista diz sobre o 03.08.20 vigente que não sustenta verba nenhuma.
+ *
+ * **A frase antiga afirmava o que não tinha verificado.** Ela dizia "nenhuma
+ * verba entrou deste arquivo — só as N linhas acima, que são descontos", e
+ * decidia isso a partir de um `count(*)` no banco. O arquivo, ela não tinha
+ * lido. Levada ao 03.08.20 real da 1ª quinzena, a frase estava simplesmente
+ * errada: aquelas 14 linhas são **10 verbas e 4 descontos**, o leitor reconhece
+ * as dez, e quem clicasse no "por quê" recebia, logo abaixo da acusação, um
+ * diagnóstico dizendo o contrário. Duas frases opostas sobre o mesmo arquivo,
+ * na mesma tela, e nenhuma saída.
+ *
+ * Por isso a decisão passa a depender do diagnóstico — que lê **os bytes
+ * guardados** —, e por isso ele deixou de ficar atrás de um clique: sem ele, a
+ * tela só pode dizer o que o banco sabe, que é "nenhuma verba deste documento
+ * sustenta a conta". Sobre o conteúdo do arquivo, ela se cala.
+ *
+ * **Quando os dois discordam, quem manda é o arquivo.** A linha do banco é
+ * derivada dele; o contrário nunca foi verdade. Um diagnóstico que encontra
+ * verbas nos bytes guardados prova que o que falhou foi a gravação, e o
+ * conserto é refazê-la — daí `reimportar`, que só é oferecido nesse caso. Nas
+ * outras causas o arquivo é mesmo o problema, e reimportá-lo repetiria o
+ * resultado: ali o que resolve é reexportar o relatório inteiro.
+ */
+export function oQueDizerDoSemVerba(
+  documento: Pick<Documento, "linhasLidas">,
+  diagnostico: DiagnosticoDoPagamento | undefined,
+): OQueDizerDoSemVerba {
+  const linhas = documento.linhasLidas.toLocaleString("pt-BR");
+
+  if (!diagnostico) {
+    return {
+      frase:
+        `O arquivo está guardado, com ${linhas} linha(s) lidas, e nenhuma verba dele sustenta ` +
+        `a conta desta quinzena. É a verba que abre a parcela fixa: enquanto ela não vier, o ` +
+        `painel da planilha fica sem de onde sair.`,
+      reimportar: false,
+    };
+  }
+
+  if (diagnostico.causa === "LEU_NORMALMENTE") {
+    return {
+      frase:
+        `O arquivo tem ${diagnostico.lido.verbas} verba(s) e ${diagnostico.lido.descontos} ` +
+        `desconto(s), e o leitor reconhece todas — quem não as gravou foi a importação. ` +
+        `Não é caso de trocar o arquivo: é de refazer a leitura dele.`,
+      reimportar: true,
+    };
+  }
+
+  return {
+    frase:
+      `O arquivo está guardado, com ${linhas} linha(s) lidas, e o leitor não tirou verba ` +
+      `nenhuma dele. É a verba que abre a parcela fixa: enquanto ela não vier, o painel da ` +
+      `planilha fica sem de onde sair.`,
+    reimportar: false,
   };
 }

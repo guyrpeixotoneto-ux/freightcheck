@@ -23,6 +23,7 @@ import {
   listarDocumentos,
   listarPartes,
   reabrirCompetencia,
+  reimportarDocumento,
   lerConteudoDoDocumento,
   lerDeParaDaCompetencia,
   receberDocumento,
@@ -146,6 +147,12 @@ describe("a frase que a tela mostra no lugar do painel", () => {
        ainda assim não trazer verba — e dizer "o leitor recusou 0 linha(s)"
        mandaria procurar o que não existe. */
     expect(frase).not.toContain("O leitor recusou");
+    /* E a saída que não custa nada vem primeiro. A frase mandava só "envie o
+       03.08.20 completo por cima", o que põe quem opera a procurar um arquivo
+       melhor do que o que já está guardado — e, quando o guardado é o certo, o
+       reenvio dele era recusado pelo sha. */
+    expect(frase).toContain("reimporte-o");
+    expect(frase).toContain("sem reenviar nada");
   });
 
   it("quando nem desconto sobrou, diz que nenhuma linha foi reconhecida", () => {
@@ -807,6 +814,210 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     );
     /* E o que não valeu está guardado inteiro, para exame. */
     expect((await lerConteudoDoDocumento(db, segundo.id))?.conteudo.length).toBeGreaterThan(0);
+  });
+
+  /*
+    O beco relatado da tela, e a saída dele.
+
+    O estado: o documento vigente no banco sem verba nenhuma, a lista mostrando
+    o nome do arquivo com o triângulo, e o painel sem de onde sair. Quem opera
+    clica em "Substituir", escolhe **o mesmo arquivo** — que é o certo, e o
+    diagnóstico dos bytes guardados diz que é — e o índice `(competência,
+    sha256)` o recusa. Sobrava descartar a competência inteira.
+  */
+  it("o 03.08.20 sem verba no banco volta a si reimportando os bytes guardados", async () => {
+    const comp = await competenciaDaPrimeira();
+    const enviado = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_1Q_JUL.txt",
+      conteudo: fixturePagamento1aQuinzenaReal(),
+    });
+    /* O estado relatado, reproduzido por dentro: a importação de hoje não o
+       produz mais, e é justamente por isso que ele precisa de conserto e não de
+       reenvio — o arquivo no banco é o certo. */
+    await db
+      .delete(fechamentoPagamentoItemTable)
+      .where(eq(fechamentoPagamentoItemTable.documentoId, enviado.id));
+    expect(
+      (await listarDocumentos(db, comp.id)).find((d) => d.tipo === "PAGAMENTO"),
+    ).toMatchObject({ vigente: true, verbas: 0 });
+    expect(await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" })).toBeNull();
+
+    const refeito = await reimportarDocumento(db, enviado.id);
+
+    /* O mesmo documento, e não um segundo: o histórico não ganha uma linha por
+       um conserto que não trocou arquivo nenhum. */
+    expect(refeito.id).toBe(enviado.id);
+    expect(refeito.desfecho).toBe("PROMOVIDO");
+    expect(refeito.substituiu).toBeNull();
+    expect(refeito.linhasLidas).toBe(14);
+    const documentos = await listarDocumentos(db, comp.id);
+    expect(documentos.filter((d) => d.tipo === "PAGAMENTO")).toHaveLength(1);
+    expect(documentos[0]).toMatchObject({ vigente: true, verbas: 10 });
+    /* E o painel, que é a razão de tudo isto, fecha no total do rodapé. */
+    expect((await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" }))?.totalDoRelatorio).toBe(
+      1084580.45,
+    );
+  });
+
+  it("reenviar o mesmo arquivo conserta o documento que não sustenta nada", async () => {
+    /* A porta da frente, que é por onde quem opera vai tentar: o mesmo arquivo,
+       pelo botão "Substituir". Não há conta a dobrar num documento que não
+       sustenta uma linha, e recusá-lo era barrar o único conserto. */
+    const comp = await competenciaDaPrimeira();
+    const enviado = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_1Q_JUL.txt",
+      conteudo: fixturePagamento1aQuinzenaReal(),
+    });
+    await db
+      .delete(fechamentoPagamentoItemTable)
+      .where(eq(fechamentoPagamentoItemTable.documentoId, enviado.id));
+
+    const denovo = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_1Q_JUL.txt",
+      conteudo: fixturePagamento1aQuinzenaReal(),
+    });
+
+    expect(denovo.id).toBe(enviado.id);
+    expect(denovo.desfecho).toBe("PROMOVIDO");
+    const documentos = await listarDocumentos(db, comp.id);
+    expect(documentos.filter((d) => d.tipo === "PAGAMENTO")).toHaveLength(1);
+    expect(documentos[0]).toMatchObject({ verbas: 10 });
+  });
+
+  it("o reenvio continua recusado enquanto o documento sustentar linhas", async () => {
+    /* A outra metade da mesma regra, e a que não pode ceder: com as verbas
+       gravadas, receber o mesmo arquivo de novo somaria as mesmas dez duas
+       vezes. A abertura acima vale para zero linhas, e só para zero. */
+    const comp = await competenciaDaPrimeira();
+    await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_1Q_JUL.txt",
+      conteudo: fixturePagamento1aQuinzenaReal(),
+    });
+
+    await expect(
+      receberDocumento(db, {
+        competenciaId: comp.id,
+        tipo: "PAGAMENTO",
+        nomeDoArquivo: "03.08.20_1Q_JUL (cópia).txt",
+        conteudo: fixturePagamento1aQuinzenaReal(),
+      }),
+    ).rejects.toMatchObject({ codigo: "DOCUMENTO_JA_RECEBIDO" });
+  });
+
+  it("a reimportação não promove o que continua sem verba, e não toca no vigente", async () => {
+    /* Reimportar refaz a leitura; não a perdoa. O truncado passa pelos mesmos
+       portões do envio e volta para a quarentena de onde saiu — e o documento
+       bom, que está valendo, não perde uma linha por causa disso. */
+    const comp = await competenciaDaPrimeira();
+    await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_1Q_JUL.txt",
+      conteudo: fixturePagamento1aQuinzenaReal(),
+    });
+    const emQuarentena = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_1Q_JUL (truncado).txt",
+      conteudo: realDaPrimeiraSemUmaColuna(),
+    });
+    expect(emQuarentena.desfecho).toBe("EM_QUARENTENA");
+
+    const refeito = await reimportarDocumento(db, emQuarentena.id);
+    expect(refeito.desfecho).toBe("EM_QUARENTENA");
+    expect(refeito.motivoDaQuarentena).toContain("nenhuma verba");
+
+    const vigente = (await listarDocumentos(db, comp.id)).find(
+      (d) => d.tipo === "PAGAMENTO" && d.vigente,
+    );
+    expect(vigente).toMatchObject({ nomeDoArquivo: "03.08.20_1Q_JUL.txt", verbas: 10 });
+    expect((await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" }))?.totalDoRelatorio).toBe(
+      1084580.45,
+    );
+  });
+
+  it("a reimportação serve às seis fontes, e não só ao 03.08.20", async () => {
+    /* A pergunta que ela responde — "a linha do banco discorda do arquivo?" —
+       é de qualquer fonte derivada, e escrever o conserto só para uma seria
+       garantir que a próxima precisasse de outro. */
+    const comp = await competenciaSo();
+    const enviado = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "CTE",
+      nomeDoArquivo: "03.08.15.xlsx",
+      conteudo: fixtureCtes(),
+    });
+    await pool.query("delete from fechamento_cte where documento_id = $1", [enviado.id]);
+
+    const refeito = await reimportarDocumento(db, enviado.id);
+    expect(refeito.id).toBe(enviado.id);
+    expect(refeito.desfecho).toBe("PROMOVIDO");
+    expect(refeito.linhasLidas).toBe(enviado.linhasLidas);
+    const { rows } = await pool.query<{ quantas: string }>(
+      "select count(*) as quantas from fechamento_cte where documento_id = $1",
+      [enviado.id],
+    );
+    expect(Number(rows[0]!.quantas)).toBe(enviado.linhasLidas);
+  });
+
+  it("a reimportação recusa a competência encerrada, com a saída junto", async () => {
+    const comp = await competenciaDaPrimeira();
+    const enviado = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_1Q_JUL.txt",
+      conteudo: fixturePagamento1aQuinzenaReal(),
+    });
+    await pool.query("update fechamento_competencia set estado = 'ENCERRADA' where id = $1", [
+      comp.id,
+    ]);
+
+    await expect(reimportarDocumento(db, enviado.id)).rejects.toMatchObject({
+      codigo: "COMPETENCIA_ENCERRADA",
+    });
+  });
+
+  it("sem os bytes guardados, a reimportação diz o que fazer em vez de falhar", async () => {
+    /* O documento anterior à `0047`: existe, e o original não. Dizer "não
+       encontrado" mandaria procurar o documento que está ali na tela; o que
+       falta é o arquivo, e o caminho é o reenvio — que este documento agora
+       aceita, justamente por não sustentar nada. */
+    const comp = await competenciaDaPrimeira();
+    const enviado = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_1Q_JUL.txt",
+      conteudo: fixturePagamento1aQuinzenaReal(),
+    });
+    await db
+      .delete(fechamentoPagamentoItemTable)
+      .where(eq(fechamentoPagamentoItemTable.documentoId, enviado.id));
+    await pool.query("delete from fechamento_documento_conteudo where documento_id = $1", [
+      enviado.id,
+    ]);
+
+    await expect(reimportarDocumento(db, enviado.id)).rejects.toMatchObject({
+      codigo: "CONTEUDO_NAO_GUARDADO",
+    });
+    /* E a saída que a mensagem promete funciona de verdade. */
+    const denovo = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_1Q_JUL.txt",
+      conteudo: fixturePagamento1aQuinzenaReal(),
+    });
+    expect(denovo.id).toBe(enviado.id);
+    expect(
+      (await listarDocumentos(db, comp.id)).find((d) => d.tipo === "PAGAMENTO"),
+    ).toMatchObject({ verbas: 10 });
   });
 
   it("o arquivo volta do banco byte a byte, e é reprocessável sem o .txt", async () => {
