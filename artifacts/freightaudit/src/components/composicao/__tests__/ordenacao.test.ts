@@ -138,8 +138,8 @@ describe("ordenarLinhas", () => {
 
   it("a variação ordena pelo valor com sinal, e não pelo módulo", () => {
     /*
-      Esta é uma tela de custo: mil reais a mais e mil reais a menos são
-      notícias opostas, e a célula pinta uma de vermelho e a outra de verde.
+      Mil reais a mais e mil reais a menos de remuneração são notícias
+      opostas, e a célula pinta o aumento de verde e a queda de vermelho.
       Ordenar pelo módulo encostaria as duas no topo da mesma lista.
     */
     const variadas = [

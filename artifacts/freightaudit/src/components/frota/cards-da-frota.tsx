@@ -10,7 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Bolinha, VariacaoMensal } from "@/components/composicao/farol";
+import { Bolinha, tomDaVariacao, VariacaoMensal } from "@/components/composicao/farol";
 import {
   ROTULO_DA_NAO_APURACAO,
   ROTULO_DO_FAROL,
@@ -760,9 +760,10 @@ function MaiorAlteracao({
           <span
             className={cn(
               "font-medium",
-              // Vermelho para alta e verde para baixa, como na Composição: esta
-              // é uma tela de custo, e um aumento é saída de caixa maior.
-              alteracao.impactAmount > 0 ? "text-brand-red" : "text-emerald-600",
+              // A mesma regra da Composição, e a mesma função: verde para
+              // alta e vermelho para baixa, porque o que se move aqui é a
+              // receita do equipamento e não o custo dele.
+              tomDaVariacao(alteracao.impactAmount),
             )}
           >
             {alteracao.impactAmount > 0 ? "+" : "−"}
