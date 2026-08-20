@@ -42,5 +42,6 @@ export * from "./informado";
 export * from "./montagem";
 export * from "./situacao";
 export * from "./comparacao";
+export * from "./vigencia";
 export * from "./planilha";
 export * from "./leitura";
