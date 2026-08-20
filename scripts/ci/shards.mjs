@@ -100,6 +100,14 @@ export const SHARDS = {
     // que esta lista existe para impedir. Quando a bateria dele nascer, nasce
     // junto de comparison e curation, de quem ele lê.
     "@workspace/qlp",
+    // `compras` fica aqui por localidade de template, que é o primeiro critério
+    // desta divisão: `frota-real.test.ts` clona `export_real_promovido`, o mesmo
+    // template de `composition` e `dre`. Num outro shard ele o reconstruiria do
+    // zero — os 26 s que o comentário do topo já contabiliza — para rodar 14
+    // testes. As outras duas baterias do pacote não pesam: o catálogo é função
+    // pura, e o QLP monta um banco sintético descartável, sem template e sem
+    // seed.
+    "@workspace/compras",
   ],
   balance: ["@workspace/balance", "@workspace/api-server"],
   assistente: ["@workspace/assistant"],
