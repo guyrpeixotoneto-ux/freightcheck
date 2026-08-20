@@ -1,6 +1,11 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
-import { channelSql, listContexts, type ContextInfo } from "./series";
+import {
+  channelSql,
+  datasetFamilyFilter,
+  listContexts,
+  type ContextInfo,
+} from "./series";
 
 /**
  * A leitura da Visão Gerencial da Auditoria — **uma linha por vigência viva,
@@ -136,11 +141,22 @@ function impactoEmNumeros(bruto: Record<string, unknown> | null): Record<string,
  * A ordem é determinística até o último critério de desempate — data, unidade,
  * canal, cobertura. Deixá-la por conta do Postgres é como o Painel antigo passou
  * a exibir a série de menor impacto e a omitir a maior, sem dizer que omitia.
+ *
+ * **De uma família por vez.** Esta é a leitura que percorre todos os contextos
+ * de uma vez, e por isso é a que não passa pelo `contextFilter` — que é onde a
+ * família do dataset entrou. Sem a cláusula aqui, as quinzenas do quadro de
+ * pessoal entravam no cartão da unidade de equipamento: a mesma unidade, o
+ * mesmo canal, portanto a mesma chave de contexto, e o cartão passava a contar
+ * uma série de cargos entre as vigências de placas. A conta que a tela publica
+ * ("8 de 15 vigências comparadas") somava dois assuntos, e as sete do quadro
+ * apareciam como trabalho de auditoria atrasado que ninguém tinha para fazer.
  */
 export async function listarVigenciasDaAuditoria(
   db: Database,
+  /** Qual família ler (`snapshot.dataset_family`). Padrão: equipamento. */
+  opts?: { datasetFamily?: string },
 ): Promise<VigenciaDaAuditoria[]> {
-  const contextos = await listContexts(db);
+  const contextos = await listContexts(db, opts);
   if (contextos.length === 0) return [];
 
   const { rows } = await db.execute<LinhaDaConsulta>(sql`
@@ -155,6 +171,7 @@ export async function listarVigenciasDaAuditoria(
              s.entity_count
         FROM snapshot s
        WHERE s.status <> 'SUPERSEDED'
+         AND ${datasetFamilyFilter("s", opts?.datasetFamily)}
     ),
     /*
       A anterior da série, pela mesma definição de findPreviousSnapshot: mesma
