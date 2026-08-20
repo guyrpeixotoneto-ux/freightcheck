@@ -147,8 +147,13 @@ router.get("/snapshots", async (req, res): Promise<void> => {
   res.json(await listComparableSnapshots(db, { datasetFamily }));
 });
 
+/** As comparações gravadas — mesma regra de família de `/snapshots`. */
 router.get("/change-sets", async (req, res): Promise<void> => {
-  res.json(await listChangeSets(db));
+  const datasetFamily =
+    typeof req.query.datasetFamily === "string" && req.query.datasetFamily !== ""
+      ? req.query.datasetFamily
+      : undefined;
+  res.json(await listChangeSets(db, { datasetFamily }));
 });
 
 /**

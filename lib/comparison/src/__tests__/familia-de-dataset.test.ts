@@ -8,7 +8,7 @@ import { seedTaxonomy } from "@workspace/curation";
 import { computeMissingChangeSets, listPeriods } from "../consolidated";
 import { getGroupedView } from "../grouped";
 import { listarVigenciasDaAuditoria } from "../gerencial";
-import { listComparableSnapshots } from "../query";
+import { listChangeSets, listComparableSnapshots } from "../query";
 import { listContexts, resolveContext } from "../series";
 import { buildFixture, type AttributeSpec } from "./fixtures";
 
@@ -154,6 +154,13 @@ beforeAll(async () => {
     },
   );
 
+  /*
+    Duas quinzenas, e a segunda **depois** da última de equipamento.
+
+    É a forma exata do caso real: o quadro entrega uma data que o equipamento
+    ainda não entregou. Com duas, ele também forma um par comparável — e é esse
+    par que o contador do menu pegava por ser o mais recente do banco.
+  */
   await buildFixture(
     ctx.db,
     QUADRO,
@@ -162,6 +169,11 @@ beforeAll(async () => {
         label: "EMPURRADA_1_8_2026",
         effectiveDate: "2026-08-01",
         data: { ANALISTA: { "qlp_administrativo.despesa_beneficio": 700 } },
+      },
+      {
+        label: "EMPURRADA_1_9_2026",
+        effectiveDate: "2026-09-01",
+        data: { ANALISTA: { "qlp_administrativo.despesa_beneficio": 800 } },
       },
     ],
     {
@@ -299,6 +311,7 @@ describe("a Visão Gerencial da auditoria de equipamento", () => {
     expect(linhas.map((l) => l.entityTypeSet)).toEqual([
       "QLP_ADMINISTRATIVO",
       "QLP_ADMINISTRATIVO",
+      "QLP_ADMINISTRATIVO",
     ]);
     expect(linhas.map((l) => l.contexto.scopeHash)).toEqual(
       expect.arrayContaining([UNIDADE_QUADRO, UNIDADE_COMPARTILHADA]),
@@ -327,6 +340,35 @@ describe("o seletor de vigências para comparar", () => {
     expect(vivas.map((s) => s.entityTypeSet)).toEqual([
       "QLP_ADMINISTRATIVO",
       "QLP_ADMINISTRATIVO",
+      "QLP_ADMINISTRATIVO",
     ]);
+  });
+});
+
+describe("o contador de alterações do menu", () => {
+  /*
+    Ele lê a listagem de comparações, pega a data mais recente e soma o que
+    termina nela — ver `components/layout/contadores.ts`. Sem a cláusula, a
+    comparação do quadro, que termina em setembro, virava "a vigência aberta", e
+    o menu escrevia as alterações de cargos ao lado de um Resumo executivo que
+    falava de placas: dois números, duas realidades, a mesma tela.
+  */
+  const dataDe = (linha: Record<string, unknown>) =>
+    String(linha.snapshot_b_date ?? "").slice(0, 10);
+
+  it("a vigência mais recente da lista é a do equipamento, e não a do quadro", async () => {
+    const comparacoes = await listChangeSets(ctx.db);
+    const datas = comparacoes.map(dataDe);
+
+    expect(datas).not.toContain("2026-09-01");
+    expect(datas[0]).toBe("2026-08-01");
+  });
+
+  it("quem lê o quadro continua enxergando as comparações dele", async () => {
+    const comparacoes = await listChangeSets(ctx.db, {
+      datasetFamily: DATASET_FAMILY_QUADRO_DE_PESSOAL,
+    });
+
+    expect(comparacoes.map(dataDe)).toEqual(["2026-09-01"]);
   });
 });
