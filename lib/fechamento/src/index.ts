@@ -31,7 +31,14 @@ export * from "./apuracao";
 export * from "./diario";
 export * from "./resumo";
 export * from "./de-para";
+export * from "./mapa-rota";
 export { lerOperacao, type DetalheDaViagem, type Viagem } from "./leitores/operacao";
+export {
+  lerCadastro,
+  CadastroNaoEncontrado,
+  RotuloDoCadastroNaoEncontrado,
+  type CadastroDaQuinzena,
+} from "./leitores/cadastro";
 export { lerCtes, type LinhaDeCte } from "./leitores/cte";
 export {
   lerPagamento,

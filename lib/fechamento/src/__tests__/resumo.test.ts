@@ -212,3 +212,36 @@ describe("o painel da planilha no resumo do mês", () => {
     expect(resumo.canais.find((c) => c.canal === "AS")?.painel ?? null).toBeNull();
   });
 });
+
+/**
+ * As duas razões para um painel vazio.
+ *
+ * O sintoma é o mesmo — a aba `Planilha` sem números — e o que cada uma pede de
+ * quem está olhando é oposto. Antes desta distinção a tela dizia "ainda não foi
+ * transcrito" nas duas, inclusive para a Rota, que está transcrita: quem só
+ * precisava subir o 03.08.20 era mandado procurar no código.
+ */
+describe("por que um canal fica sem painel", () => {
+  it("a Rota sem o 03.08.20 é arquivo que falta, não transcrição", () => {
+    const canal = montar([quinzena(1), quinzena(2)]).canais.find((c) => c.canal === "ROTA");
+    expect(canal?.painel).toBeNull();
+    expect(canal?.semPainel).toBe("SEM_DEMONSTRATIVO");
+  });
+
+  it("um canal fora do catálogo é transcrição que falta", () => {
+    const doAs = quinzena(1, {
+      verbas: [
+        { vbz: 1, canal: "AS", nome: "Frota Fixa Ativa", natureza: "FIXO", emitido: 100, esperado: 100 },
+      ],
+    });
+    const canal = montar([doAs]).canais.find((c) => c.canal === "AS");
+    expect(canal?.painel).toBeNull();
+    expect(canal?.semPainel).toBe("CANAL_SEM_CATALOGO");
+  });
+
+  it("com o painel montado, não há razão nenhuma a dar", () => {
+    const canal = montar([comPainel(1), comPainel(2)]).canais.find((c) => c.canal === "ROTA");
+    expect(canal?.painel).not.toBeNull();
+    expect(canal?.semPainel).toBeNull();
+  });
+});

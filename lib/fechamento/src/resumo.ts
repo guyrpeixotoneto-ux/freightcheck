@@ -1,5 +1,12 @@
 import { centavos, type Canal } from "./dominio";
-import type { Ausencia, DeParaConferido, Papel, Quadro, QuadroConferido } from "./de-para";
+import {
+  CANAIS_COM_PAINEL,
+  type Ausencia,
+  type DeParaConferido,
+  type Papel,
+  type Quadro,
+  type QuadroConferido,
+} from "./de-para";
 import type { NaturezaDaVerba } from "./verbas";
 
 /**
@@ -181,11 +188,22 @@ export interface CanalDoResumo {
   diferenca: TresColunas;
   /**
    * O mesmo mês nas linhas da planilha. `null` quando não há painel deste canal.
-   *
-   * Hoje só a Rota tem: os rótulos do painel do AS não foram transcritos, e
-   * escrevê-los por analogia com os da Rota inventaria a metade que falta.
    */
   painel: PainelDaPlanilha | null;
+  /**
+   * Por que não há painel — e é por isso que existe, em vez de a tela deduzir.
+   *
+   * As duas ausências têm o mesmo sintoma e exigem coisas opostas de quem olha.
+   * `CANAL_SEM_CATALOGO` é trabalho nosso: os rótulos do painel do AS não foram
+   * transcritos, e escrevê-los por analogia com os da Rota inventaria a metade
+   * que falta. `SEM_DEMONSTRATIVO` é trabalho de quem importa: o catálogo do
+   * canal existe e o 03.08.20 da quinzena não chegou.
+   *
+   * Sem esta distinção a tela dizia "ainda não foi transcrito" nos dois casos —
+   * inclusive para a **própria Rota**, que está transcrita —, e mandava procurar
+   * no lugar errado quem só precisava subir um arquivo.
+   */
+  semPainel: "CANAL_SEM_CATALOGO" | "SEM_DEMONSTRATIVO" | null;
 }
 
 /** O que uma quinzena traz para o resumo — o que o banco guardou dela. */
@@ -529,6 +547,7 @@ export function montarResumo(entrada: {
 
     const doPainel = (q: QuinzenaApurada | null) =>
       q?.paineis?.find((p) => p.canal === canal) ?? null;
+    const painel = montarPainel(canal, doPainel(primeira), doPainel(segunda));
 
     montados.push({
       canal,
@@ -539,7 +558,12 @@ export function montarResumo(entrada: {
       semFonte: semFonteDoCanal,
       demonstrativo,
       diferenca: subtrair(emitidoDoCanal, demonstrativo),
-      painel: montarPainel(canal, doPainel(primeira), doPainel(segunda)),
+      painel,
+      semPainel: painel
+        ? null
+        : CANAIS_COM_PAINEL.includes(canal)
+          ? "SEM_DEMONSTRATIVO"
+          : "CANAL_SEM_CATALOGO",
     });
   }
 

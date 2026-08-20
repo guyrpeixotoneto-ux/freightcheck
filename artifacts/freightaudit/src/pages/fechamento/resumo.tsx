@@ -376,6 +376,19 @@ function PainelDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
       <CardContent className="overflow-x-auto">
         {canal.painel ? (
           <PainelDaPlanilhaTabela painel={canal.painel} colunas={colunasDoRecorte(recorte)} />
+        ) : canal.semPainel === "SEM_DEMONSTRATIVO" ? (
+          /*
+            O painel deste canal está transcrito e mesmo assim não tem número:
+            o que falta é o arquivo. Dizer "não foi transcrito" aqui mandava
+            procurar no código quem só precisava importar um relatório.
+          */
+          <p className="text-sm text-muted-foreground">
+            O painel do {canal.canal} está escrito aqui, e as linhas dele saem do{" "}
+            <strong>03.08.20</strong> — que não foi importado em nenhuma das duas
+            quinzenas. Suba o demonstrativo em Importações e as linhas se enchem
+            sozinhas. Enquanto ele não chega, as verbas do {canal.canal} continuam
+            apuradas e conferidas na aba Verbas.
+          </p>
         ) : (
           <p className="text-sm text-muted-foreground">
             O painel do {canal.canal} existe na planilha e ainda não foi transcrito

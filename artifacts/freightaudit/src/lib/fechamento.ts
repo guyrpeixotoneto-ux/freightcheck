@@ -510,8 +510,18 @@ export interface CanalDoResumo {
   demonstrativo: TresColunas;
   /** `emitido − demonstrativo`. */
   diferenca: TresColunas;
-  /** O mesmo mês nas linhas da planilha. `null` no canal sem painel transcrito. */
+  /** O mesmo mês nas linhas da planilha. `null` quando não há painel. */
   painel: PainelDaPlanilha | null;
+  /**
+   * Por que não há painel, quando não há.
+   *
+   * `SEM_DEMONSTRATIVO`: o painel do canal está escrito e o 03.08.20 não foi
+   * importado — falta arquivo. `CANAL_SEM_CATALOGO`: os rótulos do painel deste
+   * canal ainda não foram transcritos — falta trabalho nosso. As duas ausências
+   * têm o mesmo sintoma e mandam quem olha para lados opostos, e é por isso que
+   * o servidor as separa em vez de a tela adivinhar.
+   */
+  semPainel: "CANAL_SEM_CATALOGO" | "SEM_DEMONSTRATIVO" | null;
 }
 
 export interface ResumoDoMes {

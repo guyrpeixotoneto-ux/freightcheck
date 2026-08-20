@@ -1,0 +1,299 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  fatorDeImposto,
+  linhasDeDesconto,
+  linhasDoCustoFixo,
+  montarMapaDaQuinzena,
+  somarVariavel,
+  type BasesDaQuinzena,
+  type ParametrosDoCadastro,
+  type ViagemDoMapa,
+} from "../mapa-rota";
+
+/**
+ * O fechamento real de julho/2026 — CDD Belém · Horizonte.
+ *
+ * Os parâmetros são os da aba `Cadastro` da `.xlsb` que a transportadora usa
+ * hoje (coluna C para a 1ª quinzena, F para a 2ª), e os números esperados são
+ * os que o `RESUMO GERAL` dela imprime. Não é um exemplo montado: é o mês que
+ * está em discussão, e é por isso que ele vale como prova — se a conta deste
+ * módulo divergir da planilha, o teste diz em que linha e em quanto.
+ */
+const JULHO_2026: Record<1 | 2, ParametrosDoCadastro> = {
+  1: {
+    aliquotas: { pis: 0.0065, cofins: 0.086, icms: 0.1784, iss: 0.059 },
+    parcelaDentroDoMunicipio: 0.0316,
+    frotaFixaAtiva: 56,
+    frotaFixaInativa: 8,
+    remuneracaoFixaDaFrotaAtiva: 1424.91,
+    remuneracaoDaEquipeDeEntrega: 8919.38,
+    remuneracaoDoQlpAdministrativo: 4427.53,
+    remuneracaoDeOutrasDespesas: 4361.07,
+    remuneracaoDaFrotaInativa: 1650.97,
+    vansAtivas: 7,
+    custoFixoDaVan: 4693.85,
+    custoDaEquipeDeEntregaDaVan: 4250.45,
+    vansInativas: 6,
+    remuneracaoDasVansInativas: 3195.18,
+    rotasNoturnas: 1,
+    custoDaNoturnaSemImposto: 8697.88,
+    custoDeMarketingSemImposto: 0,
+  },
+  2: {
+    aliquotas: { pis: 0.0065, cofins: 0.086, icms: 0.1784, iss: 0.059 },
+    parcelaDentroDoMunicipio: 0.0238,
+    frotaFixaAtiva: 56,
+    frotaFixaInativa: 8,
+    remuneracaoFixaDaFrotaAtiva: 1038.03,
+    remuneracaoDaEquipeDeEntrega: 8919.38,
+    remuneracaoDoQlpAdministrativo: 4425.56,
+    remuneracaoDeOutrasDespesas: 4935.23,
+    remuneracaoDaFrotaInativa: 4359.09,
+    vansAtivas: 7,
+    custoFixoDaVan: 4693.85,
+    custoDaEquipeDeEntregaDaVan: 4250.45,
+    vansInativas: 6,
+    remuneracaoDasVansInativas: 3195.18,
+    rotasNoturnas: 1,
+    custoDaNoturnaSemImposto: 8697.88,
+    custoDeMarketingSemImposto: 0,
+  },
+};
+
+/** As bases sem imposto que a planilha acumula no último dia de cada quinzena. */
+const BASES: Record<1 | 2, BasesDaQuinzena> = {
+  1: {
+    devolucao: 13328.3,
+    disponibilidade: 11649.87,
+    complementarNegativo: 0,
+    outrosCustos: 0,
+    indisponibilidade: 0,
+  },
+  2: {
+    devolucao: 15763.61,
+    disponibilidade: 91642.5,
+    complementarNegativo: 14050.54,
+    outrosCustos: 358530.22,
+    indisponibilidade: 0,
+  },
+};
+
+const valorDe = (linhas: { chave: string; valor: number | null }[], chave: string) =>
+  linhas.find((l) => l.chave === chave)?.valor ?? null;
+
+describe("o fator de imposto", () => {
+  /**
+   * O produto registrava 1,366960 como "um fator de conversão digitado que não
+   * sai de arquivo nenhum". Sai: é a média dos dois grossups pesada pela fatia
+   * de emissão, e é reprodutível das quatro alíquotas do cadastro.
+   */
+  it("é o 1,366960 que a planilha aplicava sem dizer de onde vinha", () => {
+    const p = JULHO_2026[2];
+    expect(fatorDeImposto(p.aliquotas, p.parcelaDentroDoMunicipio)).toBeCloseTo(1.36696, 6);
+  });
+
+  it("muda com a fatia de emissão, e por isso difere entre as quinzenas", () => {
+    const p = JULHO_2026[1];
+    expect(fatorDeImposto(p.aliquotas, p.parcelaDentroDoMunicipio)).toBeCloseTo(1.365455, 6);
+  });
+});
+
+describe("o custo fixo de julho/2026, contra o RESUMO GERAL", () => {
+  const esperado: Record<1 | 2, Record<string, number>> = {
+    1: {
+      custo_fixo_padronizado: 731502.84,
+      custo_fixo_inativos: 9017.3,
+      custo_vans_inativas: 13088.62,
+      custo_fixo_especiais: 5938.28,
+      custo_fixo_vans: 42745.64,
+    },
+    2: {
+      /*
+        A planilha imprime 739.274,00 aqui, e a diferença de R$ 128,05 é dela:
+        a fórmula da 2ª quinzena lê a fatia de fora do município de `Mapa
+        Rota!AJ119` — o split calculado do diário — enquanto a da 1ª lê
+        `Cadastro!C50`, o digitado. Este módulo usa o cadastro nas duas, que é a
+        única das duas leituras que o contrato sustenta.
+      */
+      custo_fixo_padronizado: 739402.05,
+      custo_fixo_inativos: 23834.82,
+      custo_vans_inativas: 13103.05,
+      custo_fixo_especiais: 5944.83,
+      custo_fixo_vans: 42792.77,
+    },
+  };
+
+  for (const q of [1, 2] as const) {
+    describe(`${q}ª quinzena`, () => {
+      const linhas = linhasDoCustoFixo(JULHO_2026[q]);
+      for (const [chave, valor] of Object.entries(esperado[q])) {
+        it(`${chave} fecha em ${valor.toFixed(2)}`, () => {
+          expect(valorDe(linhas, chave)).toBe(valor);
+        });
+      }
+    });
+  }
+
+  it("mostra a conta de cada linha, e não só o resultado", () => {
+    const padronizado = linhasDoCustoFixo(JULHO_2026[1]).find(
+      (l) => l.chave === "custo_fixo_padronizado",
+    );
+    expect(padronizado?.memoria).toContain("56 veículos ativos");
+    expect(padronizado?.memoria).toContain("1.365455");
+  });
+});
+
+describe("os descontos", () => {
+  for (const q of [1, 2] as const) {
+    it(`${q}ª quinzena: devolução e disponibilidade sobem ao bruto, o complementar não`, () => {
+      const linhas = linhasDeDesconto(JULHO_2026[q], BASES[q]);
+      const esperado =
+        q === 1
+          ? { devolucao: -18199.19, disponibilidade: -15907.37, complementar: -0 }
+          : { devolucao: -21548.23, disponibilidade: -125271.68, complementar: -14050.54 };
+      expect(valorDe(linhas, "desconto_devolucao_percentual")).toBe(esperado.devolucao);
+      expect(valorDe(linhas, "desconto_disponibilidade")).toBe(esperado.disponibilidade);
+      expect(valorDe(linhas, "desconto_complementar_negativo")).toBe(esperado.complementar);
+    });
+  }
+
+  it("uma base ausente deixa a linha vazia e nomeia o que falta", () => {
+    const linhas = linhasDeDesconto(JULHO_2026[1], { ...BASES[1], disponibilidade: null });
+    const linha = linhas.find((l) => l.chave === "desconto_disponibilidade");
+    expect(linha?.valor).toBeNull();
+    expect(linha?.falta).toBe("o 03.08.18 da quinzena");
+  });
+});
+
+describe("o lado variável, somado do diário", () => {
+  const viagem = (p: Partial<ViagemDoMapa>): ViagemDoMapa => ({
+    frota: "Padrao",
+    cargaAtual: "Roteriz",
+    tipoDeImposto: "CTRC-ICMS",
+    valorFaturado: 0,
+    ...p,
+  });
+
+  it("separa frota fixa, agregado, recarga/noturna e vans pelos rótulos do 2Art", () => {
+    const resultado = somarVariavel(
+      [
+        {
+          viagens: [
+            viagem({ valorFaturado: 285.16 }),
+            viagem({ frota: "Spot", valorFaturado: 848.36 }),
+            viagem({ cargaAtual: "Recarga", valorFaturado: 163.95 }),
+            viagem({ frota: "Fixo", valorFaturado: 123.71 }),
+          ],
+        },
+      ],
+      JULHO_2026[1],
+      5176.53,
+    );
+    expect(resultado.agregado).toBe(848.36);
+    expect(resultado.recargaENoturna).toBe(163.95);
+    expect(resultado.vans).toBe(123.71);
+    /* Um mapa fechado, todo fora do município: 5176,53 ÷ 25 ÷ 0,7291. */
+    expect(resultado.frotaFixa).toBe(284.0);
+  });
+
+  it("não conta recarga nem noturna como mapa de frota fixa", () => {
+    const so = somarVariavel(
+      [{ viagens: [viagem({ cargaAtual: "Noturna", valorFaturado: 291.84 })] }],
+      JULHO_2026[1],
+      5176.53,
+    );
+    expect(so.frotaFixa).toBe(0);
+    expect(so.recargaENoturna).toBe(291.84);
+  });
+
+  /**
+   * A planilha calcula esta linha dia a dia, com o split de emissão de cada
+   * dia. Vale registrar que, **enquanto toda viagem de frota fixa tiver tipo de
+   * imposto**, a conta é linear e o agrupamento por dia não muda o resultado:
+   * o que pesa é quantos documentos saíram de cada lado na quinzena inteira.
+   * O dia só passa a importar quando um mapa fecha sem tipo de imposto — aí
+   * ele conta como mapa e não conta no split, e a diferença aparece.
+   */
+  it("com todo mapa tipado, o dia não muda a conta — é a quinzena que pesa", () => {
+    const dia = (iss: number, icms: number) => ({
+      viagens: [
+        ...Array.from({ length: iss }, () => viagem({ tipoDeImposto: "NF-ISS" })),
+        ...Array.from({ length: icms }, () => viagem({ tipoDeImposto: "CTRC-ICMS" })),
+      ],
+    });
+    const separados = somarVariavel([dia(10, 0), dia(0, 10)], JULHO_2026[1], 5176.53);
+    const juntos = somarVariavel([dia(10, 10)], JULHO_2026[1], 5176.53);
+    expect(separados.frotaFixa).toBe(juntos.frotaFixa);
+  });
+
+  it("um mapa sem tipo de imposto conta como mapa e não entra no split", () => {
+    const comTipo = somarVariavel(
+      [{ viagens: [viagem({ tipoDeImposto: "CTRC-ICMS" })] }],
+      JULHO_2026[1],
+      5176.53,
+    );
+    const maisUmSemTipo = somarVariavel(
+      [{ viagens: [viagem({ tipoDeImposto: "CTRC-ICMS" }), viagem({ tipoDeImposto: "" })] }],
+      JULHO_2026[1],
+      5176.53,
+    );
+    /* Dois mapas, um só documento: o valor dobra sobre o split do que existe.
+       567,99 e não 568,00 porque o dobro é tirado antes do arredondamento. */
+    expect(comTipo.frotaFixa).toBe(284.0);
+    expect(maisUmSemTipo.frotaFixa).toBe(567.99);
+  });
+});
+
+describe("o mapa da quinzena inteiro", () => {
+  const mapa = (q: 1 | 2, bases = BASES[q]) =>
+    montarMapaDaQuinzena({
+      quinzena: q,
+      parametros: JULHO_2026[q],
+      variavel: {
+        frotaFixa: q === 1 ? 167734.27 : 187808.5,
+        agregado: q === 1 ? 126092.33 : 126288.09,
+        recargaENoturna: q === 1 ? 11574.83 : 3957.82,
+        vans: q === 1 ? 7917.44 : 9449.19,
+      },
+      bases,
+    });
+
+  it("abre o quadro com o custo variável inteiro, que é o que DVS traz", () => {
+    const dvs = mapa(1).quadros[0]!.linhas.find((l) => l.chave === "rota_dvs");
+    expect(dvs?.valor).toBe(313318.87);
+  });
+
+  /**
+   * O centavo de diferença é de arredondamento, e é do teste, não do módulo:
+   * as parcelas variáveis entram aqui já arredondadas (é o que a planilha
+   * **imprime**), enquanto ela soma internamente em ponto flutuante e só
+   * arredonda no fim. O módulo arredonda cada linha a centavo — que é o certo
+   * para dinheiro que alguém vai pagar — e por isso fecha um centavo acima.
+   */
+  it("fecha a 1ª quinzena no total da planilha, a menos do centavo de arredondamento", () => {
+    expect(mapa(1).quadros[0]!.total).toBe(1081504.99);
+    expect(mapa(1).quadros[0]!.total! - 1081504.98).toBeCloseTo(0.01, 2);
+  });
+
+  it("fecha o quadro variável nos dois recortes", () => {
+    expect(mapa(1).quadros[1]!.total).toBe(259720.04);
+    expect(mapa(2).quadros[1]!.total).toBe(167276.68);
+  });
+
+  /**
+   * A planilha imprime 1.350.112,83. A diferença é exatamente o desvio do
+   * `AJ133` documentado acima: ela calcula o custo fixo padronizado da 2ª
+   * quinzena com a fatia de emissão do diário, e não com a do cadastro.
+   */
+  it("soma outros custos ao total geral da unidade", () => {
+    expect(mapa(2).totalGeral).toBe(1350240.89);
+    expect(mapa(2).totalGeral! - 1350112.83).toBeCloseTo(128.06, 2);
+  });
+
+  it("um documento que falta apaga o total em vez de somar zero", () => {
+    const semDisponibilidade = mapa(2, { ...BASES[2], disponibilidade: null });
+    expect(semDisponibilidade.quadros[0]!.total).toBeNull();
+    expect(semDisponibilidade.pendencias).toContain("o 03.08.18 da quinzena");
+  });
+});
