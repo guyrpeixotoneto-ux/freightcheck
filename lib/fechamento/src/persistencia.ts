@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, notInArray, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
   fechamentoApuracaoTable,
@@ -85,7 +85,9 @@ export class RecusaDeFechamento extends Error {
       | "COMPETENCIA_NAO_ESTA_ENCERRADA"
       | "MOTIVO_OBRIGATORIO"
       | "DOCUMENTO_JA_RECEBIDO"
+      | "DOCUMENTO_NAO_ENCONTRADO"
       | "DOCUMENTO_FORA_DO_PERIODO"
+      | "CONTEUDO_NAO_GUARDADO"
       | "ARQUIVO_ILEGIVEL"
       | "PARTE_SEM_CODIGO",
     mensagem: string,
@@ -309,8 +311,15 @@ export interface DocumentoRecebido {
  *
  * **Reenviar substitui.** Uma exportação corrigida do mesmo tipo despromove a
  * anterior (`vigente = false`) e apaga as linhas dela; as duas ficam no
- * histórico de documentos. O mesmo arquivo, byte a byte, é recusado — é
- * reenvio acidental, e deixá-lo entrar dobraria a conta.
+ * histórico de documentos. O mesmo arquivo, byte a byte, é recusado enquanto o
+ * documento que já está lá sustentar alguma linha — é reenvio acidental, e
+ * deixá-lo entrar dobraria a conta.
+ *
+ * **E é aceito quando ele não sustenta nenhuma**, porque aí não há conta a
+ * dobrar: o reenvio refaz aquele mesmo documento, no lugar, em vez de criar um
+ * segundo. A recusa cega barrava o único conserto de um 03.08.20 que ficara no
+ * banco sem verba — a tela mandava substituir, o índice `(competência,
+ * sha256)` negava o arquivo certo, e sobrava descartar a quinzena inteira.
  */
 export async function receberDocumento(
   db: Database,
@@ -339,7 +348,11 @@ export async function receberDocumento(
 
   const sha256 = createHash("sha256").update(entrada.conteudo).digest("hex");
   const jaRecebido = await db
-    .select({ id: fechamentoDocumentoTable.id, nome: fechamentoDocumentoTable.nomeDoArquivo })
+    .select({
+      id: fechamentoDocumentoTable.id,
+      nome: fechamentoDocumentoTable.nomeDoArquivo,
+      tipo: fechamentoDocumentoTable.tipo,
+    })
     .from(fechamentoDocumentoTable)
     .where(
       and(
@@ -349,6 +362,46 @@ export async function receberDocumento(
     )
     .limit(1);
   if (jaRecebido[0]) {
+    /*
+      **Reenviar o mesmo arquivo é dobrar a conta, ou é consertá-la.** Depende
+      de uma coisa só: se o que está guardado sustenta alguma linha. Sustentando,
+      recebê-lo de novo somaria as mesmas linhas duas vezes, e a recusa continua
+      sendo a resposta certa.
+
+      Não sustentando, não há conta a dobrar — e a recusa passa a barrar
+      justamente o conserto. É o beco em que caiu um 03.08.20 real: o documento
+      ficou no banco sem verba nenhuma, a tela mandou substituir, e o índice
+      único `(competência, sha256)` recusava o único arquivo que resolveria.
+      Sobrava descartar a competência inteira e reimportar as seis fontes por
+      causa de uma. Aqui o reenvio vira o que ele já era na intenção de quem o
+      fez: reimportar aquele documento, no lugar, a partir dos bytes que a
+      importação guardou.
+    */
+    const mesmaFonte = (jaRecebido[0].tipo as TipoDeFonte) === entrada.tipo;
+    const podeConsertar =
+      /* Os mesmos bytes guardados como **outra** fonte não são um documento a
+         consertar: trocar o que um relatório é não é conserto, é envio novo. */
+      mesmaFonte && (await oQueODocumentoSustenta(db, jaRecebido[0].id, entrada.tipo)) === 0;
+    if (podeConsertar) {
+      /*
+        Os bytes vieram junto, e são usados **estes** — não os guardados. É a
+        diferença que faz o conserto alcançar o documento anterior à `0047`, que
+        não tem bytes guardados nenhum: para ele, o reenvio é a única forma de o
+        original voltar a existir.
+      */
+      return refazerDocumento(
+        db,
+        {
+          id: jaRecebido[0].id,
+          competenciaId: entrada.competenciaId,
+          tipo: entrada.tipo,
+          nomeDoArquivo: entrada.nomeDoArquivo,
+        },
+        competencia,
+        entrada.conteudo,
+      );
+    }
+
     throw new RecusaDeFechamento(
       "DOCUMENTO_JA_RECEBIDO",
       `Este arquivo já foi recebido nesta competência como "${jaRecebido[0].nome}". ` +
@@ -387,22 +440,7 @@ export async function receberDocumento(
       anterior fica intocado, vigente, com os fatos dele de pé.
     */
     if (anterior[0] && motivoDaQuarentena === null) {
-      /* As linhas saem por cascade; o documento fica, despromovido. */
-      await tx.delete(fechamentoViagemTable).where(eq(fechamentoViagemTable.documentoId, anterior[0].id));
-      await tx.delete(fechamentoCteTable).where(eq(fechamentoCteTable.documentoId, anterior[0].id));
-      await tx.delete(fechamentoRequisicaoTable).where(eq(fechamentoRequisicaoTable.documentoId, anterior[0].id));
-      await tx
-        .delete(fechamentoDisponibilidadeTable)
-        .where(eq(fechamentoDisponibilidadeTable.documentoId, anterior[0].id));
-      await tx
-        .delete(fechamentoConciliacaoItemTable)
-        .where(eq(fechamentoConciliacaoItemTable.documentoId, anterior[0].id));
-      await tx
-        .delete(fechamentoPagamentoItemTable)
-        .where(eq(fechamentoPagamentoItemTable.documentoId, anterior[0].id));
-      await tx
-        .delete(fechamentoPagamentoDescontoTable)
-        .where(eq(fechamentoPagamentoDescontoTable.documentoId, anterior[0].id));
+      await apagarLinhasDoDocumento(tx, anterior[0].id);
       await tx
         .update(fechamentoDocumentoTable)
         .set({ vigente: false })
@@ -453,6 +491,263 @@ export async function receberDocumento(
       motivoDaQuarentena,
       /* Substituir é ato de quem promove; em quarentena não se substitui nada. */
       substituiu: motivoDaQuarentena === null ? (anterior[0]?.id ?? null) : null,
+    };
+  });
+}
+
+/**
+ * Apaga as linhas que um documento produziu, em todas as fontes.
+ *
+ * As sete tabelas estão escritas uma vez, e não uma vez por chamador: a
+ * substituição e a reimportação apagam exatamente a mesma coisa, e duas cópias
+ * divergiriam na tabela que a próxima fonte trouxer — deixando para trás a
+ * linha órfã que reaparece somando numa conta meses depois.
+ *
+ * O documento em si fica. Quem decide o que ele passa a ser — despromovido,
+ * ou reconstruído a partir dos próprios bytes — é quem chamou.
+ */
+async function apagarLinhasDoDocumento(tx: Transacao, documentoId: string): Promise<void> {
+  await tx.delete(fechamentoViagemTable).where(eq(fechamentoViagemTable.documentoId, documentoId));
+  await tx.delete(fechamentoCteTable).where(eq(fechamentoCteTable.documentoId, documentoId));
+  await tx
+    .delete(fechamentoRequisicaoTable)
+    .where(eq(fechamentoRequisicaoTable.documentoId, documentoId));
+  await tx
+    .delete(fechamentoDisponibilidadeTable)
+    .where(eq(fechamentoDisponibilidadeTable.documentoId, documentoId));
+  await tx
+    .delete(fechamentoConciliacaoItemTable)
+    .where(eq(fechamentoConciliacaoItemTable.documentoId, documentoId));
+  await tx
+    .delete(fechamentoPagamentoItemTable)
+    .where(eq(fechamentoPagamentoItemTable.documentoId, documentoId));
+  await tx
+    .delete(fechamentoPagamentoDescontoTable)
+    .where(eq(fechamentoPagamentoDescontoTable.documentoId, documentoId));
+}
+
+/** A tabela em que cada fonte deixa a linha que a define. */
+const LINHA_DA_FONTE = {
+  OPERACAO: fechamentoViagemTable,
+  CTE: fechamentoCteTable,
+  REQUISICOES: fechamentoRequisicaoTable,
+  DISPONIBILIDADE: fechamentoDisponibilidadeTable,
+  CONCILIACAO: fechamentoConciliacaoItemTable,
+  /*
+    O 03.08.20 grava verba **e** desconto, e aqui só a verba conta. É a mesma
+    regra de `motivoParaQuarentena`, e pela mesma razão: descontos sem verba não
+    são meio demonstrativo, são um demonstrativo cujo corpo não entrou. Contar
+    os descontos aqui faria o documento sem verba parecer sustentar alguma
+    coisa, e o reenvio que o conserta voltaria a ser recusado.
+  */
+  PAGAMENTO: fechamentoPagamentoItemTable,
+} as const satisfies Record<TipoDeFonte, unknown>;
+
+/**
+ * Quantas linhas o documento sustenta hoje — a pergunta que decide se reenviá-lo
+ * dobra a conta ou a conserta.
+ *
+ * Zero é o documento que não sustenta nada: o que ficou em quarentena, o que
+ * teve as linhas apagadas por uma substituição, e o 03.08.20 que uma
+ * importação antiga gravou sem as verbas dele. Nos três, o que existe no banco
+ * é um nome de arquivo — e nenhuma linha que uma segunda importação pudesse
+ * somar de novo.
+ */
+async function oQueODocumentoSustenta(
+  db: Database,
+  documentoId: string,
+  tipo: TipoDeFonte,
+): Promise<number> {
+  const tabela = LINHA_DA_FONTE[tipo];
+  const [linha] = await db
+    .select({ quantas: sql<number>`count(*)::int` })
+    .from(tabela)
+    .where(eq(tabela.documentoId, documentoId));
+  return linha?.quantas ?? 0;
+}
+
+/**
+ * Reimporta um documento a partir dos bytes que a importação guardou.
+ *
+ * **Por que isto existe.** As linhas de uma fonte são derivadas: o arquivo é o
+ * fato, e a linha é o que um leitor tirou dele. Quando as duas discordam — o
+ * arquivo com dez verbas dentro e o banco sem nenhuma —, quem está errado é a
+ * derivação, e refazê-la a partir do original é o conserto exato. Até aqui não
+ * havia forma de pedi-lo: a tela mandava substituir o arquivo, o índice
+ * `(competência, sha256)` recusava o reenvio dele, e a única saída era
+ * descartar a competência inteira — seis fontes fora por causa de uma.
+ *
+ * **Nada é reenviado, e é esse o ponto.** Os bytes já estão no banco desde a
+ * `0047`, conferidos por tamanho e por sha256 na volta (ver
+ * {@link lerConteudoDoDocumento}). Reimportar não pede nada a quem opera, e não
+ * pode trocar o arquivo por outro sem que a conferência acuse.
+ *
+ * **Reimportar é um ato de promoção, e passa pelos mesmos portões do envio.**
+ * A competência encerrada recusa; o período declarado é conferido de novo; e o
+ * arquivo que não produz fato nenhum vai para quarentena em vez de valer. Um
+ * caminho que gravasse sem esses portões seria uma segunda porta de entrada
+ * com regras próprias — que é o que faz duas importações da mesma quinzena
+ * discordarem meses depois.
+ */
+export async function reimportarDocumento(
+  db: Database,
+  documentoId: string,
+): Promise<DocumentoRecebido> {
+  const [documento] = await db
+    .select({
+      id: fechamentoDocumentoTable.id,
+      competenciaId: fechamentoDocumentoTable.competenciaId,
+      tipo: fechamentoDocumentoTable.tipo,
+      nomeDoArquivo: fechamentoDocumentoTable.nomeDoArquivo,
+    })
+    .from(fechamentoDocumentoTable)
+    .where(eq(fechamentoDocumentoTable.id, documentoId))
+    .limit(1);
+  if (!documento) {
+    throw new RecusaDeFechamento("DOCUMENTO_NAO_ENCONTRADO", "O documento informado não existe.");
+  }
+
+  const competencia = await buscarCompetencia(db, documento.competenciaId);
+  if (!competencia) {
+    throw new RecusaDeFechamento(
+      "COMPETENCIA_NAO_ENCONTRADA",
+      "A competência do documento não existe.",
+    );
+  }
+  if (competencia.estado === "ENCERRADA") {
+    throw new RecusaDeFechamento(
+      "COMPETENCIA_ENCERRADA",
+      `A competência ${competencia.chave} está encerrada. Reabra-a, com motivo, antes de reimportar.`,
+    );
+  }
+
+  /*
+    Sem os bytes não há o que reimportar, e isto é diferente de "o documento não
+    existe": ele existe, e o que falta é o original. Importações anteriores à
+    `0047` não o guardavam — nelas o conserto continua sendo reenviar o arquivo,
+    que agora é aceito porque o documento não sustenta nada (ver
+    `receberDocumento`).
+  */
+  const guardado = await lerConteudoDoDocumento(db, documentoId);
+  if (!guardado) {
+    throw new RecusaDeFechamento(
+      "CONTEUDO_NAO_GUARDADO",
+      `"${documento.nomeDoArquivo}" foi importado antes de o sistema guardar o arquivo, e não ` +
+        `há bytes de onde reimportá-lo. Reenvie o relatório: como este documento não sustenta ` +
+        `nenhuma linha, o reenvio do mesmo arquivo é aceito.`,
+      { documentoId },
+    );
+  }
+
+  return refazerDocumento(
+    db,
+    { ...documento, tipo: documento.tipo as TipoDeFonte },
+    competencia,
+    guardado.conteudo,
+  );
+}
+
+/**
+ * Refaz um documento que já existe, a partir de um arquivo, no lugar.
+ *
+ * O corpo comum da reimportação e do reenvio que conserta. Os dois chegam aqui
+ * com os mesmos bytes — um os leu do banco, o outro os recebeu de novo com o
+ * mesmo sha256 — e os dois precisam da mesma coisa: apagar o que aquele
+ * documento sustentava, reler, e decidir de novo se ele vale. Escrevê-lo duas
+ * vezes deixaria um dos dois caminhos de fora do portão que o outro atravessa.
+ *
+ * `alvo.nomeDoArquivo` é o nome que o documento passa a ter: o mesmo, quando a
+ * reimportação relê o que está guardado; o do envio, quando alguém reenviou o
+ * arquivo com outro nome — os bytes é que precisam ser os mesmos, e o sha256 já
+ * garantiu que são.
+ */
+async function refazerDocumento(
+  db: Database,
+  alvo: { id: string; competenciaId: string; tipo: TipoDeFonte; nomeDoArquivo: string },
+  competencia: CompetenciaRegistrada,
+  conteudo: Buffer,
+): Promise<DocumentoRecebido> {
+  const { id: documentoId, tipo } = alvo;
+  const lido = interpretar(tipo, conteudo);
+  recusarOperacaoDeOutroPeriodo(competencia, alvo.nomeDoArquivo, lido.dias);
+  recusarPagamentoDeOutroPeriodo(competencia, alvo.nomeDoArquivo, lido.periodo);
+  const motivoDaQuarentena = motivoParaQuarentena(tipo, alvo.nomeDoArquivo, lido);
+
+  return db.transaction(async (tx) => {
+    await apagarLinhasDoDocumento(tx, documentoId);
+
+    /* Quem saiu do lugar para este entrar. Costuma ser ninguém: o documento
+       que se refaz quase sempre já era o vigente da fonte. */
+    let substituiu: string | null = null;
+
+    /*
+      Refazer promove, e promover é exclusivo: se outro documento da mesma
+      fonte está valendo, ele sai — pelas mesmas duas linhas do envio. Sem isto,
+      a competência ficaria com duas fontes vigentes do mesmo tipo e a conta
+      somaria as duas.
+    */
+    if (motivoDaQuarentena === null) {
+      const outro = await tx
+        .select({ id: fechamentoDocumentoTable.id })
+        .from(fechamentoDocumentoTable)
+        .where(
+          and(
+            eq(fechamentoDocumentoTable.competenciaId, alvo.competenciaId),
+            eq(fechamentoDocumentoTable.tipo, tipo),
+            eq(fechamentoDocumentoTable.vigente, true),
+            ne(fechamentoDocumentoTable.id, documentoId),
+          ),
+        )
+        .limit(1);
+      if (outro[0]) {
+        substituiu = outro[0].id;
+        await apagarLinhasDoDocumento(tx, outro[0].id);
+        await tx
+          .update(fechamentoDocumentoTable)
+          .set({ vigente: false })
+          .where(eq(fechamentoDocumentoTable.id, outro[0].id));
+      }
+    }
+
+    await tx
+      .update(fechamentoDocumentoTable)
+      .set({
+        nomeDoArquivo: alvo.nomeDoArquivo,
+        linhasLidas: lido.linhasLidas,
+        recusas: lido.recusas,
+        vigente: motivoDaQuarentena === null,
+      })
+      .where(eq(fechamentoDocumentoTable.id, documentoId));
+
+    /*
+      O documento anterior à `0047` não tem os bytes guardados, e quem chega
+      aqui pelo reenvio os tem na mão: guardá-los agora é o que faz o
+      diagnóstico e a próxima reimportação passarem a funcionar sobre ele. Quem
+      chega pela reimportação traz exatamente os mesmos bytes que já estão lá,
+      e por isso o conflito não faz nada em vez de reescrever.
+    */
+    await tx
+      .insert(fechamentoDocumentoConteudoTable)
+      .values({
+        documentoId,
+        conteudo: gzipSync(conteudo),
+        bytesOriginais: conteudo.byteLength,
+      })
+      .onConflictDoNothing();
+
+    if (motivoDaQuarentena === null) {
+      await gravarLinhas(tx, alvo.competenciaId, documentoId, tipo, conteudo);
+    }
+
+    return {
+      id: documentoId,
+      tipo,
+      nomeDoArquivo: alvo.nomeDoArquivo,
+      linhasLidas: lido.linhasLidas,
+      recusas: lido.recusas,
+      desfecho: motivoDaQuarentena === null ? "PROMOVIDO" : "EM_QUARENTENA",
+      motivoDaQuarentena,
+      substituiu,
     };
   });
 }
@@ -2759,10 +3054,20 @@ export function fraseDoPainelAusente(ausencia: PainelAusente): string {
     ausencia.descontos > 0
       ? `o banco guardou ${ausencia.descontos} desconto(s) dele e nenhuma verba`
       : `o leitor não reconheceu nenhuma linha dele`;
+  /*
+    As duas saídas, e nesta ordem, porque a primeira é a que não custa nada a
+    quem opera. O documento pode estar sem verba porque o arquivo não as tem —
+    e aí o conserto é reexportar — ou porque a importação não as gravou, e aí o
+    arquivo guardado já é o certo: reimportar refaz a leitura sobre ele. Mandar
+    reenviar nos dois casos foi o que pôs quem operava a procurar um arquivo
+    melhor do que o que já estava no banco.
+  */
   return (
     `O ${rotina} desta competência foi importado — ${qual} —, e não sustenta verba nenhuma: ` +
-    `${oQueTem}. É a verba que abre a parcela fixa, e ${semPainel}.${pista} Envie o ${rotina} ` +
-    `completo por cima: hoje o arquivo é conferido antes de valer, e um que não traga verba ` +
-    `não substitui mais o que estiver de pé.`
+    `${oQueTem}. É a verba que abre a parcela fixa, e ${semPainel}.${pista} Se o arquivo ` +
+    `estiver certo, reimporte-o na lista de relatórios: a leitura é refeita sobre os bytes ` +
+    `guardados, sem reenviar nada. Se não estiver, envie o ${rotina} completo por cima — hoje ` +
+    `o arquivo é conferido antes de valer, e um que não traga verba não substitui mais o que ` +
+    `estiver de pé.`
   );
 }

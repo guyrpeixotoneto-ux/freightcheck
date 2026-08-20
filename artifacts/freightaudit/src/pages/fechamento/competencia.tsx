@@ -10,6 +10,7 @@ import {
   FileUp,
   Lock,
   LockOpen,
+  RefreshCw,
   Trash2,
   Upload,
 } from "lucide-react";
@@ -31,6 +32,7 @@ import {
   chaveDoDiagnostico,
   chaveDoDiario,
   estadoDaFonte,
+  oQueDizerDoSemVerba,
   type AvisoDoEnvio,
 } from "@/lib/fechamento-tela";
 import { formatBrl, formatNumber } from "@/lib/format";
@@ -43,6 +45,7 @@ import {
   lerCompetencia,
   lerDiario,
   listarFontes,
+  reimportarDocumento,
   EXPLICACAO_DA_DIVERGENCIA,
   NOME_DO_ESTADO,
   type DadosDescartados,
@@ -349,6 +352,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                   key={fonte.tipo}
                   fonte={fonte}
                   documento={vigentes.get(fonte.tipo)}
+                  competenciaId={id}
                   semVerba={estadoDaFonte(vigentes.get(fonte.tipo)) === "SEM_VERBA"}
                   foraDaQuinzena={!fonte.quinzenas.includes(competencia.quinzena)}
                   quinzena={competencia.quinzena}
@@ -605,49 +609,71 @@ export default function CompetenciaAberta({ id }: { id: string }) {
 }
 
 /**
- * Por que o 03.08.20 que está lá não trouxe verba.
+ * Por que nenhuma verba deste 03.08.20 sustenta a conta — e o que resolve.
  *
- * **Sob demanda, e não junto da lista.** O diagnóstico descomprime o arquivo
- * guardado e o relê inteiro; pagá-lo em toda abertura da competência custaria a
- * quem só quer ver o que já chegou. Quem clica é quem tem a pergunta.
+ * A resposta vem do servidor, que tem os bytes: a tela não relê arquivo nenhum,
+ * e por isso não pode discordar do leitor que importou.
  *
- * A resposta vem do servidor, que tem os bytes — a tela não relê arquivo
- * nenhum, e por isso não pode discordar do leitor que importou.
+ * **Sai de trás do clique.** Era um link — "sob demanda, para não custar a quem
+ * só quer ver o que já chegou" —, e a frase que ele abria contradizia a que
+ * estava acima dele: a lista acusava o arquivo de só ter descontos, e o
+ * diagnóstico dos bytes guardados respondia "as 10 verbas deste arquivo foram
+ * reconhecidas". Quem não clicasse ficava com a acusação; quem clicasse ficava
+ * com as duas. A resposta que decide **o que a tela pode afirmar** não pode
+ * estar atrás de um gesto — ver {@link oQueDizerDoSemVerba}.
+ *
+ * O custo que o clique economizava continua economizado, e por um critério
+ * melhor: o componente só existe quando há alarme. A competência inteira sem
+ * documento sem verba não descomprime arquivo nenhum.
  */
-function PorQueSemVerba({ documentoId }: { documentoId: string }) {
-  const [aberto, setAberto] = useState(false);
+function PorQueSemVerba({
+  documento,
+  competenciaId,
+  travada,
+}: {
+  documento: Documento;
+  competenciaId: string;
+  /** A competência está encerrada: nem reimportar entra nela sem reabertura. */
+  travada: boolean;
+}) {
+  const cliente = useQueryClient();
   const diagnostico = useQuery({
-    queryKey: chaveDoDiagnostico(documentoId),
-    queryFn: () => diagnosticarDocumento(documentoId),
-    enabled: aberto,
+    queryKey: chaveDoDiagnostico(documento.id),
+    queryFn: () => diagnosticarDocumento(documento.id),
     retry: false,
   });
 
-  if (!aberto) {
-    return (
-      <button
-        type="button"
-        onClick={() => setAberto(true)}
-        className="underline underline-offset-2 hover:text-amber-700"
-      >
-        Por que nenhuma verba entrou?
-      </button>
-    );
-  }
-  if (diagnostico.isLoading) return <p>Relendo o arquivo guardado…</p>;
-  if (diagnostico.isError || !diagnostico.data) {
-    return <p>{textoDoErro(diagnostico.error)}</p>;
-  }
+  const refazer = useMutation({
+    mutationFn: () => reimportarDocumento(documento.id),
+    onSuccess: () => {
+      /* A mesma chave de tudo que se pergunta sobre a competência: a lista, a
+         grade de dias e o painel da planilha saem juntos (`chaveDaCompetencia`). */
+      void cliente.invalidateQueries({ queryKey: chaveDaCompetencia(competenciaId) });
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "resumo"] });
+    },
+  });
 
-  const { diagnostico: d } = diagnostico.data;
+  const d = diagnostico.data?.diagnostico;
+  const { frase, reimportar } = oQueDizerDoSemVerba(documento, d);
+
   return (
-    <div className="space-y-1">
-      <p className="font-medium">{d.resumo}</p>
+    <div className="text-xs text-amber-600 mt-1 ml-6 space-y-1">
+      <p>{frase}</p>
+      {diagnostico.isLoading && <p>Relendo o arquivo guardado…</p>}
+      {/*
+        O diagnóstico que não veio é dito, e não escondido: sem ele a frase
+        acima é tudo o que a tela sabe, e quem estiver olhando precisa saber
+        que a pergunta sobre o conteúdo do arquivo ficou sem resposta.
+      */}
+      {diagnostico.isError && (
+        <p>Não foi possível reler o arquivo guardado: {textoDoErro(diagnostico.error)}</p>
+      )}
+      {d && !reimportar && <p className="font-medium">{d.resumo}</p>}
       {/*
         A linha física e o texto original: é o que permite abrir o arquivo no
         editor, ir até ela, e ver com os próprios olhos o que o leitor viu.
       */}
-      {d.suspeitas.length > 0 && (
+      {d && d.suspeitas.length > 0 && (
         <ul className="space-y-0.5 font-mono text-[0.6875rem]">
           {d.suspeitas.slice(0, 3).map((s) => (
             <li key={s.linha}>
@@ -657,6 +683,31 @@ function PorQueSemVerba({ documentoId }: { documentoId: string }) {
           {d.suspeitas.length > 3 && <li>… e mais {d.suspeitas.length - 3}.</li>}
         </ul>
       )}
+      {reimportar && (
+        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+          {/*
+            O conserto ao lado do diagnóstico que o justifica. Reimportar refaz
+            a leitura sobre os bytes que a importação guardou — nada é
+            reenviado, e é por isso que o botão pode existir aqui: não há
+            arquivo a escolher.
+          */}
+          <span
+            title={travada ? "A quinzena está fechada — reabra para reimportar." : undefined}
+          >
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-7 text-xs"
+              disabled={refazer.isPending || travada}
+              onClick={() => refazer.mutate()}
+            >
+              <RefreshCw className="w-3 h-3 mr-1.5" />
+              {refazer.isPending ? "Reimportando…" : "Reimportar do arquivo guardado"}
+            </Button>
+          </span>
+          {refazer.isError && <span>{textoDoErro(refazer.error)}</span>}
+        </div>
+      )}
     </div>
   );
 }
@@ -665,6 +716,7 @@ function PorQueSemVerba({ documentoId }: { documentoId: string }) {
 function LinhaDeFonte({
   fonte,
   documento,
+  competenciaId,
   semVerba,
   foraDaQuinzena,
   quinzena,
@@ -674,6 +726,7 @@ function LinhaDeFonte({
 }: {
   fonte: Fonte;
   documento: Documento | undefined;
+  competenciaId: string;
   /**
    * O documento é o 03.08.20 e não gravou verba nenhuma.
    *
@@ -748,20 +801,19 @@ function LinhaDeFonte({
         {documento && semVerba && (
           /*
             O que `linhasLidas` não diz. Ele soma verbas e descontos, então um
-            demonstrativo do qual o leitor só tirou descontos aparece com um
-            número respeitável de linhas — e é o painel da planilha, noutro
-            cartão, que descobre que não há verba. A frase mora aqui, ao lado do
-            arquivo que ela descreve, e o porquê fica a um clique.
+            demonstrativo do qual o banco não guardou verba nenhuma aparece com
+            um número respeitável de linhas — e é o painel da planilha, noutro
+            cartão, que descobre que não há verba.
+
+            **A frase não mora mais aqui**, e é a correção que importa: ela
+            afirmava, a partir desse número, que as linhas lidas "são
+            descontos" — uma afirmação sobre o conteúdo do arquivo, que esta
+            tela nunca leu. No 03.08.20 real da 1ª quinzena as 14 linhas são 10
+            verbas e 4 descontos, e a frase estava errada ao lado de um
+            diagnóstico que dizia o contrário. Quem sabe do arquivo é quem o
+            releu — ver `PorQueSemVerba`.
           */
-          <div className="text-xs text-amber-600 mt-1 ml-6 space-y-1">
-            <p>
-              Nenhuma verba entrou deste arquivo — só as{" "}
-              {documento.linhasLidas.toLocaleString("pt-BR")} linha(s) acima, que são
-              descontos. É a verba que abre a parcela fixa: enquanto ela não vier, o painel
-              da planilha fica sem de onde sair.
-            </p>
-            <PorQueSemVerba documentoId={documento.id} />
-          </div>
+          <PorQueSemVerba documento={documento} competenciaId={competenciaId} travada={travada} />
         )}
       </div>
       <div className="shrink-0">
