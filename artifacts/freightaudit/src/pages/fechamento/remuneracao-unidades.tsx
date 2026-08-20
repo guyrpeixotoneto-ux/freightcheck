@@ -718,8 +718,19 @@ export default function RemuneracaoUnidades() {
                                 className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-5"
                                 onClick={(e) => e.stopPropagation()}
                               >
+                                {/*
+                                  Duas consequências, uma causa — e a segunda
+                                  custou uma tarde de alguém que cadastrou a
+                                  planilha inteira e não entendeu por que o
+                                  painel do fechamento continuou vazio. O
+                                  fechamento encontra o cadastro **pelo
+                                  código**, e sem ele não há o que encontrar.
+                                  Dizer só a primeira mandava procurar no lugar
+                                  errado.
+                                */}
                                 <span className="text-[0.6875rem] text-amber-700">
-                                  sem código — o export vai abrir outra ao lado
+                                  sem código — o export vai abrir outra ao lado, e o
+                                  painel do fechamento não encontra este cadastro
                                 </span>
                                 <BotaoDeInformarCodigo
                                   scopeHash={u.scopeHash}

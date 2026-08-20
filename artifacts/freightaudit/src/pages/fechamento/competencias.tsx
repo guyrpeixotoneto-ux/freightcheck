@@ -3,7 +3,6 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
-  type UseMutationResult,
 } from "@tanstack/react-query";
 import { Link, useLocation } from "wouter";
 import {
@@ -30,6 +29,7 @@ import {
 } from "@/components/ui/select";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ComboboxCriavel } from "@/components/ui/combobox-criavel";
+import { CadastrarParte, type ParteDigitada } from "@/components/fechamento/cadastrar-parte";
 import { FecharQuinzena } from "@/components/fechamento/fechar-quinzena";
 import {
   abrirCompetencia,
@@ -85,19 +85,56 @@ export function lerParteDigitada(texto: string): { codigo: string; nome: string 
 }
 
 /**
- * O clique em "Usar" — grava a parte e a devolve, ou `null` se o servidor
- * recusou.
+ * O que o combobox precisa saber enquanto o formulário está aberto.
  *
- * O `catch` não engole a recusa: ela fica na mutação e aparece embaixo do campo
- * pelo `erro` do combobox. O que o `null` faz é impedir o dropdown de fechar
- * em cima de um texto que não foi gravado — quem perde o que escreveu junto com
- * o motivo escreve de novo às cegas.
+ * `aoCriar` promete uma parte, e quem a produz agora é um diálogo — então a
+ * promessa fica aberta e o `resolver` viaja com o estado. Cancelar resolve
+ * `null`, que é o que impede o dropdown de fechar em cima de um texto que não
+ * foi gravado: quem perde o que escreveu junto com o motivo escreve de novo às
+ * cegas.
  */
-function cadastrarDoCampo(
-  cadastro: UseMutationResult<Parte, Error, string>,
-  texto: string,
-): Promise<Parte | null> {
-  return cadastro.mutateAsync(texto).catch(() => null);
+interface CadastroEmCurso {
+  tipo: TipoDeParte;
+  digitado: ParteDigitada;
+  resolver: (parte: Parte | null) => void;
+}
+
+/**
+ * O texto da busca dividido entre os dois campos do formulário.
+ *
+ * Com separador, `lerParteDigitada` já decide, e ela decide bem — foi para isso
+ * que nasceu. Sem separador é preciso escolher um campo, e escolher errado faz
+ * a pessoa apagar e redigitar: `443` no campo do nome, ou `CDD BELÉM` no do
+ * código.
+ *
+ * A régua é a que esta tela já declarava em `lerParteDigitada`: **o código de
+ * um CDD e o de uma transportadora são numéricos**. Só de dígitos vai para o
+ * código; qualquer outra coisa vai para o nome. Nos dois casos o texto
+ * sobrevive, e os dois campos estão à vista para quem discordar da escolha —
+ * que é a diferença entre um palpite e um palpite que se corrige.
+ */
+const SEM_LETRA = /^[\d.\-/\s]+$/;
+
+export function paraOFormulario(texto: string): ParteDigitada {
+  const cru = texto.trim();
+  if (cru === "") return { codigo: "", nome: null };
+
+  /*
+    Um documento inteiro é código, mesmo trazendo separador dentro. `443` e
+    `12.345.678/0001-99` caem aqui, e o segundo é o caso que obrigou esta linha
+    a existir: a barra e o hífen do CNPJ **são** os separadores que
+    `lerParteDigitada` procura, e sem esta guarda ela partia o documento ao
+    meio — `12.345.678` de código e `0001-99` de nome. Silenciosamente, e num
+    campo cuja única função é casar com o cadastro de Remuneração, onde o CNPJ é
+    exatamente o formato que a tela pede.
+  */
+  if (SEM_LETRA.test(cru)) return { codigo: cru, nome: null };
+
+  /* Com separador, só vale a divisão se o que veio antes puder ser código. */
+  const lido = lerParteDigitada(cru);
+  if (lido.nome !== null && SEM_LETRA.test(lido.codigo)) return lido;
+
+  return { codigo: "", nome: cru };
 }
 
 const rotuloDaParte = (p: Parte) => (p.nome ? `${p.codigo} — ${p.nome}` : p.codigo);
@@ -113,11 +150,16 @@ const detalheDaParte = (p: Parte) =>
     ? "cadastrada — ainda sem competência"
     : `${p.competencias} competência${p.competencias === 1 ? "" : "s"}`;
 
+/*
+  A prévia deixou de ser um aviso sobre sintaxe e passou a ser o que o
+  formulário vai mostrar: o texto digitado só **preenche** os campos, e quem
+  decide o que é código e o que é nome é a pessoa, olhando dois rótulos.
+*/
 const previaDaParte = (texto: string) => {
-  const parte = lerParteDigitada(texto);
+  const parte = paraOFormulario(texto);
   return parte.nome
-    ? `Código ${parte.codigo}, nome “${parte.nome}”.`
-    : `Código ${parte.codigo}, sem nome — escreva “${parte.codigo} — Nome” para nomeá-la.`;
+    ? `Abre o cadastro com código ${parte.codigo} e nome “${parte.nome}”.`
+    : `Abre o cadastro com “${parte.codigo}” preenchido — nome e código em campos separados.`;
 };
 
 /*
@@ -253,14 +295,35 @@ export default function Competencias() {
     uma opção como qualquer outra — inclusive para o outro fechamento que a
     pessoa vai abrir em seguida, sem recarregar a tela.
   */
+  /*
+    A mutação recebe os dois campos, e não mais o texto. Quem os separa passou a
+    ser o formulário (`CadastrarParte`), e não uma sintaxe que a pessoa tinha de
+    conhecer — `lerParteDigitada` continua aqui para **preencher** o formulário
+    a partir do que foi digitado no campo de busca, que é leitura e não regra.
+  */
   const opcoesDoCadastro = (tipo: TipoDeParte) => ({
-    mutationFn: (texto: string) => cadastrarParte({ tipo, ...lerParteDigitada(texto) }),
+    mutationFn: (parte: ParteDigitada) => cadastrarParte({ tipo, ...parte }),
     onSuccess: () => {
       void cliente.invalidateQueries({ queryKey: ["fechamento", "partes"] });
     },
   });
   const cadastroDaUnidade = useMutation(opcoesDoCadastro("UNIDADE"));
   const cadastroDaTransportadora = useMutation(opcoesDoCadastro("TRANSPORTADORA"));
+  const [cadastroEmCurso, setCadastroEmCurso] = useState<CadastroEmCurso | null>(null);
+
+  /* O texto do campo de busca preenche o formulário — não vira regra. */
+  const abrirCadastro = (tipo: TipoDeParte, texto: string): Promise<Parte | null> =>
+    new Promise((resolver) =>
+      setCadastroEmCurso({ tipo, digitado: paraOFormulario(texto), resolver }),
+    );
+
+  const mutacaoEmCurso =
+    cadastroEmCurso?.tipo === "TRANSPORTADORA" ? cadastroDaTransportadora : cadastroDaUnidade;
+
+  const fecharCadastro = (parte: Parte | null) => {
+    cadastroEmCurso?.resolver(parte);
+    setCadastroEmCurso(null);
+  };
 
   const abrir = useMutation({
     mutationFn: () =>
@@ -365,13 +428,13 @@ export default function Competencias() {
                   itens={partes.data?.unidades ?? []}
                   valor={unidade}
                   aoEscolher={setUnidade}
-                  aoCriar={(texto) => cadastrarDoCampo(cadastroDaUnidade, texto)}
+                  aoCriar={(texto) => abrirCadastro("UNIDADE", texto)}
                   erro={cadastroDaUnidade.isError ? textoDoErro(cadastroDaUnidade.error) : null}
                   rotuloDe={rotuloDaParte}
                   detalheDe={detalheDaParte}
                   chaveDe={(p) => p.codigo}
-                  placeholder="Escolha ou digite o código e o nome"
-                  rotuloDeCriacao={(texto) => `Usar “${texto}”`}
+                  placeholder="Escolha, ou digite para buscar e cadastrar"
+                  rotuloDeCriacao={(texto) => `Cadastrar “${texto}”…`}
                   previaDe={previaDaParte}
                 />
               </div>
@@ -382,7 +445,7 @@ export default function Competencias() {
                   itens={partes.data?.transportadoras ?? []}
                   valor={transportadora}
                   aoEscolher={setTransportadora}
-                  aoCriar={(texto) => cadastrarDoCampo(cadastroDaTransportadora, texto)}
+                  aoCriar={(texto) => abrirCadastro("TRANSPORTADORA", texto)}
                   erro={
                     cadastroDaTransportadora.isError
                       ? textoDoErro(cadastroDaTransportadora.error)
@@ -391,8 +454,8 @@ export default function Competencias() {
                   rotuloDe={rotuloDaParte}
                   detalheDe={detalheDaParte}
                   chaveDe={(p) => p.codigo}
-                  placeholder="Escolha ou digite o código e o nome"
-                  rotuloDeCriacao={(texto) => `Usar “${texto}”`}
+                  placeholder="Escolha, ou digite para buscar e cadastrar"
+                  rotuloDeCriacao={(texto) => `Cadastrar “${texto}”…`}
                   previaDe={previaDaParte}
                 />
               </div>
@@ -436,14 +499,36 @@ export default function Competencias() {
             </div>
 
             <p className="text-xs text-muted-foreground">
-              As duas listas são o que já foi cadastrado, mais o que aparece em
-              alguma competência. Para cadastrar, digite{" "}
-              <code className="font-mono">código — nome</code> (por exemplo{" "}
-              <code className="font-mono">443 — CDD Belém</code>) e escolha
-              “Usar”: fica gravado na hora e continua aqui mesmo que a
-              competência seja excluída depois. Digitar o mesmo código com um
-              nome novo renomeia.
+              As duas listas são o que já foi cadastrado, mais o que aparece em alguma
+              competência. Não achou? Digite o nome e escolha “Cadastrar”: abre um
+              formulário com <strong>nome e código separados</strong>, o mesmo de
+              Cadastrar uma unidade em Remuneração. O código é a identidade — é por ele
+              que a competência encontra o cadastro de remuneração desta unidade, e ele
+              precisa ser o mesmo nos dois lugares. Digitar o mesmo código com um nome
+              novo renomeia.
             </p>
+
+            {/*
+              O formulário vive aqui, e não dentro do combobox, porque ele é um
+              diálogo: o dropdown fecha, a lista fica, e o que se digita nos dois
+              campos não disputa espaço com a busca.
+            */}
+            {cadastroEmCurso && (
+              <CadastrarParte
+                tipo={cadastroEmCurso.tipo}
+                nomeInicial={cadastroEmCurso.digitado.nome ?? ""}
+                codigoInicial={cadastroEmCurso.digitado.codigo}
+                erro={mutacaoEmCurso.isError ? textoDoErro(mutacaoEmCurso.error) : null}
+                salvando={mutacaoEmCurso.isPending}
+                aoCancelar={() => fecharCadastro(null)}
+                aoConfirmar={(parte) => {
+                  void mutacaoEmCurso
+                    .mutateAsync(parte)
+                    .then((criada) => fecharCadastro(criada))
+                    .catch(() => undefined);
+                }}
+              />
+            )}
 
             {abrir.isError && (
               <Alert variant="destructive">
@@ -579,8 +664,20 @@ export default function Competencias() {
                             a única coisa que as separa é ele. Sem o tipo à
                             vista, a lista mostraria duas linhas idênticas.
                           */}
+                          {/*
+                            O código ao lado do nome, e não escondido atrás
+                            dele. É por ele que o cadastro de Remuneração
+                            encontra esta competência — e ele era a única coisa
+                            que quem precisava conferir os dois lados não tinha
+                            como ver em tela nenhuma. Nome é rótulo; código é
+                            identidade.
+                          */}
                           <p className="text-sm text-muted-foreground truncate">
-                            {c.unidade.nome ?? c.unidade.codigo} · {c.transportadora.nome ?? c.transportadora.codigo}
+                            {c.unidade.nome ?? c.unidade.codigo}
+                            {c.unidade.nome && (
+                              <span className="text-muted-foreground/70"> ({c.unidade.codigo})</span>
+                            )}{" · "}
+                            {c.transportadora.nome ?? c.transportadora.codigo}
                             {" · "}
                             <span className={c.tipoDeOperacao === TIPO_NAO_INFORMADO ? "italic" : "font-medium"}>
                               {rotuloDoTipo(c.tipoDeOperacao)}
