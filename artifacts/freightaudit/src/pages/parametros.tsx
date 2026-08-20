@@ -6,13 +6,31 @@ import {
   somarResumos,
 } from "@workspace/comparison/deduplicacao";
 import { useSearch, useLocation } from "wouter";
-import { AlertTriangle, ChevronRight, Info, Search, Star } from "lucide-react";
+import {
+  AlertTriangle,
+  ChevronRight,
+  HelpCircle,
+  Info,
+  Layers,
+  LayoutGrid,
+  Search,
+  SlidersHorizontal,
+  Star,
+  Truck,
+  Wallet,
+} from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { GroupCard } from "@/components/inicio/group-card";
 import { TabelaFreightech, type ColunaTabela } from "@/components/parametros/tabela";
 import { TabelaDominio } from "@/components/parametros/dominio";
 import { TabelaInventario } from "@/components/parametros/inventario";
 import { AnaliseCartao } from "@/components/parametros/analise";
+import { GradeDeAtributos } from "@/components/parametros/atributos";
+import {
+  AbaBotao,
+  ImpactoPorPeriodicidade,
+  MetricCard,
+} from "@/components/changes/cartoes";
 import {
   Select,
   SelectContent,
@@ -31,6 +49,13 @@ import {
   ligarParametros,
   type CartaoCatalogo,
 } from "@/lib/freightech-catalogo";
+import {
+  ehEscopo,
+  ehOrdem,
+  montarAtributos,
+  type EscopoCode,
+  type OrdemCode,
+} from "@/lib/escopos";
 import type {
   ChangeGroup,
   FamiliesView,
@@ -39,30 +64,45 @@ import type {
 } from "@/components/inicio/types";
 
 /**
- * Escolha de segmento — a tela do Freightech, com o dado que ele não mostra.
+ * Escolha de segmento — o que mudou na quinzena, por escopo e por atributo.
  *
- * Tudo o que a mão já sabe fazer continua igual: os quatro campos na ordem
- * **Canal/Segmento → Vigência → Unidade → Parâmetro**, o botão FILTRAR que só
- * acende quando há o que aplicar, as seções em caixa alta com a régua laranja,
- * a grade de cartões com a barra na lateral e a estrela de favorito.
+ * A tela nasceu como espelho do Freightech e passou a ter **duas grades**, na
+ * ordem em que as perguntas são feitas:
  *
- * **A grade é o catálogo inteiro do Freightech**, e não só o que este export
- * alimenta. Um cartão que existe lá e não existe aqui era, até agora, uma nota
- * de rodapé; a nota era verdadeira mas respondia à pergunta errada — quem
- * procura uma gaveta pelo nome e não a encontra conclui que o produto não cobre
- * o assunto. Agora o cartão está lá, e quem diz que não tem dado é ele.
+ * - **Atributos** (a porta). Um cartão por coluna alterada — `carreta.finame`,
+ *   `cavalo.ipva_licenciamento` —, arrumados pelos seis escopos que este
+ *   produto importa e lê: cavalo, carreta, conjunto, trecho, QLP administrativo
+ *   e QLP operacional. Clicar num cartão abre os veículos daquela unidade
+ *   naquela quinzena, com antes, depois, impacto e a célula de origem.
+ * - **Catálogo Freightech** (o espelho). As 75 gavetas de lá, na ordem de lá,
+ *   inclusive as que este export não alimenta — intacto, na aba ao lado.
  *
- * O que muda em relação ao Freightech é o miolo do cartão. Lá ele traz o nome e
- * nada mais; para saber se algo mudou é preciso abrir, exportar e comparar à
- * mão. Aqui ele já diz **quantas alterações, em quantos veículos e quanto
- * vale** — e quando não dá para valorar, diz o motivo.
+ * **Por que a inversão.** O catálogo é fiel e responde à pergunta errada para
+ * quem audita. Lá não existe a divisão por equipamento: CAVALO e CARRETA são
+ * dois cartões dentro de FROTA, ao lado de COMBUSTÍVEL e PRAZO FINAME, que
+ * valem para os dois. Perguntar "o que mexeu nas carretas nesta quinzena?"
+ * custava abrir gaveta por gaveta e somar de cabeça, e o que se procurava —
+ * a coluna — era uma linha de tabela dentro de um cartão, a três cliques da
+ * grade e sem busca que a alcançasse.
+ *
+ * Tudo o que a mão já sabe fazer continua igual: os campos na ordem
+ * **Canal/Segmento → Vigência → Unidade**, o botão FILTRAR que só acende quando
+ * há o que aplicar, as seções em caixa alta com a régua laranja, os cartões com
+ * a barra na lateral e a estrela de favorito. O campo **Parametro** continua na
+ * fileira quando o espelho está na tela; na grade de atributos ele desce para
+ * junto do escopo e da ordenação, que é onde o olho está ao procurar.
  *
  * As recusas continuam de pé, deslocadas mas não afrouxadas:
  *
- * 1. **Nunca somar periodicidades.** R$/mês e R$/ano em linhas próprias, sempre.
+ * 1. **Nunca somar periodicidades.** R$/mês e R$/ano em linhas próprias, sempre
+ *    — inclusive na ordenação, que ordena por tamanho dentro da periodicidade de
+ *    cada linha e joga o sem preço para o fim em vez de tratá-lo como zero.
  * 2. **Nenhum cartão finge cobertura.** O que não tem dado aparece cinza,
- *    escrito, e não abre um detalhe que não teria o que mostrar.
+ *    escrito, e não abre um detalhe que não teria o que mostrar. Na grade de
+ *    atributos isso vale para o escopo: um que não foi importado diz que não
+ *    foi, e não se confunde com um que chegou e não teve alteração.
  * 3. **Nunca "impacto a verificar".** Sem preço é sem preço, com o motivo junto.
+ * 4. **Nenhum atributo cai num escopo por palpite** — ver `@/lib/escopos`.
  */
 export default function Parametros() {
   const search = useSearch();
@@ -76,6 +116,37 @@ export default function Parametros() {
   }
 
   const cartaoAberto = params.get("cartao");
+
+  /*
+    Qual das duas grades está na tela.
+
+    **Atributos é o padrão**, e a inversão é a resposta a uma reclamação
+    concreta: quem abre esta tela chega sabendo de qual coisa quer ver o que
+    mudou — do cavalo, da carreta, do conjunto — e o catálogo do Freightech não
+    tem essa divisão. Lá CAVALO e CARRETA são dois cartões dentro de FROTA, ao
+    lado de COMBUSTÍVEL e PRAZO FINAME, que valem para os dois; achar "tudo o
+    que mexeu nas carretas" exigia abrir gaveta por gaveta e somar de cabeça.
+
+    O espelho não sai da tela e não afrouxa: ele continua sendo a aba ao lado,
+    com a mesma grade, a mesma ordem e os mesmos 75 cartões — inclusive os que
+    este export não alimenta. O que ele deixa de ser é a **porta**, porque a
+    porta certa depende da pergunta, e a pergunta mais frequente aqui é a nossa.
+  */
+  const vista = params.get("vista") === "catalogo" ? "catalogo" : "atributos";
+
+  /*
+    O recorte da grade de atributos, todo na URL.
+
+    Pela mesma razão que a aba e o intervalo da análise: "o finame das carretas,
+    em Camaçari, em agosto" passa a ser um link que se manda para alguém. Um
+    valor adulterado no endereço não quebra a tela — `ehEscopo` e `ehOrdem`
+    devolvem o padrão.
+  */
+  const escopoParam = params.get("escopo");
+  const escopo: EscopoCode | null = ehEscopo(escopoParam) ? escopoParam : null;
+  const ordemParam = params.get("ordem");
+  const ordem: OrdemCode = ehOrdem(ordemParam) ? ordemParam : "impacto";
+  const atributoAberto = params.get("atributo");
 
   /*
     A aba e o intervalo da análise moram na URL, e não no estado do componente.
@@ -101,8 +172,16 @@ export default function Parametros() {
   };
 
   /**
-   * A busca por nome de parâmetro fica aqui, e não dentro da grade, porque o
-   * campo dela mora na barra de filtro — que é irmã da grade, não filha.
+   * O termo de busca, um só para as duas grades.
+   *
+   * Fica no componente e não na URL porque ele muda a cada tecla, e um endereço
+   * novo por caractere enche o histórico do navegador — o VOLTAR do navegador
+   * passaria a desfazer letras em vez de desfazer navegação. O que ele **é** nas
+   * duas grades difere e está dito em cada uma: no catálogo procura no nome do
+   * cartão, nos atributos procura também no código da coluna, no parâmetro e na
+   * família. O termo atravessa a troca de aba de propósito: quem digitou
+   * "finame" e não achou a gaveta quer ver os atributos com o mesmo termo, e não
+   * digitá-lo de novo.
    */
   const [busca, setBusca] = useState("");
 
@@ -115,6 +194,7 @@ export default function Parametros() {
   });
 
   const secoes = useMemo(() => montarSecoes(data ?? null), [data]);
+  const atributos = useMemo(() => montarAtributos(data ?? null), [data]);
 
   /**
    * Aplicar o filtro **não** fecha o cartão aberto.
@@ -133,6 +213,13 @@ export default function Parametros() {
     next.set("scopeHash", selecao.scopeHash);
     if (selecao.canal) next.set("canal", selecao.canal);
     if (selecao.period) next.set("period", selecao.period);
+    // A aba, o escopo e a ordenação são o **enquadramento**, e não o recorte:
+    // trocar de unidade nunca é pedido para voltar ao catálogo, largar o escopo
+    // escolhido ou reordenar a grade.
+    if (vista === "catalogo") next.set("vista", vista);
+    if (escopo) next.set("escopo", escopo);
+    if (ordem !== "impacto") next.set("ordem", ordem);
+    if (atributoAberto) next.set("atributo", atributoAberto);
     if (cartaoAberto) {
       next.set("cartao", cartaoAberto);
       // A aba e o intervalo vão junto: trocar de unidade não é motivo para
@@ -153,6 +240,33 @@ export default function Parametros() {
       next.delete("de");
       next.delete("ate");
     }
+    navigate(`/parametros?${next}`);
+  };
+
+  const abrirAtributo = (chave: string | null) => {
+    const next = new URLSearchParams(search);
+    if (chave) next.set("atributo", chave);
+    else next.delete("atributo");
+    navigate(`/parametros?${next}`);
+  };
+
+  /*
+    Trocar de grade não carrega o que era da outra.
+
+    `cartao` endereça uma gaveta do catálogo e `atributo` endereça uma coluna;
+    levar um dos dois para o outro lado deixaria a tela com um endereço que
+    aquela grade não sabe abrir — e o efeito visível seria a tela do "não existe
+    neste recorte", que aqui seria falso: existe, é da outra aba.
+  */
+  const trocarVista = (valor: "atributos" | "catalogo") => {
+    const next = new URLSearchParams(search);
+    if (valor === "catalogo") next.set("vista", valor);
+    else next.delete("vista");
+    next.delete("cartao");
+    next.delete("aba");
+    next.delete("de");
+    next.delete("ate");
+    next.delete("atributo");
     navigate(`/parametros?${next}`);
   };
 
@@ -191,6 +305,27 @@ export default function Parametros() {
     if (chave) irPara({ cartao: chave, aba: "analise" });
   };
 
+  /**
+   * O salto do atributo para a gaveta que o contém, no espelho.
+   *
+   * Troca de vista junto, e abre na aba **Freightech** — não na Análise. O
+   * atributo já respondeu "quanto mudou"; quem clica daqui está indo ver a
+   * gaveta como o cliente a vê, que é a tela em que a conversa com ele
+   * acontece. O endereço do atributo sai da URL: ele pertence à outra grade, e
+   * deixá-lo pendurado faria o VOLTAR do cartão cair num detalhe de atributo em
+   * vez de na grade de onde se saiu.
+   */
+  const saltarDoAtributoParaCartao = (parametroChave: string) => {
+    const chave = cartaoDoParametro.get(parametroChave);
+    if (!chave) return;
+    const next = new URLSearchParams(search);
+    next.set("vista", "catalogo");
+    next.set("cartao", chave);
+    next.delete("atributo");
+    next.delete("aba");
+    navigate(`/parametros?${next}`);
+  };
+
   const cartao = useMemo(() => {
     if (!cartaoAberto) return null;
     for (const secao of secoes) {
@@ -203,7 +338,24 @@ export default function Parametros() {
   return (
     <Layout>
       <div className="px-10 py-6 max-w-[1600px]">
-        <h1 className="text-3xl font-bold uppercase tracking-tight">Escolha de segmento</h1>
+        {/*
+          O cabeçalho é o das telas novas — ícone, título em caixa de frase e a
+          explicação embaixo. A caixa alta de antes vinha de o único assunto
+          desta tela ser o espelho do Freightech, onde o título é ESCOLHA DE
+          SEGMENTO porque lá é assim. O espelho continua sendo uma das duas
+          leituras, e virou aba; o título da página passa a ser o do módulo.
+        */}
+        <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
+          <SlidersHorizontal className="w-6 h-6 text-primary" />
+          Parâmetros
+        </h1>
+        <p className="text-muted-foreground text-sm mt-1 max-w-3xl">
+          Duas leituras da mesma vigência. <strong>Atributos</strong> é o que o cliente
+          mexeu, coluna a coluna, arrumado por cavalo, carreta, conjunto, trecho e QLP —
+          cada cartão abre nos veículos desta unidade. <strong>Catálogo Freightech</strong>{" "}
+          é a tela de Escolha de segmento como ela é lá, com todas as gavetas, inclusive as
+          que este export ainda não alimenta.
+        </p>
 
         {data && (
           <BarraFiltro
@@ -212,6 +364,7 @@ export default function Parametros() {
             busca={busca}
             onBuscar={setBusca}
             buscaAtiva={!cartao}
+            comBusca={vista === "catalogo"}
           />
         )}
 
@@ -243,7 +396,7 @@ export default function Parametros() {
           antes de existir o primeiro import, e é justamente aí que ele mais
           serve — mostra o que o produto vai cobrir quando o arquivo chegar.
         */}
-        {!isLoading && !error && !data && (
+        {!isLoading && !error && !data && vista === "catalogo" && (
           <div className="mt-6 bg-card border border-l-[6px] border-l-brand px-6 py-4 text-sm flex gap-3">
             <Info className="w-4 h-4 mt-0.5 shrink-0 text-brand" />
             <p>
@@ -290,16 +443,247 @@ export default function Parametros() {
             view={data ?? null}
             onVoltar={() => abrirCartao(null)}
           />
-        ) : (
-          <Grade
+        ) : vista === "atributos" && atributoAberto ? (
+          /*
+            Com um atributo aberto, o cabeçalho da grade sai junto com ela.
+
+            O resumo, a faixa da visão geral e as duas abas são o que se lê
+            *antes* de escolher; depois de escolher eles disputam a rolagem com
+            os veículos, que é o que o clique pediu. `GradeDeAtributos` decide o
+            que mostrar — o detalhe, ou a explicação de que aquele atributo não
+            se mexeu neste recorte.
+          */
+          <GradeDeAtributos
             view={data ?? null}
-            secoes={secoes}
+            atributos={atributos}
+            escopo={escopo}
             busca={busca}
-            onAbrir={abrirCartao}
+            ordem={ordem}
+            atributoAberto={atributoAberto}
+            carregando={isLoading}
+            temCartao={(chave) => cartaoDoParametro.has(chave)}
+            onEscopo={(v) => irPara({ escopo: v })}
+            onBusca={setBusca}
+            onOrdem={(v) => irPara({ ordem: v === "impacto" ? null : v })}
+            onAbrir={abrirAtributo}
+            onIrParaCartao={saltarDoAtributoParaCartao}
           />
+        ) : (
+          <>
+            {data && <Ladrilhos view={data} />}
+
+            <FaixaVisaoGeral onAbrir={() => abrirCartao(CHAVE_VISAO_GERAL)} />
+
+            {data && !data.complete && <VisaoParcial view={data} />}
+
+            <AbasDeVista
+              vista={vista}
+              atributos={atributos.length}
+              /*
+                Só as gavetas do Freightech entram nesta contagem. As nossas
+                estão na mesma grade e somá-las aqui faria a frase "as gavetas de
+                lá" responder por cinco cartões que lá não existem — a mesma
+                meia-verdade que a própria grade já se recusa a produzir na linha
+                de cobertura.
+              */
+              cartoes={secoes
+                .filter((s) => s.origem === "FREIGHTECH")
+                .reduce((soma, s) => soma + s.cartoes.length, 0)}
+              onVista={trocarVista}
+            />
+
+            {vista === "atributos" ? (
+              <GradeDeAtributos
+                view={data ?? null}
+                atributos={atributos}
+                escopo={escopo}
+                busca={busca}
+                ordem={ordem}
+                atributoAberto={null}
+                carregando={isLoading}
+                temCartao={(chave) => cartaoDoParametro.has(chave)}
+                onEscopo={(v) => irPara({ escopo: v })}
+                onBusca={setBusca}
+                onOrdem={(v) => irPara({ ordem: v === "impacto" ? null : v })}
+                onAbrir={abrirAtributo}
+                onIrParaCartao={saltarDoAtributoParaCartao}
+              />
+            ) : (
+              <Grade secoes={secoes} busca={busca} onAbrir={abrirCartao} />
+            )}
+          </>
         )}
       </div>
     </Layout>
+  );
+}
+
+/**
+ * Os cinco números do topo, na forma de ladrilho das outras telas.
+ *
+ * Era um parágrafo com números em negrito, e o parágrafo dizia a verdade — mas
+ * exigia lê-lo inteiro para achar o número que se veio buscar, e nenhuma outra
+ * tela do produto apresenta os seus assim. `MetricCard` é o mesmo componente de
+ * Alterações e das telas de comparação, o que também garante a regra que mais
+ * importa aqui: `ImpactoPorPeriodicidade` escreve **uma linha por
+ * periodicidade** e nunca um escalar, porque R$/mês e R$/ano não se somam.
+ *
+ * As duas ressalvas continuam escritas embaixo, e não viraram nota de rodapé:
+ * quanto ficou fora do líquido por já estar contado em outra linha, e quantas
+ * alterações estão sem preço. Um total de impacto sem elas parece cobrir o
+ * arquivo inteiro quando cobre uma parte dele.
+ */
+function Ladrilhos({ view }: { view: FamiliesView }) {
+  const { summary } = view;
+  const excluido = impactEntries(excluidoDaSoma(summary.impact));
+  const familias = view.families.filter((f) => f.changes > 0).length;
+
+  return (
+    <div className="mt-6 space-y-4">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
+        <MetricCard
+          tone="green"
+          icon={<Wallet className="w-6 h-6" />}
+          label="Impacto líquido"
+          value={<ImpactoPorPeriodicidade buckets={summary.impact.byPeriodicity} />}
+          hint={`${summary.notCalculable} alterações fora destes valores`}
+        />
+        <MetricCard
+          tone="blue"
+          icon={<Layers className="w-6 h-6" />}
+          label="Pontos da remuneração"
+          value={summary.groups.toLocaleString("pt-BR")}
+          hint={`em ${familias} ${familias === 1 ? "família" : "famílias"}`}
+        />
+        <MetricCard
+          tone="purple"
+          icon={<SlidersHorizontal className="w-6 h-6" />}
+          label="Alterações"
+          value={summary.changes.toLocaleString("pt-BR")}
+          hint={`${summary.critical} críticas · ${summary.locked} com preço travado`}
+        />
+        <MetricCard
+          tone="orange"
+          icon={<HelpCircle className="w-6 h-6" />}
+          label="Sem preço"
+          value={summary.notCalculable.toLocaleString("pt-BR")}
+          hint="listadas, não escondidas"
+          valueTone={summary.notCalculable > 0 ? "warn" : "muted"}
+        />
+        <MetricCard
+          tone="blue"
+          icon={<Truck className="w-6 h-6" />}
+          label="Veículos tocados"
+          value={summary.vehiclesTouched.toLocaleString("pt-BR")}
+          hint="ativos com pelo menos uma alteração"
+        />
+      </div>
+
+      {excluido.length > 0 && (
+        <p className="text-xs text-muted-foreground flex gap-2 max-w-4xl">
+          <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          <span>
+            {excluido.map((e) => e.label).join(" · ")} ficaram fora do líquido por já
+            estarem contados em outra linha — parcelas ou conjunto —{" "}
+            {summary.impact.excludedChanges}{" "}
+            {summary.impact.excludedChanges === 1 ? "alteração" : "alterações"}.
+          </span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * As duas portas da tela, ditas pelo que cada uma responde.
+ *
+ * O rótulo sozinho não bastava: "Atributos" e "Catálogo Freightech" são dois
+ * substantivos igualmente plausíveis para quem chega, e escolher entre eles
+ * exigiria clicar nos dois. A linha de baixo diz a pergunta de cada um — e a
+ * contagem diz o tamanho, que é a outra metade da escolha: em agosto/2026 são
+ * 20 atributos alterados de um lado e 75 gavetas do outro, e saber disso antes
+ * de clicar é o que evita abrir a aba errada.
+ */
+function AbasDeVista({
+  vista,
+  atributos,
+  cartoes,
+  onVista,
+}: {
+  vista: "atributos" | "catalogo";
+  atributos: number;
+  cartoes: number;
+  onVista: (valor: "atributos" | "catalogo") => void;
+}) {
+  return (
+    <div className="mt-7 flex flex-wrap items-center gap-2 border-b" role="tablist">
+      <AbaBotao
+        active={vista === "atributos"}
+        onClick={() => onVista("atributos")}
+        icon={<LayoutGrid className="w-4 h-4" />}
+        label="Atributos"
+        hint="O que o cliente mexeu nesta vigência, coluna a coluna, por escopo"
+        count={atributos}
+      />
+      <AbaBotao
+        active={vista === "catalogo"}
+        onClick={() => onVista("catalogo")}
+        icon={<Layers className="w-4 h-4" />}
+        label="Catálogo Freightech"
+        hint="As gavetas da tela de Escolha de segmento, na ordem de lá"
+        count={cartoes}
+      />
+    </div>
+  );
+}
+
+/**
+ * A porta da visão geral.
+ *
+ * Faixa, e não mais um cartão na grade: ela não é gaveta de assunto nenhum, e
+ * um cartão do mesmo tamanho dos outros a faria disputar atenção com CAVALO e
+ * CARRETA em vez de anteceder os dois. É o primeiro degrau da hierarquia —
+ * VISÃO GERAL → ESCOPO → ATRIBUTO → VEÍCULO → EVIDÊNCIA — e fica onde a leitura
+ * começa, acima das duas abas, porque ela antecede as duas.
+ */
+function FaixaVisaoGeral({ onAbrir }: { onAbrir: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onAbrir}
+      className="mt-4 w-full flex items-center gap-4 rounded-xl border bg-card shadow-sm px-5 py-4 text-left transition-all hover:shadow-md hover:border-brand/40"
+    >
+      <div className="h-12 w-12 rounded-xl bg-blue-50 text-blue-600 grid place-content-center shrink-0">
+        <Wallet className="w-6 h-6" />
+      </div>
+      <div className="min-w-0 flex-1">
+        <div className="font-bold tracking-tight">Remuneração total</div>
+        <p className="text-sm text-muted-foreground">
+          Todos os parâmetros somados num intervalo: quanto perdemos, quanto ganhamos, onde
+          pesou, quando aconteceu, o que foi revertido e quanto ainda está sem preço.
+        </p>
+      </div>
+      <span className="text-sm font-medium text-brand shrink-0 inline-flex items-center gap-1">
+        Abrir <ChevronRight className="w-4 h-4" />
+      </span>
+    </button>
+  );
+}
+
+/** A série que não chegou não está contada como zero — e a tela diz isso. */
+function VisaoParcial({ view }: { view: FamiliesView }) {
+  return (
+    <div className="mt-4 flex items-center gap-4 rounded-xl border border-amber-100 bg-amber-50 px-5 py-4">
+      <div className="h-12 w-12 rounded-full bg-amber-500 text-white grid place-content-center shrink-0">
+        <AlertTriangle className="w-6 h-6" />
+      </div>
+      <p className="text-sm text-muted-foreground">
+        <strong className="text-amber-700">Visão parcial.</strong> Nesta vigência chegou
+        apenas {view.series.map((s) => s.equipment.toLowerCase()).join(", ")}. Falta{" "}
+        <strong>{view.missingSeries.join(", ").toLowerCase()}</strong> — a série ausente não
+        está contada como zero.
+      </p>
+    </div>
   );
 }
 
@@ -646,12 +1030,13 @@ function agregar(parametros: ParameterView[]): {
 /* ------------------------------------------------------------------ */
 
 /**
- * Os quatro campos e o botão, na ordem e no formato do Freightech.
+ * Os campos e o botão, na ordem e no formato do Freightech.
  *
  * O botão FILTRAR fica apagado enquanto a seleção na tela for igual à aplicada
  * — é o mesmo comportamento de lá, e ele é honesto: clicar não faria nada. O
  * campo Parâmetro, que lá só habilita depois de filtrar, aqui filtra a grade em
- * tempo real, porque a grade já está na tela e não custa uma viagem ao servidor.
+ * tempo real, porque a grade já está na tela e não custa uma viagem ao servidor
+ * — e ele só aparece com o espelho na tela; ver `comBusca`.
  *
  * Campo com uma opção só aparece preenchido e desabilitado, com a razão escrita
  * embaixo: um seletor de um item é promessa de variedade que o dado não tem.
@@ -662,6 +1047,7 @@ function BarraFiltro({
   busca,
   onBuscar,
   buscaAtiva,
+  comBusca,
 }: {
   view: FamiliesView;
   onFiltrar: (selecao: { scopeHash: string; canal: string | null; period: string }) => void;
@@ -669,6 +1055,16 @@ function BarraFiltro({
   onBuscar: (valor: string) => void;
   /** Com um cartão aberto não há grade para filtrar; o campo desabilita. */
   buscaAtiva: boolean;
+  /**
+   * Se o campo Parametro entra nesta fileira.
+   *
+   * Falso na aba de atributos, e não por economia de espaço: lá a busca é uma
+   * das três coisas que recortam a grade — escopo, termo e ordenação — e as
+   * três moram juntas logo acima dos cartões, que é onde o olho está quando a
+   * pergunta é "onde está o finame?". Deixar uma cópia aqui em cima criaria
+   * dois campos ligados ao mesmo termo, um deles longe do que ele filtra.
+   */
+  comBusca: boolean;
 }) {
   const contextos = [view.context, ...view.otherContexts];
   const unidades = [...new Map(contextos.map((c) => [c.scopeHash, c])).values()];
@@ -708,7 +1104,7 @@ function BarraFiltro({
       <Campo rotulo="Canal/Segmento" nota={canais.length > 1 ? null : "único canal importado"}>
         {canais.length > 1 ? (
           <Select value={canal ?? ""} onValueChange={(valor) => setCanal(valor || null)}>
-            <SelectTrigger className="w-56 h-12 rounded-sm bg-card">
+            <SelectTrigger className="w-56 h-11 rounded-lg bg-background">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -726,7 +1122,7 @@ function BarraFiltro({
 
       <Campo rotulo="Vigência" nota={`${view.periods.length} no histórico`}>
         <Select value={period} onValueChange={setPeriod}>
-          <SelectTrigger className="w-56 h-12 rounded-sm bg-card">
+          <SelectTrigger className="w-56 h-11 rounded-lg bg-background">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -748,7 +1144,7 @@ function BarraFiltro({
               setCanal(contextos.find((c) => c.scopeHash === valor)?.channel ?? null);
             }}
           >
-            <SelectTrigger className="w-56 h-12 rounded-sm bg-card">
+            <SelectTrigger className="w-56 h-11 rounded-lg bg-background">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -772,28 +1168,30 @@ function BarraFiltro({
           disabled={!sujo}
           onClick={() => onFiltrar({ scopeHash, canal, period })}
           className={cn(
-            "h-12 px-8 rounded-sm text-[0.8125rem] font-bold uppercase tracking-wide transition-colors",
+            "h-11 px-6 rounded-lg text-sm font-medium transition-colors",
             sujo
-              ? "bg-brand text-brand-foreground hover:brightness-95"
-              : "bg-brand/40 text-white cursor-not-allowed",
+              ? "bg-brand text-brand-foreground hover:brightness-110"
+              : "bg-muted text-muted-foreground cursor-not-allowed",
           )}
         >
           Filtrar
         </button>
       </Campo>
 
-      <Campo rotulo="Parametro" nota={null}>
-        <div className="relative">
-          <input
-            value={busca}
-            disabled={!buscaAtiva}
-            onChange={(event) => onBuscar(event.target.value)}
-            aria-label="Buscar parâmetro pelo nome"
-            className="w-60 h-12 rounded-sm border border-input bg-card pl-3 pr-10 text-sm outline-none focus:border-brand disabled:bg-muted/60"
-          />
-          <Search className="w-5 h-5 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-        </div>
-      </Campo>
+      {comBusca && (
+        <Campo rotulo="Parametro" nota={null}>
+          <div className="relative">
+            <input
+              value={busca}
+              disabled={!buscaAtiva}
+              onChange={(event) => onBuscar(event.target.value)}
+              aria-label="Buscar parâmetro pelo nome"
+              className="w-60 h-11 rounded-lg border border-input bg-background pl-3 pr-10 text-sm outline-none transition-colors focus:border-brand disabled:bg-muted/50"
+            />
+            <Search className="w-5 h-5 text-muted-foreground absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+          </div>
+        </Campo>
+      )}
     </div>
   );
 }
@@ -853,12 +1251,10 @@ function nomeDaUnidade(context: FamiliesView["context"]): string {
  * marcou cinco cartões não quer rolar a página inteira todo dia para achá-los.
  */
 function Grade({
-  view,
   secoes,
   busca,
   onAbrir,
 }: {
-  view: FamiliesView | null;
   secoes: SecaoRender[];
   busca: string;
   onAbrir: (chave: string) => void;
@@ -897,56 +1293,6 @@ function Grade({
 
   return (
     <>
-      {view && (
-        <div className="mt-6">
-          <Resumo view={view} />
-        </div>
-      )}
-
-      {/*
-        A porta da visão geral.
-
-        Faixa, e não mais um cartão na grade: ela não é gaveta de assunto
-        nenhum, e um cartão do mesmo tamanho dos outros a faria disputar
-        atenção com CAVALO e CARRETA em vez de anteceder os dois. É o primeiro
-        degrau da hierarquia — VISÃO GERAL → CARTÃO → VEÍCULO → EVIDÊNCIA — e
-        fica onde a leitura começa.
-      */}
-      <button
-        type="button"
-        onClick={() => onAbrir(CHAVE_VISAO_GERAL)}
-        className="mt-5 w-full bg-card border border-l-[5px] border-l-brand px-6 py-5 text-left hover:bg-accent transition-colors flex items-center justify-between gap-6"
-      >
-        <div>
-          <div className="text-xs uppercase tracking-wider text-muted-foreground">
-            Visão geral
-          </div>
-          <div className="text-xl font-bold uppercase tracking-tight mt-0.5">
-            Remuneração total
-          </div>
-          <p className="text-sm text-muted-foreground mt-1 max-w-3xl">
-            Todos os parâmetros somados num intervalo: quanto perdemos, quanto
-            ganhamos, onde pesou, quando aconteceu, o que foi revertido e quanto
-            ainda está sem preço.
-          </p>
-        </div>
-        <span className="text-[0.8125rem] font-bold uppercase tracking-wide text-brand shrink-0 inline-flex items-center gap-1">
-          Abrir <ChevronRight className="w-4 h-4" />
-        </span>
-      </button>
-
-      {view && !view.complete && (
-        <div className="mt-5 bg-card border border-l-[6px] border-l-brand flex gap-3 px-6 py-4 text-sm">
-          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-brand" />
-          <p>
-            <strong>Visão parcial.</strong> Nesta vigência chegou apenas{" "}
-            {view.series.map((s) => s.equipment.toLowerCase()).join(", ")}. Falta{" "}
-            <strong>{view.missingSeries.join(", ").toLowerCase()}</strong> — a série ausente
-            não está contada como zero.
-          </p>
-        </div>
-      )}
-
       {/*
         A cobertura, dita de frente. São 60 e poucas gavetas e este export
         alimenta uma minoria delas; deixar isso implícito faria a grade parecer
@@ -1762,88 +2108,8 @@ function Ficha({
 }
 
 /* ------------------------------------------------------------------ */
-/* Resumo e impacto                                                    */
+/* O impacto, dito pelo motivo certo                                   */
 /* ------------------------------------------------------------------ */
-
-/** O resumo executivo, compactado para caber acima da grade. */
-function Resumo({ view }: { view: FamiliesView }) {
-  const { summary } = view;
-  const liquido = impactEntries(summary.impact.byPeriodicity);
-
-  return (
-    <div className="min-w-0">
-      <p className="text-lg">
-        {summary.changes === 0 ? (
-          <>O cliente não mexeu em nada nesta vigência.</>
-        ) : (
-          <>
-            O cliente mexeu em <strong>{summary.groups}</strong>{" "}
-            {summary.groups === 1 ? "ponto" : "pontos"} da sua remuneração, em{" "}
-            <strong>{view.families.filter((f) => f.changes > 0).length}</strong>{" "}
-            {view.families.filter((f) => f.changes > 0).length === 1 ? "família" : "famílias"}
-            .
-          </>
-        )}
-      </p>
-
-      {liquido.length > 0 && (
-        <div className="flex flex-wrap items-baseline gap-x-6 gap-y-1 mt-2">
-          <span className="text-xs uppercase tracking-wide text-muted-foreground">
-            Impacto líquido
-          </span>
-          {liquido.map((e) => (
-            <span
-              key={e.periodicity}
-              className={cn(
-                "text-2xl font-bold tabular-nums",
-                e.amount < 0 ? "text-brand-red" : "text-success",
-              )}
-            >
-              {formatBrlShort(e.amount)}
-              <span className="text-sm font-normal text-muted-foreground">
-                {periodicitySuffix(e.periodicity)}
-              </span>
-            </span>
-          ))}
-        </div>
-      )}
-
-      <div className="flex flex-wrap gap-x-5 gap-y-1 text-sm text-muted-foreground mt-2">
-        <span>
-          <strong className="text-foreground">{summary.changes}</strong> alterações
-        </span>
-        <span>
-          <strong className="text-foreground">{summary.critical}</strong> críticas
-        </span>
-        <span>
-          <strong className="text-foreground">{summary.locked}</strong> com preço travado
-        </span>
-        <span>
-          <strong className="text-foreground">{summary.notCalculable}</strong> sem preço
-        </span>
-        <span>
-          <strong className="text-foreground">{summary.vehiclesTouched}</strong> veículos
-          tocados
-        </span>
-      </div>
-
-      {impactEntries(excluidoDaSoma(summary.impact)).length > 0 && (
-        <p className="text-xs text-muted-foreground flex gap-2 mt-2 max-w-2xl">
-          <Info className="w-3.5 h-3.5 mt-0.5 shrink-0" />
-          <span>
-            {impactEntries(excluidoDaSoma(summary.impact))
-              .map((e) => e.label)
-              .join(" · ")}{" "}
-            ficaram fora do líquido por já estarem contados em outra linha —
-            parcelas ou conjunto —{" "}
-            {summary.impact.excludedChanges}{" "}
-            {summary.impact.excludedChanges === 1 ? "alteração" : "alterações"}.
-          </span>
-        </p>
-      )}
-    </div>
-  );
-}
 
 /**
  * O impacto dito pelo motivo certo. Três estados diferentes de "sem número", e
