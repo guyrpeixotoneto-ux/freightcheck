@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { fetchJson } from "@/lib/api";
 import { apresentar } from "@/lib/apresentar-erro";
 import type { Diagnostico, Orientacao } from "@/lib/diagnostico";
@@ -64,9 +65,29 @@ function BlocoDeOrientacao({ orientacao }: { orientacao: Orientacao }) {
 export function ApiErrorNotice({
   error,
   what,
+  onTentarDeNovo,
+  tentando = false,
 }: {
   error: unknown;
   what: string;
+  /**
+   * A tentativa manual, quando quem chama tem uma para oferecer.
+   *
+   * Opcional porque nem todo uso deste componente tem o que repetir, e
+   * obrigatório de oferecer em todo uso que tenha: este painel aparece
+   * exatamente no caso em que **não há nada em tela** — as tentativas
+   * automáticas se esgotaram e nunca houve resposta —, que é o caso em que a
+   * pessoa mais precisa de um botão e o único em que ela não tinha nenhum.
+   *
+   * A tira âmbar de "o que está em tela é de HH:MM" já oferecia o seu desde o
+   * começo, e ela é a situação **confortável**: ali existe uma lista correta
+   * embaixo do aviso. O painel, que substitui a tela inteira, obrigava a
+   * recarregar a página na mão — e recarregar a página é justamente o gesto que
+   * faz ninguém nunca ver a recuperação acontecer.
+   */
+  onTentarDeNovo?: () => void;
+  /** Há tentativa em voo agora: o botão vira rótulo e para de aceitar clique. */
+  tentando?: boolean;
 }) {
   // `retry: false` de propósito: isto roda quando algo já falhou, e insistir só
   // atrasa a mensagem que a pessoa está esperando.
@@ -114,6 +135,25 @@ export function ApiErrorNotice({
           </a>{" "}
           diz o que o servidor enxerga do banco.
         </p>
+      )}
+
+      {/*
+        O botão vem por último, depois da orientação, e não antes dela: a
+        orientação é o que diz se repetir tem chance de mudar alguma coisa. Numa
+        migration que falta, repetir dá o mesmo 503 — e é para isso que o texto
+        acima existe. Quem oferece o botão é a tela, que sabe se tem o que
+        repetir.
+      */}
+      {onTentarDeNovo && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-1"
+          disabled={tentando}
+          onClick={onTentarDeNovo}
+        >
+          {tentando ? "Tentando…" : "Tentar de novo"}
+        </Button>
       )}
     </div>
   );

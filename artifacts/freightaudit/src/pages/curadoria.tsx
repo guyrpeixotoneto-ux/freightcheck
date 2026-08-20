@@ -452,6 +452,8 @@ export default function Curadoria() {
           <ApiErrorNotice
             error={error}
             what="A fila de curadoria não pôde ser carregada."
+            onTentarDeNovo={fila.tentarDeNovo}
+            tentando={fila.atualizando}
           />
         </div>
       )}

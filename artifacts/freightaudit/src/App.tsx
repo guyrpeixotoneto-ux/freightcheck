@@ -92,13 +92,16 @@ import { ETAPAS_FECHAMENTO } from '@/pages/fechamento/etapas';
  * 4xx de corpo vazio e um HTML de proxy com status de sucesso deixam de ser
  * repetidos (repetir devolve o mesmo), e um erro que não é de nenhuma classe
  * nossa — `undefined is not a function`, um contrato que mudou — passa a
- * falhar de primeira, em vez de esconder um defeito de código atrás de 1,6s de
- * espera.
+ * falhar de primeira, em vez de esconder um defeito de código atrás da espera
+ * inteira.
  *
- * **`retryDelay`.** Antes: o padrão do React Query, 1s e 2s. Agora: 400ms e
- * 1200ms. Mais curto porque a maior parte das quedas de transporte se resolve
- * entre um pacote e o seguinte, e porque a soma total (1,6s) é o que cabe antes
- * de quem espera achar que travou.
+ * **`retryDelay`.** Antes: o padrão do React Query, 1s e 2s. Agora: 400ms,
+ * 1200ms, 3600ms e 8000ms. Os dois primeiros degraus são curtos porque a maior
+ * parte das quedas de transporte se resolve entre um pacote e o seguinte; os
+ * dois últimos existem porque a causa mais comum de "não houve resposta" neste
+ * ambiente não é um pacote perdido, é a origem acordando — Repl dormindo, cold
+ * start, reinício —, e essa é da ordem de segundos. Ver `resiliencia.ts`, onde
+ * a conta e o que ela custa estão escritos.
  *
  * **`refetchOnWindowFocus`.** Antes: `true`, o padrão. Agora: `false`. É a única
  * mudança com perda, e é a que resolve o defeito: toda volta à aba disparava um
