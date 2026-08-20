@@ -532,6 +532,31 @@ export function registrarUnidade(pedido: {
 }
 
 /**
+ * Informa o código de uma unidade que foi cadastrada sem ele.
+ *
+ * **O que volta é um endereço novo.** Informar o código muda o `scopeHash` da
+ * unidade — é esse o ato: ela passa a viver no escopo que a importação vai
+ * produzir, com a planilha digitada junto. Quem chamou está numa tela que tem o
+ * escopo antigo na mão, e sem o novo recarregaria uma unidade que mudou de
+ * lugar.
+ */
+export function informarCodigoDaUnidade(pedido: {
+  /** O escopo que a unidade tem **hoje** — o derivado do nome. */
+  scopeHash: string;
+  /** O código como está no export, sem limpeza — ver `registrarUnidade`. */
+  codigo: string;
+}): Promise<{ scopeHash: string; unidades: UnidadeRegistrada[] }> {
+  return fetchJson<{ scopeHash: string; unidades: UnidadeRegistrada[] }>(
+    "/remuneracao/unidades/codigo",
+    {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(pedido),
+    },
+  );
+}
+
+/**
  * O que uma imagem da aba respondeu — e o que ela não respondeu.
  *
  * As três listas são separadas de propósito, porque significam coisas

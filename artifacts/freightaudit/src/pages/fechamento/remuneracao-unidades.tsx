@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { ArrowRight, ChevronRight, ScrollText } from "lucide-react";
+import { BotaoDeInformarCodigo } from "@/components/remuneracao/informar-codigo";
 import { BotaoDeCadastroDaPlanilha } from "@/components/remuneracao/painel-de-cadastro";
 import { BotaoDeRegistroDeUnidade } from "@/components/remuneracao/registrar-unidade";
 import { VistaDeUmaQuinzena } from "@/components/remuneracao/uma-quinzena";
@@ -154,6 +155,20 @@ function fraseDosTrechos(u: SituacaoDaUnidade): string {
 /** O nome do CDD, sem o canal — "CAMAÇARI" de "CAMAÇARI · EMPURRADA". */
 function nomeDaUnidade(u: SituacaoDaUnidade): string {
   return u.unidade ?? u.label.split(" · ")[0] ?? u.label;
+}
+
+/**
+ * A unidade foi cadastrada à mão **e sem código**?
+ *
+ * A pergunta não é "tem código", e sim "está sem o que a faria encontrar o
+ * arquivo". Uma unidade do acervo sempre tem código — é dele que ela nasceu —,
+ * e é por isso que a marca só vale para a cadastrada à mão: lá o código pode
+ * estar vazio, porque quem cadastrou nem sempre tinha o CNPJ na hora.
+ */
+function semCodigo(u: SituacaoDaUnidade): boolean {
+  if (!u.registradaAMao) return false;
+  const unidade = u.scopes.find((s) => s.scopeType === "UNIDADE");
+  return (unidade?.code ?? "").trim() === "";
 }
 
 /**
@@ -685,6 +700,33 @@ export default function RemuneracaoUnidades() {
                                 )}
                               </span>
                             </button>
+
+                            {/*
+                              E, quando ela também está sem código, a saída fica
+                              **ao lado do fato**, e não numa tela de
+                              configuração: sem código o export abre uma segunda
+                              unidade ao lado desta, e quem descobre isso
+                              descobre aqui, olhando a linha.
+
+                              Fora do botão que abre a linha, e com o clique
+                              contido: um `<button>` dentro de outro é HTML
+                              inválido, e sem o `stopPropagation` abrir o painel
+                              do código também abriria o cadastro embaixo dele.
+                            */}
+                            {semCodigo(u) && (
+                              <p
+                                className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 pl-5"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <span className="text-[0.6875rem] text-amber-700">
+                                  sem código — o export vai abrir outra ao lado
+                                </span>
+                                <BotaoDeInformarCodigo
+                                  scopeHash={u.scopeHash}
+                                  nome={nomeDaUnidade(u)}
+                                />
+                              </p>
+                            )}
                           </td>
 
                           <td className="px-4 py-3 align-middle">

@@ -135,9 +135,17 @@ export const remuneracaoPlanilhaTable = pgTable(
  * código que o export também carrega produz **o mesmo** hash que o import
  * produzirá, de modo que, no dia em que o arquivo chegar, ele cai na unidade
  * que já estava lá — com a planilha digitada no lugar certo, e sem uma segunda
- * "CAMAÇARI" ao lado da primeira. É por isso que o código é obrigatório: um
- * hash inventado a partir do nome faria as duas nunca se encontrarem, e o
- * conserto seria manual, meses depois, por quem não escreveu nenhuma das duas.
+ * "CAMAÇARI" ao lado da primeira.
+ *
+ * **O código pode vir vazio, e a coluna diz o que isso significa.** Quem tem a
+ * aba de Excel na mão nem sempre tem o CNPJ, e exigi-lo mandava procurar num
+ * export que ainda não chegou. Sem código o `scope_hash` é somado sobre o nome
+ * — ver `identificadorDaUnidade` —, e o preço é o reencontro: aquele hash não é
+ * o que a importação calcula, então o arquivo abre a unidade dele ao lado desta.
+ * O preço é reversível, e é o que `informarCodigoDaUnidade` faz: gravar o CNPJ
+ * depois move a linha (e a planilha dela) para o escopo do arquivo. `''` aqui
+ * quer dizer "ninguém deu o código", e nunca "o código é vazio" — é por isso
+ * que ele não é inventado a partir do nome na hora de gravar.
  *
  * **O acervo vence, sempre.** Quando existe snapshot para o mesmo par (escopo,
  * canal), a linha daqui é ignorada na montagem do contexto — ver

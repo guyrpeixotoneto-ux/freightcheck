@@ -22,6 +22,17 @@ export const MES_LONGO = [
   "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
 ];
 
+/**
+ * `julho` vira `Julho` — sozinho num campo, o nome do mês começa maiúsculo.
+ *
+ * Mora aqui, e não na tela, porque duas telas o escrevem: o seletor de mês de
+ * Importações e o de Cadastrar uma unidade, que passou a pedir a quinzena com
+ * os mesmos três campos. Uma segunda cópia seria a mesma regra de maiúscula com
+ * uma chance a mais de os dois formulários escreverem "julho" e "Julho".
+ */
+export const mesPorExtenso = (mes: number): string =>
+  MES_LONGO[mes - 1].replace(/^./, (letra) => letra.toUpperCase());
+
 export const doisDigitos = (n: number): string => (n < 10 ? `0${n}` : String(n));
 
 /**

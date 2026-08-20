@@ -9,6 +9,8 @@ import {
   copiarPlanilhaDaUnidade,
   descritorDeEscopo,
   gravarPlanilhaDaUnidade,
+  identificadorDaUnidade,
+  informarCodigoDaUnidade,
   lerCadastroDaUnidade,
   lerComparacaoDeCadastros,
   lerPlanilhaDaUnidade,
@@ -16,9 +18,11 @@ import {
   listarUnidades,
   normalizarCodigo,
   registrarUnidade,
+  unidadesRegistradasDoEscopo,
   LinhaDaPlanilhaInvalida,
   PlanilhaVazia,
   UnidadeInvalida,
+  UnidadeNaoRegistrada,
 } from "@workspace/remuneracao";
 
 /**
@@ -458,6 +462,13 @@ router.post("/remuneracao/planilha/leitura-de-imagem", async (req, res): Promise
  * que o export carrega produz **o mesmo** identificador que o import produzirá,
  * e o arquivo, quando chegar, cai na unidade que já estava lá.
  *
+ * **Sobre qual texto ele é somado — código ou nome — é `identificadorDaUnidade`
+ * quem decide**, e o cabeçalho daquela função é onde o preço de cada caminho
+ * está escrito. O que importa aqui é que a rota não escolhe: ela pergunta. O
+ * código deixou de ser obrigatório porque exigi-lo mandava quem tem a aba na
+ * mão procurar o CNPJ num export que ainda não chegou — a mesma parede que
+ * esta rota existe para derrubar, um passo adiante.
+ *
  * O autor sai da sessão, como no `PUT` da planilha, e pela mesma razão.
  */
 router.post("/remuneracao/unidades", async (req, res): Promise<void> => {
@@ -472,11 +483,15 @@ router.post("/remuneracao/unidades", async (req, res): Promise<void> => {
       : "UNIDADE";
 
   const codigo = normalizarCodigo(codigoBruto);
-  if (codigo === "") {
+  /*
+    O nome é conferido **aqui**, e não só no domínio, porque sem código é dele
+    que o identificador sai: sem esta guarda, uma unidade sem nome e sem código
+    produziria o descritor `UNIDADE:` — o mesmo para todas elas —, e a recusa
+    que viria depois seria a do domínio, com a frase certa e pelo motivo errado.
+  */
+  if (nome.trim() === "") {
     throw new UnidadeInvalida(
-      "O código da unidade é obrigatório — é o mesmo que vem no export, e é ele que faz a " +
-        "planilha digitada hoje encontrar o arquivo que chegar depois. Sem ele, a unidade " +
-        "importada nasceria ao lado desta em vez de dentro dela.",
+      "A unidade precisa de um nome — é o que a lista mostra, e o que quem opera procura.",
     );
   }
   /*
@@ -494,7 +509,9 @@ router.post("/remuneracao/unidades", async (req, res): Promise<void> => {
   }
 
   const unidade = await registrarUnidade(db, {
-    scopeHash: hashScopeSet([descritorDeEscopo(scopeType, codigo)]),
+    scopeHash: hashScopeSet([
+      descritorDeEscopo(scopeType, identificadorDaUnidade({ codigo, nome })),
+    ]),
     scopeType,
     codigo,
     nome,
@@ -504,6 +521,64 @@ router.post("/remuneracao/unidades", async (req, res): Promise<void> => {
   });
 
   res.status(201).json(unidade);
+});
+
+/**
+ * Informa o código de uma unidade que foi cadastrada sem ele.
+ *
+ * **Por que a rota existe.** Cadastrar sem código é permitido — quem tem a aba
+ * de Excel na mão nem sempre tem o CNPJ —, e o preço disso é que o identificador
+ * sai do nome e o export abre a unidade dele ao lado desta. Sem esta rota o
+ * preço era **definitivo**: descobrir o CNPJ no dia seguinte não servia de nada,
+ * e a planilha já digitada ficava presa ao escopo do nome para sempre.
+ *
+ * **O `scope_hash` novo é somado aqui, com o `hashScopeSet` da importação** —
+ * a mesma razão do `POST`, e agora com um detalhe que só existe neste caminho:
+ * o `scopeType` sai da **linha gravada**, e não do corpo do pedido. Aceitá-lo
+ * de fora deixaria o cliente somar o hash de um descritor que a unidade não
+ * tem, e o movimento a levaria para um escopo que nenhum arquivo vai produzir —
+ * o defeito de sempre, agora com a unidade em trânsito.
+ *
+ * O que é mover, e o que é recusado, mora em `informarCodigoDaUnidade`.
+ */
+router.put("/remuneracao/unidades/codigo", async (req, res): Promise<void> => {
+  const corpo = (req.body ?? {}) as Record<string, unknown>;
+  const escopoAtual = typeof corpo.scopeHash === "string" ? corpo.scopeHash.trim() : "";
+  const codigo = normalizarCodigo(typeof corpo.codigo === "string" ? corpo.codigo : "");
+
+  if (escopoAtual === "") {
+    throw new UnidadeInvalida(
+      "Falta dizer de qual unidade é o código — o pedido vem com o escopo dela, que é o que " +
+        "a lista já tem na mão.",
+    );
+  }
+  if (codigo === "") {
+    throw new UnidadeInvalida(
+      "O código é o que este ato informa: sem ele não há o que gravar. É o mesmo da coluna " +
+        "Unidade - CNPJ do export, escrito exatamente como está lá — com pontuação, se lá " +
+        "houver.",
+    );
+  }
+
+  /*
+    A leitura antes do hash não é desperdício: é de onde sai o `scopeType` — e
+    é também o que permite recusar com 404 antes de somar coisa nenhuma. A
+    corrida com um export que chegue neste intervalo é fechada dentro da
+    transação, que relê o escopo.
+  */
+  const registradas = await unidadesRegistradasDoEscopo(db, escopoAtual);
+  const primeira = registradas[0];
+  if (!primeira) throw new UnidadeNaoRegistrada();
+
+  const escopoNovo = hashScopeSet([descritorDeEscopo(primeira.scopeType, codigo)]);
+  const unidades = await informarCodigoDaUnidade(db, { escopoAtual, escopoNovo, codigo });
+
+  /*
+    O escopo novo volta junto porque é o endereço da unidade daqui para a
+    frente: a tela que chamou tem o antigo na URL, e sem esta linha ela
+    recarregaria uma unidade que mudou de lugar.
+  */
+  res.json({ scopeHash: escopoNovo, unidades });
 });
 
 export default router;

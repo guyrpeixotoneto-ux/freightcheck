@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  anoAceito,
   avisoDoEnvio,
   chaveDaCompetencia,
   chaveDoDia,
@@ -43,6 +44,42 @@ const RECEBIDO: DocumentoRecebido = {
   motivoDaQuarentena: null,
   substituiu: null,
 };
+
+/**
+ * A régua do ano, agora lida por dois formulários.
+ *
+ * Ela veio de `pages/fechamento/competencias.tsx` no dia em que o cadastro da
+ * unidade passou a pedir a quinzena com os mesmos três campos — ano digitado,
+ * mês e quinzena escolhidos. Duas cópias da faixa seriam duas telas capazes de
+ * discordar sobre o mesmo ano sem que o compilador percebesse.
+ */
+describe("anoAceito", () => {
+  it("aceita o ano dentro da faixa que a rota aceita", () => {
+    expect(anoAceito("2026")).toBe(true);
+    expect(anoAceito("2000")).toBe(true);
+    expect(anoAceito("2100")).toBe(true);
+  });
+
+  it("recusa fora da faixa, nas duas pontas", () => {
+    expect(anoAceito("1999")).toBe(false);
+    expect(anoAceito("2101")).toBe(false);
+  });
+
+  it("recusa o campo vazio em vez de o ler como ano zero", () => {
+    expect(anoAceito("")).toBe(false);
+    expect(anoAceito("   ")).toBe(false);
+  });
+
+  it("recusa o que não é número, e o número que não é inteiro", () => {
+    expect(anoAceito("dois mil")).toBe(false);
+    expect(anoAceito("2026,5")).toBe(false);
+    expect(anoAceito("2026.5")).toBe(false);
+  });
+
+  it("aceita o ano com espaço em volta — quem digita não apaga o espaço", () => {
+    expect(anoAceito(" 2026 ")).toBe(true);
+  });
+});
 
 describe("a chave de uma competência", () => {
   const id = "c1";

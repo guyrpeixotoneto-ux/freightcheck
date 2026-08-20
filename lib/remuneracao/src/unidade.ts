@@ -1,6 +1,6 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
-import { remuneracaoUnidadeTable } from "@workspace/db/schema";
+import { remuneracaoPlanilhaTable, remuneracaoUnidadeTable } from "@workspace/db/schema";
 
 /**
  * A UNIDADE REGISTRADA À MÃO — a que existe antes de o export existir.
@@ -32,6 +32,15 @@ import { remuneracaoUnidadeTable } from "@workspace/db/schema";
  * que o import produzirá, e no dia em que o arquivo chegar ele cai na unidade
  * que já estava lá — com a planilha no lugar certo, sem uma segunda CAMAÇARI
  * ao lado da primeira.
+ *
+ * **O código é opcional, e o que ele compra é exatamente esse encontro.** Quem
+ * tem a aba de Excel na mão nem sempre tem o CNPJ da unidade, e exigi-lo era
+ * mandar a pessoa procurar num export que ainda não chegou para poder digitar
+ * a planilha que já chegou — a mesma parede, um passo adiante. Sem código, o
+ * identificador sai do **nome**: a unidade existe, aparece na lista, tem
+ * planilha e tem vigência. O que ela não tem é o reencontro automático — ver
+ * {@link identificadorDaUnidade}, que é onde essa escolha mora e onde o preço
+ * dela está escrito por extenso.
  */
 
 /** Uma unidade que alguém registrou, como ela volta do banco. */
@@ -75,6 +84,39 @@ export class UnidadeInvalida extends Error {
 }
 
 /**
+ * Informar o código de um escopo que não é de unidade cadastrada à mão.
+ *
+ * 404, e não 400: o pedido está bem formado — o que não existe é a unidade que
+ * ele nomeia. Acontece quando o export chega entre a tela abrir e o clique, e
+ * a linha registrada deixa de responder pelo escopo; a frase manda recarregar
+ * em vez de acusar quem clicou.
+ */
+export class UnidadeNaoRegistrada extends Error {
+  constructor() {
+    super(
+      "Esta unidade não está entre as cadastradas à mão. Se o export dela chegou nesse " +
+        "meio-tempo, o código já é o do arquivo — recarregue a lista.",
+    );
+    this.name = "UnidadeNaoRegistrada";
+  }
+}
+
+/**
+ * O código não pode ser informado **nesta** unidade — e a frase diz por quê.
+ *
+ * Uma classe para três motivos, porque os três são o mesmo número (409) e o
+ * mesmo tipo de fato: o pedido está bom, e é o estado que já responde. Separar
+ * em três classes daria três traduções idênticas na tabela de recusas e uma
+ * chance a mais de a próxima nascer sem tradução nenhuma.
+ */
+export class CodigoRecusado extends Error {
+  constructor(mensagem: string) {
+    super(mensagem);
+    this.name = "CodigoRecusado";
+  }
+}
+
+/**
  * As unidades registradas à mão.
  *
  * Todas elas, sem filtro por acervo: quem cruza com o que foi importado é
@@ -86,7 +128,33 @@ export async function unidadesRegistradas(db: Database): Promise<UnidadeRegistra
     .from(remuneracaoUnidadeTable)
     .orderBy(remuneracaoUnidadeTable.nome, remuneracaoUnidadeTable.canal);
 
-  return linhas.map((l) => ({
+  return linhas.map(comoElaVolta);
+}
+
+/**
+ * As unidades cadastradas à mão **de um escopo** — zero, uma, ou uma por canal.
+ *
+ * Uma pergunta por escopo, e não por (escopo, canal), porque o código é da
+ * unidade e não da operação: o CNPJ da coluna do export é o mesmo para a
+ * EMPURRADA e para a ROTA da mesma CAMAÇARI, e informá-lo numa e não na outra
+ * partiria em duas uma unidade que o arquivo vai trazer inteira.
+ */
+export async function unidadesRegistradasDoEscopo(
+  db: Database,
+  scopeHash: string,
+): Promise<UnidadeRegistrada[]> {
+  const linhas = await db
+    .select()
+    .from(remuneracaoUnidadeTable)
+    .where(eq(remuneracaoUnidadeTable.scopeHash, scopeHash))
+    .orderBy(remuneracaoUnidadeTable.canal);
+
+  return linhas.map(comoElaVolta);
+}
+
+/** A linha do banco como o módulo a devolve — a tradução do `''` inclusive. */
+function comoElaVolta(l: typeof remuneracaoUnidadeTable.$inferSelect): UnidadeRegistrada {
+  return {
     scopeHash: l.scopeHash,
     scopeType: l.scopeType,
     codigo: l.codigo,
@@ -94,9 +162,52 @@ export async function unidadesRegistradas(db: Database): Promise<UnidadeRegistra
     canal: l.canal === "" ? null : l.canal,
     vigenciaInicial: String(l.vigenciaInicial),
     autorNome: l.autorNome,
-    criadaEm:
-      l.criadaEm instanceof Date ? l.criadaEm.toISOString() : String(l.criadaEm),
-  }));
+    criadaEm: l.criadaEm instanceof Date ? l.criadaEm.toISOString() : String(l.criadaEm),
+  };
+}
+
+/**
+ * O nome como a tabela o guarda — `trim` e caixa alta.
+ *
+ * Era uma linha dentro de `registrarUnidade`, e sai dela porque a borda passou
+ * a precisar do **mesmo** texto: quando não há código, é sobre o nome
+ * normalizado que o `scope_hash` é somado. Duas normalizações — uma aqui, uma
+ * lá — produziriam um hash somado sobre `camaçari ` e uma linha gravada como
+ * `CAMAÇARI`, e o segundo registro do mesmo nome não seria reconhecido como
+ * repetido.
+ */
+export function normalizarNome(bruto: string): string {
+  return bruto.trim().toUpperCase();
+}
+
+/**
+ * O TEXTO SOBRE O QUAL O `scope_hash` DA UNIDADE É SOMADO — e o que se perde
+ * quando ele não é o código.
+ *
+ * **Com código, é o código**, como o export o escreve. É o caso que faz este
+ * caminho valer a pena: o identificador sai igual ao que a importação vai
+ * produzir, e o arquivo, quando chegar, cai dentro da unidade que já estava
+ * ali.
+ *
+ * **Sem código, é o nome normalizado.** Precisa ser alguma coisa, e precisa ser
+ * alguma coisa **estável e distinta**: `UNIDADE:` puro faria todas as unidades
+ * sem código compartilharem um identificador só, e a segunda seria recusada
+ * como repetida da primeira — CAMAÇARI barrando a entrada de BELÉM. O nome já
+ * é o que distingue uma unidade da outra na lista, já é normalizado antes de
+ * ser gravado, e é a única coisa que quem cadastra sempre tem.
+ *
+ * **E o preço, dito por extenso, porque a tela precisa dizê-lo.** O hash do
+ * nome não é o hash que a importação calcula — ela soma sobre o código da
+ * coluna `Unidade - CNPJ`. Então a unidade registrada sem código **não** recebe
+ * o export quando ele chegar: o arquivo abre a unidade dele ao lado desta, cada
+ * uma com metade da história, e juntá-las é trabalho manual. Não é um defeito
+ * escondido — é o que se troca por não ter de conhecer o CNPJ hoje —, e é por
+ * isso que o campo continua na tela, continua sendo o caminho recomendado, e a
+ * frase embaixo dele muda conforme ele esteja preenchido ou não.
+ */
+export function identificadorDaUnidade(pedido: { codigo: string; nome: string }): string {
+  const codigo = normalizarCodigo(pedido.codigo);
+  return codigo === "" ? normalizarNome(pedido.nome) : codigo;
 }
 
 /**
@@ -120,7 +231,7 @@ export async function registrarUnidade(
     autor: { id: string | null; nome: string | null };
   },
 ): Promise<UnidadeRegistrada> {
-  const nome = pedido.nome.trim().toUpperCase();
+  const nome = normalizarNome(pedido.nome);
   const canal = pedido.canal === null ? "" : pedido.canal.trim().toUpperCase();
 
   if (nome === "") {
@@ -163,17 +274,136 @@ export async function registrarUnidade(
     throw new UnidadeJaRegistrada(nome, canal === "" ? null : canal);
   }
 
-  return {
-    scopeHash: criada.scopeHash,
-    scopeType: criada.scopeType,
-    codigo: criada.codigo,
-    nome: criada.nome,
-    canal: criada.canal === "" ? null : criada.canal,
-    vigenciaInicial: String(criada.vigenciaInicial),
-    autorNome: criada.autorNome,
-    criadaEm:
-      criada.criadaEm instanceof Date ? criada.criadaEm.toISOString() : String(criada.criadaEm),
-  };
+  return comoElaVolta(criada);
+}
+
+/**
+ * INFORMAR O CÓDIGO DEPOIS — a unidade cadastrada sem CNPJ passa a ter o dele,
+ * e a planilha digitada vai junto.
+ *
+ * **Por que este ato existe.** Sem código, o identificador da unidade sai do
+ * nome (ver {@link identificadorDaUnidade}), e o preço é o reencontro: o export
+ * abre a unidade dele ao lado desta. Enquanto informar o código fosse possível
+ * só no cadastro, esse preço era **definitivo** — quem descobrisse o CNPJ no dia
+ * seguinte não tinha o que fazer com ele, e a planilha já digitada ficava presa
+ * ao escopo do nome para sempre. É a mesma parede do começo desta história, com
+ * a mão trocada.
+ *
+ * **O que ele move, e por que a planilha vai junto.** Trocar o `scope_hash` da
+ * linha de unidade sem levar `remuneracao_planilha` seria a pior das saídas: a
+ * unidade reapareceria no lugar certo e **vazia**, e o que alguém digitou
+ * continuaria pendurado num escopo que nenhuma tela mostra mais. Os dois se
+ * movem na mesma transação, ou nenhum se move.
+ *
+ * **O que ele recusa, e por que recusar é o certo aqui.** Um destino já ocupado
+ * — por outra unidade cadastrada à mão no mesmo canal, ou por uma planilha que
+ * já tem a mesma célula na mesma vigência — é um caso em que juntar significa
+ * escolher qual dos dois valores vale. Isso é decisão de quem opera, e tomá-la
+ * em silêncio apagaria um número que alguém digitou, com autor e data, sem
+ * nada em tela. A recusa nomeia o que está no caminho.
+ *
+ * **O acervo no destino não é obstáculo — é o objetivo.** Se o export já
+ * chegou, o `snapshot` está lá e é justamente onde esta unidade quer cair:
+ * depois do movimento, `contextosEProcedencia` deixa o acervo vencer e a
+ * planilha, agora no escopo do arquivo, aparece no cadastro dele. Era o que
+ * teria acontecido sozinho se o código estivesse lá desde o começo.
+ *
+ * O `escopoNovo` chega somado da borda, pela razão do cabeçalho deste arquivo:
+ * a regra do hash é da importação, e uma segunda implementação dela aqui seria
+ * uma segunda chave de negócio.
+ */
+export async function informarCodigoDaUnidade(
+  db: Database,
+  pedido: { escopoAtual: string; escopoNovo: string; codigo: string },
+): Promise<UnidadeRegistrada[]> {
+  return db.transaction(async (tx) => {
+    const linhas = await tx
+      .select()
+      .from(remuneracaoUnidadeTable)
+      .where(eq(remuneracaoUnidadeTable.scopeHash, pedido.escopoAtual))
+      .orderBy(remuneracaoUnidadeTable.canal);
+
+    if (linhas.length === 0) throw new UnidadeNaoRegistrada();
+
+    /*
+      Trocar um código que já existe é outro ato, e um ato perigoso: aquele
+      código pode ser o que faz esta unidade encontrar um arquivo que já chegou,
+      e reescrevê-lo a moveria para longe dele em silêncio. Quem digitou o
+      código errado tem uma saída pior e honesta — a de sempre neste módulo —,
+      e quem quer trocá-lo está pedindo uma função que ainda não existe.
+    */
+    const jaTem = linhas.find((l) => l.codigo.trim() !== "");
+    if (jaTem) {
+      throw new CodigoRecusado(
+        `${jaTem.nome} já foi cadastrada com o código ${jaTem.codigo}. Este ato existe para ` +
+          "a unidade que ficou sem código nenhum — trocar um código que já vale é outra coisa.",
+      );
+    }
+
+    // O código dá no mesmo escopo: não há o que mover, e dizer "pronto" é a
+    // resposta certa para quem clicou duas vezes.
+    if (pedido.escopoNovo === pedido.escopoAtual) return linhas.map(comoElaVolta);
+
+    const canais = linhas.map((l) => l.canal);
+    const ocupado = await tx
+      .select({ nome: remuneracaoUnidadeTable.nome, canal: remuneracaoUnidadeTable.canal })
+      .from(remuneracaoUnidadeTable)
+      .where(
+        and(
+          eq(remuneracaoUnidadeTable.scopeHash, pedido.escopoNovo),
+          inArray(remuneracaoUnidadeTable.canal, canais),
+        ),
+      );
+    if (ocupado[0]) {
+      throw new CodigoRecusado(
+        `Já existe uma unidade cadastrada com o código ${pedido.codigo} em ` +
+          `${ocupado[0].canal === "" ? "operação sem tipo" : ocupado[0].canal} — ` +
+          `${ocupado[0].nome}. Duas unidades não podem dividir o mesmo código no mesmo tipo ` +
+          "de operação: uma delas é a que sobra, e escolher qual não é decisão desta tela.",
+      );
+    }
+
+    /*
+      A colisão de planilha é por célula — (canal, vigência, chave), que é a
+      unicidade da tabela. Mover por cima faria o número de lá sumir sem
+      aparecer em lugar nenhum; a recusa diz em quais vigências o encontro
+      aconteceria, que é o que quem opera precisa para resolver à mão.
+    */
+    const { rows: colisoes } = await tx.execute<{ canal: string; vigencia: string }>(sql`
+      SELECT DISTINCT destino.canal AS canal, destino.effective_date::text AS vigencia
+        FROM remuneracao_planilha origem
+        JOIN remuneracao_planilha destino
+          ON destino.scope_hash = ${pedido.escopoNovo}
+         AND destino.canal = origem.canal
+         AND destino.effective_date = origem.effective_date
+         AND destino.chave = origem.chave
+       WHERE origem.scope_hash = ${pedido.escopoAtual}
+       ORDER BY destino.canal, vigencia
+    `);
+    if (colisoes.length > 0) {
+      const onde = colisoes
+        .map((c) => `${c.canal === "" ? "sem tipo" : c.canal} · ${c.vigencia}`)
+        .join(", ");
+      throw new CodigoRecusado(
+        `A unidade do código ${pedido.codigo} já tem planilha informada nas mesmas linhas ` +
+          `(${onde}). Juntar as duas apagaria um dos números, e nenhum deles é descartável — ` +
+          "os dois foram digitados por alguém, com autor e data.",
+      );
+    }
+
+    await tx
+      .update(remuneracaoPlanilhaTable)
+      .set({ scopeHash: pedido.escopoNovo })
+      .where(eq(remuneracaoPlanilhaTable.scopeHash, pedido.escopoAtual));
+
+    const movidas = await tx
+      .update(remuneracaoUnidadeTable)
+      .set({ scopeHash: pedido.escopoNovo, codigo: pedido.codigo })
+      .where(eq(remuneracaoUnidadeTable.scopeHash, pedido.escopoAtual))
+      .returning();
+
+    return movidas.map(comoElaVolta);
+  });
 }
 
 /**

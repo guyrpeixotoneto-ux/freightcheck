@@ -48,10 +48,10 @@ import {
   type Parte,
   type TipoDeParte,
 } from "@/lib/fechamento";
-import { MES_LONGO } from "@/lib/fechamento-gerencial";
+import { MES_LONGO, mesPorExtenso } from "@/lib/fechamento-gerencial";
 import { apresentar } from "@/lib/apresentar-erro";
 import { useConsultaResiliente } from "@/lib/consulta-resiliente";
-import { chaveDaCompetencia } from "@/lib/fechamento-tela";
+import { anoAceito, chaveDaCompetencia } from "@/lib/fechamento-tela";
 
 /**
  * O erro, na frase que a apresentação escolheu.
@@ -120,10 +120,6 @@ const previaDaParte = (texto: string) => {
     : `Código ${parte.codigo}, sem nome — escreva “${parte.codigo} — Nome” para nomeá-la.`;
 };
 
-/** `julho` vira `Julho` — sozinho num campo, o nome do mês começa maiúsculo. */
-const mesPorExtenso = (mes: number) =>
-  MES_LONGO[mes - 1].replace(/^./, (letra) => letra.toUpperCase());
-
 /*
   `TIPOS_DE_OPERACAO` e `rotuloDoTipo` vivem em `@/lib/fechamento` e não aqui.
 
@@ -176,18 +172,6 @@ export function acaoDoFechamento(estado: Competencia["estado"]): AcaoDoFechament
  */
 export function podeExcluir(estado: Competencia["estado"]): boolean {
   return estado !== "ENCERRADA";
-}
-
-/**
- * O ano digitado é um ano — a mesma régua que a rota aplica.
- *
- * Repetida aqui de propósito: sem ela o botão manda um `NaN` para o servidor e
- * a pessoa recebe de volta um 400 para descobrir o que já se sabia antes do
- * clique. A regra continua sendo do servidor; o que a tela evita é a viagem.
- */
-export function anoAceito(texto: string): boolean {
-  const ano = Number(texto.trim());
-  return Number.isInteger(ano) && ano >= 2000 && ano <= 2100;
 }
 
 /**
