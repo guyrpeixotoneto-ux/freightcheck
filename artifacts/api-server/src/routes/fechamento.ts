@@ -10,6 +10,7 @@ import {
   explicarPainelAusente,
   fraseDoPainelAusente,
   lerApuracaoVigente,
+  lerConteudoDoDocumento,
   lerDeParaDaCompetencia,
   lerDiaDaCompetencia,
   lerDiarioDaCompetencia,
@@ -26,6 +27,7 @@ import {
 } from "@workspace/fechamento/persistencia";
 import {
   DESCRICAO_DA_FONTE,
+  diagnosticarPagamento,
   FORMATOS_DA_FONTE,
   GRUPOS_DA_PLANILHA,
   LINHAS_DA_PLANILHA,
@@ -512,6 +514,55 @@ router.post("/fechamento/competencias/:id/documentos", async (req, res): Promise
     }
     throw erro;
   }
+});
+
+/**
+ * Por que este 03.08.20 não virou verba.
+ *
+ * A pergunta que a lista de relatórios deixava sem resposta: o arquivo está
+ * lá, com nome e linhas lidas, e o painel da planilha não tem de onde sair. O
+ * diagnóstico lê **os bytes guardados na importação** (`0047`) e diz onde a
+ * leitura parou — cabeçalho não reconhecido, seção ausente, linha de verba com
+ * o número errado de colunas — apontando a linha física.
+ *
+ * **Serve só ao 03.08.20.** As outras cinco fontes não têm a mesma pergunta:
+ * elas não abrem parcela fixa nenhuma, e o que elas recusam já está em
+ * `fechamento_documento.recusas`, nominalmente, desde a importação.
+ *
+ * `409` quando o documento é anterior à `0047` e os bytes não existem — e é
+ * diferente de `404`: o documento existe, o que falta é a evidência.
+ */
+router.get("/fechamento/documentos/:id/diagnostico", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de documento inválido." });
+    return;
+  }
+
+  const guardado = await lerConteudoDoDocumento(db, id);
+  if (!guardado) {
+    res.status(409).json({
+      error:
+        "Este documento não tem o arquivo guardado — importações anteriores à migration " +
+        "0047 não o guardavam. Reenvie o relatório para que ele possa ser examinado.",
+    });
+    return;
+  }
+  if (guardado.tipo !== "PAGAMENTO") {
+    const fonte = DESCRICAO_DA_FONTE[guardado.tipo];
+    res.status(400).json({
+      error:
+        `O diagnóstico de verba é do ${DESCRICAO_DA_FONTE.PAGAMENTO.rotina}, e este ` +
+        `documento é o ${fonte.rotina} (${fonte.nome}). O que o leitor dele recusou está ` +
+        `na própria importação, linha a linha.`,
+    });
+    return;
+  }
+
+  res.json({
+    documento: { id, nomeDoArquivo: guardado.nomeDoArquivo },
+    diagnostico: diagnosticarPagamento(guardado.conteudo),
+  });
 });
 
 /**

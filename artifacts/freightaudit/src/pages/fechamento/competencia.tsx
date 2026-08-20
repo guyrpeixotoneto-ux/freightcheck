@@ -29,6 +29,7 @@ import { formatBrl, formatNumber } from "@/lib/format";
 import {
   apurar,
   descartarDados,
+  diagnosticarDocumento,
   enviarDocumento,
   fontesDaCompetencia,
   lerCompetencia,
@@ -586,6 +587,63 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   );
 }
 
+/**
+ * Por que o 03.08.20 que está lá não trouxe verba.
+ *
+ * **Sob demanda, e não junto da lista.** O diagnóstico descomprime o arquivo
+ * guardado e o relê inteiro; pagá-lo em toda abertura da competência custaria a
+ * quem só quer ver o que já chegou. Quem clica é quem tem a pergunta.
+ *
+ * A resposta vem do servidor, que tem os bytes — a tela não relê arquivo
+ * nenhum, e por isso não pode discordar do leitor que importou.
+ */
+function PorQueSemVerba({ documentoId }: { documentoId: string }) {
+  const [aberto, setAberto] = useState(false);
+  const diagnostico = useQuery({
+    queryKey: ["fechamento", "diagnostico", documentoId],
+    queryFn: () => diagnosticarDocumento(documentoId),
+    enabled: aberto,
+    retry: false,
+  });
+
+  if (!aberto) {
+    return (
+      <button
+        type="button"
+        onClick={() => setAberto(true)}
+        className="underline underline-offset-2 hover:text-amber-700"
+      >
+        Por que nenhuma verba entrou?
+      </button>
+    );
+  }
+  if (diagnostico.isLoading) return <p>Relendo o arquivo guardado…</p>;
+  if (diagnostico.isError || !diagnostico.data) {
+    return <p>{textoDoErro(diagnostico.error)}</p>;
+  }
+
+  const { diagnostico: d } = diagnostico.data;
+  return (
+    <div className="space-y-1">
+      <p className="font-medium">{d.resumo}</p>
+      {/*
+        A linha física e o texto original: é o que permite abrir o arquivo no
+        editor, ir até ela, e ver com os próprios olhos o que o leitor viu.
+      */}
+      {d.suspeitas.length > 0 && (
+        <ul className="space-y-0.5 font-mono text-[0.6875rem]">
+          {d.suspeitas.slice(0, 3).map((s) => (
+            <li key={s.linha}>
+              linha {s.linha}: {s.original.slice(0, 120)}
+            </li>
+          ))}
+          {d.suspeitas.length > 3 && <li>… e mais {d.suspeitas.length - 3}.</li>}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** Uma fonte: o que ela é, se já chegou, e o que o leitor recusou dela. */
 function LinhaDeFonte({
   fonte,
@@ -676,14 +734,17 @@ function LinhaDeFonte({
             demonstrativo do qual o leitor só tirou descontos aparece com um
             número respeitável de linhas — e é o painel da planilha, noutro
             cartão, que descobre que não há verba. A frase mora aqui, ao lado do
-            arquivo que ela descreve.
+            arquivo que ela descreve, e o porquê fica a um clique.
           */
-          <p className="text-xs text-amber-600 mt-1 ml-6">
-            Nenhuma verba entrou deste arquivo — só as{" "}
-            {documento.linhasLidas.toLocaleString("pt-BR")} linha(s) acima, que são
-            descontos. É a verba que abre a parcela fixa: enquanto ela não vier, o painel
-            da planilha fica sem de onde sair. Envie o 03.08.20 completo por cima.
-          </p>
+          <div className="text-xs text-amber-600 mt-1 ml-6 space-y-1">
+            <p>
+              Nenhuma verba entrou deste arquivo — só as{" "}
+              {documento.linhasLidas.toLocaleString("pt-BR")} linha(s) acima, que são
+              descontos. É a verba que abre a parcela fixa: enquanto ela não vier, o painel
+              da planilha fica sem de onde sair.
+            </p>
+            <PorQueSemVerba documentoId={documento.id} />
+          </div>
         )}
       </div>
       <div className="shrink-0">

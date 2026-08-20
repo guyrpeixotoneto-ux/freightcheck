@@ -731,6 +731,40 @@ export function lerPainelDaCompetencia(
   return fetchJson(`/fechamento/competencias/${id}/de-para?canal=${canal}`);
 }
 
+/**
+ * Por que um 03.08.20 não virou verba — o diagnóstico do arquivo guardado.
+ *
+ * A tela mostra `resumo`, que é uma frase; o resto existe para quem for
+ * consertar o arquivo ou o leitor, e é o que evita a próxima pergunta.
+ */
+export interface DiagnosticoDoPagamento {
+  causa:
+    | "LEU_NORMALMENTE"
+    | "NAO_E_O_03_08_20"
+    | "SEM_CABECALHO_DE_SECAO"
+    | "LINHA_DE_VERBA_RECUSADA"
+    | "SEM_CORPO_DE_VERBA";
+  resumo: string;
+  lido: { verbas: number; descontos: number; totais: number };
+  cabecalho: {
+    periodo: { inicio: string | null; fim: string | null };
+    unidade: string | null;
+    transportadora: string | null;
+  };
+  secoes: { canal: boolean; bloco: boolean; verbasBemFormatadas: number };
+  suspeitas: { linha: number; motivo: string; original: string }[];
+}
+
+/**
+ * O diagnóstico de um 03.08.20 importado, lido dos bytes que a importação
+ * guardou — nada é reenviado para obtê-lo.
+ */
+export function diagnosticarDocumento(
+  documentoId: string,
+): Promise<{ documento: { id: string; nomeDoArquivo: string }; diagnostico: DiagnosticoDoPagamento }> {
+  return fetchJson(`/fechamento/documentos/${documentoId}/diagnostico`);
+}
+
 /** O que o descarte apagou — contado por fonte, para a tela repetir de volta. */
 export interface DadosDescartados {
   competencia: Competencia;
