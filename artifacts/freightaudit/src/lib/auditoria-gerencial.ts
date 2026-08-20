@@ -318,6 +318,15 @@ export interface ResumoDaUnidade {
   impacto: Record<string, number>;
   /** A vigência mais recente do ano, e a frota que ela declarou. */
   ultimaVigencia: string | null;
+  /**
+   * A vigência mais antiga do ano — a ponta inicial da leitura de posição.
+   *
+   * Vive aqui porque é o cartão que sabe o ano: mandar a tela de posição
+   * descobrir sozinha as pontas obrigaria a uma leitura a mais só para saber o
+   * que esta já tem em mãos, e um endereço sem as duas datas não seria
+   * partilhável — quem o recebesse veria outro intervalo.
+   */
+  primeiraVigencia: string | null;
   ativos: number;
   /**
    * Quanto das vigências comparáveis do ano já foi comparado, em porcentagem.
@@ -378,9 +387,9 @@ export function resumirUnidades(
   const unidades = [...porContexto.values()].map((daUnidade) => {
     const contexto = daUnidade[0].contexto;
     const quinzenas = quinzenasDoAno(daUnidade, ano, diaDeHoje);
-    const ultimaVigencia = daUnidade
-      .map((v) => v.effectiveDate)
-      .sort((a, b) => b.localeCompare(a))[0];
+    const datas = daUnidade.map((v) => v.effectiveDate).sort((a, b) => a.localeCompare(b));
+    const ultimaVigencia = datas[datas.length - 1];
+    const primeiraVigencia = datas[0];
 
     const resumo: ResumoDaUnidade = {
       scopeHash: contexto.scopeHash,
@@ -405,6 +414,7 @@ export function resumirUnidades(
       foraDoTotal: 0,
       impacto: {},
       ultimaVigencia: ultimaVigencia ?? null,
+      primeiraVigencia: primeiraVigencia ?? null,
       /*
         A frota é a que a vigência mais recente do ano declarou, somando as
         séries daquela data — cavalos e carretas chegam em snapshots separados,

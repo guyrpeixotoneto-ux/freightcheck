@@ -147,6 +147,141 @@ export interface EndToEndAnalysis {
    */
   byParameter: ParameterRollup[];
   entries: EndToEndEntry[];
+  /**
+   * A posição de cada atributo, no grão em que a tela publica.
+   *
+   * Ver `AtributoNaPonta`. É o irmão de `byParameter` num grão mais fino, e o
+   * motivo de ele existir é que o parâmetro não serve de linha para uma tela
+   * organizada por equipamento — `carreta.custo_aluguel` e
+   * `cavalo.custo_aluguel` moram na mesma gaveta (`FROTA|Caminhão aluguel`), e
+   * um rollup dela não cabe nem no bloco da carreta nem no do cavalo.
+   */
+  byAttribute: AtributoNaPonta[];
+  /** O denominador de "X de Y mudaram", por equipamento. Ver `UniversoDoTipo`. */
+  universo: UniversoDoTipo[];
+}
+
+/** Quantas vigências do intervalo mexeram num atributo, e em quantos ativos. */
+export interface MovimentacaoNoPeriodo {
+  /** Vigências do intervalo em que o atributo se mexeu. */
+  vigencias: number;
+  /** Ativos distintos que se mexeram nele, em qualquer ponto do caminho. */
+  ativos: number;
+}
+
+/**
+ * A posição de um atributo num equipamento — a linha da tela.
+ *
+ * **O grão é (atributo × tipo de entidade), e não o parâmetro.** Um `parameterKey`
+ * é `família|parâmetro` e não carrega equipamento (`families.ts`), e há gavetas
+ * que atravessam tipos. Numa tela cujos blocos são equipamentos, o parâmetro só
+ * pode ser agrupador visual — a linha tem de ser o par.
+ *
+ * **O dinheiro não é somável a partir daqui, e não precisa de ser.** `impact` sai
+ * de `summariseImpact` sobre as linhas cruas deste par, com o deduplicador da
+ * leitura inteira — a mesma autoridade e o mesmo índice do total da análise. Uma
+ * tela que somasse `impact.amount` de vários grupos produziria um número que a
+ * autoridade não assinou: a exclusão é por ativo e olha para fora do grupo.
+ *
+ * **`posicao` separa duas notícias que o delta não distingue.** `DIFERENTE` é o
+ * que continua diferente das pontas; `REVERTIDO` mexeu no caminho e voltou ao
+ * valor inicial — delta zero, e movimento que houve. Sem esta separação a
+ * segunda desapareceria da tela, que é precisamente o que a leitura de posição
+ * faz sozinha.
+ */
+export interface AtributoNaPonta {
+  key: string;
+  attributeCode: string | null;
+  entityType: string | null;
+  equipment: string;
+  title: string;
+  parameterKey: string;
+  parameterName: string;
+  family: FamilyCode;
+  unit: string | null;
+  posicao: "DIFERENTE" | "REVERTIDO";
+  /** Ativos cujo valor hoje difere da ponta inicial. Zero no revertido. */
+  vehicles: number;
+  fleet: number;
+  /**
+   * Quanto da frota este par pegou — `TOTAL`/`MAIORIA`/`PARCIAL`.
+   *
+   * **Não confundir com a cobertura de dados** (`@workspace/coverage`), que
+   * responde "temos o dado?" e tem vocabulário próprio. Esta responde "quantos
+   * ativos mexeram", e as duas nunca se substituem.
+   */
+  coverage: ChangeGroup["coverage"] | null;
+  coverageLabel: string | null;
+  /** Total antes e depois, quando o atributo é somável. Ver `buildGroup`. */
+  aggregate: ChangeGroup["aggregate"] | null;
+  /** O par antes→depois mais comum, para quem não é somável. */
+  dominantPattern: ChangeGroup["dominantPattern"];
+  patterns: number;
+  /** O impacto oficial deste par. Da autoridade, por periodicidade. */
+  impact: ImpactSummary;
+  /**
+   * O que saiu da soma neste par, e por qual regra.
+   *
+   * `ESCOPO_DE_CONJUNTO` é o selo de conjunto da tela: o valor cobre cavalo e
+   * carreta juntos, e a linha de um deles não entra no total porque a do outro
+   * já responde por ela. Vem da decisão do deduplicador, nunca de uma segunda
+   * leitura da regra.
+   */
+  foraDaSoma: {
+    motivo: string;
+    explicacao: string;
+    ativos: number;
+    valor: number | null;
+  } | null;
+  movimentacoes: MovimentacaoNoPeriodo;
+  inconclusiveReason: string | null;
+  /** Os grupos que formam esta linha, para o detalhe abrir sem recompor nada. */
+  groups: ChangeGroup[];
+}
+
+/**
+ * O universo de um equipamento no recorte — o denominador honesto de "X de Y".
+ *
+ * `atributos` conta o **universo canônico**: atributos distintos com valor na
+ * vigência final daquele tipo. Não é o catálogo do Freightech nem o número de
+ * linhas da tela — é o que o modelo canônico de facto tem para aquele
+ * equipamento, que é a única contagem contra a qual "34 mudaram" quer dizer
+ * alguma coisa.
+ *
+ * Fato nulo não entra. Uma coluna que chegou vazia para a frota inteira não é
+ * uma variável da remuneração daquela vigência; é assunto de Cobertura de
+ * dados, e contá-la aqui inflaria o denominador com colunas que não carregam
+ * nada.
+ *
+ * As pontas vêm por tipo porque elas **são** por tipo: QLP vive noutra família
+ * de dados, com identidade e calendário próprios, e pode ter sido comparado
+ * entre duas vigências diferentes das do equipamento.
+ */
+export interface UniversoDoTipo {
+  entityType: string;
+  equipment: string;
+  /** As duas vigências comparadas para este tipo. `null` quando não houve. */
+  from: string | null;
+  fromLabel: string | null;
+  to: string | null;
+  toLabel: string | null;
+  /**
+   * As vigências **deste tipo** dentro do período, comparadas ou não.
+   *
+   * Vem por tipo porque é por tipo que ela existe: QLP vive noutra família de
+   * dados, com identidade própria, e publica no calendário dele. Um bloco que
+   * herdasse as datas do equipamento anunciaria uma comparação que não houve.
+   */
+  vigencias: { date: string; label: string }[];
+  /** Por que este tipo não foi comparado. `null` quando foi. */
+  reason: string | null;
+  fleet: number;
+  /** Atributos com valor na vigência mais recente deste tipo no período. */
+  atributos: number;
+  /** Destes, quantos continuam diferentes da ponta inicial. */
+  alterados: number;
+  /** E quantos se mexeram no caminho e voltaram ao valor inicial. */
+  revertidos: number;
 }
 
 const round = (v: number) => Number(v.toFixed(2));
@@ -171,6 +306,140 @@ async function frotaPorTipo(
      GROUP BY e.entity_type
   `);
   return Object.fromEntries(rows.map((r) => [r.entity_type, r.fleet]));
+}
+
+/**
+ * O universo canônico do recorte, por equipamento.
+ *
+ * É o denominador de "X de Y mudaram", e a escolha dele é o que separa um
+ * número honesto de um número decorativo. Três recusas:
+ *
+ * 1. **Não é o catálogo do Freightech.** O catálogo diz o que a fonte publica; o
+ *    denominador tem de dizer o que este recorte tem. Contar contra o catálogo
+ *    faria uma unidade que recebe metade das colunas parecer metade auditada.
+ * 2. **Não é o número de linhas da tela.** "34 de 34" não informa nada.
+ * 3. **Fato nulo não conta.** Uma coluna que chegou vazia para a frota inteira
+ *    não é uma variável da remuneração daquela vigência — é assunto de Cobertura
+ *    de dados —, e contá-la inflaria o denominador com colunas sem valor.
+ *
+ * Os tipos que existem no período **e não foram comparados** entram na lista com
+ * `reason` preenchido e as vigências próprias à vista. É o caso do QLP, que vive
+ * noutra família de dados e publica no calendário dele: o bloco tem de dizer que
+ * não houve comparação, em vez de herdar as datas do equipamento e anunciar uma
+ * que não houve.
+ */
+async function montarUniverso(
+  db: Database,
+  entrada: {
+    context: SeriesContext;
+    inicio: string;
+    fim: string;
+    comparados: Set<string>;
+    byAttribute: AtributoNaPonta[];
+  },
+): Promise<UniversoDoTipo[]> {
+  const { context, inicio, fim, comparados, byAttribute } = entrada;
+
+  const { rows: vigencias } = await db.execute<{
+    entity_type: string;
+    effective_date: string;
+    entity_type_set: string;
+  }>(sql`
+    SELECT t AS entity_type,
+           s.effective_date::text AS effective_date,
+           s.entity_type_set
+      FROM snapshot s
+      CROSS JOIN LATERAL unnest(string_to_array(s.entity_type_set, '+')) AS t
+     WHERE s.effective_date >= ${inicio}::date
+       AND s.effective_date <= ${fim}::date
+       AND s.status <> 'SUPERSEDED'
+       AND ${contextFilter("s", context)}
+     GROUP BY 1, 2, 3
+     ORDER BY 1, 2
+  `);
+
+  if (vigencias.length === 0) return [];
+
+  /*
+    O universo sai da vigência **mais recente** de cada tipo dentro do período,
+    e não da ponta final da análise: um tipo que publicou pela última vez em
+    maio não tem snapshot na ponta de agosto, e medir o universo dele lá daria
+    zero — que se leria como "esta unidade não tem trechos".
+  */
+  const { rows: contagens } = await db.execute<{
+    entity_type: string;
+    atributos: number;
+    fleet: number;
+  }>(sql`
+    WITH ultima AS (
+      SELECT DISTINCT ON (t) t AS entity_type, s.id AS snapshot_id
+        FROM snapshot s
+        CROSS JOIN LATERAL unnest(string_to_array(s.entity_type_set, '+')) AS t
+       WHERE s.effective_date >= ${inicio}::date
+         AND s.effective_date <= ${fim}::date
+         AND s.status <> 'SUPERSEDED'
+         AND ${contextFilter("s", context)}
+       ORDER BY t, s.effective_date DESC, s.revision DESC
+    )
+    SELECT u.entity_type,
+           count(DISTINCT f.attribute_id)::int AS atributos,
+           count(DISTINCT f.entity_id)::int    AS fleet
+      FROM ultima u
+      JOIN fact f   ON f.snapshot_id = u.snapshot_id
+      JOIN entity e ON e.id = f.entity_id AND e.entity_type = u.entity_type
+     WHERE f.is_null = false
+     GROUP BY 1
+  `);
+  const porTipo = new Map(contagens.map((c) => [c.entity_type, c]));
+
+  const datasPorTipo = new Map<string, string[]>();
+  const setsPorTipo = new Map<string, Set<string>>();
+  for (const v of vigencias) {
+    datasPorTipo.set(v.entity_type, [
+      ...(datasPorTipo.get(v.entity_type) ?? []),
+      v.effective_date,
+    ]);
+    setsPorTipo.set(
+      v.entity_type,
+      (setsPorTipo.get(v.entity_type) ?? new Set()).add(v.entity_type_set),
+    );
+  }
+
+  return [...datasPorTipo.keys()].sort().map((entityType) => {
+    const datas = datasPorTipo.get(entityType)!;
+    const doTipo = byAttribute.filter((a) => a.entityType === entityType);
+    const comparado = [...(setsPorTipo.get(entityType) ?? [])].some((s) =>
+      comparados.has(s),
+    );
+    /*
+      Comparado quer dizer: existe snapshot deste tipo nas **duas** pontas da
+      análise. `comparados` já é o resultado dessa interseção — o que sobra aqui
+      é dizer por que não, com as datas que o tipo de facto tem.
+    */
+    const temPontas = datas.includes(inicio) && datas.includes(fim);
+    const reason =
+      comparado && temPontas
+        ? null
+        : `Este equipamento não tem vigência nas duas pontas do período (${periodLabel(inicio)} e ${periodLabel(fim)}). ` +
+          (datas.length === 0
+            ? "Não há vigência dele no período."
+            : `As vigências dele no período são ${datas.map(periodLabel).join(", ")}. Sem as duas pontas não há posição a comparar.`);
+
+    return {
+      entityType,
+      equipment: equipmentLabel(entityType),
+      from: reason === null ? inicio : null,
+      fromLabel: reason === null ? periodLabel(inicio) : null,
+      to: reason === null ? fim : null,
+      toLabel: reason === null ? periodLabel(fim) : null,
+      vigencias: datas.map((date) => ({ date, label: periodLabel(date) })),
+      reason,
+      fleet: porTipo.get(entityType)?.fleet ?? 0,
+      atributos: porTipo.get(entityType)?.atributos ?? 0,
+      alterados: doTipo.filter((a) => a.posicao === "DIFERENTE").length,
+      revertidos: doTipo.filter((a) => a.posicao === "REVERTIDO").length,
+    };
+  });
 }
 
 /** A forma que `buildGroup` lê — a mesma que sai do SQL de `loadChanges`. */
@@ -471,6 +740,48 @@ export async function getEndToEndAnalysis(
     revertidoPorAtributo.set(linha.attribute_code, atual);
   }
 
+  /*
+    As movimentações do caminho, por atributo.
+
+    A consulta acima conta por (ativo, atributo), que é o grão de que a reversão
+    precisa — e é grão errado para publicar "mexeu em N vigências": tomar o
+    máximo por ativo devolve o maior número de vigências de **um** ativo, e não
+    as vigências em que o atributo se mexeu. Se o ativo A mexeu em janeiro e o B
+    em março, o máximo diz uma vigência e a resposta certa é duas.
+
+    Daí a segunda agregação, no grão do atributo. É a contagem que a tela
+    publica na coluna "no caminho", e ela sai daqui pronta: a interface não
+    reconstrói contagem nenhuma.
+  */
+  const { rows: movimentos } = await db.execute<{
+    attribute_code: string;
+    vigencias: number;
+    ativos: number;
+  }>(sql`
+    SELECT c.attribute_code,
+           count(DISTINCT sb.effective_date)::int AS vigencias,
+           count(DISTINCT c.entity_id)::int       AS ativos
+      FROM "change" c
+      JOIN change_set cs ON cs.id = c.change_set_id
+      JOIN snapshot sb   ON sb.id = cs.snapshot_b_id
+     WHERE sb.effective_date > ${inicio}::date
+       AND sb.effective_date <= ${fim}::date
+       AND sb.status <> 'SUPERSEDED'
+       AND c.change_type = 'VALUE_CHANGED'
+       AND c.entity_id IS NOT NULL
+       AND c.attribute_code IS NOT NULL
+       AND ${contextFilter("sb", context)}
+     GROUP BY 1
+  `);
+
+  const movimentacaoPorAtributo = new Map<string, MovimentacaoNoPeriodo>(
+    movimentos.map((m) => [
+      m.attribute_code,
+      { vigencias: m.vigencias, ativos: m.ativos },
+    ]),
+  );
+  const semMovimento: MovimentacaoNoPeriodo = { vigencias: 0, ativos: 0 };
+
   const reverted = [...revertidoPorAtributo.entries()]
     .map(([attributeCode, dados]) => {
       const semantica = [...semanticsB.values()].find((c) => c.attributeCode === attributeCode);
@@ -527,6 +838,140 @@ export async function getEndToEndAnalysis(
       return a.parameterName.localeCompare(b.parameterName, "pt-BR");
     });
 
+  /*
+    ---- a posição por (atributo × tipo) — o grão da tela ---------------------
+
+    Duas autoridades, e nenhuma reescrita aqui:
+
+    - **os valores e a abrangência** saem de `buildGroup` sobre a união das
+      linhas do par. `groupKey` parte um atributo em mais de um grupo quando a
+      comparabilidade ou a confiança do preço diferem, e a linha da tela é a
+      união deles — recompor os totais somando grupos daria outro número;
+    - **o dinheiro** sai de `summariseImpact` com o deduplicador da leitura
+      inteira, exactamente como `byParameter`. É por periodicidade, porque um
+      par pode ter mensal e anual, e um escalar afirmaria que se somam.
+  */
+  const linhasPorAtributo = new Map<string, LinhaCrua[]>();
+  for (const linha of doCartao) {
+    const chave = `${linha.attribute_code}|${linha.entity_type}`;
+    const lista = linhasPorAtributo.get(chave) ?? [];
+    lista.push(linha);
+    linhasPorAtributo.set(chave, lista);
+  }
+
+  const gruposPorAtributo = new Map<string, ChangeGroup[]>();
+  for (const entrada of entries) {
+    const chave = `${entrada.attributeCode}|${entrada.entityType}`;
+    gruposPorAtributo.set(chave, [
+      ...(gruposPorAtributo.get(chave) ?? []),
+      entrada.group,
+    ]);
+  }
+
+  const diferentes: AtributoNaPonta[] = [...linhasPorAtributo.entries()].map(
+    ([chave, linhas]) => {
+      const grupo = buildGroup(linhas as never, fleetByChangeSet, dedup);
+      const placement = placementOf(grupo.attributeCode);
+      return {
+        key: chave,
+        attributeCode: grupo.attributeCode,
+        entityType: grupo.entityType,
+        equipment: grupo.equipment,
+        title: grupo.title,
+        parameterKey: placement.parameterKey,
+        parameterName: placement.parameter,
+        family: placement.family,
+        unit: grupo.unit,
+        posicao: "DIFERENTE" as const,
+        vehicles: grupo.vehicles,
+        fleet: grupo.fleet,
+        coverage: grupo.coverage,
+        coverageLabel: grupo.coverageLabel,
+        aggregate: grupo.aggregate,
+        dominantPattern: grupo.dominantPattern,
+        patterns: grupo.patterns,
+        impact: summariseImpact(linhas as never, dedup),
+        foraDaSoma:
+          grupo.impact.excludedMotivo === null
+            ? null
+            : {
+                motivo: grupo.impact.excludedMotivo,
+                explicacao: grupo.impact.excludedReason ?? "",
+                ativos: grupo.impact.excludedVehicles,
+                valor: grupo.impact.excludedAmount,
+              },
+        movimentacoes:
+          (grupo.attributeCode === null
+            ? undefined
+            : movimentacaoPorAtributo.get(grupo.attributeCode)) ?? semMovimento,
+        inconclusiveReason: grupo.inconclusiveReason,
+        groups: gruposPorAtributo.get(chave) ?? [grupo],
+      };
+    },
+  );
+
+  /*
+    O revertido é linha da tela, e não nota de rodapé.
+
+    Ele não aparece em `entries` por definição — não está diferente das pontas —,
+    e é precisamente o caso que a leitura de posição esconde sozinha: delta zero
+    sobre um atributo que se mexeu quatro vezes no caminho. Sem linha própria, a
+    tela diria "não mudou" de algo que mudou e voltou.
+  */
+  const revertidos: AtributoNaPonta[] = reverted.map((r) => {
+    const semantica = [...semanticsB.values()].find(
+      (c) => c.attributeCode === r.attributeCode,
+    );
+    const placement = placementOf(r.attributeCode);
+    return {
+      key: `${r.attributeCode}|${semantica?.entityType ?? null}`,
+      attributeCode: r.attributeCode,
+      entityType: semantica?.entityType ?? null,
+      equipment: r.equipment,
+      title: r.title,
+      parameterKey: placement.parameterKey,
+      parameterName: placement.parameter,
+      family: placement.family,
+      unit: semantica?.unit ?? null,
+      posicao: "REVERTIDO" as const,
+      // Zero ativos diferentes **hoje** — que é o que a coluna mede.
+      vehicles: 0,
+      fleet: 0,
+      coverage: null,
+      coverageLabel: null,
+      aggregate: null,
+      dominantPattern: null,
+      patterns: 0,
+      impact: summariseImpact([], dedup),
+      foraDaSoma: null,
+      movimentacoes: movimentacaoPorAtributo.get(r.attributeCode) ?? {
+        vigencias: r.periods,
+        ativos: r.entities,
+      },
+      inconclusiveReason: null,
+      groups: [],
+    };
+  });
+
+  const byAttribute = [...diferentes, ...revertidos].sort((a, b) => {
+    const peso = (r: AtributoNaPonta) => {
+      const valores = Object.values(r.impact.byPeriodicity).map(Math.abs);
+      return valores.length === 0 ? 0 : Math.max(...valores);
+    };
+    const diferenca = peso(b) - peso(a);
+    if (diferenca !== 0) return diferenca;
+    if (b.vehicles !== a.vehicles) return b.vehicles - a.vehicles;
+    return a.title.localeCompare(b.title, "pt-BR");
+  });
+
+  const universo = await montarUniverso(db, {
+    context,
+    inicio,
+    fim,
+    comparados: new Set(paresComparaveis),
+    byAttribute,
+  });
+
   const losses: Record<string, number> = {};
   const gains: Record<string, number> = {};
   for (const linha of doCartao) {
@@ -572,5 +1017,7 @@ export async function getEndToEndAnalysis(
     },
     byParameter,
     entries,
+    byAttribute,
+    universo,
   };
 }

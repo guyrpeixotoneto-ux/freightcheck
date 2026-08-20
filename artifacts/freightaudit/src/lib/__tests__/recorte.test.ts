@@ -3,6 +3,7 @@ import {
   abaValida,
   lerFiltros,
   lerRecorte,
+  linkDaPosicao,
   linkDaVisaoGeral,
   linkDeAlteracoes,
   nomeDaUnidade,
@@ -225,6 +226,48 @@ describe("o caminho de volta", () => {
 
   it("sem recorte, volta para a Visão geral e nada mais", () => {
     expect(linkDaVisaoGeral(RECORTE_VAZIO)).toBe("/");
+  });
+});
+
+describe("o caminho para a posição", () => {
+  it("leva a unidade e as duas pontas do intervalo", () => {
+    expect(
+      linkDaPosicao(recorte({ scopeHash: "abc", canal: "EMPURRADA" }), {
+        de: "2026-01-02",
+        ate: "2026-08-01",
+      }),
+    ).toBe("/posicao?scopeHash=abc&canal=EMPURRADA&de=2026-01-02&ate=2026-08-01");
+  });
+
+  it("não leva vigência — a posição é de um intervalo, não de um ponto", () => {
+    /*
+      `period` recortaria a leitura a uma vigência, que é o oposto do que esta
+      tela mede. Deixá-lo passar faria o endereço prometer um filtro que a tela
+      não aplica — a mesma recusa que `paramsDoRecorte` já faz pela aba Impacto.
+    */
+    const endereco = linkDaPosicao(
+      recorte({ period: "2026-08-01", scopeHash: "abc" }),
+      { de: "2026-01-02", ate: "2026-08-01" },
+    );
+    expect(endereco).not.toContain("period=");
+    expect(endereco).toContain("scopeHash=abc");
+  });
+
+  it("sem as pontas, abre a posição no intervalo que o servidor escolher", () => {
+    // Acontece quando a unidade tem uma vigência só: não há intervalo a nomear.
+    expect(linkDaPosicao(recorte({ scopeHash: "abc" }), { de: null, ate: null })).toBe(
+      "/posicao?scopeHash=abc",
+    );
+    expect(linkDaPosicao(RECORTE_VAZIO, { de: null, ate: null })).toBe("/posicao");
+  });
+
+  it("o canal vazio viaja, porque vazio é uma partição e não uma ausência", () => {
+    expect(
+      linkDaPosicao(recorte({ scopeHash: "abc", canal: "" }), {
+        de: "2026-01-02",
+        ate: "2026-08-01",
+      }),
+    ).toContain("canal=");
   });
 });
 

@@ -21,7 +21,7 @@ import {
   type VigenciaDaAuditoria,
 } from "@/lib/auditoria-gerencial";
 import { formatBrlCompacto, formatNumber, periodicitySuffix } from "@/lib/format";
-import { linkDaVisaoGeral } from "@/lib/recorte";
+import { linkDaPosicao } from "@/lib/recorte";
 import { cn } from "@/lib/utils";
 
 /**
@@ -56,9 +56,21 @@ import { cn } from "@/lib/utils";
  * 2. **A ordem dos cartões é a do trabalho que falta**, e não a alfabética:
  *    primeiro quem tem vigência sem comparação. A tela existe para dizer onde
  *    ir.
- * 3. **O cartão abre a unidade.** Clicar leva ao Resumo executivo daquele
- *    recorte — a tela que já responde pela unidade em profundidade. Uma
- *    terceira tela de unidade seria uma segunda verdade sobre o mesmo lugar.
+ * 3. **O cartão abre a posição da unidade no ano**, e não o Resumo executivo.
+ *    Esta decisão mudou, e o motivo é o recorte: o cartão fala do ano, e o
+ *    Resumo executivo responde por **uma** vigência — o link antigo levava, com
+ *    `period: null`, à mais recente, e quem clicava num número do ano lia um
+ *    número de um mês sem que nada dissesse que o assunto tinha encolhido.
+ *
+ *    A objeção que sustentava a decisão anterior — "uma terceira tela de unidade
+ *    seria uma segunda verdade sobre o mesmo lugar" — continua de pé e é o que
+ *    define o que Posição pode ser. Ela não repete o Resumo executivo noutro
+ *    formato: responde outra pergunta, na outra leitura do motor. O Resumo
+ *    executivo mede **movimento** dentro de uma vigência; Posição mede a
+ *    **distância entre duas pontas** do ano, e as duas não se derivam uma da
+ *    outra — um valor que subiu e voltou é movimento lá e nada aqui. Duas
+ *    verdades sobre o mesmo lugar seria mostrar o mesmo número duas vezes; isto
+ *    é mostrar dois números que sempre foram diferentes.
  */
 
 /**
@@ -98,17 +110,35 @@ function CartaoDaUnidade({ unidade, ano }: { unidade: ResumoDaUnidade; ano: numb
 
   return (
     <Link
-      href={linkDaVisaoGeral({
-        period: null,
-        scopeHash: unidade.scopeHash,
-        /*
-          `canal: ""` não é a ausência de canal: é a partição das vigências cujo
-          rótulo não declara um. É a mesma distinção que `parseContext` faz do
-          outro lado, e mandar `null` aqui faria o link abrir a unidade com o
-          canal que o servidor escolher, que pode ser outro.
-        */
-        canal: unidade.channel ?? "",
-      })}
+      /*
+        O cartão abre a **posição** da unidade no ano, e não a Visão geral.
+
+        A troca corrige uma incoerência que estava no link: o cartão fala do ano
+        — 3.202 alterações, oito vigências —, e `linkDaVisaoGeral` com
+        `period: null` abria a vigência mais recente. Quem clicava num número do
+        ano caía numa tela de um mês, sem uma palavra dizendo que o assunto
+        tinha encolhido. É o defeito que `recorte.ts` descreve como a razão de
+        ele próprio existir.
+
+        A posição também não é a decomposição das alterações do cartão, e a tela
+        diz isso na primeira frase: uma soma movimentos, a outra mede a distância
+        entre duas pontas. O que as liga é a unidade e o ano, que é exactamente o
+        que o link carrega.
+      */
+      href={linkDaPosicao(
+        {
+          period: null,
+          scopeHash: unidade.scopeHash,
+          /*
+            `canal: ""` não é a ausência de canal: é a partição das vigências cujo
+            rótulo não declara um. É a mesma distinção que `parseContext` faz do
+            outro lado, e mandar `null` aqui faria o link abrir a unidade com o
+            canal que o servidor escolher, que pode ser outro.
+          */
+          canal: unidade.channel ?? "",
+        },
+        { de: unidade.primeiraVigencia, ate: unidade.ultimaVigencia },
+      )}
       className="rounded-lg border bg-card p-5 block transition-colors hover:border-primary/50 hover:bg-muted/30"
       data-testid={`cartao-unidade-${unidade.scopeHash}`}
     >

@@ -286,3 +286,28 @@ export function linkDaVisaoGeral(recorte: Recorte): string {
   const consulta = paramsDoRecorte(recorte).toString();
   return consulta ? `/?${consulta}` : "/";
 }
+
+/**
+ * A posição de uma unidade entre duas vigências — a tela que o cartão do ano
+ * abre.
+ *
+ * O intervalo viaja no endereço, e não é detalhe de implementação: o cartão da
+ * Visão Gerencial fala de um **ano**, e a leitura de posição precisa das duas
+ * pontas daquele ano. Sem elas no endereço a tela abriria no par mais recente —
+ * um mês —, e quem clicou num cartão que anuncia o ano leria outra coisa sem que
+ * nada avisasse. É o mesmo defeito que `period: null` produz hoje no caminho
+ * para a Visão geral.
+ *
+ * `de` e `ate` acompanham `Parâmetros › Análise`, que já usa estes dois nomes
+ * para o mesmo intervalo. Dois nomes para a mesma coisa seriam duas linguagens.
+ */
+export function linkDaPosicao(
+  recorte: Recorte,
+  intervalo: { de: string | null; ate: string | null },
+): string {
+  const params = paramsDoRecorte(recorte, { comPeriodo: false });
+  if (intervalo.de !== null) params.set("de", intervalo.de);
+  if (intervalo.ate !== null) params.set("ate", intervalo.ate);
+  const consulta = params.toString();
+  return consulta ? `/posicao?${consulta}` : "/posicao";
+}

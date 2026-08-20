@@ -1,7 +1,23 @@
 # FreightCheck — Situação da remuneração, ponta a ponta
 
-> **Status:** investigação e proposta. Nenhum código de produção escrito, nenhum
-> schema tocado, nenhuma migration, nenhuma regra de comparação modificada.
+> **Status: primeira versão implementada.** O desenho abaixo foi aprovado e
+> construído, com o caminho **(3c)** do §7.2 — só os atributos que mudaram, com
+> o contador honesto "X de Y". Nenhum schema tocado, nenhuma migration, nenhuma
+> regra de comparação alterada; o que mudou foi um defeito de índice corrigido
+> (§6) e dois campos novos na leitura de posição.
+>
+> **O que existe hoje:** `/posicao` (`artifacts/freightaudit/src/pages/posicao.tsx`),
+> alimentada por `byAttribute` e `universo` em `EndToEndAnalysis`. O cartão da
+> Visão Gerencial passou a abrir esta tela, com as duas pontas do ano no
+> endereço.
+>
+> **O que ficou por fazer, deliberadamente:** a rota que devolve o estado por
+> atributo de uma célula de cobertura — o caminho **(3a)**. Sem ela, um atributo
+> que não se mexeu não tem linha, e a tela diz isso em vez de o pintar de verde.
+>
+> Este documento continua a valer como o registo do desenho e da proveniência.
+> As citações de linha referem-se ao código **anterior** à implementação; o que
+> mudou desde então está nas duas secções marcadas abaixo.
 >
 > **Pergunta que orienta o documento:** o dono da operação abre a unidade e quer
 > saber *como estava a remuneração dele no início do período e como está hoje,
@@ -46,11 +62,13 @@ para ele, e não usa a palavra "alterações" para o que publica. O que ela publ
 
 ### 1.3 De onde se chega nela
 
-Do cartão da unidade na Visão Gerencial da Auditoria, que hoje aponta para o
-Resumo executivo com `period: null`
-(`artifacts/freightaudit/src/pages/visao-gerencial.tsx:101`) — isto é, para a
-vigência mais recente, enquanto o cartão fala do ano inteiro. A troca de destino
-resolve essa incoerência de recorte, e é o argumento independente para fazê-la.
+Do cartão da unidade na Visão Gerencial da Auditoria. Ele apontava para o Resumo
+executivo com `period: null` — isto é, para a vigência mais recente, enquanto o
+cartão fala do ano inteiro; quem clicava num número do ano lia um número de um
+mês. A troca de destino resolve essa incoerência de recorte, e era o argumento
+independente para fazê-la. **Feito:** o cartão passa por `linkDaPosicao`, com as
+duas pontas do ano no endereço (`lib/recorte.ts`), e a decisão 3 do cabeçalho de
+`visao-gerencial.tsx` foi reescrita com o motivo da mudança.
 
 ---
 
@@ -75,7 +93,7 @@ CAMAÇARI · EMPURRADA                    Período [ 2026 ▾ ]   [ jan/2026 →
 
 CAVALO — 62 ativos · comparado 01/01 → 01/08                       [expandir]
 ┌───────────────────┬─────────┬──────────┬───────┬───────┬────────────┬──────────┬───────────┐
-│ Atributo          │ Início  │ Hoje     │ Δ     │ Ativos│ Impacto    │ Cobertura│ No caminho│
+│ Atributo          │ Início  │ Hoje     │ Δ     │ Ativos│ Impacto    │Abrangência│No caminho│
 ├───────────────────┼─────────┼──────────┼───────┼───────┼────────────┼──────────┼───────────┤
 │ FINAME            │ 887.408 │ 867.860  │ −2,2% │ 58    │ −R$ 19.548 │ COMPLETO │ 4 vig.    │
 │                   │         │          │       │       │ /mês       │          │           │
@@ -108,8 +126,12 @@ QLP OPERACIONAL
 1. **A linha é (atributo × tipo de entidade), não "parâmetro".** Ver §4.
 2. **Conjunto não é bloco.** É selo de linha, e sai da autoridade de dedução que
    já existe. Ver §5.
-3. **Cobertura é a de dados, não a de frota.** São duas coisas com o mesmo nome
-   no código. Ver §6.
+3. **Há duas "coberturas" no código, e a tela nomeia a que publica.** A coluna
+   entregue é a **abrangência** — quantos ativos da frota o valor mexeu —, que é
+   o vocabulário que `grouped.ts` já usa para ela. A cobertura de **dados**
+   ("temos o dado?") é outra pergunta, com outro vocabulário, e entra quando o
+   caminho (3a) do §7.2 existir. Dar o mesmo nome às duas faria a tela responder
+   uma e parecer responder a outra. Ver §6.
 4. **"Não mudou" nunca é pintado como conferido.** A célula de estado é sempre a
    de cobertura; a ausência de diferença entre as pontas é dita com essas
    palavras, e a coluna "no caminho" é o que impede que ela seja lida como
@@ -232,7 +254,8 @@ A coluna da tela é a **segunda**. É a que o pedido chama de "semântica de
 cobertura já existente", e é a única que responde por um parâmetro que não
 apareceu em ponta nenhuma.
 
-> **Achado, e é um defeito real:** a primeira não poderia ser usada aqui nem se
+> **Achado, e é um defeito real — CORRIGIDO em commit próprio.** A primeira não
+> poderia ser usada aqui nem se
 > quiséssemos. `buildGroup` procura a frota por uma chave composta de
 > `change_set_id` + separador `U+001F` + `entity_type` (`grouped.ts:486`), mas o
 > ponta a ponta indexa o mapa só pela série (`end-to-end.ts:283`) — e
@@ -240,9 +263,14 @@ apareceu em ponta nenhuma.
 > erra, cai no `?? 0`, e `fleet` desaba para `vehicles` (`grouped.ts:484-489`):
 > a razão vira 1, a cobertura vira `TOTAL` sempre, e `coverageLabel` publica
 > "Toda a frota · N de N" (`grouped.ts:690`). Só `getGroupedView` monta a chave
-> certa (`grouped.ts:965-967`). **Isto é anterior a esta proposta e independe
-> dela** — vale corrigir em separado, com teste próprio, e não de carona nesta
-> tela.
+> certa (`grouped.ts:965-967`). Isto era anterior a esta proposta e independia
+> dela, e foi corrigido em mudança separada antes de a tela usar a abrangência
+> como verdade: `chaveDaFrota` passou a ser a única redacção da chave, as duas
+> consultas partidas passaram a contar por tipo, e
+> `lib/comparison/src/__tests__/frota-do-grupo.test.ts` prende a correcção — ele
+> exige que **exista** grupo com frota maior do que os ativos dele, que é o que o
+> defeito tornava impossível. Sem a correcção, os quatro casos reprovam, um deles
+> publicando frota 5 onde a frota de cavalo é 62.
 
 ---
 
@@ -262,20 +290,24 @@ apareceu em ponta nenhuma.
 
 ### 7.2 Precisa ser construído — três itens, todos no servidor
 
-**(1) Rollup por (atributo × tipo de entidade).** Novo campo em
+**(1) Rollup por (atributo × tipo de entidade). — FEITO.** Novo campo em
 `EndToEndAnalysis`, ao lado de `byParameter`, somando com
 `summariseImpact(linhas, dedup)` sobre a união dos grupos daquele par. É a peça
 que impede a interface de somar dinheiro. Custo: baixo — as linhas e o
 deduplicador já estão em memória no ponto certo (`end-to-end.ts:344-367`).
 
 **(2) Expor as movimentações do caminho para todos os atributos, não só para os
-revertidos.** A consulta que conta `count(DISTINCT sb.effective_date)` por
+revertidos. — FEITO**, com uma correcção que a investigação não tinha visto: a
+consulta existente conta por (ativo, atributo), e tomar o máximo por ativo
+subestima a resposta — se o ativo A se mexeu em janeiro e o B em março, o máximo
+diz uma vigência e a resposta certa é duas. A contagem publicada é uma agregação
+no grão do atributo. A consulta que conta `count(DISTINCT sb.effective_date)` por
 (entidade, atributo) já roda (`end-to-end.ts:410-428`); hoje o resultado é
 descartado para todo atributo que **ainda** está diferente, porque o laço
 seguinte só guarda o que não está (`end-to-end.ts:436`). Publicar o mapa
 completo é acumular antes de filtrar. Custo: quase zero, mesma consulta.
 
-**(3) O universo das linhas.** É o item de verdade, e o que decide o tamanho do
+**(3) O universo das linhas. — ESCOLHIDO (3c).** É o item de verdade, e o que decide o tamanho do
 trabalho: **o ponta a ponta só emite linha para atributo que difere entre as
 pontas.** Um parâmetro que não se mexeu — ou que sumiu do export — não tem
 entrada nenhuma, e a tela precisa mostrá-lo. O universo tem de vir da cobertura
@@ -297,9 +329,13 @@ completa de atributos esperados.
 >   ("34 de 138 parâmetros mudaram") e o resto atrás de um "mostrar os que não
 >   mudaram" que carrega depois.
 >
-> **Recomendação: (3c) na primeira entrega e (3a) em seguida.** (3c) entrega a
-> pergunta principal sem rota nova, e mede se o resto é mesmo lido antes de
-> pagar por ele.
+> **Decidido: (3c) nesta entrega, (3a) em seguida.** (3c) entrega a pergunta
+> principal sem rota nova, e mede se o resto é mesmo lido antes de pagar por ele.
+>
+> O denominador de (3c) não é o número de linhas da tela nem o catálogo: é o
+> universo canônico do recorte — atributos distintos com valor na vigência mais
+> recente daquele tipo, fato nulo excluído. Ver `montarUniverso` em
+> `end-to-end.ts`.
 
 ---
 
