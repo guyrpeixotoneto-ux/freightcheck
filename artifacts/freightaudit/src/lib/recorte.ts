@@ -286,3 +286,21 @@ export function linkDaVisaoGeral(recorte: Recorte): string {
   const consulta = paramsDoRecorte(recorte).toString();
   return consulta ? `/?${consulta}` : "/";
 }
+
+/**
+ * O caminho para os Parâmetros do mesmo recorte.
+ *
+ * Irmão de `linkDaVisaoGeral`, e existe pela mesma razão: quem escolheu a
+ * unidade num lugar não deve reescolhê-la no seguinte. A Visão Gerencial usa
+ * este link porque a pergunta que ela deixa em aberto — "3.202 alterações no
+ * ano, e o que mudou?" — é a que a grade de atributos responde.
+ *
+ * **O recorte inclui a vigência de propósito.** Parâmetros lê uma quinzena por
+ * vez, e sem `period` ele abriria a mais recente do banco — que pode não ser a
+ * mais recente *daquela unidade*, e aí o número da tela seria de outro mês que
+ * ninguém pediu. Quem chama manda a vigência que o cartão de origem anunciou.
+ */
+export function linkDosParametros(recorte: Recorte): string {
+  const consulta = paramsDoRecorte(recorte).toString();
+  return consulta ? `/parametros?${consulta}` : "/parametros";
+}

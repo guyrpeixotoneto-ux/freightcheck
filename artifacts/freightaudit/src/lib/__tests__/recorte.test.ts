@@ -4,6 +4,7 @@ import {
   lerFiltros,
   lerRecorte,
   linkDaVisaoGeral,
+  linkDosParametros,
   linkDeAlteracoes,
   nomeDaUnidade,
   paramsDeAlteracoes,
@@ -225,6 +226,39 @@ describe("o caminho de volta", () => {
 
   it("sem recorte, volta para a Visão geral e nada mais", () => {
     expect(linkDaVisaoGeral(RECORTE_VAZIO)).toBe("/");
+  });
+});
+
+describe("o caminho para os Parâmetros", () => {
+  /*
+    A vigência entra no endereço. É ela que impede o cartão da Visão Gerencial
+    de anunciar "última vigência em 01/08" e abrir outra: sem `period`,
+    Parâmetros escolhe a mais recente do banco, que numa base com mais de uma
+    unidade pode ser de outra.
+  */
+  it("leva unidade, canal e vigência juntos", () => {
+    expect(
+      linkDosParametros({
+        period: "2026-08-01",
+        scopeHash: "abc",
+        canal: "EMPURRADA",
+      }),
+    ).toBe("/parametros?period=2026-08-01&scopeHash=abc&canal=EMPURRADA");
+  });
+
+  /*
+    Canal vazio é uma partição, e não a ausência de uma — as vigências cujo
+    rótulo não declara canal. Ele precisa sobreviver ao endereço, senão o link
+    abre a unidade no canal que o servidor escolher.
+  */
+  it("preserva o canal vazio, que é uma partição e não uma ausência", () => {
+    expect(
+      linkDosParametros({ period: null, scopeHash: "abc", canal: "" }),
+    ).toBe("/parametros?scopeHash=abc&canal=");
+  });
+
+  it("sem recorte, abre os Parâmetros e nada mais", () => {
+    expect(linkDosParametros(RECORTE_VAZIO)).toBe("/parametros");
   });
 });
 
