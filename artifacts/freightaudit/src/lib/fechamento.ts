@@ -40,6 +40,15 @@ export interface Competencia {
   rotulo: string;
   unidade: { codigo: string; nome: string | null };
   transportadora: { codigo: string; nome: string | null };
+  /**
+   * `EMPURRADA`, `ROTA` — a operação que este fechamento fecha, e o quarto eixo
+   * da chave dele desde a `0046`.
+   *
+   * Não confundir com o `Canal` (`ROTA` | `AS`) das verbas: as duas palavras
+   * colidem em "ROTA" e querem dizer coisas diferentes. `NAO_INFORMADO` são as
+   * competências abertas antes de o campo existir.
+   */
+  tipoDeOperacao: string;
   estado: "ABERTA" | "EM_APURACAO" | "APURADA" | "APROVADA" | "ENCERRADA";
   abertaEm: string;
   apuradaEm: string | null;
@@ -357,6 +366,13 @@ export function abrirCompetencia(entrada: {
   quinzena: 1 | 2;
   unidade: { codigo: string; nome?: string };
   transportadora: { codigo: string; nome?: string };
+  /**
+   * `EMPURRADA`, `ROTA` — obrigatório, porque entra na chave do fechamento.
+   *
+   * Não é o `Canal` (`ROTA` | `AS`) das verbas: é o modelo de operação da
+   * unidade, o mesmo eixo do rótulo da vigência e da planilha de remuneração.
+   */
+  tipoDeOperacao: string;
 }): Promise<Competencia> {
   return fetchJson<Competencia>("/fechamento/competencias", {
     method: "POST",
@@ -539,12 +555,15 @@ export interface ResumoDoMes {
 export function lerResumoDoMes(alvo: {
   unidade: string;
   transportadora: string;
+  /** `EMPURRADA`, `ROTA` — o resumo é de uma operação, e não da unidade. */
+  tipoDeOperacao: string;
   ano: number;
   mes: number;
 }): Promise<ResumoDoMes> {
   const busca = new URLSearchParams({
     unidade: alvo.unidade,
     transportadora: alvo.transportadora,
+    tipoDeOperacao: alvo.tipoDeOperacao,
     ano: String(alvo.ano),
     mes: String(alvo.mes),
   });

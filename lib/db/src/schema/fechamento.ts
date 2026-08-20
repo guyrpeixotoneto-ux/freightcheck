@@ -53,10 +53,16 @@ import { sql } from "drizzle-orm";
 /**
  * O período de apuração — o eixo do ambiente inteiro.
  *
- * A chave é `2026-07-Q2`, estável e ordenável, e é o que a URL carrega. O par
- * (unidade, transportadora, chave) é único: uma quinzena de um CDD com uma
+ * A chave é `2026-07-Q2`, estável e ordenável, e é o que a URL carrega. A
+ * **quádrupla** (unidade, transportadora, tipo de operação, chave) é única.
+ *
+ * Ela já foi a trinca sem o tipo, com a frase "uma quinzena de um CDD com uma
  * transportadora é **um** fechamento, e dois seria o começo de duas verdades
- * sobre o mesmo dinheiro.
+ * sobre o mesmo dinheiro". A frase continua verdadeira e o recorte é que estava
+ * incompleto: o mesmo CDD roda EMPURRADA e ROTA com a mesma transportadora na
+ * mesma quinzena, e são duas operações — cada uma com a sua planilha de
+ * remuneração, os seus relatórios e a sua conta. Somá-las num fechamento só é
+ * que produzia uma verdade misturada. Ver a `0046`.
  *
  * `estado` é um `text` com CHECK, e não um enum, pela razão oposta à de
  * `enums.ts`: o ciclo de vida do fechamento é nosso e fechado, mas ainda está
@@ -80,6 +86,36 @@ export const fechamentoCompetenciaTable = pgTable(
     /** A transportadora — `36` / `HORIZONTE LOGISTICA LTDA`. */
     transportadoraCodigo: text("transportadora_codigo").notNull(),
     transportadoraNome: text("transportadora_nome"),
+    /**
+     * O tipo de operação — `EMPURRADA`, `ROTA`.
+     *
+     * **Não confundir com `Canal`**, que neste mesmo módulo é `ROTA` | `AS` —
+     * distribuição urbana diária contra área de serviço, o primeiro eixo de
+     * agregação de toda a apuração (ver `lib/fechamento/src/dominio.ts`). As
+     * duas palavras colidem em `ROTA` e significam coisas diferentes, e é por
+     * isso que esta coluna **não** se chama `canal`: dois campos com o mesmo
+     * nome no mesmo módulo, um deles capaz de guardar `ROTA` querendo dizer
+     * outra coisa, é a forma exata do erro que este arquivo escreve ensaios
+     * para não cometer.
+     *
+     * Este eixo é o mesmo de `remuneracao_planilha.canal` e o mesmo que o
+     * rótulo da vigência carrega (`EMPURRADA_1_8_2026` → `EMPURRADA`): é a
+     * operação que a planilha de remuneração descreve, e é por ele que um
+     * fechamento se liga ao cadastro que o remunera.
+     *
+     * `NAO_INFORMADO` é o valor das competências abertas **antes** de esta
+     * coluna existir, e a única coisa que ele afirma é que ninguém disse. O
+     * backfill não escreveu `EMPURRADA` nelas, ainda que hoje toda vigência
+     * deste acervo seja empurrada: o fechamento não nasce das vigências, e
+     * carimbar um tipo que nenhum dos cinco relatórios declara seria adivinhar
+     * — a mesma recusa de `tributoDe` e de `DIZ_QUE_SIM`.
+     *
+     * O `default` existe para o backfill, e é fail-safe pela razão oposta à de
+     * `app_user.role`: lá o default não podia fabricar um administrador; aqui
+     * ele não pode fabricar um tipo. `NAO_INFORMADO` não se confunde com
+     * nenhum, e a rota exige um de verdade.
+     */
+    tipoDeOperacao: text("tipo_de_operacao").notNull().default("NAO_INFORMADO"),
     estado: text("estado").notNull().default("ABERTA"),
     abertaPor: uuid("aberta_por"),
     abertaEm: timestamp("aberta_em", { withTimezone: true }).notNull().defaultNow(),
@@ -94,6 +130,7 @@ export const fechamentoCompetenciaTable = pgTable(
     uniqueIndex("fechamento_competencia_unica").on(
       t.unidadeCodigo,
       t.transportadoraCodigo,
+      t.tipoDeOperacao,
       t.chave,
     ),
     index("fechamento_competencia_por_periodo").on(t.ano, t.mes, t.quinzena),

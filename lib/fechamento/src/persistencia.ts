@@ -95,6 +95,14 @@ export interface CompetenciaRegistrada extends Competencia {
   id: string;
   unidade: { codigo: string; nome: string | null };
   transportadora: { codigo: string; nome: string | null };
+  /**
+   * `EMPURRADA`, `ROTA` — a operação que este fechamento fecha.
+   *
+   * Não confundir com `Canal` (`ROTA` | `AS`), que é outro eixo deste mesmo
+   * módulo. Ver `schema/fechamento.ts`. `NAO_INFORMADO` são as competências
+   * abertas antes de o campo existir.
+   */
+  tipoDeOperacao: string;
   estado: string;
   abertaEm: Date;
   apuradaEm: Date | null;
@@ -110,14 +118,53 @@ export interface CompetenciaRegistrada extends Competencia {
   motivoDaReabertura: string | null;
 }
 
+/** Erro de recusa: abrir sem dizer o tipo de operação. Rota traduz em 400. */
+export class TipoDeOperacaoAusente extends Error {
+  constructor() {
+    super(
+      "O tipo de operação é obrigatório para abrir um fechamento: EMPURRADA e ROTA são " +
+        "operações diferentes, com planilhas de remuneração diferentes, e o fechamento é de " +
+        "uma delas.",
+    );
+    this.name = "TipoDeOperacaoAusente";
+  }
+}
+
+/**
+ * O tipo de operação, normalizado como o acervo o escreve.
+ *
+ * Caixa alta e sem espaço nas pontas, que é a forma do rótulo da vigência
+ * (`EMPURRADA_1_8_2026`) e a de `remuneracao_planilha.canal`. Sem isso,
+ * `Empurrada` digitado na tela e `EMPURRADA` vindo do acervo seriam dois tipos,
+ * e a mesma operação teria dois fechamentos.
+ *
+ * `NAO_INFORMADO` é recusado na porta: ele é o carimbo do backfill da `0046`,
+ * e nada além dele pode escrevê-lo. Deixá-lo passar daria a quem abre uma forma
+ * de dizer "não sei" num campo que a operação decidiu que é obrigatório.
+ */
+export const TIPO_NAO_INFORMADO = "NAO_INFORMADO";
+
+export function normalizarTipoDeOperacao(bruto: unknown): string {
+  const texto = typeof bruto === "string" ? bruto.trim().toUpperCase() : "";
+  if (texto === "" || texto === TIPO_NAO_INFORMADO) throw new TipoDeOperacaoAusente();
+  return texto;
+}
+
 /**
  * Abre a competência, ou devolve a que já existe.
  *
- * Idempotente de propósito: o par (unidade, transportadora, quinzena) é um
- * fechamento só, e "abrir de novo" é o gesto natural de quem volta à tela no
- * dia seguinte. Criar uma segunda seria criar duas verdades sobre o mesmo
- * dinheiro — o índice único do banco impede, e aqui a intenção é atendida em
- * vez de virar erro.
+ * Idempotente de propósito: a quádrupla (unidade, transportadora, tipo de
+ * operação, quinzena) é um fechamento só, e "abrir de novo" é o gesto natural
+ * de quem volta à tela no dia seguinte. Criar uma segunda seria criar duas
+ * verdades sobre o mesmo dinheiro — o índice único do banco impede, e aqui a
+ * intenção é atendida em vez de virar erro.
+ *
+ * **O tipo de operação entra na chave, e é por isso que ele é obrigatório.** O
+ * mesmo CDD roda EMPURRADA e ROTA com a mesma transportadora na mesma quinzena,
+ * e são duas operações com planilhas, relatórios e contas diferentes. Sem o
+ * tipo, a segunda abertura encontraria a primeira e devolveria o fechamento da
+ * outra operação — silenciosamente, porque a idempotência acima é o caminho
+ * feliz. Ver a `0046`.
  *
  * **As duas partes ficam cadastradas, inclusive quando a competência já
  * existia.** É o que faz o vocabulário sobreviver ao registro: excluir uma
@@ -133,10 +180,13 @@ export async function abrirCompetencia(
     quinzena: 1 | 2;
     unidade: { codigo: string; nome?: string | null };
     transportadora: { codigo: string; nome?: string | null };
+    /** `EMPURRADA`, `ROTA` — o eixo de `remuneracao_planilha.canal`. */
+    tipoDeOperacao: string;
     por?: string | null;
   },
 ): Promise<CompetenciaRegistrada> {
   const comp = montarCompetencia(entrada.ano, entrada.mes, entrada.quinzena);
+  const tipoDeOperacao = normalizarTipoDeOperacao(entrada.tipoDeOperacao);
 
   await registrarParte(db, { tipo: "UNIDADE", ...entrada.unidade });
   await registrarParte(db, { tipo: "TRANSPORTADORA", ...entrada.transportadora });
@@ -148,6 +198,7 @@ export async function abrirCompetencia(
       and(
         eq(fechamentoCompetenciaTable.unidadeCodigo, entrada.unidade.codigo),
         eq(fechamentoCompetenciaTable.transportadoraCodigo, entrada.transportadora.codigo),
+        eq(fechamentoCompetenciaTable.tipoDeOperacao, tipoDeOperacao),
         eq(fechamentoCompetenciaTable.chave, comp.chave),
       ),
     )
@@ -167,6 +218,7 @@ export async function abrirCompetencia(
       unidadeNome: entrada.unidade.nome ?? null,
       transportadoraCodigo: entrada.transportadora.codigo,
       transportadoraNome: entrada.transportadora.nome ?? null,
+      tipoDeOperacao,
       abertaPor: entrada.por ?? null,
     })
     .returning();
@@ -205,6 +257,7 @@ function comoRegistrada(linha: typeof fechamentoCompetenciaTable.$inferSelect): 
     id: linha.id,
     unidade: { codigo: linha.unidadeCodigo, nome: linha.unidadeNome },
     transportadora: { codigo: linha.transportadoraCodigo, nome: linha.transportadoraNome },
+    tipoDeOperacao: linha.tipoDeOperacao,
     estado: linha.estado,
     abertaEm: linha.abertaEm,
     apuradaEm: linha.apuradaEm,
@@ -1550,7 +1603,25 @@ export async function listarApuracoes(db: Database): Promise<ResumoDeApuracao[]>
  */
 export async function lerResumoDoMes(
   db: Database,
-  alvo: { unidade: string; transportadora: string; ano: number; mes: number },
+  alvo: {
+    unidade: string;
+    transportadora: string;
+    /**
+     * `EMPURRADA`, `ROTA` — obrigatório desde a `0046`.
+     *
+     * O resumo tem **uma coluna por quinzena**, e a quádrupla da competência
+     * passou a permitir duas por quinzena: EMPURRADA e ROTA. Sem este recorte
+     * as duas cairiam na mesma coluna e o mês somaria duas operações num total
+     * só — que é exatamente a verdade misturada que a `0046` existe para
+     * desfazer, reaparecendo uma camada acima.
+     *
+     * Obrigatório e não opcional-com-padrão: um padrão aqui escolheria em
+     * silêncio de qual operação é o número que a tela mostra.
+     */
+    tipoDeOperacao: string;
+    ano: number;
+    mes: number;
+  },
 ): Promise<ResumoDoMes> {
   const competencias = await db
     .select()
@@ -1559,6 +1630,7 @@ export async function lerResumoDoMes(
       and(
         eq(fechamentoCompetenciaTable.unidadeCodigo, alvo.unidade),
         eq(fechamentoCompetenciaTable.transportadoraCodigo, alvo.transportadora),
+        eq(fechamentoCompetenciaTable.tipoDeOperacao, alvo.tipoDeOperacao),
         eq(fechamentoCompetenciaTable.ano, alvo.ano),
         eq(fechamentoCompetenciaTable.mes, alvo.mes),
       ),

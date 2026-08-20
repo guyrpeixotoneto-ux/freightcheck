@@ -211,6 +211,14 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "app_user.role",
         "import_run.reprocess_of_run_id",
         "import_run.reprocess_reason",
+        /*
+          A coluna que a `0046` acrescentou a `fechamento_competencia` **não**
+          entra aqui, e a ausência é a informação: o diff a reporta pela tabela,
+          não pela coluna, porque Production não tem nenhuma das treze do
+          Fechamento — ela chega inteira, com a coluna dentro, no `addTable`
+          acima. Uma coluna nova numa tabela que Production **já tem** apareceria
+          nesta lista, e é para esse dia que ela é fechada.
+        */
       ]),
     );
     /*
@@ -252,6 +260,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
       "0043_pagamento",
       "0044_partes_cadastradas",
       "0045_planilha_de_remuneracao",
+      "0046_tipo_de_operacao",
     ]);
 
     // Preservação + backfill: as três contas continuam com o hash original e

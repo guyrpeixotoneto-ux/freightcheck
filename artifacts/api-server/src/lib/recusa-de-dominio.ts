@@ -14,6 +14,7 @@ import {
   PlanilhaVazia,
   VigenciaDoCadastroNaoEncontrada,
 } from "@workspace/remuneracao";
+import { TipoDeOperacaoAusente } from "@workspace/fechamento/persistencia";
 import { EmailAlreadyUsedError } from "./session";
 
 /**
@@ -82,6 +83,10 @@ const RECUSAS: { classe: new (...args: never[]) => Error; status: number }[] = [
   /* Regra de negócio escrita para quem opera — a frase é dela, e sai inteira. */
   { classe: DecisaoRecusada, status: 422 },
   { classe: BaixaRecusada, status: 422 },
+  /* Abrir um fechamento sem dizer de qual operação ele é. 400: o pedido está
+     incompleto, e a frase do domínio explica por que o campo existe — EMPURRADA
+     e ROTA são fechamentos diferentes na mesma quinzena. */
+  { classe: TipoDeOperacaoAusente, status: 400 },
   /* Conflito de estado, não defeito do pedido: o e-mail já é de outra conta. */
   { classe: EmailAlreadyUsedError, status: 409 },
 ];

@@ -1670,6 +1670,37 @@ function planoUp(): PassoUp[] {
     o histórico do número não pode depender disso), e a planilha não é conteúdo
     de competência nenhuma.
   */
+  /*
+    A `0046` — o tipo de operação na competência.
+
+    Ela **altera** uma tabela que o `down` derruba inteira, e por isso tem de vir
+    aqui: o `up` recria `fechamento_competencia` pelo `CREATE TABLE` da `0039`,
+    que não conhece a coluna nem o índice de quatro colunas. Sem estas três
+    linhas o schema voltaria com a unicidade de três — a que somava EMPURRADA e
+    ROTA num fechamento só —, e o teste que compara o banco reposto com um banco
+    novo diria exatamente isso.
+
+    A ordem é a da migration: coluna, `DROP` do índice velho, `CREATE` do novo. O
+    `DROP` não é enfeite mesmo depois de a tabela ter acabado de nascer — é o
+    índice de três colunas que a `0039` criou, e ele existe.
+  */
+  const M46 = "0046_tipo_de_operacao";
+  add(
+    M46,
+    "fechamento_competencia.tipo_de_operacao",
+    levantar(M46, /ADD COLUMN IF NOT EXISTS "tipo_de_operacao"/),
+  );
+  add(
+    M46,
+    "índice fechamento_competencia_unica (o de três colunas sai)",
+    levantar(M46, /DROP INDEX IF EXISTS "fechamento_competencia_unica"/),
+  );
+  add(
+    M46,
+    "índice fechamento_competencia_unica",
+    levantar(M46, /CREATE UNIQUE INDEX IF NOT EXISTS "fechamento_competencia_unica"/),
+  );
+
   const M45 = "0045_planilha_de_remuneracao";
   add(
     M45,
