@@ -40,6 +40,8 @@ import {
   type TipoDeFonte,
 } from "@workspace/fechamento";
 
+import { cadastroDaRemuneracao } from "../lib/cadastro-da-remuneracao";
+
 /**
  * Fechamento de Remuneração — a superfície HTTP do outro ambiente do produto.
  *
@@ -218,7 +220,18 @@ router.get("/fechamento/resumo", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(await lerResumoDoMes(db, { unidade, transportadora, tipoDeOperacao, ano, mes }));
+  /*
+    A porta do cadastro, ligada. Sem ela o resumo cai em `SEM_CADASTRO` e o
+    painel da planilha volta a ser uma releitura do 03.08.20 — ver
+    `lib/cadastro-da-remuneracao.ts`.
+  */
+  res.json(
+    await lerResumoDoMes(
+      db,
+      { unidade, transportadora, tipoDeOperacao, ano, mes },
+      cadastroDaRemuneracao(db, { tipoDeOperacao }),
+    ),
+  );
 });
 
 /**

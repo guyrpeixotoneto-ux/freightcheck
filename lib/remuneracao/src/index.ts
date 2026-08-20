@@ -63,5 +63,6 @@ export * from "./situacao";
 export * from "./unidade";
 export * from "./comparacao";
 export * from "./vigencia";
+export * from "./contrato";
 export * from "./planilha";
 export * from "./leitura";

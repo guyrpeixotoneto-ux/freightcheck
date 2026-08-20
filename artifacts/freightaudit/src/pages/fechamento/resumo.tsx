@@ -548,12 +548,22 @@ function PainelDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
             apuradas e conferidas na aba Verbas.
           </p>
         ) : (
+          /*
+            O texto que estava aqui dizia que o painel do AS "existe na planilha
+            e ainda não foi transcrito". A `.xlsb` conferida desmente: o
+            `RESUMO GERAL` dela abre a ROTA nos três quadros e fecha no total da
+            unidade — não há quadro de AS para transcrever. Dizer que falta
+            trabalho nosso onde falta documento mandava procurar no código quem
+            não ia achar nada.
+          */
           <p className="text-sm text-muted-foreground">
-            O painel do {canal.canal} existe na planilha e ainda não foi transcrito
-            aqui — os rótulos dele não foram capturados, e escrevê-los por
-            analogia com os da Rota inventaria a metade que falta. As verbas do{" "}
-            {canal.canal} continuam apuradas e conferidas na aba Verbas; o que
-            falta é a tradução para as linhas da planilha.
+            O painel da planilha é o da <strong>Rota</strong>. A planilha
+            conferida não traz painel do {canal.canal}: o <code>RESUMO GERAL</code>{" "}
+            dela abre a Rota nos três quadros e fecha no total da unidade, sem
+            quadro equivalente. Enquanto uma planilha com painel do{" "}
+            {canal.canal} não aparecer, não há rótulo a transcrever — escrevê-los
+            por analogia com os da Rota inventaria a metade que falta. As verbas
+            do {canal.canal} continuam apuradas e conferidas na aba Verbas.
           </p>
         )}
       </CardContent>
@@ -589,6 +599,20 @@ function PainelComparadoTabela({
   const doCadastro =
     recorte === "2" ? painel.cadastro.segunda : painel.cadastro.primeira;
 
+  /*
+    Uma aba só respondendo pelas duas quinzenas é o caso comum — o contrato é
+    mensal, e a régua da quinzena é de calendário, não de negócio. Quem lê
+    precisa saber: "vigente desde 01/07" numa coluna que começa no dia 16 é
+    verdade e parece erro, e a frase é a diferença entre conferir e desconfiar.
+    A comparação é de identidade, não de data: quem decide qual aba responde é
+    `vigenciaQueResponde`, em `@workspace/remuneracao`, e repetir a régua aqui
+    daria dois lugares para ela divergir.
+  */
+  const mesmaAbaNasDuas =
+    painel.cadastro.primeira !== null &&
+    painel.cadastro.segunda !== null &&
+    painel.cadastro.primeira.cadastroId === painel.cadastro.segunda.cadastroId;
+
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -598,7 +622,12 @@ function PainelComparadoTabela({
         <span>
           <strong className="text-foreground">Demonstrado</strong> — do 03.08.20
         </span>
-        {doCadastro && <span>cadastro vigente desde {doCadastro.vigenteDe}</span>}
+        {doCadastro && (
+          <span>
+            cadastro vigente desde {doCadastro.vigenteDe}
+            {mesmaAbaNasDuas && " — a mesma aba responde pelas duas quinzenas"}
+          </span>
+        )}
       </div>
 
       {painel.quadros.map((quadro) => (

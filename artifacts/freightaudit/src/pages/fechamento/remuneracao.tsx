@@ -17,6 +17,7 @@ import { VistaDeDuasQuinzenas } from "@/components/remuneracao/duas-quinzenas";
 import { VistaDeUmaQuinzena } from "@/components/remuneracao/uma-quinzena";
 import { apresentar } from "@/lib/apresentar-erro";
 import {
+  chaveDoCadastro,
   lerCadastro,
   lerComparacao,
   listarUnidadesDoCadastro,
@@ -126,7 +127,7 @@ export default function RemuneracaoCadastro() {
   const vista: Vista = vistaPedida ?? (temPar === false ? "uma" : "duas");
 
   const cadastro = useQuery({
-    queryKey: ["remuneracao", "cadastro", scopeHashPedido, canalPedido, vigenciaPedida],
+    queryKey: chaveDoCadastro(scopeHashPedido, canalPedido, vigenciaPedida),
     queryFn: () =>
       lerCadastro({
         ...(scopeHashPedido ? { scopeHash: scopeHashPedido } : {}),

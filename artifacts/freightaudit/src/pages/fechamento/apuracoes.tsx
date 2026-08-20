@@ -5,12 +5,7 @@ import { ArrowRight, ChevronRight, Lock } from "lucide-react";
 import { Layout } from "@/components/layout/layout";
 import { ContaApurada } from "@/components/fechamento/conta-apurada";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-} from "@/components/ui/select";
+import { Filtro, TUDO } from "@/components/fechamento/filtro";
 import {
   fontesDaCompetencia,
   lerCompetencia,
@@ -30,6 +25,7 @@ import {
 } from "@/lib/fechamento-gerencial";
 import { formatBrl } from "@/lib/format";
 import { apresentar } from "@/lib/apresentar-erro";
+import { alternarGrupo, alternarUma, grupoEstaAberto } from "@/lib/linhas-abertas";
 import { cn } from "@/lib/utils";
 import { chaveDaCompetencia } from "@/lib/fechamento-tela";
 
@@ -82,9 +78,6 @@ function textoDoErro(erro: unknown): string {
   return aviso.orientacao?.resumo ?? aviso.mensagemCrua ?? "Não foi possível carregar as apurações.";
 }
 
-/** O sentinela dos filtros: nenhum recorte aplicado. */
-const TUDO = "*";
-
 /**
  * Dinheiro sem o cifrão, com os centavos sempre presentes.
  *
@@ -107,44 +100,6 @@ const rotuloCurto = (c: Competencia) => `${MES_CURTO[c.mes - 1]}/${c.ano} · ${c
 
 /** As competências de um grupo, na ordem em que a quinzena as mostra. */
 const idsDoGrupo = (grupo: Grupo) => grupo.linhas.map((l) => l.competencia.id);
-
-/**
- * Um grupo está aberto quando não falta nenhuma competência dele por abrir.
- *
- * A lista nunca desenha grupo sem linhas, e mesmo assim o vazio é dito: `every`
- * sobre lista vazia é verdadeiro, e um grupo assim ficaria eternamente aberto —
- * seta girada, clique sem efeito.
- */
-export function grupoEstaAberto(abertas: ReadonlySet<string>, ids: string[]): boolean {
-  return ids.length > 0 && ids.every((id) => abertas.has(id));
-}
-
-/**
- * Abrir e fechar linhas — o mesmo gesto em dois tamanhos.
- *
- * Quais competências estão abertas é um conjunto, e não "uma de cada vez":
- * conferir a quinzena é comparar CDDs, e fechar a conta de cima para ver a de
- * baixo é exatamente o que a lista existia para evitar.
- *
- * `alternarGrupo` é o cabeçalho da quinzena: abre todas as competências dela, e
- * só fecha quando não falta nenhuma — assim o clique num grupo meio aberto
- * termina de abri-lo, em vez de fechar o que já se estava lendo.
- */
-export function alternarUma(abertas: ReadonlySet<string>, id: string): Set<string> {
-  const proximo = new Set(abertas);
-  if (!proximo.delete(id)) proximo.add(id);
-  return proximo;
-}
-
-export function alternarGrupo(abertas: ReadonlySet<string>, ids: string[]): Set<string> {
-  const proximo = new Set(abertas);
-  const todasAbertas = ids.length > 0 && ids.every((id) => proximo.has(id));
-  for (const id of ids) {
-    if (todasAbertas) proximo.delete(id);
-    else proximo.add(id);
-  }
-  return proximo;
-}
 
 /**
  * A aparência de cada estado.
@@ -242,50 +197,6 @@ function resumoDoGrupo(grupo: Grupo): string {
   ];
   if (grupo.todasEncerradas) partes.push("todas encerradas");
   return partes.join(" · ");
-}
-
-/** Um filtro, no formato de etiqueta que a tela usa. */
-function Filtro({
-  rotulo,
-  valor,
-  aoTrocar,
-  opcoes,
-  tudo,
-}: {
-  rotulo: string;
-  valor: string;
-  aoTrocar: (v: string) => void;
-  opcoes: { valor: string; rotulo: string }[];
-  tudo: string;
-}) {
-  const escolhida = opcoes.find((o) => o.valor === valor);
-  const ativo = valor !== TUDO;
-  return (
-    <Select value={valor} onValueChange={aoTrocar}>
-      <SelectTrigger
-        className={cn(
-          "h-auto w-auto gap-2 rounded-full px-4 py-2 shadow-none",
-          ativo && "border-primary text-primary",
-        )}
-        aria-label={rotulo}
-      >
-        <span className="font-semibold">{rotulo}</span>
-        <span className={cn("font-normal", ativo ? "text-primary/80" : "text-muted-foreground")}>
-          {escolhida?.rotulo ?? tudo}
-        </span>
-      </SelectTrigger>
-      <SelectContent>
-        <SelectItem value={TUDO}>{tudo}</SelectItem>
-        {opcoes
-          .filter((o) => o.valor !== TUDO)
-          .map((o) => (
-            <SelectItem key={o.valor} value={o.valor}>
-              {o.rotulo}
-            </SelectItem>
-          ))}
-      </SelectContent>
-    </Select>
-  );
 }
 
 /**

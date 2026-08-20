@@ -215,22 +215,50 @@ Nenhuma coluna, nem soma de colunas, do 03.08.18 ou da `Justificativa`
 reproduz as bases digitadas — em nenhuma das duas quinzenas, por nenhum fator
 constante. **A derivação acontece fora do arquivo.**
 
-### O que isso significa, e o que o sistema pode fazer melhor
+### Onde ela acontece: as cinco bases são o 03.08.20
+
+O elo não está na pasta porque o 03.08.20 **não tem aba nela**. Está no
+relatório, e fecha ao centavo nas cinco células digitadas:
+
+| Célula | Digitado | Linha do 03.08.20 | Valor |
+|---|---:|---|---:|
+| `R138` devolução 1ª | 13.328,30 | `Desconto Devolucao` | 13.328,30 |
+| `R139` disponibilidade 1ª | 11.649,87 | `Desconto Frete mínimo` | 11.649,87 |
+| `AH138` devolução 2ª | 15.763,61 | `Desconto Devolucao` | 15.763,61 |
+| `AH139` disponibilidade 2ª | 91.642,50 | bloco `DESCONTO DISPONIBILIDADE` (91.321,65 + 320,85) | 91.642,50 |
+| `AH140` complementar 2ª | 14.050,54 | `Desconto Frete mínimo` | 14.050,54 |
+
+Cinco de cinco, sem fator, sem resto. A resposta à pergunta que ficara em
+aberto — *o que a transportadora usou para chegar aos números digitados* — é:
+ela copiou o demonstrativo à mão.
+
+**A 1ª quinzena expõe uma inconsistência da planilha.** O 03.08.20 daquela
+quinzena **não tem** bloco `DESCONTO DISPONIBILIDADE` — só devolução e frete
+mínimo. A planilha põe o frete mínimo (11.649,87) na linha da *disponibilidade*
+e deixa o complementar em zero; na 2ª quinzena põe a disponibilidade na
+disponibilidade e o frete mínimo no complementar. São duas regras para o mesmo
+desconto, em duas metades do mesmo mês.
+
+O produto adota **uma só**: o frete mínimo é o complementar negativo, nas duas
+quinzenas (`basesDaQuinzena`, em `persistencia.ts`). O efeito é visível e
+deliberado — na 1ª quinzena o devido mostra R$ 11.649,87 onde a planilha mostra
+zero, e a disponibilidade fica vazia porque o relatório não a traz. Reproduzir a
+inconsistência faria os dois lados concordarem por construção, que é o oposto do
+que este painel existe para fazer.
+
+### O que o sistema ainda pode fazer melhor
 
 O sistema já lê o 03.08.18 e extrai, por dia e por canal,
 `descontos: { custoFixo, equipe, indiretos, fatorAjudante, total }`
-(`leitores/disponibilidade.ts`), e já lê os descontos do 03.08.20 com base e
-percentual (`leitores/pagamento.ts`). Ele tem, portanto, o material para
-**calcular** a base em vez de recebê-la digitada — o que a planilha não faz.
+(`leitores/disponibilidade.ts`). Ele tem, portanto, o material para **calcular**
+a disponibilidade em vez de recebê-la do 03.08.20 — o que nem a planilha faz.
 
 Isso é uma mudança de número, não só de método: com o `Desconto Total` do
 03.08.18 como base, a 1ª quinzena descontaria R$ 42.939,35 × fator em vez de
-R$ 11.649,87 × fator. Antes de ligar esse fio é preciso saber **o que a
-transportadora usou para chegar aos números digitados** — e essa informação não
-está em nenhum arquivo entregue até aqui.
+nada. Antes de ligar esse fio é preciso saber por que o demonstrativo e o
+03.08.18 discordam nessa ordem de grandeza — e essa pergunta continua aberta.
 
-**Enquanto isso não for respondido, o fechamento não é ponta a ponta.** As
-bases entram no motor como parâmetro de entrada (`BasesDaQuinzena`), com o
+As bases seguem entrando no motor como parâmetro (`BasesDaQuinzena`), com o
 mesmo tratamento de ausência das demais: `null`, nunca zero.
 
 ## De onde vem o dinheiro do mês

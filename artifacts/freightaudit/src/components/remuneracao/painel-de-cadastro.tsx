@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { apresentar } from "@/lib/apresentar-erro";
 import { cn } from "@/lib/utils";
-import { lerCadastro, type SituacaoDaUnidade } from "@/lib/remuneracao";
+import { chaveDoCadastro, lerCadastro, type SituacaoDaUnidade } from "@/lib/remuneracao";
 import { CadastrarAPlanilha } from "./cadastrar-planilha";
 
 /**
@@ -117,7 +117,7 @@ function PainelDeCadastro({
   }, [aoFechar]);
 
   const cadastro = useQuery({
-    queryKey: ["remuneracao", "cadastro", unidade.scopeHash, canal, vigencia],
+    queryKey: chaveDoCadastro(unidade.scopeHash, canal, vigencia),
     queryFn: () =>
       lerCadastro({
         scopeHash: unidade.scopeHash,
