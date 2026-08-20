@@ -332,9 +332,17 @@ export function ImpactoPanorama({
         abre esta aba para fechar o mês decide nos primeiros segundos se vai
         conferir aqui ou na planilha, e um botão embaixo de três tabelas chega
         depois da decisão.
+
+        Duas colunas que se dividem, e não `flex-wrap`: o parágrafo do título
+        não tinha limite de largura, então ele empurrava a exportação para uma
+        segunda linha — e lá o bloco, que alinha o próprio conteúdo à direita,
+        aparecia encostado na esquerda com o botão e a legenda alinhados à
+        direita de nada. `min-w-0` deixa o texto encolher, `shrink-0` no bloco
+        do botão impede que a conta se inverta, e abaixo de `md` as duas viram
+        uma pilha, que é onde o alinhamento à esquerda volta a ser o certo.
       */}
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div>
+      <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div className="min-w-0 max-w-3xl">
           <h2 className="text-lg font-semibold tracking-tight">Tudo que mudou</h2>
           <p className="text-sm text-muted-foreground">
             Entre <strong>{primeira?.sourceLabel}</strong> e{" "}
@@ -546,7 +554,7 @@ function ExportarEmExcel({
   const aviso = erro === null ? null : apresentar(erro);
 
   return (
-    <div className="flex flex-col items-start gap-1 sm:items-end">
+    <div className="flex shrink-0 flex-col items-start gap-1 md:items-end">
       <button
         onClick={baixar}
         disabled={baixando}
@@ -564,13 +572,13 @@ function ExportarEmExcel({
         )}
         {baixando ? "Montando a planilha…" : "Exportar em Excel"}
       </button>
-      <p className="max-w-xs text-xs text-muted-foreground sm:text-right">
+      <p className="max-w-xs text-xs text-muted-foreground md:text-right">
         Uma aba por parâmetro alterado ({formatNumber(parametros, 0)}), com uma
         coluna por vigência e uma linha por placa — o recorte e o corte desta
         tela.
       </p>
       {aviso && (
-        <p className="max-w-xs text-xs text-red-600 sm:text-right">
+        <p className="max-w-xs text-xs text-red-600 md:text-right">
           {aviso.orientacao?.resumo ?? aviso.mensagemCrua}
         </p>
       )}
@@ -683,6 +691,39 @@ function Cabecalho({ titulo, detalhe }: { titulo: string; detalhe: string }) {
   );
 }
 
+/**
+ * O motivo em duas ou três palavras, para caber numa célula.
+ *
+ * A frase da régua é uma frase — "Semântica desconhecida: o atributo ainda não
+ * foi confirmado na curadoria, então somar sua variação seria adivinhação." são
+ * 115 caracteres, e a coluna que sobra numa tabela de sete tem uns 180px. Ela
+ * quebrava em cinco ou seis linhas, e como é a célula mais alta que manda na
+ * altura da linha, cada linha da tabela ficava com 100px e o nome e os números
+ * boiando no meio dela. Numa tela em que quase nenhum parâmetro passa na régua,
+ * isso é a tabela inteira.
+ *
+ * A frase não se perde: ela continua no `title` da célula, é ela que vai para o
+ * Excel, e é ela que o segundo nível mostra por extenso. O que fica à vista é
+ * **qual** das três confirmações falta — que é o que a linha precisa dizer de
+ * relance, e é o que o cabeçalho desta tela promete.
+ *
+ * A ordem das perguntas é a de `viraDinheiro`, e não uma redação própria: se as
+ * duas discordassem, a etiqueta diria uma coisa e o `title` ao lado dela outra.
+ * O que a régua distingue depois da terceira pergunta — razão sem base, tipo
+ * não numérico, agregação que não soma — entra tudo em "não é somável": essa
+ * diferença é da autoridade, e refazê-la aqui seria a quarta redação da mesma
+ * regra. Ela chega inteira pelo `title`.
+ */
+function motivoCurto(p: ParametroAlterado): string {
+  if (p.semanticsStatus !== "CONFIRMED") {
+    return p.semanticsStatus === "PRESUMED"
+      ? "semântica presumida"
+      : "semântica a confirmar";
+  }
+  if (p.isMonetary !== true) return "não é dinheiro";
+  return "não é somável";
+}
+
 function TabelaFinanceira({
   linhas,
   onEscolher,
@@ -789,9 +830,12 @@ function TabelaFinanceira({
                   frase, o traço se pareceria com "não mudou".
                 */}
                 {!p.impactoCalculavel && (
-                  <div className="mt-0.5 flex items-start gap-1 text-[11px] text-amber-700">
-                    <TriangleAlert className="w-3 h-3 mt-px shrink-0" />
-                    <span className="max-w-[16rem]">{p.impactoMotivo}</span>
+                  <div
+                    title={p.impactoMotivo}
+                    className="mt-0.5 flex items-center gap-1 whitespace-nowrap text-[11px] text-amber-700"
+                  >
+                    <TriangleAlert className="w-3 h-3 shrink-0" />
+                    {motivoCurto(p)}
                   </div>
                 )}
               </td>
@@ -869,9 +913,12 @@ function TabelaDeAlteracoes({
                       : "apurável"}
                   </span>
                 ) : (
-                  <span className="inline-flex items-start gap-1.5 text-amber-700">
-                    <TriangleAlert className="w-3.5 h-3.5 mt-px shrink-0" />
-                    <span className="max-w-xs">{p.impactoMotivo}</span>
+                  <span
+                    title={p.impactoMotivo}
+                    className="inline-flex items-center gap-1.5 whitespace-nowrap text-amber-700"
+                  >
+                    <TriangleAlert className="w-3.5 h-3.5 shrink-0" />
+                    {motivoCurto(p)}
                   </span>
                 )}
               </td>
@@ -897,6 +944,15 @@ function TabelaDeAlteracoes({
  * empresa preenche de um jeito, e a linha que o afirma precisa dizer de onde
  * ele saiu. A classe em si só aparece em "Tudo": dentro de um recorte ela
  * repetiria, linha a linha, o que o seletor já diz uma vez.
+ *
+ * O teto de 32rem é o que faz o `truncate` truncar. Sem largura máxima ele não
+ * corta nada: num `table-layout: auto`, um título que não quebra empurra a
+ * coluna até o tamanho do texto e come a largura das outras. Os 32rem estão
+ * medidos acima do que esta tela produz — o título mais longo do acervo dá
+ * 384px e a linha de baixo, no pior caso (classe, grupo e etiqueta), 448px —,
+ * então nada do que existe hoje é cortado; o teto está aqui para o nome que um
+ * dia venha com 900px e leve a tabela junto. Passando dele o nome ganha
+ * reticências, e o `title` devolve o resto.
  */
 function NomeDoParametro({
   p,
@@ -906,8 +962,10 @@ function NomeDoParametro({
   comClasse: boolean;
 }) {
   return (
-    <div className="min-w-0">
-      <div className="font-medium truncate">{p.title}</div>
+    <div className="min-w-0 max-w-[32rem]">
+      <div className="font-medium truncate" title={p.title}>
+        {p.title}
+      </div>
       <div className="text-xs text-muted-foreground flex flex-wrap items-center gap-x-2 gap-y-0.5 mt-0.5">
         <span>{p.equipment.toLowerCase()}</span>
         <span aria-hidden>·</span>
