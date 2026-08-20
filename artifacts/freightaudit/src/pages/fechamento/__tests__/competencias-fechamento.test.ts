@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { acaoDoFechamento, lerParteDigitada, podeExcluir } from "../competencias";
+import {
+  acaoDoFechamento,
+  lerParteDigitada,
+  paraOFormulario,
+  podeExcluir,
+} from "../competencias";
 
 /**
  * O contrato de fechar a quinzena a partir da lista de Importações.
@@ -86,5 +91,62 @@ describe("lerParteDigitada", () => {
       codigo: "443",
       nome: "CDD Belém - Norte",
     });
+  });
+});
+
+/**
+ * Como o texto da busca se divide entre os dois campos do formulário.
+ *
+ * O campo de código nasceu porque `443 — CDD Belém` numa caixa só cobrava da
+ * pessoa uma sintaxe, e quem digitava só `CDD Belém` cadastrava uma parte cujo
+ * **código era "CDD Belém"** — silenciosamente, e é o código que o cadastro de
+ * Remuneração usa para encontrar o fechamento. O que se prova aqui é que o
+ * texto nunca se perde no caminho para o formulário.
+ */
+describe("paraOFormulario", () => {
+  it("com separador, respeita o que a pessoa separou", () => {
+    expect(paraOFormulario("443 — CDD Belém")).toEqual({ codigo: "443", nome: "CDD Belém" });
+    expect(paraOFormulario("36 / Horizonte")).toEqual({ codigo: "36", nome: "Horizonte" });
+  });
+
+  it("só dígitos é código — a régua que esta tela já declarava", () => {
+    expect(paraOFormulario("443")).toEqual({ codigo: "443", nome: null });
+    expect(paraOFormulario("  0036 ")).toEqual({ codigo: "0036", nome: null });
+  });
+
+  it("o CNPJ inteiro é código, e não parte ao meio na barra", () => {
+    /*
+      A barra e o hífen do CNPJ são os separadores que `lerParteDigitada`
+      procura. Sem a guarda, `12.345.678/0001-99` virava código `12.345.678` e
+      nome `0001-99` — num campo cuja única função é casar com o cadastro de
+      Remuneração, onde o CNPJ é o formato que a tela pede.
+    */
+    expect(paraOFormulario("12.345.678/0001-99")).toEqual({
+      codigo: "12.345.678/0001-99",
+      nome: null,
+    });
+    expect(lerParteDigitada("12.345.678/0001-99").nome).toBe("0001-99");
+  });
+
+  it("nome com hífen continua sendo nome inteiro", () => {
+    expect(paraOFormulario("CDD Belém - Norte")).toEqual({
+      codigo: "",
+      nome: "CDD Belém - Norte",
+    });
+  });
+
+  it("qualquer outra coisa é nome, e nunca vira código por engano", () => {
+    expect(paraOFormulario("CDD Belém")).toEqual({ codigo: "", nome: "CDD Belém" });
+    expect(paraOFormulario("HORIZONTE LOGISTICA")).toEqual({
+      codigo: "",
+      nome: "HORIZONTE LOGISTICA",
+    });
+  });
+
+  it("o texto sobrevive em todos os caminhos", () => {
+    for (const texto of ["443", "CDD Belém", "443 — CDD Belém", "12.345.678/0001-99"]) {
+      const { codigo, nome } = paraOFormulario(texto);
+      expect(`${codigo}${nome ?? ""}`.replace(/\s|—/g, "")).toBe(texto.replace(/\s|—/g, ""));
+    }
   });
 });
