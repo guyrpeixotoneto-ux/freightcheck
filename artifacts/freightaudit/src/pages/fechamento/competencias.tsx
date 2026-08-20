@@ -157,6 +157,14 @@ const detalheDaParte = (p: Parte) =>
 */
 const previaDaParte = (texto: string) => {
   const parte = paraOFormulario(texto);
+  /*
+    Sem nada digitado, a linha de criação não é a prévia de um texto: é a porta
+    do formulário. O que a frase precisa dizer, então, é o que existe atrás
+    dela — e o que existe atrás dela é o campo do código, que é justamente o
+    que a lista fechada não mostrava.
+  */
+  if (parte.codigo === "" && parte.nome === null)
+    return "Abre o cadastro em branco, com nome e código em campos separados.";
   return parte.nome
     ? `Abre o cadastro com código ${parte.codigo} e nome “${parte.nome}”.`
     : `Abre o cadastro com “${parte.codigo}” preenchido — nome e código em campos separados.`;
@@ -435,6 +443,13 @@ export default function Competencias() {
                   chaveDe={(p) => p.codigo}
                   placeholder="Escolha, ou digite para buscar e cadastrar"
                   rotuloDeCriacao={(texto) => `Cadastrar “${texto}”…`}
+                  /*
+                    E a mesma linha com a busca em branco, que é o estado em que
+                    a lista está quando alguém abre este campo pela primeira
+                    vez. Sem ela, o cadastro — e com ele o campo do código —
+                    só aparecia para quem digitasse um nome inexistente antes.
+                  */
+                  rotuloDeCriacaoVazia="Cadastrar uma unidade…"
                   previaDe={previaDaParte}
                 />
               </div>
@@ -456,6 +471,7 @@ export default function Competencias() {
                   chaveDe={(p) => p.codigo}
                   placeholder="Escolha, ou digite para buscar e cadastrar"
                   rotuloDeCriacao={(texto) => `Cadastrar “${texto}”…`}
+                  rotuloDeCriacaoVazia="Cadastrar uma transportadora…"
                   previaDe={previaDaParte}
                 />
               </div>
@@ -500,12 +516,13 @@ export default function Competencias() {
 
             <p className="text-xs text-muted-foreground">
               As duas listas são o que já foi cadastrado, mais o que aparece em alguma
-              competência. Não achou? Digite o nome e escolha “Cadastrar”: abre um
-              formulário com <strong>nome e código separados</strong>, o mesmo de
-              Cadastrar uma unidade em Remuneração. O código é a identidade — é por ele
-              que a competência encontra o cadastro de remuneração desta unidade, e ele
-              precisa ser o mesmo nos dois lugares. Digitar o mesmo código com um nome
-              novo renomeia.
+              competência, e nelas se procura tanto pelo nome quanto pelo código. Não
+              achou? A última linha de cada lista é <strong>“Cadastrar…”</strong>, com
+              ou sem busca digitada: abre um formulário com nome e código separados, o
+              mesmo de Cadastrar uma unidade em Remuneração. O código é a identidade —
+              é por ele que a competência encontra o cadastro de remuneração desta
+              unidade, e ele precisa ser o mesmo nos dois lugares. Digitar o mesmo
+              código com um nome novo renomeia.
             </p>
 
             {/*
