@@ -152,10 +152,18 @@ router.get("/remuneracao/cadastro", async (req, res): Promise<void> => {
   const query = req.query as Record<string, unknown>;
   const contexto = parseContext(query);
   const period = typeof query.period === "string" && query.period !== "" ? query.period : undefined;
+  /*
+    `canalNovo=1` é a tela de cadastro dizendo que está abrindo o formulário de
+    um canal que pode ainda não existir — ver `lerCadastroDaUnidade`. É opt-in
+    de propósito: sem ele, um canal digitado errado num link continua sendo 404,
+    e não um cadastro vazio que se parece com uma unidade que perdeu o lastro.
+  */
+  const canalNovo = query.canalNovo === "1" || query.canalNovo === "true";
 
   const cadastro = await lerCadastroDaUnidade(db, {
     ...(contexto ?? {}),
     ...(period !== undefined ? { period } : {}),
+    ...(canalNovo ? { aceitarCanalNovo: true } : {}),
   });
 
   if (!cadastro) {

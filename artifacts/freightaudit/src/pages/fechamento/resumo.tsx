@@ -89,6 +89,13 @@ export default function ResumoGeral() {
 
   const unidade = parametros.get("unidade") ?? "";
   const transportadora = parametros.get("transportadora") ?? "";
+  /*
+    Desde a `0046` o fechamento é de uma **operação**, e não da unidade: a mesma
+    CAMAÇARI tem EMPURRADA e ROTA na mesma quinzena, com contas separadas. Sem
+    este recorte as duas cairiam nas mesmas duas colunas do resumo e o mês
+    somaria duas operações num total só.
+  */
+  const tipoDeOperacao = parametros.get("tipoDeOperacao") ?? "";
   const ano = Number(parametros.get("ano") ?? ANOS[0]);
   const mes = Number(parametros.get("mes") ?? new Date().getMonth() + 1);
   const recorte = (parametros.get("ver") ?? "consolidado") as Recorte;
@@ -101,10 +108,10 @@ export default function ResumoGeral() {
   };
 
   const partes = useQuery({ queryKey: ["fechamento", "partes"], queryFn: listarPartes });
-  const escolhido = unidade !== "" && transportadora !== "";
+  const escolhido = unidade !== "" && transportadora !== "" && tipoDeOperacao !== "";
   const resumo = useQuery({
-    queryKey: ["fechamento", "resumo", unidade, transportadora, ano, mes],
-    queryFn: () => lerResumoDoMes({ unidade, transportadora, ano, mes }),
+    queryKey: ["fechamento", "resumo", unidade, transportadora, tipoDeOperacao, ano, mes],
+    queryFn: () => lerResumoDoMes({ unidade, transportadora, tipoDeOperacao, ano, mes }),
     enabled: escolhido,
   });
 
@@ -128,7 +135,7 @@ export default function ResumoGeral() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-5 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="unidade">Unidade (CDD)</Label>
                 <Select value={unidade} onValueChange={(v) => trocar("unidade", v)}>
@@ -141,6 +148,26 @@ export default function ResumoGeral() {
                         {p.nome ? `${p.codigo} — ${p.nome}` : p.codigo}
                       </SelectItem>
                     ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              {/*
+                O tipo vem logo depois da unidade porque é com ela que ele forma
+                a operação: "CAMAÇARI · EMPURRADA" é uma coisa e "CAMAÇARI ·
+                ROTA" é outra, com contas separadas desde a `0046`.
+              */}
+              <div className="space-y-1.5">
+                <Label htmlFor="tipo-de-operacao">Tipo</Label>
+                <Select
+                  value={tipoDeOperacao}
+                  onValueChange={(v) => trocar("tipoDeOperacao", v)}
+                >
+                  <SelectTrigger id="tipo-de-operacao">
+                    <SelectValue placeholder="Escolha" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="EMPURRADA">Empurrada</SelectItem>
+                    <SelectItem value="ROTA">Rota</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

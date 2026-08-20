@@ -416,7 +416,22 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   transação, e é um `merge`: o corpo diz o que mudou, `valor: null` apaga, e o
   que ele não menciona fica. Não há herança entre vigências; há um botão de
   copiar, com autor e data de quem clicou, que não sobrescreve o que o destino
-  já tem. Ver `docs/FECHAMENTO.md`.
+  já tem.
+- **O tipo de operação no fechamento (`0046`)** — a competência era única por
+  (unidade, transportadora, quinzena), e passou a ser pela **quádrupla** com o
+  tipo: o mesmo CDD roda EMPURRADA e ROTA com a mesma transportadora na mesma
+  quinzena, e são duas operações com planilhas, relatórios e contas separadas.
+  Sem o quarto eixo, a abertura de ROTA encontrava a de EMPURRADA e devolvia o
+  fechamento da outra operação — em silêncio, pelo caminho feliz da
+  idempotência. O campo é obrigatório em Realizar Fechamento, com lista fechada
+  (ao contrário dos campos de parte: aqui o valor é eixo de chave, e um campo
+  livre faria "Empurrada" e "EMPURRADA" virarem dois fechamentos). **A coluna se
+  chama `tipo_de_operacao` e não `canal` porque `canal` já existe neste módulo
+  significando `ROTA` | `AS`** — as duas palavras colidem em "ROTA" e vivem no
+  mesmo objeto. As competências anteriores recebem `NAO_INFORMADO`, que afirma
+  só que ninguém disse: carimbar `EMPURRADA` nelas acertaria hoje e seria
+  invenção como regra, porque o fechamento não nasce das vigências. Ver
+  `docs/FECHAMENTO.md`.
 - `docs/ARQUITETURA.md` — as decisões estruturais em prosa
 - `docs/DIAGNOSTICO-ABA-CLIENTE.md` — o comportamento econômico de cada
   parâmetro, medido, e por que quase nada vira proposta

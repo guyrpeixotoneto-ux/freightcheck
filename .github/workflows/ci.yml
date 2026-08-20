@@ -52,10 +52,46 @@
 
 name: CI
 
+# ---------------------------------------------------------------------------
+# Um gatilho, e não dois — porque dois rodavam a bateria inteira duas vezes
+# ---------------------------------------------------------------------------
+#
+# Havia `push` **e** `pull_request`. Um branch com PR aberto disparava os dois a
+# cada envio, e o `concurrency` abaixo não os fundia: o grupo é por
+# `github.ref`, e os dois eventos têm refs diferentes — `refs/heads/<branch>` no
+# push, `refs/pull/<n>/merge` no pull_request. Dois grupos, duas execuções, as
+# duas ao mesmo tempo.
+#
+# O custo não era só de minutos de runner. Cada execução sobe o seu próprio
+# container de Postgres, e as duas disputavam o mesmo pool: em 19/08/2026, no
+# commit 19f6b59, o shard `unit` **passou** na execução do push e **reprovou** na
+# do pull_request — mesmo SHA, mesma suíte, 114s contra 72s, terminando em
+# `unexpected EOF on client connection with an open transaction`, que é processo
+# morto no meio e não asserção reprovada. A duplicação não estava só gastando
+# tempo; estava fabricando vermelho.
+#
+# `push: ["**"]` é o que fica, e não `push: [main] + pull_request`, por causa de
+# como se trabalha aqui: um branch vive dias antes de virar PR, e trocar o push
+# pelo pull_request deixaria justamente esse período sem bateria nenhuma. Os
+# checks de um push aparecem no PR do mesmo jeito — o GitHub os associa pelo
+# SHA, não pelo evento.
+#
+# **O que se perde, dito por extenso.** (1) O `pull_request` roda sobre o merge
+# com a base, e o `push` roda sobre o branch como ele está: um branch verde e
+# atrasado em relação à `main` pode entrar vermelho. A prática desta casa já
+# cobre isso — todo branch integra a `main` antes de mergear, e o histórico é
+# feito desses commits ("Integra main: …"). (2) Um PR vindo de fork não dispara
+# `push` neste repositório e passaria a não ter bateria nenhuma. Isso falha para
+# o lado visível, e é por isso que é aceitável: sem execução, o check `CI
+# completo` não existe — a proteção de branch que o exija barra o merge, e onde
+# não houver proteção o PR aparece **sem check nenhum**. O que não acontece em
+# nenhum dos dois casos é o verde falso, que é o que este arquivo existe para
+# impedir. No dia em que um fork precisar de bateria, o caminho é acrescentar
+# um workflow próprio para `pull_request_target` — e não devolver o gatilho
+# `pull_request` aqui, que traria a duplicação de volta inteira.
 on:
   push:
     branches: ["**"]
-  pull_request:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

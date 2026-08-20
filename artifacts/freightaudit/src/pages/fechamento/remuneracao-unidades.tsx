@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { ArrowRight, ScrollText } from "lucide-react";
+import { BotaoDeCadastroDaPlanilha } from "@/components/remuneracao/painel-de-cadastro";
 import { Layout } from "@/components/layout/layout";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
@@ -143,6 +144,21 @@ export default function RemuneracaoUnidades() {
   const resumo = situacao.data?.resumo;
 
   /*
+    Os tipos de operação que já existem em alguma unidade — o que o seletor do
+    painel oferece antes de deixar digitar um novo.
+
+    Sai da própria lista e não de uma constante, pela mesma razão que
+    `parseVigenciaLabel` aceita qualquer canal em vez de `^EMPURRADA_`: o
+    vocabulário é da operação do cliente, não nosso. Uma lista fixa com
+    EMPURRADA e ROTA acertaria hoje e estaria errada no dia em que um terceiro
+    aparecesse — e o campo continua aceitando digitar, que é o que faz o
+    terceiro poder aparecer.
+  */
+  const canaisConhecidos = [
+    ...new Set(unidades.map((u) => u.channel).filter((c): c is string => c !== null && c !== "")),
+  ];
+
+  /*
     Sem tela nenhuma no quadro do encaminhamento. Com a consulta desligada,
     desenhar a lista aqui mostraria "nenhuma unidade entregou vigência ainda"
     por um instante — a frase certa para o acervo vazio, e falsa para quem só
@@ -160,7 +176,9 @@ export default function RemuneracaoUnidades() {
         <p className="text-muted-foreground mt-2 max-w-3xl">
           As unidades que já entregaram vigência, e o que o cadastro da planilha de
           remuneração de cada uma alcança hoje. Abrir uma linha é abrir o cadastro dela —
-          alíquotas, frota, parcelas por veículo e proporção de documentos.
+          alíquotas, frota, parcelas por veículo e proporção de documentos. O que o acervo
+          ainda não responde, alguém digita da aba de Excel: é o botão{" "}
+          <strong>Cadastrar planilha</strong>, e ele abre o formulário aqui mesmo.
         </p>
       </header>
 
@@ -193,6 +211,24 @@ export default function RemuneracaoUnidades() {
                 está escrita na linha: uma lista presa a uma quinzena fixa faria a unidade que
                 parou de entregar parecer em dia.
               </p>
+              {/*
+                Sem lastro é o único dos quatro estados em que o acervo não
+                responde **nada**, e por isso é o único que ganha frase própria:
+                nele a planilha informada não é complemento, é a única forma de o
+                cadastro ter número. Sem esta linha a tela responde "sem lastro"
+                e cala a saída que existe — que foi o que aconteceu no primeiro
+                uso.
+              */}
+              {resumo.semLastro > 0 && (
+                <p className="text-xs text-muted-foreground">
+                  {resumo.semLastro === 1
+                    ? "A unidade sem lastro não tem número nenhum vindo do acervo"
+                    : `As ${resumo.semLastro} unidades sem lastro não têm número nenhum vindo do acervo`}
+                  : enquanto o export não chega, o cadastro delas só ganha número pela{" "}
+                  <strong>planilha informada</strong> — o botão da direita abre o formulário, e
+                  o que entrar por lá fica marcado como informado, com autor e data.
+                </p>
+              )}
             </CardContent>
           </Card>
         )}
@@ -275,35 +311,50 @@ export default function RemuneracaoUnidades() {
                           nenhum e teve a aba transcrita apareceria em dia, e
                           quem opera pararia de procurar o arquivo que falta.
                         */}
+                        {/*
+                          A célula é o **lugar de preencher**, e não só a
+                          contagem.
+
+                          Sem o botão, esta coluna dizia "nada informado" e não
+                          oferecia nada a quem lesse isso: o formulário existia
+                          numa aba dentro do cadastro da unidade, a um clique de
+                          distância e sem nada que o anunciasse daqui. Numa
+                          unidade sem lastro nenhum — que é o caso em que a
+                          planilha informada é a **única** forma de o cadastro
+                          ter número — a lista mandava procurar um arquivo e
+                          calava a saída que existe.
+                        */}
                         <td className="px-4 py-3 text-right whitespace-nowrap">
-                          {u.cadastro.informadas === 0 ? (
-                            <span className="text-xs text-muted-foreground">
-                              nada informado
-                            </span>
-                          ) : (
-                            <span className="inline-flex flex-col items-end gap-0.5">
-                              <span className="tabular-nums">
-                                {u.cadastro.informadas} de {u.cadastro.linhas}
-                              </span>
-                              {u.cadastro.divergentes > 0 ? (
-                                <Badge variant="destructive" className="text-[0.6875rem]">
-                                  {u.cadastro.divergentes}{" "}
-                                  {u.cadastro.divergentes === 1
-                                    ? "diverge do acervo"
-                                    : "divergem do acervo"}
-                                </Badge>
-                              ) : (
-                                u.cadastro.conferidas > 0 && (
-                                  <span className="text-[0.6875rem] text-muted-foreground">
-                                    {u.cadastro.conferidas}{" "}
-                                    {u.cadastro.conferidas === 1
-                                      ? "confere com o acervo"
-                                      : "conferem com o acervo"}
-                                  </span>
-                                )
-                              )}
-                            </span>
-                          )}
+                          <div className="inline-flex flex-col items-end gap-1">
+                            {u.cadastro.informadas > 0 && (
+                              <>
+                                <span className="tabular-nums">
+                                  {u.cadastro.informadas} de {u.cadastro.linhas}
+                                </span>
+                                {u.cadastro.divergentes > 0 ? (
+                                  <Badge variant="destructive" className="text-[0.6875rem]">
+                                    {u.cadastro.divergentes}{" "}
+                                    {u.cadastro.divergentes === 1
+                                      ? "diverge do acervo"
+                                      : "divergem do acervo"}
+                                  </Badge>
+                                ) : (
+                                  u.cadastro.conferidas > 0 && (
+                                    <span className="text-[0.6875rem] text-muted-foreground">
+                                      {u.cadastro.conferidas}{" "}
+                                      {u.cadastro.conferidas === 1
+                                        ? "confere com o acervo"
+                                        : "conferem com o acervo"}
+                                    </span>
+                                  )
+                                )}
+                              </>
+                            )}
+                            <BotaoDeCadastroDaPlanilha
+                              unidade={u}
+                              canaisConhecidos={canaisConhecidos}
+                            />
+                          </div>
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">{u.periodLabel}</td>
                         <td className="px-4 py-3 text-right">

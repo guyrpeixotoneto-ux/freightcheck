@@ -518,6 +518,73 @@ palavra. O ano segue digitado — é aberto —, mas a tela agora aplica a mesma
 régua da rota (2000 a 2100) antes do clique, para não gastar uma ida ao servidor
 dizendo o que já se sabia.
 
+## O tipo de operação — EMPURRADA e ROTA são dois fechamentos
+
+A competência foi, até a `0046`, única por **(unidade, transportadora,
+quinzena)**, com a frase "uma quinzena de um CDD com uma transportadora é *um*
+fechamento, e dois seria o começo de duas verdades sobre o mesmo dinheiro". A
+frase continua verdadeira; o recorte é que estava incompleto. O mesmo CDD roda
+**EMPURRADA** e **ROTA** com a mesma transportadora na mesma quinzena, e são
+duas operações — cada uma com a sua planilha de remuneração, os seus relatórios
+e a sua conta. Somá-las num fechamento só era o que produzia a verdade
+misturada.
+
+Hoje a chave é a quádrupla **(unidade, transportadora, tipo de operação,
+quinzena)**, e o campo é **obrigatório** ao abrir: sem ele, a segunda abertura
+encontrava a primeira e devolvia o fechamento da outra operação — em silêncio,
+porque repetir a abertura é o caminho feliz de quem volta à tela no dia
+seguinte, e quem abrisse ROTA passaria a mandar os relatórios de rota para
+dentro do fechamento de empurrada.
+
+### Por que a coluna não se chama `canal`
+
+Porque **`canal` já existe neste módulo e significa outra coisa**: `ROTA` | `AS`
+— distribuição urbana diária contra área de serviço, o primeiro eixo de
+agregação de toda a apuração (`lib/fechamento/src/dominio.ts`). As duas
+palavras colidem exatamente em `ROTA` e querem dizer coisas diferentes, e as
+duas vivem no mesmo objeto: `resumo.canais[].canal` é ROTA/AS enquanto
+`competencia.tipoDeOperacao` é EMPURRADA/ROTA. Dois campos com o mesmo nome no
+mesmo módulo, um deles capaz de guardar `ROTA` significando outra coisa, é a
+forma exata do erro que este repositório escreve ensaios para não cometer.
+
+O eixo de `tipoDeOperacao` é o de `remuneracao_planilha.canal` e o do rótulo da
+vigência (`EMPURRADA_1_8_2026` → `EMPURRADA`): é a operação que a planilha de
+remuneração descreve, e é por ele que um fechamento se liga ao cadastro que o
+remunera.
+
+### O backfill não adivinha
+
+As competências abertas antes da `0046` recebem `NAO_INFORMADO`, e a única coisa
+que esse valor afirma é que ninguém disse. Escrever `EMPURRADA` nelas acertaria
+hoje — toda vigência deste acervo é empurrada — e seria invenção como regra: o
+fechamento não nasce das vigências, e nenhum dos cinco relatórios que ele
+consome declara o tipo. É a mesma recusa de `tributoDe` e de `DIZ_QUE_SIM`, que
+devolvem nulo em vez de escolher o valor mais provável.
+
+`NAO_INFORMADO` é recusado na porta de entrada (`normalizarTipoDeOperacao`):
+ele é o carimbo do backfill, e nada além dele pode escrevê-lo. A tela mostra
+essas competências como "tipo não informado", por extenso — mostrá-las como
+empurradas seria escrever na tela um tipo que ninguém declarou.
+
+O `DEFAULT` da coluna fica, e é fail-safe pela razão **oposta** à de
+`app_user.role`: lá o default não podia fabricar um administrador; aqui ele não
+pode fabricar um tipo.
+
+### Onde o tipo aparece
+
+- **Realizar Fechamento** — campo `Tipo`, obrigatório, com lista fechada
+  (Empurrada / Rota). Fechada ao contrário dos campos de unidade e
+  transportadora, e a razão é o que cada um protege: lá o vocabulário é da
+  operação e cresce; aqui ele é o eixo de uma **chave**, e um campo livre faria
+  "Empurrada" e "EMPURRADA" virarem dois fechamentos do mesmo mês. A
+  normalização (trim + caixa alta) fecha a mesma porta do lado do servidor.
+- **A lista de competências** — na identidade da linha, e não como enfeite:
+  duas competências podem diferir só por ele, e sem o tipo à vista a lista
+  mostraria duas linhas idênticas.
+- **Resumo geral** — um seletor a mais, ao lado da unidade. O resumo tem uma
+  coluna por quinzena, e sem o recorte as duas operações cairiam nas mesmas duas
+  colunas.
+
 ## Remuneração — o cadastro, e a única tela que atravessa a fronteira
 
 `/fechamento/remuneracao/unidade` reproduz a aba **CADASTRO DA PLANILHA DE
@@ -696,6 +763,51 @@ metade valeu.
 quem clicou, que traz da vigência escolhida só o que o destino ainda não tem.
 Herdar em silêncio faria a aba de julho responder por agosto para sempre,
 inclusive depois de a operação mudar.
+
+#### O canal da planilha não precisa do acervo
+
+A aba é de um **tipo de operação** — `EMPURRADA`, `ROTA` —, e não da unidade
+inteira: a mesma CAMAÇARI tem uma aba para cada. E a aba de ROTA existe **antes**
+de o export de ROTA chegar; é justamente nesse intervalo que digitá-la vale a
+pena. Por isso a escrita aceita um canal que o acervo não entregou, desde que a
+**unidade** exista:
+
+- canal novo em unidade conhecida é **declaração** — o escopo, o CNPJ e o rótulo
+  são da unidade, e o canal descreve a operação;
+- unidade nova é **importação**, e continua 404: sem uma série importada não há
+  `scope_hash` nem rótulo, e a planilha ficaria pendurada num identificador que
+  ninguém sabe ler.
+
+O canal só-da-planilha vira uma linha própria na lista de unidades
+(`contextosDoModulo` soma `listContexts` com `canaisComPlanilha`), herdando a
+unidade e **nenhum material**: as consultas de cavalo e trecho filtram por canal
+e devolvem vazio, então as trinta linhas nascem sem lastro e só o digitado tem
+número. É a resposta certa — o acervo de fato não diz nada sobre aquele canal —,
+e é o que impede a planilha de fazer o estado da unidade parecer melhor do que é.
+
+A leitura continua recusando canal desconhecido: um canal digitado errado num
+link tem de responder 404, e não um cadastro vazio que se parece com uma unidade
+que perdeu o lastro. Quem abre o **formulário** pede explicitamente
+(`aceitarCanalNovo`, `?canalNovo=1`), porque é o único lugar onde o canal nasce
+— as trinta linhas em branco precisam aparecer para que alguém as preencha.
+
+O vocabulário de canais não é fixo, e não podia ser: `parseVigenciaLabel` aceita
+qualquer palavra no rótulo pela mesma razão. O seletor oferece os que já existem
+e deixa digitar um novo, que passa a existir quando a primeira linha dele for
+salva — o mesmo gesto do campo de unidade em Realizar Fechamento.
+
+#### Onde se cadastra
+
+Em dois lugares, e são gestos diferentes. O **botão na lista** (`Cadastrar
+planilha`) abre o formulário por cima dela, com o tipo de operação e a vigência
+escolhidos ali: é para quem tem a aba aberta ao lado e quer digitar e fechar. A
+**aba dentro do cadastro da unidade** tem endereço próprio e as outras duas
+vistas ao lado: é para quem vai conferir.
+
+O botão na lista nasceu de um defeito de uso: a coluna dizia "nada informado" e
+não oferecia nada a quem lesse isso, numa unidade **sem lastro nenhum** — o caso
+em que a planilha é a única forma de o cadastro ter número. A tela mandava
+procurar um arquivo e calava a saída que existia.
 
 ## O que o Fechamento vai precisar (fora desta fundação)
 

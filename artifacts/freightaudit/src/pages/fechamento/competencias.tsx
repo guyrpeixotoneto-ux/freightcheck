@@ -120,6 +120,53 @@ const mesPorExtenso = (mes: number) =>
   MES_LONGO[mes - 1].replace(/^./, (letra) => letra.toUpperCase());
 
 /**
+ * Os tipos de operação que o formulário oferece.
+ *
+ * **Não confundir com `Canal`**, que no motor do Fechamento é `ROTA` | `AS` —
+ * distribuição urbana diária contra área de serviço, o eixo de agregação das
+ * verbas. As duas palavras colidem em "ROTA" e querem dizer coisas diferentes:
+ * aqui ROTA é o **modelo de operação da unidade**, o mesmo eixo que o rótulo da
+ * vigência carrega (`EMPURRADA_1_8_2026`) e o mesmo da planilha de remuneração.
+ * É por isso que o campo se chama Tipo, e não Canal.
+ *
+ * A lista é fechada, ao contrário dos campos de unidade e transportadora, e a
+ * razão é o que cada um protege. Lá o vocabulário é da operação e cresce; aqui
+ * ele é o eixo de uma **chave**, e um campo livre faria "Empurrada" e
+ * "EMPURRADA" virarem dois fechamentos do mesmo mês. Um terceiro tipo é uma
+ * linha nesta lista no dia em que ele existir.
+ */
+/**
+ * O tipo como a tela o escreve.
+ *
+ * `NAO_INFORMADO` é o carimbo do backfill da `0046` — as competências abertas
+ * antes de o campo existir. Ele aparece por extenso, e não escondido: a linha
+ * que não diz de qual operação ela é continua sendo um fato sobre o acervo, e
+ * mostrá-la como se fosse empurrada seria escrever na tela um tipo que ninguém
+ * declarou.
+ */
+function rotuloDoTipo(tipo: string): string {
+  if (tipo === "NAO_INFORMADO") return "tipo não informado";
+  return TIPOS_DE_OPERACAO.find((t) => t.valor === tipo)?.rotulo ?? tipo;
+}
+
+const TIPOS_DE_OPERACAO = [
+  {
+    valor: "EMPURRADA",
+    rotulo: "Empurrada",
+    explicacao:
+      "A distribuição empurrada da unidade — a operação que as vigências deste acervo " +
+      "descrevem hoje.",
+  },
+  {
+    valor: "ROTA",
+    rotulo: "Rota",
+    explicacao:
+      "A operação de rota da mesma unidade. É um fechamento separado do de empurrada, com a " +
+      "sua própria planilha de remuneração.",
+  },
+];
+
+/**
  * O que a linha da lista oferece, pelo estado da competência.
  *
  * São três, e não dois, porque "não dá para fechar" tem duas causas diferentes
@@ -205,6 +252,12 @@ export default function Competencias() {
   const [quinzena, setQuinzena] = useState(hoje.getDate() <= 15 ? "1" : "2");
   const [unidade, setUnidade] = useState<Parte | null>(null);
   const [transportadora, setTransportadora] = useState<Parte | null>(null);
+  /*
+    O tipo de operação — EMPURRADA, ROTA. Nasce vazio de propósito, e não com um
+    padrão: ele entra na **chave** do fechamento desde a `0046`, e um padrão
+    escolheria em silêncio de qual operação é a quinzena que alguém abriu.
+  */
+  const [tipoDeOperacao, setTipoDeOperacao] = useState("");
   /** A competência cujo painel de fechamento está aberto — uma, ou nenhuma. */
   const [fechando, setFechando] = useState<string | null>(null);
   /*
@@ -262,6 +315,7 @@ export default function Competencias() {
           codigo: transportadora!.codigo,
           nome: transportadora!.nome ?? undefined,
         },
+        tipoDeOperacao,
       }),
     onSuccess: (criada) => {
       void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
@@ -271,7 +325,8 @@ export default function Competencias() {
   });
 
   const anoValido = anoAceito(ano);
-  const podeAbrir = unidade !== null && transportadora !== null && anoValido;
+  const podeAbrir =
+    unidade !== null && transportadora !== null && anoValido && tipoDeOperacao !== "";
 
   return (
     <Layout>
@@ -382,6 +437,43 @@ export default function Competencias() {
                   rotuloDeCriacao={(texto) => `Usar “${texto}”`}
                   previaDe={previaDaParte}
                 />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="tipo-de-operacao">Tipo</Label>
+                {/*
+                  O tipo entra na chave do fechamento, e é por isso que ele é
+                  obrigatório: a mesma unidade roda EMPURRADA e ROTA com a mesma
+                  transportadora na mesma quinzena, e são duas operações — cada
+                  uma com a sua planilha de remuneração, os seus relatórios e a
+                  sua conta. Sem o campo, a segunda abertura encontrava a
+                  primeira e devolvia o fechamento da outra operação, em
+                  silêncio, porque repetir a abertura é o caminho feliz.
+
+                  Um select fechado, e não um campo livre como os de parte: o
+                  eixo é o mesmo do rótulo da vigência, e o produto conhece os
+                  dois nomes que ele tem hoje. O dia em que aparecer um terceiro,
+                  esta lista é uma linha — e enquanto isso ela impede que
+                  "Empurrada" e "EMPURRADA" virem dois fechamentos do mesmo mês.
+                */}
+                <Select value={tipoDeOperacao} onValueChange={setTipoDeOperacao}>
+                  <SelectTrigger id="tipo-de-operacao">
+                    <SelectValue placeholder="Escolha o tipo da operação" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TIPOS_DE_OPERACAO.map((t) => (
+                      <SelectItem key={t.valor} value={t.valor}>
+                        {t.rotulo}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  {TIPOS_DE_OPERACAO.find((t) => t.valor === tipoDeOperacao)?.explicacao ??
+                    "EMPURRADA e ROTA são fechamentos separados na mesma quinzena."}
+                </p>
               </div>
             </div>
 
@@ -505,8 +597,19 @@ export default function Competencias() {
                               {NOME_DO_ESTADO[c.estado]}
                             </span>
                           </div>
+                          {/*
+                            O tipo entra na identidade da linha, e não como
+                            enfeite: desde a `0046` duas competências da mesma
+                            unidade, transportadora e quinzena podem existir, e
+                            a única coisa que as separa é ele. Sem o tipo à
+                            vista, a lista mostraria duas linhas idênticas.
+                          */}
                           <p className="text-sm text-muted-foreground truncate">
                             {c.unidade.nome ?? c.unidade.codigo} · {c.transportadora.nome ?? c.transportadora.codigo}
+                            {" · "}
+                            <span className={c.tipoDeOperacao === "NAO_INFORMADO" ? "italic" : "font-medium"}>
+                              {rotuloDoTipo(c.tipoDeOperacao)}
+                            </span>
                           </p>
                         </div>
                         <ArrowRight className="w-4 h-4 text-muted-foreground shrink-0" />
@@ -756,7 +859,8 @@ function ExclusaoDaLinha({
       <p className="text-sm font-medium">Excluir esta importação?</p>
       <p className="text-sm text-muted-foreground">
         {periodo} · {competencia.unidade.nome ?? competencia.unidade.codigo} ·{" "}
-        {competencia.transportadora.nome ?? competencia.transportadora.codigo}
+        {competencia.transportadora.nome ?? competencia.transportadora.codigo} ·{" "}
+        {rotuloDoTipo(competencia.tipoDeOperacao)}
       </p>
       {dados.isLoading ? (
         <p className="text-sm text-muted-foreground">Contando o que vai junto…</p>

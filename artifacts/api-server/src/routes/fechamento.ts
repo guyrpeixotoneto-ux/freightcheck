@@ -181,12 +181,26 @@ router.post("/fechamento/partes", async (req, res): Promise<void> => {
 router.get("/fechamento/resumo", async (req, res): Promise<void> => {
   const unidade = String(req.query.unidade ?? "").trim();
   const transportadora = String(req.query.transportadora ?? "").trim();
+  const tipoDeOperacao = String(req.query.tipoDeOperacao ?? "").trim().toUpperCase();
   const ano = Number(req.query.ano);
   const mes = Number(req.query.mes);
 
   if (unidade === "" || transportadora === "") {
     res.status(400).json({
       error: "unidade e transportadora são obrigatórias — o resumo é de um fechamento, não de um mês do calendário.",
+    });
+    return;
+  }
+  /*
+    Desde a `0046` a mesma unidade pode ter EMPURRADA e ROTA na mesma quinzena.
+    Sem este recorte as duas cairiam nas mesmas duas colunas do resumo e o mês
+    somaria duas operações num total só.
+  */
+  if (tipoDeOperacao === "") {
+    res.status(400).json({
+      error:
+        "tipoDeOperacao é obrigatório — EMPURRADA e ROTA são fechamentos diferentes na mesma " +
+        "quinzena, e somá-los num resumo só misturaria duas operações.",
     });
     return;
   }
@@ -199,7 +213,7 @@ router.get("/fechamento/resumo", async (req, res): Promise<void> => {
     return;
   }
 
-  res.json(await lerResumoDoMes(db, { unidade, transportadora, ano, mes }));
+  res.json(await lerResumoDoMes(db, { unidade, transportadora, tipoDeOperacao, ano, mes }));
 });
 
 /**
@@ -237,6 +251,12 @@ router.post("/fechamento/competencias", async (req, res): Promise<void> => {
     return;
   }
 
+  /*
+    O tipo de operação é obrigatório desde a `0046`, e a recusa vem do domínio
+    (`normalizarTipoDeOperacao` → `TipoDeOperacaoAusente` → 400): a frase que
+    explica por que ele importa é do negócio, e escrevê-la de novo aqui daria
+    duas versões dela. O que a rota faz é só não engolir o campo ausente.
+  */
   const competencia = await abrirCompetencia(db, {
     ano,
     mes,
@@ -249,6 +269,7 @@ router.post("/fechamento/competencias", async (req, res): Promise<void> => {
       codigo: transportadora.codigo.trim(),
       nome: typeof transportadora.nome === "string" ? transportadora.nome.trim() : null,
     },
+    tipoDeOperacao: typeof corpo?.tipoDeOperacao === "string" ? corpo.tipoDeOperacao : "",
   });
   res.status(201).json(competencia);
 });
