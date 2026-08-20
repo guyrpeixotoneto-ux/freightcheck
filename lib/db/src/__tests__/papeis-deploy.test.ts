@@ -190,6 +190,8 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "fechamento_pagamento_desconto",
         /* O cadastro de partes, da `0044` — o mesmo caso outra vez. */
         "fechamento_parte",
+        /* A planilha informada, da `0045` — idem: Production não a tem. */
+        "remuneracao_planilha",
       ]),
     );
     /*
@@ -214,13 +216,18 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
     /*
       As constraints das tabelas novas — chave primária, estrangeira e CHECK —
       vêm junto, e são conferidas pela regra "pertencem a uma tabela do
-      Fechamento" em vez de por uma lista de trinta e um nomes. A lista
+      Fechamento ou à planilha informada da `0045`" em vez de por uma lista de
+      trinta e dois nomes. A lista
       congelaria a nomenclatura interna de dez tabelas num teste que não fala
       sobre ela; o que este cenário precisa provar é que **nada além** do que as
       duas mudanças trazem aparece no diff.
     */
     expect(
-      new Set(antes.addConstraint.filter((c) => !c.startsWith("fechamento_"))),
+      new Set(
+        antes.addConstraint.filter(
+          (c) => !c.startsWith("fechamento_") && !c.startsWith("remuneracao_"),
+        ),
+      ),
     ).toEqual(
       new Set([
         "app_user_role_ck",
@@ -244,6 +251,7 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
       "0042_viagem_completa",
       "0043_pagamento",
       "0044_partes_cadastradas",
+      "0045_planilha_de_remuneracao",
     ]);
 
     // Preservação + backfill: as três contas continuam com o hash original e

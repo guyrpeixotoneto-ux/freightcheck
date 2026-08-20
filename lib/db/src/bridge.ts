@@ -224,6 +224,23 @@ const TABELAS_REMOVIDAS = [
   "fechamento_documento",
   "fechamento_competencia",
   "fechamento_parte",
+  /*
+    A planilha informada, da `0045` — o mesmo caso das treze acima: Production
+    não a conhece até rodar a fila, e até lá toda tabela nova é uma tabela que a
+    proposta do Publishing proporia criar.
+
+    Não é filha de ninguém (não há FK para `app_user`, de propósito — ver
+    `schema/remuneracao.ts`), e por isso entra em qualquer ponto da lista.
+
+    **A pré-condição de vazia é a mais dura desta lista, e é a certa.** Cada
+    linha aqui é uma célula que uma pessoa digitou da aba de Excel, e não existe
+    consulta que a reconstrua a partir de outra coisa — é decisão humana, como
+    `coverage_expectation` e como o significado cadastrado na tela. Um
+    Development com planilha preenchida trava o `down`, e travar é o
+    comportamento correto: encolher o diff descartando o que alguém digitou é
+    exatamente o que o bridge não pode fazer.
+  */
+  "remuneracao_planilha",
 ];
 
 /**
@@ -1642,6 +1659,26 @@ function planoUp(): PassoUp[] {
     "índice fechamento_parte_unica",
     levantar(M44, /INDEX IF NOT EXISTS "fechamento_parte_unica"/),
   );
+
+  /*
+    A `0045` — a planilha de remuneração informada, pela mesma razão da `0044`:
+    o `down` a derruba porque Production não a conhece, e o `up` tem de
+    devolvê-la inteira. O índice único é o que faz dela uma planilha em vez de
+    uma pilha de versões da mesma célula, e o outro é o que a leitura por
+    (unidade, vigência) usa. Sem chave estrangeira e sem gatilho, como a `0044`:
+    o autor não referencia `app_user` de propósito (a conta pode ser desativada,
+    o histórico do número não pode depender disso), e a planilha não é conteúdo
+    de competência nenhuma.
+  */
+  const M45 = "0045_planilha_de_remuneracao";
+  add(
+    M45,
+    "remuneracao_planilha",
+    levantar(M45, /CREATE TABLE IF NOT EXISTS "remuneracao_planilha" \(/),
+  );
+  for (const i of ["remuneracao_planilha_unica", "remuneracao_planilha_por_vigencia"]) {
+    add(M45, `índice ${i}`, levantar(M45, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
+  }
 
   const M42 = "0042_viagem_completa";
   for (const coluna of COLUNAS_DO_RETRATO_DA_VIAGEM) {

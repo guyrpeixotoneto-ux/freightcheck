@@ -128,8 +128,12 @@ describe("o cadastro montado", () => {
     expect(montarCadastro(VIGENCIA_COMPLETA).resumo).toEqual({
       linhas: 30,
       apuradas: 9,
+      informadas: 0,
       emConjunto: 2,
       semLastro: 19,
+      comLastro: 11,
+      conferidas: 0,
+      divergentes: 0,
     });
   });
 
@@ -142,8 +146,12 @@ describe("o cadastro montado", () => {
     expect(montarCadastro(VIGENCIA_VAZIA).resumo).toEqual({
       linhas: 30,
       apuradas: 0,
+      informadas: 0,
       emConjunto: 0,
       semLastro: 30,
+      comLastro: 0,
+      conferidas: 0,
+      divergentes: 0,
     });
   });
 });

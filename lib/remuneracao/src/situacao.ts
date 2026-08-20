@@ -57,11 +57,41 @@ export interface SituacaoDoCadastro {
   /** Se o acervo sustenta as alíquotas — ICMS, ISS ou o par PIS + COFINS. */
   aliquotas: boolean;
   estado: EstadoDoCadastro;
+  /**
+   * Quantas linhas têm número **porque alguém as informou**, e não porque o
+   * acervo as sustenta.
+   *
+   * Fica fora de `comLastro` de propósito, e é a decisão mais importante deste
+   * arquivo depois da que separa as duas metades. Somá-las faria uma unidade
+   * que não importou nada e teve a planilha digitada aparecer na lista do mesmo
+   * jeito que uma que entregou os dois exports — e as duas pedem coisas
+   * opostas de quem opera: a primeira precisa de arquivo, a segunda não precisa
+   * de nada.
+   */
+  informadas: number;
+  /** Quantas linhas o acervo e a planilha respondem — as conferíveis. */
+  conferidas: number;
+  /** Destas, quantas discordam. É o que faz alguém abrir a unidade. */
+  divergentes: number;
 }
 
-/** Linha com número, seja sozinha ou em par. */
+/**
+ * Linha que o **acervo** sustenta, sozinha ou em par.
+ *
+ * Lê `lastroDoAcervo`, e não o estado, e a diferença é a linha mais importante
+ * deste arquivo. Duas razões, e as duas são defeitos que ela previne:
+ *
+ * - um número **digitado** é lastro da planilha, não do acervo, e os quatro
+ *   estados abaixo respondem sobre o que a unidade **entregou**. Contá-lo faria
+ *   uma unidade sem nenhum arquivo importado, mas com a aba de Excel
+ *   transcrita, aparecer como "Frota e alíquotas" — mandando quem opera parar
+ *   de procurar exatamente o arquivo que falta;
+ * - e o inverso: uma linha do par PIS + COFINS que alguém informou deixa de ser
+ *   `EM_CONJUNTO` e continua sendo sustentada pelo export. Ler o estado faria a
+ *   unidade **perder** lastro por alguém ter preenchido a planilha.
+ */
 function temLastro(linha: LinhaApurada): boolean {
-  return linha.estado === "APURADO" || linha.estado === "EM_CONJUNTO";
+  return linha.lastroDoAcervo;
 }
 
 /**
@@ -94,8 +124,17 @@ export function medirSituacao(montado: CadastroMontado): SituacaoDoCadastro {
 
   return {
     linhas: montado.resumo.linhas,
-    comLastro: montado.resumo.apuradas + montado.resumo.emConjunto,
-    semLastro: montado.resumo.semLastro,
+    comLastro: montado.resumo.comLastro,
+    /*
+      O que o acervo não sustenta — e não "o que não tem número". Os dois
+      diferiam no dia em que a planilha passou a ser informável: uma linha
+      digitada tem número e continua sem lastro nenhum do acervo, que é o que
+      esta lista responde. Somados, os dois dão as trinta.
+    */
+    semLastro: montado.resumo.linhas - montado.resumo.comLastro,
+    informadas: montado.resumo.informadas,
+    conferidas: montado.resumo.conferidas,
+    divergentes: montado.resumo.divergentes,
     frota,
     aliquotas,
     estado: frota && aliquotas

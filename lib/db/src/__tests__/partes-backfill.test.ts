@@ -118,7 +118,13 @@ describe.skipIf(!temBanco)("a 0044 sobre um banco que já tinha competências", 
   it("traz para o cadastro cada código já usado, com o nome mais recente", async () => {
     const relatorio = await runMigrations(urlDe(NOME));
     expect(relatorio.failure).toBeUndefined();
-    expect(relatorio.applied).toEqual(["0044_partes_cadastradas"]);
+    /*
+      A `0044` é a primeira que a fila aplica aqui — o banco foi parado logo
+      antes dela. O que vem depois acompanha, e por isso a asserção é sobre a
+      **primeira**: prender a lista inteira faria toda migration futura reprovar
+      um teste que não fala dela.
+    */
+    expect(relatorio.applied[0]).toBe("0044_partes_cadastradas");
 
     const { rows } = await pool.query(
       `SELECT "tipo","codigo","nome" FROM "fechamento_parte" ORDER BY "tipo","codigo"`,

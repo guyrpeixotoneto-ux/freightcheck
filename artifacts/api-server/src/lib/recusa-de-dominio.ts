@@ -10,6 +10,8 @@ import {
 import { VigenciaNaoEncontradaError } from "@workspace/qlp";
 import {
   ComparacaoSemDuasVigencias,
+  LinhaDaPlanilhaInvalida,
+  PlanilhaVazia,
   VigenciaDoCadastroNaoEncontrada,
 } from "@workspace/remuneracao";
 import { EmailAlreadyUsedError } from "./session";
@@ -69,6 +71,14 @@ const RECUSAS: { classe: new (...args: never[]) => Error; status: number }[] = [
   /* A unidade existe e o cadastro dela também; o que não existe é o **par**.
      422 e nunca 404: um 404 mandaria procurar uma unidade que está bem ali. */
   { classe: ComparacaoSemDuasVigencias, status: 422 },
+  /* A célula que chegou não é da planilha: chave fora do catálogo, percentual
+     em fração, quantidade quebrada. 400 — o defeito está no pedido, e a frase
+     nomeia a linha e o que ela esperava. */
+  { classe: LinhaDaPlanilhaInvalida, status: 400 },
+  /* Salvar sem célula nenhuma. 400 e não 204: quem clicou em salvar espera que
+     alguma coisa tenha sido salva, e o silêncio deixaria a dúvida de se a
+     planilha foi apagada. */
+  { classe: PlanilhaVazia, status: 400 },
   /* Regra de negócio escrita para quem opera — a frase é dela, e sai inteira. */
   { classe: DecisaoRecusada, status: 422 },
   { classe: BaixaRecusada, status: 422 },

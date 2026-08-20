@@ -15,6 +15,7 @@ import {
   ExplicacaoDaAusencia,
   frasedoMaterial,
   Legenda,
+  MarcaDeInformado,
   MarcaDoPreenchimento,
   Numero,
 } from "./comuns";
@@ -225,9 +226,28 @@ function Linha({ linha }: { linha: LinhaComparada }) {
     não sustenta junto: são as únicas linhas desta tela que alguém poderia ler
     como dinheiro sem serem, e por isso são as únicas que nunca são abreviadas.
   */
-  const explicacao =
-    linha.movimento === "GANHOU_LASTRO" || linha.movimento === "PERDEU_LASTRO"
-      ? EXPLICACAO_DO_MOVIMENTO[linha.movimento]
+  const mudouDeLastro =
+    linha.movimento === "GANHOU_LASTRO" || linha.movimento === "PERDEU_LASTRO";
+
+  /*
+    A terceira frase que nunca é abreviada: uma ponta medida e a outra
+    informada.
+
+    A variação continua valendo — as duas medem a mesma rubrica —, e o que ela
+    quer dizer não é o de sempre. Sem esta frase, uma frota fixa que "cai" de 62
+    para 56 entre as duas quinzenas seria lida como seis caminhões que saíram,
+    quando o que aconteceu foi o export de um mês comparado com a aba do outro.
+    É a única linha desta tela, depois das duas de cobertura, que parece
+    dinheiro que se moveu sem ser.
+  */
+  const misturouFontes = linha.fontesDiferentes && linha.variacao !== null;
+
+  const explicacao = mudouDeLastro
+    ? EXPLICACAO_DO_MOVIMENTO[linha.movimento]
+    : misturouFontes
+      ? "As duas pontas não vêm do mesmo lugar: uma foi medida no acervo e a outra foi " +
+        "informada na planilha. A diferença entre elas pode ser o que mudou na operação, ou " +
+        "o desacordo entre a aba e o export — e as duas leituras pedem trabalhos diferentes."
       : undefined;
 
   const ausenciaRelevante =
@@ -236,6 +256,13 @@ function Linha({ linha }: { linha: LinhaComparada }) {
       : linha.movimento === "GANHOU_LASTRO"
         ? linha.esquerda.ausencia
         : null;
+
+  /*
+    "Perdeu o lastro" deixa de ser a palavra certa quando a ponta que ficou sem
+    número é a que ninguém informou: o acervo pode continuar medindo tudo o que
+    media, e o que falta é a linha da planilha. A tabela continua marcando o
+    movimento; o rodapé do bloco é que explica a diferença.
+  */
 
   return (
     <>
@@ -301,7 +328,7 @@ function Linha({ linha }: { linha: LinhaComparada }) {
   );
 }
 
-/** Uma célula de valor — a mesma leitura das três formas da vista de uma quinzena. */
+/** Uma célula de valor — a mesma leitura das quatro formas da vista de uma quinzena. */
 function Celula({ linha, destaque = false }: { linha: LinhaApurada; destaque?: boolean }) {
   return (
     <td
@@ -313,6 +340,17 @@ function Celula({ linha, destaque = false }: { linha: LinhaApurada; destaque?: b
       {linha.estado === "APURADO" && linha.valor !== null && (
         escreverValor(linha.valor, linha.medida)
       )}
+      {/*
+        A célula informada carrega a marca junto do número, e não uma cor
+        diferente: numa tabela de quatro colunas, cor é o que se perde primeiro
+        — no modo escuro, na impressão, e para quem não a distingue.
+      */}
+      {linha.estado === "INFORMADO" && linha.valor !== null && (
+        <span className="inline-flex items-center gap-1.5">
+          {escreverValor(linha.valor, linha.medida)}
+          <MarcaDeInformado declarado={linha.declarado} />
+        </span>
+      )}
       {linha.estado === "EM_CONJUNTO" && linha.conjunto && (
         <span
           className="font-normal text-muted-foreground"
@@ -323,7 +361,7 @@ function Celula({ linha, destaque = false }: { linha: LinhaApurada; destaque?: b
         </span>
       )}
       {linha.estado === "SEM_LASTRO" && (
-        <span className="text-muted-foreground/60" aria-label="sem lastro">
+        <span className="text-muted-foreground/60" aria-label="sem número">
           —
         </span>
       )}
