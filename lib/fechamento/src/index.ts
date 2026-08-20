@@ -57,6 +57,17 @@ export {
   type BlocoDoPagamento,
   type TipoDeDescontoDoPagamento,
 } from "./leitores/pagamento";
+/*
+  Por que um 03.08.20 não virou verba. Vai no índice porque a pergunta é da
+  tela, e não do terminal: enquanto a análise só existiu num CLI, responder
+  "importei e não apareceu" exigia terminal e `DATABASE_URL`.
+*/
+export {
+  diagnosticarPagamento,
+  type DiagnosticoDoPagamento,
+  type CausaDoPagamentoSemVerba,
+  type LinhaSuspeita,
+} from "./diagnostico-pagamento";
 export { lerRequisicoes, STATUS_QUE_PAGA, type Requisicao } from "./leitores/requisicoes";
 export { lerDisponibilidade, type DiaDeDisponibilidade } from "./leitores/disponibilidade";
 export {

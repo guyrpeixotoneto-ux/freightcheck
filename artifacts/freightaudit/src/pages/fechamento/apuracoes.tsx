@@ -31,6 +31,7 @@ import {
 import { formatBrl } from "@/lib/format";
 import { apresentar } from "@/lib/apresentar-erro";
 import { cn } from "@/lib/utils";
+import { chaveDaCompetencia } from "@/lib/fechamento-tela";
 
 /**
  * Apurações — todas as competências numa tela só.
@@ -298,7 +299,7 @@ function Filtro({
  */
 function ContaDaLinha({ competenciaId, fontes }: { competenciaId: string; fontes: Fonte[] }) {
   const dados = useQuery({
-    queryKey: ["fechamento", "competencia", competenciaId],
+    queryKey: chaveDaCompetencia(competenciaId),
     queryFn: () => lerCompetencia(competenciaId),
   });
 

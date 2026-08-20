@@ -25,10 +25,19 @@ import {
   oQueQuestionar,
 } from "@/components/fechamento/fechar-quinzena";
 import { apresentar } from "@/lib/apresentar-erro";
+import {
+  avisoDoEnvio,
+  chaveDaCompetencia,
+  chaveDoDiagnostico,
+  chaveDoDiario,
+  estadoDaFonte,
+  type AvisoDoEnvio,
+} from "@/lib/fechamento-tela";
 import { formatBrl, formatNumber } from "@/lib/format";
 import {
   apurar,
   descartarDados,
+  diagnosticarDocumento,
   enviarDocumento,
   fontesDaCompetencia,
   lerCompetencia,
@@ -73,6 +82,14 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   const cliente = useQueryClient();
   const [erroDoEnvio, setErroDoEnvio] = useState<string | null>(null);
   /*
+    O envio que chegou e não valeu. É estado à parte do erro porque não é erro:
+    o arquivo está guardado, a importação anterior continua de pé, e nada
+    quebrou — só não aconteceu o que quem clicou achava que ia acontecer. Tratar
+    o 202 como sucesso mudo era o que fazia alguém subir o 03.08.20, não ver
+    aviso nenhum e concluir que estava importado.
+  */
+  const [quarentena, setQuarentena] = useState<AvisoDoEnvio | null>(null);
+  /*
     O descarte pergunta antes, e a pergunta mora na tela em vez de num
     `window.confirm`: o diálogo do navegador não sabe dizer *quantos* arquivos
     vão embora, e ver o tamanho do que se vai apagar é a única defesa real
@@ -82,29 +99,47 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   const [descartado, setDescartado] = useState<DadosDescartados | null>(null);
 
   const dados = useQuery({
-    queryKey: ["fechamento", "competencia", id],
+    queryKey: chaveDaCompetencia(id),
     queryFn: () => lerCompetencia(id),
   });
   const fontes = useQuery({ queryKey: ["fechamento", "fontes"], queryFn: listarFontes });
   /*
-    O diário é consulta própria, e não parte de `lerCompetencia`: ele muda por
-    outro motivo (o 2Art entrou) e é lido por outra tela (a do dia). Juntá-los
-    faria toda apuração reinvalidar a grade de dias, que não mudou.
+    O diário continua sendo consulta própria, e não parte de `lerCompetencia`:
+    ele muda por outro motivo (o 2Art entrou) e é lido por outra tela (a do dia).
+
+    **O que mudou é a chave, e é uma reversão consciente.** Ela era irmã da
+    competência, para que apurar não reinvalidasse uma grade de dias que não
+    mudou; hoje é filha, e apurar a reinvalida. O que se comprou com esse
+    pedido a mais foi a regra sem exceção — *tudo que se pergunta sobre uma
+    competência pendura-se na chave dela* —, e o que se pagava sem ela foi o
+    painel da planilha: irmão também, esquecido em todas as invalidações,
+    dizendo que o 03.08.20 não fora importado enquanto a lista o mostrava. Uma
+    regra com uma exceção não teria como avisar quem escrevesse a próxima
+    consulta de qual das duas metades ele estava.
   */
   const diario = useQuery({
-    queryKey: ["fechamento", "diario", id],
+    queryKey: chaveDoDiario(id),
     queryFn: () => lerDiario(id),
   });
 
   const enviar = useMutation({
     mutationFn: ({ tipo, arquivo }: { tipo: TipoDeFonte; arquivo: File }) =>
       enviarDocumento(id, tipo, arquivo),
-    onMutate: () => setErroDoEnvio(null),
+    onMutate: () => {
+      setErroDoEnvio(null);
+      setQuarentena(null);
+    },
     onError: (erro) => setErroDoEnvio(textoDoErro(erro)),
-    onSuccess: () => {
-      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] });
-      /* O 2Art recém-enviado é o que a grade de dias mostra — ela reabre. */
-      void cliente.invalidateQueries({ queryKey: ["fechamento", "diario", id] });
+    onSuccess: (recebido) => {
+      setQuarentena(avisoDoEnvio(recebido));
+      /* Uma chamada, e ela alcança a competência, a grade de dias e o painel da
+         planilha — os três pendurados na mesma chave (ver `chaveDaCompetencia`).
+         Antes o painel ficava de fora, e continuava dizendo que o arquivo não
+         tinha sido importado enquanto a lista, um cartão acima, o mostrava. */
+      void cliente.invalidateQueries({ queryKey: chaveDaCompetencia(id) });
+      /* O resumo do mês lê as mesmas linhas por outra chave, de outra tela: é
+         ele que diz "sem verba do 03.08.20" nas duas quinzenas. */
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "resumo"] });
     },
   });
 
@@ -112,7 +147,10 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     mutationFn: () => apurar(id),
     onSuccess: () => {
       setDescartado(null);
-      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] });
+      void cliente.invalidateQueries({ queryKey: chaveDaCompetencia(id) });
+      /* O resumo do mês lê as mesmas linhas por outra chave, de outra tela: é
+         ele que diz "sem verba do 03.08.20" nas duas quinzenas. */
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "resumo"] });
     },
   });
 
@@ -122,9 +160,12 @@ export default function CompetenciaAberta({ id }: { id: string }) {
       setConfirmandoDescarte(false);
       setDescartado(resultado);
       setErroDoEnvio(null);
-      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] });
-      /* A grade de dias e as duas listas do ambiente liam o que acabou de sair. */
-      void cliente.invalidateQueries({ queryKey: ["fechamento", "diario", id] });
+      void cliente.invalidateQueries({ queryKey: chaveDaCompetencia(id) });
+      /* O resumo do mês lê as mesmas linhas por outra chave, de outra tela: é
+         ele que diz "sem verba do 03.08.20" nas duas quinzenas. */
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "resumo"] });
+      /* As duas listas do ambiente liam o que acabou de sair. A grade de dias e
+         o painel saem junto com a competência, por serem filhos dela. */
       void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
       void cliente.invalidateQueries({ queryKey: ["fechamento", "apuracoes"] });
     },
@@ -288,12 +329,27 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                 <AlertDescription>{erroDoEnvio}</AlertDescription>
               </Alert>
             )}
+            {quarentena && (
+              /*
+                Nem destrutivo nem silencioso: o arquivo chegou inteiro e está
+                guardado — o que não aconteceu foi ele virar a conta. O motivo
+                vem do servidor, que é quem leu o arquivo, e diz o que fazer.
+              */
+              <Alert>
+                <AlertTriangle className="w-4 h-4" />
+                <AlertDescription>
+                  <strong>{quarentena.nomeDoArquivo} chegou e não valeu.</strong>{" "}
+                  {quarentena.motivo}
+                </AlertDescription>
+              </Alert>
+            )}
             <ul className="divide-y">
               {catalogo.map((fonte) => (
                 <LinhaDeFonte
                   key={fonte.tipo}
                   fonte={fonte}
                   documento={vigentes.get(fonte.tipo)}
+                  semVerba={estadoDaFonte(vigentes.get(fonte.tipo)) === "SEM_VERBA"}
                   foraDaQuinzena={!fonte.quinzenas.includes(competencia.quinzena)}
                   quinzena={competencia.quinzena}
                   enviando={enviar.isPending && enviar.variables?.tipo === fonte.tipo}
@@ -548,10 +604,68 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   );
 }
 
+/**
+ * Por que o 03.08.20 que está lá não trouxe verba.
+ *
+ * **Sob demanda, e não junto da lista.** O diagnóstico descomprime o arquivo
+ * guardado e o relê inteiro; pagá-lo em toda abertura da competência custaria a
+ * quem só quer ver o que já chegou. Quem clica é quem tem a pergunta.
+ *
+ * A resposta vem do servidor, que tem os bytes — a tela não relê arquivo
+ * nenhum, e por isso não pode discordar do leitor que importou.
+ */
+function PorQueSemVerba({ documentoId }: { documentoId: string }) {
+  const [aberto, setAberto] = useState(false);
+  const diagnostico = useQuery({
+    queryKey: chaveDoDiagnostico(documentoId),
+    queryFn: () => diagnosticarDocumento(documentoId),
+    enabled: aberto,
+    retry: false,
+  });
+
+  if (!aberto) {
+    return (
+      <button
+        type="button"
+        onClick={() => setAberto(true)}
+        className="underline underline-offset-2 hover:text-amber-700"
+      >
+        Por que nenhuma verba entrou?
+      </button>
+    );
+  }
+  if (diagnostico.isLoading) return <p>Relendo o arquivo guardado…</p>;
+  if (diagnostico.isError || !diagnostico.data) {
+    return <p>{textoDoErro(diagnostico.error)}</p>;
+  }
+
+  const { diagnostico: d } = diagnostico.data;
+  return (
+    <div className="space-y-1">
+      <p className="font-medium">{d.resumo}</p>
+      {/*
+        A linha física e o texto original: é o que permite abrir o arquivo no
+        editor, ir até ela, e ver com os próprios olhos o que o leitor viu.
+      */}
+      {d.suspeitas.length > 0 && (
+        <ul className="space-y-0.5 font-mono text-[0.6875rem]">
+          {d.suspeitas.slice(0, 3).map((s) => (
+            <li key={s.linha}>
+              linha {s.linha}: {s.original.slice(0, 120)}
+            </li>
+          ))}
+          {d.suspeitas.length > 3 && <li>… e mais {d.suspeitas.length - 3}.</li>}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 /** Uma fonte: o que ela é, se já chegou, e o que o leitor recusou dela. */
 function LinhaDeFonte({
   fonte,
   documento,
+  semVerba,
   foraDaQuinzena,
   quinzena,
   enviando,
@@ -560,6 +674,14 @@ function LinhaDeFonte({
 }: {
   fonte: Fonte;
   documento: Documento | undefined;
+  /**
+   * O documento é o 03.08.20 e não gravou verba nenhuma.
+   *
+   * Decidido por quem lista, e não aqui, porque a pergunta é do banco: `verbas`
+   * conta as linhas que o documento sustenta, e `null` nas outras cinco fontes
+   * é o que impede esta linha de acusar quem não tem verba a ter.
+   */
+  semVerba: boolean;
   /**
    * O relatório não é dos que esta quinzena pede, e está aqui porque alguém o
    * enviou. A linha diz isso em vez de sumir: arquivo importado que desaparece
@@ -578,7 +700,16 @@ function LinhaDeFonte({
     <li className="py-3 flex items-start justify-between gap-4">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          {documento ? (
+          {documento && semVerba ? (
+            /*
+              O visto verde diz "esta fonte está no lugar", e um 03.08.20 que
+              não sustenta verba nenhuma não está: ele é a única fonte que abre
+              a parcela fixa, e sem verba não abre nada. Dar-lhe o mesmo visto
+              das outras foi o que pôs, na mesma tela, a lista dizendo que o
+              arquivo chegou e o painel dizendo que não.
+            */
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+          ) : documento ? (
             <Check className="w-4 h-4 text-emerald-600 shrink-0" />
           ) : (
             <span className="w-4 h-4 rounded-full border border-dashed border-muted-foreground/50 shrink-0" />
@@ -613,6 +744,24 @@ function LinhaDeFonte({
               </span>
             )}
           </p>
+        )}
+        {documento && semVerba && (
+          /*
+            O que `linhasLidas` não diz. Ele soma verbas e descontos, então um
+            demonstrativo do qual o leitor só tirou descontos aparece com um
+            número respeitável de linhas — e é o painel da planilha, noutro
+            cartão, que descobre que não há verba. A frase mora aqui, ao lado do
+            arquivo que ela descreve, e o porquê fica a um clique.
+          */
+          <div className="text-xs text-amber-600 mt-1 ml-6 space-y-1">
+            <p>
+              Nenhuma verba entrou deste arquivo — só as{" "}
+              {documento.linhasLidas.toLocaleString("pt-BR")} linha(s) acima, que são
+              descontos. É a verba que abre a parcela fixa: enquanto ela não vier, o painel
+              da planilha fica sem de onde sair.
+            </p>
+            <PorQueSemVerba documentoId={documento.id} />
+          </div>
         )}
       </div>
       <div className="shrink-0">

@@ -1,0 +1,112 @@
+PW02581R-  -p-Promax Web          (050 )  Remuneracao de Transportadoras   *** Pagamento ***     16/07/2026    Pag.   1
+CRBS SA - CDD Belem                      Periodo: 01/07/2026 a 15/07/2026                             15:38
+Versao: 12.21.00.06      Rotina: 03.08.20.00.00      Usuario: 00000000000
+
+Transportadora  36 HORIZONTE LOGISTICA LTDA
+
+Entregas para 081-0443 - CRBS SA - CDD Belem
+
+ROTA
+
+FRETE
+----------------------------------------------------------------------------------------------------------------------------------
+VBZ                                             S/Imposto         NF-ISS       CTRC-ICMS          Valor     Valor VLC    Valor VLC
+                                                                   3,16%          96,84%       Faturado        NF-ISS    CTRC-ICMS
+ 01 - Frota Fixa Ativa                          65.911,23       2.454,68       87.905,85      90.360,53     2.227,62    79.774,57
+      (71027001 BRALLLV234)
+
+ 02 - Equipe Entrega Ativa                     255.639,82       9.520,58      329.297,11     338.817,69     8.639,92   298.837,13
+      (71027001 BRALLLV237)
+
+ 03 - Despesa Administrativa                   246.500,24       9.180,21      328.757,52     337.937,73     8.331,04   298.347,46
+      (71027001 BRALLLV230)
+
+ 04 - Frota Fixa Inativa                         6.603,84         245,94        8.807,55       9.053,49       223,19     7.992,86
+      (71027001 BRALLLV235)
+
+ 05 - Frota Fixa Variavel                      133.161,64       6.344,78      175.973,85     182.318,63     5.757,70   159.700,84
+      (71027001 BRALLLV231)
+
+ 07 - Freteiro                                  91.556,30           0,00      126.092,38     126.092,38         0,00   114.430,05
+      (71027001 BRALLLV233)
+
+
+Total Frete                                    799.373,07      27.746,19    1.056.834,26   1.084.580,45    25.179,47   959.082,91
+
+
+DESCONTO DEVOLUCAO
+----------------------------------------------------------------------------------------------------------------------------------
+Valor S/Imposto (Todas VBZ's exceto Rem. Var. Equipe Ent. e despesas de Outros Custos)       812.701,37
+% Dev. Resp. Transportadora                                                                        1,64 %
+Desconto Devolucao                                                                            13.328,30
+*Desconto Liquido Devolucao ja subtraido da VBZ Frota Fixa Ativa
+
+
+DESCONTO FRETE MINIMO
+----------------------------------------------------------------------------------------------------------------------------------
+Desconto Frete mínimo (Desconto Líquido já subtraído das VBZs de custo Fixo coluna ICMS)         11.649,87
+
+----------------------------------------------------------------------------------------------------------------------------------
+Total Remuneração                                                                          1.084.580,45
+
+
+     Para efeito do calculo de remuneracao a ser paga a transportadora
+     declaramos estar de acordo com os valores acima.
+
+     BELEM               , 15/07/2026
+
+
+Responsavel do CDD                                 Responsavel da Transportadora
+PW02581R-  -p-Promax Web          (050 )  Remuneracao de Transportadoras   *** Pagamento ***     16/07/2026    Pag.   2
+CRBS SA - CDD Belem                      Periodo: 01/07/2026 a 15/07/2026                             15:38
+Versao: 12.21.00.06      Rotina: 03.08.20.00.00      Usuario: 00000000000
+
+Transportadora  36 HORIZONTE LOGISTICA LTDA
+
+Entregas para 081-0443 - CRBS SA - CDD Belem
+
+AS
+
+FRETE
+----------------------------------------------------------------------------------------------------------------------------------
+VBZ                                             S/Imposto         NF-ISS       CTRC-ICMS          Valor     Valor VLC    Valor VLC
+                                                                   0,00%         100,00%       Faturado        NF-ISS    CTRC-ICMS
+ 20 - Frota Fixa Ativa                             258,24           0,00          355,65         355,65         0,00       322,77
+      (71027001 BRALLLV296)
+
+ 23 - Frota Fixa Inativa                           258,24           0,00          355,65         355,65         0,00       322,77
+      (71027001 BRALLLV299)
+
+ 24 - Frota Fixa Variavel                        2.470,95           0,00        3.402,99       3.402,99         0,00     3.088,35
+      (71027001 BRALLLV21A)
+
+ 26 - Freteiro                                  27.935,80           0,00       38.473,53      38.473,53         0,00    34.915,10
+      (71027001 BRALLLV215)
+
+
+Total Frete                                     38.498,48           0,00       42.587,82      42.587,82         0,00    38.648,99
+
+
+DESCONTO DEVOLUCAO
+----------------------------------------------------------------------------------------------------------------------------------
+Valor S/Imposto (Todas VBZ's exceto Rem. Var. Equipe Ent. e despesas de Outros Custos)        38.498,48
+% Dev. Resp. Transportadora                                                                        0,00 %
+Desconto Devolucao                                                                                 0,00
+*Desconto Liquido Devolucao ja subtraido da VBZ Frota Fixa Ativa
+
+
+DESCONTO FRETE MINIMO
+----------------------------------------------------------------------------------------------------------------------------------
+Desconto Frete mínimo (Desconto Líquido já subtraído das VBZs de custo Fixo coluna ICMS)         10.432,79
+
+----------------------------------------------------------------------------------------------------------------------------------
+Total Remuneração                                                                             42.587,82
+
+
+     Para efeito do calculo de remuneracao a ser paga a transportadora
+     declaramos estar de acordo com os valores acima.
+
+     BELEM               , 15/07/2026
+
+
+Responsavel do CDD                                 Responsavel da Transportadora

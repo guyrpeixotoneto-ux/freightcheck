@@ -6,6 +6,7 @@ import { apresentar } from "@/lib/apresentar-erro";
 import { formatBrl } from "@/lib/format";
 import { lerPainelDaCompetencia, type Apuracao, type Fonte, type VerbaApurada } from "@/lib/fechamento";
 import { PainelDaPlanilhaTabela } from "@/components/fechamento/painel-da-planilha";
+import { chaveDoPainel } from "@/lib/fechamento-tela";
 import { cn } from "@/lib/utils";
 
 /**
@@ -135,7 +136,7 @@ export function ContaApurada({
  */
 function AbaDaPlanilha({ competenciaId }: { competenciaId: string }) {
   const painel = useQuery({
-    queryKey: ["fechamento", "painel", competenciaId],
+    queryKey: chaveDoPainel(competenciaId),
     queryFn: () => lerPainelDaCompetencia(competenciaId),
     retry: false,
   });
@@ -144,7 +145,14 @@ function AbaDaPlanilha({ competenciaId }: { competenciaId: string }) {
     return <p className="text-sm text-muted-foreground">Montando o painel…</p>;
   }
   if (painel.isError || !painel.data) {
-    /* O 404 daqui é uma resposta, não uma falha: falta o 03.08.20, e ele o diz. */
+    /*
+      O 404 daqui é uma resposta, não uma falha: falta verba que sustente o
+      painel. **Qual** ausência é — o 03.08.20 que nunca chegou, o que chegou e
+      ficou em quarentena, ou o que está vigente sem verba nenhuma — quem decide
+      é o servidor, que tem o documento à mão; aqui só se imprime o que veio. A
+      tela supor "não foi importado" era o que a fazia negar um arquivo que ela
+      mesma listava com visto verde um cartão acima.
+    */
     const aviso = apresentar(painel.error);
     return (
       <Alert>

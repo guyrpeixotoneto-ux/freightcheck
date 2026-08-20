@@ -154,6 +154,31 @@ export interface Documento {
   recusas: Recusa[];
   vigente: boolean;
   enviadoEm: string;
+  /**
+   * Quantas verbas o documento sustenta — só o 03.08.20 tem, `null` nos outros.
+   *
+   * `linhasLidas` soma verbas e descontos, e por isso não distingue o
+   * demonstrativo inteiro do demonstrativo do qual o leitor só tirou descontos.
+   * É essa diferença que faz a lista mostrar visto verde enquanto o painel diz
+   * não ter de onde sair.
+   */
+  verbas: number | null;
+}
+
+/**
+ * O que aconteceu com o arquivo que acabou de subir.
+ *
+ * `PROMOVIDO` é o documento que passou a valer; `EM_QUARENTENA` é o que chegou,
+ * ficou guardado e **não** virou a conta — e aí `motivoDaQuarentena` diz por
+ * quê. A tela precisa dos dois: tratar 202 como sucesso mudo é o que fazia
+ * alguém subir o mesmo arquivo, não ver erro nenhum e concluir que estava
+ * importado.
+ */
+export interface DocumentoRecebido extends Omit<Documento, "vigente" | "verbas"> {
+  desfecho: "PROMOVIDO" | "EM_QUARENTENA";
+  motivoDaQuarentena: string | null;
+  /** O documento que este substituiu, quando substituiu algum. */
+  substituiu: string | null;
 }
 
 export interface Parcela {
@@ -693,15 +718,51 @@ export function lerResumoDoMes(alvo: {
  * Vem em três colunas com só a da quinzena preenchida — a mesma forma do resumo
  * mensal, para que a aba `Planilha` seja o mesmo componente nas duas telas.
  *
- * **404 quando o 03.08.20 não foi importado**, e não um painel de zeros: sem o
- * demonstrativo, o painel não tem de onde sair, e dizer isso é diferente de
- * dizer que a quinzena não pagou nada.
+ * **404 quando nenhuma verba sustenta o painel**, e não um painel de zeros: sem
+ * verba o painel não tem de onde sair, e dizer isso é diferente de dizer que a
+ * quinzena não pagou nada. A mensagem do 404 distingue o arquivo que nunca
+ * chegou do que chegou e não valeu — a tela imprime a que veio, e não supõe
+ * qual é.
  */
 export function lerPainelDaCompetencia(
   id: string,
   canal = "ROTA",
 ): Promise<{ competencia: Competencia; painel: PainelDaPlanilha }> {
   return fetchJson(`/fechamento/competencias/${id}/de-para?canal=${canal}`);
+}
+
+/**
+ * Por que um 03.08.20 não virou verba — o diagnóstico do arquivo guardado.
+ *
+ * A tela mostra `resumo`, que é uma frase; o resto existe para quem for
+ * consertar o arquivo ou o leitor, e é o que evita a próxima pergunta.
+ */
+export interface DiagnosticoDoPagamento {
+  causa:
+    | "LEU_NORMALMENTE"
+    | "NAO_E_O_03_08_20"
+    | "SEM_CABECALHO_DE_SECAO"
+    | "LINHA_DE_VERBA_RECUSADA"
+    | "SEM_CORPO_DE_VERBA";
+  resumo: string;
+  lido: { verbas: number; descontos: number; totais: number };
+  cabecalho: {
+    periodo: { inicio: string | null; fim: string | null };
+    unidade: string | null;
+    transportadora: string | null;
+  };
+  secoes: { canal: boolean; bloco: boolean; verbasBemFormatadas: number };
+  suspeitas: { linha: number; motivo: string; original: string }[];
+}
+
+/**
+ * O diagnóstico de um 03.08.20 importado, lido dos bytes que a importação
+ * guardou — nada é reenviado para obtê-lo.
+ */
+export function diagnosticarDocumento(
+  documentoId: string,
+): Promise<{ documento: { id: string; nomeDoArquivo: string }; diagnostico: DiagnosticoDoPagamento }> {
+  return fetchJson(`/fechamento/documentos/${documentoId}/diagnostico`);
 }
 
 /** O que o descarte apagou — contado por fonte, para a tela repetir de volta. */
@@ -753,7 +814,7 @@ export async function enviarDocumento(
   competenciaId: string,
   tipo: TipoDeFonte,
   arquivo: File,
-): Promise<Documento> {
+): Promise<DocumentoRecebido> {
   const contentBase64 = await lerComoBase64(arquivo);
   const resposta = await fetch(getApiUrl(`/fechamento/competencias/${competenciaId}/documentos`), {
     method: "POST",
@@ -763,7 +824,12 @@ export async function enviarDocumento(
   });
   const corpo = await readJson(resposta);
   if (!resposta.ok) throw erroDaResposta(resposta, corpo);
-  return corpo as unknown as Documento;
+  /*
+    O 202 é `ok` e não é sucesso: é o arquivo guardado sem valer. Devolvê-lo
+    como se fosse o 201 apagava a única notícia que a quarentena produz — quem
+    chama tem de olhar `desfecho`.
+  */
+  return corpo as unknown as DocumentoRecebido;
 }
 
 function lerComoBase64(arquivo: File): Promise<string> {

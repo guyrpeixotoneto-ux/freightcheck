@@ -51,6 +51,7 @@ import {
 import { MES_LONGO } from "@/lib/fechamento-gerencial";
 import { apresentar } from "@/lib/apresentar-erro";
 import { useConsultaResiliente } from "@/lib/consulta-resiliente";
+import { chaveDaCompetencia } from "@/lib/fechamento-tela";
 
 /**
  * O erro, na frase que a apresentação escolheu.
@@ -737,14 +738,14 @@ function AcaoDaLinha({
  * o resumo de cada uma traz documentos e apuração. Baixar todas para mostrar uma
  * seria pagar o fechamento inteiro para ler uma linha.
  *
- * A chave é a mesma da tela da competência (`["fechamento", "competencia", id]`)
+ * A chave é a mesma da tela da competência (`chaveDaCompetencia`)
  * de propósito: quem fecha daqui e entra logo depois não espera de novo, e o
  * painel — que invalida essa chave ao fechar — atualiza as duas telas com uma
  * consulta só.
  */
 function FechamentoDaLinha({ competenciaId }: { competenciaId: string }) {
   const dados = useQuery({
-    queryKey: ["fechamento", "competencia", competenciaId],
+    queryKey: chaveDaCompetencia(competenciaId),
     queryFn: () => lerCompetencia(competenciaId),
   });
   const fontes = useQuery({ queryKey: ["fechamento", "fontes"], queryFn: listarFontes });
@@ -820,7 +821,7 @@ function ExclusaoDaLinha({
 }) {
   const cliente = useQueryClient();
   const dados = useQuery({
-    queryKey: ["fechamento", "competencia", competencia.id],
+    queryKey: chaveDaCompetencia(competencia.id),
     queryFn: () => lerCompetencia(competencia.id),
   });
 
@@ -833,7 +834,7 @@ function ExclusaoDaLinha({
         alguém a tiver aberta noutra aba — pediria um 404 para descobrir o que
         já se sabe aqui.
       */
-      cliente.removeQueries({ queryKey: ["fechamento", "competencia", competencia.id] });
+      cliente.removeQueries({ queryKey: chaveDaCompetencia(competencia.id) });
       void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
       void cliente.invalidateQueries({ queryKey: ["fechamento", "apuracoes"] });
       void cliente.invalidateQueries({ queryKey: ["fechamento", "partes"] });
