@@ -240,8 +240,9 @@ export default function CompetenciaAberta({ id }: { id: string }) {
               {competencia.quinzena === 1
                 ? "Quatro exportações do Promax/SRTrans: a 1ª quinzena não tem as requisições (03.08.12.09) nem a conciliação (03.02.59.02), que chegam com o fechamento da 2ª."
                 : "Seis exportações do Promax/SRTrans."}{" "}
-              A conta roda com o que houver — o que faltar aparece nomeado na
-              apuração, nunca como zero.
+              Cada relatório diz abaixo em que formatos ele é lido. A conta roda
+              com o que houver — o que faltar aparece nomeado na apuração, nunca
+              como zero.
             </p>
             {/*
               A reabertura aparece aqui, e não só no painel do fim da tela,
@@ -461,7 +462,13 @@ export default function CompetenciaAberta({ id }: { id: string }) {
               </p>
             )}
 
-            {apuracao && <ContaApurada apuracao={apuracao} fontes={catalogo} />}
+            {apuracao && (
+              <ContaApurada
+                apuracao={apuracao}
+                competenciaId={competencia.id}
+                fontes={catalogo}
+              />
+            )}
           </CardContent>
         </Card>
 
@@ -585,6 +592,17 @@ function LinhaDeFonte({
           )}
         </div>
         <p className="text-sm text-muted-foreground mt-0.5 ml-6">{fonte.papel}</p>
+        {/*
+          Os formatos ficam à vista, e não só dentro do seletor de arquivo.
+          O mesmo relatório sai do Promax em mais de um formato, e quem opera
+          precisa saber qual dos arquivos da pasta serve **antes** de abrir a
+          janela — ver `FORMATOS_DA_FONTE`, que é de onde esta lista vem.
+        */}
+        {!documento && (
+          <p className="text-xs text-muted-foreground/80 mt-1 ml-6">
+            Aceita {fonte.extensoes.join(", ")}
+          </p>
+        )}
         {documento && (
           <p className="text-xs text-muted-foreground mt-1 ml-6">
             {documento.nomeDoArquivo} · {documento.linhasLidas.toLocaleString("pt-BR")} linhas

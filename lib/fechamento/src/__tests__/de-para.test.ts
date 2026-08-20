@@ -51,6 +51,74 @@ describe("o catálogo do painel", () => {
     ]);
   });
 
+  it("escreve os mesmos dezoito rótulos como se escreve, para a tela mostrar", () => {
+    /*
+      A caixa alta da planilha é formatação de célula, não sentido — e dezoito
+      linhas gritando de uma vez é o que a tela não pode repetir. As duas
+      grafias vivem lado a lado porque nenhuma deriva da outra: `toLowerCase`
+      estragaria `DVS`, que é sigla, e `toUpperCase` perderia os travessões.
+    */
+    expect(LINHAS_DA_PLANILHA.map((l) => l.nome)).toEqual([
+      "Total remuneração rota DVS",
+      "Custo fixo padronizado",
+      "Custo fixo inativos",
+      "Custo vans inativas",
+      "Indisponibilidade",
+      "Custo fixo — especiais",
+      "Custo fixo — vans",
+      "Desconto de devolução %",
+      "Desconto de disponibilidade",
+      "Desconto complementar negativo",
+      "Total remuneração rota",
+      "Custo variável (frota fixa)",
+      "Custo variável (agregado)",
+      "Desconto de devolução",
+      "Indisponibilidade",
+      "Total remuneração rota",
+      "Total remuneração rota outros custos",
+      "Total outros custos",
+    ]);
+  });
+
+  it("classifica o quadro do fixo como a aritmética da planilha exige, e não como o rótulo sugere", () => {
+    /*
+      Esta é a conta que decidiu três classificações, feita sobre o painel real
+      (CDD 443 · transportadora 036, agosto/2026), nas duas quinzenas:
+
+        1ª: 313.318,87 + 731.502,84 + 9.017,30 + 13.088,62 + 0 + 5.938,28
+            + 42.745,64                                    = 1.115.611,55
+            − 18.199,19 (devolução %) − 15.907,37 (disponibilidade)
+                                                           = 1.081.504,98  ✓
+        2ª: 327.503,60 + 739.274,00 + 23.834,82 + 13.103,05 + 0 + 5.944,83
+            + 42.792,77                                    = 1.152.453,07
+            − 21.548,23 − 125.271,68 − 14.050,54           =   991.582,62  ✓
+
+      As duas fecham no `TOTAL REMUNERAÇÃO ROTA` que a própria planilha escreve.
+      Tirar `DVS` das parcelas, ou tirar a linha `%` dos descontos, quebra as
+      duas — e é por isso que o teste é sobre quem é parcela e quem é desconto,
+      e não sobre os números, que são de um mês só.
+    */
+    const doQuadro = (papel: string) =>
+      LINHAS_DA_PLANILHA.filter((l) => l.quadro === "REMUNERACAO" && l.papel === papel).map(
+        (l) => l.chave,
+      );
+
+    expect(doQuadro("PARCELA")).toEqual([
+      "rota_dvs",
+      "custo_fixo_padronizado",
+      "custo_fixo_inativos",
+      "custo_vans_inativas",
+      "indisponibilidade_fixo",
+      "custo_fixo_especiais",
+      "custo_fixo_vans",
+    ]);
+    expect(doQuadro("DESCONTO")).toEqual([
+      "desconto_devolucao_percentual",
+      "desconto_disponibilidade",
+      "desconto_complementar_negativo",
+    ]);
+  });
+
   it("dá a cada linha uma chave única e uma justificativa escrita", () => {
     const chaves = LINHAS_DA_PLANILHA.map((l) => l.chave);
     expect(new Set(chaves).size).toBe(chaves.length);
@@ -138,13 +206,15 @@ describe("o quadro do fixo", () => {
   it("soma os descontos de volta para chegar à parcela bruta que a planilha escreve", () => {
     /*
       O termo que faltava. O relatório traz as verbas já líquidas (200.000,00);
-      a planilha escreve a parcela antes do desconto (203.800,00) e mostra os
-      3.800,00 numa linha à parte. As duas leituras batem quando o desconto é
-      somado de volta — e só quando.
+      a planilha escreve a parcela antes dos descontos que este quadro abate
+      — 3.800,00 de disponibilidade e 4.875,00 de devolução — e mostra cada um
+      numa linha à parte. As duas leituras batem quando os dois são somados de
+      volta, e só quando.
     */
     const conjunto = linha("custo_fixo_padronizado").conjunto;
-    expect(conjunto?.valor).toBe(203800);
+    expect(conjunto?.valor).toBe(208675);
     expect(conjunto?.linhas).toEqual([
+      "rota_dvs",
       "custo_fixo_padronizado",
       "custo_fixo_inativos",
       "custo_vans_inativas",
@@ -160,9 +230,10 @@ describe("o quadro do fixo", () => {
   });
 
   it("nomeia as duas linhas que continuam sem origem, e só essas duas", () => {
+    /* Pelo nome que a tela mostra: o resíduo é lido por gente, não por grep. */
     expect(quadro("REMUNERACAO").semLastro).toEqual([
-      "INDISPONIBILIDADE",
-      "DESCONTO COMPLEMENTAR NEGATIVO",
+      "Indisponibilidade",
+      "Desconto complementar negativo",
     ]);
   });
 
@@ -170,8 +241,9 @@ describe("o quadro do fixo", () => {
     expect(quadro("REMUNERACAO").verbasSemLinha).toEqual([]);
   });
 
-  it("dá as cinco linhas de tipo de frota como conjunto, nunca rateadas", () => {
+  it("dá as seis linhas do fixo como conjunto, nunca rateadas", () => {
     for (const chave of [
+      "rota_dvs",
       "custo_fixo_padronizado",
       "custo_fixo_inativos",
       "custo_vans_inativas",
@@ -193,11 +265,19 @@ describe("o quadro do fixo", () => {
     expect(l.origemForaDoQuadro).toEqual([]);
   });
 
-  it("põe a alíquota da devolução na linha `%`, e não a soma com dinheiro", () => {
+  it("põe dinheiro na linha `%`, que é o que a planilha escreve nela", () => {
+    /*
+      O `%` do rótulo é do critério, não da unidade: a célula traz o valor da
+      devolução — o mesmo do quadro de baixo —, e é ele que fecha este quadro.
+      A alíquota não some: viaja na procedência, que é onde ela explica o número
+      sem se somar a ele.
+    */
     const l = linha("desconto_devolucao_percentual");
     expect(l.estado).toBe("APURADO");
-    expect(l.percentual).toBe(true);
-    expect(l.valor).toBe(1.5);
+    expect(l.papel).toBe("DESCONTO");
+    expect(l.valor).toBe(4875);
+    expect(l.valor).toBe(linha("desconto_devolucao").valor);
+    expect(l.procedencia?.entrou).toContain("% Dev. Resp. Transportadora: 1.5");
   });
 });
 
@@ -221,12 +301,21 @@ describe("o quadro do variável", () => {
     expect(l.origemForaDoQuadro).toEqual(["VBZ 01"]);
   });
 
-  it("mantém a indisponibilidade sem lastro nos dois quadros, pelo mesmo motivo", () => {
-    for (const chave of ["indisponibilidade_fixo", "indisponibilidade_variavel"]) {
-      const l = linha(chave);
-      expect(l.estado, chave).toBe("SEM_LASTRO");
-      expect(l.ausencia?.motivo, chave).toContain("INDISPONIBILIDADE");
-    }
+  it("lê a indisponibilidade do variável como o desconto de disponibilidade", () => {
+    /*
+      Nome de parcela, sinal de desconto: a planilha escreve aqui, ao centavo, o
+      que `DESCONTO DE DISPONIBILIDADE` abate no quadro de cima. A homônima do
+      fixo continua sem lastro — aquela célula vem vazia, e vazia não decide
+      sinal nenhum.
+    */
+    const variavel = linha("indisponibilidade_variavel");
+    expect(variavel.estado).toBe("APURADO");
+    expect(variavel.papel).toBe("DESCONTO");
+    expect(variavel.valor).toBe(linha("desconto_disponibilidade").valor);
+
+    const fixo = linha("indisponibilidade_fixo");
+    expect(fixo.estado).toBe("SEM_LASTRO");
+    expect(fixo.ausencia?.motivo).toContain("INDISPONIBILIDADE");
   });
 });
 
@@ -292,7 +381,7 @@ describe("o 03.08.20 que não cobre o painel", () => {
 
     for (const q of magro.quadros) {
       for (const l of q.linhas) {
-        if (l.estado !== "SEM_LASTRO" || l.papel === "TOTAL" || l.papel === "TITULO") continue;
+        if (l.estado !== "SEM_LASTRO" || l.papel === "TOTAL") continue;
         expect(l.ausencia?.motivo, l.rotulo).toBeTruthy();
         expect(l.ausencia?.destrava, l.rotulo).toBeTruthy();
       }

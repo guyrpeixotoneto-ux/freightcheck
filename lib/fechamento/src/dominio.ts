@@ -149,6 +149,37 @@ export const DESCRICAO_DA_FONTE: Record<TipoDeFonte, { rotina: string; nome: str
 };
 
 /**
+ * Em que formatos cada fonte chega — e, portanto, quais o produto aceita.
+ *
+ * **A lista é do que se sabe ler, não do que se sabe abrir.** Nenhuma das seis
+ * fontes tem um formato só: o mesmo relatório sai do Promax em `.xlsx` quando
+ * alguém o exporta pela tela e em `.csv` quando o exporta pela fila, e chega em
+ * `.txt` quando o caminho passou por um sistema que renomeia. Recusar por
+ * extensão o arquivo que o leitor lê perfeitamente é fazer quem opera converter
+ * arquivo à mão antes de trabalhar — e conversão à mão é onde a coluna trocada
+ * entra na conta.
+ *
+ * **As duas fontes de largura fixa não aceitam planilha, e isso é deliberado.**
+ * O 03.08.20 e o 03.02.59.02 são relatórios alinhados por espaço, e o
+ * 03.02.59.02 é aquele em que a *coluna do número é o dado*. Colado numa
+ * planilha, o valor vira célula numérica e perde a forma em que o relatório o
+ * escreveu — o que produziria não um erro, mas uma verba lida a menos, em
+ * silêncio. Aceitá-los só em texto é aceitar o que se consegue sustentar.
+ *
+ * A extensão continua sendo conferida na porta porque ela é o primeiro sinal de
+ * que alguém trocou a aba de envio; o que ela **não** faz mais é escolher o
+ * leitor. Quem decide como ler é o conteúdo do arquivo (ver `leitores/formato`).
+ */
+export const FORMATOS_DA_FONTE: Record<TipoDeFonte, string[]> = {
+  OPERACAO: [".xlsx", ".xls", ".csv", ".txt"],
+  CTE: [".xlsx", ".xls", ".csv", ".txt"],
+  PAGAMENTO: [".txt", ".csv"],
+  DISPONIBILIDADE: [".xlsx", ".xls", ".csv", ".txt"],
+  REQUISICOES: [".csv", ".txt", ".xlsx", ".xls"],
+  CONCILIACAO: [".txt", ".csv"],
+};
+
+/**
  * Uma leitura que não pôde ser feita, com o texto original preservado.
  *
  * O módulo devolve recusas em vez de lançar exceção porque um arquivo com uma

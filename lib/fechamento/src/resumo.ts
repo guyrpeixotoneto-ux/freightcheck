@@ -1,4 +1,5 @@
 import { centavos, type Canal } from "./dominio";
+import type { Ausencia, DeParaConferido, Papel, Quadro, QuadroConferido } from "./de-para";
 import type { NaturezaDaVerba } from "./verbas";
 
 /**
@@ -75,6 +76,92 @@ export interface DescontoDoResumo {
   valores: TresColunas;
 }
 
+/* ---------------------------------------------------------------------------
+   O painel da planilha, nas mesmas três colunas
+   ------------------------------------------------------------------------ */
+
+/**
+ * Uma linha do `RESUMO` da planilha, no mês.
+ *
+ * A diferença para {@link LinhaDoResumo} não é de formato, é de pergunta. A
+ * linha do resumo é uma **verba** — o recorte com que o fechamento apura, e o
+ * único que os arquivos sustentam um a um. Esta é uma **linha da planilha** —
+ * o recorte com que a Ambev e a transportadora discutem, que corta a mesma
+ * conta por tipo de frota e por atividade. As duas dizem o mesmo dinheiro e
+ * não dizem as mesmas linhas, e é por isso que existem as duas.
+ */
+export interface LinhaDoPainel {
+  chave: string;
+  /** O rótulo como a planilha o grita — para conferir contra o arquivo. */
+  rotulo: string;
+  /** O mesmo rótulo escrito como se escreve — o que a tela mostra. */
+  nome: string;
+  papel: Papel;
+  /** `null` quando o número é do conjunto, ou quando não há número. */
+  valores: TresColunas;
+  /** A chave do conjunto quando o número é de várias linhas juntas. */
+  conjunto: string | null;
+  /** Por que não há número. `null` quando há. */
+  ausencia: Ausencia | null;
+  porque: string;
+}
+
+/** Um número do 03.08.20 que vale para várias linhas da planilha ao mesmo tempo. */
+export interface ConjuntoDoPainel {
+  chave: string;
+  nome: string;
+  /** Os nomes das linhas que dividem este número, na ordem da planilha. */
+  linhas: string[];
+  valores: TresColunas;
+  porque: string;
+}
+
+export interface QuadroDoPainel {
+  quadro: Quadro;
+  titulo: string;
+  linhas: LinhaDoPainel[];
+  conjuntos: ConjuntoDoPainel[];
+  /** O que o 03.08.20 fecha para o quadro. */
+  total: TresColunas;
+  /** O que o de-para preencheu — parcelas menos descontos, conjunto uma vez. */
+  somado: TresColunas;
+  /** `total − somado`. Zero é o quadro fechando. */
+  residuo: TresColunas;
+  /** Os nomes das linhas da planilha entre as quais o resíduo se divide. */
+  semLastro: string[];
+  /**
+   * As verbas que estão no total do quadro e que nenhuma linha da planilha
+   * nomeia — a outra metade do resíduo.
+   *
+   * Sem ela, um resíduo teimoso manda procurar no lugar errado: `semLastro` diz
+   * "falta enquadrar uma linha nossa" e esta diz "falta uma linha no painel
+   * deles", que são problemas opostos com o mesmo sintoma.
+   */
+  verbasSemLinha: { vbz: number; nome: string; valores: TresColunas }[];
+}
+
+/**
+ * O painel da planilha de um canal, no mês.
+ *
+ * **Por que ele carrega dois totais.** `soma` é a soma dos quadros na coluna
+ * que o de-para lê — sem imposto, que é a moeda em que a planilha escreve. O
+ * `demonstrativo` é o `Total Remuneração` que o relatório fecha, com imposto —
+ * e é o mesmo número que a conferência por verba mostra no seu fecho. Ter os
+ * dois lado a lado, com a diferença entre eles nomeada, é o que permite às duas
+ * leituras baterem sem que nenhuma converta nada: a diferença é subtração de
+ * dois números do mesmo arquivo, não um fator digitado.
+ */
+export interface PainelDaPlanilha {
+  canal: Canal;
+  quadros: QuadroDoPainel[];
+  /** A soma dos quadros, na coluna que a planilha usa (sem imposto). */
+  soma: TresColunas;
+  /** O imposto — `demonstrativo − soma`, medido, nunca presumido. */
+  imposto: TresColunas;
+  /** O `Total Remuneração` do 03.08.20 — o número que as duas abas partilham. */
+  demonstrativo: TresColunas;
+}
+
 export interface CanalDoResumo {
   canal: Canal;
   blocos: BlocoDoResumo[];
@@ -92,6 +179,13 @@ export interface CanalDoResumo {
   demonstrativo: TresColunas;
   /** `emitido − demonstrativo`. Positivo: emitiu-se mais do que o combinado. */
   diferenca: TresColunas;
+  /**
+   * O mesmo mês nas linhas da planilha. `null` quando não há painel deste canal.
+   *
+   * Hoje só a Rota tem: os rótulos do painel do AS não foram transcritos, e
+   * escrevê-los por analogia com os da Rota inventaria a metade que falta.
+   */
+  painel: PainelDaPlanilha | null;
 }
 
 /** O que uma quinzena traz para o resumo — o que o banco guardou dela. */
@@ -121,6 +215,13 @@ export interface QuinzenaApurada {
   demonstrativo: { canal: Canal; total: number }[] | null;
   /** Os descontos do 03.08.20, somados por canal e tipo. */
   descontos: { canal: Canal; tipo: string; valor: number }[] | null;
+  /**
+   * O painel da planilha desta quinzena, já conferido contra o 03.08.20.
+   *
+   * Nulo quando o demonstrativo não foi importado — e nulo é o certo: um painel
+   * de zeros diria que a quinzena não pagou nada, que é outra afirmação.
+   */
+  paineis?: DeParaConferido[] | null;
 }
 
 export interface ResumoDoMes {
@@ -183,6 +284,133 @@ function subtrair(a: TresColunas, b: TresColunas): TresColunas {
     segunda: menos(a.segunda, b.segunda),
     total: menos(a.total, b.total),
   };
+}
+
+/**
+ * O painel da planilha de um canal, com as duas quinzenas lado a lado.
+ *
+ * A estrutura — quais quadros, quais linhas, em que ordem — é do catálogo do
+ * de-para e é a mesma nas duas quinzenas; o que muda de uma para a outra é só o
+ * número. Por isso o esqueleto vem da quinzena que existir, e a que faltar
+ * deixa a coluna dela vazia — igual ao resto desta tela, e pelo mesmo motivo:
+ * meio mês importado é o estado normal de quem está trabalhando.
+ */
+function montarPainel(
+  canal: Canal,
+  primeira: DeParaConferido | null,
+  segunda: DeParaConferido | null,
+): PainelDaPlanilha | null {
+  const esqueleto = primeira ?? segunda;
+  if (!esqueleto) return null;
+
+  /* A mesma chave nas duas quinzenas é a mesma linha — é para isso que ela existe. */
+  const linhaDe = (painel: DeParaConferido | null, chave: string) =>
+    painel?.quadros.flatMap((q) => q.linhas).find((l) => l.chave === chave) ?? null;
+  const quadroDe = (painel: DeParaConferido | null, quadro: Quadro) =>
+    painel?.quadros.find((q) => q.quadro === quadro) ?? null;
+
+  const quadros: QuadroDoPainel[] = esqueleto.quadros.map((modelo) => {
+    const q1 = quadroDe(primeira, modelo.quadro);
+    const q2 = quadroDe(segunda, modelo.quadro);
+
+    const linhas: LinhaDoPainel[] = modelo.linhas.map((modeloDaLinha) => {
+      const l1 = linhaDe(primeira, modeloDaLinha.chave);
+      const l2 = linhaDe(segunda, modeloDaLinha.chave);
+      return {
+        chave: modeloDaLinha.chave,
+        rotulo: modeloDaLinha.rotulo,
+        nome: modeloDaLinha.nome,
+        papel: modeloDaLinha.papel,
+        valores: tresColunas(l1?.valor ?? null, l2?.valor ?? null),
+        conjunto: l1?.conjunto?.chave ?? l2?.conjunto?.chave ?? null,
+        /* A ausência é a mesma nas duas quando as duas a têm; basta dizer uma vez. */
+        ausencia: l1?.ausencia ?? l2?.ausencia ?? null,
+        porque: modeloDaLinha.porque,
+      };
+    });
+
+    /*
+      Os conjuntos aparecem uma vez cada, na ordem da primeira linha que os
+      cita — que é a ordem da planilha. Repeti-los por linha multiplicaria na
+      tela um número que existe uma vez só.
+    */
+    const conjuntos: ConjuntoDoPainel[] = [];
+    for (const linha of modelo.linhas) {
+      const chave = linha.conjunto?.chave;
+      if (!chave || conjuntos.some((c) => c.chave === chave)) continue;
+      const c1 = linhaDe(primeira, linha.chave)?.conjunto ?? null;
+      const c2 = linhaDe(segunda, linha.chave)?.conjunto ?? null;
+      const modeloDoConjunto = c1 ?? c2;
+      if (!modeloDoConjunto) continue;
+      conjuntos.push({
+        chave,
+        nome: modeloDoConjunto.rotulo,
+        linhas: modeloDoConjunto.linhas.map(
+          (c) => linhas.find((l) => l.chave === c)?.nome ?? c,
+        ),
+        valores: tresColunas(c1?.valor ?? null, c2?.valor ?? null),
+        porque: modeloDoConjunto.porque,
+      });
+    }
+
+    /* O que uma quinzena não sustenta, a outra ainda pode: a lista é a união. */
+    const semLastro = [...new Set([...(q1?.semLastro ?? []), ...(q2?.semLastro ?? [])])];
+
+    /* Idem para a verba que o painel não nomeia: uma vez por VBZ, nas duas colunas. */
+    const vbzsSemLinha = [
+      ...new Map(
+        [...(q1?.verbasSemLinha ?? []), ...(q2?.verbasSemLinha ?? [])].map((v) => [v.vbz, v]),
+      ).values(),
+    ].sort((a, b) => a.vbz - b.vbz);
+    const valorSemLinha = (painel: QuadroConferido | null, vbz: number) =>
+      painel?.verbasSemLinha.find((v) => v.vbz === vbz)?.valor ?? null;
+
+    return {
+      quadro: modelo.quadro,
+      titulo: modelo.titulo,
+      linhas,
+      conjuntos,
+      total: tresColunas(q1?.total ?? null, q2?.total ?? null),
+      somado: tresColunas(q1?.somado ?? null, q2?.somado ?? null),
+      residuo: tresColunas(q1?.residuo ?? null, q2?.residuo ?? null),
+      semLastro,
+      verbasSemLinha: vbzsSemLinha.map((v) => ({
+        vbz: v.vbz,
+        nome: v.nome,
+        valores: tresColunas(valorSemLinha(q1, v.vbz), valorSemLinha(q2, v.vbz)),
+      })),
+    };
+  });
+
+  return {
+    canal,
+    quadros,
+    soma: tresColunas(primeira?.totalDosQuadros ?? null, segunda?.totalDosQuadros ?? null),
+    imposto: tresColunas(primeira?.diferenca ?? null, segunda?.diferenca ?? null),
+    demonstrativo: tresColunas(
+      primeira?.totalDoRelatorio ?? null,
+      segunda?.totalDoRelatorio ?? null,
+    ),
+  };
+}
+
+/**
+ * O painel de uma quinzena só, na mesma forma do mensal.
+ *
+ * A tela da competência aberta faz a mesma pergunta da tela do mês, com uma
+ * coluna em vez de três — e uma forma só é o que garante que as duas mostrem a
+ * mesma coisa. Reformatá-la no navegador seria pedir para as duas divergirem
+ * no dia em que uma delas mudasse.
+ */
+export function painelDeUmaQuinzena(
+  quinzena: 1 | 2,
+  conferido: DeParaConferido,
+): PainelDaPlanilha {
+  return montarPainel(
+    conferido.canal,
+    quinzena === 1 ? conferido : null,
+    quinzena === 2 ? conferido : null,
+  )!;
 }
 
 /**
@@ -299,6 +527,9 @@ export function montarResumo(entrada: {
       q?.demonstrativo?.find((d) => d.canal === canal)?.total ?? null;
     const demonstrativo = tresColunas(doDemonstrativo(primeira), doDemonstrativo(segunda));
 
+    const doPainel = (q: QuinzenaApurada | null) =>
+      q?.paineis?.find((p) => p.canal === canal) ?? null;
+
     montados.push({
       canal,
       blocos,
@@ -308,6 +539,7 @@ export function montarResumo(entrada: {
       semFonte: semFonteDoCanal,
       demonstrativo,
       diferenca: subtrair(emitidoDoCanal, demonstrativo),
+      painel: montarPainel(canal, doPainel(primeira), doPainel(segunda)),
     });
   }
 

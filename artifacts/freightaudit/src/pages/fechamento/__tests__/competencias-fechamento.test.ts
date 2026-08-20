@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acaoDoFechamento, anoAceito, podeExcluir } from "../competencias";
+import { acaoDoFechamento, anoAceito, lerParteDigitada, podeExcluir } from "../competencias";
 
 /**
  * O contrato de fechar a quinzena a partir da lista de Importações.
@@ -88,5 +88,32 @@ describe("podeExcluir", () => {
 
   it("deixa excluir a aprovada: aprovar não congela, encerrar é que congela", () => {
     expect(podeExcluir("APROVADA")).toBe(true);
+  });
+});
+
+/**
+ * O texto do campo, lido como `código — nome`.
+ *
+ * A leitura ficou sob teste quando o "Usar" deixou de guardar a parte só no
+ * estado da tela e passou a gravá-la no servidor: o que antes era um rótulo
+ * temporário virou o que fica escrito, e um separador lido errado passa a
+ * cadastrar um CDD chamado `443 - CDD Belém` — código e tudo.
+ */
+describe("lerParteDigitada", () => {
+  it("separa código e nome pelo travessão, pelo hífen e pela barra", () => {
+    expect(lerParteDigitada("443 — CDD Belém")).toEqual({ codigo: "443", nome: "CDD Belém" });
+    expect(lerParteDigitada("443 - CDD Belém")).toEqual({ codigo: "443", nome: "CDD Belém" });
+    expect(lerParteDigitada("443 / CDD Belém")).toEqual({ codigo: "443", nome: "CDD Belém" });
+  });
+
+  it("sem separador, o texto inteiro é o código — o nome fica para depois", () => {
+    expect(lerParteDigitada("  443  ")).toEqual({ codigo: "443", nome: null });
+  });
+
+  it("o nome com hífen no meio continua inteiro: o primeiro separador é o que separa", () => {
+    expect(lerParteDigitada("443 — CDD Belém - Norte")).toEqual({
+      codigo: "443",
+      nome: "CDD Belém - Norte",
+    });
   });
 });

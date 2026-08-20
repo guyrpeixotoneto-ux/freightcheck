@@ -613,6 +613,24 @@ describe("diagnóstico — a primeira camada em português", () => {
     );
     expect(summarisePatterns(semSinal)).toBeNull();
   });
+
+  it("a frase dos padrões concorda com o gênero do equipamento", () => {
+    /*
+      "3 dos 10 carretas" era o que a investigação de uma frota de carretas
+      mostrava. O artigo vem do substantivo, não de um padrão fixo — e o dos
+      cavalos, acima, continua "dos".
+    */
+    const carretas = group({
+      entityType: "CARRETA",
+      equipment: "Carreta",
+      vehicles: 10,
+      patterns: 7,
+      dominantPattern: { before: "1843.23", after: "6529.73", vehicles: 3 },
+    });
+    expect(summarisePatterns(carretas)).toBe(
+      "Encontramos 7 comportamentos diferentes nesta alteração; 3 das 10 carretas seguem o mesmo padrão.",
+    );
+  });
 });
 
 describe("narrativa — composição determinística, nunca modelo", () => {

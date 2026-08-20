@@ -90,6 +90,27 @@ export function diaDeTextoBR(bruto: unknown): Dia | null {
 }
 
 /**
+ * O dia como a célula o traz, em qualquer das três formas.
+ *
+ * A tabela do topo deste arquivo diz qual fonte escreve o quê, e ela continua
+ * valendo — mas ela vale por *relatório*, não por *formato*. O mesmo 03.08.15
+ * traz a data em serial quando sai em `.xlsx` e em `dd/mm/aaaa` quando sai em
+ * `.csv`, porque no CSV não existe serial: o exportador precisa escrever a
+ * data em letra. Amarrar o leitor a uma das formas faria a mesma fonte ser
+ * legível num formato e virar recusa de todas as linhas no outro.
+ *
+ * **Ler as três não é adivinhar**, e é por isso que isto pode existir num
+ * módulo cuja regra é não inferir: as três formas não se sobrepõem. Um serial
+ * de data cabe entre 32.874 e 73.051; um `ddmmaaaa` colado tem sete ou oito
+ * dígitos e por isso é sempre maior que qualquer serial aceito; e
+ * `16/07/2026` não é número nenhum. Nenhum texto é lido como duas datas
+ * diferentes conforme a ordem das tentativas.
+ */
+export function diaDeCelula(bruto: unknown): Dia | null {
+  return diaDeSerial(bruto) ?? diaDeTextoBR(bruto) ?? diaDeDDMMAAAA(bruto);
+}
+
+/**
  * Monta o dia recusando data impossível.
  *
  * `31/02` não vira 03/03: o `Date` do JavaScript transborda em silêncio, e o

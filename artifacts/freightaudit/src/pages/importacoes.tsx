@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dialog";
 import { erroDaResposta, fetchJson, getApiUrl, readJson } from "@/lib/api";
 import {
+  decisaoDaAprovacao,
   estadoDaImportacao,
   faceDoCartao,
   historicoDoArquivo,
@@ -269,8 +270,19 @@ interface RunStatus {
   rawCells: number;
   facts: number;
   snapshots: number;
+  /**
+   * O total de apontamentos ERRO — um número do histórico, não uma decisão.
+   *
+   * Ele já foi a condição do botão de aprovar, e essa leitura é o defeito que
+   * `decisaoDaAprovacao` fecha: nem todo ERRO impede promover. Aqui ele é o que
+   * sempre foi — quantos apontamentos ERRO este run produziu.
+   */
   errors: number;
   warnings: number;
+  /** Quantos apontamentos impedem aprovar — a conta do pipeline, não o total. */
+  blockingErrors: number;
+  /** Quantas chaves ficarão de fora se este arquivo for aprovado. */
+  chavesEmQuarentena: number;
   labels: string[];
   /** Equipamentos que esta importação criaria e o dicionário não conhece. */
   pendingIdentities: string[];
@@ -2220,7 +2232,25 @@ function PendingRun({
   */
   const identidadesNovas = data?.pendingIdentities ?? [];
   const [identidadeDeclarada, setIdentidadeDeclarada] = useState(false);
-  const travadoPorIdentidade = identidadesNovas.length > 0 && !identidadeDeclarada;
+
+  /*
+    Quem decide se dá para aprovar é `decisaoDaAprovacao`, e não este cartão.
+
+    O botão perguntava `errors > 0` aqui mesmo, e foi assim que a tela passou a
+    discordar do pipeline: um QLP conferido, com 11.760 fatos e 8 chaves em
+    conflito, chegava desabilitado porque a conta de ERROs não é a conta do que
+    impede. A regra mora em `lib/importacoes.ts` — testável sem desenhar, e no
+    mesmo lugar onde os outros significados de estado deste cartão moram.
+
+    `promoting` fica de fora dela de propósito: é estado da tela (a mutação em
+    voo), e não do run.
+  */
+  const decisao = decisaoDaAprovacao({
+    status: data?.status ?? "",
+    blockingErrors: data?.blockingErrors ?? 0,
+    chavesEmQuarentena: data?.chavesEmQuarentena ?? 0,
+    identidadesNaoDeclaradas: identidadeDeclarada ? 0 : identidadesNovas.length,
+  });
 
   return (
     <div className={cn("rounded-xl border px-6 py-5 space-y-4", cores.cartao)}>
@@ -2265,18 +2295,35 @@ function PendingRun({
                   nada entra sem sua aprovação.
                 </>
               ) : ready ? (
-                data!.errors > 0 ? (
-                  <strong>
-                    {data!.errors} erros — corrija a origem antes de aprovar.
-                  </strong>
-                ) : (
-                  <>
-                    {/* labels.length, não snapshots: o contador do run só é
-                        preenchido na promoção, e antes dela seria sempre zero. */}
-                    {n(data!.facts)} fatos · {data!.labels.length} vigências ·{" "}
-                    {n(data!.warnings)} avisos, nenhum erro.
-                  </>
-                )
+                <>
+                  {/* O que entrou vem primeiro, e vem sempre: era a ressalva
+                      que substituía o resumo, e um arquivo com 8 conflitos
+                      aparecia sem os 11.760 fatos que ele traz — o que ficou de
+                      fora escondendo o que entra. */}
+                  {/* labels.length, não snapshots: o contador do run só é
+                      preenchido na promoção, e antes dela seria sempre zero. */}
+                  {n(data!.facts)} fatos · {data!.labels.length} vigências ·{" "}
+                  {n(data!.warnings)} avisos
+                  {data!.errors > 0
+                    ? ` · ${plural(data!.errors, "erro", "erros")}.`
+                    : ", nenhum erro."}{" "}
+                  {/* Impedimento num run conferido não acontece hoje — a
+                      pré-visualização não deixa um arquivo impeditivo chegar a
+                      PREVIEWED. Está escrito porque o dia em que acontecer, o
+                      cartão diz o que é, em vez de mostrar um botão morto. */}
+                  {decisao.impedimento === "ERRO_BLOQUEANTE" ? (
+                    <strong>
+                      {plural(
+                        data!.blockingErrors,
+                        "erro bloqueante",
+                        "erros bloqueantes",
+                      )}{" "}
+                      — corrija a origem antes de aprovar.
+                    </strong>
+                  ) : (
+                    decisao.ressalva && <strong>{decisao.ressalva.frase}</strong>
+                  )}
+                </>
               ) : (
                 // O motivo que o pipeline gravou no run — a recusa por
                 // validação diz aqui qual conflito foi, em vez de sumir.
@@ -2296,15 +2343,28 @@ function PendingRun({
           </Button>
           <Button
             size="sm"
-            disabled={
-              !ready || promoting || (data?.errors ?? 0) > 0 || travadoPorIdentidade
-            }
+            disabled={!decisao.podeAprovar || promoting}
             onClick={() => onPromote(identidadesNovas)}
           >
             {promoting ? "Importando…" : "Aprovar e importar"}
           </Button>
         </div>
       </div>
+
+      {/*
+        O preço de aprovar assim mesmo, à vista enquanto ainda dá para escolher.
+
+        Um registro que ficou de fora não aparece como faltando — ele
+        simplesmente não aparece, indistinguível na tabela do cargo que a
+        unidade não tem. Dizer isso depois da aprovação seria dizer tarde: o
+        caminho para ter a vigência inteira (corrigir a origem e importar de
+        novo) é uma decisão que se toma agora.
+      */}
+      {ready && decisao.ressalva && (
+        <div className="bg-white/70 border border-amber-300 rounded-lg px-4 py-3 text-sm">
+          <strong>{decisao.ressalva.frase}</strong> {decisao.ressalva.consequencia}
+        </div>
+      )}
 
       {ready && identidadesNovas.length > 0 && (
         <label className="flex gap-3 items-start bg-white/70 border border-amber-300 rounded-lg px-4 py-3 text-sm cursor-pointer">

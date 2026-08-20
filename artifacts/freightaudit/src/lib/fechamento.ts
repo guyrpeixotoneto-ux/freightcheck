@@ -48,7 +48,16 @@ export interface Competencia {
   motivoDaReabertura: string | null;
 }
 
-/** Uma unidade ou transportadora que já apareceu em alguma competência. */
+/** Os dois lados de um fechamento: o CDD que recebe e quem entrega. */
+export type TipoDeParte = "UNIDADE" | "TRANSPORTADORA";
+
+/**
+ * Uma unidade ou transportadora que o Fechamento conhece.
+ *
+ * `competencias` é em quantas ela já apareceu, e pode ser `0`: a parte
+ * cadastrada existe antes de qualquer competência usá-la — é o que faz o nome
+ * sobreviver à exclusão de uma importação.
+ */
 export interface Parte {
   codigo: string;
   nome: string | null;
@@ -360,6 +369,26 @@ export function listarPartes(): Promise<{ unidades: Parte[]; transportadoras: Pa
   return fetchJson<{ unidades: Parte[]; transportadoras: Parte[] }>("/fechamento/partes");
 }
 
+/**
+ * Cadastra a unidade ou a transportadora — o "Usar" do campo.
+ *
+ * O cadastro é um ato à parte da abertura de propósito: quem escreve o nome de
+ * um CDD não deveria perdê-lo ao excluir a importação que abriu por engano.
+ * Recadastrar o mesmo código com nome novo renomeia; sem nome, mantém o que
+ * estava lá.
+ */
+export function cadastrarParte(entrada: {
+  tipo: TipoDeParte;
+  codigo: string;
+  nome?: string | null;
+}): Promise<Parte> {
+  return fetchJson<Parte>("/fechamento/partes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(entrada),
+  });
+}
+
 /** Encerra a competência — congela a quinzena. */
 export function encerrar(id: string): Promise<Competencia> {
   return fetchJson<Competencia>(`/fechamento/competencias/${id}/encerramento`, { method: "POST" });
@@ -412,6 +441,64 @@ export interface DescontoDoResumo {
   valores: TresColunas;
 }
 
+/* ---------------------------------------------------------------------------
+   O painel da planilha — o mesmo mês nas linhas com que ele é discutido
+   ------------------------------------------------------------------------ */
+
+/** Por que uma linha da planilha não tem número, e o que a destravaria. */
+export interface AusenciaNoPainel {
+  motivo: string;
+  destrava: string;
+}
+
+/** Uma linha do `RESUMO` da planilha. `rotulo` é a transcrição; `nome`, a tela. */
+export interface LinhaDoPainel {
+  chave: string;
+  rotulo: string;
+  nome: string;
+  papel: "PARCELA" | "DESCONTO" | "TOTAL";
+  valores: TresColunas;
+  /** A chave do conjunto quando o número é de várias linhas juntas. */
+  conjunto: string | null;
+  ausencia: AusenciaNoPainel | null;
+  porque: string;
+}
+
+/** Um número do 03.08.20 que vale para várias linhas ao mesmo tempo. */
+export interface ConjuntoDoPainel {
+  chave: string;
+  nome: string;
+  linhas: string[];
+  valores: TresColunas;
+  porque: string;
+}
+
+export interface QuadroDoPainel {
+  quadro: string;
+  titulo: string;
+  linhas: LinhaDoPainel[];
+  conjuntos: ConjuntoDoPainel[];
+  total: TresColunas;
+  somado: TresColunas;
+  /** `total − somado`. Zero é o quadro fechando. */
+  residuo: TresColunas;
+  /** As linhas da planilha entre as quais o resíduo se divide. */
+  semLastro: string[];
+  /** As verbas do relatório que nenhuma linha da planilha nomeia. */
+  verbasSemLinha: { vbz: number; nome: string; valores: TresColunas }[];
+}
+
+export interface PainelDaPlanilha {
+  canal: string;
+  quadros: QuadroDoPainel[];
+  /** A soma dos quadros, na moeda da planilha (sem imposto). */
+  soma: TresColunas;
+  /** O imposto — medido, nunca presumido. */
+  imposto: TresColunas;
+  /** `Total Remuneração` do 03.08.20 — o número que as duas abas partilham. */
+  demonstrativo: TresColunas;
+}
+
 export interface CanalDoResumo {
   canal: string;
   blocos: BlocoDoResumo[];
@@ -423,6 +510,8 @@ export interface CanalDoResumo {
   demonstrativo: TresColunas;
   /** `emitido − demonstrativo`. */
   diferenca: TresColunas;
+  /** O mesmo mês nas linhas da planilha. `null` no canal sem painel transcrito. */
+  painel: PainelDaPlanilha | null;
 }
 
 export interface ResumoDoMes {
@@ -460,6 +549,23 @@ export function lerResumoDoMes(alvo: {
     mes: String(alvo.mes),
   });
   return fetchJson<ResumoDoMes>(`/fechamento/resumo?${busca.toString()}`);
+}
+
+/**
+ * O painel da planilha de uma quinzena.
+ *
+ * Vem em três colunas com só a da quinzena preenchida — a mesma forma do resumo
+ * mensal, para que a aba `Planilha` seja o mesmo componente nas duas telas.
+ *
+ * **404 quando o 03.08.20 não foi importado**, e não um painel de zeros: sem o
+ * demonstrativo, o painel não tem de onde sair, e dizer isso é diferente de
+ * dizer que a quinzena não pagou nada.
+ */
+export function lerPainelDaCompetencia(
+  id: string,
+  canal = "ROTA",
+): Promise<{ competencia: Competencia; painel: PainelDaPlanilha }> {
+  return fetchJson(`/fechamento/competencias/${id}/de-para?canal=${canal}`);
 }
 
 /** O que o descarte apagou — contado por fonte, para a tela repetir de volta. */

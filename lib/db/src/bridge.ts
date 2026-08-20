@@ -193,11 +193,17 @@ const TABELAS_REMOVIDAS = [
   "coverage_expectation",
   "entity_expectation",
   /*
-    As doze do Fechamento — as dez da `0039` e as duas do 03.08.20, da `0043`.
+    As treze do Fechamento — as dez da `0039`, as duas do 03.08.20 (`0043`) e o
+    cadastro de partes (`0044`).
     Elas entram aqui inteiras, e na ordem em
     que o `RESTRICT` do `down` as aceita — filha antes de mãe —, porque o
     ambiente é novo: Production não o conhece, e até rodar a fila toda tabela
     dele é uma tabela que a proposta do Publishing proporia criar.
+
+    `fechamento_parte` não é filha de ninguém — o cadastro sobrevive à
+    competência, que é a razão de ele existir —, e por isso poderia entrar em
+    qualquer ponto da lista. Entra ao lado da competência porque é dela que ele
+    fala.
 
     A pré-condição de vazia é a certa também aqui, e por um motivo que vale
     além do padrão: uma competência guarda os cinco relatórios que a Ambev
@@ -217,6 +223,7 @@ const TABELAS_REMOVIDAS = [
   "fechamento_viagem",
   "fechamento_documento",
   "fechamento_competencia",
+  "fechamento_parte",
 ];
 
 /**
@@ -1618,6 +1625,22 @@ function planoUp(): PassoUp[] {
     M43,
     "fechamento_documento_tipo",
     levantar(M43, /ADD CONSTRAINT "fechamento_documento_tipo"/),
+  );
+
+  /*
+    A `0044` — o cadastro de unidade e transportadora, pela mesma razão das
+    outras: o `down` o derruba com o resto do ambiente, e o `up` tem de
+    devolvê-lo inteiro, com o índice único que o torna um cadastro em vez de uma
+    pilha de repetições. Sem chave estrangeira e sem gatilho: a tabela não
+    depende de competência nenhuma, e é exatamente isso que ela existe para
+    dizer.
+  */
+  const M44 = "0044_partes_cadastradas";
+  add(M44, "fechamento_parte", levantar(M44, /CREATE TABLE IF NOT EXISTS "fechamento_parte" \(/));
+  add(
+    M44,
+    "índice fechamento_parte_unica",
+    levantar(M44, /INDEX IF NOT EXISTS "fechamento_parte_unica"/),
   );
 
   const M42 = "0042_viagem_completa";

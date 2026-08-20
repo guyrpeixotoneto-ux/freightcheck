@@ -1,9 +1,23 @@
 import * as XLSX from "xlsx";
+import {
+  decodificarTexto,
+  ehPlanilha,
+  matrizDelimitada,
+  separadorDe,
+} from "./formato";
 
 /**
- * A leitura crua de uma planilha, comum aos quatro leitores de `.xlsx`.
+ * A leitura crua de uma tabela, comum aos quatro leitores tabulares.
  *
- * Quatro decisões moram aqui, e todas existem para que os leitores acima não
+ * **Tabela, e não planilha.** O mesmo relatório chega em `.xlsx` quando alguém
+ * o exporta pela tela do Promax e em `.csv` quando o exporta pela fila de
+ * relatórios — e chega em `.txt` quando o caminho passou por um sistema que
+ * renomeia. As três formas trazem o mesmo cabeçalho e as mesmas colunas, e o
+ * que muda é só como os bytes empacotam a grade. Por isso o formato é decidido
+ * pelo conteúdo (ver `formato.ts`) e a grade é normalizada aqui: acima deste
+ * arquivo, um leitor não sabe nem precisa saber em que formato a fonte chegou.
+ *
+ * Cinco decisões moram aqui, e todas existem para que os leitores acima não
  * precisem conhecer o SheetJS:
  *
  * 1. **A célula chega como veio.** `raw: true` desliga a formatação: uma data
@@ -21,6 +35,11 @@ import * as XLSX from "xlsx";
  * 4. **O nome da coluna vale sem os espaços.** `ValorFrete` e `VALOR FRETE`
  *    são a mesma coluna escrita por dois exportadores diferentes do mesmo
  *    relatório — ver `compactarColuna`.
+ * 5. **O texto delimitado entra pela mesma porta.** Um `.csv` vira a mesma
+ *    matriz que uma aba viraria, e daí em diante o caminho é um só. A única
+ *    diferença que sobrevive é o tipo da célula: a planilha entrega número
+ *    nativo e o texto entrega texto, e é `lerNumero` (em `dominio.ts`) que
+ *    lê as duas formas — `1.000,00` e `1000` chegam ao mesmo lugar.
  */
 
 export interface LinhaDePlanilha {
@@ -104,22 +123,64 @@ export class CabecalhoNaoEncontrado extends Error {
 }
 
 /**
- * Lê uma aba, localizando o cabeçalho pelas colunas que a fonte precisa ter.
+ * O nome que uma tabela de texto recebe no lugar do nome da aba.
  *
- * `aba` é o nome esperado; quando ele não existe, a primeira aba é usada — as
- * exportações do Promax nomeiam a aba com o número da rotina (`03.08.15`), mas
- * quem salva de dentro da pasta de fechamento renomeia com frequência, e o
- * layout é que identifica a fonte, não o nome da aba.
+ * Um `.csv` não tem abas — tem uma tabela só. Chamá-la de `"Sheet1"` seria
+ * inventar um nome de planilha para um arquivo que não é uma; este nome diz o
+ * que ela é, e aparece assim na recusa que cita a aba.
  */
-export function lerAba(
-  arquivo: Buffer | ArrayBuffer,
-  opcoes: { aba?: string; exigidas: string[] },
-): PlanilhaLida {
+export const TABELA_DE_TEXTO = "(tabela do arquivo de texto)";
+
+/**
+ * O arquivo é texto, mas não é uma tabela.
+ *
+ * Acontece quando alguém envia na aba de uma fonte tabular o `.txt` de largura
+ * fixa de outra — o 03.08.20 na aba do 03.08.15, por exemplo. A recusa diz
+ * isso em vez de falar de cabeçalho ausente, porque o problema não é a coluna
+ * que faltou: é o arquivo que não tem colunas.
+ */
+export class TabelaNaoDelimitada extends Error {
+  constructor(readonly linhas: number) {
+    super(
+      "O arquivo é texto, mas não está separado em colunas: nenhuma das linhas " +
+        `se divide por ponto e vírgula, tabulação, barra vertical ou vírgula (${linhas} linha(s) lidas). ` +
+        "Se ele for um relatório de largura fixa, ele pertence a outra fonte — confira a aba de envio.",
+    );
+    this.name = "TabelaNaoDelimitada";
+  }
+}
+
+/** A grade do arquivo, seja ele planilha ou texto delimitado. */
+interface Grade {
+  nome: string;
+  matriz: unknown[][];
+  /** A linha física de cada linha da matriz, 1-based. */
+  linhaFisica: number[];
+}
+
+/**
+ * A tabela do arquivo, normalizada — a única função que conhece os formatos.
+ *
+ * `aba` só tem sentido numa planilha. Num texto delimitado ela é ignorada, e
+ * não recusada: o arquivo tem uma tabela e é essa que se lê. Quem precisa das
+ * duas abas do 03.08.18 confere `nomesDasAbas` antes e decide lá, com o
+ * vocabulário da fonte, o que fazer com um arquivo que só traz uma.
+ */
+function grade(arquivo: Buffer | ArrayBuffer, aba: string | undefined): Grade {
+  if (!ehPlanilha(arquivo)) {
+    const texto = decodificarTexto(arquivo);
+    const separador = separadorDe(texto);
+    if (separador === null) {
+      throw new TabelaNaoDelimitada(texto.split(/\r?\n/).length);
+    }
+    const { matriz, linhaFisica } = matrizDelimitada(texto, separador);
+    return { nome: TABELA_DE_TEXTO, matriz, linhaFisica };
+  }
+
   const wb = XLSX.read(arquivo, { type: "buffer", cellDates: false, raw: true });
-  const nomeDaAba =
-    opcoes.aba && wb.SheetNames.includes(opcoes.aba) ? opcoes.aba : wb.SheetNames[0];
-  const sheet = wb.Sheets[nomeDaAba];
-  if (!sheet) throw new CabecalhoNaoEncontrado(nomeDaAba ?? "(vazia)", opcoes.exigidas);
+  const nome = aba && wb.SheetNames.includes(aba) ? aba : wb.SheetNames[0];
+  const sheet = nome ? wb.Sheets[nome] : undefined;
+  if (!sheet) return { nome: nome ?? "(vazia)", matriz: [], linhaFisica: [] };
 
   const matriz = XLSX.utils.sheet_to_json<unknown[]>(sheet, {
     header: 1,
@@ -127,9 +188,27 @@ export function lerAba(
     defval: null,
     blankrows: true,
   });
+  return { nome, matriz, linhaFisica: matriz.map((_, i) => i + 1) };
+}
+
+/**
+ * Lê uma tabela, localizando o cabeçalho pelas colunas que a fonte precisa ter.
+ *
+ * `aba` é o nome esperado; quando ele não existe, a primeira aba é usada — as
+ * exportações do Promax nomeiam a aba com o número da rotina (`03.08.15`), mas
+ * quem salva de dentro da pasta de fechamento renomeia com frequência, e o
+ * layout é que identifica a fonte, não o nome da aba. Num arquivo de texto não
+ * há aba nenhuma, e o parâmetro não se aplica.
+ */
+export function lerAba(
+  arquivo: Buffer | ArrayBuffer,
+  opcoes: { aba?: string; exigidas: string[] },
+): PlanilhaLida {
+  const { nome: nomeDaTabela, matriz, linhaFisica } = grade(arquivo, opcoes.aba);
+  if (matriz.length === 0) throw new CabecalhoNaoEncontrado(nomeDaTabela, opcoes.exigidas);
 
   const cabecalho = acharCabecalho(matriz, opcoes.exigidas);
-  if (!cabecalho) throw new CabecalhoNaoEncontrado(nomeDaAba, opcoes.exigidas);
+  if (!cabecalho) throw new CabecalhoNaoEncontrado(nomeDaTabela, opcoes.exigidas);
 
   const linhas: LinhaDePlanilha[] = [];
   for (let i = cabecalho.indice + 1; i < matriz.length; i += 1) {
@@ -147,14 +226,22 @@ export function lerAba(
       const apelido = compactarColuna(nome);
       if (apelido && !(apelido in celulas)) celulas[apelido] = bruta[coluna] ?? null;
     });
-    linhas.push({ numero: i + 1, celulas });
+    linhas.push({ numero: linhaFisica[i] ?? i + 1, celulas });
   }
 
-  return { aba: nomeDaAba, cabecalho: cabecalho.nomes, linhas };
+  return { aba: nomeDaTabela, cabecalho: cabecalho.nomes, linhas };
 }
 
-/** Todas as abas de uma planilha, pelo nome. */
+/**
+ * Todas as abas de uma planilha, pelo nome.
+ *
+ * Um arquivo de texto não tem abas, e a lista vem vazia — o que é a verdade
+ * sobre ele, e não uma falha. Quem depende das abas para saber o que está
+ * lendo (só o 03.08.18) trata a lista vazia com o vocabulário da própria
+ * fonte.
+ */
 export function nomesDasAbas(arquivo: Buffer | ArrayBuffer): string[] {
+  if (!ehPlanilha(arquivo)) return [];
   return XLSX.read(arquivo, { type: "buffer", bookSheets: true }).SheetNames;
 }
 

@@ -1,5 +1,5 @@
 import { centavos, lerNumero, type Canal, type Leitura, type Recusa } from "../dominio";
-import { diaDeSerial, type Dia } from "../periodo";
+import { diaDeCelula, type Dia } from "../periodo";
 import { canalDoNomeDaVerba, verbaDe, verbaDesconhecida, type Verba } from "../verbas";
 import { celula, lerAba, type LinhaDePlanilha } from "./planilha";
 
@@ -98,7 +98,7 @@ function lerLinha(bruta: LinhaDePlanilha, recusas: Recusa[]): LinhaDeCte | null 
 
   return {
     linha: bruta.numero,
-    dia: diaDeSerial(celula(bruta, "Data")),
+    dia: diaDeCelula(celula(bruta, "Data")),
     verba: doCatalogo ?? verbaDesconhecida(vbz, canal, descricao),
     canal,
     numero: String(celula(bruta, "Nr CT-e") ?? "").trim(),

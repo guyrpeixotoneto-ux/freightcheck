@@ -40,6 +40,15 @@ import type { NaturezaDaVerba } from "./verbas";
  * rótulo errado é pior do que uma linha vazia: a vazia se resolve, a errada se
  * acredita.
  *
+ * **O que a aritmética da planilha corrigiu.** Três linhas estavam classificadas
+ * pelo que o rótulo delas parecia dizer, e o painel somado desmentiu as três:
+ * `TOTAL REMUNERAÇÃO ROTA DVS` começa com `TOTAL` e é **parcela** (sem ela o
+ * quadro não fecha, com ela fecha ao centavo); `DESCONTO DE DEVOLUÇÃO %` termina
+ * em `%` e traz **dinheiro**, o mesmo do quadro de baixo; e a `INDISPONIBILIDADE`
+ * do variável tem nome de parcela e é o **desconto** de disponibilidade, centavo
+ * por centavo. Em todos os três, o que decidiu foi a soma do quadro contra o
+ * total que a própria planilha escreve — em duas quinzenas, não em uma.
+ *
  * **O que fazer com o resíduo.** {@link conferirDePara} devolve, por quadro, o
  * que o 03.08.20 sustenta, o que o de-para conseguiu preencher e a diferença
  * entre os dois — junto com o nome das linhas que ainda não têm origem e das
@@ -68,6 +77,16 @@ import type { NaturezaDaVerba } from "./verbas";
 export type Quadro = "REMUNERACAO" | "VARIAVEL" | "OUTROS_CUSTOS";
 
 /**
+ * Os canais cujo painel foi transcrito — hoje, um.
+ *
+ * Existe como constante, e não como `if (canal === "ROTA")` espalhado por quem
+ * chama, porque é uma afirmação sobre o **catálogo** e não sobre cada tela: o
+ * dia em que os rótulos do AS forem capturados, todas as telas passam a
+ * mostrá-lo por terem lido daqui. Ver a nota de abertura do módulo.
+ */
+export const CANAIS_COM_PAINEL: Canal[] = ["ROTA"];
+
+/**
  * Qual das colunas do 03.08.20 o de-para lê.
  *
  * O padrão é `semImposto`, e a razão é aritmética, não estética: os descontos
@@ -82,8 +101,6 @@ export type ColunaDoPagamento = "semImposto" | "ctrcIcms" | "valorFaturado";
 
 /** O que a linha é dentro do quadro — e, por consequência, como ela soma. */
 export type Papel =
-  /** O nome do quadro, escrito na primeira linha dele. Não carrega valor. */
-  | "TITULO"
   /** Uma parcela positiva. */
   | "PARCELA"
   /** Um abatimento. Entra na soma do quadro com sinal trocado. */
@@ -109,8 +126,6 @@ export type Origem =
   | { tipo: "VERBAS"; bloco: BlocoDoPagamento; naturezas: NaturezaDaVerba[] }
   /** Um ou mais descontos do 03.08.20, somados. */
   | { tipo: "DESCONTOS"; descontos: TipoDeDescontoDoPagamento[] }
-  /** O percentual da devolução — o único campo do painel que não é dinheiro. */
-  | { tipo: "PERCENTUAL_DA_DEVOLUCAO" }
   /** A soma de outras linhas deste mesmo de-para, com o sinal de cada papel. */
   | { tipo: "SOMA_DO_QUADRO" }
   /**
@@ -134,6 +149,16 @@ export interface LinhaDaPlanilha {
   chave: string;
   /** O rótulo **como a planilha o escreve**, acento por acento. */
   rotulo: string;
+  /**
+   * O mesmo rótulo escrito como se escreve — é o que a tela mostra.
+   *
+   * A planilha grita: `CUSTO FIXO - VANS`. A caixa alta ali não é sentido, é
+   * formatação de célula — e quem confere lê dezoito linhas dessas de uma vez.
+   * Guardar as duas grafias separadas é o que permite mostrar `Custo fixo —
+   * vans` sem perder a transcrição literal contra a qual o de-para se confere.
+   * Derivar uma da outra por `toLowerCase` estragaria `DVS`, que é sigla.
+   */
+  nome: string;
   quadro: Quadro;
   papel: Papel;
   origem: Origem;
@@ -194,19 +219,20 @@ const SEM_TIPO_DE_FROTA = (o_que: string): Origem => ({
     "destas linhas, e é assim que ele aparece.",
 });
 
-/** A planilha tem duas linhas de disponibilidade e o relatório tem um bloco. */
+/** A `INDISPONIBILIDADE` do quadro do fixo — a única das duas que segue sem lastro. */
 const INDISPONIBILIDADE_INDEFINIDA = (quadro: string): Origem => ({
   tipo: "SEM_ORIGEM",
   motivo:
     `A planilha traz \`INDISPONIBILIDADE\` no quadro ${quadro} **e** uma linha de desconto ` +
     "de disponibilidade, que são duas coisas diferentes com nomes quase iguais. O 03.08.20 " +
     "traz um bloco só — `DESCONTO DISPONIBILIDADE`, com os quatro descontos —, e ele está " +
-    "declarado na linha de desconto. Qual das duas leituras esta linha carrega — a " +
-    "contrapartida positiva da frota indisponível, ou uma segunda via do mesmo abatimento — " +
-    "não está escrito em fonte nenhuma, e chutar entre as duas trocaria o sinal do número.",
+    "declarado na linha de desconto. A homônima do quadro do variável se resolveu pela " +
+    "aritmética (vale o mesmo que o desconto, e com o mesmo sinal); esta não se resolve, " +
+    "porque a célula está vazia nas duas quinzenas conferidas — e célula vazia não decide " +
+    "se a linha seria parcela ou abatimento.",
   destrava:
-    "A fórmula desta célula no `.xlsb`, ou a confirmação de qual das duas linhas o " +
-    "03.08.18 (disponibilidade de frota) alimenta.",
+    "A fórmula desta célula no `.xlsb`, ou uma quinzena em que ela apareça preenchida — o " +
+    "sinal dela contra o total do quadro decide o resto.",
 });
 
 /**
@@ -220,26 +246,28 @@ const INDISPONIBILIDADE_INDEFINIDA = (quadro: string): Origem => ({
 export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
   /* --- Quadro 1: a remuneração da frota contratada ------------------------ */
   {
-    chave: "rota_dvs_titulo",
+    chave: "rota_dvs",
     rotulo: "TOTAL REMUNERAÇÃO ROTA DVS",
+    nome: "Total remuneração rota DVS",
     quadro: "REMUNERACAO",
-    papel: "TITULO",
-    origem: {
-      tipo: "SEM_ORIGEM",
-      motivo:
-        "É o título do quadro, e a sigla `DVS` não aparece em nenhuma das seis fontes do " +
-        "fechamento — nem no 03.08.20, nem no 2Art, nem na conciliação. Expandi-la por " +
-        "palpite ('Diversos'? 'Distribuição de Vendas'?) poria uma definição nossa num " +
-        "rótulo que é da Ambev.",
-      destrava: "A legenda da planilha, ou a expansão da sigla confirmada por quem a mantém.",
-    },
+    papel: "PARCELA",
+    origem: { tipo: "EM_GRUPO", grupo: "fixo_bruto" },
     porque:
-      "Linha de título: nomeia o quadro e não carrega valor. O valor do quadro está no " +
-      "`TOTAL REMUNERAÇÃO ROTA` que o fecha.",
+      "Começa com `TOTAL` e ainda assim é parcela — a aritmética do próprio painel o diz. " +
+      "Sem ela, as cinco linhas de tipo de frota somam R$ 802.292,68 na 1ª quinzena, e o " +
+      "quadro fecha em R$ 1.081.504,98 com R$ 34.106,56 de desconto; com ela, as seis somam " +
+      "R$ 1.115.611,55, que é exatamente o fechamento mais os descontos. A conta fecha ao " +
+      "centavo nas duas quinzenas, e não fecha sem esta linha. " +
+      "O que continua sem lastro é a **sigla**: `DVS` não aparece em nenhuma das seis fontes " +
+      "— nem no 03.08.20, nem no 2Art, nem na conciliação —, e expandi-la por palpite poria " +
+      "uma definição nossa num rótulo que é da Ambev. Por isso ela entra no conjunto das " +
+      "outras cinco: é a frota contratada bruta, partida por um critério que o relatório " +
+      "não traz.",
   },
   {
     chave: "custo_fixo_padronizado",
     rotulo: "CUSTO FIXO PADRONIZADO",
+    nome: "Custo fixo padronizado",
     quadro: "REMUNERACAO",
     papel: "PARCELA",
     origem: { tipo: "EM_GRUPO", grupo: "fixo_bruto" },
@@ -250,6 +278,7 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
   {
     chave: "custo_fixo_inativos",
     rotulo: "CUSTO FIXO INATIVOS",
+    nome: "Custo fixo inativos",
     quadro: "REMUNERACAO",
     papel: "PARCELA",
     origem: { tipo: "EM_GRUPO", grupo: "fixo_bruto" },
@@ -261,6 +290,7 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
   {
     chave: "custo_vans_inativas",
     rotulo: "CUSTO VANS INATIVAS",
+    nome: "Custo vans inativas",
     quadro: "REMUNERACAO",
     papel: "PARCELA",
     origem: { tipo: "EM_GRUPO", grupo: "fixo_bruto" },
@@ -271,6 +301,7 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
   {
     chave: "indisponibilidade_fixo",
     rotulo: "INDISPONIBILIDADE",
+    nome: "Indisponibilidade",
     quadro: "REMUNERACAO",
     papel: "PARCELA",
     origem: INDISPONIBILIDADE_INDEFINIDA("do fixo"),
@@ -282,6 +313,7 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
   {
     chave: "custo_fixo_especiais",
     rotulo: "CUSTO FIXO - ESPECIAIS",
+    nome: "Custo fixo — especiais",
     quadro: "REMUNERACAO",
     papel: "PARCELA",
     origem: { tipo: "EM_GRUPO", grupo: "fixo_bruto" },
@@ -292,6 +324,7 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
   {
     chave: "custo_fixo_vans",
     rotulo: "CUSTO FIXO - VANS",
+    nome: "Custo fixo — vans",
     quadro: "REMUNERACAO",
     papel: "PARCELA",
     origem: { tipo: "EM_GRUPO", grupo: "fixo_bruto" },
@@ -300,18 +333,26 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
   {
     chave: "desconto_devolucao_percentual",
     rotulo: "DESCONTO DE DEVOLUÇÃO %",
+    nome: "Desconto de devolução %",
     quadro: "REMUNERACAO",
-    papel: "PARCELA",
-    origem: { tipo: "PERCENTUAL_DA_DEVOLUCAO" },
+    papel: "DESCONTO",
+    origem: { tipo: "DESCONTOS", descontos: ["DEVOLUCAO"] },
     porque:
-      "O rótulo termina em `%`, e o 03.08.20 traz o bloco da devolução aberto em três linhas — " +
-      "base (`Valor S/Imposto`), alíquota (`% Dev. Resp. Transportadora`) e valor (`Desconto " +
-      "Devolucao`). Esta linha recebe a **alíquota**; o dinheiro está em `DESCONTO DE " +
-      "DEVOLUÇÃO`, no quadro do variável. Por não ser dinheiro, ela não entra na soma do quadro.",
+      "O `%` no rótulo sugere alíquota, e a célula traz **dinheiro**: R$ (18.199,19) na 1ª " +
+      "quinzena e R$ (21.548,23) na 2ª — os mesmos centavos que `DESCONTO DE DEVOLUÇÃO` no " +
+      "quadro do variável, e os que faltam para as seis parcelas deste quadro fecharem no " +
+      "`TOTAL REMUNERAÇÃO ROTA`. O `%` é do critério, não da unidade: a devolução é cobrada " +
+      "por uma alíquota, e o que a planilha escreve aqui é quanto ela deu. A alíquota em si " +
+      "— `% Dev. Resp. Transportadora` — o 03.08.20 traz no mesmo bloco, e ela viaja na " +
+      "procedência desta linha. " +
+      "O mesmo valor abatido nos dois quadros não é desconto em dobro: o quadro do variável " +
+      "decompõe parte deste, e o total do mês soma este quadro e o de outros custos — nunca " +
+      "os três.",
   },
   {
     chave: "desconto_disponibilidade",
     rotulo: "DESCONTO DE DISPONIBILIDADE",
+    nome: "Desconto de disponibilidade",
     quadro: "REMUNERACAO",
     papel: "DESCONTO",
     origem: {
@@ -332,6 +373,7 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
   {
     chave: "desconto_complementar_negativo",
     rotulo: "DESCONTO COMPLEMENTAR NEGATIVO",
+    nome: "Desconto complementar negativo",
     quadro: "REMUNERACAO",
     papel: "DESCONTO",
     origem: {
@@ -356,6 +398,7 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
   {
     chave: "total_remuneracao_rota_fixo",
     rotulo: "TOTAL REMUNERAÇÃO ROTA",
+    nome: "Total remuneração rota",
     quadro: "REMUNERACAO",
     papel: "TOTAL",
     origem: { tipo: "SOMA_DO_QUADRO" },
@@ -369,6 +412,7 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
   {
     chave: "custo_variavel_frota_fixa",
     rotulo: "CUSTO VARIÁVEL (FROTA FIXA)",
+    nome: "Custo variável (frota fixa)",
     quadro: "VARIAVEL",
     papel: "PARCELA",
     origem: { tipo: "EM_GRUPO", grupo: "variavel_bruto" },
@@ -381,6 +425,7 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
   {
     chave: "custo_variavel_agregado",
     rotulo: "CUSTO VARIÁVEL (AGREGADO)",
+    nome: "Custo variável (agregado)",
     quadro: "VARIAVEL",
     papel: "PARCELA",
     origem: { tipo: "EM_GRUPO", grupo: "variavel_bruto" },
@@ -393,6 +438,7 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
   {
     chave: "desconto_devolucao",
     rotulo: "DESCONTO DE DEVOLUÇÃO",
+    nome: "Desconto de devolução",
     quadro: "VARIAVEL",
     papel: "DESCONTO",
     origem: { tipo: "DESCONTOS", descontos: ["DEVOLUCAO"] },
@@ -407,16 +453,32 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
   {
     chave: "indisponibilidade_variavel",
     rotulo: "INDISPONIBILIDADE",
+    nome: "Indisponibilidade",
     quadro: "VARIAVEL",
-    papel: "PARCELA",
-    origem: INDISPONIBILIDADE_INDEFINIDA("do variável"),
+    papel: "DESCONTO",
+    origem: {
+      tipo: "DESCONTOS",
+      descontos: [
+        "DISPONIBILIDADE_CUSTO_FIXO",
+        "DISPONIBILIDADE_EQUIPE",
+        "DISPONIBILIDADE_INDIRETO",
+        "DISPONIBILIDADE_FATOR_AJUDANTE",
+      ],
+    },
     porque:
-      "O mesmo rótulo do quadro de cima, na mesma indefinição de sinal — e agravada: aqui não " +
-      "há sequer uma linha de desconto de disponibilidade ao lado para contrastar.",
+      "O rótulo é positivo e o número é negativo: a planilha escreve R$ (15.907,37) na 1ª " +
+      "quinzena e R$ (125.271,68) na 2ª — centavo por centavo o que `DESCONTO DE " +
+      "DISPONIBILIDADE` abate no quadro de cima, e o que falta para as duas parcelas deste " +
+      "quadro fecharem no `TOTAL REMUNERAÇÃO ROTA` dele. É o mesmo bloco `DESCONTO " +
+      "DISPONIBILIDADE` do 03.08.20, escrito aqui com o nome da causa em vez do nome do " +
+      "efeito. " +
+      "A `INDISPONIBILIDADE` do quadro de cima continua sem lastro, e continuar é o certo: " +
+      "aquela célula está vazia nas duas quinzenas, e vazia não decide sinal nenhum.",
   },
   {
     chave: "total_remuneracao_rota_variavel",
     rotulo: "TOTAL REMUNERAÇÃO ROTA",
+    nome: "Total remuneração rota",
     quadro: "VARIAVEL",
     papel: "TOTAL",
     origem: { tipo: "SOMA_DO_QUADRO" },
@@ -429,6 +491,7 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
   {
     chave: "outros_custos_parcela",
     rotulo: "TOTAL REMUNERAÇÃO ROTA OUTROS CUSTOS",
+    nome: "Total remuneração rota outros custos",
     quadro: "OUTROS_CUSTOS",
     papel: "PARCELA",
     origem: {
@@ -449,6 +512,7 @@ export const LINHAS_DA_PLANILHA: LinhaDaPlanilha[] = [
   {
     chave: "total_outros_custos",
     rotulo: "TOTAL OUTROS CUSTOS",
+    nome: "Total outros custos",
     quadro: "OUTROS_CUSTOS",
     papel: "TOTAL",
     origem: { tipo: "SOMA_DO_QUADRO" },
@@ -464,6 +528,7 @@ export const GRUPOS_DA_PLANILHA: GrupoDaPlanilha[] = [
     chave: "fixo_bruto",
     rotulo: "Custo fixo bruto — antes dos descontos",
     linhas: [
+      "rota_dvs",
       "custo_fixo_padronizado",
       "custo_fixo_inativos",
       "custo_vans_inativas",
@@ -473,13 +538,16 @@ export const GRUPOS_DA_PLANILHA: GrupoDaPlanilha[] = [
     origem: { tipo: "VERBAS", bloco: "FRETE", naturezas: ["FIXO", "ADMINISTRATIVO"] },
     brutoDeDescontos: true,
     porque:
-      "As cinco linhas são a frota contratada partida por tipo (padrão, especial, van) e por " +
-      "atividade (ativa, inativa). O 03.08.20 traz a partição por atividade — há VBZ de ativa e " +
-      "de inativa — e não traz a por tipo, que é a que corta as cinco. Como o corte por tipo " +
-      "atravessa as duas VBZs, o grupo é das cinco: separar só a inativa deixaria duas linhas " +
-      "com um número e três sem, e o número da inativa ainda seria de duas linhas. " +
+      "As seis linhas são a frota contratada partida por tipo (padrão, especial, van) e por " +
+      "atividade (ativa, inativa), mais a linha `DVS`, cuja sigla nenhuma fonte define. O " +
+      "03.08.20 traz a partição por atividade — há VBZ de ativa e de inativa — e não traz a " +
+      "por tipo, que é a que corta as seis. Como o corte por tipo atravessa as duas VBZs, o " +
+      "grupo é das seis: separar só a inativa deixaria duas linhas com um número e quatro sem, " +
+      "e o número da inativa ainda seria de duas linhas. " +
       "O valor é **bruto**: os descontos que a planilha abate neste quadro, somados de volta, " +
-      "porque é assim que ela escreve a parcela e o relatório não.",
+      "porque é assim que ela escreve a parcela e o relatório não. Que sejam estas seis e não " +
+      "cinco é conta, não opinião: na 1ª quinzena as seis somam R$ 1.115.611,55, e o quadro " +
+      "fecha em R$ 1.081.504,98 com R$ 34.106,56 de desconto.",
   },
   {
     chave: "variavel_bruto",
@@ -548,10 +616,8 @@ export type EstadoDaLinha =
 
 export interface LinhaConferida extends LinhaDaPlanilha {
   estado: EstadoDaLinha;
-  /** Dinheiro, exceto na linha de alíquota da devolução. `null` sem lastro. */
+  /** Sempre dinheiro — o painel inteiro é dinheiro. `null` sem lastro. */
   valor: number | null;
-  /** `true` na única linha do painel que é percentual e não dinheiro. */
-  percentual: boolean;
   procedencia: Procedencia | null;
   ausencia: Ausencia | null;
   conjunto: Conjunto | null;
@@ -616,11 +682,26 @@ export interface DeParaConferido {
   canal: Canal;
   coluna: ColunaDoPagamento;
   quadros: QuadroConferido[];
-  /** O `Total Remuneração` que o próprio relatório fecha. `null` sem a linha. */
+  /**
+   * O `Total Remuneração` que o próprio relatório fecha. `null` sem a linha.
+   *
+   * É o número **com imposto** — o mesmo que a tela de resumo põe na linha
+   * `Total remuneração (03.08.20)`, e o que amarra o painel da planilha à
+   * conferência verba a verba: as duas leituras têm de chegar aqui.
+   */
   totalDoRelatorio: number | null;
-  /** A soma dos três quadros — o que deveria ser o `Total Remuneração`. */
+  /** A soma dos três quadros, na coluna lida. */
   totalDosQuadros: number | null;
-  /** `totalDoRelatorio − totalDosQuadros`. Zero é o painel inteiro fechando. */
+  /**
+   * `totalDoRelatorio − totalDosQuadros` — o imposto, **medido**.
+   *
+   * Não é erro nem resíduo: é a distância entre a coluna que se está lendo e o
+   * total que o relatório fecha. Lendo `semImposto` (o padrão, e a moeda da
+   * planilha) ela é o imposto embutido, e sai da subtração de dois números do
+   * mesmo arquivo — nenhum fator é presumido, que é a razão de a tela poder
+   * mostrá-la. Lendo `valorFaturado` ela é zero, e zero aí significa apenas que
+   * as três recortes cobrem todas as verbas do canal.
+   */
   diferenca: number | null;
 }
 
@@ -751,7 +832,6 @@ export function conferirDePara(
   const conferidas: LinhaConferida[] = LINHAS_DA_PLANILHA.map((linha) => {
     const base = {
       ...linha,
-      percentual: linha.origem.tipo === "PERCENTUAL_DA_DEVOLUCAO",
       valor: null as number | null,
       procedencia: null as Procedencia | null,
       ausencia: null as Ausencia | null,
@@ -828,6 +908,16 @@ export function conferirDePara(
           .filter((d) => d.vbzDeOrigem.length > 0 && !d.vbzDeOrigem.some((v) => doRecorte.has(v)))
           .flatMap((d) => d.vbzDeOrigem.map((v) => `VBZ ${String(v).padStart(2, "0")}`));
 
+        /*
+          A alíquota da devolução não é linha do painel — a planilha escreve
+          dinheiro na linha que tem `%` no nome. Ela entra aqui, na procedência
+          de quem a aplica: é o critério do número, e some se não for dito.
+        */
+        const aliquota =
+          linha.origem.descontos.includes("DEVOLUCAO") && devolucao?.percentual != null
+            ? [`% Dev. Resp. Transportadora: ${devolucao.percentual}`]
+            : [];
+
         return {
           ...base,
           estado: "APURADO" as const,
@@ -836,31 +926,8 @@ export function conferirDePara(
           procedencia: {
             fonte: "03.08.20",
             regra: "Soma dos descontos do bloco, como o relatório os traz — líquidos, sem imposto.",
-            entrou: escolhidos.map((d) => d.rotulo),
+            entrou: [...escolhidos.map((d) => d.rotulo), ...aliquota],
             registros: escolhidos.length,
-          },
-        };
-      }
-
-      case "PERCENTUAL_DA_DEVOLUCAO": {
-        if (!devolucao || devolucao.percentual === null) {
-          return {
-            ...base,
-            estado: "SEM_LASTRO" as const,
-            ausencia: semDemonstrativo(
-              "o bloco `DESCONTO DEVOLUCAO` com a linha `% Dev. Resp. Transportadora`",
-            ),
-          };
-        }
-        return {
-          ...base,
-          estado: "APURADO" as const,
-          valor: devolucao.percentual,
-          procedencia: {
-            fonte: "03.08.20",
-            regra: "A alíquota `% Dev. Resp. Transportadora`, como o relatório a declara.",
-            entrou: [devolucao.rotulo],
-            registros: 1,
           },
         };
       }
@@ -889,13 +956,12 @@ export function conferirDePara(
     const total = doQuadro.length > 0 ? valor : null;
 
     /*
-      Só parcela e desconto somam. O título não carrega valor, o total é contra
-      quem a soma se confere, e a linha de alíquota da devolução não é dinheiro
-      — somá-la poria 1,50 no meio de reais.
+      Só parcela e desconto somam. O título não carrega valor, e o total é
+      contra quem a soma se confere — somá-lo contaria o quadro duas vezes.
     */
     const dasLinhas = somar(
       linhas
-        .filter((l) => l.estado === "APURADO" && !l.percentual)
+        .filter((l) => l.estado === "APURADO")
         .filter((l) => l.papel === "PARCELA" || l.papel === "DESCONTO")
         .map((l) => (l.papel === "DESCONTO" ? -(l.valor ?? 0) : (l.valor ?? 0))),
     );
@@ -951,8 +1017,8 @@ export function conferirDePara(
       somado: total === null ? null : somado,
       residuo: total === null ? null : centavos(total - somado),
       semLastro: linhas
-        .filter((l) => l.estado === "SEM_LASTRO" && l.papel !== "TITULO" && l.papel !== "TOTAL")
-        .map((l) => l.rotulo),
+        .filter((l) => l.estado === "SEM_LASTRO" && l.papel !== "TOTAL")
+        .map((l) => l.nome),
       verbasSemLinha,
     };
   });

@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { montarResumo, type QuinzenaApurada } from "../resumo";
+import { conferirDePara } from "../de-para";
+import { lerPagamento } from "../leitores/pagamento";
+import { fixturePagamentoDoPainel } from "./fixtures";
 
 /**
  * O resumo do mês — a aritmética das três colunas, sem banco.
@@ -35,6 +38,22 @@ function quinzena(n: 1 | 2, dados: Partial<QuinzenaApurada> = {}): QuinzenaApura
 
 const montar = (quinzenas: QuinzenaApurada[]) =>
   montarResumo({ ano: 2026, mes: 7, unidade, transportadora, quinzenas });
+
+/**
+ * O painel do 03.08.20 da quinzena, como `lerResumoDoMes` o entrega.
+ *
+ * A coluna do demonstrativo sai do mesmo objeto de propósito: no leitor, as
+ * duas somam `valor_faturado` dos mesmos itens — `somarDemonstrativo` para a
+ * conferência por verba e `lerDeParaDaCompetencia` para o painel. Alimentar o
+ * teste com dois números diferentes testaria uma montagem que não existe.
+ */
+const comPainel = (n: 1 | 2) => {
+  const conferido = conferirDePara(lerPagamento(fixturePagamentoDoPainel()));
+  return quinzena(n, {
+    paineis: [conferido],
+    demonstrativo: [{ canal: "ROTA", total: conferido.totalDoRelatorio! }],
+  });
+};
 
 describe("o resumo do mês", () => {
   it("põe as duas quinzenas lado a lado e soma o total", () => {
@@ -110,5 +129,86 @@ describe("o resumo do mês", () => {
     const resumo = montar([]);
     expect(resumo.canais).toEqual([]);
     expect(resumo.quinzenas.map((q) => q.apurada)).toEqual([false, false]);
+  });
+});
+
+/**
+ * O painel da planilha no mês — a segunda aba da mesma tela.
+ *
+ * O que estes testes prendem é a costura entre as duas leituras. Elas partem de
+ * recortes diferentes (verba contra linha da planilha) e não podem chegar a
+ * lugares diferentes: o `Total Remuneração` do 03.08.20 é o número que as duas
+ * mostram, e é por ele que quem confere sabe que trocou de aba e não de conta.
+ */
+describe("o painel da planilha no resumo do mês", () => {
+  it("bate com a conferência por verba no `Total Remuneração` do 03.08.20", () => {
+    const rota = montar([comPainel(1), comPainel(2)]).canais.find((c) => c.canal === "ROTA")!;
+    expect(rota.painel).not.toBeNull();
+    /* O mesmo número nas duas abas — é isso, e só isso, que as amarra. */
+    expect(rota.painel!.demonstrativo).toEqual(rota.demonstrativo);
+    expect(rota.demonstrativo).toEqual({ primeira: 340000, segunda: 340000, total: 680000 });
+  });
+
+  it("fecha cada quadro: soma mais imposto é o total do relatório", () => {
+    const painel = montar([comPainel(1), comPainel(2)]).canais.find(
+      (c) => c.canal === "ROTA",
+    )!.painel!;
+    for (const coluna of ["primeira", "segunda", "total"] as const) {
+      expect(painel.soma[coluna]! + painel.imposto[coluna]!).toBe(painel.demonstrativo[coluna]);
+    }
+  });
+
+  it("escreve as linhas da planilha, na ordem dela e como se escreve", () => {
+    const painel = montar([comPainel(1)]).canais.find((c) => c.canal === "ROTA")!.painel!;
+    expect(painel.quadros.map((q) => q.quadro)).toEqual([
+      "REMUNERACAO",
+      "VARIAVEL",
+      "OUTROS_CUSTOS",
+    ]);
+    expect(painel.quadros[0]!.linhas.map((l) => l.nome)).toEqual([
+      "Total remuneração rota DVS",
+      "Custo fixo padronizado",
+      "Custo fixo inativos",
+      "Custo vans inativas",
+      "Indisponibilidade",
+      "Custo fixo — especiais",
+      "Custo fixo — vans",
+      "Desconto de devolução %",
+      "Desconto de disponibilidade",
+      "Desconto complementar negativo",
+      "Total remuneração rota",
+    ]);
+  });
+
+  it("mostra o número do conjunto uma vez, e não uma vez por linha que o divide", () => {
+    const quadro = montar([comPainel(1), comPainel(2)]).canais
+      .find((c) => c.canal === "ROTA")!
+      .painel!.quadros.find((q) => q.quadro === "REMUNERACAO")!;
+
+    expect(quadro.conjuntos).toHaveLength(1);
+    expect(quadro.conjuntos[0]!.valores).toEqual({
+      primeira: 208675,
+      segunda: 208675,
+      total: 417350,
+    });
+    /* As seis linhas apontam para ele e não repetem o valor. */
+    const doConjunto = quadro.linhas.filter((l) => l.conjunto === quadro.conjuntos[0]!.chave);
+    expect(doConjunto).toHaveLength(6);
+    expect(doConjunto.every((l) => l.valores.total === null)).toBe(true);
+  });
+
+  it("a quinzena sem 03.08.20 deixa a coluna dela vazia, e não zerada", () => {
+    const painel = montar([quinzena(1), comPainel(2)]).canais.find(
+      (c) => c.canal === "ROTA",
+    )!.painel!;
+    expect(painel.demonstrativo.primeira).toBeNull();
+    expect(painel.demonstrativo.segunda).toBe(340000);
+    expect(painel.quadros[0]!.total.primeira).toBeNull();
+  });
+
+  it("cala sobre o canal cujos rótulos ninguém transcreveu", () => {
+    /* O AS tem painel na planilha e não tem tradução aqui — e `null` diz isso. */
+    const resumo = montar([comPainel(1), comPainel(2)]);
+    expect(resumo.canais.find((c) => c.canal === "AS")?.painel ?? null).toBeNull();
   });
 });

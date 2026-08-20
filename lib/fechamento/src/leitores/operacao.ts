@@ -1,5 +1,5 @@
 import { centavos, lerCanal, lerFrota, lerNumero, type Canal, type Frota, type Leitura, type Recusa } from "../dominio";
-import { diaDeDDMMAAAA, diaDeSerial, type Dia } from "../periodo";
+import { diaDeCelula, diaDeSerial, type Dia } from "../periodo";
 import { celula, lerAba, type LinhaDePlanilha } from "./planilha";
 
 /**
@@ -175,8 +175,13 @@ function lerViagem(bruta: LinhaDePlanilha, recusas: Recusa[]): Viagem | null {
     return null;
   };
 
-  const dia = diaDeDDMMAAAA(celula(bruta, "Data"));
-  if (!dia) return recusar("A data da viagem não está no formato ddmmaaaa.", celula(bruta, "Data"));
+  const dia = diaDeCelula(celula(bruta, "Data"));
+  if (!dia) {
+    return recusar(
+      "A data da viagem não está em nenhum formato conhecido (ddmmaaaa, dd/mm/aaaa ou serial).",
+      celula(bruta, "Data"),
+    );
+  }
 
   const canal = lerCanal(celula(bruta, "Entrega"));
   if (!canal) return recusar("O canal da viagem não é Rota nem AS.", celula(bruta, "Entrega"));
