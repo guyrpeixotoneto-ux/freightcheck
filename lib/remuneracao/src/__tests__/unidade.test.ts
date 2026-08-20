@@ -3,13 +3,17 @@ import { hashScopeSet } from "@workspace/ingest";
 import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import { sql } from "drizzle-orm";
 import {
+  CodigoRecusado,
   descritorDeEscopo,
   identificadorDaUnidade,
+  informarCodigoDaUnidade,
   normalizarCodigo,
   registrarUnidade,
   unidadesRegistradas,
+  unidadesRegistradasDoEscopo,
   UnidadeInvalida,
   UnidadeJaRegistrada,
+  UnidadeNaoRegistrada,
   vigenciasDaUnidade,
 } from "../unidade";
 
@@ -42,6 +46,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await ctx.db.execute(sql`TRUNCATE remuneracao_unidade`);
+  await ctx.db.execute(sql`TRUNCATE remuneracao_planilha`);
 });
 
 const AUTOR = { id: null, nome: "Guy" };
@@ -155,6 +160,105 @@ describe("o que a escrita recusa", () => {
 
   it("recusa a unidade sem nome", async () => {
     await expect(registrar({ nome: "   " })).rejects.toBeInstanceOf(UnidadeInvalida);
+  });
+});
+
+/**
+ * Informar o código depois — o movimento, e o que ele recusa.
+ *
+ * O ato move **duas** tabelas na mesma transação, e é aí que ele pode falhar de
+ * um jeito que ninguém vê: uma unidade que reaparece no lugar certo e vazia,
+ * com o que alguém digitou pendurado num escopo que nenhuma tela mostra mais.
+ * Os casos abaixo contam células, e não linhas de unidade, porque é a planilha
+ * que se perde em silêncio.
+ */
+describe("informar o código depois", () => {
+  const POR_NOME = hashScopeSet([descritorDeEscopo("UNIDADE", "CAMAÇARI")]);
+  const POR_CODIGO = hashScopeSet([descritorDeEscopo("UNIDADE", "12345678000199")]);
+
+  const informar = (codigo = "12345678000199") =>
+    informarCodigoDaUnidade(ctx.db, {
+      escopoAtual: POR_NOME,
+      escopoNovo: hashScopeSet([descritorDeEscopo("UNIDADE", codigo)]),
+      codigo,
+    });
+
+  const celula = (escopo: string, canal: string, vigencia: string, chave: string) =>
+    ctx.db.execute(sql`
+      INSERT INTO remuneracao_planilha (scope_hash, canal, effective_date, chave, valor)
+      VALUES (${escopo}, ${canal}, ${vigencia}, ${chave}, '1')
+    `);
+
+  const quantasCelulas = async (escopo: string) => {
+    const { rows } = await ctx.db.execute<{ total: number }>(
+      sql`SELECT count(*)::int AS total FROM remuneracao_planilha WHERE scope_hash = ${escopo}`,
+    );
+    return rows[0]!.total;
+  };
+
+  it("move a unidade e grava o código", async () => {
+    await registrar({ codigo: "", scopeHash: POR_NOME });
+
+    const [movida] = await informar();
+
+    expect(movida!.scopeHash).toBe(POR_CODIGO);
+    expect(movida!.codigo).toBe("12345678000199");
+    expect(await unidadesRegistradasDoEscopo(ctx.db, POR_NOME)).toHaveLength(0);
+  });
+
+  it("leva a planilha digitada junto — sem isso a unidade reaparece vazia", async () => {
+    await registrar({ codigo: "", scopeHash: POR_NOME });
+    await celula(POR_NOME, "EMPURRADA", "2026-08-01", "aliquota_pis");
+    await celula(POR_NOME, "EMPURRADA", "2026-08-16", "aliquota_pis");
+
+    await informar();
+
+    expect(await quantasCelulas(POR_NOME)).toBe(0);
+    expect(await quantasCelulas(POR_CODIGO)).toBe(2);
+  });
+
+  it("move os dois tipos de operação — o código é da unidade, não da operação", async () => {
+    await registrar({ codigo: "", scopeHash: POR_NOME, canal: "EMPURRADA" });
+    await registrar({ codigo: "", scopeHash: POR_NOME, canal: "ROTA" });
+
+    const movidas = await informar();
+
+    expect(movidas).toHaveLength(2);
+    expect(movidas.every((u) => u.scopeHash === POR_CODIGO)).toBe(true);
+  });
+
+  it("recusa o escopo que não é de unidade cadastrada à mão", async () => {
+    await expect(informar()).rejects.toBeInstanceOf(UnidadeNaoRegistrada);
+  });
+
+  it("recusa trocar um código que já vale", async () => {
+    await registrar({ codigo: "99999999000199", scopeHash: POR_NOME });
+
+    await expect(informar()).rejects.toBeInstanceOf(CodigoRecusado);
+  });
+
+  it("recusa o destino que já é de outra unidade cadastrada à mão", async () => {
+    await registrar({ codigo: "", scopeHash: POR_NOME });
+    await registrar({ codigo: "12345678000199", scopeHash: POR_CODIGO, nome: "OUTRA" });
+
+    await expect(informar()).rejects.toBeInstanceOf(CodigoRecusado);
+  });
+
+  it("recusa quando as duas planilhas têm a mesma célula, e não move nada", async () => {
+    await registrar({ codigo: "", scopeHash: POR_NOME });
+    await celula(POR_NOME, "EMPURRADA", "2026-08-01", "aliquota_pis");
+    await celula(POR_NOME, "EMPURRADA", "2026-08-16", "aliquota_cofins");
+    await celula(POR_CODIGO, "EMPURRADA", "2026-08-01", "aliquota_pis");
+
+    await expect(informar()).rejects.toBeInstanceOf(CodigoRecusado);
+
+    /*
+      A afirmação que vale dinheiro: uma recusa não pode deixar a unidade
+      metade aqui e metade lá. As duas células da origem continuam onde
+      estavam, e a linha de unidade também.
+    */
+    expect(await quantasCelulas(POR_NOME)).toBe(2);
+    expect(await unidadesRegistradasDoEscopo(ctx.db, POR_NOME)).toHaveLength(1);
   });
 });
 

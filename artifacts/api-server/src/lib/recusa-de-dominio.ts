@@ -9,11 +9,13 @@ import {
 } from "@workspace/coverage";
 import { VigenciaNaoEncontradaError } from "@workspace/qlp";
 import {
+  CodigoRecusado,
   ComparacaoSemDuasVigencias,
   LinhaDaPlanilhaInvalida,
   PlanilhaVazia,
   UnidadeInvalida,
   UnidadeJaRegistrada,
+  UnidadeNaoRegistrada,
   VigenciaDoCadastroNaoEncontrada,
 } from "@workspace/remuneracao";
 import { TipoDeOperacaoAusente } from "@workspace/fechamento/persistencia";
@@ -96,6 +98,15 @@ const RECUSAS: { classe: new (...args: never[]) => Error; status: number }[] = [
      está bem formado, o estado é que já responde por ele — e a frase manda
      para a lista, onde a unidade está. */
   { classe: UnidadeJaRegistrada, status: 409 },
+  /* Informar o código de um escopo que não é de unidade cadastrada à mão. 404:
+     o pedido está bom, e o que não existe é a unidade que ele nomeia — em geral
+     porque o export chegou entre a tela abrir e o clique. */
+  { classe: UnidadeNaoRegistrada, status: 404 },
+  /* O código não cabe naquela unidade: ela já tem um, ou o destino já está
+     ocupado. 409 pela razão do `UnidadeJaRegistrada` — o pedido está bem
+     formado, e é o estado que já responde. A frase nomeia o que está no
+     caminho, porque a saída é sempre manual. */
+  { classe: CodigoRecusado, status: 409 },
   /* Conflito de estado, não defeito do pedido: o e-mail já é de outra conta. */
   { classe: EmailAlreadyUsedError, status: 409 },
 ];

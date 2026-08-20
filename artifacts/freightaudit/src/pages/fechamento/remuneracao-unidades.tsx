@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { ArrowRight, ScrollText } from "lucide-react";
 import { BotaoDeCadastroDaPlanilha } from "@/components/remuneracao/painel-de-cadastro";
+import { BotaoDeInformarCodigo } from "@/components/remuneracao/informar-codigo";
 import { BotaoDeRegistroDeUnidade } from "@/components/remuneracao/registrar-unidade";
 import { Layout } from "@/components/layout/layout";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -97,6 +98,25 @@ function fraseDosTrechos(u: SituacaoDaUnidade): string {
   if (!u.material.trechosEntregues) return "não entregou a série de trechos";
   if (u.material.trechos === 0) return "entregou a série de trechos vazia";
   return `${contar(u.material.trechos, "trecho", "trechos")}, sem as colunas em reais`;
+}
+
+/**
+ * A unidade foi cadastrada à mão **e sem código**?
+ *
+ * A pergunta não é "tem código", e sim "está sem o que a faria encontrar o
+ * arquivo". Uma unidade do acervo sempre tem código — é dele que ela nasceu —,
+ * e é por isso que a marca só vale para a cadastrada à mão: lá o código pode
+ * estar vazio, porque quem cadastrou nem sempre tinha o CNPJ na hora.
+ */
+function semCodigo(u: SituacaoDaUnidade): boolean {
+  if (!u.registradaAMao) return false;
+  const unidade = u.scopes.find((s) => s.scopeType === "UNIDADE");
+  return (unidade?.code ?? "").trim() === "";
+}
+
+/** O nome da unidade sem o canal — é o que o painel do código escreve no título. */
+function nomeDaUnidade(u: SituacaoDaUnidade): string {
+  return u.scopes.find((s) => s.scopeType === "UNIDADE")?.name ?? u.label;
 }
 
 /**
@@ -342,6 +362,25 @@ export default function RemuneracaoUnidades() {
                           {u.registradaAMao && (
                             <p className="text-[0.6875rem] text-muted-foreground/80 mt-0.5">
                               cadastrada à mão — sem export importado
+                            </p>
+                          )}
+                          {/*
+                            E, quando ela também está sem código, a saída fica
+                            **ao lado do fato**, e não numa tela de configuração.
+                            Sem código o export abre uma segunda unidade ao lado
+                            desta, e quem descobre isso descobre aqui, olhando a
+                            linha — mandar procurar onde informar o CNPJ seria
+                            repetir o erro que a lista acabou de apontar.
+                          */}
+                          {semCodigo(u) && (
+                            <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                              <span className="text-[0.6875rem] text-amber-700">
+                                sem código — o export vai abrir outra ao lado
+                              </span>
+                              <BotaoDeInformarCodigo
+                                scopeHash={u.scopeHash}
+                                nome={nomeDaUnidade(u)}
+                              />
                             </p>
                           )}
                         </td>
