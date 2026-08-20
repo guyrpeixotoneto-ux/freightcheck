@@ -14,6 +14,7 @@ import {
   lerResumoDoMes,
   listarPartes,
   type CanalDoResumo,
+  type PainelComparado,
   type ResumoDoMes,
   type TresColunas,
 } from "@/lib/fechamento";
@@ -401,8 +402,28 @@ function PainelDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
         <CardTitle className="text-base">{canal.canal}</CardTitle>
       </CardHeader>
       <CardContent className="overflow-x-auto">
-        {canal.painel ? (
+        {canal.comparado ? (
+          /*
+            Havendo cadastro, o painel é a comparação: o que o contrato deve
+            contra o que o demonstrativo diz. Sem cadastro, cai para o painel
+            antigo — que é uma releitura do 03.08.20 e concorda consigo mesmo.
+          */
+          <PainelComparadoTabela painel={canal.comparado} recorte={recorte} />
+        ) : canal.painel ? (
           <PainelDaPlanilhaTabela painel={canal.painel} colunas={colunasDoRecorte(recorte)} />
+        ) : canal.semPainel === "SEM_DEMONSTRATIVO" ? (
+          /*
+            O painel deste canal está transcrito e mesmo assim não tem número:
+            o que falta é o arquivo. Dizer "não foi transcrito" aqui mandava
+            procurar no código quem só precisava importar um relatório.
+          */
+          <p className="text-sm text-muted-foreground">
+            O painel do {canal.canal} está escrito aqui, e as linhas dele saem do{" "}
+            <strong>03.08.20</strong> — que não foi importado em nenhuma das duas
+            quinzenas. Suba o demonstrativo em Importações e as linhas se enchem
+            sozinhas. Enquanto ele não chega, as verbas do {canal.canal} continuam
+            apuradas e conferidas na aba Verbas.
+          </p>
         ) : (
           <p className="text-sm text-muted-foreground">
             O painel do {canal.canal} existe na planilha e ainda não foi transcrito
@@ -414,6 +435,116 @@ function PainelDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
         )}
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * O painel nas três leituras — devido, demonstrado e a diferença.
+ *
+ * É a tela que a inversão do motor tornou possível. Antes, a coluna do painel
+ * era uma tradução do 03.08.20: ela concordava com o demonstrativo por
+ * construção, e uma conferência que não pode discordar não confere nada. Agora
+ * `devido` sai do contrato — cadastro e diário — e `demonstrado` sai do
+ * relatório. A diferença entre duas fontes independentes é a conversa que
+ * acontece na mesa.
+ *
+ * **A linha que só tem um dos lados continua na tabela.** Falta de cadastro e
+ * falta de 03.08.20 são estados diferentes, os dois normais no meio do mês, e
+ * esconder a linha faria o painel parecer completo quando não está.
+ */
+function PainelComparadoTabela({
+  painel,
+  recorte,
+}: {
+  painel: PainelComparado;
+  recorte: Recorte;
+}) {
+  /* No consolidado a coluna é o total do mês; numa quinzena, a dela. */
+  const coluna = (v: TresColunas) =>
+    recorte === "consolidado" ? v.total : recorte === "1" ? v.primeira : v.segunda;
+
+  const doCadastro =
+    recorte === "2" ? painel.cadastro.segunda : painel.cadastro.primeira;
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-baseline gap-x-4 gap-y-1 text-xs text-muted-foreground">
+        <span>
+          <strong className="text-foreground">Devido</strong> — do contrato e do diário
+        </span>
+        <span>
+          <strong className="text-foreground">Demonstrado</strong> — do 03.08.20
+        </span>
+        {doCadastro && <span>cadastro vigente desde {doCadastro.vigenteDe}</span>}
+      </div>
+
+      {painel.quadros.map((quadro) => (
+        <div key={quadro.quadro}>
+          <p className="text-xs font-semibold text-muted-foreground mb-1">{quadro.titulo}</p>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b text-xs text-muted-foreground">
+                <th className="py-2 text-left font-medium">Linha</th>
+                <th className="py-2 text-right font-medium min-w-32">Devido</th>
+                <th className="py-2 text-right font-medium min-w-32">Demonstrado</th>
+                <th className="py-2 text-right font-medium min-w-32">Diferença</th>
+              </tr>
+            </thead>
+            <tbody>
+              {quadro.linhas.map((linha) => {
+                const diferenca = coluna(linha.diferenca);
+                return (
+                  <tr key={linha.chave} className="border-b last:border-0 align-top">
+                    <td className="py-2">
+                      <span title={linha.memoria.primeira ?? linha.memoria.segunda ?? undefined}>
+                        {linha.rotulo}
+                      </span>
+                      {linha.falta && (
+                        <span className="block text-xs text-muted-foreground">
+                          falta {linha.falta}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2 text-right font-mono tabular-nums">
+                      {dinheiro(coluna(linha.devido))}
+                    </td>
+                    <td className="py-2 text-right font-mono tabular-nums">
+                      {dinheiro(coluna(linha.demonstrado))}
+                    </td>
+                    <td
+                      className={cn(
+                        "py-2 text-right font-mono tabular-nums",
+                        /* Zero não merece destaque; é o estado esperado. */
+                        diferenca !== null && Math.abs(diferenca) >= 0.005 && "font-semibold",
+                      )}
+                    >
+                      {dinheiro(diferenca)}
+                    </td>
+                  </tr>
+                );
+              })}
+              <tr className="border-b font-semibold">
+                <td className="py-2 text-right pr-4 text-xs text-muted-foreground">Total</td>
+                {[quadro.devido, quadro.demonstrado, quadro.diferenca].map((v, i) => (
+                  <td key={i} className="py-2 text-right font-mono tabular-nums">
+                    {dinheiro(coluna(v))}
+                  </td>
+                ))}
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      ))}
+
+      {painel.pendencias.length > 0 && (
+        <Alert>
+          <AlertDescription className="text-xs">
+            O devido está incompleto: falta {painel.pendencias.join(", ")}. As linhas que
+            dependem disso ficam vazias em vez de somar zero.
+          </AlertDescription>
+        </Alert>
+      )}
+    </div>
   );
 }
 

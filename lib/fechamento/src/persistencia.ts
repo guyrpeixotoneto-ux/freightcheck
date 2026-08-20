@@ -34,6 +34,8 @@ import {
 } from "./periodo";
 import { apurar, type Apuracao, type Fontes, type Parcela } from "./apuracao";
 import { montarResumo, type QuinzenaApurada, type ResumoDoMes } from "./resumo";
+import { SEM_CADASTRO, type FonteDeCadastro } from "./cadastro-porta";
+import { montarMapaDaQuinzena, somarVariavel, type ViagemDoMapa } from "./mapa-rota";
 import {
   CANAIS_COM_PAINEL,
   conferirDePara,
@@ -1617,11 +1619,25 @@ export async function lerResumoDoMes(
      *
      * Obrigatório e não opcional-com-padrão: um padrão aqui escolheria em
      * silêncio de qual operação é o número que a tela mostra.
+     *
+     * **Não confundir com o `canal` que a porta do cadastro pergunta**, que é o
+     * `ROTA` | `AS` de `dominio.ts`. As duas palavras colidem em `ROTA` e são
+     * eixos diferentes: este diz qual operação da unidade está sendo fechada;
+     * aquele, como as verbas dela se agregam.
      */
     tipoDeOperacao: string;
     ano: number;
     mes: number;
   },
+  /**
+   * Quem responde pelo contrato do período.
+   *
+   * O padrão é {@link SEM_CADASTRO}, que responde `null` a tudo — e aí a tela se
+   * comporta exatamente como antes desta porta existir. Quando o módulo de
+   * cadastro entrar, é ele que passa por aqui, e o painel do devido se enche
+   * sozinho. Ver `cadastro-porta.ts`.
+   */
+  cadastro: FonteDeCadastro = SEM_CADASTRO,
 ): Promise<ResumoDoMes> {
   const competencias = await db
     .select()
@@ -1655,11 +1671,45 @@ export async function lerResumoDoMes(
         return existentes.length > 0 ? existentes : null;
       }),
     ]);
+    /*
+      O devido: o contrato da quinzena mais as viagens dela. Roda por canal,
+      porque a frota contratada é por canal — e roda **depois** das quatro
+      leituras acima porque depende das bases que elas trazem.
+    */
+    const calculados: { canal: Canal; mapa: ReturnType<typeof montarMapaDaQuinzena> }[] = [];
+    let cadastroUsado: { cadastroId: string; vigenteDe: string } | null = null;
+    for (const canal of CANAIS_COM_PAINEL) {
+      const contrato = await cadastro.resolver({
+        unidadeCodigo: c.unidadeCodigo,
+        transportadoraCodigo: c.transportadoraCodigo,
+        canal,
+        inicio: String(c.inicio),
+        fim: String(c.fim),
+      });
+      if (!contrato) continue;
+      cadastroUsado = { cadastroId: contrato.cadastroId, vigenteDe: contrato.vigenteDe };
+      calculados.push({
+        canal,
+        mapa: montarMapaDaQuinzena({
+          quinzena: c.quinzena === 1 ? 1 : 2,
+          parametros: contrato.parametros,
+          variavel: somarVariavel(
+            await viagensPorDia(db, c.id, canal),
+            contrato.parametros,
+            contrato.custoVariavelPrevistoPor25Viagens,
+          ),
+          bases: basesDaQuinzena(descontos, demonstrativo, canal),
+        }),
+      });
+    }
+
     quinzenas.push({
       quinzena: c.quinzena === 1 ? 1 : 2,
       competenciaId: c.id,
       chave: c.chave,
       estado: c.estado,
+      calculados: calculados.length > 0 ? calculados : null,
+      cadastroUsado,
       verbas:
         apuracao?.verbas.map((v) => ({
           vbz: v.vbz,
@@ -1683,6 +1733,92 @@ export async function lerResumoDoMes(
     transportadora: { codigo: alvo.transportadora, nome: qualquer?.transportadoraNome ?? null },
     quinzenas,
   });
+}
+
+/**
+ * As viagens da competência, agrupadas por dia — a forma que o motor consome.
+ *
+ * O agrupamento por dia não é cosmético: `somarVariavel` calcula o valor padrão
+ * do veículo com a fatia de emissão **do próprio dia**, e uma lista achatada
+ * daria outro número. É a mesma disciplina do `Mapa Rota`, que tem uma coluna
+ * por dia justamente por isso.
+ */
+async function viagensPorDia(
+  db: Database,
+  competenciaId: string,
+  canal: Canal,
+): Promise<{ viagens: ViagemDoMapa[] }[]> {
+  const linhas = await db
+    .select({
+      dia: fechamentoViagemTable.dia,
+      frota: fechamentoViagemTable.frota,
+      cargaAtual: fechamentoViagemTable.cargaAtual,
+      tipoDeImposto: fechamentoViagemTable.tipoDeImposto,
+      valorFaturado: fechamentoViagemTable.valorFaturado,
+    })
+    .from(fechamentoViagemTable)
+    .where(
+      and(
+        eq(fechamentoViagemTable.competenciaId, competenciaId),
+        eq(fechamentoViagemTable.canal, canal),
+      ),
+    );
+
+  const porDia = new Map<string, ViagemDoMapa[]>();
+  for (const l of linhas) {
+    const dia = String(l.dia);
+    const doDia = porDia.get(dia) ?? [];
+    doDia.push({
+      frota: l.frota ?? "",
+      cargaAtual: l.cargaAtual ?? "",
+      tipoDeImposto: l.tipoDeImposto ?? "",
+      valorFaturado: Number(l.valorFaturado ?? 0),
+    });
+    porDia.set(dia, doDia);
+  }
+  /* Na ordem do calendário — o motor soma, mas quem lê um log espera a ordem. */
+  return [...porDia.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([, viagens]) => ({ viagens }));
+}
+
+/**
+ * As bases sem imposto que o motor desconta, montadas do que o banco tem.
+ *
+ * **Nenhuma delas é inventada, e as que não têm origem ficam `null`.** A
+ * planilha traz as três digitadas à mão, sem fórmula que as derive (ver
+ * `docs/MAPA-ROTA.md`); aqui elas só aparecem quando um documento as sustenta.
+ * Enquanto a origem da devolução e do complementar não for conhecida, o quadro
+ * sai `null` e diz o que falta — que é a resposta honesta, e a que impede o
+ * produto de repetir um número que ninguém sabe justificar.
+ */
+function basesDaQuinzena(
+  descontos: { canal: Canal; tipo: string; valor: number }[] | null,
+  demonstrativo: { canal: Canal; total: number }[] | null,
+  canal: Canal,
+): Parameters<typeof montarMapaDaQuinzena>[0]["bases"] {
+  const soma = (tipos: string[]) => {
+    if (!descontos) return null;
+    const alvos = descontos.filter((d) => d.canal === canal && tipos.includes(d.tipo));
+    if (alvos.length === 0) return null;
+    return centavos(alvos.reduce((s, d) => s + d.valor, 0));
+  };
+
+  return {
+    devolucao: soma(["DEVOLUCAO"]),
+    disponibilidade: soma([
+      "DISPONIBILIDADE_CUSTO_FIXO",
+      "DISPONIBILIDADE_EQUIPE",
+      "DISPONIBILIDADE_INDIRETO",
+      "DISPONIBILIDADE_FATOR_AJUDANTE",
+    ]),
+    /* Sem tipo próprio no 03.08.20 — não há de onde tirá-lo ainda. */
+    complementarNegativo: null,
+    /* Idem: os outros custos vêm do 03.08.12.09, que esta leitura não abre. */
+    outrosCustos: null,
+    /* A indisponibilidade do diário ainda não é somada aqui. */
+    indisponibilidade: null,
+  };
 }
 
 /**

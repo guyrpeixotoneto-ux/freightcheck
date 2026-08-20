@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { montarResumo, type QuinzenaApurada } from "../resumo";
+import { montarMapaDaQuinzena, type ParametrosDoCadastro } from "../mapa-rota";
 import { conferirDePara } from "../de-para";
 import { lerPagamento } from "../leitores/pagamento";
 import { fixturePagamentoDoPainel } from "./fixtures";
@@ -210,5 +211,126 @@ describe("o painel da planilha no resumo do mês", () => {
     /* O AS tem painel na planilha e não tem tradução aqui — e `null` diz isso. */
     const resumo = montar([comPainel(1), comPainel(2)]);
     expect(resumo.canais.find((c) => c.canal === "AS")?.painel ?? null).toBeNull();
+  });
+});
+
+/**
+ * As duas razões para um painel vazio.
+ *
+ * O sintoma é o mesmo — a aba `Planilha` sem números — e o que cada uma pede de
+ * quem está olhando é oposto. Antes desta distinção a tela dizia "ainda não foi
+ * transcrito" nas duas, inclusive para a Rota, que está transcrita: quem só
+ * precisava subir o 03.08.20 era mandado procurar no código.
+ */
+describe("por que um canal fica sem painel", () => {
+  it("a Rota sem o 03.08.20 é arquivo que falta, não transcrição", () => {
+    const canal = montar([quinzena(1), quinzena(2)]).canais.find((c) => c.canal === "ROTA");
+    expect(canal?.painel).toBeNull();
+    expect(canal?.semPainel).toBe("SEM_DEMONSTRATIVO");
+  });
+
+  it("um canal fora do catálogo é transcrição que falta", () => {
+    const doAs = quinzena(1, {
+      verbas: [
+        { vbz: 1, canal: "AS", nome: "Frota Fixa Ativa", natureza: "FIXO", emitido: 100, esperado: 100 },
+      ],
+    });
+    const canal = montar([doAs]).canais.find((c) => c.canal === "AS");
+    expect(canal?.painel).toBeNull();
+    expect(canal?.semPainel).toBe("CANAL_SEM_CATALOGO");
+  });
+
+  it("com o painel montado, não há razão nenhuma a dar", () => {
+    const canal = montar([comPainel(1), comPainel(2)]).canais.find((c) => c.canal === "ROTA");
+    expect(canal?.painel).not.toBeNull();
+    expect(canal?.semPainel).toBeNull();
+  });
+});
+
+
+/**
+ * O devido ao lado do demonstrado — a inversão que o motor tornou possível.
+ *
+ * O que estes testes prendem não é a subtração: é que o painel **só** apareça
+ * quando houver contrato, e que a ausência de contrato deixe o produto
+ * exatamente como estava. Uma coluna nova que nasce cheia de zeros é pior do
+ * que uma coluna que não nasce.
+ */
+describe("o painel comparado", () => {
+  const PARAMETROS: ParametrosDoCadastro = {
+    aliquotas: { pis: 0.0065, cofins: 0.086, icms: 0.1784, iss: 0.059 },
+    parcelaDentroDoMunicipio: 0.0316,
+    frotaFixaAtiva: 56,
+    frotaFixaInativa: 8,
+    remuneracaoFixaDaFrotaAtiva: 1424.91,
+    remuneracaoDaEquipeDeEntrega: 8919.38,
+    remuneracaoDoQlpAdministrativo: 4427.53,
+    remuneracaoDeOutrasDespesas: 4361.07,
+    remuneracaoDaFrotaInativa: 1650.97,
+    vansAtivas: 7,
+    custoFixoDaVan: 4693.85,
+    custoDaEquipeDeEntregaDaVan: 4250.45,
+    vansInativas: 6,
+    remuneracaoDasVansInativas: 3195.18,
+    rotasNoturnas: 1,
+    custoDaNoturnaSemImposto: 8697.88,
+    custoDeMarketingSemImposto: 0,
+  };
+
+  const mapa = (q: 1 | 2) =>
+    montarMapaDaQuinzena({
+      quinzena: q,
+      parametros: PARAMETROS,
+      variavel: { frotaFixa: 100, agregado: 50, recargaENoturna: 0, vans: 0 },
+      bases: {
+        devolucao: 13328.3,
+        disponibilidade: 11649.87,
+        complementarNegativo: 0,
+        outrosCustos: 0,
+        indisponibilidade: 0,
+      },
+    });
+
+  const comCadastro = (n: 1 | 2) =>
+    quinzena(n, {
+      calculados: [{ canal: "ROTA", mapa: mapa(n) }],
+      cadastroUsado: { cadastroId: "cad-1", vigenteDe: "2026-07-01" },
+    });
+
+  it("sem cadastro, o painel comparado não existe — nada muda no produto", () => {
+    const canal = montar([quinzena(1), quinzena(2)]).canais.find((c) => c.canal === "ROTA");
+    expect(canal?.comparado).toBeNull();
+  });
+
+  it("com cadastro, o devido sai do contrato e fecha no valor conhecido", () => {
+    const canal = montar([comCadastro(1)]).canais.find((c) => c.canal === "ROTA");
+    const linha = canal?.comparado?.quadros
+      .flatMap((q) => q.linhas)
+      .find((l) => l.chave === "custo_fixo_padronizado");
+    expect(linha?.devido.primeira).toBe(731502.84);
+  });
+
+  it("a diferença fica vazia enquanto não houver os dois lados", () => {
+    const canal = montar([comCadastro(1)]).canais.find((c) => c.canal === "ROTA");
+    const linha = canal?.comparado?.quadros
+      .flatMap((q) => q.linhas)
+      .find((l) => l.chave === "custo_fixo_padronizado");
+    /* Sem 03.08.20 não há demonstrado, e subtrair de nada não dá zero. */
+    expect(linha?.demonstrado.primeira).toBeNull();
+    expect(linha?.diferenca.primeira).toBeNull();
+  });
+
+  it("diz de qual cadastro veio cada quinzena", () => {
+    const canal = montar([comCadastro(1), comCadastro(2)]).canais.find((c) => c.canal === "ROTA");
+    expect(canal?.comparado?.cadastro.primeira?.vigenteDe).toBe("2026-07-01");
+    expect(canal?.comparado?.cadastro.segunda?.cadastroId).toBe("cad-1");
+  });
+
+  it("cada linha carrega a conta que a produziu", () => {
+    const canal = montar([comCadastro(1)]).canais.find((c) => c.canal === "ROTA");
+    const linha = canal?.comparado?.quadros
+      .flatMap((q) => q.linhas)
+      .find((l) => l.chave === "custo_fixo_padronizado");
+    expect(linha?.memoria.primeira).toContain("56 veículos ativos");
   });
 });
