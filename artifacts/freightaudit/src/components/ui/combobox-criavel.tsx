@@ -3,7 +3,7 @@ import { Check, ChevronsUpDown, Loader2, Plus, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { avisoDeParecido, sugerir } from "@/lib/interpretacao";
+import { avisoDeParecido, sugerir, textoParaCriar } from "@/lib/interpretacao";
 import { cn } from "@/lib/utils";
 
 /**
@@ -35,6 +35,16 @@ import { cn } from "@/lib/utils";
  *
  * A lógica das três mora em `@/lib/interpretacao` e é testada sem DOM. Este
  * arquivo é o desenho delas.
+ *
+ * ---------------------------------------------------------------------------
+ * A linha de criação também aparece antes da primeira letra
+ * ---------------------------------------------------------------------------
+ * Quem passa `rotuloDeCriacaoVazia` diz que há um formulário do outro lado do
+ * `aoCriar`, e aí cadastrar deixa de depender de digitar: a linha fica no pé do
+ * dropdown com a busca em branco. Sem isso, uma lista ainda vazia respondia
+ * "Nada encontrado." e mais nada — a regra 1 estava intacta, e mesmo assim o
+ * único caminho até o cadastro era adivinhar que digitar um nome inexistente
+ * faria surgir um botão. Ver `textoParaCriar`.
  */
 
 export interface ComboboxCriavelProps<T> {
@@ -58,6 +68,13 @@ export interface ComboboxCriavelProps<T> {
   placeholder: string;
   /** "Criar" / "Criar categoria" — o verbo da linha de criação. */
   rotuloDeCriacao?: (texto: string) => string;
+  /**
+   * O rótulo da linha de criação quando **nada** foi digitado — e, por existir,
+   * o que autoriza cadastrar do zero. Só passa quem tem formulário do outro
+   * lado do `aoCriar`: onde o texto vira escrita direta, o vazio seria um
+   * clique que só o servidor recusaria.
+   */
+  rotuloDeCriacaoVazia?: string;
   /** Recusa do servidor, mostrada sem fechar o dropdown. */
   erro?: string | null;
   id?: string;
@@ -75,6 +92,7 @@ export function ComboboxCriavel<T>({
   previaDe,
   placeholder,
   rotuloDeCriacao = (texto) => `Criar “${texto}”`,
+  rotuloDeCriacaoVazia,
   erro,
   id,
   disabled,
@@ -104,13 +122,19 @@ export function ComboboxCriavel<T>({
     [termo, itens, rotuloDe, chaveDe],
   );
   const aviso = avisoDeParecido(sugestao.parecidos, rotuloDe);
-  const previa = sugestao.criar && previaDe ? previaDe(sugestao.criar) : null;
+  /*
+    O que a linha de criação leva: o texto digitado, o vazio de quem só abriu a
+    lista, ou nada. A decisão é pura e mora em `textoParaCriar` — aqui fica só o
+    desenho dela.
+  */
+  const criavel = textoParaCriar(sugestao.criar, termo, rotuloDeCriacaoVazia !== undefined);
+  const previa = criavel !== null && previaDe ? previaDe(criavel) : null;
 
   const criar = async () => {
-    if (!sugestao.criar || criando) return;
+    if (criavel === null || criando) return;
     setCriando(true);
     try {
-      const item = await aoCriar(sugestao.criar);
+      const item = await aoCriar(criavel);
       // Só fecha quando deu certo: a recusa precisa aparecer com o texto ainda
       // digitado, ou a pessoa perde o que escreveu junto com o motivo.
       if (item) {
@@ -192,13 +216,24 @@ export function ComboboxCriavel<T>({
             );
           })}
 
-          {sugestao.opcoes.length === 0 && !sugestao.criar && (
+          {sugestao.opcoes.length === 0 && criavel === null && (
             <p className="px-2 py-3 text-sm text-muted-foreground">
               Nada encontrado.
             </p>
           )}
 
-          {sugestao.criar && (
+          {/*
+            Lista vazia com busca vazia não é "nada encontrado": não se procurou
+            nada. A frase muda porque a anterior mandava procurar melhor, e o que
+            falta ali é cadastrar — que é a linha logo abaixo.
+          */}
+          {sugestao.opcoes.length === 0 && criavel === "" && (
+            <p className="px-2 py-3 text-sm text-muted-foreground">
+              Nada cadastrado ainda.
+            </p>
+          )}
+
+          {criavel !== null && (
             <div className="border-t pt-1">
               <button
                 type="button"
@@ -211,7 +246,9 @@ export function ComboboxCriavel<T>({
                 ) : (
                   <Plus className="h-4 w-4 shrink-0" />
                 )}
-                <span className="truncate">{rotuloDeCriacao(sugestao.criar)}</span>
+                <span className="truncate">
+                  {criavel === "" ? rotuloDeCriacaoVazia : rotuloDeCriacao(criavel)}
+                </span>
               </button>
 
               {/* A prévia diz o que o cadastro vai entender — a diferença entre
