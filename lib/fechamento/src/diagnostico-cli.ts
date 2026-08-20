@@ -61,6 +61,7 @@ interface LinhaDoDiagnostico extends Record<string, unknown> {
   vigente: boolean;
   linhas_lidas: number;
   recusas: number;
+  recusas_texto: { linha: number; motivo: string; original: string }[];
   enviado_em: string;
   documento_id: string;
 }
@@ -143,6 +144,7 @@ async function principal(): Promise<void> {
              d.vigente,
              d.linhas_lidas,
              jsonb_array_length(d.recusas) as recusas,
+             d.recusas as recusas_texto,
              to_char(d.enviado_em, 'DD/MM HH24:MI') as enviado_em,
              d.id::text as documento_id
         from fechamento_documento d
@@ -256,11 +258,29 @@ async function principal(): Promise<void> {
       console.log("");
       console.log(`${semVerba.length} demonstrativo(s) com desconto e NENHUMA verba:`);
       for (const s of semVerba) console.log(`  ${s.chave} · "${s.nome}"`);
-      console.log(
-        "\nO arquivo foi lido e as seções foram reconhecidas — só as linhas de verba não\n" +
-          "casaram com o layout esperado (VBZ, nome e SEIS colunas de valor). Rode\n" +
-          "`explicar-pagamento-cli.ts <arquivo>` sobre ele para ver qual linha falhou e por quê.",
-      );
+      /*
+        A recusa gravada no documento é a evidência que sobrevive ao envio: o
+        fechamento não guarda o arquivo, e sem ela a única saída era pedir o
+        TXT de volta. Os documentos enviados antes desta gravação existir têm
+        `recusas` vazio, e para esses o arquivo continua sendo necessário.
+      */
+      for (const s of semVerba) {
+        const motivos = s.recusas_texto ?? [];
+        if (motivos.length === 0) {
+          console.log(
+            `\n  "${s.nome}" foi importado antes de o leitor registrar recusas —\n` +
+              `  não há evidência gravada. Rode \`explicar-pagamento-cli.ts\` sobre o arquivo,\n` +
+              `  ou reenvie-o: agora a recusa fica guardada.`,
+          );
+          continue;
+        }
+        console.log(`\n  "${s.nome}" — ${motivos.length} linha(s) de verba recusada(s):`);
+        for (const m of motivos.slice(0, 3)) {
+          console.log(`    linha ${m.linha}: ${m.motivo}`);
+          console.log(`      ${JSON.stringify(m.original.slice(0, 120))}`);
+        }
+        if (motivos.length > 3) console.log(`    … e mais ${motivos.length - 3}.`);
+      }
     }
 
     console.log("");

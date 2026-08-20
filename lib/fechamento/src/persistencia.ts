@@ -526,7 +526,9 @@ function interpretar(
         const l = lerPagamento(conteudo);
         return {
           linhasLidas: l.itens.length + l.descontos.length,
-          recusas: [],
+          /* As linhas com cara de verba que não entraram, com o texto original:
+             sem o arquivo guardado, é esta a evidência de por que não entraram. */
+          recusas: l.recusas,
           periodo: l.periodo,
         };
       }
@@ -1072,6 +1074,11 @@ async function lerFontesDoBanco(db: Database, competenciaId: string): Promise<Fo
       periodo: { inicio: null, fim: null },
       unidade: null,
       transportadora: null,
+      /* Reconstrução a partir do que o banco guardou: as recusas do arquivo
+         ficaram no documento (`fechamento_documento.recusas`) e não se
+         reconstroem daqui — declará-las vazias diz a verdade sobre esta
+         leitura, e não sobre o arquivo. */
+      recusas: [],
       itens: itens.map((i) => ({
         linha: i.linhaNoArquivo,
         canal: i.canal as Canal,
@@ -2347,6 +2354,8 @@ export async function lerDeParaDaCompetencia(
       periodo: { inicio: null, fim: null },
       unidade: null,
       transportadora: null,
+      /* Idem: as recusas moram no documento, não nesta reconstrução. */
+      recusas: [],
       itens: itens.map((i) => ({
         linha: i.linhaNoArquivo,
         canal: i.canal as Canal,
