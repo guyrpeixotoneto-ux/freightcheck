@@ -1,6 +1,6 @@
 # O `Cadastro` como sétima fonte — desenho
 
-**Estado: desenho, não implementado.** Este documento é o que precisa ser
+**Estado: desenho do módulo, não implementado. A porta que ele preenche já existe** — ver *A porta, e como plugar o módulo* no fim deste documento. Este documento é o que precisa ser
 acordado antes de escrever código. A leitura da aba já existe
 (`lib/fechamento/src/leitores/cadastro.ts`) e reconstrói o custo fixo ao
 centavo; o que falta é o cadastro virar **documento importável e versionado**,
@@ -229,3 +229,87 @@ histórico por conta própria.
 3. **A aba `Cadastro` vem dentro da mesma `.xlsb` do fechamento**, junto de 43
    outras abas. O leitor já isola a aba; falta decidir se o upload aceita a
    pasta inteira ou exige um recorte.
+
+
+---
+
+## A porta, e como plugar o módulo
+
+O fechamento já está ligado ao motor e espera o cadastro por uma interface. O
+módulo não precisa saber nada do fechamento: precisa responder uma pergunta.
+
+```ts
+// lib/fechamento/src/cadastro-porta.ts
+export interface FonteDeCadastro {
+  resolver(pergunta: {
+    unidadeCodigo: string;
+    transportadoraCodigo: string;
+    canal: Canal;
+    inicio: string;  // primeiro dia da quinzena, YYYY-MM-DD
+    fim: string;     // último dia da quinzena
+  }): Promise<RespostaDoCadastro | null>;
+}
+```
+
+A resposta traz os parâmetros, o `custoVariavelPrevistoPor25Viagens`, o
+`cadastroId` (para a apuração fixá-lo) e o `vigenteDe` (para a tela dizer qual
+contrato produziu o número).
+
+**A pergunta é sobre um período, nunca sobre "agora".** É a assinatura que
+impede um cadastro futuro de recalcular o passado — o mecanismo 1 acima está
+embutido no contrato da porta, e não na disciplina de quem chama.
+
+### Como ligar
+
+```ts
+lerResumoDoMes(db, alvo, minhaFonteDeCadastro)
+```
+
+O terceiro parâmetro tem padrão `SEM_CADASTRO`, que responde `null` a tudo.
+**Enquanto o módulo não passar por ali, o produto se comporta exatamente como
+antes** — o painel do devido não aparece e a tela mostra o de-para do 03.08.20
+como sempre mostrou. Nada quebra e nada muda até o primeiro cadastro existir.
+
+Para desenvolver e testar sem banco, `cadastroEmMemoria([...])` implementa a
+mesma resolução de vigência: ela precisa cobrir a quinzena inteira, e a mais
+recente que cobre vence.
+
+### O que o fechamento faz com a resposta
+
+1. Lê as viagens da competência de `fechamento_viagem`, agrupadas por dia.
+2. Chama `montarMapaDaQuinzena` com os parâmetros, as viagens e as bases.
+3. Casa o resultado com o painel do 03.08.20 em `compararPaineis`.
+4. A tela mostra **devido × demonstrado × diferença**, com a memória de cálculo
+   de cada linha e o `vigenteDe` do cadastro usado.
+
+### Duas contraprovas que valem a pena existir no módulo
+
+Uma tarifa digitada errada produz um número **plausível** — não quebra nada e
+vira remuneração. Vigência e autoria dão rastro, não validam valor. Duas
+verificações que o sistema pode fazer sozinho:
+
+1. **Fatia de emissão declarada × medida.** O cadastro declara a fatia de
+   documentos dentro do município; o diário a calcula. Divergência grande é
+   sinal, não erro — foi exatamente essa divergência que produziu os R$ 128,05
+   da planilha.
+2. **Custo fixo calculado × 03.08.20.** Quando o demonstrativo chega, ele vira o
+   **conferente** do cadastro — a inversão exata do que o de-para antigo fazia.
+   Duas fontes independentes chegando ao mesmo número é a única prova real de
+   que o cadastro está certo.
+
+### O que ainda não tem origem, e por isso sai vazio
+
+`basesDaQuinzena` (em `persistencia.ts`) monta hoje só o que um documento
+sustenta:
+
+| Base | Origem | Estado |
+|---|---|---|
+| Devolução | descontos do 03.08.20, tipo `DEVOLUCAO` | ✅ |
+| Disponibilidade | descontos do 03.08.20, tipos `DISPONIBILIDADE_*` | ✅ |
+| Complementar negativo | — | ❌ `null` |
+| Outros custos | 03.08.12.09 | ❌ `null` (esta leitura não abre o relatório) |
+| Indisponibilidade | diário | ❌ `null` |
+
+As três últimas saem `null`, o quadro sai `null`, e a tela nomeia o que falta.
+**Nenhuma é preenchida com zero** — e nenhuma repete o número digitado da
+planilha, cuja derivação ninguém sabe explicar (ver `MAPA-ROTA.md`).

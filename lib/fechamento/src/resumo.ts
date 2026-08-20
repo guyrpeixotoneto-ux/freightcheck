@@ -7,6 +7,7 @@ import {
   type Quadro,
   type QuadroConferido,
 } from "./de-para";
+import type { LinhaDoMapa, MapaDaQuinzena, QuadroDoMapa } from "./mapa-rota";
 import type { NaturezaDaVerba } from "./verbas";
 
 /**
@@ -169,6 +170,65 @@ export interface PainelDaPlanilha {
   demonstrativo: TresColunas;
 }
 
+/* ---------------------------------------------------------------------------
+   O devido — o mesmo painel, calculado do contrato
+   ------------------------------------------------------------------------ */
+
+/**
+ * Uma linha do painel nas três leituras que o fechamento discute.
+ *
+ * **Devido** é o que o contrato manda pagar: o motor (`mapa-rota.ts`) calcula
+ * do cadastro e do diário, sem olhar o demonstrativo. **Demonstrado** é o que o
+ * 03.08.20 diz que a Ambev vai pagar. A **diferença** é a conversa.
+ *
+ * Ter as duas colunas vindas de fontes independentes é o que faz a comparação
+ * valer alguma coisa. Enquanto o painel era só uma releitura do 03.08.20, ele
+ * concordava consigo mesmo por construção — e uma conferência que não pode
+ * discordar não confere nada.
+ */
+export interface LinhaComparada {
+  chave: string;
+  rotulo: string;
+  papel: string;
+  /** O que o contrato manda pagar. `null` quando falta cadastro ou documento. */
+  devido: TresColunas;
+  /** O que o 03.08.20 demonstra. `null` quando ele não foi importado. */
+  demonstrado: TresColunas;
+  /** `devido − demonstrado`. `null` quando falta qualquer um dos dois. */
+  diferenca: TresColunas;
+  /** A conta que produziu o devido, por quinzena — a memória de cálculo. */
+  memoria: { primeira: string | null; segunda: string | null };
+  /** O que falta para o devido existir. `null` quando ele existe. */
+  falta: string | null;
+}
+
+export interface QuadroComparado {
+  quadro: string;
+  titulo: string;
+  linhas: LinhaComparada[];
+  devido: TresColunas;
+  demonstrado: TresColunas;
+  diferenca: TresColunas;
+}
+
+/**
+ * O painel do canal com as duas leituras lado a lado.
+ *
+ * `cadastro` diz qual contrato produziu o devido — sem isso, um número que
+ * surpreende não tem onde ser conferido.
+ */
+export interface PainelComparado {
+  canal: Canal;
+  quadros: QuadroComparado[];
+  /** De qual cadastro veio cada quinzena. `null` na que não tem. */
+  cadastro: {
+    primeira: { cadastroId: string; vigenteDe: string } | null;
+    segunda: { cadastroId: string; vigenteDe: string } | null;
+  };
+  /** O que falta para o mês fechar inteiro, sem repetição. */
+  pendencias: string[];
+}
+
 export interface CanalDoResumo {
   canal: Canal;
   blocos: BlocoDoResumo[];
@@ -204,6 +264,14 @@ export interface CanalDoResumo {
    * no lugar errado quem só precisava subir um arquivo.
    */
   semPainel: "CANAL_SEM_CATALOGO" | "SEM_DEMONSTRATIVO" | null;
+  /**
+   * O painel calculado do contrato, ao lado do demonstrado.
+   *
+   * `null` quando não há cadastro vigente em nenhuma das duas quinzenas — e aí
+   * a tela mostra o que sempre mostrou, sem inventar uma coluna vazia com cara
+   * de zero. Ver `cadastro-porta.ts`.
+   */
+  comparado: PainelComparado | null;
 }
 
 /** O que uma quinzena traz para o resumo — o que o banco guardou dela. */
@@ -240,6 +308,17 @@ export interface QuinzenaApurada {
    * de zeros diria que a quinzena não pagou nada, que é outra afirmação.
    */
   paineis?: DeParaConferido[] | null;
+  /**
+   * O painel **calculado** desta quinzena, por canal — o que o contrato deve.
+   *
+   * Vem montado de fora, e não calculado aqui, pela mesma razão que as verbas:
+   * este módulo consolida o que o banco guardou e não roda a conta de novo.
+   * Quem monta é `lerResumoDoMes`, que sabe pedir o cadastro à porta e ler as
+   * viagens. Nulo quando não há cadastro vigente para a quinzena.
+   */
+  calculados?: { canal: Canal; mapa: MapaDaQuinzena }[] | null;
+  /** Qual cadastro produziu os `calculados`. Nulo quando não houve. */
+  cadastroUsado?: { cadastroId: string; vigenteDe: string } | null;
 }
 
 export interface ResumoDoMes {
@@ -432,6 +511,88 @@ export function painelDeUmaQuinzena(
 }
 
 /**
+ * Casa o painel calculado com o painel demonstrado, quadro a quadro.
+ *
+ * As duas leituras já falam a mesma língua — as chaves de linha são as mesmas
+ * em `mapa-rota.ts` e em `de-para.ts`, e é para isso que elas foram escritas
+ * iguais. O que esta função faz é pôr o número de cada uma na mesma linha e
+ * nomear a diferença.
+ *
+ * **A linha que só uma das duas tem continua aparecendo.** Uma linha sem
+ * demonstrado (porque o 03.08.20 não veio) e uma linha sem devido (porque falta
+ * cadastro) são estados diferentes e ambos legítimos; escondê-las faria o
+ * painel parecer completo quando não está.
+ */
+export function compararPaineis(
+  canal: Canal,
+  calculado: { primeira: MapaDaQuinzena | null; segunda: MapaDaQuinzena | null },
+  demonstrado: PainelDaPlanilha | null,
+  cadastro: PainelComparado["cadastro"],
+): PainelComparado | null {
+  const esqueleto = calculado.primeira ?? calculado.segunda;
+  if (!esqueleto) return null;
+
+  const quadroDe = (m: MapaDaQuinzena | null, quadro: string): QuadroDoMapa | null =>
+    m?.quadros.find((q) => q.quadro === quadro) ?? null;
+  const linhaDe = (m: MapaDaQuinzena | null, quadro: string, chave: string): LinhaDoMapa | null =>
+    quadroDe(m, quadro)?.linhas.find((l) => l.chave === chave) ?? null;
+
+  /* O demonstrado guarda a linha pela mesma chave, num quadro de mesmo nome. */
+  const doDemonstrado = (quadro: string, chave: string): TresColunas => {
+    const q = demonstrado?.quadros.find((x) => x.quadro === quadro);
+    const l = q?.linhas.find((x) => x.chave === chave);
+    return l ? l.valores : VAZIO;
+  };
+
+  const quadros: QuadroComparado[] = esqueleto.quadros.map((modelo) => {
+    const linhas: LinhaComparada[] = modelo.linhas.map((modeloDaLinha) => {
+      const l1 = linhaDe(calculado.primeira, modelo.quadro, modeloDaLinha.chave);
+      const l2 = linhaDe(calculado.segunda, modelo.quadro, modeloDaLinha.chave);
+      const devido = tresColunas(l1?.valor ?? null, l2?.valor ?? null);
+      const dem = doDemonstrado(modelo.quadro, modeloDaLinha.chave);
+      return {
+        chave: modeloDaLinha.chave,
+        rotulo: modeloDaLinha.rotulo,
+        papel: modeloDaLinha.papel,
+        devido,
+        demonstrado: dem,
+        diferenca: subtrair(devido, dem),
+        memoria: { primeira: l1?.memoria ?? null, segunda: l2?.memoria ?? null },
+        /* A falta é a mesma nas duas quando as duas a têm; basta dizer uma vez. */
+        falta: l1?.falta ?? l2?.falta ?? null,
+      };
+    });
+
+    const q1 = quadroDe(calculado.primeira, modelo.quadro);
+    const q2 = quadroDe(calculado.segunda, modelo.quadro);
+    const devido = tresColunas(q1?.total ?? null, q2?.total ?? null);
+    const dem =
+      demonstrado?.quadros.find((x) => x.quadro === modelo.quadro)?.total ?? VAZIO;
+
+    return {
+      quadro: modelo.quadro,
+      titulo: modelo.titulo,
+      linhas,
+      devido,
+      demonstrado: dem,
+      diferenca: subtrair(devido, dem),
+    };
+  });
+
+  return {
+    canal,
+    quadros,
+    cadastro,
+    pendencias: [
+      ...new Set([
+        ...(calculado.primeira?.pendencias ?? []),
+        ...(calculado.segunda?.pendencias ?? []),
+      ]),
+    ],
+  };
+}
+
+/**
  * Monta o resumo do mês a partir do que o banco guardou de cada quinzena.
  *
  * Recebe zero, uma ou duas quinzenas: o mês em que só a segunda foi importada é
@@ -559,6 +720,19 @@ export function montarResumo(entrada: {
       demonstrativo,
       diferenca: subtrair(emitidoDoCanal, demonstrativo),
       painel,
+      /* O devido, ao lado do demonstrado — ver `compararPaineis`. */
+      comparado: compararPaineis(
+        canal,
+        {
+          primeira: primeira?.calculados?.find((c) => c.canal === canal)?.mapa ?? null,
+          segunda: segunda?.calculados?.find((c) => c.canal === canal)?.mapa ?? null,
+        },
+        painel,
+        {
+          primeira: primeira?.cadastroUsado ?? null,
+          segunda: segunda?.cadastroUsado ?? null,
+        },
+      ),
       semPainel: painel
         ? null
         : CANAIS_COM_PAINEL.includes(canal)

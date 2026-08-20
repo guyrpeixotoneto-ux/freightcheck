@@ -376,8 +376,14 @@ export function reconciliar(
    Legado × Canônica — o que a correção da regra muda, com o número
    ------------------------------------------------------------------------ */
 
-/** Uma linha vista pelas duas regras, com o efeito de trocar de uma para a outra. */
-export interface LinhaComparada {
+/**
+ * Uma linha vista pelas duas **regras**, com o efeito de trocar de uma para a outra.
+ *
+ * Não confundir com `LinhaComparada` de `resumo.ts`: aquela compara o devido
+ * contra o demonstrado — duas **fontes**. Esta compara a mesma fonte sob duas
+ * **regras**, e serve para decidir se a regra canônica vale a adoção.
+ */
+export interface LinhaEntreModos {
   chave: string;
   rotulo: string;
   /** O que a planilha calcula hoje — e o que o histórico já discutido mostra. */
@@ -392,8 +398,8 @@ export interface LinhaComparada {
 
 export interface ComparacaoDeModos {
   competencia: string;
-  linhas: LinhaComparada[];
-  totais: LinhaComparada[];
+  linhas: LinhaEntreModos[];
+  totais: LinhaEntreModos[];
   /** As linhas em que adotar a regra canônica muda algum número. */
   afetadas: string[];
   /** O efeito no `TOTAL GERAL UNIDADE` do mês. */
@@ -420,7 +426,7 @@ export function compararModos(fechamento: FechamentoDaPlanilha): ComparacaoDeMod
   const comparar = (
     doLegado: LinhaReconciliada[],
     doCanonico: LinhaReconciliada[],
-  ): LinhaComparada[] =>
+  ): LinhaEntreModos[] =>
     doCanonico.map((c) => {
       const l = doLegado.find((x) => x.chave === c.chave);
       const efeito = {

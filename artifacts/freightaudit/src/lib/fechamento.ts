@@ -522,6 +522,46 @@ export interface CanalDoResumo {
    * o servidor as separa em vez de a tela adivinhar.
    */
   semPainel: "CANAL_SEM_CATALOGO" | "SEM_DEMONSTRATIVO" | null;
+  /** O devido, calculado do contrato, ao lado do demonstrado. */
+  comparado: PainelComparado | null;
+}
+
+/**
+ * Uma linha nas três leituras que o fechamento discute.
+ *
+ * `devido` sai do contrato (cadastro + diário); `demonstrado` sai do 03.08.20.
+ * São fontes independentes, e é por isso que a diferença entre elas diz algo —
+ * o painel antigo comparava o demonstrativo consigo mesmo.
+ */
+export interface LinhaComparada {
+  chave: string;
+  rotulo: string;
+  papel: string;
+  devido: TresColunas;
+  demonstrado: TresColunas;
+  diferenca: TresColunas;
+  memoria: { primeira: string | null; segunda: string | null };
+  falta: string | null;
+}
+
+export interface QuadroComparado {
+  quadro: string;
+  titulo: string;
+  linhas: LinhaComparada[];
+  devido: TresColunas;
+  demonstrado: TresColunas;
+  diferenca: TresColunas;
+}
+
+export interface PainelComparado {
+  canal: string;
+  quadros: QuadroComparado[];
+  /** De qual cadastro veio cada quinzena — onde conferir um número que surpreende. */
+  cadastro: {
+    primeira: { cadastroId: string; vigenteDe: string } | null;
+    segunda: { cadastroId: string; vigenteDe: string } | null;
+  };
+  pendencias: string[];
 }
 
 export interface ResumoDoMes {

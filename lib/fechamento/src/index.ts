@@ -38,6 +38,7 @@ export * from "./mapa-rota";
   como se chega a duas verdades sobre o mesmo número.
 */
 export * from "./reconciliacao";
+export * from "./cadastro-porta";
 export { lerOperacao, type DetalheDaViagem, type Viagem } from "./leitores/operacao";
 export {
   lerCadastro,
