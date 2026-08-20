@@ -91,6 +91,16 @@ export interface FixtureOptions {
    * consolidação junta as séries.
    */
   canal?: string;
+  /**
+   * A família do dataset — o contrato da importação, não o que veio no arquivo.
+   *
+   * O padrão é a remuneração de equipamento porque é o que toda fixture deste
+   * módulo monta. É opção porque o quadro de pessoal forma vigências de família
+   * própria na mesma unidade e no mesmo canal do equipamento, e sem uma fixture
+   * capaz de montar as duas famílias não haveria como escrever o teste que
+   * prova que uma leitura de equipamento não enxerga as vigências da outra.
+   */
+  datasetFamily?: string;
 }
 
 let sequence = 0;
@@ -104,6 +114,7 @@ export async function buildFixture(
   sequence++;
   const suffix = `fx${sequence}`;
   const entityType = options.entityType ?? "CARRETA";
+  const datasetFamily = options.datasetFamily ?? "REMUNERACAO_EQUIPAMENTO";
   const scopeHash = options.scopeHash ?? `scope-${suffix}`;
   const canal = (options.canal ?? suffix).toUpperCase().replace(/[^A-Z0-9]+/g, "_");
   // O escopo canônico tem de sair já normalizado, senão o CHECK do banco recusa
@@ -254,7 +265,7 @@ export async function buildFixture(
         effectiveDate: spec.effectiveDate,
         scopeHash,
         entityTypeSet: entityType,
-        datasetFamily: "REMUNERACAO_EQUIPAMENTO",
+        datasetFamily,
         canal,
         canonicalScope,
         status: "DRAFT",

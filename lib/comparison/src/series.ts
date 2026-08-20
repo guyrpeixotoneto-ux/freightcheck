@@ -1,9 +1,12 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
-import { channelOf } from "@workspace/ingest";
+import {
+  channelOf,
+  DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO,
+} from "@workspace/ingest";
 
 /**
- * O contexto de uma leitura: **unidade e canal**.
+ * O contexto de uma leitura: **unidade, canal e família de dados**.
  *
  * Uma vigência não é uma data. É uma data *de alguém*: da unidade X, no canal
  * Y. Enquanto houve uma unidade só e um canal só, essa distinção não custava
@@ -16,6 +19,16 @@ import { channelOf } from "@workspace/ingest";
  * Este módulo é o lugar único onde o contexto é derivado, resolvido e
  * comparado. Nenhuma consulta de leitura deve montar esse predicado por conta
  * própria.
+ *
+ * **E a família do dataset é a terceira parte do contexto.** Uma vigência
+ * também é uma data de alguém *sobre alguma coisa*: a remuneração do
+ * equipamento e o quadro de lotação de pessoal formam vigências próprias, na
+ * mesma unidade, no mesmo canal e na mesma data — `snapshot.dataset_family`
+ * existe para separá-las, e a ingestão nunca as junta num snapshot só. A
+ * leitura, que não sabia disso, juntava: uma importação de QLP fazia a unidade
+ * aparecer duas vezes no seletor (as duas escritas "CAMAÇARI") e a tela abria
+ * na errada, sem um caminhão sequer. Nada tinha sido apagado — o Resumo
+ * executivo é que estava respondendo por outra família.
  *
  * **O canal não é coluna.** `snapshot` é congelado por trigger quando fecha, de
  * modo que uma coluna nova não poderia ser preenchida nas vigências já
@@ -61,6 +74,24 @@ export interface SeriesContext {
   scopeHash: string;
   /** Null quando o rótulo da vigência não declara canal. */
   channel: string | null;
+  /**
+   * Sobre qual família de dados esta leitura responde.
+   *
+   * Ausente quer dizer {@link DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO}, e o
+   * padrão é escolhido em vez de sorteado: toda leitura deste produto que não
+   * é a do quadro de pessoal fala de equipamento, e um contexto montado à mão
+   * sem esta chave — há dezenas deles, um por consulta que só tinha unidade e
+   * canal para dizer — tem de continuar significando o que sempre significou.
+   * O oposto (ausente = todas as famílias) é precisamente o defeito: era o que
+   * deixava a vigência do QLP entrar na régua e no seletor do equipamento.
+   *
+   * Quem lê o quadro não confia neste padrão e nomeia a sua família — ver
+   * `lib/qlp/src/contexto.ts`, que já listava contextos só de QUADRO_DE_PESSOAL
+   * porque "o seletor da tela ofereceria quinzenas de equipamento que esta
+   * leitura não sabe responder". Esta chave é a metade que faltava dessa
+   * mesma frase, dita do outro lado.
+   */
+  datasetFamily?: string;
   /**
    * O recorte temporal, quando pedido. Ausente ou nulo é a série inteira.
    *
@@ -157,19 +188,29 @@ export class JanelaInvalidaError extends Error {
 export async function listContexts(
   db: Database,
   /**
-   * Recorte opcional por família de dados (`snapshot.dataset_family`).
+   * Qual família de dados listar (`snapshot.dataset_family`). Padrão:
+   * {@link DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO}.
    *
    * Existe porque o quadro de pessoal forma vigências próprias na mesma unidade
    * e canal: a tela de QLP precisa saber quais contextos **têm** QLP, e a régua
    * de disponibilidade (`periodosDisponiveis`) precisa listar só as vigências
    * daquela família — senão o seletor ofereceria quinzenas de equipamento a uma
-   * tela que não sabe respondê-las. Sem o argumento, nada muda para ninguém.
+   * tela que não sabe respondê-las.
+   *
+   * **Sem o argumento, a lista é a de equipamento — e não a de todas.** Era o
+   * contrário, e o contrário custou o defeito que este parâmetro nasceu para
+   * evitar, só que na direção oposta: importado o QLP, a mesma unidade passava
+   * a aparecer duas vezes no seletor da barra lateral (as duas escritas
+   * "CAMAÇARI", indistinguíveis) e `contexts[0]` — o padrão de quem não pede
+   * contexto nenhum — podia cair na do quadro. O Resumo executivo abria nela,
+   * sem uma carreta sequer, e a leitura correta seguia intacta no banco,
+   * inalcançável pela tela. Um padrão que devolve tudo não é neutro: ele é a
+   * escolha de misturar.
    */
   opts?: { datasetFamily?: string },
 ): Promise<ContextInfo[]> {
-  const familia = opts?.datasetFamily
-    ? sql` AND s.dataset_family = ${opts.datasetFamily}`
-    : sql``;
+  const datasetFamily = opts?.datasetFamily ?? DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO;
+  const familia = sql` AND s.dataset_family = ${datasetFamily}`;
 
   const { rows } = await db.execute<{
     scope_hash: string;
@@ -221,6 +262,12 @@ export async function listContexts(
     return {
       scopeHash: row.scope_hash,
       channel: row.channel,
+      // A família viaja junto com o contexto, e não fica só nesta chamada: quem
+      // resolveu a lista do quadro leva contextos de quadro, e o `contextFilter`
+      // de toda consulta seguinte lê a família daqui em vez de supor a de
+      // equipamento. Sem isto, a tela do QLP escolheria o contexto certo e leria
+      // a família errada — o mesmo defeito, uma camada adiante.
+      datasetFamily,
       label: contextLabel(scopes, row.channel, row.scope_hash),
       scopes,
       latestPeriod: row.latest_period,
@@ -350,6 +397,13 @@ export function aplicarJanela(
  * cliente respeitam o mesmo "de/até" sem que nenhum deles precise saber que ele
  * existe. Uma leitura que montasse o recorte por conta própria seria a segunda
  * régua de disponibilidade que este módulo existe para não ter.
+ *
+ * **A família entra aqui pelo mesmo motivo, e com um padrão.** São mais de
+ * sessenta consultas passando por este predicado; acrescentar a cláusula em
+ * cada uma seria sessenta chances de esquecer uma — e a esquecida seria a tela
+ * que, um dia, mostraria cargos onde deveria mostrar placas. O contexto que
+ * não nomeia família fala de equipamento, que é o que todas elas sempre
+ * quiseram dizer.
  */
 export function contextFilter(snapshotAlias: string, context: SeriesContext) {
   const alias = sql.raw(`${snapshotAlias}.effective_date`);
@@ -357,10 +411,12 @@ export function contextFilter(snapshotAlias: string, context: SeriesContext) {
     ? sql` AND ${alias} >= ${context.janela.de}::date
            AND ${alias} <= ${context.janela.ate}::date`
     : sql``;
+  const familia = sql` AND ${sql.raw(`${snapshotAlias}.dataset_family`)} =
+                       ${context.datasetFamily ?? DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO}`;
 
   return sql`${sql.raw(`${snapshotAlias}.scope_hash`)} = ${context.scopeHash}
              AND ${channelSql(`${snapshotAlias}.source_label`)}
-                 IS NOT DISTINCT FROM ${context.channel}::text${janela}`;
+                 IS NOT DISTINCT FROM ${context.channel}::text${familia}${janela}`;
 }
 
 /** A chave da série: contexto + cobertura de equipamento. */

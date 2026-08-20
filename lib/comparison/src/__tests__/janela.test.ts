@@ -114,11 +114,26 @@ describe("aplicarJanela", () => {
 });
 
 describe("contextFilter", () => {
-  it("sem janela, filtra unidade e canal e mais nada", () => {
+  it("sem janela, filtra unidade, canal e família — e mais nada", () => {
     const { sql, params } = comoSql(contexto());
     expect(sql).toContain("s.scope_hash");
+    expect(sql).toContain("s.dataset_family");
     expect(sql).not.toContain("effective_date");
-    expect(params).toEqual(["abc", "EMPURRADA"]);
+    expect(params).toEqual(["abc", "EMPURRADA", "REMUNERACAO_EQUIPAMENTO"]);
+  });
+
+  /*
+    A família é a terceira parte do contexto, e o padrão dela é escolhido.
+
+    Um contexto montado à mão — como o desta suíte, e como os de dezenas de
+    consultas que só tinham unidade e canal a dizer — fala de equipamento. Foi o
+    padrão contrário (nenhuma cláusula, portanto todas as famílias) que deixou a
+    vigência do QLP entrar na régua e no seletor do equipamento e fez cavalo e
+    carreta sumirem da tela. Ver `familia-de-dataset.test.ts`.
+  */
+  it("quem nomeia a família lê a dela, e não a de equipamento", () => {
+    const { params } = comoSql({ ...contexto(), datasetFamily: "QUADRO_DE_PESSOAL" });
+    expect(params).toEqual(["abc", "EMPURRADA", "QUADRO_DE_PESSOAL"]);
   });
 
   it("com janela, o recorte entra no mesmo predicado", () => {
@@ -133,7 +148,13 @@ describe("contextFilter", () => {
     );
     expect(sql).toContain("s.effective_date >=");
     expect(sql).toContain("s.effective_date <=");
-    expect(params).toEqual(["abc", "EMPURRADA", "2026-01-02", "2026-03-02"]);
+    expect(params).toEqual([
+      "abc",
+      "EMPURRADA",
+      "REMUNERACAO_EQUIPAMENTO",
+      "2026-01-02",
+      "2026-03-02",
+    ]);
   });
 
   it("as duas pontas são inclusivas", () => {
