@@ -40,8 +40,14 @@ import { periodLabel } from "@workspace/comparison";
 /** Uma vigência é sempre `aaaa-mm-dd`; o que não for passa direto. */
 const DATA = /^\d{4}-\d{2}-\d{2}$/;
 
-/** A quinzena a que o dia pertence: 1 do dia 1 ao 15, 2 do 16 em diante. */
-function quinzenaDe(data: string): 1 | 2 {
+/**
+ * A quinzena a que o dia pertence: 1 do dia 1 ao 15, 2 do 16 em diante.
+ *
+ * Exportada porque `contrato.ts` decide por ela qual planilha responde por uma
+ * quinzena — e reescrever a régua lá abriria a porta para as duas divergirem
+ * num dia 15 qualquer.
+ */
+export function quinzenaDe(data: string): 1 | 2 {
   return Number(data.slice(8, 10)) <= 15 ? 1 : 2;
 }
 
