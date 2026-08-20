@@ -326,6 +326,31 @@ export const ESTADO_DO_CADASTRO: Record<
   },
 };
 
+/**
+ * A chave com que se pergunta pelo cadastro de uma unidade.
+ *
+ * Três telas fazem a mesma pergunta ao servidor — a lista de unidades, quando
+ * alguém abre uma linha; a tela do cadastro; o painel que digita a planilha — e
+ * a chave é o que decide se elas compartilham a resposta ou mantêm cópias
+ * próprias dela. Compartilhar é o certo: quem abre o cadastro na lista e depois
+ * entra na tela de dentro o encontra pronto, e quem volta de lá reabre a linha
+ * sem nova ida ao servidor. É a mesma decisão de `chaveDaCompetencia`, em
+ * `lib/fechamento-tela.ts`, pela mesma razão — duas chaves para o mesmo recurso
+ * dariam duas cópias que podem discordar entre si.
+ *
+ * Os três argumentos são exatamente o que a leitura envia: escopo, canal e
+ * vigência. `null` em qualquer um deles é "o que o servidor escolher", e é
+ * diferente de um valor escrito — por isso viaja na chave em vez de ser
+ * omitido.
+ */
+export function chaveDoCadastro(
+  scopeHash: string | null,
+  canal: string | null,
+  period: string | null,
+): readonly [string, string, string | null, string | null, string | null] {
+  return ["remuneracao", "cadastro", scopeHash, canal, period];
+}
+
 export function lerCadastro(pedido: {
   scopeHash?: string;
   canal?: string | null;

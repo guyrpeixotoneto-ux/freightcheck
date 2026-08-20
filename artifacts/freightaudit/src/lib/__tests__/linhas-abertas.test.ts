@@ -1,16 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { alternarGrupo, alternarUma, grupoEstaAberto } from "../apuracoes";
+import { alternarGrupo, alternarUma, grupoEstaAberto } from "../linhas-abertas";
 
 /**
- * O contrato de abrir a conta na própria lista de Apurações.
+ * O contrato de abrir a resposta na própria linha — o de Apurações e o da lista
+ * de Remuneração, que é o mesmo.
  *
- * **Abrir uma não fecha as outras.** A tela existe para comparar CDDs de uma
- * mesma quinzena; se a conta aberta fosse uma só, ver a de baixo custaria a de
- * cima, e comparar voltaria a ser trocar de tela — que é exatamente o que a
- * expansão veio evitar.
+ * **Abrir uma não fecha as outras.** As duas telas existem para comparar — CDDs
+ * de uma mesma quinzena, unidades de uma mesma vigência; se a resposta aberta
+ * fosse uma só, ver a de baixo custaria a de cima, e comparar voltaria a ser
+ * trocar de tela, que é exatamente o que a expansão veio evitar.
  *
- * **O cabeçalho da quinzena termina de abrir o grupo, e não o fecha pela
- * metade.** Quem já abriu um CDD e clica no cabeçalho quer os outros também;
+ * **O cabeçalho do grupo termina de abri-lo, e não o fecha pela
+ * metade.** Quem já abriu uma linha e clica no cabeçalho quer as outras também;
  * fechar o que se estava lendo seria o contrário do gesto. Só quando não falta
  * nenhuma o mesmo clique passa a fechar — aí "abrir tudo" não teria efeito
  * nenhum, e um botão sem efeito é um botão quebrado.
@@ -51,7 +52,7 @@ describe("alternarGrupo", () => {
     expect([...alternarGrupo(conjunto("belem", "castanhal"), ["belem", "castanhal"])]).toEqual([]);
   });
 
-  it("não mexe em competência de outra quinzena", () => {
+  it("não mexe em linha de outro grupo", () => {
     const outra = "julho-2a-belem";
     expect([...alternarGrupo(conjunto(outra), ["belem", "castanhal"])]).toEqual([
       outra,
@@ -62,17 +63,18 @@ describe("alternarGrupo", () => {
 });
 
 describe("grupoEstaAberto", () => {
-  it("exige todas as competências do grupo", () => {
+  it("exige todas as linhas do grupo", () => {
     expect(grupoEstaAberto(conjunto("belem"), ["belem", "castanhal"])).toBe(false);
     expect(grupoEstaAberto(conjunto("belem", "castanhal"), ["belem", "castanhal"])).toBe(true);
   });
 
   /*
     `every` sobre lista vazia é `true`, e um grupo vazio ficaria eternamente
-    "aberto" — com a seta girada e um clique que não abre nada. A lista nunca
-    desenha um grupo sem linhas, mas a resposta certa aqui não depende disso.
+    "aberto" — com a seta girada e um clique que não abre nada. Nenhuma das duas
+    listas desenha grupo sem linhas, mas a resposta certa aqui não depende
+    disso.
   */
-  it("um grupo sem competências não está aberto", () => {
+  it("um grupo sem linhas não está aberto", () => {
     expect(grupoEstaAberto(conjunto(), [])).toBe(false);
   });
 });
