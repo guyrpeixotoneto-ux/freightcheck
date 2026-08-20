@@ -358,7 +358,12 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   percentual são as vigências **comparáveis**, e a primeira de cada série fica
   fora dele em vez de reprovar quem acabou de chegar. Quinzena sem vigência é
   ausência, nunca alarme: aqui a fonte publica quando muda, e só a vigência
-  pendente é pintada em vermelho.
+  pendente é pintada em vermelho. **É a tela em que a Auditoria abre**: `/`
+  encaminha para cá, e o Resumo executivo — que morava na raiz — passou a
+  responder por `/resumo-executivo`. Quem chega à raiz com recorte na consulta
+  (o formato de todo link antigo) continua sendo levado ao Resumo executivo,
+  com a consulta intacta; a regra é `destinoDaRaiz`, em
+  `artifacts/freightaudit/src/lib/ambiente.ts`.
 - **Remuneração (Fechamento → Remuneração → Cadastro)** — `lib/remuneracao`,
   rotas em `artifacts/api-server/src/routes/remuneracao.ts`, telas em
   `artifacts/freightaudit/src/pages/fechamento/remuneracao-unidades.tsx` (a
