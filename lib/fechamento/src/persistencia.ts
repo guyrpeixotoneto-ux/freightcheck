@@ -2507,10 +2507,15 @@ export async function lerConteudoDoDocumento(
  * com o que cada um vale — ou com o motivo de não valer nada ainda. A conta em
  * si é de `de-para.ts`, pura e sob teste; aqui só se busca o material.
  *
- * **Devolve `null` quando o 03.08.20 não foi importado**, e não um painel
- * zerado. Um painel com dezoito zeros diria que a quinzena não pagou nada, que
- * é uma afirmação; a ausência do demonstrativo é outra, e a tela precisa poder
- * dizer qual das duas aconteceu.
+ * **Devolve `null` quando não há verba gravada**, e não um painel zerado. Um
+ * painel com dezoito zeros diria que a quinzena não pagou nada, que é uma
+ * afirmação; a ausência do demonstrativo é outra, e a tela precisa poder dizer
+ * qual das duas aconteceu.
+ *
+ * **`null` não quer dizer "o arquivo não chegou"** — quem quiser afirmar isso
+ * tem de perguntar, e {@link explicarPainelAusente} é onde se pergunta. Não
+ * ter verba é o que esta leitura sabe; por que não tem é o que o documento
+ * conta.
  *
  * **O `Total Remuneração` é remontado da soma de `valor_faturado`**, e não lido
  * de uma coluna própria — é exatamente como `lerResumoDoMes` o faz, e como o
@@ -2576,5 +2581,156 @@ export async function lerDeParaDaCompetencia(
       totais: [...totais].map(([canal, total]) => ({ canal, total })),
     },
     opcoes,
+  );
+}
+
+/**
+ * Por que esta competência não tem painel da planilha.
+ *
+ * **A pergunta que faltava.** O painel sai do 03.08.20 e de mais nada, e
+ * {@link lerDeParaDaCompetencia} devolve `null` quando não há verba gravada. A
+ * tela concluía dali que o arquivo não tinha sido importado — e as duas coisas
+ * não são a mesma. A diferença apareceu para quem opera: a lista de relatórios
+ * da quinzena mostrava o 03.08.20 com o visto verde, o nome do arquivo e as
+ * linhas lidas, e o painel, ao lado, dizia que ele não fora importado. Uma das
+ * duas frases estava errada, e era a segunda.
+ *
+ * **Os três estados que a ausência escondia**, todos legíveis do que o banco já
+ * guarda:
+ *
+ * - `SEM_DOCUMENTO` — nenhum 03.08.20 chegou nesta competência. É o único caso
+ *   em que "não foi importado" é a verdade.
+ * - `EM_QUARENTENA` — chegou e não valeu (ver `motivoParaQuarentena`). Há
+ *   documento e não há documento vigente, e **só a quarentena produz esse
+ *   par**: a substituição despromove o anterior apenas quando promove o novo,
+ *   e o descarte apaga os dois.
+ * - `SEM_VERBA` — o documento vigente está lá, com nome e data, e não sustenta
+ *   verba nenhuma. É o estado em que ficaram as competências importadas antes
+ *   de a quarentena existir, quando um arquivo do qual o leitor só tirou
+ *   descontos apagava o anterior e era promovido no lugar dele.
+ */
+export type PainelAusente =
+  | { motivo: "SEM_DOCUMENTO" }
+  | {
+      motivo: "EM_QUARENTENA";
+      nomeDoArquivo: string;
+      enviadoEm: Date;
+      recusas: Recusa[];
+    }
+  | {
+      motivo: "SEM_VERBA";
+      nomeDoArquivo: string;
+      enviadoEm: Date;
+      /** Quantos descontos o documento vigente gravou — as verbas são zero. */
+      descontos: number;
+      recusas: Recusa[];
+    };
+
+/**
+ * Qual dos três estados é o desta competência.
+ *
+ * Só se pergunta quando já se sabe que não há painel: é o caminho do erro, e
+ * pagar duas consultas nele é mais barato do que carregá-las em toda leitura
+ * que dá certo.
+ */
+export async function explicarPainelAusente(
+  db: Database,
+  competenciaId: string,
+): Promise<PainelAusente> {
+  const documentos = await db
+    .select({
+      id: fechamentoDocumentoTable.id,
+      nomeDoArquivo: fechamentoDocumentoTable.nomeDoArquivo,
+      recusas: fechamentoDocumentoTable.recusas,
+      vigente: fechamentoDocumentoTable.vigente,
+      enviadoEm: fechamentoDocumentoTable.enviadoEm,
+    })
+    .from(fechamentoDocumentoTable)
+    .where(
+      and(
+        eq(fechamentoDocumentoTable.competenciaId, competenciaId),
+        eq(fechamentoDocumentoTable.tipo, "PAGAMENTO"),
+      ),
+    )
+    .orderBy(desc(fechamentoDocumentoTable.enviadoEm));
+
+  if (documentos.length === 0) return { motivo: "SEM_DOCUMENTO" };
+
+  const vigente = documentos.find((d) => d.vigente);
+  if (!vigente) {
+    /* O mais recente é o que a pessoa acabou de enviar, e é dele que ela quer
+       notícia — os anteriores, se houver, foram outras tentativas do mesmo. */
+    const ultimo = documentos[0]!;
+    return {
+      motivo: "EM_QUARENTENA",
+      nomeDoArquivo: ultimo.nomeDoArquivo,
+      enviadoEm: ultimo.enviadoEm,
+      recusas: (ultimo.recusas ?? []) as Recusa[],
+    };
+  }
+
+  const [contagem] = await db
+    .select({ quantos: sql<number>`count(*)::int` })
+    .from(fechamentoPagamentoDescontoTable)
+    .where(eq(fechamentoPagamentoDescontoTable.documentoId, vigente.id));
+
+  return {
+    motivo: "SEM_VERBA",
+    nomeDoArquivo: vigente.nomeDoArquivo,
+    enviadoEm: vigente.enviadoEm,
+    descontos: contagem?.quantos ?? 0,
+    recusas: (vigente.recusas ?? []) as Recusa[],
+  };
+}
+
+/**
+ * A frase que a tela mostra no lugar do painel.
+ *
+ * Mora aqui, e não na rota, porque é a mesma resposta para quem quer que
+ * pergunte — e porque é pura: dá para conferir cada uma das três frases sem
+ * banco nenhum. O que ela nunca faz é dizer "não foi importado" sobre um
+ * arquivo que está no banco com nome e data.
+ */
+export function fraseDoPainelAusente(ausencia: PainelAusente): string {
+  const rotina = DESCRICAO_DA_FONTE.PAGAMENTO.rotina;
+  const semPainel = "sem ela o painel da planilha não tem de onde sair";
+
+  if (ausencia.motivo === "SEM_DOCUMENTO") {
+    return (
+      `O ${rotina} (demonstrativo de pagamento) não foi importado nesta competência — e é ` +
+      `ele que abre a parcela fixa verba a verba. Sem ele o painel da planilha não tem de ` +
+      `onde sair.`
+    );
+  }
+
+  const quando = ausencia.enviadoEm.toLocaleDateString("pt-BR", { timeZone: "America/Sao_Paulo" });
+  const qual = `"${ausencia.nomeDoArquivo}", enviado em ${quando}`;
+  /* A primeira recusa é a pista: ela nomeia, em uma frase, o que o leitor não
+     reconheceu — e é o que diz se o arquivo é o errado ou se o export saiu
+     truncado. As demais estão na tela do documento. */
+  const pista =
+    ausencia.recusas.length > 0
+      ? ` O leitor recusou ${ausencia.recusas.length} linha(s); a primeira diz: ` +
+        `"${ausencia.recusas[0]?.motivo ?? ""}".`
+      : "";
+
+  if (ausencia.motivo === "EM_QUARENTENA") {
+    return (
+      `O ${rotina} desta competência — ${qual} — chegou, mas não valeu: ficou em quarentena ` +
+      `por não trazer nenhuma verba, e a competência segue sem demonstrativo vigente. É a ` +
+      `verba que abre a parcela fixa, e ${semPainel}.${pista} O arquivo está guardado ` +
+      `inteiro, para exame; envie o ${rotina} completo por cima.`
+    );
+  }
+
+  const oQueTem =
+    ausencia.descontos > 0
+      ? `o banco guardou ${ausencia.descontos} desconto(s) dele e nenhuma verba`
+      : `o leitor não reconheceu nenhuma linha dele`;
+  return (
+    `O ${rotina} desta competência foi importado — ${qual} —, e não sustenta verba nenhuma: ` +
+    `${oQueTem}. É a verba que abre a parcela fixa, e ${semPainel}.${pista} Envie o ${rotina} ` +
+    `completo por cima: hoje o arquivo é conferido antes de valer, e um que não traga verba ` +
+    `não substitui mais o que estiver de pé.`
   );
 }

@@ -693,9 +693,11 @@ export function lerResumoDoMes(alvo: {
  * Vem em três colunas com só a da quinzena preenchida — a mesma forma do resumo
  * mensal, para que a aba `Planilha` seja o mesmo componente nas duas telas.
  *
- * **404 quando o 03.08.20 não foi importado**, e não um painel de zeros: sem o
- * demonstrativo, o painel não tem de onde sair, e dizer isso é diferente de
- * dizer que a quinzena não pagou nada.
+ * **404 quando nenhuma verba sustenta o painel**, e não um painel de zeros: sem
+ * verba o painel não tem de onde sair, e dizer isso é diferente de dizer que a
+ * quinzena não pagou nada. A mensagem do 404 distingue o arquivo que nunca
+ * chegou do que chegou e não valeu — a tela imprime a que veio, e não supõe
+ * qual é.
  */
 export function lerPainelDaCompetencia(
   id: string,

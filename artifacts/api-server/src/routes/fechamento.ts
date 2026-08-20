@@ -7,6 +7,8 @@ import {
   buscarCompetencia,
   descartarDadosDaCompetencia,
   excluirCompetencia,
+  explicarPainelAusente,
+  fraseDoPainelAusente,
   lerApuracaoVigente,
   lerDeParaDaCompetencia,
   lerDiaDaCompetencia,
@@ -302,9 +304,12 @@ router.get("/fechamento/competencias/:id", async (req, res): Promise<void> => {
  * OUTROS CUSTOS`. Cada linha vem com o valor ou com o motivo de não ter, e cada
  * quadro vem com o resíduo, que é o que as linhas sem origem somam.
  *
- * **404 quando o 03.08.20 não foi importado**, e não um painel de zeros. É a
+ * **404 quando não há verba que o sustente**, e não um painel de zeros. É a
  * mesma regra do diário: a fonte ausente é uma resposta, e ela não pode ter a
- * cara de "a quinzena valeu zero".
+ * cara de "a quinzena valeu zero". O 404 **diz qual das três ausências é** —
+ * o arquivo que nunca chegou, o que chegou e ficou em quarentena, e o que está
+ * vigente sem sustentar verba nenhuma (ver `explicarPainelAusente`). Confundi-las
+ * numa frase só foi o que fez a tela negar um arquivo que ela mesma listava.
  *
  * `coluna` escolhe contra o que conferir — `semImposto` (o padrão, e a moeda em
  * que os descontos do relatório vêm), `ctrcIcms` (o que vira CT-e) ou
@@ -343,12 +348,14 @@ router.get("/fechamento/competencias/:id/de-para", async (req, res): Promise<voi
     coluna: pedida as ColunaDoPagamento,
   });
   if (!painel) {
-    res.status(404).json({
-      error:
-        "O 03.08.20 (demonstrativo de pagamento) não foi importado nesta competência — e é " +
-        "ele que abre a parcela fixa verba a verba. Sem ele o painel da planilha não tem de " +
-        "onde sair.",
-    });
+    /*
+      Sem painel são três situações, e dizer "não foi importado" nas três era
+      mentira em duas delas — inclusive na que aparecia na tela: o 03.08.20 com
+      o visto verde na lista de relatórios e, um cartão abaixo, a frase de que
+      ele não tinha sido importado. Quem responde qual das três é
+      `explicarPainelAusente`, que lê o documento em vez de deduzir do vazio.
+    */
+    res.status(404).json({ error: fraseDoPainelAusente(await explicarPainelAusente(db, id)) });
     return;
   }
 
