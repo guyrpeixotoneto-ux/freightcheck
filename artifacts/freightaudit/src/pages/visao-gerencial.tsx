@@ -21,7 +21,7 @@ import {
   type VigenciaDaAuditoria,
 } from "@/lib/auditoria-gerencial";
 import { formatBrlCompacto, formatNumber, periodicitySuffix } from "@/lib/format";
-import { linkDaVisaoGeral } from "@/lib/recorte";
+import { linkDosParametros } from "@/lib/recorte";
 import { cn } from "@/lib/utils";
 
 /**
@@ -98,8 +98,24 @@ function CartaoDaUnidade({ unidade, ano }: { unidade: ResumoDaUnidade; ano: numb
 
   return (
     <Link
-      href={linkDaVisaoGeral({
-        period: null,
+      /*
+        O cartão abre os **Parâmetros** da unidade, e não o Resumo executivo.
+
+        A pergunta que este cartão deixa em aberto é "3.202 alterações no ano, e
+        o que mudou?", e quem responde isso é a grade de atributos — coluna a
+        coluna, por cavalo, carreta, conjunto, trecho e QLP. O Resumo executivo
+        respondia meio degrau antes, e obrigava a um segundo clique para chegar
+        onde a pergunta ia dar de qualquer forma.
+
+        **A vigência viaja junto, e é a última daquela unidade.** Sem ela
+        Parâmetros abriria a mais recente do banco, que numa base com várias
+        unidades pode ser de outra; com ela, a quinzena que abre é a mesma que o
+        cartão anuncia duas linhas acima ("última vigência em 01/08"). O cartão
+        fala do ano e a tela de destino fala de uma quinzena — a troca de escala
+        é real, e é por isso que ela está escrita no cartão e não deduzida lá.
+      */
+      href={linkDosParametros({
+        period: unidade.ultimaVigencia,
         scopeHash: unidade.scopeHash,
         /*
           `canal: ""` não é a ausência de canal: é a partição das vigências cujo
@@ -228,8 +244,16 @@ function CartaoDaUnidade({ unidade, ano }: { unidade: ResumoDaUnidade; ano: numb
         <FaixaDoAno quinzenas={unidade.quinzenas} />
         <p className="text-[0.6875rem] uppercase tracking-wide text-muted-foreground mt-1.5 flex items-center justify-between">
           <span>jan</span>
+          {/*
+            O rótulo nomeia o destino em vez de dizer "abrir".
+
+            "Abrir a unidade" não diz onde se cai, e cair numa tela que fala de
+            uma quinzena depois de clicar num cartão que fala do ano parece
+            defeito quando ninguém avisou. Dizendo "ver os parâmetros", a troca
+            de assunto é escolhida e não sofrida.
+          */}
           <span className="inline-flex items-center gap-1 normal-case tracking-normal text-xs">
-            abrir a unidade <ArrowRight className="w-3 h-3" />
+            ver os parâmetros <ArrowRight className="w-3 h-3" />
           </span>
           <span>dez</span>
         </p>
@@ -287,7 +311,8 @@ export default function VisaoGerencialDaAuditoria() {
             <p className="text-muted-foreground mt-2 max-w-3xl">
               Quanto do ano já foi auditado, em cada unidade — o que chegou, o que
               foi comparado com a vigência anterior, o que mudou e quanto isso
-              custa. Abra uma unidade para ver a vigência por dentro.
+              custa. Abrir uma unidade leva aos parâmetros dela, na última
+              vigência que ela publicou.
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -512,9 +537,19 @@ export default function VisaoGerencialDaAuditoria() {
                 trabalho — onde a Visão Gerencial do Fechamento responde a mesma
                 pergunta sobre o outro eixo.
               </p>
+              {/*
+                A frase precisa acompanhar o cartão. Ela dizia "o caminho
+                continua sendo o de sempre: Resumo executivo…" enquanto o cartão
+                passou a abrir os Parâmetros — e uma tela que aponta um caminho e
+                anda por outro faz quem lê duvidar dos dois.
+              */}
               <p>
-                Para descer ao detalhe de uma unidade, o caminho continua sendo o
-                de sempre:{" "}
+                O cartão desce direto para os{" "}
+                <Link href="/parametros" className="text-primary hover:underline">
+                  Parâmetros
+                </Link>{" "}
+                da unidade, que é onde o "o que mudou" está atributo a atributo. Os
+                outros dois caminhos continuam abertos pela lateral:{" "}
                 <Link href="/" className="text-primary hover:underline">
                   Resumo executivo
                 </Link>{" "}
