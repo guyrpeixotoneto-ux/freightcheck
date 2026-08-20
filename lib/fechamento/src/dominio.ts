@@ -267,3 +267,21 @@ export function lerNumero(bruto: unknown): number | null {
 export function centavos(valor: number): number {
   return Math.round(valor * 100) / 100 + 0;
 }
+
+/**
+ * Um valor em reais, escrito como quem lê espera ver.
+ *
+ * `328169.46` no meio de uma frase em português é o tipo de detalhe que faz
+ * quem lê desconfiar do resto. Fica aqui, e não em cada módulo, porque três
+ * lugares já a escreviam — o título de uma divergência, a memória de cálculo e
+ * o levantamento de inconsistências — e três cópias acabariam divergindo no
+ * dia em que uma delas mudasse de casas.
+ */
+export function emReais(valor: number): string {
+  return valor.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
+}

@@ -28,6 +28,13 @@ import { contratoDaPlanilha, lerPlanilha, vigenciaQueResponde } from "@workspace
  * casa, a resposta é `null`, e a tela diz "sem cadastro" em vez de mostrar um
  * devido tirado do contrato de outra unidade.
  *
+ * **A unidade sem código não é candidata, e o `<> ''` diz isso.** Desde a `0047`
+ * o cadastro aceita unidade sem CNPJ, e `''` ali quer dizer "ninguém deu o
+ * código" — nunca "o código é vazio". Sem a guarda, uma competência que
+ * chegasse com o código em branco casaria com **todas** as unidades ainda não
+ * identificadas, e a primeira delas responderia pelo contrato. Quem gravar o
+ * CNPJ depois (`informarCodigoDaUnidade`) volta a ser candidata sozinha.
+ *
  * **Só a Rota.** O contrato transcrito é o da Rota — a própria aba `Cadastro`
  * escreve `QUANTIDADE DE DOCUMENTOS EMITIDOS - ROTA %` —, e é também o único
  * canal com painel (`CANAIS_COM_PAINEL`). Responder pelo AS com os parâmetros
@@ -57,6 +64,7 @@ async function unidadeDoCadastro(
     SELECT u.scope_hash, u.canal
       FROM remuneracao_unidade u
      WHERE u.codigo = ${unidadeCodigo}
+       AND u.codigo <> ''
      ORDER BY (u.canal = ${tipoDeOperacao}) DESC, (u.canal = '') DESC, u.canal
      LIMIT 1
   `);

@@ -670,6 +670,31 @@ export interface PainelComparado {
     segunda: { cadastroId: string; vigenteDe: string } | null;
   };
   pendencias: string[];
+  /**
+   * O que as duas leituras não conciliam, ordenado por tamanho.
+   *
+   * **Não soma, e a tela não deve somar.** Os itens se sobrepõem — a diferença
+   * do total de um quadro é, em parte, a soma das diferenças das linhas dele —,
+   * e um total no rodapé desta lista contaria a mesma divergência duas vezes.
+   * Ver `inconsistencias.ts` em `@workspace/fechamento`.
+   */
+  inconsistencias: Inconsistencia[];
+}
+
+/** Uma divergência nomeada entre o contrato e o demonstrativo. */
+export interface Inconsistencia {
+  chave: string;
+  canal: string;
+  quinzena: 1 | 2;
+  linha: string;
+  rotulo: string;
+  quadro: string;
+  tipo: "FONTES_DISCORDAM" | "SEM_DEMONSTRADO" | "SEM_DEVIDO";
+  /** `devido − demonstrado`. Positivo: o contrato manda pagar mais. */
+  valor: number;
+  entre: [string, string];
+  porque: string;
+  destrava: string;
 }
 
 export interface ResumoDoMes {

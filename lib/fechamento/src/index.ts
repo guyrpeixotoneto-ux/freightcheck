@@ -32,6 +32,7 @@ export * from "./diario";
 export * from "./resumo";
 export * from "./de-para";
 export * from "./mapa-rota";
+export * from "./inconsistencias";
 /*
   A prova de equivalência contra a planilha. Vai no índice porque quem consome o
   motor precisa poder conferi-lo — e porque a alternativa, um script solto, é
