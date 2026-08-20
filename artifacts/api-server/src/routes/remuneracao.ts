@@ -1,7 +1,10 @@
 import { Router, type IRouter } from "express";
 import { db } from "@workspace/db";
 import type { RequestedContext } from "@workspace/comparison";
+import { ehMimeDeImagem, lerPlanilhaDaImagem } from "@workspace/assistant";
 import {
+  BLOCOS_DO_CADASTRO,
+  conferirCelula,
   copiarPlanilhaDaUnidade,
   gravarPlanilhaDaUnidade,
   lerCadastroDaUnidade,
@@ -323,6 +326,110 @@ router.post("/remuneracao/planilha/copia", async (req, res): Promise<void> => {
     return;
   }
   res.json(planilha);
+});
+
+/**
+ * Lê uma imagem da aba e devolve o que ela diz — sem gravar nada.
+ *
+ * **`POST` e não `PUT`, e nada aqui toca o banco.** É uma leitura que produz
+ * resposta nova a cada chamada, e o seu efeito colateral é zero: o que ela
+ * devolve vai para os campos do formulário como rascunho, e continua sendo o
+ * "Salvar" da própria pessoa que escreve a planilha. Um endereço que gravasse
+ * direto o que um modelo leu numa foto trocaria a declaração de quem assina
+ * pela transcrição de quem não assina nada.
+ *
+ * **A resposta separa três coisas, e a separação é o produto.** `valores` é o
+ * que a imagem respondeu; `naoEncontradas`, o que ela não mostrou, nomeado;
+ * `recusadas`, o que ela mostrou e a regra da linha recusa — um percentual
+ * acima de cem, uma contagem quebrada. A recusa é conferida aqui pela mesma
+ * `conferirCelula` que guarda o `PUT`, e por isso a leitura não consegue
+ * empurrar para a tela um número que o gravar rejeitaria depois.
+ *
+ * O catálogo vai inteiro para a leitura porque a aba é a mesma para toda
+ * unidade: são as trinta linhas do contrato, e não um recorte do que aquele
+ * `scopeHash` já tem.
+ */
+router.post("/remuneracao/planilha/leitura-de-imagem", async (req, res): Promise<void> => {
+  const corpo = (req.body ?? {}) as Record<string, unknown>;
+  const mimeType = corpo.mimeType;
+  /*
+    A tela manda o base64 puro, mas um `data:` URL inteiro é o engano de uma
+    linha — `reader.result` vem com o prefixo, e quem esquecer de cortá-lo
+    receberia "não consegui ler" numa imagem perfeita. Cortar aqui custa uma
+    expressão regular e evita esse desencontro.
+  */
+  const dados =
+    typeof corpo.imagem === "string" ? corpo.imagem.replace(/^data:[^,]*,/, "").trim() : "";
+
+  if (!ehMimeDeImagem(mimeType)) {
+    res.status(400).json({
+      error:
+        "mimeType precisa ser image/png, image/jpeg, image/webp ou image/gif — são os " +
+        "formatos que a leitura enxerga. Um PDF da aba não passa por aqui.",
+    });
+    return;
+  }
+  if (dados === "") {
+    res.status(400).json({
+      error: "imagem é obrigatória e vem em base64 — é o conteúdo do print da aba.",
+    });
+    return;
+  }
+
+  const linhas = BLOCOS_DO_CADASTRO.flatMap((bloco) =>
+    bloco.linhas.map((linha) => ({
+      chave: linha.chave,
+      rotulo: linha.rotulo,
+      medida: linha.medida,
+      bloco: bloco.titulo,
+    })),
+  );
+
+  const leitura = await lerPlanilhaDaImagem({ imagem: { mimeType, dados }, linhas });
+
+  /*
+    A mesma trava do `PUT`, aplicada antes de a tela ver o número. `5,90` lido
+    como `590` num campo de alíquota é o erro que a foto produz, e ele para
+    aqui com o motivo escrito — em vez de chegar ao campo, passar despercebido
+    e voltar como 400 no clique de salvar.
+  */
+  const valores: { chave: string; valor: number; comoEstaNaImagem: string }[] = [];
+  const recusadas: { chave: string; comoEstaNaImagem: string; motivo: string }[] = [];
+
+  for (const lido of leitura.valores) {
+    try {
+      const celula = conferirCelula({ chave: lido.chave, valor: lido.valor });
+      if (celula.valor === null) {
+        recusadas.push({
+          chave: lido.chave,
+          comoEstaNaImagem: lido.comoEstaNaImagem,
+          motivo: "A leitura não resultou em número.",
+        });
+        continue;
+      }
+      valores.push({
+        chave: celula.chave,
+        valor: celula.valor,
+        comoEstaNaImagem: lido.comoEstaNaImagem,
+      });
+    } catch (erro) {
+      if (!(erro instanceof LinhaDaPlanilhaInvalida)) throw erro;
+      recusadas.push({
+        chave: lido.chave,
+        comoEstaNaImagem: lido.comoEstaNaImagem,
+        motivo: erro.message,
+      });
+    }
+  }
+
+  res.json({
+    valores,
+    naoEncontradas: leitura.naoEncontradas,
+    recusadas,
+    motivo: leitura.motivo,
+    erro: leitura.erro,
+    modelo: leitura.modelo,
+  });
 });
 
 export default router;

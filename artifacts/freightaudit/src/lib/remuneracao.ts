@@ -462,6 +462,43 @@ export function gravarPlanilha(pedido: {
   });
 }
 
+/**
+ * O que uma imagem da aba respondeu — e o que ela não respondeu.
+ *
+ * As três listas são separadas de propósito, porque significam coisas
+ * diferentes na tela: `valores` preenche campo, `naoEncontradas` fica em
+ * branco esperando alguém, e `recusadas` é o que a imagem mostrou e a regra da
+ * linha barrou — o `5,90` lido como `590` numa alíquota. Somá-las num número só
+ * ("20 de 30 lidas") esconderia justamente o que precisa de atenção.
+ */
+export interface LeituraDeImagem {
+  valores: { chave: string; valor: number; comoEstaNaImagem: string }[];
+  naoEncontradas: string[];
+  recusadas: { chave: string; comoEstaNaImagem: string; motivo: string }[];
+  motivo: "IA" | "SEM_CHAVE" | "RECUSA" | "ERRO";
+  erro: string | null;
+  modelo: string;
+}
+
+/**
+ * Lê um print da aba e devolve o que está escrito nele. **Não grava nada.**
+ *
+ * O que volta daqui vai para os campos como rascunho, do mesmo jeito que se
+ * tivesse sido digitado: continua sendo o "Salvar" de quem cadastra que
+ * escreve a planilha.
+ */
+export function lerPlanilhaDaImagem(pedido: {
+  /** O conteúdo da imagem em base64 — com ou sem o prefixo `data:`. */
+  imagem: string;
+  mimeType: string;
+}): Promise<LeituraDeImagem> {
+  return fetchJson<LeituraDeImagem>("/remuneracao/planilha/leitura-de-imagem", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(pedido),
+  });
+}
+
 /** Repete numa vigência o que já foi digitado noutra, sem sobrescrever nada. */
 export function copiarPlanilha(pedido: {
   scopeHash?: string;

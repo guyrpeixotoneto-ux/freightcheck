@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { useQuery } from "@tanstack/react-query";
 import { PencilLine, Plus, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -153,7 +154,26 @@ function PainelDeCadastro({
     setDigitando(false);
   }
 
-  return (
+  /*
+    O painel é levado para o `body`, e não desenhado onde o botão está.
+
+    O botão vive numa célula da lista de unidades, e aquela célula é
+    `text-right whitespace-nowrap` — ela alinha e não deixa quebrar a contagem
+    que mora nela. `white-space` e `text-align` são herdadas, e `position:
+    fixed` muda o posicionamento, não a herança: desenhado ali dentro, o painel
+    inteiro herdava as duas. O efeito era o texto de ajuda de cada campo virar
+    uma linha só, transbordar a coluna e se sobrepor ao do campo vizinho — e
+    `max-w-2xl` não segurava nada, porque sob `nowrap` o limite continua sendo
+    a largura da caixa enquanto o texto passa por fora dela.
+
+    Um `whitespace-normal text-left` aqui consertaria estas duas propriedades e
+    deixaria a próxima passar. O portal corta a classe inteira do problema:
+    fora da tabela, o painel não herda nada da célula que abriu. É o que o
+    `Dialog` do Radix faz pelo mesmo motivo — e o `Dialog` compartilhado deste
+    repositório, que também desenha no lugar, tem a mesma exposição; não o
+    mexo aqui porque as telas que o usam são caixas curtas fora de tabela.
+  */
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-4 sm:p-8">
       <div
         className="fixed inset-0 bg-black/50 backdrop-blur-sm"
@@ -304,7 +324,8 @@ function PainelDeCadastro({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 

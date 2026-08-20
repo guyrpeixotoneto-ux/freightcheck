@@ -1,6 +1,15 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Check, Copy, Eraser, PencilLine, Save } from "lucide-react";
+import {
+  AlertTriangle,
+  Check,
+  Copy,
+  Eraser,
+  ImageUp,
+  PencilLine,
+  Save,
+  ScanLine,
+} from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,10 +31,12 @@ import {
   escreverValor,
   gravarPlanilha,
   lerPlanilha,
+  lerPlanilhaDaImagem,
   paraOCampo,
   type BlocoApurado,
   type CadastroDaUnidade,
   type CelulaAGravar,
+  type LeituraDeImagem,
   type LinhaApurada,
   type Medida,
 } from "@/lib/remuneracao";
@@ -58,6 +69,12 @@ import { Legenda, MarcaDoPreenchimento } from "./comuns";
  *    aba e o acervo é a única coisa que esta tela existe para achar.
  * 3. **Salvar manda só o que mudou.** Quem edita um bloco não pode apagar os
  *    outros oito por não os ter tocado.
+ * 4. **A imagem preenche o campo; ela não salva.** Importar um print da aba é
+ *    a mesma coisa que digitar depressa: o número cai no rascunho, marcado com
+ *    o texto que estava na célula, e continua esperando o "Salvar" de quem
+ *    cadastra. A regra 1 não é contrariada por ela — o que a imagem traz é o
+ *    que a **planilha** diz, que é exatamente o que esta tela pergunta; o que
+ *    não pode entrar no campo sozinho é o que o **acervo** mediu.
  *
  * O campo relê o que entendeu ao perder o foco: `1.424` vira `1.424,00` antes
  * de qualquer clique em salvar, e quem quis dizer um vírgula quatro dois quatro
@@ -71,17 +88,9 @@ const SIMBOLO: Record<Medida, { antes: string; depois: string }> = {
   QUANTIDADE: { antes: "", depois: "" },
 };
 
-/** O texto de um campo, e o que ele estava quando a tela abriu. */
-interface Rascunho {
-  texto: string;
-  observacao: string;
-}
-
-function rascunhoInicial(linha: LinhaApurada): Rascunho {
-  return {
-    texto: linha.declarado ? paraOCampo(linha.declarado.valor, linha.medida) : "",
-    observacao: linha.declarado?.observacao ?? "",
-  };
+/** O que está digitado num campo — vazio na linha que ninguém informou. */
+function rascunhoInicial(linha: LinhaApurada): string {
+  return linha.declarado ? paraOCampo(linha.declarado.valor, linha.medida) : "";
 }
 
 export function CadastrarAPlanilha({
@@ -101,11 +110,23 @@ export function CadastrarAPlanilha({
     seletor deixaria na tela o que se digitou na anterior, e "salvar" gravaria a
     planilha de julho dentro de agosto.
   */
-  const [rascunho, setRascunho] = useState<Record<string, Rascunho>>(() =>
+  const [rascunho, setRascunho] = useState<Record<string, string>>(() =>
     Object.fromEntries(linhas.map((l) => [l.chave, rascunhoInicial(l)])),
   );
   const [erro, setErro] = useState<string | null>(null);
   const [salvo, setSalvo] = useState<string | null>(null);
+
+  /*
+    O que veio de uma imagem, por chave, guardado como o **texto da célula** —
+    `R$ 1.424,00`, e não `1424`.
+
+    Ele é a prova ao lado do campo: sem ela, um número lido de uma foto fica
+    indistinguível de um número digitado por uma pessoa, e a inversão de
+    vírgula que a leitura pode cometer (`5,90` virando `590`) não teria como ser
+    pega de relance. A marca some no instante em que alguém edita a linha à mão
+    — a partir daí o campo é dela, e dizer "veio da imagem" seria mentira.
+  */
+  const [daImagem, setDaImagem] = useState<Record<string, string>>({});
 
   const original = useMemo(
     () => Object.fromEntries(linhas.map((l) => [l.chave, rascunhoInicial(l)])),
@@ -129,12 +150,13 @@ export function CadastrarAPlanilha({
     coisa que muda esta assinatura é uma escrita desta própria tela.
   */
   const assinatura = linhas
-    .map((l) => `${l.chave}=${l.declarado?.valor ?? ""}|${l.declarado?.observacao ?? ""}`)
+    .map((l) => `${l.chave}=${l.declarado?.valor ?? ""}`)
     .join(";");
   const [assinaturaAnterior, setAssinaturaAnterior] = useState(assinatura);
   if (assinatura !== assinaturaAnterior) {
     setAssinaturaAnterior(assinatura);
     setRascunho(original);
+    setDaImagem({});
   }
 
   /*
@@ -146,25 +168,22 @@ export function CadastrarAPlanilha({
   */
   const mudadas = linhas.filter((l) => {
     const antes = original[l.chave]!;
-    const agora = rascunho[l.chave] ?? antes;
-    return antes.texto !== agora.texto || antes.observacao !== agora.observacao;
+    return (rascunho[l.chave] ?? antes) !== antes;
   });
 
   /** As linhas cujo texto não vira número — o que impede salvar. */
   const invalidas = mudadas.filter((l) => {
-    const texto = rascunho[l.chave]?.texto.trim() ?? "";
+    const texto = rascunho[l.chave]?.trim() ?? "";
     return texto !== "" && doCampo(texto) === undefined;
   });
 
   const gravar = useMutation({
     mutationFn: () => {
       const celulas: CelulaAGravar[] = mudadas.map((linha) => {
-        const atual = rascunho[linha.chave]!;
-        const texto = atual.texto.trim();
+        const texto = rascunho[linha.chave]!.trim();
         return {
           chave: linha.chave,
           valor: texto === "" ? null : (doCampo(texto) ?? null),
-          observacao: atual.observacao.trim() === "" ? null : atual.observacao.trim(),
         };
       });
       return gravarPlanilha({
@@ -190,20 +209,47 @@ export function CadastrarAPlanilha({
     },
   });
 
-  function editar(chave: string, mudanca: Partial<Rascunho>) {
+  function editar(chave: string, texto: string) {
     setSalvo(null);
-    setRascunho((atual) => ({
-      ...atual,
-      [chave]: { ...(atual[chave] ?? { texto: "", observacao: "" }), ...mudanca },
-    }));
+    setRascunho((atual) => ({ ...atual, [chave]: texto }));
+    setDaImagem((atual) => {
+      if (!(chave in atual)) return atual;
+      const { [chave]: _, ...resto } = atual;
+      return resto;
+    });
+  }
+
+  /**
+   * Despeja no rascunho o que a imagem respondeu.
+   *
+   * Escreve por cima do que estiver no campo, inclusive do que já foi salvo, e
+   * é o comportamento certo: quem manda o print da aba está dizendo qual é a
+   * aba. O que ela **não** faz é apagar o que não leu — as linhas fora da
+   * leitura ficam como estavam, porque uma imagem que pegou meia planilha não
+   * é uma declaração de que a outra metade está vazia.
+   */
+  function preencherComAImagem(leitura: LeituraDeImagem) {
+    const porChave = new Map(linhas.map((l) => [l.chave, l]));
+    const textos: Record<string, string> = {};
+    const marcas: Record<string, string> = {};
+
+    for (const lido of leitura.valores) {
+      const linha = porChave.get(lido.chave);
+      if (!linha) continue;
+      textos[lido.chave] = paraOCampo(lido.valor, linha.medida);
+      marcas[lido.chave] = lido.comoEstaNaImagem;
+    }
+
+    setSalvo(null);
+    setRascunho((atual) => ({ ...atual, ...textos }));
+    setDaImagem((atual) => ({ ...atual, ...marcas }));
   }
 
   /** Reescreve o campo no formato canônico — o que a leitura entendeu. */
   function normalizar(linha: LinhaApurada) {
-    const texto = rascunho[linha.chave]?.texto ?? "";
-    const numero = doCampo(texto);
+    const numero = doCampo(rascunho[linha.chave] ?? "");
     if (numero === undefined) return;
-    editar(linha.chave, { texto: paraOCampo(numero, linha.medida) });
+    editar(linha.chave, paraOCampo(numero, linha.medida));
   }
 
   return (
@@ -216,6 +262,7 @@ export function CadastrarAPlanilha({
           setSalvo(null);
         }}
         aoErro={setErro}
+        aoLerImagem={preencherComAImagem}
         aoCopiado={(quantas) => {
           setSalvo(
             quantas === 0
@@ -231,6 +278,7 @@ export function CadastrarAPlanilha({
           key={bloco.titulo}
           bloco={bloco}
           rascunho={rascunho}
+          daImagem={daImagem}
           onEditar={editar}
           onNormalizar={normalizar}
         />
@@ -310,12 +358,14 @@ function Cabecalho({
   aoCopiar,
   aoCopiado,
   aoErro,
+  aoLerImagem,
 }: {
   dados: CadastroDaUnidade;
   informadas: number;
   aoCopiar: () => void;
   aoCopiado: (quantas: number) => void;
   aoErro: (mensagem: string) => void;
+  aoLerImagem: (leitura: LeituraDeImagem) => void;
 }) {
   const queryClient = useQueryClient();
   const [origem, setOrigem] = useState<string>("");
@@ -381,6 +431,8 @@ function Cabecalho({
           aparece ao lado — é a diferença entre os dois que esta tela existe para mostrar.
         </p>
 
+        <ImportarDaImagem aoLer={aoLerImagem} aoErro={aoErro} aoComecar={aoCopiar} />
+
         {outras.length > 0 && (
           <div className="flex flex-wrap items-end gap-3 border-t pt-3">
             <div className="space-y-1.5 min-w-[14rem]">
@@ -436,6 +488,200 @@ function Cabecalho({
   );
 }
 
+/**
+ * IMPORTAR A ABA DE UMA IMAGEM — o print que vira rascunho.
+ *
+ * O gesto que este bloco substitui é uma pessoa com o anexo aberto de um lado e
+ * o formulário do outro, transcrevendo trinta linhas. A transcrição é onde o
+ * erro entra: o salto de linha, o total copiado para a parcela de cima, o
+ * `5,90` digitado como `0,059`.
+ *
+ * **Ele preenche, e para aí.** Nada é gravado: os números caem nos campos como
+ * rascunho, cada um marcado com o texto que estava na célula, e o "Salvar"
+ * continua sendo de quem cadastra. É por isso que o botão pode existir sem
+ * contrariar a primeira regra desta tela — o que ele traz é o que a **planilha**
+ * diz, e não o que o acervo mediu.
+ *
+ * **O resultado é dito em três partes.** Quantas linhas entraram, quais a
+ * imagem não mostrou e quais ela mostrou mas a regra da linha recusou. A
+ * terceira é a que importa mais e é a que um resumo em número só apagaria: uma
+ * alíquota lida como `590` não é uma linha a menos, é um aviso de que a foto
+ * está sendo lida errado.
+ */
+function ImportarDaImagem({
+  aoLer,
+  aoErro,
+  aoComecar,
+}: {
+  aoLer: (leitura: LeituraDeImagem) => void;
+  aoErro: (mensagem: string) => void;
+  aoComecar: () => void;
+}) {
+  const [resumo, setResumo] = useState<string | null>(null);
+  const [ressalva, setRessalva] = useState<string | null>(null);
+
+  const ler = useMutation({
+    mutationFn: async (arquivo: File) => {
+      const dados = await base64De(arquivo);
+      return lerPlanilhaDaImagem({ imagem: dados, mimeType: arquivo.type });
+    },
+    onSuccess: (leitura) => {
+      if (leitura.motivo === "SEM_CHAVE") {
+        setResumo(null);
+        setRessalva(null);
+        aoErro(
+          "A leitura de imagem não está configurada neste ambiente — falta a chave do modelo. " +
+            "Os campos continuam abertos para digitar.",
+        );
+        return;
+      }
+      if (leitura.motivo !== "IA") {
+        setResumo(null);
+        setRessalva(null);
+        aoErro(
+          leitura.erro ??
+            "Não consegui ler esta imagem. Um print da aba inteira, sem corte e sem giro, " +
+              "costuma resolver.",
+        );
+        return;
+      }
+
+      aoLer(leitura);
+
+      const lidas = leitura.valores.length;
+      setResumo(
+        lidas === 0
+          ? "Não achei nenhuma linha do cadastro nesta imagem — confira se é a aba de parâmetros."
+          : `${lidas} ${lidas === 1 ? "linha preenchida" : "linhas preenchidas"} a partir da ` +
+            "imagem. Confira cada uma e salve — nada foi gravado ainda.",
+      );
+
+      /*
+        As recusadas vêm antes das não encontradas quando as duas existem: uma
+        linha em branco na foto é rotina, e uma linha que a regra barrou é
+        sinal de que a leitura entendeu a vírgula ao contrário — que é o
+        defeito que estraga a quinzena inteira sem aparecer.
+      */
+      setRessalva(
+        leitura.recusadas.length > 0
+          ? `${leitura.recusadas.length} ${
+              leitura.recusadas.length === 1 ? "linha ficou de fora" : "linhas ficaram de fora"
+            } porque o valor lido não passa na regra da linha (${leitura.recusadas
+              .map((r) => `"${r.comoEstaNaImagem}"`)
+              .join(", ")}). Digite essas à mão.`
+          : leitura.naoEncontradas.length > 0
+            ? `${leitura.naoEncontradas.length} ${
+                leitura.naoEncontradas.length === 1
+                  ? "linha do cadastro não aparece"
+                  : "linhas do cadastro não aparecem"
+              } nesta imagem, e ficaram como estavam.`
+            : null,
+      );
+    },
+    onError: (err: unknown) => {
+      setResumo(null);
+      setRessalva(null);
+      aoErro(textoDoErro(err));
+    },
+  });
+
+  /*
+    O `Button` deste repositório declara `asChild` e não o implementa — ele
+    sempre desenha um `<button>`. Um `<label>` embrulhado nele viraria HTML
+    inválido e não abriria o seletor de arquivo; o `input` fica fora e o botão
+    o aciona por referência, que funciona nos dois casos.
+  */
+  const entrada = useRef<HTMLInputElement>(null);
+
+  return (
+    <div className="flex flex-wrap items-center gap-3 border-t pt-3">
+      <Button
+        variant="outline"
+        disabled={ler.isPending}
+        onClick={() => entrada.current?.click()}
+      >
+        {ler.isPending ? (
+          <>
+            <ScanLine className="w-4 h-4 mr-1.5 animate-pulse" />
+            Lendo a imagem…
+          </>
+        ) : (
+          <>
+            <ImageUp className="w-4 h-4 mr-1.5" />
+            Preencher a partir de uma imagem
+          </>
+        )}
+      </Button>
+
+      <input
+        ref={entrada}
+        type="file"
+        className="sr-only"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        onChange={(e) => {
+          const arquivo = e.target.files?.[0];
+          /*
+            O campo é zerado antes da chamada para que mandar **o mesmo
+            arquivo** duas vezes dispare de novo: sem isso o `change` não volta
+            a acontecer, e quem tentou reler a foto depois de corrigir um campo
+            acharia que o botão quebrou.
+          */
+          e.target.value = "";
+          if (!arquivo) return;
+          setResumo(null);
+          setRessalva(null);
+          aoComecar();
+          if (arquivo.size > TETO_DA_IMAGEM) {
+            aoErro(
+              `Esta imagem tem ${(arquivo.size / 1024 / 1024).toFixed(1)} MB e o limite é ` +
+                `${TETO_DA_IMAGEM / 1024 / 1024} MB. Um print da tela pesa bem menos que ` +
+                "uma foto de celular em resolução cheia.",
+            );
+            return;
+          }
+          ler.mutate(arquivo);
+        }}
+      />
+
+      <p className="text-xs text-muted-foreground flex-1 min-w-[16rem]">
+        {resumo ? (
+          <>
+            <span className={cn(ressalva ? undefined : "text-foreground")}>{resumo}</span>
+            {ressalva && <span className="block mt-0.5 text-foreground">{ressalva}</span>}
+          </>
+        ) : (
+          "Um print da aba de parâmetros preenche os campos de uma vez, cada um marcado com o " +
+          "texto que estava na célula. Nada é gravado por isso: é rascunho, e o salvar continua " +
+          "sendo seu."
+        )}
+      </p>
+    </div>
+  );
+}
+
+/** Doze megabytes: um print de tela cabe com folga, uma foto crua não. */
+const TETO_DA_IMAGEM = 12 * 1024 * 1024;
+
+/**
+ * O arquivo em base64, sem o prefixo `data:`.
+ *
+ * O servidor corta o prefixo também, e a redundância é de propósito: são dois
+ * lados de uma fronteira, e o que chega nela nunca é só o que este código
+ * manda.
+ */
+function base64De(arquivo: File): Promise<string> {
+  return new Promise((resolver, rejeitar) => {
+    const leitor = new FileReader();
+    leitor.onerror = () =>
+      rejeitar(new Error("Não consegui abrir este arquivo. Tente salvá-lo como PNG e reenviar."));
+    leitor.onload = () => {
+      const bruto = typeof leitor.result === "string" ? leitor.result : "";
+      resolver(bruto.replace(/^data:[^,]*,/, ""));
+    };
+    leitor.readAsDataURL(arquivo);
+  });
+}
+
 function Contagem({
   titulo,
   valor,
@@ -463,12 +709,14 @@ function Contagem({
 function BlocoEditavel({
   bloco,
   rascunho,
+  daImagem,
   onEditar,
   onNormalizar,
 }: {
   bloco: BlocoApurado;
-  rascunho: Record<string, Rascunho>;
-  onEditar: (chave: string, mudanca: Partial<Rascunho>) => void;
+  rascunho: Record<string, string>;
+  daImagem: Record<string, string>;
+  onEditar: (chave: string, texto: string) => void;
   onNormalizar: (linha: LinhaApurada) => void;
 }) {
   return (
@@ -483,8 +731,9 @@ function BlocoEditavel({
             <LinhaEditavel
               key={linha.chave}
               linha={linha}
-              rascunho={rascunho[linha.chave] ?? { texto: "", observacao: "" }}
-              onEditar={(mudanca) => onEditar(linha.chave, mudanca)}
+              rascunho={rascunho[linha.chave] ?? ""}
+              daImagem={daImagem[linha.chave] ?? null}
+              onEditar={(texto) => onEditar(linha.chave, texto)}
               onNormalizar={() => onNormalizar(linha)}
             />
           ))}
@@ -505,12 +754,15 @@ function BlocoEditavel({
 function LinhaEditavel({
   linha,
   rascunho,
+  daImagem,
   onEditar,
   onNormalizar,
 }: {
   linha: LinhaApurada;
-  rascunho: Rascunho;
-  onEditar: (mudanca: Partial<Rascunho>) => void;
+  rascunho: string;
+  /** O texto da célula na imagem, quando foi de lá que este campo veio. */
+  daImagem: string | null;
+  onEditar: (texto: string) => void;
   onNormalizar: () => void;
 }) {
   const simbolo = SIMBOLO[linha.medida];
@@ -580,9 +832,9 @@ function LinhaEditavel({
             <Input
               aria-label={linha.rotulo}
               inputMode="decimal"
-              value={rascunho.texto}
+              value={rascunho}
               placeholder="—"
-              onChange={(e) => onEditar({ texto: e.target.value })}
+              onChange={(e) => onEditar(e.target.value)}
               onBlur={onNormalizar}
               className={cn(
                 "text-right tabular-nums",
@@ -594,10 +846,29 @@ function LinhaEditavel({
             )}
           </div>
 
-          {rascunho.texto !== "" && (
+          {/*
+            O texto da célula, como ele está na imagem, embaixo do campo que
+            ele preencheu.
+
+            É o que torna a leitura conferível sem abrir o anexo de novo: `R$
+            1.424,00` embaixo de um campo com `1.424,00` confere de relance, e
+            `5,90%` embaixo de um campo com `590,00` denuncia a vírgula lida ao
+            contrário — que é o erro que a foto produz e o único que atravessa a
+            quinzena inteira parecendo certo.
+          */}
+          {daImagem !== null && (
+            <p className="text-[0.6875rem] text-muted-foreground flex items-start gap-1">
+              <ScanLine className="w-3 h-3 mt-0.5 shrink-0" />
+              <span>
+                na imagem: <span className="text-foreground">{daImagem}</span>
+              </span>
+            </p>
+          )}
+
+          {rascunho !== "" && (
             <button
               type="button"
-              onClick={() => onEditar({ texto: "", observacao: "" })}
+              onClick={() => onEditar("")}
               className="text-[0.6875rem] text-muted-foreground hover:text-foreground inline-flex items-center gap-1"
             >
               <Eraser className="w-3 h-3" />
@@ -623,15 +894,6 @@ function LinhaEditavel({
         </div>
       )}
 
-      <div className="mt-2">
-        <Input
-          aria-label={`Observação de ${linha.rotulo}`}
-          value={rascunho.observacao}
-          placeholder="De onde veio este número (opcional) — a célula, o acordo, a data"
-          onChange={(e) => onEditar({ observacao: e.target.value })}
-          className="h-8 text-xs"
-        />
-      </div>
     </li>
   );
 }
