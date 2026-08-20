@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acaoDoFechamento, anoAceito, lerParteDigitada, podeExcluir } from "../competencias";
+import { acaoDoFechamento, lerParteDigitada, podeExcluir } from "../competencias";
 
 /**
  * O contrato de fechar a quinzena a partir da lista de Importações.
@@ -9,9 +9,8 @@ import { acaoDoFechamento, anoAceito, lerParteDigitada, podeExcluir } from "../c
  * oferecer "fechar" a quem já encerrou é um botão que não faz nada. A lista
  * decide isso antes de desenhar, e é esta função que decide.
  *
- * **O ano é conferido antes da viagem.** A regra continua sendo do servidor —
- * ver `routes/fechamento.ts` —, e a mesma régua aqui existe para que o clique
- * não gaste uma ida e volta para dizer o que já se sabia.
+ * A régua do ano saiu daqui junto com `anoAceito`, que passou a ser lida também
+ * pelo cadastro da unidade — ver `lib/__tests__/fechamento-tela.test.ts`.
  */
 
 describe("acaoDoFechamento", () => {
@@ -33,34 +32,6 @@ describe("acaoDoFechamento", () => {
 
   it("manda apurar enquanto a conta está rodando: não há apuração vigente ainda", () => {
     expect(acaoDoFechamento("EM_APURACAO")).toBe("APURAR");
-  });
-});
-
-describe("anoAceito", () => {
-  it("aceita o ano dentro da faixa que a rota aceita", () => {
-    expect(anoAceito("2026")).toBe(true);
-    expect(anoAceito("2000")).toBe(true);
-    expect(anoAceito("2100")).toBe(true);
-  });
-
-  it("recusa fora da faixa, nas duas pontas", () => {
-    expect(anoAceito("1999")).toBe(false);
-    expect(anoAceito("2101")).toBe(false);
-  });
-
-  it("recusa o campo vazio em vez de o ler como ano zero", () => {
-    expect(anoAceito("")).toBe(false);
-    expect(anoAceito("   ")).toBe(false);
-  });
-
-  it("recusa o que não é número, e o número que não é inteiro", () => {
-    expect(anoAceito("dois mil")).toBe(false);
-    expect(anoAceito("2026,5")).toBe(false);
-    expect(anoAceito("2026.5")).toBe(false);
-  });
-
-  it("aceita o ano com espaço em volta — quem digita não apaga o espaço", () => {
-    expect(anoAceito(" 2026 ")).toBe(true);
   });
 });
 

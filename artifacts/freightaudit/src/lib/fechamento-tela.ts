@@ -10,6 +10,24 @@ import type { DiagnosticoDoPagamento, Documento, DocumentoRecebido } from "@/lib
  */
 
 /**
+ * O ano digitado é um ano — a mesma régua que a rota aplica.
+ *
+ * Repetida na tela de propósito: sem ela o botão manda um `NaN` para o servidor
+ * e a pessoa recebe de volta um 400 para descobrir o que já se sabia antes do
+ * clique. A regra continua sendo do servidor; o que a tela evita é a viagem.
+ *
+ * **Mora aqui, e não em Importações, porque dois formulários a aplicam.** O que
+ * abre a competência e o que cadastra a unidade pedem a quinzena com os mesmos
+ * três campos, e a faixa aceita tem de ser a mesma nos dois — uma cópia que
+ * envelhecesse sozinha faria um deles recusar em tela o ano que o outro manda
+ * para o servidor sem pestanejar.
+ */
+export function anoAceito(texto: string): boolean {
+  const ano = Number(texto.trim());
+  return Number.isInteger(ano) && ano >= 2000 && ano <= 2100;
+}
+
+/**
  * A chave de tudo que se pergunta sobre uma competência.
  *
  * **O defeito que isto fecha.** O painel da planilha era

@@ -51,6 +51,7 @@ export {
   hojeEm,
   MES_CURTO,
   MES_LONGO,
+  mesPorExtenso,
   periodoDaQuinzena,
   periodosDoAno,
   type PeriodoDaQuinzena,

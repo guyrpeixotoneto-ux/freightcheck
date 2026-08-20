@@ -5,6 +5,7 @@ import { Building2, Plus, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -13,6 +14,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { apresentar } from "@/lib/apresentar-erro";
+import { TIPOS_DE_OPERACAO } from "@/lib/fechamento";
+import { MES_LONGO, mesPorExtenso, periodoDaQuinzena } from "@/lib/fechamento-gerencial";
+import { anoAceito } from "@/lib/fechamento-tela";
 import { registrarUnidade } from "@/lib/remuneracao";
 
 /**
@@ -31,6 +35,17 @@ import { registrarUnidade } from "@/lib/remuneracao";
  * continuam sem apagar medição nenhuma, porque numa unidade destas o acervo
  * ainda não mede nada.
  *
+ * **Os mesmos campos de Realizar Fechamento, na mesma ordem.** Quem cadastra a
+ * unidade é quem abre o fechamento dela, no mesmo dia e às vezes na mesma hora,
+ * e até aqui os dois formulários pediam a mesma quinzena de dois jeitos —
+ * `Ano`, `Mês` e `Quinzena` num, uma lista de "1ª quinzena de agosto de 2026"
+ * no outro — e o mesmo tipo de operação de dois jeitos: lista fechada num,
+ * campo livre no outro. O campo livre era o mais caro dos dois: a unidade é o
+ * par `(escopo, canal)`, e um `Empurrada` digitado com minúscula não encontra o
+ * `EMPURRADA` que o arquivo traz — a importação nasceria numa segunda linha ao
+ * lado desta, que é o defeito exato que este caminho existe para evitar. As
+ * duas telas passam a pedir pelo mesmo vocabulário, com as mesmas listas.
+ *
  * **Por que o código é obrigatório, e por que ele é o campo delicado.** É dele
  * que sai o identificador da unidade, somado com a mesma regra da importação.
  * Registrada com o código que o export também carrega, a unidade digitada
@@ -44,6 +59,16 @@ import { registrarUnidade } from "@/lib/remuneracao";
  * mais caprichado e produziria o identificador de um código que o arquivo não
  * tem — as duas unidades nunca se encontrariam. A exigência é real e a tela a
  * diz por extenso, porque quem digita não tem como adivinhá-la.
+ *
+ * É também a razão de o nome e o código serem **dois campos**, onde Realizar
+ * Fechamento tem um só. Lá a unidade se digita como `443 — CDD Belém`, e o
+ * leitor daquele campo parte o texto no primeiro travessão, hífen ou barra —
+ * inequívoco sobre um código de CDD, que é numérico. O código daqui é o CNPJ
+ * como o export o escreve, e `12.345.678/0001-99` traz uma barra e um hífen
+ * dentro de si: no formato de lá, ele viraria o código `12.345.678` e o nome
+ * `0001-99 — CDD Belém`. Seria um identificador errado, gravado sem erro
+ * nenhum em tela, descoberto no dia em que o arquivo chegasse e abrisse a
+ * segunda unidade.
  */
 export function BotaoDeRegistroDeUnidade() {
   const [aberto, setAberto] = useState(false);
@@ -60,41 +85,33 @@ export function BotaoDeRegistroDeUnidade() {
   );
 }
 
-/** As quinzenas que o seletor oferece, do mês corrente para trás e um à frente. */
-function quinzenasOferecidas(hoje: Date): { valor: string; rotulo: string }[] {
-  const opcoes: { valor: string; rotulo: string }[] = [];
-  const base = new Date(Date.UTC(hoje.getUTCFullYear(), hoje.getUTCMonth(), 1));
-
-  /*
-    De doze meses atrás até o mês seguinte. O passado existe porque a planilha
-    que se está transcrevendo costuma ser de uma quinzena já fechada; o futuro,
-    um mês só, porque quem cadastra a unidade em geral já tem a aba da quinzena
-    que vem — e mais do que isso viraria uma lista que ninguém lê até o fim.
-  */
-  for (let desloca = -12; desloca <= 1; desloca += 1) {
-    const mes = new Date(Date.UTC(base.getUTCFullYear(), base.getUTCMonth() + desloca, 1));
-    const ano = mes.getUTCFullYear();
-    const mm = String(mes.getUTCMonth() + 1).padStart(2, "0");
-    const nome = mes.toLocaleDateString("pt-BR", {
-      month: "long",
-      year: "numeric",
-      timeZone: "UTC",
-    });
-    opcoes.push({ valor: `${ano}-${mm}-01`, rotulo: `1ª quinzena de ${nome}` });
-    opcoes.push({ valor: `${ano}-${mm}-16`, rotulo: `2ª quinzena de ${nome}` });
-  }
-  return opcoes.reverse();
-}
-
 function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
   const queryClient = useQueryClient();
+  const hoje = new Date();
+
+  /*
+    A quinzena, nos três campos de Realizar Fechamento e com os mesmos padrões:
+    o ano e o mês de hoje, e a quinzena em que hoje cai. Vinha vazia antes, o
+    que era defensável quando a lista misturava mês e quinzena numa opção só —
+    escolher por alguém entre 28 linhas é escolher errado. Com os três campos
+    separados o padrão volta a ser o certo: quem cadastra a unidade está quase
+    sempre na quinzena corrente, e quem não está troca um seletor.
+  */
+  const [ano, setAno] = useState(String(hoje.getFullYear()));
+  const [mes, setMes] = useState(String(hoje.getMonth() + 1));
+  const [quinzena, setQuinzena] = useState(hoje.getDate() <= 15 ? "1" : "2");
   const [nome, setNome] = useState("");
   const [codigo, setCodigo] = useState("");
-  const [canal, setCanal] = useState("EMPURRADA");
-  const [vigencia, setVigencia] = useState("");
+  /*
+    O tipo nasce vazio, como o de Realizar Fechamento e pela mesma razão: ele
+    entra na identidade da unidade — o par `(escopo, canal)` —, e um padrão
+    escolheria em silêncio de qual operação é a planilha que alguém veio
+    transcrever. O `EMPURRADA` que este campo trazia pronto era isso: a maioria
+    dos casos preenchida de véspera, e a minoria gravada errada sem que nada em
+    tela tivesse perguntado.
+  */
+  const [tipoDeOperacao, setTipoDeOperacao] = useState("");
   const [erro, setErro] = useState<string | null>(null);
-
-  const [opcoes] = useState(() => quinzenasOferecidas(new Date()));
 
   useEffect(() => {
     const aoTeclar = (e: KeyboardEvent) => {
@@ -109,8 +126,15 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
       registrarUnidade({
         nome,
         codigo,
-        canal: canal.trim() === "" ? null : canal,
-        vigencia,
+        canal: tipoDeOperacao,
+        /*
+          A vigência é o primeiro dia da quinzena — dia 1 ou dia 16 —, e quem a
+          soma é o calendário do produto, o mesmo que o Fechamento usa para
+          nomear o período. Montá-la à mão aqui seria uma segunda aritmética de
+          quinzena, e o dia em que as duas discordassem a planilha digitada
+          apareceria numa vigência que o arquivo não tem.
+        */
+        vigencia: periodoDaQuinzena(Number(ano), Number(mes), Number(quinzena) as 1 | 2).inicio,
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["remuneracao"] });
@@ -119,7 +143,9 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
     onError: (err: unknown) => setErro(textoDoErro(err)),
   });
 
-  const faltaCampo = nome.trim() === "" || codigo.trim() === "" || vigencia === "";
+  const anoValido = anoAceito(ano);
+  const faltaCampo =
+    nome.trim() === "" || codigo.trim() === "" || tipoDeOperacao === "" || !anoValido;
 
   /*
     Portal, pela razão do painel de cadastro da planilha: este botão vive no
@@ -135,7 +161,14 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
         role="dialog"
         aria-modal="true"
         aria-label="Cadastrar uma unidade"
-        className="relative z-50 w-full max-w-2xl rounded-xl border bg-background shadow-lg animate-in fade-in zoom-in-95"
+        /*
+          `max-w-3xl`, e não o `2xl` de antes: a trinca da quinzena é a mesma de
+          Realizar Fechamento, e naquela largura a terceira coluna cortava
+          "2ª — dia 16 ao fim do mês" no meio da palavra. Um rótulo mais curto
+          resolveria a largura e desfaria o que esta mudança faz — as duas telas
+          nomeando a mesma quinzena com as mesmas palavras.
+        */
+        className="relative z-50 w-full max-w-3xl rounded-xl border bg-background shadow-lg animate-in fade-in zoom-in-95"
       >
         <div className="flex items-start justify-between gap-4 border-b px-6 py-4">
           <div className="min-w-0">
@@ -161,84 +194,123 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
             </Alert>
           )}
 
-          <div className="space-y-1.5">
-            <label htmlFor="unidade-nome" className={ROTULO}>
-              Nome da unidade
-            </label>
-            <Input
-              autoFocus
-              id="unidade-nome"
-              value={nome}
-              placeholder="CAMAÇARI"
-              onChange={(e) => setNome(e.target.value)}
-              className="uppercase"
-            />
-            <p className={AJUDA}>É o que a lista mostra, e o que quem opera procura.</p>
-          </div>
-
-          <div className="space-y-1.5">
-            <label htmlFor="unidade-codigo" className={ROTULO}>
-              Código da unidade
-            </label>
-            <Input
-              id="unidade-codigo"
-              value={codigo}
-              placeholder="12.345.678/0001-99"
-              onChange={(e) => setCodigo(e.target.value)}
-            />
-            {/*
-              Este parágrafo é a parte da tela que não pode ser cortada por
-              concisão: sem ele, quem digita não tem como saber que a forma
-              importa, e a consequência de errá-la só aparece meses depois.
-            */}
-            <p className={AJUDA}>
-              O mesmo código da coluna <strong>Unidade - CNPJ</strong> do export, escrito{" "}
-              <strong>exatamente como está lá</strong> — com pontuação, se lá houver. É por ele
-              que o arquivo, quando chegar, entra nesta unidade em vez de abrir uma segunda ao
-              lado dela.
-            </p>
+          {/*
+            A mesma trinca de Realizar Fechamento, na mesma ordem e com os
+            mesmos rótulos: ano digitado, mês e quinzena escolhidos. O que o
+            servidor recebe continua sendo uma data — `2026-08-16` —, e é o
+            calendário que a soma.
+          */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="unidade-ano">Ano</Label>
+              <Input
+                autoFocus
+                id="unidade-ano"
+                value={ano}
+                onChange={(e) => setAno(e.target.value)}
+                inputMode="numeric"
+              />
+              {!anoValido && <p className="text-xs text-amber-700">O ano vai de 2000 a 2100.</p>}
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="unidade-mes">Mês</Label>
+              <Select value={mes} onValueChange={setMes}>
+                <SelectTrigger id="unidade-mes">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {MES_LONGO.map((_, indice) => (
+                    <SelectItem key={indice} value={String(indice + 1)}>
+                      {mesPorExtenso(indice + 1)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="unidade-quinzena">Quinzena</Label>
+              <Select value={quinzena} onValueChange={setQuinzena}>
+                <SelectTrigger id="unidade-quinzena">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="1">1ª — dias 1 a 15</SelectItem>
+                  <SelectItem value="2">2ª — dia 16 ao fim do mês</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div className="space-y-1.5">
-              <label htmlFor="unidade-canal" className={ROTULO}>
-                Tipo da operação
-              </label>
+              <Label htmlFor="unidade-nome">Unidade (CDD)</Label>
               <Input
-                id="unidade-canal"
-                value={canal}
-                placeholder="EMPURRADA"
-                onChange={(e) => setCanal(e.target.value)}
+                id="unidade-nome"
+                value={nome}
+                placeholder="CAMAÇARI"
+                onChange={(e) => setNome(e.target.value)}
                 className="uppercase"
               />
-              <p className={AJUDA}>
-                A planilha é de um tipo de operação. A mesma unidade pode ter uma aba para
-                EMPURRADA e outra para ROTA — cadastre a segunda quando ela existir.
-              </p>
             </div>
 
             <div className="space-y-1.5">
-              <label htmlFor="unidade-vigencia" className={ROTULO}>
-                Quinzena que você vai preencher
-              </label>
-              <Select value={vigencia} onValueChange={setVigencia}>
-                <SelectTrigger id="unidade-vigencia">
-                  <SelectValue placeholder="Escolha a quinzena" />
+              <Label htmlFor="unidade-codigo">Código da unidade</Label>
+              <Input
+                id="unidade-codigo"
+                value={codigo}
+                placeholder="12.345.678/0001-99"
+                onChange={(e) => setCodigo(e.target.value)}
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5">
+              <Label htmlFor="unidade-tipo">Tipo</Label>
+              {/*
+                A mesma lista fechada de Realizar Fechamento, e pela mesma
+                razão, agravada: lá o tipo é um eixo da chave do fechamento, e
+                aqui é metade da identidade da unidade. O campo livre que ficava
+                neste lugar aceitava `Empurrada`, e `Empurrada` não é o
+                `EMPURRADA` que o arquivo traz — a unidade digitada e a
+                importada ficariam lado a lado na lista, cada uma com metade do
+                cadastro, sem nada em tela dizendo que são a mesma.
+              */}
+              <Select value={tipoDeOperacao} onValueChange={setTipoDeOperacao}>
+                <SelectTrigger id="unidade-tipo">
+                  <SelectValue placeholder="Escolha o tipo da operação" />
                 </SelectTrigger>
                 <SelectContent>
-                  {opcoes.map((o) => (
-                    <SelectItem key={o.valor} value={o.valor}>
-                      {o.rotulo}
+                  {TIPOS_DE_OPERACAO.map((t) => (
+                    <SelectItem key={t.valor} value={t.valor}>
+                      {t.rotulo}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               <p className={AJUDA}>
-                Sem acervo, é a única vigência que a unidade tem — as outras aparecem à medida
-                que você salvar planilha nelas.
+                {TIPOS_DE_OPERACAO.find((t) => t.valor === tipoDeOperacao)?.explicacao ??
+                  "EMPURRADA e ROTA são fechamentos separados na mesma quinzena."}
               </p>
             </div>
           </div>
+
+          {/*
+            Este parágrafo é a parte da tela que não pode ser cortada por
+            concisão: sem ele, quem digita não tem como saber que a forma do
+            código importa, e a consequência de errá-la só aparece meses depois.
+            Fica embaixo da grade, e não espremido dentro da coluna do campo,
+            pela mesma escolha de Realizar Fechamento — lá é a explicação do
+            `código — nome` que ocupa a largura inteira.
+          */}
+          <p className={AJUDA}>
+            O nome é o que a lista mostra, e o que quem opera procura. O código é o mesmo da
+            coluna <strong>Unidade - CNPJ</strong> do export, escrito{" "}
+            <strong>exatamente como está lá</strong> — com pontuação, se lá houver. É por ele
+            que o arquivo, quando chegar, entra nesta unidade em vez de abrir uma segunda ao
+            lado dela. A quinzena é a única vigência que a unidade tem enquanto não há acervo:
+            as outras aparecem à medida que você salvar planilha nelas.
+          </p>
         </div>
 
         <div className="flex items-center justify-end gap-3 border-t px-6 py-4">
@@ -255,7 +327,6 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
   );
 }
 
-const ROTULO = "text-xs font-semibold uppercase tracking-wide text-muted-foreground";
 const AJUDA = "text-xs text-muted-foreground";
 
 function textoDoErro(erro: unknown): string {
