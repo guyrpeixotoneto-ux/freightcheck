@@ -161,15 +161,29 @@ async function principal(): Promise<void> {
       return;
     }
 
-    /* A contagem real dos fatos, por documento — é ela que desmente o `linhas_lidas`. */
+    /*
+      A contagem real dos fatos, por documento — é ela que desmente o
+      `linhas_lidas` gravado, e é justamente quando os dois discordam que este
+      comando serve.
+
+      **A lista de ids vai como UM parâmetro, e não como vários.** No template
+      do drizzle, `${ids}` com `ids` sendo um array vira `($1, $2, …)` — um
+      *record*, que o Postgres recusa converter para `uuid[]` (`cannot cast type
+      record to uuid[]`). `sql.param()` envolve o array inteiro num parâmetro
+      só, e o driver o serializa como literal de array, que `::uuid[]` aceita.
+
+      Interpolar os ids no texto da consulta resolveria e seria o começo de uma
+      injeção; a versão parametrizada custa uma função e fecha a porta.
+    */
     const contados = new Map<string, number>();
     for (const { tipo, tabela } of FATOS) {
       const ids = rows.filter((r) => r.tipo === tipo).map((r) => r.documento_id);
+      /* Lista vazia nem chega ao banco: `any('{}')` seria uma ida à toa. */
       if (ids.length === 0) continue;
       const { rows: contagem } = await db.execute<{ documento_id: string; total: string }>(sql`
         select documento_id::text as documento_id, count(*)::text as total
           from ${sql.raw(tabela)}
-         where documento_id = any(${ids}::uuid[])
+         where documento_id = any(${sql.param(ids)}::uuid[])
          group by documento_id
       `);
       for (const c of contagem) contados.set(c.documento_id, Number(c.total));
