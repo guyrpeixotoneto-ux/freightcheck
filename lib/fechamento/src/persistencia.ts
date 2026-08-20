@@ -17,6 +17,7 @@ import {
   fechamentoViagemTable,
 } from "@workspace/db";
 import {
+  DESCRICAO_DA_FONTE,
   TIPOS_DE_FONTE,
   centavos,
   type Canal,
@@ -84,6 +85,7 @@ export class RecusaDeFechamento extends Error {
       | "DOCUMENTO_JA_RECEBIDO"
       | "DOCUMENTO_FORA_DO_PERIODO"
       | "ARQUIVO_ILEGIVEL"
+      | "DOCUMENTO_SEM_FATOS"
       | "PARTE_SEM_CODIGO",
     mensagem: string,
     readonly detalhe?: unknown,
@@ -284,6 +286,7 @@ export async function receberDocumento(
   }
 
   const lido = interpretar(entrada.tipo, entrada.conteudo);
+  recusarDocumentoSemFatos(entrada.tipo, entrada.nomeDoArquivo, lido);
   recusarOperacaoDeOutroPeriodo(competencia, entrada.nomeDoArquivo, lido.dias);
   recusarPagamentoDeOutroPeriodo(competencia, entrada.nomeDoArquivo, lido.periodo);
 
@@ -395,6 +398,50 @@ function recusarOperacaoDeOutroPeriodo(
       `vai de ${emBR(competencia.inicio)} a ${emBR(competencia.fim)}. ` +
       `Envie o 2Art deste período, ou abra a competência do período do arquivo.`,
     { de, ate, inicio: competencia.inicio, fim: competencia.fim, viagens: dias.length },
+  );
+}
+
+/**
+ * Recusa o arquivo que o leitor entendeu e do qual não tirou nada.
+ *
+ * **O defeito que isto corrige.** Os leitores do fechamento são máquinas de
+ * estado sobre texto: quando a estrutura não é a esperada, eles não lançam —
+ * devolvem listas vazias. A importação gravava o documento, inseria zero fatos
+ * e respondia sucesso. O resultado eram duas telas discordando sobre o mesmo
+ * arquivo: a lista de relatórios o contava como recebido, e o painel dizia "não
+ * foi importado". As duas estavam certas, e é essa contradição que fazia perder
+ * a tarde.
+ *
+ * **Por que zero fatos nunca é um envio legítimo.** Nenhuma das seis fontes tem
+ * versão vazia: um 2Art sem viagens, um 03.08.20 sem verbas ou um 03.08.18 sem
+ * dias não são quinzenas paradas, são arquivos que o leitor não reconheceu — o
+ * formato mudou, veio o relatório errado, ou o export saiu truncado. Aceitar o
+ * envio é gravar um silêncio com cara de dado.
+ *
+ * A recusa vem **antes** da transação de propósito: um segundo envio que não
+ * produz fatos apagaria as linhas do primeiro pela despromoção, e a competência
+ * ficaria pior do que estava. Ver o bloco que despromove o documento anterior.
+ */
+function recusarDocumentoSemFatos(
+  tipo: TipoDeFonte,
+  nomeDoArquivo: string,
+  lido: { linhasLidas: number; recusas: Recusa[] },
+): void {
+  if (lido.linhasLidas > 0) return;
+
+  const rotina = DESCRICAO_DA_FONTE[tipo].rotina;
+  /* A primeira recusa do leitor é a pista mais útil que existe para quem enviou. */
+  const pista =
+    lido.recusas.length > 0
+      ? ` O leitor recusou ${lido.recusas.length} linha(s); a primeira diz: "${lido.recusas[0]?.motivo ?? ""}".`
+      : " O leitor não reconheceu nenhuma linha do formato esperado.";
+
+  throw new RecusaDeFechamento(
+    "DOCUMENTO_SEM_FATOS",
+    `"${nomeDoArquivo}" foi lido como ${rotina} e não produziu nenhum registro.` +
+      `${pista} Confira se o arquivo é mesmo o ${rotina} e se o export saiu completo — ` +
+      `um envio sem registros não seria importação, seria apagar o que já está aqui.`,
+    { tipo, linhasLidas: 0, recusas: lido.recusas.length },
   );
 }
 

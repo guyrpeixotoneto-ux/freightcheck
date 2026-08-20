@@ -19,6 +19,7 @@ import {
   listarDocumentos,
   listarPartes,
   reabrirCompetencia,
+  lerDeParaDaCompetencia,
   receberDocumento,
   registrarParte,
   RecusaDeFechamento,
@@ -33,6 +34,7 @@ import {
   fixtureOperacao,
   fixtureOperacaoEmCsv,
   fixturePagamento,
+  fixturePagamentoDoPainel,
   fixturePagamentoEmCsv,
   fixtureRequisicoes,
   fixtureRequisicoesEmPlanilha,
@@ -250,6 +252,55 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
         conteudo: fixtureCtes(),
       }),
     ).rejects.toBeInstanceOf(RecusaDeFechamento);
+  });
+
+  it("recusa o arquivo que leu e do qual não tirou nada", async () => {
+    /* O caso real, relatado da tela: "eu importei o arquivo sim, mas diz que não
+       importei". Os leitores do fechamento são máquinas de estado sobre texto e
+       não lançam quando a estrutura não é a esperada — devolvem listas vazias.
+       A importação gravava o documento, inseria zero fatos e respondia sucesso,
+       e aí a lista de relatórios contava o arquivo como recebido enquanto o
+       painel dizia "não foi importado". As duas telas estavam certas.
+
+       Pior do que o silêncio: um segundo envio sem fatos **apaga** as linhas do
+       primeiro pela despromoção do documento anterior. A recusa vem antes da
+       transação justamente por isso. */
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    const recusa = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20 (formato desconhecido).txt",
+      conteudo: Buffer.from("relatorio qualquer\nsem nenhuma linha que o leitor reconheca\n", "utf8"),
+    }).catch((e: unknown) => e);
+
+    expect(recusa).toBeInstanceOf(RecusaDeFechamento);
+    expect((recusa as RecusaDeFechamento).codigo).toBe("DOCUMENTO_SEM_FATOS");
+    /* A mensagem nomeia a rotina, para quem enviou saber contra o que conferir. */
+    expect((recusa as RecusaDeFechamento).message).toContain("03.08.20");
+  });
+
+  it("um envio sem fatos não apaga o que o envio anterior gravou", async () => {
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20.txt",
+      conteudo: fixturePagamentoDoPainel(),
+    });
+    const antes = await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" });
+    expect(antes).not.toBeNull();
+
+    await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20 (truncado).txt",
+      conteudo: Buffer.from("cabecalho e mais nada\n", "utf8"),
+    }).catch(() => undefined);
+
+    /* O painel continua de pé: a recusa aconteceu antes de despromover nada. */
+    const depois = await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" });
+    expect(depois).not.toBeNull();
+    expect(depois?.totalDoRelatorio).toBe(antes?.totalDoRelatorio);
   });
 
   it("recusa o 2Art de outro período em vez de gravar viagens que nenhuma conta usa", async () => {
