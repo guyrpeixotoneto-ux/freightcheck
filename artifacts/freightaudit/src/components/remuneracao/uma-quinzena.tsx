@@ -7,9 +7,11 @@ import {
   type LinhaApurada,
 } from "@/lib/remuneracao";
 import {
+  Conferido,
   ExplicacaoDaAusencia,
   frasedoMaterial,
   Legenda,
+  MarcaDeInformado,
   MarcaDoPreenchimento,
   Numero,
 } from "./comuns";
@@ -55,16 +57,29 @@ function Lastro({ dados }: { dados: CadastroDaUnidade }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
           <Numero titulo="Linhas do cadastro" valor={resumo.linhas} />
           <Numero titulo="Com lastro" valor={resumo.apuradas} destaque />
           <Numero titulo="Medidas em par" valor={resumo.emConjunto} />
-          <Numero titulo="Sem lastro" valor={resumo.semLastro} />
+          <Numero titulo="Informadas" valor={resumo.informadas} />
+          <Numero titulo="Sem número" valor={resumo.semLastro} />
+          <Numero titulo="Divergentes" valor={resumo.divergentes} alerta />
         </div>
 
         <p className="text-xs text-muted-foreground border-t pt-3">
           Esta vigência entregou <strong>{frasedoMaterial(material)}</strong>. Nenhuma linha
-          abaixo mostra número que esses registros não sustentem.
+          abaixo mostra número medido que esses registros não sustentem — e as informadas dizem,
+          uma a uma, quem as digitou.
+          {resumo.conferidas > 0 && (
+            <>
+              {" "}
+              <strong>
+                {resumo.conferidas}{" "}
+                {resumo.conferidas === 1 ? "linha tem as duas respostas" : "linhas têm as duas respostas"}
+              </strong>{" "}
+              — o acervo e a planilha —, e {resumo.divergentes === 0 ? "todas batem" : `${resumo.divergentes} ${resumo.divergentes === 1 ? "não bate" : "não batem"}`}.
+            </>
+          )}
         </p>
       </CardContent>
     </Card>
@@ -107,22 +122,28 @@ function Linha({ linha }: { linha: LinhaApurada }) {
           {linha.rotulo}
         </p>
 
-        <div className="text-right shrink-0">
-          {linha.estado === "APURADO" && linha.valor !== null && (
-            <span className="text-base font-bold tabular-nums">
+        <div className="text-right shrink-0 space-y-1">
+          {(linha.estado === "APURADO" || linha.estado === "INFORMADO") && linha.valor !== null && (
+            <span className="text-base font-bold tabular-nums block">
               {escreverValor(linha.valor, linha.medida)}
             </span>
           )}
           {linha.estado === "EM_CONJUNTO" && linha.conjunto && (
-            <span className="text-sm font-semibold tabular-nums text-muted-foreground">
+            <span className="text-sm font-semibold tabular-nums text-muted-foreground block">
               {linha.conjunto.rotulo} = {escreverValor(linha.conjunto.valor, linha.conjunto.medida)}
             </span>
           )}
           {linha.estado === "SEM_LASTRO" && (
-            <span className="text-base font-bold text-muted-foreground/60" aria-label="sem lastro">
+            <span className="text-base font-bold text-muted-foreground/60 block" aria-label="sem número">
               —
             </span>
           )}
+          {/*
+            A marca fica junto do número, e não junto do rótulo: quem percorre a
+            coluna da direita procurando um valor precisa saber, no mesmo olhar,
+            se aquele valor foi medido ou digitado.
+          */}
+          {linha.estado === "INFORMADO" && <MarcaDeInformado declarado={linha.declarado} />}
         </div>
       </div>
 
@@ -142,6 +163,30 @@ function Linha({ linha }: { linha: LinhaApurada }) {
 
       {linha.conjunto && (
         <p className="mt-1.5 text-xs text-muted-foreground">{linha.conjunto.procedencia.regra}</p>
+      )}
+
+      {/*
+        A conferência da linha e a do par são duas, e as duas aparecem: a
+        primeira compara o que o cadastro apurou com o que a aba diz naquela
+        linha; a segunda compara o par PIS + COFINS medido com a soma das duas
+        metades informadas. Só a primeira existiria se o par não pudesse ser
+        conferido — e ele é exatamente a linha em que a aba e o export mais
+        divergem, porque o export não os separa.
+      */}
+      {linha.conferencia && (
+        <div className="mt-1.5">
+          <Conferido
+            conferencia={linha.conferencia}
+            medida={linha.medida}
+            declarado={linha.declarado}
+          />
+        </div>
+      )}
+
+      {linha.conjunto?.conferencia && (
+        <div className="mt-1.5">
+          <Conferido conferencia={linha.conjunto.conferencia} medida={linha.conjunto.medida} />
+        </div>
       )}
 
       {linha.ausencia && (

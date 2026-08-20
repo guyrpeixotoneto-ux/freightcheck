@@ -378,12 +378,11 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   frota fixa, parcelas por veículo, vans, rotas noturnas, marketing, proporção
   de documentos e resumo de impostos. **É a única tela do Fechamento que lê o
   acervo da Auditoria**, e por isso a rota HTTP fica fora de `/fechamento`: o
-  cadastro é da unidade numa vigência, não de uma competência. Não tem tabela
-  própria — um cadastro com tabela própria seria uma terceira verdade sobre a
-  frota, ao lado da que o export declara e da que a apuração usa. Cada uma das
-  trinta linhas sai com um estado explícito (`APURADO`, `EM_CONJUNTO`,
-  `SEM_LASTRO`), e a linha sem lastro escreve o motivo, a destrava e o atalho
-  para a tela que hoje chega mais perto. **Abre em duas quinzenas lado a lado**,
+  cadastro é da unidade numa vigência, não de uma competência. Cada uma das
+  trinta linhas sai com um estado explícito (`APURADO`, `INFORMADO`,
+  `EM_CONJUNTO`, `SEM_LASTRO`), e a linha sem número escreve o motivo, a
+  destrava e o atalho para a tela que hoje chega mais perto. **Abre em duas
+  quinzenas lado a lado**,
   que é a forma da planilha, com uma terceira coluna de variação que o Excel não
   tem; a vista de uma quinzena fica a um clique e é a que traz a memória de
   cálculo. Na comparação, **lastro que aparece ou some nunca vira variação de
@@ -395,7 +394,29 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   razão entre dois valores em reais não tem essa ambiguidade. PIS e COFINS saem
   como **par**, porque o export os soma em `fretePisCofins` — rachá-los pela
   alíquota da lei federal traria para dentro do produto uma premissa que nenhum
-  arquivo do cliente sustenta. Ver `docs/FECHAMENTO.md`.
+  arquivo do cliente sustenta.
+  **A terceira vista escreve: "Cadastrar a planilha".** O acervo sustenta onze
+  das trinta linhas, e as outras dezenove não esperam arquivo nenhum — esperam
+  decisões de negócio que ninguém registrou. Enquanto elas não chegam, o número
+  está digitado na aba que a transportadora manda todo mês, e o produto passou a
+  aceitá-lo: `remuneracao_planilha` (migration `0045`) guarda o valor por
+  (escopo, canal, vigência, linha), com autor, data e observação. **Isso não é a
+  tabela própria que o módulo recusa**, e a distinção é o eixo do desenho: o que
+  a tabela recusada seria é uma segunda verdade sobre a *frota*; o que esta
+  guarda é o que a *planilha declara*. O que entra por ali volta como
+  `INFORMADO`, nunca como `APURADO`, e **nunca por cima de um número que o
+  cadastro já tenha**: onde os dois respondem, o do cadastro continua sendo o
+  valor e o da planilha vira **conferência** ao lado — a planilha de CAMAÇARI diz
+  56 cavalos ativos e o export da mesma vigência traz 62, e é essa diferença que
+  o produto existe para achar. As derivadas herdam a natureza da parcela mais
+  fraca: um total sobre número digitado é `INFORMADO`, e o resumo de impostos
+  calculado sobre alíquotas digitadas também. Declarar PIS e COFINS separados
+  destrava as duas linhas do par e confere a soma contra o par medido — a
+  destrava que o catálogo já nomeava. A escrita é da vigência inteira, numa
+  transação, e é um `merge`: o corpo diz o que mudou, `valor: null` apaga, e o
+  que ele não menciona fica. Não há herança entre vigências; há um botão de
+  copiar, com autor e data de quem clicou, que não sobrescreve o que o destino
+  já tem. Ver `docs/FECHAMENTO.md`.
 - `docs/ARQUITETURA.md` — as decisões estruturais em prosa
 - `docs/DIAGNOSTICO-ABA-CLIENTE.md` — o comportamento econômico de cada
   parâmetro, medido, e por que quase nada vira proposta

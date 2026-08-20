@@ -62,6 +62,17 @@ export interface LinhaComparada {
   movimento: Movimento;
   /** Só existe quando as duas pontas têm número comparável entre si. */
   variacao: Variacao | null;
+  /**
+   * As duas pontas têm número, e ele não veio do mesmo lugar: uma foi medida no
+   * acervo e a outra foi informada na planilha.
+   *
+   * A variação continua sendo calculada — as duas medem a mesma rubrica, na
+   * mesma unidade —, mas ela responde a uma pergunta a mais do que parece. Uma
+   * frota fixa ativa que "cai" de 62 para 56 entre julho e agosto pode ser seis
+   * caminhões que saíram, ou pode ser o export de julho contra a aba de agosto.
+   * A tela precisa poder dizer qual dos dois, e sem esta marca não teria como.
+   */
+  fontesDiferentes: boolean;
 }
 
 export interface BlocoComparado {
@@ -93,7 +104,7 @@ export interface CadastroComparado {
  * outra.
  */
 function comparavel(linha: LinhaApurada): number | null {
-  if (linha.estado === "APURADO") return linha.valor;
+  if (linha.estado === "APURADO" || linha.estado === "INFORMADO") return linha.valor;
   if (linha.estado === "EM_CONJUNTO") return linha.conjunto?.valor ?? null;
   return null;
 }
@@ -133,6 +144,9 @@ export function compararCadastros(
   return { blocos, resumo: contarResumo(blocos) };
 }
 
+/** Se o número da linha veio da planilha informada, e não do acervo. */
+const daPlanilha = (linha: LinhaApurada): boolean => linha.estado === "INFORMADO";
+
 function comparar(esquerda: LinhaApurada, direita: LinhaApurada): LinhaComparada {
   const base = {
     chave: esquerda.chave,
@@ -141,6 +155,7 @@ function comparar(esquerda: LinhaApurada, direita: LinhaApurada): LinhaComparada
     preenchimento: esquerda.preenchimento,
     esquerda,
     direita,
+    fontesDiferentes: daPlanilha(esquerda) !== daPlanilha(direita),
   };
 
   const a = comparavel(esquerda);
@@ -154,14 +169,19 @@ function comparar(esquerda: LinhaApurada, direita: LinhaApurada): LinhaComparada
 
   /*
     Os dois lados têm número, e ainda assim podem não ser o mesmo número.
-    `APURADO` contra `EM_CONJUNTO` compararia a alíquota isolada de um lado com
-    o par PIS + COFINS do outro — dois nomes para grandezas diferentes. Não
-    acontece hoje (o estado nasce do tipo de origem, que é fixo por linha), e é
-    justamente por isso que precisa estar escrito: no dia em que uma linha
-    ganhar origem própria, a comparação não pode passar a subtrair maçã de
-    laranja em silêncio.
+    `EM_CONJUNTO` de um lado compararia o par PIS + COFINS com a alíquota
+    isolada do outro — dois nomes para grandezas diferentes. É o caso real desde
+    que a planilha passou a ser informável: quem digita a alíquota de PIS de
+    agosto deixa julho com o par medido, e subtrair um do outro daria uma
+    "queda" de oito pontos que é só a metade que falta.
+
+    `INFORMADO` contra `APURADO` **não** cai aqui, e a diferença é de grandeza:
+    os dois são a mesma rubrica na mesma unidade, medidos por caminhos
+    diferentes. A comparação vale, e o que muda é o que ela quer dizer — é o que
+    `fontesDiferentes` carrega para a tela.
   */
-  if (esquerda.estado !== direita.estado) {
+  const emPar = (linha: LinhaApurada) => linha.estado === "EM_CONJUNTO";
+  if (emPar(esquerda) !== emPar(direita)) {
     return { ...base, movimento: "SEM_COMPARACAO", variacao: null };
   }
 

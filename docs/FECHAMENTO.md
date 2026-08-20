@@ -552,13 +552,15 @@ que garante que a lista e a tela do cadastro nunca discordem — o caso que a
 dedução erraria é a vigência que entregou trechos sem as colunas em reais, em
 que a tela mostra as alíquotas em branco e a dedução diria "em dia".
 
-**Duas vistas, e a padrão é a de duas quinzenas lado a lado** — que é a forma da
+**Três vistas, e a padrão é a de duas quinzenas lado a lado** — que é a forma da
 planilha: a aba traz os dois blocos um ao lado do outro, e quem confere lê as
 duas colunas juntas. A terceira coluna, a da variação, é o que a planilha não
 tem e a tela dá. A vista de uma quinzena fica a um clique e é a que traz a
 memória de cálculo inteira; a comparação a deixa de fora de propósito, porque
 três colunas de número já são o limite do que se lê sem rolar na horizontal.
-Unidade sem par abre direto na vista de uma, sem oferecer a outra.
+Unidade sem par abre direto na vista de uma, sem oferecer a outra. A terceira,
+**Cadastrar a planilha**, é a única que escreve — ver "A planilha informada",
+mais abaixo.
 
 **Ela é do Fechamento e lê o acervo da Auditoria**, e as duas metades dessa
 frase são deliberadas:
@@ -566,9 +568,10 @@ frase são deliberadas:
 - A tela é do Fechamento porque é lá que o cadastro serve — é dele que a
   apuração da quinzena tira alíquota, frota e proporção.
 - A leitura é do canônico porque todo número que a aba pede é **contratado**, e
-  o contratado mora na Auditoria. Um cadastro com tabela própria seria uma
-  terceira verdade sobre a frota, ao lado da que o export declara e da que a
-  apuração usa.
+  o contratado mora na Auditoria. Uma tabela de *frota* aqui seria uma terceira
+  verdade sobre a frota, ao lado da que o export declara e da que a apuração
+  usa — e continua não existindo. O que passou a existir, na `0045`, guarda
+  outra coisa: o que a **planilha declara**. Ver "A planilha informada".
 - Por isso a rota HTTP é `/remuneracao/...` e **não** `/fechamento/...`: o dado
   é da unidade numa vigência, não de uma competência.
 
@@ -585,8 +588,9 @@ estados:
 | estado | o que significa |
 |---|---|
 | `APURADO` | O acervo sustenta a linha. Vem com a regra, as colunas e quantos registros entraram. |
+| `INFORMADO` | O acervo não sustenta a linha, e **alguém a digitou da aba de Excel**. Vem com o nome de quem digitou, a data e a observação; a procedência diz por extenso que não é medida. |
 | `EM_CONJUNTO` | O acervo sustenta a linha **junto com outra**. É o caso de PIS e COFINS: o export os soma em `fretePisCofins`, e rachar o par pela alíquota da lei federal traria para dentro do produto uma premissa que nenhum arquivo do cliente sustenta. |
-| `SEM_LASTRO` | O acervo não sustenta a linha, e o motivo e a destrava estão escritos — com o atalho para a tela que hoje chega mais perto. |
+| `SEM_LASTRO` | Nem o acervo nem a planilha respondem a linha, e o motivo e a destrava estão escritos — com o atalho para a tela que hoje chega mais perto. |
 
 **Onze das trinta linhas têm lastro hoje**, sobre um acervo completo — nove
 apuradas e duas em par:
@@ -634,6 +638,65 @@ nenhum deles é "falta implementar": são colunas que o export não traz
 motor ainda não sabe somar (frete por viagem) e enquadramentos que são decisão
 de negócio, não dedução por semelhança de nome de coluna.
 
+### A planilha informada — o que a aba declara, ao lado do que o acervo mede
+
+O acervo sustenta onze das trinta linhas. As outras dezenove **não esperam
+arquivo nenhum**: esperam decisões de negócio que ninguém registrou — qual
+conjunto de colunas forma "Remuneração Fixa - Frota Fixa Ativa", qual valor de
+turno marca a rota noturna, o que separa van de cavalo. Enquanto elas não
+chegam, o número existe: está digitado na aba que a transportadora manda todo
+mês. Recusá-lo não o tornava mais verdadeiro — só o mantinha fora do produto,
+onde ninguém o conferia.
+
+`remuneracao_planilha` (migration `0045`) guarda o valor por (escopo, canal,
+vigência, chave da linha), com autor, data e observação. **Ela não é a "tabela
+própria" que a seção acima recusa**, e a distinção é o eixo do desenho: aquela
+seria uma segunda verdade sobre a *frota*; esta guarda o que a *planilha
+declara*. São perguntas diferentes, e por isso vivem em campos diferentes até o
+fim — da tabela à tela.
+
+Quatro regras sustentam a fronteira, e cada uma existe contra um jeito de
+apagá-la:
+
+1. **Digitado nunca vira medido.** O que entra sai como `INFORMADO`, com autor
+   e data, e a procedência escreve que não é medida do acervo.
+2. **Onde os dois respondem, o do cadastro é o valor.** O declarado vira
+   `Conferencia` ao lado, com a diferença e o sinal. A planilha de CAMAÇARI diz
+   56 cavalos ativos e o export da mesma vigência traz 62 — deixar o digitado
+   ganhar apagaria exatamente o achado. A tela também não pré-preenche o campo
+   com o número apurado, nem oferece "usar o apurado": a conferência passaria a
+   bater sempre, por construção.
+3. **As derivadas herdam a parcela mais fraca.** `Total Custo Frota Fixa sem
+   imposto` sobre seis parcelas digitadas é `INFORMADO`, não `APURADO`; o mesmo
+   vale para o resumo de impostos calculado sobre alíquotas digitadas — e é por
+   ele que todo valor líquido vira valor de documento. Em compensação, as duas
+   linhas **destravam**: as quatro alíquotas da aba produzem os 84,85% e os
+   72,91%, e o total impresso na aba pode ser conferido contra a soma das
+   parcelas da própria aba.
+4. **A situação da unidade continua falando do acervo.** `informadas` fica fora
+   de `comLastro`, e os quatro estados não mudam com a planilha: uma unidade sem
+   arquivo nenhum e com a aba transcrita apareceria "Frota e alíquotas", e quem
+   opera pararia de procurar o arquivo que falta.
+
+Declarar PIS e COFINS separados destrava as duas linhas do par — é a destrava
+que o próprio catálogo já nomeava — e a soma das duas metades é conferida contra
+o par medido, que continua visível. Com uma metade só, não há conferência:
+comparar `PIS + COFINS` com `PIS` produziria uma divergência inteiramente
+artificial.
+
+A escrita é da vigência inteira, numa transação, e é um **merge**: o corpo diz o
+que mudou, `valor: null` apaga a linha, e o que ele não menciona fica como
+estava — quem edita um bloco não pode apagar os outros oito por não os ter
+tocado. Uma célula impossível (chave fora do catálogo, percentual acima de cem,
+contagem quebrada) **para a escrita inteira**, antes de qualquer `INSERT`:
+gravar metade com uma mensagem de erro deixaria quem digitou sem saber qual
+metade valeu.
+
+**Não há herança entre vigências.** Há um botão de copiar, com autor e data de
+quem clicou, que traz da vigência escolhida só o que o destino ainda não tem.
+Herdar em silêncio faria a aba de julho responder por agosto para sempre,
+inclusive depois de a operação mudar.
+
 ## O que o Fechamento vai precisar (fora desta fundação)
 
 - A **competência** como registro próprio (estado, dono, ciclo de vida) e a
@@ -664,6 +727,20 @@ de negócio, não dedução por semelhança de nome de coluna.
 - `lib/remuneracao/src/__tests__/leitura.test.ts` — o SQL, contra um Postgres de
   verdade e com os códigos reais do export; e o par sempre em ordem
   cronológica, mesmo pedido ao contrário.
+- `lib/remuneracao/src/__tests__/informado.test.ts` — a fronteira entre digitado
+  e medido, em memória: o declarado que **não** sobrescreve o apurado, o total
+  que herda o informado das parcelas, o resumo de impostos derivado de alíquotas
+  digitadas sem se chamar apurado, o par PIS + COFINS destravado e conferido, e
+  o percentual em fração recusado antes de virar divisor de gross-up.
+- `lib/remuneracao/src/__tests__/planilha.test.ts` — a mesma coisa pelo Postgres:
+  o `numeric` que volta como texto e precisa virar número, o merge que não apaga
+  o que o corpo não menciona, a escrita recusada inteira por uma célula ruim, a
+  planilha de uma vigência que não vaza para a outra, e a cópia que não
+  sobrescreve o destino.
+- `artifacts/api-server/src/routes/__tests__/remuneracao-planilha.test.ts` — a
+  borda: o autor sai da sessão e nunca do corpo, cada recusa nomeada chega com o
+  número certo (400 para célula impossível, 404 para vigência inexistente), e o
+  que entrou pelo `PUT` sai no cadastro como `INFORMADO`.
 - `pages/fechamento/__tests__/competencias-fechamento.test.ts` — cada estado da
   competência oferece uma ação só, e nunca a errada; o ano é conferido antes
   da ida ao servidor, nas duas pontas da faixa; só a encerrada é recusada

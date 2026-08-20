@@ -189,7 +189,7 @@ describe("a leitura do acervo", () => {
   it("encontra as duas séries da mesma unidade na mesma vigência", async () => {
     const lido = await cadastro();
 
-    expect(lido.material).toEqual({ cavalos: 5, trechos: 2, trechosEntregues: true });
+    expect(lido.material).toEqual({ cavalos: 5, trechos: 2, trechosEntregues: true, linhasInformadas: 0 });
     expect(lido.contexto.scopeHash).toBe(ESCOPO);
     expect(lido.contexto.channel).toBe("EMPURRADA");
     expect(lido.effectiveDate).toBe(VIGENCIA);
@@ -246,7 +246,7 @@ describe("a leitura do acervo", () => {
     const anterior = await cadastro(ANTERIOR);
 
     expect(anterior.effectiveDate).toBe(ANTERIOR);
-    expect(anterior.material).toEqual({ cavalos: 1, trechos: 0, trechosEntregues: false });
+    expect(anterior.material).toEqual({ cavalos: 1, trechos: 0, trechosEntregues: false, linhasInformadas: 0 });
     expect(valorDe(anterior, "frota_fixa_ativos")).toBe(1);
     expect(valorDe(anterior, "aliquota_icms")).toBeNull();
   });
@@ -323,8 +323,8 @@ describe("as duas quinzenas lado a lado", () => {
   it("traz o material das duas pontas, para a tela dizer o que cada uma entregou", async () => {
     const par = await comparacao();
 
-    expect(par.esquerda.material).toEqual({ cavalos: 1, trechos: 0, trechosEntregues: false });
-    expect(par.direita.material).toEqual({ cavalos: 5, trechos: 2, trechosEntregues: true });
+    expect(par.esquerda.material).toEqual({ cavalos: 1, trechos: 0, trechosEntregues: false, linhasInformadas: 0 });
+    expect(par.direita.material).toEqual({ cavalos: 5, trechos: 2, trechosEntregues: true, linhasInformadas: 0 });
   });
 
   it("recusa a ponta que não existe, como a leitura de uma vigência", async () => {
@@ -448,13 +448,13 @@ describe("a lista das unidades", () => {
     const soTrechos = await unidade(SO_TRECHOS);
     const duasVigencias = await unidade(DUAS_VIGENCIAS);
 
-    expect(camacari.material).toEqual({ cavalos: 5, trechos: 2, trechosEntregues: true });
+    expect(camacari.material).toEqual({ cavalos: 5, trechos: 2, trechosEntregues: true, linhasInformadas: 0 });
 
     expect(soTrechos.effectiveDate).toBe(ANTERIOR);
-    expect(soTrechos.material).toEqual({ cavalos: 0, trechos: 2, trechosEntregues: true });
+    expect(soTrechos.material).toEqual({ cavalos: 0, trechos: 2, trechosEntregues: true, linhasInformadas: 0 });
 
     expect(duasVigencias.effectiveDate).toBe(VIGENCIA);
-    expect(duasVigencias.material).toEqual({ cavalos: 0, trechos: 1, trechosEntregues: true });
+    expect(duasVigencias.material).toEqual({ cavalos: 0, trechos: 1, trechosEntregues: true, linhasInformadas: 0 });
   });
 
   it("diz qual metade do cadastro cada unidade sustenta", async () => {

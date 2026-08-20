@@ -8,21 +8,39 @@
  * ponto de partida do Fechamento — é dela que a apuração da quinzena puxa
  * alíquotas, tamanho de frota e proporção de documentos —, mas todo número que
  * ela pede é *contratado*, e o que é contratado mora no modelo canônico da
- * Auditoria. Por isso a tela é do Fechamento e a leitura é do canônico, sem
- * nenhuma tabela nova: um cadastro com tabela própria seria uma terceira
- * verdade sobre a frota, ao lado da que o export declara e da que a apuração
- * usa.
+ * Auditoria. Por isso a tela é do Fechamento e a leitura é do canônico.
  *
- * A aritmética inteira é pura e vive em `medicao.ts` e `montagem.ts`; `db` só
- * aparece em `leitura.ts`. É o que permite testar as trinta linhas do cadastro
- * sem Postgres, e é a mesma fronteira que `@workspace/fechamento` mantém entre
- * a apuração e a persistência dela.
+ * A aritmética inteira é pura e vive em `medicao.ts`, `montagem.ts` e
+ * `informado.ts`; `db` só aparece em `leitura.ts` e `planilha.ts`. É o que
+ * permite testar as trinta linhas do cadastro sem Postgres, e é a mesma
+ * fronteira que `@workspace/fechamento` mantém entre a apuração e a
+ * persistência dela.
+ *
+ * **A tabela que este módulo passou a ter, e por que ela não contradiz o
+ * parágrafo acima.** Até a `0045` a frase era "sem nenhuma tabela nova", e ela
+ * valia: uma tabela de *frota* aqui seria uma terceira verdade sobre a frota,
+ * ao lado do que o export declara e do que a apuração usa — e continua sendo, e
+ * continua não existindo. `remuneracao_planilha` guarda outra coisa: **o que a
+ * aba de Excel declara**, digitado por quem a preenche.
+ *
+ * Ela nasceu de uma constatação de uso. O cadastro tem trinta linhas e o acervo
+ * sustenta onze; as outras dezenove não esperam arquivo nenhum — esperam
+ * decisões de negócio que ninguém registrou. Enquanto elas não chegam, o número
+ * existe na planilha que a transportadora manda todo mês, e mantê-lo fora do
+ * produto não o torna mais verdadeiro: só o mantém onde ninguém o confere.
+ *
+ * O que impede a mistura é o estado: o que entra por ali sai como `INFORMADO`,
+ * com autor e data, nunca como `APURADO`; e onde o acervo também responde, o
+ * valor da linha continua sendo o medido, com o declarado ao lado como
+ * conferência. Ver `informado.ts`.
  */
 
 export * from "./catalogo";
 export * from "./colunas";
 export * from "./medicao";
+export * from "./informado";
 export * from "./montagem";
 export * from "./situacao";
 export * from "./comparacao";
+export * from "./planilha";
 export * from "./leitura";

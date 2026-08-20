@@ -20,6 +20,15 @@ import {
 } from "./colunas";
 import type { CavaloDaVigencia, TrechoDaVigencia } from "./medicao";
 import { montarCadastro, type CadastroMontado } from "./montagem";
+import {
+  chaveDaPlanilha,
+  copiarPlanilha,
+  gravarPlanilha,
+  lerPlanilha,
+  lerPlanilhasEmLote,
+  type PlanilhaDaVigencia,
+} from "./planilha";
+import type { PlanilhaDeclarada } from "./informado";
 import { compararCadastros, type CadastroComparado } from "./comparacao";
 import { medirSituacao, type EstadoDoCadastro, type SituacaoDoCadastro } from "./situacao";
 
@@ -74,6 +83,15 @@ export interface MaterialLido {
   cavalos: number;
   trechos: number;
   trechosEntregues: boolean;
+  /**
+   * Quantas linhas alguém informou à mão nesta vigência.
+   *
+   * Fica ao lado dos dois números do acervo de propósito: as três respondem à
+   * mesma pergunta — **quanto desta tela tem lastro, e de que tipo** — e
+   * separá-las em outro campo faria a tela ter de decidir sozinha se um cadastro
+   * com trinta linhas informadas e nenhum arquivo importado está "em dia".
+   */
+  linhasInformadas: number;
 }
 
 export interface CadastroDaUnidade extends CadastroMontado {
@@ -305,10 +323,18 @@ export async function lerSituacaoDasUnidades(db: Database): Promise<SituacaoDasU
     effectiveDate: contexto.latestPeriod,
   }));
 
-  const [cavalos, trechos, entregues] = await Promise.all([
+  const [cavalos, trechos, entregues, planilhas] = await Promise.all([
     lerCavalosEmLote(db, alvos),
     lerTrechosEmLote(db, alvos),
     serieEntregueEmLote(db, TIPO_TRECHO, alvos),
+    lerPlanilhasEmLote(
+      db,
+      alvos.map((alvo) => ({
+        scopeHash: alvo.contexto.scopeHash,
+        canal: alvo.contexto.channel,
+        effectiveDate: alvo.effectiveDate,
+      })),
+    ),
   ]);
 
   const unidades = contextos.map((contexto): SituacaoDaUnidade => {
@@ -317,6 +343,9 @@ export async function lerSituacaoDasUnidades(db: Database): Promise<SituacaoDasU
       cavalos.get(chave) ?? [],
       trechos.get(chave) ?? [],
       entregues.has(chave),
+      planilhas.get(
+        chaveDaPlanilha(contexto.scopeHash, contexto.channel, contexto.latestPeriod),
+      ),
     );
     return {
       ...retratoDo(contexto),
@@ -344,6 +373,96 @@ export async function lerSituacaoDasUnidades(db: Database): Promise<SituacaoDasU
 }
 
 /**
+ * A planilha informada de uma unidade numa vigência — o que a tela de cadastro
+ * edita.
+ *
+ * Resolve o contexto e confere a vigência pelo mesmo caminho das leituras
+ * acima, e por isso recusa pelas mesmas classes: unidade que não existe é
+ * `ContextNotFoundError`, vigência que a unidade não entregou é
+ * {@link VigenciaDoCadastroNaoEncontrada}. Uma escrita que aceitasse qualquer
+ * data criaria planilha para uma quinzena que nenhuma tela mostra — dado que
+ * ninguém encontra depois, e que ninguém sabe que existe.
+ */
+export async function lerPlanilhaDaUnidade(
+  db: Database,
+  pedido?: RequestedContext & { period?: string },
+): Promise<PlanilhaDaVigencia | null> {
+  const alvo = await resolverAlvoDaPlanilha(db, pedido);
+  if (alvo === null) return null;
+  return lerPlanilha(db, alvo);
+}
+
+/**
+ * Grava a planilha informada de uma unidade numa vigência.
+ *
+ * As trinta linhas de uma aba são um ato só — ver `gravarPlanilha`. Aqui a
+ * responsabilidade é outra e é anterior: garantir que a unidade e a vigência
+ * existem antes de qualquer escrita, para que a planilha só possa ser
+ * preenchida onde ela vai ser lida.
+ */
+export async function gravarPlanilhaDaUnidade(
+  db: Database,
+  pedido: RequestedContext & {
+    period?: string;
+    celulas: { chave: unknown; valor: unknown; observacao?: unknown }[];
+    autor?: { id: string | null; nome: string | null };
+  },
+): Promise<PlanilhaDaVigencia | null> {
+  const alvo = await resolverAlvoDaPlanilha(db, pedido);
+  if (alvo === null) return null;
+  return gravarPlanilha(db, {
+    ...alvo,
+    celulas: pedido.celulas,
+    ...(pedido.autor ? { autor: pedido.autor } : {}),
+  });
+}
+
+/**
+ * Copia a planilha de uma vigência da unidade para outra.
+ *
+ * As duas pontas são conferidas contra a lista de vigências daquela unidade,
+ * pela mesma razão da escrita — e a de origem tanto quanto a de destino: copiar
+ * de uma quinzena que a unidade não tem devolveria "nada a copiar" em silêncio,
+ * quando o que aconteceu foi um endereço errado.
+ */
+export async function copiarPlanilhaDaUnidade(
+  db: Database,
+  pedido: RequestedContext & {
+    de: string;
+    para: string;
+    autor?: { id: string | null; nome: string | null };
+  },
+): Promise<PlanilhaDaVigencia | null> {
+  const contextos = await listContexts(db);
+  if (contextos.length === 0) return null;
+
+  const contexto = (await resolveContext(db, pedido, contextos))!;
+  return copiarPlanilha(db, {
+    scopeHash: contexto.scopeHash,
+    canal: contexto.channel,
+    de: conferirVigencia(contexto, pedido.de),
+    para: conferirVigencia(contexto, pedido.para),
+    ...(pedido.autor ? { autor: pedido.autor } : {}),
+  });
+}
+
+/** A unidade e a vigência de um pedido de planilha, já conferidas. */
+async function resolverAlvoDaPlanilha(
+  db: Database,
+  pedido?: RequestedContext & { period?: string },
+): Promise<{ scopeHash: string; canal: string | null; effectiveDate: string } | null> {
+  const contextos = await listContexts(db);
+  if (contextos.length === 0) return null;
+
+  const contexto = (await resolveContext(db, pedido, contextos))!;
+  return {
+    scopeHash: contexto.scopeHash,
+    canal: contexto.channel,
+    effectiveDate: conferirVigencia(contexto, pedido?.period ?? contexto.latestPeriod),
+  };
+}
+
+/**
  * A vigência pedida, ou a recusa escrita.
  *
  * Aparar em silêncio para a mais próxima daria o número certo sob o título
@@ -366,16 +485,20 @@ async function montarDaVigencia(
   const alvos: Alvo[] = [{ contexto, effectiveDate }];
   const chave = chaveDoAlvo(contexto.scopeHash, contexto.channel);
 
-  const [cavalos, trechos, entregues] = await Promise.all([
+  const [cavalos, trechos, entregues, planilhas] = await Promise.all([
     lerCavalosEmLote(db, alvos),
     lerTrechosEmLote(db, alvos),
     serieEntregueEmLote(db, TIPO_TRECHO, alvos),
+    lerPlanilhasEmLote(db, [
+      { scopeHash: contexto.scopeHash, canal: contexto.channel, effectiveDate },
+    ]),
   ]);
 
   return materialDe(
     cavalos.get(chave) ?? [],
     trechos.get(chave) ?? [],
     entregues.has(chave),
+    planilhas.get(chaveDaPlanilha(contexto.scopeHash, contexto.channel, effectiveDate)),
   );
 }
 
@@ -392,10 +515,21 @@ function materialDe(
   cavalos: CavaloDaVigencia[],
   trechos: TrechoDaVigencia[],
   trechosEntregues: boolean,
+  declarados?: PlanilhaDeclarada,
 ): { montado: CadastroMontado; material: MaterialLido } {
   return {
-    montado: montarCadastro({ cavalos, trechos, trechosEntregues }),
-    material: { cavalos: cavalos.length, trechos: trechos.length, trechosEntregues },
+    montado: montarCadastro({
+      cavalos,
+      trechos,
+      trechosEntregues,
+      ...(declarados ? { declarados } : {}),
+    }),
+    material: {
+      cavalos: cavalos.length,
+      trechos: trechos.length,
+      trechosEntregues,
+      linhasInformadas: declarados?.size ?? 0,
+    },
   };
 }
 

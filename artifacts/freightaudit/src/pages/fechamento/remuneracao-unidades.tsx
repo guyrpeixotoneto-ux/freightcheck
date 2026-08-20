@@ -224,6 +224,7 @@ export default function RemuneracaoUnidades() {
                       <th className="text-left px-4 py-2 font-medium">Frota</th>
                       <th className="text-left px-4 py-2 font-medium">Trechos</th>
                       <th className="text-right px-4 py-2 font-medium">Linhas com lastro</th>
+                      <th className="text-right px-4 py-2 font-medium">Planilha informada</th>
                       <th className="text-left px-4 py-2 font-medium">Vigência mais recente</th>
                       <th className="text-right px-4 py-2 font-medium" />
                     </tr>
@@ -265,6 +266,44 @@ export default function RemuneracaoUnidades() {
                         </td>
                         <td className="px-4 py-3 text-right tabular-nums whitespace-nowrap">
                           {u.cadastro.comLastro} de {u.cadastro.linhas}
+                        </td>
+                        {/*
+                          A planilha informada é coluna própria, e nunca somada
+                          à de lastro: as duas respondem perguntas opostas — uma
+                          diz o que a unidade **entregou**, a outra o que alguém
+                          **digitou**. Somadas, a unidade que não mandou arquivo
+                          nenhum e teve a aba transcrita apareceria em dia, e
+                          quem opera pararia de procurar o arquivo que falta.
+                        */}
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          {u.cadastro.informadas === 0 ? (
+                            <span className="text-xs text-muted-foreground">
+                              nada informado
+                            </span>
+                          ) : (
+                            <span className="inline-flex flex-col items-end gap-0.5">
+                              <span className="tabular-nums">
+                                {u.cadastro.informadas} de {u.cadastro.linhas}
+                              </span>
+                              {u.cadastro.divergentes > 0 ? (
+                                <Badge variant="destructive" className="text-[0.6875rem]">
+                                  {u.cadastro.divergentes}{" "}
+                                  {u.cadastro.divergentes === 1
+                                    ? "diverge do acervo"
+                                    : "divergem do acervo"}
+                                </Badge>
+                              ) : (
+                                u.cadastro.conferidas > 0 && (
+                                  <span className="text-[0.6875rem] text-muted-foreground">
+                                    {u.cadastro.conferidas}{" "}
+                                    {u.cadastro.conferidas === 1
+                                      ? "confere com o acervo"
+                                      : "conferem com o acervo"}
+                                  </span>
+                                )
+                              )}
+                            </span>
+                          )}
                         </td>
                         <td className="px-4 py-3 whitespace-nowrap">{u.periodLabel}</td>
                         <td className="px-4 py-3 text-right">
@@ -352,6 +391,14 @@ function Legenda() {
           metades: dezenove delas dependem de decisões de negócio que ainda não foram
           registradas, e não de arquivo que alguém deixou de mandar — abrir o cadastro de uma
           unidade diz, linha a linha, qual é o caso de cada uma.
+        </p>
+        <p className="text-xs text-muted-foreground">
+          <strong>Planilha informada</strong> conta o outro lado: as linhas que alguém digitou
+          da aba de Excel, dentro do cadastro da unidade. Ela não entra em "linhas com lastro"
+          — número digitado é lastro da planilha, não do acervo — e é justamente por ficarem
+          separadas que a coluna consegue dizer quantas linhas os dois respondem e em quantas
+          eles discordam. Os quatro estados acima continuam falando só do que a unidade
+          entregou.
         </p>
       </CardContent>
     </Card>

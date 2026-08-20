@@ -1,8 +1,18 @@
 import { Link } from "wouter";
-import { ArrowRight } from "lucide-react";
+import { ArrowRight, PencilLine, Scale } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
-import { NOME_DO_PREENCHIMENTO, type Ausencia, type Preenchimento } from "@/lib/remuneracao";
+import {
+  escreverDivergencia,
+  escreverValor,
+  NOME_DO_PREENCHIMENTO,
+  type Ausencia,
+  type Conferencia,
+  type Medida,
+  type Preenchimento,
+  type ValorDeclarado,
+} from "@/lib/remuneracao";
 
 /**
  * O que as duas vistas do cadastro compartilham.
@@ -117,6 +127,16 @@ export function Legenda() {
             <span aria-hidden className="w-2 h-2 rounded-sm bg-muted-foreground/30" />
             Preenchimento automático — a planilha deriva de outras células
           </span>
+          {/*
+            A terceira entrada não é da planilha: é deste produto. Ela fica na
+            mesma legenda porque é lida junto com as outras duas, e porque a
+            diferença que ela marca — medido contra digitado — é maior do que a
+            que separa azul de cinza.
+          */}
+          <span className="flex items-center gap-2">
+            <PencilLine className="w-3 h-3 text-sky-600 dark:text-sky-400" aria-hidden />
+            Informado — alguém digitou este número da aba, e o acervo não o mede
+          </span>
         </div>
       </CardContent>
     </Card>
@@ -128,6 +148,7 @@ export function frasedoMaterial(material: {
   cavalos: number;
   trechos: number;
   trechosEntregues: boolean;
+  linhasInformadas?: number;
 }): string {
   const cavalos = `${material.cavalos.toLocaleString("pt-BR")} ${
     material.cavalos === 1 ? "cavalo" : "cavalos"
@@ -138,5 +159,81 @@ export function frasedoMaterial(material: {
   const ressalva = material.trechosEntregues
     ? ""
     : " — a série de trechos não foi entregue, e é dela que saem as alíquotas e as proporções";
-  return `${cavalos} e ${trechos}${ressalva}`;
+  /*
+    As linhas informadas entram na mesma frase, e depois das duas do acervo: a
+    pergunta é "de onde vem o que está nesta tela", e a resposta tem duas
+    metades. Numa frase separada, quem lê a primeira e para de ler concluiria
+    que a tela inteira sai dos arquivos.
+  */
+  const informadas =
+    material.linhasInformadas && material.linhasInformadas > 0
+      ? `, mais ${material.linhasInformadas} ${
+          material.linhasInformadas === 1 ? "linha informada" : "linhas informadas"
+        } à mão`
+      : "";
+  return `${cavalos} e ${trechos}${informadas}${ressalva}`;
+}
+
+/**
+ * A marca de um número que veio da planilha, e não do acervo.
+ *
+ * Sempre visível, e nunca só uma cor: quem confere precisa poder dizer, olhando
+ * a tela impressa em preto e branco, quais números o produto mediu e quais
+ * alguém digitou. É a distinção que sustenta todas as outras deste módulo.
+ */
+export function MarcaDeInformado({ declarado }: { declarado: ValorDeclarado | null }) {
+  return (
+    <Badge
+      variant="outline"
+      className="gap-1 border-sky-500/40 text-sky-700 dark:text-sky-300 font-normal"
+      title={
+        declarado
+          ? `Informado por ${declarado.autor ?? "uma conta não identificada"} em ` +
+            `${new Date(declarado.informadoEm).toLocaleDateString("pt-BR")}. Não é medida do acervo.`
+          : "Informado no cadastro da planilha. Não é medida do acervo."
+      }
+    >
+      <PencilLine className="w-3 h-3" />
+      informado
+    </Badge>
+  );
+}
+
+/**
+ * O que a planilha diz, ao lado do que o cadastro apurou.
+ *
+ * Só aparece quando os dois respondem — é a conferência, e ela é o motivo pelo
+ * qual o número digitado não sobrescreve o medido. Quando batem, uma marca
+ * discreta; quando não, a diferença por extenso, com sinal, do ponto de vista
+ * da planilha.
+ */
+export function Conferido({
+  conferencia,
+  medida,
+  declarado,
+}: {
+  conferencia: Conferencia;
+  medida: Medida;
+  declarado?: ValorDeclarado | null;
+}) {
+  const autor = declarado?.autor ? ` por ${declarado.autor}` : "";
+  return conferencia.bate ? (
+    <Badge variant="outline" className="gap-1 font-normal text-muted-foreground">
+      <Scale className="w-3 h-3" />
+      a planilha informada{autor} concorda
+    </Badge>
+  ) : (
+    <span className="inline-flex flex-wrap items-center gap-2">
+      <Badge variant="destructive" className="tabular-nums">
+        {escreverDivergencia(conferencia, medida)}
+      </Badge>
+      <span className="text-xs text-muted-foreground">
+        A planilha informada{autor} diz{" "}
+        <strong className="tabular-nums">{escreverValor(conferencia.planilha, medida)}</strong>, e o
+        cadastro apura{" "}
+        <strong className="tabular-nums">{escreverValor(conferencia.cadastro, medida)}</strong>.
+        Nenhum dos dois corrige o outro.
+      </span>
+    </span>
+  );
 }
