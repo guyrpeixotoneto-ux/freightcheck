@@ -57,6 +57,73 @@ export interface Competencia {
   motivoDaReabertura: string | null;
 }
 
+/**
+ * O carimbo do backfill da `0046` — as competências abertas antes de o tipo de
+ * operação existir.
+ *
+ * Ele afirma uma coisa só: ninguém disse de qual operação aquele fechamento é.
+ * A migration não adivinhou, e é por isso que este valor não se confunde com
+ * `EMPURRADA`. Ver `lib/db/migrations/0046_tipo_de_operacao.sql`.
+ */
+export const TIPO_NAO_INFORMADO = "NAO_INFORMADO";
+
+/**
+ * Os tipos que se pode **abrir**.
+ *
+ * Lista fechada, ao contrário dos campos de unidade e transportadora, e a razão
+ * é o que cada um protege: lá o vocabulário é da operação e cresce; aqui ele é
+ * o eixo de uma **chave**, e um campo livre faria "Empurrada" e "EMPURRADA"
+ * virarem dois fechamentos do mesmo mês. Um terceiro tipo é uma linha nesta
+ * lista no dia em que ele existir.
+ *
+ * `NAO_INFORMADO` não está aqui de propósito: só o backfill pode escrevê-lo, e
+ * `normalizarTipoDeOperacao` o recusa na porta de entrada. Quem **lê** precisa
+ * alcançá-lo — ver {@link TIPOS_PARA_LER} —, quem abre, não.
+ */
+export const TIPOS_DE_OPERACAO: { valor: string; rotulo: string; explicacao: string }[] = [
+  {
+    valor: "EMPURRADA",
+    rotulo: "Empurrada",
+    explicacao:
+      "A distribuição empurrada da unidade — a operação que as vigências deste acervo " +
+      "descrevem hoje.",
+  },
+  {
+    valor: "ROTA",
+    rotulo: "Rota",
+    explicacao:
+      "A operação de rota da mesma unidade. É um fechamento separado do de empurrada, com a " +
+      "sua própria planilha de remuneração.",
+  },
+];
+
+/**
+ * Os tipos que se pode **consultar** — os dois de cima, mais o do backfill.
+ *
+ * Ler e abrir pedem listas diferentes, e a diferença não é descuido. Abrir com
+ * `NAO_INFORMADO` seria dar a quem abre uma forma de dizer "não sei" num campo
+ * que a operação decidiu que é obrigatório. Mas todo fechamento anterior à
+ * `0046` carrega esse carimbo, e uma tela de consulta que não o oferecesse
+ * deixaria o acervo inteiro sem endereço: a trinca certa, o mês certo, e mesmo
+ * assim nada na tela — que foi exatamente o que aconteceu quando o seletor de
+ * Tipo chegou ao Resumo geral oferecendo só os dois tipos novos.
+ */
+export const TIPOS_PARA_LER: { valor: string; rotulo: string }[] = [
+  ...TIPOS_DE_OPERACAO.map(({ valor, rotulo }) => ({ valor, rotulo })),
+  { valor: TIPO_NAO_INFORMADO, rotulo: "tipo não informado" },
+];
+
+/**
+ * O tipo como a tela o escreve.
+ *
+ * `NAO_INFORMADO` aparece por extenso, e não escondido: a linha que não diz de
+ * qual operação ela é continua sendo um fato sobre o acervo, e mostrá-la como
+ * se fosse empurrada seria escrever na tela um tipo que ninguém declarou.
+ */
+export function rotuloDoTipo(tipo: string): string {
+  return TIPOS_PARA_LER.find((t) => t.valor === tipo)?.rotulo ?? tipo;
+}
+
 /** Os dois lados de um fechamento: o CDD que recebe e quem entrega. */
 export type TipoDeParte = "UNIDADE" | "TRANSPORTADORA";
 
