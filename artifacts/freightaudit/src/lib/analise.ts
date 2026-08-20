@@ -165,6 +165,83 @@ export interface PontaAPonta {
   totals: { changes: number; vehiclesTouched: number };
   byParameter: ParameterRollup[];
   entries: EndToEndEntry[];
+  byAttribute: AtributoNaPonta[];
+  universo: UniversoDoTipo[];
+}
+
+/**
+ * Espelha `MovimentacaoNoPeriodo` em `lib/comparison/src/end-to-end.ts`.
+ *
+ * O número chega pronto do servidor. A tela **não** o reconstrói: contá-lo aqui
+ * exigiria as linhas de todas as vigências do caminho, que esta leitura não
+ * carrega, e a contagem sairia menor sem que nada avisasse.
+ */
+export interface MovimentacaoNoPeriodo {
+  vigencias: number;
+  ativos: number;
+}
+
+/**
+ * Espelha `AtributoNaPonta` — a linha da tela de posição.
+ *
+ * O grão é (atributo × tipo de entidade) porque os blocos são equipamentos e o
+ * parâmetro atravessa tipos: `carreta.custo_aluguel` e `cavalo.custo_aluguel`
+ * moram na mesma gaveta. O parâmetro fica como agrupador visual.
+ *
+ * `impact.byPeriodicity` é o impacto oficial deste par, já deduplicado pela
+ * autoridade. **Nunca é somado nesta camada**: a exclusão por dupla contagem é
+ * por ativo e olha para fora do par, e uma soma de agregados já colapsados não
+ * tem como refazer essa decisão.
+ */
+export interface AtributoNaPonta {
+  key: string;
+  attributeCode: string | null;
+  entityType: string | null;
+  equipment: string;
+  title: string;
+  parameterKey: string;
+  parameterName: string;
+  family: string;
+  unit: string | null;
+  posicao: "DIFERENTE" | "REVERTIDO";
+  vehicles: number;
+  fleet: number;
+  coverage: "TOTAL" | "MAIORIA" | "PARCIAL" | null;
+  coverageLabel: string | null;
+  aggregate: ChangeGroupLite["aggregate"] | null;
+  dominantPattern: ChangeGroupLite["dominantPattern"];
+  patterns: number;
+  impact: {
+    byPeriodicity: Record<string, number>;
+    brutoByPeriodicity: Record<string, number>;
+    notCalculable: number;
+    calculatedChanges: number;
+  };
+  foraDaSoma: {
+    motivo: string;
+    explicacao: string;
+    ativos: number;
+    valor: number | null;
+  } | null;
+  movimentacoes: MovimentacaoNoPeriodo;
+  inconclusiveReason: string | null;
+  groups: ChangeGroupLite[];
+}
+
+/** Espelha `UniversoDoTipo` — o bloco de um equipamento e o denominador dele. */
+export interface UniversoDoTipo {
+  entityType: string;
+  equipment: string;
+  from: string | null;
+  fromLabel: string | null;
+  to: string | null;
+  toLabel: string | null;
+  vigencias: { date: string; label: string }[];
+  reason: string | null;
+  fleet: number;
+  atributos: number;
+  alterados: number;
+  revertidos: number;
 }
 
 /** Uma linha do resumo executivo, sempre com a periodicidade colada ao número. */

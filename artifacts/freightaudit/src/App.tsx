@@ -12,6 +12,7 @@ import Login from '@/pages/login';
 
 import Inicio from '@/pages/inicio';
 import VisaoGerencialDaAuditoria from '@/pages/visao-gerencial';
+import Posicao from '@/pages/posicao';
 import Vigencia from '@/pages/vigencia';
 import Dados from '@/pages/dados';
 import Alteracoes from '@/pages/alteracoes';
@@ -173,6 +174,14 @@ function Router() {
         e o menu as põe em ordem de altura dentro de Visão executiva.
       */}
       <Route path="/visao-gerencial" component={VisaoGerencialDaAuditoria} />
+      {/*
+        Posição é a unidade aberta pelo cartão do ano. Rota própria, e não uma
+        aba de outra tela: o intervalo mora no endereço, e um link para "a
+        posição de CAMAÇARI entre janeiro e agosto" tem de poder ser mandado a
+        alguém e abrir aquele intervalo — que é a mesma razão que pôs `de` e
+        `ate` na URL de Parâmetros › Análise.
+      */}
+      <Route path="/posicao" component={Posicao} />
       <Route path="/vigencia" component={Vigencia} />
       <Route path="/dados" component={Dados} />
       <Route path="/apresentacao" component={ApresentacaoVideo} />
