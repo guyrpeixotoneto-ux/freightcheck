@@ -61,7 +61,12 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ambienteDe, type Ambiente } from "@/lib/ambiente";
+import {
+  ambienteDe,
+  ENTRADA_DA_AUDITORIA,
+  RESUMO_EXECUTIVO,
+  type Ambiente,
+} from "@/lib/ambiente";
 import { getApiUrl } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -162,9 +167,13 @@ const NAV_GROUPS: NavGroup[] = [
         As duas ficam coladas, e nesta ordem, porque são a mesma pergunta em
         duas alturas: o conjunto e a unidade. Separá-las por três itens faria
         parecer que falam de coisas diferentes.
+
+        A ordem do menu agora é também a ordem da entrada: `/` encaminha para o
+        primeiro destes dois itens, e o segundo tem endereço próprio desde que
+        deixou a raiz. Ver `lib/ambiente.ts`.
       */
-      { href: "/visao-gerencial", label: "Visão Gerencial", icon: LayoutDashboard },
-      { href: "/", label: "Resumo executivo", icon: House },
+      { href: ENTRADA_DA_AUDITORIA, label: "Visão Gerencial", icon: LayoutDashboard },
+      { href: RESUMO_EXECUTIVO, label: "Resumo executivo", icon: House },
       { href: "/vigencia", label: "Acompanhamento", icon: TrendingUp },
       /*
         A Análise de frota saiu daqui e passou a abrir a seção **Frota**, ao lado
@@ -657,6 +666,10 @@ function normalizar(texto: string): string {
  * exceção "/" ficaria aceso em toda tela do produto. `/fechamento` é a raiz do
  * outro ambiente e tem a mesma exceção pela mesma razão: todo endereço do
  * Fechamento começa com ele.
+ *
+ * A exceção de "/" continua aqui mesmo depois de a raiz ter deixado de ser item
+ * de menu: ela custa uma comparação e é o que impede a lateral inteira de
+ * acender no dia em que alguém reaproveitar "/" como href de algum item.
  */
 function estaAtivo(location: string, href: string): boolean {
   if (href === "/" || href === "/fechamento") return location === href;

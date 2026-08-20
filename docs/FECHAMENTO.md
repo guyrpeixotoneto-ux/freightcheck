@@ -41,9 +41,18 @@ explícito ficou para o domínio que nasce agora, onde não custa nada.
 Pelo seletor no topbar, colado à marca — `FreightCheck | Auditoria ▾` —
 implementado em `components/layout/topbar.tsx`. Ele mostra sempre o ambiente
 aberto e lista os dois com nome completo e descrição. Trocar navega para a
-home do outro (`/` ou `/fechamento`). A marca também leva à home **do ambiente
-aberto**, para que "voltar ao início" nunca troque de espaço de trabalho sem
-avisar.
+home do outro (`/visao-gerencial` ou `/fechamento`). A marca também leva à home
+**do ambiente aberto**, para que "voltar ao início" nunca troque de espaço de
+trabalho sem avisar.
+
+As duas homes são a mesma tela em ambientes diferentes — a **Visão Gerencial**
+de cada um —, e isso é deliberado: quem entra entra pelo conjunto, e desce à
+unidade depois. A da Auditoria mudou de endereço para isso: `/` deixou de
+renderizar o Resumo executivo, que passou a ter endereço próprio
+(`/resumo-executivo`), e virou a porta que encaminha — para a Visão Gerencial
+quando vem nua, e para o Resumo executivo quando vem com recorte na consulta,
+que é o formato de todo link antigo. A regra inteira está em `lib/ambiente.ts`
+(`destinoDaRaiz`).
 
 ## A lateral contextual
 
@@ -55,8 +64,9 @@ listas:
   ordem delas são as de sempre; o único item acrescentado desde a separação dos
   ambientes é a **Visão Gerencial**, que abre a Visão executiva com o acervo
   inteiro (todas as unidades) acima do Resumo executivo, que responde pela
-  unidade aberta — ver `pages/visao-gerencial.tsx` e a seção correspondente no
-  `replit.md`.
+  unidade aberta — e que, desde que virou a entrada do ambiente, é também a
+  tela em que o produto abre. Ver `pages/visao-gerencial.tsx` e a seção
+  correspondente no `replit.md`.
 - **Fechamento** — `components/layout/nav-fechamento.ts`, cinco seções na
   ordem do processo:
   - **Fechamento**: Visão Gerencial · Importações · Apurações
