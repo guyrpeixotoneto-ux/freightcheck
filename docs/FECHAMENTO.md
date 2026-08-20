@@ -563,7 +563,7 @@ devolvem nulo em vez de escolher o valor mais provável.
 
 `NAO_INFORMADO` é recusado na porta de entrada (`normalizarTipoDeOperacao`):
 ele é o carimbo do backfill, e nada além dele pode escrevê-lo. A tela mostra
-essas competências como "tipo não informado", por extenso — mostrá-las como
+essas competências como "Não informado", por extenso — mostrá-las como
 empurradas seria escrever na tela um tipo que ninguém declarou.
 
 O `DEFAULT` da coluna fica, e é fail-safe pela razão **oposta** à de

@@ -184,13 +184,6 @@ export default function ResumoGeral() {
                     ))}
                   </SelectContent>
                 </Select>
-                {tipoDeOperacao === TIPO_NAO_INFORMADO && (
-                  <p className="text-xs text-muted-foreground">
-                    Os fechamentos abertos antes de o Tipo existir. A migration
-                    não adivinhou de qual operação eles eram — e ninguém escreveu
-                    por eles.
-                  </p>
-                )}
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="transportadora">Transportadora</Label>
@@ -415,7 +408,7 @@ function Corpo({
                     {/*
                       A dica que faltava. Quem abriu a quinzena antes de o campo
                       Tipo existir não tem como saber que o backfill a carimbou
-                      de "tipo não informado" — do lado de cá o mês simplesmente
+                      de "Não informado" — do lado de cá o mês simplesmente
                       sumiu. Vale como primeira hipótese porque é a única causa
                       que não depende de erro de quem lê.
                     */}
@@ -426,7 +419,7 @@ function Corpo({
                       onClick={() => trocar("tipoDeOperacao", TIPO_NAO_INFORMADO)}
                       className="text-primary font-medium hover:underline"
                     >
-                      tipo não informado
+                      Não informado
                     </button>
                     : a migration que criou o campo não adivinhou de qual operação
                     cada fechamento antigo era. Se não é o caso, abra a quinzena

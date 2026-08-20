@@ -46,7 +46,7 @@ describe("as duas listas de Tipo", () => {
 
 describe("rotuloDoTipo", () => {
   it("escreve o carimbo por extenso, e não como se fosse uma operação", () => {
-    expect(rotuloDoTipo(TIPO_NAO_INFORMADO)).toBe("tipo não informado");
+    expect(rotuloDoTipo(TIPO_NAO_INFORMADO)).toBe("Não informado");
   });
 
   it("escreve os dois tipos reais como a tela os mostra", () => {
