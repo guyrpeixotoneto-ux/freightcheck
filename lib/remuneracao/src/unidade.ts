@@ -32,6 +32,15 @@ import { remuneracaoUnidadeTable } from "@workspace/db/schema";
  * que o import produzirá, e no dia em que o arquivo chegar ele cai na unidade
  * que já estava lá — com a planilha no lugar certo, sem uma segunda CAMAÇARI
  * ao lado da primeira.
+ *
+ * **O código é opcional, e o que ele compra é exatamente esse encontro.** Quem
+ * tem a aba de Excel na mão nem sempre tem o CNPJ da unidade, e exigi-lo era
+ * mandar a pessoa procurar num export que ainda não chegou para poder digitar
+ * a planilha que já chegou — a mesma parede, um passo adiante. Sem código, o
+ * identificador sai do **nome**: a unidade existe, aparece na lista, tem
+ * planilha e tem vigência. O que ela não tem é o reencontro automático — ver
+ * {@link identificadorDaUnidade}, que é onde essa escolha mora e onde o preço
+ * dela está escrito por extenso.
  */
 
 /** Uma unidade que alguém registrou, como ela volta do banco. */
@@ -100,6 +109,50 @@ export async function unidadesRegistradas(db: Database): Promise<UnidadeRegistra
 }
 
 /**
+ * O nome como a tabela o guarda — `trim` e caixa alta.
+ *
+ * Era uma linha dentro de `registrarUnidade`, e sai dela porque a borda passou
+ * a precisar do **mesmo** texto: quando não há código, é sobre o nome
+ * normalizado que o `scope_hash` é somado. Duas normalizações — uma aqui, uma
+ * lá — produziriam um hash somado sobre `camaçari ` e uma linha gravada como
+ * `CAMAÇARI`, e o segundo registro do mesmo nome não seria reconhecido como
+ * repetido.
+ */
+export function normalizarNome(bruto: string): string {
+  return bruto.trim().toUpperCase();
+}
+
+/**
+ * O TEXTO SOBRE O QUAL O `scope_hash` DA UNIDADE É SOMADO — e o que se perde
+ * quando ele não é o código.
+ *
+ * **Com código, é o código**, como o export o escreve. É o caso que faz este
+ * caminho valer a pena: o identificador sai igual ao que a importação vai
+ * produzir, e o arquivo, quando chegar, cai dentro da unidade que já estava
+ * ali.
+ *
+ * **Sem código, é o nome normalizado.** Precisa ser alguma coisa, e precisa ser
+ * alguma coisa **estável e distinta**: `UNIDADE:` puro faria todas as unidades
+ * sem código compartilharem um identificador só, e a segunda seria recusada
+ * como repetida da primeira — CAMAÇARI barrando a entrada de BELÉM. O nome já
+ * é o que distingue uma unidade da outra na lista, já é normalizado antes de
+ * ser gravado, e é a única coisa que quem cadastra sempre tem.
+ *
+ * **E o preço, dito por extenso, porque a tela precisa dizê-lo.** O hash do
+ * nome não é o hash que a importação calcula — ela soma sobre o código da
+ * coluna `Unidade - CNPJ`. Então a unidade registrada sem código **não** recebe
+ * o export quando ele chegar: o arquivo abre a unidade dele ao lado desta, cada
+ * uma com metade da história, e juntá-las é trabalho manual. Não é um defeito
+ * escondido — é o que se troca por não ter de conhecer o CNPJ hoje —, e é por
+ * isso que o campo continua na tela, continua sendo o caminho recomendado, e a
+ * frase embaixo dele muda conforme ele esteja preenchido ou não.
+ */
+export function identificadorDaUnidade(pedido: { codigo: string; nome: string }): string {
+  const codigo = normalizarCodigo(pedido.codigo);
+  return codigo === "" ? normalizarNome(pedido.nome) : codigo;
+}
+
+/**
  * Registra uma unidade. O `scopeHash` vem pronto — ver o cabeçalho.
  *
  * **O nome é normalizado; o código, não.** `camaçari ` e `CAMAÇARI` são a mesma
@@ -120,7 +173,7 @@ export async function registrarUnidade(
     autor: { id: string | null; nome: string | null };
   },
 ): Promise<UnidadeRegistrada> {
-  const nome = pedido.nome.trim().toUpperCase();
+  const nome = normalizarNome(pedido.nome);
   const canal = pedido.canal === null ? "" : pedido.canal.trim().toUpperCase();
 
   if (nome === "") {

@@ -46,18 +46,31 @@ import { registrarUnidade } from "@/lib/remuneracao";
  * lado desta, que é o defeito exato que este caminho existe para evitar. As
  * duas telas passam a pedir pelo mesmo vocabulário, com as mesmas listas.
  *
- * **Por que o código é obrigatório, e por que ele é o campo delicado.** É dele
- * que sai o identificador da unidade, somado com a mesma regra da importação.
- * Registrada com o código que o export também carrega, a unidade digitada
- * recebe o **mesmo** identificador que o import produzirá: no dia em que o
- * arquivo chegar, ele cai na unidade que já estava lá, com a planilha no lugar
- * certo, e ninguém precisa juntar duas linhas.
+ * **O código não é obrigatório, e é o campo que mais vale a pena preencher.**
+ * É dele que sai o identificador da unidade, somado com a mesma regra da
+ * importação. Registrada com o código que o export também carrega, a unidade
+ * digitada recebe o **mesmo** identificador que o import produzirá: no dia em
+ * que o arquivo chegar, ele cai na unidade que já estava lá, com a planilha no
+ * lugar certo, e ninguém precisa juntar duas linhas.
+ *
+ * Sem código, o identificador sai do nome, e a unidade funciona igual em tudo
+ * o mais — aparece na lista, tem planilha, tem vigência. O que ela perde é esse
+ * encontro: o export abre a unidade dele ao lado desta. **Exigir o código era
+ * pior**, porque mandava quem tem a aba de Excel na mão procurar o CNPJ num
+ * arquivo que ainda não chegou para poder digitar a planilha que já chegou — a
+ * mesma parede que este botão derruba, um passo adiante. Então a tela pede, diz
+ * o que se ganha, diz o que se perde, e deixa passar.
+ *
+ * A frase embaixo do campo **muda com o campo**, e não é enfeite: as duas
+ * consequências são opostas, e uma explicação fixa estaria errada em metade dos
+ * cadastros. Quem digita o código vê a promessa do reencontro; quem o deixa em
+ * branco vê o preço, antes de clicar.
  *
  * E é por isso que a tela pede o código **como ele está no export**, com
  * máscara se lá houver máscara. O identificador da importação é somado sobre o
  * texto da célula, não sobre o CNPJ canônico; limpar a pontuação aqui pareceria
  * mais caprichado e produziria o identificador de um código que o arquivo não
- * tem — as duas unidades nunca se encontrariam. A exigência é real e a tela a
+ * tem — as duas unidades nunca se encontrariam. A exigência é real, e a tela a
  * diz por extenso, porque quem digita não tem como adivinhá-la.
  *
  * É também a razão de o nome e o código serem **dois campos**, onde Realizar
@@ -144,8 +157,8 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
   });
 
   const anoValido = anoAceito(ano);
-  const faltaCampo =
-    nome.trim() === "" || codigo.trim() === "" || tipoDeOperacao === "" || !anoValido;
+  const temCodigo = codigo.trim() !== "";
+  const faltaCampo = nome.trim() === "" || tipoDeOperacao === "" || !anoValido;
 
   /*
     Portal, pela razão do painel de cadastro da planilha: este botão vive no
@@ -254,7 +267,10 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
             </div>
 
             <div className="space-y-1.5">
-              <Label htmlFor="unidade-codigo">Código da unidade</Label>
+              <Label htmlFor="unidade-codigo">
+                Código da unidade{" "}
+                <span className="font-normal text-muted-foreground">(opcional)</span>
+              </Label>
               <Input
                 id="unidade-codigo"
                 value={codigo}
@@ -302,14 +318,34 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
             Fica embaixo da grade, e não espremido dentro da coluna do campo,
             pela mesma escolha de Realizar Fechamento — lá é a explicação do
             `código — nome` que ocupa a largura inteira.
+
+            Ele muda com o campo porque as duas consequências são opostas. Um
+            texto único teria de escolher entre prometer o reencontro a quem não
+            vai tê-lo e avisar do preço a quem já pagou para não pagá-lo — e nos
+            dois casos estaria errado em metade dos cadastros.
           */}
           <p className={AJUDA}>
-            O nome é o que a lista mostra, e o que quem opera procura. O código é o mesmo da
-            coluna <strong>Unidade - CNPJ</strong> do export, escrito{" "}
-            <strong>exatamente como está lá</strong> — com pontuação, se lá houver. É por ele
-            que o arquivo, quando chegar, entra nesta unidade em vez de abrir uma segunda ao
-            lado dela. A quinzena é a única vigência que a unidade tem enquanto não há acervo:
-            as outras aparecem à medida que você salvar planilha nelas.
+            O nome é o que a lista mostra, e o que quem opera procura.{" "}
+            {temCodigo ? (
+              <>
+                O código é o mesmo da coluna <strong>Unidade - CNPJ</strong> do export,
+                escrito <strong>exatamente como está lá</strong> — com pontuação, se lá
+                houver. É por ele que o arquivo, quando chegar,{" "}
+                <strong>entra nesta unidade</strong> em vez de abrir uma segunda ao lado
+                dela.
+              </>
+            ) : (
+              <>
+                <strong>Sem o código, a unidade fica por conta própria</strong>: ela aparece
+                na lista e tem planilha, mas o export, quando chegar, abre a unidade dele ao
+                lado desta — juntar as duas é trabalho manual. Preencher o código da coluna{" "}
+                <strong>Unidade - CNPJ</strong>, exatamente como está lá, é o que faz o
+                arquivo cair aqui dentro. Se você não o tem agora, siga: a planilha não
+                espera pelo arquivo.
+              </>
+            )}{" "}
+            A quinzena é a única vigência que a unidade tem enquanto não há acervo: as outras
+            aparecem à medida que você salvar planilha nelas.
           </p>
         </div>
 

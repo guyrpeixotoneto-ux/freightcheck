@@ -18,7 +18,8 @@ import { erroEmJson } from "../../middlewares/contrato-json";
  *    Se um dia esta rota passar a somá-lo de outro jeito — ou a limpar a
  *    máscara do código antes —, a unidade digitada deixa de reencontrar a
  *    importada, e nada em tela avisa. O primeiro caso abaixo compara contra a
- *    função de verdade, e não contra um valor copiado.
+ *    função de verdade, e não contra um valor copiado. Sem código, ele é somado
+ *    sobre o nome, e o que os casos fixam é o preço disso.
  * 2. **As recusas viram número por classe**, pela tabela de
  *    `recusa-de-dominio.ts` — sem `try/catch` na rota.
  * 3. **O autor sai da sessão**, e nunca do corpo.
@@ -134,14 +135,62 @@ describe("o identificador que a rota soma", () => {
   });
 });
 
-describe("o que a rota recusa, e com qual número", () => {
-  it("400 sem código, e a frase diz por que ele não é opcional", async () => {
+/**
+ * A unidade sem código — o caminho que exigir o CNPJ fechava.
+ *
+ * Exigi-lo mandava quem tem a aba de Excel na mão procurar o código num export
+ * que ainda não chegou, para poder digitar a planilha que já chegou: a mesma
+ * parede que esta rota existe para derrubar, um passo adiante. Ela passa a
+ * aceitar, e o que estes casos fixam é **o preço** — porque um preço que a
+ * suíte não afirma é um preço que alguém vai descobrir em produção.
+ */
+describe("a unidade sem código", () => {
+  it("é aceita, e o identificador passa a sair do nome", async () => {
     const r = await enviar({ ...VALIDO, codigo: "  " });
 
-    expect(r.status).toBe(400);
-    expect(r.body.error).toContain("export");
+    expect(r.status).toBe(201);
+    // O código continua sendo o que foi digitado — nada. Inventá-lo a partir
+    // do nome faria a linha afirmar um código que ninguém deu.
+    expect(r.body.codigo).toBe("");
+    expect(r.body.scopeHash).toBe(hashScopeSet(["UNIDADE:CAMAÇARI"]));
   });
 
+  it("não recebe o identificador que a importação daquele CNPJ produziria", async () => {
+    /*
+      É o preço, afirmado: o hash do nome não é o hash do código, então o export
+      abrirá a unidade dele ao lado desta. A tela diz isso por extenso embaixo do
+      campo, e este teste é o que impede a frase de virar mentira em silêncio se
+      alguém "melhorar" a regra do identificador.
+    */
+    const r = await enviar({ ...VALIDO, codigo: "" });
+
+    expect(r.body.scopeHash).not.toBe(hashScopeSet(["UNIDADE:12345678000199"]));
+  });
+
+  it("duas unidades sem código não colidem uma na outra", async () => {
+    /*
+      O caso que um descritor `UNIDADE:` puro quebraria: todas as unidades sem
+      código dividiriam um identificador só, e a segunda voltaria 409 — CAMAÇARI
+      barrando a entrada de BELÉM, sem nada em tela explicando por quê.
+    */
+    await enviar({ ...VALIDO, codigo: "", nome: "CAMAÇARI" });
+    const r = await enviar({ ...VALIDO, codigo: "", nome: "BELÉM" });
+
+    expect(r.status).toBe(201);
+    expect(r.body.scopeHash).toBe(hashScopeSet(["UNIDADE:BELÉM"]));
+  });
+
+  it("o mesmo nome, com outra caixa, continua sendo a mesma unidade", async () => {
+    // O hash sai do nome **normalizado**, e é o que faz o segundo registro ser
+    // reconhecido como repetição em vez de abrir uma CAMAÇARI minúscula.
+    await enviar({ ...VALIDO, codigo: "" });
+    const r = await enviar({ ...VALIDO, codigo: "", nome: " camaçari " });
+
+    expect(r.status).toBe(409);
+  });
+});
+
+describe("o que a rota recusa, e com qual número", () => {
   it("400 sem quinzena, porque o formulário abriria sem nada para escolher", async () => {
     const r = await enviar({ ...VALIDO, vigencia: "" });
 

@@ -4,6 +4,7 @@ import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
 import { sql } from "drizzle-orm";
 import {
   descritorDeEscopo,
+  identificadorDaUnidade,
   normalizarCodigo,
   registrarUnidade,
   unidadesRegistradas,
@@ -91,6 +92,53 @@ describe("o identificador é o mesmo que a importação calcularia", () => {
     expect(a.scopeHash).toBe(b.scopeHash);
     expect(a.canal).toBe("EMPURRADA");
     expect(b.canal).toBe("ROTA");
+  });
+});
+
+/**
+ * Sobre qual texto o hash é somado — e o que muda quando não há código.
+ *
+ * A função é pura e mora no domínio porque a borda não pode escolher: se a rota
+ * decidisse isso por conta, uma segunda borda (um import em lote, uma migração)
+ * escolheria diferente, e duas unidades com o mesmo nome e sem código teriam
+ * identificadores distintos sem que nada avisasse.
+ */
+describe("o identificador quando o código não vem", () => {
+  it("com código, é o código — a máscara e tudo", () => {
+    expect(identificadorDaUnidade({ codigo: " 12.345.678/0001-99 ", nome: "CAMAÇARI" })).toBe(
+      "12.345.678/0001-99",
+    );
+  });
+
+  it("sem código, é o nome normalizado", () => {
+    expect(identificadorDaUnidade({ codigo: "   ", nome: " camaçari " })).toBe("CAMAÇARI");
+  });
+
+  it("nomes diferentes dão identificadores diferentes — nenhum `UNIDADE:` compartilhado", () => {
+    const camacari = identificadorDaUnidade({ codigo: "", nome: "CAMAÇARI" });
+    const belem = identificadorDaUnidade({ codigo: "", nome: "BELÉM" });
+
+    expect(camacari).not.toBe(belem);
+    expect(camacari).not.toBe("");
+  });
+
+  it("o hash do nome não é o hash do código — é este o preço, e ele é afirmado", () => {
+    /*
+      A unidade registrada sem código não recebe o export quando ele chegar: o
+      arquivo abre a unidade dele ao lado desta. A tela diz isso embaixo do
+      campo, e esta afirmação é o que impede a frase de virar mentira em
+      silêncio no dia em que alguém "melhorar" a regra.
+    */
+    const porNome = descritorDeEscopo("UNIDADE", identificadorDaUnidade({
+      codigo: "",
+      nome: "CAMAÇARI",
+    }));
+    const porCodigo = descritorDeEscopo("UNIDADE", identificadorDaUnidade({
+      codigo: "12345678000199",
+      nome: "CAMAÇARI",
+    }));
+
+    expect(hashScopeSet([porNome])).not.toBe(hashScopeSet([porCodigo]));
   });
 });
 

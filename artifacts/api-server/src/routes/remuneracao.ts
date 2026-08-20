@@ -9,6 +9,7 @@ import {
   copiarPlanilhaDaUnidade,
   descritorDeEscopo,
   gravarPlanilhaDaUnidade,
+  identificadorDaUnidade,
   lerCadastroDaUnidade,
   lerComparacaoDeCadastros,
   lerPlanilhaDaUnidade,
@@ -458,6 +459,13 @@ router.post("/remuneracao/planilha/leitura-de-imagem", async (req, res): Promise
  * que o export carrega produz **o mesmo** identificador que o import produzirá,
  * e o arquivo, quando chegar, cai na unidade que já estava lá.
  *
+ * **Sobre qual texto ele é somado — código ou nome — é `identificadorDaUnidade`
+ * quem decide**, e o cabeçalho daquela função é onde o preço de cada caminho
+ * está escrito. O que importa aqui é que a rota não escolhe: ela pergunta. O
+ * código deixou de ser obrigatório porque exigi-lo mandava quem tem a aba na
+ * mão procurar o CNPJ num export que ainda não chegou — a mesma parede que
+ * esta rota existe para derrubar, um passo adiante.
+ *
  * O autor sai da sessão, como no `PUT` da planilha, e pela mesma razão.
  */
 router.post("/remuneracao/unidades", async (req, res): Promise<void> => {
@@ -472,11 +480,15 @@ router.post("/remuneracao/unidades", async (req, res): Promise<void> => {
       : "UNIDADE";
 
   const codigo = normalizarCodigo(codigoBruto);
-  if (codigo === "") {
+  /*
+    O nome é conferido **aqui**, e não só no domínio, porque sem código é dele
+    que o identificador sai: sem esta guarda, uma unidade sem nome e sem código
+    produziria o descritor `UNIDADE:` — o mesmo para todas elas —, e a recusa
+    que viria depois seria a do domínio, com a frase certa e pelo motivo errado.
+  */
+  if (nome.trim() === "") {
     throw new UnidadeInvalida(
-      "O código da unidade é obrigatório — é o mesmo que vem no export, e é ele que faz a " +
-        "planilha digitada hoje encontrar o arquivo que chegar depois. Sem ele, a unidade " +
-        "importada nasceria ao lado desta em vez de dentro dela.",
+      "A unidade precisa de um nome — é o que a lista mostra, e o que quem opera procura.",
     );
   }
   /*
@@ -494,7 +506,9 @@ router.post("/remuneracao/unidades", async (req, res): Promise<void> => {
   }
 
   const unidade = await registrarUnidade(db, {
-    scopeHash: hashScopeSet([descritorDeEscopo(scopeType, codigo)]),
+    scopeHash: hashScopeSet([
+      descritorDeEscopo(scopeType, identificadorDaUnidade({ codigo, nome })),
+    ]),
     scopeType,
     codigo,
     nome,
