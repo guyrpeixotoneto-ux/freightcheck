@@ -194,6 +194,9 @@ importers:
       '@workspace/composition':
         specifier: workspace:*
         version: link:../../lib/composition
+      '@workspace/compras':
+        specifier: workspace:*
+        version: link:../../lib/compras
       '@workspace/coverage':
         specifier: workspace:*
         version: link:../../lib/coverage
@@ -843,6 +846,40 @@ importers:
       '@workspace/ingest':
         specifier: workspace:*
         version: link:../ingest
+      tsx:
+        specifier: 'catalog:'
+        version: 4.23.1
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@25.9.5)(jiti@2.7.0)(lightningcss@1.32.0)(tsx@4.23.1)(yaml@2.9.0)
+
+  lib/compras:
+    dependencies:
+      '@workspace/comparison':
+        specifier: workspace:*
+        version: link:../comparison
+      '@workspace/composition':
+        specifier: workspace:*
+        version: link:../composition
+      '@workspace/curation':
+        specifier: workspace:*
+        version: link:../curation
+      '@workspace/db':
+        specifier: workspace:*
+        version: link:../db
+      '@workspace/ingest':
+        specifier: workspace:*
+        version: link:../ingest
+      '@workspace/qlp':
+        specifier: workspace:*
+        version: link:../qlp
+      drizzle-orm:
+        specifier: 'catalog:'
+        version: 0.45.2(@types/pg@8.20.0)(pg@8.22.0)
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 25.9.5
       tsx:
         specifier: 'catalog:'
         version: 4.23.1

@@ -22,6 +22,7 @@ import frotaRouter from "./frota";
 import fechamentoRouter from "./fechamento";
 import qlpRouter from "./qlp";
 import remuneracaoRouter from "./remuneracao";
+import comprasRouter from "./compras";
 
 /**
  * F0/F1 surface.
@@ -137,6 +138,14 @@ import remuneracaoRouter from "./remuneracao";
  * deliberadamente **não** responde é diferença de valor entre vigências, que
  * continua sendo de `changes` — as vigências de QLP são snapshots como
  * quaisquer outros e o motor de comparação as compara entre si.
+ *
+ * `compras` é o balcão do Remunerado: o que a Ambev paga por um produto, antes
+ * de um pedido de compra ser liberado. Não tem dado próprio nem cálculo próprio
+ * — a leitura da frota é `montarComposicao` reagrupada por produto, e a do QLP
+ * é o quadro administrativo lido pelos papéis que o dicionário declara. O que
+ * ela acrescenta é o eixo do comprador: da rubrica do modelo para a coisa que
+ * se compra. O que ela deliberadamente **não** faz é comparar com o preço do
+ * pedido, que não está no banco.
  */
 const router: IRouter = Router();
 
@@ -172,6 +181,7 @@ router.use(clienteRouter);
 router.use(frotaRouter);
 router.use(qlpRouter);
 router.use(remuneracaoRouter);
+router.use(comprasRouter);
 router.use(fechamentoRouter);
 
 export default router;
