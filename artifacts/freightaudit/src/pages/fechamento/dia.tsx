@@ -7,6 +7,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { TabelaDoDia } from "@/components/fechamento/tabela-do-dia";
 import { apresentar } from "@/lib/apresentar-erro";
 import { formatBrl, formatNumber } from "@/lib/format";
+import { chaveDoDia } from "@/lib/fechamento-tela";
 import {
   lerDia,
   DIAS_DA_SEMANA,
@@ -44,7 +45,7 @@ function vizinho(dia: string, passo: 1 | -1, inicio: string, fim: string): strin
  */
 export default function DiaDoFechamento({ id, dia }: { id: string; dia: string }) {
   const dados = useQuery({
-    queryKey: ["fechamento", "dia", id, dia],
+    queryKey: chaveDoDia(id, dia),
     queryFn: () => lerDia(id, dia),
   });
 

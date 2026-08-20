@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
-import type { Database } from "@workspace/db";
+import { eq } from "drizzle-orm";
+import { fechamentoPagamentoItemTable, type Database } from "@workspace/db";
 import { runMigrations } from "@workspace/db/migrate";
 import {
   abrirCompetencia,
@@ -12,6 +13,8 @@ import {
   descartarDadosDaCompetencia,
   encerrarCompetencia,
   excluirCompetencia,
+  explicarPainelAusente,
+  fraseDoPainelAusente,
   lerApuracaoVigente,
   lerDiaDaCompetencia,
   lerDiarioDaCompetencia,
@@ -37,6 +40,7 @@ import {
   fixtureOperacao,
   fixtureOperacaoEmCsv,
   fixturePagamento,
+  fixturePagamento1aQuinzenaReal,
   fixturePagamentoDoPainel,
   fixturePagamentoEmCsv,
   fixtureRequisicoes,
@@ -94,6 +98,67 @@ async function bancoAlcancavel(): Promise<boolean> {
 
 const noCi = process.env.CI === "true" || process.env.CI === "1";
 const temBanco = noCi || (await bancoAlcancavel());
+
+/*
+  A frase do painel ausente não precisa de banco — e é justamente ela que
+  mentia. Fica fora do `skipIf` de propósito: quem mexer no texto vê as três
+  formas quebrarem na máquina dele, sem subir Postgres nenhum. O que **precisa**
+  de banco é dizer qual das três é o caso, e isso está lá dentro.
+*/
+describe("a frase que a tela mostra no lugar do painel", () => {
+  const enviadoEm = new Date("2026-08-20T12:00:00Z");
+
+  it("só diz 'não foi importado' quando nenhum 03.08.20 chegou", () => {
+    const frase = fraseDoPainelAusente({ motivo: "SEM_DOCUMENTO" });
+    expect(frase).toContain("03.08.20");
+    expect(frase).toContain("não foi importado nesta competência");
+  });
+
+  it("sobre o arquivo em quarentena, diz que ele chegou e não valeu", () => {
+    const frase = fraseDoPainelAusente({
+      motivo: "EM_QUARENTENA",
+      nomeDoArquivo: "03.08.20 (truncado).txt",
+      enviadoEm,
+      recusas: [{ linha: 12, motivo: "faltam 1 coluna(s) de valor", original: "01 - Frota Fixa" }],
+    });
+    expect(frase).not.toContain("não foi importado");
+    expect(frase).toContain("03.08.20 (truncado).txt");
+    expect(frase).toContain("20/08/2026");
+    expect(frase).toContain("quarentena");
+    expect(frase).toContain("faltam 1 coluna(s) de valor");
+  });
+
+  it("sobre o arquivo vigente sem verba, afirma que ele foi importado", () => {
+    /* O defeito relatado da tela: a lista de relatórios mostrava o 03.08.20 com
+       o visto verde e o painel, ao lado, dizia que ele não fora importado. */
+    const frase = fraseDoPainelAusente({
+      motivo: "SEM_VERBA",
+      nomeDoArquivo: "03.08.20.txt",
+      enviadoEm,
+      descontos: 28,
+      recusas: [],
+    });
+    expect(frase).not.toContain("não foi importado");
+    expect(frase).toContain("foi importado");
+    expect(frase).toContain("03.08.20.txt");
+    expect(frase).toContain("28 desconto(s)");
+    /* Sem recusa não se inventa pista: o arquivo pode ter sido lido inteiro e
+       ainda assim não trazer verba — e dizer "o leitor recusou 0 linha(s)"
+       mandaria procurar o que não existe. */
+    expect(frase).not.toContain("O leitor recusou");
+  });
+
+  it("quando nem desconto sobrou, diz que nenhuma linha foi reconhecida", () => {
+    const frase = fraseDoPainelAusente({
+      motivo: "SEM_VERBA",
+      nomeDoArquivo: "03.08.20 (formato desconhecido).txt",
+      enviadoEm,
+      descontos: 0,
+      recusas: [],
+    });
+    expect(frase).toContain("não reconheceu nenhuma linha");
+  });
+});
 
 describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
   let pool: pg.Pool;
@@ -392,6 +457,22 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
       tipoDeOperacao,
     });
 
+  /*
+    A mesma coisa para a 1ª quinzena, que é o período que o arquivo real declara
+    (`Periodo: 01/07/2026 a 15/07/2026`). Duas fixtures, dois períodos: usar a
+    competência errada faria `recusarPagamentoDeOutroPeriodo` recusar na porta, e
+    o teste passaria a medir a recusa em vez do que ele quer medir.
+  */
+  const competenciaDaPrimeira = () =>
+    abrirCompetencia(db, {
+      ano: 2026,
+      mes: 7,
+      quinzena: 1,
+      unidade: { codigo: `QUARENTENA-${proximaUnidade++}`, nome: "CDD DE TESTE" },
+      transportadora,
+      tipoDeOperacao,
+    });
+
   /** O fixture bom, com uma coluna de valor a menos em cada linha de verba. */
   function semVerbaPorColunaAMenos(): Buffer {
     const texto = fixturePagamentoDoPainel().toString("utf8");
@@ -404,6 +485,29 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
         })
         .join("\r\n"),
       "utf8",
+    );
+  }
+
+  /**
+   * O arquivo real da 1ª quinzena com uma coluna de valor a menos.
+   *
+   * O truncado do outro período não serve aqui: `recusarPagamentoDeOutroPeriodo`
+   * o recusaria na porta, e o teste passaria a medir a recusa de período em vez
+   * da quarentena. Vai e volta em latin-1, que é a codificação do arquivo — um
+   * `toString("utf8")` trocaria os acentos do rodapé por outros bytes e faria o
+   * "mesmo arquivo" deixar de ser o mesmo.
+   */
+  function realDaPrimeiraSemUmaColuna(): Buffer {
+    const texto = fixturePagamento1aQuinzenaReal().toString("latin1");
+    return Buffer.from(
+      texto
+        .split(/\r?\n/)
+        .map((l) => {
+          const m = /^(\s*\d{1,3}\s*-\s*.+?\s{2,})((?:-?[\d.]+,\d{2}\s+){5})(-?[\d.]+,\d{2})\s*$/.exec(l);
+          return m ? `${m[1]}${m[2]!.trimEnd()}` : l;
+        })
+        .join("\r\n"),
+      "latin1",
     );
   }
 
@@ -511,6 +615,198 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     const depois = await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" });
     expect(depois).not.toBeNull();
     expect(depois?.totalDoRelatorio).toBe(antes?.totalDoRelatorio);
+  });
+
+  /*
+    A outra metade do mesmo caso: a quarentena impede que a competência **fique**
+    sem parcela fixa daqui para a frente, e estes testes cobrem o que a tela diz
+    quando ela já está assim — inclusive nas competências importadas antes de a
+    quarentena existir. Dizer "não foi importado" sobre um arquivo que a lista de
+    relatórios mostra com nome, data e visto verde foi o defeito que sobrou.
+  */
+  it("sem 03.08.20 nenhum, a ausência é a de um arquivo que não chegou", async () => {
+    const comp = await competenciaSo();
+    const ausencia = await explicarPainelAusente(db, comp.id);
+
+    expect(ausencia.motivo).toBe("SEM_DOCUMENTO");
+    expect(fraseDoPainelAusente(ausencia)).toContain("não foi importado nesta competência");
+  });
+
+  it("com o 03.08.20 em quarentena, a tela diz que ele chegou e não valeu", async () => {
+    const comp = await competenciaSo();
+    const recebido = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20 (truncado).txt",
+      conteudo: semVerbaPorColunaAMenos(),
+    });
+    expect(recebido.desfecho).toBe("EM_QUARENTENA");
+
+    const ausencia = await explicarPainelAusente(db, comp.id);
+    expect(ausencia.motivo).toBe("EM_QUARENTENA");
+
+    const frase = fraseDoPainelAusente(ausencia);
+    expect(frase).not.toContain("não foi importado");
+    expect(frase).toContain("03.08.20 (truncado).txt");
+    expect(frase).toContain("quarentena");
+    /* A pista do porquê vem junto, e é a mesma que o envio devolveu. */
+    expect(frase).toContain("coluna(s) de valor");
+  });
+
+  it("com um 03.08.20 vigente e nenhuma verba, a tela não diz que ele não foi importado", async () => {
+    /* O estado em que as competências anteriores à quarentena ficaram: o
+       documento foi promovido, apagou as verbas do envio anterior e não gravou
+       nenhuma no lugar. A tela mostrava o visto verde na lista de relatórios e,
+       um cartão abaixo, "não foi importado nesta competência" — as duas coisas
+       sobre o mesmo arquivo. Aqui o estado é reproduzido por dentro, apagando as
+       verbas do documento vigente, porque a importação de hoje já não o produz. */
+    const comp = await competenciaSo();
+    await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20.txt",
+      conteudo: fixturePagamentoDoPainel(),
+    });
+    await db
+      .delete(fechamentoPagamentoItemTable)
+      .where(eq(fechamentoPagamentoItemTable.competenciaId, comp.id));
+
+    /* O documento continua lá, vigente, é o que a lista de relatórios mostra. */
+    const documento = (await listarDocumentos(db, comp.id)).find((d) => d.tipo === "PAGAMENTO");
+    expect(documento?.vigente).toBe(true);
+    /* E o painel não tem de onde sair. */
+    expect(await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" })).toBeNull();
+
+    const ausencia = await explicarPainelAusente(db, comp.id);
+    expect(ausencia.motivo).toBe("SEM_VERBA");
+    expect(ausencia).toMatchObject({ nomeDoArquivo: "03.08.20.txt" });
+
+    const frase = fraseDoPainelAusente(ausencia);
+    expect(frase).not.toContain("não foi importado");
+    expect(frase).toContain("foi importado");
+    expect(frase).toContain("03.08.20.txt");
+    /* Os descontos do mesmo documento continuam gravados, e são contados: é a
+       diferença entre "o arquivo é outro" e "o corpo dele não foi reconhecido". */
+    expect(ausencia.motivo === "SEM_VERBA" && ausencia.descontos).toBeGreaterThan(0);
+    expect(frase).toContain("desconto(s) dele e nenhuma verba");
+  });
+
+  it("a lista de relatórios conta as verbas do 03.08.20, que `linhasLidas` não separa", async () => {
+    /* O número que a tela mostrava era `linhasLidas`, e ele soma verbas e
+       descontos: o demonstrativo do qual o leitor só tirou descontos aparecia
+       com um número respeitável de linhas e visto verde. `verbas` é a pergunta
+       que a lista de fato faz — e é `null` nas outras fontes, que não têm verba
+       a ter, para que a tela não acuse quem não deve nada. */
+    const comp = await competenciaSo();
+    await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20.txt",
+      conteudo: fixturePagamentoDoPainel(),
+    });
+    await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "DISPONIBILIDADE",
+      nomeDoArquivo: "03.08.18.xlsx",
+      conteudo: fixtureDisponibilidade(),
+    });
+
+    const comVerba = await listarDocumentos(db, comp.id);
+    const pagamento = comVerba.find((d) => d.tipo === "PAGAMENTO")!;
+    expect(pagamento.verbas).toBeGreaterThan(0);
+    expect(pagamento.verbas).toBeLessThan(pagamento.linhasLidas);
+    /* As outras cinco fontes não respondem a esta pergunta. */
+    expect(comVerba.find((d) => d.tipo === "DISPONIBILIDADE")?.verbas).toBeNull();
+
+    /* E o estado que a tela precisa acusar: documento vigente, zero verbas. */
+    await db
+      .delete(fechamentoPagamentoItemTable)
+      .where(eq(fechamentoPagamentoItemTable.competenciaId, comp.id));
+    const semVerba = await listarDocumentos(db, comp.id);
+    expect(semVerba.find((d) => d.tipo === "PAGAMENTO")).toMatchObject({
+      vigente: true,
+      verbas: 0,
+    });
+  });
+
+  /*
+    As duas quinzenas, pelo caminho de verdade — upload, gravação, painel. O
+    caso relatado da tela era o de um 03.08.20 que a lista mostrava e o painel
+    negava, e a única forma de provar que isso não é o leitor é levar o arquivo
+    real inteiro até o painel e conferir o total contra o rodapé do papel.
+  */
+  it("a 1ª quinzena: o 03.08.20 real vira dez verbas e enche o painel dos dois canais", async () => {
+    const comp = await competenciaDaPrimeira();
+    const recebido = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_1Q_JUL.txt",
+      conteudo: fixturePagamento1aQuinzenaReal(),
+    });
+
+    expect(recebido.desfecho).toBe("PROMOVIDO");
+    expect(recebido.motivoDaQuarentena).toBeNull();
+    expect(recebido.recusas).toEqual([]);
+    /* O mesmo 14 que a tela mostra — e dez dele são verba. */
+    expect(recebido.linhasLidas).toBe(14);
+    expect(
+      (await listarDocumentos(db, comp.id)).find((d) => d.tipo === "PAGAMENTO"),
+    ).toMatchObject({ vigente: true, verbas: 10 });
+
+    const rota = await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" });
+    const as = await lerDeParaDaCompetencia(db, comp.id, { canal: "AS" });
+    expect(rota?.totalDoRelatorio).toBe(1084580.45);
+    expect(as?.totalDoRelatorio).toBe(42587.82);
+  });
+
+  it("a 2ª quinzena: o 03.08.20 do período seguinte enche o painel pelo mesmo caminho", async () => {
+    const comp = await competenciaSo();
+    const recebido = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_2Q_JUL.txt",
+      conteudo: fixturePagamentoDoPainel(),
+    });
+
+    expect(recebido.desfecho).toBe("PROMOVIDO");
+    expect(
+      (await listarDocumentos(db, comp.id)).find((d) => d.tipo === "PAGAMENTO")?.verbas,
+    ).toBeGreaterThan(0);
+    expect(await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" })).not.toBeNull();
+  });
+
+  it("sobre o 03.08.20 real, um envio sem verba fica em quarentena e não apaga nada", async () => {
+    /* O modo de falhar mais caro, agora contra o arquivo de verdade: o segundo
+       envio despromovia o primeiro e apagava as linhas dele **antes** de saber
+       se prestava. O painel tem de sair do outro lado com o mesmo total. */
+    const comp = await competenciaDaPrimeira();
+    await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_1Q_JUL.txt",
+      conteudo: fixturePagamento1aQuinzenaReal(),
+    });
+
+    const segundo = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_1Q_JUL (truncado).txt",
+      conteudo: realDaPrimeiraSemUmaColuna(),
+    });
+    expect(segundo.desfecho).toBe("EM_QUARENTENA");
+    expect(segundo.motivoDaQuarentena).toContain("nenhuma verba");
+    expect(segundo.substituiu).toBeNull();
+
+    /* O vigente continua sendo o real, com as dez verbas dele. */
+    const vigente = (await listarDocumentos(db, comp.id)).find(
+      (d) => d.tipo === "PAGAMENTO" && d.vigente,
+    );
+    expect(vigente).toMatchObject({ nomeDoArquivo: "03.08.20_1Q_JUL.txt", verbas: 10 });
+    expect((await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" }))?.totalDoRelatorio).toBe(
+      1084580.45,
+    );
+    /* E o que não valeu está guardado inteiro, para exame. */
+    expect((await lerConteudoDoDocumento(db, segundo.id))?.conteudo.length).toBeGreaterThan(0);
   });
 
   it("o arquivo volta do banco byte a byte, e é reprocessável sem o .txt", async () => {

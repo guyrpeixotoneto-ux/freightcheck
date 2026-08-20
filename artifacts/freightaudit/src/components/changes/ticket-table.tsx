@@ -1245,75 +1245,109 @@ export function TicketFilterPanel({
     totals?.byChangeKind.find((k) => k.changeKind === kind)?.count;
 
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-        <GrupoRapido label="Tipo">
-          <QuickChip
-            active={!filters.changeKind}
-            onClick={() => onChange({ ...filters, changeKind: "" })}
-          >
-            Todos
-            <Contagem n={totals?.changes} />
-          </QuickChip>
-          {operacoes.map((kind) => (
+    /*
+      `@container`: quem manda na fileira é a largura deste painel, não a da
+      janela. Ele mora dentro de um cartão que já perdeu para as margens da
+      página, e a mesma janela dá aqui larguras diferentes conforme a tela em
+      que a aba está montada.
+    */
+    <div className="@container space-y-3">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+        {/*
+          As pastilhas num bloco só, e não soltas ao lado da busca.
+
+          Soltas, cada grupo disputava a linha por conta própria, e o que
+          quebrava era o que sobrasse no fim. Juntas, a quebra tem um lugar
+          certo — entre as pastilhas e a busca —, que é a única costura desta
+          faixa onde separar não separa nada: são as duas perguntas de um lado
+          e as duas ferramentas do outro.
+        */}
+        <div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
+          <GrupoRapido label="Tipo">
             <QuickChip
-              key={kind}
-              active={filters.changeKind === kind}
+              active={!filters.changeKind}
+              onClick={() => onChange({ ...filters, changeKind: "" })}
+            >
+              Todos
+              <Contagem n={totals?.changes} />
+            </QuickChip>
+            {operacoes.map((kind) => (
+              <QuickChip
+                key={kind}
+                active={filters.changeKind === kind}
+                onClick={() =>
+                  onChange({
+                    ...filters,
+                    changeKind: filters.changeKind === kind ? "" : kind,
+                  })
+                }
+              >
+                {capitalizar(changeKindLabel(kind))}
+                <Contagem n={contarOperacao(kind)} />
+              </QuickChip>
+            ))}
+          </GrupoRapido>
+
+          {/* A divisória é o que diz que daqui para a frente é outra pergunta. */}
+          <span className="hidden h-7 w-px bg-border sm:block" aria-hidden />
+
+          <GrupoRapido label="Impacto">
+            <QuickChip
+              active={filters.impactConfidence === "CALCULATED"}
               onClick={() =>
                 onChange({
                   ...filters,
-                  changeKind: filters.changeKind === kind ? "" : kind,
+                  impactConfidence:
+                    filters.impactConfidence === "CALCULATED"
+                      ? ""
+                      : "CALCULATED",
                 })
               }
             >
-              {capitalizar(changeKindLabel(kind))}
-              <Contagem n={contarOperacao(kind)} />
+              Com impacto
+              <Contagem n={totals?.calculated} />
             </QuickChip>
-          ))}
-        </GrupoRapido>
-
-        {/* A divisória é o que diz que daqui para a frente é outra pergunta. */}
-        <span className="hidden h-7 w-px bg-border sm:block" aria-hidden />
-
-        <GrupoRapido label="Impacto">
-          <QuickChip
-            active={filters.impactConfidence === "CALCULATED"}
-            onClick={() =>
-              onChange({
-                ...filters,
-                impactConfidence:
-                  filters.impactConfidence === "CALCULATED" ? "" : "CALCULATED",
-              })
-            }
-          >
-            Com impacto
-            <Contagem n={totals?.calculated} />
-          </QuickChip>
-          <QuickChip
-            active={filters.impactConfidence === "NOT_CALCULABLE"}
-            onClick={() =>
-              onChange({
-                ...filters,
-                impactConfidence:
-                  filters.impactConfidence === "NOT_CALCULABLE"
-                    ? ""
-                    : "NOT_CALCULABLE",
-              })
-            }
-          >
-            Sem impacto
-            <Contagem n={totals?.notCalculable} />
-          </QuickChip>
-        </GrupoRapido>
+            <QuickChip
+              active={filters.impactConfidence === "NOT_CALCULABLE"}
+              onClick={() =>
+                onChange({
+                  ...filters,
+                  impactConfidence:
+                    filters.impactConfidence === "NOT_CALCULABLE"
+                      ? ""
+                      : "NOT_CALCULABLE",
+                })
+              }
+            >
+              Sem impacto
+              <Contagem n={totals?.notCalculable} />
+            </QuickChip>
+          </GrupoRapido>
+        </div>
 
         {/*
-          `flex-1` e não `ml-auto`: empurrado para a direita, o grupo mantinha
-          essa margem ao quebrar de linha, e a segunda fileira nascia com um
-          rombo à esquerda e a busca encolhida contra a borda. Esticando, ele
-          preenche a folga da linha em que estiver — na mesma da fileira, quando
-          cabe, e sozinho na de baixo, quando não cabe.
+          A busca e os botões andam grudados, e quem desce de linha é o bloco
+          inteiro.
+
+          O defeito que isto conserta: o bloco declarava um mínimo à mão
+          (`18rem`) menor do que a soma do que ele carrega, e tinha
+          `flex-wrap` por dentro. Numa janela intermediária ele cabia na
+          fileira das pastilhas por esse mínimo declarado — e então quebrava
+          por dentro: a busca ficava lá em cima e o Filtros descia sozinho,
+          encavalado debaixo dela, com a fileira das pastilhas inteira vazia
+          ao lado.
+
+          Sem `flex-wrap` e sem mínimo à mão, o mínimo do bloco passa a ser o
+          `min-content` que o navegador calcula — a busca no seu piso mais os
+          botões, quaisquer que sejam os textos deles —, e o flex decide a
+          linha com esse número: cabe ao lado das pastilhas, ou desce inteiro
+          para uma linha só sua, onde estica. Nunca no meio.
+
+          Abaixo de `@lg` — telefone, ou este cartão numa coluna estreita —
+          esse mínimo não cabe em linha nenhuma, e aí quebrar por dentro volta
+          a ser a resposta certa: busca em cima, botões embaixo.
         */}
-        <div className="flex min-w-[18rem] flex-1 flex-wrap items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 @lg:w-auto @lg:flex-1 @lg:flex-nowrap">
           <CampoDeBusca
             valor={filters.search}
             onChange={(search) => onChange({ ...filters, search })}
@@ -1323,7 +1357,7 @@ export function TicketFilterPanel({
             onClick={() => setAvancadoAberto((v) => !v)}
             aria-expanded={avancadoAberto}
             className={cn(
-              "h-11 rounded-xl gap-2",
+              "h-11 shrink-0 rounded-xl gap-2",
               (avancadoAberto || avancados.length > 0) &&
                 "border-blue-600 text-blue-700",
             )}
@@ -1340,7 +1374,7 @@ export function TicketFilterPanel({
             <Button
               variant="ghost"
               onClick={() => onChange(emptyTicketFilters)}
-              className="h-11 rounded-xl text-muted-foreground"
+              className="h-11 shrink-0 rounded-xl text-muted-foreground"
             >
               limpar tudo
             </Button>

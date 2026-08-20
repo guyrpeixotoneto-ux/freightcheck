@@ -5,6 +5,9 @@ import {
   AlertTriangle,
   ArrowRight,
   Briefcase,
+  ChevronDown,
+  ChevronUp,
+  ChevronsUpDown,
   CircleHelp,
   CloudDownload,
   Info,
@@ -50,6 +53,15 @@ import {
   formatarValor,
   rotuloDaVigencia,
 } from "@/components/qlp/apresentacao";
+import {
+  CHAVE_DO_CARGO,
+  chaveDoAtributo,
+  mesmaChave,
+  ordenarUnidades,
+  proximaOrdem,
+  type ChaveDeOrdem,
+  type OrdemDoQuadro,
+} from "@/components/qlp/ordenacao";
 import type {
   AtributoDoQuadro,
   DetalheDoCargo,
@@ -436,6 +448,15 @@ function AbaQuadro({
   const visiveis = view.unidades.reduce((soma, u) => soma + u.cargos.length, 0);
 
   /*
+    A ordem vale para as seções todas — o cabeçalho se repete unidade a unidade,
+    e duas setas diferentes no mesmo cabeçalho seriam lidas como defeito, não
+    como duas ordens. A régua, e o porquê de a ausência nunca contar como zero,
+    estão em `components/qlp/ordenacao.ts`.
+  */
+  const [ordem, setOrdem] = useState<OrdemDoQuadro>(null);
+  const unidades = useMemo(() => ordenarUnidades(view.unidades, ordem), [view.unidades, ordem]);
+
+  /*
     As opções do seletor vêm da resposta — e a escolhida entra mesmo quando o
     filtro a deixou sozinha na lista, senão não haveria como voltar a TODAS.
   */
@@ -478,7 +499,7 @@ function AbaQuadro({
         </p>
       )}
 
-      {view.unidades.map((grupo) => (
+      {unidades.map((grupo) => (
         <section key={grupo.cnpj} className="bg-card border rounded-md overflow-x-auto">
           <header className="px-4 py-3 border-b bg-muted/40 flex items-baseline gap-2">
             <span className="font-semibold">{grupo.nome ?? "Unidade sem nome no arquivo"}</span>
@@ -490,14 +511,25 @@ function AbaQuadro({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b bg-muted/40 text-[0.6875rem] uppercase tracking-wider text-muted-foreground">
-                <th className="text-left px-4 py-2 font-medium">Cargo</th>
+                <CabecalhoDoQuadro
+                  chave={CHAVE_DO_CARGO}
+                  rotulo="Cargo"
+                  ordem={ordem}
+                  onOrdenar={setOrdem}
+                  alinhamento="esquerda"
+                />
                 {destacadas.map((code) => (
-                  <th key={code} className="text-right px-4 py-2 font-medium">
-                    <span className="inline-flex items-center gap-1">
-                      {atributosPorCode.get(code)!.sourceName}
-                      <SeloDeSemantica compacto status={atributosPorCode.get(code)!.semantica.status} />
-                    </span>
-                  </th>
+                  <CabecalhoDoQuadro
+                    key={code}
+                    chave={chaveDoAtributo(code)}
+                    rotulo={atributosPorCode.get(code)!.sourceName}
+                    atributo={atributosPorCode.get(code)}
+                    ordem={ordem}
+                    onOrdenar={setOrdem}
+                    alinhamento="direita"
+                  >
+                    <SeloDeSemantica compacto status={atributosPorCode.get(code)!.semantica.status} />
+                  </CabecalhoDoQuadro>
                 ))}
                 <th className="w-8" />
               </tr>
@@ -532,6 +564,90 @@ function AbaQuadro({
         montante.
       </p>
     </>
+  );
+}
+
+/**
+ * Um cabeçalho que ordena a tabela do quadro.
+ *
+ * Um clique põe a coluna no sentido de estreia — quantidade e dinheiro do maior
+ * para o menor, nome de cargo de A a Z —, o segundo inverte, o terceiro devolve
+ * a ordem do servidor, por nome. A seta diz em qual dos três a tabela está: as
+ * duas pontas quando ninguém pediu nada, e a ponta de cima ou de baixo quando
+ * pediram. Sem ela o leitor teria que inferir a ordem lendo os valores, que é o
+ * trabalho que a coluna acabou de fazer por ele.
+ *
+ * O selo de semântica continua no cabeçalho, ao lado do rótulo: ordenar por uma
+ * coluna não confirmada é permitido — a ordem entre números não depende de
+ * ninguém ter dito o que eles significam —, e o aviso de que o significado
+ * ainda está em aberto não pode sumir por causa disso.
+ *
+ * A régua está em `components/qlp/ordenacao.ts`, com o motivo de a ausência
+ * nunca contar como zero.
+ */
+function CabecalhoDoQuadro({
+  chave,
+  rotulo,
+  atributo,
+  ordem,
+  onOrdenar,
+  alinhamento,
+  children,
+}: {
+  chave: ChaveDeOrdem;
+  rotulo: string;
+  atributo?: AtributoDoQuadro;
+  ordem: OrdemDoQuadro;
+  onOrdenar: (ordem: OrdemDoQuadro) => void;
+  alinhamento: "esquerda" | "direita";
+  children?: React.ReactNode;
+}) {
+  /* O sentido, e não um booleano: é o que a seta e o `aria-sort` precisam. */
+  const sentido = ordem !== null && mesmaChave(ordem.chave, chave) ? ordem.sentido : null;
+  /*
+    O alinhamento desce até o <button> porque o rótulo quebra em duas linhas na
+    largura de "QUANTIDADE ORDENADOS", e o <button> não herda o `text-right` da
+    célula — a folha do agente centraliza texto de botão. Sem isto a segunda
+    linha sairia centralizada debaixo da primeira, numa coluna de números
+    encostada à direita.
+  */
+  const alinhar = alinhamento === "direita" ? "text-right" : "text-left";
+  return (
+    <th
+      scope="col"
+      aria-sort={sentido === null ? "none" : sentido === "asc" ? "ascending" : "descending"}
+      className={cn("px-4 py-2 font-medium", alinhar)}
+    >
+      <button
+        type="button"
+        onClick={() => onOrdenar(proximaOrdem(ordem, chave, atributo))}
+        title={
+          sentido === null
+            ? `ordenar por ${rotulo.toLowerCase()}`
+            : "ordenar pelo outro sentido — o terceiro clique volta à ordem por cargo"
+        }
+        className={cn(
+          /*
+            O `uppercase tracking-wider` do <tr> não desce até aqui: o reset de
+            formulário zera `text-transform` no <button>, e o rótulo sairia em
+            caixa mista no meio de uma linha de cabeçalhos em caixa alta.
+          */
+          "inline-flex items-center gap-1 uppercase tracking-wider transition-colors hover:text-foreground",
+          alinhar,
+          sentido !== null && "text-foreground",
+        )}
+      >
+        {rotulo}
+        {children}
+        {sentido === null ? (
+          <ChevronsUpDown className="w-3 h-3 shrink-0 opacity-40" />
+        ) : sentido === "asc" ? (
+          <ChevronUp className="w-3 h-3 shrink-0" />
+        ) : (
+          <ChevronDown className="w-3 h-3 shrink-0" />
+        )}
+      </button>
+    </th>
   );
 }
 

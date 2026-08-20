@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { apresentar } from "@/lib/apresentar-erro";
 import { formatBrl } from "@/lib/format";
+import { chaveDaCompetencia } from "@/lib/fechamento-tela";
 import {
   encerrar,
   reabrir,
@@ -68,7 +69,7 @@ export function motivoAceito(texto: string): boolean {
  * número certo.
  */
 function atualizarFechamento(cliente: QueryClient, competenciaId: string): void {
-  void cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", competenciaId] });
+  void cliente.invalidateQueries({ queryKey: chaveDaCompetencia(competenciaId) });
   void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
   void cliente.invalidateQueries({ queryKey: ["fechamento", "apuracoes"] });
 }
