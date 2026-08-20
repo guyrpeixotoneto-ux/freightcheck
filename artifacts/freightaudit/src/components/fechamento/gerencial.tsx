@@ -15,8 +15,8 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * O vocabulário visual da Visão Gerencial — as cinco situações de uma quinzena,
- * a faixa do ano, a legenda e o número grande da faixa executiva.
+ * O vocabulário visual da Visão Gerencial do Fechamento — as cinco situações de
+ * uma quinzena, a faixa do ano e a legenda.
  *
  * Mora aqui, e não em cada tela, porque a mesma cor tem de querer dizer a mesma
  * coisa na faixa do ano do cartão e na grade da unidade: duas telas com dois
@@ -146,63 +146,11 @@ export function LegendaDasSituacoes({ className }: { className?: string }) {
   );
 }
 
-/**
- * Um número grande com o rótulo em cima e o denominador embaixo.
- *
- * O `detalhe` não é enfeite: é o que impede o número de ser lido sozinho. "68%"
- * sem "17 de 25 competências" é um percentual sem denominador, e percentual sem
- * denominador é o que vira slide — repetido numa reunião por quem nunca abriu a
- * tela de dentro. Toda faixa executiva deste ambiente carrega os dois.
- *
- * `barra` desenha o percentual dentro do próprio tijolo, e não sob a faixa
- * inteira: uma barra atravessando cinco números não diz de qual deles ela é.
- */
-export function Numero({
-  rotulo,
-  valor,
-  detalhe,
-  alerta,
-  barra,
-}: {
-  rotulo: string;
-  valor: string;
-  detalhe: string;
-  alerta?: boolean;
-  barra?: number;
-}) {
-  return (
-    <div className="px-6 py-5 flex-1 min-w-[13rem]">
-      <p className="text-[0.6875rem] font-bold uppercase tracking-wide text-muted-foreground">
-        {rotulo}
-      </p>
-      <p className={cn("text-3xl font-bold tabular-nums mt-1.5", alerta && "text-destructive")}>
-        {valor}
-      </p>
-      {barra !== undefined && (
-        <div className="mt-2">
-          <Barra percentual={barra} />
-        </div>
-      )}
-      <p className="text-xs text-muted-foreground mt-1.5">{detalhe}</p>
-    </div>
-  );
-}
-
-/**
- * A barra do percentual de fechamento.
- *
- * Escrita à mão em vez de reaproveitar `ui/progress`: aquele componente pinta o
- * trilho com `bg-primary/20`, o que num cartão de fundo claro faz a barra vazia
- * parecer meio cheia. Aqui o trilho é neutro e só o que está fechado é da cor do
- * produto.
- */
-export function Barra({ percentual }: { percentual: number }) {
-  return (
-    <div className="h-2 rounded-full bg-muted overflow-hidden">
-      <div
-        className="h-full rounded-full bg-primary transition-all"
-        style={{ width: `${Math.max(0, Math.min(100, percentual))}%` }}
-      />
-    </div>
-  );
-}
+/*
+  O número grande e a barra moram em `components/gerencial/executivo.tsx` desde
+  que a Visão Gerencial da Auditoria passou a ler a faixa executiva pela mesma
+  régua. Continuam saindo daqui para as duas telas do Fechamento que já os
+  importavam deste arquivo — o que é altura de leitura não é vocabulário de
+  domínio, e só o segundo é que muda de ambiente para ambiente.
+*/
+export { Barra, Numero } from "@/components/gerencial/executivo";

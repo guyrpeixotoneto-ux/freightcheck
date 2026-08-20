@@ -3,6 +3,7 @@ export * from "./classification";
 export * from "./impact";
 export * from "./engine";
 export * from "./garantia";
+export * from "./gerencial";
 export * from "./query";
 export * from "./consolidated";
 export * from "./composition";

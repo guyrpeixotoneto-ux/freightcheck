@@ -339,6 +339,26 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   Sobre este export o resultado é **0 propostas, 14 investigações e 13 fora** —
   e zero proposta é um resultado, não uma falha. Ver
   `docs/DIAGNOSTICO-ABA-CLIENTE.md`.
+- **Visão Gerencial (Auditoria → Visão executiva)** — `lib/comparison/src/gerencial.ts`,
+  rota em `artifacts/api-server/src/routes/gerencial.ts` (`GET /gerencial/vigencias`),
+  tela em `artifacts/freightaudit/src/pages/visao-gerencial.tsx` com a
+  aritmética em `src/lib/auditoria-gerencial.ts` e a faixa do ano em
+  `src/components/auditoria/gerencial.tsx`. É a irmã da Visão Gerencial do
+  Fechamento — mesmo formato, outro eixo — e a **única leitura da Auditoria que
+  atravessa contextos**: um cartão por unidade e canal, em ordem do que falta
+  auditar, com o ano em 24 quinzenas. Três recusas sustentam os números:
+  (1) **ler não calcula** — a vigência que nunca foi comparada volta com
+  `comparacao: null` em vez de disparar o motor, e é isso que a distingue da
+  vigência em que o cliente não mexeu, já que as duas dariam zero numa contagem
+  ingênua (é o defeito que `lib/comparison/src/garantia.ts` fecha do outro
+  lado); (2) a comparação de uma vigência é a **canônica**, contra a
+  imediatamente anterior da mesma série — as comparações avulsas que a tela
+  Comparar grava têm o mesmo `snapshot_b` e somariam meses de movimento ao total
+  de um mês, e por isso o `LEFT JOIN` exige as duas pontas; (3) o denominador do
+  percentual são as vigências **comparáveis**, e a primeira de cada série fica
+  fora dele em vez de reprovar quem acabou de chegar. Quinzena sem vigência é
+  ausência, nunca alarme: aqui a fonte publica quando muda, e só a vigência
+  pendente é pintada em vermelho.
 - **Remuneração (Fechamento → Remuneração → Cadastro)** — `lib/remuneracao`,
   rotas em `artifacts/api-server/src/routes/remuneracao.ts`, telas em
   `artifacts/freightaudit/src/pages/fechamento/remuneracao-unidades.tsx` (a

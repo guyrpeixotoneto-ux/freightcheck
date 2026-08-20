@@ -468,3 +468,279 @@ export function fixturePagamentoDoPainel(): Buffer {
   ];
   return Buffer.from(linhas.join("\r\n"), "latin1");
 }
+
+/* ==========================================================================
+   As mesmas seis fontes, nos outros formatos em que elas chegam.
+
+   O que estas fixtures guardam não é um dado novo: é **o mesmo dado**, escrito
+   como o outro exportador o escreve. É por isso que os testes de formato
+   comparam leitura contra leitura em vez de contra números literais — o que
+   precisa ficar provado é que o formato não muda a conta, e um número copiado
+   nos dois lados provaria só que alguém copiou certo.
+   ========================================================================== */
+
+/**
+ * Um número como as fontes brasileiras o escrevem: `1.100,00`.
+ *
+ * Escrito à mão em vez de por `toLocaleString` porque o separador de milhar
+ * que o ICU escolhe depende de como o Node foi compilado, e uma fixture que
+ * muda de forma conforme o ambiente não guarda layout nenhum.
+ */
+export function emPtBr(valor: number): string {
+  const negativo = valor < 0;
+  const centavos = Math.round(Math.abs(valor) * 100);
+  const inteiro = String(Math.floor(centavos / 100));
+  const decimais = String(centavos % 100).padStart(2, "0");
+  const comMilhar = inteiro.replace(/\B(?=(\d{3})+(?!\d))/g, ".");
+  return `${negativo ? "-" : ""}${comMilhar},${decimais}`;
+}
+
+/** Uma matriz escrita como CSV de ponto e vírgula em latin-1, como o SRTrans. */
+function csv(matriz: (string | number | null)[][], opcoes?: { bom?: boolean }): Buffer {
+  const texto = matriz
+    .map((linha) => linha.map((c) => (c == null ? "" : String(c))).join(";"))
+    .join("\r\n");
+  if (opcoes?.bom) {
+    /* O que o Excel grava em "CSV UTF-8": a BOM na frente e o texto em UTF-8. */
+    return Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(texto, "utf8")]);
+  }
+  return Buffer.from(texto, "latin1");
+}
+
+/** As linhas do 03.08.15, em valores — a mesma aritmética das duas fixtures. */
+const CTES: { vbz: number; desc: string; cte: string; doc: string; valor: number }[] = [
+  { vbz: 5, desc: "Rota - Frota Fixa Vari vel", cte: "9001", doc: "8001", valor: 1100 },
+  { vbz: 7, desc: "Rota - Freteiro", cte: "9002", doc: "8002", valor: 750 },
+  { vbz: 9, desc: "Rota - Outras Despesas", cte: "9003", doc: "8003", valor: 500 },
+  { vbz: 1, desc: "Rota - Frota Fixa Ativa", cte: "9004", doc: "8004", valor: 2000 },
+  { vbz: 30, desc: "AS - Outras Despesas", cte: "9005", doc: "8005", valor: 100 },
+];
+
+const CABECALHO_DO_0308_15 = [
+  "Transportadora", "Desc Transportadora", "Data", "VBZ", "Desc VBZ", "Nr CT-e", "Sr CT-e",
+  "Nr Documento", "Sr Documento", "Valor CT-e", "Vlr. Frete", "Vlr. ICMS", "Vlr. PIS",
+  "Vlr. COFINS", "Vlr. Imposto", "Nr Controle",
+];
+
+/**
+ * O 03.08.15 em CSV — o mesmo relatório da `fixtureCtes`, no outro formato.
+ *
+ * Três diferenças com a planilha, e todas são do exportador e não do teste:
+ * a data vem em `dd/mm/aaaa` (num CSV não existe serial), o dinheiro vem em
+ * `1.100,00` (num CSV não existe número nativo) e as três linhas em branco de
+ * antes do cabeçalho viram três linhas de ponto e vírgula. As três precisam
+ * atravessar o leitor e sair no mesmo lugar.
+ */
+export function fixtureCtesEmCsv(opcoes?: { bom?: boolean }): Buffer {
+  const linha = ({ vbz, desc, cte, doc, valor }: (typeof CTES)[number]) => {
+    const frete = Math.round((valor / FATOR) * 100) / 100;
+    const imposto = Math.round((valor - frete) * 100) / 100;
+    return [
+      "36", "TRANSPORTES FICTICIA LTDA", "16/07/2026", String(vbz), desc, cte, "0", doc, "0",
+      emPtBr(valor), emPtBr(frete), emPtBr(imposto), "0,00", "0,00", emPtBr(imposto), "'0000",
+    ];
+  };
+  const vazia = CABECALHO_DO_0308_15.map(() => "");
+  return csv([vazia, vazia, vazia, CABECALHO_DO_0308_15, ...CTES.map(linha)], opcoes);
+}
+
+/**
+ * O 2Art em CSV, com a data em `dd/mm/aaaa`.
+ *
+ * São as **mesmas seis viagens** da `fixtureOperacao` — inclusive a de canal
+ * ilegível e a da outra quinzena —, escritas como um exportador de texto as
+ * escreve: data por extenso (num CSV não existe `ddmmaaaa` numérico) e dinheiro
+ * em `1.000,00` (num CSV não existe número nativo). É essa igualdade que
+ * permite comparar a apuração inteira de um formato com a do outro.
+ *
+ * O retrato da viagem (veículo, horários, laço) fica de fora: ele não entra em
+ * conta nenhuma, e o que esta fixture existe para provar é a conta.
+ */
+export function fixtureOperacaoEmCsv(): Buffer {
+  const linha = (declarado: Record<string, string>) =>
+    COLUNAS_DO_2ART.map((coluna) => declarado[coluna] ?? "");
+  const viagemEmTexto = (
+    data: string, entrega: string, frota: string, placa: string, mapa: string,
+    entregas: number, carregadas: number, entregues: number, frete: number, faturado: number,
+    custoSpot?: number,
+  ) =>
+    linha({
+      Data: data, Transp: "36", Entrega: entrega, Frota: frota, Placa: placa, Mapa: mapa,
+      Entregas: String(entregas), CxCarreg: String(carregadas), CxEntreg: String(entregues),
+      ValorFrete: emPtBr(frete), PercImposto: "20", ValorImposto: emPtBr(faturado - frete),
+      ValorFaturado: emPtBr(faturado),
+      ...(custoSpot === undefined ? {} : { CustoSpot: emPtBr(custoSpot) }),
+    });
+
+  return csv([
+    COLUNAS_DO_2ART,
+    viagemEmTexto("16/07/2026", "Rota", "Padrao", "AAA1A11", "1001", 10, 200, 200, 800, 1000),
+    viagemEmTexto("16/07/2026", "Rota", "Padrao", "BBB2B22", "1002", 8, 150, 140, 400, 500),
+    viagemEmTexto("16/07/2026", "Entrega?", "Padrao", "CCC3C33", "1003", 1, 10, 10, 99, 123.75),
+    viagemEmTexto("16/07/2026", "Rota", "Spot", "DDD4D44", "1004", 5, 100, 100, 240, 300, 240),
+    viagemEmTexto("17/07/2026", "AS", "Padrao", "EEE5E55", "2001", 3, 90, 90, 160, 200),
+    viagemEmTexto("01/07/2026", "Rota", "Padrao", "FFF6F66", "0101", 4, 80, 80, 120, 150),
+  ]);
+}
+
+/**
+ * O 03.08.12.09 em planilha — o mesmo CSV da `fixtureRequisicoes`, salvo pelo
+ * Excel.
+ *
+ * Acontece toda vez que alguém abre o arquivo para conferir e usa "Salvar
+ * como". O conteúdo é o mesmo; o que muda é que a linha deixa de existir e a
+ * célula passa a ser número nativo.
+ */
+export function fixtureRequisicoesEmPlanilha(): Buffer {
+  const linhas = new TextDecoder("latin1")
+    .decode(fixtureRequisicoes())
+    .split("\r\n")
+    .map((l) => l.split(";"));
+  return planilha({ "03.08.12.09": linhas });
+}
+
+/** O 03.08.12.09 regravado pelo Excel como "CSV UTF-8": com BOM, em UTF-8. */
+export function fixtureRequisicoesEmUtf8(): Buffer {
+  const texto = new TextDecoder("latin1").decode(fixtureRequisicoes());
+  return Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(texto, "utf8")]);
+}
+
+/**
+ * O 03.08.18 em CSV, com a coluna que diz de que frota é a linha.
+ *
+ * O relatório em planilha diz isso pelo nome da aba, e um CSV não tem abas. A
+ * coluna `Tipo Frota` é o que o exportador escreve no lugar — e sem ela o
+ * leitor recusa o arquivo, que é o outro caso que os testes guardam.
+ */
+export function fixtureDisponibilidadeEmCsv(opcoes?: { comTipoDeFrota?: boolean }): Buffer {
+  const comTipo = opcoes?.comTipoDeFrota ?? true;
+  const cabecalho = [
+    "Cód.Filial", "Nome Filial", "Geografia", "Transportadora", "Data", "Canal", "Frota Total",
+    "Contratada", "Meta Indisp.", "Real 1º Viagem", "Real 2º Viagem", "Gap FF TT", "Gap Cia.",
+    "Gap TP Frota Canc.", "Gap TP Outros Canc.", "Gap TP Frota N.Canc.", "Gap TP Outros N.Canc.",
+    "Desc.Transp.Canc.", "Desc.Transp.N.Canc.", "Desc.FF Custo Fixo", "Desc.FF Equipe",
+    "Desc.FF Indiretos", "% Utilização 1º Viagem", "% Utilização 2º Viagem", "% Utilização Total",
+    "% Disponib.", "Ajudantes Contratados", "Ajudantes Real", "FA Contratado", "FA Real", "Gap FA",
+    "Desconto FA", "Desconto Total", "Frota Disp.", "Freteiro Disp.", "Frota",
+    ...(comTipo ? ["Tipo Frota"] : []),
+  ];
+  const dia = (
+    data: string, tipo: string, contratada: number, real: number, gapCia: number,
+    gapTp: number, custoFixo: number, equipe: number, total: number,
+  ) => [
+    "229", "CDD FICTICIO", "GEO NO", "036-TRANSPORTES FICTICIA", data, "Rota", "10",
+    String(contratada), "0", String(real), "0", String(contratada - real), String(gapCia), "0", "0",
+    String(gapTp), "0", "0", String(gapTp), emPtBr(custoFixo), emPtBr(equipe), "0,00", "0", "0",
+    "0", "0", "0", "0", "1", "1", "0", "0,00", emPtBr(total), "0", "0", "Padrao",
+    ...(comTipo ? [tipo] : []),
+  ];
+  return csv([
+    cabecalho,
+    dia("16/07/2026", "FF", 8, 6, 1, 1, 100, 200, 300),
+    dia("17/07/2026", "FF", 8, 8, 0, 0, 0, 0, 0),
+    dia("16/07/2026", "Van", 2, 1, 0, 1, 40, 10, 50),
+  ]);
+}
+
+/**
+ * O 03.02.59.02 delimitado — o mesmo relatório da `fixtureConciliacao`.
+ *
+ * As quatro colunas são as do relatório: rubrica, `Conciliado`, emitido e
+ * calculado. É a fonte em que o formato pesa de verdade, porque a régua de
+ * caracteres não existe aqui — e é por isso que a fixture traz o cabeçalho
+ * `(Emitido)` / `(Calculado)`, que é o que permite ao leitor saber qual coluna
+ * é qual sem inventar nada. A versão sem cabeçalho está logo abaixo.
+ */
+export function fixtureConciliacaoEmCsv(opcoes?: { comCabecalho?: boolean }): Buffer {
+  const comCabecalho = opcoes?.comCabecalho ?? true;
+  const emitido = (rubrica: string, marca: string, valor: string) => [rubrica, marca, valor, ""];
+  const duas = (rubrica: string, marca: string, a: string, b: string) => [rubrica, marca, a, b];
+  const soCalculado = (rubrica: string, valor: string) => [rubrica, "", "", valor];
+  const solta = (texto: string) => [texto, "", "", ""];
+
+  return csv([
+    solta("PW02551R-j-Promax Web  Rel. Valores Conciliacao CT-e - Por Nota Fiscal  04/08/2026"),
+    solta("CRBS SA - CDD Ficticio"),
+    solta("Versao: 12.22.00.04      Rotina: 03.02.59.02.00      Usuario: 00000000001"),
+    solta("Selecao - Data: 16/07/2026 a 31/07/2026"),
+    solta("Transportadora:     36 - TRANSPORTES FICTICIA LTDA"),
+    solta("Opcao: Sintetico"),
+    ...(comCabecalho
+      ? [
+          ["", "Conciliado", "R$ CT-e", "R$ SRTrans"],
+          ["", "", "(Emitido)", "(Calculado)"],
+        ]
+      : []),
+    solta("RESUMO CT-e ROTA"),
+    solta("-".repeat(40)),
+    solta("RESUMO PENDENCIAS"),
+    soCalculado("Saldo Quinzenas Anteriores", "300,00"),
+    soCalculado("NF-e sem CT-e na Quinzena", "25,00"),
+    soCalculado("Saldo Proxima Quinzena", "325,00"),
+    solta("RESUMO DA QUINZENA ATUAL"),
+    duas("Frota Fixa", "S", "1.000,00", "1.000,00"),
+    duas("Freteiro", "S", "500,00", "500,00"),
+    duas("S.Diversos/Comodatos/Eventos", "", "0,00", "0,00"),
+    duas("Total Variavel Rota", "S", "1.500,00", "1.500,00"),
+    soCalculado("Desconto Frete Minimo", "200,00"),
+    duas("Total Variavel Calculado SRTRANS", "N", "1.500,00", "1.300,00"),
+    solta("RESUMO PAGAMENTO COMPLEMENTAR VARIAVEL (Alteracao Perfil\\Cancelamento)"),
+    solta("(Quinzena Atual)"),
+    emitido("Frota Fixa", "", "100,00"),
+    emitido("Freteiro", "", "0,00"),
+    emitido("S. Diversos/Comodatos/Eventos", "", "0,00"),
+    emitido("Sub-total Complementar Variavel", "", "100,00"),
+    solta("RESUMO CT-e AS"),
+    solta("-".repeat(40)),
+    solta("RESUMO DA QUINZENA ATUAL"),
+    duas("Total Variavel AS", "S", "200,00", "200,00"),
+    duas("Total Variavel Calculado SRTRANS", "N", "200,00", "200,00"),
+    solta("TOTAL GERAL (ROTA + AS)"),
+    solta("-".repeat(40)),
+    soCalculado("Total Variavel Calculado SRTRANS", "1.500,00"),
+    emitido("CT-es Recebidos", "", "1.700,00"),
+    soCalculado("Saldo Proxima Quinzena", "325,00"),
+    solta("Encontrado Notas Fiscais sem Vinculo com CT-e."),
+  ]);
+}
+
+/**
+ * O 03.08.20 delimitado.
+ *
+ * As mesmas seis colunas na mesma ordem — que é o que faz este relatório
+ * atravessar a mudança de formato sem uma segunda gramática: juntar os campos
+ * com dois espaços devolve a linha de largura fixa que o leitor já lia.
+ */
+export function fixturePagamentoEmCsv(): Buffer {
+  const solta = (texto: string) => [texto, "", "", "", "", "", ""];
+  const item = (rotulo: string, sem: string, ctrc: string, vlc: string) => [
+    rotulo, sem, "0,00", ctrc, ctrc, "0,00", vlc,
+  ];
+  return csv([
+    solta("PW02581R-  -p-Promax Web  Remuneracao de Transportadoras  *** Pagamento ***"),
+    solta("CDD FICTICIO   Periodo: 16/07/2026 a 31/07/2026"),
+    solta("Versao: 12.22.00.04      Rotina: 03.08.20.00.00      Usuario: 00099783515"),
+    solta("Transportadora  36 TRANSPORTES FICTICIA LTDA"),
+    solta("Entregas para 081-0443 - CDD FICTICIO"),
+    solta("ROTA"),
+    solta("FRETE"),
+    ["VBZ", "S/Imposto", "NF-ISS", "CTRC-ICMS", "Valor Faturado", "Valor VLC NF-ISS", "Valor VLC CTRC-ICMS"],
+    item(" 01 - Frota Fixa Ativa", "1.600,00", "2.000,00", "1.800,00"),
+    item(" 05 - Frota Fixa Variavel", "800,00", "1.000,00", "900,00"),
+    solta("DESCONTO DEVOLUCAO"),
+    solta("Valor S/Imposto (Todas VBZ's exceto Rem. Var. Equipe Ent.)   2.400,00"),
+    solta("% Dev. Resp. Transportadora   1,50 %"),
+    solta("Desconto Devolucao   36,00"),
+    solta("DESCONTO DISPONIBILIDADE"),
+    solta("Desconto FF - Custo Fixo (Desconto Liquido ja subtraido da VBZ 01 - Frota Fixa Ativa)   100,00"),
+    solta("Desconto FF - Equipe Entrega (Desconto Liquido ja subtraido da VBZ 02 - Equipe Entrega)   200,00"),
+    solta("Desconto FF - Custo Indireto (Desconto Liquido ja subtraido da VBZ 03 - Despesas Adm.)   0,00"),
+    solta("Desconto FF - Fator Ajudante (Desconto Liquido ja subtraido da VBZ 02 - Equipe Entrega)   0,00"),
+    solta("DESCONTO FRETE MINIMO"),
+    solta("Desconto Frete mínimo (Desconto Líquido já subtraído das VBZs de custo Fixo coluna ICMS)   50,00"),
+    solta("OUTROS CUSTOS"),
+    ["VBZ", "S/Imposto", "NF-ISS", "CTRC-ICMS", "Valor Faturado", "Valor VLC NF-ISS", "Valor VLC CTRC-ICMS"],
+    item(" 09 - Rota - Outras Despesas", "400,00", "500,00", "450,00"),
+    solta("Total Remuneração   3.500,00"),
+  ]);
+}

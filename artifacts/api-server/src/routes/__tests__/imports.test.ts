@@ -190,4 +190,25 @@ describe("whyCannotPromote", () => {
     // o padrão é recusar, nomeando o que se viu.
     expect(whyCannotPromote("QUARENTENA")).toMatch(/quarentena/i);
   });
+
+  it("a pergunta é o estado, e nunca a contagem de apontamentos", () => {
+    /*
+      O portão da rota é o estado do run, e essa é a razão de ele ter continuado
+      certo enquanto a tela errava.
+
+      O QLP de Camaçari chegou conferido com 8 chaves em conflito e 11.760 fatos
+      bons. O botão da tela, que perguntava `errors > 0`, ficou desabilitado; a
+      rota, que pergunta o estado, teria aceitado aquele clique — porque quem
+      decidiu que o arquivo era aprovável foi a pré-visualização, ao gravar
+      PREVIEWED em vez de VALIDATION_ERROR.
+
+      Este teste existe para que a correção da tela não seja "copiada" para cá:
+      contar apontamentos aqui recriaria, no servidor, exatamente a divergência
+      que se acabou de fechar no cliente. O estado é a resposta, e ele é um só.
+    */
+    expect(whyCannotPromote("PREVIEWED")).toBeNull();
+    expect(whyCannotPromote("VALIDATION_ERROR")).not.toBeNull();
+    // A assinatura é a prova mais dura: não há por onde passar uma contagem.
+    expect(whyCannotPromote.length).toBe(1);
+  });
 });

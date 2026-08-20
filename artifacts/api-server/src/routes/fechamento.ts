@@ -17,14 +17,18 @@ import {
   listarDocumentos,
   listarPartes,
   receberDocumento,
+  registrarParte,
   reabrirCompetencia,
   encerrarCompetencia,
   RecusaDeFechamento,
 } from "@workspace/fechamento/persistencia";
 import {
   DESCRICAO_DA_FONTE,
+  FORMATOS_DA_FONTE,
   GRUPOS_DA_PLANILHA,
   LINHAS_DA_PLANILHA,
+  painelDeUmaQuinzena,
+  QUINZENAS_DA_FONTE,
   TIPOS_DE_FONTE,
   type Canal,
   type ColunaDoPagamento,
@@ -48,31 +52,47 @@ import {
  *
  * **A diferença em relação à importação da Auditoria** é que lá o tipo do
  * arquivo é deduzível do conteúdo, e aqui não: os relatórios do Promax
- * não se identificam. Um 03.08.15 e um 03.08.18 são os dois `.xlsx` com
- * cabeçalho na primeira linha, e trocá-los daria uma conta plausível e errada.
- * Por isso `tipo` é obrigatório, sempre — a aba da tela é a declaração.
+ * não se identificam. Um 03.08.15 e um 03.08.18 chegam os dois com cabeçalho na
+ * primeira linha — e chegam nos mesmos formatos —, e trocá-los daria uma conta
+ * plausível e errada. Por isso `tipo` é obrigatório, sempre — a aba da tela é a
+ * declaração.
+ *
+ * **O que a extensão decide, e o que ela não decide.** Ela é conferida contra a
+ * fonte declarada porque é o primeiro sinal de que alguém trocou a aba de
+ * envio, e a recusa aqui é muito mais útil do que a mesma recusa três camadas
+ * abaixo, falando de cabeçalho. O que ela não faz é escolher o leitor: quem
+ * decide se o arquivo é planilha, texto delimitado ou largura fixa é o conteúdo
+ * dele (ver `leitores/formato`), porque `.csv` e `.txt` são o mesmo arquivo com
+ * dois nomes na mão de quem opera.
  */
 const router: IRouter = Router();
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** As extensões que cada fonte admite. O TXT do Promax não vem em planilha. */
-const EXTENSOES: Record<TipoDeFonte, string[]> = {
-  OPERACAO: [".xlsx", ".xls"],
-  CTE: [".xlsx", ".xls"],
-  PAGAMENTO: [".txt"],
-  DISPONIBILIDADE: [".xlsx", ".xls"],
-  REQUISICOES: [".csv"],
-  CONCILIACAO: [".txt"],
-};
+/*
+ * As extensões que cada fonte admite moram em `@workspace/fechamento`
+ * (`FORMATOS_DA_FONTE`), junto do resto do vocabulário das fontes, e não aqui:
+ * a lista é uma afirmação sobre o que os leitores conseguem ler, e quem a
+ * mantém é quem mexe neles. Esta rota apenas a publica e a aplica.
+ */
 
-/** O catálogo das fontes, para a tela saber o que pedir e por quê. */
+/**
+ * O catálogo das fontes, para a tela saber o que pedir e por quê.
+ *
+ * Devolve as seis sempre, com `quinzenas` dizendo em qual delas cada uma é
+ * esperada — a primeira quinzena tem quatro relatórios, a segunda tem os seis
+ * (ver `FONTES_DA_QUINZENA`). O recorte é da tela e não da rota de propósito:
+ * a lista de Apurações mostra quinzenas das duas metades na mesma tabela, e
+ * filtrar aqui a obrigaria a buscar o catálogo duas vezes para desenhar uma
+ * página.
+ */
 router.get("/fechamento/fontes", (_req, res): void => {
   res.json(
     TIPOS_DE_FONTE.map((tipo) => ({
       tipo,
       ...DESCRICAO_DA_FONTE[tipo],
-      extensoes: EXTENSOES[tipo],
+      extensoes: FORMATOS_DA_FONTE[tipo],
+      quinzenas: QUINZENAS_DA_FONTE[tipo],
     })),
   );
 });
@@ -95,14 +115,58 @@ router.get("/fechamento/apuracoes", async (_req, res): Promise<void> => {
 });
 
 /**
- * As unidades e transportadoras já usadas, para o campo que se pesquisa.
+ * As unidades e transportadoras que o Fechamento conhece, para o campo que se
+ * pesquisa.
  *
- * Derivadas das competências e não de um cadastro próprio — ver `listarPartes`
- * para o porquê. A tela oferece o que existe e deixa digitar o que não existe;
- * o que não existe passa a existir quando a competência é aberta.
+ * São as cadastradas somadas às que aparecem em alguma competência — ver
+ * `listarPartes` para por que as duas fontes e por que elas não brigam. A tela
+ * oferece o que existe e deixa digitar o que não existe; o que não existe passa
+ * a existir no `POST` abaixo.
  */
 router.get("/fechamento/partes", async (_req, res): Promise<void> => {
   res.json(await listarPartes(db));
+});
+
+/**
+ * Cadastra uma unidade ou transportadora — o que o "Usar" do campo faz.
+ *
+ * **Por que existe uma rota para isto.** Antes o cadastro era um efeito da
+ * abertura: digitava-se `443 — CDD Belém`, abria-se a competência, e o nome
+ * passava a existir porque a competência existia. Excluir aquela importação —
+ * o desfazer de quem abriu a errada — apagava o nome junto, e o campo voltava a
+ * dizer "Nada encontrado" para quem tinha acabado de escrevê-lo. Cadastrar
+ * virou um ato próprio, com endereço próprio, e a exclusão da competência
+ * voltou a apagar só a competência.
+ *
+ * `201` sempre, inclusive quando o código já existia: o corpo devolvido é a
+ * parte como a lista a mostra, e é isso que a tela seleciona no campo. Recadastrar
+ * um código com nome novo é renomear (ver `registrarParte`) — o gesto de quem
+ * escreveu `443` e volta para escrever `443 — CDD Belém`.
+ */
+router.post("/fechamento/partes", async (req, res): Promise<void> => {
+  const corpo = req.body as Record<string, unknown>;
+  const tipo = corpo?.tipo;
+  const codigo = corpo?.codigo;
+
+  if (tipo !== "UNIDADE" && tipo !== "TRANSPORTADORA") {
+    res.status(400).json({
+      error: "tipo precisa ser UNIDADE ou TRANSPORTADORA — são os dois lados de um fechamento.",
+    });
+    return;
+  }
+  if (typeof codigo !== "string" || codigo.trim() === "") {
+    res.status(400).json({
+      error: "codigo é obrigatório — é por ele que a competência encontra a parte.",
+    });
+    return;
+  }
+
+  const parte = await registrarParte(db, {
+    tipo,
+    codigo,
+    nome: typeof corpo?.nome === "string" ? corpo.nome : null,
+  });
+  res.status(201).json(parte);
 });
 
 /**
@@ -267,7 +331,16 @@ router.get("/fechamento/competencias/:id/de-para", async (req, res): Promise<voi
     return;
   }
 
-  res.json({ competencia, painel });
+  /*
+    A tela recebe o painel na mesma forma do resumo mensal — três colunas, com
+    só a desta quinzena preenchida. É o que permite às duas telas usarem o mesmo
+    componente e, portanto, mostrarem a mesma coisa: uma segunda formatação no
+    navegador seria a chance de elas divergirem sem ninguém notar.
+  */
+  res.json({
+    competencia,
+    painel: painelDeUmaQuinzena(competencia.quinzena === 1 ? 1 : 2, painel),
+  });
 });
 
 /**
@@ -365,11 +438,11 @@ router.post("/fechamento/competencias/:id/documentos", async (req, res): Promise
     return;
   }
   const extensao = path.extname(filename).toLowerCase();
-  if (!EXTENSOES[tipo].includes(extensao)) {
+  if (!FORMATOS_DA_FONTE[tipo].includes(extensao)) {
     const fonte = DESCRICAO_DA_FONTE[tipo];
     res.status(400).json({
       error:
-        `O relatório ${fonte.rotina} (${fonte.nome}) vem em ${EXTENSOES[tipo].join(" ou ")}, ` +
+        `O relatório ${fonte.rotina} (${fonte.nome}) é lido em ${FORMATOS_DA_FONTE[tipo].join(", ")}, ` +
         `e "${filename}" é ${extensao || "sem extensão"}. Confira se não trocou a aba de envio.`,
     });
     return;

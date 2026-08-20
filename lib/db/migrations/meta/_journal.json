@@ -309,6 +309,13 @@
       "when": 1787173115145,
       "tag": "0043_pagamento",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1787181199396,
+      "tag": "0044_partes_cadastradas",
+      "breakpoints": true
     }
   ]
 }

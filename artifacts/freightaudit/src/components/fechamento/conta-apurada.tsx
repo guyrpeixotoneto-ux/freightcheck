@@ -1,8 +1,12 @@
 import { Fragment, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { AlertTriangle, ChevronRight } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { apresentar } from "@/lib/apresentar-erro";
 import { formatBrl } from "@/lib/format";
-import type { Apuracao, Fonte, VerbaApurada } from "@/lib/fechamento";
+import { lerPainelDaCompetencia, type Apuracao, type Fonte, type VerbaApurada } from "@/lib/fechamento";
+import { PainelDaPlanilhaTabela } from "@/components/fechamento/painel-da-planilha";
+import { cn } from "@/lib/utils";
 
 /**
  * A conta da quinzena — os três números, a conversão medida e as verbas.
@@ -18,21 +22,32 @@ import type { Apuracao, Fonte, VerbaApurada } from "@/lib/fechamento";
  * a apuração gravou quando rodou; a memória de cada verba é a que ela mesma
  * registrou, parcela a parcela. Ver o cabeçalho de `lib/fechamento.ts`: a
  * interface lê a conta, não a refaz.
+ *
+ * **Duas abas sobre a mesma conta.** `Verbas` é o recorte com que o sistema
+ * apura — a VBZ, que os arquivos sustentam uma a uma. `Planilha` é o recorte
+ * com que a Ambev e a transportadora conversam, com os rótulos do `RESUMO` da
+ * `.xlsb`. As duas fecham no mesmo `Total remuneração (03.08.20)`, que é o que
+ * faz delas duas vistas e não duas contas — e é a mesma dupla de abas da tela
+ * do mês, no mesmo componente, para que não possam divergir.
  */
 export function ContaApurada({
   apuracao,
+  competenciaId,
   fontes,
 }: {
   apuracao: Apuracao;
-  /** O catálogo das cinco fontes, para nomear pela rotina o que faltou. */
+  /** A competência desta conta — é dela que sai o painel da planilha. */
+  competenciaId: string;
+  /** Os relatórios que esta quinzena pede, para nomear pela rotina o que faltou. */
   fontes: Fonte[];
 }) {
   /*
     Qual verba está aberta é estado desta conta, e não de quem a mostra: em
     Apurações há várias contas na tela ao mesmo tempo, e uma verba aberta numa
-    delas não diz nada sobre as outras.
+    delas não diz nada sobre as outras. Vale o mesmo para a aba escolhida.
   */
   const [verbaAberta, setVerbaAberta] = useState<number | null>(null);
+  const [aba, setAba] = useState<"verbas" | "planilha">("verbas");
 
   return (
     <div className="space-y-4">
@@ -46,7 +61,7 @@ export function ContaApurada({
         <Numero
           titulo="Sem fonte que confira"
           valor={apuracao.totais.naoConferido}
-          nota="Emitido que nenhuma das cinco fontes sustenta — a parte fixa do contrato."
+          nota="Emitido que nenhuma das fontes da quinzena sustenta — a parte fixa do contrato."
         />
       </div>
 
@@ -75,12 +90,84 @@ export function ContaApurada({
         </p>
       )}
 
-      <TabelaDeVerbas
-        verbas={apuracao.verbas}
-        aberta={verbaAberta}
-        onAbrir={(vbz) => setVerbaAberta(verbaAberta === vbz ? null : vbz)}
-      />
+      <div className="inline-flex rounded-lg border border-border bg-muted p-1">
+        {(
+          [
+            ["verbas", "Verbas"],
+            ["planilha", "Planilha"],
+          ] as const
+        ).map(([valor, rotulo]) => (
+          <button
+            key={valor}
+            type="button"
+            onClick={() => setAba(valor)}
+            className={cn(
+              "rounded-md px-4 py-1.5 text-sm font-medium transition-colors",
+              aba === valor
+                ? "bg-card text-foreground shadow-sm"
+                : "text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {rotulo}
+          </button>
+        ))}
+      </div>
+
+      {aba === "verbas" ? (
+        <TabelaDeVerbas
+          verbas={apuracao.verbas}
+          aberta={verbaAberta}
+          onAbrir={(vbz) => setVerbaAberta(verbaAberta === vbz ? null : vbz)}
+        />
+      ) : (
+        <AbaDaPlanilha competenciaId={competenciaId} />
+      )}
     </div>
+  );
+}
+
+/**
+ * O painel da planilha desta quinzena.
+ *
+ * Busca-se só quando a aba é aberta: o painel exige o 03.08.20 e é a metade da
+ * tela que nem toda competência tem — carregá-lo sempre custaria uma consulta a
+ * quem só quer a conferência por verba.
+ */
+function AbaDaPlanilha({ competenciaId }: { competenciaId: string }) {
+  const painel = useQuery({
+    queryKey: ["fechamento", "painel", competenciaId],
+    queryFn: () => lerPainelDaCompetencia(competenciaId),
+    retry: false,
+  });
+
+  if (painel.isLoading) {
+    return <p className="text-sm text-muted-foreground">Montando o painel…</p>;
+  }
+  if (painel.isError || !painel.data) {
+    /* O 404 daqui é uma resposta, não uma falha: falta o 03.08.20, e ele o diz. */
+    const aviso = apresentar(painel.error);
+    return (
+      <Alert>
+        <AlertDescription>
+          {aviso.orientacao?.resumo ??
+            aviso.mensagemCrua ??
+            "Não foi possível montar o painel da planilha."}
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  const quinzena = painel.data.competencia.quinzena;
+  return (
+    <PainelDaPlanilhaTabela
+      painel={painel.data.painel}
+      colunas={[
+        {
+          rotulo: `${quinzena}ª quinzena`,
+          de: (v) => (quinzena === 1 ? v.primeira : v.segunda),
+        },
+      ]}
+    />
   );
 }
 
@@ -95,7 +182,7 @@ function Numero({
 }) {
   return (
     <div className="rounded-lg border bg-card p-4">
-      <p className="text-xs uppercase tracking-wide text-muted-foreground">
+      <p className="text-xs text-muted-foreground">
         {titulo}
       </p>
       <p className="text-xl font-bold tabular-nums mt-1">{formatBrl(valor)}</p>
@@ -125,7 +212,7 @@ function TabelaDeVerbas({
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b text-left text-xs uppercase tracking-wide text-muted-foreground">
+          <tr className="border-b text-left text-xs text-muted-foreground">
             <th className="py-2 pr-3 font-medium">Verba</th>
             <th className="py-2 px-3 font-medium text-right">Emitido</th>
             <th className="py-2 px-3 font-medium text-right">Apurado</th>
@@ -176,7 +263,7 @@ function TabelaDeVerbas({
                   <td colSpan={4} className="py-3 px-8">
                     {v.memoria.length === 0 ? (
                       <p className="text-sm text-muted-foreground">
-                        Nenhuma das cinco fontes sustenta esta verba — ela
+                        Nenhuma das fontes da quinzena sustenta esta verba — ela
                         entrou na conta pelo que foi emitido, e ninguém a
                         conferiu. É o caso da parcela fixa do contrato.
                       </p>

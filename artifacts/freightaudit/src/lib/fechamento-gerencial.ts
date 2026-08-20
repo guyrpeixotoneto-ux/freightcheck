@@ -1,4 +1,5 @@
 import type { Competencia, ResumoDeApuracao } from "@/lib/fechamento";
+import { periodosDoAno, type PeriodoDaQuinzena } from "./calendario";
 
 /**
  * A aritmética da Visão Gerencial — o fechamento visto de cima.
@@ -26,79 +27,38 @@ import type { Competencia, ResumoDeApuracao } from "@/lib/fechamento";
  *    é a informação mais importante que esta tela tem para dar, e ela só
  *    aparece se houver uma casa vazia esperando por ela.
  *
- * **Por que a quinzena é remontada aqui.** O período (1 a 15, 16 ao fim do mês)
- * é a mesma regra de `@workspace/fechamento/periodo`, e ela não é importada de
- * lá de propósito: o bundle da interface não carrega o motor de apuração, pela
- * razão escrita no cabeçalho de `lib/fechamento.ts`. O que se duplica é
- * aritmética de calendário — não remuneração —, e o teste
- * `fechamento-gerencial.test.ts` prende as duas ao mesmo resultado.
+ * **Por que a quinzena é remontada na interface.** O período (1 a 15, 16 ao fim
+ * do mês) é a mesma regra de `@workspace/fechamento/periodo`, e ela não é
+ * importada de lá de propósito: o bundle da interface não carrega o motor de
+ * apuração, pela razão escrita no cabeçalho de `lib/fechamento.ts`. O que se
+ * duplica é aritmética de calendário — não remuneração —, e o teste
+ * `fechamento-gerencial.test.ts` prende as duas ao mesmo resultado. A conta
+ * mora em `lib/calendario.ts` e continua saindo daqui, logo abaixo.
  */
 
-export const MES_CURTO = [
-  "jan", "fev", "mar", "abr", "mai", "jun",
-  "jul", "ago", "set", "out", "nov", "dez",
-];
+/*
+  O calendário mora em `lib/calendario.ts` desde que a Visão Gerencial da
+  Auditoria passou a montar o ano da unidade pela mesma régua — os nomes dos
+  meses, o dia de hoje e as 24 quinzenas. O que é aritmética de calendário não
+  é de nenhum dos dois ambientes, e duas cópias dela seriam duas faixas do ano
+  que podem discordar sem que o compilador perceba.
 
-export const MES_LONGO = [
-  "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-  "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
-];
-
-const doisDigitos = (n: number): string => (n < 10 ? `0${n}` : String(n));
+  Continuam saindo daqui para quem já os importava deste arquivo: a extração não
+  é motivo para uma tela do Fechamento trocar de endereço.
+*/
+export {
+  emDiaCurto,
+  hojeEm,
+  MES_CURTO,
+  MES_LONGO,
+  periodoDaQuinzena,
+  periodosDoAno,
+  type PeriodoDaQuinzena,
+} from "./calendario";
 
 /** Uma parte pelo nome que ela tem, ou pelo código quando não tem nome. */
 export const nomeDaParte = (p: { codigo: string; nome: string | null }): string =>
   p.nome ?? p.codigo;
-
-/**
- * Hoje em `AAAA-MM-DD`, no fuso de quem lê.
- *
- * Local e não UTC porque a pergunta que a data responde é "esta quinzena já
- * venceu para mim?" — e às 21h de 15/08 em Brasília o UTC já virou dia 16, o
- * que faria a tela declarar vencida uma quinzena que ainda está correndo para
- * quem opera. O parâmetro existe para o teste: nenhuma função deste arquivo lê
- * o relógio por conta própria.
- */
-export function hojeEm(data = new Date()): string {
-  return `${data.getFullYear()}-${doisDigitos(data.getMonth() + 1)}-${doisDigitos(data.getDate())}`;
-}
-
-function ultimoDiaDoMes(ano: number, mes: number): number {
-  return new Date(Date.UTC(ano, mes, 0)).getUTCDate();
-}
-
-export interface PeriodoDaQuinzena {
-  /** `2026-08-Q1` — a mesma chave que o servidor grava na competência. */
-  chave: string;
-  ano: number;
-  mes: number;
-  quinzena: 1 | 2;
-  inicio: string;
-  fim: string;
-}
-
-/** A quinzena pelo calendário: a primeira vai do dia 1 ao 15, a segunda do 16 ao fim do mês. */
-export function periodoDaQuinzena(ano: number, mes: number, quinzena: 1 | 2): PeriodoDaQuinzena {
-  const primeiro = quinzena === 1 ? 1 : 16;
-  const ultimo = quinzena === 1 ? 15 : ultimoDiaDoMes(ano, mes);
-  return {
-    chave: `${ano}-${doisDigitos(mes)}-Q${quinzena}`,
-    ano,
-    mes,
-    quinzena,
-    inicio: `${ano}-${doisDigitos(mes)}-${doisDigitos(primeiro)}`,
-    fim: `${ano}-${doisDigitos(mes)}-${doisDigitos(ultimo)}`,
-  };
-}
-
-/** As 24 quinzenas do ano, de janeiro a dezembro. */
-export function periodosDoAno(ano: number): PeriodoDaQuinzena[] {
-  const periodos: PeriodoDaQuinzena[] = [];
-  for (let mes = 1; mes <= 12; mes += 1) {
-    periodos.push(periodoDaQuinzena(ano, mes, 1), periodoDaQuinzena(ano, mes, 2));
-  }
-  return periodos;
-}
 
 /**
  * Em que pé está uma quinzena do ano, para uma unidade.
@@ -148,7 +108,7 @@ export interface QuinzenaDoAno extends PeriodoDaQuinzena {
 /**
  * Quanto do emitido a apuração conseguiu sustentar, em porcentagem.
  *
- * `naoConferido` é a parte do CT-e emitido que nenhuma das cinco fontes
+ * `naoConferido` é a parte do CT-e emitido que nenhuma das fontes da quinzena
  * explica; o conferido é o resto. Devolve `null` quando não houve emissão
  * alguma — `0/0` não é 100% conferido nem 0%, é um período sem o que conferir,
  * e desenhar uma barra cheia ali seria mentir por arredondamento.
@@ -403,6 +363,3 @@ export function resumoExecutivo(unidades: ResumoDaUnidade[]): ResumoExecutivo {
 export function anosComCompetencia(linhas: ResumoDeApuracao[]): number[] {
   return [...new Set(linhas.map((l) => l.competencia.ano))].sort((a, b) => b - a);
 }
-
-/** `2026-08-15` vira `15/08` — o dia dentro do mês que o grupo já nomeou. */
-export const emDiaCurto = (iso: string): string => `${iso.slice(8, 10)}/${iso.slice(5, 7)}`;

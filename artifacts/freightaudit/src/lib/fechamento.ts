@@ -25,6 +25,8 @@ export interface Fonte {
   nome: string;
   papel: string;
   extensoes: string[];
+  /** Em que quinzenas este relatório é esperado. A 1ª tem quatro; a 2ª, os seis. */
+  quinzenas: (1 | 2)[];
 }
 
 export interface Competencia {
@@ -46,7 +48,16 @@ export interface Competencia {
   motivoDaReabertura: string | null;
 }
 
-/** Uma unidade ou transportadora que já apareceu em alguma competência. */
+/** Os dois lados de um fechamento: o CDD que recebe e quem entrega. */
+export type TipoDeParte = "UNIDADE" | "TRANSPORTADORA";
+
+/**
+ * Uma unidade ou transportadora que o Fechamento conhece.
+ *
+ * `competencias` é em quantas ela já apareceu, e pode ser `0`: a parte
+ * cadastrada existe antes de qualquer competência usá-la — é o que faz o nome
+ * sobreviver à exclusão de uma importação.
+ */
 export interface Parte {
   codigo: string;
   nome: string | null;
@@ -276,6 +287,35 @@ export function listarFontes(): Promise<Fonte[]> {
   return fetchJson<Fonte[]>("/fechamento/fontes");
 }
 
+/**
+ * Os relatórios que uma competência pede, na ordem do catálogo.
+ *
+ * A quinzena decide: a primeira fecha com quatro relatórios (2Art, 03.08.15,
+ * 03.08.20 e 03.08.18) e a segunda com os seis, porque as requisições
+ * (03.08.12.09) e a conciliação (03.02.59.02) chegam com o fechamento do mês.
+ * Mostrar as seis nas duas fazia toda primeira quinzena exibir duas linhas
+ * eternamente vazias — e "falta importar" é trabalho de alguém, enquanto "não
+ * há o que importar" não é.
+ *
+ * `recebidas` é o que já entrou na competência, e entra na lista mesmo fora da
+ * quinzena dele: um arquivo enviado nunca some da tela por causa deste recorte.
+ * Isso é o que mantém a conta do rodapé honesta — o denominador é esta lista, e
+ * um documento fora da quinzena aparece nas duas pontas da fração em vez de
+ * virar um `5/4`.
+ *
+ * O catálogo chega por consulta, então a lista nasce vazia e se preenche; quem
+ * a usa como denominador precisa tratar o vazio como "ainda não sei", nunca
+ * como zero.
+ */
+export function fontesDaCompetencia(
+  catalogo: Fonte[],
+  quinzena: 1 | 2,
+  recebidas: TipoDeFonte[] = [],
+): Fonte[] {
+  const chegou = new Set(recebidas);
+  return catalogo.filter((f) => f.quinzenas.includes(quinzena) || chegou.has(f.tipo));
+}
+
 export function listarCompetencias(): Promise<Competencia[]> {
   return fetchJson<Competencia[]>("/fechamento/competencias");
 }
@@ -327,6 +367,26 @@ export function abrirCompetencia(entrada: {
 
 export function listarPartes(): Promise<{ unidades: Parte[]; transportadoras: Parte[] }> {
   return fetchJson<{ unidades: Parte[]; transportadoras: Parte[] }>("/fechamento/partes");
+}
+
+/**
+ * Cadastra a unidade ou a transportadora — o "Usar" do campo.
+ *
+ * O cadastro é um ato à parte da abertura de propósito: quem escreve o nome de
+ * um CDD não deveria perdê-lo ao excluir a importação que abriu por engano.
+ * Recadastrar o mesmo código com nome novo renomeia; sem nome, mantém o que
+ * estava lá.
+ */
+export function cadastrarParte(entrada: {
+  tipo: TipoDeParte;
+  codigo: string;
+  nome?: string | null;
+}): Promise<Parte> {
+  return fetchJson<Parte>("/fechamento/partes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(entrada),
+  });
 }
 
 /** Encerra a competência — congela a quinzena. */
@@ -381,6 +441,64 @@ export interface DescontoDoResumo {
   valores: TresColunas;
 }
 
+/* ---------------------------------------------------------------------------
+   O painel da planilha — o mesmo mês nas linhas com que ele é discutido
+   ------------------------------------------------------------------------ */
+
+/** Por que uma linha da planilha não tem número, e o que a destravaria. */
+export interface AusenciaNoPainel {
+  motivo: string;
+  destrava: string;
+}
+
+/** Uma linha do `RESUMO` da planilha. `rotulo` é a transcrição; `nome`, a tela. */
+export interface LinhaDoPainel {
+  chave: string;
+  rotulo: string;
+  nome: string;
+  papel: "PARCELA" | "DESCONTO" | "TOTAL";
+  valores: TresColunas;
+  /** A chave do conjunto quando o número é de várias linhas juntas. */
+  conjunto: string | null;
+  ausencia: AusenciaNoPainel | null;
+  porque: string;
+}
+
+/** Um número do 03.08.20 que vale para várias linhas ao mesmo tempo. */
+export interface ConjuntoDoPainel {
+  chave: string;
+  nome: string;
+  linhas: string[];
+  valores: TresColunas;
+  porque: string;
+}
+
+export interface QuadroDoPainel {
+  quadro: string;
+  titulo: string;
+  linhas: LinhaDoPainel[];
+  conjuntos: ConjuntoDoPainel[];
+  total: TresColunas;
+  somado: TresColunas;
+  /** `total − somado`. Zero é o quadro fechando. */
+  residuo: TresColunas;
+  /** As linhas da planilha entre as quais o resíduo se divide. */
+  semLastro: string[];
+  /** As verbas do relatório que nenhuma linha da planilha nomeia. */
+  verbasSemLinha: { vbz: number; nome: string; valores: TresColunas }[];
+}
+
+export interface PainelDaPlanilha {
+  canal: string;
+  quadros: QuadroDoPainel[];
+  /** A soma dos quadros, na moeda da planilha (sem imposto). */
+  soma: TresColunas;
+  /** O imposto — medido, nunca presumido. */
+  imposto: TresColunas;
+  /** `Total Remuneração` do 03.08.20 — o número que as duas abas partilham. */
+  demonstrativo: TresColunas;
+}
+
 export interface CanalDoResumo {
   canal: string;
   blocos: BlocoDoResumo[];
@@ -392,6 +510,8 @@ export interface CanalDoResumo {
   demonstrativo: TresColunas;
   /** `emitido − demonstrativo`. */
   diferenca: TresColunas;
+  /** O mesmo mês nas linhas da planilha. `null` no canal sem painel transcrito. */
+  painel: PainelDaPlanilha | null;
 }
 
 export interface ResumoDoMes {
@@ -429,6 +549,23 @@ export function lerResumoDoMes(alvo: {
     mes: String(alvo.mes),
   });
   return fetchJson<ResumoDoMes>(`/fechamento/resumo?${busca.toString()}`);
+}
+
+/**
+ * O painel da planilha de uma quinzena.
+ *
+ * Vem em três colunas com só a da quinzena preenchida — a mesma forma do resumo
+ * mensal, para que a aba `Planilha` seja o mesmo componente nas duas telas.
+ *
+ * **404 quando o 03.08.20 não foi importado**, e não um painel de zeros: sem o
+ * demonstrativo, o painel não tem de onde sair, e dizer isso é diferente de
+ * dizer que a quinzena não pagou nada.
+ */
+export function lerPainelDaCompetencia(
+  id: string,
+  canal = "ROTA",
+): Promise<{ competencia: Competencia; painel: PainelDaPlanilha }> {
+  return fetchJson(`/fechamento/competencias/${id}/de-para?canal=${canal}`);
 }
 
 /** O que o descarte apagou — contado por fonte, para a tela repetir de volta. */
@@ -518,7 +655,7 @@ export const NOME_DO_ESTADO: Record<Competencia["estado"], string> = {
 /** O que cada divergência significa, em uma frase. */
 export const EXPLICACAO_DA_DIVERGENCIA: Record<string, string> = {
   VERBA_SEM_ORIGEM:
-    "Foi emitido CT-e nesta verba e nenhuma das cinco fontes a sustenta. Não é erro — é a parte fixa do contrato, que ainda não tem fonte aqui.",
+    "Foi emitido CT-e nesta verba e nenhuma das fontes da quinzena a sustenta. Não é erro — é a parte fixa do contrato, que ainda não tem fonte aqui.",
   VERBA_NAO_FECHA:
     "A apuração reconstruiu esta verba a partir das fontes e chegou a um valor diferente do emitido.",
   REQUISICAO_NAO_FATURADA:

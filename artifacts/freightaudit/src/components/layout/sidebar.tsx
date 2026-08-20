@@ -30,6 +30,7 @@ import {
   HardHat,
   History,
   House,
+  LayoutDashboard,
   Layers,
   MapPin,
   Plug,
@@ -82,7 +83,7 @@ import { useSecoesRecolhidas } from "./preferencias";
  *
  * O que mudou em relação à lista única que existia aqui, e por quê:
  *
- * 1. **Oito cartões no lugar de uma lista corrida.** Trinta e sete itens em
+ * 1. **Oito cartões no lugar de uma lista corrida.** Quarenta e um itens em
  *    lista corrida se leem um a um, sempre; agrupados por trabalho — o que a
  *    diretoria olha, o que a auditoria abre, o que a recuperação cobra, o que a
  *    frota detalha, o que a inteligência responde, o que a governança alimenta,
@@ -151,6 +152,18 @@ const NAV_GROUPS: NavGroup[] = [
     icon: ChartNoAxesCombined,
     cor: "text-nav-executiva",
     itens: [
+      /*
+        A Visão Gerencial abre a seção porque é a leitura mais alta que o
+        ambiente tem: todas as unidades de uma vez, em ordem do que falta
+        auditar. O Resumo executivo vem logo abaixo e responde pela unidade
+        aberta — é a mesma escada da lateral do Fechamento, onde a Visão
+        Gerencial também é o primeiro item.
+
+        As duas ficam coladas, e nesta ordem, porque são a mesma pergunta em
+        duas alturas: o conjunto e a unidade. Separá-las por três itens faria
+        parecer que falam de coisas diferentes.
+      */
+      { href: "/visao-gerencial", label: "Visão Gerencial", icon: LayoutDashboard },
       { href: "/", label: "Resumo executivo", icon: House },
       { href: "/vigencia", label: "Acompanhamento", icon: TrendingUp },
       /*

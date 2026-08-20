@@ -42,6 +42,9 @@ export type TipoDeFrotaContratada = "FF" | "VAN";
  * Os nomes são os do processo, não os dos arquivos: quem opera chama o
  * relatório pelo número da rotina (`03.08.15`), mas o número é do Promax e
  * pode mudar de versão. O que não muda é o papel de cada um na conta.
+ *
+ * São seis no catálogo e nem sempre seis na quinzena: a primeira só tem as
+ * quatro primeiras — ver `FONTES_DA_QUINZENA`.
  */
 export type TipoDeFonte =
   /** 2Art — o diário operacional, uma linha por viagem. Origem do variável. */
@@ -52,9 +55,9 @@ export type TipoDeFonte =
   | "PAGAMENTO"
   /** 03.08.18 — frota contratada × realizada. Origem dos descontos no fixo. */
   | "DISPONIBILIDADE"
-  /** 03.08.12.09 — requisições de despesa aprovadas. Origem do complementar. */
+  /** 03.08.12.09 — requisições de despesa aprovadas. Origem do complementar. Só na 2ª quinzena. */
   | "REQUISICOES"
-  /** 03.02.59.02 — a conciliação do Promax. O fecho da quinzena. */
+  /** 03.02.59.02 — a conciliação do Promax. O fecho do mês, e por isso só na 2ª quinzena. */
   | "CONCILIACAO";
 
 export const TIPOS_DE_FONTE: TipoDeFonte[] = [
@@ -65,6 +68,50 @@ export const TIPOS_DE_FONTE: TipoDeFonte[] = [
   "REQUISICOES",
   "CONCILIACAO",
 ];
+
+/**
+ * Quais das seis fontes cada quinzena tem.
+ *
+ * **A primeira quinzena fecha com quatro relatórios; a segunda, com os seis.**
+ * As requisições de despesa (03.08.12.09) e a conciliação do Promax
+ * (03.02.59.02) chegam com o fechamento da segunda quinzena, e não existem na
+ * primeira.
+ *
+ * A distinção importa porque `fontesAusentes` é lido pela tela: sem ela, toda
+ * primeira quinzena do ano nasceria com duas pendências que ninguém pode
+ * resolver, e "falta importar" — que é trabalho de alguém — passaria a se
+ * confundir com "não há o que importar", que não é. O catálogo por quinzena é o
+ * que mantém a lista da tela igual à pilha de arquivos que a Ambev entregou.
+ *
+ * O que a lista **não** faz é recusar: uma fonte que chegue fora da quinzena
+ * dela é lida, apurada e mostrada como qualquer outra. A lista diz o que se
+ * espera, não o que se admite — a mesma regra que rege o módulo inteiro, de que
+ * a conta roda com o que houver.
+ */
+export const FONTES_DA_QUINZENA: Record<1 | 2, TipoDeFonte[]> = {
+  1: ["OPERACAO", "CTE", "PAGAMENTO", "DISPONIBILIDADE"],
+  2: [...TIPOS_DE_FONTE],
+};
+
+/**
+ * O inverso: em que quinzenas cada fonte é esperada.
+ *
+ * É esta forma que o catálogo da API carrega, porque a tela pergunta pela
+ * fonte ("o 03.02.59.02 entra nesta quinzena?") e não pela quinzena. Derivada
+ * de `FONTES_DA_QUINZENA` de propósito: duas listas escritas à mão divergiriam
+ * no dia em que uma sétima fonte aparecesse.
+ */
+export const QUINZENAS_DA_FONTE: Record<TipoDeFonte, (1 | 2)[]> = Object.fromEntries(
+  TIPOS_DE_FONTE.map((tipo) => [
+    tipo,
+    ([1, 2] as const).filter((quinzena) => FONTES_DA_QUINZENA[quinzena].includes(tipo)),
+  ]),
+) as Record<TipoDeFonte, (1 | 2)[]>;
+
+/** A fonte é esperada nesta quinzena? */
+export function fonteEsperadaNaQuinzena(quinzena: 1 | 2, tipo: TipoDeFonte): boolean {
+  return FONTES_DA_QUINZENA[quinzena].includes(tipo);
+}
 
 /** Como cada fonte se chama na tela, e o que ela responde. */
 export const DESCRICAO_DA_FONTE: Record<TipoDeFonte, { rotina: string; nome: string; papel: string }> = {
@@ -99,6 +146,37 @@ export const DESCRICAO_DA_FONTE: Record<TipoDeFonte, { rotina: string; nome: str
     nome: "Conciliação CT-e × SRTrans",
     papel: "O fecho: emitido contra calculado, com os saldos que atravessam a quinzena.",
   },
+};
+
+/**
+ * Em que formatos cada fonte chega — e, portanto, quais o produto aceita.
+ *
+ * **A lista é do que se sabe ler, não do que se sabe abrir.** Nenhuma das seis
+ * fontes tem um formato só: o mesmo relatório sai do Promax em `.xlsx` quando
+ * alguém o exporta pela tela e em `.csv` quando o exporta pela fila, e chega em
+ * `.txt` quando o caminho passou por um sistema que renomeia. Recusar por
+ * extensão o arquivo que o leitor lê perfeitamente é fazer quem opera converter
+ * arquivo à mão antes de trabalhar — e conversão à mão é onde a coluna trocada
+ * entra na conta.
+ *
+ * **As duas fontes de largura fixa não aceitam planilha, e isso é deliberado.**
+ * O 03.08.20 e o 03.02.59.02 são relatórios alinhados por espaço, e o
+ * 03.02.59.02 é aquele em que a *coluna do número é o dado*. Colado numa
+ * planilha, o valor vira célula numérica e perde a forma em que o relatório o
+ * escreveu — o que produziria não um erro, mas uma verba lida a menos, em
+ * silêncio. Aceitá-los só em texto é aceitar o que se consegue sustentar.
+ *
+ * A extensão continua sendo conferida na porta porque ela é o primeiro sinal de
+ * que alguém trocou a aba de envio; o que ela **não** faz mais é escolher o
+ * leitor. Quem decide como ler é o conteúdo do arquivo (ver `leitores/formato`).
+ */
+export const FORMATOS_DA_FONTE: Record<TipoDeFonte, string[]> = {
+  OPERACAO: [".xlsx", ".xls", ".csv", ".txt"],
+  CTE: [".xlsx", ".xls", ".csv", ".txt"],
+  PAGAMENTO: [".txt", ".csv"],
+  DISPONIBILIDADE: [".xlsx", ".xls", ".csv", ".txt"],
+  REQUISICOES: [".csv", ".txt", ".xlsx", ".xls"],
+  CONCILIACAO: [".txt", ".csv"],
 };
 
 /**

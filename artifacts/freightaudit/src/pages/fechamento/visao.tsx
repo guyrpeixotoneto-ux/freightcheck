@@ -239,7 +239,7 @@ export default function VisaoGerencial() {
             <Link href="/fechamento/competencias">
               <Button size="sm" variant="outline">
                 <Plus className="w-3.5 h-3.5 mr-1.5" />
-                Abrir competência
+                Realizar Fechamento
               </Button>
             </Link>
           </div>

@@ -99,6 +99,57 @@ export const CODIGOS_QUE_ISOLAM_A_CHAVE: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Um apontamento reduzido ao que decide a consequência dele.
+ *
+ * Não é a linha inteira de `validation_issue`: as duas perguntas abaixo se
+ * respondem com o código e a severidade, e pedir mais do que isso impediria
+ * fazê-las sobre uma contagem agrupada — que é a forma como o pipeline e a
+ * leitura de estado do run olham os apontamentos.
+ */
+export interface ApontamentoClassificavel {
+  code: string;
+  severity: string;
+}
+
+/**
+ * Este apontamento impede aprovar o arquivo inteiro?
+ *
+ * ---------------------------------------------------------------------------
+ * Por que é uma função, e não a consulta ao Set
+ * ---------------------------------------------------------------------------
+ * A pergunta tem duas partes — a severidade **e** o código —, e foi a segunda
+ * parte esquecida em um dos lugares que produziu o defeito que este arquivo
+ * fecha: a tela perguntava só `errors > 0`, o pipeline perguntava as duas, e um
+ * QLP com 8 chaves em quarentena e nenhum impedimento ficava com o botão
+ * "Aprovar e importar" desabilitado enquanto o pipeline o considerava
+ * perfeitamente aprovável. Os dois lados diziam responder à mesma pergunta e
+ * respondiam a duas.
+ *
+ * Hoje quem quer saber chama isto: o pipeline ao gravar o desfecho da
+ * pré-visualização, a leitura de estado do run ao contar o que impede, e a tela
+ * ao decidir se o botão pode ser apertado. Uma pergunta, uma resposta, um lugar
+ * onde ela muda.
+ */
+export function impedePromocao(apontamento: ApontamentoClassificavel): boolean {
+  return (
+    apontamento.severity === "ERROR" &&
+    CODIGOS_QUE_BLOQUEIAM_PROMOCAO.has(apontamento.code)
+  );
+}
+
+/**
+ * Este apontamento retira uma chave e deixa o resto do arquivo entrar?
+ *
+ * A severidade não entra na conta de propósito: a quarentena é consequência do
+ * **código**, e um dia em que ela deixe de ser ERRO — porque deixar um registro
+ * de fora com a evidência gravada talvez não seja erro nenhum — não pode fazer
+ * a contagem de chaves retidas cair para zero sem que ninguém tenha mexido nela.
+ */
+export function isolaAChave(apontamento: { code: string }): boolean {
+  return CODIGOS_QUE_ISOLAM_A_CHAVE.has(apontamento.code);
+}
+
+/**
  * O texto do selo de um apontamento: a severidade com a consequência dentro.
  *
  * "ERROR" cru diria menos do que a tela sabe; "Erro bloqueante" em todo ERRO
@@ -107,8 +158,11 @@ export const CODIGOS_QUE_ISOLAM_A_CHAVE: ReadonlySet<string> = new Set([
  */
 export function rotuloDoSelo(severity: string, code: string): string {
   if (severity === "ERROR") {
-    if (CODIGOS_QUE_BLOQUEIAM_PROMOCAO.has(code)) return "Erro bloqueante";
-    if (CODIGOS_QUE_ISOLAM_A_CHAVE.has(code)) return "Registro não importado";
+    // As mesmas duas perguntas que decidem se o botão de aprovar pode ser
+    // apertado — o selo que a tela desenha e a decisão que ela toma não podem
+    // sair de leituras diferentes da mesma lista.
+    if (impedePromocao({ code, severity })) return "Erro bloqueante";
+    if (isolaAChave({ code })) return "Registro não importado";
     return "Erro";
   }
   return ROTULO_DE_SEVERIDADE[severity as SeveridadeDeApontamento] ?? severity;
