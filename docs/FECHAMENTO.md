@@ -585,6 +585,42 @@ pode fabricar um tipo.
   coluna por quinzena, e sem o recorte as duas operações cairiam nas mesmas duas
   colunas.
 
+### Abrir e consultar pedem listas de Tipo diferentes
+
+O seletor do Resumo geral nasceu com a lista de **abrir** — Empurrada e Rota —,
+e o efeito foi que todo fechamento anterior à `0046` sumiu daquela tela: eles
+carregam `NAO_INFORMADO`, nenhuma das duas opções os alcança, e o mês aparecia
+vazio com a unidade certa, a transportadora certa e o mês certo escolhidos. Nada
+tinha sido perdido; o acervo é que tinha ficado sem endereço.
+
+São duas listas, e a diferença é deliberada:
+
+- `TIPOS_DE_OPERACAO` — o que se pode **abrir**. Sem `NAO_INFORMADO`, porque
+  escolhê-lo seria dizer "não sei" num campo que a operação decidiu que é
+  obrigatório, e `normalizarTipoDeOperacao` o recusa de qualquer forma.
+- `TIPOS_PARA_LER` — o que se pode **consultar**. Com `NAO_INFORMADO`, porque
+  é o que o banco tem. Uma tela de leitura que não oferece um valor que existe
+  no banco esconde dado em vez de proteger a chave.
+
+As duas vivem em `artifacts/freightaudit/src/lib/fechamento.ts`, e não em cada
+tela: foi a cópia que produziu o defeito — o Resumo escreveu a sua própria lista
+e ela nasceu incompleta.
+
+### O vazio diz qual dos dois vazios é
+
+`lerResumoDoMes` devolve **sempre** as duas quinzenas do mês, "existam elas ou
+não": a que ninguém abriu vem com `competenciaId` nulo. A tela procurava a
+quinzena com um `find`, achava esse esqueleto e o lia como competência de
+verdade — o ramo "competência não aberta" era código morto, e um mês em que nada
+tinha sido aberto se anunciava como **"importada, ainda não apurada"**.
+
+A frase errada não é detalhe de redação: ela manda procurar uma apuração que não
+tem onde acontecer, e esconde a causa real. `quinzenaExiste` e `motivoDoVazio`,
+em `pages/fechamento/resumo.tsx`, separam os dois estados — `SEM_COMPETENCIA` e
+`SEM_APURACAO` —, e o aviso do primeiro nomeia o Tipo escolhido e oferece o
+carimbo do backfill como primeira hipótese, que é a única causa que não depende
+de erro de quem lê.
+
 ## Remuneração — o cadastro, e a única tela que atravessa a fronteira
 
 `/fechamento/remuneracao/unidade` reproduz a aba **CADASTRO DA PLANILHA DE
@@ -754,7 +790,7 @@ sustentam. No Fechamento era uma parede: a quinzena é de várias unidades, a ab
 de Excel costuma chegar antes do arquivo, e a unidade que só tem aba não tinha
 onde ser digitada. Não por recusa do produto: por não haver linha para clicar.
 
-`remuneracao_unidade` (migration `0047`) guarda **identidade, e não número** —
+`remuneracao_unidade` (migration `0048`) guarda **identidade, e não número** —
 nome, código, tipo de operação e a quinzena em que se começa a preencher. Os
 números continuam na `remuneracao_planilha`, com as quatro regras acima
 intactas: uma unidade registrada nasce **sem lastro**, porque o acervo de fato

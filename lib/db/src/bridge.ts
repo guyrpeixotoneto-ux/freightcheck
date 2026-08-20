@@ -221,6 +221,12 @@ const TABELAS_REMOVIDAS = [
   "fechamento_requisicao",
   "fechamento_cte",
   "fechamento_viagem",
+  /*
+    O conteúdo guardado da importação, da `0047`. Vem **antes** do documento
+    porque é filha dele: derrubar o pai primeiro esbarraria na chave
+    estrangeira, que é o que esta ordem existe para evitar.
+  */
+  "fechamento_documento_conteudo",
   "fechamento_documento",
   "fechamento_competencia",
   "fechamento_parte",
@@ -1727,16 +1733,48 @@ function planoUp(): PassoUp[] {
     add(M45, `índice ${i}`, levantar(M45, new RegExp(`INDEX IF NOT EXISTS "${i}"`)));
   }
 
-  const M47 = "0047_unidade_sem_acervo";
+  /*
+    A `0047` — o arquivo importado deixa de ser descartado depois de lido. Mesmo
+    caso da `0044` e da `0045`: Production não conhece a tabela até rodar a
+    fila, então o `down` a derruba e o `up` tem de devolvê-la inteira, com a
+    chave estrangeira que a faz sair junto com o documento.
+
+    Nasceu `0046` neste branch e virou `0047` na fusão, porque a `main` chegou
+    antes com a `0046_tipo_de_operacao` — o mesmo encontro de fila que a `0023` e
+    a `0025` já tiveram, e cujo custo está medido em
+    `docs/PROPOSTA-ASSISTENTE-AGENTE.md §13`. É por isto que a migration é citada
+    por esta constante e não por texto solto: renumerar passa a ser trocar um
+    literal, e o `levantar` reprova alto se o nome não existir na fila.
+  */
+  const M47 = "0047_conteudo_da_importacao";
   add(
     M47,
-    "remuneracao_unidade",
-    levantar(M47, /CREATE TABLE IF NOT EXISTS "remuneracao_unidade" \(/),
+    "fechamento_documento_conteudo",
+    levantar(M47, /CREATE TABLE IF NOT EXISTS "fechamento_documento_conteudo" \(/),
   );
   add(
     M47,
+    "fk fechamento_documento_conteudo_documento_fk",
+    levantar(M47, /DO \$reentrante\$\s*\n\s*BEGIN\s*\n\s*IF NOT EXISTS \(SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_documento_conteudo_documento_fk'\)/),
+  );
+
+  /*
+    A `0048` — a unidade cadastrada à mão. Nasceu `0047` neste branch e virou
+    `0048` na fusão, pelo mesmo encontro de fila que o bloco acima descreve: a
+    `main` chegou antes com a `0047_conteudo_da_importacao`. A constante é o
+    único lugar onde o número aparece, que é o que torna renumerar uma troca de
+    literal em vez de uma caçada por texto solto.
+  */
+  const M48 = "0048_unidade_sem_acervo";
+  add(
+    M48,
+    "remuneracao_unidade",
+    levantar(M48, /CREATE TABLE IF NOT EXISTS "remuneracao_unidade" \(/),
+  );
+  add(
+    M48,
     "índice remuneracao_unidade_unica",
-    levantar(M47, /INDEX IF NOT EXISTS "remuneracao_unidade_unica"/),
+    levantar(M48, /INDEX IF NOT EXISTS "remuneracao_unidade_unica"/),
   );
 
   const M42 = "0042_viagem_completa";

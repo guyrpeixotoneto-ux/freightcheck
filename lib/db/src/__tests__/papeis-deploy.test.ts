@@ -192,8 +192,10 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
         "fechamento_parte",
         /* A planilha informada, da `0045` — idem: Production não a tem. */
         "remuneracao_planilha",
+        /* O conteúdo guardado da importação, da `0047` — idem. */
+        "fechamento_documento_conteudo",
         /*
-          A unidade cadastrada à mão, da `0047` — idem. Ela é aditiva como as
+          A unidade cadastrada à mão, da `0048` — idem. Ela é aditiva como as
           demais: nada existente muda de forma, e Production a ganha quando o
           servidor novo aplicar a fila na partida.
         */
@@ -267,7 +269,8 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
       "0044_partes_cadastradas",
       "0045_planilha_de_remuneracao",
       "0046_tipo_de_operacao",
-      "0047_unidade_sem_acervo",
+      "0047_conteudo_da_importacao",
+      "0048_unidade_sem_acervo",
     ]);
 
     // Preservação + backfill: as três contas continuam com o hash original e

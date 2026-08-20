@@ -16,6 +16,7 @@ import { ErroDeTransporte, diagnosticarTransporte } from "@/lib/transporte";
 import {
   deveApresentarIndisponibilidade,
   deveAvisarSobreDadoGuardado,
+  esperaDaTentativa,
   guardarResposta,
   TENTATIVAS_AUTOMATICAS,
   type RespostaValida,
@@ -74,11 +75,36 @@ const respondeu400 = () =>
 const roteadorSemNinguemAtras = () =>
   new ErroDeTransporte(diagnosticarTransporte({ status: 502, corpoVazio: true }));
 
+/**
+ * O teto de espera de um ciclo inteiro — derivado da política, nunca transcrito.
+ *
+ * Este número existia como `5_000` escrito à mão no `ateAssentar` abaixo, e ele
+ * era menor que o orçamento real da política. O efeito não foi um teste que
+ * reprova: foi um teste que **mede outra coisa**. O helper desistia de esperar
+ * no meio do ciclo e devolvia o resultado daquele instante — ainda repetindo,
+ * ainda sem erro —, e as asserções sobre "esgotou as tentativas" passavam a
+ * falar de uma query que não tinha esgotado nada.
+ *
+ * Enquanto o orçamento foi de 1,6s o limite de 5s sobrava, e o defeito ficou
+ * latente. Ele apareceu no dia em que a política passou a cobrir cold start.
+ * Derivar em vez de transcrever é o que impede a terceira versão deste bug, e é
+ * o que mantém o teto correto tanto para um cenário que comprime a espera
+ * (todos os de baixo, ver `observador`) quanto para um que não comprima.
+ */
+const ORCAMENTO_DA_POLITICA = Array.from(
+  { length: TENTATIVAS_AUTOMATICAS - 1 },
+  (_, i) => esperaDaTentativa(i),
+).reduce((soma, espera) => soma + espera, 0);
+
 async function ateAssentar<T>(
   observer: QueryObserver<T, Error, T>,
   opcoes: { limiteMs?: number } = {},
 ): Promise<QueryObserverResult<T, Error>> {
-  const limite = opcoes.limiteMs ?? 5_000;
+  /*
+    A folga cobre o que o orçamento não conta: a própria execução de `buscar`, o
+    passo de 10ms deste laço, e o agendamento do React Query entre tentativas.
+  */
+  const limite = opcoes.limiteMs ?? ORCAMENTO_DA_POLITICA + 5_000;
   const cancelar = observer.subscribe(() => {});
   const comecou = Date.now();
   try {
@@ -93,7 +119,25 @@ async function ateAssentar<T>(
   }
 }
 
-/** Um observador com as opções que `useConsultaResiliente` espalha. */
+/**
+ * Um observador com as opções que `useConsultaResiliente` espalha.
+ *
+ * **A espera entre tentativas é a única coisa comprimida**, e a exceção é
+ * declarada aqui em vez de acontecer por acidente. Tudo o mais é o objeto de
+ * produção: `queryFn`, `retry` (`deveTentarDeNovo`, a decisão de repetir),
+ * `TENTATIVAS_AUTOMATICAS`, o registro de falhas e o `placeholderData`.
+ *
+ * O que estes cenários afirmam são **decisões** — repete ou não, o que sobra em
+ * tela, o que chega ao registro, com que origem — e nenhuma delas muda com o
+ * tamanho do intervalo entre uma tentativa e a seguinte. O cronograma em si é
+ * afirmado exatamente, e sem esperar nada, em "o orçamento de espera" logo
+ * abaixo: lá os 400ms, o teto e a soma são medidos direto de
+ * `esperaDaTentativa`.
+ *
+ * Sem a compressão o arquivo levava 173s, com três cenários pousando a 26,4s de
+ * um `testTimeout` de 30s — uma reprovação por máquina lenta esperando
+ * acontecer, comprada por nenhuma verdade a mais.
+ */
 function observador<T>(
   client: QueryClient,
   buscar: () => Promise<T>,
@@ -106,6 +150,7 @@ function observador<T>(
       buscar,
       carimbo: opcoes.carimbo ?? (async () => CARIMBO),
     }),
+    retryDelay: 0,
   });
 }
 
@@ -153,6 +198,43 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+/**
+ * O orçamento de espera, medido em vez de deduzido do comentário.
+ *
+ * Estas asserções são puras e instantâneas, e existem por causa de um defeito
+ * que nenhum dos cenários abaixo pegava: eles perguntam *se* a política repete,
+ * e o defeito era *por quanto tempo*. O orçamento era de 1,6s — calibrado para
+ * o pacote perdido — enquanto a causa que a tela nomeia primeiro quando não
+ * houve resposta é a origem acordando, que leva segundos. As três tentativas se
+ * esgotavam antes de o servidor terminar de subir, e o painel vermelho era
+ * garantido em todo cold start.
+ *
+ * O que o número precisa cobrir é isso, então é isso que se afirma aqui.
+ */
+describe("o orçamento de espera", () => {
+  const degraus = Array.from({ length: TENTATIVAS_AUTOMATICAS - 1 }, (_, i) =>
+    esperaDaTentativa(i),
+  );
+
+  it("começa curto: os dois primeiros degraus cobrem o pacote perdido", () => {
+    expect(degraus.slice(0, 2)).toEqual([400, 1200]);
+  });
+
+  it("cobre um cold start: a soma passa de dez segundos", () => {
+    const total = degraus.reduce((soma, espera) => soma + espera, 0);
+    expect(total).toBeGreaterThan(10_000);
+  });
+
+  /*
+    Sem teto a progressão por três chegaria a 10,8s num degrau só, e o total
+    passaria de 16s — que é atraso puro: o que não subiu em treze segundos não
+    sobe no vigésimo.
+  */
+  it("nenhum degrau sozinho passa de oito segundos", () => {
+    for (const espera of degraus) expect(espera).toBeLessThanOrEqual(8_000);
+  });
+});
+
 describe("a repetição, e a quem ela se aplica", () => {
   it("primeira chamada falha, segunda funciona: a tela nunca vê erro", async () => {
     let n = 0;
@@ -187,9 +269,12 @@ describe("a repetição, e a quem ela se aplica", () => {
   /**
    * O outro lado da política, e o que a torna barata.
    *
-   * Um 4xx com código do servidor não muda de ideia na quarta tentativa: ele
-   * descreve o pedido, não o caminho. Repeti-lo só atrasa em 1,6s o aviso que a
-   * pessoa precisa ler — e essa era a queixa que fez a política global existir.
+   * Um 4xx com código do servidor não muda de ideia na quinta tentativa: ele
+   * descreve o pedido, não o caminho. Repeti-lo só atrasa em 13,2s o aviso que
+   * a pessoa precisa ler — e essa era a queixa que fez a política global
+   * existir. O orçamento cresceu para cobrir cold start, o que torna esta
+   * metade da política mais valiosa, não menos: é ela que garante que o
+   * orçamento novo não caia sobre quem não tem nada a ganhar esperando.
    */
   it("erro 4xx com código não é repetido nenhuma vez", async () => {
     let n = 0;
@@ -204,7 +289,7 @@ describe("a repetição, e a quem ela se aplica", () => {
     expect((r.error as ApiError).status).toBe(409);
   });
 
-  it("API totalmente inacessível: três tentativas, e o registro numera 1 a 3", async () => {
+  it("API totalmente inacessível: repete até o limite, e o registro numera 1 a N", async () => {
     let n = 0;
     const obs = observador(client, async () => {
       n += 1;
@@ -215,7 +300,9 @@ describe("a repetição, e a quem ela se aplica", () => {
 
     expect(n).toBe(TENTATIVAS_AUTOMATICAS);
     expect((r.error as ErroDeTransporte).diagnostico.estado).toBe("API_AUSENTE");
-    expect(falhasRegistradas().map((f) => f.tentativa)).toEqual([1, 2, 3]);
+    expect(falhasRegistradas().map((f) => f.tentativa)).toEqual(
+      Array.from({ length: TENTATIVAS_AUTOMATICAS }, (_, i) => i + 1),
+    );
   });
 });
 
@@ -241,6 +328,9 @@ describe("o que sobra em tela", () => {
         buscar,
         carimbo: async () => CARIMBO,
       }),
+      // Pelo mesmo motivo de `observador`: este cenário afirma o que sobra em
+      // tela, não quanto se espera. Sem esta linha ele sozinho custa 13,2s.
+      retryDelay: 0,
     });
     const cancelar = obs.subscribe((r) => {
       guardada = comoATelaVe(guardada, r);
@@ -471,11 +561,9 @@ describe("a instrumentação", () => {
     marcarOrigem(ENDPOINT, "manual");
     await obs.refetch();
 
-    expect(falhasRegistradas().map((f) => f.origem)).toEqual([
-      "manual",
-      "manual",
-      "manual",
-    ]);
+    expect(falhasRegistradas().map((f) => f.origem)).toEqual(
+      Array.from({ length: TENTATIVAS_AUTOMATICAS }, () => "manual"),
+    );
   });
 
   /**

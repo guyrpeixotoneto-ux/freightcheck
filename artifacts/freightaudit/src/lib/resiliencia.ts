@@ -25,13 +25,38 @@ import { ErroDeTransporte, type EstadoDoTransporte } from "@/lib/transporte";
 /**
  * Quantas vezes uma chamada é feita antes de a tela falar em indisponibilidade.
  *
- * Três: a original e duas repetições. O número não é arbitrário — é o que cobre
- * a janela de troca de processo sem fazer quem espera achar que travou. O
- * `esperaDaTentativa` abaixo soma 1,6s de espera até a terceira; com quatro
- * tentativas seriam 5,2s olhando para um esqueleto, que é tempo suficiente para
- * a pessoa recarregar a página à mão e nunca ver a recuperação acontecer.
+ * Cinco: a original e quatro repetições, somando 13,2s de espera. Eram três, e
+ * 1,6s — número escolhido para cobrir "a janela de troca de processo sem fazer
+ * quem espera achar que travou".
+ *
+ * **A conta estava calibrada para a causa errada.** A causa que a tela nomeia
+ * primeiro quando não houve resposta (ver o `SEM_RESPOSTA` de `transporte.ts`)
+ * é a origem inteira indisponível — Repl dormindo, cold start, reinício —, e
+ * essa é da ordem de segundos a dezenas de segundos, não de milissegundos. Com
+ * 1,6s de orçamento o painel vermelho era **garantido** em todo cold start: as
+ * três tentativas se esgotavam antes de o servidor terminar de subir.
+ *
+ * E não havia recuperação depois. `refetchOnWindowFocus` é `false` por decisão
+ * (ver `App.tsx`), então a API subia cinco segundos mais tarde, passava a
+ * responder, e o painel continuava na tela até alguém recarregar à mão. Era
+ * esse o laço — não o texto da mensagem, que já tinha sido corrigido uma vez.
+ *
+ * O que se paga: numa origem de fato fora do ar, o aviso demora 13,2s em vez de
+ * 1,6s para aparecer. O que se recebe: o cold start, que é o caso comum,
+ * resolve sozinho e ninguém vê erro nenhum. A troca vale porque o custo cai
+ * sobre a espera — com "Carregando…" em tela — e o ganho tira uma tela morta.
  */
-export const TENTATIVAS_AUTOMATICAS = 3;
+export const TENTATIVAS_AUTOMATICAS = 5;
+
+/**
+ * O teto de uma espera, para a progressão não virar um minuto de esqueleto.
+ *
+ * Sem teto, o quarto degrau da progressão por três seria 10,8s sozinho, e o
+ * total passaria de 16s. Oito segundos é o ponto em que esperar mais deixa de
+ * comprar cold start — o que não subiu em treze segundos não vai subir no
+ * vigésimo — e passa a só atrasar o aviso.
+ */
+const TETO_DA_ESPERA = 8_000;
 
 /**
  * Os estados de transporte que valem uma segunda tentativa.
@@ -106,21 +131,27 @@ export function deveTentarDeNovo(falhasAnteriores: number, erro: unknown): boole
 }
 
 /**
- * Quanto esperar antes da próxima tentativa: 400ms, 1200ms.
+ * Quanto esperar antes da próxima tentativa: 400ms, 1200ms, 3600ms, 8000ms.
  *
- * Progressão por três, e **sem jitter**. Jitter existe para dessincronizar
- * muitos clientes que falharam juntos; aqui é uma aba de navegador repetindo
- * uma chamada sua, e não há rebanho para espalhar. O que o jitter custaria é
- * caro: uma espera aleatória não é reproduzível, e uma política de repetição
- * que não se consegue reproduzir num teste é uma política que ninguém confere.
+ * Progressão por três até o teto, e **sem jitter**. Jitter existe para
+ * dessincronizar muitos clientes que falharam juntos; aqui é uma aba de
+ * navegador repetindo uma chamada sua, e não há rebanho para espalhar. O que o
+ * jitter custaria é caro: uma espera aleatória não é reproduzível, e uma
+ * política de repetição que não se consegue reproduzir num teste é uma política
+ * que ninguém confere.
  *
- * O primeiro degrau é curto de propósito — a maior parte das quedas de
- * transporte se resolve entre um pacote e o seguinte, e 400ms passam sem que
- * quem está na tela perceba que houve uma segunda tentativa. O segundo cobre a
- * troca de processo, que é a ordem de grandeza de um restart.
+ * Os dois primeiros degraus continuam curtos, e pelo motivo de sempre: a maior
+ * parte das quedas de transporte se resolve entre um pacote e o seguinte, e
+ * 400ms passam sem que quem está na tela perceba que houve uma segunda
+ * tentativa; 1200ms cobrem a troca de processo, que é a ordem de grandeza de um
+ * restart.
+ *
+ * Os dois últimos são novos e cobrem outra coisa: o cold start, que é ordem de
+ * grandeza de segundos. Eles não existiam, e é por isso que uma origem
+ * acordando derrubava a tela — ver `TENTATIVAS_AUTOMATICAS`.
  */
 export function esperaDaTentativa(falhasAnteriores: number): number {
-  return 400 * 3 ** falhasAnteriores;
+  return Math.min(400 * 3 ** falhasAnteriores, TETO_DA_ESPERA);
 }
 
 /**
