@@ -510,8 +510,58 @@ export interface CanalDoResumo {
   demonstrativo: TresColunas;
   /** `emitido − demonstrativo`. */
   diferenca: TresColunas;
-  /** O mesmo mês nas linhas da planilha. `null` no canal sem painel transcrito. */
+  /** O mesmo mês nas linhas da planilha. `null` quando não há painel. */
   painel: PainelDaPlanilha | null;
+  /**
+   * Por que não há painel, quando não há.
+   *
+   * `SEM_DEMONSTRATIVO`: o painel do canal está escrito e o 03.08.20 não foi
+   * importado — falta arquivo. `CANAL_SEM_CATALOGO`: os rótulos do painel deste
+   * canal ainda não foram transcritos — falta trabalho nosso. As duas ausências
+   * têm o mesmo sintoma e mandam quem olha para lados opostos, e é por isso que
+   * o servidor as separa em vez de a tela adivinhar.
+   */
+  semPainel: "CANAL_SEM_CATALOGO" | "SEM_DEMONSTRATIVO" | null;
+  /** O devido, calculado do contrato, ao lado do demonstrado. */
+  comparado: PainelComparado | null;
+}
+
+/**
+ * Uma linha nas três leituras que o fechamento discute.
+ *
+ * `devido` sai do contrato (cadastro + diário); `demonstrado` sai do 03.08.20.
+ * São fontes independentes, e é por isso que a diferença entre elas diz algo —
+ * o painel antigo comparava o demonstrativo consigo mesmo.
+ */
+export interface LinhaComparada {
+  chave: string;
+  rotulo: string;
+  papel: string;
+  devido: TresColunas;
+  demonstrado: TresColunas;
+  diferenca: TresColunas;
+  memoria: { primeira: string | null; segunda: string | null };
+  falta: string | null;
+}
+
+export interface QuadroComparado {
+  quadro: string;
+  titulo: string;
+  linhas: LinhaComparada[];
+  devido: TresColunas;
+  demonstrado: TresColunas;
+  diferenca: TresColunas;
+}
+
+export interface PainelComparado {
+  canal: string;
+  quadros: QuadroComparado[];
+  /** De qual cadastro veio cada quinzena — onde conferir um número que surpreende. */
+  cadastro: {
+    primeira: { cadastroId: string; vigenteDe: string } | null;
+    segunda: { cadastroId: string; vigenteDe: string } | null;
+  };
+  pendencias: string[];
 }
 
 export interface ResumoDoMes {
