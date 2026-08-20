@@ -486,7 +486,14 @@ router.post("/fechamento/competencias/:id/documentos", async (req, res): Promise
       nomeDoArquivo: filename,
       conteudo: Buffer.from(encoded, "base64"),
     });
-    res.status(201).json(recebido);
+    /*
+      Quarentena não é 201 nem erro: o arquivo **foi** recebido e guardado, e
+      não virou a conta. `202 Accepted` é exatamente isso — aceitamos o envio e
+      não o processamos como pedido. Devolver 201 faria a tela dizer "importado"
+      sobre o que não conta; devolver 4xx faria parecer que nada ficou guardado,
+      quando o arquivo está lá justamente para ser examinado.
+    */
+    res.status(recebido.desfecho === "PROMOVIDO" ? 201 : 202).json(recebido);
   } catch (erro) {
     if (erro instanceof RecusaDeFechamento) {
       res.status(erro.codigo === "COMPETENCIA_NAO_ENCONTRADA" ? 404 : 409).json({

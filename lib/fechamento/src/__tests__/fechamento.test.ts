@@ -33,6 +33,7 @@ import {
   fixtureOperacao,
   fixtureOperacaoComCabecalhoEspacado,
   fixturePagamento,
+  fixturePagamentoDoPainel,
   fixtureRequisicoes,
 } from "./fixtures";
 
@@ -546,5 +547,78 @@ describe("o 03.08.20", () => {
 
   it("fecha o total do canal, com o acento que só o latin-1 entrega", () => {
     expect(pagamento.totais).toEqual([{ canal: "ROTA", total: 3500 }]);
+  });
+});
+
+
+/**
+ * O 03.08.20 passa a registrar por que uma linha de verba não entrou.
+ *
+ * Era o único leitor, junto com o da conciliação, a devolver recusa nenhuma — e
+ * o preço apareceu em produção: um demonstrativo gravou catorze descontos e
+ * nenhuma verba, e não havia como saber por quê. O fechamento **não guarda o
+ * arquivo** (ver `receberDocumento`, que decodifica os bytes, lê e os
+ * descarta), então a recusa é a única evidência que sobrevive ao envio.
+ */
+describe("as recusas do demonstrativo", () => {
+  /** O fixture bom, com uma coluna de valor a menos em cada linha de verba. */
+  function comUmaColunaAMenos(): Buffer {
+    const texto = fixturePagamentoDoPainel().toString("utf8");
+    return Buffer.from(
+      texto
+        .split(/\r?\n/)
+        .map((l) => {
+          const m = /^(\s*\d{1,3}\s*-\s*.+?\s{2,})((?:-?[\d.]+,\d{2}\s+){5})(-?[\d.]+,\d{2})\s*$/.exec(l);
+          return m ? `${m[1]}${m[2]!.trimEnd()}` : l;
+        })
+        .join("\r\n"),
+      "utf8",
+    );
+  }
+
+  /** O fixture bom, sem os cabeçalhos de seção que tornam a verba elegível. */
+  function semCabecalhoDeSecao(): Buffer {
+    const texto = fixturePagamentoDoPainel().toString("utf8");
+    return Buffer.from(texto.replace("FRETE\r\n", "").replace("OUTROS CUSTOS\r\n", ""), "utf8");
+  }
+
+  it("um arquivo íntegro não recusa nada", () => {
+    const lido = lerPagamento(fixturePagamentoDoPainel());
+    expect(lido.itens.length).toBeGreaterThan(0);
+    expect(lido.recusas).toEqual([]);
+  });
+
+  it("coluna a menos: recusa nomeia quantas colunas vieram e quantas se espera", () => {
+    const lido = lerPagamento(comUmaColunaAMenos());
+    expect(lido.itens).toEqual([]);
+    /* Os descontos continuam entrando — é o que produz o sintoma confuso. */
+    expect(lido.descontos.length).toBeGreaterThan(0);
+    expect(lido.recusas.length).toBeGreaterThan(0);
+    expect(lido.recusas[0]?.motivo).toContain("5 coluna(s) de valor");
+    expect(lido.recusas[0]?.motivo).toContain("traz 6");
+  });
+
+  it("sem cabeçalho de seção: recusa aponta o recorte, não o layout", () => {
+    const lido = lerPagamento(semCabecalhoDeSecao());
+    expect(lido.itens).toEqual([]);
+    expect(lido.recusas[0]?.motivo).toContain("fora de uma seção");
+  });
+
+  /**
+   * `Recusa.original` existe para que a decisão possa ser revista sem reabrir o
+   * arquivo — e como o arquivo não é guardado, "sem reabrir" aqui quer dizer
+   * "sem pedir de volta a quem enviou".
+   */
+  it("a recusa carrega o texto original da linha", () => {
+    const lido = lerPagamento(comUmaColunaAMenos());
+    expect(lido.recusas[0]?.original).toContain("Frota Fixa Ativa");
+    expect(lido.recusas[0]?.linha).toBeGreaterThan(0);
+  });
+
+  it("linha que não parece verba não vira recusa — o registro não é lixeira", () => {
+    const lido = lerPagamento(
+      Buffer.from("ROTA\r\nFRETE\r\ncabecalho qualquer\r\nrodape 1.234,56\r\n", "utf8"),
+    );
+    expect(lido.recusas).toEqual([]);
   });
 });
