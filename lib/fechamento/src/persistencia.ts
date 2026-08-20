@@ -2230,11 +2230,18 @@ async function viagensPorDia(
  * **Nenhuma delas é inventada, e as que não têm origem ficam `null`.** A
  * planilha traz as três digitadas à mão, sem fórmula que as derive (ver
  * `docs/MAPA-ROTA.md`); aqui elas só aparecem quando um documento as sustenta.
- * Enquanto a origem da devolução e do complementar não for conhecida, o quadro
- * sai `null` e diz o que falta — que é a resposta honesta, e a que impede o
- * produto de repetir um número que ninguém sabe justificar.
+ * As que não têm documento saem `null`, o quadro sai `null` e a tela diz o que
+ * falta — que é a resposta honesta, e a que impede o produto de repetir um
+ * número que ninguém sabe justificar.
+ *
+ * **As três do quadro fixo já têm documento**, e as três são o 03.08.20: a
+ * devolução, a soma dos quatro descontos de disponibilidade e o frete mínimo.
+ * Que a planilha as digite em vez de lê-las é escolha dela; que os valores
+ * coincidam ao centavo em julho/2026 é o que autoriza esta leitura. Ficam sem
+ * origem os outros custos (03.08.12.09, que esta leitura não abre) e a
+ * indisponibilidade (do diário).
  */
-function basesDaQuinzena(
+export function basesDaQuinzena(
   descontos: { canal: Canal; tipo: string; valor: number }[] | null,
   demonstrativo: { canal: Canal; total: number }[] | null,
   canal: Canal,
@@ -2254,8 +2261,27 @@ function basesDaQuinzena(
       "DISPONIBILIDADE_INDIRETO",
       "DISPONIBILIDADE_FATOR_AJUDANTE",
     ]),
-    /* Sem tipo próprio no 03.08.20 — não há de onde tirá-lo ainda. */
-    complementarNegativo: null,
+    /*
+      O `DESCONTO FRETE MINIMO` do 03.08.20 — o elo que `MAPA-ROTA.md` registrava
+      como inexistente.
+
+      Ele não existe *dentro da pasta*, e é isso que aquela investigação provou:
+      a base é digitada à mão no `Mapa Rota`, e nenhuma coluna do 03.08.18 a
+      reproduz. Existe fora dela, no relatório que a planilha não abre. Em
+      julho/2026 a 2ª quinzena fecha ao centavo: `AH140` traz 14.050,54 e o
+      `Desconto Frete mínimo` do demonstrativo traz 14.050,54 — sem fator, que é
+      exatamente a assimetria que `linhasDeDesconto` já descrevia ("ele já vem no
+      valor em que é descontado", e o rótulo do relatório diz `coluna ICMS`).
+
+      Na 1ª quinzena a planilha põe esse mesmo desconto na linha da
+      **disponibilidade** (`R139` = 11.649,87 = o frete mínimo da quinzena, com
+      fator) e deixa o complementar em zero. É inconsistência dela, não nossa, e
+      a regra aqui é uma só nas duas quinzenas: o frete mínimo é o complementar.
+      A divergência aparece na coluna `Diferença` da 1ª quinzena, que é onde uma
+      discordância entre duas fontes deve aparecer — reproduzi-la trocaria um
+      erro visível por um invisível.
+    */
+    complementarNegativo: soma(["FRETE_MINIMO"]),
     /* Idem: os outros custos vêm do 03.08.12.09, que esta leitura não abre. */
     outrosCustos: null,
     /* A indisponibilidade do diário ainda não é somada aqui. */

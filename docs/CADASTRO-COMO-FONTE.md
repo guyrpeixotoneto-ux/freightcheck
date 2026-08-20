@@ -1,10 +1,17 @@
 # O `Cadastro` como sétima fonte — desenho
 
-**Estado: desenho do módulo, não implementado. A porta que ele preenche já existe** — ver *A porta, e como plugar o módulo* no fim deste documento. Este documento é o que precisa ser
-acordado antes de escrever código. A leitura da aba já existe
-(`lib/fechamento/src/leitores/cadastro.ts`) e reconstrói o custo fixo ao
-centavo; o que falta é o cadastro virar **documento importável e versionado**,
-ao lado das seis fontes que a Ambev entrega.
+**Estado: a porta está ligada.** `lerResumoDoMes` recebe hoje uma
+`FonteDeCadastro` de verdade — `cadastroDaRemuneracao`, em
+`artifacts/api-server/src/lib/`, que lê a aba digitada em `remuneracao_planilha`
+e a traduz pelo `contrato.ts` de `@workspace/remuneracao`. Com uma aba
+cadastrada, o painel do fechamento passa a mostrar **devido × demonstrado ×
+diferença**; sem ela, cai no de-para do 03.08.20 como antes.
+
+O que **ainda** falta deste desenho é o cadastro virar **documento importável e
+versionado** — com `vigenteAte`, correção retroativa com motivo escrito e o
+cadastro fixado na apuração (os três mecanismos do fim deste documento). Hoje a
+vigência é a `effective_date` da aba, e a resolução é a descrita em *A herança
+entre as duas quinzenas do mesmo mês*, abaixo.
 
 ## Por que ele é fonte, e não configuração
 
@@ -163,11 +170,36 @@ diz o que não havia.** Nunca zero por ausência.
 | Total do quadro | `null`, não a soma do que existe — ver `somarQuadro` em `mapa-rota.ts`. |
 | Tela | Uma pendência nomeada: *"a 2ª quinzena não tem cadastro vigente; sem ele o custo fixo não pode ser reconstruído"*, com o caminho para subir. |
 | Vigência que cobre só parte da quinzena | **Recusa explícita**, com as duas datas e o motivo. Não escolhe, não rateia. |
-| Cadastro presente mas com campo faltando | `RotuloDoCadastroNaoEncontrado`, que já existe, nomeando o rótulo e a quinzena. |
+| Cadastro presente mas com campo faltando | Não há contrato: `contratoDaPlanilha` devolve `contrato: null` e a lista das chaves que faltam, com o rótulo que a tela mostra. As linhas que dependem dele saem vazias — nunca com zero no lugar do que ninguém digitou. |
 
-O que o desenho **não** faz: herdar o cadastro da quinzena anterior. Seria a
-suposição mais confortável e a mais perigosa — reproduziria um contrato vencido
-com cara de vigente, e o número sairia plausível.
+## A herança entre as duas quinzenas do mesmo mês
+
+O desenho original não herdava nada, e a razão continua valendo para o caso que
+ele tinha em mente: herdar o cadastro do **mês anterior** reproduziria um
+contrato vencido com cara de vigente, e o número sairia plausível.
+
+Entre as duas metades do **mesmo mês** a decisão passou a ser outra, a pedido de
+quem opera. O contrato é mensal; a quinzena é uma régua de calendário. Exigir a
+mesma aba digitada duas vezes por mês não protegia de nada — produzia duas
+cópias do mesmo contrato, e uma tela vazia enquanto a segunda não chegasse.
+
+A regra está em `vigenciaQueResponde` (`@workspace/remuneracao/contrato.ts`):
+
+1. A aba da própria quinzena, se houver — a mais recente, se houver duas.
+2. A da **outra quinzena do mesmo mês**, se houver.
+3. Nada: `null`, e a tela diz que falta cadastro.
+
+**Não atravessa o mês**, e não existe meia herança: a aba é um ato só
+(`gravarPlanilha` grava as trinta linhas numa transação), e completar as que
+faltam numa com as da outra montaria um contrato que ninguém assinou.
+
+**O risco é real, e está dito na tela.** Julho/2026 é o contraexemplo do próprio
+produto: `remuneracaoFixaDaFrotaAtiva` foi de R$ 1.424,91 na 1ª quinzena para
+R$ 1.038,03 na 2ª, e `remuneracaoDaFrotaInativa` de R$ 1.650,97 para R$ 4.359,09.
+Quem cadastrar só a 1ª e deixar a herança responder pela 2ª verá um devido
+errado — plausível, que é o pior tipo. Por isso a herança nunca é silenciosa: o
+painel escreve `cadastro vigente desde <data>` e, quando uma aba responde pelas
+duas, diz que responde. Cadastrar a segunda aba desliga a herança sozinha.
 
 ## Como impedir que um cadastro futuro recalcule o passado
 
@@ -306,10 +338,10 @@ sustenta:
 |---|---|---|
 | Devolução | descontos do 03.08.20, tipo `DEVOLUCAO` | ✅ |
 | Disponibilidade | descontos do 03.08.20, tipos `DISPONIBILIDADE_*` | ✅ |
-| Complementar negativo | — | ❌ `null` |
+| Complementar negativo | descontos do 03.08.20, tipo `FRETE_MINIMO` | ✅ |
 | Outros custos | 03.08.12.09 | ❌ `null` (esta leitura não abre o relatório) |
 | Indisponibilidade | diário | ❌ `null` |
 
-As três últimas saem `null`, o quadro sai `null`, e a tela nomeia o que falta.
+As duas últimas saem `null`, o quadro sai `null`, e a tela nomeia o que falta.
 **Nenhuma é preenchida com zero** — e nenhuma repete o número digitado da
 planilha, cuja derivação ninguém sabe explicar (ver `MAPA-ROTA.md`).
