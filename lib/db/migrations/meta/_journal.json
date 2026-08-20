@@ -330,6 +330,13 @@
       "when": 1787190171147,
       "tag": "0046_tipo_de_operacao",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1787223719661,
+      "tag": "0047_conteudo_da_importacao",
+      "breakpoints": true
     }
   ]
 }
