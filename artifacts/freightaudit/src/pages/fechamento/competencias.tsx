@@ -579,8 +579,20 @@ export default function Competencias() {
                             a única coisa que as separa é ele. Sem o tipo à
                             vista, a lista mostraria duas linhas idênticas.
                           */}
+                          {/*
+                            O código ao lado do nome, e não escondido atrás
+                            dele. É por ele que o cadastro de Remuneração
+                            encontra esta competência — e ele era a única coisa
+                            que quem precisava conferir os dois lados não tinha
+                            como ver em tela nenhuma. Nome é rótulo; código é
+                            identidade.
+                          */}
                           <p className="text-sm text-muted-foreground truncate">
-                            {c.unidade.nome ?? c.unidade.codigo} · {c.transportadora.nome ?? c.transportadora.codigo}
+                            {c.unidade.nome ?? c.unidade.codigo}
+                            {c.unidade.nome && (
+                              <span className="text-muted-foreground/70"> ({c.unidade.codigo})</span>
+                            )}{" · "}
+                            {c.transportadora.nome ?? c.transportadora.codigo}
                             {" · "}
                             <span className={c.tipoDeOperacao === TIPO_NAO_INFORMADO ? "italic" : "font-medium"}>
                               {rotuloDoTipo(c.tipoDeOperacao)}

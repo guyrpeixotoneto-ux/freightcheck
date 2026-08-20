@@ -22,6 +22,7 @@ import {
   type ResumoDoMes,
   type TresColunas,
 } from "@/lib/fechamento";
+import { lerSituacaoDasUnidades } from "@/lib/remuneracao";
 import {
   PainelDaPlanilhaTabela,
   type ColunaDoPainel,
@@ -473,7 +474,12 @@ function Corpo({
       ) : (
         resumo.canais.map((canal) =>
           aba === "planilha" ? (
-            <PainelDoCanal key={canal.canal} canal={canal} recorte={recorte} />
+            <PainelDoCanal
+              key={canal.canal}
+              canal={canal}
+              recorte={recorte}
+              unidadeCodigo={resumo.unidade.codigo}
+            />
           ) : (
             <TabelaDoCanal key={canal.canal} canal={canal} recorte={recorte} />
           ),
@@ -532,7 +538,77 @@ function colunasDoRecorte(recorte: Recorte): ColunaDoPainel[] {
     : [{ rotulo: "2ª quinzena", de: (v) => v.segunda }];
 }
 
-function PainelDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Recorte }) {
+/**
+ * Por que o devido não aparece — dito, em vez de o painel só cair no antigo.
+ *
+ * O fechamento encontra o cadastro **pelo código da unidade**, e quando não
+ * encontra ele volta para a releitura do 03.08.20 sem explicar nada. Quem
+ * acabou de preencher trinta linhas em Remuneração fica olhando a mesma tela de
+ * antes, sem uma palavra sobre o que faltou — e o mais provável (a unidade
+ * cadastrada sem código, que a `0047` passou a permitir) é justamente o que
+ * nenhuma das duas telas dizia.
+ *
+ * A leitura é da lista de unidades da Remuneração, e o que ela afirma é
+ * checável: **existe** ou **não existe** unidade cadastrada com este código.
+ * Nada é deduzido do nome — casar unidade por nome é a adivinhação que o módulo
+ * de cadastro recusa em toda parte.
+ */
+function PorQueNaoTemDevido({ unidadeCodigo }: { unidadeCodigo: string }) {
+  const situacao = useQuery({
+    queryKey: ["remuneracao", "situacao"],
+    queryFn: lerSituacaoDasUnidades,
+  });
+
+  const cadastradas = situacao.data?.unidades ?? [];
+  const comEsteCodigo = cadastradas.some((u) =>
+    u.scopes.some((e) => e.scopeType === "UNIDADE" && e.code.trim() === unidadeCodigo.trim()),
+  );
+
+  return (
+    <Alert className="mb-4">
+      <AlertDescription className="text-xs space-y-1">
+        <p>
+          Abaixo está o painel do <strong>03.08.20 relido</strong> — ele concorda consigo
+          mesmo, e por isso as linhas de frota aparecem em conjunto. O{" "}
+          <strong>devido</strong> não aparece porque nenhum cadastro respondeu por esta
+          unidade nesta competência.
+        </p>
+        {situacao.isPending ? null : comEsteCodigo ? (
+          <p>
+            Existe unidade cadastrada em Remuneração com o código{" "}
+            <code>{unidadeCodigo}</code>, e mesmo assim ela não respondeu: ou falta uma
+            linha obrigatória da aba, ou a planilha está em outra vigência.{" "}
+            <Link href="/fechamento/remuneracao" className="text-primary hover:underline">
+              Abrir o cadastro
+            </Link>
+            .
+          </p>
+        ) : (
+          <p>
+            Nenhuma das {cadastradas.length} unidades cadastradas em Remuneração tem o
+            código <code>{unidadeCodigo}</code> — e é por ele que o fechamento encontra o
+            cadastro. Se você cadastrou a unidade sem código, a lista mostra o aviso e o
+            botão para informá-lo, e a planilha vai junto.{" "}
+            <Link href="/fechamento/remuneracao" className="text-primary hover:underline">
+              Abrir Remuneração
+            </Link>
+            .
+          </p>
+        )}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+function PainelDoCanal({
+  canal,
+  recorte,
+  unidadeCodigo,
+}: {
+  canal: CanalDoResumo;
+  recorte: Recorte;
+  unidadeCodigo: string;
+}) {
   return (
     <Card>
       <CardHeader className="pb-3">
@@ -547,7 +623,10 @@ function PainelDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
           */
           <PainelComparadoTabela painel={canal.comparado} recorte={recorte} />
         ) : canal.painel ? (
-          <PainelDaPlanilhaTabela painel={canal.painel} colunas={colunasDoRecorte(recorte)} />
+          <>
+            <PorQueNaoTemDevido unidadeCodigo={unidadeCodigo} />
+            <PainelDaPlanilhaTabela painel={canal.painel} colunas={colunasDoRecorte(recorte)} />
+          </>
         ) : canal.semPainel === "SEM_DEMONSTRATIVO" ? (
           /*
             O painel deste canal está transcrito e mesmo assim não tem número:
