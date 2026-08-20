@@ -417,6 +417,16 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   que ele não menciona fica. Não há herança entre vigências; há um botão de
   copiar, com autor e data de quem clicou, que não sobrescreve o que o destino
   já tem.
+  **A vigência é quinzenal, e o rótulo passou a dizer qual.** A unidade entrega
+  `2026-08-01` e `2026-08-16`, e o rótulo genérico do produto escrevia as duas
+  como "agosto/2026" — dois itens iguais no seletor de quem ia digitar a segunda
+  quinzena. `rotuloDaVigencia` (`lib/remuneracao/src/vigencia.ts`) decide pelo
+  conjunto do mês: mês com uma entrega só continua "agosto/2026", porque
+  inventar quinzena onde os arquivos não a têm é a inferência que o módulo
+  recusa; mês partido em 1 e 16 vira "1ª/2ª quinzena de agosto/2026", pela régua
+  do Fechamento (até o dia 15 é a primeira); e mês que a quinzena não separa cai
+  no dia, `16/08/2026`. A régua está restatada e não importada — a Auditoria não
+  depende do Fechamento.
 - **O tipo de operação no fechamento (`0046`)** — a competência era única por
   (unidade, transportadora, quinzena), e passou a ser pela **quádrupla** com o
   tipo: o mesmo CDD roda EMPURRADA e ROTA com a mesma transportadora na mesma

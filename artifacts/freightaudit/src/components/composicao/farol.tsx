@@ -40,12 +40,34 @@ export function Farolete({ farol, className }: { farol: Farol; className?: strin
 }
 
 /**
- * A variação, com sinal explícito e cor.
+ * A cor de um delta de remuneração — a regra, escrita uma vez só.
  *
- * Vermelho para alta e verde para baixa: esta é uma tela de **custo**, e um
- * aumento de remuneração é uma saída de caixa maior. Pintar de verde o que
- * encarece seria dizer o contrário do que a tela existe para dizer.
+ * **Verde para alta e vermelho para baixa, porque a remuneração apurada é
+ * receita nossa e não custo nosso.** A autoridade é o plano da DRE: as fontes
+ * `receita.remuneracao_fixa`, `receita.remuneracao_variavel` e
+ * `receita.adicionais` fecham a seção `RECEITA_BRUTA`, cuja nota é "o que a
+ * Ambev paga por este equipamento nesta vigência" (`lib/dre/src/plano.ts`). O
+ * vocabulário de `@workspace/knowledge` diz o mesmo em palavras — cada
+ * alteração "aumenta a nossa remuneração" ou "reduz a nossa remuneração" — e é
+ * dele que a aba Cliente tira o que propor ao cliente. Pintar de vermelho a
+ * vigência que nos paga mais ensinaria a temer a boa notícia.
+ *
+ * Esta era a única leitura invertida do produto: a matriz de quinzenas, a
+ * composição do impacto, os grupos da vigência e a planilha exportada já
+ * pintavam de verde o que subiu e de vermelho o que caiu — a mesma regra que o
+ * `replit.md` registra para o export.
+ *
+ * **E ela é função porque vivia em dois lugares.** Eram duas redações do mesmo
+ * `? :`, uma aqui e outra no card da frota, e foi por isso que a inversão
+ * sobreviveu: consertar uma deixaria a outra dizendo o contrário na tela ao
+ * lado. Agora os dois leitores importam a mesma decisão, e ela tem teste.
  */
+export function tomDaVariacao(delta: number): string {
+  if (delta === 0) return "text-muted-foreground";
+  return delta > 0 ? "text-emerald-600" : "text-brand-red";
+}
+
+/** A variação, com sinal explícito e a cor de {@link tomDaVariacao}. */
 export function VariacaoMensal({
   variacao,
   className,
@@ -66,13 +88,7 @@ export function VariacaoMensal({
   const sobe = variacao.absoluta > 0;
   const parado = variacao.absoluta === 0;
   return (
-    <span
-      className={cn(
-        "tabular-nums",
-        parado ? "text-muted-foreground" : sobe ? "text-brand-red" : "text-emerald-600",
-        className,
-      )}
-    >
+    <span className={cn("tabular-nums", tomDaVariacao(variacao.absoluta), className)}>
       {!parado && (sobe ? "+" : "−")}
       {formatBrl(Math.abs(variacao.absoluta))}
       {variacao.percentual !== null && !parado && (
