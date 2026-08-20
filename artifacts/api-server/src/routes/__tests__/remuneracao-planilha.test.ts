@@ -194,20 +194,60 @@ describe("a planilha informada, pela borda", () => {
   /*
     JSON sabe dizer `null`, e uma query não — é por isso que o corpo tem leitura
     de contexto própria. `"canal": null` é o pedido explícito pela série **sem
-    canal**, e a unidade desta fixtura só tem a série `EMPURRADA`: a resposta
-    certa é 404.
+    canal**, e a planilha gravada por ele é de lá.
 
     O defeito que isto prende é silencioso. Lido como "não disse", o `null`
-    faria o servidor escolher a primeira série do escopo — e a planilha seria
-    gravada numa série que ninguém pediu, sem erro nenhum e sem nada na tela que
-    dissesse onde ela foi parar.
+    faria o servidor escolher a primeira série do escopo — `EMPURRADA` — e a
+    planilha cairia numa série que ninguém pediu, sem erro nenhum e sem nada na
+    tela que dissesse onde ela foi parar. A prova é a segunda asserção: a
+    planilha de EMPURRADA continua com as duas linhas que ela já tinha.
   */
   it("lê canal nulo no corpo como a série sem canal, e não como omissão", async () => {
-    const { status } = await enviar("PUT", "/remuneracao/planilha", {
+    const { status, body } = await enviar("PUT", "/remuneracao/planilha", {
       scopeHash: ESCOPO,
       canal: null,
       period: VIGENCIA,
-      celulas: [{ chave: "van_custo_fixo", valor: 1 }],
+      celulas: [{ chave: "van_custo_equipe", valor: 4250.45 }],
+    });
+    expect(status).toBe(200);
+    expect(body.canal).toBeNull();
+    expect(body.linhas.map((l: { chave: string }) => l.chave)).toEqual(["van_custo_equipe"]);
+
+    const empurrada = await get(`/remuneracao/planilha?${CONSULTA}&period=${VIGENCIA}`);
+    expect(empurrada.body.linhas).toHaveLength(2);
+  });
+
+  /*
+    O canal que o acervo não entregou. A aba de ROTA existe antes do export de
+    ROTA, e recusá-la até a série chegar inverteria a ordem em que a operação
+    acontece — a planilha é o que se recebe primeiro.
+  */
+  it("aceita um tipo de operação que o acervo não tem, na unidade que ele tem", async () => {
+    const { status, body } = await enviar("PUT", "/remuneracao/planilha", {
+      scopeHash: ESCOPO,
+      canal: "ROTA",
+      period: VIGENCIA,
+      celulas: [{ chave: "aliquota_icms", valor: 17.84 }],
+    });
+    expect(status).toBe(200);
+    expect(body.canal).toBe("ROTA");
+
+    // E ele passa a ter cadastro próprio, com as trinta linhas e sem lastro.
+    const cadastro = await get(
+      `/remuneracao/cadastro?scopeHash=${ESCOPO}&canal=ROTA&period=${VIGENCIA}`,
+    );
+    expect(cadastro.status).toBe(200);
+    expect(cadastro.body.resumo.linhas).toBe(30);
+    expect(cadastro.body.resumo.comLastro).toBe(0);
+    expect(cadastro.body.resumo.informadas).toBe(1);
+  });
+
+  it("continua recusando a unidade que ninguém importou", async () => {
+    const { status } = await enviar("PUT", "/remuneracao/planilha", {
+      scopeHash: "escopo-que-ninguem-importou",
+      canal: "ROTA",
+      period: VIGENCIA,
+      celulas: [{ chave: "aliquota_icms", valor: 17.84 }],
     });
     expect(status).toBe(404);
   });

@@ -697,6 +697,51 @@ quem clicou, que traz da vigência escolhida só o que o destino ainda não tem.
 Herdar em silêncio faria a aba de julho responder por agosto para sempre,
 inclusive depois de a operação mudar.
 
+#### O canal da planilha não precisa do acervo
+
+A aba é de um **tipo de operação** — `EMPURRADA`, `ROTA` —, e não da unidade
+inteira: a mesma CAMAÇARI tem uma aba para cada. E a aba de ROTA existe **antes**
+de o export de ROTA chegar; é justamente nesse intervalo que digitá-la vale a
+pena. Por isso a escrita aceita um canal que o acervo não entregou, desde que a
+**unidade** exista:
+
+- canal novo em unidade conhecida é **declaração** — o escopo, o CNPJ e o rótulo
+  são da unidade, e o canal descreve a operação;
+- unidade nova é **importação**, e continua 404: sem uma série importada não há
+  `scope_hash` nem rótulo, e a planilha ficaria pendurada num identificador que
+  ninguém sabe ler.
+
+O canal só-da-planilha vira uma linha própria na lista de unidades
+(`contextosDoModulo` soma `listContexts` com `canaisComPlanilha`), herdando a
+unidade e **nenhum material**: as consultas de cavalo e trecho filtram por canal
+e devolvem vazio, então as trinta linhas nascem sem lastro e só o digitado tem
+número. É a resposta certa — o acervo de fato não diz nada sobre aquele canal —,
+e é o que impede a planilha de fazer o estado da unidade parecer melhor do que é.
+
+A leitura continua recusando canal desconhecido: um canal digitado errado num
+link tem de responder 404, e não um cadastro vazio que se parece com uma unidade
+que perdeu o lastro. Quem abre o **formulário** pede explicitamente
+(`aceitarCanalNovo`, `?canalNovo=1`), porque é o único lugar onde o canal nasce
+— as trinta linhas em branco precisam aparecer para que alguém as preencha.
+
+O vocabulário de canais não é fixo, e não podia ser: `parseVigenciaLabel` aceita
+qualquer palavra no rótulo pela mesma razão. O seletor oferece os que já existem
+e deixa digitar um novo, que passa a existir quando a primeira linha dele for
+salva — o mesmo gesto do campo de unidade em Realizar Fechamento.
+
+#### Onde se cadastra
+
+Em dois lugares, e são gestos diferentes. O **botão na lista** (`Cadastrar
+planilha`) abre o formulário por cima dela, com o tipo de operação e a vigência
+escolhidos ali: é para quem tem a aba aberta ao lado e quer digitar e fechar. A
+**aba dentro do cadastro da unidade** tem endereço próprio e as outras duas
+vistas ao lado: é para quem vai conferir.
+
+O botão na lista nasceu de um defeito de uso: a coluna dizia "nada informado" e
+não oferecia nada a quem lesse isso, numa unidade **sem lastro nenhum** — o caso
+em que a planilha é a única forma de o cadastro ter número. A tela mandava
+procurar um arquivo e calava a saída que existia.
+
 ## O que o Fechamento vai precisar (fora desta fundação)
 
 - A **competência** como registro próprio (estado, dono, ciclo de vida) e a
