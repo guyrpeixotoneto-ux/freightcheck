@@ -7,7 +7,14 @@ import { sql } from "drizzle-orm";
  * ```
  * pnpm --filter @workspace/fechamento exec tsx ./src/diagnostico-cli.ts 2026 7
  * pnpm --filter @workspace/fechamento exec tsx ./src/diagnostico-cli.ts 2026 7 443 36
+ * PRODUCTION_DATABASE_URL='postgres://…' … ./src/diagnostico-cli.ts --producao 2026 7
  * ```
+ *
+ * **Ele diz em que banco entrou, sempre, antes de qualquer número.** O
+ * Development do Replit e o banco que a tela serve são dois, e a pergunta
+ * "importei e não aparece" já custou uma investigação inteira por causa disso:
+ * a consulta rodou no banco vazio e a resposta pareceu um defeito do produto.
+ * Ver as travas de `prova-producao.sh`, escritas depois do mesmo susto.
  *
  * **Por que isto existe.** A pergunta "eu importei o arquivo, por que a tela diz
  * que não?" é respondida por um número só — quantos fatos aquele documento
@@ -45,15 +52,65 @@ interface LinhaDoDiagnostico extends Record<string, unknown> {
   documento_id: string;
 }
 
+/**
+ * Qual banco, e como saber que é ele.
+ *
+ * Sem `--producao`, é o `DATABASE_URL` do ambiente. Com ele, exige
+ * `PRODUCTION_DATABASE_URL` e recusa quando ela está vazia ou é idêntica à de
+ * Development — as mesmas duas travas de `prova-producao.sh`, pelo mesmo
+ * motivo: com a variável vazia o libpq cai nos defaults e conecta em outro
+ * banco **em silêncio**, que é o modo de falhar que não parece falha.
+ */
+function bancoEscolhido(producao: boolean): { url: string; rotulo: string } {
+  if (!producao) {
+    const url = process.env.DATABASE_URL;
+    if (!url) throw new Error("DATABASE_URL não está definida.");
+    return { url, rotulo: "Development (DATABASE_URL)" };
+  }
+
+  const url = process.env.PRODUCTION_DATABASE_URL;
+  if (url === undefined) throw new Error("PRODUCTION_DATABASE_URL não está definida.");
+  if (url.trim() === "") {
+    throw new Error(
+      "PRODUCTION_DATABASE_URL está definida mas VAZIA — é exatamente o caso que faz o " +
+        "psql conectar em outro banco sem avisar. Nada foi consultado.",
+    );
+  }
+  if (process.env.DATABASE_URL && url === process.env.DATABASE_URL) {
+    throw new Error(
+      "PRODUCTION_DATABASE_URL é idêntica a DATABASE_URL. Uma das duas está errada.",
+    );
+  }
+  return { url, rotulo: "PRODUCTION (PRODUCTION_DATABASE_URL)" };
+}
+
+/** Host e base, sem a senha — o suficiente para reconhecer o banco. */
+function ondeEstou(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.port ? `:${u.port}` : ""}/${u.pathname.replace(/^\//, "")}`;
+  } catch {
+    return "(url não interpretável)";
+  }
+}
+
 async function principal(): Promise<void> {
-  const url = process.env.DATABASE_URL;
-  if (!url) {
-    console.error("DATABASE_URL não está definida.");
+  const argumentos = process.argv.slice(2);
+  const producao = argumentos.includes("--producao");
+  let escolhido;
+  try {
+    escolhido = bancoEscolhido(producao);
+  } catch (erro) {
+    console.error(String(erro instanceof Error ? erro.message : erro));
     process.exitCode = 1;
     return;
   }
+  const url = escolhido.url;
+  console.log(`banco: ${escolhido.rotulo} → ${ondeEstou(url)}\n`);
 
-  const [anoTexto, mesTexto, unidade, transportadora] = process.argv.slice(2);
+  const [anoTexto, mesTexto, unidade, transportadora] = argumentos.filter(
+    (a) => !a.startsWith("--"),
+  );
   const ano = Number(anoTexto);
   const mes = Number(mesTexto);
   if (!Number.isInteger(ano) || !Number.isInteger(mes)) {
@@ -85,7 +142,22 @@ async function principal(): Promise<void> {
     `);
 
     if (rows.length === 0) {
+      /* Zero competências e zero documentos são diagnósticos diferentes, e o
+         primeiro quase sempre quer dizer "banco errado" e não "nada importado". */
+      const { rows: quantas } = await db.execute<{ total: string }>(
+        sql`select count(*)::text as total from fechamento_competencia`,
+      );
+      const competencias = Number(quantas[0]?.total ?? 0);
       console.log(`Nenhum documento em ${String(mes).padStart(2, "0")}/${ano}.`);
+      if (competencias === 0) {
+        console.log(
+          `\nEste banco não tem competência nenhuma — nem deste mês, nem de outro.\n` +
+            `Se a tela mostra dados, ela está lendo outro banco. Rode de novo com\n` +
+            `--producao e PRODUCTION_DATABASE_URL definida.`,
+        );
+      } else {
+        console.log(`\nO banco tem ${competencias} competência(s), nenhuma em ${String(mes).padStart(2, "0")}/${ano}.`);
+      }
       return;
     }
 
