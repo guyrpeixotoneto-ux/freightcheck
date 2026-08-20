@@ -255,10 +255,20 @@ export interface SituacaoDaUnidade {
   /** A vigência mais recente da unidade — a que a situação descreve. */
   effectiveDate: string;
   periodLabel: string;
-  /** Quantas vigências a unidade tem no acervo. */
+  /** Quantas vigências a unidade tem. */
   vigencias: number;
   material: MaterialDaVigencia;
   cadastro: SituacaoDoCadastro;
+  /**
+   * A unidade existe porque alguém a cadastrou, e não porque um export a
+   * trouxe — e a tela precisa dizê-lo.
+   *
+   * "Sem lastro" numa unidade importada quer dizer "o arquivo veio e não
+   * trouxe o que o cadastro lê", e manda procurar a coluna que falta. Numa
+   * cadastrada à mão quer dizer "arquivo nenhum veio ainda", e não há o que
+   * procurar. Sem esta marca as duas ficam com a mesma cara.
+   */
+  registradaAMao: boolean;
 }
 
 export interface SituacaoDasUnidades {
@@ -457,6 +467,40 @@ export function gravarPlanilha(pedido: {
 }): Promise<PlanilhaDaVigencia> {
   return fetchJson<PlanilhaDaVigencia>("/remuneracao/planilha", {
     method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(pedido),
+  });
+}
+
+/** Uma unidade registrada à mão, como o servidor a devolve. */
+export interface UnidadeRegistrada {
+  scopeHash: string;
+  scopeType: string;
+  codigo: string;
+  nome: string;
+  canal: string | null;
+  vigenciaInicial: string;
+  autorNome: string | null;
+  criadaEm: string;
+}
+
+/**
+ * Registra uma unidade que ainda não importou vigência nenhuma.
+ *
+ * O `codigo` vai **como foi digitado**: é sobre ele que o servidor soma o mesmo
+ * `scope_hash` que a importação somará, e limpar a máscara aqui produziria o
+ * identificador de um código que o export não tem — a unidade digitada nunca
+ * reencontraria a importada.
+ */
+export function registrarUnidade(pedido: {
+  nome: string;
+  codigo: string;
+  canal: string | null;
+  /** A quinzena inicial, em `aaaa-mm-dd`. */
+  vigencia: string;
+}): Promise<UnidadeRegistrada> {
+  return fetchJson<UnidadeRegistrada>("/remuneracao/unidades", {
+    method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(pedido),
   });

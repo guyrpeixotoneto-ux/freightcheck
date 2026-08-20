@@ -32,6 +32,7 @@ import {
 import type { PlanilhaDeclarada } from "./informado";
 import { compararCadastros, type CadastroComparado } from "./comparacao";
 import { rotuloDaVigencia } from "./vigencia";
+import { unidadesRegistradas, vigenciasDaUnidade } from "./unidade";
 import { medirSituacao, type EstadoDoCadastro, type SituacaoDoCadastro } from "./situacao";
 
 /**
@@ -143,10 +144,22 @@ export interface SituacaoDaUnidade extends ContextoDoCadastro {
   /** A vigência mais recente da unidade — a que esta situação descreve. */
   effectiveDate: string;
   periodLabel: string;
-  /** Quantas vigências a unidade tem no acervo, todas elas. */
+  /** Quantas vigências a unidade tem, todas elas. */
   vigencias: number;
   material: MaterialLido;
   cadastro: SituacaoDoCadastro;
+  /**
+   * A unidade existe porque alguém a registrou, e não porque um export a
+   * trouxe.
+   *
+   * Existe para a tela **não mentir por frase feita**. Ela escrevia "N unidades
+   * no acervo" e "3 vigências no acervo" para toda linha, o que era verdade
+   * enquanto toda unidade vinha de arquivo. Numa registrada as duas frases são
+   * falsas, e falsas do jeito pior: dizem que existe material importado onde
+   * não existe nenhum, justamente na unidade cuja única fonte é o que alguém
+   * digitou.
+   */
+  registradaAMao: boolean;
 }
 
 export interface SituacaoDasUnidades {
@@ -218,16 +231,56 @@ export { ContextNotFoundError };
  * tem número. É a resposta certa: o acervo de fato não diz nada sobre aquele
  * canal.
  *
- * **Por que a unidade tem de existir no acervo mesmo assim.** Porque o escopo
- * é dela: sem uma série importada não há `scope_hash`, não há CNPJ e não há
- * rótulo — a planilha ficaria pendurada num identificador que ninguém sabe ler.
- * Canal novo em unidade conhecida é declaração; unidade nova é importação.
+ * **A terceira fonte: a unidade registrada à mão.** Durante um tempo esta
+ * função terminava dizendo "canal novo em unidade conhecida é declaração;
+ * unidade nova é importação", e a razão era boa — sem série importada não há
+ * `scope_hash`, não há código e não há rótulo, e a planilha ficaria pendurada
+ * num identificador que ninguém sabe ler. O que mudou não foi a razão: foi
+ * passar a existir um lugar onde essas três coisas são **declaradas** por
+ * alguém, com nome e data, em vez de inventadas aqui — ver `unidade.ts`. Uma
+ * unidade registrada traz o seu próprio escopo e o seu próprio rótulo, e o
+ * `scope_hash` dela é o mesmo que a importação calculará para aquele código.
+ *
+ * **A ordem entre as três é a ordem da procedência.** O acervo vence a
+ * planilha e vence o registro, porque medição vence declaração; o registro só
+ * responde pelo par que o acervo não tem. Não é preferência de estilo: é o que
+ * garante que o dia da primeira importação de uma unidade registrada seja um
+ * dia em que nada acontece na tela — o rótulo passa a vir do arquivo, a
+ * planilha continua onde estava, e ninguém precisa juntar duas linhas.
  */
 async function contextosDoModulo(db: Database): Promise<ContextInfo[]> {
-  const [doAcervo, daPlanilha] = await Promise.all([listContexts(db), canaisComPlanilha(db)]);
-  if (daPlanilha.length === 0) return doAcervo;
+  return (await contextosEProcedencia(db)).contextos;
+}
+
+/**
+ * Os mesmos contextos, mais **quais deles não têm acervo nenhum**.
+ *
+ * A separação existe por uma conta: `lerSituacaoDasUnidades` precisa das duas
+ * respostas, e pedi-las em duas chamadas custaria um `listContexts` a mais —
+ * numa função cujo cabeçalho promete "quatro consultas, e não quatro por
+ * unidade". A procedência é subproduto da disputa que já acontece aqui; devolvê-la
+ * é de graça, e recalculá-la fora custaria a consulta inteira.
+ */
+async function contextosEProcedencia(
+  db: Database,
+): Promise<{ contextos: ContextInfo[]; semAcervo: Set<string> }> {
+  const [doAcervo, daPlanilha, registradas] = await Promise.all([
+    listContexts(db),
+    canaisComPlanilha(db),
+    unidadesRegistradas(db),
+  ]);
+  if (daPlanilha.length === 0 && registradas.length === 0) {
+    return { contextos: doAcervo, semAcervo: new Set() };
+  }
 
   const jaExiste = new Set(doAcervo.map((c) => chaveDoAlvo(c.scopeHash, c.channel)));
+  /*
+    Quem entra por registro e não por arquivo. É medido **aqui**, e não pela
+    tabela inteira, porque a pergunta da tela é "este contexto tem snapshot?" —
+    uma unidade registrada que já ganhou export continua na tabela e não é mais
+    sintética, e marcá-la faria a lista chamá-la de sem acervo tendo acervo.
+  */
+  const semAcervo = new Set<string>();
   const irmaoDoEscopo = new Map<string, ContextInfo>();
   for (const c of doAcervo) if (!irmaoDoEscopo.has(c.scopeHash)) irmaoDoEscopo.set(c.scopeHash, c);
 
@@ -250,7 +303,48 @@ async function contextosDoModulo(db: Database): Promise<ContextInfo[]> {
     });
   }
 
-  return [...doAcervo, ...sinteticos];
+  /*
+    As registradas entram por último e só onde ninguém respondeu — nem o
+    acervo, nem um canal que já tenha irmão importado. `jaExiste` cresce a cada
+    uma para que duas linhas registradas com o mesmo par não virem dois
+    contextos; o índice único já as impede no banco, e repetir a guarda aqui
+    custa um `Set` e cobre o banco que foi adotado com dados de antes dele.
+  */
+  const vigenciasPorChave = new Map(
+    daPlanilha.map((c) => [chaveDoAlvo(c.scopeHash, c.canal), c.vigencias]),
+  );
+  for (const u of registradas) {
+    const chave = chaveDoAlvo(u.scopeHash, u.canal);
+    if (jaExiste.has(chave)) continue;
+    jaExiste.add(chave);
+    semAcervo.add(chave);
+
+    const vigencias = vigenciasDaUnidade(u.vigenciaInicial, vigenciasPorChave.get(chave) ?? []);
+    sinteticos.push({
+      scopeHash: u.scopeHash,
+      channel: u.canal,
+      /*
+        Sem `datasetFamily`: ausente já quer dizer equipamento (ver
+        `SeriesContext`), que é a família deste módulo. Nomeá-la aqui seria
+        repetir o padrão em mais um lugar de onde ele teria de ser mudado.
+      */
+      label: u.canal === null ? u.nome : `${u.nome} · ${u.canal}`,
+      /*
+        O escopo é o que foi declarado, e é o mesmo par (tipo, código) de que o
+        `scope_hash` foi somado. Quando a importação chegar, ela criará a linha
+        de `scope` com este código e o contexto passará a vir do acervo — sem
+        que nada aqui precise saber que isso aconteceu.
+      */
+      scopes: [{ scopeType: u.scopeType, code: u.codigo, name: u.nome }],
+      latestPeriod: vigencias[vigencias.length - 1]!,
+      periods: vigencias.length,
+      periodosDisponiveis: vigencias,
+      periodosNaJanela: vigencias.length,
+      janela: null,
+    });
+  }
+
+  return { contextos: [...doAcervo, ...sinteticos], semAcervo };
 }
 
 /**
@@ -410,7 +504,7 @@ export async function lerComparacaoDeCadastros(
  * conjunto vazio é uma resposta legítima que a tela sabe escrever.
  */
 export async function lerSituacaoDasUnidades(db: Database): Promise<SituacaoDasUnidades> {
-  const contextos = await contextosDoModulo(db);
+  const { contextos, semAcervo } = await contextosEProcedencia(db);
   const alvos: Alvo[] = contextos.map((contexto) => ({
     contexto,
     effectiveDate: contexto.latestPeriod,
@@ -447,6 +541,7 @@ export async function lerSituacaoDasUnidades(db: Database): Promise<SituacaoDasU
       vigencias: contexto.periods,
       material,
       cadastro: medirSituacao(montado),
+      registradaAMao: semAcervo.has(chave),
     };
   });
 

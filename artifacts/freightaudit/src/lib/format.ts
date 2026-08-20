@@ -108,6 +108,54 @@ export function periodicitySuffix(periodicity: string | null): string {
   return PERIODICITY_SUFFIX[periodicity ?? ""] ?? "";
 }
 
+const PERIODICITY_ADJECTIVE: Record<string, string> = {
+  MENSAL: "mensal",
+  ANUAL: "anual",
+  PONTUAL: "pontual",
+  SEM_PERIODICIDADE: "sem periodicidade",
+};
+
+/**
+ * O adjetivo da grandeza — "mensal", "anual" —, para quem a escreve num rótulo
+ * em vez de num sufixo.
+ *
+ * `periodicitySuffix` serve ao número ("−R$ 144.875/ano"); este serve ao nome do
+ * cartão que o contém ("Impacto líquido anual"). O que não estiver na lista sai
+ * pelo próprio código em minúsculas, e não por um traço: "SEM_PERIODICIDADE"
+ * escrito como veio do banco, num rótulo, se lê como defeito da tela.
+ */
+export function periodicityAdjective(periodicity: string): string {
+  return (
+    PERIODICITY_ADJECTIVE[periodicity] ??
+    periodicity.toLowerCase().replace(/_/g, " ")
+  );
+}
+
+/**
+ * A ordem em que as periodicidades se escrevem: mensal, anual, pontual.
+ *
+ * É a mesma de `panorama.ts`, e existe porque `Object.entries` devolve os baldes
+ * na ordem em que foram preenchidos — que é a ordem das linhas do arquivo, e
+ * muda de uma vigência para a outra. Enquanto as periodicidades dividiam duas
+ * linhas de um cartão só, isso passava despercebido; num cartão por
+ * periodicidade, o mesmo número trocaria de lugar na régua entre uma visita e a
+ * seguinte, e ninguém compara o que se move.
+ */
+const PERIODICITY_ORDER = ["MENSAL", "ANUAL", "PONTUAL"];
+
+/** Os baldes na ordem canônica. O que não estiver na lista vai para o fim. */
+export function sortByPeriodicity<T extends { periodicity: string }>(
+  entries: T[],
+): T[] {
+  const posicao = (p: string) => {
+    const i = PERIODICITY_ORDER.indexOf(p);
+    return i === -1 ? PERIODICITY_ORDER.length : i;
+  };
+  return [...entries].sort(
+    (a, b) => posicao(a.periodicity) - posicao(b.periodicity),
+  );
+}
+
 /**
  * O impacto de uma vigência, por periodicidade.
  *

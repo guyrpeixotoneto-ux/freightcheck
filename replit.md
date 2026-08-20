@@ -405,7 +405,7 @@ toda leitura — nos moldes do que `conversas.ts` já faz por `owner_id`.
   decisões de negócio que ninguém registrou. Enquanto elas não chegam, o número
   está digitado na aba que a transportadora manda todo mês, e o produto passou a
   aceitá-lo: `remuneracao_planilha` (migration `0045`) guarda o valor por
-  (escopo, canal, vigência, linha), com autor, data e observação. **Isso não é a
+  (escopo, canal, vigência, linha), com autor e data. **Isso não é a
   tabela própria que o módulo recusa**, e a distinção é o eixo do desenho: o que
   a tabela recusada seria é uma segunda verdade sobre a *frota*; o que esta
   guarda é o que a *planilha declara*. O que entra por ali volta como

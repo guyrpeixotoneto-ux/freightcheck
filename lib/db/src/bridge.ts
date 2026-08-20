@@ -247,6 +247,22 @@ const TABELAS_REMOVIDAS = [
     exatamente o que o bridge não pode fazer.
   */
   "remuneracao_planilha",
+  /*
+    A unidade cadastrada à mão, da `0047` — o mesmo caso da planilha acima, e a
+    pré-condição de vazia é igualmente dura pela mesma razão. Cada linha é uma
+    unidade que alguém registrou porque a aba de Excel dela chegou antes do
+    export, e não há consulta que a reconstrua: enquanto o arquivo não vem, o
+    acervo não sabe que essa unidade existe. Descartá-la levaria junto o único
+    lugar onde ela existia — e a planilha digitada nela ficaria pendurada num
+    escopo que sumiu da lista.
+
+    Entra **depois** de `remuneracao_planilha` na ordem do `down`, que é a
+    ordem em que o `RESTRICT` aceita: as duas não têm FK entre si (a planilha é
+    por `scope_hash`, e não por chave estrangeira para cá — ver
+    `schema/remuneracao.ts`), então a ordem entre elas é livre; ficam juntas
+    porque falam da mesma coisa.
+  */
+  "remuneracao_unidade",
 ];
 
 /**
@@ -1740,6 +1756,25 @@ function planoUp(): PassoUp[] {
     M47,
     "fk fechamento_documento_conteudo_documento_fk",
     levantar(M47, /DO \$reentrante\$\s*\n\s*BEGIN\s*\n\s*IF NOT EXISTS \(SELECT 1 FROM pg_constraint WHERE conname = 'fechamento_documento_conteudo_documento_fk'\)/),
+  );
+
+  /*
+    A `0048` — a unidade cadastrada à mão. Nasceu `0047` neste branch e virou
+    `0048` na fusão, pelo mesmo encontro de fila que o bloco acima descreve: a
+    `main` chegou antes com a `0047_conteudo_da_importacao`. A constante é o
+    único lugar onde o número aparece, que é o que torna renumerar uma troca de
+    literal em vez de uma caçada por texto solto.
+  */
+  const M48 = "0048_unidade_sem_acervo";
+  add(
+    M48,
+    "remuneracao_unidade",
+    levantar(M48, /CREATE TABLE IF NOT EXISTS "remuneracao_unidade" \(/),
+  );
+  add(
+    M48,
+    "índice remuneracao_unidade_unica",
+    levantar(M48, /INDEX IF NOT EXISTS "remuneracao_unidade_unica"/),
   );
 
   const M42 = "0042_viagem_completa";

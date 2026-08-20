@@ -3,6 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useSearch } from "wouter";
 import { ArrowRight, ScrollText } from "lucide-react";
 import { BotaoDeCadastroDaPlanilha } from "@/components/remuneracao/painel-de-cadastro";
+import { BotaoDeRegistroDeUnidade } from "@/components/remuneracao/registrar-unidade";
 import { Layout } from "@/components/layout/layout";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge, type BadgeProps } from "@/components/ui/badge";
@@ -142,6 +143,13 @@ export default function RemuneracaoUnidades() {
 
   const unidades = situacao.data?.unidades ?? [];
   const resumo = situacao.data?.resumo;
+  /*
+    Contada aqui, e não somada no servidor como os quatro estados, porque não é
+    um estado do cadastro: é a **procedência da unidade**, e ela já vem marcada
+    linha a linha. Um quinto número no resumo do servidor a colocaria ao lado
+    de quatro que se somam entre si e este não soma com nenhum.
+  */
+  const registradas = unidades.filter((u) => u.registradaAMao).length;
 
   /*
     Os tipos de operação que já existem em alguma unidade — o que o seletor do
@@ -169,16 +177,27 @@ export default function RemuneracaoUnidades() {
   return (
     <Layout>
       <header className="border-b bg-card px-8 py-6">
-        <div className="flex items-center gap-2">
-          <ScrollText className="w-6 h-6 text-nav-fechamento" />
-          <h1 className="text-2xl font-bold tracking-tight">Remuneração</h1>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <ScrollText className="w-6 h-6 text-nav-fechamento" />
+            <h1 className="text-2xl font-bold tracking-tight">Remuneração</h1>
+          </div>
+          {/*
+            O botão fica no cabeçalho, e não no fim da lista: quem precisa dele
+            é justamente quem não achou a unidade na lista, e procurar embaixo
+            de trinta linhas o que fazer quando a sua não está entre elas é a
+            forma de não achar.
+          */}
+          <BotaoDeRegistroDeUnidade />
         </div>
         <p className="text-muted-foreground mt-2 max-w-3xl">
-          As unidades que já entregaram vigência, e o que o cadastro da planilha de
-          remuneração de cada uma alcança hoje. Abrir uma linha é abrir o cadastro dela —
-          alíquotas, frota, parcelas por veículo e proporção de documentos. O que o acervo
-          ainda não responde, alguém digita da aba de Excel: é o botão{" "}
-          <strong>Cadastrar planilha</strong>, e ele abre o formulário aqui mesmo.
+          As unidades que o cadastro da planilha de remuneração conhece, e o que ele alcança
+          em cada uma hoje. Abrir uma linha é abrir o cadastro dela — alíquotas, frota,
+          parcelas por veículo e proporção de documentos. O que o acervo ainda não responde,
+          alguém digita da aba de Excel: é o botão <strong>Cadastrar planilha</strong>, e ele
+          abre o formulário aqui mesmo. A unidade cuja aba chegou antes do export não precisa
+          esperar por ele — <strong>Cadastrar unidade</strong> a põe na lista, sem lastro e
+          dizendo que está sem.
         </p>
       </header>
 
@@ -206,10 +225,20 @@ export default function RemuneracaoUnidades() {
                 <Numero titulo="Sem lastro" valor={resumo.semLastro} alerta />
               </div>
               <p className="text-xs text-muted-foreground border-t pt-3">
-                {contar(resumo.unidades, "unidade", "unidades")} no acervo. Cada uma
-                respondida pela <strong>vigência mais recente que ela entregou</strong>, que
-                está escrita na linha: uma lista presa a uma quinzena fixa faria a unidade que
-                parou de entregar parecer em dia.
+                {contar(resumo.unidades, "unidade", "unidades")} nesta lista
+                {registradas > 0 && (
+                  <>
+                    {" "}—{" "}
+                    {contar(
+                      registradas,
+                      "delas foi cadastrada à mão e ainda não tem export",
+                      "delas foram cadastradas à mão e ainda não têm export",
+                    )}
+                  </>
+                )}
+                . Cada uma respondida pela <strong>vigência mais recente que ela tem</strong>,
+                que está escrita na linha: uma lista presa a uma quinzena fixa faria a unidade
+                que parou de entregar parecer em dia.
               </p>
               {/*
                 A cadência da planilha é a mesma da vigência, e dizê-lo aqui
@@ -257,12 +286,14 @@ export default function RemuneracaoUnidades() {
 
             {!situacao.isLoading && !situacao.isError && unidades.length === 0 && (
               <p className="p-6 text-sm text-muted-foreground">
-                Nenhuma unidade entregou vigência ainda — sem export importado, não há cadastro
-                a montar. A primeira planilha enviada em{" "}
+                Nenhuma unidade ainda. Há dois caminhos, e eles não se substituem: a primeira
+                planilha enviada em{" "}
                 <Link href="/importacoes" className="text-primary hover:underline">
                   Importações
                 </Link>{" "}
-                cria a primeira unidade desta lista.
+                traz a unidade com o que o acervo mede, e <strong>Cadastrar unidade</strong>,
+                aqui em cima, põe na lista aquela cuja aba de Excel já chegou e cujo export
+                ainda não — sem lastro, e dizendo que está sem.
               </p>
             )}
 
@@ -295,8 +326,24 @@ export default function RemuneracaoUnidades() {
                             {u.label}
                           </Link>
                           <p className="text-xs text-muted-foreground mt-0.5">
-                            {contar(u.vigencias, "vigência no acervo", "vigências no acervo")}
+                            {u.registradaAMao
+                              ? contar(u.vigencias, "vigência cadastrada", "vigências cadastradas")
+                              : contar(u.vigencias, "vigência no acervo", "vigências no acervo")}
                           </p>
+                          {/*
+                            A marca é da unidade, e não do cadastro: o estado ao
+                            lado já diz que não há lastro, e "sem lastro" numa
+                            unidade importada quer dizer "o arquivo veio e não
+                            trouxe o que o cadastro lê" — coisa muito diferente
+                            de "arquivo nenhum veio". Sem esta linha as duas
+                            situações ficam com a mesma cara, e a primeira manda
+                            procurar um export que ninguém deixou de mandar.
+                          */}
+                          {u.registradaAMao && (
+                            <p className="text-[0.6875rem] text-muted-foreground/80 mt-0.5">
+                              cadastrada à mão — sem export importado
+                            </p>
+                          )}
                         </td>
                         <td className="px-4 py-3">
                           <Badge

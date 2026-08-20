@@ -12,6 +12,8 @@ import {
   ComparacaoSemDuasVigencias,
   LinhaDaPlanilhaInvalida,
   PlanilhaVazia,
+  UnidadeInvalida,
+  UnidadeJaRegistrada,
   VigenciaDoCadastroNaoEncontrada,
 } from "@workspace/remuneracao";
 import { TipoDeOperacaoAusente } from "@workspace/fechamento/persistencia";
@@ -87,6 +89,13 @@ const RECUSAS: { classe: new (...args: never[]) => Error; status: number }[] = [
      incompleto, e a frase do domínio explica por que o campo existe — EMPURRADA
      e ROTA são fechamentos diferentes na mesma quinzena. */
   { classe: TipoDeOperacaoAusente, status: 400 },
+  /* Registrar unidade sem o que a identifica. 400 — falta no pedido, e a frase
+     diz qual campo e por que ele não é opcional. */
+  { classe: UnidadeInvalida, status: 400 },
+  /* Aquele par (escopo, canal) já está registrado. 409 e não 400: o pedido
+     está bem formado, o estado é que já responde por ele — e a frase manda
+     para a lista, onde a unidade está. */
+  { classe: UnidadeJaRegistrada, status: 409 },
   /* Conflito de estado, não defeito do pedido: o e-mail já é de outra conta. */
   { classe: EmailAlreadyUsedError, status: 409 },
 ];

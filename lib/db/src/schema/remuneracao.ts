@@ -112,3 +112,80 @@ export const remuneracaoPlanilhaTable = pgTable(
     index("remuneracao_planilha_por_vigencia").on(t.scopeHash, t.canal, t.effectiveDate),
   ],
 );
+
+/**
+ * A UNIDADE QUE AINDA NÃO IMPORTOU NADA — o cadastro que não espera arquivo.
+ *
+ * **Por que ela existe.** Uma unidade, neste produto, sempre nasceu de um
+ * `snapshot`: `listContexts` agrupa o acervo por `(scope_hash, canal)`, e quem
+ * nunca mandou export simplesmente não existe em tela nenhuma. No Fechamento
+ * isso é uma parede: a quinzena é de várias unidades, a planilha da aba chega
+ * antes do arquivo com frequência, e a unidade que só tem planilha não tinha
+ * onde ser digitada — não por recusa do produto, mas porque não havia linha
+ * para clicar.
+ *
+ * A tabela é a lista das unidades que **alguém registrou**, e é só isso: nome,
+ * código, tipo de operação e a quinzena em que se começou a preencher. Nenhum
+ * número mora aqui — os números continuam em `remuneracao_planilha`, que já
+ * sabe viver por escopo e vigência sem depender de acervo.
+ *
+ * **O `scope_hash` é calculado, e não sorteado — é o que faz as duas se
+ * encontrarem.** Ele sai do mesmo `hashScopeSet` que a importação usa:
+ * `sha256` dos descritores `TIPO:código` ordenados. Registrar "CAMAÇARI" com o
+ * código que o export também carrega produz **o mesmo** hash que o import
+ * produzirá, de modo que, no dia em que o arquivo chegar, ele cai na unidade
+ * que já estava lá — com a planilha digitada no lugar certo, e sem uma segunda
+ * "CAMAÇARI" ao lado da primeira. É por isso que o código é obrigatório: um
+ * hash inventado a partir do nome faria as duas nunca se encontrarem, e o
+ * conserto seria manual, meses depois, por quem não escreveu nenhuma das duas.
+ *
+ * **O acervo vence, sempre.** Quando existe snapshot para o mesmo par (escopo,
+ * canal), a linha daqui é ignorada na montagem do contexto — ver
+ * `contextosDoModulo`. Ela não é apagada: apagá-la perderia quem registrou e
+ * quando, que é a única procedência que a unidade teve enquanto não havia
+ * arquivo.
+ *
+ * **`canal` é `''` e não `NULL`**, pela razão da tabela acima: a chave da
+ * unidade é (escopo, canal), e no Postgres dois `NULL` não colidem num índice
+ * único.
+ */
+export const remuneracaoUnidadeTable = pgTable(
+  "remuneracao_unidade",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /**
+     * O mesmo `scope_hash` que a importação calcularia para este código.
+     *
+     * Guardado, e não recalculado na leitura, porque a regra que o produz é da
+     * importação (`hashScopeSet`) e não deste módulo: recalcular aqui criaria
+     * uma segunda implementação da chave de negócio, e o dia em que as duas
+     * discordassem seria o dia em que a planilha digitada sumiria da unidade.
+     */
+    scopeHash: text("scope_hash").notNull(),
+    /** O tipo do escopo — `UNIDADE` na prática, e explícito por ser do hash. */
+    scopeType: text("scope_type").notNull().default("UNIDADE"),
+    /** O código como foi digitado, já normalizado — a outra metade do hash. */
+    codigo: text("codigo").notNull(),
+    /** O nome legível, que é o que a lista mostra: `CAMAÇARI`. */
+    nome: text("nome").notNull(),
+    /** O tipo de operação. `''` é a série sem canal — ver o cabeçalho. */
+    canal: text("canal").notNull().default(""),
+    /**
+     * A quinzena em que se começou a preencher.
+     *
+     * Existe porque uma unidade sem acervo não tem vigência nenhuma de onde o
+     * seletor tirar opção — ele abriria vazio, e o formulário inteiro ficaria
+     * inalcançável. Não é a única vigência da unidade: as demais aparecem à
+     * medida que a planilha as tem.
+     */
+    vigenciaInicial: date("vigencia_inicial").notNull(),
+    /** Quem registrou. Sem FK, pela razão da tabela acima. */
+    autorId: uuid("autor_id"),
+    autorNome: text("autor_nome"),
+    criadaEm: timestamp("criada_em", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    /** Uma unidade registrada é um par (escopo, canal). */
+    uniqueIndex("remuneracao_unidade_unica").on(t.scopeHash, t.canal),
+  ],
+);

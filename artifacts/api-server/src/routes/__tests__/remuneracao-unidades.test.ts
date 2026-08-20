@@ -1,0 +1,230 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import type { Server } from "node:http";
+import express from "express";
+import { sql } from "drizzle-orm";
+import { hashScopeSet } from "@workspace/ingest";
+import { createTestDatabase, type TestDb } from "@workspace/ingest/testing";
+import { createDb, encerrarPoolDoProcesso } from "@workspace/db";
+import { erroEmJson } from "../../middlewares/contrato-json";
+
+/**
+ * `POST /remuneracao/unidades` — a borda onde a unidade digitada ganha o
+ * identificador da unidade importada.
+ *
+ * O domínio é provado sem HTTP em `lib/remuneracao`. O que só existe aqui, e é
+ * o que decide se este caminho funciona ou vira uma armadilha de meses:
+ *
+ * 1. **O `scope_hash` é somado na borda, com o `hashScopeSet` da importação.**
+ *    Se um dia esta rota passar a somá-lo de outro jeito — ou a limpar a
+ *    máscara do código antes —, a unidade digitada deixa de reencontrar a
+ *    importada, e nada em tela avisa. O primeiro caso abaixo compara contra a
+ *    função de verdade, e não contra um valor copiado.
+ * 2. **As recusas viram número por classe**, pela tabela de
+ *    `recusa-de-dominio.ts` — sem `try/catch` na rota.
+ * 3. **O autor sai da sessão**, e nunca do corpo.
+ */
+
+let ctx: TestDb;
+let servidor: Server;
+let base: string;
+let nomeDoBanco: string;
+
+interface Resposta {
+  status: number;
+  body: any;
+}
+
+async function enviar(corpo: unknown): Promise<Resposta> {
+  const res = await fetch(`${base}/remuneracao/unidades`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(corpo),
+  });
+  return { status: res.status, body: await res.json() };
+}
+
+const VALIDO = {
+  nome: "CAMAÇARI",
+  codigo: "12345678000199",
+  canal: "EMPURRADA",
+  vigencia: "2026-08-01",
+};
+
+beforeAll(async () => {
+  ctx = await createTestDatabase("api_remuneracao_unidades");
+  process.env.DATABASE_URL = ctx.url;
+  nomeDoBanco = ctx.url.replace(/^.*\//, "").replace(/\?.*$/, "");
+
+  const { default: remuneracaoRouter } = await import("../remuneracao");
+
+  const app = express();
+  app.use(express.json());
+  app.use((req, _res, next) => {
+    (req as unknown as { log: unknown }).log = {
+      error: () => {},
+      warn: () => {},
+      info: () => {},
+    };
+    (req as unknown as { user: unknown }).user = {
+      id: "11111111-1111-1111-1111-111111111111",
+      name: "Guy",
+      email: "teste@freightcheck",
+      role: "OPERADOR",
+    };
+    next();
+  });
+  app.use(remuneracaoRouter);
+  app.use(erroEmJson);
+
+  servidor = await new Promise<Server>((resolve) => {
+    const s = app.listen(0, "127.0.0.1", () => resolve(s));
+  });
+  const endereco = servidor.address();
+  if (typeof endereco === "string" || endereco === null) throw new Error("sem porta");
+  base = `http://127.0.0.1:${endereco.port}`;
+}, 300_000);
+
+afterAll(async () => {
+  if (servidor) {
+    servidor.closeAllConnections();
+    await new Promise<void>((resolve) => servidor.close(() => resolve()));
+  }
+  await ctx?.pool.end().catch(() => {});
+  await encerrarPoolDoProcesso().catch(() => {});
+
+  const admin = createDb(
+    process.env.TEST_ADMIN_DATABASE_URL ??
+      "postgresql://postgres@/postgres?host=/tmp/pgsock&port=5433",
+  );
+  await admin.pool.query(
+    `SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+      WHERE datname = $1 AND pid <> pg_backend_pid()`,
+    [nomeDoBanco],
+  );
+  await admin.pool.query(`DROP DATABASE IF EXISTS "${nomeDoBanco}" WITH (FORCE)`);
+  await admin.pool.end();
+}, 60_000);
+
+beforeEach(async () => {
+  await ctx.db.execute(sql`TRUNCATE remuneracao_unidade`);
+});
+
+describe("o identificador que a rota soma", () => {
+  it("é o mesmo que a importação calcularia para aquele código", async () => {
+    const r = await enviar(VALIDO);
+
+    expect(r.status).toBe(201);
+    // Contra a função de verdade, e não contra um hash copiado: uma constante
+    // aqui passaria a valer sozinha no dia em que a importação mudasse a regra
+    // — que é exatamente o dia em que este teste precisa falhar.
+    expect(r.body.scopeHash).toBe(hashScopeSet(["UNIDADE:12345678000199"]));
+  });
+
+  it("não limpa a máscara do código — o hash da importação é sobre o texto da célula", async () => {
+    /*
+      Parece capricho normalizar `12.345.678/0001-99` para dígitos. Seria o
+      defeito: `resolveScopes` soma o hash sobre o código como veio na célula,
+      com `trim` e nada mais. Limpar aqui produziria o identificador de um
+      código que o arquivo não tem.
+    */
+    const r = await enviar({ ...VALIDO, codigo: " 12.345.678/0001-99 " });
+
+    expect(r.body.codigo).toBe("12.345.678/0001-99");
+    expect(r.body.scopeHash).toBe(hashScopeSet(["UNIDADE:12.345.678/0001-99"]));
+  });
+});
+
+describe("o que a rota recusa, e com qual número", () => {
+  it("400 sem código, e a frase diz por que ele não é opcional", async () => {
+    const r = await enviar({ ...VALIDO, codigo: "  " });
+
+    expect(r.status).toBe(400);
+    expect(r.body.error).toContain("export");
+  });
+
+  it("400 sem quinzena, porque o formulário abriria sem nada para escolher", async () => {
+    const r = await enviar({ ...VALIDO, vigencia: "" });
+
+    expect(r.status).toBe(400);
+  });
+
+  it("400 com quinzena que não é data", async () => {
+    const r = await enviar({ ...VALIDO, vigencia: "agosto de 2026" });
+
+    expect(r.status).toBe(400);
+  });
+
+  it("400 sem nome", async () => {
+    const r = await enviar({ ...VALIDO, nome: "   " });
+
+    expect(r.status).toBe(400);
+  });
+
+  it("409 no par repetido — o pedido está bom, o estado é que já responde", async () => {
+    await enviar(VALIDO);
+    const r = await enviar(VALIDO);
+
+    // 409 e não 400: a frase manda para a lista, onde a unidade está.
+    expect(r.status).toBe(409);
+    expect(r.body.error).toContain("lista de unidades");
+  });
+
+  it("aceita o mesmo código em outro tipo de operação", async () => {
+    await enviar(VALIDO);
+    const r = await enviar({ ...VALIDO, canal: "ROTA" });
+
+    // É a mesma unidade rodando duas operações — o par (escopo, canal) as
+    // separa, como no acervo.
+    expect(r.status).toBe(201);
+    expect(r.body.scopeHash).toBe(hashScopeSet(["UNIDADE:12345678000199"]));
+  });
+});
+
+describe("o que a rota grava sem perguntar ao corpo", () => {
+  it("o autor sai da sessão", async () => {
+    const r = await enviar({ ...VALIDO, autorNome: "Outra Pessoa" });
+
+    expect(r.body.autorNome).toBe("Guy");
+  });
+
+  it("o nome e o canal vão normalizados, para a mesma unidade não virar duas", async () => {
+    const r = await enviar({ ...VALIDO, nome: " camaçari ", canal: " empurrada " });
+
+    expect(r.body.nome).toBe("CAMAÇARI");
+    expect(r.body.canal).toBe("EMPURRADA");
+  });
+});
+
+describe("a unidade cadastrada aparece nas leituras do módulo", () => {
+  it("entra na situação, marcada como cadastrada à mão", async () => {
+    await enviar(VALIDO);
+
+    const res = await fetch(`${base}/remuneracao/situacao`);
+    const body = (await res.json()) as {
+      unidades: { scopeHash: string; registradaAMao: boolean; label: string }[];
+    };
+
+    const nossa = body.unidades.find(
+      (u) => u.scopeHash === hashScopeSet(["UNIDADE:12345678000199"]),
+    );
+
+    expect(nossa).toBeDefined();
+    expect(nossa!.label).toBe("CAMAÇARI · EMPURRADA");
+    // A marca é o que impede a tela de dizer "sem lastro" do mesmo jeito nos
+    // dois casos — num deles falta coluna, no outro falta arquivo inteiro.
+    expect(nossa!.registradaAMao).toBe(true);
+  });
+
+  it("abre o cadastro na quinzena declarada", async () => {
+    await enviar(VALIDO);
+
+    const escopo = hashScopeSet(["UNIDADE:12345678000199"]);
+    const res = await fetch(
+      `${base}/remuneracao/cadastro?scopeHash=${escopo}&canal=EMPURRADA`,
+    );
+    const body = (await res.json()) as { effectiveDate: string };
+
+    expect(res.status).toBe(200);
+    expect(body.effectiveDate).toBe("2026-08-01");
+  });
+});
