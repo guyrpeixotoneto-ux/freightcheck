@@ -9,6 +9,7 @@ import {
   excluirCompetencia,
   explicarPainelAusente,
   fraseDoPainelAusente,
+  informarTipoDeOperacao,
   lerApuracaoVigente,
   lerConteudoDoDocumento,
   lerDeParaDaCompetencia,
@@ -747,6 +748,48 @@ router.post("/fechamento/competencias/:id/reabertura", async (req, res): Promise
       res.status(erro.codigo === "COMPETENCIA_NAO_ENCONTRADA" ? 404 : 409).json({
         error: erro.message,
         codigo: erro.codigo,
+      });
+      return;
+    }
+    throw erro;
+  }
+});
+
+/**
+ * Informa — ou corrige — o tipo de operação de uma competência.
+ *
+ * É `PUT` e não `POST`, ao contrário do encerramento e da reabertura, e a
+ * diferença é exatamente a que o comentário daqueles declara: eles são atos com
+ * consequência no banco, este **é** a edição de um campo. Idempotente pelo
+ * mesmo motivo — mandar de novo o tipo que já está lá devolve a competência
+ * como está.
+ *
+ * A regra de quem pode trocar o quê mora no domínio (`informarTipoDeOperacao`),
+ * junto da frase que a explica. Aqui ficam só as três traduções: o identificador
+ * malformado, a competência que não existe (404) e as duas recusas que são
+ * conflito de estado (409) — a encerrada com tipo declarado e o tipo já ocupado
+ * por outro fechamento da mesma quinzena. O tipo ausente vira 400 pelo caminho
+ * de sempre, `TipoDeOperacaoAusente` em `recusa-de-dominio.ts`.
+ */
+router.put("/fechamento/competencias/:id/tipo-de-operacao", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de competência inválido." });
+    return;
+  }
+  const corpo = req.body as Record<string, unknown>;
+  try {
+    res.json(
+      await informarTipoDeOperacao(db, id, {
+        tipoDeOperacao: typeof corpo?.tipoDeOperacao === "string" ? corpo.tipoDeOperacao : "",
+      }),
+    );
+  } catch (erro) {
+    if (erro instanceof RecusaDeFechamento) {
+      res.status(erro.codigo === "COMPETENCIA_NAO_ENCONTRADA" ? 404 : 409).json({
+        error: erro.message,
+        codigo: erro.codigo,
+        detalhe: erro.detalhe,
       });
       return;
     }

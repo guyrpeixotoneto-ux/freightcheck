@@ -83,6 +83,7 @@ export class RecusaDeFechamento extends Error {
       | "COMPETENCIA_ENCERRADA"
       | "COMPETENCIA_NAO_APURADA"
       | "COMPETENCIA_NAO_ESTA_ENCERRADA"
+      | "TIPO_DE_OPERACAO_EM_USO"
       | "MOTIVO_OBRIGATORIO"
       | "DOCUMENTO_JA_RECEBIDO"
       | "DOCUMENTO_NAO_ENCONTRADO"
@@ -230,6 +231,108 @@ export async function abrirCompetencia(
     })
     .returning();
   return comoRegistrada(criada);
+}
+
+/**
+ * Informa — ou corrige — o tipo de operação de uma competência que já existe.
+ *
+ * **Por que esta função precisa existir.** O tipo entra na chave desde a
+ * `0046`, e até aqui só a abertura o escrevia. Isso deixava dois casos sem
+ * saída em tela nenhuma: as competências que o backfill carimbou de
+ * `NAO_INFORMADO` — que são todas as anteriores àquela migration — e as que
+ * alguém abriu com o tipo errado. A primeira é a mais grave: o `NAO_INFORMADO`
+ * não é um tipo, é a confissão de que ninguém disse, e uma competência presa
+ * nele não aparece no Resumo de nenhuma operação real. O acervo inteiro ficava
+ * legível e sem endereço.
+ *
+ * **Informar e corrigir não são o mesmo gesto, e a regra os separa pelo
+ * estado.** Preencher um `NAO_INFORMADO` não apaga declaração nenhuma: o campo
+ * está em branco porque a coluna nasceu depois da competência, e escrever nele
+ * é dar endereço a um fechamento que nunca teve — inclusive num encerrado, cujo
+ * congelamento é sobre o dinheiro apurado e não sobre em qual operação ele foi
+ * apurado. Trocar `EMPURRADA` por `ROTA` é outra coisa: alguém declarou, a
+ * quinzena foi fechada sob aquela declaração, e mudá-la move um total já
+ * cobrado do mês de uma operação para o da outra. Isso exige o gesto que este
+ * produto já tem para mexer no que foi fechado — reabrir, com motivo.
+ *
+ * **A colisão é recusada com nome e endereço.** O destino pode já estar ocupado:
+ * a mesma unidade, a mesma transportadora e a mesma quinzena já tendo um
+ * fechamento do tipo para o qual se quer mudar. O índice único recusaria de
+ * qualquer forma, com a mensagem do Postgres; a recusa daqui diz **qual**
+ * competência está no lugar, que é o que permite a quem opera decidir entre
+ * corrigir a outra ou excluir esta.
+ *
+ * **Repetir o tipo que já está lá não é erro.** Devolve a competência como
+ * está, pela mesma razão que abrir duas vezes devolve a mesma: é o gesto de
+ * quem clicou duas vezes, ou de dois separadores da mesma tela, e transformá-lo
+ * em 409 seria inventar um conflito onde o estado desejado já é o estado atual.
+ *
+ * A apuração não é refeita, e nem precisa: nada na aritmética da competência lê
+ * este campo — ele diz de qual operação é a conta, não como ela é calculada. O
+ * que muda é onde ela aparece, que é exatamente o que se quis mudar.
+ */
+export async function informarTipoDeOperacao(
+  db: Database,
+  competenciaId: string,
+  entrada: { tipoDeOperacao: string },
+): Promise<CompetenciaRegistrada> {
+  const competencia = await buscarCompetencia(db, competenciaId);
+  if (!competencia) {
+    throw new RecusaDeFechamento(
+      "COMPETENCIA_NAO_ENCONTRADA",
+      "A competência informada não existe.",
+    );
+  }
+
+  /*
+    A mesma normalização da abertura, e de propósito a mesma: um tipo que só
+    pudesse ser escrito por um dos dois caminhos seria um tipo que a chave não
+    reconhece. `NAO_INFORMADO` é recusado aqui pelo motivo de sempre — ele é
+    carimbo do backfill, e desinformar o que já foi informado não é um pedido
+    que a operação faça.
+  */
+  const tipoDeOperacao = normalizarTipoDeOperacao(entrada.tipoDeOperacao);
+  if (tipoDeOperacao === competencia.tipoDeOperacao) return competencia;
+
+  if (competencia.tipoDeOperacao !== TIPO_NAO_INFORMADO && competencia.estado === "ENCERRADA") {
+    throw new RecusaDeFechamento(
+      "COMPETENCIA_ENCERRADA",
+      `A competência ${competencia.chave} está encerrada como ${competencia.tipoDeOperacao}. ` +
+        "Reabra-a, com motivo, antes de trocar o tipo de operação: o total já fechado passaria " +
+        "de uma operação para a outra.",
+    );
+  }
+
+  const [ocupante] = await db
+    .select()
+    .from(fechamentoCompetenciaTable)
+    .where(
+      and(
+        eq(fechamentoCompetenciaTable.unidadeCodigo, competencia.unidade.codigo),
+        eq(fechamentoCompetenciaTable.transportadoraCodigo, competencia.transportadora.codigo),
+        eq(fechamentoCompetenciaTable.tipoDeOperacao, tipoDeOperacao),
+        eq(fechamentoCompetenciaTable.chave, competencia.chave),
+      ),
+    )
+    .limit(1);
+  if (ocupante) {
+    throw new RecusaDeFechamento(
+      "TIPO_DE_OPERACAO_EM_USO",
+      `${competencia.unidade.nome ?? competencia.unidade.codigo} e ` +
+        `${competencia.transportadora.nome ?? competencia.transportadora.codigo} já têm um ` +
+        `fechamento de ${competencia.chave} como ${tipoDeOperacao}. São dois fechamentos da ` +
+        "mesma operação na mesma quinzena, e o acervo guarda um só: corrija o outro, ou exclua " +
+        "esta importação.",
+      { competenciaId: ocupante.id },
+    );
+  }
+
+  const [linha] = await db
+    .update(fechamentoCompetenciaTable)
+    .set({ tipoDeOperacao })
+    .where(eq(fechamentoCompetenciaTable.id, competenciaId))
+    .returning();
+  return comoRegistrada(linha);
 }
 
 /** Todas as competências, da mais recente para a mais antiga. */

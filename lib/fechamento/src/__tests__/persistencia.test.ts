@@ -2,7 +2,11 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import pg from "pg";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { eq } from "drizzle-orm";
-import { fechamentoPagamentoItemTable, type Database } from "@workspace/db";
+import {
+  fechamentoCompetenciaTable,
+  fechamentoPagamentoItemTable,
+  type Database,
+} from "@workspace/db";
 import { runMigrations } from "@workspace/db/migrate";
 import {
   abrirCompetencia,
@@ -15,6 +19,7 @@ import {
   excluirCompetencia,
   explicarPainelAusente,
   fraseDoPainelAusente,
+  informarTipoDeOperacao,
   lerApuracaoVigente,
   lerDiaDaCompetencia,
   lerDiarioDaCompetencia,
@@ -307,6 +312,193 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
         mes: 12,
       });
       expect(comCompetencia(deRota)).toEqual([2]);
+    });
+  });
+
+  /*
+    Informar o tipo depois — o que faltava para o carimbo da `0046` ter saída.
+
+    Até aqui só a abertura escrevia esta coluna, e por isso toda competência
+    anterior à migration ficava presa em `NAO_INFORMADO`: legível na lista,
+    ausente do Resumo de qualquer operação real. Estes casos são sobre as duas
+    coisas que a função separa — preencher um branco, que é reparo, e trocar uma
+    declaração, que é mudança de conteúdo e tem o preço dela.
+  */
+  describe("informar o tipo de operação de uma competência que já existe", () => {
+    /*
+      A competência do backfill não pode ser aberta pela porta da frente —
+      `abrirCompetencia` recusa `NAO_INFORMADO` de propósito. Aqui ela é
+      fabricada como a `0046` a deixou: aberta com tipo, e depois carimbada por
+      fora. É o único jeito honesto de testar o caso que existe no banco de
+      produção e não pode mais ser criado pela API.
+    */
+    async function comoOBackfillDeixou(entrada: {
+      ano: number;
+      mes: number;
+      quinzena: 1 | 2;
+      encerrada?: boolean;
+    }) {
+      const comp = await abrirCompetencia(db, {
+        ano: entrada.ano,
+        mes: entrada.mes,
+        quinzena: entrada.quinzena,
+        unidade,
+        transportadora,
+        tipoDeOperacao: "EMPURRADA",
+      });
+      await db
+        .update(fechamentoCompetenciaTable)
+        .set({
+          tipoDeOperacao: "NAO_INFORMADO",
+          ...(entrada.encerrada ? { estado: "ENCERRADA", encerradaEm: new Date() } : {}),
+        })
+        .where(eq(fechamentoCompetenciaTable.id, comp.id));
+      return comp.id;
+    }
+
+    it("preenche o branco que o backfill deixou", async () => {
+      const id = await comoOBackfillDeixou({ ano: 2027, mes: 1, quinzena: 1 });
+
+      const depois = await informarTipoDeOperacao(db, id, { tipoDeOperacao: "ROTA" });
+
+      expect(depois.tipoDeOperacao).toBe("ROTA");
+      expect((await buscarCompetencia(db, id))?.tipoDeOperacao).toBe("ROTA");
+    });
+
+    /*
+      O caso que motivou a função: as competências do backfill são justamente as
+      antigas, e as antigas são justamente as fechadas. Recusá-las aqui deixaria
+      o acervo inteiro sem endereço para sempre — e o que o encerramento congela
+      é o dinheiro apurado, não a resposta a "de qual operação era".
+    */
+    it("informa mesmo na encerrada: preencher um branco não reescreve declaração nenhuma", async () => {
+      const id = await comoOBackfillDeixou({ ano: 2027, mes: 1, quinzena: 2, encerrada: true });
+
+      const depois = await informarTipoDeOperacao(db, id, { tipoDeOperacao: "EMPURRADA" });
+
+      expect(depois.tipoDeOperacao).toBe("EMPURRADA");
+      expect(depois.estado).toBe("ENCERRADA");
+    });
+
+    it("corrige o tipo declarado enquanto a quinzena não fechou", async () => {
+      const comp = await abrirCompetencia(db, {
+        ano: 2027, mes: 2, quinzena: 1, unidade, transportadora, tipoDeOperacao: "EMPURRADA",
+      });
+
+      const depois = await informarTipoDeOperacao(db, comp.id, { tipoDeOperacao: "ROTA" });
+
+      expect(depois.tipoDeOperacao).toBe("ROTA");
+      expect(depois.id).toBe(comp.id);
+    });
+
+    /*
+      Trocar um tipo declarado numa encerrada move um total já cobrado do mês de
+      uma operação para o da outra. O caminho existe e é o de sempre: reabrir,
+      com motivo — o que separa uma correção de uma alteração silenciosa depois
+      do fato.
+    */
+    it("recusa trocar o tipo declarado de uma encerrada — reabrir vem antes", async () => {
+      const comp = await abrirCompetencia(db, {
+        ano: 2027, mes: 2, quinzena: 2, unidade, transportadora, tipoDeOperacao: "EMPURRADA",
+      });
+      await db
+        .update(fechamentoCompetenciaTable)
+        .set({ estado: "ENCERRADA", encerradaEm: new Date() })
+        .where(eq(fechamentoCompetenciaTable.id, comp.id));
+
+      await expect(
+        informarTipoDeOperacao(db, comp.id, { tipoDeOperacao: "ROTA" }),
+      ).rejects.toMatchObject({ codigo: "COMPETENCIA_ENCERRADA" });
+      expect((await buscarCompetencia(db, comp.id))?.tipoDeOperacao).toBe("EMPURRADA");
+    });
+
+    /*
+      E repetir o tipo que já está lá não é conflito: é o clique duplo, ou a
+      segunda aba. O estado desejado já é o estado atual — inclusive na
+      encerrada, que a regra acima recusaria se houvesse troca a fazer.
+    */
+    it("repetir o tipo que já está lá devolve a competência, e não um conflito", async () => {
+      const comp = await abrirCompetencia(db, {
+        ano: 2027, mes: 3, quinzena: 1, unidade, transportadora, tipoDeOperacao: "ROTA",
+      });
+      await db
+        .update(fechamentoCompetenciaTable)
+        .set({ estado: "ENCERRADA", encerradaEm: new Date() })
+        .where(eq(fechamentoCompetenciaTable.id, comp.id));
+
+      const depois = await informarTipoDeOperacao(db, comp.id, { tipoDeOperacao: " rota " });
+
+      expect(depois.id).toBe(comp.id);
+      expect(depois.tipoDeOperacao).toBe("ROTA");
+    });
+
+    it("recusa desinformar: `NAO_INFORMADO` é carimbo do backfill, não escolha", async () => {
+      const comp = await abrirCompetencia(db, {
+        ano: 2027, mes: 3, quinzena: 2, unidade, transportadora, tipoDeOperacao: "EMPURRADA",
+      });
+
+      for (const tipo of ["", "  ", "NAO_INFORMADO", "nao_informado"]) {
+        await expect(
+          informarTipoDeOperacao(db, comp.id, { tipoDeOperacao: tipo }),
+          `tipo ${JSON.stringify(tipo)}`,
+        ).rejects.toThrow(TipoDeOperacaoAusente);
+      }
+      expect((await buscarCompetencia(db, comp.id))?.tipoDeOperacao).toBe("EMPURRADA");
+    });
+
+    /*
+      O destino ocupado. O índice único recusaria de qualquer forma, com a
+      mensagem do Postgres; a recusa do domínio diz **qual** competência está no
+      lugar, que é o que permite decidir entre corrigir a outra ou excluir esta.
+    */
+    it("recusa quando a outra operação da mesma quinzena já existe, e diz qual é", async () => {
+      const empurrada = await abrirCompetencia(db, {
+        ano: 2027, mes: 4, quinzena: 1, unidade, transportadora, tipoDeOperacao: "EMPURRADA",
+      });
+      const rota = await abrirCompetencia(db, {
+        ano: 2027, mes: 4, quinzena: 1, unidade, transportadora, tipoDeOperacao: "ROTA",
+      });
+
+      await expect(
+        informarTipoDeOperacao(db, rota.id, { tipoDeOperacao: "EMPURRADA" }),
+      ).rejects.toMatchObject({
+        codigo: "TIPO_DE_OPERACAO_EM_USO",
+        detalhe: { competenciaId: empurrada.id },
+      });
+      expect((await buscarCompetencia(db, rota.id))?.tipoDeOperacao).toBe("ROTA");
+    });
+
+    it("recusa uma competência que não existe", async () => {
+      await expect(
+        informarTipoDeOperacao(db, "00000000-0000-0000-0000-000000000000", {
+          tipoDeOperacao: "ROTA",
+        }),
+      ).rejects.toMatchObject({ codigo: "COMPETENCIA_NAO_ENCONTRADA" });
+    });
+
+    /*
+      E o desfecho que a função serve: a quinzena que estava fora de todo Resumo
+      passa a estar dentro de um. É a frase inteira do reparo, e o único caso
+      aqui que a olha de fora do registro.
+    */
+    it("a quinzena informada passa a aparecer no resumo daquela operação", async () => {
+      const id = await comoOBackfillDeixou({ ano: 2027, mes: 5, quinzena: 1 });
+      const comCompetencia = (r: Awaited<ReturnType<typeof lerResumoDoMes>>) =>
+        r.quinzenas.filter((q) => q.competenciaId !== null).map((q) => q.quinzena);
+      const resumoDe = (tipoDeOperacao: string) =>
+        lerResumoDoMes(db, {
+          unidade: unidade.codigo,
+          transportadora: transportadora.codigo,
+          tipoDeOperacao,
+          ano: 2027,
+          mes: 5,
+        });
+
+      expect(comCompetencia(await resumoDe("EMPURRADA"))).toEqual([]);
+
+      await informarTipoDeOperacao(db, id, { tipoDeOperacao: "EMPURRADA" });
+
+      expect(comCompetencia(await resumoDe("EMPURRADA"))).toEqual([1]);
     });
   });
 
