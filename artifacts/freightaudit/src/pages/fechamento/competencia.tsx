@@ -73,6 +73,16 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   const cliente = useQueryClient();
   const [erroDoEnvio, setErroDoEnvio] = useState<string | null>(null);
   /*
+    O envio que chegou e não valeu. É estado à parte do erro porque não é erro:
+    o arquivo está guardado, a importação anterior continua de pé, e nada
+    quebrou — só não aconteceu o que quem clicou achava que ia acontecer. Tratar
+    o 202 como sucesso mudo era o que fazia alguém subir o 03.08.20, não ver
+    aviso nenhum e concluir que estava importado.
+  */
+  const [quarentena, setQuarentena] = useState<
+    { nomeDoArquivo: string; motivo: string } | null
+  >(null);
+  /*
     O descarte pergunta antes, e a pergunta mora na tela em vez de num
     `window.confirm`: o diálogo do navegador não sabe dizer *quantos* arquivos
     vão embora, e ver o tamanho do que se vai apagar é a única defesa real
@@ -99,9 +109,22 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   const enviar = useMutation({
     mutationFn: ({ tipo, arquivo }: { tipo: TipoDeFonte; arquivo: File }) =>
       enviarDocumento(id, tipo, arquivo),
-    onMutate: () => setErroDoEnvio(null),
+    onMutate: () => {
+      setErroDoEnvio(null);
+      setQuarentena(null);
+    },
     onError: (erro) => setErroDoEnvio(textoDoErro(erro)),
-    onSuccess: () => {
+    onSuccess: (recebido) => {
+      setQuarentena(
+        recebido.desfecho === "EM_QUARENTENA"
+          ? {
+              nomeDoArquivo: recebido.nomeDoArquivo,
+              motivo:
+                recebido.motivoDaQuarentena ??
+                "O arquivo foi guardado e não virou a conta desta quinzena.",
+            }
+          : null,
+      );
       void cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] });
       /* O 2Art recém-enviado é o que a grade de dias mostra — ela reabre. */
       void cliente.invalidateQueries({ queryKey: ["fechamento", "diario", id] });
@@ -288,12 +311,27 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                 <AlertDescription>{erroDoEnvio}</AlertDescription>
               </Alert>
             )}
+            {quarentena && (
+              /*
+                Nem destrutivo nem silencioso: o arquivo chegou inteiro e está
+                guardado — o que não aconteceu foi ele virar a conta. O motivo
+                vem do servidor, que é quem leu o arquivo, e diz o que fazer.
+              */
+              <Alert>
+                <AlertTriangle className="w-4 h-4" />
+                <AlertDescription>
+                  <strong>{quarentena.nomeDoArquivo} chegou e não valeu.</strong>{" "}
+                  {quarentena.motivo}
+                </AlertDescription>
+              </Alert>
+            )}
             <ul className="divide-y">
               {catalogo.map((fonte) => (
                 <LinhaDeFonte
                   key={fonte.tipo}
                   fonte={fonte}
                   documento={vigentes.get(fonte.tipo)}
+                  semVerba={vigentes.get(fonte.tipo)?.verbas === 0}
                   foraDaQuinzena={!fonte.quinzenas.includes(competencia.quinzena)}
                   quinzena={competencia.quinzena}
                   enviando={enviar.isPending && enviar.variables?.tipo === fonte.tipo}
@@ -552,6 +590,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
 function LinhaDeFonte({
   fonte,
   documento,
+  semVerba,
   foraDaQuinzena,
   quinzena,
   enviando,
@@ -560,6 +599,14 @@ function LinhaDeFonte({
 }: {
   fonte: Fonte;
   documento: Documento | undefined;
+  /**
+   * O documento é o 03.08.20 e não gravou verba nenhuma.
+   *
+   * Decidido por quem lista, e não aqui, porque a pergunta é do banco: `verbas`
+   * conta as linhas que o documento sustenta, e `null` nas outras cinco fontes
+   * é o que impede esta linha de acusar quem não tem verba a ter.
+   */
+  semVerba: boolean;
   /**
    * O relatório não é dos que esta quinzena pede, e está aqui porque alguém o
    * enviou. A linha diz isso em vez de sumir: arquivo importado que desaparece
@@ -578,7 +625,16 @@ function LinhaDeFonte({
     <li className="py-3 flex items-start justify-between gap-4">
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          {documento ? (
+          {documento && semVerba ? (
+            /*
+              O visto verde diz "esta fonte está no lugar", e um 03.08.20 que
+              não sustenta verba nenhuma não está: ele é a única fonte que abre
+              a parcela fixa, e sem verba não abre nada. Dar-lhe o mesmo visto
+              das outras foi o que pôs, na mesma tela, a lista dizendo que o
+              arquivo chegou e o painel dizendo que não.
+            */
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+          ) : documento ? (
             <Check className="w-4 h-4 text-emerald-600 shrink-0" />
           ) : (
             <span className="w-4 h-4 rounded-full border border-dashed border-muted-foreground/50 shrink-0" />
@@ -612,6 +668,21 @@ function LinhaDeFonte({
                 · {documento.recusas.length} linha(s) recusada(s): {documento.recusas[0].motivo}
               </span>
             )}
+          </p>
+        )}
+        {documento && semVerba && (
+          /*
+            O que `linhasLidas` não diz. Ele soma verbas e descontos, então um
+            demonstrativo do qual o leitor só tirou descontos aparece com um
+            número respeitável de linhas — e é o painel da planilha, noutro
+            cartão, que descobre que não há verba. A frase mora aqui, ao lado do
+            arquivo que ela descreve.
+          */
+          <p className="text-xs text-amber-600 mt-1 ml-6">
+            Nenhuma verba entrou deste arquivo — só as{" "}
+            {documento.linhasLidas.toLocaleString("pt-BR")} linha(s) acima, que são
+            descontos. É a verba que abre a parcela fixa: enquanto ela não vier, o painel
+            da planilha fica sem de onde sair. Envie o 03.08.20 completo por cima.
           </p>
         )}
       </div>

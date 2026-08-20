@@ -651,6 +651,44 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     expect(frase).toContain("desconto(s) dele e nenhuma verba");
   });
 
+  it("a lista de relatórios conta as verbas do 03.08.20, que `linhasLidas` não separa", async () => {
+    /* O número que a tela mostrava era `linhasLidas`, e ele soma verbas e
+       descontos: o demonstrativo do qual o leitor só tirou descontos aparecia
+       com um número respeitável de linhas e visto verde. `verbas` é a pergunta
+       que a lista de fato faz — e é `null` nas outras fontes, que não têm verba
+       a ter, para que a tela não acuse quem não deve nada. */
+    const comp = await competenciaSo();
+    await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20.txt",
+      conteudo: fixturePagamentoDoPainel(),
+    });
+    await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "DISPONIBILIDADE",
+      nomeDoArquivo: "03.08.18.xlsx",
+      conteudo: fixtureDisponibilidade(),
+    });
+
+    const comVerba = await listarDocumentos(db, comp.id);
+    const pagamento = comVerba.find((d) => d.tipo === "PAGAMENTO")!;
+    expect(pagamento.verbas).toBeGreaterThan(0);
+    expect(pagamento.verbas).toBeLessThan(pagamento.linhasLidas);
+    /* As outras cinco fontes não respondem a esta pergunta. */
+    expect(comVerba.find((d) => d.tipo === "DISPONIBILIDADE")?.verbas).toBeNull();
+
+    /* E o estado que a tela precisa acusar: documento vigente, zero verbas. */
+    await db
+      .delete(fechamentoPagamentoItemTable)
+      .where(eq(fechamentoPagamentoItemTable.competenciaId, comp.id));
+    const semVerba = await listarDocumentos(db, comp.id);
+    expect(semVerba.find((d) => d.tipo === "PAGAMENTO")).toMatchObject({
+      vigente: true,
+      verbas: 0,
+    });
+  });
+
   it("o arquivo volta do banco byte a byte, e é reprocessável sem o .txt", async () => {
     const comp = await competenciaSo();
     const original = fixturePagamentoDoPainel();

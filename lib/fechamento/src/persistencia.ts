@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { gunzipSync, gzipSync } from "node:zlib";
-import { and, desc, eq, notInArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
   fechamentoApuracaoTable,
@@ -1325,7 +1325,19 @@ function verbaGravada(vbz: number, canal: Canal, nomeGravado: string): Verba {
   return verbaDe(vbz) ?? verbaDesconhecida(vbz, canal, nomeGravado);
 }
 
-/** Os documentos de uma competência, com o que cada leitor recusou. */
+/**
+ * Os documentos de uma competência, com o que cada leitor recusou.
+ *
+ * **`verbas` conta o que o 03.08.20 de fato sustenta**, e existe porque
+ * `linhasLidas` não responde a pergunta que a tela faz. Ele soma verbas e
+ * descontos: um demonstrativo do qual o leitor tirou catorze descontos e
+ * nenhuma verba aparecia como "14 linhas", com visto verde, ao lado de um
+ * painel que dizia não ter de onde sair. Os dois liam o mesmo banco e diziam
+ * coisas opostas, e quem opera não tinha como saber qual acreditar.
+ *
+ * `null` nas outras cinco fontes — a pergunta é do demonstrativo, e responder
+ * `0` para quem não tem verba nenhuma a ter seria inventar um alarme.
+ */
 export async function listarDocumentos(
   db: Database,
   competenciaId: string,
@@ -1338,6 +1350,8 @@ export async function listarDocumentos(
     recusas: Recusa[];
     vigente: boolean;
     enviadoEm: Date;
+    /** Quantas verbas este documento gravou. Só o 03.08.20 tem verbas. */
+    verbas: number | null;
   }[]
 > {
   const linhas = await db
@@ -1345,6 +1359,21 @@ export async function listarDocumentos(
     .from(fechamentoDocumentoTable)
     .where(eq(fechamentoDocumentoTable.competenciaId, competenciaId))
     .orderBy(desc(fechamentoDocumentoTable.enviadoEm));
+
+  const pagamentos = linhas.filter((d) => d.tipo === "PAGAMENTO").map((d) => d.id);
+  const verbasPorDocumento = new Map<string, number>();
+  if (pagamentos.length > 0) {
+    const contagens = await db
+      .select({
+        documentoId: fechamentoPagamentoItemTable.documentoId,
+        quantas: sql<number>`count(*)::int`,
+      })
+      .from(fechamentoPagamentoItemTable)
+      .where(inArray(fechamentoPagamentoItemTable.documentoId, pagamentos))
+      .groupBy(fechamentoPagamentoItemTable.documentoId);
+    for (const c of contagens) verbasPorDocumento.set(c.documentoId, c.quantas);
+  }
+
   return linhas.map((d) => ({
     id: d.id,
     tipo: d.tipo as TipoDeFonte,
@@ -1353,6 +1382,9 @@ export async function listarDocumentos(
     recusas: (d.recusas ?? []) as Recusa[],
     vigente: d.vigente,
     enviadoEm: d.enviadoEm,
+    /* Sem linha na contagem é zero, e não ausência: o documento existe e o
+       `group by` só não teve o que contar dele. */
+    verbas: d.tipo === "PAGAMENTO" ? (verbasPorDocumento.get(d.id) ?? 0) : null,
   }));
 }
 

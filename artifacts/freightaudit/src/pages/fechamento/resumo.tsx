@@ -368,7 +368,15 @@ function Corpo({
               ) : (
                 <>
                   apurada
-                  {!q.temDemonstrativo && " · sem o 03.08.20"}
+                  {/*
+                    "sem verba do 03.08.20", e não "sem o 03.08.20": o que este
+                    resumo mede é a verba gravada, e ela falta tanto quando o
+                    arquivo não chegou quanto quando o que chegou não trouxe
+                    verba. Afirmar a ausência do arquivo era negar, daqui, um
+                    03.08.20 que a competência lista com nome e data — e mandar
+                    reenviar um arquivo que já está lá.
+                  */}
+                  {!q.temDemonstrativo && " · sem verba do 03.08.20"}
                   {q.competenciaId && (
                     <>
                       {" · "}
@@ -540,9 +548,10 @@ function PainelDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Reco
           */
           <p className="text-sm text-muted-foreground">
             O painel do {canal.canal} está escrito aqui, e as linhas dele saem do{" "}
-            <strong>03.08.20</strong> — que não foi importado em nenhuma das duas
-            quinzenas. Suba o demonstrativo em Importações e as linhas se enchem
-            sozinhas. Enquanto ele não chega, as verbas do {canal.canal} continuam
+            <strong>03.08.20</strong> — e nenhuma das duas quinzenas tem verba dele.
+            Ou o demonstrativo não foi importado, ou o que foi importado não trouxe
+            verba nenhuma; abra a quinzena para ver qual dos dois, com o arquivo
+            nomeado. Enquanto a verba não vier, as verbas do {canal.canal} continuam
             apuradas e conferidas na aba Verbas.
           </p>
         ) : (

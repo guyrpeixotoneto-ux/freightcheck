@@ -154,6 +154,31 @@ export interface Documento {
   recusas: Recusa[];
   vigente: boolean;
   enviadoEm: string;
+  /**
+   * Quantas verbas o documento sustenta — só o 03.08.20 tem, `null` nos outros.
+   *
+   * `linhasLidas` soma verbas e descontos, e por isso não distingue o
+   * demonstrativo inteiro do demonstrativo do qual o leitor só tirou descontos.
+   * É essa diferença que faz a lista mostrar visto verde enquanto o painel diz
+   * não ter de onde sair.
+   */
+  verbas: number | null;
+}
+
+/**
+ * O que aconteceu com o arquivo que acabou de subir.
+ *
+ * `PROMOVIDO` é o documento que passou a valer; `EM_QUARENTENA` é o que chegou,
+ * ficou guardado e **não** virou a conta — e aí `motivoDaQuarentena` diz por
+ * quê. A tela precisa dos dois: tratar 202 como sucesso mudo é o que fazia
+ * alguém subir o mesmo arquivo, não ver erro nenhum e concluir que estava
+ * importado.
+ */
+export interface DocumentoRecebido extends Omit<Documento, "vigente" | "verbas"> {
+  desfecho: "PROMOVIDO" | "EM_QUARENTENA";
+  motivoDaQuarentena: string | null;
+  /** O documento que este substituiu, quando substituiu algum. */
+  substituiu: string | null;
 }
 
 export interface Parcela {
@@ -755,7 +780,7 @@ export async function enviarDocumento(
   competenciaId: string,
   tipo: TipoDeFonte,
   arquivo: File,
-): Promise<Documento> {
+): Promise<DocumentoRecebido> {
   const contentBase64 = await lerComoBase64(arquivo);
   const resposta = await fetch(getApiUrl(`/fechamento/competencias/${competenciaId}/documentos`), {
     method: "POST",
@@ -765,7 +790,12 @@ export async function enviarDocumento(
   });
   const corpo = await readJson(resposta);
   if (!resposta.ok) throw erroDaResposta(resposta, corpo);
-  return corpo as unknown as Documento;
+  /*
+    O 202 é `ok` e não é sucesso: é o arquivo guardado sem valer. Devolvê-lo
+    como se fosse o 201 apagava a única notícia que a quarentena produz — quem
+    chama tem de olhar `desfecho`.
+  */
+  return corpo as unknown as DocumentoRecebido;
 }
 
 function lerComoBase64(arquivo: File): Promise<string> {
