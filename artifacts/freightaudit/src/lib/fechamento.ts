@@ -497,6 +497,24 @@ export function cadastrarParte(entrada: {
   });
 }
 
+/**
+ * Informa — ou corrige — o tipo de operação de uma competência já aberta.
+ *
+ * É `PUT` porque é a edição de um campo, e não um ato como encerrar ou reabrir.
+ * A regra de quando a troca é aceita é do servidor, e a tela não a duplica: ela
+ * oferece os tipos, manda, e mostra a frase que voltar. O que a tela **sabe** é
+ * mais raso e está em `edicaoDoTipo` — que a encerrada com tipo declarado
+ * precisa ser reaberta antes —, e serve para não oferecer um botão que já se
+ * sabe que o servidor vai recusar.
+ */
+export function informarTipoDeOperacao(id: string, tipoDeOperacao: string): Promise<Competencia> {
+  return fetchJson<Competencia>(`/fechamento/competencias/${id}/tipo-de-operacao`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ tipoDeOperacao }),
+  });
+}
+
 /** Encerra a competência — congela a quinzena. */
 export function encerrar(id: string): Promise<Competencia> {
   return fetchJson<Competencia>(`/fechamento/competencias/${id}/encerramento`, { method: "POST" });
