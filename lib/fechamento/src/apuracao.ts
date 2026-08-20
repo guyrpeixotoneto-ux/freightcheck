@@ -1,5 +1,6 @@
 import {
   centavos,
+  emReais,
   fonteEsperadaNaQuinzena,
   TIPOS_DE_FONTE,
   type Canal,
@@ -193,14 +194,7 @@ export function tolerancia(valor: number): number {
  * que faz quem lê desconfiar do resto. A formatação é fixada em pt-BR porque a
  * frase também é.
  */
-function emReais(valor: number): string {
-  return valor.toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
-}
+/* A formatação mora em `dominio.ts` — ver {@link emReais}. */
 
 /** Roda a apuração da competência com as fontes que houver. */
 export function apurar(competencia: Competencia, fontes: Fontes): Apuracao {

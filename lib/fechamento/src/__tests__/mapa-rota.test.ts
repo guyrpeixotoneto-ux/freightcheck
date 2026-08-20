@@ -172,7 +172,62 @@ describe("o lado variável, somado do diário", () => {
     cargaAtual: "Roteriz",
     tipoDeImposto: "CTRC-ICMS",
     valorFaturado: 0,
+    /* Carregou caixa de Rota — o padrão, porque a viagem de AS é a exceção. */
+    caixasDeRota: 100,
     ...p,
+  });
+
+  it("a viagem que rodou AS não entra em nenhuma das quatro parcelas", () => {
+    /*
+      O 2Art traz Rota e AS numa lista só, e a de AS vem com `CxRota = 0`. Em
+      julho/2026 são dezoito viagens no mês — todas as dezesseis de frota padrão
+      com `CxAS > 0` —, e sem este corte o agregado da 1ª quinzena saía
+      R$ 38.473,58 acima do que a planilha fecha.
+    */
+    const comAs = somarVariavel(
+      [
+        {
+          viagens: [
+            viagem({ valorFaturado: 283.04 }),
+            viagem({ caixasDeRota: 0, valorFaturado: 283.04 }),
+            viagem({ frota: "Spot", valorFaturado: 848.36 }),
+            viagem({ frota: "Spot", caixasDeRota: 0, valorFaturado: 848.36 }),
+            viagem({ frota: "Fixo", valorFaturado: 123.71 }),
+            viagem({ frota: "Fixo", caixasDeRota: 0, valorFaturado: 123.71 }),
+            viagem({ cargaAtual: "Recarga", valorFaturado: 163.95 }),
+            viagem({ cargaAtual: "Recarga", caixasDeRota: 0, valorFaturado: 163.95 }),
+          ],
+        },
+      ],
+      JULHO_2026[1],
+      5176.53,
+    );
+
+    expect(comAs.agregado).toBe(848.36);
+    expect(comAs.vans).toBe(123.71);
+    expect(comAs.recargaENoturna).toBe(163.95);
+    /*
+      Um mapa contado, não dois: a viagem de AS não fecha mapa da Rota. O valor
+      é o do veículo pelo lado do ICMS — `(5.176,53 ÷ 25) ÷ 0,7291` —, porque
+      todas as viagens deste dia saíram como CT-e; a média de R$ 283,04 da
+      planilha é a mistura com os 3,16 % de NF-ISS da quinzena.
+    */
+    expect(comAs.frotaFixa).toBe(284);
+  });
+
+  it("diário sem a coluna CxRota não perde viagem nenhuma", () => {
+    /*
+      `null` não é zero. Um diário antigo, sem a coluna, deve continuar somando
+      tudo — perder todas as viagens de uma vez trocaria um erro de mais por um
+      erro de tudo. O que a coluna ausente custa é a separação, e ela aparece
+      como divergência contra o demonstrativo.
+    */
+    const semColuna = somarVariavel(
+      [{ viagens: [viagem({ frota: "Spot", caixasDeRota: null, valorFaturado: 848.36 })] }],
+      JULHO_2026[1],
+      5176.53,
+    );
+    expect(semColuna.agregado).toBe(848.36);
   });
 
   it("separa frota fixa, agregado, recarga/noturna e vans pelos rótulos do 2Art", () => {

@@ -8,6 +8,7 @@ import {
   type QuadroConferido,
 } from "./de-para";
 import type { LinhaDoMapa, MapaDaQuinzena, QuadroDoMapa } from "./mapa-rota";
+import { levantarInconsistencias, type Inconsistencia } from "./inconsistencias";
 import type { NaturezaDaVerba } from "./verbas";
 
 /**
@@ -227,6 +228,15 @@ export interface PainelComparado {
   };
   /** O que falta para o mês fechar inteiro, sem repetição. */
   pendencias: string[];
+  /**
+   * O que as duas leituras não conciliam, nomeado e ordenado por tamanho.
+   *
+   * Derivado das linhas acima, e não uma quarta fonte — ver
+   * `inconsistencias.ts`. **Não soma, e não deve somar**: os itens se
+   * sobrepõem, e uma lista que fechasse a conta faria o painel concordar
+   * consigo mesmo por construção.
+   */
+  inconsistencias: Inconsistencia[];
 }
 
 export interface CanalDoResumo {
@@ -589,6 +599,7 @@ export function compararPaineis(
         ...(calculado.segunda?.pendencias ?? []),
       ]),
     ],
+    inconsistencias: levantarInconsistencias(canal, quadros),
   };
 }
 

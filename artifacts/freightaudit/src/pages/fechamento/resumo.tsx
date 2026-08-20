@@ -17,6 +17,7 @@ import {
   TIPO_NAO_INFORMADO,
   TIPOS_PARA_LER,
   type CanalDoResumo,
+  type Inconsistencia,
   type PainelComparado,
   type ResumoDoMes,
   type TresColunas,
@@ -71,7 +72,7 @@ import { cn } from "@/lib/utils";
  */
 
 type Recorte = "1" | "2" | "consolidado";
-type Aba = "verbas" | "planilha";
+type Aba = "verbas" | "planilha" | "inconsistencias";
 
 function textoDoErro(erro: unknown): string {
   const aviso = apresentar(erro);
@@ -314,6 +315,15 @@ function Corpo({
 }) {
   const vazio = resumo.canais.length === 0;
   const motivo = motivoDoVazio(resumo.quinzenas);
+  /*
+    A contagem vai no rótulo da aba porque ela é a única coisa desta lista que
+    cabe num botão — e porque um "Inconsistências" sem número não diz se vale a
+    pena abrir. Zero é notícia boa e aparece igual: a aba fica lá, dizendo zero.
+  */
+  const quantasInconsistencias = resumo.canais.reduce(
+    (soma, c) => soma + (c.comparado?.inconsistencias.length ?? 0),
+    0,
+  );
   const daQuinzena = (n: 1 | 2) => {
     const q = resumo.quinzenas.find((x) => x.quinzena === n);
     return quinzenaExiste(q) ? q : undefined;
@@ -333,6 +343,7 @@ function Corpo({
           opcoes={[
             ["verbas", "Verbas"],
             ["planilha", "Planilha"],
+            ["inconsistencias", `Inconsistências (${quantasInconsistencias})`],
           ]}
           onTrocar={(v) => trocar("aba", v)}
         />
@@ -457,12 +468,16 @@ function Corpo({
         </Alert>
       )}
 
-      {resumo.canais.map((canal) =>
-        aba === "planilha" ? (
-          <PainelDoCanal key={canal.canal} canal={canal} recorte={recorte} />
-        ) : (
-          <TabelaDoCanal key={canal.canal} canal={canal} recorte={recorte} />
-        ),
+      {aba === "inconsistencias" ? (
+        <ListaDeInconsistencias canais={resumo.canais} recorte={recorte} />
+      ) : (
+        resumo.canais.map((canal) =>
+          aba === "planilha" ? (
+            <PainelDoCanal key={canal.canal} canal={canal} recorte={recorte} />
+          ) : (
+            <TabelaDoCanal key={canal.canal} canal={canal} recorte={recorte} />
+          ),
+        )
       )}
     </div>
   );
@@ -699,6 +714,112 @@ function PainelComparadoTabela({
     </div>
   );
 }
+
+/**
+ * A lista de inconsistências — o que as duas leituras não conciliam.
+ *
+ * **Ela não soma, e não deve ganhar um total.** Os itens se sobrepõem: a
+ * diferença do total de um quadro é, em parte, a soma das diferenças das linhas
+ * dele, e um rodapé somando tudo contaria a mesma divergência duas vezes. Pior
+ * do que isso, um número no rodapé convida a linha "Ajustes" que o fecharia — e
+ * um painel que fecha por construção não confere nada.
+ *
+ * Cada item é uma afirmação que alguém derruba sozinho: o que discorda, quanto
+ * vale, por que ainda não se resolve, e o que a destrava.
+ */
+function ListaDeInconsistencias({
+  canais,
+  recorte,
+}: {
+  canais: CanalDoResumo[];
+  recorte: Recorte;
+}) {
+  const temPainel = canais.some((c) => c.comparado !== null);
+  const itens = canais
+    .flatMap((c) => c.comparado?.inconsistencias ?? [])
+    .filter((i) => recorte === "consolidado" || String(i.quinzena) === recorte);
+
+  if (!temPainel) {
+    return (
+      <Card>
+        <CardContent className="py-6">
+          <p className="text-sm text-muted-foreground">
+            Ainda não há o que conciliar: a lista compara o <strong>devido</strong> — que
+            sai do contrato e do diário — contra o <strong>demonstrado</strong> do
+            03.08.20, e o devido depende do cadastro da unidade. Enquanto ele não for
+            preenchido, o painel mostra só a releitura do demonstrativo, que concorda
+            consigo mesma.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  if (itens.length === 0) {
+    return (
+      <Card>
+        <CardContent className="py-6">
+          <p className="text-sm text-muted-foreground">
+            Nenhuma inconsistência{recorte === "consolidado" ? " no mês" : " nesta quinzena"}.
+            As duas leituras chegaram ao mesmo número em todas as linhas — e elas saem de
+            fontes independentes, então isso é afirmação, não empate.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base">
+          Inconsistências
+          <span className="ml-2 text-sm font-normal text-muted-foreground">
+            {itens.length} {itens.length === 1 ? "item" : "itens"}, do maior para o menor
+          </span>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <p className="text-xs text-muted-foreground">
+          Cada item é uma divergência entre duas fontes independentes.{" "}
+          <strong className="text-foreground">A lista não soma</strong>: os itens se
+          sobrepõem, e um total aqui contaria a mesma divergência duas vezes.
+        </p>
+
+        {itens.map((item) => (
+          <div key={`${item.canal}:${item.chave}`} className="rounded-lg border p-3 space-y-1.5">
+            <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+              <span className="text-sm font-medium">
+                {item.rotulo}
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                  {item.canal} · {item.quinzena}ª quinzena · {ROTULO_DO_TIPO[item.tipo]}
+                </span>
+              </span>
+              <span className="font-mono tabular-nums text-sm font-semibold">
+                {dinheiro(item.valor)}
+              </span>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Discordam <strong className="text-foreground">{item.entre[0]}</strong> e{" "}
+              <strong className="text-foreground">{item.entre[1]}</strong>. {item.porque}
+            </p>
+            <p className="text-xs">
+              <span className="font-medium">O que destrava: </span>
+              <span className="text-muted-foreground">{item.destrava}</span>
+            </p>
+          </div>
+        ))}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** O tipo da divergência, dito como quem lê pensa nela. */
+const ROTULO_DO_TIPO: Record<Inconsistencia["tipo"], string> = {
+  FONTES_DISCORDAM: "os dois lados têm número, e eles não batem",
+  SEM_DEMONSTRADO: "o contrato manda pagar e o demonstrativo não traz",
+  SEM_DEVIDO: "o demonstrativo paga e o contrato não sustenta",
+};
 
 function TabelaDoCanal({ canal, recorte }: { canal: CanalDoResumo; recorte: Recorte }) {
   const consolidado = recorte === "consolidado";

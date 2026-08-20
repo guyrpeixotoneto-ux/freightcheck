@@ -2197,6 +2197,8 @@ async function viagensPorDia(
       cargaAtual: fechamentoViagemTable.cargaAtual,
       tipoDeImposto: fechamentoViagemTable.tipoDeImposto,
       valorFaturado: fechamentoViagemTable.valorFaturado,
+      /* Separa a viagem da Rota da viagem de AS — ver `ehDaRota` no motor. */
+      caixasDeRota: fechamentoViagemTable.caixasDeRota,
     })
     .from(fechamentoViagemTable)
     .where(
@@ -2215,6 +2217,8 @@ async function viagensPorDia(
       cargaAtual: l.cargaAtual ?? "",
       tipoDeImposto: l.tipoDeImposto ?? "",
       valorFaturado: Number(l.valorFaturado ?? 0),
+      /* `null` atravessa: coluna ausente não é "carregou zero caixa de Rota". */
+      caixasDeRota: l.caixasDeRota === null ? null : Number(l.caixasDeRota),
     });
     porDia.set(dia, doDia);
   }

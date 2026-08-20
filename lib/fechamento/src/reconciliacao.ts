@@ -209,7 +209,14 @@ function desagrupar(dia: DiaDaPlanilha): ViagemDoMapa[] {
   const viagens: ViagemDoMapa[] = [];
   for (const [frota, cargaAtual, tipoDeImposto, valorFaturado, quantidade] of dia.viagens) {
     for (let i = 0; i < quantidade; i += 1) {
-      viagens.push({ frota, cargaAtual, tipoDeImposto, valorFaturado });
+      /*
+        `caixasDeRota: null` — a amostra sai das abas diárias da própria `.xlsb`,
+        que já são o 2Art **filtrado**: a viagem de AS não chega até lá. Pôr um
+        número aqui fingiria uma coluna que a amostra não tem; `null` diz o que
+        é verdade — não se sabe, e por isso a viagem conta, que é o certo para
+        uma lista de onde o AS já saiu. Ver `ehDaRota` em `mapa-rota.ts`.
+      */
+      viagens.push({ frota, cargaAtual, tipoDeImposto, valorFaturado, caixasDeRota: null });
     }
   }
   return viagens;

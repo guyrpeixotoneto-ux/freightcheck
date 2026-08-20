@@ -261,6 +261,49 @@ nada. Antes de ligar esse fio é preciso saber por que o demonstrativo e o
 As bases seguem entrando no motor como parâmetro (`BasesDaQuinzena`), com o
 mesmo tratamento de ausência das demais: `null`, nunca zero.
 
+## O corte que faltava no diário: `CxRota > 0`
+
+O 2Art traz numa lista só as viagens da **Rota** e as do **AS**, e a coluna que
+as separa é `CxRota`: a viagem de AS vem com `CxRota = 0` e `CxAS > 0`. O motor
+somava as duas.
+
+Conferido linha a linha contra as abas diárias `01`..`31` da `.xlsb`, que são o
+2Art já filtrado: das dezoito viagens que a planilha descartou no mês, as
+dezesseis de frota padrão têm `CxRota = 0` e `CxAS > 0`. Nenhuma exceção.
+
+O efeito, em julho/2026:
+
+| Linha | sem o corte (1ª) | com o corte (1ª) | sem o corte (2ª) | com o corte (2ª) |
+|---|---:|---:|---:|---:|
+| Custo Variável (Frota Fixa) | +2.540,23 | **+0,01** | +2.006,25 | −1.723,03 |
+| Custo Variável (Extra e Spot) | +38.473,58 | **+0,05** | +47.098,45 | **+0,06** |
+| Vans | **0,00** | **0,00** | **0,00** | **0,00** |
+| Recarga e Noturna | −6.344,78 | −6.344,78 | **0,00** | **0,00** |
+
+*(diferença contra o `RESUMO GERAL`; `somarVariavel`, com `ValorFaturado` do
+próprio 2Art e o valor médio do veículo do cadastro)*
+
+### O que é um "mapa fechado"
+
+A contagem que multiplica o valor médio do veículo é de linhas com
+`FROTA = Padrao` e `CARGA ATUAL` **diferente de** `Recarga` e `Noturna` — que
+carregaram caixa de Rota. Recarga e noturna não fecham mapa: têm linha própria.
+
+A regra reproduz a contagem da planilha em 27 dos 29 dias com movimento. Nos
+dias **23 e 28** a planilha conta 3 mapas a mais do que a aba do dia tem linhas
+— não é o filtro, as linhas não estão lá. Ou o 2Art da planilha era outro
+snapshot, ou alguém somou à mão; vale R$ 1.723,03 na 2ª quinzena, e está na
+lista de inconsistências.
+
+### O que continua aberto
+
+- **`Recarga e Noturna`, 1ª quinzena: R$ 6.344,78.** A regra fecha ao centavo na
+  2ª e não fecha na 1ª. Combina com o que esta página já registra: a fórmula
+  diária dessa linha na `.xlsb` está quebrada por exclusão de linha e sobrevive
+  em valor de cache.
+- **Dois mapas `Espec.` no dia 11** (186330 e 186331), com `CxRota > 0` e fora da
+  aba do dia. Únicos do mês; nenhuma das quatro linhas do mapa os nomeia.
+
 ## De onde vem o dinheiro do mês
 
 Medido sobre julho/2026, em valor absoluto:

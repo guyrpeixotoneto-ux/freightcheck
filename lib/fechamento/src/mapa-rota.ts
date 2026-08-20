@@ -403,10 +403,41 @@ export interface ViagemDoMapa {
   tipoDeImposto: string;
   /** O frete com imposto — a coluna VALOR FATURADO. */
   valorFaturado: number;
+  /**
+   * As caixas de **Rota** que a viagem carregou — a coluna `CxRota` do 2Art.
+   *
+   * É o que separa a viagem deste mapa da viagem que rodou AS. `null` quando o
+   * diário não trouxe a coluna: ver {@link ehDaRota}.
+   */
+  caixasDeRota: number | null;
 }
 
 const semAcento = (t: string) =>
   t.normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim().toLowerCase();
+
+/**
+ * A viagem carregou caixa de Rota — e por isso pertence a este mapa.
+ *
+ * **É o corte que faltava, e ele é do canal, não do tipo de frota.** O 2Art
+ * traz numa lista só as viagens da Rota e as do AS, e a coluna que as separa é
+ * `CxRota`: a viagem de AS vem com `CxRota = 0` e `CxAS > 0`. Sem este filtro o
+ * `Mapa Rota` somava as duas, e o efeito não era pequeno — em julho/2026 o
+ * `Custo Variável (Extra e Spot)` saía R$ 38.473,58 acima do que a planilha
+ * fecha na 1ª quinzena, e R$ 47.098,45 acima na 2ª. Com o filtro, as duas
+ * quinzenas batem ao centavo.
+ *
+ * Conferido linha a linha contra as abas diárias da `.xlsb`: das dezoito
+ * viagens que a planilha descartou no mês inteiro, as dezesseis de frota padrão
+ * têm `CxRota = 0` e `CxAS > 0`. Nenhuma exceção.
+ *
+ * **`null` conta como da Rota, e é a escolha certa.** Um diário antigo, sem a
+ * coluna, não deve perder todas as viagens de uma vez — isso trocaria um erro
+ * de mais por um erro de tudo. O que a coluna ausente custa é a separação, e
+ * ela aparece como divergência contra o demonstrativo, que é onde se vê.
+ */
+function ehDaRota(v: ViagemDoMapa): boolean {
+  return v.caixasDeRota === null || v.caixasDeRota > 0;
+}
 
 /** A viagem é de frota fixa padrão — nem recarga, nem noturna, nem agregado. */
 function ehFrotaFixa(v: ViagemDoMapa): boolean {
@@ -449,6 +480,8 @@ export function somarVariavel(
     let comIcms = 0;
 
     for (const v of dia.viagens) {
+      /* A viagem de AS está na mesma lista e não é deste mapa — ver `ehDaRota`. */
+      if (!ehDaRota(v)) continue;
       const frota = semAcento(v.frota);
       if (ehFrotaFixa(v)) {
         mapas += 1;
