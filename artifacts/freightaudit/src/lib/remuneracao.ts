@@ -320,11 +320,20 @@ export function lerCadastro(pedido: {
   scopeHash?: string;
   canal?: string | null;
   period?: string;
+  /**
+   * Abrir o formulário de um canal que pode ainda não existir.
+   *
+   * Só a tela que cadastra a planilha pede assim: é onde o canal nasce, e as
+   * trinta linhas em branco precisam aparecer para que alguém as preencha. Nas
+   * outras leituras o canal desconhecido continua sendo 404.
+   */
+  canalNovo?: boolean;
 }): Promise<CadastroDaUnidade> {
   const query = new URLSearchParams();
   if (pedido.scopeHash) query.set("scopeHash", pedido.scopeHash);
   if (pedido.canal !== undefined && pedido.canal !== null) query.set("canal", pedido.canal);
   if (pedido.period) query.set("period", pedido.period);
+  if (pedido.canalNovo) query.set("canalNovo", "1");
   const sufixo = query.toString();
   return fetchJson<CadastroDaUnidade>(`/remuneracao/cadastro${sufixo ? `?${sufixo}` : ""}`);
 }

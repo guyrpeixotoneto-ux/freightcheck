@@ -5,6 +5,7 @@ import { buildFixture, type AttributeSpec } from "@workspace/comparison/testing"
 import { COLUNA } from "../colunas";
 import { LinhaDaPlanilhaInvalida, PlanilhaVazia } from "../planilha";
 import {
+  ContextNotFoundError,
   copiarPlanilhaDaUnidade,
   gravarPlanilhaDaUnidade,
   lerCadastroDaUnidade,
@@ -276,6 +277,78 @@ describe("copiar de uma vigência para outra", () => {
     await expect(
       copiarPlanilhaDaUnidade(ctx.db, { ...CONTEXTO, de: "2019-01-01", para: VIGENCIA }),
     ).rejects.toThrow(VigenciaDoCadastroNaoEncontrada);
+  });
+});
+
+/*
+  A aba de ROTA existe antes de o export de ROTA chegar, e é justamente nesse
+  intervalo que digitá-la vale a pena. Estes três casos são a prova de que o
+  canal da planilha não precisa do acervo — e de que a unidade precisa.
+*/
+describe("um canal que o acervo não entregou", () => {
+  const ROTA = { scopeHash: ESCOPO, channel: "ROTA" };
+
+  it("aceita a planilha, e as vigências oferecidas são as da unidade", async () => {
+    const gravada = await gravarPlanilhaDaUnidade(ctx.db, {
+      ...ROTA,
+      period: VIGENCIA,
+      celulas: [{ chave: "van_custo_fixo", valor: 999 }],
+      autor: { id: null, nome: "Guy" },
+    });
+    expect(gravada?.canal).toBe("ROTA");
+    expect(gravada?.linhas).toHaveLength(1);
+  });
+
+  it("passa a existir como unidade própria na lista, sem lastro nenhum", async () => {
+    const situacao = await lerSituacaoDasUnidades(ctx.db);
+    const rota = situacao.unidades.find((u) => u.channel === "ROTA");
+    expect(rota, "a unidade de ROTA").toBeDefined();
+
+    // Herda a unidade — é a mesma —, e o rótulo troca o canal.
+    expect(rota!.scopeHash).toBe(ESCOPO);
+    expect(rota!.label).toContain("ROTA");
+    expect(rota!.label).not.toContain("EMPURRADA");
+
+    /*
+      E não herda material nenhum: o acervo de fato não diz nada sobre ROTA. É
+      o que separa "a unidade existe" de "o canal foi medido" — e é por isso que
+      o estado continua SEM_LASTRO mesmo com a planilha preenchida.
+    */
+    expect(rota!.material.cavalos).toBe(0);
+    expect(rota!.material.trechos).toBe(0);
+    expect(rota!.cadastro.estado).toBe("SEM_LASTRO");
+    expect(rota!.cadastro.comLastro).toBe(0);
+    expect(rota!.cadastro.informadas).toBe(1);
+  });
+
+  it("abre o cadastro do canal novo antes da primeira célula, e só sob pedido", async () => {
+    const NOVO = { scopeHash: ESCOPO, channel: "TRANSFERENCIA" };
+
+    // A leitura de sempre recusa: canal digitado errado num link é 404.
+    await expect(lerCadastroDaUnidade(ctx.db, { ...NOVO, period: VIGENCIA })).rejects.toThrow(
+      ContextNotFoundError,
+    );
+
+    // A tela que cadastra pede explicitamente, e recebe as trinta em branco.
+    const emBranco = await lerCadastroDaUnidade(ctx.db, {
+      ...NOVO,
+      period: VIGENCIA,
+      aceitarCanalNovo: true,
+    });
+    expect(emBranco!.resumo.linhas).toBe(30);
+    expect(emBranco!.resumo.comLastro).toBe(0);
+    expect(emBranco!.contexto.channel).toBe("TRANSFERENCIA");
+  });
+
+  it("continua recusando uma unidade que não existe, mesmo para escrever", async () => {
+    await expect(
+      gravarPlanilhaDaUnidade(ctx.db, {
+        scopeHash: "escopo-que-ninguem-importou",
+        channel: "ROTA",
+        period: VIGENCIA,
+        celulas: [{ chave: "van_custo_fixo", valor: 1 }],
+      }),
+    ).rejects.toThrow(ContextNotFoundError);
   });
 });
 

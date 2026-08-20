@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm";
 import type { Database } from "@workspace/db";
 import {
   ContextNotFoundError,
+  aplicarJanela,
   channelSql,
   contextFilter,
   listContexts,
@@ -21,6 +22,7 @@ import {
 import type { CavaloDaVigencia, TrechoDaVigencia } from "./medicao";
 import { montarCadastro, type CadastroMontado } from "./montagem";
 import {
+  canaisComPlanilha,
   chaveDaPlanilha,
   copiarPlanilha,
   gravarPlanilha,
@@ -190,9 +192,74 @@ export class ComparacaoSemDuasVigencias extends Error {
 
 export { ContextNotFoundError };
 
-/** As unidades que já entregaram vigência — o seletor do módulo. */
+/**
+ * As unidades e canais que este módulo conhece — o acervo **mais** a planilha.
+ *
+ * `listContexts` responde "quem entregou vigência", e essa era a lista inteira
+ * enquanto o cadastro só lia o acervo. Com a planilha informada ela deixou de
+ * ser: a aba de Excel de um canal existe antes do export dele, e é justamente
+ * nesse intervalo que digitá-la vale a pena. Uma unidade que só entregou
+ * `EMPURRADA` pode ter uma planilha de `ROTA` — e, lida só pelo acervo, essa
+ * planilha ficaria gravada e sem tela nenhuma que a mostrasse.
+ *
+ * **O que o canal só-da-planilha herda, e o que ele não herda.** Herda a
+ * unidade: escopo, rótulo e as vigências são os da unidade, porque é a mesma
+ * unidade — o canal descreve a operação, não outro cliente. Não herda material
+ * nenhum: `lerCavalosEmLote` e `lerTrechosEmLote` filtram por canal e devolvem
+ * vazio, então todas as trinta linhas nascem sem lastro e só o que foi digitado
+ * tem número. É a resposta certa: o acervo de fato não diz nada sobre aquele
+ * canal.
+ *
+ * **Por que a unidade tem de existir no acervo mesmo assim.** Porque o escopo
+ * é dela: sem uma série importada não há `scope_hash`, não há CNPJ e não há
+ * rótulo — a planilha ficaria pendurada num identificador que ninguém sabe ler.
+ * Canal novo em unidade conhecida é declaração; unidade nova é importação.
+ */
+async function contextosDoModulo(db: Database): Promise<ContextInfo[]> {
+  const [doAcervo, daPlanilha] = await Promise.all([listContexts(db), canaisComPlanilha(db)]);
+  if (daPlanilha.length === 0) return doAcervo;
+
+  const jaExiste = new Set(doAcervo.map((c) => chaveDoAlvo(c.scopeHash, c.channel)));
+  const irmaoDoEscopo = new Map<string, ContextInfo>();
+  for (const c of doAcervo) if (!irmaoDoEscopo.has(c.scopeHash)) irmaoDoEscopo.set(c.scopeHash, c);
+
+  const sinteticos: ContextInfo[] = [];
+  for (const canal of daPlanilha) {
+    if (jaExiste.has(chaveDoAlvo(canal.scopeHash, canal.canal))) continue;
+    const irmao = irmaoDoEscopo.get(canal.scopeHash);
+    /*
+      Sem irmão, a unidade saiu do acervo depois de a planilha ser gravada — uma
+      importação excluída, por exemplo. A planilha continua no banco e some da
+      lista, e é o comportamento certo: o rótulo e o escopo dela viviam na
+      série que deixou de existir, e inventá-los aqui seria escrever um nome de
+      unidade que nenhum arquivo sustenta.
+    */
+    if (!irmao) continue;
+    sinteticos.push({
+      ...irmao,
+      channel: canal.canal,
+      label: rotuloComCanal(irmao, canal.canal),
+    });
+  }
+
+  return [...doAcervo, ...sinteticos];
+}
+
+/**
+ * O rótulo da unidade com outro canal — "CAMAÇARI · ROTA".
+ *
+ * O rótulo do irmão vem como "CAMAÇARI · EMPURRADA", e trocar o canal exige
+ * cortar o que veio depois do separador. Quando o irmão não tem canal, o
+ * rótulo é só o da unidade e o canal entra depois dele.
+ */
+function rotuloComCanal(irmao: ContextInfo, canal: string | null): string {
+  const daUnidade = irmao.channel === null ? irmao.label : irmao.label.split(" · ")[0]!;
+  return canal === null ? daUnidade : `${daUnidade} · ${canal}`;
+}
+
+/** As unidades que já entregaram vigência, e os canais que só a planilha tem. */
 export function listarUnidades(db: Database): Promise<ContextInfo[]> {
-  return listContexts(db);
+  return contextosDoModulo(db);
 }
 
 /**
@@ -208,12 +275,30 @@ export function listarUnidades(db: Database): Promise<ContextInfo[]> {
  */
 export async function lerCadastroDaUnidade(
   db: Database,
-  pedido?: RequestedContext & { period?: string },
+  pedido?: RequestedContext & {
+    period?: string;
+    /**
+     * Aceitar um canal que ainda não existe, desde que a unidade exista.
+     *
+     * Só a **tela que cadastra a planilha** pede assim, e ela precisa: é o
+     * lugar onde o canal nasce. Abrir o formulário de `ROTA` numa unidade que
+     * só entregou `EMPURRADA` tem de mostrar as trinta linhas em branco para
+     * que alguém possa preenchê-las — recusar antes de a primeira célula ser
+     * digitada tornaria a escrita, que já aceita o canal novo, inalcançável.
+     *
+     * Fora dela o padrão continua sendo recusar, e é o certo: um canal digitado
+     * errado num link tem de responder 404, e não um cadastro vazio que se
+     * parece com uma unidade que perdeu o lastro.
+     */
+    aceitarCanalNovo?: boolean;
+  },
 ): Promise<CadastroDaUnidade | null> {
-  const contextos = await listContexts(db);
+  const contextos = await contextosDoModulo(db);
   if (contextos.length === 0) return null;
 
-  const contexto = (await resolveContext(db, pedido, contextos))!;
+  const contexto = pedido?.aceitarCanalNovo
+    ? await resolverParaEscrita(db, contextos, pedido)
+    : (await resolveContext(db, pedido, contextos))!;
   const effectiveDate = conferirVigencia(contexto, pedido?.period ?? contexto.latestPeriod);
   const { montado, material } = await montarDaVigencia(db, effectiveDate, contexto);
 
@@ -249,7 +334,7 @@ export async function lerComparacaoDeCadastros(
   db: Database,
   pedido?: RequestedContext & { de?: string; ate?: string },
 ): Promise<ComparacaoDeCadastros | null> {
-  const contextos = await listContexts(db);
+  const contextos = await contextosDoModulo(db);
   if (contextos.length === 0) return null;
 
   const contexto = (await resolveContext(db, pedido, contextos))!;
@@ -317,7 +402,7 @@ export async function lerComparacaoDeCadastros(
  * conjunto vazio é uma resposta legítima que a tela sabe escrever.
  */
 export async function lerSituacaoDasUnidades(db: Database): Promise<SituacaoDasUnidades> {
-  const contextos = await listContexts(db);
+  const contextos = await contextosDoModulo(db);
   const alvos: Alvo[] = contextos.map((contexto) => ({
     contexto,
     effectiveDate: contexto.latestPeriod,
@@ -433,10 +518,10 @@ export async function copiarPlanilhaDaUnidade(
     autor?: { id: string | null; nome: string | null };
   },
 ): Promise<PlanilhaDaVigencia | null> {
-  const contextos = await listContexts(db);
+  const contextos = await contextosDoModulo(db);
   if (contextos.length === 0) return null;
 
-  const contexto = (await resolveContext(db, pedido, contextos))!;
+  const contexto = await resolverParaEscrita(db, contextos, pedido);
   return copiarPlanilha(db, {
     scopeHash: contexto.scopeHash,
     canal: contexto.channel,
@@ -451,14 +536,65 @@ async function resolverAlvoDaPlanilha(
   db: Database,
   pedido?: RequestedContext & { period?: string },
 ): Promise<{ scopeHash: string; canal: string | null; effectiveDate: string } | null> {
-  const contextos = await listContexts(db);
+  const contextos = await contextosDoModulo(db);
   if (contextos.length === 0) return null;
 
-  const contexto = (await resolveContext(db, pedido, contextos))!;
+  const contexto = await resolverParaEscrita(db, contextos, pedido);
   return {
     scopeHash: contexto.scopeHash,
     canal: contexto.channel,
     effectiveDate: conferirVigencia(contexto, pedido?.period ?? contexto.latestPeriod),
+  };
+}
+
+/**
+ * O contexto de uma **escrita** de planilha — e a única regra em que ele é mais
+ * permissivo que o de uma leitura.
+ *
+ * Numa leitura, um canal que não existe é um pedido por algo que não existe, e
+ * `resolveContext` recusa. Numa escrita, é o gesto de **criar** a planilha
+ * daquele canal: a aba de ROTA existe antes de o export de ROTA chegar, e
+ * exigir a série importada antes de aceitar a aba inverteria a ordem em que a
+ * operação de fato acontece — a planilha é o que se recebe primeiro.
+ *
+ * O que continua sendo exigido é a **unidade**: o escopo, o CNPJ e o rótulo são
+ * dela, e sem uma série importada nada disso existe. Canal novo em unidade
+ * conhecida é declaração; unidade nova é importação, e continua 404.
+ *
+ * As vigências oferecidas ao canal novo são as da unidade, herdadas do irmão —
+ * é a resposta certa: a quinzena é do calendário do cliente, não da série.
+ */
+async function resolverParaEscrita(
+  db: Database,
+  contextos: ContextInfo[],
+  pedido?: RequestedContext,
+): Promise<ContextInfo> {
+  const canalPedido = pedido?.channel;
+  const escopoPedido = pedido?.scopeHash;
+
+  const exato = contextos.find(
+    (c) =>
+      (escopoPedido === undefined || c.scopeHash === escopoPedido) &&
+      (canalPedido === undefined || c.channel === canalPedido),
+  );
+  if (exato) return aplicarJanela(exato, pedido?.janela ?? null);
+
+  const irmao =
+    escopoPedido === undefined ? undefined : contextos.find((c) => c.scopeHash === escopoPedido);
+  if (!irmao || canalPedido === undefined) {
+    /*
+      Sem irmão a unidade não existe, e a recusa é a mesma de sempre — inclusive
+      a mensagem, que lista as unidades disponíveis. Delegar a `resolveContext`
+      em vez de construir o erro aqui é o que garante que as duas portas digam a
+      mesma frase.
+    */
+    return (await resolveContext(db, pedido, contextos))!;
+  }
+
+  return {
+    ...irmao,
+    channel: canalPedido,
+    label: rotuloComCanal(irmao, canalPedido),
   };
 }
 

@@ -1,0 +1,51 @@
+-- O tipo de operação entra na chave da competência — EMPURRADA e ROTA deixam de
+-- ser um fechamento só.
+--
+-- **O recorte que estava incompleto.** A trinca (unidade, transportadora,
+-- quinzena) foi escrita com a frase "uma quinzena de um CDD com uma
+-- transportadora é **um** fechamento, e dois seria o começo de duas verdades
+-- sobre o mesmo dinheiro". A frase continua verdadeira; o que faltava nela era
+-- o quarto eixo. O mesmo CDD roda EMPURRADA e ROTA com a mesma transportadora
+-- na mesma quinzena, e são duas operações — cada uma com a sua planilha de
+-- remuneração, os seus relatórios e a sua conta. Somá-las num fechamento só era
+-- que produzia a verdade misturada.
+--
+-- **Por que a coluna não se chama `canal`.** Porque `canal` já existe neste
+-- módulo e significa outra coisa: `ROTA` | `AS`, distribuição urbana diária
+-- contra área de serviço, o primeiro eixo de agregação de toda a apuração (ver
+-- `lib/fechamento/src/dominio.ts`). As duas palavras colidem exatamente em
+-- `ROTA` e querem dizer coisas diferentes. Dois campos com o mesmo nome no
+-- mesmo módulo, um deles capaz de guardar `ROTA` significando outra coisa, é a
+-- forma exata do erro que este produto escreve ensaios para não cometer.
+--
+-- O eixo desta coluna é o de `remuneracao_planilha.canal` e o do rótulo da
+-- vigência (`EMPURRADA_1_8_2026` → `EMPURRADA`): é a operação que a planilha de
+-- remuneração descreve, e é por ele que um fechamento se liga ao cadastro que o
+-- remunera.
+--
+-- **O backfill não adivinha.** As competências abertas antes desta coluna
+-- recebem `NAO_INFORMADO`, e a única coisa que esse valor afirma é que ninguém
+-- disse. Escrever `EMPURRADA` nelas acertaria hoje — toda vigência deste acervo
+-- é empurrada — e seria invenção como regra: o fechamento não nasce das
+-- vigências, e nenhum dos cinco relatórios que ele consome declara o tipo. É a
+-- mesma recusa de `tributoDe` e de `DIZ_QUE_SIM`, que devolvem nulo em vez de
+-- escolher o valor mais provável.
+--
+-- O `DEFAULT` fica, e é fail-safe pela razão **oposta** à de `app_user.role`:
+-- lá o default não podia fabricar um administrador; aqui ele não pode fabricar
+-- um tipo. `NAO_INFORMADO` não se confunde com nenhum tipo real, e a rota exige
+-- um de verdade para abrir.
+--
+-- **A troca do índice não perde unicidade em momento nenhum**: o índice novo é
+-- mais estrito que o velho (quatro colunas contra três), e as linhas que
+-- existem têm todas o mesmo `tipo_de_operacao`, de modo que qualquer par que
+-- colidia antes continua colidindo. `DROP` e `CREATE` na mesma transação, que é
+-- como `runMigrations` aplica cada arquivo.
+--
+-- O DDL é o que `drizzle-kit generate` produziu do schema, com `IF EXISTS` /
+-- `IF NOT EXISTS` pela razão das anteriores: a adoção de um banco que já esteja
+-- nesse estado não pode travar a fila.
+
+ALTER TABLE "fechamento_competencia" ADD COLUMN IF NOT EXISTS "tipo_de_operacao" text DEFAULT 'NAO_INFORMADO' NOT NULL;--> statement-breakpoint
+DROP INDEX IF EXISTS "fechamento_competencia_unica";--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "fechamento_competencia_unica" ON "fechamento_competencia" USING btree ("unidade_codigo","transportadora_codigo","tipo_de_operacao","chave");

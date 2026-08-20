@@ -166,6 +166,50 @@ export async function lerPlanilhasEmLote(
   return planilhas;
 }
 
+/** Uma unidade e um canal que a planilha informada conhece. */
+export interface CanalComPlanilha {
+  scopeHash: string;
+  /** `null` é a série sem canal — a leitura desfaz o `''` da coluna. */
+  canal: string | null;
+  /** As vigências em que esta planilha tem linha, da mais antiga à mais recente. */
+  vigencias: string[];
+}
+
+/**
+ * Os pares (unidade, canal) que a planilha informada conhece.
+ *
+ * Existe por uma razão só, e ela é a diferença entre a planilha ser útil e ser
+ * invisível: **o canal da planilha não precisa existir no acervo.** Uma unidade
+ * que só entregou a série `EMPURRADA` pode ter uma planilha de `ROTA` — a aba
+ * de Excel da rota existe antes de o export dela chegar, e é justamente nesse
+ * intervalo que digitá-la vale a pena.
+ *
+ * Sem esta leitura, aquela planilha ficaria gravada e sem tela: a lista de
+ * unidades sai de `listContexts`, que só conhece o que foi importado, e o
+ * canal de ROTA não apareceria em lugar nenhum. Ver `contextosDoModulo` em
+ * `leitura.ts`, que soma as duas fontes.
+ */
+export async function canaisComPlanilha(db: Database): Promise<CanalComPlanilha[]> {
+  const { rows } = await db.execute<{
+    scope_hash: string;
+    canal: string;
+    vigencias: string[];
+  }>(sql`
+    SELECT p.scope_hash,
+           p.canal,
+           array_agg(DISTINCT p.effective_date::text ORDER BY p.effective_date::text)
+             AS vigencias
+      FROM remuneracao_planilha p
+     GROUP BY p.scope_hash, p.canal
+  `);
+
+  return rows.map((linha) => ({
+    scopeHash: linha.scope_hash,
+    canal: linha.canal === "" ? null : linha.canal,
+    vigencias: linha.vigencias ?? [],
+  }));
+}
+
 /** A chave com que `lerPlanilhasEmLote` indexa um alvo. */
 export function chaveDaPlanilha(
   scopeHash: string,

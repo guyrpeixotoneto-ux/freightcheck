@@ -8,6 +8,7 @@ import {
   apurarCompetencia,
   buscarCompetencia,
   lerResumoDoMes,
+  TipoDeOperacaoAusente,
   descartarDadosDaCompetencia,
   encerrarCompetencia,
   excluirCompetencia,
@@ -114,16 +115,127 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
 
   const unidade = { codigo: "443", nome: "CDD FICTICIO" };
   const transportadora = { codigo: "36", nome: "TRANSPORTES FICTICIA LTDA" };
+  /*
+    O tipo de operação entra em toda abertura desde a `0046`: ele faz parte da
+    chave, e o compilador o cobre em cada chamada. Aqui ele é sempre o mesmo,
+    porque estes casos são sobre outra coisa; os dois que **são** sobre ele
+    estão no bloco "o tipo de operação separa dois fechamentos", mais abaixo.
+  */
+  const tipoDeOperacao = "EMPURRADA";
 
   it("abrir a mesma competência duas vezes devolve a mesma", async () => {
-    const a = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
-    const b = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    const a = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora, tipoDeOperacao });
+    const b = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora, tipoDeOperacao });
     expect(b.id).toBe(a.id);
     expect(a.chave).toBe("2026-07-Q2");
   });
 
+  /*
+    O quarto eixo da chave, da `0046`.
+
+    O caso central é o segundo: sem o tipo, a abertura de ROTA encontrava a de
+    EMPURRADA e devolvia **o fechamento da outra operação** — em silêncio, e
+    pelo caminho feliz, porque repetir a abertura é o gesto de quem volta à tela
+    no dia seguinte. Quem abrisse ROTA passaria a mandar os relatórios de rota
+    para dentro do fechamento de empurrada.
+  */
+  describe("o tipo de operação separa dois fechamentos", () => {
+    it("a mesma quinzena com tipos diferentes são duas competências", async () => {
+      const empurrada = await abrirCompetencia(db, {
+        ano: 2026, mes: 9, quinzena: 1, unidade, transportadora, tipoDeOperacao: "EMPURRADA",
+      });
+      const rota = await abrirCompetencia(db, {
+        ano: 2026, mes: 9, quinzena: 1, unidade, transportadora, tipoDeOperacao: "ROTA",
+      });
+
+      expect(rota.id).not.toBe(empurrada.id);
+      expect(rota.chave).toBe(empurrada.chave);
+      expect(empurrada.tipoDeOperacao).toBe("EMPURRADA");
+      expect(rota.tipoDeOperacao).toBe("ROTA");
+    });
+
+    it("e cada uma continua idempotente dentro do seu tipo", async () => {
+      const uma = await abrirCompetencia(db, {
+        ano: 2026, mes: 9, quinzena: 2, unidade, transportadora, tipoDeOperacao: "ROTA",
+      });
+      const outra = await abrirCompetencia(db, {
+        ano: 2026, mes: 9, quinzena: 2, unidade, transportadora, tipoDeOperacao: "ROTA",
+      });
+      expect(outra.id).toBe(uma.id);
+    });
+
+    /*
+      A normalização é o que impede "Empurrada" e "EMPURRADA" de virarem dois
+      fechamentos do mesmo mês — o eixo é o do rótulo da vigência, que é caixa
+      alta.
+    */
+    it("normaliza a caixa antes de comparar", async () => {
+      const alta = await abrirCompetencia(db, {
+        ano: 2026, mes: 10, quinzena: 1, unidade, transportadora, tipoDeOperacao: "EMPURRADA",
+      });
+      const baixa = await abrirCompetencia(db, {
+        ano: 2026, mes: 10, quinzena: 1, unidade, transportadora, tipoDeOperacao: " empurrada ",
+      });
+      expect(baixa.id).toBe(alta.id);
+      expect(baixa.tipoDeOperacao).toBe("EMPURRADA");
+    });
+
+    /*
+      `NAO_INFORMADO` é o carimbo do backfill, e nada além dele pode escrevê-lo:
+      deixá-lo passar daria a quem abre uma forma de dizer "não sei" num campo
+      que a operação decidiu que é obrigatório.
+    */
+    it("recusa abrir sem tipo, e recusa o carimbo do backfill", async () => {
+      for (const tipo of ["", "   ", "NAO_INFORMADO", "nao_informado"]) {
+        await expect(
+          abrirCompetencia(db, {
+            ano: 2026, mes: 11, quinzena: 1, unidade, transportadora, tipoDeOperacao: tipo,
+          }),
+          `tipo ${JSON.stringify(tipo)}`,
+        ).rejects.toThrow(TipoDeOperacaoAusente);
+      }
+    });
+
+    it("o resumo do mês é de uma operação, e não da unidade", async () => {
+      await abrirCompetencia(db, {
+        ano: 2026, mes: 12, quinzena: 1, unidade, transportadora, tipoDeOperacao: "EMPURRADA",
+      });
+      await abrirCompetencia(db, {
+        ano: 2026, mes: 12, quinzena: 2, unidade, transportadora, tipoDeOperacao: "ROTA",
+      });
+
+      const deEmpurrada = await lerResumoDoMes(db, {
+        unidade: unidade.codigo,
+        transportadora: transportadora.codigo,
+        tipoDeOperacao: "EMPURRADA",
+        ano: 2026,
+        mes: 12,
+      });
+      /*
+        O resumo sempre nomeia as **duas** quinzenas — a que falta aparece
+        vazia, e não some, para que meio mês não tenha cara de mês inteiro. O
+        que o recorte por tipo decide é qual delas tem competência: sem ele, as
+        duas competências cairiam nas mesmas duas colunas e o mês somaria duas
+        operações num total só.
+      */
+      const comCompetencia = (r: Awaited<ReturnType<typeof lerResumoDoMes>>) =>
+        r.quinzenas.filter((q) => q.competenciaId !== null).map((q) => q.quinzena);
+
+      expect(comCompetencia(deEmpurrada)).toEqual([1]);
+
+      const deRota = await lerResumoDoMes(db, {
+        unidade: unidade.codigo,
+        transportadora: transportadora.codigo,
+        tipoDeOperacao: "ROTA",
+        ano: 2026,
+        mes: 12,
+      });
+      expect(comCompetencia(deRota)).toEqual([2]);
+    });
+  });
+
   it("recebe as cinco fontes e reproduz, do banco, a conta que a aritmética dá", async () => {
-    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora, tipoDeOperacao });
     const fontes = [
       ["OPERACAO", "2art.xlsx", fixtureOperacao()],
       ["CTE", "03.08.15.xlsx", fixtureCtes()],
@@ -185,7 +297,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     };
 
     const deSempre = await abrirCompetencia(db, {
-      ano: 2026, mes: 7, quinzena: 2, unidade: noFormatoDeSempre, transportadora,
+      ano: 2026, mes: 7, quinzena: 2, unidade: noFormatoDeSempre, transportadora, tipoDeOperacao,
     });
     await receber(deSempre.id, [
       ["OPERACAO", "2art.xlsx", fixtureOperacao()],
@@ -200,6 +312,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     const nosOutros = await abrirCompetencia(db, {
       ano: 2026, mes: 7, quinzena: 2, unidade: { codigo: "448", nome: "CDD DOS FORMATOS 2" },
       transportadora,
+      tipoDeOperacao,
     });
     await receber(nosOutros.id, [
       ["OPERACAO", "2art.csv", fixtureOperacaoEmCsv()],
@@ -230,7 +343,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
   }, 120_000);
 
   it("guarda a memória de cálculo de cada parcela, com o fator medido", async () => {
-    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora, tipoDeOperacao });
     const apuracao = (await lerApuracaoVigente(db, comp.id))!;
     const freteiro = apuracao.verbas.find((v) => v.vbz === 7)!;
     expect(freteiro.memoria).toHaveLength(2);
@@ -241,7 +354,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
   });
 
   it("recusa o mesmo arquivo duas vezes — recebê-lo de novo dobraria a conta", async () => {
-    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora, tipoDeOperacao });
     await expect(
       receberDocumento(db, {
         competenciaId: comp.id,
@@ -263,7 +376,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
        mesmo arquivo entra sem reclamação na competência de julho (ver o teste
        que recebe as cinco fontes, e o `viagensForaDoPeriodo` de 1 mais abaixo),
        porque o 2Art é mensal e a quinzena é meio mês. */
-    const agosto = await abrirCompetencia(db, { ano: 2026, mes: 8, quinzena: 1, unidade, transportadora });
+    const agosto = await abrirCompetencia(db, { ano: 2026, mes: 8, quinzena: 1, unidade, transportadora, tipoDeOperacao });
     const recusa = await receberDocumento(db, {
       competenciaId: agosto.id,
       tipo: "OPERACAO",
@@ -284,7 +397,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
   }, 60_000);
 
   it("reenviar uma exportação corrigida substitui a anterior e mantém as duas no histórico", async () => {
-    const comp = await abrirCompetencia(db, { ano: 2026, mes: 8, quinzena: 1, unidade, transportadora });
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 8, quinzena: 1, unidade, transportadora, tipoDeOperacao });
     await receberDocumento(db, {
       competenciaId: comp.id,
       tipo: "REQUISICOES",
@@ -316,7 +429,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
     /* A grade da tela: um item por dia do período, com ou sem operação. A
        viagem de 01/07 está no mesmo 2Art e pertence à 1ª quinzena — ela é
        contada como fora do período, e não somada em dia nenhum daqui. */
-    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora, tipoDeOperacao });
     const diario = (await lerDiarioDaCompetencia(db, comp.id))!;
 
     expect(diario.fonte?.nomeDoArquivo).toBe("2art.xlsx");
@@ -330,7 +443,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
   it("abre o dia com a viagem inteira — o retrato atravessa o banco", async () => {
     /* A prova de que a tela do dia mostra o que o 2Art trouxe, e não uma
        versão empobrecida dele: o retrato sai do arquivo, vira coluna, e volta. */
-    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora, tipoDeOperacao });
     const aberto = (await lerDiaDaCompetencia(db, comp.id, "2026-07-16"))!;
 
     expect(aberto.dia.viagens).toHaveLength(3);
@@ -357,19 +470,19 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
   }, 60_000);
 
   it("dia fora da quinzena não existe — e não é um dia vazio", async () => {
-    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora, tipoDeOperacao });
     expect(await lerDiaDaCompetencia(db, comp.id, "2026-07-01")).toBeNull();
   });
 
   it("salvar a quinzena exige ter apurado — congelar o que não se sabe quanto vale é pior", async () => {
-    const comp = await abrirCompetencia(db, { ano: 2026, mes: 10, quinzena: 1, unidade, transportadora });
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 10, quinzena: 1, unidade, transportadora, tipoDeOperacao });
     await expect(encerrarCompetencia(db, comp.id)).rejects.toMatchObject({
       codigo: "COMPETENCIA_NAO_APURADA",
     });
   });
 
   it("salva a quinzena, e salvar de novo é um clique repetido e não um erro", async () => {
-    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora, tipoDeOperacao });
     const fechada = await encerrarCompetencia(db, comp.id);
     expect(fechada.estado).toBe("ENCERRADA");
     expect(fechada.encerradaEm).not.toBeNull();
@@ -377,7 +490,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
   });
 
   it("a quinzena salva não aceita mais nem documento nem reapuração", async () => {
-    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora, tipoDeOperacao });
     await expect(
       receberDocumento(db, {
         competenciaId: comp.id,
@@ -392,7 +505,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
   });
 
   it("reabrir exige motivo escrito, e o motivo fica no registro", async () => {
-    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora, tipoDeOperacao });
     await expect(reabrirCompetencia(db, comp.id, { motivo: "   " })).rejects.toMatchObject({
       codigo: "MOTIVO_OBRIGATORIO",
     });
@@ -415,7 +528,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
   }, 60_000);
 
   it("reabrir o que não está encerrado é recusado", async () => {
-    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora });
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 7, quinzena: 2, unidade, transportadora, tipoDeOperacao });
     await expect(reabrirCompetencia(db, comp.id, { motivo: "qualquer" })).rejects.toMatchObject({
       codigo: "COMPETENCIA_NAO_ESTA_ENCERRADA",
     });
@@ -447,6 +560,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
       quinzena: 1,
       unidade: nova,
       transportadora,
+      tipoDeOperacao,
     });
 
     /* Antes: a unidade aparece com a competência que a estreou. */
@@ -567,6 +681,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
         quinzena: 2,
         unidade: unidadeDoPagamento,
         transportadora,
+      tipoDeOperacao,
       });
       await receberDocumento(db, {
         competenciaId: comp.id,
@@ -612,10 +727,17 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
       const resumo = await lerResumoDoMes(db, {
         unidade: unidadeDoPagamento.codigo,
         transportadora: transportadora.codigo,
+        tipoDeOperacao,
         ano: 2026,
         mes: 7,
       });
 
+      /*
+        `canal` aqui é o outro eixo — `ROTA` | `AS`, distribuição urbana contra
+        área de serviço —, e não o `tipoDeOperacao` que acabou de recortar a
+        busca. As duas palavras colidem em "ROTA" e vivem no mesmo objeto, que é
+        precisamente por que a coluna da `0046` não se chama `canal`.
+      */
       const rota = resumo.canais.find((c) => c.canal === "ROTA")!;
       /* Só a 2ª quinzena existe: a coluna da 1ª fica vazia, e o total do mês é
          o que existe — não meio mês com cara de mês inteiro. */
@@ -646,6 +768,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
         quinzena: 1,
         unidade: unidadeDoPagamento,
         transportadora,
+      tipoDeOperacao,
       });
       const recusa = await receberDocumento(db, {
         competenciaId: agosto.id,
@@ -683,6 +806,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
         quinzena: 2,
         unidade: unidadeDoDescarte,
         transportadora,
+      tipoDeOperacao,
       });
       const fontes = [
         ["OPERACAO", "2art.xlsx", fixtureOperacao()],
@@ -739,6 +863,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
         quinzena: 2,
         unidade: unidadeDoDescarte,
         transportadora,
+      tipoDeOperacao,
       });
       const enviar = () =>
         receberDocumento(db, {
@@ -766,6 +891,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
         quinzena: 1,
         unidade: unidadeDoDescarte,
         transportadora,
+      tipoDeOperacao,
       });
       await pool.query("update fechamento_competencia set estado = 'ENCERRADA' where id = $1", [
         comp.id,
@@ -792,6 +918,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
         quinzena: 2,
         unidade: unidadeDaExclusao,
         transportadora,
+      tipoDeOperacao,
       });
       const fontes = [
         ["OPERACAO", "2art.xlsx", fixtureOperacao()],
@@ -835,6 +962,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
         quinzena: 1,
         unidade: unidadeDaExclusao,
         transportadora,
+      tipoDeOperacao,
       });
       await excluirCompetencia(db, antes.id);
       const depois = await abrirCompetencia(db, {
@@ -843,6 +971,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
         quinzena: 1,
         unidade: unidadeDaExclusao,
         transportadora,
+      tipoDeOperacao,
       });
       expect(depois.id).not.toBe(antes.id);
       expect(depois.estado).toBe("ABERTA");
@@ -855,6 +984,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
         quinzena: 2,
         unidade: unidadeDaExclusao,
         transportadora,
+      tipoDeOperacao,
       });
       await pool.query("update fechamento_competencia set estado = 'ENCERRADA' where id = $1", [
         comp.id,
@@ -879,7 +1009,7 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
   });
 
   it("uma competência encerrada não aceita documento", async () => {
-    const comp = await abrirCompetencia(db, { ano: 2026, mes: 9, quinzena: 1, unidade, transportadora });
+    const comp = await abrirCompetencia(db, { ano: 2026, mes: 9, quinzena: 1, unidade, transportadora, tipoDeOperacao });
     await pool.query("update fechamento_competencia set estado = 'ENCERRADA' where id = $1", [comp.id]);
     await expect(
       receberDocumento(db, {
