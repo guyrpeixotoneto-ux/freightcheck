@@ -6,7 +6,6 @@ import {
   channelSql,
   contextFilter,
   listContexts,
-  periodLabel,
   resolveContext,
   type ContextInfo,
   type RequestedContext,
@@ -32,6 +31,7 @@ import {
 } from "./planilha";
 import type { PlanilhaDeclarada } from "./informado";
 import { compararCadastros, type CadastroComparado } from "./comparacao";
+import { rotuloDaVigencia } from "./vigencia";
 import { medirSituacao, type EstadoDoCadastro, type SituacaoDoCadastro } from "./situacao";
 
 /**
@@ -69,6 +69,14 @@ import { medirSituacao, type EstadoDoCadastro, type SituacaoDoCadastro } from ".
 
 export interface VigenciaDoCadastro {
   effectiveDate: string;
+  /**
+   * Como a vigência se escreve na tela — e aqui não é o rótulo genérico.
+   *
+   * A planilha é quinzenal, e duas entregas do mesmo mês precisam de textos
+   * diferentes para que o seletor não ofereça dois itens iguais. Quem decide é
+   * `rotuloDaVigencia`, em `vigencia.ts`, e a decisão depende do que a unidade
+   * entregou naquele mês.
+   */
   periodLabel: string;
 }
 
@@ -306,7 +314,7 @@ export async function lerCadastroDaUnidade(
     ...montado,
     contexto: retratoDo(contexto),
     effectiveDate,
-    periodLabel: periodLabel(effectiveDate),
+    periodLabel: rotuloDaVigencia(effectiveDate, contexto.periodosDisponiveis),
     vigencias: vigenciasDe(contexto),
     material,
   };
@@ -367,12 +375,12 @@ export async function lerComparacaoDeCadastros(
     contexto: retratoDo(contexto),
     esquerda: {
       effectiveDate: dataEsquerda,
-      periodLabel: periodLabel(dataEsquerda),
+      periodLabel: rotuloDaVigencia(dataEsquerda, disponiveis),
       material: esquerda.material,
     },
     direita: {
       effectiveDate: dataDireita,
-      periodLabel: periodLabel(dataDireita),
+      periodLabel: rotuloDaVigencia(dataDireita, disponiveis),
       material: direita.material,
     },
     vigencias: vigenciasDe(contexto),
@@ -435,7 +443,7 @@ export async function lerSituacaoDasUnidades(db: Database): Promise<SituacaoDasU
     return {
       ...retratoDo(contexto),
       effectiveDate: contexto.latestPeriod,
-      periodLabel: periodLabel(contexto.latestPeriod),
+      periodLabel: rotuloDaVigencia(contexto.latestPeriod, contexto.periodosDisponiveis),
       vigencias: contexto.periods,
       material,
       cadastro: medirSituacao(montado),
@@ -682,7 +690,7 @@ function retratoDo(contexto: ContextInfo): ContextoDoCadastro {
 function vigenciasDe(contexto: ContextInfo): VigenciaDoCadastro[] {
   return contexto.periodosDisponiveis.map((data) => ({
     effectiveDate: data,
-    periodLabel: periodLabel(data),
+    periodLabel: rotuloDaVigencia(data, contexto.periodosDisponiveis),
   }));
 }
 

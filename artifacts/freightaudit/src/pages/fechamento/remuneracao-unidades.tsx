@@ -212,6 +212,22 @@ export default function RemuneracaoUnidades() {
                 parou de entregar parecer em dia.
               </p>
               {/*
+                A cadência da planilha é a mesma da vigência, e dizê-lo aqui
+                evita a leitura errada que a coluna sozinha convida: quem
+                preencheu a 1ª quinzena e voltar no dia 16 vai ver "nada
+                informado" — não porque o que digitou sumiu, mas porque a linha
+                passou a responder pela quinzena seguinte, que ainda está em
+                branco. Sem esta frase, a conclusão natural é que o cadastro se
+                perdeu.
+              */}
+              <p className="text-xs text-muted-foreground">
+                A <strong>planilha informada</strong> segue a mesma quinzena: a coluna conta o
+                que foi digitado para a vigência escrita na linha, e a quinzena seguinte começa
+                em branco sem apagar a anterior. Dentro do formulário há{" "}
+                <em>copiar de outra vigência</em>, para partir da quinzena passada e corrigir
+                só o que mudou.
+              </p>
+              {/*
                 Sem lastro é o único dos quatro estados em que o acervo não
                 responde **nada**, e por isso é o único que ganha frase própria:
                 nele a planilha informada não é complemento, é a única forma de o
