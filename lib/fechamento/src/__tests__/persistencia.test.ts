@@ -40,6 +40,7 @@ import {
   fixtureOperacao,
   fixtureOperacaoEmCsv,
   fixturePagamento,
+  fixturePagamento1aQuinzenaReal,
   fixturePagamentoDoPainel,
   fixturePagamentoEmCsv,
   fixtureRequisicoes,
@@ -456,6 +457,22 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
       tipoDeOperacao,
     });
 
+  /*
+    A mesma coisa para a 1ª quinzena, que é o período que o arquivo real declara
+    (`Periodo: 01/07/2026 a 15/07/2026`). Duas fixtures, dois períodos: usar a
+    competência errada faria `recusarPagamentoDeOutroPeriodo` recusar na porta, e
+    o teste passaria a medir a recusa em vez do que ele quer medir.
+  */
+  const competenciaDaPrimeira = () =>
+    abrirCompetencia(db, {
+      ano: 2026,
+      mes: 7,
+      quinzena: 1,
+      unidade: { codigo: `QUARENTENA-${proximaUnidade++}`, nome: "CDD DE TESTE" },
+      transportadora,
+      tipoDeOperacao,
+    });
+
   /** O fixture bom, com uma coluna de valor a menos em cada linha de verba. */
   function semVerbaPorColunaAMenos(): Buffer {
     const texto = fixturePagamentoDoPainel().toString("utf8");
@@ -468,6 +485,29 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
         })
         .join("\r\n"),
       "utf8",
+    );
+  }
+
+  /**
+   * O arquivo real da 1ª quinzena com uma coluna de valor a menos.
+   *
+   * O truncado do outro período não serve aqui: `recusarPagamentoDeOutroPeriodo`
+   * o recusaria na porta, e o teste passaria a medir a recusa de período em vez
+   * da quarentena. Vai e volta em latin-1, que é a codificação do arquivo — um
+   * `toString("utf8")` trocaria os acentos do rodapé por outros bytes e faria o
+   * "mesmo arquivo" deixar de ser o mesmo.
+   */
+  function realDaPrimeiraSemUmaColuna(): Buffer {
+    const texto = fixturePagamento1aQuinzenaReal().toString("latin1");
+    return Buffer.from(
+      texto
+        .split(/\r?\n/)
+        .map((l) => {
+          const m = /^(\s*\d{1,3}\s*-\s*.+?\s{2,})((?:-?[\d.]+,\d{2}\s+){5})(-?[\d.]+,\d{2})\s*$/.exec(l);
+          return m ? `${m[1]}${m[2]!.trimEnd()}` : l;
+        })
+        .join("\r\n"),
+      "latin1",
     );
   }
 
@@ -687,6 +727,86 @@ describe.skipIf(!temBanco)("a apuração a partir do banco", () => {
       vigente: true,
       verbas: 0,
     });
+  });
+
+  /*
+    As duas quinzenas, pelo caminho de verdade — upload, gravação, painel. O
+    caso relatado da tela era o de um 03.08.20 que a lista mostrava e o painel
+    negava, e a única forma de provar que isso não é o leitor é levar o arquivo
+    real inteiro até o painel e conferir o total contra o rodapé do papel.
+  */
+  it("a 1ª quinzena: o 03.08.20 real vira dez verbas e enche o painel dos dois canais", async () => {
+    const comp = await competenciaDaPrimeira();
+    const recebido = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_1Q_JUL.txt",
+      conteudo: fixturePagamento1aQuinzenaReal(),
+    });
+
+    expect(recebido.desfecho).toBe("PROMOVIDO");
+    expect(recebido.motivoDaQuarentena).toBeNull();
+    expect(recebido.recusas).toEqual([]);
+    /* O mesmo 14 que a tela mostra — e dez dele são verba. */
+    expect(recebido.linhasLidas).toBe(14);
+    expect(
+      (await listarDocumentos(db, comp.id)).find((d) => d.tipo === "PAGAMENTO"),
+    ).toMatchObject({ vigente: true, verbas: 10 });
+
+    const rota = await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" });
+    const as = await lerDeParaDaCompetencia(db, comp.id, { canal: "AS" });
+    expect(rota?.totalDoRelatorio).toBe(1084580.45);
+    expect(as?.totalDoRelatorio).toBe(42587.82);
+  });
+
+  it("a 2ª quinzena: o 03.08.20 do período seguinte enche o painel pelo mesmo caminho", async () => {
+    const comp = await competenciaSo();
+    const recebido = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_2Q_JUL.txt",
+      conteudo: fixturePagamentoDoPainel(),
+    });
+
+    expect(recebido.desfecho).toBe("PROMOVIDO");
+    expect(
+      (await listarDocumentos(db, comp.id)).find((d) => d.tipo === "PAGAMENTO")?.verbas,
+    ).toBeGreaterThan(0);
+    expect(await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" })).not.toBeNull();
+  });
+
+  it("sobre o 03.08.20 real, um envio sem verba fica em quarentena e não apaga nada", async () => {
+    /* O modo de falhar mais caro, agora contra o arquivo de verdade: o segundo
+       envio despromovia o primeiro e apagava as linhas dele **antes** de saber
+       se prestava. O painel tem de sair do outro lado com o mesmo total. */
+    const comp = await competenciaDaPrimeira();
+    await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_1Q_JUL.txt",
+      conteudo: fixturePagamento1aQuinzenaReal(),
+    });
+
+    const segundo = await receberDocumento(db, {
+      competenciaId: comp.id,
+      tipo: "PAGAMENTO",
+      nomeDoArquivo: "03.08.20_1Q_JUL (truncado).txt",
+      conteudo: realDaPrimeiraSemUmaColuna(),
+    });
+    expect(segundo.desfecho).toBe("EM_QUARENTENA");
+    expect(segundo.motivoDaQuarentena).toContain("nenhuma verba");
+    expect(segundo.substituiu).toBeNull();
+
+    /* O vigente continua sendo o real, com as dez verbas dele. */
+    const vigente = (await listarDocumentos(db, comp.id)).find(
+      (d) => d.tipo === "PAGAMENTO" && d.vigente,
+    );
+    expect(vigente).toMatchObject({ nomeDoArquivo: "03.08.20_1Q_JUL.txt", verbas: 10 });
+    expect((await lerDeParaDaCompetencia(db, comp.id, { canal: "ROTA" }))?.totalDoRelatorio).toBe(
+      1084580.45,
+    );
+    /* E o que não valeu está guardado inteiro, para exame. */
+    expect((await lerConteudoDoDocumento(db, segundo.id))?.conteudo.length).toBeGreaterThan(0);
   });
 
   it("o arquivo volta do banco byte a byte, e é reprocessável sem o .txt", async () => {

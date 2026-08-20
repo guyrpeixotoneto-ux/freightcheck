@@ -25,6 +25,14 @@ import {
   oQueQuestionar,
 } from "@/components/fechamento/fechar-quinzena";
 import { apresentar } from "@/lib/apresentar-erro";
+import {
+  avisoDoEnvio,
+  chaveDaCompetencia,
+  chaveDoDiagnostico,
+  chaveDoDiario,
+  estadoDaFonte,
+  type AvisoDoEnvio,
+} from "@/lib/fechamento-tela";
 import { formatBrl, formatNumber } from "@/lib/format";
 import {
   apurar,
@@ -80,9 +88,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     o 202 como sucesso mudo era o que fazia alguém subir o 03.08.20, não ver
     aviso nenhum e concluir que estava importado.
   */
-  const [quarentena, setQuarentena] = useState<
-    { nomeDoArquivo: string; motivo: string } | null
-  >(null);
+  const [quarentena, setQuarentena] = useState<AvisoDoEnvio | null>(null);
   /*
     O descarte pergunta antes, e a pergunta mora na tela em vez de num
     `window.confirm`: o diálogo do navegador não sabe dizer *quantos* arquivos
@@ -93,17 +99,26 @@ export default function CompetenciaAberta({ id }: { id: string }) {
   const [descartado, setDescartado] = useState<DadosDescartados | null>(null);
 
   const dados = useQuery({
-    queryKey: ["fechamento", "competencia", id],
+    queryKey: chaveDaCompetencia(id),
     queryFn: () => lerCompetencia(id),
   });
   const fontes = useQuery({ queryKey: ["fechamento", "fontes"], queryFn: listarFontes });
   /*
-    O diário é consulta própria, e não parte de `lerCompetencia`: ele muda por
-    outro motivo (o 2Art entrou) e é lido por outra tela (a do dia). Juntá-los
-    faria toda apuração reinvalidar a grade de dias, que não mudou.
+    O diário continua sendo consulta própria, e não parte de `lerCompetencia`:
+    ele muda por outro motivo (o 2Art entrou) e é lido por outra tela (a do dia).
+
+    **O que mudou é a chave, e é uma reversão consciente.** Ela era irmã da
+    competência, para que apurar não reinvalidasse uma grade de dias que não
+    mudou; hoje é filha, e apurar a reinvalida. O que se comprou com esse
+    pedido a mais foi a regra sem exceção — *tudo que se pergunta sobre uma
+    competência pendura-se na chave dela* —, e o que se pagava sem ela foi o
+    painel da planilha: irmão também, esquecido em todas as invalidações,
+    dizendo que o 03.08.20 não fora importado enquanto a lista o mostrava. Uma
+    regra com uma exceção não teria como avisar quem escrevesse a próxima
+    consulta de qual das duas metades ele estava.
   */
   const diario = useQuery({
-    queryKey: ["fechamento", "diario", id],
+    queryKey: chaveDoDiario(id),
     queryFn: () => lerDiario(id),
   });
 
@@ -116,19 +131,15 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     },
     onError: (erro) => setErroDoEnvio(textoDoErro(erro)),
     onSuccess: (recebido) => {
-      setQuarentena(
-        recebido.desfecho === "EM_QUARENTENA"
-          ? {
-              nomeDoArquivo: recebido.nomeDoArquivo,
-              motivo:
-                recebido.motivoDaQuarentena ??
-                "O arquivo foi guardado e não virou a conta desta quinzena.",
-            }
-          : null,
-      );
-      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] });
-      /* O 2Art recém-enviado é o que a grade de dias mostra — ela reabre. */
-      void cliente.invalidateQueries({ queryKey: ["fechamento", "diario", id] });
+      setQuarentena(avisoDoEnvio(recebido));
+      /* Uma chamada, e ela alcança a competência, a grade de dias e o painel da
+         planilha — os três pendurados na mesma chave (ver `chaveDaCompetencia`).
+         Antes o painel ficava de fora, e continuava dizendo que o arquivo não
+         tinha sido importado enquanto a lista, um cartão acima, o mostrava. */
+      void cliente.invalidateQueries({ queryKey: chaveDaCompetencia(id) });
+      /* O resumo do mês lê as mesmas linhas por outra chave, de outra tela: é
+         ele que diz "sem verba do 03.08.20" nas duas quinzenas. */
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "resumo"] });
     },
   });
 
@@ -136,7 +147,10 @@ export default function CompetenciaAberta({ id }: { id: string }) {
     mutationFn: () => apurar(id),
     onSuccess: () => {
       setDescartado(null);
-      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] });
+      void cliente.invalidateQueries({ queryKey: chaveDaCompetencia(id) });
+      /* O resumo do mês lê as mesmas linhas por outra chave, de outra tela: é
+         ele que diz "sem verba do 03.08.20" nas duas quinzenas. */
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "resumo"] });
     },
   });
 
@@ -146,9 +160,12 @@ export default function CompetenciaAberta({ id }: { id: string }) {
       setConfirmandoDescarte(false);
       setDescartado(resultado);
       setErroDoEnvio(null);
-      void cliente.invalidateQueries({ queryKey: ["fechamento", "competencia", id] });
-      /* A grade de dias e as duas listas do ambiente liam o que acabou de sair. */
-      void cliente.invalidateQueries({ queryKey: ["fechamento", "diario", id] });
+      void cliente.invalidateQueries({ queryKey: chaveDaCompetencia(id) });
+      /* O resumo do mês lê as mesmas linhas por outra chave, de outra tela: é
+         ele que diz "sem verba do 03.08.20" nas duas quinzenas. */
+      void cliente.invalidateQueries({ queryKey: ["fechamento", "resumo"] });
+      /* As duas listas do ambiente liam o que acabou de sair. A grade de dias e
+         o painel saem junto com a competência, por serem filhos dela. */
       void cliente.invalidateQueries({ queryKey: ["fechamento", "competencias"] });
       void cliente.invalidateQueries({ queryKey: ["fechamento", "apuracoes"] });
     },
@@ -332,7 +349,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
                   key={fonte.tipo}
                   fonte={fonte}
                   documento={vigentes.get(fonte.tipo)}
-                  semVerba={vigentes.get(fonte.tipo)?.verbas === 0}
+                  semVerba={estadoDaFonte(vigentes.get(fonte.tipo)) === "SEM_VERBA"}
                   foraDaQuinzena={!fonte.quinzenas.includes(competencia.quinzena)}
                   quinzena={competencia.quinzena}
                   enviando={enviar.isPending && enviar.variables?.tipo === fonte.tipo}
@@ -600,7 +617,7 @@ export default function CompetenciaAberta({ id }: { id: string }) {
 function PorQueSemVerba({ documentoId }: { documentoId: string }) {
   const [aberto, setAberto] = useState(false);
   const diagnostico = useQuery({
-    queryKey: ["fechamento", "diagnostico", documentoId],
+    queryKey: chaveDoDiagnostico(documentoId),
     queryFn: () => diagnosticarDocumento(documentoId),
     enabled: aberto,
     retry: false,

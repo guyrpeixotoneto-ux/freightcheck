@@ -1,3 +1,7 @@
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import * as XLSX from "xlsx";
 
 /**
@@ -743,4 +747,41 @@ export function fixturePagamentoEmCsv(): Buffer {
     item(" 09 - Rota - Outras Despesas", "400,00", "500,00", "450,00"),
     solta("Total Remuneração   3.500,00"),
   ]);
+}
+
+/**
+ * O 03.08.20 de uma 1ª quinzena real — o arquivo que veio do campo.
+ *
+ * **Por que este entra no repositório, contra a regra do topo deste arquivo.**
+ * A regra existe pelo dado de cliente: placa, CNPJ, chave de CT-e, matrícula.
+ * Este relatório não traz nenhum dos três primeiros, e o quarto — a matrícula de
+ * quem exportou, no `Usuario:` do cabeçalho — foi substituída por zeros da mesma
+ * largura, para que nenhuma coluna se desloque. O que sobra é layout e dinheiro
+ * de fechamento, que os `docs/` deste módulo já citam nominalmente.
+ *
+ * **E por que ele precisa existir.** As fixtures sintéticas foram escritas a
+ * partir do layout, e provam o layout que quem as escreveu conhecia. Este
+ * arquivo prova o layout que o Promax de fato exporta numa 1ª quinzena — que
+ * difere do sintético em três coisas que só se descobrem olhando um de verdade:
+ *
+ * - **não há bloco `OUTROS CUSTOS`**, nem `DESCONTO DISPONIBILIDADE`: a 1ª
+ *   quinzena fecha só com frete, devolução e frete mínimo;
+ * - **cada verba é seguida de uma linha de centro de custo** entre parênteses
+ *   (`(71027001 BRALLLV234)`), que não é verba nem desconto e não pode virar
+ *   nenhum dos dois;
+ * - **o relatório vem paginado**, com o cabeçalho inteiro repetido no meio do
+ *   arquivo, e a segunda página abre o outro canal (`AS`).
+ *
+ * Dez verbas — seis na Rota, quatro no AS —, quatro descontos e dois totais.
+ * `linhas_lidas` = 14, que é o número que a tela mostra.
+ */
+export function fixturePagamento1aQuinzenaReal(): Buffer {
+  /* Lido do disco pelo mesmo caminho da amostra de `reconciliacao.test.ts`: a
+     amostra é dado de teste, não módulo, e mantê-la fora do grafo de compilação
+     evita que o `tsconfig` do pacote precise conhecer um arquivo que só o teste
+     abre. Em bytes, sem codificação: o arquivo é latin-1, e quem decide isso é
+     o leitor. */
+  return readFileSync(
+    path.join(path.dirname(fileURLToPath(import.meta.url)), "amostras", "03.08.20-2026-07-Q1.txt"),
+  );
 }

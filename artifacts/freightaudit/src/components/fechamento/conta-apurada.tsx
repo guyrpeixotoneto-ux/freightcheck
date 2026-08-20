@@ -6,6 +6,7 @@ import { apresentar } from "@/lib/apresentar-erro";
 import { formatBrl } from "@/lib/format";
 import { lerPainelDaCompetencia, type Apuracao, type Fonte, type VerbaApurada } from "@/lib/fechamento";
 import { PainelDaPlanilhaTabela } from "@/components/fechamento/painel-da-planilha";
+import { chaveDoPainel } from "@/lib/fechamento-tela";
 import { cn } from "@/lib/utils";
 
 /**
@@ -135,7 +136,7 @@ export function ContaApurada({
  */
 function AbaDaPlanilha({ competenciaId }: { competenciaId: string }) {
   const painel = useQuery({
-    queryKey: ["fechamento", "painel", competenciaId],
+    queryKey: chaveDoPainel(competenciaId),
     queryFn: () => lerPainelDaCompetencia(competenciaId),
     retry: false,
   });
