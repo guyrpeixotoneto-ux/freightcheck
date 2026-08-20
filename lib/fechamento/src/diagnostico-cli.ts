@@ -56,6 +56,8 @@ interface LinhaDoDiagnostico extends Record<string, unknown> {
   chave: string;
   unidade: string;
   transportadora: string;
+  /** `EMPURRADA`, `ROTA`, `NAO_INFORMADO` — o quarto eixo da chave, desde a `0046`. */
+  tipo_de_operacao: string;
   tipo: string;
   nome: string;
   vigente: boolean;
@@ -64,6 +66,21 @@ interface LinhaDoDiagnostico extends Record<string, unknown> {
   recusas_texto: { linha: number; motivo: string; original: string }[];
   enviado_em: string;
   documento_id: string;
+}
+
+/**
+ * A competência a que a linha pertence, escrita por inteiro.
+ *
+ * **O tipo de operação entra no rótulo porque a `0046` o pôs na chave.** Desde
+ * ela, o mesmo CDD com a mesma transportadora tem duas competências na mesma
+ * quinzena — EMPURRADA e ROTA, cada uma com a sua planilha e a sua conta. Sem
+ * esta parte do rótulo os dois blocos sairiam sob o mesmo cabeçalho, e este
+ * comando responderia "importei e não aparece" com os documentos da outra
+ * operação. `NAO_INFORMADO` é o carimbo do backfill, e dizê-lo é dizer a
+ * verdade: ninguém declarou o tipo daquela competência.
+ */
+function identificacao(r: LinhaDoDiagnostico): string {
+  return `${r.chave}  ${r.unidade} · ${r.transportadora} · ${r.tipo_de_operacao}`;
 }
 
 /**
@@ -139,6 +156,7 @@ async function principal(): Promise<void> {
       select c.chave,
              c.unidade_codigo as unidade,
              c.transportadora_codigo as transportadora,
+             c.tipo_de_operacao,
              d.tipo,
              d.nome_do_arquivo as nome,
              d.vigente,
@@ -153,7 +171,8 @@ async function principal(): Promise<void> {
          and c.mes = ${mes}
          and (${unidade ?? null}::text is null or c.unidade_codigo = ${unidade ?? null})
          and (${transportadora ?? null}::text is null or c.transportadora_codigo = ${transportadora ?? null})
-       order by c.quinzena, d.tipo, d.enviado_em
+       order by c.unidade_codigo, c.transportadora_codigo, c.tipo_de_operacao,
+                c.quinzena, d.tipo, d.enviado_em
     `);
 
     if (rows.length === 0) {
@@ -221,14 +240,17 @@ async function principal(): Promise<void> {
         ? `  (verbas ${itens?.get(r.documento_id) ?? 0} · descontos ${descontosDe?.get(r.documento_id) ?? 0})`
         : "";
 
-    let chaveAtual = "";
+    /* Ordenadas pela competência inteira acima, as linhas de uma competência
+       ficam contíguas — é o que faz este cabeçalho trocar uma vez por
+       competência, e não toda vez que a listagem alterna entre duas. */
+    let competenciaAtual = "";
     const suspeitos: LinhaDoDiagnostico[] = [];
     for (const r of rows) {
-      const chave = `${r.chave}  ${r.unidade} · ${r.transportadora}`;
-      if (chave !== chaveAtual) {
-        console.log(`\n=== ${chave} ===`);
+      const competencia = identificacao(r);
+      if (competencia !== competenciaAtual) {
+        console.log(`\n=== ${competencia} ===`);
         console.log("  vig  tipo             linhas  fatos  recusas  enviado       arquivo");
-        chaveAtual = chave;
+        competenciaAtual = competencia;
       }
       const fatos = contados.get(r.documento_id) ?? 0;
       /* Vigente sem fato é o defeito; não-vigente sem fato é só histórico. */
@@ -257,7 +279,7 @@ async function principal(): Promise<void> {
     if (semVerba.length > 0) {
       console.log("");
       console.log(`${semVerba.length} demonstrativo(s) com desconto e NENHUMA verba:`);
-      for (const s of semVerba) console.log(`  ${s.chave} · "${s.nome}"`);
+      for (const s of semVerba) console.log(`  ${identificacao(s)} · "${s.nome}"`);
       /*
         A recusa gravada no documento é a evidência que sobrevive ao envio: o
         fechamento não guarda o arquivo, e sem ela a única saída era pedir o
@@ -290,7 +312,7 @@ async function principal(): Promise<void> {
     }
     console.log(`${suspeitos.length} documento(s) vigente(s) sem nenhum fato:`);
     for (const s of suspeitos) {
-      console.log(`  ${s.chave} · ${s.tipo} · "${s.nome}"`);
+      console.log(`  ${identificacao(s)} · ${s.tipo} · "${s.nome}"`);
     }
     console.log(
       "\nEstes foram aceitos antes da guarda `recusarDocumentoSemFatos`. Reenvie o arquivo\n" +
