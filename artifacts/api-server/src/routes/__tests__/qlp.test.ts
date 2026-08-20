@@ -418,7 +418,18 @@ describe("a superfície do QLP Administrativo, na ordem em que a vida acontece",
   });
 
   it("alterações saem do change-set canônico: entrada, saída, quantidade e dinheiro", async () => {
-    const snapshots = await get("/snapshots");
+    /*
+      A família é pedida, e não recortada depois: `/snapshots` responde pela de
+      equipamento quando ninguém nomeia outra, e a tela do quadro nomeia a dela.
+      Sem o parâmetro, esta lista volta vazia — que é a prova de que a leitura de
+      placas parou de enxergar as quinzenas de cargos.
+    */
+    const semFamilia = await get("/snapshots");
+    expect(
+      semFamilia.body.filter((s: any) => s.entityTypeSet === "QLP_ADMINISTRATIVO"),
+    ).toHaveLength(0);
+
+    const snapshots = await get("/snapshots?datasetFamily=QUADRO_DE_PESSOAL");
     const doQuadro = snapshots.body.filter(
       (s: any) => s.entityTypeSet === "QLP_ADMINISTRATIVO",
     );

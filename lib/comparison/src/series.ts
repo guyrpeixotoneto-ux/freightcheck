@@ -210,7 +210,7 @@ export async function listContexts(
   opts?: { datasetFamily?: string },
 ): Promise<ContextInfo[]> {
   const datasetFamily = opts?.datasetFamily ?? DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO;
-  const familia = sql` AND s.dataset_family = ${datasetFamily}`;
+  const familia = sql` AND ${datasetFamilyFilter("s", datasetFamily)}`;
 
   const { rows } = await db.execute<{
     scope_hash: string;
@@ -411,12 +411,34 @@ export function contextFilter(snapshotAlias: string, context: SeriesContext) {
     ? sql` AND ${alias} >= ${context.janela.de}::date
            AND ${alias} <= ${context.janela.ate}::date`
     : sql``;
-  const familia = sql` AND ${sql.raw(`${snapshotAlias}.dataset_family`)} =
-                       ${context.datasetFamily ?? DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO}`;
 
   return sql`${sql.raw(`${snapshotAlias}.scope_hash`)} = ${context.scopeHash}
              AND ${channelSql(`${snapshotAlias}.source_label`)}
-                 IS NOT DISTINCT FROM ${context.channel}::text${familia}${janela}`;
+                 IS NOT DISTINCT FROM ${context.channel}::text
+             AND ${datasetFamilyFilter(snapshotAlias, context.datasetFamily)}${janela}`;
+}
+
+/**
+ * Só a família desta leitura, para um alias de `snapshot`.
+ *
+ * A metade de {@link contextFilter} que **não** depende de haver um contexto
+ * resolvido. Existe porque nem toda leitura é de uma unidade só: a Visão
+ * Gerencial percorre todos os contextos de uma vez, e o seletor de "Comparar
+ * vigências" lista todas as vigências vivas — as duas passam ao largo do
+ * `contextFilter`, e foi por aí que o quadro de pessoal continuou entrando
+ * depois de a família virar parte do contexto. O cartão da unidade contava as
+ * quinzenas do quadro como vigências de equipamento pendentes de comparação, e
+ * o seletor oferecia para comparar uma vigência de cargos contra uma de placas.
+ *
+ * O padrão é o mesmo de `contextFilter`, e é padrão pelo mesmo motivo: ausente
+ * quer dizer {@link DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO}, porque toda
+ * leitura deste produto que não é a do quadro fala de equipamento. Uma
+ * consulta sem cláusula nenhuma — portanto todas as famílias — é a escolha de
+ * misturar, e não a ausência de escolha.
+ */
+export function datasetFamilyFilter(snapshotAlias: string, datasetFamily?: string) {
+  return sql`${sql.raw(`${snapshotAlias}.dataset_family`)} =
+             ${datasetFamily ?? DATASET_FAMILY_REMUNERACAO_EQUIPAMENTO}`;
 }
 
 /** A chave da série: contexto + cobertura de equipamento. */
