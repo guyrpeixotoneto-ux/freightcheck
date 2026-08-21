@@ -8,6 +8,7 @@ import {
   index,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { unidadeTable } from "./unidade";
 
 /**
  * A PLANILHA DE REMUNERAÇÃO COMO ALGUÉM A PREENCHEU — o que a aba diz, não o
@@ -172,8 +173,24 @@ export const remuneracaoUnidadeTable = pgTable(
     scopeHash: text("scope_hash").notNull(),
     /** O tipo do escopo — `UNIDADE` na prática, e explícito por ser do hash. */
     scopeType: text("scope_type").notNull().default("UNIDADE"),
-    /** O código como foi digitado, já normalizado — a outra metade do hash. */
+    /**
+     * O código como foi digitado, já normalizado — a outra metade do hash.
+     *
+     * **Continua sendo o que sempre foi, e deixou de ser identidade.** É texto
+     * livre: aceita CNPJ, `443`, `CDD Belém` ou vazio, e é sobre ele que o
+     * `scope_hash` acima é somado — por isso não pode ser normalizado nem
+     * validado retroativamente sem quebrar o encontro com o export. Quem
+     * responde "qual unidade é esta" agora é `unidadeId`.
+     */
     codigo: text("codigo").notNull(),
+    /**
+     * A unidade canônica que este cadastro descreve.
+     *
+     * `null` enquanto ninguém associou. É esta coluna — e não `codigo` — que o
+     * fechamento passa a usar para achar o contrato, o que acaba com o
+     * casamento por texto entre duas telas que pediam coisas diferentes.
+     */
+    unidadeId: uuid("unidade_id").references(() => unidadeTable.id),
     /** O nome legível, que é o que a lista mostra: `CAMAÇARI`. */
     nome: text("nome").notNull(),
     /** O tipo de operação. `''` é a série sem canal — ver o cabeçalho. */

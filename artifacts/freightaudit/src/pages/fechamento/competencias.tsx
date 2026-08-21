@@ -49,6 +49,8 @@ import {
   type Competencia,
   type Parte,
   type TipoDeParte,
+  listarUnidadesCanonicas,
+  type UnidadeCanonica,
 } from "@/lib/fechamento";
 import { MES_LONGO, mesPorExtenso } from "@/lib/fechamento-gerencial";
 import { apresentar } from "@/lib/apresentar-erro";
@@ -292,7 +294,25 @@ export default function Competencias() {
   const [ano, setAno] = useState(String(hoje.getFullYear()));
   const [mes, setMes] = useState(String(hoje.getMonth() + 1));
   const [quinzena, setQuinzena] = useState(hoje.getDate() <= 15 ? "1" : "2");
-  const [unidade, setUnidade] = useState<Parte | null>(null);
+  /*
+    A unidade **canônica**, e não mais uma `Parte`.
+
+    O seletor lia `fechamento_parte`, que é texto livre e herdou da `0044` o que
+    quer que estivesse nas competências — `443`, `081-0443`, `CDD Belém`. Agora
+    lê o cadastro mestre: escolher aqui é escolher uma identidade, e o que vai
+    para o servidor é o `id` dela. Ninguém digita código.
+  */
+  const [unidade, setUnidade] = useState<UnidadeCanonica | null>(null);
+  /*
+    As unidades canônicas — só as **cadastradas**. A linha "detectada no acervo"
+    não é identidade e por isso não é selecionável: cadastrá-la é um ato, e o
+    lugar dele é Administração → Unidades.
+  */
+  const unidadesCanonicas = useQuery({
+    queryKey: ["unidades", "canonicas"],
+    queryFn: listarUnidadesCanonicas,
+    select: (todas: UnidadeCanonica[]) => todas.filter((u) => u.id !== null),
+  });
   const [transportadora, setTransportadora] = useState<Parte | null>(null);
   /*
     O tipo de operação — EMPURRADA, ROTA. Nasce vazio de propósito, e não com um
@@ -379,7 +399,8 @@ export default function Competencias() {
         ano: Number(ano),
         mes: Number(mes),
         quinzena: Number(quinzena) as 1 | 2,
-        unidade: { codigo: unidade!.codigo, nome: unidade!.nome ?? undefined },
+        /* Só o `id`: nome e código saem do cadastro, no servidor. */
+        unidade: { id: unidade!.id ?? undefined },
         transportadora: {
           codigo: transportadora!.codigo,
           nome: transportadora!.nome ?? undefined,
@@ -471,26 +492,29 @@ export default function Competencias() {
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <div className="space-y-1.5">
                 <Label htmlFor="unidade">Unidade (CDD)</Label>
-                <ComboboxCriavel<Parte>
+                {/*
+                  Só unidades **canônicas cadastradas**, e nenhuma opção de usar
+                  o texto digitado: a identidade da unidade deixou de ser algo
+                  que se digita aqui. Quem precisa de uma que não existe cadastra
+                  em Administração → Unidades — o link abaixo — e volta.
+
+                  A busca continua sendo por nome **e** por CNPJ, porque as duas
+                  coisas identificam a linha para quem a procura; o que muda é
+                  que o que sai daqui é o `id`.
+                */}
+                <ComboboxCriavel<UnidadeCanonica>
                   id="unidade"
-                  itens={partes.data?.unidades ?? []}
+                  itens={unidadesCanonicas.data ?? []}
                   valor={unidade}
                   aoEscolher={setUnidade}
-                  aoCriar={(texto) => abrirCadastro("UNIDADE", texto)}
-                  erro={cadastroDaUnidade.isError ? textoDoErro(cadastroDaUnidade.error) : null}
-                  rotuloDe={rotuloDaParte}
-                  detalheDe={detalheDaParte}
-                  chaveDe={(p) => p.codigo}
-                  placeholder="Escolha, ou digite para buscar e cadastrar"
-                  rotuloDeCriacao={(texto) => `Cadastrar “${texto}”…`}
-                  /*
-                    E a mesma linha com a busca em branco, que é o estado em que
-                    a lista está quando alguém abre este campo pela primeira
-                    vez. Sem ela, o cadastro — e com ele o campo do código —
-                    só aparecia para quem digitasse um nome inexistente antes.
-                  */
-                  rotuloDeCriacaoVazia="Cadastrar uma unidade…"
-                  previaDe={previaDaParte}
+                  rotuloDe={(u) => `${u.nome} — ${u.cnpjFormatado}`}
+                  detalheDe={(u) =>
+                    u.vigencias > 0
+                      ? `${u.vigencias} vigência${u.vigencias === 1 ? "" : "s"} no acervo`
+                      : "sem importação ainda"
+                  }
+                  chaveDe={(u) => u.id ?? u.cnpj}
+                  placeholder="Escolha a unidade cadastrada"
                 />
               </div>
               <div className="space-y-1.5">
@@ -555,15 +579,16 @@ export default function Competencias() {
             </div>
 
             <p className="text-xs text-muted-foreground">
-              As duas listas são o que já foi cadastrado, mais o que aparece em alguma
-              competência, e nelas se procura tanto pelo nome quanto pelo código. Não
-              achou? A última linha de cada lista é <strong>“Cadastrar…”</strong>, com
-              ou sem busca digitada: abre um formulário com nome e código separados, o
-              mesmo de Cadastrar uma unidade em Remuneração. O código da unidade é o{" "}
-              <strong>CNPJ</strong>, como está na coluna <strong>Unidade - CNPJ</strong> do
-              export — é por ele que a competência encontra o cadastro de remuneração
-              desta unidade, e ele precisa ser o mesmo nos dois lugares. Digitar o mesmo
-              código com um nome novo renomeia.
+              A <strong>unidade</strong> vem do cadastro de{" "}
+              <a href="/unidades" className="text-primary hover:underline">
+                Administração → Unidades
+              </a>
+              , onde ela é identificada pelo <strong>CNPJ</strong>. Não existe aqui a
+              opção de usar o texto digitado: quem escolhe uma unidade escolhe uma
+              identidade, e é ela que faz a competência encontrar o cadastro de
+              Remuneração. Se a unidade não estiver na lista, cadastre-a lá e volte.
+              A lista de transportadoras continua sendo a de partes, com o código da
+              Ambev — <code>36</code> —, que é identidade legítima daquele lado.
             </p>
 
             {/*

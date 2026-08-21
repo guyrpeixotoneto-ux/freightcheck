@@ -15,6 +15,7 @@ import {
   foreignKey,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+import { unidadeTable } from "./unidade";
 
 /**
  * FECHAMENTO DE REMUNERAÇÃO — a competência, seus documentos e a conta.
@@ -82,7 +83,23 @@ export const fechamentoCompetenciaTable = pgTable(
     inicio: date("inicio").notNull(),
     fim: date("fim").notNull(),
     /** O CDD — `443` / `CDD BELEM`, como as fontes o identificam. */
+    /**
+     * O texto digitado ao abrir a competência — **legado**.
+     *
+     * Aceitou `443`, `081-0443`, um CNPJ e `CDD Belém`, e era por ele que o
+     * fechamento tentava achar o cadastro de Remuneração. Continua aqui, e
+     * continua na chave única, porque as competências históricas são
+     * endereçadas por ele; a identidade, essa, passou para `unidadeId`.
+     */
     unidadeCodigo: text("unidade_codigo").notNull(),
+    /**
+     * A unidade canônica — a identidade de verdade.
+     *
+     * `null` enquanto ninguém associou, e `null` é a resposta honesta: melhor
+     * uma competência declaradamente sem unidade do que uma associada por
+     * semelhança de nome. Ver `unidadeTable`.
+     */
+    unidadeId: uuid("unidade_id").references(() => unidadeTable.id),
     unidadeNome: text("unidade_nome"),
     /** A transportadora — `36` / `HORIZONTE LOGISTICA LTDA`. */
     transportadoraCodigo: text("transportadora_codigo").notNull(),

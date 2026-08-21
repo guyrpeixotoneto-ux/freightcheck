@@ -263,6 +263,21 @@ const TABELAS_REMOVIDAS = [
     porque falam da mesma coisa.
   */
   "remuneracao_unidade",
+  /*
+    A unidade canônica, da `0049` — a autoridade única sobre "qual unidade é
+    esta". Entra **por último** porque é mãe das duas colunas `unidade_id` que
+    `COLUNAS_REMOVIDAS` derruba antes: com o `RESTRICT` do `down`, a FK precisa
+    ter saído para a tabela poder sair.
+
+    A pré-condição de vazia é dura pela razão de sempre, e aqui ela é
+    especialmente severa: cada linha é uma unidade que alguém **cadastrou**, com
+    o CNPJ digitado e conferido. Não há consulta que a reconstrua — nem do
+    acervo, que só conhece a unidade que já importou, nem das competências, cujo
+    `unidade_codigo` é justamente o texto livre que esta tabela existe para
+    aposentar. Descartá-la desfaria o cadastro e devolveria o produto ao estado
+    em que duas telas adivinhavam se dois textos eram a mesma unidade.
+  */
+  "unidade",
 ];
 
 /**
@@ -345,6 +360,17 @@ const TABELAS_DERIVADAS: { nome: string; migration: string; marca: RegExp }[] = 
  * dois lados dessa fronteira — nunca esquecida no meio.
  */
 export const COLUNAS_REMOVIDAS: [string, string][] = [
+  /*
+    As duas FKs para a unidade canônica, da `0049`. Saem **antes** da tabela
+    `unidade` (em `TABELAS_REMOVIDAS`), que é a ordem que o `RESTRICT` aceita.
+
+    Nenhuma das duas leva dado embora: são `NULL` em toda competência e todo
+    cadastro que ninguém associou, e onde não são, o que se perde é o vínculo —
+    reconstruível pela tela de associação, que é um ato explícito. O que **não**
+    pode sair é a `unidade` em si, e por isso ela exige tabela vazia.
+  */
+  ["fechamento_competencia", "unidade_id"],
+  ["remuneracao_unidade", "unidade_id"],
   ["snapshot", "canonical_snapshot_key"],
   ["ticket", "changed_parameter_count"],
   ["ticket", "vigencia_label"],
@@ -1775,6 +1801,43 @@ function planoUp(): PassoUp[] {
     M48,
     "índice remuneracao_unidade_unica",
     levantar(M48, /INDEX IF NOT EXISTS "remuneracao_unidade_unica"/),
+  );
+
+  /*
+    A `0049` — a unidade canônica, e as duas colunas que a referenciam.
+
+    A ordem é a da migration e importa: a tabela antes das colunas, e as
+    colunas antes das FKs que as apontam. Cada objeto é levantado do próprio
+    DDL da migration, pela razão de `levantar` existir — uma segunda escrita da
+    mesma definição concorda no dia em que é escrita e discorda no dia em que a
+    migration muda.
+
+    O `up` repõe a tabela **vazia**, e isso não é omissão: uma unidade canônica
+    é um cadastro de gente, e nenhuma consulta a reconstrói. É por isso que o
+    `down` exige `unidade` vazia antes de descer — ele só desce quando não há
+    cadastro a perder.
+  */
+  const M49 = "0049_unidade_canonica";
+  add(M49, "unidade", levantar(M49, /CREATE TABLE IF NOT EXISTS "unidade" \(/));
+  add(
+    M49,
+    "índice unidade_cnpj_uq",
+    levantar(M49, /INDEX IF NOT EXISTS "unidade_cnpj_uq"/),
+  );
+  add(
+    M49,
+    "fechamento_competencia.unidade_id",
+    levantar(M49, /ALTER TABLE "fechamento_competencia" ADD COLUMN IF NOT EXISTS "unidade_id"/),
+  );
+  add(
+    M49,
+    "remuneracao_unidade.unidade_id",
+    levantar(M49, /ALTER TABLE "remuneracao_unidade" ADD COLUMN IF NOT EXISTS "unidade_id"/),
+  );
+  add(
+    M49,
+    "FKs da unidade canônica",
+    levantar(M49, /fechamento_competencia_unidade_id_unidade_id_fk/),
   );
 
   const M42 = "0042_viagem_completa";

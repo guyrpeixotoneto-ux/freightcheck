@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Building2, Plus, X } from "lucide-react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
+import { ComboboxCriavel } from "@/components/ui/combobox-criavel";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -14,7 +15,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { apresentar } from "@/lib/apresentar-erro";
-import { TIPOS_DE_OPERACAO } from "@/lib/fechamento";
+import {
+  listarUnidadesCanonicas,
+  TIPOS_DE_OPERACAO,
+  type UnidadeCanonica,
+} from "@/lib/fechamento";
 import { MES_LONGO, mesPorExtenso, periodoDaQuinzena } from "@/lib/fechamento-gerencial";
 import { anoAceito } from "@/lib/fechamento-tela";
 import { registrarUnidade } from "@/lib/remuneracao";
@@ -123,6 +128,21 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
   const [nome, setNome] = useState("");
   const [codigo, setCodigo] = useState("");
   /*
+    A unidade canônica escolhida — a mesma tabela que o Fechamento seleciona.
+
+    É o que faz `Fechamento.unidade_id === Remuneração.unidade_id` deixar de
+    ser coincidência de texto: os dois lados apontam para a mesma linha. O nome
+    e o código continuam nos campos abaixo porque servem a outra coisa — o
+    `scope_hash`, que é somado sobre o código como o export o escreve e é o que
+    faz o arquivo cair nesta unidade quando chegar.
+  */
+  const [canonica, setCanonica] = useState<UnidadeCanonica | null>(null);
+  const unidadesCanonicas = useQuery({
+    queryKey: ["unidades", "canonicas"],
+    queryFn: listarUnidadesCanonicas,
+    select: (todas: UnidadeCanonica[]) => todas.filter((u) => u.id !== null),
+  });
+  /*
     O tipo nasce vazio, como o de Realizar Fechamento e pela mesma razão: ele
     entra na identidade da unidade — o par `(escopo, canal)` —, e um padrão
     escolheria em silêncio de qual operação é a planilha que alguém veio
@@ -144,6 +164,7 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
   const registrar = useMutation({
     mutationFn: () =>
       registrarUnidade({
+        unidadeId: canonica?.id ?? undefined,
         nome,
         codigo,
         canal: tipoDeOperacao,
@@ -262,6 +283,30 @@ function PainelDeRegistro({ aoFechar }: { aoFechar: () => void }) {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1.5 sm:col-span-2">
+              {/*
+                A mesma tabela que o Fechamento seleciona — é isto que faz os
+                dois lados apontarem para a **mesma** unidade em vez de casarem
+                por texto. Escolher aqui é opcional só enquanto o passivo antigo
+                existir; o cadastro novo deve sempre apontar para uma canônica.
+              */}
+              <Label htmlFor="unidade-canonica">Unidade canônica</Label>
+              <ComboboxCriavel<UnidadeCanonica>
+                id="unidade-canonica"
+                itens={unidadesCanonicas.data ?? []}
+                valor={canonica}
+                aoEscolher={(u) => {
+                  setCanonica(u);
+                  /* Nome e código já vêm do cadastro — ninguém redigita CNPJ. */
+                  if (nome.trim() === "") setNome(u.nome);
+                  if (codigo.trim() === "") setCodigo(u.cnpjFormatado);
+                }}
+                rotuloDe={(u) => `${u.nome} — ${u.cnpjFormatado}`}
+                chaveDe={(u) => u.id ?? u.cnpj}
+                placeholder="Escolha a unidade cadastrada em Administração → Unidades"
+              />
+            </div>
+
             <div className="space-y-1.5">
               <Label htmlFor="unidade-nome">Unidade (CDD)</Label>
               <Input

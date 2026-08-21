@@ -650,7 +650,9 @@ function PortasDoCadastro({
 }) {
   const { estado, unidade, vigencia, contrato } = diagnostico;
   const parouNaUnidade =
-    estado === "UNIDADE_NAO_ENCONTRADA" || estado === "UNIDADE_AMBIGUA";
+    estado === "UNIDADE_NAO_ENCONTRADA" ||
+    estado === "UNIDADE_AMBIGUA" ||
+    estado === "CONFLITO_DE_IDENTIDADE";
 
   const portas: {
     nome: string;
@@ -665,7 +667,10 @@ function PortasDoCadastro({
           : parouNaUnidade
             ? "PAROU"
             : "OK",
-      detalhe: parouNaUnidade
+      detalhe: diagnostico.conflito
+        ? `cadastro diz ${diagnostico.conflito.doCadastro} · acervo diz ` +
+          `${diagnostico.conflito.doAcervo} — nenhum foi sobrescrito`
+        : parouNaUnidade
         ? `esta competência procura por “${unidade.codigoProcurado}”` +
           (unidade.codigosCadastrados.length > 0
             ? ` · cadastrado em Remuneração: ${unidade.codigosCadastrados
@@ -763,6 +768,11 @@ function maisAdiantado(cadastro: CadastroDoCanal) {
     CANAL_SEM_CONTRATO: 0,
     UNIDADE_NAO_ENCONTRADA: 1,
     UNIDADE_AMBIGUA: 1,
+    /*
+      O conflito para na primeira porta — a unidade foi encontrada e a
+      identidade dela é que está em disputa —, e por isso pesa como ela.
+    */
+    CONFLITO_DE_IDENTIDADE: 1,
     SEM_VIGENCIA: 2,
     CONTRATO_INCOMPLETO: 3,
     RESPONDEU: 4,

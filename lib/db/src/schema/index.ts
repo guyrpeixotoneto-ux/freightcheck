@@ -12,5 +12,6 @@ export * from "./auth";
 export * from "./book";
 export * from "./assistant";
 export * from "./tickets";
+export * from "./unidade";
 export * from "./fechamento";
 export * from "./remuneracao";

@@ -591,12 +591,31 @@ function ehRecargaOuNoturna(v: ViagemDoMapa): boolean {
  * isso que ela é calculada dia a dia e não de uma vez: o split muda todo dia, e
  * aplicar o split do mês a cada dia dá outro número. As outras três são somas
  * diretas do faturado, cada uma do seu tipo de frota.
+ *
+ * **Sem diário, as quatro são `null` — e a distinção é a mesma que
+ * {@link BasesDaQuinzena} já fazia para a indisponibilidade.** Somar sobre lista
+ * vazia dá zero em qualquer aritmética, e zero aqui é uma afirmação sobre a
+ * operação: *a frota não rodou nada nesta quinzena*. Uma competência cujo 2Art
+ * não chegou tem exatamente a mesma lista vazia de uma em que ninguém rodou, e
+ * as duas pedem coisas opostas de quem opera — uma pede o arquivo, a outra pede
+ * conferir por que não houve viagem. `null` diz o que é verdade, e
+ * `montarMapaDaQuinzena` apaga a linha e nomeia o arquivo que falta.
+ *
+ * O corte é `porDia.length`, e não a contagem de viagens: `[{ viagens: [] }]` é
+ * um diário que existe e trouxe um dia sem viagem de Rota, e aí zero é **zero
+ * medido**. É o mesmo corte de `basesDaQuinzena`, pelo mesmo motivo, sobre a
+ * mesma lista.
  */
 export function somarVariavel(
   porDia: { viagens: ViagemDoMapa[] }[],
   p: ParametrosDoCadastro,
   custoVariavelPrevistoPor25Viagens: number,
 ): VariavelDaQuinzena {
+  /* Diário ausente não soma zero: não soma. Ver o bloco acima. */
+  if (porDia.length === 0) {
+    return { frotaFixa: null, agregado: null, recargaENoturna: null, vans: null };
+  }
+
   const { dentro, fora } = divisoresDe(p.aliquotas);
   const valorMedioDoVeiculo = custoVariavelPrevistoPor25Viagens / 25;
 

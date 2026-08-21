@@ -24,6 +24,18 @@ import type { ParametrosDoCadastro } from "./mapa-rota";
 
 /** O que o fechamento pergunta ao cadastro. */
 export interface PerguntaAoCadastro {
+  /**
+   * A unidade canônica da competência. `null` enquanto ninguém a associou.
+   *
+   * **É por ela que o cadastro é encontrado, quando ela existe.** As três faixas
+   * de casamento por texto (exato, aparado, documento) continuam existindo e
+   * passaram a ser o *plano B*: elas atendem as competências históricas que
+   * ainda não têm identidade. Uma competência com `unidadeId` não passa por
+   * nenhuma delas — vai direto ao cadastro que aponta para a mesma unidade —, e
+   * é isso que acaba com a adivinhação.
+   */
+  unidadeId: string | null;
+  /** O texto legado. Ver `unidadeId`. */
   unidadeCodigo: string;
   transportadoraCodigo: string;
   canal: Canal;
@@ -99,7 +111,21 @@ export type EstadoDaResolucao =
   /** A unidade existe e nenhuma aba do mês responde por esta quinzena. */
   | "SEM_VIGENCIA"
   /** A aba existe e faltam obrigatórias — o contrato não se monta. */
-  | "CONTRATO_INCOMPLETO";
+  | "CONTRATO_INCOMPLETO"
+  /**
+   * O cadastro e o acervo discordam sobre qual é o CNPJ desta unidade.
+   *
+   * A unidade canônica diz um CNPJ; o `canonical_scope` do snapshot que o
+   * `scope_hash` do cadastro alcança diz outro. **Nenhum dos dois é
+   * sobrescrito**, e o contrato não responde — porque não se sabe de qual
+   * unidade ele é.
+   *
+   * Cair nas faixas de texto aqui seria o pior desfecho possível: elas
+   * poderiam achar *algum* cadastro e o fechamento seguiria com o contrato de
+   * uma unidade que o acervo diz ser outra. Um estado explícito é a única
+   * saída honesta — alguém decide qual dos dois está errado.
+   */
+  | "CONFLITO_DE_IDENTIDADE";
 
 /**
  * Como o código da competência encontrou o código do cadastro.
@@ -111,6 +137,13 @@ export type EstadoDaResolucao =
  * arrumar.
  */
 export type ComoCasou =
+  /**
+   * Pela unidade canônica — as duas pontas apontam para o mesmo `unidade.id`.
+   *
+   * É o único casamento que não compara texto nenhum, e por isso o único que
+   * não pode errar. Os três abaixo são o plano B das competências históricas.
+   */
+  | "IDENTIDADE"
   /** Byte a byte. */
   | "EXATO"
   /**
@@ -133,6 +166,16 @@ export type ComoCasou =
    * vazio casaria com todos os outros sem dígito.
    */
   | "DOCUMENTO";
+
+/** Os dois CNPJs que discordam, quando discordam. */
+export interface ConflitoDeIdentidade {
+  /** O CNPJ da unidade canônica — o cadastro. */
+  doCadastro: string;
+  /** O CNPJ que o `canonical_scope` do snapshot declara — o acervo. */
+  doAcervo: string;
+  /** O escopo em que os dois se encontraram, para quem for conferir. */
+  scopeHash: string;
+}
 
 /** A primeira porta: existe unidade registrada com este código. */
 export interface PortaDaUnidade {
@@ -228,6 +271,8 @@ export interface PortaDoContrato {
 export interface DiagnosticoDoCadastro {
   estado: EstadoDaResolucao;
   unidade: PortaDaUnidade;
+  /** Os dois CNPJs em desacordo. Só em `CONFLITO_DE_IDENTIDADE`. */
+  conflito?: ConflitoDeIdentidade | null;
   vigencia: PortaDaVigencia | null;
   contrato: PortaDoContrato | null;
 }
@@ -329,6 +374,22 @@ export function comoDestravar(
             : "Digite a aba da vigência deste mês. A aba de uma quinzena responde pela " +
               "outra metade do mesmo mês; de um mês para outro, não — a frota " +
               "contratada muda, e herdar entre meses inventaria um contrato.",
+      };
+    }
+
+    case "CONFLITO_DE_IDENTIDADE": {
+      const c = d.conflito;
+      return {
+        problema:
+          "O cadastro e o acervo discordam sobre o CNPJ desta unidade: a unidade " +
+          `cadastrada é ${c?.doCadastro ?? "?"} e o arquivo importado declara ` +
+          `${c?.doAcervo ?? "?"}. O contrato não responde porque não se sabe de qual ` +
+          "unidade ele é.",
+        conserto:
+          "Nada é sobrescrito automaticamente, e é de propósito: o cadastro pode estar " +
+          "errado, o arquivo pode ser de outra unidade, ou o cadastro de Remuneração pode " +
+          "ter sido associado à unidade errada. Confira os três e corrija o que estiver " +
+          "errado — em Administração → Unidades ou no cadastro da unidade em Remuneração.",
       };
     }
 

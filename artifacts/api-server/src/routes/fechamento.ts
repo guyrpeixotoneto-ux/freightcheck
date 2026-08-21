@@ -15,6 +15,7 @@ import {
   lerDeParaDaCompetencia,
   lerDiaDaCompetencia,
   lerDiarioDaCompetencia,
+  associarUnidadeDaCompetencia,
   lerResumoDoMes,
   listarApuracoes,
   listarCompetencias,
@@ -246,7 +247,9 @@ router.post("/fechamento/competencias", async (req, res): Promise<void> => {
   const ano = Number(corpo?.ano);
   const mes = Number(corpo?.mes);
   const quinzena = Number(corpo?.quinzena);
-  const unidade = corpo?.unidade as { codigo?: unknown; nome?: unknown } | undefined;
+  const unidade = corpo?.unidade as
+    | { id?: unknown; codigo?: unknown; nome?: unknown }
+    | undefined;
   const transportadora = corpo?.transportadora as { codigo?: unknown; nome?: unknown } | undefined;
 
   if (!Number.isInteger(ano) || ano < 2000 || ano > 2100) {
@@ -261,8 +264,20 @@ router.post("/fechamento/competencias", async (req, res): Promise<void> => {
     res.status(400).json({ error: "quinzena precisa ser 1 (dias 1 a 15) ou 2 (dia 16 ao fim do mês)." });
     return;
   }
-  if (typeof unidade?.codigo !== "string" || unidade.codigo.trim() === "") {
-    res.status(400).json({ error: "unidade.codigo é obrigatório — é o CDD que está fechando." });
+  /*
+    A unidade vem **selecionada** do cadastro mestre, pelo `id`. O `codigo`
+    continua aceito para o caminho legado — importação e competências antigas —,
+    e é por isso que a exigência é "um dos dois", e não "o id": tirar o texto
+    agora quebraria todo chamador que ainda o usa. O que mudou é que o caminho
+    do `id` existe e é o que a tela oferece.
+  */
+  const unidadeId = typeof unidade?.id === "string" ? unidade.id.trim() : "";
+  if (unidadeId === "" && (typeof unidade?.codigo !== "string" || unidade.codigo.trim() === "")) {
+    res.status(400).json({
+      error:
+        "Escolha a unidade em Administração → Unidades (unidade.id). O campo de código " +
+        "só existe para o caminho legado.",
+    });
     return;
   }
   if (typeof transportadora?.codigo !== "string" || transportadora.codigo.trim() === "") {
@@ -280,9 +295,10 @@ router.post("/fechamento/competencias", async (req, res): Promise<void> => {
     ano,
     mes,
     quinzena,
+    unidadeId: unidadeId === "" ? null : unidadeId,
     unidade: {
-      codigo: unidade.codigo.trim(),
-      nome: typeof unidade.nome === "string" ? unidade.nome.trim() : null,
+      codigo: typeof unidade?.codigo === "string" ? unidade.codigo.trim() : "",
+      nome: typeof unidade?.nome === "string" ? unidade.nome.trim() : null,
     },
     transportadora: {
       codigo: transportadora.codigo.trim(),
@@ -808,6 +824,50 @@ router.put("/fechamento/competencias/:id/tipo-de-operacao", async (req, res): Pr
  * A encerrada é recusada com 409 — a mesma regra do envio e do descarte, e a
  * mesma saída: reabrir, com motivo.
  */
+/**
+ * Associa uma competência à unidade canônica — o conserto sem exclusão.
+ *
+ * **A rota que faltava.** Havia como corrigir o tipo de operação de uma
+ * competência (`PUT …/tipo-de-operacao`) e como excluí-la; não havia como
+ * corrigir a identidade da unidade. Quem abriu a competência com um nome no
+ * lugar do código — o que o formulário de campo único permitia — só tinha a
+ * exclusão, e com ela perdia os documentos, os itens, as viagens e os bytes
+ * guardados de cada arquivo.
+ *
+ * Grava uma coluna: `unidade_id`. `unidade_codigo` fica onde está, nenhum dado
+ * importado é lido, nenhum byte é tocado. Ver `associarUnidadeDaCompetencia`.
+ */
+router.put("/fechamento/competencias/:id/unidade", async (req, res): Promise<void> => {
+  const { id } = req.params;
+  if (!UUID.test(id)) {
+    res.status(400).json({ error: "Identificador de competência inválido." });
+    return;
+  }
+  const corpo = (req.body ?? {}) as Record<string, unknown>;
+  const unidadeId = typeof corpo.unidadeId === "string" ? corpo.unidadeId.trim() : "";
+  if (!UUID.test(unidadeId)) {
+    res.status(400).json({
+      error:
+        "unidadeId é obrigatório e é o identificador de uma unidade cadastrada em " +
+        "Administração → Unidades — não o código, não o nome, não o CNPJ.",
+    });
+    return;
+  }
+
+  try {
+    res.json(await associarUnidadeDaCompetencia(db, id, unidadeId));
+  } catch (erro) {
+    if (erro instanceof RecusaDeFechamento) {
+      res.status(erro.codigo === "COMPETENCIA_NAO_ENCONTRADA" ? 404 : 409).json({
+        error: erro.message,
+        codigo: erro.codigo,
+      });
+      return;
+    }
+    throw erro;
+  }
+});
+
 router.delete("/fechamento/competencias/:id", async (req, res): Promise<void> => {
   const { id } = req.params;
   if (!UUID.test(id)) {

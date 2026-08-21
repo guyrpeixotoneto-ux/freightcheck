@@ -5,6 +5,7 @@ import { ApiErrorNotice } from "@/components/api-error";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { CadastroCanonicoDeUnidades } from "@/components/unidades/cadastro-canonico";
 import { useContextos, type Contexto } from "@/lib/contextos";
 
 /**
@@ -82,13 +83,22 @@ export default function Unidades() {
           Unidades
         </h1>
         <p className="text-muted-foreground mt-1 max-w-3xl">
-          As unidades e canais que já entregaram vigência. É esta a seleção que o
-          menu mostra no topo e que Parâmetros usa para filtrar — abrir uma linha
-          aqui é abrir os parâmetros daquela seleção.
+          O cadastro das unidades do FreightCheck, identificadas pelo CNPJ, e abaixo
+          as seleções (unidade + canal) que já entregaram vigência — que é o que o menu
+          do topo mostra e o que Parâmetros usa para filtrar. As duas listas respondem
+          perguntas diferentes: <strong>quais unidades existem</strong> e{" "}
+          <strong>o que cada uma já entregou</strong>.
         </p>
       </header>
 
       <div className="p-8 space-y-6">
+        {/*
+          O cadastro mestre vem primeiro porque é a autoridade: a lista de baixo
+          é o acervo — o que cada seleção já entregou —, e continua saindo de
+          `/contexts`.
+        */}
+        <CadastroCanonicoDeUnidades />
+
         {/*
           O painel só quando **não há lista para mostrar**.
 
@@ -98,6 +108,11 @@ export default function Unidades() {
           amarelo porque um refetch de fundo não completou apaga o que estava
           certo. Antes, qualquer falha — inclusive a que passaria sozinha —
           substituía a tela.
+
+          O painel é do **acervo**, e só dele: o cadastro canônico acima tem a
+          consulta e o aviso dele próprio, e um erro de um não pode falar pelo
+          outro. São duas perguntas — quais unidades existem, e o que cada uma
+          já entregou — e a tela agora as faz separadamente.
         */}
         {consulta.indisponivel && (
           <ApiErrorNotice

@@ -200,6 +200,13 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
           servidor novo aplicar a fila na partida.
         */
         "remuneracao_unidade",
+        /*
+          A unidade canônica, da `0049` — a autoridade única sobre "qual unidade
+          é esta". Aditiva como as demais: nenhuma tabela existente muda de
+          forma, as duas colunas `unidade_id` que a referenciam nascem nulas, e
+          Production a ganha quando o servidor novo aplicar a fila na partida.
+        */
+        "unidade",
       ]),
     );
     /*
@@ -241,7 +248,13 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
     expect(
       new Set(
         antes.addConstraint.filter(
-          (c) => !c.startsWith("fechamento_") && !c.startsWith("remuneracao_"),
+          (c) =>
+            !c.startsWith("fechamento_") &&
+            !c.startsWith("remuneracao_") &&
+            /* A `unidade`, da `0049`, pela mesma regra: as constraints dela vêm
+               junto com a tabela nova, e nomeá-las uma a uma congelaria a
+               nomenclatura interna num teste que não fala sobre ela. */
+            !c.startsWith("unidade_"),
         ),
       ),
     ).toEqual(
@@ -271,6 +284,8 @@ describe("cenário 2 — deploy sobre Production pré-0037, com gente dentro", (
       "0046_tipo_de_operacao",
       "0047_conteudo_da_importacao",
       "0048_unidade_sem_acervo",
+      "0049_unidade_canonica",
+      "0050_reconciliar_unidade_canonica",
     ]);
 
     // Preservação + backfill: as três contas continuam com o hash original e

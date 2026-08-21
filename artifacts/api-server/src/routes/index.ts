@@ -22,6 +22,7 @@ import frotaRouter from "./frota";
 import fechamentoRouter from "./fechamento";
 import qlpRouter from "./qlp";
 import remuneracaoRouter from "./remuneracao";
+import unidadesRouter from "./unidades";
 import comprasRouter from "./compras";
 
 /**
@@ -181,6 +182,12 @@ router.use(clienteRouter);
 router.use(frotaRouter);
 router.use(qlpRouter);
 router.use(remuneracaoRouter);
+/*
+  O cadastro mestre de unidades — a autoridade canônica. Entra ao lado de
+  Remuneração porque as duas telas falam da mesma unidade, e é justamente
+  isso que deixou de ser duas identidades. Ver `routes/unidades.ts`.
+*/
+router.use(unidadesRouter);
 router.use(comprasRouter);
 router.use(fechamentoRouter);
 

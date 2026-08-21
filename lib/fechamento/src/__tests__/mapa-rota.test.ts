@@ -301,6 +301,54 @@ describe("o lado variável, somado do diário", () => {
     expect(comTipo.frotaFixa).toBe(284.0);
     expect(maisUmSemTipo.frotaFixa).toBe(567.99);
   });
+
+  /**
+   * O corte entre diário ausente e diário sem movimento, nas duas direções.
+   *
+   * Este par é a origem do `null` que `montarMapaDaQuinzena` já sabia tratar e
+   * que, até esta guarda, ninguém produzia: em produção `somarVariavel` recebia
+   * a lista vazia de uma competência sem 2Art, somava sobre ela e devolvia
+   * quatro zeros. A tela então escrevia `R$ 0,00` no `TOTAL REMUNERAÇÃO ROTA
+   * DVS` — afirmando que a frota não rodou nada — onde a verdade era que o
+   * arquivo não tinha chegado.
+   *
+   * O corte é `porDia.length`, o mesmo de `basesDaQuinzena`: sem dia nenhum não
+   * há diário; com um dia e nenhuma viagem de Rota há diário, e o zero é medido.
+   */
+  it("sem diário, as quatro parcelas são ausência e não zero", () => {
+    const semDiario = somarVariavel([], JULHO_2026[1], 5176.53);
+    expect(semDiario).toEqual({
+      frotaFixa: null,
+      agregado: null,
+      recargaENoturna: null,
+      vans: null,
+    });
+  });
+
+  it("com diário e um dia sem viagem de Rota, as quatro são zero medido", () => {
+    const semMovimento = somarVariavel([{ viagens: [] }], JULHO_2026[1], 5176.53);
+    expect(semMovimento).toEqual({
+      frotaFixa: 0,
+      agregado: 0,
+      recargaENoturna: 0,
+      vans: 0,
+    });
+  });
+
+  /**
+   * A guarda não pode custar nada onde o diário existe: a reconciliação contra
+   * a `.xlsb` de julho/2026 depende de `somarVariavel` produzir os mesmos
+   * centavos de sempre, e `reconciliacao.test.ts` prende isso linha a linha.
+   * Aqui basta a fronteira: um único dia com uma única viagem continua somando.
+   */
+  it("com uma viagem só, a guarda não intercepta", () => {
+    const uma = somarVariavel(
+      [{ viagens: [viagem({ tipoDeImposto: "CTRC-ICMS" })] }],
+      JULHO_2026[1],
+      5176.53,
+    );
+    expect(uma.frotaFixa).toBe(284.0);
+  });
 });
 
 describe("o mapa da quinzena inteiro", () => {

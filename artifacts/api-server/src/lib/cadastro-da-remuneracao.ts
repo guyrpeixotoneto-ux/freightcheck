@@ -73,6 +73,8 @@ interface UnidadeDoCadastro {
   canal: string | null;
   /** O código como o **cadastro** o escreve, para a tela pôr ao lado. */
   codigo: string;
+  /** A unidade canônica deste cadastro. `null` no legado. */
+  unidadeId: string | null;
   comoCasou: ComoCasou;
 }
 
@@ -87,6 +89,7 @@ type CandidataBruta = {
   scope_hash: string;
   canal: string;
   codigo: string;
+  unidade_id: string | null;
 };
 
 /**
@@ -125,15 +128,46 @@ type CandidataBruta = {
  */
 async function resolverUnidade(
   db: Database,
-  unidadeCodigo: string,
+  pergunta: { unidadeId: string | null; unidadeCodigo: string },
   tipoDeOperacao: string,
 ): Promise<{ unidade: UnidadeDoCadastro | null; candidatas: number }> {
   const preferencia = sql`ORDER BY (u.canal = ${tipoDeOperacao}) DESC, (u.canal = '') DESC, u.canal`;
+  const { unidadeCodigo } = pergunta;
   const procurado = unidadeCodigo.trim();
+
+  /*
+    0. Pela identidade canônica — as duas pontas apontando para a mesma unidade.
+
+    É a faixa que aposenta as outras três, e a única que não compara texto
+    nenhum. Quando a competência tem `unidade_id` e existe cadastro de
+    Remuneração para a mesma unidade, não há o que casar: é a mesma linha da
+    tabela `unidade`, e nenhuma grafia, máscara ou espaço pode desalinhá-las.
+
+    As três faixas seguintes continuam existindo para as competências
+    históricas, que ainda não têm identidade — e vão continuar até o passivo
+    estar classificado. Uma competência com `unidade_id` nunca chega a elas.
+  */
+  if (pergunta.unidadeId !== null) {
+    const porIdentidade = await db.execute<CandidataBruta>(sql`
+      SELECT u.scope_hash, u.canal, u.codigo, u.unidade_id
+        FROM remuneracao_unidade u
+       WHERE u.unidade_id = ${pergunta.unidadeId}
+       ${preferencia}
+    `);
+    const daIdentidade = escolher(porIdentidade.rows, "IDENTIDADE");
+    if (daIdentidade.candidatas > 0) return daIdentidade;
+    /*
+      Sem cadastro de Remuneração para esta unidade, a resposta é "não há", e
+      não "vou tentar pelo texto". Cair nas faixas de texto aqui reabriria a
+      porta que a identidade fecha: a competência aponta para a unidade A, o
+      texto dela casa com o cadastro da unidade B, e o contrato errado responde.
+    */
+    return { unidade: null, candidatas: 0 };
+  }
 
   /* 1. Exato — byte a byte, como sempre foi. */
   const exatas = await db.execute<CandidataBruta>(sql`
-    SELECT u.scope_hash, u.canal, u.codigo
+    SELECT u.scope_hash, u.canal, u.codigo, u.unidade_id
       FROM remuneracao_unidade u
      WHERE u.codigo = ${unidadeCodigo}
        AND btrim(u.codigo) <> ''
@@ -144,7 +178,7 @@ async function resolverUnidade(
 
   /* 2. Só o espaço em volta separava os dois — que é o `normalizarCodigo`. */
   const aparadas = await db.execute<CandidataBruta>(sql`
-    SELECT u.scope_hash, u.canal, u.codigo
+    SELECT u.scope_hash, u.canal, u.codigo, u.unidade_id
       FROM remuneracao_unidade u
      WHERE btrim(u.codigo) = ${procurado}
        AND btrim(u.codigo) <> ''
@@ -164,7 +198,7 @@ async function resolverUnidade(
   if (documento === "") return { unidade: null, candidatas: 0 };
 
   const porDocumento = await db.execute<CandidataBruta>(sql`
-    SELECT u.scope_hash, u.canal, u.codigo
+    SELECT u.scope_hash, u.canal, u.codigo, u.unidade_id
       FROM remuneracao_unidade u
      WHERE lpad(regexp_replace(u.codigo, '\\D', '', 'g'), 14, '0') = lpad(${documento}, 14, '0')
        AND regexp_replace(u.codigo, '\\D', '', 'g') <> ''
@@ -200,10 +234,42 @@ function escolher(
       scopeHash: primeira.scope_hash,
       canal: primeira.canal === "" ? null : primeira.canal,
       codigo: primeira.codigo,
+      unidadeId: primeira.unidade_id ?? null,
       comoCasou,
     },
     candidatas: 1,
   };
+}
+
+/**
+ * O CNPJ que o acervo declara para o escopo de um cadastro de Remuneração.
+ *
+ * Sai de `snapshot.canonical_scope` — a coluna `Unidade - CNPJ` normalizada por
+ * `normalizeDocumento` e protegida por `check` no banco. É a **única** evidência
+ * determinística que o acervo oferece, e ela só existe quando há snapshot: sem
+ * importação não há CNPJ do lado do arquivo, e `null` é a resposta certa.
+ *
+ * Não lê `scope.code`: aquele é o texto cru da célula, e o mesmo CNPJ mascarado
+ * num arquivo e limpo em outro daria dois valores diferentes para a mesma
+ * unidade.
+ */
+async function cnpjNoAcervo(db: Database, scopeHash: string): Promise<string | null> {
+  const { rows } = await db.execute<{ cnpj: string }>(sql`
+    SELECT DISTINCT escopo->>'code' AS cnpj
+      FROM snapshot s
+      CROSS JOIN LATERAL jsonb_array_elements(s.canonical_scope) AS escopo
+     WHERE s.scope_hash = ${scopeHash}
+       AND s.status <> 'SUPERSEDED'
+       AND escopo->>'scopeType' = 'UNIDADE'
+       AND escopo->>'code' ~ '^[0-9]{14}$'
+     LIMIT 2
+  `);
+  /*
+    Mais de um CNPJ no mesmo escopo é outro problema — do acervo, não deste
+    caminho —, e diante dele o honesto é não escolher: sem resposta única, não
+    há evidência a confrontar.
+  */
+  return rows.length === 1 ? rows[0]!.cnpj : null;
 }
 
 /** Quantas unidades o cadastro tem ao todo — o denominador da frase da tela. */
@@ -278,7 +344,7 @@ export function cadastroDaRemuneracao(
 
       const { unidade, candidatas } = await resolverUnidade(
         db,
-        pergunta.unidadeCodigo,
+        pergunta,
         alvo.tipoDeOperacao,
       );
       if (!unidade) {
@@ -304,6 +370,42 @@ export function cadastroDaRemuneracao(
         /* Achou: a lista de candidatos não tem para que servir. */
         codigosCadastrados: [],
       };
+
+      /*
+        O confronto de identidade — antes de ler vigência ou contrato.
+
+        Só faz sentido quando o cadastro **tem** unidade canônica e o escopo dele
+        **tem** snapshot: aí existem dois CNPJs afirmados por fontes
+        independentes, e eles precisam concordar. Iguais, confirmam. Diferentes,
+        param aqui: nenhum lado é sobrescrito, e o contrato não responde porque
+        não se sabe de qual unidade ele é.
+
+        Vem antes das outras portas de propósito — seguir para a vigência e o
+        contrato produziria um devido de procedência desconhecida, que é pior do
+        que não produzir nenhum.
+      */
+      if (unidade.unidadeId !== null) {
+        const [canonica] = await db.execute<{ cnpj: string }>(sql`
+          SELECT u.cnpj FROM unidade u WHERE u.id = ${unidade.unidadeId} LIMIT 1
+        `).then((r) => r.rows);
+        const doAcervo = await cnpjNoAcervo(db, unidade.scopeHash);
+        if (canonica && doAcervo !== null && doAcervo !== canonica.cnpj) {
+          return {
+            resposta: null,
+            diagnostico: {
+              estado: "CONFLITO_DE_IDENTIDADE",
+              unidade: portaDaUnidade,
+              conflito: {
+                doCadastro: canonica.cnpj,
+                doAcervo,
+                scopeHash: unidade.scopeHash,
+              },
+              vigencia: null,
+              contrato: null,
+            },
+          };
+        }
+      }
 
       /*
         Qual aba responde por esta quinzena — inclusive a herança entre as duas
